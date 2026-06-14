@@ -188,7 +188,7 @@ $choice = Read-Host "Enter option (1 or 2)"
 
 if ($choice -eq "1") {
     Write-Host "Opening Kirstens-S24 in Visual Studio..." -ForegroundColor Green
-    Start-Process "$BASE_PATH\S24\indra\build-vc145\Kirstens-S24.slnx"
+    Start-Process "$BASE_PATH\Kirstensviewer\indra\build-vc145\Kirstens-S24.slnx"
 }
 elseif ($choice -eq "2") {
     Write-Host "Starting Automated Build via MsBuild..." -ForegroundColor Yellow
@@ -196,7 +196,7 @@ elseif ($choice -eq "2") {
 
 
     $msbuildProcess = Start-Process $msbuild `
-        -ArgumentList "`"$BASE_PATH\S24\indra\build-vc145\Kirstens-S24.slnx`" /p:PlatformToolset=v145 /p:Configuration=Release /p:Platform=x64" `
+        -ArgumentList "`"$BASE_PATH\Kirstensviewer\indra\build-vc145\Kirstens-S24.slnx`" /p:PlatformToolset=v145 /p:Configuration=Release /p:Platform=x64" `
         -NoNewWindow -PassThru
 
     $msbuildProcess.WaitForExit()

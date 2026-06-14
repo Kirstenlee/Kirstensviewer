@@ -260,7 +260,7 @@ if ($shouldCleanBuild) {
     Write-Host "============================" -ForegroundColor Cyan
 
     $filesToRemove = @(
-        "S:\Dev\S24\installed-packages.json"
+        "S:\Dev\Kirstensviewer\installed-packages.json"
     )
 
     foreach ($file in $filesToRemove) {
@@ -327,7 +327,7 @@ if ($shouldPurgeTarball) {
     Write-Host "Purging tarball cache..." -ForegroundColor Cyan
     Write-Host "============================" -ForegroundColor Cyan
 
-    $tarballCache = "S:\Dev\S24\.temp-downloads"
+    $tarballCache = "S:\Dev\Kirstensviewer\.temp-downloads"
     try {
         if (Test-Path -LiteralPath $tarballCache) {
             Remove-Item -LiteralPath $tarballCache -Recurse -Force -ErrorAction Stop
@@ -350,10 +350,10 @@ if ($shouldPurgeVcpkg) {
     Write-Host ""
 
     $vcpkgCacheFolders = @(
-        "S:\Dev\S24\.package-cache",
-        "S:\Dev\S24\.vcpkg-packages",
-        "S:\Dev\S24\.vcpkg-repo",
-        "S:\Dev\S24\.vcpkg-temp"
+        "S:\Dev\Kirstensviewer\.package-cache",
+        "S:\Dev\Kirstensviewer\.vcpkg-packages",
+        "S:\Dev\Kirstensviewer\.vcpkg-repo",
+        "S:\Dev\Kirstensviewer\.vcpkg-temp"
     )
 
     foreach ($cacheFolder in $vcpkgCacheFolders) {
