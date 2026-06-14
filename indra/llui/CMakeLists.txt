@@ -1,0 +1,289 @@
+# -*- cmake -*-
+
+project(llui)
+
+include(00-Common)
+include(Hunspell)
+include(LLCommon)
+include(LLImage)
+include(LLInventory)
+include(LLMath)
+include(LLMessage)
+include(LLCoreHttp)
+include(LLRender)
+include(LLWindow)
+include(LLCoreHttp)
+include(LLFileSystem)
+include(LLXML)
+
+include_directories(
+    ${LLCOMMON_INCLUDE_DIRS}
+    ${LLCOREHTTP_INCLUDE_DIRS}
+    ${LLIMAGE_INCLUDE_DIRS}
+    ${LLINVENTORY_INCLUDE_DIRS}
+    ${LLMATH_INCLUDE_DIRS}
+    ${LLMESSAGE_INCLUDE_DIRS}
+    ${LLRENDER_INCLUDE_DIRS}
+    ${LLWINDOW_INCLUDE_DIRS}
+    ${LLFILESYSTEM_INCLUDE_DIRS}
+    ${LLXML_INCLUDE_DIRS}
+    )
+include_directories(SYSTEM
+    ${LLCOMMON_SYSTEM_INCLUDE_DIRS}
+    ${LLXML_SYSTEM_INCLUDE_DIRS}
+    )
+
+set(llui_SOURCE_FILES
+    llaccordionctrl.cpp
+    llaccordionctrltab.cpp
+    llbadge.cpp
+    llbadgeholder.cpp
+    llbadgeowner.cpp
+    llbutton.cpp
+    llchatentry.cpp
+    llchatmentionhelper.cpp
+    llcheckboxctrl.cpp
+    llclipboard.cpp
+    llcombobox.cpp
+    llcommandmanager.cpp
+    llconsole.cpp
+    llcontainerview.cpp
+    llctrlselectioninterface.cpp
+    lldockablefloater.cpp
+    lldockcontrol.cpp
+    lldraghandle.cpp
+    lleditmenuhandler.cpp
+    llemojidictionary.cpp
+    llemojihelper.cpp
+    llf32uictrl.cpp
+    llfiltereditor.cpp
+    llflashtimer.cpp
+    llflatlistview.cpp
+    llfloater.cpp
+    llfloaterreg.cpp
+    llfloaterreglistener.cpp
+    llflyoutbutton.cpp 
+    llfocusmgr.cpp
+    llfolderview.cpp
+    llfolderviewitem.cpp
+    llfolderviewmodel.cpp
+    lliconctrl.cpp
+    llkeywords.cpp
+    lllayoutstack.cpp
+    lllineeditor.cpp
+    llloadingindicator.cpp
+    lllocalcliprect.cpp
+    llmenubutton.cpp
+    llmenugl.cpp
+    llmodaldialog.cpp
+    llmultifloater.cpp 
+    llmultislider.cpp
+    llmultisliderctrl.cpp
+    llnotifications.cpp
+    llnotificationslistener.cpp
+    llnotificationsutil.cpp
+    llpanel.cpp
+    llprogressbar.cpp
+    llradiogroup.cpp
+    llresizebar.cpp
+    llresizehandle.cpp
+    llresmgr.cpp
+    llrngwriter.cpp
+    llscrollbar.cpp
+    llscrollcontainer.cpp
+    llscrollingpanellist.cpp
+    llscrolllistcell.cpp
+    llscrolllistcolumn.cpp
+    llscrolllistctrl.cpp
+    llscrolllistitem.cpp
+    llsearcheditor.cpp
+    llslider.cpp
+    llsliderctrl.cpp
+    llspellcheck.cpp
+    llspinctrl.cpp
+    llstatbar.cpp
+    llstatgraph.cpp
+    llstatview.cpp
+    llstyle.cpp
+    lltabcontainer.cpp
+    lltextbase.cpp
+    lltextbox.cpp
+    lltexteditor.cpp
+    lltextparser.cpp
+    lltextutil.cpp
+    lltextvalidate.cpp
+    lltimectrl.cpp
+    lltrans.cpp
+    lltransutil.cpp
+    lltoggleablemenu.cpp
+    lltoolbar.cpp
+    lltooltip.cpp
+    llui.cpp
+    lluicolor.cpp
+    lluicolortable.cpp
+    lluictrl.cpp
+    lluictrlfactory.cpp
+    lluistring.cpp
+    lluiusage.cpp
+    llundo.cpp
+    llurlaction.cpp
+    llurlentry.cpp
+    llurlmatch.cpp
+    llurlregistry.cpp
+    llviewborder.cpp
+    llviewinject.cpp
+    llviewmodel.cpp
+    llview.cpp
+    llviewquery.cpp
+    llviewereventrecorder.cpp
+    llvirtualtrackball.cpp
+    llwindowshade.cpp
+    llxuiparser.cpp
+    llxyvector.cpp
+    )
+    
+set(llui_HEADER_FILES
+    CMakeLists.txt
+
+    llaccordionctrl.h
+    llaccordionctrltab.h
+    llbadge.h
+    llbadgeholder.h
+    llbadgeowner.h
+    llbutton.h
+    llcallbackmap.h
+    llchatentry.h
+    llchat.h
+    llchatmentionhelper.h
+    llcheckboxctrl.h
+    llclipboard.h
+    llcombobox.h
+    llcommandmanager.h
+    llconsole.h
+    llcontainerview.h
+    llctrlselectioninterface.h
+    lldraghandle.h
+    lldockablefloater.h
+    lldockcontrol.h
+    lleditmenuhandler.h
+    llemojidictionary.h
+    llemojihelper.h
+    llf32uictrl.h
+    llfiltereditor.h 
+    llflashtimer.h
+    llflatlistview.h
+    llfloater.h
+    llfloaterreg.h
+    llfloaterreglistener.h
+    llflyoutbutton.h 
+    llfocusmgr.h
+    llfolderview.h
+    llfolderviewitem.h
+    llfolderviewmodel.h
+    llfunctorregistry.h
+    llhelp.h
+    lliconctrl.h
+    llkeywords.h
+    lllayoutstack.h
+    lllazyvalue.h
+    lllineeditor.h
+    llloadingindicator.h
+    lllocalcliprect.h
+    llmenubutton.h
+    llmenugl.h
+    llmodaldialog.h
+    llmultifloater.h 
+    llmultisliderctrl.h
+    llmultislider.h
+    llnotificationptr.h
+    llnotifications.h
+    llnotificationslistener.h
+    llnotificationsutil.h
+    llnotificationtemplate.h
+    llnotificationvisibilityrule.h
+    llpanel.h
+    llprogressbar.h
+    llradiogroup.h
+    llresizebar.h
+    llresizehandle.h
+    llresmgr.h
+    llrngwriter.h
+    llsearchablecontrol.h
+    llsearcheditor.h 
+    llscrollbar.h
+    llscrollcontainer.h
+    llscrollingpanellist.h
+    llscrolllistcell.h
+    llscrolllistcolumn.h
+    llscrolllistctrl.h
+    llscrolllistitem.h
+    llsliderctrl.h
+    llslider.h
+    llspellcheck.h
+    llspellcheckmenuhandler.h
+    llspinctrl.h
+    llstatbar.h
+    llstatgraph.h
+    llstatview.h
+    llstyle.h
+    lltabcontainer.h
+    lltextbase.h
+    lltextbox.h
+    lltexteditor.h
+    lltextparser.h
+    lltextutil.h
+    lltextvalidate.h
+    lltimectrl.h
+    lltoggleablemenu.h
+    lltoolbar.h
+    lltooltip.h
+    lltrans.h
+    lltransutil.h
+    lluicolortable.h
+    lluiconstants.h
+    lluictrlfactory.h
+    lluictrl.h
+    lluifwd.h
+    llui.h
+    lluicolor.h
+    lluistring.h
+    lluiusage.h
+    llundo.h
+    llurlaction.h
+    llurlentry.h
+    llurlmatch.h
+    llurlregistry.h
+    llviewborder.h
+    llviewinject.h
+    llviewmodel.h
+    llview.h
+    llviewereventrecorder.h
+    llviewquery.h
+    llvirtualtrackball.h
+    llwindowshade.h
+    llxuiparser.h
+    llxyvector.h
+    )
+
+set_source_files_properties(${llui_HEADER_FILES}
+                           PROPERTIES HEADER_FILE_ONLY TRUE)
+
+list(APPEND llui_SOURCE_FILES ${llui_HEADER_FILES})
+
+add_library (llui ${llui_SOURCE_FILES})
+# Libraries on which this library depends,
+# Sort by high-level to low-level
+target_link_libraries(llui
+    ${LLRENDER_LIBRARIES}
+    ${LLWINDOW_LIBRARIES}
+    ${LLIMAGE_LIBRARIES}
+    ${LLINVENTORY_LIBRARIES}
+    ${LLMESSAGE_LIBRARIES}
+    ${LLCOREHTTP_LIBRARIES}
+    ${LLFILESYSTEM_LIBRARIES}
+    ${LLXML_LIBRARIES}
+    ${LLMATH_LIBRARIES}
+        ll::hunspell
+    ${LLCOMMON_LIBRARIES}
+    )
+

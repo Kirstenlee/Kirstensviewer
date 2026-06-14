@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes" ?>
+<!-- Quick chat bar floater for immersive in-world chatting -->
+<floater
+  can_resize="true"
+  can_minimize="false"
+  can_close="true"
+  can_drag_on_left="false"
+  can_tear_off="false"
+  can_dock="false"
+  save_rect="true"
+  save_visibility="false"
+  single_instance="true"
+  legacy_header_height="18"
+  height="50"
+  min_height="50"
+  max_height="50"
+  layout="topleft"
+  name="quick_chat"
+  title="Quick Chat"
+  width="400"
+  min_width="200"
+  max_width="800">
+
+  <!-- Chat input field -->
+  <line_editor
+   border_style="line"
+   border_thickness="1"
+   follows="left|right|top"
+   height="23"
+   label="Type to chat..."
+   layout="topleft"
+   left="4"
+   right="-32"
+   top="22"
+   max_length_bytes="1023"
+   name="chat_box"
+   spellcheck="true"
+   text_pad_left="5"
+   text_pad_right="5"
+   tool_tip="Press Enter to say, Ctrl+Enter to shout, ESC to close" />
+
+  <!-- Emoji picker button -->
+  <button
+   follows="right|top"
+   height="23"
+   image_overlay="Emoji_Picker_Icon"
+   layout="topleft"
+   name="emoji_picker_btn"
+   tool_tip="Insert emoji"
+   top="22"
+   right="-4"
+   width="23" />
+
+</floater>

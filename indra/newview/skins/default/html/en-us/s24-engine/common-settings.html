@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Common Settings - S24 Engine Guide</title>
+    <link rel="stylesheet" href="css/s24guide.css">
+</head>
+<body>
+    <h1>Common Settings & Defaults</h1>
+
+    <div class="nav">
+        <a href="index.html">Home</a>
+        <a href="common-settings.html">Common Settings</a>
+        <a href="troubleshooting.html">Troubleshooting</a>
+    </div>
+
+    <div class="info">
+        This page lists the most frequently adjusted settings and their default values. All defaults match Linden Lab standards unless noted as S24-specific enhancements.
+    </div>
+
+    <h2>CPU & Memory</h2>
+    <table>
+        <tr>
+            <th>Setting</th>
+            <th>Default</th>
+            <th>Notes</th>
+        </tr>
+        <tr>
+            <td>Render Thread Count</td>
+            <td>Auto-detected</td>
+            <td>KVdefault_cores sets initial value, viewer auto-configures based on CPU</td>
+        </tr>
+        <tr>
+            <td>Max VRAM Budget</td>
+            <td>0 (Auto)</td>
+            <td>0 = auto-detect GPU memory at startup, then dynamically managed by viewer. Manual override available but not recommended.</td>
+        </tr>
+        <tr>
+            <td>Texture Memory (MB)</td>
+            <td>Auto-managed</td>
+            <td>Viewer adjusts based on VRAM budget and scene complexity. Not a fixed allocation.</td>
+        </tr>
+    </table>
+
+    <h2>Rendering</h2>
+    <table>
+        <tr>
+            <th>Setting</th>
+            <th>Default</th>
+            <th>Notes</th>
+        </tr>
+        <tr>
+            <td>RenderVolumeLODFactor</td>
+            <td>4.125</td>
+            <td>S24 default - controls prim detail level (higher = more detail)</td>
+        </tr>
+        <tr>
+            <td>MeshLODBoost</td>
+            <td>0</td>
+            <td>Additional mesh quality boost (0-2 range, 0 = LL default)</td>
+        </tr>
+        <tr>
+            <td>RenderFarClip</td>
+            <td>256</td>
+            <td>Draw distance in meters (LL default, typical range 96-512)</td>
+        </tr>
+    </table>
+
+    <h2>SSR (Screen-Space Reflections)</h2>
+    <table>
+        <tr>
+            <th>Setting</th>
+            <th>Default</th>
+            <th>Notes</th>
+        </tr>
+        <tr>
+            <td>SSR Enable</td>
+            <td>Disabled (false)</td>
+            <td>LL feature - off by default, GPU-intensive when enabled</td>
+        </tr>
+        <tr>
+            <td>SSR Iterations</td>
+            <td>9</td>
+            <td>Ray march steps (LL default, higher = better quality, lower FPS)</td>
+        </tr>
+        <tr>
+            <td>SSR Ray Step</td>
+            <td>1.0</td>
+            <td>Distance per ray step (LL default)</td>
+        </tr>
+    </table>
+
+    <h2>Water</h2>
+    <table>
+        <tr>
+            <th>Setting</th>
+            <th>Default</th>
+            <th>Notes</th>
+        </tr>
+        <tr>
+            <td>Water Metallic</td>
+            <td>1.0</td>
+            <td>S24 runtime control - LL hardcoded to 1.0 (fully metallic mirror)</td>
+        </tr>
+        <tr>
+            <td>Water Roughness Override</td>
+            <td>0.0</td>
+            <td>0.0 = use environment blur (LL behavior), 0.01-1.0 = manual override</td>
+        </tr>
+        <tr>
+            <td>Water Fog Density</td>
+            <td>Environment-controlled</td>
+            <td>Set by water environment settings (no global default)</td>
+        </tr>
+    </table>
+
+    <h2>Shadows</h2>
+    <table>
+        <tr>
+            <th>Setting</th>
+            <th>Default</th>
+            <th>Notes</th>
+        </tr>
+        <tr>
+            <td>RenderShadowResolutionScale</td>
+            <td>3.0</td>
+            <td>S24 default - higher than LL due to advanced cascade system (LL typically uses lower values)</td>
+        </tr>
+        <tr>
+            <td>Shadow Bias</td>
+            <td>Per-shader defaults</td>
+            <td>Multiple bias settings exist (terrain, spot, deferred) - see Shadows tab</td>
+        </tr>
+        <tr>
+            <td>Shadow Throttle Enabled</td>
+            <td>true</td>
+            <td>LL default - reduces shadow updates when FPS drops</td>
+        </tr>
+    </table>
+
+    <h2>Reflections (Probes)</h2>
+    <table>
+        <tr>
+            <th>Setting</th>
+            <th>Default</th>
+            <th>Notes</th>
+        </tr>
+        <tr>
+            <td>Enable Reflection Probes</td>
+            <td>User's Graphics Setting</td>
+            <td>Enabled/disabled in Preferences → Graphics → Advanced. KVTweaks requires it enabled.</td>
+        </tr>
+        <tr>
+            <td>Probe Intensity</td>
+            <td>1.0</td>
+            <td>S24 runtime control - reflection strength multiplier (0.0-2.0+)</td>
+        </tr>
+        <tr>
+            <td>Probe Blur LOD Bias</td>
+            <td>0.0</td>
+            <td>LL default - adjusts reflection blur/sharpness</td>
+        </tr>
+        <tr>
+            <td>Ambient Multiplier</td>
+            <td>1.0</td>
+            <td>S24 runtime control - ambient probe contribution (0.0-2.0+)</td>
+        </tr>
+    </table>
+
+    <h2>Movement (Smooth Keyboard)</h2>
+    <table>
+        <tr>
+            <th>Setting</th>
+            <th>Default</th>
+            <th>Notes</th>
+        </tr>
+        <tr>
+            <td>Smooth Movement Enable</td>
+            <td>Disabled (false)</td>
+            <td>S24 feature - off by default, purely aesthetic enhancement</td>
+        </tr>
+        <tr>
+            <td>Acceleration Time</td>
+            <td>0.2</td>
+            <td>Seconds to reach full speed (S24 default)</td>
+        </tr>
+        <tr>
+            <td>Deceleration Time</td>
+            <td>0.15</td>
+            <td>Seconds to stop (S24 default)</td>
+        </tr>
+    </table>
+
+    <h2>Experimental (Selection Beam)</h2>
+    <table>
+        <tr>
+            <th>Setting</th>
+            <th>Default</th>
+            <th>Notes</th>
+        </tr>
+        <tr>
+            <td>Beam Style</td>
+            <td>2 (Hybrid)</td>
+            <td>S24 default - 0=Particles Only, 1=Line Only, 2=Line+Glow (Lightsaber)</td>
+        </tr>
+        <tr>
+            <td>Line Width</td>
+            <td>3.0</td>
+            <td>S24 default - thickness in pixels (1.0-8.0, driver may clamp)</td>
+        </tr>
+        <tr>
+            <td>Custom Color</td>
+            <td>Disabled (false)</td>
+            <td>Use white (LL default) or custom RGB color</td>
+        </tr>
+    </table>
+
+    <div class="tip">
+        <strong>Pro Tip:</strong> Defaults shown are from settings.xml unless noted as "S24 default" or "LL default". Many settings are dynamically managed by the viewer (VRAM, texture memory, thread counts). Start with stock values and adjust incrementally while monitoring FPS.
+    </div>
+
+</body>
+</html>

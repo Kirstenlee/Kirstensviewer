@@ -1,0 +1,296 @@
+
+# -*- cmake -*-
+
+project(llcommon)
+
+include(00-Common)
+include(Icu4c)
+include(LLCommon)
+include(Linking)
+include(Boost)
+
+
+include(Glm)
+include(ZLib)
+
+include_directories(
+    ${EXPAT_INCLUDE_DIRS}
+    ${LLCOMMON_INCLUDE_DIRS}
+    ${JSONCPP_INCLUDE_DIR}
+    ${ZLIB_INCLUDE_DIRS}
+    )
+
+set(llcommon_SOURCE_FILES
+    apply.cpp
+    commoncontrol.cpp
+    indra_constants.cpp
+    lazyeventapi.cpp
+    llapp.cpp
+    llapr.cpp
+    llassettype.cpp
+    llatomic.cpp
+    llbase32.cpp
+    llbase64.cpp
+    llbitpack.cpp
+    llcallbacklist.cpp
+    llcleanup.cpp
+    llcommon.cpp
+    llcommonutils.cpp
+    llcoros.cpp
+    llcrc.cpp
+    llcriticaldamp.cpp
+    lldate.cpp
+    lldeadmantimer.cpp
+    lldependencies.cpp
+    lldictionary.cpp
+    llerror.cpp
+    llevent.cpp
+    lleventapi.cpp
+    lleventcoro.cpp
+    lleventdispatcher.cpp
+    lleventfilter.cpp
+    llevents.cpp
+    lleventtimer.cpp
+    llexception.cpp
+    llfasttimer.cpp
+    llfile.cpp
+    llfindlocale.cpp
+    llfixedbuffer.cpp
+    llformat.cpp
+    llframetimer.cpp
+    llheartbeat.cpp
+    llheteromap.cpp
+    llinitparam.cpp
+    llinitdestroyclass.cpp
+    llinstancetracker.cpp
+    llkeybind.cpp
+    llleap.cpp
+    llleaplistener.cpp
+    llliveappconfig.cpp
+    lllivefile.cpp
+    llmd5.cpp
+    llmemory.cpp
+    llmemorystream.cpp
+    llmetrics.cpp
+    llmetricperformancetester.cpp
+    llmortician.cpp
+    llmutex.cpp
+    llpointer.cpp
+    llptrto.cpp 
+    llpredicate.cpp
+    llprocess.cpp
+    llprocessor.cpp
+    llprocinfo.cpp
+    llqueuedthread.cpp
+    llrand.cpp
+    llrefcount.cpp
+    llrun.cpp
+    llsd.cpp
+    llsdjson.cpp
+    llsdparam.cpp
+    llsdserialize.cpp
+    llsdserialize_xml.cpp
+    llsdutil.cpp
+    llsingleton.cpp
+    llstacktrace.cpp
+    llstreamqueue.cpp
+    llstreamtools.cpp
+    llstring.cpp
+    llstringtable.cpp
+    llsys.cpp
+    lltempredirect.cpp
+    llthread.cpp
+    llthreadsafequeue.cpp
+    lltimer.cpp
+    lltrace.cpp
+    lltraceaccumulators.cpp
+    lltracerecording.cpp
+    lltracethreadrecorder.cpp
+    lluri.cpp
+    lluriparser.cpp
+    lluuid.cpp
+    llworkerthread.cpp
+    hbxxh.cpp
+    u64.cpp
+    threadpool.cpp
+    workqueue.cpp
+    StackWalker.cpp
+    )
+    
+set(llcommon_HEADER_FILES
+    CMakeLists.txt
+
+    always_return.h
+    apply.h
+    chrono.h
+    classic_callback.h
+    commoncontrol.h
+    ctype_workaround.h
+    fix_macros.h
+    fsyspath.h
+    function_types.h
+    indra_constants.h
+    lazyeventapi.h
+    linden_common.h
+    llalignedarray.h
+    llapp.h
+    llapr.h
+    llassettype.h
+    llatomic.h
+    llbase32.h
+    llbase64.h
+    llbitpack.h
+    llboost.h
+    llcallbacklist.h
+    llcleanup.h
+    llcommon.h
+    llcommonutils.h
+    llcond.h
+    llcoros.h
+    llcrc.h
+    llcriticaldamp.h
+    lldate.h
+    lldeadmantimer.h
+    lldefs.h
+    lldependencies.h
+    lldepthstack.h
+    lldictionary.h
+    lldoubledispatch.h
+    llendianswizzle.h
+    llerror.h
+    llerrorcontrol.h
+    llevent.h
+    lleventapi.h
+    lleventcoro.h
+    lleventdispatcher.h
+    lleventfilter.h
+    llevents.h
+    lleventemitter.h
+    llexception.h
+    llfasttimer.h
+    llfile.h
+    llfindlocale.h
+    llfixedbuffer.h
+    llformat.h
+    llframetimer.h
+    llhandle.h
+    llhash.h
+    llheartbeat.h
+    llheteromap.h
+    llindexedvector.h
+    llinitdestroyclass.h
+    llinitparam.h
+    llinstancetracker.h
+    llinstancetrackersubclass.h
+    llkeybind.h
+    llkeythrottle.h
+    llleap.h
+    llleaplistener.h
+    llliveappconfig.h
+    lllivefile.h
+    llmainthreadtask.h
+    llmd5.h
+    llmemory.h
+    llmemorystream.h
+    llmetrics.h
+    llmetricperformancetester.h
+    llmortician.h
+    llmutex.h
+    llnametable.h
+    llpointer.h
+    llprofiler.h
+    llprofilercategories.h
+    llpounceable.h
+    llpredicate.h
+    llpreprocessor.h
+    llpriqueuemap.h
+    llprocess.h
+    llprocessor.h
+    llprocinfo.h
+    llptrto.h
+    llqueuedthread.h
+    llrand.h
+    llrefcount.h
+    llregex.h
+    llregistry.h
+    llrun.h
+    llsafehandle.h
+    llsd.h
+    llsdjson.h
+    llsdparam.h
+    llsdserialize.h
+    llsdserialize_xml.h
+    llsdutil.h
+    llsimplehash.h
+    llsingleton.h
+    llstacktrace.h
+    llstl.h
+    llstreamqueue.h
+    llstreamtools.h
+    llstrider.h
+    llstring.h
+    llstringtable.h
+    llstaticstringtable.h
+    llstatsaccumulator.h
+    llsys.h
+    lltempredirect.h
+    llthread.h
+    llthreadlocalstorage.h
+    llthreadsafequeue.h
+    lltimer.h
+    lltrace.h
+    lltraceaccumulators.h
+    lltracerecording.h
+    lltracethreadrecorder.h
+    lltreeiterators.h
+    llunits.h
+    llunittype.h
+    lluri.h
+    lluriparser.h
+    lluuid.h
+    llwin32headers.h
+    llworkerthread.h
+    hbxxh.h
+    lockstatic.h
+    stdtypes.h
+    stringize.h
+    threadpool.h
+    threadpool_fwd.h
+    threadsafeschedule.h
+    tuple.h
+    u64.h
+    workqueue.h
+    StackWalker.h
+    )
+
+set_source_files_properties(${llcommon_HEADER_FILES}
+                            PROPERTIES HEADER_FILE_ONLY TRUE)
+
+list(APPEND llcommon_SOURCE_FILES ${llcommon_HEADER_FILES})
+
+add_library (llcommon ${llcommon_SOURCE_FILES})
+
+add_dependencies(llcommon prepare)
+
+target_link_libraries(
+    llcommon
+    ${APRUTIL_LIBRARIES}
+    ${APR_LIBRARIES}
+    ${EXPAT_LIBRARIES}
+    ${JSONCPP_LIBRARIES}
+    ${ZLIB_LIBRARIES}
+    ${BOOST_FIBER_LIBRARY}
+    ${BOOST_CONTEXT_LIBRARY}
+    ${BOOST_PROGRAM_OPTIONS_LIBRARY}
+    ${BOOST_REGEX_LIBRARY}
+    ${BOOST_SYSTEM_LIBRARY}
+    ${BOOST_URL_LIBRARY}
+    ${WINDOWS_LIBRARIES}
+    version.lib
+    )
+
+target_compile_options(llcommon PRIVATE "/Zc:wchar_t-")
+
+
+get_directory_property(ALLDEFINES COMPILE_DEFINITIONS)
+message("llcommon COMPILE_DEFINITIONS = ${ALLDEFINES}")

@@ -1,0 +1,4718 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes" ?>
+<!-- S24 - Multi-tabbed low-level performance tuning interface exposing deep settings.xml controls -->
+<floater
+  height="685"
+  layout="topleft"
+  name="prefs_kvtweaks"
+  single_instance="true"
+  save_rect="true"
+  title="⚠ S24 ENGINE - ADVANCED TUNING"
+  width="640">
+
+  <icon
+    height="645"
+    image_name="Powder"
+    layout="topleft"
+    left="1"
+    top="0"
+    name="image"
+    width="638" />
+
+  <!-- Warning header -->
+  <text
+    type="string"
+    length="1"
+    follows="left|top"
+    height="16"
+    layout="topleft"
+    name="GeneralText"
+    top="8"
+    left="20"
+    width="480"
+    font="SansSerifBold"
+    text_color="DrYellow">
+    ⚠ S24 ENGINE - EXPERT CONTROLS - MODIFY WITH CAUTION ⚠
+  </text>
+
+  <!-- S24 Engine Guide button -->
+  <button
+    follows="left|top"
+    height="23"
+    label="GUIDE!"
+    layout="topleft"
+    left="510"
+    name="guide_btn"
+    top="6"
+    width="120"
+    font="SansSerifBold"
+    tool_tip="Open the S24 Engine Guide (F1)">
+    <button.commit_callback
+      function="Help.ShowS24EngineGuide" />
+  </button>
+
+  <!-- Tab container -->
+  <tab_container
+    follows="all"
+    height="610"
+    halign="left"
+    layout="topleft"
+    left="10"
+    name="tweaks_tabs"
+    tab_min_width="120"
+    tab_height="25"
+    tab_position="left"
+    top_pad="10"
+    width="620">
+
+    <!-- ==================== TAB 1: CPU &amp; MEMORY ==================== -->
+    <panel
+      border="true"
+      follows="all"
+      height="585"
+      label="CPU &amp; Memory"
+      layout="topleft"
+      left="1"
+      help_topic="tweaks_tab_cpu"
+      name="tab_cpu_memory"
+      top="20"
+      width="490">
+
+      <text
+        type="string"
+        length="1"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="10"
+        top="10"
+        width="460"
+        font="SansSerifBold"
+        text_color="White">
+        CPU Core &amp; Threading Controls
+      </text>
+
+      <spinner
+        control_name="EmulateCoreCount"
+        decimal_digits="0"
+        follows="left|top"
+        height="20"
+        increment="1"
+        initial_value="0"
+        label="Override CPU Core Count (0=Auto):"
+        label_width="240"
+        layout="topleft"
+        left="20"
+        max_val="128"
+        min_val="0"
+        name="cpu_core_override"
+        top_pad="10"
+        width="310" />
+
+      <spinner
+        control_name="KVdefault_cores"
+        decimal_digits="0"
+        follows="left|top"
+        height="20"
+        increment="1"
+        initial_value="8"
+        label="Default Cores for Texture Decode:"
+        label_width="240"
+        layout="topleft"
+        left="20"
+        max_val="128"
+        min_val="1"
+        name="default_decode_cores"
+        top_pad="5"
+        width="310" />
+
+      <spinner
+        control_name="KVmin_cores"
+        decimal_digits="0"
+        follows="left|top"
+        height="20"
+        increment="1"
+        initial_value="4"
+        label="Min Cores for Decode:"
+        label_width="240"
+        layout="topleft"
+        left="20"
+        max_val="128"
+        min_val="1"
+        name="min_decode_cores"
+        top_pad="5"
+        width="310" />
+
+      <spinner
+        control_name="KVmax_cores"
+        decimal_digits="0"
+        follows="left|top"
+        height="20"
+        increment="1"
+        initial_value="16"
+        label="Max Cores for Decode:"
+        label_width="240"
+        layout="topleft"
+        left="20"
+        max_val="128"
+        min_val="1"
+        name="max_decode_cores"
+        top_pad="5"
+        width="310" />
+
+      <slider
+        control_name="RenderCPUBasis"
+        decimal_digits="0"
+        follows="left|top"
+        height="20"
+        increment="100"
+        initial_value="3000"
+        label="Reference CPU Freq for GPU Bias:"
+        label_width="240"
+        layout="topleft"
+        left="20"
+        min_val="1000"
+        max_val="6000"
+        name="cpu_gpu_balance"
+        top_pad="5"
+        width="380" />
+      <text
+        type="string"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left_delta="385"
+        top_delta="2"
+        width="40">
+        MHz
+      </text>
+
+      <check_box
+        control_name="RunMultipleThreads"
+        height="20"
+        initial_value="true"
+        label="Keep Background Threads Active During Render"
+        layout="topleft"
+        left="20"
+        name="run_multiple_threads"
+        top_pad="10"
+        width="450"
+        tool_tip="If TRUE, keep background threads active during render" />
+
+      <check_box
+        control_name="RenderGLMultiThreadedTextures"
+        height="20"
+        initial_value="false"
+        label="Multi-Threaded OpenGL Texture Loading"
+        layout="topleft"
+        left="20"
+        name="gl_multithread_textures"
+        top_pad="5"
+        width="450"
+        tool_tip="Use multiple GL contexts for texture loading (may reduce stutters, incompatible with Intel drivers)" />
+
+      <check_box
+        control_name="RenderGLMultiThreadedMedia"
+        height="20"
+        initial_value="false"
+        label="Multi-Threaded OpenGL Media Playback"
+        layout="topleft"
+        left="20"
+        name="gl_multithread_media"
+        top_pad="5"
+        width="450"
+        tool_tip="Use multiple GL contexts for media playback (may reduce stutters, incompatible with Intel drivers)" />
+
+      <text
+        type="string"
+        length="1"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="10"
+        top_pad="15"
+        width="460"
+        font="SansSerifBold"
+        text_color="White">
+        Memory Management
+      </text>
+
+      <spinner
+        control_name="MaxHeapSize64"
+        decimal_digits="0"
+        follows="left|top"
+        height="20"
+        increment="1"
+        initial_value="16"
+        label="Max Heap Size (GB):"
+        label_width="240"
+        layout="topleft"
+        left="20"
+        max_val="64"
+        min_val="8"
+        name="max_heap"
+        top_pad="10"
+        width="310" />
+
+      <spinner
+        control_name="RenderMaxVRAMBudget"
+        decimal_digits="0"
+        follows="left|top"
+        height="20"
+        increment="512"
+        initial_value="0"
+        label="Max VRAM Budget MB (0=Auto):"
+        label_width="240"
+        layout="topleft"
+        left="20"
+        max_val="32768"
+        min_val="0"
+        name="max_vram"
+        top_pad="5"
+        width="310" />
+
+      <spinner
+        control_name="RenderTextureVRAMDivisor"
+        decimal_digits="0"
+        follows="left|top"
+        height="20"
+        increment="1"
+        initial_value="1"
+        label="VRAM Divisor (1=100%, 2=50%):"
+        label_width="240"
+        layout="topleft"
+        left="20"
+        max_val="10"
+        min_val="1"
+        name="vram_divisor"
+        top_pad="5"
+        width="310" />
+
+      <spinner
+        control_name="RenderMinFreeMainMemoryThreshold"
+        decimal_digits="0"
+        follows="left|top"
+        height="20"
+        increment="32"
+        initial_value="512"
+        label="Min Free RAM Threshold (MB):"
+        label_width="240"
+        layout="topleft"
+        left="20"
+        max_val="4096"
+        min_val="128"
+        name="min_free_ram"
+        top_pad="5"
+        width="310" />
+
+      <spinner
+        control_name="NonvisibleObjectsInMemoryTime"
+        decimal_digits="0"
+        follows="left|top"
+        height="20"
+        increment="1"
+        initial_value="300"
+        label="Frames Non-Visible Objects Cached:"
+        label_width="240"
+        layout="topleft"
+        left="20"
+        max_val="1024"
+        min_val="0"
+        name="nonvis_frame_hold"
+        top_pad="5"
+        width="310" />
+      <text
+        type="string"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left_delta="315"
+        top_delta="2"
+        width="150"
+        font="SansSerifSmall"
+        text_color="LtGray">
+        (0=No Limit)
+      </text>
+
+      <!-- Main Loop Timing - Compact section moved above RAM cache for space efficiency -->
+      <text
+        type="string"
+        length="1"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="10"
+        top_pad="20"
+        width="460"
+        font="SansSerifBold"
+        text_color="White">
+        Main Loop Timing
+      </text>
+
+      <spinner
+        control_name="MainWorkTime"
+        decimal_digits="2"
+        follows="left|top"
+        height="20"
+        increment="0.01"
+        initial_value="1.00"
+        label="Main Loop Time Budget (ms):"
+        label_width="240"
+        layout="topleft"
+        left="20"
+        max_val="3.00"
+        min_val="0.01"
+        name="main_loop_time"
+        top_pad="10"
+        width="310" />
+
+    </panel>
+
+    <!-- ==================== TAB: RAM CACHE (KVRAM) ==================== -->
+    <panel
+      border="true"
+      follows="all"
+      height="585"
+      label="RAM Cache"
+      layout="topleft"
+      left="1"
+      help_topic="tweaks_tab_ram_cache"
+      name="tab_ram_cache"
+      top="20"
+      width="490">
+
+      <text
+        type="string"
+        length="1"
+        follows="left|top"
+        height="20"
+        layout="topleft"
+        left="10"
+        top="10"
+        width="460"
+        font="SansSerifLarge"
+        text_color="White">
+        📦 KVRAM Cache - User-Configurable Texture Buffer
+      </text>
+
+      <text
+        type="string"
+        length="1"
+        follows="left|top"
+        height="40"
+        layout="topleft"
+        left="10"
+        top="35"
+        width="460"
+        font="SansSerifSmall"
+        text_color="LtGray"
+        word_wrap="true">
+        Fast RAM buffer for texture data passively received from GPU. Reduces disk I/O when textures are re-requested. User controls budget, thresholds, and eviction timing. Passive equilibrium system.
+      </text>
+
+      <!-- Enable/Disable -->
+      <check_box
+        control_name="KVRAMCacheEnabled"
+        follows="left|top"
+        height="20"
+        label="Enable KVRAM Cache (User-Configurable Texture Buffer)"
+        layout="topleft"
+        left="10"
+        name="kvram_cache_enabled"
+        top="85"
+        width="460"
+        tool_tip="Enable RAM buffer for texture data received from GPU (reduces disk I/O on texture re-requests)"/>
+
+      <text
+        type="string"
+        length="1"
+        follows="left|top"
+        height="30"
+        layout="topleft"
+        left="30"
+        top="108"
+        width="440"
+        font="SansSerifSmall"
+        text_color="Yellow"
+        word_wrap="true">
+        ⚠ Requires relog to take effect. Recommended: 16GB+ system RAM.
+      </text>
+
+      <!-- RAM Budget -->
+      <text
+        type="string"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="10"
+        top="145"
+        width="200"
+        font="SansSerifBold"
+        text_color="White">
+        RAM Budget (User Control):
+      </text>
+
+      <slider
+        control_name="KVRAMCacheRAMBudgetMB"
+        follows="left|top"
+        height="20"
+        increment="256"
+        initial_value="2048"
+        layout="topleft"
+        left="10"
+        max_val="4096"
+        min_val="256"
+        name="kvram_ram_budget"
+        top="165"
+        width="350"
+        tool_tip="RAM allocated for texture buffer - stores textures passively received from GPU (256 MB - 4 GB in 256 MB steps)"/>
+
+      <text
+        name="kvram_ram_budget_text"
+        type="string"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="370"
+        top="167"
+        width="100"
+        font="SansSerifSmall"
+        text_color="White">
+        2048 MB
+      </text>
+
+      <!-- Soft Threshold -->
+      <text
+        type="string"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="10"
+        top="195"
+        width="240"
+        font="SansSerifBold"
+        text_color="White">
+        Soft Threshold (Begin):
+      </text>
+
+      <slider
+        control_name="KVRAMCacheSoftThreshold"
+        follows="left|top"
+        height="20"
+        increment="0.05"
+        initial_value="0.75"
+        layout="topleft"
+        left="10"
+        max_val="1.0"
+        min_val="0.5"
+        name="kvram_soft_threshold"
+        top="215"
+        width="350"
+        tool_tip="Start gentle RAM→Disk eviction when buffer reaches this usage level (50%-100%)"/>
+
+      <text
+        name="kvram_soft_threshold_text"
+        type="string"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="370"
+        top="217"
+        width="100"
+        font="SansSerifSmall"
+        text_color="White">
+        75%
+      </text>
+
+      <!-- Hard Threshold -->
+      <text
+        type="string"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="10"
+        top="245"
+        width="200"
+        font="SansSerifBold"
+        text_color="White">
+        Hard Threshold (Force Eviction):
+      </text>
+
+      <slider
+        control_name="KVRAMCacheHardThreshold"
+        follows="left|top"
+        height="20"
+        increment="0.05"
+        initial_value="0.90"
+        layout="topleft"
+        left="10"
+        max_val="1.0"
+        min_val="0.7"
+        name="kvram_hard_threshold"
+        top="265"
+        width="350"
+        tool_tip="Force aggressive RAM→Disk eviction when buffer reaches this usage level (70%-100%)"/>
+
+      <text
+        name="kvram_hard_threshold_text"
+        type="string"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="370"
+        top="267"
+        width="100"
+        font="SansSerifSmall"
+        text_color="White">
+        90%
+      </text>
+
+      <!-- Grace Period -->
+      <text
+        type="string"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="10"
+        top="295"
+        width="200"
+        font="SansSerifBold"
+        text_color="White">
+        Grace Period (Hold Time):
+      </text>
+
+      <slider
+        control_name="KVRAMCacheGracePeriodSec"
+        follows="left|top"
+        height="20"
+        increment="0.1"
+        initial_value="10"
+        layout="topleft"
+        left="10"
+        max_val="30"
+        min_val="0.1"
+        name="kvram_grace_period"
+        top="315"
+        width="350"
+        tool_tip="Eviction interval - time between eviction cycles when cache is above 50% (0.1-30 seconds in 0.1 second steps)"/>
+
+      <text
+        name="kvram_grace_period_text"
+        type="string"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="370"
+        top="317"
+        width="100"
+        font="SansSerifSmall"
+        text_color="White">
+        30 sec
+      </text>
+
+      <!-- Max Eviction Rate -->
+      <text
+        type="string"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="10"
+        top="345"
+        width="240"
+        font="SansSerifBold"
+        text_color="White">
+        Min Deck Size (Textures):
+      </text>
+
+      <slider
+        control_name="KVRAMCacheMinDeckSize"
+        follows="left|top"
+        height="20"
+        increment="100"
+        initial_value="100"
+        layout="topleft"
+        left="10"
+        max_val="10000"
+        min_val="100"
+        name="kvram_min_deck_size"
+        top="365"
+        width="350"
+        tool_tip="Minimum textures in deck (100-10000 in 100 steps). Higher = more guaranteed cache hits before rotation begins."/>
+
+      <text
+        name="kvram_min_deck_size_text"
+        type="string"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="370"
+        top="367"
+        width="100"
+        font="SansSerifSmall"
+        text_color="White">
+        100 textures
+      </text>
+
+      <!-- Debug Logging -->
+      <check_box
+        control_name="KVRAMCacheDebugLogging"
+        follows="left|top"
+        height="20"
+        label="Enable Debug Logging (Verbose)"
+        layout="topleft"
+        left="10"
+        name="kvram_debug_logging"
+        top="405"
+        width="460"
+        tool_tip="Enable detailed logging of evictions, queries, and pressure (performance impact)"/>
+
+      <!-- Statistics Button -->
+      <button
+        follows="left|top"
+        height="30"
+        label="📊 Open Statistics Floater"
+        layout="topleft"
+        left="10"
+        name="kvram_stats_btn"
+        top="440"
+        width="220"
+        font="SansSerifBold">
+        <button.commit_callback
+          function="Floater.Toggle"
+          parameter="kvram_cache_stats" />
+      </button>
+
+      <!-- Info Box -->
+      <text
+        type="string"
+        length="1"
+        follows="left|top"
+        height="80"
+        layout="topleft"
+        left="10"
+        top="485"
+        width="460"
+        font="SansSerifSmall"
+        text_color="LtGray"
+        word_wrap="true"
+        bg_visible="true"
+        bg_readonly_color="Black_50">
+        ℹ️ How It Works: GPU passively sends texture data to RAM buffer → RAM holds for fast re-delivery to GPU when requested → After grace period expires AND buffer exceeds threshold, oldest textures evict to disk. User configures all timing, thresholds, and budget limits. Clean startup with empty cache.
+      </text>
+
+    </panel>
+
+    <!-- ==================== TAB 2: RENDERING CORE ==================== -->
+    <panel
+      border="true"
+      follows="all"
+      height="585"
+      label="Rendering Core"
+      layout="topleft"
+      left="1"
+      help_topic="tweaks_tab_render_core"
+      name="tab_rendering_core"
+      top="20"
+      width="490">
+
+      <text
+        type="string"
+        length="1"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="10"
+        top="10"
+        width="460"
+        font="SansSerifBold"
+        text_color="White">
+        Level of Detail (LOD) Controls
+      </text>
+
+      <slider
+        control_name="RenderVolumeLODFactor"
+        decimal_digits="2"
+        follows="left|top"
+        height="20"
+        increment="0.125"
+        initial_value="2.0"
+        label="Object LOD Factor:"
+        label_width="180"
+        layout="topleft"
+        left="20"
+        min_val="0.0"
+        max_val="8.0"
+        name="volume_lod"
+        top_pad="10"
+        width="380" />
+
+      <slider
+        control_name="RenderAvatarLODFactor"
+        decimal_digits="2"
+        follows="left|top"
+        height="20"
+        increment="0.125"
+        initial_value="1.0"
+        label="Avatar LOD Factor:"
+        label_width="180"
+        layout="topleft"
+        left="20"
+        min_val="0.0"
+        max_val="4.0"
+        name="avatar_lod"
+        top_pad="5"
+        width="380" />
+
+      <slider
+        control_name="RenderTerrainLODFactor"
+        decimal_digits="2"
+        follows="left|top"
+        height="20"
+        increment="0.125"
+        initial_value="2.0"
+        label="Terrain LOD Factor:"
+        label_width="180"
+        layout="topleft"
+        left="20"
+        min_val="1.0"
+        max_val="4.0"
+        name="terrain_lod"
+        top_pad="5"
+        width="380" />
+
+      <slider
+        control_name="RenderTreeLODFactor"
+        decimal_digits="2"
+        follows="left|top"
+        height="20"
+        increment="0.125"
+        initial_value="1.0"
+        label="Tree LOD Factor:"
+        label_width="180"
+        layout="topleft"
+        left="20"
+        min_val="0.0"
+        max_val="4.0"
+        name="tree_lod"
+        top_pad="5"
+        width="380" />
+
+      <slider
+        control_name="RenderFlexTimeFactor"
+        decimal_digits="2"
+        follows="left|top"
+        height="20"
+        increment="0.1"
+        initial_value="0.0"
+        label="Flexi Prim Time Factor:"
+        label_width="180"
+        layout="topleft"
+        left="20"
+        min_val="0.0"
+        max_val="4.0"
+        name="flexi_time"
+        top_pad="5"
+        width="380" />
+
+      <text
+        type="string"
+        length="1"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="10"
+        top_pad="15"
+        width="460"
+        font="SansSerifBold"
+        text_color="White">
+        Draw Distance &amp; Culling
+      </text>
+
+      <slider
+        control_name="RenderFarClip"
+        decimal_digits="0"
+        follows="left|top"
+        height="20"
+        increment="8"
+        initial_value="128"
+        label="Draw Distance (meters):"
+        label_width="180"
+        layout="topleft"
+        left="20"
+        min_val="64"
+        max_val="1024"
+        name="draw_distance"
+        top_pad="10"
+        width="380" />
+
+      <spinner
+        control_name="RenderAutoMuteRenderWeightLimit"
+        decimal_digits="0"
+        follows="left|top"
+        height="20"
+        increment="1000"
+        initial_value="0"
+        label="Auto-Mute Avatar Complexity:"
+        label_width="200"
+        layout="topleft"
+        left="20"
+        max_val="500000"
+        min_val="0"
+        name="auto_mute_complexity"
+        tool_tip="Automatically mute avatars exceeding this complexity (0=disabled)"
+        top_pad="5"
+        width="310" />
+      <text
+        type="string"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left_delta="315"
+        top_delta="2"
+        width="150"
+        font="SansSerifSmall"
+        text_color="LtGray">
+        (0=Off)
+      </text>
+
+      <spinner
+        control_name="RenderAutoMuteSurfaceAreaLimit"
+        decimal_digits="0"
+        follows="left|top"
+        height="20"
+        increment="100"
+        initial_value="0"
+        label="Auto-Mute Surface Area Limit (m²):"
+        label_width="240"
+        layout="topleft"
+        left="20"
+        max_val="100000"
+        min_val="0"
+        name="auto_mute_surface_area"
+        tool_tip="Automatically mute avatars exceeding this surface area"
+        top_pad="5"
+        width="310" />
+      <text
+        type="string"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left_delta="315"
+        top_delta="2"
+        width="150"
+        font="SansSerifSmall"
+        text_color="LtGray">
+        (0=Disabled)
+      </text>
+
+      <spinner
+        control_name="AvatarExtentRefreshPeriodBatch"
+        decimal_digits="0"
+        follows="left|top"
+        height="20"
+        increment="1"
+        initial_value="4"
+        label="Avatar Extent Refresh Period (frames):"
+        label_width="240"
+        layout="topleft"
+        left="20"
+        max_val="32"
+        min_val="1"
+        name="avatar_extent_refresh_batch"
+        top_pad="5"
+        width="310" />
+      <text
+        type="string"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left_delta="315"
+        top_delta="2"
+        width="150"
+        font="SansSerifSmall"
+        text_color="LtGray">
+        (Spread load)
+      </text>
+
+      <slider
+        control_name="AvatarFeathering"
+        decimal_digits="2"
+        follows="left|top"
+        height="20"
+        increment="0.1"
+        initial_value="1.0"
+        label="Avatar Feathering:"
+        label_width="180"
+        layout="topleft"
+        left="20"
+        min_val="0.0"
+        max_val="8.0"
+        name="avatar_feathering"
+        top_pad="5"
+        width="380" />
+      <text
+        type="string"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left_delta="385"
+        top_delta="2"
+        width="100"
+        font="SansSerifSmall"
+        text_color="LtGray">
+        (Less=Softer)
+      </text>
+
+      <text
+        type="string"
+        length="1"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="10"
+        top_pad="15"
+        width="460"
+        font="SansSerifBold"
+        text_color="White">
+        Post-Processing
+      </text>
+
+      <check_box
+        control_name="RenderCompressTextures"
+        height="20"
+        initial_value="true"
+        label="Enable Texture Compression"
+        layout="topleft"
+        left="20"
+        top_pad="10"
+        name="compress_textures"
+        width="250" />
+
+      <check_box
+        control_name="RenderHoverGlowEnable"
+        height="20"
+        initial_value="true"
+        label="Enable Hover Glow Highlight"
+        layout="topleft"
+        left="20"
+        top_pad="5"
+        name="enable_hover_glow"
+        width="250" />
+
+    </panel>
+
+    <!-- ==================== TAB 3: RENDERING ADVANCED ==================== -->
+    <panel
+      border="true"
+      follows="all"
+      height="585"
+      label="Rendering Adv"
+      layout="topleft"
+      left="1"
+      help_topic="tweaks_tab_render_advanced"
+      name="tab_rendering_advanced"
+      top="20"
+      width="490">
+
+      <text
+        type="string"
+        length="1"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="10"
+        top="10"
+        width="460"
+        font="SansSerifBold"
+        text_color="White">
+        Screen Space Ambient Occlusion (SSAO)
+      </text>
+
+      <spinner
+        control_name="RenderSSAOScale"
+        decimal_digits="1"
+        follows="left|top"
+        height="20"
+        increment="10.0"
+        initial_value="500.0"
+        label="SSAO Scale:"
+        label_width="200"
+        layout="topleft"
+        left="20"
+        max_val="1000.0"
+        min_val="0.0"
+        name="ssao_scale"
+        tool_tip="Base scale for screen-space ambient occlusion effect"
+        top_pad="10"
+        width="330" />
+
+      <spinner
+        control_name="RenderSSAOMaxScale"
+        decimal_digits="1"
+        follows="left|top"
+        height="20"
+        increment="5.0"
+        initial_value="200.0"
+        label="SSAO Max Scale:"
+        label_width="200"
+        layout="topleft"
+        left="20"
+        max_val="500.0"
+        min_val="0.0"
+        name="ssao_max_scale"
+        tool_tip="Maximum scale limit for SSAO effect"
+        top_pad="5"
+        width="330" />
+
+      <spinner
+        control_name="RenderSSAOFactor"
+        decimal_digits="2"
+        follows="left|top"
+        height="20"
+        increment="0.05"
+        initial_value="0.3"
+        label="SSAO Factor:"
+        label_width="200"
+        layout="topleft"
+        left="20"
+        max_val="2.0"
+        min_val="0.0"
+        name="ssao_factor"
+        tool_tip="Intensity factor for ambient occlusion"
+        top_pad="5"
+        width="330" />
+
+      <spinner
+        control_name="RenderSSAOEffect"
+        decimal_digits="2"
+        follows="left|top"
+        height="20"
+        increment="0.05"
+        initial_value="0.7"
+        label="SSAO Effect Strength:"
+        label_width="200"
+        layout="topleft"
+        left="20"
+        max_val="2.0"
+        min_val="0.0"
+        name="ssao_effect"
+        tool_tip="Overall strength/visibility of SSAO effect"
+        top_pad="5"
+        width="330" />
+
+      <text
+        type="string"
+        length="1"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="10"
+          top_pad="15"
+          width="460"
+          font="SansSerifBold"
+          text_color="White">
+          Geometry Rendering Performance
+        </text>
+
+        <text
+          type="string"
+        length="1"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="10"
+        top_pad="15"
+        width="460"
+        font="SansSerifBold"
+        text_color="White">
+        Highlight Effects
+      </text>
+
+      <slider
+        control_name="RenderHighlightFadeTime"
+        decimal_digits="2"
+        follows="left|top"
+        height="20"
+        increment="0.01"
+        initial_value="0.1"
+        label="Highlight Fade Time (sec):"
+        label_width="200"
+        layout="topleft"
+        left="20"
+        min_val="0.0"
+        max_val="1.0"
+        name="highlight_fade"
+        top_pad="10"
+        width="400" />
+
+      <slider
+        control_name="RenderHighlightBrightness"
+        decimal_digits="1"
+        follows="left|top"
+        height="20"
+        increment="0.1"
+        initial_value="4.0"
+        label="Highlight Brightness:"
+        label_width="200"
+        layout="topleft"
+        left="20"
+        min_val="0.0"
+        max_val="10.0"
+        name="highlight_brightness"
+        top_pad="5"
+        width="400" />
+
+      <text
+        type="string"
+        length="1"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="10"
+        top_pad="15"
+        width="460"
+        font="SansSerifBold"
+        text_color="White">
+        Bump Mapping &amp; Materials
+      </text>
+
+      <check_box
+        control_name="RenderObjectBump"
+        height="20"
+        initial_value="true"
+        label="Enable Bump Mapping &amp; Shiny"
+        layout="topleft"
+        left="20"
+        top_pad="10"
+        name="enable_bump"
+        width="250" />
+
+      <spinner
+        control_name="RenderBumpmapMinDistanceSquared"
+        decimal_digits="0"
+        follows="left|top"
+        height="20"
+        increment="10"
+        initial_value="10"
+        label="Bumpmap Min Distance²:"
+        label_width="200"
+        layout="topleft"
+        left="20"
+        max_val="1000"
+        min_val="1"
+        name="bumpmap_min_dist"
+        tool_tip="Minimum distance² to render bump maps (reduce for better detail)"
+        top_pad="5"
+        width="310" />
+
+      <text
+        type="string"
+        length="1"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="10"
+        top_pad="15"
+        width="460"
+        font="SansSerifBold"
+        text_color="White">
+        Glow Effects
+      </text>
+
+      <check_box
+        control_name="RenderGlow"
+        height="20"
+        initial_value="true"
+        label="Enable Glow Effects"
+        layout="topleft"
+        left="20"
+        top_pad="10"
+        name="enable_glow"
+        width="250" />
+
+      <slider
+        control_name="RenderGlowResolutionPow"
+        decimal_digits="0"
+        follows="left|top"
+        height="20"
+        increment="1"
+        initial_value="9"
+        label="Glow Resolution (2^N):"
+        label_width="200"
+        layout="topleft"
+        left="20"
+        min_val="8"
+        max_val="10"
+        name="glow_resolution"
+        top_pad="5"
+        width="400" />
+      <text
+        type="string"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left_delta="405"
+        top_delta="2"
+        width="70"
+        font="SansSerifSmall"
+        text_color="LtGray">
+        (8-10)
+      </text>
+
+    </panel>
+
+    <!-- ==================== TAB 4: SCREEN SPACE REFLECTIONS (SSR) ==================== -->
+    <panel
+      border="true"
+      follows="all"
+      height="585"
+      label="SSR"
+      layout="topleft"
+      left="1"
+      help_topic="tweaks_tab_ssr"
+      name="tab_ssr"
+      top="20"
+      width="490">
+
+      <text
+        type="string"
+        length="1"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="10"
+        top="10"
+        width="460"
+        font="SansSerifBold"
+        text_color="White">
+        Screen Space Reflections (SSR) - Global Settings
+      </text>
+
+      <check_box
+        control_name="RenderScreenSpaceReflections"
+        height="20"
+        initial_value="false"
+        label="Enable Screen Space Reflections"
+        layout="topleft"
+        left="20"
+        top_pad="10"
+        name="enable_ssr"
+        width="400" />
+
+      <slider
+        control_name="RenderScreenSpaceReflectionIterations"
+        decimal_digits="0"
+        follows="left|top"
+        height="20"
+        increment="1"
+        initial_value="25"
+        label="SSR Ray March Iterations:"
+        label_width="220"
+        layout="topleft"
+        left="20"
+        min_val="0"
+        max_val="128"
+        name="ssr_iterations"
+        tool_tip="Number of ray marching steps. Higher = better quality but lower performance."
+        top_pad="10"
+        width="420" />
+
+      <slider
+        control_name="RenderScreenSpaceReflectionGlossySamples"
+        decimal_digits="0"
+        follows="left|top"
+        height="20"
+        increment="1"
+        initial_value="4"
+        label="SSR Glossy Samples:"
+        label_width="220"
+        layout="topleft"
+        left="20"
+        min_val="0"
+        max_val="32"
+        name="ssr_glossy_samples"
+        tool_tip="Samples for glossy reflections. Higher = smoother but slower."
+        top_pad="5"
+        width="420" />
+
+      <slider
+        control_name="RenderScreenSpaceReflectionRayStep"
+        decimal_digits="2"
+        follows="left|top"
+        height="20"
+        increment="0.01"
+        initial_value="0.5"
+        label="SSR Ray Step Size:"
+        label_width="220"
+        layout="topleft"
+        left="20"
+        min_val="0.01"
+        max_val="2.0"
+        name="ssr_ray_step"
+        tool_tip="Step size for ray marching. Larger = longer distance, less accuracy."
+        top_pad="5"
+        width="420" />
+
+      <slider
+        control_name="RenderScreenSpaceReflectionDistanceBias"
+        decimal_digits="2"
+        follows="left|top"
+        height="20"
+        increment="0.01"
+        initial_value="0.0"
+        label="SSR Distance Bias:"
+        label_width="220"
+        layout="topleft"
+        left="20"
+        min_val="0.0"
+        max_val="2.0"
+        name="ssr_dist_bias"
+        tool_tip="Bias to apply when rejecting samples based on distance."
+        top_pad="5"
+        width="420" />
+
+      <spinner
+        control_name="RenderScreenSpaceReflectionAdaptiveStepMultiplier"
+        decimal_digits="2"
+        follows="left|top"
+        height="20"
+        increment="0.1"
+        initial_value="1.0"
+        label="SSR Adaptive Step Multiplier:"
+        label_width="220"
+        layout="topleft"
+        left="20"
+        max_val="4.0"
+        min_val="0.1"
+        name="ssr_adaptive_mult"
+        tool_tip="Multiplier for adaptive ray step sizing. Higher = faster but less accurate."
+        top_pad="5"
+        width="330" />
+
+      <text
+        type="string"
+        length="1"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="10"
+        top_pad="20"
+        width="460"
+        font="SansSerifBold"
+        text_color="White">
+        Water-Specific SSR Settings
+      </text>
+
+      <text
+        type="string"
+        length="1"
+        follows="left|top"
+        height="32"
+        layout="topleft"
+        left="20"
+        top_pad="5"
+        width="450"
+        font="SansSerifSmall"
+        text_color="LtGray"
+        word_wrap="true">
+        These settings override the global SSR settings above when rendering water surfaces, allowing you to optimize water reflection quality independently.
+      </text>
+
+      <slider
+        control_name="RenderWaterSSRIterations"
+        decimal_digits="0"
+        follows="left|top"
+        height="20"
+        increment="1"
+        initial_value="15"
+        label="Water SSR Iterations:"
+        label_width="220"
+        layout="topleft"
+        left="20"
+        min_val="0"
+        max_val="50"
+        name="water_ssr_iterations"
+        tool_tip="Ray march iterations for water. Lower than global SSR to improve water performance. Set to 0 to disable water SSR."
+        top_pad="10"
+        width="420" />
+
+      <slider
+        control_name="RenderWaterSSRRayStep"
+        decimal_digits="2"
+        follows="left|top"
+        height="20"
+        increment="0.05"
+        initial_value="0.15"
+        label="Water SSR Ray Step:"
+        label_width="220"
+        layout="topleft"
+        left="20"
+        min_val="0.05"
+        max_val="0.5"
+        name="water_ssr_raystep"
+        tool_tip="Step size for water reflections. Adjust to balance distance vs accuracy."
+        top_pad="5"
+        width="420" />
+
+    </panel>
+
+    <!-- ==================== TAB: WATER (S24) ==================== -->
+    <panel
+      border="true"
+      follows="all"
+      height="585"
+      label="Water"
+      layout="topleft"
+      left="1"
+      help_topic="tweaks_tab_water"
+      name="tab_water"
+      top="20"
+      width="490">
+
+      <text
+        type="string"
+        length="1"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="10"
+        top="10"
+        width="460"
+        font="SansSerifBold"
+        text_color="White">
+        Water Material Properties (S24 - Unlock Hardcoded Values)
+      </text>
+
+      <slider
+        control_name="RenderWaterMetallic"
+        decimal_digits="2"
+        follows="left|top"
+        height="20"
+        increment="0.05"
+        initial_value="1.0"
+        label="Water Metallic Factor:"
+        label_width="220"
+        layout="topleft"
+        left="20"
+        min_val="0.35"
+        max_val="1.0"
+        name="water_metallic"
+        tool_tip="Controls water metallicness. 1.0=fully reflective metal-like, 0.35=minimum (lower values cause whiteout). HARDCODED as 1.0 in stock viewer!"
+        top_pad="10"
+        width="420" />
+
+      <slider
+        control_name="RenderWaterRoughnessOverride"
+        decimal_digits="2"
+        follows="left|top"
+        height="20"
+        increment="0.01"
+        initial_value="0.0"
+        label="Water Roughness Override:"
+        label_width="220"
+        layout="topleft"
+        left="20"
+        min_val="0.0"
+        max_val="0.60"
+        name="water_roughness_override"
+        tool_tip="Direct roughness control. 0.0=use environment blur, 0.01-0.60=override (higher values cause whiteout)."
+        top_pad="5"
+        width="420" />
+      <text
+        type="string"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left_delta="425"
+        top_delta="2"
+        width="60"
+        font="SansSerifSmall"
+        text_color="LtGray">
+        (0=Auto)
+      </text>
+
+      <slider
+        control_name="RenderWaterReflectionIntensity"
+        decimal_digits="2"
+        follows="left|top"
+        height="20"
+        increment="0.05"
+        initial_value="1.0"
+        label="Reflection Intensity:"
+        label_width="220"
+        layout="topleft"
+        left="20"
+        min_val="0.0"
+        max_val="3.0"
+        name="water_reflection_intensity"
+        tool_tip="Global multiplier for water reflections. 1.0=default, 0.0=no reflections, 3.0=maximum mirror effect."
+        top_pad="5"
+        width="420" />
+
+      <slider
+        control_name="RenderWaterSpecularIntensity"
+        decimal_digits="2"
+        follows="left|top"
+        height="20"
+        increment="0.05"
+        initial_value="1.0"
+        label="Specular Highlight Intensity:"
+        label_width="220"
+        layout="topleft"
+        left="20"
+        min_val="0.0"
+        max_val="5.0"
+        name="water_specular_intensity"
+        tool_tip="Multiplier for sun/moon specular highlights on water. Higher=brighter sparkles."
+        top_pad="5"
+        width="420" />
+
+      <text
+        type="string"
+        length="1"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="10"
+        top_pad="15"
+        width="460"
+        font="SansSerifSmall"
+        text_color="White">
+        Color Tint (RGBA):
+      </text>
+
+      <slider
+        control_name="RenderWaterColorTintR"
+        decimal_digits="2"
+        follows="left|top"
+        height="20"
+        increment="0.05"
+        initial_value="1.0"
+        label="  Red Channel:"
+        label_width="180"
+        layout="topleft"
+        left="20"
+        min_val="0.0"
+        max_val="2.0"
+        name="water_color_tint_r"
+        tool_tip="Red tint (1.0=neutral, &lt;1.0=less red, &gt;1.0=more red)"
+        top_pad="5"
+        width="380" />
+
+      <slider
+        control_name="RenderWaterColorTintG"
+        decimal_digits="2"
+        follows="left|top"
+        height="20"
+        increment="0.05"
+        initial_value="1.0"
+        label="  Green Channel:"
+        label_width="180"
+        layout="topleft"
+        left="20"
+        min_val="0.0"
+        max_val="2.0"
+        name="water_color_tint_g"
+        tool_tip="Green tint (1.0=neutral, &lt;1.0=less green, &gt;1.0=more green). Try 1.2 for tropical turquoise!"
+        top_pad="5"
+        width="380" />
+
+      <slider
+        control_name="RenderWaterColorTintB"
+        decimal_digits="2"
+        follows="left|top"
+        height="20"
+        increment="0.05"
+        initial_value="1.0"
+        label="  Blue Channel:"
+        label_width="180"
+        layout="topleft"
+        left="20"
+        min_val="0.0"
+        max_val="2.0"
+        name="water_color_tint_b"
+        tool_tip="Blue tint (1.0=neutral, &lt;1.0=less blue, &gt;1.0=more blue). Boost for deep ocean look!"
+        top_pad="5"
+        width="380" />
+
+      <slider
+        control_name="RenderWaterColorTintA"
+        decimal_digits="2"
+        follows="left|top"
+        height="20"
+        increment="0.05"
+        initial_value="1.0"
+        label="  Tint Strength (Alpha):"
+        label_width="180"
+        layout="topleft"
+        left="20"
+        min_val="0.0"
+        max_val="1.0"
+        name="water_color_tint_a"
+        tool_tip="Tint strength/opacity. 0.0=no tint effect, 1.0=full tint applied"
+        top_pad="5"
+        width="380" />
+
+      <slider
+        control_name="RenderWaterFresnelPower"
+        decimal_digits="2"
+        follows="left|top"
+        height="20"
+        increment="0.1"
+        initial_value="2.0"
+        label="Fresnel Power Curve:"
+        label_width="220"
+        layout="topleft"
+        left="20"
+        min_val="0.5"
+        max_val="4.0"
+        name="water_fresnel_power"
+        tool_tip="HARDCODED as 2.0 in stock viewer! 1.0=soft linear, 2.0=normal, 4.0=sharp dramatic edges"
+        top_pad="10"
+        width="420" />
+      <text
+        type="string"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left_delta="425"
+        top_delta="2"
+        width="60"
+        font="SansSerifSmall"
+        text_color="LtGray">
+        UNLOCKED!
+      </text>
+
+      <slider
+        control_name="RenderWaterWaveSpeed"
+        decimal_digits="2"
+        follows="left|top"
+        height="20"
+        increment="0.1"
+        initial_value="1.0"
+        label="Wave Animation Speed:"
+        label_width="220"
+        layout="topleft"
+        left="20"
+        min_val="0.0"
+        max_val="3.0"
+        name="water_wave_speed"
+        tool_tip="0.5=slow calm water, 1.0=normal, 2.0=fast stormy chop. 0.0=freeze animation"
+        top_pad="5"
+        width="420" />
+
+      <slider
+        control_name="RenderWaterShoreFadeDistance"
+        decimal_digits="1"
+        follows="left|top"
+        height="20"
+        increment="5.0"
+        initial_value="60.0"
+        label="Shore Transition Distance:"
+        label_width="220"
+        layout="topleft"
+        left="20"
+        min_val="10.0"
+        max_val="120.0"
+        name="water_shore_fade_distance"
+        tool_tip="HARDCODED as 60 in stock viewer! Lower=softer beach, Higher=sharper rocky coast"
+        top_pad="5"
+        width="420" />
+
+      <slider
+        control_name="RenderWaterUnderwaterFogMult"
+        decimal_digits="2"
+        follows="left|top"
+        height="20"
+        increment="0.1"
+        initial_value="1.0"
+        label="Underwater Fog Multiplier:"
+        label_width="220"
+        layout="topleft"
+        left="20"
+        min_val="0.1"
+        max_val="5.0"
+        name="water_underwater_fog_mult"
+        tool_tip="Controls underwater visibility. 0.3=crystal clear, 1.0=normal, 3.0=very murky. Doesn't affect above-water fog."
+        top_pad="5"
+        width="420" />
+
+      <slider
+        control_name="RenderWaterReflectionWarmth"
+        decimal_digits="2"
+        follows="left|top"
+        height="20"
+        increment="0.05"
+        initial_value="1.0"
+        label="Reflection Color Temperature:"
+        label_width="220"
+        layout="topleft"
+        left="20"
+        min_val="0.5"
+        max_val="2.0"
+        name="water_reflection_warmth"
+        tool_tip="&lt;1.0=cool/cold moonlight, 1.0=neutral, &gt;1.0=warm golden hour. Artistic color grading."
+        top_pad="5"
+        width="420" />
+
+      <text
+        type="string"
+        length="1"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="10"
+        top_pad="15"
+        width="460"
+        font="SansSerifSmall"
+        text_color="White">
+        Screen Space Reflections (duplicated from SSR tab):
+      </text>
+
+      <slider
+        control_name="RenderWaterSSRIterations"
+        decimal_digits="0"
+        follows="left|top"
+        height="20"
+        increment="1"
+        initial_value="15"
+        label="Water SSR Iterations:"
+        label_width="220"
+        layout="topleft"
+        left="20"
+        min_val="0"
+        max_val="50"
+        name="water_ssr_iterations_dup"
+        tool_tip="Ray march iterations for water SSR. 0=disable water SSR."
+        top_pad="5"
+        width="420" />
+
+      <slider
+        control_name="RenderWaterSSRRayStep"
+        decimal_digits="2"
+        follows="left|top"
+        height="20"
+        increment="0.05"
+        initial_value="0.15"
+        label="Water SSR Ray Step:"
+        label_width="220"
+        layout="topleft"
+        left="20"
+        min_val="0.05"
+        max_val="0.5"
+        name="water_ssr_raystep_dup"
+        tool_tip="Step size for water SSR ray marching."
+        top_pad="5"
+        width="420" />
+
+      <!-- S24 Water Presets -->
+      <text
+        type="string"
+        length="1"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="10"
+        top_pad="15"
+        width="460"
+        font="SansSerifSmall"
+        text_color="White">
+        Presets - Save/Load Water Settings:
+      </text>
+
+      <combo_box
+        follows="left|top"
+        height="23"
+        layout="topleft"
+        left="20"
+        top_pad="5"
+        name="WaterPresetCombo"
+        tool_tip="Select a water shader preset to load it instantly"
+        width="200" />
+
+      <button
+        follows="top|left"
+        height="23"
+        label="Save"
+        layout="topleft"
+        left_pad="5"
+        name="WaterPresetSave"
+        tool_tip="Save current water settings as a new preset"
+        width="60" />
+
+      <button
+        follows="top|left"
+        height="23"
+        label="Delete"
+        layout="topleft"
+        left_pad="5"
+        name="WaterPresetDelete"
+        tool_tip="Delete selected water preset"
+        width="60" />
+
+    </panel>
+
+    <!-- ==================== TAB 5: SHADOWS ==================== -->
+    <panel
+      border="true"
+      follows="all"
+      height="585"
+      label="Shadows"
+      layout="topleft"
+      left="1"
+      help_topic="tweaks_tab_shadows"
+      name="tab_shadows"
+      top="20"
+      width="490">
+
+      <text
+        type="string"
+        length="1"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="10"
+        top="10"
+        width="460"
+        font="SansSerifBold"
+        text_color="White">
+        Shadow Quality &amp; Performance
+      </text>
+
+      <slider
+        control_name="RenderShadowResolutionScale"
+        decimal_digits="2"
+        follows="left|top"
+        height="20"
+        increment="0.125"
+        initial_value="1.0"
+        label="Shadow Resolution Scale:"
+        label_width="200"
+        layout="topleft"
+        left="20"
+        min_val="0.25"
+        max_val="4.0"
+        name="shadow_res_scale"
+        top_pad="10"
+        width="400" />
+
+      <spinner
+        control_name="RenderShadowBias"
+        decimal_digits="3"
+        follows="left|top"
+        height="20"
+        increment="0.01"
+        initial_value="0.0"
+        label="Shadow Bias:"
+        label_width="200"
+        layout="topleft"
+        left="20"
+        max_val="0.5"
+        min_val="-0.5"
+        name="shadow_bias"
+        tool_tip="Adjust shadow depth bias to reduce shadow acne or peter-panning"
+        top_pad="5"
+        width="310" />
+
+      <spinner
+        control_name="RenderShadowOffset"
+        decimal_digits="3"
+        follows="left|top"
+        height="20"
+        increment="0.01"
+        initial_value="0.0"
+        label="Shadow Offset:"
+        label_width="200"
+        layout="topleft"
+        left="20"
+        max_val="0.5"
+        min_val="-0.5"
+        name="shadow_offset"
+        tool_tip="Offset shadow projection to fine-tune shadow positioning"
+        top_pad="5"
+        width="310" />
+
+      <!-- RenderShadowSplitExponent slider removed: it's a Vector3(x=perspective, y=ortho, z=transition)
+           but the slider was treating it as a float, causing shadow corruption. Default (4.0, 3.0, 1.5) works well.
+           If you need to adjust it, edit settings.xml directly. -->
+
+      <slider
+        control_name="RenderShadowProjOffset"
+        decimal_digits="2"
+        follows="left|top"
+        height="20"
+        increment="0.01"
+        initial_value="0.2"
+        label="Shadow Projection Offset:"
+        label_width="200"
+        layout="topleft"
+        left="20"
+        min_val="0.0"
+        max_val="2.0"
+        name="shadow_proj_offset"
+        top_pad="5"
+        width="400" />
+
+      <slider
+        control_name="RenderShadowProjExponent"
+        decimal_digits="2"
+        follows="left|top"
+        height="20"
+        increment="0.01"
+        initial_value="0.5"
+        label="Shadow Projection Exponent:"
+        label_width="200"
+        layout="topleft"
+        left="20"
+        min_val="0.0"
+        max_val="2.0"
+        name="shadow_proj_exp"
+        top_pad="5"
+        width="400" />
+
+      <text
+        type="string"
+        length="1"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="10"
+        top_pad="15"
+        width="460"
+        font="SansSerifBold"
+        text_color="White">
+        Shadow Softening &amp; Quality
+      </text>
+
+      <slider
+        control_name="RenderShadowNoise"
+        decimal_digits="2"
+        follows="left|top"
+        height="20"
+        increment="0.01"
+        initial_value="0.0"
+        label="Shadow Noise Magnitude:"
+        label_width="200"
+        layout="topleft"
+        left="20"
+        min_val="0.0"
+        max_val="2.0"
+        name="shadow_noise"
+        top_pad="10"
+        width="400" />
+
+      <slider
+        control_name="RenderShadowBlurSize"
+        decimal_digits="2"
+        follows="left|top"
+        height="20"
+        increment="0.1"
+        initial_value="1.4"
+        label="Shadow Blur Kernel Scale:"
+        label_width="200"
+        layout="topleft"
+        left="20"
+        min_val="0.0"
+        max_val="4.0"
+        name="shadow_blur_size"
+        top_pad="5"
+        width="400" />
+
+      <slider
+        control_name="RenderShadowBlurSamples"
+        decimal_digits="0"
+        follows="left|top"
+        height="20"
+        increment="1"
+        initial_value="4"
+        label="Shadow Blur Samples:"
+        label_width="200"
+        layout="topleft"
+        left="20"
+        min_val="1"
+        max_val="16"
+        name="shadow_blur_samples"
+        top_pad="5"
+        width="400" />
+
+      <slider
+        control_name="RenderShadowBlurDistFactor"
+        decimal_digits="1"
+        follows="left|top"
+        height="20"
+        increment="0.1"
+        initial_value="4.0"
+        label="Shadow Blur Distance Factor:"
+        label_width="200"
+        layout="topleft"
+        left="20"
+        min_val="0.0"
+        max_val="10.0"
+        name="shadow_blur_dist_factor"
+        top_pad="5"
+        width="400" />
+
+      <text
+        type="string"
+        length="1"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="10"
+        top_pad="20"
+        width="460"
+        font="SansSerifBold"
+        text_color="White">
+        Dynamic Cascade Shadow System (S24)
+      </text>
+
+      <check_box
+        control_name="RenderShadowThrottleEnabled"
+        height="20"
+        initial_value="true"
+        label="Enable Dynamic Cascade Throttling"
+        layout="topleft"
+        left="20"
+        top_pad="10"
+        name="shadow_throttle_enabled"
+        tool_tip="When enabled, distant shadow cascades update less frequently when camera is still. Improves performance without visible quality loss. Disable for traditional fixed-rate updates."
+        width="400" />
+
+      <spinner
+        control_name="RenderShadowThrottleSettleFrames"
+        decimal_digits="0"
+        follows="left|top"
+        height="20"
+        increment="1"
+        initial_value="6"
+        label="Throttle Settle Frames:"
+        label_width="200"
+        layout="topleft"
+        left="20"
+        max_val="300"
+        min_val="0"
+        name="shadow_throttle_settle"
+        tool_tip="Frames to wait after camera stops before throttling activates. Higher values reduce flicker on slow systems."
+        top_pad="5"
+        width="310" />
+      <text
+        type="string"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left_delta="315"
+        top_delta="2"
+        width="150"
+        font="SansSerifSmall"
+        text_color="LtGray">
+        (0=instant)
+      </text>
+
+      <text
+        type="string"
+        length="1"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="10"
+        top_pad="15"
+        width="460"
+        font="SansSerifBold"
+        text_color="White">
+        Shadow Bias Adjustments
+      </text>
+
+      <spinner
+        control_name="RenderShadowBiasError"
+        decimal_digits="3"
+        follows="left|top"
+        height="20"
+        increment="0.01"
+        initial_value="0.0"
+        label="Shadow Bias Error (Altitude):"
+        label_width="200"
+        layout="topleft"
+        left="20"
+        max_val="1.0"
+        min_val="-1.0"
+        name="shadow_bias_error"
+        tool_tip="Altitude-based shadow bias adjustment"
+        top_pad="10"
+        width="310" />
+
+      <spinner
+        control_name="RenderShadowOffsetError"
+        decimal_digits="3"
+        follows="left|top"
+        height="20"
+        increment="0.01"
+        initial_value="0.0"
+        label="Shadow Offset Error (Altitude):"
+        label_width="200"
+        layout="topleft"
+        left="20"
+        max_val="1.0"
+        min_val="-1.0"
+        name="shadow_offset_error"
+        tool_tip="Altitude-based shadow offset adjustment"
+        top_pad="5"
+        width="310" />
+
+      <slider
+        control_name="RenderSpotShadowBias"
+        decimal_digits="2"
+        follows="left|top"
+        height="20"
+        increment="0.1"
+        initial_value="0.0"
+        label="Spot Shadow Bias:"
+        label_width="200"
+        layout="topleft"
+        left="20"
+        min_val="-10.0"
+        max_val="10.0"
+        name="spot_shadow_bias_main"
+        top_pad="5"
+        width="400" />
+
+      <slider
+        control_name="RenderSpotShadowOffset"
+        decimal_digits="2"
+        follows="left|top"
+        height="20"
+        increment="0.01"
+        initial_value="0.04"
+        label="Spot Shadow Offset:"
+        label_width="200"
+        layout="topleft"
+        left="20"
+        min_val="0.0"
+        max_val="2.0"
+        name="spot_shadow_offset_main"
+        top_pad="5"
+        width="400" />
+
+      <slider
+        control_name="RenderDeferredTreeShadowBias"
+        decimal_digits="2"
+        follows="left|top"
+        height="20"
+        increment="0.1"
+        initial_value="1.0"
+        label="Tree Shadow Bias:"
+        label_width="200"
+        layout="topleft"
+        left="20"
+        min_val="-10.0"
+        max_val="10.0"
+        name="tree_shadow_bias"
+        top_pad="5"
+        width="400" />
+
+      <spinner
+        control_name="RenderDeferredTreeShadowOffset"
+        decimal_digits="2"
+        follows="left|top"
+        height="20"
+        increment="0.1"
+        initial_value="1.0"
+        label="Tree Shadow Offset:"
+        label_width="200"
+        layout="topleft"
+        left="20"
+        max_val="10.0"
+        min_val="0.0"
+        name="tree_shadow_offset"
+        top_pad="5"
+        width="310" />
+
+    </panel>
+
+    <!-- ==================== TAB 6: LIGHTING ==================== -->
+    <panel
+      border="true"
+      follows="all"
+      height="585"
+      label="Lighting"
+      layout="topleft"
+      left="1"
+      help_topic="tweaks_tab_lighting"
+      name="tab_lighting"
+      top="20"
+      width="490">
+
+      <text
+        type="string"
+        length="1"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="10"
+        top="10"
+        width="460"
+        font="SansSerifBold"
+        text_color="White">
+        Light Count &amp; Rendering
+      </text>
+
+      <spinner
+        control_name="RenderLocalLightCount"
+        decimal_digits="0"
+        follows="left|top"
+        height="20"
+        increment="16"
+        initial_value="256"
+        label="Max Local Lights:"
+        label_width="200"
+        layout="topleft"
+        left="20"
+        max_val="8192"
+        min_val="0"
+        name="max_local_lights"
+        tool_tip="Maximum number of local lights to render (0=unlimited)"
+        top_pad="10"
+        width="310" />
+
+      <check_box
+        control_name="RenderAttachedLights"
+        height="20"
+        initial_value="true"
+        label="Enable Attached Lights"
+        layout="topleft"
+        left="20"
+        top_pad="10"
+        name="attached_lights"
+        width="250" />
+
+      <check_box
+        control_name="RenderSpotLightsInNondeferred"
+        height="20"
+        initial_value="true"
+        label="Spotlights in Non-Deferred Mode"
+        layout="topleft"
+        left="20"
+        top_pad="5"
+        name="spotlights_nondeferred"
+        width="250" />
+
+      <check_box
+        control_name="RenderBakeSunlight"
+        height="20"
+        initial_value="false"
+        label="Bake Sunlight Into Diffuse"
+        layout="topleft"
+        left="20"
+        top_pad="5"
+        name="bake_sunlight"
+        width="250" />
+
+      <text
+        type="string"
+        length="1"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="10"
+        top_pad="15"
+        width="460"
+        font="SansSerifBold"
+        text_color="White">
+        S24 Hardware Light Slots (6 Available)
+      </text>
+
+      <check_box
+        control_name="RenderLocalLightFrustumCulling"
+        height="20"
+        initial_value="false"
+        label="⚡ Enable S24 HardLight Mode (Camera-Priority)"
+        layout="topleft"
+        left="20"
+        top_pad="10"
+        name="s24_hardlight_mode"
+        tool_tip="S24 - Reserves hardware light slots for lights closest to camera and in view. Dramatically improves avatar lighting stability in complex scenes. OFF = Traditional LL behavior (selected lights bypass distance, distant lights can steal slots)."
+        width="460" />
+
+      <text
+        type="string"
+        length="1"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="10"
+        top_pad="15"
+        width="460"
+        font="SansSerifBold"
+        text_color="White">
+        Spotlight Shadow Controls
+      </text>
+
+      <spinner
+        control_name="RenderDeferredSpotShadowBias"
+        decimal_digits="3"
+        follows="left|top"
+        height="20"
+        increment="0.01"
+        initial_value="0.0"
+        label="Spotlight Shadow Bias:"
+        label_width="200"
+        layout="topleft"
+        left="20"
+        max_val="1.0"
+        min_val="-1.0"
+        name="spot_shadow_bias"
+        tool_tip="Depth bias for spotlight shadows (reduce acne/peter-panning)"
+        top_pad="10"
+        width="310" />
+
+      <spinner
+        control_name="RenderDeferredSpotShadowOffset"
+        decimal_digits="3"
+        follows="left|top"
+        height="20"
+        increment="0.01"
+        initial_value="0.0"
+        label="Spotlight Shadow Offset:"
+        label_width="200"
+        layout="topleft"
+        left="20"
+        max_val="1.0"
+        min_val="-1.0"
+        name="spot_shadow_offset"
+        tool_tip="Projection offset for spotlight shadows"
+        top_pad="5"
+        width="310" />
+
+      <text
+        type="string"
+        length="1"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="10"
+        top_pad="15"
+        width="460"
+        font="SansSerifBold"
+        text_color="White">
+        Local Lights Performance Optimization
+      </text>
+
+      <check_box
+        control_name="RenderLocalLightSmartCulling"
+        height="20"
+        initial_value="true"
+        label="Enable Smart Distance-Based Culling"
+        layout="topleft"
+        left="20"
+        top_pad="10"
+        name="local_light_smart_culling"
+        width="450"
+        tool_tip="Prioritize nearby lights, gradually cull distant lights for better performance" />
+
+      <slider
+        control_name="RenderLocalLightPriorityInnerRadius"
+        decimal_digits="1"
+        follows="left|top"
+        height="20"
+        increment="1.0"
+        initial_value="30.0"
+        label="Priority Inner Radius (m):"
+        label_width="200"
+        layout="topleft"
+        left="20"
+        min_val="0.0"
+        max_val="128.0"
+        name="local_light_inner_radius"
+        tool_tip="Lights within this distance are always rendered (0-30m default)"
+        top_pad="5"
+        width="400" />
+
+      <slider
+        control_name="RenderLocalLightPriorityMidRadius"
+        decimal_digits="1"
+        follows="left|top"
+        height="20"
+        increment="1.0"
+        initial_value="64.0"
+        label="Priority Mid Radius (m):"
+        label_width="200"
+        layout="topleft"
+        left="20"
+        min_val="0.0"
+        max_val="256.0"
+        name="local_light_mid_radius"
+        tool_tip="Lights in this zone (30-64m default) have gradual culling based on intensity"
+        top_pad="5"
+        width="400" />
+
+      <check_box
+        control_name="RenderLocalLightFrustumCulling"
+        height="20"
+        initial_value="true"
+        label="Enable Frustum Culling"
+        layout="topleft"
+        left="20"
+        top_pad="10"
+        name="local_light_frustum_culling"
+        width="450"
+        tool_tip="Deprioritize lights outside camera view (especially behind camera)" />
+
+      <slider
+        control_name="RenderLocalLightFrustumCullDistance"
+        decimal_digits="1"
+        follows="left|top"
+        height="20"
+        increment="1.0"
+        initial_value="64.0"
+        label="Frustum Cull Distance (m):"
+        label_width="200"
+        layout="topleft"
+        left="20"
+        min_val="0.0"
+        max_val="256.0"
+        name="local_light_frustum_cull_dist"
+        tool_tip="Only apply frustum culling to lights beyond this distance (default 64m)"
+        top_pad="5"
+        width="400" />
+
+    </panel>
+
+    <!-- ==================== TAB 7: TEXTURES ==================== -->
+    <panel
+      border="true"
+      follows="all"
+      height="585"
+      label="Textures"
+      layout="topleft"
+      left="1"
+      help_topic="tweaks_tab_textures"
+      name="tab_textures"
+      top="20"
+      width="490">
+
+      <text
+        type="string"
+        length="1"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="10"
+        top="10"
+        width="460"
+        font="SansSerifBold"
+        text_color="White">
+        Texture Quality &amp; Resolution Limits
+      </text>
+
+      <spinner
+        control_name="TextureDiscardLevel"
+        decimal_digits="0"
+        follows="left|top"
+        height="20"
+        increment="1"
+        initial_value="0"
+        label="Force Discard Level:"
+        label_width="200"
+        layout="topleft"
+        left="20"
+        max_val="5"
+        min_val="0"
+        name="texture_discard_level"
+        tool_tip="Force lower-resolution textures. 0=full quality, higher=lower quality (saves VRAM)"
+        top_pad="10"
+        width="310" />
+      <text
+        type="string"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left_delta="315"
+        top_delta="2"
+        width="150"
+        font="SansSerifSmall"
+        text_color="LtGray">
+        (0=Full Quality)
+      </text>
+
+      <check_box
+        control_name="TextureLoadFullRes"
+        height="20"
+        initial_value="false"
+        label="Force Full Resolution Textures (Ignore Discard)"
+        layout="topleft"
+        left="20"
+        top_pad="5"
+        name="force_full_res"
+        tool_tip="Always load textures at highest resolution regardless of other settings"
+        width="400" />
+
+      <spinner
+        control_name="RenderMaxTextureResolution"
+        decimal_digits="0"
+        follows="left|top"
+        height="20"
+        increment="256"
+        initial_value="2048"
+        label="Max Texture Resolution:"
+        label_width="200"
+        layout="topleft"
+        left="20"
+        max_val="4096"
+        min_val="512"
+        name="max_texture_res"
+        tool_tip="Maximum allowed texture resolution in pixels (per dimension)"
+        top_pad="5"
+        width="310" />
+
+      <text
+        type="string"
+        length="1"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="10"
+        top_pad="15"
+        width="460"
+        font="SansSerifBold"
+        text_color="White">
+        Texture Fetching &amp; HTTP
+      </text>
+
+      <spinner
+        control_name="TextureFetchConcurrency"
+        decimal_digits="0"
+        follows="left|top"
+        height="20"
+        increment="1"
+        initial_value="0"
+        label="HTTP Fetch Concurrency (0=Auto):"
+        label_width="220"
+        layout="topleft"
+        left="20"
+        max_val="64"
+        min_val="0"
+        name="texture_fetch_threads"
+        tool_tip="Number of concurrent HTTP threads for texture downloads. 0=auto-scale (16), 1-64=manual override. S24: Raised from 16→64 max for modern systems"
+        top_pad="10"
+        width="310" />
+
+      <check_box
+        control_name="TextureNewByteRange"
+        height="20"
+        initial_value="true"
+        label="Enable HTTP Byte-Range Texture Fetching"
+        layout="topleft"
+        left="20"
+        top_pad="5"
+        name="byte_range_fetch"
+        tool_tip="Use HTTP range requests for progressive texture loading"
+        width="400" />
+
+      <spinner
+        control_name="TextureReverseByteRange"
+        decimal_digits="0"
+        follows="left|top"
+        height="20"
+        increment="262144"
+        initial_value="262144"
+        label="Reverse Byte-Range Size:"
+        label_width="200"
+        layout="topleft"
+        left="20"
+        max_val="2097152"
+        min_val="0"
+        name="reverse_byte_range"
+        tool_tip="Size of reverse byte-range requests for texture headers (0=disabled)"
+        top_pad="5"
+        width="310" />
+
+      <text
+        type="string"
+        length="1"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="10"
+        top_pad="15"
+        width="460"
+        font="SansSerifBold"
+        text_color="White">
+        HUD Texture Warning Thresholds
+      </text>
+
+      <spinner
+        control_name="RenderHUDTexturesWarning"
+        decimal_digits="0"
+        follows="left|top"
+        height="20"
+        increment="10"
+        initial_value="200"
+        label="Max HUD Textures:"
+        label_width="200"
+        layout="topleft"
+        left="20"
+        max_val="1000"
+        min_val="10"
+        name="hud_textures_warn"
+        tool_tip="Warn when HUD exceeds this many textures"
+        top_pad="10"
+        width="310" />
+
+      <spinner
+        control_name="RenderHUDOversizedTexturesWarning"
+        decimal_digits="0"
+        follows="left|top"
+        height="20"
+        increment="5"
+        initial_value="10"
+        label="Max HUD Oversized Textures:"
+        label_width="200"
+        layout="topleft"
+        left="20"
+        max_val="100"
+        min_val="1"
+        name="hud_oversized_warn"
+        tool_tip="Warn when HUD exceeds this many oversized textures"
+        top_pad="5"
+        width="310" />
+
+      <spinner
+        control_name="RenderHUDTexturesMemoryWarning"
+        decimal_digits="0"
+        follows="left|top"
+        height="20"
+        increment="32"
+        initial_value="256"
+        label="Max HUD Texture Memory (MB):"
+        label_width="200"
+        layout="topleft"
+        left="20"
+        max_val="2048"
+        min_val="32"
+        name="hud_texture_mem_warn"
+        tool_tip="Warn when HUD textures exceed this memory usage"
+        top_pad="5"
+        width="310" />
+
+    </panel>
+
+    <!-- ==================== TAB 8: NETWORK ==================== -->
+    <panel
+      border="true"
+      follows="all"
+      height="585"
+      label="Network"
+      layout="topleft"
+      left="1"
+      help_topic="tweaks_tab_network"
+      name="tab_network"
+      top="20"
+      width="490">
+
+      <text
+        type="string"
+        length="1"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="10"
+        top="10"
+        width="460"
+        font="SansSerifBold"
+        text_color="White">
+        Bandwidth &amp; Throttling
+      </text>
+
+      <spinner
+        control_name="ThrottleBandwidthKBPS"
+        decimal_digits="0"
+        follows="left|top"
+        height="20"
+        increment="1000"
+        initial_value="3000"
+        label="Max Bandwidth (kbps, 50 Mbps max):"
+        label_width="240"
+        layout="topleft"
+        left="20"
+        max_val="50000"
+        min_val="500"
+        name="max_bandwidth"
+        tool_tip="S24: Maximum network bandwidth in kbps. Raised from 10 Mbps to 50 Mbps for modern fiber connections (1.6Gbps+). Recommend 20000-40000 for fast connections."
+        top_pad="10"
+        width="350" />
+
+      <text
+        type="string"
+        length="1"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="10"
+        top_pad="15"
+        width="460"
+        font="SansSerifBold"
+        text_color="White">
+        Message Timing
+      </text>
+
+      <spinner
+        control_name="AckCollectTime"
+        decimal_digits="3"
+        follows="left|top"
+        height="20"
+        increment="0.01"
+        initial_value="0.1"
+        label="ACK Collection Time (sec):"
+        label_width="200"
+        layout="topleft"
+        left="20"
+        max_val="1.0"
+        min_val="0.001"
+        name="ack_collect_time"
+        tool_tip="Time to collect ACK messages before sending (affects network efficiency)"
+        top_pad="10"
+        width="310" />
+
+      <text
+        type="string"
+        length="1"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="10"
+        top_pad="15"
+        width="460"
+        font="SansSerifBold"
+        text_color="White">
+        Plugin/Media Controls
+      </text>
+
+      <check_box
+        control_name="PluginUseReadThread"
+        height="20"
+        initial_value="false"
+        label="Use Separate Thread for Plugin Reading"
+        layout="topleft"
+        left="20"
+        top_pad="10"
+        name="plugin_read_thread"
+        tool_tip="Offload plugin I/O to dedicated thread"
+        width="400" />
+
+      <spinner
+        control_name="PluginInstancesCPULimit"
+        decimal_digits="2"
+        follows="left|top"
+        height="20"
+        increment="0.05"
+        initial_value="0.90"
+        label="Plugin CPU Usage Limit:"
+        label_width="200"
+        layout="topleft"
+        left="20"
+        max_val="0.99"
+        min_val="0.0"
+        name="plugin_cpu_limit"
+        tool_tip="Maximum CPU usage by plugins as fraction (0=disabled, 0.90=90%)"
+        top_pad="10"
+        width="310" />
+      <text
+        type="string"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left_delta="315"
+        top_delta="2"
+        width="150"
+        font="SansSerifSmall"
+        text_color="LtGray">
+        (0=Off)
+      </text>
+
+    </panel>
+
+    <!-- ==================== TAB 9: AUDIO ==================== -->
+    <panel
+      border="true"
+      follows="all"
+      height="585"
+      label="Audio"
+      layout="topleft"
+      left="1"
+      help_topic="tweaks_tab_audio"
+      name="tab_audio"
+      top="20"
+      width="490">
+
+      <text
+        type="string"
+        length="1"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="10"
+        top="10"
+        width="460"
+        font="SansSerifBold"
+        text_color="White">
+        Audio Streaming
+      </text>
+
+      <check_box
+        control_name="ShowStreamMetadata"
+        height="16"
+        initial_value="true"
+        label="Show streaming audio metadata"
+        layout="topleft"
+        left="20"
+        name="show_stream_metadata"
+        top_pad="10"
+        width="350"
+        tool_tip="Display song title and artist from streaming audio (Shoutcast/Icecast) as notifications" />
+
+      <text
+        type="string"
+        length="1"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="20"
+        top_pad="15"
+        width="200"
+        font="SansSerif"
+        text_color="White">
+        Streaming audio engine:
+      </text>
+
+      <combo_box
+        control_name="StreamingAudioEngine"
+        follows="left|top"
+        height="23"
+        layout="topleft"
+        left="20"
+        name="streaming_audio_engine"
+        top_pad="5"
+        width="300">
+        <combo_box.item
+          label="Media Plugins (libVLC) - Better codecs, 10-band EQ, Metadata"
+          name="media_plugins"
+          value="0" />
+        <combo_box.item
+          label="FMOD - 3-band EQ, Metadata support"
+          name="fmod"
+          value="1" />
+      </combo_box>
+
+      <text
+        type="string"
+        length="1"
+        follows="left|top"
+        height="20"
+        layout="topleft"
+        left="20"
+        top_pad="5"
+        width="300"
+        font="SansSerifSmall"
+        text_color="Yellow">
+        (Requires viewer restart)
+      </text>
+
+      <check_box
+        control_name="AudioEqualizerEnabled"
+        height="16"
+        initial_value="false"
+        label="Enable 3-band equalizer (FMOD engine)"
+        layout="topleft"
+        left="20"
+        name="audio_eq_enabled"
+        top_pad="20"
+        width="350"
+        tool_tip="Enable a 3-band equalizer to adjust bass, mid, and treble frequencies (FMOD streaming engine only)" />
+
+      <text
+        type="string"
+        length="1"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="40"
+        top_pad="10"
+        width="100"
+        font="SansSerif"
+        text_color="White">
+        Low (Bass):
+      </text>
+
+      <slider
+        control_name="AudioEqualizerLowGain"
+        decimal_digits="1"
+        follows="left|top"
+        height="16"
+        increment="1"
+        initial_value="0"
+        layout="topleft"
+        left="150"
+        max_val="10"
+        min_val="-30"
+        name="audio_eq_low"
+        top_delta="0"
+        width="200" />
+
+      <text
+        type="string"
+        length="1"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="40"
+        top_pad="10"
+        width="100"
+        font="SansSerif"
+        text_color="White">
+        Mid:
+      </text>
+
+      <slider
+        control_name="AudioEqualizerMidGain"
+        decimal_digits="1"
+        follows="left|top"
+        height="16"
+        increment="1"
+        initial_value="0"
+        layout="topleft"
+        left="150"
+        max_val="10"
+        min_val="-30"
+        name="audio_eq_mid"
+        top_delta="0"
+        width="200" />
+
+      <text
+        type="string"
+        length="1"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="40"
+        top_pad="10"
+        width="100"
+        font="SansSerif"
+        text_color="White">
+        High (Treble):
+      </text>
+
+      <slider
+        control_name="AudioEqualizerHighGain"
+        decimal_digits="1"
+        follows="left|top"
+        height="16"
+        increment="1"
+        initial_value="0"
+        layout="topleft"
+        left="150"
+        max_val="10"
+        min_val="-30"
+        name="audio_eq_high"
+        top_delta="0"
+        width="200" />
+
+      <text
+        type="string"
+        length="1"
+        follows="left|top"
+        height="20"
+        layout="topleft"
+        left="40"
+        top_pad="5"
+        width="350"
+        font="SansSerifSmall"
+        text_color="White_25">
+        (Range: -30dB to +10dB, 0 = flat/no change)
+      </text>
+
+      <!-- S24 - VLC 10-Band Equalizer -->
+      <text
+        type="string"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="10"
+        top_pad="30"
+        width="460"
+        font="SansSerifBold"
+        text_color="White">
+        MediaPlugins (VLC) 10-Band Equalizer
+      </text>
+
+      <check_box
+        control_name="VLCAudioEQEnabled"
+        height="16"
+        initial_value="false"
+        label="Enable 10-band equalizer (VLC engine)"
+        layout="topleft"
+        left="20"
+        name="vlc_audio_eq_enabled"
+        top_pad="10"
+        width="450"
+        tool_tip="Enable advanced 10-band parametric equalizer with preamp (MediaPlugins/VLC streaming engine only)" />
+
+      <!-- Vertical slider layout - Preamp + 10 bands -->
+      <panel
+        border="false"
+        follows="left|top"
+        height="210"
+        layout="topleft"
+        left="20"
+        top_pad="10"
+        width="470"
+        bg_alpha_color="Black_25"
+        background_visible="true">
+
+        <!-- Preamp -->
+        <text
+          type="string"
+          height="14"
+          left="5"
+          top="130"
+          width="35"
+          font="SansSerifSmall"
+          text_color="White"
+          halign="center">
+          Preamp
+        </text>
+        <slider
+          can_edit_text="true"
+          control_name="VLCAudioEQPreamp"
+          decimal_digits="1"
+          follows="left|top"
+          height="120"
+          increment="0.5"
+          initial_value="0"
+          layout="topleft"
+          left="8"
+          max_val="20"
+          min_val="-20"
+          name="vlc_eq_preamp"
+          orientation="vertical"
+          show_text="false"
+          top="5"
+          width="28"
+          tool_tip="Preamp: -20 to +20 dB" />
+
+        <!-- 60 Hz -->
+        <text height="14" left="48" top="130" width="35" font="SansSerifSmall" text_color="White" halign="center">60Hz</text>
+        <slider
+          can_edit_text="true"
+          control_name="VLCAudioEQBand0"
+          decimal_digits="1"
+          follows="left|top"
+          height="120"
+          increment="0.5"
+          initial_value="0"
+          layout="topleft"
+          left="51"
+          max_val="20"
+          min_val="-20"
+          name="vlc_eq_band0"
+          orientation="vertical"
+          show_text="false"
+          top="5"
+          width="28"
+          tool_tip="60 Hz: -20 to +20 dB" />
+
+        <!-- 170 Hz -->
+        <text height="14" left="88" top="130" width="35" font="SansSerifSmall" text_color="White" halign="center">170Hz</text>
+        <slider
+          can_edit_text="true"
+          control_name="VLCAudioEQBand1"
+          decimal_digits="1"
+          follows="left|top"
+          height="120"
+          increment="0.5"
+          initial_value="0"
+          layout="topleft"
+          left="91"
+          max_val="20"
+          min_val="-20"
+          name="vlc_eq_band1"
+          orientation="vertical"
+          show_text="false"
+          top="5"
+          width="28"
+          tool_tip="170 Hz: -20 to +20 dB" />
+
+        <!-- 310 Hz -->
+        <text height="14" left="128" top="130" width="35" font="SansSerifSmall" text_color="White" halign="center">310Hz</text>
+        <slider
+          can_edit_text="true"
+          control_name="VLCAudioEQBand2"
+          decimal_digits="1"
+          follows="left|top"
+          height="120"
+          increment="0.5"
+          initial_value="0"
+          layout="topleft"
+          left="131"
+          max_val="20"
+          min_val="-20"
+          name="vlc_eq_band2"
+          orientation="vertical"
+          show_text="false"
+          top="5"
+          width="28"
+          tool_tip="310 Hz: -20 to +20 dB" />
+
+        <!-- 600 Hz -->
+        <text height="14" left="168" top="130" width="35" font="SansSerifSmall" text_color="White" halign="center">600Hz</text>
+        <slider
+          can_edit_text="true"
+          control_name="VLCAudioEQBand3"
+          decimal_digits="1"
+          follows="left|top"
+          height="120"
+          increment="0.5"
+          initial_value="0"
+          layout="topleft"
+          left="171"
+          max_val="20"
+          min_val="-20"
+          name="vlc_eq_band3"
+          orientation="vertical"
+          show_text="false"
+          top="5"
+          width="28"
+          tool_tip="600 Hz: -20 to +20 dB" />
+
+        <!-- 1 kHz -->
+        <text height="14" left="208" top="130" width="35" font="SansSerifSmall" text_color="White" halign="center">1kHz</text>
+        <slider
+          can_edit_text="true"
+          control_name="VLCAudioEQBand4"
+          decimal_digits="1"
+          follows="left|top"
+          height="120"
+          increment="0.5"
+          initial_value="0"
+          layout="topleft"
+          left="211"
+          max_val="20"
+          min_val="-20"
+          name="vlc_eq_band4"
+          orientation="vertical"
+          show_text="false"
+          top="5"
+          width="28"
+          tool_tip="1 kHz: -20 to +20 dB" />
+
+        <!-- 3 kHz -->
+        <text height="14" left="248" top="130" width="35" font="SansSerifSmall" text_color="White" halign="center">3kHz</text>
+        <slider
+          can_edit_text="true"
+          control_name="VLCAudioEQBand5"
+          decimal_digits="1"
+          follows="left|top"
+          height="120"
+          increment="0.5"
+          initial_value="0"
+          layout="topleft"
+          left="251"
+          max_val="20"
+          min_val="-20"
+          name="vlc_eq_band5"
+          orientation="vertical"
+          show_text="false"
+          top="5"
+          width="28"
+          tool_tip="3 kHz: -20 to +20 dB" />
+
+        <!-- 6 kHz -->
+        <text height="14" left="288" top="130" width="35" font="SansSerifSmall" text_color="White" halign="center">6kHz</text>
+        <slider
+          can_edit_text="true"
+          control_name="VLCAudioEQBand6"
+          decimal_digits="1"
+          follows="left|top"
+          height="120"
+          increment="0.5"
+          initial_value="0"
+          layout="topleft"
+          left="291"
+          max_val="20"
+          min_val="-20"
+          name="vlc_eq_band6"
+          orientation="vertical"
+          show_text="false"
+          top="5"
+          width="28"
+          tool_tip="6 kHz: -20 to +20 dB" />
+
+        <!-- 12 kHz -->
+        <text height="14" left="328" top="130" width="35" font="SansSerifSmall" text_color="White" halign="center">12kHz</text>
+        <slider
+          can_edit_text="true"
+          control_name="VLCAudioEQBand7"
+          decimal_digits="1"
+          follows="left|top"
+          height="120"
+          increment="0.5"
+          initial_value="0"
+          layout="topleft"
+          left="331"
+          max_val="20"
+          min_val="-20"
+          name="vlc_eq_band7"
+          orientation="vertical"
+          show_text="false"
+          top="5"
+          width="28"
+          tool_tip="12 kHz: -20 to +20 dB" />
+
+        <!-- 14 kHz -->
+        <text height="14" left="368" top="130" width="35" font="SansSerifSmall" text_color="White" halign="center">14kHz</text>
+        <slider
+          can_edit_text="true"
+          control_name="VLCAudioEQBand8"
+          decimal_digits="1"
+          follows="left|top"
+          height="120"
+          increment="0.5"
+          initial_value="0"
+          layout="topleft"
+          left="371"
+          max_val="20"
+          min_val="-20"
+          name="vlc_eq_band8"
+          orientation="vertical"
+          show_text="false"
+          top="5"
+          width="28"
+          tool_tip="14 kHz: -20 to +20 dB" />
+
+        <!-- 16 kHz -->
+        <text height="14" left="408" top="130" width="35" font="SansSerifSmall" text_color="White" halign="center">16kHz</text>
+        <slider
+          can_edit_text="true"
+          control_name="VLCAudioEQBand9"
+          decimal_digits="1"
+          follows="left|top"
+          height="120"
+          increment="0.5"
+          initial_value="0"
+          layout="topleft"
+          left="411"
+          max_val="20"
+          min_val="-20"
+          name="vlc_eq_band9"
+          orientation="vertical"
+          show_text="false"
+          top="5"
+          width="28"
+          tool_tip="16 kHz: -20 to +20 dB" />
+
+        <!-- Helper text first so it doesn't block controls -->
+        <text
+          type="string"
+          follows="left|top"
+          height="14"
+          left="5"
+          top="183"
+          width="460"
+          font="SansSerifSmall"
+          text_color="White_25"
+          halign="center"
+          mouse_opaque="false">
+          Range: -20dB to +20dB per band (0 = flat/no change)
+        </text>
+
+        <!-- S24 - EQ Presets -->
+        <text
+          type="string"
+          follows="left|top"
+          height="14"
+          left="10"
+          top="158"
+          width="50"
+          font="SansSerifSmall"
+          text_color="White"
+          halign="right"
+          mouse_opaque="false">
+          Preset:
+        </text>
+        <combo_box
+          follows="left|top"
+          height="23"
+          layout="topleft"
+          left="65"
+          name="vlc_eq_preset"
+          control_name="VLCAudioEQPreset"
+          top="155"
+          width="180">
+          <combo_box.item
+            label="Flat (Manual)"
+            name="flat"
+            value="0" />
+          <combo_box.item
+            label="Rock"
+            name="rock"
+            value="1" />
+          <combo_box.item
+            label="Pop"
+            name="pop"
+            value="2" />
+          <combo_box.item
+            label="Jazz"
+            name="jazz"
+            value="3" />
+          <combo_box.item
+            label="Classical"
+            name="classical"
+            value="4" />
+          <combo_box.item
+            label="Dance"
+            name="dance"
+            value="5" />
+          <combo_box.item
+            label="Bass Boost"
+            name="bassboost"
+            value="6" />
+          <combo_box.item
+            label="Vocal Boost"
+            name="vocalboost"
+            value="7" />
+          <combo_box.item
+            label="Treble Boost"
+            name="trebleboost"
+            value="8" />
+          <combo_box.item
+            label="Full Bass &amp; Treble"
+            name="fullbasstreble"
+            value="9" />
+        </combo_box>
+
+      </panel>
+
+    </panel>
+
+    <!-- ==================== TAB 10: EXPERIMENTAL ==================== -->
+    <panel
+      border="true"
+      follows="all"
+      height="585"
+      label="Experimental"
+      layout="topleft"
+      left="1"
+      help_topic="tweaks_tab_experimental"
+      name="tab_experimental"
+      top="20"
+      width="490">
+
+      <text
+        type="string"
+        length="1"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="10"
+        top="10"
+        width="460"
+        font="SansSerifBold"
+        text_color="White">
+        Experimental Rendering Features
+      </text>
+
+      <check_box
+        control_name="GLTFEnabled"
+        height="20"
+        initial_value="false"
+        label="Enable GLTF Support (⚠ May Auto-Upload Assets)"
+        layout="topleft"
+        left="20"
+        top_pad="10"
+        name="enable_gltf"
+        tool_tip="WARNING: Can trigger implicit texture uploads costing L$. Setting is now persistent across restarts."
+        width="400" />
+      <text
+        name="gltf_warning"
+        follows="left|top"
+        layout="topleft"
+        top_delta="20"
+        left="40"
+        height="30"
+        width="440"
+        font="SansSerifSmall"
+        text_color="DrYellow"
+        word_wrap="true">
+        ⚠ PERSISTENT SETTING: May upload textures without confirmation, costing L$
+      </text>
+
+      <check_box
+        control_name="RenderMirrors"
+        height="20"
+        initial_value="false"
+        label="Enable Planar Mirrors (Experimental)"
+        layout="topleft"
+        left="20"
+        top_pad="10"
+        name="enable_mirrors"
+        width="400" />
+
+      <check_box
+        control_name="RenderCubeMap"
+        height="20"
+        initial_value="true"
+        label="Enable Environment Cubemaps"
+        layout="topleft"
+        left="20"
+        top_pad="5"
+        name="enable_cubemap"
+        width="400" />
+
+      <text
+        type="string"
+        length="1"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="10"
+        top_pad="20"
+        width="460"
+        font="SansSerifBold"
+        text_color="White">
+        UI Features
+      </text>
+
+      <check_box
+        control_name="UseMenuIcons"
+        height="20"
+        initial_value="true"
+        label="Show Emoji Icons in Menu Bar"
+        layout="topleft"
+        left="20"
+        top_pad="10"
+        name="use_menu_icons"
+        tool_tip="Display emoji icons next to menu labels. Changes take effect on next viewer restart."
+        width="400" />
+      <text
+        name="requires_restart_menu_icons"
+        follows="left|top"
+        layout="topleft"
+        top_delta="2"
+        left_delta="270"
+        height="20"
+        width="150"
+        font="SansSerifSmall"
+        text_color="White_25">
+        (Requires restart)
+      </text>
+
+      <text
+        type="string"
+        length="1"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="10"
+        top_pad="20"
+        width="460"
+        font="SansSerifBold"
+        text_color="White">
+        Hovertext
+      </text>
+
+      <spinner
+        control_name="HoverTextDistance"
+        decimal_digits="1"
+        follows="left|top"
+        height="20"
+        increment="0.1"
+        initial_value="3.0"
+        label="Hovertext Distance (m):"
+        label_width="220"
+        layout="topleft"
+        left="20"
+        max_val="10"
+        min_val="0.1"
+        name="hovertext_distance"
+        top_pad="10"
+        width="330" />
+      <text
+        name="requires_restart_hovertext"
+        follows="left|top"
+        layout="topleft"
+        top_delta="2"
+        left_delta="335"
+        height="20"
+        width="150"
+        font="SansSerifSmall"
+        text_color="White_25">
+        (Requires restart)
+      </text>
+
+      <spinner
+        control_name="HoverTextFadeDistance"
+        decimal_digits="1"
+        follows="left|top"
+        height="20"
+        increment="0.1"
+        initial_value="1.5"
+        label="Hovertext Fade Distance (m):"
+        label_width="220"
+        layout="topleft"
+        left="20"
+        max_val="10"
+        min_val="0.1"
+        name="hovertext_fade"
+        top_pad="5"
+        width="330" />
+      <text
+        name="requires_restart_hover_fade"
+        follows="left|top"
+        layout="topleft"
+        top_delta="2"
+        left_delta="335"
+        height="20"
+        width="150"
+        font="SansSerifSmall"
+        text_color="White_25">
+        (Requires restart)
+      </text>
+
+      <text
+        type="string"
+        length="1"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="10"
+        top_pad="20"
+        width="460"
+        font="SansSerifBold"
+        text_color="White">
+        🎯 Selection Beam (Builder Tool)
+      </text>
+
+      <text
+        type="string"
+        follows="left|top"
+        height="60"
+        layout="topleft"
+        left="20"
+        top_pad="5"
+        width="450"
+        font="SansSerifSmall"
+        text_color="LtGray"
+        word_wrap="true">
+        Enhanced selection beam for builders - crisp GL line core with customizable particle glow. Professional visual feedback when editing objects. Toggle between classic particles, clean line, or hybrid "lightsaber" effect with smooth fade-in/fade-out!
+      </text>
+
+      <!-- S24: Selection Beam Style Combo Box -->
+      <combo_box
+        control_name="SelectionBeamStyle"
+        height="23"
+        layout="topleft"
+        left="20"
+        top_pad="10"
+        name="selection_beam_style"
+        width="300">
+        <combo_box.item
+          label="Particles Only (Classic)"
+          name="particles"
+          value="0" />
+        <combo_box.item
+          label="Solid Line Only (Clean)"
+          name="line"
+          value="1" />
+        <combo_box.item
+          label="Hybrid Line + Glow (Lightsaber!)"
+          name="hybrid"
+          value="2" />
+      </combo_box>
+
+      <!-- S24: Line Style Selector (Solid, Dotted, Dashed, Dash-Dot) -->
+      <combo_box
+        control_name="SelectionBeamLineStyle"
+        height="23"
+        layout="topleft"
+        left="20"
+        top_pad="10"
+        name="beam_line_style"
+        width="200">
+        <combo_box.item
+          label="Solid Line"
+          name="solid"
+          value="0" />
+        <combo_box.item
+          label="Dotted Line"
+          name="dotted"
+          value="1" />
+        <combo_box.item
+          label="Dashed Line"
+          name="dashed"
+          value="2" />
+        <combo_box.item
+          label="Dash-Dot Line"
+          name="dashdot"
+          value="3" />
+      </combo_box>
+
+      <!-- S24: Particle Glow Scale Slider -->
+      <slider
+        control_name="SelectionBeamParticleScale"
+        decimal_digits="1"
+        follows="left|top"
+        height="20"
+        increment="0.1"
+        initial_value="1.5"
+        label="Particle Glow:"
+        label_width="120"
+        layout="topleft"
+        left="20"
+        min_val="0.5"
+        max_val="3.0"
+        name="particle_scale"
+        top_pad="5"
+        width="300" />
+
+      <!-- S24: Beam color controlled in Preferences → Colors → My Effects -->
+
+    </panel>
+
+    <!-- ==================== TAB 11: RAM CACHE ==================== -->
+    <panel
+      border="true"
+      follows="all"
+      height="585"
+      label="Reflections"
+      layout="topleft"
+      left="1"
+      help_topic="tweaks_tab_reflections"
+      name="tab_reflections"
+      top="20"
+      width="490">
+
+      <text
+        type="string"
+        length="1"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="10"
+        top="10"
+        width="460"
+        font="SansSerifBold"
+        text_color="Red">
+        ⚠ If Tweaks Do Nothing: Purge Shader Cache! ⚠
+      </text>
+
+      <text
+        type="string"
+        length="1"
+        follows="left|top"
+        height="64"
+        layout="topleft"
+        left="20"
+        top_pad="5"
+        width="450"
+        font="SansSerifSmall"
+        text_color="DrYellow"
+        word_wrap="true">
+        If reflection adjustments have no effect, go to RESETS tab → Purge Shader Cache → Restart viewer. This rebuilds shaders with current settings. After that, all sliders work instantly!
+      </text>
+
+      <text
+        type="string"
+        length="1"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="10"
+        top_pad="10"
+        width="460"
+        font="SansSerifBold"
+        text_color="White">
+        🎨 Reflection Appearance
+      </text>
+
+      <text
+        type="string"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="20"
+        top_pad="10"
+        width="180"
+        font="SansSerif">
+        Reflection Intensity:
+      </text>
+      <slider
+        control_name="RenderReflectionProbeIntensity"
+        decimal_digits="2"
+        follows="left|top"
+        height="20"
+        increment="0.1"
+        initial_value="1.0"
+        layout="topleft"
+        left_delta="0"
+        min_val="0.0"
+        max_val="10.0"
+        name="probe_intensity_slider"
+        tool_tip="Brightness: 0=off, 1=normal, 10=extreme HDR"
+        top_pad="2"
+        width="300" />
+      <spinner
+        control_name="RenderReflectionProbeIntensity"
+        decimal_digits="2"
+        follows="left|top"
+        height="20"
+        increment="0.1"
+        initial_value="1.0"
+        layout="topleft"
+        left_pad="5"
+        min_val="0.0"
+        max_val="10.0"
+        name="probe_intensity_spinner"
+        top_delta="0"
+        width="65" />
+      <text
+        type="string"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left_pad="5"
+        top_delta="2"
+        width="60"
+        font="SansSerifSmall"
+        text_color="LtGray">
+        (0-10)
+      </text>
+
+      <text
+        type="string"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="20"
+        top_pad="5"
+        width="180"
+        font="SansSerif">
+        Reflection Saturation:
+      </text>
+      <slider
+        control_name="RenderReflectionProbeSaturation"
+        decimal_digits="2"
+        follows="left|top"
+        height="20"
+        increment="0.1"
+        initial_value="1.0"
+        layout="topleft"
+        left_delta="0"
+        min_val="0.0"
+        max_val="5.0"
+        name="probe_saturation_slider"
+        tool_tip="Color: 0=gray, 1=normal, 5=vivid"
+        top_pad="2"
+        width="300" />
+      <spinner
+        control_name="RenderReflectionProbeSaturation"
+        decimal_digits="2"
+        follows="left|top"
+        height="20"
+        increment="0.1"
+        initial_value="1.0"
+        layout="topleft"
+        left_pad="5"
+        min_val="0.0"
+        max_val="5.0"
+        name="probe_saturation_spinner"
+        top_delta="0"
+        width="65" />
+      <text
+        type="string"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left_pad="5"
+        top_delta="2"
+        width="60"
+        font="SansSerifSmall"
+        text_color="LtGray">
+        (0-5)
+      </text>
+
+      <text
+        type="string"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="20"
+        top_pad="5"
+        width="180"
+        font="SansSerif">
+        Reflection Contrast:
+      </text>
+      <slider
+        control_name="RenderReflectionProbeContrast"
+        decimal_digits="2"
+        follows="left|top"
+        height="20"
+        increment="0.1"
+        initial_value="1.0"
+        layout="topleft"
+        left_delta="0"
+        min_val="0.0"
+        max_val="5.0"
+        name="probe_contrast_slider"
+        tool_tip="Contrast: low=soft, 1=normal, high=dramatic"
+        top_pad="2"
+        width="300" />
+      <spinner
+        control_name="RenderReflectionProbeContrast"
+        decimal_digits="2"
+        follows="left|top"
+        height="20"
+        increment="0.1"
+        initial_value="1.0"
+        layout="topleft"
+        left_pad="5"
+        min_val="0.0"
+        max_val="5.0"
+        name="probe_contrast_spinner"
+        top_delta="0"
+        width="65" />
+      <text
+        type="string"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left_pad="5"
+        top_delta="2"
+        width="60"
+        font="SansSerifSmall"
+        text_color="LtGray">
+        (0-5)
+      </text>
+
+      <text
+        type="string"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="20"
+        top_pad="5"
+        width="180"
+        font="SansSerif">
+        Reflection Blur:
+      </text>
+      <slider
+        control_name="RenderReflectionProbeBlurLODBias"
+        decimal_digits="1"
+        follows="left|top"
+        height="20"
+        increment="0.5"
+        initial_value="0.0"
+        layout="topleft"
+        left_delta="0"
+        min_val="-10.0"
+        max_val="10.0"
+        name="probe_blur_slider"
+        tool_tip="Blur: negative=sharp, 0=normal, positive=soft"
+        top_pad="2"
+        width="300" />
+      <spinner
+        control_name="RenderReflectionProbeBlurLODBias"
+        decimal_digits="1"
+        follows="left|top"
+        height="20"
+        increment="0.5"
+        initial_value="0.0"
+        layout="topleft"
+        left_pad="5"
+        min_val="-10.0"
+        max_val="10.0"
+        name="probe_blur_spinner"
+        top_delta="0"
+        width="65" />
+      <text
+        type="string"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left_pad="5"
+        top_delta="2"
+        width="60"
+        font="SansSerifSmall"
+        text_color="LtGray">
+        (-10 to 10)
+      </text>
+
+      <text
+        type="string"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="20"
+        top_pad="5"
+        width="180"
+        font="SansSerif">
+        Ambient Contribution:
+      </text>
+      <slider
+        control_name="RenderReflectionProbeAmbientMultiplier"
+        decimal_digits="2"
+        follows="left|top"
+        height="20"
+        increment="0.1"
+        initial_value="1.0"
+        layout="topleft"
+        left_delta="0"
+        min_val="0.0"
+        max_val="10.0"
+        name="probe_ambient_slider"
+        tool_tip="Ambient: 0=dark, 1=normal, 10=bright glow"
+        top_pad="2"
+        width="300" />
+      <spinner
+        control_name="RenderReflectionProbeAmbientMultiplier"
+        decimal_digits="2"
+        follows="left|top"
+        height="20"
+        increment="0.1"
+        initial_value="1.0"
+        layout="topleft"
+        left_pad="5"
+        min_val="0.0"
+        max_val="10.0"
+        name="probe_ambient_spinner"
+        top_delta="0"
+        width="65" />
+      <text
+        type="string"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left_pad="5"
+        top_delta="2"
+        width="60"
+        font="SansSerifSmall"
+        text_color="LtGray">
+        (0-10)
+      </text>
+
+      <check_box
+        control_name="RenderReflectionProbesEnabled"
+        height="20"
+        initial_value="true"
+        label="Enable Reflection Probes"
+        layout="topleft"
+        left="20"
+        top_pad="20"
+        name="enable_reflection_probes"
+        width="400"
+        tool_tip="Master toggle - completely enables/disables probe system. Requires shader rebuild!" />
+
+      <text
+        type="string"
+        length="1"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="10"
+        top_pad="10"
+        width="460"
+        font="SansSerifBold"
+        text_color="DrYellow">
+        🚀 Power User Tips
+      </text>
+
+      <text
+        type="string"
+        length="1"
+        follows="left|top"
+        height="64"
+        layout="topleft"
+        left="20"
+        top_pad="5"
+        width="450"
+        font="SansSerifSmall"
+        text_color="LtGray"
+        word_wrap="true">
+        • Lower Intensity for subtle looks • Lower Saturation to remove sky color indoors • Increase Blur for softer reflections • Lower Ambient for darker mood • Share exact values in forums!
+      </text>
+
+    </panel>
+
+    <!-- ==================== TAB: RESETS (S24) ==================== -->
+    <panel
+      border="true"
+      follows="all"
+      height="585"
+      label="Resets"
+      layout="topleft"
+      left="1"
+      help_topic="tweaks_tab_resets"
+      name="tab_resets"
+      top="20"
+      width="490">
+
+      <text
+        type="string"
+        length="1"
+        follows="left|top"
+        height="20"
+        layout="topleft"
+        left="10"
+        top="10"
+        width="460"
+        font="SansSerifBold"
+        text_color="White">
+        🔄 Cache &amp; Settings Reset Operations
+      </text>
+
+      <text
+        type="string"
+        length="1"
+        follows="left|top"
+        height="48"
+        layout="topleft"
+        left="20"
+        top_pad="5"
+        width="450"
+        font="SansSerifSmall"
+        text_color="DrYellow"
+        word_wrap="true">
+        ⚠ Restart HIGHLY recommended for most operations, ESSENTIAL for shader cache! Some operations (RAM cache, settings) are immediate.
+      </text>
+
+      <!-- KV Tweaks Settings Reset -->
+      <text
+        type="string"
+        length="1"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="10"
+        top_pad="18"
+        width="460"
+        font="SansSerifBold"
+        text_color="White">
+        ⚙️ Settings Reset
+      </text>
+
+      <button
+        follows="left|top"
+        height="28"
+        label="Reset KVTweaks to Defaults"
+        layout="topleft"
+        left="20"
+        name="reset_kvtweaks_btn"
+        top_pad="8"
+        width="220"
+        tool_tip="Reset all KVTweaks settings to factory defaults (immediate effect)" />
+
+      <text
+        type="string"
+        length="1"
+        follows="left|top"
+        height="28"
+        layout="topleft"
+        left="250"
+        top_delta="0"
+        width="220"
+        font="SansSerifSmall"
+        text_color="LtGray"
+        word_wrap="true">
+        Resets all tuning settings to defaults. Immediate effect.
+      </text>
+
+      <!-- Cache Purge Operations -->
+      <text
+        type="string"
+        length="1"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="10"
+        top_pad="22"
+        width="460"
+        font="SansSerifBold"
+        text_color="White">
+        🗑️ Cache Purge Operations
+      </text>
+
+      <!-- Texture Cache -->
+      <button
+        follows="left|top"
+        height="28"
+        label="Purge Texture Cache"
+        layout="topleft"
+        left="20"
+        name="purge_texture_cache_btn"
+        top_pad="8"
+        width="220"
+        tool_tip="Clear all cached textures (restart recommended)" />
+
+      <text
+        type="string"
+        length="1"
+        follows="left|top"
+        height="28"
+        layout="topleft"
+        left="250"
+        top_delta="0"
+        width="220"
+        font="SansSerifSmall"
+        text_color="LtGray"
+        word_wrap="true">
+        Clear texture cache. Restart recommended.
+      </text>
+
+      <!-- Shader Cache -->
+      <button
+        follows="left|top"
+        height="28"
+        label="Purge Shader Cache"
+        layout="topleft"
+        left="20"
+        name="purge_shader_cache_btn"
+        top_pad="12"
+        width="220"
+        tool_tip="Delete all compiled shaders for fresh rebuild (RESTART REQUIRED)" />
+
+      <text
+        type="string"
+        length="1"
+        follows="left|top"
+        height="28"
+        layout="topleft"
+        left="250"
+        top_delta="0"
+        width="220"
+        font="SansSerifSmall"
+        text_color="LtGray"
+        word_wrap="true">
+        Rebuild shaders. RESTART REQUIRED.
+      </text>
+
+      <!-- CEF Cache -->
+      <button
+        follows="left|top"
+        height="28"
+        label="Purge CEF Cache"
+        layout="topleft"
+        left="20"
+        name="purge_cef_cache_btn"
+        top_pad="12"
+        width="220"
+        tool_tip="Clear Chromium Embedded Framework (web browser) cache (restart recommended)" />
+
+      <text
+        type="string"
+        length="1"
+        follows="left|top"
+        height="28"
+        layout="topleft"
+        left="250"
+        top_delta="0"
+        width="220"
+        font="SansSerifSmall"
+        text_color="LtGray"
+        word_wrap="true">
+        Clear browser cache. Restart recommended.
+      </text>
+
+      <!-- Logs -->
+      <button
+        follows="left|top"
+        height="28"
+        label="Purge Logs"
+        layout="topleft"
+        left="20"
+        name="purge_logs_btn"
+        top_pad="12"
+        width="220"
+        tool_tip="Delete all log files (immediate effect)" />
+
+      <text
+        type="string"
+        length="1"
+        follows="left|top"
+        height="28"
+        layout="topleft"
+        left="250"
+        top_delta="0"
+        width="220"
+        font="SansSerifSmall"
+        text_color="LtGray"
+        word_wrap="true">
+        Delete log files. Immediate effect.
+      </text>
+
+      <!-- RAM Cache (KVRAM Cache) -->
+      <button
+        follows="left|top"
+        height="28"
+        label="Purge RAM Cache"
+        layout="topleft"
+        left="20"
+        name="purge_ram_cache_btn"
+        top_pad="12"
+        width="220"
+        tool_tip="Clear passive texture buffer in RAM (immediate effect)" />
+
+      <text
+        type="string"
+        length="1"
+        follows="left|top"
+        height="28"
+        layout="topleft"
+        left="250"
+        top_delta="0"
+        width="220"
+        font="SansSerifSmall"
+        text_color="LtGray"
+        word_wrap="true">
+        Clear KVRAM user-configurable texture buffer. Immediate effect.
+      </text>
+
+      <!-- Factory Reset - Big Red Button -->
+      <text
+        type="string"
+        length="1"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="10"
+        top_pad="28"
+        width="460"
+        font="SansSerifBold"
+        text_color="Red">
+        🚨 NUCLEAR OPTION
+      </text>
+
+      <button
+        follows="left|top"
+        height="35"
+        label="⚠ FACTORY RESET EVERYTHING ⚠"
+        layout="topleft"
+        left="20"
+        name="factory_reset_btn"
+        top_pad="10"
+        width="450"
+        font="SansSerifBold"
+        tool_tip="DANGER: Purges ALL caches, ALL settings, returns to FIRST RUN state (requires restart)">
+        <button.commit_callback
+          function="Floater.Show"
+          parameter="factory_reset_confirm" />
+      </button>
+
+      <text
+        type="string"
+        length="1"
+        follows="left|top"
+        height="32"
+        layout="topleft"
+        left="20"
+        top_pad="8"
+        width="450"
+        font="SansSerifSmall"
+        text_color="Red"
+        word_wrap="true">
+        ⚠ DANGER: Deletes ALL caches and settings! Returns viewer to first-run state. Last resort only!
+      </text>
+
+    </panel>
+
+    <!-- ==================== TAB: SMOOTH MOVEMENT (S24) ==================== -->
+    <panel
+      border="true"
+      follows="all"
+      height="585"
+      label="Movement"
+      layout="topleft"
+      left="1"
+      help_topic="tweaks_tab_movement"
+      name="tab_movement"
+      top="20"
+      width="490">
+
+      <!-- GROUND MOVEMENT SECTION -->
+      <text
+        type="string"
+        length="1"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="10"
+        top="10"
+        width="460"
+        font="SansSerifBold"
+        text_color="White">
+        🚶 Ground Movement Smoothing
+      </text>
+
+      <check_box
+        control_name="SmoothKeyboardMovement"
+        height="20"
+        initial_value="true"
+        label="Enable Ground Movement Smoothing"
+        layout="topleft"
+        left="20"
+        top_pad="10"
+        name="enable_smooth_movement"
+        width="400"
+        tool_tip="Smooth acceleration/deceleration for walking and running" />
+
+      <text
+        type="string"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="30"
+        top_pad="15"
+        width="150"
+        font="SansSerif">
+        Acceleration:
+      </text>
+      <slider
+        control_name="SmoothMovementAccelTime"
+        decimal_digits="2"
+        follows="left|top"
+        height="20"
+        increment="0.05"
+        initial_value="0.20"
+        layout="topleft"
+        left="180"
+        min_val="0.05"
+        max_val="1.0"
+        name="smooth_movement_accel_time"
+        tool_tip="Time to reach full speed when walking/running"
+        top_delta="-3"
+        width="200" />
+      <text
+        type="string"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left_pad="10"
+        name="ground_accel_value"
+        top_delta="3"
+        width="80"
+        font="SansSerif"
+        text_color="LtGray">
+        0.20s
+      </text>
+
+      <text
+        type="string"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="30"
+        top_pad="10"
+        width="150"
+        font="SansSerif">
+        Deceleration:
+      </text>
+      <slider
+        control_name="SmoothMovementDecelTime"
+        decimal_digits="2"
+        follows="left|top"
+        height="20"
+        increment="0.05"
+        initial_value="0.25"
+        layout="topleft"
+        left="180"
+        min_val="0.05"
+        max_val="1.0"
+        name="smooth_movement_decel_time"
+        tool_tip="Time to come to a stop when walking/running"
+        top_delta="-3"
+        width="200" />
+      <text
+        type="string"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left_pad="10"
+        name="ground_decel_value"
+        top_delta="3"
+        width="80"
+        font="SansSerif"
+        text_color="LtGray">
+        0.25s
+      </text>
+
+      <!-- FLIGHT MOVEMENT SECTION -->
+      <text
+        type="string"
+        length="1"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="10"
+        top_pad="25"
+        width="460"
+        font="SansSerifBold"
+        text_color="White">
+        ✈️ Flight Movement Smoothing
+      </text>
+
+      <text
+        type="string"
+        length="1"
+        follows="left|top"
+        height="32"
+        layout="topleft"
+        left="20"
+        top_pad="5"
+        width="450"
+        font="SansSerifSmall"
+        text_color="LtGray"
+        word_wrap="true">
+        Reduces flight control sensitivity and eliminates overshoot. Makes flying feel controlled and precise instead of twitchy!
+      </text>
+
+      <check_box
+        control_name="SmoothFlightMovement"
+        height="20"
+        initial_value="true"
+        label="Enable Flight Movement Smoothing"
+        layout="topleft"
+        left="20"
+        top_pad="10"
+        name="enable_smooth_flight"
+        width="400"
+        tool_tip="Smooth acceleration/deceleration for flight controls - reduces overshoot" />
+
+      <text
+        type="string"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="30"
+        top_pad="15"
+        width="150"
+        font="SansSerif">
+        Flight Acceleration:
+      </text>
+      <slider
+        control_name="SmoothFlightAccelTime"
+        decimal_digits="2"
+        follows="left|top"
+        height="20"
+        increment="0.05"
+        initial_value="0.15"
+        layout="topleft"
+        left="180"
+        min_val="0.05"
+        max_val="1.0"
+        name="smooth_flight_accel_time"
+        tool_tip="Time to reach full flight speed"
+        top_delta="-3"
+        width="200" />
+      <text
+        type="string"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left_pad="10"
+        name="flight_accel_value"
+        top_delta="3"
+        width="80"
+        font="SansSerif"
+        text_color="LtGray">
+        0.15s
+      </text>
+
+      <text
+        type="string"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="30"
+        top_pad="10"
+        width="150"
+        font="SansSerif">
+        Flight Deceleration:
+      </text>
+      <slider
+        control_name="SmoothFlightDecelTime"
+        decimal_digits="2"
+        follows="left|top"
+        height="20"
+        increment="0.05"
+        initial_value="0.20"
+        layout="topleft"
+        left="180"
+        min_val="0.05"
+        max_val="1.0"
+        name="smooth_flight_decel_time"
+        tool_tip="Time to come to a stop when flying"
+        top_delta="-3"
+        width="200" />
+      <text
+        type="string"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left_pad="10"
+        name="flight_decel_value"
+        top_delta="3"
+        width="80"
+        font="SansSerif"
+        text_color="LtGray">
+        0.20s
+      </text>
+
+      <text
+        type="string"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="30"
+        top_pad="10"
+        width="150"
+        font="SansSerif">
+        Fast Movement:
+      </text>
+      <slider
+        control_name="SmoothFlightFastThreshold"
+        decimal_digits="2"
+        follows="left|top"
+        height="20"
+        increment="0.05"
+        initial_value="0.70"
+        layout="topleft"
+        left="180"
+        min_val="0.50"
+        max_val="0.95"
+        name="smooth_flight_fast_threshold"
+        tool_tip="Threshold to trigger fast movement (lower = more responsive)"
+        top_delta="-3"
+        width="200" />
+      <text
+        type="string"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left_pad="10"
+        name="flight_threshold_value"
+        top_delta="3"
+        width="80"
+        font="SansSerif"
+        text_color="LtGray">
+        70%
+      </text>
+
+      <text
+        type="string"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="30"
+        top_pad="10"
+        width="150"
+        font="SansSerif">
+        Min. Activation:
+      </text>
+      <slider
+        control_name="SmoothFlightMinThreshold"
+        decimal_digits="2"
+        follows="left|top"
+        height="20"
+        increment="0.05"
+        initial_value="0.15"
+        layout="topleft"
+        left="180"
+        min_val="0.0"
+        max_val="0.50"
+        name="smooth_flight_min_threshold"
+        tool_tip="Dead zone before any movement starts - higher = more damping of initial boost"
+        top_delta="-3"
+        width="200" />
+      <text
+        type="string"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left_pad="10"
+        name="flight_min_threshold_value"
+        top_delta="3"
+        width="80"
+        font="SansSerif"
+        text_color="LtGray">
+        15%
+      </text>
+
+      <!-- HELP TEXT -->
+      <text
+        type="string"
+        length="1"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="10"
+        top_pad="20"
+        width="460"
+        font="SansSerifBold"
+        text_color="DrYellow">
+        💡 Understanding The Settings
+      </text>
+
+      <text
+        type="string"
+        length="1"
+        follows="left|top"
+        height="80"
+        layout="topleft"
+        left="20"
+        top_pad="5"
+        width="450"
+        font="SansSerifSmall"
+        text_color="LtGray"
+        word_wrap="true">
+        Movement smoothing adds analog-style ramping to keyboard controls:
+
+        • GROUND: For walking/running smoothness
+        • FLIGHT: For controlled, precise flying without overshoot
+        • LOWER VALUES: More responsive but potentially jerky
+        • HIGHER VALUES: Smoother but less immediate response
+      </text>
+
+      <!-- RESET BUTTON -->
+      <button
+        label="Reset Movement Defaults"
+        name="reset_movement_btn"
+        top_pad="15"
+        left="20"
+        width="220"
+        height="25"
+        tool_tip="Reset all movement smoothing settings to defaults" />
+
+    </panel>
+
+  </tab_container>
+
+  <!-- Bottom border -->
+  <view_border
+    bevel_style="in"
+    height="0"
+    layout="topleft"
+    left="13"
+    name="horiz_border"
+    top="650"
+    width="614"/>
+
+  <!-- Hidden dummy checkboxes for preset save/load -->
+  <check_box
+    control_name="RenderAvatarMaxComplexity"
+    visible="false"
+    height="0"
+    label="RenderAvatarMaxComplexity"
+    layout="topleft"
+    left="0"
+    name="RenderAvatarMaxComplexity"
+    top="0"
+    width="0" />
+
+
+  </floater>
+

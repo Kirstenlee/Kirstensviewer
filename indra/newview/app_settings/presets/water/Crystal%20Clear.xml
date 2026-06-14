@@ -1,0 +1,180 @@
+<llsd>
+    <map>
+    <key>PresetWaterActive</key>
+        <map>
+        <key>Comment</key>
+            <string>Name of currently selected water shader preset</string>
+        <key>Persist</key>
+            <integer>1</integer>
+        <key>Type</key>
+            <string>String</string>
+        <key>Value</key>
+            <string>Crystal Clear</string>
+        </map>
+    <key>RenderWaterColorTintA</key>
+        <map>
+        <key>Comment</key>
+            <string>S24 Advanced - Water color tint Alpha/strength (0.0-1.0). 0.0=no tint, 1.0=full tint effect</string>
+        <key>Persist</key>
+            <integer>1</integer>
+        <key>Type</key>
+            <string>F32</string>
+        <key>Value</key>
+            <real>1</real>
+        </map>
+    <key>RenderWaterColorTintB</key>
+        <map>
+        <key>Comment</key>
+            <string>S24 Advanced - Water color tint Blue channel (0.0-2.0). 1.0=neutral, &lt;1.0=less blue, &gt;1.0=more blue</string>
+        <key>Persist</key>
+            <integer>1</integer>
+        <key>Type</key>
+            <string>F32</string>
+        <key>Value</key>
+            <real>0.5</real>
+        </map>
+    <key>RenderWaterColorTintG</key>
+        <map>
+        <key>Comment</key>
+            <string>S24 Advanced - Water color tint Green channel (0.0-2.0). 1.0=neutral, &lt;1.0=less green, &gt;1.0=more green</string>
+        <key>Persist</key>
+            <integer>1</integer>
+        <key>Type</key>
+            <string>F32</string>
+        <key>Value</key>
+            <real>0.5</real>
+        </map>
+    <key>RenderWaterColorTintR</key>
+        <map>
+        <key>Comment</key>
+            <string>S24 Advanced - Water color tint Red channel (0.0-2.0). 1.0=neutral, &lt;1.0=less red, &gt;1.0=more red</string>
+        <key>Persist</key>
+            <integer>1</integer>
+        <key>Type</key>
+            <string>F32</string>
+        <key>Value</key>
+            <real>0.650000035762786865234375</real>
+        </map>
+    <key>RenderWaterFresnelPower</key>
+        <map>
+        <key>Comment</key>
+            <string>S24 Advanced - Fresnel power curve for water reflections. HARDCODED as 2.0 (df3*df3) in stock viewer! 1.0=linear soft, 2.0=normal, 4.0=sharp dramatic edges</string>
+        <key>Persist</key>
+            <integer>1</integer>
+        <key>Type</key>
+            <string>F32</string>
+        <key>Value</key>
+            <real>2.2000000476837158203125</real>
+        </map>
+    <key>RenderWaterMetallic</key>
+        <map>
+        <key>Comment</key>
+            <string>S24 - Metallic factor for water surface (0.0 = dielectric glass-like, 1.0 = fully metallic mirror-like). HARDCODED as 1.0 in stock viewer!</string>
+        <key>Persist</key>
+            <integer>1</integer>
+        <key>Type</key>
+            <string>F32</string>
+        <key>Value</key>
+            <real>0.5</real>
+        </map>
+    <key>RenderWaterReflectionIntensity</key>
+        <map>
+        <key>Comment</key>
+            <string>S24 - Intensity multiplier for water reflections. Reduces or boosts reflection visibility. Lower = less mirror-like water.</string>
+        <key>Persist</key>
+            <integer>1</integer>
+        <key>Type</key>
+            <string>F32</string>
+        <key>Value</key>
+            <real>0</real>
+        </map>
+    <key>RenderWaterReflectionWarmth</key>
+        <map>
+        <key>Comment</key>
+            <string>S24 Advanced - Reflection color temperature/warmth. &lt;1.0=cool/cold, 1.0=neutral, &gt;1.0=warm/golden. Artistic color grading for reflections.</string>
+        <key>Persist</key>
+            <integer>1</integer>
+        <key>Type</key>
+            <string>F32</string>
+        <key>Value</key>
+            <real>0.5</real>
+        </map>
+    <key>RenderWaterRoughnessOverride</key>
+        <map>
+        <key>Comment</key>
+            <string>S24 - Direct roughness control for water (0.0 = use environment blur multiplier, 0.01-1.0 = override with this value). Controls surface smoothness.</string>
+        <key>Persist</key>
+            <integer>1</integer>
+        <key>Type</key>
+            <string>F32</string>
+        <key>Value</key>
+            <real>0</real>
+        </map>
+    <key>RenderWaterSSRIterations</key>
+        <map>
+        <key>Comment</key>
+            <string>Number of ray march iterations for water Screen Space Reflections. Higher values = better quality, lower performance.</string>
+        <key>Persist</key>
+            <integer>1</integer>
+        <key>Type</key>
+            <string>S32</string>
+        <key>Value</key>
+            <real>0</real>
+        </map>
+    <key>RenderWaterSSRRayStep</key>
+        <map>
+        <key>Comment</key>
+            <string>Step size for water SSR ray marching. Larger values = longer reflection distance but lower accuracy.</string>
+        <key>Persist</key>
+            <integer>1</integer>
+        <key>Type</key>
+            <string>F32</string>
+        <key>Value</key>
+            <real>0.05000000074505805969238281</real>
+        </map>
+    <key>RenderWaterShoreFadeDistance</key>
+        <map>
+        <key>Comment</key>
+            <string>S24 Advanced - Shore transition fade distance. HARDCODED as 60 in stock viewer! Lower=softer beach transition, Higher=sharper rocky coastline</string>
+        <key>Persist</key>
+            <integer>1</integer>
+        <key>Type</key>
+            <string>F32</string>
+        <key>Value</key>
+            <real>40</real>
+        </map>
+    <key>RenderWaterSpecularIntensity</key>
+        <map>
+        <key>Comment</key>
+            <string>S24 - Intensity multiplier for water specular highlights (sun/moon sparkles). Higher values = brighter highlights.</string>
+        <key>Persist</key>
+            <integer>1</integer>
+        <key>Type</key>
+            <string>F32</string>
+        <key>Value</key>
+            <real>5</real>
+        </map>
+    <key>RenderWaterUnderwaterFogMult</key>
+        <map>
+        <key>Comment</key>
+            <string>S24 Advanced - Underwater fog density multiplier. Controls underwater visibility independently. 0.3=crystal clear, 1.0=normal, 3.0=very murky</string>
+        <key>Persist</key>
+            <integer>1</integer>
+        <key>Type</key>
+            <string>F32</string>
+        <key>Value</key>
+            <real>0.4000000000000000222044605</real>
+        </map>
+    <key>RenderWaterWaveSpeed</key>
+        <map>
+        <key>Comment</key>
+            <string>S24 Advanced - Wave animation speed multiplier. 0.5=slow calm water, 1.0=normal, 2.0=fast stormy water</string>
+        <key>Persist</key>
+            <integer>1</integer>
+        <key>Type</key>
+            <string>F32</string>
+        <key>Value</key>
+            <real>0.300000011920928955078125</real>
+        </map>
+    </map>
+</llsd>

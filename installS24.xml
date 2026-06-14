@@ -1,0 +1,415 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  ============================================================================
+  installS24.xml - Package Manifest for Kirsten's Viewer (S24)
+  ============================================================================
+  Copyright (c) 2025-2026 Kirsten's Viewer Contributors
+  SPDX-License-Identifier: MIT
+
+  Consumed by: scripts/DownloadAndUnpack.ps1
+  Tracks state: installed-packages.json (auto-generated ledger)
+
+  PACKAGE TYPES
+  =============
+  Each <package> must contain a <type> set to "tarball" or "vcpkg".
+
+  TARBALL ELEMENTS
+  ================
+    <type>       Required.  "tarball"
+    <name>       Required.  Unique package identifier (ledger key).
+    <url>        Required.  HTTPS URL to a .tar.gz / .tar.bz2 / .tar.zst archive.
+    <md5>        Optional.  Hex MD5 digest; validated on download when present.
+
+  VCPKG ELEMENTS
+  ==============
+    <type>       Required.  "vcpkg"
+    <name>       Required.  vcpkg port name (e.g. "openssl", "zlib-ng").
+    <triplet>    Optional.  Target triplet.  Default: "x64-windows".
+    <version>    Optional.  Pin to exact version (e.g. "1.1.1n").
+                            Triggers manifest-mode with a vcpkg.json override;
+                            classic mode does not support version pinning.
+    <features>   Optional.  Comma-separated feature list
+                            (e.g. "zlib,pkcrypt,wzaes,lzma,zstd,bzip2").
+    <args>       Optional.  Space-separated extra vcpkg CLI arguments
+                            (e.g. "- -overlay-ports=./custom-ports").
+
+  EXAMPLES
+  ========
+    Tarball:
+      <package>
+          <type>tarball</type>
+          <name>boost</name>
+          <url>https://example.com/boost.tar.gz</url>
+          <md5>690c477192accf038b42f6a7d7099b54</md5>
+      </package>
+
+    vcpkg (latest, default triplet):
+      <package>
+          <type>vcpkg</type>
+          <name>glm</name>
+      </package>
+
+    vcpkg (features + triplet):
+      <package>
+          <type>vcpkg</type>
+          <name>minizip-ng</name>
+          <features>zlib,pkcrypt,wzaes</features>
+          <triplet>x64-windows-static</triplet>
+      </package>
+
+    vcpkg (pinned version):
+      <package>
+          <type>vcpkg</type>
+          <name>openssl</name>
+          <version>1.1.1n</version>
+          <triplet>x64-windows-static</triplet>
+      </package>
+  ============================================================================
+-->
+<packages>
+
+	<!-- ================================================================ -->
+	<!-- AUDIO & MEDIA LIBRARIES                                          -->
+	<!-- ================================================================ -->
+
+	<package>
+		<type>tarball</type>
+		<name>fmod</name>
+		<url>https://kirstensviewer.s3.eu-north-1.amazonaws.com/S24/fmod.tar.gz</url>
+		<md5>074c242528ce798de3890abf3f6d68c8</md5>
+	</package>
+
+	<package>
+		<type>vcpkg</type>
+		<name>libvorbis</name>
+		<triplet>x64-windows-static-extreme</triplet>
+		<args>--overlay-triplets=triplets</args>
+	</package>
+
+	<package>
+		<type>vcpkg</type>
+		<name>openal-soft</name>
+		<triplet>x64-windows-static-extreme</triplet>
+		<args>--overlay-triplets=triplets</args>
+	</package>
+
+	<package>
+		<type>tarball</type>
+		<name>vlc_bin</name>
+		<url>https://kirstensviewer.s3.eu-north-1.amazonaws.com/S24/vlc_bin.tar.gz</url>
+		<md5>de1ddf8e242194fdb40a9e9ce0923bef</md5>
+	</package>
+
+	<package>
+		<type>tarball</type>
+		<name>webrtc</name>
+		<url>https://kirstensviewer.s3.eu-north-1.amazonaws.com/S24/webrtc.tar.gz</url>
+		<md5>948374641efde477e2fb3f40398c34f0</md5>
+	</package>
+
+	<!-- ================================================================ -->
+	<!-- COMPRESSION & ARCHIVING                                          -->
+	<!-- ================================================================ -->
+
+	<package>
+		<type>vcpkg</type>
+		<name>minizip-ng</name>
+		<features>zlib,pkcrypt,wzaes,lzma,zstd,bzip2</features>
+		<triplet>x64-windows-static-extreme</triplet>
+		<args>--overlay-triplets=triplets</args>
+	</package>
+
+	<package>
+		<type>vcpkg</type>
+		<name>zlib</name>
+		<triplet>x64-windows-static-viewer</triplet>
+		<args>--overlay-triplets=triplets</args>
+	</package>
+
+	<package>
+		<type>vcpkg</type>
+		<name>zlib-ng</name>
+		<triplet>x64-windows-static-viewer</triplet>
+		<args>--overlay-triplets=triplets</args>
+	</package>
+
+	<!-- ================================================================ -->
+	<!-- CORE SYSTEM LIBRARIES                                            -->
+	<!-- ================================================================ -->
+
+	<package>
+		<type>vcpkg</type>
+		<name>apr-util</name>
+		<triplet>x64-windows-static-extreme</triplet>
+		<args>--overlay-triplets=triplets</args>
+	</package>
+
+	<package>
+		<type>tarball</type>
+		<name>boost</name>
+		<url>https://kirstensviewer.s3.eu-north-1.amazonaws.com/S24/boost.tar.gz</url>
+		<md5>690c477192accf038b42f6a7d7099b54</md5>
+	</package>
+
+	<package>
+		<type>vcpkg</type>
+		<name>expat</name>
+		<triplet>x64-windows-static-extreme</triplet>
+		<args>--overlay-triplets=triplets</args>
+	</package>
+
+	<package>
+		<type>vcpkg</type>
+		<name>libxml2</name>
+		<features>iconv</features>
+		<triplet>x64-windows-static-libxml</triplet>
+		<args>--overlay-triplets=triplets</args>
+	</package>
+
+	<package>
+		<type>vcpkg</type>
+		<name>libiconv</name>
+		<triplet>x64-windows-static-libxml</triplet>
+		<args>--overlay-triplets=triplets</args>
+	</package>
+
+	<package>
+		<type>vcpkg</type>
+		<name>xxhash</name>
+		<triplet>x64-windows-static-extreme</triplet>
+		<args>--overlay-triplets=triplets</args>
+	</package>
+
+	<!-- ================================================================ -->
+	<!-- FONTS & TEXT RENDERING                                           -->
+	<!-- ================================================================ -->
+
+	<package>
+		<type>tarball</type>
+		<name>dictionaries</name>
+		<url>https://kirstensviewer.s3.eu-north-1.amazonaws.com/S24/dictionaries.tar.gz</url>
+		<md5>f673d75d0a80f144539f1e1dfc4d7cc1</md5>
+	</package>
+
+	<package>
+		<type>tarball</type>
+		<name>emoji_shortcodes</name>
+		<url>https://kirstensviewer.s3.eu-north-1.amazonaws.com/S24/emoji_shortcodes.tar.gz</url>
+		<md5>22840184d724c49392da6aecdbadfcf3</md5>
+	</package>
+
+	<package>
+		<type>vcpkg</type>
+		<name>freetype</name>
+		<triplet>x64-windows-static-moderate</triplet>
+		<args>--overlay-triplets=triplets</args>
+	</package>
+
+	<!-- DO NOT enable NLS for hunspell !! -->
+	<package>
+		<type>vcpkg</type>
+		<name>hunspell</name>
+		<triplet>x64-windows-static-hunspell</triplet>
+		<args>--overlay-triplets=triplets</args>
+	</package>
+
+	<package>
+		<type>tarball</type>
+		<name>viewer_fonts</name>
+		<url>https://kirstensviewer.s3.eu-north-1.amazonaws.com/S24/viewer_fonts.tar.gz</url>
+		<md5>e903ccef5f63747219ac235625095ad1</md5>
+	</package>
+
+	<!-- ================================================================ -->
+	<!-- GRAPHICS & RENDERING                                             -->
+	<!-- ================================================================ -->
+
+	<package>
+		<type>tarball</type>
+		<name>colladadom</name>
+		<url>https://kirstensviewer.s3.eu-north-1.amazonaws.com/S24/colladadom.tar.gz</url>
+		<md5>5a7621e15e5cc2513c3c79d4f3e6179d</md5>
+	</package>
+
+	<package>
+		<type>tarball</type>
+		<name>cubemaptoequiretangular</name>
+		<url>https://kirstensviewer.s3.eu-north-1.amazonaws.com/S24/cubemaptoequiretangular.tar.gz</url>
+		<md5>63c1ea419817978c2ea0f7f5829b07f2</md5>
+	</package>
+
+	<package>
+		<type>tarball</type>
+		<name>glext</name>
+		<url>https://kirstensviewer.s3.eu-north-1.amazonaws.com/S24/glext.tar.gz</url>
+		<md5>954185e9f8af0ffcfacea29b3473ef45</md5>
+	</package>
+
+	<package>
+    <type>tarball</type>
+    <name>glh_linear</name>
+    <url>https://kirstensviewer.s3.eu-north-1.amazonaws.com/S24/glh_linear.tar.gz</url>
+    <md5>3b93662be383ed9f24d186119e06c077</md5>
+	</package>
+	
+	<package>
+		<type>vcpkg</type>
+		<name>glm</name>
+		<triplet>x64-windows-static-viewer</triplet>
+		<args>--overlay-triplets=triplets</args>
+	</package>
+
+	<!-- KV OpenCL headers and Libs for compute usage cross platform!    -->
+	<package>
+		<type>vcpkg</type>
+		<name>opencl</name>
+		<triplet>x64-windows-static-moderate</triplet>
+		<args>--overlay-triplets=triplets</args>
+	</package>
+
+	<package>
+		<type>tarball</type>
+		<name>meshoptimizer</name>
+		<url>https://kirstensviewer.s3.eu-north-1.amazonaws.com/S24/meshoptimizer.tar.gz</url>
+		<md5>2a118cc2075f3e02300151349f123aa6</md5>
+	</package>
+
+	<package>
+		<type>tarball</type>
+		<name>mikktspace</name>
+		<url>https://kirstensviewer.s3.eu-north-1.amazonaws.com/S24/mikktspace.tar.gz</url>
+		<md5>7c45c0d64457d5c56f872c9ec182f9e7</md5>
+	</package>
+
+	<package>
+		<type>vcpkg</type>
+		<name>nanosvg</name>
+	</package>
+
+	<package>
+		<type>tarball</type>
+		<name>nvapi</name>
+		<url>https://kirstensviewer.s3.eu-north-1.amazonaws.com/S24/nvapi.tar.gz</url>
+		<md5>d4e103d2992605542b2a6438579e88fe</md5>
+	</package>
+
+	<package>
+		<type>vcpkg</type>
+		<name>openxr-loader</name>
+		<triplet>x64-windows-static-moderate</triplet>
+		<args>--overlay-triplets=triplets</args>
+	</package>
+
+	<package>
+		<type>tarball</type>
+		<name>threejs</name>
+		<url>https://kirstensviewer.s3.eu-north-1.amazonaws.com/S24/threejs.tar.gz</url>
+		<md5>178036023261dd3e31e89373d4a2230c</md5>
+	</package>
+
+	<package>
+		<type>tarball</type>
+		<name>tinygltf</name>
+		<url>https://kirstensviewer.s3.eu-north-1.amazonaws.com/S24/tinygltf.tar.gz</url>
+		<md5>1e9af3850b0d3e3ec2f7992cd07c7a25</md5>
+	</package>
+
+	<!-- ================================================================ -->
+	<!-- IMAGE & TEXTURE PROCESSING                                       -->
+	<!-- ================================================================ -->
+
+	<package>
+		<type>tarball</type>
+		<name>jpegencoderbasic</name>
+		<url>https://kirstensviewer.s3.eu-north-1.amazonaws.com/S24/jpegencoderbasic.tar.gz</url>
+		<md5>67dbb05b084db27cd4e13d4e13c798cb</md5>
+	</package>
+
+	<package>
+		<type>vcpkg</type>
+		<name>libjpeg-turbo</name>
+		<triplet>x64-windows-static-viewer</triplet>
+		<args>--overlay-triplets=triplets</args>
+	</package>
+
+	<package>
+		<type>vcpkg</type>
+		<name>libpng</name>
+		<triplet>x64-windows-static-viewer</triplet>
+		<args>--overlay-triplets=triplets</args>
+	</package>
+
+	<package>
+    <type>tarball</type>
+		<name>tinyexr</name>
+    <url>https://kirstensviewer.s3.eu-north-1.amazonaws.com/S24/tinyexr.tar.gz</url>
+    <md5>432e89e0b69b5a9cad29d5ca4bc91494</md5>
+	</package>
+
+	<!-- ================================================================ -->
+	<!-- INPUT & HARDWARE SUPPORT                                         -->
+	<!-- ================================================================ -->
+
+	<package>
+		<type>tarball</type>
+		<name>libndofdev</name>
+		<url>https://kirstensviewer.s3.eu-north-1.amazonaws.com/S24/libndofdev.tar.gz</url>
+		<md5>f7f0087ee73b9862cc1cccc863a1a011</md5>
+	</package>
+
+	<!-- ================================================================ -->
+	<!-- NETWORKING & WEB                                                 -->
+	<!-- ================================================================ -->
+
+	<package>
+		<type>vcpkg</type>
+		<name>openssl</name>
+		<version>1.1.1n#1</version>
+		<triplet>x64-windows-static-extreme</triplet>
+		<args>--overlay-triplets=triplets</args>
+	</package>
+
+	<package>
+		<type>vcpkg</type>
+		<name>nghttp2</name>
+		<triplet>x64-windows-static-extreme</triplet>
+		<args>--overlay-triplets=triplets</args>
+	</package>
+
+	<package>
+		<type>tarball</type>
+		<name>curl</name>
+		<url>https://kirstensviewer.s3.eu-north-1.amazonaws.com/S24/curl.tar.gz</url>
+		<md5>f0bd38381b9d199431e710758136537a</md5>
+	</package>
+
+	<package>
+		<type>tarball</type>
+		<name>dullahan-chromium</name>
+		<url>https://kirstensviewer.s3.eu-north-1.amazonaws.com/S24/dullahan-chromium.tar.gz</url>
+		<md5>de6b7f19d42964018ceeeab90dff5569</md5>
+	</package>
+
+	<!-- ================================================================ -->
+	<!-- PROPRIETARY & THIRD-PARTY                                        -->
+	<!-- ================================================================ -->
+
+	<package>
+		<type>tarball</type>
+		<name>llca</name>
+		<url>https://kirstensviewer.s3.eu-north-1.amazonaws.com/S24/llca.tar.gz</url>
+		<md5>50cbee9b27b728d75a773f176a8da8e2</md5>
+	</package>
+<!--
+	<package>
+		<type>tarball</type>
+		<name>slvoice</name>
+		<url>https://kirstensviewer.s3.eu-north-1.amazonaws.com/S24/slvoice.tar.gz</url>
+		<md5>851f4d4587a7b356265733d6b93e176b</md5>
+	</package>
+-->
+
+	<!-- ================================================================ -->
+	<!-- TESTING & DEVELOPMENT                                            -->
+	<!-- ================================================================ -->
+</packages>

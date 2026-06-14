@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes" ?>
+<panel
+ follows="left|top|right"
+ height="110"
+ layout="topleft"
+ left="0"
+ top="0"
+ name="panel_snapshot_presets"
+ width="228">
+  <text
+   type="string"
+   length="1"
+   follows="left|top"
+   font="SansSerifBold"
+   halign="left"
+   height="14"
+   layout="topleft"
+   left="8"
+   top="4"
+   name="presets_title"
+   width="200">
+    Format Presets
+  </text>
+  <button follows="left|top" height="22" label="16:9  1080p"  layout="topleft" left="8"   top="24" name="preset_169_1080"      width="104" />
+  <button follows="left|top" height="22" label="16:9  4K"     layout="topleft" left="116" top="24" name="preset_169_4k"        width="104" />
+  <button follows="left|top" height="22" label="9:16  Reel"   layout="topleft" left="8"   top="50" name="preset_916_reel"      width="104" />
+  <button follows="left|top" height="22" label="1:1  Square"  layout="topleft" left="116" top="50" name="preset_11_square"     width="104" />
+  <button follows="left|top" height="22" label="2.39:1 Cine"  layout="topleft" left="8"   top="76" name="preset_239_cine"      width="104" />
+  <button follows="left|top" height="22" label="Current Win"  layout="topleft" left="116" top="76" name="preset_current_window" width="104" />
+</panel>

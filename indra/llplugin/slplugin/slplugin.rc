@@ -1,0 +1,49 @@
+// slplugin.rc – version info for Defender heuristics
+
+// RC.EXE (Resource Compiler) cannot parse C++ code.
+// Prevent windows.h from including DirectXMath and other C++ headers.
+//#define RC_INVOKED
+#define NOCOMM
+#define NODRAWTEXT
+#define NOGDI
+#define NOICONS
+#define NOKEYSTATES
+#define NOMCX
+#define NOMEMMGR
+#define NOMETAFILE
+//#define NOMINMAX
+#define NOOPENFILE
+#define NOSCROLL
+#define NOSERVICE
+#define NOSOUND
+#define NOTEXTMETRIC
+#define NOWH
+#define NOWINOFFSETS
+#define NOKANJI
+
+#include <windows.h>
+
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION 1, 0, 0, 0
+PRODUCTVERSION 1, 0, 0, 0
+FILEOS 0x4
+FILETYPE 0x1
+{
+    BLOCK "StringFileInfo"
+    {
+        BLOCK "040904b0"
+        {
+            VALUE "CompanyName", "Kirstens Viewer Project"
+                VALUE "FileDescription", "SLPlugin Headless Viewer Component"
+                VALUE "FileVersion", "1.0.0.0"
+                VALUE "InternalName", "slplugin.exe"
+                VALUE "OriginalFilename", "slplugin.exe"
+                VALUE "ProductName", "Kirstens Viewer"
+                VALUE "ProductVersion", "1.0.0.0"
+        }
+    }
+    BLOCK "VarFileInfo"
+    {
+        VALUE "Translation", 0x0409, 1200
+    }
+}

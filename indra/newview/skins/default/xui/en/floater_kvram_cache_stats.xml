@@ -1,0 +1,170 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes" ?>
+<floater
+  legacy_header_height="18"
+  height="280"
+  layout="topleft"
+  name="kvram_cache_stats"
+  help_topic="kvram_cache_stats"
+  save_rect="true"
+  title="KVRAM Cache Statistics"
+  width="450">
+
+  <!-- Background - S24: Made transparent/darker and compact -->
+  <panel
+    follows="all"
+    height="260"
+    layout="topleft"
+    left="5"
+    top="20"
+    width="440"
+    bg_opaque_color="Black_10"
+    background_visible="true"
+    background_opaque="true">
+
+    <!-- Header -->
+    <text
+      type="string"
+      follows="left|top"
+      font="SansSerifLarge"
+      height="20"
+      layout="topleft"
+      left="10"
+      name="header"
+      top="10"
+      width="420"
+      text_color="White">
+      📊 KVRAM Cache - RAM Texture Buffer
+    </text>
+
+    <!-- RAM Usage Section -->
+    <text
+      type="string"
+      follows="left|top"
+      font="SansSerifBold"
+      height="16"
+      layout="topleft"
+      left="10"
+      top="40"
+      width="200"
+      text_color="LtGray">
+      RAM Usage:
+    </text>
+
+    <!-- RAM Usage Bar - S24: Dynamic color blue→purple→red -->
+    <progress_bar
+      name="ram_usage_bar"
+      follows="left|top"
+      height="16"
+      layout="topleft"
+      left="10"
+      top="58"
+      width="420"/>
+
+    <text
+      name="ram_usage_text"
+      type="string"
+      follows="left|top"
+      font="SansSerifSmall"
+      height="16"
+      layout="topleft"
+      left="10"
+      top="78"
+      width="420"
+      text_color="White">
+      0 MB / 0 MB
+    </text>
+
+    <text
+      name="texture_count_text"
+      type="string"
+      follows="left|top"
+      font="SansSerifSmall"
+      height="16"
+      layout="topleft"
+      left="10"
+      top="94"
+      width="420"
+      text_color="LtGray">
+      0 textures in RAM
+    </text>
+
+    <!-- Hit Rate Section -->
+    <text
+      type="string"
+      follows="left|top"
+      font="SansSerifBold"
+      height="16"
+      layout="topleft"
+      left="10"
+      top="121"
+      width="200"
+      text_color="LtGray">
+      Cache Hit Rate:
+    </text>
+
+    <!-- Cache Hit Rate Bar - S24: Dynamic color red→yellow→green -->
+    <progress_bar
+      name="hit_rate_bar"
+      follows="left|top"
+      height="16"
+      layout="topleft"
+      left="10"
+      top="139"
+      width="420"/>
+
+    <text
+      name="hit_rate_text"
+      type="string"
+      follows="left|top"
+      font="SansSerifSmall"
+      height="16"
+      layout="topleft"
+      left="10"
+      top="159"
+      width="420"
+      text_color="White">
+      0% (0 hits / 0 queries)
+    </text>
+
+    <!-- Eviction Pressure Gauge (repurposed equilibrium bar) -->
+    <text
+      type="string"
+      follows="left|top"
+      font="SansSerifBold"
+      height="16"
+      layout="topleft"
+      left="10"
+      top="186"
+      width="200"
+      text_color="LtGray">
+      Eviction Pressure:
+    </text>
+
+    <!-- Eviction Pressure Gauge - S24: Dynamic color green→amber→red -->
+    <progress_bar
+      name="pressure_bar"
+      follows="left|top"
+      height="16"
+      layout="topleft"
+      left="10"
+      top="204"
+      width="420"/>
+
+    <text
+      name="pressure_text"
+      type="string"
+      follows="left|top"
+      font="SansSerifSmall"
+      height="16"
+      layout="topleft"
+      left="10"
+      top="224"
+      width="420"
+      text_color="White">
+      0.00x (Idle)
+    </text>
+
+    <!-- S24: Removed grey footer text - wastes UI space and barely readable -->
+
+  </panel>
+</floater>

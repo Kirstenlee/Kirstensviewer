@@ -1,0 +1,789 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes" ?>
+<!-- S24 Engine Guide - Native XML floater with instant load, no CEF overhead -->
+<floater
+ positioning="cascading"
+ legacy_header_height="18"
+ can_resize="true"
+ height="700"
+ layout="topleft"
+ min_height="500"
+ min_width="700"
+ name="floater_help_browser"
+ help_topic="floater_help_browser"
+ save_rect="true"
+ single_instance="true"
+ title="📘 S24 ENGINE GUIDE"
+ width="900">
+
+  <!-- Main tab container -->
+  <tab_container
+    follows="all"
+    height="650"
+    halign="left"
+    layout="topleft"
+    left="10"
+    name="guide_tabs"
+    tab_min_width="110"
+    tab_height="25"
+    tab_position="top"
+    top="25"
+    width="880">
+
+    <!-- ==================== HOME / OVERVIEW ==================== -->
+    <panel
+      border="true"
+      follows="all"
+      height="620"
+      label="🏠 Home"
+      layout="topleft"
+      left="1"
+      name="tab_home"
+      top="25"
+      width="860">
+
+      <text
+        type="string"
+        follows="left|top"
+        height="35"
+        layout="topleft"
+        left="20"
+        top="15"
+        width="820"
+        font="SansSerifHuge"
+        text_color="White">
+        S24 Engine - Advanced Tuning Guide
+      </text>
+
+      <text_editor follows="left|top|right|bottom" height="550" layout="topleft" left="20" top="55" width="820" font="SansSerif" word_wrap="true" text_color="LtGray" bg_readonly_color="0 0 0 0" read_only="true" hide_scrollbar="false" max_length="999999">
+Welcome to the S24 Engine Guide 🚀
+
+This guide provides quick reference for advanced settings, defaults, and tuning tips for experienced users.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📖 GUIDE SECTIONS
+
+• Common Settings - Most frequently adjusted values and defaults
+• S24 Console - Command-line interface to the viewer
+• Troubleshooting - Common issues and solutions
+• KVTweaks Tabs - Detailed breakdown of each tab
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+⚡ QUICK START
+
+• Most settings take effect IMMEDIATELY - no restart needed
+• Shader changes require: RESETS → Purge Shader Cache → Restart
+• Hover over controls in KVTweaks for detailed tooltips
+• Use RESETS tab to restore defaults or purge caches
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📂 KVTWEAKS TAB OVERVIEW
+
+CPU &amp; Memory      → Core count, thread pool, RAM/VRAM allocation
+RAM Cache          → KVRAM texture buffer: budget, thresholds, eviction timing
+Rendering          → LOD factors, draw distance, performance tuning  
+Rendering Adv      → Pool skip optimization, advanced pipeline controls
+SSR                → Screen-space reflections (global, all surfaces)
+Water              → Water appearance: metallic, roughness, color
+Shadows            → Shadow quality, bias, throttling, resolution
+Reflections        → Reflection probes: intensity, saturation, blur
+Lighting           → Ambient, sun/moon controls
+Audio              → Streaming engine, metadata, FMOD/OpenAL
+Movement           → Smooth keyboard movement with acceleration curves
+Experimental       → Selection beam styling and custom colors
+Resets             → Cache purging, settings reset, factory reset
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+💡 PRO TIP
+
+Start with the Common Settings tab to see the most frequently adjusted values 
+and their defaults. Then explore specific tabs for detailed controls.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+⚠️ IMPORTANT NOTES
+
+• These are EXPERT controls - for experienced users
+• Changes can impact stability and performance
+• TPV Policy compliant - all settings reset to Linden Lab defaults
+• Reflections/Water enhancements are opt-in and default to standard values
+• Movement smoothing is disabled by default
+      </text_editor>
+    </panel>
+
+    <!-- ==================== COMMON SETTINGS ==================== -->
+    <panel
+      border="true"
+      follows="all"
+      height="620"
+      label="⚙️ Common Settings"
+      layout="topleft"
+      left="1"
+      name="tab_common_settings"
+      top="25"
+      width="860">
+
+      <text
+        type="string"
+        follows="left|top"
+        height="30"
+        layout="topleft"
+        left="20"
+        top="15"
+        width="820"
+        font="SansSerifHuge"
+        text_color="White">
+        Common Settings Reference ⚙️
+      </text>
+
+      <text_editor follows="left|top|right|bottom" height="560" layout="topleft" left="20" top="50" width="820" font="SansSerif" word_wrap="true" text_color="LtGray" bg_readonly_color="0 0 0 0" read_only="true" hide_scrollbar="false" max_length="999999">
+Most frequently adjusted values and their defaults from settings.xml
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📊 CPU &amp; THREADING (KVTweaks → CPU &amp; Memory)
+
+EmulateCoreCount
+  Default: 0 (auto-detect)
+  Range: 0-128
+  Notes: Override CPU core count detection. 0 = auto, 1-128 = manual override
+
+KVdefault_cores
+  Default: 8
+  Range: 1-128
+  Notes: Default cores allocated for texture decode operations
+
+KVmin_cores
+  Default: 4
+  Range: 1-128
+  Notes: Minimum cores for texture decode (prevents under-allocation)
+
+KVmax_cores
+  Default: 16
+  Range: 1-128
+  Notes: Maximum cores for texture decode (prevents over-allocation)
+
+RenderCPUBasis
+  Default: 3000 MHz
+  Range: 1000-6000 MHz
+  Notes: Reference CPU frequency for GPU bias calculation
+
+RunMultipleThreads
+  Default: true
+  Notes: Keep background threads active during render
+
+RenderGLMultiThreadedTextures
+  Default: false
+  Notes: Multi-threaded OpenGL texture loading (incompatible with Intel drivers)
+
+RenderGLMultiThreadedMedia
+  Default: false
+  Notes: Multi-threaded OpenGL media playback (incompatible with Intel drivers)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+💾 MEMORY MANAGEMENT (KVTweaks → CPU &amp; Memory)
+
+MaxHeapSize64
+  Default: 16 GB
+  Range: 8-64 GB
+  Notes: Maximum heap size for viewer process
+
+RenderMaxVRAMBudget
+  Default: 0 (auto-detect)
+  Range: 0-32768 MB
+  Notes: Maximum VRAM budget. 0 = automatic detection and management
+
+RenderTextureVRAMDivisor
+  Default: 1 (100%)
+  Range: 1-10
+  Notes: VRAM divisor for texture budget. 1=100%, 2=50%, etc.
+
+RenderMinFreeMainMemoryThreshold
+  Default: 512 MB
+  Range: 128-4096 MB
+  Notes: Minimum free RAM threshold before viewer reduces memory usage
+
+NonvisibleObjectsInMemoryTime
+  Default: 300 frames
+  Range: 0-1024 (0=no limit)
+  Notes: How many frames to keep non-visible objects in memory
+
+MainWorkTime
+  Default: 1.00 ms
+  Range: 0.01-3.00 ms
+  Notes: Main loop time budget per frame
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🎨 RENDERING CORE (KVTweaks → Rendering Core)
+
+RenderVolumeLODFactor
+  Default: 2.0
+  Range: 0.5-4.0
+  Notes: Mesh detail multiplier. Higher = more detail, more GPU load
+
+RenderAvatarLODFactor
+  Default: 1.0
+  Range: 0.5-2.0
+  Notes: Avatar mesh detail multiplier
+
+RenderTerrainLODFactor
+  Default: 2.0
+  Range: 0.5-4.0
+  Notes: Terrain mesh resolution multiplier
+
+RenderTreeLODFactor
+  Default: 1.0
+  Range: 0.5-2.0
+  Notes: Legacy Linden tree detail
+
+RenderFarClip
+  Default: 128 meters
+  Range: 64-1024 meters
+  Notes: Draw distance. Higher = more objects rendered, more load
+
+RenderGeometryEmptyPoolSkip
+  Default: 1 (enabled)
+  Notes: S24 CPU optimization - skips rendering empty geometry pools
+  Location: KVTweaks → Rendering Adv
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🌊 WATER (KVTweaks → Water - S24 Exclusive System)
+
+Water Preset System
+  Location: KVTweaks → Water tab
+  Features: Save/Load/Delete custom water shader profiles
+  Notes: Complete S24 water control system with named presets
+
+WaterMetallic
+  Default: 1.0 (fully metallic mirror)
+  Range: 0.0-1.0
+  Notes: S24 runtime control - LL hardcoded at 1.0, now fully adjustable
+
+WaterRoughness
+  Default: 0.0 (use environment blur)
+  Range: 0.0-1.0
+  Notes: 0.0 = LL behavior, 0.01-1.0 = manual override for custom reflections
+
+Water Wave Direction X/Y
+  Default: Environment-controlled
+  Notes: Wave direction vectors - adjustable in real-time
+
+Water Wave Scale
+  Default: Environment-controlled
+  Notes: Wave size and detail control
+
+Water Normal Map Strength
+  Default: Environment-controlled
+  Range: 0.0-2.0+
+  Notes: Bump map intensity for surface detail
+
+Fresnel Scale &amp; Offset
+  Default: Preset-dependent
+  Notes: Water transparency vs reflection balance at viewing angles
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📦 RAM CACHE (KVTweaks → RAM Cache)
+
+KVRAMCacheEnabled
+  Default: Disabled (false)
+  Notes: Fast RAM buffer for GPU-evicted textures. Reduces disk I/O when textures 
+         are re-requested. Passive equilibrium system with user-controlled budget.
+
+KVRAMCacheRAMBudgetMB
+  Default: 2048 MB
+  Range: 256-4096 MB (in 256 MB steps)
+  Notes: RAM cache size for texture buffer. Higher values = more texture cache hits
+         before disk fetch. Monitor system RAM usage when increasing.
+
+KVRAMCacheSoftThreshold
+  Default: 0.75 (75%)
+  Range: 0.0-1.0
+  Notes: Begin gentle RAM-to-Disk eviction at this buffer usage level. Passive cleanup.
+
+KVRAMCacheHardThreshold
+  Default: 0.90 (90%)
+  Range: 0.0-1.0
+  Notes: Aggressive RAM-to-Disk eviction at this usage (emergency mode). Prevents overflow.
+
+KVRAMCacheGracePeriodSec
+  Default: 10.0 seconds
+  Range: 0.1-30.0 seconds (0.1 second steps)
+  Notes: Eviction interval. Lower = more aggressive cleanup, higher = less churn.
+
+KVRAMCacheMinDeckSize
+  Default: 100 textures
+  Range: 100-10000 textures (100 steps)
+  Notes: Minimum texture deck size. Higher = more cache hits before rotation/eviction.
+
+KVRAMCacheDebugLogging
+  Default: Disabled (false)
+  Notes: Enable verbose logging (evictions, queries, pressure). Use for diagnostics.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🌑 SHADOWS (KVTweaks → Shadows)
+
+RenderShadowResolutionScale
+  Default: 3.0
+  Notes: S24 uses advanced cascade system - higher than standard LL values
+
+Shadow Bias Settings
+  Location: KVTweaks → Shadows tab
+  Notes: Multiple bias controls (spot, deferred, terrain) - see Shadows tab for details
+
+ShadowThrottleEnabled
+  Default: true
+  Notes: LL default - reduces shadow updates when FPS drops
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+✨ REFLECTIONS (KVTweaks → Reflections)
+
+Enable Reflection Probes
+  Location: Preferences → Graphics → Advanced
+  Notes: Must be enabled for KVTweaks reflection controls to function
+
+Probe Intensity
+  Default: 1.0
+  Range: 0.0-2.0+
+  Notes: S24 runtime control - reflection strength multiplier
+
+Probe Blur LOD Bias
+  Default: 0.0
+  Notes: Adjusts reflection blur/sharpness
+
+Ambient Multiplier
+  Default: 1.0
+  Range: 0.0-2.0+
+  Notes: S24 runtime control - ambient probe contribution
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🎮 MOVEMENT (KVTweaks → Movement)
+
+SmoothMovementEnable
+  Default: Disabled (false)
+  Notes: S24 feature - off by default, purely aesthetic enhancement
+
+AccelerationTime
+  Default: 0.2 seconds
+  Notes: Time to reach full speed
+
+DecelerationTime
+  Default: 0.15 seconds
+  Notes: Time to stop from full speed
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🔬 SELECTION BEAM (Preferences → My Effects)
+
+BeamStyle
+  Default: 2 (Hybrid - Line + Glow)
+  Options: 0=Particles Only, 1=Line Only, 2=Line+Glow (Lightsaber)
+
+LineWidth
+  Default: 3.0 pixels
+  Range: 1.0-8.0 (driver may clamp)
+
+CustomColor
+  Default: Theme color from colors.xml
+  Notes: Accessible via Preferences → My Effects (Selection Beam)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+💡 PRO TIP
+
+These settings are from the actual KVTweaks tabs and settings.xml. Many are dynamically 
+managed by the viewer (VRAM, texture memory, thread counts). Start with defaults and 
+adjust incrementally while monitoring FPS and system resources.
+      </text_editor>
+    </panel>
+
+    <!-- ==================== CONSOLE COMMANDS ==================== -->
+    <panel
+      border="true"
+      follows="all"
+      height="620"
+      label="💻 S24 Console"
+      layout="topleft"
+      left="1"
+      name="tab_console"
+      top="25"
+      width="860">
+
+      <text
+        type="string"
+        follows="left|top"
+        height="30"
+        layout="topleft"
+        left="20"
+        top="15"
+        width="820"
+        font="SansSerifHuge"
+        text_color="White">
+        S24 Console Reference 💻
+      </text>
+
+      <text_editor follows="left|top|right|bottom" height="560" layout="topleft" left="20" top="50" width="820" font="SansSerif" word_wrap="true" text_color="LtGray" bg_readonly_color="0 0 0 0" read_only="true" hide_scrollbar="false" max_length="999999">
+Command-line interface to the viewer. Access with Ctrl+Shift+4
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🔍 OBJECT &amp; AVATAR COMMANDS
+
+find &lt;text&gt;
+  Search for objects by name/description in your view
+  Example: find chair
+
+top
+  List top 10 scripted objects (UNIX-style tool)
+  Filters: scripts, sounds, complex
+  Scopes: /p (parcel), /r (region), /o (owner)
+  Example: top scripts /p
+
+lookat &lt;name&gt;
+  Point camera at avatar (partial name matching)
+  Example: lookat john
+
+beacon &lt;name&gt;
+  Toggle tracking beacon on avatar
+  Example: beacon john
+
+scan
+  Show all avatars in sim with distance and position
+
+whois &lt;name&gt;
+  Show detailed avatar information (UUID, display name, profile)
+  Example: whois john
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+⚙️ SETTINGS MANAGEMENT
+
+get &lt;setting&gt;
+  Read current value of a debug setting
+  Supports wildcard: get Render* 
+  Example: get RenderFarClip
+
+set &lt;setting&gt; &lt;value&gt;
+  Change a debug setting value
+  Example: set RenderFarClip 256
+
+reset &lt;setting&gt;
+  Restore setting to default value
+  Example: reset RenderFarClip
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🌐 WEB &amp; INFORMATION
+
+motd
+  Display Message of the Day with URL
+
+web &lt;url&gt;
+  Open URL in preferred browser (internal/external)
+  Example: web https://secondlife.com
+
+ver
+  Show S24 version and build information
+
+time
+  Display current SL time and local time
+
+uptime
+  Show viewer session uptime
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🪟 FLOATER MANAGEMENT
+
+floater &lt;name&gt;
+  Toggle floater visibility
+  Example: floater inventory
+
+list floaters
+  Show all available floater names
+
+closeall
+  Close all open floaters
+
+open &lt;floater&gt;
+  Open specific floater window
+  Example: open preferences
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+✈️ MOVEMENT &amp; POSITIONING
+
+tp &lt;x&gt; &lt;y&gt; &lt;z&gt;
+  Teleport to local coordinates
+  Example: tp 128 128 50
+
+fly
+  Toggle flight mode on/off
+
+fly &lt;altitude&gt;
+  Fly to absolute altitude (smooth autopilot movement)
+  Example: fly 1000
+
+fly &lt;altitude&gt; --fast
+  Fly to altitude with turbo boost
+  Example: fly 1000 --fast
+
+fly down
+  Descend to ground level (0.5m hover)
+
+fly down --fast
+  Fast descent to ground
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+💬 CHAT &amp; COMMUNICATION
+
+say &lt;message&gt;
+  Send message to local chat
+  Example: say Hello World
+
+shout &lt;message&gt;
+  Send message with extended range (shout)
+  Example: shout Can anyone hear me?
+
+echo &lt;text&gt;
+  Echo text back to console (testing/debugging)
+  Example: echo test message
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🛠️ UTILITY COMMANDS
+
+calc &lt;expression&gt;
+  Evaluate mathematical expression
+  Example: calc 2 + 2 * 3
+
+uuid &lt;text&gt;
+  Generate or validate UUID
+  Example: uuid
+
+clear
+  Clear console history
+
+quit
+  Close the S24 Console window (exit/quit are aliases)
+
+shutdown [seconds]
+  Schedule viewer exit (IMMEDIATE if no delay)
+  Example: shutdown 300 (exit in 5 minutes)
+  ⚠️ WARNING: BRUTAL shutdown - experienced users only!
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📖 HELP SYSTEM
+
+help
+  List all available commands
+
+help &lt;command&gt;
+  Show quick help for specific command
+  Example: help top
+
+&lt;command&gt; --help
+  Show detailed documentation with examples
+  Example: top --help
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+<!-- S24 TODO: Color coding feature not yet implemented - reserved for future enhancement
+🎨 COLOR CODING
+
+Command Feedback (Your Actions):
+  ✓ Green  → Success - operations completed
+  ✗ Red    → Error - operations failed
+  ⚠ Yellow → Warning - important alerts
+  ℹ Cyan   → Info - helpful guidance
+
+System Log Messages (LL Output):
+  White → All LL warnings, errors, info messages
+
+This makes it easy to distinguish YOUR commands from SYSTEM output!
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-->
+
+💡 TIPS &amp; BEST PRACTICES
+
+• Commands are case-insensitive: GET, get, Get all work
+• Use ↑/↓ arrow keys to recall command history
+• Partial name matching: lookat foo finds "Foo Resident"
+• Unlimited range: scan and find work beyond draw distance
+• Beacon persistence: Beacons track moving avatars automatically
+• Wildcard search: Use * in get commands to find related settings
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🔒 PRIVACY &amp; SAFETY
+
+• Help examples use privacy-safe placeholders (not real UUIDs)
+• TPV Policy compliant - respects LL's viewer boundaries
+• No remote execution - all commands are local to your viewer
+• No automated scanning - all actions require explicit commands
+      </text_editor>
+    </panel>
+
+    <!-- ==================== TROUBLESHOOTING ==================== -->
+    <panel
+      border="true"
+      follows="all"
+      height="620"
+      label="🔧 Troubleshooting"
+      layout="topleft"
+      left="1"
+      name="tab_troubleshooting"
+      top="25"
+      width="860">
+
+      <text
+        type="string"
+        follows="left|top"
+        height="30"
+        layout="topleft"
+        left="20"
+        top="15"
+        width="820"
+        font="SansSerifHuge"
+        text_color="White">
+        Troubleshooting Guide 🔧
+      </text>
+
+      <text_editor follows="left|top|right|bottom" height="560" layout="topleft" left="20" top="50" width="820" font="SansSerif" word_wrap="true" text_color="LtGray" bg_readonly_color="0 0 0 0" read_only="true" hide_scrollbar="false" max_length="999999">
+Common issues and solutions
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🖥️ LOW FPS / STUTTERING
+
+Symptom: Viewer runs slowly or has periodic frame drops
+
+Solutions:
+  • Reduce RenderFarClip (draw distance) to 64-128m
+  • Lower RenderVolumeLODFactor to 1.5 or 1.0
+  • Disable Advanced Lighting in Preferences if GPU-limited
+  • Check shadow resolution scale - lower if needed
+  • Use Performance Test Mode to isolate GPU vs CPU bottlenecks
+  • Monitor texture memory - reduce if exceeding VRAM
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🎨 WATER LOOKS WRONG
+
+Symptom: Water appears too bright, too dark, or wrong color
+
+Solutions:
+  • Verify environment has proper water settings loaded
+  • Disable Custom Tint if enabled in Water tab
+  • Check Reflections: Reflection Probes must be enabled
+    (Preferences → Graphics → Advanced)
+  • Purge Shaders: Water shader changes may require cache purge + restart
+  • Reset Water Metallic to 1.0 and Roughness Override to 0.0
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🌑 SHADOW ACNE / LIGHT LEAKS
+
+Symptom: Surfaces show speckled patterns or light bleeding through
+
+Solutions:
+  • Adjust Shadow Bias settings in Shadows tab
+  • Check Resolution Scale - LL default is 3.0
+  • Increase Normal Offset slightly if acne persists
+  • Try different shadow quality presets
+  • Update GPU drivers - shadow artifacts often driver-related
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🌳 MISSING TREES / GRASS
+
+Symptom: Legacy Linden trees and grass not visible
+
+Solutions:
+  • Check render types: Advanced → Rendering → Types
+  • Verify TREE and GRASS render types are enabled
+  • Disable Performance Test Mode if active
+  • Ensure pool skip isn't hiding vegetation (should be protected)
+  • Region must support legacy vegetation objects
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🏃 SMOOTH MOVEMENT FEELS WRONG
+
+Symptom: Movement feels sluggish or unresponsive after enabling
+
+Solutions:
+  • Reduce Acceleration Time from 0.2 to 0.1 seconds
+  • Reduce Deceleration Time from 0.15 to 0.05 seconds
+  • Disable feature if unnecessary - purely aesthetic
+  • Feature is in Movement tab of KVTweaks
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+💾 SETTINGS DON'T PERSIST
+
+Symptom: KVTweaks settings reset after viewer restart
+
+Solutions:
+  • Ensure settings.xml is not read-only
+  • Exit viewer properly (use Quit, not force-close)
+  • Check file permissions in AppData folder
+  • Most settings save immediately when changed
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+💥 CRASHES AFTER CHANGES
+
+Symptom: Viewer crashes or becomes unstable
+
+Recovery Steps:
+  1. Start viewer with -noprobe flag (disables reflection probes)
+  2. Open KVTweaks → RESETS tab
+  3. Click Factory Reset
+  4. Click Purge All Caches
+  5. Restart normally
+  6. Re-enable settings gradually to isolate problem
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+☢️ NUCLEAR OPTION: COMPLETE RESET
+
+When all else fails - return to absolute default state:
+
+  1. RESETS → Factory Reset (restores KVTweaks defaults)
+  2. RESETS → Purge All Caches (clears shader, texture, etc.)
+  3. Preferences → Graphics → Reset to Defaults
+  4. Restart viewer
+  5. Verify standard LL settings work before re-tweaking
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📝 STILL HAVING ISSUES?
+
+Document before seeking help:
+  • Screenshot each KVTweaks tab showing your settings
+  • Note GPU model, RAM, driver version
+  • Try updating GPU drivers first (most common fix)
+  • Check viewer log for errors (Help → Report Bug → View Log)
+
+Most rendering issues are GPU driver related!
+      </text_editor>
+    </panel>
+
+
+
+  </tab_container>
+
+</floater>

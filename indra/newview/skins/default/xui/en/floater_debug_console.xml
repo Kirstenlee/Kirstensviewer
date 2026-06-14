@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes" ?>
+<floater
+  name="debug_console"
+  title="S24 Console"
+  can_resize="true"
+  can_minimize="true"
+  can_close="true"
+  save_rect="true"
+  save_visibility="false"
+  layout="topleft"
+  min_height="300"
+  min_width="400"
+  height="500"
+  width="700"
+  default_tab_group="1">
+  <button
+    follows="top|right"
+    height="23"
+    label="Pause"
+    layout="topleft"
+    name="pause_btn"
+    top="5"
+    right="-10"
+    width="80" />
+  <text_editor
+    left="10"
+    top="33"
+    type="string"
+    length="1"
+    follows="left|top|right|bottom"
+    font="Monospace"
+    height="426"
+    width="676"
+    layout="topleft"
+    max_length="1048576"
+    name="debug_console_output"
+    word_wrap="false"
+    track_end="true"
+    read_only="true"
+    bg_readonly_color="Black_75"
+    text_color="White"
+    cursor_color="White"
+    allow_html="false"
+    parse_highlights="true">
+  </text_editor>
+  <line_editor
+    border_style="line"
+    border_thickness="1"
+    tab_group="1"
+    follows="left|right|bottom"
+    font="Monospace"
+    height="23"
+    layout="topleft"
+    left="10"
+    top_pad="5"
+    max_length="255"
+    name="debug_console_input"
+    width="676">
+  </line_editor>
+</floater>

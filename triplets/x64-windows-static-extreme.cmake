@@ -1,0 +1,10 @@
+set(VCPKG_TARGET_TRIPLET "x64-windows-static-extreme")
+set(VCPKG_TARGET_ARCHITECTURE x64)
+set(VCPKG_CRT_LINKAGE static)
+set(VCPKG_LIBRARY_LINKAGE static)
+set(VCPKG_PLATFORM_TOOLSET v145)
+
+# Extreme, maximum performance (may break some libraries)
+set(VCPKG_C_FLAGS_RELEASE "/O2 /Ob2 /Ot /Oi /Oy /GL /arch:AVX /fp:fast /GS- /Gy /Zc:inline /Zc:__cplusplus" CACHE STRING "Extreme C flags" FORCE)
+set(VCPKG_CXX_FLAGS_RELEASE "/O2 /Ob2 /Ot /Oi /Oy /GL /arch:AVX /fp:fast /GS- /Gy /Zc:inline /Zc:__cplusplus" CACHE STRING "Extreme CXX flags" FORCE)
+set(VCPKG_LINKER_FLAGS_RELEASE "/LTCG" CACHE STRING "Link-time code generation" FORCE)

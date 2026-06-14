@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Troubleshooting - S24 Engine Guide</title>
+    <link rel="stylesheet" href="css/s24guide.css">
+</head>
+<body>
+    <h1>Troubleshooting Guide</h1>
+
+    <div class="nav">
+        <a href="index.html">Home</a>
+        <a href="common-settings.html">Common Settings</a>
+        <a href="troubleshooting.html">Troubleshooting</a>
+    </div>
+
+    <div class="info">
+        Common issues and solutions for S24 Engine settings. If problems persist, use <strong>RESETS → Factory Reset</strong> to restore all defaults.
+    </div>
+
+    <h2>Reflections Not Working</h2>
+    <div class="warning">
+        <strong>Symptom:</strong> Reflection probe tweaks have no visible effect, or reflections look wrong after enabling/disabling.
+    </div>
+    <div class="tip">
+        <strong>Solution:</strong>
+        <ol>
+            <li>Go to <strong>RESETS</strong> tab</li>
+            <li>Click <strong>Purge Shader Cache</strong></li>
+            <li>Restart viewer</li>
+            <li>Verify <strong>Preferences → Graphics → Advanced → Reflections</strong> is enabled</li>
+        </ol>
+    </div>
+
+    <h2>Low FPS / Poor Performance</h2>
+    <div class="warning">
+        <strong>Symptom:</strong> Frame rate drops significantly after adjusting settings.
+    </div>
+    <div class="tip">
+        <strong>Solution:</strong>
+        <ul>
+            <li><strong>Reduce Shadow Resolution Scale:</strong> Lower from 3.0 to 1.5-2.0</li>
+            <li><strong>Lower Draw Distance:</strong> Set RenderFarClip to 128-192 (LL default is 256)</li>
+            <li><strong>Disable SSR:</strong> Screen-space reflections are GPU-intensive</li>
+            <li><strong>Reduce LOD Factors:</strong> Lower RenderVolumeLODFactor to 2.0-3.0 (S24 default 4.125)</li>
+            <li><strong>Verify Shadow Throttling:</strong> Should be enabled by default</li>
+        </ul>
+    </div>
+
+    <h2>Stuttering / Hitching</h2>
+    <div class="warning">
+        <strong>Symptom:</strong> Periodic freezes or stutters during movement.
+    </div>
+    <div class="tip">
+        <strong>Solution:</strong>
+        <ul>
+            <li><strong>Reduce Render Thread Count:</strong> Too many threads can cause contention (check auto-detected value in CPU tab)</li>
+            <li><strong>Check VRAM Budget:</strong> 0 = auto-detect is usually best, manual override rarely needed</li>
+            <li><strong>Purge Caches:</strong> Go to RESETS tab, purge inventory and texture caches</li>
+            <li><strong>Texture Memory:</strong> Viewer manages this dynamically - manual changes rarely help</li>
+        </ul>
+    </div>
+
+    <h2>Water Looks Wrong</h2>
+    <div class="warning">
+        <strong>Symptom:</strong> Water appears too shiny, too dark, or has color issues.
+    </div>
+    <div class="tip">
+        <strong>Solution:</strong>
+        <ul>
+            <li><strong>Reset Water Settings:</strong> Metallic=1.0 (LL default), Roughness Override=0.0 (use environment)</li>
+            <li><strong>Disable Custom Tint:</strong> Uncheck "Enable Custom Tint" in Water tab if enabled</li>
+            <li><strong>Check Reflections:</strong> Reflection Probes must be enabled in Preferences → Graphics → Advanced</li>
+            <li><strong>Purge Shaders:</strong> Water shader changes may require cache purge + restart</li>
+        </ul>
+    </div>
+
+    <h2>Shadow Acne / Light Leaks</h2>
+    <div class="warning">
+        <strong>Symptom:</strong> Surfaces show speckled shadow patterns or light bleeding through geometry.
+    </div>
+    <div class="tip">
+        <strong>Solution:</strong>
+        <ul>
+            <li><strong>Adjust Shadow Bias:</strong> Multiple bias settings exist (spot, deferred, tree) - see Shadows tab for specifics</li>
+            <li><strong>Check Resolution Scale:</strong> LL default is 3.0 - higher values may show more artifacts</li>
+            <li><strong>Normal Offset:</strong> Increase slightly if shadow acne persists after bias adjustment</li>
+        </ul>
+    </div>
+
+    <h2>Smooth Movement Feels Wrong</h2>
+    <div class="warning">
+        <strong>Symptom:</strong> Movement feels sluggish, unresponsive, or "floaty" after enabling smooth keyboard movement.
+    </div>
+    <div class="tip">
+        <strong>Solution:</strong>
+        <ul>
+            <li><strong>Reduce Acceleration:</strong> Lower from 0.2 to 0.1 seconds for snappier response (S24 defaults)</li>
+            <li><strong>Reduce Deceleration:</strong> Lower from 0.15 to 0.05 seconds for quicker stops</li>
+            <li><strong>Disable if Unnecessary:</strong> Feature is purely aesthetic - uncheck if you prefer instant response</li>
+        </ul>
+    </div>
+
+    <h2>Settings Reset After Restart</h2>
+    <div class="warning">
+        <strong>Symptom:</strong> KVTweaks settings don't persist between sessions.
+    </div>
+    <div class="tip">
+        <strong>Solution:</strong>
+        <ul>
+            <li><strong>Check Permissions:</strong> Ensure settings file (settings.xml) is not read-only</li>
+            <li><strong>Exit Properly:</strong> Use Quit option, not force-close</li>
+            <li><strong>Verify Save:</strong> Most settings save immediately when changed</li>
+        </ul>
+    </div>
+
+    <h2>Crashes After Changes</h2>
+    <div class="warning">
+        <strong>Symptom:</strong> Viewer crashes or becomes unstable after adjusting settings.
+    </div>
+    <div class="tip">
+        <strong>Solution:</strong>
+        <ol>
+            <li>Start viewer with <strong>-noprobe</strong> command line flag (disables reflection probes)</li>
+            <li>Open KVTweaks → <strong>RESETS</strong> tab</li>
+            <li>Click <strong>Factory Reset</strong></li>
+            <li>Click <strong>Purge All Caches</strong></li>
+            <li>Restart normally</li>
+            <li>Re-enable settings gradually to isolate problematic setting</li>
+        </ol>
+    </div>
+
+    <h2>Nuclear Option: Complete Reset</h2>
+    <div class="warning">
+        <strong>When All Else Fails:</strong> Return to absolute default state.
+    </div>
+    <div class="tip">
+        <strong>Full Reset Procedure:</strong>
+        <ol>
+            <li><strong>RESETS → Factory Reset</strong> (restores all KVTweaks defaults)</li>
+            <li><strong>RESETS → Purge All Caches</strong> (clears shader, inventory, texture caches)</li>
+            <li><strong>Preferences → Graphics → Reset to Defaults</strong> (main graphics settings)</li>
+            <li><strong>Restart viewer</strong></li>
+            <li>Verify standard LL settings work before re-tweaking</li>
+        </ol>
+    </div>
+
+    <div class="info">
+        <strong>Still Having Issues?</strong> Document your exact settings (screenshot each KVTweaks tab) and system specs (GPU, RAM, driver version) before seeking help. Most issues are GPU driver related - try updating drivers first.
+    </div>
+
+</body>
+</html>

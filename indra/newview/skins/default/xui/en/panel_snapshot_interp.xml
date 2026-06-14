@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes" ?>
+<panel
+ follows="left|top|right"
+ height="200"
+ layout="topleft"
+ left="0"
+ top="0"
+ name="panel_snapshot_interp"
+ width="228">
+  <text type="string" length="1" follows="left|top" font="SansSerifBold" halign="left" height="14" layout="topleft" left="8" top="4" name="interp_title" width="200">
+    Camera Interpolation
+  </text>
+  <button follows="left|top" height="22" label="Set A"  layout="topleft" left="8"   top="24" name="interp_set_a_btn" width="104" />
+  <button follows="left|top" height="22" label="Set B"  layout="topleft" left="116" top="24" name="interp_set_b_btn" width="104" />
+  <text type="string" length="1" follows="left|top" halign="left" height="16" layout="topleft" left="8" top="52" name="interp_status" width="212">
+    A: not set    B: not set
+  </text>
+  <spinner control_name="SnapshotInterpSteps" decimal_digits="0" follows="left|top" height="22" increment="1" initial_value="24" label="Frames" label_width="60" layout="topleft" left="8" top="74" min_val="2" max_val="600" name="interp_steps_spinner" width="212" />
+  <combo_box control_name="SnapshotInterpEase" follows="left|top" height="22" label="Ease" layout="topleft" left="8" top="102" name="interp_ease_combo" width="212">
+    <combo_box.item label="Linear"      name="ease_linear"   value="linear" />
+    <combo_box.item label="Ease In"     name="ease_in"       value="ease_in" />
+    <combo_box.item label="Ease Out"    name="ease_out"      value="ease_out" />
+    <combo_box.item label="Ease In/Out" name="ease_in_out"   value="ease_in_out" />
+  </combo_box>
+  <button follows="left|top" height="24" label="Render Sweep" layout="topleft" left="8" top="136" name="interp_render_btn" width="212" />
+</panel>

@@ -1,0 +1,1623 @@
+/**
+ * @file llmutelist.cpp
+ * @author Richard Nelson, James Cook
+ * @brief Management of list of muted players
+ *
+ * $LicenseInfo:firstyear=2003&license=viewerlgpl$
+ * Second Life Viewer Source Code
+ * Copyright (C) 2010, Linden Research, Inc.
+ *
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation;
+ * version 2.1 of the License only.
+ *
+ * This library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
+ *
+ * Linden Research, Inc., 945 Battery Street, San Francisco, CA  94111  USA
+ * $/LicenseInfo$
+ */
+
+/*
+ * How should muting work?
+ * Mute an avatar
+ * Mute a specific object (accidentally spamming)
+ *
+ * right-click avatar, mute
+ * see list of recent chatters, mute
+ * type a name to mute?
+ *
+ * show in list whether chatter is avatar or object
+ *
+ * need fast lookup by id
+ * need lookup by name, doesn't have to be fast
+ */
+
+#include "llviewerprecompiledheaders.h"
+
+#include "llmutelist.h"
+
+#include "pipeline.h"
+
+#include <boost/tokenizer.hpp>
+#include <boost/bind/bind.hpp>
+ // Boost.Bind placeholders for C++20 compatibility
+using namespace boost::placeholders;
+#include <boost/algorithm/string/replace.hpp>
+
+#include "lldispatcher.h"
+#include "llxfermanager.h"
+
+#include "llagent.h"
+#include "llavatarnamecache.h"
+#include "llselectmgr.h"
+#include "llviewergenericmessage.h" // for gGenericDispatcher
+#include "llworld.h" //for particle system banning
+#include "llimview.h"
+#include "llnotifications.h"
+#include "llviewercontrol.h"
+#include "llviewerobjectlist.h"
+#include "lltrans.h"
+#include "llviewerregion.h"
+
+namespace
+{
+    // This method is used to return an object to mute given an object id.
+    // Its used by the LLMute constructor and LLMuteList::isMuted.
+    LLViewerObject* get_object_to_mute_from_id(LLUUID object_id)
+    {
+        LLViewerObject *objectp = gObjectList.findObject(object_id);
+        if ((objectp) && (!objectp->isAvatar()))
+        {
+            LLViewerObject *parentp = (LLViewerObject *)objectp->getParent();
+            if (parentp && parentp->getID() != gAgent.getID())
+            {
+                objectp = parentp;
+            }
+        }
+        return objectp;
+    }
+}
+
+// "emptymutelist"
+class LLDispatchEmptyMuteList : public LLDispatchHandler
+{
+public:
+    virtual bool operator()(
+        const LLDispatcher* dispatcher,
+        const std::string& key,
+        const LLUUID& invoice,
+        const sparam_t& strings)
+    {
+        // We've gotten a message from the server that indicates our mute list is empty there.
+
+        // First we want to make sure that if we had a cached mute list, we clear it assuming it is outdated.
+        LLMuteList* mute_list = LLMuteList::getInstance();
+        if(mute_list->mLoadSource == LLMuteList::MLS_FALLBACK_CACHE && !mute_list->getMutes().empty())
+        {
+            LL_WARNS() << "Our current mute list is not empty, but the server says that it should be. Is our cache outdated, or did our mutes get lost?" << LL_ENDL;
+            mute_list->clearCachedMutes();
+        }
+        // Lastly we set the load state to loaded with the source of server empty. We are now in a clean and ready state.
+        mute_list->setLoaded(LLMuteList::MLS_SERVER_EMPTY);
+        return true;
+    }
+};
+
+static LLDispatchEmptyMuteList sDispatchEmptyMuteList;
+
+//-----------------------------------------------------------------------------
+// LLMute()
+//-----------------------------------------------------------------------------
+
+LLMute::LLMute(const LLUUID& id, const std::string& name, EType type, U32 flags)
+  : mID(id),
+    mName(name),
+    mType(type),
+    mFlags(flags)
+{
+    // muting is done by root objects only - try to find this objects root
+    LLViewerObject* mute_object = get_object_to_mute_from_id(id);
+    if(mute_object && mute_object->getID() != id)
+    {
+        mID = mute_object->getID();
+        LLNameValue* firstname = mute_object->getNVPair("FirstName");
+        LLNameValue* lastname = mute_object->getNVPair("LastName");
+        if (firstname && lastname)
+        {
+            mName = LLCacheName::buildFullName(
+                firstname->getString(), lastname->getString());
+        }
+        mType = mute_object->isAvatar() ? AGENT : OBJECT;
+    }
+
+}
+
+
+std::string LLMute::getDisplayType() const
+{
+    switch (mType)
+    {
+        case BY_NAME:
+        default:
+            return LLTrans::getString("MuteByName");
+            break;
+        case AGENT:
+            return LLTrans::getString("MuteAgent");
+            break;
+        case OBJECT:
+            return LLTrans::getString("MuteObject");
+            break;
+        case GROUP:
+            return LLTrans::getString("MuteGroup");
+            break;
+        case EXTERNAL:
+            return LLTrans::getString("MuteExternal");
+            break;
+    }
+}
+
+//-----------------------------------------------------------------------------
+// LLMuteList()
+//-----------------------------------------------------------------------------
+LLMuteList::LLMuteList() :
+    mLoadState(ML_INITIAL),
+    mLoadSource(MLS_NONE),
+    mRequestStartTime(0.f),
+    mTriedCacheFallback(false),
+    mTriedRegionChangeRetry(false)
+{
+    gGenericDispatcher.addHandler("emptymutelist", &sDispatchEmptyMuteList);
+
+    // Register our callbacks. We may be constructed before gMessageSystem, so
+    // use callWhenReady() to register them as soon as gMessageSystem becomes
+    // available.
+    // When using bind(), must be explicit about default arguments such as
+    // that last NULL.
+    gMessageSystem.callWhenReady(boost::bind(&LLMessageSystem::setHandlerFuncFast, _1,
+                                             _PREHASH_MuteListUpdate, processMuteListUpdate,
+                                             static_cast<void**>(NULL)));
+    gMessageSystem.callWhenReady(boost::bind(&LLMessageSystem::setHandlerFuncFast, _1,
+                                             _PREHASH_UseCachedMuteList, processUseCachedMuteList,
+                                             static_cast<void**>(NULL)));
+
+    // make sure mute list's instance gets initialized before we start any name requests
+    LLAvatarNameCache::getInstance()->setAccountNameChangedCallback([this](const LLUUID& id, const LLAvatarName& av_name)
+        {
+            // it would be better to just pass LLAvatarName instead of doing unnesssesary copies
+            // but this way is just more convinient
+            onAccountNameChanged(id, av_name.getUserName());
+        });
+    // Register our region change callback handler early, we'll clean it up if/when we don't need it anymore.
+    mRegionChangedCallback = gAgent.addRegionChangedCallback(boost::bind(&LLMuteList::onRegionChanged, this));
+}
+
+//-----------------------------------------------------------------------------
+// ~LLMuteList()
+//-----------------------------------------------------------------------------
+LLMuteList::~LLMuteList()
+{
+
+}
+
+void LLMuteList::cleanupSingleton()
+{
+    LLAvatarNameCache::getInstance()->setAccountNameChangedCallback(nullptr);
+    if (mRegionChangedCallback.connected())
+    {
+        mRegionChangedCallback.disconnect();
+    }
+}
+
+bool LLMuteList::isLinden(const std::string& name)
+{
+    std::string username = boost::replace_all_copy(name, ".", " ");
+    typedef boost::tokenizer<boost::char_separator<char> > tokenizer;
+    boost::char_separator<char> sep(" ");
+    tokenizer tokens(username, sep);
+    tokenizer::iterator token_iter = tokens.begin();
+
+    if (token_iter == tokens.end()) return false;
+    token_iter++;
+    if (token_iter == tokens.end()) return false;
+
+    std::string last_name = *token_iter;
+    LLStringUtil::toLower(last_name);
+    return last_name == "linden";
+}
+
+bool LLMuteList::updateLoadState()
+    {
+    if (isLoaded() || isFailed())
+        {
+        return true;
+        }
+    if (mLoadState == ML_REQUESTED)
+    {
+        constexpr F64 WAIT_SECONDS = 30;
+        if (mRequestStartTime + WAIT_SECONDS < LLTimer::getTotalSeconds())
+    {
+            LL_WARNS() << "Mute list request timed out; trying cache fallback once" << LL_ENDL;
+            tryLoadCacheFallback(gAgent.getID(), "request timeout");
+            return isLoaded() || isFailed();
+        }
+    }
+    return false;
+}
+
+void LLMuteList::clearCachedMutes()
+{
+    mMutes.clear();
+    mLegacyMutes.clear();
+    LL_WARNS() << "Cached mutes cleared" << LL_ENDL;
+}
+
+const char* LLMuteList::sourceToString(EMuteListSource source)
+{
+    switch (source)
+    {
+    case MLS_NONE:
+        return "none";
+    case MLS_SERVER:
+        return "server";
+    case MLS_SERVER_EMPTY:
+        return "server-empty";
+    case MLS_SERVER_CACHE:
+        return "server-cached";
+    case MLS_FALLBACK_CACHE:
+        return "fallback-cache";
+    default:
+        return "unknown";
+    }
+}
+
+std::string LLMuteList::getCacheFilename(const LLUUID& agent_id) const
+{
+    std::string agent_id_string;
+    agent_id.toString(agent_id_string);
+    return gDirUtilp->getExpandedFilename(LL_PATH_CACHE, agent_id_string) + ".cached_mute";
+}
+
+void LLMuteList::setFailed(const std::string& reason)
+{
+    mLoadState = ML_FAILED;
+    if (mLoadSource == MLS_NONE)
+    {
+        LL_WARNS() << "Mute list unavailable: " << reason << LL_ENDL;
+    }
+    else
+    {
+        LL_WARNS() << "Mute list unavailable: " << reason << " (last source=" << sourceToString(mLoadSource) << ")" << LL_ENDL;
+    }
+    notifyObservers();
+}
+
+bool LLMuteList::tryLoadCacheFallback(const LLUUID& agent_id, const std::string& reason)
+{
+    if (mTriedCacheFallback)
+    {
+        if (!isLoaded())
+        {
+            setFailed("cache fallback already attempted before " + reason);
+        }
+        return isLoaded();
+    }
+
+    mTriedCacheFallback = true;
+    const std::string filename = getCacheFilename(agent_id);
+    LL_INFOS() << "Trying mute list cache fallback due to " << reason << ": " << filename << LL_ENDL;
+
+    if (loadFromFile(filename, MLS_FALLBACK_CACHE))
+    {
+        LL_WARNS() << "Loaded mute list from cache fallback due to " << reason << LL_ENDL;
+        return true;
+    }
+
+    setFailed("cache fallback failed after " + reason);
+    return false;
+}
+
+static LLVOAvatar* find_avatar(const LLUUID& id)
+{
+    LLViewerObject *obj = gObjectList.findObject(id);
+    while (obj && obj->isAttachment())
+    {
+        obj = (LLViewerObject *)obj->getParent();
+    }
+
+    if (obj && obj->isAvatar())
+    {
+        return (LLVOAvatar*)obj;
+    }
+    else
+    {
+        return NULL;
+    }
+}
+
+bool LLMuteList::add(const LLMute& mute, U32 flags)
+{
+    // Can't mute text from Lindens
+    if ((mute.mType == LLMute::AGENT)
+        && isLinden(mute.mName) && (flags & LLMute::flagTextChat || flags == 0))
+    {
+        LL_WARNS() << "Trying to mute a Linden; ignored" << LL_ENDL;
+        LLNotifications::instance().add("MuteLinden", LLSD(), LLSD());
+        return false;
+    }
+
+    // Can't mute self.
+    if (mute.mType == LLMute::AGENT
+        && mute.mID == gAgent.getID())
+    {
+        LL_WARNS() << "Trying to self; ignored" << LL_ENDL;
+        return false;
+    }
+
+    static LLCachedControl<S32> mute_list_limit(gSavedSettings, "MuteListLimit", 1000);
+    if (getMutes().size() >= mute_list_limit)
+    {
+        LL_WARNS() << "Mute limit is reached; ignored" << LL_ENDL;
+        LLSD args;
+        args["MUTE_LIMIT"] = mute_list_limit;
+        LLNotifications::instance().add(LLNotification::Params("MuteLimitReached").substitutions(args));
+        return false;
+    }
+
+    if (mute.mType == LLMute::BY_NAME)
+    {
+        // Can't mute empty string by name
+        if (mute.mName.empty())
+        {
+            LL_WARNS() << "Trying to mute empty string by-name" << LL_ENDL;
+            return false;
+        }
+
+        // Null mutes must have uuid null
+        if (mute.mID.notNull())
+        {
+            LL_WARNS() << "Trying to add by-name mute with non-null id" << LL_ENDL;
+            return false;
+        }
+
+        std::pair<string_set_t::iterator, bool> result = mLegacyMutes.insert(mute.mName);
+        if (result.second)
+        {
+            LL_INFOS() << "Muting by name " << mute.mName << LL_ENDL;
+            updateAdd(mute);
+            notifyObservers();
+            notifyObserversDetailed(mute);
+            return true;
+        }
+        else
+        {
+            LL_INFOS() << "duplicate mute ignored" << LL_ENDL;
+            // was duplicate
+            return false;
+        }
+    }
+    else
+    {
+        // Need a local (non-const) copy to set up flags properly.
+        LLMute localmute = mute;
+
+        // If an entry for the same entity is already in the list, remove it, saving flags as necessary.
+        mute_set_t::iterator it = mMutes.find(localmute);
+        if (it != mMutes.end())
+        {
+            // This mute is already in the list.  Save the existing entry's flags if that's warranted.
+            localmute.mFlags = it->mFlags;
+
+            mMutes.erase(it);
+            // Don't need to call notifyObservers() here, since it will happen after the entry has been re-added below.
+        }
+        else
+        {
+            // There was no entry in the list previously.  Fake things up by making it look like the previous entry had all properties unmuted.
+            localmute.mFlags = LLMute::flagAll;
+        }
+
+        if(flags)
+        {
+            // The user passed some combination of flags.  Make sure those flag bits are turned off (i.e. those properties will be muted).
+            localmute.mFlags &= (~flags);
+        }
+        else
+        {
+            // The user passed 0.  Make sure all flag bits are turned off (i.e. all properties will be muted).
+            localmute.mFlags = 0;
+        }
+
+        // (re)add the mute entry.
+        {
+            std::pair<mute_set_t::iterator, bool> result = mMutes.insert(localmute);
+            if (result.second)
+            {
+                LL_INFOS() << "Muting " << localmute.mName << " id " << localmute.mID << " flags " << localmute.mFlags << LL_ENDL;
+                updateAdd(localmute);
+                notifyObservers();
+                notifyObserversDetailed(localmute);
+
+                //mute local lights that are attached to the avatar
+                LLVOAvatar *avatarp = find_avatar(localmute.mID);
+                if (avatarp)
+                {
+                    LLPipeline::removeMutedAVsLights(avatarp);
+                }
+                //remove agent's notifications as well
+                if (localmute.mType == LLMute::AGENT)
+                {
+                    LLNotifications::instance().cancelByOwner(localmute.mID);
+                }
+                return true;
+            }
+        }
+    }
+
+    // If we were going to return success, we'd have done it by now.
+    return false;
+}
+
+void LLMuteList::updateAdd(const LLMute& mute)
+{
+    // External mutes are local only, don't send them to the server.
+    if (mute.mType == LLMute::EXTERNAL)
+    {
+        return;
+    }
+
+    // Update the database
+    LLMessageSystem* msg = gMessageSystem;
+    msg->newMessageFast(_PREHASH_UpdateMuteListEntry);
+    msg->nextBlockFast(_PREHASH_AgentData);
+    msg->addUUIDFast(_PREHASH_AgentID, gAgent.getID());
+    msg->addUUIDFast(_PREHASH_SessionID, gAgent.getSessionID());
+    msg->nextBlockFast(_PREHASH_MuteData);
+    msg->addUUIDFast(_PREHASH_MuteID, mute.mID);
+    msg->addStringFast(_PREHASH_MuteName, mute.mName);
+    msg->addS32("MuteType", mute.mType);
+    msg->addU32("MuteFlags", mute.mFlags);
+    gAgent.sendReliableMessage();
+
+    if (!isLoaded())
+    {
+        LL_WARNS() << "Added elements to non-initialized block list" << LL_ENDL;
+    }
+    // Based of logs and testing, if file doesn't exist server side,
+    // viewer will not receive any callback and won't know to set
+    // ML_LOADED. As a workaround, set it regardless of current state.
+    mLoadState = ML_LOADED;
+
+    // ============================================================================
+    // S24 CUSTOM: Object Derender on Mute
+    // ============================================================================
+    // RATIONALE: S24 implements object derender by setting FORCE_INVISIBLE flag
+    //            instead of blocking object creation (LL default behavior).
+    //            This allows objects to stay in memory for instant unmute recovery.
+    // WHY:       Blocking creation breaks unmute after relog (object not in memory).
+    // MERGE:     Keep this entire block - core S24 derender feature.
+    // ============================================================================
+    if (mute.mType == LLMute::OBJECT && mute.mID.notNull())
+    {
+        LLViewerObject* obj = gObjectList.findObject(mute.mID);
+        if (obj && !obj->isAvatar())
+        {
+            // Deselect if selected
+            if (obj->isSelected())
+            {
+                LLSelectMgr::getInstance()->deselectObjectOnly(obj);
+            }
+            // Make the object invisible by setting FORCE_INVISIBLE flag
+            // The object stays in memory but won't render
+            LLDrawable* drawable = obj->mDrawable;
+            if (drawable)
+            {
+                drawable->setState(LLDrawable::FORCE_INVISIBLE);
+
+                // CRITICAL: Force spatial partition and render updates (same as applyObjectDerender)
+                bool was_active = drawable->isActive();
+                if (was_active)
+                {
+                    drawable->makeStatic(false);
+                }
+                drawable->makeActive();
+
+                gPipeline.markRebuild(drawable, LLDrawable::REBUILD_ALL);
+                drawable->setState(LLDrawable::MOVE_UNDAMPED);
+                gPipeline.markMoved(drawable, true);
+
+                // Also hide child prims for linked objects
+                LLViewerObject::const_child_list_t& child_list = obj->getChildren();
+                for (LLViewerObject::child_list_t::const_iterator iter = child_list.begin();
+                     iter != child_list.end(); iter++)
+                {
+                    LLViewerObject* child = *iter;
+                    LLDrawable* child_drawable = child->mDrawable;
+                    if (child_drawable)
+                    {
+                        child_drawable->setState(LLDrawable::FORCE_INVISIBLE);
+
+                        bool child_was_active = child_drawable->isActive();
+                        if (child_was_active)
+                        {
+                            child_drawable->makeStatic(false);
+                        }
+                        child_drawable->makeActive();
+
+                        gPipeline.markRebuild(child_drawable, LLDrawable::REBUILD_ALL);
+                        child_drawable->setState(LLDrawable::MOVE_UNDAMPED);
+                        gPipeline.markMoved(child_drawable, true);
+                    }
+                }
+            }
+        }
+    }
+    // ============================================================================
+    // END S24 CUSTOM: Object Derender on Mute
+    // ============================================================================
+}
+
+
+bool LLMuteList::remove(const LLMute& mute, U32 flags)
+{
+    bool found = false;
+
+    // First, remove from main list.
+    mute_set_t::iterator it = mMutes.find(mute);
+    if (it != mMutes.end())
+    {
+        LLMute localmute = *it;
+        bool remove = true;
+        if(flags)
+        {
+            // If the user passed mute flags, we may only want to turn some flags on.
+            localmute.mFlags |= flags;
+
+            if(localmute.mFlags == LLMute::flagAll)
+            {
+                // Every currently available mute property has been masked out.
+                // Remove the mute entry entirely.
+            }
+            else
+            {
+                // Only some of the properties are masked out.  Update the entry.
+                remove = false;
+            }
+        }
+        else
+        {
+            // The caller didn't pass any flags -- just remove the mute entry entirely.
+            // set flags to notify observers with (flag being present means that something is allowed)
+            localmute.mFlags = LLMute::flagAll;
+        }
+
+        // Always remove the entry from the set -- it will be re-added with new flags if necessary.
+        mMutes.erase(it);
+
+        if(remove)
+        {
+            // The entry was actually removed.  Notify the server.
+            updateRemove(localmute);
+            LL_INFOS() << "Unmuting " << localmute.mName << " id " << localmute.mID << " flags " << localmute.mFlags << LL_ENDL;
+        }
+        else
+        {
+            // Flags were updated, the mute entry needs to be retransmitted to the server and re-added to the list.
+            mMutes.insert(localmute);
+            updateAdd(localmute);
+            LL_INFOS() << "Updating mute entry " << localmute.mName << " id " << localmute.mID << " flags " << localmute.mFlags << LL_ENDL;
+        }
+
+        // Must be after erase.
+        notifyObservers();
+        notifyObserversDetailed(localmute);
+    }
+    else
+    {
+        // Clean up any legacy mutes
+        string_set_t::iterator legacy_it = mLegacyMutes.find(mute.mName);
+        if (legacy_it != mLegacyMutes.end())
+        {
+            // Database representation of legacy mute is UUID null.
+            LLMute mute(LLUUID::null, *legacy_it, LLMute::BY_NAME);
+            updateRemove(mute);
+            mLegacyMutes.erase(legacy_it);
+            // Must be after erase.
+            notifyObservers();
+            notifyObserversDetailed(mute);
+        }
+    }
+
+    return found;
+}
+
+
+void LLMuteList::updateRemove(const LLMute& mute)
+{
+    // External mutes are not sent to the server anyway, no need to remove them.
+    if (mute.mType == LLMute::EXTERNAL)
+    {
+        return;
+    }
+
+    // ============================================================================
+    // S24 CUSTOM: Object Re-render on Unmute
+    // ============================================================================
+    // RATIONALE: When unmuting, clear FORCE_INVISIBLE and force spatial rebuild
+    //            to ensure object becomes visible immediately without relog.
+    // WHY:       Objects stay in memory when muted (see updateAdd), so we can
+    //            instantly restore them. Requires spatial partition refresh.
+    // MERGE:     Keep this entire block - core S24 unmute recovery feature.
+    // ============================================================================
+    if (mute.mType == LLMute::OBJECT && mute.mID.notNull())
+    {
+        LLViewerObject* obj = gObjectList.findObject(mute.mID);
+        if (obj && !obj->isAvatar())
+        {
+            // Object is in memory, restore visibility
+            LLDrawable* drawable = obj->mDrawable;
+            if (drawable)
+            {
+                drawable->clearState(LLDrawable::FORCE_INVISIBLE);
+
+                // Force spatial partition update regardless of current state
+                // If already active, makeActive() won't update partition, so we force it by:
+                // 1. Making it static first (removes from active partition)
+                // 2. Then making it active again (re-adds to partition properly)
+                bool was_active = drawable->isActive();
+                if (was_active)
+                {
+                    drawable->makeStatic(false);
+                }
+                drawable->makeActive();
+
+                gPipeline.markRebuild(drawable, LLDrawable::REBUILD_ALL);
+                // Force immediate spatial update
+                drawable->setState(LLDrawable::MOVE_UNDAMPED);
+                gPipeline.markMoved(drawable, true);
+
+                // Also restore child prims for linked objects
+                LLViewerObject::const_child_list_t& child_list = obj->getChildren();
+                for (LLViewerObject::child_list_t::const_iterator iter = child_list.begin();
+                     iter != child_list.end(); iter++)
+                {
+                    LLViewerObject* child = *iter;
+                    LLDrawable* child_drawable = child->mDrawable;
+                    if (child_drawable)
+                    {
+                        child_drawable->clearState(LLDrawable::FORCE_INVISIBLE);
+
+                        bool child_was_active = child_drawable->isActive();
+                        if (child_was_active)
+                        {
+                            child_drawable->makeStatic(false);
+                        }
+                        child_drawable->makeActive();
+
+                        gPipeline.markRebuild(child_drawable, LLDrawable::REBUILD_ALL);
+                        child_drawable->setState(LLDrawable::MOVE_UNDAMPED);
+                        gPipeline.markMoved(child_drawable, true);
+                    }
+                }
+            }
+        }
+        else
+        {
+            // Object not yet in memory - it will be unmarked when created
+            // The create path in llviewerobjectlist.cpp checks mute status and
+            // only sets FORCE_INVISIBLE if still muted at creation time
+            LL_DEBUGS("MuteList") << "Object not in memory yet, will be handled on creation" << LL_ENDL;
+        }
+    }
+    // ============================================================================
+    // END S24 CUSTOM: Object Re-render on Unmute
+    // ============================================================================
+
+    LLMessageSystem* msg = gMessageSystem;
+    msg->newMessageFast(_PREHASH_RemoveMuteListEntry);
+    msg->nextBlockFast(_PREHASH_AgentData);
+    msg->addUUIDFast(_PREHASH_AgentID, gAgent.getID());
+    msg->addUUIDFast(_PREHASH_SessionID, gAgent.getSessionID());
+    msg->nextBlockFast(_PREHASH_MuteData);
+    msg->addUUIDFast(_PREHASH_MuteID, mute.mID);
+    msg->addString("MuteName", mute.mName);
+    gAgent.sendReliableMessage();
+}
+
+void notify_automute_callback(const LLUUID& agent_id, const LLAvatarName& full_name, LLMuteList::EAutoReason reason)
+{
+    std::string notif_name;
+    switch (reason)
+    {
+    default:
+    case LLMuteList::AR_IM:
+        notif_name = "AutoUnmuteByIM";
+        break;
+    case LLMuteList::AR_INVENTORY:
+        notif_name = "AutoUnmuteByInventory";
+        break;
+    case LLMuteList::AR_MONEY:
+        notif_name = "AutoUnmuteByMoney";
+        break;
+    }
+
+    LLSD args;
+    args["NAME"] = full_name.getUserName();
+
+    LLNotificationPtr notif_ptr = LLNotifications::instance().add(notif_name, args, LLSD());
+    if (notif_ptr)
+    {
+        std::string message = notif_ptr->getMessage();
+
+        if (reason == LLMuteList::AR_IM)
+        {
+            LLIMModel::getInstance()->addMessage(agent_id, SYSTEM_FROM, LLUUID::null, message);
+        }
+    }
+}
+
+
+bool LLMuteList::autoRemove(const LLUUID& agent_id, const EAutoReason reason)
+{
+    bool removed = false;
+
+    if (isMuted(agent_id))
+    {
+        LLMute automute(agent_id, LLStringUtil::null, LLMute::AGENT);
+        removed = true;
+        remove(automute);
+
+        LLAvatarName av_name;
+        if (LLAvatarNameCache::get(agent_id, &av_name))
+        {
+            // name in cache, call callback directly
+            notify_automute_callback(agent_id, av_name, reason);
+        }
+        else
+        {
+            // not in cache, lookup name from cache
+            LLAvatarNameCache::get(agent_id,
+                boost::bind(&notify_automute_callback, _1, _2, reason));
+        }
+    }
+
+    return removed;
+}
+
+
+std::vector<LLMute> LLMuteList::getMutes() const
+{
+    std::vector<LLMute> mutes;
+
+    for (mute_set_t::const_iterator it = mMutes.begin();
+         it != mMutes.end();
+         ++it)
+    {
+        mutes.push_back(*it);
+    }
+
+    for (string_set_t::const_iterator it = mLegacyMutes.begin();
+         it != mLegacyMutes.end();
+         ++it)
+    {
+        LLMute legacy(LLUUID::null, *it);
+        mutes.push_back(legacy);
+    }
+
+    std::sort(mutes.begin(), mutes.end(), compare_by_name());
+    return mutes;
+}
+
+//-----------------------------------------------------------------------------
+// loadFromFile()
+//-----------------------------------------------------------------------------
+bool LLMuteList::loadFromFile(const std::string& filename, EMuteListSource source)
+{
+    LL_PROFILE_ZONE_SCOPED;
+
+    if(!filename.size())
+    {
+        LL_WARNS() << "Mute List Filename is Empty!" << LL_ENDL;
+        setFailed("empty filename");
+        return false;
+    }
+
+    LLFILE* fp = LLFile::fopen(filename, "rb");     /*Flawfinder: ignore*/
+    if (!fp)
+    {
+        LL_WARNS() << "Couldn't open mute list " << filename << LL_ENDL;
+        setFailed("cannot open " + filename);
+        return false;
+    }
+
+    // Replace previous server-backed state so fallback can be superseded by authoritative data.
+    clearCachedMutes();
+
+    // *NOTE: Changing the size of these buffers will require changes
+    // in the scanf below.
+    char id_buffer[MAX_STRING];     /*Flawfinder: ignore*/
+    char name_buffer[MAX_STRING];       /*Flawfinder: ignore*/
+    char buffer[MAX_STRING];        /*Flawfinder: ignore*/
+    while (!feof(fp)
+           && fgets(buffer, MAX_STRING, fp))
+    {
+        id_buffer[0] = '\0';
+        name_buffer[0] = '\0';
+        S32 type = 0;
+        U32 flags = 0;
+        sscanf( /* Flawfinder: ignore */
+            buffer, " %d %254s %254[^|]| %u\n", &type, id_buffer, name_buffer,
+            &flags);
+        LLUUID id = LLUUID(id_buffer);
+        LLMute mute(id, std::string(name_buffer), (LLMute::EType)type, flags);
+        if (mute.mID.isNull()
+            || mute.mType == LLMute::BY_NAME)
+        {
+            mLegacyMutes.insert(mute.mName);
+        }
+        else
+        {
+            mMutes.insert(mute);
+
+            // ============================================================================
+            // S24 CUSTOM: Load-Time Derender Enforcement
+            // ============================================================================
+            // RATIONALE: When mute list loads from server/cache after relog, objects
+            //            may already be in memory before mute state is known. This
+            //            applies FORCE_INVISIBLE to already-loaded muted objects.
+            // WHY:       Fixes bug where objects stay visible after relog despite mute.
+            //            LL only adds mute to internal list but never hides the object.
+            // MERGE:     Keep this entire block - critical relog recovery fix.
+            // ============================================================================
+            if (mute.mType == LLMute::OBJECT && mute.mID.notNull())
+            {
+                LLViewerObject* obj = gObjectList.findObject(mute.mID);
+                if (obj && !obj->isAvatar())
+                {
+                    LLDrawable* drawable = obj->mDrawable;
+                    if (drawable)
+                    {
+                        drawable->setState(LLDrawable::FORCE_INVISIBLE);
+
+                        // CRITICAL: Force spatial partition and render updates
+                        bool was_active = drawable->isActive();
+                        if (was_active)
+                        {
+                            drawable->makeStatic(false);
+                        }
+                        drawable->makeActive();
+
+                        gPipeline.markRebuild(drawable, LLDrawable::REBUILD_ALL);
+                        drawable->setState(LLDrawable::MOVE_UNDAMPED);
+                        gPipeline.markMoved(drawable, true);
+
+                        LLViewerObject::const_child_list_t& child_list = obj->getChildren();
+                        for (LLViewerObject::child_list_t::const_iterator iter = child_list.begin();
+                             iter != child_list.end(); iter++)
+                        {
+                            LLViewerObject* child = *iter;
+                            LLDrawable* child_drawable = child->mDrawable;
+                            if (child_drawable)
+                            {
+                                child_drawable->setState(LLDrawable::FORCE_INVISIBLE);
+
+                                bool child_was_active = child_drawable->isActive();
+                                if (child_was_active)
+                                {
+                                    child_drawable->makeStatic(false);
+                                }
+                                child_drawable->makeActive();
+
+                                gPipeline.markRebuild(child_drawable, LLDrawable::REBUILD_ALL);
+                                child_drawable->setState(LLDrawable::MOVE_UNDAMPED);
+                                gPipeline.markMoved(child_drawable, true);
+                            }
+                        }
+                    }
+                }
+            }
+            // ============================================================================
+            // END S24 CUSTOM: Load-Time Derender Enforcement
+            // ============================================================================
+        }
+    }
+    fclose(fp);
+    setLoaded(source);
+
+    // server does not maintain up-to date account names (not display names!)
+    // in this list, so it falls to viewer.
+    pending_names_t::iterator iter = mPendingAgentNameUpdates.begin();
+    pending_names_t::iterator end = mPendingAgentNameUpdates.end();
+    while (iter != end)
+    {
+        // this will send updates to server, make sure mIsLoaded is set
+        onAccountNameChanged(iter->first, iter->second);
+        iter++;
+    }
+    mPendingAgentNameUpdates.clear();
+
+    return true;
+}
+
+//-----------------------------------------------------------------------------
+// saveToFile()
+//-----------------------------------------------------------------------------
+bool LLMuteList::saveToFile(const std::string& filename)
+{
+    if(!filename.size())
+    {
+        LL_WARNS() << "Mute List Filename is Empty!" << LL_ENDL;
+        return false;
+    }
+
+    LLFILE* fp = LLFile::fopen(filename, "wb");     /*Flawfinder: ignore*/
+    if (!fp)
+    {
+        LL_WARNS() << "Couldn't open mute list " << filename << LL_ENDL;
+        return false;
+    }
+    // legacy mutes have null uuid
+    std::string id_string;
+    LLUUID::null.toString(id_string);
+    for (string_set_t::iterator it = mLegacyMutes.begin();
+         it != mLegacyMutes.end();
+         ++it)
+    {
+        fprintf(fp, "%d %s %s|\n", (S32)LLMute::BY_NAME, id_string.c_str(), it->c_str());
+    }
+    for (mute_set_t::iterator it = mMutes.begin();
+         it != mMutes.end();
+         ++it)
+    {
+        // Don't save external mutes as they are not sent to the server and probably won't
+        //be valid next time anyway.
+        if (it->mType != LLMute::EXTERNAL)
+        {
+            it->mID.toString(id_string);
+            const std::string& name = it->mName;
+            fprintf(fp, "%d %s %s|%u\n", (S32)it->mType, id_string.c_str(), name.c_str(), it->mFlags);
+        }
+    }
+    fclose(fp);
+    return true;
+}
+
+
+bool LLMuteList::isMuted(const LLUUID& id, const std::string& name, U32 flags) const
+{
+    // for objects, check for muting on their parent prim
+    LLViewerObject* mute_object = get_object_to_mute_from_id(id);
+    LLUUID id_to_check = (mute_object) ? mute_object->getID() : id;
+
+    // don't need name or type for lookup
+    LLMute mute(id_to_check);
+    mute_set_t::const_iterator mute_it = mMutes.find(mute);
+    if (mute_it != mMutes.end())
+    {
+        // If any of the flags the caller passed are set, this item isn't considered muted for this caller.
+        if (flags & mute_it->mFlags)
+        {
+            return false;
+        }
+        return true;
+    }
+
+    // empty names can't be legacy-muted
+    bool avatar = mute_object && mute_object->isAvatar();
+    if (name.empty() || avatar) return false;
+
+    // Look in legacy pile
+    string_set_t::const_iterator legacy_it = mLegacyMutes.find(name);
+    return legacy_it != mLegacyMutes.end();
+}
+
+bool LLMuteList::isMuted(const std::string& username, U32 flags) const
+{
+    mute_set_t::const_iterator mute_iter = mMutes.begin();
+    while(mute_iter != mMutes.end())
+    {
+        // can't convert "leha.test" into "LeHa TesT" so username comparison is more reliable
+        if (mute_iter->mType == LLMute::AGENT
+            && LLCacheName::buildUsername(mute_iter->mName) == username)
+        {
+            return true;
+        }
+        mute_iter++;
+    }
+    return false;
+}
+
+//-----------------------------------------------------------------------------
+// requestFromServer()
+//-----------------------------------------------------------------------------
+void LLMuteList::requestFromServer(const LLUUID& agent_id)
+{
+    if(isLoadedFromServer())
+    {
+        LL_WARNS() << "Blocked attempt to request mute list from server when already loaded from server!" << LL_ENDL;
+        return;
+    }
+    const std::string filename = getCacheFilename(agent_id);
+    LLCRC crc;
+    crc.update(filename);
+    mTriedCacheFallback = false;  // Reset fallback flag BEFORE any early returns
+    mLoadSource = MLS_NONE;
+
+    LLMessageSystem* msg = gMessageSystem;
+    msg->newMessageFast(_PREHASH_MuteListRequest);
+    msg->nextBlockFast(_PREHASH_AgentData);
+    msg->addUUIDFast(_PREHASH_AgentID, agent_id);
+    msg->addUUIDFast(_PREHASH_SessionID, gAgent.getSessionID());
+    msg->nextBlockFast(_PREHASH_MuteData);
+    msg->addU32Fast(_PREHASH_MuteCRC, crc.getCRC());
+
+    if (gDisconnected)
+    {
+        LL_WARNS() << "Trying to request mute list when disconnected!" << LL_ENDL;
+        // Guard against potentially writing back to disk since we're not recovering our connection
+        mLoadState = ML_LOADED;
+        mLoadSource = MLS_FALLBACK_CACHE;
+        // This code path means we have disconnected/crashed before our request has been sent.
+        // As a result we do not NEED to do anything more than set these state values.
+        // cache() is liable to be called on shutdown, but since we've set a dirty state it will avoid writing to disk.
+        return;
+    }
+    if (!gAgent.getRegion())
+    {
+        LL_WARNS() << "No region for agent yet, skipping mute list request!" << LL_ENDL;
+        tryLoadCacheFallback(agent_id, "no region for request");
+        return;
+    }
+    mLoadState = ML_REQUESTED;
+    mRequestStartTime = LLTimer::getTotalSeconds();
+    // Double amount of retries due to this request happening during busy stage
+    // Ideally this should be turned into a capability
+    gMessageSystem->sendReliable(gAgent.getRegionHost(), LL_DEFAULT_RELIABLE_RETRIES * 2, true, LL_PING_BASED_TIMEOUT_DUMMY, NULL, NULL);
+}
+
+//-----------------------------------------------------------------------------
+// cache()
+//-----------------------------------------------------------------------------
+
+void LLMuteList::cache(const LLUUID& agent_id)
+{
+    // Write to disk even if empty, but never from degraded fallback state.
+    if (isLoaded() && !isLoadedDegraded())
+    {
+        const std::string filename = getCacheFilename(agent_id);
+        saveToFile(filename);
+    }
+    else if (isLoaded())
+    {
+        LL_WARNS() << "Skipping mute list cache write from fallback-only state" << LL_ENDL;
+    }
+}
+
+//-----------------------------------------------------------------------------
+// Static message handlers
+//-----------------------------------------------------------------------------
+
+void LLMuteList::processMuteListUpdate(LLMessageSystem* msg, void**)
+{
+    LL_INFOS() << "LLMuteList::processMuteListUpdate()" << LL_ENDL;
+    LLMuteList* mute_list = getInstance();
+    if(mute_list->mTriedRegionChangeRetry)
+    {
+        LL_WARNS() << "Received mute list update after retrying region change; success!" << LL_ENDL;
+    }
+    LLUUID agent_id;
+    msg->getUUIDFast(_PREHASH_MuteData, _PREHASH_AgentID, agent_id);
+    if(agent_id != gAgent.getID())
+    {
+        LL_WARNS() << "Got a mute list update for the wrong agent." << LL_ENDL;
+        return;
+    }
+    std::string unclean_filename;
+    msg->getStringFast(_PREHASH_MuteData, _PREHASH_Filename, unclean_filename);
+    std::string filename = LLDir::getScrubbedFileName(unclean_filename);
+    if (filename.empty())
+    {
+        LL_WARNS() << "Received empty mute list filename." << LL_ENDL;
+    }
+
+    mute_list->mLoadState = ML_REQUESTED;
+    mute_list->mRequestStartTime = LLTimer::getTotalSeconds();
+
+    // Todo: Based of logs and testing, there is no callback
+    // from server if file doesn't exist server side.
+    // Once server side gets fixed make sure it gets handled right.
+    std::string *local_filename_and_path = new std::string(gDirUtilp->getExpandedFilename( LL_PATH_CACHE, filename ));
+    gXferManager->requestFile(*local_filename_and_path,
+                              filename,
+                              LL_PATH_CACHE,
+                              msg->getSender(),
+                              true, // make the remote file temporary.
+                              onFileMuteList,
+                              (void**)local_filename_and_path,
+                              LLXferManager::HIGH_PRIORITY);
+}
+
+void LLMuteList::processUseCachedMuteList(LLMessageSystem* msg, void**)
+{
+    LL_INFOS() << "LLMuteList::processUseCachedMuteList()" << LL_ENDL;
+    LLMuteList* mute_list = LLMuteList::getInstance();
+    if(mute_list->mTriedRegionChangeRetry)
+    {
+        LL_WARNS() << "Received use cached mute list message after retrying region change; success!" << LL_ENDL;
+    }
+    mute_list->loadFromFile(mute_list->getCacheFilename(gAgent.getID()), MLS_SERVER_CACHE);
+}
+
+void LLMuteList::onFileMuteList(void** user_data, S32 error_code, LLExtStat ext_status)
+{
+    std::string* local_filename_and_path = (std::string*)user_data;
+    if(local_filename_and_path && !local_filename_and_path->empty() && (error_code == 0))
+    {
+        LL_INFOS() << "Received mute list from server" << LL_ENDL;
+        LLMuteList::getInstance()->loadFromFile(*local_filename_and_path, MLS_SERVER);
+        LLFile::remove(*local_filename_and_path);
+    }
+    else
+    {
+        LL_INFOS() << "LLMuteList xfer failed with code " << error_code << LL_ENDL;
+        LLMuteList::getInstance()->tryLoadCacheFallback(gAgent.getID(), "xfer failure");
+    }
+    delete local_filename_and_path;
+}
+
+void LLMuteList::onAccountNameChanged(const LLUUID& id, const std::string& username)
+{
+    if (isLoaded())
+    {
+        LLMute mute(id, username, LLMute::AGENT);
+        mute_set_t::iterator mute_it = mMutes.find(mute);
+        if (mute_it != mMutes.end()
+            && mute_it->mName != mute.mName
+            && mute_it->mType == LLMute::AGENT) // just in case, it is std::set, not map
+        {
+            // existing mute, but name changed, copy data
+            mute.mFlags = mute_it->mFlags;
+
+            // erase old variant
+            mMutes.erase(mute_it);
+
+            // (re)add the mute entry.
+            {
+                std::pair<mute_set_t::iterator, bool> result = mMutes.insert(mute);
+                if (result.second)
+                {
+                    LL_INFOS() << "Muting " << mute.mName << " id " << mute.mID << " flags " << mute.mFlags << LL_ENDL;
+                    updateAdd(mute);
+                    // Do not notify observers here, observers do not know or need to handle name changes
+                    // Example: block list considers notifyObserversDetailed as a selection update;
+                    // Various chat/voice statuses care only about id and flags
+                    // Since apropriate update time for account names is considered to be in 'hours' it is
+                    // fine not to update UI (will be fine after restart or couple other changes)
+
+                }
+            }
+        }
+    }
+    else
+    {
+        // Delay update until we load file
+        // Ex: Buddies list can arrive too early since we prerequest
+        // names from Buddies list before we load blocklist
+        mPendingAgentNameUpdates[id] = username;
+    }
+}
+
+void LLMuteList::addObserver(LLMuteListObserver* observer)
+{
+    mObservers.insert(observer);
+}
+
+void LLMuteList::removeObserver(LLMuteListObserver* observer)
+{
+    mObservers.erase(observer);
+}
+
+void LLMuteList::setLoaded(EMuteListSource source)
+{
+    // ============================================================================
+    // S24 ENHANCEMENT: Smart Duplicate Load Detection & Log Management
+    // ============================================================================
+    // RATIONALE: Track previous load state and source to intelligently handle
+    //            duplicate setLoaded() calls and prevent log spam.
+    // WHY:       LL's version warns/logs on EVERY call, even harmless duplicates.
+    //            Example: calling setLoaded(SERVER) twice logs:
+    //              "WARN: already loaded from SERVER, switching to SERVER" (confusing!)
+    //              "INFO: Mute list loaded from SERVER" (spam!)
+    // BENEFIT:   - Only warns when source ACTUALLY changes (cache→server)
+    //            - Only logs "loaded" message ONCE per session
+    //            - Cleaner logs, better UX, less confusion
+    // MERGE:     Keep S24 version - superior to LL's naive implementation.
+    // ============================================================================
+    const bool was_loaded = isLoaded();
+    const EMuteListSource prev_source = mLoadSource;
+
+    mLoadState  = ML_LOADED;
+    mLoadSource = source;
+
+    // Only warn if this is a *real* source switch, not just a second call.
+    if (was_loaded && prev_source != source)
+    {
+        LL_WARNS() << "Mute list load source changed from "
+                   << sourceToString(prev_source)
+                   << " to " << sourceToString(source)
+                   << LL_ENDL;
+    }
+
+    notifyObservers();
+
+    // Only log once per session, not every time.
+    if (!was_loaded)
+    {
+        LL_INFOS() << "Mute list loaded from "
+                   << sourceToString(source)
+                   << LL_ENDL;
+
+        // S24: REMOVED dirty flag logic - we now use applyObjectDerender() at startup instead
+    }
+
+    // Disconnect region callback once loaded from server (LL standard behavior)
+    if (isLoadedFromServer() && mRegionChangedCallback.connected())
+    {
+        LL_INFOS() << "Mute list loaded from server, disconnecting region change callback" << LL_ENDL;
+        mRegionChangedCallback.disconnect();
+    }
+    // ============================================================================
+    // END S24 ENHANCEMENT: Smart Duplicate Load Detection & Log Management
+    // ============================================================================
+}
+
+void LLMuteList::notifyObservers()
+{
+    for (observer_set_t::iterator it = mObservers.begin();
+        it != mObservers.end();
+        )
+    {
+        LLMuteListObserver* observer = *it;
+        observer->onChange();
+        // In case onChange() deleted an entry.
+        it = mObservers.upper_bound(observer);
+    }
+}
+
+void LLMuteList::notifyObserversDetailed(const LLMute& mute)
+{
+    for (observer_set_t::iterator it = mObservers.begin();
+        it != mObservers.end();
+        )
+    {
+        LLMuteListObserver* observer = *it;
+        observer->onChangeDetailed(mute);
+        // In case onChange() deleted an entry.
+        it = mObservers.upper_bound(observer);
+    }
+}
+
+void LLMuteList::onRegionChanged()
+{
+    // If we are in a degraded state, either some protocol messages got lost between us and our login region, or our login region was having a bad day.
+    // Since the previous region might've been unable to provide our mute list, we can try to request it again from our new region.
+    // This is limited to one retry per session.
+    if(isLoadedDegraded() && !mTriedRegionChangeRetry)
+    {
+        if(mRegionChangedCallback.connected())
+        {
+            mRegionChangedCallback.disconnect();
+        }
+        LL_WARNS() << "Region changed while mute list is in degraded state, queueing a retry of the mute list request" << LL_ENDL;
+        mTriedRegionChangeRetry = true;
+        requestFromServer(gAgent.getID());
+    }
+
+    }
+
+LLRenderMuteList::LLRenderMuteList()
+{}
+
+bool LLRenderMuteList::saveToFile()
+{
+    std::string filename = gDirUtilp->getExpandedFilename(LL_PATH_PER_SL_ACCOUNT, "render_mute_settings.txt");
+    LLFILE* fp = LLFile::fopen(filename, "wb");
+    if (!fp)
+    {
+        LL_WARNS() << "Couldn't open render mute list file: " << filename << LL_ENDL;
+        return false;
+    }
+
+    for (std::map<LLUUID, S32>::iterator it = sVisuallyMuteSettingsMap.begin(); it != sVisuallyMuteSettingsMap.end(); ++it)
+    {
+        if (it->second != 0)
+        {
+            std::string id_string;
+            it->first.toString(id_string);
+            fprintf(fp, "%d %s [%d]\n", (S32)it->second, id_string.c_str(), (S32)sVisuallyMuteDateMap[it->first]);
+        }
+    }
+    fclose(fp);
+    return true;
+}
+
+bool LLRenderMuteList::loadFromFile()
+{
+    std::string filename = gDirUtilp->getExpandedFilename(LL_PATH_PER_SL_ACCOUNT, "render_mute_settings.txt");
+
+    // ============================================================================
+    // S24 CUSTOM: File Existence Check Before Opening
+    // ============================================================================
+    // RATIONALE: Check if file exists before attempting fopen() to distinguish
+    //            between "file doesn't exist yet" (normal) vs "can't open file" (error).
+    // WHY:       New users don't have render_mute_settings.txt yet - LL's version
+    //            logs scary warnings every login until first render mute usage.
+    // MERGE:     Keep this check - prevents log spam and improves UX.
+    // ============================================================================
+    if (!LLFile::isfile(filename))
+    {
+        LL_DEBUGS() << "Render mute list file does not exist yet (will be created on first use): " << filename << LL_ENDL;
+        return false;
+    }
+    // ============================================================================
+    // END S24 CUSTOM: File Existence Check Before Opening
+    // ============================================================================
+
+    LLFILE* fp = LLFile::fopen(filename, "rb");
+    if (!fp)
+    {
+        LL_WARNS() << "Couldn't open render mute list file: " << filename << LL_ENDL;
+        return false;
+    }
+
+    char id_buffer[MAX_STRING];
+    char buffer[MAX_STRING];
+    while (!feof(fp) && fgets(buffer, MAX_STRING, fp))
+    {
+        id_buffer[0] = '\0';
+        S32 setting = 0;
+        S32 time = 0;
+        sscanf(buffer, " %d %254s [%d]\n", &setting, id_buffer, &time);
+        sVisuallyMuteSettingsMap[LLUUID(id_buffer)] = setting;
+        sVisuallyMuteDateMap[LLUUID(id_buffer)] = (time == 0) ? (S32)time_corrected() : time;
+    }
+    fclose(fp);
+    return true;
+}
+
+void LLRenderMuteList::saveVisualMuteSetting(const LLUUID& agent_id, S32 setting)
+{
+    if(setting == 0)
+    {
+        sVisuallyMuteSettingsMap.erase(agent_id);
+        sVisuallyMuteDateMap.erase(agent_id);
+    }
+    else
+    {
+        sVisuallyMuteSettingsMap[agent_id] = setting;
+        if (sVisuallyMuteDateMap.find(agent_id) == sVisuallyMuteDateMap.end())
+        {
+            sVisuallyMuteDateMap[agent_id] =  (S32)time_corrected();
+        }
+    }
+    saveToFile();
+    notifyObservers();
+}
+
+S32 LLRenderMuteList::getSavedVisualMuteSetting(const LLUUID& agent_id)
+{
+    std::map<LLUUID, S32>::iterator iter = sVisuallyMuteSettingsMap.find(agent_id);
+    if (iter != sVisuallyMuteSettingsMap.end())
+    {
+        return iter->second;
+    }
+
+    return 0;
+}
+
+S32 LLRenderMuteList::getVisualMuteDate(const LLUUID& agent_id)
+{
+    std::map<LLUUID, S32>::iterator iter = sVisuallyMuteDateMap.find(agent_id);
+    if (iter != sVisuallyMuteDateMap.end())
+    {
+        return iter->second;
+    }
+
+    return 0;
+}
+
+void LLRenderMuteList::addObserver(LLMuteListObserver* observer)
+{
+    mObservers.insert(observer);
+}
+
+void LLRenderMuteList::removeObserver(LLMuteListObserver* observer)
+{
+    mObservers.erase(observer);
+}
+
+void LLRenderMuteList::notifyObservers()
+{
+    for (observer_set_t::iterator it = mObservers.begin();
+        it != mObservers.end();
+        )
+    {
+        LLMuteListObserver* observer = *it;
+        observer->onChange();
+        // In case onChange() deleted an entry.
+        it = mObservers.upper_bound(observer);
+    }
+}
+
+// ============================================================================
+// S24 CUSTOM: Apply Object Derender (Copy of Working updateAdd Logic)
+// ============================================================================
+// RATIONALE: Per-session derender (updateAdd) WORKS PERFECTLY. This function
+//            uses the EXACT SAME LOGIC but applies it to ALL muted objects.
+// WHY:       Instead of complex startup hooks, just replicate what works!
+// WHEN:      Call after mute list loads, after teleport, after region change.
+// MERGE:     Keep this - it's the proven working solution.
+// ============================================================================
+void LLMuteList::applyObjectDerender()
+{
+    LL_INFOS() << "S24: Applying object derender to all muted objects" << LL_ENDL;
+
+    S32 derendered_count = 0;
+
+    // Walk through all mutes (same as we do in updateAdd, but for the whole list)
+    for (mute_set_t::const_iterator it = mMutes.begin(); it != mMutes.end(); ++it)
+    {
+        const LLMute& mute = *it;
+
+        // Same check as updateAdd()
+        if (mute.mType == LLMute::OBJECT && mute.mID.notNull())
+        {
+            LLViewerObject* obj = gObjectList.findObject(mute.mID);
+            if (obj && !obj->isAvatar())
+            {
+                // Deselect if selected (same as updateAdd)
+                if (obj->isSelected())
+                {
+                    LLSelectMgr::getInstance()->deselectObjectOnly(obj);
+                }
+
+                // Apply FORCE_INVISIBLE with the SAME aggressive update logic as updateRemove
+                LLDrawable* drawable = obj->mDrawable;
+                if (drawable)
+                {
+                    drawable->setState(LLDrawable::FORCE_INVISIBLE);
+
+                    // CRITICAL: Force spatial partition and render updates (inverse of updateRemove)
+                    bool was_active = drawable->isActive();
+                    if (was_active)
+                    {
+                        drawable->makeStatic(false);
+                    }
+                    drawable->makeActive();
+
+                    gPipeline.markRebuild(drawable, LLDrawable::REBUILD_ALL);
+                    drawable->setState(LLDrawable::MOVE_UNDAMPED);
+                    gPipeline.markMoved(drawable, true);
+
+                    derendered_count++;
+
+                    // Also hide child prims (same logic)
+                    LLViewerObject::const_child_list_t& child_list = obj->getChildren();
+                    for (LLViewerObject::child_list_t::const_iterator iter = child_list.begin();
+                         iter != child_list.end(); iter++)
+                    {
+                        LLViewerObject* child = *iter;
+                        LLDrawable* child_drawable = child->mDrawable;
+                        if (child_drawable)
+                        {
+                            child_drawable->setState(LLDrawable::FORCE_INVISIBLE);
+
+                            bool child_was_active = child_drawable->isActive();
+                            if (child_was_active)
+                            {
+                                child_drawable->makeStatic(false);
+                            }
+                            child_drawable->makeActive();
+
+                            gPipeline.markRebuild(child_drawable, LLDrawable::REBUILD_ALL);
+                            child_drawable->setState(LLDrawable::MOVE_UNDAMPED);
+                            gPipeline.markMoved(child_drawable, true);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (derendered_count > 0)
+    {
+        LL_INFOS() << "S24: Applied derender to " << derendered_count << " muted objects" << LL_ENDL;
+    }
+    else
+    {
+        LL_INFOS() << "S24: No muted objects found in memory to derender" << LL_ENDL;
+    }
+}
+// ============================================================================
+// END S24 CUSTOM: Apply Object Derender
+// ============================================================================
+
+// ============================================================================
+// S24 CUSTOM: Enforce Region Derender (Called from LLViewerRegion::idleUpdate)
+// ============================================================================
+void LLMuteList::enforceRegionDerender(LLViewerRegion* region)
+{
+    if (!region || !isLoaded())
+    {
+        return;
+    }
+
+    // Walk mute list and check if each muted object is in THIS region
+    for (mute_set_t::const_iterator it = mMutes.begin(); it != mMutes.end(); ++it)
+    {
+        const LLMute& mute = *it;
+        if (mute.mType == LLMute::OBJECT && mute.mID.notNull())
+        {
+            LLViewerObject* obj = gObjectList.findObject(mute.mID);
+            // Only process if object exists AND is in the specified region
+            if (obj && !obj->isDead() && !obj->isAvatar() && obj->getRegion() == region)
+            {
+                LLDrawable* drawable = obj->mDrawable;
+                // Skip if already invisible (avoid redundant work)
+                if (drawable && !drawable->isState(LLDrawable::FORCE_INVISIBLE))
+                {
+                    drawable->setState(LLDrawable::FORCE_INVISIBLE);
+
+                    // Apply aggressive spatial/render updates (same as updateAdd)
+                    bool was_active = drawable->isActive();
+                    if (was_active)
+                    {
+                        drawable->makeStatic(false);
+                    }
+                    drawable->makeActive();
+
+                    gPipeline.markRebuild(drawable, LLDrawable::REBUILD_ALL);
+                    drawable->setState(LLDrawable::MOVE_UNDAMPED);
+                    gPipeline.markMoved(drawable, true);
+
+                    // Handle child objects (linksets)
+                    LLViewerObject::const_child_list_t& child_list = obj->getChildren();
+                    for (LLViewerObject::child_list_t::const_iterator child_iter = child_list.begin();
+                         child_iter != child_list.end(); ++child_iter)
+                    {
+                        LLViewerObject* child = *child_iter;
+                        LLDrawable* child_drawable = child->mDrawable;
+                        if (child_drawable)
+                        {
+                            child_drawable->setState(LLDrawable::FORCE_INVISIBLE);
+
+                            bool child_was_active = child_drawable->isActive();
+                            if (child_was_active)
+                            {
+                                child_drawable->makeStatic(false);
+                            }
+                            child_drawable->makeActive();
+
+                            gPipeline.markRebuild(child_drawable, LLDrawable::REBUILD_ALL);
+                            child_drawable->setState(LLDrawable::MOVE_UNDAMPED);
+                            gPipeline.markMoved(child_drawable, true);
+                        }
+                    }
+
+                    LL_DEBUGS("MuteList") << "Region derender enforced for muted object " 
+                                           << obj->getID() << " in region " << region->getName() << LL_ENDL;
+                }
+            }
+        }
+    }
+}
+// ============================================================================
+// END S24 CUSTOM: Enforce Region Derender
+// ============================================================================

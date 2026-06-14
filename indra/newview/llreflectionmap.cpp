@@ -1,0 +1,401 @@
+/**
+ * @file llreflectionmap.cpp
+ * @brief LLReflectionMap class implementation
+ *
+ * $LicenseInfo:firstyear=2022&license=viewerlgpl$
+ * Second Life Viewer Source Code
+ * Copyright (C) 2022, Linden Research, Inc.
+ *
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation;
+ * version 2.1 of the License only.
+ *
+ * This library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
+ *
+ * Linden Research, Inc., 945 Battery Street, San Francisco, CA  94111  USA
+ * $/LicenseInfo$
+ */
+
+#include "llviewerprecompiledheaders.h"
+
+#include "llreflectionmap.h"
+#include "pipeline.h"
+#include "llviewerwindow.h"
+#include "llviewerregion.h"
+#include "llworld.h"
+#include "llshadermgr.h"
+
+extern F32SecondsImplicit gFrameTimeSeconds;
+
+extern U32 get_box_fan_indices(LLCamera* camera, const LLVector4a& center);
+
+LLReflectionMap::LLReflectionMap()
+{
+}
+
+LLReflectionMap::~LLReflectionMap()
+{
+    if (mOcclusionQuery)
+    {
+        gPipeline.mReflectionMapManager.recycleQuery(mOcclusionQuery);
+        mOcclusionQuery = 0;
+    }
+}
+
+void LLReflectionMap::update(U32 resolution, U32 face, bool force_dynamic, F32 near_clip, bool useClipPlane, LLPlane clipPlane)
+{
+    if (!mCubeArray.notNull())
+        return;
+
+    mLastUpdateTime = gFrameTimeSeconds;
+    llassert(mCubeArray.notNull());
+    llassert(mCubeIndex != -1);
+    //llassert(LLPipeline::sRenderDeferred);
+
+    // make sure we don't walk off the edge of the render target
+    while (resolution > gPipeline.mRT->deferredScreen.getWidth() ||
+        resolution > gPipeline.mRT->deferredScreen.getHeight())
+    {
+        resolution /= 2;
+    }
+
+    F32 clip = (near_clip > 0) ? near_clip : getNearClip();
+    bool dynamic = force_dynamic || getIsDynamic();
+
+    gViewerWindow->cubeSnapshot(LLVector3(mOrigin), mCubeArray, mCubeIndex, face, clip, dynamic, useClipPlane, clipPlane);
+}
+
+void LLReflectionMap::autoAdjustOrigin()
+{
+
+
+    if (mGroup && !mComplete && !mGroup->hasState(LLViewerOctreeGroup::DEAD))
+    {
+        const LLVector4a* bounds = mGroup->getBounds();
+        auto* node = mGroup->getOctreeNode();
+        LLSpatialPartition* part = mGroup->getSpatialPartition();
+
+        if (part && part->mPartitionType == LLViewerRegion::PARTITION_VOLUME)
+        {
+            mPriority = 0;
+            // cast a ray towards 8 corners of bounding box
+            // nudge origin towards center of empty space
+
+            if (!node)
+            {
+                return;
+            }
+
+            mOrigin = bounds[0];
+
+            LLVector4a size = bounds[1];
+
+            LLVector4a corners[] =
+            {
+                { 1, 1, 1 },
+                { -1, 1, 1 },
+                { 1, -1, 1 },
+                { -1, -1, 1 },
+                { 1, 1, -1 },
+                { -1, 1, -1 },
+                { 1, -1, -1 },
+                { -1, -1, -1 }
+            };
+
+            for (int i = 0; i < 8; ++i)
+            {
+                corners[i].mul(size);
+                corners[i].add(bounds[0]);
+            }
+
+            LLVector4a extents[2];
+            extents[0].setAdd(bounds[0], bounds[1]);
+            extents[1].setSub(bounds[0], bounds[1]);
+
+            bool hit = false;
+            for (int i = 0; i < 8; ++i)
+            {
+                int face = -1;
+                LLVector4a intersection;
+                LLDrawable* drawable = mGroup->lineSegmentIntersect(bounds[0], corners[i], false, false, true, true, &face, &intersection);
+                if (drawable != nullptr)
+                {
+                    hit = true;
+                    update_min_max(extents[0], extents[1], intersection);
+                }
+                else
+                {
+                    update_min_max(extents[0], extents[1], corners[i]);
+                }
+            }
+
+            if (hit)
+            {
+                mOrigin.setAdd(extents[0], extents[1]);
+                mOrigin.mul(0.5f);
+            }
+
+            // make sure origin isn't under ground
+            F32* fp = mOrigin.getF32ptr();
+            LLVector3 origin(fp);
+            F32 height = LLWorld::instance().resolveLandHeightAgent(origin) + 2.f;
+            fp[2] = llmax(fp[2], height);
+
+            // make sure radius encompasses all objects
+            LLSimdScalar r2 = 0.0;
+            for (int i = 0; i < 8; ++i)
+            {
+                LLVector4a v;
+                v.setSub(corners[i], mOrigin);
+
+                LLSimdScalar d = v.dot3(v);
+
+                if (d > r2)
+                {
+                    r2 = d;
+                }
+            }
+
+            mRadius = llmax(sqrtf(r2.getF32()), 8.f);
+
+            // make sure near clip doesn't poke through ground
+            fp[2] = llmax(fp[2], height+mRadius*0.5f);
+
+        }
+    }
+    else if (mViewerObject && !mViewerObject->isDead())
+    {
+        mPriority = 1;
+        mOrigin.load3(mViewerObject->getPositionAgent().mV);
+
+        if (mViewerObject->getVolume() && ((LLVOVolume*)mViewerObject.get())->getReflectionProbeIsBox())
+        {
+            LLVector3 s = mViewerObject->getScale().scaledVec(LLVector3(0.5f, 0.5f, 0.5f));
+            mRadius = s.magVec();
+        }
+        else
+        {
+            mRadius = mViewerObject->getScale().mV[0] * 0.5f;
+        }
+    }
+}
+
+bool LLReflectionMap::intersects(LLReflectionMap* other) const
+{
+    LLVector4a delta;
+    delta.setSub(other->mOrigin, mOrigin);
+
+    F32 dist = delta.dot3(delta).getF32();
+
+    F32 r2 = mRadius + other->mRadius;
+
+    r2 *= r2;
+
+    return dist < r2;
+}
+
+extern LLControlGroup gSavedSettings;
+
+F32 LLReflectionMap::getAmbiance() const
+{
+    F32 ret = 0.f;
+    if (mViewerObject && mViewerObject->getVolumeConst())
+    {
+        ret = mViewerObject->getReflectionProbeAmbiance();
+    }
+
+    return ret;
+}
+
+F32 LLReflectionMap::getNearClip() const
+{
+    const F32 MINIMUM_NEAR_CLIP = 0.1f;
+
+    F32 ret = 0.f;
+
+    if (mViewerObject && mViewerObject->getVolumeConst())
+    {
+        ret = mViewerObject->getReflectionProbeNearClip();
+    }
+    else if (mGroup)
+    {
+        ret = mRadius * 0.5f; // default to half radius for automatic object probes
+    }
+    else
+    {
+        ret = 1.f; // default to 1m for automatic terrain probes
+    }
+
+    return llmax(ret, MINIMUM_NEAR_CLIP);
+}
+
+bool LLReflectionMap::getIsDynamic() const
+{
+    static LLCachedControl<S32> detail(gSavedSettings, "RenderReflectionProbeDetail", 1);
+    if (detail() > (S32)LLReflectionMapManager::DetailLevel::STATIC_ONLY &&
+        mViewerObject &&
+        !mViewerObject->isDead() &&
+        mViewerObject->getVolumeConst())
+    {
+        return mViewerObject->getReflectionProbeIsDynamic();
+    }
+
+    return false;
+}
+
+bool LLReflectionMap::getBox(LLMatrix4& box)
+{
+    if (mViewerObject)
+    {
+        LLVolume* volume = mViewerObject->getVolume();
+        if (volume && mViewerObject->getReflectionProbeIsBox())
+        {
+            glm::mat4 mv(get_current_modelview());
+            LLVector3 s = mViewerObject->getScale().scaledVec(LLVector3(0.5f, 0.5f, 0.5f));
+            mRadius = s.magVec();
+            glm::mat4 scale = glm::scale(glm::vec3(s));
+            if (mViewerObject->mDrawable != nullptr)
+            {
+                // object to agent space (no scale)
+                glm::mat4 rm(glm::make_mat4((F32*)mViewerObject->mDrawable->getWorldMatrix().mMatrix));
+
+                // construct object to camera space (with scale)
+                mv = mv * rm * scale;
+
+                // inverse is camera space to object unit cube
+                mv = glm::inverse(mv);
+
+                box = LLMatrix4(glm::value_ptr(mv));
+
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
+bool LLReflectionMap::isActive() const
+{
+    return mCubeIndex != -1;
+}
+
+bool LLReflectionMap::isRelevant() const
+{
+    static LLCachedControl<S32> RenderReflectionProbeLevel(gSavedSettings, "RenderReflectionProbeLevel", 3);
+
+    if (mViewerObject && RenderReflectionProbeLevel > 0)
+    { // not an automatic probe
+        return true;
+    }
+
+    if (RenderReflectionProbeLevel == 3)
+    { // all automatics are relevant
+        return true;
+    }
+
+    if (RenderReflectionProbeLevel == 2)
+    { // terrain and water only, ignore probes that have a group
+        return !mGroup;
+    }
+
+    // no automatic probes, yes manual probes
+    return mViewerObject != nullptr;
+}
+
+// S24 improved occlusion query handling for reflection probes.
+// We want to avoid stalling the GPU by waiting for occlusion query 
+// results
+
+void LLReflectionMap::doOcclusion(const LLVector4a& eye)
+{
+    if (LLGLSLShader::sProfileEnabled)
+    {
+        return;
+    }
+
+    // EXACT Linden behaviour: bounding sphere of bounding cube + 1.f
+    const F32 min_occlusion_dist = mRadius * F_SQRT3 + 1.f;
+
+    LLVector4a eye_offset;
+    eye_offset.setSub(mOrigin, eye);
+
+    // Eye inside influence radius → never occlude
+    if (eye_offset.getLength3().getF32() < min_occlusion_dist)
+    {
+        mOccluded = false;
+        return;
+    }
+
+    bool should_query = false;
+
+    // Allocate query if needed
+    if (mOcclusionQuery == 0)
+    {
+        mOcclusionQuery = gPipeline.mReflectionMapManager.allocateQuery();
+
+        if (mOcclusionQuery == 0)
+        {
+            // Fail open if allocation fails
+            mOccluded = false;
+            return;
+        }
+
+        should_query = true;
+    }
+    else
+    {
+        // Non-blocking check of previous query
+        GLuint available = 0;
+        glGetQueryObjectuiv(mOcclusionQuery, GL_QUERY_RESULT_AVAILABLE, &available);
+
+        if (available != 0)
+        {
+            GLuint samples_passed = 0;
+            glGetQueryObjectuiv(mOcclusionQuery, GL_QUERY_RESULT, &samples_passed);
+
+            mOccluded = (samples_passed == 0);
+            mOcclusionPendingFrames = 0;
+            should_query = true;
+        }
+        else
+        {
+            ++mOcclusionPendingFrames;
+        }
+    }
+
+    if (!should_query)
+    {
+        return;
+    }
+
+    glBeginQuery(GL_ANY_SAMPLES_PASSED, mOcclusionQuery);
+
+    LLGLSLShader* shader = LLGLSLShader::sCurBoundShaderPtr;
+    if (shader)
+    {
+        shader->uniform3fv(LLShaderMgr::BOX_CENTER, 1, mOrigin.getF32ptr());
+        shader->uniform3f(LLShaderMgr::BOX_SIZE, mRadius, mRadius, mRadius);
+
+        gPipeline.mCubeVB->drawRange(
+            LLRender::TRIANGLE_FAN,
+            0,
+            7,
+            8,
+            get_box_fan_indices(LLViewerCamera::getInstance(), mOrigin));
+    }
+    else
+    {
+        mOccluded = false;
+    }
+
+    glEndQuery(GL_ANY_SAMPLES_PASSED);
+}

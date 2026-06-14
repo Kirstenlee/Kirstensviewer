@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes" ?>
+<panel
+ follows="left|top|right"
+ height="170"
+ layout="topleft"
+ left="0"
+ top="0"
+ name="panel_snapshot_burst"
+ width="228">
+  <text type="string" length="1" follows="left|top" font="SansSerifBold" halign="left" height="14" layout="topleft" left="8" top="4" name="burst_title" width="200">
+    Burst Capture
+  </text>
+  <spinner control_name="SnapshotBurstCount"       decimal_digits="0" follows="left|top" height="22" increment="1"    initial_value="3"   label="Shots"        label_width="60" layout="topleft" left="8" top="24"  min_val="1"    max_val="60"   name="burst_count_spinner"    width="200" />
+  <spinner control_name="SnapshotBurstIntervalSec" decimal_digits="2" follows="left|top" height="22" increment="0.25" initial_value="1.0" label="Interval (s)" label_width="60" layout="topleft" left="8" top="50"  min_val="0.10" max_val="60.0" name="burst_interval_spinner" width="200" />
+  <check_box control_name="SnapshotBracketEnable"  follows="left|top" height="18" initial_value="false" label="Exposure Bracket" layout="topleft" left="8" top="78" name="burst_bracket_check" width="200" />
+  <spinner control_name="SnapshotBracketEVStep"    decimal_digits="2" follows="left|top" height="22" increment="0.25" initial_value="1.0" label="EV step"      label_width="60" layout="topleft" left="8" top="100" min_val="0.10" max_val="3.0"  name="burst_ev_spinner"       width="200" />
+  <button follows="left|top" height="24" label="Start Burst" layout="topleft" left="8" top="134" name="burst_start_btn" width="212" />
+</panel>

@@ -1,0 +1,162 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes" ?>
+<floater
+    legacy_header_height="18"
+    can_resize="false"
+    height="260"
+    layout="topleft"
+    name="cache_stats"
+    help_topic="cache_stats"
+    save_rect="true"
+    save_visibility="true"
+    title="Texture Cache Stats"
+    width="320">
+
+    <panel
+        follows="all"
+        height="230"
+        layout="topleft"
+        left="10"
+        top="25"
+        width="300"
+        bg_opaque_color="Black_75"
+        bg_alpha_color="Black_75"
+        background_visible="true"
+        background_opaque="false">
+
+        <!-- Header -->
+        <text
+            type="string"
+            length="1"
+            follows="left|top"
+            height="20"
+            layout="topleft"
+            left="5"
+            name="header_label"
+            top="5"
+            width="290"
+            font="SansSerifLarge"
+            text_color="White">
+            Texture RAM Cache
+        </text>
+
+        <!-- Entry Count Bar -->
+        <text
+            type="string"
+            length="1"
+            follows="left|top"
+            height="16"
+            layout="topleft"
+            left="5"
+            name="entries_label"
+            top="35"
+            width="290"
+            font="SansSerifSmall">
+            Cached Entries
+        </text>
+
+        <progress_bar
+            height="20"
+            layout="topleft"
+            left="5"
+            name="entries_bar"
+            top="52"
+            width="290"
+            color_bar="0.2 0.5 1.0 1.0"
+            color_bg="0.1 0.1 0.1 0.5"/>
+
+        <text
+            type="string"
+            length="1"
+            follows="left|top"
+            height="14"
+            layout="topleft"
+            left="5"
+            name="entries_text"
+            top="74"
+            width="290"
+            font="SansSerifSmall"
+            text_color="LtGray">
+            0 entries
+        </text>
+
+        <!-- Memory Usage Bar -->
+        <text
+            type="string"
+            length="1"
+            follows="left|top"
+            height="16"
+            layout="topleft"
+            left="5"
+            name="memory_label"
+            top="98"
+            width="290"
+            font="SansSerifSmall">
+            Memory Usage
+        </text>
+
+        <progress_bar
+            height="20"
+            layout="topleft"
+            left="5"
+            name="memory_bar"
+            top="115"
+            width="290"
+            color_bar="0.2 0.8 0.2 1.0"
+            color_bg="0.1 0.1 0.1 0.5"/>
+
+        <text
+            type="string"
+            length="1"
+            follows="left|top"
+            height="14"
+            layout="topleft"
+            left="5"
+            name="memory_text"
+            top="137"
+            width="290"
+            font="SansSerifSmall"
+            text_color="LtGray">
+            0.0 MB / 0.0 MB
+        </text>
+
+        <!-- Pressure Bar -->
+        <text
+            type="string"
+            length="1"
+            follows="left|top"
+            height="16"
+            layout="topleft"
+            left="5"
+            name="pressure_label"
+            top="161"
+            width="290"
+            font="SansSerifSmall">
+            Cache Pressure
+        </text>
+
+        <progress_bar
+            height="20"
+            layout="topleft"
+            left="5"
+            name="pressure_bar"
+            top="178"
+            width="290"
+            color_bar="0.2 0.8 0.2 1.0"
+            color_bg="0.1 0.1 0.1 0.5"/>
+
+        <text
+            type="string"
+            length="1"
+            follows="left|top"
+            height="14"
+            layout="topleft"
+            left="5"
+            name="pressure_text"
+            top="200"
+            width="290"
+            font="SansSerifSmall"
+            text_color="Green">
+            0.0%
+        </text>
+    </panel>
+</floater>

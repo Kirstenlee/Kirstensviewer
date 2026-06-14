@@ -1,0 +1,113 @@
+/*
+ * OpenJPEG Configuration - Second Life Optimized Build
+ * 
+ * This file is part of the embedded OpenJPEG integration for Kirstens S24 viewer.
+ * Copyright notice and license from original OpenJPEG project applies.
+ * 
+ * Original OpenJPEG: Copyright (c) 2002-2014, Universite catholique de Louvain (UCL), Belgium
+ * BSD 2-Clause License
+ */
+
+#ifndef OPJ_CONFIG_SL_H
+#define OPJ_CONFIG_SL_H
+
+/* ============================================================================
+ * KILL SWITCH: Set to 1 to enable embedded OpenJPEG, 0 to use vcpkg library
+ * ============================================================================
+ * 
+ * When set to 0: Uses external openjp2.dll from vcpkg (current behavior)
+ * When set to 1: Uses embedded, optimized OpenJPEG code in this directory
+ * 
+ * This allows safe development and testing without breaking existing functionality
+ */
+#ifndef SL_EMBEDDED_OPENJPEG
+    #define SL_EMBEDDED_OPENJPEG 0  // Default: OFF (use vcpkg library)
+#endif
+
+/* ============================================================================
+ * Second Life Specific Configuration
+ * ============================================================================ */
+
+#if SL_EMBEDDED_OPENJPEG
+
+// Disable unused OpenJPEG features (massive code size reduction)
+#define OPJ_NO_JP2          1   // No JP2 file format (only J2K codestream)
+#define OPJ_NO_MJ2          1   // No Motion JPEG2000
+#define OPJ_NO_JPT          1   // No JPIP Tile-part
+#define OPJ_NO_JPIP         1   // No JPIP protocol
+
+// Second Life texture constants (enables aggressive optimizations)
+#define SL_TILE_SIZE        64  // SL always uses 64x64 tiles
+#define SL_MAX_TEXTURE_DIM  2048 // Largest SL texture dimension (2048x2048)
+#define SL_MAX_COMPONENTS   4   // RGBA maximum
+#define SL_MAX_DISCARD      5   // Discard levels 0-4 (plus full resolution)
+
+// Performance optimizations
+#define OPJ_USE_FAST_MATH   1   // Enable fast floating point math
+#define OPJ_USE_AVX2        1   // Enable AVX2 SIMD instructions
+#define OPJ_USE_SSE42       1   // Enable SSE4.2 for older CPUs (fallback)
+
+// Threading configuration
+#define OPJ_NUM_THREADS     4   // Thread pool size for parallel decode
+
+// Memory optimization
+#define OPJ_USE_CUSTOM_ALLOCATOR 1  // Use SL texture memory pools
+
+#endif // SL_EMBEDDED_OPENJPEG
+
+/* ============================================================================
+ * Standard OpenJPEG Build Configuration (from vcpkg)
+ * ============================================================================ */
+
+// Standard types
+#define OPJ_HAVE_STDINT_H   1
+#define OPJ_HAVE_INTTYPES_H 1
+
+// Package information (from vcpkg openjpeg 2.5.4)
+#define OPENJPEG_VERSION_MAJOR 2
+#define OPENJPEG_VERSION_MINOR 5
+#define OPENJPEG_VERSION_BUILD 4
+
+// Build type
+#if SL_EMBEDDED_OPENJPEG
+    #define OPENJPEG_VERSION "2.5.4-SL-Embedded-Optimized"
+#else
+    #define OPENJPEG_VERSION "2.5.4"
+#endif
+
+// Static vs Dynamic
+#if SL_EMBEDDED_OPENJPEG
+    #define OPJ_STATIC          // Building as static library
+#endif
+
+// Platform detection
+#if defined(_WIN32) || defined(_WIN64)
+    #define OPJ_WINDOWS
+#elif defined(__linux__)
+    #define OPJ_LINUX
+#elif defined(__APPLE__)
+    #define OPJ_MACOS
+#endif
+
+// Compiler detection
+#if defined(_MSC_VER)
+    #define OPJ_COMPILER_MSVC
+    #define OPJ_INLINE __forceinline
+#elif defined(__GNUC__) || defined(__clang__)
+    #define OPJ_COMPILER_GCC
+    #define OPJ_INLINE inline __attribute__((always_inline))
+#else
+    #define OPJ_INLINE inline
+#endif
+
+/* ============================================================================
+ * Debug/Release Configuration
+ * ============================================================================ */
+
+#ifdef NDEBUG
+    #define OPJ_RELEASE_BUILD 1
+#else
+    #define OPJ_DEBUG_BUILD 1
+#endif
+
+#endif // OPJ_CONFIG_SL_H

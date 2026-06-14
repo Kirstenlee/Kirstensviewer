@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes" ?>
+<toolbars>
+    <bottom_toolbar
+     button_display_mode="icons_with_text">
+        <command  name="chat" />
+        <command  name="kvquickchat" />
+        <command  name="speak" />
+        <command  name="people" />
+        <command  name="places" />
+        <command  name="minimap" />
+        <command  name="map" />
+        <command  name="search" />
+        <command  name="view" />
+        <command  name="snapshot" />
+        <command  name="inventory" />
+        <command  name="ao" />
+        <command  name="myenvironments" />
+        <command name="performance"/>
+    </bottom_toolbar>
+    <right_toolbar
+     button_display_mode="icons_with_text" />
+    <left_toolbar
+     button_display_mode="icons_with_text" />
+</toolbars>

@@ -1,0 +1,123 @@
+/**
+ * @file llfloatermarketplace.cpp
+ * @brief floater for the Marketplace web site
+ *
+ * $LicenseInfo:firstyear=2011&license=viewerlgpl$
+ * Second Life Viewer Source Code
+ * Copyright (C) 2011, Linden Research, Inc.
+ *
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation;
+ * version 2.1 of the License only.
+ *
+ * This library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
+ *
+ * Linden Research, Inc., 945 Battery Street, San Francisco, CA  94111  USA
+ * $/LicenseInfo$
+ */
+
+#include "llviewerprecompiledheaders.h"
+
+#include "llfloatermarketplace.h"
+#include "llviewercontrol.h"
+#include "lluictrlfactory.h"
+
+LLFloaterMarketplace::LLFloaterMarketplace(const LLSD& key)
+    : LLFloaterWebContent(key)
+{
+}
+
+LLFloaterMarketplace::~LLFloaterMarketplace()
+{
+}
+
+void LLFloaterMarketplace::onOpen(const LLSD& key)
+{
+    Params params(key);
+
+    if (!params.validateBlock())
+    {
+        closeFloater();
+        return;
+    }
+
+    if (params.url().empty())
+    {
+        openMarketplace();
+    }
+    else
+    {
+        openMarketplaceURL(params.url);
+        set_current_url(params.url); // Fix looping back to previous url when using the viewer navigation bar
+    }
+}
+
+// just to override LLFloaterWebContent
+void LLFloaterMarketplace::onClose(bool app_quitting)
+{
+}
+
+bool LLFloaterMarketplace::postBuild()
+{
+    if (!LLFloaterWebContent::postBuild())
+        return false;
+
+    mWebBrowser->setErrorPageURL(gSavedSettings.getString("GenericErrorPageURL"));
+    std::string url = gSavedSettings.getString("MarketplaceURL");
+    // Convert string_view constant to std::string for navigateTo() which expects std::string
+    mWebBrowser->navigateTo(url, std::string{HTTP_CONTENT_TEXT_HTML});
+
+    // If cookie is there, will set it now, Otherwise will have to wait for login completion
+    // which will also update marketplace instance if it already exists.
+    LLViewerMedia::getInstance()->getOpenIDCookie(mWebBrowser);
+
+    return true;
+}
+
+void LLFloaterMarketplace::openMarketplace()
+{
+    std::string url = gSavedSettings.getString("MarketplaceURL");
+    if (mCurrentURL != url)
+    {
+        mWebBrowser->navigateTo(url, std::string{HTTP_CONTENT_TEXT_HTML}); 
+    }
+}
+
+void LLFloaterMarketplace::openMarketplaceURL(const std::string& url)
+{
+    if (mCurrentURL != url)
+    {
+        mWebBrowser->navigateTo(url, std::string{HTTP_CONTENT_TEXT_HTML});
+    }
+}
+
+// static
+bool LLFloaterMarketplace::isMarketplaceURL(const std::string& url)
+{
+    auto trimURL = [](std::string_view url) -> std::string_view
+    {
+        if (url.starts_with("https://"))
+            url.remove_prefix(8);
+        else if (url.starts_with("http://"))
+            url.remove_prefix(7);
+
+        while (!url.empty() && url.back() == '/')
+            url.remove_suffix(1);
+
+        return url;
+    };
+
+    static LLCachedControl<std::string> marketplace_url(gSavedSettings, "MarketplaceURL", "https://marketplace.secondlife.com/");
+    std::string_view marketplace_url_trimmed = trimURL(marketplace_url());
+    std::string_view url_trimmed = trimURL(url);
+
+    return !marketplace_url_trimmed.empty() && url_trimmed.starts_with(marketplace_url_trimmed);
+}

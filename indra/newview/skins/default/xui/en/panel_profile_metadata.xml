@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes" ?>
+<!-- KV Profile Metadata Panel - Shows all available profile data
+     Copyright (C) 2024 KV - Licensed under MIT License -->
+<panel
+ name="panel_profile_metadata"
+ label="METADATA"
+ layout="topleft"
+ top="0"
+ left="0"
+ height="500"
+ width="505"
+ follows="all">
+
+ <!-- Data List (2-column compact format) -->
+ <scroll_list
+  name="metadata_list"
+  top="5"
+  left="5"
+  right="-5"
+  bottom="-5"
+  follows="all"
+  layout="topleft"
+  can_resize="true"
+  column_padding="5"
+  draw_heading="true"
+  draw_stripes="true"
+  fg_selected_color="white"
+  fg_disable_color="DkGray"
+  bg_selected_color="0.3 0.3 0.4 1"
+  bg_stripe_color="0.15 0.15 0.15 0.5"
+  search_column="0"
+  multi_select="false">
+  
+  <!-- Column 1: Field Label -->
+  <column
+   name="label"
+   label="Field"
+   width="190"
+   relwidth="0.4"
+   sort_column="label"
+   halign="left" />
+
+  <!-- Column 2: Field Value -->
+  <column
+   name="value"
+   label="Value"
+   width="285"
+   relwidth="0.6"
+   sort_column="value"
+   halign="left" />
+   
+ </scroll_list>
+
+</panel>

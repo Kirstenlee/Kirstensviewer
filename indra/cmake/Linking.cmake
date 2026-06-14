@@ -1,0 +1,19 @@
+include_guard()
+
+include(Variables)
+
+set(ARCH_PREBUILT_DIRS ${LIBS_PREBUILT_DIR}/lib)
+set(ARCH_PREBUILT_DIRS_PLUGINS ${LIBS_PREBUILT_DIR}/plugins)
+set(ARCH_PREBUILT_DIRS_RELEASE ${LIBS_PREBUILT_DIR}/lib/release)
+set(ARCH_PREBUILT_DIRS_DEBUG ${LIBS_PREBUILT_DIR}/lib/debug)
+
+set(SHARED_LIB_STAGING_DIR_1 ${CMAKE_BINARY_DIR}/sharedlibs)
+set(SHARED_LIB_STAGING_DIR_2 ${CMAKE_BINARY_DIR}/sharedlibs/release)
+set(EXE_STAGING_DIR ${CMAKE_BINARY_DIR}/sharedlibs)
+
+if("${CMAKE_BUILD_TYPE}" STREQUAL "DEBUG" OR "${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
+    # Note: automatically fall back to non-debug lib when a debug lib is absent
+    link_directories(${ARCH_PREBUILT_DIRS_DEBUG} ${ARCH_PREBUILT_DIRS} ${SHARED_LIB_STAGING_DIR_1} ${SHARED_LIB_STAGING_DIR_2})
+else()
+    link_directories(${ARCH_PREBUILT_DIRS_RELEASE} ${ARCH_PREBUILT_DIRS} ${SHARED_LIB_STAGING_DIR_1} ${SHARED_LIB_STAGING_DIR_2})
+endif()

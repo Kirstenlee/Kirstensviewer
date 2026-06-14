@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>S24 Engine Guide</title>
+    <link rel="stylesheet" href="css/s24guide.css">
+</head>
+<body>
+    <h1>S24 Engine - Advanced Tuning Guide</h1>
+
+    <div class="info">
+        <strong>Welcome to the S24 Engine Guide</strong><br>
+        This guide provides quick reference for advanced settings, defaults, and tuning tips for experienced users.
+    </div>
+
+    <div class="nav">
+        <a href="index.html">Home</a>
+        <a href="common-settings.html">Common Settings</a>
+        <a href="s24-console.html">S24 Console</a>
+        <a href="troubleshooting.html">Troubleshooting</a>
+    </div>
+
+    <h2>Guide Sections</h2>
+    <ul>
+        <li><strong><a href="common-settings.html">Common Settings</a></strong> - Most frequently adjusted values and defaults</li>
+        <li><strong><a href="s24-console.html">S24 Console Reference</a></strong> - Command-line interface to the viewer operating system</li>
+        <li><strong><a href="troubleshooting.html">Troubleshooting</a></strong> - Common issues and solutions</li>
+    </ul>
+
+    <h2>Quick Start</h2>
+    <ul>
+        <li>Most settings take effect <strong>immediately</strong> - no restart needed</li>
+        <li>Shader changes (Reflections enable/disable) require: <strong>RESETS → Purge Shader Cache → Restart</strong></li>
+        <li>Hover over controls in KVTweaks for detailed tooltips</li>
+        <li>Use <strong>RESETS tab</strong> to restore defaults or purge caches</li>
+    </ul>
+
+    <h2>Tab Overview</h2>
+    <table>
+        <tr>
+            <th>Tab</th>
+            <th>Purpose</th>
+        </tr>
+        <tr>
+            <td><strong>CPU & Memory</strong></td>
+            <td>Core count, thread pool, RAM allocation, VRAM budget</td>
+        </tr>
+        <tr>
+            <td><strong>Rendering</strong></td>
+            <td>LOD factors, draw distance, performance tuning</td>
+        </tr>
+        <tr>
+            <td><strong>SSR</strong></td>
+            <td>Screen-space reflections (global, for all surfaces)</td>
+        </tr>
+        <tr>
+            <td><strong>Water</strong></td>
+            <td>Water appearance: metallic, roughness, color, reflections</td>
+        </tr>
+        <tr>
+            <td><strong>Shadows</strong></td>
+            <td>Shadow quality, bias, throttling, resolution</td>
+        </tr>
+        <tr>
+            <td><strong>Reflections</strong></td>
+            <td>Reflection probes: intensity, saturation, blur, ambient</td>
+        </tr>
+        <tr>
+            <td><strong>Movement</strong></td>
+            <td>Smooth keyboard movement with acceleration curves</td>
+        </tr>
+        <tr>
+            <td><strong>Experimental</strong></td>
+            <td>Selection beam styling and custom colors</td>
+        </tr>
+        <tr>
+            <td><strong>Resets</strong></td>
+            <td>Cache purging, settings reset, factory reset</td>
+        </tr>
+    </table>
+
+    <div class="tip">
+        <strong>Pro Tip:</strong> Start with the <a href="common-settings.html">Common Settings</a> page to see the most frequently adjusted values and their defaults.
+    </div>
+
+    <h2>Important Notes</h2>
+    <ul>
+        <li>These are <strong>expert controls</strong> - for experienced users</li>
+        <li>Changes can impact stability and performance</li>
+        <li>TPV Policy compliant - all settings can be reset to Linden Lab defaults</li>
+        <li>Reflections/Water enhancements are opt-in and default to standard values</li>
+        <li>Movement smoothing is disabled by default</li>
+    </ul>
+
+</body>
+</html>

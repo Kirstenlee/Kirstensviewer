@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>S24 Console - Command Reference</title>
+    <link rel="stylesheet" href="css/s24guide.css">
+</head>
+<body>
+    <h1>S24 Console - Viewer Operating System Interface</h1>
+
+    <div class="info">
+        <strong>S24 Console</strong> is your command-line interface to the viewer operating system.<br>
+        Access: <strong>Advanced menu → S24 Console</strong> (or enable via debug settings)
+    </div>
+
+    <div class="nav">
+        <a href="index.html">Home</a>
+        <a href="common-settings.html">Common Settings</a>
+        <a href="s24-console.html" class="active">S24 Console</a>
+        <a href="troubleshooting.html">Troubleshooting</a>
+    </div>
+
+    <h2>Overview</h2>
+    <p>
+        The S24 Console is a <strong>power-user command-line interface</strong> that provides direct control over viewer internals.
+        Think of it as the viewer's equivalent to Windows PowerShell, Linux Terminal, or macOS Terminal.
+    </p>
+
+    <div class="warning">
+        <strong>⚠ Warning:</strong> These are <strong>experienced user commands</strong>. Some commands (like <code>shutdown</code>) 
+        are intentionally BRUTAL and bypass all safety prompts. Use with caution!
+    </div>
+
+    <h2>Command Categories</h2>
+    <ul>
+        <li><strong>System Commands:</strong> Console control (cls, help, list, exit)</li>
+        <li><strong>Console Utilities:</strong> General purpose tools (echo, calc, time, uptime, version, whois, motd, web)</li>
+        <li><strong>Diagnostic Commands:</strong> Inspection and debugging (uuid, scan, lookat, find, tp, top)</li>
+        <li><strong>Chat Commands:</strong> Direct chat output (say, shout)</li>
+        <li><strong>Settings Commands:</strong> Debug setting manipulation (get, set)</li>
+        <li><strong>Floater Commands:</strong> Direct window control (open)</li>
+        <li><strong>System Control:</strong> Viewer shutdown (shutdown)</li>
+    </ul>
+
+    <h2 id="system">System Commands</h2>
+
+    <h3>cls / clear</h3>
+    <p>Clear the console output buffer.</p>
+    <pre>cls</pre>
+
+    <h3>help [command]</h3>
+    <p>Display help information. Without arguments shows general help; with command name shows detailed help for that command.</p>
+    <pre>help
+help get
+help shutdown</pre>
+
+    <h3>list</h3>
+    <p>Display all available commands with brief descriptions.</p>
+    <pre>list</pre>
+
+    <h3>exit / quit</h3>
+    <p>Close the S24 Console floater (does not exit viewer).</p>
+    <pre>exit</pre>
+
+    <h2 id="utilities">Console Utilities</h2>
+
+    <h3>echo &lt;text&gt;</h3>
+    <p>Print text back to the console. Useful for testing, scripting, or creating visual separators.</p>
+    <pre>echo Hello World!
+echo ═══════════════════════
+echo Testing console output...</pre>
+
+    <h3>calc &lt;expression&gt;</h3>
+    <p>Calculate mathematical expressions with proper order of operations.</p>
+    <pre>calc 2 + 3 * 4              # = 14
+calc (2 + 3) * 4            # = 20
+calc 100 / 3                # = 33.333333
+calc 512 / 2                # = 256
+calc -5 + 10                # = 5
+calc 17 % 5                 # = 2 (modulo)</pre>
+    <div class="tip">
+        <strong>Operators:</strong> <code>+ - * / %</code> with <code>( )</code> for grouping. 
+        Order of operations: parentheses → multiply/divide/modulo → add/subtract
+    </div>
+
+    <h3>time</h3>
+    <p>Display current Second Life time and local time.</p>
+    <pre>time</pre>
+
+    <h3>uptime</h3>
+    <p>Show how long the viewer has been running (useful for stability monitoring).</p>
+    <pre>uptime</pre>
+
+    <h3>version / ver</h3>
+    <p>Display viewer version and build information. Useful for bug reports and verifying your build.</p>
+    <pre>version
+ver                  # Short alias</pre>
+    <div class="tip">
+        <strong>Info displayed:</strong> Channel name, full version string with build number, version components, 
+        build configuration, and platform details.
+    </div>
+
+    <h3>whois &lt;name|uuid&gt;</h3>
+    <p>Look up avatar identity information: display name, username, and UUID.</p>
+    <pre>whois Foo                    # Partial name search (nearby avatars)
+whois FooResident            # Full username
+whois 12345678-1234-...      # Look up by UUID</pre>
+    <div class="tip">
+        <strong>Identity Information:</strong>
+        <ul>
+            <li><strong>Display Name:</strong> User's chosen display name (can be changed)</li>
+            <li><strong>Username:</strong> Permanent SL account name (resident.name format)</li>
+            <li><strong>UUID:</strong> Unique avatar identifier (never changes)</li>
+        </ul>
+        Data is retrieved instantly from the viewer's name cache - no server request needed!
+    </div>
+    <div class="warning">
+        <strong>Note:</strong> Name search only finds nearby avatars. UUID lookup works for any cached avatar.
+    </div>
+
+    <h2 id="diagnostic">Diagnostic Commands</h2>
+
+    <h3>uuid &lt;uuid&gt;</h3>
+    <p>Identify what a UUID represents (avatar, object, texture, inventory item, group, etc.).</p>
+    <pre>uuid 00000000-0000-0000-0000-000000000000
+uuid 12345678-1234-1234-1234-123456789abc</pre>
+
+    <h3>scan [range]</h3>
+    <p>Radar functionality - list nearby avatars with distance and UUID. Works at <strong>unlimited range</strong> using coarse location data.</p>
+    <pre>scan              # List all avatars in scene
+scan 50           # List avatars within 50 meters
+scan 200          # List avatars within 200 meters</pre>
+    <div class="tip">
+        <strong>Tip:</strong> If names show as <code>[UUID...]</code>, increase the People floater range slider to cache more names.
+    </div>
+
+    <h3>lookat &lt;name|uuid&gt;</h3>
+    <p>Focus camera on an avatar or object. Supports partial name matching (case-insensitive).</p>
+    <pre>lookat Foo Resident
+lookat foo           # Partial match
+lookat 12345678-1234-1234-1234-123456789abc</pre>
+    <div class="warning">
+        <strong>Draw Distance Limitation:</strong> If target is beyond your <code>RenderFarClip</code> setting, 
+        camera focus may not work. Use <code>tp</code> command instead for distant targets.
+    </div>
+
+    <h3>find &lt;name|uuid&gt; / find clear</h3>
+    <p>Select and beacon an object or avatar with a persistent <strong>magenta GL beacon</strong>. Works at unlimited range!</p>
+    <pre>find Foo Resident     # Beacon an avatar
+find transparent      # Beacon hard-to-see objects
+find clear            # Remove active beacon</pre>
+    <div class="tip">
+        <strong>How it works:</strong> The beacon tracks moving avatars using coarse location data and renders a visible 
+        magenta line from ground to target position. Great for finding people over 200m away!
+    </div>
+
+    <h3>tp &lt;destination&gt;</h3>
+    <p>Teleport to locations. <strong>Highly reliable</strong> for distant targets beyond draw distance.</p>
+    <pre>tp home                      # Teleport to home location
+tp back                      # Teleport to previous location
+tp Foo Resident              # Teleport to avatar by name
+tp 12345678-1234-...         # Teleport to avatar/object by UUID</pre>
+
+    <h3>top [mode] [options]</h3>
+    <p><strong>Performance Analysis Tool</strong> - Display ranked objects by various performance metrics. 
+       Essential for parcel/region management, lag hunting, and identifying problem content.</p>
+
+    <h4>Sort Modes</h4>
+    <ul>
+        <li><code>cost</code>, <code>render</code> - Object render cost/weight (default)</li>
+        <li><code>physics</code>, <code>phys</code> - Physics cost</li>
+        <li><code>streaming</code> - Streaming cost</li>
+        <li><code>triangles</code>, <code>tris</code> - Triangle/polygon count</li>
+        <li><code>script</code>, <code>scripts</code> - Scripted objects (sorted by cost)</li>
+    </ul>
+
+    <h4>Scope Options</h4>
+    <ul>
+        <li><code>-p</code>, <code>--parcel</code> - Limit to current parcel only</li>
+        <li><code>-r</code>, <code>--region</code> - Limit to current region only</li>
+    </ul>
+
+    <h4>Ownership Filters</h4>
+    <ul>
+        <li><code>-s</code>, <code>--self</code> - Show only objects you own</li>
+        <li><code>-g</code>, <code>--group</code> - Show only group-owned objects</li>
+        <li><code>-o UUID</code>, <code>--owner UUID</code> - Filter by specific owner UUID</li>
+    </ul>
+
+    <h4>Display Options</h4>
+    <ul>
+        <li><code>-n N</code>, <code>--limit N</code> - Show top N results (default: 10, max: 50)</li>
+    </ul>
+
+    <h4>Examples</h4>
+    <pre># Basic usage
+top                          # Top 10 by render cost (all regions)
+top scripts                  # Top 10 scripted objects
+top physics                  # Top 10 by physics cost
+
+# Parcel management
+top scripts -p -s            # YOUR scripted objects in YOUR parcel
+top cost -p --limit 20       # Top 20 highest-cost objects in parcel
+top physics -p -g            # Group-owned objects by physics in parcel
+
+# Region analysis
+top scripts -r               # All scripted objects in region
+top triangles -r -n 25       # Top 25 highest-poly objects in region
+
+# Owner filtering
+top cost -o aaaabbbb-1234-5678-90ab-cdef12345678
+                            # All objects by specific owner
+top scripts -p -o UUID       # Tenant's scripts in their parcel
+
+# Combined filters
+top physics -p -s -n 15      # Your top 15 physics objects in parcel</pre>
+
+    <div class="tip">
+        <strong>Workflow:</strong> Use <code>top</code> to identify problem objects by UUID, 
+        then use <code>find &lt;uuid&gt;</code> to beacon and locate them in-world.
+    </div>
+
+    <div class="warning">
+        <strong>Note:</strong> Objects must have cost data calculated by the server. 
+        Newly-rezzed or distant objects may show zero cost until data arrives.
+    </div>
+
+    <h2 id="chat">Chat Commands</h2>
+
+    <h3>say &lt;text&gt;</h3>
+    <p>Send message in normal chat (20m range).</p>
+    <pre>say Hello everyone!</pre>
+
+    <h3>shout &lt;text&gt;</h3>
+    <p>Send message in shout chat (100m range).</p>
+    <pre>shout EVERYONE LISTEN!</pre>
+
+    <h2 id="settings">Settings Commands</h2>
+
+    <h3>get &lt;setting_name&gt; / get *wildcard*</h3>
+    <p>Retrieve debug setting values. Supports exact match or wildcard search.</p>
+    <pre>get DebugShowFPS              # Exact match
+get RenderFarClip             # Get draw distance
+get *texture*                 # List all texture settings
+get *render*quality*          # Wildcard search</pre>
+
+    <h3>set &lt;setting_name&gt; &lt;value&gt;</h3>
+    <p>Modify debug setting values with automatic type detection (BOOL, S32, U32, F32, STRING).</p>
+    <pre>set DebugShowFPS true         # Enable FPS counter
+set RenderFarClip 512         # Set draw distance to 512m
+set RenderVolumeLODFactor 4.5 # Floating-point values</pre>
+
+    <h2 id="floater">Floater Commands</h2>
+
+    <h3>open list</h3>
+    <p>List all registered floater windows with their internal names and descriptions.</p>
+    <pre>open list</pre>
+
+    <h3>open &lt;floater_name&gt;</h3>
+    <p>Open a specific floater window instantly (bypasses menu navigation).</p>
+    <pre>open inventory
+open preferences
+open world_map
+open beacons
+open build
+open profile         # Opens YOUR profile</pre>
+    <div class="tip">
+        <strong>Note:</strong> Some floaters (like <code>profile</code> and <code>avatar_textures</code>) automatically use your own data when opened without parameters.
+    </div>
+
+    <h4>Protected Floaters</h4>
+    <p>Some floaters require specific context or IDs and cannot be opened directly. The console will provide helpful guidance when you attempt to use these:</p>
+    <ul>
+        <li><strong>Session-based:</strong> impanel, incoming_call, outgoing_call (require active calls/IMs)</li>
+        <li><strong>ID-required:</strong> event, classified, experience_profile (require specific IDs from search/world)</li>
+        <li><strong>Selection dialogs:</strong> group_picker, avatar_picker (callback context required)</li>
+        <li><strong>Properties:</strong> item_properties, task_properties (require inventory/object selection)</li>
+        <li><strong>Preview:</strong> preview_* floaters (require assets from inventory)</li>
+        <li><strong>Upload:</strong> upload_* floaters (require file context)</li>
+        <li><strong>Object-based:</strong> inspect, openobject (require world object selection)</li>
+    </ul>
+
+    <h3>open close &lt;floater_name&gt;</h3>
+    <p>Close a specific floater window.</p>
+    <pre>open close world_map
+open close inventory</pre>
+
+    <h3>open toggle &lt;floater_name&gt;</h3>
+    <p>Toggle a floater's visibility (show if hidden, hide if shown).</p>
+    <pre>open toggle beacons
+open toggle preferences</pre>
+
+    <div class="tip">
+        <strong>Common Floaters:</strong> inventory, preferences, world_map, camera, gestures, people, 
+        appearance, search, nearby_chat, beacons, build, snapshot, destinations, help_browser, map, 
+        scene_load_stats, debug_console, region_info, statistics, etc.
+    </div>
+
+    <h2 id="shutdown">System Control Commands</h2>
+
+    <h3>shutdown now</h3>
+    <p><strong>BRUTAL</strong> immediate viewer exit. No prompts, no Ares cleanup, just STOP.</p>
+    <pre>shutdown now</pre>
+    <div class="warning">
+        <strong>⚠ POWER USER COMMAND:</strong> This is <strong>NOT</strong> a graceful exit. 
+        The client will be <strong>GONE</strong> immediately. Use for testing, automation, or emergency exits only.
+    </div>
+
+    <h3>shutdown &lt;seconds&gt;</h3>
+    <p>Schedule a shutdown after a countdown timer. Displays warnings at 10s, 5s, and 3s intervals.</p>
+    <pre>shutdown 60              # Quit in 60 seconds
+shutdown 300             # Quit in 5 minutes (AFK protection)</pre>
+
+    <h3>shutdown cancel</h3>
+    <p>Abort an active shutdown timer.</p>
+    <pre>shutdown cancel</pre>
+
+    <h2>Workflow Examples</h2>
+
+    <h3>Avatar Discovery & Tracking</h3>
+    <pre># 1. Scan for nearby avatars
+scan
+
+# 2. Identify an interesting UUID from the list
+uuid 12345678-1234-1234-1234-123456789abc
+
+# 3. Beacon the avatar for visual tracking
+find 12345678-1234-1234-1234-123456789abc
+
+# 4. Teleport to their location if needed
+tp 12345678-1234-1234-1234-123456789abc
+
+# 5. Clear the beacon when done
+find clear</pre>
+
+    <h3>Calculator for Settings Tuning</h3>
+    <pre># Need to calculate half draw distance?
+calc 512 / 2             # = 256
+set RenderFarClip 256
+
+# Want to increase LOD by 50%?
+get RenderVolumeLODFactor
+calc 4.0 * 1.5           # = 6.0
+set RenderVolumeLODFactor 6.0
+
+# Convert percentage to multiplier
+calc 125 / 100           # = 1.25
+set RenderAvatarMaxNonImpostors 1.25</pre>
+
+    <h3>Quick Floater Access</h3>
+    <pre># List all available floaters
+open list
+
+# Open commonly-used windows instantly
+open inventory
+open world_map
+open beacons
+open preferences
+
+# Close windows you're done with
+open close world_map</pre>
+
+    <h3>Settings Tuning</h3>
+    <pre># Find all texture-related settings
+get *texture*
+
+# Check current draw distance
+get RenderFarClip
+
+# Increase draw distance for distance work
+set RenderFarClip 512
+
+# Enable FPS counter
+set DebugShowFPS true</pre>
+
+    <h3>Automated Testing / Benchmarking</h3>
+    <pre># Set up test environment
+set DebugShowFPS true
+set RenderFarClip 256
+
+# Run test procedure (manual or scripted)
+# ...
+
+# Schedule automatic shutdown after 5 minutes
+shutdown 300
+
+# (Test runs, data collected, viewer exits automatically)</pre>
+
+    <h2>Tips & Best Practices</h2>
+    <ul>
+        <li><strong>Commands are case-insensitive:</strong> <code>GET</code>, <code>get</code>, <code>Get</code> all work</li>
+        <li><strong>Line history:</strong> Use ↑/↓ arrow keys to recall previous commands</li>
+        <li><strong>Partial name matching:</strong> <code>lookat foo</code> finds "Foo Resident"</li>
+        <li><strong>Unlimited range:</strong> <code>scan</code> and <code>find</code> work beyond draw distance</li>
+        <li><strong>Beacon persistence:</strong> Beacons track moving avatars automatically</li>
+        <li><strong>Wildcard search:</strong> Use <code>*</code> in <code>get</code> commands to find related settings</li>
+        <li><strong>Shutdown is BRUTAL:</strong> Experienced users only - it's an immediate STOP!</li>
+    </ul>
+
+    <h2>Color Coding</h2>
+    <p>The console uses color coding to distinguish <strong>command feedback</strong> from system log messages:</p>
+
+    <h3>Command Feedback (Your Actions):</h3>
+    <ul>
+        <li><strong style="color: #00ff00;">✓ Green:</strong> Success - operations completed successfully</li>
+        <li><strong style="color: #ff0000;">✗ Red:</strong> Error - operations failed or invalid input</li>
+        <li><strong style="color: #ffff00;">⚠ Yellow:</strong> Warning - important alerts from commands</li>
+        <li><strong style="color: #00ffff;">Cyan:</strong> Info - helpful guidance and tips</li>
+    </ul>
+
+    <h3>System Log Messages (LL Output):</h3>
+    <ul>
+        <li><strong>White:</strong> All LL warnings, errors, and info messages display as white text</li>
+        <li>Timestamps and [WARN]/[ERROR] tags are preserved for context</li>
+    </ul>
+
+    <div class="tip">
+        <strong>Why this approach?</strong> By coloring only <strong>your command feedback</strong>, you can instantly tell the difference between:
+        <ul>
+            <li><strong style="color: #00ff00;">✓ Opened floater: inventory</strong> (your command succeeded - green)</li>
+            <li><code>2026-04-29 [INFO]: Inventory loaded</code> (LL system message - white)</li>
+        </ul>
+        This makes it easy to scan the console and see <strong>what YOU did</strong> vs <strong>what the system reported</strong>.
+    </div>
+
+    <h2>Privacy & Safety Notes</h2>
+    <ul>
+        <li><strong>Help examples use privacy-safe placeholders</strong> (not real UUIDs or names)</li>
+        <li><strong>TPV Policy compliant</strong> - all commands respect LL's viewer boundaries</li>
+        <li><strong>No remote execution</strong> - all commands are local to your viewer only</li>
+        <li><strong>No automated scanning</strong> - all actions require explicit user commands</li>
+        <li><strong>Easter eggs hidden</strong> - fun commands exist but aren't advertised in help</li>
+    </ul>
+
+    <div class="info">
+        <strong>The S24 Console is an evolving system.</strong> New commands and features are added as the S24 viewer grows. 
+        Type <code>list</code> to see the current command set, or <code>help &lt;command&gt;</code> for detailed documentation.
+    </div>
+
+    <h2>Related Documentation</h2>
+    <ul>
+        <li><a href="common-settings.html">Common Settings Reference</a> - Debug settings values and defaults</li>
+        <li><a href="troubleshooting.html">Troubleshooting</a> - Common issues and solutions</li>
+        <li><a href="index.html">S24 Engine Guide Home</a> - Main guide index</li>
+    </ul>
+
+</body>
+</html>

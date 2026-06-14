@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes" ?>
+<!-- S24 - Skin Registry: Maps display names to skin folder names -->
+<!-- Add new skins here without needing to recompile C++ code -->
+<skin_registry>
+	<skin folder="default" name="Azure" />
+	<skin folder="linden" name="LindenX" />
+	<skin folder="midnight" name="Midnight" />
+	<skin folder="Lysi" name="Hyperion" />
+	<skin folder="Flat" name="Flat" />
+</skin_registry>
