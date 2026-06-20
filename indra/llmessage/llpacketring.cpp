@@ -43,7 +43,11 @@
 #include "message.h"
 #include "u64.h"
 
-constexpr S16 MAX_BUFFER_RING_SIZE = 1024;
+constexpr S16 MAX_BUFFER_RING_SIZE     = 8192;
+
+// DANGER: don't adjust DEFAULT_BUFFER_RING_SIZE unless you know what
+// you're doing.  Its value affects the "buffer load rate" which is used
+// to supply backpressure to an overloaded nework queue.
 constexpr S16 DEFAULT_BUFFER_RING_SIZE = 256;
 
 LLPacketRing::LLPacketRing ()

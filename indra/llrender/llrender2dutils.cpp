@@ -59,18 +59,16 @@ bool ui_point_in_rect(S32 x, S32 y, S32 left, S32 top, S32 right, S32 bottom)
 
 // Puts GL into 2D drawing mode by turning off lighting, setting to an
 // orthographic projection, etc.
-void gl_state_for_2d(S32 width, S32 height)
+[[nodiscard]] void gl_state_for_2d(S32 width, S32 height)
 {
-	stop_glerror();
-	F32 window_width = (F32)width;//gViewerWindow->getWindowWidth();
-	F32 window_height = (F32)height;//gViewerWindow->getWindowHeight();
+	const F32 w = (F32)width;
+	const F32 h = (F32)height;
 
 	gGL.matrixMode(LLRender::MM_PROJECTION);
 	gGL.loadIdentity();
-	gGL.ortho(0.0f, llmax(window_width, 1.f), 0.0f, llmax(window_height, 1.f), -1.0f, 1.0f);
+	gGL.ortho(0.f, (w > 1.f ? w : 1.f), 0.f, (h > 1.f ? h : 1.f), -1.f, 1.f);
 	gGL.matrixMode(LLRender::MM_MODELVIEW);
 	gGL.loadIdentity();
-	stop_glerror();
 }
 
 void gl_draw_x(const LLRect& rect, const LLColor4& color)
@@ -158,10 +156,8 @@ void gl_rect_2d(const LLRect& rect, const LLColor4& color, bool filled)
 // and along the bottom it has height "lines".
 void gl_drop_shadow(S32 left, S32 top, S32 right, S32 bottom, const LLColor4& start_color, S32 lines)
 {
-	stop_glerror();
 	gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
 
-	// HACK: Overlap with the rectangle by a single pixel.
 	right--;
 	bottom++;
 	lines++;

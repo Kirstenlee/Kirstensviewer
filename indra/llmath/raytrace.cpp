@@ -34,6 +34,7 @@
 
 #include <cmath>  // for std::fma
 
+ // S24 PERF
 bool line_plane(const LLVector3& line_point, const LLVector3& line_direction,
 	const LLVector3& plane_point, const LLVector3 plane_normal,
 	LLVector3& intersection)
@@ -41,24 +42,21 @@ bool line_plane(const LLVector3& line_point, const LLVector3& line_direction,
 	F32 N = line_direction * plane_normal;
 	if (0.0f == N)
 	{
-		// line is perpendicular to plane normal
-		// so it is either entirely on plane, or not on plane at all
 		return false;
 	}
 
-	// Compute the scaling factor t:
 	// t = (plane_normal * line_point - plane_point * plane_normal) / N
 	F32 t = (plane_normal * line_point - plane_point * plane_normal) / N;
 
-	// Compute the intersection using FMA:
 	// intersection = line_point - t * line_direction
-	intersection.mV[0] = std::fma(-t, line_direction.mV[0], line_point.mV[0]);
-	intersection.mV[1] = std::fma(-t, line_direction.mV[1], line_point.mV[1]);
-	intersection.mV[2] = std::fma(-t, line_direction.mV[2], line_point.mV[2]);
+	intersection.mV[0] = std::fma(t, line_direction.mV[0], line_point.mV[0]);
+	intersection.mV[1] = std::fma(t, line_direction.mV[1], line_point.mV[1]);
+	intersection.mV[2] = std::fma(t, line_direction.mV[2], line_point.mV[2]);
 
 	return true;
 }
 
+// S24 PERF
 bool ray_plane(const LLVector3& ray_point, const LLVector3& ray_direction,
 	const LLVector3& plane_point, const LLVector3 plane_normal,
 	LLVector3& intersection)
@@ -66,19 +64,16 @@ bool ray_plane(const LLVector3& ray_point, const LLVector3& ray_direction,
 	F32 N = ray_direction * plane_normal;
 	if (0.0f == N)
 	{
-		// ray is perpendicular to plane normal
-		// so it is either entirely on plane, or not on plane at all
 		return false;
 	}
 
+	// alpha is distance along ray
 	F32 alpha = -(plane_normal * ray_point - plane_point * plane_normal) / N;
 	if (alpha < 0.0f)
 	{
-		// ray points away from plane
 		return false;
 	}
 
-	// Calculate the intersection using FMA for each component:
 	intersection.mV[0] = std::fma(alpha, ray_direction.mV[0], ray_point.mV[0]);
 	intersection.mV[1] = std::fma(alpha, ray_direction.mV[1], ray_point.mV[1]);
 	intersection.mV[2] = std::fma(alpha, ray_direction.mV[2], ray_point.mV[2]);
@@ -86,18 +81,16 @@ bool ray_plane(const LLVector3& ray_point, const LLVector3& ray_direction,
 	return true;
 }
 
+// S24 PERF
 bool ray_circle(const LLVector3& ray_point, const LLVector3& ray_direction,
 	const LLVector3& circle_center, const LLVector3 plane_normal,
 	F32 circle_radius, LLVector3& intersection)
 {
 	if (ray_plane(ray_point, ray_direction, circle_center, plane_normal, intersection))
 	{
-		// Compute the difference between the intersection point and the circle center.
 		LLVector3 diff = intersection - circle_center;
-		// Instead of using magVec(), compute the squared distance.
-		F32 distSq = diff * diff;  // Assuming operator* returns the dot product.
 		F32 radiusSq = circle_radius * circle_radius;
-		if (radiusSq >= distSq)
+		if (radiusSq >= diff * diff)
 		{
 			return true;
 		}
@@ -105,6 +98,7 @@ bool ray_circle(const LLVector3& ray_point, const LLVector3& ray_direction,
 	return false;
 }
 
+// S24 PERF
 bool ray_triangle(const LLVector3& ray_point, const LLVector3& ray_direction,
 	const LLVector3& point_0, const LLVector3& point_1, const LLVector3& point_2,
 	LLVector3& intersection, LLVector3& intersection_normal)
@@ -118,12 +112,9 @@ bool ray_triangle(const LLVector3& ray_point, const LLVector3& ray_direction,
 	if (ray_plane(ray_point, ray_direction, point_0, intersection_normal, intersection))
 	{
 		LLVector3 side_20 = point_0 - point_2;
-		if (intersection_normal * (side_01 % (intersection - point_0)) >= 0.0f &&
+		return (intersection_normal * (side_01 % (intersection - point_0)) >= 0.0f &&
 			intersection_normal * (side_12 % (intersection - point_1)) >= 0.0f &&
-			intersection_normal * (side_20 % (intersection - point_2)) >= 0.0f)
-		{
-			return true;
-		}
+			intersection_normal * (side_20 % (intersection - point_2)) >= 0.0f);
 	}
 	return false;
 }
@@ -144,17 +135,15 @@ bool ray_quadrangle(const LLVector3& ray_point, const LLVector3& ray_direction,
 		LLVector3 point_3 = point_0 + side_12;
 		LLVector3 side_23 = point_3 - point_2;
 		LLVector3 side_30 = point_0 - point_3;
-		if (intersection_normal * (side_01 % (intersection - point_0)) >= 0.0f &&
+		return (intersection_normal * (side_01 % (intersection - point_0)) >= 0.0f &&
 			intersection_normal * (side_12 % (intersection - point_1)) >= 0.0f &&
 			intersection_normal * (side_23 % (intersection - point_2)) >= 0.0f &&
-			intersection_normal * (side_30 % (intersection - point_3)) >= 0.0f)
-		{
-			return true;
-		}
+			intersection_normal * (side_30 % (intersection - point_3)) >= 0.0f);
 	}
 	return false;
 }
 
+// S24 PERF
 bool ray_sphere(const LLVector3& ray_point, const LLVector3& ray_direction,
 	const LLVector3& sphere_center, F32 sphere_radius,
 	LLVector3& intersection, LLVector3& intersection_normal)
@@ -163,15 +152,13 @@ bool ray_sphere(const LLVector3& ray_point, const LLVector3& ray_direction,
 	F32 dot = ray_to_sphere * ray_direction;
 
 	LLVector3 closest_approach = dot * ray_direction - ray_to_sphere;
-
 	F32 shortest_distance = closest_approach.magVecSquared();
-	F32 radius_squared = sphere_radius * sphere_radius;
-	if (shortest_distance > radius_squared)
+	if (shortest_distance > sphere_radius * sphere_radius)
 	{
 		return false;
 	}
 
-	F32 half_chord = (F32)sqrt(radius_squared - shortest_distance);
+	F32 half_chord = sqrtf(sphere_radius * sphere_radius - shortest_distance);
 	closest_approach = sphere_center + closest_approach;  // now in absolute coordinates
 
 	// Compute the initial intersection point using FMA:
@@ -179,17 +166,14 @@ bool ray_sphere(const LLVector3& ray_point, const LLVector3& ray_direction,
 	intersection.mV[1] = std::fma(half_chord, ray_direction.mV[1], closest_approach.mV[1]);
 	intersection.mV[2] = std::fma(half_chord, ray_direction.mV[2], closest_approach.mV[2]);
 
-	dot = ray_direction * (intersection - ray_point);
-	if (dot < 0.0f)
+	if (ray_direction * (intersection - ray_point) < 0.0f)
 	{
-		// ray shoots away from sphere and is not inside it
 		return false;
 	}
 
 	shortest_distance = ray_direction * ((closest_approach - half_chord * ray_direction) - ray_point);
 	if (shortest_distance > 0.0f)
 	{
-		// ray enters sphere; adjust intersection using FMA:
 		intersection.mV[0] = std::fma(-2.0f * half_chord, ray_direction.mV[0], intersection.mV[0]);
 		intersection.mV[1] = std::fma(-2.0f * half_chord, ray_direction.mV[1], intersection.mV[1]);
 		intersection.mV[2] = std::fma(-2.0f * half_chord, ray_direction.mV[2], intersection.mV[2]);

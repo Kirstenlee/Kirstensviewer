@@ -197,27 +197,25 @@ bool LLVector3::clamp(const LLVector3& min_vec, const LLVector3& max_vec)
 // S24 DX12
 bool LLVector3::abs()
 {
-    // Load the vector from mV (assuming mV is organized as at least three floats).
-    XMVECTOR vec = XMLoadFloat3(reinterpret_cast<const XMFLOAT3*>(mV));
+    constexpr uint32_t mask = 0x7fffffff;
 
-    // Compute the absolute value for each component.
-    XMVECTOR absVec = XMVectorAbs(vec);
+    uint32_t* px = reinterpret_cast<uint32_t*>(&mV[VX]);
+    uint32_t* py = reinterpret_cast<uint32_t*>(&mV[VY]);
+    uint32_t* pz = reinterpret_cast<uint32_t*>(&mV[VZ]);
 
-    // Store the original and absolute vectors into temporary structures.
-    XMFLOAT3 orig, computed;
-    XMStoreFloat3(&orig, vec);
-    XMStoreFloat3(&computed, absVec);
+    uint32_t ax = *px & mask;
+    uint32_t ay = *py & mask;
+    uint32_t az = *pz & mask;
 
-    // Determine if any changes occurred (i.e. if any component was negative).
-    bool ret = (orig.x != computed.x) ||
-        (orig.y != computed.y) ||
-        (orig.z != computed.z);
+    bool ret = false;
 
-    // Write the absolute values back to mV.
-    XMStoreFloat3(reinterpret_cast<XMFLOAT3*>(mV), absVec);
+    if (*px != ax) { *px = ax; ret = true; }
+    if (*py != ay) { *py = ay; ret = true; }
+    if (*pz != az) { *pz = az; ret = true; }
 
     return ret;
 }
+
 
 // S24 DX12
 void LLVector3::quantize16(F32 lowerxy, F32 upperxy, F32 lowerz, F32 upperz)
