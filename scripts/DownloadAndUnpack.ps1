@@ -708,13 +708,13 @@ foreach ($pkg in $vcpkgPackages) {
             $vcpkgArgs = @("install", "$portSpec", "--triplet", $triplet)
         }
 
-        $vcpkgArgs += "--x-install-root=$packageInstallDir"
-        $vcpkgArgs += "--x-buildtrees-root=$env:VCPKG_BUILDTREES_ROOT"
-        $vcpkgArgs += "--downloads-root=$env:VCPKG_DOWNLOADS"
+        $vcpkgArgs += "--x-install-root=`"$packageInstallDir`""
+        $vcpkgArgs += "--x-buildtrees-root=`"$env:VCPKG_BUILDTREES_ROOT`""
+        $vcpkgArgs += "--downloads-root=`"$env:VCPKG_DOWNLOADS`""
 
         # Force vcpkg to use our validated repo (overrides exe-location auto-detect)
         if ($script:vcpkgRoot) {
-            $vcpkgArgs += "--vcpkg-root=$($script:vcpkgRoot)"
+            $vcpkgArgs += "--vcpkg-root=`"$($script:vcpkgRoot)`""
         }
 
         # Append any extra arguments from the manifest
@@ -728,7 +728,7 @@ foreach ($pkg in $vcpkgPackages) {
                 $parts = $vcpkgArgs[$i] -split '=', 2
                 if ($parts.Count -eq 2 -and -not [System.IO.Path]::IsPathRooted($parts[1])) {
                     $absPath = Join-Path $TopDir $parts[1]
-                    $vcpkgArgs[$i] = "$($parts[0])=$absPath"
+                    $vcpkgArgs[$i] = "$($parts[0])=`"$absPath`""
                 }
             }
         }

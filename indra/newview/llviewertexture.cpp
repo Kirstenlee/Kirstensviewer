@@ -539,9 +539,21 @@ void LLViewerTexture::updateClass()
     static bool was_low = false;
     const bool is_low = is_sys_low || over_pct > 0.f;
 
-    // FIXED: One-shot emergency purge (not time-sliced hot path)
+    // S24: One-shot emergency purge (not time-sliced hot path)
+    // Also sets dynamic decode queue cap based on available system RAM
     if (is_low && !was_low)
     {
+        // S24 MEMORY SAFETY: Dynamically cap decode queue depth
+        // Maps available system memory to a safe concurrent decode limit.
+        // Each decoded texture holds ~4MB uncompressed (1024x1024x4),
+        // so we budget 1 decode per 32MB free, with a floor of 10
+        // and a ceiling of 256 to avoid starving the pipeline.
+        {
+            U32 free_mb = getFreeSystemMemory().value();
+            size_t queue_cap = llclamp((size_t)(free_mb / 32), (size_t)10, (size_t)256);
+            LLAppViewer::getImageDecodeThread()->setMaxQueueDepth(queue_cap);
+        }
+
         if (is_sys_low)
         {
             // System memory critical - discard harder
@@ -551,6 +563,43 @@ void LLViewerTexture::updateClass()
         {
             // VRAM pressure - slam to 1.5 bias
             sDesiredDiscardBias = std::max(sDesiredDiscardBias, 1.5f);
+        }
+
+        // S24: When system memory is critically low, proactively free raw images
+        // that have already been uploaded to GL. This recovers the largest blocks
+        // of uncompressed texture memory without needing to re-fetch from cache.
+        // Saved raw images (sculpt, cloth, readback) are preserved.
+        if (isSystemMemoryCritical())
+        {
+            LL_WARNS("TextureMemory") << "Emergency raw image scavenge - "
+                << "freeing mRawImage for all textures with valid GL textures"
+                << LL_ENDL;
+
+            for (auto& image : gTextureList)
+            {
+                LLViewerFetchedTexture* fetched = dynamic_cast<LLViewerFetchedTexture*>(image.get());
+                if (!fetched) continue;
+
+                // Preserve UI, icon, and sculpty textures (need raw for
+                // correct rendering or are too small to matter)
+                S32 boost = fetched->getBoostLevel();
+                if (boost == LLGLTexture::BOOST_UI ||
+                    boost == LLGLTexture::BOOST_ICON ||
+                    boost == LLGLTexture::BOOST_SCULPTED ||
+                    boost == LLGLTexture::BOOST_THUMBNAIL)
+                {
+                    continue;
+                }
+
+                // Only scavenge if texture already has a valid GL texture
+                if (fetched->hasGLTexture())
+                {
+                    fetched->destroyRawImage();
+                }
+            }
+
+            LL_INFOS("TextureMemory") << "Raw image scavenge complete. sRawCount = "
+                << LLViewerTexture::sRawCount << LL_ENDL;
         }
 
         if (is_sys_low || over_pct > 2.f)

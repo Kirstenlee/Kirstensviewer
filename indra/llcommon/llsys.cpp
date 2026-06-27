@@ -31,7 +31,6 @@
 #include "llwin32headers.h"
 #include <Psapi.h>               // S24
 #include <VersionHelpers.h>
-#include "llwin32headers.h" 
 #include <vector>
 #include <cassert>
 
@@ -521,8 +520,6 @@ U32Kilobytes LLMemoryInfo::getPhysicalMemoryKB() const
 //static
 void LLMemoryInfo::getAvailableMemoryKB(U32Kilobytes& avail_mem_kb)
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_MEMORY;
-
     // Sigh, this shouldn't be a static method, then we wouldn't have to
     // reload this data separately from refresh()
     LLSD statsMap(loadStatsMap());

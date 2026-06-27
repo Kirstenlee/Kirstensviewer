@@ -4341,6 +4341,76 @@ bool LLAppearanceMgr::moveWearable(LLViewerInventoryItem* item, bool closer_to_b
     return result;
 }
 
+bool LLAppearanceMgr::reorderWearable(LLViewerInventoryItem* item, U32 new_index)
+{
+    if (!item || !item->isWearableType()) return false;
+    if (item->getType() != LLAssetType::AT_CLOTHING) return false;
+    if (!gInventory.isObjectDescendentOf(item->getUUID(), getCOF())) return false;
+
+    // Move the wearable to the new index in memory
+    if (!gAgentWearables.moveWearableToIndex(item, new_index))
+        return false;
+
+    // Persist the new ordering to the COF link descriptions
+    persistWearableOrder(item->getWearableType());
+
+    gAgentAvatarp->wearableUpdated(item->getWearableType());
+    setOutfitDirty(true);
+    gInventory.notifyObservers();
+    return true;
+}
+
+void LLAppearanceMgr::persistWearableOrder(LLWearableType::EType type)
+{
+    // Find all COF links of this wearable type and assign ordering descriptions
+    // matching their current in-memory layer order.
+    LLInventoryModel::cat_array_t cats;
+    LLInventoryModel::item_array_t items;
+    LLFindWearablesOfType filter_wearables_of_type(type);
+    gInventory.collectDescendentsIf(getCOF(), cats, items, true, filter_wearables_of_type);
+
+    for (U32 i = 0; i < items.size(); ++i)
+    {
+        LLViewerInventoryItem* link_item = items.at(i).get();
+        if (!link_item) continue;
+        std::string new_desc = build_order_string(type, i);
+        link_item->setDescription(new_desc);
+        link_item->setComplete(true);
+        link_item->updateServer(false);
+        gInventory.updateItem(link_item);
+    }
+}
+
+bool LLAppearanceMgr::reorderWearableGroup(LLWearableType::EType type, const uuid_vec_t& ordered_link_ids)
+{
+    LLInventoryModel::cat_array_t cats;
+    LLInventoryModel::item_array_t items;
+    LLFindWearablesOfType filter_wearables_of_type(type);
+    gInventory.collectDescendentsIf(getCOF(), cats, items, true, filter_wearables_of_type);
+
+    // Apply the new ordering by assigning descriptions based on position in ordered_link_ids
+    for (U32 i = 0; i < items.size() && i < ordered_link_ids.size(); ++i)
+    {
+        for (auto& link_item : items)
+        {
+            if (link_item->getLinkedUUID() == ordered_link_ids[i])
+            {
+                std::string new_desc = build_order_string(type, i);
+                 // collectDescendentsIf returns const pointers; cast away const to modify
+                 LLViewerInventoryItem* item = const_cast<LLViewerInventoryItem*>(link_item.get());
+                 item->setDescription(new_desc);
+                 item->setComplete(true);
+                 item->updateServer(false);
+                 gInventory.updateItem(item);
+                break;
+            }
+        }
+    }
+    gInventory.notifyObservers();
+    gAgentAvatarp->wearableUpdated(type);
+    return true;
+}
+
 //static
 void LLAppearanceMgr::sortItemsByActualDescription(LLInventoryModel::item_array_t& items)
 {

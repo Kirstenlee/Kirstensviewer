@@ -63,7 +63,7 @@ Kirstens Viewer respects user privacy and disables or limits the following compo
 | 2700  | SJAANDI  | S24.4   |
 | 3075  | VETR     | S24.5   |
 | 3322  | LYSI     | S24.6   |
-| 3470  | MAGN     | S24.7   |
+| 3500  | MAGN     | S24.7   |
 
 **Forked from Viewer Develop / 2026.3**
 
@@ -71,7 +71,7 @@ Kirstens Viewer respects user privacy and disables or limits the following compo
 
 ## ✨ Change Log (Concise)
 
-- RC2 - Viewer
+- Release Build 3500 !
 
 #### 🎨 Graphics & Rendering
 
@@ -81,6 +81,7 @@ Kirstens Viewer respects user privacy and disables or limits the following compo
 - S24 - Render Pipeline Optimisation Pass 
 - S24 - Cube map modernisation - conservative
 - LOD Triangle Checker (#5855)
+- S24 MEMORY SAFETY: Cap decode queue depth and add raw image emergency scavenger
 
 #### ⚡ Performance & Optimisation
 
@@ -89,6 +90,9 @@ Kirstens Viewer respects user privacy and disables or limits the following compo
 - Solve the issue where ram cache is not used and purge was too gentle on the disk cache! - User Feedback
 - S24 - Use gFrameDTClamped rather than arbitrary min/max values for frame timing
 - Code tidy and some modernising the main loop for better branch prediction
+- 5945 cacheOptimize crash handling
+- S24 - Furthur Cache tuning and enhanced diskcache behaviours when near full!
+- V2math , v3math , Render2dutil and Renderline opimised for best performance
 
 #### 🖌️ UI, Themes & Skins
 
@@ -101,6 +105,8 @@ Kirstens Viewer respects user privacy and disables or limits the following compo
 - Update individual skin widgets to match themes
 - S24 - fix chat history properly to be a fully custom selectable colour - User Feedback
 - Camera selection fix for S24 custom camera setup - thanks Dawny! for the bug report
+- improve the colors.xml file
+- S24:FIX Friends always get the friend colour!
 
 #### 🔊 Audio
 
@@ -125,20 +131,23 @@ Kirstens Viewer respects user privacy and disables or limits the following compo
 - S24 - Super Mute - derenders Avatar and Hides voice dot also.
 - S24 - Mute Objects derenders object and functions for linksets and owner objects making it extreamly handy for film use.
 - Security - Clear out dead code from corehttp
+- S24 - Modernised MachineID to use Modern windows headers saves over 400 lines of legacy code!
 
 #### 🔗 Upstream Merges & Bug Fixes
 
+- S24 - Add drag-n-drop reordering for clothing layers based on patch (#5918)
 - 5777 - LLSD formatter exception handling (inventory/name cache shutdown protection)
 - 5232 - LLSD thread-safety
 - 5569 APPLIED - S24 Style! no verbose login just the fix for retry logic
 - S24 - Font kerning Improvements based partly on LL - patch 2023
 - 5702 - CEF media priority (S24 hybrid)
+- 5928 - Gesture auto-complete
 - 5652 - Moderation Status Reliability
-- 5702 Media Priority Patches
+- 5702 - Media Priority Patches
 - 5442 - Texture streaming channels with per-channel priority control via TextureChannelPriority Vector4 setting (required adding LLVector4/TYPE_VEC4 support to llxml/llcontrol.*)
-- 5818 Fix setCursor crash
-- 5804 Prevent focus steal when removing unselected conversation widget
-- 5785 fix login and world UI overlap
+- 5818 - Fix setCursor crash
+- 5804 - Prevent focus steal when removing unselected conversation widget
+- 5785 - fix login and world UI overlap
 - 3430 Fix incorrectly stated permissions for scripts
 - 5784 fix crash at LLViewerRegion::killInvisibleObjects
 - 5519 fix picks from moved regions
@@ -158,6 +167,8 @@ Kirstens Viewer respects user privacy and disables or limits the following compo
 - Outfit Search Fix (#5798)
 - Drop fewer packets on UDP packet flood (#5565)
 - Don't initialize inbox views if inbox isn't visible
+- 5837 Fix mature group search showing zero results
+- 5946 Fix excessive 'allowed to terraform' warning
 
 #### 🏗️ Build System & Infrastructure
 

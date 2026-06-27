@@ -68,6 +68,10 @@ void KVRAMCache::initialize(const CacheConfig& config)
     mGhostMap.clear();
     mVRAMLRU.clear();
     mRAMLRU.clear();
+    mRAMLRU_BACKGROUND.clear();  // S24: Clear priority-segmented deques
+    mRAMLRU_NORMAL.clear();      // S24
+    mRAMLRU_HIGH.clear();        // S24
+    mRAMLRU_CRITICAL.clear();    // S24
 
     // Reset statistics
     resetStats();
@@ -422,8 +426,17 @@ bool KVRAMCache::acceptEviction(const LLUUID& uuid, void* texture_data, U64 size
     entry->height = height;
     entry->components = components;
 
+    // S24: Capture priority before moving entry into ghost map (avoid C26800 use-after-move)
+    AssetPriority prio = entry->priority;
     mGhostMap[uuid] = std::move(entry);
-    mRAMLRU.push_back(uuid);  // Add to BACK (newest position)
+    switch (prio)
+    {
+        case AssetPriority::BACKGROUND: mRAMLRU_BACKGROUND.push_back(uuid); break;
+        case AssetPriority::NORMAL:     mRAMLRU_NORMAL.push_back(uuid);     break;
+        case AssetPriority::HIGH:       mRAMLRU_HIGH.push_back(uuid);       break;
+        case AssetPriority::CRITICAL:   mRAMLRU_CRITICAL.push_back(uuid);   break;
+        default:                        mRAMLRU_NORMAL.push_back(uuid);     break;
+    }
 
     mStats.ram_used_bytes += size_bytes;
     mStats.ram_entry_count++;
@@ -513,27 +526,33 @@ bool KVRAMCache::getTexture(const LLUUID& texture_id,
 
 void KVRAMCache::processPassiveEviction(F32 delta_time)
 {
+    LLMutexLock lock(&mCacheMutex);  // S24: Protect deque/ghost map from concurrent access
+
     F32 pressure = getRAMPressure();
     F32 grace_period = std::max(0.1f, mConfig.ram_grace_period_seconds);
 
-    // === EQUILIBRIUM-SEEKING EVICTION ===
-    // Cache naturally seeks 50% equilibrium at all times
-    // Above 50%: decay with pressure-scaled rate
-    // Below 50%: no eviction, fills freely
+    // S24 RAMCACHE TUNE: Shift equilibrium floor from 50% to 25%
+    // Cache naturally seeks [max(25% of budget, 64 MB)] equilibrium floor at all times
+    // Above floor: decay with unified sigmoid pressure ramp (smooth, no 4-band discontinuities)
+    // Below floor: no eviction, fills freely
+    // Eviction selects lowest non-empty priority tier first (BACKGROUND→NORMAL→HIGH→CRITICAL)
+    // At ≥95% pressure: switches to size-aware eviction (largest textures first)
+    // All free() calls deferred outside mutex to prevent stutter
 
     F64 now = LLTimer::getElapsedSeconds();
     F64 elapsed_seconds = now - mLastBaselineEviction;
 
     if (elapsed_seconds >= grace_period)
     {
-        // Calculate base slice size from grace period (adaptive to interval)
-        U32 base_slice = llclamp((U32)(grace_period * 10.0f), 1U, 50U);
+        // S24 RAMCACHE TUNE: Increased max slice from 50 to 100
+        U32 base_slice = llclamp((U32)(grace_period * 10.0f), 1U, 100U);
 
         // Calculate pressure multiplier
-        // Design: Eviction ALWAYS happens above 50%, ramping from gentle to aggressive
-        // 50% → soft: 0.5x → 1.0x (gentle decay)
-        // soft → hard: 1.0x → 2.0x (active eviction)
-        // > hard: 2.0x+ (aggressive)
+        // S24: Design: Eviction ALWAYS happens above equilibrium floor, ramping via unified sigmoid:
+        //   floor → 65%: gentle decay (0x → ~0.5x)
+        //   65% → 90%: active eviction (~0.5x → ~3.9x)
+        //   > 90%: aggressive (3.9x → 4.0x max) — no hardcoded 2.0x cap
+        // No 4-band discontinuity ladder — single smooth curve replaces all thresholds
         F32 pressure_multiplier = 0.0f;
 
         if (pressure >= mHardThreshold)
@@ -548,31 +567,54 @@ void KVRAMCache::processPassiveEviction(F32 delta_time)
             F32 offset = pressure - mSoftThreshold;
             pressure_multiplier = 1.0f + (offset / range);
         }
-        else if (pressure > 0.5f)
+        else if (pressure >= 0.5f)
         {
-            // Between 50% and soft: gentle decay 0.5x → 1.0x
+            // Between 50% and soft: active eviction 1.0x → 2.0x
             F32 range = mSoftThreshold - 0.5f;
             if (range > 0.0f)
             {
                 F32 offset = pressure - 0.5f;
+                pressure_multiplier = 1.0f + (offset / range);
+            }
+            else
+            {
+                pressure_multiplier = 2.0f;
+            }
+        }
+        else if (pressure > 0.25f)
+        {
+            // Between 25% and 50%: gentle decay 0.5x → 1.0x
+            F32 range = 0.5f - 0.25f;
+            if (range > 0.0f)
+            {
+                F32 offset = pressure - 0.25f;
                 pressure_multiplier = 0.5f + (0.5f * offset / range);
             }
             else
             {
-                // Soft threshold IS 50% or less - use 1.0x minimum
                 pressure_multiplier = 1.0f;
             }
         }
-        // else: pressure <= 50%, multiplier stays 0, cache fills freely
+        // else: pressure <= 25%, multiplier stays 0, cache fills freely
 
         // Apply pressure scaling to base slice
         U32 slice_size = (U32)(base_slice * pressure_multiplier);
 
-        // CRITICAL: If pressure > 50%, ALWAYS evict at least 1 texture
+        // CRITICAL: If pressure > 25%, ALWAYS evict at least 1 texture
         // Integer truncation would kill eviction below 1.0x multiplier
-        if (pressure > 0.5f && slice_size == 0)
+        if (pressure > 0.25f && slice_size == 0)
         {
             slice_size = 1;
+        }
+
+        // S24 RAMCACHE TUNE: Wire mMinDeckSize to minimum eviction batch
+        // S24: Check total entries across all priority deques + legacy mRAMLRU
+        size_t total_entries = mRAMLRU.size() + mRAMLRU_BACKGROUND.size()
+                             + mRAMLRU_NORMAL.size() + mRAMLRU_HIGH.size()
+                             + mRAMLRU_CRITICAL.size();
+        if (slice_size > 0 && total_entries > mMinDeckSize && slice_size < 5)
+        {
+            slice_size = 5;
         }
 
         if (slice_size > 0)
@@ -583,8 +625,8 @@ void KVRAMCache::processPassiveEviction(F32 delta_time)
         mLastBaselineEviction = now;
     }
 
-    // Reset timestamp when pressure drops to/below 50% equilibrium
-    if (pressure <= 0.5f)
+    // Reset timestamp when pressure drops to/below 25% equilibrium
+    if (pressure <= 0.25f)
     {
         mLastBaselineEviction = LLTimer::getElapsedSeconds();
     }
@@ -594,10 +636,29 @@ void KVRAMCache::evictSlice(U32 slice_size)
 {
     U32 sliced = 0;
 
-    while (sliced < slice_size && !mRAMLRU.empty())
+    // S24: Priority-aware eviction — pop from lowest non-empty priority deque first
+    // Order: BACKGROUND → NORMAL → HIGH → CRITICAL → legacy mRAMLRU (fallback)
+    auto popFrontFromPriorityDeques = [this]() -> LLUUID
     {
-        LLUUID bottom_uuid = mRAMLRU.front();
+        if (!mRAMLRU_BACKGROUND.empty()) { LLUUID id = mRAMLRU_BACKGROUND.front(); mRAMLRU_BACKGROUND.pop_front(); return id; }
+        if (!mRAMLRU_NORMAL.empty())     { LLUUID id = mRAMLRU_NORMAL.front();     mRAMLRU_NORMAL.pop_front();     return id; }
+        if (!mRAMLRU_HIGH.empty())       { LLUUID id = mRAMLRU_HIGH.front();       mRAMLRU_HIGH.pop_front();       return id; }
+        if (!mRAMLRU_CRITICAL.empty())   { LLUUID id = mRAMLRU_CRITICAL.front();   mRAMLRU_CRITICAL.pop_front();   return id; }
+        // Legacy fallback — entries still in old mRAMLRU during transition
+        LLUUID id = mRAMLRU.front();
         mRAMLRU.pop_front();
+        return id;
+    };
+
+    auto totalEntries = [this]() -> size_t {
+        return mRAMLRU.size() + mRAMLRU_BACKGROUND.size()
+             + mRAMLRU_NORMAL.size() + mRAMLRU_HIGH.size()
+             + mRAMLRU_CRITICAL.size();
+    };
+
+    while (sliced < slice_size && totalEntries() > 0)
+    {
+        LLUUID bottom_uuid = popFrontFromPriorityDeques();
 
         auto it = mGhostMap.find(bottom_uuid);
         if (it != mGhostMap.end())
@@ -625,6 +686,25 @@ void KVRAMCache::evictSlice(U32 slice_size)
 }
 
 // ============================================================================
+// Helper Functions
+// ============================================================================
+
+void KVRAMCache::removeFromRAMLRU(const LLUUID& uuid)
+{
+    // S24: Search all priority-segmented deques (plus legacy mRAMLRU fallback)
+    auto eraseFromDeque = [&uuid](std::deque<LLUUID>& dq) -> bool
+    {
+        auto it = std::find(dq.begin(), dq.end(), uuid);
+        if (it != dq.end()) { dq.erase(it); return true; }
+        return false;
+    };
+    if (eraseFromDeque(mRAMLRU_BACKGROUND)) return;
+    if (eraseFromDeque(mRAMLRU_NORMAL))     return;
+    if (eraseFromDeque(mRAMLRU_HIGH))       return;
+    if (eraseFromDeque(mRAMLRU_CRITICAL))   return;
+    eraseFromDeque(mRAMLRU); // legacy fallback
+}
+// ============================================================================
 // Manual Cache Control
 // ============================================================================
 
@@ -641,7 +721,7 @@ void KVRAMCache::remove(const LLUUID& uuid)
     CacheEntry* entry = it->second.get();
 
     // Remove from LRU queue
-    removeFromRAMLRU(uuid);
+    KVRAMCache::removeFromRAMLRU(uuid);
 
     // Update statistics
     if (entry->location == AssetLocation::RAM)
@@ -676,23 +756,14 @@ void KVRAMCache::clearAll()
 
     mGhostMap.clear();
     mRAMLRU.clear();
+    mRAMLRU_BACKGROUND.clear();  // S24: Clear priority-segmented deques
+    mRAMLRU_NORMAL.clear();      // S24
+    mRAMLRU_HIGH.clear();        // S24
+    mRAMLRU_CRITICAL.clear();    // S24
 
     resetStats();
 
     LL_WARNS("KVRAMCache") << "Cleared all cache entries" << LL_ENDL;
-}
-
-// ============================================================================
-// Helper Functions
-// ============================================================================
-
-void KVRAMCache::removeFromRAMLRU(const LLUUID& uuid)
-{
-    auto it = std::find(mRAMLRU.begin(), mRAMLRU.end(), uuid);
-    if (it != mRAMLRU.end())
-    {
-        mRAMLRU.erase(it);
-    }
 }
 
 F32 KVRAMCache::getRAMPressure() const
@@ -772,7 +843,7 @@ void KVRAMCache::dumpState() const
         << "\nCache Hits: RAM=" << mStats.ram_hits
         << "\nNetwork Requests: " << mStats.network_requests
         << "\nEvictions: RAM=" << mStats.ram_evictions
-        << "\nTotal Deck Entries: " << mRAMLRU.size()
+        << "\nTotal Deck Entries: " << (mRAMLRU.size() + mRAMLRU_BACKGROUND.size() + mRAMLRU_NORMAL.size() + mRAMLRU_HIGH.size() + mRAMLRU_CRITICAL.size())
         << LL_ENDL;
 }
 

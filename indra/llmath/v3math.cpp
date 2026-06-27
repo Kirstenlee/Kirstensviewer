@@ -194,7 +194,7 @@ bool LLVector3::clamp(const LLVector3& min_vec, const LLVector3& max_vec)
     return ret;
 }
 
-// S24 DX12
+// S24 PERF
 bool LLVector3::abs()
 {
     constexpr uint32_t mask = 0x7fffffff;

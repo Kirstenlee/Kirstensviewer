@@ -1,4 +1,4 @@
-/**
+﻿/**
  * @file llscrollcontainer.h
  * @brief LLScrollContainer class header file.
  *
@@ -64,7 +64,8 @@ public:
                             reserve_scroll_corner,
                             border_visible,
                             hide_scrollbar,
-                            ignore_arrow_keys;
+                            ignore_arrow_keys,
+                            keep_scroll_pos;
         Optional<F32>       min_auto_scroll_rate,
                             max_auto_scroll_rate;
         Optional<U32>       max_auto_scroll_zone;
@@ -151,6 +152,8 @@ private:
     U32         mMaxAutoScrollZone;
     bool        mHideScrollbar;
     bool        mIgnoreArrowKeys;
+    S32         mStoredDocPos[2];
+    bool        mKeepScrollPos;
 };
 
 

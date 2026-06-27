@@ -64,7 +64,7 @@ public:
         U64 ram_budget_bytes = MEGA_BYTES_TO_BYTES(1024);   // 1GB default RAM cache
         U64 disk_budget_bytes = MEGA_BYTES_TO_BYTES(4096);  // 4GB default disk cache
 
-        F32 ram_grace_period_seconds = 30.0f;  // How long RAM cache holds before disk eviction
+        F32 ram_grace_period_seconds = 5.0f;   // S24 RAMCACHE TUNE: Reduced from 30s to 5s for faster eviction response
         F32 vram_pressure_threshold = 0.85f;   // Start eviction at 85% VRAM usage
 
         bool enable_disk_cache = true;
@@ -86,6 +86,9 @@ public:
         U32 height = 0;
         U8 components = 0;
         S8 discard_level = -1;           // -1 = not loaded, 0 = full res
+
+        // S24: Priority tier for priority-segmented eviction
+        AssetPriority priority = AssetPriority::NORMAL;
 
         CacheEntry() = default;
 
@@ -208,6 +211,7 @@ public:
     // Statistics and debugging
     const CacheStats& getStats() const { return mStats; }
     const ExtendedStats& getExtendedStats() const { return mExtendedStats; }
+    void removeFromRAMLRU(const LLUUID& uuid);
     F32 getRAMPressure() const;  // Get current RAM pressure (0.0 - 1.0)
     void resetExtendedStats();
     void resetStats();
@@ -217,9 +221,6 @@ public:
         // Passive eviction logic (time/pressure based) - called by worker thread
         void processPassiveEviction(F32 delta_time);
         void evictSlice(U32 slice_size);  // Helper to evict N textures from front of deck
-
-        // LRU queue management (FIFO deck)
-        void removeFromRAMLRU(const LLUUID& uuid);
 
         // Utility
         void updateStats();
@@ -246,12 +247,23 @@ public:
     F32 mEvictionRateAccumulator = 0.0f;
     F32 mEvictionRateTimer = 0.0f;
 
+     // S24: Per-frame eviction accumulator for delta_time-scaled smooth eviction
+     // Fractions from time-scaled slice sizes accumulate here; when >=1.0, one
+     // extra texture is evicted and the accumulator decremented. This prevents
+     // truncation loss at low frame rates.
+     F32 mEvictionAccumulator = 0.0f;
+ 
     // Ghost Entry Hash Map - fast UUID → CacheEntry lookup
     std::unordered_map<LLUUID, std::unique_ptr<CacheEntry>> mGhostMap;
 
     // LRU queues for hot tiers (oldest at front)
     std::deque<LLUUID> mVRAMLRU;
     std::deque<LLUUID> mRAMLRU;
+    // S24: Priority-segmented LRU deques — evict from lowest priority first
+    std::deque<LLUUID> mRAMLRU_BACKGROUND;   // Evicted first
+    std::deque<LLUUID> mRAMLRU_NORMAL;       // Default tier
+    std::deque<LLUUID> mRAMLRU_HIGH;         // Evicted only after NORMAL+ below empty
+    std::deque<LLUUID> mRAMLRU_CRITICAL;     // Evicted only as last resort
 
     // Thread safety
     mutable LLMutex mCacheMutex;

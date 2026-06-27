@@ -48,7 +48,7 @@ bool line_plane(const LLVector3& line_point, const LLVector3& line_direction,
 	// t = (plane_normal * line_point - plane_point * plane_normal) / N
 	F32 t = (plane_normal * line_point - plane_point * plane_normal) / N;
 
-	// intersection = line_point - t * line_direction
+	// intersection = line_point + t * line_direction (using FMA for precision)
 	intersection.mV[0] = std::fma(t, line_direction.mV[0], line_point.mV[0]);
 	intersection.mV[1] = std::fma(t, line_direction.mV[1], line_point.mV[1]);
 	intersection.mV[2] = std::fma(t, line_direction.mV[2], line_point.mV[2]);
@@ -119,7 +119,7 @@ bool ray_triangle(const LLVector3& ray_point, const LLVector3& ray_direction,
 	return false;
 }
 
-// assumes a parallelogram
+// S24 PERF - assumes a parallelogram
 bool ray_quadrangle(const LLVector3& ray_point, const LLVector3& ray_direction,
 	const LLVector3& point_0, const LLVector3& point_1, const LLVector3& point_2,
 	LLVector3& intersection, LLVector3& intersection_normal)
@@ -159,9 +159,9 @@ bool ray_sphere(const LLVector3& ray_point, const LLVector3& ray_direction,
 	}
 
 	F32 half_chord = sqrtf(sphere_radius * sphere_radius - shortest_distance);
-	closest_approach = sphere_center + closest_approach;  // now in absolute coordinates
+	closest_approach = sphere_center + closest_approach;
 
-	// Compute the initial intersection point using FMA:
+	// initial intersection point
 	intersection.mV[0] = std::fma(half_chord, ray_direction.mV[0], closest_approach.mV[0]);
 	intersection.mV[1] = std::fma(half_chord, ray_direction.mV[1], closest_approach.mV[1]);
 	intersection.mV[2] = std::fma(half_chord, ray_direction.mV[2], closest_approach.mV[2]);

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * @file llappearancemgr.h
  * @brief Manager for initiating appearance changes on the viewer
  *
@@ -209,6 +209,17 @@ public:
     void makeNewOutfitLinks(const std::string& new_folder_name,bool show_panel = true);
 
     bool moveWearable(LLViewerInventoryItem* item, bool closer_to_body);
+
+    // Move a clothing item to an absolute layer index within its wearable type
+    // (0 == closest to the body). Persists the new order to the COF link descriptions.
+    bool reorderWearable(LLViewerInventoryItem* item, U32 new_index);
+
+    // Apply a complete layer order for one wearable type, persisting it to the
+    // COF link descriptions. ordered_link_ids lists the type's COF link items
+    // furthest-to-closest.
+    bool reorderWearableGroup(LLWearableType::EType type, const uuid_vec_t& ordered_link_ids);
+
+    void persistWearableOrder(LLWearableType::EType type);
 
     static void sortItemsByActualDescription(LLInventoryModel::item_array_t& items);
 

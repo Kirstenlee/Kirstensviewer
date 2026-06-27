@@ -130,6 +130,7 @@ public:
 	static void     editWearable(const LLUUID& item_id);
 	bool            moveWearable(const LLViewerInventoryItem* item, bool closer_to_body);
 
+	bool            moveWearableToIndex(const LLViewerInventoryItem* item, U32 new_index);
 	void            requestEditingWearable(const LLUUID& item_id);
 	void            editWearableIfRequested(const LLUUID& item_id);
 

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * @file llmachineid.h
  * @brief retrieves unique machine ids
  *
@@ -31,22 +31,31 @@
 class LLMachineID
 {
 public:
-    LLMachineID();
-    virtual ~LLMachineID();
-    static S32 getUniqueID(unsigned char *unique_id, size_t len);
-    // fallback id for windows
-    static S32 getLegacyID(unsigned char *unique_id, size_t len);
+    LLMachineID() = default;
+    virtual ~LLMachineID() = default;
+
+    /**
+     * Initializes the machine ID by reading the Windows MachineGuid from
+     * HKLM\SOFTWARE\Microsoft\Cryptography and deriving a 6-byte digest.
+     * Must be called once at startup before any threads are created.
+     */
     static S32 init();
 
-protected:
+    /**
+     * Copies the unique machine ID into the provided buffer.
+     * @param unique_id[out] Output buffer to receive the ID bytes.
+     * @param len Size of the output buffer (must be >= 6).
+     * @return 1 if valid data was copied, 0 otherwise.
+     */
+    static S32 getUniqueID(unsigned char *unique_id, size_t len);
+
+    /// Legacy fallback -- retained for API compatibility.
+    static S32 getLegacyID(unsigned char *unique_id, size_t len);
 
 private:
-
-
+    LLMachineID(const LLMachineID&) = delete;
+    LLMachineID& operator=(const LLMachineID&) = delete;
 };
-
-
-
 
 
 #endif // LL_LLMACHINEID_H

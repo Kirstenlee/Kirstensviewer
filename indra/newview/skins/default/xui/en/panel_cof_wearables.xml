@@ -30,6 +30,7 @@
              height="10"
              item_pad="3"
              keep_selection_visible_on_reshape="true"
+             allow_reorder="true"
              layout="topleft"
              left="0"
              multi_select="true"

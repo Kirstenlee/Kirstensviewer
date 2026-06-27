@@ -192,7 +192,7 @@ public:
     , haze_density(0.0f)
     , haze_horizon(0.0f)
     , density_multiplier(0.0f)
-    , distance_multiplier(0.0f)
+    , distance_multiplier(0.0f) // S24 still lurks in the codebase even if not used!
     , max_y(0.0f)
     , gamma(1.0f)
     , sun_norm(0.0f, 1.0f, 0.0f, 1.0f)

@@ -1084,13 +1084,40 @@ F32 LLViewerTextureList::updateImagesCreateTextures(F32 max_time)
 {
     if (gGLManager.mIsDisabled) return 0.0f;
 
+    // S24 MEMORY SAFETY: Emergency flush of stale raw images when critical
+    // If the decode queue is bloated AND system memory is critical, drain
+    // completed decodes without creating GL textures to free their raw memory.
+    // The decoded J2C data remains in KVRAMCache or disk cache for re-decode.
+    if (LLViewerTexture::isSystemMemoryCritical())
+    {
+        size_t pending = LLAppViewer::getImageDecodeThread()->getPending();
+        if (pending > 50)
+        {
+            LL_WARNS("TextureMemory") << "Critical memory + decode backlog ("
+                << pending << " pending), draining queue without GL upload"
+                << LL_ENDL;
+
+            // Pop everything from the create list and destroy raw images
+            while (!mCreateTextureList.empty())
+            {
+                LLViewerFetchedTexture* imagep = mCreateTextureList.front();
+                mCreateTextureList.pop();
+                if (imagep)
+                {
+                    imagep->destroyRawImage();
+                    imagep->mCreatePending = false;
+                }
+            }
+            return 0.f;
+        }
+    }
+
     //
     // Create GL textures for all textures that need them (images which have been
     // decoded, but haven't been pushed into GL).
     //
 
     LLTimer create_timer;
-
     while (!mCreateTextureList.empty())
     {
         // Early exit avoids doing a full iteration's work before timing out.

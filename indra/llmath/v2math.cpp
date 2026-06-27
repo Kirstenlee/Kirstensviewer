@@ -54,7 +54,7 @@ bool LLVector2::abs()
 	uint32_t ay = *py & mask;
 
 	bool ret = false;
-	// Check if values have changed and assign.
+
 	if (*px != ax) { *px = ax; ret = true; }
 	if (*py != ay) { *py = ay; ret = true; }
 

@@ -352,7 +352,7 @@ WorkQueue gMainloopWork("mainloop", 1024 * 1024);
 
 ////////////////////////////////////////////////////////////
 // Internal globals
-static std::string gArgs = "Build 3470 - Magn"; // S24 My Build Number! KL
+static std::string gArgs = "Build 3500 - Magn"; // S24 My Build Number! KL
 const int MAX_MARKER_LENGTH = 1024;
 const std::string MARKER_FILE_NAME("KirstensS24.exec_marker");
 const std::string START_MARKER_FILE_NAME("KirstensS24.start_marker");

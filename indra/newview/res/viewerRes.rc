@@ -139,8 +139,8 @@ TOOLNO                  CURSOR                  "llno.cur"
 //
 
 VS_VERSION_INFO VERSIONINFO
- FILEVERSION 26,3,3470,0
- PRODUCTVERSION 26,3,3470,0
+ FILEVERSION 26,3,3500,0
+ PRODUCTVERSION 26,3,3500,0
  FILEFLAGSMASK 0x3fL
 #ifdef _DEBUG
  FILEFLAGS 0x1L
@@ -157,12 +157,12 @@ BEGIN
         BEGIN
             VALUE "CompanyName", "Kirstens Viewers"
             VALUE "FileDescription", "Kirstens S24"
-            VALUE "FileVersion", "26.3,3470,0"
+            VALUE "FileVersion", "26.3,3500,0"
             VALUE "InternalName", "Second Life"
             VALUE "LegalCopyright", "Copyright 2008-2026, Kirstenlee Cinquetti"
             VALUE "OriginalFilename", "Kirstens-S24.exe"
             VALUE "ProductName", "Kirstens S24"
-            VALUE "ProductVersion", "26.3,3470,0"
+            VALUE "ProductVersion", "26.3,3500,0"
         END
     END
     BLOCK "VarFileInfo"

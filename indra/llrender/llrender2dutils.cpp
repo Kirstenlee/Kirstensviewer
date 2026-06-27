@@ -158,6 +158,7 @@ void gl_drop_shadow(S32 left, S32 top, S32 right, S32 bottom, const LLColor4& st
 {
 	gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
 
+	// HACK: Overlap with the rectangle by a single pixel.
 	right--;
 	bottom++;
 	lines++;

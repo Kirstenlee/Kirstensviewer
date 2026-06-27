@@ -1,4 +1,4 @@
-/**
+﻿/**
  * @file llagentwearables.cpp
  * @brief LLAgentWearables class implementation
  *
@@ -1516,6 +1516,36 @@ bool LLAgentWearables::moveWearable(const LLViewerInventoryItem* item, bool clos
 		//swapping wearables
 		U32 swap_i = closer_to_body ? i - 1 : i + 1;
 		swapWearables(type, i, swap_i);
+		return true;
+	}
+
+	return false;
+}
+
+bool LLAgentWearables::moveWearableToIndex(const LLViewerInventoryItem* item, U32 new_index)
+{
+	if (!item) return false;
+	if (!item->isWearableType()) return false;
+
+	LLWearableType::EType type = item->getWearableType();
+	U32 wearable_count = getWearableCount(type);
+	if (wearable_count < 2 || new_index >= wearable_count) return false;
+
+	const LLUUID& asset_id = item->getAssetUUID();
+	for (U32 i = 0; i < wearable_count; ++i)
+	{
+		LLViewerWearable* wearable = getViewerWearable(type, i);
+		if (!wearable) continue;
+		if (wearable->getAssetID() != asset_id) continue;
+
+		if (i == new_index) return true; // already at target
+
+		// Swap one step at a time toward the target index
+		S32 step = (new_index > i) ? 1 : -1;
+		for (U32 cur = i; cur != new_index; cur += step)
+		{
+			swapWearables(type, cur, cur + step);
+		}
 		return true;
 	}
 

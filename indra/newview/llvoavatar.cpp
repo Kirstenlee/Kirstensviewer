@@ -3827,9 +3827,13 @@ void LLVOAvatar::idleUpdateNameTagAlpha(bool new_name, F32 alpha)
 
 LLColor4 LLVOAvatar::getNameTagColor(bool is_friend)
 {
+    // S24: Keep control registration to preserve settings.xml bindings.
+    // show_friends no longer gates friend coloring -- friends always get NameTagFriend.
     static LLUICachedControl<bool> show_friends("NameTagShowFriends", false);
+
     const char* color_name;
-    if (show_friends && is_friend)
+    // S24: Friends always get the friend color, regardless of NameTagShowFriends.
+    if (is_friend)
     {
         color_name = "NameTagFriend";
     }

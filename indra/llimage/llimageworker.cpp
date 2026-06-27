@@ -122,6 +122,21 @@ LLImageDecodeThread::handle_t LLImageDecodeThread::decodeImage(
 {
     LL_PROFILE_ZONE_SCOPED_CATEGORY_TEXTURE;
 
+    // S24 MEMORY SAFETY: Cap decode queue depth to prevent unbounded growth
+    // When the decode backlog exceeds available memory budget, reject
+    // new decode requests so the caller can retry next frame.
+    // This prevents an invisible memory bomb when fetch outpaces decode.
+    {
+        size_t pending = mThreadPool->getQueue().size();
+        if (mMaxQueueDepth > 0 && pending >= mMaxQueueDepth)
+        {
+            LL_DEBUGS("TextureDecode") << "Decode queue full (" << pending
+                                       << " >= " << mMaxQueueDepth
+                                       << "), deferring decode" << LL_ENDL;
+            return 0; // caller treats handle_t(0) as "try again later"
+        }
+    }
+
     U32 decode_id = ++mDecodeCount;
     if (decode_id == 0)
         decode_id = ++mDecodeCount;

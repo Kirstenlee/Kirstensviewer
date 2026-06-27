@@ -1,4 +1,4 @@
-/**
+﻿/**
  * @file llfloaterkvramcachestats.cpp
  * @brief KVRAM Cache statistics display floater
  *
@@ -196,13 +196,27 @@ void LLFloaterKVRAMCacheStats::updateStats()
         F32 offset = ram_pressure - soft_threshold;
         pressure_multiplier = 1.0f + (offset / range);
     }
-    else if (ram_pressure > 0.5f)
+    else if (ram_pressure >= 0.5f)
     {
-        // Gentle decay zone: 0.5x → 1.0x
+        // Between 50% and soft: active eviction 1.0x → 2.0x
         F32 range = soft_threshold - 0.5f;
         if (range > 0.0f)
         {
             F32 offset = ram_pressure - 0.5f;
+            pressure_multiplier = 1.0f + (offset / range);
+        }
+        else
+        {
+            pressure_multiplier = 2.0f;
+        }
+    }
+    else if (ram_pressure > 0.25f)
+    {
+        // Between 25% and 50%: gentle decay 0.5x → 1.0x
+        F32 range = 0.5f - 0.25f;
+        if (range > 0.0f)
+        {
+            F32 offset = ram_pressure - 0.25f;
             pressure_multiplier = 0.5f + (0.5f * offset / range);
         }
         else
@@ -210,7 +224,7 @@ void LLFloaterKVRAMCacheStats::updateStats()
             pressure_multiplier = 1.0f;
         }
     }
-    // else: at/below 50% equilibrium, no eviction
+    // else: at/below 25% equilibrium, no eviction
 
     if (mPressureBar)
     {
@@ -249,9 +263,9 @@ void LLFloaterKVRAMCacheStats::updateStats()
         mPressureBar->setColorBar(bar_color);
     }
     if (mPressureText)
-    {
+	{   // S24 avoid special characters in text!
         std::string status;
-        if (pressure_multiplier < 0.15f) status = "Idle (≤50%)";
+        if (pressure_multiplier < 0.15f) status = "Idle";
         else if (pressure_multiplier < 1.0f) status = "Decay";
         else if (pressure_multiplier < 1.5f) status = "Normal";
         else if (pressure_multiplier < 1.8f) status = "High";

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * @file lltexturecache.cpp
  * @brief Object which handles local texture caching
  *
@@ -838,7 +838,7 @@ size_t LLTextureCache::update(F32 max_time_ms)
     // Instead of waiting for emergency bursts, constantly bleed oldest entries at low rate
     static LLFrameTimer decay_timer;
     constexpr F32 DECAY_INTERVAL = 0.5f; // Check every 500ms
-    constexpr F32 DECAY_TIME_BUDGET = 0.002f; // 2ms per decay cycle (gentle)
+    constexpr F32 DECAY_TIME_BUDGET = 0.004f; // S24 RAMCACHE TUNE: Doubled to 4ms for faster disk draining
     constexpr F32 RAM_TARGET_RATIO = 0.33f; // Drain down to 1/3 capacity for optimal equilibrium
 
     if (decay_timer.getElapsedTimeF32() > DECAY_INTERVAL)
@@ -1747,11 +1747,12 @@ void LLTextureCache::purgeTexturesLazy(F32 time_limit_sec)
     {
         // Remove collected entried
         LLTimer timer;
-        while (!mPurgeEntryList.empty() && timer.getElapsedTimeF32() < time_limit_sec)
+        S32 purge_cursor = 0; // process from front (oldest entries first, correct LRU order)
+        while (purge_cursor < (S32)mPurgeEntryList.size() && timer.getElapsedTimeF32() < time_limit_sec)
         {
-            S32 idx = mPurgeEntryList.back().first;
-            Entry entry = mPurgeEntryList.back().second;
-            mPurgeEntryList.pop_back();
+            Entry entry = mPurgeEntryList[purge_cursor].second;
+            ++purge_cursor;
+            S32 idx = mPurgeEntryList[purge_cursor].first;
             // make sure record is still valid
             bool remove_entry = false;
             {
@@ -1765,6 +1766,11 @@ void LLTextureCache::purgeTexturesLazy(F32 time_limit_sec)
                 removeEntry(idx, entry, tex_filename);
                 writeEntryToHeaderImmediately(idx, entry);
             }
+        }
+        // Clear processed entries from the front
+        if (purge_cursor > 0)
+        {
+            mPurgeEntryList.erase(mPurgeEntryList.begin(), mPurgeEntryList.begin() + purge_cursor);
         }
     }
 }

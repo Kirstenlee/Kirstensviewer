@@ -56,12 +56,21 @@ public:
     S32 getTotalDecodeCount() { return mDecodeCount; }
 	void shutdown();
 
+    // S24 MEMORY SAFETY: Decode queue depth limit
+    // Caps pending decode count based on available system memory
+    // Prevents unbounded queue growth when decode throughput < fetch rate
+    void setMaxQueueDepth(size_t depth) { mMaxQueueDepth = depth; }
+    size_t getMaxQueueDepth() const { return mMaxQueueDepth; }
+
 private:
 	// As of SL-17483, LLImageDecodeThread is no longer itself an
 	// LLQueuedThread - instead this is the API by which we submit work to the
 	// "ImageDecode" ThreadPool.
 	std::unique_ptr<LL::ThreadPool> mThreadPool;
     LLAtomicU32 mDecodeCount;
+    // S24 MEMORY SAFETY: Maximum allowed pending decode count (0 = unlimited)
+    // Set dynamically in decodeImage() based on available system RAM
+    size_t mMaxQueueDepth{ 0 };
 };
 
 #endif

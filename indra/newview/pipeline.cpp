@@ -2564,6 +2564,7 @@ void LLPipeline::updateCull(LLCamera& camera, LLCullResult& result)
 
 	if (water_clip)
 	{
+
 		LLVector3 pnorm;
 
 		F32 water_height = LLEnvironment::instance().getWaterHeight();
@@ -2923,6 +2924,7 @@ void LLPipeline::rebuildPriorityGroups()
 	mGroupSaveQ1 = mGroupQ1;
 	mGroupQ1.clear();
 	mGroupQ1Locked = false;
+
 }
 
 // S24 Version 1
