@@ -233,6 +233,12 @@ void LLTextureBar::draw()
         { "Error", LLColor4(1.0f, 0.2f, 0.2f, 1.0f) }, // LAST_STATE+3 - Bright red (error)
         { "Missing", LLColor4(1.0f, 0.3f, 0.3f, 1.0f) }, // LAST_STATE+4 - Bright red (missing)
         { "Idle", LLColor4(0.6f, 0.6f, 0.6f, 0.8f) }, // LAST_STATE+5 - Dim grey
+        // S24: synthetic slot, not a real mState value -- see below. Deliberately not
+        // reached via LAST_STATE+N arithmetic (those constants are already fully spoken
+        // for and off-by-one against this array besides); selected explicitly below
+        // instead, indexed via fetch_state_desc_size-1 so it always resolves to this
+        // last entry regardless of how many entries precede it.
+        { "RamRead", LLColor4(1.0f, 0.84f, 0.0f, 1.0f) }, // KVRAMCache hit - Gold
     };
     const S32 fetch_state_desc_size = (S32)LL_ARRAY_SIZE(fetch_state_desc);
     S32 state =
@@ -242,6 +248,18 @@ void LLTextureBar::draw()
         mImagep->mIsMissingAsset ? LAST_STATE+4 :
         !mImagep->mIsFetching ? LAST_STATE+5 :
         mImagep->mFetchState;
+
+    // S24: mFetchState alone can't tell a KVRAMCache RAM hit apart from a genuine disk
+    // read -- both report LOAD_FROM_TEXTURE_CACHE(2)/CACHE_POST(3). Query the fetcher
+    // directly only in this already-console-only, per-visible-texture draw path (never
+    // from the per-frame updateClass()/texture-stats hot path) so this costs nothing
+    // unless the debug texture console is actually open and showing this row.
+    if ((state == 2 || state == 3) // LOAD_FROM_TEXTURE_CACHE / CACHE_POST
+        && LLAppViewer::getTextureFetch()->isFromRamCache(mImagep->mID))
+    {
+        state = fetch_state_desc_size - 1; // "RamRead" entry, appended above
+    }
+
     state = llclamp(state,0,fetch_state_desc_size-1);
 
     LLFontGL::getFontMonospace()->renderUTF8(fetch_state_desc[state].desc, 0, title_x2, getRect().getHeight(),
@@ -589,7 +607,8 @@ void LLGLTexMemBar::draw()
     gGL.color4f(0.0f, 0.0f, 0.0f, 0.9f); // Darker background for better readability
     gl_rect_2d(-10, getRect().getHeight() + line_height*2 + 1, getRect().getWidth()+2, getRect().getHeight()+2);
 
-    text = llformat("Est. Free: %d MB Sys Free: %d MB FBO: %d MB Probe#: %d Probe Mem: %d MB Bias: %.2f Cache: %.1f/%.1f MB",
+    text = llformat("%s Free: %d MB Sys Free: %d MB FBO: %d MB Probe#: %d Probe Mem: %d MB Bias: %.2f Cache: %.1f/%.1f MB",
+                    LLViewerTexture::sVRAMInfoIsLive ? "Live" : "Est.",
                     (S32)LLViewerTexture::sFreeVRAMMegabytes,
                     LLMemory::getAvailableMemKB()/1024,
                     LLRenderTarget::sBytesAllocated/(1024*1024),
@@ -607,11 +626,16 @@ void LLGLTexMemBar::draw()
     LLFontGL::getFontMonospace()->renderUTF8(text, 0, 0, v_offset + line_height * 7,
         text_color, LLFontGL::LEFT, LLFontGL::TOP);
 
-    text = llformat("Textures: %.2f MB  Vertex: %.2f MB  Render: %.2f MB  Total: %.2f MB",
+    // NOTE: Textures/Vertex/Render below are always our own self-estimated breakdown
+    // (DXGI doesn't tell us how usage splits by category) -- they will not sum to
+    // "Total" when the live figure is active, since Total then reflects what actually
+    // drove the discard-bias decision above, not our own accounting of it.
+    text = llformat("Textures: %.2f MB  Vertex: %.2f MB  Render: %.2f MB  Total: %.2f MB (%s)",
                     texture_bytes_alloc,
                     vertex_bytes_alloc,
                     render_bytes_alloc,
-        texture_bytes_alloc+vertex_bytes_alloc);
+                    LLViewerTexture::sVRAMUsedMegabytes,
+                    LLViewerTexture::sVRAMInfoIsLive ? "live" : "est.");
     LLFontGL::getFontMonospace()->renderUTF8(text, 0, 0, v_offset + line_height * 6,
         text_color, LLFontGL::LEFT, LLFontGL::TOP);
 

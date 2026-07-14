@@ -239,7 +239,6 @@
 			<menu_item_check label="Hızlı Zamanlayıcılar" name="Fast Timers"/>
 			<menu_item_check label="Bellek" name="Memory"/>
 			<menu_item_check label="Sahne İstatistikleri" name="Scene Statistics"/>
-			<menu_item_check label="Sahne Yükleme Ekranı" name="Scene Loading Monitor"/>
 			<menu_item_call label="Doku Alınması Hata Ayıklama Konsolu" name="Texture Fetch Debug Console"/>
 			<menu_item_call label="Hata Ayıklama Konsoluna giden Bölge Bilgisi" name="Region Info to Debug Console"/>
 			<menu_item_call label="Hata Ayıklama Konsoluna giden Grup Bilgisi" name="Group Info to Debug Console"/>

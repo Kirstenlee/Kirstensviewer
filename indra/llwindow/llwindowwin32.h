@@ -42,7 +42,7 @@
 #include "llwin32headers.h" // S24
 
 // -----------------------------------------------------------------------------
-// S24: UIPI shim – allow WM_CLOSE + custom shutdown msg on Win11+
+// S24: UIPI shim ï¿½ allow WM_CLOSE + custom shutdown msg on Win11+
 // -----------------------------------------------------------------------------
 void AllowShutdownMessages(HWND hwnd);
 
@@ -293,6 +293,12 @@ protected:
 	void postMouseButtonEvent(const std::function<void()>& func);
 	void recreateWindow(RECT window_rect, DWORD dw_ex_style, DWORD dw_style);
 	void kickWindowThread(HWND windowHandle = 0);
+#ifdef DX_RENDER
+	// DX_RENDER: sets up the DX11 device/swapchain for mWindowHandle in place
+	// of switchContext()'s GL pixel-format/wgl-context setup. See DXDevice,
+	// DXSwapChain, DXContext (indra/dxrender/core).
+	bool initDX11Context(const LLCoordScreen& size, bool enable_vsync);
+#endif
 
 	friend class LLWindowManager;
 };

@@ -26,13 +26,13 @@
 #ifndef KV_KVFLOATERQUICKCHAT_H
 #define KV_KVFLOATERQUICKCHAT_H
 
-#include "llfloater.h"
+#include "lldockablefloater.h"
 #include "llchat.h"
 
 class LLLineEditor;
 class LLButton;
 
-class KVFloaterQuickChat : public LLFloater
+class KVFloaterQuickChat : public LLDockableFloater
 {
 public:
     KVFloaterQuickChat(const LLSD& key);
@@ -44,15 +44,20 @@ public:
     bool handleKeyHere(KEY key, MASK mask) override;
     void reshape(S32 width, S32 height, bool called_from_parent = true) override;
 
+    // Docks the floater against the toolbar button that opens it, on
+    // whichever toolbar (left/right/bottom) the user has placed it.
+    void dockToToolbarButton(const std::string& toolbarButtonName);
+
 private:
     void sendChat(EChatType type);
     void onEmojiPickerClicked();
     static void onInputEditorKeystroke(LLLineEditor* caller, void* userdata);
+    LLDockControl::DocAt getDockControlPos(const std::string& toolbarButtonName);
 
     LLLineEditor* mInputEditor;
     LLButton* mEmojiPickerBtn;
-    
-    static const S32 QUICK_CHAT_HEIGHT = 50;  // Fixed height: title bar + controls + padding
+
+    static const S32 QUICK_CHAT_HEIGHT = 32;  // Fixed height: controls + padding (no title bar)
 };
 
 #endif // KV_KVFLOATERQUICKCHAT_H

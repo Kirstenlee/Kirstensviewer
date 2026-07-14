@@ -139,6 +139,8 @@ private:
     void calcVisibleSize( S32 *visible_width, S32 *visible_height, bool* show_h_scrollbar, bool* show_v_scrollbar ) const;
 
     LLScrollbar* mScrollbar[ORIENTATION_COUNT];
+    S32         mStoredDocPos[ORIENTATION_COUNT];
+    bool        mKeepScrollPos;
     S32         mSize;
     bool        mIsOpaque;
     LLUIColor   mBackgroundColor;
@@ -152,8 +154,6 @@ private:
     U32         mMaxAutoScrollZone;
     bool        mHideScrollbar;
     bool        mIgnoreArrowKeys;
-    S32         mStoredDocPos[2];
-    bool        mKeepScrollPos;
 };
 
 

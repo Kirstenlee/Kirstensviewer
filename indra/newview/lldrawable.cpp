@@ -655,18 +655,23 @@ F32 LLDrawable::updateXform(bool undamped)
 			// snap to final position (only if no target omega is applied)
 			dist_squared = 0.0f;
 			//set target scale here, because of dist_squared = 0.0f remove object from move list
-			mCurrentScale = target_scale;
-
-			if (getVOVolume() && !isRoot())
-			{ //child prim snapping to some position, needs a rebuild
-				gPipeline.markRebuild(this, LLDrawable::REBUILD_POSITION);
-			}
-		}
-	}
-	else
-	{
-		// The following fixes MAINT-1742 but breaks vehicles similar to MAINT-2275
-		// dist_squared = dist_vec_squared(old_pos, target_pos);
+            if (mCurrentScale != target_scale)
+            {
+                mCurrentScale = target_scale;
+                // Final scale change needs a rebuild
+                gPipeline.markRebuild(this, LLDrawable::REBUILD_POSITION);
+            }
+            else if (getVOVolume() && !isRoot())
+            {
+                //child prim snapping to some position, needs a rebuild
+                gPipeline.markRebuild(this, LLDrawable::REBUILD_POSITION);
+            }
+        }
+    }
+    else
+    {
+        // The following fixes MAINT-1742 but breaks vehicles similar to MAINT-2275
+        // dist_squared = dist_vec_squared(old_pos, target_pos);
 
 		// The following fixes MAINT-2247 but causes MAINT-2275
 		//dist_squared += (1.f - dot(old_rot, target_rot)) * 10.f;

@@ -29,6 +29,9 @@
 
 #include "llviewertexture.h"
 
+#include <cmath>
+#include <deque>
+
 // Library includes
 #include "llmath.h"
 #include "llerror.h"
@@ -107,6 +110,8 @@ F32 LLViewerTexture::sCurrentTime = 0.0f;
 constexpr F32 MEMORY_CHECK_WAIT_TIME = 0.1f;  // Check 10x per second for responsive ramping
 constexpr F32 MIN_VRAM_BUDGET = 768.f;
 F32 LLViewerTexture::sFreeVRAMMegabytes = MIN_VRAM_BUDGET;
+F32 LLViewerTexture::sVRAMUsedMegabytes = 0.f;
+bool LLViewerTexture::sVRAMInfoIsLive = false;
 
 LLViewerTexture::EDebugTexels LLViewerTexture::sDebugTexelsMode = LLViewerTexture::DEBUG_TEXELS_OFF;
 
@@ -510,20 +515,34 @@ void LLViewerTexture::updateClass()
     static const U32 tex_vram_divisor = gSavedSettings.getU32("RenderTextureVRAMDivisor");
     static const U32 max_vram_budget = gSavedSettings.getU32("RenderMaxVRAMBudget");
 
-    // VRAM usage accounting with Linden fudge factor
-    // Divide by 1024/512 instead of 1024/1024 to compensate for ~50% tracking miss
-    // (driver overhead, staging buffers, mipmaps, etc. not tracked by our metrics)
-    const F64 texture_bytes_alloc = LLImageGL::getTextureBytesAllocated() / 1024.0 / 512.0;
-    const F64 vertex_bytes_alloc = LLVertexBuffer::getBytesAllocated() / 1024.0 / 512.0;
+    // Live, OS-reported VRAM figures take precedence over the self-estimate below:
+    // ground truth from the OS, not subject to our ~50% tracking miss. Only falls
+    // back to the self-estimate when unavailable (non-Windows, or DXGI query
+    // never succeeded -- gGLManager.mVRAMCurrentUsage/mVRAMBudget stay 0).
+    const bool has_live_vram_info = gGLManager.mVRAMCurrentUsage > 0 && gGLManager.mVRAMBudget > 0;
 
-    // NOTE: our metrics miss about half the vram we use, so this biases high
-    // but turns out to typically be within 5% of the real number
-    const F32 used = (F32)ll_round(texture_bytes_alloc + vertex_bytes_alloc);
+    F32 used;
+    if (has_live_vram_info)
+    {
+        used = (F32)gGLManager.mVRAMCurrentUsage;
+    }
+    else
+    {
+        // VRAM usage accounting with Linden fudge factor
+        // Divide by 1024/512 instead of 1024/1024 to compensate for ~50% tracking miss
+        // (driver overhead, staging buffers, mipmaps, etc. not tracked by our metrics)
+        const F64 texture_bytes_alloc = LLImageGL::getTextureBytesAllocated() / 1024.0 / 512.0;
+        const F64 vertex_bytes_alloc = LLVertexBuffer::getBytesAllocated() / 1024.0 / 512.0;
+
+        // NOTE: our metrics miss about half the vram we use, so this biases high
+        // but turns out to typically be within 5% of the real number
+        used = (F32)ll_round(texture_bytes_alloc + vertex_bytes_alloc);
+    }
 
     // Budget calculation - use divisor or manual override
-    const F32 budget = max_vram_budget == 0 
-        ? std::max(1024.f, (F32)gGLManager.mVRAM / (F32)tex_vram_divisor) 
-        : (F32)max_vram_budget;
+    const F32 budget = max_vram_budget != 0 ? (F32)max_vram_budget
+        : has_live_vram_info ? std::max(1024.f, (F32)gGLManager.mVRAMBudget / (F32)tex_vram_divisor)
+        : std::max(1024.f, (F32)gGLManager.mVRAM / (F32)tex_vram_divisor);
 
     // Target: 80% of budget OR (budget - 512MB), whichever is smaller
     // But keep at least MIN_VRAM_BUDGET for ourselves
@@ -532,15 +551,55 @@ void LLViewerTexture::updateClass()
     // FIXED: Correct free VRAM calculation (target - used, not double subtraction)
     sFreeVRAMMegabytes = target - used;
 
+    // Expose the figure actually driving the bias ramp below, so diagnostics (texture
+    // console) can show this instead of independently re-deriving a possibly-stale guess.
+    sVRAMUsedMegabytes = used;
+    sVRAMInfoIsLive = has_live_vram_info;
+
     // FIXED: Clear pressure calculation (percentage over target)
-    const F32 over_pct = (used - target) / target;
+    const F32 raw_over_pct = (used - target) / target;
+
+    // S24: smooth over_pct with a frame-rate-independent EMA before it drives any
+    // pressure decision below. The live DXGI-sourced `used` figure can swing
+    // frame-to-frame -- both from our own texture churn and from external GPU
+    // competition affecting the OS-reported budget -- and reacting to the raw
+    // instantaneous value overshoots before the actual discard effects (themselves
+    // time-sliced/delayed by design: mDownScaleQueue, DELETE_DELAY) have caught up,
+    // causing bias to reverse direction before the system has actually settled.
+    // Display/diagnostics (sFreeVRAMMegabytes, sVRAMUsedMegabytes, texture console)
+    // intentionally still use the raw `used`/`target` above, unsmoothed -- only the
+    // pressure *decision* is damped, not what's reported as ground truth.
+    static F32 smoothed_over_pct = 0.f;
+    static constexpr F32 OVER_PCT_EMA_TAU = 2.0f; // seconds; larger = smoother/slower to react
+    smoothed_over_pct += (1.f - std::exp(-gFrameIntervalSeconds / OVER_PCT_EMA_TAU)) * (raw_over_pct - smoothed_over_pct);
+    const F32 over_pct = smoothed_over_pct;
 
     const bool is_sys_low = isSystemMemoryLow();
     static bool was_low = false;
     const bool is_low = is_sys_low || over_pct > 0.f;
+    // S24: soft warm-up zone -- gently nudges bias up as usage approaches target from
+    // below, so the ramp already has momentum by the time `used` actually crosses
+    // target. Deliberately NOT using FREE_PERCENTAGE_THRESHOLD (the ramp-down trigger,
+    // -10%) as its own boundary: an earlier version of this used the same -10% line for
+    // both warm-up and ramp-down with zero gap between them, removing the hysteresis
+    // margin that used to exist here (previously a dead zone on both sides) and letting
+    // bias reverse direction on essentially every check interval as usage hovered near
+    // target at equilibrium -- a direct cause of visible texture churn (the vsize
+    // divisor in llviewertexturelist.cpp:922-925 is a *rounded* power-of-4 step, so even
+    // a small bias oscillation can double/halve it). WARM_UP_THRESHOLD sits much closer
+    // to 0 than FREE_PERCENTAGE_THRESHOLD, leaving a real dead band between them.
+    static constexpr F32 WARM_UP_THRESHOLD = -0.03f;
+    const bool is_warming = !is_low && over_pct > WARM_UP_THRESHOLD;
 
-    // S24: One-shot emergency purge (not time-sliced hot path)
-    // Also sets dynamic decode queue cap based on available system RAM
+    // S24: the two emergency responses below used to run as a single-frame full pass
+    // over gTextureList the instant pressure was detected -- a real stall risk with a
+    // large texture list. Now they're queued once here (cheap: just a candidate scan +
+    // pointer push) and drained a bounded number of items per frame further down,
+    // mirroring the existing LLViewerTextureList::mDownScaleQueue time-slicing pattern
+    // (llviewertexturelist.cpp) instead of introducing a new one.
+    static std::deque<LLPointer<LLViewerFetchedTexture> > sRawScavengeQueue;
+    static std::deque<LLPointer<LLViewerFetchedTexture> > sRepriorityQueue;
+
     if (is_low && !was_low)
     {
         // S24 MEMORY SAFETY: Dynamically cap decode queue depth
@@ -556,23 +615,23 @@ void LLViewerTexture::updateClass()
 
         if (is_sys_low)
         {
-            // System memory critical - discard harder
-            sDesiredDiscardBias = std::max(sDesiredDiscardBias, 1.5f * getSystemMemoryBudgetFactor());
-        }
-        else
-        {
-            // VRAM pressure - slam to 1.5 bias
-            sDesiredDiscardBias = std::max(sDesiredDiscardBias, 1.5f);
+            // S24: system memory critical still gets an immediate reaction (this is a
+            // genuine emergency, not routine over-budget pressure) but as a bounded
+            // relative nudge rather than an unconditional floor-jump to 1.5, so it
+            // composes with the ramp below instead of overriding whatever bias already
+            // was. Ordinary VRAM-over-budget crossings no longer get any instant step --
+            // the warm-up zone above already gives the ramp a head start.
+            sDesiredDiscardBias += 0.2f * getSystemMemoryBudgetFactor();
         }
 
         // S24: When system memory is critically low, proactively free raw images
         // that have already been uploaded to GL. This recovers the largest blocks
         // of uncompressed texture memory without needing to re-fetch from cache.
         // Saved raw images (sculpt, cloth, readback) are preserved.
-        if (isSystemMemoryCritical())
+        if (isSystemMemoryCritical() && sRawScavengeQueue.empty())
         {
-            LL_WARNS("TextureMemory") << "Emergency raw image scavenge - "
-                << "freeing mRawImage for all textures with valid GL textures"
+            LL_INFOS("TextureMemory") << "Queueing emergency raw image scavenge - "
+                << "will free mRawImage for all textures with valid GL textures"
                 << LL_ENDL;
 
             for (auto& image : gTextureList)
@@ -594,29 +653,53 @@ void LLViewerTexture::updateClass()
                 // Only scavenge if texture already has a valid GL texture
                 if (fetched->hasGLTexture())
                 {
-                    fetched->destroyRawImage();
+                    sRawScavengeQueue.push_back(fetched);
                 }
             }
-
-            LL_INFOS("TextureMemory") << "Raw image scavenge complete. sRawCount = "
-                << LLViewerTexture::sRawCount << LL_ENDL;
         }
 
-        if (is_sys_low || over_pct > 2.f)
+        if ((is_sys_low || over_pct > 2.f) && sRepriorityQueue.empty())
         {
-            // Emergency: full texture list purge ONCE
-            LL_WARNS("TextureMemory") << "Emergency texture purge triggered - "
-                << "used: " << used << "MB, target: " << target << "MB, over: " 
+            LL_INFOS("TextureMemory") << "Queueing emergency texture re-priority - "
+                << "used: " << used << "MB, target: " << target << "MB, over: "
                 << (over_pct * 100.f) << "%" << LL_ENDL;
 
             for (auto& image : gTextureList)
             {
-                gTextureList.updateImageDecodePriority(image, false);
+                sRepriorityQueue.push_back(image);
             }
         }
     }
 
     was_low = is_low;
+
+    // Drain both emergency queues a bounded amount every frame (not gated on is_low,
+    // so a backlog still gets steady progress even after pressure subsides) -- same
+    // min-count-plus-fraction shape as mDownScaleQueue's drain in llviewertexturelist.cpp.
+    if (!sRawScavengeQueue.empty())
+    {
+        S32 count = (S32)sRawScavengeQueue.size() / 20 + 25;
+        while (!sRawScavengeQueue.empty() && count-- > 0)
+        {
+            LLPointer<LLViewerFetchedTexture> fetched = sRawScavengeQueue.front();
+            sRawScavengeQueue.pop_front();
+            if (fetched->hasGLTexture())
+            {
+                fetched->destroyRawImage();
+            }
+        }
+    }
+
+    if (!sRepriorityQueue.empty())
+    {
+        S32 count = (S32)sRepriorityQueue.size() / 20 + 25;
+        while (!sRepriorityQueue.empty() && count-- > 0)
+        {
+            LLPointer<LLViewerFetchedTexture> image = sRepriorityQueue.front();
+            sRepriorityQueue.pop_front();
+            gTextureList.updateImageDecodePriority(image, false);
+        }
+    }
 
     // Simplified bias ramp (Linden-style)
     if (is_low)
@@ -631,12 +714,24 @@ void LLViewerTexture::updateClass()
             eval_timer.reset();
         }
     }
+    else if (is_warming)
+    {
+        // S24: gently pre-ramp bias as usage approaches target from below (see
+        // is_warming above), so the ramp already has momentum once is_low fires.
+        static LLFrameTimer warm_eval_timer;
+        if (warm_eval_timer.getElapsedTimeF32() > MEMORY_CHECK_WAIT)
+        {
+            static const F32 warm_min_increment = 0.02f; // gentler than the over-budget ramp
+            sDesiredDiscardBias += warm_min_increment * gFrameIntervalSeconds;
+            warm_eval_timer.reset();
+        }
+    }
     else
     {
         // Lower bias when at least 10% under budget AND system memory is healthy
         const bool has_system_memory = (F32)getFreeSystemMemory().value() > MIN_FREE_MAIN_MEMORY_MB;
 
-        if (sDesiredDiscardBias > 1.f 
+        if (sDesiredDiscardBias > 1.f
             && over_pct < FREE_PERCENTAGE_THRESHOLD
             && has_system_memory)
         {
@@ -678,8 +773,18 @@ void LLViewerTexture::updateClass()
         }
     }
 
-    // Clamp and update tracking
-    sDesiredDiscardBias = std::clamp(sDesiredDiscardBias, BIAS_MIN, BIAS_MAX);
+    // S24 FIX: this clamp used to run unconditionally, which silently reduced the
+    // backgrounded-window override (5.f, set above) straight back down to BIAS_MAX (4.f)
+    // on the very same call - every single frame it was set. Minimizing/backgrounding the
+    // client therefore never actually achieved more aggressive discard than the normal
+    // foreground ceiling; the "5.f" value was pure dead weight. Skip the clamp specifically
+    // while the backgrounded override is active so 5.f can take effect; the moment focus
+    // returns, sDesiredDiscardBias is restored to last_desired_discard_bias (above), which
+    // is itself already a valid clamped value and gets clamped again here regardless.
+    if (!(in_background && was_backgrounded))
+    {
+        sDesiredDiscardBias = std::clamp(sDesiredDiscardBias, BIAS_MIN, BIAS_MAX);
+    }
 
     static F32 last_texture_update_count_bias = 1.f;
     if (last_texture_update_count_bias < sDesiredDiscardBias)

@@ -250,7 +250,6 @@
 			<menu_item_check label="Konsola debugowania regionu" name="Region Debug Console" />
 			<menu_item_check label="Pamięć" name="Memory" />
 			<menu_item_check label="Statystyki sceny" name="Scene Statistics" />
-			<menu_item_check label="Monitor obciążenia sceny" name="Scene Loading Monitor" />
 			<menu_item_call label="Konsola debugowania dla ładowania tekstur" name="Texture Fetch Debug Console" />
 			<menu_item_call label="Info o regionie do konsoli debugowania" name="Region Info to Debug Console" />
 			<menu_item_call label="Info o grupie do konsoli debugowania" name="Group Info to Debug Console" />

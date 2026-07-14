@@ -36,6 +36,7 @@
 #include "lldockablefloater.h"
 #include "lldockcontrol.h"
 #include "llimview.h"
+#include "kvfloaterquickchat.h"
 #include "lltransientfloatermgr.h"
 #include "lltoolbar.h"
 #include "lltooldraganddrop.h"
@@ -494,6 +495,20 @@ void LLToolBarView::onToolBarButtonAdded(LLView* button)
         // to prevent hiding the transient IM floater upon pressing "Voice controls".
         LLTransientFloaterMgr::getInstance()->addControlView(button);
     }
+    else if (button->getName() == "kvquickchat")
+    {
+        // Re-dock the Quick Chat floater if the user has just moved its
+        // button to a different toolbar (left/right/bottom) while it was open.
+        KVFloaterQuickChat* quick_chat = dynamic_cast<KVFloaterQuickChat*>(LLFloaterReg::findInstance("kv_quick_chat"));
+        if (quick_chat && quick_chat->isShown())
+        {
+            LLDockControl* dock_control = quick_chat->getDockControl();
+            if (dock_control->getDock() == NULL)
+            {
+                quick_chat->dockToToolbarButton("kvquickchat");
+            }
+        }
+    }
 }
 
 void LLToolBarView::onToolBarButtonRemoved(LLView* button)
@@ -530,6 +545,17 @@ void LLToolBarView::onToolBarButtonRemoved(LLView* button)
     else if (button->getName() == "voice")
     {
         LLTransientFloaterMgr::getInstance()->removeControlView(button);
+    }
+    else if (button->getName() == "kvquickchat")
+    {
+        // Drop the stale anchor; onToolBarButtonAdded() will redock as soon
+        // as the button reappears on another toolbar.
+        KVFloaterQuickChat* quick_chat = dynamic_cast<KVFloaterQuickChat*>(LLFloaterReg::findInstance("kv_quick_chat"));
+        if (quick_chat && quick_chat->isShown())
+        {
+            LLDockControl* dock_control = quick_chat->getDockControl();
+            dock_control->setDock(NULL);
+        }
     }
 }
 

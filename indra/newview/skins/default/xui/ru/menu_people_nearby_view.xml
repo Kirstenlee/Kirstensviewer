@@ -4,6 +4,7 @@
 	<menu_item_check label="Сортировать по имени" name="sort_name"/>
 	<menu_item_check label="Сортировать по расстоянию" name="sort_distance"/>
 	<menu_item_check label="Сортировать по недавно поступившим" name="sort_arrival"/>
+	<menu_item_check label="Сортировать по возрасту" name="sort_age"/>
 	<menu_item_check label="Показывать значки людей" name="view_icons"/>
 	<menu_item_check label="Смотреть карту" name="view_map"/>
 	<menu_item_check label="Скрывать имена пользователей" name="view_usernames"/>

@@ -10,6 +10,7 @@ set(SCRIPTS_PREFIX ../scripts)
 set(VIEWER_PREFIX)
 set(INCREMENTAL_LINK OFF CACHE BOOL "Use incremental linking on win32 builds (enable for faster links on some machines)")
 set(ENABLE_MEDIA_PLUGINS ON CACHE BOOL "Turn off building media plugins if they are imported by third-party library mechanism")
+set(DX_RENDER OFF CACHE BOOL "Enable experimental DirectX 11 rendering backend (Windows only; GL is untouched when OFF)")
 
 if(LIBS_CLOSED_DIR)
 	file(TO_CMAKE_PATH "${LIBS_CLOSED_DIR}" LIBS_CLOSED_DIR)

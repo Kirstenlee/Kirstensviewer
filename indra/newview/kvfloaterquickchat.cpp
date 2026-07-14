@@ -34,11 +34,12 @@
 #include "llstring.h"
 #include "llbutton.h"
 #include "llemojihelper.h"
+#include "lltoolbarview.h"
 
 extern void send_chat_from_viewer(const std::string& utf8_out_text, EChatType type, S32 channel);
 
 KVFloaterQuickChat::KVFloaterQuickChat(const LLSD& key)
-:   LLFloater(key),
+:   LLDockableFloater(NULL, false, key),
     mInputEditor(NULL),
     mEmojiPickerBtn(NULL)
 {
@@ -50,6 +51,9 @@ KVFloaterQuickChat::~KVFloaterQuickChat()
 
 bool KVFloaterQuickChat::postBuild()
 {
+    if (!LLDockableFloater::postBuild() || !gToolBarView)
+        return false;
+
     // Get the chat input field
     mInputEditor = getChild<LLLineEditor>("chat_box");
 
@@ -74,14 +78,19 @@ bool KVFloaterQuickChat::postBuild()
     }
 
     // Lock the height - floater should only resize horizontally
-    // Height is just big enough for: title bar (18px) + controls (23px) + padding (9px) = 50px
-    setResizeLimits(200, 50);  // min_width=200, min_height=50 (same as XML)
+    // Height is just big enough for: controls (23px) + padding (9px) = 32px (no title bar)
+    setResizeLimits(200, QUICK_CHAT_HEIGHT);  // min_width=200, min_height=32 (same as XML)
 
     // Prevent vertical resizing by making min and max height the same
     LLRect rect = getRect();
-    rect.mTop = rect.mBottom + 50;  // Force height to exactly 50px
+    rect.mTop = rect.mBottom + QUICK_CHAT_HEIGHT;  // Force height to exactly QUICK_CHAT_HEIGHT
     setRect(rect);
     setCanResize(true);  // Allow horizontal resize only
+
+    // Dock against whichever toolbar (left/right/bottom) currently hosts
+    // the "kvquickchat" button, instead of floating freely on screen.
+    dockToToolbarButton("kvquickchat");
+    setDocked(true);
 
     return true;
 }
@@ -100,13 +109,50 @@ void KVFloaterQuickChat::onOpen(const LLSD& key)
 
 void KVFloaterQuickChat::setVisible(bool visible)
 {
-    LLFloater::setVisible(visible);
+    LLDockableFloater::setVisible(visible);
 
     if (visible && mInputEditor)
     {
         // Focus the chat input when made visible
         mInputEditor->setFocus(true);
     }
+}
+
+void KVFloaterQuickChat::dockToToolbarButton(const std::string& toolbarButtonName)
+{
+    LLDockControl::DocAt dock_pos = getDockControlPos(toolbarButtonName);
+    LLView* anchor_panel = gToolBarView->findChildView(toolbarButtonName);
+
+    if (!anchor_panel)
+        return;
+
+    // No dock tongue (arrow): keeps the flyout flush against the toolbar
+    // instead of leaving a gap for the arrow to draw in.
+    setUseTongue(false);
+    setDockControl(new LLDockControl(anchor_panel, this, getDockTongue(dock_pos), dock_pos));
+}
+
+LLDockControl::DocAt KVFloaterQuickChat::getDockControlPos(const std::string& toolbarButtonName)
+{
+    LLCommandId command_id(toolbarButtonName);
+    S32 toolbar_loc = gToolBarView->hasCommand(command_id);
+
+    // Default (bottom toolbar, or button not yet placed on any toolbar):
+    // dock above the button, pointing down at it.
+    LLDockControl::DocAt doc_at = LLDockControl::TOP;
+
+    switch (toolbar_loc)
+    {
+        case LLToolBarEnums::TOOLBAR_LEFT:
+            doc_at = LLDockControl::RIGHT;
+            break;
+
+        case LLToolBarEnums::TOOLBAR_RIGHT:
+            doc_at = LLDockControl::LEFT;
+            break;
+    }
+
+    return doc_at;
 }
 
 void KVFloaterQuickChat::reshape(S32 width, S32 height, bool called_from_parent)

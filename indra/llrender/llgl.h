@@ -128,6 +128,13 @@ public:
 
     U32 mVRAM; // VRAM in MB
 
+    // Live, OS-reported figures sourced from IDXGIAdapter3::QueryVideoMemoryInfo,
+    // refreshed on RegisterVideoMemoryBudgetChangeNotificationEvent (see
+    // LLWindowWin32Thread in llwindowwin32.cpp). 0 means unavailable (non-Windows,
+    // or DXGI adapter/query failed) -- callers must fall back to mVRAM/self-estimates.
+    U32 mVRAMBudget = 0;       // DXGI_QUERY_VIDEO_MEMORY_INFO::Budget, in MB
+    U32 mVRAMCurrentUsage = 0; // DXGI_QUERY_VIDEO_MEMORY_INFO::CurrentUsage, in MB
+
     // Real-time GPU memory query (returns available VRAM in MB, 0 if unsupported)
     U32 queryAvailableVRAM() const;
 

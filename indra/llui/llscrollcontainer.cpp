@@ -71,11 +71,11 @@ LLScrollContainer::Params::Params()
     border_visible("border_visible"),
     hide_scrollbar("hide_scrollbar"),
     ignore_arrow_keys("ignore_arrow_keys"),
-    keep_scroll_pos("keep_scroll_pos", false),
     min_auto_scroll_rate("min_auto_scroll_rate", 100),
     max_auto_scroll_rate("max_auto_scroll_rate", 1000),
     max_auto_scroll_zone("max_auto_scroll_zone", 16),
     reserve_scroll_corner("reserve_scroll_corner", false),
+    keep_scroll_pos("keep_scroll_pos", false),
     size("size", -1)
 {}
 
@@ -93,12 +93,13 @@ LLScrollContainer::LLScrollContainer(const LLScrollContainer::Params& p)
     mMinAutoScrollRate(p.min_auto_scroll_rate),
     mMaxAutoScrollRate(p.max_auto_scroll_rate),
     mMaxAutoScrollZone(p.max_auto_scroll_zone),
-    mKeepScrollPos(p.keep_scroll_pos),
     mScrolledView(NULL),
+    mKeepScrollPos(p.keep_scroll_pos),
     mSize(p.size)
 {
-    mStoredDocPos[0] = 0;
-    mStoredDocPos[1] = 0;
+    mStoredDocPos[VERTICAL] = 0;
+    mStoredDocPos[HORIZONTAL] = 0;
+
     static LLUICachedControl<S32> scrollbar_size_control ("UIScrollbarSize", 0);
     S32 scrollbar_size = (mSize == -1 ? scrollbar_size_control : mSize);
 
@@ -186,12 +187,6 @@ void LLScrollContainer::scrollVertical( S32 new_pos )
 void LLScrollContainer::reshape(S32 width, S32 height,
                                         bool called_from_parent)
 {
-    if (mKeepScrollPos && mScrolledView)
-    {
-        mStoredDocPos[VERTICAL] = mScrollbar[VERTICAL]->getDocPos();
-        mStoredDocPos[HORIZONTAL] = mScrollbar[HORIZONTAL]->getDocPos();
-    }
-
     LLUICtrl::reshape( width, height, called_from_parent );
 
     mInnerRect = getLocalRect();
@@ -213,13 +208,6 @@ void LLScrollContainer::reshape(S32 width, S32 height,
         mScrollbar[HORIZONTAL]->setDocSize( scrolled_rect.getWidth() );
         mScrollbar[HORIZONTAL]->setPageSize( visible_width );
         updateScroll();
-
-        if (mKeepScrollPos)
-        {
-            mScrollbar[VERTICAL]->setDocPos(mStoredDocPos[VERTICAL]);
-            mScrollbar[HORIZONTAL]->setDocPos(mStoredDocPos[HORIZONTAL]);
-            updateScroll();
-        }
     }
 }
 
@@ -622,6 +610,22 @@ void LLScrollContainer::updateScroll()
     calcVisibleSize( &visible_width, &visible_height, &show_h_scrollbar, &show_v_scrollbar );
 
     S32 border_width = getBorderWidth();
+
+    // Remember the position only while the scrollbar is genuinely showing scrollable
+    // content, so a transient empty pass (e.g. a list clearing before it repopulates)
+    // cannot overwrite it with 0.
+    if (mKeepScrollPos)
+    {
+        if (show_v_scrollbar && mScrollbar[VERTICAL]->getVisible())
+        {
+            mStoredDocPos[VERTICAL] = mScrollbar[VERTICAL]->getDocPos();
+        }
+        if (show_h_scrollbar && mScrollbar[HORIZONTAL]->getVisible())
+        {
+            mStoredDocPos[HORIZONTAL] = mScrollbar[HORIZONTAL]->getDocPos();
+        }
+    }
+
     if( show_v_scrollbar )
     {
         if( doc_rect.mTop < getRect().getHeight() - border_width )
@@ -690,6 +694,18 @@ void LLScrollContainer::updateScroll()
 
     mScrollbar[VERTICAL]->setDocSize( doc_height );
     mScrollbar[VERTICAL]->setPageSize( visible_height );
+
+    if (mKeepScrollPos)
+    {
+        if (show_v_scrollbar)
+        {
+            mScrollbar[VERTICAL]->setDocPos(mStoredDocPos[VERTICAL]);
+        }
+        if (show_h_scrollbar)
+        {
+            mScrollbar[HORIZONTAL]->setDocPos(mStoredDocPos[HORIZONTAL]);
+        }
+    }
 } // end updateScroll
 
 void LLScrollContainer::setBorderVisible(bool b)

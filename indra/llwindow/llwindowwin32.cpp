@@ -69,9 +69,15 @@
 #include <future>
 #include <sstream>
 #include <utility>                  // std::pair
+#include <chrono>
 
 #include <dxgi1_4.h>  // DXGI VRAM query (checkDXMem)
 #include <d3d11.h>    // D3D11 for discrete GPU selection (#5611)
+#ifdef DX_RENDER
+#include "DXDevice.h"
+#include "DXSwapChain.h"
+#include "DXContext.h"
+#endif
 #include <timeapi.h>
 #include <avrt.h>       // MMCSS (Multimedia Class Scheduler Service)
 
@@ -460,6 +466,16 @@ struct LLWindowWin32::LLWindowWin32Thread : public LL::ThreadPool
 	// Use DXGI to check memory (because WMI doesn't report more than 4Gb)
 	void checkDXMem();
 
+	// Live VRAM budget notification. Refreshes gGLManager.mVRAMBudget/mVRAMCurrentUsage
+	// from the cached adapter.
+	void updateVRAMInfo(IDXGIAdapter3* adapter);
+	// One-time: cache the adapter and register for budget-change notifications.
+	void setupVRAMBudgetNotification(IDXGIAdapter3* adapter);
+	// Called every loop iteration: non-blocking check of the notification event.
+	void pollVRAMBudgetChange();
+	// Called once on thread shutdown, before destroyWindow().
+	void teardownVRAMBudgetNotification();
+
 	/// called by main thread to post work to this window thread
 	template <typename CALLABLE>
 	void post(CALLABLE&& func)
@@ -508,6 +524,11 @@ struct LLWindowWin32::LLWindowWin32Thread : public LL::ThreadPool
 	bool mGLReady = false;
 	bool mGotGLBuffer = false;
     LLAtomicBool mDeleteOnExit = false;
+
+	// Live VRAM budget notification state.
+	IDXGIAdapter3* mDXGIAdapter = nullptr;
+	HANDLE mVRAMBudgetChangeEvent = nullptr;
+	DWORD mVRAMBudgetChangeCookie = 0;
 };
 
 
@@ -1200,6 +1221,12 @@ void LLWindowWin32::close()
 		gKeyboard->resetKeys();
 	}
 
+#ifdef DX_RENDER
+	LL_DEBUGS("Window") << "Releasing DX11 device/swapchain" << LL_ENDL;
+	gDXSwapChain.destroy();
+	gDXDevice.shutdown();
+#endif
+
 	// Clean up remaining GL state
 	if (gGLManager.mInited)
 	{
@@ -1365,6 +1392,35 @@ bool LLWindowWin32::setSizeImpl(const LLCoordWindow size)
 
 	return setSizeImpl(LLCoordScreen(window_rect.right - window_rect.left, window_rect.bottom - window_rect.top));
 }
+
+#ifdef DX_RENDER
+// DX_RENDER: replaces switchContext()'s GL pixel-format/wgl-context setup.
+// Called after recreateWindow() has already given us a valid mWindowHandle -
+// this function's only job is to stand up a DX11 device + swap chain for it.
+bool LLWindowWin32::initDX11Context(const LLCoordScreen& size, bool enable_vsync)
+{
+	// gD3D11Device/gD3D11Context (this file, anonymous namespace above) may
+	// already exist courtesy of selectHighPerformanceAdapter()'s GPU-selection
+	// probe on multi-adapter systems; DXDevice::initialize() adopts them if so,
+	// or creates its own device if not (e.g. single-adapter systems).
+	if (!gDXDevice.initialize(gD3D11Device, gD3D11Context))
+	{
+		LL_WARNS("Window") << "DXDevice::initialize failed" << LL_ENDL;
+		return false;
+	}
+
+	if (!gDXSwapChain.create(mWindowHandle, size.mX, size.mY, enable_vsync))
+	{
+		LL_WARNS("Window") << "DXSwapChain::create failed" << LL_ENDL;
+		return false;
+	}
+
+	LL_INFOS("Window") << "DX11 device and swap chain created (feature level 0x"
+		<< std::hex << gDXDevice.getFeatureLevel() << std::dec << ")" << LL_ENDL;
+
+	return true;
+}
+#endif
 
 // changing fullscreen resolution
 bool LLWindowWin32::switchContext(bool fullscreen, const LLCoordScreen& size, bool enable_vsync, const LLCoordScreen* const posp)
@@ -1540,6 +1596,13 @@ bool LLWindowWin32::switchContext(bool fullscreen, const LLCoordScreen& size, bo
 		LL_WARNS("Window") << "Window creation failed, code: " << GetLastError() << LL_ENDL;
 	}
 
+#ifdef DX_RENDER
+	if (!initDX11Context(size, enable_vsync))
+	{
+		close();
+		return false;
+	}
+#else
 	//-----------------------------------------------------------------------
 	// Create GL drawing context with modern attributes while retaining 'pfd'
 	//-----------------------------------------------------------------------
@@ -1942,6 +2005,7 @@ const   S32   max_format  = (S32)num_formats - 1;
 
 	// Disable vertical sync for swap
 	toggleVSync(enable_vsync);
+#endif // DX_RENDER
 
 	SetWindowLongPtr(mWindowHandle, GWLP_USERDATA, (LONG_PTR)this);
 
@@ -3964,7 +4028,17 @@ void LLWindowWin32::swapBuffers()
 {
 	{
 		LL_PROFILE_ZONE_SCOPED_CATEGORY_WIN32;
+#ifdef DX_RENDER
+		// Milestone 1 vertical slice: no real draw-pool content is routed through
+		// DX_RENDER yet (that's Milestones 2/3), so bracket a bare clear here to
+		// prove the device/swapchain/context are alive every frame. Once real
+		// rendering exists, beginFrame() moves to the actual per-frame render
+		// entry point (pipeline.cpp) alongside the GL equivalent.
+		gDXContext.beginFrame();
+		gDXSwapChain.present();
+#else
 		SwapBuffers(mhDC);
+#endif
 	}
 
 	{
@@ -5236,15 +5310,126 @@ bool LLWindowWin32::detectGPUChange() const
 	return false;
 }
 
+void LLWindowWin32::LLWindowWin32Thread::updateVRAMInfo(IDXGIAdapter3* adapter)
+{
+    DXGI_QUERY_VIDEO_MEMORY_INFO info;
+    if (FAILED(adapter->QueryVideoMemoryInfo(0, DXGI_MEMORY_SEGMENT_GROUP_LOCAL, &info)))
+    {
+        return;
+    }
+
+    // Alternatively use GetDesc from below to get adapter's memory
+    UINT64 budget_mb = info.Budget / (1024 * 1024);
+    UINT64 usage_mb = info.CurrentUsage / (1024 * 1024);
+    if (gGLManager.mIsIntel)
+    {
+        // Intel iGPUs share VRAM with system RAM; cap budget to 25% of
+        // physical memory to avoid over-reporting shared memory as VRAM.
+        U32Megabytes phys_mb = gSysMemory.getPhysicalMemoryKB();
+        LL_INFOS("RenderInit") << "Physical memory: " << phys_mb << " MB" << LL_ENDL;
+        if (phys_mb > 0)
+        {
+            budget_mb = llmin(budget_mb, (UINT64)(phys_mb * 0.25));
+        }
+        else
+        {
+            // No physical memory data available; fall back to a 2 GB cap.
+            budget_mb = llmin(budget_mb, (UINT64)2048);
+        }
+    }
+
+    gGLManager.mVRAMBudget = (U32)budget_mb;
+    gGLManager.mVRAMCurrentUsage = (U32)usage_mb;
+
+    if (gGLManager.mVRAM < (S32)budget_mb)
+    {
+        gGLManager.mVRAM = (S32)budget_mb;
+        LL_INFOS("RenderInit") << "New VRAM Budget (DXGI): " << gGLManager.mVRAM << " MB" << LL_ENDL;
+    }
+    else
+    {
+        LL_INFOS("RenderInit") << "VRAM Budget (DXGI): " << budget_mb
+            << " MB, current (OpenGL/WMI): " << gGLManager.mVRAM << " MB" << LL_ENDL;
+    }
+}
+
+void LLWindowWin32::LLWindowWin32Thread::setupVRAMBudgetNotification(IDXGIAdapter3* adapter)
+{
+    if (mVRAMBudgetChangeEvent) { return; } // already set up
+
+    HANDLE event_handle = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+    if (!event_handle)
+    {
+        LL_WARNS("Window") << "CreateEventW failed for VRAM budget notification: " << GetLastError() << LL_ENDL;
+        return;
+    }
+
+    HRESULT res = adapter->RegisterVideoMemoryBudgetChangeNotificationEvent(event_handle, &mVRAMBudgetChangeCookie);
+    if (FAILED(res))
+    {
+        LL_WARNS("Window") << "RegisterVideoMemoryBudgetChangeNotificationEvent failed: 0x" << std::hex << res << LL_ENDL;
+        CloseHandle(event_handle);
+        return;
+    }
+
+    mVRAMBudgetChangeEvent = event_handle;
+}
+
+void LLWindowWin32::LLWindowWin32Thread::pollVRAMBudgetChange()
+{
+    if (!mVRAMBudgetChangeEvent || !mDXGIAdapter) { return; }
+
+    // S24: RegisterVideoMemoryBudgetChangeNotificationEvent only fires when Windows
+    // changes *our* OS-recommended budget (external GPU competition) -- it does NOT
+    // fire when our own usage changes. Relying on it alone left mVRAMCurrentUsage
+    // frozen for long stretches during heavy texture loading, then jumping in one
+    // large step whenever an unrelated budget event happened to fire. QueryVideoMemoryInfo
+    // is documented as cheap/safe to call frequently (it's the one-time factory/adapter
+    // creation that's expensive, not this query), so poll it on a short interval
+    // unconditionally to keep CurrentUsage fresh; keep the event as a fast-path for
+    // genuine external budget changes on top of that.
+    constexpr std::chrono::milliseconds VRAM_POLL_INTERVAL{500};
+    static std::chrono::steady_clock::time_point last_poll{};
+    const auto now = std::chrono::steady_clock::now();
+
+    const bool event_signaled = WaitForSingleObject(mVRAMBudgetChangeEvent, 0) == WAIT_OBJECT_0;
+    const bool poll_due = (now - last_poll) >= VRAM_POLL_INTERVAL;
+
+    if (event_signaled || poll_due)
+    {
+        updateVRAMInfo(mDXGIAdapter);
+        last_poll = now;
+    }
+}
+
+void LLWindowWin32::LLWindowWin32Thread::teardownVRAMBudgetNotification()
+{
+    if (mDXGIAdapter && mVRAMBudgetChangeEvent)
+    {
+        mDXGIAdapter->UnregisterVideoMemoryBudgetChangeNotification(mVRAMBudgetChangeCookie);
+    }
+    if (mVRAMBudgetChangeEvent)
+    {
+        CloseHandle(mVRAMBudgetChangeEvent);
+        mVRAMBudgetChangeEvent = nullptr;
+    }
+    if (mDXGIAdapter)
+    {
+        mDXGIAdapter->Release();
+        mDXGIAdapter = nullptr;
+    }
+}
+
 void LLWindowWin32::LLWindowWin32Thread::checkDXMem()
 {
     if (!mGLReady || mGotGLBuffer) { return; }
 
-	if ((gGLManager.mHasAMDAssociations || gGLManager.mHasNVXGpuMemoryInfo) && gGLManager.mVRAM != 0)
-	{
-		mGotGLBuffer = true;
-		return;
-	}
+    // NOTE: previously this early-returned here when AMD/NVX vendor extensions had
+    // already reported a nonzero gGLManager.mVRAM, skipping DXGI entirely on most
+    // NVIDIA/AMD systems. We still don't need DXGI's number to *set* mVRAM in that
+    // case (see the < comparison in updateVRAMInfo, unchanged), but we now always
+    // proceed to set up the adapter + live budget-change event below, so the live VRAM
+    // signal is available on those systems too, not just Intel/DXGI-fallback systems.
 
     IDXGIFactory4* p_factory = nullptr;
 
@@ -5272,36 +5457,13 @@ void LLWindowWin32::LLWindowWin32Thread::checkDXMem()
             {
                 if (graphics_adapter_index == 0) // Should it check largest one isntead of first?
                 {
-                    DXGI_QUERY_VIDEO_MEMORY_INFO info;
-                    p_dxgi_adapter->QueryVideoMemoryInfo(0, DXGI_MEMORY_SEGMENT_GROUP_LOCAL, &info);
+                    updateVRAMInfo(p_dxgi_adapter);
 
-                    // Alternatively use GetDesc from below to get adapter's memory
-                    UINT64 budget_mb = info.Budget / (1024 * 1024);
-					if (gGLManager.mIsIntel)
-					{
-						// Intel iGPUs share VRAM with system RAM; cap budget to 25% of
-						// physical memory to avoid over-reporting shared memory as VRAM.
-						U32Megabytes phys_mb = gSysMemory.getPhysicalMemoryKB();
-						LL_INFOS("RenderInit") << "Physical memory: " << phys_mb << " MB" << LL_ENDL;
-						if (phys_mb > 0)
-						{
-							budget_mb = llmin(budget_mb, (UINT64)(phys_mb * 0.25));
-						}
-						else
-						{
-							// No physical memory data available; fall back to a 2 GB cap.
-							budget_mb = llmin(budget_mb, (UINT64)2048);
-						}
-					}
-                    if (gGLManager.mVRAM < (S32)budget_mb)
+                    if (!mDXGIAdapter)
                     {
-                        gGLManager.mVRAM = (S32)budget_mb;
-						LL_INFOS("RenderInit") << "New VRAM Budget (DXGI): " << gGLManager.mVRAM << " MB" << LL_ENDL;
-                    }
-                    else
-                    {
-						LL_INFOS("RenderInit") << "VRAM Budget (DXGI): " << budget_mb
-							<< " MB, current (OpenGL/WMI): " << gGLManager.mVRAM << " MB" << LL_ENDL;
+                        mDXGIAdapter = p_dxgi_adapter;
+                        mDXGIAdapter->AddRef();
+                        setupVRAMBudgetNotification(mDXGIAdapter);
                     }
                 }
 
@@ -5386,6 +5548,9 @@ void LLWindowWin32::LLWindowWin32Thread::run()
         // Check memory budget using DirectX if OpenGL doesn't have the means to tell us
         checkDXMem();
 
+        // Non-blocking check for a live VRAM budget change (see checkDXMem() setup above)
+        pollVRAMBudgetChange();
+
         if (mWindowHandleThrd != 0)
         {
             MSG msg;
@@ -5437,6 +5602,8 @@ void LLWindowWin32::LLWindowWin32Thread::run()
 	{
 		AvRevertMmThreadCharacteristics(mmcssHandle);
 	}
+
+	teardownVRAMBudgetNotification();
 
 	destroyWindow();
 

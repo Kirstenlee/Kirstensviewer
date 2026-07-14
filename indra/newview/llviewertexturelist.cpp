@@ -813,12 +813,32 @@ void LLViewerTextureList::deleteImage(LLViewerFetchedTexture *image)
 void LLViewerTextureList::updateImages(F32 max_time)
 {
     static bool cleared = false;
+    static bool arrival_flush_done = false;
     if(gTeleportDisplay)
     {
         if(!cleared)
         {
             clearFetchingRequests();
             gPipeline.clearRebuildGroups();
+
+            // S24: proactive VRAM cleanup on a genuine cross-region teleport, before the
+            // new region's content starts loading. Excludes TELEPORT_LOCAL specifically
+            // -- an in-region teleport (or the TeleportStart-after-TELEPORT_LOCAL race
+            // this state also covers, see llviewermessage.cpp) never leaves the current
+            // region's objects/textures, so there's nothing orphaned to flush and doing
+            // so would just force re-fetching things still on screen.
+            // OFF by default (RenderFlushOrphanedTexturesOnTeleport) -- playtesting
+            // linked this to avatar rendering flakiness and lower heavy-scene framerate,
+            // suspected cause being a too-blunt refcount/boost-level rule evicting
+            // something an avatar's messier texture lifecycle (baked layers, attachments,
+            // impostor swaps) needed again almost immediately. Kept behind a toggle
+            // rather than removed so it can still be A/B tested.
+            static LLCachedControl<bool> flush_on_teleport(gSavedSettings, "RenderFlushOrphanedTexturesOnTeleport", false);
+            if (flush_on_teleport && gAgent.getTeleportState() != LLAgent::TELEPORT_LOCAL)
+            {
+                forceFlushOrphanedTextures();
+            }
+
             cleared = true;
             return;
         }
@@ -828,10 +848,35 @@ void LLViewerTextureList::updateImages(F32 max_time)
         {
             return;
         }
+
+        // S24: catch-up sweep. The flush above runs the instant the teleport starts,
+        // which can miss a texture that's transiently sitting in
+        // mDownScaleQueue/mCreateTextureList (or LLViewerTexture's own emergency
+        // queues) at that exact moment -- those hold an LLPointer ref, so the texture
+        // looks "still needed" and gets skipped. It isn't permanently stuck: once its
+        // queue drains, the ref drops and it becomes eligible again -- but only through
+        // the slow round-robin lazy-flush, which can lag well behind a second, quick
+        // teleport. Left unchecked across several fast hops, each hop's missed
+        // textures pile up waiting on that one slow mechanism. ARRIVING is already a
+        // deliberate delay ("let things decode, cache and process"), so by now those
+        // queues have had several frames to drain -- sweep once more here to catch
+        // whatever the first pass missed before it has a chance to compound.
+        if (!arrival_flush_done)
+        {
+            arrival_flush_done = true;
+            // Same RenderFlushOrphanedTexturesOnTeleport gate as the initial flush
+            // above -- off by default.
+            static LLCachedControl<bool> flush_on_teleport(gSavedSettings, "RenderFlushOrphanedTexturesOnTeleport", false);
+            if (flush_on_teleport && gAgent.getTeleportState() != LLAgent::TELEPORT_LOCAL)
+            {
+                forceFlushOrphanedTextures();
+            }
+        }
     }
     else
     {
         cleared = false;
+        arrival_flush_done = false;
     }
 
     LLAppViewer::getTextureFetch()->setTextureBandwidth((F32)LLTrace::get_frame_recording().getPeriodMeanPerSec(LLStatViewer::TEXTURE_NETWORK_DATA_RECEIVED).value());
@@ -894,6 +939,54 @@ void LLViewerTextureList::clearFetchingRequests()
         LLViewerFetchedTexture* imagep = *iter;
         imagep->forceToDeleteRequest() ;
     }
+}
+
+void LLViewerTextureList::forceFlushOrphanedTextures()
+{
+    // Copy pointers out first: deleteImage() erases from mImageList/mUUIDMap, so
+    // iterating those containers directly while erasing invalidates the iterator --
+    // same reason updateImagesFetchTextures() copies entries out before updating them
+    // (see the comment there: "a texture may be deleted as a side effect...").
+    std::vector<LLPointer<LLViewerFetchedTexture> > candidates;
+    candidates.reserve(mImageList.size());
+    for (auto& image : mImageList)
+    {
+        candidates.push_back(image);
+    }
+
+    // Matches updateImageDecodePriority()'s min_refs -- deliberately NOT bypassing this
+    // check. A texture with more than this many references still has something real
+    // (a face, a UI element, etc.) pointing at it and must not be deleted regardless of
+    // how it was reached. candidates itself holds one of these refs temporarily, same
+    // as updateImagesFetchTextures()'s entries copy does during its own update pass.
+    constexpr S32 MIN_REFS_TO_FLUSH = 3;
+    S32 flushed = 0;
+
+    for (auto& imagep : candidates)
+    {
+        if (imagep->getNumRefs() > MIN_REFS_TO_FLUSH)
+        {
+            continue; // still genuinely referenced by something outside the list
+        }
+
+        // Preserve UI/icon/sculpt/thumbnail textures -- not tied to any one region, same
+        // exclusion already used for the raw-image scavenge in
+        // LLViewerTexture::updateClass().
+        S32 boost = imagep->getBoostLevel();
+        if (boost == LLGLTexture::BOOST_UI ||
+            boost == LLGLTexture::BOOST_ICON ||
+            boost == LLGLTexture::BOOST_SCULPTED ||
+            boost == LLGLTexture::BOOST_THUMBNAIL)
+        {
+            continue;
+        }
+
+        deleteImage(imagep);
+        ++flushed;
+    }
+
+    LL_INFOS("TextureMemory") << "Teleport texture flush: removed " << flushed
+        << " orphaned textures out of " << candidates.size() << " scanned" << LL_ENDL;
 }
 
 extern bool gCubeSnapshot;
@@ -1048,7 +1141,9 @@ void LLViewerTextureList::updateImageDecodePriority(LLViewerFetchedTexture* imag
     S32 num_refs = imagep->getNumRefs();
     if (num_refs <= min_refs && flush_images)
     {
-        if (imagep->getLastReferencedTimer()->getElapsedTimeF32() > lazy_flush_timeout)
+        // Only flush if it hasn't been referenced for the timeout AND it wasn't bound/rendered recently.
+        if (imagep->getLastReferencedTimer()->getElapsedTimeF32() > lazy_flush_timeout &&
+            !imagep->getBoundRecently())
         {
             // Remove the unused image from the image list
             deleteImage(imagep);
@@ -1059,7 +1154,7 @@ void LLViewerTextureList::updateImageDecodePriority(LLViewerFetchedTexture* imag
     {
         // still referenced outside of image list, reset timer
         imagep->getLastReferencedTimer()->reset();
-         // S24 unloop
+        // S24 unloop
         if (imagep->hasSavedRawImage() &&
             imagep->getElapsedLastReferencedSavedRawImageTime() > max_inactive_time)
         {
@@ -1166,10 +1261,30 @@ F32 LLViewerTextureList::updateImagesCreateTextures(F32 max_time)
         // give time to downscaling first -- if mDownScaleQueue is not empty, we're running out of memory and need
         // to free up memory by discarding off screen textures quickly
 
-        // do at least 5 and make sure we don't get too far behind even if it violates
-        // the time limit.  If we don't downscale quickly the viewer will hit swap and may
-        // freeze.
-        S32 min_count = (S32)mCreateTextureList.size() / 20 + 5;
+        // S24: severity-aware floor. The original unconditional floor below (kept for
+        // genuine severe pressure) guarantees forward progress on this queue even past
+        // max_time -- explicitly so ("if we don't downres quickly the viewer will hit
+        // swap and may freeze"). But a backlog here isn't always that dire: a fast
+        // camera swing through a dense scene can burst many faces between on/off-screen
+        // within one window, populating this queue without VRAM actually being in a
+        // genuine emergency. Forcing the
+        // same large floor through in that everyday case is a real source of
+        // frame-time spikes during camming for no real benefit -- nothing is actually
+        // at risk of swapping/freezing yet. Only use the aggressive floor when pressure
+        // is genuinely severe (same bias>2.0 threshold already used as the "serious"
+        // cutoff for the far-clip pressure-relief lever, llviewerdisplay.cpp:220-222,
+        // plus system memory criticality -- the actual swap/freeze risk this floor
+        // exists for). Otherwise respect max_time almost strictly (min_count=1: stop as
+        // soon as possible once over budget) and let the backlog spread across more
+        // frames instead of hammering this one.
+        //
+        // Also fixes a latent bug found while touching this: the floor used to scale
+        // with mCreateTextureList.size() (a different queue, the pending-GL-upload
+        // list, already mostly drained by the loop above by this point) instead of
+        // mDownScaleQueue.size() (the queue actually being drained here).
+        const bool severe_pressure = LLViewerTexture::sDesiredDiscardBias > 2.f
+            || LLViewerTexture::isSystemMemoryCritical();
+        S32 min_count = severe_pressure ? (S32)mDownScaleQueue.size() / 20 + 5 : 1;
 
         create_timer.reset();
         while (!mDownScaleQueue.empty())
@@ -1643,6 +1758,7 @@ void LLViewerTextureList::processImageNotInDatabase(LLMessageSystem *msg,void **
 // guaranteed.
 void LLUIImageList::cleanUp()
 {
+    LLUIImage::cleanupClass();
     mUIImages.clear();
     mUITextureList.clear() ;
 }

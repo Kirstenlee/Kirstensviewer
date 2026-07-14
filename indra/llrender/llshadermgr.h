@@ -386,6 +386,16 @@ public:
     std::map<std::string, GLuint> mVertexShaderObjects;
     std::map<std::string, GLuint> mFragmentShaderObjects;
 
+#ifdef DX_RENDER
+    // DX_RENDER has no separately-compiled/linkable shader objects (unlike
+    // GL, HLSL is one source blob per stage) - loadShaderFile() caches raw,
+    // extension-swapped HLSL source text here instead, keyed the same way
+    // (by the file's original .glsl name) so attachVertexObject()/
+    // attachFragmentObject() (llglslshader.cpp) can look it up unchanged.
+    std::map<std::string, std::string> mVertexShaderSourceText;
+    std::map<std::string, std::string> mFragmentShaderSourceText;
+#endif
+
     //global (reserved slot) shader parameters
     std::vector<std::string> mReservedAttribs;
 

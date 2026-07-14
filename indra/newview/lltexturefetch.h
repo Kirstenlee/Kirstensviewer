@@ -118,6 +118,9 @@ public:
 
     // Threads:  T*
     bool isFromLocalCache(const LLUUID& id);
+    // true if this fetch's cache read was satisfied by the KVRAMCache RAM buffer
+    // rather than an actual disk read (see LLTextureFetchWorker::mFromRamCache)
+    bool isFromRamCache(const LLUUID& id);
 
     // get the current fetch state, if any, from the given UUID
     S32 getFetchState(const LLUUID& id);

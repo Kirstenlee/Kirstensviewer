@@ -1,4 +1,4 @@
-/**
+﻿/**
  * @file llfloaterKVTweaks.h
  * @brief KVTweaks - S24 comprehensive settings and features panel
  *
@@ -56,7 +56,7 @@ protected:
 	void updateRAMCacheBudgetText();
 	void updateRAMCacheSoftThresholdText();
 	void updateRAMCacheHardThresholdText();
-	void updateRAMCacheGracePeriodText();
+	void updateRAMCacheRetentionTimeText();  // KV:GC→RT Renamed from updateRAMCacheGracePeriodText
 	void updateRAMCacheEvictionRateText();
 
 	// S24 - Water preset handlers

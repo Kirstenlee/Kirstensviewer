@@ -22,6 +22,10 @@ include_directories(
     ${LLMATH_INCLUDE_DIRS}
     ${LLFILESYSTEM_INCLUDE_DIRS}
     ${LLXML_INCLUDE_DIRS}
+    # so resources/*.cpp can #include core/*.h (e.g. DXShader.cpp -> DXDevice.h)
+    # and vice versa, without every file needing a relative "../core/" path
+    ${CMAKE_CURRENT_SOURCE_DIR}/core
+    ${CMAKE_CURRENT_SOURCE_DIR}/resources
 )
 
 include_directories(SYSTEM

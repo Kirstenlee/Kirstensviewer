@@ -181,50 +181,11 @@ void LLFloaterKVRAMCacheStats::updateStats()
     // Shows current eviction pressure multiplier
     // Eviction starts at 1.0x (soft threshold) and ramps to 2.0x (hard threshold)
     // S24: Dynamic color: green → amber → red based on pressure
-    F32 pressure_multiplier = 0.0f;
-    F32 soft_threshold = gSavedSettings.getF32("KVRAMCacheSoftThreshold");
-    F32 hard_threshold = gSavedSettings.getF32("KVRAMCacheHardThreshold");
-
-    if (ram_pressure >= hard_threshold)
-    {
-        pressure_multiplier = 2.0f;
-    }
-    else if (ram_pressure >= soft_threshold)
-    {
-        // Active eviction zone: 1.0x → 2.0x
-        F32 range = hard_threshold - soft_threshold;
-        F32 offset = ram_pressure - soft_threshold;
-        pressure_multiplier = 1.0f + (offset / range);
-    }
-    else if (ram_pressure >= 0.5f)
-    {
-        // Between 50% and soft: active eviction 1.0x → 2.0x
-        F32 range = soft_threshold - 0.5f;
-        if (range > 0.0f)
-        {
-            F32 offset = ram_pressure - 0.5f;
-            pressure_multiplier = 1.0f + (offset / range);
-        }
-        else
-        {
-            pressure_multiplier = 2.0f;
-        }
-    }
-    else if (ram_pressure > 0.25f)
-    {
-        // Between 25% and 50%: gentle decay 0.5x → 1.0x
-        F32 range = 0.5f - 0.25f;
-        if (range > 0.0f)
-        {
-            F32 offset = ram_pressure - 0.25f;
-            pressure_multiplier = 0.5f + (0.5f * offset / range);
-        }
-        else
-        {
-            pressure_multiplier = 1.0f;
-        }
-    }
-    // else: at/below 25% equilibrium, no eviction
+    // S24: Pulled from KVRAMCache::getEvictionPressureMultiplier() — this used to be a
+    // hand-rolled copy of the pressure curve (hardcoded 0.25/0.5 breakpoints) that fell out
+    // of sync when processPassiveEviction() switched to the fill_target-based curve. Reading
+    // the cache's own calculation guarantees the bar can never disagree with actual eviction again.
+    F32 pressure_multiplier = cache->getEvictionPressureMultiplier();
 
     if (mPressureBar)
     {

@@ -120,6 +120,7 @@ public:
 	//  Pure virtuals
 	//virtual BOOL			parseData( LLXmlTreeNode *node ) = 0;
 	virtual void			apply( ESex avatar_sex ) = 0;
+    virtual S32             getWearableType() const = 0;
 	//  Default functions
 	virtual void			setWeight(F32 weight);
 	virtual void			setAnimationTarget( F32 target_value);

@@ -582,6 +582,10 @@ private:
 
     // GPU render time in ms
     F32 mGPURenderTime = 0.f;
+    // S24: EMA-smoothed version of mGPURenderTime used for the isTooSlow()
+    // trip decision - a single GL_TIME_ELAPSED sample is too noisy
+    // frame-to-frame to compare against a fixed cap without flickering.
+    F32 mGPURenderTimeSmoothed = 0.f;
     bool mGPUProfilePending = false;
 
     // CPU render time in ms
@@ -717,6 +721,9 @@ private:
 public:
     virtual bool isImpostor();
     bool        shouldImpostor(const F32 rank_factor = 1.0);
+    // S24: hysteresis-aware version of shouldImpostor() for the primary
+    // full-render/impostor cutoff only - see definition for why.
+    bool        shouldImpostorWithHysteresis(bool was_impostored);
     bool        needsImpostorUpdate() const;
     const LLVector3& getImpostorOffset() const;
     const LLVector2& getImpostorDim() const;

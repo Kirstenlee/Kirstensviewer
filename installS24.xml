@@ -144,11 +144,332 @@
 		<args>--overlay-triplets=triplets</args>
 	</package>
 
+	<!--
+	S24 :: Boost migrated to per-port vcpkg installs.
+	Tarball entry kept here, commented out,
+	as a rollback reference. Do not delete until the vcpkg migration is
+	confirmed stable across a full clean build.
+
 	<package>
 		<type>tarball</type>
 		<name>boost</name>
 		<url>https://kirstensviewer.s3.eu-north-1.amazonaws.com/S24/boost.tar.gz</url>
 		<md5>690c477192accf038b42f6a7d7099b54</md5>
+	</package>
+	-->
+
+	<!-- ================================================================ -->
+	<!-- BOOST (vcpkg, per-port)       -->
+	<!-- ================================================================ -->
+
+	<!-- Compiled-lib ports -->
+
+	<package>
+		<type>vcpkg</type>
+		<name>boost-atomic</name>
+		<triplet>x64-windows-static-boost</triplet>
+		<args>--overlay-triplets=triplets</args>
+	</package>
+
+	<package>
+		<type>vcpkg</type>
+		<name>boost-chrono</name>
+		<triplet>x64-windows-static-boost</triplet>
+		<args>--overlay-triplets=triplets</args>
+	</package>
+
+	<package>
+		<type>vcpkg</type>
+		<name>boost-container</name>
+		<triplet>x64-windows-static-boost</triplet>
+		<args>--overlay-triplets=triplets</args>
+	</package>
+
+	<package>
+		<type>vcpkg</type>
+		<name>boost-context</name>
+		<triplet>x64-windows-static-boost</triplet>
+		<args>--overlay-triplets=triplets</args>
+	</package>
+
+	<package>
+		<type>vcpkg</type>
+		<name>boost-date-time</name>
+		<triplet>x64-windows-static-boost</triplet>
+		<args>--overlay-triplets=triplets</args>
+	</package>
+
+	<package>
+		<type>vcpkg</type>
+		<name>boost-fiber</name>
+		<triplet>x64-windows-static-boost</triplet>
+		<args>--overlay-triplets=triplets</args>
+	</package>
+
+	<package>
+		<type>vcpkg</type>
+		<name>boost-filesystem</name>
+		<triplet>x64-windows-static-boost</triplet>
+		<args>--overlay-triplets=triplets</args>
+	</package>
+
+	<package>
+		<type>vcpkg</type>
+		<name>boost-iostreams</name>
+		<triplet>x64-windows-static-boost</triplet>
+		<args>--overlay-triplets=triplets</args>
+	</package>
+
+	<package>
+		<type>vcpkg</type>
+		<name>boost-json</name>
+		<triplet>x64-windows-static-boost</triplet>
+		<args>--overlay-triplets=triplets</args>
+	</package>
+
+	<package>
+		<type>vcpkg</type>
+		<name>boost-program-options</name>
+		<triplet>x64-windows-static-boost</triplet>
+		<args>--overlay-triplets=triplets</args>
+	</package>
+
+	<package>
+		<type>vcpkg</type>
+		<name>boost-regex</name>
+		<triplet>x64-windows-static-boost</triplet>
+		<args>--overlay-triplets=triplets</args>
+	</package>
+
+	<!-- windbg feature builds windbg+windbg_cached alongside the default
+	     noop/basic/from_exception variants; matches the 4 stacktrace
+	     backends the old tarball shipped (plus bonus "basic"). -->
+	<package>
+		<type>vcpkg</type>
+		<name>boost-stacktrace</name>
+		<features>windbg</features>
+		<triplet>x64-windows-static-boost</triplet>
+		<args>--overlay-triplets=triplets</args>
+	</package>
+
+	<package>
+		<type>vcpkg</type>
+		<name>boost-system</name>
+		<triplet>x64-windows-static-boost</triplet>
+		<args>--overlay-triplets=triplets</args>
+	</package>
+
+	<package>
+		<type>vcpkg</type>
+		<name>boost-thread</name>
+		<triplet>x64-windows-static-boost</triplet>
+		<args>--overlay-triplets=triplets</args>
+	</package>
+
+	<package>
+		<type>vcpkg</type>
+		<name>boost-url</name>
+		<triplet>x64-windows-static-boost</triplet>
+		<args>--overlay-triplets=triplets</args>
+	</package>
+
+	<package>
+		<type>vcpkg</type>
+		<name>boost-wave</name>
+		<triplet>x64-windows-static-boost</triplet>
+		<args>--overlay-triplets=triplets</args>
+	</package>
+
+	<!-- Header-only leaf ports (used directly by S24 source; not pulled in
+	     transitively by the compiled ports above) -->
+
+	<package>
+		<type>vcpkg</type>
+		<name>boost-algorithm</name>
+		<triplet>x64-windows-static-boost</triplet>
+		<args>--overlay-triplets=triplets</args>
+	</package>
+
+	<package>
+		<type>vcpkg</type>
+		<name>boost-align</name>
+		<triplet>x64-windows-static-boost</triplet>
+		<args>--overlay-triplets=triplets</args>
+	</package>
+
+	<package>
+		<type>vcpkg</type>
+		<name>boost-asio</name>
+		<triplet>x64-windows-static-boost</triplet>
+		<args>--overlay-triplets=triplets</args>
+	</package>
+
+	<package>
+		<type>vcpkg</type>
+		<name>boost-bind</name>
+		<triplet>x64-windows-static-boost</triplet>
+		<args>--overlay-triplets=triplets</args>
+	</package>
+
+	<package>
+		<type>vcpkg</type>
+		<name>boost-circular-buffer</name>
+		<triplet>x64-windows-static-boost</triplet>
+		<args>--overlay-triplets=triplets</args>
+	</package>
+
+	<package>
+		<type>vcpkg</type>
+		<name>boost-container-hash</name>
+		<triplet>x64-windows-static-boost</triplet>
+		<args>--overlay-triplets=triplets</args>
+	</package>
+
+	<package>
+		<type>vcpkg</type>
+		<name>boost-exception</name>
+		<triplet>x64-windows-static-boost</triplet>
+		<args>--overlay-triplets=triplets</args>
+	</package>
+
+	<package>
+		<type>vcpkg</type>
+		<name>boost-foreach</name>
+		<triplet>x64-windows-static-boost</triplet>
+		<args>--overlay-triplets=triplets</args>
+	</package>
+
+	<package>
+		<type>vcpkg</type>
+		<name>boost-function</name>
+		<triplet>x64-windows-static-boost</triplet>
+		<args>--overlay-triplets=triplets</args>
+	</package>
+
+	<package>
+		<type>vcpkg</type>
+		<name>boost-function-types</name>
+		<triplet>x64-windows-static-boost</triplet>
+		<args>--overlay-triplets=triplets</args>
+	</package>
+
+	<package>
+		<type>vcpkg</type>
+		<name>boost-functional</name>
+		<triplet>x64-windows-static-boost</triplet>
+		<args>--overlay-triplets=triplets</args>
+	</package>
+
+	<package>
+		<type>vcpkg</type>
+		<name>boost-graph</name>
+		<triplet>x64-windows-static-boost</triplet>
+		<args>--overlay-triplets=triplets</args>
+	</package>
+
+	<package>
+		<type>vcpkg</type>
+		<name>boost-iterator</name>
+		<triplet>x64-windows-static-boost</triplet>
+		<args>--overlay-triplets=triplets</args>
+	</package>
+
+	<package>
+		<type>vcpkg</type>
+		<name>boost-lexical-cast</name>
+		<triplet>x64-windows-static-boost</triplet>
+		<args>--overlay-triplets=triplets</args>
+	</package>
+
+	<package>
+		<type>vcpkg</type>
+		<name>boost-multi-index</name>
+		<triplet>x64-windows-static-boost</triplet>
+		<args>--overlay-triplets=triplets</args>
+	</package>
+
+	<package>
+		<type>vcpkg</type>
+		<name>boost-optional</name>
+		<triplet>x64-windows-static-boost</triplet>
+		<args>--overlay-triplets=triplets</args>
+	</package>
+
+	<package>
+		<type>vcpkg</type>
+		<name>boost-preprocessor</name>
+		<triplet>x64-windows-static-boost</triplet>
+		<args>--overlay-triplets=triplets</args>
+	</package>
+
+	<package>
+		<type>vcpkg</type>
+		<name>boost-random</name>
+		<triplet>x64-windows-static-boost</triplet>
+		<args>--overlay-triplets=triplets</args>
+	</package>
+
+	<package>
+		<type>vcpkg</type>
+		<name>boost-range</name>
+		<triplet>x64-windows-static-boost</triplet>
+		<args>--overlay-triplets=triplets</args>
+	</package>
+
+	<package>
+		<type>vcpkg</type>
+		<name>boost-signals2</name>
+		<triplet>x64-windows-static-boost</triplet>
+		<args>--overlay-triplets=triplets</args>
+	</package>
+
+	<package>
+		<type>vcpkg</type>
+		<name>boost-smart-ptr</name>
+		<triplet>x64-windows-static-boost</triplet>
+		<args>--overlay-triplets=triplets</args>
+	</package>
+
+	<package>
+		<type>vcpkg</type>
+		<name>boost-spirit</name>
+		<triplet>x64-windows-static-boost</triplet>
+		<args>--overlay-triplets=triplets</args>
+	</package>
+
+	<package>
+		<type>vcpkg</type>
+		<name>boost-static-assert</name>
+		<triplet>x64-windows-static-boost</triplet>
+		<args>--overlay-triplets=triplets</args>
+	</package>
+
+	<package>
+		<type>vcpkg</type>
+		<name>boost-throw-exception</name>
+		<triplet>x64-windows-static-boost</triplet>
+		<args>--overlay-triplets=triplets</args>
+	</package>
+
+	<package>
+		<type>vcpkg</type>
+		<name>boost-tokenizer</name>
+		<triplet>x64-windows-static-boost</triplet>
+		<args>--overlay-triplets=triplets</args>
+	</package>
+
+	<package>
+		<type>vcpkg</type>
+		<name>boost-type-traits</name>
+		<triplet>x64-windows-static-boost</triplet>
+		<args>--overlay-triplets=triplets</args>
+	</package>
+
+	<package>
+		<type>vcpkg</type>
+		<name>boost-utility</name>
+		<triplet>x64-windows-static-boost</triplet>
+		<args>--overlay-triplets=triplets</args>
 	</package>
 
 	<package>

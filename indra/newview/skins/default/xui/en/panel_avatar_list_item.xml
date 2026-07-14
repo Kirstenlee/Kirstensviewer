@@ -76,6 +76,19 @@
      text_color="LtGray_50"
      value="0s"
      width="35" />
+    <!-- S24: distance/account age, nearby list only - see KVAvatarInfoCache. Tooltip is set
+         programmatically in postBuild() so it can't drift from the highlight threshold. -->
+    <text
+     follows="right"
+     font="SansSerifSmall"
+     height="15"
+     layout="topleft"
+     left_pad="5"
+     right="-204"
+     name="avatar_meta"
+     text_color="LtGray_50"
+     value=""
+     width="105" />
     <icon
      height="16"
      follows="right"

@@ -72,7 +72,8 @@ private:
         E_SORT_BY_MOST_RECENT = 2,
         E_SORT_BY_DISTANCE = 3,
         E_SORT_BY_RECENT_SPEAKERS = 4,
-        E_SORT_BY_RECENT_ARRIVAL = 5
+        E_SORT_BY_RECENT_ARRIVAL = 5,
+        E_SORT_BY_AGE = 6
     } ESortOrder;
 
     void                    removePicker();

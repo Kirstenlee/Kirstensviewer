@@ -33,6 +33,10 @@
 #include <boost/json.hpp>
 #include <unordered_map>
 
+#ifdef DX_RENDER
+#include "DXShader.h"
+#endif
+
 class LLShaderFeatures
 {
 public:
@@ -193,6 +197,16 @@ public:
     bool readProfileQuery(bool for_runtime = false, bool force_read = false);
 
     bool createShader();
+#ifdef DX_RENDER
+    // DX_RENDER's createShader() equivalent - see llglslshader.cpp. Does not
+    // reuse the GL body at all (no glCreateProgram/glCompileShader concept
+    // applies); instead concatenates mShaderFiles' entry-file HLSL text with
+    // attachShaderFeatures()'s attached-utility HLSL text (via the DX_RENDER
+    // branches in attachVertexObject()/attachFragmentObject() below) into one
+    // source blob per stage, then D3DCompile's each through mDXVertexShader/
+    // mDXPixelShader.
+    bool createShaderDX();
+#endif
     bool attachFragmentObject(std::string object);
     bool attachVertexObject(std::string object);
     void attachObject(GLuint object);
@@ -320,6 +334,16 @@ public:
     static defines_map_t sGlobalDefines;
     LLUUID mShaderHash;
     bool mUsingBinaryProgram = false;
+
+#ifdef DX_RENDER
+    // Concatenated HLSL text, built up by createShaderDX() (entry file) and
+    // attachVertexObject()/attachFragmentObject()'s DX_RENDER branches
+    // (attached utility files, in attachShaderFeatures()'s existing order).
+    std::string mDXVertexSource;
+    std::string mDXPixelSource;
+    DXShader mDXVertexShader;
+    DXShader mDXPixelShader;
+#endif
 
     //statistics for profiling shader performance
     bool mProfilePending = false;

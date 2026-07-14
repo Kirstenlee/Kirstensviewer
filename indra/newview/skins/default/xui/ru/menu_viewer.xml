@@ -238,7 +238,6 @@
 			<menu_item_check label="Оперативные таймеры" name="Fast Timers"/>
 			<menu_item_check label="Память" name="Memory"/>
 			<menu_item_check label="Статистика по сцене" name="Scene Statistics"/>
-			<menu_item_check label="Монитор загрузки сцен" name="Scene Loading Monitor"/>
 			<menu_item_call label="Консоль отладки извлечения текстур" name="Texture Fetch Debug Console"/>
 			<menu_item_call label="Данные о регионе на консоль отладки" name="Region Info to Debug Console"/>
 			<menu_item_call label="Данны о группе на консоль отладки" name="Group Info to Debug Console"/>

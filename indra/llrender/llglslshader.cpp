@@ -353,6 +353,15 @@ void LLGLSLShader::unloadInternal()
 {
 	sInstances.erase(this);
 
+#ifdef DX_RENDER
+	// No GL context exists under DX_RENDER (switchContext() never creates
+	// one), so none of the gl* calls below are safe to make - their function
+	// pointers are never resolved. Release the DX shader objects instead.
+	mDXVertexShader.reset();
+	mDXPixelShader.reset();
+	mDXVertexSource.clear();
+	mDXPixelSource.clear();
+#else
 	stop_glerror();
 	mAttribute.clear();
 	mTexture.clear();
@@ -398,11 +407,16 @@ void LLGLSLShader::unloadInternal()
 	glGetError();
 
 	stop_glerror();
+#endif // DX_RENDER
 }
 
 bool LLGLSLShader::createShader()
 {
 	LL_PROFILE_ZONE_SCOPED_CATEGORY_SHADER;
+
+#ifdef DX_RENDER
+	return createShaderDX();
+#endif
 
 	unloadInternal();
 
@@ -543,6 +557,102 @@ bool LLGLSLShader::createShader()
 	return success;
 }
 
+#ifdef DX_RENDER
+namespace
+{
+	// Mirrors the small set of #define's LLShaderMgr::loadShaderFile() (GL
+	// path) unconditionally injects into every file via extra_code_text -
+	// real shaders reference these directly (e.g. diffuseF.hlsl's
+	// GBUFFER_FLAG_HAS_ATMOS). Built once per stage per program and prepended
+	// to the concatenated blob, rather than baked into each cached file's
+	// text, so attached utility files don't each carry their own duplicate
+	// copy of the same defines.
+	std::string buildDXShaderHeader(bool is_fragment, const LLGLSLShader::defines_map_t& defines)
+	{
+		std::string out = is_fragment ? "#define FRAGMENT_SHADER 1\n" : "#define VERTEX_SHADER 1\n";
+
+		out += "#define GBUFFER_FLAG_SKIP_ATMOS 0.0\n";
+		out += "#define GBUFFER_FLAG_HAS_ATMOS 0.34\n";
+		out += "#define GBUFFER_FLAG_HAS_PBR 0.67\n";
+		out += "#define GBUFFER_FLAG_HAS_HDRI 1.0\n";
+		out += "#define GET_GBUFFER_FLAG(data, flag) (abs(data-flag)< 0.1)\n";
+
+		for (auto& d : defines)
+		{
+			out += "#define " + d.first + " " + d.second + "\n";
+		}
+
+		return out;
+	}
+}
+
+bool LLGLSLShader::createShaderDX()
+{
+	LL_PROFILE_ZONE_SCOPED_CATEGORY_SHADER;
+
+	sInstances.insert(this);
+
+	llassert_always(!mShaderFiles.empty());
+
+	// Release any previously-compiled shader objects before rebuilding -
+	// createShaderDX() can be called again on this instance (e.g. a reload).
+	mDXVertexShader.reset();
+	mDXPixelShader.reset();
+	mDXVertexSource.clear();
+	mDXPixelSource.clear();
+
+	// Entry file(s) first (matches GL's compile-entry-then-attach-features
+	// order) - loadShaderFile() caches each file's raw (extension-swapped)
+	// HLSL text into mVertexShaderSourceText/mFragmentShaderSourceText.
+	for (auto& file : mShaderFiles)
+	{
+		GLuint ok = LLShaderMgr::instance()->loadShaderFile(file.first, mShaderLevel, file.second, &mDefines, mFeatures.mIndexedTextureChannels);
+		if (!ok)
+		{
+			LL_SHADER_LOADING_WARNS() << "Failed to load " << file.first << " for shader " << mName << LL_ENDL;
+			return false;
+		}
+
+		if (file.second == GL_VERTEX_SHADER)
+		{
+			mDXVertexSource += LLShaderMgr::instance()->mVertexShaderSourceText[file.first];
+		}
+		else if (file.second == GL_FRAGMENT_SHADER)
+		{
+			mDXPixelSource += LLShaderMgr::instance()->mFragmentShaderSourceText[file.first];
+		}
+	}
+
+	// Attached utility files next, in the exact order GL attaches them -
+	// attachVertexObject()/attachFragmentObject()'s DX_RENDER branches below
+	// append to mDXVertexSource/mDXPixelSource instead of glAttachShader'ing
+	// a precompiled object, so attachShaderFeatures() itself is unchanged.
+	if (!LLShaderMgr::instance()->attachShaderFeatures(this))
+	{
+		return false;
+	}
+
+	bool success = true;
+	if (!mDXVertexSource.empty())
+	{
+		mDXVertexSource = buildDXShaderHeader(false, mDefines) + mDXVertexSource;
+		success = mDXVertexShader.compileVertexShader(mDXVertexSource, mName) && success;
+	}
+	if (!mDXPixelSource.empty())
+	{
+		mDXPixelSource = buildDXShaderHeader(true, mDefines) + mDXPixelSource;
+		success = mDXPixelShader.compilePixelShader(mDXPixelSource, mName) && success;
+	}
+
+	if (!success)
+	{
+		LL_SHADER_LOADING_WARNS() << "Failed to compile HLSL shader: " << mName << LL_ENDL;
+	}
+
+	return success;
+}
+#endif // DX_RENDER
+
 #if DEBUG_SHADER_INCLUDES
 void dumpAttachObject(const char* func_name, GLuint program_object, const std::string& object_path)
 {
@@ -566,6 +676,21 @@ void dumpAttachObject(const char* func_name, GLuint program_object, const std::s
 
 bool LLGLSLShader::attachVertexObject(std::string object_path)
 {
+#ifdef DX_RENDER
+	// No GL program/glAttachShader concept under DX_RENDER - append this
+	// utility file's cached HLSL text to the vertex-stage source blob being
+	// built up by createShaderDX(), in the exact order attachShaderFeatures()
+	// calls this (that ordering is what makes textual concatenation valid).
+	auto iter = LLShaderMgr::instance()->mVertexShaderSourceText.find(object_path);
+	if (iter != LLShaderMgr::instance()->mVertexShaderSourceText.end())
+	{
+		mDXVertexSource += iter->second;
+		return true;
+	}
+
+	LL_SHADER_LOADING_WARNS() << "Attempting to attach shader object: '" << object_path << "' that hasn't been compiled." << LL_ENDL;
+	return false;
+#else
 	if (LLShaderMgr::instance()->mVertexShaderObjects.count(object_path) > 0)
 	{
 		stop_glerror();
@@ -581,10 +706,23 @@ bool LLGLSLShader::attachVertexObject(std::string object_path)
 		LL_SHADER_LOADING_WARNS() << "Attempting to attach shader object: '" << object_path << "' that hasn't been compiled." << LL_ENDL;
 		return false;
 	}
+#endif // DX_RENDER
 }
 
 bool LLGLSLShader::attachFragmentObject(std::string object_path)
 {
+#ifdef DX_RENDER
+	// See attachVertexObject() - same idea, fragment-stage source blob.
+	auto iter = LLShaderMgr::instance()->mFragmentShaderSourceText.find(object_path);
+	if (iter != LLShaderMgr::instance()->mFragmentShaderSourceText.end())
+	{
+		mDXPixelSource += iter->second;
+		return true;
+	}
+
+	LL_SHADER_LOADING_WARNS() << "Attempting to attach shader object: '" << object_path << "' that hasn't been compiled." << LL_ENDL;
+	return false;
+#else
 	if (mUsingBinaryProgram)
 		return true;
 
@@ -603,6 +741,7 @@ bool LLGLSLShader::attachFragmentObject(std::string object_path)
 		LL_SHADER_LOADING_WARNS() << "Attempting to attach shader object: '" << object_path << "' that hasn't been compiled." << LL_ENDL;
 		return false;
 	}
+#endif // DX_RENDER
 }
 
 void LLGLSLShader::attachObject(GLuint object)

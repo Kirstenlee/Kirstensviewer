@@ -1,4 +1,4 @@
-/**
+﻿/**
  * @file llfloaterKVTweaks.cpp
  * @brief KVTweaks - S24 comprehensive settings and features panel
  *
@@ -132,14 +132,14 @@ bool LLFloaterKVTweaks::postBuild()
     getChild<LLUICtrl>("kvram_ram_budget")->setCommitCallback(boost::bind(&LLFloaterKVTweaks::onRAMCacheSettingChanged, this));
     getChild<LLUICtrl>("kvram_soft_threshold")->setCommitCallback(boost::bind(&LLFloaterKVTweaks::onRAMCacheSettingChanged, this));
     getChild<LLUICtrl>("kvram_hard_threshold")->setCommitCallback(boost::bind(&LLFloaterKVTweaks::onRAMCacheSettingChanged, this));
-    getChild<LLUICtrl>("kvram_grace_period")->setCommitCallback(boost::bind(&LLFloaterKVTweaks::onRAMCacheSettingChanged, this));
+    getChild<LLUICtrl>("kvram_retention_time")->setCommitCallback(boost::bind(&LLFloaterKVTweaks::onRAMCacheSettingChanged, this));  // KV:GC→RT Renamed from kvram_grace_period
     getChild<LLUICtrl>("kvram_min_deck_size")->setCommitCallback(boost::bind(&LLFloaterKVTweaks::onRAMCacheSettingChanged, this));
 
     // Initialize text values
     updateRAMCacheBudgetText();
     updateRAMCacheSoftThresholdText();
     updateRAMCacheHardThresholdText();
-    updateRAMCacheGracePeriodText();
+    updateRAMCacheRetentionTimeText();  // KV:GC→RT Renamed from updateRAMCacheGracePeriodText
     updateRAMCacheEvictionRateText();
 
     // S24 - Hook up Movement tab controls
@@ -390,6 +390,7 @@ void LLFloaterKVTweaks::onClickResetToDefaults()
         "AvatarFeathering",
         "RenderHoverGlowEnable",
         "RenderCompressTextures",
+        "RenderFlushOrphanedTexturesOnTeleport",
         "RenderHighlightFadeTime",
         "RenderHighlightBrightness",
         "RenderSSAOScale",
@@ -464,6 +465,8 @@ void LLFloaterKVTweaks::onClickResetToDefaults()
         "RenderBumpmapMinDistanceSquared",
         "RenderGlow",
         "RenderGlowResolutionPow",
+        "S24VBOWorkQueueEnabled",
+        "S24VBOWorkQueueThreadCount",
         "TextureFetchConcurrency",
         "TextureNewByteRange",
         "TextureReverseByteRange",
@@ -763,7 +766,7 @@ void LLFloaterKVTweaks::onRAMCacheSettingChanged()
     updateRAMCacheBudgetText();
     updateRAMCacheSoftThresholdText();
     updateRAMCacheHardThresholdText();
-    updateRAMCacheGracePeriodText();
+    updateRAMCacheRetentionTimeText();  // KV:GC→RT Renamed from updateRAMCacheGracePeriodText
     updateRAMCacheEvictionRateText();
 
     // Apply settings to cache immediately
@@ -792,10 +795,11 @@ void LLFloaterKVTweaks::updateRAMCacheHardThresholdText()
     getChild<LLTextBox>("kvram_hard_threshold_text")->setText(llformat("%.0f%%", value * 100.0f));
 }
 
-void LLFloaterKVTweaks::updateRAMCacheGracePeriodText()
+// KV:GC→RT Renamed from updateRAMCacheGracePeriodText
+void LLFloaterKVTweaks::updateRAMCacheRetentionTimeText()
 {
-    F32 value = gSavedSettings.getF32("KVRAMCacheGracePeriodSec");
-    getChild<LLTextBox>("kvram_grace_period_text")->setText(llformat("%.0f sec", value));
+    F32 value = gSavedSettings.getF32("KVRAMCacheRetentionTimeSec");
+    getChild<LLTextBox>("kvram_retention_time_text")->setText(llformat("%.0f sec", value));  // KV:GC→RT Renamed from kvram_grace_period_text
 }
 
 void LLFloaterKVTweaks::updateRAMCacheEvictionRateText()

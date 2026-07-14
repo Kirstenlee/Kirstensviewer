@@ -244,6 +244,7 @@ Learn about [https://community.secondlife.com/knowledgebase/joining-and-particip
                multi_select="true"
                name="avatar_list"
                right="-1"
+               show_avatar_meta="true"
                top="2" />
            </layout_panel>
          </layout_stack>

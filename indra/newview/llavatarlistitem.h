@@ -105,6 +105,10 @@ public:
     void showSpeakingIndicator(bool show);
     void setShowPermissions(bool show) { mShowPermissions = show; };
     void showLastInteractionTime(bool show);
+
+    // S24: nearby-list-only distance/account age display. See KVAvatarInfoCache.
+    void showAvatarMeta(bool show);
+    void setAvatarMeta(F32 distance_meters);
     void setAvatarIconVisible(bool visible);
     void setShowCompleteName(bool show, bool force = false) { mShowCompleteName = show; mForceCompleteName = force;};
 
@@ -158,6 +162,7 @@ private:
         ALIC_PERMISSION_EDIT_MINE,
         ALIC_PERMISSION_EDIT_THEIRS,
         ALIC_INTERACTION_TIME,
+        ALIC_AVATAR_META,  // S24: distance/account age, nearby-list only
         ALIC_NAME,
         ALIC_ICON,
         ALIC_COUNT,
@@ -167,6 +172,7 @@ private:
     void onAvatarNameCache(const LLAvatarName& av_name);
 
     std::string formatSeconds(U32 secs);
+    std::string formatAge(S32 total_days) const; // S24: compact "2y 3m" / "5m 12d" / "18d"
 
     typedef std::map<EItemState, LLColor4> icon_color_map_t;
     static icon_color_map_t& getItemIconColorMap();
@@ -200,6 +206,7 @@ private:
 
     LLTextBox* mAvatarName;
     LLTextBox* mLastInteractionTime;
+    LLTextBox* mAvatarMeta; // S24: distance/account age, nearby-list only
     LLStyle::Params mAvatarNameStyle;
 
     LLButton* mInfoBtn;

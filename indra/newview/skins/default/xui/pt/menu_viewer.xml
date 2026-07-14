@@ -241,7 +241,6 @@
 			<menu_item_check label="Tempos" name="Fast Timers"/>
 			<menu_item_check label="Memória" name="Memory"/>
 			<menu_item_check label="Estatísticas da cena" name="Scene Statistics"/>
-			<menu_item_check label="Monitor de carregamento de cena" name="Scene Loading Monitor"/>
 			<menu_item_call label="Painel de depuração de obtenção de textura" name="Texture Fetch Debug Console"/>
 			<menu_item_call label="Region Info to Debug Console" name="Region Info to Debug Console"/>
 			<menu_item_check label="Câmera:" name="Camera"/>

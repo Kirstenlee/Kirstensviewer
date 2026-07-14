@@ -1131,7 +1131,10 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 	if (gShaderProfileFrame)
 	{
 		gShaderProfileFrame = false;
-		boost::json::value stats{ boost::json::object_kind };
+		// S24 : parens (not braces) -- braced-init prefers value's
+		// initializer_list<value_ref> ctor over the object_kind_t tag ctor,
+		// which fails to compile against boost::json 1.91 (vcpkg).
+		boost::json::value stats(boost::json::object_kind);
 		getProfileStatsContext(stats.as_object());
 		LLGLSLShader::finishProfile(stats);
 

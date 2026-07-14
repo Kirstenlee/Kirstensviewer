@@ -38,6 +38,8 @@
 #include "llglslshader.h"
 #include "llmemory.h"
 #include <glm/gtc/type_ptr.hpp>
+#include <future>
+#include <memory>
 
 //Next Highest Power Of Two
 //helper function, returns first number > v that is a power of 2, or v if v is already a power of 2
@@ -73,11 +75,12 @@ struct CompareMappedRegion
 	}
 };
 
-#define ENABLE_GL_WORK_QUEUE 0
-
-#if ENABLE_GL_WORK_QUEUE
-
-#define THREAD_COUNT 1
+// S24 - GL work queue for deferred GL calls (experimental). Was a compile-time
+// ENABLE_GL_WORK_QUEUE #define fixed at THREAD_COUNT=2 threads; now toggled and sized at
+// runtime via LLVertexBuffer::sVBOWorkQueueEnabled / sVBOWorkQueueThreadCount (settings
+// S24VBOWorkQueueEnabled / S24VBOWorkQueueThreadCount, applied in settings_to_globals()).
+// The class definitions below are always compiled in; only queue/thread creation in
+// initClass() is gated at runtime, so the feature can be flipped without a rebuild.
 
 //============================================================================
 // High performance WorkQueue for usage in real-time rendering work
@@ -123,9 +126,12 @@ GLWorkQueue::GLWorkQueue()
 
 void GLWorkQueue::syncGL()
 {
+	// S24: lock now taken before checking mSync, not just around the wait/clear - runOne()
+	// writes mSync unlocked otherwise, a real data race the moment more than one thread
+	// touches the queue at once (see runOne()).
+	std::lock_guard<std::mutex> lock(mMutex);
 	if (mSync)
 	{
-		std::lock_guard<std::mutex> lock(mMutex);
 		glWaitSync(mSync, 0, GL_TIMEOUT_IGNORED);
 		mSync = 0;
 	}
@@ -191,6 +197,9 @@ void GLWorkQueue::runOne()
 	Work w = pop();
 	w();
 
+	// S24: mSync read/write now guarded by mMutex to match syncGL() - see comment there.
+	std::lock_guard<std::mutex> lock(mMutex);
+
 	// Clean up previous sync
 	if (mSync)
 	{
@@ -253,10 +262,24 @@ public:
 		mWindow = window;
 		mContext = mWindow->createSharedContext();
 		mQueue = queue;
+
+		// S24: createSharedContext() can legitimately fail (driver refuses another shared
+		// context, or a headless window backend - LLWindowHeadless::createSharedContext()
+		// unconditionally returns nullptr). Without this, run() would call real GL functions
+		// on a thread with no current context - undefined, driver-dependent behavior.
+		if (!mContext)
+		{
+			LL_WARNS("VertexBuffer") << "Failed to create shared GL context for '" << name << "' - worker will not run" << LL_ENDL;
+		}
 	}
 
 	void run() override
 	{
+		if (!mContext)
+		{
+			return;
+		}
+
 		mWindow->makeContextCurrent(mContext);
 		gGL.init(false);
 		mQueue->runUntilClose();
@@ -264,15 +287,17 @@ public:
 		mWindow->destroySharedContext(mContext);
 	}
 
+	bool isValid() const { return mContext != nullptr; }
+
 	GLWorkQueue* mQueue;
 	LLWindow* mWindow;
 	void* mContext = nullptr;
 };
 
-static LLGLWorkerThread* sVBOThread[THREAD_COUNT];
+// S24: vector, not a fixed-size array - thread count is now runtime-configurable
+// (LLVertexBuffer::sVBOWorkQueueThreadCount) instead of a compile-time THREAD_COUNT.
+static std::vector<LLGLWorkerThread*> sVBOThreads;
 static GLWorkQueue* sQueue = nullptr;
-
-#endif
 
 //============================================================================
 // Pool of reusable VertexBuffer state
@@ -529,15 +554,70 @@ public:
 
 			mMisses++;
 			name = gen_buffer();
-			glBindBuffer(type, name);
-			glBufferData(type, size, nullptr, GL_DYNAMIC_DRAW);
-			if (type == GL_ELEMENT_ARRAY_BUFFER)
+
+			// S24: when the VBO work queue is live, defer this (data-less) storage
+			// reservation to a worker's shared context. The buffer NAME is valid across the
+			// whole share group immediately (glGenBuffers only reserves an integer), but the
+			// storage allocation itself must be genuinely complete - not just "probably done
+			// soon" - before this name is bound/written on the main thread.
+			//
+			// CRASH FIX: an earlier version of this used GLWorkQueue::syncGL(), which waits
+			// on "whatever fence the queue currently holds", not a fence for THIS specific
+			// job - post() returns before the worker is even guaranteed to have started.
+			// The very first call after enabling the feature had no prior fence to wait on
+			// at all, so syncGL() silently no-opped and the main thread went on to bind/draw
+			// a buffer with no GPU storage behind it yet - undefined behavior that manifested
+			// as an instant, log-less crash (GPU driver fault) on the first VBO pool miss of
+			// the session. Fixed by fencing and waiting on THIS job specifically via a
+			// promise/future, bypassing the queue's shared, job-agnostic mSync entirely.
+			// This does mean the main thread genuinely blocks until the worker has issued the
+			// GL commands - there is no way to hand this off as fire-and-forget without a
+			// correctness gap, given the queue's single-fence design.
+			if (sQueue && LLVertexBuffer::sVBOWorkQueueEnabled)
 			{
-				LLVertexBuffer::sGLRenderIndices = name;
+				auto fence_promise = std::make_shared<std::promise<GLsync>>();
+				std::future<GLsync> fence_future = fence_promise->get_future();
+
+				sQueue->post([type, size, name, fence_promise]()
+				{
+					glBindBuffer(type, name);
+					glBufferData(type, size, nullptr, GL_DYNAMIC_DRAW);
+					fence_promise->set_value(glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0));
+				});
+
+				try
+				{
+					GLsync fence = fence_future.get();
+					if (fence)
+					{
+						glWaitSync(fence, 0, GL_TIMEOUT_IGNORED);
+						glDeleteSync(fence);
+					}
+				}
+				catch (const std::future_error&)
+				{
+					// S24: promise was destroyed without being fulfilled - only possible if
+					// the queue was closed (shutdown) between post() and the worker picking
+					// this job up. Nothing to wait on in that case; fall through.
+				}
 			}
 			else
 			{
-				LLVertexBuffer::sGLRenderBuffer = name;
+				glBindBuffer(type, name);
+				glBufferData(type, size, nullptr, GL_DYNAMIC_DRAW);
+
+				// S24: only update the bind cache when THIS thread actually did the bind -
+				// when deferred above, the main thread hasn't bound anything in its own
+				// context yet and must still take the real bind path the first time it uses
+				// this buffer (sGLRenderBuffer/sGLRenderIndices are thread_local; see header).
+				if (type == GL_ELEMENT_ARRAY_BUFFER)
+				{
+					LLVertexBuffer::sGLRenderIndices = name;
+				}
+				else
+				{
+					LLVertexBuffer::sGLRenderBuffer = name;
+				}
 			}
 
 			data = (U8*)ll_aligned_malloc_16(size);
@@ -745,8 +825,13 @@ U64 LLVertexBuffer::getBytesAllocated()
 //============================================================================
 //
 //static
-U32 LLVertexBuffer::sGLRenderBuffer = 0;
-U32 LLVertexBuffer::sGLRenderIndices = 0;
+thread_local U32 LLVertexBuffer::sGLRenderBuffer = 0;
+thread_local U32 LLVertexBuffer::sGLRenderIndices = 0;
+
+// S24: set from settings_to_globals() in llappviewer.cpp - see llvertexbuffer.h for why
+// llrender can't read gSavedSettings directly (mirrors LLRender::sGLCoreProfile).
+bool LLVertexBuffer::sVBOWorkQueueEnabled = false;
+U32 LLVertexBuffer::sVBOWorkQueueThreadCount = 2;
 U32 LLVertexBuffer::sLastMask = 0;
 U32 LLVertexBuffer::sVertexCount = 0;
 
@@ -1015,15 +1100,37 @@ void LLVertexBuffer::initClass(LLWindow* window)
 		sVBOPool = new LLDefaultVBOPool();
 	}
 
-#if ENABLE_GL_WORK_QUEUE
-	sQueue = new GLWorkQueue();
-
-	for (int i = 0; i < THREAD_COUNT; ++i)
+	// S24: runtime-toggled GL work queue (see comment above GLWorkQueue class definition).
+	if (sVBOWorkQueueEnabled)
 	{
-		sVBOThread[i] = new LLGLWorkerThread("VBO Worker", sQueue, window);
-		sVBOThread[i]->start();
+		sQueue = new GLWorkQueue();
+
+		for (U32 i = 0; i < sVBOWorkQueueThreadCount; ++i)
+		{
+			LLGLWorkerThread* worker = new LLGLWorkerThread("VBO Worker", sQueue, window);
+			if (worker->isValid())
+			{
+				worker->start();
+				sVBOThreads.push_back(worker);
+			}
+			else
+			{
+				// S24: context creation failed (warning already logged in the constructor) -
+				// don't start or keep a dead thread object around.
+				delete worker;
+			}
+		}
+
+		if (sVBOThreads.empty())
+		{
+			// S24: every worker failed to get a shared context - fully disable the queue so
+			// producers (see LLDefaultVBOPool::allocate()) fall back to the synchronous path
+			// instead of posting work that would sit unprocessed forever.
+			LL_WARNS("VertexBuffer") << "VBO work queue enabled but no workers could start - disabling" << LL_ENDL;
+			delete sQueue;
+			sQueue = nullptr;
+		}
 	}
-#endif
 }
 
 //static
@@ -1045,18 +1152,19 @@ void LLVertexBuffer::cleanupClass()
 	delete sVBOPool;
 	sVBOPool = nullptr;
 
-#if ENABLE_GL_WORK_QUEUE
-	sQueue->close();
-	for (int i = 0; i < THREAD_COUNT; ++i)
+	if (sQueue)
 	{
-		sVBOThread[i]->shutdown();
-		delete sVBOThread[i];
-		sVBOThread[i] = nullptr;
-	}
+		sQueue->close();
+		for (LLGLWorkerThread* worker : sVBOThreads)
+		{
+			worker->shutdown();
+			delete worker;
+		}
+		sVBOThreads.clear();
 
-	delete sQueue;
-	sQueue = nullptr;
-#endif
+		delete sQueue;
+		sQueue = nullptr;
+	}
 }
 
 //----------------------------------------------------------------------------

@@ -62,7 +62,7 @@
        top_pad="10"
        width="465"
        word_wrap="true">
-S24(7) - Magn
+S24(8) - Hradr
 A Second Life client, brought to you by Kirstenlee.
 
 This client would not be possible without the dedicated work of
@@ -70,8 +70,8 @@ the Lindens and Linden Lab!
 
 Core  : Develop 
 Patch : 2026.3
-Build : 3500
-Version : Release
+Build : 3535
+Version : SVN Snapshot
 	  </text_editor>
     </panel>
     <panel

@@ -1,4 +1,4 @@
-<?xml version="1.0" ?>
+﻿<?xml version="1.0" ?>
 <llsd xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
   xsi:noNamespaceSchemaLocation="llsd.xsd">
   <map>
@@ -1371,10 +1371,11 @@
       <key>Value</key>
       <real>0.90</real>
     </map>
-    <key>KVRAMCacheGracePeriodSec</key>
+    <!-- KV:GC→RT Renamed from KVRAMCacheGracePeriodSec — now controls minimum age before eviction -->
+    <key>KVRAMCacheRetentionTimeSec</key>
     <map>
       <key>Comment</key>
-      <string>Eviction interval in seconds (0.1-30 seconds in 0.1 second steps)</string>
+      <string>Minimum retention time in seconds before a texture is eligible for eviction (0.1-30 seconds in 0.1 second steps)</string>
       <key>Persist</key>
       <integer>1</integer>
       <key>Type</key>
@@ -1414,6 +1415,28 @@
       <string>Boolean</string>
       <key>Value</key>
       <integer>0</integer>
+    </map>
+    <key>S24VBOWorkQueueEnabled</key>
+    <map>
+      <key>Comment</key>
+      <string>EXPERIMENTAL: defer VBO pool storage allocation (cache-miss glBufferData) to background GL worker thread(s) via a shared-context work queue. Off by default - known synchronization caveats, see llvertexbuffer.cpp comments.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
+    <key>S24VBOWorkQueueThreadCount</key>
+    <map>
+      <key>Comment</key>
+      <string>EXPERIMENTAL: number of shared-context worker threads for the VBO work queue (1-4). 1 is recommended - the queue's single-fence sync design does not disambiguate between workers above that.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>U32</string>
+      <key>Value</key>
+      <integer>2</integer>
     </map>
     <key>CameraMouseWheelZoom</key>
     <map>
@@ -8362,6 +8385,17 @@
       <key>Value</key>
       <real>2.0</real>
     </map>
+    <key>RenderFlushOrphanedTexturesOnTeleport</key>
+    <map>
+      <key>Comment</key>
+      <string>Proactively evict textures orphaned by a region-change teleport instead of waiting on the lazy round-robin cleanup. Off by default -- testing linked it to avatar rendering flakiness and lower framerate in heavy scenes.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
     <key>RenderMaxTextureIndex</key>
     <map>
       <key>Comment</key>
@@ -10610,6 +10644,17 @@
       <key>Value</key>
       <real>1</real>
     </map>
+  <key>CollectUIImageVertexBuffers</key>
+  <map>
+    <key>Comment</key>
+    <string>When enabled, images will cache vertex buffers and reuse them. When disabled, the general cache will be used with significant hash-lookup overhead, but vertices are regenerated each frame so they are always up to date.</string>
+    <key>Persist</key>
+    <integer>0</integer>
+    <key>Type</key>
+    <string>Boolean</string>
+    <key>Value</key>
+    <real>1</real>
+  </map>
     <key>ShowMyComplexityChanges</key>
     <map>
       <key>Comment</key>

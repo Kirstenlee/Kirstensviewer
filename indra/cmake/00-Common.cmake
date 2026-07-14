@@ -34,6 +34,7 @@ add_compile_definitions(
     GLM_FORCE_DEFAULT_ALIGNED_GENTYPES=1
     GLM_FORCE_SSE2=1
     GLM_ENABLE_EXPERIMENTAL=1
+    $<$<BOOL:${DX_RENDER}>:DX_RENDER=1>
 )
 
 # MSVC compile options

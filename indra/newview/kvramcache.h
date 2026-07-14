@@ -1,4 +1,4 @@
-/**
+﻿/**
  * @file kvramcache.h
  * @brief One-way eviction pipeline cache for VRAM/RAM/DISK texture management
  *
@@ -64,7 +64,7 @@ public:
         U64 ram_budget_bytes = MEGA_BYTES_TO_BYTES(1024);   // 1GB default RAM cache
         U64 disk_budget_bytes = MEGA_BYTES_TO_BYTES(4096);  // 4GB default disk cache
 
-        F32 ram_grace_period_seconds = 5.0f;   // S24 RAMCACHE TUNE: Reduced from 30s to 5s for faster eviction response
+        F32 ram_retention_time_seconds = 5.0f;   // S24 RAMCACHE TUNE: Reduced from 30s to 5s for faster eviction response  // KV:GC→RT Renamed from ram_grace_period_seconds
         F32 vram_pressure_threshold = 0.85f;   // Start eviction at 85% VRAM usage
 
         bool enable_disk_cache = true;
@@ -89,6 +89,8 @@ public:
 
         // S24: Priority tier for priority-segmented eviction
         AssetPriority priority = AssetPriority::NORMAL;
+
+        F64 mAdmittedAt = 0.0;  // KV:RT Viewer uptime (seconds) when this entry was admitted — minimum retention time starts here
 
         CacheEntry() = default;
 
@@ -195,12 +197,12 @@ public:
     // ===== CONFIGURATION (Equilibrium Tuning) =====
 
     void setThresholds(F32 soft, F32 hard);
-    void setGracePeriod(F32 seconds);
+    void setRetentionTime(F32 seconds);  // KV:GC→RT Renamed from setGracePeriod
     void setMinDeckSize(U32 size) { mMinDeckSize = llclamp(size, 1U, 5000U); }
 
     F32 getSoftThreshold() const { return mSoftThreshold; }
     F32 getHardThreshold() const { return mHardThreshold; }
-    F32 getGracePeriod() const { return mConfig.ram_grace_period_seconds; }
+    F32 getRetentionTime() const { return mConfig.ram_retention_time_seconds; }  // KV:GC→RT Renamed from getGracePeriod
     U32 getMinDeckSize() const { return mMinDeckSize; }
 
     // ===== MANUAL CACHE CONTROL =====
@@ -213,6 +215,10 @@ public:
     const ExtendedStats& getExtendedStats() const { return mExtendedStats; }
     void removeFromRAMLRU(const LLUUID& uuid);
     F32 getRAMPressure() const;  // Get current RAM pressure (0.0 - 1.0)
+    // S24: Authoritative eviction pressure multiplier (0.0 - 2.0) for UI display —
+    // shares calculateEvictionPressureMultiplier() with processPassiveEviction so the
+    // stats floater can never drift from the actual eviction curve again.
+    F32 getEvictionPressureMultiplier() const;
     void resetExtendedStats();
     void resetStats();
     void dumpState() const;  // Debug logging
@@ -220,10 +226,16 @@ public:
     protected:
         // Passive eviction logic (time/pressure based) - called by worker thread
         void processPassiveEviction(F32 delta_time);
-        void evictSlice(U32 slice_size);  // Helper to evict N textures from front of deck
+        void evictSlice(U32 slice_size, F64 retention_time, F64 now);  // KV:RT Added retention_time/now params for minimum age check
+
+        // S24: Single source of truth for the pressure->multiplier curve. Used by both
+        // processPassiveEviction (actual eviction) and getEvictionPressureMultiplier (UI display).
+        F32 calculateEvictionPressureMultiplier(F32 pressure) const;
 
         // Utility
         void updateStats();
+
+        void pushBackToPriorityDeques(const LLUUID& uuid, AssetPriority priority);  // KV:RT Re-insert young entries that aren't old enough to evict
 
         // Thread friendship
         friend class KVCacheThread;
@@ -240,8 +252,7 @@ public:
     // FIFO configuration
     U32 mMinDeckSize = 100;  // Minimum textures in deck (range 100-10000 in 100 steps)
 
-    // Unified time-based eviction: viewer uptime timestamp of last eviction (seconds since app start)
-    F64 mLastBaselineEviction = 0.0;
+    // KV:RT Removed mLastBaselineEviction — retention time is per-entry now
 
     // Stats tracking
     F32 mEvictionRateAccumulator = 0.0f;
@@ -272,8 +283,8 @@ public:
     bool mInitialized = false;
 
     // Frame timing
-    F32 mTimeSinceLastGraceCheck = 0.0f;
-    static constexpr F32 GRACE_CHECK_INTERVAL = 1.0f;  // Check grace periods every second
+    F32 mTimeSinceLastEvictionCheck = 0.0f;  // KV:GC→RT Renamed from mTimeSinceLastGraceCheck
+    static constexpr F32 EVICTION_CHECK_INTERVAL = 1.0f;  // KV:GC→RT Check eviction every second (was GRACE_CHECK_INTERVAL)
 
     // Worker thread
     KVCacheThread* mWorkerThread = nullptr;

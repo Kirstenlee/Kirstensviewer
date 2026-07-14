@@ -12,6 +12,9 @@ include(LLRender)
 include(LLWindow)
 include(LLXML)
 include(LLFileSystem)
+if(DX_RENDER)
+    include(DXRender)
+endif()
 
 include_directories(
     ${FREETYPE_INCLUDE_DIRS}
@@ -23,6 +26,9 @@ include_directories(
     ${LLWINDOW_INCLUDE_DIRS}
     ${LLXML_INCLUDE_DIRS}
     )
+if(DX_RENDER)
+    include_directories(${DXRENDER_INCLUDE_DIRS})
+endif()
 include_directories(SYSTEM
     ${LLCOMMON_SYSTEM_INCLUDE_DIRS}
     ${LLXML_SYSTEM_INCLUDE_DIRS}
@@ -106,4 +112,7 @@ target_link_libraries(llrender
       ${FREETYPE_LIBRARIES}
       ${OPENGL_LIBRARIES}
 )
+if(DX_RENDER)
+  target_link_libraries(llrender ${DXRENDER_LIBRARIES})
+endif()
 target_compile_options(llrender PRIVATE "/Zc:wchar_t-")

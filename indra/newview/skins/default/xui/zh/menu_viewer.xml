@@ -239,7 +239,6 @@
 			<menu_item_check label="快速碼錶" name="Fast Timers"/>
 			<menu_item_check label="記憶體" name="Memory"/>
 			<menu_item_check label="場景統計資料" name="Scene Statistics"/>
-			<menu_item_check label="場景載入監控器" name="Scene Loading Monitor"/>
 			<menu_item_call label="材質擷取除錯控制台" name="Texture Fetch Debug Console"/>
 			<menu_item_call label="地區資訊傳至除錯控制台" name="Region Info to Debug Console"/>
 			<menu_item_call label="群組資訊至除錯控制台" name="Group Info to Debug Console"/>

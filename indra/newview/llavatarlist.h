@@ -32,6 +32,7 @@
 
 class LLTimer;
 class LLListContextMenu;
+class LLVector3d;
 
 /**
  * Generic list of avatars.
@@ -54,7 +55,8 @@ public:
 						show_info_btn,
 						show_profile_btn,
 						show_speaking_indicator,
-						show_permissions_granted;
+						show_permissions_granted,
+						show_avatar_meta; // S24: show distance/account age - nearby list only
 		Params();
 	};
 
@@ -91,6 +93,11 @@ public:
 
 	// Return true if filter has at least one match.
 	bool filterHasMatches();
+
+	// S24: push distance (parallel to uuids) into each item's distance/account age display.
+	// No-op unless show_avatar_meta was set on this list (nearby list only). Cheap/local -
+	// safe to call every tick; age lookups are cached, see KVAvatarInfoCache.
+	void updateAvatarMeta(const std::vector<LLVector3d>& positions, const uuid_vec_t& uuids);
 
 	boost::signals2::connection setRefreshCompleteCallback(const commit_signal_t::slot_type& cb);
 
@@ -131,6 +138,7 @@ private:
 	bool mShowPermissions;
 	bool mShowCompleteName;
     bool mForceCompleteName;
+    bool mShowAvatarMeta; // S24: distance/account age, nearby list only
 
 	LLTimer*				mLITUpdateTimer; // last interaction time update timer
 	std::string				mIconParamName;

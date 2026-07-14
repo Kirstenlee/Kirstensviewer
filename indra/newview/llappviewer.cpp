@@ -84,6 +84,7 @@
 #include "llurldispatcher.h"
 #include "llurlhistory.h"
 #include "llrender.h"
+#include "llvertexbuffer.h"
 #include "llteleporthistory.h"
 #include "lltoast.h"
 #include "llsdutil_math.h"
@@ -352,7 +353,7 @@ WorkQueue gMainloopWork("mainloop", 1024 * 1024);
 
 ////////////////////////////////////////////////////////////
 // Internal globals
-static std::string gArgs = "Build 3500 - Magn"; // S24 My Build Number! KL
+static std::string gArgs = "Build 3535 - Hradr"; // S24 My Build Number! KL
 const int MAX_MARKER_LENGTH = 1024;
 const std::string MARKER_FILE_NAME("KirstensS24.exec_marker");
 const std::string START_MARKER_FILE_NAME("KirstensS24.start_marker");
@@ -523,6 +524,9 @@ static void settings_to_globals()
 
 	LLRender::sGLCoreProfile = gSavedSettings.getBOOL("RenderGLContextCoreProfile");
 	LLRender::sNsightDebugSupport = gSavedSettings.getBOOL("RenderNsightDebugSupport");
+	// S24: runtime toggle for the VBO work queue (was a compile-time #define) - see llvertexbuffer.cpp
+	LLVertexBuffer::sVBOWorkQueueEnabled = gSavedSettings.getBOOL("S24VBOWorkQueueEnabled");
+	LLVertexBuffer::sVBOWorkQueueThreadCount = llclamp(gSavedSettings.getU32("S24VBOWorkQueueThreadCount"), 1U, 4U);
 	LLImageGL::sGlobalUseAnisotropic = gSavedSettings.getBOOL("RenderAnisotropic");
 	LLImageGL::sCompressTextures = gSavedSettings.getBOOL("RenderCompressTextures");
 	LLVOVolume::sLODFactor = llclamp(gSavedSettings.getF32("RenderVolumeLODFactor"), 0.01f, MAX_LOD_FACTOR);
@@ -4653,7 +4657,7 @@ void LLAppViewer::idle()
 
 	// Texture system maintenance
 	LLImageGL::updateClass();
-
+    LLUIImage::updateClass();
 	// -------------------------------------------------------------------------
 	// 4. Misc. viewer systems
 	// -------------------------------------------------------------------------

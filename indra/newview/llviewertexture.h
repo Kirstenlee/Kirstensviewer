@@ -234,6 +234,13 @@ public:
     // estimated free memory for textures, by bias calculation
     static F32 sFreeVRAMMegabytes;
 
+    // The actual `used` figure updateClass() computed this frame -- either the live
+    // OS-reported DXGI usage or the self-estimate, whichever was active. Exposed so
+    // diagnostics (e.g. the texture console) show the same number the discard-bias
+    // ramp is actually reacting to, rather than an independently recomputed guess.
+    static F32 sVRAMUsedMegabytes;
+    static bool sVRAMInfoIsLive; // true if sVRAMUsedMegabytes came from the live DXGI signal
+
     enum EDebugTexels
     {
         DEBUG_TEXELS_OFF,

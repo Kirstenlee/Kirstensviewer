@@ -19,7 +19,10 @@ include(LLRender)
 include(LLFileSystem)
 include(LLWindow)
 include(LLXML)
-include(Ui)
+include(UI)
+if(DX_RENDER)
+    include(DXRender)
+endif()
 
 include_directories(
     ${LLCOMMON_INCLUDE_DIRS}
@@ -34,6 +37,10 @@ include_directories(SYSTEM
     ${LLCOMMON_SYSTEM_INCLUDE_DIRS}
     ${LLXML_SYSTEM_INCLUDE_DIRS}
     )
+
+if(DX_RENDER)
+  include_directories(${DXRENDER_INCLUDE_DIRS})
+endif()
 
 set(llwindow_SOURCE_FILES
     llcursortypes.cpp
@@ -98,5 +105,8 @@ add_library (llwindow
   )
 
 target_link_libraries (llwindow ${llwindow_LINK_LIBRARIES})
+if(DX_RENDER)
+  target_link_libraries(llwindow ${DXRENDER_LIBRARIES})
+endif()
 target_compile_options(llwindow PRIVATE "/Zc:wchar_t-")
 

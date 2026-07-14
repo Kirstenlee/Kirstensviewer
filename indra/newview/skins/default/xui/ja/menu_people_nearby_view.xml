@@ -4,6 +4,7 @@
 	<menu_item_check label="名前で並べ替え" name="sort_name"/>
 	<menu_item_check label="距離で並べ替え" name="sort_distance"/>
 	<menu_item_check label="到着した順に並べ替え" name="sort_arrival"/>
+	<menu_item_check label="年齢で並べ替え" name="sort_age"/>
 	<menu_item_check label="人物のアイコン表示" name="view_icons"/>
 	<menu_item_check label="マップを表示" name="view_map"/>
 	<menu_item_check label="ユーザー名を非表示" name="view_usernames"/>

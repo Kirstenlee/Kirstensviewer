@@ -29,7 +29,6 @@
 
 #include "llsingleton.h"
 #include "llmath.h"
-#include "llfloater.h"
 #include "llcharacter.h"
 #include "lltracerecording.h"
 
@@ -107,23 +106,12 @@ private:
     LLTrace::Recording                      mMonitorRecording;
 };
 
-class LLSceneMonitorView : public LLFloater
-{
-public:
-    LLSceneMonitorView(const LLRect& rect);
-    ~LLSceneMonitorView();
-    virtual void draw();
-
-    virtual void onVisibilityChange(bool visible);
-
-protected:
-    virtual void onClose(bool app_quitting=false);
-    virtual void onClickCloseBtn(bool app_quitting=false);
-    void onTeleportFinished();
-    boost::signals2::connection sTeleportFinishConnection;
-};
-
-extern LLSceneMonitorView* gSceneMonitorView;
+// S24: LLSceneMonitorView (the "Scene Loading Monitor" interactive floater/menu item) was
+// deprecated and removed - it drew an oversized, unlegended pixel-diff heatmap that could
+// dominate the screen and obscure the menu bar used to toggle it off. LLSceneMonitor itself
+// (above) is untouched and still drives frame-diff scene-load timing (capture/compare/
+// dumpToFile) independent of any view. "Scene Load Statistics" (llfloatersceneloadstats.h)
+// remains as the well-behaved alternative in Develop > Consoles.
 
 #endif
 

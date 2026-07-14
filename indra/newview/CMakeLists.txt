@@ -13,7 +13,7 @@ include(CMakeCopyIfDifferent)
 
 
 include(DragDrop)
-include(Expat)
+include(EXPAT)
 include(FMODSTUDIO)
 include(Hunspell)
 
@@ -22,7 +22,7 @@ include(LLAudio)
 include(LLCA)
 include(LLCharacter)
 include(LLCommon)
-include(LLconvexdecomposition)
+include(LLConvexdecomposition)
 include(LLCoreHttp)
 include(LLImage)
 include(LLImageJ2COJ)
@@ -34,27 +34,29 @@ include(LLMessage)
 include(LLPlugin)
 include(LLPrimitive)
 include(LLRender)
-include(DxRender)
+if(DX_RENDER)
+    include(DXRender)
+endif()
 include(LLUI)
 include(LLFileSystem)
 include(LLWindow)
 include(LLXML)
-include(Ndof)
-include(NvApi)
-include(OpenAL)
+include(NDOF)
+include(NVAPI)
+include(OPENAL)
 include(OpenGL)
 include(OpenCL)
 include(OpenSSL)
 include(OpenXR)
-include(Png)
+include(PNG)
 # KV S24: PowerShell-only build system - Python removed!
 include(TemplateCheckModern)
 include(TinyEXR)
-include(Ui)
+include(UI)
 include(WebRTC)
 include(ViewerMiscLibs)
 
-include(ZLib)
+include(ZLIB)
 include(LLPrimitive)
 
 use_prebuilt_binary(libraries-common)
@@ -76,7 +78,6 @@ include_directories(
     ${LLMATH_INCLUDE_DIRS}
     ${LLMESHOPTIMIZER_INCLUDE_DIRS}
     ${LLCONVEXDECOMPOSITION_INCLUDE_DIRS}    # <-- added
-    ${DXRENDER_INCLUDE_DIRS} # <-- added framework work in progress
     ${LLMESSAGE_INCLUDE_DIRS}
     ${LLPLUGIN_INCLUDE_DIRS}
     ${LLPRIMITIVE_INCLUDE_DIRS}
@@ -96,6 +97,10 @@ include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}
     )
 
+if(DX_RENDER)
+  include_directories(${DXRENDER_INCLUDE_DIRS})
+endif()
+
 include_directories(SYSTEM
     ${LLCOMMON_SYSTEM_INCLUDE_DIRS}
     ${LLXML_SYSTEM_INCLUDE_DIRS}
@@ -113,6 +118,7 @@ set(viewer_SOURCE_FILES
     gltf/animation.cpp
     gltf/llgltfloader.cpp
     groupchatlistener.cpp
+    kvavatarinfocache.cpp
     kveffects.cpp
     kvopencl.cpp
     kvramcache.cpp
@@ -805,6 +811,7 @@ set(viewer_HEADER_FILES
     gltf/primitive.h
     gltf/animation.h
     gltf/llgltfloader.h
+    kvavatarinfocache.h
     kveffects.h
     kvopencl.h
     kvramcache.h
@@ -1841,7 +1848,6 @@ target_link_libraries(${VIEWER_BINARY_NAME}
     ${LLPLUGIN_LIBRARIES}
     ${LLPRIMITIVE_LIBRARIES}
     ${LLRENDER_LIBRARIES}
-    ${DXRENDER_LIBRARIES}
     ${FREETYPE_LIBRARIES}
     ${LLUI_LIBRARIES}
     ${LLFILESYSTEM_LIBRARIES}
@@ -1879,6 +1885,10 @@ target_link_libraries(${VIEWER_BINARY_NAME}
     ${viewer_LIBRARIES}
     ${WINDOWS_LIBRARIES}
     )
+
+if(DX_RENDER)
+  target_link_libraries(${VIEWER_BINARY_NAME} ${DXRENDER_LIBRARIES})
+endif()
 
 set(ARTWORK_DIR ${CMAKE_CURRENT_SOURCE_DIR} CACHE PATH
     "Path to artwork files.")

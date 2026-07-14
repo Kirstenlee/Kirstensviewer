@@ -25,7 +25,7 @@
 // Singleton implementation
 KVRAMCache::KVRAMCache()
     : mInitialized(false)
-    , mTimeSinceLastGraceCheck(0.0f)
+    , mTimeSinceLastEvictionCheck(0.0f)  // KV:GC→RT Renamed from mTimeSinceLastGraceCheck
     , mWorkerThread(nullptr)
 {
     LL_WARNS("KVRAMCache") << "KVRAMCache instance created" << LL_ENDL;
@@ -61,8 +61,7 @@ void KVRAMCache::initialize(const CacheConfig& config)
         mConfig.disk_cache_path = "texture_cache";
     }
 
-    // Initialize baseline eviction timestamp to NOW (viewer uptime in seconds)
-    mLastBaselineEviction = LLTimer::getElapsedSeconds();
+    // KV:RT Removed mLastBaselineEviction — retention time is per-entry now
 
     // Clear all data structures
     mGhostMap.clear();
@@ -82,7 +81,7 @@ void KVRAMCache::initialize(const CacheConfig& config)
         << "\n  VRAM Budget: " << BYTES_TO_MEGA_BYTES(mConfig.vram_budget_bytes) << " MB"
         << "\n  RAM Budget: " << BYTES_TO_MEGA_BYTES(mConfig.ram_budget_bytes) << " MB (range: 256-4096 MB)"
         << "\n  Disk Budget: " << BYTES_TO_MEGA_BYTES(mConfig.disk_budget_bytes) << " MB"
-        << "\n  RAM Grace Period: " << mConfig.ram_grace_period_seconds << " seconds (range: 0.1-30s)"
+        << "\n  RAM Retention Time: " << mConfig.ram_retention_time_seconds << " seconds (range: 0.1-30s)"  // KV:GC→RT Renamed from ram_grace_period_seconds
         << "\n  Min Deck Size: " << mMinDeckSize << " textures (range: 100-10000)"
         << "\n  Baseline eviction uses viewer uptime (decoupled from frame rate)"
         << "\n  VRAM Pressure Threshold: " << (mConfig.vram_pressure_threshold * 100.0f) << "%"
@@ -167,9 +166,9 @@ void KVRAMCache::initializeFromSettings()
     ram_budget_mb = llclamp(ram_budget_mb, 256U, 4096U);
     config.ram_budget_bytes = MEGA_BYTES_TO_BYTES(ram_budget_mb);
 
-    // Grace period (0.1-30 seconds in 0.1 second steps)
-    F32 grace_period = gSavedSettings.getF32("KVRAMCacheGracePeriodSec");
-    config.ram_grace_period_seconds = llclamp(grace_period, 0.1f, 30.0f);
+    // KV:GC→RT Minimum retention time (0.1-30 seconds in 0.1 second steps) — textures must be in cache this long before evictable
+    F32 retention_time = gSavedSettings.getF32("KVRAMCacheRetentionTimeSec");
+    config.ram_retention_time_seconds = llclamp(retention_time, 0.1f, 30.0f);
 
     // Thresholds
     mSoftThreshold = gSavedSettings.getF32("KVRAMCacheSoftThreshold");
@@ -192,7 +191,7 @@ void KVRAMCache::initializeFromSettings()
         << "\n  RAM Budget: " << BYTES_TO_MEGA_BYTES(config.ram_budget_bytes) << " MB"
         << "\n  Soft Threshold: " << (mSoftThreshold * 100.0f) << "%"
         << "\n  Hard Threshold: " << (mHardThreshold * 100.0f) << "%"
-        << "\n  Grace Period: " << config.ram_grace_period_seconds << " seconds"
+        << "\n  Retention Time: " << config.ram_retention_time_seconds << " seconds"  // KV:GC→RT Renamed from ram_grace_period_seconds
         << "\n  Min Deck Size: " << mMinDeckSize << " textures"
         << LL_ENDL;
 
@@ -211,8 +210,9 @@ void KVRAMCache::updateFromSettings()
     new_budget_mb = llclamp(new_budget_mb, 256U, 4096U);
     mConfig.ram_budget_bytes = MEGA_BYTES_TO_BYTES(new_budget_mb);
 
-    F32 grace_period = gSavedSettings.getF32("KVRAMCacheGracePeriodSec");
-    mConfig.ram_grace_period_seconds = llclamp(grace_period, 0.1f, 30.0f);
+    // KV:GC→RT Read minimum retention time from settings
+    F32 retention_time = gSavedSettings.getF32("KVRAMCacheRetentionTimeSec");
+    mConfig.ram_retention_time_seconds = llclamp(retention_time, 0.1f, 30.0f);
 
     mSoftThreshold = gSavedSettings.getF32("KVRAMCacheSoftThreshold");
     mHardThreshold = gSavedSettings.getF32("KVRAMCacheHardThreshold");
@@ -220,11 +220,10 @@ void KVRAMCache::updateFromSettings()
     U32 deck_size = static_cast<U32>(gSavedSettings.getF32("KVRAMCacheMinDeckSize"));
     mMinDeckSize = llclamp(deck_size, 100U, 10000U);
 
-    // Reset baseline timestamp so new grace period takes effect immediately
-    mLastBaselineEviction = LLTimer::getElapsedSeconds();
+    // KV:RT Removed mLastBaselineEviction reset — retention time is per-entry now
 
-    LL_WARNS("KVRAMCache") << "Settings updated - grace period now " 
-        << mConfig.ram_grace_period_seconds << "s (viewer uptime based)" << LL_ENDL;
+    LL_WARNS("KVRAMCache") << "Settings updated - retention time now "  // KV:GC→RT Renamed from grace period
+        << mConfig.ram_retention_time_seconds << "s (per-entry minimum age check)" << LL_ENDL;
 }
 
 void KVRAMCache::setThresholds(F32 soft, F32 hard)
@@ -244,13 +243,14 @@ void KVRAMCache::setThresholds(F32 soft, F32 hard)
         << "%, Hard=" << (mHardThreshold * 100.0f) << "%" << LL_ENDL;
 }
 
-void KVRAMCache::setGracePeriod(F32 seconds)
+// KV:GC→RT Renamed from setGracePeriod — sets minimum retention time before an entry is evictable
+void KVRAMCache::setRetentionTime(F32 seconds)
 {
     LLMutexLock lock(&mCacheMutex);
 
-    mConfig.ram_grace_period_seconds = std::max(0.0f, seconds);
+    mConfig.ram_retention_time_seconds = std::max(0.0f, seconds);
 
-    LL_WARNS("KVRAMCache") << "Grace period updated: " << seconds << " seconds" << LL_ENDL;
+    LL_WARNS("KVRAMCache") << "Retention time updated: " << seconds << " seconds (min age before eviction)" << LL_ENDL;
 }
 
 void KVRAMCache::resetExtendedStats()
@@ -425,6 +425,7 @@ bool KVRAMCache::acceptEviction(const LLUUID& uuid, void* texture_data, U64 size
     entry->width = width;
     entry->height = height;
     entry->components = components;
+    entry->mAdmittedAt = LLTimer::getElapsedSeconds();  // KV:RT Record admission time — entry is protected from eviction for retention_time seconds
 
     // S24: Capture priority before moving entry into ghost map (avoid C26800 use-after-move)
     AssetPriority prio = entry->priority;
@@ -524,115 +525,106 @@ bool KVRAMCache::getTexture(const LLUUID& texture_id,
 // Passive Buffer Interface (GPU-controlled)
 // ============================================================================
 
+// S24: Extracted from processPassiveEviction so the stats floater can query the exact
+// same curve instead of reimplementing it (the old duplicate drifted out of sync — see
+// getEvictionPressureMultiplier).
+F32 KVRAMCache::calculateEvictionPressureMultiplier(F32 pressure) const
+{
+    F32 fill_target = std::max(0.0f, mSoftThreshold - 0.10f);
+    F32 pressure_multiplier = 0.0f;
+
+    if (pressure >= mHardThreshold)
+    {
+        // At/above hard threshold: aggressive eviction
+        pressure_multiplier = 2.0f;
+    }
+    else if (pressure >= mSoftThreshold)
+    {
+        // Between soft and hard: active eviction 1.0x -> 2.0x
+        F32 range = mHardThreshold - mSoftThreshold;
+        if (range > 0.0f)
+        {
+            F32 offset = pressure - mSoftThreshold;
+            pressure_multiplier = 1.0f + (offset / range);
+        }
+        else
+        {
+            pressure_multiplier = 2.0f;
+        }
+    }
+    else if (pressure > fill_target)
+    {
+        // KV:EV Between fill_target and soft: gentle eviction 0x -> 1.0x
+        F32 range = mSoftThreshold - fill_target;
+        if (range > 0.0f)
+        {
+            F32 offset = pressure - fill_target;
+            pressure_multiplier = (offset / range);
+        }
+        else
+        {
+            pressure_multiplier = 1.0f;
+        }
+    }
+    // KV:EV else: pressure <= fill_target, multiplier stays 0, cache fills freely (was hardcoded 25%)
+
+    return pressure_multiplier;
+}
+
+F32 KVRAMCache::getEvictionPressureMultiplier() const
+{
+    // S24: No lock — mirrors getRAMPressure(), which is already read cross-thread
+    // unlocked by the stats floater. mSoftThreshold/mHardThreshold are plain floats
+    // set via setThresholds()/updateFromSettings(), not worth a mutex round-trip for a UI readout.
+    return calculateEvictionPressureMultiplier(getRAMPressure());
+}
+
 void KVRAMCache::processPassiveEviction(F32 delta_time)
 {
     LLMutexLock lock(&mCacheMutex);  // S24: Protect deque/ghost map from concurrent access
 
     F32 pressure = getRAMPressure();
-    F32 grace_period = std::max(0.1f, mConfig.ram_grace_period_seconds);
-
-    // S24 RAMCACHE TUNE: Shift equilibrium floor from 50% to 25%
-    // Cache naturally seeks [max(25% of budget, 64 MB)] equilibrium floor at all times
-    // Above floor: decay with unified sigmoid pressure ramp (smooth, no 4-band discontinuities)
-    // Below floor: no eviction, fills freely
-    // Eviction selects lowest non-empty priority tier first (BACKGROUND→NORMAL→HIGH→CRITICAL)
-    // At ≥95% pressure: switches to size-aware eviction (largest textures first)
-    // All free() calls deferred outside mutex to prevent stutter
+    F32 retention_time = std::max(0.1f, mConfig.ram_retention_time_seconds);  // KV:GC->RT Renamed from ram_grace_period_seconds
 
     F64 now = LLTimer::getElapsedSeconds();
-    F64 elapsed_seconds = now - mLastBaselineEviction;
 
-    if (elapsed_seconds >= grace_period)
+    // S24: Still needed here for the "always evict >=1" rule below — kept alongside the
+    // multiplier calc's own copy in calculateEvictionPressureMultiplier() rather than
+    // exposing it as a member, since it's a pure function of mSoftThreshold.
+    F32 fill_target = std::max(0.0f, mSoftThreshold - 0.10f);
+    F32 pressure_multiplier = calculateEvictionPressureMultiplier(pressure);
+
+    // KV:RT decoupled base_slice from retention_time — fixed at 10 textures/batch
+    U32 base_slice = 10;
+
+    // Apply pressure scaling to base slice
+    U32 slice_size = (U32)(base_slice * pressure_multiplier);
+
+    // KV:EV If above fill_target, ALWAYS evict at least 1 texture (was hardcoded > 25%)
+    if (pressure > fill_target && slice_size == 0)
     {
-        // S24 RAMCACHE TUNE: Increased max slice from 50 to 100
-        U32 base_slice = llclamp((U32)(grace_period * 10.0f), 1U, 100U);
-
-        // Calculate pressure multiplier
-        // S24: Design: Eviction ALWAYS happens above equilibrium floor, ramping via unified sigmoid:
-        //   floor → 65%: gentle decay (0x → ~0.5x)
-        //   65% → 90%: active eviction (~0.5x → ~3.9x)
-        //   > 90%: aggressive (3.9x → 4.0x max) — no hardcoded 2.0x cap
-        // No 4-band discontinuity ladder — single smooth curve replaces all thresholds
-        F32 pressure_multiplier = 0.0f;
-
-        if (pressure >= mHardThreshold)
-        {
-            // At/above hard threshold: aggressive 2.0x rate
-            pressure_multiplier = 2.0f;
-        }
-        else if (pressure >= mSoftThreshold)
-        {
-            // Between soft and hard: active eviction 1.0x → 2.0x
-            F32 range = mHardThreshold - mSoftThreshold;
-            F32 offset = pressure - mSoftThreshold;
-            pressure_multiplier = 1.0f + (offset / range);
-        }
-        else if (pressure >= 0.5f)
-        {
-            // Between 50% and soft: active eviction 1.0x → 2.0x
-            F32 range = mSoftThreshold - 0.5f;
-            if (range > 0.0f)
-            {
-                F32 offset = pressure - 0.5f;
-                pressure_multiplier = 1.0f + (offset / range);
-            }
-            else
-            {
-                pressure_multiplier = 2.0f;
-            }
-        }
-        else if (pressure > 0.25f)
-        {
-            // Between 25% and 50%: gentle decay 0.5x → 1.0x
-            F32 range = 0.5f - 0.25f;
-            if (range > 0.0f)
-            {
-                F32 offset = pressure - 0.25f;
-                pressure_multiplier = 0.5f + (0.5f * offset / range);
-            }
-            else
-            {
-                pressure_multiplier = 1.0f;
-            }
-        }
-        // else: pressure <= 25%, multiplier stays 0, cache fills freely
-
-        // Apply pressure scaling to base slice
-        U32 slice_size = (U32)(base_slice * pressure_multiplier);
-
-        // CRITICAL: If pressure > 25%, ALWAYS evict at least 1 texture
-        // Integer truncation would kill eviction below 1.0x multiplier
-        if (pressure > 0.25f && slice_size == 0)
-        {
-            slice_size = 1;
-        }
-
-        // S24 RAMCACHE TUNE: Wire mMinDeckSize to minimum eviction batch
-        // S24: Check total entries across all priority deques + legacy mRAMLRU
-        size_t total_entries = mRAMLRU.size() + mRAMLRU_BACKGROUND.size()
-                             + mRAMLRU_NORMAL.size() + mRAMLRU_HIGH.size()
-                             + mRAMLRU_CRITICAL.size();
-        if (slice_size > 0 && total_entries > mMinDeckSize && slice_size < 5)
-        {
-            slice_size = 5;
-        }
-
-        if (slice_size > 0)
-        {
-            evictSlice(slice_size);
-        }
-
-        mLastBaselineEviction = now;
+        slice_size = 1;
     }
 
-    // Reset timestamp when pressure drops to/below 25% equilibrium
-    if (pressure <= 0.25f)
+    // KV:EV mMinDeckSize acts as a minimum texture reserve — deck must exceed this before batch eviction kicks in
+    // Combined with fill_target: pressure-protects up to fill_target, count-protects down to mMinDeckSize
+    size_t total_entries = mRAMLRU.size() + mRAMLRU_BACKGROUND.size()
+                         + mRAMLRU_NORMAL.size() + mRAMLRU_HIGH.size()
+                         + mRAMLRU_CRITICAL.size();
+    if (slice_size > 0 && total_entries > mMinDeckSize && slice_size < 5)
     {
-        mLastBaselineEviction = LLTimer::getElapsedSeconds();
+        slice_size = 5;
     }
+
+    if (slice_size > 0)
+    {
+        evictSlice(slice_size, retention_time, now);  // KV:RT Pass retention_time and now for per-entry age check
+    }
+    // KV:RT Removed mLastBaselineEviction tracking — eviction is now pressure-driven, not interval-driven
 }
 
-void KVRAMCache::evictSlice(U32 slice_size)
+// KV:RT Added retention_time/now params — young entries are pushed back instead of evicted
+void KVRAMCache::evictSlice(U32 slice_size, F64 retention_time, F64 now)
 {
     U32 sliced = 0;
 
@@ -656,7 +648,10 @@ void KVRAMCache::evictSlice(U32 slice_size)
              + mRAMLRU_CRITICAL.size();
     };
 
-    while (sliced < slice_size && totalEntries() > 0)
+    // KV:RT Track scanned count to prevent infinite loop when ALL entries are too young
+    U32 scanned = 0;
+
+    while (sliced < slice_size && totalEntries() > 0 && scanned < totalEntries())
     {
         LLUUID bottom_uuid = popFrontFromPriorityDeques();
 
@@ -664,6 +659,16 @@ void KVRAMCache::evictSlice(U32 slice_size)
         if (it != mGhostMap.end())
         {
             CacheEntry* entry = it->second.get();
+
+            // KV:RT Retention time check — skip entries that haven't aged enough
+            F64 entry_age = now - entry->mAdmittedAt;
+            if (entry_age < retention_time)
+            {
+                // Too young! Re-insert at the back of its priority deque for another chance
+                pushBackToPriorityDeques(bottom_uuid, entry->priority);
+                scanned++;
+                continue;
+            }
 
             if (entry->location == AssetLocation::RAM && entry->texture_data)
             {
@@ -682,6 +687,19 @@ void KVRAMCache::evictSlice(U32 slice_size)
                 sliced++;
             }
         }
+    }
+}
+
+// KV:RT Helper to re-insert a texture at the back of its priority deque when it's too young to evict
+void KVRAMCache::pushBackToPriorityDeques(const LLUUID& uuid, AssetPriority priority)
+{
+    switch (priority)
+    {
+        case AssetPriority::BACKGROUND: mRAMLRU_BACKGROUND.push_back(uuid); break;
+        case AssetPriority::NORMAL:     mRAMLRU_NORMAL.push_back(uuid);     break;
+        case AssetPriority::HIGH:       mRAMLRU_HIGH.push_back(uuid);       break;
+        case AssetPriority::CRITICAL:   mRAMLRU_CRITICAL.push_back(uuid);   break;
+        default:                        mRAMLRU_NORMAL.push_back(uuid);     break;
     }
 }
 
@@ -796,13 +814,13 @@ void KVRAMCache::updateFrame(F32 delta_time_seconds)
     // Update worker thread - processes completed requests (1ms max per frame)
     mWorkerThread->update(1.0f);
 
-    // Queue eviction request every GRACE_CHECK_INTERVAL
-    mTimeSinceLastGraceCheck += delta_time_seconds;
+    // KV:GC→RT Renamed — eviction check interval (was GRACE_CHECK_INTERVAL)
+    mTimeSinceLastEvictionCheck += delta_time_seconds;
 
-    if (mTimeSinceLastGraceCheck >= GRACE_CHECK_INTERVAL)
+    if (mTimeSinceLastEvictionCheck >= EVICTION_CHECK_INTERVAL)
     {
-        F32 delta = mTimeSinceLastGraceCheck;
-        mTimeSinceLastGraceCheck = 0.0f;
+        F32 delta = mTimeSinceLastEvictionCheck;
+        mTimeSinceLastEvictionCheck = 0.0f;
 
         // Queue eviction processing on worker thread
         mWorkerThread->queueProcessEviction(delta);

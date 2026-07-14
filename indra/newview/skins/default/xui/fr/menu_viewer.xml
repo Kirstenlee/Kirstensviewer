@@ -247,7 +247,6 @@
 			<menu_item_check label="Chronos" name="Fast Timers"/>
 			<menu_item_check label="Mémoire" name="Memory"/>
 			<menu_item_check label="Statistiques de la scène" name="Scene Statistics"/>
-			<menu_item_check label="Moniteur de chargement de scène" name="Scene Loading Monitor"/>
 			<menu_item_call label="Console de débogage de la récupération des textures" name="Texture Fetch Debug Console"/>
 			<menu_item_call label="Infos de région vers la console de débogage" name="Region Info to Debug Console"/>
 			<menu_item_call label="Infos de groupe vers la console de débogage" name="Group Info to Debug Console"/>

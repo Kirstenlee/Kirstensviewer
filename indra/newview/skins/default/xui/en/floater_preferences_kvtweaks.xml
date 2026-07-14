@@ -590,13 +590,14 @@
         left="10"
         max_val="30"
         min_val="0.1"
-        name="kvram_grace_period"
+        name="kvram_retention_time"
         top="315"
         width="350"
-        tool_tip="Eviction interval - time between eviction cycles when cache is above 50% (0.1-30 seconds in 0.1 second steps)"/>
+        tool_tip="Minimum retention time - textures must be in cache this long before eligible for eviction (0.1-30 seconds in 0.1 second steps)"/>
+      <!-- KV:GC→RT Renamed from kvram_grace_period -->
 
       <text
-        name="kvram_grace_period_text"
+        name="kvram_retention_time_text"
         type="string"
         follows="left|top"
         height="16"
@@ -998,6 +999,18 @@
         name="enable_hover_glow"
         width="250" />
 
+      <check_box
+        control_name="RenderFlushOrphanedTexturesOnTeleport"
+        height="20"
+        initial_value="false"
+        label="Proactively Flush Orphaned Textures on Teleport (Experimental)"
+        layout="topleft"
+        left="20"
+        top_pad="5"
+        name="flush_orphaned_textures_on_teleport"
+        width="400"
+        tool_tip="Evicts textures left behind by a region-change teleport immediately instead of waiting on the slow background cleanup. Off by default -- testing linked this to avatar rendering flakiness and lower framerate in heavy scenes." />
+
     </panel>
 
     <!-- ==================== TAB 3: RENDERING ADVANCED ==================== -->
@@ -1257,6 +1270,50 @@
         text_color="LtGray">
         (8-10)
       </text>
+
+      <text
+        type="string"
+        length="1"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="10"
+        top_pad="15"
+        width="460"
+        font="SansSerifBold"
+        text_color="White">
+        VBO Work Queue (Experimental)
+      </text>
+
+      <check_box
+        control_name="S24VBOWorkQueueEnabled"
+        height="20"
+        initial_value="false"
+        label="Enable VBO Work Queue"
+        layout="topleft"
+        left="20"
+        name="enable_vbo_work_queue"
+        top_pad="10"
+        width="450"
+        tool_tip="EXPERIMENTAL: defer VBO pool storage allocation (cache-miss buffer creation) to background GL worker thread(s) via a shared-context work queue. Off by default - the main thread still blocks per allocation to stay correct, so treat this as a testing toggle, not a guaranteed frame time win." />
+
+      <spinner
+        control_name="S24VBOWorkQueueThreadCount"
+        decimal_digits="0"
+        follows="left|top"
+        height="20"
+        increment="1"
+        initial_value="2"
+        label="Worker Threads:"
+        label_width="200"
+        layout="topleft"
+        left="20"
+        max_val="4"
+        min_val="1"
+        name="vbo_work_queue_threads"
+        tool_tip="Number of shared GL context worker threads for the VBO work queue (1-4). 1 is recommended: the queue synchronizes each job with its own fence, but with more than one worker, jobs can still complete out of order relative to when the main thread needed them."
+        top_pad="5"
+        width="310" />
 
     </panel>
 

@@ -61,10 +61,6 @@ LLFlatListView::Params::Params()
 void LLFlatListView::reshape(S32 width, S32 height, bool called_from_parent /* = true */)
 {
     S32 delta = height - getRect().getHeight();
-    LLScrollContainer::reshape(width, height, called_from_parent);
-    setItemsNoScrollWidth(width);
-    rearrangeItems();
-
     LLRect visible_rc;
     LLRect selected_rc = getLastSelectedItemRect();
     bool keep_selection_visible = false;
@@ -73,6 +69,10 @@ void LLFlatListView::reshape(S32 width, S32 height, bool called_from_parent /* =
         visible_rc = getVisibleContentRect();
         keep_selection_visible = visible_rc.overlaps(selected_rc);
     }
+
+    LLScrollContainer::reshape(width, height, called_from_parent);
+    setItemsNoScrollWidth(width);
+    rearrangeItems();
 
     if(keep_selection_visible)
     {
@@ -88,7 +88,7 @@ const LLRect& LLFlatListView::getItemsRect() const
 bool LLFlatListView::addItem(LLPanel * item, const LLSD& value /*= LLUUID::null*/, EAddPosition pos /*= ADD_BOTTOM*/,bool rearrange /*= true*/)
 {
     if (!item) return false;
-    if (value.isUndefined()) return false;
+    if (value.isUndefined()) return false; // item stays an orphan?!!!
 
     //force uniqueness of items, easiest check but unreliable
     if (item->getParent() == mItemsPanel) return false;

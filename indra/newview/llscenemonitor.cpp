@@ -39,10 +39,7 @@
 #include "llspatialpartition.h"
 #include "llagent.h"
 #include "pipeline.h"
-#include "llviewerparcelmgr.h"
 #include "llviewerpartsim.h"
-
-LLSceneMonitorView* gSceneMonitorView = NULL;
 
 //
 //The procedures of monitoring when the scene finishes loading visually,
@@ -665,92 +662,7 @@ void LLSceneMonitor::dumpToFile(const std::string &file_name)
     }
 }
 
-//-------------------------------------------------------------------------------------------------------------
-//definition of class LLSceneMonitorView
-//-------------------------------------------------------------------------------------------------------------
-LLSceneMonitorView::LLSceneMonitorView(const LLRect& rect)
-    :   LLFloater(LLSD())
-{
-    setRect(rect);
-    setVisible(false);
-
-    setCanMinimize(false);
-    setCanClose(true);
-
-    sTeleportFinishConnection = LLViewerParcelMgr::getInstance()->setTeleportFinishedCallback(boost::bind(&LLSceneMonitorView::onTeleportFinished, this));
-}
-
-LLSceneMonitorView::~LLSceneMonitorView()
-{
-    sTeleportFinishConnection.disconnect();
-}
-
-void LLSceneMonitorView::onClose(bool app_quitting)
-{
-    setVisible(false);
-}
-
-void LLSceneMonitorView::onClickCloseBtn(bool app_quitting)
-{
-    setVisible(false);
-}
-
-void LLSceneMonitorView::onTeleportFinished()
-{
-    if(isInVisibleChain())
-    {
-        LLSceneMonitor::getInstance()->reset();
-    }
-}
-
-void LLSceneMonitorView::onVisibilityChange(bool visible)
-{
-    LLSceneMonitor::getInstance()->setDebugViewerVisible(visible);
-}
-
-void LLSceneMonitorView::draw()
-{
-    const LLRenderTarget* target = LLSceneMonitor::getInstance()->getDiffTarget();
-    if(!target)
-    {
-        return;
-    }
-
-    F32 ratio = LLSceneMonitor::getInstance()->getDiffPixelRatio();
-    S32 height = (S32)(target->getHeight() * ratio);
-    S32 width = (S32)(target->getWidth() * ratio);
-
-    LLRect new_rect;
-    new_rect.setLeftTopAndSize(getRect().mLeft, getRect().mTop, width, height);
-    setRect(new_rect);
-
-    //draw background
-    gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
-    gl_rect_2d(0, getRect().getHeight(), getRect().getWidth(), 0, LLColor4(0.f, 0.f, 0.f, 0.25f));
-
-    LLSceneMonitor::getInstance()->calcDiffAggregate();
-
-    //show some texts
-    LLColor4 color = LLColor4::white;
-    S32 line_height = LLFontGL::getFontMonospace()->getLineHeight();
-
-    S32 lines = 0;
-    std::string num_str = llformat("Frame difference: %.6f", LLSceneMonitor::getInstance()->getDiffResult());
-    LLFontGL::getFontMonospace()->renderUTF8(num_str, 0, 5, getRect().getHeight() - line_height * lines, color, LLFontGL::LEFT, LLFontGL::TOP);
-    lines++;
-
-    num_str = llformat("Pixel tolerance: (R+G+B) < %.4f", LLSceneMonitor::getInstance()->getDiffTolerance());
-    LLFontGL::getFontMonospace()->renderUTF8(num_str, 0, 5, getRect().getHeight() - line_height * lines, color, LLFontGL::LEFT, LLFontGL::TOP);
-    lines++;
-
-    num_str = llformat("Sampling time: %.3f seconds", gSavedSettings.getF32("SceneLoadingMonitorSampleTime"));
-    LLFontGL::getFontMonospace()->renderUTF8(num_str, 0, 5, getRect().getHeight() - line_height * lines, color, LLFontGL::LEFT, LLFontGL::TOP);
-    lines++;
-
-    num_str = llformat("Scene Loading time: %.3f seconds", (F32)LLSceneMonitor::getInstance()->getRecording()->getResults().getDuration().value());
-    LLFontGL::getFontMonospace()->renderUTF8(num_str, 0, 5, getRect().getHeight() - line_height * lines, color, LLFontGL::LEFT, LLFontGL::TOP);
-    lines++;
-
-    LLView::draw();
-}
+// S24: LLSceneMonitorView ("Scene Loading Monitor" interactive floater) deprecated and
+// removed - see llscenemonitor.h for why. LLSceneMonitor above (capture/compare/dumpToFile)
+// is unaffected and still runs independent of any view.
 

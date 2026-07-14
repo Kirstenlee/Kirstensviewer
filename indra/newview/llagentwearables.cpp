@@ -546,14 +546,23 @@ const S32 LLAgentWearables::getWearableIdxFromItem(const LLViewerInventoryItem* 
     U32 wearable_count = getWearableCount(type);
     if (0 == wearable_count) return -1;
 
-    const LLUUID& asset_id = item->getAssetUUID();
-
+    // Match by linked inventory item id so the correct copy is found when several
+    // worn wearables of this type share the same asset.
+    const LLUUID item_id = gInventory.getLinkedItemID(item->getUUID());
     for (U32 i = 0; i < wearable_count; ++i)
     {
         const LLViewerWearable* wearable = getViewerWearable(type, i);
         if (!wearable) continue;
-        if (wearable->getAssetID() != asset_id) continue;
-        return i;
+        if (wearable->getItemID() == item_id) return i;
+    }
+
+    // Fall back to asset id for items whose inventory id can't be resolved.
+    const LLUUID& asset_id = item->getAssetUUID();
+    for (U32 i = 0; i < wearable_count; ++i)
+    {
+        const LLViewerWearable* wearable = getViewerWearable(type, i);
+        if (!wearable) continue;
+        if (wearable->getAssetID() == asset_id) return i;
     }
 
     return -1;
@@ -1524,32 +1533,33 @@ bool LLAgentWearables::moveWearable(const LLViewerInventoryItem* item, bool clos
 
 bool LLAgentWearables::moveWearableToIndex(const LLViewerInventoryItem* item, U32 new_index)
 {
-	if (!item) return false;
-	if (!item->isWearableType()) return false;
+    if (!item) return false;
+    if (!item->isWearableType()) return false;
 
-	LLWearableType::EType type = item->getWearableType();
-	U32 wearable_count = getWearableCount(type);
-	if (wearable_count < 2 || new_index >= wearable_count) return false;
+    LLWearableType::EType type = item->getWearableType();
+    U32 wearable_count = getWearableCount(type);
+    if (wearable_count < 2) return false;
 
-	const LLUUID& asset_id = item->getAssetUUID();
-	for (U32 i = 0; i < wearable_count; ++i)
-	{
-		LLViewerWearable* wearable = getViewerWearable(type, i);
-		if (!wearable) continue;
-		if (wearable->getAssetID() != asset_id) continue;
+    if (new_index >= wearable_count) new_index = wearable_count - 1;
 
-		if (i == new_index) return true; // already at target
+    S32 cur = getWearableIdxFromItem(item);
+    if (cur < 0) return false;
+    if ((U32)cur == new_index) return true; // already in place
 
-		// Swap one step at a time toward the target index
-		S32 step = (new_index > i) ? 1 : -1;
-		for (U32 cur = i; cur != new_index; cur += step)
-		{
-			swapWearables(type, cur, cur + step);
-		}
-		return true;
-	}
+    // step the wearable to its new slot one swap at a time
+    U32 pos = (U32)cur;
+    while (pos < new_index)
+    {
+        if (!swapWearables(type, pos, pos + 1)) return false;
+        ++pos;
+    }
+    while (pos > new_index)
+    {
+        if (!swapWearables(type, pos, pos - 1)) return false;
+        --pos;
+    }
 
-	return false;
+    return true;
 }
 
 // static

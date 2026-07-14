@@ -241,7 +241,6 @@
 			<menu_item_check label="Timer veloci" name="Fast Timers"/>
 			<menu_item_check label="Memoria" name="Memory"/>
 			<menu_item_check label="Statistiche scena" name="Scene Statistics"/>
-			<menu_item_check label="Monitoraggio caricamento scena" name="Scene Loading Monitor"/>
 			<menu_item_call label="Console di debug recupero texture" name="Texture Fetch Debug Console"/>
 			<menu_item_call label="Informazioni regione sulla console di debug" name="Region Info to Debug Console"/>
 			<menu_item_check label="Fotocamera" name="Camera"/>

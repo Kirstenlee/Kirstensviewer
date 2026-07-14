@@ -20,9 +20,15 @@ set(VCPKG_BUILD_CONFIGURATIONS "release" CACHE STRING "Only build release config
 # - /fp:fast to allow fast-floating optimizations (may change FP semantics)
 # - /Oy (omit frame pointers), /Oi (intrinsics), /GF (string pooling)
 # - Defines to disable iterator/debug overhead and Boost asserts for max perf
-set(VCPKG_C_FLAGS_RELEASE "/O2 /Ob2 /Oi /Ot /GL /arch:AVX2 /fp:fast /Oy /GF /DNDEBUG /D_SECURE_SCL=0 /D_ITERATOR_DEBUG_LEVEL=0 /DBOOST_DISABLE_ASSERTS" CACHE STRING "Aggressive C flags" FORCE)
+set(VCPKG_C_FLAGS_RELEASE "/O2 /Ob2 /Oi /Ot /GL /arch:AVX2 /fp:fast /Oy /GF /DNDEBUG /D_SECURE_SCL=0 /D_ITERATOR_DEBUG_LEVEL=0 /DBOOST_DISABLE_ASSERTS /Zc:wchar_t-" CACHE STRING "Aggressive C flags" FORCE)
 
-set(VCPKG_CXX_FLAGS_RELEASE "/O2 /Ob2 /Oi /Ot /GL /arch:AVX2 /fp:fast /Oy /GF /DNDEBUG /D_SECURE_SCL=0 /D_ITERATOR_DEBUG_LEVEL=0 /DBOOST_DISABLE_ASSERTS /permissive-" CACHE STRING "Aggressive CXX flags" FORCE)
+# S24 :: /Zc:wchar_t- matches llfilesystem/dxrender's legacy wchar_t=unsigned
+# short ABI convention (and the prebuilt colladadom tarball). Without this,
+# vcpkg's boost (default /Zc:wchar_t on) mangles wchar_t-touching symbols
+# (e.g. boost::filesystem::detail::path_traits::convert) differently than
+# those consumers expect, causing LNK2001 unresolved externals. See
+# docs/boost-vcpkg-migration.md.
+set(VCPKG_CXX_FLAGS_RELEASE "/O2 /Ob2 /Oi /Ot /GL /arch:AVX2 /fp:fast /Oy /GF /DNDEBUG /D_SECURE_SCL=0 /D_ITERATOR_DEBUG_LEVEL=0 /DBOOST_DISABLE_ASSERTS /permissive- /Zc:wchar_t-" CACHE STRING "Aggressive CXX flags" FORCE)
 
 # Linker: disable incremental linking, enable optimization passes
 set(VCPKG_LINKER_FLAGS_RELEASE "/LTCG /INCREMENTAL:NO /OPT:REF /OPT:ICF" CACHE STRING "Aggressive linker flags" FORCE)

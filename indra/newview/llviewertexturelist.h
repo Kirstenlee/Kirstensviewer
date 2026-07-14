@@ -156,6 +156,14 @@ private:
     void addImage(LLViewerFetchedTexture *image, ETexListType tex_type);
     void deleteImage(LLViewerFetchedTexture *image);
 
+    // S24: one-shot proactive eviction of already-orphaned textures, called on a
+    // genuine cross-region teleport. Does NOT bypass the ref-count check
+    // deleteImage()/updateImageDecodePriority() already rely on -- only the two
+    // time-based grace gates (lazy_flush_timeout, getBoundRecently()) that exist to
+    // protect against premature disposal on a quick glance-away, which isn't a concern
+    // right after leaving a region for good.
+    void forceFlushOrphanedTextures();
+
     void addImageToList(LLViewerFetchedTexture *image);
     void removeImageFromList(LLViewerFetchedTexture *image);
 

@@ -4319,6 +4319,10 @@ void LLVOAvatar::updateFootstepSounds()
 void LLVOAvatar::computeUpdatePeriod()
 {
     bool visually_muted = isVisuallyMuted();
+    // S24: remember whether this avatar was impostored last frame, before
+    // mUpdatePeriod gets overwritten below - shouldImpostorWithHysteresis()
+    // needs this to decide which side of the hysteresis band to apply.
+    const bool was_impostored = sLimitNonImpostors && (mUpdatePeriod > 1);
     if (mDrawable.notNull()
         && isVisible()
         && (!isSelf() || visually_muted)
@@ -4339,7 +4343,7 @@ void LLVOAvatar::computeUpdatePeriod()
         {   // visually muted avatars update at lowest rate
             mUpdatePeriod = UPDATE_RATE_SLOW;
         }
-        else if (! shouldImpostor()
+        else if (! shouldImpostorWithHysteresis(was_impostored)
                  || mDrawable->mDistanceWRTCamera < 1.f + mag)
         {   // first 25% of max visible avatars are not impostored
             // also, don't impostor avatars whose bounding box may be penetrating the
@@ -8709,9 +8713,21 @@ void LLVOAvatar::updateTooSlow()
         }
     }
 
+    // S24: hysteresis band around the ART cap. mGPURenderTimeSmoothed is
+    // already an EMA (see readProfileQuery()), but even a smoothed value
+    // can sit right on a single cutoff under sustained load. Once an
+    // avatar has tripped mTooSlow it must drop back below
+    // S24_TOO_SLOW_RELEASE_FACTOR * max_art_ms (not just max_art_ms
+    // again) before it recovers, so it can't chatter every frame between
+    // full render and impostor - each flip re-triggers a full
+    // LLPipeline::generateImpostor() render pass, so chatter here is a
+    // direct frame time cost, not just a visual one.
+    static const F32 S24_TOO_SLOW_RELEASE_FACTOR = 0.85f;
+    const F32 art_cap_ms = mTooSlow ? (max_art_ms * S24_TOO_SLOW_RELEASE_FACTOR) : max_art_ms;
+
     bool exceeds_max_ART =
         ((LLPerfStats::renderAvatarMaxART_ns > 0) &&
-            (mGPURenderTime >= max_art_ms)); // NOTE: don't use getGPURenderTime accessor here to avoid "isTooSlow" feedback loop
+            (mGPURenderTimeSmoothed >= art_cap_ms)); // NOTE: don't use getGPURenderTime accessor here to avoid "isTooSlow" feedback loop
 
     if (exceeds_max_ART && !ignore_tune)
     {
@@ -10936,6 +10952,48 @@ bool LLVOAvatar::shouldImpostor(const F32 rank_factor)
     return sLimitNonImpostors && (mVisibilityRank > sMaxNonImpostors * rank_factor);
 }
 
+// S24: hysteresis band for the primary "should this avatar be impostored
+// at all" decision (rank_factor == 1.0 case of shouldImpostor(), used by
+// computeUpdatePeriod() to pick mUpdatePeriod == 1 vs an impostor tier).
+//
+// mVisibilityRank is fully recomputed every frame in
+// cullAvatarsByPixelArea(), which re-sorts *every* avatar by
+// mVisibilityPreference and reassigns ranks 2..N from scratch. An avatar
+// sitting near the sMaxNonImpostors cutoff can cross a bare threshold on
+// consecutive frames purely because some *other* avatar's rank shifted,
+// with no movement of its own - worse the more avatars are in the scene.
+// Each crossing flips isImpostor()/mUpdatePeriod, which re-triggers a
+// full LLPipeline::generateImpostor() render pass, so the flicker is a
+// real frame time cost, not just a visual one.
+//
+// Only the rank_factor==1.0 boundary gets this treatment: the further-out
+// tiers (rank_factor 3.0/4.0 in computeUpdatePeriod()) only pick how often
+// an already-impostored avatar's impostor texture refreshes, not whether
+// it's impostored, so flicker there doesn't produce the reported
+// fully-rendered/billboard flip.
+bool LLVOAvatar::shouldImpostorWithHysteresis(bool was_impostored)
+{
+    if (isSelf())
+    {
+        return false;
+    }
+    if (isVisuallyMuted())
+    {
+        return true;
+    }
+    if (!sLimitNonImpostors)
+    {
+        return false;
+    }
+
+    static const U32 S24_IMPOSTOR_RANK_HYSTERESIS = 2;
+    const U32 cutoff = was_impostored
+        ? ((sMaxNonImpostors > S24_IMPOSTOR_RANK_HYSTERESIS) ? (sMaxNonImpostors - S24_IMPOSTOR_RANK_HYSTERESIS) : 0)
+        : (sMaxNonImpostors + S24_IMPOSTOR_RANK_HYSTERESIS);
+
+    return mVisibilityRank > cutoff;
+}
+
 bool LLVOAvatar::needsImpostorUpdate() const
 {
     return mNeedsImpostorUpdate;
@@ -12042,6 +12100,15 @@ void LLVOAvatar::readProfileQuery(S32 retries)
         glGetQueryObjectui64v(mGPUTimerQuery, GL_QUERY_RESULT, &time_elapsed);
         mGPURenderTime = time_elapsed / 1000000.f;
         mGPUProfilePending = false;
+
+        // S24: smooth the raw per-frame sample with an EMA so the
+        // isTooSlow() decision (updateTooSlow()) isn't reacting to single-
+        // frame GPU timer noise. alpha=0.25 damps jitter while still
+        // tracking a genuine sustained cost increase within ~a dozen frames.
+        static const F32 S24_GPU_TIME_EMA_ALPHA = 0.25f;
+        mGPURenderTimeSmoothed = (mGPURenderTimeSmoothed <= 0.f)
+            ? mGPURenderTime
+            : lerp(mGPURenderTimeSmoothed, mGPURenderTime, S24_GPU_TIME_EMA_ALPHA);
 
         setDebugText(llformat("%d", (S32)(mGPURenderTime * 1000.f)));
 

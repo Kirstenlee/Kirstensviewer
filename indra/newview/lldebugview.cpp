@@ -38,7 +38,6 @@
 #include "llappviewer.h"
 #include "llsceneview.h"
 #include "llviewertexture.h"
-#include "llscenemonitor.h"
 //
 // Globals
 //
@@ -62,7 +61,6 @@ LLDebugView::~LLDebugView()
     gDebugView = NULL;
     gTextureView = NULL;
     gSceneView = NULL;
-    gSceneMonitorView = NULL;
 }
 
 void LLDebugView::init()
@@ -94,12 +92,12 @@ void LLDebugView::init()
     addChild(gSceneView);
     gSceneView->setRect(rect);
 
-    gSceneMonitorView = new LLSceneMonitorView(r);
-    gSceneMonitorView->setFollowsTop();
-    gSceneMonitorView->setFollowsLeft();
-    gSceneMonitorView->setVisible(false);
-    addChild(gSceneMonitorView);
-    gSceneMonitorView->setRect(rect);
+    // S24: "Scene Loading Monitor" interactive floater (LLSceneMonitorView) deprecated and
+    // removed - oversized (75% of window, resized every frame while visible), positioned near
+    // the menu bar, and its raw pixel-diff heatmap had no legend to make sense of. The
+    // underlying LLSceneMonitor singleton (capture/compare/dumpToFile) is untouched and still
+    // drives frame-diff scene-load timing independent of this view - see llscenemonitor.cpp.
+    // "Scene Load Statistics" (Develop > Consoles) remains as the well-behaved alternative.
 
     r.set(150, rect.getHeight() - 60, 890, 110);  // S24 UI: Widened texture console from 820 to 890 (+70px) to prevent text overspill
     LLTextureView::Params tvp;

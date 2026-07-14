@@ -474,6 +474,22 @@ GLuint LLShaderMgr::loadShaderFile(const std::string& filename, S32& shader_leve
 
 	std::string open_file_name;
 
+#ifdef DX_RENDER
+	// filename arrives with ".glsl" already baked in by ~150 call sites in
+	// llviewershadermgr.cpp - swap it to the equivalent ".hlsl" sibling on a
+	// local copy only. The original (still-".glsl") filename remains the
+	// cache key into mVertexShaderSourceText/mFragmentShaderSourceText below,
+	// matching what attachShaderFeatures()'s unmodified ".glsl" call sites
+	// look up later.
+	std::string dx_filename = filename;
+	const std::string glsl_ext(".glsl");
+	if (dx_filename.size() >= glsl_ext.size() &&
+		dx_filename.compare(dx_filename.size() - glsl_ext.size(), glsl_ext.size(), glsl_ext) == 0)
+	{
+		dx_filename.replace(dx_filename.size() - glsl_ext.size(), glsl_ext.size(), ".hlsl");
+	}
+#endif
+
 #if 0  // WIP -- try to come up with a way to fallback to an error shader without needing debug stubs all over the place in the shader tree
 	if (shader_level == -1)
 	{
@@ -498,7 +514,11 @@ GLuint LLShaderMgr::loadShaderFile(const std::string& filename, S32& shader_leve
 		{   //search from the current gpu class down to class 1 to find the most relevant shader
 			std::stringstream fname;
 			fname << getShaderDirPrefix();
+#ifdef DX_RENDER
+            fname << gpu_class << gDirUtilp->getDirDelimiter() << dx_filename;
+#else
             fname << gpu_class << gDirUtilp->getDirDelimiter() << filename;
+#endif
 
 			open_file_name = fname.str();
 
@@ -538,6 +558,35 @@ GLuint LLShaderMgr::loadShaderFile(const std::string& filename, S32& shader_leve
         return 0;
     }
 
+#ifdef DX_RENDER
+	// HLSL has no separately-compiled/linkable shader objects (unlike GL,
+	// D3DCompile takes one source blob per stage) - just cache the raw file
+	// text here. Real per-stage compilation happens later, once
+	// LLGLSLShader::createShaderDX() has concatenated this entry file's text
+	// with its attached utility files' text (see mVertexShaderSourceText/
+	// mFragmentShaderSourceText in llshadermgr.h).
+	std::string source_text;
+	{
+		char line_buf[1024];
+		while (fgets(line_buf, sizeof(line_buf), file) != NULL)
+		{
+			source_text += line_buf;
+		}
+	}
+	fclose(file);
+
+	if (type == GL_VERTEX_SHADER)
+	{
+		mVertexShaderSourceText[filename] = source_text;
+	}
+	else if (type == GL_FRAGMENT_SHADER)
+	{
+		mFragmentShaderSourceText[filename] = source_text;
+	}
+
+	shader_level = try_gpu_class;
+	return 1; // truthy sentinel - DX_RENDER has no real GL shader object
+#else
 	//we can't have any lines longer than 1024 characters
 	//or any shaders longer than 4096 lines... deal - DaveP
 	GLchar buff[1024];
@@ -898,6 +947,7 @@ GLuint LLShaderMgr::loadShaderFile(const std::string& filename, S32& shader_leve
 
 	LL_DEBUGS("ShaderLoading") << "loadShaderFile() completed, ret: " << U32(ret) << LL_ENDL;
 	return ret;
+#endif // DX_RENDER
 }
 
 bool LLShaderMgr::linkProgramObject(GLuint obj, bool suppress_errors)

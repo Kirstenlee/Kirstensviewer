@@ -36,6 +36,7 @@
 #include "lltextutil.h"
 
 // newview
+#include "llagent.h" // S24: for gAgent.getPositionGlobal() in updateAvatarMeta()
 #include "llagentdata.h" // for comparator
 #include "llavatariconctrl.h"
 #include "llavatarnamecache.h"
@@ -47,6 +48,8 @@
 #include "llvoiceclient.h"
 #include "llviewercontrol.h"	// for gSavedSettings
 #include "lltooldraganddrop.h"
+#include "v3dmath.h" // S24: for dist_vec() in updateAvatarMeta()
+#include <map>
 
 static LLDefaultChildRegistry::Register<LLAvatarList> r("avatar_list");
 
@@ -124,6 +127,7 @@ LLAvatarList::Params::Params()
 , show_profile_btn("show_profile_btn", true)
 , show_speaking_indicator("show_speaking_indicator", true)
 , show_permissions_granted("show_permissions_granted", false)
+, show_avatar_meta("show_avatar_meta", false)
 {
 }
 
@@ -142,6 +146,7 @@ LLAvatarList::LLAvatarList(const Params& p)
 , mShowPermissions(p.show_permissions_granted)
 , mShowCompleteName(false)
 , mForceCompleteName(false)
+, mShowAvatarMeta(p.show_avatar_meta)
 {
 	setCommitOnSelectionChange(true);
 
@@ -429,6 +434,7 @@ void LLAvatarList::addNewItem(const LLUUID& id, const std::string& name, bool is
 	item->setAvatarId(id, mSessionID, mIgnoreOnlineStatus);
 	item->setOnline(mIgnoreOnlineStatus ? true : is_online);
 	item->showLastInteractionTime(mShowLastInteractionTime);
+	item->showAvatarMeta(mShowAvatarMeta);
 
 	item->setAvatarIconVisible(mShowIcons);
 	item->setShowInfoBtn(mShowInfoBtn);
@@ -549,6 +555,40 @@ void LLAvatarList::updateLastInteractionTimes()
 		S32 secs_since = now - (S32) LLRecentPeople::instance().getDate(item->getAvatarId()).secondsSinceEpoch();
 		if (secs_since >= 0)
 			item->setLastInteractionTime(secs_since);
+	}
+}
+
+// S24: push distance (parallel to uuids, same data the distance-sort comparator already
+// gets every tick) into each item's distance/account age display. No-op unless
+// show_avatar_meta was set on this list instance (nearby list only).
+void LLAvatarList::updateAvatarMeta(const std::vector<LLVector3d>& positions, const uuid_vec_t& uuids)
+{
+	if (!mShowAvatarMeta)
+	{
+		return;
+	}
+
+	std::map<LLUUID, LLVector3d> pos_map;
+	for (size_t i = 0; i < uuids.size() && i < positions.size(); ++i)
+	{
+		pos_map[uuids[i]] = positions[i];
+	}
+
+	const LLVector3d& my_pos = gAgent.getPositionGlobal();
+
+	std::vector<LLPanel*> items;
+	getItems(items);
+	for (LLPanel* panel : items)
+	{
+		LLAvatarListItem* item = static_cast<LLAvatarListItem*>(panel);
+
+		std::map<LLUUID, LLVector3d>::const_iterator pos_it = pos_map.find(item->getAvatarId());
+		if (pos_it == pos_map.end())
+		{
+			continue;
+		}
+
+		item->setAvatarMeta((F32)dist_vec(pos_it->second, my_pos));
 	}
 }
 

@@ -41,6 +41,12 @@
 #include "llavatariconctrl.h"
 #include "lloutputmonitorctrl.h"
 #include "lltooldraganddrop.h"
+#include "kvavatarinfocache.h" // S24: distance/age cache
+#include "lldate.h"
+
+// S24: age threshold for the "new account" highlight in setAvatarMeta() - a single constant
+// so the postBuild() tooltip text can never drift out of sync with the actual logic.
+static const S32 KV_NEW_ACCOUNT_DAYS = 7;
 
 bool LLAvatarListItem::sStaticInitialized = false;
 S32 LLAvatarListItem::sLeftPadding = 0;
@@ -66,6 +72,7 @@ LLAvatarListItem::LLAvatarListItem(bool not_from_ui_factory/* = true*/)
     mAvatarIcon(NULL),
     mAvatarName(NULL),
     mLastInteractionTime(NULL),
+    mAvatarMeta(NULL),
     mIconPermissionOnline(NULL),
     mIconPermissionMap(NULL),
     mIconPermissionEditMine(NULL),
@@ -109,6 +116,9 @@ bool LLAvatarListItem::postBuild()
     mAvatarIcon = getChild<LLAvatarIconCtrl>("avatar_icon");
     mAvatarName = getChild<LLTextBox>("avatar_name");
     mLastInteractionTime = getChild<LLTextBox>("last_interaction");
+    mAvatarMeta = getChild<LLTextBox>("avatar_meta");
+    mAvatarMeta->setVisible(false);
+    mAvatarMeta->setToolTip(llformat("Distance and account age. Orange highlights accounts under %d days old.", KV_NEW_ACCOUNT_DAYS));
 
     mIconPermissionOnline = getChild<LLIconCtrl>("permission_online_icon");
     mIconPermissionMap = getChild<LLIconCtrl>("permission_map_icon");
@@ -311,6 +321,70 @@ void LLAvatarListItem::showLastInteractionTime(bool show)
 void LLAvatarListItem::setLastInteractionTime(U32 secs_since)
 {
     mLastInteractionTime->setValue(formatSeconds(secs_since));
+}
+
+void LLAvatarListItem::showAvatarMeta(bool show)
+{
+    mAvatarMeta->setVisible(show);
+    updateChildren();
+}
+
+// S24: distance (m) plus cached account age (see KVAvatarInfoCache). Age is fetched at most
+// once per avatar per session - safe to call every tick (the nearby list already refreshes
+// every 1s) without triggering repeat network requests.
+//
+// Payment-info was deliberately dropped: the modern AgentProfile cap doesn't reliably surface
+// it for third-party avatars, so it never carried real signal - and it's one profile-open
+// away if genuinely needed. Keeping this to distance + age only.
+void LLAvatarListItem::setAvatarMeta(F32 distance_meters)
+{
+    const KVAvatarInfoCache::Entry& info = KVAvatarInfoCache::instance().get(mAvatarId);
+
+    // S24: distance alone until age resolves (usually well under a second) - a trailing
+    // placeholder like "18m | ..." reads as unfinished rather than simply not-loaded-yet.
+    std::string text = llformat("%.0fm", distance_meters);
+    LLColor4 color = LLColor4::grey;
+
+    if (info.valid)
+    {
+        time_t now = time(NULL);
+        time_t born = (time_t)info.born_on.secondsSinceEpoch();
+        S32 total_days = (S32)llmax((time_t)0, (now - born) / 86400);
+
+        text += " | " + formatAge(total_days);
+
+        if (total_days < KV_NEW_ACCOUNT_DAYS)
+        {
+            color = LLColor4::orange;
+        }
+    }
+
+    mAvatarMeta->setValue(text);
+    mAvatarMeta->setColor(color);
+}
+
+// S24: compact age string - "2y 3m", "2y", "5m 12d", "5m", or "18d" for brand new accounts
+// (the case most worth a glance in a public location). Zero-valued secondary units are
+// dropped ("2y" not "2y 0m") to keep the common case reading cleanly.
+std::string LLAvatarListItem::formatAge(S32 total_days) const
+{
+    S32 years = total_days / 365;
+    S32 remainder = total_days % 365;
+    S32 months = remainder / 30;
+    S32 days = remainder % 30;
+
+    if (years > 0)
+    {
+        return months > 0 ? llformat("%dy %dm", years, months) : llformat("%dy", years);
+    }
+    else if (months > 0)
+    {
+        return days > 0 ? llformat("%dm %dd", months, days) : llformat("%dm", months);
+    }
+    else
+    {
+        return llformat("%dd", days);
+    }
 }
 
 void LLAvatarListItem::setShowInfoBtn(bool show)
@@ -538,6 +612,9 @@ void LLAvatarListItem::initChildrenWidths(LLAvatarListItem* avatar_item)
     // last interaction time textbox width + padding
     S32 last_interaction_time_width = avatar_item->mIconPermissionEditTheirs->getRect().mLeft - avatar_item->mLastInteractionTime->getRect().mLeft;
 
+    // S24: avatar meta (distance/age) textbox width + padding
+    S32 avatar_meta_width = avatar_item->mLastInteractionTime->getRect().mLeft - avatar_item->mAvatarMeta->getRect().mLeft;
+
     // avatar icon width + padding
     S32 icon_width = avatar_item->mAvatarName->getRect().mLeft - avatar_item->mAvatarIcon->getRect().mLeft;
 
@@ -546,6 +623,7 @@ void LLAvatarListItem::initChildrenWidths(LLAvatarListItem* avatar_item)
     S32 index = ALIC_COUNT;
     sChildrenWidths[--index] = icon_width;
     sChildrenWidths[--index] = 0; // for avatar name we don't need its width, it will be calculated as "left available space"
+    sChildrenWidths[--index] = avatar_meta_width;
     sChildrenWidths[--index] = last_interaction_time_width;
     sChildrenWidths[--index] = permission_edit_theirs_width;
     sChildrenWidths[--index] = permission_edit_mine_width;
@@ -668,6 +746,9 @@ LLView* LLAvatarListItem::getItemChildView(EAvatarListItemChildIndex child_view_
         break;
     case ALIC_INTERACTION_TIME:
         child_view = mLastInteractionTime;
+        break;
+    case ALIC_AVATAR_META:
+        child_view = mAvatarMeta;
         break;
     case ALIC_SPEAKER_INDICATOR:
         child_view = mSpeakingIndicator;

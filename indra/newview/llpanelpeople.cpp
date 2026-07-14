@@ -57,6 +57,7 @@
 #include "llerror.h"
 #include "llfloateravatarpicker.h"
 #include "llfriendcard.h"
+#include "kvavatarinfocache.h"      // S24: for LLAvatarItemAgeComparator
 #include "llgroupactions.h"
 #include "llgrouplist.h"
 #include "llinventoryobserver.h"
@@ -235,11 +236,45 @@ protected:
     }
 };
 
+/** S24: Compares avatar items by account age (born_on date from KVAvatarInfoCache) */
+class LLAvatarItemAgeComparator : public LLAvatarItemNameComparator
+{
+public:
+    LLAvatarItemAgeComparator() {};
+    virtual ~LLAvatarItemAgeComparator() {};
+
+protected:
+    virtual bool doCompare(const LLAvatarListItem* item1, const LLAvatarListItem* item2) const
+    {
+        const KVAvatarInfoCache::Entry& entry1 = KVAvatarInfoCache::instance().get(item1->getAvatarId());
+        const KVAvatarInfoCache::Entry& entry2 = KVAvatarInfoCache::instance().get(item2->getAvatarId());
+
+        if (entry1.valid && entry2.valid)
+        {
+            // older accounts (earlier born_on) come first
+            return entry1.born_on < entry2.born_on;
+        }
+        else if (entry1.valid)
+        {
+            // True if only item1's age is known
+            return true;
+        }
+        else if (entry2.valid)
+        {
+            // False if only item2's age is known
+            return false;
+        }
+        // Neither age known yet: fall back to name.
+        return LLAvatarItemNameComparator::doCompare(item1, item2);
+    }
+};
+
 static const LLAvatarItemRecentComparator RECENT_COMPARATOR;
 static const LLAvatarItemStatusComparator STATUS_COMPARATOR;
 static LLAvatarItemDistanceComparator DISTANCE_COMPARATOR;
 static const LLAvatarItemRecentSpeakerComparator RECENT_SPEAKER_COMPARATOR;
 static LLAvatarItemRecentArrivalComparator RECENT_ARRIVAL_COMPARATOR;
+static const LLAvatarItemAgeComparator AGE_COMPARATOR;
 
 static LLPanelInjector<LLPanelPeople> t_people("panel_people");
 
@@ -849,6 +884,9 @@ void LLPanelPeople::updateNearbyList()
 #endif
 
     DISTANCE_COMPARATOR.updateAvatarsPositions(positions, mNearbyList->getIDs());
+    // S24: distance/account age display - see KVAvatarInfoCache. Cheap/local; no-op
+    // unless the nearby list's avatar_list has show_avatar_meta="true" (panel_people.xml).
+    mNearbyList->updateAvatarMeta(positions, mNearbyList->getIDs());
     LLActiveSpeakerMgr::instance().update(true);
 }
 
@@ -1007,6 +1045,10 @@ void LLPanelPeople::setSortOrder(LLAvatarList* list, ESortOrder order, bool save
         break;
     case E_SORT_BY_RECENT_ARRIVAL:
         list->setComparator(&RECENT_ARRIVAL_COMPARATOR);
+        list->sort();
+        break;
+    case E_SORT_BY_AGE:
+        list->setComparator(&AGE_COMPARATOR);
         list->sort();
         break;
     default:
@@ -1358,6 +1400,10 @@ void LLPanelPeople::onNearbyViewSortMenuItemClicked(const LLSD& userdata)
     {
         setSortOrder(mNearbyList, E_SORT_BY_RECENT_ARRIVAL);
     }
+    else if (chosen_item == "sort_age")
+    {
+        setSortOrder(mNearbyList, E_SORT_BY_AGE);
+    }
     else if (chosen_item == "view_usernames")
     {
         bool hide_usernames = !gSavedSettings.getBOOL("NearbyListHideUsernames");
@@ -1381,6 +1427,8 @@ bool LLPanelPeople::onNearbyViewSortMenuItemCheck(const LLSD& userdata)
         return sort_order == E_SORT_BY_DISTANCE;
     if (item == "sort_arrival")
         return sort_order == E_SORT_BY_RECENT_ARRIVAL;
+    if (item == "sort_age")
+        return sort_order == E_SORT_BY_AGE;
 
     return false;
 }

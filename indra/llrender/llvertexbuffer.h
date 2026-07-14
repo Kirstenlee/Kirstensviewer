@@ -326,10 +326,21 @@ public:
     static U64 getBytesAllocated();
     static const U32 sTypeSize[TYPE_MAX];
     static const U32 sGLMode[LLRender::NUM_MODES];
-    static U32 sGLRenderBuffer;
-    static U32 sGLRenderIndices;
+    // S24: thread_local (was plain static) — these are a CPU-side cache of "what's bound
+    // in the calling thread's current GL context" used to elide redundant glBindBuffer calls.
+    // GL bind state is per-context, so a plain global corrupts the render thread's cache the
+    // moment any other thread (e.g. the VBO work queue's worker) binds a buffer on its own
+    // shared context. Mirrors gGL's own thread_local pattern (llrender.h).
+    static thread_local U32 sGLRenderBuffer;
+    static thread_local U32 sGLRenderIndices;
     static U32 sLastMask;
     static U32 sVertexCount;
+
+    // S24: runtime control for the experimental GL work queue (deferred VBO pool allocation).
+    // Set from settings_to_globals() in llappviewer.cpp — llrender cannot see gSavedSettings
+    // directly, mirrors the LLRender::sGLCoreProfile pattern.
+    static bool sVBOWorkQueueEnabled;
+    static U32 sVBOWorkQueueThreadCount;
 };
 
 #if LL_PROFILER_ENABLE_RENDER_DOC

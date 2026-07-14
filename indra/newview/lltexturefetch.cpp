@@ -574,6 +574,7 @@ private:
 	bool mNeedsAux;
 	bool mHaveAllData;
 	bool mInLocalCache;
+	bool mFromRamCache; // true if this fetch's LOAD_FROM_TEXTURE_CACHE/CACHE_POST was satisfied by KVRAMCache, not an actual disk read
 	bool mInCache;
 	bool                        mCanUseHTTP;
 	S32 mRetryAttempt;
@@ -900,6 +901,7 @@ LLTextureFetchWorker::LLTextureFetchWorker(LLTextureFetch* fetcher,
 	mNeedsAux(false),
 	mHaveAllData(false),
 	mInLocalCache(false),
+	mFromRamCache(false),
 	mInCache(false),
 	mCanUseHTTP(true),
 	mRetryAttempt(0),
@@ -1130,6 +1132,7 @@ bool LLTextureFetchWorker::doWork(S32 param)
 		mHaveAllData = false;
 		mCacheReadHandle = LLTextureCache::nullHandle();
 		mCacheWriteHandle = LLTextureCache::nullHandle();
+		mFromRamCache = false;
 		setState(LOAD_FROM_TEXTURE_CACHE);
 		mInCache = false;
 		mDesiredSize = llmax(mDesiredSize, TEXTURE_CACHE_ENTRY_SIZE); // min desired size is TEXTURE_CACHE_ENTRY_SIZE
@@ -1204,6 +1207,7 @@ bool LLTextureFetchWorker::doWork(S32 param)
 									mFileSize = data_size;
 									mImageCodec = IMG_CODEC_J2C;  // CRITICAL: Must set codec!
 									mInLocalCache = false;  // Not from disk, from RAM
+									mFromRamCache = true;  // for texture console: distinguish RAM hit from disk read
 									mCacheReadHandle = LLTextureCache::nullHandle();  // CRITICAL: No pending disk read!
 
 									// Check if we have all data OR if cached discard satisfies request
@@ -1244,37 +1248,47 @@ bool LLTextureFetchWorker::doWork(S32 param)
 				}
 			}
 			// RAM CACHE MISS or disabled - proceed with normal disk cache logic
-
-			mFileSize = 0;
-			mLoaded = false;
-
-			add(LLTextureFetch::sCacheAttempt, 1.0);
-
-			if (mUrl.compare(0, 7, "file://") == 0)
+			//
+			// S24 FIX: this whole block used to run unconditionally, even after a successful
+			// RAM cache hit above had already set mLoaded=true/mFileSize/mCacheReadHandle.
+			// It would immediately stomp mLoaded back to false and either kick off a redundant
+			// disk-cache read or jump to WAIT_HTTP_RESOURCE/LOAD_FROM_NETWORK, discarding data
+			// we already had fully decoded in hand - the "fall through to the mLoaded check
+			// below" comment above never actually held because nothing guarded this path on
+			// mLoaded. The `if (!mLoaded)` below restores that guard.
+			if (!mLoaded)
 			{
-				// read file from local disk
-				++mCacheReadCount;
-				std::string filename = mUrl.substr(7, std::string::npos);
-				CacheReadResponder* responder = new CacheReadResponder(mFetcher, mID, mFormattedImage);
-				mCacheReadTimer.reset();
-				mCacheReadHandle = mFetcher->mTextureCache->readFromCache(filename, mID, offset, size, responder);
+				mFileSize = 0;
+				mLoaded = false;
 
-			}
-			else if ((mUrl.empty() || mFTType == FTT_SERVER_BAKE) && mFetcher->canLoadFromCache())
-			{
-				++mCacheReadCount;
-				CacheReadResponder* responder = new CacheReadResponder(mFetcher, mID, mFormattedImage);
-				mCacheReadTimer.reset();
-				mCacheReadHandle = mFetcher->mTextureCache->readFromCache(mID,
-					offset, size, responder);;
-			}
-			else if (!mUrl.empty() && mCanUseHTTP)
-			{
-				setState(WAIT_HTTP_RESOURCE);
-			}
-			else
-			{
-				setState(LOAD_FROM_NETWORK);
+				add(LLTextureFetch::sCacheAttempt, 1.0);
+
+				if (mUrl.compare(0, 7, "file://") == 0)
+				{
+					// read file from local disk
+					++mCacheReadCount;
+					std::string filename = mUrl.substr(7, std::string::npos);
+					CacheReadResponder* responder = new CacheReadResponder(mFetcher, mID, mFormattedImage);
+					mCacheReadTimer.reset();
+					mCacheReadHandle = mFetcher->mTextureCache->readFromCache(filename, mID, offset, size, responder);
+
+				}
+				else if ((mUrl.empty() || mFTType == FTT_SERVER_BAKE) && mFetcher->canLoadFromCache())
+				{
+					++mCacheReadCount;
+					CacheReadResponder* responder = new CacheReadResponder(mFetcher, mID, mFormattedImage);
+					mCacheReadTimer.reset();
+					mCacheReadHandle = mFetcher->mTextureCache->readFromCache(mID,
+						offset, size, responder);;
+				}
+				else if (!mUrl.empty() && mCanUseHTTP)
+				{
+					setState(WAIT_HTTP_RESOURCE);
+				}
+				else
+				{
+					setState(LOAD_FROM_NETWORK);
+				}
 			}
 		}
 
@@ -1969,7 +1983,6 @@ bool LLTextureFetchWorker::doWork(S32 param)
 		// if we have the entire image data (and the image is not J2C), decode the full res image
 		// DO NOT decode a higher res j2c than was requested.  This is a waste of time and memory.
 		mDecoded = false;
-		setState(DECODE_IMAGE_UPDATE);
 		LL_DEBUGS(LOG_TXT) << mID << ": Decoding. Bytes: " << mFormattedImage->getDataSize() << " Discard: " << discard
 			<< " All Data: " << mHaveAllData << LL_ENDL;
 
@@ -1982,12 +1995,28 @@ bool LLTextureFetchWorker::doWork(S32 param)
 			new DecodeResponder(mFetcher, mID, this));
 		if (mDecodeHandle == 0)
 		{
-			// Abort, failed to put into queue.
-			// Happens if viewer is shutting down
-			setState(DONE);
-			LL_DEBUGS(LOG_TXT) << mID << " DECODE_IMAGE abort: failed to post for decoding" << LL_ENDL;
-			return true;
+			// S24 FIX: handle==0 means either (a) the decode thread pool is genuinely
+			// shutting down, or (b) LLImageDecodeThread's queue-depth cap rejected this
+			// request and wants a retry (see llimageworker.cpp: "caller treats handle_t(0)
+			// as 'try again later'"). Both used to be treated as terminal failure here,
+			// silently dropping the fetch - which conflates "shutting down" with "queue is
+			// temporarily full", the latter being exactly the condition the queue cap
+			// exists to signal under memory pressure. Distinguish them explicitly.
+			if (LLAppViewer::instance()->quitRequested())
+			{
+				setState(DONE);
+				LL_DEBUGS(LOG_TXT) << mID << " DECODE_IMAGE abort: shutting down" << LL_ENDL;
+				return true;
+			}
+
+			// Queue is full - mState is still DECODE_IMAGE (setState(DECODE_IMAGE_UPDATE)
+			// now only happens below, on a successful enqueue), so the next doWork() call
+			// retries this block from scratch instead of the fetch being dropped.
+			LL_DEBUGS(LOG_TXT) << mID << " DECODE_IMAGE deferred: decode queue full, will retry" << LL_ENDL;
+			return false;
 		}
+
+		setState(DECODE_IMAGE_UPDATE);
 		// fall though
 	}
 
@@ -3322,6 +3351,22 @@ bool LLTextureFetch::isFromLocalCache(const LLUUID& id)
 	}
 
 	return from_cache;
+}
+
+// Threads:  T*
+bool LLTextureFetch::isFromRamCache(const LLUUID& id)
+{
+	bool from_ram_cache = false;
+
+	LLTextureFetchWorker* worker = getWorker(id);
+	if (worker)
+	{
+		worker->lockWorkMutex();                                        // +Mw
+		from_ram_cache = worker->mFromRamCache;
+		worker->unlockWorkMutex();                                      // -Mw
+	}
+
+	return from_ram_cache;
 }
 
 S32 LLTextureFetch::getFetchState(const LLUUID& id)
