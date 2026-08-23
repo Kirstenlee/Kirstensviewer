@@ -180,6 +180,50 @@ void LLCubeMap::init(const std::vector<LLPointer<LLImageRaw> >& rawimages)
 		initGL();
 		initRawData(rawimages);
 		initGLData();
+
+#ifdef DX_RENDER
+		// S24 (2026-08-06, task #113): the 3 calls above already correctly
+		// uploaded each face into its own 2D DXTexture (see LLImageGL's
+		// already-DX_RENDER-safe generateTextures()/createGLTexture()/
+		// setSubImage()) - this assembles those 6 already-uploaded 2D
+		// textures into one real D3D11 cubemap resource that
+		// TextureCube.Sample() can actually sample (see DXCubeTexture's own
+		// comment for why a genuine unified resource is needed, not 6
+		// independent ones). Silently leaves mDXCubeTexture invalid (not
+		// sampled - LLTexUnit::bind(LLCubeMap*) falls back to a neutral
+		// white texture) if any face failed to upload above.
+		if (mDXCubeTexture.create(RESOLUTION, RESOLUTION, true))
+		{
+			// S24 (2026-08-15, task #194 offshoot): mTargets[6] (this class's
+			// constructor, above) is GL's face order: -X,+X,-Y,+Y,-Z,+Z. D3D11
+			// cubemap array-slice order is FIXED by the API itself, not
+			// something CopySubresourceRegion's destination subresource index
+			// can relabel the way GL's explicit face-target enum lets you:
+			// slice 0=+X, 1=-X, 2=+Y, 3=-Y, 4=+Z, 5=-Z. Passing `face` as both
+			// the source index (GL order) AND the destination slice (assumed
+			// D3D11-native order) put every face in the wrong slice - e.g.
+			// GL's face 0 (-X content) landed in D3D11 slice 0, which the
+			// hardware always treats as +X regardless of what's actually
+			// there. This remaps GL face index -> correct D3D11 slice index
+			// (each axis pair swapped: GL's -X,+X,-Y,+Y,-Z,+Z -> D3D11's
+			// +X,-X,+Y,-Y,+Z,-Z).
+			static const int kGLFaceToDXSlice[6] = { 1, 0, 3, 2, 5, 4 };
+
+			bool all_faces_ok = true;
+			for (int face = 0; face < 6; ++face)
+			{
+				ID3D11Texture2D* face_tex = mImages[face].notNull() ? mImages[face]->getDXTexturePtr() : nullptr;
+				if (!mDXCubeTexture.copyFace(kGLFaceToDXSlice[face], face_tex))
+				{
+					all_faces_ok = false;
+				}
+			}
+			if (all_faces_ok)
+			{
+				mDXCubeTexture.generateMipMaps();
+			}
+		}
+#endif
 	}
 }
 
@@ -372,6 +416,10 @@ void LLCubeMap::destroyGL()
 
 		mRawImages[i] = nullptr;
 	}
+
+#ifdef DX_RENDER
+	mDXCubeTexture.destroy();
+#endif
 
 	mMatrixStage = -1;
 }

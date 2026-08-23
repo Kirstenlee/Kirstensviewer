@@ -5468,18 +5468,39 @@ U32 LLVOAvatar::renderImpostor(LLColor4U color, S32 diffuse_channel)
     gGL.getTexUnit(diffuse_channel)->bind(&mImpostor);
     gGL.begin(LLRender::TRIANGLES);
     {
-        gGL.texCoord2f(0.f, 0.f);
+        // S24 (2026-08-17): GL-vs-D3D11 texture-origin flip - same bug
+        // class as the post-fx chain's read-side fixes (fxaaF.hlsl/
+        // postDeferredF.hlsl/dofCombineF.hlsl/postDeferredNoDoFF.hlsl,
+        // task #145 sweep), just applied in C++ here instead of HLSL since
+        // this is a raw immediate-mode quad, not a shader sample. mImpostor
+        // is rendered via a real perspective camera (LLPipeline::
+        // generateImpostor(), same renderGeomDeferred()/
+        // renderGeomPostDeferred() the main scene uses) - the capture
+        // itself is correct, matching the main view. The bug is purely in
+        // this UV mapping: it hardcodes GL's convention (v=0 = bottom row
+        // of the rendered image = the avatar's feet, "-up" world offset).
+        // Under D3D11's top-down addressing, v=0 samples the TOP row
+        // instead (the avatar's head) - unflipped, that places the head
+        // texture data at the "-up" (feet) end of the billboard, i.e. the
+        // reported "heads on the floor". Flipping v here corrects it
+        // without touching the shared vertex-position math above.
+#ifdef DX_RENDER
+        const F32 v_bottom = 1.f, v_top = 0.f;
+#else
+        const F32 v_bottom = 0.f, v_top = 1.f;
+#endif
+        gGL.texCoord2f(0.f, v_bottom);
         gGL.vertex3fv((pos + left - up).mV);
-        gGL.texCoord2f(1.f, 0.f);
+        gGL.texCoord2f(1.f, v_bottom);
         gGL.vertex3fv((pos - left - up).mV);
-        gGL.texCoord2f(1.f, 1.f);
+        gGL.texCoord2f(1.f, v_top);
         gGL.vertex3fv((pos - left + up).mV);
 
-        gGL.texCoord2f(0.f, 0.f);
+        gGL.texCoord2f(0.f, v_bottom);
         gGL.vertex3fv((pos + left - up).mV);
-        gGL.texCoord2f(1.f, 1.f);
+        gGL.texCoord2f(1.f, v_top);
         gGL.vertex3fv((pos - left + up).mV);
-        gGL.texCoord2f(0.f, 1.f);
+        gGL.texCoord2f(0.f, v_top);
         gGL.vertex3fv((pos + left + up).mV);
     }
     gGL.end();
@@ -9482,7 +9503,6 @@ bool LLVOAvatar::visualParamWeightsAreDefault()
         }
     }
 
-   
     return rtn;
 }
 
@@ -10123,6 +10143,20 @@ void LLVOAvatar::onBakedTextureMasksLoaded( bool success, LLViewerFetchedTexture
             gGL.getTexUnit(0)->bindManual(LLTexUnit::TT_TEXTURE, gl_name);
             stop_glerror();
 
+#ifndef DX_RENDER
+            // S24 (2026-08-03, task #84): this GL texture is never actually
+            // bound/sampled anywhere - grep confirms mMaskTexName (which
+            // stores gl_name below) is only ever passed to deleteTextures(),
+            // never bound. The real morph mask application below
+            // (self->applyMorphMask()) reads aux_src's raw pixel data
+            // directly, CPU-side - this upload is dead weight for rendering
+            // purposes on both backends. Under DX_RENDER, setManualImage()
+            // itself has no DX_RENDER branch anywhere in its body (unlike
+            // generateTextures()/bindManual() above, both already safe
+            // no-ops) - it unconditionally calls the real glTexImage2D, a
+            // null function pointer under DX_RENDER (no GL context exists),
+            // which would crash. Skipped entirely rather than given a real
+            // DXTexture backing, since nothing would ever read it.
             LLImageGL::setManualImage(
                 GL_TEXTURE_2D, 0, GL_ALPHA8,
                 aux_src->getWidth(), aux_src->getHeight(),
@@ -10130,6 +10164,7 @@ void LLVOAvatar::onBakedTextureMasksLoaded( bool success, LLViewerFetchedTexture
             stop_glerror();
 
             gGL.getTexUnit(0)->setTextureFilteringOption(LLTexUnit::TFO_BILINEAR);
+#endif
 
             /* if( id == head_baked->getID() )
                  if (self->mBakedTextureDatas[BAKED_HEAD].mTexLayerSet)

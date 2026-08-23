@@ -27,6 +27,22 @@
 Texture2D sceneMap : register(t0);
 SamplerState sceneMapSampler : register(s0);
 
+// See pointLightF.hlsl's comment - GBufferInfo is defined for real in
+// gbufferUtil.hlsl, attached after this file's own text, but this file's
+// own forward declaration below needs the type visible already.
+#ifndef LL_GBUFFERINFO_DECLARED
+#define LL_GBUFFERINFO_DECLARED
+struct GBufferInfo
+{
+    float4 albedo;
+    float3 normal;
+    float4 specular;
+    float envIntensity;
+    float gbufferFlag;
+    float4 emissive;
+};
+#endif
+
 GBufferInfo getGBuffer(float2 screenpos);
 float getDepth(float2 pos_screen);
 float4 getPositionWithDepth(float2 pos_screen, float depth);
@@ -34,6 +50,9 @@ float tapScreenSpaceReflection(int totalSamples, float2 tc, float3 viewPos, floa
 
 struct PSInput
 {
+    // S24 (2026-08-02): missing SV_Position - see uiF.hlsl's comment (fxc.exe-confirmed VS/PS register-shift bug).
+    float4 position : SV_Position;
+
     float2 vary_fragcoord : TEXCOORD0;
     float3 camera_ray : TEXCOORD1;
 };

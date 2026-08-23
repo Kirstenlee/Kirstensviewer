@@ -26,17 +26,21 @@ uniform float minimum_alpha;
 
 float3 atmosLighting(float3 light);
 float3 scaleSoftClip(float3 light);
-float3 diffuseLookup(float2 tc);
+// diffuseLookup() forward declaration removed - see lightF.hlsl's comment;
+// same wrong-return-type issue (real definition returns float4).
 
 struct PSInput
 {
+    // S24 (2026-08-02): missing SV_Position - see uiF.hlsl's comment (fxc.exe-confirmed VS/PS register-shift bug).
+    float4 position : SV_Position;
+
     float4 vertex_color : COLOR0;
     float2 vary_texcoord0 : TEXCOORD0;
 };
 
 float4 main(PSInput IN) : SV_Target
 {
-    float4 color = float4(diffuseLookup(IN.vary_texcoord0.xy), 1.0);
+    float4 color = diffuseLookup(IN.vary_texcoord0.xy);
 
     if (color.a < minimum_alpha)
     {

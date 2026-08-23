@@ -33,12 +33,12 @@ struct VSInput
     float2 texcoord0 : TEXCOORD0;
 };
 
+#include "varying/starsVarying.hlsli"
+
 struct VSOutput
 {
     float4 position : SV_Position;
-    float4 vertex_color : COLOR0;
-    float2 vary_texcoord0 : TEXCOORD0;
-    float2 screenpos : TEXCOORD1;
+    StarsVarying varying;
 };
 
 VSOutput main(VSInput IN)
@@ -55,9 +55,9 @@ VSOutput main(VSInput IN)
     OUT.position = pos;
 
     float t = fmod(time, 1.25f);
-    OUT.screenpos = IN.position.xy * float2(t, t);
-    OUT.vary_texcoord0 = mul(texture_matrix0, float4(IN.texcoord0, 0, 1)).xy;
-    OUT.vertex_color = IN.diffuse_color;
+    OUT.varying.screenpos = IN.position.xy * float2(t, t);
+    OUT.varying.vary_texcoord0 = mul(texture_matrix0, float4(IN.texcoord0, 0, 1)).xy;
+    OUT.varying.vertex_color = IN.diffuse_color;
 
     return OUT;
 }

@@ -194,6 +194,7 @@ using namespace boost::placeholders;
 
 // Included so that constants/settings might be initialized
 // in save_settings_to_globals()
+#include "DXDevice.h"
 #include "llbutton.h"
 #include "llstatusbar.h"
 #include "llsurface.h"
@@ -353,7 +354,7 @@ WorkQueue gMainloopWork("mainloop", 1024 * 1024);
 
 ////////////////////////////////////////////////////////////
 // Internal globals
-static std::string gArgs = "Build 3535 - Hradr"; // S24 My Build Number! KL
+static std::string gArgs = "DX Build 3665 - Hradr"; // S24 My Build Number! KL
 const int MAX_MARKER_LENGTH = 1024;
 const std::string MARKER_FILE_NAME("KirstensS24.exec_marker");
 const std::string START_MARKER_FILE_NAME("KirstensS24.start_marker");
@@ -527,6 +528,11 @@ static void settings_to_globals()
 	// S24: runtime toggle for the VBO work queue (was a compile-time #define) - see llvertexbuffer.cpp
 	LLVertexBuffer::sVBOWorkQueueEnabled = gSavedSettings.getBOOL("S24VBOWorkQueueEnabled");
 	LLVertexBuffer::sVBOWorkQueueThreadCount = llclamp(gSavedSettings.getU32("S24VBOWorkQueueThreadCount"), 1U, 4U);
+	// S24: runtime toggle for the D3D11 debug/validation layer (was hardcoded
+	// on unconditionally) - see DXDevice.h's sDebugLayerEnabled comment. Must
+	// run before initWindow() (device creation) - settings_to_globals() is
+	// called well before that in LLAppViewer::init().
+	DXDevice::sDebugLayerEnabled = gSavedSettings.getBOOL("S24DXDebugLayerEnabled");
 	LLImageGL::sGlobalUseAnisotropic = gSavedSettings.getBOOL("RenderAnisotropic");
 	LLImageGL::sCompressTextures = gSavedSettings.getBOOL("RenderCompressTextures");
 	LLVOVolume::sLODFactor = llclamp(gSavedSettings.getF32("RenderVolumeLODFactor"), 0.01f, MAX_LOD_FACTOR);
@@ -652,7 +658,14 @@ LLAppViewer::LLAppViewer()
 
 	// Need to do this initialization before we do anything else, since anything
 	// that touches files should really go through the lldir API
+	// S24 (DX_RENDER, 2026-08-18): separate Roaming settings/logs dir from the
+	// GL build too (cache dir was already split, see lldir.cpp) - keeps DX
+	// alpha testing from clobbering an existing GL install's settings.xml.
+#ifdef DX_RENDER
+	gDirUtilp->initAppDirs("Kirstens S24 DX"); // S24
+#else
 	gDirUtilp->initAppDirs("Kirstens S24"); // S24
+#endif
 	//
 	// IMPORTANT! Do NOT put anything that will write
 	// into the log files during normal startup until AFTER
@@ -2983,10 +2996,11 @@ bool LLAppViewer::initWindow()
 
 	LLNotificationsUI::LLNotificationManager::getInstance();
 
-	if (gSavedSettings.getBOOL("WindowMaximized"))
-	{
-		gViewerWindow->getWindow()->maximize();
-	}
+	// S24: don't maximize() here (before gPipeline.init()) - it snaps the
+	// window to full-screen well before there's anything to present, which
+	// occludes LLSplashScreenWin32's loading dialog behind an unpainted white
+	// DWM surface for the whole init block. Maximizing is deferred to the
+	// post-init block below instead, right before real content presents.
 
 	//
 	// Initialize GL stuff
@@ -3118,8 +3132,14 @@ LLSD LLAppViewer::getViewerInfo() const
 	info["MEMORY_MB"] = LLSD::Integer(gSysMemory.getPhysicalMemoryKB().valueInUnits<LLUnits::Megabytes>());
 	// Moved hack adjustment to Windows memory size into llsys.cpp
 	info["OS_VERSION"] = LLOSInfo::instance().getOSString();
-	info["GRAPHICS_CARD_VENDOR"] = ll_safe_string((const char*)(glGetString(GL_VENDOR)));
-	info["GRAPHICS_CARD"] = ll_safe_string((const char*)(glGetString(GL_RENDERER)));
+	// S24 (2026-08-05): these used to call glGetString(GL_VENDOR/GL_RENDERER)
+	// directly - a real crash risk under DX_RENDER (no GL context ever
+	// exists), and this floater is reachable from the Help menu at any time.
+	// gGLManager.mGLVendor/mGLRenderer are already correctly populated for
+	// both backends (initGL() for GL, LLGLManager::initGLDX() for DX_RENDER,
+	// llgl.cpp) - use those instead, unconditionally.
+	info["GRAPHICS_CARD_VENDOR"] = gGLManager.mGLVendor;
+	info["GRAPHICS_CARD"] = gGLManager.mGLRenderer;
 
 	std::string drvinfo;
 
@@ -3157,7 +3177,13 @@ LLSD LLAppViewer::getViewerInfo() const
 		}
 	}
 
-	info["OPENGL_VERSION"] = ll_safe_string((const char*)(glGetString(GL_VERSION)));
+	// S24 (2026-08-05): was a raw glGetString(GL_VERSION) call - same crash
+	// risk as GRAPHICS_CARD_VENDOR/GRAPHICS_CARD above. mGLVersionString is
+	// a real driver-reported string under GL and a real D3D11 feature-level
+	// string under DX_RENDER (see LLGLManager::initGLDX(), llgl.cpp) - the
+	// key name stays OPENGL_VERSION (matches strings.xml's substitution),
+	// but the label text itself was reworded to be backend-neutral.
+	info["OPENGL_VERSION"] = gGLManager.mGLVersionString;
 
 	// Settings
 

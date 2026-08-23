@@ -31,10 +31,29 @@ uniform float4x4 modelview_projection_matrix;
 // Inputs
 uniform float3 camPosLocal;
 
+// lightnorm/sunlight_color/moonlight_color/sun_up_factor and the whole
+// atmospherics parameter block below are also declared (and used) by
+// atmosphericsFuncs.hlsl, always attached alongside this file's vertex
+// stage whenever calculatesAtmospherics is set (this shader's own case) -
+// genuinely dual-use, include-guarded. Note this file does NOT declare
+// distance_multiplier (unlike skyV.hlsl, which does) - that guard is
+// deliberately not touched here, so atmosphericsFuncs.hlsl's own copy of
+// it still declares normally when attached alongside this file.
+#ifndef LL_LIGHTNORM_DECLARED
+#define LL_LIGHTNORM_DECLARED
 uniform float3 lightnorm;
+#endif
+#ifndef LL_SUNLIGHT_MOONLIGHT_COLOR_DECLARED
+#define LL_SUNLIGHT_MOONLIGHT_COLOR_DECLARED
 uniform float3 sunlight_color;
 uniform float3 moonlight_color;
+#endif
+#ifndef LL_SUN_UP_FACTOR_DECLARED
+#define LL_SUN_UP_FACTOR_DECLARED
 uniform int sun_up_factor;
+#endif
+#ifndef LL_ATMOS_HAZE_PARAMS_DECLARED
+#define LL_ATMOS_HAZE_PARAMS_DECLARED
 uniform float3 ambient_color;
 uniform float3 blue_horizon;
 uniform float3 blue_density;
@@ -43,14 +62,21 @@ uniform float haze_density;
 
 uniform float cloud_shadow;
 uniform float density_multiplier;
+#endif
+
+#ifndef LL_ATMOS_GLOW_PARAMS_DECLARED
+#define LL_ATMOS_GLOW_PARAMS_DECLARED
 uniform float max_y;
 
 uniform float3 glow;
 uniform float sun_moon_glow_factor;
+#endif
 
 uniform float3 cloud_color;
 
 uniform float cloud_scale;
+
+#include "varying/cloudsVarying.hlsli"
 
 struct VSInput
 {
@@ -61,14 +87,7 @@ struct VSInput
 struct VSOutput
 {
     float4 position : SV_Position;
-    float3 vary_CloudColorSun : TEXCOORD0;
-    float3 vary_CloudColorAmbient : TEXCOORD1;
-    float vary_CloudDensity : TEXCOORD2;
-    float2 vary_texcoord0 : TEXCOORD3;
-    float2 vary_texcoord1 : TEXCOORD4;
-    float2 vary_texcoord2 : TEXCOORD5;
-    float2 vary_texcoord3 : TEXCOORD6;
-    float altitude_blend_factor : TEXCOORD7;
+    CloudsVarying varying;
 };
 
 // NOTE: Keep these in sync!
@@ -86,23 +105,23 @@ VSOutput main(VSInput IN)
 
     // Texture coords
     // SL-13084 EEP added support for custom cloud textures -- flip them horizontally to match the preview of Clouds > Cloud Scroll
-    OUT.vary_texcoord0 = float2(-IN.texcoord0.x, IN.texcoord0.y);  // See: LLSettingsVOSky::applySpecial
+    OUT.varying.vary_texcoord0 = float2(-IN.texcoord0.x, IN.texcoord0.y);  // See: LLSettingsVOSky::applySpecial
 
-    OUT.vary_texcoord0.xy -= 0.5;
-    OUT.vary_texcoord0.xy /= cloud_scale;
-    OUT.vary_texcoord0.xy += 0.5;
+    OUT.varying.vary_texcoord0.xy -= 0.5;
+    OUT.varying.vary_texcoord0.xy /= cloud_scale;
+    OUT.varying.vary_texcoord0.xy += 0.5;
 
-    OUT.vary_texcoord1 = OUT.vary_texcoord0;
-    OUT.vary_texcoord1.x += lightnorm.x * 0.0125;
-    OUT.vary_texcoord1.y += lightnorm.z * 0.0125;
+    OUT.varying.vary_texcoord1 = OUT.varying.vary_texcoord0;
+    OUT.varying.vary_texcoord1.x += lightnorm.x * 0.0125;
+    OUT.varying.vary_texcoord1.y += lightnorm.z * 0.0125;
 
-    OUT.vary_texcoord2 = OUT.vary_texcoord0 * 16.;
-    OUT.vary_texcoord3 = OUT.vary_texcoord1 * 16.;
+    OUT.varying.vary_texcoord2 = OUT.varying.vary_texcoord0 * 16.;
+    OUT.varying.vary_texcoord3 = OUT.varying.vary_texcoord1 * 16.;
 
     // Get relative position
     float3 rel_pos = IN.position.xyz - camPosLocal.xyz + float3(0, 50, 0);
 
-    OUT.altitude_blend_factor = clamp((rel_pos.y + 512.0) / max_y, 0.0, 1.0);
+    OUT.varying.altitude_blend_factor = clamp((rel_pos.y + 512.0) / max_y, 0.0, 1.0);
 
     // Set altitude
     if (rel_pos.y > 0)
@@ -111,7 +130,7 @@ VSOutput main(VSInput IN)
     }
     if (rel_pos.y < 0)
     {
-        OUT.altitude_blend_factor = 0; // SL-11589 Fix clouds drooping below horizon
+        OUT.varying.altitude_blend_factor = 0; // SL-11589 Fix clouds drooping below horizon
         rel_pos *= (-32000. / rel_pos.y);
     }
 
@@ -151,7 +170,7 @@ VSOutput main(VSInput IN)
         // Set a minimum "angle" (smaller glow.y allows tighter, brighter hotspot)
     haze_glow *= glow.x;
         // Higher glow.x gives dimmer glow (because next step is 1 / "angle")
-    haze_glow = pow(haze_glow, glow.z);
+    haze_glow = pow(abs(haze_glow), glow.z);
         // glow.z should be negative, so we're doing a sort of (1 / "angle") function
 
     haze_glow *= sun_moon_glow_factor;
@@ -177,20 +196,20 @@ VSOutput main(VSInput IN)
     sunlight *= exp(-light_atten * off_axis);
 
     // Cloud color out
-    OUT.vary_CloudColorSun     = (sunlight * haze_glow) * cloud_color;
-    OUT.vary_CloudColorAmbient = tmpAmbient * cloud_color;
+    OUT.varying.vary_CloudColorSun     = (sunlight * haze_glow) * cloud_color;
+    OUT.varying.vary_CloudColorAmbient = tmpAmbient * cloud_color;
 
     // Attenuate cloud color by atmosphere
     combined_haze = sqrt(combined_haze);  // less atmos opacity (more transparency) below clouds
-    OUT.vary_CloudColorSun *= combined_haze;
-    OUT.vary_CloudColorAmbient *= combined_haze;
+    OUT.varying.vary_CloudColorSun *= combined_haze;
+    OUT.varying.vary_CloudColorAmbient *= combined_haze;
     float3 oHazeColorBelowCloud = additiveColorBelowCloud * (1. - combined_haze);
 
     // Make a nice cloud density based on the cloud_shadow value that was passed in.
-    OUT.vary_CloudDensity = 2. * (cloud_shadow - 0.25);
+    OUT.varying.vary_CloudDensity = 2. * (cloud_shadow - 0.25);
 
     // Combine these to minimize register use
-    OUT.vary_CloudColorAmbient += oHazeColorBelowCloud;
+    OUT.varying.vary_CloudColorAmbient += oHazeColorBelowCloud;
 
     // END CLOUDS
 

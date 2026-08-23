@@ -1,12 +1,14 @@
 ﻿/**
  * @file kvramcache.h
- * @brief One-way eviction pipeline cache for VRAM/RAM/DISK texture management
+ * @brief Passive RAM buffer cache for decoded texture data (J2C), sitting
+ * between the network fetch path and the on-disk texture cache.
  *
- * Implements a unidirectional "waterfall" eviction system:
- * VRAM (Hot) → RAM (Warm) → DISK (Cold) → NULL (Deleted)
- * 
- * Tiered read preference searches from fastest to slowest:
- * Check VRAM → Check RAM → Check DISK → Request Network
+ * A texture is admitted here on eviction from the fetch pipeline, held for
+ * a minimum retention time, and either re-served from RAM on a cache hit
+ * or written through to the real on-disk cache (LLTextureCache) once it
+ * ages out. There is no separate VRAM or DISK tier managed by this class -
+ * GPU residency is LLViewerTexture's concern, and on-disk storage is
+ * LLTextureCache's.
  *
  * $LicenseInfo:firstyear=2024&license=viewerlgpl$
  * Kirstens S24 Viewer Source Code
@@ -24,6 +26,7 @@
 #include <unordered_map>
 #include <deque>
 #include <memory>
+#include <vector>
 
 #ifndef BYTES_TO_MEGA_BYTES
 #define BYTES_TO_MEGA_BYTES(x) ((x) >> 20)
@@ -45,9 +48,7 @@ public:
     enum class AssetLocation : U8
     {
         NONE = 0,      // Not in cache, needs network fetch
-        DISK = 1,      // Cold storage - persistent across sessions
-        RAM = 2,       // Warm standby - fast promotion to VRAM
-        VRAM = 3       // Hot - actively bound to GPU
+        RAM = 2        // In the passive RAM buffer
     };
 
     enum class AssetPriority : U8
@@ -60,15 +61,9 @@ public:
 
     struct CacheConfig
     {
-        U64 vram_budget_bytes = MEGA_BYTES_TO_BYTES(2048);  // 2GB default VRAM budget
         U64 ram_budget_bytes = MEGA_BYTES_TO_BYTES(1024);   // 1GB default RAM cache
-        U64 disk_budget_bytes = MEGA_BYTES_TO_BYTES(4096);  // 4GB default disk cache
 
         F32 ram_retention_time_seconds = 5.0f;   // S24 RAMCACHE TUNE: Reduced from 30s to 5s for faster eviction response  // KV:GC→RT Renamed from ram_grace_period_seconds
-        F32 vram_pressure_threshold = 0.85f;   // Start eviction at 85% VRAM usage
-
-        bool enable_disk_cache = true;
-        std::string disk_cache_path;  // Set from user preferences
     };
 
     struct CacheEntry
@@ -107,22 +102,13 @@ public:
 
     struct CacheStats
     {
-        U64 vram_used_bytes = 0;
         U64 ram_used_bytes = 0;
-        U64 disk_used_bytes = 0;
-
-        U32 vram_entry_count = 0;
         U32 ram_entry_count = 0;
-        U32 disk_entry_count = 0;
 
-        U64 vram_hits = 0;
         U64 ram_hits = 0;
-        U64 disk_hits = 0;
         U64 network_requests = 0;
 
-        U64 vram_evictions = 0;
         U64 ram_evictions = 0;
-        U64 disk_evictions = 0;  // Tracks RAM entries dropped (grace period expired)
     };
 
     struct ExtendedStats
@@ -176,8 +162,12 @@ public:
     // Stores J2C compressed data along with decode metadata
     // Returns true if accepted (or false if cache full and can't evict)
     // Cache makes internal copy of texture_data - caller retains ownership
-    bool acceptEviction(const LLUUID& uuid, void* texture_data, U64 size_bytes, S32 discard_level, 
-                        U32 width, U32 height, S8 components);
+    // S24 (2026-08-16): priority is caller-classified (see lltexturefetch.cpp's
+    // classify_kvram_priority()) so the priority-segmented deques actually
+    // segment - previously always NORMAL by construction.
+    bool acceptEviction(const LLUUID& uuid, void* texture_data, U64 size_bytes, S32 discard_level,
+                        U32 width, U32 height, S8 components,
+                        AssetPriority priority);
 
     // Read Interface (Retrieve before disk read)
     // Returns J2C compressed data with full metadata
@@ -223,10 +213,41 @@ public:
     void resetStats();
     void dumpState() const;  // Debug logging
 
+    // S24 (2026-08-16): an evicted RAM entry that still needs to be written
+    // to the on-disk texture cache - see evictSlice()'s comment for why this
+    // exists (the disk write this class's own doc-comments always claimed
+    // happened on decay never actually did). `data` is a malloc'd buffer
+    // whose ownership transfers to whoever drains this list - must free() it
+    // exactly once, whether or not the write succeeds.
+    struct PendingDiskWrite
+    {
+        LLUUID uuid;
+        U8* data = nullptr;
+        U64 size_bytes = 0;
+        S32 discard_level = -1;
+        U32 width = 0;
+        U32 height = 0;
+        S8 components = 0;
+    };
+
     protected:
         // Passive eviction logic (time/pressure based) - called by worker thread
         void processPassiveEviction(F32 delta_time);
-        void evictSlice(U32 slice_size, F64 retention_time, F64 now);  // KV:RT Added retention_time/now params for minimum age check
+        // KV:RT Added retention_time/now params for minimum age check.
+        // S24 (2026-08-16): out_pending collects entries that need writing to
+        // disk - see PendingDiskWrite's comment. Appending to it is O(1) and
+        // does no I/O/decode, so this doesn't change evictSlice()'s own
+        // locked-section cost; the caller drains it after releasing
+        // mCacheMutex.
+        void evictSlice(U32 slice_size, F64 retention_time, F64 now, std::vector<PendingDiskWrite>& out_pending);
+
+        // S24 (2026-08-16): decodes and writes one evicted entry to the
+        // real on-disk texture cache (LLTextureCache::writeToCache()) -
+        // completing the "decay to disk" this class's doc-comments always
+        // claimed happened. Always frees item.data exactly once (decode
+        // failure or success) - call with no lock held, this does real
+        // CPU decode work.
+        void writeEvictedEntryToDisk(const PendingDiskWrite& item);
 
         // S24: Single source of truth for the pressure->multiplier curve. Used by both
         // processPassiveEviction (actual eviction) and getEvictionPressureMultiplier (UI display).
@@ -267,8 +288,7 @@ public:
     // Ghost Entry Hash Map - fast UUID → CacheEntry lookup
     std::unordered_map<LLUUID, std::unique_ptr<CacheEntry>> mGhostMap;
 
-    // LRU queues for hot tiers (oldest at front)
-    std::deque<LLUUID> mVRAMLRU;
+    // LRU queue (oldest at front)
     std::deque<LLUUID> mRAMLRU;
     // S24: Priority-segmented LRU deques — evict from lowest priority first
     std::deque<LLUUID> mRAMLRU_BACKGROUND;   // Evicted first

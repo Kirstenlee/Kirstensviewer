@@ -50,6 +50,9 @@
 #include "llrender.h"
 #include "llenvironment.h"
 #include "llsettingsvo.h"
+#ifdef DX_RENDER
+#include "dxdrawpoolterrain.h"
+#endif
 
 const F32 DETAIL_SCALE = 1.f/16.f;
 int DebugDetailMap = 0;
@@ -121,12 +124,20 @@ void LLDrawPoolTerrain::boostTerrainDetailTextures()
 
 void LLDrawPoolTerrain::beginDeferredPass(S32 pass)
 {
+#ifdef DX_RENDER
+    DXDrawPoolTerrain::beginDeferredPass(*this, pass);
+    return;
+#endif
     LL_RECORD_BLOCK_TIME(FTM_RENDER_TERRAIN);
     LLFacePool::beginRenderPass(pass);
 }
 
 void LLDrawPoolTerrain::endDeferredPass(S32 pass)
 {
+#ifdef DX_RENDER
+    DXDrawPoolTerrain::endDeferredPass(*this, pass);
+    return;
+#endif
     LL_RECORD_BLOCK_TIME(FTM_RENDER_TERRAIN);
     LLFacePool::endRenderPass(pass);
     sShader->unbind();
@@ -134,6 +145,10 @@ void LLDrawPoolTerrain::endDeferredPass(S32 pass)
 
 void LLDrawPoolTerrain::renderDeferred(S32 pass)
 {
+#ifdef DX_RENDER
+    DXDrawPoolTerrain::renderDeferred(*this, pass);
+    return;
+#endif
     LL_RECORD_BLOCK_TIME(FTM_RENDER_TERRAIN);
     if (mDrawFace.empty())
     {
@@ -237,6 +252,15 @@ void LLDrawPoolTerrain::renderFullShaderTextures()
     LLViewerTexture *detail_texture1p = compp->mDetailTextures[1];
     LLViewerTexture *detail_texture2p = compp->mDetailTextures[2];
     LLViewerTexture *detail_texture3p = compp->mDetailTextures[3];
+
+    // S24 (2026-08-06): the terrain texture-bleed diagnostic that used to
+    // live here was investigating dead code - LLDrawPoolTerrain::renderDeferred()
+    // redirects entirely to DXDrawPoolTerrain::renderDeferred() under
+    // DX_RENDER (see this function's own header) before ever reaching
+    // renderFullShader()/renderFullShaderTextures() below, so nothing here
+    // ever runs under DX_RENDER at all. The real fix (and the real
+    // diagnostic) belonged in dxdrawpoolterrain.cpp instead - see its own
+    // renderFullShaderTextures().
 
     LLVector3d region_origin_global = gAgent.getRegion()->getOriginGlobal();
     F32 offset_x = (F32)fmod(region_origin_global.mdV[VX], 1.0/(F64)sDetailScale)*sDetailScale;

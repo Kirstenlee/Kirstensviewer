@@ -22,11 +22,19 @@
  * SOFTWARE.
  */
 
-struct PSInput
-{
-    float3 vary_AdditiveColor : TEXCOORD0;
-    float3 vary_AtmosAttenuation : TEXCOORD1;
-};
+// Original GLSL (atmosphericsVarsF.glsl) declares these as real fragment
+// inputs ("in vec3 vary_AdditiveColor;") with zero-arg accessor functions
+// reading them directly - a struct-parameter version was invented during
+// the HLSL port and both collided with real shaders' own "PSInput" struct
+// name AND didn't match what atmosphericsF.hlsl's atmosLighting() (a real
+// caller) expects (zero args). Matches the same static-global pattern
+// already used on the vertex side (atmosphericsVarsV.hlsl) - any real
+// shader's main() that actually needs these propagated from its vertex
+// stage must populate them from its own PSInput's matching fields at the
+// top of main(); none currently do (documented gap), so these read as
+// zero-initialized until that wiring exists.
+static float3 vary_AdditiveColor;
+static float3 vary_AtmosAttenuation;
 
 float3 getSunlitColor()
 {
@@ -38,12 +46,12 @@ float3 getAmblitColor()
     return float3(0, 0, 0);
 }
 
-float3 getAdditiveColor(PSInput IN)
+float3 getAdditiveColor()
 {
-    return IN.vary_AdditiveColor;
+    return vary_AdditiveColor;
 }
 
-float3 getAtmosAttenuation(PSInput IN)
+float3 getAtmosAttenuation()
 {
-    return IN.vary_AtmosAttenuation;
+    return vary_AtmosAttenuation;
 }

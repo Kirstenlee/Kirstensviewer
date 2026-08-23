@@ -41,6 +41,32 @@
 #include "llrender2dutils.h"
 #include "lluiimage.h"
 
+#ifdef DX_RENDER
+#include "DXUIBatch.h"
+#include "DXRender2DUtils.h"
+// S24 (2026-08-16): every DX_RENDER function below that pushes into
+// gDXUIBatch now calls gDXUIBatch.flushPending() immediately before doing
+// so (matching the same fix applied to LLFontGL::submitGlyphBatch()/
+// submitUnderline() in llfontgl.cpp). Root cause: DXUIBatch's batching key
+// is (shader, topology, alpha_blend, depth) only - it has no idea the MVP
+// is about to change, so two shapes/text sharing that same key (extremely
+// common - most 2D UI and world-space HUD content alike uses gUIProgram/
+// TriangleList/alpha-blend/no-depth) could get silently merged into ONE
+// pending batch even though each was positioned assuming its OWN,
+// different transform (gGL.syncMatrices(), called AFTER push() at every
+// one of these call sites, only takes effect for whichever call happens to
+// trigger the eventual real Draw() - anything merged in from an earlier
+// call under a different matrix draws wrong). The existing pass-boundary
+// flushPending() hooks (llviewerdisplay.cpp, llhudobject.cpp) only guard
+// specific, coarse call-site boundaries and don't reach every case -
+// draining any stale pending batch immediately before each shape's own
+// push() guarantees it always draws with its own correct, freshly-synced
+// matrix regardless of what any particular caller elsewhere remembers to
+// flush. Narrows batching granularity to "one draw per shape" instead of
+// "one draw per matching-state run", still far fewer draws than the
+// pre-batching one-draw-per-primitive baseline task #211 fixed.
+#endif
+
 //
 // Globals
 //
@@ -75,6 +101,20 @@ void gl_draw_x(const LLRect& rect, const LLColor4& color)
 {
 	gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
 
+#ifdef DX_RENDER
+	if (LLGLSLShader* shader = LLGLSLShader::sCurBoundShaderPtr)
+	{
+		gGL.flush();
+		gDXUIBatch.flushPending();
+		DXRender2DUtils::glDrawX(rect, color, gGL.getUITranslation(), gGL.getUIScale());
+		gGL.syncMatrices();
+		if (ID3DBlob* vsb = shader->mDXVertexShader.getVSBytecode())
+		{
+			gDXUIBatch.flush(vsb->GetBufferPointer(), vsb->GetBufferSize(), shader->mDXVertexShader.getVS(), shader->mDXPixelShader.getPS(), true, shader->mName.c_str(), DXUITopology::LineList);
+		}
+	}
+	return;
+#else
 	gGL.color4fv(color.mV);
 
 	gGL.begin(LLRender::LINES);
@@ -83,6 +123,7 @@ void gl_draw_x(const LLRect& rect, const LLColor4& color)
 	gGL.vertex2i(rect.mLeft, rect.mBottom);
 	gGL.vertex2i(rect.mRight, rect.mTop);
 	gGL.end();
+#endif // DX_RENDER
 }
 
 void gl_rect_2d_offset_local(S32 left, S32 top, S32 right, S32 bottom, const LLColor4& color, S32 pixel_offset, bool filled)
@@ -112,6 +153,54 @@ void gl_rect_2d(S32 left, S32 top, S32 right, S32 bottom, bool filled)
 {
 	gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
 
+#ifdef DX_RENDER
+	// S24 (DXRender2DUtils, 2026-07-25): see llrender2dutils.cpp's file-level
+	// DX_RENDER include comment / the session plan's "consolidate
+	// llrender2dutils.cpp" section - this is one of the ~20 functions moved
+	// out of large inline fences into dxrender/resources/DXRender2DUtils.
+	// Both color-taking wrappers (gl_rect_2d(...,color,filled) and the
+	// LLRect overload) already call gGL.color4fv(color) before reaching this
+	// base overload, so gGL.getCurrentColor() here picks up the right value
+	// regardless of which entry point was used - see LLRender::
+	// getCurrentColor()'s own comment for why this exists at all (GL's
+	// ambient "current color" has no DX_RENDER equivalent to read from
+	// dxrender/, which has zero llrender dependency by design).
+	if (LLGLSLShader* shader = LLGLSLShader::sCurBoundShaderPtr)
+	{
+		// S24 (DX_RENDER diagnostic, 2026-07-28): TEMPORARY - direct evidence
+		// for which shader real UI solid-rect draws (menu separators, drag
+		// handles, highlights) actually use, and what color data they carry -
+		// needed after the uiF.hlsl struct-reorder regression (see
+		// project_dxrender_vsps_linkage_bug memory) showed these rects
+		// disappearing when uiV/uiF's interpolant order was "corrected",
+		// which only makes sense if they're routed through gUIProgram (not
+		// gSolidColorProgram as assumed) - never directly confirmed before.
+		{
+			static int s_logged = 0;
+			if (s_logged < 20)
+			{
+				++s_logged;
+				const LLColor4& c = gGL.getCurrentColor();
+				LL_WARNS("Text") << "gl_rect_2d(): #" << s_logged << " shader='" << shader->mName
+					<< "' color=(" << c.mV[0] << "," << c.mV[1] << "," << c.mV[2] << "," << c.mV[3] << ")"
+					<< " rect=(" << left << "," << top << "," << right << "," << bottom << ")"
+					<< " filled=" << (filled ? "true" : "false")
+					<< LL_ENDL;
+			}
+		}
+
+		gGL.flush();
+		gDXUIBatch.flushPending();
+		DXRender2DUtils::glRectTwoD(left, top, right, bottom, gGL.getCurrentColor(), filled, gGL.getUITranslation(), gGL.getUIScale());
+		gGL.syncMatrices();
+		if (ID3DBlob* vsb = shader->mDXVertexShader.getVSBytecode())
+		{
+			gDXUIBatch.flush(vsb->GetBufferPointer(), vsb->GetBufferSize(), shader->mDXVertexShader.getVS(), shader->mDXPixelShader.getPS(), true, shader->mName.c_str(),
+				filled ? DXUITopology::TriangleList : DXUITopology::LineStrip);
+		}
+	}
+	return;
+#else
 	// Counterclockwise quad will face the viewer
 	if (filled)
 	{
@@ -137,6 +226,7 @@ void gl_rect_2d(S32 left, S32 top, S32 right, S32 bottom, bool filled)
 		gGL.vertex2i(left, top);
 		gGL.end();
 	}
+#endif // DX_RENDER
 }
 
 void gl_rect_2d(S32 left, S32 top, S32 right, S32 bottom, const LLColor4& color, bool filled)
@@ -158,6 +248,23 @@ void gl_drop_shadow(S32 left, S32 top, S32 right, S32 bottom, const LLColor4& st
 {
 	gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
 
+#ifdef DX_RENDER
+	// DXRender2DUtils::glDropShadow() applies the same right--/bottom++/
+	// lines++ "overlap by a single pixel" adjustment internally - pass the
+	// original, unmodified values.
+	if (LLGLSLShader* shader = LLGLSLShader::sCurBoundShaderPtr)
+	{
+		gGL.flush();
+		gDXUIBatch.flushPending();
+		DXRender2DUtils::glDropShadow(left, top, right, bottom, start_color, lines, gGL.getUITranslation(), gGL.getUIScale());
+		gGL.syncMatrices();
+		if (ID3DBlob* vsb = shader->mDXVertexShader.getVSBytecode())
+		{
+			gDXUIBatch.flush(vsb->GetBufferPointer(), vsb->GetBufferSize(), shader->mDXVertexShader.getVS(), shader->mDXPixelShader.getPS(), true, shader->mName.c_str());
+		}
+	}
+	return;
+#else
 	// HACK: Overlap with the rectangle by a single pixel.
 	right--;
 	bottom++;
@@ -233,34 +340,119 @@ void gl_drop_shadow(S32 left, S32 top, S32 right, S32 bottom, const LLColor4& st
 
 	gGL.end();
 	stop_glerror();
+#endif // DX_RENDER
 }
 
 void gl_line_2d(S32 x1, S32 y1, S32 x2, S32 y2)
 {
 	gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
 
+#ifdef DX_RENDER
+	if (LLGLSLShader* shader = LLGLSLShader::sCurBoundShaderPtr)
+	{
+		// S24 (DX_RENDER diagnostic, 2026-08-01): TEMPORARY - direct evidence
+		// for whether this path (LLMenuItemSeparatorGL's separator line, this
+		// is the only real caller of the no-color overload) actually reaches
+		// a Draw() call at all, with what color - same technique already
+		// used to confirm gl_rect_2d() renders correctly, applied here since
+		// menu separators were reported invisible and every other UI draw
+		// path (rects, glyphs) has already been confirmed working via this
+		// exact style of log.
+		{
+			static int s_logged = 0;
+			if (s_logged < 20)
+			{
+				++s_logged;
+				const LLColor4& c = gGL.getCurrentColor();
+				LL_WARNS("Text") << "gl_line_2d(): #" << s_logged << " shader='" << shader->mName
+					<< "' color=(" << c.mV[0] << "," << c.mV[1] << "," << c.mV[2] << "," << c.mV[3] << ")"
+					<< " line=(" << x1 << "," << y1 << ")-(" << x2 << "," << y2 << ")"
+					<< LL_ENDL;
+			}
+		}
+		gGL.flush();
+		gDXUIBatch.flushPending();
+		DXRender2DUtils::glLineTwoD(x1, y1, x2, y2, gGL.getCurrentColor(), gGL.getUITranslation(), gGL.getUIScale());
+		gGL.syncMatrices();
+		if (ID3DBlob* vsb = shader->mDXVertexShader.getVSBytecode())
+		{
+			gDXUIBatch.flush(vsb->GetBufferPointer(), vsb->GetBufferSize(), shader->mDXVertexShader.getVS(), shader->mDXPixelShader.getPS(), true, shader->mName.c_str(), DXUITopology::LineList);
+		}
+	}
+	else
+	{
+		// S24 (DX_RENDER diagnostic, 2026-08-01, pre-alpha perf sweep
+		// 2026-08-23): the other half of the same evidence as the guarded
+		// block above - if sCurBoundShaderPtr is null right here, the whole
+		// batch is silently dropped with zero warning. Was missing the same
+		// bound this file's sibling diagnostics already use (gl_rect_2d,
+		// the colored gl_line_2d overload) - unbounded, this could log every
+		// single call for the rest of the session if this UI state is ever
+		// hit in normal play. Capped to match.
+		static int s_null_shader_logged = 0;
+		if (s_null_shader_logged < 20)
+		{
+			++s_null_shader_logged;
+			LL_WARNS("Text") << "gl_line_2d(): #" << s_null_shader_logged
+				<< " sCurBoundShaderPtr is NULL - line dropped, line=("
+				<< x1 << "," << y1 << ")-(" << x2 << "," << y2 << ")" << LL_ENDL;
+		}
+	}
+	return;
+#else
 	gGL.begin(LLRender::LINES);
 	gGL.vertex2i(x1, y1);
 	gGL.vertex2i(x2, y2);
 	gGL.end();
+#endif // DX_RENDER
 }
 
 void gl_line_2d(S32 x1, S32 y1, S32 x2, S32 y2, const LLColor4& color)
 {
 	gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
 
+#ifdef DX_RENDER
+	if (LLGLSLShader* shader = LLGLSLShader::sCurBoundShaderPtr)
+	{
+		gGL.flush();
+		gDXUIBatch.flushPending();
+		DXRender2DUtils::glLineTwoD(x1, y1, x2, y2, LLColor4U(color), gGL.getUITranslation(), gGL.getUIScale());
+		gGL.syncMatrices();
+		if (ID3DBlob* vsb = shader->mDXVertexShader.getVSBytecode())
+		{
+			gDXUIBatch.flush(vsb->GetBufferPointer(), vsb->GetBufferSize(), shader->mDXVertexShader.getVS(), shader->mDXPixelShader.getPS(), true, shader->mName.c_str(), DXUITopology::LineList);
+		}
+	}
+	return;
+#else
 	gGL.color4fv(color.mV);
 
 	gGL.begin(LLRender::LINES);
 	gGL.vertex2i(x1, y1);
 	gGL.vertex2i(x2, y2);
 	gGL.end();
+#endif // DX_RENDER
 }
 
 void gl_triangle_2d(S32 x1, S32 y1, S32 x2, S32 y2, S32 x3, S32 y3, const LLColor4& color, bool filled)
 {
 	gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
 
+#ifdef DX_RENDER
+	if (LLGLSLShader* shader = LLGLSLShader::sCurBoundShaderPtr)
+	{
+		gGL.flush();
+		gDXUIBatch.flushPending();
+		DXRender2DUtils::glTriangleTwoD(x1, y1, x2, y2, x3, y3, color, filled, gGL.getUITranslation(), gGL.getUIScale());
+		gGL.syncMatrices();
+		if (ID3DBlob* vsb = shader->mDXVertexShader.getVSBytecode())
+		{
+			gDXUIBatch.flush(vsb->GetBufferPointer(), vsb->GetBufferSize(), shader->mDXVertexShader.getVS(), shader->mDXPixelShader.getPS(), true, shader->mName.c_str(),
+				filled ? DXUITopology::TriangleList : DXUITopology::LineStrip);
+		}
+	}
+	return;
+#else
 	gGL.color4fv(color.mV);
 
 	if (filled)
@@ -275,12 +467,29 @@ void gl_triangle_2d(S32 x1, S32 y1, S32 x2, S32 y2, S32 x3, S32 y3, const LLColo
 	gGL.vertex2i(x2, y2);
 	gGL.vertex2i(x3, y3);
 	gGL.end();
+#endif // DX_RENDER
 }
 
 void gl_corners_2d(S32 left, S32 top, S32 right, S32 bottom, S32 length, F32 max_frac)
 {
 	gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
 
+#ifdef DX_RENDER
+	// DXRender2DUtils::glCornersTwoD() applies the same length-clamping
+	// internally - pass the original, unclamped length.
+	if (LLGLSLShader* shader = LLGLSLShader::sCurBoundShaderPtr)
+	{
+		gGL.flush();
+		gDXUIBatch.flushPending();
+		DXRender2DUtils::glCornersTwoD(left, top, right, bottom, length, max_frac, gGL.getCurrentColor(), gGL.getUITranslation(), gGL.getUIScale());
+		gGL.syncMatrices();
+		if (ID3DBlob* vsb = shader->mDXVertexShader.getVSBytecode())
+		{
+			gDXUIBatch.flush(vsb->GetBufferPointer(), vsb->GetBufferSize(), shader->mDXVertexShader.getVS(), shader->mDXPixelShader.getPS(), true, shader->mName.c_str(), DXUITopology::LineList);
+		}
+	}
+	return;
+#else
 	length = llmin((S32)(max_frac * (right - left)), length);
 	length = llmin((S32)(max_frac * (top - bottom)), length);
 	gGL.begin(LLRender::LINES);
@@ -308,6 +517,7 @@ void gl_corners_2d(S32 left, S32 top, S32 right, S32 bottom, S32 length, F32 max
 	gGL.vertex2i(right, bottom);
 	gGL.vertex2i(right, bottom + length);
 	gGL.end();
+#endif // DX_RENDER
 }
 
 void gl_draw_image(S32 x, S32 y, LLTexture* image, const LLColor4& color, const LLRectf& uv_rect)
@@ -683,7 +893,43 @@ void gl_draw_scaled_image_with_border(S32 x, S32 y, S32 width, S32 height, LLTex
 			pos[index].set(draw_center_rect.mRight, draw_outer_rect.mTop, 0.f);
 			index++;
 
+#ifdef DX_RENDER
+			// S24 (DXRender2DUtils, 2026-07-25): relocated from an inline
+			// fence into DXRender2DUtils::glDrawScaledImageWithBorderNineSlice()
+			// for consistency with the rest of llrender2dutils.cpp's
+			// DX_RENDER conversions (not because this was broken). No
+			// explicit color array in the GL path above (color is carried
+			// via gGL.color4fv()'s "current color" state) - applied
+			// explicitly per-vertex by the relocated function instead, same
+			// as before.
+			// S24 (2026-08-17, task #54): recording-mode fallback, same
+			// pattern/reasoning as gl_draw_scaled_rotated_image()'s matching
+			// fix just above in this file.
+			if (gGL.isRecording())
+			{
+				gGL.vertexBatchPreTransformed(pos, uv, NUM_VERTICES);
+			}
+			else if (LLGLSLShader* shader = LLGLSLShader::sCurBoundShaderPtr)
+			{
+				gGL.flush(); // draw-order fix, same rationale as the simple-quad case
+				DXRender2DUtils::NineSliceGeometry geom;
+				for (S32 v = 0; v < NUM_VERTICES; ++v)
+				{
+					const F32* p = pos[v].getF32ptr();
+					geom.pos[v][0] = p[0]; geom.pos[v][1] = p[1]; geom.pos[v][2] = p[2];
+					geom.uv[v][0] = uv[v].mV[0]; geom.uv[v][1] = uv[v].mV[1];
+				}
+				gDXUIBatch.flushPending();
+				DXRender2DUtils::glDrawScaledImageWithBorderNineSlice(geom, color);
+				gGL.syncMatrices();
+				if (ID3DBlob* vsb = shader->mDXVertexShader.getVSBytecode())
+				{
+					gDXUIBatch.flush(vsb->GetBufferPointer(), vsb->GetBufferSize(), shader->mDXVertexShader.getVS(), shader->mDXPixelShader.getPS(), true, shader->mName.c_str());
+				}
+			}
+#else
 			gGL.vertexBatchPreTransformed(pos, uv, NUM_VERTICES);
+#endif
 		}
 		gGL.end();
 	}
@@ -713,7 +959,14 @@ void gl_draw_scaled_rotated_image(S32 x, S32 y, S32 width, S32 height, F32 degre
 	}
 	else
 	{
+#ifndef DX_RENDER
+		// S24 (DX_RENDER): LLTexUnit::bind(LLRenderTarget*, bool) has no
+		// DX_RENDER handling yet (only caller is LLSceneMonitor's frame-diff
+		// debug tool, off by default) - skip the bind rather than reach the
+		// unconverted overload with a hardcoded unit; draws untextured under
+		// DX_RENDER until that overload gets real handling.
 		gGL.getTexUnit(0)->bind(target);
+#endif
 	}
 
 	gGL.color4fv(color.mV);
@@ -759,7 +1012,51 @@ void gl_draw_scaled_rotated_image(S32 x, S32 y, S32 width, S32 height, F32 degre
 			pos[index].set(ui_translation.mV[VX] + scaled_width, ui_translation.mV[VY], 0.f);
 			index++;
 
+#ifdef DX_RENDER
+			// S24 (DXRender2DUtils, 2026-07-25): relocated from an inline
+			// fence into DXRender2DUtils::glDrawScaledImage() for
+			// consistency with the rest of llrender2dutils.cpp's DX_RENDER
+			// conversions (not because this was broken - it was the
+			// original, proven pattern every later conversion copied). The
+			// pos[]/uv[] math above is unchanged; only the final GPU
+			// submission moved. Texture/sampler already bound via the
+			// bind() call above; uses whatever shader is CURRENTLY bound
+			// (gUIProgram or gSolidColorProgram - color4fv() above already
+			// routes DIFFUSE_COLOR correctly either way).
+			// S24 (2026-08-17, task #54): recording-mode fallback, same
+			// pattern as LLFontGL::submitGlyphBatch()'s matching fix (see its
+			// comment) - lets LLUIImage's display-list cache actually capture
+			// something via LLRender::flush()'s existing sBufferDataList
+			// logic instead of always taking the DXUIBatch fast path, which
+			// never touches it.
+			if (gGL.isRecording())
+			{
+				gGL.vertexBatchPreTransformed(pos, uv, NUM_VERTICES);
+			}
+			else if (LLGLSLShader* shader = LLGLSLShader::sCurBoundShaderPtr)
+			{
+				// Flush any still-queued gGL geometry before this
+				// function's own immediate DXUIBatch draw - draw-order fix,
+				// see LLFontGL::beginTextRender()'s matching comment.
+				gGL.flush();
+				DXRender2DUtils::ScaledImageGeometry geom;
+				for (S32 v = 0; v < NUM_VERTICES; ++v)
+				{
+					const F32* p = pos[v].getF32ptr();
+					geom.pos[v][0] = p[0]; geom.pos[v][1] = p[1]; geom.pos[v][2] = p[2];
+					geom.uv[v][0] = uv[v].mV[0]; geom.uv[v][1] = uv[v].mV[1];
+				}
+				gDXUIBatch.flushPending();
+				DXRender2DUtils::glDrawScaledImage(geom, color);
+				gGL.syncMatrices();
+				if (ID3DBlob* vsb = shader->mDXVertexShader.getVSBytecode())
+				{
+					gDXUIBatch.flush(vsb->GetBufferPointer(), vsb->GetBufferSize(), shader->mDXVertexShader.getVS(), shader->mDXPixelShader.getPS(), true, shader->mName.c_str());
+				}
+			}
+#else
 			gGL.vertexBatchPreTransformed(pos, uv, NUM_VERTICES);
+#endif
 		}
 		gGL.end();
 	}
@@ -781,49 +1078,88 @@ void gl_draw_scaled_rotated_image(S32 x, S32 y, S32 width, S32 height, F32 degre
 		}
 		else
 		{
+#ifndef DX_RENDER
+			// S24 (DX_RENDER): see the matching comment in the degrees==0.f
+			// branch above - same unconverted LLTexUnit::bind(LLRenderTarget*)
+			// overload, same single debug-tool caller.
 			gGL.getTexUnit(0)->bind(target);
+#endif
 		}
 
 		gGL.color4fv(color.mV);
 
+		LLVector3 rv[6];
+		rv[0] = LLVector3(offset_x, offset_y, 0.f) * quat;
+		rv[1] = LLVector3(-offset_x, offset_y, 0.f) * quat;
+		rv[2] = LLVector3(-offset_x, -offset_y, 0.f) * quat;
+		rv[3] = LLVector3(offset_x, offset_y, 0.f) * quat;
+		rv[4] = LLVector3(-offset_x, -offset_y, 0.f) * quat;
+		rv[5] = LLVector3(offset_x, -offset_y, 0.f) * quat;
+		LLVector2 ruv[6] = {
+			LLVector2(uv_rect.mRight, uv_rect.mTop),
+			LLVector2(uv_rect.mLeft, uv_rect.mTop),
+			LLVector2(uv_rect.mLeft, uv_rect.mBottom),
+			LLVector2(uv_rect.mRight, uv_rect.mTop),
+			LLVector2(uv_rect.mLeft, uv_rect.mBottom),
+			LLVector2(uv_rect.mRight, uv_rect.mBottom),
+		};
+
+#ifdef DX_RENDER
+		// S24 (2026-08-16): this branch (degrees != 0.f) previously had no
+		// DX_RENDER handling at all - always fell through to raw gGL
+		// immediate mode below even under DX_RENDER, unlike the degrees==0.f
+		// branch above. Same DXRender2DUtils::glDrawScaledImage()/
+		// ScaledImageGeometry reuse as that branch - the 6-vertex triangle-
+		// list shape is identical, only the position math (rotated vs
+		// axis-aligned) differs.
+		if (LLGLSLShader* shader = LLGLSLShader::sCurBoundShaderPtr)
+		{
+			gGL.flush();
+			DXRender2DUtils::ScaledImageGeometry geom;
+			for (S32 v = 0; v < 6; ++v)
+			{
+				geom.pos[v][0] = rv[v].mV[0]; geom.pos[v][1] = rv[v].mV[1]; geom.pos[v][2] = rv[v].mV[2];
+				geom.uv[v][0] = ruv[v].mV[0]; geom.uv[v][1] = ruv[v].mV[1];
+			}
+			gDXUIBatch.flushPending();
+			DXRender2DUtils::glDrawScaledImage(geom, color);
+			gGL.syncMatrices();
+			if (ID3DBlob* vsb = shader->mDXVertexShader.getVSBytecode())
+			{
+				gDXUIBatch.flush(vsb->GetBufferPointer(), vsb->GetBufferSize(), shader->mDXVertexShader.getVS(), shader->mDXPixelShader.getPS(), true, shader->mName.c_str());
+			}
+		}
+#else
 		gGL.begin(LLRender::TRIANGLES);
 		{
-			LLVector3 v;
-
-			v = LLVector3(offset_x, offset_y, 0.f) * quat;
-			gGL.texCoord2f(uv_rect.mRight, uv_rect.mTop);
-			gGL.vertex2f(v.mV[0], v.mV[1]);
-
-			v = LLVector3(-offset_x, offset_y, 0.f) * quat;
-			gGL.texCoord2f(uv_rect.mLeft, uv_rect.mTop);
-			gGL.vertex2f(v.mV[0], v.mV[1]);
-
-			v = LLVector3(-offset_x, -offset_y, 0.f) * quat;
-			gGL.texCoord2f(uv_rect.mLeft, uv_rect.mBottom);
-			gGL.vertex2f(v.mV[0], v.mV[1]);
-
-			v = LLVector3(offset_x, offset_y, 0.f) * quat;
-			gGL.texCoord2f(uv_rect.mRight, uv_rect.mTop);
-			gGL.vertex2f(v.mV[0], v.mV[1]);
-
-			v = LLVector3(-offset_x, -offset_y, 0.f) * quat;
-			gGL.texCoord2f(uv_rect.mLeft, uv_rect.mBottom);
-			gGL.vertex2f(v.mV[0], v.mV[1]);
-
-			v = LLVector3(offset_x, -offset_y, 0.f) * quat;
-			gGL.texCoord2f(uv_rect.mRight, uv_rect.mBottom);
-			gGL.vertex2f(v.mV[0], v.mV[1]);
+			for (S32 v = 0; v < 6; ++v)
+			{
+				gGL.texCoord2f(ruv[v].mV[0], ruv[v].mV[1]);
+				gGL.vertex2f(rv[v].mV[0], rv[v].mV[1]);
+			}
 		}
 		gGL.end();
+#endif
 		gGL.popUIMatrix();
 	}
 }
 
 void gl_line_3d(const LLVector3& start, const LLVector3& end, const LLColor4& color)
 {
-	gGL.color4f(color.mV[VRED], color.mV[VGREEN], color.mV[VBLUE], color.mV[VALPHA]);
-
 	gGL.flush();
+#ifdef DX_RENDER
+	if (LLGLSLShader* shader = LLGLSLShader::sCurBoundShaderPtr)
+	{
+		gDXUIBatch.flushPending();
+		DXRender2DUtils::glLineThreeD(start, end, color, gGL.getUITranslation(), gGL.getUIScale());
+		gGL.syncMatrices();
+		if (ID3DBlob* vsb = shader->mDXVertexShader.getVSBytecode())
+		{
+			gDXUIBatch.flush(vsb->GetBufferPointer(), vsb->GetBufferSize(), shader->mDXVertexShader.getVS(), shader->mDXPixelShader.getPS(), true, shader->mName.c_str(), DXUITopology::LineList);
+		}
+	}
+#else
+	gGL.color4f(color.mV[VRED], color.mV[VGREEN], color.mV[VBLUE], color.mV[VALPHA]);
 	glLineWidth(2.5f);
 
 	gGL.begin(LLRender::LINES);
@@ -832,12 +1168,34 @@ void gl_line_3d(const LLVector3& start, const LLVector3& end, const LLColor4& co
 		gGL.vertex3fv(end.mV);
 	}
 	gGL.end();
+#endif // DX_RENDER
 
 	LLRender2D::setLineWidth(1.f);
 }
 
 void gl_arc_2d(F32 center_x, F32 center_y, F32 radius, S32 steps, bool filled, F32 start_angle, F32 end_angle)
 {
+#ifdef DX_RENDER
+	// DXRender2DUtils::glArcTwoD() bakes (center_x, center_y) directly into
+	// each vertex instead of via a pushUIMatrix()/translateUI() layer (see
+	// its own header comment) - mathematically equivalent (translateUI only
+	// ever touches offset, never scale, and addition is commutative), one
+	// fewer stack push/pop.
+	if (LLGLSLShader* shader = LLGLSLShader::sCurBoundShaderPtr)
+	{
+		gGL.flush();
+		gDXUIBatch.flushPending();
+		DXRender2DUtils::glArcTwoD(center_x, center_y, radius, steps, filled, start_angle, end_angle,
+			gGL.getCurrentColor(), gGL.getUITranslation(), gGL.getUIScale());
+		gGL.syncMatrices();
+		if (ID3DBlob* vsb = shader->mDXVertexShader.getVSBytecode())
+		{
+			gDXUIBatch.flush(vsb->GetBufferPointer(), vsb->GetBufferSize(), shader->mDXVertexShader.getVS(), shader->mDXPixelShader.getPS(), true, shader->mName.c_str(),
+				filled ? DXUITopology::TriangleList : DXUITopology::LineStrip);
+		}
+	}
+	return;
+#else
 	if (end_angle < start_angle)
 	{
 		end_angle += F_TWO_PI;
@@ -877,13 +1235,31 @@ void gl_arc_2d(F32 center_x, F32 center_y, F32 radius, S32 steps, bool filled, F
 		gGL.end();
 	}
 	gGL.popUIMatrix();
+#endif // DX_RENDER
 }
 
 void gl_circle_2d(F32 center_x, F32 center_y, F32 radius, S32 steps, bool filled)
 {
+	gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+
+#ifdef DX_RENDER
+	if (LLGLSLShader* shader = LLGLSLShader::sCurBoundShaderPtr)
+	{
+		gGL.flush();
+		gDXUIBatch.flushPending();
+		DXRender2DUtils::glCircleTwoD(center_x, center_y, radius, steps, filled,
+			gGL.getCurrentColor(), gGL.getUITranslation(), gGL.getUIScale());
+		gGL.syncMatrices();
+		if (ID3DBlob* vsb = shader->mDXVertexShader.getVSBytecode())
+		{
+			gDXUIBatch.flush(vsb->GetBufferPointer(), vsb->GetBufferSize(), shader->mDXVertexShader.getVS(), shader->mDXPixelShader.getPS(), true, shader->mName.c_str(),
+				filled ? DXUITopology::TriangleList : DXUITopology::LineStrip);
+		}
+	}
+	return;
+#else
 	gGL.pushUIMatrix();
 	{
-		gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
 		gGL.translateUI(center_x, center_y, 0.f);
 
 		// Inexact, but reasonably fast.
@@ -916,11 +1292,26 @@ void gl_circle_2d(F32 center_x, F32 center_y, F32 radius, S32 steps, bool filled
 		gGL.end();
 	}
 	gGL.popUIMatrix();
+#endif // DX_RENDER
 }
 
 // Renders a ring with sides (tube shape)
 void gl_deep_circle(F32 radius, F32 depth, S32 steps)
 {
+#ifdef DX_RENDER
+	if (LLGLSLShader* shader = LLGLSLShader::sCurBoundShaderPtr)
+	{
+		gGL.flush();
+		gDXUIBatch.flushPending();
+		DXRender2DUtils::glDeepCircle(radius, depth, steps, gGL.getCurrentColor(), gGL.getUITranslation(), gGL.getUIScale());
+		gGL.syncMatrices();
+		if (ID3DBlob* vsb = shader->mDXVertexShader.getVSBytecode())
+		{
+			gDXUIBatch.flush(vsb->GetBufferPointer(), vsb->GetBufferSize(), shader->mDXVertexShader.getVS(), shader->mDXPixelShader.getPS(), true, shader->mName.c_str(), DXUITopology::TriangleStrip);
+		}
+	}
+	return;
+#else
 	F32 x = radius;
 	F32 y = 0.f;
 	F32 angle_delta = F_TWO_PI / (F32)steps;
@@ -938,6 +1329,7 @@ void gl_deep_circle(F32 radius, F32 depth, S32 steps)
 		}
 	}
 	gGL.end();
+#endif // DX_RENDER
 }
 
 void gl_ring(F32 radius, F32 width, const LLColor4& center_color, const LLColor4& side_color, S32 steps, bool render_center)
@@ -983,6 +1375,22 @@ void gl_rect_2d_checkerboard(const LLRect& rect, GLfloat alpha)
 // a doughnut or washer.
 void gl_washer_2d(F32 outer_radius, F32 inner_radius, S32 steps, const LLColor4& inner_color, const LLColor4& outer_color)
 {
+	gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+
+#ifdef DX_RENDER
+	if (LLGLSLShader* shader = LLGLSLShader::sCurBoundShaderPtr)
+	{
+		gGL.flush();
+		gDXUIBatch.flushPending();
+		DXRender2DUtils::glWasherTwoD(outer_radius, inner_radius, steps, inner_color, outer_color, gGL.getUITranslation(), gGL.getUIScale());
+		gGL.syncMatrices();
+		if (ID3DBlob* vsb = shader->mDXVertexShader.getVSBytecode())
+		{
+			gDXUIBatch.flush(vsb->GetBufferPointer(), vsb->GetBufferSize(), shader->mDXVertexShader.getVS(), shader->mDXPixelShader.getPS(), true, shader->mName.c_str(), DXUITopology::TriangleStrip);
+		}
+	}
+	return;
+#else
 	const F32 DELTA = F_TWO_PI / steps;
 	const F32 SIN_DELTA = sin(DELTA);
 	const F32 COS_DELTA = cos(DELTA);
@@ -992,8 +1400,6 @@ void gl_washer_2d(F32 outer_radius, F32 inner_radius, S32 steps, const LLColor4&
 	F32 x2 = inner_radius;
 	F32 y2 = 0.f;
 
-	gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
-
 	gGL.begin(LLRender::TRIANGLE_STRIP);
 	{
 		steps += 1; // An extra step to close the circle.
@@ -1014,12 +1420,30 @@ void gl_washer_2d(F32 outer_radius, F32 inner_radius, S32 steps, const LLColor4&
 		}
 	}
 	gGL.end();
+#endif // DX_RENDER
 }
 
 // Draws the area between two concentric circles, like
 // a doughnut or washer.
 void gl_washer_segment_2d(F32 outer_radius, F32 inner_radius, F32 start_radians, F32 end_radians, S32 steps, const LLColor4& inner_color, const LLColor4& outer_color)
 {
+	gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+
+#ifdef DX_RENDER
+	if (LLGLSLShader* shader = LLGLSLShader::sCurBoundShaderPtr)
+	{
+		gGL.flush();
+		gDXUIBatch.flushPending();
+		DXRender2DUtils::glWasherSegmentTwoD(outer_radius, inner_radius, start_radians, end_radians, steps,
+			inner_color, outer_color, gGL.getUITranslation(), gGL.getUIScale());
+		gGL.syncMatrices();
+		if (ID3DBlob* vsb = shader->mDXVertexShader.getVSBytecode())
+		{
+			gDXUIBatch.flush(vsb->GetBufferPointer(), vsb->GetBufferSize(), shader->mDXVertexShader.getVS(), shader->mDXPixelShader.getPS(), true, shader->mName.c_str(), DXUITopology::TriangleStrip);
+		}
+	}
+	return;
+#else
 	const F32 DELTA = (end_radians - start_radians) / steps;
 	const F32 SIN_DELTA = sin(DELTA);
 	const F32 COS_DELTA = cos(DELTA);
@@ -1029,7 +1453,6 @@ void gl_washer_segment_2d(F32 outer_radius, F32 inner_radius, F32 start_radians,
 	F32 x2 = inner_radius * cos(start_radians);
 	F32 y2 = inner_radius * sin(start_radians);
 
-	gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
 	gGL.begin(LLRender::TRIANGLE_STRIP);
 	{
 		steps += 1; // An extra step to close the circle.
@@ -1050,10 +1473,25 @@ void gl_washer_segment_2d(F32 outer_radius, F32 inner_radius, F32 start_radians,
 		}
 	}
 	gGL.end();
+#endif // DX_RENDER
 }
 
 void gl_rect_2d_simple_tex(S32 width, S32 height)
 {
+#ifdef DX_RENDER
+	if (LLGLSLShader* shader = LLGLSLShader::sCurBoundShaderPtr)
+	{
+		gGL.flush();
+		gDXUIBatch.flushPending();
+		DXRender2DUtils::glRectTwoDSimpleTex(width, height, gGL.getCurrentColor(), gGL.getUITranslation(), gGL.getUIScale());
+		gGL.syncMatrices();
+		if (ID3DBlob* vsb = shader->mDXVertexShader.getVSBytecode())
+		{
+			gDXUIBatch.flush(vsb->GetBufferPointer(), vsb->GetBufferSize(), shader->mDXVertexShader.getVS(), shader->mDXPixelShader.getPS(), true, shader->mName.c_str());
+		}
+	}
+	return;
+#else
 	gGL.begin(LLRender::TRIANGLES);
 
 	gGL.texCoord2f(1.f, 1.f);
@@ -1075,10 +1513,25 @@ void gl_rect_2d_simple_tex(S32 width, S32 height)
 	gGL.vertex2i(width, 0);
 
 	gGL.end();
+#endif // DX_RENDER
 }
 
 void gl_rect_2d_simple(S32 width, S32 height)
 {
+#ifdef DX_RENDER
+	if (LLGLSLShader* shader = LLGLSLShader::sCurBoundShaderPtr)
+	{
+		gGL.flush();
+		gDXUIBatch.flushPending();
+		DXRender2DUtils::glRectTwoDSimple(width, height, gGL.getCurrentColor(), gGL.getUITranslation(), gGL.getUIScale());
+		gGL.syncMatrices();
+		if (ID3DBlob* vsb = shader->mDXVertexShader.getVSBytecode())
+		{
+			gDXUIBatch.flush(vsb->GetBufferPointer(), vsb->GetBufferSize(), shader->mDXVertexShader.getVS(), shader->mDXPixelShader.getPS(), true, shader->mName.c_str());
+		}
+	}
+	return;
+#else
 	gGL.begin(LLRender::TRIANGLES);
 	gGL.vertex2i(width, height);
 	gGL.vertex2i(0, height);
@@ -1088,6 +1541,7 @@ void gl_rect_2d_simple(S32 width, S32 height)
 	gGL.vertex2i(0, 0);
 	gGL.vertex2i(width, 0);
 	gGL.end();
+#endif // DX_RENDER
 }
 
 void gl_segmented_rect_2d_tex(const S32 left,
@@ -1313,6 +1767,26 @@ void gl_segmented_rect_2d_fragment_tex(const LLRect& rect,
 	const U32 edges)
 {
 	LL_PROFILE_ZONE_SCOPED_CATEGORY_UI;
+#ifdef DX_RENDER
+	// S24 (DXRender2DUtils, 2026-07-25): DXRender2DUtils::glSegmentedRectTwoDFragmentTex()
+	// takes the same raw parameters and replicates this function's own
+	// gGL.pushUIMatrix()/translateUI((F32)left,(F32)bottom,0.f) internally
+	// (see its own comment) - so the DX_RENDER path bypasses all of the
+	// shared setup math below entirely rather than duplicating it partially.
+	if (LLGLSLShader* shader = LLGLSLShader::sCurBoundShaderPtr)
+	{
+		gGL.flush();
+		gDXUIBatch.flushPending();
+		DXRender2DUtils::glSegmentedRectTwoDFragmentTex(rect, texture_width, texture_height, border_size,
+			start_fragment, end_fragment, edges, gGL.getCurrentColor(), gGL.getUITranslation(), gGL.getUIScale());
+		gGL.syncMatrices();
+		if (ID3DBlob* vsb = shader->mDXVertexShader.getVSBytecode())
+		{
+			gDXUIBatch.flush(vsb->GetBufferPointer(), vsb->GetBufferSize(), shader->mDXVertexShader.getVS(), shader->mDXPixelShader.getPS(), true, shader->mName.c_str());
+		}
+	}
+	return;
+#else
 	const S32 left = rect.mLeft;
 	const S32 right = rect.mRight;
 	const S32 top = rect.mTop;
@@ -1548,6 +2022,7 @@ void gl_segmented_rect_2d_fragment_tex(const LLRect& rect,
 	gGL.end();
 
 	gGL.popUIMatrix();
+#endif // DX_RENDER
 }
 
 void gl_segmented_rect_3d_tex(const LLRectf& clip_rect, const LLRectf& center_uv_rect, const LLRectf& center_draw_rect,
@@ -1555,6 +2030,39 @@ void gl_segmented_rect_3d_tex(const LLRectf& clip_rect, const LLRectf& center_uv
 {
 	LL_PROFILE_ZONE_SCOPED_CATEGORY_UI;
 
+#ifdef DX_RENDER
+	if (LLGLSLShader* shader = LLGLSLShader::sCurBoundShaderPtr)
+	{
+		gGL.flush();
+		gDXUIBatch.flushPending();
+		DXRender2DUtils::glSegmentedRectThreeDTex(clip_rect, center_uv_rect, center_draw_rect, width_vec, height_vec,
+			gGL.getCurrentColor(), gGL.getUITranslation(), gGL.getUIScale());
+		gGL.syncMatrices();
+		if (ID3DBlob* vsb = shader->mDXVertexShader.getVSBytecode())
+		{
+			// S24 (2026-08-11, task #191): this is the one gl_segmented_rect_*
+			// caller that draws genuine 3D world-space content (LLHUDNameTag's
+			// nametag panel, via LLUIImage::draw3D()) rather than 2D screen-
+			// space UI - its caller wraps it in LLGLDepthTest(GL_TRUE,
+			// GL_FALSE), wanting real depth-test occlusion against world
+			// geometry. Tried passing that through to DXUIBatch::flush() -
+			// caused a regression (panel disappeared entirely): by the time
+			// nametags render, the bound depth buffer is the swap chain's
+			// own (DXSwapChain.h's own header comment already documents this
+			// - built only for relative ordering among render_hud_elements()'s
+			// gizmo/selection content, cleared to far once per frame, never
+			// populated with real 3D scene depth, which is long gone/unbound
+			// by this point in the frame). Testing against it isn't
+			// meaningful and evidently fails outright rather than passing.
+			// Reverted to the default (depth_test=false) until the real gap
+			// (no world-depth-aware target bound during the UI/HUD pass) is
+			// actually fixed - real occlusion-behind-walls for nametags
+			// remains a known, separate follow-up, not solved by this call.
+			gDXUIBatch.flush(vsb->GetBufferPointer(), vsb->GetBufferSize(), shader->mDXVertexShader.getVS(), shader->mDXPixelShader.getPS(), true, shader->mName.c_str());
+		}
+	}
+	return;
+#else
 	gGL.begin(LLRender::TRIANGLES);
 	{
 		// draw bottom left
@@ -1729,6 +2237,7 @@ void gl_segmented_rect_3d_tex(const LLRectf& clip_rect, const LLRectf& center_uv
 		gGL.vertex3fv((center_draw_rect.mRight * width_vec + height_vec).mV);
 	}
 	gGL.end();
+#endif // DX_RENDER
 }
 
 LLRender2D::LLRender2D(LLImageProviderInterface* image_provider)
@@ -1787,6 +2296,7 @@ void LLRender2D::loadIdentity()
 void LLRender2D::setLineWidth(F32 width)
 {
 	gGL.flush();
+#ifndef DX_RENDER
 	// If outside the allowed range, glLineWidth fails with "invalid value".
 	// On Darwin, the range is [1, 1].
 	static GLfloat range[2]{ 0.0 };
@@ -1796,6 +2306,10 @@ void LLRender2D::setLineWidth(F32 width)
 	}
 	width *= lerp(LLRender::sUIGLScaleFactor.mV[VX], LLRender::sUIGLScaleFactor.mV[VY], 0.5f);
 	glLineWidth(llclamp(width, range[0], range[1]));
+#endif
+	// S24 (DX_RENDER): no per-draw line-width equivalent in D3D11 - lines
+	// always render at width 1 under DX_RENDER, matching the existing
+	// "no depth-bias/polygon-offset equivalent" class of visual-quality gap.
 }
 
 LLPointer<LLUIImage> LLRender2D::getUIImageByID(const LLUUID& image_id, S32 priority)

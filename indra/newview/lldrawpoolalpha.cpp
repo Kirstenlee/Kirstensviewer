@@ -52,6 +52,9 @@
 #include "gltfscenemanager.h"
 
 #include "llenvironment.h"
+#ifdef DX_RENDER
+#include "dxdrawpoolalpha.h"
+#endif
 
 bool LLDrawPoolAlpha::sShowDebugAlpha = false;
 
@@ -141,6 +144,11 @@ extern bool gCubeSnapshot;
 void LLDrawPoolAlpha::renderPostDeferred(S32 pass)
 {
     LL_PROFILE_ZONE_SCOPED_CATEGORY_DRAWPOOL;
+
+#ifdef DX_RENDER
+    DXDrawPoolAlpha::renderPostDeferred(*this, pass);
+    return;
+#endif
 
     if (LLPipeline::isWaterClip() && getType() == LLDrawPool::POOL_ALPHA_PRE_WATER)
     { // don't render alpha objects on the other side of the water plane if water is opaque

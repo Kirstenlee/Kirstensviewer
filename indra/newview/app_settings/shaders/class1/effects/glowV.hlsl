@@ -24,6 +24,8 @@
 
 uniform float2 glowDelta;
 
+#include "varying/glowVarying.hlsli"
+
 struct VSInput
 {
     float3 position : POSITION;
@@ -32,10 +34,7 @@ struct VSInput
 struct VSOutput
 {
     float4 position : SV_Position;
-    float4 vary_texcoord0 : TEXCOORD0;
-    float4 vary_texcoord1 : TEXCOORD1;
-    float4 vary_texcoord2 : TEXCOORD2;
-    float4 vary_texcoord3 : TEXCOORD3;
+    GlowVarying varying;
 };
 
 VSOutput main(VSInput IN)
@@ -45,13 +44,13 @@ VSOutput main(VSInput IN)
 
     float2 texcoord = IN.position.xy * 0.5 + 0.5;
 
-    OUT.vary_texcoord0.xy = texcoord + glowDelta * (-3.5);
-    OUT.vary_texcoord1.xy = texcoord + glowDelta * (-2.5);
-    OUT.vary_texcoord2.xy = texcoord + glowDelta * (-1.5);
-    OUT.vary_texcoord3.xy = texcoord + glowDelta * (-0.5);
-    OUT.vary_texcoord0.zw = texcoord + glowDelta * (0.5);
-    OUT.vary_texcoord1.zw = texcoord + glowDelta * (1.5);
-    OUT.vary_texcoord2.zw = texcoord + glowDelta * (2.5);
-    OUT.vary_texcoord3.zw = texcoord + glowDelta * (3.5);
+    OUT.varying.vary_texcoord0.xy = texcoord + glowDelta * (-3.5);
+    OUT.varying.vary_texcoord1.xy = texcoord + glowDelta * (-2.5);
+    OUT.varying.vary_texcoord2.xy = texcoord + glowDelta * (-1.5);
+    OUT.varying.vary_texcoord3.xy = texcoord + glowDelta * (-0.5);
+    OUT.varying.vary_texcoord0.zw = texcoord + glowDelta * (0.5);
+    OUT.varying.vary_texcoord1.zw = texcoord + glowDelta * (1.5);
+    OUT.varying.vary_texcoord2.zw = texcoord + glowDelta * (2.5);
+    OUT.varying.vary_texcoord3.zw = texcoord + glowDelta * (3.5);
     return OUT;
 }

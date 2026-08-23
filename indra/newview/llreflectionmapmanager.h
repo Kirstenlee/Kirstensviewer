@@ -31,6 +31,10 @@
 #include "llcubemaparray.h"
 #include "llcubemap.h"
 
+#ifdef DX_RENDER
+#include "DXBuffer.h"
+#endif
+
 class LLSpatialGroup;
 class LLViewerObject;
 
@@ -49,6 +53,14 @@ class alignas(16) LLReflectionMapManager
 {
     LL_ALIGN_NEW
 public:
+    // S24 (2026-08-15, task #165): mLightScale is private (only LLPipeline
+    // is a friend, per the reflection-probe-capture-only comment on the
+    // member itself) - DXPipeline needs to read it too, to darken local
+    // lights during probe capture the same way GL's LLPipeline::
+    // renderDeferredLighting() does. A scoped getter is a smaller surface
+    // area than adding DXPipeline as a second full friend class.
+    F32 getLightScale() const { return mLightScale; }
+
     enum class DetailLevel
     {
         STATIC_ONLY = 0,
@@ -232,6 +244,14 @@ private:
 
     // handle to UBO
     U32 mUBO = 0;
+#ifdef DX_RENDER
+    // S24 (2026-08-09, task #147b): real D3D11 constant buffer backing
+    // mUBO's data (mProbeData/ReflectionProbeData) - see updateUniforms()/
+    // setUniforms() in llreflectionmapmanager.cpp. mUBO itself stays 0
+    // under DX_RENDER (nothing GL-side to allocate), this is the real
+    // resource.
+    DXBuffer mDXUBO;
+#endif
 
     // list of maps being used for rendering
     std::vector<LLReflectionMap*> mReflectionMaps;

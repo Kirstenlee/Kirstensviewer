@@ -63,6 +63,18 @@ typedef LLOctreeTraveler<LLViewerOctreeEntry, LLPointer<LLViewerOctreeEntry>> Oc
 U32 get_box_fan_indices(LLCamera* camera, const LLVector4a& center);
 U8* get_box_fan_indices_ptr(LLCamera* camera, const LLVector4a& center);
 
+#ifdef DX_RENDER
+// S24 (2026-08-19, task #250): D3D11 has no TRIANGLE_FAN topology - see
+// llvieweroctree.cpp's dx_get_occlusion_box_vb() comment for the full story.
+// Real occlusion-query proxy-box draw path under DX_RENDER, shared by
+// LLOcclusionCullingGroup::doOcclusion() (this file) and
+// LLReflectionMap::doOcclusion() (llreflectionmap.cpp): bind the vertex
+// buffer this returns, then drawArrays(TRIANGLES, get_box_triangle_offset(...), 18).
+class LLVertexBuffer;
+LLVertexBuffer* dx_get_occlusion_box_vb();
+U32 get_box_triangle_offset(LLCamera* camera, const LLVector4a& center);
+#endif
+
 S32 AABBSphereIntersect(const LLVector4a& min, const LLVector4a& max, const LLVector3 &origin, const F32 &rad);
 S32 AABBSphereIntersectR2(const LLVector4a& min, const LLVector4a& max, const LLVector3 &origin, const F32 &radius_squared);
 

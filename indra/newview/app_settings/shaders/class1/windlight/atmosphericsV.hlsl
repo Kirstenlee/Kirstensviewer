@@ -24,7 +24,9 @@
 
 uniform float3 sun_dir;
 uniform float3 moon_dir;
-uniform int sun_up_factor;
+// sun_up_factor is declared in atmosphericsFuncs.hlsl, always attached
+// right before this file (both gated on calculatesAtmospherics, in that
+// order) - redeclaring it here caused an HLSL X3003 redefinition.
 
 void setSunlitColor(float3 v);
 void setAmblitColor(float3 v);

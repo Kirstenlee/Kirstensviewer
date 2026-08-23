@@ -55,13 +55,17 @@ struct VSInput
     float3 position : POSITION;
     float3 normal : NORMAL;
     float2 texcoord0 : TEXCOORD0;
+#ifdef HAS_SKIN
+    float4 weight4 : BLENDWEIGHT;
+#endif
 };
+
+#include "varying/previewVarying.hlsli"
 
 struct VSOutput
 {
     float4 position : SV_Position;
-    float4 vertex_color : COLOR0;
-    float2 vary_texcoord0 : TEXCOORD0;
+    PreviewVarying varying;
 };
 
 VSOutput main(VSInput IN)
@@ -80,7 +84,7 @@ VSOutput main(VSInput IN)
     norm = normalize(mul(normal_matrix, IN.normal));
 #endif
 
-    OUT.vary_texcoord0 = mul(texture_matrix0, float4(IN.texcoord0, 0, 1)).xy;
+    OUT.varying.vary_texcoord0 = mul(texture_matrix0, float4(IN.texcoord0, 0, 1)).xy;
 
     float4 col = float4(0, 0, 0, 1);
 
@@ -89,7 +93,7 @@ VSOutput main(VSInput IN)
     col.rgb += light_diffuse[2].rgb * calcDirectionalLight(norm, light_position[2].xyz);
     col.rgb += light_diffuse[3].rgb * calcDirectionalLight(norm, light_position[3].xyz);
 
-    OUT.vertex_color = col*color;
+    OUT.varying.vertex_color = col*color;
 
     return OUT;
 }

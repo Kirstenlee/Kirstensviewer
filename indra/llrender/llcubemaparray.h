@@ -30,6 +30,10 @@
 
 #include <vector>
 
+#ifdef DX_RENDER
+#include "DXCubeArrayTexture.h"
+#endif
+
 class LLVector3;
 
 class LLCubeMapArray : public LLRefCount
@@ -67,6 +71,17 @@ public:
     // get number of cubemaps in the array
     U32 getCount() const { return mCount; }
 
+#ifdef DX_RENDER
+    // S24 (2026-08-09, task #147 step 3): real cube-array SRV, populated
+    // per-slice by LLReflectionMapManager's capture path via
+    // DXCubeArrayTexture::copySliceFromBoundRenderTarget() (see that
+    // class's own comment). Used by LLTexUnit::bind(LLCubeMapArray*)'s
+    // DX_RENDER branch. Returns nullptr if allocate() hasn't been called
+    // yet or failed.
+    ID3D11ShaderResourceView* getDXSRV() const { return mDXTexture.getSRV(); }
+    DXCubeArrayTexture* getDXTexture() { return &mDXTexture; }
+#endif
+
 protected:
     friend class LLTexUnit;
     ~LLCubeMapArray();
@@ -75,4 +90,7 @@ protected:
     U32 mCount = 0;
     S32 mTextureStage;
     bool mHDR;
+#ifdef DX_RENDER
+    DXCubeArrayTexture mDXTexture;
+#endif
 };

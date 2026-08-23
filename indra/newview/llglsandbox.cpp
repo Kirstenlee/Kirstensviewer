@@ -942,6 +942,16 @@ F32 shader_timer_benchmark(std::vector<LLRenderTarget> & dest, TextureHolder & t
 //-----------------------------------------------------------------------------
 F32 gpu_benchmark()
 {
+#ifdef DX_RENDER
+    // S24 (2026-08-05): GL-only (compiles a GLSL/HLSL benchmark shader,
+    // times it via GL_TIMER queries) and never audited for DX_RENDER -
+    // menu-triggerable independently of LLFeatureManager::loadGPUClass()
+    // (llviewermenu.cpp), so guard here too rather than only at that one
+    // call site. See loadGPUClass()'s own DX_RENDER comment for the real
+    // GPU classification path used instead.
+    return -1.f;
+#endif
+
     if (gGLManager.mGLVersion < 3.3f)
     { // don't bother benchmarking venerable drivers which don't support accurate timing anyway
         return -1.f;

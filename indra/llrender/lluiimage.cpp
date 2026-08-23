@@ -33,6 +33,14 @@
 #include "lluiimage.h"
 #include <algorithm>
 
+#ifdef DX_RENDER
+// S24 (task #54): LLVertexBufferData::mDXImage (llvertexbuffer.h) is an
+// LLPointer<LLImageGL> - mDisplayLists' CachedDisplayList entries hold these
+// via buffer_data_list_t, so ~LLUIImage() (defined out-of-line below) needs
+// LLImageGL's complete type to destroy them.
+#include "llimagegl.h"
+#endif
+
 // Static member initialization
 std::vector<LLPointer<LLUIImage> > LLUIImage::sImageList;
 size_t LLUIImage::sCleanupIndex = 0;

@@ -26,16 +26,36 @@
 
 struct PSInput
 {
+    // S24 (2026-08-02): missing SV_Position - see uiF.hlsl's comment (fxc.exe-confirmed VS/PS register-shift bug).
+    float4 position : SV_Position;
+
     float2 vary_fragcoord : TEXCOORD0;
 };
 
-uniform Texture2D lightMap : register(t0);
-uniform SamplerState lightMapSampler : register(s0);
+// t0-t3/s0-s3 reserved by deferredUtil.hlsl (attached below) - moved this
+// file's own texture to t7/s7, same free-slot convention established for
+// the class2/3 light-shader family (pointLightF/spotLightF/etc.).
+uniform Texture2D lightMap : register(t7);
+uniform SamplerState lightMapSampler : register(s7);
 
 uniform float dist_factor;
 uniform float blur_size;
 uniform float2 delta;
+
+// screen_res is also declared (and used) by deferredUtil.hlsl, grouped
+// there with inv_proj under one guard - this file never references
+// inv_proj by name, but getPosition() (called below, implemented in
+// deferredUtil.hlsl) uses it internally, so it's still genuinely needed
+// by this shader instance. Must declare BOTH names here under the same
+// guard, matching the paired set exactly - guarding only screen_res would
+// let this block's #define silently skip deferredUtil.hlsl's later
+// declaration of inv_proj too, leaving it completely undeclared (the
+// exact self-inflicted split-guard mistake from earlier this session).
+#ifndef LL_INV_PROJ_DECLARED
+#define LL_INV_PROJ_DECLARED
 uniform float2 screen_res;
+uniform float4x4 inv_proj;
+#endif
 uniform float3 kern[4];
 uniform float kern_scale;
 
@@ -47,7 +67,14 @@ float4 main(PSInput IN) : SV_Target
     float2 tc = IN.vary_fragcoord.xy;
     float4 norm = getNorm(tc);
     float3 pos = getPosition(tc).xyz;
-    float4 ccol = lightMap.Sample(lightMapSampler, tc).rgba;
+    // S24 (2026-08-11, quick-win origin sweep): GL-vs-D3D11 texture-origin
+    // flip - tc itself must stay unflipped (getNorm()/getPosition() above
+    // already do their own internal flip and expect raw input, same
+    // "shared coordinate used for two different purposes" pattern as
+    // softenLightF.hlsl/aoUtil.hlsl elsewhere this session), so the flip is
+    // inlined at each direct lightMap.Sample() call site only. Same bug
+    // class as task #158/#185.
+    float4 ccol = lightMap.Sample(lightMapSampler, float2(tc.x, 1.0 - tc.y)).rgba;
 
     float2 dlt = kern_scale * delta / (1.0 + norm.xy * norm.xy);
     dlt /= max(-pos.z * dist_factor, 1.0);
@@ -80,21 +107,24 @@ float4 main(PSInput IN) : SV_Target
         float d = dot(norm.xyz, samppos.xyz - pos.xyz);
         if (d * d <= pointplanedist_tolerance_pow2)
         {
-            col += lightMap.Sample(lightMapSampler, samptc) * k[i].xyxx;
+            col += lightMap.Sample(lightMapSampler, float2(samptc.x, 1.0 - samptc.y)) * k[i].xyxx;
             defined_weight += k[i].xy;
         }
     }
 
-    for (int i = 1; i < 7; i++)
+    // S24: renamed loop variable (was also "i") - HLSL's for-loop variable
+    // scope leaks into the enclosing block (unlike C++'s own for-scope),
+    // so reusing "i" here conflicted with the loop above (warning X3078).
+    for (int j = 1; j < 7; j++)
     {
-        float2 samptc = tc - k[i].z * dlt * 2.0;
+        float2 samptc = tc - k[j].z * dlt * 2.0;
         samptc /= screen_res;
         float3 samppos = getPosition(samptc).xyz;
         float d = dot(norm.xyz, samppos.xyz - pos.xyz);
         if (d * d <= pointplanedist_tolerance_pow2)
         {
-            col += lightMap.Sample(lightMapSampler, samptc) * k[i].xyxx;
-            defined_weight += k[i].xy;
+            col += lightMap.Sample(lightMapSampler, float2(samptc.x, 1.0 - samptc.y)) * k[j].xyxx;
+            defined_weight += k[j].xy;
         }
     }
 

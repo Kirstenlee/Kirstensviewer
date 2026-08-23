@@ -75,6 +75,12 @@ float3 srgb_to_linear(float3 c);
 #define MIX_Z    1 << 5
 #define MIX_W    1 << 6
 
+// Also declared, identically, by pbrterrainF.hlsl (the entry file, which
+// concatenates first - its copy wins when both are attached, this one is
+// then skipped) - see that file's comment for why an include guard is used
+// instead of deleting either copy.
+#ifndef LL_PBRMIX_DECLARED
+#define LL_PBRMIX_DECLARED
 struct PBRMix
 {
     float4 col;       // RGB color with alpha, linear space
@@ -90,6 +96,7 @@ struct PBRMix
     float3 emissive;  // RGB emissive color, linear space
 #endif
 };
+#endif
 
 PBRMix init_pbr_mix()
 {
@@ -171,11 +178,17 @@ struct TerrainTriplanar
     int type;
 };
 
+// Also declared, identically, by pbrterrainF.hlsl (entry file, wins when
+// both are attached) - see that file's comment for why an include guard
+// is used instead of deleting either copy.
+#ifndef LL_TERRAINMIX_DECLARED
+#define LL_TERRAINMIX_DECLARED
 struct TerrainMix
 {
     float4 weight;
     int type;
 };
+#endif
 
 TerrainMix get_terrain_mix_weights(float alpha1, float alpha2, float alphaFinal)
 {
@@ -271,7 +284,11 @@ float terrain_mix(TerrainMix tm, float4 tms4)
 // Triplanar mapping
 
 // Pre-transformed texture coordinates for each axial uv slice (Packing: xy, yz, (-x)z, unused)
-#define TerrainCoord float4[3]
+// S24 (2026-08-06): was "#define TerrainCoord float4[3]" - see
+// pbrterrainF.hlsl's matching comment for the full explanation (invalid
+// HLSL array-type-as-prefix syntax, X3000 syntax error, never hit before
+// tonight since triplanar was never actually compiled in this environment).
+typedef float4 TerrainCoord[3];
 
 // If sign_or_zero is positive, use uv_unflippped, otherwise use uv_flipped
 float2 _t_uv(float2 uv_unflipped, float2 uv_flipped, float sign_or_zero)
@@ -334,14 +351,19 @@ PBRMix terrain_sample_pbr(
 {
     PBRMix mix = init_pbr_mix();
 
-#define get_uv_x() _t_uv(terrain_coord[0].zw, terrain_coord[1].zw, sign(vary_vertex_normal.x))
-#define get_uv_y() _t_uv(terrain_coord[1].xy, terrain_coord[2].xy, sign(vary_vertex_normal.y))
-#define get_uv_z() _t_uv(terrain_coord[0].xy, float2(0, 0),        sign(vary_vertex_normal.z))
+// S24 (2026-08-06): were zero-parameter function-like macros
+// ("#define get_uv_x() ..."), same rejected-by-HLSL-preprocessor shape
+// already fixed in pbrterrainV.hlsl (transform_xy etc.) - D3DCompile gave
+// X1500 syntax errors at every call site. Converted to plain object-like
+// macros; every call site below drops the now-meaningless trailing "()".
+#define get_uv_x _t_uv(terrain_coord[0].zw, terrain_coord[1].zw, sign(vary_vertex_normal.x))
+#define get_uv_y _t_uv(terrain_coord[1].xy, terrain_coord[2].xy, sign(vary_vertex_normal.y))
+#define get_uv_z _t_uv(terrain_coord[0].xy, float2(0, 0),        sign(vary_vertex_normal.z))
     switch (tw.type & SAMPLE_X)
     {
     case SAMPLE_X:
         PBRMix mix_x = sample_pbr(
-            get_uv_x()
+            get_uv_x
             , tex_col, tex_colSampler
 #if (TERRAIN_PBR_DETAIL >= TERRAIN_PBR_DETAIL_METALLIC_ROUGHNESS)
             , tex_orm, tex_ormSampler
@@ -367,7 +389,7 @@ PBRMix terrain_sample_pbr(
     {
     case SAMPLE_Y:
         PBRMix mix_y = sample_pbr(
-            get_uv_y()
+            get_uv_y
             , tex_col, tex_colSampler
 #if (TERRAIN_PBR_DETAIL >= TERRAIN_PBR_DETAIL_METALLIC_ROUGHNESS)
             , tex_orm, tex_ormSampler
@@ -393,7 +415,7 @@ PBRMix terrain_sample_pbr(
     {
     case SAMPLE_Z:
         PBRMix mix_z = sample_pbr(
-            get_uv_z()
+            get_uv_z
             , tex_col, tex_colSampler
 #if (TERRAIN_PBR_DETAIL >= TERRAIN_PBR_DETAIL_METALLIC_ROUGHNESS)
             , tex_orm, tex_ormSampler

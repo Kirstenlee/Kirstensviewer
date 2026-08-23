@@ -25,6 +25,9 @@
 // Inputs
 struct PSInput
 {
+    // S24 (2026-08-02): missing SV_Position - see uiF.hlsl's comment (fxc.exe-confirmed VS/PS register-shift bug).
+    float4 position : SV_Position;
+
     float4 vary_fragcoord : TEXCOORD0;
 };
 
@@ -42,7 +45,12 @@ float4 main(PSInput IN) : SV_Target
 {
     float2  tc           = IN.vary_fragcoord.xy/IN.vary_fragcoord.w*0.5+0.5;
     float depth        = getDepth(tc.xy);
-    float mask = exclusionTex.Sample(exclusionTexSampler, tc.xy).r;
+    // S24 (2026-08-11, quick-win origin sweep): GL-vs-D3D11 texture-origin
+    // flip - tc itself must stay unflipped (getDepth() above already does
+    // its own internal flip and expects raw input), so the flip is inlined
+    // here only. Same bug class as task #158/#185, and as waterF.hlsl/
+    // underWaterF.hlsl's own already-fixed identical exclusionTex reads.
+    float mask = exclusionTex.Sample(exclusionTexSampler, float2(tc.x, 1.0 - tc.y)).r;
 
     if (above_water > 0)
     {

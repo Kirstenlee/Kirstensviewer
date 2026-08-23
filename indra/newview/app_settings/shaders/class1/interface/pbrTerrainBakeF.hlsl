@@ -35,19 +35,22 @@ TerrainMix get_terrain_mix_weights(float alpha1, float alpha2, float alphaFinal)
 Texture2D alpha_ramp : register(t0);
 SamplerState alpha_rampSampler : register(s0);
 
+#include "varying/pbrTerrainBakeVarying.hlsli"
+
+// S24 (2026-08-02): see uiF.hlsl's comment - real register mismatch,
+// confirmed via fxc.exe disassembly, affects every bare-Varying PS input.
 struct PSInput
 {
-    // vary_texcoord* are used for terrain composition
-    float4 vary_texcoord0 : TEXCOORD0;
-    float4 vary_texcoord1 : TEXCOORD1;
+    float4 position : SV_Position;
+    PBRTerrainBakeVarying varying;
 };
 
 float4 main(PSInput IN) : SV_Target
 {
     TerrainMix tm;
-    float alpha1 = alpha_ramp.Sample(alpha_rampSampler, IN.vary_texcoord0.zw).a;
-    float alpha2 = alpha_ramp.Sample(alpha_rampSampler, IN.vary_texcoord1.xy).a;
-    float alphaFinal = alpha_ramp.Sample(alpha_rampSampler, IN.vary_texcoord1.zw).a;
+    float alpha1 = alpha_ramp.Sample(alpha_rampSampler, IN.varying.vary_texcoord0.zw).a;
+    float alpha2 = alpha_ramp.Sample(alpha_rampSampler, IN.varying.vary_texcoord1.xy).a;
+    float alphaFinal = alpha_ramp.Sample(alpha_rampSampler, IN.varying.vary_texcoord1.zw).a;
 
     tm = get_terrain_mix_weights(alpha1, alpha2, alphaFinal);
 

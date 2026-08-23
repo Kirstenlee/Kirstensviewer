@@ -37,6 +37,12 @@ class LLGLSLShader;
 
 class LLDrawPoolWater final: public LLFacePool
 {
+    // S24 (2026-08-04, task #109): DXDrawPoolWater is a staged full
+    // duplicate of renderPostDeferred()'s DX_RENDER path (same pattern as
+    // DXDrawPoolBump/DXDrawPoolAlpha) - needs mWaterNormp for the wave
+    // normal-map blend, which stays protected here since nothing else
+    // needs it public.
+    friend class DXDrawPoolWater;
 protected:
     LLPointer<LLViewerTexture> mWaterImagep[2];
     LLPointer<LLViewerTexture> mWaterNormp[2];

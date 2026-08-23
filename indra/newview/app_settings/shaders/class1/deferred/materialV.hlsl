@@ -52,6 +52,9 @@ struct VSInput
 #ifdef HAS_SPECULAR_MAP
     float2 texcoord2 : TEXCOORD2;
 #endif
+#ifdef HAS_SKIN
+    float4 weight4 : BLENDWEIGHT;
+#endif
 };
 
 struct VSOutput

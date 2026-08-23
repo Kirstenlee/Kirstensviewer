@@ -30,7 +30,12 @@ SamplerState halo_mapSampler : register(s1);
 #ifdef HAS_HDRI
 Texture2D environmentMap : register(t2);
 SamplerState environmentMapSampler : register(s2);
+// sky_hdr_scale is also declared (and used) by atmosphericsF.hlsl - reuse
+// the existing guard.
+#ifndef LL_SKY_HDR_SCALE_DECLARED
+#define LL_SKY_HDR_SCALE_DECLARED
 uniform float sky_hdr_scale;
+#endif
 uniform float hdri_split_screen;
 uniform float3x3 env_mat;
 #endif
@@ -44,15 +49,7 @@ float3 linear_to_srgb(float3 c);
 
 static const float PI = 3.14159265;
 
-struct PSInput
-{
-    float3 vary_HazeColor : TEXCOORD0;
-    float vary_LightNormPosDot : TEXCOORD1;
-#ifdef HAS_HDRI
-    float4 vary_position : TEXCOORD2;
-    float3 vary_rel_pos : TEXCOORD3;
-#endif
-};
+#include "varying/skyVarying.hlsli"
 
 struct PSOutput
 {
@@ -70,7 +67,7 @@ float3 rainbow(float d)
     float interior_coord = max(0.0, d - 0.25) * 4.2857;
     d = clamp(d, 0.0, 0.25) + interior_coord;
     float rad = (droplet_radius - 5.0f) / 1024.0f;
-    return pow(rainbow_map.Sample(rainbow_mapSampler, float2(rad + 0.5, d)).rgb, float3(1.8, 1.8, 1.8)) * moisture_level;
+    return pow(abs(rainbow_map.Sample(rainbow_mapSampler, float2(rad + 0.5, d)).rgb), float3(1.8, 1.8, 1.8)) * moisture_level;
 }
 
 float3 halo22(float d)
@@ -80,16 +77,24 @@ float3 halo22(float d)
     return halo_map.Sample(halo_mapSampler, float2(0, v)).rgb * ice_level;
 }
 
+// S24 (2026-08-02): see uiF.hlsl's comment - real register mismatch,
+// confirmed via fxc.exe disassembly, affects every bare-Varying PS input.
+struct PSInput
+{
+    float4 position : SV_Position;
+    SkyVarying varying;
+};
+
 PSOutput main(PSInput IN)
 {
     PSOutput OUT;
     float3 color;
 
 #ifdef HAS_HDRI
-    float3 frag_coord = IN.vary_position.xyz / IN.vary_position.w;
+    float3 frag_coord = IN.varying.vary_position.xyz / IN.varying.vary_position.w;
     if (-frag_coord.x > ((1.0 - hdri_split_screen) * 2.0 - 1.0))
     {
-        float3 pos = normalize(IN.vary_rel_pos);
+        float3 pos = normalize(IN.varying.vary_rel_pos);
         pos = mul(env_mat, pos);
         float2 texCoord = float2(atan2(pos.z, pos.x) + PI, acos(pos.y)) / float2(2.0 * PI, PI);
         color = environmentMap.SampleLevel(environmentMapSampler, texCoord.xy, 0).rgb * sky_hdr_scale;
@@ -100,9 +105,9 @@ PSOutput main(PSInput IN)
     else
 #endif
     {
-        color = IN.vary_HazeColor;
+        color = IN.varying.vary_HazeColor;
 
-        float rel_pos_lightnorm = IN.vary_LightNormPosDot;
+        float rel_pos_lightnorm = IN.varying.vary_LightNormPosDot;
         float optic_d = rel_pos_lightnorm;
         float3 halo_22_val = halo22(optic_d);
         color.rgb += rainbow(optic_d);

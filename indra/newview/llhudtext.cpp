@@ -480,6 +480,26 @@ LLVector2 LLHUDText::updateScreenPos(LLVector2 &offset)
     screen_pos_vec.setVec((F32)screen_pos.mX, (F32)screen_pos.mY);
 
     LLRect world_rect = gViewerWindow->getWorldViewRectScaled();
+    // S24 (2026-08-16): world_rect (getWorldViewRectScaled(), ultimately
+    // LLViewerWindow::updateWorldViewRect() reading the "world_view_rect"
+    // placeholder panel's real on-screen rect) already excludes ALL
+    // currently-docked TOP chrome - menu bar and nav/favorites bar are
+    // siblings of the world view panel inside the same auto-resizing
+    // vertical layout_stack (main_view.xml's "menu_stack"), and
+    // LLViewerWindow::reshapeStatusBarContainer() keeps that stack's
+    // reservation in sync whenever the nav/favorites bar toggles. Also
+    // subtracting the hardcoded MENU_BAR_HEIGHT global (llmenugl.cpp, always
+    // 18, never reassigned at runtime to reflect real state) double-counted
+    // that same chrome on top of an already-correct bound, shrinking the
+    // nametag's usable vertical band by an extra, wrong 18px - worse
+    // relative to the true gap the more real top chrome is actually
+    // showing. This produced both the visible "compression" and a
+    // mouseover-hit-test area (mSoftScreenRect, below) that didn't match
+    // where the label actually rendered. STATUS_BAR_HEIGHT below is
+    // different and stays: the bottom toolbar tray is a plain overlay
+    // *inside* world_view_rect's own bounds (main_view.xml's
+    // toolbar_view_holder), not a layout_stack sibling, so world_rect.mBottom
+    // does NOT already exclude it - that compensation is real.
     S32 bottom = world_rect.mBottom + STATUS_BAR_HEIGHT;
 
     LLVector2 screen_center;
@@ -489,7 +509,7 @@ LLVector2 LLHUDText::updateScreenPos(LLVector2 &offset)
     {
         screen_center.mV[VY] = llclamp((F32)screen_pos_vec.mV[VY],
             (F32)bottom,
-            (F32)world_rect.mTop - mHeight - (F32)MENU_BAR_HEIGHT);
+            (F32)world_rect.mTop - mHeight);
         mSoftScreenRect.setLeftTopAndSize(screen_center.mV[VX] - (mWidth + BUFFER_SIZE) * 0.5f,
             screen_center.mV[VY] + (mHeight + BUFFER_SIZE), mWidth + BUFFER_SIZE, mHeight + BUFFER_SIZE);
     }
@@ -497,7 +517,7 @@ LLVector2 LLHUDText::updateScreenPos(LLVector2 &offset)
     {
         screen_center.mV[VY] = llclamp((F32)screen_pos_vec.mV[VY],
             (F32)bottom + mHeight * 0.5f,
-            (F32)world_rect.mTop - mHeight * 0.5f - (F32)MENU_BAR_HEIGHT);
+            (F32)world_rect.mTop - mHeight * 0.5f);
         mSoftScreenRect.setCenterAndSize(screen_center.mV[VX], screen_center.mV[VY], mWidth + BUFFER_SIZE, mHeight + BUFFER_SIZE);
     }
 

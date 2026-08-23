@@ -43,14 +43,23 @@ struct VSInput
     float3 position : POSITION;
     float4 diffuse_color : COLOR0;
     float2 texcoord0 : TEXCOORD0;
+#ifdef HAS_SKIN
+    float4 weight4 : BLENDWEIGHT;
+#endif
+#ifdef HAS_DIFFUSE_LOOKUP
+    int texture_index : TEXTUREINDEX;
+#endif
 };
+
+#include "varying/fullbrightVarying.hlsli"
 
 struct VSOutput
 {
     float4 position : SV_Position;
-    float3 vary_position : TEXCOORD0;
-    float4 vertex_color : COLOR0;
-    float2 vary_texcoord0 : TEXCOORD1;
+    FullbrightVarying varying;
+#ifdef HAS_DIFFUSE_LOOKUP
+    nointerpolation int vary_texture_index : VARYTEXTUREINDEX;
+#endif
 };
 
 VSOutput main(VSInput IN)
@@ -71,13 +80,13 @@ VSOutput main(VSInput IN)
     OUT.position = mul(modelview_projection_matrix, float4(IN.position.xyz, 1.0));
 #endif
 
-    OUT.vary_position = pos.xyz;
+    OUT.varying.vary_position = pos.xyz;
 
-    OUT.vary_texcoord0 = mul(texture_matrix0, float4(IN.texcoord0, 0, 1)).xy;
+    OUT.varying.vary_texcoord0 = mul(texture_matrix0, float4(IN.texcoord0, 0, 1)).xy;
 
     calcAtmospherics(pos.xyz);
 
-    OUT.vertex_color = IN.diffuse_color;
+    OUT.varying.vertex_color = IN.diffuse_color;
 
     return OUT;
 }

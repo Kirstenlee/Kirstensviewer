@@ -43,13 +43,23 @@ struct VSInput
     float3 position : POSITION;
     float4 emissive : COLOR0;
     float2 texcoord0 : TEXCOORD0;
+#ifdef HAS_SKIN
+    float4 weight4 : BLENDWEIGHT;
+#endif
+#ifdef HAS_DIFFUSE_LOOKUP
+    int texture_index : TEXTUREINDEX;
+#endif
 };
+
+#include "varying/emissiveVarying.hlsli"
 
 struct VSOutput
 {
     float4 position : SV_Position;
-    float4 vertex_color : COLOR0;
-    float2 vary_texcoord0 : TEXCOORD0;
+    EmissiveVarying varying;
+#ifdef HAS_DIFFUSE_LOOKUP
+    nointerpolation int vary_texture_index : VARYTEXTUREINDEX;
+#endif
 };
 
 VSOutput main(VSInput IN)
@@ -70,11 +80,11 @@ VSOutput main(VSInput IN)
     float4 pos = mul(modelview_matrix, float4(IN.position.xyz, 1.0));
 #endif
 
-    OUT.vary_texcoord0 = mul(texture_matrix0, float4(IN.texcoord0, 0, 1)).xy;
+    OUT.varying.vary_texcoord0 = mul(texture_matrix0, float4(IN.texcoord0, 0, 1)).xy;
 
     calcAtmospherics(pos.xyz);
 
-    OUT.vertex_color = IN.emissive;
+    OUT.varying.vertex_color = IN.emissive;
 
     return OUT;
 }

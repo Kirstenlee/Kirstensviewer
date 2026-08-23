@@ -30,12 +30,7 @@ uniform float blend_factor;
 uniform float custom_alpha;
 uniform float time;
 
-struct PSInput
-{
-    float4 vertex_color : COLOR0;
-    float2 vary_texcoord0 : TEXCOORD0;
-    float2 screenpos : TEXCOORD1;
-};
+#include "varying/starsVarying.hlsli"
 
 struct PSOutput
 {
@@ -56,21 +51,29 @@ float twinkle(float2 screenpos)
 // See:
 // ALM off: class1/environment/starsF.hlsl
 // ALM on : class1/deferred/starsF.hlsl
+// S24 (2026-08-02): see uiF.hlsl's comment - real register mismatch,
+// confirmed via fxc.exe disassembly, affects every bare-Varying PS input.
+struct PSInput
+{
+    float4 position : SV_Position;
+    StarsVarying varying;
+};
+
 PSOutput main(PSInput IN)
 {
     PSOutput OUT;
 
     // camera above water: class1\deferred\starsF.hlsl
     // camera below water: class1\environment\starsF.hlsl
-    float4 col_a = diffuseMap.Sample(diffuseMapSampler, IN.vary_texcoord0.xy);
-    float4 col_b = diffuseMap.Sample(diffuseMapSampler, IN.vary_texcoord0.xy);
+    float4 col_a = diffuseMap.Sample(diffuseMapSampler, IN.varying.vary_texcoord0.xy);
+    float4 col_b = diffuseMap.Sample(diffuseMapSampler, IN.varying.vary_texcoord0.xy);
     float4 col = lerp(col_b, col_a, blend_factor);
-    col.rgb *= IN.vertex_color.rgb;
+    col.rgb *= IN.varying.vertex_color.rgb;
 
     float factor = smoothstep(0.0f, 0.9f, custom_alpha);
 
     col.a = (col.a * factor) * 32.0f;
-    col.a *= twinkle(IN.screenpos);
+    col.a *= twinkle(IN.varying.screenpos);
 
     OUT.data1 = float4(0.0f, 0.0f, 0.0f, 0.0f);
     OUT.data2 = float4(0.0, 1.0, 0.0, GBUFFER_FLAG_SKIP_ATMOS);

@@ -49,6 +49,9 @@
 #include "llspatialpartition.h"
 #include "llviewershadermgr.h"
 #include "llmodel.h"
+#ifdef DX_RENDER
+#include "dxdrawpoolbump.h"
+#endif
 
 //#include "llimagebmp.h"
 //#include "../tools/imdebug/imdebug.h"
@@ -542,6 +545,11 @@ void LLDrawPoolBump::renderDeferred(S32 pass)
 {
     LL_RECORD_BLOCK_TIME(FTM_RENDER_BUMP);
 
+#ifdef DX_RENDER
+    DXDrawPoolBump::renderDeferred(*this, pass);
+    return;
+#endif
+
     shiny = true;
     for (int i = 0; i < 2; ++i)
     {
@@ -595,6 +603,11 @@ void LLDrawPoolBump::renderDeferred(S32 pass)
 void LLDrawPoolBump::renderPostDeferred(S32 pass)
 {
     LL_PROFILE_ZONE_SCOPED_CATEGORY_DRAWPOOL;
+
+#ifdef DX_RENDER
+    DXDrawPoolBump::renderPostDeferred(*this, pass);
+    return;
+#endif
 
     S32 num_passes = LLPipeline::sRenderingHUDs ? 1 : 2; // skip rigged pass when rendering HUDs
 
@@ -883,6 +896,17 @@ void LLBumpImageList::onSourceUpdated(LLViewerTexture* src, EBumpEffect bump_cod
     // accidentally releases it.
     LLPointer<LLViewerTexture> bump = iter->second;
 
+#ifndef DX_RENDER
+    // S24 (DX_RENDER, 2026-07-24): this whole conversion renders into an
+    // existing, externally-owned LLImageGL via LLRenderTarget::
+    // setColorAttachment() - a real gap, DXRenderTarget can't render into
+    // an arbitrary externally-owned DXTexture yet (see its matching
+    // comment in llrendertarget.cpp). Excluded entirely (not just
+    // runtime-skipped - a dead-but-compiled block would still need its raw
+    // glGenerateMipmap() call, among others, to link) rather than call
+    // through to functions that would otherwise no-op mid-sequence -
+    // bump-mapped surfaces get whatever normal map `bump` already held
+    // (freshly allocated = blank) until this gets real DX_RENDER support.
     if (bump->getWidth() != src->getWidth() ||
         bump->getHeight() != src->getHeight()) // bump not cached yet or has changed resolution
     {
@@ -964,6 +988,7 @@ void LLBumpImageList::onSourceUpdated(LLViewerTexture* src, EBumpEffect bump_cod
         glGenerateMipmap(GL_TEXTURE_2D);
         gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
     }
+#endif // !DX_RENDER
 
     iter->second = bump; // derefs (and deletes) old image
     //---------------------------------------------------

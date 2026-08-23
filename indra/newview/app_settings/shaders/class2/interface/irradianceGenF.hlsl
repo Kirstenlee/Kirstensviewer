@@ -30,8 +30,15 @@ uniform int sourceIdx;
 
 uniform float max_probe_lod;
 
+// S24 (2026-08-22, plan item A - CLOSED-FORM REWRITE): see
+// radianceGenF.hlsl's identical cleanup - fixHandedness is gone,
+// irradianceGenV.hlsl now computes vary_dir from Direct3D's documented
+// per-face cubemap formula directly.
 struct PSInput
 {
+    // S24 (2026-08-02): missing SV_Position - see uiF.hlsl's comment (fxc.exe-confirmed VS/PS register-shift bug).
+    float4 position : SV_Position;
+
     float3 vary_dir : TEXCOORD0;
 };
 
@@ -139,7 +146,15 @@ float4 getImportanceSample(int sampleIndex, float3 N, float roughness)
         importanceSample.cosTheta
     ));
     float3x3 TBN = generateTBN(N);
-    float3 direction = mul(TBN, localSpaceDirection);
+    // S24 (2026-08-19, task #234, task #227 audit finding): generateTBN()
+    // builds float3x3(tangent, bitangent, normal), which HLSL fills as ROWS
+    // (unlike GLSL's mat3(...), which fills COLUMNS) - mul(TBN, dir) dotted
+    // dir against each row (tangent/bitangent/normal), the inverse rotation
+    // of what GLSL's TBN*localSpaceDirection computes (TBN is orthonormal,
+    // so its inverse is its transpose - a real, silent wrong-direction bug,
+    // not just a style difference). mul(dir, TBN) instead correctly
+    // reproduces dir.x*tangent + dir.y*bitangent + dir.z*normal.
+    float3 direction = mul(localSpaceDirection, TBN);
 
     return float4(direction, importanceSample.pdf);
 }
@@ -207,7 +222,11 @@ float4 main(PSInput IN) : SV_Target
 {
     float4 color = float4(0, 0, 0, 0);
 
-    color = filterColor(IN.vary_dir);
+    // S24 (2026-08-22, plan item A - CLOSED-FORM REWRITE): see
+    // radianceGenF.hlsl's identical cleanup - vary_dir now comes
+    // pre-corrected from irradianceGenV.hlsl's exact per-face formula.
+    float3 N = normalize(IN.vary_dir);
+    color = filterColor(N);
 
     return max(color, float4(0, 0, 0, 0));
 }

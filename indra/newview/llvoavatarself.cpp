@@ -1026,17 +1026,26 @@ void LLVOAvatarSelf::idleUpdateTractorBeam()
     {
         LLObjectSelectionHandle selection = LLSelectMgr::getInstance()->getSelection();
 
-        if (gAgentCamera.mPointAt.notNull())
-        {
-            // get point from pointat effect
-            mBeam->setPositionGlobal(gAgentCamera.mPointAt->getPointAtPosGlobal());
-            mBeam->triggerLocal();
-        }
-        else if (selection->getFirstRootObject() &&
+        // S24 (2026-08-16): rewritten to target the selected/edited object
+        // directly and live, every frame - completely disconnected from
+        // gAgentCamera.mPointAt/LLHUDEffectPointAt/LLSelectMgr::updatePointAt().
+        // That system exists to drive the avatar's arm-pointing animation
+        // and eye-contact look-at; it's a poor fit for this beam, since it
+        // only updates its target on discrete selection-CHANGE events
+        // (never continuously, never on mouse-up) - it froze at whatever
+        // point you originally clicked to select an object and never
+        // corrected itself while the same object stayed selected, which a
+        // multi-round live diagnostic pass this session proved
+        // conclusively (target-object logic checked out exactly correct at
+        // every layer once isolated from that system - see task history).
+        // Targeting the object directly instead reads its real, live
+        // position every single frame via getPositionAgent() and can never
+        // go stale, exactly like the particle trail's own object-tracking
+        // already does.
+        if (selection->getFirstRootObject() &&
                 selection->getSelectType() != SELECT_TYPE_HUD)
         {
-            LLViewerObject* objectp = selection->getFirstRootObject();
-            mBeam->setTargetObject(objectp);
+            mBeam->setTargetObject(selection->getFirstRootObject());
         }
         else
         {
@@ -1060,6 +1069,15 @@ void LLVOAvatarSelf::idleUpdateTractorBeam()
             }
 
         }
+
+        // Keep the particle trail (LLViewerPartSourceBeam) in sync with
+        // whatever mTargetObject/mPositionGlobal was just set above -
+        // triggerLocal() reads those fields directly. Previously this was
+        // only called from the now-removed POINTAT branch, meaning
+        // particles stopped updating whenever that branch wasn't active;
+        // calling it unconditionally here fixes that too.
+        mBeam->triggerLocal();
+
         if (mBeamTimer.getElapsedTimeF32() > 0.25f)
         {
             mBeam->setColor(LLColor4U(gAgent.getEffectColor()));

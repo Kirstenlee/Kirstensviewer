@@ -103,14 +103,31 @@ bool KVOpenCL::init()
     err = clGetDeviceIDs(platform, CL_DEVICE_TYPE_GPU, 1, &device, nullptr);
     if (err != CL_SUCCESS) return false;
 
+#ifdef DX_RENDER
+    // S24 (2026-08-17): DX_RENDER has no current OpenGL context for
+    // wglGetCurrentContext()/wglGetCurrentDC() to reference (this backend
+    // doesn't create one) - and none of this class's actual callers need
+    // GL-CL interop anyway (createFromGLTexture()/acquireGLObject()/
+    // releaseGLObject() exist but nothing in kveffects.cpp calls them -
+    // every effect already round-trips through plain CPU buffers, see
+    // kveffects.h's class comment). The GL-sharing properties were pure
+    // dead weight that made clCreateContext() fail outright under
+    // DX_RENDER - confirmed via "OpenCL initialization failed" logged on
+    // every draw call once an effect was enabled.
+    cl_context_properties props[] = {
+        CL_CONTEXT_PLATFORM, (cl_context_properties)platform,
+        0
+    };
+#else
     // Context with GL sharing
-       cl_context_properties props[] = {
+    cl_context_properties props[] = {
         CL_GL_CONTEXT_KHR, (cl_context_properties)wglGetCurrentContext(),
         CL_WGL_HDC_KHR, (cl_context_properties)wglGetCurrentDC(),
         CL_CONTEXT_PLATFORM, (cl_context_properties)platform,
         0
     };
-    
+#endif
+
     context = clCreateContext(props, 1, &device, nullptr, nullptr, &err);
     if (!context || err != CL_SUCCESS) return false;
 

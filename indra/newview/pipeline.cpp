@@ -28,6 +28,12 @@
 
 #include "pipeline.h"
 
+#ifdef DX_RENDER
+#include "dxpipeline.h"
+#include "DXContext.h"
+#include "DXOcclusionQuery.h"
+#endif
+
 #include "kveffects.h"
 
  // library includes
@@ -209,7 +215,12 @@ bool LLPipeline::applyNightVision;
 bool LLPipeline::applyEdgeGlow;
 bool LLPipeline::applyRGBControl;
 bool LLPipeline::applyMotionBlur;
-static int effectsMask = 0; // Initialize to no effects
+// S24 (2026-08-17): NOT static (was) - DXPipeline::presentDeferredScreen()
+// (dxpipeline.cpp) needs to read this and call updateEffectMask() itself,
+// since DX_RENDER's renderFinalize() early-returns before GL's own body
+// (which normally refreshes/consumes this) ever runs. See that file's
+// effectsMask block for the DX_RENDER wiring of the OpenCL post-fx chain.
+int effectsMask = 0; // Initialize to no effects
 static const glm::mat4 cfr_rotation = glm::make_mat4((const GLfloat*)OGL_TO_CFR_ROTATION);
 
 /* S24 End */
@@ -366,7 +377,20 @@ bool addDeferredAttachments(LLRenderTarget& target, bool for_impostor = false)
 
 	static LLCachedControl<bool> has_emissive(gSavedSettings, "RenderEnableEmissiveBuffer", false);
 	static LLCachedControl<bool> has_hdr(gSavedSettings, "RenderHDREnabled", true);
+#ifdef DX_RENDER
+	// S24 (2026-08-19): gGLManager.mGLVersion is hardcoded to 4.6f under
+	// DX_RENDER (llgl.cpp's initGLDX(), a synthetic value for GL-version-gated
+	// feature checks elsewhere) - it carries no real hardware-capability
+	// information here, so "> 4.05f" was a foregone conclusion on every
+	// DX_RENDER system regardless of actual GPU/feature level, not a genuine
+	// check. DXGI_FORMAT_R16G16B16A16_FLOAT (GL_RGB16F/GL_RGBA16F's DX
+	// mapping, see glColorFormatToDX()) is a mandatory render-target format
+	// on every D3D11 feature level this codebase targets (10.0+) - no real
+	// capability gate needed, so this reduces to the user's own setting.
+	bool hdr = has_hdr();
+#else
 	bool hdr = has_hdr() && gGLManager.mGLVersion > 4.05f;
+#endif
 
 	if (!hdr)
 	{
@@ -757,7 +781,20 @@ void LLPipeline::destroyGL()
 
 	if (mMeshDirtyQueryObject)
 	{
+		// S24 (2026-08-22, task #156 follow-up): unguarded raw
+		// glDeleteQueries() - same crash class as every other unfenced
+		// occlusion-query extension call found this session (task #182's
+		// original glGenQueries() crash and its siblings). Currently
+		// unreachable in practice (mMeshDirtyQueryObject's own glGenQueries()
+		// in postSort is commented out under DX_RENDER, so this branch never
+		// runs today), but a latent crash if that's ever re-enabled without
+		// revisiting this call site - routed through DXOcclusionQuery to
+		// close the gap now rather than leave it for the next person to hit.
+#ifdef DX_RENDER
+		DXOcclusionQuery::deleteQueries(1, &mMeshDirtyQueryObject);
+#else
 		glDeleteQueries(1, &mMeshDirtyQueryObject);
+#endif
 		mMeshDirtyQueryObject = 0;
 	}
 }
@@ -854,7 +891,19 @@ bool LLPipeline::allocateScreenBufferInternal(U32 resX, U32 resY)
 	LL_PROFILE_ZONE_SCOPED_CATEGORY_DISPLAY;
 
 	static LLCachedControl<bool> has_hdr(gSavedSettings, "RenderHDREnabled", true);
+#ifdef DX_RENDER
+	// S24 (2026-08-19): same invalid check as addDeferredAttachments() above -
+	// gGLManager.mGLVersion is a hardcoded 4.6f constant under DX_RENDER
+	// (llgl.cpp's initGLDX()), not a real capability query, so "> 4.05f" was
+	// a foregone conclusion regardless of actual GPU/feature level. This one
+	// is more consequential than addDeferredAttachments()' copy - it drives
+	// screenFormat for mRT->screen/deferredLight/mWaterDis/mSceneMap AND
+	// whether deferredLight gets allocated at all (line below). Reduces to
+	// the user's own setting, same reasoning as the other fix.
+	bool hdr = has_hdr();
+#else
 	bool hdr = gGLManager.mGLVersion > 4.05f && has_hdr();
+#endif
 
 	if (mRT == &mMainRT)
 	{ // hacky -- allocate auxillary buffer
@@ -956,6 +1005,29 @@ bool LLPipeline::allocateScreenBufferInternal(U32 resX, U32 resY)
 		mPostPingMap.allocate(resX, resY, GL_RGBA);
 		mPostPongMap.allocate(resX, resY, GL_RGBA);
 
+		// S24 (2026-08-23, task #190 temporal-SSAO follow-up): persistent
+		// AO history buffer, same format as deferredLight (screenFormat,
+		// computed above) since it's a straight full-channel copy of it.
+		// Seeded to (1,1,1,1) - "fully lit / no occlusion" - immediately
+		// after allocation, matching mExposureMap's own DX_RENDER seeding
+		// (below, ~line 1691) and the existing "SSAO off" neutral fallback
+		// already used for deferred_light_target itself
+		// (dxpipeline.cpp:~1327). This makes the very first frame's blend
+		// (real AO vs. neutral history) harmless with no first-frame flag
+		// needed, exactly mirroring generateExposure()'s own unconditional
+		// blit - see that function for the precedent this mirrors.
+		if (ssao)
+		{
+			mSSAOHistory.allocate(resX, resY, screenFormat);
+			mSSAOHistory.bindTarget();
+			mSSAOHistory.clearColor(1.f, 1.f, 1.f, 1.f);
+			mSSAOHistory.flush();
+		}
+		else
+		{
+			mSSAOHistory.release();
+		}
+
 		// The water exclusion mask needs its own depth buffer so we can take care of the problem of multiple water planes.
 		// Should we ever make water not just a plane, it also aids with that as well as the water planes will be rendered into the mask.
 		// Why do we do this? Because it saves us some janky logic in the exclusion shader when we generate the mask.
@@ -1038,6 +1110,7 @@ bool LLPipeline::allocateShadowBuffer(U32 resX, U32 resY)
 	}
 
 	// set up shadow map filtering and compare modes
+#ifndef DX_RENDER
 	if (shadow_detail > 0)
 	{
 		for (U32 i = 0; i < 4; i++)
@@ -1071,7 +1144,21 @@ bool LLPipeline::allocateShadowBuffer(U32 resX, U32 resY)
 			}
 		}
 	}
-
+#endif
+	// S24 (stage 5 phase 5.7, 2026-07-18): the two loops above are skipped
+	// entirely under DX_RENDER - real crash risk found by reading, not
+	// guessed: this function runs on every screen-buffer (re)allocation
+	// (resizeShadowTexture()/resizeScreenTexture(), both independent of
+	// generateSunShadow()'s "shadows off" skip - see pipeline.h/.cpp),
+	// so it's reachable on ordinary startup/resize regardless of whether
+	// the shadow *render* pass itself is converted. gGL.getTexUnit(0)->
+	// bind(LLRenderTarget*, true) has zero DX_RENDER handling (unlike
+	// bind(LLTexture*)/bind(LLImageGL*), fixed phase 5.5) - see the open
+	// issues ledger. The shadow render targets themselves are still
+	// allocated normally above (LLRenderTarget::allocate() is already
+	// DX-safe) - only the PCF depth-comparison sampler setup is skipped,
+	// since it's meaningless until phase 5.7's real shadow render+sample
+	// path exists anyway.
 	return true;
 }
 
@@ -1244,6 +1331,7 @@ void LLPipeline::releaseGLBuffers()
 
 	mPostPingMap.release();
 	mPostPongMap.release();
+	mSSAOHistory.release();
 
 	mFXAAMap.release();
 
@@ -1270,7 +1358,11 @@ void LLPipeline::releaseLUTBuffers()
 {
 	if (mLightFunc)
 	{
+#ifdef DX_RENDER
+		mDXLightFunc.destroy();
+#else
 		LLImageGL::deleteTextures(1, &mLightFunc);
+#endif
 		mLightFunc = 0;
 	}
 
@@ -1367,11 +1459,25 @@ void LLPipeline::createGLBuffers()
 			noise[i].mV[2] = ll_frand() * scaler + 1.f - scaler / 2.f;
 		}
 
+#ifdef DX_RENDER
+		// S24 (2026-08-03, task #84): direct DXTexture upload instead of
+		// generateTextures()+bindManual()+setManualImage() - that ambient-
+		// GL-state trio has no DX_RENDER translation (see bindManual()'s
+		// comment). createFloat() (not create()) because the Z component
+		// here is a scale factor centered around 1.0, not a normalized
+		// [-1,1] direction - quantizing to 8-bit UNORM would clip it.
+		// mNoiseMap itself stays a non-zero sentinel purely so the
+		// `if (!mNoiseMap)` guard above still detects "already created" on
+		// a later call - never a real GL name under DX_RENDER.
+		mDXNoiseMap.createFloat(&noise[0].mV[0], noiseRes, noiseRes, 3);
+		mNoiseMap = 1;
+#else
 		LLImageGL::generateTextures(1, &mNoiseMap);
 
 		gGL.getTexUnit(0)->bindManual(LLTexUnit::TT_TEXTURE, mNoiseMap);
 		LLImageGL::setManualImage(LLTexUnit::getInternalType(LLTexUnit::TT_TEXTURE), 0, GL_RGB16F, noiseRes, noiseRes, GL_RGB, GL_FLOAT, noise, false);
 		gGL.getTexUnit(0)->setTextureFilteringOption(LLTexUnit::TFO_POINT);
+#endif
 	}
 
 	if (!mTrueNoiseMap)
@@ -1383,10 +1489,15 @@ void LLPipeline::createGLBuffers()
 			noise[i] = ll_frand() * 2.0f - 1.0f;
 		}
 
+#ifdef DX_RENDER
+		mDXTrueNoiseMap.createFloat(noise, noiseRes, noiseRes, 3);
+		mTrueNoiseMap = 1;
+#else
 		LLImageGL::generateTextures(1, &mTrueNoiseMap);
 		gGL.getTexUnit(0)->bindManual(LLTexUnit::TT_TEXTURE, mTrueNoiseMap);
 		LLImageGL::setManualImage(LLTexUnit::getInternalType(LLTexUnit::TT_TEXTURE), 0, GL_RGB16F, noiseRes, noiseRes, GL_RGB, GL_FLOAT, noise, false);
 		gGL.getTexUnit(0)->setTextureFilteringOption(LLTexUnit::TFO_POINT);
+#endif
 	}
 
 	if (!mSMAAAreaMap)
@@ -1397,12 +1508,17 @@ void LLPipeline::createGLBuffers()
 			U32 srcY = AREATEX_HEIGHT - 1 - y;
 			memcpy(&tempBuffer[y * AREATEX_PITCH], areaTexBytes + srcY * AREATEX_PITCH, AREATEX_PITCH);
 		}
+#ifdef DX_RENDER
+		mDXSMAAAreaMap.create(tempBuffer.data(), AREATEX_WIDTH, AREATEX_HEIGHT, 2);
+		mSMAAAreaMap = 1;
+#else
 		LLImageGL::generateTextures(1, &mSMAAAreaMap);
 		gGL.getTexUnit(0)->bindManual(LLTexUnit::TT_TEXTURE, mSMAAAreaMap);
 		LLImageGL::setManualImage(LLTexUnit::getInternalType(LLTexUnit::TT_TEXTURE), 0, GL_RG8, AREATEX_WIDTH, AREATEX_HEIGHT, GL_RG,
 			GL_UNSIGNED_BYTE, tempBuffer.data(), false);
 		gGL.getTexUnit(0)->setTextureFilteringOption(LLTexUnit::TFO_BILINEAR);
 		gGL.getTexUnit(0)->setTextureAddressMode(LLTexUnit::TAM_CLAMP);
+#endif
 	}
 	if (!mSMAASearchMap)
 	{
@@ -1412,12 +1528,17 @@ void LLPipeline::createGLBuffers()
 			U32 srcY = SEARCHTEX_HEIGHT - 1 - y;
 			memcpy(&tempBuffer[y * SEARCHTEX_PITCH], searchTexBytes + srcY * SEARCHTEX_PITCH, SEARCHTEX_PITCH);
 		}
+#ifdef DX_RENDER
+		mDXSMAASearchMap.create(tempBuffer.data(), SEARCHTEX_WIDTH, SEARCHTEX_HEIGHT, 1);
+		mSMAASearchMap = 1;
+#else
 		LLImageGL::generateTextures(1, &mSMAASearchMap);
 		gGL.getTexUnit(0)->bindManual(LLTexUnit::TT_TEXTURE, mSMAASearchMap);
 		LLImageGL::setManualImage(LLTexUnit::getInternalType(LLTexUnit::TT_TEXTURE), 0, GL_R8, SEARCHTEX_WIDTH, SEARCHTEX_HEIGHT,
 			GL_RED, GL_UNSIGNED_BYTE, tempBuffer.data(), false);
 		gGL.getTexUnit(0)->setTextureFilteringOption(LLTexUnit::TFO_BILINEAR);
 		gGL.getTexUnit(0)->setTextureAddressMode(LLTexUnit::TAM_CLAMP);
+#endif
 	}
 	if (!mSMAASampleMap)
 	{
@@ -1426,6 +1547,10 @@ void LLPipeline::createGLBuffers()
 		static LLCachedControl<std::string> sample_path(gSavedSettings, "SamplePath", "");
 		if (gDirUtilp->fileExists(sample_path()) && png_image->load(sample_path()) && png_image->decode(raw_image, 0.0f))
 		{
+#ifdef DX_RENDER
+			mDXSMAASampleMap.create(raw_image->getData(), raw_image->getWidth(), raw_image->getHeight(), raw_image->getComponents());
+			mSMAASampleMap = 1;
+#else
 			U32 format = 0;
 			switch (raw_image->getComponents())
 			{
@@ -1451,6 +1576,7 @@ void LLPipeline::createGLBuffers()
 			stop_glerror();
 			gGL.getTexUnit(0)->setTextureFilteringOption(LLTexUnit::TFO_BILINEAR);
 			gGL.getTexUnit(0)->setTextureAddressMode(LLTexUnit::TAM_CLAMP);
+#endif
 		}
 	}
 
@@ -1507,6 +1633,20 @@ void LLPipeline::createLUTBuffers()
 			}
 		}
 
+#ifdef DX_RENDER
+		// S24 (2026-08-03, task #84): same reasoning as mNoiseMap above -
+		// direct createFloat() upload, real dynamic range preserved (the
+		// comment above already explains why R16F/float matters here).
+		// The mag/min filter override below (GL_LINEAR/GL_NEAREST, distinct
+		// from TFO_TRILINEAR) has no DX_RENDER equivalent yet - sampler
+		// state is built fresh at bind time from a single filter_option
+		// enum (see LLTexUnit::bind(DXTexture&, ...)), which can't express
+		// "linear mag, nearest min" as a separate combination. Bound with
+		// TFO_TRILINEAR at this pass's bind call site instead - a real,
+		// documented simplification, not a silent behavior change.
+		mDXLightFunc.createFloat(ls, lightResX, lightResY, 1);
+		mLightFunc = 1;
+#else
 		U32 pix_format = GL_R16F;
 
 		LLImageGL::generateTextures(1, &mLightFunc);
@@ -1516,6 +1656,7 @@ void LLPipeline::createLUTBuffers()
 		gGL.getTexUnit(0)->setTextureFilteringOption(LLTexUnit::TFO_TRILINEAR);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+#endif
 
 		delete[] ls;
 	}
@@ -1544,11 +1685,47 @@ void LLPipeline::createLUTBuffers()
 	gDeferredGenBrdfLutProgram.unbind();
 	mPbrBrdfLut.flush();
 
+	// S24 (2026-08-19, GL-baggage sweep): unlike every sibling block in this
+	// function (noise maps, SMAA maps, exposure map), the BRDF LUT's
+	// generation above never got explicit DX_RENDER scrutiny - it just
+	// relies on gGL.begin/vertex2f/end's already-DX-safe immediate-mode path
+	// (same reasoning task #138 used for generateGlow()/combineGlow()).
+	// Verified via a temporary DXReadback texel-readback diagnostic: the
+	// generated LUT's center texel decoded to R~0.73/G~0.018, exactly the
+	// expected scale/bias shape for a split-sum BRDF integration map, not
+	// blank/zero - this one-off, pre-main-loop, offscreen-target draw is
+	// genuinely producing real data under DX_RENDER. No further action
+	// needed here; diagnostic removed once confirmed.
+
 	mExposureMap.allocate(1, 1, GL_R16F);
 	mExposureMap.bindTarget();
+	// S24 (2026-08-22, task #156 follow-up): both glClearColor calls below
+	// were unguarded raw GL - the DX_RENDER block right after this already
+	// documents that LLRenderTarget::clear() under DX_RENDER ignores
+	// whatever glClearColor set anyway (always clears to hardcoded black),
+	// so these two calls were always dead under DX_RENDER, just never
+	// actually guarded from compiling/executing.
+#ifndef DX_RENDER
 	glClearColor(1, 1, 1, 0);
+#endif
 	mExposureMap.clear();
+#ifndef DX_RENDER
 	glClearColor(0, 0, 0, 0);
+#endif
+#ifdef DX_RENDER
+	// S24 (2026-08-09, task #164): LLRenderTarget::clear() under DX_RENDER
+	// always clears to hardcoded black (see DXRenderTarget::clear()),
+	// silently ignoring the glClearColor(1,1,1,0) call above - meaning
+	// mExposureMap stayed permanently at 0.0 instead of the intended
+	// "neutral, no exposure adjustment yet" white default, since
+	// generateExposure() (the real per-frame writer) has never been wired
+	// for DX_RENDER (task #139). Sampling a 0.0 exposureMap in the tonemap
+	// pass (presentDeferredScreen(), also task #164) would multiply every
+	// pixel to black - worse than the white-clip bug this was chasing.
+	// clearColor() was already built for exactly this gap (its own comment
+	// noted "no GL caller exists yet") - this is that caller.
+	mExposureMap.clearColor(1.f, 1.f, 1.f, 0.f);
+#endif
 	mExposureMap.flush();
 
 	mLuminanceMap.allocate(256, 256, GL_R16F, false, LLTexUnit::TT_TEXTURE, LLTexUnit::TMG_AUTO);
@@ -1608,96 +1785,6 @@ void LLPipeline::assertInitializedDoError()
 void LLPipeline::enableShadows(const bool enable_shadows)
 {
 	//should probably do something here to wrangle shadows....
-}
-
-class LLOctreeDirtyTexture : public OctreeTraveler
-{
-public:
-	const std::set<LLViewerFetchedTexture*>& mTextures;
-
-	LLOctreeDirtyTexture(const std::set<LLViewerFetchedTexture*>& textures) : mTextures(textures) {}
-
-	virtual void visit(const OctreeNode* node)
-	{
-		LLSpatialGroup* group = (LLSpatialGroup*)node->getListener(0);
-
-		if (!group->hasState(LLSpatialGroup::GEOM_DIRTY) && !group->isEmpty())
-		{
-			for (LLSpatialGroup::draw_map_t::iterator i = group->mDrawMap.begin(); i != group->mDrawMap.end(); ++i)
-			{
-				for (LLSpatialGroup::drawmap_elem_t::iterator j = i->second.begin(); j != i->second.end(); ++j)
-				{
-					LLDrawInfo* params = *j;
-					LLViewerFetchedTexture* tex = LLViewerTextureManager::staticCastToFetchedTexture(params->mTexture);
-					if (tex && mTextures.find(tex) != mTextures.end())
-					{
-						group->setState(LLSpatialGroup::GEOM_DIRTY);
-					}
-				}
-			}
-		}
-
-		for (LLSpatialGroup::bridge_list_t::iterator i = group->mBridgeList.begin(); i != group->mBridgeList.end(); ++i)
-		{
-			LLSpatialBridge* bridge = *i;
-			traverse(bridge->mOctree);
-		}
-	}
-};
-
-// S24 - V1 - Called when a texture changes # of channels (causes faces to move to alpha pool)
-void LLPipeline::dirtyPoolObjectTextures(const std::set<LLViewerFetchedTexture*>& textures)
-{
-	LL_PROFILE_ZONE_SCOPED_CATEGORY_PIPELINE;
-	assertInitialized();
-
-	// Nothing to do if no textures are dirty.
-	if (textures.empty())
-	{
-		return;
-	}
-
-	// *TODO: This is inefficient and causes frame spikes; need a better way to do this
-	//        Most of the time is spent in dirty.traverse.
-
-	for (pool_set_t::iterator iter = mPools.begin(); iter != mPools.end(); ++iter)
-	{
-		LLDrawPool* poolp = *iter;
-		if (poolp && poolp->isFacePool())
-		{
-			// C++-style cast is safer and clearer than C-style.
-			LLFacePool* face_pool = static_cast<LLFacePool*>(poolp);
-			face_pool->dirtyTextures(textures);
-		}
-	}
-
-	// Build the dirty visitor once and reuse it.
-	LLOctreeDirtyTexture dirty(textures);
-
-	LLWorld* world = LLWorld::getInstance();
-	const LLWorld::region_list_t& regions = world->getRegionList();
-
-	for (LLWorld::region_list_t::const_iterator r_it = regions.begin();
-		r_it != regions.end();
-		++r_it)
-	{
-		LLViewerRegion* region = *r_it;
-		if (!region)
-		{
-			continue;
-		}
-
-		for (U32 i = 0; i < LLViewerRegion::NUM_PARTITIONS; ++i)
-		{
-			LLSpatialPartition* part = region->getSpatialPartition(i);
-			if (!part || !part->mOctree)
-			{
-				continue;
-			}
-
-			dirty.traverse(part->mOctree);
-		}
-	}
 }
 
 // Helper class to mark all spatial groups as geometry dirty
@@ -3097,7 +3184,17 @@ void LLPipeline::shiftObjects(const LLVector3& offset)
 	LL_PROFILE_ZONE_SCOPED_CATEGORY_PIPELINE;
 	assertInitialized();
 
+	// S24 (2026-08-22, task #156 follow-up): unguarded raw GL - same crash
+	// class as every other unfenced extension call found this session (null
+	// function pointer under DX_RENDER, not a safe no-op). Runs on every
+	// region-crossing/teleport shift, backend-agnostic path. depthDirty is
+	// already how DX_RENDER signals "don't trust the depth buffer" elsewhere
+	// (see llviewerdisplay.cpp's own DX_RENDER comment on this exact
+	// pattern) - the flag below already covers this for DX, so the GL clear
+	// itself is GL-only, matching that established convention.
+#ifndef DX_RENDER
 	glClear(GL_DEPTH_BUFFER_BIT);
+#endif
 	gDepthDirty = true;
 
 	LLVector4a offseta;
@@ -4128,6 +4225,24 @@ void LLPipeline::renderGeomDeferred(LLCamera& camera, bool do_occlusion)
 
 	llassert(!sRenderingHUDs);
 
+#ifdef DX_RENDER
+	// See DXPipeline's class comment (newview/dxpipeline.h) - a fresh,
+	// deliberately simplified implementation of this loop, not a fenced
+	// copy of the GL body below. Everything after this point in this
+	// function (wireframe mode, hardware lights, stereo color-mask modes,
+	// reflection-probe uniforms, the full pool-iteration/pass-grouping
+	// logic) is GL-specific and left untouched/dead under DX_RENDER -
+	// expand DXPipeline as more of that becomes load-bearing.
+	// S24 (2026-08-19, task #182): occlusion culling WAS on that "still-
+	// unconverted" list too - do_occlusion was silently discarded here,
+	// meaning DXOcclusionQuery (task #245's real D3D11 occlusion query
+	// fix) had zero reachable callers under DX_RENDER regardless of its
+	// own correctness. Passed through now - see DXPipeline::renderGeomDeferred()
+	// for the real trigger, mirroring GL's own POOL_GRASS threshold below.
+	DXPipeline::renderGeomDeferred(*this, camera, do_occlusion);
+	return;
+#endif
+
 	if (gUseWireframe)
 	{
 		glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
@@ -4289,10 +4404,34 @@ void LLPipeline::renderGeomPostDeferred(LLCamera& camera)
 	LL_RECORD_BLOCK_TIME(FTM_RENDER_GEOMETRY_POST_DEFERRED); // S24: Critical - post-deferred geometry rendering
 	LL_PROFILE_GPU_ZONE("renderGeomPostDeferred");
 
+#ifdef DX_RENDER
+	// See DXPipeline's class comment (newview/dxpipeline.h) - mirrors
+	// renderGeomDeferred()'s existing redirect above. Everything after this
+	// point in this function (wireframe mode, the grouped pool-type-run
+	// loop, atmospherics/water-haze/water-exclusion interleaving, debug
+	// highlights) is GL-specific and left untouched/dead under DX_RENDER -
+	// expand DXPipeline::renderGeomPostDeferred() as more of that becomes
+	// load-bearing.
+	//
+	// S24 (2026-08-06): this redirect is only reached from
+	// display_cube_face() (reflection-probe/snapshot path) - the main
+	// per-frame display() never called LLPipeline::renderGeomPostDeferred()
+	// at all, which is why alpha/water/fullbright/glow were entirely
+	// unreachable for the world scene. Fixed by calling
+	// DXPipeline::renderGeomPostDeferred() directly from
+	// DXPipeline::renderDeferredLighting() instead (dxpipeline.cpp) - that
+	// function IS on the main per-frame path. This redirect itself is
+	// unchanged/still correct for display_cube_face()'s own use.
+	DXPipeline::renderGeomPostDeferred(*this, camera);
+	return;
+#endif
+
+#ifndef DX_RENDER
 	if (gUseWireframe)
 	{
 		glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
 	}
+#endif
 
 	U32 cur_type = 0;
 
@@ -4419,10 +4558,12 @@ void LLPipeline::renderGeomPostDeferred(LLCamera& camera)
 		renderDebug();
 	}
 
+#ifndef DX_RENDER
 	if (gUseWireframe)
 	{
 		glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 	}
+#endif
 }
 
 // S25 Version 1 - render shadow maps for all geometry that casts shadows
@@ -7252,6 +7393,13 @@ void apply_cube_face_rotation(U32 face)
 }
 
 // S24 Version 1
+// S24 (2026-08-22, task #156 follow-up): unguarded raw glCheckFramebufferStatus()
+// - same crash class as every other unfenced extension call found this
+// session. Grepped the whole tree: this function has zero callers anywhere
+// (only its own forward declaration and definition) - genuinely dead code,
+// not just unreachable-under-DX. Guarded rather than deleted, in case
+// something outside this tree still references the symbol.
+#ifndef DX_RENDER
 void validate_framebuffer_object()
 {
 	const GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
@@ -7281,6 +7429,7 @@ void validate_framebuffer_object()
 
 	LL_ERRS() << reason << LL_ENDL;
 }
+#endif
 
 void LLPipeline::bindScreenToTexture()
 {}
@@ -7615,8 +7764,12 @@ void LLPipeline::generateGlow(LLRenderTarget* src)
 			S32 channel = gGlowExtractProgram.enableTexture(LLShaderMgr::GLOW_NOISE_MAP);
 			if (channel > -1)
 			{
+#ifdef DX_RENDER
+				gGL.getTexUnit(channel)->bind(mDXTrueNoiseMap, LLTexUnit::TAM_WRAP, LLTexUnit::TFO_POINT);
+#else
 				gGL.getTexUnit(channel)->bindManual(LLTexUnit::TT_TEXTURE, mTrueNoiseMap);
 				gGL.getTexUnit(channel)->setTextureFilteringOption(LLTexUnit::TFO_POINT);
+#endif
 			}
 			gGlowExtractProgram.uniform2f(LLShaderMgr::DEFERRED_SCREEN_RES,
 				(GLfloat)mGlow[2].getWidth(),
@@ -7808,7 +7961,19 @@ void LLPipeline::applyFXAA(LLRenderTarget* src, LLRenderTarget* dst)
 			gGLViewport[2] = gViewerWindow->getWorldViewRectRaw().getWidth();
 			gGLViewport[3] = gViewerWindow->getWorldViewRectRaw().getHeight();
 
+			// S24 (2026-08-17, task #141): dst->bindTarget() above already set
+			// a D3D11 viewport of (0,0,dst width,dst height). dst is always
+			// one of mPostPingMap/mPostPongMap, both allocated at exactly
+			// getWorldViewWidthRaw()/HeightRaw() (allocateScreenBufferInternal(),
+			// pipeline.cpp:790-792) with implicit (0,0) origin - the same
+			// dimensions worldViewRectRaw describes, so this GL viewport
+			// override (which additionally offsets by mLeft/mBottom, relevant
+			// only when binding the real window framebuffer, not an offscreen
+			// RT) is redundant under DX_RENDER. Same reasoning as renderDoF()'s
+			// dst-viewport call just above in this file.
+#ifndef DX_RENDER
 			glViewport(gGLViewport[0], gGLViewport[1], gGLViewport[2], gGLViewport[3]);
+#endif
 
 			F32 scale_x = (F32)width / mFXAAMap.getWidth();
 			F32 scale_y = (F32)height / mFXAAMap.getHeight();
@@ -7880,7 +8045,24 @@ void LLPipeline::generateSMAABuffers(LLRenderTarget* src)
 				}
 				else
 				{
+					// S24 (2026-08-17, task #141 follow-up): bindManual() is a
+					// documented no-op under DX_RENDER (llrender.cpp - "nothing
+					// to translate a bare GLuint into"; mSMAASampleMap here is
+					// just a sentinel, never a real GL name under DX_RENDER,
+					// see its own load-time comment at pipeline.cpp:1475+).
+					// mDXSMAASampleMap is the real DXTexture already uploaded
+					// at that same load site - just never wired into this bind
+					// call. RenderSMAAUseSample defaults false, so this branch
+					// is off by default, but was silently broken whenever a
+					// user turned it on. setTextureFilteringOption()/
+					// setTextureAddressMode() below are already self-guarded
+					// DX_RENDER no-ops (llrender.cpp) - safe to call
+					// unconditionally, only the bind itself needs branching.
+#ifdef DX_RENDER
+					gGL.getTexUnit(channel)->bind(mDXSMAASampleMap, LLTexUnit::TAM_CLAMP, LLTexUnit::TFO_BILINEAR);
+#else
 					gGL.getTexUnit(channel)->bindManual(LLTexUnit::TT_TEXTURE, mSMAASampleMap);
+#endif
 					gGL.getTexUnit(channel)->setTextureFilteringOption(LLTexUnit::TFO_BILINEAR);
 				}
 				gGL.getTexUnit(channel)->setTextureAddressMode(LLTexUnit::TAM_CLAMP);
@@ -7923,14 +8105,31 @@ void LLPipeline::generateSMAABuffers(LLRenderTarget* src)
 			S32 area_tex_channel = blend_weights_shader.enableTexture(LLShaderMgr::SMAA_AREA_TEX, LLTexUnit::TT_TEXTURE);
 			if (area_tex_channel > -1)
 			{
+				// S24 (2026-08-17, task #141 follow-up): same bindManual()
+				// no-op gap as mSMAASampleMap above - this one is NOT gated
+				// behind a settings toggle, so it's hit unconditionally
+				// whenever RenderFSAAType==2 (SMAA), meaning SMAA's blend-
+				// weight pass was silently reading whatever texture (if any)
+				// happened to already be bound to this channel instead of
+				// the real area LUT, every single frame SMAA ran.
+#ifdef DX_RENDER
+				gGL.getTexUnit(area_tex_channel)->bind(mDXSMAAAreaMap, LLTexUnit::TAM_CLAMP, LLTexUnit::TFO_BILINEAR);
+#else
 				gGL.getTexUnit(area_tex_channel)->bindManual(LLTexUnit::TT_TEXTURE, mSMAAAreaMap);
+#endif
 				gGL.getTexUnit(area_tex_channel)->setTextureFilteringOption(LLTexUnit::TFO_BILINEAR);
 				gGL.getTexUnit(area_tex_channel)->setTextureAddressMode(LLTexUnit::TAM_CLAMP);
 			}
 			S32 search_tex_channel = blend_weights_shader.enableTexture(LLShaderMgr::SMAA_SEARCH_TEX, LLTexUnit::TT_TEXTURE);
 			if (search_tex_channel > -1)
 			{
+				// S24 (2026-08-17, task #141 follow-up): same bindManual()
+				// gap as mSMAAAreaMap just above - see that comment.
+#ifdef DX_RENDER
+				gGL.getTexUnit(search_tex_channel)->bind(mDXSMAASearchMap, LLTexUnit::TAM_CLAMP, LLTexUnit::TFO_BILINEAR);
+#else
 				gGL.getTexUnit(search_tex_channel)->bindManual(LLTexUnit::TT_TEXTURE, mSMAASearchMap);
+#endif
 				gGL.getTexUnit(search_tex_channel)->setTextureFilteringOption(LLTexUnit::TFO_BILINEAR);
 				gGL.getTexUnit(search_tex_channel)->setTextureAddressMode(LLTexUnit::TAM_CLAMP);
 			}
@@ -8230,7 +8429,34 @@ void LLPipeline::renderDoF(LLRenderTarget* src, LLRenderTarget* dst)
 
 			{ // perform DoF sampling at half-res (preserve alpha channel)
 				src->bindTarget();
+				// S24 (2026-08-17, task #140): raw glViewport() is an
+				// unguarded no-op under DX_RENDER (no real GL context/default
+				// framebuffer to apply it to) - src->bindTarget() above
+				// already set a D3D11 viewport matching src's FULL size, but
+				// this pass deliberately shrinks it to half-res
+				// (CameraDoFResScale) before drawing, so unlike the two other
+				// glViewport() calls in this function it genuinely differs
+				// from bindTarget()'s own viewport and needs a real override.
+				//
+				// S24 (2026-08-17, live-test fix): first attempt used
+				// TopLeftY=0 (top of src) - WRONG, caused the reported
+				// split-screen DoF artifact. GL's glViewport(0,0,dof_width,
+				// dof_height) writes to the BOTTOM dof_height rows of src in
+				// GL's Y-up addressing (Y=0 is the bottom). dofCombineF.hlsl's
+				// dofSample() (the pass that reads this content back) already
+				// has the standard GL-vs-D3D11 read-side flip applied
+				// (tc.y = 1.0 - tc.y, task #145 sweep) - meaning it expects
+				// the half-res content at V close to 1 in D3D11's top-down
+				// texture-space, i.e. the BOTTOM rows, same physical location
+				// as GL. TopLeftY=0 instead wrote to the TOP of src -
+				// opposite corner from where the combine pass reads - hence
+				// the two mismatched "halves" in the reported screenshot.
+				// Fixed by offsetting TopLeftY to the bottom of the target.
+#ifdef DX_RENDER
+				gDXContext.setViewport(0, (int)src->getHeight() - (int)dof_height, dof_width, dof_height);
+#else
 				glViewport(0, 0, dof_width, dof_height);
+#endif
 
 				gGL.setColorMask(true, false);
 
@@ -8252,7 +8478,15 @@ void LLPipeline::renderDoF(LLRenderTarget* src, LLRenderTarget* dst)
 
 			{ // combine result based on alpha
 				dst->bindTarget();
+				// S24 (2026-08-17, task #140): dst->bindTarget() above already
+				// set a D3D11 viewport of (0,0,dst width,dst height) - exactly
+				// what this call would set anyway, so under DX_RENDER it's a
+				// pure no-op to skip (unlike the half-res DoF-sampling
+				// viewport above, which genuinely differs from bindTarget()'s
+				// default). Left unguarded on the GL side, matching upstream.
+#ifndef DX_RENDER
 				glViewport(0, 0, dst->getWidth(), dst->getHeight());
+#endif
 
 				gDeferredDoFCombineProgram.bind();
 				gDeferredDoFCombineProgram.bindTexture(LLShaderMgr::DEFERRED_DIFFUSE, src, LLTexUnit::TFO_POINT);
@@ -8281,31 +8515,63 @@ void LLPipeline::renderDoF(LLRenderTarget* src, LLRenderTarget* dst)
 
 void updateEffectMask()
 {
+	// S24 (2026-08-17): was 8 raw gSavedSettings.getBOOL() calls (real
+	// hash-map lookups) every single call - harmless-ish under GL, which
+	// always called this once per frame anyway, but this function never
+	// ran at all under DX_RENDER before today's post-fx-chain wiring
+	// (DXPipeline::presentDeferredScreen() now calls it directly, since
+	// DX_RENDER's LLPipeline::renderFinalize() early-returns before GL's
+	// own body - which normally calls this - ever runs) - so this is 8 new
+	// per-frame lookups for DX_RENDER specifically, flagged by the user as
+	// a suspected hot-path cost after noticing a framerate change. Switched
+	// to LLCachedControl<bool>, matching the pattern already used
+	// elsewhere in this exact file (presentDeferredScreen()/renderDoF()/
+	// applyFXAA()) - these only re-query on an actual settings-change
+	// notification, not every call.
+	static LLCachedControl<bool> UseDesaturation(gSavedSettings, "UseDesaturation", false);
+	static LLCachedControl<bool> UseInvert(gSavedSettings, "UseInvert", false);
+	static LLCachedControl<bool> UseCelShading(gSavedSettings, "UseCelShade", false);
+	static LLCachedControl<bool> applyVignette(gSavedSettings, "UseVignette", false);
+	static LLCachedControl<bool> applyNightVision(gSavedSettings, "UseNightVision", false);
+	static LLCachedControl<bool> applyEdgeGlow(gSavedSettings, "UseEdgeGlow", false);
+	static LLCachedControl<bool> applyRGBControl(gSavedSettings, "UseRGBControl", false);
+	static LLCachedControl<bool> applyMotionBlur(gSavedSettings, "UseMotionBlur", false);
+
 	effectsMask = 0;
-
-	// Refresh effect states before updating the mask
-	bool UseDesaturation = gSavedSettings.getBOOL("UseDesaturation");
-	bool UseInvert = gSavedSettings.getBOOL("UseInvert");
-	bool UseCelShading = gSavedSettings.getBOOL("UseCelShade");
-	bool applyVignette = gSavedSettings.getBOOL("UseVignette");
-	bool applyNightVision = gSavedSettings.getBOOL("UseNightVision");
-	bool applyEdgeGlow = gSavedSettings.getBOOL("UseEdgeGlow");
-	bool applyRGBControl = gSavedSettings.getBOOL("UseRGBControl");
-	bool applyMotionBlur = gSavedSettings.getBOOL("UseMotionBlur");
-
-	// Apply updated values to the mask
-	effectsMask |= UseDesaturation ? DESATURATION : 0;
-	effectsMask |= UseInvert ? INVERT : 0;
-	effectsMask |= UseCelShading ? CEL_SHADING : 0;
-	effectsMask |= applyVignette ? VIGNETTE : 0;
-	effectsMask |= applyNightVision ? NIGHT_VISION : 0;
-	effectsMask |= applyEdgeGlow ? EDGE_GLOW : 0;
-	effectsMask |= applyRGBControl ? RGB_CONTROL : 0;
-	effectsMask |= applyMotionBlur ? MOTION_BLUR : 0;
+	effectsMask |= UseDesaturation() ? DESATURATION : 0;
+	effectsMask |= UseInvert() ? INVERT : 0;
+	effectsMask |= UseCelShading() ? CEL_SHADING : 0;
+	effectsMask |= applyVignette() ? VIGNETTE : 0;
+	effectsMask |= applyNightVision() ? NIGHT_VISION : 0;
+	effectsMask |= applyEdgeGlow() ? EDGE_GLOW : 0;
+	effectsMask |= applyRGBControl() ? RGB_CONTROL : 0;
+	effectsMask |= applyMotionBlur() ? MOTION_BLUR : 0;
 }
 
 void LLPipeline::renderFinalize()
 {
+#ifdef DX_RENDER
+	// The real post-fx chain (screen-space reflections, tonemapping, CAS,
+	// glow, DoF, FXAA/SMAA - stage 5 phase 5.6) isn't converted yet. Rather
+	// than a pure no-op (which would leave the screen showing whatever
+	// DXContext::beginFrame() cleared it to), do a minimal placeholder
+	// present instead - see DXPipeline::presentDeferredScreen()'s comment.
+	//
+	// S24 (2026-08-03): a same-day attempt moved this call EARLIER (to
+	// llviewerdisplay.cpp's display(), right after renderDeferredLighting())
+	// so the new alpha/glow pass could draw on top of the presented image -
+	// that broke the whole frame to solid black, because moving the ONLY
+	// back-buffer-bind-and-blit step early left the rest of the frame
+	// (reflection probes, shadows, snapshots, impostors) free to leave some
+	// OTHER render target bound by the time Present() ran, with nothing
+	// left to re-establish the back buffer afterward. Reverted - this stays
+	// the one true "last thing before UI" present step. The alpha/glow pass
+	// now draws directly into deferredScreen itself instead (see
+	// llviewerdisplay.cpp's display(), right after renderGeomDeferred()),
+	// so this unchanged call picks up that content for free.
+	DXPipeline::presentDeferredScreen(*this);
+	return;
+#endif
 	S32 mode = gViewerWindow->getMaskMode();
 	llassert(!gCubeSnapshot);
 	LLVertexBuffer::unbind();
@@ -8422,6 +8688,18 @@ void LLPipeline::renderFinalize()
 	}
 
 	// Apply effects BEFORE final draw (zero-copy on GPU)
+	// S24 (2026-08-17): wrapped in #ifndef DX_RENDER - this whole function
+	// body is already unreachable at runtime under DX_RENDER (early
+	// `#ifdef DX_RENDER ... return;` above), but wasn't itself guarded, so
+	// the compiler still type-checked it even in DX_RENDER builds. That was
+	// harmless until now: ImageProcessor::*GPU()'s signatures are DX_RENDER-
+	// branched (kveffects.h) to take ID3D11Texture2D* instead of GLuint,
+	// which this dead GL code (passing a GLuint `tex`) can no longer
+	// typecheck against. The real DX_RENDER equivalent of this exact block
+	// now lives in DXPipeline::presentDeferredScreen() (dxpipeline.cpp),
+	// right before its own final-present call, mirroring this block's
+	// placement/order exactly.
+#ifndef DX_RENDER
 	if (effectsMask != 0)
 	{
 		U32 tex = sourceBuffer->getTexture();
@@ -8452,6 +8730,7 @@ void LLPipeline::renderFinalize()
 
 		// ← Removed redundant glFinish() - OpenCL commands are asynchronous
 	}
+#endif
 
 	// Present the screen target.
 	gDeferredPostNoDoFNoiseProgram.bind();
@@ -8499,7 +8778,11 @@ void LLPipeline::bindLightFunc(LLGLSLShader& shader)
 	S32 channel = shader.enableTexture(LLShaderMgr::DEFERRED_LIGHTFUNC);
 	if (channel > -1)
 	{
+#ifdef DX_RENDER
+		gGL.getTexUnit(channel)->bind(mDXLightFunc, LLTexUnit::TAM_CLAMP, LLTexUnit::TFO_TRILINEAR);
+#else
 		gGL.getTexUnit(channel)->bindManual(LLTexUnit::TT_TEXTURE, mLightFunc);
+#endif
 	}
 
 	channel = shader.enableTexture(LLShaderMgr::DEFERRED_BRDF_LUT, LLTexUnit::TT_TEXTURE);
@@ -8511,6 +8794,13 @@ void LLPipeline::bindLightFunc(LLGLSLShader& shader)
 
 void LLPipeline::bindShadowMaps(LLGLSLShader& shader)
 {
+	// S24 (2026-08-09, task #124): DX_RENDER-only 3rd arg - see LLTexUnit::
+	// bind()'s own comment. Real fix: shadowUtil.hlsl declares shadowMap0-5Sampler
+	// as SamplerComparisonState (hardware PCF via .SampleCmp()), but this bind
+	// call always created a regular filtering sampler - D3D11 debug-layer
+	// confirmed undefined behavior. GL's own equivalent (glTexParameteri
+	// GL_TEXTURE_COMPARE_MODE, set at shadow-target allocation time, not here)
+	// is untouched - this flag is ignored under GL.
 	for (U32 i = 0; i < 4; i++)
 	{
 		LLRenderTarget* shadow_target = getSunShadowTarget(i);
@@ -8519,7 +8809,7 @@ void LLPipeline::bindShadowMaps(LLGLSLShader& shader)
 			S32 channel = shader.enableTexture(LLShaderMgr::DEFERRED_SHADOW0 + i, LLTexUnit::TT_TEXTURE);
 			if (channel > -1)
 			{
-				gGL.getTexUnit(channel)->bind(getSunShadowTarget(i), true);
+				gGL.getTexUnit(channel)->bind(getSunShadowTarget(i), true, true);
 			}
 		}
 	}
@@ -8532,7 +8822,7 @@ void LLPipeline::bindShadowMaps(LLGLSLShader& shader)
 			LLRenderTarget* shadow_target = getSpotShadowTarget(i - 4);
 			if (shadow_target)
 			{
-				gGL.getTexUnit(channel)->bind(shadow_target, true);
+				gGL.getTexUnit(channel)->bind(shadow_target, true, true);
 			}
 		}
 	}
@@ -8626,8 +8916,12 @@ void LLPipeline::bindDeferredShader(LLGLSLShader& shader, LLRenderTarget* light_
 	channel = shader.enableTexture(LLShaderMgr::DEFERRED_NOISE);
 	if (channel > -1)
 	{
+#ifdef DX_RENDER
+		gGL.getTexUnit(channel)->bind(mDXNoiseMap, LLTexUnit::TAM_WRAP, LLTexUnit::TFO_POINT);
+#else
 		gGL.getTexUnit(channel)->bindManual(LLTexUnit::TT_TEXTURE, mNoiseMap);
 		gGL.getTexUnit(channel)->setTextureFilteringOption(LLTexUnit::TFO_POINT);
+#endif
 	}
 
 	bindLightFunc(shader);
@@ -8669,7 +8963,29 @@ void LLPipeline::bindDeferredShader(LLGLSLShader& shader, LLRenderTarget* light_
 
 	stop_glerror();
 
-	if (!LLPipeline::sReflectionProbesEnabled)
+	// S24 (2026-08-06, task #113, SUPERSEDED 2026-08-10 task #147/#184):
+	// this used to unconditionally force the legacy single-cubemap fallback
+	// under DX_RENDER, back when the real multi-probe reflection-array
+	// system (LLCubeMapArray/DXCubeArrayTexture) had no DX_RENDER resource
+	// support at all - that override was the stopgap keeping
+	// "environmentMap" bound to *something* instead of staying permanently
+	// unbound. llreflectionmapmanager.cpp's own comment already flagged
+	// this override for revisit "once v1 is visually confirmed stable" -
+	// that's now true (real CopySubresourceRegion-based mip generation,
+	// format/size bugs fixed, cube-face capture orientation fixed, zero
+	// D3D11 debug-layer errors this session). Also found while confirming
+	// this: llvosky.cpp's LLVOSky::updateSky() (the legacy cubemap's own
+	// producer) unconditionally SKIPS its own update work whenever
+	// sReflectionProbesEnabled is true (`if (!mCubeMap ||
+	// sReflectionProbesEnabled) { ...; return true; }`) - meaning under
+	// current conditions (reflection probes enabled, the default post-
+	// GPU-detection-fix) this override was forcing consumption of a
+	// cubemap that its OWN producer had stopped filling with real content,
+	// reading stale/uninitialized data regardless of anything else fixed
+	// this session. Matches GL's own condition now - DX_RENDER gets a real
+	// multi-probe reflection source instead of a permanently-stale one.
+	bool use_legacy_env_map = !LLPipeline::sReflectionProbesEnabled;
+	if (use_legacy_env_map)
 	{
 		channel = shader.enableTexture(LLShaderMgr::ENVIRONMENT_MAP, LLTexUnit::TT_CUBE_MAP);
 		if (channel > -1)
@@ -8740,8 +9056,14 @@ void LLPipeline::bindDeferredShader(LLGLSLShader& shader, LLRenderTarget* light_
 	shader.uniform1f(LLShaderMgr::DEFERRED_DEPTH_CUTOFF, RenderEdgeDepthCutoff);
 	shader.uniform1f(LLShaderMgr::DEFERRED_NORM_CUTOFF, RenderEdgeNormCutoff);
 
-	shader.uniformMatrix4fv(LLShaderMgr::MODELVIEW_DELTA_MATRIX, 1, GL_FALSE, glm::value_ptr(gGLDeltaModelView));
-	shader.uniformMatrix4fv(LLShaderMgr::INVERSE_MODELVIEW_DELTA_MATRIX, 1, GL_FALSE, glm::value_ptr(gGLInverseDeltaModelView));
+	// S24 (2026-08-22, plan item D1): removed a redundant re-upload of
+	// MODELVIEW_DELTA_MATRIX/INVERSE_MODELVIEW_DELTA_MATRIX that lived here -
+	// bindReflectionProbes(shader), called earlier in this same function,
+	// already computes and uploads both uniforms from the same source
+	// (get_current_modelview()/get_last_modelview()). Two independent call
+	// sites doing the same thing 36 lines apart with no cross-reference was
+	// a latent trap, not a live bug (both used the same formula) - single
+	// source of truth now.
 
 	shader.uniform1i(LLShaderMgr::CUBE_SNAPSHOT, gCubeSnapshot ? 1 : 0);
 
@@ -8785,6 +9107,21 @@ LLVector4 pow4fsrgb(LLVector4 v, F32 f)
 
 void LLPipeline::renderDeferredLighting()
 {
+#ifdef DX_RENDER
+	// S24 (2026-08-04): v1 of the real deferred lighting-combine pass -
+	// see DXPipeline::renderDeferredLighting()'s comment (dxpipeline.h/
+	// .cpp) for exactly what's implemented (ambient+sun/atmospherics via
+	// softenLightF/V.hlsl) and what's deliberately still missing
+	// (sun-shadow/SSAO lightmap, local lights). sCull is this file's own
+	// static (not visible to dxpipeline.cpp), so the guard stays here,
+	// mirroring the GL body's identical check just below.
+	if (!sCull)
+	{
+		return;
+	}
+	DXPipeline::renderDeferredLighting(*this);
+	return;
+#endif
 	LL_PROFILE_ZONE_SCOPED_CATEGORY_PIPELINE;
 	LL_PROFILE_GPU_ZONE("renderDeferredLighting");
 	if (!sCull)
@@ -9417,21 +9754,63 @@ void LLPipeline::doWaterHaze()
 			}
 		}
 
+		// S24 (2026-08-23): unbindDeferredShader()/setSceneBlendType() used
+		// to live only inside the `else` (above-water) branch above - the
+		// underwater branch returned with haze_shader's textures (incl.
+		// mWaterDis at DEFERRED_DEPTH) left bound, and with colorMask still
+		// at the (true,true) this function sets a few lines up for its own
+		// blend pass, never restored to the (true,false) the caller
+		// (DXPipeline::renderGeomPostDeferred()'s pool loop, and GL's own
+		// equivalent) explicitly set up before calling here - both real
+		// bugs, not just underwater-only: since the alpha pool's own draw
+		// runs immediately after this function returns (this fires right
+		// before POOL_ALPHA_PRE_WATER), colorMask's alpha-write channel
+		// being left enabled means alpha-blended content drawn right after
+		// can write unintended data into screen_target's alpha channel -
+		// which this pipeline uses to carry glow, not just coverage (see
+		// renderFinalize()'s "zeroing alpha (glow) is important or it will
+		// accumulate against sky" comment). Moved out of the `else` branch
+		// so both paths clean up identically, and added the explicit
+		// colorMask restore that was missing from both.
 		unbindDeferredShader(haze_shader);
 
 		gGL.setSceneBlendType(LLRender::BT_ALPHA);
+		gGL.setColorMask(true, false);
 	}
 }
 
 void LLPipeline::doWaterExclusionMask()
 {
 	mWaterExclusionMask.bindTarget();
+#ifdef DX_RENDER
+	// S24 (2026-08-09, task #116): LLRenderTarget::clear() under DX_RENDER
+	// always clears to transparent black (0,0,0,0) regardless of the
+	// GL-only glClearColor() call below - see llviewerdisplay.cpp's own
+	// comment on the same pattern. This mask's meaning is inverted from
+	// that default: white (1,1,1,1) = "not excluded, water visible here",
+	// so clearing to black would default every pixel to "excluded" instead
+	// of "included" whenever mWaterExclusionPool->render() doesn't cover a
+	// pixel (i.e. most of the screen, since exclusion prims are rare).
+	// clearColor() is the real DX-native equivalent - an immediate
+	// ClearRenderTargetView() with an explicit color, exactly what this
+	// mask needs instead of the generic clear().
+	mWaterExclusionMask.clearColor(1, 1, 1, 1);
+#else
 	glClearColor(1, 1, 1, 1);
 	mWaterExclusionMask.clear();
+#endif
+	// S24 (2026-08-09, task #148): bisection complete - user confirmed the
+	// reported "water pops to different levels" bug is UNCHANGED with this
+	// call disabled (only side effect was worse near-shore water quality,
+	// expected since water_mask stayed uniformly white/"included"
+	// everywhere with no real exclusion narrowing it). LLDrawPoolWaterExclusion
+	// is RULED OUT as the cause - call restored.
 	mWaterExclusionPool->render();
 
 	mWaterExclusionMask.flush();
+#ifndef DX_RENDER
 	glClearColor(0, 0, 0, 0);
+#endif
 }
 
 void LLPipeline::setupSpotLight(LLGLSLShader& shader, LLDrawable* drawablep)
@@ -9609,7 +9988,9 @@ void LLPipeline::unbindDeferredShader(LLGLSLShader& shader)
 	{
 		if (shader.disableTexture(LLShaderMgr::DEFERRED_SHADOW0 + i) > -1)
 		{
+#ifndef DX_RENDER
 			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, GL_NONE);
+#endif
 		}
 	}
 
@@ -9617,7 +9998,9 @@ void LLPipeline::unbindDeferredShader(LLGLSLShader& shader)
 	{
 		if (shader.disableTexture(LLShaderMgr::DEFERRED_SHADOW0 + i) > -1)
 		{
+#ifndef DX_RENDER
 			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, GL_NONE);
+#endif
 		}
 	}
 
@@ -9646,6 +10029,18 @@ void LLPipeline::unbindDeferredShader(LLGLSLShader& shader)
 
 void LLPipeline::setEnvMat(LLGLSLShader& shader)
 {
+	// S24 (task #194, 2026-08-14, REVERTED): briefly sourced env_mat from
+	// gGL's own internal matrix stack (mMatrix[MM_MODELVIEW], via
+	// getModelviewMatrix()) instead of gGLModelView, on the theory that the
+	// stack is more reliably maintained than the manually-mirrored global.
+	// Confirmed wrong via the face-ID color diagnostic
+	// ([[feedback_s24_faceid_diagnostic_result]]): that stack is touched by
+	// FAR more systems within a single frame (shadow cascades, water
+	// reflection, ~10 other set_current_modelview() call sites) than
+	// gGLModelView ever was, and reading it at an arbitrary point mid-frame
+	// picked up transient poisoning from whichever of those last ran -
+	// this was the actual cause of the west/south face-selection flicker,
+	// not a fix for it. Reverted to gGLModelView for both GL and DX_RENDER.
 	F32* m = gGLModelView;
 
 	F32 mat[] = { m[0], m[1], m[2],
@@ -9658,6 +10053,9 @@ void LLPipeline::setEnvMat(LLGLSLShader& shader)
 void LLPipeline::bindReflectionProbes(LLGLSLShader& shader)
 {
 	//static LLCachedControl <bool> stereo(gSavedSettings,"StereoMode",false); // S24 might be redundant now placemarker
+	// S24 (2026-08-11, task #163 round 5): temp diagnostic here confirmed
+	// probes_enabled IS correctly uploaded for "Deferred Soften Shader"
+	// (bound=1, reflChannel=16, irradChannel=17) - ruled out. Removed.
 	if (!sReflectionProbesEnabled)
 	{
 		return;
@@ -9685,6 +10083,24 @@ void LLPipeline::bindReflectionProbes(LLGLSLShader& shader)
 		{
 			mHeroProbeManager.mTexture->bind(channel);
 			bound = true;
+		}
+	}
+
+	// S24 (2026-08-13, task #194 diagnostic - TEMPORARY): dedup'd one-shot-
+	// per-shader-name check of whether setEnvMat() actually runs for every
+	// shader that calls bindReflectionProbes() - only "Deferred Soften
+	// Shader" was ever confirmed (task #163 round 5); bump/materials/water
+	// shaders (what shiny/reflective prims actually use) were never
+	// individually checked. If bound==false for one of those, env_mat
+	// keeps whatever stale matrix was left in that register by an
+	// unrelated earlier draw call - a plausible explanation for reflections
+	// that only look right at certain camera angles.
+	{
+		static std::set<std::string> sLoggedShaderNames;
+		if (sLoggedShaderNames.insert(shader.mName).second)
+		{
+			LL_WARNS("S24Diag") << "bindReflectionProbes: shader='" << shader.mName
+				<< "' bound=" << bound << LL_ENDL;
 		}
 	}
 
@@ -9720,6 +10136,28 @@ void LLPipeline::bindReflectionProbes(LLGLSLShader& shader)
 
 	shader.uniform1f(LLShaderMgr::DEFERRED_SSR_NOISE_SINE, (GLfloat)mPoissonOffset);
 	shader.uniform1f(LLShaderMgr::DEFERRED_SSR_ADAPTIVE_STEP_MULT, RenderScreenSpaceReflectionAdaptiveStepMultiplier);
+
+	// S24 (2026-08-11, task #156, SSR milestone 1): modelview_delta/
+	// inv_modelview_delta (screenSpaceReflUtil.glsl's own uniforms,
+	// "should be transform from last camera space to current camera
+	// space") were declared with real LLShaderMgr entries
+	// (MODELVIEW_DELTA_MATRIX/INVERSE_MODELVIEW_DELTA_MATRIX) but never
+	// actually uploaded from anywhere in the engine - confirmed via a
+	// full-tree grep, not DX_RENDER-specific. get_current_modelview()/
+	// get_last_modelview() (llrender.cpp) are the same backend-agnostic
+	// accessors already used elsewhere for this exact "last frame vs this
+	// frame" delta pattern; gGLLastModelView itself is real and correctly
+	// updated every frame now (see DXPipeline::renderGeomPostDeferred()'s
+	// own capture, added alongside this fix, mirroring GL's own
+	// renderGeomPostDeferred() body which never runs under DX_RENDER).
+	{
+		glm::mat4 cur_modelview = get_current_modelview();
+		glm::mat4 last_modelview = get_last_modelview();
+		glm::mat4 modelview_delta = cur_modelview * glm::inverse(last_modelview);
+		glm::mat4 inv_modelview_delta = glm::inverse(modelview_delta);
+		shader.uniformMatrix4fv(LLShaderMgr::MODELVIEW_DELTA_MATRIX, 1, false, glm::value_ptr(modelview_delta));
+		shader.uniformMatrix4fv(LLShaderMgr::INVERSE_MODELVIEW_DELTA_MATRIX, 1, false, glm::value_ptr(inv_modelview_delta));
+	}
 
 	channel = shader.enableTexture(LLShaderMgr::SCENE_DEPTH);
 	if (channel > -1)
@@ -10241,6 +10679,14 @@ public:
 
 void LLPipeline::generateSunShadow(LLCamera& camera)
 {
+	// S24 (2026-08-10, task #158 milestone 1): real DX_RENDER shadow pass -
+	// this function's body (cascade fitting, mRT->shadow[j] bind/clear/
+	// renderShadow()/flush per cascade, spot-light shadows) is reused as-is,
+	// same "the C++ orchestration is already backend-agnostic by
+	// composition" pattern already proven for renderGeomDeferred()/
+	// renderGeomPostDeferred(). See dxpipeline.cpp's renderDeferredLighting()
+	// for the real sun-shadow/SSAO lightmap combine pass now consuming this
+	// function's output (mRT->shadow[0..3]/mSpotShadow[0..1]).
 	if (!sRenderDeferred || RenderShadowDetail <= 0)
 	{
 		return;
@@ -11430,7 +11876,9 @@ void LLPipeline::generateImpostor(LLVOAvatar* avatar, bool preview_avatar, bool 
 		gGL.loadMatrix(glm::value_ptr(mat));
 		set_current_modelview(mat);
 
+#ifndef DX_RENDER
 		glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+#endif
 		gGL.setColorMask(true, true);
 
 		// get the number of pixels per angle
@@ -11503,11 +11951,13 @@ void LLPipeline::generateImpostor(LLVOAvatar* avatar, bool preview_avatar, bool 
 
 	if (!for_profile)
 	{ //create alpha mask based on depth buffer (grey out if muted)
+#ifndef DX_RENDER
 		if (LLPipeline::sRenderDeferred)
 		{
 			GLuint buff = GL_COLOR_ATTACHMENT0;
 			glDrawBuffers(1, &buff);
 		}
+#endif
 
 		LLGLDisable blend(GL_BLEND);
 

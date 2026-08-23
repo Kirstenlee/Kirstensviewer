@@ -32,13 +32,7 @@ uniform float minimum_alpha;
 void mirrorClip(float3 pos);
 float4 encodeNormal(float3 n, float env, float gbuffer_flag);
 
-struct PSInput
-{
-    float4 vertex_color : COLOR0;
-    float3 vary_normal : TEXCOORD0;
-    float2 vary_texcoord0 : TEXCOORD1;
-    float3 vary_position : TEXCOORD2;
-};
+#include "varying/treeVarying.hlsli"
 
 struct PSOutput
 {
@@ -50,20 +44,28 @@ struct PSOutput
 #endif
 };
 
+// S24 (2026-08-02): see uiF.hlsl's comment - real register mismatch,
+// confirmed via fxc.exe disassembly, affects every bare-Varying PS input.
+struct PSInput
+{
+    float4 position : SV_Position;
+    TreeVarying varying;
+};
+
 PSOutput main(PSInput IN)
 {
     PSOutput OUT;
 
-    mirrorClip(IN.vary_position);
-    float4 col = diffuseMap.Sample(diffuseMapSampler, IN.vary_texcoord0.xy);
+    mirrorClip(IN.varying.vary_position);
+    float4 col = diffuseMap.Sample(diffuseMapSampler, IN.varying.vary_texcoord0.xy);
     if (col.a < minimum_alpha)
     {
         discard;
     }
 
-    OUT.data0 = float4(IN.vertex_color.rgb * col.rgb, 0.0);
+    OUT.data0 = float4(IN.varying.vertex_color.rgb * col.rgb, 0.0);
     OUT.data1 = float4(0, 0, 0, 0);
-    float3 nvn = normalize(IN.vary_normal);
+    float3 nvn = normalize(IN.varying.vary_normal);
     OUT.data2 = encodeNormal(nvn.xyz, 0, GBUFFER_FLAG_HAS_ATMOS);
 
 #if defined(HAS_EMISSIVE)

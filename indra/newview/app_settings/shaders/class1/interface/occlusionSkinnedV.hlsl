@@ -30,6 +30,7 @@ float4x4 getObjectSkinnedTransform();
 struct VSInput
 {
     float3 position : POSITION;
+    float4 weight4 : BLENDWEIGHT;
 };
 
 struct VSOutput

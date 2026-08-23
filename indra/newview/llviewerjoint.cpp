@@ -119,13 +119,23 @@ U32 LLViewerJoint::render( F32 pixelArea, bool first_pass, bool is_dummy )
             else
             {
                 // Render Inside (no Z buffer write)
+#ifndef DX_RENDER
                 glCullFace(GL_FRONT);
+#endif
                 {
                     LLGLDepthTest gls_depth(GL_TRUE, GL_FALSE);
                     triangle_count += drawShape( pixelArea, first_pass, is_dummy  );
                 }
                 // Render Outside (write to the Z buffer)
+#ifndef DX_RENDER
+                // S24 (DX_RENDER): DXStateCache doesn't track cull direction
+                // (front vs. back), only enable/disable - matches the
+                // existing documented gap (see project memory). Always
+                // culls back faces under DX_RENDER; the "render inside"
+                // pass above loses its front-face-cull, a visual gap on
+                // hair/skirt geometry, not a crash.
                 glCullFace(GL_BACK);
+#endif
                 {
                     triangle_count += drawShape( pixelArea, false, is_dummy  );
                 }

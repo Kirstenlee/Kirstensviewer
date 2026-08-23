@@ -15,6 +15,9 @@ include(LLFileSystem)
 include(LLWindow)
 include(LLXML)
 include(Linking)
+if(DX_RENDER)
+    include(DXRender)
+endif()
 
 include_directories(
     ${LLCOMMON_INCLUDE_DIRS}
@@ -27,6 +30,9 @@ include_directories(
     ${LLWINDOW_INCLUDE_DIRS}
     ${LLXML_INCLUDE_DIRS}
     )
+if(DX_RENDER)
+    include_directories(${DXRENDER_INCLUDE_DIRS})
+endif()
 
 set(llappearance_SOURCE_FILES
     llavatarappearance.cpp
@@ -89,3 +95,6 @@ target_link_libraries(llappearance
     ${LLCOREHTTP_LIBRARIES}
     ${LLCOMMON_LIBRARIES}
     )
+if(DX_RENDER)
+    target_link_libraries(llappearance ${DXRENDER_LIBRARIES})
+endif()

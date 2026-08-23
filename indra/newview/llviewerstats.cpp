@@ -29,6 +29,10 @@
 #include "llviewerstats.h"
 #include "llviewerthrottle.h"
 
+#ifdef DX_RENDER
+#include "DXQuery.h" // S24 (2026-08-16, task #98): native D3D11 GPU-completion fence for FPS/frametime telemetry
+#endif
+
 #include "message.h"
 #include "llfloaterreg.h"
 #include "llmemory.h"
@@ -290,12 +294,22 @@ LLViewerStats::LLViewerStats()
 
 LLViewerStats::~LLViewerStats()
 {
-    // Clean up any remaining GPU fences
+    // Clean up any remaining GPU fences. S24 (2026-08-16, task #98): this
+    // was an unguarded glDeleteSync() call - harmless only because
+    // mGPUFrameFences was always empty under DX_RENDER before this task
+    // (notifyFrameSubmitted() no-op'd), the same masked-null-function-
+    // pointer hazard class as the crash that no-op was originally added to
+    // avoid. Now that the queue is actually populated under DX_RENDER too,
+    // it needs its own real cleanup path.
     for (auto& fence : mGPUFrameFences)
     {
         if (fence.sync)
         {
+#ifdef DX_RENDER
+            DXQuery::release((ID3D11Query*)fence.sync);
+#else
             glDeleteSync((GLsync)fence.sync);
+#endif
         }
     }
     mGPUFrameFences.clear();
@@ -950,6 +964,34 @@ void LLViewerStats::PhaseMap::recordPhaseStat(const std::string& phase_name, F32
 
 void LLViewerStats::notifyFrameSubmitted()
 {
+#ifdef DX_RENDER
+    // S24 (2026-08-16, task #98): real GPU-completion fence via a D3D11
+    // event query (DXQuery), replacing the previous no-op left by the
+    // 2026-08-02 fix (glFenceSync was a GL-only function pointer, never
+    // populated under DX_RENDER - calling it null-pointer-crashed on every
+    // frame; see the git history for that incident). Mirrors the GL branch
+    // below exactly, just swapping glFenceSync -> DXQuery::issue().
+    ID3D11Query* query = DXQuery::issue();
+    if (query)
+    {
+        GPUFrameFence fence;
+        fence.sync = query;
+        fence.frame_number = ++mCPUSubmittedFrames;
+        mGPUFrameFences.push_back(fence);
+
+        // Limit fence queue to prevent unbounded growth (keep last 10 frames)
+        static const size_t MAX_PENDING_FENCES = 10;
+        while (mGPUFrameFences.size() > MAX_PENDING_FENCES)
+        {
+            auto& old_fence = mGPUFrameFences.front();
+            if (old_fence.sync)
+            {
+                DXQuery::release((ID3D11Query*)old_fence.sync);
+            }
+            mGPUFrameFences.erase(mGPUFrameFences.begin());
+        }
+    }
+#else
     // Called after SwapBuffers - insert a GPU fence to track when this frame completes
     GLsync sync = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
     if (sync)
@@ -971,10 +1013,40 @@ void LLViewerStats::notifyFrameSubmitted()
             mGPUFrameFences.erase(mGPUFrameFences.begin());
         }
     }
+#endif
 }
 
 void LLViewerStats::checkGPUFrameCompletion()
 {
+#ifdef DX_RENDER
+    // S24 (2026-08-16, task #98): poll each pending DXQuery, oldest first -
+    // mirrors the GL branch below exactly, just swapping
+    // glClientWaitSync/glDeleteSync -> DXQuery::isComplete()/release().
+    auto it = mGPUFrameFences.begin();
+    while (it != mGPUFrameFences.end())
+    {
+        if (it->sync)
+        {
+            if (DXQuery::isComplete((ID3D11Query*)it->sync))
+            {
+                // GPU completed this frame - count it!
+                mGPUCompletedFrames = it->frame_number;
+                add(LLStatViewer::FPS, 1);
+                DXQuery::release((ID3D11Query*)it->sync);
+                it = mGPUFrameFences.erase(it);
+            }
+            else
+            {
+                // This fence not signaled yet, stop checking (older fences always complete first)
+                break;
+            }
+        }
+        else
+        {
+            it = mGPUFrameFences.erase(it);
+        }
+    }
+#else
     // Poll existing fences to see if GPU has finished rendering those frames
     auto it = mGPUFrameFences.begin();
     while (it != mGPUFrameFences.end())
@@ -1002,6 +1074,7 @@ void LLViewerStats::checkGPUFrameCompletion()
             it = mGPUFrameFences.erase(it);
         }
     }
+#endif
 }
 
 

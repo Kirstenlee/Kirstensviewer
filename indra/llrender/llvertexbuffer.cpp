@@ -41,6 +41,11 @@
 #include <future>
 #include <memory>
 
+#ifdef DX_RENDER
+#include "DXDevice.h"
+#include "DXVertexLayout.h"
+#endif
+
 //Next Highest Power Of Two
 //helper function, returns first number > v that is a power of 2, or v if v is already a power of 2
 // S24 performance code bit manipulation avoiding loop
@@ -763,6 +768,18 @@ void LLVertexBufferData::drawWithMatrix()
 		return;
 	}
 
+#ifdef DX_RENDER
+	// S24 (task #54): see LLVertexBufferData::mDXImage's comment - replay via
+	// a real bind(LLImageGL*) instead of GL's raw-GLuint bindManual(mTexName).
+	if (mDXImage)
+	{
+		gGL.getTexUnit(0)->bind(mDXImage.get());
+	}
+	else
+	{
+		gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+	}
+#else
 	if (mTexName)
 	{
 		gGL.getTexUnit(0)->bindManual(LLTexUnit::TT_TEXTURE, mTexName);
@@ -771,6 +788,7 @@ void LLVertexBufferData::drawWithMatrix()
 	{
 		gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
 	}
+#endif
 
 	gGL.matrixMode(LLRender::MM_MODELVIEW);
 	gGL.pushMatrix();
@@ -801,6 +819,18 @@ void LLVertexBufferData::draw()
 		return;
 	}
 
+#ifdef DX_RENDER
+	// S24 (task #54): see LLVertexBufferData::mDXImage's comment - replay via
+	// a real bind(LLImageGL*) instead of GL's raw-GLuint bindManual(mTexName).
+	if (mDXImage)
+	{
+		gGL.getTexUnit(0)->bind(mDXImage.get());
+	}
+	else
+	{
+		gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+	}
+#else
 	if (mTexName)
 	{
 		gGL.getTexUnit(0)->bindManual(LLTexUnit::TT_TEXTURE, mTexName);
@@ -809,6 +839,7 @@ void LLVertexBufferData::draw()
 	{
 		gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
 	}
+#endif
 
 	mVB->setBuffer();
 	mVB->drawArrays(mMode, 0, mCount);
@@ -827,6 +858,11 @@ U64 LLVertexBuffer::getBytesAllocated()
 //static
 thread_local U32 LLVertexBuffer::sGLRenderBuffer = 0;
 thread_local U32 LLVertexBuffer::sGLRenderIndices = 0;
+#ifdef DX_RENDER
+thread_local ID3D11Buffer* LLVertexBuffer::sDXRenderBuffer = nullptr;
+thread_local ID3D11Buffer* LLVertexBuffer::sDXRenderIndices = nullptr;
+thread_local LLGLSLShader* LLVertexBuffer::sDXLastShader = nullptr;
+#endif
 
 // S24: set from settings_to_globals() in llappviewer.cpp - see llvertexbuffer.h for why
 // llrender can't read gSavedSettings directly (mirrors LLRender::sGLCoreProfile).
@@ -1049,9 +1085,112 @@ void LLVertexBuffer::clone(LLVertexBuffer& target) const
 	}
 }
 
+#ifdef DX_RENDER
+namespace
+{
+	// D3D11 has no equivalent of GL_TRIANGLE_FAN or GL_LINE_LOOP (dropped
+	// after D3D9) - mapped to D3D11_PRIMITIVE_TOPOLOGY_UNDEFINED and asserted
+	// against below. Neither is used by the base (unrigged, non-UI) geometry
+	// converted so far; revisit if/when a pool that needs one is converted.
+	const D3D11_PRIMITIVE_TOPOLOGY sDXMode[LLRender::NUM_MODES] =
+	{
+		D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST,  // TRIANGLES
+		D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP, // TRIANGLE_STRIP
+		D3D11_PRIMITIVE_TOPOLOGY_UNDEFINED,     // TRIANGLE_FAN - not yet supported
+		D3D11_PRIMITIVE_TOPOLOGY_POINTLIST,     // POINTS
+		D3D11_PRIMITIVE_TOPOLOGY_LINELIST,      // LINES
+		D3D11_PRIMITIVE_TOPOLOGY_LINESTRIP,     // LINE_STRIP
+		D3D11_PRIMITIVE_TOPOLOGY_UNDEFINED,     // LINE_LOOP - not yet supported
+	};
+
+	// S24 (2026-08-02): the true universal DX_RENDER draw chokepoint - every
+	// 3D pool draw, every LLRender::flush() immediate-mode caller, and every
+	// direct drawRange()/drawArrays()/drawRangeFast() caller (e.g. the BRDF
+	// LUT bake) funnels through here. Until now none of the three re-asserted
+	// VS/PS at all - both LLGLSLShader::bind()'s sCurBoundShaderPtr-based
+	// early-out (llglslshader.cpp:1229) AND syncMatrices()'s own constant-
+	// buffer selection (llrender.cpp:1320) are driven by the SAME tracker, so
+	// a raw ctx->VSSetShader()/PSSetShader() call anywhere that doesn't
+	// update that tracker (two real, historical instances already found and
+	// fixed this session: dxpipeline.cpp's presentDeferredScreen(), the
+	// llviewerwindow.cpp fresh-shader font test) leaves every draw here
+	// running under stale GPU-bound shaders with zero warning. DXUIBatch's
+	// own flush() was hardened the same way earlier - this closes the same
+	// class at the actual universal chokepoint instead of just the 2D UI
+	// batch path.
+	//
+	// Cache-and-compare, not unconditional rebind: D3D11 SetShader calls are
+	// cheap but not free at this call frequency (every 3D draw, every frame).
+	// Mirrors the exact skip-when-unchanged invariant LLGLSLShader::bind()'s
+	// own early-out already protects, just enforced at the real Draw() point
+	// instead of trusting that bind() was both called AND that nothing raw-
+	// bound anything in between.
+	ID3D11VertexShader* sLastBoundVS = nullptr;
+	ID3D11PixelShader* sLastBoundPS = nullptr;
+
+	// S24 (2026-08-02): TEMPORARY - see getAndResetDXDrawCallCount()'s
+	// header comment. Incremented by every real ctx->Draw()/DrawIndexed()
+	// call below.
+	U32 sDXDrawCallCount = 0;
+
+	// If sCurBoundShaderPtr is null, leave the context untouched - this is
+	// the deliberate post-unbind() state the two raw-bind sites above already
+	// rely on (unbind() nulls both the tracker and the real VS/PS so the
+	// NEXT real bind() is forced to do a genuine rebind); asserting a shader
+	// here when the tracker says "none" would fight that convention instead
+	// of complementing it.
+	void assertShaderStagesBound()
+	{
+		LLGLSLShader* shader = LLGLSLShader::sCurBoundShaderPtr;
+		if (!shader)
+		{
+			return;
+		}
+		ID3D11VertexShader* vs = shader->mDXVertexShader.getVS();
+		ID3D11PixelShader* ps = shader->mDXPixelShader.getPS();
+		if (vs != sLastBoundVS || ps != sLastBoundPS)
+		{
+			gDXDevice.getContext()->VSSetShader(vs, nullptr, 0);
+			gDXDevice.getContext()->PSSetShader(ps, nullptr, 0);
+			sLastBoundVS = vs;
+			sLastBoundPS = ps;
+		}
+	}
+}
+
+//static
+U32 LLVertexBuffer::getAndResetDXDrawCallCount()
+{
+	U32 count = sDXDrawCallCount;
+	sDXDrawCallCount = 0;
+	return count;
+}
+#endif
+
 void LLVertexBuffer::drawRange(U32 mode, U32 start, U32 end, U32 count, U32 indices_offset) const
 {
 	llassert(validateRange(start, end, count, indices_offset));
+
+#ifdef DX_RENDER
+	llassert(mDXBuffer.getBuffer() == sDXRenderBuffer);
+	llassert(mDXIndices.getBuffer() == sDXRenderIndices);
+	llassert(sDXMode[mode] != D3D11_PRIMITIVE_TOPOLOGY_UNDEFINED);
+	gGL.syncMatrices();
+	assertShaderStagesBound();
+	ID3D11DeviceContext* ctx = gDXDevice.getContext();
+	ctx->IASetPrimitiveTopology(sDXMode[mode]);
+	ctx->DrawIndexed(count, indices_offset, 0);
+	++sDXDrawCallCount;
+	// S24 (DX_RENDER diagnostic, 2026-07-28): TEMPORARY - correlates the
+	// D3D11 debug-layer VS/PS linkage-error messages (see
+	// project_dxrender_vsps_linkage_bug memory) with WHICH shader was bound
+	// for this draw - the message text alone never identifies the shader.
+	// Cheap: logPendingDebugMessages() only does real logging/I/O the first
+	// time each distinct message ID is seen.
+	gDXDevice.logPendingDebugMessages(LLGLSLShader::sCurBoundShaderPtr ? LLGLSLShader::sCurBoundShaderPtr->mName.c_str() : "?");
+	return;
+#endif
+
 	llassert(mGLBuffer == sGLRenderBuffer);
 	llassert(mGLIndices == sGLRenderIndices);
 	gGL.syncMatrices();
@@ -1063,6 +1202,20 @@ void LLVertexBuffer::drawRange(U32 mode, U32 start, U32 end, U32 count, U32 indi
 
 void LLVertexBuffer::drawRangeFast(U32 mode, U32 start, U32 end, U32 count, U32 indices_offset) const
 {
+#ifdef DX_RENDER
+	// S24 (2026-08-02): no gGL.syncMatrices() call in this "fast" variant
+	// (pre-existing - callers of drawRangeFast() are expected to have
+	// already synced matrices themselves), but the shader-stage assertion
+	// applies regardless of that - see assertShaderStagesBound()'s comment.
+	assertShaderStagesBound();
+	ID3D11DeviceContext* ctx = gDXDevice.getContext();
+	ctx->IASetPrimitiveTopology(sDXMode[mode]);
+	ctx->DrawIndexed(count, indices_offset, 0);
+	++sDXDrawCallCount;
+	gDXDevice.logPendingDebugMessages(LLGLSLShader::sCurBoundShaderPtr ? LLGLSLShader::sCurBoundShaderPtr->mName.c_str() : "?");
+	return;
+#endif
+
 	glDrawRangeElements(sGLMode[mode], start, end, count, mIndicesType,
 		(GLvoid*)(indices_offset * (size_t)mIndicesStride));
 }
@@ -1075,6 +1228,21 @@ void LLVertexBuffer::draw(U32 mode, U32 count, U32 indices_offset) const
 void LLVertexBuffer::drawArrays(U32 mode, U32 first, U32 count) const
 {
 	llassert(first + count <= mNumVerts);
+
+#ifdef DX_RENDER
+	llassert(mDXBuffer.getBuffer() == sDXRenderBuffer);
+	llassert(mDXIndices.getBuffer() == sDXRenderIndices);
+	llassert(sDXMode[mode] != D3D11_PRIMITIVE_TOPOLOGY_UNDEFINED);
+	gGL.syncMatrices();
+	assertShaderStagesBound();
+	ID3D11DeviceContext* ctx = gDXDevice.getContext();
+	ctx->IASetPrimitiveTopology(sDXMode[mode]);
+	ctx->Draw(count, first);
+	++sDXDrawCallCount;
+	gDXDevice.logPendingDebugMessages(LLGLSLShader::sCurBoundShaderPtr ? LLGLSLShader::sCurBoundShaderPtr->mName.c_str() : "?");
+	return;
+#endif
+
 	llassert(mGLBuffer == sGLRenderBuffer);
 	llassert(mGLIndices == sGLRenderIndices);
 
@@ -1088,6 +1256,14 @@ void LLVertexBuffer::drawArrays(U32 mode, U32 first, U32 count) const
 void LLVertexBuffer::initClass(LLWindow* window)
 {
 	llassert(sVBOPool == nullptr);
+
+#ifdef DX_RENDER
+	// genBuffer()/genIndices() bypass sVBOPool entirely under DX_RENDER (see
+	// there) - GL's VBO-orphaning pool and worker-thread-based deferred
+	// buffer creation are driver-quirk workarounds with no D3D11 equivalent
+	// need, so there's nothing to initialize here.
+	return;
+#endif
 
 	if (gGLManager.mIsApple)
 	{
@@ -1136,18 +1312,31 @@ void LLVertexBuffer::initClass(LLWindow* window)
 //static
 void LLVertexBuffer::unbind()
 {
+#ifdef DX_RENDER
+	// No GL bind-state concept under DX_RENDER; IASetVertexBuffers/
+	// IASetIndexBuffer are reissued fresh at every setBuffer() call, so
+	// there's nothing to explicitly unbind on the GPU side - just reset the
+	// bookkeeping fields callers (setBuffer(), drawRange()'s assert) check.
+	sDXRenderBuffer = nullptr;
+	sDXRenderIndices = nullptr;
+#else
 	STOP_GLERROR;
 	glBindBuffer(GL_ARRAY_BUFFER, 0);
 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
 	STOP_GLERROR;
 	sGLRenderBuffer = 0;
 	sGLRenderIndices = 0;
+#endif
 }
 
 //static
 void LLVertexBuffer::cleanupClass()
 {
 	unbind();
+
+#ifdef DX_RENDER
+	DXVertexLayout::clear();
+#endif
 
 	delete sVBOPool;
 	sVBOPool = nullptr;
@@ -1265,6 +1454,19 @@ LLVertexBuffer::~LLVertexBuffer()
 void LLVertexBuffer::genBuffer(U32 size)
 {
 	LL_PROFILE_ZONE_SCOPED_CATEGORY_VERTEX;
+
+#ifdef DX_RENDER
+	// No VBO-orphaning pool under DX_RENDER (that's a GL driver-quirk
+	// workaround with no D3D11 equivalent need) - mMappedData is just a
+	// plain CPU shadow buffer; mDXBuffer is the real GPU-side resource,
+	// uploaded from it in flush_vbo().
+	llassert(mSize == 0);
+	llassert(mMappedData == nullptr);
+
+	mSize = size;
+	mMappedData = (U8*)ll_aligned_malloc_16(size);
+	mDXBuffer.createVertexBuffer(size, nullptr);
+#else
 	llassert(sVBOPool);
 
 	if (sVBOPool)
@@ -1276,11 +1478,21 @@ void LLVertexBuffer::genBuffer(U32 size)
 		mSize = size;
 		sVBOPool->allocate(GL_ARRAY_BUFFER, mSize, mGLBuffer, mMappedData);
 	}
+#endif
 }
 
 void LLVertexBuffer::genIndices(U32 size)
 {
 	LL_PROFILE_ZONE_SCOPED_CATEGORY_VERTEX;
+
+#ifdef DX_RENDER
+	llassert(mIndicesSize == 0);
+	llassert(mMappedIndexData == nullptr);
+
+	mIndicesSize = size;
+	mMappedIndexData = (U8*)ll_aligned_malloc_16(size);
+	mDXIndices.createIndexBuffer(size, nullptr);
+#else
 	llassert(sVBOPool);
 
 	if (sVBOPool)
@@ -1291,6 +1503,7 @@ void LLVertexBuffer::genIndices(U32 size)
 		mIndicesSize = size;
 		sVBOPool->allocate(GL_ELEMENT_ARRAY_BUFFER, mIndicesSize, mGLIndices, mMappedIndexData);
 	}
+#endif
 }
 
 bool LLVertexBuffer::createGLBuffer(U32 size)
@@ -1344,11 +1557,19 @@ void LLVertexBuffer::destroyGLBuffer()
 	if (mGLBuffer || mMappedData)
 	{
 		LL_PROFILE_ZONE_SCOPED_CATEGORY_VERTEX;
+#ifdef DX_RENDER
+		if (mMappedData)
+		{
+			ll_aligned_free_16(mMappedData);
+		}
+		mDXBuffer.destroy();
+#else
 		//llassert(sVBOPool);
 		if (sVBOPool)
 		{
 			sVBOPool->free(GL_ARRAY_BUFFER, mSize, mGLBuffer, mMappedData);
 		}
+#endif
 
 		mSize = 0;
 		mGLBuffer = 0;
@@ -1361,11 +1582,19 @@ void LLVertexBuffer::destroyGLIndices()
 	if (mGLIndices || mMappedIndexData)
 	{
 		LL_PROFILE_ZONE_SCOPED_CATEGORY_VERTEX;
+#ifdef DX_RENDER
+		if (mMappedIndexData)
+		{
+			ll_aligned_free_16(mMappedIndexData);
+		}
+		mDXIndices.destroy();
+#else
 		//llassert(sVBOPool);
 		if (sVBOPool)
 		{
 			sVBOPool->free(GL_ELEMENT_ARRAY_BUFFER, mIndicesSize, mGLIndices, mMappedIndexData);
 		}
+#endif
 
 		mIndicesSize = 0;
 		mGLIndices = 0;
@@ -1536,6 +1765,30 @@ void LLVertexBuffer::flush_vbo(GLenum target, U32 start, U32 end, void* data, U8
 	}
 	else
 	{
+#ifdef DX_RENDER
+		// D3D11_USAGE_DYNAMIC has no partial-range update - Map(WRITE_DISCARD)
+		// invalidates the whole resource, so dst (mMappedData/mMappedIndexData)
+		// must hold the complete, authoritative buffer contents before the
+		// full-buffer upload. Callers that already write directly into dst
+		// (mapVertexBuffer()/getXXXStrider()) pass data == dst + start, so this
+		// memcpy is skipped; callers with an external source (setPositionData()
+		// and friends) need this copy to keep dst authoritative for the bytes
+		// outside their own touched range.
+		if (end != 0 && (U8*)data != dst + start)
+		{
+			memcpy(dst + start, data, end - start + 1);
+		}
+
+		DXBuffer& buf = (target == GL_ARRAY_BUFFER) ? mDXBuffer : mDXIndices;
+		U32 full_size = (target == GL_ARRAY_BUFFER) ? mSize : mIndicesSize;
+		buf.upload(dst, full_size);
+
+		// S24 (2026-07-23): a staging-buffer readback diagnostic here (part
+		// of the "no text" investigation, stage 6 discovery) confirmed the
+		// GPU vertex buffer always holds exactly the same TEXCOORD0 bytes
+		// just written into `dst` - the upload path itself was never the
+		// issue. See the project's open-issues ledger for the full history.
+#else
 		llassert(target == GL_ARRAY_BUFFER ? sGLRenderBuffer == mGLBuffer : sGLRenderIndices == mGLIndices);
 
 		// skip mapped data and stream to GPU via glBufferSubData
@@ -1557,6 +1810,7 @@ void LLVertexBuffer::flush_vbo(GLenum target, U32 start, U32 end, void* data, U8
 				glBufferSubData(target, i, size, (U8*)data + (i - start));
 			}
 		}
+#endif // DX_RENDER
 	}
 }
 
@@ -1637,11 +1891,15 @@ void LLVertexBuffer::_unmapBuffer()
 		{
 			LL_PROFILE_ZONE_NAMED_CATEGORY_VERTEX("unmapBuffer - vertex");
 
+#ifndef DX_RENDER
+			// No GL bind-state concept under DX_RENDER - flush_vbo()'s DX_RENDER
+			// branch uploads via Map/Unmap directly, no bound-buffer prerequisite.
 			if (sGLRenderBuffer != mGLBuffer)
 			{
 				glBindBuffer(GL_ARRAY_BUFFER, mGLBuffer);
 				sGLRenderBuffer = mGLBuffer;
 			}
+#endif
 
 			U32 start = 0;
 			U32 end = 0;
@@ -1671,11 +1929,13 @@ void LLVertexBuffer::_unmapBuffer()
 		{
 			LL_PROFILE_ZONE_NAMED_CATEGORY_VERTEX("unmapBuffer - index");
 
+#ifndef DX_RENDER
 			if (mGLIndices != sGLRenderIndices)
 			{
 				glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mGLIndices);
 				sGLRenderIndices = mGLIndices;
 			}
+#endif
 			U32 start = 0;
 			U32 end = 0;
 
@@ -1834,6 +2094,37 @@ void LLVertexBuffer::setBuffer()
 	// a shader must be bound
 	llassert(LLGLSLShader::sCurBoundShaderPtr);
 
+#ifdef DX_RENDER
+	// Unlike GL's exact data_mask/mTypeMask superset assert, D3D11 input
+	// layouts tolerate a vertex buffer providing more attributes than the
+	// shader consumes (extra elements are simply unused) - so there's no
+	// equivalent check here. setupVertexBuffer() builds the layout from this
+	// buffer's own mTypeMask; CreateInputLayout itself fails correctly (see
+	// DXVertexLayout::getOrCreate()'s LL_WARNS) if the bound VS needs an
+	// attribute this buffer lacks.
+	if (sDXRenderBuffer != mDXBuffer.getBuffer())
+	{
+		sDXRenderBuffer = mDXBuffer.getBuffer();
+		setupVertexBuffer();
+		sDXLastShader = LLGLSLShader::sCurBoundShaderPtr;
+	}
+	else if (sDXLastShader != LLGLSLShader::sCurBoundShaderPtr)
+	{
+		setupVertexBuffer();
+		sDXLastShader = LLGLSLShader::sCurBoundShaderPtr;
+	}
+
+	if (mDXIndices.getBuffer() != sDXRenderIndices)
+	{
+		sDXRenderIndices = mDXIndices.getBuffer();
+		gDXDevice.getContext()->IASetIndexBuffer(sDXRenderIndices,
+			mIndicesType == GL_UNSIGNED_SHORT ? DXGI_FORMAT_R16_UINT : DXGI_FORMAT_R32_UINT, 0);
+	}
+
+	STOP_GLERROR;
+	return;
+#endif
+
 	U32 data_mask = LLGLSLShader::sCurBoundShaderPtr->mAttributeMask;
 
 	// this Vertex Buffer must provide all necessary attributes for currently bound shader
@@ -1867,6 +2158,151 @@ void LLVertexBuffer::setBuffer()
 void LLVertexBuffer::setupVertexBuffer()
 {
 	STOP_GLERROR;
+
+#ifdef DX_RENDER
+	// LLVertexBuffer is struct-of-arrays (calcOffsets() gives each attribute
+	// its own contiguous block spanning all vertices), not interleaved - so
+	// each active attribute gets its own D3D11 input slot, all views into
+	// the same mDXBuffer resource at different offsets/strides. Built from
+	// this buffer's own mTypeMask (see setBuffer()'s comment on why, unlike
+	// GL, there's no need to consult the bound shader's attribute mask here).
+	// Enumeration order MUST match DXVertexLayout::getOrCreate()'s InputSlot
+	// assignment (bits 0-5, then color/emissive, then tangent, then weight,
+	// then clothweight).
+	llassert(LLGLSLShader::sCurBoundShaderPtr);
+	ID3DBlob* vs_bytecode = LLGLSLShader::sCurBoundShaderPtr->mDXVertexShader.getVSBytecode();
+	if (!vs_bytecode)
+	{
+		return;
+	}
+
+	ID3D11Buffer* vb = mDXBuffer.getBuffer();
+	// S24 (2026-08-09, task #157): bumped 11->12 to fit the new MAP_WEIGHT4
+	// slot - see DXVertexLayout.cpp's matching elements[] array comment.
+	ID3D11Buffer* buffers[12];
+	UINT strides[12];
+	UINT offsets[12];
+	UINT count = 0;
+
+	static const AttributeType kSimple[6] = { TYPE_VERTEX, TYPE_NORMAL, TYPE_TEXCOORD0, TYPE_TEXCOORD1, TYPE_TEXCOORD2, TYPE_TEXCOORD3 };
+	for (AttributeType type : kSimple)
+	{
+		if (mTypeMask & (1u << type))
+		{
+			buffers[count] = vb;
+			strides[count] = sTypeSize[type];
+			offsets[count] = mOffsets[type];
+			++count;
+		}
+	}
+
+	if ((mTypeMask & MAP_COLOR) || (mTypeMask & MAP_EMISSIVE))
+	{
+		// S24 (2026-08-09): which data source (color vs emissive) feeds the
+		// shared COLOR0 slot depends on which one the BOUND SHADER actually
+		// wants, not just which ones this vertex buffer happens to carry. A
+		// single batch/VBO can carry BOTH per-vertex color and emissive data
+		// simultaneously (any alpha-blended face that also has classic Glow
+		// enabled - llvovolume.cpp unions MAP_EMISSIVE into the group mask
+		// alongside MAP_COLOR), and different passes over that SAME buffer
+		// use different shaders wanting different data in COLOR0: the main
+		// alpha-blend pass (alphaV.hlsl) wants real diffuse_color, the
+		// separate glow-accumulation pass (emissiveV.hlsl/pbrglowV.hlsl)
+		// wants emissive - both declare their input as plain "COLOR0" in
+		// HLSL, so D3D11 bytecode reflection alone can't tell them apart
+		// (unlike GL's mapAttributes(), which resolves by attribute NAME,
+		// not just semantic slot - see DXVertexLayout.cpp's kColor comment
+		// for the equivalent D3D11-side "COLOR0 is shared" convention).
+		// The previous unconditional "prefer emissive whenever present"
+		// rule silently corrupted the main alpha-blend pass's color/alpha
+		// for any face with both Transparency and classic Glow enabled -
+		// found via a simple-prim-specific investigation (most tested mesh
+		// content uses GLTF/PBR material emissive instead, a texture
+		// channel that never sets MAP_EMISSIVE, so this never surfaced
+		// there). Identify the emissive-accumulation shaders by name since
+		// reflection can't distinguish them structurally; falls back to
+		// emissive if that's genuinely the only data this buffer carries.
+		const std::string& bound_name = LLGLSLShader::sCurBoundShaderPtr->mName;
+		bool wants_emissive_in_color0 =
+			bound_name == "Deferred Emissive Shader" ||
+			bound_name == " PBR Glow Shader" ||
+			bound_name == "Skinned Deferred Emissive Shader" ||
+			bound_name == "Skinned  PBR Glow Shader";
+		AttributeType src = ((mTypeMask & MAP_EMISSIVE) && (wants_emissive_in_color0 || !(mTypeMask & MAP_COLOR)))
+			? TYPE_EMISSIVE : TYPE_COLOR;
+		buffers[count] = vb;
+		strides[count] = sTypeSize[TYPE_COLOR];
+		offsets[count] = mOffsets[src];
+		++count;
+	}
+
+	if (mTypeMask & MAP_TANGENT)
+	{
+		buffers[count] = vb;
+		strides[count] = sTypeSize[TYPE_TANGENT];
+		offsets[count] = mOffsets[TYPE_TANGENT];
+		++count;
+	}
+
+	if (mTypeMask & MAP_WEIGHT)
+	{
+		buffers[count] = vb;
+		strides[count] = sTypeSize[TYPE_WEIGHT];
+		offsets[count] = mOffsets[TYPE_WEIGHT];
+		++count;
+	}
+
+	if (mTypeMask & MAP_WEIGHT4)
+	{
+		// S24 (2026-08-09, task #157): rigged-mesh attachment/clothing
+		// skinning (objectSkinV.hlsl's "weight4 : BLENDWEIGHT" input) - was
+		// unconditionally rejected by DXVertexLayout::getOrCreate() until
+		// now (see that file's kWeight4 comment), meaning every rigged
+		// mesh draw call could never get a valid input layout at all.
+		buffers[count] = vb;
+		strides[count] = sTypeSize[TYPE_WEIGHT4];
+		offsets[count] = mOffsets[TYPE_WEIGHT4];
+		++count;
+	}
+
+	if (mTypeMask & MAP_CLOTHWEIGHT)
+	{
+		buffers[count] = vb;
+		strides[count] = sTypeSize[TYPE_CLOTHWEIGHT];
+		offsets[count] = mOffsets[TYPE_CLOTHWEIGHT];
+		++count;
+	}
+
+	if (mTypeMask & MAP_TEXTURE_INDEX)
+	{
+		// Same underlying buffer as TYPE_VERTEX, different input slot - see
+		// DXVertexLayout.h's header comment: this is packed into position's
+		// otherwise-unused W component (mOffsets[TYPE_TEXTURE_INDEX] is
+		// already TYPE_VERTEX's offset + 12, computed by the shared,
+		// non-DX_RENDER-specific calcOffsets()), not a separate stream.
+		buffers[count] = vb;
+		strides[count] = sTypeSize[TYPE_VERTEX];
+		offsets[count] = mOffsets[TYPE_TEXTURE_INDEX];
+		++count;
+	}
+
+	ID3D11DeviceContext* ctx = gDXDevice.getContext();
+	ctx->IASetVertexBuffers(0, count, buffers, strides, offsets);
+
+	ID3D11InputLayout* layout = DXVertexLayout::getOrCreate(mTypeMask, vs_bytecode->GetBufferPointer(), vs_bytecode->GetBufferSize(),
+		LLGLSLShader::sCurBoundShaderPtr->mName.c_str());
+	ctx->IASetInputLayout(layout);
+
+	// S24 (2026-07-23): a diagnostic here (part of the "no text"
+	// investigation, stage 6 discovery) confirmed the runtime
+	// IASetVertexBuffers()/IASetInputLayout() parameters bound at draw time
+	// exactly match the GPU buffer's own, already-verified-correct
+	// TEXCOORD0 content - input assembly's own state-setting was never the
+	// issue either. See the project's open-issues ledger for the full
+	// history and where the investigation concluded.
+	return;
+#endif
+
 	U8* base = nullptr;
 
 	U32 data_mask = LLGLSLShader::sCurBoundShaderPtr->mAttributeMask;

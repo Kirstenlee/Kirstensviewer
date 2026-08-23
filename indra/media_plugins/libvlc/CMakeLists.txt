@@ -13,6 +13,9 @@ include(Linking)
 include(PluginAPI)
 include(MediaPluginBase)
 include(OpenGL)
+if(DX_RENDER)
+    include(DXRender)
+endif()
 
 include(LibVLCPlugin)
 
@@ -26,6 +29,9 @@ include_directories(
     ${LLWINDOW_INCLUDE_DIRS}
     ${VLC_INCLUDE_DIR}
 )
+if(DX_RENDER)
+    include_directories(${DXRENDER_INCLUDE_DIRS})
+endif()
 include_directories(SYSTEM
     ${LLCOMMON_SYSTEM_INCLUDE_DIRS}
     )
@@ -54,6 +60,9 @@ target_link_libraries(media_plugin_libvlc
   advapi32
   winmm
 )
+if(DX_RENDER)
+    target_link_libraries(media_plugin_libvlc ${DXRENDER_LIBRARIES})
+endif()
 
 target_compile_options(media_plugin_libvlc PRIVATE "/Zc:wchar_t-")
 

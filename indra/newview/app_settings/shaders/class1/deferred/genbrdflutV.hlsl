@@ -29,10 +29,12 @@ struct VSInput
     float3 position : POSITION;
 };
 
+#include "varying/genBrdfLutVarying.hlsli"
+
 struct VSOutput
 {
     float4 position : SV_Position;
-    float2 vary_uv : TEXCOORD0;
+    GenBrdfLutVarying varying;
 };
 
 VSOutput main(VSInput IN)
@@ -41,7 +43,7 @@ VSOutput main(VSInput IN)
 
     //transform vertex
     float4 pos = mul(modelview_projection_matrix, float4(IN.position.xyz, 1.0));
-    OUT.vary_uv = IN.position.xy*0.5+0.5;
+    OUT.varying.vary_uv = IN.position.xy*0.5+0.5;
 
     OUT.position = float4(IN.position.xyz, 1.0);
 

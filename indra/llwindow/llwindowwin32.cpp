@@ -67,6 +67,7 @@
 #include <Imm.h>
 #include <iomanip>
 #include <future>
+#include <thread>
 #include <sstream>
 #include <utility>                  // std::pair
 #include <chrono>
@@ -1292,6 +1293,8 @@ bool LLWindowWin32::getMaximized()
 
 bool LLWindowWin32::maximize()
 {
+	ASSERT_MAIN_THREAD();
+
 	bool success = false;
 	if (!mWindowHandle) return success;
 
@@ -1302,7 +1305,24 @@ bool LLWindowWin32::maximize()
 		return true;
 	}
 
-	mWindowThread->post([=]
+	// S24: this used to fire-and-forget the SetWindowPlacement() call, which
+	// left a race on maximized startup: the OS window snaps to its maximized
+	// size almost immediately, but the WM_SIZE this triggers relays through
+	// mFunctionQueue (WINDOW_IMP_POST -> handleResize() -> reshape() ->
+	// gDXSwapChain.resize()), and that queue is only drained inside
+	// gatherInput() from the main frame loop - which doesn't run at all
+	// during LLAppViewer::init()'s long synchronous startup block
+	// (gPipeline.init()/initGLDefaults()/asset loading). The result was a
+	// swap chain still sized for the pre-maximize window for that whole
+	// startup window, showing as a blank white DWM-filled gap until the
+	// first real frame finally drained the queue. Blocking here until the
+	// window thread's SetWindowPlacement() call completes, then draining the
+	// queue once immediately, lets the resize land before that long block
+	// begins.
+	std::promise<void> promise;
+	auto future = promise.get_future();
+
+	mWindowThread->post([=, &promise]
 		{
 			WINDOWPLACEMENT placement;
 			placement.length = sizeof(WINDOWPLACEMENT);
@@ -1312,7 +1332,21 @@ bool LLWindowWin32::maximize()
 				placement.showCmd = SW_MAXIMIZE;
 				SetWindowPlacement(mWindowHandle, &placement);
 			}
+
+			promise.set_value();
 		});
+
+	future.wait();
+
+	// Drain the function queue once: SetWindowPlacement() above sends
+	// WM_SIZE synchronously to the window thread's own WndProc, so the
+	// resulting resize callback is already queued by the time future.wait()
+	// returns.
+	std::function<void()> curFunc;
+	while (mFunctionQueue.tryPopBack(curFunc))
+	{
+		curFunc();
+	}
 
 	return true;
 }
@@ -1426,7 +1460,6 @@ bool LLWindowWin32::initDX11Context(const LLCoordScreen& size, bool enable_vsync
 bool LLWindowWin32::switchContext(bool fullscreen, const LLCoordScreen& size, bool enable_vsync, const LLCoordScreen* const posp)
 {
 	//called from main thread
-	GLuint  pixel_format;
 	DEVMODE dev_mode;
 	::ZeroMemory(&dev_mode, sizeof(DEVMODE));
 	dev_mode.dmSize = sizeof(DEVMODE);
@@ -1602,7 +1635,18 @@ bool LLWindowWin32::switchContext(bool fullscreen, const LLCoordScreen& size, bo
 		close();
 		return false;
 	}
+
+	// S24 (2026-08-05): real DXGI-based GPU detection, mirroring the GL
+	// branch's gGLManager.initGL() call below - see LLGLManager::initGLDX()'s
+	// comment (llgl.h/.cpp) for why this matters (LLFeatureManager was
+	// silently masking real features off with no real GPU data to work from).
+	gGLManager.initGLDX();
 #else
+	// S24 (2026-07-23): moved down from switchContext()'s top - only ever
+	// used in this GL-only branch, was an unreferenced-variable warning
+	// under DX_RENDER (that branch above never touches it).
+	GLuint  pixel_format;
+
 	//-----------------------------------------------------------------------
 	// Create GL drawing context with modern attributes while retaining 'pfd'
 	//-----------------------------------------------------------------------
@@ -2221,6 +2265,18 @@ void LLWindowWin32::destroySharedContext(void* contextPtr)
 
 void LLWindowWin32::toggleVSync(bool enable_vsync)
 {
+#ifdef DX_RENDER
+	// S24 (2026-08-16): real DX-native live toggle, replacing the previous
+	// unconditional call into the GL-only path below (which always hit its
+	// "no active GL context" early return under DX_RENDER, since mhDC/mhRC
+	// are never populated here - RenderVSyncEnable had zero live effect).
+	// gDXSwapChain.setVSync() takes effect on the very next Present() call,
+	// no context/extension-probing dance needed at all.
+	gDXSwapChain.setVSync(enable_vsync);
+	LL_INFOS("Window") << "VSync " << (enable_vsync ? "enabled" : "disabled") << " (DXGI present interval = " << (enable_vsync ? 1 : 0) << ")" << LL_ENDL;
+	return;
+#endif
+
 	// Must have a current context for wglSwapIntervalEXT to work.
 	if (!mhDC || !mhRC)
 	{
@@ -4029,13 +4085,17 @@ void LLWindowWin32::swapBuffers()
 	{
 		LL_PROFILE_ZONE_SCOPED_CATEGORY_WIN32;
 #ifdef DX_RENDER
-		// Milestone 1 vertical slice: no real draw-pool content is routed through
-		// DX_RENDER yet (that's Milestones 2/3), so bracket a bare clear here to
-		// prove the device/swapchain/context are alive every frame. Once real
-		// rendering exists, beginFrame() moves to the actual per-frame render
-		// entry point (pipeline.cpp) alongside the GL equivalent.
-		gDXContext.beginFrame();
+		// S24 (stage 5 phase 5.5, 2026-07-18): fixed an ordering bug left
+		// over from the milestone-1 vertical slice - beginFrame() used to
+		// run BEFORE present() here, clearing the back buffer right before
+		// presenting it, which wiped out whatever this frame actually
+		// rendered (e.g. DXPipeline::presentDeferredScreen()'s blit) every
+		// single frame. present() now shows what this frame rendered;
+		// beginFrame() then clears/rebinds the back buffer to prepare it
+		// for the *next* frame's rendering, matching the natural
+		// double-buffering order.
 		gDXSwapChain.present();
+		gDXContext.beginFrame();
 #else
 		SwapBuffers(mhDC);
 #endif
@@ -4061,17 +4121,59 @@ LLSplashScreenWin32::~LLSplashScreenWin32()
 
 void LLSplashScreenWin32::showImpl()
 {
-	// This appears to work.  ???
-	HINSTANCE hinst = GetModuleHandle(NULL);
+	// S24: this window used to be created directly on the calling (main
+	// application) thread via a plain CreateDialog() call, with no message
+	// loop of its own. That same thread immediately goes on to do
+	// LLAppViewer::init()'s long synchronous startup work (gPipeline.init(),
+	// shader compilation, texture cache warm-up, etc.) - any mouse click or
+	// min/max on the splash queues input to THIS window's message queue,
+	// which then never gets drained until that whole synchronous block
+	// finally finishes, so Windows marks the window "(Not Responding)" the
+	// moment it's touched even though real startup work is proceeding fine
+	// in the background (matches the reported symptom exactly: viewer
+	// keeps loading, only the little dialog appears frozen). This is the
+	// same class of bug already solved once for the main game window via
+	// its own dedicated mWindowThread (see LLWindowWin32::maximize()'s
+	// comment on gatherInput() not running during this exact startup
+	// block) - give the splash dialog its own tiny dedicated thread that
+	// does nothing but own this one window and continuously pump its
+	// message queue for its whole lifetime, fully decoupled from whatever
+	// the main thread is doing.
+	std::promise<void> ready;
+	auto ready_future = ready.get_future();
 
-	mWindow = CreateDialog(hinst,
-		TEXT("SPLASHSCREEN"),
-		NULL,   // no parent
-		(DLGPROC)LLSplashScreenWin32::windowProc);
-	ShowWindow(mWindow, SW_SHOW);
+	mSplashThread = std::thread([this, &ready]
+		{
+			HINSTANCE hinst = GetModuleHandle(NULL);
 
-	// Should set taskbar text without creating a header for the window (caption)
-    SetWindowText(mWindow, TEXT("Kirstens Viewer"));
+			mWindow = CreateDialog(hinst,
+				TEXT("SPLASHSCREEN"),
+				NULL,   // no parent
+				(DLGPROC)LLSplashScreenWin32::windowProc);
+			ShowWindow(mWindow, SW_SHOW);
+
+			// Should set taskbar text without creating a header for the window (caption)
+			SetWindowText(mWindow, TEXT("Kirstens Viewer"));
+
+			// Signal the caller once the window genuinely exists, matching
+			// the previous synchronous showImpl() contract that
+			// updateImpl()/hideImpl() rely on (mWindow valid on return).
+			ready.set_value();
+
+			MSG msg;
+			BOOL got_msg;
+			while ((got_msg = GetMessage(&msg, NULL, 0, 0)) != 0)
+			{
+				if (got_msg == -1)
+				{
+					break;
+				}
+				TranslateMessage(&msg);
+				DispatchMessage(&msg);
+			}
+		});
+
+	ready_future.wait();
 }
 
 
@@ -4102,10 +4204,21 @@ void LLSplashScreenWin32::hideImpl()
 {
 	if (mWindow)
 	{
-		if (!destroy_window_handler(mWindow))
+		// S24: mWindow is now owned by mSplashThread, not this (the
+		// caller's) thread - DestroyWindow() must be called by a window's
+		// owning thread, so ask that thread to close itself via WM_CLOSE
+		// (handled explicitly in windowProc below, which calls
+		// destroy_window_handler() on the correct thread) rather than
+		// destroying it directly here. Joining afterwards keeps hideImpl()'s
+		// previous synchronous "window is gone by the time this returns"
+		// contract intact.
+		PostMessage(mWindow, WM_CLOSE, 0, 0);
+
+		if (mSplashThread.joinable())
 		{
-			LL_WARNS("Window") << "Failed to properly close splash screen window!" << LL_ENDL;
+			mSplashThread.join();
 		}
+
 		mWindow = NULL;
 	}
 }
@@ -4130,6 +4243,17 @@ LRESULT CALLBACK LLSplashScreenWin32::windowProc(HWND h_wnd, UINT u_msg,
 			static HBRUSH hbrBkgnd = CreateSolidBrush(RGB(26, 26, 26));
 			return (INT_PTR)hbrBkgnd;
 		}
+	// S24: this window now runs its own dedicated message loop (see
+	// showImpl()) - WM_CLOSE is how hideImpl() asks that loop to tear
+	// itself down cleanly from its own (owning) thread, then exit via
+	// PostQuitMessage() so GetMessage() returns 0 and the loop ends.
+	case WM_CLOSE:
+		if (!destroy_window_handler(h_wnd))
+		{
+			LL_WARNS("Window") << "Failed to properly close splash screen window!" << LL_ENDL;
+		}
+		PostQuitMessage(0);
+		return 0;
 	}
 
 	// Just give it to windows
@@ -5193,6 +5317,11 @@ void LLWindowWin32::selectHighPerformanceAdapter()
 			D3D_FEATURE_LEVEL featureLevel;
 			D3D_FEATURE_LEVEL requestedLevels[] = { D3D_FEATURE_LEVEL_11_0, D3D_FEATURE_LEVEL_11_1 };
 
+			// S24 (2026-08-16): now gated by DXDevice::sDebugLayerEnabled (see
+			// its header comment) instead of hardcoded on - both create-device
+			// call sites here need the same value so the debug layer's state
+			// is consistent regardless of which adapter path this system
+			// takes.
 			bool adapterSelected = (pSelectedAdapter != nullptr);
 			if (adapterSelected)
 			{
@@ -5200,7 +5329,7 @@ void LLWindowWin32::selectHighPerformanceAdapter()
 					pSelectedAdapter,
 					D3D_DRIVER_TYPE_UNKNOWN,
 					nullptr,
-					0,
+					DXDevice::sDebugLayerEnabled ? D3D11_CREATE_DEVICE_DEBUG : 0,
 					requestedLevels,
 					_countof(requestedLevels),
 					D3D11_SDK_VERSION,
@@ -5225,7 +5354,7 @@ void LLWindowWin32::selectHighPerformanceAdapter()
 					nullptr,
 					D3D_DRIVER_TYPE_HARDWARE,
 					nullptr,
-					0,
+					DXDevice::sDebugLayerEnabled ? D3D11_CREATE_DEVICE_DEBUG : 0,
 					requestedLevels,
 					_countof(requestedLevels),
 					D3D11_SDK_VERSION,

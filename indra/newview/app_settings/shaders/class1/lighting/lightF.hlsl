@@ -24,17 +24,24 @@
 
 struct PSInput
 {
+    // S24 (2026-08-02): missing SV_Position - see uiF.hlsl's comment (fxc.exe-confirmed VS/PS register-shift bug).
+    float4 position : SV_Position;
+
     float4 vertex_color : COLOR0;
     float2 vary_texcoord0 : TEXCOORD0;
 };
 
-float3 diffuseLookup(float2 tc);
+// diffuseLookup() forward declaration removed - the original GLSL has none
+// either (relies on GL's link-time resolution against whichever attached
+// object provides it); the real HLSL definition is generated with a
+// float4 return (dxrender's loadShaderFile() DX_RENDER branch), which
+// would conflict with an incorrectly float3-typed forward declaration here.
 float3 atmosLighting(float3 light);
 float3 scaleSoftClip(float3 light);
 
 float4 main(PSInput IN) : SV_Target
 {
-    float4 color = float4(diffuseLookup(IN.vary_texcoord0.xy), 1.0) * IN.vertex_color;
+    float4 color = diffuseLookup(IN.vary_texcoord0.xy) * IN.vertex_color;
 
     color.rgb = atmosLighting(color.rgb);
     color.rgb = scaleSoftClip(color.rgb);

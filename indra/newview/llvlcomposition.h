@@ -87,6 +87,20 @@ public:
     LLViewerTexture* getPaintMap();
     void setPaintMap(LLViewerTexture* paint_map);
 
+#ifdef DX_RENDER
+    // DXDrawPoolTerrain (dxdrawpoolterrain.cpp, phase 5.4b) is a staged full
+    // duplicate of LLDrawPoolTerrain's deferred render path, but structures
+    // its per-pass helpers as free functions in an anonymous namespace
+    // rather than LLDrawPoolTerrain's own member functions - so unlike
+    // LLDrawPoolTerrain (granted access via friendship above), it can't
+    // reach mDetailTextures/mDetailRenderMaterials directly. Small public
+    // accessors instead of a friend-function declaration, since the latter
+    // would need to name-match the exact anonymous-namespace function
+    // signatures, which is fragile.
+    LLViewerFetchedTexture* getDetailTexture(S32 asset) const { return mDetailTextures[asset]; }
+    const LLPointer<LLFetchedGLTFMaterial>* getDetailRenderMaterials() const { return mDetailRenderMaterials; }
+#endif
+
 protected:
     void unboost();
     static bool makeTextureReady(LLPointer<LLViewerFetchedTexture>& tex, bool boost);

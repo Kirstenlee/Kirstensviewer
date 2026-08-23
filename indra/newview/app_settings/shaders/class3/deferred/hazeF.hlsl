@@ -23,12 +23,24 @@
  */
 
 // Inputs
+// sun_dir/moon_dir/sun_up_factor are also declared (and used) by
+// shadowUtil.hlsl/atmosphericsFuncs.hlsl - genuinely used below too
+// (light_dir selection) - reuse the existing guards.
+#ifndef LL_SUN_MOON_DIR_DECLARED
+#define LL_SUN_MOON_DIR_DECLARED
 uniform float3 sun_dir;
 uniform float3 moon_dir;
-uniform int  sun_up_factor;
+#endif
+#ifndef LL_SUN_UP_FACTOR_DECLARED
+#define LL_SUN_UP_FACTOR_DECLARED
+uniform int sun_up_factor;
+#endif
 
 struct PSInput
 {
+    // S24 (2026-08-02): missing SV_Position - see uiF.hlsl's comment (fxc.exe-confirmed VS/PS register-shift bug).
+    float4 position : SV_Position;
+
     float2 vary_fragcoord : TEXCOORD0;
 };
 
@@ -41,11 +53,32 @@ float getDepth(float2 pos_screen);
 float3 linear_to_srgb(float3 c);
 float3 srgb_to_linear(float3 c);
 
+// waterPlane is also declared (and used) by deferredUtil.hlsl/
+// waterFogF.hlsl (already guarded there, independent attach conditions) -
+// this copy is genuinely used below too (do_atmospherics check) - reuse
+// the existing guard rather than deleting.
+#ifndef LL_WATERPLANE_DECLARED
+#define LL_WATERPLANE_DECLARED
 uniform float4 waterPlane;
+#endif
 
+// S24 (2026-08-11, task #156 hotfix round 5): also declared (guarded) by
+// reflectionProbeF.hlsl/softenLightF.hlsl, both always co-attached
+// whenever this file is - unguarded copy caused an X3003 redefinition in
+// "Haze Shader", same collision class as depthMapSampler/inv_proj/
+// screen_res earlier in this same hotfix chain.
+#ifndef LL_CUBE_SNAPSHOT_DECLARED
+#define LL_CUBE_SNAPSHOT_DECLARED
 uniform int cube_snapshot;
+#endif
 
+// sky_hdr_scale is also declared (and used) by atmosphericsF.hlsl -
+// genuinely used below too (additive color scale) - reuse the existing
+// guard.
+#ifndef LL_SKY_HDR_SCALE_DECLARED
+#define LL_SKY_HDR_SCALE_DECLARED
 uniform float sky_hdr_scale;
+#endif
 
 float4 main(PSInput IN) : SV_Target
 {

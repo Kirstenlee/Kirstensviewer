@@ -24,8 +24,11 @@
 
 /*[EXTRA_CODE_HERE]*/
 
-uniform float3 sun_dir;
-uniform float shadow_bias;
+// sun_dir/shadow_bias are also declared (and actually used) by
+// shadowUtil.hlsl, always attached alongside this file - both copies here
+// were unused (only ever referenced at their own declaration), same
+// dead-code shape as the M_PI cleanups in the light-shader family -
+// deleted, not guarded.
 
 float4 getNorm(float2 pos_screen);
 float4 getPosition(float2 pos_screen);
@@ -34,6 +37,9 @@ float sampleSpotShadow(float3 pos, float3 norm, int index, float2 pos_screen);
 
 struct PSInput
 {
+    // S24 (2026-08-02): missing SV_Position - see uiF.hlsl's comment (fxc.exe-confirmed VS/PS register-shift bug).
+    float4 position : SV_Position;
+
     float2 vary_fragcoord : TEXCOORD0;
 };
 

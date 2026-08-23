@@ -26,10 +26,30 @@
 
 uniform float reflection_probe_ambiance;
 
-TextureCube environmentMap : register(t0);
-SamplerState environmentMapSampler : register(s0);
+// t0-t3/s0-s3 reserved by deferredUtil.hlsl, t4-t6/s4-s6 by gbufferUtil.hlsl
+// (both attached to the same shader whenever isDeferred/hasReflectionProbes
+// AND hasFullGBuffer are both set, e.g. "Deferred Soften Shader" -
+// gDeferredSoftenProgram sets both), t7-t9/s7-s9 individually claimed by
+// various light-shader entry files' own textures. t9/s9 is the confirmed-
+// free slot across every attach-set combination checked so far
+// (materialF.hlsl: deferredUtil t0-t3 + this t9 + its own diffuseMap/
+// bumpMap/specularMap at t6-t8, no hasFullGBuffer; the Alpha-shader family:
+// deferredUtil t0-t3 + this t9 + indexed-texture channels at t5-t8, see
+// llshadermgr.cpp's kIndexedTexRegisterBase comment; "Deferred Soften
+// Shader": deferredUtil t0-t3 + gbufferUtil t4-t6 + this t9 + its own
+// lightMap/lightFunc at t7-t8) - previously sat at t4, which only looked
+// safe because no shader combining this file with gbufferUtil.hlsl had
+// been register-checked yet; moved here once "Deferred Soften Shader"
+// (the first such combination reached) proved the collision real.
+TextureCube environmentMap : register(t9);
+SamplerState environmentMapSampler : register(s9);
 
+// Also declared by materialF.hlsl when both are attached to the same
+// shader - include-guarded, same reasoning as classic_mode elsewhere.
+#ifndef LL_ENV_MAT_DECLARED
+#define LL_ENV_MAT_DECLARED
 uniform float3x3 env_mat;
+#endif
 
 float3 srgb_to_linear(float3 c);
 float3 linear_to_srgb(float3 c);

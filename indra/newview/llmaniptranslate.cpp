@@ -35,6 +35,12 @@
 #include "llgl.h"
 #include "llrender.h"
 
+#ifdef DX_RENDER
+#include "DXDevice.h"
+#include "DXSwapChain.h"
+#include "DXReadback.h"
+#endif
+
 #include "llagent.h"
 #include "llagentcamera.h"
 #include "llbbox.h"
@@ -63,6 +69,10 @@
 #include "llviewershadermgr.h"
 #include "lltrans.h"
 
+#ifdef DX_RENDER
+#include "DXTexture.h"
+#endif
+
 const S32 NUM_AXES = 3;
 const S32 MOUSE_DRAG_SLOP = 2;       // pixels
 const F32 SELECTED_ARROW_SCALE = 1.3f;
@@ -75,6 +85,13 @@ const F32 MANIPULATOR_SCALE_HALF_LIFE = 0.07f;
 const F32 SNAP_ARROW_SCALE = 0.7f;
 
 static LLPointer<LLViewerTexture> sGridTex = NULL ;
+#ifdef DX_RENDER
+// S24 (2026-08-03, task #84): DX-native backing for sGridTex - the raw
+// GLuint*+bindManual()+setManualImage() upload below has no DX_RENDER
+// translation (same ambient-GL-state issue as pipeline.cpp's procedural
+// textures - see that file's mDXNoiseMap etc. for the fuller writeup).
+static DXTexture sDXGridTex;
+#endif
 
 const LLManip::EManipPart MANIPULATOR_IDS[9] =
 {
@@ -171,8 +188,10 @@ void LLManipTranslate::restoreGL()
 
     GLuint* d = new GLuint[rez*rez];
 
+#ifndef DX_RENDER
     gGL.getTexUnit(0)->bindManual(LLTexUnit::TT_TEXTURE, sGridTex->getTexName(), true);
     gGL.getTexUnit(0)->setTextureFilteringOption(LLTexUnit::TFO_TRILINEAR);
+#endif
 
     while (rez >= 1)
     {
@@ -267,7 +286,16 @@ void LLManipTranslate::restoreGL()
                 }
             }
         }
+#ifdef DX_RENDER
+        // S24 (2026-08-03, task #84): only the top mip is genuinely uploaded -
+        // generate_mips=true lets D3D11 auto-build the rest instead of
+        // replicating this loop's hand-tuned per-mip anti-aliasing (a real,
+        // documented simplification, not a silent behavior change).
+        sDXGridTex.create(reinterpret_cast<const uint8_t*>(d), rez, rez, 4, true);
+        break;
+#else
         LLImageGL::setManualImage(GL_TEXTURE_2D, mip, GL_RGBA, rez, rez, GL_RGBA, GL_UNSIGNED_BYTE, d);
+#endif
         rez = rez >> 1;
         mip++;
     }
@@ -1062,6 +1090,21 @@ bool LLManipTranslate::handleMouseUp(S32 x, S32 y, MASK mask)
 
 void LLManipTranslate::render()
 {
+#ifdef DX_RENDER
+    // S24 (2026-08-09, task #132/133 follow-up): confirmed reached (task
+    // #133's first log round) - the DXDevice::resetDebugMessageDedup() probe
+    // that used to run here answered its question (no recurring "UI Shader:
+    // no RTV bound" warning - that theory is ruled out, see the project's
+    // dated notes) and was removed. Kept as a bare reachability marker.
+    {
+        static S32 s_manip_render_log_count = 0;
+        if (s_manip_render_log_count < 20)
+        {
+            ++s_manip_render_log_count;
+            LL_WARNS("S24Diag") << "LLManipTranslate::render() ENTERED" << LL_ENDL;
+        }
+    }
+#endif
     gGL.matrixMode(LLRender::MM_MODELVIEW);
     gGL.pushMatrix();
     if (mObjectSelection->getSelectType() == SELECT_TYPE_HUD)
@@ -1079,6 +1122,119 @@ void LLManipTranslate::render()
         renderSnapGuides();
     }
     gGL.popMatrix();
+
+#ifdef DX_RENDER
+    // S24 (2026-08-09, task #133): temporary diagnostic - CPU-side logic is
+    // now confirmed correct (mSilhouetteExists/vertex counts/draw_handles all
+    // valid, per the previous log round) and the "no render target bound"
+    // theory is ruled out (no recurring debug-layer warning even with dedup
+    // force-reset) - so the actual D3D11 pipeline state at the moment of the
+    // draw, and whether anything actually lands on screen, is the remaining
+    // unknown. Forces a flush (draining whatever LLRender::flush() batching
+    // left pending) then reads back the real OM/viewport state plus a 3x3
+    // grid of the swap-chain back buffer itself, mirroring the exact
+    // technique that found the LLRenderTarget::bindTexture() root cause in
+    // the deferred-lighting investigation (see the project's dated notes) -
+    // real pixel data beats further guessing. Remove once the hurdle clears.
+    {
+        static S32 s_manip_probe_log_count = 0;
+        if (s_manip_probe_log_count < 5)
+        {
+            ++s_manip_probe_log_count;
+            gGL.flush();
+
+            ID3D11DeviceContext* ctx = gDXDevice.getContext();
+            ID3D11RenderTargetView* rtv = nullptr;
+            ID3D11DepthStencilView* dsv = nullptr;
+            ctx->OMGetRenderTargets(1, &rtv, &dsv);
+
+            UINT num_vp = 1;
+            D3D11_VIEWPORT vp = {};
+            ctx->RSGetViewports(&num_vp, &vp);
+
+            ID3D11BlendState* blend_state = nullptr;
+            FLOAT blend_factor[4] = {};
+            UINT sample_mask = 0;
+            ctx->OMGetBlendState(&blend_state, blend_factor, &sample_mask);
+            D3D11_BLEND_DESC blend_desc = {};
+            bool blend_enabled = false;
+            if (blend_state) { blend_state->GetDesc(&blend_desc); blend_enabled = blend_desc.RenderTarget[0].BlendEnable != 0; }
+
+            ID3D11DepthStencilState* depth_state = nullptr;
+            UINT stencil_ref = 0;
+            ctx->OMGetDepthStencilState(&depth_state, &stencil_ref);
+            D3D11_DEPTH_STENCIL_DESC depth_desc = {};
+            bool depth_enabled = false;
+            if (depth_state) { depth_state->GetDesc(&depth_desc); depth_enabled = depth_desc.DepthEnable != 0; }
+
+            LL_WARNS("S24Diag") << "manip OM probe: rtvBound=" << (rtv != nullptr)
+                << " rtvMatchesBackBuffer=" << (rtv == gDXSwapChain.getBackBufferRTV())
+                << " dsvBound=" << (dsv != nullptr)
+                << " dsvMatchesSwapChain=" << (dsv == gDXSwapChain.getDepthStencilView())
+                << " viewport=(" << vp.TopLeftX << "," << vp.TopLeftY << "," << vp.Width << "," << vp.Height << ")"
+                << " blendEnabled=" << blend_enabled << " depthEnabled=" << depth_enabled
+                << LL_ENDL;
+
+            if (rtv) rtv->Release();
+            if (dsv) dsv->Release();
+            if (blend_state) blend_state->Release();
+            if (depth_state) depth_state->Release();
+
+            // S24 (2026-08-09): round 1 of this probe used a generic quarter-
+            // spaced 3x3 grid across the whole viewport - all 9 samples came
+            // back identical across all 5 frames, which just means the grid
+            // never landed on the (small, precisely-positioned-at-the-
+            // selection-pivot) gizmo at all, not that nothing drew. Project
+            // the real pivot point to screen space this time and sample a
+            // dense grid centered on THAT instead - a coarse fixed grid was
+            // never going to hit a ~1m-scale gizmo by chance.
+            LLVector3 pivot_agent = getPivotPoint();
+            LLCoordGL screen_pt;
+            bool projected = LLViewerCamera::getInstance()->projectPosAgentToScreen(pivot_agent, screen_pt, false);
+
+            ID3D11Texture2D* back_tex = gDXSwapChain.getBackBufferTexture();
+            if (back_tex)
+            {
+                int bw = gDXSwapChain.getWidth();
+                int bh = gDXSwapChain.getHeight();
+
+                // LLCoordGL is bottom-left-origin (matches every other GL-style
+                // screen coord in this codebase) - flip to D3D11's top-left
+                // origin using the back buffer's own height, same conversion
+                // already validated for the present viewport (task #110) and
+                // the scissor rect (task #129).
+                int center_x = screen_pt.mX;
+                int center_y = bh - screen_pt.mY;
+
+                LL_WARNS("S24Diag") << "manip pivot projection: pivot_agent=(" << pivot_agent.mV[0] << "," << pivot_agent.mV[1] << "," << pivot_agent.mV[2]
+                    << ") projected=" << projected << " screenGL=(" << screen_pt.mX << "," << screen_pt.mY
+                    << ") screenD3D=(" << center_x << "," << center_y << ")"
+                    << LL_ENDL;
+
+                for (int row = -4; row <= 4; ++row)
+                {
+                    for (int col = -4; col <= 4; ++col)
+                    {
+                        int sx = center_x + col * 8;
+                        int sy = center_y + row * 8;
+                        if (sx < 0 || sy < 0 || sx >= bw || sy >= bh)
+                        {
+                            continue;
+                        }
+                        uint8_t px[4] = { 0, 0, 0, 0 };
+                        if (DXReadback::readPixels(back_tex, sx, sy, 1, 1, 4, px))
+                        {
+                            LL_WARNS("S24Diag") << "manip pivot-area readback: (" << sx << "," << sy
+                                << ") rgba=(" << (int)px[0] << "," << (int)px[1] << "," << (int)px[2] << "," << (int)px[3] << ")"
+                                << LL_ENDL;
+                        }
+                    }
+                }
+                back_tex->Release();
+            }
+        }
+    }
+#endif
 
     renderText();
 }
@@ -1543,7 +1699,12 @@ void LLManipTranslate::renderSnapGuides()
                 //LLGLDisable stencil(GL_STENCIL_TEST);
                 {
                     LLGLDepthTest gls_depth(GL_TRUE, GL_FALSE, GL_GREATER);
+#ifdef DX_RENDER
+                    getGridTexName(); // side effect only - ensures restoreGL() has run
+                    gGL.getTexUnit(0)->bind(sDXGridTex, LLTexUnit::TAM_WRAP, LLTexUnit::TFO_TRILINEAR);
+#else
                     gGL.getTexUnit(0)->bindManual(LLTexUnit::TT_TEXTURE, getGridTexName());
+#endif
                     gGL.flush();
                     gGL.blendFunc(LLRender::BF_ZERO, LLRender::BF_ONE_MINUS_SOURCE_ALPHA);
                     renderGrid(u,v,tiles,0.9f, 0.9f, 0.9f,a*0.15f);
@@ -1557,7 +1718,12 @@ void LLManipTranslate::renderSnapGuides()
                     renderGrid(u,v,tiles,0.0f, 0.0f, 0.0f,a*0.16f);
 
                     //draw grid top
+#ifdef DX_RENDER
+                    getGridTexName(); // side effect only - ensures restoreGL() has run
+                    gGL.getTexUnit(0)->bind(sDXGridTex, LLTexUnit::TAM_WRAP, LLTexUnit::TFO_TRILINEAR);
+#else
                     gGL.getTexUnit(0)->bindManual(LLTexUnit::TT_TEXTURE, getGridTexName());
+#endif
                     renderGrid(u,v,tiles,1,1,1,a);
 
                     gGL.popMatrix();

@@ -38,6 +38,10 @@
 #include "llgl.h"
 #include "lldrawable.h"
 #include "llrendertarget.h"
+
+#ifdef DX_RENDER
+#include "DXTexture.h"
+#endif
 #include "llreflectionmapmanager.h"
 #include "llheroprobemanager.h"
 
@@ -235,9 +239,6 @@ public:
 											  LLVector4a* normal = NULL,               // return the surface normal at the intersection point
 											  LLVector4a* tangent = NULL             // return the surface tangent at the intersection point
 		);
-
-	// Something about these textures has changed.  Dirty them.
-	void        dirtyPoolObjectTextures(const std::set<LLViewerFetchedTexture*>& textures);
 
 	// Mark all spatial groups as needing geometry rebuild
 	void        markAllGeometryDirty();
@@ -736,6 +737,13 @@ public:
     LLRenderTarget          mPostPingMap;
     LLRenderTarget          mPostPongMap;
 
+    // S24 (2026-08-23, task #190 temporal-SSAO follow-up): last frame's
+    // fully-resolved AO/shadow lightmap, reprojected and blended with this
+    // frame's raw value in DXPipeline::renderDeferredLighting() to remove
+    // per-frame screen-locked-noise flicker. Same history-buffer pattern as
+    // mLastExposure below - see generateExposure() for the precedent.
+    LLRenderTarget          mSSAOHistory;
+
     // FXAA helper target
     LLRenderTarget          mFXAAMap;
     LLRenderTarget          mSMAABlendBuffer;
@@ -802,6 +810,25 @@ public:
     U32                 mSMAAAreaMap = 0;
     U32                 mSMAASearchMap = 0;
     U32                 mSMAASampleMap = 0;
+
+#ifdef DX_RENDER
+    // S24 (2026-08-03, task #84): DX-native backing for the 6 procedural
+    // textures above - these are plain raw-GLuint fields (no LLImageGL
+    // wrapper at all), created/bound via LLImageGL::generateTextures()+
+    // gGL.getTexUnit()->bindManual()+LLImageGL::setManualImage(), an
+    // ambient-GL-state idiom bindManual() can't translate to DX_RENDER's
+    // explicit-resource model (there's no "currently bound for upload"
+    // concept, and no unique per-call name to look anything up by even if
+    // there were - see project_dxrender memory for the full investigation).
+    // Each raw field keeps its GL-only meaning unchanged; these are used
+    // instead, directly, at each call site's DX_RENDER branch.
+    DXTexture mDXNoiseMap;
+    DXTexture mDXTrueNoiseMap;
+    DXTexture mDXLightFunc;
+    DXTexture mDXSMAAAreaMap;
+    DXTexture mDXSMAASearchMap;
+    DXTexture mDXSMAASampleMap;
+#endif
 
 	LLColor4			mSunDiffuse;
     LLColor4			mMoonDiffuse;
@@ -968,6 +995,19 @@ protected:
 	
 public:
 	std::vector<LLFace*>		mHighlightFaces;	// highlight faces on physical objects
+
+	// DX_RENDER: read-only access to mPools for DXPipeline (newview/
+	// dxpipeline.h) - kept as an ordinary accessor rather than a friend
+	// declaration or ifdef, so it costs nothing on the GL build and doesn't
+	// require DXPipeline to name the protected pool_set_t/compare_pools
+	// types explicitly (range-based for + auto never need to spell them out).
+	const pool_set_t& getPools() const { return mPools; }
+
+	// DX_RENDER: same reasoning as getPools() above - DXPipeline::
+	// renderDeferredLighting()'s local-lights pass needs read-only access
+	// to mNearbyLights (protected), the already-culled/distance-sorted
+	// "lights near camera" list GL's own local-lights loop iterates.
+	const light_set_t& getNearbyLights() const { return mNearbyLights; }
 protected:
 	std::vector<LLFace*>		mSelectedFaces;
 
@@ -1109,7 +1149,14 @@ public:
 
 void render_bbox(const LLVector3 &min, const LLVector3 &max);
 void render_hud_elements();
-static void updateEffectMask(); // S24
+// S24 (2026-08-17): was `static` - gave every TU including this header its
+// own internally-linked (and, outside pipeline.cpp, undefined) copy of this
+// declaration, so it could never actually be CALLED from another TU.
+// Harmless until DXPipeline::presentDeferredScreen() (dxpipeline.cpp)
+// needed to call it directly (DX_RENDER's renderFinalize() early-returns
+// before GL's own body - which normally calls this - ever runs). Matches
+// effectsMask's own `static` removal, same reason (pipeline.cpp).
+void updateEffectMask(); // S24
 
 
 extern LLPipeline gPipeline;

@@ -62,16 +62,16 @@
        top_pad="10"
        width="465"
        word_wrap="true">
-S24(8) - Hradr
+S24(8) DX - Hradr
 A Second Life client, brought to you by Kirstenlee.
 
 This client would not be possible without the dedicated work of
 the Lindens and Linden Lab!
 
-Core  : Develop 
-Patch : 2026.3
-Build : 3535
-Version : SVN Snapshot
+Core  : S-Series 
+Patch : 2026.8
+Build : 3665
+Version : DX Pre-Alpha 0.1
 	  </text_editor>
     </panel>
     <panel

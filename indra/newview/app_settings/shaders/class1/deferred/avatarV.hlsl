@@ -35,6 +35,8 @@ static const float4 gMinMaxConstants = float4(1.0, 0.166666, 0.0083143, .0001854
 static const float4 gPiConstants = float4(0.159154943, 6.28318530, 3.141592653, 1.5707963); // # {1/2PI, 2PI, PI, PI/2}
 #endif
 
+#include "varying/avatarVarying.hlsli"
+
 struct VSInput
 {
     float3 position : POSITION;
@@ -49,16 +51,14 @@ struct VSInput
 struct VSOutput
 {
     float4 position : SV_Position;
-    float3 vary_normal : TEXCOORD0;
-    float2 vary_texcoord0 : TEXCOORD1;
-    float3 vary_position : TEXCOORD2;
+    AvatarVarying varying;
 };
 
 VSOutput main(VSInput IN)
 {
     VSOutput OUT;
 
-    OUT.vary_texcoord0 = IN.texcoord0;
+    OUT.varying.vary_texcoord0 = IN.texcoord0;
 
     float4 pos;
     float3 norm;
@@ -137,9 +137,9 @@ VSOutput main(VSInput IN)
     pos.w = 1.0;
 #endif
 
-    OUT.vary_normal = norm;
+    OUT.varying.vary_normal = norm;
 
-    OUT.vary_position = pos.xyz;
+    OUT.varying.vary_position = pos.xyz;
     OUT.position = mul(projection_matrix, pos);
 
     return OUT;

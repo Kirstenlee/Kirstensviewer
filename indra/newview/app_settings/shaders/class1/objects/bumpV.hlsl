@@ -26,19 +26,22 @@ uniform float4x4 modelview_matrix;
 uniform float4x4 texture_matrix0;
 uniform float4x4 modelview_projection_matrix;
 
+#include "varying/bumpVarying.hlsli"
+
 struct VSInput
 {
     float3 position : POSITION;
     float2 texcoord0 : TEXCOORD0;
     float2 texcoord1 : TEXCOORD1;
+#ifdef HAS_SKIN
+    float4 weight4 : BLENDWEIGHT;
+#endif
 };
 
 struct VSOutput
 {
     float4 position : SV_Position;
-    float2 vary_texcoord0 : TEXCOORD0;
-    float2 vary_texcoord1 : TEXCOORD1;
-    float3 vary_position : TEXCOORD2;
+    BumpVarying varying;
 };
 
 #ifdef HAS_SKIN
@@ -53,15 +56,15 @@ VSOutput main(VSInput IN)
 #ifdef HAS_SKIN
     float4x4 mat = mul(modelview_matrix, getObjectSkinnedTransform());
     float4 pos = mul(mat, float4(IN.position.xyz, 1.0));
-    OUT.vary_position = pos.xyz;
+    OUT.varying.vary_position = pos.xyz;
     OUT.position = mul(projection_matrix, pos);
 #else
-    OUT.vary_position = mul(modelview_matrix, float4(IN.position.xyz, 1.0)).xyz;
+    OUT.varying.vary_position = mul(modelview_matrix, float4(IN.position.xyz, 1.0)).xyz;
     OUT.position = mul(modelview_projection_matrix, float4(IN.position.xyz, 1.0));
 #endif
 
-    OUT.vary_texcoord0 = mul(texture_matrix0, float4(IN.texcoord0, 0, 1)).xy;
-    OUT.vary_texcoord1 = mul(texture_matrix0, float4(IN.texcoord1, 0, 1)).xy;
+    OUT.varying.vary_texcoord0 = mul(texture_matrix0, float4(IN.texcoord0, 0, 1)).xy;
+    OUT.varying.vary_texcoord1 = mul(texture_matrix0, float4(IN.texcoord1, 0, 1)).xy;
 
     return OUT;
 }

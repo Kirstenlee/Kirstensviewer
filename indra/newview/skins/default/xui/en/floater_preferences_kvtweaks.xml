@@ -199,28 +199,28 @@
         tool_tip="If TRUE, keep background threads active during render" />
 
       <check_box
-        control_name="RenderGLMultiThreadedTextures"
+        control_name="RenderDXMultiThreadedTextures"
         height="20"
         initial_value="false"
-        label="Multi-Threaded OpenGL Texture Loading"
+        label="Multi-Threaded DX Texture Loading"
         layout="topleft"
         left="20"
-        name="gl_multithread_textures"
+        name="dx_multithread_textures"
         top_pad="5"
         width="450"
-        tool_tip="Use multiple GL contexts for texture loading (may reduce stutters, incompatible with Intel drivers)" />
+        tool_tip="Create textures on a background thread via D3D11's free-threaded device methods instead of the main render thread (reduces stutter during texture streaming)" />
 
       <check_box
-        control_name="RenderGLMultiThreadedMedia"
+        control_name="RenderDXMultiThreadedMedia"
         height="20"
         initial_value="false"
-        label="Multi-Threaded OpenGL Media Playback"
+        label="Multi-Threaded DX Media Playback"
         layout="topleft"
         left="20"
-        name="gl_multithread_media"
+        name="dx_multithread_media"
         top_pad="5"
         width="450"
-        tool_tip="Use multiple GL contexts for media playback (may reduce stutters, incompatible with Intel drivers)" />
+        tool_tip="Prepare media/video frame updates on a background thread via D3D11's free-threaded device methods instead of the main render thread (reduces stutter during video playback)" />
 
       <text
         type="string"
@@ -1314,6 +1314,44 @@
         tool_tip="Number of shared GL context worker threads for the VBO work queue (1-4). 1 is recommended: the queue synchronizes each job with its own fence, but with more than one worker, jobs can still complete out of order relative to when the main thread needed them."
         top_pad="5"
         width="310" />
+
+      <text
+        type="string"
+        length="1"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="10"
+        top_pad="15"
+        width="460"
+        font="SansSerifBold"
+        text_color="White">
+        D3D11 Debug/Validation Layer
+      </text>
+
+      <check_box
+        control_name="S24DXDebugLayerEnabled"
+        height="20"
+        initial_value="false"
+        label="Enable D3D11 Debug Layer"
+        layout="topleft"
+        left="20"
+        name="dx_debug_layer_enabled"
+        top_pad="10"
+        width="300"
+        tool_tip="DX_RENDER only: runs full D3D11 state/shader-binding validation on every draw call, surfacing hazards as debug-output messages instead of silent wrong pixels. Real per-draw-call cost - disproportionately expensive on passes with many draw calls (e.g. shadow rendering, which redraws the scene once per cascade/spot light). Off by default - developers only, enable when testing; normal runs should get full performance." />
+      <text
+        name="requires_restart_dx_debug_layer"
+        follows="left|top"
+        layout="topleft"
+        top_delta="2"
+        left_delta="305"
+        height="20"
+        width="150"
+        font="SansSerifSmall"
+        text_color="White_25">
+        (Requires restart)
+      </text>
 
     </panel>
 
@@ -2452,81 +2490,57 @@
         Local Lights Performance Optimization
       </text>
 
-      <check_box
-        control_name="RenderLocalLightSmartCulling"
-        height="20"
-        initial_value="true"
-        label="Enable Smart Distance-Based Culling"
-        layout="topleft"
-        left="20"
-        top_pad="10"
-        name="local_light_smart_culling"
-        width="450"
-        tool_tip="Prioritize nearby lights, gradually cull distant lights for better performance" />
-
       <slider
-        control_name="RenderLocalLightPriorityInnerRadius"
-        decimal_digits="1"
+        control_name="RenderLocalLightHoldTime"
+        decimal_digits="2"
         follows="left|top"
         height="20"
-        increment="1.0"
-        initial_value="30.0"
-        label="Priority Inner Radius (m):"
+        increment="0.05"
+        initial_value="0.30"
+        label="Light Hold Time (s):"
         label_width="200"
         layout="topleft"
         left="20"
         min_val="0.0"
-        max_val="128.0"
-        name="local_light_inner_radius"
-        tool_tip="Lights within this distance are always rendered (0-30m default)"
+        max_val="1.0"
+        name="local_light_hold_time"
+        tool_tip="Minimum time a local light holds its last visibility state before it's allowed to flip. Smooths residual popping from marginal frustum-edge cases - only does real work when Frustum Culling (above) is enabled. Useful on lower-end systems: cull aggressively for real performance headroom, hold briefly to pay for it with no visible flicker cost. 0 = instant/original hard-cutoff behavior."
+        top_pad="10"
+        width="400" />
+
+      <slider
+        control_name="RenderLocalLightFrustumMargin"
+        decimal_digits="1"
+        follows="left|top"
+        height="20"
+        increment="1.0"
+        initial_value="32.0"
+        label="Frustum Cull Margin (m):"
+        label_width="200"
+        layout="topleft"
+        left="20"
+        min_val="0.0"
+        max_val="64.0"
+        name="local_light_frustum_margin"
+        tool_tip="Extra world-space slack added to a light's box radius for the Frustum Culling visibility test above. Larger values make marginal/edge-of-view lights less likely to be excluded. 0 = exact hard cutoff."
         top_pad="5"
         width="400" />
 
       <slider
-        control_name="RenderLocalLightPriorityMidRadius"
+        control_name="RenderLocalLightMinRadius"
         decimal_digits="1"
         follows="left|top"
         height="20"
         increment="1.0"
-        initial_value="64.0"
-        label="Priority Mid Radius (m):"
+        initial_value="15.0"
+        label="Min Light Radius (m):"
         label_width="200"
         layout="topleft"
         left="20"
         min_val="0.0"
-        max_val="256.0"
-        name="local_light_mid_radius"
-        tool_tip="Lights in this zone (30-64m default) have gradual culling based on intensity"
-        top_pad="5"
-        width="400" />
-
-      <check_box
-        control_name="RenderLocalLightFrustumCulling"
-        height="20"
-        initial_value="true"
-        label="Enable Frustum Culling"
-        layout="topleft"
-        left="20"
-        top_pad="10"
-        name="local_light_frustum_culling"
-        width="450"
-        tool_tip="Deprioritize lights outside camera view (especially behind camera)" />
-
-      <slider
-        control_name="RenderLocalLightFrustumCullDistance"
-        decimal_digits="1"
-        follows="left|top"
-        height="20"
-        increment="1.0"
-        initial_value="64.0"
-        label="Frustum Cull Distance (m):"
-        label_width="200"
-        layout="topleft"
-        left="20"
-        min_val="0.0"
-        max_val="256.0"
-        name="local_light_frustum_cull_dist"
-        tool_tip="Only apply frustum culling to lights beyond this distance (default 64m)"
+        max_val="64.0"
+        name="local_light_min_radius"
+        tool_tip="Floors every local light's effective distance-falloff radius to at least this many meters, regardless of its own authored radius. Fixes small decorative lights (walkway lanterns etc.) requiring the camera to be almost standing inside them before they contribute any light. Does not change brightness/color, only how far away a light starts fading in. 0 = original behavior, no floor."
         top_pad="5"
         width="400" />
 
@@ -4017,7 +4031,7 @@
         follows="left|top"
         height="20"
         increment="0.1"
-        initial_value="1.0"
+        initial_value="0.2"
         layout="topleft"
         left_delta="0"
         min_val="0.0"
@@ -4032,7 +4046,7 @@
         follows="left|top"
         height="20"
         increment="0.1"
-        initial_value="1.0"
+        initial_value="0.2"
         layout="topleft"
         left_pad="5"
         min_val="0.0"
@@ -4743,6 +4757,295 @@
         width="220"
         height="25"
         tool_tip="Reset all movement smoothing settings to defaults" />
+
+    </panel>
+
+    <!-- ==================== TAB: CUBEMAP ORIENTATION (DEBUG) ==================== -->
+    <panel
+      border="true"
+      follows="all"
+      height="585"
+      label="Cube Orient"
+      layout="topleft"
+      left="1"
+      help_topic="tweaks_tab_cube_orient"
+      name="tab_cube_orient"
+      top="20"
+      width="490">
+
+      <text
+        type="string"
+        length="1"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="10"
+        top="10"
+        width="460"
+        font="SansSerifBold"
+        text_color="Red">
+        ⚠ DEBUG TOOL - Engineering Only DO NOT TOUCH ⚠
+      </text>
+
+      <text
+        type="string"
+        length="1"
+        follows="left|top"
+        height="72"
+        layout="topleft"
+        left="20"
+        top_pad="5"
+        width="450"
+        font="SansSerifSmall"
+        text_color="DrYellow"
+        word_wrap="true">
+        Each reflection-probe cube face is built from a fixed axis plus two free slots (A/B). "Swap" trades which raw axis feeds A vs B; "Negate A/B" flips that slot's sign - 8 combinations per face, the full set of square symmetries. Defaults already match the proven-correct formula. +Y/-Y/+Z/-Z are confirmed correct already - only touch those to test the tool itself. Changes take effect automatically within a few seconds (RenderDefaultProbeUpdatePeriod).
+      </text>
+
+      <text
+        type="string"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="20"
+        top_pad="10"
+        width="90"
+        font="SansSerifBold"
+        text_color="White">
+        +X face
+      </text>
+      <check_box
+        control_name="S24CubeOrientSwap0"
+        height="18"
+        label="Swap"
+        layout="topleft"
+        left="110"
+        top_delta="0"
+        width="90" />
+      <check_box
+        control_name="S24CubeOrientNegA0"
+        height="18"
+        label="Negate A"
+        layout="topleft"
+        left_pad="10"
+        top_delta="0"
+        width="100" />
+      <check_box
+        control_name="S24CubeOrientNegB0"
+        height="18"
+        label="Negate B"
+        layout="topleft"
+        left_pad="10"
+        top_delta="0"
+        width="100" />
+
+      <text
+        type="string"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="20"
+        top_pad="8"
+        width="90"
+        font="SansSerifBold"
+        text_color="White">
+        -X face
+      </text>
+      <check_box
+        control_name="S24CubeOrientSwap1"
+        height="18"
+        label="Swap"
+        layout="topleft"
+        left="110"
+        top_delta="0"
+        width="90" />
+      <check_box
+        control_name="S24CubeOrientNegA1"
+        height="18"
+        label="Negate A"
+        layout="topleft"
+        left_pad="10"
+        top_delta="0"
+        width="100" />
+      <check_box
+        control_name="S24CubeOrientNegB1"
+        height="18"
+        label="Negate B"
+        layout="topleft"
+        left_pad="10"
+        top_delta="0"
+        width="100" />
+
+      <text
+        type="string"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="20"
+        top_pad="16"
+        width="300"
+        font="SansSerifSmall"
+        text_color="LtGray">
+        Already confirmed correct - only for testing the tool itself:
+      </text>
+
+      <text
+        type="string"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="20"
+        top_pad="8"
+        width="90"
+        font="SansSerifBold"
+        text_color="LtGray">
+        +Y face
+      </text>
+      <check_box
+        control_name="S24CubeOrientSwap2"
+        height="18"
+        label="Swap"
+        layout="topleft"
+        left="110"
+        top_delta="0"
+        width="90" />
+      <check_box
+        control_name="S24CubeOrientNegA2"
+        height="18"
+        label="Negate A"
+        layout="topleft"
+        left_pad="10"
+        top_delta="0"
+        width="100" />
+      <check_box
+        control_name="S24CubeOrientNegB2"
+        height="18"
+        label="Negate B"
+        layout="topleft"
+        left_pad="10"
+        top_delta="0"
+        width="100" />
+
+      <text
+        type="string"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="20"
+        top_pad="8"
+        width="90"
+        font="SansSerifBold"
+        text_color="LtGray">
+        -Y face
+      </text>
+      <check_box
+        control_name="S24CubeOrientSwap3"
+        height="18"
+        label="Swap"
+        layout="topleft"
+        left="110"
+        top_delta="0"
+        width="90" />
+      <check_box
+        control_name="S24CubeOrientNegA3"
+        height="18"
+        label="Negate A"
+        layout="topleft"
+        left_pad="10"
+        top_delta="0"
+        width="100" />
+      <check_box
+        control_name="S24CubeOrientNegB3"
+        height="18"
+        label="Negate B"
+        layout="topleft"
+        left_pad="10"
+        top_delta="0"
+        width="100" />
+
+      <text
+        type="string"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="20"
+        top_pad="8"
+        width="90"
+        font="SansSerifBold"
+        text_color="LtGray">
+        +Z face
+      </text>
+      <check_box
+        control_name="S24CubeOrientSwap4"
+        height="18"
+        label="Swap"
+        layout="topleft"
+        left="110"
+        top_delta="0"
+        width="90" />
+      <check_box
+        control_name="S24CubeOrientNegA4"
+        height="18"
+        label="Negate A"
+        layout="topleft"
+        left_pad="10"
+        top_delta="0"
+        width="100" />
+      <check_box
+        control_name="S24CubeOrientNegB4"
+        height="18"
+        label="Negate B"
+        layout="topleft"
+        left_pad="10"
+        top_delta="0"
+        width="100" />
+
+      <text
+        type="string"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="20"
+        top_pad="8"
+        width="90"
+        font="SansSerifBold"
+        text_color="LtGray">
+        -Z face
+      </text>
+      <check_box
+        control_name="S24CubeOrientSwap5"
+        height="18"
+        label="Swap"
+        layout="topleft"
+        left="110"
+        top_delta="0"
+        width="90" />
+      <check_box
+        control_name="S24CubeOrientNegA5"
+        height="18"
+        label="Negate A"
+        layout="topleft"
+        left_pad="10"
+        top_delta="0"
+        width="100" />
+      <check_box
+        control_name="S24CubeOrientNegB5"
+        height="18"
+        label="Negate B"
+        layout="topleft"
+        left_pad="10"
+        top_delta="0"
+        width="100" />
+
+      <!-- RESET BUTTON -->
+      <button
+        label="Reset To Proven Baseline"
+        name="reset_cube_orient_btn"
+        top_pad="20"
+        left="20"
+        width="220"
+        height="25"
+        tool_tip="Reset all 18 checkboxes above back to the proven-correct baseline formula" />
 
     </panel>
 

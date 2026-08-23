@@ -39,18 +39,21 @@ float4 SMAABlendingWeightCalculationPS(float2 texcoord,
                                        Texture2D searchTex, SamplerState searchTexSampler,
                                        float4 subsampleIndices);
 
+#include "varying/SMAABlendWeightsVarying.hlsli"
+
+// S24 (2026-08-02): see uiF.hlsl's comment - real register mismatch,
+// confirmed via fxc.exe disassembly, affects every bare-Varying PS input.
 struct PSInput
 {
-    float2 vary_texcoord0 : TEXCOORD0;
-    float2 vary_pixcoord : TEXCOORD1;
-    float4 vary_offset[3] : TEXCOORD2;
+    float4 position : SV_Position;
+    SMAABlendWeightsVarying varying;
 };
 
 float4 main(PSInput IN) : SV_Target
 {
-    return SMAABlendingWeightCalculationPS(IN.vary_texcoord0,
-                                                 IN.vary_pixcoord,
-                                                 IN.vary_offset,
+    return SMAABlendingWeightCalculationPS(IN.varying.vary_texcoord0,
+                                                 IN.varying.vary_pixcoord,
+                                                 IN.varying.vary_offset,
                                                  edgesTex, edgesTexSampler,
                                                  areaTex, areaTexSampler,
                                                  searchTex, searchTexSampler,

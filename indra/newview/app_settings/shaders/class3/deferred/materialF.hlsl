@@ -34,8 +34,19 @@
 #define DIFFUSE_ALPHA_MODE_EMISSIVE 3
 
 uniform float emissive_brightness;  // fullbright flag, 1.0 == fullbright, 0.0 otherwise
+// sun_up_factor/classic_mode are also declared by atmosphericsFuncs.hlsl
+// (attached here via calculatesAtmospherics) - include-guarded since
+// there's no fixed always-co-attached relationship to rely on (unlike the
+// vertex-side sun_up_factor duplicate, fixed by removal since that pair
+// really was always co-attached).
+#ifndef LL_SUN_UP_FACTOR_DECLARED
+#define LL_SUN_UP_FACTOR_DECLARED
 uniform int sun_up_factor;
+#endif
+#ifndef LL_CLASSIC_MODE_DECLARED
+#define LL_CLASSIC_MODE_DECLARED
 uniform int classic_mode;
+#endif
 
 float4 applySkyAndWaterFog(float3 pos, float3 additive, float3 atten, float4 color);
 float3 scaleSoftClipFragLinear(float3 l);
@@ -53,6 +64,9 @@ float4 encodeNormal(float3 n, float env, float gbuffer_flag);
 
 struct PSInput
 {
+    // S24 (2026-08-02): missing SV_Position - see uiF.hlsl's comment (fxc.exe-confirmed VS/PS register-shift bug).
+    float4 position : SV_Position;
+
     float3 vary_position : TEXCOORD0;
 #ifdef HAS_NORMAL_MAP
     float3 vary_tangent : TEXCOORD1;
@@ -85,24 +99,48 @@ void sampleReflectionProbesLegacy(inout float3 ambenv, inout float3 glossenv, in
 void applyGlossEnv(inout float3 color, float3 glossenv, float4 spec, float3 pos, float3 norm);
 void applyLegacyEnv(inout float3 color, float3 legacyenv, float4 spec, float3 pos, float3 norm, float envIntensity);
 
-TextureCube environmentMap : register(t4);
-SamplerState environmentMapSampler : register(s4);
+// environmentMap/environmentMapSampler removed - unused here (this file
+// never samples them directly; reflectionProbeF.hlsl's own copy,
+// register t0/s0, is the real one, actually used by its
+// sampleReflectionProbesLegacy()/applyLegacyEnv() called from this file's
+// main()). Redundant, unused, and collided with reflectionProbeF.hlsl's
+// copy the moment both were concatenated into the same shader.
 Texture2D lightFunc : register(t5);
 SamplerState lightFuncSampler : register(s5);
 
 // Inputs
 uniform float4 morphFactor;
 uniform float3 camPosLocal;
+// env_mat/proj_mat/inv_proj/screen_res are also declared by
+// reflectionProbeF.hlsl/deferredUtil.hlsl (both attached here) -
+// include-guarded, same reasoning as classic_mode/sun_up_factor above.
+#ifndef LL_ENV_MAT_DECLARED
+#define LL_ENV_MAT_DECLARED
 uniform float3x3 env_mat;
+#endif
 
 uniform float is_mirror;
 
+// S24 (2026-08-03): was a bare, unguarded declaration - collided with
+// softenLightF.hlsl's own guarded copy (LL_SUN_MOON_DIR_DECLARED, see e.g.
+// alphaF.hlsl for the same pattern already applied there) the moment both
+// got concatenated into the same shader - only reachable when HAS_SUN_SHADOW
+// is defined (shadows enabled), which is why this went unnoticed until now.
+#ifndef LL_SUN_MOON_DIR_DECLARED
+#define LL_SUN_MOON_DIR_DECLARED
 uniform float3 sun_dir;
 uniform float3 moon_dir;
+#endif
 
+#ifndef LL_PROJ_MAT_DECLARED
+#define LL_PROJ_MAT_DECLARED
 uniform float4x4 proj_mat;
+#endif
+#ifndef LL_INV_PROJ_DECLARED
+#define LL_INV_PROJ_DECLARED
 uniform float4x4 inv_proj;
 uniform float2 screen_res;
+#endif
 
 uniform float4 light_position[8];
 uniform float3 light_direction[8];
@@ -112,6 +150,25 @@ uniform float3 light_diffuse[8];
 float getAmbientClamp();
 void waterClip(float3 pos);
 
+// S24 (2026-07-23, re-traced 2026-08-01): D3DCompile reports X4000 "use of
+// potentially uninitialized variable" for this function on some
+// permutations (Material Shader 1/5/9/13, Skinned Material Shader
+// 17/21/25/29). Traced every local through every branch - col/da are
+// unconditionally initialized before the outer if; lit/amb_da are
+// initialized at the top of the outer if-block, before any read inside it;
+// the spec-highlight block's h/nh/nv/vh/sa/fres/gtdenom/gt are all assigned
+// immediately at declaration. No actual read-before-write path exists -
+// this is FXC being conservative about the 4-deep nested if control flow
+// (outer dist/inverted_la check, da>=0, spec.a>0, nh>0) combined with this
+// function's two return statements (an early `return col;` plus the final
+// return), not a real bug.
+// A `#pragma warning(disable : 4000)` was tried first (2026-08-01) but
+// confirmed NOT to work - FXC accepts the pragma syntactically but doesn't
+// actually implement per-diagnostic suppression for X4000, so the warning
+// kept firing at shifted line numbers in the next build. Real fix:
+// collapsed the two returns down to one (see the inverted `dist_atten`
+// guard below) - eliminating the multi-exit shape is what FXC's checker
+// actually needed to prove definite assignment.
 float3 calcPointLightOrSpotLight(float3 light_col, float3 npos, float3 diffuse, float4 spec, float3 v, float3 n, float4 lp, float3 ln, float la, float fa, float is_pointlight, inout float glare, float ambiance)
 {
     // SL-14895 inverted attenuation work-around
@@ -143,58 +200,62 @@ float3 calcPointLightOrSpotLight(float3 light_col, float3 npos, float3 diffuse, 
         dist_atten *= dist_atten;
         dist_atten *= 2.0f;
 
-        if (dist_atten <= 0.0)
+        // S24 (2026-08-01): was `if (dist_atten <= 0.0) { return col; }` -
+        // rewritten as the inverted guard around the rest of this block
+        // instead, so the function has a single exit point (see comment
+        // above calcPointLightOrSpotLight's signature). Behaviorally
+        // identical: skipping straight to the final return leaves col/da/
+        // lit/amb_da/glare exactly as they'd be at the old early return.
+        if (dist_atten > 0.0)
         {
-            return col;
-        }
+            // spotlight coefficient.
+            float spot = max(dot(-ln, lv), is_pointlight);
+            da *= spot*spot; // GL_SPOT_EXPONENT=2
 
-        // spotlight coefficient.
-        float spot = max(dot(-ln, lv), is_pointlight);
-        da *= spot*spot; // GL_SPOT_EXPONENT=2
+            //angular attenuation
+            da *= dot(n, lv);
 
-        //angular attenuation
-        da *= dot(n, lv);
+            float lit = 0.0f;
 
-        float lit = 0.0f;
-
-        float amb_da = ambiance;
-        if (da >= 0)
-        {
-            lit = clamp(da * dist_atten, 0.0, 1.0);
-            col = lit * light_col * diffuse;
-            amb_da += (da*0.5 + 0.5) * ambiance;
-        }
-        amb_da += (da*da*0.5 + 0.5) * ambiance;
-        amb_da *= dist_atten;
-        amb_da = min(amb_da, 1.0f - lit);
-
-        // SL-10969 need to see why these are blown out
-        //col.rgb += amb_da * light_col * diffuse;
-
-        if (spec.a > 0.0)
-        {
-            //float3 ref = dot(pos+lv, norm);
-            float3 h = normalize(lv + npos);
-            float nh = dot(n, h);
-            float nv = dot(n, npos);
-            float vh = dot(npos, h);
-            float sa = nh;
-            float fres = pow(1 - dot(h, npos), 5)*0.4 + 0.5;
-
-            float gtdenom = 2 * nh;
-            float gt = max(0, min(gtdenom * nv / vh, gtdenom * da / vh));
-
-            if (nh > 0.0)
+            float amb_da = ambiance;
+            if (da >= 0)
             {
-                float scol = fres*lightFunc.Sample(lightFuncSampler, float2(nh, spec.a)).r*gt / (nh*da);
-                float3 speccol = lit*scol*light_col.rgb*spec.rgb;
-                speccol = clamp(speccol, float3(0, 0, 0), float3(1, 1, 1));
-                col += speccol;
+                lit = clamp(da * dist_atten, 0.0, 1.0);
+                col = lit * light_col * diffuse;
+                amb_da += (da*0.5 + 0.5) * ambiance;
+            }
+            amb_da += (da*da*0.5 + 0.5) * ambiance;
+            amb_da *= dist_atten;
+            amb_da = min(amb_da, 1.0f - lit);
 
-                float cur_glare = max(speccol.r, speccol.g);
-                cur_glare = max(cur_glare, speccol.b);
-                glare = max(glare, speccol.r);
-                glare += max(cur_glare, 0.0);
+            // SL-10969 need to see why these are blown out
+            //col.rgb += amb_da * light_col * diffuse;
+
+            if (spec.a > 0.0)
+            {
+                //float3 ref = dot(pos+lv, norm);
+                float3 h = normalize(lv + npos);
+                float nh = dot(n, h);
+                float nv = dot(n, npos);
+                float vh = dot(npos, h);
+                float sa = nh;
+                float fres = pow(abs(1 - dot(h, npos)), 5)*0.4 + 0.5;
+
+                float gtdenom = 2 * nh;
+                float gt = max(0, min(gtdenom * nv / vh, gtdenom * da / vh));
+
+                if (nh > 0.0)
+                {
+                    float scol = fres*lightFunc.Sample(lightFuncSampler, float2(nh, spec.a)).r*gt / (nh*da);
+                    float3 speccol = lit*scol*light_col.rgb*spec.rgb;
+                    speccol = clamp(speccol, float3(0, 0, 0), float3(1, 1, 1));
+                    col += speccol;
+
+                    float cur_glare = max(speccol.r, speccol.g);
+                    cur_glare = max(cur_glare, speccol.b);
+                    glare = max(glare, speccol.r);
+                    glare += max(cur_glare, 0.0);
+                }
             }
         }
     }
@@ -216,17 +277,21 @@ struct PSOutput
 };
 #endif
 
-Texture2D diffuseMap : register(t0);  //always in sRGB space
-SamplerState diffuseMapSampler : register(s0);
+// t0-t3/s0-s3 are reserved by deferredUtil.hlsl's normalMap/depthMap/
+// projectionMap/brdfLut, also attached to this shader - moved to t6-t8/
+// s6-s8 (t4/s4 taken by reflectionProbeF.hlsl's environmentMap, t5/s5 by
+// lightFunc below) to avoid X4500 overlapping-register-semantics errors.
+Texture2D diffuseMap : register(t6);  //always in sRGB space
+SamplerState diffuseMapSampler : register(s6);
 
 #ifdef HAS_NORMAL_MAP
-Texture2D bumpMap : register(t1);
-SamplerState bumpMapSampler : register(s1);
+Texture2D bumpMap : register(t7);
+SamplerState bumpMapSampler : register(s7);
 #endif
 
 #ifdef HAS_SPECULAR_MAP
-Texture2D specularMap : register(t2);
-SamplerState specularMapSampler : register(s2);
+Texture2D specularMap : register(t8);
+SamplerState specularMapSampler : register(s8);
 #endif
 
 uniform float env_intensity;
@@ -365,7 +430,7 @@ PSOutput main(PSInput IN)
     float da          = clamp(dot(norm.xyz, light_dir.xyz), 0.0, 1.0);
     if (classic_mode > 0)
     {
-        da = pow(da,1.2);
+        da = pow(abs(da),1.2);
         float3 sun_contrib = float3(min(da, shadow), min(da, shadow), min(da, shadow));
 
         color.rgb = srgb_to_linear(color.rgb * 0.9 + linear_to_srgb(sun_contrib) * sunlit_linear * 0.7);
@@ -396,7 +461,7 @@ PSOutput main(PSInput IN)
             float lit = min(nl*6.0, 1.0);
 
             float sa = nh;
-            float fres = pow(1 - vh, 5) * 0.4+0.5;
+            float fres = pow(abs(1 - vh), 5) * 0.4+0.5;
             float gtdenom = 2 * nh;
             float gt = max(0,(min(gtdenom * nv / vh, gtdenom * nl / vh)));
 

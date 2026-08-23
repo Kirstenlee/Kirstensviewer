@@ -48,31 +48,70 @@ SOFTWARE.
 */
 
 uniform Texture2D normalMap : register(t0);
+// depthMap/depthMapSampler are also declared by aoUtil.hlsl (same name,
+// same register, same real resource - the original GLSL redundantly
+// declares an identical "uniform sampler2D depthMap" there too, GL's
+// linker just merges it) - guarded so whichever file concatenates first
+// keeps the only copy.
+#ifndef LL_DEPTHMAP_DECLARED
+#define LL_DEPTHMAP_DECLARED
 uniform Texture2D depthMap : register(t1);
+uniform SamplerState depthMapSampler : register(s1);
+#endif
 uniform Texture2D projectionMap : register(t2);
 uniform Texture2D brdfLut : register(t3);
 uniform SamplerState normalMapSampler : register(s0);
-uniform SamplerState depthMapSampler : register(s1);
 uniform SamplerState projectionMapSampler : register(s2);
 uniform SamplerState brdfLutSampler : register(s3);
 
 // projected lighted params
+// proj_mat/inv_proj/screen_res are also declared by materialF.hlsl -
+// include-guarded (separate macros since they're not textually adjacent
+// here the way they are there), same reasoning as classic_mode below.
+#ifndef LL_PROJ_MAT_DECLARED
+#define LL_PROJ_MAT_DECLARED
 uniform float4x4 proj_mat;
+#endif
+// proj_p/proj_n/proj_focus/proj_lod/proj_range/proj_ambiance are also
+// declared by spotLightF.hlsl (real, used there too) - same reasoning as
+// proj_mat above, distinct guard macro since this is a separate grouping.
+#ifndef LL_PROJ_LIGHT_PARAMS_DECLARED
+#define LL_PROJ_LIGHT_PARAMS_DECLARED
 uniform float3 proj_n;
 uniform float3 proj_p;
 uniform float proj_focus;
 uniform float proj_lod;
 uniform float proj_range;
 uniform float proj_ambiance;
+#endif
 
+// classic_mode is also declared by atmosphericsFuncs.hlsl - both files are
+// independently attach-gated (isDeferred||hasReflectionProbes vs.
+// calculatesAtmospherics, neither implies the other for every shader), so
+// unlike the earlier always-co-attached duplicate-uniform fixes, neither
+// copy can just be deleted without risking breaking some other shader
+// combination that attaches only one of the two. Include-guard instead
+// (HLSL is preprocessed like C) so whichever file concatenates first wins.
+#ifndef LL_CLASSIC_MODE_DECLARED
+#define LL_CLASSIC_MODE_DECLARED
 uniform int classic_mode;
+#endif
 
-// light params
+// light params - also declared by pointLightF.hlsl/spotLightF.hlsl (their
+// own point/spot-light color+size) - genuinely the same shared uniform,
+// include-guarded rather than renamed (see pointLightF.hlsl's comment for
+// why - likely bound by exact name from the C++ side every draw).
+#ifndef LL_LIGHT_COLOR_SIZE_DECLARED
+#define LL_LIGHT_COLOR_SIZE_DECLARED
 uniform float3 color;
 uniform float size;
+#endif
 
+#ifndef LL_INV_PROJ_DECLARED
+#define LL_INV_PROJ_DECLARED
 uniform float4x4 inv_proj;
 uniform float2 screen_res;
+#endif
 
 static const float M_PI = 3.14159265;
 static const float ONE_OVER_PI = 0.3183098861;
@@ -133,14 +172,25 @@ float2 getScreenCoordinate(float2 screenpos)
     return screenpos.xy * 2.0 - float2(1.0, 1.0);
 }
 
+// S24 (2026-08-04): GL's texture origin is bottom-left, D3D11's is
+// top-left - deferredScreen was written using D3D11's native top-left-
+// origin convention, so sampling it back with an unflipped screen-space
+// UV reads it upside down. Flipped here, at the actual .Sample() call,
+// rather than in the UV computation itself (softenLightV.hlsl's
+// vary_fragcoord) - that was tried first and reverted, since
+// vary_fragcoord is ALSO used to reconstruct world position via the
+// inverse projection matrix (getPositionWithDepth()/getScreenCoordinate()
+// below), which must stay in the camera's own NDC convention and must
+// NOT be flipped. Flipping only at the texture-read call sites keeps
+// both correct.
 float4 getNorm(float2 screenpos)
 {
-    return decodeNormal(normalMap.Sample(normalMapSampler, screenpos.xy));
+    return decodeNormal(normalMap.Sample(normalMapSampler, float2(screenpos.x, 1.0 - screenpos.y)));
 }
 
 float4 getNormRaw(float2 screenpos)
 {
-    return normalMap.Sample(normalMapSampler, screenpos.xy);
+    return normalMap.Sample(normalMapSampler, float2(screenpos.x, 1.0 - screenpos.y));
 }
 
 float linearDepth(float d, float znear, float zfar)
@@ -156,7 +206,11 @@ float linearDepth01(float d, float znear, float zfar)
 
 float getDepth(float2 pos_screen)
 {
-    return depthMap.Sample(depthMapSampler, pos_screen).r;
+    // S24 (2026-08-04): same texture-origin flip as getNorm()/getNormRaw()
+    // above - see their comment. pos_screen itself (and everything
+    // downstream, e.g. getPositionWithDepth()'s inverse-projection math)
+    // stays unflipped; only this actual texture read is corrected.
+    return depthMap.Sample(depthMapSampler, float2(pos_screen.x, 1.0 - pos_screen.y)).r;
 }
 
 float4 getTexture2DLodAmbient(float2 tc, float lod)
@@ -490,7 +544,7 @@ float3 pbrBaseLight(float3 diffuseColor, float3 specularColor, float metallic, f
     {
         irradiance.rgb = srgb_to_linear(irradiance * 0.9);
 
-        float da = pow(nl, 1.2);
+        float da = pow(abs(nl), 1.2);
 
         float3 sun_contrib = float3(min(da, scol), min(da, scol), min(da, scol));
 
@@ -512,7 +566,13 @@ float3 pbrBaseLight(float3 diffuseColor, float3 specularColor, float metallic, f
     return color;
 }
 
+// waterPlane is also declared by waterFogF.hlsl - same independent-attach-
+// condition situation as classic_mode above (isDeferred||hasReflectionProbes
+// vs. hasAtmospherics), include-guarded for the same reason.
+#ifndef LL_WATERPLANE_DECLARED
+#define LL_WATERPLANE_DECLARED
 uniform float4 waterPlane;
+#endif
 uniform float waterSign;
 
 void waterClip(float3 pos)

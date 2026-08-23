@@ -25,14 +25,18 @@
 Texture2D diffuseMap : register(t0);
 SamplerState diffuseMapSampler : register(s0);
 
+#include "varying/previewVarying.hlsli"
+
+// S24 (2026-08-02): see uiF.hlsl's comment - real register mismatch,
+// confirmed via fxc.exe disassembly, affects every bare-Varying PS input.
 struct PSInput
 {
-    float4 vertex_color : COLOR0;
-    float2 vary_texcoord0 : TEXCOORD0;
+    float4 position : SV_Position;
+    PreviewVarying varying;
 };
 
 float4 main(PSInput IN) : SV_Target
 {
-    float4 color = diffuseMap.Sample(diffuseMapSampler, IN.vary_texcoord0.xy) * IN.vertex_color;
+    float4 color = diffuseMap.Sample(diffuseMapSampler, IN.varying.vary_texcoord0.xy) * IN.varying.vertex_color;
     return max(color, float4(0, 0, 0, 0));
 }

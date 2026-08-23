@@ -58,7 +58,7 @@ float2 khr_texture_transform(float2 texcoord, float2 scale, float rotation, floa
 //     animations, available through LSL script functions such as
 //     LlSetTextureAnim. It assumes a right-handed UV coordinate system.
 // texcoord - The final texcoord to use for image sampling
-float2 texture_transform(float2 vertex_texcoord, float4[2] khr_gltf_transform, float4x4 sl_animation_transform)
+float2 texture_transform(float2 vertex_texcoord, float4 khr_gltf_transform[2], float4x4 sl_animation_transform)
 {
     float2 texcoord = vertex_texcoord;
 
@@ -79,7 +79,7 @@ float2 texture_transform(float2 vertex_texcoord, float4[2] khr_gltf_transform, f
 
 // Similar to texture_transform but no offset during coordinate system
 // conversion, and no texture animation support.
-float2 terrain_texture_transform(float2 vertex_texcoord, float4[2] khr_gltf_transform)
+float2 terrain_texture_transform(float2 vertex_texcoord, float4 khr_gltf_transform[2])
 {
     float2 texcoord = vertex_texcoord;
 
@@ -101,7 +101,7 @@ float2 terrain_texture_transform(float2 vertex_texcoord, float4[2] khr_gltf_tran
 // https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Viewer/47a191931461a6f2e14de48d6da0f0eb6ec2d147/source/Renderer/shaders/material_info.glsl
 // We may want to account for this case during GLTF model import.
 // -Cosmic,2023-06-06
-float4 tangent_space_transform(float4 vertex_tangent, float3 vertex_normal, float4[2] khr_gltf_transform, float4x4 sl_animation_transform)
+float4 tangent_space_transform(float4 vertex_tangent, float3 vertex_normal, float4 khr_gltf_transform[2], float4x4 sl_animation_transform)
 {
     // Immediately convert to left-handed coordinate system, but it has no
     // effect here because y is 0 ((1,0) -> (1,0))
@@ -150,7 +150,7 @@ float4 tangent_space_transform(float4 vertex_tangent, float3 vertex_normal, floa
 }
 
 // Similar to tangent_space_transform but no texture animation support.
-float4 terrain_tangent_space_transform(float4 vertex_tangent, float3 vertex_normal, float4[2] khr_gltf_transform)
+float4 terrain_tangent_space_transform(float4 vertex_tangent, float3 vertex_normal, float4 khr_gltf_transform[2])
 {
     // Immediately convert to left-handed coordinate system, but it has no
     // effect here because y is 0 ((1,0) -> (1,0))

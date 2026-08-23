@@ -30,6 +30,40 @@
 #include "llrender.h"
 #include "llgl.h"
 
+#ifdef DX_RENDER
+#include "DXSampler.h"
+#include "DXDevice.h"
+#include "DXSwapChain.h"
+#endif
+
+#ifdef DX_RENDER
+namespace
+{
+    // Covers every color_fmt this codebase actually passes to allocate()/
+    // addColorAttachment() (confirmed by grepping pipeline.cpp's call
+    // sites), not a speculative full GL-format table. DXGI has no 3-channel
+    // 8-bit or float format, so GL_RGB/GL_RGB16F pad in an unused alpha
+    // channel - same reasoning as DXTexture's format repack.
+    DXGI_FORMAT glColorFormatToDX(U32 color_fmt)
+    {
+        switch (color_fmt)
+        {
+        case GL_RGBA:      return DXGI_FORMAT_R8G8B8A8_UNORM;
+        case GL_RGBA16F:   return DXGI_FORMAT_R16G16B16A16_FLOAT;
+        case GL_RGB16F:    return DXGI_FORMAT_R16G16B16A16_FLOAT;
+        case GL_RGB10_A2:  return DXGI_FORMAT_R10G10B10A2_UNORM;
+        case GL_RGB:       return DXGI_FORMAT_R8G8B8A8_UNORM;
+        case GL_R8:        return DXGI_FORMAT_R8_UNORM;
+        case GL_RG16F:     return DXGI_FORMAT_R16G16_FLOAT;
+        case GL_R16F:      return DXGI_FORMAT_R16_FLOAT;
+        default:
+            LL_WARNS("RenderTarget") << "glColorFormatToDX: unmapped GL format 0x" << std::hex << color_fmt << std::dec << ", defaulting to RGBA8" << LL_ENDL;
+            return DXGI_FORMAT_R8G8B8A8_UNORM;
+        }
+    }
+}
+#endif
+
 LLRenderTarget* LLRenderTarget::sBoundTarget = NULL;
 U32 LLRenderTarget::sBytesAllocated = 0;
 
@@ -41,7 +75,15 @@ U32 LLRenderTarget::sBytesAllocated = 0;
 //            User can't fix GPU driver bugs - warning spam provides zero value.
 void check_framebuffer_status()
 {
-#if LL_DEBUG
+#if LL_DEBUG && !defined(DX_RENDER)
+	// S24 (DX_RENDER, 2026-07-24): all real call sites are already GL-only
+	// branches (see this file's DX_RENDER fixes), so this never runs under
+	// DX_RENDER today - but the function's own body was still unconditionally
+	// compiled regardless of DX_RENDER, only gated by LL_DEBUG. A debug
+	// DX_RENDER=ON build would have tried to link glCheckFramebufferStatus,
+	// an unresolved symbol now that OpenGL is deliberately not linked (see
+	// newview/CMakeLists.txt). Gated explicitly rather than relying on "no
+	// caller reaches it" to stay true forever.
 	if (gDebugGL)
 	{
 		GLenum status = glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER);
@@ -53,7 +95,7 @@ void check_framebuffer_status()
 		}
 	}
 #endif
-	// Release builds: no-op (trust GPU allocation succeeded)
+	// Release builds, or DX_RENDER: no-op (trust GPU allocation succeeded)
 }
 
 bool LLRenderTarget::sUseFBO = false;
@@ -86,6 +128,11 @@ void LLRenderTarget::resize(U32 resx, U32 resy)
 	if (resx == mResX && resy == mResY)
 		return;
 
+#ifdef DX_RENDER
+	mDXRenderTarget.resize(resx, resy);
+	mResX = resx;
+	mResY = resy;
+#else
 	// Pixel delta for memory accounting
 	const S32 pix_diff = static_cast<S32>(resx) * static_cast<S32>(resy)
 		- static_cast<S32>(mResX) * static_cast<S32>(mResY);
@@ -132,6 +179,7 @@ void LLRenderTarget::resize(U32 resx, U32 resy)
 		);
 		sBytesAllocated += pix_diff * 4;
 	}
+#endif // DX_RENDER
 }
 
 bool LLRenderTarget::allocate(U32 resx, U32 resy, U32 color_fmt, bool depth, LLTexUnit::eTextureType usage, LLTexUnit::eTextureMipGeneration generateMipMaps)
@@ -140,8 +188,13 @@ bool LLRenderTarget::allocate(U32 resx, U32 resy, U32 color_fmt, bool depth, LLT
 	llassert(usage == LLTexUnit::TT_TEXTURE);
 	llassert(!isBoundInStack());
 
+#ifndef DX_RENDER
+	// gGLManager.mGLMaxTextureSize defaults to 0 and is only ever populated
+	// by real GL init (glGetIntegerv), which never happens under DX_RENDER -
+	// clamping against it there would zero out every render target.
 	resx = llmin(resx, (U32)gGLManager.mGLMaxTextureSize);
 	resy = llmin(resy, (U32)gGLManager.mGLMaxTextureSize);
+#endif
 
 	release();
 
@@ -158,6 +211,9 @@ bool LLRenderTarget::allocate(U32 resx, U32 resy, U32 color_fmt, bool depth, LLT
 		mMipLevels = 1 + (U32)floor(log10((float)llmax(mResX, mResY)) / log10(2.0));
 	}
 
+#ifdef DX_RENDER
+	return mDXRenderTarget.allocate(resx, resy, glColorFormatToDX(color_fmt), depth);
+#else
 	if (depth)
 	{
 		// S24 - Removed "Failed to allocate depth buffer" warning from allocation hot path
@@ -183,11 +239,31 @@ bool LLRenderTarget::allocate(U32 resx, U32 resy, U32 color_fmt, bool depth, LLT
 	}
 
 	return addColorAttachment(color_fmt);
+#endif // DX_RENDER
 }
 
 void LLRenderTarget::setColorAttachment(LLImageGL* img, LLGLuint use_name)
 {
-	
+#ifdef DX_RENDER
+	// S24 (DX_RENDER, 2026-07-24): a real gap, not yet closed - this is the
+	// "point this render target at a particular LLImageGL" alternate usage
+	// mode (see the class comment), distinct from allocate()'s normal
+	// self-owned-texture path. DXRenderTarget has no equivalent - it can't
+	// render into an arbitrary externally-owned DXTexture, only its own.
+	// Only known caller today is LLDrawPoolBump's bump-map to normal-map
+	// conversion (lldrawpoolbump.cpp), which is itself unguarded - see the
+	// matching fix there, which skips the whole conversion under DX_RENDER
+	// rather than call this and leave a half-set-up render target. Kept as
+	// a loud one-time warning rather than a silent no-op, in case some
+	// future caller reaches this without the same care.
+	static bool warned = false;
+	if (!warned)
+	{
+		warned = true;
+		LL_WARNS("RenderTarget") << "LLRenderTarget::setColorAttachment: not supported under DX_RENDER - caller must skip this render target under DX_RENDER instead." << LL_ENDL;
+	}
+	return;
+#else
 	llassert(img != nullptr); // img must not be null
 	llassert(sUseFBO); // FBO support must be enabled
 	llassert(mDepth == 0); // depth buffers not supported with this mode
@@ -218,13 +294,16 @@ void LLRenderTarget::setColorAttachment(LLImageGL* img, LLGLuint use_name)
 	check_framebuffer_status();
 
 	glBindFramebuffer(GL_FRAMEBUFFER, sCurFBO);
+#endif // DX_RENDER
 }
 
 // S24
 void LLRenderTarget::releaseColorAttachment()
 {
-	
-
+#ifdef DX_RENDER
+	// Mirrors setColorAttachment()'s DX_RENDER no-op above - see its comment.
+	return;
+#else
 	// Preconditions: not bound, single color attachment, valid FBO
 	llassert(!isBoundInStack());
 	llassert(mTex.size() == 1);
@@ -246,6 +325,7 @@ void LLRenderTarget::releaseColorAttachment()
 	glBindFramebuffer(GL_FRAMEBUFFER, sCurFBO);
 
 	mTex.clear();
+#endif // DX_RENDER
 }
 
 // S24
@@ -257,6 +337,9 @@ bool LLRenderTarget::addColorAttachment(U32 color_fmt)
 	if (color_fmt == 0)
 		return true; // No attachment requested
 
+#ifdef DX_RENDER
+	return mDXRenderTarget.addColorAttachment(glColorFormatToDX(color_fmt));
+#else
 	const U32 offset = static_cast<U32>(mTex.size());
 	// S24 - Removed "Too many color attachments" warning from hot path
 	// Gains: ~30-40 cycles per excessive attachment attempt
@@ -348,6 +431,7 @@ bool LLRenderTarget::addColorAttachment(U32 color_fmt)
 	}
 
 	return true;
+#endif // DX_RENDER
 }
 
 // S24
@@ -355,6 +439,14 @@ bool LLRenderTarget::allocateDepth()
 {
 	LL_PROFILE_ZONE_SCOPED_CATEGORY_DISPLAY;
 
+#ifdef DX_RENDER
+	if (!mDXRenderTarget.allocateDepth())
+	{
+		return false;
+	}
+	mUseDepth = true;
+	return true;
+#else
 	// Generate and bind depth texture
 	LLImageGL::generateTextures(1, &mDepth);
 	gGL.getTexUnit(0)->bindManual(mUsage, mDepth);
@@ -394,6 +486,7 @@ bool LLRenderTarget::allocateDepth()
 	sBytesAllocated += mResX * mResY * 4;
 
 	return true;
+#endif // DX_RENDER
 }
 
 // S24
@@ -401,6 +494,12 @@ void LLRenderTarget::shareDepthBuffer(LLRenderTarget& target)
 {
 	llassert(!isBoundInStack());
 
+#ifdef DX_RENDER
+	// mFBO/mDepth stay 0 under DX_RENDER (no GL resources are ever created),
+	// so the GL preconditions below would misfire - check the real DX state.
+	mDXRenderTarget.shareDepthBuffer(target.mDXRenderTarget);
+	target.mUseDepth = mUseDepth;
+#else
 	// Precondition checks
 	if (!mFBO || !target.mFBO)
 		LL_ERRS() << "Cannot share depth buffer between non-FBO render targets." << LL_ENDL;
@@ -427,6 +526,7 @@ void LLRenderTarget::shareDepthBuffer(LLRenderTarget& target)
 	glBindFramebuffer(GL_FRAMEBUFFER, sCurFBO);
 
 	target.mUseDepth = true;
+#endif // DX_RENDER
 }
 
 // S24
@@ -435,6 +535,12 @@ void LLRenderTarget::release()
 	LL_PROFILE_ZONE_SCOPED_CATEGORY_DISPLAY;
 	llassert(!isBoundInStack());
 
+#ifdef DX_RENDER
+	mDXRenderTarget.release();
+	mTex.clear();
+	mInternalFormat.clear();
+	mResX = mResY = 0;
+#else
 	const size_t tex_count = mTex.size();
 	const U32 internal_type = LLTexUnit::getInternalType(mUsage);
 
@@ -488,14 +594,26 @@ void LLRenderTarget::release()
 	mTex.clear();
 	mInternalFormat.clear();
 	mResX = mResY = 0;
+#endif // DX_RENDER
 }
 
 // S24
-void LLRenderTarget::bindTarget()
+void LLRenderTarget::bindTarget(bool bind_depth)
 {
 	LL_PROFILE_GPU_ZONE("bindTarget");
-	llassert(mFBO);
 	llassert(!isBoundInStack());
+
+#ifdef DX_RENDER
+	// mFBO stays 0 under DX_RENDER (no GL FBO is ever created) - the
+	// mPreviousRT/sBoundTarget stack bookkeeping below is shared/backend-
+	// agnostic (DXRenderTarget deliberately has no bind-stack of its own -
+	// see its header comment), so it's still updated here.
+	mDXRenderTarget.bindTarget(bind_depth);
+	mPreviousRT = sBoundTarget;
+	sBoundTarget = this;
+#else
+	(void)bind_depth; // GL's FBO depth attachment is fixed at allocate()/shareDepthBuffer() time, not per-bind
+	llassert(mFBO);
 
 	// Bind only if not already bound
 	if (sCurFBO != mFBO)
@@ -535,12 +653,17 @@ void LLRenderTarget::bindTarget()
 
 	mPreviousRT = sBoundTarget;
 	sBoundTarget = this;
+#endif // DX_RENDER
 }
 
 // S24
 void LLRenderTarget::clear(U32 mask_in)
 {
 	LL_PROFILE_GPU_ZONE("clear");
+
+#ifdef DX_RENDER
+	mDXRenderTarget.clear((mask_in & GL_COLOR_BUFFER_BIT) != 0, mUseDepth && (mask_in & GL_DEPTH_BUFFER_BIT) != 0);
+#else
 	llassert(mFBO);
 
 	// Build clear mask in one expression
@@ -556,6 +679,22 @@ void LLRenderTarget::clear(U32 mask_in)
 #if LL_DEBUG
 	stop_glerror();
 #endif
+#endif // DX_RENDER
+}
+
+// S24
+void LLRenderTarget::clearColor(float r, float g, float b, float a)
+{
+	LL_PROFILE_GPU_ZONE("clearColor");
+
+#ifdef DX_RENDER
+	mDXRenderTarget.clearColor(r, g, b, a);
+#else
+	// No GL caller exists yet - nothing on the GL side has hit the gap this
+	// exists for (see DXRenderTarget::clearColor()'s comment). Kept as a
+	// loud stub rather than silently doing nothing, in case that changes.
+	llassert_always(false && "LLRenderTarget::clearColor() has no GL implementation");
+#endif // DX_RENDER
 }
 
 U32 LLRenderTarget::getTexture(U32 attachment) const
@@ -571,8 +710,62 @@ U32 LLRenderTarget::getNumTextures() const
 
 void LLRenderTarget::bindTexture(U32 index, S32 channel, LLTexUnit::eTextureFilterOptions filter_options)
 {
+#ifdef DX_RENDER
+	// S24 (2026-08-04): was completely unguarded - routed through
+	// bindManual() with a raw GL texture name from getTexture(index),
+	// always a no-op under DX_RENDER (see bindManual()'s own comment -
+	// nothing to translate a bare GLuint into). This is THE chokepoint for
+	// binding one SPECIFIC attachment of a multi-attachment render target
+	// (diffuse/specular/normal/emissive - anything via an explicit index,
+	// as opposed to LLTexUnit::bind(LLRenderTarget*, bool)'s single-
+	// attachment-0-only overload) as an input texture for a later pass -
+	// LLPipeline::bindDeferredShader() uses exactly this for all of the
+	// deferred lighting pass's G-buffer reads. Root cause of a real bug:
+	// softenLightF.hlsl's getGBuffer() read (0,0,0,0) at every sampled
+	// point even where the G-buffer itself (confirmed via a completely
+	// separate readback path, DXReadback::readPixels() on the raw
+	// resource) had real, varied diffuse color - because diffuseRect/
+	// specularRect/normalMap were never actually bound to their texture
+	// channels at all. This was a known, documented gap - see
+	// DXRenderTarget.h's own class comment ("the read side... has no
+	// DX_RENDER equivalent yet, since no such pass has been converted so
+	// far") - this is that pass. Uses getColorSRV(index) (already exists,
+	// already used by DXReadback/presentDeferredScreen), not the raw-
+	// GLuint path.
+	if (channel < 0)
+	{
+		return;
+	}
+	ID3D11ShaderResourceView* srv = getColorSRV(index);
+	if (!srv)
+	{
+		return;
+	}
+	// Same missing-flush-before-SRV-switch bug class as every other
+	// texture-bind chokepoint fixed this session (see LLTexUnit::bind()'s
+	// comments) - this function has no LLTexUnit instance of its own to
+	// cache "did this channel's SRV actually change" in, so always flush
+	// rather than risk leaving pending batched vertices drawn under stale
+	// state.
+	gGL.flush();
+	// CLAMP address mode baked in here (GL's setTextureAddressMode(TAM_CLAMP)
+	// call that normally follows this one is a confirmed no-op under
+	// DX_RENDER - sampler state is built fresh at bind time, not via that
+	// idiom) - filter_options threaded through for real, unlike
+	// LLTexUnit::bind(LLRenderTarget*, bool)'s hardcoded BILINEAR
+	// simplification, since G-buffer channels (encoded normals, packed
+	// material params) can be genuinely wrong if bilinear-interpolated
+	// across texel boundaries, not just softer-looking.
+	ID3D11SamplerState* sampler = DXSampler::getOrCreate(2, (int)filter_options);
+	gDXDevice.getContext()->PSSetShaderResources(channel, 1, &srv);
+	if (channel < 16) // see LLTexUnit::bindFast()'s comment - sampler slots cap at 16, SRV slots don't
+	{
+		gDXDevice.getContext()->PSSetSamplers(channel, 1, &sampler);
+	}
+#else
 	gGL.getTexUnit(channel)->bindManual(mUsage, getTexture(index), filter_options == LLTexUnit::TFO_TRILINEAR || filter_options == LLTexUnit::TFO_ANISOTROPIC);
 	gGL.getTexUnit(channel)->setTextureFilteringOption(filter_options);
+#endif
 }
 
 // S24
@@ -580,6 +773,48 @@ void LLRenderTarget::flush()
 {
 	gGL.flush();
 
+#ifdef DX_RENDER
+	// Mip generation (mGenerateMipMaps == TMG_AUTO) has no DX_RENDER
+	// equivalent yet - matches DXTexture's "no mip chain" scoping (see its
+	// comment); not exercised by deferredScreen (allocated with TMG_NONE).
+	llassert(sBoundTarget == this);
+
+	if (mPreviousRT)
+	{
+		// Restore previous render target in stack - shared/backend-agnostic
+		// bookkeeping (see bindTarget()'s comment).
+		sBoundTarget = mPreviousRT->mPreviousRT;
+		mPreviousRT->bindTarget();
+	}
+	else
+	{
+		sBoundTarget = nullptr;
+		DXRenderTarget::bindSwapChainBackBuffer();
+
+		// S24 (2026-08-21): bindSwapChainBackBuffer() always sets a viewport
+		// covering the FULL swap chain (DXRenderTarget.cpp) - it has no idea
+		// LLViewerWindow::mWorldViewRectRaw carves out a smaller area below
+		// the menu bar/location bar chrome. GL's own fallback just below
+		// (the #else branch) explicitly restores gGLViewport here; this
+		// branch never did, so any RT stack unwinding to the back buffer
+		// mid-frame (e.g. render_hud_attachments()'s renderGeomPostDeferred()
+		// re-triggering doWaterExclusionMask()'s bindTarget()/flush() cycle)
+		// silently widened the live D3D11 viewport back to the full window -
+		// aspect mismatch crushed HUD text/geometry, and the origin shift
+		// (0,0 vs the chrome-adjusted top) read as an offset. gGLViewport
+		// itself (used by llviewercamera.cpp's unProject() for manipulator
+		// picking) was never touched by bindSwapChainBackBuffer(), so picking
+		// silently disagreed with what was actually on screen.
+		D3D11_VIEWPORT vp = {};
+		vp.TopLeftX = (float)gGLViewport[0];
+		vp.TopLeftY = (float)(gDXSwapChain.getHeight() - (gGLViewport[1] + gGLViewport[3]));
+		vp.Width = (float)gGLViewport[2];
+		vp.Height = (float)gGLViewport[3];
+		vp.MinDepth = 0.0f;
+		vp.MaxDepth = 1.0f;
+		gDXDevice.getContext()->RSSetViewports(1, &vp);
+	}
+#else
 	llassert(mFBO);
 	llassert(sCurFBO == mFBO);
 	llassert(sBoundTarget == this);
@@ -607,11 +842,18 @@ void LLRenderTarget::flush()
 		glReadBuffer(GL_BACK);
 		glDrawBuffer(GL_BACK);
 	}
+#endif // DX_RENDER
 }
 
 bool LLRenderTarget::isComplete() const
 {
+#ifdef DX_RENDER
+	// mTex/mDepth stay empty/0 under DX_RENDER (no GL resources are ever
+	// created) - check the real DX-side state instead.
+	return mDXRenderTarget.getNumColorAttachments() > 0 || mUseDepth;
+#else
 	return !mTex.empty() || mDepth;
+#endif // DX_RENDER
 }
 
 void LLRenderTarget::getViewport(S32* viewport)

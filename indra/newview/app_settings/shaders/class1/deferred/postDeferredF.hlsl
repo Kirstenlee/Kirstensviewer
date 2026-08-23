@@ -24,22 +24,53 @@
 
 /*[EXTRA_CODE_HERE]*/
 
-Texture2D diffuseRect : register(t0);
-SamplerState diffuseRectSampler : register(s0);
+// t0-t3/s0-s3 reserved by deferredUtil.hlsl (attached below,
+// gDeferredPostProgram sets isDeferred=true) - moved this file's own
+// texture to t7/s7, matching the same fix as
+// postDeferredGammaCorrect.hlsl's diffuseRect.
+Texture2D diffuseRect : register(t7);
+SamplerState diffuseRectSampler : register(s7);
 
+// inv_proj/screen_res are also declared by deferredUtil.hlsl, grouped
+// together there under one guard. inv_proj itself is never referenced in
+// this file, but deferredUtil.hlsl's own getPosition() (attached
+// regardless of whether this file calls it - its body still needs to
+// type-check) uses inv_proj internally, so both names must be declared
+// together here even though only screen_res is used below - matching the
+// exact same declared set as deferredUtil.hlsl's guarded block (same
+// "guard grouping" lesson as blurLightF.hlsl's fix earlier this session -
+// deleting inv_proj alone would leave it undeclared once this block's
+// guard trips deferredUtil.hlsl's later one to skip).
+#ifndef LL_INV_PROJ_DECLARED
+#define LL_INV_PROJ_DECLARED
 uniform float4x4 inv_proj;
 uniform float2 screen_res;
+#endif
 uniform float max_cof;
 uniform float res_scale;
 
 struct PSInput
 {
+    // S24 (2026-08-02): missing SV_Position - see uiF.hlsl's comment (fxc.exe-confirmed VS/PS register-shift bug).
+    float4 position : SV_Position;
+
     float2 vary_fragcoord : TEXCOORD0;
 };
 
 void dofSample(inout float4 diff, inout float w, float min_sc, float2 tc)
 {
-    float4 s = diffuseRect.Sample(diffuseRectSampler, tc);
+    // SampleLevel (explicit LOD), not Sample (implicit gradient/derivative
+    // computation) - this function is called from inside a loop whose
+    // iteration count varies per-pixel (its, computed at runtime), and a
+    // gradient instruction inside such a loop forces D3DCompile to attempt
+    // an implicit unroll regardless of any [unroll]/[loop] attribute
+    // (X3570 warning cascading into the same X3511 "unable to unroll"
+    // error as the loop-count issue above) - GLSL's plain texture() call
+    // has no equivalent restriction, so there's nothing to match in the
+    // original source here, this is a standard HLSL-only fix. LOD 0 is
+    // correct since this is a full-resolution post-process buffer with no
+    // mip chain.
+    float4 s = diffuseRect.SampleLevel(diffuseRectSampler, tc, 0);
 
     float sc = abs(s.a * 2.0 - 1.0) * max_cof;
 
@@ -54,7 +85,8 @@ void dofSample(inout float4 diff, inout float w, float min_sc, float2 tc)
 
 void dofSampleNear(inout float4 diff, inout float w, float min_sc, float2 tc)
 {
-    float4 s = diffuseRect.Sample(diffuseRectSampler, tc);
+    // SampleLevel, not Sample - same reasoning as dofSample() above.
+    float4 s = diffuseRect.SampleLevel(diffuseRectSampler, tc, 0);
 
     float wg = 0.25;
     wg += s.r + s.g + s.b;
@@ -66,7 +98,12 @@ float3 clampHDRRange(float3 color);
 
 float4 main(PSInput IN) : SV_Target
 {
-    float2 tc = IN.vary_fragcoord.xy;
+    // S24 (2026-08-11, quick-win origin sweep): GL-vs-D3D11 texture-origin
+    // flip - tc is used only for diffuseRect reads in this file (main's own
+    // Sample() below, plus dofSample()/dofSampleNear()'s SampleLevel()
+    // calls, which just take whatever tc is passed to them), so it's safe
+    // to flip once here. Same bug class as task #158/#185.
+    float2 tc = float2(IN.vary_fragcoord.x, 1.0 - IN.vary_fragcoord.y);
 
     float4 diff = diffuseRect.Sample(diffuseRectSampler, tc);
 
@@ -80,7 +117,15 @@ float4 main(PSInput IN) : SV_Target
             while (sc > 0.5)
             {
                 int its = int(max(1.0, (sc * 3.7)));
-                [unroll]
+                // its is a runtime value (derived from a texture sample),
+                // never a compile-time constant - [unroll] can never
+                // resolve this and forces D3DCompile to give up
+                // (X3511, tried up to 1024 iterations). The original GLSL
+                // has no unroll-equivalent directive here at all - a plain
+                // for loop with a dynamic bound just compiles to a real
+                // loop. Removed; this is a genuine dynamic loop, not a
+                // fixed-count one like the light loops unrolled elsewhere
+                // this session.
                 for (int i = 0; i < its; ++i)
                 {
                     float ang = sc + i * 2 * PI / its;
@@ -97,7 +142,15 @@ float4 main(PSInput IN) : SV_Target
             while (sc > 0.5)
             {
                 int its = int(max(1.0, (sc * 3.7)));
-                [unroll]
+                // its is a runtime value (derived from a texture sample),
+                // never a compile-time constant - [unroll] can never
+                // resolve this and forces D3DCompile to give up
+                // (X3511, tried up to 1024 iterations). The original GLSL
+                // has no unroll-equivalent directive here at all - a plain
+                // for loop with a dynamic bound just compiles to a real
+                // loop. Removed; this is a genuine dynamic loop, not a
+                // fixed-count one like the light loops unrolled elsewhere
+                // this session.
                 for (int i = 0; i < its; ++i)
                 {
                     float ang = sc + i * 2 * PI / its;

@@ -524,7 +524,34 @@ bool LLGLTFPreviewTexture::render()
     gPipeline.generateGlow(&gPipeline.mPostPingMap);
     gPipeline.combineGlow(&gPipeline.mPostPingMap, &screen);
     gPipeline.renderDoF(&screen, &gPipeline.mPostPingMap);
-    gPipeline.applyFXAA(&gPipeline.mPostPingMap, &screen);
+
+    // S24 (2026-08-19, task #227 lead-in): was an unconditional applyFXAA()
+    // call regardless of RenderFSAAType - if the user's AA setting was SMAA
+    // (RenderFSAAType==2) this preview thumbnail silently got zero
+    // antialiasing (generateSMAABuffers()/applySMAA() were never called from
+    // here at all), unlike the main scene chain which correctly branches on
+    // RenderFSAAType (dxpipeline.cpp, mirrors GL's renderFinalize()). Matched
+    // to the real branch now.
+    if (LLPipeline::RenderFSAAType == 1)
+    {
+        gPipeline.applyFXAA(&gPipeline.mPostPingMap, &screen);
+    }
+    else if (LLPipeline::RenderFSAAType == 2)
+    {
+        gPipeline.generateSMAABuffers(&gPipeline.mPostPingMap);
+        gPipeline.applySMAA(&gPipeline.mPostPingMap, &screen);
+    }
+    else
+    {
+        // RenderFSAAType == 0 (AA off): neither branch above runs, so the
+        // post-DoF result sitting in mPostPingMap would never reach `screen`,
+        // which the code below this point reads from unconditionally -
+        // screen would still hold the pre-DoF combineGlow() output instead.
+        // swapFBORefs() is a zero-cost reference swap (mPostPingMap is never
+        // read again after this block) - same pattern already used a few
+        // lines up for mExposureMap/mLastExposure.
+        screen.swapFBORefs(gPipeline.mPostPingMap);
+    }
 
     // *HACK: Restore mExposureMap (it will be consumed by generateExposure next frame)
     gPipeline.mExposureMap.swapFBORefs(gPipeline.mLastExposure);

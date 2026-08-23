@@ -42,6 +42,11 @@
 #include "llviewerjoystick.h"
 #include "llviewermediafocus.h"
 
+#ifdef DX_RENDER
+#include "DXDevice.h"
+#include "DXReadback.h"
+#endif
+
 extern bool gCubeSnapshot;
 extern bool gTeleportDisplay;
 
@@ -232,6 +237,12 @@ void LLHeroProbeManager::renderProbes()
     static LLCachedControl<S32> sLevel(gSavedSettings, "RenderHeroReflectionProbeLevel", 3);
     static LLCachedControl<S32> sUpdateRate(gSavedSettings, "RenderHeroProbeUpdateRate", 0);
 
+    // S24 (2026-08-22): a temporary diagnostic lived here during the "mirrors
+    // render solid black" investigation - found mProbes[0]->mOccluded
+    // flickering true/stuck-true for long stretches even with mNearestHero
+    // valid, which skipped capture entirely (see the capture gate below for
+    // the real fix/explanation). Removed per diagnostic-lifecycle convention.
+
     F32 near_clip = 0.01f;
     if (mNearestHero != nullptr && !mNearestHero->isDead() &&
         !gTeleportDisplay && !gDisconnected && !LLAppViewer::instance()->logoutRequestSent())
@@ -256,7 +267,25 @@ void LLHeroProbeManager::renderProbes()
 
         S32 face = gFrameCount % 6;
 
-        if (!mProbes.empty() && !mProbes[0].isNull() && !mProbes[0]->mOccluded)
+        // S24 (2026-08-22, task #156 follow-up): dropped the `!mOccluded`
+        // gate - confirmed via diagnostic (S24Diag) that mProbes[0]->mOccluded
+        // flickers true/false rapidly and gets stuck true for many
+        // consecutive seconds even while mNearestHero is simultaneously
+        // valid (i.e. the mirror IS the frustum-confirmed nearest visible
+        // one). Root cause: mNearestHero selection (above, in update())
+        // already does a real LLViewerCamera::AABBInFrustum() visibility
+        // check before this ever runs, making the separate occlusion QUERY
+        // redundant here - and actively harmful, since the query's box sits
+        // right at the mirror's own opaque surface, making self-occlusion
+        // (the mirror occluding its own probe test) the likely mechanism.
+        // Unlike the main reflection manager's hundreds of scattered
+        // automatic probes (where occlusion culling is a real, needed
+        // optimization - task #182/#245/#249/#250), there is only ever ONE
+        // hero probe, already selected as "the nearest visible mirror" -
+        // skipping capture on a false-occluded frame just leaves the
+        // texture stale/empty (confirmed root cause of mirrors rendering
+        // solid black) for no performance benefit.
+        if (!mProbes.empty() && !mProbes[0].isNull())
         {
             LL_PROFILE_ZONE_NUM(gFrameCount % rate);
             LL_PROFILE_ZONE_NUM(rate);
@@ -298,6 +327,20 @@ void LLHeroProbeManager::updateProbeFace(LLReflectionMap* probe, U32 face, bool 
     gPipeline.mRT = &gPipeline.mHeroProbeRT;
 
     probe->update(mRenderTarget.getWidth(), face, is_dynamic, near_clip);
+
+    // S24 (2026-08-22, task #156 follow-up, removed 2026-08-23 pre-alpha
+    // perf sweep): temporary diagnostic - mirrors still rendered solid black
+    // after the occlusion-gate fix; this read back mHeroProbeRT.screen's raw
+    // capture via a blocking DXReadback::readPixels() every 2 seconds for
+    // the life of any session with RenderMirrors on, to narrow down whether
+    // the black output originates at capture or downstream of it. Gated
+    // behind RenderMirrors (off by default) so it never cost anything on a
+    // default-settings install, but a real recurring GPU stall for anyone
+    // who opted into mirrors - not appropriate to ship live. Investigation
+    // was NOT concluded before removal: as of this commit, mirror/hero-probe
+    // output is still suspected to render solid black - RenderMirrors stays
+    // off by default for pre-alpha; revisit with a fresh diagnostic (bounded
+    // to a handful of samples, not indefinite) if picked back up.
 
     gPipeline.mRT = &gPipeline.mMainRT;
 
@@ -394,7 +437,18 @@ void LLHeroProbeManager::updateProbeFace(LLReflectionMap* probe, U32 face, bool 
                 LL_PROFILE_GPU_ZONE("hero probe mip copy");
                 mTexture->bind(0);
 
+                // S24 (task #194 follow-up, 2026-08-13): unguarded raw GL -
+                // this whole file had zero DX_RENDER support (gated behind
+                // RenderMirrors, so never yet hit at runtime). Mirrors the
+                // identical fix already landed in
+                // llreflectionmapmanager.cpp's own mip-copy block (task
+                // #147 step 5) - no SRV bind of mTexture needed for the
+                // copy, see DXCubeArrayTexture's own header comment.
+#ifdef DX_RENDER
+                mTexture->getDXTexture()->copySliceFromBoundRenderTarget(mip, sourceIdx * 6 + face, res, res);
+#else
                 glCopyTexSubImage3D(GL_TEXTURE_CUBE_MAP_ARRAY, mip, 0, 0, sourceIdx * 6 + face, 0, 0, res, res);
+#endif
 
                 mTexture->unbind();
             }
@@ -460,13 +514,51 @@ void LLHeroProbeManager::generateRadiance(LLReflectionMap* probe)
 
                     mVertexBuffer->drawArrays(gGL.TRIANGLE_STRIP, 0, 4);
 
+                    // S24 (task #194 follow-up, 2026-08-13): unguarded raw
+                    // GL - mirrors the identical fix already landed in
+                    // llreflectionmapmanager.cpp's own radiance-gen loop
+                    // (task #147 step 5/#147-#184 follow-up). mMipChain[0]
+                    // is bound as render target once before this whole
+                    // face/mip loop (see mMipChain[0].bindTarget() a few
+                    // lines up in this same function) - no SRV bind of
+                    // mTexture needed for the copy, see
+                    // DXCubeArrayTexture's own header comment.
+#ifdef DX_RENDER
+                    mTexture->getDXTexture()->copySliceFromBoundRenderTarget(i, probe->mCubeIndex * 6 + cf, res, res);
+#else
                     glCopyTexSubImage3D(GL_TEXTURE_CUBE_MAP_ARRAY, i, 0, 0, probe->mCubeIndex * 6 + cf, 0, 0, res, res);
+#endif
                 }
 
                 if (i != mMipChain.size() - 1)
                 {
                     res /= 2;
+                    // S24 (task #194 follow-up, 2026-08-13): unguarded raw
+                    // GL - same crash class as every other unfenced GL call
+                    // found this session (null function pointer at runtime,
+                    // since OpenGL is fully delinked from DX_RENDER=ON
+                    // builds). Mirrors llreflectionmapmanager.cpp's own
+                    // identical fix at its sibling radiance-gen loop.
+#ifdef DX_RENDER
+                    // S24 (2026-08-22, plan item B): this site was the one
+                    // outlier - its 3 siblings in llreflectionmapmanager.cpp
+                    // (main reflection-probe radiance-gen, irradiance-gen,
+                    // and face==5 final-mip block) all use the negative-
+                    // height flip below; this one used a plain positive
+                    // viewport. Made consistent with its siblings.
+                    {
+                        D3D11_VIEWPORT vp = {};
+                        vp.TopLeftX = 0.0f;
+                        vp.TopLeftY = (float)res;
+                        vp.Width = (float)res;
+                        vp.Height = -(float)res;
+                        vp.MinDepth = 0.0f;
+                        vp.MaxDepth = 1.0f;
+                        gDXDevice.getContext()->RSSetViewports(1, &vp);
+                    }
+#else
                     glViewport(0, 0, res, res);
+#endif
                 }
             }
 
@@ -574,7 +666,15 @@ void LLHeroProbeManager::initReflectionMaps()
         mDefaultProbe->mProbeIndex = 0;
         touch_default_probe(mDefaultProbe);
 
-        mProbes.push_back(mDefaultProbe);
+        // S24 (2026-08-22): removed a duplicate mProbes.push_back(mDefaultProbe)
+        // that lived here - mDefaultProbe is already the sole entry in
+        // mProbes via the isNull() branch above on first init; this
+        // unconditional second push ran every time this function re-entered
+        // (e.g. RenderHeroProbeResolution changes), appending another
+        // duplicate reference to the SAME probe each time with no bound,
+        // growing mProbes indefinitely over a session. mProbes[0] is the
+        // only entry anything reads (renderProbes()/updateProbeFace()), so
+        // this was silent bloat rather than a visible symptom, but real.
     }
 
     if (mVertexBuffer.isNull())

@@ -32,6 +32,9 @@ float4 encodeNormal(float3 n, float env, float gbuffer_flag);
 
 struct PSInput
 {
+    // S24 (2026-08-02): missing SV_Position - see uiF.hlsl's comment (fxc.exe-confirmed VS/PS register-shift bug).
+    float4 position : SV_Position;
+
     float3 vary_normal : TEXCOORD0;
     float4 vertex_color : COLOR0;
     float2 vary_texcoord0 : TEXCOORD1;

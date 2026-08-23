@@ -1029,6 +1029,60 @@ F32 LLTextureFetchWorker::getImagePriority() const
 	return mImagePriority;
 }
 
+// S24 (2026-08-16): KVRAMCache's priority-segmented eviction deques
+// (BACKGROUND/NORMAL/HIGH/CRITICAL) existed but nothing ever set a
+// CacheEntry's priority away from the default NORMAL, making the
+// segmentation a no-op. Classify using the same boost-level lookup pattern
+// already used a few hundred lines below for gTotalTextureBytesPerBoostLevel
+// (LLViewerTextureManager::findTextures by uuid) - a live, always-current
+// signal, not a value cached at worker-construction time that could go
+// stale (boost level, e.g. BOOST_SELECTED, can change over a texture's
+// life). Ordinary world content (BOOST_NONE) falls back to this worker's
+// own mImagePriority (== the fetch pipeline's on-screen virtual-size
+// estimate) to distinguish still-visible (NORMAL) from went-off-screen-
+// while-fetching (BACKGROUND), using the same F_ALMOST_ZERO threshold
+// this file already uses to decide when a fetch is no longer worth pursuing.
+static KVRAMCache::AssetPriority classify_kvram_priority(const LLUUID& id, F32 image_priority)
+{
+	S32 boost = LLGLTexture::BOOST_NONE;
+	std::vector<LLViewerTexture*> textures;
+	LLViewerTextureManager::findTextures(id, textures);
+	for (LLViewerTexture* tex : textures)
+	{
+		if (tex)
+		{
+			boost = llmax(boost, (S32)tex->getBoostLevel());
+		}
+	}
+
+	switch (boost)
+	{
+		case LLGLTexture::BOOST_UI:
+		case LLGLTexture::BOOST_HUD:
+		case LLGLTexture::BOOST_SELECTED:
+		case LLGLTexture::BOOST_AVATAR_SELF:
+		case LLGLTexture::BOOST_AVATAR_BAKED_SELF:
+		case LLGLTexture::BOOST_ICON:
+		case LLGLTexture::BOOST_THUMBNAIL:
+			return KVRAMCache::AssetPriority::CRITICAL;
+
+		case LLGLTexture::BOOST_AVATAR:
+		case LLGLTexture::BOOST_AVATAR_BAKED:
+		case LLGLTexture::BOOST_SCULPTED:
+		case LLGLTexture::BOOST_BUMP:
+		case LLGLTexture::BOOST_SUPER_HIGH:
+		case LLGLTexture::BOOST_TERRAIN:
+			return KVRAMCache::AssetPriority::HIGH;
+
+		default:
+			break;
+	}
+
+	// BOOST_NONE (ordinary world texture) - fall back to live on-screen priority
+	return (image_priority < F_ALMOST_ZERO) ? KVRAMCache::AssetPriority::BACKGROUND
+	                                         : KVRAMCache::AssetPriority::NORMAL;
+}
+
 // Threads:  Tmain
 void LLTextureFetchWorker::startWork(S32 param)
 {
@@ -2132,7 +2186,8 @@ bool LLTextureFetchWorker::doWork(S32 param)
 					mDecodedDiscard,
 					mRawImage->getWidth(),
 					mRawImage->getHeight(),
-					mRawImage->getComponents()
+					mRawImage->getComponents(),
+					classify_kvram_priority(mID, mImagePriority)
 				);
 			}
 

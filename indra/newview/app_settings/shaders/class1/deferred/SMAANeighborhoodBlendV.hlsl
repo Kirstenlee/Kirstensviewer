@@ -27,6 +27,8 @@
 void SMAANeighborhoodBlendingVS(float2 texcoord,
                                 out float4 offset);
 
+#include "varying/SMAANeighborhoodBlendVarying.hlsli"
+
 struct VSInput
 {
     float3 position : POSITION;
@@ -35,8 +37,7 @@ struct VSInput
 struct VSOutput
 {
     float4 position : SV_Position;
-    float2 vary_texcoord0 : TEXCOORD0;
-    float4 vary_offset : TEXCOORD1;
+    SMAANeighborhoodBlendVarying varying;
 };
 
 VSOutput main(VSInput IN)
@@ -44,9 +45,9 @@ VSOutput main(VSInput IN)
     VSOutput OUT;
 
     OUT.position = float4(IN.position.xyz, 1.0);
-    OUT.vary_texcoord0 = (OUT.position.xy*0.5+0.5);
+    OUT.varying.vary_texcoord0 = (OUT.position.xy*0.5+0.5);
 
-    SMAANeighborhoodBlendingVS(OUT.vary_texcoord0, OUT.vary_offset);
+    SMAANeighborhoodBlendingVS(OUT.varying.vary_texcoord0, OUT.varying.vary_offset);
 
     return OUT;
 }

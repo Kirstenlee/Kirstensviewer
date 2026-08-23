@@ -20,7 +20,36 @@
 #include "llviewercontrol.h"
 #include "lltexturecache.h"
 #include "llappviewer.h"
+#include "llimagej2c.h"
+#include "llimage.h"
 #include <algorithm>
+
+namespace
+{
+    // S24 (2026-08-16): LLTextureCacheWorker's ctor does mWriteData(data) -
+    // it stores the raw pointer, it does NOT copy the buffer (confirmed by
+    // reading it directly) - the actual disk write happens asynchronously on
+    // LLTextureCache's own worker, so the buffer must survive until that
+    // completes, not be freed the moment the (non-blocking, enqueue-only)
+    // writeToCache() call returns. Same ownership pattern as
+    // lltexturefetch.cpp's own CacheWriteResponder: LLTextureCache::
+    // Responder is ref-counted via LLPointer internally (see
+    // LLTextureCacheWorker::mResponder's type), so this object is destroyed
+    // automatically once the write completes and every LLPointer referencing
+    // it goes out of scope - no manual delete needed here, matching
+    // CacheWriteResponder's own usage (just `new` it and hand over the raw
+    // pointer). Frees the buffer exactly once, on destruction, regardless of
+    // whether the write succeeded.
+    class KVRAMDiskWriteResponder : public LLTextureCache::WriteResponder
+    {
+    public:
+        explicit KVRAMDiskWriteResponder(U8* data) : mData(data) {}
+        ~KVRAMDiskWriteResponder() override { free(mData); }
+        void completed(bool success) override { /* nothing else to do - see destructor */ }
+    private:
+        U8* mData;
+    };
+}
 
 // Singleton implementation
 KVRAMCache::KVRAMCache()
@@ -53,19 +82,10 @@ void KVRAMCache::initialize(const CacheConfig& config)
 
     mConfig = config;
 
-    // Initialize disk cache path if not set
-    if (mConfig.disk_cache_path.empty())
-    {
-        // Default to user's AppData/Local/Kirstens S24/texture_cache
-        // This will be set properly by the viewer startup
-        mConfig.disk_cache_path = "texture_cache";
-    }
-
     // KV:RT Removed mLastBaselineEviction — retention time is per-entry now
 
     // Clear all data structures
     mGhostMap.clear();
-    mVRAMLRU.clear();
     mRAMLRU.clear();
     mRAMLRU_BACKGROUND.clear();  // S24: Clear priority-segmented deques
     mRAMLRU_NORMAL.clear();      // S24
@@ -78,14 +98,10 @@ void KVRAMCache::initialize(const CacheConfig& config)
     mInitialized = true;
 
     LL_WARNS("KVRAMCache") << "Initialized with config:"
-        << "\n  VRAM Budget: " << BYTES_TO_MEGA_BYTES(mConfig.vram_budget_bytes) << " MB"
         << "\n  RAM Budget: " << BYTES_TO_MEGA_BYTES(mConfig.ram_budget_bytes) << " MB (range: 256-4096 MB)"
-        << "\n  Disk Budget: " << BYTES_TO_MEGA_BYTES(mConfig.disk_budget_bytes) << " MB"
         << "\n  RAM Retention Time: " << mConfig.ram_retention_time_seconds << " seconds (range: 0.1-30s)"  // KV:GC→RT Renamed from ram_grace_period_seconds
         << "\n  Min Deck Size: " << mMinDeckSize << " textures (range: 100-10000)"
         << "\n  Baseline eviction uses viewer uptime (decoupled from frame rate)"
-        << "\n  VRAM Pressure Threshold: " << (mConfig.vram_pressure_threshold * 100.0f) << "%"
-        << "\n  Disk Cache Enabled: " << (mConfig.enable_disk_cache ? "Yes" : "No")
         << LL_ENDL;
 }
 
@@ -99,12 +115,8 @@ void KVRAMCache::shutdown()
     }
 
     LL_WARNS("KVRAMCache") << "Shutting down - Final stats:"
-        << "\n  VRAM: " << mStats.vram_entry_count << " entries, " 
-        << BYTES_TO_MEGA_BYTES(mStats.vram_used_bytes) << " MB"
-        << "\n  RAM: " << mStats.ram_entry_count << " entries, " 
+        << "\n  RAM: " << mStats.ram_entry_count << " entries, "
         << BYTES_TO_MEGA_BYTES(mStats.ram_used_bytes) << " MB"
-        << "\n  Disk: " << mStats.disk_entry_count << " entries, " 
-        << BYTES_TO_MEGA_BYTES(mStats.disk_used_bytes) << " MB"
         << LL_ENDL;
 
     // Clean up all entries
@@ -177,15 +189,6 @@ void KVRAMCache::initializeFromSettings()
     // Minimum deck size (100-10000 textures in 100 steps)
     U32 deck_size = static_cast<U32>(gSavedSettings.getF32("KVRAMCacheMinDeckSize"));
     mMinDeckSize = llclamp(deck_size, 100U, 10000U);
-
-    // Disk cache path (use subdirectory of main cache)
-    config.disk_cache_path = "texture_cache_ram";
-    config.enable_disk_cache = true;
-
-    // VRAM/Disk budgets not used in Phase 2 (passive RAM buffer only)
-    config.vram_budget_bytes = 0;
-    config.disk_budget_bytes = 0;
-    config.vram_pressure_threshold = 1.0f; // Disabled
 
     LL_WARNS("KVRAMCache") << "Initializing KVRAM Cache (Passive Buffer Mode):"
         << "\n  RAM Budget: " << BYTES_TO_MEGA_BYTES(config.ram_budget_bytes) << " MB"
@@ -298,7 +301,8 @@ bool KVRAMCache::hasTexture(const LLUUID& uuid)
 }
 
 bool KVRAMCache::acceptEviction(const LLUUID& uuid, void* texture_data, U64 size_bytes, S32 discard_level,
-                                U32 width, U32 height, S8 components)
+                                U32 width, U32 height, S8 components,
+                                AssetPriority priority)
 {
     LLMutexLock lock(&mCacheMutex);
 
@@ -401,6 +405,15 @@ bool KVRAMCache::acceptEviction(const LLUUID& uuid, void* texture_data, U64 size
         entry->width = width;
         entry->height = height;
         entry->components = components;
+        // S24 (2026-08-16): refresh priority too - progressive loading calls
+        // this repeatedly for the same uuid, and the object's importance
+        // (e.g. selection state) can change between calls. Note: this does
+        // NOT relocate the uuid already sitting in its (old-priority) deque
+        // slot - it self-corrects the next time evictSlice() re-inserts it
+        // via pushBackToPriorityDeques(), which always uses the current
+        // entry->priority. Worst case is one eviction pass considering the
+        // entry under its previous bucket, never a correctness issue.
+        entry->priority = priority;
 
         // Update stats - just adjust size difference
         mStats.ram_used_bytes = mStats.ram_used_bytes - old_size + size_bytes;
@@ -426,6 +439,7 @@ bool KVRAMCache::acceptEviction(const LLUUID& uuid, void* texture_data, U64 size
     entry->height = height;
     entry->components = components;
     entry->mAdmittedAt = LLTimer::getElapsedSeconds();  // KV:RT Record admission time — entry is protected from eviction for retention_time seconds
+    entry->priority = priority;  // S24 (2026-08-16): caller-classified priority, was always the AssetPriority default (NORMAL) before this
 
     // S24: Capture priority before moving entry into ghost map (avoid C26800 use-after-move)
     AssetPriority prio = entry->priority;
@@ -581,50 +595,71 @@ F32 KVRAMCache::getEvictionPressureMultiplier() const
 
 void KVRAMCache::processPassiveEviction(F32 delta_time)
 {
-    LLMutexLock lock(&mCacheMutex);  // S24: Protect deque/ghost map from concurrent access
+    // S24 (2026-08-16): entries evicted this pass that still need writing to
+    // disk - populated under the lock below (cheap, no I/O/decode), drained
+    // AFTER the lock is released further down. Keeping the real decode+disk-
+    // write work outside mCacheMutex matters here specifically: a slice can
+    // be up to ~20 textures (base_slice=10 * up to 2.0x pressure multiplier),
+    // and holding the lock through 20 real J2C decodes would block every
+    // other thread's hasTexture()/getTexture()/acceptEviction() call for the
+    // whole batch - exactly the kind of stall this codebase is otherwise
+    // careful to avoid (see mDownScaleQueue's own time-slicing elsewhere).
+    std::vector<PendingDiskWrite> pending;
 
-    F32 pressure = getRAMPressure();
-    F32 retention_time = std::max(0.1f, mConfig.ram_retention_time_seconds);  // KV:GC->RT Renamed from ram_grace_period_seconds
-
-    F64 now = LLTimer::getElapsedSeconds();
-
-    // S24: Still needed here for the "always evict >=1" rule below — kept alongside the
-    // multiplier calc's own copy in calculateEvictionPressureMultiplier() rather than
-    // exposing it as a member, since it's a pure function of mSoftThreshold.
-    F32 fill_target = std::max(0.0f, mSoftThreshold - 0.10f);
-    F32 pressure_multiplier = calculateEvictionPressureMultiplier(pressure);
-
-    // KV:RT decoupled base_slice from retention_time — fixed at 10 textures/batch
-    U32 base_slice = 10;
-
-    // Apply pressure scaling to base slice
-    U32 slice_size = (U32)(base_slice * pressure_multiplier);
-
-    // KV:EV If above fill_target, ALWAYS evict at least 1 texture (was hardcoded > 25%)
-    if (pressure > fill_target && slice_size == 0)
     {
-        slice_size = 1;
+        LLMutexLock lock(&mCacheMutex);  // S24: Protect deque/ghost map from concurrent access
+
+        F32 pressure = getRAMPressure();
+        F32 retention_time = std::max(0.1f, mConfig.ram_retention_time_seconds);  // KV:GC->RT Renamed from ram_grace_period_seconds
+
+        F64 now = LLTimer::getElapsedSeconds();
+
+        // S24: Still needed here for the "always evict >=1" rule below — kept alongside the
+        // multiplier calc's own copy in calculateEvictionPressureMultiplier() rather than
+        // exposing it as a member, since it's a pure function of mSoftThreshold.
+        F32 fill_target = std::max(0.0f, mSoftThreshold - 0.10f);
+        F32 pressure_multiplier = calculateEvictionPressureMultiplier(pressure);
+
+        // KV:RT decoupled base_slice from retention_time — fixed at 10 textures/batch
+        U32 base_slice = 10;
+
+        // Apply pressure scaling to base slice
+        U32 slice_size = (U32)(base_slice * pressure_multiplier);
+
+        // KV:EV If above fill_target, ALWAYS evict at least 1 texture (was hardcoded > 25%)
+        if (pressure > fill_target && slice_size == 0)
+        {
+            slice_size = 1;
+        }
+
+        // KV:EV mMinDeckSize acts as a minimum texture reserve — deck must exceed this before batch eviction kicks in
+        // Combined with fill_target: pressure-protects up to fill_target, count-protects down to mMinDeckSize
+        size_t total_entries = mRAMLRU.size() + mRAMLRU_BACKGROUND.size()
+                             + mRAMLRU_NORMAL.size() + mRAMLRU_HIGH.size()
+                             + mRAMLRU_CRITICAL.size();
+        if (slice_size > 0 && total_entries > mMinDeckSize && slice_size < 5)
+        {
+            slice_size = 5;
+        }
+
+        if (slice_size > 0)
+        {
+            evictSlice(slice_size, retention_time, now, pending);  // KV:RT Pass retention_time and now for per-entry age check
+        }
+        // KV:RT Removed mLastBaselineEviction tracking — eviction is now pressure-driven, not interval-driven
     }
 
-    // KV:EV mMinDeckSize acts as a minimum texture reserve — deck must exceed this before batch eviction kicks in
-    // Combined with fill_target: pressure-protects up to fill_target, count-protects down to mMinDeckSize
-    size_t total_entries = mRAMLRU.size() + mRAMLRU_BACKGROUND.size()
-                         + mRAMLRU_NORMAL.size() + mRAMLRU_HIGH.size()
-                         + mRAMLRU_CRITICAL.size();
-    if (slice_size > 0 && total_entries > mMinDeckSize && slice_size < 5)
+    // S24 (2026-08-16): lock released above - now do the real work (decode +
+    // disk write) for anything evictSlice() collected. See PendingDiskWrite's
+    // comment for why this exists at all.
+    for (const PendingDiskWrite& item : pending)
     {
-        slice_size = 5;
+        writeEvictedEntryToDisk(item);
     }
-
-    if (slice_size > 0)
-    {
-        evictSlice(slice_size, retention_time, now);  // KV:RT Pass retention_time and now for per-entry age check
-    }
-    // KV:RT Removed mLastBaselineEviction tracking — eviction is now pressure-driven, not interval-driven
 }
 
 // KV:RT Added retention_time/now params — young entries are pushed back instead of evicted
-void KVRAMCache::evictSlice(U32 slice_size, F64 retention_time, F64 now)
+void KVRAMCache::evictSlice(U32 slice_size, F64 retention_time, F64 now, std::vector<PendingDiskWrite>& out_pending)
 {
     U32 sliced = 0;
 
@@ -677,8 +712,27 @@ void KVRAMCache::evictSlice(U32 slice_size, F64 retention_time, F64 now)
                 mStats.ram_entry_count--;
                 mStats.ram_evictions++;
 
-                // Free the buffer - compressed J2C remains in disk cache
-                free(entry->texture_data);
+                // S24 (2026-08-16): transfer the buffer to out_pending instead
+                // of freeing it here - "compressed J2C remains in disk cache"
+                // was never actually true (nothing wrote it there; see
+                // acceptEviction()'s caller in lltexturefetch.cpp, which
+                // explicitly skips the disk write when this cache accepts a
+                // texture, on the promise that eviction handles it "via
+                // decay"). This is that promise, actually kept: the caller
+                // (processPassiveEviction()) decodes and writes each pending
+                // entry to the real disk cache after releasing mCacheMutex.
+                // Ownership of entry->texture_data moves to out_pending -
+                // null it out here so CacheEntry's destructor (which would
+                // otherwise also free() it) can't double-free once erased.
+                PendingDiskWrite pending;
+                pending.uuid = bottom_uuid;
+                pending.data = static_cast<U8*>(entry->texture_data);
+                pending.size_bytes = entry->size_bytes;
+                pending.discard_level = entry->discard_level;
+                pending.width = entry->width;
+                pending.height = entry->height;
+                pending.components = entry->components;
+                out_pending.push_back(pending);
                 entry->texture_data = nullptr;
 
                 // Remove from ghost map completely
@@ -688,6 +742,74 @@ void KVRAMCache::evictSlice(U32 slice_size, F64 retention_time, F64 now)
             }
         }
     }
+}
+
+// S24 (2026-08-16): completes the disk write acceptEviction()'s caller
+// (lltexturefetch.cpp) deferred when this cache accepted the texture.
+// KVRAMCache only ever stores compressed J2C bytes (never decoded pixels -
+// see this file's header comment), but LLTextureCache::writeToCache()
+// requires a real, valid LLImageRaw (it unconditionally dereferences it,
+// via isBufferInvalid(), before writing anything - a null/dummy raw image
+// would either crash or silently write a wrong fast-cache thumbnail), so
+// this decodes the stored bytes back to pixels first. Real CPU decode work -
+// must be called with no lock held (see processPassiveEviction()'s comment).
+// Always frees item.data exactly once, decode success or failure.
+void KVRAMCache::writeEvictedEntryToDisk(const PendingDiskWrite& item)
+{
+    if (!item.data || item.size_bytes == 0)
+    {
+        free(item.data);
+        return;
+    }
+
+    // S24: LLImageFormatted::copyData() (deleteData()+allocateData()+memcpy(),
+    // the exact copy pattern replicated here) is protected - not reachable
+    // from here. Its sibling setData() IS public but is NOT safe to use with
+    // item.data: it takes direct ownership of the pointer it's given
+    // ("LLImageFormatted becomes the owner of data" - llimage.cpp) and its
+    // own deleteData() later frees it with ll_aligned_free_16(), while
+    // item.data was allocated with plain malloc() in acceptEviction() -
+    // mismatched allocator/deallocator, guaranteed heap corruption. Using
+    // the public allocateData()+memcpy() pair instead makes our own
+    // independent, correctly-aligned copy - item.data itself (the real
+    // compressed bytes actually being written to disk) stays fully separate
+    // and is handed to the responder below, not freed here.
+    LLPointer<LLImageJ2C> compressed = new LLImageJ2C;
+    U8* compressed_copy = compressed->allocateData((S32)item.size_bytes);
+    if (!compressed_copy)
+    {
+        LL_WARNS("KVRAMCache") << "writeEvictedEntryToDisk: allocateData failed for " << item.uuid << LL_ENDL;
+        free(item.data);
+        return;
+    }
+    memcpy(compressed_copy, item.data, item.size_bytes);
+
+    LLPointer<LLImageRaw> raw = new LLImageRaw;
+    if (!compressed->decode(raw, 0.0f))
+    {
+        LL_WARNS("KVRAMCache") << "writeEvictedEntryToDisk: failed to decode " << item.uuid
+            << " for disk write-back (" << item.width << "x" << item.height
+            << ", discard " << item.discard_level << ") - texture will need a full "
+            << "network re-fetch instead of a disk hit next time it's needed" << LL_ENDL;
+        free(item.data);
+        return;
+    }
+
+    LLTextureCache* cache = LLAppViewer::getTextureCache();
+    if (!cache)
+    {
+        free(item.data);
+        return;
+    }
+
+    // datasize and imagesize both = the full compressed size: KVRAMCache
+    // only ever holds complete (if possibly lower-discard-level) data, never
+    // a partial/truncated in-progress download - matches lltexturefetch.cpp's
+    // own mHaveAllData=true convention for mFileSize. Responder takes
+    // ownership of item.data and frees it once the async write completes -
+    // see KVRAMDiskWriteResponder's comment for why that can't happen here.
+    cache->writeToCache(item.uuid, item.data, (S32)item.size_bytes,
+        (S32)item.size_bytes, raw, item.discard_level, new KVRAMDiskWriteResponder(item.data));
 }
 
 // KV:RT Helper to re-insert a texture at the back of its priority deque when it's too young to evict

@@ -34,12 +34,19 @@ uniform int motion_blur_strength;
 
 struct PSInput
 {
+    // S24 (2026-08-02): missing SV_Position - see uiF.hlsl's comment (fxc.exe-confirmed VS/PS register-shift bug).
+    float4 position : SV_Position;
+
     float2 vary_fragcoord : TEXCOORD0;
 };
 
 float4 main(PSInput IN) : SV_Target
 {
-    float2 uv = IN.vary_fragcoord;
+    // S24 (2026-08-11, quick-win origin sweep): GL-vs-D3D11 texture-origin
+    // flip - uv is used only for velocityMap/diffuseRect sampling in this
+    // file (no position reconstruction), safe to flip once here. Same bug
+    // class as task #158/#185.
+    float2 uv = float2(IN.vary_fragcoord.x, 1.0 - IN.vary_fragcoord.y);
     float2 vel = velocityMap.Sample(velocityMapSampler, uv).rg;
 
     // NDC velocity to pixel velocity

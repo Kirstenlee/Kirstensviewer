@@ -39,6 +39,9 @@ struct VSInput
 #ifdef HAS_ATTRIBUTE_TANGENT
     float4 tangent : TANGENT;
 #endif
+#ifdef HAS_SKIN
+    float4 weight4 : BLENDWEIGHT;
+#endif
 };
 
 struct VSOutput

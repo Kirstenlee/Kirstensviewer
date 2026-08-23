@@ -24,10 +24,18 @@
 
 /*[EXTRA_CODE_HERE]*/
 
-Texture2D diffuseRect : register(t0);
-SamplerState diffuseRectSampler : register(s0);
+// t0-t3/s0-s3 reserved by deferredUtil.hlsl (attached below, isDeferred=true
+// on gDeferredCoFProgram) - moved this file's own texture to t7/s7.
+Texture2D diffuseRect : register(t7);
+SamplerState diffuseRectSampler : register(s7);
+
+// depthMap/depthMapSampler are also declared by deferredUtil.hlsl - same
+// real resource, guarded there - reuse it here (already matching names).
+#ifndef LL_DEPTHMAP_DECLARED
+#define LL_DEPTHMAP_DECLARED
 Texture2D depthMap : register(t1);
 SamplerState depthMapSampler : register(s1);
+#endif
 
 uniform float depth_cutoff;
 uniform float norm_cutoff;
@@ -37,11 +45,23 @@ uniform float tan_pixel_angle;
 uniform float magnification;
 uniform float max_cof;
 
+// inv_proj/screen_res are also declared by deferredUtil.hlsl, grouped
+// together there under one guard. screen_res itself is never referenced in
+// this file (confirmed via grep of both this file and the original GLSL),
+// but must still be declared alongside inv_proj to match the exact same
+// set deferredUtil.hlsl's guarded block declares - same reasoning as
+// postDeferredF.hlsl's fix earlier this round.
+#ifndef LL_INV_PROJ_DECLARED
+#define LL_INV_PROJ_DECLARED
 uniform float4x4 inv_proj;
 uniform float2 screen_res;
+#endif
 
 struct PSInput
 {
+    // S24 (2026-08-02): missing SV_Position - see uiF.hlsl's comment (fxc.exe-confirmed VS/PS register-shift bug).
+    float4 position : SV_Position;
+
     float2 vary_fragcoord : TEXCOORD0;
 };
 
@@ -62,7 +82,14 @@ float calc_cof(float depth)
 
 float4 main(PSInput IN) : SV_Target
 {
-    float2 tc = IN.vary_fragcoord.xy;
+    // S24 (2026-08-11, quick-win origin sweep): GL-vs-D3D11 texture-origin
+    // flip - tc here is used only for the two direct Sample() calls below
+    // (the depth read's NDC.xy is hardcoded to (0,0), not derived from tc),
+    // so it's safe to flip once here rather than at each call site. Same
+    // bug class as task #158/#185 (shadows/SSAO) - found via a proactive
+    // sweep after those two fixes, never hit until DoF (task #140) is wired
+    // in and exercised for real.
+    float2 tc = float2(IN.vary_fragcoord.x, 1.0 - IN.vary_fragcoord.y);
 
     float z = depthMap.Sample(depthMapSampler, tc).r;
     z = z*2.0-1.0;
@@ -70,7 +97,7 @@ float4 main(PSInput IN) : SV_Target
     float4 p = mul(inv_proj, ndc);
     float depth = p.z/p.w;
 
-    float4 diff = diffuseRect.Sample(diffuseRectSampler, IN.vary_fragcoord.xy);
+    float4 diff = diffuseRect.Sample(diffuseRectSampler, tc);
 
     float sc = calc_cof(depth);
     sc = min(sc, max_cof);

@@ -3016,6 +3016,14 @@ void LLViewerMediaImpl::update()
 #if LL_IMAGEGL_THREAD_CHECK
 					media_tex->getGLTexture()->mActiveThread = LLThread::currentID();
 #endif
+#ifdef DX_RENDER
+					// S24 (2026-08-16): complete the deferred GPU upload
+					// staged by doMediaTexUpdate() on the worker thread
+					// above (createGLTexture()+setSubImage(), both deferred
+					// since that ran off the main thread - see DXTexture's
+					// top comment).
+					media_tex->getGLTexture()->finalizePendingGPUUpload();
+#endif
 					mTextureUpdatePending = false;
 					media_tex->unref();
 					unref();

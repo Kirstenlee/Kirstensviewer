@@ -27,23 +27,26 @@
 Texture2D diffuseMap : register(t0);
 SamplerState diffuseMapSampler : register(s0);
 
+#include "varying/avatarVelocityVarying.hlsli"
+
+// S24 (2026-08-02): see uiF.hlsl's comment - real register mismatch,
+// confirmed via fxc.exe disassembly, affects every bare-Varying PS input.
 struct PSInput
 {
-    float4 vary_cur_clip : TEXCOORD0;
-    float4 vary_last_clip : TEXCOORD1;
-    float2 vary_texcoord0 : TEXCOORD2;
+    float4 position : SV_Position;
+    AvatarVelocityVarying varying;
 };
 
 float4 main(PSInput IN) : SV_Target
 {
-    float alpha = diffuseMap.Sample(diffuseMapSampler, IN.vary_texcoord0.xy).a;
+    float alpha = diffuseMap.Sample(diffuseMapSampler, IN.varying.vary_texcoord0.xy).a;
     if (alpha < 0.2)
     {
         discard;
     }
 
-    float2 cur_ndc = IN.vary_cur_clip.xy / IN.vary_cur_clip.w;
-    float2 last_ndc = IN.vary_last_clip.xy / IN.vary_last_clip.w;
+    float2 cur_ndc = IN.varying.vary_cur_clip.xy / IN.varying.vary_cur_clip.w;
+    float2 last_ndc = IN.varying.vary_last_clip.xy / IN.varying.vary_last_clip.w;
 
     return float4(cur_ndc - last_ndc, 0.0, 1.0);
 }

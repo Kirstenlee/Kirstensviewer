@@ -42,6 +42,8 @@ float4x4 getLastSkinnedTransform(float4 weight)
     return ret;
 }
 
+#include "varying/avatarVelocityVarying.hlsli"
+
 struct VSInput
 {
     float3 position : POSITION;
@@ -52,9 +54,7 @@ struct VSInput
 struct VSOutput
 {
     float4 position : SV_Position;
-    float4 vary_cur_clip : TEXCOORD0;
-    float4 vary_last_clip : TEXCOORD1;
-    float2 vary_texcoord0 : TEXCOORD2;
+    AvatarVelocityVarying varying;
 };
 
 VSOutput main(VSInput IN)
@@ -71,9 +71,9 @@ VSOutput main(VSInput IN)
 
     OUT.position = current_clip;
 
-    writeVaryVelocity(current_clip, last_clip, OUT.vary_cur_clip, OUT.vary_last_clip);
+    writeVaryVelocity(current_clip, last_clip, OUT.varying.vary_cur_clip, OUT.varying.vary_last_clip);
 
-    OUT.vary_texcoord0 = IN.texcoord0;
+    OUT.varying.vary_texcoord0 = IN.texcoord0;
 
     return OUT;
 }

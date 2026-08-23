@@ -388,6 +388,15 @@ void LLPostProcess::createNoiseTexture(LLPointer<LLImageGL>& texture)
 
 bool LLPostProcess::checkError(void)
 {
+#ifdef DX_RENDER
+    // S24 (DX_RENDER, 2026-07-24): mirrors llgl.cpp's log_glerror()/
+    // do_assert_glerror() DX_RENDER no-ops - no GL context, no GL error
+    // state, and glGetError()/gluErrorString() are unresolved symbols under
+    // DX_RENDER (OpenGL is deliberately not linked - see
+    // newview/CMakeLists.txt). Second straggler this linker technique
+    // caught - see the dxrender open-issues ledger.
+    return false;
+#else
     GLenum glErr;
     bool    retCode = false;
 
@@ -412,6 +421,7 @@ bool LLPostProcess::checkError(void)
         glErr = glGetError();
     }
     return retCode;
+#endif // DX_RENDER
 }
 
 void LLPostProcess::checkShaderError(GLuint shader)

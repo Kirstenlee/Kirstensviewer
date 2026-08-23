@@ -39,17 +39,17 @@ struct VSInput
     float3 normal : NORMAL;
     float2 texcoord0 : TEXCOORD0;
     float4 tangent : TANGENT;
+#ifdef HAS_SKIN
+    float4 weight4 : BLENDWEIGHT;
+#endif
 };
+
+#include "varying/deferredBumpVarying.hlsli"
 
 struct VSOutput
 {
     float4 position : SV_Position;
-    float3 vary_mat0 : TEXCOORD0;
-    float3 vary_mat1 : TEXCOORD1;
-    float3 vary_mat2 : TEXCOORD2;
-    float4 vertex_color : COLOR0;
-    float2 vary_texcoord0 : TEXCOORD3;
-    float3 vary_position : TEXCOORD4;
+    DeferredBumpVarying varying;
 };
 
 VSOutput main(VSInput IN)
@@ -61,26 +61,26 @@ VSOutput main(VSInput IN)
     float4x4 mat = getObjectSkinnedTransform();
     mat = mul(modelview_matrix, mat);
     float3 pos = mul(mat, float4(IN.position.xyz, 1.0)).xyz;
-    OUT.vary_position = pos;
+    OUT.varying.vary_position = pos;
     OUT.position = mul(projection_matrix, float4(pos, 1.0));
 
     float3 n = normalize(mul(mat, float4(IN.normal.xyz + IN.position.xyz, 1.0)).xyz - pos.xyz);
     float3 t = normalize(mul(mat, float4(IN.tangent.xyz + IN.position.xyz, 1.0)).xyz - pos.xyz);
 #else
-    OUT.vary_position = mul(modelview_matrix, float4(IN.position.xyz, 1.0)).xyz;
+    OUT.varying.vary_position = mul(modelview_matrix, float4(IN.position.xyz, 1.0)).xyz;
     OUT.position = mul(modelview_projection_matrix, float4(IN.position.xyz, 1.0));
     float3 n = normalize(mul(normal_matrix, IN.normal));
     float3 t = normalize(mul(normal_matrix, IN.tangent.xyz));
 #endif
 
     float3 b = cross(n, t) * IN.tangent.w;
-    OUT.vary_texcoord0 = mul(texture_matrix0, float4(IN.texcoord0, 0, 1)).xy;
+    OUT.varying.vary_texcoord0 = mul(texture_matrix0, float4(IN.texcoord0, 0, 1)).xy;
 
-    OUT.vary_mat0 = float3(t.x, b.x, n.x);
-    OUT.vary_mat1 = float3(t.y, b.y, n.y);
-    OUT.vary_mat2 = float3(t.z, b.z, n.z);
+    OUT.varying.vary_mat0 = float3(t.x, b.x, n.x);
+    OUT.varying.vary_mat1 = float3(t.y, b.y, n.y);
+    OUT.varying.vary_mat2 = float3(t.z, b.z, n.z);
 
-    OUT.vertex_color = IN.diffuse_color;
+    OUT.varying.vertex_color = IN.diffuse_color;
 
     return OUT;
 }

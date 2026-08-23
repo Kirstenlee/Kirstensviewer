@@ -31,11 +31,22 @@ uniform float mipLevel;
 
 struct PSInput
 {
+    // S24 (2026-08-02): missing SV_Position - see uiF.hlsl's comment (fxc.exe-confirmed VS/PS register-shift bug).
+    float4 position : SV_Position;
+
     float2 vary_fragcoord : TEXCOORD0;
 };
 
 float4 main(PSInput IN) : SV_Target
 {
-    float4 diff = diffuseRect.SampleLevel(diffuseRectSampler, IN.vary_fragcoord.xy, mipLevel);
+    // S24 (2026-08-19, task #230, task #227 audit finding): GL-vs-D3D11
+    // read-side flip - same fix already applied to every sibling file in
+    // this post-fx chain reading diffuseRect via vary_fragcoord from the
+    // same postDeferredNoTCV vertex shader (postDeferredF.hlsl,
+    // postDeferredGammaCorrect.hlsl, postDeferredNoDoFF.hlsl,
+    // postDeferredTonemap.hlsl) - this one (Develop > Visualize Buffers
+    // debug view) never had it.
+    float2 tc = float2(IN.vary_fragcoord.x, 1.0 - IN.vary_fragcoord.y);
+    float4 diff = diffuseRect.SampleLevel(diffuseRectSampler, tc, mipLevel);
     return diff;
 }

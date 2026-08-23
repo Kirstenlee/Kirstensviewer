@@ -147,6 +147,16 @@ public:
 	void getOpenGLRotation(F32 *ogl_matrix) const;
 	void getOpenGLTransform(F32 *ogl_matrix) const;
 
+	// S24 (2026-08-22, plan item A - DX-native derivation): a deliberately
+	// SEPARATE rotation-matrix export for DX_RENDER consumers, so this can
+	// be freely re-derived/experimented on without any risk to
+	// getOpenGLRotation()'s callers (GL, and any shared code) or the
+	// already-fragile, independently-tuned GL-shared tables
+	// (LLCubeMapArray::sClipToCubeLookVecs/sUpVecs) that broke when a
+	// capture-side table was changed without this. Only DX_RENDER-specific
+	// consumers should ever call this - not a general-purpose utility.
+	void getDirectXRotation(F32 *dx_matrix) const;
+
 	// lookDir orients to (xuv, presumed normalized) and does not affect origin
 	void lookDir(const LLVector3 &xuv, const LLVector3 &up);
 	void lookDir(const LLVector3 &xuv); // up = 0,0,1

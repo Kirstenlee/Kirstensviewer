@@ -194,6 +194,16 @@ public:
         INVERSE_MODELVIEW_DELTA_MATRIX,     //  "inv_modelview_delta"
         CUBE_SNAPSHOT,                      //  "cube_snapshot"
 
+        // S24 (2026-08-23, task #190 temporal-SSAO follow-up): reprojection
+        // uniform for the new temporal-resolve pass (dxpipeline.cpp) - no
+        // "last projection" uniform existed anywhere in the codebase before
+        // this (confirmed via full-tree grep); needed alongside the
+        // already-existing inv_modelview_delta to reproject a current-frame
+        // eye-space position into last frame's screen UV.
+        LAST_PROJECTION_MATRIX,             //  "last_projection_matrix"
+        // History-buffer texture channel for the same pass (mSSAOHistory).
+        DEFERRED_SSAO_HISTORY_MAP,          //  "history_map"
+
         FXAA_TC_SCALE,                      //  "tc_scale"
         FXAA_RCP_SCREEN_RES,                //  "rcp_screen_res"
         FXAA_RCP_FRAME_OPT,                 //  "rcp_frame_opt"
@@ -366,7 +376,13 @@ public:
     void dumpShaderSource(U32 shader_code_count, GLchar** shader_code_text);
     bool    linkProgramObject(GLuint obj, bool suppress_errors = false);
     bool    validateProgramObject(GLuint obj);
-    GLuint loadShaderFile(const std::string& filename, S32 & shader_level, GLenum type, std::map<std::string, std::string>* defines = NULL, S32 texture_index_channels = -1);
+    // attaches_deferred_util should be true whenever this call's shader
+    // instance will cause deferredUtil.glsl/deferredUtil.hlsl to be attached
+    // - i.e. mFeatures.isDeferred || mFeatures.hasReflectionProbes (the real
+    // attachShaderFeatures() gate for that file, not isDeferred alone - see
+    // loadShaderFile()'s HLSL indexed-texture-channel register-base comment
+    // for why this distinction matters).
+    GLuint loadShaderFile(const std::string& filename, S32 & shader_level, GLenum type, std::map<std::string, std::string>* defines = NULL, S32 texture_index_channels = -1, bool attaches_deferred_util = false);
 
     // Implemented in the application to actually point to the shader directory.
     virtual std::string getShaderDirPrefix(void) = 0; // Pure Virtual

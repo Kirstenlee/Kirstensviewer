@@ -40,6 +40,10 @@
 #include <list>
 #include <glm/gtc/matrix_transform.hpp>
 
+#ifdef DX_RENDER
+#include "DXBuffer.h"
+#endif
+
 #define LL_MAX_VERTEX_ATTRIB_LOCATION 64
 
 //============================================================================
@@ -55,6 +59,9 @@
 // base class
 class LLPrivateMemoryPool;
 class LLVertexBuffer;
+#ifdef DX_RENDER
+class LLGLSLShader;
+#endif
 
 class LLVertexBufferData
 {
@@ -86,6 +93,16 @@ public:
     glm::mat4 mProjection;
     glm::mat4 mModelView;
     glm::mat4 mTexture0;
+#ifdef DX_RENDER
+    // S24 (task #54): DX-native counterpart to mTexName above - captured by
+    // LLRender::flush() from LLTexUnit::mCurrBoundImageGL when recording a
+    // display list (see LLFontVertexBuffer/LLUIImage's caches). A strong ref
+    // keeps the texture alive for as long as this cached entry exists, which
+    // mTexName's raw GLuint never guaranteed on the GL side either. draw()/
+    // drawWithMatrix() replay this via a real bind(LLImageGL*) call instead
+    // of GL's bindManual(mTexName), which has no DX11 resource to translate.
+    LLPointer<LLImageGL> mDXImage;
+#endif
 };
 typedef std::list<LLVertexBufferData> buffer_data_list_t;
 
@@ -108,6 +125,18 @@ public:
     static void drawElements(U32 mode, const LLVector4a* pos, const LLVector2* tc, U32 num_indices, const U16* indicesp);
 
     static void unbind(); //unbind any bound vertex buffer
+
+#ifdef DX_RENDER
+    // S24 (2026-08-02): TEMPORARY - one-shot diagnostic for the "world
+    // renders solid black" investigation (see project_dxrender_open_issues
+    // memory). Counts every real ctx->Draw()/DrawIndexed() call issued via
+    // drawRange()/drawRangeFast()/drawArrays() - the true universal
+    // DX_RENDER draw chokepoint (see assertShaderStagesBound()'s comment in
+    // llvertexbuffer.cpp) - so a caller elsewhere can tell "zero draws
+    // issued this frame" apart from "draws issued but produced no visible
+    // color". Remove once the black-screen cause is found.
+    static U32 getAndResetDXDrawCallCount();
+#endif
 
     //get the size of a vertex with the given typemask
     static U32 calcVertexSize(const U32& typemask);
@@ -280,6 +309,15 @@ public:
 protected:
     U32     mGLBuffer = 0;      // GL VBO handle
     U32     mGLIndices = 0;     // GL IBO handle
+#ifdef DX_RENDER
+    // DX_RENDER's GPU-side resources - mMappedData/mMappedIndexData (below)
+    // stay a plain heap-allocated CPU shadow copy under DX_RENDER too (see
+    // genBuffer()/genIndices()), separate from these. The matching
+    // ID3D11InputLayout isn't cached here - DXVertexLayout::getOrCreate()
+    // already caches process-wide by (data_mask, vs_bytecode).
+    DXBuffer mDXBuffer;
+    DXBuffer mDXIndices;
+#endif
     U32     mNumVerts = 0;      // Number of vertices allocated
     U32     mNumIndices = 0;    // Number of indices allocated
     U32     mIndicesType = GL_UNSIGNED_SHORT; // type of indices in index buffer
@@ -333,6 +371,18 @@ public:
     // shared context. Mirrors gGL's own thread_local pattern (llrender.h).
     static thread_local U32 sGLRenderBuffer;
     static thread_local U32 sGLRenderIndices;
+#ifdef DX_RENDER
+    // DX_RENDER's equivalent of sGLRenderBuffer/sGLRenderIndices - GL buffer
+    // names aren't meaningful identifiers for D3D11 resources, so this caches
+    // the actual bound ID3D11Buffer* instead, same elide-redundant-bind role.
+    static thread_local ID3D11Buffer* sDXRenderBuffer;
+    static thread_local ID3D11Buffer* sDXRenderIndices;
+    // Mirrors sLastMask's role - GL rebuilds vertex attrib pointers when the
+    // bound shader changes even on the same buffer (different active
+    // locations); DX_RENDER's equivalent trigger is "the bound VS changed",
+    // since the input layout is keyed on (mTypeMask, vs_bytecode).
+    static thread_local LLGLSLShader* sDXLastShader;
+#endif
     static U32 sLastMask;
     static U32 sVertexCount;
 

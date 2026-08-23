@@ -40,6 +40,10 @@
 #include "lldrawpoolalpha.h"
 #include "lldrawpoolbump.h"
 #include "lldrawpoolwater.h"
+#ifdef DX_RENDER
+#include "dxpipeline.h"
+#include "DXUIBatch.h"
+#endif
 #include "lldynamictexture.h"
 #include "llenvironment.h"
 #include "llfasttimer.h"
@@ -180,7 +184,9 @@ void display_startup()
 
 	LLGLState::checkStates();
 
+#ifndef DX_RENDER
 	glClear(GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT); // | GL_STENCIL_BUFFER_BIT);
+#endif
 	LLGLSUIDefault gls_ui;
 	gPipeline.disableLights();
 
@@ -197,7 +203,9 @@ void display_startup()
 	if (gViewerWindow && gViewerWindow->getWindow())
 		gViewerWindow->getWindow()->swapBuffers();
 
+#ifndef DX_RENDER
 	glClear(GL_DEPTH_BUFFER_BIT);
+#endif
 }
 
 void display_update_camera()
@@ -460,7 +468,9 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 	{
 		LL_DEBUGS("Window") << "Resizing window" << LL_ENDL;
 		gGL.flush();
+#ifndef DX_RENDER
 		glClear(GL_COLOR_BUFFER_BIT);
+#endif
 		gViewerWindow->getWindow()->swapBuffers();
 		LLPipeline::refreshCachedSettings();
 		gPipeline.resizeScreenTexture();
@@ -755,7 +765,9 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 		if (LLViewerDynamicTexture::updateAllInstances())
 		{
 			gGL.setColorMask(true, true);
+#ifndef DX_RENDER
 			glClear(GL_DEPTH_BUFFER_BIT);
+#endif
 		}
 	}
 
@@ -855,19 +867,25 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 			{
 			case MASK_MODE_LEFT:
 				gGL.setColorMask(true, true);
+#ifndef DX_RENDER
 				glClearColor(0.f, 0.f, 0.f, 0.f);
 				glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+#endif
 				gGL.setColorMask(true, false, false, true); // Red
 				break;
 			case MASK_MODE_RIGHT:
 				// Don't clear! Render cyan on top of red for anaglyph
+#ifndef DX_RENDER
 				glClear(GL_DEPTH_BUFFER_BIT); // Only clear depth for proper occlusion
+#endif
 				gGL.setColorMask(false, true, true, true); // Cyan
 				break;
 			case MASK_MODE_NONE:
 				gGL.setColorMask(true, true); // Normal
+#ifndef DX_RENDER
 				glClearColor(0.f, 0.f, 0.f, 0.f);
 				glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+#endif
 				break;
 			}
 
@@ -887,7 +905,9 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 
 				glm::mat4 proj = get_current_projection();
 				glm::mat4 mod = get_current_modelview();
+#ifndef DX_RENDER
 				glViewport(0, 0, 512, 512);
+#endif
 
 				LLVOAvatar::updateImpostors();
 
@@ -945,11 +965,13 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 		LLAppViewer::instance()->pingMainloopTimeout("Display:Sky");
 		gSky.updateSky();
 
+#ifndef DX_RENDER
 		if (gUseWireframe)
 		{
 			glClearColor(0.5f, 0.5f, 0.5f, 0.f);
 			glClear(GL_COLOR_BUFFER_BIT);
 		}
+#endif
 
 		LLAppViewer::instance()->pingMainloopTimeout("Display:RenderStart");
 
@@ -973,6 +995,7 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 		}
 
 		gPipeline.mRT->deferredScreen.bindTarget();
+#ifndef DX_RENDER
 		if (gUseWireframe)
 		{
 			constexpr F32 g = 0.5f;
@@ -982,6 +1005,13 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 		{
 			glClearColor(1, 0, 1, 1);
 		}
+#endif
+		// DXRenderTarget::clear()'s DX_RENDER branch always clears to a
+		// hardcoded transparent black regardless of glClearColor() (D3D11's
+		// ClearRenderTargetView takes an explicit color argument, not a
+		// "current state" the way GL's glClearColor+glClear two-step does) -
+		// the magenta/grey debug-clear colors above are GL-only, not lost
+		// functionality under DX_RENDER.
 		gPipeline.mRT->deferredScreen.clear();
 
 		// S24 3D - Don't override stereo color masks
@@ -1048,11 +1078,25 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 		{
 			for (S32 i = 0; i < gGLManager.mNumTextureImageUnits; i++)
 			{ //dummy cleanup of any currently bound textures
+#ifdef DX_RENDER
+				// S24 (2026-08-10, task #158): mCurrTexType never leaves
+				// TT_NONE under DX_RENDER (see LLGLSLShader::disableTexture()'s
+				// comment for the full explanation) - this gate always
+				// evaluated false, so this per-frame, all-texture-unit
+				// cleanup pass never actually unbound anything under
+				// DX_RENDER. Same bug class, much larger blast radius (every
+				// slot, every frame) - real contributor to the "resource
+				// still bound on input" D3D11 debug-layer warnings this
+				// session traced to the same root cause. Unconditional here.
+				gGL.getTexUnit(i)->unbind(LLTexUnit::TT_TEXTURE);
+				gGL.getTexUnit(i)->disable();
+#else
 				if (gGL.getTexUnit(i)->getCurrType() != LLTexUnit::TT_NONE)
 				{
 					gGL.getTexUnit(i)->unbind(gGL.getTexUnit(i)->getCurrType());
 					gGL.getTexUnit(i)->disable();
 				}
+#endif
 			}
 		}
 
@@ -1286,10 +1330,14 @@ void display_cube_face()
 
 	//gGL.setColorMask(true, true);
 
+#ifndef DX_RENDER
 	glClearColor(0.f, 0.f, 0.f, 0.f);
+#endif
 	gPipeline.generateSunShadow(*LLViewerCamera::getInstance());
 
+#ifndef DX_RENDER
 	glClear(GL_DEPTH_BUFFER_BIT); // | GL_STENCIL_BUFFER_BIT);
+#endif
 
 	{
 		LLViewerCamera::sCurCameraID = LLViewerCamera::CAMERA_WORLD;
@@ -1328,6 +1376,7 @@ void display_cube_face()
 	//gGL.setColorMask(true, true);
 
 	gPipeline.mRT->deferredScreen.bindTarget();
+#ifndef DX_RENDER
 	if (gUseWireframe)
 	{
 		glClearColor(0.5f, 0.5f, 0.5f, 1.f);
@@ -1336,11 +1385,58 @@ void display_cube_face()
 	{
 		glClearColor(1.f, 0.f, 1.f, 1.f);
 	}
+#endif
 	gPipeline.mRT->deferredScreen.clear();
 
 	LLViewerCamera::sCurCameraID = LLViewerCamera::CAMERA_WORLD;
 
 	gPipeline.renderGeomDeferred(*LLViewerCamera::getInstance());
+
+#ifdef DX_RENDER
+	// S24 (2026-08-03): LLPipeline::renderDeferredLighting() is a confirmed
+	// no-op stub under DX_RENDER (returns at its own top, see its comment) -
+	// but the GL body it skips is also the ONLY call site for
+	// renderGeomPostDeferred(*LLViewerCamera::getInstance()) (the main-
+	// camera forward/alpha/glow pass, buried deep inside renderDeferredLighting()
+	// at pipeline.cpp's "render non-deferred geometry (alpha, fullbright,
+	// glow)" block). That means DXPipeline::renderGeomPostDeferred() (built
+	// this session) was correctly wired but structurally unreachable for
+	// the world scene - confirmed via a diagnostic that only ever fired
+	// from the separate HUD call site (render_hud_attachments(), below),
+	// never for the main camera.
+	//
+	// S24 (2026-08-03) REVISED after a real regression: an earlier version
+	// of this fix called DXPipeline::presentDeferredScreen() (the blit of
+	// deferredScreen onto the swap chain back buffer) HERE, reasoning that
+	// deferredScreen.flush() leaves the back buffer bound, so the alpha
+	// pass could draw directly onto it. That broke the whole frame to
+	// solid black - moving the ONLY back-buffer-bind-and-blit step this
+	// early left the entire rest of the frame (reflection probes, shadows,
+	// snapshots, impostors - anything that rebinds a render target) free
+	// to leave something OTHER than the back buffer bound by the time
+	// Present() actually runs, since nothing later re-established it.
+	//
+	// Correct fix: don't move the blit at all - draw the alpha/glow pass
+	// directly INTO deferredScreen instead (which still holds this frame's
+	// opaque content, and its own matching depth buffer for correct
+	// occlusion), BEFORE deferredScreen.flush() below hands the back
+	// buffer back over. The single real blit stays exactly where it always
+	// was (LLPipeline::renderFinalize(), late in the frame, right before
+	// UI) - it now just picks up alpha/glow content for free, since it's
+	// already sitting in the same G-buffer attachment (data0) that blit
+	// reads from. dxdrawpoolalpha.cpp's shaders only write a single
+	// SV_Target (not deferredScreen's full multi-target PSOutput) - with
+	// deferredScreen's 3-4 RTVs bound, that just means only data0 (the
+	// diffuse/color attachment presentDeferredScreen() blits) receives the
+	// write; data1-3 (specular/normal/emissive) are simply left untouched,
+	// which is fine for this first pass (no per-pixel lighting response
+	// from alpha content yet, matching the "plain world" state everything
+	// else is still in). deferredScreen is still the actively bound render
+	// target at this point (flush() hasn't run yet - see below), so no
+	// rebind is needed or safe to do (LLRenderTarget::bindTarget() asserts
+	// it isn't already bound).
+	gPipeline.renderGeomPostDeferred(*LLViewerCamera::getInstance());
+#endif
 
 	gPipeline.mRT->deferredScreen.flush();
 
@@ -1565,12 +1661,54 @@ void render_ui(F32 zoom_factor, int subfield)
 	LLGLState::checkStates();
 
 	glm::mat4 saved_view = get_current_modelview();
+#ifdef DX_RENDER
+	glm::mat4 saved_proj = get_current_projection();
+#endif
 
 	if (!gSnapshot)
 	{
 		gGL.pushMatrix();
+#ifdef DX_RENDER
+		// S24 (2026-08-16): load the LIVE camera's current modelview
+		// instead of gGLLastModelView - that global is only ever updated
+		// for SSR's benefit (DXPipeline::renderGeomPostDeferred()'s own
+		// comment: "screenSpaceReflUtil.hlsl's real ray-march (once
+		// ported) needs a genuine frame-to-frame camera delta for this
+		// exact reason") and SSR isn't ported to DX_RENDER yet (task
+		// #156, still in progress) - confirmed via a full-tree grep that
+		// get_last_modelview()/get_last_projection() have zero callers
+		// outside pipeline.cpp's GL-only body, so nothing DX_RENDER-
+		// reachable depends on this value being "last frame's" anything
+		// right now. This capture-and-reload pair is properly scoped
+		// (pushed here, popped/restored to saved_view/saved_proj a few
+		// lines down before this function returns) and never touches the
+		// capture site itself (dxpipeline.cpp still updates
+		// gGLLastModelView/gGLLastProjection exactly as before, for
+		// whenever SSR needs it) - purely changes what THIS pass draws
+		// with. LLHUDObject::renderAll() (world-space HUD effects - the
+		// selection beam, nametags, voice visualizer) runs entirely
+		// within this scope and was projecting otherwise-correct world
+		// positions through a matrix that could be stale by camera
+		// movement since the last capture - the actual root cause of the
+		// long-hunted beam/HUD "bounce" (position math was independently
+		// proven correct via extensive live diagnostics; the projection
+		// matrix used to draw it was the missing piece). Projection was
+		// never reloaded here at all before this fix (confirmed via grep -
+		// only modelview was) - added symmetrically.
+		const LLMatrix4& live_modelview = LLViewerCamera::getInstance()->getModelview();
+		gGL.loadMatrix((const GLfloat*)live_modelview.mMatrix);
+		set_current_modelview(glm::make_mat4((const GLfloat*)live_modelview.mMatrix));
+
+		gGL.matrixMode(LLRender::MM_PROJECTION);
+		gGL.pushMatrix();
+		const LLMatrix4& live_projection = LLViewerCamera::getInstance()->getProjection();
+		gGL.loadMatrix((const GLfloat*)live_projection.mMatrix);
+		set_current_projection(glm::make_mat4((const GLfloat*)live_projection.mMatrix));
+		gGL.matrixMode(LLRender::MM_MODELVIEW);
+#else
 		gGL.loadMatrix(gGLLastModelView);
 		set_current_modelview(glm::make_mat4(gGLLastModelView));
+#endif
 	}
 
 	if (LLSceneMonitor::getInstance()->needsUpdate())
@@ -1625,16 +1763,36 @@ void render_ui(F32 zoom_factor, int subfield)
 		{
 			LL_RECORD_BLOCK_TIME(FTM_RENDER_UI_2D);
 			LLHUDObject::renderAll();
+#ifdef DX_RENDER
+			// S24 (2026-08-16): hard pass-boundary flush - LLHUDObject::
+			// renderAll() draws depth-tested world-space content (nametags/
+			// icons) via gDXUIBatch; render_ui_2d() draws non-depth-tested
+			// screen-space UI through the same batcher. Without this, the
+			// two could merge into one draw call sharing only one of their
+			// depth states. See DXUIBatch.h's top comment.
+			gDXUIBatch.flushPending();
+#endif
 			render_ui_2d();
 		}
 
 		gViewerWindow->setup2DRender();
 		gViewerWindow->updateDebugText();
 		gViewerWindow->drawDebugText();
+#ifdef DX_RENDER
+		// S24 (2026-08-16): end-of-2D-UI-pass flush - anything still batched
+		// (debug text etc.) must draw before this scope ends / Present().
+		gDXUIBatch.flushPending();
+#endif
 	}
 
 	if (!gSnapshot)
 	{
+#ifdef DX_RENDER
+		gGL.matrixMode(LLRender::MM_PROJECTION);
+		gGL.popMatrix();
+		set_current_projection(saved_proj);
+		gGL.matrixMode(LLRender::MM_MODELVIEW);
+#endif
 		set_current_modelview(saved_view);
 		gGL.popMatrix();
 	}
@@ -1778,7 +1936,9 @@ void render_ui_2d()
 	// Render 2D UI elements that overlay the world (no z compare)
 
 	//  Disable wireframe mode below here, as this is HUD/menus
+#ifndef DX_RENDER
 	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+#endif
 
 	//  Menu overlays, HUD, etc
 	gViewerWindow->setup2DRender();
@@ -1816,6 +1976,16 @@ void render_ui_2d()
 		stop_glerror();
 	}
 
+#ifdef DX_RENDER
+	// S24 (DX_RENDER): RenderUIBuffer's screen-aligned UI cache is built
+	// entirely on LLTexUnit::bind(LLRenderTarget*, bool) (unconverted, see
+	// the project's open-issues ledger) plus a raw glClear() - same "cache
+	// bypassed under DX_RENDER" precedent as LLUIImage's display-list cache
+	// (phase 5.9). Off by default (RenderUIBuffer=0), so this only affects
+	// users who've explicitly enabled it; falls back to the direct-draw path
+	// used when the setting is off anyway.
+	gViewerWindow->draw();
+#else
 	if (LLPipeline::RenderUIBuffer)
 	{
 		if (LLView::sIsRectDirty)
@@ -1878,6 +2048,7 @@ void render_ui_2d()
 	{
 		gViewerWindow->draw();
 	}
+#endif
 
 	// reset current origin for font rendering, in case of tiling render
 	LLFontGL::sCurOrigin.set(0, 0);

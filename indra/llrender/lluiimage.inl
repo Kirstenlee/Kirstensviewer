@@ -31,6 +31,13 @@ void LLUIImage::draw(S32 x, S32 y, const LLColor4& color) const
 
 void LLUIImage::draw(S32 x, S32 y, S32 width, S32 height, const LLColor4& color, bool solid_color) const
 {
+    // S24 (task #54): used to unconditionally bypass this whole cache under
+    // DX_RENDER here - gl_draw_scaled_rotated_image()/
+    // gl_draw_scaled_image_with_border() (llrender2dutils.cpp) now have a
+    // recording-mode fallback that lets genDisplayList()'s beginList()/
+    // endList() bracket below actually populate mDisplayLists, so the
+    // normal cache-hit/miss logic works the same as GL. Same fix as
+    // LLFontVertexBuffer::render()'s matching guard - see its comment.
     if (sEnableDisplayListsCollection)
     {
         // Get display list for this configuration

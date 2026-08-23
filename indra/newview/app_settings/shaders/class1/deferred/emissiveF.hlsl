@@ -24,14 +24,27 @@
  
 /*[EXTRA_CODE_HERE]*/
 
+#include "varying/emissiveVarying.hlsli"
+
+// S24 (2026-08-02): see uiF.hlsl's comment - real register mismatch,
+// confirmed via fxc.exe disassembly, affects every bare-Varying PS input -
+// this file already had a custom PSInput wrapper (for vary_texture_index)
+// but was still missing the SV_Position field itself.
 struct PSInput
 {
-    float4 vertex_color : COLOR0;
-    float2 vary_texcoord0 : TEXCOORD0;
+    float4 position : SV_Position;
+    EmissiveVarying varying;
+#ifdef HAS_DIFFUSE_LOOKUP
+    nointerpolation int vary_texture_index : VARYTEXTUREINDEX;
+#endif
 };
 
 float4 main(PSInput IN) : SV_Target
 {
-    float a = diffuseLookup(IN.vary_texcoord0.xy).a * IN.vertex_color.a;
+#ifdef HAS_DIFFUSE_LOOKUP
+    vary_texture_index = IN.vary_texture_index;
+#endif
+
+    float a = diffuseLookup(IN.varying.vary_texcoord0.xy).a * IN.varying.vertex_color.a;
     return max(float4(0, 0, 0, a), float4(0, 0, 0, 0));
 }

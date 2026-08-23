@@ -39,6 +39,9 @@
 #include "llhudeffectresetskeleton.h"
 #include "llhudnametag.h"
 #include "llvoicevisualizer.h"
+#ifdef DX_RENDER
+#include "DXUIBatch.h"
+#endif
 
 #include "llagent.h"
 
@@ -292,6 +295,15 @@ void LLHUDObject::renderAll()
         else if (hud_objp->isVisible())
         {
             hud_objp->render();
+#ifdef DX_RENDER
+            // S24 (2026-08-16): different HUD object types (nametag/icon/
+            // text) can carry different depth-test params - LLGLDepthTest's
+            // own ctor/dtor hooks already catch most of these transitions,
+            // but flush explicitly here too as a safety net that doesn't
+            // depend on every HUD subtype using it correctly. Cheap no-op
+            // when nothing's pending. See DXUIBatch.h's top comment.
+            gDXUIBatch.flushPending();
+#endif
         }
     }
 

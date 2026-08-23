@@ -29,7 +29,12 @@ float3 scaleSoftClipFrag(float3 light);
 float3 srgb_to_linear(float3 col);
 float3 linear_to_srgb(float3 col);
 
+// sky_hdr_scale is also declared (and used) by softenLightF.hlsl -
+// genuinely dual-use, include-guarded rather than left bare.
+#ifndef LL_SKY_HDR_SCALE_DECLARED
+#define LL_SKY_HDR_SCALE_DECLARED
 uniform float sky_hdr_scale;
+#endif
 
 float3 atmosFragLighting(float3 light, float3 additive, float3 atten)
 {

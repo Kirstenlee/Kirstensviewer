@@ -53,18 +53,23 @@ float3 srgb_to_linear(float3 c);
 
 void mirrorClip(float3 pos);
 
+#include "varying/waterVarying.hlsli"
+
+// S24 (2026-08-02): see uiF.hlsl's comment - real register mismatch,
+// confirmed via fxc.exe disassembly, affects every bare-Varying PS input.
+// Applied for consistency even though this shader is still an unfinished
+// stub (see the "water rendering logic would go here" comment below) -
+// harmless, doesn't make anything worse, matches the same reasoning
+// already used when the struct-order fix was first applied here.
 struct PSInput
 {
-    float4 vary_texcoord0 : TEXCOORD0;
-    float4 vary_texcoord1 : TEXCOORD1;
-    float4 vary_texcoord2 : TEXCOORD2;
-    float4 vary_position : TEXCOORD3;
-    float3 vary_eyeVec : TEXCOORD4;
+    float4 position : SV_Position;
+    WaterVarying varying;
 };
 
 float4 main(PSInput IN) : SV_Target
 {
-    mirrorClip(IN.vary_position.xyz);
+    mirrorClip(IN.varying.vary_position.xyz);
     // ... water rendering logic would go here
     return float4(0, 0, 0, 1);
 }

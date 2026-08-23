@@ -12,6 +12,9 @@ include(LLWindow)
 include(Linking)
 include(PluginAPI)
 include(OpenGL)
+if(DX_RENDER)
+    include(DXRender)
+endif()
 
 include_directories(
     ${LLPLUGIN_INCLUDE_DIRS}
@@ -21,6 +24,9 @@ include_directories(
     ${LLRENDER_INCLUDE_DIRS}
     ${LLWINDOW_INCLUDE_DIRS}
 )
+if(DX_RENDER)
+    include_directories(${DXRENDER_INCLUDE_DIRS})
+endif()
 include_directories(SYSTEM
     ${LLCOMMON_SYSTEM_INCLUDE_DIRS}
     )

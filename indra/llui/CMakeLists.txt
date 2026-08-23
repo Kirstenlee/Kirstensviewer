@@ -15,6 +15,9 @@ include(LLWindow)
 include(LLCoreHttp)
 include(LLFileSystem)
 include(LLXML)
+if(DX_RENDER)
+    include(DXRender)
+endif()
 
 include_directories(
     ${LLCOMMON_INCLUDE_DIRS}
@@ -28,6 +31,9 @@ include_directories(
     ${LLFILESYSTEM_INCLUDE_DIRS}
     ${LLXML_INCLUDE_DIRS}
     )
+if(DX_RENDER)
+    include_directories(${DXRENDER_INCLUDE_DIRS})
+endif()
 include_directories(SYSTEM
     ${LLCOMMON_SYSTEM_INCLUDE_DIRS}
     ${LLXML_SYSTEM_INCLUDE_DIRS}
@@ -288,4 +294,7 @@ target_link_libraries(llui
         ll::hunspell
     ${LLCOMMON_LIBRARIES}
     )
+if(DX_RENDER)
+    target_link_libraries(llui ${DXRENDER_LIBRARIES})
+endif()
 

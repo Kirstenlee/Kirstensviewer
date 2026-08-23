@@ -33,6 +33,9 @@ uniform float4x4 modelview_matrix;
 struct VSInput
 {
     float3 position : POSITION;
+#ifdef HAS_SKIN
+    float4 weight4 : BLENDWEIGHT;
+#endif
 };
 
 struct VSOutput

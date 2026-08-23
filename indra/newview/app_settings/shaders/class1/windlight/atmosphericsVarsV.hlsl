@@ -23,13 +23,29 @@
  */
 
 
-float3 additive_color;
-float3 atmos_attenuation;
-float3 sunlit_color;
-float3 amblit_color;
+// HLSL globals with no "static" qualifier are implicitly const shader
+// inputs - unlike GLSL, where a bare global is an ordinary mutable
+// variable. These are read/written entirely within one compiled stage
+// (get/set accessor pattern below), so "static" is the correct HLSL
+// equivalent of GLSL's default global mutability, not a behavior change.
+static float3 additive_color;
+static float3 atmos_attenuation;
+static float3 sunlit_color;
+static float3 amblit_color;
 
-uniform float3 vary_AdditiveColor : TEXCOORD0;
-uniform float3 vary_AtmosAttenuation : TEXCOORD1;
+// vary_AdditiveColor/vary_AtmosAttenuation were declared here as loose
+// globals with a semantic annotation, mirroring GLSL's "varying" globals -
+// HLSL has no such concept; a true vertex-to-pixel varying must be a
+// VSOutput struct field returned from main(), which these are not wired
+// to for any shader that currently attaches this file (confirmed for
+// water - waterV.hlsl's real VSOutput has no vary_AdditiveColor/
+// vary_AtmosAttenuation fields, and its main() never calls
+// setAdditiveColor()/setAtmosAttenuation()). Kept as static/intra-stage
+// only, same as the four color accumulators above - any shader that
+// actually needs these propagated to its pixel stage will silently not
+// get them and needs real struct-field wiring, not this accessor pattern.
+static float3 vary_AdditiveColor;
+static float3 vary_AtmosAttenuation;
 
 float3 getSunlitColor()
 {

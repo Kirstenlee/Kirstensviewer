@@ -35,6 +35,19 @@ struct VSInput
 {
     float3 position : POSITION;
     float2 texcoord0 : TEXCOORD0;
+#ifdef HAS_SKIN
+    // Original GLSL never declares this here either - objectSkinV.glsl's
+    // own "in vec4 weight4;" is a real vertex attribute, resolved by name
+    // at GL link time regardless of which attached object declares it.
+    // HLSL has no such mechanism - all vertex inputs must be VSInput
+    // struct fields with a semantic, so this entry file needs its own
+    // BLENDWEIGHT field for DXShader::injectSkinningInputs() (which scans
+    // the whole concatenated source for this exact pattern) to find and
+    // wire up the bare "weight4" global that getObjectSkinnedTransform()
+    // (objectSkinV.hlsl) uses. Matches the naming convention already
+    // established in skinnedVelocityV.hlsl/skinnedVelocityAlphaV.hlsl.
+    float4 weight4 : BLENDWEIGHT;
+#endif
 };
 
 struct VSOutput

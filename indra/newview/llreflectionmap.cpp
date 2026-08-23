@@ -33,9 +33,23 @@
 #include "llworld.h"
 #include "llshadermgr.h"
 
+#ifdef DX_RENDER
+#include "DXOcclusionQuery.h"
+#endif
+
 extern F32SecondsImplicit gFrameTimeSeconds;
 
 extern U32 get_box_fan_indices(LLCamera* camera, const LLVector4a& center);
+
+#ifdef DX_RENDER
+// S24 (2026-08-19, task #250): see llvieweroctree.cpp's dx_get_occlusion_box_vb()
+// comment - D3D11 has no TRIANGLE_FAN topology, so this probe's occlusion
+// proxy-box draw needs the same triangle-list VB LLOcclusionCullingGroup
+// already uses, not gPipeline.mCubeVB directly.
+class LLVertexBuffer;
+extern LLVertexBuffer* dx_get_occlusion_box_vb();
+extern U32 get_box_triangle_offset(LLCamera* camera, const LLVector4a& center);
+#endif
 
 LLReflectionMap::LLReflectionMap()
 {
@@ -354,6 +368,27 @@ void LLReflectionMap::doOcclusion(const LLVector4a& eye)
     else
     {
         // Non-blocking check of previous query
+        //
+        // S24 (2026-08-19, task #182 CTD fix): glGetQueryObjectuiv/glBeginQuery/
+        // glEndQuery are extension-loaded function pointers in this codebase
+        // (llgl.cpp, populated only via GLH_EXT_GET_PROC_ADDRESS against a real
+        // GL context) - unlike glPolygonOffset (a statically-linked core symbol
+        // that safely no-ops with no context), these stay nullptr forever under
+        // DX_RENDER, so calling them is an immediate null-function-pointer
+        // crash, not a silent no-op. This whole doOcclusion() function was
+        // unreachable under DX_RENDER until task #182 wired LLPipeline::
+        // doOcclusion() into DXPipeline::renderGeomDeferred() - the raw calls
+        // here were never exercised before that, then crashed the moment they
+        // were. Routed through DXOcclusionQuery (task #245's real
+        // D3D11_QUERY_OCCLUSION wrapper, same one LLOcclusionCullingGroup
+        // already uses) instead.
+#ifdef DX_RENDER
+        bool available = DXOcclusionQuery::isResultAvailable(mOcclusionQuery);
+
+        if (available)
+        {
+            GLuint samples_passed = (GLuint)llmin(DXOcclusionQuery::getResult(mOcclusionQuery), (unsigned long long)0xFFFFFFFFu);
+#else
         GLuint available = 0;
         glGetQueryObjectuiv(mOcclusionQuery, GL_QUERY_RESULT_AVAILABLE, &available);
 
@@ -361,6 +396,7 @@ void LLReflectionMap::doOcclusion(const LLVector4a& eye)
         {
             GLuint samples_passed = 0;
             glGetQueryObjectuiv(mOcclusionQuery, GL_QUERY_RESULT, &samples_passed);
+#endif
 
             mOccluded = (samples_passed == 0);
             mOcclusionPendingFrames = 0;
@@ -377,7 +413,11 @@ void LLReflectionMap::doOcclusion(const LLVector4a& eye)
         return;
     }
 
+#ifdef DX_RENDER
+    DXOcclusionQuery::beginQuery(mOcclusionQuery);
+#else
     glBeginQuery(GL_ANY_SAMPLES_PASSED, mOcclusionQuery);
+#endif
 
     LLGLSLShader* shader = LLGLSLShader::sCurBoundShaderPtr;
     if (shader)
@@ -385,17 +425,29 @@ void LLReflectionMap::doOcclusion(const LLVector4a& eye)
         shader->uniform3fv(LLShaderMgr::BOX_CENTER, 1, mOrigin.getF32ptr());
         shader->uniform3f(LLShaderMgr::BOX_SIZE, mRadius, mRadius, mRadius);
 
+#ifdef DX_RENDER
+        dx_get_occlusion_box_vb()->setBuffer();
+        dx_get_occlusion_box_vb()->drawArrays(
+            LLRender::TRIANGLES,
+            get_box_triangle_offset(LLViewerCamera::getInstance(), mOrigin),
+            18);
+#else
         gPipeline.mCubeVB->drawRange(
             LLRender::TRIANGLE_FAN,
             0,
             7,
             8,
             get_box_fan_indices(LLViewerCamera::getInstance(), mOrigin));
+#endif
     }
     else
     {
         mOccluded = false;
     }
 
+#ifdef DX_RENDER
+    DXOcclusionQuery::endQuery(mOcclusionQuery);
+#else
     glEndQuery(GL_ANY_SAMPLES_PASSED);
+#endif
 }

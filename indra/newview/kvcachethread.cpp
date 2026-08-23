@@ -27,42 +27,6 @@ KVCacheThread::CacheRequest::CacheRequest(handle_t handle, RequestType type, U32
 }
 
 //============================================================================
-// AcceptEvictionRequest
-//============================================================================
-KVCacheThread::AcceptEvictionRequest::AcceptEvictionRequest(
-    handle_t handle,
-    const LLUUID& uuid,
-    void* texture_data,
-    U64 size_bytes,
-    S32 discard_level,
-    U32 width,
-    U32 height,
-    S8 components)
-:   CacheRequest(handle, REQ_ACCEPT_EVICTION),
-    mUUID(uuid),
-    mTextureData(texture_data),
-    mSizeBytes(size_bytes),
-    mDiscardLevel(discard_level),
-    mWidth(width),
-    mHeight(height),
-    mComponents(components)
-{
-}
-
-KVCacheThread::AcceptEvictionRequest::~AcceptEvictionRequest()
-{
-    // Texture data ownership transferred to cache or freed here
-}
-
-bool KVCacheThread::AcceptEvictionRequest::processRequest()
-{
-    // Call cache acceptance logic on worker thread
-    KVRAMCache& cache = KVRAMCache::instance();
-    return cache.acceptEviction(mUUID, mTextureData, mSizeBytes, 
-                                 mDiscardLevel, mWidth, mHeight, mComponents);
-}
-
-//============================================================================
 // ProcessEvictionRequest
 //============================================================================
 KVCacheThread::ProcessEvictionRequest::ProcessEvictionRequest(handle_t handle, F32 delta_time)
@@ -115,25 +79,6 @@ void KVCacheThread::shutdown()
     {
         ms_sleep(10);
     }
-}
-
-KVCacheThread::handle_t KVCacheThread::queueAcceptEviction(
-    const LLUUID& uuid,
-    void* texture_data,
-    U64 size_bytes,
-    S32 discard_level,
-    U32 width,
-    U32 height,
-    S8 components)
-{
-    handle_t handle = sNextHandle++;
-
-    AcceptEvictionRequest* req = new AcceptEvictionRequest(
-        handle, uuid, texture_data, size_bytes, 
-        discard_level, width, height, components);
-
-    addRequest(req);
-    return handle;
 }
 
 void KVCacheThread::queueProcessEviction(F32 delta_time)

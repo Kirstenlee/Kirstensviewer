@@ -268,6 +268,10 @@ void LLHUDNameTag::renderText()
     static LLUIColor nametag_bg_color = LLUIColorTable::instance().getColor("NameTagBackground");
     LLColor4 bg_color = nametag_bg_color;
     bg_color.setAlpha(bubble_opacity * alpha_factor);
+    // S24 (2026-08-11, task #191): confirmed via temporary diagnostic
+    // (forced alpha=0.05, panel went invisible) that real alpha correctly
+    // reaches the draw3D()/DXUIBatch blend chain - the pipeline works.
+    // Diagnostic removed.
 
     // scale screen size of borders down
     //RN: for now, text on hud objects is never occluded
@@ -306,6 +310,28 @@ void LLHUDNameTag::renderText()
         }
     }
     LLGLDepthTest gls_depth(GL_TRUE, GL_FALSE, render_over_water ? GL_ALWAYS : GL_LEQUAL);
+
+    // S24 (2026-08-11, task #191): matrix-sync theory tried above (kept in
+    // history, not here) tested as zero-effect - ruled out. Real cause
+    // (user's own theory, confirmed by reading the code): LLUIImage::draw3D()
+    // (the background box below) draws against WHATEVER D3D11 viewport is
+    // currently bound, with no explicit reset of its own. hud_render_text()
+    // (further down, this same nametag's text) explicitly calls
+    // gViewerWindow->setup3DViewport() right before it draws, which resets
+    // the viewport to mWorldViewRectRaw (the area left over after the menu
+    // bar/chrome, task #110's own fix). Between presentDeferredScreen()
+    // (which last set the CORRECT chrome-excluded viewport, via its own
+    // setPresentViewport()) and here, render_hud_attachments() calls
+    // renderGeomPostDeferred() a second time for HUD-attached objects,
+    // which binds render targets via DXRenderTarget::bindTarget()/
+    // bindSwapChainBackBuffer() - both of which reset the viewport to
+    // match their OWN full target size (chrome INCLUDED), with nothing
+    // re-applying the chrome-excluded correction afterward. So by the time
+    // this function runs, the box draws against the wrong (larger, chrome-
+    // inclusive) viewport while the text explicitly fixes its own - exactly
+    // the fixed, chrome-sized offset observed. Match hud_render_text()'s
+    // own fix here too, for the box.
+    gViewerWindow->setup3DViewport();
 
     LLRect screen_rect;
     screen_rect.setCenterAndSize(0, static_cast<S32>(lltrunc(-mHeight / 2 + mOffsetY)), static_cast<S32>(lltrunc(mWidth)), static_cast<S32>(lltrunc(mHeight)));

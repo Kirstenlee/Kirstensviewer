@@ -32,11 +32,7 @@ Texture2D altDiffuseMap : register(t1);
 SamplerState altDiffuseMapSampler : register(s1);
 uniform float blend_factor; // interp factor between sunDisc A/B
 
-struct PSInput
-{
-    float2 vary_texcoord0 : TEXCOORD0;
-    float sun_fade : TEXCOORD1;
-};
+#include "varying/sunDiscVarying.hlsli"
 
 struct PSOutput
 {
@@ -48,12 +44,20 @@ struct PSOutput
 #endif
 };
 
+// S24 (2026-08-02): see uiF.hlsl's comment - real register mismatch,
+// confirmed via fxc.exe disassembly, affects every bare-Varying PS input.
+struct PSInput
+{
+    float4 position : SV_Position;
+    SunDiscVarying varying;
+};
+
 PSOutput main(PSInput IN)
 {
     PSOutput OUT;
 
-    float4 sunDiscA = diffuseMap.Sample(diffuseMapSampler, IN.vary_texcoord0.xy);
-    float4 sunDiscB = altDiffuseMap.Sample(altDiffuseMapSampler, IN.vary_texcoord0.xy);
+    float4 sunDiscA = diffuseMap.Sample(diffuseMapSampler, IN.varying.vary_texcoord0.xy);
+    float4 sunDiscB = altDiffuseMap.Sample(altDiffuseMapSampler, IN.varying.vary_texcoord0.xy);
     float4 c     = lerp(sunDiscA, sunDiscB, blend_factor);
 
 

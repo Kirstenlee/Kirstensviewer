@@ -32,6 +32,9 @@
 #include "pipeline.h"
 #include "llglcommonfunc.h"
 #include "llvoavatar.h"
+#ifdef DX_RENDER
+#include "dxdrawpoolmaterials.h"
+#endif
 
 LLDrawPoolMaterials::LLDrawPoolMaterials()
 :  LLRenderPass(LLDrawPool::POOL_MATERIALS)
@@ -102,6 +105,10 @@ void LLDrawPoolMaterials::endDeferredPass(S32 pass)
 
 void LLDrawPoolMaterials::renderDeferred(S32 pass)
 {
+#ifdef DX_RENDER
+    DXDrawPoolMaterials::renderDeferred(*this, pass);
+    return;
+#endif
     static const U32 type_list[] =
     {
         LLRenderPass::PASS_MATERIAL,

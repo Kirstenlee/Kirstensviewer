@@ -110,9 +110,18 @@ target_link_libraries(llrender
       ${LLXML_LIBRARIES}
       ${LLWINDOW_LIBRARIES}
       ${FREETYPE_LIBRARIES}
-      ${OPENGL_LIBRARIES}
 )
 if(DX_RENDER)
   target_link_libraries(llrender ${DXRENDER_LIBRARIES})
+else()
+  # S24 (DX_RENDER, 2026-07-24): only linked for the GL build. A DX_RENDER=ON
+  # build deliberately does NOT link OpenGL at all - any raw gl*() call left
+  # unconverted anywhere in the tree (this static lib doesn't need its own
+  # symbols resolved, but the final viewer executable does - see the matching
+  # newview/CMakeLists.txt change) becomes an unresolved external symbol at
+  # final link time instead of a silent no-op/crash at runtime. This is the
+  # "flip GL off via CMake/linker to reveal stragglers" technique agreed
+  # earlier in the dxrender open-issues ledger - implemented for real here.
+  target_link_libraries(llrender ${OPENGL_LIBRARIES})
 endif()
 target_compile_options(llrender PRIVATE "/Zc:wchar_t-")

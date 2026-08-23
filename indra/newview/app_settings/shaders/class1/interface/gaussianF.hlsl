@@ -32,6 +32,9 @@ uniform float2 direction;
 
 struct PSInput
 {
+    // S24 (2026-08-02): missing SV_Position - see uiF.hlsl's comment (fxc.exe-confirmed VS/PS register-shift bug).
+    float4 position : SV_Position;
+
     float2 vary_texcoord0 : TEXCOORD0;
 };
 
@@ -44,10 +47,17 @@ float4 main(PSInput IN) : SV_Target
 
     float w[9] = { 0.0002, 0.0060, 0.0606, 0.2417, 0.3829, 0.2417, 0.0606, 0.0060, 0.0002 };
 
+    // S24 (2026-08-11, quick-win origin sweep): GL-vs-D3D11 texture-origin
+    // flip - same bug class as task #158/#185. Flipped at the Sample() call
+    // (not the base vary_texcoord0) so the per-tap offset's Y component
+    // (relevant only for the vertical-direction pass) still applies
+    // correctly - safe regardless, since the 9-tap kernel weights above are
+    // symmetric (w[i]==w[8-i]), same reasoning already verified for
+    // glowF.hlsl's identical flipV() fix.
     for (int i = 0; i < 9; ++i)
     {
         float2 tc = IN.vary_texcoord0 + (i-4)*direction*resScale;
-        col += diffuseRect.Sample(diffuseRectSampler, tc).rgb * w[i];
+        col += diffuseRect.Sample(diffuseRectSampler, float2(tc.x, 1.0 - tc.y)).rgb * w[i];
     }
 
     return max(float4(col, 0.0), float4(0, 0, 0, 0));

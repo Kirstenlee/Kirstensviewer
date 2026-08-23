@@ -901,7 +901,30 @@ void LLViewerTextureList::updateImages(F32 max_time)
     remaining_time = llmax(remaining_time, min_time);
 
     //handle results from decode threads
+#ifdef DX_RENDER
+    // S24 (DX_RENDER): LLImageGL::initClass() now unconditionally disables
+    // LLImageGLThread (sEnabledTextures/sEnabledMedia forced off - see its
+    // own comment: DXTexture::create()/updateSubImage() use the D3D11
+    // IMMEDIATE context, not thread-safe, so a worker thread racing the
+    // main render thread's own use of it was a real crash/corruption risk).
+    // That correctness fix has a real throughput cost: every single texture
+    // (every UI icon/button image, every font atlas growth, every world
+    // texture) now goes through mCreateTextureList and gets created
+    // synchronously on the MAIN thread instead, inside this one call,
+    // which normally only gets whatever sliver of RenderTextureUpdateBudgetMS
+    // (default 2ms total, split 3 ways with updateImagesLoadingFastCache()/
+    // updateImagesFetchTextures() above) happens to remain. That budget was
+    // tuned assuming a separate worker thread absorbed the real GPU-upload
+    // cost - with it gone, 2ms/frame is nowhere near enough during any
+    // texture-heavy moment (login, opening a menu-and-icon-heavy floater),
+    // so the create queue can never catch up and most UI renders unbound/
+    // blank indefinitely. Give this phase a real, DX_RENDER-specific floor
+    // instead of trusting the shared, worker-thread-tuned budget.
+    static LLCachedControl<F32> dx_create_texture_budget_ms(gSavedSettings, "RenderDXCreateTextureBudgetMS", 16.f);
+    updateImagesCreateTextures(llmax(remaining_time, (F32)dx_create_texture_budget_ms * 0.001f));
+#else
     updateImagesCreateTextures(remaining_time);
+#endif
 
     bool didone = false;
     for (image_list_t::iterator iter = mCallbackList.begin();
@@ -1248,8 +1271,28 @@ F32 LLViewerTextureList::updateImagesCreateTextures(F32 max_time)
             imagep->scaleDown();
     }
 
+#ifdef DX_RENDER
+    // S24 (2026-08-16): the GL-only FBO-blit scaffolding this block used to
+    // wrap every scaleDown() call in below (bind mDownResMap as a render
+    // target, bind gCopyProgram, set up a screen-triangle VB) is real,
+    // unrelated D3D11 pipeline state that DXTexture::scaleDown() doesn't
+    // need or expect - it's a fully self-contained CreateTexture2D/
+    // CopySubresourceRegion/GenerateMips sequence with its own resources,
+    // no render target or shader required. Leaving that scaffolding running
+    // unconditionally meant every real scaleDown() call happened while an
+    // unrelated render target and shader were bound (gCopyProgram.bind()
+    // even triggers this session's own gDXUIBatch.flushPending() hook) -
+    // confirmed via a live crash dump (D3D11 debug layer detected heap
+    // corruption, surfaced later during an unrelated blend-state Release())
+    // that this concurrent, unnecessary state churn was corrupting things.
+    // Also don't gate on mDownResMap.isComplete() - that's GL-FBO-blit
+    // scratch space DX_RENDER's scaleDown() never touches at all.
+    if (!mDownScaleQueue.empty())
+#else
     if (!mDownScaleQueue.empty() && gPipeline.mDownResMap.isComplete())
+#endif
     {
+#ifndef DX_RENDER
         LLGLDisable blend(GL_BLEND);
         gGL.setColorMask(true, true);
 
@@ -1257,6 +1300,7 @@ F32 LLViewerTextureList::updateImagesCreateTextures(F32 max_time)
         gPipeline.mDownResMap.bindTarget();
         gCopyProgram.bind();
         gPipeline.mScreenTriangleVB->setBuffer();
+#endif
 
         // give time to downscaling first -- if mDownScaleQueue is not empty, we're running out of memory and need
         // to free up memory by discarding off screen textures quickly
@@ -1307,8 +1351,10 @@ F32 LLViewerTextureList::updateImagesCreateTextures(F32 max_time)
             }
         }
 
+#ifndef DX_RENDER
         gCopyProgram.unbind();
         gPipeline.mDownResMap.flush();
+#endif
     }
 
     return create_timer.getElapsedTimeF32();

@@ -35,6 +35,7 @@
 
 #ifdef DX_RENDER
 #include "DXShader.h"
+#include "DXDevice.h"
 #endif
 
 class LLShaderFeatures
@@ -292,7 +293,23 @@ public:
     //helper to conditionally bind mRiggedVariant instead of this
     void bind(bool rigged);
 
+#ifdef DX_RENDER
+    // S24 (DX_RENDER, 2026-07-25): mProgramObject is a raw GL program name -
+    // always 0 under DX_RENDER, since glCreateProgram()/glLinkProgram() never
+    // run. The GL-only body below made isComplete() unconditionally false for
+    // every shader regardless of real DX compile success, silently disabling
+    // every one of its callers under DX_RENDER: gDeferredGenBrdfLutProgram
+    // (PBR specular LUT generation - "Brdf Gen Shader failed to load, cannot
+    // be used!" in the log is this, not an actual compile failure),
+    // gCASProgram/gCASLegacyGammaProgram (CAS sharpening), gFXAAProgram[0]/
+    // gSMAAEdgeDetectProgram[0] (FXAA/SMAA, both post-process AND silently
+    // removed from the graphics-preferences AA dropdown). "Complete" under
+    // DX_RENDER means both stages actually produced a real D3D11 shader
+    // object - mirrors GL's link-success semantics without a link step.
+    bool isComplete() const { return mDXVertexShader.getVS() != nullptr && mDXPixelShader.getPS() != nullptr; }
+#else
     bool isComplete() const { return mProgramObject != 0; }
+#endif
 
     LLUUID hash();
 

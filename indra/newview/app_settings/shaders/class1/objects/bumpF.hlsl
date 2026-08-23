@@ -29,18 +29,21 @@ SamplerState texture1Sampler : register(s1);
 
 void mirrorClip(float3 pos);
 
+#include "varying/bumpVarying.hlsli"
+
+// S24 (2026-08-02): see uiF.hlsl's comment - real register mismatch,
+// confirmed via fxc.exe disassembly, affects every bare-Varying PS input.
 struct PSInput
 {
-    float2 vary_texcoord0 : TEXCOORD0;
-    float2 vary_texcoord1 : TEXCOORD1;
-    float3 vary_position : TEXCOORD2;
+    float4 position : SV_Position;
+    BumpVarying varying;
 };
 
 float4 main(PSInput IN) : SV_Target
 {
-    mirrorClip(IN.vary_position);
-    float tex0 = texture0.Sample(texture0Sampler, IN.vary_texcoord0.xy).a;
-    float tex1 = texture1.Sample(texture1Sampler, IN.vary_texcoord1.xy).a;
+    mirrorClip(IN.varying.vary_position);
+    float tex0 = texture0.Sample(texture0Sampler, IN.varying.vary_texcoord0.xy).a;
+    float tex1 = texture1.Sample(texture1Sampler, IN.varying.vary_texcoord1.xy).a;
 
     return max(float4(tex0 + (1.0 - tex1) - 0.5, tex0 + (1.0 - tex1) - 0.5, tex0 + (1.0 - tex1) - 0.5, tex0 + (1.0 - tex1) - 0.5), float4(0, 0, 0, 0));
 }

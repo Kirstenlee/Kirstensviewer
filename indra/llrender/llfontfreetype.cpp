@@ -674,6 +674,15 @@ LLFontGlyphInfo* LLFontFreetype::addGlyphFromFont(const LLFontFreetype *fontp, l
     LLImageRaw *image_raw = mFontBitmapCachep->getImageRaw(bitmap_glyph_type, bitmap_num);
     if (image_gl && image_raw)
     {
+    // S24 (2026-07-22/23): diagnostics here confirmed (a) the CPU-side raw
+    // glyph bitmap genuinely contains real, non-blank, growing pixel data
+    // (FreeType rasterization and the bitmap cache are both correct), and
+    // (b) image_gl's cached w/h match image_raw's (512x512) and
+    // setSubImage() returns true every time - ruling out the entire
+    // CPU-side half plus the dimension/no-op theories for the "invisible
+    // menu text" investigation. The bug is downstream, in the GPU upload
+    // itself (DXTexture::updateSubImage()) or shader/sampler config - see
+    // the project's open-issues ledger.
     image_gl->setSubImage(image_raw, 0, 0, image_gl->getWidth(), image_gl->getHeight());
     }
     else
@@ -760,8 +769,25 @@ void LLFontFreetype::renderGlyph(EFontGlyphType bitmap_type, U32 glyph_index, ll
     llassert_always(mFTFace->glyph != nullptr);
 
     // --- Render only if needed ----------------------------------------------
-    // Color/SVG/bitmap glyphs may already have a bitmap buffer.
-    if (!mFTFace->glyph->bitmap.buffer)
+    // S24: only skip FT_Render_Glyph() when this glyph slot is ALREADY a
+    // genuine rendered bitmap (glyph->format == FT_GLYPH_FORMAT_BITMAP -
+    // true for classic embedded bitmap-strike fonts, which FT_Load_Glyph()
+    // populates directly with no separate render step needed). The
+    // previous check here (`!bitmap.buffer`) is NOT safe for SVG-format
+    // glyphs (Twemoji, our "Emoji" font/TwemojiSVG.ttf): FT_Load_Glyph()
+    // for an SVG glyph sets glyph->format to FT_GLYPH_FORMAT_SVG and does
+    // NOT clear the glyph slot's .bitmap sub-struct, which FreeType reuses
+    // across calls - so bitmap.buffer can be a non-null, non-empty LEFTOVER
+    // pointer from whatever DIFFERENT glyph last occupied this same slot.
+    // That made this check skip the real FT_Render_Glyph()/SVG-rasterize
+    // call for every fresh SVG glyph, leaving bitmap.buffer (and
+    // bitmap.pixel_mode, consumed by addGlyph() just above this function)
+    // pointing at the PREVIOUS, unrelated glyph's pixel data - the exact
+    // "showing some other glyph/garbage instead of the icon" symptom
+    // reported for Twemoji icons in KVTweaks, while ordinary grayscale
+    // outline glyphs (never previously left in BITMAP format after a fresh
+    // load) were never affected.
+    if (mFTFace->glyph->format != FT_GLYPH_FORMAT_BITMAP)
     {
         error = FT_Render_Glyph(mFTFace->glyph, gFontRenderMode);
 

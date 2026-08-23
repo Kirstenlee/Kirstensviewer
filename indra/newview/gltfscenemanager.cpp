@@ -45,6 +45,10 @@
 #include "llfloaterreg.h"
 #include "llagentbenefits.h"
 #include "llfilesystem.h"
+
+#ifdef DX_RENDER
+#include "DXDevice.h"
+#endif
 #include "llviewercontrol.h"
 #include "boost/json.hpp"
 
@@ -708,12 +712,49 @@ void GLTFSceneManager::render(Asset& asset, U8 variant)
                     gPipeline.bindDeferredShader(gGLTFPBRMetallicRoughnessProgram.mGLTFVariants[variant]);
                 }
 
+#ifdef DX_RENDER
+                // S24 (task #79): glBindBufferBase is raw GL - null fn ptr
+                // under DX_RENDER. GLTFMaterials is a real, already-working
+                // HLSL cbuffer at register(b0) in both pbrmetallicroughnessV/F.hlsl
+                // (verified via grep) - bind the real D3D11 buffer there for
+                // both stages. This explicit b0 claim pushes this shader's
+                // implicit $Globals (modelview_matrix/projection_matrix/
+                // gltf_material_id) to b1 at compile time - previously
+                // LLRender::syncMatrices() would have clobbered this bind by
+                // hardcoding $Globals to slot 0 right after this call runs;
+                // fixed as part of this same task by making syncMatrices()
+                // bind to DXShader::getConstantBufferBindPoint()'s real
+                // reflected slot instead (see llrender.cpp), so the two no
+                // longer collide. GLTFNodes has NO corresponding HLSL
+                // cbuffer yet (getGLTFTransform()/node-indexed lookup was
+                // never ported from the GLSL original - a separate, larger
+                // gap, not fixed here) - still bind it (at b2, clear of both
+                // b0 and b1) so the crash is fixed and the buffer is ready
+                // for whenever that HLSL work lands; it's simply unread by
+                // the shader until then.
+                if (!rigged)
+                {
+                    ID3D11Buffer* nodes_cb = asset.mDXNodesUBO.getBuffer();
+                    if (nodes_cb)
+                    {
+                        gDXDevice.getContext()->VSSetConstantBuffers(2, 1, &nodes_cb);
+                    }
+                }
+
+                ID3D11Buffer* materials_cb = asset.mDXMaterialsUBO.getBuffer();
+                if (materials_cb)
+                {
+                    gDXDevice.getContext()->VSSetConstantBuffers(0, 1, &materials_cb);
+                    gDXDevice.getContext()->PSSetConstantBuffers(0, 1, &materials_cb);
+                }
+#else
                 if (!rigged)
                 {
                     glBindBufferBase(GL_UNIFORM_BUFFER, LLGLSLShader::UB_GLTF_NODES, asset.mNodesUBO);
                 }
 
                 glBindBufferBase(GL_UNIFORM_BUFFER, LLGLSLShader::UB_GLTF_MATERIALS, asset.mMaterialsUBO);
+#endif
 
                 for (U32 i = 0; i < TEXTURE_TYPE_COUNT; ++i)
                 {
@@ -750,7 +791,25 @@ void GLTFSceneManager::render(Asset& asset, U8 variant)
                 {
                     llassert(node.mSkin != INVALID_INDEX);
                     Skin& skin = asset.mSkins[node.mSkin];
+#ifdef DX_RENDER
+                    // S24 (task #79): same crash-fix as the GLTFNodes/
+                    // GLTFMaterials binds above. Also note: this whole
+                    // `rigged` branch is presently unreachable under
+                    // DX_RENDER in practice - rigged/skinned vertex layouts
+                    // aren't supported yet (DXVertexLayout has no HAS_SKIN
+                    // path, a known, separately-tracked gap - see the
+                    // avatar-skinning milestone). Guarding this defensively
+                    // anyway since Skin::uploadMatrixPalette() can still run
+                    // (and did need its own crash fix) independent of
+                    // whether this draw path ever executes.
+                    ID3D11Buffer* joints_cb = skin.mDXUBO.getBuffer();
+                    if (joints_cb)
+                    {
+                        gDXDevice.getContext()->VSSetConstantBuffers(3, 1, &joints_cb);
+                    }
+#else
                     glBindBufferBase(GL_UNIFORM_BUFFER, LLGLSLShader::UB_GLTF_JOINTS, skin.mUBO);
+#endif
                 }
                 else
                 {
@@ -788,42 +847,55 @@ void GLTFSceneManager::bindTexture(Asset& asset, TextureType texture_type, Textu
 
     if (channel > -1)
     {
-        glActiveTexture(GL_TEXTURE0 + channel);
+        // S24 (DX_RENDER, 2026-07-30): this whole block used to be raw
+        // glActiveTexture/glBindTexture/glTexParameteri with zero DX_RENDER
+        // fencing - reachable every frame via renderOpaque()/render(), so a
+        // real (not dead-code) gap. Fixed by routing through the already-
+        // hardened LLTexUnit::bind() chokepoint and LLImageGL::setAddressMode()
+        // instead - both are already backend-agnostic (GL applies wrap mode
+        // at next bind via mTexOptionsDirty; DX_RENDER's DXSampler::getOrCreate()
+        // reads mAddressMode straight off the LLImageGL at bind time - see
+        // either function's own comment in llrender.cpp) so no new #ifdef is
+        // needed here at all. LLTexUnit's address mode is one value for both
+        // S/T (no independent per-axis wrap), so an asymmetric glTF sampler
+        // (mWrapS != mWrapT) loses that distinction - a real but minor
+        // fidelity gap, rare in practice, preferable to leaving this
+        // unguarded raw GL in place. Deliberately NOT translating
+        // mMagFilter: LLTexUnit's eTextureFilterOptions sets min+mag+mip
+        // together, and the original GL code explicitly avoided touching
+        // min filter to respect the user's graphics-quality preference -
+        // skipping the filter override entirely preserves that intent for
+        // both backends rather than fighting the API's granularity.
+        LLViewerTexture* tex = nullptr;
+        Sampler* sampler = nullptr;
 
         if (info.mIndex != INVALID_INDEX)
         {
             Texture& texture = asset.mTextures[info.mIndex];
-
-            LLViewerTexture* tex = asset.mImages[texture.mSource].mTexture;
-            if (tex)
+            tex = asset.mImages[texture.mSource].mTexture;
+            if (tex && texture.mSampler != -1)
             {
-                glBindTexture(GL_TEXTURE_2D, tex->getTexName());
-
-                if (channel != -1 && texture.mSampler != -1)
-                { // set sampler state
-                    Sampler& sampler = asset.mSamplers[texture.mSampler];
-                    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, sampler.mWrapS);
-                    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, sampler.mWrapT);
-                    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, sampler.mMagFilter);
-
-                    // NOTE: do not set min filter.  Always respect client preference for min filter
-                }
-                else
-                {
-                    // set default sampler state
-                    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-                    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-                    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-                }
-            }
-            else
-            {
-                glBindTexture(GL_TEXTURE_2D, fallback->getTexName());
+                sampler = &asset.mSamplers[texture.mSampler];
             }
         }
-        else
+
+        if (!tex)
         {
-            glBindTexture(GL_TEXTURE_2D, fallback->getTexName());
+            tex = fallback;
+        }
+
+        if (tex)
+        {
+            LLImageGL* img = tex->getGLTexture();
+            if (img)
+            {
+                img->setAddressMode(
+                    (sampler && sampler->mWrapS == CLAMP_TO_EDGE) ? LLTexUnit::TAM_CLAMP :
+                    (sampler && sampler->mWrapS == MIRRORED_REPEAT) ? LLTexUnit::TAM_MIRROR :
+                    LLTexUnit::TAM_WRAP);
+            }
+
+            gGL.getTexUnit(channel)->bind(tex);
         }
     }
 }

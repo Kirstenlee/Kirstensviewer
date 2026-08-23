@@ -334,14 +334,26 @@ void LLFloaterImagePreview::draw()
 
             if(mImagep.notNull())
             {
+#ifdef DX_RENDER
+                // S24 (2026-08-03, task #84): mImagep is a real LLViewerTexture
+                // (has an LLImageGL/DXTexture behind it), not a raw GL name
+                // with nothing to look up - use the already-DX-aware
+                // bind(LLTexture*) chokepoint instead of bindManual().
+                gGL.getTexUnit(0)->bind(mImagep);
+#else
                 gGL.getTexUnit(0)->bindManual(LLTexUnit::TT_TEXTURE, mImagep->getTexName());
+#endif
             }
             else
             {
                 mImagep = LLViewerTextureManager::getLocalTexture(mRawImagep.get(), false) ;
 
                 gGL.getTexUnit(0)->unbind(mImagep->getTarget()) ;
+#ifdef DX_RENDER
+                gGL.getTexUnit(0)->bind(mImagep);
+#else
                 gGL.getTexUnit(0)->bindManual(LLTexUnit::TT_TEXTURE, mImagep->getTexName());
+#endif
                 stop_glerror();
 
                 gGL.getTexUnit(0)->setTextureFilteringOption(LLTexUnit::TFO_BILINEAR);

@@ -27,6 +27,13 @@
 #include "llviewerprecompiledheaders.h"
 #include "llviewerwindow.h"
 
+#ifdef DX_RENDER
+#include "DXContext.h"
+#include "DXSwapChain.h"
+#include "DXReadback.h"
+#include "DXCubeMapFaces.h"
+#endif
+
 
  // system library includes
 #include <stdio.h>
@@ -866,7 +873,23 @@ public:
 			S32 x_raw = (S32)llround(coord.mX * gViewerWindow->getWindowWidthRaw() / (F32)gViewerWindow->getWindowWidthScaled());
 			S32 y_raw = (S32)llround(coord.mY * gViewerWindow->getWindowHeightRaw() / (F32)gViewerWindow->getWindowHeightScaled());
 
+#ifdef DX_RENDER
+			// S24 (DX_RENDER): no explicit render target is bound here -
+			// this reads from whatever's currently the default framebuffer,
+			// which for this single-window viewer is always the swap
+			// chain back buffer (DXGI_FORMAT_R8G8B8A8_UNORM, matching
+			// GL_RGBA/GL_UNSIGNED_BYTE exactly - no format conversion
+			// needed). GL's y_raw is measured from the bottom of the
+			// framebuffer; D3D11 textures are top-left-origin - flip.
+			if (ID3D11Texture2D* back_buffer = gDXSwapChain.getBackBufferTexture())
+			{
+				S32 dx_y = gDXSwapChain.getHeight() - 1 - y_raw;
+				DXReadback::readPixels(back_buffer, x_raw, dx_y, 1, 1, 4, color);
+				back_buffer->Release();
+			}
+#else
 			glReadPixels(x_raw, y_raw, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, color);
+#endif
 			addText(xpos, ypos, llformat("Pixel <%1d, %1d> R:%1d G:%1d B:%1d A:%1d", x_raw, y_raw, color[0], color[1], color[2], color[3]));
 			ypos += y_inc;
 		}
@@ -2086,7 +2109,7 @@ LLViewerWindow::LLViewerWindow(const Params& p)
 
 	// Init the image list.  Must happen after GL is initialized and before the images that
 	// LLViewerWindow needs are requested, as well as before LLViewerMedia starts updating images.
-	LLImageGL::initClass(mWindow, LLViewerTexture::MAX_GL_IMAGE_CATEGORY, false, gSavedSettings.getBOOL("RenderGLMultiThreadedTextures"), gSavedSettings.getBOOL("RenderGLMultiThreadedMedia"));
+	LLImageGL::initClass(mWindow, LLViewerTexture::MAX_GL_IMAGE_CATEGORY, false, gSavedSettings.getBOOL("RenderDXMultiThreadedTextures"), gSavedSettings.getBOOL("RenderDXMultiThreadedMedia"));
 	gTextureList.init();
 	LLViewerTextureManager::init();
 	gBumpImageList.init();
@@ -2585,6 +2608,33 @@ void LLViewerWindow::reshape(S32 width, S32 height)
 		mWindowRectRaw.mTop = mWindowRectRaw.mBottom + height;
 
 		//glViewport(0, 0, width, height );
+#ifdef DX_RENDER
+		// S24 (DX_RENDER, 2026-07-25): GL has no equivalent of this step -
+		// there's no explicit "swap chain" object to resize, the OS window's
+		// default framebuffer just IS whatever size the window currently is.
+		// D3D11's IDXGISwapChain is a real, separately-sized GPU resource
+		// that must be told about every resize (ResizeBuffers) or it stays
+		// locked at whatever size DXSwapChain::create() was originally given
+		// (the window's size at first switchContext() call) forever -
+		// nothing else in the codebase called DXSwapChain::resize() before
+		// this (confirmed via grep - the function existed, fully
+		// implemented, but was dead code, never invoked). Every frame after
+		// any resize/maximize/DPI change was rendering at the ORIGINAL
+		// creation-time back-buffer size and letting DXGI's Present()
+		// stretch/squash the result to fit the actual (now different-sized)
+		// window - real cause of "everything renders in the wrong screen
+		// position/size" (and, most likely, of small precisely-positioned
+		// text becoming unreadable/invisible under that same distortion,
+		// while large solid rects stayed merely visually wrong rather than
+		// imperceptible). DXContext::beginFrame() unconditionally sets its
+		// viewport to gDXSwapChain.getWidth()/getHeight() every frame - that
+		// logic was already correct, it just had no accurate size to read
+		// once a resize had happened.
+		if (width > 0 && height > 0)
+		{
+			gDXSwapChain.resize(width, height);
+		}
+#endif
 
 		LLViewerCamera* camera = LLViewerCamera::getInstance(); // simpleton, might not exist
 		if (height > 0 && camera)
@@ -2862,6 +2912,10 @@ void LLViewerWindow::draw()
 
 		if (gShowOverlayTitle && !mOverlayTitle.empty())
 		{
+			// mRootView->draw() may have left a different shader bound
+			// (e.g. gSolidColorProgram) - re-bind before rendering below.
+			gUIProgram.bind();
+
 			// Used for special titles such as "Second Life - Special E3 2003 Beta"
 			const S32 DIST_FROM_TOP = 20;
 			LLFontGL::getFontSansSerifBig()->renderUTF8(
@@ -4182,6 +4236,32 @@ void LLViewerWindow::renderSelections(bool for_gl_pick, bool pick_parcel_walls, 
 {
 	LLObjectSelectionHandle selection = LLSelectMgr::getInstance()->getSelection();
 
+#ifdef DX_RENDER
+	// S24 (2026-08-09, task #132 follow-up): temporary diagnostic - the
+	// swap-chain depth-buffer fix made no visible difference to the still-
+	// totally-invisible manipulator arrows/selection highlight, and every
+	// static-analysis hypothesis checked so far (RENDER_DEBUG_FEATURE_UI
+	// default, sReflectionRender set/reset balance, gUIProgram binding) came
+	// back clean. Logging the actual gate values this function sees, to
+	// confirm whether the branch below (and tool->render()) is even reached
+	// at all, rather than guessing further. Remove once the hurdle clears.
+	{
+		static S32 s_render_selections_log_count = 0;
+		if (s_render_selections_log_count < 20)
+		{
+			++s_render_selections_log_count;
+			LL_WARNS("S24Diag") << "renderSelections: for_gl_pick=" << for_gl_pick
+				<< " for_hud=" << for_hud
+				<< " selectType=" << (S32)selection->getSelectType()
+				<< " isEmpty=" << selection->isEmpty()
+				<< " objectCount=" << selection->getObjectCount()
+				<< " sReflectionRender=" << LLPipeline::sReflectionRender
+				<< " hasUIDebugFeature=" << gPipeline.hasRenderDebugFeatureMask(LLPipeline::RENDER_DEBUG_FEATURE_UI)
+				<< LL_ENDL;
+		}
+	}
+#endif
+
 	if (!for_hud && !for_gl_pick)
 	{
 		// Call this once and only once
@@ -4258,9 +4338,19 @@ void LLViewerWindow::renderSelections(bool for_gl_pick, bool pick_parcel_walls, 
 						gSphere.render();
 
 						// Render Inside
+#ifndef DX_RENDER
+						// S24 (DX_RENDER): DXStateCache doesn't track cull
+						// direction (front vs. back), only enable/disable -
+						// matches the existing documented gap (see project
+						// memory). Skipped under DX_RENDER; inner sphere
+						// face culling looks wrong (visual gap only) for
+						// this edit-mode light-radius debug visualization.
 						glCullFace(GL_FRONT);
+#endif
 						gSphere.render();
+#ifndef DX_RENDER
 						glCullFace(GL_BACK);
+#endif
 
 						gGL.popMatrix();
 					}
@@ -4277,6 +4367,19 @@ void LLViewerWindow::renderSelections(bool for_gl_pick, bool pick_parcel_walls, 
 
 		// Draw arrows at average center of all selected objects
 		LLTool* tool = LLToolMgr::getInstance()->getCurrentTool();
+#ifdef DX_RENDER
+		{
+			static S32 s_tool_log_count = 0;
+			if (s_tool_log_count < 20)
+			{
+				++s_tool_log_count;
+				LL_WARNS("S24Diag") << "renderSelections tool block: tool=" << (tool ? typeid(*tool).name() : "null")
+					<< " isAlwaysRendered=" << (tool && tool->isAlwaysRendered())
+					<< " selectionEmpty=" << LLSelectMgr::getInstance()->getSelection()->isEmpty()
+					<< LL_ENDL;
+			}
+		}
+#endif
 		if (tool)
 		{
 			if (tool->isAlwaysRendered())
@@ -4312,6 +4415,16 @@ void LLViewerWindow::renderSelections(bool for_gl_pick, bool pick_parcel_walls, 
 						draw_handles = false;
 					}
 
+#ifdef DX_RENDER
+					{
+						static S32 s_handles_log_count = 0;
+						if (s_handles_log_count < 20)
+						{
+							++s_handles_log_count;
+							LL_WARNS("S24Diag") << "renderSelections draw_handles=" << draw_handles << LL_ENDL;
+						}
+					}
+#endif
 					if (draw_handles)
 					{
 						tool->render();
@@ -5096,7 +5209,14 @@ bool LLViewerWindow::rawSnapshot(LLImageRaw* raw, S32 image_width, S32 image_hei
 	gSnapshotNoPost = no_post;
 	gDisplaySwapBuffers = false;
 
+#ifndef DX_RENDER
+	// S24 (DX_RENDER): pre-render clear, fully overwritten by the display()
+	// call that follows shortly after in this same function - matches the
+	// established pattern for this exact class of clear already used
+	// throughout llviewerdisplay.cpp (skip rather than reach for a raw
+	// glClear() with no GL context behind it).
 	glClear(GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT); // stencil buffer is deprecated | GL_STENCIL_BUFFER_BIT);
+#endif
 	setCursor(UI_CURSOR_WAIT);
 
 	// Hide all the UI widgets first and draw a frame
@@ -5272,6 +5392,41 @@ bool LLViewerWindow::rawSnapshot(LLImageRaw* raw, S32 image_width, S32 image_hei
 					swap();
 				}
 
+#ifdef DX_RENDER
+				// S24 (DX_RENDER): resolve the read source once per
+				// subimage tile rather than per scanline - GL's
+				// glReadPixels() with no explicit framebuffer override
+				// reads whatever's currently bound (FBO 0 / the window
+				// framebuffer, unless scratch_space.bindTarget() above
+				// overrode it for the oversized-image tiling case); this
+				// mirrors that same implicit target selection. Height is
+				// the SOURCE texture's height (for the GL-bottom-origin ->
+				// D3D11-top-origin y flip below), not `raw`'s. Both
+				// branches return an AddRef'd pointer (GetResource()/
+				// getBackBufferTexture() COM convention) - released once
+				// after the scanline loop below.
+				ID3D11Texture2D* dx_color_source = nullptr;
+				int dx_source_height = 0;
+				if (scratch_space.isComplete())
+				{
+					if (ID3D11ShaderResourceView* srv = scratch_space.getColorSRV(0))
+					{
+						ID3D11Resource* resource = nullptr;
+						srv->GetResource(&resource);
+						if (resource)
+						{
+							resource->QueryInterface(__uuidof(ID3D11Texture2D), (void**)&dx_color_source);
+							resource->Release();
+						}
+					}
+					dx_source_height = (int)scratch_space.getHeight();
+				}
+				else
+				{
+					dx_color_source = gDXSwapChain.getBackBufferTexture();
+					dx_source_height = gDXSwapChain.getHeight();
+				}
+#endif
 				for (U32 out_y = 0; out_y < read_height; out_y++)
 				{
 					S32 output_buffer_offset = (
@@ -5292,22 +5447,80 @@ bool LLViewerWindow::rawSnapshot(LLImageRaw* raw, S32 image_width, S32 image_hei
 					{
 						if (type == LLSnapshotModel::SNAPSHOT_TYPE_COLOR)
 						{
+#ifdef DX_RENDER
+							// Source is DXGI_FORMAT_R8G8B8A8_UNORM (4 bytes/
+							// pixel) - GL_RGB wants 3 (no alpha). Read the
+							// full RGBA scanline into a scratch buffer, then
+							// repack, same idea as DXTexture::create()'s
+							// repackPixel() elsewhere in this project.
+							if (dx_color_source)
+							{
+								static thread_local std::vector<U8> rgba_scratch;
+								rgba_scratch.resize((size_t)read_width * 4);
+								S32 dx_y = dx_source_height - 1 - (S32)(out_y + subimage_y_offset);
+								if (DXReadback::readPixels(dx_color_source, subimage_x_offset, dx_y, read_width, 1, 4, rgba_scratch.data()))
+								{
+									U8* dst = raw->getData() + output_buffer_offset;
+									for (U32 px = 0; px < read_width; ++px)
+									{
+										dst[px * 3 + 0] = rgba_scratch[px * 4 + 0];
+										dst[px * 3 + 1] = rgba_scratch[px * 4 + 1];
+										dst[px * 3 + 2] = rgba_scratch[px * 4 + 2];
+									}
+								}
+							}
+#else
 							glReadPixels(
 								subimage_x_offset, out_y + subimage_y_offset,
 								read_width, 1,
 								GL_RGB, GL_UNSIGNED_BYTE,
 								raw->getData() + output_buffer_offset
 							);
+#endif
 						}
 						else // LLSnapshotModel::SNAPSHOT_TYPE_DEPTH
 						{
 							LLPointer<LLImageRaw> depth_line_buffer = new LLImageRaw(read_width, 1, sizeof(GL_FLOAT)); // need to store floating point values
+#ifdef DX_RENDER
+							// S24 (DX_RENDER): depth is not part of
+							// scratch_space's color SRV - reads from
+							// whichever LLRenderTarget currently owns the
+							// depth buffer for this frame. scratch_space
+							// only allocates its own depth when the
+							// oversized-image tiling path requested one
+							// (see the allocate(...,true) call above); the
+							// normal case's depth lives on the main
+							// deferred pipeline's own target, which has no
+							// DX_RENDER-exposed accessor yet - documented
+							// gap, not guessed at.
+							if (scratch_space.isComplete())
+							{
+								if (ID3D11ShaderResourceView* depth_srv = scratch_space.getDepthSRV())
+								{
+									ID3D11Resource* depth_resource = nullptr;
+									depth_srv->GetResource(&depth_resource);
+									if (depth_resource)
+									{
+										ID3D11Texture2D* depth_tex = nullptr;
+										depth_resource->QueryInterface(__uuidof(ID3D11Texture2D), (void**)&depth_tex);
+										depth_resource->Release();
+										if (depth_tex)
+										{
+											S32 dx_y = dx_source_height - 1 - (S32)(out_y + subimage_y_offset);
+											DXReadback::readDepthPixels(depth_tex, subimage_x_offset, dx_y, read_width, 1, (float*)depth_line_buffer->getData());
+											depth_tex->Release();
+										}
+									}
+								}
+							}
+#else
 							glReadPixels(
 								subimage_x_offset, out_y + subimage_y_offset,
 								read_width, 1,
 								GL_DEPTH_COMPONENT, GL_FLOAT,
 								depth_line_buffer->getData()// current output pixel is beginning of buffer...
 							);
+#endif
 
 							for (S32 i = 0; i < (S32)read_width; i++)
 							{
@@ -5324,6 +5537,12 @@ bool LLViewerWindow::rawSnapshot(LLImageRaw* raw, S32 image_width, S32 image_hei
 						}
 					}
 				}
+#ifdef DX_RENDER
+				if (dx_color_source)
+				{
+					dx_color_source->Release();
+				}
+#endif
 			}
 			output_buffer_offset_x += subimage_x_offset;
 			stop_glerror();
@@ -5402,7 +5621,14 @@ bool LLViewerWindow::simpleSnapshot(LLImageRaw* raw, S32 image_width, S32 image_
 {
 	gDisplaySwapBuffers = false;
 
+#ifndef DX_RENDER
+	// S24 (DX_RENDER): pre-render clear, fully overwritten by the display()
+	// call that follows shortly after in this same function - matches the
+	// established pattern for this exact class of clear already used
+	// throughout llviewerdisplay.cpp (skip rather than reach for a raw
+	// glClear() with no GL context behind it).
 	glClear(GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT); // stencil buffer is deprecated | GL_STENCIL_BUFFER_BIT);
+#endif
 	setCursor(UI_CURSOR_WAIT);
 
 	bool prev_draw_ui = gPipeline.hasRenderDebugFeatureMask(LLPipeline::RENDER_DEBUG_FEATURE_UI);
@@ -5468,6 +5694,72 @@ bool LLViewerWindow::simpleSnapshot(LLImageRaw* raw, S32 image_width, S32 image_
 
 	LLImageDataSharedLock lock(raw);
 
+#ifdef DX_RENDER
+	// S24 (DX_RENDER): same source-selection/repack pattern as
+	// rawSnapshot() above - GL's glReadPixels() with no explicit
+	// framebuffer override reads whatever's currently bound
+	// (scratch_space if allocate()/bindTarget() above succeeded, else
+	// falls through to the swap chain back buffer). Source is
+	// DXGI_FORMAT_R8G8B8A8_UNORM either way; GL_RGB wants 3 bytes/pixel,
+	// no alpha - read full RGBA then repack, same as DXTexture::create()'s
+	// repackPixel() elsewhere in this project. GL's glReadPixels(0,0,...)
+	// reads from the bottom of the (bottom-left-origin) source, filling
+	// raw->getData() starting with that bottom row - confirmed by grep
+	// that neither this function nor its callers apply any subsequent
+	// LLImageRaw::verticalFlip(), so that row order is exactly what's
+	// expected downstream. D3D11 textures are top-left-origin, so reading
+	// them straight would hand back the same rows in the opposite order -
+	// reversed explicitly in the repack loop below (D3D11 row 0 == top ==
+	// GL's *last* filled row).
+	ID3D11Texture2D* dx_source = nullptr;
+	int dx_source_height = 0;
+	if (scratch_space.isComplete())
+	{
+		if (ID3D11ShaderResourceView* srv = scratch_space.getColorSRV(0))
+		{
+			ID3D11Resource* resource = nullptr;
+			srv->GetResource(&resource);
+			if (resource)
+			{
+				resource->QueryInterface(__uuidof(ID3D11Texture2D), (void**)&dx_source);
+				resource->Release();
+			}
+		}
+		dx_source_height = (int)scratch_space.getHeight();
+	}
+	else
+	{
+		dx_source = gDXSwapChain.getBackBufferTexture();
+		dx_source_height = gDXSwapChain.getHeight();
+	}
+
+	if (dx_source)
+	{
+		static thread_local std::vector<U8> rgba_scratch;
+		rgba_scratch.resize((size_t)image_width * image_height * 4);
+		if (DXReadback::readPixels(dx_source, 0, dx_source_height - image_height, image_width, image_height, 4, rgba_scratch.data()))
+		{
+			// Row-reverse while repacking RGBA->RGB: D3D11 row 0 (top) is
+			// GL row (image_height-1) (top, since GL's glReadPixels(0,0,...)
+			// with a bottom-origin surface reads from the bottom - the
+			// existing GL call above reads starting at GL row 0, i.e. the
+			// bottom of the image, filling raw->getData() top-down per
+			// LLImageRaw's own convention. Matching that here.
+			for (S32 row = 0; row < image_height; ++row)
+			{
+				const U8* src_row = rgba_scratch.data() + (size_t)row * image_width * 4;
+				U8* dst_row = raw->getData() + (size_t)(image_height - 1 - row) * image_width * 3;
+				for (S32 px = 0; px < image_width; ++px)
+				{
+					dst_row[px * 3 + 0] = src_row[px * 4 + 0];
+					dst_row[px * 3 + 1] = src_row[px * 4 + 1];
+					dst_row[px * 3 + 2] = src_row[px * 4 + 2];
+				}
+			}
+		}
+		dx_source->Release();
+	}
+#else
 	glReadPixels(
 		0, 0,
 		image_width,
@@ -5476,6 +5768,7 @@ bool LLViewerWindow::simpleSnapshot(LLImageRaw* raw, S32 image_width, S32 image_
 		raw->getData()
 	);
 	stop_glerror();
+#endif
 
 	gDisplaySwapBuffers = false;
 	gDepthDirty = true;
@@ -5546,7 +5839,14 @@ bool LLViewerWindow::cubeSnapshot(const LLVector3& origin, LLCubeMapArray* cubea
 
 	gPipeline.pushRenderTypeMask();
 
+#ifndef DX_RENDER
+	// S24 (DX_RENDER): pre-render clear, fully overwritten by the display()
+	// call that follows shortly after in this same function - matches the
+	// established pattern for this exact class of clear already used
+	// throughout llviewerdisplay.cpp (skip rather than reach for a raw
+	// glClear() with no GL context behind it).
 	glClear(GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT); // stencil buffer is deprecated | GL_STENCIL_BUFFER_BIT);
+#endif
 
 	U32 dynamic_render_types[] = {
 		LLPipeline::RENDER_TYPE_AVATAR,
@@ -5585,6 +5885,21 @@ bool LLViewerWindow::cubeSnapshot(const LLVector3& origin, LLCubeMapArray* cubea
 	mWorldViewRectRaw.set(0, res, res, 0);
 
 	// these are the 6 directions we will point the camera, see LLCubeMapArray::sTargets
+	//
+	// S24 (2026-08-13, task #194 round 11, REVERTED): tried swapping
+	// look_dirs[0]/[1] and [4]/[5] (DX_RENDER only) to fix a reported
+	// whole-scene 180-degree azimuth reversal - made things dramatically
+	// worse ("completely jumbled", sky/ground swapped too, despite Y being
+	// untouched). Root cause: look_upvecs[i] (DXCubeMapFaces::sUpVecs) is
+	// tuned PER-DIRECTION, not per-index - it encodes the specific up
+	// vector needed to correctly orient THAT SPECIFIC direction's capture
+	// per D3D11's addressing table. Swapping look_dirs[i] alone pairs a
+	// new direction with the OLD index's up vector (tuned for a different
+	// direction entirely), corrupting that capture's internal orientation
+	// - a much more fundamental break than anything the per-face radiance-
+	// gen table fixes were addressing. Any future attempt at re-assigning
+	// which world direction populates which face slot MUST swap the
+	// complete (look_dir, look_upvec) PAIR together, never look_dirs alone.
 	LLVector3 look_dirs[6] = {
 		LLVector3(1, 0, 0),
 		LLVector3(-1, 0, 0),
@@ -5594,6 +5909,23 @@ bool LLViewerWindow::cubeSnapshot(const LLVector3& origin, LLCubeMapArray* cubea
 		LLVector3(0, 0, -1)
 	};
 
+#ifdef DX_RENDER
+	// S24 (task #194, 2026-08-13): D3D11-native up vectors, NOT the GL-
+	// native ones - see DXCubeMapFaces.h's header comment for the full
+	// derivation (a real per-API handedness difference for cubemap face
+	// addressing, not something a viewport flip can compensate for).
+	// Replaces the earlier viewport-Y-flip approach (task #147/#184,
+	// reverted) which fixed individual-face orientation but not
+	// inter-face seam continuity.
+	LLVector3 look_upvecs[6] = {
+		LLVector3(DXCubeMapFaces::sUpVecs[0]),
+		LLVector3(DXCubeMapFaces::sUpVecs[1]),
+		LLVector3(DXCubeMapFaces::sUpVecs[2]),
+		LLVector3(DXCubeMapFaces::sUpVecs[3]),
+		LLVector3(DXCubeMapFaces::sUpVecs[4]),
+		LLVector3(DXCubeMapFaces::sUpVecs[5])
+	};
+#else
 	LLVector3 look_upvecs[6] = {
 		LLVector3(0, -1, 0),
 		LLVector3(0, -1, 0),
@@ -5602,6 +5934,7 @@ bool LLViewerWindow::cubeSnapshot(const LLVector3& origin, LLCubeMapArray* cubea
 		LLVector3(0, -1, 0),
 		LLVector3(0, -1, 0)
 	};
+#endif
 
 	// for each of six sides of cubemap
 	//for (int i = 0; i < 6; ++i)
@@ -5609,6 +5942,22 @@ bool LLViewerWindow::cubeSnapshot(const LLVector3& origin, LLCubeMapArray* cubea
 	{
 		// set up camera to look in each direction
 		camera->lookDir(look_dirs[i], look_upvecs[i]);
+
+		// S24 (2026-08-22): a TEMPORARY diagnostic lived here (logged the
+		// resulting camera at/left/up axes per face) to check whether the
+		// capture camera was pointed where intended for faces 0/1 (+X/-X).
+		// Answered and removed: resultUp=(0,1,0) for ALL of faces 0,1,4,5
+		// alike (identical convention) - faces 4/5 are confirmed correct
+		// with the same treatment, so the capture camera orientation is
+		// NOT the source of the remaining +X/-X defect. See
+		// llreflectionmapmanager.cpp's radianceGenV.hlsl-adjacent comments
+		// (follow-ups #1-10) for the full investigation - all 8 possible
+		// within-face dihedral orientations were subsequently tested and
+		// rejected too, ruling out a pure orientation bug altogether. Next
+		// lead: the GGX/roughness prefilter stage (prefilterEnvMap() in
+		// radianceGenF.hlsl), not yet examined - or the possibility that
+		// some "wrong" content is actually a real, correctly-captured
+		// distant mountain peak overlapping the sky.
 
 		// turning this flag off here prohibits the screen swap
 		// to present the new page to the viewer - this stops
@@ -5653,6 +6002,30 @@ bool LLViewerWindow::cubeSnapshot(const LLVector3& origin, LLCubeMapArray* cubea
 	*camera = saved_camera;
 	set_current_modelview(saved_mod);
 	set_current_projection(saved_proj);
+
+	// S24 (task #194, 2026-08-14): also restore gGL's OWN matrix stack
+	// (mMatrix[MM_MODELVIEW]/[MM_PROJECTION], read by LLRender::
+	// getModelviewMatrix()/getProjectionMatrix()), not just the separate
+	// gGLModelView/gGLProjection globals set_current_modelview()/
+	// set_current_projection() above already fix. display_cube_face() (via
+	// display_update_camera() -> setup3DRender() -> LLViewerCamera::
+	// setPerspective()) calls gGL.loadMatrix() unconditionally for EVERY
+	// capture face, overwriting gGL's stack with that face's camera -
+	// previously harmless since nothing read the stack for this purpose,
+	// but DX_RENDER's env_mat (LLPipeline::setEnvMat(), task #194) now
+	// does. Without this, gGL's stack stays stuck on whichever cube face
+	// was captured most recently until the NEXT frame's main-camera
+	// setPerspective() call happens to overwrite it - producing an
+	// intermittent, direction-correlated wrong reflection that "fights"
+	// itself as probe updates cycle through faces (confirmed via user
+	// testing: real-time instability specifically near one cardinal
+	// direction, tracking which face had most recently been captured).
+	gGL.matrixMode(LLRender::MM_MODELVIEW);
+	gGL.loadMatrix(glm::value_ptr(saved_mod));
+	gGL.matrixMode(LLRender::MM_PROJECTION);
+	gGL.loadMatrix(glm::value_ptr(saved_proj));
+	gGL.matrixMode(LLRender::MM_MODELVIEW);
+
 	setup3DViewport();
 	LLPipeline::sUseOcclusion = old_occlusion;
 
@@ -5765,7 +6138,11 @@ void LLViewerWindow::setup2DViewport(S32 x_offset, S32 y_offset)
 	gGLViewport[1] = mWindowRectRaw.mBottom + y_offset;
 	gGLViewport[2] = mWindowRectRaw.getWidth();
 	gGLViewport[3] = mWindowRectRaw.getHeight();
+#ifdef DX_RENDER
+	gDXContext.setViewport(gGLViewport[0], gGLViewport[1], gGLViewport[2], gGLViewport[3]);
+#else
 	glViewport(gGLViewport[0], gGLViewport[1], gGLViewport[2], gGLViewport[3]);
+#endif
 }
 
 void LLViewerWindow::setup3DRender()
@@ -5781,7 +6158,36 @@ void LLViewerWindow::setup3DViewport(S32 x_offset, S32 y_offset)
 	gGLViewport[1] = mWorldViewRectRaw.mBottom + y_offset;
 	gGLViewport[2] = mWorldViewRectRaw.getWidth();
 	gGLViewport[3] = mWorldViewRectRaw.getHeight();
+#ifdef DX_RENDER
+	// S24 (2026-08-22, plan item E - re-derived): this call's justification
+	// used to be scoped entirely to cube-face-capture reasoning (see prior
+	// history below), even though setup3DViewport() runs every frame for
+	// the MAIN game viewport, not cube captures - a scope leak that was
+	// never actually re-verified. Re-derived properly this time: grepped
+	// every consumer of the main view's render targets (the deferred/postfx
+	// chain - fxaaF.hlsl:724/727, dofCombineF.hlsl:71/83/91,
+	// postDeferredF.hlsl:106, and SMAA.hlsl's shared API_V_COORD macro +
+	// explicit flips feeding SMAAEdgeDetectF/BlendWeightsF/NeighborhoodBlendF)
+	// and confirmed every single one already applies its own matching
+	// `1.0 - y` compensation. That's the real reason "main view looks fine"
+	// despite this flip - it's genuinely load-bearing for the main
+	// viewport's D3D11 top-down vs. GL-derived bottom-up row order, same
+	// underlying cause already fixed 3 times elsewhere in this exact form
+	// (FXAA, SMAA, DoF), not a coincidence and not dead weight inherited
+	// from cube-capture reasoning.
+	//
+	// Prior history (2026-08-13/14, task #163 follow-up): flip_y was forced
+	// false on the theory the cube-face Y-flip was never validated and
+	// simply wrong; reverted after reflections were still reported upside
+	// down with it false, restoring true to match the 3 explicit viewport
+	// sites in llreflectionmapmanager.cpp's radiance/irradiance generation
+	// loops. That restoration turned out to be correct, just for the reason
+	// documented above rather than the cube-capture reason it was
+	// originally restored for.
+	gDXContext.setViewport(gGLViewport[0], gGLViewport[1], gGLViewport[2], gGLViewport[3], true);
+#else
 	glViewport(gGLViewport[0], gGLViewport[1], gGLViewport[2], gGLViewport[3]);
+#endif
 }
 
 void LLViewerWindow::revealIntroPanel()

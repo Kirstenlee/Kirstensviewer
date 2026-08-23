@@ -34,6 +34,10 @@ struct VSInput
     float3 position : POSITION;
     float3 normal : NORMAL;
     float2 texcoord0 : TEXCOORD0;
+    float4 weight : BLENDWEIGHT;
+#ifdef HAS_DIFFUSE_LOOKUP
+    int texture_index : TEXTUREINDEX;
+#endif
 };
 
 struct VSOutput
@@ -42,6 +46,9 @@ struct VSOutput
     float pos_w : TEXCOORD0;
     float target_pos_x : TEXCOORD1;
     float2 vary_texcoord0 : TEXCOORD2;
+#ifdef HAS_DIFFUSE_LOOKUP
+    nointerpolation int vary_texture_index : VARYTEXTUREINDEX;
+#endif
 };
 
 VSOutput main(VSInput IN)

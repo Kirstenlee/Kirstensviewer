@@ -378,7 +378,20 @@ std::string LLDir::buildSLOSCacheDir() const
 	}
 	else
 	{
+		// S24 (DX_RENDER, 2026-07-29): DX_RENDER and GL builds share the same
+		// compiled shader-cache/texture-cache formats as their respective
+		// upstream OpenGL/DirectX backends, which aren't cross-compatible -
+		// keeping them in the same LocalAppData folder risked one build's
+		// stale cache entries (e.g. an old GL-era texture cache entry, or a
+		// DXShader-vs-GLSL shader cache mismatch) confusing the other during
+		// this session's rapid GL/DX_RENDER rebuild-and-compare testing.
+		// Roaming data (settings, logs, under LLDir_Win32::initAppDirs) was
+		// split the same way on 2026-08-18, for the same reason.
+#ifdef DX_RENDER
+		res = add(getOSCacheDir(), "Kirstens S24 DX"); // S24
+#else
 		res = add(getOSCacheDir(), "Kirstens S24"); // S24
+#endif
 	}
 	return res;
 }

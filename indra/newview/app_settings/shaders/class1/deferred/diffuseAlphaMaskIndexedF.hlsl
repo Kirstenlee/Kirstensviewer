@@ -31,10 +31,17 @@ float4 encodeNormal(float3 n, float env, float gbuffer_flag);
 
 struct PSInput
 {
+    // S24 (2026-08-02): field order/semantics must match diffuseV.hlsl's
+    // VSOutput exactly - see diffuseAlphaMaskF.hlsl's comment (same
+    // TEXCOORD-index mismatch bug, this file just hadn't been exercised
+    // yet this session so its own debug-layer error hadn't fired).
+    float4 position : SV_Position;
+
     float3 vary_normal : TEXCOORD0;
-    float3 vary_position : TEXCOORD1;
     float4 vertex_color : COLOR0;
-    float2 vary_texcoord0 : TEXCOORD2;
+    float2 vary_texcoord0 : TEXCOORD1;
+    float3 vary_position : TEXCOORD2;
+    nointerpolation int vary_texture_index : VARYTEXTUREINDEX;
 };
 
 struct PSOutput
@@ -50,6 +57,8 @@ struct PSOutput
 PSOutput main(PSInput IN)
 {
     PSOutput OUT;
+
+    vary_texture_index = IN.vary_texture_index;
 
     mirrorClip(IN.vary_position);
 

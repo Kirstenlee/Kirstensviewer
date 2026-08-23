@@ -48,8 +48,13 @@
 #include <array>
 #include <list>
 
+#ifdef DX_RENDER
+#include "DXTexture.h"
+#endif
+
 class LLVertexBuffer;
 class LLCubeMap;
+class LLCubeMapArray;
 class LLImageGL;
 class LLRenderTarget;
 class LLTexture;
@@ -189,13 +194,41 @@ public:
     // (automatically enables the texture unit for cubemaps)
     bool bind(LLCubeMap* cubeMap);
 
+#ifdef DX_RENDER
+    // Binds a cubemap ARRAY to this texture unit (LLReflectionMapManager's
+    // per-probe mTexture/mIrradianceMaps - task #147). Direct sibling of
+    // bind(LLCubeMap*) just above; DX_RENDER-only - see the .cpp for why
+    // there's no GL body to keep in sync.
+    bool bind(LLCubeMapArray* cubeMapArray);
+#endif
+
     // Binds a render target to this texture unit
     // (automatically enables the texture unit for the RT's texture type)
-    bool bind(LLRenderTarget * renderTarget, bool bindDepth = false);
+    // useComparisonSampler (DX_RENDER only, task #124): binds a real D3D11
+    // comparison sampler instead of the default regular one - required for
+    // any register a shader declares as HLSL's SamplerComparisonState (e.g.
+    // shadowUtil.hlsl's shadowMap0-5Sampler, sampled via .SampleCmp() for
+    // hardware PCF). Only meaningful together with bindDepth=true. Ignored
+    // under GL - shadow-sampler comparison mode is set independently there,
+    // at texture-parameter time (GL_TEXTURE_COMPARE_MODE), not per-bind.
+    bool bind(LLRenderTarget * renderTarget, bool bindDepth = false, bool useComparisonSampler = false);
 
     // Manually binds a texture to the texture unit
     // (automatically enables the tex unit for the given texture type)
     bool bindManual(eTextureType type, U32 texture, bool hasMips = false);
+
+#ifdef DX_RENDER
+    // S24 (2026-08-03, task #84): DX-native equivalent of bindManual() for
+    // callers that build/own a DXTexture directly (procedural textures with
+    // no LLImageGL wrapper - noise/SMAA/light-function maps, the edit-tool
+    // grid texture, etc.) - bindManual()'s raw-GLuint-name overload above
+    // can't be translated generically (there's no unique per-instance name
+    // to look anything up by under DX_RENDER, and no "currently bound"
+    // ambient-state concept to hang a lookup off either), so callers that
+    // already hold a real DXTexture reference use this instead, mirroring
+    // bindFast()'s already-working SRV+sampler bind logic exactly.
+    bool bind(DXTexture& tex, eTextureAddressMode address_mode, eTextureFilterOptions filter_option);
+#endif
 
     // Unbinds the currently bound texture of the given type
     // (only if there's a texture of the given type currently bound)
@@ -233,6 +266,36 @@ protected:
     U32                 mCurrTexture;
     eTextureType        mCurrTexType;
     bool                mHasMipMaps;
+#ifdef DX_RENDER
+    // Mirrors mCurrTexture's role for the GL path: lets bind()/bindFast()/
+    // unbind()/unbindFast() detect an actual texture change and flush
+    // pending batched vertices (drawn with whatever was bound previously)
+    // before switching the pixel-shader SRV - without this, vertices pushed
+    // under one texture but not yet flushed get drawn with whatever texture
+    // a later bind() call switched to. Untyped (void*, holds an
+    // ID3D11ShaderResourceView*) so this header doesn't need to pull in
+    // d3d11.h; cast at the two or three call sites in llrender.cpp.
+    void* mCurrDXSRV = nullptr;
+
+    // S24 (task #54): tracks the LLImageGL actually bound by bind(LLImageGL*)
+    // or resolved by bindFast(LLTexture*)/bind(LLTexture*) via
+    // texture->getGLTexture(), so LLRender::flush() can capture it into a
+    // cached LLVertexBufferData (see llvertexbuffer.h) when recording a
+    // display list. Cache replay then re-issues a real bind(LLImageGL*) call
+    // instead of the raw-GLuint bindManual() replay GL uses, which has no
+    // DX11 resource to translate.
+    // S24 (2026-08-17): DOES get reset to nullptr by unbind()/unbindFast()
+    // now - was deliberately left stale originally ("harmless, nothing reads
+    // it except flush() capture, which only matters while a real texture is
+    // bound"), true at the time since nothing that called unbind() also fed
+    // flush()'s capture path. That stopped being true once submitUnderline()
+    // (llfontgl.cpp) gained a recording-mode fallback that DOES route
+    // through flush() - it explicitly unbinds (no texture for an underline)
+    // right before submitting, and a stale non-null mCurrBoundImageGL would
+    // get captured/replayed as the WRONG texture (whatever was bound before
+    // the preceding text run) instead of "no texture".
+    LLImageGL* mCurrBoundImageGL = nullptr;
+#endif
 
     void debugTextureUnit(void);
     GLint getTextureSource(eTextureBlendSrc src);
@@ -420,6 +483,17 @@ public:
     // if list is set, will store buffers in list for later use, if list isn't set, will use cache
     void beginList(std::list<LLVertexBufferData> *list);
     void endList();
+    // S24 (task #54): lets a caller check whether a beginList()/endList()
+    // recording is currently active without needing direct access to
+    // llrender.cpp's private sBufferDataList - used by LLFontGL::
+    // submitGlyphBatch()/submitUnderline() and llrender2dutils.cpp's image-
+    // drawing functions to choose between the fast gDXUIBatch path (no
+    // recording - the common case) and falling back to this class's own
+    // begin()/vertexBatchPreTransformed()/end() (recording active - lets
+    // flush()'s existing, already-DX_RENDER-safe sBufferDataList capture
+    // logic build a real, replayable LLVertexBufferData the same way it
+    // always has for GL).
+    bool isRecording() const;
 
     void begin(const GLuint& mode);
     void end();
@@ -471,12 +545,40 @@ public:
     void blendFunc(eBlendFactor color_sfactor, eBlendFactor color_dfactor,
                eBlendFactor alpha_sfactor, eBlendFactor alpha_dfactor);
 
+#ifdef DX_RENDER
+    // Gathers the *current* combination of blend-enabled (LLGLState's
+    // sStateMap, via the small public accessor), blend factors
+    // (mCurrBlendColorSFactor/DFactor), and color write mask
+    // (mCurrColorMask) into one DXStateCache::getBlendState() call + binds
+    // it - D3D11 needs all three together in one ID3D11BlendState, unlike
+    // GL's independent glEnable(GL_BLEND)/glBlendFunc()/glColorMask() calls.
+    // Called from blendFunc()/setColorMask() (whichever piece changed) and
+    // from LLGLState's GL_BLEND toggle (llgl.cpp) - public so that cross-
+    // class call is a plain accessor, not a friend declaration.
+    void applyDXBlendState();
+#endif
+
     LLLightState* getLight(U32 index);
     void setAmbientLightColor(const LLColor4& color);
 
     LLTexUnit* getTexUnit(U32 index);
 
     U32 getCurrentTexUnitIndex(void) const { return mCurrTextureUnitIndex; }
+
+    // S24 (DX_RENDER, 2026-07-25): the "ambient current color" GL immediate
+    // mode carries forward (set via color4f()/color4fv()/color4ub(), read
+    // implicitly by vertex2i()/vertex2f() etc. via mColorsp[mCount]) has no
+    // DX_RENDER equivalent to read from - dxrender/ has zero llrender
+    // dependency by design, so DXRender2DUtils' functions all take an
+    // explicit color parameter instead of assuming ambient state. This is
+    // the accessor llrender2dutils.cpp's DX_RENDER fences use to capture
+    // that ambient value at the one point (the fence itself) that still
+    // knows about it, for functions whose GL body relies on a color already
+    // set by an earlier, separate color4fv()-style call rather than
+    // receiving one as a parameter (e.g. gl_rect_2d(left,top,right,bottom,filled)).
+    // Not const: LLStrider<Object>::operator[] isn't const-qualified (see
+    // llstrider.h), so indexing mColorsp requires a non-const *this.
+    LLColor4U getCurrentColor(void) { return mColorsp[mCount]; }
 
     bool verifyTexUnitActive(U32 unitToVerify);
 

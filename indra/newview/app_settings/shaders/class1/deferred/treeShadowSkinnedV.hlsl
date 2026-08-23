@@ -32,6 +32,7 @@ struct VSInput
 {
     float3 position : POSITION;
     float2 texcoord0 : TEXCOORD0;
+    float4 weight4 : BLENDWEIGHT;
 };
 
 struct VSOutput

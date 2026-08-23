@@ -41,6 +41,7 @@
 #include "llvoiceclient.h"
 #include "llrender.h"
 #include "llagent.h"
+#include "llviewerwindow.h"
 
 //brent's wave image
 //29de489d-0491-fb00-7dab-f9e686d31e83
@@ -345,8 +346,34 @@ void LLVoiceVisualizer::render()
         // some gl state
         //---------------------------------------------------------------
         LLGLSPipelineAlpha alpha_blend;
-        LLGLDepthTest depth(GL_TRUE, GL_FALSE);
+        // S24 (2026-08-16): was LLGLDepthTest(GL_TRUE, GL_FALSE) - real
+        // depth-test enabled, no write. By the time LLHUDObject::renderAll()
+        // (this function's caller) runs, the real 3D scene's depth buffer is
+        // long gone - only the swap chain's own depth buffer remains (task
+        // #132), built for relative ordering AMONG this pass's own 3D-in-UI-
+        // space content, not real world occlusion (see DXSwapChain.h's own
+        // header comment). Task #193 already hit this exact wall trying to
+        // depth-test a nametag panel here - "caused a regression, the panel
+        // vanished entirely, reverted" - and every other HUD-space element
+        // in this codebase (nametags, the selection beam) already avoids
+        // real depth-testing for the same reason. This was the one thing
+        // structurally different about the voice dot/visualizer versus
+        // everything else in this pass, and matches its symptom exactly
+        // (not offset or distorted - completely absent). Matches
+        // LLHUDObject::renderAll()'s own outer-loop default
+        // (LLGLDepthTest(GL_FALSE, GL_FALSE)) instead of overriding it.
+        LLGLDepthTest depth(GL_FALSE, GL_FALSE);
         //LLGLDisable gls_stencil(GL_STENCIL_TEST);
+
+        // S24 (2026-08-16, task #217 follow-up): same viewport gap found and
+        // fixed in the selection beam (llhudeffecttrail.cpp) - a HUD's
+        // second-per-frame renderGeomPostDeferred() call (render_hud_attachments(),
+        // llviewerdisplay.cpp) leaves the D3D11 viewport in its own pass's
+        // full/chrome-inclusive state, and nothing resets it before the rest
+        // of LLHUDObject::renderAll()'s consumers draw unless they do it
+        // themselves (llhudnametag.cpp:334, llmanip.cpp already do). Applying
+        // pre-emptively here too, same consumer group, same architectural gap.
+        gViewerWindow->setup3DViewport();
 
         //-------------------------------------------------------------
         // create coordinates of the geometry for the dot

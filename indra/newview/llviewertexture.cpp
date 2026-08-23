@@ -1816,6 +1816,13 @@ void LLViewerFetchedTexture::scheduleCreateTexture()
                         {
 #endif
                         //finalize on main thread
+#ifdef DX_RENDER
+                        // S24 (2026-08-16): complete the deferred GPU upload
+                        // staged by createTexture() on the background thread
+                        // above (see DXTexture's top comment) before marking
+                        // the texture active/ready.
+                        mGLTexturep->finalizePendingGPUUpload();
+#endif
                         postCreateTexture();
                         unref();
                     });
@@ -3040,7 +3047,7 @@ void LLViewerFetchedTexture::readbackRawImage()
 {
 
     // readback the raw image from vram if the current raw image is null or smaller than the texture
-    if (mGLTexturep.notNull() && mGLTexturep->getTexName() != 0 &&
+    if (mGLTexturep.notNull() && mGLTexturep->getHasGLTexture() &&
         (mRawImage.isNull() || mRawImage->getWidth() < mGLTexturep->getWidth() || mRawImage->getHeight() < mGLTexturep->getHeight() ))
     {
         if (mRawImage.isNull())

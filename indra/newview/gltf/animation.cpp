@@ -393,10 +393,17 @@ const Animation& Animation::operator=(const Value& src)
 
 Skin::~Skin()
 {
+#ifdef DX_RENDER
+    // S24 (task #79): glDeleteBuffers is raw GL - null fn ptr under
+    // DX_RENDER. mDXUBO's own destructor already releases its D3D11
+    // buffer; mUBO stays 0 under DX_RENDER so this branch is a no-op.
+    mDXUBO.destroy();
+#else
     if (mUBO)
     {
         glDeleteBuffers(1, &mUBO);
     }
+#endif
 }
 
 void Skin::uploadMatrixPalette(Asset& asset)
@@ -406,10 +413,12 @@ void Skin::uploadMatrixPalette(Asset& asset)
 
     U32 max_joints = LLSkinningUtil::getMaxGLTFJointCount();
 
+#ifndef DX_RENDER
     if (mUBO == 0)
     {
         glGenBuffers(1, &mUBO);
     }
+#endif
 
     size_t joint_count = llmin<size_t>(max_joints, mJoints.size());
 
@@ -452,9 +461,20 @@ void Skin::uploadMatrixPalette(Asset& asset)
         mp[idx + 11] = m[14];
     }
 
+#ifdef DX_RENDER
+    if (!mDXUBO.getBuffer())
+    {
+        mDXUBO.createConstantBuffer(glmp.size() * sizeof(F32), glmp.data());
+    }
+    else
+    {
+        mDXUBO.upload(glmp.data(), glmp.size() * sizeof(F32));
+    }
+#else
     glBindBuffer(GL_UNIFORM_BUFFER, mUBO);
     glBufferData(GL_UNIFORM_BUFFER, glmp.size() * sizeof(F32), glmp.data(), GL_STREAM_DRAW);
     glBindBuffer(GL_UNIFORM_BUFFER, 0);
+#endif
 }
 
 bool Skin::prep(Asset& asset)

@@ -56,6 +56,17 @@ float4 decodeNormal(float4 norm)
     float4 n;
     n.xy = fenc * g;
     n.z = 1 - f / 2;
+    // norm.w carries the G-buffer flag (see encodeNormal()'s packing:
+    // xy=encoded normal, z=envIntensity, w=gbuffer_flag) and is meant to
+    // pass through unchanged - this function only decodes the xy->xyz
+    // normal encoding. The original GLSL never assigns n.w at all here
+    // (confirmed via globalF.glsl) - harmless there since GLSL doesn't do
+    // definite-assignment checking, but genuinely undefined output (some
+    // callers, e.g. screenSpaceReflPostF.hlsl, read norm.w expecting the
+    // real gbuffer flag for GET_GBUFFER_FLAG()). HLSL's stricter check
+    // caught what was already a latent bug, not just a porting gap -
+    // fixed properly rather than just silencing the compiler.
+    n.w = norm.w;
     return n;
 }
 

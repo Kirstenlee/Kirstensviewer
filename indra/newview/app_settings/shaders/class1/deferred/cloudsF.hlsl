@@ -38,17 +38,7 @@ uniform float3 cloud_pos_density2;
 uniform float cloud_scale;
 uniform float cloud_variance;
 
-struct PSInput
-{
-    float3 vary_CloudColorSun : TEXCOORD0;
-    float3 vary_CloudColorAmbient : TEXCOORD1;
-    float vary_CloudDensity : TEXCOORD2;
-    float2 vary_texcoord0 : TEXCOORD3;
-    float2 vary_texcoord1 : TEXCOORD4;
-    float2 vary_texcoord2 : TEXCOORD5;
-    float2 vary_texcoord3 : TEXCOORD6;
-    float altitude_blend_factor : TEXCOORD7;
-};
+#include "varying/cloudsVarying.hlsli"
 
 struct PSOutput
 {
@@ -62,25 +52,51 @@ struct PSOutput
 
 float4 cloudNoise(float2 uv)
 {
-   float4 a = cloud_noise_texture.Sample(cloud_noise_textureSampler, uv);
-   float4 b = cloud_noise_texture_next.Sample(cloud_noise_texture_nextSampler, uv);
+   // S24 (2026-08-09, task #164): near the WLSky dome's planar-pole UV
+   // singularity (straight up/down - buildStripsBuffer()'s planar UV
+   // formula pinches every vertex there toward the same UV regardless of
+   // longitude), adjacent screen pixels can map to wildly different UV
+   // coordinates. Sample()'s automatic screen-space derivatives explode
+   // at that discontinuity, and the resulting mip/LOD selection is a
+   // genuine, implementation-defined difference between HLSL and GLSL at
+   // singularities like this - confirmed via GL vs DX screenshot
+   // comparison (GL shows a smooth gray gradient there, DX shows a sharp
+   // aliased "sunburst" of full-opacity noise) plus a live OM blend-state
+   // readback and a real-alpha recolor test that both confirmed alpha
+   // blending itself is correct on both backends - this is a texture-
+   // sampling aliasing artifact at the singularity, not a blend/alpha
+   // bug. Computing derivatives explicitly and clamping their magnitude
+   // bounds the mip selection at the singularity without changing
+   // sampling anywhere else the derivatives are already small.
+   float2 dx = clamp(ddx(uv), -0.05, 0.05);
+   float2 dy = clamp(ddy(uv), -0.05, 0.05);
+   float4 a = cloud_noise_texture.SampleGrad(cloud_noise_textureSampler, uv, dx, dy);
+   float4 b = cloud_noise_texture_next.SampleGrad(cloud_noise_texture_nextSampler, uv, dx, dy);
    float4 cloud_noise_sample = lerp(a, b, blend_factor);
    return cloud_noise_sample;
 }
+
+// S24 (2026-08-02): see uiF.hlsl's comment - real register mismatch,
+// confirmed via fxc.exe disassembly, affects every bare-Varying PS input.
+struct PSInput
+{
+    float4 position : SV_Position;
+    CloudsVarying varying;
+};
 
 PSOutput main(PSInput IN)
 {
     PSOutput OUT;
 
     // Set variables
-    float2 uv1 = IN.vary_texcoord0.xy;
-    float2 uv2 = IN.vary_texcoord1.xy;
+    float2 uv1 = IN.varying.vary_texcoord0.xy;
+    float2 uv2 = IN.varying.vary_texcoord1.xy;
 
-    float3 cloudColorSun = IN.vary_CloudColorSun;
-    float3 cloudColorAmbient = IN.vary_CloudColorAmbient;
-    float cloudDensity = IN.vary_CloudDensity;
-    float2 uv3 = IN.vary_texcoord2.xy;
-    float2 uv4 = IN.vary_texcoord3.xy;
+    float3 cloudColorSun = IN.varying.vary_CloudColorSun;
+    float3 cloudColorAmbient = IN.varying.vary_CloudColorAmbient;
+    float cloudDensity = IN.varying.vary_CloudDensity;
+    float2 uv3 = IN.varying.vary_texcoord2.xy;
+    float2 uv4 = IN.varying.vary_texcoord3.xy;
 
     if (cloud_scale < 0.001)
     {
@@ -109,7 +125,7 @@ PSOutput main(PSInput IN)
     alpha1 = 1. - alpha1 * alpha1;
     alpha1 = 1. - alpha1 * alpha1;
 
-    alpha1 *= IN.altitude_blend_factor;
+    alpha1 *= IN.varying.altitude_blend_factor;
     alpha1 = clamp(alpha1, 0.0, 1.0);
 
     // Compute alpha2, for self shadowing effect

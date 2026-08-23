@@ -90,6 +90,18 @@ private:
     F32                             mScaleVar;
     LLFrameTimer                    mTimer;
     LLInterpLinear<F32>             mFadeInterp;
+
+    // S24 (2026-08-16): the line's source point (avatar wrist) is read raw
+    // and unsmoothed every frame, unlike the particle trail (LLInterpLinear-
+    // driven, inherently smoothed over time) - live-logged proof this
+    // session (S24 BEAM RENDER lines) showed the wrist bone swinging by
+    // ~140 screen pixels from ordinary idle/breathing animation alone while
+    // the target object's position never moved a single unit. Exponentially
+    // smoothed here so the line tracks real movement without visibly
+    // jittering on every idle-animation frame. See render()'s use.
+    LLVector3                       mSmoothedSourcePos;
+    bool                            mSmoothedSourcePosInit = false;
+    LLFrameTimer                    mSourceSmoothTimer;
 };
 
 #endif // LL_LLHUDEFFECTGLOW_H

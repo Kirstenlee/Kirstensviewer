@@ -243,6 +243,7 @@ extern LLGLSLShader         gDeferredSunProbeProgram;
 extern LLGLSLShader         gHazeProgram;
 extern LLGLSLShader         gHazeWaterProgram;
 extern LLGLSLShader         gDeferredBlurLightProgram;
+extern LLGLSLShader         gDeferredTemporalResolveSSAOProgram;
 extern LLGLSLShader         gDeferredAvatarProgram;
 extern LLGLSLShader         gDeferredSoftenProgram;
 extern LLGLSLShader         gDeferredShadowProgram;

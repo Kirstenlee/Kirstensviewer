@@ -3793,8 +3793,33 @@ bool LLModelPreview::render()
 
                                             if (ll_is_degenerate(v1, v2, v3))
                                             {
-                                                buffer->draw(LLRender::LINE_LOOP, 3, i);
-                                                buffer->draw(LLRender::POINTS, 3, i);
+                                                // S24 (2026-08-17, task #128): was buffer->draw(LLRender::LINE_LOOP, 3, i)
+                                                // - a direct indexed VBO draw, bypassing LLRender::flush() entirely, so
+                                                // task #106's LINE_LOOP-closed-into-LINE_STRIP fix (llrender.cpp) never
+                                                // covered this call site. D3D11 has no LINE_LOOP topology (sDXMode[]
+                                                // maps it to D3D11_PRIMITIVE_TOPOLOGY_UNDEFINED), and unlike task #106's
+                                                // fix - which can just append a duplicate vertex to the immediate-mode
+                                                // striders - this call reads 3 CONSECUTIVE indices from buffer's own
+                                                // fixed index array, with no room to splice in a 4th (closing) index
+                                                // without a temporary index buffer. v1/v2/v3 are already extracted as
+                                                // plain CPU-side vectors just above for the ll_is_degenerate() check, so
+                                                // routing through gGL's own immediate-mode begin()/vertex3fv()/end()
+                                                // instead is simpler than special-casing the indexed path - reuses
+                                                // task #106's already-proven LINE_LOOP handling at LLRender::flush()'s
+                                                // shared chokepoint, identical output under GL (native LINE_LOOP either
+                                                // way), and gGL.diffuseColor4f() (already set once above this loop)
+                                                // drives the color the same way regardless of which draw path is used.
+                                                gGL.begin(LLRender::LINE_LOOP);
+                                                gGL.vertex3fv(v1.getF32ptr());
+                                                gGL.vertex3fv(v2.getF32ptr());
+                                                gGL.vertex3fv(v3.getF32ptr());
+                                                gGL.end();
+
+                                                gGL.begin(LLRender::POINTS);
+                                                gGL.vertex3fv(v1.getF32ptr());
+                                                gGL.vertex3fv(v2.getF32ptr());
+                                                gGL.vertex3fv(v3.getF32ptr());
+                                                gGL.end();
                                             }
                                         }
 

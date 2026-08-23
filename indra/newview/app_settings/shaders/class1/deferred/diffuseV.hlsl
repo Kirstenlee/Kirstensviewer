@@ -35,6 +35,12 @@ struct VSInput
     float4 diffuse_color : COLOR0;
     float3 normal : NORMAL;
     float2 texcoord0 : TEXCOORD0;
+#ifdef HAS_SKIN
+    float4 weight4 : BLENDWEIGHT;
+#endif
+#ifdef HAS_DIFFUSE_LOOKUP
+    int texture_index : TEXTUREINDEX;
+#endif
 };
 
 struct VSOutput
@@ -44,6 +50,9 @@ struct VSOutput
     float4 vertex_color : COLOR0;
     float2 vary_texcoord0 : TEXCOORD1;
     float3 vary_position : TEXCOORD2;
+#ifdef HAS_DIFFUSE_LOOKUP
+    nointerpolation int vary_texture_index : VARYTEXTUREINDEX;
+#endif
 };
 
 #ifdef HAS_SKIN

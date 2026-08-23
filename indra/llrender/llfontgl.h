@@ -166,7 +166,6 @@ public:
 
     void generateASCIIglyphs();
 
-
     static void initClass(F32 screen_dpi, F32 x_scale, F32 y_scale, const std::string& app_dir, bool create_gl_textures = true);
 
            void dumpTextures();
@@ -243,6 +242,17 @@ private:
 
     void renderTriangle(LLVector4a* vertex_out, LLVector2* uv_out, LLColor4U* colors_out, const LLRectf& screen_rect, const LLRectf& uv_rect, const LLColor4U& color, F32 slant_amt) const;
     void drawGlyph(S32& glyph_count, LLVector4a* vertex_out, LLVector2* uv_out, LLColor4U* colors_out, const LLRectf& screen_rect, const LLRectf& uv_rect, const LLColor4U& color, U8 style, ShadowType shadow, F32 drop_shadow_fade) const;
+
+    // S24 (DXUIBatch plan, phase 1): the only rendering-facing seams in this
+    // class - isolated out of render(F32,F32,...) so a native DX11 backend
+    // (dxrender/ui/DXUIBatch, phase 4) has exactly one place each to plug
+    // into, without touching the surrounding kerning/layout/style math.
+    // Pure extraction - GL behavior is unchanged.
+    void beginTextRender() const;
+    void endTextRender() const;
+    void bindGlyphTexture(LLImageGL* font_image) const;
+    void submitGlyphBatch(const LLVector4a* vertices, const LLVector2* uvs, const LLColor4U* colors, S32 vertex_count) const;
+    void submitUnderline(F32 x0, F32 x1, F32 y, const LLColor4U& color) const;
 
     // Registry holds all instantiated fonts.
     static LLFontRegistry* sFontRegistry;

@@ -369,7 +369,14 @@ void LLFacePool::LLOverrideFaceColor::setColor(const LLColor4& color)
 
 void LLFacePool::LLOverrideFaceColor::setColor(const LLColor4U& color)
 {
-    glColor4ubv(color.mV);
+    // S24 (DX_RENDER, 2026-07-25): was a raw glColor4ubv() call, the only one
+    // of this class's 3 setColor() overloads not already routed through
+    // gGL's shader-uniform-based diffuseColor4*() wrapper (the other two
+    // already call gGL.diffuseColor4fv()/diffuseColor4f() - this one was
+    // just missed). diffuseColor4ubv() already handles DX_RENDER internally
+    // (LLGLSLShader::uniform4f()'s DX_RENDER branch), so no new #ifdef is
+    // needed here - this alone makes it backend-safe.
+    gGL.diffuseColor4ubv(color.mV);
 }
 
 void LLFacePool::LLOverrideFaceColor::setColor(F32 r, F32 g, F32 b, F32 a)

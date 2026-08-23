@@ -175,13 +175,13 @@ RunMultipleThreads
   Default: true
   Notes: Keep background threads active during render
 
-RenderGLMultiThreadedTextures
+RenderDXMultiThreadedTextures
   Default: false
-  Notes: Multi-threaded OpenGL texture loading (incompatible with Intel drivers)
+  Notes: Background-thread D3D11 texture creation (reduces stutter during texture streaming)
 
-RenderGLMultiThreadedMedia
+RenderDXMultiThreadedMedia
   Default: false
-  Notes: Multi-threaded OpenGL media playback (incompatible with Intel drivers)
+  Notes: Background-thread D3D11 media/video frame updates (reduces stutter during video playback)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 

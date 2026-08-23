@@ -31,6 +31,10 @@
 
 #include <vector>
 
+#ifdef DX_RENDER
+#include "DXCubeTexture.h"
+#endif
+
 class LLVector3;
 
 // Environment map hack!
@@ -76,6 +80,15 @@ public:
 
 	void destroyGL();
 
+#ifdef DX_RENDER
+	// S24 (2026-08-06, task #113): real cubemap SRV, assembled from the 6
+	// individually-uploaded mImages[] faces - see DXCubeTexture's own
+	// comment for why. Used by LLTexUnit::bind(LLCubeMap*)'s DX_RENDER
+	// branch. Returns nullptr if this cubemap hasn't been assembled yet
+	// (e.g. init()/initEnvironmentMap() never called, or failed).
+	ID3D11ShaderResourceView* getDXSRV() const { return mDXCubeTexture.getSRV(); }
+#endif
+
 public:
 	static bool sUseCubeMaps;
 
@@ -87,6 +100,9 @@ protected:
 	LLPointer<LLImageRaw> mRawImages[6];
 	S32 mTextureStage;
 	S32 mMatrixStage;
+#ifdef DX_RENDER
+	DXCubeTexture mDXCubeTexture;
+#endif
 };
 
 #endif

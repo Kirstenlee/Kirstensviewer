@@ -28,6 +28,8 @@ void SMAABlendingWeightCalculationVS(float2 texcoord,
                                      out float2 pixcoord,
                                      out float4 offset[3]);
 
+#include "varying/SMAABlendWeightsVarying.hlsli"
+
 struct VSInput
 {
     float3 position : POSITION;
@@ -36,9 +38,7 @@ struct VSInput
 struct VSOutput
 {
     float4 position : SV_Position;
-    float2 vary_texcoord0 : TEXCOORD0;
-    float2 vary_pixcoord : TEXCOORD1;
-    float4 vary_offset[3] : TEXCOORD2;
+    SMAABlendWeightsVarying varying;
 };
 
 VSOutput main(VSInput IN)
@@ -46,11 +46,11 @@ VSOutput main(VSInput IN)
     VSOutput OUT;
 
     OUT.position = float4(IN.position.xyz, 1.0);
-    OUT.vary_texcoord0 = (OUT.position.xy*0.5+0.5);
+    OUT.varying.vary_texcoord0 = (OUT.position.xy*0.5+0.5);
 
-    SMAABlendingWeightCalculationVS(OUT.vary_texcoord0,
-                                    OUT.vary_pixcoord,
-                                    OUT.vary_offset);
+    SMAABlendingWeightCalculationVS(OUT.varying.vary_texcoord0,
+                                    OUT.varying.vary_pixcoord,
+                                    OUT.varying.vary_offset);
 
     return OUT;
 }

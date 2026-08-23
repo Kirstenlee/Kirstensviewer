@@ -1427,6 +1427,17 @@
       <key>Value</key>
       <integer>0</integer>
     </map>
+    <key>S24DXDebugLayerEnabled</key>
+    <map>
+      <key>Comment</key>
+      <string>DX_RENDER only: enable the D3D11 debug/validation layer (D3D11_CREATE_DEVICE_DEBUG) at device creation, plus per-draw-call debug-message polling. Real per-draw-call cost - disable for performance testing. Requires restart (device is created once at startup). Default off: developers enable this only when testing; normal runs should get full performance.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
     <key>S24VBOWorkQueueThreadCount</key>
     <map>
       <key>Comment</key>
@@ -7915,38 +7926,16 @@
       <key>Value</key>
       <integer>256</integer>
     </map>
-    <key>RenderLocalLightSmartCulling</key>
+    <key>RenderLocalLightHoldTime</key>
     <map>
       <key>Comment</key>
-      <string>Enable intelligent distance-based light culling with priority zones</string>
-      <key>Persist</key>
-      <integer>1</integer>
-      <key>Type</key>
-      <string>Boolean</string>
-      <key>Value</key>
-      <integer>1</integer>
-    </map>
-    <key>RenderLocalLightPriorityInnerRadius</key>
-    <map>
-      <key>Comment</key>
-      <string>Distance in meters for highest priority lights (always rendered)</string>
+      <string>S24 DX_RENDER (task #165) - minimum real-time (seconds) a local light holds its last visibility state before it's allowed to flip, once it has passed RenderLocalLightFrustumCulling's per-frame test at least once. This is the whole-light counterpart to the per-pixel N.L smoothing already applied in multiPointLightF.hlsl - both exist because the underlying mechanism is the same class of bug (a hard, zero-margin binary test recomputed fresh every frame from camera-relative geometry pops visibly under continuous camera micro-motion at high frame rates, and looks perfectly stable when sampled rarely - e.g. an unfocused/throttled background window). Only does real work when RenderLocalLightFrustumCulling is enabled (off by default in this fork) - a deliberate pairing for lower-end systems: cull aggressively for real performance headroom, hold briefly to pay for it with no visible flicker cost. 0 = instant, original hard-cutoff behavior. Replaces the previous RenderLocalLightSmartCulling/PriorityInnerRadius/PriorityMidRadius settings, which were UI-only and never read by any render code. 0.30 confirmed (2026-08-17) as a sane default for a default midnight scene.</string>
       <key>Persist</key>
       <integer>1</integer>
       <key>Type</key>
       <string>F32</string>
       <key>Value</key>
-      <real>30.0</real>
-    </map>
-    <key>RenderLocalLightPriorityMidRadius</key>
-    <map>
-      <key>Comment</key>
-      <string>Distance in meters for medium priority lights (gradually culled)</string>
-      <key>Persist</key>
-      <integer>1</integer>
-      <key>Type</key>
-      <string>F32</string>
-      <key>Value</key>
-      <real>64.0</real>
+      <real>0.30</real>
     </map>
     <key>RenderLocalLightFrustumCulling</key>
     <map>
@@ -7959,16 +7948,27 @@
       <key>Value</key>
       <integer>0</integer>
     </map>
-    <key>RenderLocalLightFrustumCullDistance</key>
+    <key>RenderLocalLightFrustumMargin</key>
     <map>
       <key>Comment</key>
-      <string>Distance in meters beyond which frustum culling applies to lights</string>
+      <string>S24 DX_RENDER - extra world-space slack (meters) added to a local light's box radius ONLY for the CPU-side view-frustum visibility test (AABBInFrustumNoFarClip), not the light's actual drawn size. AABBInFrustumNoFarClip itself is confirmed correct (verified via a live per-light diagnostic, 2026-08-15) - it's a hard, zero-margin cutoff, so small lights right at the edge of the view cone pop in/out on the slightest camera pan. This is a blunt, brute-force mitigation (not a smooth fade/hysteresis system). An earlier 3m default was empirically confirmed (via a live A/B diagnostic comparing padded vs unpadded results per-light) to NEVER make culling more aggressive, only ever neutral or helpful - but 3m is negligible next to lights that are tens of degrees off-axis, which is most of the reported "popping" cases. At 32m (confirmed 2026-08-17 as a sane default for a default midnight scene, alongside RenderLocalLightHoldTime/RenderLocalLightMinRadius) this setting mostly stops being "frustum edge forgiveness" and starts meaning "nearby local lights are gated by distance/light-count budget (RenderFarClip/RenderLocalLightCount, both independent of this) rather than view direction," which is a deliberate tradeoff, not an oversight. 0 = original hard-cutoff behavior.</string>
       <key>Persist</key>
       <integer>1</integer>
       <key>Type</key>
       <string>F32</string>
       <key>Value</key>
-      <real>64.0</real>
+      <real>32.0</real>
+    </map>
+    <key>RenderLocalLightMinRadius</key>
+    <map>
+      <key>Comment</key>
+      <string>S24 DX_RENDER (task #165) - floors the EFFECTIVE radius used for local-light distance falloff/culling math to at least this many meters, regardless of the light's own authored radius. Small decorative local lights (walkway lanterns etc.) are commonly built with a tiny real radius (1-3m), meaning the camera previously had to be almost standing inside one before it contributed any light at all - confirmed via live testing. Does not change light color/intensity, only how far away it starts fading in. A light's TRUE radius still gates whether it's considered "on" at all (radius=0 stays off) - this only extends the reach of lights that are actually emitting. 0 = original behavior, no floor.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>15.0</real>
     </map>
     <key>RenderShadowSplitExponent</key>
     <map>
@@ -8384,6 +8384,17 @@
       <string>F32</string>
       <key>Value</key>
       <real>2.0</real>
+    </map>
+    <key>RenderDXCreateTextureBudgetMS</key>
+    <map>
+      <key>Comment</key>
+      <string>S24 DX_RENDER only: minimum time budget in milliseconds per frame for creating GPU textures on the main thread (DX_RENDER has no worker-thread texture creation - see LLImageGL::initClass()). Overrides RenderTextureUpdateBudgetMS's share for this phase when larger.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>16.0</real>
     </map>
     <key>RenderFlushOrphanedTexturesOnTeleport</key>
     <map>
@@ -9130,10 +9141,10 @@
       <key>Value</key>
       <integer>0</integer>
     </map>
-    <key>RenderGLMultiThreadedTextures</key>
+    <key>RenderDXMultiThreadedTextures</key>
     <map>
       <key>Comment</key>
-      <string>Allow OpenGL to use multiple render contexts for loading textures (may reduce frame stutters, doesn't play nice with Intel drivers).</string>
+      <string>Create textures on a background thread using D3D11's free-threaded device methods instead of the main render thread (reduces frame stutter during texture streaming).</string>
       <key>Persist</key>
       <integer>1</integer>
       <key>Type</key>
@@ -9141,10 +9152,10 @@
       <key>Value</key>
       <integer>0</integer>
     </map>
-    <key>RenderGLMultiThreadedMedia</key>
+    <key>RenderDXMultiThreadedMedia</key>
     <map>
       <key>Comment</key>
-      <string>Allow OpenGL to use multiple render contexts for playing media (may reduce frame stutters, doesn't play nice with Intel drivers)</string>
+      <string>Prepare media/video frame texture updates on a background thread using D3D11's free-threaded device methods instead of the main render thread (reduces frame stutter during video playback).</string>
       <key>Persist</key>
       <integer>1</integer>
       <key>Type</key>
@@ -9643,7 +9654,7 @@
       <key>Type</key>
       <string>S32</string>
       <key>Value</key>
-      <integer>3</integer>
+      <integer>2</integer>
     </map>
     <key>RenderReflectionsEnabled</key>
     <map>
@@ -9814,13 +9825,13 @@
     <key>RenderReflectionProbeAmbientMultiplier</key>
     <map>
       <key>Comment</key>
-      <string>Ambient probe contribution multiplier (S24 Runtime Tweak)</string>
+      <string>Ambient probe contribution multiplier (S24 Runtime Tweak). Local lights are additive on top of ambient, so a lower ambient floor lets local light contribution actually read visually instead of being washed out - 0.2 confirmed (2026-08-17) as a sane default for a default midnight scene alongside the local-light tuning below.</string>
       <key>Persist</key>
       <integer>1</integer>
       <key>Type</key>
       <string>F32</string>
       <key>Value</key>
-      <real>1.0</real>
+      <real>0.2</real>
     </map>
     <key>SmoothKeyboardMovement</key>
     <map>
@@ -9920,6 +9931,204 @@
       <string>S32</string>
       <key>Value</key>
       <integer>3</integer>
+    </map>
+    <key>S24CubeOrientSwap0</key>
+    <map>
+      <key>Comment</key>
+      <string>S24 DEBUG: reflection-probe cubemap orientation live-tuner, +X face - swap which raw quad axis feeds which output slot. Default reproduces the proven-correct closed-form formula; only touch this while chasing task #194's remaining +X/-X defect.</string>
+      <key>Persist</key>
+      <integer>0</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
+    <key>S24CubeOrientNegA0</key>
+    <map>
+      <key>Comment</key>
+      <string>S24 DEBUG: reflection-probe cubemap orientation live-tuner, +X face - negate the first free-axis slot. Value updated 2026-08-23 to the "magic combo" (live-tuner session) - user-confirmed clean, seamless sphere render, all 6 faces. Provisional baseline: NegA flipped from every face's original sign, i.e. equivalent to a single global qx negation - not yet baked into the shader literal, kept as a tunable default pending a landmark re-check on +Y/-Y/+Z/-Z (touched by this same change) and further live testing.</string>
+      <key>Persist</key>
+      <integer>0</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
+    <key>S24CubeOrientNegB0</key>
+    <map>
+      <key>Comment</key>
+      <string>S24 DEBUG: reflection-probe cubemap orientation live-tuner, +X face - negate the second free-axis slot.</string>
+      <key>Persist</key>
+      <integer>0</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
+    <key>S24CubeOrientSwap1</key>
+    <map>
+      <key>Comment</key>
+      <string>S24 DEBUG: reflection-probe cubemap orientation live-tuner, -X face - swap which raw quad axis feeds which output slot.</string>
+      <key>Persist</key>
+      <integer>0</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
+    <key>S24CubeOrientNegA1</key>
+    <map>
+      <key>Comment</key>
+      <string>S24 DEBUG: reflection-probe cubemap orientation live-tuner, -X face - negate the first free-axis slot. Value updated 2026-08-23 to the "magic combo" - see S24CubeOrientNegA0's comment for the full explanation.</string>
+      <key>Persist</key>
+      <integer>0</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>1</integer>
+    </map>
+    <key>S24CubeOrientNegB1</key>
+    <map>
+      <key>Comment</key>
+      <string>S24 DEBUG: reflection-probe cubemap orientation live-tuner, -X face - negate the second free-axis slot.</string>
+      <key>Persist</key>
+      <integer>0</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
+    <key>S24CubeOrientSwap2</key>
+    <map>
+      <key>Comment</key>
+      <string>S24 DEBUG: reflection-probe cubemap orientation live-tuner, +Y face - swap which raw quad axis feeds which output slot. This face is already confirmed correct - leave at default unless deliberately testing the tool itself.</string>
+      <key>Persist</key>
+      <integer>0</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
+    <key>S24CubeOrientNegA2</key>
+    <map>
+      <key>Comment</key>
+      <string>S24 DEBUG: reflection-probe cubemap orientation live-tuner, +Y face - negate the first free-axis slot. Value updated 2026-08-23 to the "magic combo" - see S24CubeOrientNegA0's comment. This face was previously confirmed correct with the OLD sign - re-verify against a known landmark before trusting this face's new value long-term.</string>
+      <key>Persist</key>
+      <integer>0</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>1</integer>
+    </map>
+    <key>S24CubeOrientNegB2</key>
+    <map>
+      <key>Comment</key>
+      <string>S24 DEBUG: reflection-probe cubemap orientation live-tuner, +Y face - negate the second free-axis slot.</string>
+      <key>Persist</key>
+      <integer>0</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>1</integer>
+    </map>
+    <key>S24CubeOrientSwap3</key>
+    <map>
+      <key>Comment</key>
+      <string>S24 DEBUG: reflection-probe cubemap orientation live-tuner, -Y face - swap which raw quad axis feeds which output slot. This face is already confirmed correct - leave at default unless deliberately testing the tool itself.</string>
+      <key>Persist</key>
+      <integer>0</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
+    <key>S24CubeOrientNegA3</key>
+    <map>
+      <key>Comment</key>
+      <string>S24 DEBUG: reflection-probe cubemap orientation live-tuner, -Y face - negate the first free-axis slot. Value updated 2026-08-23 to the "magic combo" - see S24CubeOrientNegA0's comment. This face was previously confirmed correct with the OLD sign - re-verify against a known landmark before trusting this face's new value long-term.</string>
+      <key>Persist</key>
+      <integer>0</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>1</integer>
+    </map>
+    <key>S24CubeOrientNegB3</key>
+    <map>
+      <key>Comment</key>
+      <string>S24 DEBUG: reflection-probe cubemap orientation live-tuner, -Y face - negate the second free-axis slot.</string>
+      <key>Persist</key>
+      <integer>0</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
+    <key>S24CubeOrientSwap4</key>
+    <map>
+      <key>Comment</key>
+      <string>S24 DEBUG: reflection-probe cubemap orientation live-tuner, +Z face - swap which raw quad axis feeds which output slot. This face is already confirmed correct - leave at default unless deliberately testing the tool itself.</string>
+      <key>Persist</key>
+      <integer>0</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
+    <key>S24CubeOrientNegA4</key>
+    <map>
+      <key>Comment</key>
+      <string>S24 DEBUG: reflection-probe cubemap orientation live-tuner, +Z face - negate the first free-axis slot. Value updated 2026-08-23 to the "magic combo" - see S24CubeOrientNegA0's comment. This face was previously confirmed correct with the OLD sign - re-verify against a known landmark before trusting this face's new value long-term.</string>
+      <key>Persist</key>
+      <integer>0</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>1</integer>
+    </map>
+    <key>S24CubeOrientNegB4</key>
+    <map>
+      <key>Comment</key>
+      <string>S24 DEBUG: reflection-probe cubemap orientation live-tuner, +Z face - negate the second free-axis slot.</string>
+      <key>Persist</key>
+      <integer>0</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
+    <key>S24CubeOrientSwap5</key>
+    <map>
+      <key>Comment</key>
+      <string>S24 DEBUG: reflection-probe cubemap orientation live-tuner, -Z face - swap which raw quad axis feeds which output slot. This face is already confirmed correct - leave at default unless deliberately testing the tool itself.</string>
+      <key>Persist</key>
+      <integer>0</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
+    <key>S24CubeOrientNegA5</key>
+    <map>
+      <key>Comment</key>
+      <string>S24 DEBUG: reflection-probe cubemap orientation live-tuner, -Z face - negate the first free-axis slot. Value updated 2026-08-23 to the "magic combo" - see S24CubeOrientNegA0's comment.</string>
+      <key>Persist</key>
+      <integer>0</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
+    <key>S24CubeOrientNegB5</key>
+    <map>
+      <key>Comment</key>
+      <string>S24 DEBUG: reflection-probe cubemap orientation live-tuner, -Z face - negate the second free-axis slot.</string>
+      <key>Persist</key>
+      <integer>0</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
     </map>
     <key>RenderReflectionRes</key>
     <map>
@@ -14278,7 +14487,7 @@
       <key>Type</key>
       <string>Boolean</string>
       <key>Value</key>
-      <integer>1</integer>
+      <integer>0</integer>
     </map>
     <key>UseMenuIcons</key>
     <map>

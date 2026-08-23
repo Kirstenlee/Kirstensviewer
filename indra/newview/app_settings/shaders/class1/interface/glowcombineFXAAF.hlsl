@@ -31,12 +31,18 @@ uniform float2 screen_res;
 
 struct PSInput
 {
+    // S24 (2026-08-02): missing SV_Position - see uiF.hlsl's comment (fxc.exe-confirmed VS/PS register-shift bug).
+    float4 position : SV_Position;
+
     float2 vary_tc : TEXCOORD0;
 };
 
 float4 main(PSInput IN) : SV_Target
 {
-    float3 col = diffuseRect.Sample(diffuseRectSampler, IN.vary_tc).rgb;
+    // S24 (2026-08-11, quick-win origin sweep): GL-vs-D3D11 texture-origin
+    // flip - same bug class as task #158/#185, and as glowcombineF.hlsl's
+    // own already-fixed identical case.
+    float3 col = diffuseRect.Sample(diffuseRectSampler, float2(IN.vary_tc.x, 1.0 - IN.vary_tc.y)).rgb;
 
     return float4(col.rgb, dot(col.rgb, float3(0.299, 0.587, 0.144)));
 }

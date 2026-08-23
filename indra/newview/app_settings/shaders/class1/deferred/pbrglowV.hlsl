@@ -37,19 +37,22 @@ uniform float4 texture_emissive_transform[2];
 
 float2 texture_transform(float2 vertex_texcoord, float4 khr_gltf_transform[2], float4x4 sl_animation_transform);
 
+#include "varying/pbrGlowVarying.hlsli"
+
 struct VSInput
 {
     float3 position : POSITION;
     float4 emissive : COLOR0;
     float2 texcoord0 : TEXCOORD0;
+#ifdef HAS_SKIN
+    float4 weight4 : BLENDWEIGHT;
+#endif
 };
 
 struct VSOutput
 {
     float4 position : SV_Position;
-    float2 base_color_texcoord : TEXCOORD0;
-    float2 emissive_texcoord : TEXCOORD1;
-    float4 vertex_emissive : COLOR0;
+    PBRGlowVarying varying;
 };
 
 VSOutput main(VSInput IN)
@@ -69,10 +72,10 @@ VSOutput main(VSInput IN)
     OUT.position = mul(modelview_projection_matrix, float4(IN.position.xyz, 1.0));
 #endif
 
-    OUT.base_color_texcoord = texture_transform(IN.texcoord0, texture_base_color_transform, texture_matrix0);
-    OUT.emissive_texcoord = texture_transform(IN.texcoord0, texture_emissive_transform, texture_matrix0);
+    OUT.varying.base_color_texcoord = texture_transform(IN.texcoord0, texture_base_color_transform, texture_matrix0);
+    OUT.varying.emissive_texcoord = texture_transform(IN.texcoord0, texture_emissive_transform, texture_matrix0);
 
-    OUT.vertex_emissive = IN.emissive;
+    OUT.varying.vertex_emissive = IN.emissive;
 
     return OUT;
 }

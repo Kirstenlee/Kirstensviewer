@@ -635,9 +635,17 @@ void LLFace::renderOneWireframe(const LLColor4 &color, F32 fogCfx, bool wirefram
         LLGLDisable depth(wireframe_selection ? 0 : GL_BLEND);
 
         LLGLEnable offset(GL_POLYGON_OFFSET_LINE);
+#ifndef DX_RENDER
+        // S24 (DX_RENDER): no runtime depth-bias/polygon-offset equivalent
+        // (rasterizer-state creation-time field in D3D11, not a per-draw
+        // call) and no per-draw line-width equivalent - both already
+        // documented gaps (see project memory). Wireframe selection outline
+        // renders at default width/depth-bias under DX_RENDER - visual gap
+        // only, not a crash.
         glPolygonOffset(3.f, 3.f);
         glLineWidth(5.f);
         glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+#endif
         renderFace(mDrawablep, this);
     }
 }

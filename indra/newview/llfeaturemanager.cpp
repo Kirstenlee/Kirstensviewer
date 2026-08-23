@@ -427,6 +427,45 @@ bool checkRDNA35()
 
 bool LLFeatureManager::loadGPUClass()
 {
+#ifdef DX_RENDER
+    // S24 (2026-08-05): gpu_benchmark() (llglsandbox.cpp) compiles a
+    // GLSL/HLSL "Benchmark Shader" and times it via GL_TIMER queries - it
+    // has never been audited or converted for DX_RENDER, and its own
+    // internal "mGLVersion < 3.3f -> bail" gate used to accidentally save
+    // us here (mGLVersion defaulted to 1.0f, so it always bailed before
+    // touching any GL-specific code). Now that LLGLManager::initGLDX()
+    // (llgl.cpp) reports a real mGLVersion so LLFeatureManager's other
+    // version-gated checks work correctly, that accidental protection is
+    // gone - so never call it under DX_RENDER at all. Classify directly
+    // from the real DXGI VRAM figure initGLDX() now populates instead of
+    // a memory-bandwidth benchmark; coarser, but real data beats a
+    // GL-only benchmark this build can't safely run.
+    U32 vram = gGLManager.mVRAM;
+    if (vram >= 8192)      mGPUClass = GPU_CLASS_5;
+    else if (vram >= 6144) mGPUClass = GPU_CLASS_4;
+    else if (vram >= 4096) mGPUClass = GPU_CLASS_3;
+    else if (vram >= 2048) mGPUClass = GPU_CLASS_2;
+    else if (vram > 0)     mGPUClass = GPU_CLASS_1;
+    else                   mGPUClass = GPU_CLASS_0;
+
+    LL_INFOS("RenderInit") << "DX_RENDER GPU class from VRAM (" << vram
+        << "MB): " << (S32)mGPUClass << LL_ENDL;
+
+    // S24 (2026-08-05): this early-return skips the original function's own
+    // tail (mGPUString/mGPUSupported assignment below) - missing this caused
+    // a real regression: mGPUSupported stayed at its constructor default of
+    // false forever, and combined with mGPUClass now always being a real
+    // numeric class instead of GPU_CLASS_UNKNOWN (this fix's whole point),
+    // llappviewer.cpp's "!isGPUSupported() && getGPUClass() !=
+    // GPU_CLASS_UNKNOWN" check fired unconditionally - the "does not meet
+    // minimum requirements" (UnsupportedGPU) warning on every single launch,
+    // regardless of actual GPU.
+    mGPUString = gGLManager.getRawGLString();
+    mGPUSupported = true;
+
+    return true;
+#endif
+
     // This is a hack for certain AMD GPUs in newer driver versions on certain APUs.
     // These GPUs will show inconsistent freezes when attempting to run shader profiles against them.
     // This is extremely problematic as it can lead to:
@@ -763,9 +802,15 @@ void LLFeatureManager::applyBaseMasks()
 	{
 		maskFeatures("GL3");
 
-		// make sure to disable background context activity in GL3 mode
+#ifndef DX_RENDER
+		// make sure to disable background context activity in GL3 mode -
+		// S24 (2026-08-16): this was a GL-driver-vintage-mode safety valve
+		// (mGLVersion < 3.99 old/limited GL implementations). Meaningless
+		// under DX_RENDER, where RenderDXMultiThreadedTextures/Media are the
+		// only gate now - see LLImageGL::initClass()'s DX_RENDER branch.
 		LLImageGLThread::sEnabledMedia = false;
 		LLImageGLThread::sEnabledTextures = false;
+#endif
 
 		// Make extra sure that vintage mode also gets enabled.
 		gSavedSettings.setBOOL("RenderDisableVintageMode", false);

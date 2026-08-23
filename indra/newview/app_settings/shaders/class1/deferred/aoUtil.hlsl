@@ -22,18 +22,41 @@
  * SOFTWARE.
  */
 
-uniform Texture2D noiseMap : register(t0);
+// noiseMap is a genuinely different resource from deferredUtil.hlsl's
+// normalMap (SSAO rotation-noise texture vs. G-buffer normal channel) -
+// they only collided by accident of both independently landing on t0/s0.
+// Moved to t4/s4, clear of deferredUtil.hlsl (t0-t3) and shadowUtil.hlsl
+// (t10-t15, attached alongside this whenever sunLightF.hlsl also has
+// HAS_SUN_SHADOW) - "Deferred Sun Shader" doesn't attach gbufferUtil.hlsl/
+// reflectionProbeF.hlsl, so t4-t9 is otherwise free here.
+uniform Texture2D noiseMap : register(t4);
+uniform SamplerState noiseSampler : register(s4);
+
+// depthMap/depthMapSampler are also declared by deferredUtil.hlsl - same
+// real resource (the original GLSL redundantly declares an identical
+// "uniform sampler2D depthMap" too), guarded there - reuse it here. Renamed
+// this file's own sampler from depthSampler to depthMapSampler to match
+// deferredUtil.hlsl's naming exactly (a guard only merges identical
+// declarations - it can't reconcile two different names for the same
+// resource, so getDepthAo()'s body below is updated to match).
+#ifndef LL_DEPTHMAP_DECLARED
+#define LL_DEPTHMAP_DECLARED
 uniform Texture2D depthMap : register(t1);
-uniform SamplerState noiseSampler : register(s0);
-uniform SamplerState depthSampler : register(s1);
+uniform SamplerState depthMapSampler : register(s1);
+#endif
 
 uniform float ssao_radius;
 uniform float ssao_max_radius;
 uniform float ssao_factor;
 uniform float ssao_factor_inv;
 
+// inv_proj/screen_res are also declared by deferredUtil.hlsl, grouped
+// together there under one guard - reuse it here.
+#ifndef LL_INV_PROJ_DECLARED
+#define LL_INV_PROJ_DECLARED
 uniform float4x4 inv_proj;
 uniform float2 screen_res;
+#endif
 
 float2 getScreenCoordinateAo(float2 screenpos)
 {
@@ -43,7 +66,18 @@ float2 getScreenCoordinateAo(float2 screenpos)
 
 float getDepthAo(float2 pos_screen)
 {
-    float depth = depthMap.Sample(depthSampler, pos_screen).r;
+    // S24 (2026-08-10, task #158/#184 follow-up): same GL-vs-D3D11 texture-
+    // origin flip already applied everywhere else this session that reads
+    // a G-buffer/depth/lightmap render target with a screen-space UV
+    // (getGBuffer()/getDepth() in gbufferUtil.hlsl/deferredUtil.hlsl,
+    // softenLightF.hlsl's lightMap sample) - this file was never updated
+    // with it. pos_screen itself stays unflipped (getScreenCoordinateAo()
+    // below uses it for NDC/position reconstruction, which must stay in
+    // the camera's own convention, same "two different uses of the same
+    // screen coordinate" split already established for vary_fragcoord
+    // elsewhere) - the flip is inlined at this .Sample() call site only,
+    // not carried by the parameter.
+    float depth = depthMap.Sample(depthMapSampler, float2(pos_screen.x, 1.0 - pos_screen.y)).r;
     return depth;
 }
 
@@ -79,7 +113,27 @@ float calcAmbientOcclusion(float4 pos, float3 norm, float2 pos_screen)
 {
     float ret = 1.0;
     float3 pos_world = pos.xyz;
-    float2 noise_reflect = noiseMap.Sample(noiseSampler, pos_screen.xy * (screen_res / 128)).xy;
+
+    // S24 (2026-08-19, task #229, task #227 audit finding): GLSL early-outs
+    // here for distant pixels (SSAO has negligible effect beyond ~64m) -
+    // this HLSL copy was missing it entirely and always ran the full
+    // 8-sample kernel regardless of distance, producing a real (potentially
+    // non-1.0) occlusion value for far geometry that GLSL always keeps at
+    // exactly 1.0 (no occlusion).
+    if (-pos_world.z > 64.0)
+    {
+        return 1.0;
+    }
+
+    // S24 (2026-08-10, task #158/#184 follow-up): same texture-origin flip
+    // as getDepthAo() above - noiseMap is a tiled rotation-noise texture
+    // sampled with a screen-space UV, same class of read as depth/G-buffer
+    // samples elsewhere. Confirmed root cause of a real, reported "upside
+    // down pixel dither" artifact tied specifically to SSAO (disappears
+    // when SSAO is disabled) - the unflipped tiled noise pattern read
+    // mismatched screen rows, producing a visibly wrong, static-looking
+    // dither instead of the intended per-pixel kernel rotation.
+    float2 noise_reflect = noiseMap.Sample(noiseSampler, float2(pos_screen.x, 1.0 - pos_screen.y) * (screen_res / 128)).xy;
 
     float angle_hidden = 0.0;
     float points = 0;

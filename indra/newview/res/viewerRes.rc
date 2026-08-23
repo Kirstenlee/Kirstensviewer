@@ -68,7 +68,7 @@ STYLE DS_SETFONT | DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_VISIBLE
 FONT 10, "Segoe UI"
 BEGIN
     ICON            IDI_LL_ICON,-1,15,15,32,32
-    LTEXT           "Kirstens S24",667,60,20,240,14,SS_LEFT
+    LTEXT           "Kirstens S24 DX",667,60,20,240,14,SS_LEFT
     LTEXT           "Advanced Second Life Viewer",668,60,36,240,10,SS_LEFT
     LTEXT           "Initializing...",666,15,60,290,12,SS_LEFT
 END
@@ -156,13 +156,13 @@ BEGIN
         BLOCK "040904b0"
         BEGIN
             VALUE "CompanyName", "Kirstens Viewers"
-            VALUE "FileDescription", "Kirstens S24"
-            VALUE "FileVersion", "26.3,3520,0"
+            VALUE "FileDescription", "Kirstens S24 DX"
+            VALUE "FileVersion", "26.8,3665,0"
             VALUE "InternalName", "Second Life"
             VALUE "LegalCopyright", "Copyright 2008-2026, Kirstenlee Cinquetti"
             VALUE "OriginalFilename", "Kirstens-S24.exe"
             VALUE "ProductName", "Kirstens S24"
-            VALUE "ProductVersion", "26.3,3520,0"
+            VALUE "ProductVersion", "26.8,3665,0"
         END
     END
     BLOCK "VarFileInfo"

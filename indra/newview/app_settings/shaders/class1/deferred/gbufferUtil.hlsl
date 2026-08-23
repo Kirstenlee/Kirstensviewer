@@ -22,19 +22,33 @@
  * SOFTWARE.
  */
 
-uniform Texture2D diffuseRect : register(t0);
-uniform Texture2D specularRect : register(t1);
-uniform SamplerState diffuseSampler : register(s0);
-uniform SamplerState specularSampler : register(s1);
+// t0-t3/s0-s3 are reserved by deferredUtil.hlsl's normalMap/depthMap/
+// projectionMap/brdfLut - both files are attached together whenever a
+// shader sets isDeferred+hasFullGBuffer (e.g. the whole pointLightF/
+// multiPointLightF/spotLightF/softenLightF family), a combination never
+// successfully compiled before "Deferred Light Shader" first reached this
+// far, which is why this collision stayed latent until now. Moved to
+// t4-t6/s4-s6 - t10-t15/s10-s15 are separately reserved by
+// shadowUtil.hlsl's shadowMap0-5.
+uniform Texture2D diffuseRect : register(t4);
+uniform Texture2D specularRect : register(t5);
+uniform SamplerState diffuseSampler : register(s4);
+uniform SamplerState specularSampler : register(s5);
 
 #if defined(HAS_EMISSIVE)
-uniform Texture2D emissiveRect : register(t2);
-uniform SamplerState emissiveSampler : register(s2);
+uniform Texture2D emissiveRect : register(t6);
+uniform SamplerState emissiveSampler : register(s6);
 #endif
 
 float4 getNormRaw(float2 screenpos);
 float4 decodeNormal(float4 norm);
 
+// Also declared, identically, by entry files that reference GBufferInfo
+// in their own forward declarations before this (attached) file's text
+// arrives in the concatenated source - see e.g. pointLightF.hlsl's
+// comment. Include guarded so whichever copy concatenates first wins.
+#ifndef LL_GBUFFERINFO_DECLARED
+#define LL_GBUFFERINFO_DECLARED
 struct GBufferInfo
 {
     float4 albedo;
@@ -44,6 +58,7 @@ struct GBufferInfo
     float gbufferFlag;
     float4 emissive;
 };
+#endif
 
 #ifdef GET_GBUFFER_FLAG
 #undef GET_GBUFFER_FLAG
@@ -56,12 +71,21 @@ GBufferInfo getGBuffer(float2 screenpos)
     float4 specInfo = float4(0, 0, 0, 0);
     float4 emissInfo = float4(0, 0, 0, 0);
 
-    diffInfo = diffuseRect.Sample(diffuseSampler, screenpos.xy);
-    specInfo = specularRect.Sample(specularSampler, screenpos.xy);
+    // S24 (2026-08-04): GL's texture origin is bottom-left, D3D11's is
+    // top-left - flip here, at the actual texture reads, not in screenpos
+    // itself (screenpos/vary_fragcoord is also used elsewhere - e.g.
+    // getPositionWithDepth()'s inverse-projection math - which must stay
+    // in the camera's own NDC convention and must NOT be flipped; see
+    // getNorm()/getDepth() in deferredUtil.hlsl for the same fix and
+    // fuller explanation). getNormRaw() already does its own flip
+    // internally, so it's called with the unflipped screenpos here.
+    float2 flipped = float2(screenpos.x, 1.0 - screenpos.y);
+    diffInfo = diffuseRect.Sample(diffuseSampler, flipped);
+    specInfo = specularRect.Sample(specularSampler, flipped);
     float4 normInfo = getNormRaw(screenpos);
 
 #if defined(HAS_EMISSIVE)
-    emissInfo = emissiveRect.Sample(emissiveSampler, screenpos.xy);
+    emissInfo = emissiveRect.Sample(emissiveSampler, flipped);
 #endif
 
     ret.albedo = diffInfo;

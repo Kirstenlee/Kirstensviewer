@@ -35,8 +35,9 @@ float4x4 getLastObjectSkinnedTransform(float4 weight4)
     float4 w = frac(weight4);
     float4 index = floor(weight4);
 
-    index = min(index, float4(MAX_JOINTS_PER_MESH_OBJECT - 1));
-    index = max(index, float4(0.0));
+    float max_joint_index = MAX_JOINTS_PER_MESH_OBJECT - 1;
+    index = min(index, float4(max_joint_index, max_joint_index, max_joint_index, max_joint_index));
+    index = max(index, float4(0.0, 0.0, 0.0, 0.0));
 
     w *= 1.0 / (w.x + w.y + w.z + w.w);
 

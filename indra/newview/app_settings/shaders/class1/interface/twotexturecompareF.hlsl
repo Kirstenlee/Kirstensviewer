@@ -32,28 +32,35 @@ uniform float dither_scale;
 uniform float dither_scale_s;
 uniform float dither_scale_t;
 
+#include "varying/twoTexCompareVarying.hlsli"
+
+// S24 (2026-08-02): see uiF.hlsl's comment - a bare Varying-struct PS input
+// has no SV_Position field, so its first member starts at register 0
+// while the VS's matching field (shifted by SV_Position's own real output
+// register) is at register 1 - confirmed via fxc.exe disassembly.
 struct PSInput
 {
-    float2 vary_texcoord0 : TEXCOORD0;
-    float2 vary_texcoord1 : TEXCOORD1;
+    float4 position : SV_Position;
+    TwoTexCompareVarying varying;
 };
 
 float4 main(PSInput IN) : SV_Target
 {
-    float4 frag_color = abs(tex0.Sample(tex0Sampler, IN.vary_texcoord0.xy) - tex1.Sample(tex1Sampler, IN.vary_texcoord0.xy));
+    float4 frag_color = abs(tex0.Sample(tex0Sampler, IN.varying.vary_texcoord0.xy) - tex1.Sample(tex1Sampler, IN.varying.vary_texcoord0.xy));
 
     float2 dither_coord;
-    dither_coord[0] = IN.vary_texcoord0[0] * dither_scale_s;
-    dither_coord[1] = IN.vary_texcoord0[1] * dither_scale_t;
+    dither_coord[0] = IN.varying.vary_texcoord0[0] * dither_scale_s;
+    dither_coord[1] = IN.varying.vary_texcoord0[1] * dither_scale_t;
     float4 dither_vec = dither_tex.Sample(dither_texSampler, dither_coord.xy);
 
-    for(int i = 0; i < 3; i++)
-    {
-        if(frag_color[i] < dither_vec[i] * dither_scale)
-        {
-            frag_color[i] = 0.f;
-        }
-    }
+    // Manually unrolled (was a dynamically-indexed for loop) - HLSL can't
+    // natively address a vector component for writes via a non-constant
+    // index, which forced the compiler to unroll this itself anyway
+    // (warning X3550); writing it out avoids the warning with identical
+    // behavior.
+    if (frag_color[0] < dither_vec[0] * dither_scale) { frag_color[0] = 0.f; }
+    if (frag_color[1] < dither_vec[1] * dither_scale) { frag_color[1] = 0.f; }
+    if (frag_color[2] < dither_vec[2] * dither_scale) { frag_color[2] = 0.f; }
 
     return frag_color;
 }

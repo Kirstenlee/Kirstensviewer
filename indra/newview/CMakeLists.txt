@@ -1713,6 +1713,54 @@ endif (FMODSTUDIO)
 
 set_source_files_properties(llstartup.cpp PROPERTIES COMPILE_FLAGS "${LLSTARTUP_COMPILE_FLAGS}")
 
+# DX_RENDER: dxpipeline.{cpp,h} is a fresh DX11-native implementation of
+# specific LLPipeline render-loop functions (see dxpipeline.h) - only
+# meaningful (and only compiled) when DX_RENDER is on, per the user's
+# preference that the DX_RENDER switch control which files CMake compiles
+# for pipeline-orchestration-level code, rather than fencing pipeline.cpp's
+# dense GL body in place.
+if(DX_RENDER)
+  list(APPEND viewer_SOURCE_FILES dxpipeline.cpp)
+  list(APPEND viewer_HEADER_FILES dxpipeline.h)
+  # DX_RENDER: dxdrawpoolsimple.{cpp,h} holds the DX11-native render logic
+  # for lldrawpoolsimple.h's 5 pool classes that use a thin redirect rather
+  # than an in-place #ifdef branch (LLDrawPoolSimple itself is the one
+  # grandfathered exception - see lldrawpoolsimple.cpp).
+  list(APPEND viewer_SOURCE_FILES dxdrawpoolsimple.cpp)
+  list(APPEND viewer_HEADER_FILES dxdrawpoolsimple.h)
+  # DX_RENDER: dxdrawpoolmaterials.{cpp,h} holds the DX11-native render
+  # logic for LLDrawPoolMaterials::renderDeferred() (stage 5 phase 5.2).
+  list(APPEND viewer_SOURCE_FILES dxdrawpoolmaterials.cpp)
+  list(APPEND viewer_HEADER_FILES dxdrawpoolmaterials.h)
+  # DX_RENDER: dxdrawpoolalpha.{cpp,h} is a staged, purpose-built duplicate
+  # of LLDrawPoolAlpha's forward-alpha render path (stage 5 phase 5.3) -
+  # not a thin redirect, since most of the GL logic is already DX-safe by
+  # composition; see dxdrawpoolalpha.h's class comment for why a full copy
+  # was chosen here instead.
+  list(APPEND viewer_SOURCE_FILES dxdrawpoolalpha.cpp)
+  list(APPEND viewer_HEADER_FILES dxdrawpoolalpha.h)
+  # DX_RENDER: dxdrawpoolbump.{cpp,h} is a staged, purpose-built duplicate
+  # of LLDrawPoolBump's deferred bump and fullbright-shiny/emboss-bump
+  # render paths (stage 5 phase 5.3), same pattern as dxdrawpoolalpha.
+  list(APPEND viewer_SOURCE_FILES dxdrawpoolbump.cpp)
+  list(APPEND viewer_HEADER_FILES dxdrawpoolbump.h)
+  # DX_RENDER: dxdrawpoolwlsky.{cpp,h} is a staged, purpose-built duplicate
+  # of LLDrawPoolWLSky's windlight sky/cloud/star/sun/moon render path
+  # (stage 5 phase 5.4), same pattern as dxdrawpoolalpha/dxdrawpoolbump.
+  list(APPEND viewer_SOURCE_FILES dxdrawpoolwlsky.cpp)
+  list(APPEND viewer_HEADER_FILES dxdrawpoolwlsky.h)
+  # DX_RENDER: dxdrawpoolterrain.{cpp,h} is a staged, purpose-built
+  # duplicate of LLDrawPoolTerrain's deferred render path (stage 5 phase
+  # 5.4b), same pattern as the other dxdrawpool* files.
+  list(APPEND viewer_SOURCE_FILES dxdrawpoolterrain.cpp)
+  list(APPEND viewer_HEADER_FILES dxdrawpoolterrain.h)
+  # DX_RENDER: dxdrawpoolwater.{cpp,h} is a staged, purpose-built duplicate
+  # of LLDrawPoolWater's post-deferred water surface render path (task
+  # #109), same pattern as the other dxdrawpool* files.
+  list(APPEND viewer_SOURCE_FILES dxdrawpoolwater.cpp)
+  list(APPEND viewer_HEADER_FILES dxdrawpoolwater.h)
+endif()
+
 list(APPEND viewer_SOURCE_FILES ${viewer_HEADER_FILES})
 
 set_source_files_properties(${viewer_HEADER_FILES}
@@ -1865,7 +1913,6 @@ target_link_libraries(${VIEWER_BINARY_NAME}
     ${BOOST_FIBER_LIBRARY}
     ${BOOST_CONTEXT_LIBRARY}
     ll::opencl
-    ${OPENGL_LIBRARIES}
     ${FMODWRAPPER_LIBRARY} # must come after LLAudio
     ${GLOD_LIBRARIES}
     ${JSONCPP_LIBRARIES}
@@ -1888,6 +1935,20 @@ target_link_libraries(${VIEWER_BINARY_NAME}
 
 if(DX_RENDER)
   target_link_libraries(${VIEWER_BINARY_NAME} ${DXRENDER_LIBRARIES})
+else()
+  # S24 (DX_RENDER, 2026-07-24): OpenGL is deliberately NOT linked into a
+  # DX_RENDER=ON viewer executable at all. This is the enforcement point -
+  # llrender.lib/llwindow.lib etc. are static libs and archive fine even
+  # with unresolved gl*() symbols inside them, but THIS final link is where
+  # every one of those symbols must actually resolve. Any raw, unconverted
+  # GL call left reachable anywhere in the tree under DX_RENDER now surfaces
+  # as an "unresolved external symbol" linker error naming the exact
+  # function and object file, instead of silently compiling and only
+  # failing (or worse, silently misbehaving) at runtime with no GL context
+  # behind it. See the dxrender open-issues ledger for the investigation
+  # that prompted this - manual per-file auditing was proving too easy to
+  # get wrong; this makes the compiler/linker do the finding instead.
+  target_link_libraries(${VIEWER_BINARY_NAME} ${OPENGL_LIBRARIES})
 endif()
 
 set(ARTWORK_DIR ${CMAKE_CURRENT_SOURCE_DIR} CACHE PATH

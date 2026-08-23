@@ -24,16 +24,27 @@
 
 /*[EXTRA_CODE_HERE]*/
 
-Texture2D diffuseRect : register(t0);
-SamplerState diffuseRectSampler : register(s0);
+// t0-t3/s0-s3 reserved by deferredUtil.hlsl (attached below, isDeferred=true
+// on both gDeferredPostGammaCorrectProgram/gLegacyPostGammaCorrectProgram) -
+// moved this file's own texture to t7/s7, matching the established
+// free-slot convention used elsewhere in this project.
+Texture2D diffuseRect : register(t7);
+SamplerState diffuseRectSampler : register(s7);
 
 uniform float gamma;
-uniform float2 screen_res;
+
+// screen_res is also declared (and used) by deferredUtil.hlsl - this copy
+// is dead in both the original GLSL and this port (declared, never
+// referenced - confirmed via grep of both postDeferredGammaCorrect.glsl
+// and this file). Deleted, not guarded.
 
 float3 linear_to_srgb(float3 cl);
 
 struct PSInput
 {
+    // S24 (2026-08-02): missing SV_Position - see uiF.hlsl's comment (fxc.exe-confirmed VS/PS register-shift bug).
+    float4 position : SV_Position;
+
     float2 vary_fragcoord : TEXCOORD0;
 };
 
@@ -46,7 +57,16 @@ float3 legacyGamma(float3 color)
 
 float4 main(PSInput IN) : SV_Target
 {
-    float4 diff = diffuseRect.Sample(diffuseRectSampler, IN.vary_fragcoord);
+    // S24 (2026-08-06): same GL-vs-D3D11 texture-origin mismatch already
+    // fixed elsewhere this session (softenLightF.hlsl's getGBuffer()/
+    // getDepth() reads, etc.) - vary_fragcoord itself stays in GL's
+    // original convention (postDeferredNoTCV.hlsl), the flip belongs here,
+    // at the actual Texture2D .Sample() call site. Never hit until this
+    // pass was actually wired into presentDeferredScreen() for the first
+    // time (task #121) - confirmed via "upside down" report right after
+    // that fix landed.
+    float2 tc = float2(IN.vary_fragcoord.x, 1.0 - IN.vary_fragcoord.y);
+    float4 diff = diffuseRect.Sample(diffuseRectSampler, tc);
     diff.rgb = linear_to_srgb(diff.rgb);
 #ifdef LEGACY_GAMMA
     diff.rgb = legacyGamma(diff.rgb);

@@ -585,6 +585,56 @@ void LLCoordFrame::getOpenGLRotation(F32 *ogl_matrix) const
 }
 
 
+// S24 (2026-08-22, plan item A - DX-native derivation): CONFIRMED via live
+// in-game test (the "pink box" front/back controlled test - user-confirmed
+// "looks precisely the same as the GL version, no issues"). This is the
+// exact transpose of getOpenGLRotation(). Root cause: getOpenGLRotation()
+// places mXAxis/mYAxis/mZAxis as ROWS of the resulting matrix (verified
+// directly this session: element layout ogl_matrix[0,4,8]=mXAxis.x/y/z is
+// GL's own column-major flat-array encoding of ROW 0 = mXAxis), meaning M*v
+// (GL convention) computes dot(mXAxis,v)/dot(mYAxis,v)/dot(mZAxis,v) per
+// component - a world-to-local projection, not the plain local-to-world
+// rotation the "Rotation" name suggests. This matrix reaches the shader via
+// gGL.loadMatrix() -> LLRender::syncMatrices() - a DIFFERENT upload path
+// from the one already independently verified correct for env_mat
+// (uniformMatrix3fv(), which does its own explicit transpose handling).
+// syncMatrices()'s DX_RENDER path evidently does NOT apply the same
+// transpose, so the raw GL-row-order data was landing in the shader
+// un-transposed - this function supplies it already-transposed instead,
+// fixing that specific gap without touching syncMatrices() itself (a much
+// higher-blast-radius shared function) or any of the GL-shared capture/
+// resample tables. This was the real, confirmed root cause of the
+// long-standing "front/back reversed" reflection-probe symptom.
+//
+// Only remaining question, not yet tested: whether the per-face flipCol/
+// fixHandedness patches (llreflectionmapmanager.cpp's radiance/irradiance-
+// gen loops, gated cf==0||cf==1) are now redundant/harmful compensations
+// for this same bug, now that the actual root cause is fixed - test
+// disabling them next, as an isolated follow-up.
+void LLCoordFrame::getDirectXRotation(F32 *dx_matrix) const
+{
+	dx_matrix[0]  = mXAxis.mV[VX];
+	dx_matrix[1]  = mYAxis.mV[VX];
+	dx_matrix[2]  = mZAxis.mV[VX];
+	dx_matrix[3]  = 0.0f;
+
+	dx_matrix[4]  = mXAxis.mV[VY];
+	dx_matrix[5]  = mYAxis.mV[VY];
+	dx_matrix[6]  = mZAxis.mV[VY];
+	dx_matrix[7]  = 0.0f;
+
+	dx_matrix[8]  = mXAxis.mV[VZ];
+	dx_matrix[9]  = mYAxis.mV[VZ];
+	dx_matrix[10] = mZAxis.mV[VZ];
+	dx_matrix[11] = 0.0f;
+
+	dx_matrix[12] = 0.0f;
+	dx_matrix[13] = 0.0f;
+	dx_matrix[14] = 0.0f;
+	dx_matrix[15] = 1.0f;
+}
+
+
 void LLCoordFrame::getOpenGLTransform(F32 *ogl_matrix) const
 {
 	*(ogl_matrix + 0)  = mXAxis.mV[VX];

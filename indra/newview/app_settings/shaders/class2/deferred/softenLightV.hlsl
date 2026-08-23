@@ -51,6 +51,24 @@ VSOutput main(VSInput IN)
     setAtmosAttenuation(float3(1, 1, 1));
     setAdditiveColor(float3(0, 0, 0));
 
+    // S24 (2026-08-04): REVERTED the V-flip that was here - vary_fragcoord
+    // is used for TWO different things downstream, and they need opposite
+    // conventions: sampling G-buffer Texture2Ds (diffuseRect/depthMap/
+    // lightMap/etc, needs a flip - GL's texture origin is bottom-left,
+    // D3D11's is top-left) AND reconstructing world/eye-space position
+    // from depth via the inverse projection matrix
+    // (getPositionWithDepth()/getScreenCoordinate() in deferredUtil.hlsl,
+    // which must NOT be flipped - that math has to stay in the camera's
+    // own NDC convention, unrelated to texture-origin conventions).
+    // Flipping it here fixed G-buffer color sampling (confirmed - real,
+    // correctly-oriented terrain color appeared) but broke position
+    // reconstruction for every downstream consumer (atmospherics, PBR
+    // lighting) - producing a second, different black-output regression.
+    // The flip now lives at the actual texture .Sample() call sites
+    // instead (getGBuffer()/getDepth()/getNormRaw() in gbufferUtil.hlsl/
+    // deferredUtil.hlsl, and lightMap.Sample() in softenLightF.hlsl) -
+    // this keeps vary_fragcoord itself in the same convention GL always
+    // used, so getPositionWithDepth() needs no changes at all.
     OUT.vary_fragcoord = (pos.xy*0.5+0.5);
 
     return OUT;

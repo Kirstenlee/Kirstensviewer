@@ -41,6 +41,10 @@
 #include "workqueue.h"
 #include <unordered_set>
 
+#ifdef DX_RENDER
+#include "DXTexture.h"
+#endif
+
 #define LL_IMAGEGL_THREAD_CHECK 0 //set to 1 to enable thread debugging for ImageGL
 
 class LLWindow;
@@ -58,6 +62,16 @@ namespace LLImageGLMemory
     void free_tex_image(U32 texName);
     void free_tex_images(U32 count, const U32* texNames);
     void free_cur_tex_image();
+
+    // S24 (2026-08-16): DX_RENDER equivalents of alloc_tex_image()/
+    // free_tex_image() above, keyed by an opaque pointer (the owning
+    // LLImageGL instance) instead of a GL texture name - under DX_RENDER
+    // every LLImageGL's mTexName is a shared fake sentinel, not a real
+    // per-texture identifier, so the texName-keyed map above can't be
+    // reused as-is. Both feed the same sTextureBytes total the GL path
+    // does - see LLImageGL.cpp's top comment for why this exists at all.
+    void allocDXTextureBytes(const void* key, U64 size);
+    void freeDXTextureBytes(const void* key);
 }
 
 //============================================================================
@@ -172,8 +186,39 @@ public:
     LLGLenum getPrimaryFormat() const { return mFormatPrimary; }
     LLGLenum getFormatType() const { return mFormatType; }
 
-    bool getHasGLTexture() const { return mTexName != 0; }
+    // S24 (DX_RENDER, 2026-07-30): under DX_RENDER, mTexName is never a
+    // real handle - it's set to a fake sentinel constant (1) purely so this
+    // function used to read as "true" by coincidence. Ask the real
+    // DX-side resource directly instead, so this stays correct even if
+    // that sentinel convention ever changes.
+    bool getHasGLTexture() const
+    {
+#ifdef DX_RENDER
+        return mDXTexture.isValid();
+#else
+        return mTexName != 0;
+#endif
+    }
     LLGLuint getTexName() const { return mTexName; }
+
+#ifdef DX_RENDER
+    // S24 (2026-08-06): narrow accessor for LLCubeMap's DX_RENDER path -
+    // it needs the raw per-face ID3D11Texture2D* to CopySubresourceRegion()
+    // each already-uploaded face into a real cubemap array slice (see
+    // DXCubeTexture). LLCubeMap isn't a friend of this class (unlike
+    // LLTexUnit) - a small public accessor is cleaner than growing the
+    // friend list for one narrow need.
+    ID3D11Texture2D* getDXTexturePtr() const { return mDXTexture.getTexture(); }
+
+    // S24 (2026-08-16): completes a deferred texture/media upload staged by
+    // setImage()/setSubImage() when they ran on the LLImageGLThread
+    // background thread (see DXTexture's top comment) - does the actual
+    // D3D11 Context calls (UpdateSubresource/GenerateMips), so this must be
+    // called from the main thread. No-op if nothing is pending. Callers:
+    // LLViewerFetchedTexture::scheduleCreateTexture()'s main-thread callback,
+    // LLViewerMediaImpl's media-texture-update main-thread callback.
+    bool finalizePendingGPUUpload() { return mDXTexture.finalizePendingUpload(); }
+#endif
 
     bool getIsAlphaMask() const;
 
@@ -254,6 +299,14 @@ private:
     U16      mWidth;
     U16      mHeight;
     S8       mCurrentDiscardLevel;
+#ifdef DX_RENDER
+    // DX_RENDER's equivalent of mTexName - populated by setImage()'s
+    // DX_RENDER branch (single top-level image only, see there), read by
+    // LLTexUnit::bindFast()/bind(LLImageGL*, ...)'s DX_RENDER branches
+    // (both are friends of this class already, via the friend declaration
+    // above).
+    DXTexture mDXTexture;
+#endif
 
     bool mAllowCompression;
 
@@ -347,9 +400,11 @@ public:
 class LLImageGLThread : public LLSimpleton<LLImageGLThread>, LL::ThreadPool
 {
 public:
-    // follows gSavedSettings "RenderGLMultiThreadedTextures"
+    // follows gSavedSettings "RenderDXMultiThreadedTextures" (renamed
+    // 2026-08-16, was "RenderGLMultiThreadedTextures")
     static bool sEnabledTextures;
-    // follows gSavedSettings "RenderGLMultiThreadedMedia"
+    // follows gSavedSettings "RenderDXMultiThreadedMedia" (renamed
+    // 2026-08-16, was "RenderGLMultiThreadedMedia")
     static bool sEnabledMedia;
 
     LLImageGLThread(LLWindow* window);

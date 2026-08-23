@@ -27,15 +27,23 @@ SamplerState diffuseMapSampler : register(s0);
 
 uniform float minimum_alpha;
 
+#include "varying/uiVarying.hlsli"
+
+// S24 (2026-08-02): confirmed via fxc.exe disassembly (uiF.hlsl's own fix,
+// same shared UIVarying struct) - the VS's SV_Position consumes a real,
+// numbered output register, shifting every subsequent interpolant by one.
+// A bare UIVarying PS input has no SV_Position field, so its first member
+// starts at register 0 instead of 1 - a genuine register mismatch, not
+// just a hypothetical one. Wrapping restores identical numbering.
 struct PSInput
 {
-    float2 vary_texcoord0 : TEXCOORD0;
-    float4 vertex_color : COLOR0;
+    float4 position : SV_Position;
+    UIVarying varying;
 };
 
 float4 main(PSInput IN) : SV_Target
 {
-    float4 col = IN.vertex_color*diffuseMap.Sample(diffuseMapSampler, IN.vary_texcoord0.xy);
+    float4 col = IN.varying.vertex_color*diffuseMap.Sample(diffuseMapSampler, IN.varying.vary_texcoord0.xy);
     if (col.a < minimum_alpha)
     {
         discard;

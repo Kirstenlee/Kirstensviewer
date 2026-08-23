@@ -56,6 +56,13 @@
 
 #include "lldxhardware.h"
 
+#ifdef DX_RENDER
+#include "DXStateCache.h"
+#include "DXDevice.h"
+#include "DXUIBatch.h"
+#include <dxgi.h>
+#endif
+
 
 
 bool gDebugSession = false;
@@ -1229,6 +1236,131 @@ bool LLGLManager::initGL()
     return true;
 }
 
+#ifdef DX_RENDER
+// S24 (2026-08-05): real DXGI-based equivalent of initGL() above - see this
+// class's declaration (llgl.h) for the full "why" comment. Called once from
+// LLWindowWin32::switchContext() right after initDX11Context() succeeds.
+bool LLGLManager::initGLDX()
+{
+    if (mInited)
+    {
+        LL_ERRS("RenderInit") << "Calling init on LLGLManager after already initialized!" << LL_ENDL;
+    }
+
+    mInited = true;
+    mHasRequirements = true;
+
+    // Walk up from the already-created device to its owning adapter (same
+    // technique DXSwapChain::create() already uses to find the swap chain's
+    // factory) rather than re-enumerating adapters and guessing which one
+    // matches - this guarantees we describe the actual adapter in use.
+    ID3D11Device* device = gDXDevice.getDevice();
+    if (device)
+    {
+        IDXGIDevice* dxgi_device = nullptr;
+        if (SUCCEEDED(device->QueryInterface(__uuidof(IDXGIDevice), (void**)&dxgi_device)) && dxgi_device)
+        {
+            IDXGIAdapter* adapter = nullptr;
+            if (SUCCEEDED(dxgi_device->GetAdapter(&adapter)) && adapter)
+            {
+                DXGI_ADAPTER_DESC desc = {};
+                if (SUCCEEDED(adapter->GetDesc(&desc)))
+                {
+                    std::wstring description_w(desc.Description);
+                    mGLRenderer = ll_convert_wide_to_string(description_w);
+                    LLStringUtil::toUpper(mGLRenderer);
+
+                    mVRAM = (U32)(desc.DedicatedVideoMemory / (1024 * 1024));
+
+                    switch (desc.VendorId)
+                    {
+                    case 0x10DE: // NVIDIA
+                        mGLVendorShort = "NVIDIA";
+                        mIsNVIDIA = true;
+                        break;
+                    case 0x1002: // AMD/ATI
+                    case 0x1022:
+                        mGLVendorShort = "AMD";
+                        mIsAMD = true;
+                        break;
+                    case 0x8086: // Intel
+                        mGLVendorShort = "INTEL";
+                        mIsIntel = true;
+                        break;
+                    default:
+                        mGLVendorShort = "MISC";
+                        break;
+                    }
+
+                    // S24 (2026-08-23): DXGI has no separate "vendor name"
+                    // string the way GL_VENDOR does - DXGI_ADAPTER_DESC's
+                    // only text field is Description, the full model string
+                    // (e.g. "NVIDIA GeForce RTX 4090"), already used above
+                    // for mGLRenderer/GRAPHICS_CARD. Previously this was
+                    // also copied verbatim into mGLVendor/GRAPHICS_CARD_
+                    // VENDOR, making Floater About's "GPU Vendor"/"GPU
+                    // Model" lines show two identical strings - looked like
+                    // a bug (it was). The real, PCI-VendorId-derived generic
+                    // name the switch above always sets (NVIDIA/AMD/INTEL,
+                    // or MISC if genuinely unrecognized - never empty) is a
+                    // real vendor identifier, not a duplicate of the model
+                    // string - use that instead.
+                    mGLVendor = mGLVendorShort;
+                }
+                adapter->Release();
+            }
+            dxgi_device->Release();
+        }
+    }
+
+    // D3D11 feature-level hardware is capability-equivalent to (or beyond)
+    // every GL-version-gated check this codebase makes for feature-masking
+    // purposes (mHasCubeMapArray/mHasTransformFeedback/mHasDebugOutput/
+    // mHasAnisotropic all gate on GL 4.x-equivalent hardware, which D3D11
+    // guarantees) - report a real modern version instead of leaving
+    // mGLVersion at its 1.0f constructor default, which was silently
+    // tripping LLFeatureManager::applyBaseMasks()'s "mGLVersion < 3.99f"
+    // check (always true at 1.0f) into unconditionally applying the "GL3"
+    // feature mask - which explicitly zeroes RenderReflectionsEnabled
+    // (among others) regardless of actual GPU. Confirmed root cause of a
+    // live bug: reflection-probe-ambiance silently overridden to a fixed
+    // fallback constant no matter what the user set it to.
+    mGLVersion = 4.6f;
+    mDriverVersionMajor = 4;
+    mDriverVersionMinor = 6;
+    mDriverVersionRelease = 0;
+    mGLSLVersionMajor = 4;
+    mGLSLVersionMinor = 60;
+
+    // Real feature-level string for display purposes (e.g. Floater About's
+    // "Graphics API" line, llappviewer.cpp) - distinct from mGLVersion above,
+    // which is a fixed feature-masking sentinel, not meant to be shown to
+    // the user as-is.
+    switch (gDXDevice.getFeatureLevel())
+    {
+    case D3D_FEATURE_LEVEL_11_1: mGLVersionString = "Direct3D 11.1 (Feature Level 11_1)"; break;
+    case D3D_FEATURE_LEVEL_11_0: mGLVersionString = "Direct3D 11.0 (Feature Level 11_0)"; break;
+    case D3D_FEATURE_LEVEL_10_1: mGLVersionString = "Direct3D 11 (Feature Level 10_1)"; break;
+    case D3D_FEATURE_LEVEL_10_0: mGLVersionString = "Direct3D 11 (Feature Level 10_0)"; break;
+    default: mGLVersionString = "Direct3D 11"; break;
+    }
+
+    mHasCubeMapArray = true;
+    mHasTransformFeedback = true;
+    mHasDebugOutput = true;
+    mHasAnisotropic = true;
+    mMaxAnisotropy = 16.f;
+
+    mGLMaxTextureSize = 16384;
+    mNumTextureImageUnits = 32;
+
+    LL_INFOS("RenderInit") << "DX_RENDER GPU detection: vendor=" << mGLVendorShort
+        << " renderer=" << mGLRenderer << " vram=" << mVRAM << "MB" << LL_ENDL;
+
+    return true;
+}
+#endif // DX_RENDER
+
 void LLGLManager::getGLInfo(LLSD& info)
 {
     if (gHeadlessClient)
@@ -1240,9 +1372,15 @@ void LLGLManager::getGLInfo(LLSD& info)
     }
     else
     {
-        info["GLInfo"]["GLVendor"] = ll_safe_string((const char *)glGetString(GL_VENDOR));
-        info["GLInfo"]["GLRenderer"] = ll_safe_string((const char *)glGetString(GL_RENDERER));
-        info["GLInfo"]["GLVersion"] = ll_safe_string((const char *)glGetString(GL_VERSION));
+        // S24 (2026-08-05): was raw glGetString(GL_VENDOR/GL_RENDERER/
+        // GL_VERSION) - a real crash risk under DX_RENDER (no GL context
+        // ever exists), and this is called unconditionally at startup
+        // (llappviewer.cpp). mGLVendor/mGLRenderer/mGLVersionString are
+        // already correctly populated for both backends (initGL() for GL,
+        // LLGLManager::initGLDX() for DX_RENDER).
+        info["GLInfo"]["GLVendor"] = mGLVendor;
+        info["GLInfo"]["GLRenderer"] = mGLRenderer;
+        info["GLInfo"]["GLVersion"] = mGLVersionString;
     }
 
 #if !LL_MESA_HEADLESS
@@ -1268,9 +1406,11 @@ std::string LLGLManager::getGLInfoString()
     }
     else
     {
-        info_str += std::string("GL_VENDOR      ") + ll_safe_string((const char *)glGetString(GL_VENDOR)) + std::string("\n");
-        info_str += std::string("GL_RENDERER    ") + ll_safe_string((const char *)glGetString(GL_RENDERER)) + std::string("\n");
-        info_str += std::string("GL_VERSION     ") + ll_safe_string((const char *)glGetString(GL_VERSION)) + std::string("\n");
+        // S24 (2026-08-05): same fix as getGLInfo() above - use the
+        // already-populated fields instead of raw glGetString() calls.
+        info_str += std::string("GL_VENDOR      ") + mGLVendor + std::string("\n");
+        info_str += std::string("GL_RENDERER    ") + mGLRenderer + std::string("\n");
+        info_str += std::string("GL_VERSION     ") + mGLVersionString + std::string("\n");
     }
 
 #if !LL_MESA_HEADLESS
@@ -1292,9 +1432,11 @@ void LLGLManager::printGLInfoString()
     }
     else
     {
-        LL_INFOS("RenderInit") << "GL_VENDOR:     " << ll_safe_string((const char *)glGetString(GL_VENDOR)) << LL_ENDL;
-        LL_INFOS("RenderInit") << "GL_RENDERER:   " << ll_safe_string((const char *)glGetString(GL_RENDERER)) << LL_ENDL;
-        LL_INFOS("RenderInit") << "GL_VERSION:    " << ll_safe_string((const char *)glGetString(GL_VERSION)) << LL_ENDL;
+        // S24 (2026-08-05): same fix as getGLInfo() above - use the
+        // already-populated fields instead of raw glGetString() calls.
+        LL_INFOS("RenderInit") << "GL_VENDOR:     " << mGLVendor << LL_ENDL;
+        LL_INFOS("RenderInit") << "GL_RENDERER:   " << mGLRenderer << LL_ENDL;
+        LL_INFOS("RenderInit") << "GL_VERSION:    " << mGLVersionString << LL_ENDL;
     }
 
 #if !LL_MESA_HEADLESS
@@ -1313,7 +1455,10 @@ std::string LLGLManager::getRawGLString()
     }
     else
     {
-        gl_string = ll_safe_string((char*)glGetString(GL_VENDOR)) + " " + ll_safe_string((char*)glGetString(GL_RENDERER));
+        // S24 (2026-08-05): same fix as getGLInfo() above - real crash risk
+        // under DX_RENDER via raw glGetString() calls, and this is used by
+        // LLFeatureManager's RDNA3.5 detection (checkRDNA35()).
+        gl_string = mGLVendor + " " + mGLRenderer;
     }
     return gl_string;
 }
@@ -2289,6 +2434,16 @@ void flush_glerror()
 //this function outputs gl error to the log file, does not crash the code.
 void log_glerror()
 {
+#ifdef DX_RENDER
+    // S24 (DX_RENDER, 2026-07-24): no GL context exists under DX_RENDER
+    // (switchContext() never creates one), so there is no GL error state to
+    // query - and OpenGL/GLU are deliberately not linked into a DX_RENDER=ON
+    // build at all (see newview/CMakeLists.txt) - glGetError()/
+    // gluErrorString() would be unresolved symbols, not just unsafe calls.
+    // First real straggler this technique caught - see the dxrender
+    // open-issues ledger.
+    return;
+#else
     if (LL_UNLIKELY(!gGLManager.mInited))
     {
         return ;
@@ -2311,10 +2466,18 @@ void log_glerror()
         }
         error = glGetError();
     }
+#endif // DX_RENDER
 }
 
 void do_assert_glerror()
 {
+#ifdef DX_RENDER
+    // Mirrors log_glerror()'s DX_RENDER no-op above - see its comment.
+    // Real callers are gated behind gDebugGL (see assert_glerror() below),
+    // which stays false under DX_RENDER, but this function must still
+    // compile+link cleanly regardless of whether it's ever invoked.
+    return;
+#else
     //  Create or update texture to be used with this data
     GLenum error;
     error = glGetError();
@@ -2357,6 +2520,7 @@ void do_assert_glerror()
             LL_ERRS() << "One or more unhandled GL errors." << LL_ENDL;
         }
     }
+#endif // DX_RENDER
 }
 
 void assert_glerror()
@@ -2388,7 +2552,13 @@ void clear_glerror()
     // S24 - Guard "safety clear" pattern with debug-only compilation: each glGetError() call forces full GPU->CPU pipeline sync
     //       Legacy defensive programming - modern GL_ARB_debug_output callbacks handle error detection without synchronous stalls
     //       Called frequently in legacy code paths, becomes measurable overhead when no errors exist (99.9% of frames)
-#if LL_DEBUG_GL
+    // S24 (DX_RENDER, 2026-07-24): also excluded under DX_RENDER regardless
+    // of LL_DEBUG_GL - glGetError() is unresolved once OpenGL is delinked
+    // (see newview/CMakeLists.txt). All current call sites are already
+    // GL-only branches, but this function's own body was previously gated
+    // only by LL_DEBUG_GL, not DX_RENDER - a debug+DX_RENDER build would
+    // have failed to link.
+#if LL_DEBUG_GL && !defined(DX_RENDER)
     glGetError();
     glGetError();
 #endif
@@ -2458,6 +2628,20 @@ void LLGLState::checkStates(GLboolean writeAlpha)
         return;
     }
 
+#ifdef DX_RENDER
+    // S24 (DX_RENDER, 2026-07-30): this whole function is a GL-context
+    // state validator (glGetIntegerv/glIsEnabled read back real driver
+    // state and assert it matches sStateMap) with no DX11 equivalent built
+    // yet - calling it with no current GL context is undefined behavior at
+    // best. Currently unreachable in practice only because gDebugGL
+    // defaults false and requires an explicit opt-in (RenderDebugGL/
+    // DebugSession settings) - exactly the kind of setting this project's
+    // own DX_RENDER debugging might reach for, so guarded explicitly rather
+    // than left to that staying true. Called from ~30 sites in
+    // llviewerdisplay.cpp/pipeline.cpp every frame.
+    return;
+#endif
+
     GLint srcRGB, dstRGB, srcAlpha, dstAlpha;
     glGetIntegerv(GL_BLEND_SRC_RGB, &srcRGB);
     glGetIntegerv(GL_BLEND_DST_RGB, &dstRGB);
@@ -2492,6 +2676,111 @@ void LLGLState::checkStates(GLboolean writeAlpha)
 
 ///////////////////////////////////////////////////////////////////////
 
+#ifdef DX_RENDER
+namespace
+{
+    // Scoped to GL_BLEND/GL_CULL_FACE/GL_SCISSOR_TEST/GL_DEPTH_CLAMP - see
+    // DXStateCache.h for why (the only four states LLGLEnable/LLGLDisable
+    // actually toggle in this codebase, confirmed by grep, not guessed).
+    // Everything else (GL_STENCIL_TEST, GL_POLYGON_OFFSET_*, ...) still
+    // updates sStateMap bookkeeping (in setEnabled(), unconditionally) but
+    // has no D3D11 equivalent applied yet - deferred until something that
+    // toggles them is converted to DX_RENDER.
+    void applyDXState(GLenum state, bool enabled)
+    {
+        ID3D11DeviceContext* ctx = gDXDevice.getContext();
+        if (state == GL_BLEND)
+        {
+            // Blend enable is only one of the three pieces D3D11 bundles
+            // into one ID3D11BlendState (see DXStateCache.h) - factors and
+            // color write mask live on LLRender, not here. Route through
+            // the shared chokepoint rather than building a partial state.
+            gGL.applyDXBlendState();
+        }
+        else if (state == GL_CULL_FACE)
+        {
+            // S24 (2026-08-07): read the CURRENT scissor state too (not
+            // guessed/defaulted) so a cull toggle mid-clip-scope doesn't
+            // silently clobber ScissorEnable back off - see the
+            // GL_SCISSOR_TEST case below, same reasoning in reverse. S24
+            // (2026-08-10, task #158 milestone 1): same now for depth-clamp,
+            // see the GL_DEPTH_CLAMP case below.
+            ID3D11RasterizerState* rs = DXStateCache::getRasterizerState(enabled, LLGLState::isEnabled(GL_SCISSOR_TEST), LLGLState::isEnabled(GL_DEPTH_CLAMP));
+            ctx->RSSetState(rs);
+        }
+        else if (state == GL_SCISSOR_TEST)
+        {
+            // S24 (2026-08-07, task #129): GL_SCISSOR_TEST enable/disable
+            // was already flowing through this exact chokepoint (bookkeeping
+            // only, no D3D11 side effect - see LLScreenClipRect's
+            // mScissorState member, llui/lllocalcliprect.cpp) - it just had
+            // no case here. D3D11 bundles ScissorEnable into the rasterizer
+            // state object (same as cull mode), so this needs the same
+            // 2-state-object treatment, not a separate call. The actual clip
+            // rectangle is set separately via RSSetScissorRects() in
+            // LLScreenClipRect::updateScissorRegion() - enabling this state
+            // with no rect ever set is undefined in D3D11, but that call
+            // always follows this one before any draw happens (see that
+            // function's DX_RENDER branch). S24 (2026-08-10, task #158
+            // milestone 1): same depth-clamp preservation as GL_CULL_FACE
+            // above.
+            ID3D11RasterizerState* rs = DXStateCache::getRasterizerState(LLGLState::isEnabled(GL_CULL_FACE), enabled, LLGLState::isEnabled(GL_DEPTH_CLAMP));
+            ctx->RSSetState(rs);
+        }
+        else if (state == GL_DEPTH_CLAMP)
+        {
+            // S24 (2026-08-10, task #158 milestone 1): LLPipeline::renderShadow()
+            // toggles this around its shadow-map draw calls (LLGLEnable
+            // clamp_depth(depth_clamp ? GL_DEPTH_CLAMP : 0)) so shadow
+            // casters outside the near/far planes still write depth instead
+            // of being culled - previously silently no-op'd under DX_RENDER
+            // (no case existed here at all). Same 2-state-object bundling as
+            // cull/scissor above - read both of THEIR current values too so
+            // toggling depth-clamp mid-scope doesn't clobber either.
+            ID3D11RasterizerState* rs = DXStateCache::getRasterizerState(LLGLState::isEnabled(GL_CULL_FACE), LLGLState::isEnabled(GL_SCISSOR_TEST), enabled);
+            ctx->RSSetState(rs);
+        }
+    }
+
+    // GL depth funcs -> D3D11_COMPARISON_FUNC. GL_NEVER is first in both
+    // enumerations but the underlying values aren't contiguous/matching, so
+    // this is a real lookup, not an arithmetic remap.
+    D3D11_COMPARISON_FUNC glDepthFuncToDX(GLenum depth_func)
+    {
+        switch (depth_func)
+        {
+        case GL_NEVER:    return D3D11_COMPARISON_NEVER;
+        case GL_LESS:     return D3D11_COMPARISON_LESS;
+        case GL_EQUAL:    return D3D11_COMPARISON_EQUAL;
+        case GL_LEQUAL:   return D3D11_COMPARISON_LESS_EQUAL;
+        case GL_GREATER:  return D3D11_COMPARISON_GREATER;
+        case GL_NOTEQUAL: return D3D11_COMPARISON_NOT_EQUAL;
+        case GL_GEQUAL:   return D3D11_COMPARISON_GREATER_EQUAL;
+        case GL_ALWAYS:   return D3D11_COMPARISON_ALWAYS;
+        default:
+            LL_WARNS("RenderState") << "Unmapped GL depth func 0x" << std::hex << depth_func << std::dec << LL_ENDL;
+            return D3D11_COMPARISON_LESS_EQUAL;
+        }
+    }
+
+    // Mirrors applyDXState() above but for LLGLDepthTest (llglstates.h) -
+    // depth-enable/write-enable/depth-func are three independently-set GL
+    // toggles (glEnable(GL_DEPTH_TEST)/glDepthMask()/glDepthFunc()) that
+    // D3D11 bundles into one ID3D11DepthStencilState (see DXStateCache.h).
+    // LLGLDepthTest already tracks all three as one unit internally
+    // (sDepthEnabled/sWriteEnabled/sDepthFunc), so unlike blend state there's
+    // no separate LLRender-side chokepoint needed - this is called directly
+    // from the constructor/destructor with the full combination in hand.
+    void applyDXDepthStencilState(GLboolean depth_enabled, GLboolean write_enabled, GLenum depth_func)
+    {
+        ID3D11DeviceContext* ctx = gDXDevice.getContext();
+        D3D11_COMPARISON_FUNC func = glDepthFuncToDX(depth_func);
+        ID3D11DepthStencilState* ds = DXStateCache::getDepthStencilState(depth_enabled != GL_FALSE, write_enabled != GL_FALSE, func);
+        ctx->OMSetDepthStencilState(ds, 0);
+    }
+}
+#endif
+
 LLGLState::LLGLState(LLGLenum state, S32 enabled) :
     mState(state), mWasEnabled(false), mIsEnabled(false)
 {
@@ -2516,15 +2805,49 @@ void LLGLState::setEnabled(S32 enabled)
     }
     else if (enabled == ENABLED_STATE && sStateMap[mState] != GL_TRUE)
     {
+#ifdef DX_RENDER
+        // S24 (DX_RENDER, 2026-07-25): same missing-flush-before-state-
+        // switch bug as LLGLDepthTest's constructor/destructor (see their
+        // comments) and LLGLSLShader::unbind() - applyDXState() changes real
+        // D3D11 pipeline state (blend state via applyDXBlendState(), or
+        // rasterizer/cull state via RSSetState()) immediately, with nothing
+        // to stop any already-queued-but-not-yet-flushed CPU-side geometry
+        // from being drawn with the NEW state instead of the one it was
+        // built under. This is the actual mechanism behind LLGLEnable/
+        // LLGLDisable (GL_BLEND/GL_CULL_FACE, the only two states this
+        // codebase toggles this way) - and LLGLSUIDefault, used by nearly
+        // every UI draw call, toggles both. Flush BEFORE the bookkeeping+
+        // state-apply, not after - the ordering between those two must stay
+        // as-is (applyDXBlendState() reads sStateMap via isEnabled(GL_BLEND)
+        // to learn the value being set here).
+        // S24 (2026-08-16): also flush any pending gDXUIBatch content - a
+        // second, independent GPU-submission queue gGL.flush() knows
+        // nothing about (see DXUIBatch.h's top comment) - same ordering
+        // hazard, same fix.
+        gGL.flush();
+        gDXUIBatch.flushPending();
+        sStateMap[mState] = GL_TRUE;
+        applyDXState(mState, true);
+#else
         gGL.flush();
         glEnable(mState);
         sStateMap[mState] = GL_TRUE;
+#endif
     }
     else if (enabled == DISABLED_STATE && sStateMap[mState] != GL_FALSE)
     {
+#ifdef DX_RENDER
+        // Same missing-flush issue as the ENABLED_STATE branch above -
+        // also flush gDXUIBatch (2026-08-16), see its comment there.
+        gGL.flush();
+        gDXUIBatch.flushPending();
+        sStateMap[mState] = GL_FALSE;
+        applyDXState(mState, false);
+#else
         gGL.flush();
         glDisable(mState);
         sStateMap[mState] = GL_FALSE;
+#endif
     }
     mIsEnabled = enabled;
 }
@@ -2539,6 +2862,7 @@ LLGLState::~LLGLState()
         //       Debug builds retain validation for development, release builds eliminate stall for performance
         //       Modern GL_ARB_debug_output callbacks catch state corruption without synchronous queries
 #if LL_DEBUG_GL
+#ifndef DX_RENDER
         if (gDebugGL)
         {
             if (!gDebugSession)
@@ -2554,12 +2878,14 @@ LLGLState::~LLGLState()
             }
         }
 #endif
+#endif
 
         if (mIsEnabled != mWasEnabled)
         {
             // S24 - Removed gGL.flush() that killed batching: state changes don't require explicit GPU sync
             //       Driver handles state transitions efficiently, forced flush destroyed performance gains from draw call batching
             // gGL.flush();
+#ifndef DX_RENDER
             if (mWasEnabled)
             {
                 glEnable(mState);
@@ -2570,6 +2896,22 @@ LLGLState::~LLGLState()
                 glDisable(mState);
                 sStateMap[mState] = GL_FALSE;
             }
+#else
+            // S24 (2026-08-02): this was updating sStateMap bookkeeping only,
+            // never calling applyDXState() - confirmed root cause of the
+            // black-world bug via a direct OMGetBlendState() probe (real
+            // hardware blend state stuck enabled with alpha-blend factors
+            // across the entire session, never toggled once). setEnabled()'s
+            // ENABLED_STATE/DISABLED_STATE branches always pair the
+            // sStateMap write with a real applyDXState() call and a
+            // preceding flush (see their comments) - this restore path must
+            // do the same, or every future LLGLEnable/LLGLDisable(GL_BLEND)
+            // scope's destructor silently desyncs bookkeeping from real GPU
+            // state, permanently, the first time it fires.
+            gGL.flush();
+            sStateMap[mState] = mWasEnabled ? GL_TRUE : GL_FALSE;
+            applyDXState(mState, mWasEnabled);
+#endif
         }
     }
 }
@@ -2785,6 +3127,36 @@ LLGLDepthTest::LLGLDepthTest(GLboolean depth_enabled, GLboolean write_enabled, G
         write_enabled = GL_FALSE;
     }
 
+#ifdef DX_RENDER
+    // S24 (DX_RENDER, 2026-07-25): applyDXDepthStencilState() calls
+    // OMSetDepthStencilState() immediately - a persistent D3D11 pipeline
+    // state, unlike LLRender's own CPU-side vertex queue. Without a flush
+    // first, any geometry already queued (gGL.begin()/vertex.../end(), not
+    // yet auto-flushed) under the OLD depth state gets drawn with the NEW
+    // one instead, whenever it eventually does flush - the state it was
+    // built under and the state it's rasterized with diverge. Same missing-
+    // flush-before-state-switch bug class as this session's shader/texture-
+    // SRV fixes, applied to depth-stencil state. LLGLDepthTest backs
+    // LLGLSUIDefault (used by nearly every UI draw call in the codebase)
+    // and is constructed/destroyed hundreds of times per frame, so this was
+    // a real, frequent risk, not a corner case.
+    if (depth_enabled != sDepthEnabled || depth_func != sDepthFunc || write_enabled != sWriteEnabled)
+    {
+        // S24 (2026-08-16): also flush gDXUIBatch's separate pending queue -
+        // same missing-flush hazard, see DXUIBatch.h's top comment. This is
+        // the single highest-frequency hook site (LLGLDepthTest backs
+        // LLGLSUIDefault, used by nearly every UI draw call) - critically,
+        // this is also what keeps depth-tested HUD content (nametags/icons,
+        // LLGLDepthTest(GL_TRUE,...)) from ever merging into the same batch
+        // as non-depth-tested screen-space UI.
+        gGL.flush();
+        gDXUIBatch.flushPending();
+        applyDXDepthStencilState(depth_enabled, write_enabled, depth_func);
+        sDepthEnabled = depth_enabled;
+        sDepthFunc = depth_func;
+        sWriteEnabled = write_enabled;
+    }
+#else
     if (depth_enabled != sDepthEnabled)
     {
         gGL.flush();
@@ -2804,12 +3176,25 @@ LLGLDepthTest::LLGLDepthTest(GLboolean depth_enabled, GLboolean write_enabled, G
         glDepthMask(write_enabled);
         sWriteEnabled = write_enabled;
     }
+#endif
 }
 
 LLGLDepthTest::~LLGLDepthTest()
 {
     LL_PROFILE_ZONE_SCOPED_CATEGORY_PIPELINE;
     checkState();
+#ifdef DX_RENDER
+    // Same missing-flush issue as the constructor above - see its comment.
+    if (sDepthEnabled != mPrevDepthEnabled || sDepthFunc != mPrevDepthFunc || sWriteEnabled != mPrevWriteEnabled)
+    {
+        gGL.flush();
+        gDXUIBatch.flushPending();
+        applyDXDepthStencilState(mPrevDepthEnabled, mPrevWriteEnabled, mPrevDepthFunc);
+        sDepthEnabled = mPrevDepthEnabled;
+        sDepthFunc = mPrevDepthFunc;
+        sWriteEnabled = mPrevWriteEnabled;
+    }
+#else
     if (sDepthEnabled != mPrevDepthEnabled )
     {
         gGL.flush();
@@ -2829,6 +3214,7 @@ LLGLDepthTest::~LLGLDepthTest()
         glDepthMask(mPrevWriteEnabled);
         sWriteEnabled = mPrevWriteEnabled;
     }
+#endif
 }
 
 void LLGLDepthTest::checkState()

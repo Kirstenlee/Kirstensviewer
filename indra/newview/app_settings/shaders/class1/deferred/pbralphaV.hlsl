@@ -36,6 +36,12 @@ uniform float4x4 modelview_projection_matrix;
 #endif
 uniform float4x4 texture_matrix0;
 
+// S24 (task #173): matches alphaV.hlsl's identical near_clip bias on
+// vary_fragcoord.z - shadowUtil.hlsl's sampleDirectionalShadow() (now wired
+// into pbralphaF.hlsl) needs this same small bias for its screen-position
+// reconstruction, same reasoning as the already-working legacy alpha path.
+uniform float near_clip;
+
 #if !defined(HAS_SKIN)
 uniform float4x4 modelview_matrix;
 #endif
@@ -55,6 +61,9 @@ struct VSInput
     float3 normal : NORMAL;
     float4 tangent : TANGENT;
     float2 texcoord0 : TEXCOORD0;
+#ifdef HAS_SKIN
+    float4 weight4 : BLENDWEIGHT;
+#endif
 };
 
 struct VSOutput
@@ -88,7 +97,7 @@ VSOutput main(VSInput IN)
 #endif
     OUT.position = vert;
 
-    OUT.vary_fragcoord = vert.xyz;
+    OUT.vary_fragcoord = vert.xyz + float3(0, 0, near_clip);
 
     OUT.base_color_texcoord = texture_transform(IN.texcoord0, texture_base_color_transform, texture_matrix0);
     OUT.normal_texcoord = texture_transform(IN.texcoord0, texture_normal_transform, texture_matrix0);
@@ -139,6 +148,9 @@ struct VSInput
     float3 position : POSITION;
     float4 diffuse_color : COLOR0;
     float2 texcoord0 : TEXCOORD0;
+#ifdef HAS_SKIN
+    float4 weight4 : BLENDWEIGHT;
+#endif
 };
 
 struct VSOutput

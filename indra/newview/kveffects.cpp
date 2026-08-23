@@ -37,6 +37,14 @@
 #include <algorithm>
 #include <cmath>
 
+// S24 (2026-08-17): DX_RENDER read/write bookend for the effect functions
+// below - see kveffects.h's class comment for why this is all that needed
+// to change (the OpenCL pipeline itself was already 100% backend-agnostic,
+// GL's glGetTexImage()/glTexSubImage2D() were the only GL-specific steps).
+#ifdef DX_RENDER
+#include "DXReadback.h"
+#endif
+
 // ============================================================
 //  Global OpenCL Instance
 // ============================================================
@@ -52,7 +60,11 @@ static KVOpenCL gCL;  // Single instance for all GPU operations
 // Desaturation (Grayscale Conversion)
 // Converts color image to grayscale using luminance weights
 // ------------------------------------------------------------
+#ifdef DX_RENDER
+void ImageProcessor::desaturateImageGPU(ID3D11Texture2D* tex, int width, int height)
+#else
 void ImageProcessor::desaturateImageGPU(GLuint texID, int width, int height)
+#endif
 {
 	if (!gCL.init())
 	{
@@ -74,12 +86,21 @@ void ImageProcessor::desaturateImageGPU(GLuint texID, int width, int height)
 		return;
 	}
 
-	// Allocate temporary CPU buffer for GL texture read
+	// Allocate temporary CPU buffer for texture read
 	std::vector<unsigned char> tempBuffer(bufSize);
 
 	// Read texture from GPU
+#ifdef DX_RENDER
+	if (!DXReadback::readPixels(tex, 0, 0, width, height, 4, tempBuffer.data()))
+	{
+		gCL.release(inBuf);
+		gCL.release(outBuf);
+		return;
+	}
+#else
 	glBindTexture(GL_TEXTURE_2D, texID);
 	glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, tempBuffer.data());
+#endif
 
 	// Upload to OpenCL, process, download
 	gCL.writeBuffer(inBuf, tempBuffer.data(), bufSize);
@@ -87,8 +108,12 @@ void ImageProcessor::desaturateImageGPU(GLuint texID, int width, int height)
 	gCL.readBuffer(outBuf, tempBuffer.data(), bufSize);
 
 	// Write back to texture
+#ifdef DX_RENDER
+	DXReadback::writePixels(tex, 0, 0, width, height, 4, tempBuffer.data());
+#else
 	glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, tempBuffer.data());
 	glBindTexture(GL_TEXTURE_2D, 0);
+#endif
 
 	gCL.release(inBuf);
 	gCL.release(outBuf);
@@ -98,7 +123,11 @@ void ImageProcessor::desaturateImageGPU(GLuint texID, int width, int height)
 // Color Inversion
 // Inverts all RGB color channels (255 - value)
 // ------------------------------------------------------------
+#ifdef DX_RENDER
+void ImageProcessor::invertImageGPU(ID3D11Texture2D* tex, int width, int height)
+#else
 void ImageProcessor::invertImageGPU(GLuint texID, int width, int height)
+#endif
 {
 	if (!gCL.init())
 	{
@@ -120,12 +149,21 @@ void ImageProcessor::invertImageGPU(GLuint texID, int width, int height)
 		return;
 	}
 
-	// Allocate temporary CPU buffer for GL texture read
+	// Allocate temporary CPU buffer for texture read
 	std::vector<unsigned char> tempBuffer(bufSize);
 
 	// Read texture from GPU
+#ifdef DX_RENDER
+	if (!DXReadback::readPixels(tex, 0, 0, width, height, 4, tempBuffer.data()))
+	{
+		gCL.release(inBuf);
+		gCL.release(outBuf);
+		return;
+	}
+#else
 	glBindTexture(GL_TEXTURE_2D, texID);
 	glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, tempBuffer.data());
+#endif
 
 	// Upload to OpenCL, process, download
 	gCL.writeBuffer(inBuf, tempBuffer.data(), bufSize);
@@ -133,8 +171,12 @@ void ImageProcessor::invertImageGPU(GLuint texID, int width, int height)
 	gCL.readBuffer(outBuf, tempBuffer.data(), bufSize);
 
 	// Write back to texture
+#ifdef DX_RENDER
+	DXReadback::writePixels(tex, 0, 0, width, height, 4, tempBuffer.data());
+#else
 	glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, tempBuffer.data());
 	glBindTexture(GL_TEXTURE_2D, 0);
+#endif
 
 	gCL.release(inBuf);
 	gCL.release(outBuf);
@@ -145,7 +187,11 @@ void ImageProcessor::invertImageGPU(GLuint texID, int width, int height)
 // Advanced color manipulation with HSL conversion, gamma correction,
 // per-channel boost, hue rotation, and saturation adjustment
 // ------------------------------------------------------------
+#ifdef DX_RENDER
+void ImageProcessor::RGBControlGPU(ID3D11Texture2D* tex, int width, int height)
+#else
 void ImageProcessor::RGBControlGPU(GLuint texID, int width, int height)
+#endif
 {
 	if (!gCL.init())
 	{
@@ -177,12 +223,21 @@ void ImageProcessor::RGBControlGPU(GLuint texID, int width, int height)
 	const float contrastMultiplier = gSavedSettings.getF32("ContrastMultiplierKV");
 	const float gammaCorrection = gSavedSettings.getF32("GammaCorrectionKV");
 
-	// Allocate temporary CPU buffer for GL texture read
+	// Allocate temporary CPU buffer for texture read
 	std::vector<unsigned char> tempBuffer(bufSize);
 
 	// Read texture from GPU
+#ifdef DX_RENDER
+	if (!DXReadback::readPixels(tex, 0, 0, width, height, 4, tempBuffer.data()))
+	{
+		gCL.release(inBuf);
+		gCL.release(outBuf);
+		return;
+	}
+#else
 	glBindTexture(GL_TEXTURE_2D, texID);
 	glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, tempBuffer.data());
+#endif
 
 	// Upload to OpenCL, process with all parameters, download
 	gCL.writeBuffer(inBuf, tempBuffer.data(), bufSize);
@@ -193,8 +248,12 @@ void ImageProcessor::RGBControlGPU(GLuint texID, int width, int height)
 	gCL.readBuffer(outBuf, tempBuffer.data(), bufSize);
 
 	// Write back to texture
+#ifdef DX_RENDER
+	DXReadback::writePixels(tex, 0, 0, width, height, 4, tempBuffer.data());
+#else
 	glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, tempBuffer.data());
 	glBindTexture(GL_TEXTURE_2D, 0);
+#endif
 
 	gCL.release(inBuf);
 	gCL.release(outBuf);
@@ -204,7 +263,11 @@ void ImageProcessor::RGBControlGPU(GLuint texID, int width, int height)
 // Cel Shading (Cartoon/Borderlands Style)
 // Sobel edge detection with posterization for comic book effect
 // ------------------------------------------------------------
+#ifdef DX_RENDER
+void ImageProcessor::celShadeImageGPU(ID3D11Texture2D* tex, int width, int height)
+#else
 void ImageProcessor::celShadeImageGPU(GLuint texID, int width, int height)
+#endif
 {
 	if (!gCL.init())
 	{
@@ -232,12 +295,21 @@ void ImageProcessor::celShadeImageGPU(GLuint texID, int width, int height)
 	int shadeInterval = std::max(1, safeInterval / std::max(1, safeShades));
 	float lowVarianceThreshold = 15.0f;
 
-	// Allocate temporary CPU buffer for GL texture read
+	// Allocate temporary CPU buffer for texture read
 	std::vector<unsigned char> tempBuffer(bufSize);
 
 	// Read texture from GPU
+#ifdef DX_RENDER
+	if (!DXReadback::readPixels(tex, 0, 0, width, height, 4, tempBuffer.data()))
+	{
+		gCL.release(inBuf);
+		gCL.release(outBuf);
+		return;
+	}
+#else
 	glBindTexture(GL_TEXTURE_2D, texID);
 	glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, tempBuffer.data());
+#endif
 
 	// Upload to OpenCL, process, download
 	gCL.writeBuffer(inBuf, tempBuffer.data(), bufSize);
@@ -245,8 +317,12 @@ void ImageProcessor::celShadeImageGPU(GLuint texID, int width, int height)
 	gCL.readBuffer(outBuf, tempBuffer.data(), bufSize);
 
 	// Write back to texture
+#ifdef DX_RENDER
+	DXReadback::writePixels(tex, 0, 0, width, height, 4, tempBuffer.data());
+#else
 	glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, tempBuffer.data());
 	glBindTexture(GL_TEXTURE_2D, 0);
+#endif
 
 	gCL.release(inBuf);
 	gCL.release(outBuf);
@@ -256,7 +332,11 @@ void ImageProcessor::celShadeImageGPU(GLuint texID, int width, int height)
 // Vignette Effect
 // Radial darkening from image center with exponential falloff
 // ------------------------------------------------------------
+#ifdef DX_RENDER
+void ImageProcessor::vignetteGPU(ID3D11Texture2D* tex, int width, int height)
+#else
 void ImageProcessor::vignetteGPU(GLuint texID, int width, int height)
+#endif
 {
 	if (!gCL.init())
 	{
@@ -281,12 +361,21 @@ void ImageProcessor::vignetteGPU(GLuint texID, int width, int height)
 	// Fetch vignette intensity (must match CPU version setting name)
 	float intensity = gSavedSettings.getF32("VignetteIntensity");
 
-	// Allocate temporary CPU buffer for GL texture read
+	// Allocate temporary CPU buffer for texture read
 	std::vector<unsigned char> tempBuffer(bufSize);
 
 	// Read texture from GPU
+#ifdef DX_RENDER
+	if (!DXReadback::readPixels(tex, 0, 0, width, height, 4, tempBuffer.data()))
+	{
+		gCL.release(inBuf);
+		gCL.release(outBuf);
+		return;
+	}
+#else
 	glBindTexture(GL_TEXTURE_2D, texID);
 	glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, tempBuffer.data());
+#endif
 
 	// Upload to OpenCL, process, download
 	gCL.writeBuffer(inBuf, tempBuffer.data(), bufSize);
@@ -294,8 +383,12 @@ void ImageProcessor::vignetteGPU(GLuint texID, int width, int height)
 	gCL.readBuffer(outBuf, tempBuffer.data(), bufSize);
 
 	// Write back to texture
+#ifdef DX_RENDER
+	DXReadback::writePixels(tex, 0, 0, width, height, 4, tempBuffer.data());
+#else
 	glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, tempBuffer.data());
 	glBindTexture(GL_TEXTURE_2D, 0);
+#endif
 
 	gCL.release(inBuf);
 	gCL.release(outBuf);
@@ -305,7 +398,11 @@ void ImageProcessor::vignetteGPU(GLuint texID, int width, int height)
 // Night Vision Effect
 // Green monochrome with brightness boost and block-based noise texture
 // ------------------------------------------------------------
+#ifdef DX_RENDER
+void ImageProcessor::nightVisionGPU(ID3D11Texture2D* tex, int width, int height)
+#else
 void ImageProcessor::nightVisionGPU(GLuint texID, int width, int height)
+#endif
 {
 	if (!gCL.init())
 	{
@@ -339,12 +436,21 @@ void ImageProcessor::nightVisionGPU(GLuint texID, int width, int height)
 	static std::mt19937 rng(rd());
 	unsigned int seed = rng();
 
-	// Allocate temporary CPU buffer for GL texture read
+	// Allocate temporary CPU buffer for texture read
 	std::vector<unsigned char> tempBuffer(bufSize);
 
 	// Read texture from GPU
+#ifdef DX_RENDER
+	if (!DXReadback::readPixels(tex, 0, 0, width, height, 4, tempBuffer.data()))
+	{
+		gCL.release(inBuf);
+		gCL.release(outBuf);
+		return;
+	}
+#else
 	glBindTexture(GL_TEXTURE_2D, texID);
 	glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, tempBuffer.data());
+#endif
 
 	// Upload to OpenCL, process, download
 	gCL.writeBuffer(inBuf, tempBuffer.data(), bufSize);
@@ -352,8 +458,12 @@ void ImageProcessor::nightVisionGPU(GLuint texID, int width, int height)
 	gCL.readBuffer(outBuf, tempBuffer.data(), bufSize);
 
 	// Write back to texture
+#ifdef DX_RENDER
+	DXReadback::writePixels(tex, 0, 0, width, height, 4, tempBuffer.data());
+#else
 	glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, tempBuffer.data());
 	glBindTexture(GL_TEXTURE_2D, 0);
+#endif
 
 	gCL.release(inBuf);
 	gCL.release(outBuf);
@@ -363,7 +473,11 @@ void ImageProcessor::nightVisionGPU(GLuint texID, int width, int height)
 // Edge Glow Effect
 // Sobel edge detection with variable blur radius and additive glow
 // ------------------------------------------------------------
+#ifdef DX_RENDER
+void ImageProcessor::edgeGlowGPU(ID3D11Texture2D* tex, int width, int height)
+#else
 void ImageProcessor::edgeGlowGPU(GLuint texID, int width, int height)
+#endif
 {
 	if (!gCL.init())
 	{
@@ -391,12 +505,21 @@ void ImageProcessor::edgeGlowGPU(GLuint texID, int width, int height)
 	static LLCachedControl<F32> blurRadiusSetting(gSavedSettings, "edgeBlurRadius");
 	int blurRadius = std::max(0, (int)blurRadiusSetting); // Convert to int and clamp
 
-	// Allocate temporary CPU buffer for GL texture read
+	// Allocate temporary CPU buffer for texture read
 	std::vector<unsigned char> tempBuffer(bufSize);
 
 	// Read texture from GPU
+#ifdef DX_RENDER
+	if (!DXReadback::readPixels(tex, 0, 0, width, height, 4, tempBuffer.data()))
+	{
+		gCL.release(inBuf);
+		gCL.release(outBuf);
+		return;
+	}
+#else
 	glBindTexture(GL_TEXTURE_2D, texID);
 	glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, tempBuffer.data());
+#endif
 
 	// Upload to OpenCL, process, download
 	gCL.writeBuffer(inBuf, tempBuffer.data(), bufSize);
@@ -404,8 +527,12 @@ void ImageProcessor::edgeGlowGPU(GLuint texID, int width, int height)
 	gCL.readBuffer(outBuf, tempBuffer.data(), bufSize);
 
 	// Write back to texture
+#ifdef DX_RENDER
+	DXReadback::writePixels(tex, 0, 0, width, height, 4, tempBuffer.data());
+#else
 	glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, tempBuffer.data());
 	glBindTexture(GL_TEXTURE_2D, 0);
+#endif
 
 	gCL.release(inBuf);
 	gCL.release(outBuf);
@@ -415,7 +542,11 @@ void ImageProcessor::edgeGlowGPU(GLuint texID, int width, int height)
 // Motion Blur Effect
 // Frame accumulation using persistent history buffer
 // ------------------------------------------------------------
+#ifdef DX_RENDER
+void ImageProcessor::motionBlurGPU(ID3D11Texture2D* tex, int width, int height)
+#else
 void ImageProcessor::motionBlurGPU(GLuint texID, int width, int height)
+#endif
 {
 	// Persistent history buffer for frame accumulation
 	static cl_mem historyBuf = nullptr;
@@ -468,12 +599,21 @@ void ImageProcessor::motionBlurGPU(GLuint texID, int width, int height)
 	// Fetch blend factor (0.0 = full trail, 1.0 = no blur)
 	static LLCachedControl<F32> blendFactor(gSavedSettings, "MotionBlurBlend");
 
-	// Allocate temporary CPU buffer for GL texture read
+	// Allocate temporary CPU buffer for texture read
 	std::vector<unsigned char> tempBuffer(bufSize);
 
 	// Read current frame from GPU texture
+#ifdef DX_RENDER
+	if (!DXReadback::readPixels(tex, 0, 0, width, height, 4, tempBuffer.data()))
+	{
+		gCL.release(inBuf);
+		gCL.release(outBuf);
+		return;
+	}
+#else
 	glBindTexture(GL_TEXTURE_2D, texID);
 	glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, tempBuffer.data());
+#endif
 
 	// Upload current frame to OpenCL
 	gCL.writeBuffer(inBuf, tempBuffer.data(), bufSize);
@@ -488,8 +628,12 @@ void ImageProcessor::motionBlurGPU(GLuint texID, int width, int height)
 	gCL.writeBuffer(historyBuf, tempBuffer.data(), bufSize);
 
 	// Write blended result back to texture
+#ifdef DX_RENDER
+	DXReadback::writePixels(tex, 0, 0, width, height, 4, tempBuffer.data());
+#else
 	glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, tempBuffer.data());
 	glBindTexture(GL_TEXTURE_2D, 0);
+#endif
 
 	gCL.release(inBuf);
 	gCL.release(outBuf);

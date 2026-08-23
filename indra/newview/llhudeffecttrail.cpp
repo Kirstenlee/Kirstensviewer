@@ -45,6 +45,7 @@
 #include "llglheaders.h"
 #include "llrender.h"
 #include "lluicolortable.h"
+#include "llviewerwindow.h"
 
 LLHUDEffectSpiral::LLHUDEffectSpiral(const U8 type) : LLHUDEffect(type), mbInit(false)
 {
@@ -315,14 +316,72 @@ void LLHUDEffectSpiral::render()
         }
         else
         {
-            source_pos = mSourceObject->getPositionAgent();
+            // S24 (2026-08-16): getRenderPosition(), not getPositionAgent() -
+            // see the target_pos comment below, same reasoning applies here
+            // for any non-avatar source.
+            source_pos = mSourceObject->getRenderPosition();
         }
+
+        // S24 (2026-08-16): the wrist bone's raw world position moves
+        // continuously and cyclically from ordinary idle/weight-shift
+        // animation alone - live-logged proof (35s continuous capture,
+        // 4x/sec) showed it swinging by 50-140 screen-pixels in a repeating
+        // multi-second-period pattern (a faster ~3-4s wobble layered on a
+        // slower drift) the ENTIRE time, while the target object's position
+        // never moved by a single unit across the whole capture - not
+        // camera/input-driven (mWristLeftp->getWorldPosition() has no
+        // dependency on the camera or keyboard at all, only on avatar
+        // skeletal/animation state) and not a one-off settle. The particle
+        // trail never showed this because LLInterpLinear inherently smooths
+        // it over time, but this line drew the raw, instantaneous bone
+        // position every frame with no smoothing at all, faithfully
+        // rendering the avatar's own natural sway as a visible "bounce".
+        // Exponentially smoothed toward the raw position (time-constant
+        // based, not frame-rate-dependent) - the constant needs to be long
+        // enough to meaningfully flatten a multi-second-period signal (a
+        // sub-second constant, tried first, barely touches something this
+        // slow) while still letting real movement (actually walking away)
+        // catch up within a couple of seconds rather than lagging visibly.
+        F32 dt = mSourceSmoothTimer.getElapsedTimeF32();
+        mSourceSmoothTimer.reset();
+        if (!mSmoothedSourcePosInit)
+        {
+            mSmoothedSourcePos = source_pos;
+            mSmoothedSourcePosInit = true;
+        }
+        else
+        {
+            const F32 SOURCE_SMOOTH_TIME_CONSTANT = 1.0f;
+            F32 alpha = 1.f - expf(-dt / SOURCE_SMOOTH_TIME_CONSTANT);
+            mSmoothedSourcePos = lerp(mSmoothedSourcePos, source_pos, alpha);
+        }
+        source_pos = mSmoothedSourcePos;
 
         // Get target position - either from target object or from global position
         LLVector3 target_pos;
         if (!mTargetObject.isNull())
         {
-            target_pos = mTargetObject->getPositionAgent();
+            // S24 (2026-08-16): getRenderPosition(), NOT getPositionAgent().
+            // Found via task #133's own diagnostic trail (manipulator/gizmo
+            // investigation, unrelated on the surface but hit the exact same
+            // symptom independently): the build-tool gizmo's pivot comes
+            // from LLManip::getPivotPoint() -> getPivotPositionAgent() ->
+            // getRenderPosition() -> LLDrawable::getPositionAgent() - a
+            // DIFFERENT function than plain LLViewerObject::getPositionAgent()
+            // (which this line used to call). For a root prim that's
+            // isActive() (true right after being selected/grabbed/edited -
+            // exactly when this beam is visible), LLDrawable::getPositionAgent()
+            // returns the translation column of the drawable's own render
+            // matrix, NOT mVObjp->getPositionAgent() - the two only
+            // coincidentally agree once the object settles back to static.
+            // The beam's own target-selection logic and getPositionAgent()
+            // math were both already proven exactly correct and stable by
+            // extensive live-logged diagnostics this session - the gizmo
+            // (the user's actual visual reference point) was reading a
+            // genuinely different position source the whole time.
+            // getRenderPosition() is the same function LLManip uses, so the
+            // beam now structurally can't disagree with it.
+            target_pos = mTargetObject->getRenderPosition();
         }
         else if (!mPositionGlobal.isExactlyZero())
         {
@@ -339,7 +398,37 @@ void LLHUDEffectSpiral::render()
 
         // S24: Ensure a shader is bound for rendering (prevents assert on cleanup)
         gGL.flush();
+
+        // S24 (2026-08-16, task #217): when a HUD is attached,
+        // render_hud_attachments() (llviewerdisplay.cpp) calls
+        // gPipeline.renderGeomPostDeferred(hud_cam) a second time per frame,
+        // whose render-target rebinding resets the D3D11 viewport to the
+        // HUD pass's own full/chrome-inclusive size (setup3DViewport() only
+        // sets the viewport rect, it never gets called again on the way
+        // back out - confirmed via full-tree grep, render_hud_attachments()
+        // has no viewport call anywhere in its body). Everything drawn
+        // afterward in the same frame inherits that wrong viewport unless
+        // it explicitly resets it first - llhudnametag.cpp:334 (task #191)
+        // and llmanip.cpp already do this for the nametag and the build-
+        // tool gizmo; this beam had no such call at all, so its geometry
+        // (world-space vertices, same GPU viewport transform as everything
+        // else) would land in the wrong screen position specifically when a
+        // HUD's second render pass ran before this beam did that frame.
+        gViewerWindow->setup3DViewport();
+
+        // S24 (2026-08-16): pushUIMatrix() duplicates whatever UI offset/scale
+        // is CURRENTLY active on the stack, not identity - every other real
+        // caller of pushUIMatrix() for a world-space draw (e.g. llselectmgr.cpp's
+        // selection-highlight rendering) immediately follows it with
+        // loadUIIdentity() for exactly this reason. This call was missing it,
+        // so if any ambient UI offset/scale happened to be on the stack when
+        // this ran, source_pos/target_pos (real agent-space meters) got
+        // silently reprojected through it below in vertex3fv() - the root
+        // cause of the beam rendering offset from the object center while the
+        // particle trail (LLViewerPartSourceBeam, never touches this stack)
+        // tracked correctly.
         gGL.pushUIMatrix();
+        gGL.loadUIIdentity();
 
         // S24: Get beam color from unified EffectColor (set in Preferences)
         LLColor4 base_color = LLUIColorTable::instance().getColor("EffectColor");
@@ -360,22 +449,80 @@ void LLHUDEffectSpiral::render()
         // 0 = Solid, 1 = Dotted, 2 = Dashed, 3 = Dash-Dot
         S32 line_style = gSavedSettings.getS32("SelectionBeamLineStyle");
 
-        glLineWidth(3.0f);  // Fixed nice visible width
+        beam_vec.normalize();
+
+        // S24 (2026-08-16): D3D11's rasterizer has no line-width parameter
+        // at all - not a DX_RENDER port gap, a real cross-API difference
+        // (GL exposes it as pipeline state via glLineWidth(); D3D11 simply
+        // has nothing equivalent). The old glLineWidth(3.0f)/glLineWidth(1.0f)
+        // pair here was gated #ifndef DX_RENDER and did nothing under
+        // DX_RENDER, leaving the beam permanently 1px there regardless of
+        // style. Replaced with a real camera-facing billboard quad (true
+        // world-space geometry, same technique the dead llhudeffectbeam.cpp
+        // already used) - renders identically, and at real width, on both GL
+        // and DX_RENDER, so GL involvement here drops to zero rather than
+        // just being gated around.
+        // S24 (2026-08-16): a FIXED world-space width looked "wide as hell"
+        // up close - the old glLineWidth(3.0f) was a constant SCREEN-space
+        // (pixel) width, not a world-space one, and build/edit work routinely
+        // puts the camera very close to one end of the beam (Focus mode
+        // zooms right up to the target). Convert a desired pixel half-width
+        // to world-space meters PER ENDPOINT using the same
+        // getPixelMeterRatio() technique this file already uses for particle
+        // scaling a few lines up (llviewerpartsource.cpp does the same for
+        // its own particle sizing) - so each end of the ribbon stays a true
+        // ~3px on screen regardless of how close the camera gets to it,
+        // matching the original GL behavior instead of a raw meter guess.
+        constexpr F32 BEAM_HALF_PIXEL_WIDTH = 1.5f; // ~3px total, matches the old glLineWidth(3.0f)
+        F32 pixel_meter_ratio = LLViewerCamera::getInstance()->getPixelMeterRatio();
+        LLVector3 cam_origin = LLViewerCamera::getInstance()->getOrigin();
+
+        LLVector3 to_camera = cam_origin - source_pos;
+        to_camera.normalize();
+
+        LLVector3 width_dir = beam_vec % to_camera;
+        if (width_dir.lengthSquared() < 0.000001f)
+        {
+            // Beam points directly at the camera - fall back to the camera's
+            // up axis so the quad doesn't degenerate to zero width.
+            width_dir = beam_vec % LLViewerCamera::getInstance()->getUpAxis();
+        }
+        width_dir.normalize();
+
+        auto half_width_at = [pixel_meter_ratio, cam_origin](const LLVector3& p) -> F32
+        {
+            F32 dist = (cam_origin - p).length();
+            return BEAM_HALF_PIXEL_WIDTH * dist / pixel_meter_ratio;
+        };
+
+        auto emit_quad = [&width_dir, &half_width_at](const LLVector3& a, const LLVector3& b)
+        {
+            LLVector3 wa = width_dir * half_width_at(a);
+            LLVector3 wb = width_dir * half_width_at(b);
+            LLVector3 v1 = a - wa;
+            LLVector3 v2 = a + wa;
+            LLVector3 v3 = b + wb;
+            LLVector3 v4 = b - wb;
+            gGL.vertex3fv(v1.mV);
+            gGL.vertex3fv(v2.mV);
+            gGL.vertex3fv(v3.mV);
+            gGL.vertex3fv(v1.mV);
+            gGL.vertex3fv(v3.mV);
+            gGL.vertex3fv(v4.mV);
+        };
+
         gGL.color4fv(base_color.mV);
 
         if (line_style == 0)
         {
             // SOLID LINE - simple and clean
-            gGL.begin(LLRender::LINES);
-            gGL.vertex3fv(source_pos.mV);
-            gGL.vertex3fv(target_pos.mV);
+            gGL.begin(LLRender::TRIANGLES);
+            emit_quad(source_pos, target_pos);
             gGL.end();
         }
         else
         {
             // PATTERNED LINES - draw segments
-            beam_vec.normalize();
-
             F32 segment_length, gap_length;
             bool draw_dot = false;
 
@@ -401,7 +548,7 @@ void LLHUDEffectSpiral::render()
 
             S32 num_patterns = (S32)(beam_length / pattern_length);
 
-            gGL.begin(LLRender::LINES);
+            gGL.begin(LLRender::TRIANGLES);
             for (S32 i = 0; i <= num_patterns; i++)
             {
                 F32 start_dist = i * pattern_length;
@@ -412,8 +559,7 @@ void LLHUDEffectSpiral::render()
                 LLVector3 seg_start = source_pos + beam_vec * start_dist;
                 LLVector3 seg_end = source_pos + beam_vec * end_dist;
 
-                gGL.vertex3fv(seg_start.mV);
-                gGL.vertex3fv(seg_end.mV);
+                emit_quad(seg_start, seg_end);
 
                 // Draw dot if dash-dot pattern
                 if (draw_dot && line_style == 3)
@@ -424,15 +570,13 @@ void LLHUDEffectSpiral::render()
                     {
                         LLVector3 dot_s = source_pos + beam_vec * dot_start;
                         LLVector3 dot_e = source_pos + beam_vec * dot_end;
-                        gGL.vertex3fv(dot_s.mV);
-                        gGL.vertex3fv(dot_e.mV);
+                        emit_quad(dot_s, dot_e);
                     }
                 }
             }
             gGL.end();
         }
 
-        glLineWidth(1.0f);  // Restore default
         gGL.popUIMatrix();
         gGL.flush();
     }

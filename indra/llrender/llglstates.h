@@ -173,6 +173,14 @@ public:
 	LLGLSSpecular(const LLColor4& color, F32 shininess)
 	{
 		mShininess = shininess;
+#ifndef DX_RENDER
+		// S24 (DX_RENDER, 2026-07-30): fixed-function glMaterialfv/glMateriali
+		// have no D3D11 equivalent (this codebase's shader-based lighting
+		// never reads them) and are unreachable at runtime today only because
+		// this class's one caller (llviewerjointmesh.cpp) always passes
+		// shininess=0.f - the same "safe by accidental invariant" class of
+		// risk already fixed elsewhere in LLTexUnit this session. Guarded
+		// explicitly instead of relying on that staying true.
 		if (mShininess > 0.0f)
 		{
 			glMaterialfv(GL_FRONT_AND_BACK, GL_SPECULAR, color.mV);
@@ -180,14 +188,17 @@ public:
 			shiny = llclamp(shiny,0,128);
 			glMateriali(GL_FRONT_AND_BACK, GL_SHININESS, shiny);
 		}
+#endif
 	}
 	~LLGLSSpecular()
 	{
+#ifndef DX_RENDER
 		if (mShininess > 0.f)
 		{
 			glMaterialfv(GL_FRONT_AND_BACK, GL_SPECULAR, LLColor4(0.f,0.f,0.f,0.f).mV);
 			glMateriali(GL_FRONT_AND_BACK, GL_SHININESS, 0);
 		}
+#endif
 	}
 };
 

@@ -35,16 +35,20 @@ float4x4 getObjectSkinnedTransform();
 float4x4 getLastObjectSkinnedTransform();
 #endif
 
+#include "varying/velocityVarying.hlsli"
+
 struct VSInput
 {
     float3 position : POSITION;
+#ifdef HAS_SKIN
+    float4 weight4 : BLENDWEIGHT;
+#endif
 };
 
 struct VSOutput
 {
     float4 position : SV_Position;
-    float4 vary_cur_clip : TEXCOORD0;
-    float4 vary_last_clip : TEXCOORD1;
+    VelocityVarying varying;
 };
 
 VSOutput main(VSInput IN)
@@ -65,7 +69,7 @@ VSOutput main(VSInput IN)
     float4 last_pos = mul(projection_matrix, mul(last_modelview_matrix, mul(last_object_matrix, float4(IN.position.xyz, 1.0))));
 #endif
 
-    writeVaryVelocity(pos, last_pos, OUT.vary_cur_clip, OUT.vary_last_clip);
+    writeVaryVelocity(pos, last_pos, OUT.varying.vary_cur_clip, OUT.varying.vary_last_clip);
 
     return OUT;
 }

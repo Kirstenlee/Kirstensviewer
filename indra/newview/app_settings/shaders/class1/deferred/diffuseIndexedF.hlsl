@@ -26,10 +26,14 @@
 
 struct PSInput
 {
+    // S24 (2026-08-02): missing SV_Position - see uiF.hlsl's comment (fxc.exe-confirmed VS/PS register-shift bug).
+    float4 position : SV_Position;
+
     float3 vary_normal : TEXCOORD0;
     float4 vertex_color : COLOR0;
     float2 vary_texcoord0 : TEXCOORD1;
     float3 vary_position : TEXCOORD2;
+    nointerpolation int vary_texture_index : VARYTEXTUREINDEX;
 };
 
 struct PSOutput
@@ -50,6 +54,8 @@ float3 linear_to_srgb(float3 c);
 PSOutput main(PSInput IN)
 {
     PSOutput OUT;
+
+    vary_texture_index = IN.vary_texture_index;
 
     mirrorClip(IN.vary_position);
     float3 col = IN.vertex_color.rgb * diffuseLookup(IN.vary_texcoord0.xy).rgb;

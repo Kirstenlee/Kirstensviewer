@@ -49,6 +49,10 @@
 #include "llsettingssky.h"
 #include "llsettingswater.h"
 
+#ifdef DX_RENDER
+#include "dxdrawpoolwater.h"
+#endif
+
 // S24: Fast timers for water rendering breakdown
 static LLTrace::BlockTimerStatHandle FTM_RENDER_WATER_OPAQUE("Water Opaque");
 static LLTrace::BlockTimerStatHandle FTM_RENDER_WATER_REFLECTION("Water Reflection");
@@ -120,6 +124,10 @@ S32 LLDrawPoolWater::getNumPostDeferredPasses()
 
 void LLDrawPoolWater::beginPostDeferredPass(S32 pass)
 {
+#ifdef DX_RENDER
+    DXDrawPoolWater::beginPostDeferredPass(*this, pass);
+    return;
+#endif
     LL_PROFILE_GPU_ZONE("water beginPostDeferredPass");
     gGL.setColorMask(true, true);
 
@@ -151,6 +159,10 @@ void LLDrawPoolWater::beginPostDeferredPass(S32 pass)
 
 void LLDrawPoolWater::renderPostDeferred(S32 pass)
 {
+#ifdef DX_RENDER
+    DXDrawPoolWater::renderPostDeferred(*this, pass);
+    return;
+#endif
     LL_RECORD_BLOCK_TIME(FTM_RENDER_WATER_OPAQUE);
     LLGLDisable blend(GL_BLEND);
 

@@ -31,12 +31,20 @@ struct VSInput
 struct VSOutput
 {
     float4 position : SV_Position;
-    float2 vary_fragcoord : TEXCOORD0;
-    float2 vary_texcoord0 : TEXCOORD1;
+    float2 vary_texcoord0 : TEXCOORD0;
 };
 
 VSOutput main(VSInput IN)
 {
+    // S24 (2026-08-01): originally had a 3rd field, vary_fragcoord - both
+    // this file and the original GLSL (normgenV.glsl) declared it as an
+    // output but never assigned it (confirmed via normgenF.glsl/.hlsl -
+    // neither pixel shader reads it either), genuinely dead. GLSL's linker
+    // doesn't flag unassigned outputs; HLSL's stricter definite-assignment
+    // check does (X3578 "Output value 'main' is not completely
+    // initialized") - removed rather than assigning a dummy value, same
+    // reasoning as other latent-bug fixes this session (e.g.
+    // globalF.hlsl's decodeNormal() n.w).
     VSOutput OUT;
 
     OUT.position = float4(IN.position.x*2.0-1.0, IN.position.y*2.0-1.0, -1.0, 1.0);

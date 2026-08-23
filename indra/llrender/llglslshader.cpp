@@ -33,6 +33,10 @@
 #include "llrender.h"
 #include "llvertexbuffer.h"
 #include "llrendertarget.h"
+#include "llwindow.h" // S24 (2026-08-16): LLSplashScreen::update() for startup shader-compile progress
+#ifdef DX_RENDER
+#include "DXUIBatch.h"
+#endif
 
 #include "hbxxh.h"
 #include "llsdserialize.h"
@@ -414,10 +418,19 @@ bool LLGLSLShader::createShader()
 {
 	LL_PROFILE_ZONE_SCOPED_CATEGORY_SHADER;
 
+	// S24 (2026-08-16): single chokepoint for all ~130 createShader() call
+	// sites - covers startup shader-compile progress without touching each
+	// one. isVisible() guards against reopening the splash dialog on a
+	// mid-session shader reload (graphics settings change etc.) - update()
+	// unconditionally recreates the splash window if it was already hidden.
+	if (LLSplashScreen::isVisible())
+	{
+		LLSplashScreen::update("Compiling shader: " + mName);
+	}
+
 #ifdef DX_RENDER
 	return createShaderDX();
-#endif
-
+#else
 	unloadInternal();
 
 	sInstances.insert(this);
@@ -458,7 +471,7 @@ bool LLGLSLShader::createShader()
 		vector< pair<string, GLenum> >::iterator fileIter = mShaderFiles.begin();
 		for (; fileIter != mShaderFiles.end(); fileIter++)
 		{
-			GLuint shaderhandle = LLShaderMgr::instance()->loadShaderFile((*fileIter).first, mShaderLevel, (*fileIter).second, &mDefines, mFeatures.mIndexedTextureChannels);
+			GLuint shaderhandle = LLShaderMgr::instance()->loadShaderFile((*fileIter).first, mShaderLevel, (*fileIter).second, &mDefines, mFeatures.mIndexedTextureChannels, mFeatures.isDeferred || mFeatures.hasReflectionProbes);
 			LL_DEBUGS("ShaderLoading") << "SHADER FILE: " << (*fileIter).first << " mShaderLevel=" << mShaderLevel << LL_ENDL;
 			if (shaderhandle)
 			{
@@ -555,6 +568,7 @@ bool LLGLSLShader::createShader()
 #endif
 
 	return success;
+#endif // DX_RENDER
 }
 
 #ifdef DX_RENDER
@@ -582,6 +596,19 @@ namespace
 			out += "#define " + d.first + " " + d.second + "\n";
 		}
 
+		// sGlobalDefines (llviewershadermgr.cpp's loadBasicShaders(), e.g.
+		// MAX_JOINTS_PER_MESH_OBJECT/SUN_SHADOW/SSR/REFMAP_LEVEL/terrain-PBR
+		// settings) was never emitted here - any HLSL file referencing one
+		// of these directly (not just inside #if defined(...)) saw it as
+		// undeclared. Per-shader defines above take precedence on conflict.
+		for (auto& d : LLGLSLShader::sGlobalDefines)
+		{
+			if (defines.find(d.first) == defines.end())
+			{
+				out += "#define " + d.first + " " + d.second + "\n";
+			}
+		}
+
 		return out;
 	}
 }
@@ -606,7 +633,7 @@ bool LLGLSLShader::createShaderDX()
 	// HLSL text into mVertexShaderSourceText/mFragmentShaderSourceText.
 	for (auto& file : mShaderFiles)
 	{
-		GLuint ok = LLShaderMgr::instance()->loadShaderFile(file.first, mShaderLevel, file.second, &mDefines, mFeatures.mIndexedTextureChannels);
+		GLuint ok = LLShaderMgr::instance()->loadShaderFile(file.first, mShaderLevel, file.second, &mDefines, mFeatures.mIndexedTextureChannels, mFeatures.isDeferred || mFeatures.hasReflectionProbes);
 		if (!ok)
 		{
 			LL_SHADER_LOADING_WARNS() << "Failed to load " << file.first << " for shader " << mName << LL_ENDL;
@@ -635,11 +662,36 @@ bool LLGLSLShader::createShaderDX()
 	bool success = true;
 	if (!mDXVertexSource.empty())
 	{
+		// S24 (DX_RENDER, 2026-07-30): resolve `#include "varying/....hlsli"`
+		// directives (see DXShader::resolveIncludes()'s comment) before the
+		// other text-injection passes below, so a shared varying struct is
+		// defined before anything in this file's own text references it.
+		// No-op for every shader with no #include directive.
+		DXShader::resolveIncludes(mDXVertexSource);
+		// Avatar body skinning (getSkinnedTransform(), class1/avatar/
+		// avatarSkinV.hlsl) references a bare "weight" global that only
+		// exists as a free-standing GLSL attribute on the GL side - see
+		// DXShader::injectSkinningInputs()'s comment. No-op for every
+		// non-skinned shader.
+		DXShader::injectSkinningInputs(mDXVertexSource);
+		// Same idea for indexedTextureV.hlsl's texture_index/
+		// vary_texture_index pair - see DXShader::injectTextureIndexInputs()'s
+		// comment. No-op for every non-indexed-texture shader.
+		DXShader::injectTextureIndexInputs(mDXVertexSource);
 		mDXVertexSource = buildDXShaderHeader(false, mDefines) + mDXVertexSource;
-		success = mDXVertexShader.compileVertexShader(mDXVertexSource, mName) && success;
+		bool vs_ok = mDXVertexShader.compileVertexShader(mDXVertexSource, mName);
+		success = vs_ok && success;
+		if (vs_ok)
+		{
+			// See DXShader::reflectVertexAttributeMask()'s comment - GL's
+			// mapAttributes() has no createShaderDX() equivalent to hook
+			// into, so this is populated here instead.
+			mAttributeMask = mDXVertexShader.reflectVertexAttributeMask();
+		}
 	}
 	if (!mDXPixelSource.empty())
 	{
+		DXShader::resolveIncludes(mDXPixelSource);
 		mDXPixelSource = buildDXShaderHeader(true, mDefines) + mDXPixelSource;
 		success = mDXPixelShader.compilePixelShader(mDXPixelSource, mName) && success;
 	}
@@ -647,6 +699,32 @@ bool LLGLSLShader::createShaderDX()
 	if (!success)
 	{
 		LL_SHADER_LOADING_WARNS() << "Failed to compile HLSL shader: " << mName << LL_ENDL;
+	}
+	else
+	{
+		// S24 (2026-08-03): DX-native equivalent of mapUniforms()'s GL-only
+		// mTexture[] population (glGetUniformLocation-based, never runs
+		// under DX_RENDER - createShaderDX() returns before mapUniforms()).
+		// Without this, every named-uniform texture bind (bindTexture(),
+		// enableTexture(), etc.) was a hardcoded no-op - confirmed root
+		// cause of PBR materials showing an unrelated, leftover-bound
+		// texture depending on draw order/camera angle (every diffuse/bump/
+		// specular/emissive bind for a PBR material silently did nothing,
+		// leaving whatever the previous draw call's SRV was in that
+		// register). Source the name->register(tN) mapping via
+		// DXShader::getTextureBindPoint() (D3D11 reflection) instead of GL
+		// reflection - same shape as reflectConstants() already does for
+		// $Globals uniforms.
+		mTexture.clear();
+		mTexture.resize(LLShaderMgr::instance()->mReservedUniforms.size(), -1);
+		for (size_t i = 0; i < LLShaderMgr::instance()->mReservedUniforms.size(); ++i)
+		{
+			UINT bind_point = 0;
+			if (mDXPixelShader.getTextureBindPoint(LLShaderMgr::instance()->mReservedUniforms[i], bind_point))
+			{
+				mTexture[i] = (GLint)bind_point;
+			}
+		}
 	}
 
 	return success;
@@ -1174,6 +1252,58 @@ void LLGLSLShader::bind()
 {
 	LL_PROFILE_ZONE_SCOPED_CATEGORY_SHADER;
 
+#ifdef DX_RENDER
+	// Minimum needed so LLVertexBuffer::setBuffer() (which asserts
+	// sCurBoundShaderPtr) is reachable: bind the compiled DX shaders and
+	// track "current shader" by pointer identity instead of mProgramObject
+	// (always 0 under DX_RENDER - no GL program object exists).
+	// Matrix uniforms (modelview/projection/normal/texture0) ARE wired -
+	// see LLRender::syncMatrices()'s DX_RENDER branch, called from
+	// LLVertexBuffer::drawRange()/drawArrays() same as GL. mAttributeMask-
+	// driven client-array setup (setupClientArrays()) still has no DX_RENDER
+	// equivalent, deferred to whenever a pool needing it is converted.
+	llassert_always(mDXVertexShader.getVS() != nullptr);
+
+	if (sCurBoundShaderPtr != this)
+	{
+		// S24 (2026-08-16): flush gDXUIBatch's separate pending queue before
+		// the VS/PS swap below - a still-pending UI batch drawn AFTER
+		// whatever this shader-bind is about to render would paint in the
+		// wrong order. See DXUIBatch.h's top comment.
+		gDXUIBatch.flushPending();
+		gDXDevice.getContext()->VSSetShader(mDXVertexShader.getVS(), nullptr, 0);
+		gDXDevice.getContext()->PSSetShader(mDXPixelShader.getPS(), nullptr, 0);
+		sCurBoundShaderPtr = this;
+	}
+
+	// S24 (2026-08-05): updateShaderUniforms() (env/lighting uniforms via
+	// LLEnvironment - ambient_color/blue_horizon/blue_density/haze_horizon/
+	// haze_density/cloud_shadow/density_multiplier/distance_multiplier/
+	// max_y/glow/sun_moon_glow_factor/sky_sunlight_scale/sky_ambient_scale/
+	// lightnorm/sunlight_color/moonlight_color/classic_mode, everything
+	// atmosphericsFuncs.hlsl declares) was the one piece this comment used
+	// to say "has no DX_RENDER equivalent yet" - gDeferredSoftenProgram
+	// (softenLightF.hlsl) is the first DX_RENDER shader that actually needs
+	// any of them, confirmed via a direct readback showing amblit/sunlit
+	// reading exactly zero and atten reading exactly (1,1,1) (density_
+	// multiplier's zero-initialized default collapsing exp(-0*x) to 1) at
+	// every sampled pixel - not a math bug, a "never uploaded" bug.
+	// Gated on mUniformsDirty, exactly mirroring the GL branch below,
+	// rather than calling unconditionally - mUniformsDirty defaults false
+	// (llglslshader.cpp ctor) and is only ever set true by
+	// LLEnvironment::update()'s per-frame "mark every registered shader
+	// dirty" loop, so this can never fire before LLEnvironment has actually
+	// run at least one real frame update. An earlier unconditional-call
+	// version of this fix caused an instant startup crash (before window
+	// creation) - almost certainly this exact call reached LLEnvironment::
+	// instance()/its sky/water uniform tables during early shader
+	// compilation, well before the main loop (and LLEnvironment) is up.
+	if (mUniformsDirty)
+	{
+		LLShaderMgr::instance()->updateShaderUniforms(this);
+		mUniformsDirty = false;
+	}
+#else
 	llassert_always(mProgramObject != 0);
 
 	gGL.flush();
@@ -1200,6 +1330,7 @@ void LLGLSLShader::bind()
 
 	llassert_always(sCurBoundShaderPtr != nullptr);
 	llassert_always(sCurBoundShader == mProgramObject);
+#endif // DX_RENDER
 }
 
 void LLGLSLShader::bind(U8 variant)
@@ -1225,6 +1356,34 @@ void LLGLSLShader::bind(bool rigged)
 void LLGLSLShader::unbind(void)
 {
 	LL_PROFILE_ZONE_SCOPED_CATEGORY_SHADER;
+
+#ifdef DX_RENDER
+	// S24 (DX_RENDER, 2026-07-25): the GL branch below calls gGL.flush()
+	// BEFORE clearing sCurBoundShaderPtr - this branch didn't, nulling the
+	// pointer directly. LLRender::flush() reads sCurBoundShaderPtr to
+	// determine which shader/attribute-mask a pending immediate-mode batch
+	// (gGL.begin()/vertex.../end(), not yet auto-flushed - batches under
+	// ~2048 verts don't auto-flush) belongs to; finding it null, it
+	// silently DROPS the batch (logged once, rate-limited to 5 total
+	// warnings for the whole process). Any geometry still queued at the
+	// moment ANY LLGLSLShader::unbind() call runs - not just
+	// LLViewerWindow::draw()'s own gUIProgram.unbind() at the very end of
+	// the whole UI tree, where this was found while tracing that exact
+	// call - was silently vanishing under DX_RENDER. Same missing-flush-
+	// before-state-switch bug class as this session's earlier
+	// beginTextRender()/gl_draw_scaled_rotated_image()/LLTexUnit SRV-switch
+	// fixes, just at the shader-unbind chokepoint instead - and since
+	// unbind() runs at the end of essentially every shader-bound render
+	// pass in the whole pipeline, this was a systemic, not UI-specific, gap.
+	gGL.flush();
+	// S24 (2026-08-16): also flush gDXUIBatch's separate pending queue -
+	// same missing-flush hazard as above, see DXUIBatch.h's top comment.
+	gDXUIBatch.flushPending();
+	LLVertexBuffer::unbind();
+	gDXDevice.getContext()->VSSetShader(nullptr, nullptr, 0);
+	gDXDevice.getContext()->PSSetShader(nullptr, nullptr, 0);
+	sCurBoundShaderPtr = nullptr;
+#else
 	gGL.flush();
 	LLVertexBuffer::unbind();
 
@@ -1236,6 +1395,7 @@ void LLGLSLShader::unbind(void)
 	glUseProgram(0);
 	sCurBoundShader = 0;
 	sCurBoundShaderPtr = NULL;
+#endif // DX_RENDER
 }
 
 S32 LLGLSLShader::bindTexture(const std::string& uniform, LLTexture* texture, LLTexUnit::eTextureType mode)
@@ -1252,6 +1412,26 @@ S32 LLGLSLShader::bindTexture(S32 uniform, LLTexture* texture, LLTexUnit::eTextu
 {
 	LL_PROFILE_ZONE_SCOPED_CATEGORY_SHADER;
 
+#ifdef DX_RENDER
+	// S24 (2026-08-03): mTexture[] is now populated (see createShaderDX()'s
+	// post-compile reflection pass) - mirrors the GL branch below exactly,
+	// using bindFast() (already DX-safe) as the real bind call. Was a
+	// hardcoded no-op before - the actual root cause of PBR materials
+	// showing an unrelated leftover-bound texture depending on draw order.
+	if (uniform < 0 || uniform >= (S32)mTexture.size())
+	{
+		return -1;
+	}
+
+	uniform = mTexture[uniform];
+
+	if (uniform > -1)
+	{
+		gGL.getTexUnit(uniform)->bindFast(texture);
+	}
+
+	return uniform;
+#else
 	if (uniform < 0 || uniform >= (S32)mTexture.size())
 	{
 		LL_WARNS_ONCE("Shader") << "Uniform index out of bounds. Size: " << (S32)mUniform.size() << " index: " << uniform << LL_ENDL;
@@ -1267,12 +1447,37 @@ S32 LLGLSLShader::bindTexture(S32 uniform, LLTexture* texture, LLTexUnit::eTextu
 	}
 
 	return uniform;
+#endif // DX_RENDER
 }
 
 S32 LLGLSLShader::bindTexture(S32 uniform, LLRenderTarget* texture, bool depth, LLTexUnit::eTextureFilterOptions mode, U32 index)
 {
 	LL_PROFILE_ZONE_SCOPED_CATEGORY_SHADER;
 
+#ifdef DX_RENDER
+	// S24 (2026-08-04): was a hardcoded no-op (same shape as the old
+	// bindTexture(S32, LLTexture*, ...)/enableTexture() gap fixed in stage
+	// 8 part 4) - mTexture[] reflection (via getTextureChannel(), already
+	// DX-safe) + LLTexUnit::bind(LLRenderTarget*, bool) (already DX-safe,
+	// task #62) are exactly what's needed, no new machinery. Found while
+	// converting LLDrawPoolWater (task #109) - its WATER_SCREENTEX/
+	// WATER_EXCLUSIONTEX binds both go through this exact overload, so
+	// water's screen-reflection and exclusion-mask textures would
+	// otherwise silently never bind. `index` (multi-attachment selection)
+	// and `mode` (filter option) aren't threaded through
+	// LLTexUnit::bind(LLRenderTarget*, bool) yet - it always binds
+	// attachment 0 with a fixed CLAMP+BILINEAR sampler (matches the
+	// screen-space-sampling convention already used everywhere else this
+	// session) - irrelevant for water's two single-attachment targets,
+	// a documented simplification if a future multi-attachment caller
+	// ever needs it.
+	S32 channel = getTextureChannel(uniform);
+	if (channel > -1)
+	{
+		gGL.getTexUnit(channel)->bind(texture, depth);
+	}
+	return channel;
+#else
 	if (uniform < 0 || uniform >= (S32)mTexture.size())
 	{
 		LL_WARNS_ONCE("Shader") << "Uniform index out of bounds. Size: " << (S32)mUniform.size() << " index: " << uniform << LL_ENDL;
@@ -1296,6 +1501,7 @@ S32 LLGLSLShader::bindTexture(S32 uniform, LLRenderTarget* texture, bool depth, 
 	}
 
 	return uniform;
+#endif // DX_RENDER
 }
 
 S32 LLGLSLShader::bindTexture(const std::string& uniform, LLRenderTarget* texture, bool depth, LLTexUnit::eTextureFilterOptions mode)
@@ -1322,6 +1528,23 @@ S32 LLGLSLShader::unbindTexture(S32 uniform, LLTexUnit::eTextureType mode)
 {
 	LL_PROFILE_ZONE_SCOPED_CATEGORY_SHADER;
 
+#ifdef DX_RENDER
+	// S24 (2026-08-03): mTexture[] is now populated - see bindTexture(S32,
+	// LLTexture*, ...)'s comment.
+	if (uniform < 0 || uniform >= (S32)mTexture.size())
+	{
+		return -1;
+	}
+
+	uniform = mTexture[uniform];
+
+	if (uniform > -1)
+	{
+		gGL.getTexUnit(uniform)->unbindFast(mode);
+	}
+
+	return uniform;
+#else
 	if (uniform < 0 || uniform >= (S32)mTexture.size())
 	{
 		LL_WARNS_ONCE("Shader") << "Uniform index out of bounds. Size: " << (S32)mUniform.size() << " index: " << uniform << LL_ENDL;
@@ -1337,17 +1560,48 @@ S32 LLGLSLShader::unbindTexture(S32 uniform, LLTexUnit::eTextureType mode)
 	}
 
 	return uniform;
+#endif // DX_RENDER
 }
 
 S32 LLGLSLShader::getTextureChannel(S32 uniform) const
 {
+#ifdef DX_RENDER
+	// S24 (2026-08-03): mTexture[] is now populated - see bindTexture(S32,
+	// LLTexture*, ...)'s comment. Bounds-checked (unlike the GL branch)
+	// since this is a const accessor with no established assert-on-misuse
+	// convention of its own.
+	if (uniform < 0 || uniform >= (S32)mTexture.size())
+	{
+		return -1;
+	}
 	return mTexture[uniform];
+#else
+	return mTexture[uniform];
+#endif // DX_RENDER
 }
 
 S32 LLGLSLShader::enableTexture(S32 uniform, LLTexUnit::eTextureType mode)
 {
 	LL_PROFILE_ZONE_SCOPED_CATEGORY_SHADER;
 
+#ifdef DX_RENDER
+	// S24 (2026-08-03): mTexture[] is now populated - see bindTexture(S32,
+	// LLTexture*, ...)'s comment. activate()/enable() are already
+	// documented no-ops under DX_RENDER (texture binding goes through
+	// bindFast() instead), so this just returns the resolved channel index.
+	if (uniform < 0 || uniform >= (S32)mTexture.size())
+	{
+		return -1;
+	}
+
+	S32 index = mTexture[uniform];
+	if (index != -1)
+	{
+		gGL.getTexUnit(index)->activate();
+		gGL.getTexUnit(index)->enable(mode);
+	}
+	return index;
+#else
 	if (uniform < 0 || uniform >= (S32)mTexture.size())
 	{
 		LL_WARNS_ONCE("Shader") << "Uniform index out of bounds. Size: " << (S32)mUniform.size() << " index: " << uniform << LL_ENDL;
@@ -1362,12 +1616,54 @@ S32 LLGLSLShader::enableTexture(S32 uniform, LLTexUnit::eTextureType mode)
 		gGL.getTexUnit(index)->enable(mode);
 	}
 	return index;
+#endif // DX_RENDER
 }
 
 S32 LLGLSLShader::disableTexture(S32 uniform, LLTexUnit::eTextureType mode)
 {
 	LL_PROFILE_ZONE_SCOPED_CATEGORY_SHADER;
 
+#ifdef DX_RENDER
+	// S24 (2026-08-03): mTexture[] is now populated - see bindTexture(S32,
+	// LLTexture*, ...)'s comment. mCurrTexType stays TT_NONE forever under
+	// DX_RENDER (enable()'s DX_RENDER branch never sets it - see its own
+	// comment), so the curr_type-gated disable()/debug-validation block
+	// below is simply never reached here - harmless, just resolves and
+	// returns the channel index like every other fixed accessor above.
+	if (uniform < 0 || uniform >= (S32)mTexture.size())
+	{
+		return -1;
+	}
+
+	S32 index = mTexture[uniform];
+	if (index < 0)
+	{
+		return index;
+	}
+
+	LLTexUnit* tex_unit = gGL.getTexUnit(index);
+	if (!tex_unit)
+	{
+		return index;
+	}
+
+	// S24 (2026-08-10, task #158): mCurrTexType never leaves TT_NONE under
+	// DX_RENDER (enable()'s DX_RENDER branch never sets it - see its own
+	// comment), so this gate always evaluated false, meaning
+	// tex_unit->disable() was never actually called from here - even though
+	// LLTexUnit::disable() itself was already fixed (see its own comment) to
+	// bypass this exact stale-bookkeeping trap by unconditionally calling
+	// unbind(). This function had its own unfixed copy of the same gate one
+	// level up, silently blocking every call. Confirmed root cause of the
+	// "Forcing PS shader resource slot N to NULL" D3D11 debug-layer warnings
+	// (thousands/session, e.g. "Deferred Soften Shader" slot 7/lightMap) -
+	// every disableTexture() call was leaving its SRV bound at the GPU level
+	// indefinitely, relying entirely on D3D11's automatic OM/SRV hazard
+	// resolution (and its warning spam) to ever clear it, one frame late.
+	tex_unit->disable();
+
+	return index;
+#else
 	if (uniform < 0 || uniform >= (S32)mTexture.size())
 	{
 		LL_WARNS_ONCE("Shader") << "Uniform index out of bounds. Size: " << (S32)mUniform.size() << " index: " << uniform << LL_ENDL;
@@ -1409,12 +1705,42 @@ S32 LLGLSLShader::disableTexture(S32 uniform, LLTexUnit::eTextureType mode)
 	}
 
 	return index;
+#endif // DX_RENDER
 }
 
 void LLGLSLShader::uniform1i(U32 index, GLint x)
 {
 	LL_PROFILE_ZONE_SCOPED_CATEGORY_SHADER;
 	llassert(sCurBoundShaderPtr == this);
+
+#ifdef DX_RENDER
+	// S24 (2026-08-05): mirrors uniform4f(U32,...)'s DX_RENDER branch - real
+	// caller found this session: LLShaderUniforms::apply()'s mIntegers loop
+	// (LLEnvironment::updateShaderUniforms(), now wired into
+	// LLGLSLShader::bind() for DX_RENDER too - see that function's comment)
+	// pushes int uniforms (e.g. classic_mode) through exactly this
+	// overload. Previously a silent no-op (mProgramObject always 0 here).
+	// Reinterprets the int's own bits through a float* rather than
+	// converting the VALUE to float - setUniformFloatArray() is a raw
+	// memcpy into the constant buffer, and HLSL's cbuffer packs `int` as a
+	// plain 4-byte int32; writing the float-converted bit pattern instead
+	// (e.g. int 1 -> float 1.0f -> bits 0x3F800000) would corrupt any
+	// shader reading this slot as int.
+	if (index < LLShaderMgr::instance()->mReservedUniforms.size())
+	{
+		const std::string& name = LLShaderMgr::instance()->mReservedUniforms[index];
+		const float* v = reinterpret_cast<const float*>(&x);
+		// S24 (2026-08-09, task #149): was "try VS, only try PS if VS
+		// failed" - see uniform1f(U32,...)'s comment just below for the
+		// real bug this caused (a uniform declared in BOTH stages, e.g.
+		// cloud_scale, only ever reached whichever stage was tried first).
+		// Both calls are safe unconditionally - setUniformFloatArray()
+		// just returns false with zero side effects when the named
+		// constant isn't declared in that stage (DXShader.cpp).
+		mDXVertexShader.setUniformFloatArray(name, v, 1);
+		mDXPixelShader.setUniformFloatArray(name, v, 1);
+	}
+#else
 	if (mProgramObject)
 	{
 		if (mUniform.size() <= index)
@@ -1434,6 +1760,7 @@ void LLGLSLShader::uniform1i(U32 index, GLint x)
 			}
 		}
 	}
+#endif // DX_RENDER
 }
 
 void LLGLSLShader::uniform1f(U32 index, GLfloat x)
@@ -1441,6 +1768,39 @@ void LLGLSLShader::uniform1f(U32 index, GLfloat x)
 	LL_PROFILE_ZONE_SCOPED_CATEGORY_SHADER;
 	llassert(sCurBoundShaderPtr == this);
 
+#ifdef DX_RENDER
+	// S24 (2026-08-05): mirrors uniform4f(U32,...)'s DX_RENDER branch - real
+	// caller found this session: LLShaderUniforms::apply()'s mFloats loop
+	// (density_multiplier/haze_density/cloud_shadow and other scalar
+	// windlight uniforms) pushes through exactly this overload. Previously
+	// a silent no-op (mProgramObject always 0 here) - confirmed via a
+	// direct C++ readback showing atten reading exactly (1,1,1) (density_
+	// multiplier's zero default collapsing exp(-0*x) to 1) at every pixel.
+	//
+	// S24 (2026-08-09, task #149): real root cause of "no clouds at all" -
+	// cloud_scale is declared in BOTH cloudsV.hlsl (UV scaling) and
+	// cloudsF.hlsl (the "if (cloud_scale < 0.001) discard;" gate). The
+	// exclusive "try VS, only try PS if VS failed" pattern below meant
+	// cloud_scale only ever reached the vertex shader (tried first,
+	// always succeeds since it's declared there) - the pixel shader's own
+	// separate copy stayed at its zero-initialized constant-buffer
+	// default, so the discard fired on literally every pixel, every
+	// frame. Fixed by setting BOTH stages unconditionally - safe, since
+	// setUniformFloatArray() just returns false with no side effects when
+	// a stage doesn't declare the named constant (DXShader.cpp). This same
+	// exclusive pattern existed in 9 other uniform-setter overloads in
+	// this file (uniform1i/2f/3f/4f, the *fv(count) array variants,
+	// uniformMatrix3fv/4fv) - all fixed the same way alongside this one,
+	// since any of them could be silently dropping a legitimately
+	// dual-stage uniform the same way.
+	if (index < LLShaderMgr::instance()->mReservedUniforms.size())
+	{
+		const std::string& name = LLShaderMgr::instance()->mReservedUniforms[index];
+		const float v[1] = { x };
+		mDXVertexShader.setUniformFloatArray(name, v, 1);
+		mDXPixelShader.setUniformFloatArray(name, v, 1);
+	}
+#else
 	if (mProgramObject)
 	{
 		if (mUniform.size() <= index)
@@ -1460,6 +1820,7 @@ void LLGLSLShader::uniform1f(U32 index, GLfloat x)
 			}
 		}
 	}
+#endif // DX_RENDER
 }
 
 void LLGLSLShader::fastUniform1f(U32 index, GLfloat x)
@@ -1477,6 +1838,27 @@ void LLGLSLShader::uniform2f(U32 index, GLfloat x, GLfloat y)
 	LL_PROFILE_ZONE_SCOPED_CATEGORY_SHADER;
 	llassert(sCurBoundShaderPtr == this);
 
+#ifdef DX_RENDER
+	// S24 (2026-08-09, task #138): mirrors uniform1f/uniform4f(U32,...)'s
+	// DX_RENDER branches - was a silent no-op here (mProgramObject always 0
+	// under DX_RENDER, so the old unconditional `if (mProgramObject)` guard
+	// skipped the whole body), same bug class, just never audited for this
+	// specific overload until glow's GLOW_DELTA (blur-kernel offset) and
+	// DEFERRED_SCREEN_RES calls were traced through it. mReservedUniforms is
+	// the same plain backend-agnostic name table used by every other fixed
+	// overload - index->name resolution works identically here.
+	if (index < LLShaderMgr::instance()->mReservedUniforms.size())
+	{
+		const std::string& name = LLShaderMgr::instance()->mReservedUniforms[index];
+		const float v[2] = { x, y };
+		// S24 (2026-08-09, task #149): both stages unconditionally now -
+		// see uniform1f(U32,...)'s comment for the real bug this exclusive
+		// "try VS, else PS" pattern caused (cloud_scale, declared in both
+		// stages, silently never reached the pixel shader).
+		mDXVertexShader.setUniformFloatArray(name, v, 2);
+		mDXPixelShader.setUniformFloatArray(name, v, 2);
+	}
+#else
 	if (mProgramObject)
 	{
 		if (mUniform.size() <= index)
@@ -1497,6 +1879,7 @@ void LLGLSLShader::uniform2f(U32 index, GLfloat x, GLfloat y)
 			}
 		}
 	}
+#endif // DX_RENDER
 }
 
 void LLGLSLShader::uniform3f(U32 index, GLfloat x, GLfloat y, GLfloat z)
@@ -1504,6 +1887,21 @@ void LLGLSLShader::uniform3f(U32 index, GLfloat x, GLfloat y, GLfloat z)
 	LL_PROFILE_ZONE_SCOPED_CATEGORY_SHADER;
 	llassert(sCurBoundShaderPtr == this);
 
+#ifdef DX_RENDER
+	// S24 (2026-08-09, task #138): see uniform2f(U32,...)'s comment just
+	// above - same fix, same reasoning. Real callers found this session:
+	// glowExtractF.hlsl's lumWeights/warmthWeights (GLOW_LUM_WEIGHTS/
+	// GLOW_WARMTH_WEIGHTS).
+	if (index < LLShaderMgr::instance()->mReservedUniforms.size())
+	{
+		const std::string& name = LLShaderMgr::instance()->mReservedUniforms[index];
+		const float v[3] = { x, y, z };
+		// S24 (2026-08-09, task #149): both stages unconditionally now -
+		// see uniform1f(U32,...)'s comment.
+		mDXVertexShader.setUniformFloatArray(name, v, 3);
+		mDXPixelShader.setUniformFloatArray(name, v, 3);
+	}
+#else
 	if (mProgramObject)
 	{
 		if (mUniform.size() <= index)
@@ -1524,6 +1922,7 @@ void LLGLSLShader::uniform3f(U32 index, GLfloat x, GLfloat y, GLfloat z)
 			}
 		}
 	}
+#endif // DX_RENDER
 }
 
 void LLGLSLShader::uniform4f(U32 index, GLfloat x, GLfloat y, GLfloat z, GLfloat w)
@@ -1531,6 +1930,29 @@ void LLGLSLShader::uniform4f(U32 index, GLfloat x, GLfloat y, GLfloat z, GLfloat
 	LL_PROFILE_ZONE_SCOPED_CATEGORY_SHADER;
 	llassert(sCurBoundShaderPtr == this);
 
+#ifdef DX_RENDER
+	// S24 (DXUIBatch plan, phase 3): mirrors uniform4fv(U32,...)'s DX_RENDER
+	// branch above - same reasoning (mReservedUniforms is a plain
+	// backend-agnostic name table, works identically here). Real caller
+	// found this session: LLRender::diffuseColor4ub()/diffuseColor4ubv()
+	// push LLShaderMgr::DIFFUSE_COLOR through this exact function whenever
+	// the currently-bound shader has no per-vertex COLOR0 (gSolidColorProgram/
+	// solidcolorF.hlsl's "uniform vec4 color" - the mechanism solid-color
+	// 2D UI fills use instead of vertex color). Previously silently did
+	// nothing under DX_RENDER (mProgramObject is always 0 here, so the old
+	// unconditional `if (mProgramObject)` guard skipped the whole body) -
+	// solid-color fills would have rendered with whatever the constant
+	// buffer's default/uninitialized contents were, not a chosen color.
+	if (index < LLShaderMgr::instance()->mReservedUniforms.size())
+	{
+		const std::string& name = LLShaderMgr::instance()->mReservedUniforms[index];
+		const F32 v[4] = { x, y, z, w };
+		// S24 (2026-08-09, task #149): both stages unconditionally now -
+		// see uniform1f(U32,...)'s comment.
+		mDXVertexShader.setUniformFloatArray(name, v, 4);
+		mDXPixelShader.setUniformFloatArray(name, v, 4);
+	}
+#else
 	if (mProgramObject)
 	{
 		if (mUniform.size() <= index)
@@ -1551,6 +1973,7 @@ void LLGLSLShader::uniform4f(U32 index, GLfloat x, GLfloat y, GLfloat z, GLfloat
 			}
 		}
 	}
+#endif // DX_RENDER
 }
 
 void LLGLSLShader::uniform1iv(U32 index, U32 count, const GLint* v)
@@ -1612,6 +2035,22 @@ void LLGLSLShader::uniform1fv(U32 index, U32 count, const GLfloat* v)
 	LL_PROFILE_ZONE_SCOPED_CATEGORY_SHADER;
 	llassert(sCurBoundShaderPtr == this);
 
+#ifdef DX_RENDER
+	// S24 (2026-08-03): had NO DX_RENDER branch at all (unlike uniform4f()/
+	// uniform4fv(), fixed earlier) - a complete silent no-op, since the GL
+	// body below is gated entirely on `if (mProgramObject)`, always 0 under
+	// DX_RENDER. Uses setUniformPaddedArray() (component_count=1) rather
+	// than a raw memcpy - HLSL pads every array element, even a plain
+	// "float x[N]", to its own 16-byte slot.
+	if (index < LLShaderMgr::instance()->mReservedUniforms.size())
+	{
+		const std::string& name = LLShaderMgr::instance()->mReservedUniforms[index];
+		// S24 (2026-08-09, task #149): both stages unconditionally now -
+		// see uniform1f(U32,...)'s comment.
+		mDXVertexShader.setUniformPaddedArray(name, v, 1, count);
+		mDXPixelShader.setUniformPaddedArray(name, v, 1, count);
+	}
+#else
 	if (mProgramObject)
 	{
 		if (mUniform.size() <= index)
@@ -1632,6 +2071,7 @@ void LLGLSLShader::uniform1fv(U32 index, U32 count, const GLfloat* v)
 			}
 		}
 	}
+#endif // DX_RENDER
 }
 
 void LLGLSLShader::uniform2fv(U32 index, U32 count, const GLfloat* v)
@@ -1639,6 +2079,17 @@ void LLGLSLShader::uniform2fv(U32 index, U32 count, const GLfloat* v)
 	LL_PROFILE_ZONE_SCOPED_CATEGORY_SHADER;
 	llassert(sCurBoundShaderPtr == this);
 
+#ifdef DX_RENDER
+	// Mirrors uniform1fv()'s DX_RENDER branch above (component_count=2).
+	if (index < LLShaderMgr::instance()->mReservedUniforms.size())
+	{
+		const std::string& name = LLShaderMgr::instance()->mReservedUniforms[index];
+		// S24 (2026-08-09, task #149): both stages unconditionally now -
+		// see uniform1f(U32,...)'s comment.
+		mDXVertexShader.setUniformPaddedArray(name, v, 2, count);
+		mDXPixelShader.setUniformPaddedArray(name, v, 2, count);
+	}
+#else
 	if (mProgramObject)
 	{
 		if (mUniform.size() <= index)
@@ -1659,6 +2110,7 @@ void LLGLSLShader::uniform2fv(U32 index, U32 count, const GLfloat* v)
 			}
 		}
 	}
+#endif // DX_RENDER
 }
 
 void LLGLSLShader::uniform3fv(U32 index, U32 count, const GLfloat* v)
@@ -1666,6 +2118,20 @@ void LLGLSLShader::uniform3fv(U32 index, U32 count, const GLfloat* v)
 	LL_PROFILE_ZONE_SCOPED_CATEGORY_SHADER;
 	llassert(sCurBoundShaderPtr == this);
 
+#ifdef DX_RENDER
+	// Mirrors uniform1fv()'s DX_RENDER branch above (component_count=3) -
+	// real confirmed caller: LLDrawPoolTerrain's TERRAIN_EMISSIVE_COLORS
+	// upload ("uniform float3 emissiveColors[4]" in pbrterrainF.hlsl),
+	// which was silently never uploading under DX_RENDER before this fix.
+	if (index < LLShaderMgr::instance()->mReservedUniforms.size())
+	{
+		const std::string& name = LLShaderMgr::instance()->mReservedUniforms[index];
+		// S24 (2026-08-09, task #149): both stages unconditionally now -
+		// see uniform1f(U32,...)'s comment.
+		mDXVertexShader.setUniformPaddedArray(name, v, 3, count);
+		mDXPixelShader.setUniformPaddedArray(name, v, 3, count);
+	}
+#else
 	if (mProgramObject)
 	{
 		if (mUniform.size() <= index)
@@ -1686,6 +2152,7 @@ void LLGLSLShader::uniform3fv(U32 index, U32 count, const GLfloat* v)
 			}
 		}
 	}
+#endif // DX_RENDER
 }
 
 void LLGLSLShader::uniform4fv(U32 index, U32 count, const GLfloat* v)
@@ -1693,6 +2160,25 @@ void LLGLSLShader::uniform4fv(U32 index, U32 count, const GLfloat* v)
 	LL_PROFILE_ZONE_SCOPED_CATEGORY_SHADER;
 	llassert(sCurBoundShaderPtr == this);
 
+#ifdef DX_RENDER
+	// Only real caller today: LLViewerJointMesh::uploadJointMatrices()'s
+	// hardware-skinning path, pushing the avatar body's 45-float4 joint
+	// palette ("matrixPalette", AVATAR_MATRIX) - a plain top-level HLSL
+	// uniform, unlike per-vertex inputs (see injectSkinningInputs()), so no
+	// VSInput-injection trick is needed here, just the reflected $Globals
+	// constant this shader already declares. mReservedUniforms is a plain
+	// backend-agnostic name table (populated once at startup, independent of
+	// mProgramObject/GL), so index->name resolution works identically under
+	// DX_RENDER.
+	if (index < LLShaderMgr::instance()->mReservedUniforms.size())
+	{
+		const std::string& name = LLShaderMgr::instance()->mReservedUniforms[index];
+		// S24 (2026-08-09, task #149): both stages unconditionally now -
+		// see uniform1f(U32,...)'s comment.
+		mDXVertexShader.setUniformFloatArray(name, v, (size_t)count * 4);
+		mDXPixelShader.setUniformFloatArray(name, v, (size_t)count * 4);
+	}
+#else
 	if (mProgramObject)
 	{
 		if (mUniform.size() <= index)
@@ -1714,6 +2200,7 @@ void LLGLSLShader::uniform4fv(U32 index, U32 count, const GLfloat* v)
 			}
 		}
 	}
+#endif // DX_RENDER
 }
 
 void LLGLSLShader::uniform4uiv(U32 index, U32 count, const GLuint* v)
@@ -1770,6 +2257,85 @@ void LLGLSLShader::uniformMatrix3fv(U32 index, U32 count, GLboolean transpose, c
 	LL_PROFILE_ZONE_SCOPED_CATEGORY_SHADER;
 	llassert(sCurBoundShaderPtr == this);
 
+#ifdef DX_RENDER
+	// S24 (2026-08-09, task #146): was a complete no-op under DX_RENDER
+	// (mProgramObject is always 0 here) - same silent-no-op bug class
+	// already fixed for uniform1f/2f/3f/4f earlier this session, just
+	// never hit for a matrix uniform until now. Confirmed root cause of a
+	// real, reported bug: DEFERRED_ENV_MAT (the 3x3 rotation that orients
+	// reflection-probe lookups into environment-map space,
+	// pipeline.cpp's bindDeferredShader()/setupSpotLight()) never reached
+	// the GPU - env_vec = mul(env_mat, reflect(...)) read a stale/zero
+	// matrix, producing a reflection that "rolled like it was rendered
+	// onto a sphere" and only coincidentally lined up at specific camera
+	// angles. Worst on water's mirror-like surface, but this is a shared
+	// chokepoint - affects every reflection-probe consumer (bump/shiny
+	// materials, sky).
+	//
+	// S24 (2026-08-10, task #146 follow-up): count > 1 - no known 3x3 array
+	// caller today (unlike uniformMatrix4fv's DEFERRED_SHADOW_MATRIX), but
+	// this is the same bug class/same fix shape - handled for real
+	// completeness rather than leaving a matching silent-no-op trap for
+	// whatever future caller hits it. See uniformMatrix4fv(U32,...)'s own
+	// count>1 branch for the full root-cause writeup (shadow cascades).
+	if (count == 1 && index < LLShaderMgr::instance()->mReservedUniforms.size())
+	{
+		const std::string& name = LLShaderMgr::instance()->mReservedUniforms[index];
+		float m[9];
+		if (transpose)
+		{
+			// GL's transpose=true means v is supplied row-major (GL
+			// transposes it into column-major internally before upload).
+			// DXShader::setUniformMatrix3() expects data already in
+			// column-major order with no further conversion - do the same
+			// row-major -> column-major transpose here instead.
+			for (int r = 0; r < 3; ++r)
+			{
+				for (int c = 0; c < 3; ++c)
+				{
+					m[c * 3 + r] = v[r * 3 + c];
+				}
+			}
+		}
+		else
+		{
+			memcpy(m, v, sizeof(m));
+		}
+
+		// S24 (2026-08-09, task #149): both stages unconditionally now -
+		// see uniform1f(U32,...)'s comment for the real bug this exclusive
+		// "try VS, else PS" pattern caused elsewhere (cloud_scale).
+		mDXVertexShader.setUniformMatrix3(name, m);
+		mDXPixelShader.setUniformMatrix3(name, m);
+	}
+	else if (count > 1 && index < LLShaderMgr::instance()->mReservedUniforms.size())
+	{
+		const std::string& name = LLShaderMgr::instance()->mReservedUniforms[index];
+		std::vector<float> m(static_cast<size_t>(count) * 9);
+		if (transpose)
+		{
+			for (U32 i = 0; i < count; ++i)
+			{
+				const GLfloat* src = v + (size_t)i * 9;
+				float* dst = m.data() + (size_t)i * 9;
+				for (int r = 0; r < 3; ++r)
+				{
+					for (int c = 0; c < 3; ++c)
+					{
+						dst[c * 3 + r] = src[r * 3 + c];
+					}
+				}
+			}
+		}
+		else
+		{
+			memcpy(m.data(), v, m.size() * sizeof(float));
+		}
+
+		mDXVertexShader.setUniformFloatArray(name, m.data(), m.size());
+		mDXPixelShader.setUniformFloatArray(name, m.data(), m.size());
+	}
+#else
 	if (mProgramObject)
 	{
 		if (mUniform.size() <= index)
@@ -1784,6 +2350,7 @@ void LLGLSLShader::uniformMatrix3fv(U32 index, U32 count, GLboolean transpose, c
 			glUniformMatrix3fv(mUniform[index], count, transpose, v);
 		}
 	}
+#endif
 }
 
 void LLGLSLShader::uniformMatrix3x4fv(U32 index, U32 count, GLboolean transpose, const GLfloat* v)
@@ -1791,6 +2358,35 @@ void LLGLSLShader::uniformMatrix3x4fv(U32 index, U32 count, GLboolean transpose,
 	LL_PROFILE_ZONE_SCOPED_CATEGORY_SHADER;
 	llassert(sCurBoundShaderPtr == this);
 
+#ifdef DX_RENDER
+	// S24 (2026-08-09, task #157): was a complete no-op - the ONLY caller
+	// is LLRenderPass::uploadMatrixPalette() (lldrawpool.cpp), the rigged-
+	// mesh skinning matrix palette ("matrixPalette", AVATAR_MATRIX,
+	// objectSkinV.hlsl) used by every mesh attachment - mesh bodies,
+	// clothing, hair, everything modern SL avatars actually wear (the
+	// classic system-avatar-body path is a DIFFERENT uniform/shader,
+	// avatarSkinV.hlsl's flat float4[45], already fixed via uniform4fv).
+	// With matrixPalette never uploaded, every skinned vertex multiplied
+	// by a zero-initialized joint matrix - collapsing every rigged mesh to
+	// a single degenerate point, i.e. invisible. objectSkinV.hlsl's
+	// matrixPalette was changed to `row_major float3x4` (see that file's
+	// own comment) specifically so this can be a straight contiguous copy
+	// with no repacking: real callers only ever pass transpose=false, and
+	// GL's own default (column-major) mat3x4 layout is byte-identical to
+	// HLSL's row_major float3x4 layout here (both end up storing the
+	// affine matrix as 3 registers of 4 floats - one per row - despite
+	// GLSL's mat3x4 and HLSL's float3x4 naming the transposed shape of
+	// each other). transpose=true is not handled - no real caller uses it.
+	if (index < LLShaderMgr::instance()->mReservedUniforms.size())
+	{
+		if (!transpose)
+		{
+			const std::string& name = LLShaderMgr::instance()->mReservedUniforms[index];
+			mDXVertexShader.setUniformFloatArray(name, v, (size_t)count * 12);
+			mDXPixelShader.setUniformFloatArray(name, v, (size_t)count * 12);
+		}
+	}
+#else
 	if (mProgramObject)
 	{
 		if (mUniform.size() <= index)
@@ -1805,6 +2401,7 @@ void LLGLSLShader::uniformMatrix3x4fv(U32 index, U32 count, GLboolean transpose,
 			glUniformMatrix3x4fv(mUniform[index], count, transpose, v);
 		}
 	}
+#endif
 }
 
 void LLGLSLShader::uniformMatrix4fv(U32 index, U32 count, GLboolean transpose, const GLfloat* v)
@@ -1812,6 +2409,88 @@ void LLGLSLShader::uniformMatrix4fv(U32 index, U32 count, GLboolean transpose, c
 	LL_PROFILE_ZONE_SCOPED_CATEGORY_SHADER;
 	llassert(sCurBoundShaderPtr == this);
 
+#ifdef DX_RENDER
+	// S24 (2026-08-09, task #146): mirrors uniformMatrix3fv(U32,...)'s
+	// DX_RENDER fix (see its own comment) - was a complete no-op here too.
+	// Real callers found via this index-based overload: MODELVIEW_MATRIX
+	// (reflection-probe capture view), MODELVIEW_DELTA_MATRIX/
+	// INVERSE_MODELVIEW_DELTA_MATRIX (motion vectors), DEFERRED_NORM_MATRIX,
+	// PROJECTOR_MATRIX (setupSpotLight() - task #144's spotlight work
+	// depends on this reaching the GPU).
+	//
+	// S24 (2026-08-10, task #146 follow-up): count > 1 - real caller found
+	// once the shadow pass actually started running under DX_RENDER this
+	// session: pipeline.cpp's bindDeferredShader() uploads
+	// DEFERRED_SHADOW_MATRIX (shadowUtil.hlsl's shadow_matrix[6], 4 sun
+	// cascades + 2 spot lights) via a single count=6 call. Silently no-op'd
+	// before this fix - shadow_matrix[] never reached the GPU at all, so
+	// sampleDirectionalShadow()/sampleSpotShadow() sampled whatever stale
+	// data happened to already be in that constant-buffer slot: a real,
+	// confirmed root cause (not guessed - proven via a live readback showing
+	// spatially-incoherent-but-numerically-real shadow values, then traced
+	// here) of shadows appearing as a "grainy," camera-relative artifact
+	// with no real correlation to current geometry or sun angle. Single
+	// matrix (count==1) keeps the original zero-allocation stack-array path
+	// untouched below; count>1 builds a flat count*16 buffer (same per-
+	// matrix transpose conversion as the single-matrix case, applied once
+	// per matrix - transpose is a per-matrix operation, not a whole-array
+	// one) and uploads it via setUniformFloatArray(), mirroring
+	// uniformMatrix3x4fv(U32,...)'s (task #157) already-working array-
+	// upload shape.
+	if (count == 1 && index < LLShaderMgr::instance()->mReservedUniforms.size())
+	{
+		const std::string& name = LLShaderMgr::instance()->mReservedUniforms[index];
+		float m[16];
+		if (transpose)
+		{
+			// See uniformMatrix3fv(U32,...)'s comment - same row-major ->
+			// column-major conversion, just 4x4 instead of 3x3.
+			for (int r = 0; r < 4; ++r)
+			{
+				for (int c = 0; c < 4; ++c)
+				{
+					m[c * 4 + r] = v[r * 4 + c];
+				}
+			}
+		}
+		else
+		{
+			memcpy(m, v, sizeof(m));
+		}
+
+		// S24 (2026-08-09, task #149): both stages unconditionally now -
+		// see uniformMatrix3fv(U32,...)'s comment just above.
+		mDXVertexShader.setUniformMatrix4(name, m);
+		mDXPixelShader.setUniformMatrix4(name, m);
+	}
+	else if (count > 1 && index < LLShaderMgr::instance()->mReservedUniforms.size())
+	{
+		const std::string& name = LLShaderMgr::instance()->mReservedUniforms[index];
+		std::vector<float> m(static_cast<size_t>(count) * 16);
+		if (transpose)
+		{
+			for (U32 i = 0; i < count; ++i)
+			{
+				const GLfloat* src = v + (size_t)i * 16;
+				float* dst = m.data() + (size_t)i * 16;
+				for (int r = 0; r < 4; ++r)
+				{
+					for (int c = 0; c < 4; ++c)
+					{
+						dst[c * 4 + r] = src[r * 4 + c];
+					}
+				}
+			}
+		}
+		else
+		{
+			memcpy(m.data(), v, m.size() * sizeof(float));
+		}
+
+		mDXVertexShader.setUniformFloatArray(name, m.data(), m.size());
+		mDXPixelShader.setUniformFloatArray(name, m.data(), m.size());
+	}
+#else
 	if (mProgramObject)
 	{
 		if (mUniform.size() <= index)
@@ -1826,6 +2505,7 @@ void LLGLSLShader::uniformMatrix4fv(U32 index, U32 count, GLboolean transpose, c
 			glUniformMatrix4fv(mUniform[index], count, transpose, v);
 		}
 	}
+#endif
 }
 
 GLint LLGLSLShader::getUniformLocation(const LLStaticHashedString& uniform)
@@ -1889,6 +2569,25 @@ GLint LLGLSLShader::getAttribLocation(U32 attrib)
 void LLGLSLShader::uniform1i(const LLStaticHashedString& uniform, GLint v)
 {
 	LL_PROFILE_ZONE_SCOPED_CATEGORY_SHADER;
+
+#ifdef DX_RENDER
+	// S24 (2026-08-09, task #147b/#153): this whole LLStaticHashedString-
+	// keyed overload family (14 total, see task #153) had zero DX_RENDER
+	// handling - getUniformLocation(LLStaticHashedString) always returns
+	// -1 (mProgramObject==0), so this was a SAFE no-op, not a crash, but
+	// silently dropped every value. Found chasing #147b's setUniforms()
+	// (probes_enabled/probe_intensity/etc never reaching the shader would
+	// have made reflections read as disabled/zero). Both stages
+	// unconditionally, not exclusive if/else - see uniform1f(U32,...)'s
+	// own comment (llglslshader.cpp) for why. Reinterprets the int's bits
+	// through a float* rather than converting the value, matching
+	// uniform1i(U32,...)'s same reasoning (HLSL cbuffers pack int as raw
+	// int32, not GLSL-style implicit float conversion).
+	const std::string& name = uniform.String();
+	const float* fv = reinterpret_cast<const float*>(&v);
+	mDXVertexShader.setUniformFloatArray(name, fv, 1);
+	mDXPixelShader.setUniformFloatArray(name, fv, 1);
+#else
 	GLint location = getUniformLocation(uniform);
 
 	if (location >= 0)
@@ -1901,11 +2600,26 @@ void LLGLSLShader::uniform1i(const LLStaticHashedString& uniform, GLint v)
 			mValue[location] = vec;
 		}
 	}
+#endif
 }
 
 void LLGLSLShader::uniform1iv(const LLStaticHashedString& uniform, U32 count, const GLint* v)
 {
 	LL_PROFILE_ZONE_SCOPED_CATEGORY_SHADER;
+
+#ifdef DX_RENDER
+	// S24 (2026-08-09, task #153): see uniform1i(LLStaticHashedString,...)'s
+	// comment - same gap, same fix. Int/float share the same 4-byte width
+	// in the constant buffer, so a raw bit-reinterpretation (not a value
+	// conversion) is correct here, matching uniform1i's own reasoning.
+	// setUniformPaddedArray (not setUniformFloatArray) since HLSL pads
+	// every array element ("int x[N]") to its own 16-byte slot, same as
+	// the float array overloads.
+	const std::string& name = uniform.String();
+	const float* fv = reinterpret_cast<const float*>(v);
+	mDXVertexShader.setUniformPaddedArray(name, fv, 1, count);
+	mDXPixelShader.setUniformPaddedArray(name, fv, 1, count);
+#else
 	GLint location = getUniformLocation(uniform);
 
 	if (location >= 0)
@@ -1919,11 +2633,23 @@ void LLGLSLShader::uniform1iv(const LLStaticHashedString& uniform, U32 count, co
 			mValue[location] = vec;
 		}
 	}
+#endif
 }
 
 void LLGLSLShader::uniform4iv(const LLStaticHashedString& uniform, U32 count, const GLint* v)
 {
 	LL_PROFILE_ZONE_SCOPED_CATEGORY_SHADER;
+
+#ifdef DX_RENDER
+	// S24 (2026-08-09, task #153): see uniform1iv(LLStaticHashedString,...)'s
+	// comment just above - same reasoning, component_count=4 (each int4
+	// element is already a natural 16-byte slot, no extra padding needed
+	// beyond what setUniformPaddedArray already does for that case).
+	const std::string& name = uniform.String();
+	const float* fv = reinterpret_cast<const float*>(v);
+	mDXVertexShader.setUniformPaddedArray(name, fv, 4, count);
+	mDXPixelShader.setUniformPaddedArray(name, fv, 4, count);
+#else
 	GLint location = getUniformLocation(uniform);
 
 	if (location >= 0)
@@ -1937,11 +2663,22 @@ void LLGLSLShader::uniform4iv(const LLStaticHashedString& uniform, U32 count, co
 			mValue[location] = vec;
 		}
 	}
+#endif
 }
 
 void LLGLSLShader::uniform2i(const LLStaticHashedString& uniform, GLint i, GLint j)
 {
 	LL_PROFILE_ZONE_SCOPED_CATEGORY_SHADER;
+
+#ifdef DX_RENDER
+	// S24 (2026-08-09, task #153): see uniform1iv(LLStaticHashedString,...)'s
+	// comment above - same bit-reinterpretation reasoning, non-array case.
+	const std::string& name = uniform.String();
+	const GLint iv[2] = { i, j };
+	const float* fv = reinterpret_cast<const float*>(iv);
+	mDXVertexShader.setUniformFloatArray(name, fv, 2);
+	mDXPixelShader.setUniformFloatArray(name, fv, 2);
+#else
 	GLint location = getUniformLocation(uniform);
 
 	if (location >= 0)
@@ -1954,11 +2691,21 @@ void LLGLSLShader::uniform2i(const LLStaticHashedString& uniform, GLint i, GLint
 			mValue[location] = vec;
 		}
 	}
+#endif
 }
 
 void LLGLSLShader::uniform1f(const LLStaticHashedString& uniform, GLfloat v)
 {
 	LL_PROFILE_ZONE_SCOPED_CATEGORY_SHADER;
+
+#ifdef DX_RENDER
+	// S24 (2026-08-09, task #147b/#153): see uniform1i(LLStaticHashedString,...)'s
+	// comment just above - same gap, same fix.
+	const std::string& name = uniform.String();
+	const float v_arr[1] = { v };
+	mDXVertexShader.setUniformFloatArray(name, v_arr, 1);
+	mDXPixelShader.setUniformFloatArray(name, v_arr, 1);
+#else
 	GLint location = getUniformLocation(uniform);
 
 	if (location >= 0)
@@ -1971,11 +2718,21 @@ void LLGLSLShader::uniform1f(const LLStaticHashedString& uniform, GLfloat v)
 			mValue[location] = vec;
 		}
 	}
+#endif
 }
 
 void LLGLSLShader::uniform2f(const LLStaticHashedString& uniform, GLfloat x, GLfloat y)
 {
 	LL_PROFILE_ZONE_SCOPED_CATEGORY_SHADER;
+
+#ifdef DX_RENDER
+	// S24 (2026-08-09, task #153): see uniform1i(LLStaticHashedString,...)'s
+	// comment - same gap, same fix.
+	const std::string& name = uniform.String();
+	const float v_arr[2] = { x, y };
+	mDXVertexShader.setUniformFloatArray(name, v_arr, 2);
+	mDXPixelShader.setUniformFloatArray(name, v_arr, 2);
+#else
 	GLint location = getUniformLocation(uniform);
 
 	if (location >= 0)
@@ -1988,11 +2745,21 @@ void LLGLSLShader::uniform2f(const LLStaticHashedString& uniform, GLfloat x, GLf
 			mValue[location] = vec;
 		}
 	}
+#endif
 }
 
 void LLGLSLShader::uniform3f(const LLStaticHashedString& uniform, GLfloat x, GLfloat y, GLfloat z)
 {
 	LL_PROFILE_ZONE_SCOPED_CATEGORY_SHADER;
+
+#ifdef DX_RENDER
+	// S24 (2026-08-09, task #153): see uniform1i(LLStaticHashedString,...)'s
+	// comment - same gap, same fix.
+	const std::string& name = uniform.String();
+	const float v_arr[3] = { x, y, z };
+	mDXVertexShader.setUniformFloatArray(name, v_arr, 3);
+	mDXPixelShader.setUniformFloatArray(name, v_arr, 3);
+#else
 	GLint location = getUniformLocation(uniform);
 
 	if (location >= 0)
@@ -2005,11 +2772,21 @@ void LLGLSLShader::uniform3f(const LLStaticHashedString& uniform, GLfloat x, GLf
 			mValue[location] = vec;
 		}
 	}
+#endif
 }
 
 void LLGLSLShader::uniform4f(const LLStaticHashedString& uniform, GLfloat x, GLfloat y, GLfloat z, GLfloat w)
 {
 	LL_PROFILE_ZONE_SCOPED_CATEGORY_SHADER;
+
+#ifdef DX_RENDER
+	// S24 (2026-08-09, task #153): see uniform1i(LLStaticHashedString,...)'s
+	// comment - same gap, same fix.
+	const std::string& name = uniform.String();
+	const float v_arr[4] = { x, y, z, w };
+	mDXVertexShader.setUniformFloatArray(name, v_arr, 4);
+	mDXPixelShader.setUniformFloatArray(name, v_arr, 4);
+#else
 	GLint location = getUniformLocation(uniform);
 
 	if (location >= 0)
@@ -2022,11 +2799,21 @@ void LLGLSLShader::uniform4f(const LLStaticHashedString& uniform, GLfloat x, GLf
 			mValue[location] = vec;
 		}
 	}
+#endif
 }
 
 void LLGLSLShader::uniform1fv(const LLStaticHashedString& uniform, U32 count, const GLfloat* v)
 {
 	LL_PROFILE_ZONE_SCOPED_CATEGORY_SHADER;
+
+#ifdef DX_RENDER
+	// S24 (2026-08-09, task #153): see uniform1fv(U32,...)'s comment
+	// (task #107, same file) - setUniformPaddedArray since HLSL pads every
+	// array element to its own 16-byte slot, even a plain "float x[N]".
+	const std::string& name = uniform.String();
+	mDXVertexShader.setUniformPaddedArray(name, v, 1, count);
+	mDXPixelShader.setUniformPaddedArray(name, v, 1, count);
+#else
 	GLint location = getUniformLocation(uniform);
 
 	if (location >= 0)
@@ -2039,11 +2826,20 @@ void LLGLSLShader::uniform1fv(const LLStaticHashedString& uniform, U32 count, co
 			mValue[location] = vec;
 		}
 	}
+#endif
 }
 
 void LLGLSLShader::uniform2fv(const LLStaticHashedString& uniform, U32 count, const GLfloat* v)
 {
 	LL_PROFILE_ZONE_SCOPED_CATEGORY_SHADER;
+
+#ifdef DX_RENDER
+	// S24 (2026-08-09, task #153): see uniform1fv(LLStaticHashedString,...)'s
+	// comment just above - same reasoning, component_count=2.
+	const std::string& name = uniform.String();
+	mDXVertexShader.setUniformPaddedArray(name, v, 2, count);
+	mDXPixelShader.setUniformPaddedArray(name, v, 2, count);
+#else
 	GLint location = getUniformLocation(uniform);
 
 	if (location >= 0)
@@ -2056,11 +2852,21 @@ void LLGLSLShader::uniform2fv(const LLStaticHashedString& uniform, U32 count, co
 			mValue[location] = vec;
 		}
 	}
+#endif
 }
 
 void LLGLSLShader::uniform3fv(const LLStaticHashedString& uniform, U32 count, const GLfloat* v)
 {
 	LL_PROFILE_ZONE_SCOPED_CATEGORY_SHADER;
+
+#ifdef DX_RENDER
+	// S24 (2026-08-09, task #153): see uniform1fv(LLStaticHashedString,...)'s
+	// comment above - same reasoning, component_count=3. Real caller:
+	// LLShaderUniforms::apply()'s mVector3s loop.
+	const std::string& name = uniform.String();
+	mDXVertexShader.setUniformPaddedArray(name, v, 3, count);
+	mDXPixelShader.setUniformPaddedArray(name, v, 3, count);
+#else
 	GLint location = getUniformLocation(uniform);
 
 	if (location >= 0)
@@ -2073,11 +2879,22 @@ void LLGLSLShader::uniform3fv(const LLStaticHashedString& uniform, U32 count, co
 			mValue[location] = vec;
 		}
 	}
+#endif
 }
 
 void LLGLSLShader::uniform4fv(const LLStaticHashedString& uniform, U32 count, const GLfloat* v)
 {
 	LL_PROFILE_ZONE_SCOPED_CATEGORY_SHADER;
+
+#ifdef DX_RENDER
+	// S24 (2026-08-09, task #153): see uniform1fv(LLStaticHashedString,...)'s
+	// comment above - component_count=4 (each vec4 element is already a
+	// natural 16-byte slot). Real caller: LLShaderUniforms::apply()'s
+	// mVectors loop.
+	const std::string& name = uniform.String();
+	mDXVertexShader.setUniformPaddedArray(name, v, 4, count);
+	mDXPixelShader.setUniformPaddedArray(name, v, 4, count);
+#else
 	GLint location = getUniformLocation(uniform);
 
 	if (location >= 0)
@@ -2091,11 +2908,22 @@ void LLGLSLShader::uniform4fv(const LLStaticHashedString& uniform, U32 count, co
 			mValue[location] = vec;
 		}
 	}
+#endif
 }
 
 void LLGLSLShader::uniform4uiv(const LLStaticHashedString& uniform, U32 count, const GLuint* v)
 {
 	LL_PROFILE_ZONE_SCOPED_CATEGORY_SHADER;
+
+#ifdef DX_RENDER
+	// S24 (2026-08-09, task #153): see uniform1iv(LLStaticHashedString,...)'s
+	// comment - same bit-reinterpretation reasoning (uint/float share the
+	// same 4-byte width), component_count=4.
+	const std::string& name = uniform.String();
+	const float* fv = reinterpret_cast<const float*>(v);
+	mDXVertexShader.setUniformPaddedArray(name, fv, 4, count);
+	mDXPixelShader.setUniformPaddedArray(name, fv, 4, count);
+#else
 	GLint location = getUniformLocation(uniform);
 
 	if (location >= 0)
@@ -2109,11 +2937,47 @@ void LLGLSLShader::uniform4uiv(const LLStaticHashedString& uniform, U32 count, c
 			mValue[location] = vec;
 		}
 	}
+#endif
 }
 
 void LLGLSLShader::uniformMatrix4fv(const LLStaticHashedString& uniform, U32 count, GLboolean transpose, const GLfloat* v)
 {
 	LL_PROFILE_ZONE_SCOPED_CATEGORY_SHADER;
+
+#ifdef DX_RENDER
+	// S24 (2026-08-09, task #153): the count==1 case (the overwhelming
+	// majority of real callers) mirrors uniformMatrix4fv(U32,...)'s own
+	// DX_RENDER branch, including the transpose handling (a caller passing
+	// transpose=TRUE means v is row-major and needs converting to
+	// setUniformMatrix4's expected column-major layout - missed in an
+	// earlier pass of this fix, caught by comparing against the U32
+	// overload's real implementation). count>1 (an actual array of
+	// matrices, e.g. shadow cascade matrices) is NOT handled - that's
+	// task #146's own tracked, still-open gap, not invented/solved here to
+	// avoid diverging from that task's scope.
+	const std::string& name = uniform.String();
+	if (count == 1)
+	{
+		float m[16];
+		if (transpose)
+		{
+			for (int r = 0; r < 4; ++r)
+			{
+				for (int c = 0; c < 4; ++c)
+				{
+					m[c * 4 + r] = v[r * 4 + c];
+				}
+			}
+		}
+		else
+		{
+			memcpy(m, v, sizeof(m));
+		}
+
+		mDXVertexShader.setUniformMatrix4(name, m);
+		mDXPixelShader.setUniformMatrix4(name, m);
+	}
+#else
 	GLint location = getUniformLocation(uniform);
 
 	if (location >= 0)
@@ -2122,6 +2986,7 @@ void LLGLSLShader::uniformMatrix4fv(const LLStaticHashedString& uniform, U32 cou
 		glUniformMatrix4fv(location, count, transpose, v);
 		stop_glerror();
 	}
+#endif
 }
 
 void LLGLSLShader::vertexAttrib4f(U32 index, GLfloat x, GLfloat y, GLfloat z, GLfloat w)

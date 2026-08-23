@@ -34,10 +34,19 @@ float4 encodeNormal(float3 n, float env, float gbuffer_flag);
 
 struct PSInput
 {
-    float3 vary_position : TEXCOORD0;
-    float3 vary_normal : TEXCOORD1;
+    // S24 (2026-08-02): field order/semantics must match diffuseV.hlsl's
+    // VSOutput exactly - confirmed via D3D11 debug-layer VS/PS linkage
+    // error (id=343, "Semantic 'TEXCOORD' is defined for mismatched
+    // hardware registers"). This struct had vary_position/vary_normal/
+    // vary_texcoord0 assigned to different TEXCOORD indices than the VS
+    // uses for the same variables - a distinct bug from the missing-
+    // SV_Position class (this struct already had SV_Position first).
+    float4 position : SV_Position;
+
+    float3 vary_normal : TEXCOORD0;
     float4 vertex_color : COLOR0;
-    float2 vary_texcoord0 : TEXCOORD2;
+    float2 vary_texcoord0 : TEXCOORD1;
+    float3 vary_position : TEXCOORD2;
 };
 
 struct PSOutput

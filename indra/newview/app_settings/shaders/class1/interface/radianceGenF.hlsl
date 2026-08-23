@@ -28,8 +28,34 @@ TextureCubeArray reflectionProbes : register(t0);
 SamplerState reflectionProbesSampler : register(s0);
 uniform int sourceIdx;
 
+// S24 (2026-08-22): diagnostic-lifecycle note - a TEMPORARY solid-red/
+// solid-blue override for faces 0/1 was here to answer whether the +X/-X
+// defect was a face-SELECTION bug or a within-face orientation bug.
+// Answered and removed: user's screenshot (REF 1.png) showed two clean,
+// correctly-sized, non-overlapping, mirror-symmetric wedges - normal,
+// correct face selection. The defect is content/orientation WITHIN the
+// correctly-selected region, confirming the original theory before the
+// diagnostic detour. A second synthetic-color diagnostic attempt (quadrant
+// markers, then an N.y sign test) was abandoned before testing - realized
+// mid-build that this engine's world is Z-up, so "N.y" isn't a reliable
+// stand-in for on-screen "vertical" the way it would be in a Y-up engine;
+// a synthetic per-component color test can't be trusted here without much
+// more careful derivation. Real scene content, directly compared against
+// the real background (what the user was already doing, e.g. position
+// 4.png's dot-matching), is the more reliable ground truth - trust that
+// over another synthetic diagnostic.
+
+// S24 (2026-08-22, plan item A - CLOSED-FORM REWRITE): the fixHandedness
+// uniform that used to live here (task #194 round 14 - see
+// radianceGenV.hlsl's history for the full patch chain this superseded)
+// is gone - radianceGenV.hlsl now computes vary_dir directly from
+// Direct3D's documented per-face cubemap formula, which needs no
+// per-pixel handedness correction downstream.
 struct PSInput
 {
+    // S24 (2026-08-02): missing SV_Position - see uiF.hlsl's comment (fxc.exe-confirmed VS/PS register-shift bug).
+    float4 position : SV_Position;
+
     float3 vary_dir : TEXCOORD0;
 };
 
@@ -164,7 +190,18 @@ float4 prefilterEnvMap(float3 R)
 
 float4 main(PSInput IN) : SV_Target
 {
+    // S24 (2026-08-22, plan item A - CLOSED-FORM REWRITE): sample-direction
+    // manipulation here (rounds 12/13/15, all reverted/superseded) is gone
+    // - vary_dir now comes pre-corrected from radianceGenV.hlsl's exact
+    // per-face formula, no per-pixel handedness patch needed.
     float3 N = normalize(IN.vary_dir);
+
+    // S24 (2026-08-23): TEMPORARY raw single-tap readback diagnostic (see
+    // git history) answered its question and was removed - the same
+    // real, mis-oriented content showed up raw as it did filtered, ruling
+    // the GGX prefilter OUT as a contributor. Back to the normal filtered
+    // path; see radianceGenV.hlsl's LIVE ORIENTATION TUNER comment for
+    // where the investigation went next.
     float4 frag_color = max(prefilterEnvMap(N), float4(0, 0, 0, 0));
     frag_color.a *= probe_strength;
     return frag_color;

@@ -136,73 +136,86 @@ VSOutput main(VSInput IN)
     // Transform and pass tex coords
     {
         float4 ttt[2];
-#define transform_xy()             terrain_texture_transform(IN.position.xy,               ttt)
+        // Zero-parameter function-like macros (#define NAME() body) are
+        // rejected by the D3D/HLSL preprocessor (X1500 syntax error at the
+        // empty parameter list) - GLSL/glslang accepts them. These take no
+        // real macro parameters anyway (IN/ttt are just fixed names baked
+        // into the body), so converted to plain object-like macros - every
+        // call site below drops the now-meaningless trailing "()" too.
+#define transform_xy                terrain_texture_transform(IN.position.xy,               ttt)
 #if TERRAIN_PLANAR_TEXTURE_SAMPLE_COUNT == 3
-// Don't care about upside-down (transform_xy_flipped())
-#define transform_yz()             terrain_texture_transform(IN.position.yz,               ttt)
-#define transform_negx_z()         terrain_texture_transform(IN.position.xz * float2(-1, 1), ttt)
-#define transform_yz_flipped()     terrain_texture_transform(IN.position.yz * float2(-1, 1), ttt)
-#define transform_negx_z_flipped() terrain_texture_transform(IN.position.xz,               ttt)
+// Don't care about upside-down (transform_xy_flipped)
+#define transform_yz                terrain_texture_transform(IN.position.yz,               ttt)
+#define transform_negx_z            terrain_texture_transform(IN.position.xz * float2(-1, 1), ttt)
+#define transform_yz_flipped        terrain_texture_transform(IN.position.yz * float2(-1, 1), ttt)
+#define transform_negx_z_flipped    terrain_texture_transform(IN.position.xz,               ttt)
         // material 1
         ttt[0].xyz = terrain_texture_transforms[0].xyz;
         ttt[1].x = terrain_texture_transforms[0].w;
         ttt[1].y = terrain_texture_transforms[1].x;
-        OUT.vary_coords[0].xy = transform_xy();
-        OUT.vary_coords[0].zw = transform_yz();
-        OUT.vary_coords[1].xy = transform_negx_z();
-        OUT.vary_coords[1].zw = transform_yz_flipped();
-        OUT.vary_coords[2].xy = transform_negx_z_flipped();
+        OUT.vary_coords[0].xy = transform_xy;
+        OUT.vary_coords[0].zw = transform_yz;
+        OUT.vary_coords[1].xy = transform_negx_z;
+        OUT.vary_coords[1].zw = transform_yz_flipped;
+        OUT.vary_coords[2].xy = transform_negx_z_flipped;
         // material 2
         ttt[0].xyz = terrain_texture_transforms[1].yzw;
         ttt[1].xy = terrain_texture_transforms[2].xy;
-        OUT.vary_coords[2].zw = transform_xy();
-        OUT.vary_coords[3].xy = transform_yz();
-        OUT.vary_coords[3].zw = transform_negx_z();
-        OUT.vary_coords[4].xy = transform_yz_flipped();
-        OUT.vary_coords[4].zw = transform_negx_z_flipped();
+        OUT.vary_coords[2].zw = transform_xy;
+        OUT.vary_coords[3].xy = transform_yz;
+        OUT.vary_coords[3].zw = transform_negx_z;
+        OUT.vary_coords[4].xy = transform_yz_flipped;
+        OUT.vary_coords[4].zw = transform_negx_z_flipped;
         // material 3
         ttt[0].xy = terrain_texture_transforms[2].zw;
         ttt[0].z = terrain_texture_transforms[3].x;
         ttt[1].xy = terrain_texture_transforms[3].yz;
-        OUT.vary_coords[5].xy = transform_xy();
-        OUT.vary_coords[5].zw = transform_yz();
-        OUT.vary_coords[6].xy = transform_negx_z();
-        OUT.vary_coords[6].zw = transform_yz_flipped();
-        OUT.vary_coords[7].xy = transform_negx_z_flipped();
+        OUT.vary_coords[5].xy = transform_xy;
+        OUT.vary_coords[5].zw = transform_yz;
+        OUT.vary_coords[6].xy = transform_negx_z;
+        OUT.vary_coords[6].zw = transform_yz_flipped;
+        OUT.vary_coords[7].xy = transform_negx_z_flipped;
         // material 4
         ttt[0].x = terrain_texture_transforms[3].w;
         ttt[0].yz = terrain_texture_transforms[4].xy;
         ttt[1].xy = terrain_texture_transforms[4].zw;
-        OUT.vary_coords[7].zw = transform_xy();
-        OUT.vary_coords[8].xy = transform_yz();
-        OUT.vary_coords[8].zw = transform_negx_z();
-        OUT.vary_coords[9].xy = transform_yz_flipped();
-        OUT.vary_coords[9].zw = transform_negx_z_flipped();
+        OUT.vary_coords[7].zw = transform_xy;
+        OUT.vary_coords[8].xy = transform_yz;
+        OUT.vary_coords[8].zw = transform_negx_z;
+        OUT.vary_coords[9].xy = transform_yz_flipped;
+        OUT.vary_coords[9].zw = transform_negx_z_flipped;
 #elif TERRAIN_PLANAR_TEXTURE_SAMPLE_COUNT == 1
         // material 1
         ttt[0].xyz = terrain_texture_transforms[0].xyz;
         ttt[1].x = terrain_texture_transforms[0].w;
         ttt[1].y = terrain_texture_transforms[1].x;
-        OUT.vary_coords[0].xy = transform_xy();
+        OUT.vary_coords[0].xy = transform_xy;
         // material 2
         ttt[0].xyz = terrain_texture_transforms[1].yzw;
         ttt[1].xy = terrain_texture_transforms[2].xy;
-        OUT.vary_coords[0].zw = transform_xy();
+        OUT.vary_coords[0].zw = transform_xy;
         // material 3
         ttt[0].xy = terrain_texture_transforms[2].zw;
         ttt[0].z = terrain_texture_transforms[3].x;
         ttt[1].xy = terrain_texture_transforms[3].yz;
-        OUT.vary_coords[1].xy = transform_xy();
+        OUT.vary_coords[1].xy = transform_xy;
         // material 4
         ttt[0].x = terrain_texture_transforms[3].w;
         ttt[0].yz = terrain_texture_transforms[4].xy;
         ttt[1].xy = terrain_texture_transforms[4].zw;
-        OUT.vary_coords[1].zw = transform_xy();
+        OUT.vary_coords[1].zw = transform_xy;
 #endif
     }
 
 #if TERRAIN_PAINT_TYPE == TERRAIN_PAINT_TYPE_HEIGHTMAP_WITH_NOISE
     float2 tc = IN.texcoord1.xy;
+    // S24 (2026-08-01): .xy is never read by pbrterrainF.hlsl (only .zw is,
+    // via alpha_ramp.Sample(..., IN.vary_texcoord0.zw)) - inherited as a
+    // dead half from the original GLSL, where a partially-written out
+    // vec4 doesn't trigger a completeness diagnostic the way HLSL's
+    // X3578 does for VSOutput. Explicit deterministic init, not a real
+    // value, just to give the whole float4 a defined value on this path.
+    OUT.vary_texcoord0.xy = 0.0;
     OUT.vary_texcoord0.zw = tc.xy;
     OUT.vary_texcoord1.xy = tc.xy-float2(2.0, 0.0);
     OUT.vary_texcoord1.zw = tc.xy-float2(1.0, 0.0);

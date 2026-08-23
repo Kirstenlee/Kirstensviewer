@@ -24,22 +24,44 @@
 
 /*[EXTRA_CODE_HERE]*/
 
-TextureCube environmentMap : register(t0);
-SamplerState environmentMapSampler : register(s0);
-Texture2D lightMap : register(t1);
-SamplerState lightMapSampler : register(s1);
-Texture2D lightFunc : register(t2);
-SamplerState lightFuncSampler : register(s2);
+// t0-t3/s0-s3 reserved by deferredUtil.hlsl, t4-t6/s4-s6 by
+// gbufferUtil.hlsl, t10-t15/s10-s15 by shadowUtil.hlsl (all attached here
+// via isDeferred+hasFullGBuffer+hasShadows) - moved this file's own 3
+// textures to t7-t9/s7-s9 to avoid X4500 overlapping-register-semantics
+// errors, matching pointLightF.hlsl's lightFunc move for the same reason.
+TextureCube environmentMap : register(t7);
+SamplerState environmentMapSampler : register(s7);
+Texture2D lightMap : register(t8);
+SamplerState lightMapSampler : register(s8);
+Texture2D lightFunc : register(t9);
+SamplerState lightFuncSampler : register(s9);
 
+// proj_mat is also declared by deferredUtil.hlsl (grouped separately
+// from inv_proj/screen_res there - see materialF.hlsl's comment for why
+// this needs its own distinct guard macro, not LL_INV_PROJ_DECLARED).
+#ifndef LL_PROJ_MAT_DECLARED
+#define LL_PROJ_MAT_DECLARED
 uniform float4x4 proj_mat; //screen space to light space
+#endif
 uniform float proj_near; //near clip for projection
+
+// proj_p/proj_n/proj_focus/proj_lod/proj_range/proj_ambiance are also
+// declared by deferredUtil.hlsl (real, used by its own file-local
+// projected-light helper functions - clipProjectedLightVars/
+// getProjectedLightAmbiance/getProjectedLightDiffuseColor) - same
+// genuinely-shared-uniform reasoning as color/size, not a rename
+// candidate. Kept adjacent in one block (see multiPointLightF.hlsl's
+// comment for why that matters).
+#ifndef LL_PROJ_LIGHT_PARAMS_DECLARED
+#define LL_PROJ_LIGHT_PARAMS_DECLARED
 uniform float3 proj_p; //plane projection is emitting from (in screen space)
 uniform float3 proj_n;
 uniform float proj_focus; //distance from plane to begin blurring
 uniform float proj_lod;  //(number of mips in proj map)
 uniform float proj_range; //range between near clip and far clip plane of projection
-uniform float proj_ambient_lod;
 uniform float proj_ambiance;
+#endif
+uniform float proj_ambient_lod;
 uniform float near_clip;
 uniform float far_clip;
 
@@ -47,27 +69,48 @@ uniform float3 proj_origin; //origin of projection to be used for angular attenu
 uniform float sun_wash;
 uniform int proj_shadow_idx;
 uniform float shadow_fade;
+
+// classic_mode is also declared by deferredUtil.hlsl/atmosphericsFuncs.hlsl,
+// include-guarded (same reasoning as every other classic_mode fix this
+// session).
+#ifndef LL_CLASSIC_MODE_DECLARED
+#define LL_CLASSIC_MODE_DECLARED
 uniform int classic_mode;
+#endif
 
 // Light params
 #if defined(MULTI_SPOTLIGHT)
 uniform float3 center;
 #endif
+// color/size are also declared by deferredUtil.hlsl ("light params" there
+// too) - same genuine-shared-uniform reasoning as pointLightF.hlsl's fix,
+// not a rename candidate.
+#ifndef LL_LIGHT_COLOR_SIZE_DECLARED
+#define LL_LIGHT_COLOR_SIZE_DECLARED
 uniform float size;
 uniform float3 color;
+#endif
 uniform float falloff;
 
 struct PSInput
 {
+    // S24 (2026-08-02): missing SV_Position - see uiF.hlsl's comment (fxc.exe-confirmed VS/PS register-shift bug).
+    float4 position : SV_Position;
+
     float4 vary_fragcoord : TEXCOORD0;
 #if !defined(MULTI_SPOTLIGHT)
     float3 trans_center : TEXCOORD1;
 #endif
 };
 
+// screen_res/inv_proj are also declared by deferredUtil.hlsl (grouped
+// together there under one guard) - reuse it here.
+#ifndef LL_INV_PROJ_DECLARED
+#define LL_INV_PROJ_DECLARED
 uniform float2 screen_res;
 
 uniform float4x4 inv_proj;
+#endif
 
 void calcHalfVectors(float3 lv, float3 n, float3 v, out float3 h, out float3 l, out float nh, out float nl, out float nv, out float vh, out float lightDist);
 float calcLegacyDistanceAttenuation(float distance, float falloff);
@@ -81,7 +124,10 @@ float4 texture2DLodSpecular(float2 tc, float lod);
 
 float4 getPosition(float2 pos_screen);
 
-static const float M_PI = 3.14159265;
+// M_PI is also declared (and actually used) by deferredUtil.hlsl, always
+// attached alongside this file - this copy was unused here (only ever
+// referenced at its own declaration), so unlike the proj_* uniforms above,
+// no guard needed, just delete.
 
 void pbrPunctual(float3 diffuseColor, float3 specularColor,
                     float perceptualRoughness,
@@ -93,6 +139,11 @@ void pbrPunctual(float3 diffuseColor, float3 specularColor,
                     out float3 diff,
                     out float3 spec);
 
+// See pointLightF.hlsl's comment - GBufferInfo is also defined for real in
+// gbufferUtil.hlsl, attached after this file's own text. Include guarded
+// so whichever copy concatenates first wins.
+#ifndef LL_GBUFFERINFO_DECLARED
+#define LL_GBUFFERINFO_DECLARED
 struct GBufferInfo
 {
     float4 albedo;
@@ -102,6 +153,7 @@ struct GBufferInfo
     float gbufferFlag;
     float4 emissive;
 };
+#endif
 
 GBufferInfo getGBuffer(float2 screenpos);
 
@@ -132,7 +184,17 @@ float4 main(PSInput IN) : SV_Target
 
     if (proj_shadow_idx >= 0)
     {
-        float4 shd = lightMap.Sample(lightMapSampler, tc);
+        // S24 (2026-08-09, task #144, origin sweep): direct .Sample() on a
+        // screen-space render target using the raw, unflipped screen UV -
+        // unlike this file's getGBuffer()/getPosition() calls above (which
+        // already apply the GL-vs-D3D11 texture-origin flip internally, at
+        // their own .Sample() sites - see deferredUtil.hlsl/gbufferUtil.hlsl),
+        // this one bypassed that composition and read lightMap directly.
+        // Same fix shape as every other instance of this bug class this
+        // session: flip only at the .Sample() call, tc itself stays
+        // unflipped (also used above for getPosition()'s NDC reconstruction,
+        // which must not be flipped).
+        float4 shd = lightMap.Sample(lightMapSampler, float2(tc.x, 1.0 - tc.y));
         shadow = (proj_shadow_idx==0)?shd.b:shd.a;
         shadow += shadow_fade;
         shadow = clamp(shadow, 0.0, 1.0);
@@ -239,7 +301,7 @@ float4 main(PSInput IN) : SV_Target
         {
             dlit *= min(nl*6.0, 1.0) * dist_atten;
 
-            float fres = pow(1 - vh, 5)*0.4+0.5;
+            float fres = pow(abs(1 - vh), 5)*0.4+0.5;
 
             float gtdenom = 2 * nh;
             float gt = max(0, min(gtdenom * nv / vh, gtdenom * nl / vh));

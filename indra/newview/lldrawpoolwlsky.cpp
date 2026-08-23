@@ -44,6 +44,9 @@
 #include "llvowlsky.h"
 #include "llsettingsvo.h"
 #include "llviewercontrol.h"
+#ifdef DX_RENDER
+#include "dxdrawpoolwlsky.h"
+#endif
 
 extern bool gCubeSnapshot;
 
@@ -73,6 +76,11 @@ LLViewerTexture *LLDrawPoolWLSky::getDebugTexture()
 
 void LLDrawPoolWLSky::beginDeferredPass(S32 pass)
 {
+#ifdef DX_RENDER
+    DXDrawPoolWLSky::beginDeferredPass(*this, pass);
+    return;
+#endif
+
     sky_shader = &gDeferredWLSkyProgram;
     cloud_shader = &gDeferredWLCloudProgram;
 
@@ -83,6 +91,11 @@ void LLDrawPoolWLSky::beginDeferredPass(S32 pass)
 
 void LLDrawPoolWLSky::endDeferredPass(S32 pass)
 {
+#ifdef DX_RENDER
+    DXDrawPoolWLSky::endDeferredPass(*this, pass);
+    return;
+#endif
+
     sky_shader   = nullptr;
     cloud_shader = nullptr;
     sun_shader   = nullptr;
@@ -505,6 +518,11 @@ void LLDrawPoolWLSky::renderHeavenlyBodies()
 
 void LLDrawPoolWLSky::renderDeferred(S32 pass)
 {
+#ifdef DX_RENDER
+    DXDrawPoolWLSky::renderDeferred(*this, pass);
+    return;
+#endif
+
     LL_RECORD_BLOCK_TIME(FTM_RENDER_WL_SKY);
     if (!gPipeline.hasRenderType(LLPipeline::RENDER_TYPE_SKY) || gSky.mVOSkyp.isNull())
     {

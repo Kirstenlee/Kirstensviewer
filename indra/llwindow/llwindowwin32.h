@@ -37,6 +37,7 @@
 #include "llthreadsafequeue.h"
 #include "llmutex.h"
 #include "workqueue.h"
+#include <thread>
 
 #pragma once
 #include "llwin32headers.h" // S24
@@ -321,6 +322,10 @@ public:
 private:
 #if LL_WINDOWS
 	HWND mWindow;
+	// S24: dedicated message-pump thread for this one window, decoupled
+	// from LLAppViewer::init()'s long synchronous startup work on the
+	// calling thread - see showImpl()/hideImpl() in the .cpp for why.
+	std::thread mSplashThread;
 #endif
 };
 

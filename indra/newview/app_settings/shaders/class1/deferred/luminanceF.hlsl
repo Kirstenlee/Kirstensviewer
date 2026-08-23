@@ -36,6 +36,9 @@ uniform float diffuse_luminance_scale;
 
 struct PSInput
 {
+    // S24 (2026-08-02): missing SV_Position - see uiF.hlsl's comment (fxc.exe-confirmed VS/PS register-shift bug).
+    float4 position : SV_Position;
+
     float2 vary_fragcoord : TEXCOORD0;
 };
 
@@ -49,6 +52,11 @@ float4 main(PSInput IN) : SV_Target
 {
     float2 tc = IN.vary_fragcoord*0.6+0.2;
     tc.y -= 0.1; // HACK - nudge exposure sample down a little bit to favor ground over sky
+    // S24 (2026-08-11, quick-win origin sweep): GL-vs-D3D11 texture-origin
+    // flip - tc is used only for the 3 Sample() calls below (no position
+    // reconstruction), safe to flip once here. Same bug class as
+    // task #158/#185; this feeds auto-exposure metering.
+    tc.y = 1.0 - tc.y;
     float3 c = diffuseRect.Sample(diffuseRectSampler, tc).rgb;
 
     float4  norm         = normalMap.Sample(normalMapSampler, tc);

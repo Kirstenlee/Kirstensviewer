@@ -32,12 +32,7 @@ uniform float minimum_alpha;
 void mirrorClip(float3 pos);
 float4 encodeNormal(float3 n, float env, float gbuffer_flag);
 
-struct PSInput
-{
-    float3 vary_normal : TEXCOORD0;
-    float2 vary_texcoord0 : TEXCOORD1;
-    float3 vary_position : TEXCOORD2;
-};
+#include "varying/avatarVarying.hlsli"
 
 struct PSOutput
 {
@@ -49,13 +44,21 @@ struct PSOutput
 #endif
 };
 
+// S24 (2026-08-02): see uiF.hlsl's comment - real register mismatch,
+// confirmed via fxc.exe disassembly, affects every bare-Varying PS input.
+struct PSInput
+{
+    float4 position : SV_Position;
+    AvatarVarying varying;
+};
+
 PSOutput main(PSInput IN)
 {
     PSOutput OUT;
 
-    mirrorClip(IN.vary_position);
+    mirrorClip(IN.varying.vary_position);
 
-    float4 diff = diffuseMap.Sample(diffuseMapSampler, IN.vary_texcoord0.xy);
+    float4 diff = diffuseMap.Sample(diffuseMapSampler, IN.varying.vary_texcoord0.xy);
 
     if (diff.a < minimum_alpha)
     {
@@ -64,7 +67,7 @@ PSOutput main(PSInput IN)
 
     OUT.data0 = float4(diff.rgb, 0.0);
     OUT.data1 = float4(0, 0, 0, 0);
-    float3 nvn = normalize(IN.vary_normal);
+    float3 nvn = normalize(IN.varying.vary_normal);
     OUT.data2 = encodeNormal(nvn.xyz, 0, GBUFFER_FLAG_HAS_ATMOS);
 
 #if defined(HAS_EMISSIVE)

@@ -48,10 +48,7 @@ SOFTWARE.
 
 /*[EXTRA_CODE_HERE]*/
 
-struct PSInput
-{
-    float2 vary_uv : TEXCOORD0;
-};
+#include "varying/genBrdfLutVarying.hlsli"
 
 #define NUM_SAMPLES 1024u
 
@@ -128,14 +125,30 @@ float2 BRDF(float NoV, float roughness)
         if (dotNL > 0.0) {
             float G = G_SchlicksmithGGX(dotNL, dotNV, roughness);
             float G_Vis = (G * dotVH) / (dotNH * dotNV);
-            float Fc = pow(1.0 - dotVH, 5.0);
+            float Fc = pow(abs(1.0 - dotVH), 5.0);
             LUT += float2((1.0 - Fc) * G_Vis, Fc * G_Vis);
         }
     }
     return LUT / float(NUM_SAMPLES);
 }
 
+// S24 (2026-08-02): THIS is the actual explanation for the "Brdf Gen
+// Shader" VS/PS linkage error (id=343, TEXCOORD mismatched registers)
+// that persisted all session despite the earlier struct-sharing fix -
+// confirmed via fxc.exe disassembly on uiV.hlsl/uiF.hlsl (the same shared-
+// struct pattern): SV_Position consumes a real, numbered VS output
+// register, shifting every subsequent interpolant by one. genbrdflutV.hlsl
+// declares SV_Position first, so its vary_uv ends up at register 1 - but
+// this PS's bare GenBrdfLutVarying input had no SV_Position field, so its
+// sole member started fresh at register 0. Wrapping restores identical
+// numbering on both sides.
+struct PSInput
+{
+    float4 position : SV_Position;
+    GenBrdfLutVarying varying;
+};
+
 float4 main(PSInput IN) : SV_Target
 {
-    return float4(BRDF(IN.vary_uv.x, 1.0-IN.vary_uv.y), 0.0, 1.0);
+    return float4(BRDF(IN.varying.vary_uv.x, 1.0-IN.varying.vary_uv.y), 0.0, 1.0);
 }

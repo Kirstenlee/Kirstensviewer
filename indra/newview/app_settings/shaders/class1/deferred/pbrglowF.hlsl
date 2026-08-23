@@ -38,17 +38,19 @@ uniform float minimum_alpha; // PBR alphaMode: MASK, See: mAlphaCutoff, setAlpha
 float3 linear_to_srgb(float3 c);
 float3 srgb_to_linear(float3 c);
 
+#include "varying/pbrGlowVarying.hlsli"
+
+// S24 (2026-08-02): see uiF.hlsl's comment - real register mismatch,
+// confirmed via fxc.exe disassembly, affects every bare-Varying PS input.
 struct PSInput
 {
-    float3 vary_position : TEXCOORD0;
-    float4 vertex_emissive : COLOR0;
-    float2 base_color_texcoord : TEXCOORD1;
-    float2 emissive_texcoord : TEXCOORD2;
+    float4 position : SV_Position;
+    PBRGlowVarying varying;
 };
 
 float4 main(PSInput IN) : SV_Target
 {
-    float4 basecolor = diffuseMap.Sample(diffuseMapSampler, IN.base_color_texcoord.xy).rgba;
+    float4 basecolor = diffuseMap.Sample(diffuseMapSampler, IN.varying.base_color_texcoord.xy).rgba;
 
     if (basecolor.a < minimum_alpha)
     {
@@ -56,10 +58,10 @@ float4 main(PSInput IN) : SV_Target
     }
 
     float3 emissive = emissiveColor;
-    emissive *= srgb_to_linear(emissiveMap.Sample(emissiveMapSampler, IN.emissive_texcoord.xy).rgb);
+    emissive *= srgb_to_linear(emissiveMap.Sample(emissiveMapSampler, IN.varying.emissive_texcoord.xy).rgb);
 
     float lum = max(max(emissive.r, emissive.g), emissive.b);
-    lum *= IN.vertex_emissive.a;
+    lum *= IN.varying.vertex_emissive.a;
 
     // HUDs are rendered after gamma correction, output in sRGB space
     float4 frag_color;

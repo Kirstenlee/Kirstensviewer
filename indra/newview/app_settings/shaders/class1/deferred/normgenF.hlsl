@@ -32,6 +32,9 @@ SamplerState srcMapSampler : register(s0);
 
 struct PSInput
 {
+    // S24 (2026-08-02): missing SV_Position - see uiF.hlsl's comment (fxc.exe-confirmed VS/PS register-shift bug).
+    float4 position : SV_Position;
+
     float2 vary_texcoord0 : TEXCOORD0;
 };
 
@@ -63,6 +66,13 @@ float getBumpValue(float2 texcoord)
 
 float4 main(PSInput IN) : SV_Target
 {
+    // Zero-initialized: the compiler flags this shader's output as not
+    // completely initialized (likely related to [EXTRA_CODE_HERE]'s
+    // substituted content shifting what it can trace) - OUT is always
+    // fully overwritten with the real computed value below regardless,
+    // so this only supplies a safe, deterministic baseline.
+    float4 OUT = float4(0, 0, 0, 0);
+
     float c = getBumpValue(IN.vary_texcoord0);
 
     float scaler = 512.0;
@@ -78,5 +88,6 @@ float4 main(PSInput IN) : SV_Target
     norm *= 0.5;
     norm += 0.5;
 
-    return float4(norm, c);
+    OUT = float4(norm, c);
+    return OUT;
 }

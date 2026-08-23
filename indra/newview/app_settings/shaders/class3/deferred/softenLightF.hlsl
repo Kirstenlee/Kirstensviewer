@@ -26,15 +26,22 @@
 
 #define FLT_MAX 3.402823466e+38
 
-static const float M_PI = 3.14159265;
+// M_PI is also declared (and actually used) by deferredUtil.hlsl, always
+// attached alongside this file - this copy was unused here (only ever
+// referenced at its own declaration), same dead-code shape as
+// spotLightF.hlsl's copy - deleted, not guarded.
 
+// t0-t3/s0-s3 reserved by deferredUtil.hlsl, t4-t6/s4-s6 by
+// gbufferUtil.hlsl (both attached here via isDeferred+hasFullGBuffer) -
+// moved this file's own textures to t7/t8, same reasoning as the other
+// light shaders' register moves.
 #if defined(HAS_SUN_SHADOW) || defined(HAS_SSAO)
-Texture2D lightMap : register(t0);
-SamplerState lightMapSampler : register(s0);
+Texture2D lightMap : register(t7);
+SamplerState lightMapSampler : register(s7);
 #endif
 
-Texture2D lightFunc : register(t1);
-SamplerState lightFuncSampler : register(s1);
+Texture2D lightFunc : register(t8);
+SamplerState lightFuncSampler : register(s8);
 
 uniform float blur_size;
 uniform float blur_fidelity;
@@ -45,21 +52,54 @@ uniform float ssao_irradiance_max;
 #endif
 
 // Inputs
-uniform float4 clipPlane;
-uniform float3x3 env_mat;
+// clipPlane is also declared (and actually used) by globalF.hlsl, always
+// attached alongside this file - this copy was unused here (only ever
+// referenced at its own declaration), same dead-code shape as this
+// session's other cleanups - deleted, not guarded.
+// env_mat is also declared (and actually used) by reflectionProbeF.hlsl
+// (via applyGlossEnv()/applyLegacyEnv()) - this copy is dead in both the
+// original GLSL and this port (declared, never referenced) - confirmed
+// via grep of both softenLightF.glsl and this file. Deleted, not guarded.
 uniform float3x3  ssao_effect_mat;
+
+// sun_dir/moon_dir are also declared (and actually used) by shadowUtil.hlsl
+// - unlike clipPlane/waterPlane above/below, THIS copy is genuinely used too
+// (main()'s light_dir selection), so this is a real dual-use duplicate like
+// color/size, not dead code - include-guarded instead of deleted.
+#ifndef LL_SUN_MOON_DIR_DECLARED
+#define LL_SUN_MOON_DIR_DECLARED
 uniform float3 sun_dir;
 uniform float3 moon_dir;
-uniform int  sun_up_factor;
+#endif
+
+// sun_up_factor/classic_mode are also declared by atmosphericsFuncs.hlsl/
+// deferredUtil.hlsl (both attached here via hasAtmospherics/isDeferred) -
+// include-guarded, same reasoning as every other classic_mode/
+// sun_up_factor fix this session.
+#ifndef LL_SUN_UP_FACTOR_DECLARED
+#define LL_SUN_UP_FACTOR_DECLARED
+uniform int sun_up_factor;
+#endif
+#ifndef LL_CLASSIC_MODE_DECLARED
+#define LL_CLASSIC_MODE_DECLARED
 uniform int classic_mode;
+#endif
 
 struct PSInput
 {
+    // S24 (2026-08-02): missing SV_Position - see uiF.hlsl's comment (fxc.exe-confirmed VS/PS register-shift bug).
+    float4 position : SV_Position;
+
     float2 vary_fragcoord : TEXCOORD0;
 };
 
+// inv_proj/screen_res are also declared by deferredUtil.hlsl (grouped
+// together there under one guard) - reuse it here.
+#ifndef LL_INV_PROJ_DECLARED
+#define LL_INV_PROJ_DECLARED
 uniform float4x4 inv_proj;
 uniform float2 screen_res;
+#endif
 
 float4 getNorm(float2 pos_screen);
 float4 getPositionWithDepth(float2 pos_screen, float depth);
@@ -80,11 +120,29 @@ float getDepth(float2 pos_screen);
 float3 linear_to_srgb(float3 c);
 float3 srgb_to_linear(float3 c);
 
-uniform float4 waterPlane;
+// waterPlane is also declared (and used) by deferredUtil.hlsl (already
+// guarded there via LL_WATERPLANE_DECLARED, from the earlier Water Shader
+// fix) - this copy was unused here (only ever referenced at its own
+// declaration), dead code - deleted, not guarded.
 
+// S24 (2026-08-11, task #156): guarded (was bare) - reflectionProbeF.hlsl
+// (always co-attached here) now also declares this, needed there for its
+// restored SSR blend blocks in files that attach it WITHOUT this one
+// (pbralphaF.hlsl/alphaF.hlsl/materialF.hlsl). Same include-guard pattern
+// already established throughout this codebase for dual-declared uniforms.
+#ifndef LL_CUBE_SNAPSHOT_DECLARED
+#define LL_CUBE_SNAPSHOT_DECLARED
 uniform int cube_snapshot;
+#endif
 
+// sky_hdr_scale is also declared (and actually used) by atmosphericsF.hlsl -
+// genuinely dual-use (this file's own body reads it directly at the
+// SKIP_ATMOS branch below), same reasoning as sun_dir/moon_dir above -
+// include-guarded rather than left bare.
+#ifndef LL_SKY_HDR_SCALE_DECLARED
+#define LL_SKY_HDR_SCALE_DECLARED
 uniform float sky_hdr_scale;
+#endif
 
 void calcHalfVectors(float3 lv, float3 n, float3 v, out float3 h, out float3 l, out float nh, out float nl, out float nv, out float vh, out float lightDist);
 void calcDiffuseSpecular(float3 baseColor, float metallic, inout float3 diffuseColor, inout float3 specularColor);
@@ -105,6 +163,11 @@ float3 pbrBaseLight(float3 diffuseColor,
                   float3 additive,
                   float3 atten);
 
+// See pointLightF.hlsl's comment - GBufferInfo is also defined for real in
+// gbufferUtil.hlsl, attached after this file's own text. Include guarded
+// so whichever copy concatenates first wins.
+#ifndef LL_GBUFFERINFO_DECLARED
+#define LL_GBUFFERINFO_DECLARED
 struct GBufferInfo
 {
     float4 albedo;
@@ -114,6 +177,7 @@ struct GBufferInfo
     float gbufferFlag;
     float4 emissive;
 };
+#endif
 
 GBufferInfo getGBuffer(float2 screenpos);
 float3 clampHDRRange(float3 color);
@@ -144,7 +208,10 @@ float4 main(PSInput IN) : SV_Target
     float4 spec        = gb.specular; // NOTE: PBR linear Emissive
 
 #if defined(HAS_SUN_SHADOW) || defined(HAS_SSAO)
-    float2 scol_ambocc = lightMap.Sample(lightMapSampler, IN.vary_fragcoord.xy).rg;
+    // S24 (2026-08-04): same texture-origin flip as getGBuffer()/getDepth()
+    // (gbufferUtil.hlsl/deferredUtil.hlsl) - lightMap is another G-buffer-
+    // adjacent render target sampled with a screen-space UV here.
+    float2 scol_ambocc = lightMap.Sample(lightMapSampler, float2(IN.vary_fragcoord.x, 1.0 - IN.vary_fragcoord.y)).rg;
 #endif
 
 #if defined(HAS_SUN_SHADOW)
@@ -242,7 +309,7 @@ float4 main(PSInput IN) : SV_Target
 
         if (classic_mode > 0)
         {
-            da = pow(da,1.2);
+            da = pow(abs(da),1.2);
             float3 sun_contrib = float3(min(da, scol), min(da, scol), min(da, scol));
 
             color.rgb = srgb_to_linear(color.rgb * 0.9 + (linear_to_srgb(sun_contrib) * sunlit_linear * 0.7));
@@ -271,7 +338,7 @@ float4 main(PSInput IN) : SV_Target
                 float lit = min(nl*6.0, 1.0);
 
                 float sa = nh;
-                float fres = pow(1 - vh, 5) * 0.4+0.5;
+                float fres = pow(abs(1 - vh), 5) * 0.4+0.5;
                 float gtdenom = 2 * nh;
                 float gt = max(0,(min(gtdenom * nv / vh, gtdenom * nl / vh)));
 

@@ -12,6 +12,9 @@ include(LLWindow)
 include(Linking)
 include(PluginAPI)
 include(MediaPluginBase)
+if(DX_RENDER)
+    include(DXRender)
+endif()
 
 include(CEFPlugin)
 
@@ -24,6 +27,9 @@ include_directories(
     ${LLWINDOW_INCLUDE_DIRS}
     ${CEF_INCLUDE_DIR}
 )
+if(DX_RENDER)
+    include_directories(${DXRENDER_INCLUDE_DIRS})
+endif()
 include_directories(SYSTEM
     ${LLCOMMON_SYSTEM_INCLUDE_DIRS}
     )
@@ -81,6 +87,9 @@ add_library(media_plugin_cef
 target_link_libraries(media_plugin_cef
   ${media_plugin_cef_LINK_LIBRARIES}
 )
+if(DX_RENDER)
+    target_link_libraries(media_plugin_cef ${DXRENDER_LIBRARIES})
+endif()
 
 target_compile_options(media_plugin_cef PRIVATE "/Zc:wchar_t-")
 

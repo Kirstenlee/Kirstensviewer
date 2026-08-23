@@ -29,6 +29,9 @@ uniform float minimum_alpha;
 
 struct PSInput
 {
+    // S24 (2026-08-02): missing SV_Position - see uiF.hlsl's comment (fxc.exe-confirmed VS/PS register-shift bug).
+    float4 position : SV_Position;
+
     float4 post_pos : TEXCOORD0;
     float target_pos_x : TEXCOORD1;
     float4 vertex_color : COLOR0;

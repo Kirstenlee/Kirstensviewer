@@ -54,6 +54,21 @@ struct VSInput
     float4 diffuse_color : COLOR0;
 #endif
     float2 texcoord0 : TEXCOORD0;
+#ifdef HAS_SKIN
+    float4 weight4 : BLENDWEIGHT;
+#endif
+#ifdef IS_AVATAR_SKIN
+    // Mutually exclusive with HAS_SKIN above (gDeferredAvatarAlphaProgram
+    // sets only this one, llviewershadermgr.cpp:2422) - safe to reuse the
+    // same BLENDWEIGHT semantic since only one of the two blocks survives
+    // preprocessing for any given compiled permutation. Needed by
+    // avatarSkinV.hlsl's getSkinnedTransform(), called below under this
+    // same macro.
+    float4 weight : BLENDWEIGHT;
+#endif
+#ifdef HAS_DIFFUSE_LOOKUP
+    int texture_index : TEXTUREINDEX;
+#endif
 };
 
 struct VSOutput
@@ -66,6 +81,9 @@ struct VSOutput
 #endif
     float2 vary_texcoord0 : TEXCOORD2;
     float3 vary_norm : TEXCOORD3;
+#ifdef HAS_DIFFUSE_LOOKUP
+    nointerpolation int vary_texture_index : VARYTEXTUREINDEX;
+#endif
 };
 
 VSOutput main(VSInput IN)
@@ -77,6 +95,16 @@ VSOutput main(VSInput IN)
 
     //transform vertex
 #ifdef HAS_SKIN
+    // S24 (2026-08-09, task #157): bisection rounds 2-3 confirmed skin +
+    // modelview + projection all now produce a recognizable, correctly-
+    // positioned avatar shape for OTHER avatars' rigged content (user
+    // confirmed seeing a real avatar body via the round-3 override before
+    // realizing it belonged to a different agent who then teleported
+    // away). The render/transform chain itself is proven correct. The
+    // remaining bug is specific to the SELF avatar's own rigged content -
+    // being investigated via an isSelf() split in the C++-side render
+    // loop (dxdrawpoolalpha.cpp) rather than further shader changes.
+    // Reverted to the real transform.
     float4x4 trans = getObjectSkinnedTransform();
     trans = mul(modelview_matrix, trans);
 

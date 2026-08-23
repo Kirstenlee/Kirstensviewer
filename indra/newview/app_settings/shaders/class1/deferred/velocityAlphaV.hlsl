@@ -42,23 +42,31 @@ struct VSInput
     float3 position : POSITION;
     float4 diffuse_color : COLOR0;
     float2 texcoord0 : TEXCOORD0;
+#ifdef HAS_SKIN
+    float4 weight4 : BLENDWEIGHT;
+#endif
+#ifdef HAS_DIFFUSE_LOOKUP
+    int texture_index : TEXTUREINDEX;
+#endif
 };
+
+#include "varying/velocityAlphaVarying.hlsli"
 
 struct VSOutput
 {
     float4 position : SV_Position;
-    float4 vary_cur_clip : TEXCOORD0;
-    float4 vary_last_clip : TEXCOORD1;
-    float2 vary_texcoord0 : TEXCOORD2;
-    float4 vertex_color : COLOR0;
+    VelocityAlphaVarying varying;
+#ifdef HAS_DIFFUSE_LOOKUP
+    nointerpolation int vary_texture_index : VARYTEXTUREINDEX;
+#endif
 };
 
 VSOutput main(VSInput IN)
 {
     VSOutput OUT;
 
-    OUT.vary_texcoord0 = mul(texture_matrix0, float4(IN.texcoord0, 0, 1)).xy;
-    OUT.vertex_color = IN.diffuse_color;
+    OUT.varying.vary_texcoord0 = mul(texture_matrix0, float4(IN.texcoord0, 0, 1)).xy;
+    OUT.varying.vertex_color = IN.diffuse_color;
 
     passTextureIndex();
 
@@ -76,7 +84,7 @@ VSOutput main(VSInput IN)
     float4 last_pos = mul(projection_matrix, mul(last_modelview_matrix, mul(last_object_matrix, float4(IN.position.xyz, 1.0))));
 #endif
 
-    writeVaryVelocity(pos, last_pos, OUT.vary_cur_clip, OUT.vary_last_clip);
+    writeVaryVelocity(pos, last_pos, OUT.varying.vary_cur_clip, OUT.varying.vary_last_clip);
 
     return OUT;
 }

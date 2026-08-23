@@ -1,9 +1,11 @@
 /**
  * @file kvcachethread.h
- * @brief Dedicated worker thread for KVRAMCache operations
+ * @brief Dedicated worker thread for KVRAMCache's passive eviction processing
  *
- * Handles async texture acceptance, eviction, and cache management
- * without blocking the main rendering thread.
+ * Handles async time/pressure-based decay eviction without blocking the
+ * main rendering thread. (Texture acceptance - KVRAMCache::acceptEviction() -
+ * is called synchronously from the fetch worker instead; it was never
+ * routed through this thread.)
  *
  * $LicenseInfo:firstyear=2024&license=viewerlgpl$
  * Kirstens S24 Viewer Source Code
@@ -19,10 +21,10 @@
 #include <memory>
 
 //============================================================================
-// KVCacheThread - Dedicated worker thread for RAM cache operations
+// KVCacheThread - Dedicated worker thread for RAM cache passive eviction
 //
 // Priority: Below decode, above background tasks
-// Purpose: Non-blocking texture acceptance, eviction, stats updates
+// Purpose: Non-blocking time/pressure-based decay eviction
 //============================================================================
 
 class KVCacheThread : public LLQueuedThread
@@ -31,9 +33,7 @@ public:
     // Request types
     enum RequestType
     {
-        REQ_ACCEPT_EVICTION = 0,  // Accept texture from GPU
-        REQ_PROCESS_EVICTION = 1,  // Process passive decay eviction
-        REQ_UPDATE_STATS = 2       // Update cache statistics
+        REQ_PROCESS_EVICTION = 0  // Process passive decay eviction
     };
 
     // Base request class
@@ -53,33 +53,6 @@ public:
 
     protected:
         RequestType mType;
-    };
-
-    // Accept texture from GPU eviction
-    class AcceptEvictionRequest : public CacheRequest
-    {
-    public:
-        AcceptEvictionRequest(handle_t handle,
-                              const LLUUID& uuid,
-                              void* texture_data,
-                              U64 size_bytes,
-                              S32 discard_level,
-                              U32 width,
-                              U32 height,
-                              S8 components);
-
-        virtual ~AcceptEvictionRequest();
-
-        bool processRequest() override;
-
-    private:
-        LLUUID mUUID;
-        void* mTextureData;
-        U64 mSizeBytes;
-        S32 mDiscardLevel;
-        U32 mWidth;
-        U32 mHeight;
-        S8 mComponents;
     };
 
     // Process passive eviction (time-based decay)
@@ -103,14 +76,6 @@ public:
     void shutdown();
 
     // Queue requests (called from main thread)
-    handle_t queueAcceptEviction(const LLUUID& uuid,
-                                  void* texture_data,
-                                  U64 size_bytes,
-                                  S32 discard_level,
-                                  U32 width,
-                                  U32 height,
-                                  S8 components);
-
     void queueProcessEviction(F32 delta_time);
 
     // Main thread callback

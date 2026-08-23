@@ -28,6 +28,8 @@ uniform float4x4 modelview_projection_matrix;
 
 void calcAtmospherics(float3 eye_pos);
 
+#include "varying/sunDiscVarying.hlsli"
+
 struct VSInput
 {
     float3 position : POSITION;
@@ -37,8 +39,7 @@ struct VSInput
 struct VSOutput
 {
     float4 position : SV_Position;
-    float2 vary_texcoord0 : TEXCOORD0;
-    float sun_fade : TEXCOORD1;
+    SunDiscVarying varying;
 };
 
 VSOutput main(VSInput IN)
@@ -50,7 +51,7 @@ VSOutput main(VSInput IN)
     float4 vert = float4(IN.position.xyz - offset, 1.0);
     float4 pos  = mul(modelview_projection_matrix, vert);
 
-    OUT.sun_fade = smoothstep(0.3, 1.0, (IN.position.z + 50) / 512.0f);
+    OUT.varying.sun_fade = smoothstep(0.3, 1.0, (IN.position.z + 50) / 512.0f);
 
     // smash to *almost* far clip plane -- behind clouds but in front of stars
     pos.z = pos.w*0.999999;
@@ -58,7 +59,7 @@ VSOutput main(VSInput IN)
 
     calcAtmospherics(pos.xyz);
 
-    OUT.vary_texcoord0 = mul(texture_matrix0, float4(IN.texcoord0, 0, 1)).xy;
+    OUT.varying.vary_texcoord0 = mul(texture_matrix0, float4(IN.texcoord0, 0, 1)).xy;
 
     return OUT;
 }

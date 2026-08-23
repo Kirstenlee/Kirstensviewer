@@ -44,7 +44,7 @@ GPU Vendor: [GRAPHICS_CARD_VENDOR]
 GPU Model: [GRAPHICS_CARD]
 	</string>
 	<string name="AboutDriver">Windows Graphics Driver Version: [GRAPHICS_DRIVER_VERSION]</string>
-	<string name="AboutOGL">OpenGL Version: [OPENGL_VERSION]</string>
+	<string name="AboutOGL">Graphics API: [OPENGL_VERSION]</string>
 	<string name="AboutSettings">
 Window size: [WINDOW_WIDTH]x[WINDOW_HEIGHT]
 Font Size Adjustment: [FONT_SIZE_ADJUSTMENT]pt

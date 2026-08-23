@@ -38,13 +38,7 @@ SamplerState alpha_rampSampler : register(s4);
 void mirrorClip(float3 position);
 float4 encodeNormal(float3 n, float env, float gbuffer_flag);
 
-struct PSInput
-{
-    float3 pos : TEXCOORD0;
-    float3 vary_normal : TEXCOORD1;
-    float4 vary_texcoord0 : TEXCOORD2;
-    float4 vary_texcoord1 : TEXCOORD3;
-};
+#include "varying/terrainVarying.hlsli"
 
 struct PSOutput
 {
@@ -56,26 +50,35 @@ struct PSOutput
 #endif
 };
 
+// S24 (2026-08-02): see uiF.hlsl's comment - real register mismatch,
+// confirmed via fxc.exe disassembly, affects every bare-Varying PS input.
+struct PSInput
+{
+    float4 position : SV_Position;
+    TerrainVarying varying;
+};
+
 PSOutput main(PSInput IN)
 {
     PSOutput OUT;
-    mirrorClip(IN.pos);
+    mirrorClip(IN.varying.pos);
 
-    float4 color0 = detail_0.Sample(detail_0Sampler, IN.vary_texcoord0.xy);
-    float4 color1 = detail_1.Sample(detail_1Sampler, IN.vary_texcoord0.xy);
-    float4 color2 = detail_2.Sample(detail_2Sampler, IN.vary_texcoord0.xy);
-    float4 color3 = detail_3.Sample(detail_3Sampler, IN.vary_texcoord0.xy);
+    float4 color0 = detail_0.Sample(detail_0Sampler, IN.varying.vary_texcoord0.xy);
+    float4 color1 = detail_1.Sample(detail_1Sampler, IN.varying.vary_texcoord0.xy);
+    float4 color2 = detail_2.Sample(detail_2Sampler, IN.varying.vary_texcoord0.xy);
+    float4 color3 = detail_3.Sample(detail_3Sampler, IN.varying.vary_texcoord0.xy);
 
-    float alpha1 = alpha_ramp.Sample(alpha_rampSampler, IN.vary_texcoord0.zw).a;
-    float alpha2 = alpha_ramp.Sample(alpha_rampSampler, IN.vary_texcoord1.xy).a;
-    float alphaFinal = alpha_ramp.Sample(alpha_rampSampler, IN.vary_texcoord1.zw).a;
+    float alpha1 = alpha_ramp.Sample(alpha_rampSampler, IN.varying.vary_texcoord0.zw).a;
+    float alpha2 = alpha_ramp.Sample(alpha_rampSampler, IN.varying.vary_texcoord1.xy).a;
+    float alphaFinal = alpha_ramp.Sample(alpha_rampSampler, IN.varying.vary_texcoord1.zw).a;
+
     float4 outColor = lerp(lerp(color3, color2, alpha2), lerp(color1, color0, alpha1), alphaFinal);
 
     outColor.a = 0.0;
 
     OUT.data0 = max(outColor, float4(0, 0, 0, 0));
     OUT.data1 = float4(0.0, 0.0, 0.0, -1.0);
-    float3 nvn = normalize(IN.vary_normal);
+    float3 nvn = normalize(IN.varying.vary_normal);
     OUT.data2 = encodeNormal(nvn.xyz, 0, GBUFFER_FLAG_HAS_ATMOS);
 
 #if defined(HAS_EMISSIVE)

@@ -34,6 +34,7 @@
 #include "llerror.h"
 #include "llfasttimer.h"
 #include "llimage.h"
+#include <unordered_map>
 
 #include "llmath.h"
 #include "llgl.h"
@@ -43,6 +44,10 @@
 #include "llframetimer.h"
 #include <format>  // S24: For std::format (C++20)
 #include <unordered_set>
+
+#ifdef DX_RENDER
+#include "DXReadback.h"
+#endif
 
 extern LL_COMMON_API bool on_main_thread();
 
@@ -123,6 +128,63 @@ void LLImageGLMemory::free_cur_tex_image()
     llassert(texUnit == 0); // frees should always be done on tex unit 0
     U32 texName = gGL.getTexUnit(texUnit)->getCurrTexture();
     free_tex_image(texName);
+}
+
+// S24 (2026-08-16): DX_RENDER-specific texture memory accounting. The GL
+// mechanism above is keyed by texName, but under DX_RENDER every LLImageGL's
+// mTexName is a shared fake sentinel constant (always 1, see
+// createGLTexture()'s DX_RENDER branch) - not a real per-texture identifier.
+// Reusing sTextureAllocs's texName-keyed map as-is would silently corrupt
+// across every DX_RENDER texture (every alloc/free would collide on the same
+// key). Keyed by an opaque pointer instead - callers pass the owning
+// LLImageGL instance (`this`), which is genuinely unique and stable for the
+// object's whole lifetime, unlike the underlying DXTexture's D3D11 resource
+// (which changes identity on every scaleDown()/resize).
+//
+// This only feeds updateClass()'s self-estimate FALLBACK path (used when the
+// live DXGI VRAM query is unavailable - see LLViewerTexture::updateClass()'s
+// has_live_vram_info check) - the primary, always-preferred path doesn't
+// read this at all. But before this fix it was a hard-zero blind spot for
+// every DX_RENDER texture: if the live DXGI query ever failed to initialize,
+// the pressure system would see near-zero texture memory used and likely
+// never ramp eviction bias even under real, severe VRAM exhaustion.
+static std::unordered_map<const void*, U64> sDXTextureAllocs;
+
+void LLImageGLMemory::allocDXTextureBytes(const void* key, U64 size)
+{
+    sTexMemMutex.lock();
+    auto iter = sDXTextureAllocs.find(key);
+    if (iter != sDXTextureAllocs.end())
+    {
+        // Unlike alloc_tex_image() above (which asserts no existing
+        // allocation - GL always frees/regenerates a name first), a
+        // DX_RENDER texture's underlying resource can legitimately be
+        // re-created on the SAME LLImageGL instance without an intervening
+        // destroyGLTexture()/freeDXTextureBytes() call - normal discard-
+        // level streaming re-uploads routinely do exactly this. Adjust the
+        // tracked size in place rather than asserting.
+        sTextureBytes.fetch_sub(iter->second, std::memory_order_relaxed);
+        iter->second = size;
+    }
+    else
+    {
+        sDXTextureAllocs[key] = size;
+    }
+    sTextureBytes.fetch_add(size, std::memory_order_relaxed);
+    sTexMemMutex.unlock();
+}
+
+void LLImageGLMemory::freeDXTextureBytes(const void* key)
+{
+    sTexMemMutex.lock();
+    auto iter = sDXTextureAllocs.find(key);
+    if (iter != sDXTextureAllocs.end())
+    {
+        llassert(iter->second <= sTextureBytes); // sTextureBytes MUST NOT go below zero
+        sTextureBytes.fetch_sub(iter->second, std::memory_order_relaxed);
+        sDXTextureAllocs.erase(iter);
+    }
+    sTexMemMutex.unlock();
 }
 
 using namespace LLImageGLMemory;
@@ -252,17 +314,41 @@ void LLImageGL::initClass(LLWindow* window, S32 num_catagories, bool skip_analyz
     LL_PROFILE_ZONE_SCOPED_CATEGORY_TEXTURE;
     sSkipAnalyzeAlpha = skip_analyze_alpha;
 
+#ifndef DX_RENDER
     if (sScratchPBO == 0)
     {
         glGenBuffers(1, &sScratchPBO);
     }
+#endif
 
+#ifdef DX_RENDER
+    // S24 (2026-08-16): superseded - the worker thread is now real under
+    // DX_RENDER too (task #98-adjacent KVTweaks "DX Texture/Media Loading"
+    // overhaul). The GL-context concern the old version of this comment
+    // raised no longer applies: run() skips GL setup entirely under
+    // DX_RENDER (see its comment), and DXTexture::create()/updateSubImage()
+    // now support deferring their ID3D11DeviceContext calls
+    // (UpdateSubresource/GenerateMips - the actually-not-thread-safe part)
+    // to the main thread via defer_upload, while doing the free-threaded
+    // ID3D11Device work (CreateTexture2D/CreateShaderResourceView + CPU-side
+    // repack) right here on this thread. No GL-version floor to check
+    // (gGLManager.mGLVersion is a GL capability number, meaningless here) -
+    // the renamed KVTweaks toggles (RenderDXMultiThreadedTextures/Media) are
+    // the only gate now.
+    if (thread_texture_loads || thread_media_updates)
+    {
+        LLImageGLThread::createInstance(window);
+        LLImageGLThread::sEnabledTextures = thread_texture_loads;
+        LLImageGLThread::sEnabledMedia = thread_media_updates;
+    }
+#else
     if (thread_texture_loads || thread_media_updates)
     {
         LLImageGLThread::createInstance(window);
         LLImageGLThread::sEnabledTextures = gGLManager.mGLVersion > 3.95f ? thread_texture_loads : false;
         LLImageGLThread::sEnabledMedia = gGLManager.mGLVersion > 3.95f ? thread_media_updates : false;
     }
+#endif
 }
 
 void LLImageGL::allocateConversionBuffer()
@@ -757,6 +843,111 @@ bool LLImageGL::setImage(const U8* data_in, bool data_hasmips /* = false */, S32
 {
     LL_PROFILE_ZONE_SCOPED_CATEGORY_TEXTURE;
 
+#ifdef DX_RENDER
+    // data_in == nullptr is NOT a rare/unsupported case - confirmed via
+    // logging (2026-07-21) that every real "unbound" hit at startup was
+    // exactly this: LLViewerFetchedTexture's normal discard-level streaming
+    // pattern creates the texture object before real pixel data has
+    // arrived, matching GL's own glTexImage2D(..., nullptr) allocate-only
+    // call. DXTexture::create() now tolerates null data the same way.
+    // S24 (2026-07-23): a diagnostic here (a per-instance repeat-call
+    // counter) confirmed LLImageGL::setSubImage()'s full-image HACK branch
+    // was calling this function on every single glyph addition, each call
+    // destroying/recreating the whole DXTexture and its SRV - traced to
+    // the actual "no text" root cause and fixed at setSubImage() itself
+    // (that branch is now DX_RENDER-excluded, see there).
+    //
+    // S24 (2026-07-25): this used to also require !data_hasmips, silently
+    // skipping DXTexture::create() entirely (texture "renders unbound",
+    // i.e. falls back to the white-texture SRV at bind time) for EVERY
+    // texture uploaded with a pre-baked mip chain in one buffer - which is
+    // LLViewerFetchedTexture's normal streaming format for real asset
+    // textures (world/UI skin images), not an edge case. Confirmed by
+    // reading the GL branch's own loop below: it walks d=mCurrentDiscardLevel
+    // up to mMaxDiscardLevel, only decrementing `data_in` backward for
+    // d > mCurrentDiscardLevel - meaning `data_in` AS RECEIVED already
+    // points at the top-level (most detailed, gl_level=0) image with no
+    // offset needed, identical to the already-working !data_hasmips case.
+    // Since DXTexture::create() can already synthesize the rest of the
+    // chain via GenerateMips() (stage 7), the pre-baked lower-res mips
+    // later in the buffer simply go unread instead of being needed - no
+    // real gap once mips are generated on the GPU side. Real gap that
+    // remains: block-compressed (S3TC/DXT) formats - DXTexture::create()'s
+    // repackPixel() assumes raw 1-4 component uncompressed pixels, and
+    // decoding/uploading compressed formats is genuine new feature work,
+    // not covered here.
+    if (!isCompressed())
+    {
+        // S24 (2026-08-06): GL_ALPHA-format 1-component sources (terrain's
+        // alpha_ramp gradients) store their data in the alpha channel, not
+        // luminance/RGB - see DXTexture::create()'s alpha_only comment.
+        // S24 (2026-08-16): defer the GPU-side upload when this is running
+        // on the LLImageGLThread background thread (task #98-adjacent
+        // KVTweaks overhaul) - the repack + CreateTexture2D/
+        // CreateShaderResourceView above already happened regardless (those
+        // are free-threaded Device calls); only the mip-0 UpdateSubresource/
+        // GenerateMips Context calls need to wait for the main thread. The
+        // caller (LLViewerFetchedTexture::scheduleCreateTexture()) completes
+        // it via finalizePendingGPUUpload() in its main-thread callback.
+        // S24 (task #223/#222 follow-up, 2026-08-18): mFormatPrimary==GL_BGRA
+        // is CEF's declared source format (media_plugin_cef.cpp) - GL handles
+        // the reorder natively via glTexImage2D's format param, DXTexture has
+        // no equivalent and must swap R/B itself (see its create() comment).
+        // Without this, all CEF/media content (web media, login screen) had
+        // a systematic R/B hue shift under DX_RENDER.
+        if (!mDXTexture.create(data_in, getWidth(), getHeight(), mComponents, mUseMipMaps, mFormatPrimary == GL_ALPHA, !on_main_thread(), mFormatPrimary == GL_BGRA))
+        {
+            LL_WARNS("Texture") << "LLImageGL::setImage: DXTexture::create failed" << LL_ENDL;
+        }
+    }
+    else
+    {
+        // S24 (2026-08-16, task #85): real DXGI BC1-3 upload, replacing the
+        // permanent "renders unbound" (falls back to the white-texture SRV)
+        // decline this branch used to be. GL enum -> DXGI_FORMAT mapping is
+        // 1:1 with isCompressed()'s own switch above - only these 6 formats
+        // can reach this branch. Mip0-only (see DXTexture::createCompressed()'s
+        // header comment for why a full mip chain isn't possible for BC
+        // formats) - same top-level-data convention as the uncompressed
+        // branch above (data_in already points at mCurrentDiscardLevel's
+        // image regardless of data_hasmips, per this function's own
+        // 2026-07-25 comment). SRGB GL variants map to the plain UNORM DXGI
+        // format, not the _SRGB one - this pipeline already does its own
+        // manual srgb_to_linear() in shader code (see pbralphaF.hlsl etc.)
+        // rather than relying on hardware-decode SRGB views anywhere else,
+        // and mixing the two here would double-decode.
+        DXGI_FORMAT dx_format = DXGI_FORMAT_UNKNOWN;
+        switch (mFormatPrimary)
+        {
+        case GL_COMPRESSED_RGBA_S3TC_DXT1_EXT:
+        case GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT1_EXT:
+            dx_format = DXGI_FORMAT_BC1_UNORM;
+            break;
+        case GL_COMPRESSED_RGBA_S3TC_DXT3_EXT:
+        case GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT3_EXT:
+            dx_format = DXGI_FORMAT_BC2_UNORM;
+            break;
+        case GL_COMPRESSED_RGBA_S3TC_DXT5_EXT:
+        case GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT5_EXT:
+            dx_format = DXGI_FORMAT_BC3_UNORM;
+            break;
+        default:
+            break;
+        }
+
+        if (dx_format == DXGI_FORMAT_UNKNOWN)
+        {
+            LL_WARNS_ONCE("Texture") << "LLImageGL::setImage: unrecognized compressed format, texture will render unbound"
+                << " (mFormatPrimary=0x" << std::hex << mFormatPrimary << std::dec << ")" << LL_ENDL;
+        }
+        else if (!mDXTexture.createCompressed(data_in, getWidth(), getHeight(), dx_format))
+        {
+            LL_WARNS("Texture") << "LLImageGL::setImage: DXTexture::createCompressed failed" << LL_ENDL;
+        }
+    }
+    return true;
+#endif
+
     const bool is_compressed = isCompressed();
 
     if (mUseMipMaps)
@@ -1147,11 +1338,27 @@ bool LLImageGL::setSubImage(const U8* datap, S32 data_width, S32 data_height, S3
     }
 
     // HACK: allow the caller to explicitly force the fast path (i.e. using glTexSubImage2D here instead of calling setImage) even when updating the full texture.
+    // S24 (2026-07-23): "no text" investigation - under DX_RENDER, taking
+    // this branch means calling setImage(), whose DX_RENDER implementation
+    // unconditionally does mDXTexture.create() - a full destroy()+recreate
+    // of the texture and SRV, unlike GL's lightweight in-place
+    // re-specification of an existing texture name. addGlyphFromFont()'s
+    // setSubImage() call always covers the full atlas (x_pos=0, y_pos=0,
+    // width/height=getWidth()/getHeight()), so every single glyph addition
+    // was hitting this branch and destroying/recreating the whole font
+    // atlas texture from scratch - confirmed via a call-counter diagnostic
+    // (21+ repeat create() calls on one object within the first second of
+    // startup, continuing during actual text rendering). The incremental
+    // path below (UpdateSubresource() via DXTexture::updateSubImage()) is
+    // correct and safe even for a full-extent write, so DX_RENDER always
+    // takes it instead.
+#ifndef DX_RENDER
     if (!force_fast_update && x_pos == 0 && y_pos == 0 && width == getWidth() && height == getHeight() && data_width == width && data_height == height)
     {
         setImage(datap, false, tex_name);
     }
     else
+#endif
     {
         if (mUseMipMaps)
         {
@@ -1189,6 +1396,27 @@ bool LLImageGL::setSubImage(const U8* datap, S32 data_width, S32 data_height, S3
                    << LL_ENDL;
         }
 
+#ifdef DX_RENDER
+        // Mirrors GL's GL_UNPACK_ROW_LENGTH + glTexSubImage2D below - see
+        // DXTexture::updateSubImage()'s comment. All the validation above
+        // (mUseMipMaps/discard-level/bounds asserts) is shared/backend-
+        // agnostic and already ran.
+        // S24 (2026-08-16): defer when off the main thread (media playback's
+        // LLImageGLThread path, per DXTexture's top comment) - same reasoning
+        // as setImage() above. Font glyph updates always run on the main
+        // thread already, so !on_main_thread() naturally stays false there.
+        // S24 (task #223/#222 follow-up, 2026-08-18): this is the actual
+        // per-CEF-paint hot path (LLViewerMediaImpl::doMediaTexUpdate() ->
+        // setSubImage() -> here, every frame CEF repaints) - see setImage()'s
+        // matching comment above for why mFormatPrimary==GL_BGRA must be
+        // threaded through here too, not just the one-time create() path.
+        if (!mDXTexture.updateSubImage(datap, data_width, x_pos, y_pos, width, height, mComponents, mFormatPrimary == GL_ALPHA, !on_main_thread(), mFormatPrimary == GL_BGRA))
+        {
+            LL_WARNS("Texture") << "LLImageGL::setSubImage: DXTexture::updateSubImage failed" << LL_ENDL;
+        }
+        mGLTextureCreated = true;
+        return true;
+#endif
 
         glPixelStorei(GL_UNPACK_ROW_LENGTH, data_width);
         stop_glerror();
@@ -1243,6 +1471,22 @@ bool LLImageGL::setSubImage(const LLImageRaw* imageraw, S32 x_pos, S32 y_pos, S3
 // Copy sub image from frame buffer
 bool LLImageGL::setSubImageFromFrameBuffer(S32 fb_x, S32 fb_y, S32 x_pos, S32 y_pos, S32 width, S32 height)
 {
+#ifdef DX_RENDER
+    // S24 (DX_RENDER, 2026-07-30): confirmed live, not dead code - reached
+    // from LLViewerDynamicTexture::postRender() (snapshot/preview
+    // thumbnails) and llterrainpaintmap.cpp (PBR terrain paint-map baking).
+    // Was previously completely unguarded (raw glCopyTexSubImage2D, no
+    // DX_RENDER branch at all) - a guaranteed no-op/undefined-behavior call
+    // with no active GL context. DXTexture::copySubImageFromFrameBuffer()
+    // does the real work via CopySubresourceRegion against whatever render
+    // target is currently bound.
+    if (!mDXTexture.copySubImageFromFrameBuffer(fb_x, fb_y, x_pos, y_pos, width, height))
+    {
+        return false;
+    }
+    mGLTextureCreated = true;
+    return true;
+#else
     if (gGL.getTexUnit(0)->bind(this, false, true))
     {
         glCopyTexSubImage2D(GL_TEXTURE_2D, 0, fb_x, fb_y, x_pos, y_pos, width, height);
@@ -1254,12 +1498,36 @@ bool LLImageGL::setSubImageFromFrameBuffer(S32 fb_x, S32 fb_y, S32 x_pos, S32 y_
     {
         return false;
     }
+#endif
 }
 
 // static
 void LLImageGL::generateTextures(S32 numTextures, U32 *textures)
 {
     LL_PROFILE_ZONE_SCOPED_CATEGORY_TEXTURE;
+#ifdef DX_RENDER
+    // S24 (DX_RENDER): this was completely unguarded raw glGenTextures() -
+    // a real, live gap (unlike deleteTextures() just below, which happens
+    // to already no-op safely under DX_RENDER since its whole body is
+    // gated on gGLManager.mInited, never true here). Confirmed reachable
+    // callers under DX_RENDER: LLRenderTarget::allocate()/allocateDepth(),
+    // LLCubeMap/LLCubeMapArray construction, pipeline.cpp's noise/SMAA/
+    // light-function textures, LLReflectionMapManager, LLVOAvatar's baked
+    // textures - none of these have their own DX_RENDER guard around this
+    // call. Every real caller only needs a unique, non-zero, stable
+    // U32 "name" to use as an opaque key (DXTexture/LLGLTexture lookups
+    // don't go through the GL name at all under DX_RENDER) - hand out an
+    // incrementing counter instead of a repeated sentinel (repeating a
+    // fixed value like createGLTexture()'s "mTexName = 1" would risk
+    // aliasing distinct textures onto the same key wherever one of these
+    // names is used as a map key downstream).
+    static U32 s_next_name = 1;
+    for (S32 i = 0; i < numTextures; ++i)
+    {
+        textures[i] = s_next_name++;
+    }
+    return;
+#endif
     static constexpr U32 pool_size = 1024;
     static thread_local U32 name_pool[pool_size]; // pool of texture names
     static thread_local U32 name_count = 0; // number of available names in the pool
@@ -1512,6 +1780,24 @@ bool LLImageGL::createGLTexture()
 
     mGLTextureCreated = false ; //do not save this texture when gl is destroyed.
 
+#ifdef DX_RENDER
+    // S24 (DX_RENDER, 2026-07-30): GL's version only reserves a name here -
+    // real storage is allocated later, outside this function, by whoever
+    // calls setManualImage()/glTexImage2D against it (e.g.
+    // LLManipTranslate::restoreGL()'s edit-tool grid texture). This was
+    // previously completely unguarded (raw glGenTextures/glDeleteTextures
+    // via generateTextures()/deleteTextures(), undefined behavior with no
+    // GL context). Mirrors that same "name reserved, no storage yet"
+    // semantic under DX_RENDER: mDXTexture stays unallocated (mTexture ==
+    // nullptr) until a real create()/updateSubImage() call gives it actual
+    // dimensions and pixel data - there is no DX11 equivalent of "reserve a
+    // name with no size" to allocate here. Known follow-up, not silently
+    // assumed fixed: setManualImage() itself (this texture's real content
+    // upload path, e.g. the grid's checkerboard mip chain) still has no
+    // DX_RENDER branch - flagged separately, out of scope for this fix.
+    mTexName = 1; // non-zero sentinel - never used as a real GL name under DX_RENDER, see getHasGLTexture()
+    return true;
+#else
     llassert(gGLManager.mInited);
     stop_glerror();
 
@@ -1531,6 +1817,7 @@ bool LLImageGL::createGLTexture()
     }
 
     return true ;
+#endif
 }
 
 bool LLImageGL::createGLTexture(S32 discard_level, const LLImageRaw* imageraw, S32 usename/*=0*/, bool to_create, S32 category, bool defer_copy, LLGLuint* tex_name)
@@ -1538,6 +1825,7 @@ bool LLImageGL::createGLTexture(S32 discard_level, const LLImageRaw* imageraw, S
     LL_PROFILE_ZONE_SCOPED_CATEGORY_TEXTURE;
     checkActiveThread();
 
+#ifndef DX_RENDER
     if (gGLManager.mIsDisabled)
     {
         LL_WARNS() << "Trying to create a texture while GL is disabled!" << LL_ENDL;
@@ -1546,6 +1834,7 @@ bool LLImageGL::createGLTexture(S32 discard_level, const LLImageRaw* imageraw, S
 
     llassert(gGLManager.mInited);
     stop_glerror();
+#endif
 
     if (!imageraw || imageraw->isBufferInvalid())
     {
@@ -1638,6 +1927,53 @@ bool LLImageGL::createGLTexture(S32 discard_level, const U8* data_in, bool data_
     LL_PROFILE_ZONE_SCOPED_CATEGORY_TEXTURE;
     LL_PROFILE_GPU_ZONE("createGLTexture");
     checkActiveThread();
+
+#ifdef DX_RENDER
+    // Deliberately scoped-down first pass (see setImage()'s comment) - skips
+    // GL texture-name generation/bind/mip-parameter setup entirely (none of
+    // it applies to a DXTexture) and creates it directly via setImage().
+    // mTexName is set to a non-zero sentinel - never used as a real GL name
+    // under DX_RENDER (every GL call that would consume it is already
+    // bypassed elsewhere) - purely so backend-agnostic callers of
+    // getHasGLTexture()/isGLTextureCreated() still see "yes, this texture is
+    // ready" once uploaded.
+    if (defer_copy)
+    {
+        data_in = nullptr;
+    }
+
+    if (discard_level < 0)
+    {
+        discard_level = llmax((S32)mCurrentDiscardLevel, 0);
+    }
+    discard_level = llclamp(discard_level, 0, (S32)mMaxDiscardLevel);
+    discard_level = llmin(discard_level, MAX_DISCARD_LEVEL);
+    mCurrentDiscardLevel = discard_level;
+
+    bool success = setImage(data_in, data_hasmips);
+    mGLTextureCreated = success;
+    mTexName = success ? 1 : 0;
+
+    // S24 (2026-08-16): populate the per-texture GPU-footprint accounting
+    // under DX_RENDER too - this code path returns before line ~1954's
+    // GL-only assignment below, so this was previously never set at all
+    // (every DX_RENDER texture reported 0 bytes to the texture console and
+    // avatar render-cost/complexity calculations). getMipBytes() is
+    // DX_RENDER-aware (RGBA8-correct) as of this same change.
+    if (success)
+    {
+        mTextureMemory = (S64Bytes)getMipBytes(mCurrentDiscardLevel);
+        // S24 (2026-08-16): feed the sTextureBytes fallback total too - see
+        // allocDXTextureBytes()'s comment.
+        LLImageGLMemory::allocDXTextureBytes(this, mTextureMemory.value());
+    }
+
+    if (tex_name != nullptr)
+    {
+        *tex_name = mTexName;
+    }
+    return success;
+#endif
 
     bool main_thread = on_main_thread();
 
@@ -1751,6 +2087,42 @@ void LLImageGL::syncToMainThread(LLGLuint new_tex_name)
     LL_PROFILE_ZONE_SCOPED;
     llassert(!on_main_thread());
 
+#ifdef DX_RENDER
+    // Reached from LLViewerMediaImpl::doMediaTexUpdate() on the media
+    // update worker thread (e.g. every CEF frame for an embedded browser -
+    // LLPanelLogin's own "login_html" LLMediaCtrl is exactly this path,
+    // meaning this was very likely the actual reason the login form never
+    // painted while the surrounding scene/splash rendered fine). The GL
+    // fence/flush dance below is pure GL cross-context-sync machinery -
+    // under DX_RENDER there's no GL context at all on this thread, so
+    // glFenceSync/glWaitSync (extension-loaded, never bound without a real
+    // context) are effectively null and would crash, or - if somehow
+    // non-null - would block forever on a fence nothing will ever signal.
+    // DXTexture::create()/updateSubImage() (called synchronously just
+    // before this, by createGLTexture()/setSubImage() above this
+    // function's only caller) already issue their D3D11 calls immediately,
+    // so just post the texture-name swap straight to the main thread,
+    // skipping the GL-specific fence wait entirely.
+    // S24 (2026-08-01): the "is DXDevice's immediate context safe to call
+    // from this worker thread concurrently with the main thread" question
+    // flagged here previously is resolved, not just documented - see
+    // LLImageGL::initClass()'s DX_RENDER branch, which now forces
+    // sEnabledTextures/sEnabledMedia off unconditionally. This function
+    // (and the createTexture() worker-thread path) should no longer be
+    // reachable at all under DX_RENDER; left in place rather than deleted
+    // in case some other caller of LL::WorkQueue::postMaybe(mMainQueue,...)
+    // still exists.
+    ref();
+    LL::WorkQueue::postMaybe(
+        mMainQueue,
+        [=, this]()
+        {
+            syncTexName(new_tex_name);
+            unref();
+        });
+    return;
+#endif
+
     {
         LL_PROFILE_ZONE_NAMED("cglt - sync");
         if (gGLManager.mIsNVIDIA)
@@ -1822,6 +2194,77 @@ bool LLImageGL::readBackRaw(S32 discard_level, LLImageRaw* imageraw, bool compre
         discard_level = mCurrentDiscardLevel;
     }
 
+#ifdef DX_RENDER
+    // S24 (DX_RENDER, 2026-07-25): was completely unguarded raw
+    // glGetTexLevelParameteriv()/glGetTexImage()/glGetCompressedTexImage() -
+    // the mTexName==0 early-return below doesn't catch DX_RENDER textures
+    // (mTexName is set to the sentinel 1 on successful creation, see
+    // createGLTexture()'s DX_RENDER branch), so this would fall straight
+    // through into raw GL calls whenever actually reached (texture
+    // eviction/reload under memory pressure - part of this project's
+    // KVRAMCache/texture-aging system, not a rare edge case). Real fix, not
+    // a stub: uses DXReadback (already built this session for screenshot/
+    // color-picker support) to read the texture's real GPU content back.
+    // Deliberately scoped down like DXTexture::create() itself: only the
+    // current top-level mip (discard_level == mCurrentDiscardLevel) is
+    // supported - DXTexture doesn't store discrete per-discard-level
+    // resources, and DXReadback has no subresource/mip-index parameter yet.
+    // Compressed-format readback (compressed_ok) isn't supported either,
+    // matching DXTexture's own lack of compressed-format support (see
+    // LLImageGL::setImage()'s isCompressed() branch).
+    if (discard_level != mCurrentDiscardLevel)
+    {
+        return false;
+    }
+
+    ID3D11Texture2D* dx_tex = mDXTexture.getTexture();
+    if (!dx_tex)
+    {
+        return false;
+    }
+
+    S32 dx_width = getWidth(discard_level);
+    S32 dx_height = getHeight(discard_level);
+    S32 dx_ncomponents = getComponents();
+    if (dx_ncomponents == 0 || dx_width <= 0 || dx_height <= 0)
+    {
+        return false;
+    }
+
+    LLImageDataLock dx_lock(imageraw);
+    if (!imageraw->allocateDataSize(dx_width, dx_height, dx_ncomponents))
+    {
+        return false;
+    }
+
+    // DXTexture always stores RGBA8 on the GPU regardless of the source's
+    // real component count (see DXTexture::create()'s repackPixel()) - read
+    // back the full RGBA8 content, then repack down to dx_ncomponents the
+    // same way GL's own luminance/luminance-alpha/RGB formats are derived
+    // from an RGBA source, mirroring repackPixel() in reverse.
+    std::vector<uint8_t> rgba((size_t)dx_width * dx_height * 4);
+    if (!DXReadback::readPixels(dx_tex, 0, 0, dx_width, dx_height, 4, rgba.data()))
+    {
+        return false;
+    }
+
+    U8* dx_dst = imageraw->getData();
+    for (S32 i = 0; i < dx_width * dx_height; ++i)
+    {
+        const uint8_t* src = &rgba[(size_t)i * 4];
+        U8* d = dx_dst + (size_t)i * dx_ncomponents;
+        switch (dx_ncomponents)
+        {
+        case 1: d[0] = src[0]; break;
+        case 2: d[0] = src[0]; d[1] = src[3]; break;
+        case 3: d[0] = src[0]; d[1] = src[1]; d[2] = src[2]; break;
+        case 4: d[0] = src[0]; d[1] = src[1]; d[2] = src[2]; d[3] = src[3]; break;
+        default: return false;
+        }
+    }
+
+    return true;
+#else
     if (mTexName == 0 || discard_level < mCurrentDiscardLevel || discard_level > mMaxDiscardLevel )
     {
         return false;
@@ -1937,6 +2380,7 @@ bool LLImageGL::readBackRaw(S32 discard_level, LLImageRaw* imageraw, bool compre
     }
 
     return true ;
+#endif // DX_RENDER
 }
 
 void LLImageGL::destroyGLTexture()
@@ -1950,7 +2394,17 @@ void LLImageGL::destroyGLTexture()
             mTextureMemory = (S64Bytes)0;
         }
 
+#ifdef DX_RENDER
+        // mTexName is a non-zero sentinel under DX_RENDER (see
+        // createGLTexture()'s comment), not a real GL name - deleteTextures()
+        // (glDeleteTextures) must not be called with it.
+        // S24 (2026-08-16): free this instance's tracked accounting - see
+        // allocDXTextureBytes()/freeDXTextureBytes()'s comment.
+        LLImageGLMemory::freeDXTextureBytes(this);
+        mDXTexture.destroy();
+#else
         LLImageGL::deleteTextures(1, &mTexName);
+#endif
         mCurrentDiscardLevel = -1 ; //invalidate mCurrentDiscardLevel.
         mTexName = 0;
         mGLTextureCreated = false ;
@@ -2008,6 +2462,16 @@ bool LLImageGL::getIsResident(bool test_now)
 {
     if (test_now)
     {
+#ifdef DX_RENDER
+        // S24 (DX_RENDER): raw glAreTexturesResident() has no D3D11
+        // equivalent concept (residency is driver/OS-managed, not queried
+        // this way) - this function's only caller is gated behind
+        // #ifdef DEBUG_MISS, which is never defined anywhere in this
+        // codebase, so this is currently dead code in every real build,
+        // GL or DX_RENDER. Guarded anyway for correctness/consistency
+        // rather than relying on that happening to stay true.
+        mIsResident = mTexName != 0;
+#else
         if (mTexName != 0)
         {
             glAreTexturesResident(1, (GLuint*)&mTexName, &mIsResident);
@@ -2016,6 +2480,7 @@ bool LLImageGL::getIsResident(bool test_now)
         {
             mIsResident = false;
         }
+#endif
     }
 
     return mIsResident;
@@ -2064,14 +2529,32 @@ S64 LLImageGL::getMipBytes(S32 discard_level) const
     }
     S32 w = mWidth>>discard_level;
     S32 h = mHeight>>discard_level;
+#ifdef DX_RENDER
+    // S24 (2026-08-16): DXTexture::create() unconditionally repacks every
+    // source format to DXGI_FORMAT_R8G8B8A8_UNORM (4 bytes/pixel) - see its
+    // header comment - regardless of what mFormatPrimary (the SOURCE
+    // format) says. Using dataFormatBytes(mFormatPrimary,...) here would
+    // undercount real GPU footprint by up to 4x for 1-3 component sources
+    // (luminance/RGB). This is the actual per-texture accounting this
+    // codebase's texture console and avatar render-cost/complexity (ARC)
+    // calculations read - both silently reported 0 for every DX_RENDER
+    // texture before this fix (unreachable call site, see
+    // createGLTexture()'s DX_RENDER branch).
+    S64 res = (S64)w * h * 4;
+#else
     S64 res = dataFormatBytes(mFormatPrimary, w, h);
+#endif
     if (mUseMipMaps)
     {
         while (w > 1 && h > 1)
         {
             w >>= 1; if (w == 0) w = 1;
             h >>= 1; if (h == 0) h = 1;
+#ifdef DX_RENDER
+            res += (S64)w * h * 4;
+#else
             res += dataFormatBytes(mFormatPrimary, w, h);
+#endif
         }
     }
     return res;
@@ -2466,6 +2949,61 @@ bool LLImageGL::scaleDown(S32 desired_discard)
 {
     LL_PROFILE_ZONE_SCOPED_CATEGORY_TEXTURE;
 
+#ifdef DX_RENDER
+    // S24 (2026-08-16): real D3D11 downscale - was a permanent "decline to
+    // downscale" stub (see git history for the original reasoning: no
+    // ported equivalent existed for GL's glViewport/glDrawArrays/
+    // glTexImage2D/glCopyTexSubImage2D/glGenerateMipmap/glGetTexImage/PBO
+    // sequence below). This was the actual mechanism behind the whole
+    // VRAM-pressure discard-bias system for already-resident textures -
+    // silently dead under DX_RENDER, not a cosmetic gap.
+    //
+    // Mirrors GL's own PBO method's insight (glGetTexImage(mip=...) below
+    // reads an ALREADY-COMPUTED mip level rather than re-rendering a fresh
+    // downsample) - every real caller (LLViewerLODTexture) is guaranteed to
+    // already have a full mip chain (calcDesiredDiscardLevel() explicitly
+    // routes !mUseMipMaps textures around ever requesting a nonzero desired
+    // discard level), so DXTexture::scaleDown() below can do this as a pure
+    // GPU-to-GPU resource copy - cheaper than GL's CPU-roundtrip PBO path.
+    //
+    // Scoped in its own block: the GL code below isn't wrapped in #else (it
+    // falls through textually after this #endif, dead-but-still-compiled
+    // under DX_RENDER, matching this function's pre-existing structure) -
+    // without this brace scope, these locals would collide with the
+    // same-named ones the GL code declares further down in the same
+    // function scope.
+    {
+        if (mFormatInternal == -1) // not initialized
+        {
+            return false;
+        }
+
+        desired_discard = llmin(desired_discard, mMaxDiscardLevel);
+
+        if (desired_discard <= mCurrentDiscardLevel)
+        {
+            return false;
+        }
+
+        S32 mip = desired_discard - mCurrentDiscardLevel;
+        S32 desired_width = getWidth(desired_discard);
+        S32 desired_height = getHeight(desired_discard);
+
+        if (!mDXTexture.scaleDown(mip, desired_width, desired_height))
+        {
+            return false;
+        }
+
+        mCurrentDiscardLevel = desired_discard;
+        mTextureMemory = (S64Bytes)getMipBytes(mCurrentDiscardLevel);
+        // S24 (2026-08-16): feed the sTextureBytes fallback total too - see
+        // allocDXTextureBytes()'s comment.
+        LLImageGLMemory::allocDXTextureBytes(this, mTextureMemory.value());
+
+        return true;
+    }
+#endif
+
     if (mTarget != GL_TEXTURE_2D
         || mFormatInternal == -1 // not initialized
         )
@@ -2631,13 +3169,29 @@ LLImageGLThread::LLImageGLThread(LLWindow* window)
     LL_PROFILE_ZONE_SCOPED_CATEGORY_TEXTURE;
     mFinished = false;
 
+#ifndef DX_RENDER
+    // S24 (2026-08-16): run()'s DX_RENDER branch never uses mContext (no
+    // per-thread GL context needed - see its comment), so don't create one
+    // here either. Untested/unverified territory for a real secondary GL
+    // context against a DX_RENDER window, and simply unnecessary.
     mContext = mWindow->createSharedContext();
+#endif
     LL::ThreadPool::start();
 }
 
 void LLImageGLThread::run()
 {
     LL_PROFILE_ZONE_SCOPED_CATEGORY_TEXTURE;
+#ifdef DX_RENDER
+    // S24 (2026-08-16): the GL setup/teardown below (a second GL context
+    // sharing objects with the main one) doesn't apply under DX_RENDER at
+    // all - D3D11 has no "current context" concept, and the actual DX work
+    // this thread does (DXTexture::create()/updateSubImage() with
+    // defer_upload=true) only ever calls ID3D11Device methods, which are
+    // free-threaded by spec and need no per-thread setup. Just pump the
+    // WorkQueue directly.
+    LL::ThreadPool::run();
+#else
     // We must perform setup on this thread before actually servicing our
     // WorkQueue, likewise cleanup afterwards.
     mWindow->makeContextCurrent(mContext);
@@ -2645,5 +3199,6 @@ void LLImageGLThread::run()
     LL::ThreadPool::run();
     gGL.shutdown();
     mWindow->destroySharedContext(mContext);
+#endif
 }
 

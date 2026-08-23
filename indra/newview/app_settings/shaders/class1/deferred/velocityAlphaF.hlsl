@@ -27,24 +27,30 @@
 float4 diffuseLookup(float2 texcoord);
 void bayerDitherDiscard(float alpha, float threshold, float4 fragCoord);
 
+#include "varying/velocityAlphaVarying.hlsli"
+
 struct PSInput
 {
     float4 svPosition : SV_Position;
-    float4 vary_cur_clip : TEXCOORD0;
-    float4 vary_last_clip : TEXCOORD1;
-    float2 vary_texcoord0 : TEXCOORD2;
-    float4 vertex_color : COLOR0;
+    VelocityAlphaVarying varying;
+#ifdef HAS_DIFFUSE_LOOKUP
+    nointerpolation int vary_texture_index : VARYTEXTUREINDEX;
+#endif
 };
 
 float4 main(PSInput IN) : SV_Target
 {
-    float alpha = diffuseLookup(IN.vary_texcoord0.xy).a;
-    alpha *= IN.vertex_color.a;
+#ifdef HAS_DIFFUSE_LOOKUP
+    vary_texture_index = IN.vary_texture_index;
+#endif
+
+    float alpha = diffuseLookup(IN.varying.vary_texcoord0.xy).a;
+    alpha *= IN.varying.vertex_color.a;
 
     bayerDitherDiscard(alpha, 0.88, IN.svPosition);
 
-    float2 cur_ndc = IN.vary_cur_clip.xy / IN.vary_cur_clip.w;
-    float2 last_ndc = IN.vary_last_clip.xy / IN.vary_last_clip.w;
+    float2 cur_ndc = IN.varying.vary_cur_clip.xy / IN.varying.vary_cur_clip.w;
+    float2 last_ndc = IN.varying.vary_last_clip.xy / IN.varying.vary_last_clip.w;
 
     return float4(cur_ndc - last_ndc, 0.0, 1.0);
 }

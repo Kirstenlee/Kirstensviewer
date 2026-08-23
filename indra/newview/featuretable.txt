@@ -70,8 +70,8 @@ RenderFSAAType			    1	2
 RenderFSAASamples			1	3
 RenderMaxTextureIndex		1	16
 RenderGLContextCoreProfile         1   1
-RenderGLMultiThreadedTextures      1   0
-RenderGLMultiThreadedMedia         1   1
+RenderDXMultiThreadedTextures      1   0
+RenderDXMultiThreadedMedia         1   0
 RenderReflectionProbeResolution 1 128
 RenderScreenSpaceReflections 1  1
 RenderMirrors				1	1
@@ -423,11 +423,14 @@ RenderAnisotropic			1	0
 RenderFSAAType  			1	0
 RenderFSAASamples			1	0
 RenderGLContextCoreProfile  1   0
-RenderGLMultiThreadedMedia  1   0
 RenderDownScaleMethod       1   0
 
+// S24 (2026-08-16): RenderGLMultiThreadedTextures override removed - was a
+// GL-driver quirk workaround, meaningless for D3D11 (see
+// RenderDXMultiThreadedTextures/Media in `list all` above). Kept as an empty
+// list since maskFeatures("AMD") (llfeaturemanager.cpp) still looks it up
+// unconditionally on AMD hardware.
 list AMD
-RenderGLMultiThreadedTextures       1   1
 
 list GL3
 RenderFSAAType  			0	0
@@ -435,8 +438,6 @@ RenderFSAASamples           0   0
 RenderReflectionsEnabled    0   0
 RenderReflectionProbeDetail	0	0
 RenderMirrors				0	0
-RenderGLMultiThreadedTextures 0 0
-RenderGLMultiThreadedMedia 0 0
 RenderDisableVintageMode           1   0
 RenderReflectionProbeCount  0   0
 

@@ -41,38 +41,48 @@ set(dxrender_CORE
     core/DXDevice.cpp
     core/DXContext.cpp
     core/DXPipelineState.cpp
-    core/DXRenderPass.cpp
     core/DXSwapChain.cpp
     core/DXStateCache.cpp
-    core/DXUtils.cpp
 )
 
 set(dxrender_RESOURCES
     resources/DXBuffer.cpp
     resources/DXTexture.cpp
-    resources/DXTextureCube.cpp
+    resources/DXCubeTexture.cpp
+    resources/DXCubeArrayTexture.cpp
+    resources/DXCubeMapFaces.cpp
     resources/DXShader.cpp
     resources/DXRenderTarget.cpp
     resources/DXSampler.cpp
     resources/DXVertexLayout.cpp
+    resources/DXUIBatch.cpp
+    resources/DXReadback.cpp
+    resources/DXRender2DUtils.cpp
+    resources/DXQuery.cpp
+    resources/DXOcclusionQuery.cpp
 )
 
 set(dxrender_HEADER_FILES
     core/DXDevice.h
     core/DXContext.h
     core/DXPipelineState.h
-    core/DXRenderPass.h
     core/DXSwapChain.h
     core/DXStateCache.h
-    core/DXUtils.h
 
     resources/DXBuffer.h
     resources/DXTexture.h
-    resources/DXTextureCube.h
+    resources/DXCubeTexture.h
+    resources/DXCubeArrayTexture.h
+    resources/DXCubeMapFaces.h
     resources/DXShader.h
     resources/DXRenderTarget.h
     resources/DXSampler.h
     resources/DXVertexLayout.h
+    resources/DXUIBatch.h
+    resources/DXReadback.h
+    resources/DXRender2DUtils.h
+    resources/DXQuery.h
+    resources/DXOcclusionQuery.h
 )
 
 set_source_files_properties(${dxrender_HEADER_FILES}

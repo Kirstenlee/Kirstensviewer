@@ -41,8 +41,16 @@ uniform float metallicFactor;
 uniform float roughnessFactor;
 uniform float3 emissiveColor;
 
+// S24 (2026-08-02): see uiF.hlsl's comment - real register mismatch,
+// confirmed via fxc.exe disassembly. pbropaqueV.hlsl's VSOutput declares
+// SV_Position first (consuming register 0), shifting everything after it
+// by one - this PSInput had no SV_Position field at all, so its own first
+// field started fresh at register 0. Same bug as the bare-Varying-struct
+// files, just with hand-written explicit semantics instead of a shared
+// struct.
 struct PSInput
 {
+    float4 position : SV_Position;
     float3 vary_position : TEXCOORD0;
     float4 vertex_color : COLOR0;
     float3 vary_normal : TEXCOORD1;
@@ -69,9 +77,11 @@ uniform float minimum_alpha;
 float3 linear_to_srgb(float3 c);
 float3 srgb_to_linear(float3 c);
 
-uniform float4 clipPlane;
-uniform float clipSign;
-
+// clipPlane/clipSign are declared (and actually used) by globalF.hlsl's
+// real mirrorClip() implementation, attached to every fragment shader -
+// this file only forward-declares and calls mirrorClip(), never reads
+// either uniform directly, so its own copy here was a dead duplicate
+// (X3003 redefinition once both concatenate).
 void mirrorClip(float3 pos);
 float4 encodeNormal(float3 n, float env, float gbuffer_flag);
 
@@ -105,6 +115,21 @@ PSOutput main(PSInput IN)
     float3 emissive = emissiveColor;
     emissive *= srgb_to_linear(emissiveMap.Sample(emissiveMapSampler, IN.emissive_texcoord.xy).rgb);
 
+    // S24 (2026-08-16, task #155/#157): mechanical-port bug found comparing
+    // against pbropaqueF.glsl:106 (`tnorm *= gl_FrontFacing ? 1.0 : -1.0;`)
+    // - vary_sign (tangent-handedness, unrelated) had been substituted for
+    // the rasterizer-generated front/back flag. Attempted fix via
+    // `bool isFrontFace : SV_IsFrontFace` on PSInput (same idiom already
+    // working in pbrterrainF.hlsl) - REVERTED same day: a crash-to-desktop
+    // on teleport traced via minidump analysis to a null-deref inside
+    // D3D11_3SDKLayers.dll!NDebug::CContext::ValidateShaderBindings, called
+    // from exactly this file's draw path (LLDrawPoolGLTFPBR::renderDeferred
+    // -> pushGLTFBatch -> DrawIndexed). Not proven root cause yet (only
+    // correlation: this was the one structurally novel change in the
+    // session, on the one shader in the crashing call stack), but reverted
+    // out of caution rather than risk another crash. Left at the original
+    // (incorrect) vary_sign multiply pending a safer re-investigation -
+    // see task #155/#157 notes before re-attempting the isFrontFace fix.
     tnorm *= IN.vary_sign;
 
     OUT.target0 = max(float4(col, 0.0), float4(0, 0, 0, 0));
@@ -128,8 +153,12 @@ uniform SamplerState emissiveMapSampler : register(s1);
 
 uniform float3 emissiveColor;
 
+// S24 (2026-08-02): same fix as the non-HUD PSInput above - the paired
+// VSOutput (pbropaqueV.hlsl's IS_HUD branch) also declares SV_Position
+// first.
 struct PSInput
 {
+    float4 position : SV_Position;
     float3 vary_position : TEXCOORD0;
     float4 vertex_color : COLOR0;
     float2 base_color_texcoord : TEXCOORD1;

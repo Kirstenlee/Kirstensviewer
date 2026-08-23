@@ -162,6 +162,7 @@ LLGLSLShader            gDeferredSunProbeProgram;
 LLGLSLShader            gHazeProgram;
 LLGLSLShader            gHazeWaterProgram;
 LLGLSLShader            gDeferredBlurLightProgram;
+LLGLSLShader            gDeferredTemporalResolveSSAOProgram;
 LLGLSLShader            gDeferredSoftenProgram;
 LLGLSLShader            gDeferredShadowProgram;
 LLGLSLShader            gDeferredSkinnedShadowProgram;
@@ -636,7 +637,14 @@ void LLViewerShaderMgr::setShaders()
 
     LLVertexBuffer::unbind();
 
+#ifndef DX_RENDER
+    // gGLManager.mGLSLVersionMajor/Minor are never populated under
+    // DX_RENDER (initGL() is never called - switchContext() replaces the
+    // whole GL setup with initDX11Context()), so this and the other
+    // gGLManager.mGLSLVersion* checks below would always evaluate false,
+    // not because of any real hardware limitation.
     llassert((gGLManager.mGLSLVersionMajor > 1 || gGLManager.mGLSLVersionMinor >= 10));
+#endif
 
 
     S32 light_class = 3;
@@ -826,10 +834,21 @@ std::string LLViewerShaderMgr::loadBasicShaders()
     shaders.push_back( make_pair( "avatar/avatarSkinV.glsl",                1 ) );
     shaders.push_back( make_pair( "avatar/objectSkinV.glsl",                1 ) );
     shaders.push_back( make_pair( "deferred/textureUtilV.glsl",             1 ) );
+#ifdef DX_RENDER
+    // See the comment on the analogous check in loadShadersInterface() -
+    // gGLManager.mGLSLVersionMajor/Minor are never populated under
+    // DX_RENDER, so this hardware-capability check would always
+    // (wrongly) evaluate false, leaving this file uncached even though
+    // attachShaderFeatures() may still try to attach it based on a
+    // shader's own mFeatures.mIndexedTextureChannels, unrelated to this
+    // GL-version gate.
+    shaders.push_back( make_pair( "objects/indexedTextureV.glsl",           1 ) );
+#else
     if (gGLManager.mGLSLVersionMajor >= 2 || gGLManager.mGLSLVersionMinor >= 30)
     {
         shaders.push_back( make_pair( "objects/indexedTextureV.glsl",           1 ) );
     }
+#endif
     shaders.push_back( make_pair( "objects/nonindexedTextureV.glsl",        1 ) );
 
     std::map<std::string, std::string> attribs;
@@ -908,10 +927,18 @@ std::string LLViewerShaderMgr::loadBasicShaders()
     shaders.clear();
     S32 ch = 1;
 
+#ifdef DX_RENDER
+    // See the comment on the analogous vertex-shader-list check above -
+    // gGLManager.mGLSLVersionMajor/Minor are never populated under
+    // DX_RENDER, so this would always (wrongly) fall back to ch=1 instead
+    // of the real indexed-texture-channel count.
+    ch = llmax(LLGLSLShader::sIndexedTextureChannels, 1);
+#else
     if (gGLManager.mGLSLVersionMajor > 1 || gGLManager.mGLSLVersionMinor >= 30)
     { //use indexed texture rendering for GLSL >= 1.30
         ch = llmax(LLGLSLShader::sIndexedTextureChannels, 1);
     }
+#endif
 
 
     std::vector<S32> index_channels;
@@ -1122,6 +1149,7 @@ bool LLViewerShaderMgr::loadShadersDeferred()
         gDeferredMultiSpotLightProgram.unload();
         gDeferredSunProgram.unload();
         gDeferredBlurLightProgram.unload();
+        gDeferredTemporalResolveSSAOProgram.unload();
         gDeferredSoftenProgram.unload();
         gDeferredShadowProgram.unload();
         gDeferredSkinnedShadowProgram.unload();
@@ -1775,6 +1803,27 @@ bool LLViewerShaderMgr::loadShadersDeferred()
         add_common_permutations(&gDeferredBlurLightProgram);
 
         success = gDeferredBlurLightProgram.createShader();
+        llassert(success);
+    }
+
+    if (success)
+    {
+        // S24 (2026-08-23, task #190 temporal-SSAO follow-up): reprojects
+        // and blends last frame's AO history with this frame's spatially-
+        // blurred AO to remove screen-locked-noise flicker during camera
+        // movement. Reuses blurLightV.hlsl unchanged - see dxpipeline.cpp's
+        // renderDeferredLighting() for the insertion point/orchestration.
+        gDeferredTemporalResolveSSAOProgram.mName = "Deferred Temporal Resolve SSAO Shader";
+        gDeferredTemporalResolveSSAOProgram.mFeatures.isDeferred = true;
+
+        gDeferredTemporalResolveSSAOProgram.mShaderFiles.clear();
+        gDeferredTemporalResolveSSAOProgram.mShaderFiles.push_back(make_pair("deferred/blurLightV.glsl", GL_VERTEX_SHADER));
+        gDeferredTemporalResolveSSAOProgram.mShaderFiles.push_back(make_pair("deferred/temporalResolveSSAOF.glsl", GL_FRAGMENT_SHADER));
+        gDeferredTemporalResolveSSAOProgram.mShaderLevel = mShaderLevel[SHADER_DEFERRED];
+
+        add_common_permutations(&gDeferredTemporalResolveSSAOProgram);
+
+        success = gDeferredTemporalResolveSSAOProgram.createShader();
         llassert(success);
     }
 
@@ -3537,7 +3586,14 @@ bool LLViewerShaderMgr::loadShadersInterface()
 
     if (success)
     {
-        gGaussianProgram.mName = "Reflection Mip Shader";
+        // S24 (2026-08-09, task #147 step 1): was "Reflection Mip Shader" -
+        // an exact copy-paste duplicate of gReflectionMipProgram.mName just
+        // above, making crash-log shader names ambiguous (the one time
+        // reflection-probe capture crashed, the D3D11 debug layer named
+        // "Reflection Mip Shader" as the culprit with no way to tell which
+        // of these two distinct programs actually caused it). Renamed to be
+        // unique so future logs are unambiguous.
+        gGaussianProgram.mName = "Gaussian Blur Shader";
         gGaussianProgram.mFeatures.isDeferred = true;
         gGaussianProgram.mFeatures.hasGamma = true;
         gGaussianProgram.mFeatures.hasAtmospherics = true;

@@ -24,6 +24,8 @@
 
 uniform float4x4 modelview_projection_matrix;
 
+#include "varying/twoTexCompareVarying.hlsli"
+
 struct VSInput
 {
     float3 position : POSITION;
@@ -34,8 +36,7 @@ struct VSInput
 struct VSOutput
 {
     float4 position : SV_Position;
-    float2 vary_texcoord0 : TEXCOORD0;
-    float2 vary_texcoord1 : TEXCOORD1;
+    TwoTexCompareVarying varying;
 };
 
 VSOutput main(VSInput IN)
@@ -43,8 +44,8 @@ VSOutput main(VSInput IN)
     VSOutput OUT;
 
     OUT.position = mul(modelview_projection_matrix, float4(IN.position.xyz, 1.0));
-    OUT.vary_texcoord0 = IN.texcoord0;
-    OUT.vary_texcoord1 = IN.texcoord1;
+    OUT.varying.vary_texcoord0 = IN.texcoord0;
+    OUT.varying.vary_texcoord1 = IN.texcoord1;
 
     return OUT;
 }

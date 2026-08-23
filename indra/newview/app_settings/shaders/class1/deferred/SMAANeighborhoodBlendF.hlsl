@@ -42,16 +42,20 @@ float4 SMAANeighborhoodBlendingPS(float2 texcoord,
                                   #endif
                                   );
 
+#include "varying/SMAANeighborhoodBlendVarying.hlsli"
+
+// S24 (2026-08-02): see uiF.hlsl's comment - real register mismatch,
+// confirmed via fxc.exe disassembly, affects every bare-Varying PS input.
 struct PSInput
 {
-    float2 vary_texcoord0 : TEXCOORD0;
-    float4 vary_offset : TEXCOORD1;
+    float4 position : SV_Position;
+    SMAANeighborhoodBlendVarying varying;
 };
 
 float4 main(PSInput IN) : SV_Target
 {
-    return SMAANeighborhoodBlendingPS(IN.vary_texcoord0,
-                                            IN.vary_offset,
+    return SMAANeighborhoodBlendingPS(IN.varying.vary_texcoord0,
+                                            IN.varying.vary_offset,
                                             diffuseRect, diffuseRectSampler,
                                             blendTex, blendTexSampler
                                             #if SMAA_REPROJECTION

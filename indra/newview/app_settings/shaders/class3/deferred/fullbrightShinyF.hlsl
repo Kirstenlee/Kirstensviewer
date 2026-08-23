@@ -31,14 +31,24 @@ SamplerState diffuseMapSampler : register(s0);
 
 struct PSInput
 {
+    // S24 (2026-08-02): missing SV_Position - see uiF.hlsl's comment (fxc.exe-confirmed VS/PS register-shift bug).
+    float4 position : SV_Position;
+
     float4 vertex_color : COLOR0;
     float2 vary_texcoord0 : TEXCOORD0;
     float3 vary_texcoord1 : TEXCOORD1;
     float3 vary_position : TEXCOORD2;
+#ifdef HAS_DIFFUSE_LOOKUP
+    nointerpolation int vary_texture_index : VARYTEXTUREINDEX;
+#endif
 };
 
-TextureCube environmentMap : register(t1);
-SamplerState environmentMapSampler : register(s1);
+// environmentMap is also declared (and actually used, via applyLegacyEnv())
+// by reflectionProbeF.hlsl - this copy is dead in both the original GLSL
+// and this port (declared, never sampled - the real env-map read happens
+// inside applyLegacyEnv() below, against reflectionProbeF.hlsl's own copy).
+// Confirmed via grep of both fullbrightShinyF.glsl and this file. Deleted,
+// not guarded/renamed.
 
 float3 atmosFragLighting(float3 light, float3 additive, float3 atten);
 float4 applyWaterFogViewLinear(float3 pos, float4 color);
@@ -58,6 +68,10 @@ void mirrorClip(float3 pos);
 
 float4 main(PSInput IN) : SV_Target
 {
+#ifdef HAS_DIFFUSE_LOOKUP
+    vary_texture_index = IN.vary_texture_index;
+#endif
+
     mirrorClip(IN.vary_position);
 #ifdef HAS_DIFFUSE_LOOKUP
     float4 color = diffuseLookup(IN.vary_texcoord0.xy);

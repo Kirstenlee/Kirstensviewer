@@ -24,6 +24,8 @@
 
 uniform float4x4 modelview_projection_matrix;
 
+#include "varying/pbrTerrainBakeVarying.hlsli"
+
 struct VSInput
 {
     float3 position : POSITION;
@@ -33,8 +35,7 @@ struct VSInput
 struct VSOutput
 {
     float4 position : SV_Position;
-    float4 vary_texcoord0 : TEXCOORD0;
-    float4 vary_texcoord1 : TEXCOORD1;
+    PBRTerrainBakeVarying varying;
 };
 
 VSOutput main(VSInput IN)
@@ -43,9 +44,9 @@ VSOutput main(VSInput IN)
 
     OUT.position = mul(modelview_projection_matrix, float4(IN.position.xyz, 1.0));
     float2 tc = IN.texcoord1.xy;
-    OUT.vary_texcoord0.zw = tc.xy;
-    OUT.vary_texcoord1.xy = tc.xy-float2(2.0, 0.0);
-    OUT.vary_texcoord1.zw = tc.xy-float2(1.0, 0.0);
+    OUT.varying.vary_texcoord0.zw = tc.xy;
+    OUT.varying.vary_texcoord1.xy = tc.xy-float2(2.0, 0.0);
+    OUT.varying.vary_texcoord1.zw = tc.xy-float2(1.0, 0.0);
 
     return OUT;
 }

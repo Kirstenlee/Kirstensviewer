@@ -34,15 +34,7 @@ uniform float minimum_alpha;
 void mirrorClip(float3 pos);
 float4 encodeNormal(float3 n, float env, float gbuffer_flag);
 
-struct PSInput
-{
-    float3 vary_mat0 : TEXCOORD0;
-    float3 vary_mat1 : TEXCOORD1;
-    float3 vary_mat2 : TEXCOORD2;
-    float4 vertex_color : COLOR0;
-    float2 vary_texcoord0 : TEXCOORD3;
-    float3 vary_position : TEXCOORD4;
-};
+#include "varying/deferredBumpVarying.hlsli"
 
 struct PSOutput
 {
@@ -54,30 +46,38 @@ struct PSOutput
 #endif
 };
 
+// S24 (2026-08-02): see uiF.hlsl's comment - real register mismatch,
+// confirmed via fxc.exe disassembly, affects every bare-Varying PS input.
+struct PSInput
+{
+    float4 position : SV_Position;
+    DeferredBumpVarying varying;
+};
+
 PSOutput main(PSInput IN)
 {
     PSOutput OUT;
 
-    mirrorClip(IN.vary_position);
+    mirrorClip(IN.varying.vary_position);
 
-    float4 col = diffuseMap.Sample(diffuseMapSampler, IN.vary_texcoord0.xy);
+    float4 col = diffuseMap.Sample(diffuseMapSampler, IN.varying.vary_texcoord0.xy);
 
     if (col.a < minimum_alpha)
     {
         discard;
     }
-    col *= IN.vertex_color;
+    col *= IN.varying.vertex_color;
 
-    float3 norm = bumpMap.Sample(bumpMapSampler, IN.vary_texcoord0.xy).rgb * 2.0 - 1.0;
+    float3 norm = bumpMap.Sample(bumpMapSampler, IN.varying.vary_texcoord0.xy).rgb * 2.0 - 1.0;
 
-    float3 tnorm = float3(dot(norm, IN.vary_mat0),
-            dot(norm, IN.vary_mat1),
-            dot(norm, IN.vary_mat2));
+    float3 tnorm = float3(dot(norm, IN.varying.vary_mat0),
+            dot(norm, IN.varying.vary_mat1),
+            dot(norm, IN.varying.vary_mat2));
 
     OUT.data0 = float4(col.rgb, 0.0);
-    OUT.data1 = IN.vertex_color.aaaa; // spec
+    OUT.data1 = IN.varying.vertex_color.aaaa; // spec
     float3 nvn = normalize(tnorm);
-    OUT.data2 = encodeNormal(nvn, IN.vertex_color.a, GBUFFER_FLAG_HAS_ATMOS);
+    OUT.data2 = encodeNormal(nvn, IN.varying.vertex_color.a, GBUFFER_FLAG_HAS_ATMOS);
 
 #if defined(HAS_EMISSIVE)
     OUT.data3 = float4(0, 0, 0, 0);

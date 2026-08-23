@@ -70,6 +70,24 @@ public:
     bool initGL();
     void shutdownGL();
 
+#ifdef DX_RENDER
+    // S24 (2026-08-05): initGL() above is pure OpenGL (glGetString/WGL/AMD/
+    // NVX extension queries) and is never called under DX_RENDER at all -
+    // switchContext() (llwindowwin32.cpp) calls initDX11Context() instead,
+    // which never touches mGLVendor/mGLRenderer/mGLVersion/mIsNVIDIA/
+    // mIsAMD/mIsIntel/mVRAM/mGLVendorShort, leaving them at their zero/
+    // empty/1.0f constructor defaults for the whole session. This silently
+    // starves LLFeatureManager of real GPU data - confirmed root cause of
+    // a live bug where LLFeatureManager::applyBaseMasks()'s "mGLVersion <
+    // 3.99f" check (always true at the 1.0f default) unconditionally
+    // applies the "GL3" feature mask, which explicitly zeroes
+    // RenderReflectionsEnabled regardless of actual GPU - masking real
+    // user settings as if hardware didn't support them. initGLDX() is the
+    // real DXGI-based equivalent, called once from switchContext() right
+    // after initDX11Context() succeeds, mirroring initGL()'s own call site.
+    bool initGLDX();
+#endif
+
     void initWGL(); // Initializes stupid WGL extensions
 
     std::string getRawGLString(); // For sending to simulator
@@ -88,7 +106,18 @@ public:
     S32 mGLMaxIndexRange;
     S32 mGLMaxTextureSize;
     F32 mMaxAnisotropy = 0.f;
+#ifdef DX_RENDER
+    // initGL() (llgl.cpp), which normally queries and sanity-clamps this to
+    // 65536, never runs under DX_RENDER (no real GL context) - defaulting to
+    // 0 here breaks every consumer that divides by it to size a permutation
+    // macro (e.g. llviewershadermgr.cpp's make_gltf_variant() computing
+    // MAX_UBO_VEC4S = 0, producing an illegal zero-size HLSL array,
+    // X3059). 65536 matches the real GL path's own clamp value, which is
+    // also D3D11's guaranteed minimum constant-buffer size.
+    S32 mMaxUniformBlockSize = 65536;
+#else
     S32 mMaxUniformBlockSize = 0;
+#endif
     S32 mMaxVaryingVectors = 0;
 
     // GL 4.x capabilities
@@ -171,8 +200,23 @@ void assert_glerror();
 void clear_glerror();
 
 
+// S24 (2026-08-19): do_assert_glerror() (llgl.cpp) already early-returns
+// unconditionally under DX_RENDER before touching any GL call - these two
+// macros are GL-error-checking helpers with no D3D11 equivalent (checking
+// HRESULTs is a completely different mechanism, not something these could
+// ever do), so every one of their ~164+ call sites across newview/llrender
+// was still paying for a real function call + branch that's guaranteed to
+// do nothing under DX_RENDER. Gated at the macro itself rather than at each
+// call site - one chokepoint fix instead of touching every site
+// individually, true zero-cost (compiles to nothing, not just an inert
+// call) under DX_RENDER.
+#ifdef DX_RENDER
+# define stop_glerror() ((void)0)
+# define llglassertok() ((void)0)
+#else
 # define stop_glerror() assert_glerror()
 # define llglassertok() assert_glerror()
+#endif
 
 // stop_glerror is still needed on OS X but has performance implications
 // use macro below to conditionally add stop_glerror to non-release builds
@@ -254,6 +298,17 @@ public:
     // what we expect
     //  writeAlpha - whether or not writing to alpha channel is expected
     static void checkStates(GLboolean writeAlpha = GL_TRUE);
+
+#ifdef DX_RENDER
+    // DX_RENDER needs to know "is GL_BLEND currently enabled" from outside
+    // this class (LLRender::applyDXBlendState(), llrender.cpp) - D3D11
+    // bundles blend-enable with the blend function into one state object,
+    // unlike GL's two independent toggles, so whichever changes needs to
+    // read the other to rebuild the combined state. sStateMap is already
+    // kept accurate under DX_RENDER (see setEnabled()) regardless of GL
+    // context; this is a plain accessor, not a friend declaration.
+    static bool isEnabled(LLGLenum state) { return sStateMap[state] == GL_TRUE; }
+#endif
 
 protected:
     static std::unordered_map<LLGLenum, LLGLboolean> sStateMap;

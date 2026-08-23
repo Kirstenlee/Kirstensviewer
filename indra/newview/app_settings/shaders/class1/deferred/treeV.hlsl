@@ -34,13 +34,12 @@ struct VSInput
     float2 texcoord0 : TEXCOORD0;
 };
 
+#include "varying/treeVarying.hlsli"
+
 struct VSOutput
 {
     float4 position : SV_Position;
-    float4 vertex_color : COLOR0;
-    float3 vary_normal : TEXCOORD0;
-    float2 vary_texcoord0 : TEXCOORD1;
-    float3 vary_position : TEXCOORD2;
+    TreeVarying varying;
 };
 
 VSOutput main(VSInput IN)
@@ -49,13 +48,13 @@ VSOutput main(VSInput IN)
 
     //transform vertex
     OUT.position = mul(modelview_projection_matrix, float4(IN.position.xyz, 1.0));
-    OUT.vary_position = mul(modelview_matrix, float4(IN.position.xyz, 1.0)).xyz;
+    OUT.varying.vary_position = mul(modelview_matrix, float4(IN.position.xyz, 1.0)).xyz;
 
-    OUT.vary_texcoord0 = mul(texture_matrix0, float4(IN.texcoord0, 0, 1)).xy;
+    OUT.varying.vary_texcoord0 = mul(texture_matrix0, float4(IN.texcoord0, 0, 1)).xy;
 
-    OUT.vary_normal = normalize(mul(normal_matrix, IN.normal));
+    OUT.varying.vary_normal = normalize(mul(normal_matrix, IN.normal));
 
-    OUT.vertex_color = float4(1, 1, 1, 1);
+    OUT.varying.vertex_color = float4(1, 1, 1, 1);
 
     return OUT;
 }

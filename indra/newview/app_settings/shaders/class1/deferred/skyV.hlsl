@@ -31,10 +31,29 @@ uniform float4x4 modelview_projection_matrix;
 // Inputs
 uniform float3 camPosLocal;
 
+// lightnorm/sunlight_color/moonlight_color are also declared (and used) by
+// atmosphericsFuncs.hlsl, always attached alongside this file's vertex
+// stage whenever calculatesAtmospherics is set (this shader's own case) -
+// genuinely dual-use, include-guarded.
+#ifndef LL_LIGHTNORM_DECLARED
+#define LL_LIGHTNORM_DECLARED
 uniform float3  lightnorm;
+#endif
+#ifndef LL_SUNLIGHT_MOONLIGHT_COLOR_DECLARED
+#define LL_SUNLIGHT_MOONLIGHT_COLOR_DECLARED
 uniform float3  sunlight_color;
 uniform float3  moonlight_color;
+#endif
+// sun_up_factor is also declared by atmosphericsFuncs.hlsl - reuse the
+// existing guard.
+#ifndef LL_SUN_UP_FACTOR_DECLARED
+#define LL_SUN_UP_FACTOR_DECLARED
 uniform int   sun_up_factor;
+#endif
+// ambient_color..density_multiplier are also declared (and used) by
+// atmosphericsFuncs.hlsl - reuse the existing guard.
+#ifndef LL_ATMOS_HAZE_PARAMS_DECLARED
+#define LL_ATMOS_HAZE_PARAMS_DECLARED
 uniform float3  ambient_color;
 uniform float3  blue_horizon;
 uniform float3  blue_density;
@@ -43,13 +62,27 @@ uniform float haze_density;
 
 uniform float cloud_shadow;
 uniform float density_multiplier;
+#endif
+// distance_multiplier is also declared by atmosphericsFuncs.hlsl, but kept
+// as its own guard there (not shared with cloudsV.hlsl's matching group) -
+// reuse that same guard here.
+#ifndef LL_DISTANCE_MULTIPLIER_DECLARED
+#define LL_DISTANCE_MULTIPLIER_DECLARED
 uniform float distance_multiplier;
+#endif
+// max_y/glow/sun_moon_glow_factor are also declared (and used) by
+// atmosphericsFuncs.hlsl - reuse the existing guard.
+#ifndef LL_ATMOS_GLOW_PARAMS_DECLARED
+#define LL_ATMOS_GLOW_PARAMS_DECLARED
 uniform float max_y;
 
 uniform float3  glow;
 uniform float sun_moon_glow_factor;
+#endif
 
 uniform int cube_snapshot;
+
+#include "varying/skyVarying.hlsli"
 
 struct VSInput
 {
@@ -59,12 +92,7 @@ struct VSInput
 struct VSOutput
 {
     float4 position : SV_Position;
-    float3 vary_HazeColor : TEXCOORD0;
-    float vary_LightNormPosDot : TEXCOORD1;
-#ifdef HAS_HDRI
-    float4 vary_position : TEXCOORD2;
-    float3 vary_rel_pos : TEXCOORD3;
-#endif
+    SkyVarying varying;
 };
 
 // NOTE: Keep these in sync!
@@ -84,8 +112,8 @@ VSOutput main(VSInput IN)
     float3 rel_pos = IN.position.xyz - camPosLocal.xyz + float3(0, 50, 0);
 
 #ifdef HAS_HDRI
-    OUT.vary_rel_pos = rel_pos;
-    OUT.vary_position = pos;
+    OUT.varying.vary_rel_pos = rel_pos;
+    OUT.varying.vary_position = pos;
 #endif
 
     // Adj position vector to clamp altitude
@@ -104,7 +132,7 @@ VSOutput main(VSInput IN)
 
     // Grab this value and pass to frag shader for rainbows
     float rel_pos_lightnorm_dot = dot(rel_pos_norm, lightnorm.xyz);
-    OUT.vary_LightNormPosDot = rel_pos_lightnorm_dot;
+    OUT.varying.vary_LightNormPosDot = rel_pos_lightnorm_dot;
 
     // Initialize temp variables
     float3 sunlight = (sun_up_factor == 1) ? sunlight_color : moonlight_color * 0.7; //magic 0.7 to match legacy color
@@ -137,7 +165,7 @@ VSOutput main(VSInput IN)
     // Set a minimum "angle" (smaller glow.y allows tighter, brighter hotspot)
     haze_glow *= glow.x;
     // Higher glow.x gives dimmer glow (because next step is 1 / "angle")
-    haze_glow = pow(haze_glow, glow.z);
+    haze_glow = pow(abs(haze_glow), glow.z);
     // glow.z should be negative, so we're doing a sort of (1 / "angle") function
 
     // Add "minimum anti-solar illumination"
@@ -168,7 +196,7 @@ VSOutput main(VSInput IN)
     color += (add_below_cloud - color) * (1. - sqrt(combined_haze));
 
     // Haze color above cloud
-    OUT.vary_HazeColor = color;
+    OUT.varying.vary_HazeColor = color;
 
     return OUT;
 }

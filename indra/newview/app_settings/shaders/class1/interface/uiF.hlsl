@@ -25,13 +25,26 @@
 Texture2D diffuseMap : register(t0);
 SamplerState diffuseMapSampler : register(s0);
 
+#include "varying/uiVarying.hlsli"
+
+// S24 (2026-08-02): confirmed via fxc.exe disassembly, not inference - the
+// VS's OWN output signature (uiV.hlsl) assigns SV_Position to a REAL,
+// NUMBERED output register (0), pushing TEXCOORD0 to register 1 and
+// COLOR0 to register 2. This PSInput previously had no SV_Position field
+// at all, so its first declared member (TEXCOORD0) started fresh at
+// register 0 - a genuine register mismatch (D3D11 debug-layer id=343,
+// "TEXCOORD... mismatched hardware registers"), invisible from reading
+// either file's source alone since both LOOKED structurally identical.
+// Wrapping UIVarying in a local struct with its own (unused) SV_Position
+// field first mirrors the VS's exact shape, restoring identical register
+// numbering on both sides.
 struct PSInput
 {
-    float2 vary_texcoord0 : TEXCOORD0;
-    float4 vertex_color : COLOR0;
+    float4 position : SV_Position;
+    UIVarying varying;
 };
 
 float4 main(PSInput IN) : SV_Target
 {
-    return IN.vertex_color*diffuseMap.Sample(diffuseMapSampler, IN.vary_texcoord0.xy);
+    return IN.varying.vertex_color*diffuseMap.Sample(diffuseMapSampler, IN.varying.vary_texcoord0.xy);
 }

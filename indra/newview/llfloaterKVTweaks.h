@@ -68,6 +68,9 @@ protected:
 
 	// S24 - Movement tab handlers
 	void onClickResetMovement();
+
+	// S24 - Cubemap orientation live-tuner (task #194)
+	void onClickResetCubeOrient();
 	void updateGroundAccelText();
 	void updateGroundDecelText();
 	void updateFlightAccelText();

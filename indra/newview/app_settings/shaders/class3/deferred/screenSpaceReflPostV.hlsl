@@ -27,6 +27,8 @@ uniform float4x4 inv_proj;
 
 uniform float2 screen_res;
 
+#include "varying/screenSpaceReflPostVarying.hlsli"
+
 struct VSInput
 {
     float3 position : POSITION;
@@ -35,8 +37,7 @@ struct VSInput
 struct VSOutput
 {
     float4 position : SV_Position;
-    float2 vary_fragcoord : TEXCOORD0;
-    float3 camera_ray : TEXCOORD1;
+    ScreenSpaceReflPostVarying varying;
 };
 
 VSOutput main(VSInput IN)
@@ -47,10 +48,10 @@ VSOutput main(VSInput IN)
     float4 pos = float4(IN.position.xyz, 1.0);
     OUT.position = pos;
 
-    OUT.vary_fragcoord = pos.xy * 0.5 + 0.5;
+    OUT.varying.vary_fragcoord = pos.xy * 0.5 + 0.5;
 
     float4 rayOrig = mul(inv_proj, float4(pos.xy, 1, 1));
-    OUT.camera_ray = rayOrig.xyz / rayOrig.w;
+    OUT.varying.camera_ray = rayOrig.xyz / rayOrig.w;
 
     return OUT;
 }

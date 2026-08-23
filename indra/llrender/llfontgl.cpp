@@ -36,11 +36,17 @@
 #include "llgl.h"
 #include "llimagegl.h"
 #include "llrender.h"
+#include "llglslshader.h"
 #include "llstl.h"
 #include "v4color.h"
+#include "glm/gtc/type_ptr.hpp"
 #include "lltexture.h"
 #include "lldir.h"
 #include "llstring.h"
+
+#ifdef DX_RENDER
+#include "DXUIBatch.h"
+#endif
 
 // Third party library includes
 #include <boost/tokenizer.hpp>
@@ -148,6 +154,191 @@ S32 LLFontGL::render(const LLWString &wstr, S32 begin_offset, const LLRectf& rec
     return render(wstr, begin_offset, x, y, color, halign, valign, style, shadow, max_chars, (S32)rect.getWidth(), right_x, use_ellipses, use_color);
 }
 
+// The only seams in LLFontGL that touch rendering (see submitGlyphBatch()/
+// submitUnderline() below for the DX_RENDER-vs-GL fences).
+void LLFontGL::beginTextRender() const
+{
+#ifdef DX_RENDER
+    // Flush gGL's pending immediate-mode batch (e.g. a widget's own
+    // background rect via gl_rect_2d()) so it draws before DXUIBatch's
+    // separate, immediate Draw() call for this text - otherwise submission
+    // order can diverge and the rect ends up painted over the text.
+    gGL.flush();
+#endif
+    gGL.getTexUnit(0)->enable(LLTexUnit::TT_TEXTURE);
+    gGL.pushUIMatrix();
+    gGL.loadUIIdentity();
+    // Depth translation, so that floating text appears 'in-world'
+    // and is correctly occluded.
+    gGL.translatef(0.f, 0.f, sCurDepth);
+    // Not guaranteed to be set correctly
+    gGL.setSceneBlendType(LLRender::BT_ALPHA);
+}
+
+void LLFontGL::endTextRender() const
+{
+    gGL.popUIMatrix();
+}
+
+void LLFontGL::bindGlyphTexture(LLImageGL* font_image) const
+{
+    gGL.getTexUnit(0)->bind(font_image);
+}
+
+void LLFontGL::submitGlyphBatch(const LLVector4a* vertices, const LLVector2* uvs, const LLColor4U* colors, S32 vertex_count) const
+{
+#ifdef DX_RENDER
+    // Uses whatever shader is CURRENTLY bound (gUIProgram, per
+    // beginTextRender()'s comment - this class never binds its own shader,
+    // mirroring GL's "current program" model).
+    if (vertex_count <= 0)
+    {
+        return;
+    }
+    // S24 (2026-08-17, task #54): when LLFontVertexBuffer::genBuffers() has
+    // a display-list recording open (beginList()/endList()), route through
+    // gGL's own immediate-mode path instead of the fast gDXUIBatch path -
+    // LLRender::flush()'s existing sBufferDataList capture (genBuffer() +
+    // mDXImage, both already backend-agnostic/DX-safe) builds a real,
+    // replayable LLVertexBufferData from this call, exactly like it always
+    // has for GL. This is the COLD path - recording only happens once per
+    // genBuffers() call (i.e. only when the cached render() params actually
+    // changed), so the extra LLVertexBuffer allocation cost here is a
+    // one-time thing, not a per-frame one. The common case (no recording,
+    // every other frame) is completely unchanged below.
+    if (gGL.isRecording())
+    {
+        gGL.begin(LLRender::TRIANGLES);
+        gGL.vertexBatchPreTransformed(vertices, uvs, colors, vertex_count);
+        gGL.end();
+        return;
+    }
+    if (LLGLSLShader* shader = LLGLSLShader::sCurBoundShaderPtr)
+    {
+        // S24 (2026-08-16): DXUIBatch's batching key is (shader, topology,
+        // alpha_blend, depth) only - it has no idea the MVP is about to
+        // change, so two different text strings sharing that same key
+        // (e.g. 2D UI text and a world-space HUD nametag both use
+        // gUIProgram/TriangleList/alpha-blend/no-depth) can get silently
+        // merged into ONE pending batch even though each was positioned
+        // assuming its OWN, different transform. Only the LAST-synced MVP
+        // before the eventual Draw() actually takes effect - any
+        // earlier-pushed text in the same batch gets drawn with the wrong
+        // matrix, distorting/misplacing it. The existing pass-boundary
+        // flushPending() hooks (llviewerdisplay.cpp, llhudobject.cpp) only
+        // guard specific call-site boundaries and don't reach every case;
+        // closing it here instead - unconditionally draining any batch that
+        // was pending under a DIFFERENT (now-stale) matrix before this
+        // string's own vertices/matrix get pushed - guarantees every string
+        // of text always draws with its own correct transform regardless of
+        // what any particular caller remembers to flush. Narrows the
+        // batching granularity to "one draw per text string" instead of
+        // "one draw per matching-state run", which is still far fewer
+        // draws than the pre-batching one-draw-per-glyph baseline task #211
+        // fixed - correctness over squeezing out the last few draw calls.
+        gDXUIBatch.flushPending();
+
+        static thread_local std::vector<DXUIVertex> dx_verts;
+        dx_verts.resize(vertex_count);
+        for (S32 v = 0; v < vertex_count; ++v)
+        {
+            const F32* p = vertices[v].getF32ptr();
+            dx_verts[v].pos[0] = p[0];
+            dx_verts[v].pos[1] = p[1];
+            dx_verts[v].pos[2] = p[2];
+            dx_verts[v].color[0] = colors[v].mV[0];
+            dx_verts[v].color[1] = colors[v].mV[1];
+            dx_verts[v].color[2] = colors[v].mV[2];
+            dx_verts[v].color[3] = colors[v].mV[3];
+            dx_verts[v].uv[0] = uvs[v].mV[0];
+            dx_verts[v].uv[1] = uvs[v].mV[1];
+        }
+        gDXUIBatch.push(dx_verts.data(), vertex_count);
+        gGL.syncMatrices();
+        // Same defensive null-check as LLVertexBuffer::setupVertexBuffer()'s
+        // DX_RENDER branch - only null if the bound shader failed to compile.
+        if (ID3DBlob* vsb = shader->mDXVertexShader.getVSBytecode())
+        {
+            gDXUIBatch.flush(vsb->GetBufferPointer(), vsb->GetBufferSize(), shader->mDXVertexShader.getVS(), shader->mDXPixelShader.getPS(), true, shader->mName.c_str());
+        }
+    }
+#else
+    gGL.begin(LLRender::TRIANGLES);
+    {
+        gGL.vertexBatchPreTransformed(vertices, uvs, colors, vertex_count);
+    }
+    gGL.end();
+#endif // DX_RENDER
+}
+
+void LLFontGL::submitUnderline(F32 x0, F32 x1, F32 y, const LLColor4U& color) const
+{
+    // color is passed explicitly (text_color/emoji_color) rather than
+    // relying on GL's ambient "current color" carry-forward, since each
+    // DXUIBatch draw is self-contained under DX_RENDER.
+#ifdef DX_RENDER
+    // S24 (2026-08-17, task #54): same recording-mode fallback as
+    // submitGlyphBatch() above (see its comment) - here it also sidesteps
+    // the "DXUIBatch has no line topology" quad-expansion below entirely,
+    // replaying as a real LINES draw instead (matching GL's own topology
+    // exactly, since this path goes through the general-purpose
+    // LLVertexBuffer/DXVertexLayout machinery, which already handles LINES
+    // natively - no CPU-side quad expansion needed here, unlike TRIANGLE_FAN).
+    if (gGL.isRecording())
+    {
+        gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+        gGL.color4ubv(color.mV);
+        gGL.begin(LLRender::LINES);
+        gGL.vertex2f(x0, y);
+        gGL.vertex2f(x1, y);
+        gGL.end();
+        return;
+    }
+    // DXUIBatch has no line topology - represented as a 1-unit-tall filled
+    // quad centered on y instead (matching GL's default line width).
+    if (LLGLSLShader* shader = LLGLSLShader::sCurBoundShaderPtr)
+    {
+        // S24 (2026-08-16): same matrix-vs-batching-key gap as
+        // submitGlyphBatch() above (see its comment) - an underline shares
+        // the same (shader, topology, alpha_blend, depth) signature as
+        // glyph quads and plain text-adjacent geometry, so it's just as
+        // able to get silently merged with something needing a different
+        // transform.
+        gDXUIBatch.flushPending();
+
+        constexpr F32 HALF_WIDTH = 0.5f;
+        DXUIVertex quad[6];
+        auto setv = [&](DXUIVertex& v, F32 x, F32 yy)
+        {
+            v.pos[0] = x; v.pos[1] = yy; v.pos[2] = 0.f;
+            v.color[0] = color.mV[0]; v.color[1] = color.mV[1];
+            v.color[2] = color.mV[2]; v.color[3] = color.mV[3];
+            v.uv[0] = v.uv[1] = 0.f;
+        };
+        setv(quad[0], x0, y + HALF_WIDTH);
+        setv(quad[1], x1, y + HALF_WIDTH);
+        setv(quad[2], x0, y - HALF_WIDTH);
+        setv(quad[3], x1, y + HALF_WIDTH);
+        setv(quad[4], x1, y - HALF_WIDTH);
+        setv(quad[5], x0, y - HALF_WIDTH);
+
+        gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+        gDXUIBatch.push(quad, 6);
+        gGL.syncMatrices();
+        if (ID3DBlob* vsb = shader->mDXVertexShader.getVSBytecode())
+        {
+            gDXUIBatch.flush(vsb->GetBufferPointer(), vsb->GetBufferSize(), shader->mDXVertexShader.getVS(), shader->mDXPixelShader.getPS(), true, shader->mName.c_str());
+        }
+    }
+#else
+    gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+    gGL.color4ubv(color.mV);
+    gGL.begin(LLRender::LINES);
+    gGL.vertex2f(x0, y);
+    gGL.vertex2f(x1, y);
+    gGL.end();
+#endif // DX_RENDER
+}
 
 S32 LLFontGL::render(const LLWString &wstr, S32 begin_offset, F32 x, F32 y, const LLColor4 &color, HAlign halign, VAlign valign, U8 style,
                      ShadowType shadow, S32 max_chars, S32 max_pixels, F32* right_x, bool use_ellipses, bool use_color) const
@@ -164,7 +355,7 @@ S32 LLFontGL::render(const LLWString &wstr, S32 begin_offset, F32 x, F32 y, cons
         return 0;
     }
 
-    gGL.getTexUnit(0)->enable(LLTexUnit::TT_TEXTURE);
+    beginTextRender();
 
     S32 scaled_max_pixels = max_pixels == S32_MAX ? S32_MAX : llceil((F32)max_pixels * sScaleX);
 
@@ -184,15 +375,7 @@ S32 LLFontGL::render(const LLWString &wstr, S32 begin_offset, F32 x, F32 y, cons
         }
     }
 
-    gGL.pushUIMatrix();
-
-    gGL.loadUIIdentity();
-
     LLVector2 origin(floorf(sCurOrigin.mX*sScaleX), floorf(sCurOrigin.mY*sScaleY));
-
-    // Depth translation, so that floating text appears 'in-world'
-    // and is correctly occluded.
-    gGL.translatef(0.f,0.f,sCurDepth);
 
     S32 chars_drawn = 0;
     S32 i;
@@ -208,9 +391,6 @@ S32 LLFontGL::render(const LLWString &wstr, S32 begin_offset, F32 x, F32 y, cons
     }
 
     F32 cur_x, cur_y, cur_render_x, cur_render_y;
-
-    // Not guaranteed to be set correctly
-    gGL.setSceneBlendType(LLRender::BT_ALPHA);
 
     cur_x = ((F32)x * sScaleX) + origin.mV[VX];
     cur_y = ((F32)y * sScaleY) + origin.mV[VY];
@@ -321,17 +501,20 @@ S32 LLFontGL::render(const LLWString &wstr, S32 begin_offset, F32 x, F32 y, cons
             // otherwise the queued glyphs will be taken from wrong textures.
             if (glyph_count > 0)
             {
-                gGL.begin(LLRender::TRIANGLES);
-                {
-                    gGL.vertexBatchPreTransformed(vertices, uvs, colors, glyph_count * 6);
-                }
-                gGL.end();
+                submitGlyphBatch(vertices, uvs, colors, glyph_count * 6);
                 glyph_count = 0;
             }
 
             bitmap_entry = next_bitmap_entry;
             LLImageGL* font_image = font_bitmap_cache->getImageGL(bitmap_entry.first, bitmap_entry.second);
-            gGL.getTexUnit(0)->bind(font_image);
+            bindGlyphTexture(font_image);
+            // S24 (2026-07-23): a diagnostic here (comparing this bind()'s
+            // actual bound SRV against LLImageGL::setImage()'s own
+            // per-instance call log) traced "no text" to
+            // LLImageGL::setSubImage()'s full-image HACK branch calling
+            // setImage() - which destroys/recreates the whole DXTexture -
+            // on every single glyph addition. Fixed at the source
+            // (llimagegl.cpp); this bind() was never the problem.
 
             // For some reason it's not enough to compare by bitmap_entry.
             // Issue hits emojis, japenese and chinese glyphs, only on first run.
@@ -367,12 +550,7 @@ S32 LLFontGL::render(const LLWString &wstr, S32 begin_offset, F32 x, F32 y, cons
 
         if (glyph_count >= GLYPH_BATCH_SIZE)
         {
-            gGL.begin(LLRender::TRIANGLES);
-            {
-                gGL.vertexBatchPreTransformed(vertices, uvs, colors, glyph_count * 6);
-            }
-            gGL.end();
-
+            submitGlyphBatch(vertices, uvs, colors, glyph_count * 6);
             glyph_count = 0;
         }
 
@@ -405,12 +583,7 @@ S32 LLFontGL::render(const LLWString &wstr, S32 begin_offset, F32 x, F32 y, cons
         cur_render_y = cur_y;
     }
 
-    gGL.begin(LLRender::TRIANGLES);
-    {
-        gGL.vertexBatchPreTransformed(vertices, uvs, colors, glyph_count * 6);
-    }
-    gGL.end();
-
+    submitGlyphBatch(vertices, uvs, colors, glyph_count * 6);
 
     if (right_x)
     {
@@ -421,12 +594,12 @@ S32 LLFontGL::render(const LLWString &wstr, S32 begin_offset, F32 x, F32 y, cons
     if (style_to_add & UNDERLINE)
     {
         F32 descender = (F32)llfloor(mFontFreetype->getDescenderHeight());
-
-        gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
-        gGL.begin(LLRender::LINES);
-        gGL.vertex2f(start_x, cur_y - descender);
-        gGL.vertex2f(cur_x, cur_y - descender);
-        gGL.end();
+        // text_color, not emoji_color (always opaque white, glyph-only) -
+        // see submitUnderline()'s comment: previously implicit (GL's
+        // immediate-mode "current color" carried forward from whichever
+        // glyph was drawn last, which silently became emoji_color for any
+        // string ending in an emoji).
+        submitUnderline(start_x, cur_x, cur_y - descender, text_color);
     }
 
     if (draw_ellipses)
@@ -447,7 +620,7 @@ S32 LLFontGL::render(const LLWString &wstr, S32 begin_offset, F32 x, F32 y, cons
                 use_color);
     }
 
-    gGL.popUIMatrix();
+    endTextRender();
 
     return chars_drawn;
 }

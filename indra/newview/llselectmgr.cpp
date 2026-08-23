@@ -38,6 +38,9 @@
 #include "llgl.h"
 #include "llmediaentry.h"
 #include "llrender.h"
+#ifdef DX_RENDER
+#include "DXDevice.h"
+#endif
 #include "llnotifications.h"
 #include "llpermissions.h"
 #include "llpermissionsflags.h"
@@ -6605,7 +6608,9 @@ void LLSelectMgr::renderSilhouettes(bool for_hud)
             }
         }
 
+#ifndef DX_RENDER
         glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+#endif
 
         S32 num_tes = llmin((S32)objectp->getNumTEs(), (S32)objectp->getNumFaces()); // avatars have TEs but no faces
         for (S32 te = 0; te < num_tes; ++te)
@@ -6619,8 +6624,10 @@ void LLSelectMgr::renderSilhouettes(bool for_hud)
         gGL.popMatrix();
         gGL.popMatrix();
 
+#ifndef DX_RENDER
         glLineWidth(1.f);
         glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+#endif
 
         if (shader)
         {
@@ -7217,6 +7224,24 @@ void LLSelectNode::renderOneSilhouette(const LLColor4 &color)
         llassert(!"renderOneWireframe() was removed SL-10194");
         return;
     }
+
+#ifdef DX_RENDER
+    // S24 (2026-08-09, task #132 follow-up): temporary diagnostic - confirms
+    // whether renderOneSilhouette() is reached and whether its early-return
+    // guards (mSilhouetteExists, vertex count) are what's actually stopping
+    // it from drawing. Remove once the hurdle clears.
+    {
+        static S32 s_silhouette_log_count = 0;
+        if (s_silhouette_log_count < 20)
+        {
+            ++s_silhouette_log_count;
+            LL_WARNS("S24Diag") << "renderOneSilhouette() ENTERED: mSilhouetteExists=" << mSilhouetteExists
+                << " vertCount=" << mSilhouetteVertices.size()
+                << " normCount=" << mSilhouetteNormals.size()
+                << LL_ENDL;
+        }
+    }
+#endif
 
     if (!mSilhouetteExists)
     {

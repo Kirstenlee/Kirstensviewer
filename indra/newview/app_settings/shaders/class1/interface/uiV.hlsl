@@ -25,6 +25,8 @@
 uniform float4x4 texture_matrix0;
 uniform float4x4 modelview_projection_matrix;
 
+#include "varying/uiVarying.hlsli"
+
 struct VSInput
 {
     float3 position : POSITION;
@@ -35,8 +37,7 @@ struct VSInput
 struct VSOutput
 {
     float4 position : SV_Position;
-    float4 vertex_color : COLOR0;
-    float2 vary_texcoord0 : TEXCOORD0;
+    UIVarying varying;
 };
 
 VSOutput main(VSInput IN)
@@ -44,8 +45,8 @@ VSOutput main(VSInput IN)
     VSOutput OUT;
 
     OUT.position = mul(modelview_projection_matrix, float4(IN.position, 1));
-    OUT.vary_texcoord0 =  mul(texture_matrix0, float4(IN.texcoord0, 0, 1)).xy;
-    OUT.vertex_color = IN.diffuse_color;
+    OUT.varying.vary_texcoord0 =  mul(texture_matrix0, float4(IN.texcoord0, 0, 1)).xy;
+    OUT.varying.vertex_color = IN.diffuse_color;
 
     return OUT;
 }

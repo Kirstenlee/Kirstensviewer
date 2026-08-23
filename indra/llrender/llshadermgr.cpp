@@ -449,9 +449,14 @@ void LLShaderMgr::dumpObjectLog(GLuint ret, bool warns, const std::string& filen
 	}
 }
 
-GLuint LLShaderMgr::loadShaderFile(const std::string& filename, S32& shader_level, GLenum type, std::map<std::string, std::string>* defines, S32 texture_index_channels)
+GLuint LLShaderMgr::loadShaderFile(const std::string& filename, S32& shader_level, GLenum type, std::map<std::string, std::string>* defines, S32 texture_index_channels, bool attaches_deferred_util)
 {
 
+#ifndef DX_RENDER
+	// Under DX_RENDER there is no real, current GL context (Milestone 1
+	// replaced GL context creation with initDX11Context()), so glGetError()
+	// here is meaningless - it doesn't report a real error, just noise
+	// logged once per file for every one of ~150+ shader-file loads.
 	GLenum error = GL_NO_ERROR;
 
 	error = glGetError();
@@ -459,6 +464,7 @@ GLuint LLShaderMgr::loadShaderFile(const std::string& filename, S32& shader_leve
 	{
 		LL_SHADER_LOADING_WARNS() << "GL ERROR entering loadShaderFile(): " << error << " for file: " << filename << LL_ENDL;
 	}
+#endif
 
 	if (filename.empty())
 	{
@@ -574,6 +580,108 @@ GLuint LLShaderMgr::loadShaderFile(const std::string& filename, S32& shader_leve
 		}
 	}
 	fclose(file);
+
+	// Strip a leading UTF-8 BOM if present - D3DCompile takes a raw
+	// in-memory string, not a file, so it has no concept of a BOM; and this
+	// text gets concatenated after a generated header (buildDXShaderHeader()),
+	// so a BOM here lands mid-blob as 3 illegal bytes rather than at the true
+	// start of a file, where a text editor would silently have hidden it.
+	if (source_text.compare(0, 3, "\xEF\xBB\xBF") == 0)
+	{
+		source_text.erase(0, 3);
+	}
+
+	if (type == GL_FRAGMENT_SHADER && texture_index_channels > 0)
+	{
+		// Mirrors the GL branch below's dynamic diffuseLookup() generation
+		// (same texture_index_channels parameter), in HLSL instead of GLSL.
+		// GL's version gets textually woven into every attached file that
+		// contains the "[EXTRA_CODE_HERE]" marker (there's no equivalent of
+		// "already attached" for loadShaderFile() - it's called once per
+		// file, and multiple attached files can each carry the marker) -
+		// GLSL's separate-compile-then-link model tolerates identical
+		// redefinitions across linked objects (same reasoning as the
+		// duplicate-uniform entries elsewhere in this project), but raw
+		// HLSL text concatenation does not, so this is include-guarded the
+		// same way those were, ensuring only the first marker position
+		// (in final concatenation order) actually keeps its copy.
+		std::string extra = "#ifndef LL_DIFFUSELOOKUP_DECLARED\n#define LL_DIFFUSELOOKUP_DECLARED\n";
+		// Matches GL's own unconditional "#define HAS_DIFFUSE_LOOKUP" here
+		// (llshadermgr.cpp's GL branch, texture_index_channels > 0) - some
+		// ported fragment files (e.g. fullbrightShinyF.hlsl) already branch
+		// on this macro to choose between calling diffuseLookup() and a
+		// plain single-texture Sample() fallback.
+		extra += "#define HAS_DIFFUSE_LOOKUP 1\n";
+		// tex0.. defaults to t0/s0 (mirroring GL's texture-unit-0-based
+		// numbering) - safe for the common case (G-buffer-*write* shaders
+		// like gDeferredDiffuseProgram set mIndexedTextureChannels but never
+		// attach deferredUtil.hlsl, so t0-t3 is genuinely free there).
+		//
+		// CORRECTNESS NOTE: an earlier version of this fix unconditionally
+		// moved the base to t16/s16 to dodge deferredUtil.hlsl's t0-t3 for
+		// shaders that also attach it (alphaF.hlsl/"Deferred Alpha Shader"
+		// etc.) - that broke "Skinned Deferred Diffuse Shader" (X4509:
+		// sampler register index exceeded) because SM5 only has 16
+		// *sampler* slots (s0-s15) even though it has 128 SRV/texture slots
+		// - t16 is a valid t-register but s16 doesn't exist. Fixed properly
+		// by gating the higher base on attaches_deferred_util (the real
+		// attachShaderFeatures() condition for deferredUtil.hlsl is
+		// isDeferred || hasReflectionProbes, NOT isDeferred alone -
+		// gDeferredAlphaImpostorProgram sets only hasReflectionProbes and
+		// still attaches deferredUtil.hlsl, so checking isDeferred alone
+		// would have missed it), so the common case (neither flag set) is
+		// untouched.
+		//
+		// When attaches_deferred_util is true (the only shaders that combine
+		// this with indexed texturing are "Deferred/HUD Alpha Shader",
+		// "Deferred/Skinned Alpha Impostor Shader" and their rigged variants
+		// - confirmed via llviewershadermgr.cpp), the real attach set is
+		// deferredUtil.hlsl (t0-t3) + reflectionProbeF.hlsl (t4,
+		// hasReflectionProbes=true on all of these) + optionally
+		// shadowUtil.hlsl (t10-t15, gated on hasShadows/use_sun_shadow, the
+		// default-on case) - t5-t9 is the one gap clear of all of those, and
+		// 4 channels (sIndexedTextureChannels) fits in t5-t8 with t9 free as
+		// margin.
+		const S32 kIndexedTexRegisterBase = attaches_deferred_util ? 5 : 0;
+		for (S32 i = 0; i < texture_index_channels; ++i)
+		{
+			extra += llformat("Texture2D tex%d : register(t%d);\n", i, kIndexedTexRegisterBase + i);
+			extra += llformat("SamplerState tex%dSampler : register(s%d);\n", i, kIndexedTexRegisterBase + i);
+		}
+
+		if (texture_index_channels > 1)
+		{
+			// Real vertex-to-pixel wiring (a VSOutput/PSInput field
+			// populating this from a real semantic, not an ambient "flat
+			// in" the way GLSL declares it) is added per-entry-file as
+			// needed - see indexedTextureV.hlsl's own comment and the
+			// project's open-issues ledger for which files currently do.
+			extra += "static int vary_texture_index;\n";
+		}
+
+		extra += "float4 diffuseLookup(float2 texcoord)\n{\n";
+		if (texture_index_channels == 1)
+		{
+			extra += "    return tex0.Sample(tex0Sampler, texcoord);\n}\n";
+		}
+		else
+		{
+			extra += "    switch (vary_texture_index)\n    {\n";
+			for (S32 i = 0; i < texture_index_channels; ++i)
+			{
+				extra += llformat("        case %d: return tex%d.Sample(tex%dSampler, texcoord);\n", i, i, i);
+			}
+			extra += "        default: return float4(1,0,1,1);\n    }\n}\n";
+		}
+		extra += "#endif\n";
+
+		const std::string marker = "/*[EXTRA_CODE_HERE]*/";
+		size_t marker_pos = source_text.find(marker);
+		if (marker_pos != std::string::npos)
+		{
+			source_text.replace(marker_pos, marker.length(), extra);
+		}
+	}
 
 	if (type == GL_VERTEX_SHADER)
 	{
@@ -940,7 +1048,7 @@ GLuint LLShaderMgr::loadShaderFile(const std::string& filename, S32& shader_leve
 		if (shader_level > 1)
 		{
 			shader_level--;
-			return loadShaderFile(filename, shader_level, type, defines, texture_index_channels);
+			return loadShaderFile(filename, shader_level, type, defines, texture_index_channels, attaches_deferred_util);
 		}
 		LL_WARNS("ShaderLoading") << "Failed to load " << filename << LL_ENDL;
 	}
@@ -1454,6 +1562,9 @@ void LLShaderMgr::initAttribsAndUniforms()
 	mReservedUniforms.push_back("modelview_delta");
 	mReservedUniforms.push_back("inv_modelview_delta");
 	mReservedUniforms.push_back("cube_snapshot");
+
+	mReservedUniforms.push_back("last_projection_matrix");
+	mReservedUniforms.push_back("history_map");
 
 	mReservedUniforms.push_back("tc_scale");
 	mReservedUniforms.push_back("rcp_screen_res");

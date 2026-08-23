@@ -24,6 +24,9 @@
 
 struct PSInput
 {
+    // S24 (2026-08-02): missing SV_Position - see uiF.hlsl's comment (fxc.exe-confirmed VS/PS register-shift bug).
+    float4 position : SV_Position;
+
     float2 tc : TEXCOORD0;
 };
 
@@ -47,9 +50,28 @@ PSOutput main(PSInput IN)
 {
     PSOutput OUT;
 
-    OUT.frag_color = diffuseMap.Sample(diffuseMapSampler, IN.tc);
+    // S24 (2026-08-09, task #146 follow-up): IN.tc is derived in copyV.hlsl
+    // from the fullscreen triangle's own clip-space position
+    // (position.xy*0.5+0.5) - the same GL-origin-assuming pattern already
+    // found and fixed in softenLightV.hlsl/glow/postDeferredGammaCorrect
+    // this session, just never caught here because this shader (gCopyProgram/
+    // gCopyDepthProgram) had no live caller until DXDrawPoolWater::
+    // beginPostDeferredPass() started using it to snapshot mRT->screen/
+    // mRT->deferredScreen into mWaterDis for water's refraction. Both
+    // source targets are real D3D11 top-left-origin resources, so sampling
+    // them with an unflipped UV wrote an upside-down copy into mWaterDis -
+    // confirmed by a real in-world report (fishbowl reflection's apparent
+    // position/orientation changed after task #123's getDepth() fix, since
+    // water's OWN sampling became correct while the thing it was sampling
+    // FROM was still inverted). Flip at the sample site, matching the
+    // established pattern - IN.tc itself is only ever used for texture
+    // reads in this shader (no position-reconstruction use), so there's no
+    // second consumer to keep unflipped.
+    float2 tc = float2(IN.tc.x, 1.0 - IN.tc.y);
+
+    OUT.frag_color = diffuseMap.Sample(diffuseMapSampler, tc);
 #if defined(COPY_DEPTH)
-    OUT.depth = depthMap.Sample(depthMapSampler, IN.tc).r;
+    OUT.depth = depthMap.Sample(depthMapSampler, tc).r;
 #endif
 
     return OUT;
