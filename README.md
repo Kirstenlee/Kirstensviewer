@@ -14,7 +14,7 @@
 
 ## 🖥️ About This Viewer
 
-Kirstens Viewer is a maintained fork of the official Second Life Viewer. It prioritizes fidelity, performance, and compatibility with modern Windows systems.
+Kirstens Viewer is a maintained hard-fork of the official Second Life Viewer. It prioritizes fidelity, performance, and compatibility with modern Windows systems.
 
 - **Optimized** for modern multi-core CPUs (AVX2); target audience: high-end PCs & technical users
 - **Modern C++**: replacing legacy code
@@ -64,7 +64,7 @@ Kirstens Viewer respects user privacy and disables or limits the following compo
 | 3075  | VETR     | S24.5   |
 | 3322  | LYSI     | S24.6   |
 | 3500  | MAGN     | S24.7   |
-| 3535  | HRADR    | S24.8   |
+| 3690  | HRADR    | S24.8   |
 
 **Forked from Viewer Develop / 2026.3**
 
@@ -72,24 +72,19 @@ Kirstens Viewer respects user privacy and disables or limits the following compo
 
 ## ✨ Change Log (Concise)
 
-- Snapshot Build 3535
+- Snapshot Build 3690
 
 #### 🎨 Graphics & Rendering
 
-- S24: DX11 conversion project stage 2
-- S24: Add runtime-toggled VBO work queue (S24VBOWorkQueueEnabled/ThreadCount)
-
+- S24: DX11 conversion project
 
 #### ⚡ Performance & Optimisation
 
-- S24: VRAM eviction improvements.
-- S24: Add hysteresis to avatar impostor/too-slow thresholds to stop borderline avatars flickering between full render and billboard in busy scenes.
-- S24: Live VRAM signal add live DXGI VRAM budget/usage tracking via budget-change notifications, replacing the one-time static query
+TBA
 
 #### 🖌️ UI, Themes & Skins
 
-- S24: Nearby people add sortable distance and age metrics, with highlights for new users.
-- S24: Quick chat V2
+UI running in own DX context
 
 #### 🔊 Audio
 
@@ -97,22 +92,13 @@ Kirstens Viewer respects user privacy and disables or limits the following compo
 
 #### 🛠️ Debug & Diagnostics
 
-- S24: Remove the terribly broken and useless QA scene monitor console
-
 #### 🔒 Privacy & Moderation
 
 #### 🔗 Upstream Merges & Bug Fixes
 
-- 5962 Optimize writeWearablesToAvatar
-- 5981 Fix viewer scale interpolation not finishing
-- New color picker with more slots
-- 5968 Fix outfit tabs not showing up without a filter reset
-- 5892 Process high priority inventory updates immediately
-
-
 #### 🏗️ Build System & Infrastructure
 
-- S24: vcpkg migration - Boost 1.91 - fp:fast AVX2
+- S24: vcpkg migration - Boost 1.912- fp:fast AVX2
 - S24: Fix include() case mismatches for renamed cmake modules (GLM/ZLIB/APR/CURL/etc.) surfaced by CMake 4.4.0's new case-insensitive module
 
 **Binaries signed:** Codesign Serial: `4e2969400a179e151ba7323da181f8b0`
