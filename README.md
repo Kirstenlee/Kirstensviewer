@@ -66,13 +66,10 @@ Kirstens Viewer respects user privacy and disables or limits the following compo
 | 3075  | VETR     | S24.5   |
 | 3322  | LYSI     | S24.6   |
 | 3500  | MAGN     | S24.7   |
-<<<<<<< HEAD
 | 3535  | HRADR    | S24.8   |
 | 3664  | HRADR    | DX_RENDER 0.1 |
 | 3693  | HRADR    | DX_RENDER 0.2 |
 =======
-| 3690  | HRADR    | S24.8   |
->>>>>>> 36aefafa62b450e16a950eb37292c8aa63793a24
 
 **Forked from Viewer Develop / 2026.3**
 
@@ -80,7 +77,6 @@ Kirstens Viewer respects user privacy and disables or limits the following compo
 
 ## 🎮 DirectX 11 Renderer
 
-<<<<<<< HEAD
 Since build 3535, Kirstens Viewer has been mid-migration from OpenGL to a
 native **Direct3D 11** renderer. 
 `DX_RENDER` is the actively developed and tested configuration, publicly
@@ -254,20 +250,6 @@ grouped by category.
 - S24: fix font glyph render path - issue #254 from 0.1 alpha
 - S24: smooth nametag & voice-dot occlusion-based fading, replacing the depth-blend approach
 =======
-- Snapshot Build 3690
-
-#### 🎨 Graphics & Rendering
-
-- S24: DX11 conversion project
-
-#### ⚡ Performance & Optimisation
-
-TBA
-
-#### 🖌️ UI, Themes & Skins
-
-UI running in own DX context
->>>>>>> 36aefafa62b450e16a950eb37292c8aa63793a24
 
 #### 🔊 Audio
 
@@ -275,7 +257,6 @@ UI running in own DX context
 
 #### 🛠️ Debug & Diagnostics
 
-<<<<<<< HEAD
 - S24: stages 5.7/5.8 skipped for now - debug consoles will be handled in a later conversion phase
 - S24: clean up temporary glow-investigation diagnostic (task #160)
 - S24: native frame stats / FPS metrics
@@ -290,12 +271,10 @@ UI running in own DX context
 - S24: fix resets and folder paths based on build type, GL / DX
 
 =======
->>>>>>> 36aefafa62b450e16a950eb37292c8aa63793a24
 #### 🔒 Privacy & Moderation
 
 #### 🔗 Upstream Merges & Bug Fixes
 
-<<<<<<< HEAD
 - 5966 Fixed width font's numbers
 - 5972 LLUIImage based buffer cache
 
@@ -316,7 +295,6 @@ UI running in own DX context
 
 - S24: vcpkg migration - Boost 1.912- fp:fast AVX2
 - S24: Fix include() case mismatches for renamed cmake modules (GLM/ZLIB/APR/CURL/etc.) surfaced by CMake 4.4.0's new case-insensitive module
->>>>>>> 36aefafa62b450e16a950eb37292c8aa63793a24
 
 **Binaries signed:** Codesign Serial: `4e2969400a179e151ba7323da181f8b0`
 ---
