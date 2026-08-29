@@ -142,8 +142,13 @@ void LLWinDebug::cleanupSingleton()
 
 void LLWinDebug::writeDumpToFile(MINIDUMP_TYPE type, MINIDUMP_EXCEPTION_INFORMATION *ExInfop, const std::string& filename)
 {
-    // Temporary fix to switch out the code that writes the DMP file.
-    // Fix coming that doesn't write a mini dump file for regular C++ exceptions.
+    // S24 (2026-08-02): reverted - enabling this caused a lockup/crash
+    // before window creation (LLWinDebug's vectored exception handler
+    // catches every first-chance exception process-wide, including benign
+    // ones libraries throw-and-catch internally during early init, and
+    // MiniDumpWriteDump() on each one was slow/unstable enough to hang).
+    // Not a safe diagnostic path for this codebase - use log-based
+    // checkpoint tracing instead.
     const bool enable_write_dump_file = false;
     if ( enable_write_dump_file )
     {

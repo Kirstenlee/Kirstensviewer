@@ -69,9 +69,9 @@ class LLDrawPoolTerrain;
 // renderOwnership() (used by the "ShowParcelOwners" debug overlay) needed
 // no such fix - it only ever binds to hardcoded unit 0 already, by design.
 //
-// hilightParcelOwners()'s raw glPolygonOffset(-1.0f, -1.0f) call is
-// skipped, same documented gap as LLDrawPoolGlow/LLDrawPoolBump's polygon
-// offset (no DX11 runtime equivalent, minor z-fighting visual gap only).
+// hilightParcelOwners()'s glPolygonOffset(-1.0f, -1.0f) call is real again
+// (2026-08-28, task #242) via LLRender::setPolygonOffset() - was skipped
+// entirely before ("no DX11 runtime equivalent").
 //
 // beginShadowPass()/endShadowPass()/renderShadow() are out of scope here -
 // shadow pass is phase 5.7.

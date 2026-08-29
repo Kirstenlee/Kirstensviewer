@@ -304,7 +304,7 @@ private:
 	// GPU-accurate frame tracking (internal, opaque to XML serialization)
 	struct GPUFrameFence
 	{
-		void* sync;  // GLsync object
+		void* sync;  // GLsync object under GL, ID3D11Query* under DX_RENDER (see DXQuery)
 		U64   frame_number;
 	};
 	std::vector<GPUFrameFence> mGPUFrameFences;

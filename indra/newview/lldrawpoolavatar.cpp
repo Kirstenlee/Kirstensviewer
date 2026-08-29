@@ -173,6 +173,12 @@ void LLDrawPoolAvatar::beginDeferredPass(S32 pass)
         ++pass;
     }
 
+    // S24 (2026-08-09, task #171): was DX_RENDER-gated to pass 2 only
+    // ("skinned") - impostors (pass 0) and rigid meshes/eyeballs (pass 1)
+    // were deliberately deferred during phase 5.10c. Un-skipped now:
+    // beginDeferredImpostor()/beginDeferredRigid() were checked and use
+    // only already-established-safe primitives (enableTexture()/bind()/
+    // setMinimumAlpha()), same as beginDeferredSkinned() already did.
     switch (pass)
     {
     case 0:
@@ -199,6 +205,10 @@ void LLDrawPoolAvatar::endDeferredPass(S32 pass)
         ++pass;
     }
 
+    // S24 (2026-08-09, task #171): see beginDeferredPass()'s comment -
+    // un-skipped, endDeferredImpostor()/endDeferredRigid() also use only
+    // already-established-safe primitives (disableTexture()/unbind()/
+    // gGL.getTexUnit(0)->activate()/unbindDeferredShader()).
     switch (pass)
     {
     case 0:
@@ -217,6 +227,10 @@ void LLDrawPoolAvatar::renderDeferred(S32 pass)
 {
     LL_PROFILE_ZONE_SCOPED_CATEGORY_AVATAR;
 
+    // S24 (2026-08-09, task #171): see beginDeferredPass()'s comment - all
+    // 3 passes now render. render(pass) -> renderAvatars(NULL, pass), whose
+    // own pass==0/pass==1 branches (renderImpostor()/renderRigid()) were
+    // already real and untouched - they simply never got called before.
     render(pass);
 }
 

@@ -71,24 +71,31 @@ public:
     // deferredScreen blit (via presentFinal(), dxpipeline.cpp) whenever
     // renderDeferredLighting() didn't complete this frame or the gamma
     // shader failed to compile, so a shader/lighting gap degrades
-    // gracefully instead of showing a blank window. Still NOT ported:
-    // screen-space reflections/tonemap/CAS's HDR auto-exposure chain
-    // (generateLuminance/generateExposure - gated on gGLManager.mGLVersion,
-    // dead code under DX_RENDER regardless per task #136's own scope note)
-    // and the OpenCL-based S24 custom effects (desaturation/invert/vignette/
-    // etc. - separate tech stack, explicitly out of scope for this chain).
+    // gracefully instead of showing a blank window.
+    // S24 (2026-08-27, GL-tail audit): the note that used to list SSR/
+    // tonemap/CAS/OpenCL-effects/buffer-visualization as "still NOT
+    // ported" here is stale - all of those are wired in now (SSR scene-
+    // copy, full tonemap/gamma-correct family, glow, DoF, FXAA/SMAA,
+    // KVOpenCL effects, and Develop > Rendering > Buffer Visualization as
+    // of task #267's GL-tail follow-up). The one genuine remaining gap is
+    // HDR auto-exposure (generateLuminance()/generateExposure() - dynamic
+    // eye adaptation): still a confirmed no-op under DX_RENDER (see the
+    // .cpp), so the tonemap curve itself is correct but exposure never
+    // adapts to scene brightness. Possible contributor to task #184
+    // (user reports needing a manual +4.0 tonemap gain).
     static void presentDeferredScreen(LLPipeline& pipeline);
 
     // S24 (2026-08-04): v1 of the real deferred lighting-combine pass -
-    // mirrors LLPipeline::renderDeferredLighting()'s GL body, but only the
-    // ambient+sun/atmospherics term (softenLightF/V.hlsl, via the
+    // mirrors LLPipeline::renderDeferredLighting()'s GL body, starting with
+    // just the ambient+sun/atmospherics term (softenLightF/V.hlsl, via the
     // already-DX-safe bindDeferredShader() chokepoint), writing the lit
-    // result into mRT->screen. Deliberately does NOT port the sun-shadow/
-    // SSAO lightmap pass (mRT->deferredLight, RenderDeferredSSAO/
-    // RenderShadowDetail-gated) or the local point/spot light loop
-    // (RenderLocalLightCount) - both are natural, self-contained
-    // follow-ups that reuse this same bind/uniform/fullscreen-triangle
-    // shape once needed (see the .cpp for exactly where to add them).
+    // result into mRT->screen.
+    // S24 (2026-08-27, GL-tail audit): the note that used to say this
+    // "deliberately does NOT port the sun-shadow/SSAO lightmap pass... or
+    // the local point/spot light loop" is stale - both were added later,
+    // further down in the same function (sun-shadow/SSAO lightmap: task
+    // #158; local lights/spotlights: task #165). Read the .cpp, not this
+    // summary, for current coverage.
     // presentDeferredScreen() falls back to its existing raw deferredScreen
     // blit whenever gDeferredSoftenProgram isn't complete, so a shader
     // compile failure here degrades gracefully instead of breaking the
