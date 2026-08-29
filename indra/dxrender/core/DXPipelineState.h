@@ -29,6 +29,21 @@ public:
     // pointer leaves that piece of state untouched (whatever was already
     // bound stays bound) rather than forcing a default - lets a pool bundle
     // only the state it actually wants to override.
+    //
+    // S24 (2026-08-28, task #179 audit): currently unused - no real caller
+    // anywhere in the tree, confirmed via exhaustive grep (this class was
+    // scaffolding for future pools, per the class comment above, that never
+    // materialized). WARNING before wiring this up: mVS/mPS are bound via a
+    // raw ctx->VSSetShader()/PSSetShader() call below, which does NOT update
+    // LLGLSLShader::sCurBoundShaderPtr - the exact same bug class as the
+    // 2026-07-26 "zero textures, zero fonts" incident (DXPipeline's
+    // placeholder-shader fallback, newview/dxpipeline.cpp, fixed there by
+    // calling LLGLSLShader::unbind() immediately after to null the stale
+    // bookkeeping and force the next real bind() to re-apply for real). Any
+    // caller of THIS bind() needs the same treatment - either call
+    // LLGLSLShader::unbind() right after, or (better, once there's a real
+    // caller to design around) route mVS/mPS through the owning
+    // LLGLSLShader's own bind() instead of raw pointers here.
     void bind() const;
 
 private:
