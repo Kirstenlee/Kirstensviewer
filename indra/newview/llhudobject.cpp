@@ -269,6 +269,31 @@ void LLHUDObject::updateAll()
     LLHUDIcon::updateAll();
     LLHUDNameTag::updateAll();
     sortObjects();
+
+    // S24 (2026-08-28, task #193 follow-up): poll last frame's occlusion-
+    // fade query result for any opted-in HUD object (see
+    // issueOcclusionQuery()/updateOcclusionFade() in llhudobject.h) before
+    // this frame's issueOcclusionQueries() (called from doOcclusion(),
+    // pipeline.cpp) issues the next one. No-op for every type that hasn't
+    // overridden updateOcclusionFade().
+    for (hud_object_list_t::iterator object_it = sHUDObjects.begin(); object_it != sHUDObjects.end(); ++object_it)
+    {
+        (*object_it)->updateOcclusionFade();
+    }
+}
+
+// static
+void LLHUDObject::issueOcclusionQueries()
+{
+    hud_object_list_t::iterator object_it;
+    for (object_it = sHUDObjects.begin(); object_it != sHUDObjects.end(); ++object_it)
+    {
+        LLHUDObject* hud_objp = (*object_it);
+        if (hud_objp->isVisible())
+        {
+            hud_objp->issueOcclusionQuery();
+        }
+    }
 }
 
 // static

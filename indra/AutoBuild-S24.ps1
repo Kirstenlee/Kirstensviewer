@@ -191,6 +191,26 @@ if ($choice -eq "1") {
     Start-Process "$BASE_PATH\Kirstensviewer\indra\build-vc145\Kirstens-S24.slnx"
 }
 elseif ($choice -eq "2") {
+    # S24 (2026-08-29): belt-and-suspenders re-configure right before the
+    # real build. cmake/Boost.cmake reads include/boost/version.hpp at
+    # configure time to pick the correct "-1_XX" tagged boost lib filenames
+    # to link - but on a fresh/post-clean run, whatever populates that
+    # header (vcpkg install / DownloadAndUnpack.ps1) isn't guaranteed to
+    # have finished BEFORE the single Invoke-Configure.ps1 call earlier in
+    # this script, so that first configure can still fall back to
+    # Boost.cmake's own hardcoded default - which itself goes stale every
+    # time vcpkg's boost baseline moves forward (hit live 2026-08-29: still
+    # said "1_91" while the real baseline was already 1_92, producing
+    # "cannot open file boost_fiber-vc145-mt-x64-1_91.lib" with no tracked
+    # config change to blame). Re-running configure here, now that boost is
+    # guaranteed present, regenerates the .vcxproj files with whatever the
+    # header ACTUALLY says - self-correcting even if the fallback tag above
+    # goes stale again later. Configure is cheap (~1-2s once packages are
+    # already on disk), so this costs nothing on the common case where
+    # nothing was actually stale.
+    Write-Host "Re-running configure before build (picks up any boost/vcpkg baseline changes)..." -ForegroundColor DarkCyan
+    powershell.exe -ExecutionPolicy Bypass -File Invoke-Configure.ps1
+
     Write-Host "Starting Automated Build via MsBuild..." -ForegroundColor Yellow
     $msbuild = if ($msbuildExe) { $msbuildExe } else { "C:\Program Files\Microsoft Visual Studio\2026\Professional\MSBuild\Current\Bin\MSBuild.exe" }
 

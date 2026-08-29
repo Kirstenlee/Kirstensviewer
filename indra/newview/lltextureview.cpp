@@ -520,7 +520,6 @@ private:
 
 void LLGLTexMemBar::draw()
 {
-    F32 discard_bias = LLViewerTexture::sDesiredDiscardBias;
     F32 cache_usage = (F32)LLAppViewer::getTextureCache()->getUsage().valueInUnits<LLUnits::Megabytes>();
     F32 cache_max_usage = (F32)LLAppViewer::getTextureCache()->getMaxUsage().valueInUnits<LLUnits::Megabytes>();
     S32 line_height = LLFontGL::getFontMonospace()->getLineHeight();
@@ -570,9 +569,16 @@ void LLGLTexMemBar::draw()
    F64 raw_image_bytes_MB = raw_image_bytes / (1024.0 * 1024.0);
    F64 saved_raw_image_bytes_MB = saved_raw_image_bytes / (1024.0 * 1024.0);
    F64 aux_raw_image_bytes_MB = aux_raw_image_bytes / (1024.0 * 1024.0);
-   F64 texture_bytes_alloc = LLImageGL::getTextureBytesAllocated() / 1024.0 / 512.0;
-   F64 vertex_bytes_alloc = LLVertexBuffer::getBytesAllocated() / 1024.0 / 512.0;
-   F64 render_bytes_alloc = LLRenderTarget::sBytesAllocated / 1024.0 / 512.0;
+   // S24 (2026-08-24, task #258): was /1024.0/512.0 - the same "Linden fudge
+   // factor" (a deliberate 2x inflation) LLViewerTexture::updateClass() used
+   // to compensate for the self-estimate's tracking miss. That miss doesn't
+   // exist anymore (updateClass()'s `used` is now this exact same real sum,
+   // no separate estimate) - keeping the fudge factor here would just make
+   // this console lie about its own inputs. Real MB now, matching everywhere
+   // else these bytes are reported.
+   F64 texture_bytes_alloc = LLImageGL::getTextureBytesAllocated() / 1024.0 / 1024.0;
+   F64 vertex_bytes_alloc = LLVertexBuffer::getBytesAllocated() / 1024.0 / 1024.0;
+   F64 render_bytes_alloc = LLRenderTarget::sBytesAllocated / 1024.0 / 1024.0;
 
     //----------------------------------------------------------------------------
     LLGLSUIDefault gls_ui;
@@ -607,14 +613,55 @@ void LLGLTexMemBar::draw()
     gGL.color4f(0.0f, 0.0f, 0.0f, 0.9f); // Darker background for better readability
     gl_rect_2d(-10, getRect().getHeight() + line_height*2 + 1, getRect().getWidth()+2, getRect().getHeight()+2);
 
-    text = llformat("%s Free: %d MB Sys Free: %d MB FBO: %d MB Probe#: %d Probe Mem: %d MB Bias: %.2f Cache: %.1f/%.1f MB",
-                    LLViewerTexture::sVRAMInfoIsLive ? "Live" : "Est.",
-                    (S32)LLViewerTexture::sFreeVRAMMegabytes,
+    // S24 (2026-08-24, task #258): root-and-branch redesign of this console, twice
+    // over. First pass replaced the old single "%s Free: %d MB ... Bias: %.2f" line
+    // with three lines. Second pass (same session): the old discard-bias ramp this
+    // console was surfacing is gone entirely, replaced by
+    // LLViewerTextureList::runVRAMBudgetAllocation() - a deterministic greedy
+    // allocator with no ramp state, so there's no more "Bias" to show and no more
+    // "Live vs Est." mode to flip between (`used` is now one deterministic figure
+    // in all cases - see LLViewerTexture::updateClass()). `budget` still has two
+    // honest sources though (a live DXGI figure genuinely is better than the static
+    // fallback when available), so that source is still worth labeling. "Cut: N/M"
+    // (how many of this pass's candidates actually got trimmed) replaces the
+    // now-meaningless Bias figure with a genuinely informative number.
+    {
+        const F32 vram_used = LLViewerTexture::sVRAMUsedMegabytes;
+        const F32 vram_budget = llmax(LLViewerTexture::sVRAMBudgetMegabytes, 1.f);
+        const F32 vram_pct = vram_used / vram_budget;
+        constexpr S32 BAR_WIDTH = 15;
+        const S32 filled = llclamp((S32)(vram_pct * BAR_WIDTH), 0, BAR_WIDTH);
+        std::string bar(filled, '#');
+        bar.append(BAR_WIDTH - filled, '.');
+
+        const LLColor4& bar_color = vram_pct >= 1.0f ? LLColor4::red : vram_pct >= 0.8f ? warning_color : value_color;
+
+        text = llformat("VRAM %d/%d(%s) MB (%d%%) [%s] Headroom: %d MB  Cut: %u/%u",
+                        (S32)vram_used,
+                        (S32)vram_budget,
+                        LLViewerTexture::sVRAMBudgetIsLive ? "DXGI" : "Est",
+                        (S32)(vram_pct * 100.f),
+                        bar.c_str(),
+                        (S32)LLViewerTexture::sFreeVRAMMegabytes,
+                        LLViewerTexture::sVRAMAllocatorLastCutCount,
+                        LLViewerTexture::sVRAMAllocatorCandidateCount);
+        LLFontGL::getFontMonospace()->renderUTF8(text, 0, 0, v_offset + line_height*10,
+                                                 bar_color, LLFontGL::LEFT, LLFontGL::TOP);
+    }
+
+    text = llformat("DownscaleQ: %u  CreateQ: %u  Tex/Vtx: %.1f/%.1f MB",
+                    (U32)gTextureList.mDownScaleQueue.size(),
+                    (U32)gTextureList.mCreateTextureList.size(),
+                    texture_bytes_alloc,
+                    vertex_bytes_alloc);
+    LLFontGL::getFontMonospace()->renderUTF8(text, 0, 0, v_offset + line_height*9,
+                                             text_color, LLFontGL::LEFT, LLFontGL::TOP);
+
+    text = llformat("Sys Free: %d MB FBO: %d MB Probe#: %d Probe Mem: %d MB Cache: %.1f/%.1f MB",
                     LLMemory::getAvailableMemKB()/1024,
                     LLRenderTarget::sBytesAllocated/(1024*1024),
                     gPipeline.mReflectionMapManager.probeCount(),
                     gPipeline.mReflectionMapManager.probeMemory(),
-                    discard_bias,
                     cache_usage,
                     cache_max_usage);
     LLFontGL::getFontMonospace()->renderUTF8(text, 0, 0, v_offset + line_height*8,
@@ -626,16 +673,17 @@ void LLGLTexMemBar::draw()
     LLFontGL::getFontMonospace()->renderUTF8(text, 0, 0, v_offset + line_height * 7,
         text_color, LLFontGL::LEFT, LLFontGL::TOP);
 
-    // NOTE: Textures/Vertex/Render below are always our own self-estimated breakdown
-    // (DXGI doesn't tell us how usage splits by category) -- they will not sum to
-    // "Total" when the live figure is active, since Total then reflects what actually
-    // drove the discard-bias decision above, not our own accounting of it.
-    text = llformat("Textures: %.2f MB  Vertex: %.2f MB  Render: %.2f MB  Total: %.2f MB (%s)",
+    // NOTE: Textures/Vertex below are the exact two tracked totals that sum to
+    // "Total" (LLViewerTexture::sVRAMUsedMegabytes) - both are now real tracked
+    // bytes, not a fudge-factored estimate (see texture_bytes_alloc's comment
+    // above). Render is shown for reference but is NOT part of Total - render
+    // targets were never counted in the VRAM budget's `used` figure, before or
+    // after this session's redesign.
+    text = llformat("Textures: %.2f MB  Vertex: %.2f MB  Render: %.2f MB  Total: %.2f MB",
                     texture_bytes_alloc,
                     vertex_bytes_alloc,
                     render_bytes_alloc,
-                    LLViewerTexture::sVRAMUsedMegabytes,
-                    LLViewerTexture::sVRAMInfoIsLive ? "live" : "est.");
+                    LLViewerTexture::sVRAMUsedMegabytes);
     LLFontGL::getFontMonospace()->renderUTF8(text, 0, 0, v_offset + line_height * 6,
         text_color, LLFontGL::LEFT, LLFontGL::TOP);
 
@@ -745,8 +793,19 @@ bool LLGLTexMemBar::handleMouseDown(S32 x, S32 y, MASK mask)
 
 LLRect LLGLTexMemBar::getRequiredRect()
 {
+    // S24 (2026-08-24, task #258): was a hardcoded 78 (with a comment already
+    // admitting it was stale against "line_height * 6" while 8 lines were actually
+    // being drawn below it). Empirically tuned against live feedback, not derived
+    // from LLView anchor-semantics reasoning (that reasoning was tried twice and
+    // was backwards both times - line_height*10 sat one line low, line_height*11
+    // made it two lines low, confirming mTop and downward-shift move together,
+    // not oppositely). Topmost content line is drawn at y=line_height*10; the
+    // correct rect height empirically is one LESS than that, not equal or more.
+    // 2026-08-24 follow-up: user reported text still sitting 1px low after the
+    // line_height*9 fix - mTop/downward-shift move together (see above), so
+    // nudging the text UP means trimming 1px more off mTop, not adding it.
     LLRect rect;
-    rect.mTop = 78; //LLFontGL::getFontMonospace()->getLineHeight() * 6;
+    rect.mTop = LLFontGL::getFontMonospace()->getLineHeight() * 9 - 1;
     return rect;
 }
 

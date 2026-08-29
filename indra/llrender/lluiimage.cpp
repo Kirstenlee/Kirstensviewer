@@ -44,7 +44,21 @@
 // Static member initialization
 std::vector<LLPointer<LLUIImage> > LLUIImage::sImageList;
 size_t LLUIImage::sCleanupIndex = 0;
-bool LLUIImage::sEnableDisplayListsCollection = true;
+// S24 (2026-08-25, task #224): defaults OFF now - this cache (task #54) is a
+// pure performance optimization, not needed for correctness (LLRender's own
+// general-purpose hash-keyed vertex buffer cache, bufferfromCache() in
+// llrender.cpp, already avoids redundant GPU uploads for unchanging
+// geometry). Four independent, real correctness fixes were made chasing a
+// button hover-highlight flicker traced to this cache's cross-frame replay
+// (a missing gDXUIBatch flush in the replay path; an unsafe "skip if same
+// buffer+shader as last time" dedup in LLVertexBuffer::setBuffer(); the same
+// dedup bug class in LLGLSLShader::bind(); DXUIBatch batching bypass ruled
+// out as unrelated) - all real, all kept, none sufficient to stop the
+// flicker. Disabling this cache entirely was the only thing that reliably
+// fixed it, confirmed live multiple times. Not worth further root-causing
+// given the fallback path is already proven-correct, well-tested machinery
+// used throughout the rest of the engine.
+bool LLUIImage::sEnableDisplayListsCollection = false;
 
 LLUIImage::LLUIImage(const std::string& name, LLPointer<LLTexture> image)
 :   mName(name),

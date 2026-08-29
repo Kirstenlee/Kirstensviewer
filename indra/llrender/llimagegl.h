@@ -209,15 +209,6 @@ public:
     // LLTexUnit) - a small public accessor is cleaner than growing the
     // friend list for one narrow need.
     ID3D11Texture2D* getDXTexturePtr() const { return mDXTexture.getTexture(); }
-
-    // S24 (2026-08-16): completes a deferred texture/media upload staged by
-    // setImage()/setSubImage() when they ran on the LLImageGLThread
-    // background thread (see DXTexture's top comment) - does the actual
-    // D3D11 Context calls (UpdateSubresource/GenerateMips), so this must be
-    // called from the main thread. No-op if nothing is pending. Callers:
-    // LLViewerFetchedTexture::scheduleCreateTexture()'s main-thread callback,
-    // LLViewerMediaImpl's media-texture-update main-thread callback.
-    bool finalizePendingGPUUpload() { return mDXTexture.finalizePendingUpload(); }
 #endif
 
     bool getIsAlphaMask() const;
@@ -278,7 +269,7 @@ public:
 private:
     U32 createPickMask(S32 pWidth, S32 pHeight);
     void freePickMask();
-    bool isCompressed();
+    bool isCompressed() const;
 
     LLPointer<LLImageRaw> mSaveData; // used for destroyGL/restoreGL
     LL::WorkQueue::weak_t mMainQueue;
@@ -400,11 +391,13 @@ public:
 class LLImageGLThread : public LLSimpleton<LLImageGLThread>, LL::ThreadPool
 {
 public:
-    // follows gSavedSettings "RenderDXMultiThreadedTextures" (renamed
-    // 2026-08-16, was "RenderGLMultiThreadedTextures")
+    // S24 (2026-08-26, task #260 CLOSED not-applicable): background-thread
+    // texture/media creation - permanently false now, both settings that
+    // used to enable this (RenderDXMultiThreadedTextures/Media) were removed
+    // after 7 rounds of investigation across 3 sessions confirmed a
+    // driver-level NVIDIA bug (610.88) that no application-side mitigation
+    // could route around. See memorygraph tags=["task260"].
     static bool sEnabledTextures;
-    // follows gSavedSettings "RenderDXMultiThreadedMedia" (renamed
-    // 2026-08-16, was "RenderGLMultiThreadedMedia")
     static bool sEnabledMedia;
 
     LLImageGLThread(LLWindow* window);

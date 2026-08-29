@@ -123,6 +123,17 @@ bool gCubeSnapshot = false;
 bool gSnapshotNoPost = false;
 bool gShaderProfileFrame = false;
 
+// S24 (2026-08-26, task #263): DXPipeline::presentDeferredScreen() ping-
+// pongs the final post-fx composite between mPostPingMap/mPostPongMap
+// (dxpipeline.cpp) before blitting to the swap chain - this exposes which
+// one it landed on, sized to whatever LLPipeline::allocateScreenBuffer()
+// was last called with (the true snapshot resolution when one is in
+// progress, not necessarily the window). Set right before presentFinal()
+// in dxpipeline.cpp, both branches; never null after presentDeferredScreen()
+// has run at least once. Same "thin per-frame handshake global" pattern as
+// gSnapshotNoPost above - rawSnapshot() (llviewerwindow.cpp) is the reader.
+LLRenderTarget* gLastCompositedPostTarget = nullptr;
+
 // This is how long the sim will try to teleport you before giving up.
 constexpr F32 TELEPORT_EXPIRY = 15.0f;
 // Additional time (in seconds) to wait per attachment
@@ -225,9 +236,21 @@ void display_update_camera()
 	{
 		final_far *= 0.5f;
 	}
-	else if (LLViewerTexture::sDesiredDiscardBias > 2.f)
+	else
 	{
-		final_far = llmax(32.f, final_far / (LLViewerTexture::sDesiredDiscardBias - 1.f));
+		// S24 (2026-08-24, task #258): driven by the real used/budget ratio now,
+		// not the deleted sDesiredDiscardBias ramp - same "direct number, no
+		// ramping" replacement used throughout task #258 (see
+		// LLViewerTextureList::updateImagesCreateTextures()'s severe_pressure).
+		// 1.1x = genuinely over budget (same threshold used there); scales up
+		// from there instead of a ramped scalar that could lag well behind the
+		// real pressure this lever exists to relieve.
+		const F32 pressure_ratio = LLViewerTexture::sVRAMUsedMegabytes
+			/ llmax(LLViewerTexture::sVRAMBudgetMegabytes, 1.f);
+		if (pressure_ratio > 1.1f)
+		{
+			final_far = llmax(32.f, final_far / llmax(1.f, (pressure_ratio - 1.f) * 10.f));
+		}
 	}
 	LLViewerCamera::getInstance()->setFar(final_far);
 	LLVOAvatar::sRenderDistance = llclamp(final_far, 16.f, 256.f);

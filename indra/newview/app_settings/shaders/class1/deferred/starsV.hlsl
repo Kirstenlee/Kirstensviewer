@@ -41,6 +41,22 @@ struct VSOutput
     StarsVarying varying;
 };
 
+// S24 (2026-08-29, task #279 "RENDER WOW"): cheap deterministic float3->float
+// hash (classic sin/frac trick - no HLSL builtin noise() the way old GLSL
+// briefly had one). Seeded from IN.diffuse_color.rgb rather than IN.position
+// - LLVOWLSky::updateStarGeometry() (newview/llvowlsky.cpp) writes the SAME
+// mStarColors[vtx] value to all 6 vertices of one star's billboard quad
+// (2 triangles), but IN.position differs per corner (each corner is the
+// star's center +/- an up/left billboard offset) - hashing position would
+// give each of the 4 corners of the SAME star a different seed, visibly
+// desyncing color/twinkle across one star's own quad. vertex_color is the
+// only per-vertex input that's genuinely constant across a whole star.
+float starHash(float3 seed)
+{
+    float n = dot(seed, float3(12.9898, 78.233, 37.719));
+    return frac(sin(n) * 43758.5453123);
+}
+
 VSOutput main(VSInput IN)
 {
     VSOutput OUT;
@@ -58,6 +74,19 @@ VSOutput main(VSInput IN)
     OUT.varying.screenpos = IN.position.xy * float2(t, t);
     OUT.varying.vary_texcoord0 = mul(texture_matrix0, float4(IN.texcoord0, 0, 1)).xy;
     OUT.varying.vertex_color = IN.diffuse_color;
+
+    OUT.varying.star_seed = starHash(IN.diffuse_color.rgb);
+
+    // S24 (task #279): soft Milky-Way-style stardust band - brightest along
+    // a fixed great circle across the sky dome, fading with angular
+    // distance. IN.position is close enough to the star's true center
+    // direction (the billboard offset is tiny relative to DISTANCE_TO_STARS,
+    // llvowlsky.cpp's dome radius) that using it directly per-corner is
+    // visually smooth, unlike star_seed above which needs to be EXACTLY
+    // stable per corner.
+    float3 galactic_normal = normalize(float3(0.35, 0.15, 0.92));
+    float band_dist = dot(normalize(IN.position), galactic_normal);
+    OUT.varying.galactic_band = 1.0 - smoothstep(0.0, 0.35, abs(band_dist));
 
     return OUT;
 }

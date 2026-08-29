@@ -1676,6 +1676,11 @@ LLViewerMediaImpl::LLViewerMediaImpl(const LLUUID& texture_id,
 	}
 
 	mMainQueue = LL::WorkQueue::getInstance("mainloop");
+	// S24 (2026-08-26, task #260 CLOSED not-applicable): DX_RENDER never
+	// posts to this queue (LLImageGLThread::sEnabledMedia is permanently
+	// false there - see LLImageGL::initClass()) - "LLImageGL" unconditionally
+	// matches the GL path's own thread-pool name; harmless/unused under
+	// DX_RENDER since it's never looked up as a live instance there.
 	mTexUpdateQueue = LL::WorkQueue::getInstance("LLImageGL"); // Share work queue with tex loader.
 }
 
@@ -3016,14 +3021,10 @@ void LLViewerMediaImpl::update()
 #if LL_IMAGEGL_THREAD_CHECK
 					media_tex->getGLTexture()->mActiveThread = LLThread::currentID();
 #endif
-#ifdef DX_RENDER
-					// S24 (2026-08-16): complete the deferred GPU upload
-					// staged by doMediaTexUpdate() on the worker thread
-					// above (createGLTexture()+setSubImage(), both deferred
-					// since that ran off the main thread - see DXTexture's
-					// top comment).
-					media_tex->getGLTexture()->finalizePendingGPUUpload();
-#endif
+					// S24 (2026-08-24, task #257): no separate finalize step
+					// needed anymore - doMediaTexUpdate() above already did
+					// the complete, mutex-protected D3D11 upload (DXTexture's
+					// own std::shared_mutex), whichever thread ran it.
 					mTextureUpdatePending = false;
 					media_tex->unref();
 					unref();

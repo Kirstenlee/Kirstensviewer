@@ -19,6 +19,35 @@ public:
     bool compilePixelShader(const std::string& source, const std::string& debugName);
     void reset();
 
+    // S24 (2026-08-29): DX-native shader bytecode disk cache master switch -
+    // set once from RenderDXShaderCacheEnabled via settings_to_globals()
+    // (llappviewer.cpp) before gPipeline.init() runs, same "push a saved
+    // setting into a static the lower layer can't read gSavedSettings for"
+    // pattern as DXDevice::sDebugLayerEnabled (DXDevice.h) - dxrender has no
+    // link to newview's gSavedSettings. GL's equivalent (LLShaderMgr's
+    // mShaderCacheEnabled/loadCachedProgramBinary()/saveCachedProgramBinary(),
+    // llrender/llshadermgr.cpp) is glProgramBinary()-based and has zero
+    // DX_RENDER equivalent - LLGLSLShader::createShader() returns via
+    // createShaderDX() before ever reaching it, so DX_RENDER has recompiled
+    // every shader from HLSL source on every single launch since day one.
+    // Caches the raw D3DCompile() bytecode blob to the same shader_cache
+    // folder GL's cache already uses (same purge/reset mechanisms - KVTweaks'
+    // "Purge Shader Cache" button, RenderPurgeShaderCacheOnExit - work on it
+    // unmodified), keyed by a hash of the exact final concatenated HLSL text
+    // (already fully resolved - #include expanded, feature #defines baked
+    // in - so any permutation/feature/shader-level change naturally produces
+    // a different key, no separate version-tagging needed). Gated per-shader
+    // by isCacheEligible()'s allowlist below, deliberately - proving the
+    // mechanism live on one simple, low-blast-radius shader before trusting
+    // it with anything visually complex. Expand the allowlist as confidence
+    // grows.
+    static bool sShaderCacheEnabled;
+
+    // Pilot allowlist for sShaderCacheEnabled - see its own comment above.
+    // Public because DXShader.cpp's file-local getOrCompileHLSL() helper
+    // (anonymous namespace, not a member) needs to call it.
+    static bool isCacheEligible(const std::string& debugName);
+
     // GLSL lets an attached utility file declare a free-standing
     // "in vec4 weight;" attribute (e.g. class1/avatar/avatarSkinV.glsl's
     // getSkinnedTransform()) that main()'s own entry file never touches -

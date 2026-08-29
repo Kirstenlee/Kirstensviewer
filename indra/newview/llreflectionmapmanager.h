@@ -61,6 +61,14 @@ public:
     // area than adding DXPipeline as a second full friend class.
     F32 getLightScale() const { return mLightScale; }
 
+    // S24 (2026-08-27, task #267 follow-up): updateUniforms() itself is
+    // private (LLPipeline-only friend, see above) - DXPipeline needs to
+    // trigger the same once-per-frame rebuild GL's own
+    // LLPipeline::renderGeomDeferred() does (pipeline.cpp), which it can't
+    // reach under DX_RENDER (early-returns before that point). Same scoped-
+    // forwarder pattern as getLightScale() rather than a second full friend.
+    void updateUniformsPerFrame() { updateUniforms(); }
+
     enum class DetailLevel
     {
         STATIC_ONLY = 0,

@@ -2,14 +2,59 @@
 #include "DXDevice.h"
 #include "llerror.h"
 #include <unordered_map>
+#include <cmath>
+
+uint64_t DXStateCache::sRTVGeneration = 0;
 
 namespace
 {
-    // [cull_enabled][scissor_enabled][depth_clamp_enabled][depth_bias_enabled] -
-    // see DXStateCache.h's comment on getRasterizerState() for why scissor/
-    // depth-clamp/depth-bias each needed the same 2-state-object treatment
-    // as cull instead of a separate toggle.
-    ID3D11RasterizerState* sRasterizerState[2][2][2][2] = {};
+    // S24 (2026-08-29, task #278/#275) - see DXStateCache.h's
+    // setPrimitiveTopology() comment. D3D11_PRIMITIVE_TOPOLOGY_UNDEFINED is
+    // never a real topology any caller passes, so it's a safe "nothing
+    // bound yet" sentinel that always forces the first real call through.
+    D3D11_PRIMITIVE_TOPOLOGY sLastTopology = D3D11_PRIMITIVE_TOPOLOGY_UNDEFINED;
+
+    // S24 (2026-08-28, task #242): switched from a fixed [2][2][2][2][2] bool
+    // array to an unordered_map keyed by this packed struct once
+    // polygon-offset stopped being a single hardcoded bool - see
+    // DXStateCache.h's comment on getRasterizerState(). Mirrors how
+    // sBlendState/sDepthStencilState already work below.
+    struct RasterizerKey
+    {
+        bool cull_enabled;
+        bool scissor_enabled;
+        bool depth_clamp_enabled;
+        bool wireframe_enabled;
+        int depth_bias;            // D3D11_RASTERIZER_DESC::DepthBias is int
+        float slope_scaled_bias;   // ::SlopeScaledDepthBias is float
+
+        bool operator==(const RasterizerKey& o) const
+        {
+            return cull_enabled == o.cull_enabled
+                && scissor_enabled == o.scissor_enabled
+                && depth_clamp_enabled == o.depth_clamp_enabled
+                && wireframe_enabled == o.wireframe_enabled
+                && depth_bias == o.depth_bias
+                && slope_scaled_bias == o.slope_scaled_bias;
+        }
+    };
+
+    struct RasterizerKeyHash
+    {
+        size_t operator()(const RasterizerKey& k) const
+        {
+            uint32_t flags = (k.cull_enabled ? 1u : 0u)
+                | (k.scissor_enabled ? 2u : 0u)
+                | (k.depth_clamp_enabled ? 4u : 0u)
+                | (k.wireframe_enabled ? 8u : 0u);
+            size_t h = std::hash<uint32_t>()(flags);
+            h ^= std::hash<int>()(k.depth_bias) + 0x9e3779b9 + (h << 6) + (h >> 2);
+            h ^= std::hash<float>()(k.slope_scaled_bias) + 0x9e3779b9 + (h << 6) + (h >> 2);
+            return h;
+        }
+    };
+
+    std::unordered_map<RasterizerKey, ID3D11RasterizerState*, RasterizerKeyHash> sRasterizerState;
     std::unordered_map<uint32_t, ID3D11BlendState*> sBlendState;
     std::unordered_map<uint32_t, ID3D11DepthStencilState*> sDepthStencilState;
 
@@ -103,20 +148,30 @@ ID3D11BlendState* DXStateCache::getBlendState(bool enabled, D3D11_BLEND src, D3D
     return state;
 }
 
-ID3D11RasterizerState* DXStateCache::getRasterizerState(bool cull_enabled, bool scissor_enabled, bool depth_clamp_enabled, bool depth_bias_enabled)
+ID3D11RasterizerState* DXStateCache::getRasterizerState(bool cull_enabled, bool scissor_enabled, bool depth_clamp_enabled, float polygon_offset_factor, float polygon_offset_units, bool wireframe_enabled)
 {
-    int cull_idx = cull_enabled ? 1 : 0;
-    int scissor_idx = scissor_enabled ? 1 : 0;
-    int depth_clamp_idx = depth_clamp_enabled ? 1 : 0;
-    int depth_bias_idx = depth_bias_enabled ? 1 : 0;
-    if (sRasterizerState[cull_idx][scissor_idx][depth_clamp_idx][depth_bias_idx])
+    // S24 (2026-08-28, task #242): GL's "polygon offset disabled" and
+    // "polygon offset enabled with (0,0)" are visually identical (no bias
+    // either way) - collapsing both onto the same (0, 0.f) key here means
+    // callers that pass a still-nonzero factor/units while genuinely
+    // disabled (shouldn't happen, but not asserted against) can't
+    // accidentally fragment the cache, and keeps this key stable for the
+    // overwhelmingly common "no bias" case shared by every call site that
+    // doesn't care about this dimension.
+    RasterizerKey key{
+        cull_enabled, scissor_enabled, depth_clamp_enabled, wireframe_enabled,
+        static_cast<int>(std::lround(polygon_offset_units)),
+        polygon_offset_factor
+    };
+    auto iter = sRasterizerState.find(key);
+    if (iter != sRasterizerState.end())
     {
-        return sRasterizerState[cull_idx][scissor_idx][depth_clamp_idx][depth_bias_idx];
+        return iter->second;
     }
 
     D3D11_RASTERIZER_DESC desc = {};
     desc.ScissorEnable = scissor_enabled ? TRUE : FALSE;
-    desc.FillMode = D3D11_FILL_SOLID;
+    desc.FillMode = wireframe_enabled ? D3D11_FILL_WIREFRAME : D3D11_FILL_SOLID;
     desc.CullMode = cull_enabled ? D3D11_CULL_BACK : D3D11_CULL_NONE;
     // S24 (2026-07-23): GL's default front face is CCW (glFrontFace() is
     // never called anywhere in this codebase - grep-confirmed - so every
@@ -150,24 +205,25 @@ ID3D11RasterizerState* DXStateCache::getRasterizerState(bool cull_enabled, bool 
     // take effect on lines.
     desc.AntialiasedLineEnable = TRUE;
 
-    // S24 (2026-08-19): matches GL's glPolygonOffset(-1.0f, -1.0f) exactly -
-    // see this function's header comment (DXStateCache.h) for why this is
-    // hardcoded rather than a general float parameter.
-    if (depth_bias_enabled)
-    {
-        desc.DepthBias = -1;
-        desc.SlopeScaledDepthBias = -1.0f;
-        desc.DepthBiasClamp = 0.0f;
-    }
+    // S24 (2026-08-19, widened 2026-08-28 task #242): DepthBias/
+    // SlopeScaledDepthBias are D3D11's exact equivalent of GL's
+    // glPolygonOffset(factor, units) - see this function's header comment
+    // (DXStateCache.h) for the mapping. key.depth_bias/slope_scaled_bias are
+    // already the converted values.
+    desc.DepthBias = key.depth_bias;
+    desc.SlopeScaledDepthBias = key.slope_scaled_bias;
+    desc.DepthBiasClamp = 0.0f;
 
-    HRESULT hr = gDXDevice.getDevice()->CreateRasterizerState(&desc, &sRasterizerState[cull_idx][scissor_idx][depth_clamp_idx][depth_bias_idx]);
+    ID3D11RasterizerState* state = nullptr;
+    HRESULT hr = gDXDevice.getDevice()->CreateRasterizerState(&desc, &state);
     if (FAILED(hr))
     {
         LL_WARNS("StateCache") << "CreateRasterizerState failed, hr=0x" << std::hex << (unsigned long)hr << std::dec << LL_ENDL;
         return nullptr;
     }
 
-    return sRasterizerState[cull_idx][scissor_idx][depth_clamp_idx][depth_bias_idx];
+    sRasterizerState[key] = state;
+    return state;
 }
 
 ID3D11DepthStencilState* DXStateCache::getDepthStencilState(bool depth_enabled, bool write_enabled, D3D11_COMPARISON_FUNC func)
@@ -199,19 +255,11 @@ ID3D11DepthStencilState* DXStateCache::getDepthStencilState(bool depth_enabled, 
 
 void DXStateCache::clear()
 {
-    for (auto& cube : sRasterizerState)
+    for (auto& entry : sRasterizerState)
     {
-        for (auto& plane : cube)
-        {
-            for (auto& row : plane)
-            {
-                for (auto& s : row)
-                {
-                    if (s) { s->Release(); s = nullptr; }
-                }
-            }
-        }
+        if (entry.second) entry.second->Release();
     }
+    sRasterizerState.clear();
     for (auto& entry : sBlendState)
     {
         if (entry.second) entry.second->Release();
@@ -222,4 +270,16 @@ void DXStateCache::clear()
         if (entry.second) entry.second->Release();
     }
     sDepthStencilState.clear();
+
+    sLastTopology = D3D11_PRIMITIVE_TOPOLOGY_UNDEFINED;
+}
+
+void DXStateCache::setPrimitiveTopology(ID3D11DeviceContext* ctx, D3D11_PRIMITIVE_TOPOLOGY topology)
+{
+    if (topology == sLastTopology)
+    {
+        return;
+    }
+    ctx->IASetPrimitiveTopology(topology);
+    sLastTopology = topology;
 }

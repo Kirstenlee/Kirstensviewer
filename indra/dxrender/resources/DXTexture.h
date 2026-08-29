@@ -12,16 +12,23 @@
 // createCompressed() - mip0-only in that case, since D3D11 can't
 // GenerateMips() a block-compressed resource.
 //
-// S24 (2026-08-16, task #98-adjacent, KVTweaks "DX Texture/Media Loading"
-// overhaul): create()/updateSubImage() can optionally defer their GPU upload
-// via `defer_upload`. D3D11's threading model makes this safe: ID3D11Device
-// methods (CreateTexture2D/CreateShaderResourceView - everything up to the
-// deferred point) are free-threaded per the D3D11 spec, so the repack +
-// texture/SRV creation genuinely can run on a background thread concurrently
-// with rendering. Only ID3D11DeviceContext methods (UpdateSubresource/
-// GenerateMips) are NOT thread-safe - those are what `defer_upload` holds
-// back, to be finished later via finalizePendingUpload() on the main thread.
-// Callers that don't pass defer_upload see zero behavior change.
+// S24 (2026-08-29, task #278): the std::shared_mutex this class used to
+// carry (task #257, 2026-08-24) is gone. It existed solely to make
+// mTexture/mSRV safe against a background thread (DXImageThread, dxrender/
+// core/DXImageThread.h) concurrently writing them via create()/destroy()
+// while the main thread read them every texture bind - real contention, real
+// fix at the time. DXImageThread and the whole RenderDXMultiThreadedTextures/
+// Media feature were removed entirely in task #260 (r3672, NVIDIA 610.88
+// driver bug, 7 repro attempts) - confirmed via source review that nothing
+// in this codebase calls into a DXTexture from any thread but the main one
+// any more, so the mutex was pure per-bind lock/unlock overhead (getSRV() is
+// on the hot path - called every texture bind, every draw call) with zero
+// remaining safety value. Removed alongside DXDevice.cpp now finally passing
+// D3D11_CREATE_DEVICE_SINGLETHREADED (same confirmation enabled both) - if
+// threaded texture uploads are ever attempted again, they need a real
+// main-thread-dispatch design, not a mutex slapped back on this class (that
+// was never the part of the old feature that actually broke - see task
+// #257's own login-deadlock revert history).
 class DXTexture
 {
 public:
@@ -40,7 +47,15 @@ public:
     // content, no upload. LLViewerFetchedTexture's normal discard-level
     // streaming pattern creates the texture object before real pixel data
     // has arrived, then fills it in later via updateSubImage()/a follow-up
-    // create() call - this is the common case, not a rare one.
+    // create() call - this is the common case, not a rare one. ALWAYS
+    // destroys and reallocates, even when `data` is nullptr and an existing
+    // texture already matches this size - a same-size reuse fast-path was
+    // tried here (2026-08-24, task #257) and reverted: it broke ordinary
+    // texture streaming under RenderDXMultiThreadedTextures (stale content
+    // served indefinitely, retry storms, unbounded memory growth) because
+    // this nullptr-data path is NOT CEF-specific, and the caller's own
+    // completion tracking expects a real create() to actually happen every
+    // time it's called.
     // `generate_mips` (new, stage 7): mirrors the source LLImageGL's
     // mUseMipMaps - when true, allocates the full auto mip chain
     // (D3D11_RESOURCE_MISC_GENERATE_MIPS) and, if `data` is non-null,
@@ -56,10 +71,6 @@ public:
     // convention. Callers must pass true when the source LLImageGL's
     // mFormatPrimary is GL_ALPHA, else the real data silently lands in
     // .rgb instead of .a. See repackPixel()'s comment in the .cpp.
-    // `defer_upload` - see this class's top comment. When true and a mip-0
-    // upload would otherwise happen (generate_mips && data != nullptr), the
-    // repacked bytes are stashed instead of uploaded - call
-    // finalizePendingUpload() on the main thread afterward to complete it.
     // `bgra` (task #223/#222 follow-up, 2026-08-18): true when `data`'s
     // component order is actually BGRA, not RGBA - CEF's native OnPaint
     // buffer format (media_plugin_cef.cpp declares GL_BGRA via its
@@ -70,7 +81,7 @@ public:
     // as alpha_only's channel-remap. Without this, CEF content (web media,
     // the login screen) uploads with R and B swapped - a systematic hue
     // shift, not a corruption - every pixel, every frame.
-    bool create(const uint8_t* data, int width, int height, int components, bool generate_mips = false, bool alpha_only = false, bool defer_upload = false, bool bgra = false);
+    bool create(const uint8_t* data, int width, int height, int components, bool generate_mips = false, bool alpha_only = false, bool bgra = false);
 
     // S24 (2026-08-16, task #85): uploads a single mip-0 block-compressed
     // (BC1/BC2/BC3) image. `data` is already GPU-ready compressed bytes -
@@ -111,17 +122,8 @@ public:
     // does - see its comment. If this texture was created with
     // generate_mips=true, regenerates the mip chain from the updated mip 0
     // afterward. `alpha_only` - see create()'s comment, same meaning.
-    // `defer_upload` - see this class's top comment; same meaning as create()'s.
     // `bgra` - see create()'s comment, same meaning.
-    bool updateSubImage(const uint8_t* data, int data_width, int x_pos, int y_pos, int width, int height, int components, bool alpha_only = false, bool defer_upload = false, bool bgra = false);
-
-    // Completes a deferred create()/updateSubImage() upload - main-thread-only
-    // (does the actual UpdateSubresource()/GenerateMips() Context calls).
-    // No-op (returns false) if there's nothing pending or the texture was
-    // destroyed/recreated since the deferred call.
-    bool finalizePendingUpload();
-
-    bool hasPendingUpload() const { return mHasPendingUpload; }
+    bool updateSubImage(const uint8_t* data, int data_width, int x_pos, int y_pos, int width, int height, int components, bool alpha_only = false, bool bgra = false);
 
     // S24 (2026-08-16): real D3D11 in-place downscale, replacing what was a
     // permanent DX_RENDER no-op (LLImageGL::scaleDown() always returned
@@ -158,36 +160,40 @@ public:
     // or the copy itself fails.
     bool copySubImageFromFrameBuffer(int fb_x, int fb_y, int x_pos, int y_pos, int width, int height);
 
-    ID3D11ShaderResourceView* getSRV() const { return mSRV; }
+    ID3D11ShaderResourceView* getSRV() const
+    {
+        return mSRV;
+    }
 
     // S24 (DX_RENDER, 2026-07-30): real "does this hold a created GPU
     // resource" check - used by LLImageGL::getHasGLTexture()'s DX_RENDER
     // branch instead of the GL-only mTexName!=0 sentinel, which under
     // DX_RENDER was only ever set to a fake constant (1), never reflecting
     // whether this DXTexture itself actually has a resource.
-    bool isValid() const { return mTexture != nullptr; }
+    bool isValid() const
+    {
+        return mTexture != nullptr;
+    }
 
     // S24 (2026-07-25): needed by LLImageGL::readBackRaw()'s DX_RENDER
     // branch (GPU->CPU readback via DXReadback, mirroring GL's
     // glGetTexImage()) - DXReadback::readPixels() takes a raw
     // ID3D11Texture2D* source, not an SRV.
-    ID3D11Texture2D* getTexture() const { return mTexture; }
+    ID3D11Texture2D* getTexture() const
+    {
+        return mTexture;
+    }
 
 private:
+    // Shared "release whatever GPU resources this instance currently holds"
+    // body - create()/createCompressed()/createFloat()/destroy() all call
+    // this as their first step. Named "Locked" from when it was the
+    // lock-already-held variant of destroy() (task #257) - the locking is
+    // gone (see this class's header comment) but the split is still useful
+    // as a plain shared helper, so kept as-is.
+    void destroyLocked();
+
     ID3D11Texture2D* mTexture = nullptr;
     ID3D11ShaderResourceView* mSRV = nullptr;
     bool mGenerateMips = false;
-
-    // Deferred-upload state - see finalizePendingUpload().
-    struct PendingUpload
-    {
-        std::vector<uint8_t> rgba; // tightly packed RGBA8, width*height*4
-        int width = 0;
-        int height = 0;
-        int x = 0; // 0,0 for create()'s full mip-0 upload
-        int y = 0;
-        bool is_subimage = false; // false = create()'s path (no box), true = updateSubImage()'s box path
-    };
-    PendingUpload mPending;
-    bool mHasPendingUpload = false;
 };

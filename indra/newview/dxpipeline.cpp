@@ -62,6 +62,13 @@ extern bool gSnapshotNoPost;
 // mirroring LLPipeline::renderDeferredLighting()'s own GL body.
 extern bool gCubeSnapshot;
 
+// S24 (2026-08-26, task #263): matches llviewerdisplay.cpp's own extern
+// declaration (defined there, next to gSnapshotNoPost) - set below, right
+// before both presentFinal() call sites, so rawSnapshot() (llviewerwindow.cpp)
+// can read the true final composited render target directly instead of the
+// broken scratch_space/swap-chain indirection it used to rely on.
+extern LLRenderTarget* gLastCompositedPostTarget;
+
 // S24 (2026-08-17): pipeline.cpp's OpenCL post-fx effect mask/refresh -
 // GL's own renderFinalize() calls updateEffectMask() then reads effectsMask
 // itself, but DX_RENDER's renderFinalize() early-returns before that body
@@ -74,6 +81,7 @@ void updateEffectMask();
 #include "DXDevice.h"
 #include "DXReadback.h"
 #include "DXRenderTarget.h"
+#include "DXStateCache.h"
 #include "DXShader.h"
 #include "DXSwapChain.h"
 
@@ -404,6 +412,28 @@ void DXPipeline::renderGeomDeferred(LLPipeline& pipeline, LLCamera& camera, bool
 
         gGLDeltaModelView = m;
         gGLInverseDeltaModelView = n;
+    }
+
+    // S24 (2026-08-27, task #267 follow-up): GL's renderGeomDeferred() body
+    // (pipeline.cpp:4289-4294, on the "GL-specific and left untouched/dead
+    // under DX_RENDER" list this function's own top-of-function comment
+    // names explicitly) calls mReflectionMapManager.updateUniforms()/
+    // mHeroProbeManager.updateUniforms() once per frame here, unconditionally
+    // early-returned past under DX_RENDER. That was masked as long as
+    // LLReflectionMapManager::setUniforms()'s `mUBO == 0` guard was
+    // (accidentally) always true under DX_RENDER, which made it call
+    // updateUniforms() itself on every reflection shader bind instead - the
+    // task #267 fix (llreflectionmapmanager.cpp) corrected that guard to only
+    // run once at bootstrap, which is only correct if something else refreshes
+    // per frame. Nothing did, under DX_RENDER - probe data (positions, bucket
+    // assignments, hero-probe box/sphere/mip data) froze after the very first
+    // bind and never updated again, live-confirmed as reflections/mirror
+    // vanishing entirely a few frames in. Real fix: mirror GL's per-frame call
+    // site here, same shader-level gate.
+    if (LLViewerShaderMgr::instance()->mShaderLevel[LLViewerShaderMgr::SHADER_DEFERRED] > 1)
+    {
+        pipeline.mReflectionMapManager.updateUniformsPerFrame();
+        pipeline.mHeroProbeManager.updateUniformsPerFrame();
     }
 
     // S24 (2026-08-19, task #182): occlusion culling was on dxpipeline.h's
@@ -866,7 +896,7 @@ namespace
         ctx->VSSetShader(shader->getVS(), nullptr, 0);
         ctx->PSSetShader(shader->getPS(), nullptr, 0);
         ctx->IASetInputLayout(nullptr);
-        ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        DXStateCache::setPrimitiveTopology(ctx, D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
         ID3D11Buffer* null_vb = nullptr;
         UINT stride = 0;
@@ -1136,6 +1166,47 @@ void DXPipeline::presentDeferredScreen(LLPipeline& pipeline)
                 std::swap(sourceBuffer, targetBuffer);
             }
 
+            // S24 (2026-08-27, task #267 GL-tail audit follow-up):
+            // Develop > Rendering > Buffer Visualization had zero call sites
+            // under DX_RENDER - its only 4 call sites (pipeline.cpp) sit
+            // inside LLPipeline::renderFinalize()'s GL-only tail, unreachable
+            // past this function's own early return. visualizeBuffers()
+            // itself was already backend-agnostic (bindTarget()/flush(),
+            // gDeferredBufferVisualProgram.bind(), mScreenTriangleVB - all
+            // already DX-hardened, task #261's lazy-compile fix already
+            // covers this exact shader) - it just needed a caller. Mirrors
+            // GL's own renderFinalize() ordering exactly (pipeline.cpp:8676-
+            // 8704): after FXAA/SMAA, before the OpenCL effects block.
+            if (LLPipeline::RenderBufferVisualization > -1)
+            {
+                switch (LLPipeline::RenderBufferVisualization)
+                {
+                case 0:
+                case 1:
+                case 2:
+                case 3:
+                    pipeline.visualizeBuffers(&pipeline.mRT->deferredScreen, sourceBuffer, LLPipeline::RenderBufferVisualization);
+                    break;
+                case 4:
+                    pipeline.visualizeBuffers(&pipeline.mLuminanceMap, sourceBuffer, 0);
+                    break;
+                case 5:
+                    if (LLPipeline::RenderFSAAType > 0)
+                    {
+                        pipeline.visualizeBuffers(&pipeline.mFXAAMap, sourceBuffer, 0);
+                    }
+                    break;
+                case 6:
+                    if (LLPipeline::RenderFSAAType == 2)
+                    {
+                        pipeline.visualizeBuffers(&pipeline.mSMAABlendBuffer, sourceBuffer, 0);
+                    }
+                    break;
+                default:
+                    break;
+                }
+            }
+
             // S24 (2026-08-17): OpenCL post-fx effects (kveffects.cpp) -
             // mirrors GL's own renderFinalize() "Apply effects BEFORE final
             // draw" block exactly (pipeline.cpp, right before the
@@ -1173,6 +1244,9 @@ void DXPipeline::presentDeferredScreen(LLPipeline& pipeline)
 
             // S24 (2026-08-17, task #139): real final present - see
             // presentFinal()'s own comment for what changed.
+            // S24 (2026-08-26, task #263): expose which buffer this was for
+            // rawSnapshot() - see gLastCompositedPostTarget's own comment.
+            gLastCompositedPostTarget = sourceBuffer;
             presentFinal(pipeline, sourceBuffer);
             return;
         }
@@ -1186,6 +1260,9 @@ void DXPipeline::presentDeferredScreen(LLPipeline& pipeline)
     // been gamma-corrected yet, so glow/DoF/FXAA would have nothing
     // meaningful to operate on either) - keep this path exactly as simple
     // as it always was.
+    // S24 (2026-08-26, task #263): see the other presentFinal() call site's
+    // comment above - startup/fallback frames still need a valid pointer.
+    gLastCompositedPostTarget = diffuse_rt;
     presentFinal(pipeline, diffuse_rt);
 }
 
@@ -1195,12 +1272,14 @@ void DXPipeline::renderDeferredLighting(LLPipeline& pipeline)
     // S24 (2026-08-04): v1 - ambient+sun/atmospherics only (softenLightF/
     // V.hlsl), mirroring the "RenderDeferredAtmospheric" block of
     // LLPipeline::renderDeferredLighting()'s GL body (pipeline.cpp,
-    // ~line 9075) exactly. See dxpipeline.h's comment for what's
-    // deliberately NOT here yet (sun-shadow/SSAO lightmap pass, local
-    // lights) and why skipping them is safe rather than silently wrong -
-    // bindDeferredShader() below already falls back to a neutral white
-    // "fully lit, no shadow" light target when mRT->deferredLight was
-    // never filled in.
+    // ~line 9075) exactly.
+    // S24 (2026-08-27, GL-tail audit): the note that used to sit here
+    // ("deliberately NOT here yet: sun-shadow/SSAO lightmap pass, local
+    // lights") is stale - both were added later, further down in this same
+    // function: the sun-shadow/SSAO lightmap pass at task #158's fix (see
+    // below), local lights/spotlights at task #165 (see below). Left as a
+    // pointer for anyone still relying on the old note: read the rest of
+    // this function, not dxpipeline.h's now-outdated summary of it.
     // S24 (2026-08-04): reset every frame BEFORE any early-return below,
     // so presentDeferredScreen() never mistakes a skipped frame for a lit
     // one - see sScreenLitThisFrame's own comment (root cause of a
@@ -1251,9 +1330,10 @@ void DXPipeline::renderDeferredLighting(LLPipeline& pipeline)
     // every single logged sample. Fixed by porting GL's own two-step
     // computation verbatim: setupHWLights() refreshes mSunDir/mMoonDir from
     // the current environment (also already called elsewhere under
-    // DX_RENDER, per dxpipeline.cpp's own renderGeomDeferred() - calling it
-    // again here is redundant-but-harmless, matching GL's own unconditional
-    // placement rather than trying to prove it's unnecessary), then the
+    // DX_RENDER, per dxpipeline.cpp's own renderGeomPostDeferred() (line
+    // ~597) - calling it again here is redundant-but-harmless, matching
+    // GL's own unconditional placement rather than trying to prove it's
+    // unnecessary), then the
     // current modelview matrix transforms both into eye-space.
     pipeline.setupHWLights();
     {

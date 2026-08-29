@@ -102,6 +102,24 @@ public:
     // drawWithMatrix() replay this via a real bind(LLImageGL*) call instead
     // of GL's bindManual(mTexName), which has no DX11 resource to translate.
     LLPointer<LLImageGL> mDXImage;
+
+    // S24 (2026-08-28, task #254): same rationale as mDXImage above, for the
+    // shader stage instead of the texture stage. Captured by LLRender::
+    // flush() from LLGLSLShader::sCurBoundShaderPtr when recording. Without
+    // this, draw()/drawWithMatrix() never rebind a shader at all - they
+    // inherit whatever VS/PS happen to be ambiently bound on the GPU at
+    // replay time, which DXUIBatch::drawAndPop() (dxrender/resources/
+    // DXUIBatch.cpp) can leave arbitrarily wrong: it sets VS/PS directly via
+    // ctx->VSSetShader()/PSSetShader() without updating sCurBoundShaderPtr
+    // (see LLGLSLShader::bind()'s comment, task #224) - so the bookkeeping
+    // setupVertexBuffer() reads to build the input layout can desync from
+    // what's actually bound. A cached/replayed buffer (LLFontVertexBuffer,
+    // LLUIImage's display-list cache) recorded once under one shader could
+    // then replay under a completely different one depending on whatever
+    // ran earlier in that specific frame - not a raw pointer (no ownership
+    // implied, matches how sCurBoundShaderPtr itself is held; LLGLSLShader
+    // instances are process-lifetime singletons, never destroyed mid-run).
+    LLGLSLShader* mDXShader = nullptr;
 #endif
 };
 typedef std::list<LLVertexBufferData> buffer_data_list_t;
@@ -367,8 +385,8 @@ public:
     // S24: thread_local (was plain static) — these are a CPU-side cache of "what's bound
     // in the calling thread's current GL context" used to elide redundant glBindBuffer calls.
     // GL bind state is per-context, so a plain global corrupts the render thread's cache the
-    // moment any other thread (e.g. the VBO work queue's worker) binds a buffer on its own
-    // shared context. Mirrors gGL's own thread_local pattern (llrender.h).
+    // moment any other thread binds a buffer on its own shared context. Mirrors gGL's own
+    // thread_local pattern (llrender.h).
     static thread_local U32 sGLRenderBuffer;
     static thread_local U32 sGLRenderIndices;
 #ifdef DX_RENDER
@@ -385,12 +403,6 @@ public:
 #endif
     static U32 sLastMask;
     static U32 sVertexCount;
-
-    // S24: runtime control for the experimental GL work queue (deferred VBO pool allocation).
-    // Set from settings_to_globals() in llappviewer.cpp — llrender cannot see gSavedSettings
-    // directly, mirrors the LLRender::sGLCoreProfile pattern.
-    static bool sVBOWorkQueueEnabled;
-    static U32 sVBOWorkQueueThreadCount;
 };
 
 #if LL_PROFILER_ENABLE_RENDER_DOC

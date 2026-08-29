@@ -64,7 +64,7 @@ public:
     // about this dimension don't need updating.
     //
     // S24 (2026-08-19, degenerate-triangle foliage investigation):
-    // depth_bias_enabled added - glPolygonOffset(factor, units) has NO
+    // depth-bias support added - glPolygonOffset(factor, units) has NO
     // effect under DX_RENDER at all (it's a real, statically-linked core-GL
     // symbol, not one of this codebase's loaded extension-function
     // pointers, so calling it with no live GL context is a silent no-op -
@@ -74,16 +74,42 @@ public:
     // (Microsoft's own docs describe the same "scaled by the smallest
     // resolvable depth increment" semantics GL uses) - bundled into the same
     // state object as cull/scissor/depth-clamp, so same treatment again.
-    // Hardcoded to GL's own `glPolygonOffset(-1.0f, -1.0f)` value (the only
-    // value LLDrawPoolBump::renderBump()'s emboss-bump pass ever uses,
-    // confirmed by reading its real source) rather than threading an
-    // arbitrary float through the cache - the many OTHER glPolygonOffset
-    // call sites in this codebase (terrain, build-tool gizmos, tree
-    // shadows, debug wireframe - all still silently no-op under DX_RENDER
-    // too) use different values and are explicitly NOT covered by this
-    // boolean flag; see task tracking for that broader, separately-scoped
-    // follow-up. Defaulted to false so existing callers are unaffected.
-    static ID3D11RasterizerState* getRasterizerState(bool cull_enabled, bool scissor_enabled, bool depth_clamp_enabled = false, bool depth_bias_enabled = false);
+    //
+    // S24 (2026-08-28, task #242): widened from a hardcoded bool (matching
+    // only LLDrawPoolBump::renderBump()'s single -1.0f/-1.0f value) to real
+    // float parameters - the many OTHER glPolygonOffset call sites in this
+    // codebase (terrain, build-tool gizmos, debug wireframe, glow/shadow-
+    // cascade overlays) use different values, and the point of this pass
+    // was to close all of them via LLRender::setPolygonOffset() (llrender.h)
+    // rather than one hardcoded case. polygon_offset_units maps to D3D11's
+    // integer DepthBias (rounded - GL's "units" and D3D11's DepthBias are
+    // both already expressed in "smallest resolvable depth increment"
+    // ticks, so no scaling conversion is needed, just the int truncation
+    // D3D11's field type requires); polygon_offset_factor maps to
+    // SlopeScaledDepthBias directly (both float, same semantics). (0.f, 0.f)
+    // is a true no-op in D3D11 exactly like GL's polygon-offset-disabled
+    // state, so this defaults identically to the old depth_bias_enabled=false
+    // behavior for existing callers that don't pass it.
+    // Storage switched from the fixed 5D bool array to an unordered_map
+    // keyed by a packed struct (see DXStateCache.cpp) since float bias
+    // values don't fit a small fixed index range - mirrors how
+    // sBlendState/sDepthStencilState already work.
+    //
+    // S24 (2026-08-27, task #264): wireframe_enabled added -
+    // glPolygonMode(GL_FRONT_AND_BACK, GL_LINE) has no D3D11 per-draw
+    // equivalent either (same class of gap as glPolygonOffset above - fill
+    // mode is a rasterizer-state CREATION-time field, D3D11_FILL_WIREFRAME
+    // vs D3D11_FILL_SOLID). Previously every DX_RENDER call site that wanted
+    // GL_LINE mode just skipped the call (#ifndef DX_RENDER-guarded),
+    // silently leaving fill mode at the default SOLID - LLFace::
+    // renderOneWireframe() (the edit-mode mesh selection outline) is the
+    // confirmed real caller this was fixed for: mesh objects were rendering
+    // as a solid filled blob in their highlight color instead of an outline.
+    // Bundled into the same state object as the other dimensions, same
+    // treatment. Note D3D11 wireframe fill mode has no line-width control
+    // (always 1px, unlike GL's glLineWidth(5.f) at this same call site) -
+    // a real, smaller residual visual gap, not fixed by this.
+    static ID3D11RasterizerState* getRasterizerState(bool cull_enabled, bool scissor_enabled, bool depth_clamp_enabled = false, float polygon_offset_factor = 0.f, float polygon_offset_units = 0.f, bool wireframe_enabled = false);
 
     // Mirrors LLGLDepthTest (llrender/llglstates.h) - depth_enabled/
     // write_enabled/func together, since D3D11 bundles them into one
@@ -92,6 +118,44 @@ public:
     // class comment history in stage-3/4 memory).
     static ID3D11DepthStencilState* getDepthStencilState(bool depth_enabled, bool write_enabled, D3D11_COMPARISON_FUNC func);
 
-    // Releases every cached state object - call on full renderer shutdown.
+    // S24 (2026-08-29, task #278/#275): skips the IASetPrimitiveTopology()
+    // driver call entirely when `topology` already matches what's currently
+    // bound - mirrors llglslshader.cpp's sLastBoundVS/sLastBoundPS shader-
+    // bind cache (same "cheap but not free at this call frequency"
+    // reasoning, just never extended to topology until now). This app
+    // confirmed to use exactly one D3D11 context (no deferred contexts, see
+    // DXDevice.cpp's D3D11_CREATE_DEVICE_SINGLETHREADED comment), so a
+    // single process-wide last-value is correct - not per-context state.
+    //
+    // ALL real IASetPrimitiveTopology call sites must go through this, not
+    // call it directly, or the cache silently desyncs and the next "looks
+    // unchanged" skip here submits geometry with the WRONG topology (e.g. a
+    // triangle list drawn as a line list) - a real, confirmed hazard from
+    // when this was first investigated (task #275): llrender/llvertexbuffer.cpp
+    // (drawRange/drawRangeFast/drawArrays), newview/dxpipeline.cpp, and
+    // dxrender/resources/DXUIBatch.cpp are the 3 live sites, all converted
+    // together in the same commit as this function. (dxrender/core/
+    // DXPipelineState.cpp has a 4th raw call but is confirmed dead code with
+    // no live callers - task #179's audit - left untouched.)
+    static void setPrimitiveTopology(ID3D11DeviceContext* ctx, D3D11_PRIMITIVE_TOPOLOGY topology);
+
+    // S24 (2026-08-29, task #278/#273): monotonic counter, bumped from every
+    // real OMSetRenderTargets() call site (DXRenderTarget::bindTarget()/
+    // bindBackBuffer(), DXContext::beginFrame() - grep for the call sites
+    // before adding a new one, and bump here too). LLTexUnit (llrender.h/
+    // .cpp) stamps this value alongside its cached SRV pointer and forces a
+    // real rebind if the generation has moved on since, even if the SRV
+    // pointer still matches - see mDXSRVGeneration's own comment for the
+    // full hazard this exists to close (D3D11 auto-unbinding an SRV when
+    // the same resource becomes a render target).
+    static uint64_t getRTVGeneration() { return sRTVGeneration; }
+    static void bumpRTVGeneration() { ++sRTVGeneration; }
+
+    // Releases every cached state object, and resets the topology cache
+    // above - call on full renderer shutdown/device rebuild, since neither
+    // survives a device reset.
     static void clear();
+
+private:
+    static uint64_t sRTVGeneration;
 };

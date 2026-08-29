@@ -247,7 +247,7 @@ namespace
         // matching every other applyDXState() rasterizer case's pattern.
         ID3D11DeviceContext* ctx = gDXDevice.getContext();
         ID3D11RasterizerState* biased_rs = DXStateCache::getRasterizerState(
-            LLGLState::isEnabled(GL_CULL_FACE), LLGLState::isEnabled(GL_SCISSOR_TEST), LLGLState::isEnabled(GL_DEPTH_CLAMP), true);
+            LLGLState::isEnabled(GL_CULL_FACE), LLGLState::isEnabled(GL_SCISSOR_TEST), LLGLState::isEnabled(GL_DEPTH_CLAMP), -1.0f, -1.0f);
         ctx->RSSetState(biased_rs);
 
         pool.pushBumpBatches(LLRenderPass::PASS_POST_BUMP);
@@ -255,7 +255,7 @@ namespace
         // Restore the non-biased state so nothing after this pass inherits
         // the bias unexpectedly.
         ID3D11RasterizerState* normal_rs = DXStateCache::getRasterizerState(
-            LLGLState::isEnabled(GL_CULL_FACE), LLGLState::isEnabled(GL_SCISSOR_TEST), LLGLState::isEnabled(GL_DEPTH_CLAMP), false);
+            LLGLState::isEnabled(GL_CULL_FACE), LLGLState::isEnabled(GL_SCISSOR_TEST), LLGLState::isEnabled(GL_DEPTH_CLAMP), 0.f, 0.f);
         ctx->RSSetState(normal_rs);
     }
 
@@ -279,7 +279,7 @@ namespace
         // need this exactly as much as static mesh does.
         ID3D11DeviceContext* ctx = gDXDevice.getContext();
         ID3D11RasterizerState* biased_rs = DXStateCache::getRasterizerState(
-            LLGLState::isEnabled(GL_CULL_FACE), LLGLState::isEnabled(GL_SCISSOR_TEST), LLGLState::isEnabled(GL_DEPTH_CLAMP), true);
+            LLGLState::isEnabled(GL_CULL_FACE), LLGLState::isEnabled(GL_SCISSOR_TEST), LLGLState::isEnabled(GL_DEPTH_CLAMP), -1.0f, -1.0f);
         ctx->RSSetState(biased_rs);
 
         const LLVOAvatar* lastAvatar = nullptr;
@@ -303,7 +303,7 @@ namespace
         }
 
         ID3D11RasterizerState* normal_rs = DXStateCache::getRasterizerState(
-            LLGLState::isEnabled(GL_CULL_FACE), LLGLState::isEnabled(GL_SCISSOR_TEST), LLGLState::isEnabled(GL_DEPTH_CLAMP), false);
+            LLGLState::isEnabled(GL_CULL_FACE), LLGLState::isEnabled(GL_SCISSOR_TEST), LLGLState::isEnabled(GL_DEPTH_CLAMP), 0.f, 0.f);
         ctx->RSSetState(normal_rs);
     }
 

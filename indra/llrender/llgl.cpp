@@ -2697,48 +2697,37 @@ namespace
             // the shared chokepoint rather than building a partial state.
             gGL.applyDXBlendState();
         }
-        else if (state == GL_CULL_FACE)
+        else if (state == GL_CULL_FACE || state == GL_SCISSOR_TEST || state == GL_DEPTH_CLAMP
+            || state == GL_POLYGON_OFFSET_FILL || state == GL_POLYGON_OFFSET_LINE)
         {
-            // S24 (2026-08-07): read the CURRENT scissor state too (not
-            // guessed/defaulted) so a cull toggle mid-clip-scope doesn't
-            // silently clobber ScissorEnable back off - see the
-            // GL_SCISSOR_TEST case below, same reasoning in reverse. S24
-            // (2026-08-10, task #158 milestone 1): same now for depth-clamp,
-            // see the GL_DEPTH_CLAMP case below.
-            ID3D11RasterizerState* rs = DXStateCache::getRasterizerState(enabled, LLGLState::isEnabled(GL_SCISSOR_TEST), LLGLState::isEnabled(GL_DEPTH_CLAMP));
-            ctx->RSSetState(rs);
-        }
-        else if (state == GL_SCISSOR_TEST)
-        {
-            // S24 (2026-08-07, task #129): GL_SCISSOR_TEST enable/disable
-            // was already flowing through this exact chokepoint (bookkeeping
-            // only, no D3D11 side effect - see LLScreenClipRect's
-            // mScissorState member, llui/lllocalcliprect.cpp) - it just had
-            // no case here. D3D11 bundles ScissorEnable into the rasterizer
-            // state object (same as cull mode), so this needs the same
-            // 2-state-object treatment, not a separate call. The actual clip
-            // rectangle is set separately via RSSetScissorRects() in
-            // LLScreenClipRect::updateScissorRegion() - enabling this state
-            // with no rect ever set is undefined in D3D11, but that call
-            // always follows this one before any draw happens (see that
-            // function's DX_RENDER branch). S24 (2026-08-10, task #158
-            // milestone 1): same depth-clamp preservation as GL_CULL_FACE
-            // above.
-            ID3D11RasterizerState* rs = DXStateCache::getRasterizerState(LLGLState::isEnabled(GL_CULL_FACE), enabled, LLGLState::isEnabled(GL_DEPTH_CLAMP));
-            ctx->RSSetState(rs);
-        }
-        else if (state == GL_DEPTH_CLAMP)
-        {
-            // S24 (2026-08-10, task #158 milestone 1): LLPipeline::renderShadow()
-            // toggles this around its shadow-map draw calls (LLGLEnable
-            // clamp_depth(depth_clamp ? GL_DEPTH_CLAMP : 0)) so shadow
-            // casters outside the near/far planes still write depth instead
-            // of being culled - previously silently no-op'd under DX_RENDER
-            // (no case existed here at all). Same 2-state-object bundling as
-            // cull/scissor above - read both of THEIR current values too so
-            // toggling depth-clamp mid-scope doesn't clobber either.
-            ID3D11RasterizerState* rs = DXStateCache::getRasterizerState(LLGLState::isEnabled(GL_CULL_FACE), LLGLState::isEnabled(GL_SCISSOR_TEST), enabled);
-            ctx->RSSetState(rs);
+            // S24 (2026-08-07/2026-08-10, task #158 milestone 1): GL_CULL_FACE/
+            // GL_SCISSOR_TEST/GL_DEPTH_CLAMP all bundle into the same D3D11
+            // rasterizer-state object - toggling any ONE of them must read
+            // the CURRENT value of the OTHERS too (via LLGLState::isEnabled(),
+            // already updated in sStateMap by the time this runs - see
+            // setEnabled() above) so it doesn't silently clobber them back to
+            // a default. GL_SCISSOR_TEST's actual clip rect is set separately
+            // via RSSetScissorRects() in LLScreenClipRect::updateScissorRegion()
+            // - enabling this state with no rect ever set is undefined in
+            // D3D11, but that call always precedes any draw (see that
+            // function's DX_RENDER branch).
+            //
+            // S24 (2026-08-28, task #242): GL_POLYGON_OFFSET_FILL/LINE added
+            // to this same bundle - glPolygonOffset()'s VALUES have their own
+            // cross-backend entry point (LLRender::setPolygonOffset(),
+            // llrender.cpp) since they're not a plain enable/disable, but the
+            // ENABLE/DISABLE toggle itself flows through here exactly like
+            // the other three, and needed the exact same "read the other
+            // three's current values" treatment - without this, e.g.
+            // enabling GL_CULL_FACE while polygon-offset was already active
+            // would silently drop the bias (previously this case had no
+            // polygon-offset dimension at all). Routed through
+            // applyDXRasterizerState() (llrender.cpp) rather than duplicating
+            // the getRasterizerState()+RSSetState() call inline four times -
+            // it already gathers all four dimensions fresh every time it's
+            // called, so consolidating here is strictly more correct, not
+            // just less code.
+            gGL.applyDXRasterizerState();
         }
     }
 

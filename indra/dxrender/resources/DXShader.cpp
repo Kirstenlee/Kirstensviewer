@@ -2,11 +2,17 @@
 #include "DXDevice.h"
 #include "llerror.h"
 #include "lldir.h"
+#include "llfile.h"
+#include "hbxxh.h"
+#include "lluuid.h"
 #include <algorithm>
 #include <d3dcompiler.h>
 #include <fstream>
 #include <regex>
+#include <unordered_set>
 #include <vector>
+
+bool DXShader::sShaderCacheEnabled = false;
 
 namespace
 {
@@ -16,6 +22,15 @@ namespace
         UINT flags = D3DCOMPILE_ENABLE_STRICTNESS;
 #if defined(_DEBUG)
         flags |= D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION;
+#else
+        // S24 (2026-08-29, task #278): explicit max optimization for every
+        // Release shader compile (this project always builds Release per
+        // standing convention - see feedback_s24_build_system memory) -
+        // D3DCompile's default (no D3DCOMPILE_OPTIMIZATION_LEVEL* flag) is
+        // NOT level 3, so this was leaving real GPU-side shader codegen
+        // quality on the table this whole time. Free win, zero behavior
+        // change beyond faster-running shader bytecode.
+        flags |= D3DCOMPILE_OPTIMIZATION_LEVEL3;
 #endif
 
         HRESULT hr = D3DCompile(
@@ -76,17 +91,217 @@ namespace
 
         return true;
     }
+
+    // S24 (2026-08-29): see DXShader.h's sShaderCacheEnabled comment for the
+    // full rationale. Reuses GL's shader_cache directory (llshadermgr.cpp)
+    // so the existing purge/reset mechanisms (KVTweaks "Purge Shader Cache",
+    // RenderPurgeShaderCacheOnExit) clear this too, with no changes needed.
+    std::string getDXShaderCacheDir()
+    {
+        std::string dir = gDirUtilp->getExpandedFilename(LL_PATH_CACHE, "shader_cache");
+        LLFile::mkdir(dir);
+        return dir;
+    }
+
+    // Keyed on the exact final concatenated HLSL text (already fully
+    // resolved - #include expanded, feature #defines baked in by
+    // buildDXShaderHeader() before this text ever reaches DXShader) plus the
+    // compile target - any permutation/feature/shader-level difference
+    // naturally produces a different key, so no separate cache-version
+    // tagging is needed the way GL's mShaderCacheVersion needs one.
+    std::string dxShaderCachePath(const std::string& source, const char* target)
+    {
+        HBXXH128 hash_obj;
+        hash_obj.update(source);
+        hash_obj.update(std::string(target));
+        return gDirUtilp->add(getDXShaderCacheDir(), hash_obj.digest().asString() + ".dxbc");
+    }
+
+    bool loadCachedBlob(const std::string& path, std::vector<uint8_t>& out)
+    {
+        std::ifstream in(path.c_str(), std::ios::binary | std::ios::ate);
+        if (!in.is_open())
+        {
+            return false;
+        }
+        std::streampos size = in.tellg();
+        if (size <= 0)
+        {
+            return false;
+        }
+        out.resize((size_t)size);
+        in.seekg(0, std::ios::beg);
+        return (bool)in.read(reinterpret_cast<char*>(out.data()), size);
+    }
+
+    void saveCachedBlob(const std::string& path, const void* data, size_t size)
+    {
+        std::ofstream out(path.c_str(), std::ios::binary | std::ios::trunc);
+        if (out)
+        {
+            out.write(reinterpret_cast<const char*>(data), size);
+        }
+    }
+
+    // Tries the disk cache first (if eligible); returns the compiled/loaded
+    // blob, or nullptr on outright failure. *used_cache tells the caller
+    // whether to fall back to a real compile if CreateVertexShader/
+    // CreatePixelShader ends up rejecting this blob (a truncated file from a
+    // crash mid-write, e.g.) rather than failing the shader outright.
+    ID3DBlob* getOrCompileHLSL(const std::string& source, const std::string& debugName, const char* entry_point, const char* target, std::string* out_cache_path, bool* used_cache)
+    {
+        *used_cache = false;
+        out_cache_path->clear();
+
+        if (DXShader::isCacheEligible(debugName))
+        {
+            *out_cache_path = dxShaderCachePath(source, target);
+            std::vector<uint8_t> bytes;
+            if (loadCachedBlob(*out_cache_path, bytes) && !bytes.empty())
+            {
+                ID3DBlob* blob = nullptr;
+                if (SUCCEEDED(D3DCreateBlob(bytes.size(), &blob)))
+                {
+                    memcpy(blob->GetBufferPointer(), bytes.data(), bytes.size());
+                    *used_cache = true;
+                    LL_INFOS("ShaderCache") << "S24: Loaded cached DX bytecode for " << debugName << " (" << target << ")" << LL_ENDL;
+                    return blob;
+                }
+            }
+        }
+
+        ID3DBlob* blob = nullptr;
+        if (!compileHLSL(source, debugName, entry_point, target, &blob))
+        {
+            return nullptr;
+        }
+
+        if (!out_cache_path->empty())
+        {
+            saveCachedBlob(*out_cache_path, blob->GetBufferPointer(), blob->GetBufferSize());
+        }
+        return blob;
+    }
+}
+
+bool DXShader::isCacheEligible(const std::string& debugName)
+{
+    if (!sShaderCacheEnabled)
+    {
+        return false;
+    }
+
+    // S24 allowlist, extended in passes as confidence grows (see
+    // DXShader.h's sShaderCacheEnabled comment) - each addition gets its own
+    // live playtest, same as any other DX_RENDER change. Deliberately
+    // excludes anything with a known live issue for now: the GLTF/PBR family
+    // (an active D3DCompile failure - see "redefinition of 'clipPlane'" in
+    // the log - task #262's HUD-black-PBR history), the reflection-probe/SSR
+    // family (task #156 umbrella still has open children), the full avatar
+    // body shaders (gDeferredAvatarProgram and siblings - the real per-
+    // vertex skin animation path, not to be confused with the rigged-
+    // attachment "Skinned Material" permutations below, which are simpler
+    // and now included), shadow-cascade shaders, and the Buffer
+    // Visualization shader specifically (task #261's AMD lazy-compile
+    // lockup).
+    //
+    // 2026-08-26 (pilot): the occlusion probe box shader - simple, no
+    // permutations, low blast radius, proven live over one session.
+    //
+    // 2026-08-29 (pass 2): bump/material shaders plus a batch of other
+    // structurally simple, single-purpose utility/highlight shaders with no
+    // permutation loop of their own.
+    //
+    // 2026-08-29 (pass 3): the big one for startup time -
+    // gDeferredMaterialProgram[LLMaterial::SHADER_COUNT*2] (llviewershadermgr.cpp)
+    // is a 32-way permutation loop (normal map x specular map x 4 alpha
+    // modes x sun-shadow x rigged, llmaterial.h's SHADER_COUNT=16) that
+    // compiles unconditionally at every startup regardless of what's in
+    // view - named "Material Shader %d"/"Skinned Material Shader %d" by
+    // index, matched by prefix below since the exact names are only known at
+    // runtime. This is most of what's actually driving the "a lot of
+    // materials shaders compiling at startup" load-time cost - by far the
+    // biggest lever here. Also added: the indexed-texture diffuse/fullbright
+    // families (deferred/materialV+F.hlsl's simpler siblings - same permute-
+    // by-alpha-mode shape, much smaller permutation count) and the emissive
+    // shader.
+    static const std::unordered_set<std::string> allowlist = {
+        "Occlusion Cube Shader",
+        "Occlusion Shader",
+
+        "Deferred Bump Shader",
+        "Bump Shader",
+
+        "Highlight Shader",
+        "Highlight Normals Shader",
+        "Highlight Spec Shader",
+        "Solid Color Shader",
+        "Debug Shader",
+        "Clip Shader",
+        "Alpha Mask Shader",
+        "Copy Shader",
+        "Copy Depth Shader",
+        "Draw Color Shader",
+        "Two Texture Compare Shader",
+        "One Texture Filter Shader",
+
+        "Deferred Diffuse Shader",
+        "Deferred Diffuse Alpha Mask Shader",
+        "Deferred Diffuse Non-Indexed Alpha Mask Shader",
+        "Deferred Diffuse Non-Indexed Alpha Mask No Color Shader",
+        "Deferred Fullbright Shader",
+        "HUD Fullbright Shader",
+        "Deferred Fullbright Alpha Masking Shader",
+        "HUD Fullbright Alpha Masking Shader",
+        "Deferred Fullbright Alpha Masking Alpha Shader",
+        "HUD Fullbright Alpha Masking Alpha Shader",
+        "Deferred FullbrightShiny Shader",
+        "HUD FullbrightShiny Shader",
+        "Deferred Emissive Shader",
+    };
+    if (allowlist.count(debugName) != 0)
+    {
+        return true;
+    }
+
+    // gDeferredMaterialProgram[]'s 32 runtime-numbered permutations - see
+    // this function's own 2026-08-29 (pass 3) comment above.
+    static const std::string material_prefix = "Material Shader ";
+    static const std::string skinned_material_prefix = "Skinned Material Shader ";
+    return debugName.compare(0, material_prefix.size(), material_prefix) == 0
+        || debugName.compare(0, skinned_material_prefix.size(), skinned_material_prefix) == 0;
 }
 
 bool DXShader::compileVertexShader(const std::string& source, const std::string& debugName)
 {
-    ID3DBlob* blob = nullptr;
-    if (!compileHLSL(source, debugName, "main", "vs_5_0", &blob))
+    std::string cache_path;
+    bool used_cache = false;
+    ID3DBlob* blob = getOrCompileHLSL(source, debugName, "main", "vs_5_0", &cache_path, &used_cache);
+    if (!blob)
     {
         return false;
     }
 
     HRESULT hr = gDXDevice.getDevice()->CreateVertexShader(blob->GetBufferPointer(), blob->GetBufferSize(), nullptr, &mVS);
+    if (FAILED(hr) && used_cache)
+    {
+        // S24: cached bytecode rejected (e.g. a truncated file from a crash
+        // mid-write) - fall back to a real compile rather than failing the
+        // shader outright. Re-cache the fresh result so this self-heals.
+        LL_WARNS("ShaderCache") << "S24: CreateVertexShader rejected cached bytecode for " << debugName << ", recompiling" << LL_ENDL;
+        blob->Release();
+        blob = nullptr;
+        if (!compileHLSL(source, debugName, "main", "vs_5_0", &blob))
+        {
+            return false;
+        }
+        if (!cache_path.empty())
+        {
+            saveCachedBlob(cache_path, blob->GetBufferPointer(), blob->GetBufferSize());
+        }
+        hr = gDXDevice.getDevice()->CreateVertexShader(blob->GetBufferPointer(), blob->GetBufferSize(), nullptr, &mVS);
+    }
+
     if (FAILED(hr))
     {
         LL_WARNS() << "CreateVertexShader failed for " << debugName << LL_ENDL;
@@ -101,13 +316,32 @@ bool DXShader::compileVertexShader(const std::string& source, const std::string&
 
 bool DXShader::compilePixelShader(const std::string& source, const std::string& debugName)
 {
-    ID3DBlob* blob = nullptr;
-    if (!compileHLSL(source, debugName, "main", "ps_5_0", &blob))
+    std::string cache_path;
+    bool used_cache = false;
+    ID3DBlob* blob = getOrCompileHLSL(source, debugName, "main", "ps_5_0", &cache_path, &used_cache);
+    if (!blob)
     {
         return false;
     }
 
     HRESULT hr = gDXDevice.getDevice()->CreatePixelShader(blob->GetBufferPointer(), blob->GetBufferSize(), nullptr, &mPS);
+    if (FAILED(hr) && used_cache)
+    {
+        // S24: see compileVertexShader()'s matching comment.
+        LL_WARNS("ShaderCache") << "S24: CreatePixelShader rejected cached bytecode for " << debugName << ", recompiling" << LL_ENDL;
+        blob->Release();
+        blob = nullptr;
+        if (!compileHLSL(source, debugName, "main", "ps_5_0", &blob))
+        {
+            return false;
+        }
+        if (!cache_path.empty())
+        {
+            saveCachedBlob(cache_path, blob->GetBufferPointer(), blob->GetBufferSize());
+        }
+        hr = gDXDevice.getDevice()->CreatePixelShader(blob->GetBufferPointer(), blob->GetBufferSize(), nullptr, &mPS);
+    }
+
     if (FAILED(hr))
     {
         LL_WARNS() << "CreatePixelShader failed for " << debugName << LL_ENDL;

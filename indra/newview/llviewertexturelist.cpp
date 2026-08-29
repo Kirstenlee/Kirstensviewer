@@ -27,6 +27,7 @@
 #include "llviewerprecompiledheaders.h"
 
 #include <sys/stat.h>
+#include <algorithm>
 
 #include "llviewertexturelist.h"
 
@@ -61,6 +62,7 @@
 #include "lltracerecording.h"
 #include "llviewerdisplay.h"
 #include "llviewerwindow.h"
+#include "llwindow.h"
 #include "llprogressview.h"
 
 ////////////////////////////////////////////////////////////////////////////
@@ -871,6 +873,11 @@ void LLViewerTextureList::updateImages(F32 max_time)
             {
                 forceFlushOrphanedTextures();
             }
+
+            // S24 (2026-08-24, task #258): the scene just changed wholesale - don't
+            // wait for the VRAM allocator's normal ~0.5s cadence to catch up.
+            runVRAMBudgetAllocation();
+            mVRAMAllocationTimer.reset();
         }
     }
     else
@@ -925,6 +932,29 @@ void LLViewerTextureList::updateImages(F32 max_time)
 #else
     updateImagesCreateTextures(remaining_time);
 #endif
+
+    // S24 (2026-08-24, task #258): periodic deterministic greedy VRAM budget
+    // allocator - replaces the old discard-bias pressure ramp. Runs on its own
+    // coarse timer, not every frame - see runVRAMBudgetAllocation()'s own
+    // comment for why ~0.5s is the right cadence.
+    {
+        static LLCachedControl<F32> vram_alloc_interval(gSavedSettings, "RenderVRAMAllocationIntervalSeconds", 0.5f);
+
+        // Force an immediate pass on either edge of the backgrounded/minimized
+        // transition - mirrors LLViewerTexture::updateClass()'s own in_background
+        // computation (used there to halve the allocator's target) so the very
+        // next pass sees the change instead of waiting up to the full interval.
+        static bool was_in_background = false;
+        const bool in_background = (gViewerWindow && !gViewerWindow->getWindow()->getVisible()) || !gFocusMgr.getAppHasFocus();
+        const bool background_edge = in_background != was_in_background;
+        was_in_background = in_background;
+
+        if (background_edge || mVRAMAllocationTimer.getElapsedTimeF32() > vram_alloc_interval)
+        {
+            runVRAMBudgetAllocation();
+            mVRAMAllocationTimer.reset();
+        }
+    }
 
     bool didone = false;
     for (image_list_t::iterator iter = mCallbackList.begin();
@@ -1018,9 +1048,6 @@ void LLViewerTextureList::updateImageDecodePriority(LLViewerFetchedTexture* imag
 {
     llassert(!gCubeSnapshot);
 
-    constexpr F32 BIAS_TRS_OUT_OF_SCREEN = 1.5f;
-    constexpr F32 BIAS_TRS_ON_SCREEN = 1.f;
-
     if (imagep->getBoostLevel() < LLViewerFetchedTexture::BOOST_HIGH)
     {
         static LLCachedControl<F32> texture_scale_min(gSavedSettings, "TextureScaleMinAreaFactor", 0.0095f);
@@ -1031,14 +1058,6 @@ void LLViewerTextureList::updateImageDecodePriority(LLViewerFetchedTexture* imag
 
         U32 face_count = 0;
         U32 max_faces_to_check = 1024;
-
-        // Determine discard bias based on image resolution.
-        LLImageGL* img = imagep->getGLTexture();
-        F32 max_discard = (img) ? F32(img->getMaxDiscardLevel()) : MAX_DISCARD_LEVEL;
-        F32 bias = llclamp(max_discard - 2.f, 1.f, LLViewerTexture::sDesiredDiscardBias);
-
-        // convert bias into a vsize scaler
-        bias = (F32)llroundf(powf(4, bias - 1.f));
 
         // Map render texture channels to priority channels for streaming
         // 0 = normal, 1 = diffuse, 2 = specular, 3 = emissive
@@ -1098,28 +1117,28 @@ void LLViewerTextureList::updateImageDecodePriority(LLViewerFetchedTexture* imag
                 min_scale = llclamp(min_scale * min_scale, texture_scale_min(), texture_scale_max());
                 vsize /= min_scale;
 
-                // S24 For offscreen or less important faces, dampen the desired texture resolution.
-                if (!face->mInFrustum ||
-                    LLViewerTexture::sDesiredDiscardBias > 1.9f + face->mImportanceToCamera / 2.f)
-                {
-                    vsize /= bias;
-                }
-                else  // Onscreen faces receive an additional boost.
+                // S24 (2026-08-24, task #258): onscreen faces receive an importance
+                // boost - genuine screen-importance weighting, not VRAM-pressure
+                // related, kept as-is. The old "!face->mInFrustum ||| VRAM pressure
+                // high" branch that divided vsize down by a bias-derived scaler is
+                // gone - mMaxVirtualSize is now a pure screen-geometry number with
+                // zero VRAM-pressure awareness; LLViewerTextureList::
+                // runVRAMBudgetAllocation() is what applies pressure-awareness now,
+                // as a direct global budget decision, not a per-texture vsize mangle.
+                if (face->mInFrustum)
                 {
                     static LLCachedControl<F32> texture_camera_boost(gSavedSettings, "TextureCameraBoost", 8.f);
                     vsize *= llmax(face->mImportanceToCamera * texture_camera_boost, 1.f);
                 }
 
                 max_vsize = llmax(max_vsize, vsize);
-                if (max_vsize >= LLViewerFetchedTexture::sMaxVirtualSize &&
-                    (on_screen || LLViewerTexture::sDesiredDiscardBias <= BIAS_TRS_ON_SCREEN))
+                if (max_vsize >= LLViewerFetchedTexture::sMaxVirtualSize && on_screen)
                 {
                     break;
                 }
             }
 
-            if (max_vsize >= LLViewerFetchedTexture::sMaxVirtualSize &&
-                (on_screen || LLViewerTexture::sDesiredDiscardBias <= BIAS_TRS_ON_SCREEN))
+            if (max_vsize >= LLViewerFetchedTexture::sMaxVirtualSize && on_screen)
             {
                 break;
             }
@@ -1131,17 +1150,6 @@ void LLViewerTextureList::updateImageDecodePriority(LLViewerFetchedTexture* imag
             // this is especially important because the above is not time sliced and can hit multiple ms for a single texture
             imagep->setBoostLevel(LLViewerFetchedTexture::BOOST_HIGH);
             // Do we ever remove it? This also sets texture nodelete!
-        }
-
-        // For unboosted LOD textures, conditionally reset max virtual size if conditions warrant.
-        if (imagep->getType() == LLViewerTexture::LOD_TEXTURE &&
-            imagep->getBoostLevel() == LLViewerTexture::BOOST_NONE)
-        {
-            if (LLViewerTexture::sDesiredDiscardBias > BIAS_TRS_OUT_OF_SCREEN ||
-                (!on_screen && LLViewerTexture::sDesiredDiscardBias > BIAS_TRS_ON_SCREEN))
-            {
-                imagep->mMaxVirtualSize = 0.f;
-            }
         }
 
         // S24 NOTE: Removed channel-based priority code to match Linden upstream
@@ -1196,6 +1204,160 @@ void LLViewerTextureList::updateImageDecodePriority(LLViewerFetchedTexture* imag
     }
 
     imagep->processTextureStats();
+}
+
+// S24 (2026-08-24, task #258): the deterministic replacement for the old
+// discard-bias pressure ramp. Root cause of the ramp's instability: every
+// texture decided its own desired quality independently from screen size
+// alone, with the ramp as the ONLY (indirect, laggy) cross-texture budget
+// awareness. This function is the direct alternative - sum every eligible
+// texture's real desired bytes, compare to the real budget, and if over,
+// cut the least important textures until it fits. A complete, independent
+// recomputation every pass (no persisted ramp state) means pass N+1 can
+// never "overreact" to pass N, which is what caused the observed
+// dip/reset/climb cycling under real load.
+//
+// Runs on its own coarse timer (LLViewerTextureList::updateImages(),
+// RenderVRAMAllocationIntervalSeconds, default 0.5s) rather than every
+// frame: LLViewerTextureList::updateImagesFetchTextures()'s existing 5%-
+// per-frame round-robin already completes a full sweep of mUUIDMap in ~20
+// frames (~0.3-0.7s at 30-60fps) regardless of list size, so every pass here
+// works from mMaxVirtualSize values at most one sweep stale - the same
+// staleness the round-robin already tolerates today - while giving the
+// PREVIOUS pass's queued mDownScaleQueue work real frames to actually drain
+// before the next decision is made. Deciding on top of not-yet-applied
+// state was a real contributor to the old oscillation. A full std::sort of
+// a several-thousand-texture candidate set twice a second is trivially
+// cheap (sub-millisecond to a couple ms), not something that needs
+// time-slicing the way the actual GPU work in mDownScaleQueue does.
+void LLViewerTextureList::runVRAMBudgetAllocation()
+{
+    // S24 (2026-08-24, task #258 follow-up): temporary LL_WARNS/LLTimer
+    // instrumentation (added to chase a live ~110fps vs 130-160fps baseline
+    // regression report) has been removed now that it answered the question:
+    // the ~0.5s periodic trigger fires correctly and reliably, a full pass
+    // costs 0.02-3.35ms (peak ~5900 textures, ~0.11ms/frame amortized), and
+    // zero cuts occurred for the entire test session even at peak load - so
+    // this allocator's own execution is NOT the regression's cause. Likely
+    // explanation: textures now legitimately render at full natural quality
+    // instead of the old ramp's perpetual degradation (a quality/fps
+    // tradeoff, not a bug). Below is optimized for per-pass cost regardless,
+    // since it still walks the full texture list twice a second - virtual
+    // calls deferred behind cheap field/inline checks, the running budget
+    // total folded into the same walk instead of a second pass, and the
+    // eviction-candidate struct caching its LLImageGL* so the cut loop below
+    // never re-derives it. Some of this trades readability for it - see
+    // task #258 resolution notes if this needs revisiting.
+    struct Candidate
+    {
+        LLViewerLODTexture* tex;
+        LLImageGL* img;
+        S32 natural_discard;
+        S64 current_bytes;
+        S64 natural_bytes;
+    };
+    std::vector<Candidate> candidates;
+    candidates.reserve(mUUIDMap.size() / 4);
+
+    // Folded into the same walk as candidate construction below rather than a
+    // second pass over `candidates` afterward.
+    S64 total_desired_bytes = (S64)(LLViewerTexture::sVRAMUsedMegabytes * 1024.0 * 1024.0);
+
+    for (auto& entry : mUUIDMap)
+    {
+        LLViewerFetchedTexture* imagep = entry.second;
+        // Clean slate every pass - no persistent drift between passes, unlike
+        // the old ramp's accumulated state. Unconditional/branchless on
+        // purpose - imagep is already being touched by the checks below, so
+        // a predictable store here is cheaper than a load+branch to skip it.
+        imagep->setVRAMForcedDiscardLevel(-1);
+
+        // Cheapest-first ordering: plain field reads, then non-virtual inline
+        // accessors, before either virtual call (getType()/getGLTexture()) -
+        // the ~87-90% of textures that fail these checks (per live log data)
+        // never pay for a vtable indirection at all.
+        if (imagep->mMaxVirtualSize <= 0.f) continue; // already forced near-minimal elsewhere
+        // BOOST_NONE only, not "< BOOST_HIGH": processTextureStats()'s own
+        // scaleDown() gate is `mBoostLevel < LLGLTexture::BOOST_AVATAR_BAKED`
+        // (BOOST_NONE=0, BOOST_AVATAR_BAKED=1) - only BOOST_NONE textures ever
+        // actually get scaled down today. Forcing a floor on baked/terrain
+        // textures would be a silent no-op, so exclude them from the
+        // candidate set entirely rather than compute a cut that can't apply.
+        if (imagep->getBoostLevel() != LLGLTexture::BOOST_NONE) continue;
+        if (!imagep->getUseDiscard()) continue; // covers mDontDiscard/!mUseMipMaps
+        if (imagep->getType() != LLViewerTexture::LOD_TEXTURE) continue;
+
+        // S24 (2026-08-24, task #260): a DXImageThread worker thread may be
+        // mid-createGLTexture() for this exact texture right now, writing
+        // mWidth/mHeight/mFormatPrimary/mCurrentDiscardLevel/mTexName with no
+        // synchronization of its own (DXTexture::mMutex only covers its own
+        // mTexture/mSRV, not LLImageGL's bookkeeping - confirmed via direct
+        // code read, not assumed). mNeedsCreateTexture is the codebase's own
+        // atomic signal for exactly this window (see
+        // LLViewerFetchedTexture::isCreateTexturePending()'s comment) - skip
+        // outright rather than read fields that may be torn mid-write; this
+        // texture is re-evaluated on the very next ~0.5s pass once creation
+        // has completed and handed back to the main thread. This was the
+        // confirmed root cause of task #260's CTD under
+        // RenderDXMultiThreadedTextures.
+        if (imagep->isCreateTexturePending()) continue;
+
+        LLImageGL* img = imagep->getGLTexture();
+        if (!img || !img->getHasGLTexture()) continue;
+
+        LLViewerLODTexture* lod_tex = static_cast<LLViewerLODTexture*>(imagep);
+        const S32 natural = lod_tex->computeNaturalDiscardLevel();
+        const S64 current_bytes = img->getMipBytes(img->getDiscardLevel());
+        const S64 natural_bytes = img->getMipBytes(natural);
+
+        total_desired_bytes += (natural_bytes - current_bytes);
+        candidates.push_back({lod_tex, img, natural, current_bytes, natural_bytes});
+    }
+
+    const S64 budget_bytes = (S64)(LLViewerTexture::sVRAMAllocatorBudgetMegabytes * 1024.0 * 1024.0);
+
+    if (total_desired_bytes <= budget_bytes)
+    {
+        // Common case: nobody needs cutting.
+        LLViewerTexture::sVRAMAllocatorLastCutCount = 0;
+        LLViewerTexture::sVRAMAllocatorCandidateCount = (U32)candidates.size();
+        return;
+    }
+
+    // Least important first (lowest mMaxVirtualSize = least important - same
+    // ordering LLViewerFetchedTexture::Compare already uses elsewhere).
+    std::sort(candidates.begin(), candidates.end(),
+        [](const Candidate& a, const Candidate& b)
+        {
+            return a.tex->mMaxVirtualSize < b.tex->mMaxVirtualSize;
+        });
+
+    S64 over = total_desired_bytes - budget_bytes;
+    U32 cut_count = 0;
+    for (auto& c : candidates)
+    {
+        if (over <= 0) break;
+
+        S32 level = c.natural_discard;
+        const S32 max_discard = c.img->getMaxDiscardLevel();
+        S64 bytes_at_level = c.natural_bytes;
+        while (over > 0 && level < max_discard)
+        {
+            const S64 next_bytes = c.img->getMipBytes(level + 1);
+            over -= (bytes_at_level - next_bytes);
+            bytes_at_level = next_bytes;
+            ++level;
+        }
+
+        if (level > c.natural_discard)
+        {
+            c.tex->setVRAMForcedDiscardLevel(level);
+            ++cut_count;
+        }
+    }
+
+    LLViewerTexture::sVRAMAllocatorLastCutCount = cut_count;
+    LLViewerTexture::sVRAMAllocatorCandidateCount = (U32)candidates.size();
 }
 
 F32 LLViewerTextureList::updateImagesCreateTextures(F32 max_time)
@@ -1315,20 +1477,63 @@ F32 LLViewerTextureList::updateImagesCreateTextures(F32 max_time)
         // same large floor through in that everyday case is a real source of
         // frame-time spikes during camming for no real benefit -- nothing is actually
         // at risk of swapping/freezing yet. Only use the aggressive floor when pressure
-        // is genuinely severe (same bias>2.0 threshold already used as the "serious"
-        // cutoff for the far-clip pressure-relief lever, llviewerdisplay.cpp:220-222,
-        // plus system memory criticality -- the actual swap/freeze risk this floor
-        // exists for). Otherwise respect max_time almost strictly (min_count=1: stop as
-        // soon as possible once over budget) and let the backlog spread across more
-        // frames instead of hammering this one.
+        // is genuinely severe. Otherwise respect max_time almost strictly (min_count=1:
+        // stop as soon as possible once over budget) and let the backlog spread across
+        // more frames instead of hammering this one.
         //
         // Also fixes a latent bug found while touching this: the floor used to scale
         // with mCreateTextureList.size() (a different queue, the pending-GL-upload
         // list, already mostly drained by the loop above by this point) instead of
         // mDownScaleQueue.size() (the queue actually being drained here).
-        const bool severe_pressure = LLViewerTexture::sDesiredDiscardBias > 2.f
+        //
+        // S24 (2026-08-24, task #258): "severe" is now a direct used/budget ratio
+        // instead of the deleted sDesiredDiscardBias ramp - same "direct number, no
+        // ramping" style KVRAMCache::getRAMPressure() already uses in this codebase
+        // (newview/kvramcache.cpp).
+        const bool severe_pressure = LLViewerTexture::sVRAMUsedMegabytes
+                / llmax(LLViewerTexture::sVRAMBudgetMegabytes, 1.f) > 1.1f
             || LLViewerTexture::isSystemMemoryCritical();
-        S32 min_count = severe_pressure ? (S32)mDownScaleQueue.size() / 20 + 5 : 1;
+
+        // S24 (2026-08-24, task #258): the non-severe floor used to be a hard 1 -
+        // meaning once max_time was exceeded, exactly one more texture got
+        // downscaled that frame no matter how large the backlog was. Fine for the
+        // camera-swing case this floor was designed to protect (small, transient
+        // queues stay at min_count=1, unchanged below), but under SUSTAINED
+        // moderate pressure (bias 1.0-2.0, i.e. real over-budget load that just
+        // hasn't crossed the "severe" line) a large backlog could accumulate faster
+        // than it drained, only catching up once the scene quieted down and new
+        // pressure stopped arriving - the "images dumping" slow-drain symptom
+        // observed live in a populated scene. Scaling gently with backlog size
+        // (capped at 5, well below severe_pressure's own floor) gives sustained
+        // moderate pressure real forward progress without reopening the frame-time
+        // spike problem for small, transient bursts.
+        S32 min_count = severe_pressure ? (S32)mDownScaleQueue.size() / 20 + 5
+                                         : llclamp((S32)mDownScaleQueue.size() / 50, 1, 5);
+
+        // S24 (2026-08-24, task #258): one-shot size-sort on the RISING EDGE of
+        // severe pressure only (not every frame - would add real per-frame cost to
+        // this hot path, and FIFO order is fine under merely-moderate pressure
+        // where D1 above already keeps the backlog draining). Under genuine
+        // emergency, processing the largest queued textures first frees the most
+        // VRAM per item downscaled - insertion order has zero relationship to that
+        // goal. Deliberately not a full LRU/priority-queue rearchitecture, just a
+        // single sort of whatever's queued at the moment pressure turns severe.
+        static bool was_severe_pressure = false;
+        if (severe_pressure && !was_severe_pressure)
+        {
+            LL_INFOS("TextureMemory") << "Severe VRAM pressure - sorting downscale queue ("
+                << mDownScaleQueue.size() << " textures) largest-first" << LL_ENDL;
+            std::sort(mDownScaleQueue.begin(), mDownScaleQueue.end(),
+                [](const LLPointer<LLViewerFetchedTexture>& a, const LLPointer<LLViewerFetchedTexture>& b)
+                {
+                    LLImageGL* img_a = a->getGLTexture();
+                    LLImageGL* img_b = b->getGLTexture();
+                    const S64 bytes_a = img_a ? img_a->getMipBytes() : 0;
+                    const S64 bytes_b = img_b ? img_b->getMipBytes() : 0;
+                    return bytes_a > bytes_b;
+                });
+        }
+        was_severe_pressure = severe_pressure;
 
         create_timer.reset();
         while (!mDownScaleQueue.empty())
@@ -1343,7 +1548,7 @@ F32 LLViewerTextureList::updateImagesCreateTextures(F32 max_time)
             }
 
             image->mDownScalePending = false;
-            mDownScaleQueue.pop();
+            mDownScaleQueue.pop_front();
 
             if (create_timer.getElapsedTimeF32() > max_time && --min_count <= 0)
             {
@@ -1447,19 +1652,13 @@ F32 LLViewerTextureList::updateImagesFetchTextures(F32 max_time)
     // Deletion rules check ref count, so be careful not to hold any LLPointer references to the textures here other than the one in entries.
 
     //update MIN_UPDATE_COUNT or 5% of other textures, whichever is greater
+    // S24 (2026-08-24, task #258): the old sDesiredDiscardBias-driven "update more
+    // aggressively under pressure" multiplier is gone - this round-robin's job is
+    // now just "keep mMaxVirtualSize reasonably fresh," a fixed cadence regardless
+    // of VRAM pressure. Budget-aware reaction to pressure is entirely
+    // LLViewerTextureList::runVRAMBudgetAllocation()'s job now, on its own
+    // independent timer, not this per-frame sweep's.
     update_count = llmax((U32) MIN_UPDATE_COUNT, (U32) mUUIDMap.size()/20);
-    if (LLViewerTexture::sDesiredDiscardBias > 1.f
-        && LLViewerTexture::sBiasTexturesUpdated < (U32)mUUIDMap.size())
-    {
-        // we are over memory target, update more agresively
-        // existing textures agresively to free memory faster.
-        update_count = (S32)(update_count * LLViewerTexture::sDesiredDiscardBias);
-
-        // This isn't particularly precise and can overshoot, but it doesn't need
-        // to be, just making sure it did a full circle and doesn't get stuck updating
-        // at bias = 4 with 4 times the rate permanently.
-        LLViewerTexture::sBiasTexturesUpdated += update_count;
-    }
     update_count = llmin(update_count, (U32) mUUIDMap.size());
 
     { // copy entries out of UUID map to avoid iterator invalidation from deletion inside updateImageDecodeProiroty or updateFetch below

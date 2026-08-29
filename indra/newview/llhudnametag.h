@@ -142,6 +142,17 @@ public:
     static void reshape();
     static void setDisplayText(bool flag) { sDisplayText = flag ; }
 
+    // S24 (2026-08-28, task #193 follow-up): occlusion-fade, not real depth
+    // occlusion - see this class's .cpp for the full writeup of why. No-op
+    // under GL (GL's real depth-test-based occlusion in renderText() already
+    // works correctly and is untouched). issueOcclusionQueries() is called
+    // once per frame from LLPipeline::doOcclusion() (pipeline.cpp), at the
+    // one point in the frame where the real 3D scene's depth buffer is still
+    // bound and gOcclusionCubeProgram/mCubeVB are already set up for this
+    // exact purpose (spatial-group occlusion culling uses the identical
+    // mechanism) - reused here rather than building a second one.
+    static void issueOcclusionQueries();
+
 protected:
     LLHUDNameTag(const U8 type);
 
@@ -150,6 +161,14 @@ protected:
     static void updateAll();
     void setLOD(S32 lod);
     S32 getMaxLines();
+
+    // Draws this nametag's own small occlusion-test box (called from
+    // issueOcclusionQueries()) and polls the previous frame's result into
+    // mOcclusionFadeAlpha (called once per frame from updateAll()'s existing
+    // per-instance loop, matching where mLastDistance/visibility already get
+    // refreshed). Both are real no-ops under GL.
+    void issueOcclusionQuery();
+    void updateOcclusionFade();
 
 private:
     ~LLHUDNameTag();
@@ -184,6 +203,17 @@ private:
     bool            mHidden;
     LLPointer<LLUIImage> mRoundedRectImgp;
     LLPointer<LLUIImage> mRoundedRectTopImgp;
+
+    // S24 (2026-08-28, task #193 follow-up): occlusion-fade state - see the
+    // public issueOcclusionQueries() comment above. mOcclusionFadeAlpha is
+    // read unconditionally in renderText() (defaults to 1.0 = fully visible,
+    // so it's a true no-op under GL without needing to guard the read site
+    // too); the query handle/pending flag are only meaningful under DX_RENDER.
+    F32             mOcclusionFadeAlpha = 1.f;
+#ifdef DX_RENDER
+    unsigned int    mOcclusionQuery = 0;
+    bool            mOcclusionQueryPending = false;
+#endif
 
     static bool    sDisplayText ;
     static std::set<LLPointer<LLHUDNameTag> > sTextObjects;

@@ -127,15 +127,12 @@ void DXDrawPoolSimple::renderGlowPostDeferred(LLDrawPoolGlow& pool, S32 pass)
     LLGLEnable blend(GL_BLEND);
     gGL.flush();
 
-    // The GL side biases depth via glPolygonOffset(-1.0f, -1.0f) to avoid
-    // z-fighting with the non-glow pass. D3D11 has no runtime-callable
-    // equivalent - depth bias is a creation-time field on
-    // D3D11_RASTERIZER_DESC, not something DXStateCache's rasterizer states
-    // currently expose (only cull-mode is parameterized - see
-    // DXStateCache::getRasterizerState()). Skipped for now: a minor,
-    // documented visual-quality gap (potential glow/non-glow z-fighting),
-    // not a crash risk.
+    // S24 (2026-08-28, task #242): real again via LLRender::setPolygonOffset()
+    // (llrender.cpp) - biases depth to avoid z-fighting with the non-glow
+    // pass, previously skipped entirely ("D3D11 has no runtime-callable
+    // equivalent").
     LLGLEnable polyOffset(GL_POLYGON_OFFSET_FILL);
+    gGL.setPolygonOffset(-1.0f, -1.0f);
     gGL.setSceneBlendType(LLRender::BT_ADD);
 
     LLGLDepthTest depth(GL_TRUE, GL_FALSE);

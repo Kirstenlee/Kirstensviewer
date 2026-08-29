@@ -48,6 +48,24 @@ void LLUIImage::draw(S32 x, S32 y, S32 width, S32 height, const LLColor4& color,
             // Deliberately empty pending verts.
             // They aren't related to the image, so don't register them under draw zone
             gGL.flush();
+#ifdef DX_RENDER
+            // S24 (2026-08-25, task #224): this replay path draws via its own
+            // direct mVB->drawArrays() call (LLVertexBufferData::draw(),
+            // llvertexbuffer.cpp) - completely bypassing gDXUIBatch, unlike
+            // every other draw call in the codebase that changes texture/
+            // shader/scissor state (see DXUIBatch.h's hazard-hook list).
+            // Without this, a batch gDXUIBatch was still accumulating from a
+            // PRECEDING widget draws AFTER this cached image instead of
+            // before it (or picks up this call's shader/texture bind by the
+            // time it finally flushes) - real paint-order corruption, not
+            // just a missed optimization. This is why disabling the cache
+            // entirely (forcing every draw through the well-behaved
+            // recording path below, which already flushes gDXUIBatch via
+            // gGL's own flush()) made the hover-highlight flicker vanish:
+            // every replay of a cached button image was racing whatever
+            // gDXUIBatch still had pending from neighboring UI content.
+            gDXUIBatch.flushPending();
+#endif
             LL_PROFILE_ZONE_SCOPED;
             gGL.getTexUnit(0)->enable(LLTexUnit::TT_TEXTURE);
 

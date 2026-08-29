@@ -43,6 +43,8 @@ set(dxrender_CORE
     core/DXPipelineState.cpp
     core/DXSwapChain.cpp
     core/DXStateCache.cpp
+    core/DXWorkerDevice.cpp
+    core/DXSharedResource.cpp
 )
 
 set(dxrender_RESOURCES
@@ -68,6 +70,8 @@ set(dxrender_HEADER_FILES
     core/DXPipelineState.h
     core/DXSwapChain.h
     core/DXStateCache.h
+    core/DXWorkerDevice.h
+    core/DXSharedResource.h
 
     resources/DXBuffer.h
     resources/DXTexture.h

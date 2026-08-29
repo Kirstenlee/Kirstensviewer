@@ -598,11 +598,40 @@ void LLRenderPass::pushBatch(LLDrawInfo& params, bool texture, bool batch_textur
     {
         if (batch_textures && params.mTextureList.size() > 1)
         {
+#ifdef DX_RENDER
+            // S24 (2026-08-28, task #225): mirrors llshadermgr.cpp's
+            // kIndexedTexRegisterBase / dxdrawpoolalpha.cpp's
+            // indexedTexRegisterBase() exactly - keep all three in lockstep.
+            // GL's indexed-texture samplers have no fixed "physical
+            // register" (glUniform1i() assigns tex0..texN-1 to units 0..N-1
+            // unconditionally, decoupled from whatever else is also bound),
+            // so gGL.getTexUnit(i) starting at 0 has always been correct
+            // here for GL. HLSL's Texture2D tex0..texN-1 ARE fixed to real
+            // t-registers at shader-compile time, and shift to base t5 (not
+            // t0) whenever the bound shader also attaches deferredUtil.hlsl
+            // (t0-t3) - dxdrawpoolalpha.cpp's own texSetup() already knows
+            // this, but this shared LLRenderPass::pushBatch() (used by the
+            // deferred/opaque pools' indexed alpha-mask/materials batches,
+            // a different call path) never did: it always bound at unit i,
+            // unconditionally, silently sampling whatever texture happened
+            // to be left resident in t5-t8 from an earlier, unrelated draw
+            // call whenever the actual shader needed the +5 offset. Root
+            // cause of task #225 (a linked mesh's leaf/cutout faces
+            // rendering with an unrelated sibling prim's texture) - only
+            // manifests for indexed batches whose bound shader has
+            // isDeferred/hasReflectionProbes set, which most simple/single-
+            // texture content never exercises, explaining why this was rare
+            // and looked object-specific rather than a general regression.
+            LLGLSLShader* cur_shader = LLGLSLShader::sCurBoundShaderPtr;
+            const S32 indexed_base = (cur_shader && (cur_shader->mFeatures.isDeferred || cur_shader->mFeatures.hasReflectionProbes)) ? 5 : 0;
+#else
+            const S32 indexed_base = 0;
+#endif
             for (U32 i = 0; i < params.mTextureList.size(); ++i)
             {
                 if (params.mTextureList[i].notNull())
                 {
-                    gGL.getTexUnit(i)->bindFast(params.mTextureList[i]);
+                    gGL.getTexUnit(indexed_base + i)->bindFast(params.mTextureList[i]);
                 }
             }
         }

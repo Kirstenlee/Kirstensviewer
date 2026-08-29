@@ -28,7 +28,17 @@ set(boost_toolset "vc145") # Visual Studio 2026 / v145 platform toolset
 # Fall back to the known-current vcpkg boost baseline tag and self-correct
 # on the next configure once the header is present (see
 # docs/boost-vcpkg-migration.md).
-set(boost_lib_version_tag "1_91")
+# S24 (2026-08-29): this fallback itself goes stale every time vcpkg's boost
+# baseline moves forward, and nothing enforces keeping it in sync - it was
+# still "1_91" when the real baseline had already moved to 1_92 (confirmed
+# live: lib/release/boost_fiber-vc145-mt-x64-1_92.lib on disk,
+# include/boost/version.hpp reporting 1_92), causing a full-clean ->
+# autobuild run to link against nonexistent "-1_91" filenames with NO
+# tracked config change to explain it - see AutoBuild-S24.ps1's own comment
+# for the belt-and-suspenders fix (a second configure pass right before the
+# MSBuild step) that makes this class of bug self-correct even when this
+# literal string next goes stale again.
+set(boost_lib_version_tag "1_92")
 set(_boost_version_header "${Boost_INCLUDE_DIRS}/boost/version.hpp")
 if(EXISTS "${_boost_version_header}")
     file(STRINGS "${_boost_version_header}" boost_lib_version_line

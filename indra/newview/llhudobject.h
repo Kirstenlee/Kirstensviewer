@@ -71,6 +71,17 @@ public:
     static void renderAllForSelect();
     static void renderAllForTimer();
 
+    // S24 (2026-08-28, task #193 follow-up): generic occlusion-fade hook for
+    // any LLHUDObject subtype that wants it - mirrors LLHUDNameTag's own
+    // parallel (non-sHUDObjects) mechanism of the same name, but iterates
+    // this class's own tracked list. Default no-op below, LLVoiceVisualizer
+    // is the first real override. Called once per frame from
+    // LLPipeline::doOcclusion() (pipeline.cpp) while gOcclusionCubeProgram/
+    // mCubeVB are already bound; updateOcclusionFade() (below) polls the
+    // previous frame's result from within updateAll(), before this frame's
+    // issueOcclusionQueries() runs.
+    static void issueOcclusionQueries();
+
     // Some objects may need to update when window shape changes
     static void reshapeAll();
 
@@ -107,6 +118,11 @@ protected:
 
     virtual void render() = 0;
     virtual void renderForTimer() {};
+
+    // No-op defaults - see issueOcclusionQueries() above. Overridden by
+    // LLVoiceVisualizer; every other HUD object type is unaffected.
+    virtual void issueOcclusionQuery() {}
+    virtual void updateOcclusionFade() {}
 
 protected:
     U8              mType;

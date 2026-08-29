@@ -294,7 +294,10 @@ void LLManipScale::render()
 
             {
                 LLGLEnable poly_offset(GL_POLYGON_OFFSET_FILL);
-                glPolygonOffset( -2.f, -2.f);
+                // S24 (2026-08-28, task #242): gGL.setPolygonOffset() -
+                // cross-backend, real under DX_RENDER now too (was a silent
+                // no-op there, raw glPolygonOffset() has no D3D11 dispatch).
+                gGL.setPolygonOffset( -2.f, -2.f);
 
                 renderCorners( bbox );
                 renderFaces( bbox );
@@ -304,7 +307,7 @@ void LLManipScale::render()
                     renderGuidelinesPart( bbox );
                 }
 
-                glPolygonOffset( 0.f, 0.f);
+                gGL.setPolygonOffset( 0.f, 0.f);
             }
         }
         gGL.popMatrix();

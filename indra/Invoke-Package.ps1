@@ -277,13 +277,24 @@ Write-Host "✓ Media plugins copied" -ForegroundColor Green
 
 Write-Stage "Stage 6: Copying runtime redistributables"
 
-if (Test-Path 'newview\vc145\*') {
-    Write-Host "  Visual C++ 2026 redistributables..." -ForegroundColor Cyan
-    Copy-Item -Path 'newview\vc145\*' -Destination 'S24-Packaged' -Force
+# S24 (2026-08-29): was 'newview\vc145\*' - that folder never actually held
+# any redistributable DLLs (just an unrelated cube.dae), so this stage was
+# silently a no-op and Stage 4's blind 'robocopy newview S24-Packaged *.dll'
+# sweep was the ONLY thing supplying msvcp140*/vcruntime140* - picking up
+# whatever stale copies happened to be sitting directly in newview\ (dated
+# Oct/Dec 2024, well before the VS2026/vc145 upgrade). The actually-current
+# set (dated Jun 2026, matching the current toolset) lives in Misc\ and was
+# never referenced anywhere in this script. Runs AFTER Stage 4 with -Force,
+# so this now correctly overlays the current DLLs on top of Stage 4's sweep
+# for every file Misc\ has a copy of; anything Stage 4 already copied that
+# Misc\ doesn't carry (e.g. vccorlib140.dll) is left untouched.
+if (Test-Path 'Misc\*') {
+    Write-Host "  Visual C++ 2026 redistributables (from Misc\)..." -ForegroundColor Cyan
+    Copy-Item -Path 'Misc\*' -Destination 'S24-Packaged' -Force
     Write-Host "✓ Redistributables copied" -ForegroundColor Green
 }
 else {
-    Write-Host "  Warning: VC++ redistributables not found" -ForegroundColor Yellow
+    Write-Host "  Warning: VC++ redistributables not found in Misc\" -ForegroundColor Yellow
 }
 
 #endregion

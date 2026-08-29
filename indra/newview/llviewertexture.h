@@ -223,23 +223,39 @@ public:
     static S32 sRawCount;
     static S32 sAuxCount;
     static LLFrameTimer sEvaluationTimer;
-    static F32 sDesiredDiscardBias;
-    static U32 sBiasTexturesUpdated;
     static S32 sMaxSculptRez ;
     static U32 sMinLargeImageSize ;
     static U32 sMaxSmallImageSize ;
     static bool sFreezeImageUpdates;
     static F32  sCurrentTime ;
 
-    // estimated free memory for textures, by bias calculation
+    // S24 (2026-08-24, task #258): "headroom" against the allocator's target -
+    // target minus sVRAMUsedMegabytes. NOT actual free VRAM - a self-imposed
+    // target minus real tracked usage. Can go negative (over target); the
+    // greedy allocator (LLViewerTextureList::runVRAMBudgetAllocation()) is what
+    // actually reacts to this, not a ramped bias scalar.
     static F32 sFreeVRAMMegabytes;
 
-    // The actual `used` figure updateClass() computed this frame -- either the live
-    // OS-reported DXGI usage or the self-estimate, whichever was active. Exposed so
-    // diagnostics (e.g. the texture console) show the same number the discard-bias
-    // ramp is actually reacting to, rather than an independently recomputed guess.
+    // S24 (2026-08-24, task #258): exact sum of tracked texture + vertex bytes
+    // this frame - not a poll, not an estimate, no fudge factor. There is only
+    // ONE `used` formula now (see updateClass()) so this can never disagree
+    // with itself the way the old Live/Est split could.
     static F32 sVRAMUsedMegabytes;
-    static bool sVRAMInfoIsLive; // true if sVRAMUsedMegabytes came from the live DXGI signal
+
+    // The budget sVRAMUsedMegabytes is being compared against - live DXGI Budget
+    // when available, else the static adapter-derived capacity. Describes the
+    // BUDGET's source only (a real, honest distinction) - not a used-figure mode.
+    static F32 sVRAMBudgetMegabytes;
+    static bool sVRAMBudgetIsLive;
+
+    // What LLViewerTextureList::runVRAMBudgetAllocation() actually targets this
+    // pass (post-reserve, and halved while backgrounded/minimized - see
+    // updateClass()). Diagnostics read this directly rather than re-deriving it.
+    static F32 sVRAMAllocatorBudgetMegabytes;
+    // How many of the pass's cut-eligible candidates actually got trimmed, and
+    // how many were eligible in total - texture console diagnostics.
+    static U32 sVRAMAllocatorLastCutCount;
+    static U32 sVRAMAllocatorCandidateCount;
 
     enum EDebugTexels
     {
@@ -348,6 +364,24 @@ public:
 
     S32  getDesiredDiscardLevel()            { return mDesiredDiscardLevel; }
     void setMinDiscardLevel(S32 discard)    { mMinDesiredDiscardLevel = llmin(mMinDesiredDiscardLevel,(S8)discard); }
+
+    // S24 (2026-08-24, task #258): set by LLViewerTextureList::
+    // runVRAMBudgetAllocation() - see mVRAMForcedDiscardLevel's own comment.
+    void setVRAMForcedDiscardLevel(S32 discard) const { mVRAMForcedDiscardLevel = (S8)discard; }
+    S32 getVRAMForcedDiscardLevel() const             { return mVRAMForcedDiscardLevel; }
+
+    // S24 (2026-08-24, task #260): mNeedsCreateTexture is already the
+    // codebase's own atomic (LLAtomicBool) signal that this texture's
+    // LLImageGL fields (mWidth/mHeight/mFormatPrimary/mCurrentDiscardLevel)
+    // may currently be getting written by a DXImageThread worker thread
+    // inside createGLTexture() - set true before scheduleCreateTexture()
+    // posts the work, cleared only by postCreateTexture() back on the main
+    // thread once the worker's call has fully returned. Exposed read-only so
+    // runVRAMBudgetAllocation() can skip a texture while it's mid-creation
+    // instead of racing those unsynchronized field reads. Not const:
+    // LLAtomicBool's own operator Type() is non-const (a live atomic read,
+    // not a logically-const query).
+    bool isCreateTexturePending() { return mNeedsCreateTexture; }
 
     void setBoostLevel(S32 level) override;
     bool updateFetch();
@@ -468,6 +502,15 @@ protected:
     S8  mDesiredDiscardLevel;           // The discard level we'd LIKE to have - if we have it and there's space
     S8  mMinDesiredDiscardLevel;    // The minimum discard level we'd like to have
 
+    // S24 (2026-08-24, task #258): -1 = the VRAM budget allocator has not cut
+    // this texture this pass; else the discard level it mandates until its
+    // next pass (~0.5s later). Reset to -1 at the top of every
+    // runVRAMBudgetAllocation() pass - no persistent drift between passes.
+    // Applied in processTextureStats() as a floor, always itself capped by
+    // mMinDesiredDiscardLevel - an explicit per-texture protection always
+    // wins over a global budget cut.
+    mutable S8 mVRAMForcedDiscardLevel = -1;
+
     bool mNeedsAux;                 // We need to decode the auxiliary channels
     bool mHasAux;                    // We have aux channels
     bool mDecodingAux;              // Are we decoding high components
@@ -548,6 +591,16 @@ public:
     // Process image stats to determine priority/quality requirements.
     void processTextureStats() override;
     bool isUpdateFrozen() ;
+
+    // S24 (2026-08-24, task #258): pure, side-effect-free extraction of
+    // processTextureStats()'s log4 "how many mip texels needed to cover this
+    // many screen pixels" formula - same math, just callable without
+    // triggering processTextureStats()'s other side effects (mutating
+    // mDesiredDiscardLevel directly, calling scaleDown()). Used by
+    // LLViewerTextureList::runVRAMBudgetAllocation() to ask "what would this
+    // texture naturally want" for every candidate in one pass, without
+    // disturbing per-texture state until the allocator has decided.
+    S32 computeNaturalDiscardLevel() const;
 
     bool scaleDown() override;
 

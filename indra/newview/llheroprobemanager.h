@@ -87,6 +87,11 @@ public:
 
     bool isMirrorPass() const { return mRenderingMirror; }
 
+    // S24 (2026-08-27, task #267 follow-up): same DXPipeline-needs-the-per-
+    // frame-refresh-without-a-second-full-friend-class situation as
+    // LLReflectionMapManager::updateUniformsPerFrame() - see its comment.
+    void updateUniformsPerFrame() { updateUniforms(); }
+
     LLVector3 mMirrorPosition;
     LLVector3     mMirrorNormal;
     HeroProbeData mHeroData;

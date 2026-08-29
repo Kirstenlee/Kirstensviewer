@@ -1,10 +1,35 @@
 #include "DXDevice.h"
 #include "llerror.h"
+#include <dxgi.h>
 #include <vector>
 #include <string>
 #include <cstdint>
 
 DXDevice gDXDevice;
+
+// S24 (2026-08-26, task #260): shared by both initialize() branches below -
+// QI's mDevice for IDXGIDevice to find which physical adapter it landed on,
+// regardless of whether the device was adopted or created here.
+static LUID queryAdapterLuid(ID3D11Device* device)
+{
+    LUID luid = { 0, 0 };
+    IDXGIDevice* dxgi_device = nullptr;
+    if (SUCCEEDED(device->QueryInterface(__uuidof(IDXGIDevice), (void**)&dxgi_device)) && dxgi_device)
+    {
+        IDXGIAdapter* adapter = nullptr;
+        if (SUCCEEDED(dxgi_device->GetAdapter(&adapter)) && adapter)
+        {
+            DXGI_ADAPTER_DESC desc;
+            if (SUCCEEDED(adapter->GetDesc(&desc)))
+            {
+                luid = desc.AdapterLuid;
+            }
+            adapter->Release();
+        }
+        dxgi_device->Release();
+    }
+    return luid;
+}
 
 // S24 (2026-08-16): see DXDevice.h's header comment. Default true to match
 // the pre-existing always-on behavior for anyone who hasn't touched the new
@@ -27,6 +52,7 @@ bool DXDevice::initialize(ID3D11Device* existing_device, ID3D11DeviceContext* ex
         mContext->AddRef();
         mFeatureLevel = mDevice->GetFeatureLevel();
         mDevice->QueryInterface(__uuidof(ID3D11InfoQueue), (void**)&mInfoQueue);
+        mAdapterLuid = queryAdapterLuid(mDevice);
         return true;
     }
 
@@ -42,11 +68,23 @@ bool DXDevice::initialize(ID3D11Device* existing_device, ID3D11DeviceContext* ex
     // Tools" optional feature installed - if missing, this call fails
     // outright with the flag on (turn the setting off if that happens and
     // this isn't the path being investigated).
+    // S24 (2026-08-29, task #278): D3D11_CREATE_DEVICE_SINGLETHREADED added -
+    // this codebase confirmed (source review) to never call into the D3D11
+    // device/context from any thread but the main one since task #260
+    // removed the one feature (DXImageThread) that ever did. This flag tells
+    // the driver to skip its internal per-call thread-safety locking
+    // entirely rather than just happening to go uncontended - a real,
+    // measurable per-API-call CPU cost reduction across every single D3D11
+    // call this app makes. Must match at every D3D11CreateDevice call site
+    // (see llwindowwin32.cpp's selectHighPerformanceAdapter(), the other two
+    // sites, for the multi-adapter path) - a mismatched flag between sites
+    // would be meaningless since only one of them actually creates the
+    // device DXDevice::initialize() ends up adopting or owning.
     HRESULT hr = D3D11CreateDevice(
         nullptr,
         D3D_DRIVER_TYPE_HARDWARE,
         nullptr,
-        sDebugLayerEnabled ? D3D11_CREATE_DEVICE_DEBUG : 0,
+        (sDebugLayerEnabled ? D3D11_CREATE_DEVICE_DEBUG : 0) | D3D11_CREATE_DEVICE_SINGLETHREADED,
         requested_levels,
         _countof(requested_levels),
         D3D11_SDK_VERSION,
@@ -63,6 +101,7 @@ bool DXDevice::initialize(ID3D11Device* existing_device, ID3D11DeviceContext* ex
     }
 
     mDevice->QueryInterface(__uuidof(ID3D11InfoQueue), (void**)&mInfoQueue);
+    mAdapterLuid = queryAdapterLuid(mDevice);
 
     return true;
 }

@@ -65,6 +65,12 @@ public:
 	std::string loadBasicShaders();
 	bool loadShadersEffects();
 	bool loadShadersDeferred();
+	// S24 (2026-08-24, task #261): NOT called from loadShadersDeferred()'s
+	// eager startup chain - see loadShaderBufferVisualization()'s own
+	// comment (llviewershadermgr.cpp) for why. Called lazily instead, from
+	// LLPipeline::visualizeBuffers() on first actual use of the Develop >
+	// Rendering > Buffer Visualization debug view.
+	bool loadShaderBufferVisualization();
 	bool loadShadersObject();
 	bool loadShadersAvatar();
 	bool loadShadersWater();
@@ -264,6 +270,10 @@ extern LLGLSLShader         gCASLegacyGammaProgram;
 extern LLGLSLShader         gDeferredPostNoDoFProgram;
 extern LLGLSLShader         gDeferredPostNoDoFNoiseProgram;
 extern LLGLSLShader         gDeferredPostGammaCorrectProgram;
+// S24 (2026-08-26, task #263): separable Catmull-Rom bicubic resize - one
+// program, bound twice (horizontal then vertical) via LLGPUResize::resize()
+// (newview/llgpuresize.h) - see resizeBicubic.hlsl's own comment.
+extern LLGLSLShader         gResizeBicubicProgram;
 extern LLGLSLShader         gLegacyPostGammaCorrectProgram;
 extern LLGLSLShader         gDeferredPostTonemapProgram;
 extern LLGLSLShader         gNoPostTonemapProgram;

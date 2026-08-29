@@ -5322,6 +5322,10 @@ void LLWindowWin32::selectHighPerformanceAdapter()
 			// call sites here need the same value so the debug layer's state
 			// is consistent regardless of which adapter path this system
 			// takes.
+			// S24 (2026-08-29, task #278): D3D11_CREATE_DEVICE_SINGLETHREADED
+			// added to both call sites below too, matching DXDevice.cpp's own
+			// device-creation flags - see that file's comment on this exact
+			// flag for the full rationale.
 			bool adapterSelected = (pSelectedAdapter != nullptr);
 			if (adapterSelected)
 			{
@@ -5329,7 +5333,7 @@ void LLWindowWin32::selectHighPerformanceAdapter()
 					pSelectedAdapter,
 					D3D_DRIVER_TYPE_UNKNOWN,
 					nullptr,
-					DXDevice::sDebugLayerEnabled ? D3D11_CREATE_DEVICE_DEBUG : 0,
+					(DXDevice::sDebugLayerEnabled ? D3D11_CREATE_DEVICE_DEBUG : 0) | D3D11_CREATE_DEVICE_SINGLETHREADED,
 					requestedLevels,
 					_countof(requestedLevels),
 					D3D11_SDK_VERSION,
@@ -5354,7 +5358,7 @@ void LLWindowWin32::selectHighPerformanceAdapter()
 					nullptr,
 					D3D_DRIVER_TYPE_HARDWARE,
 					nullptr,
-					DXDevice::sDebugLayerEnabled ? D3D11_CREATE_DEVICE_DEBUG : 0,
+					(DXDevice::sDebugLayerEnabled ? D3D11_CREATE_DEVICE_DEBUG : 0) | D3D11_CREATE_DEVICE_SINGLETHREADED,
 					requestedLevels,
 					_countof(requestedLevels),
 					D3D11_SDK_VERSION,
@@ -5560,6 +5564,50 @@ void LLWindowWin32::LLWindowWin32Thread::checkDXMem()
     // proceed to set up the adapter + live budget-change event below, so the live VRAM
     // signal is available on those systems too, not just Intel/DXGI-fallback systems.
 
+    // S24 (2026-08-24, task #258): resolve the live-VRAM-query adapter by walking UP
+    // from the actual rendering device (gD3D11Device) via IDXGIDevice::GetAdapter() -
+    // the same technique LLWindowWin32::detectGPUChange() already uses just above in
+    // this file, and LLGLManager::initGLDX() (llrender/llgl.cpp) uses for the static
+    // VRAM-capacity query - NOT by re-enumerating adapters and guessing index 0 is
+    // the right one. selectHighPerformanceAdapter() picks the rendering adapter by
+    // most VRAM, not by enumeration index, so a blind index-0 query could silently
+    // report a completely different physical GPU's budget/usage on any hybrid-
+    // graphics or multi-GPU system - this was an open, unresolved question in the
+    // prior version of this function ("Should it check largest one isntead of
+    // first?"). Confirmed as the likely root cause of task #258's "impossible" VRAM
+    // readouts (FREE exceeding the real card's total capacity).
+    if (!mDXGIAdapter && gD3D11Device)
+    {
+        IDXGIDevice* p_dxgi_device = nullptr;
+        if (SUCCEEDED(gD3D11Device->QueryInterface(__uuidof(IDXGIDevice), (void**)&p_dxgi_device)) && p_dxgi_device)
+        {
+            IDXGIAdapter* p_adapter = nullptr;
+            if (SUCCEEDED(p_dxgi_device->GetAdapter(&p_adapter)) && p_adapter)
+            {
+                IDXGIAdapter3* p_adapter3 = nullptr;
+                if (SUCCEEDED(p_adapter->QueryInterface(__uuidof(IDXGIAdapter3), (void**)&p_adapter3)) && p_adapter3)
+                {
+                    DXGI_ADAPTER_DESC resolved_desc;
+                    p_adapter3->GetDesc(&resolved_desc);
+                    std::string resolved_description = ll_convert_wide_to_string(std::wstring(resolved_desc.Description));
+                    LL_WARNS("Window") << "Resolved rendering adapter for live VRAM query: " << resolved_description
+                        << ", AdapterLuid: " << resolved_desc.AdapterLuid.HighPart << "_" << resolved_desc.AdapterLuid.LowPart
+                        << LL_ENDL;
+
+                    updateVRAMInfo(p_adapter3);
+                    mDXGIAdapter = p_adapter3;
+                    mDXGIAdapter->AddRef();
+                    setupVRAMBudgetNotification(mDXGIAdapter);
+                    p_adapter3->Release();
+                }
+                p_adapter->Release();
+            }
+            p_dxgi_device->Release();
+        }
+    }
+
+    // Diagnostic-only enumeration below - lists every adapter present in the log,
+    // no longer used to decide which one to query live VRAM info from (see above).
     IDXGIFactory4* p_factory = nullptr;
 
     HRESULT res = CreateDXGIFactory1(__uuidof(IDXGIFactory4), (void**)&p_factory);
@@ -5584,18 +5632,6 @@ void LLWindowWin32::LLWindowWin32Thread::checkDXMem()
             }
             else
             {
-                if (graphics_adapter_index == 0) // Should it check largest one isntead of first?
-                {
-                    updateVRAMInfo(p_dxgi_adapter);
-
-                    if (!mDXGIAdapter)
-                    {
-                        mDXGIAdapter = p_dxgi_adapter;
-                        mDXGIAdapter->AddRef();
-                        setupVRAMBudgetNotification(mDXGIAdapter);
-                    }
-                }
-
                 DXGI_ADAPTER_DESC desc;
                 p_dxgi_adapter->GetDesc(&desc);
                 std::wstring description_w((wchar_t*)desc.Description);

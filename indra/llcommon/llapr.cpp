@@ -238,7 +238,13 @@ bool _ll_apr_warn_status(apr_status_t status, const char* file, int line)
 
 	char buf[MAX_STRING];	/* Flawfinder: ignore */
 	apr_strerror(status, buf, sizeof(buf));
-	LL_WARNS("APR") << "APR: " << file << ":" << line << " " << buf << LL_ENDL;
+	// S24: on Windows, apr_strerror() for OS-level errors (APR_OS_START_SYSERR)
+	// goes through FormatMessageA and comes back in the system ANSI codepage,
+	// not UTF-8 - on a non-English locale this makes the log line invalid
+	// UTF-8 (mojibake to anyone reading it in a different codepage/editor).
+	// Logging the numeric status alongside it keeps the line diagnosable even
+	// when the text itself is unusable.
+	LL_WARNS("APR") << "APR: " << file << ":" << line << " (status " << status << ") " << buf << LL_ENDL;
 
 	return true;
 }

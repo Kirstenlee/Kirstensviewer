@@ -1717,7 +1717,23 @@ void LLReflectionMapManager::setUniforms()
         return;
     }
 
+    // S24 (2026-08-27, task #267): mUBO is GL-only and stays 0 forever under
+    // DX_RENDER (see the mDXUBO comment above updateUniforms()'s D3D11 block),
+    // so `mUBO == 0` was permanently true here and updateUniforms() - the full
+    // probe-bucket rebuild + GPU buffer re-upload - ran on every setUniforms()
+    // call (every reflection-sampling shader bind, many times/frame) instead
+    // of the intended "bootstrap before the first per-frame update" case.
+    // pipeline.cpp:4292 already calls updateUniforms() once per frame
+    // unconditionally, so this guard only needs to catch the case where
+    // setUniforms() runs before that has ever happened - mDXUBO.getBuffer()
+    // is the correct DX-side equivalent of mUBO's "has this been created yet"
+    // GL semantics (same accessor already used a few lines below, and in
+    // updateUniforms()'s own D3D11 create/upload branch).
+#ifdef DX_RENDER
+    if (!mDXUBO.getBuffer())
+#else
     if (mUBO == 0)
+#endif
     {
         updateUniforms();
     }

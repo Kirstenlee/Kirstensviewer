@@ -43,6 +43,7 @@
 
 #ifdef DX_RENDER
 #include "DXDevice.h"
+#include "DXStateCache.h"
 #include "DXVertexLayout.h"
 #endif
 
@@ -79,230 +80,6 @@ struct CompareMappedRegion
 		return lhs.mStart < rhs.mStart;
 	}
 };
-
-// S24 - GL work queue for deferred GL calls (experimental). Was a compile-time
-// ENABLE_GL_WORK_QUEUE #define fixed at THREAD_COUNT=2 threads; now toggled and sized at
-// runtime via LLVertexBuffer::sVBOWorkQueueEnabled / sVBOWorkQueueThreadCount (settings
-// S24VBOWorkQueueEnabled / S24VBOWorkQueueThreadCount, applied in settings_to_globals()).
-// The class definitions below are always compiled in; only queue/thread creation in
-// initClass() is gated at runtime, so the feature can be flipped without a rebuild.
-
-//============================================================================
-// High performance WorkQueue for usage in real-time rendering work
-class GLWorkQueue
-{
-public:
-	using Work = std::function<void()>;
-
-	GLWorkQueue();
-
-	void post(Work value);
-
-	size_t size();
-
-	bool done();
-
-	// Get the next element from the queue
-	Work pop();
-
-	void runOne();
-
-	bool runPending();
-
-	void runUntilClose();
-
-	void close();
-
-	bool isClosed();
-
-	void syncGL();
-
-private:
-	std::mutex mMutex;
-	std::condition_variable mCondition;
-	std::queue<Work> mQueue;
-	bool mClosed = false;
-	GLsync mSync = nullptr;
-};
-
-GLWorkQueue::GLWorkQueue()
-{
-}
-
-void GLWorkQueue::syncGL()
-{
-	// S24: lock now taken before checking mSync, not just around the wait/clear - runOne()
-	// writes mSync unlocked otherwise, a real data race the moment more than one thread
-	// touches the queue at once (see runOne()).
-	std::lock_guard<std::mutex> lock(mMutex);
-	if (mSync)
-	{
-		glWaitSync(mSync, 0, GL_TIMEOUT_IGNORED);
-		mSync = 0;
-	}
-}
-
-size_t GLWorkQueue::size()
-{
-	std::lock_guard<std::mutex> lock(mMutex);
-	return mQueue.size();
-}
-
-bool GLWorkQueue::done()
-{
-	return size() == 0 && isClosed();
-}
-
-void GLWorkQueue::post(GLWorkQueue::Work value)
-{
-	{
-		std::lock_guard<std::mutex> lock(mMutex);
-		mQueue.push(std::move(value));
-	}
-
-	mCondition.notify_one();
-}
-
-// Get the next element from the queue
-GLWorkQueue::Work GLWorkQueue::pop()
-{
-	// Lock the mutex
-	{
-		std::unique_lock<std::mutex> lock(mMutex);
-
-		// Wait for a new element to become available or for the queue to close
-		{
-			mCondition.wait(lock, [=] { return !mQueue.empty() || mClosed; });
-		}
-	}
-
-	Work ret;
-
-	{
-		std::lock_guard<std::mutex> lock(mMutex);
-
-		// Get the next element from the queue
-		if (mQueue.size() > 0)
-		{
-			ret = mQueue.front();
-			mQueue.pop();
-		}
-		else
-		{
-			ret = []() {};
-		}
-	}
-
-	return ret;
-}
-
-void GLWorkQueue::runOne()
-{
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_THREAD;
-	Work w = pop();
-	w();
-
-	// S24: mSync read/write now guarded by mMutex to match syncGL() - see comment there.
-	std::lock_guard<std::mutex> lock(mMutex);
-
-	// Clean up previous sync
-	if (mSync)
-	{
-		glDeleteSync(mSync);
-		mSync = nullptr;
-	}
-
-	// Explicitly place fence
-	mSync = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
-}
-
-void GLWorkQueue::runUntilClose()
-{
-	while (!isClosed())
-	{
-		runOne();
-	}
-}
-
-void GLWorkQueue::close()
-{
-	LL_PROFILE_ZONE_SCOPED_CATEGORY_THREAD;
-	{
-		std::lock_guard<std::mutex> lock(mMutex);
-		mClosed = true;
-	}
-
-	mCondition.notify_all();
-}
-
-bool GLWorkQueue::runPending()
-{
-	std::unique_lock<std::mutex> lock(mMutex);
-	if (mQueue.empty())
-		return false;
-
-	Work w = std::move(mQueue.front());
-	mQueue.pop();
-	lock.unlock();
-
-	w();  // Execute outside the lock
-	return true;
-}
-
-bool GLWorkQueue::isClosed()
-{
-	LL_PROFILE_ZONE_SCOPED_CATEGORY_THREAD;
-	std::lock_guard<std::mutex> lock(mMutex);
-	return mClosed;
-}
-
-#include "llwindow.h"
-
-class LLGLWorkerThread : public LLThread
-{
-public:
-	LLGLWorkerThread(const std::string& name, GLWorkQueue* queue, LLWindow* window)
-		: LLThread(name)
-	{
-		mWindow = window;
-		mContext = mWindow->createSharedContext();
-		mQueue = queue;
-
-		// S24: createSharedContext() can legitimately fail (driver refuses another shared
-		// context, or a headless window backend - LLWindowHeadless::createSharedContext()
-		// unconditionally returns nullptr). Without this, run() would call real GL functions
-		// on a thread with no current context - undefined, driver-dependent behavior.
-		if (!mContext)
-		{
-			LL_WARNS("VertexBuffer") << "Failed to create shared GL context for '" << name << "' - worker will not run" << LL_ENDL;
-		}
-	}
-
-	void run() override
-	{
-		if (!mContext)
-		{
-			return;
-		}
-
-		mWindow->makeContextCurrent(mContext);
-		gGL.init(false);
-		mQueue->runUntilClose();
-		gGL.shutdown();
-		mWindow->destroySharedContext(mContext);
-	}
-
-	bool isValid() const { return mContext != nullptr; }
-
-	GLWorkQueue* mQueue;
-	LLWindow* mWindow;
-	void* mContext = nullptr;
-};
-
-// S24: vector, not a fixed-size array - thread count is now runtime-configurable
-// (LLVertexBuffer::sVBOWorkQueueThreadCount) instead of a compile-time THREAD_COUNT.
-static std::vector<LLGLWorkerThread*> sVBOThreads;
-static GLWorkQueue* sQueue = nullptr;
 
 //============================================================================
 // Pool of reusable VertexBuffer state
@@ -559,70 +336,16 @@ public:
 
 			mMisses++;
 			name = gen_buffer();
+			glBindBuffer(type, name);
+			glBufferData(type, size, nullptr, GL_DYNAMIC_DRAW);
 
-			// S24: when the VBO work queue is live, defer this (data-less) storage
-			// reservation to a worker's shared context. The buffer NAME is valid across the
-			// whole share group immediately (glGenBuffers only reserves an integer), but the
-			// storage allocation itself must be genuinely complete - not just "probably done
-			// soon" - before this name is bound/written on the main thread.
-			//
-			// CRASH FIX: an earlier version of this used GLWorkQueue::syncGL(), which waits
-			// on "whatever fence the queue currently holds", not a fence for THIS specific
-			// job - post() returns before the worker is even guaranteed to have started.
-			// The very first call after enabling the feature had no prior fence to wait on
-			// at all, so syncGL() silently no-opped and the main thread went on to bind/draw
-			// a buffer with no GPU storage behind it yet - undefined behavior that manifested
-			// as an instant, log-less crash (GPU driver fault) on the first VBO pool miss of
-			// the session. Fixed by fencing and waiting on THIS job specifically via a
-			// promise/future, bypassing the queue's shared, job-agnostic mSync entirely.
-			// This does mean the main thread genuinely blocks until the worker has issued the
-			// GL commands - there is no way to hand this off as fire-and-forget without a
-			// correctness gap, given the queue's single-fence design.
-			if (sQueue && LLVertexBuffer::sVBOWorkQueueEnabled)
+			if (type == GL_ELEMENT_ARRAY_BUFFER)
 			{
-				auto fence_promise = std::make_shared<std::promise<GLsync>>();
-				std::future<GLsync> fence_future = fence_promise->get_future();
-
-				sQueue->post([type, size, name, fence_promise]()
-				{
-					glBindBuffer(type, name);
-					glBufferData(type, size, nullptr, GL_DYNAMIC_DRAW);
-					fence_promise->set_value(glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0));
-				});
-
-				try
-				{
-					GLsync fence = fence_future.get();
-					if (fence)
-					{
-						glWaitSync(fence, 0, GL_TIMEOUT_IGNORED);
-						glDeleteSync(fence);
-					}
-				}
-				catch (const std::future_error&)
-				{
-					// S24: promise was destroyed without being fulfilled - only possible if
-					// the queue was closed (shutdown) between post() and the worker picking
-					// this job up. Nothing to wait on in that case; fall through.
-				}
+				LLVertexBuffer::sGLRenderIndices = name;
 			}
 			else
 			{
-				glBindBuffer(type, name);
-				glBufferData(type, size, nullptr, GL_DYNAMIC_DRAW);
-
-				// S24: only update the bind cache when THIS thread actually did the bind -
-				// when deferred above, the main thread hasn't bound anything in its own
-				// context yet and must still take the real bind path the first time it uses
-				// this buffer (sGLRenderBuffer/sGLRenderIndices are thread_local; see header).
-				if (type == GL_ELEMENT_ARRAY_BUFFER)
-				{
-					LLVertexBuffer::sGLRenderIndices = name;
-				}
-				else
-				{
-					LLVertexBuffer::sGLRenderBuffer = name;
-				}
+				LLVertexBuffer::sGLRenderBuffer = name;
 			}
 
 			data = (U8*)ll_aligned_malloc_16(size);
@@ -779,6 +502,15 @@ void LLVertexBufferData::drawWithMatrix()
 	{
 		gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
 	}
+	// S24 (task #254): see LLVertexBufferData::mDXShader's comment - force
+	// the shader that was actually bound when this batch was recorded back
+	// active before drawing, rather than trusting whatever's ambiently
+	// bound now. bind() is unconditional post-task #224, so this is safe
+	// to call even if it happens to already match.
+	if (mDXShader)
+	{
+		mDXShader->bind();
+	}
 #else
 	if (mTexName)
 	{
@@ -830,6 +562,11 @@ void LLVertexBufferData::draw()
 	{
 		gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
 	}
+	// S24 (task #254): see LLVertexBufferData::mDXShader's comment.
+	if (mDXShader)
+	{
+		mDXShader->bind();
+	}
 #else
 	if (mTexName)
 	{
@@ -864,10 +601,6 @@ thread_local ID3D11Buffer* LLVertexBuffer::sDXRenderIndices = nullptr;
 thread_local LLGLSLShader* LLVertexBuffer::sDXLastShader = nullptr;
 #endif
 
-// S24: set from settings_to_globals() in llappviewer.cpp - see llvertexbuffer.h for why
-// llrender can't read gSavedSettings directly (mirrors LLRender::sGLCoreProfile).
-bool LLVertexBuffer::sVBOWorkQueueEnabled = false;
-U32 LLVertexBuffer::sVBOWorkQueueThreadCount = 2;
 U32 LLVertexBuffer::sLastMask = 0;
 U32 LLVertexBuffer::sVertexCount = 0;
 
@@ -1178,7 +911,7 @@ void LLVertexBuffer::drawRange(U32 mode, U32 start, U32 end, U32 count, U32 indi
 	gGL.syncMatrices();
 	assertShaderStagesBound();
 	ID3D11DeviceContext* ctx = gDXDevice.getContext();
-	ctx->IASetPrimitiveTopology(sDXMode[mode]);
+	DXStateCache::setPrimitiveTopology(ctx, sDXMode[mode]);
 	ctx->DrawIndexed(count, indices_offset, 0);
 	++sDXDrawCallCount;
 	// S24 (DX_RENDER diagnostic, 2026-07-28): TEMPORARY - correlates the
@@ -1209,7 +942,7 @@ void LLVertexBuffer::drawRangeFast(U32 mode, U32 start, U32 end, U32 count, U32 
 	// applies regardless of that - see assertShaderStagesBound()'s comment.
 	assertShaderStagesBound();
 	ID3D11DeviceContext* ctx = gDXDevice.getContext();
-	ctx->IASetPrimitiveTopology(sDXMode[mode]);
+	DXStateCache::setPrimitiveTopology(ctx, sDXMode[mode]);
 	ctx->DrawIndexed(count, indices_offset, 0);
 	++sDXDrawCallCount;
 	gDXDevice.logPendingDebugMessages(LLGLSLShader::sCurBoundShaderPtr ? LLGLSLShader::sCurBoundShaderPtr->mName.c_str() : "?");
@@ -1236,7 +969,7 @@ void LLVertexBuffer::drawArrays(U32 mode, U32 first, U32 count) const
 	gGL.syncMatrices();
 	assertShaderStagesBound();
 	ID3D11DeviceContext* ctx = gDXDevice.getContext();
-	ctx->IASetPrimitiveTopology(sDXMode[mode]);
+	DXStateCache::setPrimitiveTopology(ctx, sDXMode[mode]);
 	ctx->Draw(count, first);
 	++sDXDrawCallCount;
 	gDXDevice.logPendingDebugMessages(LLGLSLShader::sCurBoundShaderPtr ? LLGLSLShader::sCurBoundShaderPtr->mName.c_str() : "?");
@@ -1275,38 +1008,6 @@ void LLVertexBuffer::initClass(LLWindow* window)
 		LL_INFOS() << "VBO Pooling Enabled" << LL_ENDL;
 		sVBOPool = new LLDefaultVBOPool();
 	}
-
-	// S24: runtime-toggled GL work queue (see comment above GLWorkQueue class definition).
-	if (sVBOWorkQueueEnabled)
-	{
-		sQueue = new GLWorkQueue();
-
-		for (U32 i = 0; i < sVBOWorkQueueThreadCount; ++i)
-		{
-			LLGLWorkerThread* worker = new LLGLWorkerThread("VBO Worker", sQueue, window);
-			if (worker->isValid())
-			{
-				worker->start();
-				sVBOThreads.push_back(worker);
-			}
-			else
-			{
-				// S24: context creation failed (warning already logged in the constructor) -
-				// don't start or keep a dead thread object around.
-				delete worker;
-			}
-		}
-
-		if (sVBOThreads.empty())
-		{
-			// S24: every worker failed to get a shared context - fully disable the queue so
-			// producers (see LLDefaultVBOPool::allocate()) fall back to the synchronous path
-			// instead of posting work that would sit unprocessed forever.
-			LL_WARNS("VertexBuffer") << "VBO work queue enabled but no workers could start - disabling" << LL_ENDL;
-			delete sQueue;
-			sQueue = nullptr;
-		}
-	}
 }
 
 //static
@@ -1340,20 +1041,6 @@ void LLVertexBuffer::cleanupClass()
 
 	delete sVBOPool;
 	sVBOPool = nullptr;
-
-	if (sQueue)
-	{
-		sQueue->close();
-		for (LLGLWorkerThread* worker : sVBOThreads)
-		{
-			worker->shutdown();
-			delete worker;
-		}
-		sVBOThreads.clear();
-
-		delete sQueue;
-		sQueue = nullptr;
-	}
 }
 
 //----------------------------------------------------------------------------
@@ -2102,17 +1789,33 @@ void LLVertexBuffer::setBuffer()
 	// buffer's own mTypeMask; CreateInputLayout itself fails correctly (see
 	// DXVertexLayout::getOrCreate()'s LL_WARNS) if the bound VS needs an
 	// attribute this buffer lacks.
-	if (sDXRenderBuffer != mDXBuffer.getBuffer())
-	{
-		sDXRenderBuffer = mDXBuffer.getBuffer();
-		setupVertexBuffer();
-		sDXLastShader = LLGLSLShader::sCurBoundShaderPtr;
-	}
-	else if (sDXLastShader != LLGLSLShader::sCurBoundShaderPtr)
-	{
-		setupVertexBuffer();
-		sDXLastShader = LLGLSLShader::sCurBoundShaderPtr;
-	}
+	//
+	// S24 (2026-08-25, task #224): removed the "skip setupVertexBuffer() if
+	// sDXRenderBuffer/sDXLastShader already match" optimization that used to
+	// live here. It assumed THIS function is the only thing that ever calls
+	// IASetInputLayout()/IASetVertexBuffers() - false: DXUIBatch::drawAndPop()
+	// (dxrender/resources/DXUIBatch.cpp) and DXPipeline's fullscreen-blit
+	// path (newview/dxpipeline.cpp) both set the input layout/vertex buffers
+	// directly, without touching sDXRenderBuffer/sDXLastShader. (A third
+	// candidate, DXPipelineState::bind() - dxrender/core/DXPipelineState.cpp
+	// - has the same raw-bind shape but is currently unused scaffolding, no
+	// real caller anywhere in the tree as of task #179's 2026-08-28 audit -
+	// see its own header comment if that ever changes.) Whenever any
+	// of those ran in between two setBuffer() calls for the SAME buffer+
+	// shader pair, this dedup would wrongly skip re-establishing the input
+	// layout, leaving whatever THEY last set bound - the GPU then
+	// misinterprets this buffer's bytes under the wrong layout. Nearly
+	// invisible for typical world geometry (a different LLVertexBuffer
+	// object almost every draw call, so the dedup rarely even triggered) but
+	// reliably wrong for anything that redraws the SAME LLVertexBuffer
+	// object across many frames - exactly what LLUIImage's display-list
+	// cache (task #54) does - and the real root cause of the button
+	// hover-highlight flicker (task #224). setupVertexBuffer() is a handful
+	// of cheap state-setting calls, not a Draw() - unconditional is the safe
+	// default.
+	sDXRenderBuffer = mDXBuffer.getBuffer();
+	sDXLastShader = LLGLSLShader::sCurBoundShaderPtr;
+	setupVertexBuffer();
 
 	if (mDXIndices.getBuffer() != sDXRenderIndices)
 	{

@@ -34,6 +34,7 @@
 #include "llui.h"
 #include <list>
 #include <unordered_set>
+#include <deque>
 #include "lluiimage.h"
 
 const U32 LL_IMAGE_REZ_LOSSLESS_CUTOFF = 128;
@@ -153,6 +154,18 @@ private:
     void updateImagesUpdateStats();
     F32  updateImagesLoadingFastCache(F32 max_time);
 
+    // S24 (2026-08-24, task #258): periodic deterministic greedy VRAM budget
+    // allocator, replacing the old discard-bias pressure ramp. Runs on its
+    // own coarse timer (mVRAMAllocationTimer, RenderVRAMAllocationIntervalSeconds
+    // setting, default 0.5s) rather than every frame - see the class-level
+    // rationale in llviewertexturelist.cpp. Sums every cut-eligible texture's
+    // real desired GPU bytes (LLImageGL::getMipBytes()), compares to
+    // LLViewerTexture::sVRAMAllocatorBudgetMegabytes, and if over, sorts by
+    // priority and mandates a coarser discard level (LLViewerFetchedTexture::
+    // mVRAMForcedDiscardLevel) for the least important textures until it fits.
+    void runVRAMBudgetAllocation();
+    LLFrameTimer mVRAMAllocationTimer;
+
     void addImage(LLViewerFetchedTexture *image, ETexListType tex_type);
     void deleteImage(LLViewerFetchedTexture *image);
 
@@ -222,8 +235,12 @@ public:
     // images that have been loaded but are waiting to be uploaded to GL
     image_queue_t mCreateTextureList;
 
-    // images that must be downscaled quickly so we don't run out of memory
-    image_queue_t mDownScaleQueue;
+    // S24 (2026-08-24, task #258): images that must be downscaled quickly so we don't
+    // run out of memory. std::deque, not the shared image_queue_t typedef above -
+    // needs direct iteration for a one-shot severity-triggered size-sort
+    // (updateImagesCreateTextures()), which mCreateTextureList has no need for. Still
+    // used FIFO-style (front()/pop_front()) in the ordinary case.
+    std::deque<LLPointer<LLViewerFetchedTexture> > mDownScaleQueue;
 
     image_list_t mCallbackList;
     image_list_t mFastCacheList;

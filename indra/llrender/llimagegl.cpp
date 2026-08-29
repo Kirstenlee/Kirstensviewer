@@ -322,25 +322,21 @@ void LLImageGL::initClass(LLWindow* window, S32 num_catagories, bool skip_analyz
 #endif
 
 #ifdef DX_RENDER
-    // S24 (2026-08-16): superseded - the worker thread is now real under
-    // DX_RENDER too (task #98-adjacent KVTweaks "DX Texture/Media Loading"
-    // overhaul). The GL-context concern the old version of this comment
-    // raised no longer applies: run() skips GL setup entirely under
-    // DX_RENDER (see its comment), and DXTexture::create()/updateSubImage()
-    // now support deferring their ID3D11DeviceContext calls
-    // (UpdateSubresource/GenerateMips - the actually-not-thread-safe part)
-    // to the main thread via defer_upload, while doing the free-threaded
-    // ID3D11Device work (CreateTexture2D/CreateShaderResourceView + CPU-side
-    // repack) right here on this thread. No GL-version floor to check
-    // (gGLManager.mGLVersion is a GL capability number, meaningless here) -
-    // the renamed KVTweaks toggles (RenderDXMultiThreadedTextures/Media) are
-    // the only gate now.
-    if (thread_texture_loads || thread_media_updates)
-    {
-        LLImageGLThread::createInstance(window);
-        LLImageGLThread::sEnabledTextures = thread_texture_loads;
-        LLImageGLThread::sEnabledMedia = thread_media_updates;
-    }
+    // S24 (2026-08-26, task #260 CLOSED not-applicable): background-thread
+    // D3D11 texture/media creation (DXImageThread, dxrender/core/) was
+    // removed after 7 rounds of investigation across 3 sessions confirmed a
+    // driver-level NVIDIA bug (610.88, a regression from a fix present at
+    // 610.52) that no application-side mitigation could route around -
+    // throttled start, texture-size gating, and giving each worker thread
+    // its own D3D11 device + D3D11 cross-device shared resources (the
+    // direct analogue of this codebase's old OpenGL backend's per-thread
+    // wglCreateContextAttribsARB contexts) all reached the same
+    // nvwgf2umx.dll dependency-tracking crash via a different call path.
+    // See memorygraph tags=["task260"] for the full investigation.
+    // sEnabledTextures/sEnabledMedia stay permanently false; texture/media
+    // creation is always synchronous on the calling thread under DX_RENDER.
+    (void)thread_texture_loads;
+    (void)thread_media_updates;
 #else
     if (thread_texture_loads || thread_media_updates)
     {
@@ -876,26 +872,32 @@ bool LLImageGL::setImage(const U8* data_in, bool data_hasmips /* = false */, S32
     // repackPixel() assumes raw 1-4 component uncompressed pixels, and
     // decoding/uploading compressed formats is genuine new feature work,
     // not covered here.
+    // S24 (2026-08-24, task #258): this branch used to unconditionally
+    // `return true` below regardless of whether the DXTexture call actually
+    // succeeded - a failed create()/createCompressed() (or an unrecognized
+    // compressed format) still got reported as success to the caller, which
+    // meant getTextureBytesAllocated()'s DX_RENDER byte-tracking counted
+    // memory for a texture that was never actually created on the GPU,
+    // inflating the software VRAM-usage estimate. `dx_success` now carries
+    // the real outcome through to the return at the bottom of this block.
+    bool dx_success = false;
     if (!isCompressed())
     {
         // S24 (2026-08-06): GL_ALPHA-format 1-component sources (terrain's
         // alpha_ramp gradients) store their data in the alpha channel, not
         // luminance/RGB - see DXTexture::create()'s alpha_only comment.
-        // S24 (2026-08-16): defer the GPU-side upload when this is running
-        // on the LLImageGLThread background thread (task #98-adjacent
-        // KVTweaks overhaul) - the repack + CreateTexture2D/
-        // CreateShaderResourceView above already happened regardless (those
-        // are free-threaded Device calls); only the mip-0 UpdateSubresource/
-        // GenerateMips Context calls need to wait for the main thread. The
-        // caller (LLViewerFetchedTexture::scheduleCreateTexture()) completes
-        // it via finalizePendingGPUUpload() in its main-thread callback.
+        // S24 (2026-08-24, task #257): DXTexture is internally thread-safe
+        // now (its own std::shared_mutex) - this call is safe unconditionally
+        // regardless of which thread (main, or DXImageThread's worker pool)
+        // is running it, no thread-identity check needed here anymore.
         // S24 (task #223/#222 follow-up, 2026-08-18): mFormatPrimary==GL_BGRA
         // is CEF's declared source format (media_plugin_cef.cpp) - GL handles
         // the reorder natively via glTexImage2D's format param, DXTexture has
         // no equivalent and must swap R/B itself (see its create() comment).
         // Without this, all CEF/media content (web media, login screen) had
         // a systematic R/B hue shift under DX_RENDER.
-        if (!mDXTexture.create(data_in, getWidth(), getHeight(), mComponents, mUseMipMaps, mFormatPrimary == GL_ALPHA, !on_main_thread(), mFormatPrimary == GL_BGRA))
+        dx_success = mDXTexture.create(data_in, getWidth(), getHeight(), mComponents, mUseMipMaps, mFormatPrimary == GL_ALPHA, mFormatPrimary == GL_BGRA);
+        if (!dx_success)
         {
             LL_WARNS("Texture") << "LLImageGL::setImage: DXTexture::create failed" << LL_ENDL;
         }
@@ -940,12 +942,16 @@ bool LLImageGL::setImage(const U8* data_in, bool data_hasmips /* = false */, S32
             LL_WARNS_ONCE("Texture") << "LLImageGL::setImage: unrecognized compressed format, texture will render unbound"
                 << " (mFormatPrimary=0x" << std::hex << mFormatPrimary << std::dec << ")" << LL_ENDL;
         }
-        else if (!mDXTexture.createCompressed(data_in, getWidth(), getHeight(), dx_format))
+        else
         {
-            LL_WARNS("Texture") << "LLImageGL::setImage: DXTexture::createCompressed failed" << LL_ENDL;
+            dx_success = mDXTexture.createCompressed(data_in, getWidth(), getHeight(), dx_format);
+            if (!dx_success)
+            {
+                LL_WARNS("Texture") << "LLImageGL::setImage: DXTexture::createCompressed failed" << LL_ENDL;
+            }
         }
     }
-    return true;
+    return dx_success;
 #endif
 
     const bool is_compressed = isCompressed();
@@ -1401,16 +1407,15 @@ bool LLImageGL::setSubImage(const U8* datap, S32 data_width, S32 data_height, S3
         // DXTexture::updateSubImage()'s comment. All the validation above
         // (mUseMipMaps/discard-level/bounds asserts) is shared/backend-
         // agnostic and already ran.
-        // S24 (2026-08-16): defer when off the main thread (media playback's
-        // LLImageGLThread path, per DXTexture's top comment) - same reasoning
-        // as setImage() above. Font glyph updates always run on the main
-        // thread already, so !on_main_thread() naturally stays false there.
+        // S24 (2026-08-24, task #257): DXTexture is internally thread-safe
+        // now (its own std::shared_mutex) - safe unconditionally regardless
+        // of caller thread, no thread-identity check needed here anymore.
         // S24 (task #223/#222 follow-up, 2026-08-18): this is the actual
         // per-CEF-paint hot path (LLViewerMediaImpl::doMediaTexUpdate() ->
         // setSubImage() -> here, every frame CEF repaints) - see setImage()'s
         // matching comment above for why mFormatPrimary==GL_BGRA must be
         // threaded through here too, not just the one-time create() path.
-        if (!mDXTexture.updateSubImage(datap, data_width, x_pos, y_pos, width, height, mComponents, mFormatPrimary == GL_ALPHA, !on_main_thread(), mFormatPrimary == GL_BGRA))
+        if (!mDXTexture.updateSubImage(datap, data_width, x_pos, y_pos, width, height, mComponents, mFormatPrimary == GL_ALPHA, mFormatPrimary == GL_BGRA))
         {
             LL_WARNS("Texture") << "LLImageGL::setSubImage: DXTexture::updateSubImage failed" << LL_ENDL;
         }
@@ -2540,6 +2545,45 @@ S64 LLImageGL::getMipBytes(S32 discard_level) const
     // calculations read - both silently reported 0 for every DX_RENDER
     // texture before this fix (unreachable call site, see
     // createGLTexture()'s DX_RENDER branch).
+    //
+    // S24 (2026-08-24, task #258): the 4 bytes/pixel assumption above is
+    // only correct for the UNCOMPRESSED create() path. isCompressed()
+    // sources instead go through DXTexture::createCompressed() (mip0-only,
+    // real BC1/BC2/BC3 data - see LLImageGL::setImage()'s comment), which is
+    // 0.5-1 byte/pixel, not 4 - the RGBA8 assumption was over-counting those
+    // textures by up to 8x in the software VRAM-usage estimate. Mirrors
+    // setImage()'s GL->DXGI format mapping (keep the two in sync if
+    // compressed format support changes).
+    if (isCompressed())
+    {
+        S32 block_bytes;
+        switch (mFormatPrimary)
+        {
+        case GL_COMPRESSED_RGBA_S3TC_DXT1_EXT:
+        case GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT1_EXT:
+            block_bytes = 8;
+            break;
+        case GL_COMPRESSED_RGBA_S3TC_DXT3_EXT:
+        case GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT3_EXT:
+        case GL_COMPRESSED_RGBA_S3TC_DXT5_EXT:
+        case GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT5_EXT:
+            block_bytes = 16;
+            break;
+        default:
+            // Unrecognized - match DXTexture::createCompressed()'s own
+            // "anything else is treated as 16" convention.
+            block_bytes = 16;
+            break;
+        }
+        const S32 blocks_wide = (w + 3) / 4;
+        const S32 blocks_high = (h + 3) / 4;
+        // createCompressed() is mip0-only (BC formats can't GenerateMips())
+        // - return here, skipping the mip-chain summation loop below
+        // entirely, since summing a synthetic chain that was never actually
+        // uploaded would reintroduce a smaller version of the same
+        // over-count.
+        return (S64)blocks_wide * blocks_high * block_bytes;
+    }
     S64 res = (S64)w * h * 4;
 #else
     S64 res = dataFormatBytes(mFormatPrimary, w, h);
@@ -2807,7 +2851,7 @@ void LLImageGL::freePickMask()
     mPickMaskWidth = mPickMaskHeight = 0;
 }
 
-bool LLImageGL::isCompressed()
+bool LLImageGL::isCompressed() const
 {
     llassert(mFormatPrimary != 0);
     // *NOTE: Not all compressed formats are included here.
@@ -3169,29 +3213,17 @@ LLImageGLThread::LLImageGLThread(LLWindow* window)
     LL_PROFILE_ZONE_SCOPED_CATEGORY_TEXTURE;
     mFinished = false;
 
-#ifndef DX_RENDER
-    // S24 (2026-08-16): run()'s DX_RENDER branch never uses mContext (no
-    // per-thread GL context needed - see its comment), so don't create one
-    // here either. Untested/unverified territory for a real secondary GL
-    // context against a DX_RENDER window, and simply unnecessary.
     mContext = mWindow->createSharedContext();
-#endif
     LL::ThreadPool::start();
 }
 
+// S24 (2026-08-26, task #260 CLOSED not-applicable): DX_RENDER never
+// constructs this class (see initClass() above - background texture/media
+// creation is permanently disabled under DX_RENDER, not routed elsewhere).
+// This class is GL-only.
 void LLImageGLThread::run()
 {
     LL_PROFILE_ZONE_SCOPED_CATEGORY_TEXTURE;
-#ifdef DX_RENDER
-    // S24 (2026-08-16): the GL setup/teardown below (a second GL context
-    // sharing objects with the main one) doesn't apply under DX_RENDER at
-    // all - D3D11 has no "current context" concept, and the actual DX work
-    // this thread does (DXTexture::create()/updateSubImage() with
-    // defer_upload=true) only ever calls ID3D11Device methods, which are
-    // free-threaded by spec and need no per-thread setup. Just pump the
-    // WorkQueue directly.
-    LL::ThreadPool::run();
-#else
     // We must perform setup on this thread before actually servicing our
     // WorkQueue, likewise cleanup afterwards.
     mWindow->makeContextCurrent(mContext);
@@ -3199,6 +3231,5 @@ void LLImageGLThread::run()
     LL::ThreadPool::run();
     gGL.shutdown();
     mWindow->destroySharedContext(mContext);
-#endif
 }
 

@@ -58,6 +58,11 @@
 #include "llmeshrepository.h"
 #include "llskinningutil.h"
 
+#ifdef DX_RENDER
+#include "DXDevice.h"
+#include "DXStateCache.h"
+#endif
+
 
 #define LL_MAX_INDICES_COUNT 1000000
 
@@ -636,17 +641,46 @@ void LLFace::renderOneWireframe(const LLColor4 &color, F32 fogCfx, bool wirefram
 
         LLGLEnable offset(GL_POLYGON_OFFSET_LINE);
 #ifndef DX_RENDER
-        // S24 (DX_RENDER): no runtime depth-bias/polygon-offset equivalent
-        // (rasterizer-state creation-time field in D3D11, not a per-draw
-        // call) and no per-draw line-width equivalent - both already
-        // documented gaps (see project memory). Wireframe selection outline
-        // renders at default width/depth-bias under DX_RENDER - visual gap
-        // only, not a crash.
         glPolygonOffset(3.f, 3.f);
         glLineWidth(5.f);
         glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-#endif
         renderFace(mDrawablep, this);
+#else
+        // S24 (2026-08-27, task #264): real fix, replacing the "no D3D11
+        // runtime equivalent, renders solid-filled instead of wireframe"
+        // gap this comment used to describe. glPolygonMode(GL_LINE) has no
+        // per-draw D3D11 counterpart - fill mode is a rasterizer-state
+        // CREATION-time field (D3D11_FILL_WIREFRAME vs _SOLID) - so this
+        // call was previously just skipped, leaving fill mode at its SOLID
+        // default: mesh objects (the only path that reaches this function -
+        // non-mesh prims use LLSelectNode::renderOneSilhouette()'s separate
+        // alpha-blended-quad-band mechanism instead, which was unaffected)
+        // rendered as a solid opaque/translucent blob in the highlight
+        // color instead of an outline (2026-08-27 user feedback, task #264).
+        // See DXStateCache::getRasterizerState()'s wireframe_enabled param
+        // for the full writeup. No D3D11 line-width equivalent for
+        // wireframe-fill-mode edges (always 1px, unlike GL's 5px here) -
+        // a real, smaller residual gap, not fixed by this.
+        // S24 (2026-08-28, task #242): depth-bias (glPolygonOffset) closed
+        // here too, now that getRasterizerState() takes real values instead
+        // of a single hardcoded bool - this site's GL code uses (3, 3) via
+        // GL_POLYGON_OFFSET_LINE (LLFace::renderOneWireframe(), the outline
+        // this whole function draws), previously out of scope since the old
+        // depth_bias_enabled dimension was hardcoded to LLDrawPoolBump's
+        // (-1,-1) value only.
+        ID3D11DeviceContext* ctx = gDXDevice.getContext();
+        ID3D11RasterizerState* wire_rs = DXStateCache::getRasterizerState(
+            LLGLState::isEnabled(GL_CULL_FACE), LLGLState::isEnabled(GL_SCISSOR_TEST),
+            LLGLState::isEnabled(GL_DEPTH_CLAMP), 3.0f, 3.0f, true);
+        ctx->RSSetState(wire_rs);
+
+        renderFace(mDrawablep, this);
+
+        ID3D11RasterizerState* normal_rs = DXStateCache::getRasterizerState(
+            LLGLState::isEnabled(GL_CULL_FACE), LLGLState::isEnabled(GL_SCISSOR_TEST),
+            LLGLState::isEnabled(GL_DEPTH_CLAMP), 0.f, 0.f, false);
+        ctx->RSSetState(normal_rs);
+#endif
     }
 }
 

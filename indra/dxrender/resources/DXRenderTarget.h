@@ -103,6 +103,14 @@ public:
     // effects (kveffects.cpp) - see that file's DX_RENDER branch.
     ID3D11Texture2D* getColorTexture(size_t index) const;
 
+    // S24 (2026-08-26, task #263): depth counterpart to getColorTexture()
+    // above, same rationale - direct CPU<->GPU transfer (DXReadback::
+    // readDepthPixels()) rather than shader sampling (getDepthSRV()'s job).
+    // First real caller: LLViewerWindow::rawSnapshot()'s depth-snapshot path
+    // reading pipeline.mRT->deferredScreen directly instead of the removed
+    // scratch_space indirection.
+    ID3D11Texture2D* getDepthTexture() const { return mDepthTexture; }
+
 private:
     struct Attachment
     {

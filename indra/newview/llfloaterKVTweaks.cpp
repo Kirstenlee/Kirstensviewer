@@ -375,7 +375,7 @@ void LLFloaterKVTweaks::onClickResetToDefaults()
         "RenderCPUBasis",
         "MaxHeapSize64",
         "RenderMaxVRAMBudget",
-        "RenderTextureVRAMDivisor",
+        "RenderVRAMAllocationIntervalSeconds",
         "RenderMinFreeMainMemoryThreshold",
         "NonvisibleObjectsInMemoryTime",
         "MainWorkTime",
@@ -402,6 +402,10 @@ void LLFloaterKVTweaks::onClickResetToDefaults()
         "RenderSSAOEffect",
         "RenderWaterSSRIterations",
         "RenderWaterSSRRayStep",
+
+        // Tab 3: Rendering Advanced
+        "S24DXDebugLayerEnabled",
+        "RenderDXShaderCacheEnabled",
 
         // Tab: Water (S24)
         "RenderWaterMetallic",
@@ -467,8 +471,6 @@ void LLFloaterKVTweaks::onClickResetToDefaults()
         "RenderBumpmapMinDistanceSquared",
         "RenderGlow",
         "RenderGlowResolutionPow",
-        "S24VBOWorkQueueEnabled",
-        "S24VBOWorkQueueThreadCount",
         "TextureFetchConcurrency",
         "TextureNewByteRange",
         "TextureReverseByteRange",

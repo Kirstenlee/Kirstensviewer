@@ -34,6 +34,7 @@
 #include "DXSampler.h"
 #include "DXDevice.h"
 #include "DXSwapChain.h"
+#include "DXUIBatch.h"
 #endif
 
 #ifdef DX_RENDER
@@ -49,6 +50,18 @@ namespace
         switch (color_fmt)
         {
         case GL_RGBA:      return DXGI_FORMAT_R8G8B8A8_UNORM;
+        // S24 (2026-08-27): was falling through to the default:/RGBA8 case -
+        // confirmed via a "glColorFormatToDX: unmapped GL format 0x805b"
+        // log line (0x805B = GL_RGBA16). addDeferredAttachments()
+        // (pipeline.cpp) requests this for the deferred G-buffer's NORMAL
+        // attachment specifically, so this was a live, always-on precision
+        // bug: every DX_RENDER frame's encoded normals were quantized to
+        // 8 bits/channel instead of the intended 16 - a real (if subtle)
+        // source of lighting/normal-encoding banding, not cosmetic-only.
+        // R16G16B16A16_UNORM (not _FLOAT) matches GL_RGBA16's own semantics -
+        // a normalized fixed-point format, same as GL_RGBA's UNORM mapping
+        // just wider - not a floating-point one like GL_RGBA16F below.
+        case GL_RGBA16:    return DXGI_FORMAT_R16G16B16A16_UNORM;
         case GL_RGBA16F:   return DXGI_FORMAT_R16G16B16A16_FLOAT;
         case GL_RGB16F:    return DXGI_FORMAT_R16G16B16A16_FLOAT;
         case GL_RGB10_A2:  return DXGI_FORMAT_R10G10B10A2_UNORM;
@@ -56,6 +69,25 @@ namespace
         case GL_R8:        return DXGI_FORMAT_R8_UNORM;
         case GL_RG16F:     return DXGI_FORMAT_R16G16_FLOAT;
         case GL_R16F:      return DXGI_FORMAT_R16_FLOAT;
+        // S24 (2026-08-27): GL_RGBA8/GL_RGB8 are distinct enum values from
+        // GL_RGBA/GL_RGB above (sized-internal-format tokens, not the
+        // generic ones) and had no case of their own - they were landing in
+        // default:/RGBA8 too, just correctly BY COINCIDENCE (both really
+        // are 8-bit/channel already). Made explicit so this doesn't depend
+        // on the default happening to match, and so real callers
+        // (llheroprobemanager.cpp's non-HDR color_fmt, llreflectionmapmanager.cpp's
+        // non-HDR color_fmt) stop spamming the unmapped-format warning.
+        case GL_RGBA8:     return DXGI_FORMAT_R8G8B8A8_UNORM;
+        case GL_RGB8:      return DXGI_FORMAT_R8G8B8A8_UNORM;
+        // S24 (2026-08-27): real gap, NOT coincidentally-correct like the
+        // two above - llreflectionmapmanager.cpp's HDR reflection-probe
+        // render target requests this (RenderHDREnabled, default on)
+        // specifically to avoid clipping/banding reflections brighter than
+        // 1.0, and was silently getting 8-bit UNORM instead (same
+        // "unmapped format -> RGBA8" fallback as the GL_RGBA16 bug above).
+        // R11G11B10_FLOAT is GL_R11F_G11F_B10F's exact DXGI equivalent -
+        // same packed layout, no alpha channel in either.
+        case GL_R11F_G11F_B10F: return DXGI_FORMAT_R11G11B10_FLOAT;
         default:
             LL_WARNS("RenderTarget") << "glColorFormatToDX: unmapped GL format 0x" << std::hex << color_fmt << std::dec << ", defaulting to RGBA8" << LL_ENDL;
             return DXGI_FORMAT_R8G8B8A8_UNORM;
@@ -748,6 +780,28 @@ void LLRenderTarget::bindTexture(U32 index, S32 channel, LLTexUnit::eTextureFilt
 	// rather than risk leaving pending batched vertices drawn under stale
 	// state.
 	gGL.flush();
+	// S24 (2026-08-27, task #254): this call was missing entirely - every
+	// other texture-bind chokepoint (LLTexUnit::bind(LLImageGL*)/bindFast()/
+	// bind(DXTexture&)/bind(LLRenderTarget*,bool)) pairs gGL.flush() with
+	// gDXUIBatch.flushPending() (see DXUIBatch.h's "texture changes are a
+	// hazard" contract - drawAndPop() never touches PSSetShaderResources
+	// itself, it trusts whatever's already ambient). This function raw-binds
+	// PSSetShaderResources completely outside LLTexUnit's bookkeeping, so
+	// LLTexUnit::mCurrDXSRV never learns the real GPU state changed - a
+	// LATER, otherwise-correct LLTexUnit::bind() call for the SAME texture
+	// its own bookkeeping already believes is current would then wrongly
+	// skip its own flush+rebind, leaving whatever THIS function bound
+	// (diffuse/specular/normal/emissive G-buffer channels, called every
+	// frame from LLPipeline::bindDeferredShader() - the deferred lighting
+	// pass's main texture chokepoint) resident on that channel instead.
+	// Confirmed live via a GPU-vs-CPU SRV cross-reference diagnostic: the
+	// actual bound SRV at DXUIBatch::drawAndPop()'s real Draw() call for a
+	// glyph text batch did not match any SRV LLTexUnit::bind() had itself
+	// logged as "just bound" in the same window - a genuine ambient-state
+	// leak, not a CPU-side logic bug (CPU-side atlas/UV/glyph-type logic was
+	// independently confirmed correct via multiple other diagnostics this
+	// same investigation).
+	gDXUIBatch.flushPending();
 	// CLAMP address mode baked in here (GL's setTextureAddressMode(TAM_CLAMP)
 	// call that normally follows this one is a confirmed no-op under
 	// DX_RENDER - sampler state is built fresh at bind time, not via that

@@ -2206,12 +2206,19 @@ void renderPhysicsShape(LLDrawable* drawable, LLVOVolume* volume, bool wireframe
 
     //not allowed to return at this point without rendering *something*
 
-    F32 threshold = gSavedSettings.getF32("ObjectCostHighThreshold");
+    // S24 (2026-08-28, perf sweep): were raw gSavedSettings lookups, called
+    // once per drawable while "Show Physics Shapes" is on - converted to
+    // LLCachedControl.
+    static LLCachedControl<F32> threshold_setting(gSavedSettings, "ObjectCostHighThreshold");
+    F32 threshold = threshold_setting();
     F32 cost = volume->getObjectCost();
 
-    LLColor4 low = gSavedSettings.getColor4("ObjectCostLowColor");
-    LLColor4 mid = gSavedSettings.getColor4("ObjectCostMidColor");
-    LLColor4 high = gSavedSettings.getColor4("ObjectCostHighColor");
+    static LLCachedControl<LLColor4> low_setting(gSavedSettings, "ObjectCostLowColor");
+    static LLCachedControl<LLColor4> mid_setting(gSavedSettings, "ObjectCostMidColor");
+    static LLCachedControl<LLColor4> high_setting(gSavedSettings, "ObjectCostHighColor");
+    LLColor4 low = low_setting();
+    LLColor4 mid = mid_setting();
+    LLColor4 high = high_setting();
 
     F32 normalizedCost = 1.f - exp( -(cost / threshold) );
 
@@ -2679,7 +2686,8 @@ void renderTextureAnim(LLDrawInfo* params)
 void renderBatchSize(LLDrawInfo* params)
 {
     LLGLEnable offset(GL_POLYGON_OFFSET_FILL);
-    glPolygonOffset(-1.f, 1.f);
+    // S24 (2026-08-28, task #242): gGL.setPolygonOffset(), see llmanipscale.cpp's comment.
+    gGL.setPolygonOffset(-1.f, 1.f);
     LLGLSLShader* old_shader = LLGLSLShader::sCurBoundShaderPtr;
     bool bind = false;
     if (params->mAvatar)
@@ -3595,7 +3603,13 @@ void LLSpatialPartition::renderDebug()
             gGL.diffuseColor4f(0.5f, 0.0f, 0, 0.25f);
 
             LLGLEnable offset(GL_POLYGON_OFFSET_LINE);
-            glPolygonOffset(-1.f, -1.f);
+            // S24 (2026-08-28, task #242): gGL.setPolygonOffset(), see llmanipscale.cpp's comment.
+            // Note: the glPolygonMode(GL_LINE) two lines up is a SEPARATE,
+            // still-open gap (no generic cross-backend wireframe-fill-mode
+            // wrapper exists yet, unlike this one) - out of scope here, this
+            // debug-only occlusion/octree overlay still renders solid-filled
+            // under DX_RENDER regardless of this fix.
+            gGL.setPolygonOffset(-1.f, -1.f);
 
             LLOctreeRenderXRay xray(camera);
             xray.traverse(mOctree);

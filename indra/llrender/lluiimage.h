@@ -36,6 +36,13 @@
 #include "llrender2dutils.h"
 #include "llvertexbuffer.h"
 
+#ifdef DX_RENDER
+// S24 (2026-08-25, task #224): lluiimage.inl's cached-display-list replay
+// path (included at the bottom of this header) needs gDXUIBatch's
+// flushPending() - see that comment for why.
+#include "DXUIBatch.h"
+#endif
+
 #include <boost/signals2.hpp>
 
 #include <bit>

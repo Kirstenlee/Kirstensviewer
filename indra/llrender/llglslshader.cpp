@@ -1264,17 +1264,26 @@ void LLGLSLShader::bind()
 	// equivalent, deferred to whenever a pool needing it is converted.
 	llassert_always(mDXVertexShader.getVS() != nullptr);
 
-	if (sCurBoundShaderPtr != this)
-	{
-		// S24 (2026-08-16): flush gDXUIBatch's separate pending queue before
-		// the VS/PS swap below - a still-pending UI batch drawn AFTER
-		// whatever this shader-bind is about to render would paint in the
-		// wrong order. See DXUIBatch.h's top comment.
-		gDXUIBatch.flushPending();
-		gDXDevice.getContext()->VSSetShader(mDXVertexShader.getVS(), nullptr, 0);
-		gDXDevice.getContext()->PSSetShader(mDXPixelShader.getPS(), nullptr, 0);
-		sCurBoundShaderPtr = this;
-	}
+	// S24 (2026-08-25, task #224): removed the "skip if sCurBoundShaderPtr
+	// already == this" optimization - same bug class as the one just fixed
+	// in LLVertexBuffer::setBuffer() (see its comment). DXUIBatch::
+	// drawAndPop() (dxrender/resources/DXUIBatch.cpp) calls
+	// ctx->VSSetShader()/PSSetShader() directly for its own pending batch's
+	// shader, WITHOUT updating sCurBoundShaderPtr - so this bookkeeping can
+	// silently desync from what's actually bound in D3D11. When that
+	// happens, a subsequent bind() call for the shader sCurBoundShaderPtr
+	// (wrongly) still thinks is current would skip the real VSSetShader/
+	// PSSetShader calls entirely, leaving whatever gDXUIBatch last bound
+	// active instead - confirmed via a live log capture (task #224) showing
+	// the same persistently-cached LLVertexBuffer replayed one frame under
+	// "UI Shader" and the very next under "Solid Color Shader" with no
+	// legitimate call in between that should have changed it. Root cause of
+	// the button hover-highlight flicker/settle. gDXUIBatch.flushPending()
+	// stays unconditional too - still needed regardless of the dedup.
+	gDXUIBatch.flushPending();
+	gDXDevice.getContext()->VSSetShader(mDXVertexShader.getVS(), nullptr, 0);
+	gDXDevice.getContext()->PSSetShader(mDXPixelShader.getPS(), nullptr, 0);
+	sCurBoundShaderPtr = this;
 
 	// S24 (2026-08-05): updateShaderUniforms() (env/lighting uniforms via
 	// LLEnvironment - ambient_color/blue_horizon/blue_density/haze_horizon/

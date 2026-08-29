@@ -372,6 +372,7 @@ set(viewer_SOURCE_FILES
     llgltffoldermodel.cpp
     llgltfmateriallist.cpp
     llgltfmaterialpreviewmgr.cpp
+    llgpuresize.cpp
     llgroupactions.cpp
     llgroupchatmute.cpp
     llgroupiconctrl.cpp
@@ -1070,6 +1071,7 @@ set(viewer_HEADER_FILES
     llgltffoldermodel.h
     llgltfmateriallist.h
     llgltfmaterialpreviewmgr.h
+    llgpuresize.h
     llgroupactions.h
     llgroupiconctrl.h
     llgrouplist.h

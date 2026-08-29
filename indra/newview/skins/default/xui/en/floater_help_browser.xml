@@ -175,14 +175,6 @@ RunMultipleThreads
   Default: true
   Notes: Keep background threads active during render
 
-RenderDXMultiThreadedTextures
-  Default: false
-  Notes: Background-thread D3D11 texture creation (reduces stutter during texture streaming)
-
-RenderDXMultiThreadedMedia
-  Default: false
-  Notes: Background-thread D3D11 media/video frame updates (reduces stutter during video playback)
-
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 💾 MEMORY MANAGEMENT (KVTweaks → CPU &amp; Memory)
@@ -197,10 +189,9 @@ RenderMaxVRAMBudget
   Range: 0-32768 MB
   Notes: Maximum VRAM budget. 0 = automatic detection and management
 
-RenderTextureVRAMDivisor
-  Default: 1 (100%)
-  Range: 1-10
-  Notes: VRAM divisor for texture budget. 1=100%, 2=50%, etc.
+RenderVRAMAllocationIntervalSeconds
+  Default: 0.5
+  Notes: How often the deterministic VRAM budget allocator recomputes which textures need a lower discard level to stay under budget.
 
 RenderMinFreeMainMemoryThreshold
   Default: 512 MB

@@ -195,6 +195,7 @@ using namespace boost::placeholders;
 // Included so that constants/settings might be initialized
 // in save_settings_to_globals()
 #include "DXDevice.h"
+#include "DXShader.h"
 #include "llbutton.h"
 #include "llstatusbar.h"
 #include "llsurface.h"
@@ -354,7 +355,7 @@ WorkQueue gMainloopWork("mainloop", 1024 * 1024);
 
 ////////////////////////////////////////////////////////////
 // Internal globals
-static std::string gArgs = "DX Build 3665 - Hradr"; // S24 My Build Number! KL
+static std::string gArgs = "DX Build 3690 - Hradr"; // S24 My Build Number! KL
 const int MAX_MARKER_LENGTH = 1024;
 const std::string MARKER_FILE_NAME("KirstensS24.exec_marker");
 const std::string START_MARKER_FILE_NAME("KirstensS24.start_marker");
@@ -525,14 +526,17 @@ static void settings_to_globals()
 
 	LLRender::sGLCoreProfile = gSavedSettings.getBOOL("RenderGLContextCoreProfile");
 	LLRender::sNsightDebugSupport = gSavedSettings.getBOOL("RenderNsightDebugSupport");
-	// S24: runtime toggle for the VBO work queue (was a compile-time #define) - see llvertexbuffer.cpp
-	LLVertexBuffer::sVBOWorkQueueEnabled = gSavedSettings.getBOOL("S24VBOWorkQueueEnabled");
-	LLVertexBuffer::sVBOWorkQueueThreadCount = llclamp(gSavedSettings.getU32("S24VBOWorkQueueThreadCount"), 1U, 4U);
 	// S24: runtime toggle for the D3D11 debug/validation layer (was hardcoded
 	// on unconditionally) - see DXDevice.h's sDebugLayerEnabled comment. Must
 	// run before initWindow() (device creation) - settings_to_globals() is
 	// called well before that in LLAppViewer::init().
 	DXDevice::sDebugLayerEnabled = gSavedSettings.getBOOL("S24DXDebugLayerEnabled");
+	// S24 (2026-08-29): DX-native shader bytecode disk cache master switch -
+	// see RenderDXShaderCacheEnabled's own comment (settings.xml) and
+	// DXShader.h's sShaderCacheEnabled comment. Must run before
+	// gPipeline.init()'s shader compilation, same timing requirement as
+	// sDebugLayerEnabled above.
+	DXShader::sShaderCacheEnabled = gSavedSettings.getBOOL("RenderDXShaderCacheEnabled");
 	LLImageGL::sGlobalUseAnisotropic = gSavedSettings.getBOOL("RenderAnisotropic");
 	LLImageGL::sCompressTextures = gSavedSettings.getBOOL("RenderCompressTextures");
 	LLVOVolume::sLODFactor = llclamp(gSavedSettings.getF32("RenderVolumeLODFactor"), 0.01f, MAX_LOD_FACTOR);
@@ -2298,9 +2302,16 @@ bool LLAppViewer::loadSettingsFromDirectory(const std::string& location_key,
 				{
 					continue;
 				}
-				else if (!gDirUtilp->fileExists(full_settings_path))
+				else if (!gDirUtilp->fileExists(full_settings_path)
+					&& gDirUtilp->getDirName(full_settings_path).empty())
 				{
-					// search in default path
+					// S24: file_name_setting controls (e.g. ClientSettingsFile,
+					// set in LLAppViewer::init()) are stored as already-expanded
+					// absolute paths, not bare filenames - only expand here if
+					// full_settings_path has no directory component of its own,
+					// else this doubles the user_settings prefix on first run
+					// (settings.xml legitimately doesn't exist yet) and produces
+					// an unopenable path that crashes on load.
 					full_settings_path = gDirUtilp->getExpandedFilename((ELLPath)path_index, full_settings_path);
 				}
 			}

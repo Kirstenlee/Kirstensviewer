@@ -48,6 +48,10 @@
 #include "llstatusbar.h"
 #include "llmenugl.h"
 #include "pipeline.h"
+#include "llvieweroctree.h"
+#include "llglslshader.h"
+#include "llshadermgr.h"
+#include "DXOcclusionQuery.h"
 #include <boost/tokenizer.hpp>
 
 
@@ -113,6 +117,17 @@ LLHUDNameTag::LLHUDNameTag(const U8 type)
 
 LLHUDNameTag::~LLHUDNameTag()
 {
+#ifdef DX_RENDER
+    // S24 (2026-08-28, task #193 follow-up): return the query name to the
+    // shared pool - matches LLOcclusionCullingGroup's own use of the same
+    // getNewOcclusionQueryObjectName()/releaseOcclusionQueryObjectName()
+    // pool. Safe even if mOcclusionQueryPending is still true - release just
+    // returns the name to the free list, it doesn't touch the async result.
+    if (mOcclusionQuery)
+    {
+        LLOcclusionCullingGroup::releaseOcclusionQueryObjectName(mOcclusionQuery);
+    }
+#endif
 }
 
 
@@ -252,9 +267,15 @@ void LLHUDNameTag::renderText()
         if (mLastDistance > mFadeDistance)
         {
             alpha_factor = llmax(0.f, 1.f - (mLastDistance - mFadeDistance)/mFadeRange);
-            text_color.mV[3] = text_color.mV[3]*alpha_factor;
         }
     }
+    // S24 (2026-08-28, task #193 follow-up): occlusion-fade folded into the
+    // same alpha_factor every other value below (bg_color, label colors,
+    // text_color) already multiplies by unconditionally - see this class's
+    // .h for the full design writeup. mOcclusionFadeAlpha defaults to 1.0
+    // and is a true no-op under GL / before a query has resolved.
+    alpha_factor *= mOcclusionFadeAlpha;
+    text_color.mV[3] = text_color.mV[3]*alpha_factor;
     if (text_color.mV[3] < 0.01f)
     {
         return;
@@ -419,6 +440,80 @@ void LLHUDNameTag::renderText()
     }
     /// Reset the default color to white.  The renderer expects this to be the default.
     gGL.color4f(1.0f, 1.0f, 1.0f, 1.0f);
+}
+
+// S24 (2026-08-28, task #193 follow-up): called once per frame from
+// LLPipeline::doOcclusion() (pipeline.cpp) while gOcclusionCubeProgram/
+// mCubeVB are already bound for spatial-group occlusion culling - reused
+// here rather than standing up a second shader-bind/buffer-setup path.
+void LLHUDNameTag::issueOcclusionQueries()
+{
+#ifdef DX_RENDER
+    for (VisibleTextObjectIterator it = sVisibleTextObjects.begin(); it != sVisibleTextObjects.end(); ++it)
+    {
+        (*it)->issueOcclusionQuery();
+    }
+#endif
+}
+
+void LLHUDNameTag::issueOcclusionQuery()
+{
+#ifdef DX_RENDER
+    if (mOcclusionQueryPending)
+    {
+        // Previous query never resolved (e.g. a dropped frame under load) -
+        // let updateOcclusionFade() drain it before issuing a new one.
+        return;
+    }
+
+    LLGLSLShader* shader = LLGLSLShader::sCurBoundShaderPtr;
+    if (!shader)
+    {
+        return;
+    }
+
+    if (!mOcclusionQuery)
+    {
+        mOcclusionQuery = LLOcclusionCullingGroup::getNewOcclusionQueryObjectName();
+    }
+
+    // Small fixed-size probe box centered on the nametag's world anchor -
+    // this is a presence/visibility probe, not a tight bounding volume the
+    // way spatial-group occlusion culling uses its actual object bounds.
+    static const F32 OCCLUSION_BOX_HALF_SIZE = 0.25f;
+    shader->uniform3fv(LLShaderMgr::BOX_CENTER, 1, mPositionAgent.mV);
+    shader->uniform3f(LLShaderMgr::BOX_SIZE, OCCLUSION_BOX_HALF_SIZE, OCCLUSION_BOX_HALF_SIZE, OCCLUSION_BOX_HALF_SIZE);
+
+    LLCamera* camera = LLViewerCamera::getInstance();
+    LLVector4a center;
+    center.load3(mPositionAgent.mV);
+    U32 offset = get_box_triangle_offset(camera, center);
+
+    dx_get_occlusion_box_vb()->setBuffer();
+    DXOcclusionQuery::beginQuery(mOcclusionQuery);
+    dx_get_occlusion_box_vb()->drawArrays(LLRender::TRIANGLES, offset, 18);
+    DXOcclusionQuery::endQuery(mOcclusionQuery);
+
+    mOcclusionQueryPending = true;
+#endif
+}
+
+void LLHUDNameTag::updateOcclusionFade()
+{
+#ifdef DX_RENDER
+    // Matches POSITION_DAMPING_TC's shape - smooths the fade rather than
+    // snapping, so a query flickering pending/resolved near an occluder edge
+    // doesn't pop the nametag's alpha instantly.
+    static const F32 OCCLUSION_FADE_TC = 0.2f;
+
+    if (mOcclusionQueryPending && DXOcclusionQuery::isResultAvailable(mOcclusionQuery))
+    {
+        bool visible = DXOcclusionQuery::getResult(mOcclusionQuery) > 0;
+        F32 target = visible ? 1.f : 0.f;
+        mOcclusionFadeAlpha = lerp(mOcclusionFadeAlpha, target, LLSmoothInterpolation::getInterpolant(OCCLUSION_FADE_TC));
+        mOcclusionQueryPending = false;
+    }
+#endif
 }
 
 void LLHUDNameTag::setString(const std::string &text_utf8)
@@ -768,6 +863,10 @@ void LLHUDNameTag::updateAll()
         textp->mTargetPositionOffset.clearVec();
         textp->updateSize();
         textp->updateVisibility();
+        // S24 (2026-08-28, task #193 follow-up): poll last frame's
+        // occlusion-query result here, before this frame's doOcclusion()
+        // (pipeline.cpp) issues the next one via issueOcclusionQueries().
+        textp->updateOcclusionFade();
     }
 
     // sort back to front for rendering purposes

@@ -16,6 +16,7 @@ void DXContext::beginFrame()
     ID3D11RenderTargetView* rtv = gDXSwapChain.getBackBufferRTV();
     ID3D11DepthStencilView* dsv = gDXSwapChain.getDepthStencilView();
     ctx->OMSetRenderTargets(1, &rtv, dsv);
+    DXStateCache::bumpRTVGeneration();
 
     // S24 (2026-07-23): D3D11's own built-in default rasterizer state (in
     // effect until the first explicit RSSetState() call) is CullMode=BACK,

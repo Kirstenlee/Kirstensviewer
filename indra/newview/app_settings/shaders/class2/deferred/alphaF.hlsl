@@ -189,10 +189,33 @@ struct PSInput
 #endif
     float2 vary_texcoord0 : TEXCOORD2;
     float3 vary_norm : TEXCOORD3;
+#ifdef HAS_DIFFUSE_LOOKUP
+    nointerpolation int vary_texture_index : VARYTEXTUREINDEX;
+#endif
 };
 
 float4 main(PSInput IN) : SV_Target
 {
+    // S24 (2026-08-28, task #225): was missing entirely - GLSL's flat in
+    // int vary_texture_index is a real cross-stage varying, automatically
+    // linked by name with no code needed on the fragment side; HLSL has no
+    // such linkage; every field must be explicitly copied from PSInput.
+    // Without this, the static int vary_texture_index diffuseLookup()'s
+    // generated switch() reads (llshadermgr.cpp, texture_index_channels>1
+    // case) was never assigned - HLSL zero-initializes an unassigned
+    // static, so it silently stayed 0 for every pixel, on every face,
+    // always sampling tex0 regardless of which texture a given face was
+    // actually supposed to use. Invisible whenever a batch only ever had
+    // one texture at index 0 (the common case), but as soon as two
+    // differently-textured faces sharing this shader (both set to real
+    // Alpha Blending, not Alpha Masking - the only path that reaches this
+    // exact file) got batched together, every pixel in the whole batch
+    // showed whichever texture happened to land at index 0 - the "leaf
+    // shows the trunk's bark texture" root cause.
+#ifdef HAS_DIFFUSE_LOOKUP
+    vary_texture_index = IN.vary_texture_index;
+#endif
+
     mirrorClip(IN.vary_position);
 
     float2 frag = IN.vary_fragcoord.xy / IN.vary_fragcoord.z * 0.5 + 0.5;

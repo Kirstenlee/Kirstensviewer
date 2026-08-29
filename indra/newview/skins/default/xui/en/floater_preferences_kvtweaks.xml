@@ -198,30 +198,6 @@
         width="450"
         tool_tip="If TRUE, keep background threads active during render" />
 
-      <check_box
-        control_name="RenderDXMultiThreadedTextures"
-        height="20"
-        initial_value="false"
-        label="Multi-Threaded DX Texture Loading"
-        layout="topleft"
-        left="20"
-        name="dx_multithread_textures"
-        top_pad="5"
-        width="450"
-        tool_tip="Create textures on a background thread via D3D11's free-threaded device methods instead of the main render thread (reduces stutter during texture streaming)" />
-
-      <check_box
-        control_name="RenderDXMultiThreadedMedia"
-        height="20"
-        initial_value="false"
-        label="Multi-Threaded DX Media Playback"
-        layout="topleft"
-        left="20"
-        name="dx_multithread_media"
-        top_pad="5"
-        width="450"
-        tool_tip="Prepare media/video frame updates on a background thread via D3D11's free-threaded device methods instead of the main render thread (reduces stutter during video playback)" />
-
       <text
         type="string"
         length="1"
@@ -267,23 +243,6 @@
         max_val="32768"
         min_val="0"
         name="max_vram"
-        top_pad="5"
-        width="310" />
-
-      <spinner
-        control_name="RenderTextureVRAMDivisor"
-        decimal_digits="0"
-        follows="left|top"
-        height="20"
-        increment="1"
-        initial_value="1"
-        label="VRAM Divisor (1=100%, 2=50%):"
-        label_width="240"
-        layout="topleft"
-        left="20"
-        max_val="10"
-        min_val="1"
-        name="vram_divisor"
         top_pad="5"
         width="310" />
 
@@ -1282,51 +1241,7 @@
         width="460"
         font="SansSerifBold"
         text_color="White">
-        VBO Work Queue (Experimental)
-      </text>
-
-      <check_box
-        control_name="S24VBOWorkQueueEnabled"
-        height="20"
-        initial_value="false"
-        label="Enable VBO Work Queue"
-        layout="topleft"
-        left="20"
-        name="enable_vbo_work_queue"
-        top_pad="10"
-        width="450"
-        tool_tip="EXPERIMENTAL: defer VBO pool storage allocation (cache-miss buffer creation) to background GL worker thread(s) via a shared-context work queue. Off by default - the main thread still blocks per allocation to stay correct, so treat this as a testing toggle, not a guaranteed frame time win." />
-
-      <spinner
-        control_name="S24VBOWorkQueueThreadCount"
-        decimal_digits="0"
-        follows="left|top"
-        height="20"
-        increment="1"
-        initial_value="2"
-        label="Worker Threads:"
-        label_width="200"
-        layout="topleft"
-        left="20"
-        max_val="4"
-        min_val="1"
-        name="vbo_work_queue_threads"
-        tool_tip="Number of shared GL context worker threads for the VBO work queue (1-4). 1 is recommended: the queue synchronizes each job with its own fence, but with more than one worker, jobs can still complete out of order relative to when the main thread needed them."
-        top_pad="5"
-        width="310" />
-
-      <text
-        type="string"
-        length="1"
-        follows="left|top"
-        height="16"
-        layout="topleft"
-        left="10"
-        top_pad="15"
-        width="460"
-        font="SansSerifBold"
-        text_color="White">
-        D3D11 Debug/Validation Layer
+        D3D11 Engine
       </text>
 
       <check_box
@@ -1342,6 +1257,30 @@
         tool_tip="DX_RENDER only: runs full D3D11 state/shader-binding validation on every draw call, surfacing hazards as debug-output messages instead of silent wrong pixels. Real per-draw-call cost - disproportionately expensive on passes with many draw calls (e.g. shadow rendering, which redraws the scene once per cascade/spot light). Off by default - developers only, enable when testing; normal runs should get full performance." />
       <text
         name="requires_restart_dx_debug_layer"
+        follows="left|top"
+        layout="topleft"
+        top_delta="2"
+        left_delta="305"
+        height="20"
+        width="150"
+        font="SansSerifSmall"
+        text_color="White_25">
+        (Requires restart)
+      </text>
+
+      <check_box
+        control_name="RenderDXShaderCacheEnabled"
+        height="20"
+        initial_value="true"
+        label="Enable DX Shader Cache"
+        layout="topleft"
+        left="20"
+        name="dx_shader_cache_enabled"
+        top_pad="10"
+        width="300"
+        tool_tip="DX_RENDER only: caches compiled D3D11 shader bytecode to disk (shader_cache folder) instead of recompiling every shader from HLSL source on every launch. Currently limited to a small allowlist of proven-safe shaders, expanded over time. Use 'Purge Shader Cache' below to clear it if you ever suspect a stale/bad cached shader." />
+      <text
+        name="requires_restart_dx_shader_cache"
         follows="left|top"
         layout="topleft"
         top_delta="2"

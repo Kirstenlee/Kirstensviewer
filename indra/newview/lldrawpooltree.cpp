@@ -108,7 +108,10 @@ void LLDrawPoolTree::beginShadowPass(S32 pass)
 
     static LLCachedControl<F32> shadow_offset(gSavedSettings, "RenderDeferredTreeShadowOffset");
     static LLCachedControl<F32> shadow_bias(gSavedSettings, "RenderDeferredTreeShadowBias");
-    glPolygonOffset(shadow_offset(), shadow_bias());
+    // S24 (2026-08-28, task #242): gGL.setPolygonOffset() - this pool has no
+    // DX* counterpart (LLDrawPoolTree is used under both backends), so this
+    // was a real, reachable-under-DX_RENDER no-op, not superseded/dead code.
+    gGL.setPolygonOffset(shadow_offset(), shadow_bias());
 
     LLEnvironment& environment = LLEnvironment::instance();
 
@@ -124,9 +127,13 @@ void LLDrawPoolTree::renderShadow(S32 pass)
 
 void LLDrawPoolTree::endShadowPass(S32 pass)
 {
-
-    glPolygonOffset(gSavedSettings.getF32("RenderDeferredSpotShadowOffset"),
-                        gSavedSettings.getF32("RenderDeferredSpotShadowBias"));
+    static LLCachedControl<F32> spot_shadow_offset(gSavedSettings, "RenderDeferredSpotShadowOffset");
+    static LLCachedControl<F32> spot_shadow_bias(gSavedSettings, "RenderDeferredSpotShadowBias");
+    // S24 (2026-08-28, task #242): gGL.setPolygonOffset(), see beginShadowPass()'s
+    // comment. S24 (2026-08-28, perf sweep): was a raw gSavedSettings lookup,
+    // sibling of the same fix beginShadowPass() already got - converted to
+    // LLCachedControl, same reasoning.
+    gGL.setPolygonOffset(spot_shadow_offset(), spot_shadow_bias());
     gDeferredTreeShadowProgram.unbind();
 }
 

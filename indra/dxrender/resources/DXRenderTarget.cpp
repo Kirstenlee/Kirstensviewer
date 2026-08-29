@@ -1,5 +1,6 @@
 #include "DXRenderTarget.h"
 #include "DXDevice.h"
+#include "DXStateCache.h"
 #include "DXSwapChain.h"
 #include "llerror.h"
 
@@ -281,6 +282,10 @@ void DXRenderTarget::bindTarget(bool bind_depth, bool read_only_depth)
         dsv_to_bind = (read_only_depth && mReadOnlyDSV) ? mReadOnlyDSV : mDSV;
     }
     ctx->OMSetRenderTargets((UINT)mColor.size(), rtvs, dsv_to_bind);
+    // S24 (2026-08-29, task #278/#273): see DXStateCache::getRTVGeneration()'s
+    // comment - closes the SRV-auto-unbind-on-RTV-hazard gap for the texture-
+    // bind dedup in llrender.cpp.
+    DXStateCache::bumpRTVGeneration();
 
     D3D11_VIEWPORT vp = {};
     vp.TopLeftX = 0.0f;
@@ -350,6 +355,7 @@ void DXRenderTarget::bindSwapChainBackBuffer()
     // everything LLViewerWindow::renderSelections()/render_hud_elements()
     // draw, later this same frame) had a real depth buffer to test against.
     ctx->OMSetRenderTargets(1, &back_buffer, gDXSwapChain.getDepthStencilView());
+    DXStateCache::bumpRTVGeneration();
 
     D3D11_VIEWPORT vp = {};
     vp.TopLeftX = 0.0f;

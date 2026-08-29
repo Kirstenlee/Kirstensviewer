@@ -42,6 +42,11 @@
 #include "llrender.h"
 #include "llagent.h"
 #include "llviewerwindow.h"
+#include "llvieweroctree.h"
+#include "llglslshader.h"
+#include "llshadermgr.h"
+#include "llcriticaldamp.h"
+#include "DXOcclusionQuery.h"
 
 //brent's wave image
 //29de489d-0491-fb00-7dab-f9e686d31e83
@@ -331,6 +336,14 @@ void LLVoiceVisualizer::render()
         return;
     }
 
+    // S24 (2026-08-28, task #193 follow-up): fully occluded - skip the draw
+    // entirely rather than drawing at ~0 alpha. mOcclusionFadeAlpha defaults
+    // to 1.0, so this is a no-op under GL / before a query has resolved.
+    if (mOcclusionFadeAlpha < 0.01f)
+    {
+        return;
+    }
+
 
     if ( mSoundSymbol.mActive )
     {
@@ -395,7 +408,7 @@ void LLVoiceVisualizer::render()
         //-------------------------------------------------------------
         // now render the dot
         //-------------------------------------------------------------
-        gGL.color4fv( LLColor4( 1.0f, 1.0f, 1.0f, DOT_OPACITY ).mV );
+        gGL.color4fv( LLColor4( 1.0f, 1.0f, 1.0f, DOT_OPACITY * mOcclusionFadeAlpha ).mV );
 
         gGL.begin( LLRender::TRIANGLE_STRIP );
             gGL.texCoord2i( 0,  0   ); gGL.vertex3fv( bottomLeft.mV );
@@ -514,7 +527,7 @@ void LLVoiceVisualizer::render()
                 LLVector3 topLeft       = mSoundSymbol.mPosition + l + u;
                 LLVector3 topRight      = mSoundSymbol.mPosition - l + u;
 
-                gGL.color4fv( LLColor4( red, green, blue, mSoundSymbol.mWaveOpacity[i] ).mV );
+                gGL.color4fv( LLColor4( red, green, blue, mSoundSymbol.mWaveOpacity[i] * mOcclusionFadeAlpha ).mV );
                 gGL.getTexUnit(0)->bind(mSoundSymbol.mTexture[i]);
 
 
@@ -540,6 +553,79 @@ void LLVoiceVisualizer::render()
     }//if ( mSoundSymbol.mActive )
 
 }//---------------------------------------------------
+
+// S24 (2026-08-28, task #193 follow-up): called once per frame from
+// LLHUDObject::issueOcclusionQueries() (llhudobject.cpp) while
+// gOcclusionCubeProgram/mCubeVB are already bound - same mechanism and
+// pattern as LLHUDNameTag::issueOcclusionQuery() (llhudnametag.cpp).
+void LLVoiceVisualizer::issueOcclusionQuery()
+{
+#ifdef DX_RENDER
+    static LLCachedControl<bool> show_visualizer(gSavedSettings, "VoiceVisualizerEnabled", true);
+    if (!mVoiceEnabled || !show_visualizer || !mSoundSymbol.mActive)
+    {
+        // Not going to render this frame - don't waste a query on it. Most
+        // avatars in a crowd aren't speaking at any given moment.
+        return;
+    }
+
+    if (mOcclusionQueryPending)
+    {
+        // Previous query never resolved (e.g. a dropped frame under load) -
+        // let updateOcclusionFade() drain it before issuing a new one.
+        return;
+    }
+
+    LLGLSLShader* shader = LLGLSLShader::sCurBoundShaderPtr;
+    if (!shader)
+    {
+        return;
+    }
+
+    if (!mOcclusionQuery)
+    {
+        mOcclusionQuery = LLOcclusionCullingGroup::getNewOcclusionQueryObjectName();
+    }
+
+    // Matches render()'s own position formula - mSoundSymbol.mPosition
+    // itself is only refreshed inside render(), which may lag a frame or
+    // more behind mPositionGlobal (kept current independently by
+    // LLVOAvatar), so recompute from mPositionGlobal directly here.
+    LLVector3 probe_position = gAgent.getPosAgentFromGlobal(mPositionGlobal) + WORLD_UPWARD_DIRECTION * HEIGHT_ABOVE_HEAD;
+
+    static const F32 OCCLUSION_BOX_HALF_SIZE = 0.25f;
+    shader->uniform3fv(LLShaderMgr::BOX_CENTER, 1, probe_position.mV);
+    shader->uniform3f(LLShaderMgr::BOX_SIZE, OCCLUSION_BOX_HALF_SIZE, OCCLUSION_BOX_HALF_SIZE, OCCLUSION_BOX_HALF_SIZE);
+
+    LLCamera* camera = LLViewerCamera::getInstance();
+    LLVector4a center;
+    center.load3(probe_position.mV);
+    U32 offset = get_box_triangle_offset(camera, center);
+
+    dx_get_occlusion_box_vb()->setBuffer();
+    DXOcclusionQuery::beginQuery(mOcclusionQuery);
+    dx_get_occlusion_box_vb()->drawArrays(LLRender::TRIANGLES, offset, 18);
+    DXOcclusionQuery::endQuery(mOcclusionQuery);
+
+    mOcclusionQueryPending = true;
+#endif
+}
+
+void LLVoiceVisualizer::updateOcclusionFade()
+{
+#ifdef DX_RENDER
+    // Matches LLHUDNameTag's own fade time constant.
+    static const F32 OCCLUSION_FADE_TC = 0.2f;
+
+    if (mOcclusionQueryPending && DXOcclusionQuery::isResultAvailable(mOcclusionQuery))
+    {
+        bool visible = DXOcclusionQuery::getResult(mOcclusionQuery) > 0;
+        F32 target = visible ? 1.f : 0.f;
+        mOcclusionFadeAlpha = lerp(mOcclusionFadeAlpha, target, LLSmoothInterpolation::getInterpolant(OCCLUSION_FADE_TC));
+        mOcclusionQueryPending = false;
+    }
+#endif
+}
 
 //---------------------------------------------------
 void LLVoiceVisualizer::setVoiceSourceWorldPosition( const LLVector3 &p )
@@ -574,6 +660,15 @@ VoiceGesticulationLevel LLVoiceVisualizer::getCurrentGesticulationLevel()
 //------------------------------------
 LLVoiceVisualizer::~LLVoiceVisualizer()
 {
+#ifdef DX_RENDER
+    // S24 (2026-08-28, task #193 follow-up): return the query name to the
+    // shared pool - matches LLHUDNameTag's own destructor (llhudnametag.cpp)
+    // using the same LLOcclusionCullingGroup pool.
+    if (mOcclusionQuery)
+    {
+        LLOcclusionCullingGroup::releaseOcclusionQueryObjectName(mOcclusionQuery);
+    }
+#endif
 }//----------------------------------------------
 
 

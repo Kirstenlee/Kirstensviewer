@@ -262,9 +262,10 @@ namespace
         sShader->bind();
         gGL.diffuseColor4f(1, 1, 1, 1);
         LLGLEnable polyOffset(GL_POLYGON_OFFSET_FILL);
-
-        // glPolygonOffset(-1.0f, -1.0f) skipped - no DX11 runtime
-        // equivalent, see dxdrawpoolterrain.h class comment.
+        // S24 (2026-08-28, task #242): was skipped entirely ("no DX11
+        // runtime equivalent") - now real via LLRender::setPolygonOffset()
+        // (llrender.cpp), no #ifdef needed here.
+        gGL.setPolygonOffset(-1.0f, -1.0f);
 
         renderOwnership(pool);
         sShader = old_shader;

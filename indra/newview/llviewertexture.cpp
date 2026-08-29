@@ -93,8 +93,6 @@ S32 LLViewerTexture::sImageCount = 0;
 S32 LLViewerTexture::sRawCount = 0;
 S32 LLViewerTexture::sAuxCount = 0;
 LLFrameTimer LLViewerTexture::sEvaluationTimer;
-F32 LLViewerTexture::sDesiredDiscardBias = 1.0f;
-U32 LLViewerTexture::sBiasTexturesUpdated = 0;
 
 S32 LLViewerTexture::sMaxSculptRez = 128; //max sculpt image size
 constexpr S32 MAX_CACHED_RAW_IMAGE_AREA = 64 * 64;
@@ -111,7 +109,11 @@ constexpr F32 MEMORY_CHECK_WAIT_TIME = 0.1f;  // Check 10x per second for respon
 constexpr F32 MIN_VRAM_BUDGET = 768.f;
 F32 LLViewerTexture::sFreeVRAMMegabytes = MIN_VRAM_BUDGET;
 F32 LLViewerTexture::sVRAMUsedMegabytes = 0.f;
-bool LLViewerTexture::sVRAMInfoIsLive = false;
+F32 LLViewerTexture::sVRAMBudgetMegabytes = 0.f;
+bool LLViewerTexture::sVRAMBudgetIsLive = false;
+F32 LLViewerTexture::sVRAMAllocatorBudgetMegabytes = MIN_VRAM_BUDGET;
+U32 LLViewerTexture::sVRAMAllocatorLastCutCount = 0;
+U32 LLViewerTexture::sVRAMAllocatorCandidateCount = 0;
 
 LLViewerTexture::EDebugTexels LLViewerTexture::sDebugTexelsMode = LLViewerTexture::DEBUG_TEXELS_OFF;
 
@@ -498,98 +500,59 @@ void LLViewerTexture::updateClass()
 
     LLViewerMediaTexture::updateClass();
 
-    // S24 PERF FIX: Corrected VRAM management based on Linden upstream
-    // Fixed free VRAM calculation and emergency purge hot path
+    // S24 (2026-08-24, task #258): root-and-branch replacement of the old
+    // discard-bias pressure ramp. `used` is now a single, deterministic
+    // figure - the exact sum of tracked texture + vertex bytes - not a poll
+    // or a fudge-factored estimate, so there is no more "Live vs Est." mode
+    // to flip between. Budget-vs-usage RECONCILIATION (deciding which
+    // textures actually get downgraded) happens entirely in
+    // LLViewerTextureList::runVRAMBudgetAllocation(), a periodic direct
+    // greedy allocator - not here. This function's remaining job is just:
+    // compute the real numbers, expose them, and set the allocator's target.
     static constexpr F32 MIN_VRAM_BUDGET = 768.f;
     static constexpr F32 BUDGET_RESERVE = 512.f;
-    static constexpr F32 MEMORY_CHECK_WAIT = 1.0f;
-    static constexpr F32 MIN_FREE_MAIN_MEMORY_MB = 612.f;
-    static constexpr F32 MINIMIZED_DISCARD_TIME = 1.f;
-    static constexpr F32 BACKGROUNDED_DISCARD_TIME = 60.f;
-    static constexpr F32 BIAS_MIN = 1.f;
-    static constexpr F32 BIAS_MAX = 4.0f;
-    static constexpr F32 BIAS_CHANGE_THRESHOLD = 0.1f;
-    static constexpr F32 FREE_PERCENTAGE_THRESHOLD = -0.1f;  // Lower bias when 10%+ free
 
-    // Cache setting lookups (static init only)
-    static const U32 tex_vram_divisor = gSavedSettings.getU32("RenderTextureVRAMDivisor");
+    // Cache setting lookup (static init only)
     static const U32 max_vram_budget = gSavedSettings.getU32("RenderMaxVRAMBudget");
 
-    // Live, OS-reported VRAM figures take precedence over the self-estimate below:
-    // ground truth from the OS, not subject to our ~50% tracking miss. Only falls
-    // back to the self-estimate when unavailable (non-Windows, or DXGI query
-    // never succeeded -- gGLManager.mVRAMCurrentUsage/mVRAMBudget stay 0).
-    const bool has_live_vram_info = gGLManager.mVRAMCurrentUsage > 0 && gGLManager.mVRAMBudget > 0;
+    const F64 texture_bytes = (F64)LLImageGL::getTextureBytesAllocated();
+    const F64 vertex_bytes = (F64)LLVertexBuffer::getBytesAllocated();
+    const F32 used = (F32)((texture_bytes + vertex_bytes) / (1024.0 * 1024.0));
 
-    F32 used;
-    if (has_live_vram_info)
-    {
-        used = (F32)gGLManager.mVRAMCurrentUsage;
-    }
-    else
-    {
-        // VRAM usage accounting with Linden fudge factor
-        // Divide by 1024/512 instead of 1024/1024 to compensate for ~50% tracking miss
-        // (driver overhead, staging buffers, mipmaps, etc. not tracked by our metrics)
-        const F64 texture_bytes_alloc = LLImageGL::getTextureBytesAllocated() / 1024.0 / 512.0;
-        const F64 vertex_bytes_alloc = LLVertexBuffer::getBytesAllocated() / 1024.0 / 512.0;
+    // Budget still has two honest possible sources - a live DXGI figure is
+    // genuinely better than the static fallback when available; that's a
+    // real distinction, unlike the old used-figure mode flip this replaces.
+    const bool has_live_budget = gGLManager.mVRAMBudget > 0;
+    const F32 raw_budget = max_vram_budget != 0 ? (F32)max_vram_budget
+        : has_live_budget ? (F32)gGLManager.mVRAMBudget
+        : (F32)gGLManager.mVRAM;
 
-        // NOTE: our metrics miss about half the vram we use, so this biases high
-        // but turns out to typically be within 5% of the real number
-        used = (F32)ll_round(texture_bytes_alloc + vertex_bytes_alloc);
-    }
+    const F32 target = std::max(std::min(raw_budget - BUDGET_RESERVE, raw_budget * 0.8f), MIN_VRAM_BUDGET);
 
-    // Budget calculation - use divisor or manual override
-    const F32 budget = max_vram_budget != 0 ? (F32)max_vram_budget
-        : has_live_vram_info ? std::max(1024.f, (F32)gGLManager.mVRAMBudget / (F32)tex_vram_divisor)
-        : std::max(1024.f, (F32)gGLManager.mVRAM / (F32)tex_vram_divisor);
-
-    // Target: 80% of budget OR (budget - 512MB), whichever is smaller
-    // But keep at least MIN_VRAM_BUDGET for ourselves
-    const F32 target = std::max(std::min(budget - BUDGET_RESERVE, budget * 0.8f), MIN_VRAM_BUDGET);
-
-    // FIXED: Correct free VRAM calculation (target - used, not double subtraction)
     sFreeVRAMMegabytes = target - used;
-
-    // Expose the figure actually driving the bias ramp below, so diagnostics (texture
-    // console) can show this instead of independently re-deriving a possibly-stale guess.
     sVRAMUsedMegabytes = used;
-    sVRAMInfoIsLive = has_live_vram_info;
+    sVRAMBudgetMegabytes = raw_budget;
+    sVRAMBudgetIsLive = has_live_budget;
 
-    // FIXED: Clear pressure calculation (percentage over target)
-    const F32 raw_over_pct = (used - target) / target;
+    // S24: halve the allocator's effective target while backgrounded/minimized -
+    // the direct equivalent of the old sDesiredDiscardBias=5.f override, but
+    // flowing through the same greedy-cut mechanism instead of a separate
+    // special-cased ramp. No debounce timers needed: the allocator is a
+    // stateless recompute every ~0.5s (LLViewerTextureList::
+    // runVRAMBudgetAllocation()), so there's no ramp to gate - the moment
+    // in_background flips, that class independently detects the same edge
+    // and forces its next pass immediately.
+    static constexpr F32 BACKGROUND_BUDGET_FRACTION = 0.5f;
+    const bool in_background = (gViewerWindow && !gViewerWindow->getWindow()->getVisible()) || !gFocusMgr.getAppHasFocus();
+    sVRAMAllocatorBudgetMegabytes = in_background ? target * BACKGROUND_BUDGET_FRACTION : target;
 
-    // S24: smooth over_pct with a frame-rate-independent EMA before it drives any
-    // pressure decision below. The live DXGI-sourced `used` figure can swing
-    // frame-to-frame -- both from our own texture churn and from external GPU
-    // competition affecting the OS-reported budget -- and reacting to the raw
-    // instantaneous value overshoots before the actual discard effects (themselves
-    // time-sliced/delayed by design: mDownScaleQueue, DELETE_DELAY) have caught up,
-    // causing bias to reverse direction before the system has actually settled.
-    // Display/diagnostics (sFreeVRAMMegabytes, sVRAMUsedMegabytes, texture console)
-    // intentionally still use the raw `used`/`target` above, unsmoothed -- only the
-    // pressure *decision* is damped, not what's reported as ground truth.
-    static F32 smoothed_over_pct = 0.f;
-    static constexpr F32 OVER_PCT_EMA_TAU = 2.0f; // seconds; larger = smoother/slower to react
-    smoothed_over_pct += (1.f - std::exp(-gFrameIntervalSeconds / OVER_PCT_EMA_TAU)) * (raw_over_pct - smoothed_over_pct);
-    const F32 over_pct = smoothed_over_pct;
-
+    // S24: system RAM pressure is a genuinely separate resource from VRAM -
+    // the old code nudged the VRAM bias scalar on system-RAM-critical too,
+    // which was a category error (freeing GPU VRAM does nothing for system
+    // RAM pressure). Fully decoupled now: this section only ever reacts to
+    // isSystemMemoryLow()/isSystemMemoryCritical(), never to VRAM used/budget.
     const bool is_sys_low = isSystemMemoryLow();
     static bool was_low = false;
-    const bool is_low = is_sys_low || over_pct > 0.f;
-    // S24: soft warm-up zone -- gently nudges bias up as usage approaches target from
-    // below, so the ramp already has momentum by the time `used` actually crosses
-    // target. Deliberately NOT using FREE_PERCENTAGE_THRESHOLD (the ramp-down trigger,
-    // -10%) as its own boundary: an earlier version of this used the same -10% line for
-    // both warm-up and ramp-down with zero gap between them, removing the hysteresis
-    // margin that used to exist here (previously a dead zone on both sides) and letting
-    // bias reverse direction on essentially every check interval as usage hovered near
-    // target at equilibrium -- a direct cause of visible texture churn (the vsize
-    // divisor in llviewertexturelist.cpp:922-925 is a *rounded* power-of-4 step, so even
-    // a small bias oscillation can double/halve it). WARM_UP_THRESHOLD sits much closer
-    // to 0 than FREE_PERCENTAGE_THRESHOLD, leaving a real dead band between them.
-    static constexpr F32 WARM_UP_THRESHOLD = -0.03f;
-    const bool is_warming = !is_low && over_pct > WARM_UP_THRESHOLD;
 
     // S24: the two emergency responses below used to run as a single-frame full pass
     // over gTextureList the instant pressure was detected -- a real stall risk with a
@@ -600,7 +563,7 @@ void LLViewerTexture::updateClass()
     static std::deque<LLPointer<LLViewerFetchedTexture> > sRawScavengeQueue;
     static std::deque<LLPointer<LLViewerFetchedTexture> > sRepriorityQueue;
 
-    if (is_low && !was_low)
+    if (is_sys_low && !was_low)
     {
         // S24 MEMORY SAFETY: Dynamically cap decode queue depth
         // Maps available system memory to a safe concurrent decode limit.
@@ -611,17 +574,6 @@ void LLViewerTexture::updateClass()
             U32 free_mb = getFreeSystemMemory().value();
             size_t queue_cap = llclamp((size_t)(free_mb / 32), (size_t)10, (size_t)256);
             LLAppViewer::getImageDecodeThread()->setMaxQueueDepth(queue_cap);
-        }
-
-        if (is_sys_low)
-        {
-            // S24: system memory critical still gets an immediate reaction (this is a
-            // genuine emergency, not routine over-budget pressure) but as a bounded
-            // relative nudge rather than an unconditional floor-jump to 1.5, so it
-            // composes with the ramp below instead of overriding whatever bias already
-            // was. Ordinary VRAM-over-budget crossings no longer get any instant step --
-            // the warm-up zone above already gives the ramp a head start.
-            sDesiredDiscardBias += 0.2f * getSystemMemoryBudgetFactor();
         }
 
         // S24: When system memory is critically low, proactively free raw images
@@ -658,11 +610,10 @@ void LLViewerTexture::updateClass()
             }
         }
 
-        if ((is_sys_low || over_pct > 2.f) && sRepriorityQueue.empty())
+        if (sRepriorityQueue.empty())
         {
             LL_INFOS("TextureMemory") << "Queueing emergency texture re-priority - "
-                << "used: " << used << "MB, target: " << target << "MB, over: "
-                << (over_pct * 100.f) << "%" << LL_ENDL;
+                << "system memory low" << LL_ENDL;
 
             for (auto& image : gTextureList)
             {
@@ -671,7 +622,7 @@ void LLViewerTexture::updateClass()
         }
     }
 
-    was_low = is_low;
+    was_low = is_sys_low;
 
     // Drain both emergency queues a bounded amount every frame (not gated on is_low,
     // so a backlog still gets steady progress even after pressure subsides) -- same
@@ -699,102 +650,6 @@ void LLViewerTexture::updateClass()
             sRepriorityQueue.pop_front();
             gTextureList.updateImageDecodePriority(image, false);
         }
-    }
-
-    // Simplified bias ramp (Linden-style)
-    if (is_low)
-    {
-        // Ramp up discard bias when over budget
-        static LLFrameTimer eval_timer;
-        if (eval_timer.getElapsedTimeF32() > MEMORY_CHECK_WAIT)
-        {
-            static const F32 low_mem_min_increment = 0.1f;
-            F32 increment = low_mem_min_increment + std::max(over_pct, 0.f);
-            sDesiredDiscardBias += increment * gFrameIntervalSeconds;
-            eval_timer.reset();
-        }
-    }
-    else if (is_warming)
-    {
-        // S24: gently pre-ramp bias as usage approaches target from below (see
-        // is_warming above), so the ramp already has momentum once is_low fires.
-        static LLFrameTimer warm_eval_timer;
-        if (warm_eval_timer.getElapsedTimeF32() > MEMORY_CHECK_WAIT)
-        {
-            static const F32 warm_min_increment = 0.02f; // gentler than the over-budget ramp
-            sDesiredDiscardBias += warm_min_increment * gFrameIntervalSeconds;
-            warm_eval_timer.reset();
-        }
-    }
-    else
-    {
-        // Lower bias when at least 10% under budget AND system memory is healthy
-        const bool has_system_memory = (F32)getFreeSystemMemory().value() > MIN_FREE_MAIN_MEMORY_MB;
-
-        if (sDesiredDiscardBias > 1.f
-            && over_pct < FREE_PERCENTAGE_THRESHOLD
-            && has_system_memory)
-        {
-            static const F32 high_mem_decrement = 0.1f;
-            F32 decrement = high_mem_decrement - std::min(over_pct - FREE_PERCENTAGE_THRESHOLD, 0.f);
-            sDesiredDiscardBias -= decrement * gFrameIntervalSeconds;
-        }
-    }
-
-    // Background/minimized override
-    static F32 last_desired_discard_bias = 1.f;
-    static bool was_backgrounded = false;
-    static LLFrameTimer backgrounded_timer;
-
-    const bool in_background = (gViewerWindow && !gViewerWindow->getWindow()->getVisible()) || !gFocusMgr.getAppHasFocus();
-
-    if (in_background) [[unlikely]]
-    {
-        const bool is_minimized = gViewerWindow && gViewerWindow->getWindow()->getMinimized();
-        const F32 discard_time = is_minimized ? MINIMIZED_DISCARD_TIME : BACKGROUNDED_DISCARD_TIME;
-
-        if (backgrounded_timer.getElapsedTimeF32() > discard_time)
-        {
-            if (!was_backgrounded)
-            {
-                last_desired_discard_bias = sDesiredDiscardBias;
-                was_backgrounded = true;
-            }
-            sDesiredDiscardBias = 5.f;
-        }
-    }
-    else
-    {
-        backgrounded_timer.reset();
-        if (was_backgrounded) [[unlikely]]
-        {
-            was_backgrounded = false;
-            sDesiredDiscardBias = last_desired_discard_bias;
-        }
-    }
-
-    // S24 FIX: this clamp used to run unconditionally, which silently reduced the
-    // backgrounded-window override (5.f, set above) straight back down to BIAS_MAX (4.f)
-    // on the very same call - every single frame it was set. Minimizing/backgrounding the
-    // client therefore never actually achieved more aggressive discard than the normal
-    // foreground ceiling; the "5.f" value was pure dead weight. Skip the clamp specifically
-    // while the backgrounded override is active so 5.f can take effect; the moment focus
-    // returns, sDesiredDiscardBias is restored to last_desired_discard_bias (above), which
-    // is itself already a valid clamped value and gets clamped again here regardless.
-    if (!(in_background && was_backgrounded))
-    {
-        sDesiredDiscardBias = std::clamp(sDesiredDiscardBias, BIAS_MIN, BIAS_MAX);
-    }
-
-    static F32 last_texture_update_count_bias = 1.f;
-    if (last_texture_update_count_bias < sDesiredDiscardBias)
-    {
-        last_texture_update_count_bias = sDesiredDiscardBias;
-        sBiasTexturesUpdated = 0;
-    }
-    else if (last_texture_update_count_bias > sDesiredDiscardBias + BIAS_CHANGE_THRESHOLD)
-    {
-        last_texture_update_count_bias = sDesiredDiscardBias;
     }
 
     sFreezeImageUpdates = false;
@@ -917,6 +772,11 @@ void LLViewerTexture::init(bool firstinit)
     }
 
     mMainQueue  = LL::WorkQueue::getInstance("mainloop");
+    // S24 (2026-08-26, task #260 CLOSED not-applicable): DX_RENDER never
+    // posts to this queue (LLImageGLThread::sEnabledTextures is permanently
+    // false there - see LLImageGL::initClass()) - "LLImageGL" unconditionally
+    // matches the GL path's own thread-pool name; harmless/unused under
+    // DX_RENDER since it's never looked up as a live instance there.
     mImageQueue = LL::WorkQueue::getInstance("LLImageGL");
 }
 
@@ -1773,6 +1633,12 @@ void LLViewerFetchedTexture::scheduleCreateTexture()
             }
 #endif
             mNeedsCreateTexture = true;
+            // S24 (2026-08-26, task #260 CLOSED not-applicable): background-
+            // thread D3D11 texture creation was removed after confirming an
+            // unfixable driver-level NVIDIA bug - sEnabledTextures is
+            // permanently false under DX_RENDER now, so this always resolves
+            // to nullptr (synchronous, main-thread creation) there. See
+            // LLImageGL::initClass()'s DX_RENDER branch (llimagegl.cpp).
             auto mainq = LLImageGLThread::sEnabledTextures ? mMainQueue.lock() : nullptr;
             if (mainq)
             {
@@ -1816,13 +1682,11 @@ void LLViewerFetchedTexture::scheduleCreateTexture()
                         {
 #endif
                         //finalize on main thread
-#ifdef DX_RENDER
-                        // S24 (2026-08-16): complete the deferred GPU upload
-                        // staged by createTexture() on the background thread
-                        // above (see DXTexture's top comment) before marking
-                        // the texture active/ready.
-                        mGLTexturep->finalizePendingGPUUpload();
-#endif
+                        // S24 (2026-08-24, task #257): no separate finalize
+                        // step needed anymore - createTexture() above already
+                        // did the complete, mutex-protected D3D11 upload
+                        // (DXTexture's own std::shared_mutex), whichever
+                        // thread ran it.
                         postCreateTexture();
                         unref();
                     });
@@ -3260,6 +3124,20 @@ void LLViewerLODTexture::processTextureStats()
         mDesiredDiscardLevel = llmin(mDesiredDiscardLevel, (S32)mLoadedCallbackDesiredDiscardLevel);
     }
 
+    // S24 (2026-08-24, task #258): apply the VRAM budget allocator's forced
+    // floor, if runVRAMBudgetAllocation()'s last pass cut this texture -
+    // always itself capped by mMinDesiredDiscardLevel immediately after, so
+    // an explicit per-texture protection always wins over a global budget
+    // cut, never the reverse. Applied here (after every branch above has
+    // already settled mDesiredDiscardLevel) so it composes uniformly
+    // regardless of which branch fired.
+    if (mVRAMForcedDiscardLevel >= 0)
+    {
+        mDesiredDiscardLevel = (S8)llmax((S32)mDesiredDiscardLevel, (S32)mVRAMForcedDiscardLevel);
+        mDesiredDiscardLevel = (S8)llmin((S32)mDesiredDiscardLevel, getMaxDiscardLevel());
+        mDesiredDiscardLevel = llmin(mMinDesiredDiscardLevel, mDesiredDiscardLevel);
+    }
+
     if(mForceToSaveRawImage && mDesiredSavedRawDiscardLevel >= 0)
     {
         mDesiredDiscardLevel = llmin(mDesiredDiscardLevel, (S8)mDesiredSavedRawDiscardLevel);
@@ -3271,6 +3149,72 @@ void LLViewerLODTexture::processTextureStats()
     {
         setBoostLevel(BOOST_NONE);
     }
+}
+
+// S24 (2026-08-24, task #258): pure, side-effect-free replica of
+// processTextureStats()'s discard-level decision tree above (kept as a
+// SEPARATE function rather than a literal extraction, deliberately - the
+// real function's scaleDown()/isUpdateFrozen() side effects only fire from
+// its "main case" branch, not the full-res/dontDiscard/tiny-vsize/unknown-
+// dimensions special cases, and restructuring the real function to share
+// code risked changing exactly which textures get scaleDown() called on
+// them today. This function must be kept in sync with processTextureStats()
+// if that decision tree ever changes - both implement the same "what
+// quality does this texture want given screen size alone" question, this
+// one just never mutates state or calls scaleDown(). Used by
+// LLViewerTextureList::runVRAMBudgetAllocation() to ask that question for
+// every cut-candidate in one allocation pass without disturbing per-texture
+// state until the allocator has actually decided anything.
+S32 LLViewerLODTexture::computeNaturalDiscardLevel() const
+{
+    static LLCachedControl<bool> textures_fullres(gSavedSettings, "TextureLoadFullRes", false);
+
+    F32 max_tex_res = MAX_IMAGE_SIZE_DEFAULT;
+    F32 max_virtual_size = mMaxVirtualSize;
+    if (mBoostLevel < LLGLTexture::BOOST_HIGH)
+    {
+        static LLCachedControl<U32> max_texture_resolution(gSavedSettings, "RenderMaxTextureResolution", 2048);
+        max_tex_res = (F32)llclamp((S32)max_texture_resolution, 512, MAX_IMAGE_SIZE_DEFAULT);
+        max_virtual_size = llmin(max_virtual_size, max_tex_res * max_tex_res);
+    }
+
+    if (textures_fullres)
+    {
+        return 0;
+    }
+    if (mDontDiscard || !mUseMipMaps)
+    {
+        return (mFullWidth > MAX_IMAGE_SIZE_DEFAULT || mFullHeight > MAX_IMAGE_SIZE_DEFAULT) ? 1 : 0;
+    }
+    if (mBoostLevel < LLGLTexture::BOOST_HIGH && max_virtual_size <= 10.f)
+    {
+        S32 level = llmin((S32)mMinDesiredDiscardLevel, MAX_DISCARD_LEVEL + 1);
+        return llmin(level, (S32)mLoadedCallbackDesiredDiscardLevel);
+    }
+    if (!mFullWidth || !mFullHeight)
+    {
+        return llmin(getMaxDiscardLevel(), (S32)mLoadedCallbackDesiredDiscardLevel);
+    }
+
+    static const F64 log_4 = log(4.0);
+    F32 discard_level;
+    if (mKnownDrawWidth && mKnownDrawHeight)
+    {
+        S32 draw_texels = llclamp(mKnownDrawWidth * mKnownDrawHeight, MIN_IMAGE_AREA, MAX_IMAGE_AREA);
+        discard_level = (F32)(log(mTexelsPerImage / draw_texels) / log_4);
+    }
+    else
+    {
+        discard_level = (F32)(log(mTexelsPerImage / max_virtual_size) / log_4);
+    }
+    discard_level = floorf(discard_level);
+
+    const F32 min_discard = (mFullWidth > max_tex_res || mFullHeight > max_tex_res) ? 1.f : 0.f;
+    discard_level = llclamp(discard_level, min_discard, (F32)MAX_DISCARD_LEVEL);
+
+    S32 level = llmin(getMaxDiscardLevel() + 1, (S32)discard_level);
+    level = llmin((S32)mMinDesiredDiscardLevel, level);
+    return llmin(level, (S32)mLoadedCallbackDesiredDiscardLevel);
 }
 
 extern LLGLSLShader gCopyProgram;
@@ -3285,7 +3229,7 @@ bool LLViewerLODTexture::scaleDown()
     if (!mDownScalePending)
     {
         mDownScalePending = true;
-        gTextureList.mDownScaleQueue.push(this);
+        gTextureList.mDownScaleQueue.push_back(this);
     }
 
     return true;

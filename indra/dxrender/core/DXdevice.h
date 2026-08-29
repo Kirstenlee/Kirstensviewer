@@ -18,9 +18,9 @@ public:
     // call site since 2026-07-26. Set once from S24DXDebugLayerEnabled via
     // settings_to_globals() (llappviewer.cpp) BEFORE initWindow()/device
     // creation runs - same "push a saved setting into a static the lower
-    // layer can't read gSavedSettings for" pattern already used by
-    // LLVertexBuffer::sVBOWorkQueueEnabled. Real per-draw-call cost: the
-    // debug layer runs full shader-binding/state validation on every single
+    // layer can't read gSavedSettings for" pattern used elsewhere (e.g.
+    // LLRender::sGLCoreProfile). Real per-draw-call cost: the debug layer
+    // runs full shader-binding/state validation on every single
     // Draw()/DrawIndexed() call, which scales with draw-call count -
     // measured as a large, disproportionate cost on shadow rendering
     // specifically (multiple full-scene redraws per frame: one per sun
@@ -37,6 +37,13 @@ public:
     ID3D11Device* getDevice() const { return mDevice; }
     ID3D11DeviceContext* getContext() const { return mContext; }
     D3D_FEATURE_LEVEL getFeatureLevel() const { return mFeatureLevel; }
+
+    // S24 (2026-08-26, task #260): the physical adapter this device is on,
+    // captured once in initialize() regardless of whether the device was
+    // adopted or created here. DXWorkerDevice (dxrender/core/DXWorkerDevice.h)
+    // uses this to target the SAME adapter for a per-thread device, so
+    // resources can be shared cross-device via DXSharedResource.
+    LUID getAdapterLuid() const { return mAdapterLuid; }
 
     // S24 (DX_RENDER diagnostic, 2026-07-28): TEMPORARY - drains whatever
     // D3D11 debug-layer validation messages have accumulated since the last
@@ -96,6 +103,7 @@ private:
     ID3D11DeviceContext* mContext = nullptr;
     D3D_FEATURE_LEVEL mFeatureLevel = D3D_FEATURE_LEVEL_11_0;
     ID3D11InfoQueue* mInfoQueue = nullptr;
+    LUID mAdapterLuid = { 0, 0 };
     std::unordered_map<std::string, uint64_t> mSeenMessageIDs;
 };
 

@@ -187,6 +187,14 @@ public:
     // caller: KVOpenCL's GPU post-fx effects (kveffects.cpp).
     ID3D11Texture2D* getDXColorTexture(size_t index) const { return mDXRenderTarget.getColorTexture(index); }
 
+    // S24 (2026-08-26, task #263): depth counterpart, same rationale as
+    // getDXColorTexture() above - needed by LLViewerWindow::rawSnapshot()'s
+    // depth-snapshot path to read pipeline.mRT->deferredScreen's depth
+    // directly (removes the inline GetResource()/QueryInterface unwrap that
+    // used to live in rawSnapshot() itself for the now-removed scratch_space
+    // path).
+    ID3D11Texture2D* getDXDepthTexture() const { return mDXRenderTarget.getDepthTexture(); }
+
     // S24 (2026-08-06): re-issues OMSetRenderTargets on an ALREADY-bound
     // target to change whether its depth-stencil view is attached, without
     // touching the bindTarget()/flush() stack (bindTarget() asserts the

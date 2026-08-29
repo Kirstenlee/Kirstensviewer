@@ -203,6 +203,7 @@ LLGLSLShader            gDeferredPostTonemapLegacyGammaCorrectProgram;
 LLGLSLShader            gNoPostTonemapLegacyGammaCorrectProgram;
 LLGLSLShader            gDeferredPostGammaCorrectProgram;
 LLGLSLShader            gLegacyPostGammaCorrectProgram;
+LLGLSLShader            gResizeBicubicProgram;
 LLGLSLShader            gExposureProgram;
 LLGLSLShader            gExposureProgramNoFade;
 LLGLSLShader            gLuminanceProgram;
@@ -459,6 +460,28 @@ void LLViewerShaderMgr::finalizeShaderList()
     mShaderList.push_back(&gDeferredDiffuseProgram);
     mShaderList.push_back(&gDeferredBumpProgram);
     mShaderList.push_back(&gDeferredPBROpaqueProgram);
+    // S24 (2026-08-26, task #262): gHUDPBROpaqueProgram was the one shader
+    // in the whole Deferred/HUD pairing above missing its push_back - every
+    // other "Deferred X" -> "HUD X" pair is registered together (Alpha,
+    // Fullbright x3, PBRAlpha, etc.), this one wasn't. Confirmed via
+    // llglslshader.cpp's LLGLSLShader::bind(): a shader only gets
+    // LLShaderMgr::updateShaderUniforms() called for it (WindLight/
+    // environment param propagation - gamma, sun/ambient, atmospherics)
+    // when mUniformsDirty is true, which is ONLY ever set by
+    // LLEnvironment::update()'s per-frame loop over THIS list
+    // (beginShaders()/endShaders()) - a shader missing from this list never
+    // receives those uniforms at all, same "never uploaded, not a math bug"
+    // class as the amblit/sunlit/atten bug already diagnosed for
+    // softenLightF.hlsl (see this file's DX_RENDER branch of bind()).
+    // Symptom this explains: PBR-opaque materials on HUD attachments
+    // (routed to gHUDPBROpaqueProgram, dxrender/../pbropaqueF.hlsl's IS_HUD
+    // branch) render solid black; switching the face to any alpha-blend
+    // mode routes it through gHUDPBRAlphaProgram instead - which WAS
+    // correctly registered here - masking the real gap as an "alpha fixes
+    // it" workaround. User feedback (public alpha 0.1), not locally
+    // reproducible - fix is a direct pattern match against every other
+    // already-working Deferred/HUD pair above, not live-verified.
+    mShaderList.push_back(&gHUDPBROpaqueProgram);
 
     if (gSavedSettings.getBOOL("GLTFEnabled"))
     {
@@ -1185,6 +1208,7 @@ bool LLViewerShaderMgr::loadShadersDeferred()
         gLuminanceProgram.unload();
         gDeferredPostGammaCorrectProgram.unload();
         gLegacyPostGammaCorrectProgram.unload();
+        gResizeBicubicProgram.unload();
         gDeferredPostTonemapProgram.unload();
         gNoPostTonemapProgram.unload();
         gDeferredPostTonemapGammaCorrectProgram.unload();
@@ -2557,6 +2581,35 @@ bool LLViewerShaderMgr::loadShadersDeferred()
 
     if (success)
     {
+        // S24 (2026-08-26, task #263): deliberately NOT mFeatures.isDeferred/
+        // hasSrgb - unlike gDeferredPostGammaCorrectProgram above, this is a
+        // standalone image resize with no deferred G-buffer dependency and
+        // no color-space conversion of its own (operates on already-gamma-
+        // corrected content) - same minimal registration shape gGlowProgram
+        // uses for the same reason. Not added to mShaderList either (see
+        // that list's own "ONLY shaders that need WL Param management"
+        // comment) - this shader has no WindLight/environment uniforms.
+        gResizeBicubicProgram.mName = "GPU Resize Bicubic";
+        // S24 (2026-08-26, task #263 round 6): hasSrgb attaches srgbF.glsl's
+        // srgb_to_linear()/linear_to_srgb() (same mechanism gCASProgram/
+        // gDeferredPostGammaCorrectProgram use) so the shader can blend its
+        // 4 taps in linear light instead of on the already gamma-encoded
+        // source (the composited post target this reads is post-gamma-
+        // correct) - blending gamma-encoded values directly is a real,
+        // if subtle, error: it weights mid-tones wrong versus blending the
+        // light they actually represent.
+        gResizeBicubicProgram.mFeatures.hasSrgb = true;
+        gResizeBicubicProgram.mShaderFiles.clear();
+        gResizeBicubicProgram.clearPermutations();
+        gResizeBicubicProgram.mShaderFiles.push_back(make_pair("deferred/postDeferredNoTCV.glsl", GL_VERTEX_SHADER));
+        gResizeBicubicProgram.mShaderFiles.push_back(make_pair("deferred/resizeBicubic.glsl", GL_FRAGMENT_SHADER));
+        gResizeBicubicProgram.mShaderLevel = mShaderLevel[SHADER_DEFERRED];
+        success = gResizeBicubicProgram.createShader();
+        llassert(success);
+    }
+
+    if (success)
+    {
         gDeferredPostTonemapProgram.mName = "Deferred Tonemap Post Process";
         gDeferredPostTonemapProgram.mFeatures.hasSrgb = true;
         gDeferredPostTonemapProgram.mFeatures.isDeferred = true;
@@ -3074,19 +3127,52 @@ bool LLViewerShaderMgr::loadShadersDeferred()
         success = gPostScreenSpaceReflectionProgram.createShader();
     }
 
-    if (success) {
-        gDeferredBufferVisualProgram.mName = "Deferred Buffer Visualization Shader";
-        gDeferredBufferVisualProgram.mShaderFiles.clear();
-        gDeferredBufferVisualProgram.mShaderFiles.push_back(make_pair("deferred/postDeferredNoTCV.glsl", GL_VERTEX_SHADER));
-        gDeferredBufferVisualProgram.mShaderFiles.push_back(make_pair("deferred/postDeferredVisualizeBuffers.glsl", GL_FRAGMENT_SHADER));
-        gDeferredBufferVisualProgram.mShaderLevel = mShaderLevel[SHADER_DEFERRED];
-
-        add_common_permutations(&gDeferredBufferVisualProgram);
-
-        success = gDeferredBufferVisualProgram.createShader();
-    }
+    // S24 (2026-08-24, task #261): gDeferredBufferVisualProgram's own
+    // createShader() call moved OUT of this eager startup chain - see
+    // loadShaderBufferVisualization() below for why.
 
     return success;
+}
+
+// S24 (2026-08-24, task #261): first real 0.1 alpha bug report - two
+// independent AMD GPU users both saw the viewer lock up on the startup
+// "Compiling shader: ..." splash dialog (LLGLSLShader::createShader()'s
+// LLSplashScreen::update() call is the exact chokepoint named in the
+// report), and static analysis narrowed it to specifically this shader:
+// "Deferred Buffer Visualization Shader" (Develop > Rendering > Buffer
+// Visualization, postDeferredVisualizeBuffers.hlsl) is genuinely a debug/
+// diagnostic-only feature never used in normal gameplay, yet was being
+// unconditionally compiled during loadShadersDeferred()'s mandatory startup
+// chain like every real rendering shader - meaning a driver-side compile
+// hang here (CreatePixelShader() invokes the GPU vendor's own DXBC->native-
+// ISA backend compiler, a genuinely different code path per vendor, unlike
+// the vendor-neutral CPU-side D3DCompile front-end step) blocked EVERY user
+// from ever reaching the main viewer, not just the ones who'd actually open
+// this debug view. No definite root cause was found via source inspection
+// alone (the shader itself is trivial - one texture sample, no loops; no
+// register collisions with unconditionally-attached shared files; no class3
+// override exists to be silently substituted) - a genuine AMD driver-side
+// compiler bug on some legal-but-unusual generated-bytecode pattern is
+// plausible but unconfirmed without live AMD hardware to repro against.
+// Rather than guess at the shader content, this is a real, unconditionally-
+// correct mitigation regardless of root cause: a rarely-used debug shader
+// has no business being compiled eagerly at startup at all. Moved to a
+// lazy, on-first-use compile from LLPipeline::visualizeBuffers() instead -
+// this cannot block startup for anyone who never opens the debug view, and
+// if it does still hang for someone who does open it, that's now an
+// isolated, diagnosable-in-the-moment problem instead of an unconditional
+// block on the whole viewer for every user with this GPU class.
+bool LLViewerShaderMgr::loadShaderBufferVisualization()
+{
+    gDeferredBufferVisualProgram.mName = "Deferred Buffer Visualization Shader";
+    gDeferredBufferVisualProgram.mShaderFiles.clear();
+    gDeferredBufferVisualProgram.mShaderFiles.push_back(make_pair("deferred/postDeferredNoTCV.glsl", GL_VERTEX_SHADER));
+    gDeferredBufferVisualProgram.mShaderFiles.push_back(make_pair("deferred/postDeferredVisualizeBuffers.glsl", GL_FRAGMENT_SHADER));
+    gDeferredBufferVisualProgram.mShaderLevel = mShaderLevel[SHADER_DEFERRED];
+
+    add_common_permutations(&gDeferredBufferVisualProgram);
+
+    return gDeferredBufferVisualProgram.createShader();
 }
 
 bool LLViewerShaderMgr::loadShadersObject()

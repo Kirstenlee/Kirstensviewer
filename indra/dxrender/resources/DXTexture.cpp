@@ -64,12 +64,26 @@ namespace
     }
 }
 
-bool DXTexture::create(const uint8_t* data, int width, int height, int components, bool generate_mips, bool alpha_only, bool defer_upload, bool bgra)
+bool DXTexture::create(const uint8_t* data, int width, int height, int components, bool generate_mips, bool alpha_only, bool bgra)
 {
     if (width <= 0 || height <= 0)
     {
         return false;
     }
+
+    // S24 (2026-08-24, task #257): a same-size/no-data reuse fast-path was
+    // tried here (skip destroy+recreate, keep old content, for CEF's
+    // every-paint create() call) and reverted - data==nullptr at a matching
+    // size is NOT CEF-specific, it's LLViewerFetchedTexture's normal
+    // discard-level streaming pattern too (see this class's create()
+    // comment in the header). Silently keeping stale GPU content there
+    // broke ordinary texture loading under RenderDXMultiThreadedTextures
+    // (wrong/stale textures, retry storms, unbounded memory growth,
+    // avatars never rezzing) - the caller's own completion tracking expects
+    // a real create() to have actually happened. If CEF's blank-frame gap
+    // needs closing again, it belongs at the LLViewerMediaImpl layer, which
+    // actually knows "this is a media texture, safe to reuse in place" -
+    // not inside this shared, every-texture-in-the-engine create().
 
     // S24 (2026-07-23): a per-instance call-counter diagnostic here
     // confirmed create() was being invoked repeatedly (destroy()+recreate,
@@ -79,7 +93,7 @@ bool DXTexture::create(const uint8_t* data, int width, int height, int component
     // is meant to run once per texture's lifetime plus whenever its
     // dimensions/format genuinely change; incremental content updates
     // belong in updateSubImage() below, not here.
-    destroy();
+    destroyLocked();
 
     mGenerateMips = generate_mips;
 
@@ -175,25 +189,8 @@ bool DXTexture::create(const uint8_t* data, int width, int height, int component
 
     if (generate_mips && upload_data)
     {
-        if (defer_upload)
-        {
-            // Stash a copy rather than hold upload_data's pointer - it may
-            // point at a caller-owned buffer (the repacked `rgba` local
-            // above, or `data` itself when components==4) whose lifetime
-            // we don't want to depend on lasting until finalizePendingUpload().
-            mPending.rgba.assign(upload_data, upload_data + (size_t)width * height * 4);
-            mPending.width = width;
-            mPending.height = height;
-            mPending.x = 0;
-            mPending.y = 0;
-            mPending.is_subimage = false;
-            mHasPendingUpload = true;
-        }
-        else
-        {
-            gDXDevice.getContext()->UpdateSubresource(mTexture, 0, nullptr, upload_data, width * 4, 0);
-            gDXDevice.getContext()->GenerateMips(mSRV);
-        }
+        gDXDevice.getContext()->UpdateSubresource(mTexture, 0, nullptr, upload_data, width * 4, 0);
+        gDXDevice.getContext()->GenerateMips(mSRV);
     }
 
     return true;
@@ -206,7 +203,7 @@ bool DXTexture::createCompressed(const uint8_t* data, int width, int height, DXG
         return false;
     }
 
-    destroy();
+    destroyLocked();
     mGenerateMips = false;
 
     D3D11_TEXTURE2D_DESC desc = {};
@@ -259,7 +256,7 @@ bool DXTexture::createFloat(const float* data, int width, int height, int compon
         return false;
     }
 
-    destroy();
+    destroyLocked();
     mGenerateMips = false;
 
     std::vector<float> rgba;
@@ -329,7 +326,7 @@ bool DXTexture::createFloat(const float* data, int width, int height, int compon
     return true;
 }
 
-bool DXTexture::updateSubImage(const uint8_t* data, int data_width, int x_pos, int y_pos, int width, int height, int components, bool alpha_only, bool defer_upload, bool bgra)
+bool DXTexture::updateSubImage(const uint8_t* data, int data_width, int x_pos, int y_pos, int width, int height, int components, bool alpha_only, bool bgra)
 {
     if (!mTexture || !data || width <= 0 || height <= 0)
     {
@@ -353,18 +350,6 @@ bool DXTexture::updateSubImage(const uint8_t* data, int data_width, int x_pos, i
                 return false;
             }
         }
-    }
-
-    if (defer_upload)
-    {
-        mPending.rgba = std::move(rgba);
-        mPending.width = width;
-        mPending.height = height;
-        mPending.x = x_pos;
-        mPending.y = y_pos;
-        mPending.is_subimage = true;
-        mHasPendingUpload = true;
-        return true;
     }
 
     D3D11_BOX box = {};
@@ -394,41 +379,6 @@ bool DXTexture::updateSubImage(const uint8_t* data, int data_width, int x_pos, i
         gDXDevice.getContext()->GenerateMips(mSRV);
     }
 
-    return true;
-}
-
-bool DXTexture::finalizePendingUpload()
-{
-    if (!mHasPendingUpload || !mTexture)
-    {
-        mHasPendingUpload = false;
-        return false;
-    }
-
-    if (mPending.is_subimage)
-    {
-        D3D11_BOX box = {};
-        box.left = (UINT)mPending.x;
-        box.top = (UINT)mPending.y;
-        box.front = 0;
-        box.right = (UINT)(mPending.x + mPending.width);
-        box.bottom = (UINT)(mPending.y + mPending.height);
-        box.back = 1;
-        gDXDevice.getContext()->UpdateSubresource(mTexture, 0, &box, mPending.rgba.data(), mPending.width * 4, 0);
-    }
-    else
-    {
-        gDXDevice.getContext()->UpdateSubresource(mTexture, 0, nullptr, mPending.rgba.data(), mPending.width * 4, 0);
-    }
-
-    if (mGenerateMips)
-    {
-        gDXDevice.getContext()->GenerateMips(mSRV);
-    }
-
-    mHasPendingUpload = false;
-    mPending.rgba.clear();
-    mPending.rgba.shrink_to_fit();
     return true;
 }
 
@@ -527,11 +477,6 @@ bool DXTexture::scaleDown(int src_mip_level, int new_width, int new_height)
     mTexture = new_texture;
     mSRV = new_srv;
 
-    // A pending deferred upload (if any) targeted the OLD texture - drop it,
-    // same reasoning as destroy()'s own comment.
-    mHasPendingUpload = false;
-    mPending.rgba.clear();
-
     return true;
 }
 
@@ -623,12 +568,11 @@ bool DXTexture::copySubImageFromFrameBuffer(int fb_x, int fb_y, int x_pos, int y
 
 void DXTexture::destroy()
 {
+    destroyLocked();
+}
+
+void DXTexture::destroyLocked()
+{
     if (mSRV) { mSRV->Release(); mSRV = nullptr; }
     if (mTexture) { mTexture->Release(); mTexture = nullptr; }
-
-    // A pending upload targets mTexture as it existed when staged - drop it
-    // rather than let a later finalizePendingUpload() apply stale data to a
-    // freshly (re)created texture.
-    mHasPendingUpload = false;
-    mPending.rgba.clear();
 }

@@ -76,6 +76,7 @@
 #include "lldate.h"
 #include "llerrorcontrol.h"
 #include "llfontgl.h"
+#include "llvertexbuffer.h"
 #include "llmousehandler.h"
 #include "llrect.h"
 #include "llsky.h"
@@ -184,6 +185,7 @@
 #include "llviewerparcelmgr.h"
 #include "llviewerregion.h"
 #include "llviewershadermgr.h"
+#include "llgpuresize.h"
 #include "llviewerstats.h"
 #include "llvoavatarself.h"
 #include "llvopartgroup.h"
@@ -231,6 +233,9 @@ extern bool gDepthDirty;
 extern bool gResizeScreenTexture;
 extern bool gCubeSnapshot;
 extern bool gSnapshotNoPost;
+// S24 (2026-08-26, task #263): see llviewerdisplay.cpp's own comment, next
+// to gSnapshotNoPost - the true final composited snapshot-capture source.
+extern LLRenderTarget* gLastCompositedPostTarget;
 
 LLViewerWindow* gViewerWindow = NULL;
 
@@ -2109,7 +2114,11 @@ LLViewerWindow::LLViewerWindow(const Params& p)
 
 	// Init the image list.  Must happen after GL is initialized and before the images that
 	// LLViewerWindow needs are requested, as well as before LLViewerMedia starts updating images.
-	LLImageGL::initClass(mWindow, LLViewerTexture::MAX_GL_IMAGE_CATEGORY, false, gSavedSettings.getBOOL("RenderDXMultiThreadedTextures"), gSavedSettings.getBOOL("RenderDXMultiThreadedMedia"));
+	// S24 (2026-08-26, task #260 CLOSED not-applicable): thread_texture_loads/
+	// thread_media_updates hardcoded false - background-thread D3D11 texture/
+	// media creation was removed after confirming an unfixable driver-level
+	// NVIDIA bug. See LLImageGL::initClass()'s DX_RENDER branch (llimagegl.cpp).
+	LLImageGL::initClass(mWindow, LLViewerTexture::MAX_GL_IMAGE_CATEGORY, false, false, false);
 	gTextureList.init();
 	LLViewerTextureManager::init();
 	gBumpImageList.init();
@@ -2817,6 +2826,10 @@ void LLViewerWindow::draw()
 	//#endif
 	stop_glerror();
 
+	// S24 (task #224, diagnostics removed 2026-08-25): the live toggles that
+	// were here narrowed the bug to LLUIImage's display-list cache (task
+	// #54), which now defaults off - see lluiimage.cpp's sEnableDisplayListsCollection
+	// comment for the full story.
 	LLUI::setLineWidth(1.f);
 
 	LLUI::setLineWidth(1.f);
@@ -4158,7 +4171,6 @@ static LLTrace::BlockTimerStatHandle FTM_UPDATE_WORLD_VIEW("Update World View");
 void LLViewerWindow::updateWorldViewRect(bool use_full_window)
 {
 	LL_RECORD_BLOCK_TIME(FTM_UPDATE_WORLD_VIEW);
-	bool ssr = gSavedSettings.getBOOL("RenderScreenSpaceReflections");
 	// start off using whole window to render world
 	LLRect new_world_rect = mWindowRectRaw;
 
@@ -4178,11 +4190,23 @@ void LLViewerWindow::updateWorldViewRect(bool use_full_window)
 	if (mWorldViewRectRaw != new_world_rect)
 	{
 		mWorldViewRectRaw = new_world_rect;
-		// S24 Avoid resizing during raw snapshots to prevent reflections being obliterated
-		if (!ssr)
-		{
-			gResizeScreenTexture = true;
-		}
+		// S24 (2026-08-29): this used to skip requesting a resize whenever
+		// RenderScreenSpaceReflections was on ("avoid resizing during raw
+		// snapshots to prevent reflections being obliterated") - r2988,
+		// 2026-03-09, predates DX_RENDER's SSR implementation entirely
+		// (task #156, 2026-08-11). SSR under DX_RENDER re-copies its scene
+		// map fresh every frame (pipeline.cpp's "ssr copy" zone) rather than
+		// persisting a GL-FBO-attachment-shaped history buffer across
+		// resizes, so the original GL-era corruption concern doesn't apply -
+		// and skipping the resize meant gResizeScreenTexture was never set
+		// (and resizeScreenTexture() never even called - see its own sole
+		// call site in llviewerdisplay.cpp gating on this exact flag) for
+		// ANY world-view-rect change that isn't a real OS window resize,
+		// e.g. opening/closing a side panel, or rawSnapshot()'s show_ui
+		// toggle - leaving the deferred/post-fx buffers at the wrong size
+		// against the new viewport whenever SSR is enabled. Always request
+		// the resize now.
+		gResizeScreenTexture = true;
 
 		LLViewerCamera::getInstance()->setViewHeightInPixels(mWorldViewRectRaw.getHeight());
 		LLViewerCamera::getInstance()->setAspect(getWorldViewAspectRatio());
@@ -5261,7 +5285,139 @@ bool LLViewerWindow::rawSnapshot(LLImageRaw* raw, S32 image_width, S32 image_hei
 	S32 original_height = 0;
 	bool reset_deferred = false;
 
+#ifndef DX_RENDER
 	LLRenderTarget scratch_space;
+#endif
+#ifdef DX_RENDER
+	// S24 (2026-08-26, task #263): a 4K request from a smaller window was
+	// confirmed (live repro) to reallocate the ENTIRE deferred pipeline
+	// (G-buffer, 4 shadow maps, SSAO, reflection probes, post-fx targets)
+	// to 4K and render one full frame through all of it - too much single-
+	// frame GPU work for the driver's TDR timeout, resulting in a genuine
+	// device-removed reset (thousands of failed CreateBuffer calls logged,
+	// swap chain itself then failing to recreate, forced app shutdown).
+	// Cap the actual NATIVE render size; anything beyond the cap renders at
+	// the capped size (same cost class as today's normal frame) and gets
+	// GPU-upscaled afterward (LLGPUResize, newview/llgpuresize.h) instead
+	// of ever attempting a native render at the full requested size.
+	bool need_gpu_upscale = false;
+	S32 render_width = image_width;
+	S32 render_height = image_height;
+	LLRenderTarget upscale_target;
+#endif
+
+#ifdef DX_RENDER
+	// S24 (2026-08-26, task #263 round 4): a live repro proved even a
+	// render SMALLER than the window still hangs the driver - the risk was
+	// never really "how big is the render", it's gPipeline.allocateScreenBuffer()
+	// itself tearing down and rebuilding the ENTIRE deferred pipeline
+	// (G-buffer, 4 shadow maps, SSAO, reflection probes, post-fx targets)
+	// to a size DIFFERENT from whatever it's already safely running at
+	// every ordinary frame - regardless of whether that new size is bigger
+	// or smaller. Fix: for a color, no-UI, oversized request, never call
+	// allocateScreenBuffer() at all. Render one frame at whatever
+	// resolution the pipeline is ALREADY allocated at (identical to what
+	// every normal frame already does, proven stable), then GPU-upscale
+	// (LLGPUResize) that native capture directly to the requested size.
+	// Self-contained and returns directly - does not fall through to the
+	// scratch_ready/allocateScreenBuffer(render_width,...)/reset_deferred
+	// machinery below at all, which remains for GL and for DX_RENDER's
+	// rarer show_ui/depth-type oversized edge cases only.
+	if (!show_ui && type == LLSnapshotModel::SNAPSHOT_TYPE_COLOR &&
+		(image_width > window_width || image_height > window_height))
+	{
+		gDisplaySwapBuffers = false;
+		gDepthDirty = true;
+
+		// S24 (2026-08-26, task #263 round 5): force real edge AA for this
+		// one capture regardless of the user's live gameplay FSAA setting -
+		// upscaling faithfully preserves whatever was in the source, so
+		// jagged/aliased silhouette edges in the native capture just get
+		// scaled up to bigger jagged edges no matter how good the resize
+		// filter is (Catmull-Rom included) - a resize filter smooths pixel-
+		// to-pixel colour transitions, it can't invent sub-pixel edge
+		// precision that was never captured. Originally forced FXAA rather
+		// than SMAA here specifically to avoid SMAA's separate edge/blend-
+		// weight buffers first-time-allocating mid-capture, back when this
+		// function was hitting GPU driver TDR every round; that instability
+		// is now fully resolved (round 4's allocateScreenBuffer()-avoidance
+		// fix), and SMAA is a single-shot per-frame pass with no cross-frame
+		// state (confirmed: mSMAABlendBuffer/mFXAAMap are cleared and
+		// rewritten every call, pipeline.cpp:8102-8110), so it's safe now -
+		// switched to SMAA for cleaner edges than FXAA gives. Saved/restored
+		// around the one display() call only.
+		U32 saved_fsaa_type = LLPipeline::RenderFSAAType;
+		LLPipeline::RenderFSAAType = 2;
+		display(do_rebuild, 1.f, 0, true);
+		LLPipeline::RenderFSAAType = saved_fsaa_type;
+
+		bool ok = false;
+		if (gLastCompositedPostTarget)
+		{
+			LLRenderTarget native_upscale_target;
+			if (native_upscale_target.allocate(image_width, image_height, GL_RGBA, false))
+			{
+				if (LLGPUResize::resize(gLastCompositedPostTarget, &native_upscale_target))
+				{
+					if (ID3D11Texture2D* src_tex = native_upscale_target.getDXColorTexture(0))
+					{
+						LLImageDataLock lock(raw);
+						raw->resize(image_width, image_height, 3);
+						if (!raw->isBufferInvalid())
+						{
+							std::vector<U8> region((size_t)image_width * image_height * 4);
+							if (DXReadback::readPixels(src_tex, 0, 0, image_width, image_height, 4, region.data()))
+							{
+								// D3D11 top-origin source -> GL-bottom-origin
+								// raw convention (row 0 of raw = source's
+								// LAST row) - same flip already established
+								// for the tiled path elsewhere in this
+								// function.
+								for (S32 y = 0; y < image_height; ++y)
+								{
+									const U8* src_row = region.data() + (size_t)(image_height - 1 - y) * image_width * 4;
+									U8* dst_row = raw->getData() + (size_t)y * image_width * 3;
+									for (S32 x = 0; x < image_width; ++x)
+									{
+										dst_row[x * 3 + 0] = src_row[x * 4 + 0];
+										dst_row[x * 3 + 1] = src_row[x * 4 + 1];
+										dst_row[x * 3 + 2] = src_row[x * 4 + 2];
+									}
+								}
+								ok = true;
+							}
+						}
+					}
+				}
+			}
+			else
+			{
+				LL_WARNS() << "LLViewerWindow::rawSnapshot: failed to allocate native_upscale_target at " << image_width << "x" << image_height << LL_ENDL;
+			}
+		}
+
+		gDisplaySwapBuffers = false;
+		gSnapshotNoPost = false;
+		gDepthDirty = true;
+
+		if (!gPipeline.hasRenderDebugFeatureMask(LLPipeline::RENDER_DEBUG_FEATURE_UI))
+		{
+			LLPipeline::toggleRenderDebugFeature(LLPipeline::RENDER_DEBUG_FEATURE_UI);
+		}
+		if (hide_hud)
+		{
+			LLPipeline::sShowHUDAttachments = true;
+		}
+		setCursor(UI_CURSOR_ARROW);
+		if (do_rebuild)
+		{
+			gPipeline.resetDrawOrders();
+		}
+		setBalanceVisible(true);
+
+		return ok;
+	}
+#endif
 
 	F32 scale_factor = 1.0f;
 	if (!keep_window_aspect || (image_width > window_width) || (image_height > window_height))
@@ -5269,27 +5425,71 @@ bool LLViewerWindow::rawSnapshot(LLImageRaw* raw, S32 image_width, S32 image_hei
 		if ((image_width <= gGLManager.mGLMaxTextureSize && image_height <= gGLManager.mGLMaxTextureSize) &&
 			(image_width > window_width || image_height > window_height) && LLPipeline::sRenderDeferred && !show_ui)
 		{
+			// S24 (2026-08-26, task #263): scratch_space (GL-only below) was
+			// a GL-era assumption that binding a render target before
+			// calling display() would redirect where the frame renders -
+			// D3D11 has no such implicit "current FBO" concept, so under
+			// DX_RENDER scratch_space was allocated but NEVER actually
+			// written to, and reading it back always produced black. The
+			// real fix: gPipeline.allocateScreenBuffer() below already
+			// correctly resizes the pipeline's own internal post-fx targets
+			// (mPostPingMap/mPostPongMap) to this resolution - the capture
+			// now reads directly from gLastCompositedPostTarget (set by
+			// DXPipeline::presentDeferredScreen(), llviewerdisplay.cpp/
+			// dxpipeline.cpp) after display() runs, below. No scratch target
+			// needed under DX_RENDER at all.
+#ifndef DX_RENDER
 			U32 color_fmt = type == LLSnapshotModel::SNAPSHOT_TYPE_DEPTH ? GL_DEPTH_COMPONENT : GL_RGBA;
-			if (scratch_space.allocate(image_width, image_height, color_fmt, true))
+			bool scratch_ready = scratch_space.allocate(image_width, image_height, color_fmt, true);
+#else
+			bool scratch_ready = true;
+#endif
+			if (scratch_ready)
 			{
 				original_width = gPipeline.mRT->deferredScreen.getWidth();
 				original_height = gPipeline.mRT->deferredScreen.getHeight();
 
-				if (gPipeline.allocateScreenBuffer(image_width, image_height))
+#ifdef DX_RENDER
+				// S24 (2026-08-26, task #263): default dropped from 2.0 to
+				// 1.0 after a live repro on a 3440-wide ultrawide window -
+				// a 4K (3840x2160) request never exceeded a 2x-window cap
+				// (6880x2880) there, so it still went through a full native
+				// re-render and hit the exact same TDR this cap exists to
+				// avoid. Window-native size is the ONLY resolution actually
+				// confirmed safe on this hardware/driver combination -
+				// anything beyond it goes through the GPU upscale path now,
+				// unconditionally, with no "generous multiplier" allowance.
+				static LLCachedControl<F32> native_render_limit(gSavedSettings, "RenderSnapshotNativeSizeLimit", 1.0f);
+				const S32 native_limit_w = (S32)((F32)window_width * (F32)native_render_limit);
+				const S32 native_limit_h = (S32)((F32)window_height * (F32)native_render_limit);
+				if (image_width > native_limit_w || image_height > native_limit_h)
+				{
+					F32 fit = llmin((F32)native_limit_w / (F32)image_width, (F32)native_limit_h / (F32)image_height);
+					render_width = llmax(1, (S32)(image_width * fit));
+					render_height = llmax(1, (S32)(image_height * fit));
+					need_gpu_upscale = true;
+				}
+#endif
+
+				if (gPipeline.allocateScreenBuffer(render_width, render_height))
 				{
 					window_width = image_width;
 					window_height = image_height;
 					snapshot_width = image_width;
 					snapshot_height = image_height;
 					reset_deferred = true;
-					mWorldViewRectRaw.set(0, image_height, image_width, 0);
+					mWorldViewRectRaw.set(0, render_height, render_width, 0);
 					LLViewerCamera::getInstance()->setViewHeightInPixels(mWorldViewRectRaw.getHeight());
 					LLViewerCamera::getInstance()->setAspect(getWorldViewAspectRatio());
+#ifndef DX_RENDER
 					scratch_space.bindTarget();
+#endif
 				}
 				else
 				{
+#ifndef DX_RENDER
 					scratch_space.release();
+#endif
 					gPipeline.allocateScreenBuffer(original_width, original_height);
 				}
 			}
@@ -5393,38 +5593,110 @@ bool LLViewerWindow::rawSnapshot(LLImageRaw* raw, S32 image_width, S32 image_hei
 				}
 
 #ifdef DX_RENDER
-				// S24 (DX_RENDER): resolve the read source once per
-				// subimage tile rather than per scanline - GL's
-				// glReadPixels() with no explicit framebuffer override
-				// reads whatever's currently bound (FBO 0 / the window
-				// framebuffer, unless scratch_space.bindTarget() above
-				// overrode it for the oversized-image tiling case); this
-				// mirrors that same implicit target selection. Height is
-				// the SOURCE texture's height (for the GL-bottom-origin ->
-				// D3D11-top-origin y flip below), not `raw`'s. Both
-				// branches return an AddRef'd pointer (GetResource()/
-				// getBackBufferTexture() COM convention) - released once
-				// after the scanline loop below.
-				ID3D11Texture2D* dx_color_source = nullptr;
-				int dx_source_height = 0;
-				if (scratch_space.isComplete())
+				// S24 (2026-08-26, task #263): the frame above rendered at
+				// the capped render_width x render_height (see
+				// need_gpu_upscale's own comment) - GPU-upscale it to the
+				// TRUE requested image_width x image_height now, once,
+				// before the readback loop below runs. upscale_target is
+				// left unallocated (isComplete()==false) when
+				// need_gpu_upscale is false, so the color-source resolution
+				// below falls through to gLastCompositedPostTarget exactly
+				// as it always did.
+				if (need_gpu_upscale && gLastCompositedPostTarget)
 				{
-					if (ID3D11ShaderResourceView* srv = scratch_space.getColorSRV(0))
+					if (upscale_target.allocate(image_width, image_height, GL_RGBA, false))
 					{
-						ID3D11Resource* resource = nullptr;
-						srv->GetResource(&resource);
-						if (resource)
+						if (!LLGPUResize::resize(gLastCompositedPostTarget, &upscale_target))
 						{
-							resource->QueryInterface(__uuidof(ID3D11Texture2D), (void**)&dx_color_source);
-							resource->Release();
+							LL_WARNS() << "LLViewerWindow::rawSnapshot: LLGPUResize::resize failed, snapshot will be at native render resolution instead of the requested size" << LL_ENDL;
+							upscale_target.release();
 						}
 					}
-					dx_source_height = (int)scratch_space.getHeight();
+					else
+					{
+						LL_WARNS() << "LLViewerWindow::rawSnapshot: failed to allocate upscale_target at " << image_width << "x" << image_height << LL_ENDL;
+					}
+				}
+#endif
+
+#ifdef DX_RENDER
+				// S24 (2026-08-26, task #263): read directly from
+				// gLastCompositedPostTarget (mPostPingMap/mPostPongMap,
+				// whichever DXPipeline::presentDeferredScreen() landed on
+				// this frame - dxpipeline.cpp/llviewerdisplay.cpp) instead
+				// of scratch_space (removed above under DX_RENDER - it was
+				// never actually written to, see that comment) or the
+				// window-locked swap chain (wrong resolution for an
+				// oversized capture - gDXSwapChain is never resized for
+				// snapshots; confirmed its only resize call site is the
+				// real OS window-resize handler). display() just ran
+				// (above), so this reflects exactly the frame this loop
+				// iteration is reading, at whatever resolution
+				// allocateScreenBuffer() last set. getDXColorTexture()
+				// returns a cached, NOT AddRef'd pointer (owned by the
+				// render target); getBackBufferTexture() DOES AddRef
+				// (GetResource()'s COM convention) - only the fallback
+				// branch needs releasing after the loop below.
+				ID3D11Texture2D* dx_color_source = nullptr;
+				int dx_source_height = 0;
+				bool dx_color_source_owned = false;
+				// S24 (2026-08-26, task #263): prefer the just-upscaled
+				// target over the native-resolution composite when the
+				// render_width/render_height cap above was applied - see
+				// need_gpu_upscale's own comment.
+				// S24 (2026-08-29): a show_ui capture must read the swap
+				// chain, never gLastCompositedPostTarget - the latter is set
+				// by DXPipeline::presentDeferredScreen() BEFORE the UI is
+				// drawn (UI composites directly onto the swap chain's back
+				// buffer afterward - see this function's window_rect comment
+				// above) and is sized to the smaller 3D-only world view rect,
+				// while a show_ui capture's window_width/window_height (and
+				// therefore read_width/read_height below) are the full
+				// window size. Reading the post target here produced both a
+				// UI-less capture AND a CopySubresourceRegion box taller
+				// than the actual source texture (dx_source_height <
+				// read_height -> negative region_y_start below) - a
+				// malformed copy region, the same class of bug that has
+				// driven GPU driver TDR/hard-lock resets elsewhere in this
+				// snapshot code (task #263's history). Confirmed root cause
+				// of the "Display UI in Snapshot" hard lock.
+				if (upscale_target.isComplete())
+				{
+					dx_color_source = upscale_target.getDXColorTexture(0);
+					dx_source_height = (int)upscale_target.getHeight();
+				}
+				else if (!show_ui && gLastCompositedPostTarget)
+				{
+					dx_color_source = gLastCompositedPostTarget->getDXColorTexture(0);
+					dx_source_height = (int)gLastCompositedPostTarget->getHeight();
 				}
 				else
 				{
 					dx_color_source = gDXSwapChain.getBackBufferTexture();
 					dx_source_height = gDXSwapChain.getHeight();
+					dx_color_source_owned = true;
+				}
+
+				// S24 (2026-08-26, task #263): ONE region read for this
+				// whole tile instead of one DXReadback::readPixels() call
+				// per output row - the per-row version (still used by the
+				// depth branch below) was confirmed live to trigger the
+				// SAME GPU driver TDR reset the render-resolution cap above
+				// was built to avoid: thousands of synchronous staging-
+				// texture-create+Map GPU round trips in a tight loop, no
+				// pacing, is by itself enough to blow the driver's timeout
+				// even when the render itself is cheap. dx_y decreases as
+				// out_y increases (GL-bottom -> D3D11-top origin flip), so
+				// the region's row order is the output's row order
+				// reversed - region_scratch row (read_height-1-out_y) is
+				// output row out_y, not row out_y directly.
+				bool region_read_ok = false;
+				static thread_local std::vector<U8> region_scratch;
+				if (type == LLSnapshotModel::SNAPSHOT_TYPE_COLOR && dx_color_source && read_width > 0 && read_height > 0)
+				{
+					region_scratch.resize((size_t)read_width * read_height * 4);
+					S32 region_y_start = dx_source_height - (S32)read_height - subimage_y_offset;
+					region_read_ok = DXReadback::readPixels(dx_color_source, subimage_x_offset, region_y_start, read_width, read_height, 4, region_scratch.data());
 				}
 #endif
 				for (U32 out_y = 0; out_y < read_height; out_y++)
@@ -5449,24 +5721,21 @@ bool LLViewerWindow::rawSnapshot(LLImageRaw* raw, S32 image_width, S32 image_hei
 						{
 #ifdef DX_RENDER
 							// Source is DXGI_FORMAT_R8G8B8A8_UNORM (4 bytes/
-							// pixel) - GL_RGB wants 3 (no alpha). Read the
-							// full RGBA scanline into a scratch buffer, then
-							// repack, same idea as DXTexture::create()'s
+							// pixel) - GL_RGB wants 3 (no alpha). region_scratch
+							// (read once for the whole tile, above) holds the
+							// full RGBA region - repack this row out of it,
+							// same repack idea as DXTexture::create()'s
 							// repackPixel() elsewhere in this project.
-							if (dx_color_source)
+							if (region_read_ok)
 							{
-								static thread_local std::vector<U8> rgba_scratch;
-								rgba_scratch.resize((size_t)read_width * 4);
-								S32 dx_y = dx_source_height - 1 - (S32)(out_y + subimage_y_offset);
-								if (DXReadback::readPixels(dx_color_source, subimage_x_offset, dx_y, read_width, 1, 4, rgba_scratch.data()))
+								U32 scratch_row = (read_height - 1) - out_y;
+								const U8* src = region_scratch.data() + (size_t)scratch_row * read_width * 4;
+								U8* dst = raw->getData() + output_buffer_offset;
+								for (U32 px = 0; px < read_width; ++px)
 								{
-									U8* dst = raw->getData() + output_buffer_offset;
-									for (U32 px = 0; px < read_width; ++px)
-									{
-										dst[px * 3 + 0] = rgba_scratch[px * 4 + 0];
-										dst[px * 3 + 1] = rgba_scratch[px * 4 + 1];
-										dst[px * 3 + 2] = rgba_scratch[px * 4 + 2];
-									}
+									dst[px * 3 + 0] = src[px * 4 + 0];
+									dst[px * 3 + 1] = src[px * 4 + 1];
+									dst[px * 3 + 2] = src[px * 4 + 2];
 								}
 							}
 #else
@@ -5482,36 +5751,22 @@ bool LLViewerWindow::rawSnapshot(LLImageRaw* raw, S32 image_width, S32 image_hei
 						{
 							LLPointer<LLImageRaw> depth_line_buffer = new LLImageRaw(read_width, 1, sizeof(GL_FLOAT)); // need to store floating point values
 #ifdef DX_RENDER
-							// S24 (DX_RENDER): depth is not part of
-							// scratch_space's color SRV - reads from
-							// whichever LLRenderTarget currently owns the
-							// depth buffer for this frame. scratch_space
-							// only allocates its own depth when the
-							// oversized-image tiling path requested one
-							// (see the allocate(...,true) call above); the
-							// normal case's depth lives on the main
-							// deferred pipeline's own target, which has no
-							// DX_RENDER-exposed accessor yet - documented
-							// gap, not guessed at.
-							if (scratch_space.isComplete())
+							// S24 (2026-08-26, task #263): depth lives on
+							// pipeline.mRT->deferredScreen (mPostPingMap/
+							// mPostPongMap, read for color above, are
+							// color-only) - resized to the same snapshot
+							// resolution by the same allocateScreenBuffer()
+							// call as the color targets, see
+							// gLastCompositedPostTarget's own comment.
+							// Replaces the old scratch_space-based lookup,
+							// which had the same root problem as the color
+							// path (never actually written to under
+							// DX_RENDER). getDXDepthTexture() is a cached,
+							// NOT AddRef'd pointer - no Release() needed.
+							if (ID3D11Texture2D* depth_tex = gPipeline.mRT->deferredScreen.getDXDepthTexture())
 							{
-								if (ID3D11ShaderResourceView* depth_srv = scratch_space.getDepthSRV())
-								{
-									ID3D11Resource* depth_resource = nullptr;
-									depth_srv->GetResource(&depth_resource);
-									if (depth_resource)
-									{
-										ID3D11Texture2D* depth_tex = nullptr;
-										depth_resource->QueryInterface(__uuidof(ID3D11Texture2D), (void**)&depth_tex);
-										depth_resource->Release();
-										if (depth_tex)
-										{
-											S32 dx_y = dx_source_height - 1 - (S32)(out_y + subimage_y_offset);
-											DXReadback::readDepthPixels(depth_tex, subimage_x_offset, dx_y, read_width, 1, (float*)depth_line_buffer->getData());
-											depth_tex->Release();
-										}
-									}
-								}
+								S32 dx_y = (S32)gPipeline.mRT->deferredScreen.getHeight() - 1 - (S32)(out_y + subimage_y_offset);
+								DXReadback::readDepthPixels(depth_tex, subimage_x_offset, dx_y, read_width, 1, (float*)depth_line_buffer->getData());
 							}
 #else
 							glReadPixels(
@@ -5538,7 +5793,7 @@ bool LLViewerWindow::rawSnapshot(LLImageRaw* raw, S32 image_width, S32 image_hei
 					}
 				}
 #ifdef DX_RENDER
-				if (dx_color_source)
+				if (dx_color_source && dx_color_source_owned)
 				{
 					dx_color_source->Release();
 				}
@@ -5603,8 +5858,10 @@ bool LLViewerWindow::rawSnapshot(LLImageRaw* raw, S32 image_width, S32 image_hei
 		mWorldViewRectRaw = window_rect;
 		LLViewerCamera::getInstance()->setViewHeightInPixels(mWorldViewRectRaw.getHeight());
 		LLViewerCamera::getInstance()->setAspect(getWorldViewAspectRatio());
+#ifndef DX_RENDER
 		scratch_space.flush();
 		scratch_space.release();
+#endif
 		gPipeline.allocateScreenBuffer(original_width, original_height);
 	}
 

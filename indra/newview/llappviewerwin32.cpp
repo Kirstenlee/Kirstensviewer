@@ -35,6 +35,7 @@
 
 #include "llappviewerwin32.h"
 
+#include "llthread.h"
 #include "llgl.h"
 #include "res/resource.h" // *FIX: for setting gIconResource.
 
@@ -303,6 +304,20 @@ int APIENTRY WINMAIN(HINSTANCE hInstance,
 	PWSTR     pCmdLine,
 	int       nCmdShow)
 {
+	// S24 (2026-08-24, task #257 follow-up): REVERTED as a diagnostic isolation
+	// step - a login hang ("not responding", black screen including UI) was
+	// observed on 2026-08-24 in the first genuine Release build of the session
+	// (build-config confusion meant this exact call was never actually
+	// verified in Release before - see feedback_s24_build_system.md). This is
+	// the exact same "hangs at login" signature as the ORIGINAL regression
+	// this call caused when first introduced (task #257), before being
+	// reverted and reportedly re-confirmed safe - that re-confirmation may
+	// itself have been against a stale/wrong-config build. Reverting first to
+	// restore a working viewer and isolate the variable; re-investigate
+	// properly (with login tested under a genuine Release build specifically)
+	// before re-attempting this fix.
+	// on_main_thread();
+
 	// S23 test
 	LL_PROFILER_FRAME_END;
 	LL_PROFILER_SET_THREAD_NAME("App");
@@ -576,6 +591,15 @@ bool LLAppViewerWin32::init()
 
 	disableWinErrorReporting();
 
+	// S24 (2026-08-02): re-gated after enabling this caused a lockup/crash
+	// before window creation - LLWinDebug's vectored exception handler
+	// intercepts EVERY exception process-wide, including ordinary
+	// first-chance C++ exceptions libraries throw-and-catch internally as
+	// normal control flow (CEF/media plugin init, etc, all run before the
+	// window exists). With minidump writing enabled, each one triggered a
+	// full MiniDumpWriteDump() call - slow, and apparently reentrant/
+	// unstable enough to lock up before a window ever appeared. Not a safe
+	// diagnostic path for this codebase - back to log-based tracing only.
 #ifndef LL_RELEASE_FOR_DOWNLOAD
 	// Merely requesting the LLSingleton instance initializes it.
 	LLWinDebug::instance();

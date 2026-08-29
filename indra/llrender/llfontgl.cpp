@@ -436,12 +436,27 @@ S32 LLFontGL::render(const LLWString &wstr, S32 begin_offset, F32 x, F32 y, cons
 
     const LLFontBitmapCache* font_bitmap_cache = mFontFreetype->getFontBitmapCache();
 
+    // S24: this WAS "compute once before the loop", flagged by the
+    // original comment below (kept for context) as looking wrong - it is.
+    // LLFontBitmapCache::mBitmapWidth/mBitmapHeight are shared across BOTH
+    // glyph types (Grayscale and Color use the same two fields, not
+    // per-type ones - llfontbitmapcache.h), and nextOpenPos() overwrites
+    // them the moment either atlas needs a fresh page (llfontbitmapcache.cpp,
+    // "Make a new one" branch). getGlyphInfo() below can trigger exactly
+    // that mid-loop (first-ever glyph of a given type this session), which
+    // silently invalidates a value captured once up here for every glyph
+    // rendered afterward - wrong UV divisors, sampling the wrong region of
+    // the (now differently-sized) atlas texture. Confirmed as the root
+    // cause of task #254 (SMP color-emoji rendering as garbage under
+    // DX_RENDER, specifically in LLFontVertexBuffer-cached callers that
+    // bake one render() pass's UVs in permanently - uncached callers
+    // self-heal next frame once the atlas size has settled, masking this
+    // everywhere else). Moved inside the loop; recomputed per glyph.
+    //
     // This looks wrong, value is dynamic.
     // LLFontBitmapCache::nextOpenPos can alter these values when
     // new characters get added to cache, which affects whole string.
     // Todo: Perhaps value should update after symbols were added?
-    F32 inv_width = 1.f / font_bitmap_cache->getBitmapWidth();
-    F32 inv_height = 1.f / font_bitmap_cache->getBitmapHeight();
 
     const S32 LAST_CHARACTER = LLFontFreetype::LAST_CHAR_FULL;
 
@@ -493,6 +508,12 @@ S32 LLFontGL::render(const LLWString &wstr, S32 begin_offset, F32 x, F32 y, cons
             LL_ERRS() << "Missing Glyph Info" << LL_ENDL;
             break;
         }
+        // S24: recomputed every glyph, not once before the loop - see the
+        // comment above the loop for why. getGlyphInfo() just above can have
+        // just allocated a fresh atlas page (of either glyph type), so these
+        // must reflect the CURRENT (possibly just-changed) atlas size.
+        F32 inv_width = 1.f / font_bitmap_cache->getBitmapWidth();
+        F32 inv_height = 1.f / font_bitmap_cache->getBitmapHeight();
         // Per-glyph bitmap texture.
         std::pair<EFontGlyphType, S32> next_bitmap_entry = fgi->mBitmapEntry;
         if (next_bitmap_entry != bitmap_entry || last_char != wch)

@@ -328,7 +328,6 @@ void LLTexUnit::bindFast(LLTexture* texture)
 	// see this function's flush-condition comment further down for why this
 	// is needed in addition to the mCurrDXSRV comparison.
 	bool bound_image_changed = (mCurrBoundImageGL != gl_tex);
-	mCurrBoundImageGL = gl_tex;
 
 	// S24 (2026-08-06): this whole function used to silently do NOTHING at
 	// all when gl_tex was null (e.g. a terrain detail texture still
@@ -375,14 +374,28 @@ void LLTexUnit::bindFast(LLTexture* texture)
 	// LLImageGL object identity - scaleDown() never destroys that wrapper,
 	// only swaps the DXTexture's internal raw pointers) catches this
 	// deterministically regardless of address reuse.
+	// S24 (2026-08-29, task #278/#273, REVERTED same day - user-reported
+	// "lights/projected lights strobing badly" live regression, root cause
+	// not yet isolated): the generation-gated skip here is suspected but not
+	// confirmed - reverted to always calling PSSetShaderResources/
+	// PSSetSamplers as a safe bisection step while the real cause is found,
+	// rather than leaving a known-bad frame visible. mDXSRVGeneration is
+	// still stamped (harmless) so re-enabling the skip later is a small diff.
 	if (bound_image_changed || mCurrDXSRV != (void*)srv)
 	{
+		// S24 (2026-08-28, task #254): flush BEFORE updating mCurrBoundImageGL/
+		// mCurrDXSRV below - see bind(LLImageGL*)'s matching comment for the
+		// full explanation (task #254's actual root cause: this ordering made
+		// LLRender::flush()'s mDXImage capture tag still-queued vertices from
+		// the PREVIOUS texture with the NEW one instead).
 		gGL.flush();
 		// S24 (2026-08-16): also flush gDXUIBatch's separate pending queue -
 		// same missing-flush hazard. See DXUIBatch.h's top comment.
 		gDXUIBatch.flushPending();
 		mCurrDXSRV = (void*)srv;
 	}
+	mDXSRVGeneration = DXStateCache::getRTVGeneration();
+	mCurrBoundImageGL = gl_tex;
 	// gl_tex==nullptr has no address-mode/filter-option to read - TAM_WRAP/
 	// TFO_BILINEAR are this codebase's established default (matches
 	// LLViewerTexture's own default construction elsewhere).
@@ -406,9 +419,11 @@ void LLTexUnit::bindFast(LLTexture* texture)
 	// permanent fix - skip the now-meaningless PSSetSamplers call for
 	// any texture bound past slot 15 rather than passing an invalid
 	// StartSlot to the API.
+	mCurrDXSampler = (void*)sampler;
 	if (mIndex < 16)
 	{
 		gDXDevice.getContext()->PSSetSamplers(mIndex, 1, &sampler);
+		mCurrDXSampler = (void*)sampler;
 	}
 #else
 	LLImageGL* gl_tex = texture->getGLTexture();
@@ -514,7 +529,6 @@ bool LLTexUnit::bind(LLImageGL* texture, bool for_rendering, bool forceBind, S32
 	// freed-and-reused SRV address can't masquerade as "same texture, skip
 	// the flush."
 	bool bound_image_changed = (mCurrBoundImageGL != texture);
-	mCurrBoundImageGL = texture;
 	ID3D11ShaderResourceView* srv = texture->mDXTexture.getSRV();
 	// S24 (2026-07-22/23): this had no null check at all, unlike
 	// unbind()/unbindFast() (see getWhiteTextureSRV()'s comment above) - a
@@ -544,17 +558,43 @@ bool LLTexUnit::bind(LLImageGL* texture, bool for_rendering, bool forceBind, S32
 	// (DXTexture::scaleDown() Releases+recreates the SRV on every VRAM-
 	// pressure downscale; a coincidentally-reused address would otherwise
 	// read as "unchanged" and suppress a flush that's actually needed).
+	// S24 (2026-08-29, task #278/#273, REVERTED same day) - see bindFast()'s
+	// matching revert comment above.
 	if (bound_image_changed || mCurrDXSRV != (void*)srv)
 	{
+		// S24 (2026-08-28, task #254): flush BEFORE updating mCurrBoundImageGL/
+		// mCurrDXSRV below, not after. The old ordering set the "current
+		// texture" bookkeeping first, then flushed - so LLRender::flush()'s own
+		// capture of gGL.getTexUnit(0)->mCurrBoundImageGL (llrender.cpp, the
+		// sBufferDataList/mDXImage recording path added for task #54) always
+		// saw the NEW texture, even though the vertices actually being
+		// drained at that moment were queued under the OLD one. Invisible for
+		// the common immediate-draw case (nothing waits around long enough to
+		// notice), but decisive for anything that queues across a texture
+		// switch without self-flushing in between - which is exactly what
+		// happens during LLFontVertexBuffer's beginList()/endList() recording
+		// (llfontgl.cpp's submitGlyphBatch() recording branch queues via
+		// gGL.begin()/vertexBatchPreTransformed()/end(), and end() only
+		// auto-flushes on a mode change or >2048 verts - never on a texture
+		// switch alone). Confirmed as the actual root cause of task #254 (SMP
+		// color-emoji glyphs sampling the wrong font atlas under DX_RENDER):
+		// a heading string mixing grayscale text and one color-atlas emoji
+		// queues both without flushing, and the eventual flush - triggered by
+		// this bind() call switching to the SECOND glyph type - was tagging
+		// the FIRST glyph type's already-queued vertices with the SECOND
+		// type's texture once replayed.
 		gGL.flush();
 		// S24 (2026-08-16): also flush gDXUIBatch's separate pending queue -
 		// same missing-flush hazard. See DXUIBatch.h's top comment.
 		gDXUIBatch.flushPending();
 		mCurrDXSRV = (void*)srv;
 	}
+	mDXSRVGeneration = DXStateCache::getRTVGeneration();
+	mCurrBoundImageGL = texture;
 	ID3D11SamplerState* sampler = DXSampler::getOrCreate(
 		(int)texture->getAddressMode(), (int)texture->getFilteringOption());
 	gDXDevice.getContext()->PSSetShaderResources(mIndex, 1, &srv);
+	mCurrDXSampler = (void*)sampler;
 	if (mIndex < 16) // see bindFast()'s comment - sampler slots cap at 16, SRV slots don't
 	{
 		gDXDevice.getContext()->PSSetSamplers(mIndex, 1, &sampler);
@@ -609,6 +649,8 @@ bool LLTexUnit::bind(LLCubeMap* cubeMap)
 	{
 		srv = getWhiteTextureSRV();
 	}
+	// S24 (2026-08-29, task #278/#273, REVERTED same day) - see bindFast()'s
+	// matching revert comment above.
 	if (mCurrDXSRV != (void*)srv)
 	{
 		gGL.flush();
@@ -617,11 +659,13 @@ bool LLTexUnit::bind(LLCubeMap* cubeMap)
 		gDXUIBatch.flushPending();
 		mCurrDXSRV = (void*)srv;
 	}
+	mDXSRVGeneration = DXStateCache::getRTVGeneration();
 	// CLAMP + TRILINEAR - matches GL's own TAM_CLAMP convention for cubemap
 	// faces (avoids seams at face edges) and the full mip chain
 	// DXCubeTexture::create() always generates.
 	ID3D11SamplerState* sampler = DXSampler::getOrCreate(2, 2);
 	gDXDevice.getContext()->PSSetShaderResources(mIndex, 1, &srv);
+	mCurrDXSampler = (void*)sampler;
 	if (mIndex < 16) // see bindFast()'s comment - sampler slots cap at 16, SRV slots don't
 	{
 		gDXDevice.getContext()->PSSetSamplers(mIndex, 1, &sampler);
@@ -674,6 +718,8 @@ bool LLTexUnit::bind(LLCubeMapArray* cubeMapArray)
 	{
 		srv = getWhiteTextureSRV();
 	}
+	// S24 (2026-08-29, task #278/#273, REVERTED same day) - see bindFast()'s
+	// matching revert comment above.
 	if (mCurrDXSRV != (void*)srv)
 	{
 		gGL.flush();
@@ -682,10 +728,12 @@ bool LLTexUnit::bind(LLCubeMapArray* cubeMapArray)
 		gDXUIBatch.flushPending();
 		mCurrDXSRV = (void*)srv;
 	}
+	mDXSRVGeneration = DXStateCache::getRTVGeneration();
 	// CLAMP + TRILINEAR - same convention as bind(LLCubeMap*) above (avoids
 	// seams at face edges, full mip chain always generated).
 	ID3D11SamplerState* sampler = DXSampler::getOrCreate(2, 2);
 	gDXDevice.getContext()->PSSetShaderResources(mIndex, 1, &srv);
+	mCurrDXSampler = (void*)sampler;
 	if (mIndex < 16) // see bindFast()'s comment - sampler slots cap at 16, SRV slots don't
 	{
 		gDXDevice.getContext()->PSSetSamplers(mIndex, 1, &sampler);
@@ -718,6 +766,17 @@ bool LLTexUnit::bind(LLRenderTarget* renderTarget, bool bindDepth, bool useCompa
 	{
 		return false;
 	}
+	// S24 (2026-08-29, task #278/#273, REVERTED same day - THIS is the prime
+	// suspect for the user-reported "lights/projected lights strobing badly"
+	// regression: this overload is THE chokepoint for shadow map + G-buffer
+	// binds used every frame by the deferred lighting pass, and is exactly
+	// where mPostPingMap/mPostPongMap and every other ping-ponged render
+	// target flow through). Reverted to unconditional Set calls as a safe
+	// bisection step - see bindFast()'s matching revert comment for the
+	// general pattern. If reverting this alone fixes the strobing, the bug is
+	// somewhere in the mDXSRVGeneration invalidation logic specifically for
+	// render-target-sourced SRVs, not the simpler LLImageGL-sourced binds
+	// above.
 	if (mCurrDXSRV != (void*)srv)
 	{
 		gGL.flush();
@@ -726,6 +785,7 @@ bool LLTexUnit::bind(LLRenderTarget* renderTarget, bool bindDepth, bool useCompa
 		gDXUIBatch.flushPending();
 		mCurrDXSRV = (void*)srv;
 	}
+	mDXSRVGeneration = DXStateCache::getRTVGeneration();
 	// CLAMP + BILINEAR: matches the common post-process/screen-space sampling
 	// convention (edge clamping avoids wrap-around artifacts on a
 	// screen-space texture; render targets aren't mipmapped here).
@@ -738,6 +798,7 @@ bool LLTexUnit::bind(LLRenderTarget* renderTarget, bool bindDepth, bool useCompa
 		? DXSampler::getOrCreateComparison(D3D11_COMPARISON_LESS_EQUAL)
 		: DXSampler::getOrCreate(2, 1);
 	gDXDevice.getContext()->PSSetShaderResources(mIndex, 1, &srv);
+	mCurrDXSampler = (void*)sampler;
 	if (mIndex < 16) // see bindFast()'s comment - sampler slots cap at 16, SRV slots don't
 	{
 		gDXDevice.getContext()->PSSetSamplers(mIndex, 1, &sampler);
@@ -818,6 +879,8 @@ bool LLTexUnit::bind(DXTexture& tex, eTextureAddressMode address_mode, eTextureF
 		srv = getWhiteTextureSRV();
 	}
 
+	// S24 (2026-08-29, task #278/#273, REVERTED same day) - see bindFast()'s
+	// matching revert comment above.
 	if (mCurrDXSRV != (void*)srv)
 	{
 		gGL.flush();
@@ -826,9 +889,11 @@ bool LLTexUnit::bind(DXTexture& tex, eTextureAddressMode address_mode, eTextureF
 		gDXUIBatch.flushPending();
 		mCurrDXSRV = (void*)srv;
 	}
+	mDXSRVGeneration = DXStateCache::getRTVGeneration();
 
 	ID3D11SamplerState* sampler = DXSampler::getOrCreate((int)address_mode, (int)filter_option);
 	gDXDevice.getContext()->PSSetShaderResources(mIndex, 1, &srv);
+	mCurrDXSampler = (void*)sampler;
 	if (mIndex < 16) // see bindFast()'s comment - sampler slots cap at 16, SRV slots don't
 	{
 		gDXDevice.getContext()->PSSetSamplers(mIndex, 1, &sampler);
@@ -854,6 +919,8 @@ void LLTexUnit::unbind(eTextureType type)
 	// highlight) calls this before pushing its verts; without the flush,
 	// those verts can end up drawn with whatever a LATER bind() switches
 	// to instead of this white fallback.
+	// S24 (2026-08-29, task #278/#273, REVERTED same day) - see bindFast()'s
+	// matching revert comment above.
 	if (mCurrDXSRV != (void*)srv)
 	{
 		gGL.flush();
@@ -862,12 +929,14 @@ void LLTexUnit::unbind(eTextureType type)
 		gDXUIBatch.flushPending();
 		mCurrDXSRV = (void*)srv;
 	}
+	mDXSRVGeneration = DXStateCache::getRTVGeneration();
 	// S24 (2026-08-17, task #54): see mCurrBoundImageGL's own comment -
 	// unbind() means "no texture", so the tracked pointer needs to actually
 	// go to null here rather than staying whatever the last real bind() set.
 	mCurrBoundImageGL = nullptr;
 	ID3D11SamplerState* sampler = DXSampler::getOrCreate(0, 0); // WRAP, POINT - matches a solid white texel regardless
 	gDXDevice.getContext()->PSSetShaderResources(mIndex, 1, &srv);
+	mCurrDXSampler = (void*)sampler;
 	if (mIndex < 16) // see bindFast()'s comment - sampler slots cap at 16, SRV slots don't
 	{
 		gDXDevice.getContext()->PSSetSamplers(mIndex, 1, &sampler);
@@ -907,6 +976,8 @@ void LLTexUnit::unbindFast(eTextureType type)
 	ID3D11ShaderResourceView* srv = getWhiteTextureSRV();
 	// S24 (2026-07-23): same missing-flush bug as bind(LLImageGL*)/unbind() -
 	// see their comments.
+	// S24 (2026-08-29, task #278/#273, REVERTED same day) - see bindFast()'s
+	// matching revert comment above.
 	if (mCurrDXSRV != (void*)srv)
 	{
 		gGL.flush();
@@ -915,10 +986,12 @@ void LLTexUnit::unbindFast(eTextureType type)
 		gDXUIBatch.flushPending();
 		mCurrDXSRV = (void*)srv;
 	}
+	mDXSRVGeneration = DXStateCache::getRTVGeneration();
 	// S24 (2026-08-17, task #54): see unbind()'s matching fix/mCurrBoundImageGL's comment.
 	mCurrBoundImageGL = nullptr;
 	ID3D11SamplerState* sampler = DXSampler::getOrCreate(0, 0);
 	gDXDevice.getContext()->PSSetShaderResources(mIndex, 1, &srv);
+	mCurrDXSampler = (void*)sampler;
 	if (mIndex < 16) // see bindFast()'s comment - sampler slots cap at 16, SRV slots don't
 	{
 		gDXDevice.getContext()->PSSetSamplers(mIndex, 1, &sampler);
@@ -1610,114 +1683,9 @@ void LLRender::syncMatrices()
 		// as before) to restore known-stable behavior; needs a proper,
 		// unhurried investigation before re-attempting - see task #155.
 
-		// S24 (DX_RENDER diagnostic, 2026-07-26): TEMPORARY - uiV.hlsl
-		// transforms every incoming UV through this exact matrix
-		// (OUT.vary_texcoord0 = mul(texture_matrix0, float4(IN.texcoord0,0,1)).xy)
-		// before the pixel shader ever samples anything. A whole-image
-		// (0,0)-(1,1) UV test can't detect a non-identity texture matrix -
-		// almost any small stray scale/offset still maps most of [0,1] back
-		// onto itself, visually. A tiny, precise sub-rect (a single glyph's
-		// ~10x10 texel region out of a 512x512 atlas) has no such margin -
-		// the same stray transform would shift it straight out of the real
-		// glyph pixels into blank canvas. Logging once to check whether
-		// this is actually identity at the moment a glyph gets submitted.
-		if (dx_shader == LLGLSLShader::sCurBoundShaderPtr && dx_shader->mName == "UI Shader")
-		{
-			static bool logged_once = false;
-			if (!logged_once)
-			{
-				logged_once = true;
-				const float* m = glm::value_ptr(tex_mat0);
-				LL_WARNS("Text") << "syncMatrices() texture_matrix0 for UI Shader: ["
-					<< m[0] << "," << m[1] << "," << m[2] << "," << m[3] << " | "
-					<< m[4] << "," << m[5] << "," << m[6] << "," << m[7] << " | "
-					<< m[8] << "," << m[9] << "," << m[10] << "," << m[11] << " | "
-					<< m[12] << "," << m[13] << "," << m[14] << "," << m[15] << "]"
-					<< LL_ENDL;
-
-				// S24 (DX_RENDER diagnostic, 2026-07-26): TEMPORARY - real
-				// values of the matrix that actually places every UI vertex
-				// on screen, never directly logged before (only inferred
-				// from "some content showed up roughly where expected").
-				const float* mv = glm::value_ptr(mvp);
-				LL_WARNS("Text") << "syncMatrices() modelview_projection_matrix for UI Shader: ["
-					<< mv[0] << "," << mv[1] << "," << mv[2] << "," << mv[3] << " | "
-					<< mv[4] << "," << mv[5] << "," << mv[6] << "," << mv[7] << " | "
-					<< mv[8] << "," << mv[9] << "," << mv[10] << "," << mv[11] << " | "
-					<< mv[12] << "," << mv[13] << "," << mv[14] << "," << mv[15] << "]"
-					<< LL_ENDL;
-			}
-		}
-
 		vs.uploadConstants();
 
-		// S24 (DX_RENDER diagnostic, 2026-07-26): TEMPORARY - VSSetConstantBuffers
-		// only happens inside this if() - if getConstantBuffer() were ever
-		// null for the UI shader specifically, this silently skips binding,
-		// leaving whatever constant buffer a PREVIOUS shader/pass left bound
-		// still active at slot b0. Never directly confirmed non-null before.
 		ID3D11Buffer* cb = vs.getConstantBuffer();
-		if (dx_shader == LLGLSLShader::sCurBoundShaderPtr && dx_shader->mName == "UI Shader")
-		{
-			static bool logged_once = false;
-			if (!logged_once)
-			{
-				logged_once = true;
-				LL_WARNS("Text") << "syncMatrices() constant buffer for UI Shader: "
-					<< (void*)cb << (cb ? "" : " [NULL - VSSetConstantBuffers skipped]")
-					<< LL_ENDL;
-
-				// S24 (DX_RENDER diagnostic, 2026-07-26): TEMPORARY - the
-				// fresh-shader glyph test (no constant buffer at all,
-				// transform baked into vertex positions in C++) rendered
-				// correctly where gUIProgram (which DOES rely on this
-				// constant buffer for its transform) did not. Every prior
-				// check of this data only read the C++-side glm::mat4
-				// SOURCE values before upload - never what's actually
-				// sitting in GPU memory after uploadConstants() ran. Doing
-				// a real staging-buffer readback now, the same technique
-				// already used for texture readback (DXReadback), applied
-				// to a buffer for the first time this session.
-				if (cb)
-				{
-					D3D11_BUFFER_DESC desc = {};
-					cb->GetDesc(&desc);
-					D3D11_BUFFER_DESC staging_desc = desc;
-					staging_desc.Usage = D3D11_USAGE_STAGING;
-					staging_desc.BindFlags = 0;
-					staging_desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-					staging_desc.MiscFlags = 0;
-					ID3D11Buffer* staging = nullptr;
-					HRESULT hr = gDXDevice.getDevice()->CreateBuffer(&staging_desc, nullptr, &staging);
-					if (SUCCEEDED(hr) && staging)
-					{
-						gDXDevice.getContext()->CopyResource(staging, cb);
-						D3D11_MAPPED_SUBRESOURCE mapped = {};
-						if (SUCCEEDED(gDXDevice.getContext()->Map(staging, 0, D3D11_MAP_READ, 0, &mapped)))
-						{
-							const float* buf = (const float*)mapped.pData;
-							U32 float_count = llmin((U32)(desc.ByteWidth / 4), 32u);
-							std::string dump = "[";
-							for (U32 i = 0; i < float_count; ++i)
-							{
-								if (i) dump += ",";
-								dump += llformat("%g", buf[i]);
-							}
-							dump += "]";
-							LL_WARNS("Text") << "syncMatrices() ACTUAL GPU constant buffer bytes (size="
-								<< desc.ByteWidth << "): " << dump << LL_ENDL;
-							gDXDevice.getContext()->Unmap(staging, 0);
-						}
-						staging->Release();
-					}
-					else
-					{
-						LL_WARNS("Text") << "syncMatrices(): constant buffer staging readback CreateBuffer failed, hr=0x"
-							<< std::hex << (unsigned long)hr << std::dec << LL_ENDL;
-					}
-				}
-			}
-		}
 		if (cb)
 		{
 			// S24 (task #79 follow-on): bind to $Globals' REAL reflected
@@ -2260,7 +2228,30 @@ void LLRender::applyDXBlendState()
 	ID3D11BlendState* bs = DXStateCache::getBlendState(enabled, src, dst, alpha_src, alpha_dst, write_mask);
 	gDXDevice.getContext()->OMSetBlendState(bs, nullptr, 0xFFFFFFFF);
 }
+
+void LLRender::applyDXRasterizerState()
+{
+	bool offset_enabled = LLGLState::isEnabled(GL_POLYGON_OFFSET_FILL) || LLGLState::isEnabled(GL_POLYGON_OFFSET_LINE);
+	ID3D11RasterizerState* rs = DXStateCache::getRasterizerState(
+		LLGLState::isEnabled(GL_CULL_FACE),
+		LLGLState::isEnabled(GL_SCISSOR_TEST),
+		LLGLState::isEnabled(GL_DEPTH_CLAMP),
+		offset_enabled ? mCurrPolygonOffsetFactor : 0.f,
+		offset_enabled ? mCurrPolygonOffsetUnits : 0.f);
+	gDXDevice.getContext()->RSSetState(rs);
+}
 #endif
+
+void LLRender::setPolygonOffset(F32 factor, F32 units)
+{
+#ifdef DX_RENDER
+	mCurrPolygonOffsetFactor = factor;
+	mCurrPolygonOffsetUnits = units;
+	applyDXRasterizerState();
+#else
+	glPolygonOffset(factor, units);
+#endif
+}
 
 LLTexUnit* LLRender::getTexUnit(U32 index)
 {
@@ -2548,6 +2539,8 @@ void LLRender::flush()
 #ifdef DX_RENDER
 		// S24 (task #54): see LLVertexBufferData::mDXImage's comment.
 		buffer_data.mDXImage = gGL.getTexUnit(0)->mCurrBoundImageGL;
+		// S24 (task #254): see LLVertexBufferData::mDXShader's comment.
+		buffer_data.mDXShader = shader;
 #endif
 	}
 	else
