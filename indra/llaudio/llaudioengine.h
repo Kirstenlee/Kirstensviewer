@@ -31,6 +31,8 @@
 #include <list>
 #include <map>
 #include <array>
+#include <vector>
+#include <functional>
 
 #include "v3math.h"
 #include "v3dmath.h"
@@ -58,6 +60,16 @@ class LLAudioChannelOpenAL;
 class LLAudioBuffer;
 class LLStreamingAudioInterface;
 struct SoundData;
+
+// S24 (DX_RENDER, task #283 Phase 2 prep): staging list for LLAudioEngine::triggerSound()
+// calls made from a DXPool worker thread during LLViewerObjectList::update()'s parallel
+// idleUpdate() dispatch (llviewerobjectlist.cpp). triggerSound() writes the single
+// global gAudiop's mAllSources map (via addAudioSource()) unsynchronized - not safe to
+// call off the main thread. Mirrors LLDeferredPipelineMarks (pipeline.h).
+struct LLDeferredAudioActions
+{
+    std::vector<std::function<void()> > mActions;
+};
 
 //
 //  LLAudioEngine definition
@@ -135,6 +147,12 @@ public:
 		const S32 type = LLAudioEngine::AUDIO_TYPE_NONE,
 		const LLVector3d& pos_global = LLVector3d::zero);
 	void triggerSound(SoundData& soundData);
+
+	// S24 (task #283 Phase 2 prep): see LLDeferredAudioActions above. Pass non-null
+	// before posting idleUpdate() work for a chunk of avatars to a DXPool worker
+	// thread, and null again once that chunk is done - never leave it set on the
+	// main thread.
+	static void setDeferredActionsForThisThread(LLDeferredAudioActions* actions);
 
 	bool preloadSound(const LLUUID& id);
 

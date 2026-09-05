@@ -766,9 +766,24 @@ F64 LLAudioEngine::mapWindVecToPan(LLVector3 wind_vec)
 }
 
 
+// S24 (task #283 Phase 2 prep): see LLDeferredAudioActions in llaudioengine.h.
+static thread_local LLDeferredAudioActions* sTLSDeferredAudioActions = nullptr;
+
+void LLAudioEngine::setDeferredActionsForThisThread(LLDeferredAudioActions* actions)
+{
+	sTLSDeferredAudioActions = actions;
+}
+
 void LLAudioEngine::triggerSound(const LLUUID& audio_uuid, const LLUUID& owner_id, const F32 gain,
 	const S32 type, const LLVector3d& pos_global)
 {
+	if (sTLSDeferredAudioActions)
+	{
+		sTLSDeferredAudioActions->mActions.push_back([this, audio_uuid, owner_id, gain, type, pos_global]
+			{ triggerSound(audio_uuid, owner_id, gain, type, pos_global); });
+		return;
+	}
+
 	// Create a new source (since this can't be associated with an existing source.
     //LL_INFOS() << "Localized: " << audio_uuid << LL_ENDL;
 
