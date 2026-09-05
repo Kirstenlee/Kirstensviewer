@@ -1106,15 +1106,28 @@ namespace
 {
     std::string escapedMessageLines(const std::string& message)
     {
+        // S24 (2026-08-31, external report): this used to also escape bare
+        // '\\' (so it could distinguish a literal backslash from its own
+        // "\\n"/"\\r" escape sequences on decode) - but nothing in this
+        // codebase ever decodes a log line (confirmed via grep, zero
+        // unescape callers anywhere), so that reversibility was purely
+        // theoretical, paid for at a real, pervasive cost: every Windows
+        // path in every log line (source file locations, settings paths,
+        // system error text) got each '\' doubled - the reporter measured
+        // 43 of 115 lines in one otherwise-normal startup log. Only \n/\r
+        // still get escaped, which is the property that actually matters:
+        // collapsing a message with a real embedded newline back onto one
+        // physical log-file line, so per-line log tooling doesn't see it
+        // as multiple entries.
         std::ostringstream out;
         size_t written_out = 0;
         size_t all_content = message.length();
         size_t escape_char_index; // always relative to start of message
         // Use find_first_of to find the next character in message that needs escaping
-        for ( escape_char_index = message.find_first_of("\\\n\r");
+        for ( escape_char_index = message.find_first_of("\n\r");
               escape_char_index != std::string::npos && written_out < all_content;
               // record what we've written this iteration, scan for next char that needs escaping
-              written_out = escape_char_index + 1, escape_char_index = message.find_first_of("\\\n\r", written_out)
+              written_out = escape_char_index + 1, escape_char_index = message.find_first_of("\n\r", written_out)
              )
         {
             // found a character that needs escaping, so write up to that with the escape prefix
@@ -1125,9 +1138,6 @@ namespace
             char found = message[escape_char_index];
             switch ( found )
             {
-            case '\\':
-                out << '\\';
-                break;
             case '\n':
                 out << 'n';
                 break;

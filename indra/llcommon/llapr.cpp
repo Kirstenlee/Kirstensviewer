@@ -30,6 +30,7 @@
 #include "llapr.h"
 #include "llapp.h"
 #include "llmutex.h"
+#include "llstring.h"
 #include "apr_dso.h"
 
 apr_pool_t *gAPRPoolp = NULL; // Global APR memory pool
@@ -238,13 +239,22 @@ bool _ll_apr_warn_status(apr_status_t status, const char* file, int line)
 
 	char buf[MAX_STRING];	/* Flawfinder: ignore */
 	apr_strerror(status, buf, sizeof(buf));
-	// S24: on Windows, apr_strerror() for OS-level errors (APR_OS_START_SYSERR)
-	// goes through FormatMessageA and comes back in the system ANSI codepage,
-	// not UTF-8 - on a non-English locale this makes the log line invalid
-	// UTF-8 (mojibake to anyone reading it in a different codepage/editor).
-	// Logging the numeric status alongside it keeps the line diagnosable even
-	// when the text itself is unusable.
-	LL_WARNS("APR") << "APR: " << file << ":" << line << " (status " << status << ") " << buf << LL_ENDL;
+	// S24 (2026-08-31, fixed - external report with byte-level proof: a
+	// forced APR failure on a Japanese system logged CP932 bytes for
+	// "status 720003" that don't parse as UTF-8 at all, verified byte-for-
+	// byte against Windows' own FormatMessage output for error 3
+	// ERROR_PATH_NOT_FOUND encoded as CP932): on Windows, apr_strerror()
+	// for OS-level errors (APR_OS_START_SYSERR) goes through FormatMessageA
+	// and comes back in the system ANSI codepage, not UTF-8 - on any
+	// non-English locale this makes the log line invalid UTF-8 (mojibake,
+	// and un-pasteable into a bug report) whenever the message happens to
+	// contain a byte above 0x7F, which a CJK codepage always will.
+	// ll_convert_string_to_utf8_string() (llstring.cpp) is this project's
+	// existing, already-used-elsewhere (lldate.cpp, llformat.cpp) ANSI-
+	// >UTF-8 fixup - safe to apply unconditionally, since pure-ASCII input
+	// round-trips through it as a no-op.
+	std::string buf_utf8 = ll_convert_string_to_utf8_string(buf);
+	LL_WARNS("APR") << "APR: " << file << ":" << line << " (status " << status << ") " << buf_utf8 << LL_ENDL;
 
 	return true;
 }
