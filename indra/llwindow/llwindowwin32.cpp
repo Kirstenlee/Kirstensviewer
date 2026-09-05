@@ -52,7 +52,7 @@
 #include "lldir.h"
 #include "llsdutil.h"
 #include "llsys.h"
-#include "llglslshader.h"
+#include "llhlslshader.h"
 #include "llthreadsafequeue.h"
 #include "stringize.h"
 #include "llframetimer.h"
@@ -2196,60 +2196,20 @@ void LLWindowWin32::recreateWindow(RECT window_rect, DWORD dw_ex_style, DWORD dw
 	sWindowHandleForMessageBox = mWindowHandle;
 }
 
+// S24 (2026-08-31, task #300 GL-retirement): was real WGL shared-context
+// creation (version-negotiation loop against wglCreateContextAttribsARB,
+// falling back to wglCreateContext) - both call sites are confirmed dead
+// under DX_RENDER: LLWindowWin32::switchContext()'s own #else (non-
+// DX_RENDER) branch, and LLImageGLThread's constructor (llimagegl.cpp),
+// which the class's own existing comment already documents as "DX_RENDER
+// never constructs this class... GL-only" (task #260). Stubbed to match
+// LLWindowHeadless::createSharedContext()'s existing convention for "no
+// shared context available" (llwindowheadless.h) rather than resurrecting
+// the wglCreateContextAttribsARB extension pointer just to keep dead code
+// compiling.
 void* LLWindowWin32::createSharedContext()
 {
-	mMaxGLVersion = llclamp(mMaxGLVersion, 3.f, 4.6f);
-
-	S32 version_major = llfloor(mMaxGLVersion);
-	S32 version_minor = (S32)llround((mMaxGLVersion - version_major) * 10);
-
-	S32 attribs[] =
-	{
-		WGL_CONTEXT_MAJOR_VERSION_ARB, version_major,
-		WGL_CONTEXT_MINOR_VERSION_ARB, version_minor,
-		WGL_CONTEXT_PROFILE_MASK_ARB,  LLRender::sGLCoreProfile ? WGL_CONTEXT_CORE_PROFILE_BIT_ARB : WGL_CONTEXT_COMPATIBILITY_PROFILE_BIT_ARB,
-		WGL_CONTEXT_FLAGS_ARB, gDebugGL ? WGL_CONTEXT_DEBUG_BIT_ARB : 0,
-		0
-	};
-
-	HGLRC rc = 0;
-
-	bool done = false;
-	while (!done)
-	{
-		rc = wglCreateContextAttribsARB(mhDC, mhRC, attribs);
-
-		if (!rc)
-		{
-			if (attribs[3] > 0)
-			{ //decrement minor version
-				attribs[3]--;
-			}
-			else if (attribs[1] > 3)
-			{ //decrement major version and start minor version over at 3
-				attribs[1]--;
-				attribs[3] = 3;
-			}
-			else
-			{ //we reached 3.0 and still failed, bail out
-				done = true;
-			}
-		}
-		else
-		{
-            LL_INFOS() << "Created OpenGL " << llformat("%d.%d", attribs[1], attribs[3]) <<
-                (LLRender::sGLCoreProfile ? " core" : " compatibility") << " context." << LL_ENDL;
-			done = true;
-		}
-	}
-
-	if (!rc && !(rc = wglCreateContext(mhDC)))
-	{
-		close();
-		LLError::LLUserWarningMsg::show(mCallbacks->translateString("MBGLContextErr"), 8/*LAST_EXEC_GRAPHICS_INIT*/);
-	}
-
-	return rc;
+	return nullptr;
 }
 
 void LLWindowWin32::makeContextCurrent(void* contextPtr)
