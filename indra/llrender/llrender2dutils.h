@@ -32,7 +32,7 @@
 #include "llpointer.h"      // LLPointer<>
 #include "llrect.h"
 #include "llsingleton.h"
-#include "llglslshader.h"
+#include "llhlslshader.h"
 
 class LLColor4;
 class LLVector3;
@@ -168,7 +168,7 @@ private:
 	callback_list_t mCallbackList;
 };
 
-extern LLGLSLShader gSolidColorProgram;
-extern LLGLSLShader gUIProgram;
+extern LLHLSLShader gSolidColorProgram;
+extern LLHLSLShader gUIProgram;
 
 #endif // LL_RENDER2DUTILS_H

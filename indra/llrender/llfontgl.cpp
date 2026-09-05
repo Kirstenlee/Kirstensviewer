@@ -36,7 +36,7 @@
 #include "llgl.h"
 #include "llimagegl.h"
 #include "llrender.h"
-#include "llglslshader.h"
+#include "llhlslshader.h"
 #include "llstl.h"
 #include "v4color.h"
 #include "glm/gtc/type_ptr.hpp"
@@ -44,9 +44,7 @@
 #include "lldir.h"
 #include "llstring.h"
 
-#ifdef DX_RENDER
 #include "DXUIBatch.h"
-#endif
 
 // Third party library includes
 #include <boost/tokenizer.hpp>
@@ -155,39 +153,36 @@ S32 LLFontGL::render(const LLWString &wstr, S32 begin_offset, const LLRectf& rec
 }
 
 // The only seams in LLFontGL that touch rendering (see submitGlyphBatch()/
-// submitUnderline() below for the DX_RENDER-vs-GL fences).
+// submitUnderline() below for the DXUIBatch-vs-immediate-mode split).
 void LLFontGL::beginTextRender() const
 {
-#ifdef DX_RENDER
-    // Flush gGL's pending immediate-mode batch (e.g. a widget's own
+    // Flush gDX's pending immediate-mode batch (e.g. a widget's own
     // background rect via gl_rect_2d()) so it draws before DXUIBatch's
     // separate, immediate Draw() call for this text - otherwise submission
     // order can diverge and the rect ends up painted over the text.
-    gGL.flush();
-#endif
-    gGL.getTexUnit(0)->enable(LLTexUnit::TT_TEXTURE);
-    gGL.pushUIMatrix();
-    gGL.loadUIIdentity();
+    gDX.flush();
+    gDX.getTexUnit(0)->enable(LLTexUnit::TT_TEXTURE);
+    gDX.pushUIMatrix();
+    gDX.loadUIIdentity();
     // Depth translation, so that floating text appears 'in-world'
     // and is correctly occluded.
-    gGL.translatef(0.f, 0.f, sCurDepth);
+    gDX.translatef(0.f, 0.f, sCurDepth);
     // Not guaranteed to be set correctly
-    gGL.setSceneBlendType(LLRender::BT_ALPHA);
+    gDX.setSceneBlendType(LLRender::BT_ALPHA);
 }
 
 void LLFontGL::endTextRender() const
 {
-    gGL.popUIMatrix();
+    gDX.popUIMatrix();
 }
 
 void LLFontGL::bindGlyphTexture(LLImageGL* font_image) const
 {
-    gGL.getTexUnit(0)->bind(font_image);
+    gDX.getTexUnit(0)->bind(font_image);
 }
 
 void LLFontGL::submitGlyphBatch(const LLVector4a* vertices, const LLVector2* uvs, const LLColor4U* colors, S32 vertex_count) const
 {
-#ifdef DX_RENDER
     // Uses whatever shader is CURRENTLY bound (gUIProgram, per
     // beginTextRender()'s comment - this class never binds its own shader,
     // mirroring GL's "current program" model).
@@ -197,7 +192,7 @@ void LLFontGL::submitGlyphBatch(const LLVector4a* vertices, const LLVector2* uvs
     }
     // S24 (2026-08-17, task #54): when LLFontVertexBuffer::genBuffers() has
     // a display-list recording open (beginList()/endList()), route through
-    // gGL's own immediate-mode path instead of the fast gDXUIBatch path -
+    // gDX's own immediate-mode path instead of the fast gDXUIBatch path -
     // LLRender::flush()'s existing sBufferDataList capture (genBuffer() +
     // mDXImage, both already backend-agnostic/DX-safe) builds a real,
     // replayable LLVertexBufferData from this call, exactly like it always
@@ -206,14 +201,14 @@ void LLFontGL::submitGlyphBatch(const LLVector4a* vertices, const LLVector2* uvs
     // changed), so the extra LLVertexBuffer allocation cost here is a
     // one-time thing, not a per-frame one. The common case (no recording,
     // every other frame) is completely unchanged below.
-    if (gGL.isRecording())
+    if (gDX.isRecording())
     {
-        gGL.begin(LLRender::TRIANGLES);
-        gGL.vertexBatchPreTransformed(vertices, uvs, colors, vertex_count);
-        gGL.end();
+        gDX.begin(LLRender::TRIANGLES);
+        gDX.vertexBatchPreTransformed(vertices, uvs, colors, vertex_count);
+        gDX.end();
         return;
     }
-    if (LLGLSLShader* shader = LLGLSLShader::sCurBoundShaderPtr)
+    if (LLHLSLShader* shader = LLHLSLShader::sCurBoundShaderPtr)
     {
         // S24 (2026-08-16): DXUIBatch's batching key is (shader, topology,
         // alpha_blend, depth) only - it has no idea the MVP is about to
@@ -254,7 +249,7 @@ void LLFontGL::submitGlyphBatch(const LLVector4a* vertices, const LLVector2* uvs
             dx_verts[v].uv[1] = uvs[v].mV[1];
         }
         gDXUIBatch.push(dx_verts.data(), vertex_count);
-        gGL.syncMatrices();
+        gDX.syncMatrices();
         // Same defensive null-check as LLVertexBuffer::setupVertexBuffer()'s
         // DX_RENDER branch - only null if the bound shader failed to compile.
         if (ID3DBlob* vsb = shader->mDXVertexShader.getVSBytecode())
@@ -262,21 +257,13 @@ void LLFontGL::submitGlyphBatch(const LLVector4a* vertices, const LLVector2* uvs
             gDXUIBatch.flush(vsb->GetBufferPointer(), vsb->GetBufferSize(), shader->mDXVertexShader.getVS(), shader->mDXPixelShader.getPS(), true, shader->mName.c_str());
         }
     }
-#else
-    gGL.begin(LLRender::TRIANGLES);
-    {
-        gGL.vertexBatchPreTransformed(vertices, uvs, colors, vertex_count);
-    }
-    gGL.end();
-#endif // DX_RENDER
 }
 
 void LLFontGL::submitUnderline(F32 x0, F32 x1, F32 y, const LLColor4U& color) const
 {
     // color is passed explicitly (text_color/emoji_color) rather than
     // relying on GL's ambient "current color" carry-forward, since each
-    // DXUIBatch draw is self-contained under DX_RENDER.
-#ifdef DX_RENDER
+    // DXUIBatch draw is self-contained.
     // S24 (2026-08-17, task #54): same recording-mode fallback as
     // submitGlyphBatch() above (see its comment) - here it also sidesteps
     // the "DXUIBatch has no line topology" quad-expansion below entirely,
@@ -284,19 +271,19 @@ void LLFontGL::submitUnderline(F32 x0, F32 x1, F32 y, const LLColor4U& color) co
     // exactly, since this path goes through the general-purpose
     // LLVertexBuffer/DXVertexLayout machinery, which already handles LINES
     // natively - no CPU-side quad expansion needed here, unlike TRIANGLE_FAN).
-    if (gGL.isRecording())
+    if (gDX.isRecording())
     {
-        gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
-        gGL.color4ubv(color.mV);
-        gGL.begin(LLRender::LINES);
-        gGL.vertex2f(x0, y);
-        gGL.vertex2f(x1, y);
-        gGL.end();
+        gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+        gDX.color4ubv(color.mV);
+        gDX.begin(LLRender::LINES);
+        gDX.vertex2f(x0, y);
+        gDX.vertex2f(x1, y);
+        gDX.end();
         return;
     }
     // DXUIBatch has no line topology - represented as a 1-unit-tall filled
     // quad centered on y instead (matching GL's default line width).
-    if (LLGLSLShader* shader = LLGLSLShader::sCurBoundShaderPtr)
+    if (LLHLSLShader* shader = LLHLSLShader::sCurBoundShaderPtr)
     {
         // S24 (2026-08-16): same matrix-vs-batching-key gap as
         // submitGlyphBatch() above (see its comment) - an underline shares
@@ -322,22 +309,14 @@ void LLFontGL::submitUnderline(F32 x0, F32 x1, F32 y, const LLColor4U& color) co
         setv(quad[4], x1, y - HALF_WIDTH);
         setv(quad[5], x0, y - HALF_WIDTH);
 
-        gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+        gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
         gDXUIBatch.push(quad, 6);
-        gGL.syncMatrices();
+        gDX.syncMatrices();
         if (ID3DBlob* vsb = shader->mDXVertexShader.getVSBytecode())
         {
             gDXUIBatch.flush(vsb->GetBufferPointer(), vsb->GetBufferSize(), shader->mDXVertexShader.getVS(), shader->mDXPixelShader.getPS(), true, shader->mName.c_str());
         }
     }
-#else
-    gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
-    gGL.color4ubv(color.mV);
-    gGL.begin(LLRender::LINES);
-    gGL.vertex2f(x0, y);
-    gGL.vertex2f(x1, y);
-    gGL.end();
-#endif // DX_RENDER
 }
 
 S32 LLFontGL::render(const LLWString &wstr, S32 begin_offset, F32 x, F32 y, const LLColor4 &color, HAlign halign, VAlign valign, U8 style,

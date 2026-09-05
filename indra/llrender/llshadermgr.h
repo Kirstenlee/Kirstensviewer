@@ -28,7 +28,7 @@
 #define LL_SHADERMGR_H
 
 #include "llgl.h"
-#include "llglslshader.h"
+#include "llhlslshader.h"
 
 class LLShaderMgr
 {
@@ -189,6 +189,7 @@ public:
         DEFERRED_SSR_GLOSSY_SAMPLES,        //  "glossySampleCount"
         DEFERRED_SSR_NOISE_SINE,            //  "noiseSine"
         DEFERRED_SSR_ADAPTIVE_STEP_MULT,    //  "adaptiveStepMultiplier"
+        DEFERRED_SSR_GLOSS_THRESHOLD,       //  "ssrGlossThreshold"
 
         MODELVIEW_DELTA_MATRIX,             //  "modelview_delta"
         INVERSE_MODELVIEW_DELTA_MATRIX,     //  "inv_modelview_delta"
@@ -371,7 +372,7 @@ public:
 
     virtual void initAttribsAndUniforms(void);
 
-    bool attachShaderFeatures(LLGLSLShader * shader);
+    bool attachShaderFeatures(LLHLSLShader * shader);
     void dumpObjectLog(GLuint ret, bool warns = true, const std::string& filename = "");
     void dumpShaderSource(U32 shader_code_count, GLchar** shader_code_text);
     bool    linkProgramObject(GLuint obj, bool suppress_errors = false);
@@ -388,14 +389,14 @@ public:
     virtual std::string getShaderDirPrefix(void) = 0; // Pure Virtual
 
     // Implemented in the application to actually update out of date uniforms for a particular shader
-    virtual void updateShaderUniforms(LLGLSLShader * shader) = 0; // Pure Virtual
+    virtual void updateShaderUniforms(LLHLSLShader * shader) = 0; // Pure Virtual
 
     void initShaderCache(bool enabled, const LLUUID& old_cache_version, const LLUUID& current_cache_version, bool second_instance);
     void clearShaderCache();
     void persistShaderCacheMetadata();
 
-    bool loadCachedProgramBinary(LLGLSLShader* shader);
-    bool saveCachedProgramBinary(LLGLSLShader* shader);
+    bool loadCachedProgramBinary(LLHLSLShader* shader);
+    bool saveCachedProgramBinary(LLHLSLShader* shader);
 
 public:
     // Map of shader names to compiled
@@ -407,7 +408,7 @@ public:
     // GL, HLSL is one source blob per stage) - loadShaderFile() caches raw,
     // extension-swapped HLSL source text here instead, keyed the same way
     // (by the file's original .glsl name) so attachVertexObject()/
-    // attachFragmentObject() (llglslshader.cpp) can look it up unchanged.
+    // attachFragmentObject() (llhlslshader.cpp) can look it up unchanged.
     std::map<std::string, std::string> mVertexShaderSourceText;
     std::map<std::string, std::string> mFragmentShaderSourceText;
 #endif

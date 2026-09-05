@@ -47,7 +47,7 @@ void LLUIImage::draw(S32 x, S32 y, S32 width, S32 height, const LLColor4& color,
         {
             // Deliberately empty pending verts.
             // They aren't related to the image, so don't register them under draw zone
-            gGL.flush();
+            gDX.flush();
 #ifdef DX_RENDER
             // S24 (2026-08-25, task #224): this replay path draws via its own
             // direct mVB->drawArrays() call (LLVertexBufferData::draw(),
@@ -61,22 +61,22 @@ void LLUIImage::draw(S32 x, S32 y, S32 width, S32 height, const LLColor4& color,
             // just a missed optimization. This is why disabling the cache
             // entirely (forcing every draw through the well-behaved
             // recording path below, which already flushes gDXUIBatch via
-            // gGL's own flush()) made the hover-highlight flicker vanish:
+            // gDX's own flush()) made the hover-highlight flicker vanish:
             // every replay of a cached button image was racing whatever
             // gDXUIBatch still had pending from neighboring UI content.
             gDXUIBatch.flushPending();
 #endif
             LL_PROFILE_ZONE_SCOPED;
-            gGL.getTexUnit(0)->enable(LLTexUnit::TT_TEXTURE);
+            gDX.getTexUnit(0)->enable(LLTexUnit::TT_TEXTURE);
 
-            //gGL.pushUIMatrix();
+            //gDX.pushUIMatrix();
 
             if (solid_color)
             {
                 gSolidColorProgram.bind();
             }
 
-            gGL.color4fv(color.mV); // for the shader
+            gDX.color4fv(color.mV); // for the shader
 
             // Replay the cached display list
             for (LLVertexBufferData& buffer : *display_list)
@@ -88,7 +88,7 @@ void LLUIImage::draw(S32 x, S32 y, S32 width, S32 height, const LLColor4& color,
             {
                 gUIProgram.bind();
             }
-            //gGL.popUIMatrix();
+            //gDX.popUIMatrix();
         }
         else
         {

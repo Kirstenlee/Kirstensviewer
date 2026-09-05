@@ -53,7 +53,7 @@
 // common - most 2D UI and world-space HUD content alike uses gUIProgram/
 // TriangleList/alpha-blend/no-depth) could get silently merged into ONE
 // pending batch even though each was positioned assuming its OWN,
-// different transform (gGL.syncMatrices(), called AFTER push() at every
+// different transform (gDX.syncMatrices(), called AFTER push() at every
 // one of these call sites, only takes effect for whichever call happens to
 // trigger the eventual real Draw() - anything merged in from an earlier
 // call under a different matrix draws wrong). The existing pass-boundary
@@ -90,24 +90,24 @@ bool ui_point_in_rect(S32 x, S32 y, S32 left, S32 top, S32 right, S32 bottom)
 	const F32 w = (F32)width;
 	const F32 h = (F32)height;
 
-	gGL.matrixMode(LLRender::MM_PROJECTION);
-	gGL.loadIdentity();
-	gGL.ortho(0.f, (w > 1.f ? w : 1.f), 0.f, (h > 1.f ? h : 1.f), -1.f, 1.f);
-	gGL.matrixMode(LLRender::MM_MODELVIEW);
-	gGL.loadIdentity();
+	gDX.matrixMode(LLRender::MM_PROJECTION);
+	gDX.loadIdentity();
+	gDX.ortho(0.f, (w > 1.f ? w : 1.f), 0.f, (h > 1.f ? h : 1.f), -1.f, 1.f);
+	gDX.matrixMode(LLRender::MM_MODELVIEW);
+	gDX.loadIdentity();
 }
 
 void gl_draw_x(const LLRect& rect, const LLColor4& color)
 {
-	gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+	gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
 
 #ifdef DX_RENDER
-	if (LLGLSLShader* shader = LLGLSLShader::sCurBoundShaderPtr)
+	if (LLHLSLShader* shader = LLHLSLShader::sCurBoundShaderPtr)
 	{
-		gGL.flush();
+		gDX.flush();
 		gDXUIBatch.flushPending();
-		DXRender2DUtils::glDrawX(rect, color, gGL.getUITranslation(), gGL.getUIScale());
-		gGL.syncMatrices();
+		DXRender2DUtils::glDrawX(rect, color, gDX.getUITranslation(), gDX.getUIScale());
+		gDX.syncMatrices();
 		if (ID3DBlob* vsb = shader->mDXVertexShader.getVSBytecode())
 		{
 			gDXUIBatch.flush(vsb->GetBufferPointer(), vsb->GetBufferSize(), shader->mDXVertexShader.getVS(), shader->mDXPixelShader.getPS(), true, shader->mName.c_str(), DXUITopology::LineList);
@@ -115,43 +115,43 @@ void gl_draw_x(const LLRect& rect, const LLColor4& color)
 	}
 	return;
 #else
-	gGL.color4fv(color.mV);
+	gDX.color4fv(color.mV);
 
-	gGL.begin(LLRender::LINES);
-	gGL.vertex2i(rect.mLeft, rect.mTop);
-	gGL.vertex2i(rect.mRight, rect.mBottom);
-	gGL.vertex2i(rect.mLeft, rect.mBottom);
-	gGL.vertex2i(rect.mRight, rect.mTop);
-	gGL.end();
+	gDX.begin(LLRender::LINES);
+	gDX.vertex2i(rect.mLeft, rect.mTop);
+	gDX.vertex2i(rect.mRight, rect.mBottom);
+	gDX.vertex2i(rect.mLeft, rect.mBottom);
+	gDX.vertex2i(rect.mRight, rect.mTop);
+	gDX.end();
 #endif // DX_RENDER
 }
 
 void gl_rect_2d_offset_local(S32 left, S32 top, S32 right, S32 bottom, const LLColor4& color, S32 pixel_offset, bool filled)
 {
-	gGL.color4fv(color.mV);
+	gDX.color4fv(color.mV);
 	gl_rect_2d_offset_local(left, top, right, bottom, pixel_offset, filled);
 }
 
 void gl_rect_2d_offset_local(S32 left, S32 top, S32 right, S32 bottom, S32 pixel_offset, bool filled)
 {
-	gGL.pushUIMatrix();
+	gDX.pushUIMatrix();
 	left += LLFontGL::sCurOrigin.mX;
 	right += LLFontGL::sCurOrigin.mX;
 	bottom += LLFontGL::sCurOrigin.mY;
 	top += LLFontGL::sCurOrigin.mY;
 
-	gGL.loadUIIdentity();
+	gDX.loadUIIdentity();
 	gl_rect_2d(llfloor((F32)left * LLRender::sUIGLScaleFactor.mV[VX]) - pixel_offset,
 		llfloor((F32)top * LLRender::sUIGLScaleFactor.mV[VY]) + pixel_offset,
 		llfloor((F32)right * LLRender::sUIGLScaleFactor.mV[VX]) + pixel_offset,
 		llfloor((F32)bottom * LLRender::sUIGLScaleFactor.mV[VY]) - pixel_offset,
 		filled);
-	gGL.popUIMatrix();
+	gDX.popUIMatrix();
 }
 
 void gl_rect_2d(S32 left, S32 top, S32 right, S32 bottom, bool filled)
 {
-	gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+	gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
 
 #ifdef DX_RENDER
 	// S24 (DXRender2DUtils, 2026-07-25): see llrender2dutils.cpp's file-level
@@ -159,40 +159,23 @@ void gl_rect_2d(S32 left, S32 top, S32 right, S32 bottom, bool filled)
 	// llrender2dutils.cpp" section - this is one of the ~20 functions moved
 	// out of large inline fences into dxrender/resources/DXRender2DUtils.
 	// Both color-taking wrappers (gl_rect_2d(...,color,filled) and the
-	// LLRect overload) already call gGL.color4fv(color) before reaching this
-	// base overload, so gGL.getCurrentColor() here picks up the right value
+	// LLRect overload) already call gDX.color4fv(color) before reaching this
+	// base overload, so gDX.getCurrentColor() here picks up the right value
 	// regardless of which entry point was used - see LLRender::
 	// getCurrentColor()'s own comment for why this exists at all (GL's
 	// ambient "current color" has no DX_RENDER equivalent to read from
 	// dxrender/, which has zero llrender dependency by design).
-	if (LLGLSLShader* shader = LLGLSLShader::sCurBoundShaderPtr)
+	if (LLHLSLShader* shader = LLHLSLShader::sCurBoundShaderPtr)
 	{
-		// S24 (DX_RENDER diagnostic, 2026-07-28): TEMPORARY - direct evidence
-		// for which shader real UI solid-rect draws (menu separators, drag
-		// handles, highlights) actually use, and what color data they carry -
-		// needed after the uiF.hlsl struct-reorder regression (see
-		// project_dxrender_vsps_linkage_bug memory) showed these rects
-		// disappearing when uiV/uiF's interpolant order was "corrected",
-		// which only makes sense if they're routed through gUIProgram (not
-		// gSolidColorProgram as assumed) - never directly confirmed before.
-		{
-			static int s_logged = 0;
-			if (s_logged < 20)
-			{
-				++s_logged;
-				const LLColor4& c = gGL.getCurrentColor();
-				LL_WARNS("Text") << "gl_rect_2d(): #" << s_logged << " shader='" << shader->mName
-					<< "' color=(" << c.mV[0] << "," << c.mV[1] << "," << c.mV[2] << "," << c.mV[3] << ")"
-					<< " rect=(" << left << "," << top << "," << right << "," << bottom << ")"
-					<< " filled=" << (filled ? "true" : "false")
-					<< LL_ENDL;
-			}
-		}
-
-		gGL.flush();
+		// S24 (2026-09-02): a 2026-07-28 diagnostic removed here (confirmed
+		// real UI solid-rect draws route through gUIProgram with correct
+		// color data, per its own comment - that question's been answered
+		// for over a month, and this was left logging on every one of a
+		// session's first 20 gl_rect_2d() calls since).
+		gDX.flush();
 		gDXUIBatch.flushPending();
-		DXRender2DUtils::glRectTwoD(left, top, right, bottom, gGL.getCurrentColor(), filled, gGL.getUITranslation(), gGL.getUIScale());
-		gGL.syncMatrices();
+		DXRender2DUtils::glRectTwoD(left, top, right, bottom, gDX.getCurrentColor(), filled, gDX.getUITranslation(), gDX.getUIScale());
+		gDX.syncMatrices();
 		if (ID3DBlob* vsb = shader->mDXVertexShader.getVSBytecode())
 		{
 			gDXUIBatch.flush(vsb->GetBufferPointer(), vsb->GetBufferSize(), shader->mDXVertexShader.getVS(), shader->mDXPixelShader.getPS(), true, shader->mName.c_str(),
@@ -204,40 +187,40 @@ void gl_rect_2d(S32 left, S32 top, S32 right, S32 bottom, bool filled)
 	// Counterclockwise quad will face the viewer
 	if (filled)
 	{
-		gGL.begin(LLRender::TRIANGLES);
-		gGL.vertex2i(left, top);
-		gGL.vertex2i(left, bottom);
-		gGL.vertex2i(right, bottom);
+		gDX.begin(LLRender::TRIANGLES);
+		gDX.vertex2i(left, top);
+		gDX.vertex2i(left, bottom);
+		gDX.vertex2i(right, bottom);
 
-		gGL.vertex2i(left, top);
-		gGL.vertex2i(right, bottom);
-		gGL.vertex2i(right, top);
-		gGL.end();
+		gDX.vertex2i(left, top);
+		gDX.vertex2i(right, bottom);
+		gDX.vertex2i(right, top);
+		gDX.end();
 	}
 	else
 	{
 		top--;
 		right--;
-		gGL.begin(LLRender::LINE_STRIP);
-		gGL.vertex2i(left, top);
-		gGL.vertex2i(left, bottom);
-		gGL.vertex2i(right, bottom);
-		gGL.vertex2i(right, top);
-		gGL.vertex2i(left, top);
-		gGL.end();
+		gDX.begin(LLRender::LINE_STRIP);
+		gDX.vertex2i(left, top);
+		gDX.vertex2i(left, bottom);
+		gDX.vertex2i(right, bottom);
+		gDX.vertex2i(right, top);
+		gDX.vertex2i(left, top);
+		gDX.end();
 	}
 #endif // DX_RENDER
 }
 
 void gl_rect_2d(S32 left, S32 top, S32 right, S32 bottom, const LLColor4& color, bool filled)
 {
-	gGL.color4fv(color.mV);
+	gDX.color4fv(color.mV);
 	gl_rect_2d(left, top, right, bottom, filled);
 }
 
 void gl_rect_2d(const LLRect& rect, const LLColor4& color, bool filled)
 {
-	gGL.color4fv(color.mV);
+	gDX.color4fv(color.mV);
 	gl_rect_2d(rect.mLeft, rect.mTop, rect.mRight, rect.mBottom, filled);
 }
 
@@ -246,18 +229,18 @@ void gl_rect_2d(const LLRect& rect, const LLColor4& color, bool filled)
 // and along the bottom it has height "lines".
 void gl_drop_shadow(S32 left, S32 top, S32 right, S32 bottom, const LLColor4& start_color, S32 lines)
 {
-	gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+	gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
 
 #ifdef DX_RENDER
 	// DXRender2DUtils::glDropShadow() applies the same right--/bottom++/
 	// lines++ "overlap by a single pixel" adjustment internally - pass the
 	// original, unmodified values.
-	if (LLGLSLShader* shader = LLGLSLShader::sCurBoundShaderPtr)
+	if (LLHLSLShader* shader = LLHLSLShader::sCurBoundShaderPtr)
 	{
-		gGL.flush();
+		gDX.flush();
 		gDXUIBatch.flushPending();
-		DXRender2DUtils::glDropShadow(left, top, right, bottom, start_color, lines, gGL.getUITranslation(), gGL.getUIScale());
-		gGL.syncMatrices();
+		DXRender2DUtils::glDropShadow(left, top, right, bottom, start_color, lines, gDX.getUITranslation(), gDX.getUIScale());
+		gDX.syncMatrices();
 		if (ID3DBlob* vsb = shader->mDXVertexShader.getVSBytecode())
 		{
 			gDXUIBatch.flush(vsb->GetBufferPointer(), vsb->GetBufferSize(), shader->mDXVertexShader.getVS(), shader->mDXPixelShader.getPS(), true, shader->mName.c_str());
@@ -273,151 +256,117 @@ void gl_drop_shadow(S32 left, S32 top, S32 right, S32 bottom, const LLColor4& st
 	LLColor4 end_color = start_color;
 	end_color.mV[VALPHA] = 0.f;
 
-	gGL.begin(LLRender::TRIANGLES);
+	gDX.begin(LLRender::TRIANGLES);
 
 	// Right edge, CCW faces screen
-	gGL.color4fv(start_color.mV);
-	gGL.vertex2i(right, top - lines);
-	gGL.vertex2i(right, bottom);
-	gGL.color4fv(end_color.mV);
-	gGL.vertex2i(right + lines, bottom);
-	gGL.color4fv(start_color.mV);
-	gGL.vertex2i(right, top - lines);
-	gGL.color4fv(end_color.mV);
-	gGL.vertex2i(right + lines, bottom);
-	gGL.vertex2i(right + lines, top - lines);
+	gDX.color4fv(start_color.mV);
+	gDX.vertex2i(right, top - lines);
+	gDX.vertex2i(right, bottom);
+	gDX.color4fv(end_color.mV);
+	gDX.vertex2i(right + lines, bottom);
+	gDX.color4fv(start_color.mV);
+	gDX.vertex2i(right, top - lines);
+	gDX.color4fv(end_color.mV);
+	gDX.vertex2i(right + lines, bottom);
+	gDX.vertex2i(right + lines, top - lines);
 
 	// Bottom edge, CCW faces screen
-	gGL.color4fv(start_color.mV);
-	gGL.vertex2i(right, bottom);
-	gGL.vertex2i(left + lines, bottom);
-	gGL.color4fv(end_color.mV);
-	gGL.vertex2i(left + lines, bottom - lines);
-	gGL.color4fv(start_color.mV);
-	gGL.vertex2i(right, bottom);
-	gGL.color4fv(end_color.mV);
-	gGL.vertex2i(left + lines, bottom - lines);
-	gGL.vertex2i(right, bottom - lines);
+	gDX.color4fv(start_color.mV);
+	gDX.vertex2i(right, bottom);
+	gDX.vertex2i(left + lines, bottom);
+	gDX.color4fv(end_color.mV);
+	gDX.vertex2i(left + lines, bottom - lines);
+	gDX.color4fv(start_color.mV);
+	gDX.vertex2i(right, bottom);
+	gDX.color4fv(end_color.mV);
+	gDX.vertex2i(left + lines, bottom - lines);
+	gDX.vertex2i(right, bottom - lines);
 
 	// bottom left Corner
-	gGL.color4fv(start_color.mV);
-	gGL.vertex2i(left + lines, bottom);
-	gGL.color4fv(end_color.mV);
-	gGL.vertex2i(left, bottom);
+	gDX.color4fv(start_color.mV);
+	gDX.vertex2i(left + lines, bottom);
+	gDX.color4fv(end_color.mV);
+	gDX.vertex2i(left, bottom);
 	// make the bottom left corner not sharp
-	gGL.vertex2i(left + 1, bottom - lines + 1);
-	gGL.color4fv(start_color.mV);
-	gGL.vertex2i(left + lines, bottom);
-	gGL.color4fv(end_color.mV);
-	gGL.vertex2i(left + 1, bottom - lines + 1);
-	gGL.vertex2i(left + lines, bottom - lines);
+	gDX.vertex2i(left + 1, bottom - lines + 1);
+	gDX.color4fv(start_color.mV);
+	gDX.vertex2i(left + lines, bottom);
+	gDX.color4fv(end_color.mV);
+	gDX.vertex2i(left + 1, bottom - lines + 1);
+	gDX.vertex2i(left + lines, bottom - lines);
 
 	// bottom right corner
-	gGL.color4fv(start_color.mV);
-	gGL.vertex2i(right, bottom);
-	gGL.color4fv(end_color.mV);
-	gGL.vertex2i(right, bottom - lines);
+	gDX.color4fv(start_color.mV);
+	gDX.vertex2i(right, bottom);
+	gDX.color4fv(end_color.mV);
+	gDX.vertex2i(right, bottom - lines);
 	// make the rightmost corner not sharp
-	gGL.vertex2i(right + lines - 1, bottom - lines + 1);
-	gGL.color4fv(start_color.mV);
-	gGL.vertex2i(right, bottom);
-	gGL.color4fv(end_color.mV);
-	gGL.vertex2i(right + lines - 1, bottom - lines + 1);
-	gGL.vertex2i(right + lines, bottom);
+	gDX.vertex2i(right + lines - 1, bottom - lines + 1);
+	gDX.color4fv(start_color.mV);
+	gDX.vertex2i(right, bottom);
+	gDX.color4fv(end_color.mV);
+	gDX.vertex2i(right + lines - 1, bottom - lines + 1);
+	gDX.vertex2i(right + lines, bottom);
 
 	// top right corner
-	gGL.color4fv(start_color.mV);
-	gGL.vertex2i(right, top - lines);
-	gGL.color4fv(end_color.mV);
-	gGL.vertex2i(right + lines, top - lines);
+	gDX.color4fv(start_color.mV);
+	gDX.vertex2i(right, top - lines);
+	gDX.color4fv(end_color.mV);
+	gDX.vertex2i(right + lines, top - lines);
 	// make the corner not sharp
-	gGL.vertex2i(right + lines - 1, top - 1);
-	gGL.color4fv(start_color.mV);
-	gGL.vertex2i(right, top - lines);
-	gGL.color4fv(end_color.mV);
-	gGL.vertex2i(right + lines - 1, top - 1);
-	gGL.vertex2i(right, top);
+	gDX.vertex2i(right + lines - 1, top - 1);
+	gDX.color4fv(start_color.mV);
+	gDX.vertex2i(right, top - lines);
+	gDX.color4fv(end_color.mV);
+	gDX.vertex2i(right + lines - 1, top - 1);
+	gDX.vertex2i(right, top);
 
-	gGL.end();
+	gDX.end();
 	stop_glerror();
 #endif // DX_RENDER
 }
 
 void gl_line_2d(S32 x1, S32 y1, S32 x2, S32 y2)
 {
-	gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+	gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
 
 #ifdef DX_RENDER
-	if (LLGLSLShader* shader = LLGLSLShader::sCurBoundShaderPtr)
+	if (LLHLSLShader* shader = LLHLSLShader::sCurBoundShaderPtr)
 	{
-		// S24 (DX_RENDER diagnostic, 2026-08-01): TEMPORARY - direct evidence
-		// for whether this path (LLMenuItemSeparatorGL's separator line, this
-		// is the only real caller of the no-color overload) actually reaches
-		// a Draw() call at all, with what color - same technique already
-		// used to confirm gl_rect_2d() renders correctly, applied here since
-		// menu separators were reported invisible and every other UI draw
-		// path (rects, glyphs) has already been confirmed working via this
-		// exact style of log.
-		{
-			static int s_logged = 0;
-			if (s_logged < 20)
-			{
-				++s_logged;
-				const LLColor4& c = gGL.getCurrentColor();
-				LL_WARNS("Text") << "gl_line_2d(): #" << s_logged << " shader='" << shader->mName
-					<< "' color=(" << c.mV[0] << "," << c.mV[1] << "," << c.mV[2] << "," << c.mV[3] << ")"
-					<< " line=(" << x1 << "," << y1 << ")-(" << x2 << "," << y2 << ")"
-					<< LL_ENDL;
-			}
-		}
-		gGL.flush();
+		// S24 (2026-09-02): a 2026-08-01 diagnostic removed here (confirmed
+		// LLMenuItemSeparatorGL's separator line does reach a real Draw()
+		// call with correct color data, per its own comment - answered for
+		// over a month, left logging on every one of a session's first 20
+		// gl_line_2d() calls since).
+		gDX.flush();
 		gDXUIBatch.flushPending();
-		DXRender2DUtils::glLineTwoD(x1, y1, x2, y2, gGL.getCurrentColor(), gGL.getUITranslation(), gGL.getUIScale());
-		gGL.syncMatrices();
+		DXRender2DUtils::glLineTwoD(x1, y1, x2, y2, gDX.getCurrentColor(), gDX.getUITranslation(), gDX.getUIScale());
+		gDX.syncMatrices();
 		if (ID3DBlob* vsb = shader->mDXVertexShader.getVSBytecode())
 		{
 			gDXUIBatch.flush(vsb->GetBufferPointer(), vsb->GetBufferSize(), shader->mDXVertexShader.getVS(), shader->mDXPixelShader.getPS(), true, shader->mName.c_str(), DXUITopology::LineList);
 		}
 	}
-	else
-	{
-		// S24 (DX_RENDER diagnostic, 2026-08-01, pre-alpha perf sweep
-		// 2026-08-23): the other half of the same evidence as the guarded
-		// block above - if sCurBoundShaderPtr is null right here, the whole
-		// batch is silently dropped with zero warning. Was missing the same
-		// bound this file's sibling diagnostics already use (gl_rect_2d,
-		// the colored gl_line_2d overload) - unbounded, this could log every
-		// single call for the rest of the session if this UI state is ever
-		// hit in normal play. Capped to match.
-		static int s_null_shader_logged = 0;
-		if (s_null_shader_logged < 20)
-		{
-			++s_null_shader_logged;
-			LL_WARNS("Text") << "gl_line_2d(): #" << s_null_shader_logged
-				<< " sCurBoundShaderPtr is NULL - line dropped, line=("
-				<< x1 << "," << y1 << ")-(" << x2 << "," << y2 << ")" << LL_ENDL;
-		}
-	}
 	return;
 #else
-	gGL.begin(LLRender::LINES);
-	gGL.vertex2i(x1, y1);
-	gGL.vertex2i(x2, y2);
-	gGL.end();
+	gDX.begin(LLRender::LINES);
+	gDX.vertex2i(x1, y1);
+	gDX.vertex2i(x2, y2);
+	gDX.end();
 #endif // DX_RENDER
 }
 
 void gl_line_2d(S32 x1, S32 y1, S32 x2, S32 y2, const LLColor4& color)
 {
-	gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+	gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
 
 #ifdef DX_RENDER
-	if (LLGLSLShader* shader = LLGLSLShader::sCurBoundShaderPtr)
+	if (LLHLSLShader* shader = LLHLSLShader::sCurBoundShaderPtr)
 	{
-		gGL.flush();
+		gDX.flush();
 		gDXUIBatch.flushPending();
-		DXRender2DUtils::glLineTwoD(x1, y1, x2, y2, LLColor4U(color), gGL.getUITranslation(), gGL.getUIScale());
-		gGL.syncMatrices();
+		DXRender2DUtils::glLineTwoD(x1, y1, x2, y2, LLColor4U(color), gDX.getUITranslation(), gDX.getUIScale());
+		gDX.syncMatrices();
 		if (ID3DBlob* vsb = shader->mDXVertexShader.getVSBytecode())
 		{
 			gDXUIBatch.flush(vsb->GetBufferPointer(), vsb->GetBufferSize(), shader->mDXVertexShader.getVS(), shader->mDXPixelShader.getPS(), true, shader->mName.c_str(), DXUITopology::LineList);
@@ -425,26 +374,26 @@ void gl_line_2d(S32 x1, S32 y1, S32 x2, S32 y2, const LLColor4& color)
 	}
 	return;
 #else
-	gGL.color4fv(color.mV);
+	gDX.color4fv(color.mV);
 
-	gGL.begin(LLRender::LINES);
-	gGL.vertex2i(x1, y1);
-	gGL.vertex2i(x2, y2);
-	gGL.end();
+	gDX.begin(LLRender::LINES);
+	gDX.vertex2i(x1, y1);
+	gDX.vertex2i(x2, y2);
+	gDX.end();
 #endif // DX_RENDER
 }
 
 void gl_triangle_2d(S32 x1, S32 y1, S32 x2, S32 y2, S32 x3, S32 y3, const LLColor4& color, bool filled)
 {
-	gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+	gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
 
 #ifdef DX_RENDER
-	if (LLGLSLShader* shader = LLGLSLShader::sCurBoundShaderPtr)
+	if (LLHLSLShader* shader = LLHLSLShader::sCurBoundShaderPtr)
 	{
-		gGL.flush();
+		gDX.flush();
 		gDXUIBatch.flushPending();
-		DXRender2DUtils::glTriangleTwoD(x1, y1, x2, y2, x3, y3, color, filled, gGL.getUITranslation(), gGL.getUIScale());
-		gGL.syncMatrices();
+		DXRender2DUtils::glTriangleTwoD(x1, y1, x2, y2, x3, y3, color, filled, gDX.getUITranslation(), gDX.getUIScale());
+		gDX.syncMatrices();
 		if (ID3DBlob* vsb = shader->mDXVertexShader.getVSBytecode())
 		{
 			gDXUIBatch.flush(vsb->GetBufferPointer(), vsb->GetBufferSize(), shader->mDXVertexShader.getVS(), shader->mDXPixelShader.getPS(), true, shader->mName.c_str(),
@@ -453,36 +402,36 @@ void gl_triangle_2d(S32 x1, S32 y1, S32 x2, S32 y2, S32 x3, S32 y3, const LLColo
 	}
 	return;
 #else
-	gGL.color4fv(color.mV);
+	gDX.color4fv(color.mV);
 
 	if (filled)
 	{
-		gGL.begin(LLRender::TRIANGLES);
+		gDX.begin(LLRender::TRIANGLES);
 	}
 	else
 	{
-		gGL.begin(LLRender::LINE_LOOP);
+		gDX.begin(LLRender::LINE_LOOP);
 	}
-	gGL.vertex2i(x1, y1);
-	gGL.vertex2i(x2, y2);
-	gGL.vertex2i(x3, y3);
-	gGL.end();
+	gDX.vertex2i(x1, y1);
+	gDX.vertex2i(x2, y2);
+	gDX.vertex2i(x3, y3);
+	gDX.end();
 #endif // DX_RENDER
 }
 
 void gl_corners_2d(S32 left, S32 top, S32 right, S32 bottom, S32 length, F32 max_frac)
 {
-	gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+	gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
 
 #ifdef DX_RENDER
 	// DXRender2DUtils::glCornersTwoD() applies the same length-clamping
 	// internally - pass the original, unclamped length.
-	if (LLGLSLShader* shader = LLGLSLShader::sCurBoundShaderPtr)
+	if (LLHLSLShader* shader = LLHLSLShader::sCurBoundShaderPtr)
 	{
-		gGL.flush();
+		gDX.flush();
 		gDXUIBatch.flushPending();
-		DXRender2DUtils::glCornersTwoD(left, top, right, bottom, length, max_frac, gGL.getCurrentColor(), gGL.getUITranslation(), gGL.getUIScale());
-		gGL.syncMatrices();
+		DXRender2DUtils::glCornersTwoD(left, top, right, bottom, length, max_frac, gDX.getCurrentColor(), gDX.getUITranslation(), gDX.getUIScale());
+		gDX.syncMatrices();
 		if (ID3DBlob* vsb = shader->mDXVertexShader.getVSBytecode())
 		{
 			gDXUIBatch.flush(vsb->GetBufferPointer(), vsb->GetBufferSize(), shader->mDXVertexShader.getVS(), shader->mDXPixelShader.getPS(), true, shader->mName.c_str(), DXUITopology::LineList);
@@ -492,31 +441,31 @@ void gl_corners_2d(S32 left, S32 top, S32 right, S32 bottom, S32 length, F32 max
 #else
 	length = llmin((S32)(max_frac * (right - left)), length);
 	length = llmin((S32)(max_frac * (top - bottom)), length);
-	gGL.begin(LLRender::LINES);
-	gGL.vertex2i(left, top);
-	gGL.vertex2i(left + length, top);
+	gDX.begin(LLRender::LINES);
+	gDX.vertex2i(left, top);
+	gDX.vertex2i(left + length, top);
 
-	gGL.vertex2i(left, top);
-	gGL.vertex2i(left, top - length);
+	gDX.vertex2i(left, top);
+	gDX.vertex2i(left, top - length);
 
-	gGL.vertex2i(left, bottom);
-	gGL.vertex2i(left + length, bottom);
+	gDX.vertex2i(left, bottom);
+	gDX.vertex2i(left + length, bottom);
 
-	gGL.vertex2i(left, bottom);
-	gGL.vertex2i(left, bottom + length);
+	gDX.vertex2i(left, bottom);
+	gDX.vertex2i(left, bottom + length);
 
-	gGL.vertex2i(right, top);
-	gGL.vertex2i(right - length, top);
+	gDX.vertex2i(right, top);
+	gDX.vertex2i(right - length, top);
 
-	gGL.vertex2i(right, top);
-	gGL.vertex2i(right, top - length);
+	gDX.vertex2i(right, top);
+	gDX.vertex2i(right, top - length);
 
-	gGL.vertex2i(right, bottom);
-	gGL.vertex2i(right - length, bottom);
+	gDX.vertex2i(right, bottom);
+	gDX.vertex2i(right - length, bottom);
 
-	gGL.vertex2i(right, bottom);
-	gGL.vertex2i(right, bottom + length);
-	gGL.end();
+	gDX.vertex2i(right, bottom);
+	gDX.vertex2i(right, bottom + length);
+	gDX.end();
 #endif // DX_RENDER
 }
 
@@ -586,8 +535,8 @@ void gl_draw_scaled_image_with_border(S32 x, S32 y, S32 width, S32 height, LLTex
 	else
 	{
 		// add in offset of current image to current UI translation
-		const LLVector3 ui_scale = gGL.getUIScale();
-		const LLVector3 ui_translation = (gGL.getUITranslation() + LLVector3((F32)x, (F32)y, 0.f)).scaledVec(ui_scale);
+		const LLVector3 ui_scale = gDX.getUIScale();
+		const LLVector3 ui_translation = (gDX.getUITranslation() + LLVector3((F32)x, (F32)y, 0.f)).scaledVec(ui_scale);
 
 		F32 uv_width = uv_outer_rect.getWidth();
 		F32 uv_height = uv_outer_rect.getHeight();
@@ -646,9 +595,9 @@ void gl_draw_scaled_image_with_border(S32 x, S32 y, S32 width, S32 height, LLTex
 			ui_translation.mV[VX] + width * ui_scale.mV[VX],
 			ui_translation.mV[VY]);
 
-		gGL.getTexUnit(0)->bind(image, true);
+		gDX.getTexUnit(0)->bind(image, true);
 
-		gGL.color4fv(color.mV);
+		gDX.color4fv(color.mV);
 
 		constexpr S32 NUM_VERTICES = 9 * 2 * 3; // 9 quads, 2 triangles per quad, 3 vertices per triangle
 		static thread_local LLVector2 uv[NUM_VERTICES];
@@ -656,7 +605,7 @@ void gl_draw_scaled_image_with_border(S32 x, S32 y, S32 width, S32 height, LLTex
 
 		S32 index = 0;
 
-		gGL.begin(LLRender::TRIANGLES);
+		gDX.begin(LLRender::TRIANGLES);
 		{
 			// draw bottom left triangles
 			// 1
@@ -899,19 +848,19 @@ void gl_draw_scaled_image_with_border(S32 x, S32 y, S32 width, S32 height, LLTex
 			// for consistency with the rest of llrender2dutils.cpp's
 			// DX_RENDER conversions (not because this was broken). No
 			// explicit color array in the GL path above (color is carried
-			// via gGL.color4fv()'s "current color" state) - applied
+			// via gDX.color4fv()'s "current color" state) - applied
 			// explicitly per-vertex by the relocated function instead, same
 			// as before.
 			// S24 (2026-08-17, task #54): recording-mode fallback, same
 			// pattern/reasoning as gl_draw_scaled_rotated_image()'s matching
 			// fix just above in this file.
-			if (gGL.isRecording())
+			if (gDX.isRecording())
 			{
-				gGL.vertexBatchPreTransformed(pos, uv, NUM_VERTICES);
+				gDX.vertexBatchPreTransformed(pos, uv, NUM_VERTICES);
 			}
-			else if (LLGLSLShader* shader = LLGLSLShader::sCurBoundShaderPtr)
+			else if (LLHLSLShader* shader = LLHLSLShader::sCurBoundShaderPtr)
 			{
-				gGL.flush(); // draw-order fix, same rationale as the simple-quad case
+				gDX.flush(); // draw-order fix, same rationale as the simple-quad case
 				DXRender2DUtils::NineSliceGeometry geom;
 				for (S32 v = 0; v < NUM_VERTICES; ++v)
 				{
@@ -921,17 +870,17 @@ void gl_draw_scaled_image_with_border(S32 x, S32 y, S32 width, S32 height, LLTex
 				}
 				gDXUIBatch.flushPending();
 				DXRender2DUtils::glDrawScaledImageWithBorderNineSlice(geom, color);
-				gGL.syncMatrices();
+				gDX.syncMatrices();
 				if (ID3DBlob* vsb = shader->mDXVertexShader.getVSBytecode())
 				{
 					gDXUIBatch.flush(vsb->GetBufferPointer(), vsb->GetBufferSize(), shader->mDXVertexShader.getVS(), shader->mDXPixelShader.getPS(), true, shader->mName.c_str());
 				}
 			}
 #else
-			gGL.vertexBatchPreTransformed(pos, uv, NUM_VERTICES);
+			gDX.vertexBatchPreTransformed(pos, uv, NUM_VERTICES);
 #endif
 		}
-		gGL.end();
+		gDX.end();
 	}
 
 	if (solid_color)
@@ -955,7 +904,7 @@ void gl_draw_scaled_rotated_image(S32 x, S32 y, S32 width, S32 height, F32 degre
 
 	if (image != NULL)
 	{
-		gGL.getTexUnit(0)->bind(image, true);
+		gDX.getTexUnit(0)->bind(image, true);
 	}
 	else
 	{
@@ -965,11 +914,11 @@ void gl_draw_scaled_rotated_image(S32 x, S32 y, S32 width, S32 height, F32 degre
 		// debug tool, off by default) - skip the bind rather than reach the
 		// unconverted overload with a hardcoded unit; draws untextured under
 		// DX_RENDER until that overload gets real handling.
-		gGL.getTexUnit(0)->bind(target);
+		gDX.getTexUnit(0)->bind(target);
 #endif
 	}
 
-	gGL.color4fv(color.mV);
+	gDX.color4fv(color.mV);
 
 	if (degrees == 0.f)
 	{
@@ -977,10 +926,10 @@ void gl_draw_scaled_rotated_image(S32 x, S32 y, S32 width, S32 height, F32 degre
 		static thread_local LLVector2 uv[NUM_VERTICES + 1];
 		static thread_local LLVector4a pos[NUM_VERTICES + 1];
 
-		gGL.begin(LLRender::TRIANGLES);
+		gDX.begin(LLRender::TRIANGLES);
 		{
-			LLVector3 ui_scale = gGL.getUIScale();
-			LLVector3 ui_translation = gGL.getUITranslation();
+			LLVector3 ui_scale = gDX.getUIScale();
+			LLVector3 ui_translation = gDX.getUITranslation();
 			ui_translation.mV[VX] += x;
 			ui_translation.mV[VY] += y;
 			ui_translation.scaleVec(ui_scale);
@@ -1029,16 +978,16 @@ void gl_draw_scaled_rotated_image(S32 x, S32 y, S32 width, S32 height, F32 degre
 			// something via LLRender::flush()'s existing sBufferDataList
 			// logic instead of always taking the DXUIBatch fast path, which
 			// never touches it.
-			if (gGL.isRecording())
+			if (gDX.isRecording())
 			{
-				gGL.vertexBatchPreTransformed(pos, uv, NUM_VERTICES);
+				gDX.vertexBatchPreTransformed(pos, uv, NUM_VERTICES);
 			}
-			else if (LLGLSLShader* shader = LLGLSLShader::sCurBoundShaderPtr)
+			else if (LLHLSLShader* shader = LLHLSLShader::sCurBoundShaderPtr)
 			{
-				// Flush any still-queued gGL geometry before this
+				// Flush any still-queued gDX geometry before this
 				// function's own immediate DXUIBatch draw - draw-order fix,
 				// see LLFontGL::beginTextRender()'s matching comment.
-				gGL.flush();
+				gDX.flush();
 				DXRender2DUtils::ScaledImageGeometry geom;
 				for (S32 v = 0; v < NUM_VERTICES; ++v)
 				{
@@ -1048,33 +997,33 @@ void gl_draw_scaled_rotated_image(S32 x, S32 y, S32 width, S32 height, F32 degre
 				}
 				gDXUIBatch.flushPending();
 				DXRender2DUtils::glDrawScaledImage(geom, color);
-				gGL.syncMatrices();
+				gDX.syncMatrices();
 				if (ID3DBlob* vsb = shader->mDXVertexShader.getVSBytecode())
 				{
 					gDXUIBatch.flush(vsb->GetBufferPointer(), vsb->GetBufferSize(), shader->mDXVertexShader.getVS(), shader->mDXPixelShader.getPS(), true, shader->mName.c_str());
 				}
 			}
 #else
-			gGL.vertexBatchPreTransformed(pos, uv, NUM_VERTICES);
+			gDX.vertexBatchPreTransformed(pos, uv, NUM_VERTICES);
 #endif
 		}
-		gGL.end();
+		gDX.end();
 	}
 	else
 	{
-		gGL.pushUIMatrix();
-		gGL.translateUI((F32)x, (F32)y, 0.f);
+		gDX.pushUIMatrix();
+		gDX.translateUI((F32)x, (F32)y, 0.f);
 
 		F32 offset_x = F32(width / 2);
 		F32 offset_y = F32(height / 2);
 
-		gGL.translateUI(offset_x, offset_y, 0.f);
+		gDX.translateUI(offset_x, offset_y, 0.f);
 
 		LLMatrix3 quat(0.f, 0.f, degrees * DEG_TO_RAD);
 
 		if (image != NULL)
 		{
-			gGL.getTexUnit(0)->bind(image, true);
+			gDX.getTexUnit(0)->bind(image, true);
 		}
 		else
 		{
@@ -1082,11 +1031,11 @@ void gl_draw_scaled_rotated_image(S32 x, S32 y, S32 width, S32 height, F32 degre
 			// S24 (DX_RENDER): see the matching comment in the degrees==0.f
 			// branch above - same unconverted LLTexUnit::bind(LLRenderTarget*)
 			// overload, same single debug-tool caller.
-			gGL.getTexUnit(0)->bind(target);
+			gDX.getTexUnit(0)->bind(target);
 #endif
 		}
 
-		gGL.color4fv(color.mV);
+		gDX.color4fv(color.mV);
 
 		LLVector3 rv[6];
 		rv[0] = LLVector3(offset_x, offset_y, 0.f) * quat;
@@ -1106,15 +1055,15 @@ void gl_draw_scaled_rotated_image(S32 x, S32 y, S32 width, S32 height, F32 degre
 
 #ifdef DX_RENDER
 		// S24 (2026-08-16): this branch (degrees != 0.f) previously had no
-		// DX_RENDER handling at all - always fell through to raw gGL
+		// DX_RENDER handling at all - always fell through to raw gDX
 		// immediate mode below even under DX_RENDER, unlike the degrees==0.f
 		// branch above. Same DXRender2DUtils::glDrawScaledImage()/
 		// ScaledImageGeometry reuse as that branch - the 6-vertex triangle-
 		// list shape is identical, only the position math (rotated vs
 		// axis-aligned) differs.
-		if (LLGLSLShader* shader = LLGLSLShader::sCurBoundShaderPtr)
+		if (LLHLSLShader* shader = LLHLSLShader::sCurBoundShaderPtr)
 		{
-			gGL.flush();
+			gDX.flush();
 			DXRender2DUtils::ScaledImageGeometry geom;
 			for (S32 v = 0; v < 6; ++v)
 			{
@@ -1123,51 +1072,51 @@ void gl_draw_scaled_rotated_image(S32 x, S32 y, S32 width, S32 height, F32 degre
 			}
 			gDXUIBatch.flushPending();
 			DXRender2DUtils::glDrawScaledImage(geom, color);
-			gGL.syncMatrices();
+			gDX.syncMatrices();
 			if (ID3DBlob* vsb = shader->mDXVertexShader.getVSBytecode())
 			{
 				gDXUIBatch.flush(vsb->GetBufferPointer(), vsb->GetBufferSize(), shader->mDXVertexShader.getVS(), shader->mDXPixelShader.getPS(), true, shader->mName.c_str());
 			}
 		}
 #else
-		gGL.begin(LLRender::TRIANGLES);
+		gDX.begin(LLRender::TRIANGLES);
 		{
 			for (S32 v = 0; v < 6; ++v)
 			{
-				gGL.texCoord2f(ruv[v].mV[0], ruv[v].mV[1]);
-				gGL.vertex2f(rv[v].mV[0], rv[v].mV[1]);
+				gDX.texCoord2f(ruv[v].mV[0], ruv[v].mV[1]);
+				gDX.vertex2f(rv[v].mV[0], rv[v].mV[1]);
 			}
 		}
-		gGL.end();
+		gDX.end();
 #endif
-		gGL.popUIMatrix();
+		gDX.popUIMatrix();
 	}
 }
 
 void gl_line_3d(const LLVector3& start, const LLVector3& end, const LLColor4& color)
 {
-	gGL.flush();
+	gDX.flush();
 #ifdef DX_RENDER
-	if (LLGLSLShader* shader = LLGLSLShader::sCurBoundShaderPtr)
+	if (LLHLSLShader* shader = LLHLSLShader::sCurBoundShaderPtr)
 	{
 		gDXUIBatch.flushPending();
-		DXRender2DUtils::glLineThreeD(start, end, color, gGL.getUITranslation(), gGL.getUIScale());
-		gGL.syncMatrices();
+		DXRender2DUtils::glLineThreeD(start, end, color, gDX.getUITranslation(), gDX.getUIScale());
+		gDX.syncMatrices();
 		if (ID3DBlob* vsb = shader->mDXVertexShader.getVSBytecode())
 		{
 			gDXUIBatch.flush(vsb->GetBufferPointer(), vsb->GetBufferSize(), shader->mDXVertexShader.getVS(), shader->mDXPixelShader.getPS(), true, shader->mName.c_str(), DXUITopology::LineList);
 		}
 	}
 #else
-	gGL.color4f(color.mV[VRED], color.mV[VGREEN], color.mV[VBLUE], color.mV[VALPHA]);
+	gDX.color4f(color.mV[VRED], color.mV[VGREEN], color.mV[VBLUE], color.mV[VALPHA]);
 	glLineWidth(2.5f);
 
-	gGL.begin(LLRender::LINES);
+	gDX.begin(LLRender::LINES);
 	{
-		gGL.vertex3fv(start.mV);
-		gGL.vertex3fv(end.mV);
+		gDX.vertex3fv(start.mV);
+		gDX.vertex3fv(end.mV);
 	}
-	gGL.end();
+	gDX.end();
 #endif // DX_RENDER
 
 	LLRender2D::setLineWidth(1.f);
@@ -1181,13 +1130,13 @@ void gl_arc_2d(F32 center_x, F32 center_y, F32 radius, S32 steps, bool filled, F
 	// its own header comment) - mathematically equivalent (translateUI only
 	// ever touches offset, never scale, and addition is commutative), one
 	// fewer stack push/pop.
-	if (LLGLSLShader* shader = LLGLSLShader::sCurBoundShaderPtr)
+	if (LLHLSLShader* shader = LLHLSLShader::sCurBoundShaderPtr)
 	{
-		gGL.flush();
+		gDX.flush();
 		gDXUIBatch.flushPending();
 		DXRender2DUtils::glArcTwoD(center_x, center_y, radius, steps, filled, start_angle, end_angle,
-			gGL.getCurrentColor(), gGL.getUITranslation(), gGL.getUIScale());
-		gGL.syncMatrices();
+			gDX.getCurrentColor(), gDX.getUITranslation(), gDX.getUIScale());
+		gDX.syncMatrices();
 		if (ID3DBlob* vsb = shader->mDXVertexShader.getVSBytecode())
 		{
 			gDXUIBatch.flush(vsb->GetBufferPointer(), vsb->GetBufferSize(), shader->mDXVertexShader.getVS(), shader->mDXPixelShader.getPS(), true, shader->mName.c_str(),
@@ -1201,9 +1150,9 @@ void gl_arc_2d(F32 center_x, F32 center_y, F32 radius, S32 steps, bool filled, F
 		end_angle += F_TWO_PI;
 	}
 
-	gGL.pushUIMatrix();
+	gDX.pushUIMatrix();
 	{
-		gGL.translateUI(center_x, center_y, 0.f);
+		gDX.translateUI(center_x, center_y, 0.f);
 
 		// Inexact, but reasonably fast.
 		F32 delta = (end_angle - start_angle) / steps;
@@ -1214,42 +1163,42 @@ void gl_arc_2d(F32 center_x, F32 center_y, F32 radius, S32 steps, bool filled, F
 
 		if (filled)
 		{
-			gGL.begin(LLRender::TRIANGLE_FAN);
-			gGL.vertex2f(0.f, 0.f);
+			gDX.begin(LLRender::TRIANGLE_FAN);
+			gDX.vertex2f(0.f, 0.f);
 			// make sure circle is complete
 			steps += 1;
 		}
 		else
 		{
-			gGL.begin(LLRender::LINE_STRIP);
+			gDX.begin(LLRender::LINE_STRIP);
 		}
 
 		while (steps--)
 		{
 			// Successive rotations
-			gGL.vertex2f(x, y);
+			gDX.vertex2f(x, y);
 			F32 x_new = x * cos_delta - y * sin_delta;
 			y = x * sin_delta + y * cos_delta;
 			x = x_new;
 		}
-		gGL.end();
+		gDX.end();
 	}
-	gGL.popUIMatrix();
+	gDX.popUIMatrix();
 #endif // DX_RENDER
 }
 
 void gl_circle_2d(F32 center_x, F32 center_y, F32 radius, S32 steps, bool filled)
 {
-	gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+	gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
 
 #ifdef DX_RENDER
-	if (LLGLSLShader* shader = LLGLSLShader::sCurBoundShaderPtr)
+	if (LLHLSLShader* shader = LLHLSLShader::sCurBoundShaderPtr)
 	{
-		gGL.flush();
+		gDX.flush();
 		gDXUIBatch.flushPending();
 		DXRender2DUtils::glCircleTwoD(center_x, center_y, radius, steps, filled,
-			gGL.getCurrentColor(), gGL.getUITranslation(), gGL.getUIScale());
-		gGL.syncMatrices();
+			gDX.getCurrentColor(), gDX.getUITranslation(), gDX.getUIScale());
+		gDX.syncMatrices();
 		if (ID3DBlob* vsb = shader->mDXVertexShader.getVSBytecode())
 		{
 			gDXUIBatch.flush(vsb->GetBufferPointer(), vsb->GetBufferSize(), shader->mDXVertexShader.getVS(), shader->mDXPixelShader.getPS(), true, shader->mName.c_str(),
@@ -1258,9 +1207,9 @@ void gl_circle_2d(F32 center_x, F32 center_y, F32 radius, S32 steps, bool filled
 	}
 	return;
 #else
-	gGL.pushUIMatrix();
+	gDX.pushUIMatrix();
 	{
-		gGL.translateUI(center_x, center_y, 0.f);
+		gDX.translateUI(center_x, center_y, 0.f);
 
 		// Inexact, but reasonably fast.
 		F32 delta = F_TWO_PI / steps;
@@ -1271,27 +1220,27 @@ void gl_circle_2d(F32 center_x, F32 center_y, F32 radius, S32 steps, bool filled
 
 		if (filled)
 		{
-			gGL.begin(LLRender::TRIANGLE_FAN);
-			gGL.vertex2f(0.f, 0.f);
+			gDX.begin(LLRender::TRIANGLE_FAN);
+			gDX.vertex2f(0.f, 0.f);
 			// make sure circle is complete
 			steps += 1;
 		}
 		else
 		{
-			gGL.begin(LLRender::LINE_LOOP);
+			gDX.begin(LLRender::LINE_LOOP);
 		}
 
 		while (steps--)
 		{
 			// Successive rotations
-			gGL.vertex2f(x, y);
+			gDX.vertex2f(x, y);
 			F32 x_new = x * cos_delta - y * sin_delta;
 			y = x * sin_delta + y * cos_delta;
 			x = x_new;
 		}
-		gGL.end();
+		gDX.end();
 	}
-	gGL.popUIMatrix();
+	gDX.popUIMatrix();
 #endif // DX_RENDER
 }
 
@@ -1299,12 +1248,12 @@ void gl_circle_2d(F32 center_x, F32 center_y, F32 radius, S32 steps, bool filled
 void gl_deep_circle(F32 radius, F32 depth, S32 steps)
 {
 #ifdef DX_RENDER
-	if (LLGLSLShader* shader = LLGLSLShader::sCurBoundShaderPtr)
+	if (LLHLSLShader* shader = LLHLSLShader::sCurBoundShaderPtr)
 	{
-		gGL.flush();
+		gDX.flush();
 		gDXUIBatch.flushPending();
-		DXRender2DUtils::glDeepCircle(radius, depth, steps, gGL.getCurrentColor(), gGL.getUITranslation(), gGL.getUIScale());
-		gGL.syncMatrices();
+		DXRender2DUtils::glDeepCircle(radius, depth, steps, gDX.getCurrentColor(), gDX.getUITranslation(), gDX.getUIScale());
+		gDX.syncMatrices();
 		if (ID3DBlob* vsb = shader->mDXVertexShader.getVSBytecode())
 		{
 			gDXUIBatch.flush(vsb->GetBufferPointer(), vsb->GetBufferSize(), shader->mDXVertexShader.getVS(), shader->mDXPixelShader.getPS(), true, shader->mName.c_str(), DXUITopology::TriangleStrip);
@@ -1315,43 +1264,43 @@ void gl_deep_circle(F32 radius, F32 depth, S32 steps)
 	F32 x = radius;
 	F32 y = 0.f;
 	F32 angle_delta = F_TWO_PI / (F32)steps;
-	gGL.begin(LLRender::TRIANGLE_STRIP);
+	gDX.begin(LLRender::TRIANGLE_STRIP);
 	{
 		S32 step = steps + 1; // An extra step to close the circle.
 		while (step--)
 		{
-			gGL.vertex3f(x, y, depth);
-			gGL.vertex3f(x, y, 0.f);
+			gDX.vertex3f(x, y, depth);
+			gDX.vertex3f(x, y, 0.f);
 
 			F32 x_new = x * cosf(angle_delta) - y * sinf(angle_delta);
 			y = x * sinf(angle_delta) + y * cosf(angle_delta);
 			x = x_new;
 		}
 	}
-	gGL.end();
+	gDX.end();
 #endif // DX_RENDER
 }
 
 void gl_ring(F32 radius, F32 width, const LLColor4& center_color, const LLColor4& side_color, S32 steps, bool render_center)
 {
-	gGL.pushUIMatrix();
+	gDX.pushUIMatrix();
 	{
-		gGL.translateUI(0.f, 0.f, -width / 2);
+		gDX.translateUI(0.f, 0.f, -width / 2);
 		if (render_center)
 		{
-			gGL.color4fv(center_color.mV);
-			gGL.diffuseColor4fv(center_color.mV);
+			gDX.color4fv(center_color.mV);
+			gDX.diffuseColor4fv(center_color.mV);
 			gl_deep_circle(radius, width, steps);
 		}
 		else
 		{
-			gGL.diffuseColor4fv(side_color.mV);
+			gDX.diffuseColor4fv(side_color.mV);
 			gl_washer_2d(radius, radius - width, steps, side_color, side_color);
-			gGL.translateUI(0.f, 0.f, width);
+			gDX.translateUI(0.f, 0.f, width);
 			gl_washer_2d(radius - width, radius, steps, side_color, side_color);
 		}
 	}
-	gGL.popUIMatrix();
+	gDX.popUIMatrix();
 }
 
 // Draw gray and white checkerboard with black border
@@ -1359,31 +1308,31 @@ void gl_rect_2d_checkerboard(const LLRect& rect, GLfloat alpha)
 {
 	//polygon stipple is deprecated, use "Checker" texture
 	LLPointer<LLUIImage> img = LLRender2D::getInstance()->getUIImage("Checker");
-	gGL.getTexUnit(0)->bind(img->getImage());
-	gGL.getTexUnit(0)->setTextureAddressMode(LLTexUnit::TAM_WRAP);
-	gGL.getTexUnit(0)->setTextureFilteringOption(LLTexUnit::TFO_POINT);
+	gDX.getTexUnit(0)->bind(img->getImage());
+	gDX.getTexUnit(0)->setTextureAddressMode(LLTexUnit::TAM_WRAP);
+	gDX.getTexUnit(0)->setTextureFilteringOption(LLTexUnit::TFO_POINT);
 
 	LLColor4 color(1.f, 1.f, 1.f, alpha);
 	LLRectf uv_rect(0, 0, rect.getWidth() / 32.f, rect.getHeight() / 32.f);
 
 	gl_draw_scaled_image(rect.mLeft, rect.mBottom, rect.getWidth(), rect.getHeight(), img->getImage(), color, uv_rect);
 
-	gGL.flush();
+	gDX.flush();
 }
 
 // Draws the area between two concentric circles, like
 // a doughnut or washer.
 void gl_washer_2d(F32 outer_radius, F32 inner_radius, S32 steps, const LLColor4& inner_color, const LLColor4& outer_color)
 {
-	gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+	gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
 
 #ifdef DX_RENDER
-	if (LLGLSLShader* shader = LLGLSLShader::sCurBoundShaderPtr)
+	if (LLHLSLShader* shader = LLHLSLShader::sCurBoundShaderPtr)
 	{
-		gGL.flush();
+		gDX.flush();
 		gDXUIBatch.flushPending();
-		DXRender2DUtils::glWasherTwoD(outer_radius, inner_radius, steps, inner_color, outer_color, gGL.getUITranslation(), gGL.getUIScale());
-		gGL.syncMatrices();
+		DXRender2DUtils::glWasherTwoD(outer_radius, inner_radius, steps, inner_color, outer_color, gDX.getUITranslation(), gDX.getUIScale());
+		gDX.syncMatrices();
 		if (ID3DBlob* vsb = shader->mDXVertexShader.getVSBytecode())
 		{
 			gDXUIBatch.flush(vsb->GetBufferPointer(), vsb->GetBufferSize(), shader->mDXVertexShader.getVS(), shader->mDXPixelShader.getPS(), true, shader->mName.c_str(), DXUITopology::TriangleStrip);
@@ -1400,15 +1349,15 @@ void gl_washer_2d(F32 outer_radius, F32 inner_radius, S32 steps, const LLColor4&
 	F32 x2 = inner_radius;
 	F32 y2 = 0.f;
 
-	gGL.begin(LLRender::TRIANGLE_STRIP);
+	gDX.begin(LLRender::TRIANGLE_STRIP);
 	{
 		steps += 1; // An extra step to close the circle.
 		while (steps--)
 		{
-			gGL.color4fv(outer_color.mV);
-			gGL.vertex2f(x1, y1);
-			gGL.color4fv(inner_color.mV);
-			gGL.vertex2f(x2, y2);
+			gDX.color4fv(outer_color.mV);
+			gDX.vertex2f(x1, y1);
+			gDX.color4fv(inner_color.mV);
+			gDX.vertex2f(x2, y2);
 
 			F32 x1_new = x1 * COS_DELTA - y1 * SIN_DELTA;
 			y1 = x1 * SIN_DELTA + y1 * COS_DELTA;
@@ -1419,7 +1368,7 @@ void gl_washer_2d(F32 outer_radius, F32 inner_radius, S32 steps, const LLColor4&
 			x2 = x2_new;
 		}
 	}
-	gGL.end();
+	gDX.end();
 #endif // DX_RENDER
 }
 
@@ -1427,16 +1376,16 @@ void gl_washer_2d(F32 outer_radius, F32 inner_radius, S32 steps, const LLColor4&
 // a doughnut or washer.
 void gl_washer_segment_2d(F32 outer_radius, F32 inner_radius, F32 start_radians, F32 end_radians, S32 steps, const LLColor4& inner_color, const LLColor4& outer_color)
 {
-	gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+	gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
 
 #ifdef DX_RENDER
-	if (LLGLSLShader* shader = LLGLSLShader::sCurBoundShaderPtr)
+	if (LLHLSLShader* shader = LLHLSLShader::sCurBoundShaderPtr)
 	{
-		gGL.flush();
+		gDX.flush();
 		gDXUIBatch.flushPending();
 		DXRender2DUtils::glWasherSegmentTwoD(outer_radius, inner_radius, start_radians, end_radians, steps,
-			inner_color, outer_color, gGL.getUITranslation(), gGL.getUIScale());
-		gGL.syncMatrices();
+			inner_color, outer_color, gDX.getUITranslation(), gDX.getUIScale());
+		gDX.syncMatrices();
 		if (ID3DBlob* vsb = shader->mDXVertexShader.getVSBytecode())
 		{
 			gDXUIBatch.flush(vsb->GetBufferPointer(), vsb->GetBufferSize(), shader->mDXVertexShader.getVS(), shader->mDXPixelShader.getPS(), true, shader->mName.c_str(), DXUITopology::TriangleStrip);
@@ -1453,15 +1402,15 @@ void gl_washer_segment_2d(F32 outer_radius, F32 inner_radius, F32 start_radians,
 	F32 x2 = inner_radius * cos(start_radians);
 	F32 y2 = inner_radius * sin(start_radians);
 
-	gGL.begin(LLRender::TRIANGLE_STRIP);
+	gDX.begin(LLRender::TRIANGLE_STRIP);
 	{
 		steps += 1; // An extra step to close the circle.
 		while (steps--)
 		{
-			gGL.color4fv(outer_color.mV);
-			gGL.vertex2f(x1, y1);
-			gGL.color4fv(inner_color.mV);
-			gGL.vertex2f(x2, y2);
+			gDX.color4fv(outer_color.mV);
+			gDX.vertex2f(x1, y1);
+			gDX.color4fv(inner_color.mV);
+			gDX.vertex2f(x2, y2);
 
 			F32 x1_new = x1 * COS_DELTA - y1 * SIN_DELTA;
 			y1 = x1 * SIN_DELTA + y1 * COS_DELTA;
@@ -1472,19 +1421,19 @@ void gl_washer_segment_2d(F32 outer_radius, F32 inner_radius, F32 start_radians,
 			x2 = x2_new;
 		}
 	}
-	gGL.end();
+	gDX.end();
 #endif // DX_RENDER
 }
 
 void gl_rect_2d_simple_tex(S32 width, S32 height)
 {
 #ifdef DX_RENDER
-	if (LLGLSLShader* shader = LLGLSLShader::sCurBoundShaderPtr)
+	if (LLHLSLShader* shader = LLHLSLShader::sCurBoundShaderPtr)
 	{
-		gGL.flush();
+		gDX.flush();
 		gDXUIBatch.flushPending();
-		DXRender2DUtils::glRectTwoDSimpleTex(width, height, gGL.getCurrentColor(), gGL.getUITranslation(), gGL.getUIScale());
-		gGL.syncMatrices();
+		DXRender2DUtils::glRectTwoDSimpleTex(width, height, gDX.getCurrentColor(), gDX.getUITranslation(), gDX.getUIScale());
+		gDX.syncMatrices();
 		if (ID3DBlob* vsb = shader->mDXVertexShader.getVSBytecode())
 		{
 			gDXUIBatch.flush(vsb->GetBufferPointer(), vsb->GetBufferSize(), shader->mDXVertexShader.getVS(), shader->mDXPixelShader.getPS(), true, shader->mName.c_str());
@@ -1492,39 +1441,39 @@ void gl_rect_2d_simple_tex(S32 width, S32 height)
 	}
 	return;
 #else
-	gGL.begin(LLRender::TRIANGLES);
+	gDX.begin(LLRender::TRIANGLES);
 
-	gGL.texCoord2f(1.f, 1.f);
-	gGL.vertex2i(width, height);
+	gDX.texCoord2f(1.f, 1.f);
+	gDX.vertex2i(width, height);
 
-	gGL.texCoord2f(0.f, 1.f);
-	gGL.vertex2i(0, height);
+	gDX.texCoord2f(0.f, 1.f);
+	gDX.vertex2i(0, height);
 
-	gGL.texCoord2f(0.f, 0.f);
-	gGL.vertex2i(0, 0);
+	gDX.texCoord2f(0.f, 0.f);
+	gDX.vertex2i(0, 0);
 
-	gGL.texCoord2f(1.f, 1.f);
-	gGL.vertex2i(width, height);
+	gDX.texCoord2f(1.f, 1.f);
+	gDX.vertex2i(width, height);
 
-	gGL.texCoord2f(0.f, 0.f);
-	gGL.vertex2i(0, 0);
+	gDX.texCoord2f(0.f, 0.f);
+	gDX.vertex2i(0, 0);
 
-	gGL.texCoord2f(1.f, 0.f);
-	gGL.vertex2i(width, 0);
+	gDX.texCoord2f(1.f, 0.f);
+	gDX.vertex2i(width, 0);
 
-	gGL.end();
+	gDX.end();
 #endif // DX_RENDER
 }
 
 void gl_rect_2d_simple(S32 width, S32 height)
 {
 #ifdef DX_RENDER
-	if (LLGLSLShader* shader = LLGLSLShader::sCurBoundShaderPtr)
+	if (LLHLSLShader* shader = LLHLSLShader::sCurBoundShaderPtr)
 	{
-		gGL.flush();
+		gDX.flush();
 		gDXUIBatch.flushPending();
-		DXRender2DUtils::glRectTwoDSimple(width, height, gGL.getCurrentColor(), gGL.getUITranslation(), gGL.getUIScale());
-		gGL.syncMatrices();
+		DXRender2DUtils::glRectTwoDSimple(width, height, gDX.getCurrentColor(), gDX.getUITranslation(), gDX.getUIScale());
+		gDX.syncMatrices();
 		if (ID3DBlob* vsb = shader->mDXVertexShader.getVSBytecode())
 		{
 			gDXUIBatch.flush(vsb->GetBufferPointer(), vsb->GetBufferSize(), shader->mDXVertexShader.getVS(), shader->mDXPixelShader.getPS(), true, shader->mName.c_str());
@@ -1532,15 +1481,15 @@ void gl_rect_2d_simple(S32 width, S32 height)
 	}
 	return;
 #else
-	gGL.begin(LLRender::TRIANGLES);
-	gGL.vertex2i(width, height);
-	gGL.vertex2i(0, height);
-	gGL.vertex2i(0, 0);
+	gDX.begin(LLRender::TRIANGLES);
+	gDX.vertex2i(width, height);
+	gDX.vertex2i(0, height);
+	gDX.vertex2i(0, 0);
 
-	gGL.vertex2i(width, height);
-	gGL.vertex2i(0, 0);
-	gGL.vertex2i(width, 0);
-	gGL.end();
+	gDX.vertex2i(width, height);
+	gDX.vertex2i(0, 0);
+	gDX.vertex2i(width, 0);
+	gDX.end();
 #endif // DX_RENDER
 }
 
@@ -1558,9 +1507,9 @@ void gl_segmented_rect_2d_tex(const S32 left,
 	S32 width = llabs(right - left);
 	S32 height = llabs(top - bottom);
 
-	gGL.pushUIMatrix();
+	gDX.pushUIMatrix();
 
-	gGL.translateUI((F32)left, (F32)bottom, 0.f);
+	gDX.translateUI((F32)left, (F32)bottom, 0.f);
 	LLVector2 border_uv_scale((F32)border_size / (F32)texture_width, (F32)border_size / (F32)texture_height);
 
 	if (border_uv_scale.mV[VX] > 0.5f)
@@ -1580,182 +1529,182 @@ void gl_segmented_rect_2d_tex(const S32 left,
 	LLVector2 width_vec((F32)width, 0.f);
 	LLVector2 height_vec(0.f, (F32)height);
 
-	gGL.begin(LLRender::TRIANGLES);
+	gDX.begin(LLRender::TRIANGLES);
 	{
 		// draw bottom left
-		gGL.texCoord2f(0.f, 0.f);
-		gGL.vertex2f(0.f, 0.f);
+		gDX.texCoord2f(0.f, 0.f);
+		gDX.vertex2f(0.f, 0.f);
 
-		gGL.texCoord2f(border_uv_scale.mV[VX], 0.f);
-		gGL.vertex2fv(border_width_left.mV);
+		gDX.texCoord2f(border_uv_scale.mV[VX], 0.f);
+		gDX.vertex2fv(border_width_left.mV);
 
-		gGL.texCoord2f(border_uv_scale.mV[VX], border_uv_scale.mV[VY]);
-		gGL.vertex2fv((border_width_left + border_height_bottom).mV);
+		gDX.texCoord2f(border_uv_scale.mV[VX], border_uv_scale.mV[VY]);
+		gDX.vertex2fv((border_width_left + border_height_bottom).mV);
 
-		gGL.texCoord2f(0.f, 0.f);
-		gGL.vertex2f(0.f, 0.f);
+		gDX.texCoord2f(0.f, 0.f);
+		gDX.vertex2f(0.f, 0.f);
 
-		gGL.texCoord2f(border_uv_scale.mV[VX], border_uv_scale.mV[VY]);
-		gGL.vertex2fv((border_width_left + border_height_bottom).mV);
+		gDX.texCoord2f(border_uv_scale.mV[VX], border_uv_scale.mV[VY]);
+		gDX.vertex2fv((border_width_left + border_height_bottom).mV);
 
-		gGL.texCoord2f(0.f, border_uv_scale.mV[VY]);
-		gGL.vertex2fv(border_height_bottom.mV);
+		gDX.texCoord2f(0.f, border_uv_scale.mV[VY]);
+		gDX.vertex2fv(border_height_bottom.mV);
 
 		// draw bottom middle
-		gGL.texCoord2f(border_uv_scale.mV[VX], 0.f);
-		gGL.vertex2fv(border_width_left.mV);
+		gDX.texCoord2f(border_uv_scale.mV[VX], 0.f);
+		gDX.vertex2fv(border_width_left.mV);
 
-		gGL.texCoord2f(1.f - border_uv_scale.mV[VX], 0.f);
-		gGL.vertex2fv((width_vec - border_width_right).mV);
+		gDX.texCoord2f(1.f - border_uv_scale.mV[VX], 0.f);
+		gDX.vertex2fv((width_vec - border_width_right).mV);
 
-		gGL.texCoord2f(1.f - border_uv_scale.mV[VX], border_uv_scale.mV[VY]);
-		gGL.vertex2fv((width_vec - border_width_right + border_height_bottom).mV);
+		gDX.texCoord2f(1.f - border_uv_scale.mV[VX], border_uv_scale.mV[VY]);
+		gDX.vertex2fv((width_vec - border_width_right + border_height_bottom).mV);
 
-		gGL.texCoord2f(border_uv_scale.mV[VX], 0.f);
-		gGL.vertex2fv(border_width_left.mV);
+		gDX.texCoord2f(border_uv_scale.mV[VX], 0.f);
+		gDX.vertex2fv(border_width_left.mV);
 
-		gGL.texCoord2f(1.f - border_uv_scale.mV[VX], border_uv_scale.mV[VY]);
-		gGL.vertex2fv((width_vec - border_width_right + border_height_bottom).mV);
+		gDX.texCoord2f(1.f - border_uv_scale.mV[VX], border_uv_scale.mV[VY]);
+		gDX.vertex2fv((width_vec - border_width_right + border_height_bottom).mV);
 
-		gGL.texCoord2f(border_uv_scale.mV[VX], border_uv_scale.mV[VY]);
-		gGL.vertex2fv((border_width_left + border_height_bottom).mV);
+		gDX.texCoord2f(border_uv_scale.mV[VX], border_uv_scale.mV[VY]);
+		gDX.vertex2fv((border_width_left + border_height_bottom).mV);
 
 		// draw bottom right
-		gGL.texCoord2f(1.f - border_uv_scale.mV[VX], 0.f);
-		gGL.vertex2fv((width_vec - border_width_right).mV);
+		gDX.texCoord2f(1.f - border_uv_scale.mV[VX], 0.f);
+		gDX.vertex2fv((width_vec - border_width_right).mV);
 
-		gGL.texCoord2f(1.f, 0.f);
-		gGL.vertex2fv(width_vec.mV);
+		gDX.texCoord2f(1.f, 0.f);
+		gDX.vertex2fv(width_vec.mV);
 
-		gGL.texCoord2f(1.f, border_uv_scale.mV[VY]);
-		gGL.vertex2fv((width_vec + border_height_bottom).mV);
+		gDX.texCoord2f(1.f, border_uv_scale.mV[VY]);
+		gDX.vertex2fv((width_vec + border_height_bottom).mV);
 
-		gGL.texCoord2f(1.f - border_uv_scale.mV[VX], 0.f);
-		gGL.vertex2fv((width_vec - border_width_right).mV);
+		gDX.texCoord2f(1.f - border_uv_scale.mV[VX], 0.f);
+		gDX.vertex2fv((width_vec - border_width_right).mV);
 
-		gGL.texCoord2f(1.f, border_uv_scale.mV[VY]);
-		gGL.vertex2fv((width_vec + border_height_bottom).mV);
+		gDX.texCoord2f(1.f, border_uv_scale.mV[VY]);
+		gDX.vertex2fv((width_vec + border_height_bottom).mV);
 
-		gGL.texCoord2f(1.f - border_uv_scale.mV[VX], border_uv_scale.mV[VY]);
-		gGL.vertex2fv((width_vec - border_width_right + border_height_bottom).mV);
+		gDX.texCoord2f(1.f - border_uv_scale.mV[VX], border_uv_scale.mV[VY]);
+		gDX.vertex2fv((width_vec - border_width_right + border_height_bottom).mV);
 
 		// draw left
-		gGL.texCoord2f(0.f, border_uv_scale.mV[VY]);
-		gGL.vertex2fv(border_height_bottom.mV);
+		gDX.texCoord2f(0.f, border_uv_scale.mV[VY]);
+		gDX.vertex2fv(border_height_bottom.mV);
 
-		gGL.texCoord2f(border_uv_scale.mV[VX], border_uv_scale.mV[VY]);
-		gGL.vertex2fv((border_width_left + border_height_bottom).mV);
+		gDX.texCoord2f(border_uv_scale.mV[VX], border_uv_scale.mV[VY]);
+		gDX.vertex2fv((border_width_left + border_height_bottom).mV);
 
-		gGL.texCoord2f(border_uv_scale.mV[VX], 1.f - border_uv_scale.mV[VY]);
-		gGL.vertex2fv((border_width_left + height_vec - border_height_top).mV);
+		gDX.texCoord2f(border_uv_scale.mV[VX], 1.f - border_uv_scale.mV[VY]);
+		gDX.vertex2fv((border_width_left + height_vec - border_height_top).mV);
 
-		gGL.texCoord2f(0.f, border_uv_scale.mV[VY]);
-		gGL.vertex2fv(border_height_bottom.mV);
+		gDX.texCoord2f(0.f, border_uv_scale.mV[VY]);
+		gDX.vertex2fv(border_height_bottom.mV);
 
-		gGL.texCoord2f(border_uv_scale.mV[VX], 1.f - border_uv_scale.mV[VY]);
-		gGL.vertex2fv((border_width_left + height_vec - border_height_top).mV);
+		gDX.texCoord2f(border_uv_scale.mV[VX], 1.f - border_uv_scale.mV[VY]);
+		gDX.vertex2fv((border_width_left + height_vec - border_height_top).mV);
 
-		gGL.texCoord2f(0.f, 1.f - border_uv_scale.mV[VY]);
-		gGL.vertex2fv((height_vec - border_height_top).mV);
+		gDX.texCoord2f(0.f, 1.f - border_uv_scale.mV[VY]);
+		gDX.vertex2fv((height_vec - border_height_top).mV);
 
 		// draw middle
-		gGL.texCoord2f(border_uv_scale.mV[VX], border_uv_scale.mV[VY]);
-		gGL.vertex2fv((border_width_left + border_height_bottom).mV);
+		gDX.texCoord2f(border_uv_scale.mV[VX], border_uv_scale.mV[VY]);
+		gDX.vertex2fv((border_width_left + border_height_bottom).mV);
 
-		gGL.texCoord2f(1.f - border_uv_scale.mV[VX], border_uv_scale.mV[VY]);
-		gGL.vertex2fv((width_vec - border_width_right + border_height_bottom).mV);
+		gDX.texCoord2f(1.f - border_uv_scale.mV[VX], border_uv_scale.mV[VY]);
+		gDX.vertex2fv((width_vec - border_width_right + border_height_bottom).mV);
 
-		gGL.texCoord2f(1.f - border_uv_scale.mV[VX], 1.f - border_uv_scale.mV[VY]);
-		gGL.vertex2fv((width_vec - border_width_right + height_vec - border_height_top).mV);
+		gDX.texCoord2f(1.f - border_uv_scale.mV[VX], 1.f - border_uv_scale.mV[VY]);
+		gDX.vertex2fv((width_vec - border_width_right + height_vec - border_height_top).mV);
 
-		gGL.texCoord2f(border_uv_scale.mV[VX], border_uv_scale.mV[VY]);
-		gGL.vertex2fv((border_width_left + border_height_bottom).mV);
+		gDX.texCoord2f(border_uv_scale.mV[VX], border_uv_scale.mV[VY]);
+		gDX.vertex2fv((border_width_left + border_height_bottom).mV);
 
-		gGL.texCoord2f(1.f - border_uv_scale.mV[VX], 1.f - border_uv_scale.mV[VY]);
-		gGL.vertex2fv((width_vec - border_width_right + height_vec - border_height_top).mV);
+		gDX.texCoord2f(1.f - border_uv_scale.mV[VX], 1.f - border_uv_scale.mV[VY]);
+		gDX.vertex2fv((width_vec - border_width_right + height_vec - border_height_top).mV);
 
-		gGL.texCoord2f(border_uv_scale.mV[VX], 1.f - border_uv_scale.mV[VY]);
-		gGL.vertex2fv((border_width_left + height_vec - border_height_top).mV);
+		gDX.texCoord2f(border_uv_scale.mV[VX], 1.f - border_uv_scale.mV[VY]);
+		gDX.vertex2fv((border_width_left + height_vec - border_height_top).mV);
 
 		// draw right
-		gGL.texCoord2f(1.f - border_uv_scale.mV[VX], border_uv_scale.mV[VY]);
-		gGL.vertex2fv((width_vec - border_width_right + border_height_bottom).mV);
+		gDX.texCoord2f(1.f - border_uv_scale.mV[VX], border_uv_scale.mV[VY]);
+		gDX.vertex2fv((width_vec - border_width_right + border_height_bottom).mV);
 
-		gGL.texCoord2f(1.f, border_uv_scale.mV[VY]);
-		gGL.vertex2fv((width_vec + border_height_bottom).mV);
+		gDX.texCoord2f(1.f, border_uv_scale.mV[VY]);
+		gDX.vertex2fv((width_vec + border_height_bottom).mV);
 
-		gGL.texCoord2f(1.f, 1.f - border_uv_scale.mV[VY]);
-		gGL.vertex2fv((width_vec + height_vec - border_height_top).mV);
+		gDX.texCoord2f(1.f, 1.f - border_uv_scale.mV[VY]);
+		gDX.vertex2fv((width_vec + height_vec - border_height_top).mV);
 
-		gGL.texCoord2f(1.f - border_uv_scale.mV[VX], border_uv_scale.mV[VY]);
-		gGL.vertex2fv((width_vec - border_width_right + border_height_bottom).mV);
+		gDX.texCoord2f(1.f - border_uv_scale.mV[VX], border_uv_scale.mV[VY]);
+		gDX.vertex2fv((width_vec - border_width_right + border_height_bottom).mV);
 
-		gGL.texCoord2f(1.f, 1.f - border_uv_scale.mV[VY]);
-		gGL.vertex2fv((width_vec + height_vec - border_height_top).mV);
+		gDX.texCoord2f(1.f, 1.f - border_uv_scale.mV[VY]);
+		gDX.vertex2fv((width_vec + height_vec - border_height_top).mV);
 
-		gGL.texCoord2f(1.f - border_uv_scale.mV[VX], 1.f - border_uv_scale.mV[VY]);
-		gGL.vertex2fv((width_vec - border_width_right + height_vec - border_height_top).mV);
+		gDX.texCoord2f(1.f - border_uv_scale.mV[VX], 1.f - border_uv_scale.mV[VY]);
+		gDX.vertex2fv((width_vec - border_width_right + height_vec - border_height_top).mV);
 
 		// draw top left
-		gGL.texCoord2f(0.f, 1.f - border_uv_scale.mV[VY]);
-		gGL.vertex2fv((height_vec - border_height_top).mV);
+		gDX.texCoord2f(0.f, 1.f - border_uv_scale.mV[VY]);
+		gDX.vertex2fv((height_vec - border_height_top).mV);
 
-		gGL.texCoord2f(border_uv_scale.mV[VX], 1.f - border_uv_scale.mV[VY]);
-		gGL.vertex2fv((border_width_left + height_vec - border_height_top).mV);
+		gDX.texCoord2f(border_uv_scale.mV[VX], 1.f - border_uv_scale.mV[VY]);
+		gDX.vertex2fv((border_width_left + height_vec - border_height_top).mV);
 
-		gGL.texCoord2f(border_uv_scale.mV[VX], 1.f);
-		gGL.vertex2fv((border_width_left + height_vec).mV);
+		gDX.texCoord2f(border_uv_scale.mV[VX], 1.f);
+		gDX.vertex2fv((border_width_left + height_vec).mV);
 
-		gGL.texCoord2f(0.f, 1.f - border_uv_scale.mV[VY]);
-		gGL.vertex2fv((height_vec - border_height_top).mV);
+		gDX.texCoord2f(0.f, 1.f - border_uv_scale.mV[VY]);
+		gDX.vertex2fv((height_vec - border_height_top).mV);
 
-		gGL.texCoord2f(border_uv_scale.mV[VX], 1.f);
-		gGL.vertex2fv((border_width_left + height_vec).mV);
+		gDX.texCoord2f(border_uv_scale.mV[VX], 1.f);
+		gDX.vertex2fv((border_width_left + height_vec).mV);
 
-		gGL.texCoord2f(0.f, 1.f);
-		gGL.vertex2fv((height_vec).mV);
+		gDX.texCoord2f(0.f, 1.f);
+		gDX.vertex2fv((height_vec).mV);
 
 		// draw top middle
-		gGL.texCoord2f(border_uv_scale.mV[VX], 1.f - border_uv_scale.mV[VY]);
-		gGL.vertex2fv((border_width_left + height_vec - border_height_top).mV);
+		gDX.texCoord2f(border_uv_scale.mV[VX], 1.f - border_uv_scale.mV[VY]);
+		gDX.vertex2fv((border_width_left + height_vec - border_height_top).mV);
 
-		gGL.texCoord2f(1.f - border_uv_scale.mV[VX], 1.f - border_uv_scale.mV[VY]);
-		gGL.vertex2fv((width_vec - border_width_right + height_vec - border_height_top).mV);
+		gDX.texCoord2f(1.f - border_uv_scale.mV[VX], 1.f - border_uv_scale.mV[VY]);
+		gDX.vertex2fv((width_vec - border_width_right + height_vec - border_height_top).mV);
 
-		gGL.texCoord2f(1.f - border_uv_scale.mV[VX], 1.f);
-		gGL.vertex2fv((width_vec - border_width_right + height_vec).mV);
+		gDX.texCoord2f(1.f - border_uv_scale.mV[VX], 1.f);
+		gDX.vertex2fv((width_vec - border_width_right + height_vec).mV);
 
-		gGL.texCoord2f(border_uv_scale.mV[VX], 1.f - border_uv_scale.mV[VY]);
-		gGL.vertex2fv((border_width_left + height_vec - border_height_top).mV);
+		gDX.texCoord2f(border_uv_scale.mV[VX], 1.f - border_uv_scale.mV[VY]);
+		gDX.vertex2fv((border_width_left + height_vec - border_height_top).mV);
 
-		gGL.texCoord2f(1.f - border_uv_scale.mV[VX], 1.f);
-		gGL.vertex2fv((width_vec - border_width_right + height_vec).mV);
+		gDX.texCoord2f(1.f - border_uv_scale.mV[VX], 1.f);
+		gDX.vertex2fv((width_vec - border_width_right + height_vec).mV);
 
-		gGL.texCoord2f(border_uv_scale.mV[VX], 1.f);
-		gGL.vertex2fv((border_width_left + height_vec).mV);
+		gDX.texCoord2f(border_uv_scale.mV[VX], 1.f);
+		gDX.vertex2fv((border_width_left + height_vec).mV);
 
 		// draw top right
-		gGL.texCoord2f(1.f - border_uv_scale.mV[VX], 1.f - border_uv_scale.mV[VY]);
-		gGL.vertex2fv((width_vec - border_width_right + height_vec - border_height_top).mV);
+		gDX.texCoord2f(1.f - border_uv_scale.mV[VX], 1.f - border_uv_scale.mV[VY]);
+		gDX.vertex2fv((width_vec - border_width_right + height_vec - border_height_top).mV);
 
-		gGL.texCoord2f(1.f, 1.f - border_uv_scale.mV[VY]);
-		gGL.vertex2fv((width_vec + height_vec - border_height_top).mV);
+		gDX.texCoord2f(1.f, 1.f - border_uv_scale.mV[VY]);
+		gDX.vertex2fv((width_vec + height_vec - border_height_top).mV);
 
-		gGL.texCoord2f(1.f, 1.f);
-		gGL.vertex2fv((width_vec + height_vec).mV);
+		gDX.texCoord2f(1.f, 1.f);
+		gDX.vertex2fv((width_vec + height_vec).mV);
 
-		gGL.texCoord2f(1.f - border_uv_scale.mV[VX], 1.f - border_uv_scale.mV[VY]);
-		gGL.vertex2fv((width_vec - border_width_right + height_vec - border_height_top).mV);
+		gDX.texCoord2f(1.f - border_uv_scale.mV[VX], 1.f - border_uv_scale.mV[VY]);
+		gDX.vertex2fv((width_vec - border_width_right + height_vec - border_height_top).mV);
 
-		gGL.texCoord2f(1.f, 1.f);
-		gGL.vertex2fv((width_vec + height_vec).mV);
+		gDX.texCoord2f(1.f, 1.f);
+		gDX.vertex2fv((width_vec + height_vec).mV);
 
-		gGL.texCoord2f(1.f - border_uv_scale.mV[VX], 1.f);
-		gGL.vertex2fv((width_vec - border_width_right + height_vec).mV);
+		gDX.texCoord2f(1.f - border_uv_scale.mV[VX], 1.f);
+		gDX.vertex2fv((width_vec - border_width_right + height_vec).mV);
 	}
-	gGL.end();
+	gDX.end();
 
-	gGL.popUIMatrix();
+	gDX.popUIMatrix();
 }
 
 void gl_segmented_rect_2d_fragment_tex(const LLRect& rect,
@@ -1770,16 +1719,16 @@ void gl_segmented_rect_2d_fragment_tex(const LLRect& rect,
 #ifdef DX_RENDER
 	// S24 (DXRender2DUtils, 2026-07-25): DXRender2DUtils::glSegmentedRectTwoDFragmentTex()
 	// takes the same raw parameters and replicates this function's own
-	// gGL.pushUIMatrix()/translateUI((F32)left,(F32)bottom,0.f) internally
+	// gDX.pushUIMatrix()/translateUI((F32)left,(F32)bottom,0.f) internally
 	// (see its own comment) - so the DX_RENDER path bypasses all of the
 	// shared setup math below entirely rather than duplicating it partially.
-	if (LLGLSLShader* shader = LLGLSLShader::sCurBoundShaderPtr)
+	if (LLHLSLShader* shader = LLHLSLShader::sCurBoundShaderPtr)
 	{
-		gGL.flush();
+		gDX.flush();
 		gDXUIBatch.flushPending();
 		DXRender2DUtils::glSegmentedRectTwoDFragmentTex(rect, texture_width, texture_height, border_size,
-			start_fragment, end_fragment, edges, gGL.getCurrentColor(), gGL.getUITranslation(), gGL.getUIScale());
-		gGL.syncMatrices();
+			start_fragment, end_fragment, edges, gDX.getCurrentColor(), gDX.getUITranslation(), gDX.getUIScale());
+		gDX.syncMatrices();
 		if (ID3DBlob* vsb = shader->mDXVertexShader.getVSBytecode())
 		{
 			gDXUIBatch.flush(vsb->GetBufferPointer(), vsb->GetBufferSize(), shader->mDXVertexShader.getVS(), shader->mDXPixelShader.getPS(), true, shader->mName.c_str());
@@ -1794,9 +1743,9 @@ void gl_segmented_rect_2d_fragment_tex(const LLRect& rect,
 	S32 width = llabs(right - left);
 	S32 height = llabs(top - bottom);
 
-	gGL.pushUIMatrix();
+	gDX.pushUIMatrix();
 
-	gGL.translateUI((F32)left, (F32)bottom, 0.f);
+	gDX.translateUI((F32)left, (F32)bottom, 0.f);
 	LLVector2 border_uv_scale((F32)border_size / (F32)texture_width, (F32)border_size / (F32)texture_height);
 
 	if (border_uv_scale.mV[VX] > 0.5f)
@@ -1824,7 +1773,7 @@ void gl_segmented_rect_2d_fragment_tex(const LLRect& rect,
 	LLVector2 x_min;
 	LLVector2 x_max;
 
-	gGL.begin(LLRender::TRIANGLES);
+	gDX.begin(LLRender::TRIANGLES);
 	{
 		if (start_fragment < middle_start)
 		{
@@ -1834,61 +1783,61 @@ void gl_segmented_rect_2d_fragment_tex(const LLRect& rect,
 			x_max = llmin(end_fragment / middle_start, 1.f) * border_width_left;
 
 			// draw bottom left
-			gGL.texCoord2f(u_min, 0.f);
-			gGL.vertex2fv(x_min.mV);
+			gDX.texCoord2f(u_min, 0.f);
+			gDX.vertex2fv(x_min.mV);
 
-			gGL.texCoord2f(border_uv_scale.mV[VX], 0.f);
-			gGL.vertex2fv(x_max.mV);
+			gDX.texCoord2f(border_uv_scale.mV[VX], 0.f);
+			gDX.vertex2fv(x_max.mV);
 
-			gGL.texCoord2f(u_max, border_uv_scale.mV[VY]);
-			gGL.vertex2fv((x_max + border_height_bottom).mV);
+			gDX.texCoord2f(u_max, border_uv_scale.mV[VY]);
+			gDX.vertex2fv((x_max + border_height_bottom).mV);
 
-			gGL.texCoord2f(u_min, 0.f);
-			gGL.vertex2fv(x_min.mV);
+			gDX.texCoord2f(u_min, 0.f);
+			gDX.vertex2fv(x_min.mV);
 
-			gGL.texCoord2f(u_max, border_uv_scale.mV[VY]);
-			gGL.vertex2fv((x_max + border_height_bottom).mV);
+			gDX.texCoord2f(u_max, border_uv_scale.mV[VY]);
+			gDX.vertex2fv((x_max + border_height_bottom).mV);
 
-			gGL.texCoord2f(u_min, border_uv_scale.mV[VY]);
-			gGL.vertex2fv((x_min + border_height_bottom).mV);
+			gDX.texCoord2f(u_min, border_uv_scale.mV[VY]);
+			gDX.vertex2fv((x_min + border_height_bottom).mV);
 
 			// draw left
-			gGL.texCoord2f(u_min, border_uv_scale.mV[VY]);
-			gGL.vertex2fv((x_min + border_height_bottom).mV);
+			gDX.texCoord2f(u_min, border_uv_scale.mV[VY]);
+			gDX.vertex2fv((x_min + border_height_bottom).mV);
 
-			gGL.texCoord2f(u_max, border_uv_scale.mV[VY]);
-			gGL.vertex2fv((x_max + border_height_bottom).mV);
+			gDX.texCoord2f(u_max, border_uv_scale.mV[VY]);
+			gDX.vertex2fv((x_max + border_height_bottom).mV);
 
-			gGL.texCoord2f(u_max, 1.f - border_uv_scale.mV[VY]);
-			gGL.vertex2fv((x_max + height_vec - border_height_top).mV);
+			gDX.texCoord2f(u_max, 1.f - border_uv_scale.mV[VY]);
+			gDX.vertex2fv((x_max + height_vec - border_height_top).mV);
 
-			gGL.texCoord2f(u_min, border_uv_scale.mV[VY]);
-			gGL.vertex2fv((x_min + border_height_bottom).mV);
+			gDX.texCoord2f(u_min, border_uv_scale.mV[VY]);
+			gDX.vertex2fv((x_min + border_height_bottom).mV);
 
-			gGL.texCoord2f(u_max, 1.f - border_uv_scale.mV[VY]);
-			gGL.vertex2fv((x_max + height_vec - border_height_top).mV);
+			gDX.texCoord2f(u_max, 1.f - border_uv_scale.mV[VY]);
+			gDX.vertex2fv((x_max + height_vec - border_height_top).mV);
 
-			gGL.texCoord2f(u_min, 1.f - border_uv_scale.mV[VY]);
-			gGL.vertex2fv((x_min + height_vec - border_height_top).mV);
+			gDX.texCoord2f(u_min, 1.f - border_uv_scale.mV[VY]);
+			gDX.vertex2fv((x_min + height_vec - border_height_top).mV);
 
 			// draw top left
-			gGL.texCoord2f(u_min, 1.f - border_uv_scale.mV[VY]);
-			gGL.vertex2fv((x_min + height_vec - border_height_top).mV);
+			gDX.texCoord2f(u_min, 1.f - border_uv_scale.mV[VY]);
+			gDX.vertex2fv((x_min + height_vec - border_height_top).mV);
 
-			gGL.texCoord2f(u_max, 1.f - border_uv_scale.mV[VY]);
-			gGL.vertex2fv((x_max + height_vec - border_height_top).mV);
+			gDX.texCoord2f(u_max, 1.f - border_uv_scale.mV[VY]);
+			gDX.vertex2fv((x_max + height_vec - border_height_top).mV);
 
-			gGL.texCoord2f(u_max, 1.f);
-			gGL.vertex2fv((x_max + height_vec).mV);
+			gDX.texCoord2f(u_max, 1.f);
+			gDX.vertex2fv((x_max + height_vec).mV);
 
-			gGL.texCoord2f(u_min, 1.f - border_uv_scale.mV[VY]);
-			gGL.vertex2fv((x_min + height_vec - border_height_top).mV);
+			gDX.texCoord2f(u_min, 1.f - border_uv_scale.mV[VY]);
+			gDX.vertex2fv((x_min + height_vec - border_height_top).mV);
 
-			gGL.texCoord2f(u_max, 1.f);
-			gGL.vertex2fv((x_max + height_vec).mV);
+			gDX.texCoord2f(u_max, 1.f);
+			gDX.vertex2fv((x_max + height_vec).mV);
 
-			gGL.texCoord2f(u_min, 1.f);
-			gGL.vertex2fv((x_min + height_vec).mV);
+			gDX.texCoord2f(u_min, 1.f);
+			gDX.vertex2fv((x_min + height_vec).mV);
 		}
 
 		if (end_fragment > middle_start || start_fragment < middle_end)
@@ -1897,61 +1846,61 @@ void gl_segmented_rect_2d_fragment_tex(const LLRect& rect,
 			x_max = border_width_left + ((llclamp(end_fragment, middle_start, middle_end) - middle_start)) * width_vec;
 
 			// draw bottom middle
-			gGL.texCoord2f(border_uv_scale.mV[VX], 0.f);
-			gGL.vertex2fv(x_min.mV);
+			gDX.texCoord2f(border_uv_scale.mV[VX], 0.f);
+			gDX.vertex2fv(x_min.mV);
 
-			gGL.texCoord2f(1.f - border_uv_scale.mV[VX], 0.f);
-			gGL.vertex2fv((x_max).mV);
+			gDX.texCoord2f(1.f - border_uv_scale.mV[VX], 0.f);
+			gDX.vertex2fv((x_max).mV);
 
-			gGL.texCoord2f(1.f - border_uv_scale.mV[VX], border_uv_scale.mV[VY]);
-			gGL.vertex2fv((x_max + border_height_bottom).mV);
+			gDX.texCoord2f(1.f - border_uv_scale.mV[VX], border_uv_scale.mV[VY]);
+			gDX.vertex2fv((x_max + border_height_bottom).mV);
 
-			gGL.texCoord2f(border_uv_scale.mV[VX], 0.f);
-			gGL.vertex2fv(x_min.mV);
+			gDX.texCoord2f(border_uv_scale.mV[VX], 0.f);
+			gDX.vertex2fv(x_min.mV);
 
-			gGL.texCoord2f(1.f - border_uv_scale.mV[VX], border_uv_scale.mV[VY]);
-			gGL.vertex2fv((x_max + border_height_bottom).mV);
+			gDX.texCoord2f(1.f - border_uv_scale.mV[VX], border_uv_scale.mV[VY]);
+			gDX.vertex2fv((x_max + border_height_bottom).mV);
 
-			gGL.texCoord2f(border_uv_scale.mV[VX], border_uv_scale.mV[VY]);
-			gGL.vertex2fv((x_min + border_height_bottom).mV);
+			gDX.texCoord2f(border_uv_scale.mV[VX], border_uv_scale.mV[VY]);
+			gDX.vertex2fv((x_min + border_height_bottom).mV);
 
 			// draw middle
-			gGL.texCoord2f(border_uv_scale.mV[VX], border_uv_scale.mV[VY]);
-			gGL.vertex2fv((x_min + border_height_bottom).mV);
+			gDX.texCoord2f(border_uv_scale.mV[VX], border_uv_scale.mV[VY]);
+			gDX.vertex2fv((x_min + border_height_bottom).mV);
 
-			gGL.texCoord2f(1.f - border_uv_scale.mV[VX], border_uv_scale.mV[VY]);
-			gGL.vertex2fv((x_max + border_height_bottom).mV);
+			gDX.texCoord2f(1.f - border_uv_scale.mV[VX], border_uv_scale.mV[VY]);
+			gDX.vertex2fv((x_max + border_height_bottom).mV);
 
-			gGL.texCoord2f(1.f - border_uv_scale.mV[VX], 1.f - border_uv_scale.mV[VY]);
-			gGL.vertex2fv((x_max + height_vec - border_height_top).mV);
+			gDX.texCoord2f(1.f - border_uv_scale.mV[VX], 1.f - border_uv_scale.mV[VY]);
+			gDX.vertex2fv((x_max + height_vec - border_height_top).mV);
 
-			gGL.texCoord2f(border_uv_scale.mV[VX], border_uv_scale.mV[VY]);
-			gGL.vertex2fv((x_min + border_height_bottom).mV);
+			gDX.texCoord2f(border_uv_scale.mV[VX], border_uv_scale.mV[VY]);
+			gDX.vertex2fv((x_min + border_height_bottom).mV);
 
-			gGL.texCoord2f(1.f - border_uv_scale.mV[VX], 1.f - border_uv_scale.mV[VY]);
-			gGL.vertex2fv((x_max + height_vec - border_height_top).mV);
+			gDX.texCoord2f(1.f - border_uv_scale.mV[VX], 1.f - border_uv_scale.mV[VY]);
+			gDX.vertex2fv((x_max + height_vec - border_height_top).mV);
 
-			gGL.texCoord2f(border_uv_scale.mV[VX], 1.f - border_uv_scale.mV[VY]);
-			gGL.vertex2fv((x_min + height_vec - border_height_top).mV);
+			gDX.texCoord2f(border_uv_scale.mV[VX], 1.f - border_uv_scale.mV[VY]);
+			gDX.vertex2fv((x_min + height_vec - border_height_top).mV);
 
 			// draw top middle
-			gGL.texCoord2f(border_uv_scale.mV[VX], 1.f - border_uv_scale.mV[VY]);
-			gGL.vertex2fv((x_min + height_vec - border_height_top).mV);
+			gDX.texCoord2f(border_uv_scale.mV[VX], 1.f - border_uv_scale.mV[VY]);
+			gDX.vertex2fv((x_min + height_vec - border_height_top).mV);
 
-			gGL.texCoord2f(1.f - border_uv_scale.mV[VX], 1.f - border_uv_scale.mV[VY]);
-			gGL.vertex2fv((x_max + height_vec - border_height_top).mV);
+			gDX.texCoord2f(1.f - border_uv_scale.mV[VX], 1.f - border_uv_scale.mV[VY]);
+			gDX.vertex2fv((x_max + height_vec - border_height_top).mV);
 
-			gGL.texCoord2f(1.f - border_uv_scale.mV[VX], 1.f);
-			gGL.vertex2fv((x_max + height_vec).mV);
+			gDX.texCoord2f(1.f - border_uv_scale.mV[VX], 1.f);
+			gDX.vertex2fv((x_max + height_vec).mV);
 
-			gGL.texCoord2f(border_uv_scale.mV[VX], 1.f - border_uv_scale.mV[VY]);
-			gGL.vertex2fv((x_min + height_vec - border_height_top).mV);
+			gDX.texCoord2f(border_uv_scale.mV[VX], 1.f - border_uv_scale.mV[VY]);
+			gDX.vertex2fv((x_min + height_vec - border_height_top).mV);
 
-			gGL.texCoord2f(1.f - border_uv_scale.mV[VX], 1.f);
-			gGL.vertex2fv((x_max + height_vec).mV);
+			gDX.texCoord2f(1.f - border_uv_scale.mV[VX], 1.f);
+			gDX.vertex2fv((x_max + height_vec).mV);
 
-			gGL.texCoord2f(border_uv_scale.mV[VX], 1.f);
-			gGL.vertex2fv((x_min + height_vec).mV);
+			gDX.texCoord2f(border_uv_scale.mV[VX], 1.f);
+			gDX.vertex2fv((x_min + height_vec).mV);
 		}
 
 		if (end_fragment > middle_end)
@@ -1962,66 +1911,66 @@ void gl_segmented_rect_2d_fragment_tex(const LLRect& rect,
 			x_max = width_vec - ((1.f - ((end_fragment - middle_end) / middle_start)) * border_width_right);
 
 			// draw bottom right
-			gGL.texCoord2f(u_min, 0.f);
-			gGL.vertex2fv((x_min).mV);
+			gDX.texCoord2f(u_min, 0.f);
+			gDX.vertex2fv((x_min).mV);
 
-			gGL.texCoord2f(u_max, 0.f);
-			gGL.vertex2fv(x_max.mV);
+			gDX.texCoord2f(u_max, 0.f);
+			gDX.vertex2fv(x_max.mV);
 
-			gGL.texCoord2f(u_max, border_uv_scale.mV[VY]);
-			gGL.vertex2fv((x_max + border_height_bottom).mV);
+			gDX.texCoord2f(u_max, border_uv_scale.mV[VY]);
+			gDX.vertex2fv((x_max + border_height_bottom).mV);
 
-			gGL.texCoord2f(u_min, 0.f);
-			gGL.vertex2fv((x_min).mV);
+			gDX.texCoord2f(u_min, 0.f);
+			gDX.vertex2fv((x_min).mV);
 
-			gGL.texCoord2f(u_max, border_uv_scale.mV[VY]);
-			gGL.vertex2fv((x_max + border_height_bottom).mV);
+			gDX.texCoord2f(u_max, border_uv_scale.mV[VY]);
+			gDX.vertex2fv((x_max + border_height_bottom).mV);
 
-			gGL.texCoord2f(u_min, border_uv_scale.mV[VY]);
-			gGL.vertex2fv((x_min + border_height_bottom).mV);
+			gDX.texCoord2f(u_min, border_uv_scale.mV[VY]);
+			gDX.vertex2fv((x_min + border_height_bottom).mV);
 
 			// draw right
-			gGL.texCoord2f(u_min, border_uv_scale.mV[VY]);
-			gGL.vertex2fv((x_min + border_height_bottom).mV);
+			gDX.texCoord2f(u_min, border_uv_scale.mV[VY]);
+			gDX.vertex2fv((x_min + border_height_bottom).mV);
 
-			gGL.texCoord2f(u_max, border_uv_scale.mV[VY]);
-			gGL.vertex2fv((x_max + border_height_bottom).mV);
+			gDX.texCoord2f(u_max, border_uv_scale.mV[VY]);
+			gDX.vertex2fv((x_max + border_height_bottom).mV);
 
-			gGL.texCoord2f(u_max, 1.f - border_uv_scale.mV[VY]);
-			gGL.vertex2fv((x_max + height_vec - border_height_top).mV);
+			gDX.texCoord2f(u_max, 1.f - border_uv_scale.mV[VY]);
+			gDX.vertex2fv((x_max + height_vec - border_height_top).mV);
 
-			gGL.texCoord2f(u_min, border_uv_scale.mV[VY]);
-			gGL.vertex2fv((x_min + border_height_bottom).mV);
+			gDX.texCoord2f(u_min, border_uv_scale.mV[VY]);
+			gDX.vertex2fv((x_min + border_height_bottom).mV);
 
-			gGL.texCoord2f(u_max, 1.f - border_uv_scale.mV[VY]);
-			gGL.vertex2fv((x_max + height_vec - border_height_top).mV);
+			gDX.texCoord2f(u_max, 1.f - border_uv_scale.mV[VY]);
+			gDX.vertex2fv((x_max + height_vec - border_height_top).mV);
 
-			gGL.texCoord2f(u_min, 1.f - border_uv_scale.mV[VY]);
-			gGL.vertex2fv((x_min + height_vec - border_height_top).mV);
+			gDX.texCoord2f(u_min, 1.f - border_uv_scale.mV[VY]);
+			gDX.vertex2fv((x_min + height_vec - border_height_top).mV);
 
 			// draw top right
-			gGL.texCoord2f(u_min, 1.f - border_uv_scale.mV[VY]);
-			gGL.vertex2fv((x_min + height_vec - border_height_top).mV);
+			gDX.texCoord2f(u_min, 1.f - border_uv_scale.mV[VY]);
+			gDX.vertex2fv((x_min + height_vec - border_height_top).mV);
 
-			gGL.texCoord2f(u_max, 1.f - border_uv_scale.mV[VY]);
-			gGL.vertex2fv((x_max + height_vec - border_height_top).mV);
+			gDX.texCoord2f(u_max, 1.f - border_uv_scale.mV[VY]);
+			gDX.vertex2fv((x_max + height_vec - border_height_top).mV);
 
-			gGL.texCoord2f(u_max, 1.f);
-			gGL.vertex2fv((x_max + height_vec).mV);
+			gDX.texCoord2f(u_max, 1.f);
+			gDX.vertex2fv((x_max + height_vec).mV);
 
-			gGL.texCoord2f(u_min, 1.f - border_uv_scale.mV[VY]);
-			gGL.vertex2fv((x_min + height_vec - border_height_top).mV);
+			gDX.texCoord2f(u_min, 1.f - border_uv_scale.mV[VY]);
+			gDX.vertex2fv((x_min + height_vec - border_height_top).mV);
 
-			gGL.texCoord2f(u_max, 1.f);
-			gGL.vertex2fv((x_max + height_vec).mV);
+			gDX.texCoord2f(u_max, 1.f);
+			gDX.vertex2fv((x_max + height_vec).mV);
 
-			gGL.texCoord2f(u_min, 1.f);
-			gGL.vertex2fv((x_min + height_vec).mV);
+			gDX.texCoord2f(u_min, 1.f);
+			gDX.vertex2fv((x_min + height_vec).mV);
 		}
 	}
-	gGL.end();
+	gDX.end();
 
-	gGL.popUIMatrix();
+	gDX.popUIMatrix();
 #endif // DX_RENDER
 }
 
@@ -2031,13 +1980,13 @@ void gl_segmented_rect_3d_tex(const LLRectf& clip_rect, const LLRectf& center_uv
 	LL_PROFILE_ZONE_SCOPED_CATEGORY_UI;
 
 #ifdef DX_RENDER
-	if (LLGLSLShader* shader = LLGLSLShader::sCurBoundShaderPtr)
+	if (LLHLSLShader* shader = LLHLSLShader::sCurBoundShaderPtr)
 	{
-		gGL.flush();
+		gDX.flush();
 		gDXUIBatch.flushPending();
 		DXRender2DUtils::glSegmentedRectThreeDTex(clip_rect, center_uv_rect, center_draw_rect, width_vec, height_vec,
-			gGL.getCurrentColor(), gGL.getUITranslation(), gGL.getUIScale());
-		gGL.syncMatrices();
+			gDX.getCurrentColor(), gDX.getUITranslation(), gDX.getUIScale());
+		gDX.syncMatrices();
 		if (ID3DBlob* vsb = shader->mDXVertexShader.getVSBytecode())
 		{
 			// S24 (2026-08-11, task #191): this is the one gl_segmented_rect_*
@@ -2045,198 +1994,214 @@ void gl_segmented_rect_3d_tex(const LLRectf& clip_rect, const LLRectf& center_uv
 			// nametag panel, via LLUIImage::draw3D()) rather than 2D screen-
 			// space UI - its caller wraps it in LLGLDepthTest(GL_TRUE,
 			// GL_FALSE), wanting real depth-test occlusion against world
-			// geometry. Tried passing that through to DXUIBatch::flush() -
-			// caused a regression (panel disappeared entirely): by the time
-			// nametags render, the bound depth buffer is the swap chain's
-			// own (DXSwapChain.h's own header comment already documents this
-			// - built only for relative ordering among render_hud_elements()'s
-			// gizmo/selection content, cleared to far once per frame, never
-			// populated with real 3D scene depth, which is long gone/unbound
-			// by this point in the frame). Testing against it isn't
-			// meaningful and evidently fails outright rather than passing.
-			// Reverted to the default (depth_test=false) until the real gap
-			// (no world-depth-aware target bound during the UI/HUD pass) is
-			// actually fixed - real occlusion-behind-walls for nametags
-			// remains a known, separate follow-up, not solved by this call.
+			// geometry. Tried passing that through to DXUIBatch::flush() at
+			// the time - caused a regression (panel disappeared entirely):
+			// the swap chain's depth-stencil genuinely had no real scene
+			// depth in it yet back then, only a far-clear (task #193).
+			//
+			// S24 (2026-08-31, task #193 follow-up): that root gap is gone
+			// now, just never reconnected back to this comment - task #139
+			// (2026-08-17, six days after the regression above) made
+			// DXPipeline::presentFinal() unconditionally write real scene
+			// depth into the swap chain's depth-stencil via SV_Depth
+			// (postDeferredNoDoFF.hlsl, the single "put this on screen"
+			// chokepoint every post-fx path funnels through, GL_ALWAYS/
+			// depth-write-on) - confirmed via fresh read of dxpipeline.cpp,
+			// not assumed. presentFinal() runs at the tail of
+			// presentDeferredScreen(), which LLPipeline::renderFinalize()
+			// calls strictly before the UI/HUD pass - real depth should be
+			// present by the time this draws. Also found+fixed a genuinely
+			// separate, currently-live bug while checking: DXUIBatch::
+			// flush()'s own depth_func default was still D3D11_COMPARISON_
+			// LESS_EQUAL, correct under the old near=0/far=1 convention but
+			// backwards since the reversed-Z conversion (task #289) -
+			// fixed to GREATER_EQUAL (DXUIBatch.h). depth_test is
+			// deliberately left false here regardless - real nametag
+			// occlusion is already solved a different, working way (task
+			// #272, occlusion queries, r3686) and there's no reason to risk
+			// re-touching that path just to prove this one out. If this
+			// exact regression is ever re-attempted, the infrastructure
+			// should now be correct - but genuinely untested live, verify
+			// before trusting it for anything that matters.
 			gDXUIBatch.flush(vsb->GetBufferPointer(), vsb->GetBufferSize(), shader->mDXVertexShader.getVS(), shader->mDXPixelShader.getPS(), true, shader->mName.c_str());
 		}
 	}
 	return;
 #else
-	gGL.begin(LLRender::TRIANGLES);
+	gDX.begin(LLRender::TRIANGLES);
 	{
 		// draw bottom left
-		gGL.texCoord2f(clip_rect.mLeft, clip_rect.mBottom);
-		gGL.vertex3f(0.f, 0.f, 0.f);
+		gDX.texCoord2f(clip_rect.mLeft, clip_rect.mBottom);
+		gDX.vertex3f(0.f, 0.f, 0.f);
 
-		gGL.texCoord2f(center_uv_rect.mLeft, clip_rect.mBottom);
-		gGL.vertex3fv((center_draw_rect.mLeft * width_vec).mV);
+		gDX.texCoord2f(center_uv_rect.mLeft, clip_rect.mBottom);
+		gDX.vertex3fv((center_draw_rect.mLeft * width_vec).mV);
 
-		gGL.texCoord2f(center_uv_rect.mLeft, center_uv_rect.mBottom);
-		gGL.vertex3fv((center_draw_rect.mLeft * width_vec + center_draw_rect.mBottom * height_vec).mV);
+		gDX.texCoord2f(center_uv_rect.mLeft, center_uv_rect.mBottom);
+		gDX.vertex3fv((center_draw_rect.mLeft * width_vec + center_draw_rect.mBottom * height_vec).mV);
 
-		gGL.texCoord2f(clip_rect.mLeft, clip_rect.mBottom);
-		gGL.vertex3f(0.f, 0.f, 0.f);
+		gDX.texCoord2f(clip_rect.mLeft, clip_rect.mBottom);
+		gDX.vertex3f(0.f, 0.f, 0.f);
 
-		gGL.texCoord2f(center_uv_rect.mLeft, center_uv_rect.mBottom);
-		gGL.vertex3fv((center_draw_rect.mLeft * width_vec + center_draw_rect.mBottom * height_vec).mV);
+		gDX.texCoord2f(center_uv_rect.mLeft, center_uv_rect.mBottom);
+		gDX.vertex3fv((center_draw_rect.mLeft * width_vec + center_draw_rect.mBottom * height_vec).mV);
 
-		gGL.texCoord2f(clip_rect.mLeft, center_uv_rect.mBottom);
-		gGL.vertex3fv((center_draw_rect.mBottom * height_vec).mV);
+		gDX.texCoord2f(clip_rect.mLeft, center_uv_rect.mBottom);
+		gDX.vertex3fv((center_draw_rect.mBottom * height_vec).mV);
 
 		// draw bottom middle
-		gGL.texCoord2f(center_uv_rect.mLeft, clip_rect.mBottom);
-		gGL.vertex3fv((center_draw_rect.mLeft * width_vec).mV);
+		gDX.texCoord2f(center_uv_rect.mLeft, clip_rect.mBottom);
+		gDX.vertex3fv((center_draw_rect.mLeft * width_vec).mV);
 
-		gGL.texCoord2f(center_uv_rect.mRight, clip_rect.mBottom);
-		gGL.vertex3fv((center_draw_rect.mRight * width_vec).mV);
+		gDX.texCoord2f(center_uv_rect.mRight, clip_rect.mBottom);
+		gDX.vertex3fv((center_draw_rect.mRight * width_vec).mV);
 
-		gGL.texCoord2f(center_uv_rect.mRight, center_uv_rect.mBottom);
-		gGL.vertex3fv((center_draw_rect.mRight * width_vec + center_draw_rect.mBottom * height_vec).mV);
+		gDX.texCoord2f(center_uv_rect.mRight, center_uv_rect.mBottom);
+		gDX.vertex3fv((center_draw_rect.mRight * width_vec + center_draw_rect.mBottom * height_vec).mV);
 
-		gGL.texCoord2f(center_uv_rect.mLeft, clip_rect.mBottom);
-		gGL.vertex3fv((center_draw_rect.mLeft * width_vec).mV);
+		gDX.texCoord2f(center_uv_rect.mLeft, clip_rect.mBottom);
+		gDX.vertex3fv((center_draw_rect.mLeft * width_vec).mV);
 
-		gGL.texCoord2f(center_uv_rect.mRight, center_uv_rect.mBottom);
-		gGL.vertex3fv((center_draw_rect.mRight * width_vec + center_draw_rect.mBottom * height_vec).mV);
+		gDX.texCoord2f(center_uv_rect.mRight, center_uv_rect.mBottom);
+		gDX.vertex3fv((center_draw_rect.mRight * width_vec + center_draw_rect.mBottom * height_vec).mV);
 
-		gGL.texCoord2f(center_uv_rect.mLeft, center_uv_rect.mBottom);
-		gGL.vertex3fv((center_draw_rect.mLeft * width_vec + center_draw_rect.mBottom * height_vec).mV);
+		gDX.texCoord2f(center_uv_rect.mLeft, center_uv_rect.mBottom);
+		gDX.vertex3fv((center_draw_rect.mLeft * width_vec + center_draw_rect.mBottom * height_vec).mV);
 
 		// draw bottom right
-		gGL.texCoord2f(center_uv_rect.mRight, clip_rect.mBottom);
-		gGL.vertex3fv((center_draw_rect.mRight * width_vec).mV);
+		gDX.texCoord2f(center_uv_rect.mRight, clip_rect.mBottom);
+		gDX.vertex3fv((center_draw_rect.mRight * width_vec).mV);
 
-		gGL.texCoord2f(clip_rect.mRight, clip_rect.mBottom);
-		gGL.vertex3fv(width_vec.mV);
+		gDX.texCoord2f(clip_rect.mRight, clip_rect.mBottom);
+		gDX.vertex3fv(width_vec.mV);
 
-		gGL.texCoord2f(clip_rect.mRight, center_uv_rect.mBottom);
-		gGL.vertex3fv((width_vec + center_draw_rect.mBottom * height_vec).mV);
+		gDX.texCoord2f(clip_rect.mRight, center_uv_rect.mBottom);
+		gDX.vertex3fv((width_vec + center_draw_rect.mBottom * height_vec).mV);
 
-		gGL.texCoord2f(center_uv_rect.mRight, clip_rect.mBottom);
-		gGL.vertex3fv((center_draw_rect.mRight * width_vec).mV);
+		gDX.texCoord2f(center_uv_rect.mRight, clip_rect.mBottom);
+		gDX.vertex3fv((center_draw_rect.mRight * width_vec).mV);
 
-		gGL.texCoord2f(clip_rect.mRight, center_uv_rect.mBottom);
-		gGL.vertex3fv((width_vec + center_draw_rect.mBottom * height_vec).mV);
+		gDX.texCoord2f(clip_rect.mRight, center_uv_rect.mBottom);
+		gDX.vertex3fv((width_vec + center_draw_rect.mBottom * height_vec).mV);
 
-		gGL.texCoord2f(center_uv_rect.mRight, center_uv_rect.mBottom);
-		gGL.vertex3fv((center_draw_rect.mRight * width_vec + center_draw_rect.mBottom * height_vec).mV);
+		gDX.texCoord2f(center_uv_rect.mRight, center_uv_rect.mBottom);
+		gDX.vertex3fv((center_draw_rect.mRight * width_vec + center_draw_rect.mBottom * height_vec).mV);
 
 		// draw left
-		gGL.texCoord2f(clip_rect.mLeft, center_uv_rect.mBottom);
-		gGL.vertex3fv((center_draw_rect.mBottom * height_vec).mV);
+		gDX.texCoord2f(clip_rect.mLeft, center_uv_rect.mBottom);
+		gDX.vertex3fv((center_draw_rect.mBottom * height_vec).mV);
 
-		gGL.texCoord2f(center_uv_rect.mLeft, center_uv_rect.mBottom);
-		gGL.vertex3fv((center_draw_rect.mLeft * width_vec + center_draw_rect.mBottom * height_vec).mV);
+		gDX.texCoord2f(center_uv_rect.mLeft, center_uv_rect.mBottom);
+		gDX.vertex3fv((center_draw_rect.mLeft * width_vec + center_draw_rect.mBottom * height_vec).mV);
 
-		gGL.texCoord2f(center_uv_rect.mLeft, center_uv_rect.mTop);
-		gGL.vertex3fv((center_draw_rect.mLeft * width_vec + center_draw_rect.mTop * height_vec).mV);
+		gDX.texCoord2f(center_uv_rect.mLeft, center_uv_rect.mTop);
+		gDX.vertex3fv((center_draw_rect.mLeft * width_vec + center_draw_rect.mTop * height_vec).mV);
 
-		gGL.texCoord2f(clip_rect.mLeft, center_uv_rect.mBottom);
-		gGL.vertex3fv((center_draw_rect.mBottom * height_vec).mV);
+		gDX.texCoord2f(clip_rect.mLeft, center_uv_rect.mBottom);
+		gDX.vertex3fv((center_draw_rect.mBottom * height_vec).mV);
 
-		gGL.texCoord2f(center_uv_rect.mLeft, center_uv_rect.mTop);
-		gGL.vertex3fv((center_draw_rect.mLeft * width_vec + center_draw_rect.mTop * height_vec).mV);
+		gDX.texCoord2f(center_uv_rect.mLeft, center_uv_rect.mTop);
+		gDX.vertex3fv((center_draw_rect.mLeft * width_vec + center_draw_rect.mTop * height_vec).mV);
 
-		gGL.texCoord2f(clip_rect.mLeft, center_uv_rect.mTop);
-		gGL.vertex3fv((center_draw_rect.mTop * height_vec).mV);
+		gDX.texCoord2f(clip_rect.mLeft, center_uv_rect.mTop);
+		gDX.vertex3fv((center_draw_rect.mTop * height_vec).mV);
 
 		// draw middle
-		gGL.texCoord2f(center_uv_rect.mLeft, center_uv_rect.mBottom);
-		gGL.vertex3fv((center_draw_rect.mLeft * width_vec + center_draw_rect.mBottom * height_vec).mV);
+		gDX.texCoord2f(center_uv_rect.mLeft, center_uv_rect.mBottom);
+		gDX.vertex3fv((center_draw_rect.mLeft * width_vec + center_draw_rect.mBottom * height_vec).mV);
 
-		gGL.texCoord2f(center_uv_rect.mRight, center_uv_rect.mBottom);
-		gGL.vertex3fv((center_draw_rect.mRight * width_vec + center_draw_rect.mBottom * height_vec).mV);
+		gDX.texCoord2f(center_uv_rect.mRight, center_uv_rect.mBottom);
+		gDX.vertex3fv((center_draw_rect.mRight * width_vec + center_draw_rect.mBottom * height_vec).mV);
 
-		gGL.texCoord2f(center_uv_rect.mRight, center_uv_rect.mTop);
-		gGL.vertex3fv((center_draw_rect.mRight * width_vec + center_draw_rect.mTop * height_vec).mV);
+		gDX.texCoord2f(center_uv_rect.mRight, center_uv_rect.mTop);
+		gDX.vertex3fv((center_draw_rect.mRight * width_vec + center_draw_rect.mTop * height_vec).mV);
 
-		gGL.texCoord2f(center_uv_rect.mLeft, center_uv_rect.mBottom);
-		gGL.vertex3fv((center_draw_rect.mLeft * width_vec + center_draw_rect.mBottom * height_vec).mV);
+		gDX.texCoord2f(center_uv_rect.mLeft, center_uv_rect.mBottom);
+		gDX.vertex3fv((center_draw_rect.mLeft * width_vec + center_draw_rect.mBottom * height_vec).mV);
 
-		gGL.texCoord2f(center_uv_rect.mRight, center_uv_rect.mTop);
-		gGL.vertex3fv((center_draw_rect.mRight * width_vec + center_draw_rect.mTop * height_vec).mV);
+		gDX.texCoord2f(center_uv_rect.mRight, center_uv_rect.mTop);
+		gDX.vertex3fv((center_draw_rect.mRight * width_vec + center_draw_rect.mTop * height_vec).mV);
 
-		gGL.texCoord2f(center_uv_rect.mLeft, center_uv_rect.mTop);
-		gGL.vertex3fv((center_draw_rect.mLeft * width_vec + center_draw_rect.mTop * height_vec).mV);
+		gDX.texCoord2f(center_uv_rect.mLeft, center_uv_rect.mTop);
+		gDX.vertex3fv((center_draw_rect.mLeft * width_vec + center_draw_rect.mTop * height_vec).mV);
 
 		// draw right
-		gGL.texCoord2f(center_uv_rect.mRight, center_uv_rect.mBottom);
-		gGL.vertex3fv((center_draw_rect.mRight * width_vec + center_draw_rect.mBottom * height_vec).mV);
+		gDX.texCoord2f(center_uv_rect.mRight, center_uv_rect.mBottom);
+		gDX.vertex3fv((center_draw_rect.mRight * width_vec + center_draw_rect.mBottom * height_vec).mV);
 
-		gGL.texCoord2f(clip_rect.mRight, center_uv_rect.mBottom);
-		gGL.vertex3fv((width_vec + center_draw_rect.mBottom * height_vec).mV);
+		gDX.texCoord2f(clip_rect.mRight, center_uv_rect.mBottom);
+		gDX.vertex3fv((width_vec + center_draw_rect.mBottom * height_vec).mV);
 
-		gGL.texCoord2f(clip_rect.mRight, center_uv_rect.mTop);
-		gGL.vertex3fv((width_vec + center_draw_rect.mTop * height_vec).mV);
+		gDX.texCoord2f(clip_rect.mRight, center_uv_rect.mTop);
+		gDX.vertex3fv((width_vec + center_draw_rect.mTop * height_vec).mV);
 
-		gGL.texCoord2f(center_uv_rect.mRight, center_uv_rect.mBottom);
-		gGL.vertex3fv((center_draw_rect.mRight * width_vec + center_draw_rect.mBottom * height_vec).mV);
+		gDX.texCoord2f(center_uv_rect.mRight, center_uv_rect.mBottom);
+		gDX.vertex3fv((center_draw_rect.mRight * width_vec + center_draw_rect.mBottom * height_vec).mV);
 
-		gGL.texCoord2f(clip_rect.mRight, center_uv_rect.mTop);
-		gGL.vertex3fv((width_vec + center_draw_rect.mTop * height_vec).mV);
+		gDX.texCoord2f(clip_rect.mRight, center_uv_rect.mTop);
+		gDX.vertex3fv((width_vec + center_draw_rect.mTop * height_vec).mV);
 
-		gGL.texCoord2f(center_uv_rect.mRight, center_uv_rect.mTop);
-		gGL.vertex3fv((center_draw_rect.mRight * width_vec + center_draw_rect.mTop * height_vec).mV);
+		gDX.texCoord2f(center_uv_rect.mRight, center_uv_rect.mTop);
+		gDX.vertex3fv((center_draw_rect.mRight * width_vec + center_draw_rect.mTop * height_vec).mV);
 
 		// draw top left
-		gGL.texCoord2f(clip_rect.mLeft, center_uv_rect.mTop);
-		gGL.vertex3fv((center_draw_rect.mTop * height_vec).mV);
+		gDX.texCoord2f(clip_rect.mLeft, center_uv_rect.mTop);
+		gDX.vertex3fv((center_draw_rect.mTop * height_vec).mV);
 
-		gGL.texCoord2f(center_uv_rect.mLeft, center_uv_rect.mTop);
-		gGL.vertex3fv((center_draw_rect.mLeft * width_vec + center_draw_rect.mTop * height_vec).mV);
+		gDX.texCoord2f(center_uv_rect.mLeft, center_uv_rect.mTop);
+		gDX.vertex3fv((center_draw_rect.mLeft * width_vec + center_draw_rect.mTop * height_vec).mV);
 
-		gGL.texCoord2f(center_uv_rect.mLeft, clip_rect.mTop);
-		gGL.vertex3fv((center_draw_rect.mLeft * width_vec + height_vec).mV);
+		gDX.texCoord2f(center_uv_rect.mLeft, clip_rect.mTop);
+		gDX.vertex3fv((center_draw_rect.mLeft * width_vec + height_vec).mV);
 
-		gGL.texCoord2f(clip_rect.mLeft, center_uv_rect.mTop);
-		gGL.vertex3fv((center_draw_rect.mTop * height_vec).mV);
+		gDX.texCoord2f(clip_rect.mLeft, center_uv_rect.mTop);
+		gDX.vertex3fv((center_draw_rect.mTop * height_vec).mV);
 
-		gGL.texCoord2f(center_uv_rect.mLeft, clip_rect.mTop);
-		gGL.vertex3fv((center_draw_rect.mLeft * width_vec + height_vec).mV);
+		gDX.texCoord2f(center_uv_rect.mLeft, clip_rect.mTop);
+		gDX.vertex3fv((center_draw_rect.mLeft * width_vec + height_vec).mV);
 
-		gGL.texCoord2f(clip_rect.mLeft, clip_rect.mTop);
-		gGL.vertex3fv((height_vec).mV);
+		gDX.texCoord2f(clip_rect.mLeft, clip_rect.mTop);
+		gDX.vertex3fv((height_vec).mV);
 
 		// draw top middle
-		gGL.texCoord2f(center_uv_rect.mLeft, center_uv_rect.mTop);
-		gGL.vertex3fv((center_draw_rect.mLeft * width_vec + center_draw_rect.mTop * height_vec).mV);
+		gDX.texCoord2f(center_uv_rect.mLeft, center_uv_rect.mTop);
+		gDX.vertex3fv((center_draw_rect.mLeft * width_vec + center_draw_rect.mTop * height_vec).mV);
 
-		gGL.texCoord2f(center_uv_rect.mRight, center_uv_rect.mTop);
-		gGL.vertex3fv((center_draw_rect.mRight * width_vec + center_draw_rect.mTop * height_vec).mV);
+		gDX.texCoord2f(center_uv_rect.mRight, center_uv_rect.mTop);
+		gDX.vertex3fv((center_draw_rect.mRight * width_vec + center_draw_rect.mTop * height_vec).mV);
 
-		gGL.texCoord2f(center_uv_rect.mRight, clip_rect.mTop);
-		gGL.vertex3fv((center_draw_rect.mRight * width_vec + height_vec).mV);
+		gDX.texCoord2f(center_uv_rect.mRight, clip_rect.mTop);
+		gDX.vertex3fv((center_draw_rect.mRight * width_vec + height_vec).mV);
 
-		gGL.texCoord2f(center_uv_rect.mLeft, center_uv_rect.mTop);
-		gGL.vertex3fv((center_draw_rect.mLeft * width_vec + center_draw_rect.mTop * height_vec).mV);
+		gDX.texCoord2f(center_uv_rect.mLeft, center_uv_rect.mTop);
+		gDX.vertex3fv((center_draw_rect.mLeft * width_vec + center_draw_rect.mTop * height_vec).mV);
 
-		gGL.texCoord2f(center_uv_rect.mRight, clip_rect.mTop);
-		gGL.vertex3fv((center_draw_rect.mRight * width_vec + height_vec).mV);
+		gDX.texCoord2f(center_uv_rect.mRight, clip_rect.mTop);
+		gDX.vertex3fv((center_draw_rect.mRight * width_vec + height_vec).mV);
 
-		gGL.texCoord2f(center_uv_rect.mLeft, clip_rect.mTop);
-		gGL.vertex3fv((center_draw_rect.mLeft * width_vec + height_vec).mV);
+		gDX.texCoord2f(center_uv_rect.mLeft, clip_rect.mTop);
+		gDX.vertex3fv((center_draw_rect.mLeft * width_vec + height_vec).mV);
 
 		// draw top right
-		gGL.texCoord2f(center_uv_rect.mRight, center_uv_rect.mTop);
-		gGL.vertex3fv((center_draw_rect.mRight * width_vec + center_draw_rect.mTop * height_vec).mV);
+		gDX.texCoord2f(center_uv_rect.mRight, center_uv_rect.mTop);
+		gDX.vertex3fv((center_draw_rect.mRight * width_vec + center_draw_rect.mTop * height_vec).mV);
 
-		gGL.texCoord2f(clip_rect.mRight, center_uv_rect.mTop);
-		gGL.vertex3fv((width_vec + center_draw_rect.mTop * height_vec).mV);
+		gDX.texCoord2f(clip_rect.mRight, center_uv_rect.mTop);
+		gDX.vertex3fv((width_vec + center_draw_rect.mTop * height_vec).mV);
 
-		gGL.texCoord2f(clip_rect.mRight, clip_rect.mTop);
-		gGL.vertex3fv((width_vec + height_vec).mV);
+		gDX.texCoord2f(clip_rect.mRight, clip_rect.mTop);
+		gDX.vertex3fv((width_vec + height_vec).mV);
 
-		gGL.texCoord2f(center_uv_rect.mRight, center_uv_rect.mTop);
-		gGL.vertex3fv((center_draw_rect.mRight * width_vec + center_draw_rect.mTop * height_vec).mV);
+		gDX.texCoord2f(center_uv_rect.mRight, center_uv_rect.mTop);
+		gDX.vertex3fv((center_draw_rect.mRight * width_vec + center_draw_rect.mTop * height_vec).mV);
 
-		gGL.texCoord2f(clip_rect.mRight, clip_rect.mTop);
-		gGL.vertex3fv((width_vec + height_vec).mV);
+		gDX.texCoord2f(clip_rect.mRight, clip_rect.mTop);
+		gDX.vertex3fv((width_vec + height_vec).mV);
 
-		gGL.texCoord2f(center_uv_rect.mRight, clip_rect.mTop);
-		gGL.vertex3fv((center_draw_rect.mRight * width_vec + height_vec).mV);
+		gDX.texCoord2f(center_uv_rect.mRight, clip_rect.mTop);
+		gDX.vertex3fv((center_draw_rect.mRight * width_vec + height_vec).mV);
 	}
-	gGL.end();
+	gDX.end();
 #endif // DX_RENDER
 }
 
@@ -2261,7 +2226,7 @@ LLRender2D::~LLRender2D()
 // static
 void LLRender2D::translate(F32 x, F32 y, F32 z)
 {
-	gGL.translateUI(x, y, z);
+	gDX.translateUI(x, y, z);
 	LLFontGL::sCurOrigin.mX += (S32)x;
 	LLFontGL::sCurOrigin.mY += (S32)y;
 	LLFontGL::sCurDepth += z;
@@ -2270,14 +2235,14 @@ void LLRender2D::translate(F32 x, F32 y, F32 z)
 // static
 void LLRender2D::pushMatrix()
 {
-	gGL.pushUIMatrix();
+	gDX.pushUIMatrix();
 	LLFontGL::sOriginStack.push_back(std::make_pair(LLFontGL::sCurOrigin, LLFontGL::sCurDepth));
 }
 
 // static
 void LLRender2D::popMatrix()
 {
-	gGL.popUIMatrix();
+	gDX.popUIMatrix();
 	LLFontGL::sCurOrigin = LLFontGL::sOriginStack.back().first;
 	LLFontGL::sCurDepth = LLFontGL::sOriginStack.back().second;
 	LLFontGL::sOriginStack.pop_back();
@@ -2286,7 +2251,7 @@ void LLRender2D::popMatrix()
 // static
 void LLRender2D::loadIdentity()
 {
-	gGL.loadUIIdentity();
+	gDX.loadUIIdentity();
 	LLFontGL::sCurOrigin.mX = 0;
 	LLFontGL::sCurOrigin.mY = 0;
 	LLFontGL::sCurDepth = 0.f;
@@ -2295,7 +2260,7 @@ void LLRender2D::loadIdentity()
 // static
 void LLRender2D::setLineWidth(F32 width)
 {
-	gGL.flush();
+	gDX.flush();
 #ifndef DX_RENDER
 	// If outside the allowed range, glLineWidth fails with "invalid value".
 	// On Darwin, the range is [1, 1].

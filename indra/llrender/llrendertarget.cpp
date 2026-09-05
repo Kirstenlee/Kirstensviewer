@@ -179,7 +179,7 @@ void LLRenderTarget::resize(U32 resx, U32 resy)
 	// Resize color attachments
 	for (size_t i = 0; i < mTex.size(); ++i)
 	{
-		gGL.getTexUnit(0)->bindManual(mUsage, mTex[i]);
+		gDX.getTexUnit(0)->bindManual(mUsage, mTex[i]);
 		LLImageGL::setManualImage(
 			internal_type,
 			0,
@@ -197,7 +197,7 @@ void LLRenderTarget::resize(U32 resx, U32 resy)
 	// Resize depth attachment if present
 	if (mDepth)
 	{
-		gGL.getTexUnit(0)->bindManual(mUsage, mDepth);
+		gDX.getTexUnit(0)->bindManual(mUsage, mDepth);
 		LLImageGL::setManualImage(
 			internal_type,
 			0,
@@ -244,7 +244,22 @@ bool LLRenderTarget::allocate(U32 resx, U32 resy, U32 color_fmt, bool depth, LLT
 	}
 
 #ifdef DX_RENDER
-	return mDXRenderTarget.allocate(resx, resy, glColorFormatToDX(color_fmt), depth);
+	// S24 (2026-09-02): color_fmt==0 is an established, deliberate "no
+	// color attachment, depth-only" convention already used by real
+	// callers (pipeline.cpp's shadow[i]/mSpotShadow[i] allocations) -
+	// route it straight to DXGI_FORMAT_UNKNOWN (0) rather than through
+	// glColorFormatToDX(), which has no case for 0 and was silently
+	// defaulting it to RGBA8 (logging "unmapped GL format 0x0" every
+	// time, recurring throughout the session, not just at startup).
+	// DXRenderTarget::allocate() below now skips creating a color
+	// attachment entirely when it sees DXGI_FORMAT_UNKNOWN - previously
+	// it created one unconditionally, meaning every shadow-map render
+	// target got a real, wasted RGBA8 D3D11 texture + RTV it never used.
+	// A genuinely unrecognized (non-zero, non-mapped) format still goes
+	// through glColorFormatToDX()'s existing warn-and-fall-back-to-RGBA8
+	// path unchanged - this only special-cases the real "no color wanted"
+	// signal.
+	return mDXRenderTarget.allocate(resx, resy, color_fmt == 0 ? DXGI_FORMAT_UNKNOWN : glColorFormatToDX(color_fmt), depth);
 #else
 	if (depth)
 	{
@@ -391,7 +406,7 @@ bool LLRenderTarget::addColorAttachment(U32 color_fmt)
 
 	U32 tex = 0;
 	LLImageGL::generateTextures(1, &tex);
-	gGL.getTexUnit(0)->bindManual(mUsage, tex);
+	gDX.getTexUnit(0)->bindManual(mUsage, tex);
 
 	stop_glerror();
 
@@ -425,13 +440,13 @@ bool LLRenderTarget::addColorAttachment(U32 color_fmt)
 	stop_glerror();
 
 	// Filtering: bilinear for first attachment, point for additional
-	gGL.getTexUnit(0)->setTextureFilteringOption(
+	gDX.getTexUnit(0)->setTextureFilteringOption(
 		offset == 0 ? LLTexUnit::TFO_BILINEAR : LLTexUnit::TFO_POINT
 	);
 	stop_glerror();
 
 	// Address mode: mirror unless rectangular texture (ATI quirk)
-	gGL.getTexUnit(0)->setTextureAddressMode(
+	gDX.getTexUnit(0)->setTextureAddressMode(
 		mUsage != LLTexUnit::TT_RECT_TEXTURE
 		? LLTexUnit::TAM_MIRROR
 		: LLTexUnit::TAM_CLAMP
@@ -481,7 +496,7 @@ bool LLRenderTarget::allocateDepth()
 #else
 	// Generate and bind depth texture
 	LLImageGL::generateTextures(1, &mDepth);
-	gGL.getTexUnit(0)->bindManual(mUsage, mDepth);
+	gDX.getTexUnit(0)->bindManual(mUsage, mDepth);
 
 	const U32 internal_type = LLTexUnit::getInternalType(mUsage);
 
@@ -501,7 +516,7 @@ bool LLRenderTarget::allocateDepth()
 		false
 	);
 
-	gGL.getTexUnit(0)->setTextureFilteringOption(LLTexUnit::TFO_POINT);
+	gDX.getTexUnit(0)->setTextureFilteringOption(LLTexUnit::TFO_POINT);
 
 	// S24 - Correct order: It checks for OpenGL errors before updating memory accounting.
 	// S24 - Removed "Unable to allocate depth buffer" warning from allocation hot path
@@ -779,10 +794,10 @@ void LLRenderTarget::bindTexture(U32 index, S32 channel, LLTexUnit::eTextureFilt
 	// cache "did this channel's SRV actually change" in, so always flush
 	// rather than risk leaving pending batched vertices drawn under stale
 	// state.
-	gGL.flush();
+	gDX.flush();
 	// S24 (2026-08-27, task #254): this call was missing entirely - every
 	// other texture-bind chokepoint (LLTexUnit::bind(LLImageGL*)/bindFast()/
-	// bind(DXTexture&)/bind(LLRenderTarget*,bool)) pairs gGL.flush() with
+	// bind(DXTexture&)/bind(LLRenderTarget*,bool)) pairs gDX.flush() with
 	// gDXUIBatch.flushPending() (see DXUIBatch.h's "texture changes are a
 	// hazard" contract - drawAndPop() never touches PSSetShaderResources
 	// itself, it trusts whatever's already ambient). This function raw-binds
@@ -817,15 +832,15 @@ void LLRenderTarget::bindTexture(U32 index, S32 channel, LLTexUnit::eTextureFilt
 		gDXDevice.getContext()->PSSetSamplers(channel, 1, &sampler);
 	}
 #else
-	gGL.getTexUnit(channel)->bindManual(mUsage, getTexture(index), filter_options == LLTexUnit::TFO_TRILINEAR || filter_options == LLTexUnit::TFO_ANISOTROPIC);
-	gGL.getTexUnit(channel)->setTextureFilteringOption(filter_options);
+	gDX.getTexUnit(channel)->bindManual(mUsage, getTexture(index), filter_options == LLTexUnit::TFO_TRILINEAR || filter_options == LLTexUnit::TFO_ANISOTROPIC);
+	gDX.getTexUnit(channel)->setTextureFilteringOption(filter_options);
 #endif
 }
 
 // S24
 void LLRenderTarget::flush()
 {
-	gGL.flush();
+	gDX.flush();
 
 #ifdef DX_RENDER
 	// Mip generation (mGenerateMipMaps == TMG_AUTO) has no DX_RENDER

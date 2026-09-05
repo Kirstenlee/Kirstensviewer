@@ -53,8 +53,8 @@
 #endif
 
 class LLVertexBuffer;
-class LLCubeMap;
-class LLCubeMapArray;
+class DXCubeMap;
+class DXCubeMapArray;
 class LLImageGL;
 class LLRenderTarget;
 class LLTexture;
@@ -181,7 +181,7 @@ public:
 
     // bind implementation for inner loops
     // makes the following assumptions:
-    //  - No need for gGL.flush()
+    //  - No need for gDX.flush()
     //  - texture is not null
     //  - gl_tex->getTexName() is not zero
     //  - This texture is not being bound redundantly
@@ -192,15 +192,12 @@ public:
 
     // Binds a cubemap to this texture unit
     // (automatically enables the texture unit for cubemaps)
-    bool bind(LLCubeMap* cubeMap);
+    bool bind(DXCubeMap* cubeMap);
 
-#ifdef DX_RENDER
     // Binds a cubemap ARRAY to this texture unit (LLReflectionMapManager's
     // per-probe mTexture/mIrradianceMaps - task #147). Direct sibling of
-    // bind(LLCubeMap*) just above; DX_RENDER-only - see the .cpp for why
-    // there's no GL body to keep in sync.
-    bool bind(LLCubeMapArray* cubeMapArray);
-#endif
+    // bind(DXCubeMap*) just above.
+    bool bind(DXCubeMapArray* cubeMapArray);
 
     // Binds a render target to this texture unit
     // (automatically enables the texture unit for the RT's texture type)
@@ -714,7 +711,7 @@ extern S32 gGLViewport[4];
 extern glm::mat4 gGLDeltaModelView;
 extern glm::mat4 gGLInverseDeltaModelView;
 
-extern thread_local LLRender gGL;
+extern thread_local LLRender gDX;
 
 // This rotation matrix moves the default OpenGL reference frame
 // (-Z at, Y up) to Cory's favorite reference frame (X at, Z up)

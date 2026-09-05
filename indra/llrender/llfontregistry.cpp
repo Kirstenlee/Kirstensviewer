@@ -550,6 +550,22 @@ LLFontGL* LLFontRegistry::createFont(const LLFontDescriptor& desc)
 
 			fontp = new LLFontGL;
 			S32 num_faces = is_ft_collection ? fontp->getNumFaces(font_path) : 1;
+			if (num_faces <= 0)
+			{
+				// S24 (2026-08-31): getNumFaces() (llfontfreetype.cpp)
+				// returns 0 when the file can't be opened at all (missing/
+				// unreadable, load_collection="true" files only - a plain
+				// file always hardcodes num_faces=1 above) - the face loop
+				// below never executes in that case, so the LLFontGL just
+				// allocated above would otherwise leak: either lost when
+				// the next search-path attempt's `fontp = new LLFontGL;`
+				// reassigns this variable, or never freed at all if this
+				// was the last search path (the outer !is_font_loaded
+				// cleanup only frees whatever fontp currently is, not any
+				// earlier ones already lost to reassignment).
+				delete fontp;
+				fontp = NULL;
+			}
 			for (S32 i = 0; i < num_faces; i++)
 			{
 				if (fontp == NULL)
@@ -562,7 +578,31 @@ LLFontGL* LLFontRegistry::createFont(const LLFontDescriptor& desc)
 					is_font_loaded = true;
 					if (is_first_found)
 					{
+						// S24 (2026-08-31, prompted by an external WER-dump
+						// report on LLFontRegistry::createFont() null/UAF
+						// risk - see task tracker): fontp MUST be cleared
+						// here, mirroring the else-branch below. Without
+						// this, fontp keeps aliasing result for the REST of
+						// this face loop (used for load_collection="true"
+						// multi-face files, e.g. Cambria.ttc, or any font
+						// FreeType reports >1 face for). On the next
+						// iteration the `if (fontp == NULL)` guard above is
+						// skipped, so either: (a) loadFace() is called
+						// again on the SAME object that IS result,
+						// corrupting/reloading over its already-loaded
+						// face, or (b) that face's load fails and
+						// `delete fontp;` in the else-branch below deletes
+						// result out from under itself - result is left
+						// dangling, and the next successful face's
+						// `result->mFontFreetype->addFallbackFont(...)`
+						// (or the next font_file_it's fallback attempt)
+						// dereferences freed memory. Confirmed via direct
+						// trace, not just the external report's guess -
+						// this reads as a small/zeroed offset off a freed
+						// heap block, matching a low-address read AV with
+						// zeroed registers.
 						result = fontp;
+						fontp = NULL;
 						is_first_found = false;
 					}
 					else

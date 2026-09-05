@@ -35,8 +35,6 @@ include_directories(SYSTEM
     )
 
 set(llrender_SOURCE_FILES
-    llcubemap.cpp
-    llcubemaparray.cpp
     llfontbitmapcache.cpp
     llfontfreetype.cpp
     llfontfreetypesvg.cpp
@@ -44,7 +42,7 @@ set(llrender_SOURCE_FILES
     llfontvertexbuffer.cpp
     llfontregistry.cpp
     llgl.cpp
-    llglslshader.cpp
+    llhlslshader.cpp
     llgltexture.cpp
     llimagegl.cpp
     llpostprocess.cpp
@@ -59,13 +57,13 @@ set(llrender_SOURCE_FILES
     lluiimage.cpp
     llvertexbuffer.cpp
     llglcommonfunc.cpp
+    DXCubeMap.cpp
+    DXCubeMapArray.cpp
     )
     
 set(llrender_HEADER_FILES
     CMakeLists.txt
 
-    llcubemap.h
-    llcubemaparray.h
     llfontgl.h
     llfontvertexbuffer.h
     llfontfreetype.h
@@ -74,7 +72,7 @@ set(llrender_HEADER_FILES
     llfontregistry.h
     llgl.h
     llglheaders.h
-    llglslshader.h
+    llhlslshader.h
     llglstates.h
     llgltexture.h
     llgltypes.h
@@ -91,6 +89,8 @@ set(llrender_HEADER_FILES
     lluiimage.inl
     llvertexbuffer.h
     llglcommonfunc.h
+    DXCubeMap.h
+    DXCubeMapArray.h
     )
 
 set_source_files_properties(${llrender_HEADER_FILES}

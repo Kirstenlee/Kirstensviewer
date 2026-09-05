@@ -60,7 +60,7 @@
 class LLPrivateMemoryPool;
 class LLVertexBuffer;
 #ifdef DX_RENDER
-class LLGLSLShader;
+class LLHLSLShader;
 #endif
 
 class LLVertexBufferData
@@ -105,21 +105,21 @@ public:
 
     // S24 (2026-08-28, task #254): same rationale as mDXImage above, for the
     // shader stage instead of the texture stage. Captured by LLRender::
-    // flush() from LLGLSLShader::sCurBoundShaderPtr when recording. Without
+    // flush() from LLHLSLShader::sCurBoundShaderPtr when recording. Without
     // this, draw()/drawWithMatrix() never rebind a shader at all - they
     // inherit whatever VS/PS happen to be ambiently bound on the GPU at
     // replay time, which DXUIBatch::drawAndPop() (dxrender/resources/
     // DXUIBatch.cpp) can leave arbitrarily wrong: it sets VS/PS directly via
     // ctx->VSSetShader()/PSSetShader() without updating sCurBoundShaderPtr
-    // (see LLGLSLShader::bind()'s comment, task #224) - so the bookkeeping
+    // (see LLHLSLShader::bind()'s comment, task #224) - so the bookkeeping
     // setupVertexBuffer() reads to build the input layout can desync from
     // what's actually bound. A cached/replayed buffer (LLFontVertexBuffer,
     // LLUIImage's display-list cache) recorded once under one shader could
     // then replay under a completely different one depending on whatever
     // ran earlier in that specific frame - not a raw pointer (no ownership
-    // implied, matches how sCurBoundShaderPtr itself is held; LLGLSLShader
+    // implied, matches how sCurBoundShaderPtr itself is held; LLHLSLShader
     // instances are process-lifetime singletons, never destroyed mid-run).
-    LLGLSLShader* mDXShader = nullptr;
+    LLHLSLShader* mDXShader = nullptr;
 #endif
 };
 typedef std::list<LLVertexBufferData> buffer_data_list_t;
@@ -143,18 +143,6 @@ public:
     static void drawElements(U32 mode, const LLVector4a* pos, const LLVector2* tc, U32 num_indices, const U16* indicesp);
 
     static void unbind(); //unbind any bound vertex buffer
-
-#ifdef DX_RENDER
-    // S24 (2026-08-02): TEMPORARY - one-shot diagnostic for the "world
-    // renders solid black" investigation (see project_dxrender_open_issues
-    // memory). Counts every real ctx->Draw()/DrawIndexed() call issued via
-    // drawRange()/drawRangeFast()/drawArrays() - the true universal
-    // DX_RENDER draw chokepoint (see assertShaderStagesBound()'s comment in
-    // llvertexbuffer.cpp) - so a caller elsewhere can tell "zero draws
-    // issued this frame" apart from "draws issued but produced no visible
-    // color". Remove once the black-screen cause is found.
-    static U32 getAndResetDXDrawCallCount();
-#endif
 
     //get the size of a vertex with the given typemask
     static U32 calcVertexSize(const U32& typemask);
@@ -385,7 +373,7 @@ public:
     // S24: thread_local (was plain static) — these are a CPU-side cache of "what's bound
     // in the calling thread's current GL context" used to elide redundant glBindBuffer calls.
     // GL bind state is per-context, so a plain global corrupts the render thread's cache the
-    // moment any other thread binds a buffer on its own shared context. Mirrors gGL's own
+    // moment any other thread binds a buffer on its own shared context. Mirrors gDX's own
     // thread_local pattern (llrender.h).
     static thread_local U32 sGLRenderBuffer;
     static thread_local U32 sGLRenderIndices;
@@ -399,7 +387,7 @@ public:
     // bound shader changes even on the same buffer (different active
     // locations); DX_RENDER's equivalent trigger is "the bound VS changed",
     // since the input layout is keyed on (mTypeMask, vs_bytecode).
-    static thread_local LLGLSLShader* sDXLastShader;
+    static thread_local LLHLSLShader* sDXLastShader;
 #endif
     static U32 sLastMask;
     static U32 sVertexCount;

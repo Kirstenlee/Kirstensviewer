@@ -35,7 +35,7 @@
 #include "llrender.h"
 #include "llvector4a.h"
 #include "llshadermgr.h"
-#include "llglslshader.h"
+#include "llhlslshader.h"
 #include "llmemory.h"
 #include <glm/gtc/type_ptr.hpp>
 #include <future>
@@ -496,11 +496,11 @@ void LLVertexBufferData::drawWithMatrix()
 	// a real bind(LLImageGL*) instead of GL's raw-GLuint bindManual(mTexName).
 	if (mDXImage)
 	{
-		gGL.getTexUnit(0)->bind(mDXImage.get());
+		gDX.getTexUnit(0)->bind(mDXImage.get());
 	}
 	else
 	{
-		gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+		gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
 	}
 	// S24 (task #254): see LLVertexBufferData::mDXShader's comment - force
 	// the shader that was actually bound when this batch was recorded back
@@ -514,32 +514,32 @@ void LLVertexBufferData::drawWithMatrix()
 #else
 	if (mTexName)
 	{
-		gGL.getTexUnit(0)->bindManual(LLTexUnit::TT_TEXTURE, mTexName);
+		gDX.getTexUnit(0)->bindManual(LLTexUnit::TT_TEXTURE, mTexName);
 	}
 	else
 	{
-		gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+		gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
 	}
 #endif
 
-	gGL.matrixMode(LLRender::MM_MODELVIEW);
-	gGL.pushMatrix();
-	gGL.loadMatrix(glm::value_ptr(mModelView));
-	gGL.matrixMode(LLRender::MM_PROJECTION);
-	gGL.pushMatrix();
-	gGL.loadMatrix(glm::value_ptr(mProjection));
-	gGL.matrixMode(LLRender::MM_TEXTURE0);
-	gGL.pushMatrix();
-	gGL.loadMatrix(glm::value_ptr(mTexture0));
+	gDX.matrixMode(LLRender::MM_MODELVIEW);
+	gDX.pushMatrix();
+	gDX.loadMatrix(glm::value_ptr(mModelView));
+	gDX.matrixMode(LLRender::MM_PROJECTION);
+	gDX.pushMatrix();
+	gDX.loadMatrix(glm::value_ptr(mProjection));
+	gDX.matrixMode(LLRender::MM_TEXTURE0);
+	gDX.pushMatrix();
+	gDX.loadMatrix(glm::value_ptr(mTexture0));
 
 	mVB->setBuffer();
 	mVB->drawArrays(mMode, 0, mCount);
 
-	gGL.popMatrix();
-	gGL.matrixMode(LLRender::MM_PROJECTION);
-	gGL.popMatrix();
-	gGL.matrixMode(LLRender::MM_MODELVIEW);
-	gGL.popMatrix();
+	gDX.popMatrix();
+	gDX.matrixMode(LLRender::MM_PROJECTION);
+	gDX.popMatrix();
+	gDX.matrixMode(LLRender::MM_MODELVIEW);
+	gDX.popMatrix();
 }
 
 void LLVertexBufferData::draw()
@@ -556,11 +556,11 @@ void LLVertexBufferData::draw()
 	// a real bind(LLImageGL*) instead of GL's raw-GLuint bindManual(mTexName).
 	if (mDXImage)
 	{
-		gGL.getTexUnit(0)->bind(mDXImage.get());
+		gDX.getTexUnit(0)->bind(mDXImage.get());
 	}
 	else
 	{
-		gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+		gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
 	}
 	// S24 (task #254): see LLVertexBufferData::mDXShader's comment.
 	if (mDXShader)
@@ -570,11 +570,11 @@ void LLVertexBufferData::draw()
 #else
 	if (mTexName)
 	{
-		gGL.getTexUnit(0)->bindManual(LLTexUnit::TT_TEXTURE, mTexName);
+		gDX.getTexUnit(0)->bindManual(LLTexUnit::TT_TEXTURE, mTexName);
 	}
 	else
 	{
-		gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+		gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
 	}
 #endif
 
@@ -598,7 +598,7 @@ thread_local U32 LLVertexBuffer::sGLRenderIndices = 0;
 #ifdef DX_RENDER
 thread_local ID3D11Buffer* LLVertexBuffer::sDXRenderBuffer = nullptr;
 thread_local ID3D11Buffer* LLVertexBuffer::sDXRenderIndices = nullptr;
-thread_local LLGLSLShader* LLVertexBuffer::sDXLastShader = nullptr;
+thread_local LLHLSLShader* LLVertexBuffer::sDXLastShader = nullptr;
 #endif
 
 U32 LLVertexBuffer::sLastMask = 0;
@@ -689,36 +689,36 @@ void LLVertexBuffer::setupClientArrays(U32 data_mask)
 void LLVertexBuffer::drawArrays(U32 mode, const std::vector<LLVector3>& pos)
 {
 	LL_PROFILE_ZONE_SCOPED_CATEGORY_VERTEX;
-	gGL.begin(mode);
+	gDX.begin(mode);
 	for (auto& v : pos)
 	{
-		gGL.vertex3fv(v.mV);
+		gDX.vertex3fv(v.mV);
 	}
-	gGL.end();
-	gGL.flush();
+	gDX.end();
+	gDX.flush();
 }
 
 //static
 void LLVertexBuffer::drawElements(U32 mode, const LLVector4a* pos, const LLVector2* tc, U32 num_indices, const U16* indicesp)
 {
 	LL_PROFILE_ZONE_SCOPED_CATEGORY_VERTEX;
-	llassert(LLGLSLShader::sCurBoundShaderPtr != NULL);
+	llassert(LLHLSLShader::sCurBoundShaderPtr != NULL);
 
 	STOP_GLERROR;
 
-	gGL.syncMatrices();
+	gDX.syncMatrices();
 
 	unbind();
 
-	gGL.begin(mode);
+	gDX.begin(mode);
 
 	if (tc != nullptr)
 	{
 		for (U32 i = 0; i < num_indices; ++i)
 		{
 			U16 idx = indicesp[i];
-			gGL.texCoord2fv(tc[idx].mV);
-			gGL.vertex3fv(pos[idx].getF32ptr());
+			gDX.texCoord2fv(tc[idx].mV);
+			gDX.vertex3fv(pos[idx].getF32ptr());
 		}
 	}
 	else
@@ -726,11 +726,11 @@ void LLVertexBuffer::drawElements(U32 mode, const LLVector4a* pos, const LLVecto
 		for (U32 i = 0; i < num_indices; ++i)
 		{
 			U16 idx = indicesp[i];
-			gGL.vertex3fv(pos[idx].getF32ptr());
+			gDX.vertex3fv(pos[idx].getF32ptr());
 		}
 	}
-	gGL.end();
-	gGL.flush();
+	gDX.end();
+	gDX.flush();
 }
 
 bool LLVertexBuffer::validateRange(U32 start, U32 end, U32 count, U32 indices_offset) const
@@ -779,7 +779,7 @@ bool LLVertexBuffer::validateRange(U32 start, U32 end, U32 count, U32 indices_of
 			}
 		}
 
-		LLGLSLShader* shader = LLGLSLShader::sCurBoundShaderPtr;
+		LLHLSLShader* shader = LLHLSLShader::sCurBoundShaderPtr;
 
 		if (shader && shader->mFeatures.mIndexedTextureChannels > 1)
 		{
@@ -840,8 +840,8 @@ namespace
 	// 3D pool draw, every LLRender::flush() immediate-mode caller, and every
 	// direct drawRange()/drawArrays()/drawRangeFast() caller (e.g. the BRDF
 	// LUT bake) funnels through here. Until now none of the three re-asserted
-	// VS/PS at all - both LLGLSLShader::bind()'s sCurBoundShaderPtr-based
-	// early-out (llglslshader.cpp:1229) AND syncMatrices()'s own constant-
+	// VS/PS at all - both LLHLSLShader::bind()'s sCurBoundShaderPtr-based
+	// early-out (llhlslshader.cpp:1229) AND syncMatrices()'s own constant-
 	// buffer selection (llrender.cpp:1320) are driven by the SAME tracker, so
 	// a raw ctx->VSSetShader()/PSSetShader() call anywhere that doesn't
 	// update that tracker (two real, historical instances already found and
@@ -854,17 +854,12 @@ namespace
 	//
 	// Cache-and-compare, not unconditional rebind: D3D11 SetShader calls are
 	// cheap but not free at this call frequency (every 3D draw, every frame).
-	// Mirrors the exact skip-when-unchanged invariant LLGLSLShader::bind()'s
+	// Mirrors the exact skip-when-unchanged invariant LLHLSLShader::bind()'s
 	// own early-out already protects, just enforced at the real Draw() point
 	// instead of trusting that bind() was both called AND that nothing raw-
 	// bound anything in between.
 	ID3D11VertexShader* sLastBoundVS = nullptr;
 	ID3D11PixelShader* sLastBoundPS = nullptr;
-
-	// S24 (2026-08-02): TEMPORARY - see getAndResetDXDrawCallCount()'s
-	// header comment. Incremented by every real ctx->Draw()/DrawIndexed()
-	// call below.
-	U32 sDXDrawCallCount = 0;
 
 	// If sCurBoundShaderPtr is null, leave the context untouched - this is
 	// the deliberate post-unbind() state the two raw-bind sites above already
@@ -874,7 +869,7 @@ namespace
 	// of complementing it.
 	void assertShaderStagesBound()
 	{
-		LLGLSLShader* shader = LLGLSLShader::sCurBoundShaderPtr;
+		LLHLSLShader* shader = LLHLSLShader::sCurBoundShaderPtr;
 		if (!shader)
 		{
 			return;
@@ -891,13 +886,6 @@ namespace
 	}
 }
 
-//static
-U32 LLVertexBuffer::getAndResetDXDrawCallCount()
-{
-	U32 count = sDXDrawCallCount;
-	sDXDrawCallCount = 0;
-	return count;
-}
 #endif
 
 void LLVertexBuffer::drawRange(U32 mode, U32 start, U32 end, U32 count, U32 indices_offset) const
@@ -908,25 +896,28 @@ void LLVertexBuffer::drawRange(U32 mode, U32 start, U32 end, U32 count, U32 indi
 	llassert(mDXBuffer.getBuffer() == sDXRenderBuffer);
 	llassert(mDXIndices.getBuffer() == sDXRenderIndices);
 	llassert(sDXMode[mode] != D3D11_PRIMITIVE_TOPOLOGY_UNDEFINED);
-	gGL.syncMatrices();
+	gDX.syncMatrices();
 	assertShaderStagesBound();
 	ID3D11DeviceContext* ctx = gDXDevice.getContext();
 	DXStateCache::setPrimitiveTopology(ctx, sDXMode[mode]);
 	ctx->DrawIndexed(count, indices_offset, 0);
-	++sDXDrawCallCount;
-	// S24 (DX_RENDER diagnostic, 2026-07-28): TEMPORARY - correlates the
-	// D3D11 debug-layer VS/PS linkage-error messages (see
-	// project_dxrender_vsps_linkage_bug memory) with WHICH shader was bound
-	// for this draw - the message text alone never identifies the shader.
-	// Cheap: logPendingDebugMessages() only does real logging/I/O the first
-	// time each distinct message ID is seen.
-	gDXDevice.logPendingDebugMessages(LLGLSLShader::sCurBoundShaderPtr ? LLGLSLShader::sCurBoundShaderPtr->mName.c_str() : "?");
+	// S24 (2026-07-28): NOT a leftover diagnostic despite the name - this is
+	// the permanent, settings-gated (S24DXDebugLayerEnabled) mechanism
+	// behind the D3D11 debug-layer end-of-session tally (DXDevice::
+	// shutdown()) and per-draw shader correlation (the message text alone
+	// never identifies which shader was bound) - real, current tooling
+	// this project actively uses to find bugs (see e.g. this session's own
+	// investigation). logPendingDebugMessages() only does real logging/I/O
+	// the first time each distinct message ID is seen, so this is cheap
+	// even called on every draw. Do not remove as part of a diagnostic
+	// sweep - see feedback_s24_diagnostic_lifecycle memory.
+	gDXDevice.logPendingDebugMessages(LLHLSLShader::sCurBoundShaderPtr ? LLHLSLShader::sCurBoundShaderPtr->mName.c_str() : "?");
 	return;
 #endif
 
 	llassert(mGLBuffer == sGLRenderBuffer);
 	llassert(mGLIndices == sGLRenderIndices);
-	gGL.syncMatrices();
+	gDX.syncMatrices();
 	STOP_GLERROR;
 	glDrawRangeElements(sGLMode[mode], start, end, count, mIndicesType,
 		(GLvoid*)(indices_offset * (size_t)mIndicesStride));
@@ -936,7 +927,7 @@ void LLVertexBuffer::drawRange(U32 mode, U32 start, U32 end, U32 count, U32 indi
 void LLVertexBuffer::drawRangeFast(U32 mode, U32 start, U32 end, U32 count, U32 indices_offset) const
 {
 #ifdef DX_RENDER
-	// S24 (2026-08-02): no gGL.syncMatrices() call in this "fast" variant
+	// S24 (2026-08-02): no gDX.syncMatrices() call in this "fast" variant
 	// (pre-existing - callers of drawRangeFast() are expected to have
 	// already synced matrices themselves), but the shader-stage assertion
 	// applies regardless of that - see assertShaderStagesBound()'s comment.
@@ -944,8 +935,7 @@ void LLVertexBuffer::drawRangeFast(U32 mode, U32 start, U32 end, U32 count, U32 
 	ID3D11DeviceContext* ctx = gDXDevice.getContext();
 	DXStateCache::setPrimitiveTopology(ctx, sDXMode[mode]);
 	ctx->DrawIndexed(count, indices_offset, 0);
-	++sDXDrawCallCount;
-	gDXDevice.logPendingDebugMessages(LLGLSLShader::sCurBoundShaderPtr ? LLGLSLShader::sCurBoundShaderPtr->mName.c_str() : "?");
+	gDXDevice.logPendingDebugMessages(LLHLSLShader::sCurBoundShaderPtr ? LLHLSLShader::sCurBoundShaderPtr->mName.c_str() : "?");
 	return;
 #endif
 
@@ -966,20 +956,19 @@ void LLVertexBuffer::drawArrays(U32 mode, U32 first, U32 count) const
 	llassert(mDXBuffer.getBuffer() == sDXRenderBuffer);
 	llassert(mDXIndices.getBuffer() == sDXRenderIndices);
 	llassert(sDXMode[mode] != D3D11_PRIMITIVE_TOPOLOGY_UNDEFINED);
-	gGL.syncMatrices();
+	gDX.syncMatrices();
 	assertShaderStagesBound();
 	ID3D11DeviceContext* ctx = gDXDevice.getContext();
 	DXStateCache::setPrimitiveTopology(ctx, sDXMode[mode]);
 	ctx->Draw(count, first);
-	++sDXDrawCallCount;
-	gDXDevice.logPendingDebugMessages(LLGLSLShader::sCurBoundShaderPtr ? LLGLSLShader::sCurBoundShaderPtr->mName.c_str() : "?");
+	gDXDevice.logPendingDebugMessages(LLHLSLShader::sCurBoundShaderPtr ? LLHLSLShader::sCurBoundShaderPtr->mName.c_str() : "?");
 	return;
 #endif
 
 	llassert(mGLBuffer == sGLRenderBuffer);
 	llassert(mGLIndices == sGLRenderIndices);
 
-	gGL.syncMatrices();
+	gDX.syncMatrices();
 	STOP_GLERROR;
 	glDrawArrays(sGLMode[mode], first, count);
 	STOP_GLERROR;
@@ -1779,7 +1768,7 @@ void LLVertexBuffer::setBuffer()
 	llassert(mMappedIndexRegions.empty());
 
 	// a shader must be bound
-	llassert(LLGLSLShader::sCurBoundShaderPtr);
+	llassert(LLHLSLShader::sCurBoundShaderPtr);
 
 #ifdef DX_RENDER
 	// Unlike GL's exact data_mask/mTypeMask superset assert, D3D11 input
@@ -1814,7 +1803,7 @@ void LLVertexBuffer::setBuffer()
 	// of cheap state-setting calls, not a Draw() - unconditional is the safe
 	// default.
 	sDXRenderBuffer = mDXBuffer.getBuffer();
-	sDXLastShader = LLGLSLShader::sCurBoundShaderPtr;
+	sDXLastShader = LLHLSLShader::sCurBoundShaderPtr;
 	setupVertexBuffer();
 
 	if (mDXIndices.getBuffer() != sDXRenderIndices)
@@ -1828,7 +1817,7 @@ void LLVertexBuffer::setBuffer()
 	return;
 #endif
 
-	U32 data_mask = LLGLSLShader::sCurBoundShaderPtr->mAttributeMask;
+	U32 data_mask = LLHLSLShader::sCurBoundShaderPtr->mAttributeMask;
 
 	// this Vertex Buffer must provide all necessary attributes for currently bound shader
 	llassert_msg((data_mask & mTypeMask) == data_mask,
@@ -1872,8 +1861,8 @@ void LLVertexBuffer::setupVertexBuffer()
 	// Enumeration order MUST match DXVertexLayout::getOrCreate()'s InputSlot
 	// assignment (bits 0-5, then color/emissive, then tangent, then weight,
 	// then clothweight).
-	llassert(LLGLSLShader::sCurBoundShaderPtr);
-	ID3DBlob* vs_bytecode = LLGLSLShader::sCurBoundShaderPtr->mDXVertexShader.getVSBytecode();
+	llassert(LLHLSLShader::sCurBoundShaderPtr);
+	ID3DBlob* vs_bytecode = LLHLSLShader::sCurBoundShaderPtr->mDXVertexShader.getVSBytecode();
 	if (!vs_bytecode)
 	{
 		return;
@@ -1925,7 +1914,7 @@ void LLVertexBuffer::setupVertexBuffer()
 		// there). Identify the emissive-accumulation shaders by name since
 		// reflection can't distinguish them structurally; falls back to
 		// emissive if that's genuinely the only data this buffer carries.
-		const std::string& bound_name = LLGLSLShader::sCurBoundShaderPtr->mName;
+		const std::string& bound_name = LLHLSLShader::sCurBoundShaderPtr->mName;
 		bool wants_emissive_in_color0 =
 			bound_name == "Deferred Emissive Shader" ||
 			bound_name == " PBR Glow Shader" ||
@@ -1993,7 +1982,7 @@ void LLVertexBuffer::setupVertexBuffer()
 	ctx->IASetVertexBuffers(0, count, buffers, strides, offsets);
 
 	ID3D11InputLayout* layout = DXVertexLayout::getOrCreate(mTypeMask, vs_bytecode->GetBufferPointer(), vs_bytecode->GetBufferSize(),
-		LLGLSLShader::sCurBoundShaderPtr->mName.c_str());
+		LLHLSLShader::sCurBoundShaderPtr->mName.c_str());
 	ctx->IASetInputLayout(layout);
 
 	// S24 (2026-07-23): a diagnostic here (part of the "no text"
@@ -2008,7 +1997,7 @@ void LLVertexBuffer::setupVertexBuffer()
 
 	U8* base = nullptr;
 
-	U32 data_mask = LLGLSLShader::sCurBoundShaderPtr->mAttributeMask;
+	U32 data_mask = LLHLSLShader::sCurBoundShaderPtr->mAttributeMask;
 
 	if (data_mask & MAP_NORMAL)
 	{

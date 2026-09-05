@@ -27,7 +27,7 @@
 #include "linden_common.h"
 
 #include "llpostprocess.h"
-#include "llglslshader.h"
+#include "llhlslshader.h"
 #include "llsdserialize.h"
 #include "llrender.h"
 
@@ -304,7 +304,7 @@ void LLPostProcess::doEffects(void)
     checkError();
     applyShaders();
 
-    LLGLSLShader::unbind();
+    LLHLSLShader::unbind();
     checkError();
 
     /// Change to a perspective view
@@ -318,7 +318,7 @@ void LLPostProcess::doEffects(void)
 
 void LLPostProcess::copyFrameBuffer(U32 & texture, unsigned int width, unsigned int height)
 {
-    gGL.getTexUnit(0)->bindManual(LLTexUnit::TT_TEXTURE, texture);
+    gDX.getTexUnit(0)->bindManual(LLTexUnit::TT_TEXTURE, texture);
     glCopyTexImage2D(GL_TEXTURE_RECTANGLE, 0, GL_RGBA, 0, 0, width, height, 0);
 }
 
@@ -329,21 +329,21 @@ void LLPostProcess::drawOrthoQuad(unsigned int width, unsigned int height, QuadT
 
 void LLPostProcess::viewOrthogonal(unsigned int width, unsigned int height)
 {
-    gGL.matrixMode(LLRender::MM_PROJECTION);
-    gGL.pushMatrix();
-    gGL.loadIdentity();
-    gGL.ortho( 0.f, (GLfloat) width , (GLfloat) height , 0.f, -1.f, 1.f );
-    gGL.matrixMode(LLRender::MM_MODELVIEW);
-    gGL.pushMatrix();
-    gGL.loadIdentity();
+    gDX.matrixMode(LLRender::MM_PROJECTION);
+    gDX.pushMatrix();
+    gDX.loadIdentity();
+    gDX.ortho( 0.f, (GLfloat) width , (GLfloat) height , 0.f, -1.f, 1.f );
+    gDX.matrixMode(LLRender::MM_MODELVIEW);
+    gDX.pushMatrix();
+    gDX.loadIdentity();
 }
 
 void LLPostProcess::viewPerspective(void)
 {
-    gGL.matrixMode(LLRender::MM_PROJECTION);
-    gGL.popMatrix();
-    gGL.matrixMode(LLRender::MM_MODELVIEW);
-    gGL.popMatrix();
+    gDX.matrixMode(LLRender::MM_PROJECTION);
+    gDX.popMatrix();
+    gDX.matrixMode(LLRender::MM_MODELVIEW);
+    gDX.popMatrix();
 }
 
 void LLPostProcess::changeOrthogonal(unsigned int width, unsigned int height)
@@ -359,11 +359,11 @@ void LLPostProcess::createTexture(LLPointer<LLImageGL>& texture, unsigned int wi
     texture = new LLImageGL(false) ;
     if(texture->createGLTexture())
     {
-        gGL.getTexUnit(0)->bindManual(LLTexUnit::TT_TEXTURE, texture->getTexName());
+        gDX.getTexUnit(0)->bindManual(LLTexUnit::TT_TEXTURE, texture->getTexName());
         glTexImage2D(GL_TEXTURE_RECTANGLE, 0, 4, width, height, 0,
             GL_RGBA, GL_UNSIGNED_BYTE, &data[0]);
-        gGL.getTexUnit(0)->setTextureFilteringOption(LLTexUnit::TFO_BILINEAR);
-        gGL.getTexUnit(0)->setTextureAddressMode(LLTexUnit::TAM_CLAMP);
+        gDX.getTexUnit(0)->setTextureFilteringOption(LLTexUnit::TFO_BILINEAR);
+        gDX.getTexUnit(0)->setTextureAddressMode(LLTexUnit::TAM_CLAMP);
     }
 }
 
@@ -379,10 +379,10 @@ void LLPostProcess::createNoiseTexture(LLPointer<LLImageGL>& texture)
     texture = new LLImageGL(false) ;
     if(texture->createGLTexture())
     {
-        gGL.getTexUnit(0)->bindManual(LLTexUnit::TT_TEXTURE, texture->getTexName());
+        gDX.getTexUnit(0)->bindManual(LLTexUnit::TT_TEXTURE, texture->getTexName());
         LLImageGL::setManualImage(GL_TEXTURE_2D, 0, GL_LUMINANCE, NOISE_SIZE, NOISE_SIZE, GL_LUMINANCE, GL_UNSIGNED_BYTE, &buffer[0]);
-        gGL.getTexUnit(0)->setTextureFilteringOption(LLTexUnit::TFO_BILINEAR);
-        gGL.getTexUnit(0)->setTextureAddressMode(LLTexUnit::TAM_WRAP);
+        gDX.getTexUnit(0)->setTextureFilteringOption(LLTexUnit::TFO_BILINEAR);
+        gDX.getTexUnit(0)->setTextureAddressMode(LLTexUnit::TAM_WRAP);
     }
 }
 

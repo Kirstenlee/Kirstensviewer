@@ -61,7 +61,7 @@ LLShaderMgr* LLShaderMgr::instance()
 	return sInstance;
 }
 
-bool LLShaderMgr::attachShaderFeatures(LLGLSLShader* shader)
+bool LLShaderMgr::attachShaderFeatures(LLHLSLShader* shader)
 {
 	llassert_always(shader != NULL);
 	LLShaderFeatures* features = &shader->mFeatures;
@@ -339,7 +339,7 @@ bool LLShaderMgr::attachShaderFeatures(LLGLSLShader* shader)
 					return false;
 				}
 			}
-			shader->mFeatures.mIndexedTextureChannels = llmax(LLGLSLShader::sIndexedTextureChannels, 1);
+			shader->mFeatures.mIndexedTextureChannels = llmax(LLHLSLShader::sIndexedTextureChannels, 1);
 		}
 	}
 
@@ -568,7 +568,7 @@ GLuint LLShaderMgr::loadShaderFile(const std::string& filename, S32& shader_leve
 	// HLSL has no separately-compiled/linkable shader objects (unlike GL,
 	// D3DCompile takes one source blob per stage) - just cache the raw file
 	// text here. Real per-stage compilation happens later, once
-	// LLGLSLShader::createShaderDX() has concatenated this entry file's text
+	// LLHLSLShader::createShaderDX() has concatenated this entry file's text
 	// with its attached utility files' text (see mVertexShaderSourceText/
 	// mFragmentShaderSourceText in llshadermgr.h).
 	std::string source_text;
@@ -1190,6 +1190,20 @@ void LLShaderMgr::clearShaderCache()
 
 void LLShaderMgr::persistShaderCacheMetadata()
 {
+#ifdef DX_RENDER
+    // S24 (2026-09-02): this whole function persists mShaderBinaryCache,
+    // which is only ever populated by saveCachedProgramBinary() (raw
+    // glGetProgramBinary()/shader->mProgramObject calls) - reachable only
+    // from LLHLSLShader::link(), the GL program-linking step, which
+    // DX_RENDER's real shader path (createShaderDX()/DXShader.cpp) never
+    // goes through at all. mShaderBinaryCache can therefore never contain
+    // anything under this build - "No shader cache entries to persist"
+    // wasn't routine status, it was this entire GL-only subsystem running
+    // for nothing, every session. The real, working DX shader cache is
+    // the separate content-hash-keyed .dxbc mechanism in DXShader.cpp
+    // (dxShaderCachePath()/getDXShaderCacheDir()), untouched by this.
+    return;
+#endif
 	if (!mShaderCacheEnabled) return;
     if (mShaderCacheVersion.isNull())
     {
@@ -1243,8 +1257,21 @@ void LLShaderMgr::persistShaderCacheMetadata()
 	std::string meta_out_path = gDirUtilp->add(mShaderCacheDir, "shaderdata.llsd");
     if (shaders.size() == 0)
     {
-        LL_WARNS("ShaderMgr") << "No shader cache entries to persist, removing cache metadata file" << LL_ENDL;
-        LLFile::remove(meta_out_path);
+        // S24 (2026-09-02): was LL_WARNS - "no entries to persist" is a
+        // completely normal, expected status (first run, shader cache
+        // disabled, or just purged), not a warning-worthy condition. Fires
+        // every session close under those circumstances, forever, as pure
+        // noise. LL_INFOS matches this project's own "ShaderMgr"-tag
+        // gating (see the untagged LL_WARNS a few lines up/task #133's own
+        // comment on this exact suppression) - genuinely inconsequential
+        // status, not something that needs to fight its way past that gate.
+        LL_INFOS("ShaderMgr") << "No shader cache entries to persist, removing cache metadata file" << LL_ENDL;
+        // S24 (2026-09-02): suppress ENOENT, matching the identical fix
+        // already applied a few lines up (shader_path removal) - deleting a
+        // metadata file that's already gone (e.g. first run, or a previous
+        // persist already cleaned it up) is the desired end state, not a
+        // real failure worth a WARNING-level log line every time.
+        LLFile::remove(meta_out_path, ENOENT);
         return;
     }
 
@@ -1260,7 +1287,7 @@ void LLShaderMgr::persistShaderCacheMetadata()
     {
         LL_WARNS("ShaderMgr") << "Failed to serialize shader cache metadata" << LL_ENDL;
 	outstream.close();
-        LLFile::remove(meta_out_path); // Clean up partial write
+        LLFile::remove(meta_out_path, ENOENT); // Clean up partial write
         return;
     }
     outstream.close();
@@ -1269,7 +1296,7 @@ void LLShaderMgr::persistShaderCacheMetadata()
         << " entries. Removed " << (S32)removed << " entries." << LL_ENDL;
 }
 
-bool LLShaderMgr::loadCachedProgramBinary(LLGLSLShader* shader)
+bool LLShaderMgr::loadCachedProgramBinary(LLHLSLShader* shader)
 {
 	if (!mShaderCacheEnabled) return false;
 
@@ -1331,13 +1358,13 @@ bool LLShaderMgr::loadCachedProgramBinary(LLGLSLShader* shader)
 
 		//an error occured, normally we would print log but in this case it means the shader needs recompiling.
 		LL_INFOS() << "Failed to load cached binary for shader: " << shader->mName << " falling back to compilation" << LL_ENDL;
-		LLFile::remove(in_path);
+		LLFile::remove(in_path, ENOENT);
 		mShaderBinaryCache.erase(binary_iter);
 	}
 	return false;
 }
 
-bool LLShaderMgr::saveCachedProgramBinary(LLGLSLShader* shader)
+bool LLShaderMgr::saveCachedProgramBinary(LLHLSLShader* shader)
 {
 	if (!mShaderCacheEnabled) return true;
 
@@ -1558,6 +1585,7 @@ void LLShaderMgr::initAttribsAndUniforms()
 	mReservedUniforms.push_back("glossySampleCount");
 	mReservedUniforms.push_back("noiseSine");
 	mReservedUniforms.push_back("adaptiveStepMultiplier");
+	mReservedUniforms.push_back("ssrGlossThreshold");
 
 	mReservedUniforms.push_back("modelview_delta");
 	mReservedUniforms.push_back("inv_modelview_delta");

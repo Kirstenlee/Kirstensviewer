@@ -29,9 +29,7 @@
 #include "llrender.h"
 
 #include "llvertexbuffer.h"
-#include "llcubemap.h"
-#include "llcubemaparray.h"
-#include "llglslshader.h"
+#include "llhlslshader.h"
 #include "llimagegl.h"
 #include "llrendertarget.h"
 #include "lltexture.h"
@@ -47,6 +45,8 @@
 #include "DXDevice.h"
 #include "DXSwapChain.h"
 #include "DXUIBatch.h"
+#include "DXCubeMap.h"
+#include "DXCubeMapArray.h"
 #endif
 
 //#include <algorithm>
@@ -59,7 +59,7 @@ extern void APIENTRY gl_debug_callback(GLenum source,
 	GLvoid* userParam)
 	;
 
-thread_local LLRender gGL;
+thread_local LLRender gDX;
 
 // Handy copies of last good GL matrices
 F32 gGLModelView[16];
@@ -182,7 +182,7 @@ void LLTexUnit::refreshState(void)
 	// and we reset the cached tex unit state
 
 	// Only flush the pipeline if absolutely necessary (profiling can determine this)
-	gGL.flush();
+	gDX.flush();
 
 	// Activate the texture unit
 	glActiveTexture(GL_TEXTURE0 + mIndex);
@@ -206,14 +206,14 @@ void LLTexUnit::activate(void)
 	// texture bound until then.
 #else
 	// Early exit if mIndex is invalid or the state doesn�t need updating
-	if (mIndex < 0 || ((S32)gGL.mCurrTextureUnitIndex == mIndex && !gGL.mDirty)) return;
+	if (mIndex < 0 || ((S32)gDX.mCurrTextureUnitIndex == mIndex && !gDX.mDirty)) return;
 
 	// Flush pipeline only if necessary (profiling might refine this further)
-	gGL.flush();
+	gDX.flush();
 
 	// Activate the texture unit and update the current index
 	glActiveTexture(GL_TEXTURE0 + mIndex);
-	gGL.mCurrTextureUnitIndex = mIndex;
+	gDX.mCurrTextureUnitIndex = mIndex;
 #endif // DX_RENDER
 }
 
@@ -263,12 +263,12 @@ void LLTexUnit::enable(eTextureType type)
 	if (mIndex < 0 || type == TT_NONE) return;
 
 	// Only proceed if the texture type or dirty state needs updating
-	if (mCurrTexType != type || gGL.mDirty)
+	if (mCurrTexType != type || gDX.mDirty)
 	{
 		activate();
 
 		// Disable previous texture type if necessary
-		if (mCurrTexType != TT_NONE && !gGL.mDirty)
+		if (mCurrTexType != TT_NONE && !gDX.mDirty)
 		{
 			disable();
 		}
@@ -277,7 +277,7 @@ void LLTexUnit::enable(eTextureType type)
 		mCurrTexType = type;
 
 		// Flush pipeline if required (review necessity via profiling)
-		gGL.flush();
+		gDX.flush();
 	}
 #endif // DX_RENDER
 }
@@ -293,7 +293,7 @@ void LLTexUnit::disable(void)
 	// so disable() would never actually reach unbind() - silently
 	// skipping the white-texture-fallback fix for every one of this
 	// function's many direct callers (draw pools calling
-	// gGL.getTexUnit(n)->disable() to "turn off" a channel between
+	// gDX.getTexUnit(n)->disable() to "turn off" a channel between
 	// batches). Bypass the stale bookkeeping and unbind unconditionally.
 	unbind(LLTexUnit::TT_TEXTURE);
 #else
@@ -388,7 +388,7 @@ void LLTexUnit::bindFast(LLTexture* texture)
 		// full explanation (task #254's actual root cause: this ordering made
 		// LLRender::flush()'s mDXImage capture tag still-queued vertices from
 		// the PREVIOUS texture with the NEW one instead).
-		gGL.flush();
+		gDX.flush();
 		// S24 (2026-08-16): also flush gDXUIBatch's separate pending queue -
 		// same missing-flush hazard. See DXUIBatch.h's top comment.
 		gDXUIBatch.flushPending();
@@ -412,7 +412,7 @@ void LLTexUnit::bindFast(LLTexture* texture)
 	// register to exist (any HLSL declaring register(s16)+ simply fails
 	// to compile). Root cause of a real crash: that compile failure left
 	// the shader's mDXVertexShader/mDXPixelShader null, and a later
-	// unconditional bind() call hit LLGLSLShader::bind()'s
+	// unconditional bind() call hit LLHLSLShader::bind()'s
 	// mDXVertexShader.getVS()!=nullptr ASSERT. The HLSL side is fixed
 	// (see pbrterrainF.hlsl) by sharing an existing sampler register
 	// instead of declaring a 17th one, but this guard is the general,
@@ -433,7 +433,7 @@ void LLTexUnit::bindFast(LLTexture* texture)
 
 	// Activate the correct texture unit
 	glActiveTexture(GL_TEXTURE0 + mIndex);
-	gGL.mCurrTextureUnitIndex = mIndex;
+	gDX.mCurrTextureUnitIndex = mIndex;
 
 	// Retrieve texture name
 	mCurrTexture = gl_tex->getTexName();
@@ -465,7 +465,7 @@ bool LLTexUnit::bind(LLTexture* texture, bool for_rendering, bool forceBind)
 	// enableTexture()-derived channels are already safe here (they come
 	// back as -1, and getTexUnit() maps out-of-range indices to a dummy
 	// unit whose mIndex is also -1, caught by the check below) - but a
-	// *hardcoded* valid unit index (e.g. gGL.getTexUnit(0)->bind(tex),
+	// *hardcoded* valid unit index (e.g. gDX.getTexUnit(0)->bind(tex),
 	// used by several converted pools for their "no per-material channel
 	// registration yet" fallback) bypasses that guard and would otherwise
 	// reach the raw glBindTexture() call below with no GL context behind
@@ -476,7 +476,7 @@ bool LLTexUnit::bind(LLTexture* texture, bool for_rendering, bool forceBind)
 #else
 	if (mIndex < 0 || !texture) return false;
 
-	gGL.flush();
+	gDX.flush();
 
 	LLImageGL* gl_tex = texture->getGLTexture();
 	if (!gl_tex) return false;
@@ -544,7 +544,7 @@ bool LLTexUnit::bind(LLImageGL* texture, bool for_rendering, bool forceBind, S32
 	}
 	// S24 (2026-07-23): the actual invisible-menu-text bug - this branch
 	// never flushed pending batched vertices before switching the bound
-	// SRV, unlike GL's `if (mCurrTexture != texname) { gGL.flush(); ... }`
+	// SRV, unlike GL's `if (mCurrTexture != texname) { gDX.flush(); ... }`
 	// below. E.g. LLMenuItemGL::draw() draws its highlight rect
 	// (gl_rect_2d() -> unbind(), 6 TRIANGLES verts - too few for end() to
 	// auto-flush) then immediately calls mFont->render() -> this function:
@@ -565,7 +565,7 @@ bool LLTexUnit::bind(LLImageGL* texture, bool for_rendering, bool forceBind, S32
 		// S24 (2026-08-28, task #254): flush BEFORE updating mCurrBoundImageGL/
 		// mCurrDXSRV below, not after. The old ordering set the "current
 		// texture" bookkeeping first, then flushed - so LLRender::flush()'s own
-		// capture of gGL.getTexUnit(0)->mCurrBoundImageGL (llrender.cpp, the
+		// capture of gDX.getTexUnit(0)->mCurrBoundImageGL (llrender.cpp, the
 		// sBufferDataList/mDXImage recording path added for task #54) always
 		// saw the NEW texture, even though the vertices actually being
 		// drained at that moment were queued under the OLD one. Invisible for
@@ -574,7 +574,7 @@ bool LLTexUnit::bind(LLImageGL* texture, bool for_rendering, bool forceBind, S32
 		// switch without self-flushing in between - which is exactly what
 		// happens during LLFontVertexBuffer's beginList()/endList() recording
 		// (llfontgl.cpp's submitGlyphBatch() recording branch queues via
-		// gGL.begin()/vertexBatchPreTransformed()/end(), and end() only
+		// gDX.begin()/vertexBatchPreTransformed()/end(), and end() only
 		// auto-flushes on a mode change or >2048 verts - never on a texture
 		// switch alone). Confirmed as the actual root cause of task #254 (SMP
 		// color-emoji glyphs sampling the wrong font atlas under DX_RENDER):
@@ -583,7 +583,7 @@ bool LLTexUnit::bind(LLImageGL* texture, bool for_rendering, bool forceBind, S32
 		// this bind() call switching to the SECOND glyph type - was tagging
 		// the FIRST glyph type's already-queued vertices with the SECOND
 		// type's texture once replayed.
-		gGL.flush();
+		gDX.flush();
 		// S24 (2026-08-16): also flush gDXUIBatch's separate pending queue -
 		// same missing-flush hazard. See DXUIBatch.h's top comment.
 		gDXUIBatch.flushPending();
@@ -612,7 +612,7 @@ bool LLTexUnit::bind(LLImageGL* texture, bool for_rendering, bool forceBind, S32
 
 	if (mCurrTexture != texname || forceBind)
 	{
-		gGL.flush();
+		gDX.flush();
 		activate();
 		enable(texture->getTarget());
 		mCurrTexture = texname;
@@ -633,36 +633,32 @@ bool LLTexUnit::bind(LLImageGL* texture, bool for_rendering, bool forceBind, S32
 }
 
 // S24 Perf
-bool LLTexUnit::bind(LLCubeMap* cubeMap)
+bool LLTexUnit::bind(DXCubeMap* cubeMap)
 {
-	if (mIndex < 0 || !cubeMap || !LLCubeMap::sUseCubeMaps) return false;
+	if (mIndex < 0 || !cubeMap || !DXCubeMap::sUseCubeMaps) return false;
 
-#ifdef DX_RENDER
-	// S24 (2026-08-06, task #113): now binds cubeMap->getDXSRV() - a real
-	// D3D11 cubemap resource assembled from the 6 individually-uploaded
-	// faces (see DXCubeTexture/LLCubeMap::init()'s DX_RENDER branch). Falls
-	// back to a neutral white texture (same convention as every other "real
-	// resource not ready yet" SRV gap this session) if the cubemap hasn't
-	// been assembled - e.g. init() was never called, or failed.
+	// S24 (2026-08-31): binds cubeMap->getDXSRV() - a real D3D11 cubemap
+	// resource assembled from the 6 individually-uploaded faces (see
+	// DXCubeTexture/DXCubeMap::init()). Falls back to a neutral white
+	// texture (same convention as every other "real resource not ready
+	// yet" SRV gap) if the cubemap hasn't been assembled - e.g. init() was
+	// never called, or failed.
 	ID3D11ShaderResourceView* srv = cubeMap->getDXSRV();
 	if (!srv)
 	{
 		srv = getWhiteTextureSRV();
 	}
-	// S24 (2026-08-29, task #278/#273, REVERTED same day) - see bindFast()'s
-	// matching revert comment above.
 	if (mCurrDXSRV != (void*)srv)
 	{
-		gGL.flush();
+		gDX.flush();
 		// S24 (2026-08-16): also flush gDXUIBatch's separate pending queue -
 		// same missing-flush hazard. See DXUIBatch.h's top comment.
 		gDXUIBatch.flushPending();
 		mCurrDXSRV = (void*)srv;
 	}
 	mDXSRVGeneration = DXStateCache::getRTVGeneration();
-	// CLAMP + TRILINEAR - matches GL's own TAM_CLAMP convention for cubemap
-	// faces (avoids seams at face edges) and the full mip chain
-	// DXCubeTexture::create() always generates.
+	// CLAMP + TRILINEAR - avoids seams at face edges - and the full mip
+	// chain DXCubeTexture::create() always generates.
 	ID3D11SamplerState* sampler = DXSampler::getOrCreate(2, 2);
 	gDXDevice.getContext()->PSSetShaderResources(mIndex, 1, &srv);
 	mCurrDXSampler = (void*)sampler;
@@ -671,65 +667,31 @@ bool LLTexUnit::bind(LLCubeMap* cubeMap)
 		gDXDevice.getContext()->PSSetSamplers(mIndex, 1, &sampler);
 	}
 	return true;
-#else
-	GLuint texname = cubeMap->mImages[0]->getTexName();
-	if (mCurrTexture == texname) return true;
-
-	gGL.flush();
-	activate();
-	enable(LLTexUnit::TT_CUBE_MAP);
-	mCurrTexture = texname;
-	glBindTexture(GL_TEXTURE_CUBE_MAP, texname);
-
-	LLImageGL* face = cubeMap->mImages[0];
-	mHasMipMaps = face->mHasMipMaps;
-	face->updateBindStats();
-
-	if (face->mTexOptionsDirty)
-	{
-		face->mTexOptionsDirty = false;
-		setTextureAddressMode(face->mAddressMode);
-		setTextureFilteringOption(face->mFilterOption);
-	}
-
-	return true;
-#endif // DX_RENDER
 }
 
-#ifdef DX_RENDER
-// S24 (2026-08-09, task #147 step 4): direct sibling of bind(LLCubeMap*)
-// just above - mirrors its DX_RENDER body exactly, just for the array
-// resource type (DXCubeArrayTexture) instead of the single-cubemap one
-// (DXCubeTexture). LLCubeMapArray has no LLCubeMap::sUseCubeMaps-style
-// static gate to check. DX_RENDER-only, unlike bind(LLCubeMap*): GL's own
-// LLCubeMapArray::bind() already calls gGL.getTexUnit(stage)->bindManual()
-// directly and has no reason to route through here, so there's no GL body
-// to keep in sync - this exists purely as the DX_RENDER counterpart
-// LLCubeMapArray::bind() calls instead of bindManual() under DX_RENDER.
-bool LLTexUnit::bind(LLCubeMapArray* cubeMapArray)
+// S24 (2026-08-09, task #147 step 4): direct sibling of bind(DXCubeMap*)
+// just above - mirrors its body exactly, just for the array resource type
+// (DXCubeArrayTexture) instead of the single-cubemap one (DXCubeTexture).
+// DXCubeMapArray has no DXCubeMap::sUseCubeMaps-style static gate to check.
+bool LLTexUnit::bind(DXCubeMapArray* cubeMapArray)
 {
 	if (mIndex < 0 || !cubeMapArray) return false;
 
 	ID3D11ShaderResourceView* srv = cubeMapArray->getDXSRV();
-	// S24 (2026-08-11, task #163 round 8): temp diagnostic here confirmed
-	// the SRV is genuinely valid (not falling back to the white 2D
-	// texture) - ruled out. Removed.
 	if (!srv)
 	{
 		srv = getWhiteTextureSRV();
 	}
-	// S24 (2026-08-29, task #278/#273, REVERTED same day) - see bindFast()'s
-	// matching revert comment above.
 	if (mCurrDXSRV != (void*)srv)
 	{
-		gGL.flush();
+		gDX.flush();
 		// S24 (2026-08-16): also flush gDXUIBatch's separate pending queue -
 		// same missing-flush hazard. See DXUIBatch.h's top comment.
 		gDXUIBatch.flushPending();
 		mCurrDXSRV = (void*)srv;
 	}
 	mDXSRVGeneration = DXStateCache::getRTVGeneration();
-	// CLAMP + TRILINEAR - same convention as bind(LLCubeMap*) above (avoids
+	// CLAMP + TRILINEAR - same convention as bind(DXCubeMap*) above (avoids
 	// seams at face edges, full mip chain always generated).
 	ID3D11SamplerState* sampler = DXSampler::getOrCreate(2, 2);
 	gDXDevice.getContext()->PSSetShaderResources(mIndex, 1, &srv);
@@ -740,7 +702,6 @@ bool LLTexUnit::bind(LLCubeMapArray* cubeMapArray)
 	}
 	return true;
 }
-#endif // DX_RENDER
 
 // LLRenderTarget is unavailible on the mapserver since it uses FBOs.
 bool LLTexUnit::bind(LLRenderTarget* renderTarget, bool bindDepth, bool useComparisonSampler)
@@ -779,7 +740,7 @@ bool LLTexUnit::bind(LLRenderTarget* renderTarget, bool bindDepth, bool useCompa
 	// above.
 	if (mCurrDXSRV != (void*)srv)
 	{
-		gGL.flush();
+		gDX.flush();
 		// S24 (2026-08-16): also flush gDXUIBatch's separate pending queue -
 		// same missing-flush hazard. See DXUIBatch.h's top comment.
 		gDXUIBatch.flushPending();
@@ -794,8 +755,15 @@ bool LLTexUnit::bind(LLRenderTarget* renderTarget, bool bindDepth, bool useCompa
 	// instead - see DXSampler::getOrCreateComparison()'s own comment for why
 	// a regular sampler here is undefined behavior against
 	// SamplerComparisonState registers.
+	// S24 (reversed-Z conversion): GREATER_EQUAL, was LESS_EQUAL - depth
+	// buffer now stores near=1.0/far=0.0 (see kGLtoDXDepthRemap's comment
+	// above), so "passes the shadow test" is now the greater-or-equal
+	// comparison, not less-or-equal. Not routed through glDepthFuncToDX()
+	// (llgl.cpp) - that chokepoint covers ordinary LLGLDepthTest sites,
+	// this shadow-map comparison sampler is a separate hardcoded enum and
+	// needs its own explicit flip.
 	ID3D11SamplerState* sampler = useComparisonSampler
-		? DXSampler::getOrCreateComparison(D3D11_COMPARISON_LESS_EQUAL)
+		? DXSampler::getOrCreateComparison(D3D11_COMPARISON_GREATER_EQUAL)
 		: DXSampler::getOrCreate(2, 1);
 	gDXDevice.getContext()->PSSetShaderResources(mIndex, 1, &srv);
 	mCurrDXSampler = (void*)sampler;
@@ -805,7 +773,7 @@ bool LLTexUnit::bind(LLRenderTarget* renderTarget, bool bindDepth, bool useCompa
 	}
 	return true;
 #else
-	gGL.flush();
+	gDX.flush();
 
 	GLuint texname = 0;
 
@@ -845,7 +813,7 @@ bool LLTexUnit::bindManual(eTextureType type, U32 texture, bool hasMips)
 	// Only bind texture if it's different from the current one
 	if (mCurrTexture != texture)
 	{
-		gGL.flush(); // Ensure the pipeline is flushed if required (profiling may refine this)
+		gDX.flush(); // Ensure the pipeline is flushed if required (profiling may refine this)
 
 		// Activate and enable the texture unit and type
 		activate();
@@ -883,7 +851,7 @@ bool LLTexUnit::bind(DXTexture& tex, eTextureAddressMode address_mode, eTextureF
 	// matching revert comment above.
 	if (mCurrDXSRV != (void*)srv)
 	{
-		gGL.flush();
+		gDX.flush();
 		// S24 (2026-08-16): also flush gDXUIBatch's separate pending queue -
 		// same missing-flush hazard. See DXUIBatch.h's top comment.
 		gDXUIBatch.flushPending();
@@ -923,7 +891,7 @@ void LLTexUnit::unbind(eTextureType type)
 	// matching revert comment above.
 	if (mCurrDXSRV != (void*)srv)
 	{
-		gGL.flush();
+		gDX.flush();
 		// S24 (2026-08-16): also flush gDXUIBatch's separate pending queue -
 		// same missing-flush hazard. See DXUIBatch.h's top comment.
 		gDXUIBatch.flushPending();
@@ -948,7 +916,7 @@ void LLTexUnit::unbind(eTextureType type)
 
 	//always flush and activate for consistency
 	// Flush pipeline and activate texture unit for consistency
-	gGL.flush();
+	gDX.flush();
 	activate();
 
 	// Only unbind if the current texture type matches
@@ -980,7 +948,7 @@ void LLTexUnit::unbindFast(eTextureType type)
 	// matching revert comment above.
 	if (mCurrDXSRV != (void*)srv)
 	{
-		gGL.flush();
+		gDX.flush();
 		// S24 (2026-08-16): also flush gDXUIBatch's separate pending queue -
 		// same missing-flush hazard. See DXUIBatch.h's top comment.
 		gDXUIBatch.flushPending();
@@ -1028,7 +996,7 @@ void LLTexUnit::setTextureAddressMode(eTextureAddressMode mode)
 #else
 	if (mIndex < 0 || mCurrTexture == 0) return;
 
-	gGL.flush();
+	gDX.flush();
 
 	activate();
 
@@ -1057,7 +1025,7 @@ void LLTexUnit::setTextureFilteringOption(LLTexUnit::eTextureFilterOptions optio
 	if (mIndex < 0 || mCurrTexture == 0 || mCurrTexType == LLTexUnit::TT_MULTISAMPLE_TEXTURE) return;
 
 	// Flush the pipeline to ensure consistency
-	gGL.flush();
+	gDX.flush();
 
 	// Set texture magnification filter
 	glTexParameteri(
@@ -1232,7 +1200,7 @@ void LLLightState::setDiffuse(const LLColor4& diffuse)
 {
 	if (mDiffuse != diffuse)
 	{
-		++gGL.mLightHash;
+		++gDX.mLightHash;
 		mDiffuse = diffuse;
 	}
 }
@@ -1241,7 +1209,7 @@ void LLLightState::setDiffuseB(const LLColor4& diffuse)
 {
 	if (mDiffuseB != diffuse)
 	{
-		++gGL.mLightHash;
+		++gDX.mLightHash;
 		mDiffuseB = diffuse;
 	}
 }
@@ -1250,7 +1218,7 @@ void LLLightState::setSunPrimary(bool v)
 {
 	if (mSunIsPrimary != v)
 	{
-		++gGL.mLightHash;
+		++gDX.mLightHash;
 		mSunIsPrimary = v;
 	}
 }
@@ -1259,7 +1227,7 @@ void LLLightState::setSize(F32 v)
 {
 	if (mSize != v)
 	{
-		++gGL.mLightHash;
+		++gDX.mLightHash;
 		mSize = v;
 	}
 }
@@ -1268,7 +1236,7 @@ void LLLightState::setFalloff(F32 v)
 {
 	if (mFalloff != v)
 	{
-		++gGL.mLightHash;
+		++gDX.mLightHash;
 		mFalloff = v;
 	}
 }
@@ -1277,7 +1245,7 @@ void LLLightState::setAmbient(const LLColor4& ambient)
 {
 	if (mAmbient != ambient)
 	{
-		++gGL.mLightHash;
+		++gDX.mLightHash;
 		mAmbient = ambient;
 	}
 }
@@ -1286,7 +1254,7 @@ void LLLightState::setSpecular(const LLColor4& specular)
 {
 	if (mSpecular != specular)
 	{
-		++gGL.mLightHash;
+		++gDX.mLightHash;
 		mSpecular = specular;
 	}
 }
@@ -1294,11 +1262,11 @@ void LLLightState::setSpecular(const LLColor4& specular)
 void LLLightState::setPosition(const LLVector4& position)
 {
 	//always set position because modelview matrix may have changed
-	++gGL.mLightHash;
+	++gDX.mLightHash;
 	mPosition = position;
 	//transform position by current modelview matrix
 	glm::vec4 pos(position);
-	pos = gGL.getModelviewMatrix() * pos;
+	pos = gDX.getModelviewMatrix() * pos;
 	mPosition.set(glm::value_ptr(pos));
 }
 
@@ -1307,7 +1275,7 @@ void LLLightState::setConstantAttenuation(const F32& atten)
 	if (mConstantAtten != atten)
 	{
 		mConstantAtten = atten;
-		++gGL.mLightHash;
+		++gDX.mLightHash;
 	}
 }
 
@@ -1315,7 +1283,7 @@ void LLLightState::setLinearAttenuation(const F32& atten)
 {
 	if (mLinearAtten != atten)
 	{
-		++gGL.mLightHash;
+		++gDX.mLightHash;
 		mLinearAtten = atten;
 	}
 }
@@ -1324,7 +1292,7 @@ void LLLightState::setQuadraticAttenuation(const F32& atten)
 {
 	if (mQuadraticAtten != atten)
 	{
-		++gGL.mLightHash;
+		++gDX.mLightHash;
 		mQuadraticAtten = atten;
 	}
 }
@@ -1333,7 +1301,7 @@ void LLLightState::setSpotExponent(const F32& exponent)
 {
 	if (mSpotExponent != exponent)
 	{
-		++gGL.mLightHash;
+		++gDX.mLightHash;
 		mSpotExponent = exponent;
 	}
 }
@@ -1342,7 +1310,7 @@ void LLLightState::setSpotCutoff(const F32& cutoff)
 {
 	if (mSpotCutoff != cutoff)
 	{
-		++gGL.mLightHash;
+		++gDX.mLightHash;
 		mSpotCutoff = cutoff;
 	}
 }
@@ -1350,11 +1318,11 @@ void LLLightState::setSpotCutoff(const F32& cutoff)
 void LLLightState::setSpotDirection(const LLVector3& direction)
 {
 	//always set direction because modelview matrix may have changed
-	++gGL.mLightHash;
+	++gDX.mLightHash;
 
 	//transform direction by current modelview matrix
 	glm::vec3 dir(direction);
-	const glm::mat3 mat(gGL.getModelviewMatrix());
+	const glm::mat3 mat(gDX.getModelviewMatrix());
 	dir = mat * dir;
 
 	mSpotDirection.set(glm::value_ptr(dir));
@@ -1420,8 +1388,8 @@ bool LLRender::init(bool needs_vertex_buffer)
 	glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
 #endif
 
-	gGL.setSceneBlendType(LLRender::BT_ALPHA);
-	gGL.setAmbientLightColor(LLColor4::black);
+	gDX.setSceneBlendType(LLRender::BT_ALPHA);
+	gDX.setAmbientLightColor(LLColor4::black);
 
 #ifndef DX_RENDER
 	glCullFace(GL_BACK);
@@ -1500,7 +1468,7 @@ void LLRender::refreshState(void)
 
 void LLRender::syncLightState()
 {
-	LLGLSLShader* shader = LLGLSLShader::sCurBoundShaderPtr;
+	LLHLSLShader* shader = LLHLSLShader::sCurBoundShaderPtr;
 
 	if (!shader)
 	{
@@ -1578,10 +1546,10 @@ void LLRender::syncMatrices()
 	// actually declare - modelview/projection/normal/texture0 - not GL's
 	// full inverse-matrix/texture1-3 set, since nothing converted so far
 	// uses those. mUniformsDirty's actual per-shader constant/uniform
-	// binding (LLGLSLShader::bind()'s comment) is still a separate, larger
+	// binding (LLHLSLShader::bind()'s comment) is still a separate, larger
 	// gap - this only wires the matrices syncMatrices() itself is
 	// responsible for.
-	LLGLSLShader* dx_shader = LLGLSLShader::sCurBoundShaderPtr;
+	LLHLSLShader* dx_shader = LLHLSLShader::sCurBoundShaderPtr;
 	if (dx_shader)
 	{
 		DXShader& vs = dx_shader->mDXVertexShader;
@@ -1595,14 +1563,34 @@ void LLRender::syncMatrices()
 		// clip-space z in [0,w] (NDC z in [0,1]) and clips away anything
 		// outside that range - fed a raw GL-convention matrix, the near
 		// half of the intended frustum (NDC z in [-1,0)) gets clipped as
-		// "in front of the near plane". Remapped here (z'=0.5*z+0.5*w,
-		// applied before the divide) rather than touching the shared
-		// GL-convention projection-matrix construction code, which the GL
-		// build still depends on unmodified.
+		// "in front of the near plane". Remapped here rather than touching
+		// the shared GL-convention projection-matrix construction code,
+		// which the GL build still depends on unmodified.
+		//
+		// S24 (reversed-Z conversion): z'=0.5*w-0.5*z (was z'=0.5*z+0.5*w)
+		// - deliberately the MIRROR of the standard [0,1] mapping, so
+		// stored depth is now near=1.0/far=0.0 instead of near=0.0/far=1.0.
+		// Standard (non-reversed) depth buffers pack nearly all their
+		// precision into the first few meters from the camera and lose it
+		// fast with distance - confirmed root cause of a shore-fade water
+		// shader (class3/environment/waterF.hlsl) misjudging deep water as
+		// shallow at range once the seabed depth sample it reconstructs
+		// against becomes imprecise, and a likely contributor to the
+		// parked z-fighting investigation (task #284). This single matrix
+		// is every pass's projection upload chokepoint (shadows included -
+		// renderShadow()/pipeline.cpp uploads via this same syncMatrices()
+		// path, no separate override), so this one sign flip is the root
+		// of the whole conversion. Every site that turns a stored depth
+		// value back into GL NDC z (inv_proj's expected input convention,
+		// unchanged below) must flip its own `2.0*depth-1.0` the same way,
+		// to `1.0-2.0*depth` - see deferredUtil.hlsl/aoUtil.hlsl/waterF.hlsl.
+		// Comparison funcs (glDepthFuncToDX(), llgl.cpp) and clear values
+		// (DXRenderTarget.cpp/DXContext.cpp, 1.0f->0.0f) flip alongside
+		// this as part of the same conversion.
 		static const glm::mat4 kGLtoDXDepthRemap = []()
 		{
 			glm::mat4 m(1.0f);
-			m[2][2] = 0.5f;
+			m[2][2] = -0.5f;
 			m[3][2] = 0.5f;
 			return m;
 		}();
@@ -1701,7 +1689,7 @@ void LLRender::syncMatrices()
 		// never needed before this, since every shader converted so far
 		// (diffuseV/F.hlsl, uiV/F.hlsl, ...) declared its top-level uniforms
 		// only in the vertex stage. solidcolorF.hlsl's "uniform vec4 color"
-		// (see LLGLSLShader::uniform4f()'s DX_RENDER branch, which stages
+		// (see LLHLSLShader::uniform4f()'s DX_RENDER branch, which stages
 		// this exact value via mDXPixelShader.setUniformFloatArray()) is the
 		// first pixel-stage uniform - without this, the staged value would
 		// never actually reach the GPU (uploadConstants()/PSSetConstantBuffers
@@ -1732,7 +1720,7 @@ void LLRender::syncMatrices()
 		LLShaderMgr::TEXTURE_MATRIX3,
 	};
 
-	LLGLSLShader* shader = LLGLSLShader::sCurBoundShaderPtr;
+	LLHLSLShader* shader = LLHLSLShader::sCurBoundShaderPtr;
 
 	static glm::mat4 cached_mvp;
 	static glm::mat4 cached_inv_mdv;
@@ -1962,7 +1950,7 @@ void LLRender::matrixMode(eMatrixMode mode)
 {
 	if (mode == MM_TEXTURE)
 	{
-		U32 tex_index = gGL.getCurrentTexUnitIndex();
+		U32 tex_index = gDX.getCurrentTexUnitIndex();
 		// the shaders don't actually reference anything beyond texture_matrix0/1 outside of terrain rendering
 		llassert(tex_index <= 3);
 		mode = eMatrixMode(MM_TEXTURE0 + tex_index);
@@ -2316,7 +2304,7 @@ void LLRender::beginList(std::list<LLVertexBufferData>* list)
 	{
 		LL_ERRS() << "beginList called while another list is open." << LL_ENDL;
 	}
-	llassert(LLGLSLShader::sCurBoundShaderPtr == &gUIProgram);
+	llassert(LLHLSLShader::sCurBoundShaderPtr == &gUIProgram);
 	flush();
 	sBufferDataList = list;
 }
@@ -2351,7 +2339,7 @@ void LLRender::begin(const GLuint& mode)
 		}
 		else if (mCount != 0)
 		{
-			LL_ERRS() << "gGL.begin() called redundantly." << LL_ENDL;
+			LL_ERRS() << "gDX.begin() called redundantly." << LL_ENDL;
 		}
 
 		mMode = mode;
@@ -2383,7 +2371,7 @@ void LLRender::flush()
 	}
 
 	// Fast pointer load
-	LLGLSLShader* shader = LLGLSLShader::sCurBoundShaderPtr;
+	LLHLSLShader* shader = LLHLSLShader::sCurBoundShaderPtr;
 
 	// Graceful handling: no assert, no crash
 	if (LL_UNLIKELY(shader == nullptr))
@@ -2435,7 +2423,7 @@ void LLRender::flush()
 	// builds, letting an undefined topology reach IASetPrimitiveTopology()
 	// silently (confirmed matching the reported "UI Shader Draw: Current
 	// Primitive Topology value (0) is not valid" D3D11 debug-layer warning -
-	// llhudview.cpp's composition-guide overlays use gGL.begin(LINE_LOOP)
+	// llhudview.cpp's composition-guide overlays use gDX.begin(LINE_LOOP)
 	// directly and were never swept when llrender2dutils.cpp's own fan/loop
 	// call sites were converted to DXRender2DUtils earlier this session).
 	// A closed line loop is just a line strip with the first vertex
@@ -2531,14 +2519,14 @@ void LLRender::flush()
 			vb,
 			draw_mode,
 			count,
-			gGL.getTexUnit(0)->mCurrTexture,
+			gDX.getTexUnit(0)->mCurrTexture,
 			mMatrix[MM_MODELVIEW][mMatIdx[MM_MODELVIEW]],
 			mMatrix[MM_PROJECTION][mMatIdx[MM_PROJECTION]],
 			mMatrix[MM_TEXTURE0][mMatIdx[MM_TEXTURE0]]
 		);
 #ifdef DX_RENDER
 		// S24 (task #54): see LLVertexBufferData::mDXImage's comment.
-		buffer_data.mDXImage = gGL.getTexUnit(0)->mCurrBoundImageGL;
+		buffer_data.mDXImage = gDX.getTexUnit(0)->mCurrBoundImageGL;
 		// S24 (task #254): see LLVertexBufferData::mDXShader's comment.
 		buffer_data.mDXShader = shader;
 #endif
@@ -2550,11 +2538,11 @@ void LLRender::flush()
 
 #ifdef DX_RENDER
 	// S24 (2026-08-16): the reverse-direction link that was missing -
-	// gDXUIBatch's own call sites already flush THIS queue (gGL) before
+	// gDXUIBatch's own call sites already flush THIS queue (gDX) before
 	// submitting to gDXUIBatch, but nothing previously flushed gDXUIBatch's
 	// separate pending queue before THIS draw. Without this, a UI rect/text
 	// batched-but-not-yet-drawn in gDXUIBatch could end up rendered AFTER a
-	// later gGL immediate-mode draw that logically should come after it,
+	// later gDX immediate-mode draw that logically should come after it,
 	// corrupting paint order. See DXUIBatch.h's top comment.
 	gDXUIBatch.flushPending();
 #endif
@@ -2879,7 +2867,7 @@ void LLRender::texCoord2fv(const GLfloat* tc)
 
 void LLRender::color4ub(const GLubyte& r, const GLubyte& g, const GLubyte& b, const GLubyte& a)
 {
-	if (!LLGLSLShader::sCurBoundShaderPtr || LLGLSLShader::sCurBoundShaderPtr->mAttributeMask & LLVertexBuffer::MAP_COLOR)
+	if (!LLHLSLShader::sCurBoundShaderPtr || LLHLSLShader::sCurBoundShaderPtr->mAttributeMask & LLVertexBuffer::MAP_COLOR)
 	{
 		mColorsp[mCount] = LLColor4U(r, g, b, a);
 	}
@@ -2918,7 +2906,7 @@ void LLRender::color3fv(const GLfloat* c)
 
 void LLRender::diffuseColor3f(F32 r, F32 g, F32 b)
 {
-	LLGLSLShader* shader = LLGLSLShader::sCurBoundShaderPtr;
+	LLHLSLShader* shader = LLHLSLShader::sCurBoundShaderPtr;
 	llassert(shader != NULL);
 
 	if (shader)
@@ -2929,7 +2917,7 @@ void LLRender::diffuseColor3f(F32 r, F32 g, F32 b)
 
 void LLRender::diffuseColor3fv(const F32* c)
 {
-	LLGLSLShader* shader = LLGLSLShader::sCurBoundShaderPtr;
+	LLHLSLShader* shader = LLHLSLShader::sCurBoundShaderPtr;
 	llassert(shader != NULL);
 
 	if (shader)
@@ -2940,7 +2928,7 @@ void LLRender::diffuseColor3fv(const F32* c)
 
 void LLRender::diffuseColor4f(F32 r, F32 g, F32 b, F32 a)
 {
-	LLGLSLShader* shader = LLGLSLShader::sCurBoundShaderPtr;
+	LLHLSLShader* shader = LLHLSLShader::sCurBoundShaderPtr;
 	llassert(shader != NULL);
 
 	if (shader)
@@ -2951,7 +2939,7 @@ void LLRender::diffuseColor4f(F32 r, F32 g, F32 b, F32 a)
 
 void LLRender::diffuseColor4fv(const F32* c)
 {
-	LLGLSLShader* shader = LLGLSLShader::sCurBoundShaderPtr;
+	LLHLSLShader* shader = LLHLSLShader::sCurBoundShaderPtr;
 	llassert(shader != NULL);
 
 	if (shader)
@@ -2962,7 +2950,7 @@ void LLRender::diffuseColor4fv(const F32* c)
 
 void LLRender::diffuseColor4ubv(const U8* c)
 {
-	LLGLSLShader* shader = LLGLSLShader::sCurBoundShaderPtr;
+	LLHLSLShader* shader = LLHLSLShader::sCurBoundShaderPtr;
 	llassert(shader != NULL);
 
 	if (shader)
@@ -2973,7 +2961,7 @@ void LLRender::diffuseColor4ubv(const U8* c)
 
 void LLRender::diffuseColor4ub(U8 r, U8 g, U8 b, U8 a)
 {
-	LLGLSLShader* shader = LLGLSLShader::sCurBoundShaderPtr;
+	LLHLSLShader* shader = LLHLSLShader::sCurBoundShaderPtr;
 	llassert(shader != NULL);
 
 	if (shader)

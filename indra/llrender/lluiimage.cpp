@@ -52,7 +52,7 @@ size_t LLUIImage::sCleanupIndex = 0;
 // button hover-highlight flicker traced to this cache's cross-frame replay
 // (a missing gDXUIBatch flush in the replay path; an unsafe "skip if same
 // buffer+shader as last time" dedup in LLVertexBuffer::setBuffer(); the same
-// dedup bug class in LLGLSLShader::bind(); DXUIBatch batching bypass ruled
+// dedup bug class in LLHLSLShader::bind(); DXUIBatch batching bypass ruled
 // out as unrelated) - all real, all kept, none sufficient to stop the
 // flicker. Disabling this cache entirely was the only thing that reliably
 // fixed it, confirmed live multiple times. Not worth further root-causing
@@ -99,8 +99,8 @@ S32 LLUIImage::getHeight() const
 
 buffer_data_list_t* LLUIImage::findDisplayList(S32 x, S32 y, S32 width, S32 height, const LLColor4& color, bool solid_color) const
 {
-    LLVector3 ui_translation = gGL.getUITranslation();
-    LLVector3 ui_scale = gGL.getUIScale();
+    LLVector3 ui_translation = gDX.getUITranslation();
+    LLVector3 ui_scale = gDX.getUIScale();
 
     auto key = PackedKey::create(x, y, width, height, color, solid_color, ui_translation, ui_scale);
 
@@ -116,15 +116,15 @@ buffer_data_list_t* LLUIImage::findDisplayList(S32 x, S32 y, S32 width, S32 heig
 buffer_data_list_t* LLUIImage::genDisplayList(S32 x, S32 y, S32 width, S32 height, const LLColor4& color, bool solid_color) const
 {
     LL_PROFILE_ZONE_SCOPED;
-    LLVector3 ui_translation = gGL.getUITranslation();
-    LLVector3 ui_scale = gGL.getUIScale();
+    LLVector3 ui_translation = gDX.getUITranslation();
+    LLVector3 ui_scale = gDX.getUIScale();
     auto key = PackedKey::create(x, y, width, height, color, solid_color, ui_translation, ui_scale);
 
     CachedDisplayList cached;
     cached.last_used = std::chrono::steady_clock::now();
 
     // Generate the display list by capturing the draw commands
-    gGL.beginList(&cached.list);
+    gDX.beginList(&cached.list);
 
     gl_draw_scaled_image_with_border(
         x, y,
@@ -136,7 +136,7 @@ buffer_data_list_t* LLUIImage::genDisplayList(S32 x, S32 y, S32 width, S32 heigh
         mScaleRegion,
         mScaleStyle == SCALE_INNER);
 
-    gGL.endList();
+    gDX.endList();
 
     // Insert into cache
     // emplace, since we only call genDisplayList if key was not found.
@@ -293,8 +293,8 @@ void LLUIImage::draw3D(const LLVector3& origin_agent, const LLVector3& x_axis, c
         LLRender2D::translate(rect_origin.mV[VX],
                                             rect_origin.mV[VY],
                                             rect_origin.mV[VZ]);
-        gGL.getTexUnit(0)->bind(getImage());
-        gGL.color4fv(color.mV);
+        gDX.getTexUnit(0)->bind(getImage());
+        gDX.color4fv(color.mV);
 
         LLRectf center_uv_rect(mClipRegion.mLeft + mScaleRegion.mLeft * mClipRegion.getWidth(),
                             mClipRegion.mBottom + mScaleRegion.mTop * mClipRegion.getHeight(),
