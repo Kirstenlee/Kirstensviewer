@@ -525,15 +525,15 @@ void LLTabContainer::draw()
         if( mIsVertical && has_scroll_arrows )
         {
             // Redraw the arrows so that they appears on top.
-            gGL.pushUIMatrix();
-            gGL.translateUI((F32)mPrevArrowBtn->getRect().mLeft, (F32)mPrevArrowBtn->getRect().mBottom, 0.f);
+            gDX.pushUIMatrix();
+            gDX.translateUI((F32)mPrevArrowBtn->getRect().mLeft, (F32)mPrevArrowBtn->getRect().mBottom, 0.f);
             mPrevArrowBtn->draw();
-            gGL.popUIMatrix();
+            gDX.popUIMatrix();
 
-            gGL.pushUIMatrix();
-            gGL.translateUI((F32)mNextArrowBtn->getRect().mLeft, (F32)mNextArrowBtn->getRect().mBottom, 0.f);
+            gDX.pushUIMatrix();
+            gDX.translateUI((F32)mNextArrowBtn->getRect().mLeft, (F32)mNextArrowBtn->getRect().mBottom, 0.f);
             mNextArrowBtn->draw();
-            gGL.popUIMatrix();
+            gDX.popUIMatrix();
         }
     }
 

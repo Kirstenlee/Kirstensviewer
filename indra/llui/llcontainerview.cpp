@@ -112,7 +112,7 @@ bool LLContainerView::handleMouseUp(S32 x, S32 y, MASK mask)
 void LLContainerView::draw()
 {
     {
-        gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+        gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
 
         // S24 UI: Slightly darker background (0.3 vs 0.25) for better contrast and text readability
         gl_rect_2d(0, getRect().getHeight(), getRect().getWidth(), 0, LLColor4(0.f, 0.f, 0.f, 0.3f));

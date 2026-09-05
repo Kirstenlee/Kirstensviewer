@@ -188,13 +188,13 @@ void LLBadge::setLabel(const LLStringExplicit& label)
 //
 void renderBadgeBackground(F32 centerX, F32 centerY, F32 width, F32 height, const LLColor4U &color)
 {
-	gGL.pushUIMatrix();
-	gGL.loadUIIdentity();
-	gGL.setSceneBlendType(LLRender::BT_REPLACE);
-	gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+	gDX.pushUIMatrix();
+	gDX.loadUIIdentity();
+	gDX.setSceneBlendType(LLRender::BT_REPLACE);
+	gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
 	
-	gGL.color4ubv(color.mV);
-	gGL.texCoord2i(0, 0);
+	gDX.color4ubv(color.mV);
+	gDX.texCoord2i(0, 0);
 	
 	F32 x = LLFontGL::sCurOrigin.mX + centerX - width * 0.5f;
 	F32 y = LLFontGL::sCurOrigin.mY + centerY - height * 0.5f;
@@ -210,13 +210,13 @@ void renderBadgeBackground(F32 centerX, F32 centerY, F32 width, F32 height, cons
     vertices[2].set(screen_rect.mLeft,  screen_rect.mBottom, 1.0f);
     vertices[3].set(screen_rect.mRight, screen_rect.mBottom, 1.0f);
 	
-    gGL.begin(LLRender::TRIANGLE_STRIP);
+    gDX.begin(LLRender::TRIANGLE_STRIP);
 	{
-		gGL.vertexBatchPreTransformed(vertices, 4);
+		gDX.vertexBatchPreTransformed(vertices, 4);
 	}
-	gGL.end();
+	gDX.end();
 	
-	gGL.popUIMatrix();
+	gDX.popUIMatrix();
 }
 
 

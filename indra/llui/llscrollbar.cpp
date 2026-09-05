@@ -547,9 +547,9 @@ void LLScrollbar::draw()
             mThumbImageH->draw(mThumbRect, mThumbColor.get());
             if (mCurGlowStrength > 0.01f)
             {
-                gGL.setSceneBlendType(LLRender::BT_ADD_WITH_ALPHA);
+                gDX.setSceneBlendType(LLRender::BT_ADD_WITH_ALPHA);
                 mThumbImageH->drawSolid(mThumbRect, LLColor4(1.f, 1.f, 1.f, mCurGlowStrength));
-                gGL.setSceneBlendType(LLRender::BT_ALPHA);
+                gDX.setSceneBlendType(LLRender::BT_ALPHA);
             }
 
         }
@@ -568,9 +568,9 @@ void LLScrollbar::draw()
             mThumbImageV->draw(mThumbRect, mThumbColor.get());
             if (mCurGlowStrength > 0.01f)
             {
-                gGL.setSceneBlendType(LLRender::BT_ADD_WITH_ALPHA);
+                gDX.setSceneBlendType(LLRender::BT_ADD_WITH_ALPHA);
                 mThumbImageV->drawSolid(mThumbRect, LLColor4(1.f, 1.f, 1.f, mCurGlowStrength));
-                gGL.setSceneBlendType(LLRender::BT_ALPHA);
+                gDX.setSceneBlendType(LLRender::BT_ALPHA);
             }
         }
     }

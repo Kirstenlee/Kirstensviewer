@@ -123,7 +123,7 @@ void LLViewBorder::draw()
 
 void LLViewBorder::drawOnePixelLines()
 {
-	gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+	gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
 
 	LLColor4 top_color = mHighlightLight.get();
 	LLColor4 bottom_color = mHighlightLight.get();
@@ -157,11 +157,11 @@ void LLViewBorder::drawOnePixelLines()
 	S32 right	= getRect().getWidth();
 	S32 bottom	= 0;
 
-	gGL.color4fv( top_color.mV );
+	gDX.color4fv( top_color.mV );
 	gl_line_2d(left, bottom, left, top);
 	gl_line_2d(left, top, right, top);
 
-	gGL.color4fv( bottom_color.mV );
+	gDX.color4fv( bottom_color.mV );
 	gl_line_2d(right, top, right, bottom);
 	gl_line_2d(left, bottom, right, bottom);
 
@@ -170,7 +170,7 @@ void LLViewBorder::drawOnePixelLines()
 
 void LLViewBorder::drawTwoPixelLines()
 {
-	gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+	gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
 	
 	LLColor4 focus_color = gFocusMgr.getFocusColor();
 
@@ -222,19 +222,19 @@ void LLViewBorder::drawTwoPixelLines()
 	S32 bottom	= 0;
 
 	// draw borders
-	gGL.color3fv( top_out_color.mV );
+	gDX.color3fv( top_out_color.mV );
 	gl_line_2d(left, bottom, left, top-1);
 	gl_line_2d(left, top-1, right, top-1);
 
-	gGL.color3fv( top_in_color.mV );
+	gDX.color3fv( top_in_color.mV );
 	gl_line_2d(left+1, bottom+1, left+1, top-2);
 	gl_line_2d(left+1, top-2, right-1, top-2);
 
-	gGL.color3fv( bottom_out_color.mV );
+	gDX.color3fv( bottom_out_color.mV );
 	gl_line_2d(right-1, top-1, right-1, bottom);
 	gl_line_2d(left, bottom, right, bottom);
 
-	gGL.color3fv( bottom_in_color.mV );
+	gDX.color3fv( bottom_in_color.mV );
 	gl_line_2d(right-2, top-2, right-2, bottom+1);
 	gl_line_2d(left+1, bottom+1, right-1, bottom+1);
 }

@@ -88,7 +88,7 @@ void LLScreenClipRect::updateScissorRegion()
     if (sClipRectStack.empty()) return;
 
     // finish any deferred calls in the old clipping region
-    gGL.flush();
+    gDX.flush();
 #ifdef DX_RENDER
     // S24 (2026-08-16): also flush gDXUIBatch's separate pending queue -
     // this is the highest-frequency scissor-rect chokepoint (every nested

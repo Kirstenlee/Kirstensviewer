@@ -660,7 +660,7 @@ void LLMultiSlider::draw()
     // Draw background and thumb.
 
     // drawing solids requires texturing be disabled
-    gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+    gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
 
     LLRect rect(mDragStartThumbRect);
 

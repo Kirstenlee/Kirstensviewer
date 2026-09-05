@@ -487,7 +487,7 @@ void LLMenuItemGL::draw( void )
     // let disabled items be highlighted, just don't draw them as such
     if( getEnabled() && getHighlight() && !mBriefItem)
     {
-        gGL.color4fv( mHighlightBackground.get().mV );
+        gDX.color4fv( mHighlightBackground.get().mV );
 
         gl_rect_2d( 0, getRect().getHeight(), getRect().getWidth(), 0 );
     }
@@ -599,7 +599,7 @@ U32 LLMenuItemSeparatorGL::getNominalHeight( void ) const
 
 void LLMenuItemSeparatorGL::draw( void )
 {
-    gGL.color4fv( mDisabledColor.get().mV );
+    gDX.color4fv( mDisabledColor.get().mV );
     const S32 y = getRect().getHeight() / 2;
     const S32 PAD = 6;
     gl_line_2d( PAD, y, getRect().getWidth() - PAD, y );
@@ -760,17 +760,17 @@ void LLMenuItemTearOffGL::draw()
     // disabled items can be highlighted, but shouldn't render as such
     if( getEnabled() && getHighlight() && !isBriefItem())
     {
-        gGL.color4fv( mHighlightBackground.get().mV );
+        gDX.color4fv( mHighlightBackground.get().mV );
         gl_rect_2d( 0, getRect().getHeight(), getRect().getWidth(), 0 );
     }
 
     if (getEnabled())
     {
-        gGL.color4fv( mEnabledColor.get().mV );
+        gDX.color4fv( mEnabledColor.get().mV );
     }
     else
     {
-        gGL.color4fv( mDisabledColor.get().mV );
+        gDX.color4fv( mDisabledColor.get().mV );
     }
     const S32 y = getRect().getHeight() / 3;
     const S32 PAD = 6;
@@ -1625,7 +1625,7 @@ void LLMenuItemBranchDownGL::draw( void )
 
     if( getHighlight() )
     {
-        gGL.color4fv( mHighlightBackground.get().mV );
+        gDX.color4fv( mHighlightBackground.get().mV );
         gl_rect_2d( 0, getRect().getHeight(), getRect().getWidth(), 0 );
     }
 
@@ -3255,7 +3255,7 @@ void LLMenuGL::draw( void )
 void LLMenuGL::drawBackground(LLMenuItemGL* itemp, F32 alpha)
 {
     LLColor4 color = itemp->getHighlightBgColor() % alpha;
-    gGL.color4fv( color.mV );
+    gDX.color4fv( color.mV );
     LLRect item_rect = itemp->getRect();
     gl_rect_2d( 0, item_rect.getHeight(), item_rect.getWidth(), 0);
 }

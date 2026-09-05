@@ -517,7 +517,7 @@ void LLScrollContainer::draw()
         {
             F32 alpha = getCurrentTransparency();
 
-            gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+            gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
             gl_rect_2d(mInnerRect, mBackgroundColor.get() % alpha);
         }
 
