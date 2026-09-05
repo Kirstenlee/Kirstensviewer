@@ -257,7 +257,7 @@ void LLHUDEffectBeam::render()
 
     // S24: Setup GL state for alpha blending
     LLGLSPipelineAlpha gls_pipeline_alpha;
-    gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+    gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
 
     // Interpolate the global fade alpha
     mFadeInterp.update(time);
@@ -368,15 +368,15 @@ void LLHUDEffectBeam::render()
             // Set line color
             LLColor4 line_color = LLColor4(mColor);
             line_color.mV[3] = global_alpha * 0.9f; // Slightly more opaque than particles
-            gGL.color4fv(line_color.mV);
+            gDX.color4fv(line_color.mV);
 
             // Render as triangle strip - modern, fast, driver-compatible
-            gGL.begin(LLRender::TRIANGLE_STRIP);
-            gGL.vertex3fv(v1.mV);
-            gGL.vertex3fv(v2.mV);
-            gGL.vertex3fv(v4.mV);
-            gGL.vertex3fv(v3.mV);
-            gGL.end();
+            gDX.begin(LLRender::TRIANGLE_STRIP);
+            gDX.vertex3fv(v1.mV);
+            gDX.vertex3fv(v2.mV);
+            gDX.vertex3fv(v4.mV);
+            gDX.vertex3fv(v3.mV);
+            gDX.end();
         }
     }
 
@@ -419,13 +419,13 @@ void LLHUDEffectBeam::render()
             alpha = llclamp(alpha, 0.0f, 1.0f);
             coloru.mV[3] = (U8)(alpha * 255.0f);
 
-            gGL.color4ubv(coloru.mV);
+            gDX.color4ubv(coloru.mV);
 
-            gGL.pushMatrix();
-            gGL.translatef(pos_agent.mV[0], pos_agent.mV[1], pos_agent.mV[2]);
-            gGL.scalef(scale, scale, scale);
+            gDX.pushMatrix();
+            gDX.translatef(pos_agent.mV[0], pos_agent.mV[1], pos_agent.mV[2]);
+            gDX.scalef(scale, scale, scale);
             gSphere.render();
-            gGL.popMatrix();
+            gDX.popMatrix();
 
             particles_rendered++;
         }

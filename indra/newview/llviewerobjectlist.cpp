@@ -28,6 +28,13 @@
 
 #include "llviewerobjectlist.h"
 
+#include <atomic>
+#include <mutex>
+#include <condition_variable>
+
+#include "workqueue.h"
+#include "threadpool.h"
+
 #include "message.h"
 #include "llfasttimer.h"
 #include "llrender.h"
@@ -904,12 +911,117 @@ void LLViewerObjectList::update(LLAgent& agent)
 	}
 	else
 	{
+		// S24 (DX_RENDER, task #283 Phase 1): split into a serial avatar pass (run on
+		// the main thread, unchanged) and a parallel non-avatar pass dispatched to
+		// DXPool. Avatars are excluded here because LLVOAvatar::idleUpdate()
+		// synchronously reaches gPipeline.updateMoveDampedAsync/NormalAsync() ->
+		// LLDrawable::updateMove(), and LLVOAvatar::updateCharacter() hasn't been
+		// audited for shared/static state beyond markMoved()/markRebuild() - see task
+		// #283. Ordinary LLViewerObject/LLVOVolume idleUpdate() only ever reaches
+		// gPipeline.markMoved()/markRebuild() via updateDrawable(); those calls detect
+		// they're off the main thread and stage themselves into the chunk's
+		// LLDeferredPipelineMarks (pipeline.h) instead of touching pipeline state,
+		// replayed serially below once every chunk has finished.
+		static std::vector<LLViewerObject*> nonavatar_idle_list;
+		nonavatar_idle_list.clear();
+		nonavatar_idle_list.reserve(idle_count);
+
 		for (std::vector<LLViewerObject*>::iterator idle_iter = idle_list.begin();
 			idle_iter != idle_end; idle_iter++)
 		{
 			objectp = *idle_iter;
-			llassert(objectp->isActive());
-			objectp->idleUpdate(agent, frame_time);
+			if (!objectp->isAvatar())
+			{
+				nonavatar_idle_list.push_back(objectp);
+			}
+		}
+
+		LL::WorkQueue::ptr_t dxpool_queue = LL::WorkQueue::getInstance("DXPool");
+		const U32 dxpool_width = dxpool_queue ? (U32)LL::ThreadPoolBase::getWidth("DXPool", 3) : 0;
+
+		if (dxpool_queue && dxpool_width > 0 && nonavatar_idle_list.size() > dxpool_width)
+		{
+			const U32 chunk_count = dxpool_width;
+			std::vector<LLDeferredPipelineMarks> chunk_marks(chunk_count);
+
+			std::atomic<U32> remaining(chunk_count);
+			std::mutex join_mutex;
+			std::condition_variable join_cv;
+
+			const size_t total = nonavatar_idle_list.size();
+			const size_t base_chunk = total / chunk_count;
+			const size_t extra = total % chunk_count;
+
+			size_t start = 0;
+			for (U32 c = 0; c < chunk_count; ++c)
+			{
+				const size_t count = base_chunk + (c < extra ? 1 : 0);
+				const size_t end = start + count;
+
+				LLDeferredPipelineMarks* marks = &chunk_marks[c];
+				LLViewerObject** chunk_begin = nonavatar_idle_list.data() + start;
+				LLViewerObject** chunk_end = nonavatar_idle_list.data() + end;
+
+				dxpool_queue->post([marks, chunk_begin, chunk_end, &agent, frame_time, &remaining, &join_mutex, &join_cv]()
+					{
+						LLPipeline::setDeferredMarksForThisThread(marks);
+						for (LLViewerObject** it = chunk_begin; it != chunk_end; ++it)
+						{
+							llassert((*it)->isActive());
+							(*it)->idleUpdate(agent, frame_time);
+						}
+						LLPipeline::setDeferredMarksForThisThread(nullptr);
+
+						if (--remaining == 0)
+						{
+							std::lock_guard<std::mutex> lock(join_mutex);
+							join_cv.notify_one();
+						}
+					});
+
+				start = end;
+			}
+
+			// While the workers run, do the avatar pass on the main thread - real
+			// concurrency, not idle waiting.
+			for (std::vector<LLViewerObject*>::iterator idle_iter = idle_list.begin();
+				idle_iter != idle_end; idle_iter++)
+			{
+				objectp = *idle_iter;
+				if (objectp->isAvatar())
+				{
+					llassert(objectp->isActive());
+					objectp->idleUpdate(agent, frame_time);
+				}
+			}
+
+			{
+				std::unique_lock<std::mutex> lock(join_mutex);
+				join_cv.wait(lock, [&remaining] { return remaining == 0; });
+			}
+
+			// Serial replay: apply every staged pipeline mutation, in original
+			// per-chunk order, on the main thread - exactly the calls that would
+			// have happened inline had this stayed single-threaded.
+			for (LLDeferredPipelineMarks& marks : chunk_marks)
+			{
+				for (auto& action : marks.mActions)
+				{
+					action();
+				}
+			}
+		}
+		else
+		{
+			// No DXPool (GL build, or too few objects to bother chunking) - original
+			// fully-serial path, unchanged.
+			for (std::vector<LLViewerObject*>::iterator idle_iter = idle_list.begin();
+				idle_iter != idle_end; idle_iter++)
+			{
+				objectp = *idle_iter;
+				llassert(objectp->isActive());
+				objectp->idleUpdate(agent, frame_time);
+			}
 		}
 
 		//update flexible objects

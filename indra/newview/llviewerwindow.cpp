@@ -2089,10 +2089,10 @@ LLViewerWindow::LLViewerWindow(const Params& p)
 	// Initialize OpenGL Renderer
 	LLVertexBuffer::initClass(mWindow);
 	LL_INFOS("RenderInit") << "LLVertexBuffer initialization done." << LL_ENDL;
-	if (!gGL.init(true))
+	if (!gDX.init(true))
 	{
 		LLError::LLUserWarningMsg::show(LLTrans::getString("MBVideoDrvErr"));
-		LL_ERRS() << "gGL not initialized" << LL_ENDL;
+		LL_ERRS() << "gDX not initialized" << LL_ENDL;
 	}
 
 	if (LLFeatureManager::getInstance()->isSafe()
@@ -2538,7 +2538,7 @@ void LLViewerWindow::shutdownGL()
 	stopGL();
 	stop_glerror();
 
-	gGL.shutdown();
+	gDX.shutdown();
 
 	SUBSYSTEM_CLEANUP(LLVertexBuffer);
 
@@ -2804,18 +2804,18 @@ void LLViewerWindow::setMenuBackgroundColor(bool god_mode, bool dev_grid)
 void LLViewerWindow::drawDebugText()
 {
 	gUIProgram.bind();
-	gGL.color4f(1, 1, 1, 1);
-	gGL.pushMatrix();
-	gGL.pushUIMatrix();
+	gDX.color4f(1, 1, 1, 1);
+	gDX.pushMatrix();
+	gDX.pushUIMatrix();
 	{
 		// scale view by UI global scale factor and aspect ratio correction factor
-		gGL.scaleUI(mDisplayScale.mV[VX], mDisplayScale.mV[VY], 1.f);
+		gDX.scaleUI(mDisplayScale.mV[VX], mDisplayScale.mV[VY], 1.f);
 		mDebugText->draw();
 	}
-	gGL.popUIMatrix();
-	gGL.popMatrix();
+	gDX.popUIMatrix();
+	gDX.popMatrix();
 
-	gGL.flush();
+	gDX.flush();
 	gUIProgram.unbind();
 }
 
@@ -2834,9 +2834,9 @@ void LLViewerWindow::draw()
 
 	LLUI::setLineWidth(1.f);
 	// Reset any left-over transforms
-	gGL.matrixMode(LLRender::MM_MODELVIEW);
+	gDX.matrixMode(LLRender::MM_MODELVIEW);
 
-	gGL.loadIdentity();
+	gDX.loadIdentity();
 
 	//S32 screen_x, screen_y;
 
@@ -2851,7 +2851,7 @@ void LLViewerWindow::draw()
 		// draw timecode block
 		std::string text;
 
-		gGL.loadIdentity();
+		gDX.loadIdentity();
 
 		microsecondsToTimecodeString(gFrameTime, text);
 		const LLFontGL* font = LLFontGL::getFontSansSerif();
@@ -2866,13 +2866,13 @@ void LLViewerWindow::draw()
 	// No translation needed, this view is glued to 0,0
 
 	gUIProgram.bind();
-	gGL.color4f(1, 1, 1, 1);
+	gDX.color4f(1, 1, 1, 1);
 
-	gGL.pushMatrix();
+	gDX.pushMatrix();
 	LLUI::pushMatrix();
 	{
 		// scale view by UI global scale factor and aspect ratio correction factor
-		gGL.scaleUI(mDisplayScale.mV[VX], mDisplayScale.mV[VY], 1.f);
+		gDX.scaleUI(mDisplayScale.mV[VX], mDisplayScale.mV[VY], 1.f);
 
 		LLVector2 old_scale_factor = LLUI::getScaleFactor();
 		// apply camera zoom transform (for high res screenshots)
@@ -2884,10 +2884,10 @@ void LLViewerWindow::draw()
 			int pos_y = sub_region / llceil(zoom_factor);
 			int pos_x = sub_region - (pos_y * llceil(zoom_factor));
 			// offset for this tile
-			gGL.translatef((F32)getWindowWidthScaled() * -(F32)pos_x,
+			gDX.translatef((F32)getWindowWidthScaled() * -(F32)pos_x,
 				(F32)getWindowHeightScaled() * -(F32)pos_y,
 				0.f);
-			gGL.scalef(zoom_factor, zoom_factor, 1.f);
+			gDX.scalef(zoom_factor, zoom_factor, 1.f);
 			LLUI::getScaleFactor() *= zoom_factor;
 		}
 
@@ -2916,7 +2916,7 @@ void LLViewerWindow::draw()
 			S32 screen_x, screen_y;
 			top_ctrl->localPointToScreen(0, 0, &screen_x, &screen_y);
 
-			gGL.matrixMode(LLRender::MM_MODELVIEW);
+			gDX.matrixMode(LLRender::MM_MODELVIEW);
 			LLUI::pushMatrix();
 			LLUI::translate((F32)screen_x, (F32)screen_y);
 			top_ctrl->draw();
@@ -2942,7 +2942,7 @@ void LLViewerWindow::draw()
 		LLUI::setScaleFactor(old_scale_factor);
 	}
 	LLUI::popMatrix();
-	gGL.popMatrix();
+	gDX.popMatrix();
 
 	gUIProgram.unbind();
 
@@ -4260,31 +4260,10 @@ void LLViewerWindow::renderSelections(bool for_gl_pick, bool pick_parcel_walls, 
 {
 	LLObjectSelectionHandle selection = LLSelectMgr::getInstance()->getSelection();
 
-#ifdef DX_RENDER
-	// S24 (2026-08-09, task #132 follow-up): temporary diagnostic - the
-	// swap-chain depth-buffer fix made no visible difference to the still-
-	// totally-invisible manipulator arrows/selection highlight, and every
-	// static-analysis hypothesis checked so far (RENDER_DEBUG_FEATURE_UI
-	// default, sReflectionRender set/reset balance, gUIProgram binding) came
-	// back clean. Logging the actual gate values this function sees, to
-	// confirm whether the branch below (and tool->render()) is even reached
-	// at all, rather than guessing further. Remove once the hurdle clears.
-	{
-		static S32 s_render_selections_log_count = 0;
-		if (s_render_selections_log_count < 20)
-		{
-			++s_render_selections_log_count;
-			LL_WARNS("S24Diag") << "renderSelections: for_gl_pick=" << for_gl_pick
-				<< " for_hud=" << for_hud
-				<< " selectType=" << (S32)selection->getSelectType()
-				<< " isEmpty=" << selection->isEmpty()
-				<< " objectCount=" << selection->getObjectCount()
-				<< " sReflectionRender=" << LLPipeline::sReflectionRender
-				<< " hasUIDebugFeature=" << gPipeline.hasRenderDebugFeatureMask(LLPipeline::RENDER_DEBUG_FEATURE_UI)
-				<< LL_ENDL;
-		}
-	}
-#endif
+	// S24 (2026-09-02): a 2026-08-09 (task #132) diagnostic removed here -
+	// confirmed this function and tool->render() were reached with correct
+	// gate values, the manipulator-invisibility bug it was chasing was
+	// something else entirely (resolved separately, long since fixed).
 
 	if (!for_hud && !for_gl_pick)
 	{
@@ -4313,32 +4292,32 @@ void LLViewerWindow::renderSelections(bool for_gl_pick, bool pick_parcel_walls, 
 			LLBBox hud_bbox = gAgentAvatarp->getHUDBBox();
 
 			// set up transform to encompass bounding box of HUD
-			gGL.matrixMode(LLRender::MM_PROJECTION);
-			gGL.pushMatrix();
-			gGL.loadIdentity();
+			gDX.matrixMode(LLRender::MM_PROJECTION);
+			gDX.pushMatrix();
+			gDX.loadIdentity();
 			F32 depth = llmax(1.f, hud_bbox.getExtentLocal().mV[VX] * 1.1f);
-			gGL.ortho(-0.5f * LLViewerCamera::getInstance()->getAspect(), 0.5f * LLViewerCamera::getInstance()->getAspect(), -0.5f, 0.5f, 0.f, depth);
+			gDX.ortho(-0.5f * LLViewerCamera::getInstance()->getAspect(), 0.5f * LLViewerCamera::getInstance()->getAspect(), -0.5f, 0.5f, 0.f, depth);
 
-			gGL.matrixMode(LLRender::MM_MODELVIEW);
-			gGL.pushMatrix();
-			gGL.loadIdentity();
-			gGL.loadMatrix(OGL_TO_CFR_ROTATION);        // Load Cory's favorite reference frame
-			gGL.translatef(-hud_bbox.getCenterLocal().mV[VX] + (depth * 0.5f), 0.f, 0.f);
+			gDX.matrixMode(LLRender::MM_MODELVIEW);
+			gDX.pushMatrix();
+			gDX.loadIdentity();
+			gDX.loadMatrix(OGL_TO_CFR_ROTATION);        // Load Cory's favorite reference frame
+			gDX.translatef(-hud_bbox.getCenterLocal().mV[VX] + (depth * 0.5f), 0.f, 0.f);
 		}
 
 		// Render light for editing
 		if (LLSelectMgr::sRenderLightRadius && LLToolMgr::getInstance()->inEdit())
 		{
-			gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+			gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
 			LLGLEnable gls_blend(GL_BLEND);
 			LLGLEnable gls_cull(GL_CULL_FACE);
 			LLGLDepthTest gls_depth(GL_TRUE, GL_FALSE);
-			gGL.matrixMode(LLRender::MM_MODELVIEW);
-			gGL.pushMatrix();
+			gDX.matrixMode(LLRender::MM_MODELVIEW);
+			gDX.pushMatrix();
 			if (selection->getSelectType() == SELECT_TYPE_HUD)
 			{
 				F32 zoom = gAgentCamera.mHUDCurZoom;
-				gGL.scalef(zoom, zoom, zoom);
+				gDX.scalef(zoom, zoom, zoom);
 			}
 
 			struct f : public LLSelectedObjectFunctor
@@ -4349,15 +4328,15 @@ void LLViewerWindow::renderSelections(bool for_gl_pick, bool pick_parcel_walls, 
 					if (drawable && drawable->isLight())
 					{
 						LLVOVolume* vovolume = drawable->getVOVolume();
-						gGL.pushMatrix();
+						gDX.pushMatrix();
 
 						LLVector3 center = drawable->getPositionAgent();
-						gGL.translatef(center[0], center[1], center[2]);
+						gDX.translatef(center[0], center[1], center[2]);
 						F32 scale = vovolume->getLightRadius();
-						gGL.scalef(scale, scale, scale);
+						gDX.scalef(scale, scale, scale);
 
 						LLColor4 color(vovolume->getLightSRGBColor(), .5f);
-						gGL.color4fv(color.mV);
+						gDX.color4fv(color.mV);
 
 						gSphere.render();
 
@@ -4376,14 +4355,14 @@ void LLViewerWindow::renderSelections(bool for_gl_pick, bool pick_parcel_walls, 
 						glCullFace(GL_BACK);
 #endif
 
-						gGL.popMatrix();
+						gDX.popMatrix();
 					}
 					return true;
 				}
 			} func;
 			LLSelectMgr::getInstance()->getSelection()->applyToObjects(&func);
 
-			gGL.popMatrix();
+			gDX.popMatrix();
 		}
 
 		// NOTE: The average position for the axis arrows of the selected objects should
@@ -4391,19 +4370,6 @@ void LLViewerWindow::renderSelections(bool for_gl_pick, bool pick_parcel_walls, 
 
 		// Draw arrows at average center of all selected objects
 		LLTool* tool = LLToolMgr::getInstance()->getCurrentTool();
-#ifdef DX_RENDER
-		{
-			static S32 s_tool_log_count = 0;
-			if (s_tool_log_count < 20)
-			{
-				++s_tool_log_count;
-				LL_WARNS("S24Diag") << "renderSelections tool block: tool=" << (tool ? typeid(*tool).name() : "null")
-					<< " isAlwaysRendered=" << (tool && tool->isAlwaysRendered())
-					<< " selectionEmpty=" << LLSelectMgr::getInstance()->getSelection()->isEmpty()
-					<< LL_ENDL;
-			}
-		}
-#endif
 		if (tool)
 		{
 			if (tool->isAlwaysRendered())
@@ -4439,16 +4405,6 @@ void LLViewerWindow::renderSelections(bool for_gl_pick, bool pick_parcel_walls, 
 						draw_handles = false;
 					}
 
-#ifdef DX_RENDER
-					{
-						static S32 s_handles_log_count = 0;
-						if (s_handles_log_count < 20)
-						{
-							++s_handles_log_count;
-							LL_WARNS("S24Diag") << "renderSelections draw_handles=" << draw_handles << LL_ENDL;
-						}
-					}
-#endif
 					if (draw_handles)
 					{
 						tool->render();
@@ -4460,11 +4416,11 @@ void LLViewerWindow::renderSelections(bool for_gl_pick, bool pick_parcel_walls, 
 		// un-setup HUD render
 		if (selection->getSelectType() == SELECT_TYPE_HUD && selection->getObjectCount())
 		{
-			gGL.matrixMode(LLRender::MM_PROJECTION);
-			gGL.popMatrix();
+			gDX.matrixMode(LLRender::MM_PROJECTION);
+			gDX.popMatrix();
 
-			gGL.matrixMode(LLRender::MM_MODELVIEW);
-			gGL.popMatrix();
+			gDX.matrixMode(LLRender::MM_MODELVIEW);
+			gDX.popMatrix();
 			stop_glerror();
 		}
 	}
@@ -6056,7 +6012,7 @@ bool LLViewerWindow::simpleSnapshot(LLImageRaw* raw, S32 image_width, S32 image_
 
 void display_cube_face();
 
-bool LLViewerWindow::cubeSnapshot(const LLVector3& origin, LLCubeMapArray* cubearray, S32 cubeIndex, S32 face, F32 near_clip, bool dynamic_render, bool useCustomClipPlane, LLPlane clipPlane)
+bool LLViewerWindow::cubeSnapshot(const LLVector3& origin, DXCubeMapArray* cubearray, S32 cubeIndex, S32 face, F32 near_clip, bool dynamic_render, bool useCustomClipPlane, LLPlane clipPlane)
 {
 	// NOTE: implementation derived from LLFloater360Capture::capture360Images() and simpleSnapshot
 	LL_PROFILE_GPU_ZONE("cubeSnapshot");
@@ -6141,7 +6097,8 @@ bool LLViewerWindow::cubeSnapshot(const LLVector3& origin, LLCubeMapArray* cubea
 
 	mWorldViewRectRaw.set(0, res, res, 0);
 
-	// these are the 6 directions we will point the camera, see LLCubeMapArray::sTargets
+	// these are the 6 directions we will point the camera, matching D3D11's
+	// documented cubemap slice order (0=+X,1=-X,2=+Y,3=-Y,4=+Z,5=-Z).
 	//
 	// S24 (2026-08-13, task #194 round 11, REVERTED): tried swapping
 	// look_dirs[0]/[1] and [4]/[5] (DX_RENDER only) to fix a reported
@@ -6157,13 +6114,18 @@ bool LLViewerWindow::cubeSnapshot(const LLVector3& origin, LLCubeMapArray* cubea
 	// gen table fixes were addressing. Any future attempt at re-assigning
 	// which world direction populates which face slot MUST swap the
 	// complete (look_dir, look_upvec) PAIR together, never look_dirs alone.
+	//
+	// S24 (2026-08-31, DXCubeMap rewrite plan, Step 2): sourced from
+	// DXCubeMapFaces::sLookDirs (same values as before) instead of a local
+	// literal array, so this capture stage and the Step 3 convolution-camera
+	// rewrite share one table instead of each hand-deriving their own.
 	LLVector3 look_dirs[6] = {
-		LLVector3(1, 0, 0),
-		LLVector3(-1, 0, 0),
-		LLVector3(0, 1, 0),
-		LLVector3(0, -1, 0),
-		LLVector3(0, 0, 1),
-		LLVector3(0, 0, -1)
+		LLVector3(DXCubeMapFaces::sLookDirs[0]),
+		LLVector3(DXCubeMapFaces::sLookDirs[1]),
+		LLVector3(DXCubeMapFaces::sLookDirs[2]),
+		LLVector3(DXCubeMapFaces::sLookDirs[3]),
+		LLVector3(DXCubeMapFaces::sLookDirs[4]),
+		LLVector3(DXCubeMapFaces::sLookDirs[5])
 	};
 
 #ifdef DX_RENDER
@@ -6260,28 +6222,28 @@ bool LLViewerWindow::cubeSnapshot(const LLVector3& origin, LLCubeMapArray* cubea
 	set_current_modelview(saved_mod);
 	set_current_projection(saved_proj);
 
-	// S24 (task #194, 2026-08-14): also restore gGL's OWN matrix stack
+	// S24 (task #194, 2026-08-14): also restore gDX's OWN matrix stack
 	// (mMatrix[MM_MODELVIEW]/[MM_PROJECTION], read by LLRender::
 	// getModelviewMatrix()/getProjectionMatrix()), not just the separate
 	// gGLModelView/gGLProjection globals set_current_modelview()/
 	// set_current_projection() above already fix. display_cube_face() (via
 	// display_update_camera() -> setup3DRender() -> LLViewerCamera::
-	// setPerspective()) calls gGL.loadMatrix() unconditionally for EVERY
-	// capture face, overwriting gGL's stack with that face's camera -
+	// setPerspective()) calls gDX.loadMatrix() unconditionally for EVERY
+	// capture face, overwriting gDX's stack with that face's camera -
 	// previously harmless since nothing read the stack for this purpose,
 	// but DX_RENDER's env_mat (LLPipeline::setEnvMat(), task #194) now
-	// does. Without this, gGL's stack stays stuck on whichever cube face
+	// does. Without this, gDX's stack stays stuck on whichever cube face
 	// was captured most recently until the NEXT frame's main-camera
 	// setPerspective() call happens to overwrite it - producing an
 	// intermittent, direction-correlated wrong reflection that "fights"
 	// itself as probe updates cycle through faces (confirmed via user
 	// testing: real-time instability specifically near one cardinal
 	// direction, tracking which face had most recently been captured).
-	gGL.matrixMode(LLRender::MM_MODELVIEW);
-	gGL.loadMatrix(glm::value_ptr(saved_mod));
-	gGL.matrixMode(LLRender::MM_PROJECTION);
-	gGL.loadMatrix(glm::value_ptr(saved_proj));
-	gGL.matrixMode(LLRender::MM_MODELVIEW);
+	gDX.matrixMode(LLRender::MM_MODELVIEW);
+	gDX.loadMatrix(glm::value_ptr(saved_mod));
+	gDX.matrixMode(LLRender::MM_PROJECTION);
+	gDX.loadMatrix(glm::value_ptr(saved_proj));
+	gDX.matrixMode(LLRender::MM_MODELVIEW);
 
 	setup3DViewport();
 	LLPipeline::sUseOcclusion = old_occlusion;
@@ -6599,9 +6561,9 @@ void LLViewerWindow::stopGL()
 		stop_glerror();
 
 		//unload shader's
-		while (LLGLSLShader::sInstances.size())
+		while (LLHLSLShader::sInstances.size())
 		{
-			LLGLSLShader* shader = *(LLGLSLShader::sInstances.begin());
+			LLHLSLShader* shader = *(LLHLSLShader::sInstances.begin());
 			shader->unload();
 		}
 	}
@@ -6691,7 +6653,7 @@ void LLViewerWindow::checkSettings()
 	LL_RECORD_BLOCK_TIME(FTM_WINDOW_CHECK_SETTINGS);
 	if (mStatesDirty)
 	{
-		gGL.refreshState();
+		gDX.refreshState();
 		LLViewerShaderMgr::instance()->setShaders();
 		mStatesDirty = false;
 	}

@@ -86,7 +86,7 @@ void load_exr(const std::string& filename)
         gEXRImage->setUseMipMaps(true);
         gEXRImage->setFilteringOption(LLTexUnit::TFO_TRILINEAR);
 
-        gGL.getTexUnit(0)->bind(gEXRImage);
+        gDX.getTexUnit(0)->bind(gEXRImage);
 
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB16F, width, height, 0, GL_RGBA, GL_FLOAT, out);
 
@@ -96,7 +96,7 @@ void load_exr(const std::string& filename)
 
         glGenerateMipmap(GL_TEXTURE_2D);
 
-        gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+        gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
 
     }
     else
@@ -218,8 +218,8 @@ void LLReflectionMapManager::update()
 
     // S24 (2026-08-09, task #147 v1): real DX_RENDER capture pipeline now
     // built - this function's gate ("!!! DO NOT REMOVE WITHOUT READING
-    // TASK #147 !!!") is gone. What changed: LLCubeMapArray now has a real
-    // D3D11 backing (DXCubeArrayTexture, llcubemaparray.h/.cpp), and
+    // TASK #147 !!!") is gone. What changed: DXCubeMapArray now has a real
+    // D3D11 backing (DXCubeArrayTexture, dxrender/resources/DXCubeMapArray.h/.cpp), and
     // updateProbeFace() below has real CopySubresourceRegion-based
     // replacements for the three glCopyTexSubImage3D call sites that used
     // to have zero DX_RENDER translation (the actual missing piece - not
@@ -316,7 +316,15 @@ void LLReflectionMapManager::update()
     if (mMipChain.empty())
     {
         U32 res = mProbeResolution;
-        U32 count = (U32)(log2((F32)res) + 0.5f);
+
+        // S24 (2026-09-03, task #266/#271): was an independently recomputed
+        // `(U32)(log2((F32)res) + 0.5f)` guess - read the texture's REAL
+        // allocated mip count instead (see mMaxProbeLOD's identical fix a
+        // few lines above in initReflectionMaps() for the full explanation).
+        // The old guess under-counted by one for this resolution, so this
+        // scratch chain - and the write loop below that copies each of its
+        // mips into mTexture - never reached the array's real final mip.
+        U32 count = mTexture->getDXTexture()->getMipLevels();
 
         mMipChain.resize(count);
         for (U32 i = 0; i < count; ++i)
@@ -837,52 +845,6 @@ void LLReflectionMapManager::doProbeUpdate()
 }
 
 // Do the reflection map update render passes.
-#ifdef DX_RENDER
-namespace
-{
-    // S24 (2026-08-23, LIVE ORIENTATION TUNER): per-face swap/negate knobs
-    // for radianceGenV.hlsl/irradianceGenV.hlsl's dbgSwap/dbgSignA/dbgSignB
-    // uniforms, live-editable from KVTweaks (Advanced -> Reflections tab,
-    // "Cubemap Face Orientation (Debug)"). Defaults reproduce the proven
-    // baseline formula exactly (see those shaders' comments) - this exists
-    // purely so task #194's remaining +X/-X defect can be explored live, one
-    // checkbox at a time, instead of one full rebuild per hypothesis.
-    struct S24CubeOrientDebug { bool swap; bool negA; bool negB; };
-
-    S24CubeOrientDebug s24GetCubeOrientDebug(S32 face)
-    {
-        static LLCachedControl<bool> swap0(gSavedSettings, "S24CubeOrientSwap0", false);
-        static LLCachedControl<bool> negA0(gSavedSettings, "S24CubeOrientNegA0", true);
-        static LLCachedControl<bool> negB0(gSavedSettings, "S24CubeOrientNegB0", false);
-        static LLCachedControl<bool> swap1(gSavedSettings, "S24CubeOrientSwap1", false);
-        static LLCachedControl<bool> negA1(gSavedSettings, "S24CubeOrientNegA1", false);
-        static LLCachedControl<bool> negB1(gSavedSettings, "S24CubeOrientNegB1", false);
-        static LLCachedControl<bool> swap2(gSavedSettings, "S24CubeOrientSwap2", false);
-        static LLCachedControl<bool> negA2(gSavedSettings, "S24CubeOrientNegA2", false);
-        static LLCachedControl<bool> negB2(gSavedSettings, "S24CubeOrientNegB2", true);
-        static LLCachedControl<bool> swap3(gSavedSettings, "S24CubeOrientSwap3", false);
-        static LLCachedControl<bool> negA3(gSavedSettings, "S24CubeOrientNegA3", false);
-        static LLCachedControl<bool> negB3(gSavedSettings, "S24CubeOrientNegB3", false);
-        static LLCachedControl<bool> swap4(gSavedSettings, "S24CubeOrientSwap4", false);
-        static LLCachedControl<bool> negA4(gSavedSettings, "S24CubeOrientNegA4", false);
-        static LLCachedControl<bool> negB4(gSavedSettings, "S24CubeOrientNegB4", false);
-        static LLCachedControl<bool> swap5(gSavedSettings, "S24CubeOrientSwap5", false);
-        static LLCachedControl<bool> negA5(gSavedSettings, "S24CubeOrientNegA5", true);
-        static LLCachedControl<bool> negB5(gSavedSettings, "S24CubeOrientNegB5", false);
-
-        switch (face)
-        {
-        case 0:  return { swap0, negA0, negB0 };
-        case 1:  return { swap1, negA1, negB1 };
-        case 2:  return { swap2, negA2, negB2 };
-        case 3:  return { swap3, negA3, negB3 };
-        case 4:  return { swap4, negA4, negB4 };
-        default: return { swap5, negA5, negB5 };
-        }
-    }
-}
-#endif
-
 // For every 12 calls of this function, one complete reflection probe radiance map and irradiance map is generated
 // First six passes render the scene with direct lighting only into a scratch space cube map at the end of the cube map array and generate
 // a simple mip chain (not convolution filter).
@@ -932,22 +894,22 @@ void LLReflectionMapManager::updateProbeFace(LLReflectionMap* probe, U32 face)
         sourceIdx += 1;
     }
 
-    gGL.setColorMask(true, true);
+    gDX.setColorMask(true, true);
     LLGLDepthTest depth(GL_FALSE, GL_FALSE);
     LLGLDisable cull(GL_CULL_FACE);
     LLGLDisable blend(GL_BLEND);
 
     // downsample to placeholder map
     {
-        gGL.matrixMode(gGL.MM_MODELVIEW);
-        gGL.pushMatrix();
-        gGL.loadIdentity();
+        gDX.matrixMode(gDX.MM_MODELVIEW);
+        gDX.pushMatrix();
+        gDX.loadIdentity();
 
-        gGL.matrixMode(gGL.MM_PROJECTION);
-        gGL.pushMatrix();
-        gGL.loadIdentity();
+        gDX.matrixMode(gDX.MM_PROJECTION);
+        gDX.pushMatrix();
+        gDX.loadIdentity();
 
-        gGL.flush();
+        gDX.flush();
         U32 res = mProbeResolution * 2;
 
         static LLStaticHashedString resScale("resScale");
@@ -990,7 +952,7 @@ void LLReflectionMapManager::updateProbeFace(LLReflectionMap* probe, U32 face)
 
             // horizontal
             gGaussianProgram.uniform2f(direction, 1.f, 0.f);
-            gGL.getTexUnit(diffuseChannel)->bind(screen_rt);
+            gDX.getTexUnit(diffuseChannel)->bind(screen_rt);
             mRenderTarget.bindTarget();
             gPipeline.mScreenTriangleVB->setBuffer();
             gPipeline.mScreenTriangleVB->drawArrays(LLRender::TRIANGLES, 0, 3);
@@ -998,7 +960,7 @@ void LLReflectionMapManager::updateProbeFace(LLReflectionMap* probe, U32 face)
 
             // vertical
             gGaussianProgram.uniform2f(direction, 0.f, 1.f);
-            gGL.getTexUnit(diffuseChannel)->bind(&mRenderTarget);
+            gDX.getTexUnit(diffuseChannel)->bind(&mRenderTarget);
             screen_rt->bindTarget();
             gPipeline.mScreenTriangleVB->setBuffer();
             gPipeline.mScreenTriangleVB->drawArrays(LLRender::TRIANGLES, 0, 3);
@@ -1006,7 +968,18 @@ void LLReflectionMapManager::updateProbeFace(LLReflectionMap* probe, U32 face)
         }
 
 
-        S32 mips = (S32)(log2((F32)mProbeResolution) + 0.5f);
+        // S24 (2026-09-03, task #266/#271): was an independently recomputed
+        // `(S32)(log2((F32)mProbeResolution) + 0.5f)` guess - see
+        // mMaxProbeLOD's identical fix in initReflectionMaps() for the full
+        // explanation. This one is more than just a stale LOD range though:
+        // it directly controls `mip` (a few lines below,
+        // `i - (mMipChain.size() - mips)`), which now that mMipChain.size()
+        // correctly reads 8 (this same session's fix) would otherwise be
+        // mismatched against a still-7-here `mips`, shifting EVERY scratch
+        // mip this loop copies into mTexture's source/scratch slot by one
+        // level - a real regression this exact fix would have introduced if
+        // left inconsistent. Read the same real allocated mip count instead.
+        S32 mips = (S32)mTexture->getDXTexture()->getMipLevels();
 
         gReflectionMipProgram.bind();
         S32 diffuseChannel = gReflectionMipProgram.enableTexture(LLShaderMgr::DEFERRED_DIFFUSE, LLTexUnit::TT_TEXTURE);
@@ -1017,11 +990,11 @@ void LLReflectionMapManager::updateProbeFace(LLReflectionMap* probe, U32 face)
             mMipChain[i].bindTarget();
             if (i == 0)
             {
-                gGL.getTexUnit(diffuseChannel)->bind(screen_rt);
+                gDX.getTexUnit(diffuseChannel)->bind(screen_rt);
             }
             else
             {
-                gGL.getTexUnit(diffuseChannel)->bind(&(mMipChain[i - 1]));
+                gDX.getTexUnit(diffuseChannel)->bind(&(mMipChain[i - 1]));
             }
 
 
@@ -1067,25 +1040,24 @@ void LLReflectionMapManager::updateProbeFace(LLReflectionMap* probe, U32 face)
             mMipChain[i].flush();
         }
 
-        gGL.popMatrix();
-        gGL.matrixMode(gGL.MM_MODELVIEW);
-        gGL.popMatrix();
+        gDX.popMatrix();
+        gDX.matrixMode(gDX.MM_MODELVIEW);
+        gDX.popMatrix();
 
-        gGL.getTexUnit(diffuseChannel)->unbind(LLTexUnit::TT_TEXTURE);
+        gDX.getTexUnit(diffuseChannel)->unbind(LLTexUnit::TT_TEXTURE);
         gReflectionMipProgram.unbind();
     }
 
     if (face == 5)
     {
         mMipChain[0].bindTarget();
-        // S24 (2026-08-13, task #163 follow-up, REVERTED 2026-08-14): the
-        // flipped-viewport override that used to be here (task #147/#184,
-        // 2026-08-10) was removed on the theory that this whole Y-flip was
-        // simply wrong. Confirmed wrong theory: reflections are still
-        // reported upside down with it removed (task #194 room test, same
-        // day as the other 3 matching sites' restoration). Re-added here,
-        // matching DXContext::setViewport(...,true)'s exact negative-height
-        // flip semantics for consistency with those other 3 sites.
+        // S24 (2026-09-02, REVERTED same day): the negative-height flip
+        // relocation attempt (moving it into radianceGenV.hlsl as a y
+        // negation instead) made zero difference to the empty-mip symptom
+        // it was meant to investigate and broke hero-probe mirror
+        // orientation live (confirmed, "Mirror Fault.PNG"). Back to the
+        // proven-correct negative-height viewport, matching
+        // DXContext::setViewport(...,true)'s semantics (task #147/#184/#163).
 #ifdef DX_RENDER
         {
             D3D11_VIEWPORT vp = {};
@@ -1148,24 +1120,19 @@ void LLReflectionMapManager::updateProbeFace(LLReflectionMap* probe, U32 face)
                     static LLStaticHashedString sCubeFace("cubeFace");
                     gRadianceGenProgram.uniform1i(sCubeFace, cf);
 
-                    // S24 (2026-08-23, LIVE ORIENTATION TUNER): see the
-                    // s24GetCubeOrientDebug() definition above this function.
-                    static LLStaticHashedString sDbgSwap("dbgSwap");
-                    static LLStaticHashedString sDbgSignA("dbgSignA");
-                    static LLStaticHashedString sDbgSignB("dbgSignB");
-                    S24CubeOrientDebug orientDbg = s24GetCubeOrientDebug(cf);
-                    gRadianceGenProgram.uniform1i(sDbgSwap, orientDbg.swap ? 1 : 0);
-                    gRadianceGenProgram.uniform1f(sDbgSignA, orientDbg.negA ? -1.f : 1.f);
-                    gRadianceGenProgram.uniform1f(sDbgSignB, orientDbg.negB ? -1.f : 1.f);
-#else
-                    LLCoordFrame frame;
-                    frame.lookAt(LLVector3(0, 0, 0), LLCubeMapArray::sClipToCubeLookVecs[cf], LLCubeMapArray::sClipToCubeUpVecs[cf]);
-                    F32 mat[16];
-                    frame.getOpenGLRotation(mat);
-                    gGL.loadMatrix(mat);
-#endif
+                    // S24 (2026-08-31, DXCubeMap rewrite plan, Step 3): the
+                    // LIVE ORIENTATION TUNER's dbgSwap/dbgSignA/dbgSignB
+                    // uniforms are gone from radianceGenV.hlsl - the formula
+                    // they drove was independently proven exactly correct
+                    // (see that shader's header comment) and is now
+                    // hardcoded there. Step 4 (2026-09-02): s24GetCubeOrientDebug()
+                    // and the KVTweaks "Cube Orient" tab are now fully
+                    // retired (dead weight since this rewrite, and the tab's
+                    // ~18 checkboxes were missing their mandatory `name=`
+                    // attribute besides).
+#endif // DX_RENDER - GL body removed 2026-08-31 (LLCubeMapArray deletion, this project is DX_RENDER-only)
 
-                    mVertexBuffer->drawArrays(gGL.TRIANGLE_STRIP, 0, 4);
+                    mVertexBuffer->drawArrays(gDX.TRIANGLE_STRIP, 0, 4);
 
                     // S24 (2026-08-09, task #147 step 5): see the mip-copy
                     // block above for the full reasoning - mMipChain[0]
@@ -1212,15 +1179,10 @@ void LLReflectionMapManager::updateProbeFace(LLReflectionMap* probe, U32 face)
                     // crash, task #95/#96).
 #ifdef DX_RENDER
                     {
-                        // S24 (2026-08-13, task #163 follow-up, REVERTED
-                        // 2026-08-14): was unflipped here on the theory that
-                        // the cube-face Y-flip was simply wrong - confirmed
-                        // wrong theory (task #194 room test, still upside
-                        // down with this unflipped). Restored to the
-                        // standard D3D11 negative-height flip, matching
-                        // DXContext::setViewport(...,true)'s exact semantics
-                        // for consistency (llviewerwindow.cpp's
-                        // setup3DViewport(), also restored).
+                        // S24 (2026-09-02, REVERTED same day): see
+                        // mMipChain[0]'s viewport above (face==5 entry) for
+                        // the full reasoning - back to the proven-correct
+                        // negative-height viewport.
                         D3D11_VIEWPORT vp = {};
                         vp.TopLeftX = 0.0f;
                         vp.TopLeftY = (float)res;
@@ -1268,10 +1230,10 @@ void LLReflectionMapManager::updateProbeFace(LLReflectionMap* probe, U32 face)
                 // (unguarded raw GL, null fn ptr crash under DX_RENDER).
 #ifdef DX_RENDER
                 {
-                    // S24 (2026-08-13, task #163 follow-up, REVERTED
-                    // 2026-08-14): same reasoning as the radiance-gen loop
-                    // above - restored to the standard D3D11 negative-height
-                    // flip.
+                    // S24 (2026-09-02, REVERTED same day): see the
+                    // radiance-gen loop's matching viewport above for the
+                    // full reasoning - back to the proven-correct
+                    // negative-height viewport.
                     D3D11_VIEWPORT vp = {};
                     vp.TopLeftX = 0.0f;
                     vp.TopLeftY = (float)mMipChain[i].getHeight();
@@ -1296,24 +1258,13 @@ void LLReflectionMapManager::updateProbeFace(LLReflectionMap* probe, U32 face)
                     static LLStaticHashedString sCubeFaceIrr("cubeFace");
                     gIrradianceGenProgram.uniform1i(sCubeFaceIrr, cf);
 
-                    // S24 (2026-08-23, LIVE ORIENTATION TUNER): see the
-                    // s24GetCubeOrientDebug() definition above updateProbeFace().
-                    static LLStaticHashedString sDbgSwapIrr("dbgSwap");
-                    static LLStaticHashedString sDbgSignAIrr("dbgSignA");
-                    static LLStaticHashedString sDbgSignBIrr("dbgSignB");
-                    S24CubeOrientDebug orientDbgIrr = s24GetCubeOrientDebug(cf);
-                    gIrradianceGenProgram.uniform1i(sDbgSwapIrr, orientDbgIrr.swap ? 1 : 0);
-                    gIrradianceGenProgram.uniform1f(sDbgSignAIrr, orientDbgIrr.negA ? -1.f : 1.f);
-                    gIrradianceGenProgram.uniform1f(sDbgSignBIrr, orientDbgIrr.negB ? -1.f : 1.f);
-#else
-                    LLCoordFrame frame;
-                    frame.lookAt(LLVector3(0, 0, 0), LLCubeMapArray::sClipToCubeLookVecs[cf], LLCubeMapArray::sClipToCubeUpVecs[cf]);
-                    F32 mat[16];
-                    frame.getOpenGLRotation(mat);
-                    gGL.loadMatrix(mat);
-#endif
+                    // S24 (2026-08-31, DXCubeMap rewrite plan, Step 3): see
+                    // the matching radiance-gen loop above - dbgSwap/
+                    // dbgSignA/dbgSignB are gone from irradianceGenV.hlsl,
+                    // formula is proven and hardcoded there now.
+#endif // DX_RENDER - GL body removed 2026-08-31 (LLCubeMapArray deletion, this project is DX_RENDER-only)
 
-                    mVertexBuffer->drawArrays(gGL.TRIANGLE_STRIP, 0, 4);
+                    mVertexBuffer->drawArrays(gDX.TRIANGLE_STRIP, 0, 4);
 
 #ifdef DX_RENDER
                     // S24 (2026-08-09, task #147 step 5): see the mip-copy
@@ -1710,9 +1661,9 @@ void LLReflectionMapManager::setUniforms()
     if (!LLPipeline::sReflectionProbesEnabled)
     {
         static LLStaticHashedString sProbesEnabledOff("probes_enabled");
-        if (LLGLSLShader::sCurBoundShaderPtr)
+        if (LLHLSLShader::sCurBoundShaderPtr)
         {
-            LLGLSLShader::sCurBoundShaderPtr->uniform1i(sProbesEnabledOff, 0);
+            LLHLSLShader::sCurBoundShaderPtr->uniform1i(sProbesEnabledOff, 0);
         }
         return;
     }
@@ -1753,7 +1704,7 @@ void LLReflectionMapManager::setUniforms()
         }
     }
 #else
-    glBindBufferBase(GL_UNIFORM_BUFFER, LLGLSLShader::UB_REFLECTION_PROBES, mUBO);
+    glBindBufferBase(GL_UNIFORM_BUFFER, LLHLSLShader::UB_REFLECTION_PROBES, mUBO);
 #endif
 
     // S24: Set probe control uniforms for shader tweaks (runtime adjustable)
@@ -1771,12 +1722,32 @@ void LLReflectionMapManager::setUniforms()
     static LLStaticHashedString sProbeBlurLODBias("probe_blur_lod_bias");
     static LLStaticHashedString sProbeAmbientMultiplier("probe_ambient_multiplier");
 
-    LLGLSLShader::sCurBoundShaderPtr->uniform1i(sProbesEnabled, probes_enabled ? 1 : 0);
-    LLGLSLShader::sCurBoundShaderPtr->uniform1f(sProbeIntensity, probe_intensity);
-    LLGLSLShader::sCurBoundShaderPtr->uniform1f(sProbeSaturation, probe_saturation);
-    LLGLSLShader::sCurBoundShaderPtr->uniform1f(sProbeContrast, probe_contrast);
-    LLGLSLShader::sCurBoundShaderPtr->uniform1f(sProbeBlurLODBias, probe_blur_lod_bias);
-    LLGLSLShader::sCurBoundShaderPtr->uniform1f(sProbeAmbientMultiplier, probe_ambient_mult);
+    LLHLSLShader::sCurBoundShaderPtr->uniform1i(sProbesEnabled, probes_enabled ? 1 : 0);
+    LLHLSLShader::sCurBoundShaderPtr->uniform1f(sProbeIntensity, probe_intensity);
+    LLHLSLShader::sCurBoundShaderPtr->uniform1f(sProbeSaturation, probe_saturation);
+    LLHLSLShader::sCurBoundShaderPtr->uniform1f(sProbeContrast, probe_contrast);
+    LLHLSLShader::sCurBoundShaderPtr->uniform1f(sProbeBlurLODBias, probe_blur_lod_bias);
+    LLHLSLShader::sCurBoundShaderPtr->uniform1f(sProbeAmbientMultiplier, probe_ambient_mult);
+
+    // S24 (2026-09-03, task #266/#271 box-probe reflection investigation):
+    // REFLECTION_PROBE_MAX_LOD (max_probe_lod - tapRefMap()'s roughness->mip
+    // conversion) was previously uploaded to real-time sampling shaders ONLY
+    // from LLPipeline::bindDeferredShader() (pipeline.cpp) - real, confirmed
+    // gap, same bug class as the task #156 "glass floor shows zero
+    // reflections" fix a few lines above this function (dxdrawpoolalpha.cpp's
+    // header comment on its bindReflectionProbes() call). gDeferredPBRAlphaProgram
+    // (and any other shader that reaches sampleProbes()/tapRefMap() via THIS
+    // function rather than bindDeferredShader()) never had this uniform
+    // deliberately written for its entire lifetime - confirmed via live
+    // shader-debug this session, the exact PBR alpha material shader used for
+    // a broken floor reflection reads a real-looking but never-explicitly-set
+    // max_probe_lod. Uploaded here instead, alongside this function's other
+    // plain top-level uniforms, so every shader that successfully binds the
+    // reflection probe textures (the `if (bound)` gate in
+    // LLPipeline::bindReflectionProbes()) gets this one too, not just the
+    // shaders that separately happen to also go through bindDeferredShader().
+    static LLStaticHashedString sMaxProbeLOD("max_probe_lod");
+    LLHLSLShader::sCurBoundShaderPtr->uniform1f(sMaxProbeLOD, mMaxProbeLOD);
 }
 
 
@@ -1787,9 +1758,9 @@ void renderReflectionProbe(LLReflectionMap* probe)
         F32* po = probe->mOrigin.getF32ptr();
 
         //draw orange line from probe to neighbors
-        gGL.flush();
-        gGL.diffuseColor4f(1, 0.5f, 0, 1);
-        gGL.begin(gGL.LINES);
+        gDX.flush();
+        gDX.diffuseColor4f(1, 0.5f, 0, 1);
+        gDX.begin(gDX.LINES);
         for (auto& neighbor : probe->mNeighbors)
         {
             if (probe->mViewerObject && neighbor->mViewerObject)
@@ -1797,24 +1768,24 @@ void renderReflectionProbe(LLReflectionMap* probe)
                 continue;
             }
 
-            gGL.vertex3fv(po);
-            gGL.vertex3fv(neighbor->mOrigin.getF32ptr());
+            gDX.vertex3fv(po);
+            gDX.vertex3fv(neighbor->mOrigin.getF32ptr());
         }
-        gGL.end();
-        gGL.flush();
+        gDX.end();
+        gDX.flush();
 
-        gGL.diffuseColor4f(1, 1, 0, 1);
-        gGL.begin(gGL.LINES);
+        gDX.diffuseColor4f(1, 1, 0, 1);
+        gDX.begin(gDX.LINES);
         for (auto& neighbor : probe->mNeighbors)
         {
             if (probe->mViewerObject && neighbor->mViewerObject)
             {
-                gGL.vertex3fv(po);
-                gGL.vertex3fv(neighbor->mOrigin.getF32ptr());
+                gDX.vertex3fv(po);
+                gDX.vertex3fv(neighbor->mOrigin.getF32ptr());
             }
         }
-        gGL.end();
-        gGL.flush();
+        gDX.end();
+        gDX.flush();
     }
 
 #if 0
@@ -1825,42 +1796,42 @@ void renderReflectionProbe(LLReflectionMap* probe)
         const LLVector4a* bounds = group->getBounds();
         LLVector4a o = bounds[0];
 
-        gGL.flush();
-        gGL.diffuseColor4f(0, 0, 1, 1);
+        gDX.flush();
+        gDX.diffuseColor4f(0, 0, 1, 1);
         F32* c = o.getF32ptr();
 
         const F32* bc = bounds[0].getF32ptr();
         const F32* bs = bounds[1].getF32ptr();
 
         // daaw blue lines from corners to center of node
-        gGL.begin(gGL.LINES);
-        gGL.vertex3fv(c);
-        gGL.vertex3f(bc[0] + bs[0], bc[1] + bs[1], bc[2] + bs[2]);
-        gGL.vertex3fv(c);
-        gGL.vertex3f(bc[0] - bs[0], bc[1] + bs[1], bc[2] + bs[2]);
-        gGL.vertex3fv(c);
-        gGL.vertex3f(bc[0] + bs[0], bc[1] - bs[1], bc[2] + bs[2]);
-        gGL.vertex3fv(c);
-        gGL.vertex3f(bc[0] - bs[0], bc[1] - bs[1], bc[2] + bs[2]);
+        gDX.begin(gDX.LINES);
+        gDX.vertex3fv(c);
+        gDX.vertex3f(bc[0] + bs[0], bc[1] + bs[1], bc[2] + bs[2]);
+        gDX.vertex3fv(c);
+        gDX.vertex3f(bc[0] - bs[0], bc[1] + bs[1], bc[2] + bs[2]);
+        gDX.vertex3fv(c);
+        gDX.vertex3f(bc[0] + bs[0], bc[1] - bs[1], bc[2] + bs[2]);
+        gDX.vertex3fv(c);
+        gDX.vertex3f(bc[0] - bs[0], bc[1] - bs[1], bc[2] + bs[2]);
 
-        gGL.vertex3fv(c);
-        gGL.vertex3f(bc[0] + bs[0], bc[1] + bs[1], bc[2] - bs[2]);
-        gGL.vertex3fv(c);
-        gGL.vertex3f(bc[0] - bs[0], bc[1] + bs[1], bc[2] - bs[2]);
-        gGL.vertex3fv(c);
-        gGL.vertex3f(bc[0] + bs[0], bc[1] - bs[1], bc[2] - bs[2]);
-        gGL.vertex3fv(c);
-        gGL.vertex3f(bc[0] - bs[0], bc[1] - bs[1], bc[2] - bs[2]);
-        gGL.end();
+        gDX.vertex3fv(c);
+        gDX.vertex3f(bc[0] + bs[0], bc[1] + bs[1], bc[2] - bs[2]);
+        gDX.vertex3fv(c);
+        gDX.vertex3f(bc[0] - bs[0], bc[1] + bs[1], bc[2] - bs[2]);
+        gDX.vertex3fv(c);
+        gDX.vertex3f(bc[0] + bs[0], bc[1] - bs[1], bc[2] - bs[2]);
+        gDX.vertex3fv(c);
+        gDX.vertex3f(bc[0] - bs[0], bc[1] - bs[1], bc[2] - bs[2]);
+        gDX.end();
 
         //draw yellow line from center of node to reflection probe origin
-        gGL.flush();
-        gGL.diffuseColor4f(1, 1, 0, 1);
-        gGL.begin(gGL.LINES);
-        gGL.vertex3fv(c);
-        gGL.vertex3fv(po);
-        gGL.end();
-        gGL.flush();
+        gDX.flush();
+        gDX.diffuseColor4f(1, 1, 0, 1);
+        gDX.begin(gDX.LINES);
+        gDX.vertex3fv(c);
+        gDX.vertex3fv(po);
+        gDX.end();
+        gDX.flush();
     }
 #endif
 }
@@ -1893,7 +1864,6 @@ void LLReflectionMapManager::initReflectionMaps()
         mReset = false;
         mReflectionProbeCount = mDynamicProbeCount;
         mProbeResolution = probe_resolution;
-        mMaxProbeLOD = log2f((F32)mProbeResolution) - 1.f; // number of mips - 1
 
         if (mTexture.isNull() ||
             mTexture->getWidth() != mProbeResolution ||
@@ -1901,13 +1871,13 @@ void LLReflectionMapManager::initReflectionMaps()
         {
             if (mTexture)
             {
-                mTexture = new LLCubeMapArray(*mTexture, mProbeResolution, mReflectionProbeCount + 2);
+                mTexture = new DXCubeMapArray(*mTexture, mProbeResolution, mReflectionProbeCount + 2);
 
-                mIrradianceMaps = new LLCubeMapArray(*mIrradianceMaps, LL_IRRADIANCE_MAP_RESOLUTION, mReflectionProbeCount);
+                mIrradianceMaps = new DXCubeMapArray(*mIrradianceMaps, LL_IRRADIANCE_MAP_RESOLUTION, mReflectionProbeCount);
             }
             else
             {
-            mTexture = new LLCubeMapArray();
+            mTexture = new DXCubeMapArray();
 
             static LLCachedControl<bool> render_hdr(gSavedSettings, "RenderHDREnabled", true);
 
@@ -1915,10 +1885,24 @@ void LLReflectionMapManager::initReflectionMaps()
                 // source)
             mTexture->allocate(mProbeResolution, 3, mReflectionProbeCount + 2, true, render_hdr);
 
-            mIrradianceMaps = new LLCubeMapArray();
+            mIrradianceMaps = new DXCubeMapArray();
             mIrradianceMaps->allocate(LL_IRRADIANCE_MAP_RESOLUTION, 3, mReflectionProbeCount, false, render_hdr);
             }
         }
+
+        // S24 (2026-09-03, task #266/#271 box-probe reflection investigation):
+        // was `log2f((F32)mProbeResolution) - 1.f` (an independently
+        // recomputed guess), read from the texture's REAL allocated mip
+        // count instead - DXCubeArrayTexture::create()'s generate_mips=true
+        // path requests D3D11's full auto mip chain (MipLevels=0), which for
+        // a power-of-two resolution allocates one more level than the old
+        // formula assumed (confirmed live via RenderDoc this session: 128x128
+        // reported "8 mips", this formula said 7). The old, too-low value fed
+        // both the write-side roughness->mip mapping (radianceGenF.hlsl) and
+        // the read-side LOD selection (tapRefMap()) via max_probe_lod,
+        // shifting the whole roughness<->LOD curve by one level and leaving
+        // the texture's real highest mip permanently unwritten.
+        mMaxProbeLOD = (F32)mTexture->getDXTexture()->getMipLevels() - 1.f; // number of mips - 1
 
         // reset probe state
         mUpdatingFace = 0;

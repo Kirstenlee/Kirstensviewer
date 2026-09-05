@@ -1571,35 +1571,35 @@ void render_sphere_and_line(const LLVector3& begin_pos, const LLVector3& end_pos
     LLGLDepthTest normal_depth(GL_TRUE);
 
     // Draw line segment for unoccluded joint
-    gGL.diffuseColor3f(visible_color[0], visible_color[1], visible_color[2]);
+    gDX.diffuseColor3f(visible_color[0], visible_color[1], visible_color[2]);
 
-    gGL.begin(LLRender::LINES);
-    gGL.vertex3fv(begin_pos.mV);
-    gGL.vertex3fv(end_pos.mV);
-    gGL.end();
+    gDX.begin(LLRender::LINES);
+    gDX.vertex3fv(begin_pos.mV);
+    gDX.vertex3fv(end_pos.mV);
+    gDX.end();
 
 
     // Draw sphere representing joint pos
-    gGL.pushMatrix();
-    gGL.scalef(sphere_scale, sphere_scale, sphere_scale);
+    gDX.pushMatrix();
+    gDX.scalef(sphere_scale, sphere_scale, sphere_scale);
     gSphere.renderGGL();
-    gGL.popMatrix();
+    gDX.popMatrix();
 
     LLGLDepthTest depth_under(GL_TRUE, GL_FALSE, GL_GREATER);
 
     // Occluded bone portions
-    gGL.diffuseColor3f(occ_color[0], occ_color[1], occ_color[2]);
+    gDX.diffuseColor3f(occ_color[0], occ_color[1], occ_color[2]);
 
-    gGL.begin(LLRender::LINES);
-    gGL.vertex3fv(begin_pos.mV);
-    gGL.vertex3fv(end_pos.mV);
-    gGL.end();
+    gDX.begin(LLRender::LINES);
+    gDX.vertex3fv(begin_pos.mV);
+    gDX.vertex3fv(end_pos.mV);
+    gDX.end();
 
     // Draw sphere representing joint pos
-    gGL.pushMatrix();
-    gGL.scalef(sphere_scale, sphere_scale, sphere_scale);
+    gDX.pushMatrix();
+    gDX.scalef(sphere_scale, sphere_scale, sphere_scale);
     gSphere.renderGGL();
-    gGL.popMatrix();
+    gDX.popMatrix();
 }
 
 //-----------------------------------------------------------------------------
@@ -1617,8 +1617,8 @@ void LLVOAvatar::renderCollisionVolumes()
 
         collision_volume.updateWorldMatrix();
 
-        gGL.pushMatrix();
-        gGL.multMatrix( &collision_volume.getXform()->getWorldMatrix().mMatrix[0][0] );
+        gDX.pushMatrix();
+        gDX.multMatrix( &collision_volume.getXform()->getWorldMatrix().mMatrix[0][0] );
 
         LLVector3 begin_pos(0,0,0);
         LLVector3 end_pos(collision_volume.getEnd());
@@ -1649,7 +1649,7 @@ void LLVOAvatar::renderCollisionVolumes()
         render_sphere_and_line(begin_pos, end_pos, sphere_scale, cv_color_occluded, cv_color_visible);
         render_sphere_and_line(begin_pos, end_pos, center_dot_scale, dot_color_occluded, dot_color_visible);
 
-        gGL.popMatrix();
+        gDX.popMatrix();
     }
 
 
@@ -1733,17 +1733,17 @@ void LLVOAvatar::renderBones(const std::string &selected_joint)
         LLVector3 end_pos(jointp->getEnd());
 
 
-        gGL.pushMatrix();
-        gGL.multMatrix( &jointp->getXform()->getWorldMatrix().mMatrix[0][0] );
+        gDX.pushMatrix();
+        gDX.multMatrix( &jointp->getXform()->getWorldMatrix().mMatrix[0][0] );
 
         render_sphere_and_line(begin_pos, end_pos, sphere_scale, occ_color, visible_color);
 
-        gGL.popMatrix();
+        gDX.popMatrix();
     }
 
 
     // draw joint space bounding boxes of rigged attachments in yellow
-    gGL.color3f(1.f, 1.f, 0.f);
+    gDX.color3f(1.f, 1.f, 0.f);
     for (S32 joint_num = 0; joint_num < LL_CHARACTER_MAX_ANIMATED_JOINTS; joint_num++)
     {
         LLJoint* joint = getJoint(joint_num);
@@ -1761,8 +1761,8 @@ void LLVOAvatar::renderBones(const std::string &selected_joint)
                 // Ignore bounding box of HUD joints
                 continue;
             }
-            gGL.pushMatrix();
-            gGL.multMatrix(&joint->getXform()->getWorldMatrix().mMatrix[0][0]);
+            gDX.pushMatrix();
+            gDX.multMatrix(&joint->getXform()->getWorldMatrix().mMatrix[0][0]);
 
             LLVector4a pos;
             LLVector4a size;
@@ -1776,12 +1776,12 @@ void LLVOAvatar::renderBones(const std::string &selected_joint)
 
             drawBoxOutline(pos, size);
 
-            gGL.popMatrix();
+            gDX.popMatrix();
         }
     }
 
     // draw world space attachment rigged bounding boxes in cyan
-    gGL.color3f(0.f, 1.f, 1.f);
+    gDX.color3f(0.f, 1.f, 1.f);
     for (attachment_map_t::iterator iter = mAttachmentPoints.begin();
          iter != mAttachmentPoints.end();
          ++iter)
@@ -1843,12 +1843,12 @@ void LLVOAvatar::renderJoints()
 
         jointp->updateWorldMatrix();
 
-        gGL.pushMatrix();
-        gGL.multMatrix( &jointp->getXform()->getWorldMatrix().mMatrix[0][0] );
+        gDX.pushMatrix();
+        gDX.multMatrix( &jointp->getXform()->getWorldMatrix().mMatrix[0][0] );
 
-        gGL.diffuseColor3f( 1.f, 0.f, 1.f );
+        gDX.diffuseColor3f( 1.f, 0.f, 1.f );
 
-        gGL.begin(LLRender::LINES);
+        gDX.begin(LLRender::LINES);
 
         LLVector3 v[] =
         {
@@ -1862,49 +1862,49 @@ void LLVOAvatar::renderJoints()
         };
 
         //sides
-        gGL.vertex3fv(v[0].mV);
-        gGL.vertex3fv(v[2].mV);
+        gDX.vertex3fv(v[0].mV);
+        gDX.vertex3fv(v[2].mV);
 
-        gGL.vertex3fv(v[0].mV);
-        gGL.vertex3fv(v[3].mV);
+        gDX.vertex3fv(v[0].mV);
+        gDX.vertex3fv(v[3].mV);
 
-        gGL.vertex3fv(v[1].mV);
-        gGL.vertex3fv(v[2].mV);
+        gDX.vertex3fv(v[1].mV);
+        gDX.vertex3fv(v[2].mV);
 
-        gGL.vertex3fv(v[1].mV);
-        gGL.vertex3fv(v[3].mV);
+        gDX.vertex3fv(v[1].mV);
+        gDX.vertex3fv(v[3].mV);
 
 
         //top
-        gGL.vertex3fv(v[0].mV);
-        gGL.vertex3fv(v[4].mV);
+        gDX.vertex3fv(v[0].mV);
+        gDX.vertex3fv(v[4].mV);
 
-        gGL.vertex3fv(v[1].mV);
-        gGL.vertex3fv(v[4].mV);
+        gDX.vertex3fv(v[1].mV);
+        gDX.vertex3fv(v[4].mV);
 
-        gGL.vertex3fv(v[2].mV);
-        gGL.vertex3fv(v[4].mV);
+        gDX.vertex3fv(v[2].mV);
+        gDX.vertex3fv(v[4].mV);
 
-        gGL.vertex3fv(v[3].mV);
-        gGL.vertex3fv(v[4].mV);
+        gDX.vertex3fv(v[3].mV);
+        gDX.vertex3fv(v[4].mV);
 
 
         //bottom
-        gGL.vertex3fv(v[0].mV);
-        gGL.vertex3fv(v[5].mV);
+        gDX.vertex3fv(v[0].mV);
+        gDX.vertex3fv(v[5].mV);
 
-        gGL.vertex3fv(v[1].mV);
-        gGL.vertex3fv(v[5].mV);
+        gDX.vertex3fv(v[1].mV);
+        gDX.vertex3fv(v[5].mV);
 
-        gGL.vertex3fv(v[2].mV);
-        gGL.vertex3fv(v[5].mV);
+        gDX.vertex3fv(v[2].mV);
+        gDX.vertex3fv(v[5].mV);
 
-        gGL.vertex3fv(v[3].mV);
-        gGL.vertex3fv(v[5].mV);
+        gDX.vertex3fv(v[3].mV);
+        gDX.vertex3fv(v[5].mV);
 
-        gGL.end();
+        gDX.end();
 
-        gGL.popMatrix();
+        gDX.popMatrix();
     }
 
     mDebugText.clear();
@@ -5338,21 +5338,21 @@ U32 LLVOAvatar::renderTransparent(bool first_pass)
     U32 num_indices = 0;
     if( isWearingWearableType( LLWearableType::WT_SKIRT ) && (isUIAvatar() || isTextureVisible(TEX_SKIRT_BAKED)) )
     {
-        gGL.flush();
+        gDX.flush();
         LLViewerJoint* skirt_mesh = getViewerJoint(MESH_ID_SKIRT);
         if (skirt_mesh)
         {
             num_indices += skirt_mesh->render(mAdjustedPixelArea, false);
         }
         first_pass = false;
-        gGL.flush();
+        gDX.flush();
     }
 
     if (!isSelf() || gAgent.needsRenderHead() || LLPipeline::sShadowRender)
     {
         if (LLPipeline::sImpostorRender)
         {
-            gGL.flush();
+            gDX.flush();
         }
 
         if (isTextureVisible(TEX_HEAD_BAKED))
@@ -5375,7 +5375,7 @@ U32 LLVOAvatar::renderTransparent(bool first_pass)
         }
         if (LLPipeline::sImpostorRender)
         {
-            gGL.flush();
+            gDX.flush();
         }
     }
 
@@ -5435,38 +5435,38 @@ U32 LLVOAvatar::renderImpostor(LLColor4U color, S32 diffuse_channel)
     if (gPipeline.hasRenderDebugMask(LLPipeline::RENDER_DEBUG_IMPOSTORS))
     {
         LLGLEnable blend(GL_BLEND);
-        gGL.setSceneBlendType(LLRender::BT_ADD);
-        gGL.getTexUnit(diffuse_channel)->unbind(LLTexUnit::TT_TEXTURE);
+        gDX.setSceneBlendType(LLRender::BT_ADD);
+        gDX.getTexUnit(diffuse_channel)->unbind(LLTexUnit::TT_TEXTURE);
 
-        // gGL.begin(LLRender::QUADS);
-        // gGL.vertex3fv((pos+left-up).mV);
-        // gGL.vertex3fv((pos-left-up).mV);
-        // gGL.vertex3fv((pos-left+up).mV);
-        // gGL.vertex3fv((pos+left+up).mV);
-        // gGL.end();
+        // gDX.begin(LLRender::QUADS);
+        // gDX.vertex3fv((pos+left-up).mV);
+        // gDX.vertex3fv((pos-left-up).mV);
+        // gDX.vertex3fv((pos-left+up).mV);
+        // gDX.vertex3fv((pos+left+up).mV);
+        // gDX.end();
 
 
-        gGL.begin(LLRender::LINES);
-        gGL.color4f(1.f,1.f,1.f,1.f);
+        gDX.begin(LLRender::LINES);
+        gDX.color4f(1.f,1.f,1.f,1.f);
         F32 thickness = llmax(F32(5.0f-5.0f*(gFrameTimeSeconds-mLastImpostorUpdateFrameTime)),1.0f);
         glLineWidth(thickness);
-        gGL.vertex3fv((pos+left-up).mV);
-        gGL.vertex3fv((pos-left-up).mV);
-        gGL.vertex3fv((pos-left-up).mV);
-        gGL.vertex3fv((pos-left+up).mV);
-        gGL.vertex3fv((pos-left+up).mV);
-        gGL.vertex3fv((pos+left+up).mV);
-        gGL.vertex3fv((pos+left+up).mV);
-        gGL.vertex3fv((pos+left-up).mV);
-        gGL.end();
-        gGL.flush();
+        gDX.vertex3fv((pos+left-up).mV);
+        gDX.vertex3fv((pos-left-up).mV);
+        gDX.vertex3fv((pos-left-up).mV);
+        gDX.vertex3fv((pos-left+up).mV);
+        gDX.vertex3fv((pos-left+up).mV);
+        gDX.vertex3fv((pos+left+up).mV);
+        gDX.vertex3fv((pos+left+up).mV);
+        gDX.vertex3fv((pos+left-up).mV);
+        gDX.end();
+        gDX.flush();
     }
     {
-    gGL.flush();
+    gDX.flush();
 
-    gGL.color4ubv(color.mV);
-    gGL.getTexUnit(diffuse_channel)->bind(&mImpostor);
-    gGL.begin(LLRender::TRIANGLES);
+    gDX.color4ubv(color.mV);
+    gDX.getTexUnit(diffuse_channel)->bind(&mImpostor);
+    gDX.begin(LLRender::TRIANGLES);
     {
         // S24 (2026-08-17): GL-vs-D3D11 texture-origin flip - same bug
         // class as the post-fx chain's read-side fixes (fxaaF.hlsl/
@@ -5489,22 +5489,22 @@ U32 LLVOAvatar::renderImpostor(LLColor4U color, S32 diffuse_channel)
 #else
         const F32 v_bottom = 0.f, v_top = 1.f;
 #endif
-        gGL.texCoord2f(0.f, v_bottom);
-        gGL.vertex3fv((pos + left - up).mV);
-        gGL.texCoord2f(1.f, v_bottom);
-        gGL.vertex3fv((pos - left - up).mV);
-        gGL.texCoord2f(1.f, v_top);
-        gGL.vertex3fv((pos - left + up).mV);
+        gDX.texCoord2f(0.f, v_bottom);
+        gDX.vertex3fv((pos + left - up).mV);
+        gDX.texCoord2f(1.f, v_bottom);
+        gDX.vertex3fv((pos - left - up).mV);
+        gDX.texCoord2f(1.f, v_top);
+        gDX.vertex3fv((pos - left + up).mV);
 
-        gGL.texCoord2f(0.f, v_bottom);
-        gGL.vertex3fv((pos + left - up).mV);
-        gGL.texCoord2f(1.f, v_top);
-        gGL.vertex3fv((pos - left + up).mV);
-        gGL.texCoord2f(0.f, v_top);
-        gGL.vertex3fv((pos + left + up).mV);
+        gDX.texCoord2f(0.f, v_bottom);
+        gDX.vertex3fv((pos + left - up).mV);
+        gDX.texCoord2f(1.f, v_top);
+        gDX.vertex3fv((pos - left + up).mV);
+        gDX.texCoord2f(0.f, v_top);
+        gDX.vertex3fv((pos + left + up).mV);
     }
-    gGL.end();
-    gGL.flush();
+    gDX.end();
+    gDX.flush();
     }
 
     return 6;
@@ -5732,7 +5732,7 @@ void LLVOAvatar::updateTextures()
         {
             if (layer_baked[i] && !mBakedTextureDatas[i].mIsLoaded)
             {
-                gGL.getTexUnit(0)->bind(getImage( mBakedTextureDatas[i].mTextureIndex, 0 ));
+                gDX.getTexUnit(0)->bind(getImage( mBakedTextureDatas[i].mTextureIndex, 0 ));
             }
         }
     }
@@ -10140,7 +10140,7 @@ void LLVOAvatar::onBakedTextureMasksLoaded( bool success, LLViewerFetchedTexture
             LLImageGL::generateTextures(1, &gl_name );
             stop_glerror();
 
-            gGL.getTexUnit(0)->bindManual(LLTexUnit::TT_TEXTURE, gl_name);
+            gDX.getTexUnit(0)->bindManual(LLTexUnit::TT_TEXTURE, gl_name);
             stop_glerror();
 
 #ifndef DX_RENDER
@@ -10163,7 +10163,7 @@ void LLVOAvatar::onBakedTextureMasksLoaded( bool success, LLViewerFetchedTexture
                 GL_ALPHA, GL_UNSIGNED_BYTE, aux_src->getData());
             stop_glerror();
 
-            gGL.getTexUnit(0)->setTextureFilteringOption(LLTexUnit::TFO_BILINEAR);
+            gDX.getTexUnit(0)->setTextureFilteringOption(LLTexUnit::TFO_BILINEAR);
 #endif
 
             /* if( id == head_baked->getID() )
@@ -12110,16 +12110,38 @@ bool LLVOAvatar::isTextureVisible(LLAvatarAppearanceDefines::ETextureIndex type,
 
 void LLVOAvatar::placeProfileQuery()
 {
+    // S24 (2026-09-04): raw OpenGL GPU timer query (glGenQueries/
+    // glBeginQuery), completely unguarded - OpenGL is deliberately not
+    // linked into a DX_RENDER=ON build at all (see newview/CMakeLists.txt's
+    // own enforcement comment), so these are unresolved function pointers
+    // under DX_RENDER. Confirmed live crash: Performance floater's Nearby
+    // tab -> LLWorld::getNearbyAvatarsAndMaxGPUTime() -> LLPipeline::
+    // profileAvatar() -> here - a null-function-pointer jump (WER dump:
+    // SOFTWARE_NX_FAULT_NULL_INVALID_POINTER_EXECUTE, faulting in
+    // LLVOAvatar::placeProfileQuery). LLPipeline::profileAvatar()'s own
+    // `gGLManager.mGLVersion < 3.25f` guard doesn't catch this - mGLVersion
+    // is deliberately spoofed to 4.6 under DX_RENDER elsewhere (to avoid
+    // false negatives in unrelated "GL too old" checks), so it reads as
+    // "profiling available" here too. No DX11-native GPU timer-query
+    // equivalent exists yet - safe no-op for now (mGPURenderTime just stays
+    // at its last/default value rather than crashing).
+#ifndef DX_RENDER
     if (mGPUTimerQuery == 0)
     {
         glGenQueries(1, &mGPUTimerQuery);
     }
 
     glBeginQuery(GL_TIME_ELAPSED, mGPUTimerQuery);
+#endif
 }
 
 void LLVOAvatar::readProfileQuery(S32 retries)
 {
+    // S24 (2026-09-04): see placeProfileQuery()'s matching comment - same
+    // raw-GL crash, same fix.
+#ifdef DX_RENDER
+    return;
+#endif
     if (!mGPUProfilePending)
     {
         glEndQuery(GL_TIME_ELAPSED);

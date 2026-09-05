@@ -33,7 +33,7 @@
 #include "llimage.h"
 #include "llrender.h"
 #include "llenvironment.h"
-#include "llglslshader.h"
+#include "llhlslshader.h"
 #include "llgl.h"
 
 #include "llviewerregion.h"
@@ -53,10 +53,10 @@ extern bool gCubeSnapshot;
 static LLStaticHashedString sCamPosLocal("camPosLocal");
 static LLStaticHashedString sCustomAlpha("custom_alpha");
 
-static LLGLSLShader* cloud_shader = NULL;
-static LLGLSLShader* sky_shader   = NULL;
-static LLGLSLShader* sun_shader   = NULL;
-static LLGLSLShader* moon_shader  = NULL;
+static LLHLSLShader* cloud_shader = NULL;
+static LLHLSLShader* sky_shader   = NULL;
+static LLHLSLShader* sun_shader   = NULL;
+static LLHLSLShader* moon_shader  = NULL;
 
 static float sStarTime;
 
@@ -105,39 +105,39 @@ void LLDrawPoolWLSky::endDeferredPass(S32 pass)
     glClear(GL_DEPTH_BUFFER_BIT);
 }
 
-void LLDrawPoolWLSky::renderDome(const LLVector3& camPosLocal, F32 camHeightLocal, LLGLSLShader * shader) const
+void LLDrawPoolWLSky::renderDome(const LLVector3& camPosLocal, F32 camHeightLocal, LLHLSLShader * shader) const
 {
     llassert_always(NULL != shader);
 
-    gGL.matrixMode(LLRender::MM_MODELVIEW);
-    gGL.pushMatrix();
+    gDX.matrixMode(LLRender::MM_MODELVIEW);
+    gDX.pushMatrix();
 
     //chop off translation
     if (LLPipeline::sReflectionRender && camPosLocal.mV[2] > 256.f)
     {
-        gGL.translatef(camPosLocal.mV[0], camPosLocal.mV[1], 256.f-camPosLocal.mV[2]*0.5f);
+        gDX.translatef(camPosLocal.mV[0], camPosLocal.mV[1], 256.f-camPosLocal.mV[2]*0.5f);
     }
     else
     {
-        gGL.translatef(camPosLocal.mV[0], camPosLocal.mV[1], camPosLocal.mV[2]);
+        gDX.translatef(camPosLocal.mV[0], camPosLocal.mV[1], camPosLocal.mV[2]);
     }
 
 
     // the windlight sky dome works most conveniently in a coordinate system
     // where Y is up, so permute our basis vectors accordingly.
-    gGL.rotatef(120.f, 1.f / F_SQRT3, 1.f / F_SQRT3, 1.f / F_SQRT3);
+    gDX.rotatef(120.f, 1.f / F_SQRT3, 1.f / F_SQRT3, 1.f / F_SQRT3);
 
-    gGL.scalef(0.333f, 0.333f, 0.333f);
+    gDX.scalef(0.333f, 0.333f, 0.333f);
 
-    gGL.translatef(0.f,-camHeightLocal, 0.f);
+    gDX.translatef(0.f,-camHeightLocal, 0.f);
 
     // Draw WL Sky
     shader->uniform3f(sCamPosLocal, 0.f, camHeightLocal, 0.f);
 
     gSky.mVOWLSkyp->drawDome();
 
-    gGL.matrixMode(LLRender::MM_MODELVIEW);
-    gGL.popMatrix();
+    gDX.matrixMode(LLRender::MM_MODELVIEW);
+    gDX.popMatrix();
 }
 
 extern LLPointer<LLImageGL> gEXRImage;
@@ -171,7 +171,7 @@ void LLDrawPoolWLSky::renderSkyHazeDeferred(const LLVector3& camPosLocal, F32 ca
             S32 idx = sky_shader->enableTexture(LLShaderMgr::ENVIRONMENT_MAP);
             if (idx > -1)
             {
-                gGL.getTexUnit(idx)->bind(gEXRImage);
+                gDX.getTexUnit(idx)->bind(gEXRImage);
             }
 
             static LLCachedControl<F32> hdri_exposure(gSavedSettings, "RenderHDRIExposure", 0.0f);
@@ -238,7 +238,7 @@ void LLDrawPoolWLSky::renderStarsDeferred(const LLVector3& camPosLocal) const
     }
 
     LLGLSPipelineBlendSkyBox gls_sky(true, false);
-    gGL.setSceneBlendType(LLRender::BT_ADD_WITH_ALPHA);
+    gDX.setSceneBlendType(LLRender::BT_ADD_WITH_ALPHA);
 
     // Calculate star field opacity (star_brightness range typically 0-250)
     // Normalized to 0.0-0.5 range for proper blending
@@ -270,30 +270,30 @@ void LLDrawPoolWLSky::renderStarsDeferred(const LLVector3& camPosLocal) const
     if (star_tex_current && (!star_tex_next || (star_tex_current == star_tex_next)))
     {
         // Only one texture available or both are the same
-        gGL.getTexUnit(0)->bind(star_tex_current);
-        gGL.getTexUnit(1)->unbind(LLTexUnit::TT_TEXTURE);
+        gDX.getTexUnit(0)->bind(star_tex_current);
+        gDX.getTexUnit(1)->unbind(LLTexUnit::TT_TEXTURE);
         blend_factor = 0.0f; // No blending needed
     }
     else if (star_tex_next && !star_tex_current)
     {
         // Only next texture available
-        gGL.getTexUnit(0)->bind(star_tex_next);
-        gGL.getTexUnit(1)->unbind(LLTexUnit::TT_TEXTURE);
+        gDX.getTexUnit(0)->bind(star_tex_next);
+        gDX.getTexUnit(1)->unbind(LLTexUnit::TT_TEXTURE);
         blend_factor = 0.0f; // No blending needed
     }
     else if (star_tex_next != star_tex_current)
     {
         // Two different textures - enable blending
-        gGL.getTexUnit(0)->bind(star_tex_current);
-        gGL.getTexUnit(1)->bind(star_tex_next);
+        gDX.getTexUnit(0)->bind(star_tex_current);
+        gDX.getTexUnit(1)->bind(star_tex_next);
     }
 
     // Position and rotate star field
-    gGL.pushMatrix();
-    gGL.translatef(camPosLocal.mV[0], camPosLocal.mV[1], camPosLocal.mV[2]);
+    gDX.pushMatrix();
+    gDX.translatef(camPosLocal.mV[0], camPosLocal.mV[1], camPosLocal.mV[2]);
     
     // Rotate stars slowly for animation
-    gGL.rotatef(gFrameTimeSeconds * 0.01f, 0.f, 0.f, 1.f);
+    gDX.rotatef(gFrameTimeSeconds * 0.01f, 0.f, 0.f, 1.f);
     
     // Apply uniform scale to compensate for the aspect ratio being baked into the projection
     // Get viewport dimensions
@@ -315,7 +315,7 @@ void LLDrawPoolWLSky::renderStarsDeferred(const LLVector3& camPosLocal) const
     }
     
     // Apply uniform scale in all dimensions
-    gGL.scalef(aspect_scale, aspect_scale, aspect_scale);
+    gDX.scalef(aspect_scale, aspect_scale, aspect_scale);
 
     // Set shader uniforms
     gDeferredStarProgram.uniform1f(LLShaderMgr::BLEND_FACTOR, blend_factor);
@@ -328,14 +328,14 @@ void LLDrawPoolWLSky::renderStarsDeferred(const LLVector3& camPosLocal) const
     gSky.mVOWLSkyp->drawStars();
 
     // Cleanup
-    gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
-    gGL.getTexUnit(1)->unbind(LLTexUnit::TT_TEXTURE);
+    gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+    gDX.getTexUnit(1)->unbind(LLTexUnit::TT_TEXTURE);
 
     gDeferredStarProgram.unbind();
-    gGL.popMatrix();
+    gDX.popMatrix();
 }
 
-void LLDrawPoolWLSky::renderSkyCloudsDeferred(const LLVector3& camPosLocal, F32 camHeightLocal, LLGLSLShader* cloudshader) const
+void LLDrawPoolWLSky::renderSkyCloudsDeferred(const LLVector3& camPosLocal, F32 camHeightLocal, LLHLSLShader* cloudshader) const
 {
     if (use_hdri_sky())
     {
@@ -353,8 +353,8 @@ void LLDrawPoolWLSky::renderSkyCloudsDeferred(const LLVector3& camPosLocal, F32 
         LLPointer<LLViewerTexture> cloud_noise      = gSky.mVOSkyp->getCloudNoiseTex();
         LLPointer<LLViewerTexture> cloud_noise_next = gSky.mVOSkyp->getCloudNoiseTexNext();
 
-        gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
-        gGL.getTexUnit(1)->unbind(LLTexUnit::TT_TEXTURE);
+        gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+        gDX.getTexUnit(1)->unbind(LLTexUnit::TT_TEXTURE);
 
         F32 cloud_variance = psky ? (F32)psky->getCloudVariance() : 0.0f;
         F32 blend_factor   = psky ? (F32)psky->getBlendFactor() : 0.0f;
@@ -394,8 +394,8 @@ void LLDrawPoolWLSky::renderSkyCloudsDeferred(const LLVector3& camPosLocal, F32 
 
         cloudshader->unbind();
 
-        gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
-        gGL.getTexUnit(1)->unbind(LLTexUnit::TT_TEXTURE);
+        gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+        gDX.getTexUnit(1)->unbind(LLTexUnit::TT_TEXTURE);
     }
 }
 
@@ -406,8 +406,8 @@ void LLDrawPoolWLSky::renderHeavenlyBodies()
     LLGLSPipelineBlendSkyBox gls_skybox(true, true); // SL-14113 we need moon to write to depth to clip stars behind
 
     LLVector3 const & origin = LLViewerCamera::getInstance()->getOrigin();
-    gGL.pushMatrix();
-    gGL.translatef(origin.mV[0], origin.mV[1], origin.mV[2]);
+    gDX.pushMatrix();
+    gDX.translatef(origin.mV[0], origin.mV[1], origin.mV[2]);
 
     LLFace * face = gSky.mVOSkyp->mFace[LLVOSky::FACE_SUN];
 
@@ -421,8 +421,8 @@ void LLDrawPoolWLSky::renderHeavenlyBodies()
         LLPointer<LLViewerTexture> tex_a = face->getTexture(LLRender::DIFFUSE_MAP);
         LLPointer<LLViewerTexture> tex_b = face->getTexture(LLRender::ALTERNATE_DIFFUSE_MAP);
 
-        gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
-        gGL.getTexUnit(1)->unbind(LLTexUnit::TT_TEXTURE);
+        gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+        gDX.getTexUnit(1)->unbind(LLTexUnit::TT_TEXTURE);
 
         // if we even have sun disc textures to work with...
         if (tex_a || tex_b)
@@ -456,8 +456,8 @@ void LLDrawPoolWLSky::renderHeavenlyBodies()
 
                 face->renderIndexed();
 
-                gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
-                gGL.getTexUnit(1)->unbind(LLTexUnit::TT_TEXTURE);
+                gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+                gDX.getTexUnit(1)->unbind(LLTexUnit::TT_TEXTURE);
 
                 sun_shader->unbind();
             }
@@ -506,14 +506,14 @@ void LLDrawPoolWLSky::renderHeavenlyBodies()
 
             face->renderIndexed();
 
-            gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
-            gGL.getTexUnit(1)->unbind(LLTexUnit::TT_TEXTURE);
+            gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+            gDX.getTexUnit(1)->unbind(LLTexUnit::TT_TEXTURE);
 
             moon_shader->unbind();
         }
     }
 
-    gGL.popMatrix();
+    gDX.popMatrix();
 }
 
 void LLDrawPoolWLSky::renderDeferred(S32 pass)

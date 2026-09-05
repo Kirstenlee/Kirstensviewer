@@ -286,39 +286,39 @@ void LLSnapshotLivePreview::draw()
 		gl_drop_shadow(shadow_rect.mLeft, shadow_rect.mTop, shadow_rect.mRight, shadow_rect.mBottom, LLColor4(0.f, 0.f, 0.f, mNeedsFlash ? 0.f : 0.5f), 10);
 
 		LLColor4 image_color(1.f, 1.f, 1.f, 1.f);
-		gGL.color4fv(image_color.mV);
-		gGL.getTexUnit(0)->bind(getCurrentImage());
+		gDX.color4fv(image_color.mV);
+		gDX.getTexUnit(0)->bind(getCurrentImage());
 		// calculate UV scale
 		F32 uv_width = isImageScaled() ? 1.f : llmin((F32)getWidth() / (F32)getCurrentImage()->getWidth(), 1.f);
 		F32 uv_height = isImageScaled() ? 1.f : llmin((F32)getHeight() / (F32)getCurrentImage()->getHeight(), 1.f);
-		gGL.pushMatrix();
+		gDX.pushMatrix();
 		{
-			gGL.translatef((F32)rect.mLeft, (F32)rect.mBottom + TOP_PANEL_HEIGHT, 0.f);
-			gGL.begin(LLRender::TRIANGLES);
+			gDX.translatef((F32)rect.mLeft, (F32)rect.mBottom + TOP_PANEL_HEIGHT, 0.f);
+			gDX.begin(LLRender::TRIANGLES);
 			{
-				gGL.texCoord2f(uv_width, uv_height);
-				gGL.vertex2i(rect.getWidth(), rect.getHeight());
+				gDX.texCoord2f(uv_width, uv_height);
+				gDX.vertex2i(rect.getWidth(), rect.getHeight());
 
-				gGL.texCoord2f(0.f, uv_height);
-				gGL.vertex2i(0, rect.getHeight());
+				gDX.texCoord2f(0.f, uv_height);
+				gDX.vertex2i(0, rect.getHeight());
 
-				gGL.texCoord2f(0.f, 0.f);
-				gGL.vertex2i(0, 0);
+				gDX.texCoord2f(0.f, 0.f);
+				gDX.vertex2i(0, 0);
 
-				gGL.texCoord2f(uv_width, uv_height);
-				gGL.vertex2i(rect.getWidth(), rect.getHeight());
+				gDX.texCoord2f(uv_width, uv_height);
+				gDX.vertex2i(rect.getWidth(), rect.getHeight());
 
-				gGL.texCoord2f(0.f, 0.f);
-				gGL.vertex2i(0, 0);
+				gDX.texCoord2f(0.f, 0.f);
+				gDX.vertex2i(0, 0);
 
-				gGL.texCoord2f(uv_width, 0.f);
-				gGL.vertex2i(rect.getWidth(), 0);
+				gDX.texCoord2f(uv_width, 0.f);
+				gDX.vertex2i(rect.getWidth(), 0);
 			}
-			gGL.end();
+			gDX.end();
 		}
-		gGL.popMatrix();
+		gDX.popMatrix();
 
-		gGL.color4f(1.f, 1.f, 1.f, mFlashAlpha);
+		gDX.color4f(1.f, 1.f, 1.f, mFlashAlpha);
 		gl_rect_2d(getRect());
 		if (mNeedsFlash)
 		{
@@ -361,34 +361,34 @@ void LLSnapshotLivePreview::draw()
 				S32 y1 = 0;
 				S32 y2 = gViewerWindow->getWindowHeightScaled() + TOP_PANEL_HEIGHT;
 
-				gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
-				gGL.begin(LLRender::TRIANGLES);
+				gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+				gDX.begin(LLRender::TRIANGLES);
 				{
-					gGL.color4f(1.f, 1.f, 1.f, 0.f);
-					gGL.vertex2i(x1, y1);
-					gGL.vertex2i(x1 + gViewerWindow->getWindowWidthScaled(), y2);
-					gGL.color4f(1.f, 1.f, 1.f, SHINE_OPACITY);
-					gGL.vertex2i(x2 + gViewerWindow->getWindowWidthScaled(), y2);
+					gDX.color4f(1.f, 1.f, 1.f, 0.f);
+					gDX.vertex2i(x1, y1);
+					gDX.vertex2i(x1 + gViewerWindow->getWindowWidthScaled(), y2);
+					gDX.color4f(1.f, 1.f, 1.f, SHINE_OPACITY);
+					gDX.vertex2i(x2 + gViewerWindow->getWindowWidthScaled(), y2);
 
-					gGL.color4f(1.f, 1.f, 1.f, 0.f);
-					gGL.vertex2i(x1, y1);
-					gGL.color4f(1.f, 1.f, 1.f, SHINE_OPACITY);
-					gGL.vertex2i(x2 + gViewerWindow->getWindowWidthScaled(), y2);
-					gGL.vertex2i(x2, y1);
+					gDX.color4f(1.f, 1.f, 1.f, 0.f);
+					gDX.vertex2i(x1, y1);
+					gDX.color4f(1.f, 1.f, 1.f, SHINE_OPACITY);
+					gDX.vertex2i(x2 + gViewerWindow->getWindowWidthScaled(), y2);
+					gDX.vertex2i(x2, y1);
 
-					gGL.color4f(1.f, 1.f, 1.f, SHINE_OPACITY);
-					gGL.vertex2i(x2, y1);
-					gGL.vertex2i(x2 + gViewerWindow->getWindowWidthScaled(), y2);
-					gGL.color4f(1.f, 1.f, 1.f, 0.f);
-					gGL.vertex2i(x3 + gViewerWindow->getWindowWidthScaled(), y2);
+					gDX.color4f(1.f, 1.f, 1.f, SHINE_OPACITY);
+					gDX.vertex2i(x2, y1);
+					gDX.vertex2i(x2 + gViewerWindow->getWindowWidthScaled(), y2);
+					gDX.color4f(1.f, 1.f, 1.f, 0.f);
+					gDX.vertex2i(x3 + gViewerWindow->getWindowWidthScaled(), y2);
 
-					gGL.color4f(1.f, 1.f, 1.f, SHINE_OPACITY);
-					gGL.vertex2i(x2, y1);
-					gGL.color4f(1.f, 1.f, 1.f, 0.f);
-					gGL.vertex2i(x3 + gViewerWindow->getWindowWidthScaled(), y2);
-					gGL.vertex2i(x3, y1);
+					gDX.color4f(1.f, 1.f, 1.f, SHINE_OPACITY);
+					gDX.vertex2i(x2, y1);
+					gDX.color4f(1.f, 1.f, 1.f, 0.f);
+					gDX.vertex2i(x3 + gViewerWindow->getWindowWidthScaled(), y2);
+					gDX.vertex2i(x3, y1);
 				}
-				gGL.end();
+				gDX.end();
 			}
 
 			// if we're at the end of the animation, stop
@@ -416,41 +416,41 @@ void LLSnapshotLivePreview::draw()
 			F32 fall_interp = mFallAnimTimer.getElapsedTimeF32() / FALL_TIME;
 			F32 alpha = clamp_rescale(fall_interp, 0.f, 1.f, 0.8f, 0.4f);
 			LLColor4 image_color(1.f, 1.f, 1.f, alpha);
-			gGL.color4fv(image_color.mV);
-			gGL.getTexUnit(0)->bind(mViewerImage[old_image_index]);
+			gDX.color4fv(image_color.mV);
+			gDX.getTexUnit(0)->bind(mViewerImage[old_image_index]);
 			// calculate UV scale
 			// *FIX get this to work with old image
 			bool rescale = !mImageScaled[old_image_index] && mViewerImage[mCurImageIndex].notNull();
 			F32 uv_width = rescale ? llmin((F32)mWidth[old_image_index] / (F32)mViewerImage[mCurImageIndex]->getWidth(), 1.f) : 1.f;
 			F32 uv_height = rescale ? llmin((F32)mHeight[old_image_index] / (F32)mViewerImage[mCurImageIndex]->getHeight(), 1.f) : 1.f;
-			gGL.pushMatrix();
+			gDX.pushMatrix();
 			{
 				LLRect& rect = mImageRect[old_image_index];
-				gGL.translatef((F32)rect.mLeft, (F32)rect.mBottom - ll_round(getRect().getHeight() * 2.f * (fall_interp * fall_interp)), 0.f);
-				gGL.rotatef(-45.f * fall_interp, 0.f, 0.f, 1.f);
-				gGL.begin(LLRender::TRIANGLES);
+				gDX.translatef((F32)rect.mLeft, (F32)rect.mBottom - ll_round(getRect().getHeight() * 2.f * (fall_interp * fall_interp)), 0.f);
+				gDX.rotatef(-45.f * fall_interp, 0.f, 0.f, 1.f);
+				gDX.begin(LLRender::TRIANGLES);
 				{
-					gGL.texCoord2f(uv_width, uv_height);
-					gGL.vertex2i(rect.getWidth(), rect.getHeight());
+					gDX.texCoord2f(uv_width, uv_height);
+					gDX.vertex2i(rect.getWidth(), rect.getHeight());
 
-					gGL.texCoord2f(0.f, uv_height);
-					gGL.vertex2i(0, rect.getHeight());
+					gDX.texCoord2f(0.f, uv_height);
+					gDX.vertex2i(0, rect.getHeight());
 
-					gGL.texCoord2f(0.f, 0.f);
-					gGL.vertex2i(0, 0);
+					gDX.texCoord2f(0.f, 0.f);
+					gDX.vertex2i(0, 0);
 
-					gGL.texCoord2f(uv_width, uv_height);
-					gGL.vertex2i(rect.getWidth(), rect.getHeight());
+					gDX.texCoord2f(uv_width, uv_height);
+					gDX.vertex2i(rect.getWidth(), rect.getHeight());
 
-					gGL.texCoord2f(0.f, 0.f);
-					gGL.vertex2i(0, 0);
+					gDX.texCoord2f(0.f, 0.f);
+					gDX.vertex2i(0, 0);
 
-					gGL.texCoord2f(uv_width, 0.f);
-					gGL.vertex2i(rect.getWidth(), 0);
+					gDX.texCoord2f(uv_width, 0.f);
+					gDX.vertex2i(rect.getWidth(), 0);
 				}
-				gGL.end();
+				gDX.end();
 			}
-			gGL.popMatrix();
+			gDX.popMatrix();
 		}
 	}
 }
@@ -490,10 +490,10 @@ void LLSnapshotLivePreview::drawGuides(S32 left, S32 bottom, S32 width, S32 heig
 	LLColor4 col_soft = col;
 	col_soft.mV[VW] *= 0.5f;
 
-	gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+	gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
 
 	// S24: bind UI shader for 2D line/rect drawing; restore caller's shader afterward
-	LLGLSLShader* prev_shader = LLGLSLShader::sCurBoundShaderPtr;
+	LLHLSLShader* prev_shader = LLHLSLShader::sCurBoundShaderPtr;
 	gUIProgram.bind();
 
 	// Rule of thirds
@@ -561,7 +561,7 @@ void LLSnapshotLivePreview::drawGuides(S32 left, S32 bottom, S32 width, S32 heig
 	if (g_safe43)  draw_safe(4.f / 3.f);
 	if (g_safe11)  draw_safe(1.f);
 
-	gGL.flush();
+	gDX.flush();
 	if (prev_shader) { prev_shader->bind(); } else { gUIProgram.unbind(); }
 }
 
@@ -941,7 +941,7 @@ void LLSnapshotLivePreview::prepareFreezeFrame()
 
 		mViewerImage[mCurImageIndex] = LLViewerTextureManager::getLocalTexture(scaled.get(), false);
 		LLPointer<LLViewerTexture> curr_preview_image = mViewerImage[mCurImageIndex];
-		gGL.getTexUnit(0)->bind(curr_preview_image);
+		gDX.getTexUnit(0)->bind(curr_preview_image);
 		curr_preview_image->setFilteringOption(getSnapshotType() == LLSnapshotModel::SNAPSHOT_TEXTURE ? LLTexUnit::TFO_ANISOTROPIC : LLTexUnit::TFO_POINT);
 		curr_preview_image->setAddressMode(LLTexUnit::TAM_CLAMP);
 

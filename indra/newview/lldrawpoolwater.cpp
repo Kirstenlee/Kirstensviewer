@@ -35,7 +35,7 @@
 #include "llrender.h"
 
 #include "llagent.h"        // for gAgent for getRegion for getWaterHeight
-#include "llcubemap.h"
+#include "DXCubeMap.h"
 #include "lldrawable.h"
 #include "llface.h"
 #include "llsky.h"
@@ -109,7 +109,7 @@ void LLDrawPoolWater::setNormalMaps(const LLUUID& normalMapId, const LLUUID& nex
 
 void LLDrawPoolWater::prerender()
 {
-    mShaderLevel = LLCubeMap::sUseCubeMaps ? LLViewerShaderMgr::instance()->getShaderLevel(LLViewerShaderMgr::SHADER_WATER) : 0;
+    mShaderLevel = DXCubeMap::sUseCubeMaps ? LLViewerShaderMgr::instance()->getShaderLevel(LLViewerShaderMgr::SHADER_WATER) : 0;
 }
 
 S32 LLDrawPoolWater::getNumPostDeferredPasses()
@@ -129,7 +129,7 @@ void LLDrawPoolWater::beginPostDeferredPass(S32 pass)
     return;
 #endif
     LL_PROFILE_GPU_ZONE("water beginPostDeferredPass");
-    gGL.setColorMask(true, true);
+    gDX.setColorMask(true, true);
 
     if (LLPipeline::sRenderTransparentWater)
     {
@@ -147,8 +147,8 @@ void LLDrawPoolWater::beginPostDeferredPass(S32 pass)
         S32 diff_map = gCopyDepthProgram.getTextureChannel(LLShaderMgr::DIFFUSE_MAP);
         S32 depth_map = gCopyDepthProgram.getTextureChannel(LLShaderMgr::DEFERRED_DEPTH);
 
-        gGL.getTexUnit(diff_map)->bind(&src);
-        gGL.getTexUnit(depth_map)->bind(&depth_src, true);
+        gDX.getTexUnit(diff_map)->bind(&src);
+        gDX.getTexUnit(depth_map)->bind(&depth_src, true);
 
         gPipeline.mScreenTriangleVB->setBuffer();
         gPipeline.mScreenTriangleVB->drawArrays(LLRender::TRIANGLES, 0, 3);
@@ -166,7 +166,7 @@ void LLDrawPoolWater::renderPostDeferred(S32 pass)
     LL_RECORD_BLOCK_TIME(FTM_RENDER_WATER_OPAQUE);
     LLGLDisable blend(GL_BLEND);
 
-    gGL.setColorMask(true, true);
+    gDX.setColorMask(true, true);
 
     LLColor3 light_diffuse(0, 0, 0);
 
@@ -207,7 +207,7 @@ void LLDrawPoolWater::renderPostDeferred(S32 pass)
     // S24 Advanced - Apply wave animation speed multiplier
     static LLCachedControl<F32> water_wave_speed(gSavedSettings, "RenderWaterWaveSpeed", 1.0f);
     F32           phase_time = (F32) LLFrameTimer::getElapsedSeconds() * 0.5f * llmax(0.0f, (F32)water_wave_speed);
-    LLGLSLShader *shader     = nullptr;
+    LLHLSLShader *shader     = nullptr;
 
     // two passes, first with standard water shader bound, second with edge water shader bound
     // There isn't a good reason anymore to really have void water run in a separate pass.
@@ -366,7 +366,7 @@ void LLDrawPoolWater::renderPostDeferred(S32 pass)
     // clean up
     gPipeline.unbindDeferredShader(*shader);
 
-    gGL.setColorMask(true, false);
+    gDX.setColorMask(true, false);
 }
 
 void LLDrawPoolWater::pushWaterPlanes(int pass)

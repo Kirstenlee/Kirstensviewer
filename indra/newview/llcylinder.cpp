@@ -51,28 +51,28 @@ void LLCone::render(S32 sides)
     const glm::vec3 base_center(0.0f, 0.0f, -0.5f); // Center of the base
 
     // Base of the cone
-    gGL.begin(LLRender::TRIANGLE_FAN);
-    gGL.vertex3f(base_center.x, base_center.y, base_center.z); // Center vertex
+    gDX.begin(LLRender::TRIANGLE_FAN);
+    gDX.vertex3f(base_center.x, base_center.y, base_center.z); // Center vertex
 
     for (S32 i = 0; i <= sides; ++i) { // Include the closing point
         float angle = (float)i / sides * glm::two_pi<float>(); // Full circle
         float x = cos(angle) * radius; // X-coordinate
         float y = sin(angle) * radius; // Y-coordinate
-        gGL.vertex3f(x, y, base_center.z); // Add vertex on the base perimeter
+        gDX.vertex3f(x, y, base_center.z); // Add vertex on the base perimeter
     }
-    gGL.end();
+    gDX.end();
 
     // Sides of the cone
-    gGL.begin(LLRender::TRIANGLE_FAN);
-    gGL.vertex3f(tip.x, tip.y, tip.z); // Tip vertex
+    gDX.begin(LLRender::TRIANGLE_FAN);
+    gDX.vertex3f(tip.x, tip.y, tip.z); // Tip vertex
 
     for (S32 i = 0; i <= sides; ++i) { // Match the base perimeter vertices
         float angle = (float)i / sides * glm::two_pi<float>();
         float x = cos(angle) * radius;
         float y = sin(angle) * radius;
-        gGL.vertex3f(x, y, base_center.z); // Add vertex on the base perimeter
+        gDX.vertex3f(x, y, base_center.z); // Add vertex on the base perimeter
     }
-    gGL.end();
+    gDX.end();
 }
 
 

@@ -49,7 +49,6 @@
 #include "lldrawpool.h"
 
 #include "llvosky.h"
-#include "llcubemap.h"
 #include "llviewercontrol.h"
 #include "llenvironment.h"
 #include "llvoavatarself.h"

@@ -35,12 +35,6 @@
 #include "llgl.h"
 #include "llrender.h"
 
-#ifdef DX_RENDER
-#include "DXDevice.h"
-#include "DXSwapChain.h"
-#include "DXReadback.h"
-#endif
-
 #include "llagent.h"
 #include "llagentcamera.h"
 #include "llbbox.h"
@@ -189,8 +183,8 @@ void LLManipTranslate::restoreGL()
     GLuint* d = new GLuint[rez*rez];
 
 #ifndef DX_RENDER
-    gGL.getTexUnit(0)->bindManual(LLTexUnit::TT_TEXTURE, sGridTex->getTexName(), true);
-    gGL.getTexUnit(0)->setTextureFilteringOption(LLTexUnit::TFO_TRILINEAR);
+    gDX.getTexUnit(0)->bindManual(LLTexUnit::TT_TEXTURE, sGridTex->getTexName(), true);
+    gDX.getTexUnit(0)->setTextureFilteringOption(LLTexUnit::TFO_TRILINEAR);
 #endif
 
     while (rez >= 1)
@@ -1090,27 +1084,22 @@ bool LLManipTranslate::handleMouseUp(S32 x, S32 y, MASK mask)
 
 void LLManipTranslate::render()
 {
-#ifdef DX_RENDER
-    // S24 (2026-08-09, task #132/133 follow-up): confirmed reached (task
-    // #133's first log round) - the DXDevice::resetDebugMessageDedup() probe
-    // that used to run here answered its question (no recurring "UI Shader:
-    // no RTV bound" warning - that theory is ruled out, see the project's
-    // dated notes) and was removed. Kept as a bare reachability marker.
-    {
-        static S32 s_manip_render_log_count = 0;
-        if (s_manip_render_log_count < 20)
-        {
-            ++s_manip_render_log_count;
-            LL_WARNS("S24Diag") << "LLManipTranslate::render() ENTERED" << LL_ENDL;
-        }
-    }
-#endif
-    gGL.matrixMode(LLRender::MM_MODELVIEW);
-    gGL.pushMatrix();
+    // S24 (2026-09-02): task #132/133's reachability-marker and OM/pixel-
+    // readback diagnostics (both logged under "S24Diag") removed - their
+    // investigation (a "no render target bound"/nothing-drawn theory for
+    // the move gizmo) was already confirmed resolved per their own
+    // comments, they'd been sitting here as dead weight since, and the
+    // readback diagnostic specifically did 81 synchronous GPU->CPU
+    // pixel reads (DXReadback::readPixels(), a real pipeline stall each
+    // time) on every one of its first 5 activations - a genuine, if
+    // bounded, stutter the first few times this tool renders each
+    // session, for zero remaining purpose.
+    gDX.matrixMode(LLRender::MM_MODELVIEW);
+    gDX.pushMatrix();
     if (mObjectSelection->getSelectType() == SELECT_TYPE_HUD)
     {
         F32 zoom = gAgentCamera.mHUDCurZoom;
-        gGL.scalef(zoom, zoom, zoom);
+        gDX.scalef(zoom, zoom, zoom);
     }
     {
         LLGLDepthTest gls_depth(GL_TRUE, GL_FALSE);
@@ -1121,120 +1110,7 @@ void LLManipTranslate::render()
         renderTranslationHandles();
         renderSnapGuides();
     }
-    gGL.popMatrix();
-
-#ifdef DX_RENDER
-    // S24 (2026-08-09, task #133): temporary diagnostic - CPU-side logic is
-    // now confirmed correct (mSilhouetteExists/vertex counts/draw_handles all
-    // valid, per the previous log round) and the "no render target bound"
-    // theory is ruled out (no recurring debug-layer warning even with dedup
-    // force-reset) - so the actual D3D11 pipeline state at the moment of the
-    // draw, and whether anything actually lands on screen, is the remaining
-    // unknown. Forces a flush (draining whatever LLRender::flush() batching
-    // left pending) then reads back the real OM/viewport state plus a 3x3
-    // grid of the swap-chain back buffer itself, mirroring the exact
-    // technique that found the LLRenderTarget::bindTexture() root cause in
-    // the deferred-lighting investigation (see the project's dated notes) -
-    // real pixel data beats further guessing. Remove once the hurdle clears.
-    {
-        static S32 s_manip_probe_log_count = 0;
-        if (s_manip_probe_log_count < 5)
-        {
-            ++s_manip_probe_log_count;
-            gGL.flush();
-
-            ID3D11DeviceContext* ctx = gDXDevice.getContext();
-            ID3D11RenderTargetView* rtv = nullptr;
-            ID3D11DepthStencilView* dsv = nullptr;
-            ctx->OMGetRenderTargets(1, &rtv, &dsv);
-
-            UINT num_vp = 1;
-            D3D11_VIEWPORT vp = {};
-            ctx->RSGetViewports(&num_vp, &vp);
-
-            ID3D11BlendState* blend_state = nullptr;
-            FLOAT blend_factor[4] = {};
-            UINT sample_mask = 0;
-            ctx->OMGetBlendState(&blend_state, blend_factor, &sample_mask);
-            D3D11_BLEND_DESC blend_desc = {};
-            bool blend_enabled = false;
-            if (blend_state) { blend_state->GetDesc(&blend_desc); blend_enabled = blend_desc.RenderTarget[0].BlendEnable != 0; }
-
-            ID3D11DepthStencilState* depth_state = nullptr;
-            UINT stencil_ref = 0;
-            ctx->OMGetDepthStencilState(&depth_state, &stencil_ref);
-            D3D11_DEPTH_STENCIL_DESC depth_desc = {};
-            bool depth_enabled = false;
-            if (depth_state) { depth_state->GetDesc(&depth_desc); depth_enabled = depth_desc.DepthEnable != 0; }
-
-            LL_WARNS("S24Diag") << "manip OM probe: rtvBound=" << (rtv != nullptr)
-                << " rtvMatchesBackBuffer=" << (rtv == gDXSwapChain.getBackBufferRTV())
-                << " dsvBound=" << (dsv != nullptr)
-                << " dsvMatchesSwapChain=" << (dsv == gDXSwapChain.getDepthStencilView())
-                << " viewport=(" << vp.TopLeftX << "," << vp.TopLeftY << "," << vp.Width << "," << vp.Height << ")"
-                << " blendEnabled=" << blend_enabled << " depthEnabled=" << depth_enabled
-                << LL_ENDL;
-
-            if (rtv) rtv->Release();
-            if (dsv) dsv->Release();
-            if (blend_state) blend_state->Release();
-            if (depth_state) depth_state->Release();
-
-            // S24 (2026-08-09): round 1 of this probe used a generic quarter-
-            // spaced 3x3 grid across the whole viewport - all 9 samples came
-            // back identical across all 5 frames, which just means the grid
-            // never landed on the (small, precisely-positioned-at-the-
-            // selection-pivot) gizmo at all, not that nothing drew. Project
-            // the real pivot point to screen space this time and sample a
-            // dense grid centered on THAT instead - a coarse fixed grid was
-            // never going to hit a ~1m-scale gizmo by chance.
-            LLVector3 pivot_agent = getPivotPoint();
-            LLCoordGL screen_pt;
-            bool projected = LLViewerCamera::getInstance()->projectPosAgentToScreen(pivot_agent, screen_pt, false);
-
-            ID3D11Texture2D* back_tex = gDXSwapChain.getBackBufferTexture();
-            if (back_tex)
-            {
-                int bw = gDXSwapChain.getWidth();
-                int bh = gDXSwapChain.getHeight();
-
-                // LLCoordGL is bottom-left-origin (matches every other GL-style
-                // screen coord in this codebase) - flip to D3D11's top-left
-                // origin using the back buffer's own height, same conversion
-                // already validated for the present viewport (task #110) and
-                // the scissor rect (task #129).
-                int center_x = screen_pt.mX;
-                int center_y = bh - screen_pt.mY;
-
-                LL_WARNS("S24Diag") << "manip pivot projection: pivot_agent=(" << pivot_agent.mV[0] << "," << pivot_agent.mV[1] << "," << pivot_agent.mV[2]
-                    << ") projected=" << projected << " screenGL=(" << screen_pt.mX << "," << screen_pt.mY
-                    << ") screenD3D=(" << center_x << "," << center_y << ")"
-                    << LL_ENDL;
-
-                for (int row = -4; row <= 4; ++row)
-                {
-                    for (int col = -4; col <= 4; ++col)
-                    {
-                        int sx = center_x + col * 8;
-                        int sy = center_y + row * 8;
-                        if (sx < 0 || sy < 0 || sx >= bw || sy >= bh)
-                        {
-                            continue;
-                        }
-                        uint8_t px[4] = { 0, 0, 0, 0 };
-                        if (DXReadback::readPixels(back_tex, sx, sy, 1, 1, 4, px))
-                        {
-                            LL_WARNS("S24Diag") << "manip pivot-area readback: (" << sx << "," << sy
-                                << ") rgba=(" << (int)px[0] << "," << (int)px[1] << "," << (int)px[2] << "," << (int)px[3] << ")"
-                                << LL_ENDL;
-                        }
-                    }
-                }
-                back_tex->Release();
-            }
-        }
-    }
-#endif
+    gDX.popMatrix();
 
     renderText();
 }
@@ -1249,7 +1125,7 @@ void LLManipTranslate::renderSnapGuides()
     F32 max_subdivisions = sGridMaxSubdivisionLevel;//(F32)gSavedSettings.getS32("GridSubdivision");
     F32 line_alpha = gSavedSettings.getF32("GridOpacity");
 
-    gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+    gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
     LLGLDepthTest gls_depth(GL_TRUE);
     LLGLDisable gls_cull(GL_CULL_FACE);
     LLVector3 translate_axis;
@@ -1421,31 +1297,31 @@ void LLManipTranslate::renderSnapGuides()
             LLColor4 line_color = setupSnapGuideRenderPass(pass);
             LLGLDepthTest gls_depth(pass != 1);
 
-            gGL.begin(LLRender::LINES);
+            gDX.begin(LLRender::LINES);
             {
                 LLVector3 line_start = selection_center + (mSnapOffsetMeters * mSnapOffsetAxis) + (translate_axis * (guide_size_meters * 0.5f + offset_nearest_grid_unit));
                 LLVector3 line_end = selection_center + (mSnapOffsetMeters * mSnapOffsetAxis) - (translate_axis * (guide_size_meters * 0.5f + offset_nearest_grid_unit));
                 LLVector3 line_mid = (line_start + line_end) * 0.5f;
 
-                gGL.color4f(line_color.mV[VRED], line_color.mV[VGREEN], line_color.mV[VBLUE], line_color.mV[VALPHA] * 0.2f);
-                gGL.vertex3fv(line_start.mV);
-                gGL.color4f(line_color.mV[VRED], line_color.mV[VGREEN], line_color.mV[VBLUE], line_color.mV[VALPHA]);
-                gGL.vertex3fv(line_mid.mV);
-                gGL.vertex3fv(line_mid.mV);
-                gGL.color4f(line_color.mV[VRED], line_color.mV[VGREEN], line_color.mV[VBLUE], line_color.mV[VALPHA] * 0.2f);
-                gGL.vertex3fv(line_end.mV);
+                gDX.color4f(line_color.mV[VRED], line_color.mV[VGREEN], line_color.mV[VBLUE], line_color.mV[VALPHA] * 0.2f);
+                gDX.vertex3fv(line_start.mV);
+                gDX.color4f(line_color.mV[VRED], line_color.mV[VGREEN], line_color.mV[VBLUE], line_color.mV[VALPHA]);
+                gDX.vertex3fv(line_mid.mV);
+                gDX.vertex3fv(line_mid.mV);
+                gDX.color4f(line_color.mV[VRED], line_color.mV[VGREEN], line_color.mV[VBLUE], line_color.mV[VALPHA] * 0.2f);
+                gDX.vertex3fv(line_end.mV);
 
                 line_start.setVec(selection_center + (mSnapOffsetAxis * -mSnapOffsetMeters) + (translate_axis * guide_size_meters * 0.5f));
                 line_end.setVec(selection_center + (mSnapOffsetAxis * -mSnapOffsetMeters) - (translate_axis * guide_size_meters * 0.5f));
                 line_mid = (line_start + line_end) * 0.5f;
 
-                gGL.color4f(line_color.mV[VRED], line_color.mV[VGREEN], line_color.mV[VBLUE], line_color.mV[VALPHA] * 0.2f);
-                gGL.vertex3fv(line_start.mV);
-                gGL.color4f(line_color.mV[VRED], line_color.mV[VGREEN], line_color.mV[VBLUE], line_color.mV[VALPHA]);
-                gGL.vertex3fv(line_mid.mV);
-                gGL.vertex3fv(line_mid.mV);
-                gGL.color4f(line_color.mV[VRED], line_color.mV[VGREEN], line_color.mV[VBLUE], line_color.mV[VALPHA] * 0.2f);
-                gGL.vertex3fv(line_end.mV);
+                gDX.color4f(line_color.mV[VRED], line_color.mV[VGREEN], line_color.mV[VBLUE], line_color.mV[VALPHA] * 0.2f);
+                gDX.vertex3fv(line_start.mV);
+                gDX.color4f(line_color.mV[VRED], line_color.mV[VGREEN], line_color.mV[VBLUE], line_color.mV[VALPHA]);
+                gDX.vertex3fv(line_mid.mV);
+                gDX.vertex3fv(line_mid.mV);
+                gDX.color4f(line_color.mV[VRED], line_color.mV[VGREEN], line_color.mV[VBLUE], line_color.mV[VALPHA] * 0.2f);
+                gDX.vertex3fv(line_end.mV);
 
                 for (S32 i = -num_ticks_per_side; i <= num_ticks_per_side; i++)
                 {
@@ -1476,53 +1352,53 @@ void LLManipTranslate::renderSnapGuides()
 
                     tick_end = tick_start + (mSnapOffsetAxis * mSnapOffsetMeters * tick_scale);
 
-                    gGL.color4f(line_color.mV[VRED], line_color.mV[VGREEN], line_color.mV[VBLUE], line_color.mV[VALPHA]);
-                    gGL.vertex3fv(tick_start.mV);
-                    gGL.vertex3fv(tick_end.mV);
+                    gDX.color4f(line_color.mV[VRED], line_color.mV[VGREEN], line_color.mV[VBLUE], line_color.mV[VALPHA]);
+                    gDX.vertex3fv(tick_start.mV);
+                    gDX.vertex3fv(tick_end.mV);
 
                     tick_start = selection_center + (mSnapOffsetAxis * -mSnapOffsetMeters) +
                         (translate_axis * (getMinGridScale() / (F32)(max_subdivisions) * (F32)i - offset_nearest_grid_unit));
                     tick_end = tick_start - (mSnapOffsetAxis * mSnapOffsetMeters * tick_scale);
 
-                    gGL.vertex3fv(tick_start.mV);
-                    gGL.vertex3fv(tick_end.mV);
+                    gDX.vertex3fv(tick_start.mV);
+                    gDX.vertex3fv(tick_end.mV);
                 }
             }
-            gGL.end();
+            gDX.end();
 
             if (mInSnapRegime)
             {
                 LLVector3 line_start = selection_center - mSnapOffsetAxis * mSnapOffsetMeters;
                 LLVector3 line_end = selection_center + mSnapOffsetAxis * mSnapOffsetMeters;
 
-                gGL.begin(LLRender::LINES);
+                gDX.begin(LLRender::LINES);
                 {
-                    gGL.color4f(line_color.mV[VRED], line_color.mV[VGREEN], line_color.mV[VBLUE], line_color.mV[VALPHA]);
+                    gDX.color4f(line_color.mV[VRED], line_color.mV[VGREEN], line_color.mV[VBLUE], line_color.mV[VALPHA]);
 
-                    gGL.vertex3fv(line_start.mV);
-                    gGL.vertex3fv(line_end.mV);
+                    gDX.vertex3fv(line_start.mV);
+                    gDX.vertex3fv(line_end.mV);
                 }
-                gGL.end();
+                gDX.end();
 
                 // draw snap guide arrow
-                gGL.begin(LLRender::TRIANGLES);
+                gDX.begin(LLRender::TRIANGLES);
                 {
-                    gGL.color4f(line_color.mV[VRED], line_color.mV[VGREEN], line_color.mV[VBLUE], line_color.mV[VALPHA]);
+                    gDX.color4f(line_color.mV[VRED], line_color.mV[VGREEN], line_color.mV[VBLUE], line_color.mV[VALPHA]);
 
                     LLVector3 arrow_dir;
                     LLVector3 arrow_span = translate_axis;
 
                     arrow_dir = -mSnapOffsetAxis;
-                    gGL.vertex3fv((line_start + arrow_dir * mConeSize * SNAP_ARROW_SCALE).mV);
-                    gGL.vertex3fv((line_start + arrow_span * mConeSize * SNAP_ARROW_SCALE).mV);
-                    gGL.vertex3fv((line_start - arrow_span * mConeSize * SNAP_ARROW_SCALE).mV);
+                    gDX.vertex3fv((line_start + arrow_dir * mConeSize * SNAP_ARROW_SCALE).mV);
+                    gDX.vertex3fv((line_start + arrow_span * mConeSize * SNAP_ARROW_SCALE).mV);
+                    gDX.vertex3fv((line_start - arrow_span * mConeSize * SNAP_ARROW_SCALE).mV);
 
                     arrow_dir = mSnapOffsetAxis;
-                    gGL.vertex3fv((line_end + arrow_dir * mConeSize * SNAP_ARROW_SCALE).mV);
-                    gGL.vertex3fv((line_end + arrow_span * mConeSize * SNAP_ARROW_SCALE).mV);
-                    gGL.vertex3fv((line_end - arrow_span * mConeSize * SNAP_ARROW_SCALE).mV);
+                    gDX.vertex3fv((line_end + arrow_dir * mConeSize * SNAP_ARROW_SCALE).mV);
+                    gDX.vertex3fv((line_end + arrow_span * mConeSize * SNAP_ARROW_SCALE).mV);
+                    gDX.vertex3fv((line_end - arrow_span * mConeSize * SNAP_ARROW_SCALE).mV);
                 }
-                gGL.end();
+                gDX.end();
             }
         }
 
@@ -1659,21 +1535,21 @@ void LLManipTranslate::renderSnapGuides()
             break;
         }
 
-        gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+        gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
         highlightIntersection(normal, selection_center, grid_rotation, inner_color);
 
-        gGL.pushMatrix();
+        gDX.pushMatrix();
 
         F32 x,y,z,angle_radians;
         grid_rotation.getAngleAxis(&angle_radians, &x, &y, &z);
-        gGL.translatef(selection_center.mV[VX], selection_center.mV[VY], selection_center.mV[VZ]);
-        gGL.rotatef(angle_radians * RAD_TO_DEG, x, y, z);
+        gDX.translatef(selection_center.mV[VX], selection_center.mV[VY], selection_center.mV[VZ]);
+        gDX.rotatef(angle_radians * RAD_TO_DEG, x, y, z);
 
         F32 sz = mGridSizeMeters;
         F32 tiles = sz;
 
-        gGL.matrixMode(LLRender::MM_TEXTURE);
-        gGL.pushMatrix();
+        gDX.matrixMode(LLRender::MM_TEXTURE);
+        gDX.pushMatrix();
         usc = 1.0f/usc;
         vsc = 1.0f/vsc;
 
@@ -1686,8 +1562,8 @@ void LLManipTranslate::renderSnapGuides()
             vsc *= 0.5f;
         }
 
-        gGL.scalef(usc, vsc, 1.0f);
-        gGL.translatef(u, v, 0);
+        gDX.scalef(usc, vsc, 1.0f);
+        gDX.translatef(u, v, 0);
 
         float a = line_alpha;
 
@@ -1701,34 +1577,34 @@ void LLManipTranslate::renderSnapGuides()
                     LLGLDepthTest gls_depth(GL_TRUE, GL_FALSE, GL_GREATER);
 #ifdef DX_RENDER
                     getGridTexName(); // side effect only - ensures restoreGL() has run
-                    gGL.getTexUnit(0)->bind(sDXGridTex, LLTexUnit::TAM_WRAP, LLTexUnit::TFO_TRILINEAR);
+                    gDX.getTexUnit(0)->bind(sDXGridTex, LLTexUnit::TAM_WRAP, LLTexUnit::TFO_TRILINEAR);
 #else
-                    gGL.getTexUnit(0)->bindManual(LLTexUnit::TT_TEXTURE, getGridTexName());
+                    gDX.getTexUnit(0)->bindManual(LLTexUnit::TT_TEXTURE, getGridTexName());
 #endif
-                    gGL.flush();
-                    gGL.blendFunc(LLRender::BF_ZERO, LLRender::BF_ONE_MINUS_SOURCE_ALPHA);
+                    gDX.flush();
+                    gDX.blendFunc(LLRender::BF_ZERO, LLRender::BF_ONE_MINUS_SOURCE_ALPHA);
                     renderGrid(u,v,tiles,0.9f, 0.9f, 0.9f,a*0.15f);
-                    gGL.flush();
-                    gGL.setSceneBlendType(LLRender::BT_ALPHA);
+                    gDX.flush();
+                    gDX.setSceneBlendType(LLRender::BT_ALPHA);
                 }
 
                 {
                     //draw black overlay
-                    gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+                    gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
                     renderGrid(u,v,tiles,0.0f, 0.0f, 0.0f,a*0.16f);
 
                     //draw grid top
 #ifdef DX_RENDER
                     getGridTexName(); // side effect only - ensures restoreGL() has run
-                    gGL.getTexUnit(0)->bind(sDXGridTex, LLTexUnit::TAM_WRAP, LLTexUnit::TFO_TRILINEAR);
+                    gDX.getTexUnit(0)->bind(sDXGridTex, LLTexUnit::TAM_WRAP, LLTexUnit::TFO_TRILINEAR);
 #else
-                    gGL.getTexUnit(0)->bindManual(LLTexUnit::TT_TEXTURE, getGridTexName());
+                    gDX.getTexUnit(0)->bindManual(LLTexUnit::TT_TEXTURE, getGridTexName());
 #endif
                     renderGrid(u,v,tiles,1,1,1,a);
 
-                    gGL.popMatrix();
-                    gGL.matrixMode(LLRender::MM_MODELVIEW);
-                    gGL.popMatrix();
+                    gDX.popMatrix();
+                    gDX.matrixMode(LLRender::MM_MODELVIEW);
+                    gDX.popMatrix();
                 }
 
                 {
@@ -1738,7 +1614,7 @@ void LLManipTranslate::renderSnapGuides()
 
                 {
                     LLGLDepthTest gls_depth(GL_TRUE, GL_FALSE, GL_GREATER);
-                    gGL.flush();
+                    gDX.flush();
 
                     switch (mManipPart)
                     {
@@ -1754,7 +1630,7 @@ void LLManipTranslate::renderSnapGuides()
                       default:
                         break;
                     }
-                    gGL.flush();
+                    gDX.flush();
                 }
             }
         }
@@ -1767,32 +1643,32 @@ void LLManipTranslate::renderGrid(F32 x, F32 y, F32 size, F32 r, F32 g, F32 b, F
 
     for (F32 xx = -size-d; xx < size+d; xx += d)
     {
-        gGL.begin(LLRender::TRIANGLE_STRIP);
+        gDX.begin(LLRender::TRIANGLE_STRIP);
         for (F32 yy = -size-d; yy < size+d; yy += d)
         {
             float dx, dy, da;
 
             dx = xx; dy = yy;
             da = sqrtf(llmax(0.0f, 1.0f-sqrtf(dx*dx+dy*dy)/size))*a;
-            gGL.texCoord2f(dx, dy);
+            gDX.texCoord2f(dx, dy);
             renderGridVert(dx,dy,r,g,b,da);
 
             dx = xx+d; dy = yy;
             da = sqrtf(llmax(0.0f, 1.0f-sqrtf(dx*dx+dy*dy)/size))*a;
-            gGL.texCoord2f(dx, dy);
+            gDX.texCoord2f(dx, dy);
             renderGridVert(dx,dy,r,g,b,da);
 
             dx = xx; dy = yy+d;
             da = sqrtf(llmax(0.0f, 1.0f-sqrtf(dx*dx+dy*dy)/size))*a;
-            gGL.texCoord2f(dx, dy);
+            gDX.texCoord2f(dx, dy);
             renderGridVert(dx,dy,r,g,b,da);
 
             dx = xx+d; dy = yy+d;
             da = sqrtf(llmax(0.0f, 1.0f-sqrtf(dx*dx+dy*dy)/size))*a;
-            gGL.texCoord2f(dx, dy);
+            gDX.texCoord2f(dx, dy);
             renderGridVert(dx,dy,r,g,b,da);
         }
-        gGL.end();
+        gDX.end();
     }
 
 
@@ -1810,7 +1686,7 @@ void LLManipTranslate::highlightIntersection(LLVector3 normal,
     }
 
 
-    LLGLSLShader* shader = LLGLSLShader::sCurBoundShaderPtr;
+    LLHLSLShader* shader = LLHLSLShader::sCurBoundShaderPtr;
 
 
     static const U32 types[] = { LLRenderPass::PASS_SIMPLE, LLRenderPass::PASS_ALPHA, LLRenderPass::PASS_FULLBRIGHT, LLRenderPass::PASS_SHINY };
@@ -1819,7 +1695,7 @@ void LLManipTranslate::highlightIntersection(LLVector3 normal,
     GLuint stencil_mask = 0xFFFFFFFF;
     //stencil in volumes
 
-    gGL.flush();
+    gDX.flush();
 
     if (shader)
     {
@@ -1834,10 +1710,10 @@ void LLManipTranslate::highlightIntersection(LLVector3 normal,
         //LLGLEnable stencil(GL_STENCIL_TEST);
         LLGLDepthTest depth (GL_TRUE, GL_FALSE, GL_ALWAYS);
         //glStencilFunc(GL_ALWAYS, 0, stencil_mask);
-        gGL.setColorMask(false, false);
-        gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+        gDX.setColorMask(false, false);
+        gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
 
-        gGL.diffuseColor4f(1,1,1,1);
+        gDX.diffuseColor4f(1,1,1,1);
 
         //setup clip plane
         normal = normal * grid_rotation;
@@ -1848,7 +1724,7 @@ void LLManipTranslate::highlightIntersection(LLVector3 normal,
         F32 d = -(selection_center * normal);
         glm::vec4 plane(normal.mV[0], normal.mV[1], normal.mV[2], d );
 
-        plane = glm::inverse(gGL.getModelviewMatrix()) * plane;
+        plane = glm::inverse(gDX.getModelviewMatrix()) * plane;
 
         static LLStaticHashedString sClipPlane("clip_plane");
         gClipProgram.uniform4fv(sClipPlane, 1, plane.v);
@@ -1889,16 +1765,16 @@ void LLManipTranslate::highlightIntersection(LLVector3 normal,
             LLPipeline::toggleRenderType(LLPipeline::RENDER_TYPE_CLOUDS);
         }
 
-        gGL.setColorMask(true, false);
+        gDX.setColorMask(true, false);
     }
-    gGL.color4f(1,1,1,1);
+    gDX.color4f(1,1,1,1);
 
-    gGL.pushMatrix();
+    gDX.pushMatrix();
 
     F32 x,y,z,angle_radians;
     grid_rotation.getAngleAxis(&angle_radians, &x, &y, &z);
-    gGL.translatef(selection_center.mV[VX], selection_center.mV[VY], selection_center.mV[VZ]);
-    gGL.rotatef(angle_radians * RAD_TO_DEG, x, y, z);
+    gDX.translatef(selection_center.mV[VX], selection_center.mV[VY], selection_center.mV[VZ]);
+    gDX.rotatef(angle_radians * RAD_TO_DEG, x, y, z);
 
     F32 sz = mGridSizeMeters;
     F32 tiles = sz;
@@ -1910,7 +1786,7 @@ void LLManipTranslate::highlightIntersection(LLVector3 normal,
 
     //draw volume/plane intersections
     {
-        gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+        gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
         LLGLDepthTest depth(GL_FALSE);
         //LLGLEnable stencil(GL_STENCIL_TEST);
         glStencilOp(GL_KEEP, GL_KEEP, GL_KEEP);
@@ -1922,7 +1798,7 @@ void LLManipTranslate::highlightIntersection(LLVector3 normal,
     glStencilMask(0xFFFFFFFF);
     glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
 
-    gGL.popMatrix();
+    gDX.popMatrix();
 #endif
 }
 
@@ -2036,15 +1912,15 @@ void LLManipTranslate::renderTranslationHandles()
     mGridSizeMeters = gSavedSettings.getF32("GridDrawSize");
     mConeSize = mArrowLengthMeters / 4.f;
 
-    gGL.matrixMode(LLRender::MM_MODELVIEW);
-    gGL.pushMatrix();
+    gDX.matrixMode(LLRender::MM_MODELVIEW);
+    gDX.pushMatrix();
     {
-        gGL.translatef(selection_center.mV[VX], selection_center.mV[VY], selection_center.mV[VZ]);
+        gDX.translatef(selection_center.mV[VX], selection_center.mV[VY], selection_center.mV[VZ]);
 
         F32 angle_radians, x, y, z;
         grid_rotation.getAngleAxis(&angle_radians, &x, &y, &z);
 
-        gGL.rotatef(angle_radians * RAD_TO_DEG, x, y, z);
+        gDX.rotatef(angle_radians * RAD_TO_DEG, x, y, z);
 
         LLQuaternion invRotation = grid_rotation;
         invRotation.conjQuat();
@@ -2062,7 +1938,7 @@ void LLManipTranslate::renderTranslationHandles()
         relative_camera_dir.normVec();
 
         {
-            gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+            gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
             LLGLDisable cull_face(GL_CULL_FACE);
 
             LLColor4 color1;
@@ -2091,10 +1967,10 @@ void LLManipTranslate::renderTranslationHandles()
             if ((mManipPart == LL_NO_PART || mManipPart == LL_YZ_PLANE) && llabs(relative_camera_dir.mV[VX]) > MIN_PLANE_MANIP_DOT_PRODUCT)
             {
                 // render YZ plane manipulator
-                gGL.pushMatrix();
-                gGL.scalef(mPlaneManipPositions.mV[VX], mPlaneManipPositions.mV[VY], mPlaneManipPositions.mV[VZ]);
-                gGL.translatef(0.f, mPlaneManipOffsetMeters, mPlaneManipOffsetMeters);
-                gGL.scalef(mPlaneScales.mV[VX], mPlaneScales.mV[VX], mPlaneScales.mV[VX]);
+                gDX.pushMatrix();
+                gDX.scalef(mPlaneManipPositions.mV[VX], mPlaneManipPositions.mV[VY], mPlaneManipPositions.mV[VZ]);
+                gDX.translatef(0.f, mPlaneManipOffsetMeters, mPlaneManipOffsetMeters);
+                gDX.scalef(mPlaneScales.mV[VX], mPlaneScales.mV[VX], mPlaneScales.mV[VX]);
                 if (mHighlightedPart == LL_YZ_PLANE)
                 {
                     color1.setVec(0.f, 1.f, 0.f, 1.f);
@@ -2105,50 +1981,50 @@ void LLManipTranslate::renderTranslationHandles()
                     color1.setVec(0.f, 1.f, 0.f, 0.6f);
                     color2.setVec(0.f, 0.f, 1.f, 0.6f);
                 }
-                gGL.begin(LLRender::TRIANGLES);
+                gDX.begin(LLRender::TRIANGLES);
                 {
-                    gGL.color4fv(color1.mV);
-                    gGL.vertex3f(0.f, mPlaneManipOffsetMeters * (-PLANE_TICK_SIZE * 0.25f), mPlaneManipOffsetMeters * (-PLANE_TICK_SIZE * 0.25f));
-                    gGL.vertex3f(0.f, mPlaneManipOffsetMeters * (PLANE_TICK_SIZE * 0.25f), mPlaneManipOffsetMeters * (-PLANE_TICK_SIZE * 0.75f));
-                    gGL.vertex3f(0.f, mPlaneManipOffsetMeters * (PLANE_TICK_SIZE * 0.25f), mPlaneManipOffsetMeters * (PLANE_TICK_SIZE * 0.25f));
+                    gDX.color4fv(color1.mV);
+                    gDX.vertex3f(0.f, mPlaneManipOffsetMeters * (-PLANE_TICK_SIZE * 0.25f), mPlaneManipOffsetMeters * (-PLANE_TICK_SIZE * 0.25f));
+                    gDX.vertex3f(0.f, mPlaneManipOffsetMeters * (PLANE_TICK_SIZE * 0.25f), mPlaneManipOffsetMeters * (-PLANE_TICK_SIZE * 0.75f));
+                    gDX.vertex3f(0.f, mPlaneManipOffsetMeters * (PLANE_TICK_SIZE * 0.25f), mPlaneManipOffsetMeters * (PLANE_TICK_SIZE * 0.25f));
 
-                    gGL.color4fv(color2.mV);
-                    gGL.vertex3f(0.f, mPlaneManipOffsetMeters * (PLANE_TICK_SIZE * 0.25f), mPlaneManipOffsetMeters * (PLANE_TICK_SIZE * 0.25f));
-                    gGL.vertex3f(0.f, mPlaneManipOffsetMeters * (-PLANE_TICK_SIZE * 0.75f), mPlaneManipOffsetMeters * (PLANE_TICK_SIZE * 0.25f));
-                    gGL.vertex3f(0.f, mPlaneManipOffsetMeters * (-PLANE_TICK_SIZE * 0.25f), mPlaneManipOffsetMeters * (-PLANE_TICK_SIZE * 0.25f));
+                    gDX.color4fv(color2.mV);
+                    gDX.vertex3f(0.f, mPlaneManipOffsetMeters * (PLANE_TICK_SIZE * 0.25f), mPlaneManipOffsetMeters * (PLANE_TICK_SIZE * 0.25f));
+                    gDX.vertex3f(0.f, mPlaneManipOffsetMeters * (-PLANE_TICK_SIZE * 0.75f), mPlaneManipOffsetMeters * (PLANE_TICK_SIZE * 0.25f));
+                    gDX.vertex3f(0.f, mPlaneManipOffsetMeters * (-PLANE_TICK_SIZE * 0.25f), mPlaneManipOffsetMeters * (-PLANE_TICK_SIZE * 0.25f));
                 }
-                gGL.end();
+                gDX.end();
 
                 LLUI::setLineWidth(3.0f);
-                gGL.begin(LLRender::LINES);
+                gDX.begin(LLRender::LINES);
                 {
-                    gGL.color4f(0.f, 0.f, 0.f, 0.3f);
-                    gGL.vertex3f(0.f, mPlaneManipOffsetMeters * -PLANE_TICK_SIZE * 0.25f,  mPlaneManipOffsetMeters * -PLANE_TICK_SIZE * 0.25f);
-                    gGL.vertex3f(0.f, mPlaneManipOffsetMeters * PLANE_TICK_SIZE  * 0.25f,  mPlaneManipOffsetMeters * -PLANE_TICK_SIZE * 0.25f);
-                    gGL.vertex3f(0.f, mPlaneManipOffsetMeters * PLANE_TICK_SIZE  * 0.25f,  mPlaneManipOffsetMeters * -PLANE_TICK_SIZE * 0.25f);
-                    gGL.vertex3f(0.f, mPlaneManipOffsetMeters * PLANE_TICK_SIZE  * 0.1f,   mPlaneManipOffsetMeters * -PLANE_TICK_SIZE * 0.1f);
-                    gGL.vertex3f(0.f, mPlaneManipOffsetMeters * PLANE_TICK_SIZE  * 0.25f,  mPlaneManipOffsetMeters * -PLANE_TICK_SIZE * 0.25f);
-                    gGL.vertex3f(0.f, mPlaneManipOffsetMeters * PLANE_TICK_SIZE  * 0.1f,   mPlaneManipOffsetMeters * -PLANE_TICK_SIZE * 0.4f);
+                    gDX.color4f(0.f, 0.f, 0.f, 0.3f);
+                    gDX.vertex3f(0.f, mPlaneManipOffsetMeters * -PLANE_TICK_SIZE * 0.25f,  mPlaneManipOffsetMeters * -PLANE_TICK_SIZE * 0.25f);
+                    gDX.vertex3f(0.f, mPlaneManipOffsetMeters * PLANE_TICK_SIZE  * 0.25f,  mPlaneManipOffsetMeters * -PLANE_TICK_SIZE * 0.25f);
+                    gDX.vertex3f(0.f, mPlaneManipOffsetMeters * PLANE_TICK_SIZE  * 0.25f,  mPlaneManipOffsetMeters * -PLANE_TICK_SIZE * 0.25f);
+                    gDX.vertex3f(0.f, mPlaneManipOffsetMeters * PLANE_TICK_SIZE  * 0.1f,   mPlaneManipOffsetMeters * -PLANE_TICK_SIZE * 0.1f);
+                    gDX.vertex3f(0.f, mPlaneManipOffsetMeters * PLANE_TICK_SIZE  * 0.25f,  mPlaneManipOffsetMeters * -PLANE_TICK_SIZE * 0.25f);
+                    gDX.vertex3f(0.f, mPlaneManipOffsetMeters * PLANE_TICK_SIZE  * 0.1f,   mPlaneManipOffsetMeters * -PLANE_TICK_SIZE * 0.4f);
 
-                    gGL.vertex3f(0.f, mPlaneManipOffsetMeters * -PLANE_TICK_SIZE * 0.25f, mPlaneManipOffsetMeters * -PLANE_TICK_SIZE * 0.25f);
-                    gGL.vertex3f(0.f, mPlaneManipOffsetMeters * -PLANE_TICK_SIZE * 0.25f, mPlaneManipOffsetMeters * PLANE_TICK_SIZE * 0.25f);
-                    gGL.vertex3f(0.f, mPlaneManipOffsetMeters * -PLANE_TICK_SIZE * 0.25f, mPlaneManipOffsetMeters * PLANE_TICK_SIZE * 0.25f);
-                    gGL.vertex3f(0.f, mPlaneManipOffsetMeters * -PLANE_TICK_SIZE * 0.1f,  mPlaneManipOffsetMeters * PLANE_TICK_SIZE * 0.1f);
-                    gGL.vertex3f(0.f, mPlaneManipOffsetMeters * -PLANE_TICK_SIZE * 0.25f, mPlaneManipOffsetMeters * PLANE_TICK_SIZE * 0.25f);
-                    gGL.vertex3f(0.f, mPlaneManipOffsetMeters * -PLANE_TICK_SIZE * 0.4f,  mPlaneManipOffsetMeters * PLANE_TICK_SIZE * 0.1f);
+                    gDX.vertex3f(0.f, mPlaneManipOffsetMeters * -PLANE_TICK_SIZE * 0.25f, mPlaneManipOffsetMeters * -PLANE_TICK_SIZE * 0.25f);
+                    gDX.vertex3f(0.f, mPlaneManipOffsetMeters * -PLANE_TICK_SIZE * 0.25f, mPlaneManipOffsetMeters * PLANE_TICK_SIZE * 0.25f);
+                    gDX.vertex3f(0.f, mPlaneManipOffsetMeters * -PLANE_TICK_SIZE * 0.25f, mPlaneManipOffsetMeters * PLANE_TICK_SIZE * 0.25f);
+                    gDX.vertex3f(0.f, mPlaneManipOffsetMeters * -PLANE_TICK_SIZE * 0.1f,  mPlaneManipOffsetMeters * PLANE_TICK_SIZE * 0.1f);
+                    gDX.vertex3f(0.f, mPlaneManipOffsetMeters * -PLANE_TICK_SIZE * 0.25f, mPlaneManipOffsetMeters * PLANE_TICK_SIZE * 0.25f);
+                    gDX.vertex3f(0.f, mPlaneManipOffsetMeters * -PLANE_TICK_SIZE * 0.4f,  mPlaneManipOffsetMeters * PLANE_TICK_SIZE * 0.1f);
                 }
-                gGL.end();
+                gDX.end();
                 LLUI::setLineWidth(1.0f);
-                gGL.popMatrix();
+                gDX.popMatrix();
             }
 
             if ((mManipPart == LL_NO_PART || mManipPart == LL_XZ_PLANE) && llabs(relative_camera_dir.mV[VY]) > MIN_PLANE_MANIP_DOT_PRODUCT)
             {
                 // render XZ plane manipulator
-                gGL.pushMatrix();
-                gGL.scalef(mPlaneManipPositions.mV[VX], mPlaneManipPositions.mV[VY], mPlaneManipPositions.mV[VZ]);
-                gGL.translatef(mPlaneManipOffsetMeters, 0.f, mPlaneManipOffsetMeters);
-                gGL.scalef(mPlaneScales.mV[VY], mPlaneScales.mV[VY], mPlaneScales.mV[VY]);
+                gDX.pushMatrix();
+                gDX.scalef(mPlaneManipPositions.mV[VX], mPlaneManipPositions.mV[VY], mPlaneManipPositions.mV[VZ]);
+                gDX.translatef(mPlaneManipOffsetMeters, 0.f, mPlaneManipOffsetMeters);
+                gDX.scalef(mPlaneScales.mV[VY], mPlaneScales.mV[VY], mPlaneScales.mV[VY]);
                 if (mHighlightedPart == LL_XZ_PLANE)
                 {
                     color1.setVec(0.f, 0.f, 1.f, 1.f);
@@ -2160,49 +2036,49 @@ void LLManipTranslate::renderTranslationHandles()
                     color2.setVec(1.f, 0.f, 0.f, 0.6f);
                 }
 
-                gGL.begin(LLRender::TRIANGLES);
+                gDX.begin(LLRender::TRIANGLES);
                 {
-                    gGL.color4fv(color1.mV);
-                    gGL.vertex3f(mPlaneManipOffsetMeters * (PLANE_TICK_SIZE * 0.25f), 0.f, mPlaneManipOffsetMeters * (PLANE_TICK_SIZE * 0.25f));
-                    gGL.vertex3f(mPlaneManipOffsetMeters * (-PLANE_TICK_SIZE * 0.75f), 0.f, mPlaneManipOffsetMeters * (PLANE_TICK_SIZE * 0.25f));
-                    gGL.vertex3f(mPlaneManipOffsetMeters * (-PLANE_TICK_SIZE * 0.25f), 0.f, mPlaneManipOffsetMeters * (-PLANE_TICK_SIZE * 0.25f));
+                    gDX.color4fv(color1.mV);
+                    gDX.vertex3f(mPlaneManipOffsetMeters * (PLANE_TICK_SIZE * 0.25f), 0.f, mPlaneManipOffsetMeters * (PLANE_TICK_SIZE * 0.25f));
+                    gDX.vertex3f(mPlaneManipOffsetMeters * (-PLANE_TICK_SIZE * 0.75f), 0.f, mPlaneManipOffsetMeters * (PLANE_TICK_SIZE * 0.25f));
+                    gDX.vertex3f(mPlaneManipOffsetMeters * (-PLANE_TICK_SIZE * 0.25f), 0.f, mPlaneManipOffsetMeters * (-PLANE_TICK_SIZE * 0.25f));
 
-                    gGL.color4fv(color2.mV);
-                    gGL.vertex3f(mPlaneManipOffsetMeters * (-PLANE_TICK_SIZE * 0.25f), 0.f, mPlaneManipOffsetMeters * (-PLANE_TICK_SIZE * 0.25f));
-                    gGL.vertex3f(mPlaneManipOffsetMeters * (PLANE_TICK_SIZE * 0.25f),   0.f, mPlaneManipOffsetMeters * (-PLANE_TICK_SIZE * 0.75f));
-                    gGL.vertex3f(mPlaneManipOffsetMeters * (PLANE_TICK_SIZE * 0.25f),   0.f, mPlaneManipOffsetMeters * (PLANE_TICK_SIZE * 0.25f));
+                    gDX.color4fv(color2.mV);
+                    gDX.vertex3f(mPlaneManipOffsetMeters * (-PLANE_TICK_SIZE * 0.25f), 0.f, mPlaneManipOffsetMeters * (-PLANE_TICK_SIZE * 0.25f));
+                    gDX.vertex3f(mPlaneManipOffsetMeters * (PLANE_TICK_SIZE * 0.25f),   0.f, mPlaneManipOffsetMeters * (-PLANE_TICK_SIZE * 0.75f));
+                    gDX.vertex3f(mPlaneManipOffsetMeters * (PLANE_TICK_SIZE * 0.25f),   0.f, mPlaneManipOffsetMeters * (PLANE_TICK_SIZE * 0.25f));
                 }
-                gGL.end();
+                gDX.end();
 
                 LLUI::setLineWidth(3.0f);
-                gGL.begin(LLRender::LINES);
+                gDX.begin(LLRender::LINES);
                 {
-                    gGL.color4f(0.f, 0.f, 0.f, 0.3f);
-                    gGL.vertex3f(mPlaneManipOffsetMeters * -PLANE_TICK_SIZE * 0.25f,  0.f, mPlaneManipOffsetMeters * -PLANE_TICK_SIZE * 0.25f);
-                    gGL.vertex3f(mPlaneManipOffsetMeters * PLANE_TICK_SIZE  * 0.25f,  0.f, mPlaneManipOffsetMeters * -PLANE_TICK_SIZE * 0.25f);
-                    gGL.vertex3f(mPlaneManipOffsetMeters * PLANE_TICK_SIZE  * 0.25f,  0.f, mPlaneManipOffsetMeters * -PLANE_TICK_SIZE * 0.25f);
-                    gGL.vertex3f(mPlaneManipOffsetMeters * PLANE_TICK_SIZE  * 0.1f,   0.f, mPlaneManipOffsetMeters * -PLANE_TICK_SIZE * 0.1f);
-                    gGL.vertex3f(mPlaneManipOffsetMeters * PLANE_TICK_SIZE  * 0.25f,  0.f, mPlaneManipOffsetMeters * -PLANE_TICK_SIZE * 0.25f);
-                    gGL.vertex3f(mPlaneManipOffsetMeters * PLANE_TICK_SIZE  * 0.1f,   0.f, mPlaneManipOffsetMeters * -PLANE_TICK_SIZE * 0.4f);
+                    gDX.color4f(0.f, 0.f, 0.f, 0.3f);
+                    gDX.vertex3f(mPlaneManipOffsetMeters * -PLANE_TICK_SIZE * 0.25f,  0.f, mPlaneManipOffsetMeters * -PLANE_TICK_SIZE * 0.25f);
+                    gDX.vertex3f(mPlaneManipOffsetMeters * PLANE_TICK_SIZE  * 0.25f,  0.f, mPlaneManipOffsetMeters * -PLANE_TICK_SIZE * 0.25f);
+                    gDX.vertex3f(mPlaneManipOffsetMeters * PLANE_TICK_SIZE  * 0.25f,  0.f, mPlaneManipOffsetMeters * -PLANE_TICK_SIZE * 0.25f);
+                    gDX.vertex3f(mPlaneManipOffsetMeters * PLANE_TICK_SIZE  * 0.1f,   0.f, mPlaneManipOffsetMeters * -PLANE_TICK_SIZE * 0.1f);
+                    gDX.vertex3f(mPlaneManipOffsetMeters * PLANE_TICK_SIZE  * 0.25f,  0.f, mPlaneManipOffsetMeters * -PLANE_TICK_SIZE * 0.25f);
+                    gDX.vertex3f(mPlaneManipOffsetMeters * PLANE_TICK_SIZE  * 0.1f,   0.f, mPlaneManipOffsetMeters * -PLANE_TICK_SIZE * 0.4f);
 
-                    gGL.vertex3f(mPlaneManipOffsetMeters * -PLANE_TICK_SIZE * 0.25f,  0.f, mPlaneManipOffsetMeters * -PLANE_TICK_SIZE * 0.25f);
-                    gGL.vertex3f(mPlaneManipOffsetMeters * -PLANE_TICK_SIZE * 0.25f,  0.f, mPlaneManipOffsetMeters * PLANE_TICK_SIZE * 0.25f);
-                    gGL.vertex3f(mPlaneManipOffsetMeters * -PLANE_TICK_SIZE * 0.25f,  0.f, mPlaneManipOffsetMeters * PLANE_TICK_SIZE * 0.25f);
-                    gGL.vertex3f(mPlaneManipOffsetMeters * -PLANE_TICK_SIZE * 0.1f,   0.f, mPlaneManipOffsetMeters * PLANE_TICK_SIZE * 0.1f);
-                    gGL.vertex3f(mPlaneManipOffsetMeters * -PLANE_TICK_SIZE * 0.25f,  0.f, mPlaneManipOffsetMeters * PLANE_TICK_SIZE * 0.25f);
-                    gGL.vertex3f(mPlaneManipOffsetMeters * -PLANE_TICK_SIZE * 0.4f,   0.f, mPlaneManipOffsetMeters * PLANE_TICK_SIZE * 0.1f);
+                    gDX.vertex3f(mPlaneManipOffsetMeters * -PLANE_TICK_SIZE * 0.25f,  0.f, mPlaneManipOffsetMeters * -PLANE_TICK_SIZE * 0.25f);
+                    gDX.vertex3f(mPlaneManipOffsetMeters * -PLANE_TICK_SIZE * 0.25f,  0.f, mPlaneManipOffsetMeters * PLANE_TICK_SIZE * 0.25f);
+                    gDX.vertex3f(mPlaneManipOffsetMeters * -PLANE_TICK_SIZE * 0.25f,  0.f, mPlaneManipOffsetMeters * PLANE_TICK_SIZE * 0.25f);
+                    gDX.vertex3f(mPlaneManipOffsetMeters * -PLANE_TICK_SIZE * 0.1f,   0.f, mPlaneManipOffsetMeters * PLANE_TICK_SIZE * 0.1f);
+                    gDX.vertex3f(mPlaneManipOffsetMeters * -PLANE_TICK_SIZE * 0.25f,  0.f, mPlaneManipOffsetMeters * PLANE_TICK_SIZE * 0.25f);
+                    gDX.vertex3f(mPlaneManipOffsetMeters * -PLANE_TICK_SIZE * 0.4f,   0.f, mPlaneManipOffsetMeters * PLANE_TICK_SIZE * 0.1f);
                 }
-                gGL.end();
+                gDX.end();
                 LLUI::setLineWidth(1.0f);
 
-                gGL.popMatrix();
+                gDX.popMatrix();
             }
 
             if ((mManipPart == LL_NO_PART || mManipPart == LL_XY_PLANE) && llabs(relative_camera_dir.mV[VZ]) > MIN_PLANE_MANIP_DOT_PRODUCT)
             {
                 // render XY plane manipulator
-                gGL.pushMatrix();
-                gGL.scalef(mPlaneManipPositions.mV[VX], mPlaneManipPositions.mV[VY], mPlaneManipPositions.mV[VZ]);
+                gDX.pushMatrix();
+                gDX.scalef(mPlaneManipPositions.mV[VX], mPlaneManipPositions.mV[VY], mPlaneManipPositions.mV[VZ]);
 
 /*                            Y
                               ^
@@ -2215,19 +2091,19 @@ void LLManipTranslate::renderTranslationHandles()
                     LLVector3 v0,v1,v2,v3;
 #if 0
                     // This should theoretically work but looks off; could be tuned later -SJB
-                    gGL.translatef(-mPlaneManipOffsetMeters, -mPlaneManipOffsetMeters, 0.f);
+                    gDX.translatef(-mPlaneManipOffsetMeters, -mPlaneManipOffsetMeters, 0.f);
                     v0 = LLVector3(mPlaneManipOffsetMeters * ( PLANE_TICK_SIZE * 0.25f), mPlaneManipOffsetMeters * ( PLANE_TICK_SIZE * 0.25f), 0.f);
                     v1 = LLVector3(mPlaneManipOffsetMeters * (-PLANE_TICK_SIZE * 0.25f), mPlaneManipOffsetMeters * ( PLANE_TICK_SIZE * 0.75f), 0.f);
                     v2 = LLVector3(mPlaneManipOffsetMeters * (-PLANE_TICK_SIZE * 0.25f), mPlaneManipOffsetMeters * (-PLANE_TICK_SIZE * 0.25f), 0.f);
                     v3 = LLVector3(mPlaneManipOffsetMeters * ( PLANE_TICK_SIZE * 0.75f), mPlaneManipOffsetMeters * (-PLANE_TICK_SIZE * 0.25f), 0.f);
 #else
-                    gGL.translatef(mPlaneManipOffsetMeters, mPlaneManipOffsetMeters, 0.f);
+                    gDX.translatef(mPlaneManipOffsetMeters, mPlaneManipOffsetMeters, 0.f);
                     v0 = LLVector3(mPlaneManipOffsetMeters * (-PLANE_TICK_SIZE * 0.25f), mPlaneManipOffsetMeters * (-PLANE_TICK_SIZE * 0.25f), 0.f);
                     v1 = LLVector3(mPlaneManipOffsetMeters * ( PLANE_TICK_SIZE * 0.25f), mPlaneManipOffsetMeters * (-PLANE_TICK_SIZE * 0.75f), 0.f);
                     v2 = LLVector3(mPlaneManipOffsetMeters * ( PLANE_TICK_SIZE * 0.25f), mPlaneManipOffsetMeters * ( PLANE_TICK_SIZE * 0.25f), 0.f);
                     v3 = LLVector3(mPlaneManipOffsetMeters * (-PLANE_TICK_SIZE * 0.75f), mPlaneManipOffsetMeters * ( PLANE_TICK_SIZE * 0.25f), 0.f);
 #endif
-                    gGL.scalef(mPlaneScales.mV[VZ], mPlaneScales.mV[VZ], mPlaneScales.mV[VZ]);
+                    gDX.scalef(mPlaneScales.mV[VZ], mPlaneScales.mV[VZ], mPlaneScales.mV[VZ]);
                     if (mHighlightedPart == LL_XY_PLANE)
                     {
                         color1.setVec(1.f, 0.f, 0.f, 1.f);
@@ -2239,48 +2115,48 @@ void LLManipTranslate::renderTranslationHandles()
                         color2.setVec(0.f, 0.8f, 0.f, 0.6f);
                     }
 
-                    gGL.begin(LLRender::TRIANGLES);
+                    gDX.begin(LLRender::TRIANGLES);
                     {
-                        gGL.color4fv(color1.mV);
-                        gGL.vertex3fv(v0.mV);
-                        gGL.vertex3fv(v1.mV);
-                        gGL.vertex3fv(v2.mV);
+                        gDX.color4fv(color1.mV);
+                        gDX.vertex3fv(v0.mV);
+                        gDX.vertex3fv(v1.mV);
+                        gDX.vertex3fv(v2.mV);
 
-                        gGL.color4fv(color2.mV);
-                        gGL.vertex3fv(v2.mV);
-                        gGL.vertex3fv(v3.mV);
-                        gGL.vertex3fv(v0.mV);
+                        gDX.color4fv(color2.mV);
+                        gDX.vertex3fv(v2.mV);
+                        gDX.vertex3fv(v3.mV);
+                        gDX.vertex3fv(v0.mV);
                     }
-                    gGL.end();
+                    gDX.end();
 
                     LLUI::setLineWidth(3.0f);
-                    gGL.begin(LLRender::LINES);
+                    gDX.begin(LLRender::LINES);
                     {
-                        gGL.color4f(0.f, 0.f, 0.f, 0.3f);
+                        gDX.color4f(0.f, 0.f, 0.f, 0.3f);
                         LLVector3 v12 = (v1 + v2) * .5f;
-                        gGL.vertex3fv(v0.mV);
-                        gGL.vertex3fv(v12.mV);
-                        gGL.vertex3fv(v12.mV);
-                        gGL.vertex3fv((v12 + (v0-v12)*.3f + (v2-v12)*.3f).mV);
-                        gGL.vertex3fv(v12.mV);
-                        gGL.vertex3fv((v12 + (v0-v12)*.3f + (v1-v12)*.3f).mV);
+                        gDX.vertex3fv(v0.mV);
+                        gDX.vertex3fv(v12.mV);
+                        gDX.vertex3fv(v12.mV);
+                        gDX.vertex3fv((v12 + (v0-v12)*.3f + (v2-v12)*.3f).mV);
+                        gDX.vertex3fv(v12.mV);
+                        gDX.vertex3fv((v12 + (v0-v12)*.3f + (v1-v12)*.3f).mV);
 
                         LLVector3 v23 = (v2 + v3) * .5f;
-                        gGL.vertex3fv(v0.mV);
-                        gGL.vertex3fv(v23.mV);
-                        gGL.vertex3fv(v23.mV);
-                        gGL.vertex3fv((v23 + (v0-v23)*.3f + (v3-v23)*.3f).mV);
-                        gGL.vertex3fv(v23.mV);
-                        gGL.vertex3fv((v23 + (v0-v23)*.3f + (v2-v23)*.3f).mV);
+                        gDX.vertex3fv(v0.mV);
+                        gDX.vertex3fv(v23.mV);
+                        gDX.vertex3fv(v23.mV);
+                        gDX.vertex3fv((v23 + (v0-v23)*.3f + (v3-v23)*.3f).mV);
+                        gDX.vertex3fv(v23.mV);
+                        gDX.vertex3fv((v23 + (v0-v23)*.3f + (v2-v23)*.3f).mV);
                     }
-                    gGL.end();
+                    gDX.end();
                     LLUI::setLineWidth(1.0f);
 
-                gGL.popMatrix();
+                gDX.popMatrix();
             }
         }
         {
-            gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+            gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
 
             // Since we draw handles with depth testing off, we need to draw them in the
             // proper depth order.
@@ -2348,19 +2224,19 @@ void LLManipTranslate::renderTranslationHandles()
             }
         }
     }
-    gGL.popMatrix();
+    gDX.popMatrix();
 }
 
 
 void LLManipTranslate::renderArrow(S32 which_arrow, S32 selected_arrow, F32 box_size, F32 arrow_size, F32 handle_size, bool reverse_direction)
 {
-    gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+    gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
     LLGLEnable gls_blend(GL_BLEND);
 
     for (S32 pass = 1; pass <= 2; pass++)
     {
         LLGLDepthTest gls_depth(GL_TRUE, GL_FALSE, pass == 1 ? GL_LEQUAL : GL_GREATER);
-        gGL.pushMatrix();
+        gDX.pushMatrix();
 
         S32 index = 0;
 
@@ -2381,24 +2257,24 @@ void LLManipTranslate::renderArrow(S32 which_arrow, S32 selected_arrow, F32 box_
             color.mV[index] = pass == 1 ? .8f : .35f ;          // red, green, or blue
             color.mV[VALPHA] = 0.6f;
         }
-        gGL.color4fv( color.mV );
+        gDX.color4fv( color.mV );
 
         LLVector3 vec;
 
         {
             LLUI::setLineWidth(2.0f);
-            gGL.begin(LLRender::LINES);
+            gDX.begin(LLRender::LINES);
                 vec.mV[index] = box_size;
-                gGL.vertex3f(vec.mV[0], vec.mV[1], vec.mV[2]);
+                gDX.vertex3f(vec.mV[0], vec.mV[1], vec.mV[2]);
 
                 vec.mV[index] = arrow_size;
-                gGL.vertex3f(vec.mV[0], vec.mV[1], vec.mV[2]);
-            gGL.end();
+                gDX.vertex3f(vec.mV[0], vec.mV[1], vec.mV[2]);
+            gDX.end();
             LLUI::setLineWidth(1.0f);
         }
 
-        gGL.translatef(vec.mV[0], vec.mV[1], vec.mV[2]);
-        gGL.scalef(handle_size, handle_size, handle_size);
+        gDX.translatef(vec.mV[0], vec.mV[1], vec.mV[2]);
+        gDX.scalef(handle_size, handle_size, handle_size);
 
         F32 rot = 0.0f;
         LLVector3 axis;
@@ -2422,32 +2298,32 @@ void LLManipTranslate::renderArrow(S32 which_arrow, S32 selected_arrow, F32 box_
             break;
         }
 
-        gGL.diffuseColor4fv(color.mV);
-        gGL.rotatef(rot, axis.mV[0], axis.mV[1], axis.mV[2]);
-        gGL.scalef(mArrowScales.mV[index], mArrowScales.mV[index], mArrowScales.mV[index] * 1.5f);
+        gDX.diffuseColor4fv(color.mV);
+        gDX.rotatef(rot, axis.mV[0], axis.mV[1], axis.mV[2]);
+        gDX.scalef(mArrowScales.mV[index], mArrowScales.mV[index], mArrowScales.mV[index] * 1.5f);
 
         gCone.render();
 
-        gGL.popMatrix();
+        gDX.popMatrix();
     }
 }
 
 void LLManipTranslate::renderGridVert(F32 x_trans, F32 y_trans, F32 r, F32 g, F32 b, F32 alpha)
 {
-    gGL.color4f(r, g, b, alpha);
+    gDX.color4f(r, g, b, alpha);
     switch (mManipPart)
     {
     case LL_YZ_PLANE:
-        gGL.vertex3f(0, x_trans, y_trans);
+        gDX.vertex3f(0, x_trans, y_trans);
         break;
     case LL_XZ_PLANE:
-        gGL.vertex3f(x_trans, 0, y_trans);
+        gDX.vertex3f(x_trans, 0, y_trans);
         break;
     case LL_XY_PLANE:
-        gGL.vertex3f(x_trans, y_trans, 0);
+        gDX.vertex3f(x_trans, y_trans, 0);
         break;
     default:
-        gGL.vertex3f(0,0,0);
+        gDX.vertex3f(0,0,0);
         break;
     }
 

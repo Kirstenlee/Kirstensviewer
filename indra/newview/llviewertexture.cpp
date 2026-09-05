@@ -112,6 +112,7 @@ F32 LLViewerTexture::sVRAMUsedMegabytes = 0.f;
 F32 LLViewerTexture::sVRAMBudgetMegabytes = 0.f;
 bool LLViewerTexture::sVRAMBudgetIsLive = false;
 F32 LLViewerTexture::sVRAMAllocatorBudgetMegabytes = MIN_VRAM_BUDGET;
+F32 LLViewerTexture::sVRAMAllocatorSoftTargetMegabytes = MIN_VRAM_BUDGET;
 U32 LLViewerTexture::sVRAMAllocatorLastCutCount = 0;
 U32 LLViewerTexture::sVRAMAllocatorCandidateCount = 0;
 
@@ -546,6 +547,13 @@ void LLViewerTexture::updateClass()
     const bool in_background = (gViewerWindow && !gViewerWindow->getWindow()->getVisible()) || !gFocusMgr.getAppHasFocus();
     sVRAMAllocatorBudgetMegabytes = in_background ? target * BACKGROUND_BUDGET_FRACTION : target;
 
+    // S24 (eviction tuning): the softer line a triggered cut actually aims
+    // for - see sVRAMAllocatorSoftTargetMegabytes's own comment. Derived from
+    // the same (possibly backgrounded-halved) budget above, not the raw
+    // target, so the two stay proportionally consistent in every state.
+    static LLCachedControl<F32> soft_pressure_fraction(gSavedSettings, "RenderVRAMSoftPressureFraction", 0.8f);
+    sVRAMAllocatorSoftTargetMegabytes = sVRAMAllocatorBudgetMegabytes * llclamp((F32)soft_pressure_fraction, 0.5f, 1.0f);
+
     // S24: system RAM pressure is a genuinely separate resource from VRAM -
     // the old code nudged the VRAM bias scalar on system-RAM-critical too,
     // which was a category error (freeing GPU VRAM does nothing for system
@@ -843,7 +851,7 @@ bool LLViewerTexture::bindDebugImage(const S32 stage)
     bool res = true;
     if (LLViewerTexture::sCheckerBoardImagep.notNull() && (this != LLViewerTexture::sCheckerBoardImagep.get()))
     {
-        res = gGL.getTexUnit(stage)->bind(LLViewerTexture::sCheckerBoardImagep);
+        res = gDX.getTexUnit(stage)->bind(LLViewerTexture::sCheckerBoardImagep);
     }
 
     if(!res)
@@ -862,11 +870,11 @@ bool LLViewerTexture::bindDefaultImage(S32 stage)
     if (LLViewerFetchedTexture::sDefaultImagep.notNull() && (this != LLViewerFetchedTexture::sDefaultImagep.get()))
     {
         // use default if we've got it
-        res = gGL.getTexUnit(stage)->bind(LLViewerFetchedTexture::sDefaultImagep);
+        res = gDX.getTexUnit(stage)->bind(LLViewerFetchedTexture::sDefaultImagep);
     }
     if (!res && LLViewerTexture::sNullImagep.notNull() && (this != LLViewerTexture::sNullImagep))
     {
-        res = gGL.getTexUnit(stage)->bind(LLViewerTexture::sNullImagep);
+        res = gDX.getTexUnit(stage)->bind(LLViewerTexture::sNullImagep);
     }
     if (!res)
     {
@@ -3106,6 +3114,13 @@ void LLViewerLODTexture::processTextureStats()
         //
 
         S32 current_discard = getDiscardLevel();
+        // S24 (eviction tuning, 2026-08-29): briefly relaxed for BOOST_AVATAR_BAKED
+        // to support an emergency VRAM-eviction tier - reverted after a live
+        // test showed it could burst a crowd's worth of avatar textures into
+        // gTextureList.mDownScaleQueue at once, overwhelming that queue's
+        // severe-pressure drain (see LLViewerTextureList::
+        // runVRAMBudgetAllocation()'s header comment for the full post-mortem).
+        // Back to upstream behavior: avatar bakes never scale down.
         if (mBoostLevel < LLGLTexture::BOOST_AVATAR_BAKED)
         {
             if (current_discard < mDesiredDiscardLevel && !mForceToSaveRawImage)
@@ -3217,7 +3232,7 @@ S32 LLViewerLODTexture::computeNaturalDiscardLevel() const
     return llmin(level, (S32)mLoadedCallbackDesiredDiscardLevel);
 }
 
-extern LLGLSLShader gCopyProgram;
+extern LLHLSLShader gCopyProgram;
 
 bool LLViewerLODTexture::scaleDown()
 {

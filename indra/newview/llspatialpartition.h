@@ -35,7 +35,6 @@
 #include "llrefcount.h"
 #include "llvertexbuffer.h"
 #include "llgltypes.h"
-#include "llcubemap.h"
 #include "lldrawpool.h"
 #include "llface.h"
 #include "llviewercamera.h"
@@ -103,6 +102,10 @@ public:
     const LLMatrix4* mModelMatrix = nullptr;
 
     LLPointer<LLVOAvatar> mAvatar = nullptr;
+    // S24 (alpha attachment-order fix, AYAstorm-derived, LGPL v2.1) - see
+    // LLFace::mAttachedToAvatar's matching comment (llface.h). Copied from
+    // there when this LLDrawInfo is built (llvovolume.cpp).
+    LLPointer<LLVOAvatar> mAttachedToAvatar = nullptr;
     LLMeshSkinInfo* mSkinInfo = nullptr;
 
     // Material pointer here is likely for debugging only and are immaterial (zing!)

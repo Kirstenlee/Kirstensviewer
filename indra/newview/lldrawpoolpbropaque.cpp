@@ -117,14 +117,14 @@ void LLDrawPoolGLTFPBR::renderPostDeferred(S32 pass)
     }
     else if (mRenderType == LLPipeline::RENDER_TYPE_PASS_GLTF_PBR) // HACK -- don't render glow except for the non-alpha masked implementation
     {
-        gGL.setColorMask(false, true);
+        gDX.setColorMask(false, true);
         gPBRGlowProgram.bind();
         pushGLTFBatches(LLRenderPass::PASS_GLTF_GLOW);
 
         gPBRGlowProgram.bind(true);
         pushRiggedGLTFBatches(LLRenderPass::PASS_GLTF_GLOW_RIGGED);
         // S24 3D masking here causes issues with alpha containing testures avoid for now!
-        gGL.setColorMask(true, false);
+        gDX.setColorMask(true, false);
     }
 }
 

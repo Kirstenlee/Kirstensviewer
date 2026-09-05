@@ -805,8 +805,22 @@ void LLPanelLogin::onUpdateStartSLURL(const LLSLURL& new_start_slurl)
         //location_combo->setCurrentByIndex(0); // home location
         break;
 
-    default:
+    case LLSLURL::INVALID:
+        // S24 (2026-09-02): genuinely invalid SLURL - the only case in this
+        // switch worth a WARNING. Split out from the old blanket `default`,
+        // which also caught LAST_LOCATION/EMPTY/APP/HELP - LAST_LOCATION in
+        // particular is the routine default for a normal launch ("start at
+        // my last location"), not an error, so it was logging "invalid
+        // login slurl" on ordinary startups every time.
         LL_WARNS("AppInit")<<"invalid login slurl, using home"<<LL_ENDL;
+        //location_combo->setCurrentByIndex(0); // home location
+        break;
+
+    default:
+        // LAST_LOCATION/EMPTY/APP/HELP - all legitimate, routine SLURL
+        // types this combo box just doesn't special-case; falls back to
+        // home silently, same as before, just without the misleading
+        // "invalid" warning.
         //location_combo->setCurrentByIndex(0); // home location
         break;
     }
@@ -1280,7 +1294,7 @@ void LLPanelLogin::populateUserList(LLPointer<LLCredential> credential)
 void LLPanelLogin::onSelectServer()
 {
     // The user twiddled with the grid choice ui.
-    // The user interacted with the grid selection UI — apply the chosen value
+    // The user interacted with the grid selection UI ï¿½ apply the chosen value
     LLComboBox* server_combo = getChild<LLComboBox>("server_combo");
     LLSD server_combo_val = server_combo->getSelectedValue();
     LL_INFOS("AppInit") << "grid "<<server_combo_val.asString()<< LL_ENDL;

@@ -43,7 +43,7 @@
 #include "llagent.h"
 #include "llviewerwindow.h"
 #include "llvieweroctree.h"
-#include "llglslshader.h"
+#include "llhlslshader.h"
 #include "llshadermgr.h"
 #include "llcriticaldamp.h"
 #include "DXOcclusionQuery.h"
@@ -403,24 +403,24 @@ void LLVoiceVisualizer::render()
         //-----------------------------
         // bind texture 0 (the dot)
         //-----------------------------
-        gGL.getTexUnit(0)->bind(mSoundSymbol.mTexture[0]);
+        gDX.getTexUnit(0)->bind(mSoundSymbol.mTexture[0]);
 
         //-------------------------------------------------------------
         // now render the dot
         //-------------------------------------------------------------
-        gGL.color4fv( LLColor4( 1.0f, 1.0f, 1.0f, DOT_OPACITY * mOcclusionFadeAlpha ).mV );
+        gDX.color4fv( LLColor4( 1.0f, 1.0f, 1.0f, DOT_OPACITY * mOcclusionFadeAlpha ).mV );
 
-        gGL.begin( LLRender::TRIANGLE_STRIP );
-            gGL.texCoord2i( 0,  0   ); gGL.vertex3fv( bottomLeft.mV );
-            gGL.texCoord2i( 1,  0   ); gGL.vertex3fv( bottomRight.mV );
-            gGL.texCoord2i( 0,  1   ); gGL.vertex3fv( topLeft.mV );
-        gGL.end();
+        gDX.begin( LLRender::TRIANGLE_STRIP );
+            gDX.texCoord2i( 0,  0   ); gDX.vertex3fv( bottomLeft.mV );
+            gDX.texCoord2i( 1,  0   ); gDX.vertex3fv( bottomRight.mV );
+            gDX.texCoord2i( 0,  1   ); gDX.vertex3fv( topLeft.mV );
+        gDX.end();
 
-        gGL.begin( LLRender::TRIANGLE_STRIP );
-            gGL.texCoord2i( 1,  0   ); gGL.vertex3fv( bottomRight.mV );
-            gGL.texCoord2i( 1,  1   ); gGL.vertex3fv( topRight.mV );
-            gGL.texCoord2i( 0,  1   ); gGL.vertex3fv( topLeft.mV );
-        gGL.end();
+        gDX.begin( LLRender::TRIANGLE_STRIP );
+            gDX.texCoord2i( 1,  0   ); gDX.vertex3fv( bottomRight.mV );
+            gDX.texCoord2i( 1,  1   ); gDX.vertex3fv( topRight.mV );
+            gDX.texCoord2i( 0,  1   ); gDX.vertex3fv( topLeft.mV );
+        gDX.end();
 
 
 
@@ -527,24 +527,24 @@ void LLVoiceVisualizer::render()
                 LLVector3 topLeft       = mSoundSymbol.mPosition + l + u;
                 LLVector3 topRight      = mSoundSymbol.mPosition - l + u;
 
-                gGL.color4fv( LLColor4( red, green, blue, mSoundSymbol.mWaveOpacity[i] * mOcclusionFadeAlpha ).mV );
-                gGL.getTexUnit(0)->bind(mSoundSymbol.mTexture[i]);
+                gDX.color4fv( LLColor4( red, green, blue, mSoundSymbol.mWaveOpacity[i] * mOcclusionFadeAlpha ).mV );
+                gDX.getTexUnit(0)->bind(mSoundSymbol.mTexture[i]);
 
 
                 //---------------------------------------------------
                 // now, render the mofo
                 //---------------------------------------------------
-                gGL.begin( LLRender::TRIANGLE_STRIP );
-                    gGL.texCoord2i( 0, 0 ); gGL.vertex3fv( bottomLeft.mV );
-                    gGL.texCoord2i( 1, 0 ); gGL.vertex3fv( bottomRight.mV );
-                    gGL.texCoord2i( 0, 1 ); gGL.vertex3fv( topLeft.mV );
-                gGL.end();
+                gDX.begin( LLRender::TRIANGLE_STRIP );
+                    gDX.texCoord2i( 0, 0 ); gDX.vertex3fv( bottomLeft.mV );
+                    gDX.texCoord2i( 1, 0 ); gDX.vertex3fv( bottomRight.mV );
+                    gDX.texCoord2i( 0, 1 ); gDX.vertex3fv( topLeft.mV );
+                gDX.end();
 
-                gGL.begin( LLRender::TRIANGLE_STRIP );
-                    gGL.texCoord2i( 1, 0 ); gGL.vertex3fv( bottomRight.mV );
-                    gGL.texCoord2i( 1, 1 ); gGL.vertex3fv( topRight.mV );
-                    gGL.texCoord2i( 0, 1 ); gGL.vertex3fv( topLeft.mV );
-                gGL.end();
+                gDX.begin( LLRender::TRIANGLE_STRIP );
+                    gDX.texCoord2i( 1, 0 ); gDX.vertex3fv( bottomRight.mV );
+                    gDX.texCoord2i( 1, 1 ); gDX.vertex3fv( topRight.mV );
+                    gDX.texCoord2i( 0, 1 ); gDX.vertex3fv( topLeft.mV );
+                gDX.end();
 
             } //if ( mSoundSymbol.mWaveActive[i] )
 
@@ -576,7 +576,7 @@ void LLVoiceVisualizer::issueOcclusionQuery()
         return;
     }
 
-    LLGLSLShader* shader = LLGLSLShader::sCurBoundShaderPtr;
+    LLHLSLShader* shader = LLHLSLShader::sCurBoundShaderPtr;
     if (!shader)
     {
         return;

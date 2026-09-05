@@ -28,8 +28,7 @@
 
 #include "llreflectionmap.h"
 #include "llrendertarget.h"
-#include "llcubemaparray.h"
-#include "llcubemap.h"
+#include "DXCubeMapArray.h"
 
 #ifdef DX_RENDER
 #include "DXBuffer.h"
@@ -224,13 +223,13 @@ private:
     std::vector<LLRenderTarget> mMipChain;
 
     // storage for reflection probe radiance maps (plus two scratch space cubemaps)
-    LLPointer<LLCubeMapArray> mTexture;
+    LLPointer<DXCubeMapArray> mTexture;
 
     // vertex buffer for pushing verts to filter shaders
     LLPointer<LLVertexBuffer> mVertexBuffer;
 
     // storage for reflection probe irradiance maps
-    LLPointer<LLCubeMapArray> mIrradianceMaps;
+    LLPointer<DXCubeMapArray> mIrradianceMaps;
 
     // list of free cubemap indices
     std::list<S32> mCubeFree;

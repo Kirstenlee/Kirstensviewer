@@ -145,9 +145,6 @@ bool LLFloaterKVTweaks::postBuild()
     // S24 - Hook up Movement tab controls
     childSetAction("reset_movement_btn", boost::bind(&LLFloaterKVTweaks::onClickResetMovement, this));
 
-    // S24 - Hook up Cubemap Orientation (Debug) tab controls
-    childSetAction("reset_cube_orient_btn", boost::bind(&LLFloaterKVTweaks::onClickResetCubeOrient, this));
-
     // Ground movement slider updates
     getChild<LLUICtrl>("smooth_movement_accel_time")->setCommitCallback(boost::bind(&LLFloaterKVTweaks::updateGroundAccelText, this));
     getChild<LLUICtrl>("smooth_movement_decel_time")->setCommitCallback(boost::bind(&LLFloaterKVTweaks::updateGroundDecelText, this));
@@ -376,6 +373,7 @@ void LLFloaterKVTweaks::onClickResetToDefaults()
         "MaxHeapSize64",
         "RenderMaxVRAMBudget",
         "RenderVRAMAllocationIntervalSeconds",
+        "RenderVRAMSoftPressureFraction",
         "RenderMinFreeMainMemoryThreshold",
         "NonvisibleObjectsInMemoryTime",
         "MainWorkTime",
@@ -391,11 +389,8 @@ void LLFloaterKVTweaks::onClickResetToDefaults()
         "RenderAutoMuteSurfaceAreaLimit",
         "AvatarExtentRefreshPeriodBatch",
         "AvatarFeathering",
-        "RenderHoverGlowEnable",
         "RenderCompressTextures",
         "RenderFlushOrphanedTexturesOnTeleport",
-        "RenderHighlightFadeTime",
-        "RenderHighlightBrightness",
         "RenderSSAOScale",
         "RenderSSAOMaxScale",
         "RenderSSAOFactor",
@@ -519,7 +514,24 @@ void LLFloaterKVTweaks::onClickResetToDefaults()
         // Tab 11: Experimental (S24 - Selection Beam)
         "SelectionBeamStyle",
         "SelectionBeamLineStyle",
-        "SelectionBeamParticleScale"
+        "SelectionBeamParticleScale",
+
+        // Tab: Night Sky (S24 - task #279 stage 2)
+        "RenderStarGlow",
+        "RenderStarDensity",
+        "RenderStarDustIntensity",
+        "RenderNebulaEnabled",
+        "RenderNebulaIntensity",
+        "RenderShootingStars",
+        "RenderShootingStarFrequency",
+        "RenderSkyStyle",
+        "RenderCloudLayers",
+        "RenderCloudLayerOpacity",
+        "RenderCloudLayerHeightSkew",
+        "RenderCloudCirrusScale",
+        "RenderCloudCumulusScale",
+        "RenderCloudCirrusScrollMult",
+        "RenderCloudCumulusScrollMult"
     };
     
     // Reset all controls to their defaults
@@ -994,30 +1006,6 @@ void LLFloaterKVTweaks::updateFlightMinThresholdText()
     getChild<LLTextBox>("flight_min_threshold_value")->setText(llformat("%.0f%%", value * 100.0f));
 }
 
-
-// S24 - Cubemap orientation live-tuner (task #194)
-void LLFloaterKVTweaks::onClickResetCubeOrient()
-{
-    const char* cube_orient_control_names[] = {
-        "S24CubeOrientSwap0", "S24CubeOrientNegA0", "S24CubeOrientNegB0",
-        "S24CubeOrientSwap1", "S24CubeOrientNegA1", "S24CubeOrientNegB1",
-        "S24CubeOrientSwap2", "S24CubeOrientNegA2", "S24CubeOrientNegB2",
-        "S24CubeOrientSwap3", "S24CubeOrientNegA3", "S24CubeOrientNegB3",
-        "S24CubeOrientSwap4", "S24CubeOrientNegA4", "S24CubeOrientNegB4",
-        "S24CubeOrientSwap5", "S24CubeOrientNegA5", "S24CubeOrientNegB5"
-    };
-
-    for (size_t i = 0; i < sizeof(cube_orient_control_names) / sizeof(cube_orient_control_names[0]); ++i)
-    {
-        LLControlVariable* control = gSavedSettings.getControl(cube_orient_control_names[i]);
-        if (control)
-        {
-            control->resetToDefault(true);
-        }
-    }
-
-    refresh();
-}
 
 LLFloaterKVTweaks::~LLFloaterKVTweaks()
 {

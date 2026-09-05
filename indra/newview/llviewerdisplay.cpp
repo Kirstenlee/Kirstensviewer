@@ -35,7 +35,6 @@
 #include "llappviewer.h"
 #include "llcoord.h"
 #include "llcriticaldamp.h"
-#include "llcubemap.h"
 #include "lldir.h"
 #include "lldrawpoolalpha.h"
 #include "lldrawpoolbump.h"
@@ -205,7 +204,7 @@ void display_startup()
 		gViewerWindow->setup2DRender();
 	if (gViewerWindow)
 		gViewerWindow->draw();
-	gGL.flush();
+	gDX.flush();
 
 	LLVertexBuffer::unbind();
 
@@ -490,7 +489,7 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 	if (gWindowResized)
 	{
 		LL_DEBUGS("Window") << "Resizing window" << LL_ENDL;
-		gGL.flush();
+		gDX.flush();
 #ifndef DX_RENDER
 		glClear(GL_COLOR_BUFFER_BIT);
 #endif
@@ -620,7 +619,7 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 
 	if (gShaderProfileFrame)
 	{
-		LLGLSLShader::initProfile();
+		LLHLSLShader::initProfile();
 	}
 
 	//LLGLState::verify(false);
@@ -771,7 +770,7 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 	//
 
 	stop_glerror();
-	gGL.setAmbientLightColor(LLColor4::white);
+	gDX.setAmbientLightColor(LLColor4::white);
 	stop_glerror();
 
 	/////////////////////////////////////
@@ -787,7 +786,7 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 		LLAppViewer::instance()->pingMainloopTimeout("Display:DynamicTextures");
 		if (LLViewerDynamicTexture::updateAllInstances())
 		{
-			gGL.setColorMask(true, true);
+			gDX.setColorMask(true, true);
 #ifndef DX_RENDER
 			glClear(GL_DEPTH_BUFFER_BIT);
 #endif
@@ -889,22 +888,22 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 			switch (mode)
 			{
 			case MASK_MODE_LEFT:
-				gGL.setColorMask(true, true);
+				gDX.setColorMask(true, true);
 #ifndef DX_RENDER
 				glClearColor(0.f, 0.f, 0.f, 0.f);
 				glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 #endif
-				gGL.setColorMask(true, false, false, true); // Red
+				gDX.setColorMask(true, false, false, true); // Red
 				break;
 			case MASK_MODE_RIGHT:
 				// Don't clear! Render cyan on top of red for anaglyph
 #ifndef DX_RENDER
 				glClear(GL_DEPTH_BUFFER_BIT); // Only clear depth for proper occlusion
 #endif
-				gGL.setColorMask(false, true, true, true); // Cyan
+				gDX.setColorMask(false, true, true, true); // Cyan
 				break;
 			case MASK_MODE_NONE:
-				gGL.setColorMask(true, true); // Normal
+				gDX.setColorMask(true, true); // Normal
 #ifndef DX_RENDER
 				glClearColor(0.f, 0.f, 0.f, 0.f);
 				glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -936,10 +935,10 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 
 				set_current_projection(proj);
 				set_current_modelview(mod);
-				gGL.matrixMode(LLRender::MM_PROJECTION);
-				gGL.loadMatrix(glm::value_ptr(proj));
-				gGL.matrixMode(LLRender::MM_MODELVIEW);
-				gGL.loadMatrix(glm::value_ptr(mod));
+				gDX.matrixMode(LLRender::MM_PROJECTION);
+				gDX.loadMatrix(glm::value_ptr(proj));
+				gDX.matrixMode(LLRender::MM_MODELVIEW);
+				gDX.loadMatrix(glm::value_ptr(mod));
 				gViewerWindow->setup3DViewport();
 
 				LLGLState::checkStates();
@@ -1007,13 +1006,13 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 		switch (mode)
 		{
 		case(MASK_MODE_LEFT):
-			gGL.setColorMask(true, false, false, true); // red
+			gDX.setColorMask(true, false, false, true); // red
 			break;
 		case(MASK_MODE_RIGHT):
-			gGL.setColorMask(false, true, true, true); // cyan
+			gDX.setColorMask(false, true, true, true); // cyan
 			break;
 		case(MASK_MODE_NONE):
-			gGL.setColorMask(true, true);
+			gDX.setColorMask(true, true);
 			break;
 		}
 
@@ -1042,13 +1041,13 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 		switch (mode)
 		{
 		case(MASK_MODE_LEFT):
-			gGL.setColorMask(true, false, false, true); // red
+			gDX.setColorMask(true, false, false, true); // red
 			break;
 		case(MASK_MODE_RIGHT):
-			gGL.setColorMask(false, true, true, true); // cyan
+			gDX.setColorMask(false, true, true, true); // cyan
 			break;
 		case(MASK_MODE_NONE):
-			gGL.setColorMask(true, false); // Normal depth-only
+			gDX.setColorMask(true, false); // Normal depth-only
 			break;
 		}
 
@@ -1063,7 +1062,7 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 			static LLCachedControl<bool> render_depth_pre_pass(gSavedSettings, "RenderDepthPrePass", false);
 			if (render_depth_pre_pass)
 			{
-				gGL.setColorMask(false, false);
+				gDX.setColorMask(false, false);
 
 				constexpr U32 types[] = {
 					LLRenderPass::PASS_SIMPLE,
@@ -1084,15 +1083,15 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 			switch (mode)
 			{
 			case(MASK_MODE_LEFT):
-				gGL.setColorMask(true, false, false, true); // red
+				gDX.setColorMask(true, false, false, true); // red
 				gPipeline.renderGeomDeferred(*LLViewerCamera::getInstance(), true);
 				break;
 			case(MASK_MODE_RIGHT):
-				gGL.setColorMask(false, true, true, true); // cyan
+				gDX.setColorMask(false, true, true, true); // cyan
 				gPipeline.renderGeomDeferred(*LLViewerCamera::getInstance(), true);
 				break;
 			case(MASK_MODE_NONE):
-				gGL.setColorMask(true, true);
+				gDX.setColorMask(true, true);
 				gPipeline.renderGeomDeferred(*LLViewerCamera::getInstance(), true);
 				break;
 			}
@@ -1103,7 +1102,7 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 			{ //dummy cleanup of any currently bound textures
 #ifdef DX_RENDER
 				// S24 (2026-08-10, task #158): mCurrTexType never leaves
-				// TT_NONE under DX_RENDER (see LLGLSLShader::disableTexture()'s
+				// TT_NONE under DX_RENDER (see LLHLSLShader::disableTexture()'s
 				// comment for the full explanation) - this gate always
 				// evaluated false, so this per-frame, all-texture-unit
 				// cleanup pass never actually unbound anything under
@@ -1111,13 +1110,13 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 				// slot, every frame) - real contributor to the "resource
 				// still bound on input" D3D11 debug-layer warnings this
 				// session traced to the same root cause. Unconditional here.
-				gGL.getTexUnit(i)->unbind(LLTexUnit::TT_TEXTURE);
-				gGL.getTexUnit(i)->disable();
+				gDX.getTexUnit(i)->unbind(LLTexUnit::TT_TEXTURE);
+				gDX.getTexUnit(i)->disable();
 #else
-				if (gGL.getTexUnit(i)->getCurrType() != LLTexUnit::TT_NONE)
+				if (gDX.getTexUnit(i)->getCurrType() != LLTexUnit::TT_NONE)
 				{
-					gGL.getTexUnit(i)->unbind(gGL.getTexUnit(i)->getCurrType());
-					gGL.getTexUnit(i)->disable();
+					gDX.getTexUnit(i)->unbind(gDX.getTexUnit(i)->getCurrType());
+					gDX.getTexUnit(i)->disable();
 				}
 #endif
 			}
@@ -1154,12 +1153,12 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 			{
 				// Left eye or normal: render full UI, don't swap yet
 				// S24 3D - HUDs must render with full color mask to prevent strobing
-				gGL.setColorMask(true, true); // Temporarily reset to full RGBA
+				gDX.setColorMask(true, true); // Temporarily reset to full RGBA
 				render_ui();
 				// Restore stereo color mask for next frame if in stereo mode
 				if (mode == MASK_MODE_LEFT)
 				{
-					gGL.setColorMask(true, false, false, true); // Restore RED mask
+					gDX.setColorMask(true, false, false, true); // Restore RED mask
 				}
 				localSwap = (mode == MASK_MODE_NONE); // Only swap for non-stereo
 			}
@@ -1167,10 +1166,10 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 			{
 				// Right eye: render full UI and swap to display combined anaglyph
 				// S24 3D - HUDs must render with full color mask to prevent strobing
-				gGL.setColorMask(true, true); // Temporarily reset to full RGBA
+				gDX.setColorMask(true, true); // Temporarily reset to full RGBA
 				render_ui();
 				// Restore stereo color mask for next frame if in stereo mode
-				gGL.setColorMask(false, true, true, true); // Restore CYAN mask
+				gDX.setColorMask(false, true, true, true); // Restore CYAN mask
 				localSwap = true;
 			}
 
@@ -1203,7 +1202,7 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 		// which fails to compile against boost::json 1.91 (vcpkg).
 		boost::json::value stats(boost::json::object_kind);
 		getProfileStatsContext(stats.as_object());
-		LLGLSLShader::finishProfile(stats);
+		LLHLSLShader::finishProfile(stats);
 
 		auto report_name = getProfileStatsFilename();
 		std::ofstream outf(report_name);
@@ -1341,17 +1340,17 @@ void display_cube_face()
 	switch (mode)
 	{
 	case(MASK_MODE_LEFT):
-		gGL.setColorMask(true, false, false, true); // red
+		gDX.setColorMask(true, false, false, true); // red
 		break;
 	case(MASK_MODE_RIGHT):
-		gGL.setColorMask(false, true, true, true); // cyan
+		gDX.setColorMask(false, true, true, true); // cyan
 		break;
 	case(MASK_MODE_NONE):
-		gGL.setColorMask(true, true);
+		gDX.setColorMask(true, true);
 		break;
 	}
 
-	//gGL.setColorMask(true, true);
+	//gDX.setColorMask(true, true);
 
 #ifndef DX_RENDER
 	glClearColor(0.f, 0.f, 0.f, 0.f);
@@ -1387,16 +1386,16 @@ void display_cube_face()
 	switch (mode)
 	{
 	case(MASK_MODE_LEFT):
-		gGL.setColorMask(true, false, false, true); // red
+		gDX.setColorMask(true, false, false, true); // red
 		break;
 	case(MASK_MODE_RIGHT):
-		gGL.setColorMask(false, true, true, true); // cyan
+		gDX.setColorMask(false, true, true, true); // cyan
 		break;
 	case(MASK_MODE_NONE):
-		gGL.setColorMask(true, true);
+		gDX.setColorMask(true, true);
 		break;
 	}
-	//gGL.setColorMask(true, true);
+	//gDX.setColorMask(true, true);
 
 	gPipeline.mRT->deferredScreen.bindTarget();
 #ifndef DX_RENDER
@@ -1477,10 +1476,10 @@ void display_cube_face()
 void render_hud_attachments()
 {
 	LLPerfStats::RecordSceneTime T(LLPerfStats::StatType_t::RENDER_HUDS); // render time capture - Primary contributor to HUDs (though these end up in render batches)
-	gGL.matrixMode(LLRender::MM_PROJECTION);
-	gGL.pushMatrix();
-	gGL.matrixMode(LLRender::MM_MODELVIEW);
-	gGL.pushMatrix();
+	gDX.matrixMode(LLRender::MM_PROJECTION);
+	gDX.pushMatrix();
+	gDX.matrixMode(LLRender::MM_MODELVIEW);
+	gDX.pushMatrix();
 
 	glm::mat4 current_proj = get_current_projection();
 	glm::mat4 current_mod = get_current_modelview();
@@ -1579,10 +1578,10 @@ void render_hud_attachments()
 		LLPipeline::sUseOcclusion = use_occlusion;
 		LLPipeline::sRenderingHUDs = false;
 	}
-	gGL.matrixMode(LLRender::MM_PROJECTION);
-	gGL.popMatrix();
-	gGL.matrixMode(LLRender::MM_MODELVIEW);
-	gGL.popMatrix();
+	gDX.matrixMode(LLRender::MM_PROJECTION);
+	gDX.popMatrix();
+	gDX.matrixMode(LLRender::MM_MODELVIEW);
+	gDX.popMatrix();
 
 	set_current_projection(current_proj);
 	set_current_modelview(current_mod);
@@ -1666,12 +1665,12 @@ bool setup_hud_matrices(const LLRect& screen_region)
 	if (!result) return result;
 
 	// set up transform to keep HUD objects in front of camera
-	gGL.matrixMode(LLRender::MM_PROJECTION);
-	gGL.loadMatrix(glm::value_ptr(proj));
+	gDX.matrixMode(LLRender::MM_PROJECTION);
+	gDX.loadMatrix(glm::value_ptr(proj));
 	set_current_projection(proj);
 
-	gGL.matrixMode(LLRender::MM_MODELVIEW);
-	gGL.loadMatrix(glm::value_ptr(model));
+	gDX.matrixMode(LLRender::MM_MODELVIEW);
+	gDX.loadMatrix(glm::value_ptr(model));
 	set_current_modelview(model);
 	return true;
 }
@@ -1690,7 +1689,7 @@ void render_ui(F32 zoom_factor, int subfield)
 
 	if (!gSnapshot)
 	{
-		gGL.pushMatrix();
+		gDX.pushMatrix();
 #ifdef DX_RENDER
 		// S24 (2026-08-16): load the LIVE camera's current modelview
 		// instead of gGLLastModelView - that global is only ever updated
@@ -1719,28 +1718,28 @@ void render_ui(F32 zoom_factor, int subfield)
 		// never reloaded here at all before this fix (confirmed via grep -
 		// only modelview was) - added symmetrically.
 		const LLMatrix4& live_modelview = LLViewerCamera::getInstance()->getModelview();
-		gGL.loadMatrix((const GLfloat*)live_modelview.mMatrix);
+		gDX.loadMatrix((const GLfloat*)live_modelview.mMatrix);
 		set_current_modelview(glm::make_mat4((const GLfloat*)live_modelview.mMatrix));
 
-		gGL.matrixMode(LLRender::MM_PROJECTION);
-		gGL.pushMatrix();
+		gDX.matrixMode(LLRender::MM_PROJECTION);
+		gDX.pushMatrix();
 		const LLMatrix4& live_projection = LLViewerCamera::getInstance()->getProjection();
-		gGL.loadMatrix((const GLfloat*)live_projection.mMatrix);
+		gDX.loadMatrix((const GLfloat*)live_projection.mMatrix);
 		set_current_projection(glm::make_mat4((const GLfloat*)live_projection.mMatrix));
-		gGL.matrixMode(LLRender::MM_MODELVIEW);
+		gDX.matrixMode(LLRender::MM_MODELVIEW);
 #else
-		gGL.loadMatrix(gGLLastModelView);
+		gDX.loadMatrix(gGLLastModelView);
 		set_current_modelview(glm::make_mat4(gGLLastModelView));
 #endif
 	}
 
 	if (LLSceneMonitor::getInstance()->needsUpdate())
 	{
-		gGL.pushMatrix();
+		gDX.pushMatrix();
 		gViewerWindow->setup2DRender();
 		LLSceneMonitor::getInstance()->compare();
 		gViewerWindow->setup3DRender();
-		gGL.popMatrix();
+		gDX.popMatrix();
 	}
 
 	// apply gamma correction and post effects
@@ -1811,13 +1810,13 @@ void render_ui(F32 zoom_factor, int subfield)
 	if (!gSnapshot)
 	{
 #ifdef DX_RENDER
-		gGL.matrixMode(LLRender::MM_PROJECTION);
-		gGL.popMatrix();
+		gDX.matrixMode(LLRender::MM_PROJECTION);
+		gDX.popMatrix();
 		set_current_projection(saved_proj);
-		gGL.matrixMode(LLRender::MM_MODELVIEW);
+		gDX.matrixMode(LLRender::MM_MODELVIEW);
 #endif
 		set_current_modelview(saved_view);
-		gGL.popMatrix();
+		gDX.popMatrix();
 	}
 }
 
@@ -1836,69 +1835,69 @@ void swap()
 
 void renderCoordinateAxes()
 {
-	gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
-	gGL.begin(LLRender::LINES);
-	gGL.color3f(1.0f, 0.0f, 0.0f);   // i direction = X-Axis = red
-	gGL.vertex3f(0.0f, 0.0f, 0.0f);
-	gGL.vertex3f(2.0f, 0.0f, 0.0f);
-	gGL.vertex3f(3.0f, 0.0f, 0.0f);
-	gGL.vertex3f(5.0f, 0.0f, 0.0f);
-	gGL.vertex3f(6.0f, 0.0f, 0.0f);
-	gGL.vertex3f(8.0f, 0.0f, 0.0f);
+	gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+	gDX.begin(LLRender::LINES);
+	gDX.color3f(1.0f, 0.0f, 0.0f);   // i direction = X-Axis = red
+	gDX.vertex3f(0.0f, 0.0f, 0.0f);
+	gDX.vertex3f(2.0f, 0.0f, 0.0f);
+	gDX.vertex3f(3.0f, 0.0f, 0.0f);
+	gDX.vertex3f(5.0f, 0.0f, 0.0f);
+	gDX.vertex3f(6.0f, 0.0f, 0.0f);
+	gDX.vertex3f(8.0f, 0.0f, 0.0f);
 	// Make an X
-	gGL.vertex3f(11.0f, 1.0f, 1.0f);
-	gGL.vertex3f(11.0f, -1.0f, -1.0f);
-	gGL.vertex3f(11.0f, 1.0f, -1.0f);
-	gGL.vertex3f(11.0f, -1.0f, 1.0f);
+	gDX.vertex3f(11.0f, 1.0f, 1.0f);
+	gDX.vertex3f(11.0f, -1.0f, -1.0f);
+	gDX.vertex3f(11.0f, 1.0f, -1.0f);
+	gDX.vertex3f(11.0f, -1.0f, 1.0f);
 
-	gGL.color3f(0.0f, 1.0f, 0.0f);   // j direction = Y-Axis = green
-	gGL.vertex3f(0.0f, 0.0f, 0.0f);
-	gGL.vertex3f(0.0f, 2.0f, 0.0f);
-	gGL.vertex3f(0.0f, 3.0f, 0.0f);
-	gGL.vertex3f(0.0f, 5.0f, 0.0f);
-	gGL.vertex3f(0.0f, 6.0f, 0.0f);
-	gGL.vertex3f(0.0f, 8.0f, 0.0f);
+	gDX.color3f(0.0f, 1.0f, 0.0f);   // j direction = Y-Axis = green
+	gDX.vertex3f(0.0f, 0.0f, 0.0f);
+	gDX.vertex3f(0.0f, 2.0f, 0.0f);
+	gDX.vertex3f(0.0f, 3.0f, 0.0f);
+	gDX.vertex3f(0.0f, 5.0f, 0.0f);
+	gDX.vertex3f(0.0f, 6.0f, 0.0f);
+	gDX.vertex3f(0.0f, 8.0f, 0.0f);
 	// Make a Y
-	gGL.vertex3f(1.0f, 11.0f, 1.0f);
-	gGL.vertex3f(0.0f, 11.0f, 0.0f);
-	gGL.vertex3f(-1.0f, 11.0f, 1.0f);
-	gGL.vertex3f(0.0f, 11.0f, 0.0f);
-	gGL.vertex3f(0.0f, 11.0f, 0.0f);
-	gGL.vertex3f(0.0f, 11.0f, -1.0f);
+	gDX.vertex3f(1.0f, 11.0f, 1.0f);
+	gDX.vertex3f(0.0f, 11.0f, 0.0f);
+	gDX.vertex3f(-1.0f, 11.0f, 1.0f);
+	gDX.vertex3f(0.0f, 11.0f, 0.0f);
+	gDX.vertex3f(0.0f, 11.0f, 0.0f);
+	gDX.vertex3f(0.0f, 11.0f, -1.0f);
 
-	gGL.color3f(0.0f, 0.0f, 1.0f);   // Z-Axis = blue
-	gGL.vertex3f(0.0f, 0.0f, 0.0f);
-	gGL.vertex3f(0.0f, 0.0f, 2.0f);
-	gGL.vertex3f(0.0f, 0.0f, 3.0f);
-	gGL.vertex3f(0.0f, 0.0f, 5.0f);
-	gGL.vertex3f(0.0f, 0.0f, 6.0f);
-	gGL.vertex3f(0.0f, 0.0f, 8.0f);
+	gDX.color3f(0.0f, 0.0f, 1.0f);   // Z-Axis = blue
+	gDX.vertex3f(0.0f, 0.0f, 0.0f);
+	gDX.vertex3f(0.0f, 0.0f, 2.0f);
+	gDX.vertex3f(0.0f, 0.0f, 3.0f);
+	gDX.vertex3f(0.0f, 0.0f, 5.0f);
+	gDX.vertex3f(0.0f, 0.0f, 6.0f);
+	gDX.vertex3f(0.0f, 0.0f, 8.0f);
 	// Make a Z
-	gGL.vertex3f(-1.0f, 1.0f, 11.0f);
-	gGL.vertex3f(1.0f, 1.0f, 11.0f);
-	gGL.vertex3f(1.0f, 1.0f, 11.0f);
-	gGL.vertex3f(-1.0f, -1.0f, 11.0f);
-	gGL.vertex3f(-1.0f, -1.0f, 11.0f);
-	gGL.vertex3f(1.0f, -1.0f, 11.0f);
-	gGL.end();
+	gDX.vertex3f(-1.0f, 1.0f, 11.0f);
+	gDX.vertex3f(1.0f, 1.0f, 11.0f);
+	gDX.vertex3f(1.0f, 1.0f, 11.0f);
+	gDX.vertex3f(-1.0f, -1.0f, 11.0f);
+	gDX.vertex3f(-1.0f, -1.0f, 11.0f);
+	gDX.vertex3f(1.0f, -1.0f, 11.0f);
+	gDX.end();
 }
 
 void draw_axes()
 {
 	LLGLSUIDefault gls_ui;
-	gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+	gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
 	// A vertical white line at origin
 	LLVector3 v = gAgent.getPositionAgent();
-	gGL.begin(LLRender::LINES);
-	gGL.color3f(1.0f, 1.0f, 1.0f);
-	gGL.vertex3f(0.0f, 0.0f, 0.0f);
-	gGL.vertex3f(0.0f, 0.0f, 40.0f);
-	gGL.end();
+	gDX.begin(LLRender::LINES);
+	gDX.color3f(1.0f, 1.0f, 1.0f);
+	gDX.vertex3f(0.0f, 0.0f, 0.0f);
+	gDX.vertex3f(0.0f, 0.0f, 40.0f);
+	gDX.end();
 	// Some coordinate axes
-	gGL.pushMatrix();
-	gGL.translatef(v.mV[VX], v.mV[VY], v.mV[VZ]);
+	gDX.pushMatrix();
+	gDX.translatef(v.mV[VX], v.mV[VY], v.mV[VZ]);
 	renderCoordinateAxes();
-	gGL.popMatrix();
+	gDX.popMatrix();
 }
 
 void render_ui_3d()
@@ -1923,7 +1922,7 @@ void render_ui_3d()
 	stop_glerror();
 
 	gUIProgram.bind();
-	gGL.color4f(1.f, 1.f, 1.f, 1.f);
+	gDX.color4f(1.f, 1.f, 1.f, 1.f);
 
 	// Coordinate axes
 	static LLCachedControl<bool> show_axes(gSavedSettings, "ShowAxes");
@@ -1985,16 +1984,16 @@ void render_ui_2d()
 	if (isAgentAvatarValid() && gAgentCamera.mHUDCurZoom < 0.98f)
 	{
 		gUIProgram.bind();
-		gGL.pushMatrix();
+		gDX.pushMatrix();
 		S32 half_width = (gViewerWindow->getWorldViewWidthScaled() / 2);
 		S32 half_height = (gViewerWindow->getWorldViewHeightScaled() / 2);
-		gGL.scalef(LLUI::getScaleFactor().mV[VX], LLUI::getScaleFactor().mV[VY], 1.f);
-		gGL.translatef((F32)half_width, (F32)half_height, 0.f);
+		gDX.scalef(LLUI::getScaleFactor().mV[VX], LLUI::getScaleFactor().mV[VY], 1.f);
+		gDX.translatef((F32)half_width, (F32)half_height, 0.f);
 		F32 zoom = gAgentCamera.mHUDCurZoom;
-		gGL.scalef(zoom, zoom, 1.f);
-		gGL.color4fv(LLColor4::white.mV);
+		gDX.scalef(zoom, zoom, 1.f);
+		gDX.color4fv(LLColor4::white.mV);
 		gl_rect_2d(-half_width, half_height, half_width, -half_height, false);
-		gGL.popMatrix();
+		gDX.popMatrix();
 		gUIProgram.unbind();
 		stop_glerror();
 	}
@@ -2017,7 +2016,7 @@ void render_ui_2d()
 			LLRect t_rect;
 
 			gPipeline.mUIScreen.bindTarget();
-			gGL.setColorMask(true, true);
+			gDX.setColorMask(true, true);
 			{
 				constexpr S32 pad = 8;
 
@@ -2049,7 +2048,7 @@ void render_ui_2d()
 			}
 
 			gPipeline.mUIScreen.flush();
-			gGL.setColorMask(true, false);
+			gDX.setColorMask(true, false);
 
 			LLView::sDirtyRect = t_rect;
 		}
@@ -2058,14 +2057,14 @@ void render_ui_2d()
 		LLGLDisable blend(GL_BLEND);
 		S32 width = gViewerWindow->getWindowWidthScaled();
 		S32 height = gViewerWindow->getWindowHeightScaled();
-		gGL.getTexUnit(0)->bind(&gPipeline.mUIScreen);
-		gGL.begin(LLRender::TRIANGLE_STRIP);
-		gGL.color4f(1.f, 1.f, 1.f, 1.f);
-		gGL.texCoord2f(0.f, 0.f);                 gGL.vertex2i(0, 0);
-		gGL.texCoord2f((F32)width, 0.f);          gGL.vertex2i(width, 0);
-		gGL.texCoord2f(0.f, (F32)height);         gGL.vertex2i(0, height);
-		gGL.texCoord2f((F32)width, (F32)height);  gGL.vertex2i(width, height);
-		gGL.end();
+		gDX.getTexUnit(0)->bind(&gPipeline.mUIScreen);
+		gDX.begin(LLRender::TRIANGLE_STRIP);
+		gDX.color4f(1.f, 1.f, 1.f, 1.f);
+		gDX.texCoord2f(0.f, 0.f);                 gDX.vertex2i(0, 0);
+		gDX.texCoord2f((F32)width, 0.f);          gDX.vertex2i(width, 0);
+		gDX.texCoord2f(0.f, (F32)height);         gDX.vertex2i(0, height);
+		gDX.texCoord2f((F32)width, (F32)height);  gDX.vertex2i(width, height);
+		gDX.end();
 	}
 	else
 	{
@@ -2081,7 +2080,7 @@ void render_disconnected_background()
 {
 	gUIProgram.bind();
 
-	gGL.color4f(1.f, 1.f, 1.f, 1.f);
+	gDX.color4f(1.f, 1.f, 1.f, 1.f);
 	if (!gDisconnectedImagep && gDisconnected)
 	{
 		LL_INFOS() << "Loading last bitmap..." << LL_ENDL;
@@ -2122,7 +2121,7 @@ void render_disconnected_background()
 		raw->expandToPowerOfTwo();
 		gDisconnectedImagep = LLViewerTextureManager::getLocalTexture(raw.get(), false);
 		gStartTexture = gDisconnectedImagep;
-		gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+		gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
 	}
 
 	// Make sure the progress view always fills the entire window.
@@ -2133,22 +2132,22 @@ void render_disconnected_background()
 	{
 		LLGLSUIDefault gls_ui;
 		gViewerWindow->setup2DRender();
-		gGL.pushMatrix();
+		gDX.pushMatrix();
 		{
 			// scale ui to reflect UIScaleFactor
 			// this can't be done in setup2DRender because it requires a
 			// pushMatrix/popMatrix pair
 			const LLVector2& display_scale = gViewerWindow->getDisplayScale();
-			gGL.scalef(display_scale.mV[VX], display_scale.mV[VY], 1.f);
+			gDX.scalef(display_scale.mV[VX], display_scale.mV[VY], 1.f);
 
-			gGL.getTexUnit(0)->bind(gDisconnectedImagep);
-			gGL.color4f(1.f, 1.f, 1.f, 1.f);
+			gDX.getTexUnit(0)->bind(gDisconnectedImagep);
+			gDX.color4f(1.f, 1.f, 1.f, 1.f);
 			gl_rect_2d_simple_tex(width, height);
-			gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+			gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
 		}
-		gGL.popMatrix();
+		gDX.popMatrix();
 	}
-	gGL.flush();
+	gDX.flush();
 
 	gUIProgram.unbind();
 }

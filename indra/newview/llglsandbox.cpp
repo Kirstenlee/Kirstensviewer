@@ -119,8 +119,8 @@ void LLToolSelectRect::handleRectangleSelection(S32 x, S32 y, MASK mask)
     S32 center_y = (top + bottom) / 2;
 
     // save drawing mode
-    gGL.matrixMode(LLRender::MM_PROJECTION);
-    gGL.pushMatrix();
+    gDX.matrixMode(LLRender::MM_PROJECTION);
+    gDX.pushMatrix();
 
     bool limit_select_distance = gSavedSettings.getBOOL("LimitSelectDistance");
     if (limit_select_distance)
@@ -234,9 +234,9 @@ void LLToolSelectRect::handleRectangleSelection(S32 x, S32 y, MASK mask)
     }
 
     // restore drawing mode
-    gGL.matrixMode(LLRender::MM_PROJECTION);
-    gGL.popMatrix();
-    gGL.matrixMode(LLRender::MM_MODELVIEW);
+    gDX.matrixMode(LLRender::MM_PROJECTION);
+    gDX.popMatrix();
+    gDX.matrixMode(LLRender::MM_MODELVIEW);
 
     // restore camera
     LLViewerCamera::getInstance()->setFar(old_far_plane);
@@ -254,32 +254,32 @@ void LLWind::renderVectors()
 
     F32 region_width_meters = LLWorld::getInstance()->getRegionWidthInMeters();
 
-    gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
-    gGL.pushMatrix();
+    gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+    gDX.pushMatrix();
     LLVector3 origin_agent;
     origin_agent = gAgent.getPosAgentFromGlobal(mOriginGlobal);
-    gGL.translatef(origin_agent.mV[VX], origin_agent.mV[VY], gAgent.getPositionAgent().mV[VZ] + WIND_RELATIVE_ALTITUDE);
+    gDX.translatef(origin_agent.mV[VX], origin_agent.mV[VY], gAgent.getPositionAgent().mV[VZ] + WIND_RELATIVE_ALTITUDE);
     for (j = 0; j < mSize; j++)
     {
         for (i = 0; i < mSize; i++)
         {
             x = mVelX[i + j*mSize] * WIND_SCALE_HACK;
             y = mVelY[i + j*mSize] * WIND_SCALE_HACK;
-            gGL.pushMatrix();
-            gGL.translatef((F32)i * region_width_meters/mSize, (F32)j * region_width_meters/mSize, 0.f);
-            gGL.color3f(0.f, 1.f, 0.f);
-            gGL.begin(LLRender::POINTS);
-                gGL.vertex3f(0.f, 0.f, 0.f);
-            gGL.end();
-            gGL.color3f(1.f, 0.f, 0.f);
-            gGL.begin(LLRender::LINES);
-                gGL.vertex3f(x * 0.1f, y * 0.1f, 0.f);
-                gGL.vertex3f(x, y, 0.f);
-            gGL.end();
-            gGL.popMatrix();
+            gDX.pushMatrix();
+            gDX.translatef((F32)i * region_width_meters/mSize, (F32)j * region_width_meters/mSize, 0.f);
+            gDX.color3f(0.f, 1.f, 0.f);
+            gDX.begin(LLRender::POINTS);
+                gDX.vertex3f(0.f, 0.f, 0.f);
+            gDX.end();
+            gDX.color3f(1.f, 0.f, 0.f);
+            gDX.begin(LLRender::LINES);
+                gDX.vertex3f(x * 0.1f, y * 0.1f, 0.f);
+                gDX.vertex3f(x, y, 0.f);
+            gDX.end();
+            gDX.popMatrix();
         }
     }
-    gGL.popMatrix();
+    gDX.popMatrix();
 }
 
 
@@ -290,7 +290,7 @@ void LLViewerParcelMgr::renderRect(const LLVector3d &west_south_bottom_global,
                                    const LLVector3d &east_north_top_global )
 {
     LLGLSUIDefault gls_ui;
-    gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+    gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
     LLGLDepthTest gls_depth(GL_TRUE);
 
     LLVector3 west_south_bottom_agent = gAgent.getPosAgentFromGlobal(west_south_bottom_global);
@@ -318,40 +318,40 @@ void LLViewerParcelMgr::renderRect(const LLVector3d &west_south_bottom_global,
     F32 nw_top = nw_bottom + PARCEL_POST_HEIGHT;
 
     LLUI::setLineWidth(2.f);
-    gGL.color4f(1.f, 1.f, 0.f, 1.f);
+    gDX.color4f(1.f, 1.f, 0.f, 1.f);
 
     // Cheat and give this the same pick-name as land
-    gGL.begin(LLRender::LINES);
+    gDX.begin(LLRender::LINES);
 
-    gGL.vertex3f(west, north, nw_bottom);
-    gGL.vertex3f(west, north, nw_top);
+    gDX.vertex3f(west, north, nw_bottom);
+    gDX.vertex3f(west, north, nw_top);
 
-    gGL.vertex3f(east, north, ne_bottom);
-    gGL.vertex3f(east, north, ne_top);
+    gDX.vertex3f(east, north, ne_bottom);
+    gDX.vertex3f(east, north, ne_top);
 
-    gGL.vertex3f(east, south, se_bottom);
-    gGL.vertex3f(east, south, se_top);
+    gDX.vertex3f(east, south, se_bottom);
+    gDX.vertex3f(east, south, se_top);
 
-    gGL.vertex3f(west, south, sw_bottom);
-    gGL.vertex3f(west, south, sw_top);
+    gDX.vertex3f(west, south, sw_bottom);
+    gDX.vertex3f(west, south, sw_top);
 
-    gGL.end();
+    gDX.end();
 
-    gGL.color4f(1.f, 1.f, 0.f, 0.2f);
-    gGL.begin(LLRender::TRIANGLE_STRIP);
+    gDX.color4f(1.f, 1.f, 0.f, 0.2f);
+    gDX.begin(LLRender::TRIANGLE_STRIP);
     {
-        gGL.vertex3f(west, north, nw_bottom);
-        gGL.vertex3f(west, north, nw_top);
-        gGL.vertex3f(east, north, ne_bottom);
-        gGL.vertex3f(east, north, ne_top);
-        gGL.vertex3f(east, south, se_bottom);
-        gGL.vertex3f(east, south, se_top);
-        gGL.vertex3f(west, south, sw_top);
-        gGL.vertex3f(west, south, sw_bottom);
-        gGL.vertex3f(west, north, nw_top);
-        gGL.vertex3f(west, north, nw_bottom);
+        gDX.vertex3f(west, north, nw_bottom);
+        gDX.vertex3f(west, north, nw_top);
+        gDX.vertex3f(east, north, ne_bottom);
+        gDX.vertex3f(east, north, ne_top);
+        gDX.vertex3f(east, south, se_bottom);
+        gDX.vertex3f(east, south, se_top);
+        gDX.vertex3f(west, south, sw_top);
+        gDX.vertex3f(west, south, sw_bottom);
+        gDX.vertex3f(west, north, nw_top);
+        gDX.vertex3f(west, north, nw_bottom);
     }
-    gGL.end();
+    gDX.end();
 
     LLUI::setLineWidth(1.f);
 }
@@ -392,18 +392,18 @@ void LLViewerParcelMgr::renderOneSegment(F32 x1, F32 y1, F32 x2, F32 y2, F32 hei
     if (height < 1.f)
     {
         z = z1+height;
-        gGL.vertex3f(x1, y1, z);
+        gDX.vertex3f(x1, y1, z);
 
-        gGL.vertex3f(x1, y1, z1);
+        gDX.vertex3f(x1, y1, z1);
 
-        gGL.vertex3f(x2, y2, z2);
+        gDX.vertex3f(x2, y2, z2);
 
-        gGL.vertex3f(x1, y1, z);
+        gDX.vertex3f(x1, y1, z);
 
-        gGL.vertex3f(x2, y2, z2);
+        gDX.vertex3f(x2, y2, z2);
 
         z = z2+height;
-        gGL.vertex3f(x2, y2, z);
+        gDX.vertex3f(x2, y2, z);
     }
     else
     {
@@ -432,25 +432,25 @@ void LLViewerParcelMgr::renderOneSegment(F32 x1, F32 y1, F32 x2, F32 y2, F32 hei
         }
 
 
-        gGL.texCoord2f(tex_coord1*0.5f+0.5f, z1*0.5f);
-        gGL.vertex3f(x1, y1, z1);
+        gDX.texCoord2f(tex_coord1*0.5f+0.5f, z1*0.5f);
+        gDX.vertex3f(x1, y1, z1);
 
-        gGL.texCoord2f(tex_coord2*0.5f+0.5f, z2*0.5f);
-        gGL.vertex3f(x2, y2, z2);
+        gDX.texCoord2f(tex_coord2*0.5f+0.5f, z2*0.5f);
+        gDX.vertex3f(x2, y2, z2);
 
         // top edge stairsteps
         z = llmax(z2 + height, z1 + height);
-        gGL.texCoord2f(tex_coord2 * 0.5f + 0.5f, z * 0.5f);
-        gGL.vertex3f(x2, y2, z);
+        gDX.texCoord2f(tex_coord2 * 0.5f + 0.5f, z * 0.5f);
+        gDX.vertex3f(x2, y2, z);
 
-        gGL.texCoord2f(tex_coord1 * 0.5f + 0.5f, z1 * 0.5f);
-        gGL.vertex3f(x1, y1, z1);
+        gDX.texCoord2f(tex_coord1 * 0.5f + 0.5f, z1 * 0.5f);
+        gDX.vertex3f(x1, y1, z1);
 
-        gGL.texCoord2f(tex_coord2 * 0.5f + 0.5f, z * 0.5f);
-        gGL.vertex3f(x2, y2, z);
+        gDX.texCoord2f(tex_coord2 * 0.5f + 0.5f, z * 0.5f);
+        gDX.vertex3f(x2, y2, z);
 
-        gGL.texCoord2f(tex_coord1 * 0.5f + 0.5f, z * 0.5f);
-        gGL.vertex3f(x1, y1, z);
+        gDX.texCoord2f(tex_coord1 * 0.5f + 0.5f, z * 0.5f);
+        gDX.vertex3f(x1, y1, z);
     }
 }
 
@@ -463,10 +463,10 @@ void LLViewerParcelMgr::renderHighlightSegments(const U8* segments, LLViewerRegi
     bool has_segments = false;
 
     LLGLSUIDefault gls_ui;
-    gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+    gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
     LLGLDepthTest gls_depth(GL_TRUE);
 
-    gGL.color4f(1.f, 1.f, 0.f, 0.2f);
+    gDX.color4f(1.f, 1.f, 0.f, 0.2f);
 
     const S32 STRIDE = (mParcelsPerEdge+1);
 
@@ -490,7 +490,7 @@ void LLViewerParcelMgr::renderHighlightSegments(const U8* segments, LLViewerRegi
                 if (!has_segments)
                 {
                     has_segments = true;
-                    gGL.begin(LLRender::TRIANGLES);
+                    gDX.begin(LLRender::TRIANGLES);
                 }
                 renderOneSegment(x1, y1, x2, y2, PARCEL_POST_HEIGHT, SOUTH_MASK, regionp);
             }
@@ -506,7 +506,7 @@ void LLViewerParcelMgr::renderHighlightSegments(const U8* segments, LLViewerRegi
                 if (!has_segments)
                 {
                     has_segments = true;
-                    gGL.begin(LLRender::TRIANGLES);
+                    gDX.begin(LLRender::TRIANGLES);
                 }
                 renderOneSegment(x1, y1, x2, y2, PARCEL_POST_HEIGHT, WEST_MASK, regionp);
             }
@@ -515,7 +515,7 @@ void LLViewerParcelMgr::renderHighlightSegments(const U8* segments, LLViewerRegi
 
     if (has_segments)
     {
-        gGL.end();
+        gDX.end();
     }
 }
 
@@ -555,14 +555,14 @@ void LLViewerParcelMgr::renderCollisionSegments(U8* segments, bool use_pass, LLV
 
     if (use_pass && (mCollisionBanned == BA_NOT_ON_LIST))
     {
-        gGL.getTexUnit(0)->bind(mPassImage);
+        gDX.getTexUnit(0)->bind(mPassImage);
     }
     else
     {
-        gGL.getTexUnit(0)->bind(mBlockedImage);
+        gDX.getTexUnit(0)->bind(mBlockedImage);
     }
 
-    gGL.begin(LLRender::TRIANGLES);
+    gDX.begin(LLRender::TRIANGLES);
 
     for (y = 0; y < STRIDE; y++)
     {
@@ -603,7 +603,7 @@ void LLViewerParcelMgr::renderCollisionSegments(U8* segments, bool use_pass, LLV
 
                 alpha = llclamp(alpha, 0.0f, MAX_ALPHA);
 
-                gGL.color4f(1.f, 1.f, 1.f, alpha);
+                gDX.color4f(1.f, 1.f, 1.f, alpha);
 
                 if ((pos_y - y1) < 0) direction = SOUTH_MASK;
                 else        direction = NORTH_MASK;
@@ -641,7 +641,7 @@ void LLViewerParcelMgr::renderCollisionSegments(U8* segments, bool use_pass, LLV
 
                 alpha = llclamp(alpha, 0.0f, MAX_ALPHA);
 
-                gGL.color4f(1.f, 1.f, 1.f, alpha);
+                gDX.color4f(1.f, 1.f, 1.f, alpha);
 
                 if ((pos_x - x1) > 0) direction = WEST_MASK;
                 else        direction = EAST_MASK;
@@ -653,7 +653,7 @@ void LLViewerParcelMgr::renderCollisionSegments(U8* segments, bool use_pass, LLV
         }
     }
 
-    gGL.end();
+    gDX.end();
 }
 
 void LLViewerParcelMgr::resetCollisionTimer()
@@ -665,42 +665,141 @@ void LLViewerParcelMgr::resetCollisionTimer()
 void draw_line_cube(F32 width, const LLVector3& center)
 {
     width = 0.5f * width;
-    gGL.vertex3f(center.mV[VX] + width ,center.mV[VY] + width,center.mV[VZ] + width);
-    gGL.vertex3f(center.mV[VX] - width ,center.mV[VY] + width,center.mV[VZ] + width);
-    gGL.vertex3f(center.mV[VX] - width ,center.mV[VY] + width,center.mV[VZ] + width);
-    gGL.vertex3f(center.mV[VX] - width ,center.mV[VY] - width,center.mV[VZ] + width);
-    gGL.vertex3f(center.mV[VX] - width ,center.mV[VY] - width,center.mV[VZ] + width);
-    gGL.vertex3f(center.mV[VX] + width ,center.mV[VY] - width,center.mV[VZ] + width);
-    gGL.vertex3f(center.mV[VX] + width ,center.mV[VY] - width,center.mV[VZ] + width);
-    gGL.vertex3f(center.mV[VX] + width ,center.mV[VY] + width,center.mV[VZ] + width);
+    gDX.vertex3f(center.mV[VX] + width ,center.mV[VY] + width,center.mV[VZ] + width);
+    gDX.vertex3f(center.mV[VX] - width ,center.mV[VY] + width,center.mV[VZ] + width);
+    gDX.vertex3f(center.mV[VX] - width ,center.mV[VY] + width,center.mV[VZ] + width);
+    gDX.vertex3f(center.mV[VX] - width ,center.mV[VY] - width,center.mV[VZ] + width);
+    gDX.vertex3f(center.mV[VX] - width ,center.mV[VY] - width,center.mV[VZ] + width);
+    gDX.vertex3f(center.mV[VX] + width ,center.mV[VY] - width,center.mV[VZ] + width);
+    gDX.vertex3f(center.mV[VX] + width ,center.mV[VY] - width,center.mV[VZ] + width);
+    gDX.vertex3f(center.mV[VX] + width ,center.mV[VY] + width,center.mV[VZ] + width);
 
-    gGL.vertex3f(center.mV[VX] + width ,center.mV[VY] + width,center.mV[VZ] - width);
-    gGL.vertex3f(center.mV[VX] - width ,center.mV[VY] + width,center.mV[VZ] - width);
-    gGL.vertex3f(center.mV[VX] - width ,center.mV[VY] + width,center.mV[VZ] - width);
-    gGL.vertex3f(center.mV[VX] - width ,center.mV[VY] - width,center.mV[VZ] - width);
-    gGL.vertex3f(center.mV[VX] - width ,center.mV[VY] - width,center.mV[VZ] - width);
-    gGL.vertex3f(center.mV[VX] + width ,center.mV[VY] - width,center.mV[VZ] - width);
-    gGL.vertex3f(center.mV[VX] + width ,center.mV[VY] - width,center.mV[VZ] - width);
-    gGL.vertex3f(center.mV[VX] + width ,center.mV[VY] + width,center.mV[VZ] - width);
+    gDX.vertex3f(center.mV[VX] + width ,center.mV[VY] + width,center.mV[VZ] - width);
+    gDX.vertex3f(center.mV[VX] - width ,center.mV[VY] + width,center.mV[VZ] - width);
+    gDX.vertex3f(center.mV[VX] - width ,center.mV[VY] + width,center.mV[VZ] - width);
+    gDX.vertex3f(center.mV[VX] - width ,center.mV[VY] - width,center.mV[VZ] - width);
+    gDX.vertex3f(center.mV[VX] - width ,center.mV[VY] - width,center.mV[VZ] - width);
+    gDX.vertex3f(center.mV[VX] + width ,center.mV[VY] - width,center.mV[VZ] - width);
+    gDX.vertex3f(center.mV[VX] + width ,center.mV[VY] - width,center.mV[VZ] - width);
+    gDX.vertex3f(center.mV[VX] + width ,center.mV[VY] + width,center.mV[VZ] - width);
 
-    gGL.vertex3f(center.mV[VX] + width ,center.mV[VY] + width,center.mV[VZ] + width);
-    gGL.vertex3f(center.mV[VX] + width ,center.mV[VY] + width,center.mV[VZ] - width);
-    gGL.vertex3f(center.mV[VX] - width ,center.mV[VY] + width,center.mV[VZ] + width);
-    gGL.vertex3f(center.mV[VX] - width ,center.mV[VY] + width,center.mV[VZ] - width);
-    gGL.vertex3f(center.mV[VX] - width ,center.mV[VY] - width,center.mV[VZ] + width);
-    gGL.vertex3f(center.mV[VX] - width ,center.mV[VY] - width,center.mV[VZ] - width);
-    gGL.vertex3f(center.mV[VX] + width ,center.mV[VY] - width,center.mV[VZ] + width);
-    gGL.vertex3f(center.mV[VX] + width ,center.mV[VY] - width,center.mV[VZ] - width);
+    gDX.vertex3f(center.mV[VX] + width ,center.mV[VY] + width,center.mV[VZ] + width);
+    gDX.vertex3f(center.mV[VX] + width ,center.mV[VY] + width,center.mV[VZ] - width);
+    gDX.vertex3f(center.mV[VX] - width ,center.mV[VY] + width,center.mV[VZ] + width);
+    gDX.vertex3f(center.mV[VX] - width ,center.mV[VY] + width,center.mV[VZ] - width);
+    gDX.vertex3f(center.mV[VX] - width ,center.mV[VY] - width,center.mV[VZ] + width);
+    gDX.vertex3f(center.mV[VX] - width ,center.mV[VY] - width,center.mV[VZ] - width);
+    gDX.vertex3f(center.mV[VX] + width ,center.mV[VY] - width,center.mV[VZ] + width);
+    gDX.vertex3f(center.mV[VX] + width ,center.mV[VY] - width,center.mV[VZ] - width);
 }
 
 void draw_cross_lines(const LLVector3& center, F32 dx, F32 dy, F32 dz)
 {
-    gGL.vertex3f(center.mV[VX] - dx, center.mV[VY], center.mV[VZ]);
-    gGL.vertex3f(center.mV[VX] + dx, center.mV[VY], center.mV[VZ]);
-    gGL.vertex3f(center.mV[VX], center.mV[VY] - dy, center.mV[VZ]);
-    gGL.vertex3f(center.mV[VX], center.mV[VY] + dy, center.mV[VZ]);
-    gGL.vertex3f(center.mV[VX], center.mV[VY], center.mV[VZ] - dz);
-    gGL.vertex3f(center.mV[VX], center.mV[VY], center.mV[VZ] + dz);
+    gDX.vertex3f(center.mV[VX] - dx, center.mV[VY], center.mV[VZ]);
+    gDX.vertex3f(center.mV[VX] + dx, center.mV[VY], center.mV[VZ]);
+    gDX.vertex3f(center.mV[VX], center.mV[VY] - dy, center.mV[VZ]);
+    gDX.vertex3f(center.mV[VX], center.mV[VY] + dy, center.mV[VZ]);
+    gDX.vertex3f(center.mV[VX], center.mV[VY], center.mV[VZ] - dz);
+    gDX.vertex3f(center.mV[VX], center.mV[VY], center.mV[VZ] + dz);
+}
+
+// S24 (2026-09-04): the tall "sky pillar" beacon (draw_cross_lines() at
+// dz=50) used to rely on glLineWidth() for visual weight - D3D11's
+// rasterizer has no line-width control at all (a real cross-API gap, not a
+// port gap - see DXStateCache.h's own comment on this), so under DX_RENDER
+// it was permanently a 1px, alpha-0.25 hairline spanning 100 world units -
+// effectively invisible at any real distance, exactly the "GL artifact,
+// no longer works" the beacon system was reported as. Replaced with a real
+// camera-facing billboard quad, same technique llhudeffecttrail.cpp's beam
+// already established for this identical problem: constant SCREEN-space
+// pixel width via getPixelMeterRatio() (stays visible at any distance,
+// doesn't blow up to a giant slab up close), fading from the base color to
+// fully transparent at the top so it reads as a beam of light rather than a
+// fence post, plus a gentle pulse so it's not a static/flat GL-era leftover.
+// S24 (2026-09-04): takes an explicit `top` rather than a straight-up
+// height so the same billboard technique also covers renderSunMoonBeacons()
+// below (an arbitrary-direction beam toward the sun/moon, not a vertical
+// pillar) - see that function's own comment, same dead-glLineWidth bug.
+void draw_beacon_pillar(const LLVector3& base, const LLVector3& top, F32 half_pixel_width, const LLColor4& color)
+{
+    LLViewerCamera* camera = LLViewerCamera::getInstance();
+    F32 pixel_meter_ratio = camera->getPixelMeterRatio();
+    LLVector3 cam_origin = camera->getOrigin();
+
+    LLVector3 beam_vec = top - base;
+    beam_vec.normalize();
+
+    LLVector3 to_camera = cam_origin - base;
+    to_camera.normalize();
+
+    LLVector3 width_dir = beam_vec % to_camera;
+    if (width_dir.lengthSquared() < 0.000001f)
+    {
+        // Pillar points straight at the camera - fall back to the camera's
+        // up axis so the quad doesn't degenerate to zero width.
+        width_dir = beam_vec % camera->getUpAxis();
+    }
+    width_dir.normalize();
+
+    auto half_width_at = [pixel_meter_ratio, cam_origin, half_pixel_width](const LLVector3& p) -> F32
+    {
+        F32 dist = (cam_origin - p).length();
+        return half_pixel_width * dist / pixel_meter_ratio;
+    };
+
+    LLVector3 wa = width_dir * half_width_at(base);
+    LLVector3 wb = width_dir * half_width_at(top);
+
+    LLVector3 v1 = base - wa;
+    LLVector3 v2 = base + wa;
+    LLVector3 v3 = top + wb;
+    LLVector3 v4 = top - wb;
+
+    // S24 (2026-09-04, user feedback): widened swing (was 0.8+/-0.2) so the
+    // bright half of the pulse genuinely punches past 1.0 - combined with
+    // BT_ADD_WITH_ALPHA (see renderObjectBeacons()) that overshoot is what
+    // actually reads as "brighter than the sky" rather than just less
+    // transparent.
+    F32 pulse = 1.0f + 0.5f * sinf((F32)LLFrameTimer::getElapsedSeconds() * 3.0f);
+
+    LLColor4 base_color = color;
+    base_color.mV[VALPHA] *= pulse;
+    LLColor4 top_color = base_color;
+    top_color.mV[VALPHA] = 0.f;
+
+    gDX.color4fv(base_color.mV);
+    gDX.vertex3fv(v1.mV);
+    gDX.vertex3fv(v2.mV);
+    gDX.color4fv(top_color.mV);
+    gDX.vertex3fv(v3.mV);
+
+    gDX.color4fv(base_color.mV);
+    gDX.vertex3fv(v1.mV);
+    gDX.color4fv(top_color.mV);
+    gDX.vertex3fv(v3.mV);
+    gDX.vertex3fv(v4.mV);
+}
+
+// S24 (2026-09-04): replaces the small close-range draw_cross_lines()
+// (dz=0.5) - same dead-glLineWidth reasoning as draw_beacon_pillar() above.
+// A solid downward-pointing pyramid reads unambiguously as "the source is
+// HERE" from any horizontal viewing angle without needing to be
+// camera-billboarded (unlike the pillar, it has real extent on every axis).
+void draw_beacon_arrow(const LLVector3& target, F32 size, const LLColor4& color)
+{
+    LLVector3 base_center = target;
+    base_center.mV[VZ] += size * 0.7f;
+
+    LLVector3 p0 = base_center + LLVector3(-size * 0.5f, -size * 0.5f, 0.f);
+    LLVector3 p1 = base_center + LLVector3(size * 0.5f, -size * 0.5f, 0.f);
+    LLVector3 p2 = base_center + LLVector3(size * 0.5f, size * 0.5f, 0.f);
+    LLVector3 p3 = base_center + LLVector3(-size * 0.5f, size * 0.5f, 0.f);
+
+    gDX.color4fv(color.mV);
+    gDX.vertex3fv(p0.mV); gDX.vertex3fv(p1.mV); gDX.vertex3fv(target.mV);
+    gDX.vertex3fv(p1.mV); gDX.vertex3fv(p2.mV); gDX.vertex3fv(target.mV);
+    gDX.vertex3fv(p2.mV); gDX.vertex3fv(p3.mV); gDX.vertex3fv(target.mV);
+    gDX.vertex3fv(p3.mV); gDX.vertex3fv(p0.mV); gDX.vertex3fv(target.mV);
 }
 
 void LLViewerObjectList::renderObjectBeacons()
@@ -714,66 +813,76 @@ void LLViewerObjectList::renderObjectBeacons()
 
     gUIProgram.bind();
 
+    // S24 (2026-09-04): mLineWidth/glLineWidth() dropped entirely (not just
+    // gated) - both draw calls below are real triangle geometry now, so
+    // there's no per-width GL state left to batch around. See
+    // draw_beacon_pillar()/draw_beacon_arrow()'s own comments.
     {
-        gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+        gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
 
-        S32 last_line_width = -1;
-        // gGL.begin(LLRender::LINES); // Always happens in (line_width != last_line_width)
+        // S24 (2026-09-04, user feedback: "quick difficult to pick up
+        // against a bright background"): normal alpha blend gets visually
+        // diluted the brighter whatever's behind it is - a plain
+        // alpha-blended beam over a bright midday sky ends up barely
+        // tinting it. Switched to additive-with-alpha (same technique the
+        // night-sky stars/shooting-stars already use) so the pillar ADDS
+        // light instead of blending toward it - stays punchy against any
+        // background, bright sky included. Reset back to plain alpha right
+        // after so the depth-tested cube/arrow below aren't affected.
+        gDX.setSceneBlendType(LLRender::BT_ADD_WITH_ALPHA);
 
+        gDX.begin(LLRender::TRIANGLES);
+        for (std::vector<LLDebugBeacon>::iterator iter = mDebugBeacons.begin(); iter != mDebugBeacons.end(); ++iter)
+        {
+            const LLDebugBeacon &debug_beacon = *iter;
+            LLColor4 color = debug_beacon.mColor;
+            color.mV[3] *= 0.45f;
+            // S24 (2026-09-04): DebugBeaconLineWidth (mLineWidth) used to
+            // feed glLineWidth() directly - restore it as a real, visible
+            // tunable rather than letting it go dead alongside that API
+            // under DX_RENDER (1.25px half-width per setting unit, so the
+            // default of 1 gives a readable ~2.5px-wide beam).
+            F32 half_pixel_width = (F32)debug_beacon.mLineWidth * 1.25f;
+            LLVector3 top = debug_beacon.mPositionAgent;
+            top.mV[VZ] += 50.f;
+            draw_beacon_pillar(debug_beacon.mPositionAgent, top, half_pixel_width, linearColor4(color));
+        }
+        gDX.end();
+
+        gDX.setSceneBlendType(LLRender::BT_ALPHA);
+
+        gDX.begin(LLRender::LINES);
         for (std::vector<LLDebugBeacon>::iterator iter = mDebugBeacons.begin(); iter != mDebugBeacons.end(); ++iter)
         {
             const LLDebugBeacon &debug_beacon = *iter;
             LLColor4 color = debug_beacon.mColor;
             color.mV[3] *= 0.25f;
-            S32 line_width = debug_beacon.mLineWidth;
-            if (line_width != last_line_width)
-            {
-                gGL.flush();
-                glLineWidth( (F32)line_width );
-                last_line_width = line_width;
-            }
-
-            const LLVector3 &thisline = debug_beacon.mPositionAgent;
-
-            gGL.begin(LLRender::LINES);
-            gGL.color4fv(linearColor4(color).mV);
-            draw_cross_lines(thisline, 2.0f, 2.0f, 50.f);
-            draw_line_cube(0.10f, thisline);
-
-            gGL.end();
+            gDX.color4fv(linearColor4(color).mV);
+            draw_line_cube(0.10f, debug_beacon.mPositionAgent);
         }
+        gDX.end();
     }
 
     {
-        gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+        gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
         LLGLDepthTest gls_depth(GL_TRUE);
 
-        S32 last_line_width = -1;
-        // gGL.begin(LLRender::LINES); // Always happens in (line_width != last_line_width)
-
+        gDX.begin(LLRender::TRIANGLES);
         for (std::vector<LLDebugBeacon>::iterator iter = mDebugBeacons.begin(); iter != mDebugBeacons.end(); ++iter)
         {
             const LLDebugBeacon &debug_beacon = *iter;
-
-            S32 line_width = debug_beacon.mLineWidth;
-            if (line_width != last_line_width)
-            {
-                gGL.flush();
-                glLineWidth( (F32)line_width );
-                last_line_width = line_width;
-            }
-
-            const LLVector3 &thisline = debug_beacon.mPositionAgent;
-            gGL.begin(LLRender::LINES);
-            gGL.color4fv(linearColor4(debug_beacon.mColor).mV);
-            draw_cross_lines(thisline, 0.5f, 0.5f, 0.5f);
-            draw_line_cube(0.10f, thisline);
-
-            gGL.end();
+            draw_beacon_arrow(debug_beacon.mPositionAgent, 1.0f, linearColor4(debug_beacon.mColor));
         }
+        gDX.end();
 
-        gGL.flush();
-        glLineWidth(1.f);
+        gDX.begin(LLRender::LINES);
+        for (std::vector<LLDebugBeacon>::iterator iter = mDebugBeacons.begin(); iter != mDebugBeacons.end(); ++iter)
+        {
+            const LLDebugBeacon &debug_beacon = *iter;
+            gDX.color4fv(linearColor4(debug_beacon.mColor).mV);
+            draw_line_cube(0.10f, debug_beacon.mPositionAgent);
+        }
+        gDX.end();
 
         for (std::vector<LLDebugBeacon>::iterator iter = mDebugBeacons.begin(); iter != mDebugBeacons.end(); ++iter)
         {
@@ -801,25 +910,27 @@ void LLSky::renderSunMoonBeacons(const LLVector3& pos_agent, const LLVector3& di
 {
     LLGLSUIDefault gls_ui;
     gUIProgram.bind();
-    gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+    gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
 
     LLVector3 pos_end;
     for (S32 i = 0; i < 3; ++i)
     {
         pos_end.mV[i] = pos_agent.mV[i] + (50 * direction.mV[i]);
     }
-    glLineWidth((GLfloat)LLPipeline::DebugBeaconLineWidth);
-    gGL.begin(LLRender::LINES);
-    color.mV[3] *= 0.5f;
-    gGL.color4fv(color.mV);
-    draw_cross_lines(pos_agent, 0.5f, 0.5f, 0.5f);
-    draw_cross_lines(pos_end, 2.f, 2.f, 2.f);
-    gGL.vertex3fv(pos_agent.mV);
-    gGL.vertex3fv(pos_end.mV);
-    gGL.end();
 
-    gGL.flush();
-    glLineWidth(1.f);
+    // S24 (2026-09-04): same dead-glLineWidth bug as renderObjectBeacons()'s
+    // old tall pillar (see draw_beacon_pillar()'s own comment, and the small
+    // draw_cross_lines() caps this used to draw at each end had the exact
+    // same problem) - D3D11 has no line-width control at all, so this
+    // sun/moon direction beam was a permanent 1px hairline under DX_RENDER.
+    // Reuses the same billboard-beam technique; additive blend so it stays
+    // visible against the bright sky it's usually pointing across.
+    color.mV[3] *= 0.5f;
+    gDX.setSceneBlendType(LLRender::BT_ADD_WITH_ALPHA);
+    gDX.begin(LLRender::TRIANGLES);
+    draw_beacon_pillar(pos_agent, pos_end, (F32)LLPipeline::DebugBeaconLineWidth * 1.25f, color);
+    gDX.end();
+    gDX.setSceneBlendType(LLRender::BT_ALPHA);
 
 }
 
@@ -834,11 +945,11 @@ struct ShaderProfileHelper
 {
     ShaderProfileHelper()
     {
-        LLGLSLShader::initProfile();
+        LLHLSLShader::initProfile();
     }
     ~ShaderProfileHelper()
     {
-        LLGLSLShader::finishProfile();
+        LLHLSLShader::finishProfile();
     }
 };
 
@@ -849,7 +960,7 @@ class TextureHolder
 {
 public:
     TextureHolder(U32 unit, U32 size) :
-        texUnit(gGL.getTexUnit(unit)),
+        texUnit(gDX.getTexUnit(unit)),
         source(size)            // preallocate vector
     {
         // takes (count, pointer)
@@ -888,7 +999,7 @@ private:
 class ShaderBinder
 {
 public:
-    ShaderBinder(LLGLSLShader& shader) :
+    ShaderBinder(LLHLSLShader& shader) :
         mShader(shader)
     {
         mShader.bind();
@@ -899,7 +1010,7 @@ public:
     }
 
 private:
-    LLGLSLShader& mShader;
+    LLHLSLShader& mShader;
 };
 
 
@@ -1002,7 +1113,7 @@ F32 gpu_benchmark()
         pixels[i] = (U8) ll_rand(255);
     }
 
-    gGL.setColorMask(true, true);
+    gDX.setColorMask(true, true);
     LLGLDepthTest depth(GL_FALSE);
 
     LLTimer alloc_timer;
@@ -1031,8 +1142,8 @@ F32 gpu_benchmark()
         }
         LLImageGL::setManualImage(GL_TEXTURE_2D, 0, GL_RGBA, res,res,GL_RGBA, GL_UNSIGNED_BYTE, pixels);
         // disable mipmaps and use point filtering to cause cache misses
-        gGL.getTexUnit(0)->setHasMipMaps(false);
-        gGL.getTexUnit(0)->setTextureFilteringOption(LLTexUnit::TFO_POINT);
+        gDX.getTexUnit(0)->setHasMipMaps(false);
+        gDX.getTexUnit(0)->setTextureFilteringOption(LLTexUnit::TFO_POINT);
 
         if (alloc_timer.getElapsedTimeF32() > time_limit)
         {
@@ -1074,7 +1185,7 @@ F32 gpu_benchmark()
 
     buff->unmapBuffer();
 
-    LLGLSLShader::unbind();
+    LLHLSLShader::unbind();
 
     // run GPU timer benchmark twice
     F32 seconds = 0;

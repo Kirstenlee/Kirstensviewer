@@ -36,7 +36,7 @@
 #include "llagentcamera.h"
 #include "lldrawable.h"
 #include "llface.h"
-#include "llcubemap.h"
+#include "DXCubeMap.h"
 #include "lldrawpoolsky.h"
 #include "lldrawpoolwater.h"
 #include "llglheaders.h"
@@ -222,7 +222,7 @@ void LLSkyTex::createGLImage(S32 which)
 void LLSkyTex::bindTexture(bool curr)
 {
     int tex = getWhich(curr);
-    gGL.getTexUnit(0)->bind(mTexture[tex], true);
+    gDX.getTexUnit(0)->bind(mTexture[tex], true);
 }
 
 LLImageRaw* LLSkyTex::getImageRaw(bool curr)
@@ -540,9 +540,9 @@ void LLVOSky::initCubeMap()
         images.push_back(mShinyTex[side].getImageRaw());
     }
 
-    if (!mCubeMap && gSavedSettings.getBOOL("RenderWater") && LLCubeMap::sUseCubeMaps)
+    if (!mCubeMap && gSavedSettings.getBOOL("RenderWater") && DXCubeMap::sUseCubeMaps)
     {
-        mCubeMap = new LLCubeMap(false);
+        mCubeMap = new DXCubeMap();
     }
 
     if (mCubeMap)
@@ -550,7 +550,7 @@ void LLVOSky::initCubeMap()
         mCubeMap->init(images);
     }
 
-    gGL.getTexUnit(0)->disable();
+    gDX.getTexUnit(0)->disable();
 }
 
 
@@ -563,7 +563,7 @@ void LLVOSky::cleanupGL()
     }
     if (getCubeMap())
     {
-        getCubeMap()->destroyGL();
+        getCubeMap()->destroy();
     }
 }
 
@@ -585,7 +585,7 @@ void LLVOSky::restoreGL()
 
     updateDirections(psky);
 
-    if (gSavedSettings.getBOOL("RenderWater") && LLCubeMap::sUseCubeMaps)
+    if (gSavedSettings.getBOOL("RenderWater") && DXCubeMap::sUseCubeMaps)
     {
         initCubeMap();
     }
@@ -700,7 +700,13 @@ bool LLVOSky::updateSky()
     LLHeavenBody::setInterpVal( mInterpVal );
     updateDirections(psky);
 
-    if (!mCubeMap || LLPipeline::sReflectionProbesEnabled)
+    // S24 (2026-08-31, task #197 root-cause fix): was `sReflectionProbesEnabled`
+    // alone - see LLPipeline::shouldUseLegacyEnvMap()'s declaration comment
+    // (pipeline.h). This cubemap is only ever sampled by the shader's legacy
+    // fallback branch, so its update machinery should run whenever that
+    // branch might actually be taken, not just when the master probe-capture
+    // toggle is on.
+    if (!mCubeMap || !LLPipeline::shouldUseLegacyEnvMap())
     {
         mCubeMapUpdateStage = NUM_CUBEMAP_FACES;
         mForceUpdate = false;
@@ -723,7 +729,7 @@ bool LLVOSky::updateSky()
             mForceUpdate = false;
         }
     }
-    else if (mCubeMapUpdateStage == NUM_CUBEMAP_FACES && !LLPipeline::sReflectionProbesEnabled)
+    else if (mCubeMapUpdateStage == NUM_CUBEMAP_FACES && LLPipeline::shouldUseLegacyEnvMap()) // S24 (task #197 root-cause fix): see comment above
     {
         LLSkyTex::stepCurrent();
 
@@ -782,7 +788,7 @@ bool LLVOSky::updateSky()
         mCubeMapUpdateStage = -1;
     }
     // run 0 to 5 faces, each face in own frame
-    else if (mCubeMapUpdateStage >= 0 && mCubeMapUpdateStage < NUM_CUBEMAP_FACES && !LLPipeline::sReflectionProbesEnabled)
+    else if (mCubeMapUpdateStage >= 0 && mCubeMapUpdateStage < NUM_CUBEMAP_FACES && LLPipeline::shouldUseLegacyEnvMap()) // S24 (task #197 root-cause fix): see comment above
     {
         S32 side = mCubeMapUpdateStage;
         // CPU hungry part, createSkyTexture() is math heavy

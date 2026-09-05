@@ -55,7 +55,7 @@
 
 static U32 sShaderLevel = 0;
 
-LLGLSLShader* LLDrawPoolAvatar::sVertexProgram = NULL;
+LLHLSLShader* LLDrawPoolAvatar::sVertexProgram = NULL;
 bool    LLDrawPoolAvatar::sSkipOpaque = false;
 bool    LLDrawPoolAvatar::sSkipTransparent = false;
 S32     LLDrawPoolAvatar::sShadowPass = -1;
@@ -208,7 +208,7 @@ void LLDrawPoolAvatar::endDeferredPass(S32 pass)
     // S24 (2026-08-09, task #171): see beginDeferredPass()'s comment -
     // un-skipped, endDeferredImpostor()/endDeferredRigid() also use only
     // already-established-safe primitives (disableTexture()/unbind()/
-    // gGL.getTexUnit(0)->activate()/unbindDeferredShader()).
+    // gDX.getTexUnit(0)->activate()/unbindDeferredShader()).
     switch (pass)
     {
     case 0:
@@ -304,7 +304,7 @@ void LLDrawPoolAvatar::beginShadowPass(S32 pass)
             sVertexProgram->bind();
         }
 
-        gGL.diffuseColor4f(1, 1, 1, 1);
+        gDX.diffuseColor4f(1, 1, 1, 1);
     }
     else if (pass == SHADOW_PASS_AVATAR_ALPHA_BLEND)
     {
@@ -324,7 +324,7 @@ void LLDrawPoolAvatar::beginShadowPass(S32 pass)
             sVertexProgram->bind();
         }
 
-        gGL.diffuseColor4f(1, 1, 1, 1);
+        gDX.diffuseColor4f(1, 1, 1, 1);
     }
     else if (pass == SHADOW_PASS_AVATAR_ALPHA_MASK)
     {
@@ -344,7 +344,7 @@ void LLDrawPoolAvatar::beginShadowPass(S32 pass)
             sVertexProgram->bind();
         }
 
-        gGL.diffuseColor4f(1, 1, 1, 1);
+        gDX.diffuseColor4f(1, 1, 1, 1);
     }
 }
 
@@ -472,7 +472,7 @@ void LLDrawPoolAvatar::beginRenderPass(S32 pass)
 
     if (pass == 0)
     { //make sure no stale colors are left over from a previous render
-        gGL.diffuseColor4f(1,1,1,1);
+        gDX.diffuseColor4f(1,1,1,1);
     }
 }
 
@@ -601,7 +601,7 @@ void LLDrawPoolAvatar::endDeferredRigid()
     sShaderLevel = mShaderLevel;
     sVertexProgram->disableTexture(LLViewerShaderMgr::DIFFUSE_MAP);
     sVertexProgram->unbind();
-    gGL.getTexUnit(0)->activate();
+    gDX.getTexUnit(0)->activate();
 }
 
 
@@ -628,7 +628,7 @@ void LLDrawPoolAvatar::endSkinned()
     {
         sRenderingSkinned = false;
         sVertexProgram->disableTexture(LLViewerShaderMgr::BUMP_MAP);
-        gGL.getTexUnit(0)->activate();
+        gDX.getTexUnit(0)->activate();
         sVertexProgram->unbind();
         sShaderLevel = mShaderLevel;
     }
@@ -642,7 +642,7 @@ void LLDrawPoolAvatar::endSkinned()
         }
     }
 
-    gGL.getTexUnit(0)->activate();
+    gDX.getTexUnit(0)->activate();
 }
 
 void LLDrawPoolAvatar::beginDeferredSkinned()
@@ -656,7 +656,7 @@ void LLDrawPoolAvatar::beginDeferredSkinned()
     sVertexProgram->bind();
     sVertexProgram->setMinimumAlpha(LLDrawPoolAvatar::sMinimumAlpha);
     sDiffuseChannel = sVertexProgram->enableTexture(LLViewerShaderMgr::DIFFUSE_MAP);
-    gGL.getTexUnit(0)->activate();
+    gDX.getTexUnit(0)->activate();
 }
 
 void LLDrawPoolAvatar::endDeferredSkinned()
@@ -671,7 +671,7 @@ void LLDrawPoolAvatar::endDeferredSkinned()
 
     sShaderLevel = mShaderLevel;
 
-    gGL.getTexUnit(0)->activate();
+    gDX.getTexUnit(0)->activate();
 }
 
 void LLDrawPoolAvatar::renderAvatars(LLVOAvatar* single_avatar, S32 pass)
@@ -722,21 +722,21 @@ void LLDrawPoolAvatar::renderAvatars(LLVOAvatar* single_avatar, S32 pass)
         if (pass==0 && (!gPipeline.hasRenderType(LLPipeline::RENDER_TYPE_PARTICLES) || LLViewerPartSim::getMaxPartCount() <= 0))
         {
             // debug code to draw a sphere in place of avatar
-            gGL.getTexUnit(0)->bind(LLViewerFetchedTexture::sWhiteImagep);
-            gGL.setColorMask(true, true);
+            gDX.getTexUnit(0)->bind(LLViewerFetchedTexture::sWhiteImagep);
+            gDX.setColorMask(true, true);
             LLVector3 pos = avatarp->getPositionAgent();
-            gGL.color4f(1.0f, 1.0f, 1.0f, 0.7f);
+            gDX.color4f(1.0f, 1.0f, 1.0f, 0.7f);
 
-            gGL.pushMatrix();
-            gGL.translatef((F32)(pos.mV[VX]),
+            gDX.pushMatrix();
+            gDX.translatef((F32)(pos.mV[VX]),
                            (F32)(pos.mV[VY]),
                             (F32)(pos.mV[VZ]));
-             gGL.scalef(0.15f, 0.15f, 0.3f);
+             gDX.scalef(0.15f, 0.15f, 0.3f);
 
              gSphere.renderGGL();
 
-             gGL.popMatrix();
-             gGL.setColorMask(true, false);
+             gDX.popMatrix();
+             gDX.setColorMask(true, false);
         }
         // don't render please
         return;

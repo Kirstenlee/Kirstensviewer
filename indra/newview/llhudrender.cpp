@@ -109,10 +109,10 @@ void hud_render_text(const LLWString &wstr, const LLVector3 &pos_agent,
     glm::vec3 win_coord = glm::project(glm::vec3(render_pos), get_current_modelview(), get_current_projection(), viewport);
 
     //fonts all render orthographically, set up projection``
-    gGL.matrixMode(LLRender::MM_PROJECTION);
-    gGL.pushMatrix();
-    gGL.matrixMode(LLRender::MM_MODELVIEW);
-    gGL.pushMatrix();
+    gDX.matrixMode(LLRender::MM_PROJECTION);
+    gDX.pushMatrix();
+    gDX.matrixMode(LLRender::MM_MODELVIEW);
+    gDX.pushMatrix();
     LLUI::pushMatrix();
 
     gl_state_for_2d(world_view_rect.getWidth(), world_view_rect.getHeight());
@@ -121,16 +121,16 @@ void hud_render_text(const LLWString &wstr, const LLVector3 &pos_agent,
     win_coord.x -= world_view_rect.mLeft;
     win_coord.y -= world_view_rect.mBottom;
     LLUI::loadIdentity();
-    gGL.loadIdentity();
+    gDX.loadIdentity();
     LLUI::translate((F32) win_coord.x*1.0f/LLFontGL::sScaleX, (F32) win_coord.y*1.0f/(LLFontGL::sScaleY), -(((F32) win_coord.z*2.f)-1.f));
     F32 right_x;
 
     font.render(wstr, 0, 0, 1, color, LLFontGL::LEFT, LLFontGL::BASELINE, style, shadow, static_cast<S32>(wstr.length()), 1000, &right_x, /*use_ellipses*/false, /*use_color*/true);
 
     LLUI::popMatrix();
-    gGL.popMatrix();
+    gDX.popMatrix();
 
-    gGL.matrixMode(LLRender::MM_PROJECTION);
-    gGL.popMatrix();
-    gGL.matrixMode(LLRender::MM_MODELVIEW);
+    gDX.matrixMode(LLRender::MM_PROJECTION);
+    gDX.popMatrix();
+    gDX.matrixMode(LLRender::MM_MODELVIEW);
 }

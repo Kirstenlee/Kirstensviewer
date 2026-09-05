@@ -197,7 +197,7 @@ void LLPreviewTexture::draw()
     if (!isMinimized())
     {
         LLGLSUIDefault gls_ui;
-        gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+        gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
 
         const LLRect& border = mClientRect;
         LLRect interior = mClientRect;
@@ -210,7 +210,7 @@ void LLPreviewTexture::draw()
         if ( mImage.notNull() )
         {
             // Draw the texture
-            gGL.diffuseColor3f( 1.f, 1.f, 1.f );
+            gDX.diffuseColor3f( 1.f, 1.f, 1.f );
             gl_draw_scaled_image(interior.mLeft,
                                 interior.mBottom,
                                 interior.getWidth(),

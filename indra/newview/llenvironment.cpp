@@ -1687,7 +1687,7 @@ void LLEnvironment::updateCloudScroll()
 void LLEnvironment::updateGLVariablesForSettings(LLShaderUniforms* uniforms, const LLSettingsBase::ptr_t &psetting)
 {
 
-    for (int i = 0; i < LLGLSLShader::SG_COUNT; ++i)
+    for (int i = 0; i < LLHLSLShader::SG_COUNT; ++i)
     {
         uniforms[i].clear();
     }
@@ -1697,12 +1697,12 @@ void LLEnvironment::updateGLVariablesForSettings(LLShaderUniforms* uniforms, con
     psetting->applySpecial(uniforms);
 }
 
-void LLEnvironment::updateShaderUniforms(LLGLSLShader* shader)
+void LLEnvironment::updateShaderUniforms(LLHLSLShader* shader)
 {
 
     // apply uniforms that should be applied to all shaders
-    mSkyUniforms[LLGLSLShader::SG_ANY].apply(shader);
-    mWaterUniforms[LLGLSLShader::SG_ANY].apply(shader);
+    mSkyUniforms[LLHLSLShader::SG_ANY].apply(shader);
+    mWaterUniforms[LLHLSLShader::SG_ANY].apply(shader);
 
     // apply uniforms specific to the given shader's shader group
     auto group = shader->mShaderGroup;

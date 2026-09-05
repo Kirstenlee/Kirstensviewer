@@ -117,7 +117,7 @@ void LLHUDText::renderText()
         return;
     }
 
-    gGL.getTexUnit(0)->enable(LLTexUnit::TT_TEXTURE);
+    gDX.getTexUnit(0)->enable(LLTexUnit::TT_TEXTURE);
 
     LLGLState gls_blend(GL_BLEND, true);
 
@@ -234,7 +234,7 @@ void LLHUDText::renderText()
         }
     }
     /// Reset the default color to white.  The renderer expects this to be the default.
-    gGL.color4f(1.0f, 1.0f, 1.0f, 1.0f);
+    gDX.color4f(1.0f, 1.0f, 1.0f, 1.0f);
 }
 
 void LLHUDText::setString(const std::string &text_utf8)

@@ -337,25 +337,25 @@ void LLHUDEffectPointAt::render()
     if (sDebugPointAt && mTargetType != POINTAT_TARGET_NONE)
     {
         //LLGLDisable gls_stencil(GL_STENCIL_TEST);
-        gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+        gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
 
         LLVector3 target = mTargetPos + mSourceObject->getRenderPosition();
-        gGL.pushMatrix();
-        gGL.translatef(target.mV[VX], target.mV[VY], target.mV[VZ]);
-        gGL.scalef(0.3f, 0.3f, 0.3f);
-        gGL.begin(LLRender::LINES);
+        gDX.pushMatrix();
+        gDX.translatef(target.mV[VX], target.mV[VY], target.mV[VZ]);
+        gDX.scalef(0.3f, 0.3f, 0.3f);
+        gDX.begin(LLRender::LINES);
         {
-            gGL.color3f(1.f, 0.f, 0.f);
-            gGL.vertex3f(-1.f, 0.f, 0.f);
-            gGL.vertex3f(1.f, 0.f, 0.f);
+            gDX.color3f(1.f, 0.f, 0.f);
+            gDX.vertex3f(-1.f, 0.f, 0.f);
+            gDX.vertex3f(1.f, 0.f, 0.f);
 
-            gGL.vertex3f(0.f, -1.f, 0.f);
-            gGL.vertex3f(0.f, 1.f, 0.f);
+            gDX.vertex3f(0.f, -1.f, 0.f);
+            gDX.vertex3f(0.f, 1.f, 0.f);
 
-            gGL.vertex3f(0.f, 0.f, -1.f);
-            gGL.vertex3f(0.f, 0.f, 1.f);
-        } gGL.end();
-        gGL.popMatrix();
+            gDX.vertex3f(0.f, 0.f, -1.f);
+            gDX.vertex3f(0.f, 0.f, 1.f);
+        } gDX.end();
+        gDX.popMatrix();
     }
 }
 

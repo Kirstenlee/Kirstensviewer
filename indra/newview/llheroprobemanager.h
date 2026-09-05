@@ -28,8 +28,7 @@
 
 #include "llreflectionmap.h"
 #include "llrendertarget.h"
-#include "llcubemaparray.h"
-#include "llcubemap.h"
+#include "DXCubeMapArray.h"
 #include "lldrawable.h"
 
 class LLSpatialGroup;
@@ -112,7 +111,7 @@ private:
     std::vector<LLRenderTarget> mMipChain;
 
     // storage for reflection probe radiance maps (plus two scratch space cubemaps)
-    LLPointer<LLCubeMapArray> mTexture;
+    LLPointer<DXCubeMapArray> mTexture;
 
     // vertex buffer for pushing verts to filter shaders
     LLPointer<LLVertexBuffer> mVertexBuffer;

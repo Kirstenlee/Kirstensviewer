@@ -331,7 +331,7 @@ bool LLReflectionMap::isRelevant() const
 
 void LLReflectionMap::doOcclusion(const LLVector4a& eye)
 {
-    if (LLGLSLShader::sProfileEnabled)
+    if (LLHLSLShader::sProfileEnabled)
     {
         return;
     }
@@ -419,7 +419,7 @@ void LLReflectionMap::doOcclusion(const LLVector4a& eye)
     glBeginQuery(GL_ANY_SAMPLES_PASSED, mOcclusionQuery);
 #endif
 
-    LLGLSLShader* shader = LLGLSLShader::sCurBoundShaderPtr;
+    LLHLSLShader* shader = LLHLSLShader::sCurBoundShaderPtr;
     if (shader)
     {
         shader->uniform3fv(LLShaderMgr::BOX_CENTER, 1, mOrigin.getF32ptr());

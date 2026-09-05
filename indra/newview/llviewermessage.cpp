@@ -3995,8 +3995,14 @@ void process_avatar_animation(LLMessageSystem *mesgsys, void **user_data)
 
     if (!avatarp)
     {
-        // no agent by this ID...error?
-        LL_WARNS("Messaging") << "Received animation state for unknown avatar " << uuid << LL_ENDL;
+        // S24 (2026-09-04): a broken/out-of-range avatar can keep sending
+        // AvatarAnimation messages indefinitely - this was LL_WARNS, which
+        // formats a string and hits the log file on every single occurrence
+        // regardless of debug-tag filtering, so a spammy sender measurably
+        // hurt frametime. Already an early return (cheapest possible path
+        // otherwise); downgraded to LL_DEBUGS so it's a no-op unless the
+        // Messaging tag is explicitly enabled.
+        LL_DEBUGS("Messaging") << "Received animation state for unknown avatar " << uuid << LL_ENDL;
         return;
     }
 

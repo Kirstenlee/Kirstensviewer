@@ -48,7 +48,7 @@ void DXDrawPoolSimple::renderGrassDeferred(LLDrawPoolGrass& pool, S32 pass)
 // static
 void DXDrawPoolSimple::renderAlphaMaskDeferred(LLDrawPoolAlphaMask& pool, S32 pass)
 {
-    LLGLSLShader* shader = &gDeferredDiffuseAlphaMaskProgram;
+    LLHLSLShader* shader = &gDeferredDiffuseAlphaMaskProgram;
 
     // render static
     shader->bind();
@@ -66,7 +66,7 @@ void DXDrawPoolSimple::renderFullbrightAlphaMaskPostDeferred(LLDrawPoolFullbrigh
     // LL::GLTFSceneManager rendering skipped - separate, unconverted
     // subsystem, explicitly deferred (see dxdrawpoolsimple.h class comment).
 
-    LLGLSLShader* shader = nullptr;
+    LLHLSLShader* shader = nullptr;
     if (LLPipeline::sRenderingHUDs)
     {
         shader = &gHUDFullbrightAlphaMaskProgram;
@@ -94,7 +94,7 @@ void DXDrawPoolSimple::renderFullbrightAlphaMaskPostDeferred(LLDrawPoolFullbrigh
 // static
 void DXDrawPoolSimple::renderFullbrightPostDeferred(LLDrawPoolFullbright& pool, S32 pass)
 {
-    LLGLSLShader* shader = nullptr;
+    LLHLSLShader* shader = nullptr;
     if (LLPipeline::sRenderingHUDs)
     {
         shader = &gHUDFullbrightProgram;
@@ -104,7 +104,7 @@ void DXDrawPoolSimple::renderFullbrightPostDeferred(LLDrawPoolFullbright& pool, 
         shader = &gDeferredFullbrightProgram;
     }
 
-    gGL.setSceneBlendType(LLRender::BT_ALPHA);
+    gDX.setSceneBlendType(LLRender::BT_ALPHA);
 
     // render static
     shader->bind();
@@ -122,21 +122,21 @@ void DXDrawPoolSimple::renderFullbrightPostDeferred(LLDrawPoolFullbright& pool, 
 // static
 void DXDrawPoolSimple::renderGlowPostDeferred(LLDrawPoolGlow& pool, S32 pass)
 {
-    LLGLSLShader* shader = &gDeferredEmissiveProgram;
+    LLHLSLShader* shader = &gDeferredEmissiveProgram;
 
     LLGLEnable blend(GL_BLEND);
-    gGL.flush();
+    gDX.flush();
 
     // S24 (2026-08-28, task #242): real again via LLRender::setPolygonOffset()
     // (llrender.cpp) - biases depth to avoid z-fighting with the non-glow
     // pass, previously skipped entirely ("D3D11 has no runtime-callable
     // equivalent").
     LLGLEnable polyOffset(GL_POLYGON_OFFSET_FILL);
-    gGL.setPolygonOffset(-1.0f, -1.0f);
-    gGL.setSceneBlendType(LLRender::BT_ADD);
+    gDX.setPolygonOffset(-1.0f, -1.0f);
+    gDX.setSceneBlendType(LLRender::BT_ADD);
 
     LLGLDepthTest depth(GL_TRUE, GL_FALSE);
-    gGL.setColorMask(false, true);
+    gDX.setColorMask(false, true);
 
     // render static
     shader->bind();
@@ -148,6 +148,6 @@ void DXDrawPoolSimple::renderGlowPostDeferred(LLDrawPoolGlow& pool, S32 pass)
     shader->bind();
     pool.pushRiggedBatches(LLRenderPass::PASS_GLOW_RIGGED, true, true);
 
-    gGL.setColorMask(true, false);
-    gGL.setSceneBlendType(LLRender::BT_ALPHA);
+    gDX.setColorMask(true, false);
+    gDX.setSceneBlendType(LLRender::BT_ALPHA);
 }

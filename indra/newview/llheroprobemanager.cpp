@@ -116,7 +116,12 @@ void LLHeroProbeManager::update()
     if (mMipChain.empty())
     {
         U32 res = mProbeResolution;
-        U32 count = (U32)(log2((F32)res) + 0.5f);
+
+        // S24 (2026-09-03, task #266/#271): was an independently recomputed
+        // `(U32)(log2((F32)res) + 0.5f)` guess - see mMaxProbeLOD's identical
+        // fix in initReflectionMaps() above for the full explanation. Read
+        // the texture's REAL allocated mip count instead.
+        U32 count = mTexture->getDXTexture()->getMipLevels();
 
         mMipChain.resize(count);
         for (U32 i = 0; i < count; ++i)
@@ -349,22 +354,22 @@ void LLHeroProbeManager::updateProbeFace(LLReflectionMap* probe, U32 face, bool 
     // Unlike the reflectionmap manager, all probes are considered "realtime" for hero probes.
     sourceIdx += 1;
 
-        gGL.setColorMask(true, true);
+        gDX.setColorMask(true, true);
     LLGLDepthTest depth(GL_FALSE, GL_FALSE);
     LLGLDisable cull(GL_CULL_FACE);
     LLGLDisable blend(GL_BLEND);
 
     // downsample to placeholder map
     {
-        gGL.matrixMode(gGL.MM_MODELVIEW);
-        gGL.pushMatrix();
-        gGL.loadIdentity();
+        gDX.matrixMode(gDX.MM_MODELVIEW);
+        gDX.pushMatrix();
+        gDX.loadIdentity();
 
-        gGL.matrixMode(gGL.MM_PROJECTION);
-        gGL.pushMatrix();
-        gGL.loadIdentity();
+        gDX.matrixMode(gDX.MM_PROJECTION);
+        gDX.pushMatrix();
+        gDX.loadIdentity();
 
-        gGL.flush();
+        gDX.flush();
         U32 res = mProbeResolution * 2;
 
         static LLStaticHashedString resScale("resScale");
@@ -383,7 +388,7 @@ void LLHeroProbeManager::updateProbeFace(LLReflectionMap* probe, U32 face, bool 
 
             // horizontal
             gGaussianProgram.uniform2f(direction, 1.f, 0.f);
-            gGL.getTexUnit(diffuseChannel)->bind(screen_rt);
+            gDX.getTexUnit(diffuseChannel)->bind(screen_rt);
             mRenderTarget.bindTarget();
             gPipeline.mScreenTriangleVB->setBuffer();
             gPipeline.mScreenTriangleVB->drawArrays(LLRender::TRIANGLES, 0, 3);
@@ -391,7 +396,7 @@ void LLHeroProbeManager::updateProbeFace(LLReflectionMap* probe, U32 face, bool 
 
             // vertical
             gGaussianProgram.uniform2f(direction, 0.f, 1.f);
-            gGL.getTexUnit(diffuseChannel)->bind(&mRenderTarget);
+            gDX.getTexUnit(diffuseChannel)->bind(&mRenderTarget);
             screen_rt->bindTarget();
             gPipeline.mScreenTriangleVB->setBuffer();
             gPipeline.mScreenTriangleVB->drawArrays(LLRender::TRIANGLES, 0, 3);
@@ -399,7 +404,14 @@ void LLHeroProbeManager::updateProbeFace(LLReflectionMap* probe, U32 face, bool 
             gGaussianProgram.unbind();
         }
 
-        S32 mips = (S32)(log2((F32)mProbeResolution) + 0.5f);
+        // S24 (2026-09-03, task #266/#271): was an independently recomputed
+        // `(S32)(log2((F32)mProbeResolution) + 0.5f)` guess - see
+        // LLReflectionMapManager's identical fix for the full explanation
+        // (this variable feeds `mip` a few lines below, which would
+        // otherwise be misaligned against mMipChain.size() now that it
+        // correctly reads the real allocated mip count). Read the same real
+        // count instead.
+        S32 mips = (S32)mTexture->getDXTexture()->getMipLevels();
 
         gReflectionMipProgram.bind();
         S32 diffuseChannel = gReflectionMipProgram.enableTexture(LLShaderMgr::DEFERRED_DIFFUSE, LLTexUnit::TT_TEXTURE);
@@ -411,14 +423,14 @@ void LLHeroProbeManager::updateProbeFace(LLReflectionMap* probe, U32 face, bool 
             mMipChain[i].bindTarget();
             if (i == 0)
             {
-                gGL.getTexUnit(diffuseChannel)->bind(screen_rt);
+                gDX.getTexUnit(diffuseChannel)->bind(screen_rt);
             }
             else
             {
-                gGL.getTexUnit(diffuseChannel)->bind(&(mMipChain[i - 1]));
+                gDX.getTexUnit(diffuseChannel)->bind(&(mMipChain[i - 1]));
             }
 
-            gGL.getTexUnit(depthChannel)->bind(depth_rt, true);
+            gDX.getTexUnit(depthChannel)->bind(depth_rt, true);
 
             gReflectionMipProgram.uniform1f(resScale, 1.f / (mProbeResolution * 2));
             gReflectionMipProgram.uniform1f(znear, probe->getNearClip());
@@ -455,11 +467,11 @@ void LLHeroProbeManager::updateProbeFace(LLReflectionMap* probe, U32 face, bool 
             mMipChain[i].flush();
         }
 
-        gGL.popMatrix();
-        gGL.matrixMode(gGL.MM_MODELVIEW);
-        gGL.popMatrix();
+        gDX.popMatrix();
+        gDX.matrixMode(gDX.MM_MODELVIEW);
+        gDX.popMatrix();
 
-        gGL.getTexUnit(diffuseChannel)->unbind(LLTexUnit::TT_TEXTURE);
+        gDX.getTexUnit(diffuseChannel)->unbind(LLTexUnit::TT_TEXTURE);
         gReflectionMipProgram.unbind();
     }
 }
@@ -505,14 +517,25 @@ void LLHeroProbeManager::generateRadiance(LLReflectionMap* probe)
 
                 for (int cf = 0; cf < 6; ++cf)
                 {  // for each cube face
-                    LLCoordFrame frame;
-                    frame.lookAt(LLVector3(0, 0, 0), LLCubeMapArray::sClipToCubeLookVecs[cf], LLCubeMapArray::sClipToCubeUpVecs[cf]);
+                    // S24 (2026-08-31, DXCubeMap rewrite plan, Step 3): this
+                    // loop used to build a per-face LLCoordFrame rotation
+                    // matrix and load it via gDX.loadMatrix() - but
+                    // radianceGenV.hlsl (gHeroRadianceGenProgram's vertex
+                    // shader, shared with gRadianceGenProgram) has never
+                    // read any matrix uniform at all since the task #147
+                    // closed-form rewrite - it only reads `cubeFace`, which
+                    // this loop never set. Every hero-probe face draw was
+                    // therefore using whatever `cubeFace` happened to still
+                    // be resident from the last program that set it (likely
+                    // stale/wrong), silently corrupting hero-probe mirror
+                    // content - a real, live bug, not dead code. Fixed by
+                    // setting `cubeFace` directly, matching
+                    // llreflectionmapmanager.cpp's own radiance/irradiance
+                    // loops.
+                    static LLStaticHashedString sHeroCubeFace("cubeFace");
+                    gHeroRadianceGenProgram.uniform1i(sHeroCubeFace, cf);
 
-                    F32 mat[16];
-                    frame.getOpenGLRotation(mat);
-                    gGL.loadMatrix(mat);
-
-                    mVertexBuffer->drawArrays(gGL.TRIANGLE_STRIP, 0, 4);
+                    mVertexBuffer->drawArrays(gDX.TRIANGLE_STRIP, 0, 4);
 
                     // S24 (task #194 follow-up, 2026-08-13): unguarded raw
                     // GL - mirrors the identical fix already landed in
@@ -540,12 +563,14 @@ void LLHeroProbeManager::generateRadiance(LLReflectionMap* probe)
                     // builds). Mirrors llreflectionmapmanager.cpp's own
                     // identical fix at its sibling radiance-gen loop.
 #ifdef DX_RENDER
-                    // S24 (2026-08-22, plan item B): this site was the one
-                    // outlier - its 3 siblings in llreflectionmapmanager.cpp
-                    // (main reflection-probe radiance-gen, irradiance-gen,
-                    // and face==5 final-mip block) all use the negative-
-                    // height flip below; this one used a plain positive
-                    // viewport. Made consistent with its siblings.
+                    // S24 (2026-09-02, REVERTED same day): the negative-
+                    // height-to-normal-viewport relocation attempt made
+                    // zero difference to the empty-mip symptom it targeted
+                    // and broke hero-probe mirror orientation live
+                    // (confirmed, "Mirror Fault.PNG"). Back to the
+                    // proven-correct negative-height viewport, matching
+                    // llreflectionmapmanager.cpp's sibling sites
+                    // (task #147/#184/#163).
                     {
                         D3D11_VIEWPORT vp = {};
                         vp.TopLeftX = 0.0f;
@@ -639,14 +664,23 @@ void LLHeroProbeManager::initReflectionMaps()
         mReset = false;
         mReflectionProbeCount = count;
         mProbeResolution      = gSavedSettings.getS32("RenderHeroProbeResolution");
-        mMaxProbeLOD = log2f((F32)mProbeResolution) - 1.f; // number of mips - 1
 
-        mTexture = new LLCubeMapArray();
+        mTexture = new DXCubeMapArray();
 
         static LLCachedControl<bool> render_hdr(gSavedSettings, "RenderHDREnabled", true);
 
         // store mReflectionProbeCount+2 cube maps, final two cube maps are used for render target and radiance map generation source)
         mTexture->allocate(mProbeResolution, 3, mReflectionProbeCount + 2, true, render_hdr);
+
+        // S24 (2026-09-03, task #266/#271): was `log2f((F32)mProbeResolution) - 1.f`
+        // (an independently recomputed guess) - see LLReflectionMapManager's
+        // identical fix (llreflectionmapmanager.cpp) for the full explanation:
+        // DXCubeArrayTexture::create()'s generate_mips=true path requests
+        // D3D11's full auto mip chain (MipLevels=0), which allocates one more
+        // level than that formula assumed for a power-of-two resolution. Read
+        // the texture's REAL allocated mip count instead, now that mTexture
+        // exists.
+        mMaxProbeLOD = (F32)mTexture->getDXTexture()->getMipLevels() - 1.f; // number of mips - 1
 
         if (mDefaultProbe.isNull())
         {

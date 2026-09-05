@@ -35,7 +35,7 @@
 #include "llspatialpartition.h"
 #include "llvertexbuffer.h"
 #include "llrendertarget.h"
-#include "llglslshader.h"
+#include "llhlslshader.h"
 #include "llviewercontrol.h"
 #include "llenvironment.h"
 #include "llviewershadermgr.h"
@@ -272,11 +272,11 @@ namespace
     // POOL_WATER (LLDrawPoolWater) - task #109 (2026-08-04): real
     // DX_RENDER implementation now exists (dxdrawpoolwater.cpp/.h) -
     // almost the entire GL body was already backend-agnostic
-    // (bindDeferredShader()/LLGLSLShader::bindTexture()/uniform*() are all
+    // (bindDeferredShader()/LLHLSLShader::bindTexture()/uniform*() are all
     // already DX-safe); the one real gap found was
-    // LLGLSLShader::bindTexture(S32, LLRenderTarget*, ...) - used for
+    // LLHLSLShader::bindTexture(S32, LLRenderTarget*, ...) - used for
     // WATER_SCREENTEX/WATER_EXCLUSIONTEX - being a hardcoded no-op, fixed
-    // in llglslshader.cpp alongside this.
+    // in llhlslshader.cpp alongside this.
     //
     // Deliberately NOT whitelisted yet (real, separate follow-up work, not
     // a quick add): POOL_WATEREXCLUSION (LLDrawPoolWaterExclusion) - its
@@ -447,7 +447,7 @@ void DXPipeline::renderGeomDeferred(LLPipeline& pipeline, LLCamera& camera, bool
     // DX_RENDER until this call site existed. gGLLastMatrix reset + reload
     // mirrors GL's own pre-doOcclusion() matrix refresh exactly (the proxy-
     // box shader needs the current camera's modelview bound correctly).
-    bool occlude = LLPipeline::sUseOcclusion > 1 && do_occlusion && !LLGLSLShader::sProfileEnabled && !gCubeSnapshot;
+    bool occlude = LLPipeline::sUseOcclusion > 1 && do_occlusion && !LLHLSLShader::sProfileEnabled && !gCubeSnapshot;
 
     for (LLDrawPool* poolp : pipeline.getPools())
     {
@@ -455,7 +455,7 @@ void DXPipeline::renderGeomDeferred(LLPipeline& pipeline, LLCamera& camera, bool
         {
             occlude = false;
             gGLLastMatrix = nullptr;
-            gGL.loadMatrix(gGLModelView);
+            gDX.loadMatrix(gGLModelView);
             pipeline.doOcclusion(camera);
         }
 
@@ -513,7 +513,7 @@ void DXPipeline::renderGeomPostDeferred(LLPipeline& pipeline, LLCamera& camera)
     // nor doWaterHaze() (pipeline.cpp) contains a single raw GL call - both
     // are built entirely from primitives already proven DX-safe throughout
     // this file (LLGLDepthTest, bindDeferredShader()/unbindDeferredShader(),
-    // mScreenTriangleVB, gGL.setColorMask/blendFunc/setSceneBlendType) - so
+    // mScreenTriangleVB, gDX.setColorMask/blendFunc/setSceneBlendType) - so
     // exactly like task #116's doWaterExclusionMask(), the real gap was
     // never "port this", just "actually call it". hazeF.hlsl/waterHazeF.hlsl/
     // waterHazeV.hlsl (class3/deferred) were already ported as part of the
@@ -535,7 +535,7 @@ void DXPipeline::renderGeomPostDeferred(LLPipeline& pipeline, LLCamera& camera)
     // S24 (2026-08-09, task #116): the third depth-buffer effect (see
     // above) turned out NOT to need the same deferral -
     // LLDrawPoolWaterExclusion::render() is entirely composed of already-
-    // DX-safe primitives (LLGLSLShader::bind/uniform4f/uniform1f,
+    // DX-safe primitives (LLHLSLShader::bind/uniform4f/uniform1f,
     // LLGLDepthTest/LLGLDisable, LLDrawPoolWater::pushWaterPlanes() -
     // already reused as-is by the real DX water pool itself -
     // pushBatches()) - zero raw GL calls of its own, so it needed zero
@@ -597,8 +597,8 @@ void DXPipeline::renderGeomPostDeferred(LLPipeline& pipeline, LLCamera& camera)
     pipeline.calcNearbyLights(camera);
     pipeline.setupHWLights();
 
-    gGL.setSceneBlendType(LLRender::BT_ALPHA);
-    gGL.setColorMask(true, false);
+    gDX.setSceneBlendType(LLRender::BT_ALPHA);
+    gDX.setColorMask(true, false);
 
     for (LLDrawPool* poolp : pipeline.getPools())
     {
@@ -626,7 +626,7 @@ void DXPipeline::renderGeomPostDeferred(LLPipeline& pipeline, LLCamera& camera)
         // hover/rock motion - proving the RASTERIZED GEOMETRY itself was
         // moving, not a shading artifact. GL's own renderGeomPostDeferred()
         // (pipeline.cpp ~line 4475) resets "gGLLastMatrix = NULL;
-        // gGL.loadMatrix(gGLModelView);" once per pool-type group, before
+        // gDX.loadMatrix(gGLModelView);" once per pool-type group, before
         // that group's pass loop - this DX_RENDER loop, built as a
         // deliberately simplified mirror, dropped that reset entirely.
         // Pools that draw many distinct objects (alpha/fullbright/glow) call
@@ -648,8 +648,8 @@ void DXPipeline::renderGeomPostDeferred(LLPipeline& pipeline, LLCamera& camera)
         // exactly matching every reported symptom: disappearing, "rising to
         // inundate the house", and rocking like a seesaw.
         gGLLastMatrix = nullptr;
-        gGL.matrixMode(LLRender::MM_MODELVIEW);
-        gGL.loadMatrix(gGLModelView);
+        gDX.matrixMode(LLRender::MM_MODELVIEW);
+        gDX.loadMatrix(gGLModelView);
 
         S32 pass_count = poolp->getNumPostDeferredPasses();
         for (S32 i = 0; i < pass_count; ++i)
@@ -675,7 +675,7 @@ void DXPipeline::renderGeomPostDeferred(LLPipeline& pipeline, LLCamera& camera)
     // correctly" from "combineGlow() itself doesn't read it correctly".
 
     // S24 (2026-08-10, task #167/#178): GL's own renderGeomPostDeferred()
-    // (pipeline.cpp ~line 9472) ends with gGL.setColorMask(true, true) -
+    // (pipeline.cpp ~line 9472) ends with gDX.setColorMask(true, true) -
     // this DX_RENDER mirror set (true, false) at the top (line 422, alpha
     // writes disabled for the alpha/fullbright/glow pool loop above) but
     // never restored it, unlike GL's own function boundary. Under
@@ -688,7 +688,7 @@ void DXPipeline::renderGeomPostDeferred(LLPipeline& pipeline, LLCamera& camera)
     // render_hud_attachments()) - attaching a HUD guarantees this state
     // gets re-mutated immediately before the UI draw pass runs, the
     // leading suspect for "attaching a HUD obliterates the UI."
-    gGL.setColorMask(true, true);
+    gDX.setColorMask(true, true);
 
     // S24 (2026-08-11, task #156, SSR milestone 1): GL's own
     // renderGeomPostDeferred() (pipeline.cpp ~9467-9476) ends with this
@@ -835,7 +835,7 @@ namespace
 
         DXRenderTarget::bindSwapChainBackBuffer();
         // S24 (2026-08-10, task #167/#178): the same raw-bind-bypasses-
-        // bookkeeping bug class as LLGLSLShader::sCurBoundShaderPtr below
+        // bookkeeping bug class as LLHLSLShader::sCurBoundShaderPtr below
         // (see that fix's own comment, task from 2026-07-26) - this call
         // updates the REAL D3D11 render target directly via DXRenderTarget,
         // completely bypassing LLRenderTarget::bindTarget()/flush()'s
@@ -914,7 +914,7 @@ namespace
         // S24 (2026-07-26): THE root cause of "zero textures, zero fonts"
         // system-wide. This fallback binds its placeholder VS/PS via raw
         // ctx->VSSetShader()/PSSetShader() calls, completely bypassing
-        // LLGLSLShader::bind() - so LLGLSLShader::sCurBoundShaderPtr (the
+        // LLHLSLShader::bind() - so LLHLSLShader::sCurBoundShaderPtr (the
         // bookkeeping bind() uses to skip redundant VSSetShader/PSSetShader
         // calls, see its "if (sCurBoundShaderPtr != this)" check) never learns
         // the real bound shader changed. Every later gUIProgram.bind() call
@@ -931,7 +931,7 @@ namespace
         // (flushes, zeroes the actual VS/PS, nulls sCurBoundShaderPtr) forces
         // the next real bind() call, whichever shader it is, to issue a
         // genuine VSSetShader/PSSetShader instead of trusting stale state.
-        LLGLSLShader::unbind();
+        LLHLSLShader::unbind();
     }
 }
 
@@ -1006,7 +1006,7 @@ void DXPipeline::presentDeferredScreen(LLPipeline& pipeline)
     //
     // S24 (2026-08-11, task #156, SSR milestone 4): copyScreenSpaceReflections()
     // is DIFFERENT from the two above - already fully DX-safe as written
-    // (gGL.getTexUnit()->bind()/LLGLDepthTest/mScreenTriangleVB/
+    // (gDX.getTexUnit()->bind()/LLGLDepthTest/mScreenTriangleVB/
     // gCopyDepthProgram, all already-proven primitives), it just never had
     // a DX_RENDER call site since GL's own call to it lives inside
     // renderFinalize(), whose GL body this function replaces entirely.
@@ -1033,7 +1033,7 @@ void DXPipeline::presentDeferredScreen(LLPipeline& pipeline)
         bool legacy_gamma = (!psky || psky->getReflectionProbeAmbiance(should_auto_adjust) == 0.f);
         bool no_post = gSnapshotNoPost || legacy_gamma || (buildNoPost && gFloaterTools && gFloaterTools->isAvailable());
 
-        LLGLSLShader& gamma_shader = use_tonemap
+        LLHLSLShader& gamma_shader = use_tonemap
             ? (legacy_gamma
                 ? (no_post ? gNoPostTonemapLegacyGammaCorrectProgram : gDeferredPostTonemapLegacyGammaCorrectProgram)
                 : (no_post ? gNoPostTonemapGammaCorrectProgram : gDeferredPostTonemapGammaCorrectProgram))
@@ -1100,7 +1100,7 @@ void DXPipeline::presentDeferredScreen(LLPipeline& pipeline)
             // whole port. The only real gap was uniform2f(U32,...)/
             // uniform3f(U32,...) (GLOW_DELTA, GLOW_LUM_WEIGHTS,
             // GLOW_WARMTH_WEIGHTS, DEFERRED_SCREEN_RES) being silently a
-            // no-op under DX_RENDER - fixed at the source (llglslshader.cpp)
+            // no-op under DX_RENDER - fixed at the source (llhlslshader.cpp)
             // rather than worked around here, so every other existing/future
             // caller benefits too, not just glow.
             pipeline.generateGlow(&pipeline.mPostPingMap);
@@ -1383,7 +1383,7 @@ void DXPipeline::renderDeferredLighting(LLPipeline& pipeline)
     {
         pipeline.mSSAOHistory.bindTarget();
         gCopyProgram.bind();
-        gGL.getTexUnit(0)->bind(&deferred_light_target);
+        gDX.getTexUnit(0)->bind(&deferred_light_target);
         pipeline.mScreenTriangleVB->setBuffer();
         pipeline.mScreenTriangleVB->drawArrays(LLRender::TRIANGLES, 0, 3);
         pipeline.mSSAOHistory.flush();
@@ -1394,7 +1394,7 @@ void DXPipeline::renderDeferredLighting(LLPipeline& pipeline)
         deferred_light_target.bindTarget();
         deferred_light_target.clearColor(1.0f, 1.0f, 1.0f, 1.0f);
 
-        LLGLSLShader& sun_shader = gCubeSnapshot ? gDeferredSunProbeProgram : gDeferredSunProgram;
+        LLHLSLShader& sun_shader = gCubeSnapshot ? gDeferredSunProbeProgram : gDeferredSunProgram;
         if (sun_shader.isComplete())
         {
             pipeline.bindDeferredShader(sun_shader, &deferred_light_target);
@@ -1532,7 +1532,7 @@ void DXPipeline::renderDeferredLighting(LLPipeline& pipeline)
         S32 history_channel = gDeferredTemporalResolveSSAOProgram.enableTexture(LLShaderMgr::DEFERRED_SSAO_HISTORY_MAP);
         if (history_channel > -1)
         {
-            gGL.getTexUnit(history_channel)->bind(&pipeline.mSSAOHistory);
+            gDX.getTexUnit(history_channel)->bind(&pipeline.mSSAOHistory);
         }
 
         // S24: uploaded manually rather than relying on bindDeferredShader()'s
@@ -1567,7 +1567,7 @@ void DXPipeline::renderDeferredLighting(LLPipeline& pipeline)
         // soften pass below needs no changes.
         deferred_light_target.bindTarget();
         gCopyProgram.bind();
-        gGL.getTexUnit(0)->bind(screen_target);
+        gDX.getTexUnit(0)->bind(screen_target);
         pipeline.mScreenTriangleVB->setBuffer();
         pipeline.mScreenTriangleVB->drawArrays(LLRender::TRIANGLES, 0, 3);
         deferred_light_target.flush();
@@ -1597,7 +1597,7 @@ void DXPipeline::renderDeferredLighting(LLPipeline& pipeline)
     // above, both hit by the same line.
     screen_target->clear(GL_COLOR_BUFFER_BIT);
 
-    LLGLSLShader& soften_shader = gDeferredSoftenProgram;
+    LLHLSLShader& soften_shader = gDeferredSoftenProgram;
 
     // S24 (2026-08-15, task #165): narrowed from a whole-function early
     // return (see this function's own opening comment) to match GL's real
@@ -1770,10 +1770,10 @@ void DXPipeline::renderDeferredLighting(LLPipeline& pipeline)
             const F32 deferred_light_falloff = 0.5f;
 
             LLViewerCamera*      camera = LLViewerCamera::getInstance();
-            LLGLSLShader&        light_shader = gDeferredLightProgram;
+            LLHLSLShader&        light_shader = gDeferredLightProgram;
             LLSettingsSky::ptr_t psky = LLEnvironment::instance().getCurrentSky();
 
-            gGL.setSceneBlendType(LLRender::BT_ADD);
+            gDX.setSceneBlendType(LLRender::BT_ADD);
             pipeline.bindDeferredShader(light_shader);
 
             if (sDXBoxLightVB.isNull())
@@ -2146,7 +2146,7 @@ void DXPipeline::renderDeferredLighting(LLPipeline& pipeline)
                     light_shader.uniform1f(LLShaderMgr::LIGHT_FALLOFF, volume->getLightFalloff(deferred_light_falloff));
                     light_shader.uniform1i(LLShaderMgr::CLASSIC_MODE, (psky && psky->canAutoAdjust()) ? 1 : 0);
 
-                    gGL.syncMatrices();
+                    gDX.syncMatrices();
 
                     sDXBoxLightVB->drawArrays(LLRender::TRIANGLES, cypher * 18, 18);
                 }
@@ -2214,7 +2214,7 @@ void DXPipeline::renderDeferredLighting(LLPipeline& pipeline)
                     gDeferredSpotLightProgram.uniform1f(LLShaderMgr::LIGHT_FALLOFF, volume->getLightFalloff(deferred_light_falloff));
                     gDeferredSpotLightProgram.uniform1i(LLShaderMgr::CLASSIC_MODE, (psky && psky->canAutoAdjust()) ? 1 : 0);
 
-                    gGL.syncMatrices();
+                    gDX.syncMatrices();
 
                     U32 cypher = getBoxLightCypher(camera, center);
                     sDXBoxLightVB->drawArrays(LLRender::TRIANGLES, cypher * 18, 18);

@@ -176,8 +176,6 @@ protected:
 };
 
 
-class LLCubeMap;
-
 class AtmosphericsVars
 {
 public:

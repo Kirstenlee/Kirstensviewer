@@ -49,7 +49,7 @@
 #include "llspatialpartition.h"
 #include "llviewercamera.h"
 #include "lldrawpoolwlsky.h"
-#include "llglslshader.h"
+#include "llhlslshader.h"
 #include "llglcommonfunc.h"
 #include "llvoavatar.h"
 #include "llviewershadermgr.h"
@@ -214,7 +214,7 @@ void LLDrawPool::renderPostDeferred(S32 pass)
 void LLDrawPool::endRenderPass( S32 pass )
 {
     //make sure channel 0 is active channel
-    gGL.getTexUnit(0)->activate();
+    gDX.getTexUnit(0)->activate();
 }
 
 //virtual
@@ -364,24 +364,24 @@ bool LLFacePool::LLOverrideFaceColor::sOverrideFaceColor = false;
 
 void LLFacePool::LLOverrideFaceColor::setColor(const LLColor4& color)
 {
-    gGL.diffuseColor4fv(color.mV);
+    gDX.diffuseColor4fv(color.mV);
 }
 
 void LLFacePool::LLOverrideFaceColor::setColor(const LLColor4U& color)
 {
     // S24 (DX_RENDER, 2026-07-25): was a raw glColor4ubv() call, the only one
     // of this class's 3 setColor() overloads not already routed through
-    // gGL's shader-uniform-based diffuseColor4*() wrapper (the other two
-    // already call gGL.diffuseColor4fv()/diffuseColor4f() - this one was
+    // gDX's shader-uniform-based diffuseColor4*() wrapper (the other two
+    // already call gDX.diffuseColor4fv()/diffuseColor4f() - this one was
     // just missed). diffuseColor4ubv() already handles DX_RENDER internally
-    // (LLGLSLShader::uniform4f()'s DX_RENDER branch), so no new #ifdef is
+    // (LLHLSLShader::uniform4f()'s DX_RENDER branch), so no new #ifdef is
     // needed here - this alone makes it backend-safe.
-    gGL.diffuseColor4ubv(color.mV);
+    gDX.diffuseColor4ubv(color.mV);
 }
 
 void LLFacePool::LLOverrideFaceColor::setColor(F32 r, F32 g, F32 b, F32 a)
 {
-    gGL.diffuseColor4f(r,g,b,a);
+    gDX.diffuseColor4f(r,g,b,a);
 }
 
 
@@ -529,7 +529,7 @@ void LLRenderPass::pushMaskBatches(U32 type, bool texture, bool batch_textures)
         LLCullResult::increment_iterator(i, end);
         if (pparams)
         {
-        LLGLSLShader::sCurBoundShaderPtr->setMinimumAlpha(pparams->mAlphaMaskCutoff);
+        LLHLSLShader::sCurBoundShaderPtr->setMinimumAlpha(pparams->mAlphaMaskCutoff);
         pushBatch(*pparams, texture, batch_textures);
         }
     }
@@ -552,7 +552,7 @@ void LLRenderPass::pushRiggedMaskBatches(U32 type, bool texture, bool batch_text
 
         if (pparams)
         {
-            LLGLSLShader::sCurBoundShaderPtr->setMinimumAlpha(pparams->mAlphaMaskCutoff);
+            LLHLSLShader::sCurBoundShaderPtr->setMinimumAlpha(pparams->mAlphaMaskCutoff);
 
         if (uploadMatrixPalette(pparams->mAvatar, pparams->mSkinInfo, lastAvatar, lastMeshId, skipLastSkin))
         {
@@ -572,11 +572,11 @@ void LLRenderPass::applyModelMatrix(const LLMatrix4* model_matrix)
     if (model_matrix != gGLLastMatrix)
     {
         gGLLastMatrix = model_matrix;
-        gGL.matrixMode(LLRender::MM_MODELVIEW);
-        gGL.loadMatrix(gGLModelView);
+        gDX.matrixMode(LLRender::MM_MODELVIEW);
+        gDX.loadMatrix(gGLModelView);
         if (model_matrix)
         {
-            gGL.multMatrix((GLfloat*) model_matrix->mMatrix);
+            gDX.multMatrix((GLfloat*) model_matrix->mMatrix);
         }
         gPipeline.mMatrixOpCount++;
     }
@@ -605,7 +605,7 @@ void LLRenderPass::pushBatch(LLDrawInfo& params, bool texture, bool batch_textur
             // GL's indexed-texture samplers have no fixed "physical
             // register" (glUniform1i() assigns tex0..texN-1 to units 0..N-1
             // unconditionally, decoupled from whatever else is also bound),
-            // so gGL.getTexUnit(i) starting at 0 has always been correct
+            // so gDX.getTexUnit(i) starting at 0 has always been correct
             // here for GL. HLSL's Texture2D tex0..texN-1 ARE fixed to real
             // t-registers at shader-compile time, and shift to base t5 (not
             // t0) whenever the bound shader also attaches deferredUtil.hlsl
@@ -622,7 +622,7 @@ void LLRenderPass::pushBatch(LLDrawInfo& params, bool texture, bool batch_textur
             // isDeferred/hasReflectionProbes set, which most simple/single-
             // texture content never exercises, explaining why this was rare
             // and looked object-specific rather than a general regression.
-            LLGLSLShader* cur_shader = LLGLSLShader::sCurBoundShaderPtr;
+            LLHLSLShader* cur_shader = LLHLSLShader::sCurBoundShaderPtr;
             const S32 indexed_base = (cur_shader && (cur_shader->mFeatures.isDeferred || cur_shader->mFeatures.hasReflectionProbes)) ? 5 : 0;
 #else
             const S32 indexed_base = 0;
@@ -631,7 +631,7 @@ void LLRenderPass::pushBatch(LLDrawInfo& params, bool texture, bool batch_textur
             {
                 if (params.mTextureList[i].notNull())
                 {
-                    gGL.getTexUnit(indexed_base + i)->bindFast(params.mTextureList[i]);
+                    gDX.getTexUnit(indexed_base + i)->bindFast(params.mTextureList[i]);
                 }
             }
         }
@@ -639,19 +639,19 @@ void LLRenderPass::pushBatch(LLDrawInfo& params, bool texture, bool batch_textur
         { //not batching textures or batch has only 1 texture -- might need a texture matrix
             if (params.mTexture.notNull())
             {
-                gGL.getTexUnit(0)->bindFast(params.mTexture);
+                gDX.getTexUnit(0)->bindFast(params.mTexture);
                 if (params.mTextureMatrix)
                 {
                     tex_setup = true;
-                    gGL.getTexUnit(0)->activate();
-                    gGL.matrixMode(LLRender::MM_TEXTURE);
-                    gGL.loadMatrix((GLfloat*) params.mTextureMatrix->mMatrix);
+                    gDX.getTexUnit(0)->activate();
+                    gDX.matrixMode(LLRender::MM_TEXTURE);
+                    gDX.loadMatrix((GLfloat*) params.mTextureMatrix->mMatrix);
                     gPipeline.mTextureMatrixOps++;
                 }
             }
             else
             {
-                gGL.getTexUnit(0)->unbindFast(LLTexUnit::TT_TEXTURE);
+                gDX.getTexUnit(0)->unbindFast(LLTexUnit::TT_TEXTURE);
             }
         }
     }
@@ -661,9 +661,9 @@ void LLRenderPass::pushBatch(LLDrawInfo& params, bool texture, bool batch_textur
 
     if (tex_setup)
     {
-        gGL.matrixMode(LLRender::MM_TEXTURE0);
-        gGL.loadIdentity();
-        gGL.matrixMode(LLRender::MM_MODELVIEW);
+        gDX.matrixMode(LLRender::MM_TEXTURE0);
+        gDX.loadIdentity();
+        gDX.matrixMode(LLRender::MM_MODELVIEW);
     }
 }
 
@@ -705,7 +705,7 @@ bool LLRenderPass::uploadMatrixPalette(LLVOAvatar* avatar, LLMeshSkinInfo* skinI
         return false;
     }
 
-    LLGLSLShader::sCurBoundShaderPtr->uniformMatrix3x4fv(LLViewerShaderMgr::AVATAR_MATRIX,
+    LLHLSLShader::sCurBoundShaderPtr->uniformMatrix3x4fv(LLViewerShaderMgr::AVATAR_MATRIX,
         count,
         false,
         (GLfloat*)&(mpc.mGLMp[0]));
@@ -719,7 +719,7 @@ bool LLRenderPass::uploadMatrixPalette(LLVOAvatar* avatar, LLMeshSkinInfo* skinI
 {
 
     llassert(skinInfo);
-    llassert(LLGLSLShader::sCurBoundShaderPtr);
+    llassert(LLHLSLShader::sCurBoundShaderPtr);
 
     if (!avatar)
     {
@@ -740,7 +740,7 @@ bool LLRenderPass::uploadMatrixPalette(LLVOAvatar* avatar, LLMeshSkinInfo* skinI
 
     if (!skipLastSkin)
     {
-        LLGLSLShader::sCurBoundShaderPtr->uniformMatrix3x4fv(LLViewerShaderMgr::AVATAR_MATRIX,
+        LLHLSLShader::sCurBoundShaderPtr->uniformMatrix3x4fv(LLViewerShaderMgr::AVATAR_MATRIX,
             count,
             false,
             (GLfloat*)&(mpc.mGLMp[0]));
@@ -751,18 +751,18 @@ bool LLRenderPass::uploadMatrixPalette(LLVOAvatar* avatar, LLMeshSkinInfo* skinI
 
 // Returns true if rendering should proceed
 //static
-bool LLRenderPass::uploadMatrixPalette(LLVOAvatar* avatar, LLMeshSkinInfo* skinInfo, const LLVOAvatar*& lastAvatar, U64& lastMeshId, const LLGLSLShader*& lastAvatarShader, bool& skipLastSkin)
+bool LLRenderPass::uploadMatrixPalette(LLVOAvatar* avatar, LLMeshSkinInfo* skinInfo, const LLVOAvatar*& lastAvatar, U64& lastMeshId, const LLHLSLShader*& lastAvatarShader, bool& skipLastSkin)
 {
 
     llassert(skinInfo);
-    llassert(LLGLSLShader::sCurBoundShaderPtr);
+    llassert(LLHLSLShader::sCurBoundShaderPtr);
 
     if (!avatar)
     {
         return false;
     }
 
-    if (avatar == lastAvatar && skinInfo->mHash == lastMeshId && lastAvatarShader == LLGLSLShader::sCurBoundShaderPtr)
+    if (avatar == lastAvatar && skinInfo->mHash == lastMeshId && lastAvatarShader == LLHLSLShader::sCurBoundShaderPtr)
     {
         return !skipLastSkin;
     }
@@ -773,11 +773,11 @@ bool LLRenderPass::uploadMatrixPalette(LLVOAvatar* avatar, LLMeshSkinInfo* skinI
     skipLastSkin = !bool(count);
     lastAvatar = avatar;
     lastMeshId = skinInfo->mHash;
-    lastAvatarShader = LLGLSLShader::sCurBoundShaderPtr;
+    lastAvatarShader = LLHLSLShader::sCurBoundShaderPtr;
 
     if (!skipLastSkin)
     {
-        LLGLSLShader::sCurBoundShaderPtr->uniformMatrix3x4fv(LLViewerShaderMgr::AVATAR_MATRIX,
+        LLHLSLShader::sCurBoundShaderPtr->uniformMatrix3x4fv(LLViewerShaderMgr::AVATAR_MATRIX,
             count,
             false,
             (GLfloat*)&(mpc.mGLMp[0]));
@@ -790,9 +790,9 @@ void setup_texture_matrix(LLDrawInfo& params)
 {
     if (params.mTextureMatrix)
     { //special case implementation of texture animation here because of special handling of textures for PBR batches
-        gGL.getTexUnit(0)->activate();
-        gGL.matrixMode(LLRender::MM_TEXTURE);
-        gGL.loadMatrix((GLfloat*)params.mTextureMatrix->mMatrix);
+        gDX.getTexUnit(0)->activate();
+        gDX.matrixMode(LLRender::MM_TEXTURE);
+        gDX.loadMatrix((GLfloat*)params.mTextureMatrix->mMatrix);
         gPipeline.mTextureMatrixOps++;
     }
 }
@@ -801,9 +801,9 @@ void teardown_texture_matrix(LLDrawInfo& params)
 {
     if (params.mTextureMatrix)
     {
-        gGL.matrixMode(LLRender::MM_TEXTURE0);
-        gGL.loadIdentity();
-        gGL.matrixMode(LLRender::MM_MODELVIEW);
+        gDX.matrixMode(LLRender::MM_TEXTURE0);
+        gDX.loadIdentity();
+        gDX.matrixMode(LLRender::MM_MODELVIEW);
     }
 }
 

@@ -425,8 +425,8 @@ void LLViewerCamera::setPerspective(bool for_selection,
 	float bottom = -wd2;
 
 	// Load camera view matrix
-	gGL.matrixMode(LLRender::MM_PROJECTION);
-	gGL.loadIdentity();
+	gDX.matrixMode(LLRender::MM_PROJECTION);
+	gDX.loadIdentity();
 
 	glm::mat4 proj_mat = glm::identity<glm::mat4>();
 	// S24 for_selection and ZoomFactor before..... handling projection see line:409
@@ -539,11 +539,11 @@ void LLViewerCamera::setPerspective(bool for_selection,
 
 	// Load into GL
 
-	gGL.loadMatrix(glm::value_ptr(proj_mat));
+	gDX.loadMatrix(glm::value_ptr(proj_mat));
 
 	set_current_projection(proj_mat);
 
-	gGL.matrixMode(LLRender::MM_MODELVIEW);
+	gDX.matrixMode(LLRender::MM_MODELVIEW);
 
 	glm::mat4 modelview(glm::make_mat4((GLfloat*)OGL_TO_CFR_ROTATION));
 
@@ -557,7 +557,7 @@ void LLViewerCamera::setPerspective(bool for_selection,
 	// setPerspective() only handles the asymmetric frustum for convergence plane
 	// This prevents duplicate camera offsets from compounding (which caused logarithmic scaling)
 
-	gGL.loadMatrix(glm::value_ptr(modelview));
+	gDX.loadMatrix(glm::value_ptr(modelview));
 
 	if (for_selection && (width > 1 || height > 1))
 	{

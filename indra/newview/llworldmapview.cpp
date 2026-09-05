@@ -398,13 +398,13 @@ void LLWorldMapView::draw()
     S32 level = LLWorldMipmap::scaleToLevel(mMapScale);
 
     LLLocalClipRect clip(getLocalRect());
-    gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+    gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
 
-    gGL.matrixMode(LLRender::MM_MODELVIEW);
+    gDX.matrixMode(LLRender::MM_MODELVIEW);
 
     // Draw background rectangle
-    gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
-    gGL.color4fv(mBackgroundColor.mV);
+    gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+    gDX.color4fv(mBackgroundColor.mV);
     gl_rect_2d(0, height, width, 0);
 
     // Draw the image tiles
@@ -454,20 +454,20 @@ void LLWorldMapView::draw()
         if (info->isDown())
         {
             // Draw a transparent red square over down sims
-            gGL.color4f(0.2f, 0.0f, 0.0f, 0.4f);
+            gDX.color4f(0.2f, 0.0f, 0.0f, 0.4f);
 
-            gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
-            gGL.begin(LLRender::TRIANGLES);
+            gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+            gDX.begin(LLRender::TRIANGLES);
             {
-                gGL.vertex2f(left, top);
-                gGL.vertex2f(left, bottom);
-                gGL.vertex2f(right, bottom);
+                gDX.vertex2f(left, top);
+                gDX.vertex2f(left, bottom);
+                gDX.vertex2f(right, bottom);
 
-                gGL.vertex2f(left, top);
-                gGL.vertex2f(right, bottom);
-                gGL.vertex2f(right, top);
+                gDX.vertex2f(left, top);
+                gDX.vertex2f(right, bottom);
+                gDX.vertex2f(right, top);
             }
-            gGL.end();
+            gDX.end();
         }
         else if (show_for_sale && (level <= DRAW_LANDFORSALE_THRESHOLD))
         {
@@ -481,25 +481,25 @@ void LLWorldMapView::draw()
                 // Draw something whenever we have enough info
                 if (overlayimage->hasGLTexture())
                 {
-                    gGL.getTexUnit(0)->bind(overlayimage);
-                    gGL.color4f(1.f, 1.f, 1.f, 1.f);
-                    gGL.begin(LLRender::TRIANGLES);
+                    gDX.getTexUnit(0)->bind(overlayimage);
+                    gDX.color4f(1.f, 1.f, 1.f, 1.f);
+                    gDX.begin(LLRender::TRIANGLES);
                     {
-                        gGL.texCoord2f(0.f, 1.f);
-                        gGL.vertex3f(left, top, -0.5f);
-                        gGL.texCoord2f(0.f, 0.f);
-                        gGL.vertex3f(left, bottom, -0.5f);
-                        gGL.texCoord2f(1.f, 0.f);
-                        gGL.vertex3f(right, bottom, -0.5f);
+                        gDX.texCoord2f(0.f, 1.f);
+                        gDX.vertex3f(left, top, -0.5f);
+                        gDX.texCoord2f(0.f, 0.f);
+                        gDX.vertex3f(left, bottom, -0.5f);
+                        gDX.texCoord2f(1.f, 0.f);
+                        gDX.vertex3f(right, bottom, -0.5f);
 
-                        gGL.texCoord2f(0.f, 1.f);
-                        gGL.vertex3f(left, top, -0.5f);
-                        gGL.texCoord2f(1.f, 0.f);
-                        gGL.vertex3f(right, bottom, -0.5f);
-                        gGL.texCoord2f(1.f, 1.f);
-                        gGL.vertex3f(right, top, -0.5f);
+                        gDX.texCoord2f(0.f, 1.f);
+                        gDX.vertex3f(left, top, -0.5f);
+                        gDX.texCoord2f(1.f, 0.f);
+                        gDX.vertex3f(right, bottom, -0.5f);
+                        gDX.texCoord2f(1.f, 1.f);
+                        gDX.vertex3f(right, top, -0.5f);
                     }
-                    gGL.end();
+                    gDX.end();
                 }
             }
         }
@@ -751,28 +751,28 @@ bool LLWorldMapView::drawMipmapLevel(S32 width, S32 height, S32 level, bool load
 
                     // Draw the tile
                     LLGLSUIDefault gls_ui;
-                    gGL.getTexUnit(0)->bind(simimage.get());
+                    gDX.getTexUnit(0)->bind(simimage.get());
                     simimage->setAddressMode(LLTexUnit::TAM_CLAMP);
 
-                    gGL.color4f(1.f, 1.0f, 1.0f, 1.0f);
+                    gDX.color4f(1.f, 1.0f, 1.0f, 1.0f);
 
-                    gGL.begin(LLRender::TRIANGLES);
+                    gDX.begin(LLRender::TRIANGLES);
                     {
-                        gGL.texCoord2f(0.f, 1.f);
-                        gGL.vertex3f(left, top, 0.f);
-                        gGL.texCoord2f(0.f, 0.f);
-                        gGL.vertex3f(left, bottom, 0.f);
-                        gGL.texCoord2f(1.f, 0.f);
-                        gGL.vertex3f(right, bottom, 0.f);
+                        gDX.texCoord2f(0.f, 1.f);
+                        gDX.vertex3f(left, top, 0.f);
+                        gDX.texCoord2f(0.f, 0.f);
+                        gDX.vertex3f(left, bottom, 0.f);
+                        gDX.texCoord2f(1.f, 0.f);
+                        gDX.vertex3f(right, bottom, 0.f);
 
-                        gGL.texCoord2f(0.f, 1.f);
-                        gGL.vertex3f(left, top, 0.f);
-                        gGL.texCoord2f(1.f, 0.f);
-                        gGL.vertex3f(right, bottom, 0.f);
-                        gGL.texCoord2f(1.f, 1.f);
-                        gGL.vertex3f(right, top, 0.f);
+                        gDX.texCoord2f(0.f, 1.f);
+                        gDX.vertex3f(left, top, 0.f);
+                        gDX.texCoord2f(1.f, 0.f);
+                        gDX.vertex3f(right, bottom, 0.f);
+                        gDX.texCoord2f(1.f, 1.f);
+                        gDX.vertex3f(right, top, 0.f);
                     }
-                    gGL.end();
+                    gDX.end();
 #if DEBUG_DRAW_TILE
                     drawTileOutline(level, top, left, bottom, right);
 #endif // DEBUG_DRAW_TILE
@@ -795,33 +795,33 @@ bool LLWorldMapView::drawMipmapLevel(S32 width, S32 height, S32 level, bool load
 // Used for debug only
 void LLWorldMapView::drawTileOutline(S32 level, F32 top, F32 left, F32 bottom, F32 right)
 {
-    gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+    gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
     if (level == 1)
-        gGL.color3f(1.f, 0.f, 0.f);     // red
+        gDX.color3f(1.f, 0.f, 0.f);     // red
     else if (level == 2)
-        gGL.color3f(0.f, 1.f, 0.f);     // green
+        gDX.color3f(0.f, 1.f, 0.f);     // green
     else if (level == 3)
-        gGL.color3f(0.f, 0.f, 1.f);     // blue
+        gDX.color3f(0.f, 0.f, 1.f);     // blue
     else if (level == 4)
-        gGL.color3f(1.f, 1.f, 0.f);     // yellow
+        gDX.color3f(1.f, 1.f, 0.f);     // yellow
     else if (level == 5)
-        gGL.color3f(1.f, 0.f, 1.f);     // magenta
+        gDX.color3f(1.f, 0.f, 1.f);     // magenta
     else if (level == 6)
-        gGL.color3f(0.f, 1.f, 1.f);     // cyan
+        gDX.color3f(0.f, 1.f, 1.f);     // cyan
     else if (level == 7)
-        gGL.color3f(1.f, 1.f, 1.f);     // white
+        gDX.color3f(1.f, 1.f, 1.f);     // white
     else
-        gGL.color3f(0.f, 0.f, 0.f);     // black
-    gGL.begin(LLRender::LINE_STRIP);
-        gGL.vertex2f(left, top);
-        gGL.vertex2f(right, bottom);
-        gGL.vertex2f(left, bottom);
-        gGL.vertex2f(right, top);
-        gGL.vertex2f(left, top);
-        gGL.vertex2f(left, bottom);
-        gGL.vertex2f(right, bottom);
-        gGL.vertex2f(right, top);
-    gGL.end();
+        gDX.color3f(0.f, 0.f, 0.f);     // black
+    gDX.begin(LLRender::LINE_STRIP);
+        gDX.vertex2f(left, top);
+        gDX.vertex2f(right, bottom);
+        gDX.vertex2f(left, bottom);
+        gDX.vertex2f(right, top);
+        gDX.vertex2f(left, top);
+        gDX.vertex2f(left, bottom);
+        gDX.vertex2f(right, bottom);
+        gDX.vertex2f(right, top);
+    gDX.end();
 }
 
 void LLWorldMapView::drawGenericItems(const LLSimInfo::item_info_list_t& items, LLUIImagePtr image)
@@ -954,16 +954,16 @@ void LLWorldMapView::drawFrustum()
     F32 ctr_x = ((getLocalRect().getWidth() * 0.5f + mPanX)  * LLUI::getScaleFactor().mV[VX]);
     F32 ctr_y = ((getLocalRect().getHeight() * 0.5f + mPanY) * LLUI::getScaleFactor().mV[VY]);
 
-    gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+    gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
 
     // Since we don't rotate the map, we have to rotate the frustum.
-    gGL.pushMatrix();
+    gDX.pushMatrix();
     {
-        gGL.translatef( ctr_x, ctr_y, 0 );
+        gDX.translatef( ctr_x, ctr_y, 0 );
 
         // Draw triangle with more alpha in far pixels to make it
         // fade out in distance.
-        gGL.begin( LLRender::TRIANGLES  );
+        gDX.begin( LLRender::TRIANGLES  );
         {
             // get camera look at and left axes
             LLVector3 at_axis = LLViewerCamera::instance().getAtAxis();
@@ -985,21 +985,21 @@ void LLWorldMapView::drawFrustum()
             cam_lookat.normVec();
             cam_left.normVec();
 
-            gGL.color4f(1.f, 1.f, 1.f, 0.25f);
-            gGL.vertex2f( 0, 0 );
+            gDX.color4f(1.f, 1.f, 1.f, 0.25f);
+            gDX.vertex2f( 0, 0 );
 
-            gGL.color4f(1.f, 1.f, 1.f, 0.02f);
+            gDX.color4f(1.f, 1.f, 1.f, 0.02f);
 
             // use 2d camera vectors to render frustum triangle
             LLVector2 vert = cam_lookat * far_clip_pixels + cam_left * half_width_pixels;
-            gGL.vertex2f(vert.mV[VX], vert.mV[VY]);
+            gDX.vertex2f(vert.mV[VX], vert.mV[VY]);
 
             vert = cam_lookat * far_clip_pixels - cam_left * half_width_pixels;
-            gGL.vertex2f(vert.mV[VX], vert.mV[VY]);
+            gDX.vertex2f(vert.mV[VX], vert.mV[VY]);
         }
-        gGL.end();
+        gDX.end();
     }
-    gGL.popMatrix();
+    gDX.popMatrix();
 }
 
 
@@ -1194,17 +1194,17 @@ static void drawDot(F32 x_pixels, F32 y_pixels,
         F32 top =       y_pixels + dot_radius;
         F32 bottom =    y_pixels - dot_radius;
 
-        gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
-        gGL.color4fv( color.mV );
+        gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+        gDX.color4fv( color.mV );
         LLUI::setLineWidth(3.0f);
         F32 point = relative_z > HEIGHT_THRESHOLD ? top : bottom; // Y pos of the point of the V
         F32 back = relative_z > HEIGHT_THRESHOLD ? bottom : top; // Y pos of the ends of the V
-        gGL.begin( LLRender::LINES );
-            gGL.vertex2f(left, back);
-            gGL.vertex2f(center, point);
-            gGL.vertex2f(center, point);
-            gGL.vertex2f(right, back);
-        gGL.end();
+        gDX.begin( LLRender::LINES );
+            gDX.vertex2f(left, back);
+            gDX.vertex2f(center, point);
+            gDX.vertex2f(center, point);
+            gDX.vertex2f(right, back);
+        gDX.end();
         LLUI::setLineWidth(1.0f);
     }
 }
@@ -1383,11 +1383,11 @@ void LLWorldMapView::drawTrackingCircle( const LLRect& rect, S32 x, S32 y, const
         end_theta -= angle_adjust_y;
     }
 
-    gGL.matrixMode(LLRender::MM_MODELVIEW);
-    gGL.pushMatrix();
-    gGL.translatef((F32)x * LLUI::getScaleFactor().mV[VX], (F32)y * LLUI::getScaleFactor().mV[VY], 0.f);
+    gDX.matrixMode(LLRender::MM_MODELVIEW);
+    gDX.pushMatrix();
+    gDX.translatef((F32)x * LLUI::getScaleFactor().mV[VX], (F32)y * LLUI::getScaleFactor().mV[VY], 0.f);
     gl_washer_segment_2d(inner_radius, outer_radius, start_theta, end_theta, 40, color, color);
-    gGL.popMatrix();
+    gDX.popMatrix();
 
 }
 

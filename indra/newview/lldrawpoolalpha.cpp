@@ -34,7 +34,6 @@
 #include "llfasttimer.h"
 #include "llrender.h"
 
-#include "llcubemap.h"
 #include "llsky.h"
 #include "lldrawable.h"
 #include "llface.h"
@@ -58,7 +57,7 @@
 
 bool LLDrawPoolAlpha::sShowDebugAlpha = false;
 
-#define current_shader (LLGLSLShader::sCurBoundShaderPtr)
+#define current_shader (LLHLSLShader::sCurBoundShaderPtr)
 
 LLVector4 LLDrawPoolAlpha::sWaterPlane;
 
@@ -92,7 +91,7 @@ S32 LLDrawPoolAlpha::getNumPostDeferredPasses()
 }
 
 // set some common parameters on the given shader to prepare for alpha rendering
-static void prepare_alpha_shader(LLGLSLShader* shader, bool deferredEnvironment, F32 water_sign)
+static void prepare_alpha_shader(LLHLSLShader* shader, bool deferredEnvironment, F32 water_sign)
 {
     static LLCachedControl<F32> displayGamma(gSavedSettings, "RenderDeferredDisplayGamma");
     F32 gamma = displayGamma;
@@ -190,7 +189,7 @@ void LLDrawPoolAlpha::renderPostDeferred(S32 pass)
 
     prepare_alpha_shader(simple_shader, true, water_sign); //prime simple shader (loads shadow relevant uniforms)
 
-    LLGLSLShader* materialShader = gDeferredMaterialProgram;
+    LLHLSLShader* materialShader = gDeferredMaterialProgram;
     for (int i = 0; i < LLMaterial::SHADER_COUNT*2; ++i)
     {
         prepare_alpha_shader(&materialShader[i], true, water_sign);
@@ -204,7 +203,7 @@ void LLDrawPoolAlpha::renderPostDeferred(S32 pass)
 
     // explicitly unbind here so render loop doesn't make assumptions about the last shader
     // already being setup for rendering
-    LLGLSLShader::unbind();
+    LLHLSLShader::unbind();
 
     if (!LLPipeline::sRenderingHUDs)
     {
@@ -225,14 +224,14 @@ void LLDrawPoolAlpha::renderPostDeferred(S32 pass)
         simple_shader->setMinimumAlpha(0.33f);
 
         // mask off color buffer writes as we're only writing to depth buffer
-        gGL.setColorMask(false, false);
+        gDX.setColorMask(false, false);
 
         // If the face is more than 90% transparent, then don't update the Depth buffer for Dof
         // We don't want the nearly invisible objects to cause of DoF effects
         renderAlpha(getVertexDataMask() | LLVertexBuffer::MAP_TEXTURE_INDEX | LLVertexBuffer::MAP_TANGENT | LLVertexBuffer::MAP_TEXCOORD1 | LLVertexBuffer::MAP_TEXCOORD2,
             true); // <--- discard mostly transparent faces
 
-        gGL.setColorMask(true, false);
+        gDX.setColorMask(true, false);
     }
 }
 
@@ -243,7 +242,7 @@ void LLDrawPoolAlpha::forwardRender(bool rigged)
     LLGLSPipelineAlpha gls_pipeline_alpha;
     // S24 3D - MASK here obliterates surfaces with transparancy Avoid!
     //enable writing to alpha for emissive effects
-    gGL.setColorMask(true, true);
+    gDX.setColorMask(true, true);
 
     bool write_depth = rigged ||
         LLDrawPoolWater::sSkipScreenCopy
@@ -259,7 +258,7 @@ void LLDrawPoolAlpha::forwardRender(bool rigged)
     mColorDFactor = LLRender::BF_ONE_MINUS_SOURCE_ALPHA; // }
     mAlphaSFactor = LLRender::BF_ZERO;                         // } glow suppression
     mAlphaDFactor = LLRender::BF_ONE_MINUS_SOURCE_ALPHA;       // }
-    gGL.blendFunc(mColorSFactor, mColorDFactor, mAlphaSFactor, mAlphaDFactor);
+    gDX.blendFunc(mColorSFactor, mColorDFactor, mAlphaSFactor, mAlphaDFactor);
 
     if (rigged && mType == LLDrawPool::POOL_ALPHA_POST_WATER)
     { // draw GLTF scene to depth buffer before rigged alpha
@@ -273,7 +272,7 @@ void LLDrawPoolAlpha::forwardRender(bool rigged)
     // We don't want the nearly invisible objects to cause of DoF effects
     renderAlpha(getVertexDataMask() | LLVertexBuffer::MAP_TEXTURE_INDEX | LLVertexBuffer::MAP_TANGENT | LLVertexBuffer::MAP_TEXCOORD1 | LLVertexBuffer::MAP_TEXCOORD2, false, rigged);
 
-    gGL.setColorMask(true, false);
+    gDX.setColorMask(true, false);
 
     if (!rigged && (LLPipeline::sRenderingHUDs || getType() == LLDrawPoolAlpha::POOL_ALPHA_POST_WATER))
     { //render "highlight alpha" on final non-rigged pass
@@ -289,8 +288,8 @@ void LLDrawPoolAlpha::renderDebugAlpha()
     if (sShowDebugAlpha && !gCubeSnapshot && !LLPipeline::sReflectionRender)
     {
         gHighlightProgram.bind();
-        gGL.diffuseColor4f(1, 0, 0, 1);
-        gGL.getTexUnit(0)->bindFast(LLViewerFetchedTexture::getSmokeImage());
+        gDX.diffuseColor4f(1, 0, 0, 1);
+        gDX.getTexUnit(0)->bindFast(LLViewerFetchedTexture::getSmokeImage());
 
 
         renderAlphaHighlight();
@@ -299,7 +298,7 @@ void LLDrawPoolAlpha::renderDebugAlpha()
         pushUntexturedBatches(LLRenderPass::PASS_ALPHA_INVISIBLE);
 
         // Material alpha mask
-        gGL.diffuseColor4f(0, 0, 1, 1);
+        gDX.diffuseColor4f(0, 0, 1, 1);
         pushUntexturedBatches(LLRenderPass::PASS_MATERIAL_ALPHA_MASK);
         pushUntexturedBatches(LLRenderPass::PASS_NORMMAP_MASK);
         pushUntexturedBatches(LLRenderPass::PASS_SPECMAP_MASK);
@@ -307,17 +306,17 @@ void LLDrawPoolAlpha::renderDebugAlpha()
         pushUntexturedBatches(LLRenderPass::PASS_FULLBRIGHT_ALPHA_MASK);
         pushUntexturedBatches(LLRenderPass::PASS_GLTF_PBR_ALPHA_MASK);
 
-        gGL.diffuseColor4f(0, 1, 0, 1);
+        gDX.diffuseColor4f(0, 1, 0, 1);
         pushUntexturedBatches(LLRenderPass::PASS_INVISIBLE);
 
         gHighlightProgram.mRiggedVariant->bind();
-        gGL.diffuseColor4f(1, 0, 0, 1);
+        gDX.diffuseColor4f(1, 0, 0, 1);
 
         pushRiggedBatches(LLRenderPass::PASS_ALPHA_MASK_RIGGED, false);
         pushRiggedBatches(LLRenderPass::PASS_ALPHA_INVISIBLE_RIGGED, false);
 
         // Material alpha mask
-        gGL.diffuseColor4f(0, 0, 1, 1);
+        gDX.diffuseColor4f(0, 0, 1, 1);
         pushRiggedBatches(LLRenderPass::PASS_MATERIAL_ALPHA_MASK_RIGGED, false);
         pushRiggedBatches(LLRenderPass::PASS_NORMMAP_MASK_RIGGED, false);
         pushRiggedBatches(LLRenderPass::PASS_SPECMAP_MASK_RIGGED, false);
@@ -325,9 +324,9 @@ void LLDrawPoolAlpha::renderDebugAlpha()
         pushRiggedBatches(LLRenderPass::PASS_FULLBRIGHT_ALPHA_MASK_RIGGED, false);
         pushRiggedBatches(LLRenderPass::PASS_GLTF_PBR_ALPHA_MASK_RIGGED, false);
 
-        gGL.diffuseColor4f(0, 1, 0, 1);
+        gDX.diffuseColor4f(0, 1, 0, 1);
         pushRiggedBatches(LLRenderPass::PASS_INVISIBLE_RIGGED, false);
-        LLGLSLShader::sCurBoundShaderPtr->unbind();
+        LLHLSLShader::sCurBoundShaderPtr->unbind();
     }
 }
 
@@ -365,7 +364,7 @@ void LLDrawPoolAlpha::renderAlphaHighlight()
                         }
                     }
 
-                    gGL.diffuseColor4f(1, 0, 0, 1);
+                    gDX.diffuseColor4f(1, 0, 0, 1);
                     LLRenderPass::applyModelMatrix(params);
                     params.mVertexBuffer->setBuffer();
                     params.mVertexBuffer->drawRange(LLRender::TRIANGLES, params.mStart, params.mEnd, params.mCount, params.mOffset);
@@ -409,9 +408,9 @@ bool LLDrawPoolAlpha::TexSetup(LLDrawInfo* draw, bool use_material)
         if (draw->mTextureMatrix)
         {
             tex_setup = true;
-            gGL.getTexUnit(0)->activate();
-            gGL.matrixMode(LLRender::MM_TEXTURE);
-            gGL.loadMatrix((GLfloat*)draw->mTextureMatrix->mMatrix);
+            gDX.getTexUnit(0)->activate();
+            gDX.matrixMode(LLRender::MM_TEXTURE);
+            gDX.loadMatrix((GLfloat*)draw->mTextureMatrix->mMatrix);
             gPipeline.mTextureMatrixOps++;
         }
     }
@@ -440,7 +439,7 @@ bool LLDrawPoolAlpha::TexSetup(LLDrawInfo* draw, bool use_material)
             {
                 if (draw->mTextureList[i].notNull())
                 {
-                    gGL.getTexUnit(i)->bindFast(draw->mTextureList[i]);
+                    gDX.getTexUnit(i)->bindFast(draw->mTextureList[i]);
                 }
             }
         }
@@ -454,21 +453,21 @@ bool LLDrawPoolAlpha::TexSetup(LLDrawInfo* draw, bool use_material)
                 }
                 else
                 {
-                    gGL.getTexUnit(0)->bindFast(draw->mTexture);
+                    gDX.getTexUnit(0)->bindFast(draw->mTexture);
                 }
 
                 if (draw->mTextureMatrix)
                 {
                     tex_setup = true;
-                    gGL.getTexUnit(0)->activate();
-                    gGL.matrixMode(LLRender::MM_TEXTURE);
-                    gGL.loadMatrix((GLfloat*)draw->mTextureMatrix->mMatrix);
+                    gDX.getTexUnit(0)->activate();
+                    gDX.matrixMode(LLRender::MM_TEXTURE);
+                    gDX.loadMatrix((GLfloat*)draw->mTextureMatrix->mMatrix);
                     gPipeline.mTextureMatrixOps++;
                 }
             }
             else
             {
-                gGL.getTexUnit(0)->unbindFast(LLTexUnit::TT_TEXTURE);
+                gDX.getTexUnit(0)->unbindFast(LLTexUnit::TT_TEXTURE);
             }
         }
     }
@@ -480,16 +479,16 @@ void LLDrawPoolAlpha::RestoreTexSetup(bool tex_setup)
 {
     if (tex_setup)
     {
-        gGL.getTexUnit(0)->activate();
-        gGL.matrixMode(LLRender::MM_TEXTURE);
-        gGL.loadIdentity();
-        gGL.matrixMode(LLRender::MM_MODELVIEW);
+        gDX.getTexUnit(0)->activate();
+        gDX.matrixMode(LLRender::MM_TEXTURE);
+        gDX.loadIdentity();
+        gDX.matrixMode(LLRender::MM_MODELVIEW);
     }
 }
 
 void LLDrawPoolAlpha::drawEmissive(LLDrawInfo* draw)
 {
-    LLGLSLShader::sCurBoundShaderPtr->uniform1f(LLShaderMgr::EMISSIVE_BRIGHTNESS, 1.f);
+    LLHLSLShader::sCurBoundShaderPtr->uniform1f(LLShaderMgr::EMISSIVE_BRIGHTNESS, 1.f);
     draw->mVertexBuffer->setBuffer();
     draw->mVertexBuffer->drawRange(LLRender::TRIANGLES, draw->mStart, draw->mEnd, draw->mCount, draw->mOffset);
 }
@@ -525,7 +524,7 @@ void LLDrawPoolAlpha::renderPbrEmissives(std::vector<LLDrawInfo*>& emissives)
 void LLDrawPoolAlpha::renderRiggedEmissives(std::vector<LLDrawInfo*>& emissives)
 {
     LLGLDepthTest depth(GL_TRUE, GL_FALSE); //disable depth writes since "emissive" is additive so sorting doesn't matter
-    LLGLSLShader* shader = emissive_shader->mRiggedVariant;
+    LLHLSLShader* shader = emissive_shader->mRiggedVariant;
     shader->bind();
     shader->uniform1f(LLShaderMgr::EMISSIVE_BRIGHTNESS, 1.f);
 
@@ -577,7 +576,7 @@ void LLDrawPoolAlpha::renderAlpha(U32 mask, bool depth_only, bool rigged)
 
     const LLVOAvatar* lastAvatar = nullptr;
     U64 lastMeshId = 0;
-    const LLGLSLShader* lastAvatarShader = nullptr;
+    const LLHLSLShader* lastAvatarShader = nullptr;
     bool skipLastSkin = false;
 
     LLCullResult::sg_iterator begin;
@@ -746,7 +745,7 @@ void LLDrawPoolAlpha::renderAlpha(U32 mask, bool depth_only, bool rigged)
                             S32 channel = target_shader->enableTexture(LLShaderMgr::EXPOSURE_MAP);
                             if (channel > -1)
                             {
-                                gGL.getTexUnit(channel)->bind(&gPipeline.mExposureMap);
+                                gDX.getTexUnit(channel)->bind(&gPipeline.mExposureMap);
                             }
                         }
                     }
@@ -779,7 +778,7 @@ void LLDrawPoolAlpha::renderAlpha(U32 mask, bool depth_only, bool rigged)
                 bool tex_setup = TexSetup(&params, (mat != nullptr));
 
                 {
-                    gGL.blendFunc((LLRender::eBlendFactor) params.mBlendFuncSrc, (LLRender::eBlendFactor) params.mBlendFuncDst, mAlphaSFactor, mAlphaDFactor);
+                    gDX.blendFunc((LLRender::eBlendFactor) params.mBlendFuncSrc, (LLRender::eBlendFactor) params.mBlendFuncDst, mAlphaSFactor, mAlphaDFactor);
 
                     bool reset_minimum_alpha = false;
                     if (!LLPipeline::sImpostorRender &&
@@ -830,10 +829,10 @@ void LLDrawPoolAlpha::renderAlpha(U32 mask, bool depth_only, bool rigged)
 
                 if (tex_setup)
                 {
-                    gGL.getTexUnit(0)->activate();
-                    gGL.matrixMode(LLRender::MM_TEXTURE);
-                    gGL.loadIdentity();
-                    gGL.matrixMode(LLRender::MM_MODELVIEW);
+                    gDX.getTexUnit(0)->activate();
+                    gDX.matrixMode(LLRender::MM_TEXTURE);
+                    gDX.loadIdentity();
+                    gDX.matrixMode(LLRender::MM_MODELVIEW);
                 }
             }
 
@@ -844,10 +843,10 @@ void LLDrawPoolAlpha::renderAlpha(U32 mask, bool depth_only, bool rigged)
 
                 // install glow-accumulating blend mode
                 // don't touch color, add to alpha (glow)
-                gGL.blendFunc(LLRender::BF_ZERO, LLRender::BF_ONE, LLRender::BF_ONE, LLRender::BF_ONE);
+                gDX.blendFunc(LLRender::BF_ZERO, LLRender::BF_ONE, LLRender::BF_ONE, LLRender::BF_ONE);
 
                 bool rebind = false;
-                LLGLSLShader* lastShader = current_shader;
+                LLHLSLShader* lastShader = current_shader;
                 if (!emissives.empty())
                 {
                     light_enabled = true;
@@ -877,7 +876,7 @@ void LLDrawPoolAlpha::renderAlpha(U32 mask, bool depth_only, bool rigged)
                 }
 
                 // restore our alpha blend mode
-                gGL.blendFunc(mColorSFactor, mColorDFactor, mAlphaSFactor, mAlphaDFactor);
+                gDX.blendFunc(mColorSFactor, mColorDFactor, mAlphaSFactor, mAlphaDFactor);
 
                 if (lastShader && rebind)
                 {
@@ -887,7 +886,7 @@ void LLDrawPoolAlpha::renderAlpha(U32 mask, bool depth_only, bool rigged)
         }
     }
 
-    gGL.setSceneBlendType(LLRender::BT_ALPHA);
+    gDX.setSceneBlendType(LLRender::BT_ALPHA);
 
     LLVertexBuffer::unbind();
 

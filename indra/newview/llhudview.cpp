@@ -88,12 +88,12 @@ void LLHUDView::drawFramingGuides()
     F32 offset_x = (width - scaled_width) / 2.0f;
     F32 offset_y = (height - scaled_height) / 2.0f;
 
-    gGL.color4fv(color.mV);
-    gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+    gDX.color4fv(color.mV);
+    gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
 
     // Push matrix and translate/scale for framing
-    gGL.pushMatrix();
-    gGL.translatef(offset_x, offset_y, 0.0f);
+    gDX.pushMatrix();
+    gDX.translatef(offset_x, offset_y, 0.0f);
 
     switch(frame_type)
     {
@@ -117,28 +117,28 @@ void LLHUDView::drawFramingGuides()
             break;
     }
 
-    gGL.popMatrix();
+    gDX.popMatrix();
 }
 
 void LLHUDView::drawRuleOfThirds(F32 width, F32 height)
 {
     // Vertical lines at 1/3 and 2/3
     F32 third_w = width / 3.0f;
-    gGL.begin(LLRender::LINES);
-    gGL.vertex2f(third_w, 0.0f);
-    gGL.vertex2f(third_w, height);
-    gGL.vertex2f(third_w * 2.0f, 0.0f);
-    gGL.vertex2f(third_w * 2.0f, height);
-    gGL.end();
+    gDX.begin(LLRender::LINES);
+    gDX.vertex2f(third_w, 0.0f);
+    gDX.vertex2f(third_w, height);
+    gDX.vertex2f(third_w * 2.0f, 0.0f);
+    gDX.vertex2f(third_w * 2.0f, height);
+    gDX.end();
 
     // Horizontal lines at 1/3 and 2/3
     F32 third_h = height / 3.0f;
-    gGL.begin(LLRender::LINES);
-    gGL.vertex2f(0.0f, third_h);
-    gGL.vertex2f(width, third_h);
-    gGL.vertex2f(0.0f, third_h * 2.0f);
-    gGL.vertex2f(width, third_h * 2.0f);
-    gGL.end();
+    gDX.begin(LLRender::LINES);
+    gDX.vertex2f(0.0f, third_h);
+    gDX.vertex2f(width, third_h);
+    gDX.vertex2f(0.0f, third_h * 2.0f);
+    gDX.vertex2f(width, third_h * 2.0f);
+    gDX.end();
 }
 
 void LLHUDView::drawGoldenRatio(F32 width, F32 height)
@@ -147,20 +147,20 @@ void LLHUDView::drawGoldenRatio(F32 width, F32 height)
     F32 golden = 0.618f;  // 1/1.618
 
     // Vertical lines
-    gGL.begin(LLRender::LINES);
-    gGL.vertex2f(width * golden, 0.0f);
-    gGL.vertex2f(width * golden, height);
-    gGL.vertex2f(width * (1.0f - golden), 0.0f);
-    gGL.vertex2f(width * (1.0f - golden), height);
-    gGL.end();
+    gDX.begin(LLRender::LINES);
+    gDX.vertex2f(width * golden, 0.0f);
+    gDX.vertex2f(width * golden, height);
+    gDX.vertex2f(width * (1.0f - golden), 0.0f);
+    gDX.vertex2f(width * (1.0f - golden), height);
+    gDX.end();
 
     // Horizontal lines
-    gGL.begin(LLRender::LINES);
-    gGL.vertex2f(0.0f, height * golden);
-    gGL.vertex2f(width, height * golden);
-    gGL.vertex2f(0.0f, height * (1.0f - golden));
-    gGL.vertex2f(width, height * (1.0f - golden));
-    gGL.end();
+    gDX.begin(LLRender::LINES);
+    gDX.vertex2f(0.0f, height * golden);
+    gDX.vertex2f(width, height * golden);
+    gDX.vertex2f(0.0f, height * (1.0f - golden));
+    gDX.vertex2f(width, height * (1.0f - golden));
+    gDX.end();
 }
 
 void LLHUDView::drawCenterCross(F32 width, F32 height)
@@ -169,16 +169,16 @@ void LLHUDView::drawCenterCross(F32 width, F32 height)
     F32 center_y = height / 2.0f;
 
     // Vertical center line
-    gGL.begin(LLRender::LINES);
-    gGL.vertex2f(center_x, 0.0f);
-    gGL.vertex2f(center_x, height);
-    gGL.end();
+    gDX.begin(LLRender::LINES);
+    gDX.vertex2f(center_x, 0.0f);
+    gDX.vertex2f(center_x, height);
+    gDX.end();
 
     // Horizontal center line
-    gGL.begin(LLRender::LINES);
-    gGL.vertex2f(0.0f, center_y);
-    gGL.vertex2f(width, center_y);
-    gGL.end();
+    gDX.begin(LLRender::LINES);
+    gDX.vertex2f(0.0f, center_y);
+    gDX.vertex2f(width, center_y);
+    gDX.end();
 }
 
 void LLHUDView::drawSafeZones(F32 width, F32 height)
@@ -187,38 +187,38 @@ void LLHUDView::drawSafeZones(F32 width, F32 height)
     F32 action_margin_w = width * 0.05f;
     F32 action_margin_h = height * 0.05f;
 
-    gGL.begin(LLRender::LINE_LOOP);
-    gGL.vertex2f(action_margin_w, action_margin_h);
-    gGL.vertex2f(width - action_margin_w, action_margin_h);
-    gGL.vertex2f(width - action_margin_w, height - action_margin_h);
-    gGL.vertex2f(action_margin_w, height - action_margin_h);
-    gGL.end();
+    gDX.begin(LLRender::LINE_LOOP);
+    gDX.vertex2f(action_margin_w, action_margin_h);
+    gDX.vertex2f(width - action_margin_w, action_margin_h);
+    gDX.vertex2f(width - action_margin_w, height - action_margin_h);
+    gDX.vertex2f(action_margin_w, height - action_margin_h);
+    gDX.end();
 
     // Title safe zone (80%)
     F32 title_margin_w = width * 0.1f;
     F32 title_margin_h = height * 0.1f;
 
-    gGL.begin(LLRender::LINE_LOOP);
-    gGL.vertex2f(title_margin_w, title_margin_h);
-    gGL.vertex2f(width - title_margin_w, title_margin_h);
-    gGL.vertex2f(width - title_margin_w, height - title_margin_h);
-    gGL.vertex2f(title_margin_w, height - title_margin_h);
-    gGL.end();
+    gDX.begin(LLRender::LINE_LOOP);
+    gDX.vertex2f(title_margin_w, title_margin_h);
+    gDX.vertex2f(width - title_margin_w, title_margin_h);
+    gDX.vertex2f(width - title_margin_w, height - title_margin_h);
+    gDX.vertex2f(title_margin_w, height - title_margin_h);
+    gDX.end();
 }
 
 void LLHUDView::drawDiagonal(F32 width, F32 height)
 {
     // Diagonal from bottom-left to top-right
-    gGL.begin(LLRender::LINES);
-    gGL.vertex2f(0.0f, 0.0f);
-    gGL.vertex2f(width, height);
-    gGL.end();
+    gDX.begin(LLRender::LINES);
+    gDX.vertex2f(0.0f, 0.0f);
+    gDX.vertex2f(width, height);
+    gDX.end();
 
     // Diagonal from top-left to bottom-right
-    gGL.begin(LLRender::LINES);
-    gGL.vertex2f(0.0f, height);
-    gGL.vertex2f(width, 0.0f);
-    gGL.end();
+    gDX.begin(LLRender::LINES);
+    gDX.vertex2f(0.0f, height);
+    gDX.vertex2f(width, 0.0f);
+    gDX.end();
 }
 
 void LLHUDView::drawTriangle(F32 width, F32 height)
@@ -226,17 +226,17 @@ void LLHUDView::drawTriangle(F32 width, F32 height)
     F32 center_x = width / 2.0f;
 
     // Triangle composition guide (apex at top center)
-    gGL.begin(LLRender::LINE_LOOP);
-    gGL.vertex2f(center_x, height);           // Top center
-    gGL.vertex2f(0.0f, 0.0f);                 // Bottom left
-    gGL.vertex2f(width, 0.0f);                // Bottom right
-    gGL.end();
+    gDX.begin(LLRender::LINE_LOOP);
+    gDX.vertex2f(center_x, height);           // Top center
+    gDX.vertex2f(0.0f, 0.0f);                 // Bottom left
+    gDX.vertex2f(width, 0.0f);                // Bottom right
+    gDX.end();
 
     // Base line emphasis
-    gGL.begin(LLRender::LINES);
-    gGL.vertex2f(0.0f, height / 3.0f);
-    gGL.vertex2f(width, height / 3.0f);
-    gGL.end();
+    gDX.begin(LLRender::LINES);
+    gDX.vertex2f(0.0f, height / 3.0f);
+    gDX.vertex2f(width, height / 3.0f);
+    gDX.end();
 }
 
 /*virtual*/

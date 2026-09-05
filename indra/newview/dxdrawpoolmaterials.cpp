@@ -31,14 +31,14 @@
 #include "pipeline.h"
 #include "llrender.h"
 #include "llspatialpartition.h"
-#include "llglslshader.h"
+#include "llhlslshader.h"
 #include "llshadermgr.h"
 
 // static
 void DXDrawPoolMaterials::renderDeferred(LLDrawPoolMaterials& pool, S32 pass)
 {
     (void)pool; // unused - mShader is private to LLDrawPoolMaterials; the shader is reached via
-                // LLGLSLShader::sCurBoundShaderPtr instead (already bound by beginDeferredPass()'s
+                // LLHLSLShader::sCurBoundShaderPtr instead (already bound by beginDeferredPass()'s
                 // gPipeline.bindDeferredShader() call, which calls shader.bind() at its own top -
                 // same "use whatever's currently bound" pattern already established for DXUIBatch/
                 // LLSelectNode::renderOneSilhouette()).
@@ -65,7 +65,7 @@ void DXDrawPoolMaterials::renderDeferred(LLDrawPoolMaterials& pool, S32 pass)
     // backend-agnostic code - it unconditionally selects mShader's rigged
     // variant and calls bindDeferredShader() before this function ever
     // runs, for pass>=12, on both backends already - so
-    // LLGLSLShader::sCurBoundShaderPtr (used as `shader` below) is already
+    // LLHLSLShader::sCurBoundShaderPtr (used as `shader` below) is already
     // correctly the rigged variant here, no extra shader lookup needed.
     bool rigged = false;
     if (pass >= 12)
@@ -101,7 +101,7 @@ void DXDrawPoolMaterials::renderDeferred(LLDrawPoolMaterials& pool, S32 pass)
     // redundant-set avoidance (DX_RENDER's uniformNf() doesn't consult that
     // cache), so the per-batch change-tracking below exists for the same
     // "avoid redundant driver calls" reason GL has it, not for correctness.
-    LLGLSLShader* shader = LLGLSLShader::sCurBoundShaderPtr;
+    LLHLSLShader* shader = LLHLSLShader::sCurBoundShaderPtr;
     if (!shader)
     {
         LL_WARNS_ONCE("DXDrawPool") << "DXDrawPoolMaterials::renderDeferred() with no bound shader - dropping batch." << LL_ENDL;
@@ -160,14 +160,14 @@ void DXDrawPoolMaterials::renderDeferred(LLDrawPoolMaterials& pool, S32 pass)
         {
             lastNormalMap = params.mNormalMap;
             llassert(lastNormalMap);
-            gGL.getTexUnit(normChannel)->bindFast(lastNormalMap);
+            gDX.getTexUnit(normChannel)->bindFast(lastNormalMap);
         }
 
         if (specChannel > -1 && params.mSpecularMap != lastSpecMap)
         {
             lastSpecMap = params.mSpecularMap;
             llassert(lastSpecMap);
-            gGL.getTexUnit(specChannel)->bindFast(lastSpecMap);
+            gDX.getTexUnit(specChannel)->bindFast(lastSpecMap);
         }
 
         if (params.mTexture != lastDiffuse)
@@ -175,11 +175,11 @@ void DXDrawPoolMaterials::renderDeferred(LLDrawPoolMaterials& pool, S32 pass)
             lastDiffuse = params.mTexture;
             if (lastDiffuse)
             {
-                gGL.getTexUnit(diffuseChannel)->bindFast(lastDiffuse);
+                gDX.getTexUnit(diffuseChannel)->bindFast(lastDiffuse);
             }
             else
             {
-                gGL.getTexUnit(diffuseChannel)->unbindFast(LLTexUnit::TT_TEXTURE);
+                gDX.getTexUnit(diffuseChannel)->unbindFast(LLTexUnit::TT_TEXTURE);
             }
         }
 
@@ -199,9 +199,9 @@ void DXDrawPoolMaterials::renderDeferred(LLDrawPoolMaterials& pool, S32 pass)
         bool tex_setup = false;
         if (params.mTextureMatrix)
         {
-            gGL.getTexUnit(0)->activate();
-            gGL.matrixMode(LLRender::MM_TEXTURE);
-            gGL.loadMatrix((GLfloat*)params.mTextureMatrix->mMatrix);
+            gDX.getTexUnit(0)->activate();
+            gDX.matrixMode(LLRender::MM_TEXTURE);
+            gDX.loadMatrix((GLfloat*)params.mTextureMatrix->mMatrix);
             gPipeline.mTextureMatrixOps++;
             tex_setup = true;
         }
@@ -211,9 +211,9 @@ void DXDrawPoolMaterials::renderDeferred(LLDrawPoolMaterials& pool, S32 pass)
 
         if (tex_setup)
         {
-            gGL.getTexUnit(0)->activate();
-            gGL.loadIdentity();
-            gGL.matrixMode(LLRender::MM_MODELVIEW);
+            gDX.getTexUnit(0)->activate();
+            gDX.loadIdentity();
+            gDX.matrixMode(LLRender::MM_MODELVIEW);
         }
     }
 }

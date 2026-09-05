@@ -151,13 +151,13 @@ void LLFloaterAuction::draw()
         {
             LLRect rect = snapshot_icon->getRect();
             {
-                gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+                gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
                 gl_rect_2d(rect, LLColor4(0.f, 0.f, 0.f, 1.f));
                 rect.stretch(-1);
             }
             {
                 LLGLSUIDefault gls_ui;
-                gGL.color3f(1.f, 1.f, 1.f);
+                gDX.color3f(1.f, 1.f, 1.f);
                 gl_draw_scaled_image(rect.mLeft,
                                      rect.mBottom,
                                      rect.getWidth(),
@@ -217,7 +217,7 @@ void LLFloaterAuction::onClickSnapshot(void* data)
         j2c_file.write(j2c->getData(), j2c->getDataSize());
 
         self->mImage = LLViewerTextureManager::getLocalTexture((LLImageRaw*)raw, false);
-        gGL.getTexUnit(0)->bind(self->mImage);
+        gDX.getTexUnit(0)->bind(self->mImage);
         self->mImage->setAddressMode(LLTexUnit::TAM_CLAMP);
     }
     else

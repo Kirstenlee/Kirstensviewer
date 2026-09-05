@@ -252,6 +252,14 @@ public:
     // pass (post-reserve, and halved while backgrounded/minimized - see
     // updateClass()). Diagnostics read this directly rather than re-deriving it.
     static F32 sVRAMAllocatorBudgetMegabytes;
+
+    // S24 (eviction tuning): sVRAMAllocatorBudgetMegabytes * RenderVRAMSoftPressureFraction.
+    // A cut, once genuinely triggered (usage over sVRAMAllocatorBudgetMegabytes),
+    // aims down to THIS line instead of the hard budget - real headroom on
+    // every pass instead of landing exactly on the edge (see
+    // runVRAMBudgetAllocation()).
+    static F32 sVRAMAllocatorSoftTargetMegabytes;
+
     // How many of the pass's cut-eligible candidates actually got trimmed, and
     // how many were eligible in total - texture console diagnostics.
     static U32 sVRAMAllocatorLastCutCount;

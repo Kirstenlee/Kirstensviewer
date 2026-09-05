@@ -26,7 +26,7 @@
 
 #pragma once
 
-#include "llcubemaparray.h"
+#include "DXCubeMapArray.h"
 #include "llmemory.h"
 
 class LLSpatialGroup;
@@ -104,7 +104,7 @@ public:
     F32 mLastBindTime = 0.f;
 
     // cube map used to sample this environment map
-    LLPointer<LLCubeMapArray> mCubeArray;
+    LLPointer<DXCubeMapArray> mCubeArray;
     S32 mCubeIndex = -1; // index into cube map array or -1 if not currently stored in cube map array
 
     // probe has had at least one full update and is ready to render

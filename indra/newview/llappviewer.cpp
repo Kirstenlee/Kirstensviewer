@@ -29,6 +29,7 @@
 #include "llappviewer.h"
 
  // Viewer includes
+#include "DXCubeMap.h"
 #include "llversioninfo.h"
 #include "llfeaturemanager.h"
 #include "lluictrlfactory.h"
@@ -355,7 +356,7 @@ WorkQueue gMainloopWork("mainloop", 1024 * 1024);
 
 ////////////////////////////////////////////////////////////
 // Internal globals
-static std::string gArgs = "DX Build 3690 - Hradr"; // S24 My Build Number! KL
+static std::string gArgs = "DX(3745) - Hradr"; // S24 My Build Number! KL
 const int MAX_MARKER_LENGTH = 1024;
 const std::string MARKER_FILE_NAME("KirstensS24.exec_marker");
 const std::string START_MARKER_FILE_NAME("KirstensS24.start_marker");
@@ -569,7 +570,7 @@ static void settings_modify()
 	LLRenderTarget::sUseFBO = LLPipeline::sRenderDeferred;
 	LLVOSurfacePatch::sLODFactor = gSavedSettings.getF32("RenderTerrainLODFactor");
 	LLVOSurfacePatch::sLODFactor *= LLVOSurfacePatch::sLODFactor;  // square lod factor to get exponential range of [1,4]
-	gDebugGL = gDebugGLSession || gDebugSession;
+	gDebugGL = gDebugSession;
 	gDebugPipeline = gSavedSettings.getBOOL("RenderDebugPipeline");
 }
 
@@ -635,6 +636,7 @@ LLAppViewer::LLAppViewer()
 	mReportedCrash(false),
 	mNumSessions(0),
 	mGeneralThreadPool(nullptr),
+	mDXPool(nullptr),
 	mPurgeCache(false),
 	mPurgeCacheOnExit(false),
 	mPurgeUserDataOnExit(false),
@@ -923,7 +925,7 @@ bool LLAppViewer::init()
 	//
 	// Initialize the window
 	//
-	gGLActive = true;
+	gDXActive = true;
 	initWindow();
 	LL_INFOS("InitInfo") << "Window is initialized." << LL_ENDL;
 
@@ -931,7 +933,7 @@ bool LLAppViewer::init()
 	writeSystemInfo();
 
 	// initWindow also initializes the Feature List, so now we can initialize this global.
-	LLCubeMap::sUseCubeMaps = LLFeatureManager::getInstance()->isFeatureAvailable("RenderCubeMap");
+	DXCubeMap::sUseCubeMaps = LLFeatureManager::getInstance()->isFeatureAvailable("RenderCubeMap");
 
 	// call all self-registered classes
 	LLInitClassList::instance().fireCallbacks();
@@ -1044,7 +1046,7 @@ bool LLAppViewer::init()
 		LLNotificationsUtil::add("CorruptedProtectedDataStore");
 	}
 
-	gGLActive = false;
+	gDXActive = false;
 
 	if (gSavedSettings.getBOOL("QAMode") && gSavedSettings.getS32("QAModeEventHostPort") > 0)
 	{
@@ -1367,7 +1369,7 @@ bool LLAppViewer::doFrame()
 		}
 
 		pingMainloopTimeout("Main:Display");
-		gGLActive = true;
+		gDXActive = true;
 
 		display();
 
@@ -1379,7 +1381,7 @@ bool LLAppViewer::doFrame()
 			LLFloaterSimpleSnapshot::update();
 		}
 
-		gGLActive = false;
+		gDXActive = false;
 
 		if (LLViewerStatsRecorder::instanceExists())
 		{
@@ -1838,6 +1840,10 @@ bool LLAppViewer::cleanup()
 	{
 		mGeneralThreadPool->close();
 	}
+	if (mDXPool)
+	{
+		mDXPool->close();
+	}
 
 	sTextureFetch->shutDownTextureCacheThread();
 	LLLFSThread::sLocal->shutdown();
@@ -1900,6 +1906,8 @@ bool LLAppViewer::cleanup()
 	sPurgeDiskCacheThread = NULL;
 	delete mGeneralThreadPool;
 	mGeneralThreadPool = NULL;
+	delete mDXPool;
+	mDXPool = NULL;
 
 	if (LLFastTimerView::sAnalyzePerformance)
 	{
@@ -2028,6 +2036,42 @@ void LLAppViewer::initGeneralThread()
 	mGeneralThreadPool->start();
 }
 
+// S24 (DX_RENDER, eviction-tuning follow-up, task #283): dedicated worker
+// pool, kept deliberately separate from sImageDecodeThread/gMeshRepo so
+// future CPU-only work posted here (e.g. a parallelized idleUpdate() - see
+// task #283) can never contend with texture decode or mesh loading for the
+// same threads under load - exactly the scenario that motivated this ("wire
+// in without disturbing decode"). A small, fixed width like "General"
+// (not ImageDecode's aggressive cores-based formula) is deliberate for the
+// same reason. Respects a "DXPool" key in the ThreadPoolSizes LLSD setting
+// automatically (ThreadPoolBase's own constructor does the lookup - see
+// threadpool.h), same as every other named ThreadPool in this codebase - no
+// override wiring needed here.
+//
+// SAFETY CONTRACT (task #283): work posted to this pool's queue
+// (LL::WorkQueue::getInstance("DXPool")->post(...), the same idiom used for
+// "General"/"mainloop" elsewhere in this codebase) must be pure CPU
+// computation only. NEVER call into D3D11/GL directly from work running
+// here - gPipeline.markMoved()/markRebuild() and friends are confirmed NOT
+// thread-safe (raw, unlocked container pushes, pipeline.cpp:3166 onward).
+// Stage results into task-local data and hand them back to the main thread
+// (e.g. via LL::WorkQueue::getInstance("mainloop")) for serial application.
+//
+// Not yet wired to any actual work - the pool exists and runs, unused,
+// until the idleUpdate() parallelization design itself is built.
+void LLAppViewer::initDXPool()
+{
+#ifdef DX_RENDER
+	if (mDXPool)
+	{
+		return;
+	}
+
+	mDXPool = new LL::ThreadPool("DXPool", 3);
+	mDXPool->start();
+#endif
+}
+
 bool LLAppViewer::initThreads()
 {
 	static const bool enable_threads = true;
@@ -2088,6 +2132,11 @@ bool LLAppViewer::initThreads()
 
 	// general task background thread (LLPerfStats, etc)
 	LLAppViewer::instance()->initGeneralThread();
+
+	// S24 (DX_RENDER, task #283): dedicated pool for future CPU-only
+	// parallelized work, kept separate from ImageDecode/mesh threads.
+	// See initDXPool()'s own comment for the full rationale.
+	LLAppViewer::instance()->initDXPool();
 
 	LLAppViewer::sPurgeDiskCacheThread = new LLPurgeDiskCacheThread();
 
@@ -2666,15 +2715,6 @@ bool LLAppViewer::initConfiguration()
 		gDebugGL = true;
 
 		ll_init_fail_log(gDirUtilp->getExpandedFilename(LL_PATH_LOGS, "test_failures.log"));
-	}
-
-	if (gSavedSettings.getBOOL("RenderDebugGLSession"))
-	{
-		gDebugGLSession = true;
-		gDebugGL = true;
-		// gDebugGL can cause excessive logging
-		// so it's limited to a single session
-		gSavedSettings.setBOOL("RenderDebugGLSession", false);
 	}
 
 	const LLControlVariable* skinfolder = gSavedSettings.getControl("SkinCurrent");
@@ -4788,13 +4828,13 @@ void LLAppViewer::idle()
 	if (LLStartUp::getStartupState() < STATE_STARTED)
 	{
 		// Skip rest if idle startup returns false (essentially, no world yet)
-		gGLActive = true;
+		gDXActive = true;
 		if (!idle_startup())
 		{
-			gGLActive = false;
+			gDXActive = false;
 			return;
 		}
-		gGLActive = false;
+		gDXActive = false;
 	}
 
 	// ─────────────────────────────────────────────────────────────────────────
@@ -5203,7 +5243,7 @@ void LLAppViewer::idle()
 	// forcibly quit if it has taken too long
 	if (mQuitRequested)
 	{
-		gGLActive = true;
+		gDXActive = true;
 		idleShutdown();
 	}
 

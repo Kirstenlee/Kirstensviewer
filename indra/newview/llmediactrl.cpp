@@ -829,7 +829,7 @@ void LLMediaCtrl::draw()
 
     if(draw_media)
     {
-        gGL.pushUIMatrix();
+        gDX.pushUIMatrix();
         {
             F32 scale_factor = LLUI::getScaleFactor().mV[ VX ];
             if (scale_factor != mMediaSource->getPageZoomFactor())
@@ -839,9 +839,9 @@ void LLMediaCtrl::draw()
             }
 
             // scale texture to fit the space using texture coords
-            gGL.getTexUnit(0)->bind(media_texture);
+            gDX.getTexUnit(0)->bind(media_texture);
             LLColor4 media_color = LLColor4::white % alpha;
-            gGL.color4fv( media_color.mV );
+            gDX.color4fv( media_color.mV );
             F32 max_u = ( F32 )media_plugin->getWidth() / ( F32 )media_plugin->getTextureWidth();
             F32 max_v = ( F32 )media_plugin->getHeight() / ( F32 )media_plugin->getTextureHeight();
 
@@ -849,52 +849,52 @@ void LLMediaCtrl::draw()
             calcOffsetsAndSize(&x_offset, &y_offset, &width, &height);
 
             // draw the browser
-            gGL.begin(LLRender::TRIANGLES);
+            gDX.begin(LLRender::TRIANGLES);
             if (! media_plugin->getTextureCoordsOpenGL())
             {
                 // render using web browser reported width and height, instead of trying to invert GL scale
-                gGL.texCoord2f( max_u, 0.f );
-                gGL.vertex2i( x_offset + width, y_offset + height );
+                gDX.texCoord2f( max_u, 0.f );
+                gDX.vertex2i( x_offset + width, y_offset + height );
 
-                gGL.texCoord2f( 0.f, 0.f );
-                gGL.vertex2i( x_offset, y_offset + height );
+                gDX.texCoord2f( 0.f, 0.f );
+                gDX.vertex2i( x_offset, y_offset + height );
 
-                gGL.texCoord2f( 0.f, max_v );
-                gGL.vertex2i( x_offset, y_offset );
+                gDX.texCoord2f( 0.f, max_v );
+                gDX.vertex2i( x_offset, y_offset );
 
-                gGL.texCoord2f(max_u, 0.f);
-                gGL.vertex2i(x_offset + width, y_offset + height);
+                gDX.texCoord2f(max_u, 0.f);
+                gDX.vertex2i(x_offset + width, y_offset + height);
 
-                gGL.texCoord2f(0.f, max_v);
-                gGL.vertex2i(x_offset, y_offset);
+                gDX.texCoord2f(0.f, max_v);
+                gDX.vertex2i(x_offset, y_offset);
 
-                gGL.texCoord2f( max_u, max_v );
-                gGL.vertex2i( x_offset + width, y_offset );
+                gDX.texCoord2f( max_u, max_v );
+                gDX.vertex2i( x_offset + width, y_offset );
             }
             else
             {
                 // render using web browser reported width and height, instead of trying to invert GL scale
-                gGL.texCoord2f( max_u, max_v );
-                gGL.vertex2i( x_offset + width, y_offset + height );
+                gDX.texCoord2f( max_u, max_v );
+                gDX.vertex2i( x_offset + width, y_offset + height );
 
-                gGL.texCoord2f( 0.f, max_v );
-                gGL.vertex2i( x_offset, y_offset + height );
+                gDX.texCoord2f( 0.f, max_v );
+                gDX.vertex2i( x_offset, y_offset + height );
 
-                gGL.texCoord2f( 0.f, 0.f );
-                gGL.vertex2i( x_offset, y_offset );
+                gDX.texCoord2f( 0.f, 0.f );
+                gDX.vertex2i( x_offset, y_offset );
 
-                gGL.texCoord2f(max_u, max_v);
-                gGL.vertex2i(x_offset + width, y_offset + height);
+                gDX.texCoord2f(max_u, max_v);
+                gDX.vertex2i(x_offset + width, y_offset + height);
 
-                gGL.texCoord2f(0.f, 0.f);
-                gGL.vertex2i(x_offset, y_offset);
+                gDX.texCoord2f(0.f, 0.f);
+                gDX.vertex2i(x_offset, y_offset);
 
-                gGL.texCoord2f( max_u, 0.f );
-                gGL.vertex2i( x_offset + width, y_offset );
+                gDX.texCoord2f( max_u, 0.f );
+                gDX.vertex2i( x_offset + width, y_offset );
             }
-            gGL.end();
+            gDX.end();
         }
-        gGL.popUIMatrix();
+        gDX.popUIMatrix();
 
     }
     else

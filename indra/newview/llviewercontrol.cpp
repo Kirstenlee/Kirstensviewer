@@ -270,6 +270,16 @@ static bool handleEnableEmissiveChanged(const LLSD& newvalue)
     return handleReleaseGLBufferChanged(newvalue) && handleSetShaderChanged(newvalue);
 }
 
+// S24 (2026-08-31): RenderShadowDetail/RenderDeferredSSAO both gate shader
+// permutations (need handleSetShaderChanged's reload) AND are inputs to
+// mRT->deferredLight's allocation condition in pipeline.cpp (need
+// handleReleaseGLBufferChanged's reallocation) - same combined-listener
+// shape as handleEnableEmissiveChanged above, for the same reason.
+static bool handleShaderAndBufferChanged(const LLSD& newvalue)
+{
+    return handleReleaseGLBufferChanged(newvalue) && handleSetShaderChanged(newvalue);
+}
+
 static bool handleDisableVintageMode(const LLSD& newvalue)
 {
     gSavedSettings.setBOOL("RenderEnableEmissiveBuffer", newvalue.asBoolean());
@@ -895,8 +905,23 @@ void settings_setup_listeners()
     setting_setup_signal_listener(gSavedSettings, "RenderScreenSpaceReflections", handleReflectionProbeDetailChanged);
     setting_setup_signal_listener(gSavedSettings, "RenderMirrors", handleReflectionProbeDetailChanged);
     setting_setup_signal_listener(gSavedSettings, "RenderHeroProbeResolution", handleHeroProbeResolutionChanged);
-    setting_setup_signal_listener(gSavedSettings, "RenderShadowDetail", handleSetShaderChanged);
-    setting_setup_signal_listener(gSavedSettings, "RenderDeferredSSAO", handleSetShaderChanged);
+    // S24 (2026-08-31): both were plain handleSetShaderChanged (shader
+    // reload only, no buffer reallocation) - but both are also inputs to
+    // mRT->deferredLight's allocation gate (pipeline.cpp: "if (hdr ||
+    // shadow_detail>0 || ssao || RenderDepthOfField)"). Toggling either
+    // without a reallocation call meant deferredLight could stay released
+    // even after being turned back on (if it was released while shadows/
+    // SSAO/DoF/HDR all happened to be off at once) - bindDeferredShader()
+    // then falls back to a solid-white 1x1 texture for the AO/shadow term,
+    // overexposing the whole deferred-lit scene to white (forward-shaded
+    // alpha/hair, unaffected by this buffer, stays visibly grey instead of
+    // white - the exact symptom reported from toggling "Render SSAO" in the
+    // Film menu). handleShaderAndBufferChanged keeps the shader-reload
+    // behavior both settings still need (shadow detail/SSAO on-off gate
+    // real shader permutations) while adding the missing reallocation,
+    // same combined shape as handleEnableEmissiveChanged above.
+    setting_setup_signal_listener(gSavedSettings, "RenderShadowDetail", handleShaderAndBufferChanged);
+    setting_setup_signal_listener(gSavedSettings, "RenderDeferredSSAO", handleShaderAndBufferChanged);
     setting_setup_signal_listener(gSavedSettings, "RenderPerformanceTest", handleRenderPerfTestChanged);
     setting_setup_signal_listener(gSavedSettings, "RenderAvatarCloth", handleSetShaderChanged);
     setting_setup_signal_listener(gSavedSettings, "ChatFontSize", handleChatFontSizeChanged);

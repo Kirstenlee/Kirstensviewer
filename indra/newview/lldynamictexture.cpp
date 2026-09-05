@@ -41,7 +41,7 @@
 #include "llviewerdisplay.h"
 #include "llrender.h"
 #include "pipeline.h"
-#include "llglslshader.h"
+#include "llhlslshader.h"
 
 #ifdef DX_RENDER
 #include "DXContext.h"
@@ -126,7 +126,7 @@ void LLViewerDynamicTexture::preRender(bool clear_depth)
      //use the bottom left corner
     mOrigin.set(0, 0);
 
-    gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+    gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
     // Set up camera
     LLViewerCamera* camera = LLViewerCamera::getInstance();
     mCamera.setOrigin(*camera);
@@ -261,7 +261,7 @@ bool LLViewerDynamicTexture::updateAllInstances()
     LLPipeline::RenderTargetPack* saved_rt = gPipeline.mRT;
     gPipeline.mRT = &gPipeline.mAuxillaryRT;
 
-    LLGLSLShader::unbind();
+    LLHLSLShader::unbind();
     LLVertexBuffer::unbind();
 
     bool result = false;
@@ -282,7 +282,7 @@ bool LLViewerDynamicTexture::updateAllInstances()
                 glClear(GL_DEPTH_BUFFER_BIT);
 #endif
 
-                gGL.color4f(1.f, 1.f, 1.f, 1.f);
+                gDX.color4f(1.f, 1.f, 1.f, 1.f);
                 dynamicTexture->setBoundTarget(&renderTarget);
                 dynamicTexture->preRender();    // Must be called outside of startRender()
                 result = false;
@@ -292,7 +292,7 @@ bool LLViewerDynamicTexture::updateAllInstances()
                     result = true;
                     sNumRenders++;
                 }
-                gGL.flush();
+                gDX.flush();
                 LLVertexBuffer::unbind();
                 dynamicTexture->setBoundTarget(nullptr);
                 dynamicTexture->postRender(result);
@@ -326,7 +326,7 @@ bool LLViewerDynamicTexture::updateAllInstances()
     }
     bake_target.flush();
 
-    gGL.flush();
+    gDX.flush();
 
     return ret;
 }

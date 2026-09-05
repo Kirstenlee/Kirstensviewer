@@ -1101,7 +1101,7 @@ void LLFloaterSnapshotBase::draw()
 			S32 offset_x = thumbnail_rect.mLeft + local_offset_x;
 			S32 offset_y = thumbnail_rect.mBottom + local_offset_y;
 
-			gGL.matrixMode(LLRender::MM_MODELVIEW);
+			gDX.matrixMode(LLRender::MM_MODELVIEW);
 			// Apply floater transparency to the texture unless the floater is focused.
 			F32 alpha = getTransparencyType() == TT_ACTIVE ? 1.0f : getCurrentTransparency();
 			LLColor4 color = working ? LLColor4::grey4 : LLColor4::white;
@@ -1117,10 +1117,10 @@ void LLFloaterSnapshotBase::draw()
 			// drawn here for the normal in-floater preview).
 			previewp->drawGuides(offset_x, offset_y, thumbnail_w, thumbnail_h);
 
-			gGL.pushUIMatrix();
+			gDX.pushUIMatrix();
 			LLUI::translate((F32)thumbnail_rect.mLeft, (F32)thumbnail_rect.mBottom);
 			mThumbnailPlaceholder->draw();
-			gGL.popUIMatrix();
+			gDX.popUIMatrix();
 		}
 	}
 	impl->updateLayout(this);

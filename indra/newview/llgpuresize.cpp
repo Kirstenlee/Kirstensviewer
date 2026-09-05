@@ -28,7 +28,7 @@
 
 #include "pipeline.h"
 #include "llrendertarget.h"
-#include "llglslshader.h"
+#include "llhlslshader.h"
 #include "llviewershadermgr.h"
 #include "llrender.h"
 

@@ -26,6 +26,7 @@
 #include "llviewerprecompiledheaders.h"
 #include "llfloaterperformance.h"
 
+#include "DXCubeMap.h"
 #include "llagent.h"
 #include "llagentcamera.h"
 #include "llappearancemgr.h"
@@ -688,7 +689,7 @@ void LLFloaterPerformance::changeQualityLevel(const std::string& notif)
 
 bool is_ALM_available()
 {
-    bool bumpshiny = LLCubeMap::sUseCubeMaps && LLFeatureManager::getInstance()->isFeatureAvailable("RenderObjectBump") && gSavedSettings.getBOOL("RenderObjectBump");
+    bool bumpshiny = DXCubeMap::sUseCubeMaps && LLFeatureManager::getInstance()->isFeatureAvailable("RenderObjectBump") && gSavedSettings.getBOOL("RenderObjectBump");
     bool shaders = gSavedSettings.getBOOL("WindLightUseAtmosShaders");
 
     return LLFeatureManager::getInstance()->isFeatureAvailable("RenderDeferred") &&

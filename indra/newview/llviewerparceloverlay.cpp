@@ -672,7 +672,7 @@ void LLViewerParcelOverlay::renderPropertyLines()
     F32 water_z = render_water ? land.getWaterHeight() + 0.01f : 0;
 
     LLGLSUIDefault gls_ui; // called from pipeline
-    gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+    gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
     LLGLDepthTest mDepthTest(GL_TRUE);
 
     // Find camera height off the ground (not from zero)
@@ -691,14 +691,14 @@ void LLViewerParcelOverlay::renderPropertyLines()
     // Always fudge a little vertically.
     pull_toward_camera.mV[VZ] += 0.01f;
 
-    gGL.matrixMode(LLRender::MM_MODELVIEW);
-    gGL.pushMatrix();
+    gDX.matrixMode(LLRender::MM_MODELVIEW);
+    gDX.pushMatrix();
 
     // Move to appropriate region coords
     LLVector3 origin = mRegion->getOriginAgent();
-    gGL.translatef(origin.mV[VX], origin.mV[VY], origin.mV[VZ]);
+    gDX.translatef(origin.mV[VX], origin.mV[VY], origin.mV[VZ]);
 
-    gGL.translatef(pull_toward_camera.mV[VX], pull_toward_camera.mV[VY],
+    gDX.translatef(pull_toward_camera.mV[VX], pull_toward_camera.mV[VY],
         pull_toward_camera.mV[VZ]);
 
     // Stomp the camera into two dimensions
@@ -732,65 +732,65 @@ void LLViewerParcelOverlay::renderPropertyLines()
             continue;
         }
 
-        gGL.begin(LLRender::TRIANGLE_STRIP);
+        gDX.begin(LLRender::TRIANGLE_STRIP);
 
-        gGL.color4ubv(edge.color.mV);
+        gDX.color4ubv(edge.color.mV);
 
         for (const LLVector3& vertex : edge.vertices)
         {
             if (render_hidden || camera_z < water_z || vertex.mV[2] >= water_z)
             {
-                gGL.vertex3fv(vertex.mV);
+                gDX.vertex3fv(vertex.mV);
         }
         else
         {
                 LLVector3 visible = vertex;
                 visible.mV[VZ] = water_z;
-                gGL.vertex3fv(visible.mV);
+                gDX.vertex3fv(visible.mV);
             }
         }
 
-        gGL.end();
+        gDX.end();
 
             if (render_hidden)
             {
                 LLGLDepthTest depth(GL_TRUE, GL_FALSE, GL_GREATER);
 
-            gGL.begin(LLRender::TRIANGLE_STRIP);
+            gDX.begin(LLRender::TRIANGLE_STRIP);
 
                 LLColor4U color = edge.color;
                 color.mV[VALPHA] /= 4;
-                gGL.color4ubv(color.mV);
+                gDX.color4ubv(color.mV);
 
             for (const LLVector3& vertex : edge.vertices)
             {
-                gGL.vertex3fv(vertex.mV);
+                gDX.vertex3fv(vertex.mV);
         }
 
-        gGL.end();
+        gDX.end();
         }
     }
 
-    gGL.popMatrix();
+    gDX.popMatrix();
 }
 
 // Draw half of a single cell (no fill) in a grid drawn from left to right and from bottom to top
 void grid_2d_part_lines(const F32 left, const F32 top, const F32 right, const F32 bottom, bool has_left, bool has_bottom)
 {
-    gGL.begin(LLRender::LINES);
+    gDX.begin(LLRender::LINES);
 
     if (has_left)
     {
-        gGL.vertex2f(left, bottom);
-        gGL.vertex2f(left, top);
+        gDX.vertex2f(left, bottom);
+        gDX.vertex2f(left, top);
     }
     if (has_bottom)
     {
-        gGL.vertex2f(left, bottom);
-        gGL.vertex2f(right, bottom);
+        gDX.vertex2f(left, bottom);
+        gDX.vertex2f(right, bottom);
     }
 
-    gGL.end();
+    gDX.end();
 }
 
 void LLViewerParcelOverlay::renderPropertyLinesOnMinimap(F32 scale_pixels_per_meter, const F32 *parcel_outline_color)
@@ -809,9 +809,9 @@ void LLViewerParcelOverlay::renderPropertyLinesOnMinimap(F32 scale_pixels_per_me
     F32       map_parcel_width = PARCEL_GRID_STEP_METERS * scale_pixels_per_meter;
     const S32 GRIDS_PER_EDGE   = mParcelGridsPerEdge;
 
-    gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+    gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
     glLineWidth(1.0f);
-    gGL.color4fv(parcel_outline_color);
+    gDX.color4fv(parcel_outline_color);
     for (S32 i = 0; i <= GRIDS_PER_EDGE; i++)
     {
         const F32 bottom = region_bottom + (i * map_parcel_width);

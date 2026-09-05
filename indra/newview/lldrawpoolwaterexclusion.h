@@ -36,7 +36,7 @@
 
 class LLViewerTexture;
 class LLDrawInfo;
-class LLGLSLShader;
+class LLHLSLShader;
 
 class LLDrawPoolWaterExclusion : public LLRenderPass
 {

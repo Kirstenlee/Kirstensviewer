@@ -5128,26 +5128,26 @@ void LLAgent::renderAutoPilotTarget()
         F32 height_meters;
         LLVector3d target_global;
 
-        gGL.matrixMode(LLRender::MM_MODELVIEW);
-        gGL.pushMatrix();
+        gDX.matrixMode(LLRender::MM_MODELVIEW);
+        gDX.pushMatrix();
 
         // not textured
-        gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+        gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
 
         // lovely green
-        gGL.color4f(0.f, 1.f, 1.f, 1.f);
+        gDX.color4f(0.f, 1.f, 1.f, 1.f);
 
         target_global = mAutoPilotTargetGlobal;
 
-        gGL.translatef((F32)(target_global.mdV[VX]), (F32)(target_global.mdV[VY]), (F32)(target_global.mdV[VZ]));
+        gDX.translatef((F32)(target_global.mdV[VX]), (F32)(target_global.mdV[VY]), (F32)(target_global.mdV[VZ]));
 
         height_meters = 1.f;
 
-        gGL.scalef(height_meters, height_meters, height_meters);
+        gDX.scalef(height_meters, height_meters, height_meters);
 
         gSphere.render();
 
-        gGL.popMatrix();
+        gDX.popMatrix();
     }
 }
 

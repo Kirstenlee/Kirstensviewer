@@ -469,24 +469,24 @@ void draw_shockwave(F32 center_z, F32 t, S32 steps, LLColor4 color)
     F32 y = 0.f;
 
     LLColor4 ccol = LLColor4(1,1,1,(1.f-t)*0.25f);
-    gGL.begin(LLRender::TRIANGLE_FAN);
-    gGL.color4fv(ccol.mV);
-    gGL.vertex3f(0.f, 0.f, center_z);
+    gDX.begin(LLRender::TRIANGLE_FAN);
+    gDX.color4fv(ccol.mV);
+    gDX.vertex3f(0.f, 0.f, center_z);
     // make sure circle is complete
     steps += 1;
 
     color.mV[3] = (1.f-t*t);
 
-    gGL.color4fv(color.mV);
+    gDX.color4fv(color.mV);
     while( steps-- )
     {
         // Successive rotations
-        gGL.vertex3f( x, y, center_z );
+        gDX.vertex3f( x, y, center_z );
         F32 x_new = x * cos_delta - y * sin_delta;
         y = x * sin_delta +  y * cos_delta;
         x = x_new;
     }
-    gGL.end();
+    gDX.end();
 }
 
 
@@ -501,18 +501,18 @@ void LLTracker::drawBeacon(LLVector3 pos_agent, std::string direction, LLColor4 
 
     LLColor4 c_col, col_next, col_edge, col_edge_next;
 
-    gGL.matrixMode(LLRender::MM_MODELVIEW);
-    gGL.pushMatrix();
+    gDX.matrixMode(LLRender::MM_MODELVIEW);
+    gDX.pushMatrix();
 
     if ("DOWN" == direction)
     {
-        gGL.translatef(pos_agent.mV[0], pos_agent.mV[1], pos_agent.mV[2]);
+        gDX.translatef(pos_agent.mV[0], pos_agent.mV[1], pos_agent.mV[2]);
         draw_shockwave(1024.f, gRenderStartTime.getElapsedTimeF32(), 32, fogged_color);
         height = MAX_HEIGHT - pos_agent.mV[2];
     }
     else
     {
-        gGL.translatef(pos_agent.mV[0], pos_agent.mV[1], 0);
+        gDX.translatef(pos_agent.mV[0], pos_agent.mV[1], 0);
         height = pos_agent.mV[2];
     }
 
@@ -520,7 +520,7 @@ void LLTracker::drawBeacon(LLVector3 pos_agent, std::string direction, LLColor4 
     if(nRows<2) nRows=2;
     rowHeight = height / nRows;
 
-    gGL.color4fv(fogged_color.mV);
+    gDX.color4fv(fogged_color.mV);
 
     LLVector3 x_axis = LLViewerCamera::getInstance()->getLeftAxis();
     F32 t = gRenderStartTime.getElapsedTimeF32();
@@ -536,7 +536,7 @@ void LLTracker::drawBeacon(LLVector3 pos_agent, std::string direction, LLColor4 
 
     bool tracking_avatar = getTrackingStatus() == TRACKING_AVATAR;
 
-    gGL.begin(LLRender::TRIANGLES);
+    gDX.begin(LLRender::TRIANGLES);
 
     for (U32 i = 0; i < nRows; i++)
     {
@@ -558,50 +558,50 @@ void LLTracker::drawBeacon(LLVector3 pos_agent, std::string direction, LLColor4 
         xan = x*an;
         yan = y*an;
 
-        gGL.color4fv(col_edge.mV);
-        gGL.vertex3f(-xa, -ya, z);
+        gDX.color4fv(col_edge.mV);
+        gDX.vertex3f(-xa, -ya, z);
 
-        gGL.color4fv(col_next.mV);
-        gGL.vertex3f(0, 0, z_next);
+        gDX.color4fv(col_next.mV);
+        gDX.vertex3f(0, 0, z_next);
 
-        gGL.color4fv(col_edge_next.mV);
-        gGL.vertex3f(-xan, -yan, z_next);
-
-
-        gGL.color4fv(col_edge.mV);
-        gGL.vertex3f(-xa, -ya, z);
-
-        gGL.color4fv(c_col.mV);
-        gGL.vertex3f(0, 0, z);
-
-        gGL.color4fv(col_next.mV);
-        gGL.vertex3f(0, 0, z_next);
+        gDX.color4fv(col_edge_next.mV);
+        gDX.vertex3f(-xan, -yan, z_next);
 
 
-        gGL.color4fv(c_col.mV);
-        gGL.vertex3f(0, 0, z);
+        gDX.color4fv(col_edge.mV);
+        gDX.vertex3f(-xa, -ya, z);
 
-        gGL.color4fv(col_edge_next.mV);
-        gGL.vertex3f(xan, yan, z_next);
+        gDX.color4fv(c_col.mV);
+        gDX.vertex3f(0, 0, z);
 
-        gGL.color4fv(col_next.mV);
-        gGL.vertex3f(0, 0, z_next);
+        gDX.color4fv(col_next.mV);
+        gDX.vertex3f(0, 0, z_next);
 
 
-        gGL.color4fv(c_col.mV);
-        gGL.vertex3f(0, 0, z);
+        gDX.color4fv(c_col.mV);
+        gDX.vertex3f(0, 0, z);
 
-        gGL.color4fv(col_edge.mV);
-        gGL.vertex3f(xa, ya, z);
+        gDX.color4fv(col_edge_next.mV);
+        gDX.vertex3f(xan, yan, z_next);
 
-        gGL.color4fv(col_edge_next.mV);
-        gGL.vertex3f(xan, yan, z_next);
+        gDX.color4fv(col_next.mV);
+        gDX.vertex3f(0, 0, z_next);
+
+
+        gDX.color4fv(c_col.mV);
+        gDX.vertex3f(0, 0, z);
+
+        gDX.color4fv(col_edge.mV);
+        gDX.vertex3f(xa, ya, z);
+
+        gDX.color4fv(col_edge_next.mV);
+        gDX.vertex3f(xan, yan, z_next);
 
         z += rowHeight;
     }
 
-    gGL.end();
-    gGL.popMatrix();
+    gDX.end();
+    gDX.popMatrix();
 }
 
 // static
@@ -636,7 +636,7 @@ void LLTracker::renderBeacon(LLVector3d pos_global,
     LLVector3 pos_agent = gAgent.getPosAgentFromGlobal(pos_global);
 
     LLGLSTracker gls_tracker;
-    gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+    gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
     LLGLDisable cull_face(GL_CULL_FACE);
     LLGLDepthTest gls_depth(GL_TRUE, GL_FALSE);
 

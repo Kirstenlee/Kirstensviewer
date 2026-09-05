@@ -49,7 +49,7 @@
 
 namespace
 {
-    LLGLSLShader* sShader = nullptr;
+    LLHLSLShader* sShader = nullptr;
 
     void drawLoop(LLDrawPoolTerrain& pool)
     {
@@ -60,7 +60,7 @@ namespace
             {
                 LLFace* facep = *iter;
 
-                llassert(gGL.getMatrixMode() == LLRender::MM_MODELVIEW);
+                llassert(gDX.getMatrixMode() == LLRender::MM_MODELVIEW);
                 LLRenderPass::applyModelMatrix(&facep->getDrawable()->getRegion()->mRenderMatrix);
 
                 facep->renderIndexed();
@@ -76,7 +76,7 @@ namespace
     }
 
     // S24 (2026-08-06): this used to only ever bind detail_0, to hardcoded
-    // unit 0 - a documented workaround from when LLGLSLShader::enableTexture()
+    // unit 0 - a documented workaround from when LLHLSLShader::enableTexture()
     // was a hardcoded -1 no-op under DX_RENDER (phase 5.2). Task #103 (this
     // same session, well before tonight) already gave enableTexture() a
     // real D3D-reflection-based channel mapping, but this function was
@@ -109,31 +109,31 @@ namespace
         tp1.setVec(0.0f, LLDrawPoolTerrain::sDetailScale, 0.0f, offset_y);
 
         S32 detail0 = sShader->enableTexture(LLViewerShaderMgr::TERRAIN_DETAIL0);
-        gGL.getTexUnit(detail0)->bind(detail_texture0p);
-        gGL.getTexUnit(detail0)->setTextureAddressMode(LLTexUnit::TAM_WRAP);
-        gGL.getTexUnit(detail0)->activate();
+        gDX.getTexUnit(detail0)->bind(detail_texture0p);
+        gDX.getTexUnit(detail0)->setTextureAddressMode(LLTexUnit::TAM_WRAP);
+        gDX.getTexUnit(detail0)->activate();
 
         sShader->uniform4fv(LLShaderMgr::OBJECT_PLANE_S, 1, tp0.mV);
         sShader->uniform4fv(LLShaderMgr::OBJECT_PLANE_T, 1, tp1.mV);
 
         S32 detail1 = sShader->enableTexture(LLViewerShaderMgr::TERRAIN_DETAIL1);
-        gGL.getTexUnit(detail1)->bind(detail_texture1p);
-        gGL.getTexUnit(detail1)->setTextureAddressMode(LLTexUnit::TAM_WRAP);
-        gGL.getTexUnit(detail1)->activate();
+        gDX.getTexUnit(detail1)->bind(detail_texture1p);
+        gDX.getTexUnit(detail1)->setTextureAddressMode(LLTexUnit::TAM_WRAP);
+        gDX.getTexUnit(detail1)->activate();
 
         S32 detail2 = sShader->enableTexture(LLViewerShaderMgr::TERRAIN_DETAIL2);
-        gGL.getTexUnit(detail2)->bind(detail_texture2p);
-        gGL.getTexUnit(detail2)->setTextureAddressMode(LLTexUnit::TAM_WRAP);
-        gGL.getTexUnit(detail2)->activate();
+        gDX.getTexUnit(detail2)->bind(detail_texture2p);
+        gDX.getTexUnit(detail2)->setTextureAddressMode(LLTexUnit::TAM_WRAP);
+        gDX.getTexUnit(detail2)->activate();
 
         S32 detail3 = sShader->enableTexture(LLViewerShaderMgr::TERRAIN_DETAIL3);
-        gGL.getTexUnit(detail3)->bind(detail_texture3p);
-        gGL.getTexUnit(detail3)->setTextureAddressMode(LLTexUnit::TAM_WRAP);
-        gGL.getTexUnit(detail3)->activate();
+        gDX.getTexUnit(detail3)->bind(detail_texture3p);
+        gDX.getTexUnit(detail3)->setTextureAddressMode(LLTexUnit::TAM_WRAP);
+        gDX.getTexUnit(detail3)->activate();
 
         S32 alpha_ramp = sShader->enableTexture(LLViewerShaderMgr::TERRAIN_ALPHARAMP);
-        gGL.getTexUnit(alpha_ramp)->bind(pool.m2DAlphaRampImagep);
-        gGL.getTexUnit(alpha_ramp)->setTextureAddressMode(LLTexUnit::TAM_CLAMP);
+        gDX.getTexUnit(alpha_ramp)->bind(pool.m2DAlphaRampImagep);
+        gDX.getTexUnit(alpha_ramp)->setTextureAddressMode(LLTexUnit::TAM_CLAMP);
 
         drawLoop(pool);
 
@@ -143,25 +143,25 @@ namespace
         sShader->disableTexture(LLViewerShaderMgr::TERRAIN_DETAIL2);
         sShader->disableTexture(LLViewerShaderMgr::TERRAIN_DETAIL3);
 
-        gGL.getTexUnit(alpha_ramp)->unbind(LLTexUnit::TT_TEXTURE);
-        gGL.getTexUnit(alpha_ramp)->disable();
-        gGL.getTexUnit(alpha_ramp)->activate();
+        gDX.getTexUnit(alpha_ramp)->unbind(LLTexUnit::TT_TEXTURE);
+        gDX.getTexUnit(alpha_ramp)->disable();
+        gDX.getTexUnit(alpha_ramp)->activate();
 
-        gGL.getTexUnit(detail3)->unbind(LLTexUnit::TT_TEXTURE);
-        gGL.getTexUnit(detail3)->disable();
-        gGL.getTexUnit(detail3)->activate();
+        gDX.getTexUnit(detail3)->unbind(LLTexUnit::TT_TEXTURE);
+        gDX.getTexUnit(detail3)->disable();
+        gDX.getTexUnit(detail3)->activate();
 
-        gGL.getTexUnit(detail2)->unbind(LLTexUnit::TT_TEXTURE);
-        gGL.getTexUnit(detail2)->disable();
-        gGL.getTexUnit(detail2)->activate();
+        gDX.getTexUnit(detail2)->unbind(LLTexUnit::TT_TEXTURE);
+        gDX.getTexUnit(detail2)->disable();
+        gDX.getTexUnit(detail2)->activate();
 
-        gGL.getTexUnit(detail1)->unbind(LLTexUnit::TT_TEXTURE);
-        gGL.getTexUnit(detail1)->disable();
-        gGL.getTexUnit(detail1)->activate();
+        gDX.getTexUnit(detail1)->unbind(LLTexUnit::TT_TEXTURE);
+        gDX.getTexUnit(detail1)->disable();
+        gDX.getTexUnit(detail1)->activate();
 
-        gGL.getTexUnit(detail0)->unbind(LLTexUnit::TT_TEXTURE);
-        gGL.getTexUnit(detail0)->enable(LLTexUnit::TT_TEXTURE);
-        gGL.getTexUnit(detail0)->activate();
+        gDX.getTexUnit(detail0)->unbind(LLTexUnit::TT_TEXTURE);
+        gDX.getTexUnit(detail0)->enable(LLTexUnit::TT_TEXTURE);
+        gDX.getTexUnit(detail0)->activate();
     }
 
     void renderFullShaderPBR(LLDrawPoolTerrain& pool, bool use_local_materials)
@@ -178,22 +178,22 @@ namespace
         const LLFetchedGLTFMaterial* fetched_material = fetched_materials[0].get();
         LLViewerTexture* detail_basecolor_texturep = fetched_material ? fetched_material->mBaseColorTexture.get() : nullptr;
 
-        gGL.getTexUnit(0)->activate();
+        gDX.getTexUnit(0)->activate();
         if (detail_basecolor_texturep)
         {
-            gGL.getTexUnit(0)->bind(detail_basecolor_texturep);
+            gDX.getTexUnit(0)->bind(detail_basecolor_texturep);
         }
         else
         {
-            gGL.getTexUnit(0)->bind(LLViewerFetchedTexture::sWhiteImagep);
+            gDX.getTexUnit(0)->bind(LLViewerFetchedTexture::sWhiteImagep);
         }
-        gGL.getTexUnit(0)->setTextureAddressMode(LLTexUnit::TAM_WRAP);
+        gDX.getTexUnit(0)->setTextureAddressMode(LLTexUnit::TAM_WRAP);
 
         drawLoop(pool);
 
-        gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
-        gGL.getTexUnit(0)->enable(LLTexUnit::TT_TEXTURE);
-        gGL.getTexUnit(0)->activate();
+        gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+        gDX.getTexUnit(0)->enable(LLTexUnit::TT_TEXTURE);
+        gDX.getTexUnit(0)->activate();
     }
 
     void renderFullShader(LLDrawPoolTerrain& pool)
@@ -235,13 +235,13 @@ namespace
         LLViewerParcelOverlay* overlayp = regionp->getParcelOverlay();
         LLViewerTexture* texturep = overlayp->getTexture();
 
-        gGL.getTexUnit(0)->bind(texturep);
+        gDX.getTexUnit(0)->bind(texturep);
 
-        gGL.matrixMode(LLRender::MM_TEXTURE);
-        gGL.pushMatrix();
+        gDX.matrixMode(LLRender::MM_TEXTURE);
+        gDX.pushMatrix();
 
         const F32 TEXTURE_FUDGE = 257.f / 256.f;
-        gGL.scalef(TEXTURE_FUDGE, TEXTURE_FUDGE, 1.f);
+        gDX.scalef(TEXTURE_FUDGE, TEXTURE_FUDGE, 1.f);
         for (std::vector<LLFace*>::iterator iter = pool.mDrawFace.begin();
              iter != pool.mDrawFace.end(); iter++)
         {
@@ -249,23 +249,23 @@ namespace
             iter_facep->renderIndexed();
         }
 
-        gGL.matrixMode(LLRender::MM_TEXTURE);
-        gGL.popMatrix();
-        gGL.matrixMode(LLRender::MM_MODELVIEW);
+        gDX.matrixMode(LLRender::MM_TEXTURE);
+        gDX.popMatrix();
+        gDX.matrixMode(LLRender::MM_MODELVIEW);
     }
 
     void hilightParcelOwners(LLDrawPoolTerrain& pool)
     {
-        LLGLSLShader* old_shader = sShader;
+        LLHLSLShader* old_shader = sShader;
         sShader->unbind();
         sShader = &gDeferredHighlightProgram;
         sShader->bind();
-        gGL.diffuseColor4f(1, 1, 1, 1);
+        gDX.diffuseColor4f(1, 1, 1, 1);
         LLGLEnable polyOffset(GL_POLYGON_OFFSET_FILL);
         // S24 (2026-08-28, task #242): was skipped entirely ("no DX11
         // runtime equivalent") - now real via LLRender::setPolygonOffset()
         // (llrender.cpp), no #ifdef needed here.
-        gGL.setPolygonOffset(-1.0f, -1.0f);
+        gDX.setPolygonOffset(-1.0f, -1.0f);
 
         renderOwnership(pool);
         sShader = old_shader;

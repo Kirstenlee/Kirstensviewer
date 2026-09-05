@@ -33,6 +33,9 @@
 #include "llgl.h"
 #include "llrender.h"
 #include "llprimitive.h"
+#ifdef DX_RENDER
+#include "DXUIBatch.h"
+#endif
 #include "llview.h"
 #include "llviewertexturelist.h"
 
@@ -386,51 +389,51 @@ void LLManip::renderGuidelines(bool draw_x, bool draw_y, bool draw_z)
     //LLVector3  center_agent  = LLSelectMgr::getInstance()->getBBoxOfSelection().getCenterAgent();
     LLVector3  center_agent  = getPivotPoint();
 
-    gGL.pushMatrix();
+    gDX.pushMatrix();
     {
-        gGL.translatef(center_agent.mV[VX], center_agent.mV[VY], center_agent.mV[VZ]);
+        gDX.translatef(center_agent.mV[VX], center_agent.mV[VY], center_agent.mV[VZ]);
 
         F32 angle_radians, x, y, z;
 
         grid_rot.getAngleAxis(&angle_radians, &x, &y, &z);
-        gGL.rotatef(angle_radians * RAD_TO_DEG, x, y, z);
+        gDX.rotatef(angle_radians * RAD_TO_DEG, x, y, z);
 
         F32 region_size = LLWorld::getInstance()->getRegionWidthInMeters();
 
         const F32 LINE_ALPHA = 0.33f;
 
-        gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+        gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
         LLUI::setLineWidth(1.5f);
 
         if (draw_x)
         {
-            gGL.color4f(1.f, 0.f, 0.f, LINE_ALPHA);
-            gGL.begin(LLRender::LINES);
-            gGL.vertex3f( -region_size, 0.f, 0.f );
-            gGL.vertex3f(  region_size, 0.f, 0.f );
-            gGL.end();
+            gDX.color4f(1.f, 0.f, 0.f, LINE_ALPHA);
+            gDX.begin(LLRender::LINES);
+            gDX.vertex3f( -region_size, 0.f, 0.f );
+            gDX.vertex3f(  region_size, 0.f, 0.f );
+            gDX.end();
         }
 
         if (draw_y)
         {
-            gGL.color4f(0.f, 1.f, 0.f, LINE_ALPHA);
-            gGL.begin(LLRender::LINES);
-            gGL.vertex3f( 0.f, -region_size, 0.f );
-            gGL.vertex3f( 0.f,  region_size, 0.f );
-            gGL.end();
+            gDX.color4f(0.f, 1.f, 0.f, LINE_ALPHA);
+            gDX.begin(LLRender::LINES);
+            gDX.vertex3f( 0.f, -region_size, 0.f );
+            gDX.vertex3f( 0.f,  region_size, 0.f );
+            gDX.end();
         }
 
         if (draw_z)
         {
-            gGL.color4f(0.f, 0.f, 1.f, LINE_ALPHA);
-            gGL.begin(LLRender::LINES);
-            gGL.vertex3f( 0.f, 0.f, -region_size );
-            gGL.vertex3f( 0.f, 0.f,  region_size );
-            gGL.end();
+            gDX.color4f(0.f, 0.f, 1.f, LINE_ALPHA);
+            gDX.begin(LLRender::LINES);
+            gDX.vertex3f( 0.f, 0.f, -region_size );
+            gDX.vertex3f( 0.f, 0.f,  region_size );
+            gDX.end();
         }
         LLUI::setLineWidth(1.0f);
     }
-    gGL.popMatrix();
+    gDX.popMatrix();
 }
 
 void LLManip::renderXYZ(const LLVector3 &vec)
@@ -442,18 +445,98 @@ void LLManip::renderXYZ(const LLVector3 &vec)
     S32 vertical_offset = window_center_y - VERTICAL_OFFSET;
 
 
-    gGL.pushMatrix();
+    // S24 (2026-09-04, task #217): found via a precise user repro (editing
+    // a cube shows this X/Y/Z readout every frame; the beam is offset and
+    // the nametag font is squashed the whole time; the instant the readout
+    // disappears - e.g. holding Alt to grab - both self-correct). Root
+    // cause: this function only ever push/pop'd the MODELVIEW matrix
+    // (gDX.pushMatrix() below, default mode). setup2DRender() ->
+    // gl_state_for_2d() switches to MM_PROJECTION and calls loadIdentity()
+    // there - not pushMatrix() - so the real 3D perspective projection that
+    // was on top of that stack gets overwritten, not saved. The trailing
+    // gViewerWindow->setup3DRender() call at the end of this function was
+    // relying on REBUILDING a fresh perspective matrix from
+    // mWorldViewRectRaw to fix that up afterward - not a true restore, so
+    // it isn't guaranteed to reproduce bit-for-bit the exact matrix the
+    // rest of this frame's rendering (the beam, then the nametag,
+    // LLHUDObject::renderAll() - both draw AFTER this in the same frame)
+    // was already using, and any DPI/aspect-rounding drift between the two
+    // reads as a real-looking positional offset and text-aspect squash on
+    // whatever draws next. Fixed by properly pushing/popping BOTH matrix
+    // stacks (projection now included) so the exact prior matrix is
+    // restored, not reconstructed - matching every other real
+    // pushMatrix()/setup2DRender()/popMatrix() caller in this codebase
+    // that already saves projection too (see llviewerdisplay.cpp's own
+    // matching pattern around render_hud_attachments()).
+    gDX.matrixMode(LLRender::MM_PROJECTION);
+    gDX.pushMatrix();
+    gDX.matrixMode(LLRender::MM_MODELVIEW);
+    gDX.pushMatrix();
+#ifdef DX_RENDER
+    // S24 (2026-09-04): the matrix push/pop fix above wasn't enough on its
+    // own (confirmed by live test - still broken) - gDXUIBatch's batching
+    // key (shader/topology/blend/depth) deliberately does NOT include the
+    // transform (see DXUIBatch.h's own top comment: batches merge across
+    // draws sharing the same shader/state, using whatever matrix was last
+    // synced at actual Draw() time, not at push() time). Without an
+    // explicit flushPending() here, whatever this-frame's earlier 3D-space
+    // gizmo/manipulator drawing left PENDING in the batch (same shader/
+    // topology/blend as this function's own imagep->draw()/font->render()
+    // calls) could still be sitting unflushed when THIS function pushes its
+    // OWN 2D-space vertices into the very same batch - merging world-space
+    // and screen-space geometry into one Draw() call that can only use one
+    // matrix. This is exactly the "HUD-vs-screen-space pass boundary"
+    // hazard DXUIBatch.h's own comment calls out by name, and precisely
+    // the same class of bug already fixed once for llviewerdisplay.cpp's
+    // render_ui_2d()/LLHUDObject::renderAll() boundary - this call site
+    // was just never covered by that earlier sweep since it's an external
+    // caller doing its own matrix-mode switch, not an internal push()
+    // site in llfontgl.cpp/llrender2dutils.cpp.
+    gDXUIBatch.flushPending();
+#endif
     {
         LLUIImagePtr imagep = LLUI::getUIImage("Rounded_Square");
-        gViewerWindow->setup2DRender();
+
+        // S24 (2026-09-05, task #217, round 4): setup2DRender() sizes its
+        // ortho/viewport to mWindowRectRaw - the FULL raw window, chrome
+        // included (menu bar / favorites bar / topinfo bar all counted) -
+        // while window_center_x/y above are deliberately centered on
+        // getWorldViewRectScaled(), the chrome-EXCLUDED 3D viewport. Those
+        // are two different rects, so the same numeric center coordinate
+        // lands at a different fraction of each one - an offset that grows
+        // with however much chrome is currently on screen (confirmed live:
+        // hiding the favorites bar visibly shrinks the offset).
+        // hud_render_text() (llhudrender.cpp) already gets this right - it
+        // scopes both its ortho AND its viewport to the world view rect.
+        // Match that convention here instead of the full window.
+        LLRect world_rect_raw = gViewerWindow->getWorldViewRectRaw();
+        gl_state_for_2d(world_rect_raw.getWidth(), world_rect_raw.getHeight());
+        gViewerWindow->setup3DViewport(); // viewport = mWorldViewRectRaw (offset-correct)
+
+        // Second, separate gap this round also closes: window_center_x/y
+        // are in UI-SCALED units (getWorldViewRectScaled() = raw /
+        // display_scale), while the ortho above is in RAW pixel units to
+        // match the viewport - every other direct (non-LLView) 2D draw in
+        // this codebase bridges that with an explicit scalef() around the
+        // whole block, e.g. llviewerdisplay.cpp's
+        // render_disconnected_background() ("this can't be done in
+        // setup2DRender because it requires a pushMatrix/popMatrix pair").
+        // This function used to apply that conversion by hand, and only to
+        // the image draw below (per-argument multiplication) - never to
+        // the six font->render() calls that follow it, leaving the text
+        // unscaled relative to its own background box whenever
+        // UIScaleFactor != 1.
         const LLVector2& display_scale = gViewerWindow->getDisplayScale();
-        gGL.color4f(0.f, 0.f, 0.f, 0.7f);
+        gDX.pushMatrix();
+        gDX.scalef(display_scale.mV[VX], display_scale.mV[VY], 1.f);
+
+        gDX.color4f(0.f, 0.f, 0.f, 0.7f);
 
         imagep->draw(
-            (S32)((window_center_x - 115) * display_scale.mV[VX]),
-            (S32)((window_center_y + vertical_offset - PAD) * display_scale.mV[VY]),
-            (S32)(235 * display_scale.mV[VX]),
-            (S32)((PAD * 2 + 10) * display_scale.mV[VY]),
+            window_center_x - 115,
+            window_center_y + vertical_offset - PAD,
+            235,
+            PAD * 2 + 10,
             LLColor4(0.f, 0.f, 0.f, 0.7f) );
 
         LLFontGL* font = LLFontGL::getFontSansSerif();
@@ -492,10 +575,64 @@ void LLManip::renderXYZ(const LLVector3 &vec)
         font->render(utf8str_to_wstring(feedback_string), 0, window_center_x + 48.f, (F32)(window_center_y + vertical_offset), LLColor4(0.5f, 0.5f, 1.f, 1.f),
             LLFontGL::LEFT, LLFontGL::BASELINE,
             LLFontGL::NORMAL, LLFontGL::NO_SHADOW, S32_MAX, 1000, &right_x);
-    }
-    gGL.popMatrix();
 
-    gViewerWindow->setup3DRender();
+        gDX.popMatrix(); // pops the display_scale scalef() pushed above
+
+#ifdef DX_RENDER
+        // S24 (2026-09-04): flush the 2D-space batch (image + all 6 text
+        // draws above) NOW, while the 2D ortho matrix is still current -
+        // see the matching comment before setup2DRender() above. Flushing
+        // after the pops below would be too late: the batch would sit
+        // pending until something ELSE flushes it, by which point the
+        // matrix has already moved on to whatever 3D content draws next
+        // (the beam, then LLHUDObject::renderAll()'s nametags/hover text) -
+        // silently drawing this 2D content through a 3D perspective matrix,
+        // or vice versa, exactly the corruption this whole fix removes.
+        gDXUIBatch.flushPending();
+#endif
+    }
+    gDX.matrixMode(LLRender::MM_MODELVIEW);
+    gDX.popMatrix();
+    gDX.matrixMode(LLRender::MM_PROJECTION);
+    gDX.popMatrix();
+    gDX.matrixMode(LLRender::MM_MODELVIEW);
+
+    // S24 (2026-09-04, task #217, round 3): the matrix-pop fix above
+    // restores gDX's OWN internal matrix stack (mMatrix[][], what
+    // LLRender::syncMatrices() reads for the beam's actual GPU-drawn
+    // vertices) correctly - confirmed live: still broken. Root cause of
+    // the REMAINING breakage: nametags/hover text/LLManip::renderTickText()
+    // don't read that stack at all - hud_render_text() (llhudrender.cpp)
+    // computes its own screen position via glm::project(...,
+    // get_current_modelview(), get_current_projection(), ...), a
+    // COMPLETELY SEPARATE CPU-side cache (gGLModelView/gGLProjection) that
+    // only gets updated by explicit set_current_modelview()/
+    // set_current_projection() calls - NOT automatically by gDX's
+    // pushMatrix()/popMatrix()/loadIdentity()/ortho(). The OLD
+    // setup3DRender() call this function used to end with indirectly kept
+    // that cache in sync (it calls LLViewerCamera::setPerspective(), which
+    // does call set_current_projection()/set_current_modelview()) - when
+    // that got replaced with setup3DViewport() alone (viewport-only, to
+    // avoid the reconstruction-vs-restoration mismatch for the REAL stack),
+    // this side effect was lost, so gGLProjection/gGLModelView were left
+    // stale at whatever gl_state_for_2d() plus render.cpp's OWN internal
+    // 2D-mode changes left them at - or more precisely, never updated to
+    // the 2D values by gl_state_for_2d() at all (it doesn't call
+    // set_current_projection() either), so this cache just goes stale
+    // relative to gDX's real, now-correctly-restored stack. Explicitly
+    // re-syncing both from the just-restored (real, not reconstructed)
+    // matrices closes that gap without reintroducing the reconstruction
+    // mismatch.
+    set_current_modelview(gDX.getModelviewMatrix());
+    set_current_projection(gDX.getProjectionMatrix());
+
+    // S24: viewport only - the matrix pops above already restore the exact
+    // prior projection/modelview, so rebuilding them again here (the old
+    // setup3DRender() call did both) would reintroduce the reconstruction-
+    // vs-restoration mismatch this fix removes. setup2DRender()'s
+    // setup2DViewport() changed the viewport to the full window rect, so
+    // that part genuinely does still need restoring.
+    gViewerWindow->setup3DViewport();
 }
 
 void LLManip::renderTickText(const LLVector3& pos, const std::string& text, const LLColor4 &color)
@@ -503,8 +640,8 @@ void LLManip::renderTickText(const LLVector3& pos, const std::string& text, cons
     const LLFontGL* big_fontp = LLFontGL::getFontSansSerif();
 
     bool hud_selection = mObjectSelection->getSelectType() == SELECT_TYPE_HUD;
-    gGL.matrixMode(LLRender::MM_MODELVIEW);
-    gGL.pushMatrix();
+    gDX.matrixMode(LLRender::MM_MODELVIEW);
+    gDX.pushMatrix();
     LLVector3 render_pos = pos;
     if (hud_selection)
     {
@@ -512,7 +649,7 @@ void LLManip::renderTickText(const LLVector3& pos, const std::string& text, cons
         F32 inv_zoom_amt = 1.f / zoom_amt;
         // scale text back up to counter-act zoom level
         render_pos = pos * zoom_amt;
-        gGL.scalef(inv_zoom_amt, inv_zoom_amt, inv_zoom_amt);
+        gDX.scalef(inv_zoom_amt, inv_zoom_amt, inv_zoom_amt);
     }
 
     // render shadow first
@@ -523,7 +660,7 @@ void LLManip::renderTickText(const LLVector3& pos, const std::string& text, cons
     gViewerWindow->setup3DViewport();
     hud_render_utf8text(text, render_pos, *big_fontp, LLFontGL::NORMAL, LLFontGL::NO_SHADOW, -0.5f * big_fontp->getWidthF32(text), 3.f, color, mObjectSelection->getSelectType() == SELECT_TYPE_HUD);
 
-    gGL.popMatrix();
+    gDX.popMatrix();
 }
 
 void LLManip::renderTickValue(const LLVector3& pos, F32 value, const std::string& suffix, const LLColor4 &color)
@@ -561,8 +698,8 @@ void LLManip::renderTickValue(const LLVector3& pos, F32 value, const std::string
     }
 
     bool hud_selection = mObjectSelection->getSelectType() == SELECT_TYPE_HUD;
-    gGL.matrixMode(LLRender::MM_MODELVIEW);
-    gGL.pushMatrix();
+    gDX.matrixMode(LLRender::MM_MODELVIEW);
+    gDX.pushMatrix();
     {
         LLVector3 render_pos = pos;
         if (hud_selection)
@@ -571,7 +708,7 @@ void LLManip::renderTickValue(const LLVector3& pos, F32 value, const std::string
             F32 inv_zoom_amt = 1.f / zoom_amt;
             // scale text back up to counter-act zoom level
             render_pos = pos * zoom_amt;
-            gGL.scalef(inv_zoom_amt, inv_zoom_amt, inv_zoom_amt);
+            gDX.scalef(inv_zoom_amt, inv_zoom_amt, inv_zoom_amt);
         }
 
         LLColor4 shadow_color = LLColor4::black;
@@ -589,7 +726,7 @@ void LLManip::renderTickValue(const LLVector3& pos, F32 value, const std::string
             hud_render_utf8text(val_string, render_pos, *big_fontp, LLFontGL::NORMAL, LLFontGL::DROP_SHADOW, -0.5f * big_fontp->getWidthF32(val_string), 3.f, color, hud_selection);
         }
     }
-    gGL.popMatrix();
+    gDX.popMatrix();
 }
 
 LLColor4 LLManip::setupSnapGuideRenderPass(S32 pass)

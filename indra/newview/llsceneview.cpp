@@ -74,7 +74,7 @@ void LLSceneView::draw()
     setRect(new_rect);
 
     // S24: Darker background for better contrast
-    gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+    gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
     gl_rect_2d(0, getRect().getHeight(), getRect().getWidth(), 0, LLColor4(0.f, 0.f, 0.f, 0.65f));
 
     // S24: Title bar with better spacing
@@ -205,7 +205,7 @@ void LLSceneView::draw()
 
             F32 total = 0.f;
 
-            gGL.begin(LLRender::LINE_STRIP);
+            gDX.begin(LLRender::LINE_STRIP);
 
             for (size_t i = 0; i < count; ++i)
             {
@@ -214,18 +214,18 @@ void LLSceneView::draw()
                 F32 y = (rad-size_domain[0])/size_range*size_rect.getHeight()+size_rect.mBottom;
                 F32 x = (F32) i / count * size_rect.getWidth() + size_rect.mLeft;
 
-                gGL.vertex2f(x,y);
+                gDX.vertex2f(x,y);
 
                 if (i%4096 == 0)
                 {
-                    gGL.end();
-                    gGL.flush();
-                    gGL.begin(LLRender::LINE_STRIP);
+                    gDX.end();
+                    gDX.flush();
+                    gDX.begin(LLRender::LINE_STRIP);
                 }
             }
 
-            gGL.end();
-            gGL.flush();
+            gDX.end();
+            gDX.flush();
 
             // S24: Improved formatting and color coding
             LLColor4 label_color(0.9f, 0.9f, 0.9f, 1.0f);
@@ -271,7 +271,7 @@ void LLSceneView::draw()
 
             auto count = triangles[idx].size();
 
-            gGL.begin(LLRender::LINE_STRIP);
+            gDX.begin(LLRender::LINE_STRIP);
             //plot triangles
             for (size_t i = 0; i < count; ++i)
             {
@@ -279,18 +279,18 @@ void LLSceneView::draw()
                 F32 y = (F32) (tri_count-tri_domain[0])/triangle_range*tri_rect.getHeight()+tri_rect.mBottom;
                 F32 x = (F32) i / count * tri_rect.getWidth() + tri_rect.mLeft;
 
-                gGL.vertex2f(x,y);
+                gDX.vertex2f(x,y);
 
                 if (i%4096 == 0)
                 {
-                    gGL.end();
-                    gGL.flush();
-                    gGL.begin(LLRender::LINE_STRIP);
+                    gDX.end();
+                    gDX.flush();
+                    gDX.begin(LLRender::LINE_STRIP);
                 }
             }
 
-            gGL.end();
-            gGL.flush();
+            gDX.end();
+            gDX.flush();
 
             count = visible_triangles[idx].size();
 
@@ -346,7 +346,7 @@ void LLSceneView::draw()
 
             F32 total = 0;
 
-            gGL.begin(LLRender::LINE_STRIP);
+            gDX.begin(LLRender::LINE_STRIP);
             //plot triangles
             for (size_t i = 0; i < count; ++i)
             {
@@ -355,18 +355,18 @@ void LLSceneView::draw()
                 F32 y = (F32) (sc-streaming_domain[0])/cost_range*tri_rect.getHeight()+tri_rect.mBottom;
                 F32 x = (F32) i / count * tri_rect.getWidth() + tri_rect.mLeft;
 
-                gGL.vertex2f(x,y);
+                gDX.vertex2f(x,y);
 
                 if (i%4096 == 0)
                 {
-                    gGL.end();
-                    gGL.flush();
-                    gGL.begin(LLRender::LINE_STRIP);
+                    gDX.end();
+                    gDX.flush();
+                    gDX.begin(LLRender::LINE_STRIP);
                 }
             }
 
-            gGL.end();
-            gGL.flush();
+            gDX.end();
+            gDX.flush();
 
             // S24: Color code by streaming cost impact
             LLColor4 cost_color;
@@ -419,7 +419,7 @@ void LLSceneView::draw()
 
             F32 total = 0;
 
-            gGL.begin(LLRender::LINE_STRIP);
+            gDX.begin(LLRender::LINE_STRIP);
             //plot triangles
             for (size_t i = 0; i < count; ++i)
             {
@@ -428,18 +428,18 @@ void LLSceneView::draw()
                 F32 y = (F32) (pc-physics_domain[0])/cost_range*tri_rect.getHeight()+tri_rect.mBottom;
                 F32 x = (F32) i / count * tri_rect.getWidth() + tri_rect.mLeft;
 
-                gGL.vertex2f(x,y);
+                gDX.vertex2f(x,y);
 
                 if (i%4096 == 0)
                 {
-                    gGL.end();
-                    gGL.flush();
-                    gGL.begin(LLRender::LINE_STRIP);
+                    gDX.end();
+                    gDX.flush();
+                    gDX.begin(LLRender::LINE_STRIP);
                 }
             }
 
-            gGL.end();
-            gGL.flush();
+            gDX.end();
+            gDX.flush();
 
             // S24: Color code by physics cost impact
             LLColor4 phys_color;

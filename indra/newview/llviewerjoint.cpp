@@ -105,12 +105,12 @@ U32 LLViewerJoint::render( F32 pixelArea, bool first_pass, bool is_dummy )
                     triangle_count += drawShape( pixelArea, first_pass, is_dummy );
                 }
                 // second pass writes to z buffer only
-                gGL.setColorMask(false, false);
+                gDX.setColorMask(false, false);
                 {
                     triangle_count += drawShape( pixelArea, false, is_dummy  );
                 }
                 // third past respects z buffer and writes color
-                gGL.setColorMask(true, false);
+                gDX.setColorMask(true, false);
                 {
                     LLGLDepthTest gls_depth(GL_TRUE, GL_FALSE);
                     triangle_count += drawShape( pixelArea, false, is_dummy  );

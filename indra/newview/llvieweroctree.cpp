@@ -30,7 +30,7 @@
 #include "pipeline.h"
 #include "llviewercontrol.h"
 #include "llappviewer.h"
-#include "llglslshader.h"
+#include "llhlslshader.h"
 #include "llviewershadermgr.h"
 #include "lldrawpoolwater.h"
 
@@ -1361,7 +1361,7 @@ void LLOcclusionCullingGroup::doOcclusion(LLCamera* camera, const LLVector4a* sh
 #endif
                         }
 
-                        LLGLSLShader* shader = LLGLSLShader::sCurBoundShaderPtr;
+                        LLHLSLShader* shader = LLHLSLShader::sCurBoundShaderPtr;
                         llassert(shader);
 
                         shader->uniform3fv(LLShaderMgr::BOX_CENTER, 1, bounds[0].getF32ptr());

@@ -52,17 +52,17 @@ void LLDrawPoolGlow::renderPostDeferred(S32 pass)
     return;
 #endif
 
-    LLGLSLShader* shader = &gDeferredEmissiveProgram;
+    LLHLSLShader* shader = &gDeferredEmissiveProgram;
 
     LLGLEnable blend(GL_BLEND);
-    gGL.flush();
+    gDX.flush();
     /// Get rid of z-fighting with non-glow pass.
     LLGLEnable polyOffset(GL_POLYGON_OFFSET_FILL);
     glPolygonOffset(-1.0f, -1.0f);
-    gGL.setSceneBlendType(LLRender::BT_ADD);
+    gDX.setSceneBlendType(LLRender::BT_ADD);
 
     LLGLDepthTest depth(GL_TRUE, GL_FALSE);
-    gGL.setColorMask(false, true);
+    gDX.setColorMask(false, true);
 
     //first pass -- static objects
     shader->bind();
@@ -73,8 +73,8 @@ void LLDrawPoolGlow::renderPostDeferred(S32 pass)
     shader->bind();
     pushRiggedBatches(LLRenderPass::PASS_GLOW_RIGGED, true, true);
 
-    gGL.setColorMask(true, false);
-    gGL.setSceneBlendType(LLRender::BT_ALPHA);
+    gDX.setColorMask(true, false);
+    gDX.setSceneBlendType(LLRender::BT_ALPHA);
 }
 
 LLDrawPoolSimple::LLDrawPoolSimple() :
@@ -140,7 +140,7 @@ void LLDrawPoolAlphaMask::renderDeferred(S32 pass)
     DXDrawPoolSimple::renderAlphaMaskDeferred(*this, pass);
     return;
 #endif
-    LLGLSLShader* shader = &gDeferredDiffuseAlphaMaskProgram;
+    LLHLSLShader* shader = &gDeferredDiffuseAlphaMaskProgram;
 
     //render static
     shader->bind();
@@ -188,7 +188,7 @@ void LLDrawPoolFullbright::renderPostDeferred(S32 pass)
     return;
 #endif
 
-    LLGLSLShader* shader = nullptr;
+    LLHLSLShader* shader = nullptr;
     if (LLPipeline::sRenderingHUDs)
     {
         shader = &gHUDFullbrightProgram;
@@ -198,7 +198,7 @@ void LLDrawPoolFullbright::renderPostDeferred(S32 pass)
         shader = &gDeferredFullbrightProgram;
     }
 
-    gGL.setSceneBlendType(LLRender::BT_ALPHA);
+    gDX.setSceneBlendType(LLRender::BT_ALPHA);
 
     // render static
     shader->bind();
@@ -224,7 +224,7 @@ void LLDrawPoolFullbrightAlphaMask::renderPostDeferred(S32 pass)
     LL::GLTFSceneManager::instance().render(true, false, true);
     LL::GLTFSceneManager::instance().render(true, true, true);
 
-    LLGLSLShader* shader = nullptr;
+    LLHLSLShader* shader = nullptr;
     if (LLPipeline::sRenderingHUDs)
     {
         shader = &gHUDFullbrightAlphaMaskProgram;

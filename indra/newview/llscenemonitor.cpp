@@ -175,9 +175,9 @@ LLRenderTarget& LLSceneMonitor::getCaptureTarget()
     {
         mFrames[0] = new LLRenderTarget();
         mFrames[0]->allocate(width, height, GL_RGB);
-        gGL.getTexUnit(0)->bind(mFrames[0]);
-        gGL.getTexUnit(0)->setTextureFilteringOption(LLTexUnit::TFO_POINT);
-        gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+        gDX.getTexUnit(0)->bind(mFrames[0]);
+        gDX.getTexUnit(0)->setTextureFilteringOption(LLTexUnit::TFO_POINT);
+        gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
 
         cur_target = mFrames[0];
     }
@@ -185,9 +185,9 @@ LLRenderTarget& LLSceneMonitor::getCaptureTarget()
     {
         mFrames[1] = new LLRenderTarget();
         mFrames[1]->allocate(width, height, GL_RGB);
-        gGL.getTexUnit(0)->bind(mFrames[1]);
-        gGL.getTexUnit(0)->setTextureFilteringOption(LLTexUnit::TFO_POINT);
-        gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+        gDX.getTexUnit(0)->bind(mFrames[1]);
+        gDX.getTexUnit(0)->setTextureFilteringOption(LLTexUnit::TFO_POINT);
+        gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
 
         cur_target = mFrames[1];
     }
@@ -310,7 +310,7 @@ void LLSceneMonitor::capture()
 
         U32 old_FBO = LLRenderTarget::sCurFBO;
 
-        gGL.getTexUnit(0)->bind(&cur_target);
+        gDX.getTexUnit(0)->bind(&cur_target);
         glBindFramebuffer(GL_READ_FRAMEBUFFER, 0); //point to the main frame buffer.
 
         glCopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 0, 0, cur_target.getWidth(), cur_target.getHeight()); //copy the content
@@ -375,20 +375,20 @@ void LLSceneMonitor::compare()
     gTwoTextureCompareProgram.uniform1f(sDitherScaleS, mDitherScaleS);
     gTwoTextureCompareProgram.uniform1f(sDitherScaleT, mDitherScaleT);
 
-    gGL.getTexUnit(0)->activate();
-    gGL.getTexUnit(0)->enable(LLTexUnit::TT_TEXTURE);
-    gGL.getTexUnit(0)->bind(mFrames[0]);
-    gGL.getTexUnit(0)->activate();
+    gDX.getTexUnit(0)->activate();
+    gDX.getTexUnit(0)->enable(LLTexUnit::TT_TEXTURE);
+    gDX.getTexUnit(0)->bind(mFrames[0]);
+    gDX.getTexUnit(0)->activate();
 
-    gGL.getTexUnit(1)->activate();
-    gGL.getTexUnit(1)->enable(LLTexUnit::TT_TEXTURE);
-    gGL.getTexUnit(1)->bind(mFrames[1]);
-    gGL.getTexUnit(1)->activate();
+    gDX.getTexUnit(1)->activate();
+    gDX.getTexUnit(1)->enable(LLTexUnit::TT_TEXTURE);
+    gDX.getTexUnit(1)->bind(mFrames[1]);
+    gDX.getTexUnit(1)->activate();
 
-    gGL.getTexUnit(2)->activate();
-    gGL.getTexUnit(2)->enable(LLTexUnit::TT_TEXTURE);
-    gGL.getTexUnit(2)->bind(mDitheringTexture);
-    gGL.getTexUnit(2)->activate();
+    gDX.getTexUnit(2)->activate();
+    gDX.getTexUnit(2)->enable(LLTexUnit::TT_TEXTURE);
+    gDX.getTexUnit(2)->bind(mDitheringTexture);
+    gDX.getTexUnit(2)->activate();
 
     gl_rect_2d_simple_tex(width, height);
 
@@ -396,12 +396,12 @@ void LLSceneMonitor::compare()
 
     gTwoTextureCompareProgram.unbind();
 
-    gGL.getTexUnit(0)->disable();
-    gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
-    gGL.getTexUnit(1)->disable();
-    gGL.getTexUnit(1)->unbind(LLTexUnit::TT_TEXTURE);
-    gGL.getTexUnit(2)->disable();
-    gGL.getTexUnit(2)->unbind(LLTexUnit::TT_TEXTURE);
+    gDX.getTexUnit(0)->disable();
+    gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+    gDX.getTexUnit(1)->disable();
+    gDX.getTexUnit(1)->unbind(LLTexUnit::TT_TEXTURE);
+    gDX.getTexUnit(2)->disable();
+    gDX.getTexUnit(2)->unbind(LLTexUnit::TT_TEXTURE);
 
     if (!mDebugViewerVisible)
     {
@@ -433,9 +433,9 @@ void LLSceneMonitor::calcDiffAggregate()
         glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
     }
 
-    LLGLSLShader* cur_shader = NULL;
+    LLHLSLShader* cur_shader = NULL;
 
-    cur_shader = LLGLSLShader::sCurBoundShaderPtr;
+    cur_shader = LLHLSLShader::sCurBoundShaderPtr;
     gOneTextureFilterProgram.bind();
     gOneTextureFilterProgram.uniform1f(sTolerance, mDiffTolerance);
 

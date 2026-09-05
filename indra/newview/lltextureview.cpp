@@ -265,7 +265,7 @@ void LLTextureBar::draw()
     LLFontGL::getFontMonospace()->renderUTF8(fetch_state_desc[state].desc, 0, title_x2, getRect().getHeight(),
                                      fetch_state_desc[state].color,
                                      LLFontGL::LEFT, LLFontGL::TOP);
-    gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+    gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
 
     // Draw the progress bar.
     S32 bar_width = 100;
@@ -274,11 +274,11 @@ void LLTextureBar::draw()
     right = left + bar_width;
 
     // Background with border
-    gGL.color4f(0.1f, 0.1f, 0.1f, 0.8f);
+    gDX.color4f(0.1f, 0.1f, 0.1f, 0.8f);
     gl_rect_2d(left, top, right, bottom);
 
     // Border
-    gGL.color4f(0.3f, 0.3f, 0.3f, 0.9f);
+    gDX.color4f(0.3f, 0.3f, 0.3f, 0.9f);
     gl_rect_2d(left, top, right, bottom, FALSE);
 
     F32 data_progress = mImagep->mDownloadProgress;
@@ -295,17 +295,17 @@ void LLTextureBar::draw()
             if (progress_clamped >= 1.0f)
             {
                 // Complete - bright green
-                gGL.color4f(0.2f, 0.9f, 0.2f, 0.85f);
+                gDX.color4f(0.2f, 0.9f, 0.2f, 0.85f);
             }
             else if (progress_clamped > 0.5f)
             {
                 // More than half - cyan to blue
-                gGL.color4f(0.2f, 0.6f, 1.0f, 0.85f);
+                gDX.color4f(0.2f, 0.6f, 1.0f, 0.85f);
             }
             else
             {
                 // Less than half - bright cyan
-                gGL.color4f(0.3f, 0.9f, 1.0f, 0.85f);
+                gDX.color4f(0.3f, 0.9f, 1.0f, 0.85f);
             }
             gl_rect_2d(left, top, right, bottom);
         }
@@ -342,7 +342,7 @@ void LLTextureBar::draw()
     {
         F32 alpha = 1.f - last_event/pip_max_time;
         clr.setAlpha(llmax(alpha, 0.3f)); // Minimum alpha for visibility
-        gGL.color4fv(clr.mV);
+        gDX.color4fv(clr.mV);
         gl_rect_2d(pip_x, top, pip_x + pip_width, bottom);
     }
     pip_x += pip_width + pip_space;
@@ -359,7 +359,7 @@ void LLTextureBar::draw()
                 LLColor4(1.0f, 0.4f, 0.9f, 1.0f);   // Bright magenta for bound
             F32 alpha = 1.f - last_event;
             clr.setAlpha(llmax(alpha, 0.3f)); // Minimum alpha for visibility
-            gGL.color4fv(clr.mV);
+            gDX.color4fv(clr.mV);
             gl_rect_2d(pip_x, top, pip_x + pip_width, bottom);
         }
     }
@@ -610,7 +610,7 @@ void LLGLTexMemBar::draw()
     U32 texFetchLatMax = U32(recording.getMax(LLTextureFetch::sTexFetchLatency).value() * 1000.0f);
 
     // draw a background above first line.... no idea where the rest of the background comes from for the below text
-    gGL.color4f(0.0f, 0.0f, 0.0f, 0.9f); // Darker background for better readability
+    gDX.color4f(0.0f, 0.0f, 0.0f, 0.9f); // Darker background for better readability
     gl_rect_2d(-10, getRect().getHeight() + line_height*2 + 1, getRect().getWidth()+2, getRect().getHeight()+2);
 
     // S24 (2026-08-24, task #258): root-and-branch redesign of this console, twice

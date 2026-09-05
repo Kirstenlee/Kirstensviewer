@@ -394,10 +394,10 @@ void LLHUDEffectSpiral::render()
 
         // Set up GL rendering state for alpha blending
         LLGLSPipelineAlpha gls_pipeline_alpha;
-        gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+        gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
 
         // S24: Ensure a shader is bound for rendering (prevents assert on cleanup)
-        gGL.flush();
+        gDX.flush();
 
         // S24 (2026-08-16, task #217): when a HUD is attached,
         // render_hud_attachments() (llviewerdisplay.cpp) calls
@@ -427,8 +427,8 @@ void LLHUDEffectSpiral::render()
         // cause of the beam rendering offset from the object center while the
         // particle trail (LLViewerPartSourceBeam, never touches this stack)
         // tracked correctly.
-        gGL.pushUIMatrix();
-        gGL.loadUIIdentity();
+        gDX.pushUIMatrix();
+        gDX.loadUIIdentity();
 
         // S24: Get beam color from unified EffectColor (set in Preferences)
         LLColor4 base_color = LLUIColorTable::instance().getColor("EffectColor");
@@ -440,8 +440,8 @@ void LLHUDEffectSpiral::render()
 
         if (beam_length < 0.01f)
         {
-            gGL.popUIMatrix();
-            gGL.flush();
+            gDX.popUIMatrix();
+            gDX.flush();
             return;  // Too short to render
         }
 
@@ -503,22 +503,22 @@ void LLHUDEffectSpiral::render()
             LLVector3 v2 = a + wa;
             LLVector3 v3 = b + wb;
             LLVector3 v4 = b - wb;
-            gGL.vertex3fv(v1.mV);
-            gGL.vertex3fv(v2.mV);
-            gGL.vertex3fv(v3.mV);
-            gGL.vertex3fv(v1.mV);
-            gGL.vertex3fv(v3.mV);
-            gGL.vertex3fv(v4.mV);
+            gDX.vertex3fv(v1.mV);
+            gDX.vertex3fv(v2.mV);
+            gDX.vertex3fv(v3.mV);
+            gDX.vertex3fv(v1.mV);
+            gDX.vertex3fv(v3.mV);
+            gDX.vertex3fv(v4.mV);
         };
 
-        gGL.color4fv(base_color.mV);
+        gDX.color4fv(base_color.mV);
 
         if (line_style == 0)
         {
             // SOLID LINE - simple and clean
-            gGL.begin(LLRender::TRIANGLES);
+            gDX.begin(LLRender::TRIANGLES);
             emit_quad(source_pos, target_pos);
-            gGL.end();
+            gDX.end();
         }
         else
         {
@@ -548,7 +548,7 @@ void LLHUDEffectSpiral::render()
 
             S32 num_patterns = (S32)(beam_length / pattern_length);
 
-            gGL.begin(LLRender::TRIANGLES);
+            gDX.begin(LLRender::TRIANGLES);
             for (S32 i = 0; i <= num_patterns; i++)
             {
                 F32 start_dist = i * pattern_length;
@@ -574,11 +574,11 @@ void LLHUDEffectSpiral::render()
                     }
                 }
             }
-            gGL.end();
+            gDX.end();
         }
 
-        gGL.popUIMatrix();
-        gGL.flush();
+        gDX.popUIMatrix();
+        gDX.flush();
     }
     // Particles render automatically via mPartSourcep in particle simulator
 }

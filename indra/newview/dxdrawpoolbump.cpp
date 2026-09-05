@@ -30,7 +30,7 @@
 
 #include "lldrawpoolbump.h"
 #include "llrender.h"
-#include "llcubemap.h"
+#include "DXCubeMap.h"
 #include "llsky.h"
 #include "pipeline.h"
 #include "llviewershadermgr.h"
@@ -42,7 +42,7 @@ namespace
 {
     // Mirrors lldrawpoolbump.cpp's own file-static shader/channel state -
     // separate copies, internal linkage, no collision with the GL file's.
-    LLGLSLShader* shader = nullptr;
+    LLHLSLShader* shader = nullptr;
     S32 cube_channel = -1;
     S32 diffuse_channel = -1;
 
@@ -69,10 +69,10 @@ namespace
         S32 channel = shader->enableTexture(LLShaderMgr::EXPOSURE_MAP);
         if (channel > -1)
         {
-            gGL.getTexUnit(channel)->bind(&gPipeline.mExposureMap);
+            gDX.getTexUnit(channel)->bind(&gPipeline.mExposureMap);
         }
 
-        LLCubeMap* cube_map = gSky.mVOSkyp ? gSky.mVOSkyp->getCubeMap() : nullptr;
+        DXCubeMap* cube_map = gSky.mVOSkyp ? gSky.mVOSkyp->getCubeMap() : nullptr;
 
         // S24 (2026-08-09, task #123 follow-up): mirrors LLPipeline::
         // bindDeferredShader()'s own "use_legacy_env_map" override
@@ -112,13 +112,13 @@ namespace
 
         if (cube_map && use_legacy_env_map)
         {
-            gGL.getTexUnit(1)->disable();
+            gDX.getTexUnit(1)->disable();
             cube_channel = shader->enableTexture(LLViewerShaderMgr::ENVIRONMENT_MAP, LLTexUnit::TT_CUBE_MAP);
             cube_map->enableTexture(cube_channel);
             diffuse_channel = shader->enableTexture(LLViewerShaderMgr::DIFFUSE_MAP);
 
-            gGL.getTexUnit(cube_channel)->bind(cube_map);
-            gGL.getTexUnit(0)->activate();
+            gDX.getTexUnit(cube_channel)->bind(cube_map);
+            gDX.getTexUnit(0)->activate();
         }
 
         {
@@ -188,7 +188,7 @@ namespace
         // intentionally NOT called when using the legacy path, matching
         // begin*()'s choice to call setEnvMat() instead of
         // bindReflectionProbes() there.
-        LLCubeMap* cube_map = gSky.mVOSkyp ? gSky.mVOSkyp->getCubeMap() : nullptr;
+        DXCubeMap* cube_map = gSky.mVOSkyp ? gSky.mVOSkyp->getCubeMap() : nullptr;
         bool use_legacy_env_map = !LLPipeline::sReflectionProbesEnabled;
         if (cube_map && use_legacy_env_map)
         {
@@ -222,7 +222,7 @@ namespace
 
         shader->bind();
 
-        gGL.setSceneBlendType(LLRender::BT_MULT_X2);
+        gDX.setSceneBlendType(LLRender::BT_MULT_X2);
     }
 
     void renderBump(LLDrawPoolBump& pool)
@@ -230,7 +230,7 @@ namespace
         LL_RECORD_BLOCK_TIME(FTM_RENDER_BUMP);
         LLGLDepthTest gls_depth(GL_TRUE, GL_FALSE, GL_LEQUAL);
         LLGLEnable blend(GL_BLEND);
-        gGL.diffuseColor4f(1, 1, 1, 1);
+        gDX.diffuseColor4f(1, 1, 1, 1);
 
         // S24 (2026-08-19, degenerate-triangle foliage investigation): real
         // fix, replacing the "no DX11 runtime equivalent" gap this comment
@@ -272,7 +272,7 @@ namespace
         LL_RECORD_BLOCK_TIME(FTM_RENDER_BUMP);
         LLGLDepthTest gls_depth(GL_TRUE, GL_FALSE, GL_LEQUAL);
         LLGLEnable blend(GL_BLEND);
-        gGL.diffuseColor4f(1, 1, 1, 1);
+        gDX.diffuseColor4f(1, 1, 1, 1);
 
         // S24 (2026-08-19): same real depth-bias fix as renderBump() above -
         // see its comment for the full writeup. Rigged foliage/attachments
@@ -309,8 +309,8 @@ namespace
 
     void endBump()
     {
-        LLGLSLShader::unbind();
-        gGL.setSceneBlendType(LLRender::BT_ALPHA);
+        LLHLSLShader::unbind();
+        gDX.setSceneBlendType(LLRender::BT_ALPHA);
     }
 }
 
@@ -333,7 +333,7 @@ void DXDrawPoolBump::renderDeferred(LLDrawPoolBump& pool, S32 pass)
         // registration" reasoning below predates the general D3D11-
         // reflection-based texture-channel fix built for the PBR texture-bind
         // bug (see project_dxrender_stage8_status memory) -
-        // LLGLSLShader::enableTexture() now resolves a real channel from
+        // LLHLSLShader::enableTexture() now resolves a real channel from
         // shader reflection for ANY named texture the bound shader actually
         // declares, not just diffuse. Confirmed bumpF.hlsl declares and
         // samples `Texture2D bumpMap : register(t1)` for real (not a stub),
@@ -349,10 +349,10 @@ void DXDrawPoolBump::renderDeferred(LLDrawPoolBump& pool, S32 pass)
         // wasn't proven so before. Found via a user-compiled deep-dive report
         // + live testing (all bump variations rendering uniformly grey - the
         // exact symptom this explains).
-        S32 bump_channel = LLGLSLShader::sCurBoundShaderPtr->enableTexture(LLViewerShaderMgr::BUMP_MAP);
+        S32 bump_channel = LLHLSLShader::sCurBoundShaderPtr->enableTexture(LLViewerShaderMgr::BUMP_MAP);
         if (bump_channel > -1)
         {
-            gGL.getTexUnit(bump_channel)->unbind(LLTexUnit::TT_TEXTURE);
+            gDX.getTexUnit(bump_channel)->unbind(LLTexUnit::TT_TEXTURE);
         }
 
         const U32 type = rigged ? LLRenderPass::PASS_BUMP_RIGGED : LLRenderPass::PASS_BUMP;
@@ -368,7 +368,7 @@ void DXDrawPoolBump::renderDeferred(LLDrawPoolBump& pool, S32 pass)
             LLDrawInfo& params = **i;
             LLCullResult::increment_iterator(i, end);
 
-            LLGLSLShader::sCurBoundShaderPtr->setMinimumAlpha(params.mAlphaMaskCutoff);
+            LLHLSLShader::sCurBoundShaderPtr->setMinimumAlpha(params.mAlphaMaskCutoff);
             if (bump_channel > -1)
             {
                 LLDrawPoolBump::bindBumpMap(params, bump_channel);
@@ -386,11 +386,11 @@ void DXDrawPoolBump::renderDeferred(LLDrawPoolBump& pool, S32 pass)
 
             if (params.mTexture.notNull())
             {
-                gGL.getTexUnit(0)->bindFast(params.mTexture);
+                gDX.getTexUnit(0)->bindFast(params.mTexture);
             }
             else
             {
-                gGL.getTexUnit(0)->unbindFast(LLTexUnit::TT_TEXTURE);
+                gDX.getTexUnit(0)->unbindFast(LLTexUnit::TT_TEXTURE);
             }
 
             params.mVertexBuffer->setBuffer();
@@ -399,10 +399,10 @@ void DXDrawPoolBump::renderDeferred(LLDrawPoolBump& pool, S32 pass)
 
         if (bump_channel > -1)
         {
-            LLGLSLShader::sCurBoundShaderPtr->disableTexture(LLViewerShaderMgr::BUMP_MAP);
+            LLHLSLShader::sCurBoundShaderPtr->disableTexture(LLViewerShaderMgr::BUMP_MAP);
         }
-        LLGLSLShader::sCurBoundShaderPtr->unbind();
-        gGL.getTexUnit(0)->activate();
+        LLHLSLShader::sCurBoundShaderPtr->unbind();
+        gDX.getTexUnit(0)->activate();
     }
 }
 

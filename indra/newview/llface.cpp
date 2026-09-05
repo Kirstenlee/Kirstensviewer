@@ -516,19 +516,19 @@ void LLFace::renderSelected(LLViewerTexture *imagep, const LLColor4& color)
 
     if (mGeomCount > 0 && mIndicesCount > 0)
     {
-        gGL.getTexUnit(0)->bind(imagep);
+        gDX.getTexUnit(0)->bind(imagep);
 
-        gGL.pushMatrix();
+        gDX.pushMatrix();
         if (mDrawablep->isActive())
         {
-            gGL.multMatrix((GLfloat*)mDrawablep->getRenderMatrix().mMatrix);
+            gDX.multMatrix((GLfloat*)mDrawablep->getRenderMatrix().mMatrix);
         }
         else
         {
-            gGL.multMatrix((GLfloat*)mDrawablep->getRegion()->mRenderMatrix.mMatrix);
+            gDX.multMatrix((GLfloat*)mDrawablep->getRegion()->mRenderMatrix.mMatrix);
         }
 
-        gGL.diffuseColor4fv(color.mV);
+        gDX.diffuseColor4fv(color.mV);
 
         if (mDrawablep->isState(LLDrawable::RIGGED))
         {
@@ -542,7 +542,7 @@ void LLFace::renderSelected(LLViewerTexture *imagep, const LLColor4& color)
                     // called when selecting a face during edit of a mesh object
                     LLGLEnable offset(GL_POLYGON_OFFSET_FILL);
                     glPolygonOffset(-1.f, -1.f);
-                    gGL.multMatrix((F32*) volume->getRelativeXform().mMatrix);
+                    gDX.multMatrix((F32*) volume->getRelativeXform().mMatrix);
                     const LLVolumeFace& vol_face = rigged->getVolumeFace(getTEOffset());
                     LLVertexBuffer::unbind();
                     glVertexPointer(3, GL_FLOAT, 16, vol_face.mPositions);
@@ -551,7 +551,7 @@ void LLFace::renderSelected(LLViewerTexture *imagep, const LLColor4& color)
                         glEnableClientState(GL_TEXTURE_COORD_ARRAY);
                         glTexCoordPointer(2, GL_FLOAT, 8, vol_face.mTexCoords);
                     }
-                    gGL.syncMatrices();
+                    gDX.syncMatrices();
                     glDrawElements(GL_TRIANGLES, vol_face.mNumIndices, GL_UNSIGNED_SHORT, vol_face.mIndices);
                     glDisableClientState(GL_TEXTURE_COORD_ARRAY);
                 }
@@ -580,7 +580,7 @@ void LLFace::renderSelected(LLViewerTexture *imagep, const LLColor4& color)
             }
         }
 
-        gGL.popMatrix();
+        gDX.popMatrix();
     }
 }
 
@@ -614,27 +614,27 @@ void LLFace::renderOneWireframe(const LLColor4 &color, F32 fogCfx, bool wirefram
 {
     if (bRenderHiddenSelections)
     {
-        gGL.blendFunc(LLRender::BF_SOURCE_COLOR, LLRender::BF_ONE);
+        gDX.blendFunc(LLRender::BF_SOURCE_COLOR, LLRender::BF_ONE);
         LLGLDepthTest gls_depth(GL_TRUE, GL_FALSE, GL_GEQUAL);
         if (shader)
         {
-            gGL.diffuseColor4f(color.mV[VRED], color.mV[VGREEN], color.mV[VBLUE], 0.4f);
+            gDX.diffuseColor4f(color.mV[VRED], color.mV[VGREEN], color.mV[VBLUE], 0.4f);
             renderFace(mDrawablep, this);
         }
         else
         {
-            gGL.flush();
+            gDX.flush();
             {
-                gGL.diffuseColor4f(color.mV[VRED], color.mV[VGREEN], color.mV[VBLUE], 0.4f);
+                gDX.diffuseColor4f(color.mV[VRED], color.mV[VGREEN], color.mV[VBLUE], 0.4f);
                 renderFace(mDrawablep, this);
             }
         }
     }
 
-    gGL.flush();
-    gGL.setSceneBlendType(LLRender::BT_ALPHA);
+    gDX.flush();
+    gDX.setSceneBlendType(LLRender::BT_ALPHA);
 
-    gGL.diffuseColor4f(color.mV[VRED] * 2, color.mV[VGREEN] * 2, color.mV[VBLUE] * 2, color.mV[VALPHA]);
+    gDX.diffuseColor4f(color.mV[VRED] * 2, color.mV[VGREEN] * 2, color.mV[VBLUE] * 2, color.mV[VALPHA]);
 
     {
         LLGLDisable depth(wireframe_selection ? 0 : GL_BLEND);
@@ -2026,7 +2026,7 @@ bool LLFace::getGeometryVolume(const LLVolume& volume,
             S32* vp = (S32*) &val;
             *vp = index;
 
-            llassert(index < LLGLSLShader::sIndexedTextureChannels);
+            llassert(index < LLHLSLShader::sIndexedTextureChannels);
 
             LLVector4Logical mask;
             mask.clear();

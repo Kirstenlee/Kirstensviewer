@@ -183,17 +183,17 @@ bool LLVisualParamHint::render()
 {
     LLVisualParamReset::sDirty = true;
 
-    gGL.pushUIMatrix();
-    gGL.loadUIIdentity();
+    gDX.pushUIMatrix();
+    gDX.loadUIIdentity();
 
-    gGL.matrixMode(LLRender::MM_PROJECTION);
-    gGL.pushMatrix();
-    gGL.loadIdentity();
-    gGL.ortho(0.0f, (F32)mFullWidth, 0.0f, (F32)mFullHeight, -1.0f, 1.0f);
+    gDX.matrixMode(LLRender::MM_PROJECTION);
+    gDX.pushMatrix();
+    gDX.loadIdentity();
+    gDX.ortho(0.0f, (F32)mFullWidth, 0.0f, (F32)mFullHeight, -1.0f, 1.0f);
 
-    gGL.matrixMode(LLRender::MM_MODELVIEW);
-    gGL.pushMatrix();
-    gGL.loadIdentity();
+    gDX.matrixMode(LLRender::MM_MODELVIEW);
+    gDX.pushMatrix();
+    gDX.loadIdentity();
 
     gUIProgram.bind();
 
@@ -201,11 +201,11 @@ bool LLVisualParamHint::render()
     //LLGLState::verify(true);
     mBackgroundp->draw(0, 0, mFullWidth, mFullHeight);
 
-    gGL.matrixMode(LLRender::MM_PROJECTION);
-    gGL.popMatrix();
+    gDX.matrixMode(LLRender::MM_PROJECTION);
+    gDX.popMatrix();
 
-    gGL.matrixMode(LLRender::MM_MODELVIEW);
-    gGL.popMatrix();
+    gDX.matrixMode(LLRender::MM_MODELVIEW);
+    gDX.popMatrix();
 
     mNeedsUpdate = false;
     mIsVisible = true;
@@ -236,7 +236,7 @@ bool LLVisualParamHint::render()
         mVisualParam->getCameraElevation() );
     LLVector3 camera_pos = target_joint_pos + (camera_snapshot_offset * avatar_rotation);
 
-    gGL.flush();
+    gDX.flush();
 
     LLViewerCamera::getInstance()->setAspect((F32)mFullWidth / (F32)mFullHeight);
     LLViewerCamera::getInstance()->setOriginAndLookAt(
@@ -249,11 +249,11 @@ bool LLVisualParamHint::render()
     if (gAgentAvatarp->mDrawable.notNull())
     {
         LLGLDepthTest gls_depth(GL_TRUE, GL_TRUE);
-        gGL.flush();
-        gGL.setSceneBlendType(LLRender::BT_REPLACE);
+        gDX.flush();
+        gDX.setSceneBlendType(LLRender::BT_REPLACE);
         gPipeline.generateImpostor(gAgentAvatarp, true);
-        gGL.setSceneBlendType(LLRender::BT_ALPHA);
-        gGL.flush();
+        gDX.setSceneBlendType(LLRender::BT_ALPHA);
+        gDX.flush();
     }
 
     gAgentAvatarp->setVisualParamWeight(mVisualParam->getID(), mLastParamWeight);
@@ -265,9 +265,9 @@ bool LLVisualParamHint::render()
     }
 
     gAgentAvatarp->updateVisualParams();
-    gGL.color4f(1,1,1,1);
+    gDX.color4f(1,1,1,1);
     mGLTexturep->setGLTextureCreated(true);
-    gGL.popUIMatrix();
+    gDX.popUIMatrix();
 
     return true;
 }
@@ -280,30 +280,30 @@ void LLVisualParamHint::draw(F32 alpha)
 {
     if (!mIsVisible) return;
 
-    gGL.getTexUnit(0)->bind(this);
+    gDX.getTexUnit(0)->bind(this);
 
-    gGL.color4f(1.f, 1.f, 1.f, alpha);
+    gDX.color4f(1.f, 1.f, 1.f, alpha);
 
     LLGLSUIDefault gls_ui;
-    gGL.begin(LLRender::TRIANGLES);
+    gDX.begin(LLRender::TRIANGLES);
     {
-        gGL.texCoord2i(0, 1);
-        gGL.vertex2i(0, mFullHeight);
-        gGL.texCoord2i(0, 0);
-        gGL.vertex2i(0, 0);
-        gGL.texCoord2i(1, 0);
-        gGL.vertex2i(mFullWidth, 0);
+        gDX.texCoord2i(0, 1);
+        gDX.vertex2i(0, mFullHeight);
+        gDX.texCoord2i(0, 0);
+        gDX.vertex2i(0, 0);
+        gDX.texCoord2i(1, 0);
+        gDX.vertex2i(mFullWidth, 0);
 
-        gGL.texCoord2i(0, 1);
-        gGL.vertex2i(0, mFullHeight);
-        gGL.texCoord2i(1, 0);
-        gGL.vertex2i(mFullWidth, 0);
-        gGL.texCoord2i(1, 1);
-        gGL.vertex2i(mFullWidth, mFullHeight);
+        gDX.texCoord2i(0, 1);
+        gDX.vertex2i(0, mFullHeight);
+        gDX.texCoord2i(1, 0);
+        gDX.vertex2i(mFullWidth, 0);
+        gDX.texCoord2i(1, 1);
+        gDX.vertex2i(mFullWidth, mFullHeight);
     }
-    gGL.end();
+    gDX.end();
 
-    gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+    gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
 }
 
 //-----------------------------------------------------------------------------

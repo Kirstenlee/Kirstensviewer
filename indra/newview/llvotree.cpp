@@ -53,7 +53,7 @@
 #include "llspatialpartition.h"
 #include "llnotificationsutil.h"
 #include "raytrace.h"
-#include "llglslshader.h"
+#include "llhlslshader.h"
 
 extern LLPipeline gPipeline;
 
@@ -869,7 +869,7 @@ void LLVOTree::updateMesh()
 
 	// Translate to tree base  HACK - adjustment in Z plants tree underground
 	const LLVector3& pos_region = getPositionRegion();
-	//gGL.translatef(pos_agent.mV[VX], pos_agent.mV[VY], pos_agent.mV[VZ] - 0.1f);
+	//gDX.translatef(pos_agent.mV[VX], pos_agent.mV[VY], pos_agent.mV[VZ] - 0.1f);
 	LLMatrix4 trans_mat;
 	trans_mat.setTranslation(pos_region.mV[VX], pos_region.mV[VY], pos_region.mV[VZ] - 0.1f);
 	trans_mat *= matrix;

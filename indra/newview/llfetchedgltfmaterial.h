@@ -30,7 +30,7 @@
 #include "llpointer.h"
 #include "llviewertexture.h"
 
-class LLGLSLShader;
+class LLHLSLShader;
 class LLGLTFMaterialList;
 class LLTerrainMaterials;
 

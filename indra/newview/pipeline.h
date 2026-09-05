@@ -46,6 +46,20 @@
 #include "llheroprobemanager.h"
 
 #include <stack>
+#include <functional>
+#include <vector>
+
+// S24 (DX_RENDER, task #283 Phase 1): staging list for pipeline-mutating calls made
+// from a DXPool worker thread during LLViewerObjectList::update()'s parallel
+// idleUpdate() dispatch (llviewerobjectlist.cpp). markMoved()/markRebuild()/etc push
+// into shared, unlocked containers - not safe to call directly off the main thread.
+// Set via LLPipeline::setDeferredMarksForThisThread() before dispatching work to a
+// worker thread; each intercepted call defers itself into mActions instead of
+// mutating pipeline state, for later serial replay on the main thread.
+struct LLDeferredPipelineMarks
+{
+    std::vector<std::function<void()> > mActions;
+};
 
 class LLViewerTexture;
 class LLFace;
@@ -54,7 +68,7 @@ class LLTextureEntry;
 class LLCullResult;
 class LLVOAvatar;
 class LLVOPartGroup;
-class LLGLSLShader;
+class LLHLSLShader;
 class LLDrawPoolAlpha;
 class LLSettingsSky;
 
@@ -211,6 +225,11 @@ public:
 	void		markPartitionMove(LLDrawable* drawablep);
 	void		markMeshDirty(LLSpatialGroup* group);
 
+	// S24 (task #283 Phase 1): see LLDeferredPipelineMarks above. Pass non-null before
+	// posting idleUpdate() work for a chunk of objects to a DXPool worker thread, and
+	// null again once that chunk is done - never leave it set on the main thread.
+	static void setDeferredMarksForThisThread(LLDeferredPipelineMarks* marks);
+
 	//get the object between start and end that's closest to start.
 	LLViewerObject* lineSegmentIntersectInWorld(const LLVector4a& start, const LLVector4a& end,
 												bool pick_transparent,
@@ -313,22 +332,22 @@ public:
 	void renderGeomDeferred(LLCamera& camera, bool do_occlusion = false);
 	void renderGeomPostDeferred(LLCamera& camera);
 	void renderGeomShadow(LLCamera& camera);
-    void bindLightFunc(LLGLSLShader& shader);
+    void bindLightFunc(LLHLSLShader& shader);
 
     // bind shadow maps
     // if setup is true, wil lset texture compare mode function and filtering options
-    void bindShadowMaps(LLGLSLShader& shader);
-    void bindDeferredShaderFast(LLGLSLShader& shader);
-	void bindDeferredShader(LLGLSLShader& shader, LLRenderTarget* light_target = nullptr, LLRenderTarget* depth_target = nullptr);
-	void setupSpotLight(LLGLSLShader& shader, LLDrawable* drawablep);
+    void bindShadowMaps(LLHLSLShader& shader);
+    void bindDeferredShaderFast(LLHLSLShader& shader);
+	void bindDeferredShader(LLHLSLShader& shader, LLRenderTarget* light_target = nullptr, LLRenderTarget* depth_target = nullptr);
+	void setupSpotLight(LLHLSLShader& shader, LLDrawable* drawablep);
 
-	void unbindDeferredShader(LLGLSLShader& shader);
+	void unbindDeferredShader(LLHLSLShader& shader);
 
     // set env_mat parameter in given shader
-    void setEnvMat(LLGLSLShader& shader);
+    void setEnvMat(LLHLSLShader& shader);
 
-    void bindReflectionProbes(LLGLSLShader& shader);
-    void unbindReflectionProbes(LLGLSLShader& shader);
+    void bindReflectionProbes(LLHLSLShader& shader);
+    void unbindReflectionProbes(LLHLSLShader& shader);
 
 	void renderDeferredLighting();
 
@@ -350,8 +369,6 @@ public:
     LLRenderTarget* getSunShadowTarget(U32 i);
     LLRenderTarget* getSpotShadowTarget(U32 i);
 
-	void renderHighlight(const LLViewerObject* obj, F32 fade);
-	
 	void renderShadow(const glm::mat4& view, const glm::mat4& proj, LLCamera& camera, LLCullResult& result, bool depth_clamp);
     void renderSelectedFaces(const LLColor4& color);
 	void renderHighlights();
@@ -685,6 +702,22 @@ public:
 	static bool				sRenderAttachedParticles;
 	static bool				sRenderDeferred;
     static bool				sReflectionProbesEnabled;
+    // S24 (2026-08-31, task #197 root-cause investigation): sReflectionProbesEnabled
+    // (RenderReflectionsEnabled) gates whether the probe-capture pipeline runs
+    // at all, but the SHADER-side legacy/environmentMap fallback (reflectionProbeF.hlsl's
+    // sampleReflectionProbesLegacy()/sampleReflectionProbesWater()) actually
+    // decides per-pixel whether to sample the probe array based on a SEPARATE
+    // setting, RenderReflectionProbesEnabled - the shader takes the legacy
+    // branch whenever EITHER is off. LLVOSky::updateSky() (the legacy
+    // cubemap's producer) and bindDeferredShader()'s environmentMap texture
+    // bind were both keyed on sReflectionProbesEnabled alone, so whenever
+    // RenderReflectionsEnabled was on but RenderReflectionProbesEnabled was
+    // off (the KVTweaks "Reflection Probes" checkbox - the only one of the
+    // two actually exposed in any UI), the shader would take the legacy
+    // branch and sample a texture nobody was updating or binding. This
+    // helper is the single source of truth both C++ producers and the
+    // shader's own fallback condition should agree on.
+    static bool				shouldUseLegacyEnvMap();
 	static S32				sVisibleLightCount;
 	static bool				sRenderingHUDs;
     static F32              sDistortionWaterClipPlaneMargin;
@@ -815,7 +848,7 @@ public:
     // S24 (2026-08-03, task #84): DX-native backing for the 6 procedural
     // textures above - these are plain raw-GLuint fields (no LLImageGL
     // wrapper at all), created/bound via LLImageGL::generateTextures()+
-    // gGL.getTexUnit()->bindManual()+LLImageGL::setManualImage(), an
+    // gDX.getTexUnit()->bindManual()+LLImageGL::setManualImage(), an
     // ambient-GL-state idiom bindManual() can't translate to DX_RENDER's
     // explicit-resource model (there's no "currently bound for upload"
     // concept, and no unique per-call name to look anything up by even if
@@ -1062,9 +1095,6 @@ public:
 	static bool RenderAnimateRes;
 	static bool FreezeTime;
 	static S32 DebugBeaconLineWidth;
-	static F32 RenderHighlightBrightness;
-	static LLColor4 RenderHighlightColor;
-	static F32 RenderHighlightThickness;
 	static bool RenderSpotLightsInNondeferred;
 	static LLColor4 PreviewAmbientColor;
 	static LLColor4 PreviewDiffuse0;
@@ -1122,7 +1152,6 @@ public:
 	static LLVector3 RenderShadowGaussian;
 	static F32 RenderShadowBlurDistFactor;
 	static bool RenderDeferredAtmospheric;
-	static F32 RenderHighlightFadeTime;
 	static F32 RenderFarClip;
 	static LLVector3 RenderShadowSplitExponent;
 	static F32 RenderShadowErrorCutoff;
@@ -1138,6 +1167,7 @@ public:
 	static F32 RenderScreenSpaceReflectionDepthRejectBias;
 	static F32 RenderScreenSpaceReflectionAdaptiveStepMultiplier;
 	static S32 RenderScreenSpaceReflectionGlossySamples;
+	static F32 RenderScreenSpaceReflectionGlossThreshold;
 	static S32 RenderWaterSSRIterations;
 	static F32 RenderWaterSSRRayStep;
 	static S32 RenderBufferVisualization;

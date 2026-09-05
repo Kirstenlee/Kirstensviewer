@@ -51,12 +51,12 @@ namespace
     // members - file-static here since this render path isn't reentrant
     // (single-threaded main render loop, same assumption the GL source
     // makes about its own instance members being reused call to call).
-    LLGLSLShader* target_shader = nullptr;
-    LLGLSLShader* simple_shader = nullptr;
-    LLGLSLShader* fullbright_shader = nullptr;
-    LLGLSLShader* emissive_shader = nullptr;
-    LLGLSLShader* pbr_emissive_shader = nullptr;
-    LLGLSLShader* pbr_shader = nullptr;
+    LLHLSLShader* target_shader = nullptr;
+    LLHLSLShader* simple_shader = nullptr;
+    LLHLSLShader* fullbright_shader = nullptr;
+    LLHLSLShader* emissive_shader = nullptr;
+    LLHLSLShader* pbr_emissive_shader = nullptr;
+    LLHLSLShader* pbr_shader = nullptr;
 
     LLRender::eBlendFactor mColorSFactor = LLRender::BF_UNDEF;
     LLRender::eBlendFactor mColorDFactor = LLRender::BF_UNDEF;
@@ -66,7 +66,29 @@ namespace
     const F32 MINIMUM_ALPHA = 0.004f; // ~ 1/255
     const F32 MINIMUM_IMPOSTOR_ALPHA = 0.1f;
 
-    void prepare_alpha_shader(LLGLSLShader* shader, bool deferredEnvironment, F32 water_sign)
+    // S24 (alpha attachment-order fix, AYAstorm-derived, LGPL v2.1 - adopted
+    // per that project's public spec, explicitly released for free adoption
+    // by any LL-derived viewer fork, no PR required). Fixes a real bug also
+    // present in stock lldrawpoolalpha.cpp (which this file was ported from
+    // "exactly"): in POOL_ALPHA_POST_WATER, rigged content (hair) draws
+    // first and writes depth, so non-rigged alpha behind it (windows, lace,
+    // foliage) fails the depth test before its own fragment shader runs and
+    // reverts to raw skybox. A naive "swap the order" fix then breaks
+    // non-rigged AVATAR ATTACHMENTS specifically (eyelashes/eyebrows drawn
+    // before hair, over-blended into invisibility) - this 3-value filter,
+    // used to split the non-rigged pass into a SIM-only sub-pass and an
+    // attachment-only sub-pass either side of the rigged pass, is how
+    // AYAstorm's refined fix avoids that regression. See
+    // DXDrawPoolAlpha::renderPostDeferred()'s dispatch for the actual 3-pass
+    // sequence this enables.
+    enum AlphaAttachmentFilter
+    {
+        ATTACHMENT_ALL,   // default - every existing call site, unchanged behavior
+        ATTACHMENT_NONE,  // skip avatar-attachment content (SIM-only sub-pass)
+        ATTACHMENT_ONLY   // skip everything except avatar-attachment content
+    };
+
+    void prepare_alpha_shader(LLHLSLShader* shader, bool deferredEnvironment, F32 water_sign)
     {
         static LLCachedControl<F32> displayGamma(gSavedSettings, "RenderDeferredDisplayGamma");
         F32 gamma = displayGamma;
@@ -116,7 +138,7 @@ namespace
     // below (draw->mTextureList / draw->mTexture, the "not a real material"
     // branch every non-GLTF alpha face with no bound normal/spec map takes -
     // glass, plants, particles, hair, most everyday alpha content) used to
-    // bind unconditionally at gGL.getTexUnit(0)/getTexUnit(i), mirroring
+    // bind unconditionally at gDX.getTexUnit(0)/getTexUnit(i), mirroring
     // GL's own code verbatim. That's correct under GL - tex0's sampler
     // uniform is set to texture image unit 0 by convention regardless of
     // where in the GLSL source it's declared. It is NOT correct under
@@ -135,7 +157,7 @@ namespace
     // (not a gating/blend-state bug - every face WAS drawing, just
     // invisibly). Mirrors llshadermgr.cpp's exact kIndexedTexRegisterBase
     // formula so the two stay in lockstep.
-    S32 indexedTexRegisterBase(LLGLSLShader* shader)
+    S32 indexedTexRegisterBase(LLHLSLShader* shader)
     {
         return (shader && (shader->mFeatures.isDeferred || shader->mFeatures.hasReflectionProbes)) ? 5 : 0;
     }
@@ -149,15 +171,15 @@ namespace
             if (draw->mTextureMatrix)
             {
                 tex_setup = true;
-                gGL.getTexUnit(0)->activate();
-                gGL.matrixMode(LLRender::MM_TEXTURE);
-                gGL.loadMatrix((GLfloat*)draw->mTextureMatrix->mMatrix);
+                gDX.getTexUnit(0)->activate();
+                gDX.matrixMode(LLRender::MM_TEXTURE);
+                gDX.loadMatrix((GLfloat*)draw->mTextureMatrix->mMatrix);
                 gPipeline.mTextureMatrixOps++;
             }
         }
         else
         {
-            LLGLSLShader* current_shader = LLGLSLShader::sCurBoundShaderPtr;
+            LLHLSLShader* current_shader = LLHLSLShader::sCurBoundShaderPtr;
 
             if (!LLPipeline::sRenderingHUDs && use_material && current_shader)
             {
@@ -185,7 +207,7 @@ namespace
                 {
                     if (draw->mTextureList[i].notNull())
                     {
-                        gGL.getTexUnit(indexed_base + i)->bindFast(draw->mTextureList[i]);
+                        gDX.getTexUnit(indexed_base + i)->bindFast(draw->mTextureList[i]);
                     }
                     else
                     {
@@ -199,7 +221,7 @@ namespace
                         // pool runs) - found via a real reported symptom
                         // (alpha mesh showing a grey/black blend-pattern
                         // texture matching terrain's alpha_ramp look).
-                        gGL.getTexUnit(indexed_base + i)->unbindFast(LLTexUnit::TT_TEXTURE);
+                        gDX.getTexUnit(indexed_base + i)->unbindFast(LLTexUnit::TT_TEXTURE);
                     }
                 }
             }
@@ -213,21 +235,21 @@ namespace
                     }
                     else
                     {
-                        gGL.getTexUnit(indexed_base)->bindFast(draw->mTexture);
+                        gDX.getTexUnit(indexed_base)->bindFast(draw->mTexture);
                     }
 
                     if (draw->mTextureMatrix)
                     {
                         tex_setup = true;
-                        gGL.getTexUnit(0)->activate();
-                        gGL.matrixMode(LLRender::MM_TEXTURE);
-                        gGL.loadMatrix((GLfloat*)draw->mTextureMatrix->mMatrix);
+                        gDX.getTexUnit(0)->activate();
+                        gDX.matrixMode(LLRender::MM_TEXTURE);
+                        gDX.loadMatrix((GLfloat*)draw->mTextureMatrix->mMatrix);
                         gPipeline.mTextureMatrixOps++;
                     }
                 }
                 else
                 {
-                    gGL.getTexUnit(indexed_base)->unbindFast(LLTexUnit::TT_TEXTURE);
+                    gDX.getTexUnit(indexed_base)->unbindFast(LLTexUnit::TT_TEXTURE);
                 }
             }
         }
@@ -239,16 +261,16 @@ namespace
     {
         if (tex_setup)
         {
-            gGL.getTexUnit(0)->activate();
-            gGL.matrixMode(LLRender::MM_TEXTURE);
-            gGL.loadIdentity();
-            gGL.matrixMode(LLRender::MM_MODELVIEW);
+            gDX.getTexUnit(0)->activate();
+            gDX.matrixMode(LLRender::MM_TEXTURE);
+            gDX.loadIdentity();
+            gDX.matrixMode(LLRender::MM_MODELVIEW);
         }
     }
 
     void drawEmissive(LLDrawInfo* draw)
     {
-        LLGLSLShader::sCurBoundShaderPtr->uniform1f(LLShaderMgr::EMISSIVE_BRIGHTNESS, 1.f);
+        LLHLSLShader::sCurBoundShaderPtr->uniform1f(LLShaderMgr::EMISSIVE_BRIGHTNESS, 1.f);
         draw->mVertexBuffer->setBuffer();
         draw->mVertexBuffer->drawRange(LLRender::TRIANGLES, draw->mStart, draw->mEnd, draw->mCount, draw->mOffset);
     }
@@ -287,7 +309,7 @@ namespace
     void renderRiggedEmissives(std::vector<LLDrawInfo*>& emissives)
     {
         LLGLDepthTest depth(GL_TRUE, GL_FALSE); // disable depth writes since "emissive" is additive so sorting doesn't matter
-        LLGLSLShader* shader = emissive_shader->mRiggedVariant;
+        LLHLSLShader* shader = emissive_shader->mRiggedVariant;
         shader->bind();
         shader->uniform1f(LLShaderMgr::EMISSIVE_BRIGHTNESS, 1.f);
 
@@ -364,7 +386,7 @@ namespace
                             }
                         }
 
-                        gGL.diffuseColor4f(1, 0, 0, 1);
+                        gDX.diffuseColor4f(1, 0, 0, 1);
                         LLRenderPass::applyModelMatrix(params);
                         params.mVertexBuffer->setBuffer();
                         params.mVertexBuffer->drawRange(LLRender::TRIANGLES, params.mStart, params.mEnd, params.mCount, params.mOffset);
@@ -382,15 +404,15 @@ namespace
         if (LLDrawPoolAlpha::sShowDebugAlpha && !gCubeSnapshot && !LLPipeline::sReflectionRender)
         {
             gHighlightProgram.bind();
-            gGL.diffuseColor4f(1, 0, 0, 1);
-            gGL.getTexUnit(0)->bindFast(LLViewerFetchedTexture::getSmokeImage());
+            gDX.diffuseColor4f(1, 0, 0, 1);
+            gDX.getTexUnit(0)->bindFast(LLViewerFetchedTexture::getSmokeImage());
 
             renderAlphaHighlight();
 
             pool.pushUntexturedBatches(LLRenderPass::PASS_ALPHA_MASK);
             pool.pushUntexturedBatches(LLRenderPass::PASS_ALPHA_INVISIBLE);
 
-            gGL.diffuseColor4f(0, 0, 1, 1);
+            gDX.diffuseColor4f(0, 0, 1, 1);
             pool.pushUntexturedBatches(LLRenderPass::PASS_MATERIAL_ALPHA_MASK);
             pool.pushUntexturedBatches(LLRenderPass::PASS_NORMMAP_MASK);
             pool.pushUntexturedBatches(LLRenderPass::PASS_SPECMAP_MASK);
@@ -398,17 +420,17 @@ namespace
             pool.pushUntexturedBatches(LLRenderPass::PASS_FULLBRIGHT_ALPHA_MASK);
             pool.pushUntexturedBatches(LLRenderPass::PASS_GLTF_PBR_ALPHA_MASK);
 
-            gGL.diffuseColor4f(0, 1, 0, 1);
+            gDX.diffuseColor4f(0, 1, 0, 1);
             pool.pushUntexturedBatches(LLRenderPass::PASS_INVISIBLE);
 
             // S24 (2026-08-09, task #170): rigged half, ported directly.
             gHighlightProgram.mRiggedVariant->bind();
-            gGL.diffuseColor4f(1, 0, 0, 1);
+            gDX.diffuseColor4f(1, 0, 0, 1);
 
             pool.pushRiggedBatches(LLRenderPass::PASS_ALPHA_MASK_RIGGED, false);
             pool.pushRiggedBatches(LLRenderPass::PASS_ALPHA_INVISIBLE_RIGGED, false);
 
-            gGL.diffuseColor4f(0, 0, 1, 1);
+            gDX.diffuseColor4f(0, 0, 1, 1);
             pool.pushRiggedBatches(LLRenderPass::PASS_MATERIAL_ALPHA_MASK_RIGGED, false);
             pool.pushRiggedBatches(LLRenderPass::PASS_NORMMAP_MASK_RIGGED, false);
             pool.pushRiggedBatches(LLRenderPass::PASS_SPECMAP_MASK_RIGGED, false);
@@ -416,10 +438,10 @@ namespace
             pool.pushRiggedBatches(LLRenderPass::PASS_FULLBRIGHT_ALPHA_MASK_RIGGED, false);
             pool.pushRiggedBatches(LLRenderPass::PASS_GLTF_PBR_ALPHA_MASK_RIGGED, false);
 
-            gGL.diffuseColor4f(0, 1, 0, 1);
+            gDX.diffuseColor4f(0, 1, 0, 1);
             pool.pushRiggedBatches(LLRenderPass::PASS_INVISIBLE_RIGGED, false);
 
-            LLGLSLShader::sCurBoundShaderPtr->unbind();
+            LLHLSLShader::sCurBoundShaderPtr->unbind();
         }
     }
 
@@ -433,7 +455,7 @@ namespace
     // vertex-layout wall (task #168) and POOL_AVATAR whitelist (task #169)
     // were necessary but not sufficient; rigged batches never reached a
     // draw call at all until now.
-    void renderAlpha(LLDrawPoolAlpha& pool, U32 mask, bool depth_only, bool rigged)
+    void renderAlpha(LLDrawPoolAlpha& pool, U32 mask, bool depth_only, bool rigged, AlphaAttachmentFilter filter = ATTACHMENT_ALL)
     {
         LL_PROFILE_ZONE_SCOPED_CATEGORY_DRAWPOOL;
         bool initialized_lighting = false;
@@ -441,7 +463,7 @@ namespace
 
         const LLVOAvatar* lastAvatar = nullptr;
         U64 lastMeshId = 0;
-        const LLGLSLShader* lastAvatarShader = nullptr;
+        const LLHLSLShader* lastAvatarShader = nullptr;
         bool skipLastSkin = false;
 
         LLCullResult::sg_iterator begin;
@@ -522,6 +544,18 @@ namespace
                         continue;
                     }
 
+                    // S24 (alpha attachment-order fix) - see this file's
+                    // AlphaAttachmentFilter comment. No-op when filter is
+                    // the default ATTACHMENT_ALL.
+                    if (filter == ATTACHMENT_NONE && params.mAttachedToAvatar)
+                    {
+                        continue;
+                    }
+                    if (filter == ATTACHMENT_ONLY && !params.mAttachedToAvatar)
+                    {
+                        continue;
+                    }
+
                     LLRenderPass::applyModelMatrix(params);
 
                     LLMaterial* mat = nullptr;
@@ -537,7 +571,7 @@ namespace
                             target_shader = target_shader->mRiggedVariant;
                         }
 
-                        if (LLGLSLShader::sCurBoundShaderPtr != target_shader)
+                        if (LLHLSLShader::sCurBoundShaderPtr != target_shader)
                         {
                             gPipeline.bindDeferredShaderFast(*target_shader);
                         }
@@ -589,7 +623,7 @@ namespace
                             target_shader = target_shader->mRiggedVariant;
                         }
 
-                        if (LLGLSLShader::sCurBoundShaderPtr != target_shader)
+                        if (LLHLSLShader::sCurBoundShaderPtr != target_shader)
                         {
                             gPipeline.bindDeferredShaderFast(*target_shader);
 
@@ -598,7 +632,7 @@ namespace
                                 S32 channel = target_shader->enableTexture(LLShaderMgr::EXPOSURE_MAP);
                                 if (channel > -1)
                                 {
-                                    gGL.getTexUnit(channel)->bind(&gPipeline.mExposureMap);
+                                    gDX.getTexUnit(channel)->bind(&gPipeline.mExposureMap);
                                 }
                             }
                         }
@@ -614,11 +648,11 @@ namespace
                             brightness = params.mFullbright ? 1.f : 0.f;
                         }
 
-                        if (LLGLSLShader::sCurBoundShaderPtr)
+                        if (LLHLSLShader::sCurBoundShaderPtr)
                         {
-                            LLGLSLShader::sCurBoundShaderPtr->uniform4f(LLShaderMgr::SPECULAR_COLOR, spec_color.mV[VRED], spec_color.mV[VGREEN], spec_color.mV[VBLUE], spec_color.mV[VALPHA]);
-                            LLGLSLShader::sCurBoundShaderPtr->uniform1f(LLShaderMgr::ENVIRONMENT_INTENSITY, env_intensity);
-                            LLGLSLShader::sCurBoundShaderPtr->uniform1f(LLShaderMgr::EMISSIVE_BRIGHTNESS, brightness);
+                            LLHLSLShader::sCurBoundShaderPtr->uniform4f(LLShaderMgr::SPECULAR_COLOR, spec_color.mV[VRED], spec_color.mV[VGREEN], spec_color.mV[VBLUE], spec_color.mV[VALPHA]);
+                            LLHLSLShader::sCurBoundShaderPtr->uniform1f(LLShaderMgr::ENVIRONMENT_INTENSITY, env_intensity);
+                            LLHLSLShader::sCurBoundShaderPtr->uniform1f(LLShaderMgr::EMISSIVE_BRIGHTNESS, brightness);
                         }
                     }
 
@@ -632,14 +666,14 @@ namespace
                     bool tex_setup = texSetup(&params, (mat != nullptr));
 
                     {
-                        gGL.blendFunc((LLRender::eBlendFactor)params.mBlendFuncSrc, (LLRender::eBlendFactor)params.mBlendFuncDst, mAlphaSFactor, mAlphaDFactor);
+                        gDX.blendFunc((LLRender::eBlendFactor)params.mBlendFuncSrc, (LLRender::eBlendFactor)params.mBlendFuncDst, mAlphaSFactor, mAlphaDFactor);
 
                         bool reset_minimum_alpha = false;
                         if (!LLPipeline::sImpostorRender &&
                             params.mBlendFuncDst != LLRender::BF_SOURCE_ALPHA &&
                             params.mBlendFuncSrc != LLRender::BF_SOURCE_ALPHA)
                         {
-                            LLGLSLShader::sCurBoundShaderPtr->setMinimumAlpha(0.f);
+                            LLHLSLShader::sCurBoundShaderPtr->setMinimumAlpha(0.f);
                             reset_minimum_alpha = true;
                         }
 
@@ -648,7 +682,7 @@ namespace
 
                         if (reset_minimum_alpha)
                         {
-                            LLGLSLShader::sCurBoundShaderPtr->setMinimumAlpha(MINIMUM_ALPHA);
+                            LLHLSLShader::sCurBoundShaderPtr->setMinimumAlpha(MINIMUM_ALPHA);
                         }
                     }
 
@@ -681,10 +715,10 @@ namespace
 
                     if (tex_setup)
                     {
-                        gGL.getTexUnit(0)->activate();
-                        gGL.matrixMode(LLRender::MM_TEXTURE);
-                        gGL.loadIdentity();
-                        gGL.matrixMode(LLRender::MM_MODELVIEW);
+                        gDX.getTexUnit(0)->activate();
+                        gDX.matrixMode(LLRender::MM_TEXTURE);
+                        gDX.loadIdentity();
+                        gDX.matrixMode(LLRender::MM_MODELVIEW);
                     }
                 }
 
@@ -695,10 +729,10 @@ namespace
                     // install glow-accumulating blend mode - see
                     // dxdrawpoolalpha.h class comment for the separate-
                     // alpha-factor documented gap this call runs into.
-                    gGL.blendFunc(LLRender::BF_ZERO, LLRender::BF_ONE, LLRender::BF_ONE, LLRender::BF_ONE);
+                    gDX.blendFunc(LLRender::BF_ZERO, LLRender::BF_ONE, LLRender::BF_ONE, LLRender::BF_ONE);
 
                     bool rebind = false;
-                    LLGLSLShader* lastShader = LLGLSLShader::sCurBoundShaderPtr;
+                    LLHLSLShader* lastShader = LLHLSLShader::sCurBoundShaderPtr;
                     if (!emissives.empty())
                     {
                         light_enabled = true;
@@ -727,7 +761,7 @@ namespace
                         rebind = true;
                     }
 
-                    gGL.blendFunc(mColorSFactor, mColorDFactor, mAlphaSFactor, mAlphaDFactor);
+                    gDX.blendFunc(mColorSFactor, mColorDFactor, mAlphaSFactor, mAlphaDFactor);
 
                     if (lastShader && rebind)
                     {
@@ -737,7 +771,7 @@ namespace
             }
         }
 
-        gGL.setSceneBlendType(LLRender::BT_ALPHA);
+        gDX.setSceneBlendType(LLRender::BT_ALPHA);
 
         LLVertexBuffer::unbind();
 
@@ -749,12 +783,12 @@ namespace
 
     // S24 (2026-08-09, task #170): now takes `rigged`, matching
     // lldrawpoolalpha.cpp's forwardRender(bool rigged) exactly.
-    void forwardRender(LLDrawPoolAlpha& pool, bool rigged)
+    void forwardRender(LLDrawPoolAlpha& pool, bool rigged, AlphaAttachmentFilter filter = ATTACHMENT_ALL)
     {
         gPipeline.enableLightsDynamic();
 
         LLGLSPipelineAlpha gls_pipeline_alpha;
-        gGL.setColorMask(true, true);
+        gDX.setColorMask(true, true);
 
         bool write_depth = rigged
             || LLDrawPoolWater::sSkipScreenCopy
@@ -767,7 +801,7 @@ namespace
         mColorDFactor = LLRender::BF_ONE_MINUS_SOURCE_ALPHA;
         mAlphaSFactor = LLRender::BF_ZERO;
         mAlphaDFactor = LLRender::BF_ONE_MINUS_SOURCE_ALPHA;
-        gGL.blendFunc(mColorSFactor, mColorDFactor, mAlphaSFactor, mAlphaDFactor);
+        gDX.blendFunc(mColorSFactor, mColorDFactor, mAlphaSFactor, mAlphaDFactor);
 
         if (rigged && pool.getType() == LLDrawPool::POOL_ALPHA_POST_WATER)
         { // draw GLTF scene to depth buffer before rigged alpha
@@ -777,9 +811,9 @@ namespace
             LL::GLTFSceneManager::instance().render(false, true, true);
         }
 
-        renderAlpha(pool, pool.getVertexDataMask() | LLVertexBuffer::MAP_TEXTURE_INDEX | LLVertexBuffer::MAP_TANGENT | LLVertexBuffer::MAP_TEXCOORD1 | LLVertexBuffer::MAP_TEXCOORD2, false, rigged);
+        renderAlpha(pool, pool.getVertexDataMask() | LLVertexBuffer::MAP_TEXTURE_INDEX | LLVertexBuffer::MAP_TANGENT | LLVertexBuffer::MAP_TEXCOORD1 | LLVertexBuffer::MAP_TEXCOORD2, false, rigged, filter);
 
-        gGL.setColorMask(true, false);
+        gDX.setColorMask(true, false);
 
         if (!rigged && (LLPipeline::sRenderingHUDs || pool.getType() == LLDrawPool::POOL_ALPHA_POST_WATER))
         {
@@ -831,7 +865,7 @@ void DXDrawPoolAlpha::renderPostDeferred(LLDrawPoolAlpha& pool, S32 pass)
 
     prepare_alpha_shader(simple_shader, true, water_sign);
 
-    LLGLSLShader* materialShader = gDeferredMaterialProgram;
+    LLHLSLShader* materialShader = gDeferredMaterialProgram;
     for (int i = 0; i < LLMaterial::SHADER_COUNT * 2; ++i)
     {
         prepare_alpha_shader(&materialShader[i], true, water_sign);
@@ -846,9 +880,9 @@ void DXDrawPoolAlpha::renderPostDeferred(LLDrawPoolAlpha& pool, S32 pass)
     // S24 (2026-08-22, plan item D2 - investigated, reverted): a proposed
     // "structural fix" here (reset sCurBoundShaderPtr instead of the
     // explicit bindReflectionProbes call below) turned out to be built on a
-    // mechanism that doesn't hold up: LLGLSLShader::unbind() (called a few
+    // mechanism that doesn't hold up: LLHLSLShader::unbind() (called a few
     // lines below, before the real draw loop) already sets
-    // sCurBoundShaderPtr = nullptr under DX_RENDER (llglslshader.cpp:1385),
+    // sCurBoundShaderPtr = nullptr under DX_RENDER (llhlslshader.cpp:1385),
     // so the dedup-cache-poisoning theory doesn't actually explain why the
     // explicit call below was needed. Since that explicit call is a live,
     // confirmed fix for a real bug ("glass floor shows zero reflections"),
@@ -878,18 +912,44 @@ void DXDrawPoolAlpha::renderPostDeferred(LLDrawPoolAlpha& pool, S32 pass)
         gPipeline.bindReflectionProbes(*pbr_shader);
     }
 
-    LLGLSLShader::unbind();
+    LLHLSLShader::unbind();
 
     // S24 (2026-08-09, task #170): first pass, render rigged objects only
     // and render to depth buffer - matches lldrawpoolalpha.cpp's
     // renderPostDeferred() exactly. Was skipped entirely before the
     // vertex-layout wall (task #168) was fixed.
-    if (!LLPipeline::sRenderingHUDs)
+    if (LLPipeline::sRenderingHUDs)
     {
-        forwardRender(pool, true);
+        // unchanged - HUDs never ran a rigged pass here anyway
+        forwardRender(pool, false);
     }
-
-    forwardRender(pool, false);
+    else if (pool.getType() == LLDrawPool::POOL_ALPHA_POST_WATER)
+    {
+        // S24 (2026-08-30, task #155, AYAstorm-derived alpha attachment-
+        // order fix, LGPL v2.1, adopted per their public spec's explicit
+        // "free adoption, no PR required" terms) - rigged content (hair)
+        // drawing+depth-writing before non-rigged alpha behind it (windows,
+        // lace, foliage) was causing that content to fail the depth test
+        // and revert to raw skybox instead of blending. Splitting into 3
+        // sub-passes (SIM non-rigged, then all rigged, then avatar-
+        // attachment non-rigged) fixes that without the eyelash/eyebrow-
+        // attachment regression AYAstorm's first, simpler 2-pass reorder
+        // attempt hit (rigid non-skinned attachments have no mAvatar/
+        // skinInfo, so they need their own late sub-pass via the broader
+        // mAttachedToAvatar discriminator, not mAvatar). Does NOT fix the
+        // original dome/glass-pane intra-mesh per-triangle sort bug (task
+        // #155's WBOIT attempt, abandoned/reverted) - different bug.
+        forwardRender(pool, false, ATTACHMENT_NONE); // SIM non-rigged first
+        forwardRender(pool, true);                    // all rigged (depth-writing)
+        forwardRender(pool, false, ATTACHMENT_ONLY);  // avatar-attachment non-rigged last
+    }
+    else
+    {
+        // PRE_WATER: unchanged original order (AYAstorm's own spec scopes
+        // their fix to POST_WATER only, for water-fog integrity reasons)
+        forwardRender(pool, true);
+        forwardRender(pool, false);
+    }
 
     if (!LLPipeline::sImpostorRender && LLPipeline::RenderDepthOfField && !gCubeSnapshot && !LLPipeline::sRenderingHUDs && pool.getType() == LLDrawPool::POOL_ALPHA_POST_WATER)
     {
@@ -898,11 +958,11 @@ void DXDrawPoolAlpha::renderPostDeferred(LLDrawPoolAlpha& pool, S32 pass)
         simple_shader->bind();
         simple_shader->setMinimumAlpha(0.33f);
 
-        gGL.setColorMask(false, false);
+        gDX.setColorMask(false, false);
 
         renderAlpha(pool, pool.getVertexDataMask() | LLVertexBuffer::MAP_TEXTURE_INDEX | LLVertexBuffer::MAP_TANGENT | LLVertexBuffer::MAP_TEXCOORD1 | LLVertexBuffer::MAP_TEXCOORD2,
             true, false);
 
-        gGL.setColorMask(true, false);
+        gDX.setColorMask(true, false);
     }
 }

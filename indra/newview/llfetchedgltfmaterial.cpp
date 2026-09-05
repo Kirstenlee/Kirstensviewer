@@ -67,7 +67,7 @@ void LLFetchedGLTFMaterial::bind(LLViewerTexture* media_tex)
     // mAlphaCutoff is only valid for LLGLTFMaterial::ALPHA_MODE_MASK
     F32 min_alpha = -1.0;
 
-    LLGLSLShader* shader = LLGLSLShader::sCurBoundShaderPtr;
+    LLHLSLShader* shader = LLHLSLShader::sCurBoundShaderPtr;
 
     // override emissive and base color textures with media tex if present
     LLViewerTexture* baseColorTex = media_tex ? media_tex : mBaseColorTexture;

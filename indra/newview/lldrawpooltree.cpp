@@ -41,7 +41,7 @@
 #include "llenvironment.h"
 
 S32 LLDrawPoolTree::sDiffTex = 0;
-static LLGLSLShader* shader = NULL;
+static LLHLSLShader* shader = NULL;
 
 LLDrawPoolTree::LLDrawPoolTree(LLViewerTexture *texturep) :
     LLFacePool(POOL_TREE),
@@ -71,7 +71,7 @@ void LLDrawPoolTree::renderDeferred(S32 pass)
     }
 
 
-    gGL.getTexUnit(sDiffTex)->bindFast(mTexturep);
+    gDX.getTexUnit(sDiffTex)->bindFast(mTexturep);
     mTexturep->addTextureStats(1024.f * 1024.f); // <=== keep Linden tree textures at full res
 
     for (std::vector<LLFace*>::iterator iter = mDrawFace.begin();
@@ -84,7 +84,7 @@ void LLDrawPoolTree::renderDeferred(S32 pass)
         {
             LLMatrix4* model_matrix = &(face->getDrawable()->getRegion()->mRenderMatrix);
 
-            llassert(gGL.getMatrixMode() == LLRender::MM_MODELVIEW);
+            llassert(gDX.getMatrixMode() == LLRender::MM_MODELVIEW);
             LLRenderPass::applyModelMatrix(model_matrix);
 
             buff->setBuffer();
@@ -108,10 +108,10 @@ void LLDrawPoolTree::beginShadowPass(S32 pass)
 
     static LLCachedControl<F32> shadow_offset(gSavedSettings, "RenderDeferredTreeShadowOffset");
     static LLCachedControl<F32> shadow_bias(gSavedSettings, "RenderDeferredTreeShadowBias");
-    // S24 (2026-08-28, task #242): gGL.setPolygonOffset() - this pool has no
+    // S24 (2026-08-28, task #242): gDX.setPolygonOffset() - this pool has no
     // DX* counterpart (LLDrawPoolTree is used under both backends), so this
     // was a real, reachable-under-DX_RENDER no-op, not superseded/dead code.
-    gGL.setPolygonOffset(shadow_offset(), shadow_bias());
+    gDX.setPolygonOffset(shadow_offset(), shadow_bias());
 
     LLEnvironment& environment = LLEnvironment::instance();
 
@@ -129,11 +129,11 @@ void LLDrawPoolTree::endShadowPass(S32 pass)
 {
     static LLCachedControl<F32> spot_shadow_offset(gSavedSettings, "RenderDeferredSpotShadowOffset");
     static LLCachedControl<F32> spot_shadow_bias(gSavedSettings, "RenderDeferredSpotShadowBias");
-    // S24 (2026-08-28, task #242): gGL.setPolygonOffset(), see beginShadowPass()'s
+    // S24 (2026-08-28, task #242): gDX.setPolygonOffset(), see beginShadowPass()'s
     // comment. S24 (2026-08-28, perf sweep): was a raw gSavedSettings lookup,
     // sibling of the same fix beginShadowPass() already got - converted to
     // LLCachedControl, same reasoning.
-    gGL.setPolygonOffset(spot_shadow_offset(), spot_shadow_bias());
+    gDX.setPolygonOffset(spot_shadow_offset(), spot_shadow_bias());
     gDeferredTreeShadowProgram.unbind();
 }
 

@@ -377,7 +377,7 @@ PreviewSphere& get_preview_sphere(LLPointer<LLFetchedGLTFMaterial>& material, co
 }
 
 // Final, direct modifications to shader constants, just before render
-void fixup_shader_constants(LLGLSLShader& shader)
+void fixup_shader_constants(LLHLSLShader& shader)
 {
     // Sunlight intensity of 0 no matter what
     shader.uniform1i(LLShaderMgr::SUN_UP_FACTOR, 1);
@@ -390,7 +390,7 @@ void fixup_shader_constants(LLGLSLShader& shader)
         const S32 channel = shader.getTextureChannel(LLShaderMgr::DEFERRED_SHADOW0+i);
         if (channel != -1)
         {
-            gGL.getTexUnit(channel)->bind(LLViewerFetchedTexture::sWhiteImagep, true);
+            gDX.getTexUnit(channel)->bind(LLViewerFetchedTexture::sWhiteImagep, true);
         }
     }
 }
@@ -474,7 +474,7 @@ bool LLGLTFPreviewTexture::render()
     // Override lights to ensure the sun is always shining from a certain direction (low graphics)
     // See also force_sun_direction_high_graphics and fixup_shader_constants
     {
-        LLLightState* light = gGL.getLight(0);
+        LLLightState* light = gDX.getLight(0);
         light->setPosition(light_dir);
         constexpr bool sun_up = true;
         light->setSunPrimary(sun_up);
@@ -498,7 +498,7 @@ bool LLGLTFPreviewTexture::render()
         screen.bindTarget();
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        LLGLSLShader& shader = gDeferredPBRAlphaProgram;
+        LLHLSLShader& shader = gDeferredPBRAlphaProgram;
 
         gPipeline.bindDeferredShader(shader);
         fixup_shader_constants(shader);

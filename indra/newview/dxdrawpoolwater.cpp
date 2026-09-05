@@ -43,7 +43,7 @@ void DXDrawPoolWater::beginPostDeferredPass(LLDrawPoolWater& pool, S32 pass)
 {
     (void)pass;
     LL_PROFILE_GPU_ZONE("water beginPostDeferredPass");
-    gGL.setColorMask(true, true);
+    gDX.setColorMask(true, true);
 
     if (LLPipeline::sRenderTransparentWater)
     {
@@ -61,8 +61,8 @@ void DXDrawPoolWater::beginPostDeferredPass(LLDrawPoolWater& pool, S32 pass)
         S32 diff_map = gCopyDepthProgram.getTextureChannel(LLShaderMgr::DIFFUSE_MAP);
         S32 depth_map = gCopyDepthProgram.getTextureChannel(LLShaderMgr::DEFERRED_DEPTH);
 
-        gGL.getTexUnit(diff_map)->bind(&src);
-        gGL.getTexUnit(depth_map)->bind(&depth_src, true);
+        gDX.getTexUnit(diff_map)->bind(&src);
+        gDX.getTexUnit(depth_map)->bind(&depth_src, true);
 
         gPipeline.mScreenTriangleVB->setBuffer();
         gPipeline.mScreenTriangleVB->drawArrays(LLRender::TRIANGLES, 0, 3);
@@ -83,7 +83,7 @@ void DXDrawPoolWater::renderPostDeferred(LLDrawPoolWater& pool, S32 pass)
 
     LLGLDisable blend(GL_BLEND);
 
-    gGL.setColorMask(true, true);
+    gDX.setColorMask(true, true);
 
     LLColor3 light_diffuse(0, 0, 0);
 
@@ -124,7 +124,7 @@ void DXDrawPoolWater::renderPostDeferred(LLDrawPoolWater& pool, S32 pass)
     // S24 Advanced - Apply wave animation speed multiplier
     static LLCachedControl<F32> water_wave_speed(gSavedSettings, "RenderWaterWaveSpeed", 1.0f);
     F32           phase_time = (F32) LLFrameTimer::getElapsedSeconds() * 0.5f * llmax(0.0f, (F32)water_wave_speed);
-    LLGLSLShader *shader     = nullptr;
+    LLHLSLShader *shader     = nullptr;
 
     // select shader - see lldrawpoolwater.cpp's comment (Geenz 2025-02-11):
     // one pass now, void/region water share the same shader.
@@ -167,9 +167,9 @@ void DXDrawPoolWater::renderPostDeferred(LLDrawPoolWater& pool, S32 pass)
         tex_b->setFilteringOption(filter_mode);
     }
 
-    // S24 (2026-08-04): both of these go through LLGLSLShader::bindTexture
+    // S24 (2026-08-04): both of these go through LLHLSLShader::bindTexture
     // (S32, LLRenderTarget*, ...) - was a hardcoded DX_RENDER no-op before
-    // this conversion, fixed in llglslshader.cpp (see dxdrawpoolwater.h's
+    // this conversion, fixed in llhlslshader.cpp (see dxdrawpoolwater.h's
     // comment).
     shader->bindTexture(LLShaderMgr::WATER_EXCLUSIONTEX, &gPipeline.mWaterExclusionMask);
 
@@ -287,5 +287,5 @@ void DXDrawPoolWater::renderPostDeferred(LLDrawPoolWater& pool, S32 pass)
     // clean up
     gPipeline.unbindDeferredShader(*shader);
 
-    gGL.setColorMask(true, false);
+    gDX.setColorMask(true, false);
 }

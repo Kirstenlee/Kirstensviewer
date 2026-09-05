@@ -73,7 +73,7 @@ S32 LLViewerTextureList::sNumImages = 0;
 
 LLViewerTextureList gTextureList;
 
-extern LLGLSLShader gCopyProgram;
+extern LLHLSLShader gCopyProgram;
 
 ETexListType get_element_type(S32 priority)
 {
@@ -937,6 +937,23 @@ void LLViewerTextureList::updateImages(F32 max_time)
     // allocator - replaces the old discard-bias pressure ramp. Runs on its own
     // coarse timer, not every frame - see runVRAMBudgetAllocation()'s own
     // comment for why ~0.5s is the right cadence.
+    //
+    // S24 (eviction tuning, 2026-08-29): a pressure-adaptive faster cadence
+    // (down to 0.1s once usage crossed the soft-pressure line) was tried and
+    // REVERTED after live testing. runVRAMBudgetAllocation() unconditionally
+    // resets every texture's forced floor and recomputes fresh every single
+    // call (needed for correctness - see its own comment on why a gated
+    // reset caused textures to get permanently stuck) - under sustained
+    // pressure the same least-important candidates get relaxed and
+    // immediately re-cut on every call, which is real work (potential
+    // refetch/recreate on relax, an mDownScaleQueue entry on re-cut), not
+    // free bookkeeping. Running that 5x more often multiplied a CPU/driver-
+    // side churn cost that was already present at 0.5s - symptom was low,
+    // spiky GPU utilization with fps collapsing into the teens (CPU/driver-
+    // bound, not GPU-bound). Fixed cadence only for now; a real fix for slow
+    // reaction under sudden demand spikes would need to break the relax/
+    // re-cut coupling itself (e.g. genuine per-texture hysteresis) rather
+    // than just calling the same coupled cycle more often.
     {
         static LLCachedControl<F32> vram_alloc_interval(gSavedSettings, "RenderVRAMAllocationIntervalSeconds", 0.5f);
 
@@ -1248,6 +1265,34 @@ void LLViewerTextureList::runVRAMBudgetAllocation()
     // eviction-candidate struct caching its LLImageGL* so the cut loop below
     // never re-derives it. Some of this trades readability for it - see
     // task #258 resolution notes if this needs revisiting.
+    // S24 (eviction tuning, follow-up to task #258): a triggered cut now aims
+    // down to a SOFT target (sVRAMAllocatorSoftTargetMegabytes) instead of
+    // landing exactly on the hard budget line, so a pass leaves real
+    // headroom rather than guaranteeing the very next texture request
+    // re-triggers another cut.
+    //
+    // REVERTED (same session, live-tested): this used to also carry a
+    // second, emergency-only tier admitting OTHER avatars' baked textures
+    // into the candidate pool when tier 1 alone couldn't clear the hard
+    // line. Root cause of the live regression: a busy/crowded scene can hand
+    // that tier dozens-to-hundreds of candidates in a SINGLE pass, and every
+    // one of them funnels into the pre-existing gTextureList.mDownScaleQueue
+    // drain (this same file, updateImagesCreateTextures() below) - whose
+    // "severe pressure" floor deliberately ignores its own max_time budget
+    // to guarantee forward progress on a backlog (see that code's own
+    // comment). That guarantee was tuned for the ordinary, much smaller
+    // BOOST_NONE backlogs a camera swing produces, not a whole crowd's
+    // avatar bakes landing at once - the result was a burst of synchronous
+    // CopySubresourceRegion calls holding the D3D11 immediate context (CPU
+    // locked waiting on real PCIe transfers) for tens of ms, which both
+    // shows up directly as a frametime spike/rubberbanding AND starves the
+    // sibling new-texture-creation loop sharing the same function, so
+    // regular nearby objects sat un-created (grey placeholder) the whole
+    // time. A real fix needs the emergency tier to be queue-aware (capped by
+    // how much mDownScaleQueue/its drain can absorb per interval, checking
+    // mDownScalePending before re-selecting) - not attempted blind here;
+    // avatar-baked textures are back to being fully exempt from eviction,
+    // same as before this task, until that's built properly.
     struct Candidate
     {
         LLViewerLODTexture* tex;
@@ -1266,10 +1311,21 @@ void LLViewerTextureList::runVRAMBudgetAllocation()
     for (auto& entry : mUUIDMap)
     {
         LLViewerFetchedTexture* imagep = entry.second;
-        // Clean slate every pass - no persistent drift between passes, unlike
-        // the old ramp's accumulated state. Unconditional/branchless on
-        // purpose - imagep is already being touched by the checks below, so
-        // a predictable store here is cheaper than a load+branch to skip it.
+        // S24 (eviction tuning): REVERTED (2026-08-29, live-tested) a
+        // has_slack-gated version of this reset that only relaxed a forced
+        // floor back to natural once usage dropped below the soft target,
+        // carrying a cut forward otherwise as a thrash guard. Real bug: in a
+        // genuinely busy area usage can sit above the soft target
+        // continuously for as long as you're there, and the cut loop below
+        // only ever RAISES a floor for whatever it selects this pass - it
+        // never clears one for a texture that's fallen out of the "needs
+        // cutting" set (e.g. you walked up to it and it's now high-priority),
+        // so a texture cut once could get stuck at that floor indefinitely,
+        // visibly never recovering even sitting right in front of the
+        // camera. Back to an unconditional reset every pass (the original
+        // task #258 baseline) - the soft-margin cut (below) already reduces
+        // how often a cut triggers at all, a safer way to cut down on thrash
+        // than freezing floors on whatever got cut once.
         imagep->setVRAMForcedDiscardLevel(-1);
 
         // Cheapest-first ordering: plain field reads, then non-virtual inline
@@ -1279,10 +1335,12 @@ void LLViewerTextureList::runVRAMBudgetAllocation()
         if (imagep->mMaxVirtualSize <= 0.f) continue; // already forced near-minimal elsewhere
         // BOOST_NONE only, not "< BOOST_HIGH": processTextureStats()'s own
         // scaleDown() gate is `mBoostLevel < LLGLTexture::BOOST_AVATAR_BAKED`
-        // (BOOST_NONE=0, BOOST_AVATAR_BAKED=1) - only BOOST_NONE textures ever
+        // (BOOST_NONE=0, BOOST_AVATAR_BAKED=2) - only BOOST_NONE textures ever
         // actually get scaled down today. Forcing a floor on baked/terrain
         // textures would be a silent no-op, so exclude them from the
         // candidate set entirely rather than compute a cut that can't apply.
+        // (Was briefly relaxed for an emergency avatar-eviction tier this
+        // same session - reverted, see this function's header comment.)
         if (imagep->getBoostLevel() != LLGLTexture::BOOST_NONE) continue;
         if (!imagep->getUseDiscard()) continue; // covers mDontDiscard/!mUseMipMaps
         if (imagep->getType() != LLViewerTexture::LOD_TEXTURE) continue;
@@ -1296,8 +1354,8 @@ void LLViewerTextureList::runVRAMBudgetAllocation()
         // atomic signal for exactly this window (see
         // LLViewerFetchedTexture::isCreateTexturePending()'s comment) - skip
         // outright rather than read fields that may be torn mid-write; this
-        // texture is re-evaluated on the very next ~0.5s pass once creation
-        // has completed and handed back to the main thread. This was the
+        // texture is re-evaluated on the very next pass once creation has
+        // completed and handed back to the main thread. This was the
         // confirmed root cause of task #260's CTD under
         // RenderDXMultiThreadedTextures.
         if (imagep->isCreateTexturePending()) continue;
@@ -1326,13 +1384,17 @@ void LLViewerTextureList::runVRAMBudgetAllocation()
 
     // Least important first (lowest mMaxVirtualSize = least important - same
     // ordering LLViewerFetchedTexture::Compare already uses elsewhere).
-    std::sort(candidates.begin(), candidates.end(),
-        [](const Candidate& a, const Candidate& b)
-        {
-            return a.tex->mMaxVirtualSize < b.tex->mMaxVirtualSize;
-        });
+    auto by_virtual_size = [](const Candidate& a, const Candidate& b)
+    {
+        return a.tex->mMaxVirtualSize < b.tex->mMaxVirtualSize;
+    };
+    std::sort(candidates.begin(), candidates.end(), by_virtual_size);
 
-    S64 over = total_desired_bytes - budget_bytes;
+    const S64 soft_bytes = (S64)(LLViewerTexture::sVRAMAllocatorSoftTargetMegabytes * 1024.0 * 1024.0);
+
+    // Tier 1: cut ordinary object/prim textures down toward the SOFT target,
+    // not just under the hard budget - real margin on every triggered pass.
+    S64 over = total_desired_bytes - soft_bytes;
     U32 cut_count = 0;
     for (auto& c : candidates)
     {
@@ -1456,7 +1518,7 @@ F32 LLViewerTextureList::updateImagesCreateTextures(F32 max_time)
     {
 #ifndef DX_RENDER
         LLGLDisable blend(GL_BLEND);
-        gGL.setColorMask(true, true);
+        gDX.setColorMask(true, true);
 
         // just in case we downres textures, bind downresmap and copy program
         gPipeline.mDownResMap.bindTarget();

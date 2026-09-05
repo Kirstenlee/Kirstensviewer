@@ -165,7 +165,7 @@ void LLDrawPoolMaterials::renderDeferred(S32 pass)
     LLTexture* lastSpecMap = nullptr;
     LLTexture* lastDiffuse = nullptr;
 
-    gGL.getTexUnit(diffuseChannel)->unbindFast(LLTexUnit::TT_TEXTURE);
+    gDX.getTexUnit(diffuseChannel)->unbindFast(LLTexUnit::TT_TEXTURE);
 
     if (intensity > -1)
     {
@@ -226,14 +226,14 @@ void LLDrawPoolMaterials::renderDeferred(S32 pass)
         {
             lastNormalMap = params.mNormalMap;
             llassert(lastNormalMap);
-            gGL.getTexUnit(normChannel)->bindFast(lastNormalMap);
+            gDX.getTexUnit(normChannel)->bindFast(lastNormalMap);
         }
 
         if (specChannel > -1 && params.mSpecularMap != lastSpecMap)
         {
             lastSpecMap = params.mSpecularMap;
             llassert(lastSpecMap);
-            gGL.getTexUnit(specChannel)->bindFast(lastSpecMap);
+            gDX.getTexUnit(specChannel)->bindFast(lastSpecMap);
         }
 
         if (params.mTexture != lastDiffuse)
@@ -241,11 +241,11 @@ void LLDrawPoolMaterials::renderDeferred(S32 pass)
             lastDiffuse = params.mTexture;
             if (lastDiffuse)
             {
-                gGL.getTexUnit(diffuseChannel)->bindFast(lastDiffuse);
+                gDX.getTexUnit(diffuseChannel)->bindFast(lastDiffuse);
             }
             else
             {
-                gGL.getTexUnit(diffuseChannel)->unbindFast(LLTexUnit::TT_TEXTURE);
+                gDX.getTexUnit(diffuseChannel)->unbindFast(LLTexUnit::TT_TEXTURE);
             }
         }
 
@@ -265,10 +265,10 @@ void LLDrawPoolMaterials::renderDeferred(S32 pass)
         //not batching textures or batch has only 1 texture -- might need a texture matrix
         if (params.mTextureMatrix)
         {
-            gGL.getTexUnit(0)->activate();
-            gGL.matrixMode(LLRender::MM_TEXTURE);
+            gDX.getTexUnit(0)->activate();
+            gDX.matrixMode(LLRender::MM_TEXTURE);
 
-            gGL.loadMatrix((GLfloat*)params.mTextureMatrix->mMatrix);
+            gDX.loadMatrix((GLfloat*)params.mTextureMatrix->mMatrix);
             gPipeline.mTextureMatrixOps++;
 
             tex_setup = true;
@@ -284,9 +284,9 @@ void LLDrawPoolMaterials::renderDeferred(S32 pass)
 
         if (tex_setup)
         {
-            gGL.getTexUnit(0)->activate();
-            gGL.loadIdentity();
-            gGL.matrixMode(LLRender::MM_MODELVIEW);
+            gDX.getTexUnit(0)->activate();
+            gDX.loadIdentity();
+            gDX.matrixMode(LLRender::MM_MODELVIEW);
         }
     }
 }

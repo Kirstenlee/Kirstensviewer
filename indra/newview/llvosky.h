@@ -192,7 +192,7 @@ public:
     const LLVector3* corners() const;
 };
 
-class LLCubeMap;
+class DXCubeMap;
 
 class LLVOSky : public LLStaticViewerObject
 {
@@ -262,7 +262,7 @@ public:
     const LLVector3 &getCameraPosAgent() const          { return mCameraPosAgent; }
     LLVector3 getEarthCenter() const                    { return mEarthCenter; }
 
-    LLCubeMap *getCubeMap() const                       { return mCubeMap; }
+    DXCubeMap *getCubeMap() const                       { return mCubeMap; }
     S32 getDrawRefl() const                             { return mDrawRefl; }
     void setDrawRefl(const S32 r)                       { mDrawRefl = r; }
     bool isReflFace(const LLFace* face) const           { return face == mFace[FACE_REFLECTION]; }
@@ -347,7 +347,7 @@ protected:
     F32                 mInterpVal;
     F32                 mWorldScale;
 
-    LLPointer<LLCubeMap> mCubeMap;                  // Cube map for the environment
+    LLPointer<DXCubeMap> mCubeMap;                  // Cube map for the environment
     S32                  mDrawRefl;
 
     LLFrameTimer        mUpdateTimer;

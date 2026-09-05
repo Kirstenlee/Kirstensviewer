@@ -435,7 +435,7 @@ int APIENTRY WINMAIN(HINSTANCE hInstance,
 		}
 #endif
 
-		gGLActive = true;
+		gDXActive = true; // S24 (2026-08-31): renamed from gGLActive
 
 		viewer_app_ptr->cleanup();
 

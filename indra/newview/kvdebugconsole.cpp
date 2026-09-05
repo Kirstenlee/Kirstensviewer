@@ -411,11 +411,31 @@ void KVDebugConsole::updateBeacon()
     // Convert global position to agent-relative position
     LLVector3 pos_agent = gAgent.getPosAgentFromGlobal(sBeaconTarget.pos_global);
 
+    // S24 (2026-09-04): user ask - "enhance clarity and direction of
+    // source". The beacon itself is now a real DX-native billboard pillar
+    // (see llglsandbox.cpp's draw_beacon_pillar()) rather than the old
+    // invisible-under-DX GL line, but you still can't see it (or which way
+    // to walk) until it's in view - append live distance + a coarse compass
+    // bearing to the label so the console output alone is enough to home
+    // in on the target.
+    LLVector3 to_target = pos_agent - gAgent.getPositionAgent();
+    F32 distance_m = to_target.length();
+
+    static const char* COMPASS_POINTS[8] = { "N", "NE", "E", "SE", "S", "SW", "W", "NW" };
+    F32 bearing_deg = RAD_TO_DEG * atan2f(to_target.mV[VX], to_target.mV[VY]);
+    if (bearing_deg < 0.f)
+    {
+        bearing_deg += 360.f;
+    }
+    S32 compass_index = ((S32)((bearing_deg + 22.5f) / 45.0f)) % 8;
+
+    std::string label = llformat("%s (%.1fm %s)", sBeaconTarget.name.c_str(), distance_m, COMPASS_POINTS[compass_index]);
+
     // Re-add the beacon every frame (like sound/light beacons do)
-    // Bright magenta GL line from ground to target
+    // Bright magenta pillar from ground to target
     gObjectList.addDebugBeacon(
         pos_agent,
-        sBeaconTarget.name,  // Label text
+        label,  // Label text
         LLColor4(1.f, 0.f, 1.f, 0.9f),  // Bright magenta line
         LLColor4(1.f, 1.f, 1.f, 1.f),   // White text label
         LLPipeline::DebugBeaconLineWidth
@@ -2321,7 +2341,7 @@ void KVDebugConsole::processFindCommand(const std::string& args)
         mOutput->appendText(llformat("✓ Beacon active: %s (coordinate-based)\n", target_name.c_str()), false);
         mOutput->appendText(llformat("  UUID: %s\n", target_id.asString().c_str()), false);
         mOutput->appendText(llformat("  Distance: %.1fm\n", distance), false);
-        mOutput->appendText("  Note: Magenta GL beacon line visible (like sound/light beacons)\n", false);
+        mOutput->appendText("  Note: Magenta beacon pillar visible (like sound/light beacons)\n", false);
         mOutput->appendText("  Type 'find clear' to remove beacon\n", false);
         mLineCount += 5;
         return;
@@ -2355,7 +2375,7 @@ void KVDebugConsole::processFindCommand(const std::string& args)
     mOutput->appendText(llformat("✓ Beacon active: %s\n", target_name.c_str()), false);
     mOutput->appendText(llformat("  UUID: %s\n", target_id.asString().c_str()), false);
     mOutput->appendText(llformat("  Distance: %.1fm\n", distance), false);
-    mOutput->appendText("  Note: Magenta GL beacon", false);
+    mOutput->appendText("  Note: Magenta beacon pillar", false);
 
     // Check if we actually got a selection
     if (LLSelectMgr::getInstance()->getSelection()->getObjectCount() > 0)

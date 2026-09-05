@@ -981,7 +981,7 @@ bool LLVOVolume::setMaterial(const U8 material)
 void LLVOVolume::setTexture(const S32 face)
 {
 	llassert(face < getNumTEs());
-	gGL.getTexUnit(0)->bind(getTEImage(face));
+	gDX.getTexUnit(0)->bind(getTEImage(face));
 }
 
 void LLVOVolume::setScale(const LLVector3& scale, bool damped)
@@ -5496,6 +5496,11 @@ void LLVolumeGeometryManager::registerFace(LLSpatialGroup* group, LLFace* facep,
 		info->mModelMatrix == model_mat &&
 		info->mShaderMask == shader_mask &&
 		info->mAvatar == facep->mAvatar &&
+		// S24 (alpha attachment-order fix) - without this, a SIM object's
+		// face and an avatar attachment's face could get merged into the
+		// SAME LLDrawInfo (e.g. both non-rigged, otherwise batchable),
+		// defeating per-draw-call attachment filtering entirely.
+		info->mAttachedToAvatar == facep->mAttachedToAvatar &&
 		info->getSkinHash() == facep->getSkinHash())
 	{
 		info->mCount += facep->getIndicesCount();
@@ -5542,6 +5547,7 @@ void LLVolumeGeometryManager::registerFace(LLSpatialGroup* group, LLFace* facep,
 		draw_info->mGLTFMaterial = gltf_mat;
 		draw_info->mShaderMask = shader_mask;
 		draw_info->mAvatar = facep->mAvatar;
+		draw_info->mAttachedToAvatar = facep->mAttachedToAvatar; // S24 (alpha attachment-order fix)
 		draw_info->mSkinInfo = facep->mSkinInfo;
 
 		if (gltf_mat)
@@ -5882,6 +5888,14 @@ void LLVolumeGeometryManager::rebuildGeom(LLSpatialGroup* group)
 						facep->mSkinInfo = NULL;
 					}
 				}
+
+				// S24 (alpha attachment-order fix, AYAstorm-derived, LGPL v2.1) -
+				// deliberately OUTSIDE the if(rigged)/else block above: this must
+				// be set for every face regardless of rigged status, since it
+				// captures ANY avatar attachment (rigid prim attachments -
+				// eyelashes, jewelry - have no skinInfo and never take the
+				// `rigged` branch above, but are still real attachments).
+				facep->mAttachedToAvatar = vobj->isAttachment() ? vobj->getAvatar() : nullptr;
 
 				if (cur_total > max_total || facep->getIndicesCount() <= 0 || facep->getGeomCount() <= 0)
 				{
@@ -6344,7 +6358,7 @@ U32 LLVolumeGeometryManager::genDrawInfo(LLSpatialGroup* group, U32 mask, LLFace
 
 	LLViewerTexture* last_tex = NULL;
 
-	S32 texture_index_channels = LLGLSLShader::sIndexedTextureChannels;
+	S32 texture_index_channels = LLHLSLShader::sIndexedTextureChannels;
 
 	bool flexi = false;
 

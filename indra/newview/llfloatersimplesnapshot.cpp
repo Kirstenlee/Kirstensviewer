@@ -331,7 +331,7 @@ void LLFloaterSimpleSnapshot::draw()
             S32 offset_x = (local_rect.getWidth() - thumbnail_w) / 2;
             S32 offset_y = PREVIEW_OFFSET_Y;
 
-            gGL.matrixMode(LLRender::MM_MODELVIEW);
+            gDX.matrixMode(LLRender::MM_MODELVIEW);
             // Apply floater transparency to the texture unless the floater is focused.
             F32 alpha = getTransparencyType() == TT_ACTIVE ? 1.0f : getCurrentTransparency();
             LLColor4 color = working ? LLColor4::grey4 : LLColor4::white;

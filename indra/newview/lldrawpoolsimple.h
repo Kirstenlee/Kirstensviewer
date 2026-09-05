@@ -29,7 +29,7 @@
 
 #include "lldrawpool.h"
 
-class LLGLSLShader;
+class LLHLSLShader;
 
 class LLDrawPoolSimple final : public LLRenderPass
 {

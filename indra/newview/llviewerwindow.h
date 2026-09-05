@@ -68,8 +68,7 @@ class LLWindowListener;
 class LLViewerWindowListener;
 class LLVOPartGroup;
 class LLPopupView;
-class LLCubeMap;
-class LLCubeMapArray;
+class DXCubeMapArray;
 
 #define PICK_HALF_WIDTH 5
 #define PICK_DIAMETER (2 * PICK_HALF_WIDTH + 1)
@@ -399,7 +398,7 @@ public:
     // index - cube index in the array to use (cube index, not face-layer)
     // face - which cube face to update
     // near_clip - near clip setting to use
-    bool cubeSnapshot(const LLVector3 &origin, LLCubeMapArray *cubearray, S32 index, S32 face, F32 near_clip, bool render_avatars,
+    bool cubeSnapshot(const LLVector3 &origin, DXCubeMapArray *cubearray, S32 index, S32 face, F32 near_clip, bool render_avatars,
                       bool customCullingPlane = false, LLPlane cullingPlane = LLPlane(LLVector3(0, 0, 0), LLVector3(0, 0, 1)));
 
 

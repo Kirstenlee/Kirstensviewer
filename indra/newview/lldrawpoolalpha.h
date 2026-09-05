@@ -33,7 +33,7 @@
 
 class LLFace;
 class LLColor4;
-class LLGLSLShader;
+class LLHLSLShader;
 
 class LLDrawPoolAlpha final: public LLRenderPass
 {
@@ -70,14 +70,14 @@ public:
     static bool sShowDebugAlpha;
 
 private:
-    LLGLSLShader* target_shader;
+    LLHLSLShader* target_shader;
 
     // setup by beginFooPass, [0] is static variant, [1] is rigged variant
-    LLGLSLShader* simple_shader = nullptr;
-    LLGLSLShader* fullbright_shader = nullptr;
-    LLGLSLShader* emissive_shader = nullptr;
-    LLGLSLShader* pbr_emissive_shader = nullptr;
-    LLGLSLShader* pbr_shader = nullptr;
+    LLHLSLShader* simple_shader = nullptr;
+    LLHLSLShader* fullbright_shader = nullptr;
+    LLHLSLShader* emissive_shader = nullptr;
+    LLHLSLShader* pbr_emissive_shader = nullptr;
+    LLHLSLShader* pbr_shader = nullptr;
 
     void drawEmissive(LLDrawInfo* draw);
     void renderEmissives(std::vector<LLDrawInfo*>& emissives);
