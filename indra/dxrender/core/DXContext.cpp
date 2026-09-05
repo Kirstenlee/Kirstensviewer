@@ -51,7 +51,9 @@ void DXContext::beginFrame()
     // it's still in this freshly-cleared state.
     if (dsv)
     {
-        ctx->ClearDepthStencilView(dsv, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
+        // S24 (reversed-Z conversion): 0.0f is now "far" - see
+        // kGLtoDXDepthRemap's comment (llrender.cpp).
+        ctx->ClearDepthStencilView(dsv, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 0.0f, 0);
     }
 
     D3D11_VIEWPORT vp = {};

@@ -81,7 +81,16 @@ public:
     // as alpha_only's channel-remap. Without this, CEF content (web media,
     // the login screen) uploads with R and B swapped - a systematic hue
     // shift, not a corruption - every pixel, every frame.
-    bool create(const uint8_t* data, int width, int height, int components, bool generate_mips = false, bool alpha_only = false, bool bgra = false);
+    //
+    // `raw_channels` (2026-09-03, SMAA AreaTex investigation): repackPixel()'s
+    // components==2 case assumes "luminance-alpha" (replicate src[0] across
+    // RGB, src[1]->alpha) - correct for actual grayscale+alpha source data,
+    // but wrong for a genuine 2-independent-channel RG source (SMAA's
+    // AreaTex, sampled as .rg by the shader) - that case was losing its real
+    // second channel entirely (silently duplicated from the first instead),
+    // degrading SMAA's blend-weight lookup. Set true to instead map
+    // dst.rg=src.rg directly, no duplication.
+    bool create(const uint8_t* data, int width, int height, int components, bool generate_mips = false, bool alpha_only = false, bool bgra = false, bool raw_channels = false);
 
     // S24 (2026-08-16, task #85): uploads a single mip-0 block-compressed
     // (BC1/BC2/BC3) image. `data` is already GPU-ready compressed bytes -

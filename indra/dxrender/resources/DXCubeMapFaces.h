@@ -25,4 +25,16 @@ struct DXCubeMapFaces
     // Order matches LLCubeMapArray::sTargets / this project's established
     // face-index convention: 0=+X, 1=-X, 2=+Y, 3=-Y, 4=+Z, 5=-Z.
     static const float sUpVecs[6][3];
+
+    // S24 (2026-08-31, DXCubeMap rewrite plan, Step 2): the per-face world
+    // look direction, previously a separate local array (look_dirs) inside
+    // llviewerwindow.cpp::cubeSnapshot() - moved here so the capture stage
+    // and the future Step 3 convolution-camera rewrite (radianceGenV.hlsl's
+    // hand-derived per-pixel direction formula, being replaced with a real
+    // per-face view/projection matrix) both read the SAME table instead of
+    // each hand-deriving their own. Values unchanged from the prior local
+    // array - this is a pure consolidation, not a re-derivation (see this
+    // header's own comment above for why re-deriving sUpVecs/sLookDirs
+    // together, rather than independently, matters here).
+    static const float sLookDirs[6][3];
 };

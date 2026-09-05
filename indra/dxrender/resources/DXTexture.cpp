@@ -27,7 +27,10 @@ namespace
     // components==3/4 - swaps the R/B read order so a BGR(A)-ordered source
     // (CEF's native OnPaint format) lands correctly in this always-RGBA8
     // destination. See DXTexture.h's create() comment for the full story.
-    bool repackPixel(const uint8_t* src, int components, uint8_t* dst, bool alpha_only = false, bool bgra = false)
+    // `raw_channels` (2026-09-03): only meaningful for components==2 - see
+    // DXTexture.h's create() comment. False (default) keeps the original
+    // luminance-alpha interpretation for real grayscale+alpha sources.
+    bool repackPixel(const uint8_t* src, int components, uint8_t* dst, bool alpha_only = false, bool bgra = false, bool raw_channels = false)
     {
         if (components == 1 && alpha_only)
         {
@@ -42,9 +45,19 @@ namespace
             dst[0] = dst[1] = dst[2] = src[0];
             dst[3] = 255;
             return true;
-        case 2: // luminance-alpha
-            dst[0] = dst[1] = dst[2] = src[0];
-            dst[3] = src[1];
+        case 2:
+            if (raw_channels)
+            { // two genuinely independent channels (e.g. SMAA's AreaTex) - preserve both in R/G, don't duplicate
+                dst[0] = src[0];
+                dst[1] = src[1];
+                dst[2] = 0;
+                dst[3] = 255;
+            }
+            else
+            { // luminance-alpha
+                dst[0] = dst[1] = dst[2] = src[0];
+                dst[3] = src[1];
+            }
             return true;
         case 3: // RGB / BGR
             dst[0] = bgra ? src[2] : src[0];
@@ -64,7 +77,7 @@ namespace
     }
 }
 
-bool DXTexture::create(const uint8_t* data, int width, int height, int components, bool generate_mips, bool alpha_only, bool bgra)
+bool DXTexture::create(const uint8_t* data, int width, int height, int components, bool generate_mips, bool alpha_only, bool bgra, bool raw_channels)
 {
     if (width <= 0 || height <= 0)
     {
@@ -111,7 +124,7 @@ bool DXTexture::create(const uint8_t* data, int width, int height, int component
         rgba.resize((size_t)width * height * 4);
         for (int i = 0; i < width * height; ++i)
         {
-            if (!repackPixel(data + (size_t)i * components, components, &rgba[(size_t)i * 4], alpha_only, bgra))
+            if (!repackPixel(data + (size_t)i * components, components, &rgba[(size_t)i * 4], alpha_only, bgra, raw_channels))
             {
                 LL_WARNS("Texture") << "DXTexture::create: unsupported component count " << components << LL_ENDL;
                 return false;

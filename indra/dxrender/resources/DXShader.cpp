@@ -87,6 +87,26 @@ namespace
             LL_WARNS() << "D3DCompile warnings for " << debugName << ": "
                 << (const char*)error_blob->GetBufferPointer() << LL_ENDL;
             error_blob->Release();
+
+            // S24 (2026-09-02): warnings-only compiles previously never got
+            // a source dump (only the FAILED-compile path below did) - the
+            // warning's line/column refers to this generated, fully
+            // concatenated text same as a failure would, so without this
+            // there was no way to actually locate what a warning like
+            // "implicit truncation of vector type" was pointing at beyond
+            // guessing from shared-file reads. Same dump mechanism as the
+            // failure path, just without the `return false`.
+            std::string sanitized_name = debugName;
+            for (auto& c : sanitized_name)
+            {
+                if (!isalnum((unsigned char)c)) c = '_';
+            }
+            std::string dump_path = gDirUtilp->getExpandedFilename(LL_PATH_LOGS, sanitized_name + "_" + target + "_warnings.hlsl");
+            std::ofstream dump_file(dump_path.c_str());
+            if (dump_file)
+            {
+                dump_file << source;
+            }
         }
 
         return true;
@@ -194,14 +214,12 @@ bool DXShader::isCacheEligible(const std::string& debugName)
     // S24 allowlist, extended in passes as confidence grows (see
     // DXShader.h's sShaderCacheEnabled comment) - each addition gets its own
     // live playtest, same as any other DX_RENDER change. Deliberately
-    // excludes anything with a known live issue for now: the GLTF/PBR family
-    // (an active D3DCompile failure - see "redefinition of 'clipPlane'" in
-    // the log - task #262's HUD-black-PBR history), the reflection-probe/SSR
-    // family (task #156 umbrella still has open children), the full avatar
-    // body shaders (gDeferredAvatarProgram and siblings - the real per-
-    // vertex skin animation path, not to be confused with the rigged-
-    // attachment "Skinned Material" permutations below, which are simpler
-    // and now included), shadow-cascade shaders, and the Buffer
+    // excludes anything with a known live issue for now: the reflection-
+    // probe/SSR family (task #156 umbrella still has open children), the
+    // full avatar body shaders (gDeferredAvatarProgram and siblings - the
+    // real per-vertex skin animation path, not to be confused with the
+    // rigged-attachment "Skinned Material" permutations below, which are
+    // simpler and now included), shadow-cascade shaders, and the Buffer
     // Visualization shader specifically (task #261's AMD lazy-compile
     // lockup).
     //
@@ -225,7 +243,36 @@ bool DXShader::isCacheEligible(const std::string& debugName)
     // families (deferred/materialV+F.hlsl's simpler siblings - same permute-
     // by-alpha-mode shape, much smaller permutation count) and the emissive
     // shader.
+    //
+    // 2026-09-05 (pass 5): FXAA and SMAA, both already live-proven this
+    // week (r3733's SMAA fix; FXAA has been the long-running default) -
+    // low risk, and each is a small runtime-numbered quality-preset
+    // permutation set (4 presets each, gFXAAProgram[4]/gSMAAEdgeDetectProgram[4]/
+    // gSMAABlendWeightsProgram[4]/gSMAANeighborhoodBlendProgram[4] in
+    // llviewershadermgr.cpp), named e.g. "FXAA Shader (Low)"/"SMAA Edge
+    // Detection (Ultra)" - matched by prefix below, same shape as the
+    // "Material Shader "/"Skinned Material Shader " pattern already in use.
+    //
+    // 2026-09-04 (pass 4): the GLTF family, previously excluded wholesale
+    // for "an active D3DCompile failure - redefinition of 'clipPlane'"
+    // (task #262 era). That specific bug was already fixed 2026-09-02 (see
+    // gltf/pbrmetallicroughnessF.hlsl's own comment - a local clipPlane/
+    // clipSign pair collided with globalF.hlsl's, confirmed genuinely dead
+    // and removed) - the exclusion had just gone stale, nobody circled back
+    // to re-add it after. "GLTF PBR Metallic Roughness Shader" is the big
+    // one for startup time here: make_gltf_variants() compiles it as 16 full
+    // permutations (ALPHA_BLEND x RIGGED x UNLIT x MULTI_UV,
+    // LLHLSLShader::NUM_GLTF_VARIANTS) sharing this one debugName - the
+    // cache key itself (source text + target hash, dxShaderCachePath())
+    // already disambiguates all 16 correctly despite the shared name, so one
+    // allowlist entry covers every variant. Also added the two GLTF shadow
+    // shaders (single compile each, no permutation loop, much lower blast
+    // radius, and structurally unrelated to pbrmetallicroughnessF.hlsl's
+    // fixed bug - just grouped under the same "GLTF family" ask).
     static const std::unordered_set<std::string> allowlist = {
+        "GLTF PBR Metallic Roughness Shader",
+        "Deferred GLTF Shadow Alpha Mask Shader",
+        "Deferred GLTF Shadow Alpha Blend Shader",
         "Occlusion Cube Shader",
         "Occlusion Shader",
 
@@ -268,8 +315,22 @@ bool DXShader::isCacheEligible(const std::string& debugName)
     // this function's own 2026-08-29 (pass 3) comment above.
     static const std::string material_prefix = "Material Shader ";
     static const std::string skinned_material_prefix = "Skinned Material Shader ";
-    return debugName.compare(0, material_prefix.size(), material_prefix) == 0
-        || debugName.compare(0, skinned_material_prefix.size(), skinned_material_prefix) == 0;
+    if (debugName.compare(0, material_prefix.size(), material_prefix) == 0
+        || debugName.compare(0, skinned_material_prefix.size(), skinned_material_prefix) == 0)
+    {
+        return true;
+    }
+
+    // FXAA/SMAA's 4 runtime-numbered quality-preset permutations each - see
+    // this function's own 2026-09-05 (pass 5) comment above.
+    static const std::string fxaa_prefix = "FXAA Shader (";
+    static const std::string smaa_edge_prefix = "SMAA Edge Detection (";
+    static const std::string smaa_blend_prefix = "SMAA Blending Weights (";
+    static const std::string smaa_neighborhood_prefix = "SMAA Neighborhood Blending (";
+    return debugName.compare(0, fxaa_prefix.size(), fxaa_prefix) == 0
+        || debugName.compare(0, smaa_edge_prefix.size(), smaa_edge_prefix) == 0
+        || debugName.compare(0, smaa_blend_prefix.size(), smaa_blend_prefix) == 0
+        || debugName.compare(0, smaa_neighborhood_prefix.size(), smaa_neighborhood_prefix) == 0;
 }
 
 bool DXShader::compileVertexShader(const std::string& source, const std::string& debugName)
@@ -408,7 +469,7 @@ void DXShader::reflectConstants(const void* bytecode, size_t size)
 
     // S24 (2026-08-03): reflect Texture2D resource bind points (register(tN))
     // by name - see getTextureBindPoint()'s header comment for why this is
-    // needed. D3D_SIT_TEXTURE only (not D3D_SIT_SAMPLER) - LLGLSLShader's
+    // needed. D3D_SIT_TEXTURE only (not D3D_SIT_SAMPLER) - LLHLSLShader's
     // mTexture[] mapping is keyed by the texture's own uniform name, and
     // this codebase's convention always pairs a Texture2D/SamplerState at
     // the same register index (e.g. diffuseMap:t0/diffuseMapSampler:s0), so

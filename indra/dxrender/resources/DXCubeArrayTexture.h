@@ -67,6 +67,15 @@ public:
     ID3D11ShaderResourceView* getSRV() const { return mSRV; }
     bool isValid() const { return mTexture != nullptr; }
 
+    // Real mip level count D3D11 actually allocated (queried back via
+    // GetDesc() in create() - see its header comment). generate_mips=true
+    // requests MipLevels=0 (full auto chain down to 1x1), which for a
+    // power-of-two resolution allocates ONE MORE level than
+    // floor(log2(width)+0.5) - callers that independently recompute their
+    // own "how many mips" count (rather than reading this back) will
+    // under-count by one and leave the final mip permanently unwritten.
+    UINT getMipLevels() const { return mMipLevels; }
+
 private:
     ID3D11Texture2D* mTexture = nullptr;
     ID3D11ShaderResourceView* mSRV = nullptr;

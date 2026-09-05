@@ -22,3 +22,15 @@ const float DXCubeMapFaces::sUpVecs[6][3] =
     {  0.f,  1.f,  0.f }, // +Z
     {  0.f,  1.f,  0.f }, // -Z
 };
+
+// S24 (2026-08-31, DXCubeMap rewrite plan, Step 2): moved verbatim from
+// llviewerwindow.cpp::cubeSnapshot()'s local look_dirs[] - see DXCubeMapFaces.h.
+const float DXCubeMapFaces::sLookDirs[6][3] =
+{
+    {  1.f,  0.f,  0.f }, // +X
+    { -1.f,  0.f,  0.f }, // -X
+    {  0.f,  1.f,  0.f }, // +Y
+    {  0.f, -1.f,  0.f }, // -Y
+    {  0.f,  0.f,  1.f }, // +Z
+    {  0.f,  0.f, -1.f }, // -Z
+};

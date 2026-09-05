@@ -33,6 +33,18 @@ bool DXRenderTarget::allocate(uint32_t width, uint32_t height, DXGI_FORMAT color
         }
     }
 
+    // S24 (2026-09-02): was unconditional - callers requesting a genuinely
+    // depth-only target (color_format==DXGI_FORMAT_UNKNOWN, routed here
+    // from LLRenderTarget::allocate()'s color_fmt==0 case, e.g.
+    // pipeline.cpp's shadow-map allocations) still got a real, unused
+    // RGBA8 D3D11 texture + render target view created and bound - a
+    // genuine wasted allocation on top of the "unmapped GL format"
+    // warning this used to also trigger upstream.
+    if (color_format == DXGI_FORMAT_UNKNOWN)
+    {
+        return true;
+    }
+
     return addColorAttachment(color_format);
 }
 
@@ -321,7 +333,9 @@ void DXRenderTarget::clear(bool clear_color, bool clear_depth)
 
     if (clear_depth && mDSV)
     {
-        ctx->ClearDepthStencilView(mDSV, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
+        // S24 (reversed-Z conversion): 0.0f is now "far" - see
+        // kGLtoDXDepthRemap's comment (llrender.cpp).
+        ctx->ClearDepthStencilView(mDSV, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 0.0f, 0);
     }
 }
 

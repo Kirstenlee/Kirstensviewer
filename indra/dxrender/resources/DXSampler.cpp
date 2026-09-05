@@ -105,6 +105,15 @@ ID3D11SamplerState* DXSampler::getOrCreateComparison(D3D11_COMPARISON_FUNC func)
     return sampler;
 }
 
+void DXSampler::bindStatic(UINT slot, int address_mode, int filter_option)
+{
+    ID3D11SamplerState* sampler = getOrCreate(address_mode, filter_option);
+    if (sampler)
+    {
+        gDXDevice.getContext()->PSSetSamplers(slot, 1, &sampler);
+    }
+}
+
 void DXSampler::clear()
 {
     for (auto& entry : sCache)

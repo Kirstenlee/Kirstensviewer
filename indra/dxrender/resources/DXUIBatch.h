@@ -29,9 +29,9 @@ struct DXUIVertex
 // directly rather than this class re-deriving a dedup'd vertex+index
 // representation from code that's already correct as flat triangles.
 // One process-wide instance (gDXUIBatch) - not per-widget, mirroring
-// LLRender's own single-instance (gGL) immediate-mode buffer.
+// LLRender's own single-instance (gDX) immediate-mode buffer.
 // Mirrors the handful of GL primitive topologies llrender2dutils.cpp's
-// gGL.begin(X) calls actually use, restricted to what D3D11 natively
+// gDX.begin(X) calls actually use, restricted to what D3D11 natively
 // supports with no CPU-side reshaping (see DXRender2DUtils.h's header
 // comment for GL_LINE_LOOP/GL_TRIANGLE_FAN, which have no native D3D11
 // equivalent and are expanded to LineStrip/TriangleList by the caller
@@ -69,7 +69,7 @@ enum class DXUITopology
 // flushPending() is new: unconditionally draws whatever's pending (if
 // anything) right now. This is what every interleaving-hazard hook (scissor
 // rect changes, depth-state changes, blend/cull changes, the separate
-// LLRender/gGL immediate-mode queue's own flush, texture changes, shader
+// LLRender/gDX immediate-mode queue's own flush, texture changes, shader
 // bind/unbind, HUD-vs-screen-space pass boundaries) calls BEFORE actually
 // changing D3D11 state out from under a still-pending batch - without these
 // hooks, deferring flush() would risk silent draw-order corruption. See the
@@ -92,8 +92,23 @@ public:
     // explicit, required arguments rather than trusted ambient state) -
     // internally now defers the actual Draw() until the batch state
     // changes. See this class's top comment.
+    // S24 (2026-08-31, task #193 follow-up): depth_func default was
+    // D3D11_COMPARISON_LESS_EQUAL, dating from task #191 (2026-08-11) -
+    // correct under the depth convention at the time (near=0.0/far=1.0,
+    // "nearer" = smaller stored value, so "this fragment is nearer-or-equal"
+    // = LESS_EQUAL). The reversed-Z conversion (task #289, 2026-08-30,
+    // near=1.0/far=0.0) flipped that everywhere else in the codebase
+    // (glDepthFuncToDX(), the shadow-comparison sampler, etc.) but this
+    // class's own hardcoded default was never revisited - "nearer" is now
+    // the LARGER stored value, so the correct "this fragment is nearer-or-
+    // equal" comparison is GREATER_EQUAL. No live caller currently passes
+    // depth_test=true (confirmed via grep across every gDXUIBatch.flush()
+    // call site), so this was a genuinely stale, currently-inert bug -
+    // fixed now so the capability is actually correct whenever a future
+    // caller (e.g. LLHUDNameTag's world-space panel, llrender2dutils.cpp)
+    // turns it on, rather than leaving it silently backwards.
     void flush(const void* vs_bytecode, size_t vs_bytecode_size, ID3D11VertexShader* vs, ID3D11PixelShader* ps, bool alpha_blend, const char* debug_name = nullptr, DXUITopology topology = DXUITopology::TriangleList,
-        bool depth_test = false, bool depth_write = false, D3D11_COMPARISON_FUNC depth_func = D3D11_COMPARISON_LESS_EQUAL);
+        bool depth_test = false, bool depth_write = false, D3D11_COMPARISON_FUNC depth_func = D3D11_COMPARISON_GREATER_EQUAL);
 
     // Unconditionally draws whatever's currently pending (no-op if nothing
     // is). Call this before anything outside this class's own push()/
@@ -119,7 +134,8 @@ private:
         bool alphaBlend = true;
         bool depthTest = false;
         bool depthWrite = true;
-        D3D11_COMPARISON_FUNC depthFunc = D3D11_COMPARISON_LESS_EQUAL;
+        // S24 (2026-08-31): matches flush()'s own default - see its comment.
+        D3D11_COMPARISON_FUNC depthFunc = D3D11_COMPARISON_GREATER_EQUAL;
 
         bool sameDrawState(const BatchState& other) const
         {

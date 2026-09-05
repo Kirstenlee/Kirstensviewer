@@ -30,6 +30,21 @@ public:
     // mode), but keeping this generic costs nothing.
     static ID3D11SamplerState* getOrCreateComparison(D3D11_COMPARISON_FUNC func);
 
+    // S24 (2026-09-04): binds a sampler directly to a fixed PS sampler slot,
+    // bypassing the LLTexUnit::bind()-per-texture-channel convention this
+    // codebase otherwise always uses (sampler register N always paired with
+    // texture register N). Needed for shaders like SMAA.hlsl that declare
+    // their own standalone SamplerState objects (not tied 1:1 to a texture
+    // channel) at explicit high register slots - see that file's own
+    // LinearSampler/PointSampler comment. Plain D3D11 HLSL (no Effects11
+    // framework) never auto-creates/binds samplers from an inline
+    // initializer block like `SamplerState X { Filter = ...; }` - that
+    // syntax is state-object metadata only; the app must still explicitly
+    // CreateSamplerState + PSSetSamplers to the compiler-assigned slot, or
+    // the slot keeps whatever sampler a prior, unrelated draw call left
+    // bound that frame.
+    static void bindStatic(UINT slot, int address_mode, int filter_option);
+
     // Releases every cached sampler - call on full renderer shutdown.
     static void clear();
 };
