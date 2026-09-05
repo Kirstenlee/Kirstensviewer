@@ -276,14 +276,14 @@ bool LLTexLayerParamAlpha::render(S32 x, S32 y, S32 width, S32 height)
 	}
 
 	LLTexLayerParamAlphaInfo* info = (LLTexLayerParamAlphaInfo*)getInfo();
-	gGL.flush();
+	gDX.flush();
 	if (info->mMultiplyBlend)
 	{
-		gGL.blendFunc(LLRender::BF_DEST_ALPHA, LLRender::BF_ZERO); // Multiplication: approximates a min() function
+		gDX.blendFunc(LLRender::BF_DEST_ALPHA, LLRender::BF_ZERO); // Multiplication: approximates a min() function
 	}
 	else
 	{
-		gGL.setSceneBlendType(LLRender::BT_ADD);  // Addition: approximates a max() function
+		gDX.setSceneBlendType(LLRender::BT_ADD);  // Addition: approximates a max() function
 	}
 
 	if (!info->mStaticImageFileName.empty() && !mStaticImageInvalid)
@@ -342,13 +342,13 @@ bool LLTexLayerParamAlpha::render(S32 x, S32 y, S32 width, S32 height)
                         LL_WARNS() << "Failed to create GL texture for image: " << mCachedProcessedTexture->getID() << LL_ENDL;
                     }
 					mNeedsCreateTexture = false;
-					gGL.getTexUnit(0)->bind(mCachedProcessedTexture);
+					gDX.getTexUnit(0)->bind(mCachedProcessedTexture);
 					mCachedProcessedTexture->setAddressMode(LLTexUnit::TAM_CLAMP);
 				}
 
-				gGL.getTexUnit(0)->bind(mCachedProcessedTexture);
+				gDX.getTexUnit(0)->bind(mCachedProcessedTexture);
 				gl_rect_2d_simple_tex(width, height);
-				gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+				gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
 				stop_glerror();
 			}
 		}
@@ -362,8 +362,8 @@ bool LLTexLayerParamAlpha::render(S32 x, S32 y, S32 width, S32 height)
 	}
 	else
 	{
-		gGL.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
-		gGL.color4f(0.f, 0.f, 0.f, effective_weight);
+		gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+		gDX.color4f(0.f, 0.f, 0.f, effective_weight);
 		gl_rect_2d_simple(width, height);
 	}
 

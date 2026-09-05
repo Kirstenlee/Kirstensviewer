@@ -248,12 +248,12 @@ void LLAvatarJointCollisionVolume::renderCollision()
 {
     updateWorldMatrix();
 
-    gGL.pushMatrix();
-    gGL.multMatrix( &mXform.getWorldMatrix().mMatrix[0][0] );
+    gDX.pushMatrix();
+    gDX.multMatrix( &mXform.getWorldMatrix().mMatrix[0][0] );
 
-    gGL.diffuseColor3f( 0.f, 0.f, 1.f );
+    gDX.diffuseColor3f( 0.f, 0.f, 1.f );
 
-    gGL.begin(LLRender::LINES);
+    gDX.begin(LLRender::LINES);
 
     LLVector3 v[] =
     {
@@ -267,49 +267,49 @@ void LLAvatarJointCollisionVolume::renderCollision()
     };
 
     //sides
-    gGL.vertex3fv(v[0].mV);
-    gGL.vertex3fv(v[2].mV);
+    gDX.vertex3fv(v[0].mV);
+    gDX.vertex3fv(v[2].mV);
 
-    gGL.vertex3fv(v[0].mV);
-    gGL.vertex3fv(v[3].mV);
+    gDX.vertex3fv(v[0].mV);
+    gDX.vertex3fv(v[3].mV);
 
-    gGL.vertex3fv(v[1].mV);
-    gGL.vertex3fv(v[2].mV);
+    gDX.vertex3fv(v[1].mV);
+    gDX.vertex3fv(v[2].mV);
 
-    gGL.vertex3fv(v[1].mV);
-    gGL.vertex3fv(v[3].mV);
+    gDX.vertex3fv(v[1].mV);
+    gDX.vertex3fv(v[3].mV);
 
 
     //top
-    gGL.vertex3fv(v[0].mV);
-    gGL.vertex3fv(v[4].mV);
+    gDX.vertex3fv(v[0].mV);
+    gDX.vertex3fv(v[4].mV);
 
-    gGL.vertex3fv(v[1].mV);
-    gGL.vertex3fv(v[4].mV);
+    gDX.vertex3fv(v[1].mV);
+    gDX.vertex3fv(v[4].mV);
 
-    gGL.vertex3fv(v[2].mV);
-    gGL.vertex3fv(v[4].mV);
+    gDX.vertex3fv(v[2].mV);
+    gDX.vertex3fv(v[4].mV);
 
-    gGL.vertex3fv(v[3].mV);
-    gGL.vertex3fv(v[4].mV);
+    gDX.vertex3fv(v[3].mV);
+    gDX.vertex3fv(v[4].mV);
 
 
     //bottom
-    gGL.vertex3fv(v[0].mV);
-    gGL.vertex3fv(v[5].mV);
+    gDX.vertex3fv(v[0].mV);
+    gDX.vertex3fv(v[5].mV);
 
-    gGL.vertex3fv(v[1].mV);
-    gGL.vertex3fv(v[5].mV);
+    gDX.vertex3fv(v[1].mV);
+    gDX.vertex3fv(v[5].mV);
 
-    gGL.vertex3fv(v[2].mV);
-    gGL.vertex3fv(v[5].mV);
+    gDX.vertex3fv(v[2].mV);
+    gDX.vertex3fv(v[5].mV);
 
-    gGL.vertex3fv(v[3].mV);
-    gGL.vertex3fv(v[5].mV);
+    gDX.vertex3fv(v[3].mV);
+    gDX.vertex3fv(v[5].mV);
 
-    gGL.end();
+    gDX.end();
 
-    gGL.popMatrix();
+    gDX.popMatrix();
 }
 
 

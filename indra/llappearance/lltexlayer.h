@@ -28,7 +28,7 @@
 #define LL_LLTEXLAYER_H
 
 #include <deque>
-#include "llglslshader.h"
+#include "llhlslshader.h"
 #include "llgltexture.h"
 #include "llavatarappearancedefines.h"
 #include "lltexlayerparams.h"
