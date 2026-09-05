@@ -26,7 +26,7 @@
 
 #include "linden_common.h"
 
-#include "llmath.h"	// for DirectX::XM_PI
+#include "llmath.h"	// for F_PI_BY_TWO
 
 #include "llquaternion.h"
 
@@ -867,8 +867,8 @@ void LLQuaternion::getAngleAxis(F32* angle, LLVector3 &vec) const
 const LLQuaternion& LLQuaternion::setFromAzimuthAndAltitude(F32 azimuthRadians, F32 altitudeRadians)
 {
     // euler angle inputs are complements of azimuth/altitude which are measured from zenith
-    F32 pitch = llclamp(DirectX::XM_PIDIV2 - altitudeRadians, 0.0f, DirectX::XM_PIDIV2);
-    F32 yaw   = llclamp(DirectX::XM_PIDIV2 - azimuthRadians,  0.0f, DirectX::XM_PIDIV2);
+    F32 pitch = llclamp(F_PI_BY_TWO - altitudeRadians, 0.0f, F_PI_BY_TWO);
+    F32 yaw   = llclamp(F_PI_BY_TWO - azimuthRadians,  0.0f, F_PI_BY_TWO);
     setEulerAngles(0.0f, pitch, yaw);
     return *this;
 }
@@ -880,8 +880,8 @@ void LLQuaternion::getAzimuthAndAltitude(F32 &azimuthRadians, F32 &altitudeRadia
     F32 yaw;
     getEulerAngles(&rick_roll, &pitch, &yaw);
     // make these measured from zenith
-    altitudeRadians = llclamp(DirectX::XM_PIDIV2 - pitch, 0.0f, DirectX::XM_PIDIV2);
-    azimuthRadians  = llclamp(DirectX::XM_PIDIV2 - yaw,   0.0f, DirectX::XM_PIDIV2);
+    altitudeRadians = llclamp(F_PI_BY_TWO - pitch, 0.0f, F_PI_BY_TWO);
+    azimuthRadians  = llclamp(F_PI_BY_TWO - yaw,   0.0f, F_PI_BY_TWO);
 }
 
 // quaternion does not need to be normalized
@@ -903,12 +903,12 @@ void LLQuaternion::getEulerAngles(F32 *roll, F32 *pitch, F32 *yaw) const
 	{
 		if (sy > 0)
 		{
-			*pitch = DirectX::XM_PIDIV2;
+			*pitch = F_PI_BY_TWO;
 			*yaw = 2 * atan2f(mQ[VZ] + mQ[VX], mQ[VW] + mQ[VY]);
 		}
 		else
 		{
-			*pitch = -DirectX::XM_PIDIV2;
+			*pitch = -F_PI_BY_TWO;
 			*yaw = 2 * atan2f(mQ[VZ] - mQ[VX], mQ[VW] - mQ[VY]);
 		}
 		*roll = 0;

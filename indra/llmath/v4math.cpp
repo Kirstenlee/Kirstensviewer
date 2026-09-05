@@ -123,7 +123,7 @@ F32 angle_between(const LLVector4& a, const LLVector4& b)
 
 	// Compute the angle using acos while handling edge cases
 	F32 angle = (cosine >= 1.0f) ? 0.0f :
-		(cosine <= -1.0f) ? XM_PI :
+		(cosine <= -1.0f) ? F_PI :
 		acosf(cosine);
 
 	return angle;

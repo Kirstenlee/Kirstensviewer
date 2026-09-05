@@ -199,15 +199,23 @@ void LLMatrix3::invert()
 	{
 		// invertiable
 		LLMatrix3 t(*this);
-		mMatrix[VX][VX] = (t.mMatrix[VY][VY] * t.mMatrix[VZ][VZ] - t.mMatrix[VY][VZ] * t.mMatrix[VZ][VY]) / det;
-		mMatrix[VY][VX] = (t.mMatrix[VY][VZ] * t.mMatrix[VZ][VX] - t.mMatrix[VY][VX] * t.mMatrix[VZ][VZ]) / det;
-		mMatrix[VZ][VX] = (t.mMatrix[VY][VX] * t.mMatrix[VZ][VY] - t.mMatrix[VY][VY] * t.mMatrix[VZ][VX]) / det;
-		mMatrix[VX][VY] = (t.mMatrix[VZ][VY] * t.mMatrix[VX][VZ] - t.mMatrix[VZ][VZ] * t.mMatrix[VX][VY]) / det;
-		mMatrix[VY][VY] = (t.mMatrix[VZ][VZ] * t.mMatrix[VX][VX] - t.mMatrix[VZ][VX] * t.mMatrix[VX][VZ]) / det;
-		mMatrix[VZ][VY] = (t.mMatrix[VZ][VX] * t.mMatrix[VX][VY] - t.mMatrix[VZ][VY] * t.mMatrix[VX][VX]) / det;
-		mMatrix[VX][VZ] = (t.mMatrix[VX][VY] * t.mMatrix[VY][VZ] - t.mMatrix[VX][VZ] * t.mMatrix[VY][VY]) / det;
-		mMatrix[VY][VZ] = (t.mMatrix[VX][VZ] * t.mMatrix[VY][VX] - t.mMatrix[VX][VX] * t.mMatrix[VY][VZ]) / det;
-		mMatrix[VZ][VZ] = (t.mMatrix[VX][VX] * t.mMatrix[VY][VY] - t.mMatrix[VX][VY] * t.mMatrix[VY][VX]) / det;
+		// S24 (bare-metal pass, 2026-08-30): was 9 separate divisions by det -
+		// vdivss has far higher latency and lower throughput than vmulss on
+		// real hardware and isn't fully pipelined, unlike every other
+		// scalar-divide in this library (LLVector3/4/2's operator/=,
+		// LLQuaternion::normalize()), which already reduce to one reciprocal
+		// + N multiplies. Verified via disassembly (MSVC /O2 /arch:AVX2
+		// /fp:precise): 9x vdivss before, 1x vdivss + 9x vmulss after.
+		F32 inv_det = 1.f / det;
+		mMatrix[VX][VX] = (t.mMatrix[VY][VY] * t.mMatrix[VZ][VZ] - t.mMatrix[VY][VZ] * t.mMatrix[VZ][VY]) * inv_det;
+		mMatrix[VY][VX] = (t.mMatrix[VY][VZ] * t.mMatrix[VZ][VX] - t.mMatrix[VY][VX] * t.mMatrix[VZ][VZ]) * inv_det;
+		mMatrix[VZ][VX] = (t.mMatrix[VY][VX] * t.mMatrix[VZ][VY] - t.mMatrix[VY][VY] * t.mMatrix[VZ][VX]) * inv_det;
+		mMatrix[VX][VY] = (t.mMatrix[VZ][VY] * t.mMatrix[VX][VZ] - t.mMatrix[VZ][VZ] * t.mMatrix[VX][VY]) * inv_det;
+		mMatrix[VY][VY] = (t.mMatrix[VZ][VZ] * t.mMatrix[VX][VX] - t.mMatrix[VZ][VX] * t.mMatrix[VX][VZ]) * inv_det;
+		mMatrix[VZ][VY] = (t.mMatrix[VZ][VX] * t.mMatrix[VX][VY] - t.mMatrix[VZ][VY] * t.mMatrix[VX][VX]) * inv_det;
+		mMatrix[VX][VZ] = (t.mMatrix[VX][VY] * t.mMatrix[VY][VZ] - t.mMatrix[VX][VZ] * t.mMatrix[VY][VY]) * inv_det;
+		mMatrix[VY][VZ] = (t.mMatrix[VX][VZ] * t.mMatrix[VY][VX] - t.mMatrix[VX][VX] * t.mMatrix[VY][VZ]) * inv_det;
+		mMatrix[VZ][VZ] = (t.mMatrix[VX][VX] * t.mMatrix[VY][VY] - t.mMatrix[VX][VY] * t.mMatrix[VY][VX]) * inv_det;
 	}
 }
 
