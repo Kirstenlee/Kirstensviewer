@@ -67,8 +67,25 @@ float4 main(PSInput IN) : SV_Target
         // with depth testing against render targets that are bound for sampling in the same shader
         // so we do it manually here
 
-        float cur_depth = IN.vary_fragcoord.z/IN.vary_fragcoord.w*0.5+0.5;
-        if (cur_depth > depth)
+        // S24 (reversed-Z investigation): removed the "*0.5+0.5" - it was
+        // ported verbatim from GLSL, where raw clip.z/w genuinely is NDC
+        // [-1,1] and needs that remap to compare against the [0,1] depth
+        // buffer. Under DX_RENDER, vary_fragcoord is set (waterHazeV.hlsl)
+        // to the exact same value as SV_Position, built from the same
+        // modelview_projection_matrix that already carries the D3D depth
+        // remap (kGLtoDXDepthRemap, llrender.cpp) - so vary_fragcoord.z/w
+        // is ALREADY the final stored-depth-buffer convention directly, no
+        // further remap needed. The old "*0.5+0.5" was squashing this into
+        // [0.5,1] regardless of convention - a pre-existing porting
+        // mismatch that reversed-Z's storage-range change made much worse
+        // (this above-water haze discard was very likely firing for
+        // nearly all near-camera geometry), matching the confirmed
+        // above-water-missing/below-water-fine haze split.
+        float cur_depth = IN.vary_fragcoord.z / IN.vary_fragcoord.w;
+        // S24 (reversed-Z conversion): flipped > to < - "haze plane is
+        // farther than (occluded by) the real scene" now means a SMALLER
+        // stored value (near=1.0/far=0.0), not larger.
+        if (cur_depth < depth)
         {
             discard;
         }

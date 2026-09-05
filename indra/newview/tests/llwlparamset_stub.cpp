@@ -36,6 +36,6 @@ void LLWLParamSet::set(const std::string& name, const LLVector4& val)
 {
 }
 
-void LLWLParamSet::update(LLGLSLShader *shader) const
+void LLWLParamSet::update(LLHLSLShader *shader) const
 {
 }

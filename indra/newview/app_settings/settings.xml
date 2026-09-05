@@ -8165,6 +8165,17 @@
       <key>Value</key>
       <integer>4</integer>
     </map>
+    <key>RenderScreenSpaceReflectionGlossThreshold</key>
+    <map>
+      <key>Comment</key>
+      <string>Minimum glossiness (1-roughness) a surface needs before Screen-Space Reflections engage. Below ~0.57 SSR's own internal vignette falloff already fades it to zero, so values much lower than that waste GPU cost for no visible gain. PBR alpha-blend (glass) materials cap at 0.7 due to a separate roughness floor.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>0.9</real>
+    </map>
     <key>RenderBumpmapMinDistanceSquared</key>
     <map>
       <key>Comment</key>
@@ -8219,17 +8230,6 @@
       <string>F32</string>
       <key>Value</key>
       <real>0.5</real>
-    </map>
-    <key>RenderDebugGLSession</key>
-    <map>
-      <key>Comment</key>
-      <string>Enable strict GL debugging on the start of next session.</string>
-      <key>Persist</key>
-      <integer>1</integer>
-      <key>Type</key>
-      <string>Boolean</string>
-      <key>Value</key>
-      <integer>0</integer>
     </map>
     <key>RenderDebugNormalScale</key>
     <map>
@@ -8351,6 +8351,17 @@
       <string>F32</string>
       <key>Value</key>
       <real>0.5</real>
+    </map>
+    <key>RenderVRAMSoftPressureFraction</key>
+    <map>
+      <key>Comment</key>
+      <string>S24 (eviction tuning): fraction of the VRAM allocator's hard budget used as the "soft" target. Once a cut is genuinely needed (usage exceeds the hard budget), the allocator cuts down to this softer line instead of the hard line, leaving real headroom so the next burst of texture demand doesn't immediately re-trigger another cut. Live-tested 2026-08-29 with 16 animated avatars: 0.75-0.80 kept usage clear of the shared-GPU-memory cliff (committed GPU memory exceeding dedicated VRAM causes WDDM to back the overflow with system RAM over PCIe - catastrophic, not just a quality drop); 0.90 did not leave enough margin and crossed it.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>0.8</real>
     </map>
     <key>RenderTextureUpdateBudgetMS</key>
     <map>
@@ -8719,71 +8730,6 @@
       <real>1.0</real>
     </map>
 
-    <key>RenderHoverGlowEnable</key>
-    <map>
-      <key>Comment</key>
-      <string>DEPRECATED --- Show glow effect when hovering on interactive objects.</string>
-      <key>Persist</key>
-      <integer>1</integer>
-      <key>Type</key>
-      <string>Boolean</string>
-      <key>Value</key>
-      <integer>0</integer>
-    </map>
-
-    <key>RenderHighlightFadeTime</key>
-    <map>
-      <key>Comment</key>
-      <string>Transition time for mouseover highlights.</string>
-      <key>Persist</key>
-      <integer>1</integer>
-      <key>Type</key>
-      <string>F32</string>
-      <key>Value</key>
-      <real>0.1</real>
-    </map>
-
-    <key>RenderHighlightBrightness</key>
-    <map>
-      <key>Comment</key>
-      <string>Brightness of mouseover highlights.</string>
-      <key>Persist</key>
-      <integer>1</integer>
-      <key>Type</key>
-      <string>F32</string>
-      <key>Value</key>
-      <real>4.0</real>
-    </map>
-
-    <key>RenderHighlightThickness</key>
-    <map>
-      <key>Comment</key>
-      <string>Thickness of mouseover highlights.</string>
-      <key>Persist</key>
-      <integer>1</integer>
-      <key>Type</key>
-      <string>F32</string>
-      <key>Value</key>
-      <real>0.6</real>
-    </map>
-
-    <key>RenderHighlightColor</key>
-    <map>
-      <key>Comment</key>
-      <string>Brightness of mouseover highlights.</string>
-      <key>Persist</key>
-      <integer>1</integer>
-      <key>Type</key>
-      <string>Color4</string>
-      <key>Value</key>
-      <array>
-        <real>0.4</real>
-        <real>0.98</real>
-        <real>0.93</real>
-        <real>1.0</real>
-      </array>
-    </map>
-
     <key>RenderSpecularPrecision</key>
     <map>
       <key>Comment</key>
@@ -8872,18 +8818,6 @@
     <map>
       <key>Comment</key>
       <string>Execute screen space ambient occlusion shader in deferred renderer.</string>
-      <key>Persist</key>
-      <integer>1</integer>
-      <key>Type</key>
-      <string>Boolean</string>
-      <key>Value</key>
-      <integer>1</integer>
-    </map>
-
-    <key>RenderDeferredBlurLight</key>
-    <map>
-      <key>Comment</key>
-      <string>Execute shadow softening shader in deferred renderer.</string>
       <key>Persist</key>
       <integer>1</integer>
       <key>Type</key>
@@ -9898,204 +9832,6 @@
       <string>S32</string>
       <key>Value</key>
       <integer>3</integer>
-    </map>
-    <key>S24CubeOrientSwap0</key>
-    <map>
-      <key>Comment</key>
-      <string>S24 DEBUG: reflection-probe cubemap orientation live-tuner, +X face - swap which raw quad axis feeds which output slot. Default reproduces the proven-correct closed-form formula; only touch this while chasing task #194's remaining +X/-X defect.</string>
-      <key>Persist</key>
-      <integer>0</integer>
-      <key>Type</key>
-      <string>Boolean</string>
-      <key>Value</key>
-      <integer>0</integer>
-    </map>
-    <key>S24CubeOrientNegA0</key>
-    <map>
-      <key>Comment</key>
-      <string>S24 DEBUG: reflection-probe cubemap orientation live-tuner, +X face - negate the first free-axis slot. Value updated 2026-08-23 to the "magic combo" (live-tuner session) - user-confirmed clean, seamless sphere render, all 6 faces. Provisional baseline: NegA flipped from every face's original sign, i.e. equivalent to a single global qx negation - not yet baked into the shader literal, kept as a tunable default pending a landmark re-check on +Y/-Y/+Z/-Z (touched by this same change) and further live testing.</string>
-      <key>Persist</key>
-      <integer>0</integer>
-      <key>Type</key>
-      <string>Boolean</string>
-      <key>Value</key>
-      <integer>0</integer>
-    </map>
-    <key>S24CubeOrientNegB0</key>
-    <map>
-      <key>Comment</key>
-      <string>S24 DEBUG: reflection-probe cubemap orientation live-tuner, +X face - negate the second free-axis slot.</string>
-      <key>Persist</key>
-      <integer>0</integer>
-      <key>Type</key>
-      <string>Boolean</string>
-      <key>Value</key>
-      <integer>0</integer>
-    </map>
-    <key>S24CubeOrientSwap1</key>
-    <map>
-      <key>Comment</key>
-      <string>S24 DEBUG: reflection-probe cubemap orientation live-tuner, -X face - swap which raw quad axis feeds which output slot.</string>
-      <key>Persist</key>
-      <integer>0</integer>
-      <key>Type</key>
-      <string>Boolean</string>
-      <key>Value</key>
-      <integer>0</integer>
-    </map>
-    <key>S24CubeOrientNegA1</key>
-    <map>
-      <key>Comment</key>
-      <string>S24 DEBUG: reflection-probe cubemap orientation live-tuner, -X face - negate the first free-axis slot. Value updated 2026-08-23 to the "magic combo" - see S24CubeOrientNegA0's comment for the full explanation.</string>
-      <key>Persist</key>
-      <integer>0</integer>
-      <key>Type</key>
-      <string>Boolean</string>
-      <key>Value</key>
-      <integer>1</integer>
-    </map>
-    <key>S24CubeOrientNegB1</key>
-    <map>
-      <key>Comment</key>
-      <string>S24 DEBUG: reflection-probe cubemap orientation live-tuner, -X face - negate the second free-axis slot.</string>
-      <key>Persist</key>
-      <integer>0</integer>
-      <key>Type</key>
-      <string>Boolean</string>
-      <key>Value</key>
-      <integer>0</integer>
-    </map>
-    <key>S24CubeOrientSwap2</key>
-    <map>
-      <key>Comment</key>
-      <string>S24 DEBUG: reflection-probe cubemap orientation live-tuner, +Y face - swap which raw quad axis feeds which output slot. This face is already confirmed correct - leave at default unless deliberately testing the tool itself.</string>
-      <key>Persist</key>
-      <integer>0</integer>
-      <key>Type</key>
-      <string>Boolean</string>
-      <key>Value</key>
-      <integer>0</integer>
-    </map>
-    <key>S24CubeOrientNegA2</key>
-    <map>
-      <key>Comment</key>
-      <string>S24 DEBUG: reflection-probe cubemap orientation live-tuner, +Y face - negate the first free-axis slot. Value updated 2026-08-23 to the "magic combo" - see S24CubeOrientNegA0's comment. This face was previously confirmed correct with the OLD sign - re-verify against a known landmark before trusting this face's new value long-term.</string>
-      <key>Persist</key>
-      <integer>0</integer>
-      <key>Type</key>
-      <string>Boolean</string>
-      <key>Value</key>
-      <integer>1</integer>
-    </map>
-    <key>S24CubeOrientNegB2</key>
-    <map>
-      <key>Comment</key>
-      <string>S24 DEBUG: reflection-probe cubemap orientation live-tuner, +Y face - negate the second free-axis slot.</string>
-      <key>Persist</key>
-      <integer>0</integer>
-      <key>Type</key>
-      <string>Boolean</string>
-      <key>Value</key>
-      <integer>1</integer>
-    </map>
-    <key>S24CubeOrientSwap3</key>
-    <map>
-      <key>Comment</key>
-      <string>S24 DEBUG: reflection-probe cubemap orientation live-tuner, -Y face - swap which raw quad axis feeds which output slot. This face is already confirmed correct - leave at default unless deliberately testing the tool itself.</string>
-      <key>Persist</key>
-      <integer>0</integer>
-      <key>Type</key>
-      <string>Boolean</string>
-      <key>Value</key>
-      <integer>0</integer>
-    </map>
-    <key>S24CubeOrientNegA3</key>
-    <map>
-      <key>Comment</key>
-      <string>S24 DEBUG: reflection-probe cubemap orientation live-tuner, -Y face - negate the first free-axis slot. Value updated 2026-08-23 to the "magic combo" - see S24CubeOrientNegA0's comment. This face was previously confirmed correct with the OLD sign - re-verify against a known landmark before trusting this face's new value long-term.</string>
-      <key>Persist</key>
-      <integer>0</integer>
-      <key>Type</key>
-      <string>Boolean</string>
-      <key>Value</key>
-      <integer>1</integer>
-    </map>
-    <key>S24CubeOrientNegB3</key>
-    <map>
-      <key>Comment</key>
-      <string>S24 DEBUG: reflection-probe cubemap orientation live-tuner, -Y face - negate the second free-axis slot.</string>
-      <key>Persist</key>
-      <integer>0</integer>
-      <key>Type</key>
-      <string>Boolean</string>
-      <key>Value</key>
-      <integer>0</integer>
-    </map>
-    <key>S24CubeOrientSwap4</key>
-    <map>
-      <key>Comment</key>
-      <string>S24 DEBUG: reflection-probe cubemap orientation live-tuner, +Z face - swap which raw quad axis feeds which output slot. This face is already confirmed correct - leave at default unless deliberately testing the tool itself.</string>
-      <key>Persist</key>
-      <integer>0</integer>
-      <key>Type</key>
-      <string>Boolean</string>
-      <key>Value</key>
-      <integer>0</integer>
-    </map>
-    <key>S24CubeOrientNegA4</key>
-    <map>
-      <key>Comment</key>
-      <string>S24 DEBUG: reflection-probe cubemap orientation live-tuner, +Z face - negate the first free-axis slot. Value updated 2026-08-23 to the "magic combo" - see S24CubeOrientNegA0's comment. This face was previously confirmed correct with the OLD sign - re-verify against a known landmark before trusting this face's new value long-term.</string>
-      <key>Persist</key>
-      <integer>0</integer>
-      <key>Type</key>
-      <string>Boolean</string>
-      <key>Value</key>
-      <integer>1</integer>
-    </map>
-    <key>S24CubeOrientNegB4</key>
-    <map>
-      <key>Comment</key>
-      <string>S24 DEBUG: reflection-probe cubemap orientation live-tuner, +Z face - negate the second free-axis slot.</string>
-      <key>Persist</key>
-      <integer>0</integer>
-      <key>Type</key>
-      <string>Boolean</string>
-      <key>Value</key>
-      <integer>0</integer>
-    </map>
-    <key>S24CubeOrientSwap5</key>
-    <map>
-      <key>Comment</key>
-      <string>S24 DEBUG: reflection-probe cubemap orientation live-tuner, -Z face - swap which raw quad axis feeds which output slot. This face is already confirmed correct - leave at default unless deliberately testing the tool itself.</string>
-      <key>Persist</key>
-      <integer>0</integer>
-      <key>Type</key>
-      <string>Boolean</string>
-      <key>Value</key>
-      <integer>0</integer>
-    </map>
-    <key>S24CubeOrientNegA5</key>
-    <map>
-      <key>Comment</key>
-      <string>S24 DEBUG: reflection-probe cubemap orientation live-tuner, -Z face - negate the first free-axis slot. Value updated 2026-08-23 to the "magic combo" - see S24CubeOrientNegA0's comment.</string>
-      <key>Persist</key>
-      <integer>0</integer>
-      <key>Type</key>
-      <string>Boolean</string>
-      <key>Value</key>
-      <integer>0</integer>
-    </map>
-    <key>S24CubeOrientNegB5</key>
-    <map>
-      <key>Comment</key>
-      <string>S24 DEBUG: reflection-probe cubemap orientation live-tuner, -Z face - negate the second free-axis slot.</string>
-      <key>Persist</key>
-      <integer>0</integer>
-      <key>Type</key>
-      <string>Boolean</string>
-      <key>Value</key>
-      <integer>0</integer>
     </map>
     <key>RenderReflectionRes</key>
     <map>
@@ -18538,6 +18274,171 @@
       <string>F32</string>
       <key>Value</key>
       <real>1.0</real>
+    </map>
+    <key>RenderStarGlow</key>
+    <map>
+      <key>Comment</key>
+      <string>S24 (task #279 stage 2) - Star field glow. 0.0-1.0 scales point brightness (normal at 1.0). Above 1.0 no longer brightens the point itself - instead fades in a soft colored haze halo that widens as you push it further, up to 3.0.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>1.0</real>
+    </map>
+    <key>RenderStarDensity</key>
+    <map>
+      <key>Comment</key>
+      <string>S24 (task #279 stage 2) - Fraction of the baked star field to show (0.0=nearly empty sky, 1.0=full field). Pure shader-side visibility cull, no geometry cost.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>1.0</real>
+    </map>
+    <key>RenderStarDustIntensity</key>
+    <map>
+      <key>Comment</key>
+      <string>S24 (task #279 stage 2) - Strength of the Milky-Way-style galactic dust band. 0.0=off, 1.0=normal, 2.0=very pronounced.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>1.0</real>
+    </map>
+    <key>RenderNebulaEnabled</key>
+    <map>
+      <key>Comment</key>
+      <string>S24 (task #279 stage 2) - Enable soft colored nebula patches in the night sky.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>1</integer>
+    </map>
+    <key>RenderNebulaIntensity</key>
+    <map>
+      <key>Comment</key>
+      <string>S24 (task #279 stage 2) - Nebula patch brightness/saturation multiplier. 0.0=invisible, 1.0=normal, 2.0=vivid.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>1.0</real>
+    </map>
+    <key>RenderShootingStars</key>
+    <map>
+      <key>Comment</key>
+      <string>S24 (task #279 stage 2) - Enable occasional shooting stars/meteors streaking across the sky.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>1</integer>
+    </map>
+    <key>RenderCloudLayers</key>
+    <map>
+      <key>Comment</key>
+      <string>S24 (task #303) - Enable extra 2.5D cloud decks (a fast thin high-cirrus layer + a slow big cumulus layer) on top of the normal EEP cloud layer, for a sense of depth without full volumetric raymarching.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>1</integer>
+    </map>
+    <key>RenderCloudLayerOpacity</key>
+    <map>
+      <key>Comment</key>
+      <string>S24 (task #303) - Opacity multiplier for the extra cirrus/cumulus cloud decks. 0.0=invisible, 1.0=normal, 2.0=very pronounced.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>1.0</real>
+    </map>
+    <key>RenderCloudCirrusScale</key>
+    <map>
+      <key>Comment</key>
+      <string>S24 (task #303) - Cirrus deck cell-size ratio, relative to the active WindLight preset's own cloud scale. Lower=finer/wispier cells.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>0.55</real>
+    </map>
+    <key>RenderCloudCumulusScale</key>
+    <map>
+      <key>Comment</key>
+      <string>S24 (task #303) - Cumulus deck cell-size ratio, relative to the active WindLight preset's own cloud scale. Higher=bigger/puffier cells.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>1.7</real>
+    </map>
+    <key>RenderCloudCirrusScrollMult</key>
+    <map>
+      <key>Comment</key>
+      <string>S24 (task #303) - Cirrus deck wind-scroll speed, relative to the base cloud layer's own scroll rate.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>1.6</real>
+    </map>
+    <key>RenderCloudCumulusScrollMult</key>
+    <map>
+      <key>Comment</key>
+      <string>S24 (task #303) - Cumulus deck wind-scroll speed, relative to the base cloud layer's own scroll rate.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>0.6</real>
+    </map>
+    <key>RenderCloudLayerHeightSkew</key>
+    <map>
+      <key>Comment</key>
+      <string>S24 (task #303) - "Cloud base" height stratification strength (0=flat, same apparent height as the base layer; 1=cirrus reads notably higher/cumulus notably lower). A visual skew trick, not true altitude - the WindLight dome recenters on the camera every frame.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>0.3</real>
+    </map>
+    <key>RenderSkyStyle</key>
+    <map>
+      <key>Comment</key>
+      <string>S24 (tasks #301/#302) - Night sky style: 0=Default, 1=Real Constellations (stylized approximations of well-known constellation shapes, not precise astronomical data), 2=Starry Night (Van Gogh-inspired blue/gold swirl). Requires restart - star placement is baked once at startup.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>S32</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
+    <key>RenderShootingStarFrequency</key>
+    <map>
+      <key>Comment</key>
+      <string>S24 (task #279 stage 2) - Average shooting stars per minute. 0=effectively off, 4=occasional, 20=meteor shower.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>4.0</real>
     </map>
   </map>
 </llsd>

@@ -195,7 +195,12 @@ float4 getNormRaw(float2 screenpos)
 
 float linearDepth(float d, float znear, float zfar)
 {
-    d = d * 2.0 - 1.0;
+    // S24 (reversed-Z conversion): 1.0-d*2.0, was d*2.0-1.0 - reconstructs
+    // the same GL-convention NDC z (-1=near,+1=far) from the now-reversed
+    // stored depth (near=1.0/far=0.0, see kGLtoDXDepthRemap's comment,
+    // llrender.cpp). Everything below this line already operates on that
+    // GL-convention NDC z and needs no further change.
+    d = 1.0 - d * 2.0;
     return znear * 2.0 * zfar / (zfar + znear - d * (zfar - znear));
 }
 
@@ -297,7 +302,9 @@ float4 getPosition(float2 pos_screen)
 {
     float depth = getDepth(pos_screen);
     float2 sc = getScreenCoordinate(pos_screen);
-    float4 ndc = float4(sc.x, sc.y, 2.0 * depth - 1.0, 1.0);
+    // S24 (reversed-Z conversion): 1.0-2.0*depth, was 2.0*depth-1.0 - see
+    // linearDepth()/getPositionWithDepth() comments above.
+    float4 ndc = float4(sc.x, sc.y, 1.0 - 2.0 * depth, 1.0);
     float4 pos = mul(inv_proj, ndc);
     pos /= pos.w;
     pos.w = 1.0;
@@ -313,7 +320,9 @@ float3 getPositionWithNDC(float3 ndc)
 float4 getPositionWithDepth(float2 pos_screen, float depth)
 {
     float2 sc = getScreenCoordinate(pos_screen);
-    float3 ndc = float3(sc.x, sc.y, 2.0 * depth - 1.0);
+    // S24 (reversed-Z conversion): 1.0-2.0*depth, was 2.0*depth-1.0 - see
+    // linearDepth()'s matching comment above.
+    float3 ndc = float3(sc.x, sc.y, 1.0 - 2.0 * depth);
     return float4(getPositionWithNDC(ndc), 1.0);
 }
 

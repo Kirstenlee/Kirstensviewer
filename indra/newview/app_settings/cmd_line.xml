@@ -55,7 +55,7 @@
     <key>debugsession</key>
     <map>
       <key>desc</key>
-      <string>Run as if RenderDebugGLSession is TRUE, but log errors until end of session.</string>
+      <string>Enable GL debug validation for the session and log errors until it ends.</string>
       <key>map-to</key>
       <string>DebugSession</string>
     </map>

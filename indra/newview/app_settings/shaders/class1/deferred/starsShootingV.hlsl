@@ -1,7 +1,7 @@
-﻿/**
- * @file class1/deferred/sunDiscV.hlsl
+/**
+ * @file class1/deferred/starsShootingV.hlsl
  *
- * Copyright (c) 2025 Kirstenlee Cinquetti (Lee Quick)
+ * Copyright (c) 2026 Kirstenlee Cinquetti (Lee Quick)
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -22,47 +22,42 @@
  * SOFTWARE.
  */
 
-uniform float4x4 texture_matrix0;
-uniform float4x4 modelview_matrix;
+// S24 (task #279 stage 2, "RENDER WOW"): the shooting-star streak quad -
+// geometry is CPU-built fresh every active frame by
+// LLVOWLSky::updateShootingStarGeometry(), this just transforms/passes it
+// through. Mirrors starsV.hlsl's structure deliberately.
+
 uniform float4x4 modelview_projection_matrix;
-
-void calcAtmospherics(float3 eye_pos);
-
-#include "varying/sunDiscVarying.hlsli"
 
 struct VSInput
 {
     float3 position : POSITION;
+    float4 diffuse_color : COLOR0;
     float2 texcoord0 : TEXCOORD0;
 };
+
+#include "varying/starsShootingVarying.hlsli"
 
 struct VSOutput
 {
     float4 position : SV_Position;
-    SunDiscVarying varying;
+    StarsShootingVarying varying;
 };
 
 VSOutput main(VSInput IN)
 {
     VSOutput OUT;
 
-    //transform vertex
-    float3 offset = float3(0, 0, 50);
-    float4 vert = float4(IN.position.xyz - offset, 1.0);
-    float4 pos  = mul(modelview_projection_matrix, vert);
+    float4 pos = mul(modelview_projection_matrix, float4(IN.position, 1.0));
 
-    OUT.varying.sun_fade = smoothstep(0.3, 1.0, (IN.position.z + 50) / 512.0f);
+    // S24: same reversed-Z "smash to far plane" trick as starsV.hlsl - see
+    // that file's comment. Avoids writing gl_FragDepth (slow) while keeping
+    // streaks from rendering on top of the moon/closer geometry.
+    pos.z = 0.0;
 
-    // smash to *almost* far clip plane -- behind clouds but in front of stars
-    // S24 (reversed-Z conversion, missed original sweep): 0.000001, was
-    // 0.999999 - far is now 0.0 not 1.0 (see starsV.hlsl's comment); mirrored
-    // via 1.0-0.999999 to preserve the exact same near/far margin.
-    pos.z = pos.w*0.000001;
     OUT.position = pos;
-
-    calcAtmospherics(pos.xyz);
-
-    OUT.varying.vary_texcoord0 = mul(texture_matrix0, float4(IN.texcoord0, 0, 1)).xy;
+    OUT.varying.vertex_color = IN.diffuse_color;
+    OUT.varying.vary_texcoord0 = IN.texcoord0;
 
     return OUT;
 }

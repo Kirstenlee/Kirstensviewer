@@ -307,7 +307,13 @@ float4 main(PSInput IN) : SV_Target
     // here doesn't work) and already applies the origin flip internally.
     float depth = getDepth(distort);
 
-    float3 refPos = getPositionWithNDC(float3(distort * 2.0 - float2(1.0, 1.0), depth * 2.0 - 1.0));
+    // S24 (reversed-Z conversion): 1.0-2.0*depth, was 2.0*depth-1.0 - see
+    // deferredUtil.hlsl's linearDepth()/getPositionWithDepth() comments.
+    // This is the actual root cause of the "ocean drains at camera
+    // distance" bug: the standard (non-reversed) depth buffer lost enough
+    // precision reconstructing the seabed's position at range that this
+    // shore-fade heuristic misjudged deep water as shallow.
+    float3 refPos = getPositionWithNDC(float3(distort * 2.0 - float2(1.0, 1.0), 1.0 - 2.0 * depth));
 
     // Calculate some distance fade in the water to better assist with refraction blending and reducing the refraction texture's "disconnect".
     fade = max(0, min(1, (pos.z - refPos.z) / 10));
@@ -316,7 +322,9 @@ float4 main(PSInput IN) : SV_Target
     distort2 = lerp(distort, distort2, min(1, fade * 10));
     depth = getDepth(distort2);
 
-    refPos = getPositionWithNDC(float3(distort2 * 2.0 - float2(1.0, 1.0), depth * 2.0 - 1.0));
+    // S24 (reversed-Z conversion): 1.0-2.0*depth, was 2.0*depth-1.0 - see
+    // matching comment above.
+    refPos = getPositionWithNDC(float3(distort2 * 2.0 - float2(1.0, 1.0), 1.0 - 2.0 * depth));
 
     if (pos.z < refPos.z - 0.05)
     {

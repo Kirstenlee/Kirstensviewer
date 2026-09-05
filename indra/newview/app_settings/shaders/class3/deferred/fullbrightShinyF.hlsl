@@ -94,8 +94,22 @@ float4 main(PSInput IN) : SV_Target
     float env_intensity = IN.vertex_color.a;
 
     float3 ambenv;
-    float3 glossenv;
-    float3 legacyenv;
+    // S24 (2026-09-02): both zero-initialized - D3DCompile flagged X4000
+    // "potentially uninitialized variable" for legacyenv here. Real risk,
+    // not a false alarm: sampleReflectionProbesLegacy()/its glossiness
+    // branch only write these when envIntensity>0.0/spec.a>0.0
+    // respectively - with env_intensity==0 (routine; a FullbrightShiny
+    // material with no explicit Environment Intensity set), legacyenv
+    // stays whatever garbage was in this register and flows straight into
+    // applyLegacyEnv()'s math. That math IS designed to cancel out at
+    // envIntensity==0 (reflected_color *= envIntensity, then
+    // lerp(color, reflected_color*0.5, envIntensity)) - but only for
+    // finite garbage; NaN/Inf survive a zero-weight lerp in IEEE float
+    // (0*NaN=NaN, not 0), which uninitialized memory is not guaranteed to
+    // avoid. softenLightF.hlsl/alphaF.hlsl's own callers already
+    // correctly zero-init - this one just didn't.
+    float3 glossenv = float3(0, 0, 0);
+    float3 legacyenv = float3(0, 0, 0);
     float3 norm = normalize(IN.vary_texcoord1.xyz);
     float4 spec = float4(0, 0, 0, 0);
     sampleReflectionProbesLegacy(ambenv, glossenv, legacyenv, float2(0, 0), pos.xyz, norm.xyz, spec.a, env_intensity, false, amblit);

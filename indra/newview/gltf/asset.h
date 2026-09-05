@@ -34,7 +34,7 @@
 #include "boost/json.hpp"
 #include "common.h"
 #include "../llviewertexture.h"
-#include "llglslshader.h"
+#include "llhlslshader.h"
 
 #ifdef DX_RENDER
 #include "DXBuffer.h"
@@ -353,7 +353,7 @@ namespace LL
             // list of render batches
             // indexed by [material index + 1](0 is reserved for default material)
             // there should be exactly one render batch per material per variant
-            std::vector<RenderBatch> mBatches[LLGLSLShader::NUM_GLTF_VARIANTS];
+            std::vector<RenderBatch> mBatches[LLHLSLShader::NUM_GLTF_VARIANTS];
         };
 
 

@@ -303,10 +303,10 @@ KVRAMCacheHardThreshold
   Range: 0.0-1.0
   Notes: Aggressive RAM-to-Disk eviction at this usage (emergency mode). Prevents overflow.
 
-KVRAMCacheGracePeriodSec
+KVRAMCacheRetentionTimeSec (renamed from KVRAMCacheGracePeriodSec)
   Default: 10.0 seconds
   Range: 0.1-30.0 seconds (0.1 second steps)
-  Notes: Eviction interval. Lower = more aggressive cleanup, higher = less churn.
+  Notes: Minimum retention time before a texture is eligible for eviction. Lower = more aggressive cleanup, higher = less churn.
 
 KVRAMCacheMinDeckSize
   Default: 100 textures

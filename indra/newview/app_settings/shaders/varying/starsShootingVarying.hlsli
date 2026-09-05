@@ -1,7 +1,7 @@
-﻿/**
- * @file class1/deferred/moonV.hlsl
+/**
+ * @file varying/starsShootingVarying.hlsli
  *
- * Copyright (c) 2025 Kirstenlee Cinquetti (Lee Quick)
+ * Copyright (c) 2026 Kirstenlee Cinquetti (Lee Quick)
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -22,40 +22,16 @@
  * SOFTWARE.
  */
 
-uniform float4x4 texture_matrix0;
-uniform float4x4 modelview_matrix;
-uniform float4x4 modelview_projection_matrix;
-
-struct VSInput
+// Shared vertex-to-pixel varying struct for class1/deferred/starsShootingV.hlsl/
+// starsShootingF.hlsl (task #279 stage 2, "RENDER WOW").
+//
+// vary_texcoord0.x: streak-local position, 0 at the tail (transparent) to 1
+// at the head (bright) - see LLVOWLSky::updateShootingStarGeometry().
+// vary_texcoord0.y: streak-local width position, 0..1 across the quad.
+// vertex_color.a: the spawn/expire fade envelope (0..1), same meaning as the
+// alpha LLVOWLSky::updateShootingStarGeometry() bakes per-vertex.
+struct StarsShootingVarying
 {
-    float3 position : POSITION;
-    float2 texcoord0 : TEXCOORD0;
-};
-
-struct VSOutput
-{
-    float4 position : SV_Position;
+    float4 vertex_color : COLOR0;
     float2 vary_texcoord0 : TEXCOORD0;
 };
-
-VSOutput main(VSInput IN)
-{
-    VSOutput OUT;
-
-    //transform vertex
-    float4 vert = float4(IN.position.xyz, 1.0);
-    float4 pos = mul(modelview_projection_matrix, vert);
-
-    // smash to *almost* far clip plane -- stars are still behind
-    // SL-19283 - finagle the moon position to be between clouds and stars.
-    // S24 (reversed-Z conversion, missed original sweep): 0.000009, was
-    // 0.999991 - far is now 0.0 not 1.0 (see starsV.hlsl's comment); mirrored
-    // via 1.0-0.999991 to preserve the exact same near/far margin and the
-    // moon-nearer-than-sun ordering relative to sunDiscV.hlsl's own margin.
-    pos.z = pos.w*0.000009;
-    OUT.position = pos;
-
-    OUT.vary_texcoord0 = mul(texture_matrix0, float4(IN.texcoord0, 0, 1)).xy;
-
-    return OUT;
-}

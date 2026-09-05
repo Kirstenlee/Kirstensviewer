@@ -61,7 +61,9 @@ float4 main(PSInput IN) : SV_Target
 {
     float2 tc = IN.vary_fragcoord.xy;
     float depth = getDepth(tc);
-    if (depth >= 1.0) return float4(0.0, 0.0, 0.0, 0.0);
+    // S24 (reversed-Z conversion): far is now 0.0, was 1.0 - see
+    // kGLtoDXDepthRemap's comment (llrender.cpp).
+    if (depth <= 0.0) return float4(0.0, 0.0, 0.0, 0.0);
 
     GBufferInfo gb = getGBuffer(tc);
     float3 pos = getPositionWithDepth(tc, depth).xyz;

@@ -151,7 +151,7 @@ Texture2D detail_3_emissive : register(t16);
 // bind call last wrote slot 15 doesn't matter, only that it's a "detail
 // map" sampler. Root cause of a real crash: this register overflow failed
 // to compile (X4509), leaving the shader's mDXVertexShader/mDXPixelShader
-// null, and a later unconditional LLGLSLShader::bind() call for it hit
+// null, and a later unconditional LLHLSLShader::bind() call for it hit
 // mDXVertexShader.getVS() != nullptr's ASSERT - confirmed via the D3DCompile
 // failure + immediate bind() assert in the same log, triggered by enabling
 // HDR Emissive (adds this 4th HAS_EMISSIVE detail sampler that pushed the

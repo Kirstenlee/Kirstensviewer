@@ -49,7 +49,13 @@ float4 main(PSInput IN) : SV_Target
     float4 pos = getPosition(pos_screen);
     float4 norm = getNorm(pos_screen);
 
-    float4 col;
+    // S24 (2026-09-02): zero-initialized - was `float4 col;` then written
+    // component-by-component (col.r=/.g=/.b=/.a=). FXC's dataflow checker
+    // is unreliable at proving 4 separate swizzle-writes together cover
+    // the whole vector, and mislabels the resulting X4000 warning after
+    // whichever call it sees first (sampleDirectionalShadow, even though
+    // that function itself is not the actual issue here).
+    float4 col = float4(0, 0, 0, 0);
     col.r = sampleDirectionalShadow(pos.xyz, norm.xyz, pos_screen);
     col.g = 1.0f;
     col.b = sampleSpotShadow(pos.xyz, norm.xyz, 0, pos_screen);

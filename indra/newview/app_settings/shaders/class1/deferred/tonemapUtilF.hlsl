@@ -186,7 +186,17 @@ float3 toneMapUchimura(float3 x)
     float3 w2 = step(S0, x);
     float3 w1 = 1.0 - w0 - w2;
 
-    float3 T = m * pow(x / m, float3(c, c, c)) + b;
+    // S24 (2026-09-02): was pow(x/m, ...) unguarded - x is the input HDR
+    // color, which should be non-negative in principle but isn't
+    // guaranteed to stay exactly so under floating-point drift from
+    // upstream lighting math. pow() with a negative base and non-integer
+    // exponent is undefined behavior, and D3D11 is more likely to reliably
+    // return NaN for it than to silently degrade - a NaN here would
+    // poison this whole pixel's final tonemapped color, not just look
+    // slightly off. Same established fix already used for this exact
+    // problem in atmosphericsFuncs.hlsl's calcAtmosphericVars() (see its
+    // own comment) - wrap with abs() rather than leave unguarded.
+    float3 T = m * pow(abs(x / m), float3(c, c, c)) + b;
     float3 S = P - (P - S1) * exp(CP * (x - S0));
     float3 L = m + a * (x - m);
 

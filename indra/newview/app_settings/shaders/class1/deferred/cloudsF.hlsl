@@ -38,6 +38,20 @@ uniform float3 cloud_pos_density2;
 uniform float cloud_scale;
 uniform float cloud_variance;
 
+// S24 (2026-08-31, task #303 "2.5D cloud layers"): additional decks are
+// just extra draws of this SAME dome/shader with different CLOUD_SCALE/
+// CLOUD_POS_DENSITY1/2 uniform overrides (see dxdrawpoolwlsky.cpp's
+// renderSkyCloudsDeferred()) - this tint/alpha pair is the only genuinely
+// new shader-side addition, giving each deck its own aerial-perspective
+// colour cast and opacity so they read as physically distinct layers
+// rather than the same cloud pattern redrawn at a different scale.
+// Explicitly reset to (1,1,1)/1.0 before the base/unchanged layer's draw
+// every frame - GPU shader constants persist across draw calls, so a
+// previous layer's values would otherwise leak into the next frame's base
+// pass if this shader happened to be reused without an override.
+uniform float3 cloud_layer_tint;
+uniform float cloud_layer_alpha_mult;
+
 #include "varying/cloudsVarying.hlsli"
 
 struct PSOutput
@@ -142,6 +156,11 @@ PSOutput main(PSInput IN)
     color = (cloudColorSun*(1.-alpha2) + cloudColorAmbient);
     color.rgb = clamp(color.rgb, float3(0, 0, 0), float3(1, 1, 1));
     color.rgb *= 2.0;
+
+    // S24 (task #303): per-layer aerial-perspective tint + opacity - see
+    // the uniform declarations above.
+    color.rgb *= cloud_layer_tint;
+    alpha1 *= cloud_layer_alpha_mult;
 
     /// Gamma correct for WL (soft clip effect).
 

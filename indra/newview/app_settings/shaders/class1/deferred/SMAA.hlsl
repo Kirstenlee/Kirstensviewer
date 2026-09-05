@@ -205,8 +205,23 @@ uniform float4 SMAA_RT_METRICS;
 // Porting: sampler objects + sampling macros (SMAA_HLSL_4 target, see
 // top-of-file comment for why these must stay macros, not functions)
 
-SamplerState LinearSampler { Filter = MIN_MAG_LINEAR_MIP_POINT; AddressU = Clamp; AddressV = Clamp; };
-SamplerState PointSampler { Filter = MIN_MAG_MIP_POINT; AddressU = Clamp; AddressV = Clamp; };
+// S24 (2026-09-04): explicit high slots (s13/s14), matching this project's
+// established "safe unused register" convention (see reflectionProbeF.hlsl's
+// t16/t17 comment) - every SMAA entry-point file's own per-texture samplers
+// (edgesTexSampler/areaTexSampler/searchTexSampler etc, all declared/unused
+// per the comments below) sit at s0-s2, so s13/s14 can never collide. This
+// codebase's raw-D3D11 shader path does NOT auto-bind samplers from an
+// inline initializer block like this - unlike the Effects11 framework, the
+// {Filter=...} values here are compiled-in metadata only, not a real bound
+// sampler. Without an explicit register (letting the compiler auto-assign
+// one) AND a matching PSSetSamplers() call at that slot from C++, these reads
+// used whatever sampler a prior, unrelated draw left bound to the auto-
+// assigned slot that frame - undefined per-frame garbage, not really
+// point/linear at all. DXSampler::bindStatic(13,...)/(14,...) in
+// generateSMAABuffers()/applySMAA() (pipeline.cpp) now binds real samplers
+// here every pass.
+SamplerState LinearSampler : register(s13) { Filter = MIN_MAG_LINEAR_MIP_POINT; AddressU = Clamp; AddressV = Clamp; };
+SamplerState PointSampler : register(s14) { Filter = MIN_MAG_MIP_POINT; AddressU = Clamp; AddressV = Clamp; };
 
 #define SMAASampleLevelZero(tex, coord) tex.SampleLevel(LinearSampler, coord, 0)
 #define SMAASampleLevelZeroPoint(tex, coord) tex.SampleLevel(PointSampler, coord, 0)

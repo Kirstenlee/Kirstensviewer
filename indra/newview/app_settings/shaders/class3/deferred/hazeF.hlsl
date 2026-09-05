@@ -110,7 +110,9 @@ float4 main(PSInput IN) : SV_Target
     float3  irradiance = float3(0, 0, 0);
     float3  radiance  = float3(0, 0, 0);
 
-    if (depth >= 1.0)
+    // S24 (reversed-Z conversion): far is now 0.0, was 1.0 - see
+    // kGLtoDXDepthRemap's comment (llrender.cpp).
+    if (depth <= 0.0)
     {
         //should only be true of sky, clouds, sun/moon, and stars
         discard;

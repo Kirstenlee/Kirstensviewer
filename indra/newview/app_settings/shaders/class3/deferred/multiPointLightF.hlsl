@@ -249,7 +249,24 @@ float4 main(PSInput IN) : SV_Target
                         float gt = max(0, min(2 * nh * nv / vh, 2 * nh * nl2 / vh));
                         if (nh > 0.0)
                         {
-                            float scol = fres * lightFunc.Sample(lightFuncSampler, float2(nh, spec.a)).r * gt / (nh * nl2);
+                            // S24 (2026-09-02): was Sample() (implicit LOD/
+                            // derivative) - this loop's trip count depends
+                            // on the runtime uniform light_count, not a
+                            // compile-time constant, so FXC can't statically
+                            // prove every pixel in a quad takes the same
+                            // number of iterations and forcibly unrolls the
+                            // whole loop (up to 16x for this file's highest
+                            // LIGHT_COUNT permutation) just to make the
+                            // gradient computation provable (X3570).
+                            // SampleLevel(...,0) needs no derivative, so the
+                            // loop no longer has to be unrolled for this
+                            // reason. Zero behavior change: mDXLightFunc
+                            // (DXTexture::createFloat()) hardcodes
+                            // MipLevels=1/mGenerateMips=false - there is
+                            // only ever mip 0, so implicit-LOD Sample() and
+                            // explicit-LOD-0 SampleLevel() are identical
+                            // here, not an approximation.
+                            float scol = fres * lightFunc.SampleLevel(lightFuncSampler, float2(nh, spec.a), 0).r * gt / (nh * nl2);
                             col += lit * scol * light_col[i].rgb * spec.rgb;
                         }
                     }

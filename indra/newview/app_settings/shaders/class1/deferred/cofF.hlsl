@@ -92,7 +92,12 @@ float4 main(PSInput IN) : SV_Target
     float2 tc = float2(IN.vary_fragcoord.x, 1.0 - IN.vary_fragcoord.y);
 
     float z = depthMap.Sample(depthMapSampler, tc).r;
-    z = z*2.0-1.0;
+    // S24 (reversed-Z conversion, missed in the original r3704 sweep -
+    // cofF.hlsl wasn't in that pass's file list): 1.0-z*2.0, was z*2.0-1.0 -
+    // see deferredUtil.hlsl's linearDepth() comment for the full reasoning.
+    // Left uncorrected, DoF's calc_cof() computed depth against an inverted
+    // sense of near/far, throwing off the whole focal-plane/blur falloff.
+    z = 1.0 - z*2.0;
     float4 ndc = float4(0.0, 0.0, z, 1.0);
     float4 p = mul(inv_proj, ndc);
     float depth = p.z/p.w;

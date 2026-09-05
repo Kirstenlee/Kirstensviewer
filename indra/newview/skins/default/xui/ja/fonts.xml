@@ -5,6 +5,7 @@
 			NotoSansCJKjp-SemiBold.otf
 		</file>
         <file load_collection="true" font_weight="400">InterVariableFont.ttf</file>
+        <file functor="is_emoji">TwemojiSVG.ttf</file>
 		<os name="Windows">
 			<file load_collection="true">
 				YuGothM.ttc
@@ -116,12 +117,15 @@
 	</font>
 	<font name="SansSerif" comment="Name of bold sans-serif font" font_style="BOLD">
         <file load_collection="true" font_weight="700" flags="bold">InterVariableFont.ttf</file>
+        <file size_delta="-0.5">DejaVuSans-Bold.ttf</file>
 	</font>
 	<font name="SansSerif" comment="Name of italic sans-serif font" font_style="ITALIC">
         <file load_collection="true" font_weight="400">InterItalicVariableFont.ttf</file>
+        <file size_delta="-0.5">DejaVuSans-Oblique.ttf</file>
 	</font>
 	<font name="SansSerif" comment="Name of bold italic sans-serif font" font_style="BOLD|ITALIC">
         <file load_collection="true" flags="bold" font_weight="700">InterItalicVariableFont.ttf</file>
+        <file size_delta="-0.5">DejaVuSans-BoldOblique.ttf</file>
 	</font>
 	<font name="Monospace" comment="Name of monospace font">
 		<file>

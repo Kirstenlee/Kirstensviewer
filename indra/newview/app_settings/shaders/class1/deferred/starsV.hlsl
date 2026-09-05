@@ -66,7 +66,13 @@ VSOutput main(VSInput IN)
 
     // smash to far clip plane to
     // avoid rendering on top of moon (do NOT write to gl_FragDepth, it's slow)
-    pos.z = pos.w;
+    // S24 (reversed-Z conversion, missed original sweep): pos.z=0.0, was
+    // pos.z=pos.w - modelview_projection_matrix already carries
+    // kGLtoDXDepthRemap (llrender.cpp), so post-divide z/w IS the stored
+    // depth directly (no separate GL-style *2-1 remap for D3D's native
+    // pipeline) - far is now 0.0, not 1.0. Left as pos.w, stars were
+    // smashing to the NEAR plane and rendering in front of everything.
+    pos.z = 0.0;
 
     OUT.position = pos;
 
@@ -84,9 +90,24 @@ VSOutput main(VSInput IN)
     // llvowlsky.cpp's dome radius) that using it directly per-corner is
     // visually smooth, unlike star_seed above which needs to be EXACTLY
     // stable per corner.
-    float3 galactic_normal = normalize(float3(0.35, 0.15, 0.92));
+    //
+    // S24 (task #279 stage 2, user feedback: "the galactic band runs around
+    // the waterline not overhead"): the band is the set of directions
+    // roughly PERPENDICULAR to galactic_normal - a normal that's mostly
+    // vertical (the old (0.35,0.15,0.92), dominant Z) makes that
+    // perpendicular set mostly HORIZONTAL directions, i.e. a ring hugging
+    // the horizon. For the band to instead arc up and OVER the sky (like a
+    // real Milky Way band), galactic_normal itself needs to be mostly
+    // horizontal - fixed by dropping its Z component way down.
+    float3 galactic_normal = normalize(float3(1.0, 0.4, 0.12));
     float band_dist = dot(normalize(IN.position), galactic_normal);
-    OUT.varying.galactic_band = 1.0 - smoothstep(0.0, 0.35, abs(band_dist));
+    // S24 (task #279 stage 2, user feedback: "so faint as not to be
+    // noticible as dust"): widened from 0.35 - more of the field now falls
+    // inside the band, giving starsF.hlsl's per-star brightness/tint boost
+    // (band_tint/density_boost, scaled by RenderStarDustIntensity) enough
+    // stars to actually read as a haze rather than a couple of slightly
+    // bluer points.
+    OUT.varying.galactic_band = 1.0 - smoothstep(0.0, 0.55, abs(band_dist));
 
     return OUT;
 }

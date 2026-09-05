@@ -247,6 +247,23 @@
         width="310" />
 
       <spinner
+        control_name="RenderVRAMSoftPressureFraction"
+        decimal_digits="2"
+        follows="left|top"
+        height="20"
+        increment="0.05"
+        initial_value="0.8"
+        label="VRAM Soft Pressure Fraction:"
+        label_width="240"
+        layout="topleft"
+        left="20"
+        max_val="1.0"
+        min_val="0.5"
+        name="vram_soft_fraction"
+        top_pad="5"
+        width="310" />
+
+      <spinner
         control_name="RenderMinFreeMainMemoryThreshold"
         decimal_digits="0"
         follows="left|top"
@@ -540,7 +557,7 @@
       </text>
 
       <slider
-        control_name="KVRAMCacheGracePeriodSec"
+        control_name="KVRAMCacheRetentionTimeSec"
         follows="left|top"
         height="20"
         increment="0.1"
@@ -553,7 +570,14 @@
         top="315"
         width="350"
         tool_tip="Minimum retention time - textures must be in cache this long before eligible for eviction (0.1-30 seconds in 0.1 second steps)"/>
-      <!-- KV:GC→RT Renamed from kvram_grace_period -->
+      <!-- S24 (2026-09-02): control_name was still the pre-rename
+           KVRAMCacheGracePeriodSec (settings.xml itself was renamed to
+           KVRAMCacheRetentionTimeSec - see its own "KV:GC->RT" comment)
+           - this XUI file was missed at rename time, so the slider never
+           actually bound to a real setting (LLUICtrl::setControlName
+           logged "control ... does not exist" every time this panel
+           built). Same rename miss as kvram_grace_period below, name= was
+           already updated then, control_name= wasn't. -->
 
       <text
         name="kvram_retention_time_text"
@@ -948,17 +972,6 @@
         width="250" />
 
       <check_box
-        control_name="RenderHoverGlowEnable"
-        height="20"
-        initial_value="true"
-        label="Enable Hover Glow Highlight"
-        layout="topleft"
-        left="20"
-        top_pad="5"
-        name="enable_hover_glow"
-        width="250" />
-
-      <check_box
         control_name="RenderFlushOrphanedTexturesOnTeleport"
         height="20"
         initial_value="false"
@@ -1087,54 +1100,6 @@
 
         <text
           type="string"
-        length="1"
-        follows="left|top"
-        height="16"
-        layout="topleft"
-        left="10"
-        top_pad="15"
-        width="460"
-        font="SansSerifBold"
-        text_color="White">
-        Highlight Effects
-      </text>
-
-      <slider
-        control_name="RenderHighlightFadeTime"
-        decimal_digits="2"
-        follows="left|top"
-        height="20"
-        increment="0.01"
-        initial_value="0.1"
-        label="Highlight Fade Time (sec):"
-        label_width="200"
-        layout="topleft"
-        left="20"
-        min_val="0.0"
-        max_val="1.0"
-        name="highlight_fade"
-        top_pad="10"
-        width="400" />
-
-      <slider
-        control_name="RenderHighlightBrightness"
-        decimal_digits="1"
-        follows="left|top"
-        height="20"
-        increment="0.1"
-        initial_value="4.0"
-        label="Highlight Brightness:"
-        label_width="200"
-        layout="topleft"
-        left="20"
-        min_val="0.0"
-        max_val="10.0"
-        name="highlight_brightness"
-        top_pad="5"
-        width="400" />
-
-      <text
-        type="string"
         length="1"
         follows="left|top"
         height="16"
@@ -1419,6 +1384,24 @@
         min_val="0.1"
         name="ssr_adaptive_mult"
         tool_tip="Multiplier for adaptive ray step sizing. Higher = faster but less accurate."
+        top_pad="5"
+        width="330" />
+
+      <spinner
+        control_name="RenderScreenSpaceReflectionGlossThreshold"
+        decimal_digits="2"
+        follows="left|top"
+        height="20"
+        increment="0.01"
+        initial_value="0.9"
+        label="SSR Glossiness Threshold:"
+        label_width="220"
+        layout="topleft"
+        left="20"
+        max_val="1.0"
+        min_val="0.5"
+        name="ssr_gloss_threshold"
+        tool_tip="Minimum glossiness before SSR engages. Lower = more surfaces get real screen-space reflections, but pulls in far more ordinary (non-mirror) geometry and costs more GPU time. PBR alpha-blend (glass) materials cap at 0.7 glossiness due to a separate roughness floor, so anything above 0.7 leaves them unaffected."
         top_pad="5"
         width="330" />
 
@@ -1882,6 +1865,363 @@
         name="WaterPresetDelete"
         tool_tip="Delete selected water preset"
         width="60" />
+
+    </panel>
+
+    <!-- ==================== TAB: NIGHT SKY (S24, task #279 stage 2) ==================== -->
+    <panel
+      border="true"
+      follows="all"
+      height="585"
+      label="Night Sky"
+      layout="topleft"
+      left="1"
+      help_topic="tweaks_tab_night_sky"
+      name="tab_night_sky"
+      top="20"
+      width="490">
+
+      <text
+        type="string"
+        length="1"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="10"
+        top="10"
+        width="460"
+        font="SansSerifBold"
+        text_color="White">
+        Night Sky (S24 - Stars, Nebulas &amp; Shooting Stars)
+      </text>
+
+      <combo_box
+        control_name="RenderSkyStyle"
+        follows="left|top"
+        height="23"
+        layout="topleft"
+        left="20"
+        name="sky_style"
+        tool_tip="Real Constellations places stylized, recognizable constellation shapes (not precise astronomical data) among the field. Starry Night is a Van Gogh-inspired blue/gold swirl style."
+        top_pad="10"
+        width="300">
+        <combo_box.item
+          label="Default"
+          name="default"
+          value="0" />
+        <combo_box.item
+          label="Real Constellations"
+          name="real_constellations"
+          value="1" />
+        <combo_box.item
+          label="Starry Night (Van Gogh)"
+          name="starry_night"
+          value="2" />
+      </combo_box>
+
+      <text
+        type="string"
+        length="1"
+        follows="left|top"
+        height="20"
+        layout="topleft"
+        left="20"
+        top_pad="2"
+        width="450"
+        font="SansSerifSmall"
+        text_color="Yellow">
+        (Requires viewer restart - star placement is baked once at startup)
+      </text>
+
+      <slider
+        control_name="RenderStarGlow"
+        decimal_digits="2"
+        follows="left|top"
+        height="20"
+        increment="0.01"
+        initial_value="1.0"
+        label="Star Glow:"
+        label_width="220"
+        layout="topleft"
+        left="20"
+        min_val="0.0"
+        max_val="3.0"
+        name="star_glow"
+        tool_tip="0-1 scales star brightness (normal at 1.0). Above 1.0 fades in a soft colored haze halo that widens as you push it further, instead of blowing out to white."
+        top_pad="10"
+        width="420" />
+
+      <slider
+        control_name="RenderStarDensity"
+        decimal_digits="2"
+        follows="left|top"
+        height="20"
+        increment="0.01"
+        initial_value="1.0"
+        label="Star Density:"
+        label_width="220"
+        layout="topleft"
+        left="20"
+        min_val="0.0"
+        max_val="1.0"
+        name="star_density"
+        tool_tip="Fraction of the star field shown. 0.0=nearly empty sky, 1.0=full field. Pure visibility cull, no performance cost either way."
+        top_pad="5"
+        width="420" />
+
+      <slider
+        control_name="RenderStarDustIntensity"
+        decimal_digits="2"
+        follows="left|top"
+        height="20"
+        increment="0.05"
+        initial_value="1.0"
+        label="Galactic Dust Band:"
+        label_width="220"
+        layout="topleft"
+        left="20"
+        min_val="0.0"
+        max_val="2.0"
+        name="star_dust_intensity"
+        tool_tip="Strength of the Milky-Way-style dust band across the sky. 0.0=off, 1.0=normal, 2.0=very pronounced."
+        top_pad="5"
+        width="420" />
+
+      <slider
+        control_name="RenderNebulaIntensity"
+        decimal_digits="2"
+        follows="left|top"
+        height="20"
+        increment="0.05"
+        initial_value="1.0"
+        label="Nebula Intensity:"
+        label_width="220"
+        layout="topleft"
+        left="20"
+        min_val="0.0"
+        max_val="2.0"
+        name="nebula_intensity"
+        tool_tip="Brightness/saturation of the soft colored nebula patches. 0.0=invisible, 1.0=normal, 2.0=vivid."
+        top_pad="5"
+        width="420" />
+
+      <check_box
+        control_name="RenderNebulaEnabled"
+        height="20"
+        initial_value="true"
+        label="Show Nebula Patches"
+        layout="topleft"
+        left="20"
+        name="nebula_enabled"
+        top_pad="10"
+        width="450"
+        tool_tip="Enable soft colored nebula patches in the night sky." />
+
+      <check_box
+        control_name="RenderShootingStars"
+        height="20"
+        initial_value="true"
+        label="Show Shooting Stars"
+        layout="topleft"
+        left="20"
+        name="shooting_stars_enabled"
+        top_pad="10"
+        width="450"
+        tool_tip="Enable occasional shooting stars/meteors streaking across the sky." />
+
+      <slider
+        control_name="RenderShootingStarFrequency"
+        decimal_digits="1"
+        follows="left|top"
+        height="20"
+        increment="0.5"
+        initial_value="4.0"
+        label="Shooting Star Frequency:"
+        label_width="220"
+        layout="topleft"
+        left="20"
+        min_val="0.0"
+        max_val="20.0"
+        name="shooting_star_frequency"
+        tool_tip="Average shooting stars per minute. 0=effectively off, 4=occasional, 20=meteor shower."
+        top_pad="10"
+        width="420" />
+      <text
+        type="string"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left_delta="425"
+        top_delta="2"
+        width="60"
+        font="SansSerifSmall"
+        text_color="LtGray">
+        /min
+      </text>
+
+    </panel>
+
+    <!-- ==================== TAB: SKY (S24, task #303) ==================== -->
+    <panel
+      border="true"
+      follows="all"
+      height="585"
+      label="Sky"
+      layout="topleft"
+      left="1"
+      help_topic="tweaks_tab_sky"
+      name="tab_sky"
+      top="20"
+      width="490">
+
+      <text
+        type="string"
+        length="1"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="10"
+        top="10"
+        width="460"
+        font="SansSerifBold"
+        text_color="White">
+        Cloud Layers (S24 - 2.5D Depth)
+      </text>
+
+      <text
+        type="string"
+        length="1"
+        follows="left|top"
+        height="32"
+        layout="topleft"
+        left="10"
+        top_pad="5"
+        width="460"
+        font="SansSerifSmall"
+        text_color="LtGray"
+        word_wrap="true">
+        Extra cirrus/cumulus decks layered on top of the active WindLight preset's own cloud settings - complementary to any preset, not a replacement for it.
+      </text>
+
+      <check_box
+        control_name="RenderCloudLayers"
+        height="20"
+        initial_value="true"
+        label="Enable Extra Cloud Layers"
+        layout="topleft"
+        left="20"
+        name="cloud_layers_enabled"
+        top_pad="10"
+        width="450"
+        tool_tip="Adds a fast thin high-cirrus deck and a slow big cumulus deck on top of the normal cloud layer, for a sense of depth." />
+
+      <slider
+        control_name="RenderCloudLayerOpacity"
+        decimal_digits="2"
+        follows="left|top"
+        height="20"
+        increment="0.01"
+        initial_value="1.0"
+        label="Cloud Layer Opacity:"
+        label_width="220"
+        layout="topleft"
+        left="20"
+        min_val="0.0"
+        max_val="2.0"
+        name="cloud_layer_opacity"
+        tool_tip="Opacity multiplier for the extra cirrus/cumulus decks. 0.0=invisible, 1.0=normal, 2.0=very pronounced."
+        top_pad="10"
+        width="420" />
+
+      <slider
+        control_name="RenderCloudLayerHeightSkew"
+        decimal_digits="2"
+        follows="left|top"
+        height="20"
+        increment="0.01"
+        initial_value="0.3"
+        label="Cloud Base (Height Skew):"
+        label_width="220"
+        layout="topleft"
+        left="20"
+        min_val="0.0"
+        max_val="1.0"
+        name="cloud_layer_height_skew"
+        tool_tip="0=cirrus/cumulus read at the same apparent height as the base layer. 1=cirrus reads notably higher, cumulus notably lower. A visual skew trick, not true altitude."
+        top_pad="10"
+        width="420" />
+
+      <slider
+        control_name="RenderCloudCirrusScale"
+        decimal_digits="2"
+        follows="left|top"
+        height="20"
+        increment="0.05"
+        initial_value="0.55"
+        label="Cirrus Cell Size:"
+        label_width="220"
+        layout="topleft"
+        left="20"
+        min_val="0.15"
+        max_val="1.0"
+        name="cloud_cirrus_scale"
+        tool_tip="Cirrus deck cell-size ratio, relative to the active preset's own cloud scale. Lower=finer/wispier cells."
+        top_pad="10"
+        width="420" />
+
+      <slider
+        control_name="RenderCloudCumulusScale"
+        decimal_digits="2"
+        follows="left|top"
+        height="20"
+        increment="0.05"
+        initial_value="1.7"
+        label="Cumulus Cell Size:"
+        label_width="220"
+        layout="topleft"
+        left="20"
+        min_val="1.0"
+        max_val="3.0"
+        name="cloud_cumulus_scale"
+        tool_tip="Cumulus deck cell-size ratio, relative to the active preset's own cloud scale. Higher=bigger/puffier cells."
+        top_pad="5"
+        width="420" />
+
+      <slider
+        control_name="RenderCloudCirrusScrollMult"
+        decimal_digits="2"
+        follows="left|top"
+        height="20"
+        increment="0.05"
+        initial_value="1.6"
+        label="Cirrus Scroll Speed:"
+        label_width="220"
+        layout="topleft"
+        left="20"
+        min_val="0.0"
+        max_val="4.0"
+        name="cloud_cirrus_scroll"
+        tool_tip="Cirrus deck wind-scroll speed, relative to the base cloud layer's own scroll rate."
+        top_pad="10"
+        width="420" />
+
+      <slider
+        control_name="RenderCloudCumulusScrollMult"
+        decimal_digits="2"
+        follows="left|top"
+        height="20"
+        increment="0.05"
+        initial_value="0.6"
+        label="Cumulus Scroll Speed:"
+        label_width="220"
+        layout="topleft"
+        left="20"
+        min_val="0.0"
+        max_val="4.0"
+        name="cloud_cumulus_scroll"
+        tool_tip="Cumulus deck wind-scroll speed, relative to the base cloud layer's own scroll rate."
+        top_pad="5"
+        width="420" />
 
     </panel>
 
@@ -4696,295 +5036,6 @@
         width="220"
         height="25"
         tool_tip="Reset all movement smoothing settings to defaults" />
-
-    </panel>
-
-    <!-- ==================== TAB: CUBEMAP ORIENTATION (DEBUG) ==================== -->
-    <panel
-      border="true"
-      follows="all"
-      height="585"
-      label="Cube Orient"
-      layout="topleft"
-      left="1"
-      help_topic="tweaks_tab_cube_orient"
-      name="tab_cube_orient"
-      top="20"
-      width="490">
-
-      <text
-        type="string"
-        length="1"
-        follows="left|top"
-        height="16"
-        layout="topleft"
-        left="10"
-        top="10"
-        width="460"
-        font="SansSerifBold"
-        text_color="Red">
-        ⚠ DEBUG TOOL - Engineering Only DO NOT TOUCH ⚠
-      </text>
-
-      <text
-        type="string"
-        length="1"
-        follows="left|top"
-        height="72"
-        layout="topleft"
-        left="20"
-        top_pad="5"
-        width="450"
-        font="SansSerifSmall"
-        text_color="DrYellow"
-        word_wrap="true">
-        Each reflection-probe cube face is built from a fixed axis plus two free slots (A/B). "Swap" trades which raw axis feeds A vs B; "Negate A/B" flips that slot's sign - 8 combinations per face, the full set of square symmetries. Defaults already match the proven-correct formula. +Y/-Y/+Z/-Z are confirmed correct already - only touch those to test the tool itself. Changes take effect automatically within a few seconds (RenderDefaultProbeUpdatePeriod).
-      </text>
-
-      <text
-        type="string"
-        follows="left|top"
-        height="16"
-        layout="topleft"
-        left="20"
-        top_pad="10"
-        width="90"
-        font="SansSerifBold"
-        text_color="White">
-        +X face
-      </text>
-      <check_box
-        control_name="S24CubeOrientSwap0"
-        height="18"
-        label="Swap"
-        layout="topleft"
-        left="110"
-        top_delta="0"
-        width="90" />
-      <check_box
-        control_name="S24CubeOrientNegA0"
-        height="18"
-        label="Negate A"
-        layout="topleft"
-        left_pad="10"
-        top_delta="0"
-        width="100" />
-      <check_box
-        control_name="S24CubeOrientNegB0"
-        height="18"
-        label="Negate B"
-        layout="topleft"
-        left_pad="10"
-        top_delta="0"
-        width="100" />
-
-      <text
-        type="string"
-        follows="left|top"
-        height="16"
-        layout="topleft"
-        left="20"
-        top_pad="8"
-        width="90"
-        font="SansSerifBold"
-        text_color="White">
-        -X face
-      </text>
-      <check_box
-        control_name="S24CubeOrientSwap1"
-        height="18"
-        label="Swap"
-        layout="topleft"
-        left="110"
-        top_delta="0"
-        width="90" />
-      <check_box
-        control_name="S24CubeOrientNegA1"
-        height="18"
-        label="Negate A"
-        layout="topleft"
-        left_pad="10"
-        top_delta="0"
-        width="100" />
-      <check_box
-        control_name="S24CubeOrientNegB1"
-        height="18"
-        label="Negate B"
-        layout="topleft"
-        left_pad="10"
-        top_delta="0"
-        width="100" />
-
-      <text
-        type="string"
-        follows="left|top"
-        height="16"
-        layout="topleft"
-        left="20"
-        top_pad="16"
-        width="300"
-        font="SansSerifSmall"
-        text_color="LtGray">
-        Already confirmed correct - only for testing the tool itself:
-      </text>
-
-      <text
-        type="string"
-        follows="left|top"
-        height="16"
-        layout="topleft"
-        left="20"
-        top_pad="8"
-        width="90"
-        font="SansSerifBold"
-        text_color="LtGray">
-        +Y face
-      </text>
-      <check_box
-        control_name="S24CubeOrientSwap2"
-        height="18"
-        label="Swap"
-        layout="topleft"
-        left="110"
-        top_delta="0"
-        width="90" />
-      <check_box
-        control_name="S24CubeOrientNegA2"
-        height="18"
-        label="Negate A"
-        layout="topleft"
-        left_pad="10"
-        top_delta="0"
-        width="100" />
-      <check_box
-        control_name="S24CubeOrientNegB2"
-        height="18"
-        label="Negate B"
-        layout="topleft"
-        left_pad="10"
-        top_delta="0"
-        width="100" />
-
-      <text
-        type="string"
-        follows="left|top"
-        height="16"
-        layout="topleft"
-        left="20"
-        top_pad="8"
-        width="90"
-        font="SansSerifBold"
-        text_color="LtGray">
-        -Y face
-      </text>
-      <check_box
-        control_name="S24CubeOrientSwap3"
-        height="18"
-        label="Swap"
-        layout="topleft"
-        left="110"
-        top_delta="0"
-        width="90" />
-      <check_box
-        control_name="S24CubeOrientNegA3"
-        height="18"
-        label="Negate A"
-        layout="topleft"
-        left_pad="10"
-        top_delta="0"
-        width="100" />
-      <check_box
-        control_name="S24CubeOrientNegB3"
-        height="18"
-        label="Negate B"
-        layout="topleft"
-        left_pad="10"
-        top_delta="0"
-        width="100" />
-
-      <text
-        type="string"
-        follows="left|top"
-        height="16"
-        layout="topleft"
-        left="20"
-        top_pad="8"
-        width="90"
-        font="SansSerifBold"
-        text_color="LtGray">
-        +Z face
-      </text>
-      <check_box
-        control_name="S24CubeOrientSwap4"
-        height="18"
-        label="Swap"
-        layout="topleft"
-        left="110"
-        top_delta="0"
-        width="90" />
-      <check_box
-        control_name="S24CubeOrientNegA4"
-        height="18"
-        label="Negate A"
-        layout="topleft"
-        left_pad="10"
-        top_delta="0"
-        width="100" />
-      <check_box
-        control_name="S24CubeOrientNegB4"
-        height="18"
-        label="Negate B"
-        layout="topleft"
-        left_pad="10"
-        top_delta="0"
-        width="100" />
-
-      <text
-        type="string"
-        follows="left|top"
-        height="16"
-        layout="topleft"
-        left="20"
-        top_pad="8"
-        width="90"
-        font="SansSerifBold"
-        text_color="LtGray">
-        -Z face
-      </text>
-      <check_box
-        control_name="S24CubeOrientSwap5"
-        height="18"
-        label="Swap"
-        layout="topleft"
-        left="110"
-        top_delta="0"
-        width="90" />
-      <check_box
-        control_name="S24CubeOrientNegA5"
-        height="18"
-        label="Negate A"
-        layout="topleft"
-        left_pad="10"
-        top_delta="0"
-        width="100" />
-      <check_box
-        control_name="S24CubeOrientNegB5"
-        height="18"
-        label="Negate B"
-        layout="topleft"
-        left_pad="10"
-        top_delta="0"
-        width="100" />
-
-      <!-- RESET BUTTON -->
-      <button
-        label="Reset To Proven Baseline"
-        name="reset_cube_orient_btn"
-        top_pad="20"
-        left="20"
-        width="220"
-        height="25"
-        tool_tip="Reset all 18 checkboxes above back to the proven-correct baseline formula" />
 
     </panel>
 

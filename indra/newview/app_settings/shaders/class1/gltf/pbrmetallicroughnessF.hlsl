@@ -53,15 +53,23 @@ void unpackMaterial()
 }
 
 // t0-t3/s0-s3 are reserved by deferredUtil.hlsl's normalMap/depthMap/
-// projectionMap/brdfLut, t4/s4 by reflectionProbeF.hlsl's environmentMap
-// (both attached here via isDeferred/hasReflectionProbes on the
-// alpha-blend variant) - moved to t5-t9/s5-s9 to avoid X4500
-// overlapping-register-semantics errors, same pattern as materialF.hlsl/
-// pbralphaF.hlsl. Also renamed this file's own "normalMap" to
-// "gltfNormalMap" - it collided by NAME with deferredUtil.hlsl's
-// normalMap even before the register move (two genuinely different
-// resources that happened to share a name, not a duplicate of the same
-// one - same shape as the earlier depthMap/waterDepthMap rename).
+// projectionMap/brdfLut (attached here via isDeferred on the alpha-blend
+// variant) - moved this file's own textures to t5-t9/s5-s9 to avoid
+// collision, same pattern as materialF.hlsl/pbralphaF.hlsl. Also renamed
+// this file's own "normalMap" to "gltfNormalMap" - it collided by NAME
+// with deferredUtil.hlsl's normalMap even before the register move (two
+// genuinely different resources that happened to share a name, not a
+// duplicate of the same one - same shape as the earlier depthMap/
+// waterDepthMap rename).
+//
+// CORRECTION (2026-09-02): the comment above used to also claim t4/s4
+// was reserved by reflectionProbeF.hlsl's environmentMap - false, real
+// X4500 "overlapping register semantics" compile failure traced it:
+// environmentMap/environmentMapSampler are actually at t9/s9 (see that
+// file's own declaration), not t4/s4. This file's occlusionMap was
+// sitting at t9/s9 too, directly colliding. t4/s4 was never actually
+// used by anything this shader attaches - moved occlusionMap there for
+// real (freeing t9/s9 for reflectionProbeF.hlsl's genuine use).
 Texture2D diffuseMap : register(t5);
 SamplerState diffuseMapSampler : register(s5);
 Texture2D emissiveMap : register(t6);
@@ -77,8 +85,8 @@ Texture2D gltfNormalMap : register(t7);
 SamplerState gltfNormalMapSampler : register(s7);
 Texture2D metallicRoughnessMap : register(t8);
 SamplerState metallicRoughnessMapSampler : register(s8);
-Texture2D occlusionMap : register(t9);
-SamplerState occlusionMapSampler : register(s9);
+Texture2D occlusionMap : register(t4);
+SamplerState occlusionMapSampler : register(s4);
 #endif
 
 // S24 (2026-08-19, task #238, task #227 audit finding): this whole
@@ -95,8 +103,16 @@ SamplerState occlusionMapSampler : register(s9);
 // for this variant - see make_gltf_variant(), llviewershadermgr.cpp) that
 // class2/deferred/pbralphaF.hlsl's own already-working equivalent uses.
 #ifdef ALPHA_BLEND
-uniform float4 clipPlane;
-uniform float clipSign;
+// S24 (2026-09-02): a local clipPlane/clipSign pair used to be declared
+// here, copied in during task #238's port - real D3DCompile failure
+// (X3003 redefinition of 'clipPlane', this shader) traced it to
+// globalF.hlsl's own clipPlane/clipSign (used by mirrorClip(), always
+// attached to every fragment shader per that file's own comment).
+// Confirmed genuinely dead here: waterClip()'s real body (deferredUtil.hlsl)
+// uses waterPlane/waterSign, not clipPlane/clipSign at all, and
+// pbralphaF.hlsl - the file this whole block was "ported faithfully" from
+// - never declared this pair either. Same bug class already hit and fixed
+// once for heroClipPlane (see reflectionProbeF.hlsl's own comment).
 void waterClip(float3 pos);
 void calcAtmosphericVarsLinear(float3 inPositionEye, float3 norm, float3 light_dir, out float3 sunlit, out float3 amblit, out float3 atten, out float3 additive);
 float4 applySkyAndWaterFog(float3 pos, float3 additive, float3 atten, float4 color);
@@ -105,7 +121,21 @@ float4 applySkyAndWaterFog(float3 pos, float3 additive, float3 atten, float4 col
 #ifdef HAS_SUN_SHADOW
 Texture2D lightMap : register(t10);
 SamplerState lightMapSampler : register(s10);
+// S24 (2026-09-02): real D3DCompile failure (X3003 redefinition of
+// 'screen_res') - this file also declares inv_proj/screen_res later, as a
+// pair, under LL_INV_PROJ_DECLARED (matching deferredUtil.hlsl's pair).
+// This line was copied in alone during task #238's ALPHA_BLEND port,
+// unguarded, before that guard existed further down. Fixed by declaring
+// the SAME pair here under the SAME guard (not just screen_res alone) -
+// this block is textually first when HAS_SUN_SHADOW is defined, so a
+// lone screen_res-only declaration would claim the guard macro and
+// silently skip the later block's inv_proj declaration entirely, leaving
+// it undeclared wherever this file actually uses it.
+#ifndef LL_INV_PROJ_DECLARED
+#define LL_INV_PROJ_DECLARED
+uniform float4x4 inv_proj;
 uniform float2 screen_res;
+#endif
 #endif
 
 uniform float4 light_position[8];

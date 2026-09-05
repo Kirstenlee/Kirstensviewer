@@ -77,7 +77,16 @@ float getDepthAo(float2 pos_screen)
     // screen coordinate" split already established for vary_fragcoord
     // elsewhere) - the flip is inlined at this .Sample() call site only,
     // not carried by the parameter.
-    float depth = depthMap.Sample(depthMapSampler, float2(pos_screen.x, 1.0 - pos_screen.y)).r;
+    // S24 (2026-09-02): was Sample() (implicit LOD) - this is called from
+    // inside the SSAO loop below (for i<8) with a per-iteration, per-pixel
+    // data-dependent UV (samppos_screen, built from noise/kernel/scale),
+    // which FXC can't prove has a safe/uniform derivative across a pixel
+    // quad - triggers X3570 and forces the whole loop to unroll just to
+    // make the gradient provable. SampleLevel(...,0) needs no derivative.
+    // depthMap is a per-frame G-buffer/depth render target, never
+    // mipmapped, so this is not an approximation - same reasoning already
+    // established for lightFunc's identical fix in multiPointLightF.hlsl.
+    float depth = depthMap.SampleLevel(depthMapSampler, float2(pos_screen.x, 1.0 - pos_screen.y), 0).r;
     return depth;
 }
 
@@ -85,7 +94,9 @@ float4 getPositionAo(float2 pos_screen)
 {
     float depth = getDepthAo(pos_screen);
     float2 sc = getScreenCoordinateAo(pos_screen);
-    float4 ndc = float4(sc.x, sc.y, 2.0 * depth - 1.0, 1.0);
+    // S24 (reversed-Z conversion): 1.0-2.0*depth, was 2.0*depth-1.0 - see
+    // deferredUtil.hlsl's linearDepth()/getPositionWithDepth() comments.
+    float4 ndc = float4(sc.x, sc.y, 1.0 - 2.0 * depth, 1.0);
     float4 pos = mul(inv_proj, ndc);
     pos /= pos.w;
     pos.w = 1.0;

@@ -177,7 +177,16 @@ bool traceScreenRay(float3 position, float3 reflection, out float4 hitColor, out
             {
                 float4 color = float4(1, 1, 1, 1);
                 if (debugDraw)
-                    color = float4(0.5 + sign(delta) / 2, 0.3, 0.5 - sign(delta) / 2, 0);
+                    // S24 (2026-09-02): was `sign(delta) / 2` - HLSL's
+                    // sign() always returns int regardless of input type
+                    // (per the intrinsic spec), so this was integer
+                    // division of -1/0/1 by 2 - truncates to 0 every time,
+                    // a real logic bug (this debugDraw-only overlay could
+                    // never actually shift color by delta's sign, always
+                    // rendered the same flat color), not just the X3556
+                    // perf warning it also happened to trigger. Dividing by
+                    // 2.0 promotes to a real float divide.
+                    color = float4(0.5 + sign(delta) / 2.0, 0.3, 0.5 - sign(delta) / 2.0, 0);
                 hitColor = textureFrame.SampleLevel(textureFrameSampler, screenPosition, 0) * color;
                 hitDepth = depthFromScreen;
                 hit = true;
@@ -232,7 +241,16 @@ bool traceScreenRay(float3 position, float3 reflection, out float4 hitColor, out
                 {
                     float4 color = float4(1, 1, 1, 1);
                     if (debugDraw)
-                        color = float4(0.5 + sign(delta) / 2, 0.3, 0.5 - sign(delta) / 2, 0);
+                        // S24 (2026-09-02): was `sign(delta) / 2` - HLSL's
+                    // sign() always returns int regardless of input type
+                    // (per the intrinsic spec), so this was integer
+                    // division of -1/0/1 by 2 - truncates to 0 every time,
+                    // a real logic bug (this debugDraw-only overlay could
+                    // never actually shift color by delta's sign, always
+                    // rendered the same flat color), not just the X3556
+                    // perf warning it also happened to trigger. Dividing by
+                    // 2.0 promotes to a real float divide.
+                    color = float4(0.5 + sign(delta) / 2.0, 0.3, 0.5 - sign(delta) / 2.0, 0);
                     hitColor = textureFrame.SampleLevel(textureFrameSampler, screenPosition, 0) * color;
                     hitDepth = depthFromScreen;
                     hit = true;

@@ -60,6 +60,7 @@ struct PSInput
     float2 normal_texcoord : TEXCOORD5;
     float2 metallic_roughness_texcoord : TEXCOORD6;
     float2 emissive_texcoord : TEXCOORD7;
+    bool isFrontFace : SV_IsFrontFace;
 };
 
 struct PSOutput
@@ -118,19 +119,27 @@ PSOutput main(PSInput IN)
     // S24 (2026-08-16, task #155/#157): mechanical-port bug found comparing
     // against pbropaqueF.glsl:106 (`tnorm *= gl_FrontFacing ? 1.0 : -1.0;`)
     // - vary_sign (tangent-handedness, unrelated) had been substituted for
-    // the rasterizer-generated front/back flag. Attempted fix via
-    // `bool isFrontFace : SV_IsFrontFace` on PSInput (same idiom already
-    // working in pbrterrainF.hlsl) - REVERTED same day: a crash-to-desktop
-    // on teleport traced via minidump analysis to a null-deref inside
-    // D3D11_3SDKLayers.dll!NDebug::CContext::ValidateShaderBindings, called
-    // from exactly this file's draw path (LLDrawPoolGLTFPBR::renderDeferred
-    // -> pushGLTFBatch -> DrawIndexed). Not proven root cause yet (only
-    // correlation: this was the one structurally novel change in the
-    // session, on the one shader in the crashing call stack), but reverted
-    // out of caution rather than risk another crash. Left at the original
-    // (incorrect) vary_sign multiply pending a safer re-investigation -
-    // see task #155/#157 notes before re-attempting the isFrontFace fix.
-    tnorm *= IN.vary_sign;
+    // the rasterizer-generated front/back flag. A first attempt at the real
+    // fix (`SV_IsFrontFace`, same idiom already working in pbrterrainF.hlsl)
+    // was reverted the same day after a teleport CTD correlated with it -
+    // but never proven as root cause (only correlation: this was the one
+    // structurally novel change in that session, on the one shader in the
+    // crashing call stack).
+    //
+    // S24 (2026-09-03, task #266/#271 investigation): re-attempted, this
+    // time with real corroborating evidence the original fix was correct
+    // and safe - user-reported symptoms (a UV-mirrored mesh showing a
+    // razor-straight lighting split down its mirror seam, "Odd shadow.PNG";
+    // "silvery" mirrored-UV foliage cards) are the exact, textbook signature
+    // of flipping on tangent-mirroring instead of facing. Also: pbralphaF.hlsl
+    // already carries this identical `bool isFrontFace : SV_IsFrontFace` +
+    // `norm *= IN.isFrontFace ? 1.0 : -1.0` fix live today with no reported
+    // crashes (task #155/#157 itself, applied there without incident) - since
+    // that's the SAME semantic on a SIBLING PBR shader in the SAME GLTF draw
+    // family, it's strong evidence SV_IsFrontFace itself isn't the hazard.
+    // If a crash recurs specifically on teleport, that now isolates it to
+    // something else in this file, not this semantic in general.
+    tnorm *= IN.isFrontFace ? 1.0 : -1.0;
 
     OUT.target0 = max(float4(col, 0.0), float4(0, 0, 0, 0));
     OUT.target1 = max(float4(spec.rgb, 0.0), float4(0, 0, 0, 0));

@@ -114,6 +114,18 @@ TextureCubeArray irradianceProbes : register(t17);
 #ifdef SSR
 float tapScreenSpaceReflection(int totalSamples, float2 tc, float3 viewPos, float3 n, inout float4 collectedColor, Texture2D source, SamplerState sourceSampler, float glossiness);
 Texture2D sceneMap : register(t19);
+
+// S24 (2026-09-03, task #266/#271): was a bare `glossiness >= 0.9` literal at
+// both call sites below. That's structurally unreachable for pbralphaF.hlsl
+// (the PBR alpha-blend material class - confirmed via live RenderDoc shader-
+// debug this session to be the exact shader behind the box-probe floor this
+// whole investigation started from): its own `perceptualRoughness = max(orm.g
+// * roughnessFactor, 0.3)` floor caps glossiness at 0.7, so SSR could never
+// fire for that material at ANY setting under the old hardcoded gate. Made
+// tunable instead of just lowering the literal, since screenSpaceReflUtil.hlsl's
+// own internal vignette term (`clamp(glossiness*3-1.7,0,1)`) already fades SSR
+// out below ~0.567 - the right value depends on live testing, not a guess.
+uniform float ssrGlossThreshold;
 #endif
 
 // S24 (2026-08-11, task #156): also declared (unguarded) by softenLightF.hlsl,
@@ -464,16 +476,40 @@ float3 tapRefMap(float3 pos, float3 dir, out float w, out float dw, float lod, f
         // this branch - real, confirmed gap (present in reflectionProbeF.glsl
         // too, not a DX_RENDER-only porting bug), leaving it genuinely
         // uninitialized per HLSL/GLSL's own semantics for an `out` param no
-        // caller ever wrote. That garbage value fed straight into the
-        // blend ratio between this box probe's content and the automatic/
-        // ambient probe's content, pixel by pixel - a strong, concrete
-        // candidate for the "disconnected patch of unrelated content"
-        // artifact seen on box probes (round-8 screenshots). Mirrors the
-        // sphere branch's own convention (w scaled by 4) so manual probes
-        // decisively override automatic ones within their volume, matching
-        // shouldSampleProbe()'s already-stated intent ("never allow
-        // automatic probes to encroach on box probes").
-        dw = w * 4.0;
+        // caller ever wrote. Fixed to mirror the sphere branch's own
+        // convention (below) so manual probes decisively override automatic
+        // ones within their volume, matching shouldSampleProbe()'s already-
+        // stated intent ("never allow automatic probes to encroach on box
+        // probes").
+        //
+        // S24 (2026-09-03, task #266/#271): a follow-up fix here (`dw = w *
+        // max(r, 1.0) * 4.0`, mirroring sphereWeight()'s own `* max(r,1.0)`
+        // term) turned out to be a units mismatch, not a valid mirror -
+        // REVERTED 2026-09-04 after a live regression report (a hard-edged
+        // "square" seam visible in water reflections around large
+        // structures, screenshots "water gloss.png"/"water gloss2.png").
+        // sphereWeight()'s `w` is 1/d2 - INVERSE REAL-WORLD DISTANCE from the
+        // probe center, unbounded, so multiplying by `r` there rescales it
+        // back toward a sane magnitude. Box's `w` (== `d` here) is already a
+        // normalized [0,1] box-local fraction (1 = center, 0 = at the wall)
+        // - multiplying THAT by an absolute real-world radius `r` (tens of
+        // meters for a building-sized probe) makes dw reach 1.0 (fully
+        // manual, zero blend with the void/automatic fallback) within a
+        // sliver `d >= 1/(4r)` of the box surface - for a large probe that's
+        // an almost-instant snap, not a fade, which is exactly what a hard
+        // visible edge looks like. The ORIGINAL bug this was chasing (task
+        // #266/#271: old flat `w*4.0` made every box's automatic-fallback
+        // fade a fixed, size-independent 25% shell, washing out large rooms'
+        // floors) is still real and still needs solving, but scaling by `r`
+        // isn't the fix - proportional-only (no absolute-size term at all)
+        // is: ramp dw from 0 to 1 across the outer 50% of `d` (mirrors
+        // sphereWeight()'s OWN "r1 = r*0.5" convention conceptually, i.e.
+        // fade starts at the 50%-of-the-way-to-center mark - just expressed
+        // in box's already-normalized units instead of sphere's real-meter
+        // ones), which is both proportional for any probe size AND actually
+        // wider than the old buggy 25% shell (matches manual reflections
+        // more decisively near floors/walls than before, the original goal).
+        dw = saturate(d * 2.0);
     }
     else
     { // sphere probe
@@ -761,7 +797,7 @@ float3 sampleProbeAmbient(float3 pos, float3 dir, float3 amblit)
 // once this file is attached to a shader that also pulls in that
 // declaration. Confirmed via a real D3DCompile failure (X3003 redefinition
 // of 'clipPlane', "Water Shader") that left mDXVertexShader null and
-// crashed on the next LLGLSLShader::bind() assert. LLHeroProbeManager::
+// crashed on the next LLHLSLShader::bind() assert. LLHeroProbeManager::
 // mCurrentClipPlane is tracked in C++ but not currently uploaded to any
 // shader (a separate, likely pre-existing gap on both backends, not unique
 // to this port); until that's wired up this falls back to a clipDist of 0,
@@ -844,7 +880,7 @@ void doProbeSample(inout float3 ambenv, inout float3 glossenv,
     // - cube_snapshot != 1 - which would otherwise recursively sample the
     // screen it's currently rendering into).
 #ifdef SSR
-    if (cube_snapshot != 1 && glossiness >= 0.9)
+    if (cube_snapshot != 1 && glossiness >= ssrGlossThreshold)
     {
         float4 ssr = float4(0, 0, 0, 0);
         if (transparent)
@@ -874,6 +910,57 @@ void sampleReflectionProbes(inout float3 ambenv, inout float3 glossenv,
 void sampleReflectionProbesWater(inout float3 ambenv, inout float3 glossenv,
         float2 tc, float3 pos, float3 norm, float glossiness, float3 amblit_linear)
 {
+    // S24 (2026-08-31, task #197): was unconditional - this always sampled
+    // the probe array via doProbeSample() below regardless of probes_enabled,
+    // giving water dark/flat reflections whenever the array wasn't actually
+    // being captured. Mirrors sampleReflectionProbesLegacy()'s existing
+    // probes_enabled==0 fallback (task #194) - environmentMap/env_mat are
+    // now guaranteed live and bound whenever this branch runs, see
+    // LLPipeline::shouldUseLegacyEnvMap()'s comment (pipeline.h/.cpp) for
+    // why that wasn't previously true for every case this condition covers.
+    // Mirrors doProbeSample()'s own SSR-tap/hero-probe structure below too
+    // (transparent=false, same as water's own call to it further down) so
+    // both branches produce an equivalent final result, not just an
+    // equivalent base sample.
+    if (probes_enabled == 0)
+    {
+        float3 refnormpersp = reflect(pos.xyz, norm.xyz);
+
+        ambenv = amblit_linear;
+        if (classic_mode == 0)
+            ambenv = sampleProbeAmbient(pos, norm, amblit_linear);
+
+        float3 env_vec = mul(env_mat, normalize(refnormpersp));
+        // S24 (2026-09-04, task #200 investigation): this raw legacy-cubemap
+        // sample was going straight into glossenv unconverted - every other
+        // glossenv producer in this shader family (class2's real GL-reference
+        // sampleReflectionProbes(), doProbeSample()'s sampleProbes() calls)
+        // treats glossenv as linear-space data, converting via
+        // srgb_to_linear() right at the sample point. This branch was modeled
+        // on sampleReflectionProbesLegacy()'s own probes_enabled==0 fallback
+        // (see that function's comment) - correct for THAT function, where
+        // the raw sample feeds legacyenv/applyLegacyEnv()'s special
+        // mix-then-single-convert roundtrip (confirmed against the pristine
+        // GL reference, S:\Dev\XREF Other Source\S24 Backout - class2's
+        // reflectionProbeF.glsl has both patterns side by side: converting
+        // for glossenv, raw for legacyenv). Copied the sampling call but not
+        // the color-space handling that made it correct there - glossenv
+        // here was silently too bright/wrong-contrast whenever this fallback
+        // engaged (RenderReflectionProbesEnabled off, water reflections).
+        glossenv = srgb_to_linear(environmentMap.Sample(environmentMapSampler, env_vec).rgb);
+
+#ifdef SSR
+        if (cube_snapshot != 1 && glossiness >= ssrGlossThreshold)
+        {
+            float4 ssr = float4(0, 0, 0, 0);
+            tapScreenSpaceReflection(1, tc, pos, norm, ssr, sceneMap, environmentMapSampler, glossiness);
+            glossenv = lerp(glossenv, ssr.rgb, ssr.a);
+        }
+#endif
+        tapHeroProbe(glossenv, pos, norm, glossiness);
+        return;
+    }
+
     // don't sample automatic probes for water
     sample_automatic = false;
     preProbeSample(pos);

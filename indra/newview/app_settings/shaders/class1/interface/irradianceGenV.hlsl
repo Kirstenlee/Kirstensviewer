@@ -22,18 +22,11 @@
  * SOFTWARE.
  */
 
-// S24 (2026-08-22, plan item A - CLOSED-FORM REWRITE): see
-// radianceGenV.hlsl's identical rewrite for the full derivation - replaces
-// modelview_matrix + flipCol + fixHandedness + poleRotate with Direct3D's
-// documented per-face cubemap addressing formula, hardcoded per face.
+// S24 (2026-08-31, DXCubeMap rewrite plan, Step 3): see radianceGenV.hlsl's
+// header comment for the full derivation/proof - this is the same proven
+// closed-form per-face direction formula, mirrored here so radiance and
+// irradiance generation stay in sync (they always have).
 uniform int cubeFace;
-
-// S24 (2026-08-23, LIVE ORIENTATION TUNER): see radianceGenV.hlsl's
-// identical uniforms/main() for the full explanation - mirrored here so
-// radiance and irradiance stay in sync.
-uniform int dbgSwap;
-uniform float dbgSignA;
-uniform float dbgSignB;
 
 struct VSInput
 {
@@ -51,35 +44,27 @@ VSOutput main(VSInput IN)
     VSOutput OUT;
 
     // S24 (task #194 follow-up, 2026-08-13): see radianceGenV.hlsl's
-    // identical fix for the full derivation - IN.position.z is a constant
-    // -1 (valid under GL's [-1,1] clip-z range, invalid under D3D11's
-    // [0,1] range), which was causing this pass's whole quad to be
-    // clipped away every draw call (DepthClipEnable=TRUE by default, all
-    // 4 vertices sharing the same out-of-range z). 0.0 matches
-    // LLPipeline::mScreenTriangleVB's already-proven-safe convention;
-    // depth test/write are both disabled for this whole pass so the
-    // specific value is otherwise irrelevant.
+    // identical fix - IN.position.z is a constant -1, invalid under
+    // D3D11's [0,1] clip-z range, which clips this pass's whole quad away
+    // every draw call. 0.0 matches LLPipeline::mScreenTriangleVB's
+    // already-proven-safe convention; depth test/write are both disabled
+    // for this pass so the specific value is otherwise irrelevant.
     OUT.position = float4(IN.position.xy, 0.0, 1.0);
 
-    // S24 (2026-08-23, LIVE ORIENTATION TUNER): see radianceGenV.hlsl's
-    // identical formula for the full explanation - dbgSwap/dbgSignA/
-    // dbgSignB are live-driven from KVTweaks, default reproduces the
-    // pre-tuner baseline formula exactly.
-    float qx = IN.position.x;
-    float qy = IN.position.y;
-
-    float qa = (dbgSwap != 0) ? qy : qx;
-    float qb = (dbgSwap != 0) ? qx : qy;
-    float freeA = dbgSignA * qa;
-    float freeB = dbgSignB * qb;
+    // S24 (2026-09-02, REVERTED same day): see radianceGenV.hlsl's matching
+    // comment - the y-negation/normal-viewport substitution broke
+    // hero-probe mirror orientation live, reverted to the proven-correct
+    // pairing (unmodified y, negative-height viewport at the C++ call sites).
+    float x = IN.position.x;
+    float y = IN.position.y;
 
     float3 dir;
-    if (cubeFace == 0)      dir = float3( 1.0, freeB, freeA); // +X
-    else if (cubeFace == 1) dir = float3(-1.0, freeB, freeA); // -X
-    else if (cubeFace == 2) dir = float3(freeA,  1.0, freeB); // +Y
-    else if (cubeFace == 3) dir = float3(freeA, -1.0, freeB); // -Y
-    else if (cubeFace == 4) dir = float3(freeA, freeB,  1.0); // +Z
-    else                    dir = float3(freeA, freeB, -1.0); // -Z
+    if (cubeFace == 0)      dir = float3( 1.0,    y,    x); // +X
+    else if (cubeFace == 1) dir = float3(-1.0,    y,   -x); // -X
+    else if (cubeFace == 2) dir = float3(  -x,  1.0,   -y); // +Y
+    else if (cubeFace == 3) dir = float3(  -x, -1.0,    y); // -Y
+    else if (cubeFace == 4) dir = float3(  -x,    y,  1.0); // +Z
+    else                    dir = float3(   x,    y, -1.0); // -Z
 
     OUT.vary_dir = dir;
 

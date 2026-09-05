@@ -421,8 +421,15 @@ PSOutput main(PSInput IN)
     float3 amblit_linear = amblit;
 
     float3 ambenv = amblit;
-    float3 glossenv;
-    float3 legacyenv;
+    // S24 (2026-09-02): zero-initialized - same X4000-flagged real UB
+    // already fixed in fullbrightShinyF.hlsl (see its own comment for the
+    // full mechanism: sampleReflectionProbesLegacy() only writes these
+    // when envIntensity>0.0/glossiness>0.0, so garbage can reach
+    // applyLegacyEnv()'s math otherwise). Missed fixing this file the
+    // first time - found via the same grep that found the original,
+    // didn't check every result.
+    float3 glossenv = float3(0, 0, 0);
+    float3 legacyenv = float3(0, 0, 0);
     sampleReflectionProbesLegacy(ambenv, glossenv, legacyenv, pos.xy*0.5+0.5, pos.xyz, norm.xyz, glossiness, env, true, amblit_linear);
 
     color = ambenv;

@@ -30,10 +30,28 @@
 // of both this file and the original GLSL - zero other references) so
 // simply deleting (not guarding) is correct: deferredUtil.hlsl's own
 // guarded block fires normally since nothing here pre-empts its guard
-// macro. projection_matrix is also dead but doesn't collide with anything
-// by name (deferredUtil.hlsl's matrix is named proj_mat) - left as-is,
-// out of scope for this register-collision fix.
-uniform float4x4 projection_matrix;
+// macro.
+//
+// CORRECTION (2026-09-02): the old comment here claimed projection_matrix
+// "doesn't collide with anything by name" - false, confirmed via a real
+// D3D11 X3003 compile failure (dumped source: KirstensS24-LOG.log,
+// "Screen Space Reflection Post" context). screenSpaceReflUtil.hlsl
+// (attached below whenever hasScreenSpaceReflections is set, which this
+// program does) ALSO declares an unguarded `uniform float4x4
+// projection_matrix;` (its own, genuinely used, header comment on that
+// declaration explains why) - two unguarded declarations of the same
+// name in one concatenated compile is a hard HLSL error, unlike GLSL's
+// separate-compile-then-link model which tolerates it. This program
+// (gPostScreenSpaceReflectionProgram, "Screen Space Reflection Post") is
+// independently confirmed dead on both backends - grepped the whole tree
+// including the pre-DX_RENDER backout, it's created at startup and never
+// bound/drawn anywhere - so this is a real but functionally-inert compile
+// failure. Genuinely unused in THIS file's own code (only referenced via
+// the forward-declared getPositionWithDepth()/getPosition(), whose real
+// bodies live in deferredUtil.hlsl and use inv_proj, not this), so it's
+// simply renamed rather than deleted, to keep this fix minimal/obviously
+// safe without having to re-verify every helper function's disassembly.
+uniform float4x4 unused_dead_projection_matrix;
 uniform float zNear;
 uniform float zFar;
 

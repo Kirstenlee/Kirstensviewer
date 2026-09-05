@@ -107,13 +107,39 @@ float4 main(PSInput IN) : SV_Target
 
     float4 diff = diffuseRect.Sample(diffuseRectSampler, tc);
 
+    // S24 (2026-08-31, DoF feathering fix v2): kept aside, untouched, so the
+    // sc<=0.5 dead-zone below can stay bit-for-bit identical to it (see the
+    // gate's own comment for why that guarantee matters).
+    float4 sharp = diff;
+
     {
         float w = 1.0;
         float sc = (diff.a * 2.0 - 1.0) * max_cof;
         static const float PI = 3.14159265358979323846264;
+        float feather = 0.0;
 
+        // S24 (2026-08-31, DoF feathering fix v2): the 0.5px GATE ITSELF is
+        // deliberately UNCHANGED from stock - a prior attempt to lower it
+        // (see project_dxrender_dof_alpha_mitigation_2026_08_31.md memory)
+        // let dofCombineF.hlsl's blend pull in the half-resolution blur
+        // buffer for almost any nonzero CoC, and since that buffer is a
+        // genuinely lower-resolution reconstruction of the scene, blending
+        // even a little of it in everywhere read as a resolution-mismatch
+        // shimmer across the whole frame - reverted. The ACTUAL "hard
+        // threshold pop" the gate itself was blamed for turned out to be a
+        // different, narrower problem: the moment the FIRST sample is ever
+        // taken (sc just above 0.5), the normalization weight `w` jumps
+        // from exactly 1.0 (100% center/sharp) to roughly 1+wg in one step
+        // - wg (0.25 plus a sample's own RGB) is not small, so that first
+        // sample is a substantial blend, not a gentle start, regardless of
+        // how close sc is to the 0.5 boundary. `feather` ramps that blend
+        // in smoothly over sc in [0.5, 1.0] instead - sc<=0.5 still takes
+        // the gate exactly as before (feather stays 0.0, diff stays
+        // `sharp`, byte-identical to stock), only the transition just above
+        // the boundary is smoothed, not the boundary's existence.
         if (sc > 0.5)
         {
+            feather = smoothstep(0.5, 1.0, sc);
             while (sc > 0.5)
             {
                 int its = int(max(1.0, (sc * 3.7)));
@@ -138,6 +164,7 @@ float4 main(PSInput IN) : SV_Target
         }
         else if (sc < -0.5)
         {
+            feather = smoothstep(0.5, 1.0, -sc);
             sc = abs(sc);
             while (sc > 0.5)
             {
@@ -163,6 +190,7 @@ float4 main(PSInput IN) : SV_Target
         }
 
         diff /= w;
+        diff = lerp(sharp, diff, feather);
     }
 
     diff.rgb = clampHDRRange(diff.rgb);

@@ -47,7 +47,9 @@ float4 main(PSInput IN) : SV_Target
     float4 pos  = getPosition(pos_screen);
     float4 norm = getNorm(pos_screen);
 
-    float4 col;
+    // S24 (2026-09-02): zero-initialized - see sunLightF.hlsl's matching
+    // fix/comment, identical pattern.
+    float4 col = float4(0, 0, 0, 0);
     col.r = sampleDirectionalShadow(pos.xyz, norm.xyz, pos_screen);
     col.g = calcAmbientOcclusion(pos, norm.xyz, pos_screen);
     col.b = sampleSpotShadow(pos.xyz, norm.xyz, 0, pos_screen);

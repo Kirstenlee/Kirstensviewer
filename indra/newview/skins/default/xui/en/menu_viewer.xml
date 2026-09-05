@@ -2130,26 +2130,6 @@ function="World.EnvPreset"
              function="ToggleControl"
              parameter="RenderTerrainPBREnabled" />
         </menu_item_check>
-    <!--     <menu_item_check
-         label="Basic Shaders"
-         name="Enable basic shaders">
-            <menu_item_check.on_check
-             function="CheckControl"
-             parameter="VertexShaderEnable" />
-            <menu_item_check.on_click
-             function="ToggleControl"
-             parameter="VertexShaderEnable" />
-        </menu_item_check> -->
-         <menu_item_check
-         label="Deferred Blur Light"
-         name="Shadow softening">
-            <menu_item_check.on_check
-             function="CheckControl"
-             parameter="RenderDeferredBlurLight" />
-            <menu_item_check.on_click
-             function="ToggleControl"
-             parameter="RenderDeferredBlurLight" />
-        </menu_item_check>     
          <menu_item_check
          label="Render SSAO"
          name="Enable enhanced lighting and shadowcasting">
@@ -3850,16 +3830,6 @@ function="World.EnvPreset"
           </menu_item_check>
           <menu_item_separator />
 
-          <menu_item_check
-             label="Start Debug GL on next run"
-             name="Debug GL">
-                <menu_item_check.on_check
-                 function="CheckControl"
-                 parameter="RenderDebugGLSession" />
-                <menu_item_check.on_click
-                 function="ToggleControl"
-                 parameter="RenderDebugGLSession" />
-            </menu_item_check>
             <menu_item_check
              label="Debug Pipeline"
              name="Debug Pipeline">
@@ -4813,16 +4783,6 @@ function="World.EnvPreset"
             <menu_item_check.on_click
              function="Develop.SetLoggingLevel"
              parameter="0" />
-          </menu_item_check>
-          <menu_item_check
-            name="Info"
-            label="Info">
-            <menu_item_check.on_check
-              function="Develop.CheckLoggingLevel"
-              parameter="1" />
-            <menu_item_check.on_click
-             function="Develop.SetLoggingLevel"
-             parameter="1" />
           </menu_item_check>
           <menu_item_check
             name="Warning"
