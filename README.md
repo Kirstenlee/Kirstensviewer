@@ -21,7 +21,7 @@ Kirstens Viewer is a maintained fork of the official Second Life Viewer. It prio
 - **Modern C++**: replacing legacy code
 - **Unique build system**: modern vcpkg / PowerShell solution
 - **Functionality** aligns with official viewer for consistent user experience
-- **DirectX 11 renderer** (`DX_RENDER`): a from-scratch native D3D11 backend running alongside the original OpenGL path, complete with its own HLSL shader set — see [DirectX 11 Renderer](#-directx-11-renderer) below
+- **DirectX 11 renderer** (`DX_RENDER`): a from-scratch native D3D11 backend, complete with its own HLSL shader set — as of build 3712 the sole supported renderer, with OpenGL fully retired from the shipped build — see [DirectX 11 Renderer](#-directx-11-renderer) below
 
 ---
 
@@ -69,6 +69,7 @@ Kirstens Viewer respects user privacy and disables or limits the following compo
 | 3535  | HRADR    | S24.8   |
 | 3664  | HRADR    | DX_RENDER 0.1 |
 | 3693  | HRADR    | DX_RENDER 0.2 |
+| 3745  | HRADR    | DX_RENDER 0.3 |
 
 **Forked from Viewer Develop / 2026.3**
 
@@ -76,11 +77,14 @@ Kirstens Viewer respects user privacy and disables or limits the following compo
 
 ## 🎮 DirectX 11 Renderer
 
-Since build 3535, Kirstens Viewer has been mid-migration from OpenGL to a
-native **Direct3D 11** renderer. 
-`DX_RENDER` is the actively developed and tested configuration, publicly
-released as pre-alpha 0.1 (2026-08-23) and now at release point **0.2**
-(2026-08-29, SVN r3693).
+Since build 3535, Kirstens Viewer has migrated from OpenGL to a native
+**Direct3D 11** renderer. As of r3712 the dual-path era ended outright — all
+GLSL shader source and the OpenGL rendering path were removed, so
+`DX_RENDER` is now the viewer's only renderer (a longer-term pass to retire
+remaining GL-era class names/scaffolding is ongoing).
+`DX_RENDER` was publicly released as pre-alpha 0.1 (2026-08-23), reached
+release point **0.2** (2026-08-29, SVN r3693), and is now at pre-alpha
+**0.3** (2026-09-05, SVN r3745).
 
 **Architecture**: the D3D11 backend lives in its own module,
 `indra/dxrender/` — `core/` (device/context/state: `DXDevice`,
@@ -97,18 +101,27 @@ alongside its GL counterparts, since it's tightly coupled to
 converted). The full deferred renderer — opaque/alpha/materials/PBR/
 avatars/terrain/water/sky, shadows, local/spot lights, SSAO, glow/bloom,
 FXAA/SMAA, real D3D11 occlusion culling, reflection probes — is working.
-Known gaps: hero-probe mirrors still render solid black (off by default),
-and reflection-probe banding under some lighting conditions is unresolved.
+Since 0.2, the depth buffer moved to reversed-Z (fixing z-fighting and
+distant water shore-fade draining), and the legacy `LLCubeMap`/
+`LLCubeMapArray` classes were replaced with real `DXCubeMap`/
+`DXCubeMapArray` equivalents (fixing the hero-probe mirrors along the way).
+Known gaps: reflection-probe box/floor content (e.g. a glossy floor should
+show a recognisable reflection of nearby objects) is still not fully
+correct despite several rounds of fixes — a screen-space-reflections-primary
+approach was tried and abandoned; the probe-array path remains primary, and
+avatar GPU-cost throttling (AutoFPS) is a known no-op under `DX_RENDER`,
+deferred past 0.3.
 
 ---
 
 ## ✨ Change Log
 
-Every entry below is sourced directly from the SVN commit history, one
-line per commit, from the first commit after build 3535 (r3536,
-2026-07-12 — the start of the DirectX 11 conversion project) through the
-0.2 release point (r3694, 2026-08-29). 159 commits, unedited in substance,
-grouped by category.
+Every entry below is sourced directly from the SVN commit history, from
+the first commit after build 3535 (r3536, 2026-07-12 — the start of the
+DirectX 11 conversion project) through the current pre-alpha 0.3 point
+(r3746, 2026-09-05) — 209 commits total, grouped by category and, from the
+0.2 point onward, compressed where several commits form one continuous
+piece of work rather than kept one-line-per-commit.
 
 #### 🎨 Graphics & Rendering
 
@@ -204,6 +217,18 @@ grouped by category.
 - S24: partial alpha issues, edge cases for sculpts and legacy linksets
 - S24: remove GL-era hacks for snapshot preview, including the S24 FBO workaround
 - S24: Graphics Upgrade 1 - stars (real twinkle, star colour, stardust band, flare/bloom)
+- S24: math/LLVector4a optimisation pass; fixed a crash on Japanese fonts
+- DX_RENDER: reversed-Z depth buffer conversion (near=1.0/far=0.0) - fixes z-fighting/surface bleed-through and water shore-fade draining at distance, plus matching fixes for stars/moon/sun draw order, DoF circle-of-confusion reconstruction, and a stale reversed-Z depth-func default in DXUIBatch
+- DX_RENDER: adapted AYAstorm's 3-block attachment-order alpha fix for D3D11; general DOF fixes
+- DX_RENDER: removed all GLSL shader source - DX-only from here on, no more dual GL/DX rendering support - followed by a GL-era core refactor (LLGLSLShader respecified, dead GL init paths retired from llgl.cpp/h)
+- DX_RENDER: replaced the legacy LLCubeMap/LLCubeMapArray classes with real DXCubeMap/DXCubeMapArray backed by a proven closed-form radiance/irradiance formula, fixing the hero-probe mirrors; a follow-up pbropaqueF.hlsl front-face-normal fix fixed them for good
+- DX_RENDER: fixed a reflection-probe mip-count off-by-one and a missing max_probe_lod uniform for PBR alpha materials (also mirrored into the hero-probe manager); added a tunable SSR glossiness threshold and fixed box-probe automatic-fallback weight scaling
+- DX_RENDER: fixed the legacy reflection env-map producer/bind mismatch (water gets a real legacy fallback) and a linear/sRGB color-space bug in environmentMap sampling for water reflections
+- DX_RENDER: stopped eagerly compiling the dead Screen Space Reflection Post shader - was hanging startup on some GPUs
+- DX_RENDER: Stars WOW part 2 and a new Sky 2.5D cloud-layer system; nebula/shooting-star/procedural sky elements now fade correctly with daytime
+- DX_RENDER: fixed the build-tool X/Y/Z readout's HUD/manipulation-line offset - a chrome-rect mismatch that scaled with menu/favorites-bar height
+- DX_RENDER: fixed an avatar GPU-profiling crash in the Performance floater's Nearby tab
+- S24: removed deprecated Highlight glow (158 lines); fixed the Film Menu's shader toggles; renamed gGLActive to gDXActive; fixed a font-collection use-after-free/leak and a log-file corruption bug; reverted a failed viewport-to-shader Y-flip experiment; beacon (find/sun-moon) rewrite with real DX11 billboard geometry
 
 #### ⚡ Performance & Optimisation
 
@@ -226,6 +251,7 @@ grouped by category.
 - S24: shader cache mechanism, WIP
 - S24: 0.2 perf pass, texture dedup reverted
 - S24: more cached controls, and GL cleanup
+- DX_RENDER: GPU eviction tuning; added a dedicated DXPool worker-thread pool and parallelized idleUpdate() for non-avatar objects (task #283)
 
 #### 🖌️ UI, Themes & Skins
 
@@ -248,6 +274,7 @@ grouped by category.
 - S24: fix edit-mode mesh selection outline rendering solid instead of wireframe
 - S24: fix font glyph render path - issue #254 from 0.1 alpha
 - S24: smooth nametag & voice-dot occlusion-based fading, replacing the depth-blend approach
+- DX_RENDER: quieted unwanted log spam (unknown-avatar-animation warnings, voice mPrimary/mute-info messages); removed the dead "Info" Set Logging Level menu entry - a production build only ever has WARNS or none
 
 #### 🔊 Audio
 
@@ -267,6 +294,7 @@ grouped by category.
 - S24: user-reported issue (GitHub) - fix crash on first run, before the login screen
 - S24: raw-bind audit
 - S24: fix resets and folder paths based on build type, GL / DX
+- DX_RENDER: cleaned up 6 leftover investigation diagnostics and a dead counter; fixed 2 shader compile failures and 5 real bugs found during a warnings cleanup pass; fixed a handful of misc runtime issues (wasted shadow-map allocation, a dead shader cache, misleading warnings, a missing emoji asset); fixed a flush_glerror() crash risk; expanded the shader bytecode cache to cover FXAA, SMAA, and the GLTF/PBR shader family
 
 #### 🔒 Privacy & Moderation
 
@@ -287,6 +315,7 @@ grouped by category.
 - S24: prep for 0.2 alpha release
 - S24: fix stale Boost baseline fallback
 - S24: update packager script
+- S24: prepare for / bump version to Pre-Alpha 0.3
 
 **Binaries signed:** Codesign Serial: `4e2969400a179e151ba7323da181f8b0`
 ---
