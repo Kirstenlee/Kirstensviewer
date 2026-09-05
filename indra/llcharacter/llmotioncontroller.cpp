@@ -87,11 +87,25 @@ bool LLMotionRegistry::registerMotion( const LLUUID& id, LLMotionConstructor con
     return false;
 }
 
+// S24 (task #283 Phase 2 prep): see LLDeferredMotionActions in llmotioncontroller.h.
+static thread_local LLDeferredMotionActions* sTLSDeferredMotionActions = nullptr;
+
+void LLMotionRegistry::setDeferredActionsForThisThread(LLDeferredMotionActions* actions)
+{
+	sTLSDeferredMotionActions = actions;
+}
+
 //-----------------------------------------------------------------------------
 // markBad()
 //-----------------------------------------------------------------------------
 void LLMotionRegistry::markBad( const LLUUID& id )
 {
+	if (sTLSDeferredMotionActions)
+	{
+		sTLSDeferredMotionActions->mActions.push_back([this, id]{ markBad(id); });
+		return;
+	}
+
 	mMotionTable[id] = LLMotionConstructor(NULL);
 }
 
