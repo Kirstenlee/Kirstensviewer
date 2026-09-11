@@ -81,6 +81,15 @@ public:
 
     void reset();
 
+    // S24 (2026-09-08, task #316): re-arms update()'s one-time-only
+    // clearShaderCache()+setShaders() workaround for #3331 (see update()'s
+    // comment) so it runs again on the next genuine RenderMirrors off->on
+    // transition, not just the app's first-ever activation. Deliberately
+    // separate from reset() - reset() is called by several unrelated
+    // settings handlers (HDR toggle, hero probe resolution change) that do
+    // NOT need the full ~19s synchronous shader reload repeated every time.
+    void requireShaderReinit() { mInitialized = false; }
+
     bool registerViewerObject(LLVOVolume *drawablep);
     void unregisterViewerObject(LLVOVolume* drawablep);
 

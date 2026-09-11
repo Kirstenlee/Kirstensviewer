@@ -684,6 +684,7 @@ void LLReflectionMapManager::getReflectionMaps(std::vector<LLReflectionMap*>& ma
     for (U32 i = 0; count < maps.size() && i < mProbes.size(); ++i)
     {
         mProbes[i]->mLastBindTime = gFrameTimeSeconds; // something wants to use this probe, indicate it's been requested
+
         if (mProbes[i]->mCubeIndex != -1)
         {
             if (!mProbes[i]->mOccluded && mProbes[i]->mComplete)
@@ -1094,7 +1095,7 @@ void LLReflectionMapManager::updateProbeFace(LLReflectionMap* probe, U32 face)
                 static LLStaticHashedString sWidth("u_width");
 
                 gRadianceGenProgram.uniform1f(sRoughness, (F32)i / (F32)(mMipChain.size() - 1));
-                gRadianceGenProgram.uniform1f(sMipLevel, (GLfloat)i);
+                gRadianceGenProgram.uniform1f(sMipLevel, (F32)i);
                 gRadianceGenProgram.uniform1i(sWidth, mProbeResolution);
 
                 for (int cf = 0; cf < 6; ++cf)
@@ -1460,11 +1461,36 @@ void LLReflectionMapManager::updateUniforms()
                 {
                     LLVector3 s = vobj->getScale().scaledVec(LLVector3(0.5f, 0.5f, 0.5f));
                     refmap->mRadius = s.magVec();
+                    refmap->mBoxExtent.load3(s.mV); // S24 (task #271): real per-axis half-extent, see mBoxExtent's own header comment.
                 }
                 else
                 {
                     refmap->mRadius = refmap->mViewerObject->getScale().mV[0] * 0.5f;
+                    refmap->mBoxExtent.splat(refmap->mRadius); // S24 (task #271): sphere probe, isotropic is correct here.
                 }
+
+                // S24 (2026-09-05, task #271 - LIVE FIX, confirmed via debug
+                // overlay: every manual probe in the scene uploaded with
+                // refIndex[].w == 0, i.e. classified as automatic): mPriority
+                // is the ONLY source of the shader's manual-vs-automatic
+                // classification (sampleProbes()'s `p = clamp(abs(refIndex[i].w),
+                // 0, 1)`), but its only other writer is
+                // LLReflectionMap::autoAdjustOrigin()'s manual branch
+                // (llreflectionmap.cpp:190), which is only ever called from
+                // this manager's per-probe update loop gated on
+                // `if (probe->mComplete)` - i.e. only AFTER a probe's first
+                // full 6-face capture already finished. This block already
+                // proves mOrigin/mRadius need to be live/immediate for a
+                // manual probe regardless of capture-completion state (that's
+                // exactly why it re-derives them here every frame instead of
+                // relying on autoAdjustOrigin()) - mPriority was the one
+                // piece of that same "live manual-probe identity" left
+                // depending on the completion-gated path instead. Set
+                // immediately here too, mirroring autoAdjustOrigin()'s own
+                // manual-branch value (1), so a manual probe is correctly
+                // classified from the moment it exists, not only after (and
+                // only if) its first capture cycle happens to complete.
+                refmap->mPriority = 1;
             }
             modelview.affineTransform(refmap->mOrigin, oa);
             mProbeData.refSphere[count].set(oa.getF32ptr());
@@ -1714,6 +1740,29 @@ void LLReflectionMapManager::setUniforms()
     static LLCachedControl<F32> probe_contrast(gSavedSettings, "RenderReflectionProbeContrast", 1.0f);
     static LLCachedControl<F32> probe_blur_lod_bias(gSavedSettings, "RenderReflectionProbeBlurLODBias", 0.0f);
     static LLCachedControl<F32> probe_ambient_mult(gSavedSettings, "RenderReflectionProbeAmbientMultiplier", 1.0f);
+    // S24 (2026-09-07, task #266 continuation): live-requested tool - blend
+    // this probe's sharp/detail-mip sample toward its OWN top mip
+    // (max_probe_lod, the already fully GGX-convolved whole-hemisphere
+    // average across all 6 faces - see reflectionProbeF.hlsl's tapRefMap())
+    // at a tunable 0-1 weight. Different from probe_saturation (crushes hue
+    // toward luminance) and probe_contrast (compresses spread toward a
+    // fixed 0.5 midpoint) - this equalizes per-face brightness/color
+    // differences by blending toward this room's own real averaged tone,
+    // not an arbitrary neutral, while still preserving full detail at 0.0
+    // (default, no change).
+    static LLCachedControl<F32> probe_equalize(gSavedSettings, "RenderReflectionProbeEqualize", 0.0f);
+    // S24 (2026-09-07, task #266 continuation): dedicated visibility blend
+    // (corrected from an earlier "desaturate" ask) - 1.0=fully visible,
+    // 0.0=fully transparent. See reflectionProbeF.hlsl's own comment.
+    static LLCachedControl<F32> probe_opacity(gSavedSettings, "RenderReflectionProbeOpacity", 1.0f);
+    // S24 (2026-09-05, task #271): live debug toggle for sampleProbes()'s
+    // automatic-vs-manual blend-weight visualization - see its own uniform
+    // comment in reflectionProbeF.hlsl. Deliberately NOT persisted (no real
+    // default needed beyond false) and deliberately a plain top-level
+    // uniform like every other control here, not a new KVTweaks-only
+    // mechanism - reload_vertex_shader()/setShaders() already picks up a
+    // gSavedSettings change live, same as every other slider on this list.
+    static LLCachedControl<bool> debug_box_weight(gSavedSettings, "RenderDebugBoxProbeWeight", false);
 
     static LLStaticHashedString sProbesEnabled("probes_enabled");
     static LLStaticHashedString sProbeIntensity("probe_intensity");
@@ -1721,6 +1770,9 @@ void LLReflectionMapManager::setUniforms()
     static LLStaticHashedString sProbeContrast("probe_contrast");
     static LLStaticHashedString sProbeBlurLODBias("probe_blur_lod_bias");
     static LLStaticHashedString sProbeAmbientMultiplier("probe_ambient_multiplier");
+    static LLStaticHashedString sProbeEqualize("probe_equalize");
+    static LLStaticHashedString sProbeOpacity("probe_opacity");
+    static LLStaticHashedString sDebugBoxWeight("debug_box_weight");
 
     LLHLSLShader::sCurBoundShaderPtr->uniform1i(sProbesEnabled, probes_enabled ? 1 : 0);
     LLHLSLShader::sCurBoundShaderPtr->uniform1f(sProbeIntensity, probe_intensity);
@@ -1728,6 +1780,9 @@ void LLReflectionMapManager::setUniforms()
     LLHLSLShader::sCurBoundShaderPtr->uniform1f(sProbeContrast, probe_contrast);
     LLHLSLShader::sCurBoundShaderPtr->uniform1f(sProbeBlurLODBias, probe_blur_lod_bias);
     LLHLSLShader::sCurBoundShaderPtr->uniform1f(sProbeAmbientMultiplier, probe_ambient_mult);
+    LLHLSLShader::sCurBoundShaderPtr->uniform1f(sProbeEqualize, probe_equalize);
+    LLHLSLShader::sCurBoundShaderPtr->uniform1f(sProbeOpacity, probe_opacity);
+    LLHLSLShader::sCurBoundShaderPtr->uniform1i(sDebugBoxWeight, debug_box_weight ? 1 : 0);
 
     // S24 (2026-09-03, task #266/#271 box-probe reflection investigation):
     // REFLECTION_PROBE_MAX_LOD (max_probe_lod - tapRefMap()'s roughness->mip

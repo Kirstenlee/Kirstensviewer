@@ -117,12 +117,25 @@ void calcDiffuseSpecular(float3 baseColor, float metallic, inout float3 diffuseC
 float sampleDirectionalShadow(float3 pos, float3 norm, float2 pos_screen);
 #endif
 // S24 (task #173): real reflection-probe IBL, matching softenLightF.hlsl's
-// PBR branch exactly. tc is confirmed unused inside doProbeSample() (read
-// reflectionProbeF.hlsl directly - SSR, the one consumer that would need a
-// real screen UV, is deliberately not ported here) - the file's own earlier
-// header comment claiming a true perspective-divide UV was required for
-// this was wrong; the divide-by-z approximation already used for shadow
-// sampling above is more than sufficient since the value isn't read at all.
+// PBR branch exactly.
+//
+// CORRECTION (2026-09-06, task #271): the claim below this comment used to
+// make - that tc's divide-by-z approximation is "more than sufficient"
+// because SSR "is deliberately not ported here" - was true only as long as
+// RenderScreenSpaceReflectionGlossThreshold's old 0.9 default structurally
+// excluded this material's glossiness (capped at 0.7) from ever reaching
+// tapScreenSpaceReflection() at all. Now that the threshold gate is gone,
+// SSR does run for this material, and the approximate tc (divide-by-.z,
+// since pbralphaV.hlsl's vary_fragcoord never carries a real .w to divide
+// by) sends its ray march from the wrong starting screen position - live-
+// confirmed as "zero SSR contribution reaches the surface" once the
+// threshold stopped hiding it. Fixed below: a separate, precisely-computed
+// screen UV (generateProjectedPosition(), screenSpaceReflUtil.hlsl - the
+// same proven-correct helper tapScreenSpaceReflection()'s own real callers
+// use, including its non-obvious deliberate Y-flip) is used for the probe/
+// SSR call specifically, leaving tc itself completely untouched for the
+// shadow lookup above, which was never broken and doesn't need touching.
+float2 generateProjectedPosition(float3 pos);
 void sampleReflectionProbes(inout float3 ambenv, inout float3 glossenv,
     float2 tc, float3 pos, float3 norm, float glossiness, bool transparent, float3 amblit_linear);
 // pbrBaseLight (deferredUtil.hlsl, attached here via isDeferred=true) does
@@ -282,11 +295,12 @@ float4 main(PSInput IN) : SV_Target
     // the surface's actual lit color. Fixed to match the real signature.
     calcAtmosphericVarsLinear(pos, norm, light_dir, sunlit, amblit, additive, atten);
 
-    // S24 (task #173): tc feeds both the shadow lookup and the reflection-
-    // probe sample below - divide-by-z screen UV, same as alphaF.hlsl's
-    // already-working shadow pattern (see pbralphaV.hlsl's near_clip bias).
-    // Confirmed unused inside doProbeSample() (see the forward-declaration
-    // comment above), so its precision doesn't matter for the probe call.
+    // S24 (task #173): tc feeds the shadow lookup below - divide-by-z
+    // screen UV, same as alphaF.hlsl's already-working shadow pattern (see
+    // pbralphaV.hlsl's near_clip bias). Sufficient for the shadow map, which
+    // tolerates the approximation - see the forward-declaration comment
+    // above for why this is NOT reused for the reflection-probe/SSR call
+    // below anymore.
     float2 tc = IN.vary_fragcoord.xy / IN.vary_fragcoord.z * 0.5 + 0.5;
 
     float scol = 1.0;
@@ -306,7 +320,11 @@ float4 main(PSInput IN) : SV_Target
     float3 irradiance = amblit;
     float3 radiance = float3(0, 0, 0);
     float gloss = 1.0 - perceptualRoughness;
-    sampleReflectionProbes(irradiance, radiance, tc, pos, norm, gloss, false, amblit);
+    // S24 (2026-09-06, task #271): real perspective-correct screen UV,
+    // separate from tc above - see the forward-declaration comment near
+    // sampleReflectionProbes()'s own declaration for why.
+    float2 probe_tc = generateProjectedPosition(pos);
+    sampleReflectionProbes(irradiance, radiance, probe_tc, pos, norm, gloss, false, amblit);
 
     float3 color = pbrBaseLight(diffuseColor, specularColor, metallic, v, norm, perceptualRoughness, light_dir, sunlit, scol, radiance, irradiance, colorEmissive, ao, additive, atten);
 

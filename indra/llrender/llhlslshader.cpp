@@ -355,6 +355,20 @@ LLHLSLShader::LLHLSLShader()
 	mSamplesQuery(0),
 	mPrimitivesQuery(0)
 {
+	// S24 (2026-09-10, task #274): was left default-constructed (garbage) -
+	// syncMatrices()'s GL branch (and, as of this task, its DX_RENDER
+	// branch too) compares LLRender::mMatHash[mode] against this array to
+	// decide whether a real matrix re-upload is needed. Uninitialized
+	// garbage could coincidentally match LLRender's real current hash on
+	// this shader's very first sync, wrongly skipping its first-ever
+	// matrix upload and leaving its constant buffer at stale/zero matrices
+	// indefinitely. UINT32_MAX matches the same "force a first sync"
+	// sentinel GL's own static caches already use (cached_mvp_mdv_hash
+	// etc., llrender.cpp).
+	for (U32 i = 0; i < LLRender::NUM_MATRIX_MODES; ++i)
+	{
+		mMatHash[i] = UINT32_MAX;
+	}
 }
 
 LLHLSLShader::~LLHLSLShader()
@@ -438,7 +452,7 @@ namespace
 	}
 }
 
-bool LLHLSLShader::createShaderDX()
+bool LLHLSLShader::buildDXSource()
 {
 	LL_PROFILE_ZONE_SCOPED_CATEGORY_SHADER;
 
@@ -446,10 +460,6 @@ bool LLHLSLShader::createShaderDX()
 
 	llassert_always(!mShaderFiles.empty());
 
-	// Release any previously-compiled shader objects before rebuilding -
-	// createShaderDX() can be called again on this instance (e.g. a reload).
-	mDXVertexShader.reset();
-	mDXPixelShader.reset();
 	mDXVertexSource.clear();
 	mDXPixelSource.clear();
 
@@ -484,7 +494,6 @@ bool LLHLSLShader::createShaderDX()
 		return false;
 	}
 
-	bool success = true;
 	if (!mDXVertexSource.empty())
 	{
 		// S24 (DX_RENDER, 2026-07-30): resolve `#include "varying/....hlsli"`
@@ -504,6 +513,33 @@ bool LLHLSLShader::createShaderDX()
 		// comment. No-op for every non-indexed-texture shader.
 		DXShader::injectTextureIndexInputs(mDXVertexSource);
 		mDXVertexSource = buildDXShaderHeader(false, mDefines) + mDXVertexSource;
+	}
+	if (!mDXPixelSource.empty())
+	{
+		DXShader::resolveIncludes(mDXPixelSource);
+		mDXPixelSource = buildDXShaderHeader(true, mDefines) + mDXPixelSource;
+	}
+
+	return true;
+}
+
+bool LLHLSLShader::createShaderDX()
+{
+	LL_PROFILE_ZONE_SCOPED_CATEGORY_SHADER;
+
+	// Release any previously-compiled shader objects before rebuilding -
+	// createShaderDX() can be called again on this instance (e.g. a reload).
+	mDXVertexShader.reset();
+	mDXPixelShader.reset();
+
+	if (!buildDXSource())
+	{
+		return false;
+	}
+
+	bool success = true;
+	if (!mDXVertexSource.empty())
+	{
 		bool vs_ok = mDXVertexShader.compileVertexShader(mDXVertexSource, mName);
 		success = vs_ok && success;
 		if (vs_ok)
@@ -516,8 +552,6 @@ bool LLHLSLShader::createShaderDX()
 	}
 	if (!mDXPixelSource.empty())
 	{
-		DXShader::resolveIncludes(mDXPixelSource);
-		mDXPixelSource = buildDXShaderHeader(true, mDefines) + mDXPixelSource;
 		success = mDXPixelShader.compilePixelShader(mDXPixelSource, mName) && success;
 	}
 
@@ -1364,7 +1398,7 @@ void LLHLSLShader::uniform1i(U32 index, GLint x)
 	}
 }
 
-void LLHLSLShader::uniform1f(U32 index, GLfloat x)
+void LLHLSLShader::uniform1f(U32 index, F32 x)
 {
 	LL_PROFILE_ZONE_SCOPED_CATEGORY_SHADER;
 	llassert(sCurBoundShaderPtr == this);
@@ -1402,7 +1436,7 @@ void LLHLSLShader::uniform1f(U32 index, GLfloat x)
 	}
 }
 
-void LLHLSLShader::fastUniform1f(U32 index, GLfloat x)
+void LLHLSLShader::fastUniform1f(U32 index, F32 x)
 {
 	LL_PROFILE_ZONE_SCOPED_CATEGORY_SHADER;
 	llassert(sCurBoundShaderPtr == this);
@@ -1412,7 +1446,7 @@ void LLHLSLShader::fastUniform1f(U32 index, GLfloat x)
 	glUniform1f(mUniform[index], x);
 }
 
-void LLHLSLShader::uniform2f(U32 index, GLfloat x, GLfloat y)
+void LLHLSLShader::uniform2f(U32 index, F32 x, F32 y)
 {
 	LL_PROFILE_ZONE_SCOPED_CATEGORY_SHADER;
 	llassert(sCurBoundShaderPtr == this);
@@ -1438,7 +1472,7 @@ void LLHLSLShader::uniform2f(U32 index, GLfloat x, GLfloat y)
 	}
 }
 
-void LLHLSLShader::uniform3f(U32 index, GLfloat x, GLfloat y, GLfloat z)
+void LLHLSLShader::uniform3f(U32 index, F32 x, F32 y, F32 z)
 {
 	LL_PROFILE_ZONE_SCOPED_CATEGORY_SHADER;
 	llassert(sCurBoundShaderPtr == this);
@@ -1458,7 +1492,7 @@ void LLHLSLShader::uniform3f(U32 index, GLfloat x, GLfloat y, GLfloat z)
 	}
 }
 
-void LLHLSLShader::uniform4f(U32 index, GLfloat x, GLfloat y, GLfloat z, GLfloat w)
+void LLHLSLShader::uniform4f(U32 index, F32 x, F32 y, F32 z, F32 w)
 {
 	LL_PROFILE_ZONE_SCOPED_CATEGORY_SHADER;
 	llassert(sCurBoundShaderPtr == this);
@@ -1540,7 +1574,7 @@ void LLHLSLShader::uniform4iv(U32 index, U32 count, const GLint* v)
 	}
 }
 
-void LLHLSLShader::uniform1fv(U32 index, U32 count, const GLfloat* v)
+void LLHLSLShader::uniform1fv(U32 index, U32 count, const F32* v)
 {
 	LL_PROFILE_ZONE_SCOPED_CATEGORY_SHADER;
 	llassert(sCurBoundShaderPtr == this);
@@ -1561,7 +1595,7 @@ void LLHLSLShader::uniform1fv(U32 index, U32 count, const GLfloat* v)
 	}
 }
 
-void LLHLSLShader::uniform2fv(U32 index, U32 count, const GLfloat* v)
+void LLHLSLShader::uniform2fv(U32 index, U32 count, const F32* v)
 {
 	LL_PROFILE_ZONE_SCOPED_CATEGORY_SHADER;
 	llassert(sCurBoundShaderPtr == this);
@@ -1577,7 +1611,7 @@ void LLHLSLShader::uniform2fv(U32 index, U32 count, const GLfloat* v)
 	}
 }
 
-void LLHLSLShader::uniform3fv(U32 index, U32 count, const GLfloat* v)
+void LLHLSLShader::uniform3fv(U32 index, U32 count, const F32* v)
 {
 	LL_PROFILE_ZONE_SCOPED_CATEGORY_SHADER;
 	llassert(sCurBoundShaderPtr == this);
@@ -1596,7 +1630,7 @@ void LLHLSLShader::uniform3fv(U32 index, U32 count, const GLfloat* v)
 	}
 }
 
-void LLHLSLShader::uniform4fv(U32 index, U32 count, const GLfloat* v)
+void LLHLSLShader::uniform4fv(U32 index, U32 count, const F32* v)
 {
 	LL_PROFILE_ZONE_SCOPED_CATEGORY_SHADER;
 	llassert(sCurBoundShaderPtr == this);
@@ -1648,7 +1682,7 @@ void LLHLSLShader::uniform4uiv(U32 index, U32 count, const GLuint* v)
 	}
 }
 
-void LLHLSLShader::uniformMatrix2fv(U32 index, U32 count, GLboolean transpose, const GLfloat* v)
+void LLHLSLShader::uniformMatrix2fv(U32 index, U32 count, bool transpose, const F32* v)
 {
 	LL_PROFILE_ZONE_SCOPED_CATEGORY_SHADER;
 	llassert(sCurBoundShaderPtr == this);
@@ -1669,7 +1703,7 @@ void LLHLSLShader::uniformMatrix2fv(U32 index, U32 count, GLboolean transpose, c
 	}
 }
 
-void LLHLSLShader::uniformMatrix3fv(U32 index, U32 count, GLboolean transpose, const GLfloat* v)
+void LLHLSLShader::uniformMatrix3fv(U32 index, U32 count, bool transpose, const F32* v)
 {
 	LL_PROFILE_ZONE_SCOPED_CATEGORY_SHADER;
 	llassert(sCurBoundShaderPtr == this);
@@ -1732,7 +1766,7 @@ void LLHLSLShader::uniformMatrix3fv(U32 index, U32 count, GLboolean transpose, c
 		{
 			for (U32 i = 0; i < count; ++i)
 			{
-				const GLfloat* src = v + (size_t)i * 9;
+				const F32* src = v + (size_t)i * 9;
 				float* dst = m.data() + (size_t)i * 9;
 				for (int r = 0; r < 3; ++r)
 				{
@@ -1753,7 +1787,7 @@ void LLHLSLShader::uniformMatrix3fv(U32 index, U32 count, GLboolean transpose, c
 	}
 }
 
-void LLHLSLShader::uniformMatrix3x4fv(U32 index, U32 count, GLboolean transpose, const GLfloat* v)
+void LLHLSLShader::uniformMatrix3x4fv(U32 index, U32 count, bool transpose, const F32* v)
 {
 	LL_PROFILE_ZONE_SCOPED_CATEGORY_SHADER;
 	llassert(sCurBoundShaderPtr == this);
@@ -1787,7 +1821,7 @@ void LLHLSLShader::uniformMatrix3x4fv(U32 index, U32 count, GLboolean transpose,
 	}
 }
 
-void LLHLSLShader::uniformMatrix4fv(U32 index, U32 count, GLboolean transpose, const GLfloat* v)
+void LLHLSLShader::uniformMatrix4fv(U32 index, U32 count, bool transpose, const F32* v)
 {
 	LL_PROFILE_ZONE_SCOPED_CATEGORY_SHADER;
 	llassert(sCurBoundShaderPtr == this);
@@ -1853,7 +1887,7 @@ void LLHLSLShader::uniformMatrix4fv(U32 index, U32 count, GLboolean transpose, c
 		{
 			for (U32 i = 0; i < count; ++i)
 			{
-				const GLfloat* src = v + (size_t)i * 16;
+				const F32* src = v + (size_t)i * 16;
 				float* dst = m.data() + (size_t)i * 16;
 				for (int r = 0; r < 4; ++r)
 				{
@@ -1998,7 +2032,7 @@ void LLHLSLShader::uniform2i(const LLStaticHashedString& uniform, GLint i, GLint
 	mDXPixelShader.setUniformFloatArray(name, fv, 2);
 }
 
-void LLHLSLShader::uniform1f(const LLStaticHashedString& uniform, GLfloat v)
+void LLHLSLShader::uniform1f(const LLStaticHashedString& uniform, F32 v)
 {
 	LL_PROFILE_ZONE_SCOPED_CATEGORY_SHADER;
 
@@ -2010,7 +2044,7 @@ void LLHLSLShader::uniform1f(const LLStaticHashedString& uniform, GLfloat v)
 	mDXPixelShader.setUniformFloatArray(name, v_arr, 1);
 }
 
-void LLHLSLShader::uniform2f(const LLStaticHashedString& uniform, GLfloat x, GLfloat y)
+void LLHLSLShader::uniform2f(const LLStaticHashedString& uniform, F32 x, F32 y)
 {
 	LL_PROFILE_ZONE_SCOPED_CATEGORY_SHADER;
 
@@ -2022,7 +2056,7 @@ void LLHLSLShader::uniform2f(const LLStaticHashedString& uniform, GLfloat x, GLf
 	mDXPixelShader.setUniformFloatArray(name, v_arr, 2);
 }
 
-void LLHLSLShader::uniform3f(const LLStaticHashedString& uniform, GLfloat x, GLfloat y, GLfloat z)
+void LLHLSLShader::uniform3f(const LLStaticHashedString& uniform, F32 x, F32 y, F32 z)
 {
 	LL_PROFILE_ZONE_SCOPED_CATEGORY_SHADER;
 
@@ -2034,7 +2068,7 @@ void LLHLSLShader::uniform3f(const LLStaticHashedString& uniform, GLfloat x, GLf
 	mDXPixelShader.setUniformFloatArray(name, v_arr, 3);
 }
 
-void LLHLSLShader::uniform4f(const LLStaticHashedString& uniform, GLfloat x, GLfloat y, GLfloat z, GLfloat w)
+void LLHLSLShader::uniform4f(const LLStaticHashedString& uniform, F32 x, F32 y, F32 z, F32 w)
 {
 	LL_PROFILE_ZONE_SCOPED_CATEGORY_SHADER;
 
@@ -2046,7 +2080,7 @@ void LLHLSLShader::uniform4f(const LLStaticHashedString& uniform, GLfloat x, GLf
 	mDXPixelShader.setUniformFloatArray(name, v_arr, 4);
 }
 
-void LLHLSLShader::uniform1fv(const LLStaticHashedString& uniform, U32 count, const GLfloat* v)
+void LLHLSLShader::uniform1fv(const LLStaticHashedString& uniform, U32 count, const F32* v)
 {
 	LL_PROFILE_ZONE_SCOPED_CATEGORY_SHADER;
 
@@ -2058,7 +2092,7 @@ void LLHLSLShader::uniform1fv(const LLStaticHashedString& uniform, U32 count, co
 	mDXPixelShader.setUniformPaddedArray(name, v, 1, count);
 }
 
-void LLHLSLShader::uniform2fv(const LLStaticHashedString& uniform, U32 count, const GLfloat* v)
+void LLHLSLShader::uniform2fv(const LLStaticHashedString& uniform, U32 count, const F32* v)
 {
 	LL_PROFILE_ZONE_SCOPED_CATEGORY_SHADER;
 
@@ -2069,7 +2103,7 @@ void LLHLSLShader::uniform2fv(const LLStaticHashedString& uniform, U32 count, co
 	mDXPixelShader.setUniformPaddedArray(name, v, 2, count);
 }
 
-void LLHLSLShader::uniform3fv(const LLStaticHashedString& uniform, U32 count, const GLfloat* v)
+void LLHLSLShader::uniform3fv(const LLStaticHashedString& uniform, U32 count, const F32* v)
 {
 	LL_PROFILE_ZONE_SCOPED_CATEGORY_SHADER;
 
@@ -2081,7 +2115,7 @@ void LLHLSLShader::uniform3fv(const LLStaticHashedString& uniform, U32 count, co
 	mDXPixelShader.setUniformPaddedArray(name, v, 3, count);
 }
 
-void LLHLSLShader::uniform4fv(const LLStaticHashedString& uniform, U32 count, const GLfloat* v)
+void LLHLSLShader::uniform4fv(const LLStaticHashedString& uniform, U32 count, const F32* v)
 {
 	LL_PROFILE_ZONE_SCOPED_CATEGORY_SHADER;
 
@@ -2107,7 +2141,7 @@ void LLHLSLShader::uniform4uiv(const LLStaticHashedString& uniform, U32 count, c
 	mDXPixelShader.setUniformPaddedArray(name, fv, 4, count);
 }
 
-void LLHLSLShader::uniformMatrix4fv(const LLStaticHashedString& uniform, U32 count, GLboolean transpose, const GLfloat* v)
+void LLHLSLShader::uniformMatrix4fv(const LLStaticHashedString& uniform, U32 count, bool transpose, const F32* v)
 {
 	LL_PROFILE_ZONE_SCOPED_CATEGORY_SHADER;
 
@@ -2145,7 +2179,7 @@ void LLHLSLShader::uniformMatrix4fv(const LLStaticHashedString& uniform, U32 cou
 	}
 }
 
-void LLHLSLShader::vertexAttrib4f(U32 index, GLfloat x, GLfloat y, GLfloat z, GLfloat w)
+void LLHLSLShader::vertexAttrib4f(U32 index, F32 x, F32 y, F32 z, F32 w)
 {
 	if (mAttribute[index] > 0)
 	{
@@ -2153,7 +2187,7 @@ void LLHLSLShader::vertexAttrib4f(U32 index, GLfloat x, GLfloat y, GLfloat z, GL
 	}
 }
 
-void LLHLSLShader::vertexAttrib4fv(U32 index, GLfloat* v)
+void LLHLSLShader::vertexAttrib4fv(U32 index, F32* v)
 {
 	if (mAttribute[index] > 0)
 	{

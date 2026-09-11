@@ -41,6 +41,10 @@
 #include "llimagepng.h"
 #include "llimageworker.h"
 
+#ifdef DX_RENDER
+#include "dxbc7uploadmanager.h"
+#endif
+
 #include "llsdserialize.h"
 #include "llsys.h"
 #include "llfilesystem.h"
@@ -1426,6 +1430,16 @@ F32 LLViewerTextureList::updateImagesCreateTextures(F32 max_time)
 {
     if (gGLManager.mIsDisabled) return 0.0f;
 
+#ifdef DX_RENDER
+    // S24 (2026-09-09, BC7 texture-compression pipeline, task #318): applies
+    // any background BC7 compression jobs that finished since last frame -
+    // see DXBC7UploadManager::update()'s own comment. Cheap no-op when
+    // nothing is pending; placed here since this function already runs
+    // once per frame on the main thread regardless of whether there's
+    // anything new to create this frame.
+    DXBC7UploadManager::update();
+#endif
+
     // S24 MEMORY SAFETY: Emergency flush of stale raw images when critical
     // If the decode queue is bloated AND system memory is critical, drain
     // completed decodes without creating GL textures to free their raw memory.
@@ -1485,7 +1499,61 @@ F32 LLViewerTextureList::updateImagesCreateTextures(F32 max_time)
         const bool redundant_load = has_gl && discard <= desired;
 
         if (!redundant_load)
+        {
             imagep->createTexture();
+
+#ifdef DX_RENDER
+            // S24 (2026-09-09, BC7 texture-compression pipeline, task #318):
+            // kick off a background BC7 upgrade for the pixel data just
+            // uploaded - must happen here, between createTexture() and
+            // postCreateTexture(), since the latter is what eventually
+            // calls destroyRawImage() (see its own comment) and mRawImage
+            // is exactly the pixel data that just got uploaded. Cheap when
+            // disabled/ineligible - see DXBC7UploadManager::requestUpgrade()'s
+            // own comment for every gate it checks internally.
+            //
+            // S24 (2026-09-09, same task): explicit BOOST_BUMP exclusion
+            // here too, on top of the per-instance allow_compression flag
+            // LLStandardBumpmap::init() now sets on the 2 standard bump
+            // presets (lldrawpoolbump.cpp) - this boost level is the more
+            // general "this texture feeds gradient-sensitive bump/normal
+            // math, not a color lookup" tag (also used for the default
+            // flat-normal sentinel), so any other bump-map source that
+            // ever adopts it is covered automatically without needing its
+            // own explicit opt-out call site.
+            //
+            // S24 (2026-09-09, same task, live-confirmed "terrain low/
+            // uniform detail" fix): GL_ALPHA (1-component) sources - e.g.
+            // alpha_gradient.tga/alpha_gradient_2d.j2c (IMG_ALPHA_GRAD*,
+            // llviewertexturelist.cpp's own preload list), used for
+            // terrain/blend gradient ramps - store their real data in the
+            // ALPHA channel, not luminance (see repackToRGBA8()'s
+            // alpha_only parameter and DXTexture::create()'s matching
+            // comment). This call site was always passing alpha_only=false
+            // (the common-case assumption documented when this pipeline was
+            // first built), which is wrong for these: the real blend-weight
+            // data would land in .rgb (compressed and read back as if it
+            // were color) while .a came back as a flat, meaningless
+            // constant - exactly "uniform/low detail" blending. Rather than
+            // just fixing the repack flag, exclude GL_ALPHA sources from
+            // compression entirely, same reasoning as the bump-map
+            // exclusion above: blend/gradient-weight data is exactly the
+            // category most vulnerable to lossy block compression, small
+            // textures like these have little VRAM to gain anyway.
+            LLImageRaw* raw = imagep->getRawImage();
+            LLImageGL* glTex = imagep->getGLTexture();
+            if (raw && raw->getData() && glTex
+                && imagep->getBoostLevel() != LLGLTexture::BOOST_BUMP
+                && glTex->getPrimaryFormat() != GL_ALPHA)
+            {
+                std::vector<uint8_t> rgba8;
+                if (DXTexture::repackToRGBA8(raw->getData(), raw->getWidth(), raw->getHeight(), raw->getComponents(), rgba8))
+                {
+                    DXBC7UploadManager::requestUpgrade(glTex, rgba8.data(), raw->getWidth(), raw->getHeight());
+                }
+            }
+#endif
+        }
 
         imagep->postCreateTexture();
         imagep->mCreatePending = false;

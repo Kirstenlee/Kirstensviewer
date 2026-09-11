@@ -201,7 +201,7 @@ void DXDrawPoolMaterials::renderDeferred(LLDrawPoolMaterials& pool, S32 pass)
         {
             gDX.getTexUnit(0)->activate();
             gDX.matrixMode(LLRender::MM_TEXTURE);
-            gDX.loadMatrix((GLfloat*)params.mTextureMatrix->mMatrix);
+            gDX.loadMatrix((F32*)params.mTextureMatrix->mMatrix);
             gPipeline.mTextureMatrixOps++;
             tex_setup = true;
         }

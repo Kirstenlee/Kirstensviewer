@@ -6,7 +6,7 @@
 #include <cstdint>
 
 // Compiles + owns one program's D3D11 vertex/pixel shader pair. Unlike GL,
-// there is no separate link step - LLGLSLShader::createShaderDX() hands this
+// there is no separate link step - LLHLSLShader::createShaderDX() hands this
 // class one fully concatenated HLSL blob per stage (entry file text + all
 // attached utility files' text) and this class compiles+creates the shader
 // object directly.
@@ -19,6 +19,24 @@ public:
     bool compilePixelShader(const std::string& source, const std::string& debugName);
     void reset();
 
+    // S24 (2026-09-05, task #277): device-independent D3DCompile()-only
+    // warm-up. Compiles (or loads from the disk cache) source into a
+    // throwaway blob and immediately releases it - the point is purely to
+    // populate the disk cache ahead of a later real compileVertexShader()/
+    // compilePixelShader() call, so that call finds a warm cache and skips
+    // straight to the (necessarily main-thread-only) CreateVertexShader()/
+    // CreatePixelShader() step. Safe to call from any thread, unlike
+    // compileVertexShader()/compilePixelShader() themselves: D3DCompile() has
+    // no ID3D11Device dependency at all (see compileHLSL() in the .cpp), and
+    // the disk-cache read/write touches only its own content-hashed file, so
+    // there's no shared state to race on across concurrent calls for
+    // different shaders. This project's device is created with
+    // D3D11_CREATE_DEVICE_SINGLETHREADED (DXDevice.cpp, task #278) precisely
+    // because nothing else here calls the device off the main thread -
+    // CreateVertexShader()/CreatePixelShader() must stay that way.
+    static void prefetchVertexShader(const std::string& source, const std::string& debugName);
+    static void prefetchPixelShader(const std::string& source, const std::string& debugName);
+
     // S24 (2026-08-29): DX-native shader bytecode disk cache master switch -
     // set once from RenderDXShaderCacheEnabled via settings_to_globals()
     // (llappviewer.cpp) before gPipeline.init() runs, same "push a saved
@@ -27,7 +45,7 @@ public:
     // link to newview's gSavedSettings. GL's equivalent (LLShaderMgr's
     // mShaderCacheEnabled/loadCachedProgramBinary()/saveCachedProgramBinary(),
     // llrender/llshadermgr.cpp) is glProgramBinary()-based and has zero
-    // DX_RENDER equivalent - LLGLSLShader::createShader() returns via
+    // DX_RENDER equivalent - LLHLSLShader::createShader() returns via
     // createShaderDX() before ever reaching it, so DX_RENDER has recompiled
     // every shader from HLSL source on every single launch since day one.
     // Caches the raw D3DCompile() bytecode blob to the same shader_cache
@@ -36,16 +54,20 @@ public:
     // unmodified), keyed by a hash of the exact final concatenated HLSL text
     // (already fully resolved - #include expanded, feature #defines baked
     // in - so any permutation/feature/shader-level change naturally produces
-    // a different key, no separate version-tagging needed). Gated per-shader
-    // by isCacheEligible()'s allowlist below, deliberately - proving the
-    // mechanism live on one simple, low-blast-radius shader before trusting
-    // it with anything visually complex. Expand the allowlist as confidence
-    // grows.
+    // a different key, no separate version-tagging needed). Was gated
+    // per-shader by isCacheEligible()'s allowlist below, grown in staged
+    // passes as confidence grew - flipped to blanket coverage 2026-09-05
+    // once the mechanism was fully proven and a real live shader-reload path
+    // existed (see isCacheEligible()'s own comment in the .cpp for the full
+    // reasoning on why blanket coverage is safe, not just convenient).
     static bool sShaderCacheEnabled;
 
-    // Pilot allowlist for sShaderCacheEnabled - see its own comment above.
-    // Public because DXShader.cpp's file-local getOrCompileHLSL() helper
-    // (anonymous namespace, not a member) needs to call it.
+    // Returns sShaderCacheEnabled - kept as its own function (rather than a
+    // bare `if (sShaderCacheEnabled)` at each call site) so a future
+    // exception can be reintroduced here without touching callers again, per
+    // its own comment in the .cpp. Public because DXShader.cpp's file-local
+    // getOrCompileHLSL() helper (anonymous namespace, not a member) needs to
+    // call it.
     static bool isCacheEligible(const std::string& debugName);
 
     // GLSL lets an attached utility file declare a free-standing
@@ -99,7 +121,7 @@ public:
     // needs the exact VS bytecode to build a matching ID3D11InputLayout.
     ID3DBlob* getVSBytecode() const { return mVSBytecode; }
 
-    // GL populates LLGLSLShader::mAttributeMask via mapAttributes()'s
+    // GL populates LLHLSLShader::mAttributeMask via mapAttributes()'s
     // glGetAttribLocation() calls after linking - createShaderDX() has no
     // link step to hook an equivalent into, so mAttributeMask silently
     // stayed 0 for every shader under DX_RENDER (broke LLRender::flush()'s
@@ -168,11 +190,11 @@ public:
     // point (D3D11_SHADER_INPUT_BIND_DESC::BindPoint), reflected the same
     // way reflectConstants() reflects $Globals variables. This is the
     // DX-native equivalent of GL's glGetUniformLocation()-based texture-
-    // channel mapping (LLGLSLShader::mTexture[], populated via
-    // mapUniformTextureChannel()) - without it, LLGLSLShader::bindTexture()
+    // channel mapping (LLHLSLShader::mTexture[], populated via
+    // mapUniformTextureChannel()) - without it, LLHLSLShader::bindTexture()
     // has no way to know which register a named uniform like "diffuseMap"
     // corresponds to, and was a hardcoded DX_RENDER no-op as a result (see
-    // llglslshader.cpp's bindTexture(S32, LLTexture*, ...) - real root
+    // llhlslshader.cpp's bindTexture(S32, LLTexture*, ...) - real root
     // cause of PBR materials showing an unrelated, leftover-bound texture
     // depending on draw order/camera angle, since every bind() call for
     // t0-t3 was silently skipped).

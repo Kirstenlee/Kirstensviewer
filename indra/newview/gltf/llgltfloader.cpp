@@ -450,7 +450,7 @@ void LLGLTFLoader::processNodeHierarchy(S32 node_idx, std::map<std::string, S32>
             }
             else
             {
-                glm::mat4 hierarchy_transform;
+                glm::mat4 hierarchy_transform = {};
                 computeCombinedNodeTransform(mGLTFAsset, node_idx, hierarchy_transform);
                 glm::mat4 combined = coord_system_rotation * hierarchy_transform;
                 if (mApplyXYRotation)
@@ -559,7 +559,7 @@ void LLGLTFLoader::computeCombinedNodeTransform(const LL::GLTF::Asset& asset, S3
 		if (it != potential_parent.mChildren.end())
 		{
 			// Found parent - recursively get its combined transform and apply it
-			glm::mat4 parent_transform;
+			glm::mat4 parent_transform = {};
 			computeCombinedNodeTransform(asset, static_cast<S32>(i), parent_transform);
 			combined_transform = parent_transform * combined_transform;
 			return; // Early exit - a node can only have one parent
@@ -768,10 +768,10 @@ bool LLGLTFLoader::populateModelFromMesh(LLModel* pModel, const std::string& bas
     // of vertex baking), which would require adjusting inverse bind matrices, bind shape
     // matrix, and weight keying to match.
     S32 node_index = static_cast<S32>(&nodeno - &mGLTFAsset.mNodes[0]);
-    glm::mat4 hierarchy_transform;
+    glm::mat4 hierarchy_transform = {};
     computeCombinedNodeTransform(mGLTFAsset, node_index, hierarchy_transform);
 
-    glm::mat4 vertex_transform;
+    glm::mat4 vertex_transform = {};
     if (skinIdx >= 0)
     {
         // Skinned mesh: bake coord rotation + hierarchy into vertices.
@@ -1554,7 +1554,7 @@ void LLGLTFLoader::buildOverrideMatrix(LLJointData& viewer_data, joints_data_map
 			gltf_joint_rest_pose = coord_system_rotationxy * gltf_joint_rest_pose;
 		}
 
-		glm::mat4 translated_joint;
+		glm::mat4 translated_joint = {};
 		// Example:
 		// Viewer has pelvis->spine1->spine2->torso.
 		// gltf example model has pelvis->torso
@@ -1569,12 +1569,26 @@ void LLGLTFLoader::buildOverrideMatrix(LLJointData& viewer_data, joints_data_map
 			translated_joint = glm::inverse(parent_support_rest) * gltf_joint_rest_pose;
 		}
 
-		glm::vec3 translation_override;
-		glm::vec3 skew;
-		glm::vec3 scale;
-		glm::vec4 perspective;
-		glm::quat rotation;
-		glm::decompose(translated_joint, scale, rotation, translation_override, skew, perspective);
+		// S24 (2026-09-06): glm::decompose() returns false WITHOUT writing
+		// any of its output params when translated_joint is singular
+		// (degenerate/malformed rig - e.g. a zero-scale joint), per
+		// glm/gtx/matrix_decompose.inl's early-return paths. The return
+		// value used to be discarded, so a failed decompose left these
+		// locals as raw uninitialized stack memory (glm types have no-op
+		// default ctors in this build) baked straight into this joint's
+		// override matrix below. Default-initialize to identity/no-op
+		// values and warn on failure so a bad rig degrades to "no override"
+		// instead of injecting garbage into the avatar skeleton.
+		glm::vec3 translation_override(0.0f);
+		glm::vec3 skew(0.0f);
+		glm::vec3 scale(1.0f);
+		glm::vec4 perspective(0.0f, 0.0f, 0.0f, 1.0f);
+		glm::quat rotation = glm::identity<glm::quat>();
+		if (!glm::decompose(translated_joint, scale, rotation, translation_override, skew, perspective))
+		{
+			LL_WARNS("GLTF_IMPORT") << "Failed to decompose joint transform for '" << viewer_data.mName
+				<< "' (singular matrix) - using no-op override" << LL_ENDL;
+		}
 
         glm::mat4 viewer_rotation_scale(1.0f);
         viewer_rotation_scale = glm::rotate(viewer_rotation_scale, glm::radians(viewer_data.mRotation[0]), glm::vec3(1, 0, 0));

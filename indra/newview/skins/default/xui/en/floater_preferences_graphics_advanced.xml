@@ -1076,6 +1076,14 @@
        label="Uchimura"
        name="3"
        value="3"/>
+     <combo_box.item
+       label="ACES (Fast)"
+       name="4"
+       value="4"/>
+     <combo_box.item
+       label="AgX"
+       name="5"
+       value="5"/>
   </combo_box>
   <slider
    control_name="RenderTonemapMix"

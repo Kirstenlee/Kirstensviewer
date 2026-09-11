@@ -256,6 +256,21 @@ public:
 
     void setHasMipMaps(bool hasMips) { mHasMipMaps = hasMips; }
 
+#ifdef DX_RENDER
+    // S24 (2026-09-10, task #273/#280): lets a caller that just performed its
+    // OWN raw PSSetShaderResources/PSSetSamplers call - bypassing bind()/
+    // bindFast() entirely - tell this unit's cache what's really bound now,
+    // so a LATER bind()/bindFast() call for the same channel can't be fooled
+    // into wrongly skipping a real rebind. Pure bookkeeping: does not touch
+    // the GPU itself. See LLRenderTarget::bindTexture()'s own comment (its
+    // one real caller today, via LLPipeline::bindDeferredShader()'s G-buffer
+    // channel binds) for the concrete, previously-documented gap this closes
+    // - task #280's reverted light-strobing regression is the predicted
+    // failure mode from that comment finally manifesting once the
+    // generation-gated skip logic in bind()/bindFast() was briefly live.
+    void syncDXBindState(void* srv, void* sampler);
+#endif
+
 protected:
     friend class LLRender;
 
@@ -475,16 +490,16 @@ public:
     // Needed when the render context has changed and invalidated the current state
     void refreshState(void);
 
-    void translatef(const GLfloat& x, const GLfloat& y, const GLfloat& z);
-    void scalef(const GLfloat& x, const GLfloat& y, const GLfloat& z);
-    void rotatef(const GLfloat& a, const GLfloat& x, const GLfloat& y, const GLfloat& z);
+    void translatef(const F32& x, const F32& y, const F32& z);
+    void scalef(const F32& x, const F32& y, const F32& z);
+    void rotatef(const F32& a, const F32& x, const F32& y, const F32& z);
     void ortho(F32 left, F32 right, F32 bottom, F32 top, F32 zNear, F32 zFar);
 
     void pushMatrix();
     void popMatrix();
-    void loadMatrix(const GLfloat* m);
+    void loadMatrix(const F32* m);
     void loadIdentity();
-    void multMatrix(const GLfloat* m);
+    void multMatrix(const F32* m);
     void matrixMode(eMatrixMode mode);
     eMatrixMode getMatrixMode();
 
@@ -525,20 +540,20 @@ public:
     U8 getMode() const { return mMode; }
 
     void vertex2i(const GLint& x, const GLint& y);
-    void vertex2f(const GLfloat& x, const GLfloat& y);
-    void vertex3f(const GLfloat& x, const GLfloat& y, const GLfloat& z);
-    void vertex2fv(const GLfloat* v);
-    void vertex3fv(const GLfloat* v);
+    void vertex2f(const F32& x, const F32& y);
+    void vertex3f(const F32& x, const F32& y, const F32& z);
+    void vertex2fv(const F32* v);
+    void vertex3fv(const F32* v);
 
     void texCoord2i(const GLint& x, const GLint& y);
-    void texCoord2f(const GLfloat& x, const GLfloat& y);
-    void texCoord2fv(const GLfloat* tc);
+    void texCoord2f(const F32& x, const F32& y);
+    void texCoord2fv(const F32* tc);
 
     void color4ub(const GLubyte& r, const GLubyte& g, const GLubyte& b, const GLubyte& a);
-    void color4f(const GLfloat& r, const GLfloat& g, const GLfloat& b, const GLfloat& a);
-    void color4fv(const GLfloat* c);
-    void color3f(const GLfloat& r, const GLfloat& g, const GLfloat& b);
-    void color3fv(const GLfloat* c);
+    void color4f(const F32& r, const F32& g, const F32& b, const F32& a);
+    void color4fv(const F32* c);
+    void color3f(const F32& r, const F32& g, const F32& b);
+    void color3fv(const F32* c);
     void color4ubv(const GLubyte* c);
 
     void diffuseColor3f(F32 r, F32 g, F32 b);
@@ -643,9 +658,9 @@ public:
 
     struct Vertex
     {
-        GLfloat v[3];
+        F32 v[3];
         GLubyte c[4];
-        GLfloat uv[2];
+        F32 uv[2];
     };
 
 public:

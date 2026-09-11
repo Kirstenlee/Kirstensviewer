@@ -142,20 +142,14 @@ public:
 	LLVector3 transformToAbsolute(const LLVector3 &v) const;	// Returns v' in absolute coord
 	LLVector4 transformToAbsolute(const LLVector4 &v) const;	// Returns v' in absolute coord
 
-	// Write coord frame orientation into provided array in OpenGL matrix format.
-	void getOpenGLTranslation(F32 *ogl_matrix) const;
-	void getOpenGLRotation(F32 *ogl_matrix) const;
-	void getOpenGLTransform(F32 *ogl_matrix) const;
-
-	// S24 (2026-08-22, plan item A - DX-native derivation): a deliberately
-	// SEPARATE rotation-matrix export for DX_RENDER consumers, so this can
-	// be freely re-derived/experimented on without any risk to
-	// getOpenGLRotation()'s callers (GL, and any shared code) or the
-	// already-fragile, independently-tuned GL-shared tables
-	// (LLCubeMapArray::sClipToCubeLookVecs/sUpVecs) that broke when a
-	// capture-side table was changed without this. Only DX_RENDER-specific
-	// consumers should ever call this - not a general-purpose utility.
-	void getDirectXRotation(F32 *dx_matrix) const;
+	// Write coord frame orientation+translation into provided array in D3D
+	// matrix format (see llcoordframe.cpp's diagram above getDirectXTransform()).
+	// S24 (2026-09-06): getOpenGLTranslation()/getOpenGLRotation()/
+	// getDirectXRotation() removed - all confirmed dead (see llcoordframe.cpp
+	// for the full history); getDirectXTransform() (renamed from
+	// getOpenGLTransform() - this build is DX_RENDER-only) is the sole
+	// surviving export, a pure rename with no value change.
+	void getDirectXTransform(F32 *dx_matrix) const;
 
 	// lookDir orients to (xuv, presumed normalized) and does not affect origin
 	void lookDir(const LLVector3 &xuv, const LLVector3 &up);

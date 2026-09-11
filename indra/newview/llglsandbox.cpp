@@ -64,6 +64,7 @@
 #include "pipeline.h"
 #include "llspatialpartition.h"
 #include "llviewershadermgr.h"
+#include "lldxlinewidth.h"
 
 #include <vector>
 
@@ -317,23 +318,21 @@ void LLViewerParcelMgr::renderRect(const LLVector3d &west_south_bottom_global,
     F32 ne_top = ne_bottom + PARCEL_POST_HEIGHT;
     F32 nw_top = nw_bottom + PARCEL_POST_HEIGHT;
 
-    LLUI::setLineWidth(2.f);
-    gDX.color4f(1.f, 1.f, 0.f, 1.f);
+    // S24 (2026-09-05, task #309): LLUI::setLineWidth(2.f) is a no-op under
+    // DX_RENDER (D3D11 has no per-draw line-width control at all) - these 4
+    // posts are real, simple world-space segments with no local transform
+    // in play, so they're a direct dxLineWidth() candidate like the beam/
+    // beacon pillar before them.
+    LLColor4 post_color(1.f, 1.f, 0.f, 1.f);
+    gDX.color4fv(post_color.mV);
 
     // Cheat and give this the same pick-name as land
-    gDX.begin(LLRender::LINES);
+    gDX.begin(LLRender::TRIANGLES);
 
-    gDX.vertex3f(west, north, nw_bottom);
-    gDX.vertex3f(west, north, nw_top);
-
-    gDX.vertex3f(east, north, ne_bottom);
-    gDX.vertex3f(east, north, ne_top);
-
-    gDX.vertex3f(east, south, se_bottom);
-    gDX.vertex3f(east, south, se_top);
-
-    gDX.vertex3f(west, south, sw_bottom);
-    gDX.vertex3f(west, south, sw_top);
+    dxLineWidth(LLVector3(west, north, nw_bottom), LLVector3(west, north, nw_top), 1.f, post_color);
+    dxLineWidth(LLVector3(east, north, ne_bottom), LLVector3(east, north, ne_top), 1.f, post_color);
+    dxLineWidth(LLVector3(east, south, se_bottom), LLVector3(east, south, se_top), 1.f, post_color);
+    dxLineWidth(LLVector3(west, south, sw_bottom), LLVector3(west, south, sw_top), 1.f, post_color);
 
     gDX.end();
 
@@ -352,8 +351,6 @@ void LLViewerParcelMgr::renderRect(const LLVector3d &west_south_bottom_global,
         gDX.vertex3f(west, north, nw_bottom);
     }
     gDX.end();
-
-    LLUI::setLineWidth(1.f);
 }
 
 
@@ -720,41 +717,14 @@ void draw_cross_lines(const LLVector3& center, F32 dx, F32 dy, F32 dz)
 // height so the same billboard technique also covers renderSunMoonBeacons()
 // below (an arbitrary-direction beam toward the sun/moon, not a vertical
 // pillar) - see that function's own comment, same dead-glLineWidth bug.
+//
+// S24 (2026-09-05, task #309): the billboard-quad geometry itself (was
+// duplicated here and in llhudeffecttrail.cpp's selection beam) is now
+// shared via dxLineWidth() (lldxlinewidth.h) - this function only keeps its
+// own beacon-specific behavior: the pulse animation and the fade-to-
+// transparent-at-top look.
 void draw_beacon_pillar(const LLVector3& base, const LLVector3& top, F32 half_pixel_width, const LLColor4& color)
 {
-    LLViewerCamera* camera = LLViewerCamera::getInstance();
-    F32 pixel_meter_ratio = camera->getPixelMeterRatio();
-    LLVector3 cam_origin = camera->getOrigin();
-
-    LLVector3 beam_vec = top - base;
-    beam_vec.normalize();
-
-    LLVector3 to_camera = cam_origin - base;
-    to_camera.normalize();
-
-    LLVector3 width_dir = beam_vec % to_camera;
-    if (width_dir.lengthSquared() < 0.000001f)
-    {
-        // Pillar points straight at the camera - fall back to the camera's
-        // up axis so the quad doesn't degenerate to zero width.
-        width_dir = beam_vec % camera->getUpAxis();
-    }
-    width_dir.normalize();
-
-    auto half_width_at = [pixel_meter_ratio, cam_origin, half_pixel_width](const LLVector3& p) -> F32
-    {
-        F32 dist = (cam_origin - p).length();
-        return half_pixel_width * dist / pixel_meter_ratio;
-    };
-
-    LLVector3 wa = width_dir * half_width_at(base);
-    LLVector3 wb = width_dir * half_width_at(top);
-
-    LLVector3 v1 = base - wa;
-    LLVector3 v2 = base + wa;
-    LLVector3 v3 = top + wb;
-    LLVector3 v4 = top - wb;
-
     // S24 (2026-09-04, user feedback): widened swing (was 0.8+/-0.2) so the
     // bright half of the pulse genuinely punches past 1.0 - combined with
     // BT_ADD_WITH_ALPHA (see renderObjectBeacons()) that overshoot is what
@@ -767,17 +737,7 @@ void draw_beacon_pillar(const LLVector3& base, const LLVector3& top, F32 half_pi
     LLColor4 top_color = base_color;
     top_color.mV[VALPHA] = 0.f;
 
-    gDX.color4fv(base_color.mV);
-    gDX.vertex3fv(v1.mV);
-    gDX.vertex3fv(v2.mV);
-    gDX.color4fv(top_color.mV);
-    gDX.vertex3fv(v3.mV);
-
-    gDX.color4fv(base_color.mV);
-    gDX.vertex3fv(v1.mV);
-    gDX.color4fv(top_color.mV);
-    gDX.vertex3fv(v3.mV);
-    gDX.vertex3fv(v4.mV);
+    dxLineWidth(base, top, half_pixel_width, base_color, top_color);
 }
 
 // S24 (2026-09-04): replaces the small close-range draw_cross_lines()

@@ -218,7 +218,10 @@ bool LLUUID::set(const std::string& in_string, bool emit)
         {
             if (emit)
             {
-                LL_WARNS() << "Warning! Using broken UUID string format" << LL_ENDL;
+                // S24 (2026-09-10): user can't act on a malformed UUID
+                // string somewhere in content/cached data - was log poison
+                // at WARNS.
+                LL_DEBUGS() << "Warning! Using broken UUID string format" << LL_ENDL;
             }
             broken_format = true;
         }
@@ -267,7 +270,9 @@ bool LLUUID::set(const std::string& in_string, bool emit)
         {
             if (emit)
             {
-                LL_WARNS() << "Invalid UUID string character" << LL_ENDL;
+                // S24 (2026-09-10): same as the broken-format case above -
+                // not actionable by the user, was log poison at WARNS.
+                LL_DEBUGS() << "Invalid UUID string character" << LL_ENDL;
             }
             setNull();
             return false;
@@ -292,7 +297,9 @@ bool LLUUID::set(const std::string& in_string, bool emit)
         {
             if (emit)
             {
-                LL_WARNS() << "Invalid UUID string character" << LL_ENDL;
+                // S24 (2026-09-10): same as the broken-format case above -
+                // not actionable by the user, was log poison at WARNS.
+                LL_DEBUGS() << "Invalid UUID string character" << LL_ENDL;
             }
             setNull();
             return false;

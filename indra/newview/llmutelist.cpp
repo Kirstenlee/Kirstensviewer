@@ -256,7 +256,9 @@ void LLMuteList::clearCachedMutes()
 {
     mMutes.clear();
     mLegacyMutes.clear();
-    LL_WARNS() << "Cached mutes cleared" << LL_ENDL;
+    // S24 (2026-09-10): internal lifecycle event only, nothing the user can
+    // act on - was log poison at WARNS.
+    LL_DEBUGS() << "Cached mutes cleared" << LL_ENDL;
 }
 
 const char* LLMuteList::sourceToString(EMuteListSource source)

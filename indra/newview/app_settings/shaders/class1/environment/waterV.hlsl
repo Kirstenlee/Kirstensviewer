@@ -139,7 +139,35 @@ VSOutput main(VSInput IN)
     float2 bigWave = (v.xy) * float2(0.04, 0.04) + waveDir1 * time * 0.055;
     // get two normal map (detail map) texture coordinates
     OUT.littleWave.xy = (v.xy) * float2(0.45, 0.9) + waveDir2 * time * 0.13;
-    OUT.littleWave.zw = (v.xy) * float2(0.1, 0.2) + waveDir1 * time * 0.1;
+    // S24 (2026-09-07, DX Water V1, task #317 root cause): this used to
+    // reuse waveDir1 verbatim (same direction as bigWave above, only a
+    // different scroll rate: 0.1 vs 0.055). Two layers scrolling in the
+    // IDENTICAL direction at different rates have a simple, real, 1D beat -
+    // their relative phase drifts at |0.1-0.055|=0.045 UV/s (scaled by
+    // |waveDir1| and waterWaveSpeed), a slow periodic constructive/
+    // destructive cancellation in the combined surface normal. This is a
+    // real, confirmed defect, not a guess - live-reported as a wave
+    // "twitch"/stepping that gets MORE visible at low RenderWaterWaveSpeed
+    // (a slower beat period is one your eye can actually track, instead of
+    // blurring into general chop) and was independently confirmed NOT
+    // caused by reflection-probe recapture (live A/B test, probes
+    // disabled, no change) or frame-timer cadence (idle()/display() are
+    // 1:1 per rendered frame, confirmed by reading llappviewer.cpp's main
+    // loop directly). Standard real-time water technique (multiple
+    // industry references, not just this codebase's own past mistake) is
+    // every scrolling normal-map layer should use a DISTINCT direction, not
+    // just a distinct speed, specifically to avoid this exact periodic
+    // interference. Fixed here by rotating waveDir1 by a fixed 57 degrees
+    // for this one detail layer only - keeps it visually tied to the
+    // EEP-authored wind direction (not an arbitrary unrelated angle) while
+    // making the two waveDir1-derived layers' relative phase drift
+    // continuously instead of periodically - no more beat.
+    static const float S24_ROT57_COS = 0.544639035;
+    static const float S24_ROT57_SIN = 0.838670568;
+    float2 waveDir3 = float2(
+        waveDir1.x * S24_ROT57_COS - waveDir1.y * S24_ROT57_SIN,
+        waveDir1.x * S24_ROT57_SIN + waveDir1.y * S24_ROT57_COS);
+    OUT.littleWave.zw = (v.xy) * float2(0.1, 0.2) + waveDir3 * time * 0.1;
     OUT.view.w = bigWave.y;
     OUT.bigWaveX = bigWave.x;
 

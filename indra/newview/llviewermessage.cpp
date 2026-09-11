@@ -4172,7 +4172,10 @@ void process_avatar_appearance(LLMessageSystem *mesgsys, void **user_data)
     }
     else
     {
-        LL_WARNS("Messaging") << "avatar_appearance sent for unknown avatar " << uuid << LL_ENDL;
+        // S24 (2026-09-10): benign sim packet-ordering artifact (appearance
+        // arriving before the avatar object itself, common in busy scenes)
+        // - nothing the user can do about it, was log poison at WARNS.
+        LL_DEBUGS("Messaging") << "avatar_appearance sent for unknown avatar " << uuid << LL_ENDL;
     }
 }
 

@@ -88,6 +88,13 @@ typedef enum
     /*virtual*/ void endPostDeferredPass(S32 pass);
     /*virtual*/ void renderPostDeferred(S32 pass);
 
+    // S24 (2026-09-10): jelly-doll "ghost" rendering - real alpha-blended,
+    // rim-glowing draw of every currently jelly-dolled avatar's cached
+    // impostor, called from renderPostDeferred() alongside (not instead
+    // of) the real-avatar alpha pass above. See gDeferredJellyGhostProgram
+    // (llviewershadermgr.h) and jellyGhostF.hlsl for the shader side.
+    void renderJellyDollGhosts();
+
     /*virtual*/ S32 getNumShadowPasses();
     /*virtual*/ void beginShadowPass(S32 pass);
     /*virtual*/ void endShadowPass(S32 pass);

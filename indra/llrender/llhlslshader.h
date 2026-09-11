@@ -207,6 +207,23 @@ public:
     // source blob per stage, then D3DCompile's each through mDXVertexShader/
     // mDXPixelShader.
     bool createShaderDX();
+
+    // S24 (2026-09-05, task #277): the text-resolution portion of
+    // createShaderDX() (load mShaderFiles + attachShaderFeatures() +
+    // resolveIncludes()/injectSkinningInputs()/injectTextureIndexInputs()/
+    // buildDXShaderHeader(), populating mDXVertexSource/mDXPixelSource) split
+    // out on its own so a startup prefetch pass can build the final HLSL text
+    // early and warm DXShader's D3DCompile() disk cache on a worker thread,
+    // before createShaderDX() itself runs (main thread only, as always) and
+    // hits that now-warm cache. Touches LLShaderMgr's shared, unsynchronized
+    // source-text caches (mVertexShaderSourceText/mFragmentShaderSourceText)
+    // and sInstances, so - like createShaderDX() - this must only ever be
+    // called from the main thread. Idempotent: safe to call more than once on
+    // the same instance (createShaderDX() always calls it again itself, even
+    // if a prefetch pass already called it) - it fully rebuilds
+    // mDXVertexSource/mDXPixelSource from scratch each time rather than
+    // appending.
+    bool buildDXSource();
 #endif
     bool attachFragmentObject(std::string object);
     bool attachVertexObject(std::string object);
@@ -216,41 +233,41 @@ public:
     bool mapUniforms();
     void mapUniform(GLint index);
     void uniform1i(U32 index, GLint i);
-    void uniform1f(U32 index, GLfloat v);
-    void fastUniform1f(U32 index, GLfloat v);
-    void uniform2f(U32 index, GLfloat x, GLfloat y);
-    void uniform3f(U32 index, GLfloat x, GLfloat y, GLfloat z);
-    void uniform4f(U32 index, GLfloat x, GLfloat y, GLfloat z, GLfloat w);
+    void uniform1f(U32 index, F32 v);
+    void fastUniform1f(U32 index, F32 v);
+    void uniform2f(U32 index, F32 x, F32 y);
+    void uniform3f(U32 index, F32 x, F32 y, F32 z);
+    void uniform4f(U32 index, F32 x, F32 y, F32 z, F32 w);
     void uniform1iv(U32 index, U32 count, const GLint* i);
     void uniform4iv(U32 index, U32 count, const GLint* i);
-    void uniform1fv(U32 index, U32 count, const GLfloat* v);
-    void uniform2fv(U32 index, U32 count, const GLfloat* v);
-    void uniform3fv(U32 index, U32 count, const GLfloat* v);
-    void uniform4fv(U32 index, U32 count, const GLfloat* v);
+    void uniform1fv(U32 index, U32 count, const F32* v);
+    void uniform2fv(U32 index, U32 count, const F32* v);
+    void uniform3fv(U32 index, U32 count, const F32* v);
+    void uniform4fv(U32 index, U32 count, const F32* v);
     void uniform4uiv(U32 index, U32 count, const GLuint* v);
     void uniform2i(const LLStaticHashedString& uniform, GLint i, GLint j);
-    void uniformMatrix2fv(U32 index, U32 count, GLboolean transpose, const GLfloat* v);
-    void uniformMatrix3fv(U32 index, U32 count, GLboolean transpose, const GLfloat* v);
-    void uniformMatrix3x4fv(U32 index, U32 count, GLboolean transpose, const GLfloat* v);
-    void uniformMatrix4fv(U32 index, U32 count, GLboolean transpose, const GLfloat* v);
+    void uniformMatrix2fv(U32 index, U32 count, bool transpose, const F32* v);
+    void uniformMatrix3fv(U32 index, U32 count, bool transpose, const F32* v);
+    void uniformMatrix3x4fv(U32 index, U32 count, bool transpose, const F32* v);
+    void uniformMatrix4fv(U32 index, U32 count, bool transpose, const F32* v);
     void uniform1i(const LLStaticHashedString& uniform, GLint i);
     void uniform1iv(const LLStaticHashedString& uniform, U32 count, const GLint* v);
     void uniform4iv(const LLStaticHashedString& uniform, U32 count, const GLint* v);
-    void uniform1f(const LLStaticHashedString& uniform, GLfloat v);
-    void uniform2f(const LLStaticHashedString& uniform, GLfloat x, GLfloat y);
-    void uniform3f(const LLStaticHashedString& uniform, GLfloat x, GLfloat y, GLfloat z);
-    void uniform4f(const LLStaticHashedString& uniform, GLfloat x, GLfloat y, GLfloat z, GLfloat w);
-    void uniform1fv(const LLStaticHashedString& uniform, U32 count, const GLfloat* v);
-    void uniform2fv(const LLStaticHashedString& uniform, U32 count, const GLfloat* v);
-    void uniform3fv(const LLStaticHashedString& uniform, U32 count, const GLfloat* v);
-    void uniform4fv(const LLStaticHashedString& uniform, U32 count, const GLfloat* v);
+    void uniform1f(const LLStaticHashedString& uniform, F32 v);
+    void uniform2f(const LLStaticHashedString& uniform, F32 x, F32 y);
+    void uniform3f(const LLStaticHashedString& uniform, F32 x, F32 y, F32 z);
+    void uniform4f(const LLStaticHashedString& uniform, F32 x, F32 y, F32 z, F32 w);
+    void uniform1fv(const LLStaticHashedString& uniform, U32 count, const F32* v);
+    void uniform2fv(const LLStaticHashedString& uniform, U32 count, const F32* v);
+    void uniform3fv(const LLStaticHashedString& uniform, U32 count, const F32* v);
+    void uniform4fv(const LLStaticHashedString& uniform, U32 count, const F32* v);
     void uniform4uiv(const LLStaticHashedString& uniform, U32 count, const GLuint* v);
-    void uniformMatrix4fv(const LLStaticHashedString& uniform, U32 count, GLboolean transpose, const GLfloat* v);
+    void uniformMatrix4fv(const LLStaticHashedString& uniform, U32 count, bool transpose, const F32* v);
 
     void setMinimumAlpha(F32 minimum);
 
-    void vertexAttrib4f(U32 index, GLfloat x, GLfloat y, GLfloat z, GLfloat w);
-    void vertexAttrib4fv(U32 index, GLfloat* v);
+    void vertexAttrib4f(U32 index, F32 x, F32 y, F32 z, F32 w);
+    void vertexAttrib4fv(U32 index, F32* v);
 
     //GLint getUniformLocation(const std::string& uniform);
     GLint getUniformLocation(const LLStaticHashedString& uniform);

@@ -49,6 +49,7 @@ KVOpenCL::KVOpenCL()
     device(nullptr),
     context(nullptr),
     queue(nullptr),
+    computeQueue(nullptr),
     initialized(false)
 {
 }
@@ -63,8 +64,9 @@ KVOpenCL::~KVOpenCL()
     }
     kernelCache.clear();
 
-    if (queue)   clReleaseCommandQueue(queue);
-    if (context) clReleaseContext(context);
+    if (queue)        clReleaseCommandQueue(queue);
+    if (computeQueue) clReleaseCommandQueue(computeQueue);
+    if (context)      clReleaseContext(context);
 }
 
 // ============================================================
@@ -72,7 +74,11 @@ KVOpenCL::~KVOpenCL()
 // ============================================================
 bool KVOpenCL::ensureInit()
 {
-    if (!initialized)
+    // S24 (2026-09-09, BC7 pipeline): `initialized` is now atomic
+    // specifically so this fast-path read (true on every call after the
+    // very first) stays lock-free - init() itself owns mInitMutex for the
+    // actual one-time setup/transition, see its own comment.
+    if (!initialized.load(std::memory_order_acquire))
         return init();
     return true;
 }
@@ -91,7 +97,17 @@ void KVOpenCL::release(cl_mem& m)
 // ============================================================
 bool KVOpenCL::init()
 {
-    if (initialized) return true;
+    // S24 (2026-09-09, BC7 pipeline): was an unguarded check-then-set - fine
+    // while every caller (8 direct gCL.init() sites in kveffects.cpp, plus
+    // every run*() method via ensureInit()) ran on the main thread only.
+    // DXBC7Compressor's background thread can now reach this too (via the
+    // newly-public ensureInit()) - lock for the actual one-time
+    // context/queue creation below; the cheap "already done" case is
+    // handled lock-free by ensureInit()'s own atomic check before it ever
+    // gets here, but re-check under the lock too in case two threads both
+    // lost that race and arrived here together.
+    std::lock_guard<std::mutex> lock(mInitMutex);
+    if (initialized.load(std::memory_order_relaxed)) return true;
 
     cl_int err;
 
@@ -135,7 +151,15 @@ bool KVOpenCL::init()
     queue = clCreateCommandQueue(context, device, 0, &err);
     if (!queue || err != CL_SUCCESS) return false;
 
-    initialized = true;
+    // S24 (2026-09-09, BC7 pipeline): second queue, same context/device -
+    // reserved for DXBC7Compressor's background-thread use (see
+    // getComputeQueue()'s header comment). Created here, once, under
+    // mInitMutex, alongside the main queue - never touched again after
+    // init() returns, so reading it from any thread afterward is safe.
+    computeQueue = clCreateCommandQueue(context, device, 0, &err);
+    if (!computeQueue || err != CL_SUCCESS) return false;
+
+    initialized.store(true, std::memory_order_release);
     return true;
 }
 
@@ -144,6 +168,19 @@ bool KVOpenCL::init()
 // ============================================================
 cl_kernel KVOpenCL::getKernel(const std::string& name, const char* source)
 {
+    // S24 (2026-09-09, BC7 pipeline): kernelCache was an unguarded
+    // unordered_map find+insert - only ever called from the main thread
+    // today (every run*() effect method), but guarded now for the same
+    // reason init() is: closes the gap for any future caller. Reusing
+    // mInitMutex rather than a second mutex - this isn't a per-pixel hot
+    // path (called once per effect per frame, not once per pixel), so the
+    // extra lock is negligible and not worth a separate mutex.
+    // DXBC7Compressor deliberately does NOT go through this cache (see
+    // KVOpenCL.h's getComputeQueue()/getContext() comment) - it builds and
+    // owns its own dedicated kernel, so it never contends with this lock
+    // for its real per-mip work, only (if ever) a rare one-time build.
+    std::lock_guard<std::mutex> lock(mInitMutex);
+
     auto it = kernelCache.find(name);
     if (it != kernelCache.end())
         return it->second;

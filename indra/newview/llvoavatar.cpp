@@ -12002,8 +12002,22 @@ void LLVOAvatar::calcMutedAVColor()
 #endif
     else
     {
-        new_color = LLColor4::grey4;
-        change_msg = " over limit color ";
+        // S24 (2026-09-10): was LLColor4::grey4 - the flat opaque grey
+        // "jelly doll" look. Real visual replacement (translucent black +
+        // rim-glow) is now entirely a DRAW-TIME effect in the new
+        // gDeferredJellyGhostProgram shader (see
+        // LLDrawPoolAvatar::renderJellyDollGhosts()), which reads only the
+        // impostor's baked ALPHA channel as a silhouette mask and computes
+        // its own color from uniforms - this RGB value is no longer
+        // rendered anywhere visible for a jellydolled avatar (the old
+        // opaque pass-0 renderImpostor() call is skipped for them now).
+        // Kept dark/neutral rather than removed outright since
+        // pipeline.cpp's bake-time alpha-mask stomp (generateImpostor())
+        // still reads this same color's ALPHA (kept at 1.0, unchanged) to
+        // build that silhouette mask, and a stray other reader finding a
+        // sane dark value is safer than an unrelated leftover grey.
+        new_color = LLColor4(0.05f, 0.05f, 0.05f, 1.0f);
+        change_msg = " over limit color (ghost)";
     }
 
     if (mMutedAVColor != new_color)

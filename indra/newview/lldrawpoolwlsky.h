@@ -29,8 +29,13 @@
 
 #include "lldrawpool.h"
 
-class LLHLSLShader;
-
+// S24 (2026-09-05, task #292): gutted down to what's actually reachable
+// under DX_RENDER - see lldrawpoolwlsky.cpp's own top comment. The real
+// sky/sun/moon/star/cloud rendering (renderDome/renderSkyHazeDeferred/
+// renderSkyCloudsDeferred/renderStarsDeferred/renderHeavenlyBodies, and the
+// shader-pointer statics that only existed to support them) now lives
+// entirely in dxdrawpoolwlsky.cpp/DXDrawPoolWLSky - this class is just the
+// LLDrawPool-required scaffolding plus the redirects that bridge to it.
 class LLDrawPoolWLSky : public LLDrawPool {
 public:
 
@@ -63,14 +68,6 @@ public:
 
     static void cleanupGL();
     static void restoreGL();
-private:
-    void renderDome(const LLVector3& camPosLocal, F32 camHeightLocal, LLHLSLShader * shader) const;
-
-    void renderSkyHazeDeferred(const LLVector3& camPosLocal, F32 camHeightLocal) const;
-    void renderSkyCloudsDeferred(const LLVector3& camPosLocal, F32 camHeightLocal, LLHLSLShader* cloudshader) const;
-
-    void renderStarsDeferred(const LLVector3& camPosLocal) const;
-    void renderHeavenlyBodies();
 };
 
 #endif // LL_DRAWPOOLWLSKY_H

@@ -8546,7 +8546,21 @@ class LLToolsEditLinkedParts : public view_listener_t
 
 void reload_vertex_shader()
 {
-    //THIS WOULD BE AN AWESOME PLACE TO RELOAD SHADERS... just a thought    - DaveP
+    // S24 (2026-09-05, task #277): this was a no-op stub left over from LL's
+    // original code (DaveP's own comment above said as much) - Develop >
+    // Reload Vertex Shader has done literally nothing since day one. Wired
+    // to the same setShaders() call every graphics-settings-change listener
+    // already uses (llfeaturemanager.cpp, llviewerwindow.cpp, pipeline.cpp,
+    // etc) to give shader development a real "detect + recompile" trigger:
+    // loadShaderFile() always re-reads .hlsl files fresh from disk on every
+    // call (see llhlslshader.cpp's buildDXSource()), and DXShader's disk
+    // cache is keyed on the fully-resolved HLSL text's own content hash (see
+    // DXShader::isCacheEligible()'s comment) - so a recompile picked up here
+    // naturally produces a different cache key for anything actually edited
+    // (recompiles it for real) while anything unchanged still hits its warm
+    // cache entry, no separate "did this file change" bookkeeping needed.
+    LL_INFOS() << "S24: Reload Vertex Shader - reloading all shaders" << LL_ENDL;
+    LLViewerShaderMgr::instance()->setShaders();
 }
 
 void handle_dump_avatar_local_textures()

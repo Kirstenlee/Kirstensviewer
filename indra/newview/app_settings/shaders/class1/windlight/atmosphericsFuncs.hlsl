@@ -187,10 +187,42 @@ void calcAtmosphericVars(float3 inPositionEye, float3 light_dir, float ambFactor
 
 float3 srgb_to_linear(float3 col);
 
+// S24 (2026-09-07, task #266 continuation): cube_snapshot - see
+// reflectionProbeF.hlsl's own identical guard/comment. Needed here so
+// ambientLighting() below can detect a reflection-probe/hero-probe capture
+// and skip its own sun-relative darkening for it specifically.
+#ifndef LL_CUBE_SNAPSHOT_DECLARED
+#define LL_CUBE_SNAPSHOT_DECLARED
+uniform int cube_snapshot;
+#endif
+
 // provide a touch of lighting in the opposite direction of the sun light
 // so areas in shadow don't lose all detail
 float ambientLighting(float3 norm, float3 light_dir)
 {
+    // S24 (2026-09-07, task #266 continuation): live-reported (box1.png,
+    // annotated) - each face of a box-probe capture shows a visibly
+    // different, fixed shade level, described by the user as unaffected by
+    // time of day. Root cause traced here: this term multiplies ambient by
+    // as little as 0.5 for any surface whose NORMAL is closely aligned
+    // with (or opposed to) the sun/moon direction, and by up to 1.0 for
+    // surfaces perpendicular to it - a real, structural, per-surface-
+    // orientation ambient darkening. For the MAIN view this is a
+    // deliberate shadow-fill feature (see this function's own header
+    // comment) - reasonable there. But baked directly into a reflection-
+    // probe capture, this freezes a sun-relative shading pattern onto the
+    // 6 faces permanently until the next recapture, which reads as "some
+    // faces are just darker than others" exactly as reported - a
+    // reflection probe should represent stable, orientation-independent
+    // room ambient, not a snapshot of sun-relative shadow-fill. Skipped
+    // entirely during any probe capture (cube_snapshot==1) - full,
+    // uniform ambient across all 6 faces; the main view's own shadow-fill
+    // behavior is completely untouched.
+    if (cube_snapshot == 1)
+    {
+        return 1.0;
+    }
+
     float ambient = min(abs(dot(norm.xyz, light_dir.xyz)), 1.0);
     ambient *= 0.5;
     ambient *= ambient;

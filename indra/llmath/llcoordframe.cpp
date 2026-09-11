@@ -520,8 +520,9 @@ LLVector4 LLCoordFrame::transformToAbsolute(const LLVector4 &local_vector) const
 }
 
 
-// This is how you combine a translation and rotation of a 
-// coordinate frame to get an OpenGL transformation matrix:
+// This is how a translation and rotation of a coordinate frame combine into
+// the single transformation matrix getDirectXTransform() below builds
+// directly (no separate translation/rotation export needed):
 //
 //     translation   *   rotation      =          transformation matrix
 //
@@ -531,131 +532,46 @@ LLVector4 LLCoordFrame::transformToAbsolute(const LLVector4 &local_vector) const
 //  V | 0  0  1  0 |   | c  f  i  0 |     |     c            f            i          0 |
 //    |-x -y -z  1 |   | 0  0  0  1 |     |-(ax+by+cz)  -(dx+ey+fz)  -(gx+hy+iz)     1 |
 //
-// where {a,b,c} = x-axis 
-//       {d,e,f} = y-axis 
-//       {g,h,i} = z-axis 
+// where {a,b,c} = x-axis
+//       {d,e,f} = y-axis
+//       {g,h,i} = z-axis
 //       {x,y,z} = origin
 
-void LLCoordFrame::getOpenGLTranslation(F32 *ogl_matrix) const
+// S24 (2026-09-06): getOpenGLTranslation()/getOpenGLRotation() (the separate
+// translation-only/rotation-only exports the diagram above used to describe
+// combining) and getDirectXRotation() (their DX-native, transposed
+// counterpart, added 2026-08-22 to fix a reflection-probe orientation bug)
+// removed - all confirmed dead. getOpenGLTranslation() had zero callers even
+// in the original GL-era codebase; getOpenGLRotation()'s only real callers
+// (llheroprobemanager.cpp/llreflectionmapmanager.cpp's radiance-gen camera
+// setup) were deliberately replaced by the DXCubeMap rewrite's real per-face
+// camera matrices, taking getDirectXRotation() down with them. Renamed from
+// getOpenGLTransform() - this build is DX_RENDER-only, all 3 real callers
+// (llterrainpaintmap.cpp, llviewercamera.cpp's setPerspective(), pipeline.cpp's
+// generateImpostor()) already consume this correctly via gDX.loadMatrix(),
+// including the main camera's own per-frame modelview setup - pure rename,
+// no value change.
+void LLCoordFrame::getDirectXTransform(F32 *dx_matrix) const
 {
-	*(ogl_matrix + 0)  = 1.0f;
-	*(ogl_matrix + 1)  = 0.0f;
-	*(ogl_matrix + 2)  = 0.0f;
-	*(ogl_matrix + 3)  = 0.0f;
+	*(dx_matrix + 0)  = mXAxis.mV[VX];
+	*(dx_matrix + 4)  = mXAxis.mV[VY];
+	*(dx_matrix + 8)  = mXAxis.mV[VZ];
+	*(dx_matrix + 12) = -mOrigin * mXAxis;
 
-	*(ogl_matrix + 4)  = 0.0f;
-	*(ogl_matrix + 5)  = 1.0f;
-	*(ogl_matrix + 6)  = 0.0f;
-	*(ogl_matrix + 7)  = 0.0f;
+	*(dx_matrix + 1)  = mYAxis.mV[VX];
+	*(dx_matrix + 5)  = mYAxis.mV[VY];
+	*(dx_matrix + 9)  = mYAxis.mV[VZ];
+	*(dx_matrix + 13) = -mOrigin * mYAxis;
 
-	*(ogl_matrix + 8)  = 0.0f;
-	*(ogl_matrix + 9)  = 0.0f;
-	*(ogl_matrix + 10) = 1.0f;
-	*(ogl_matrix + 11) = 0.0f;
+	*(dx_matrix + 2)  = mZAxis.mV[VX];
+	*(dx_matrix + 6)  = mZAxis.mV[VY];
+	*(dx_matrix + 10) = mZAxis.mV[VZ];
+	*(dx_matrix + 14) = -mOrigin * mZAxis;
 
-	*(ogl_matrix + 12) = -mOrigin.mV[VX];
-	*(ogl_matrix + 13) = -mOrigin.mV[VY];
-	*(ogl_matrix + 14) = -mOrigin.mV[VZ];
-	*(ogl_matrix + 15) = 1.0f;
-}
-
-
-void LLCoordFrame::getOpenGLRotation(F32 *ogl_matrix) const
-{
-	*(ogl_matrix + 0)  = mXAxis.mV[VX];
-	*(ogl_matrix + 4)  = mXAxis.mV[VY];
-	*(ogl_matrix + 8)  = mXAxis.mV[VZ];
-
-	*(ogl_matrix + 1)  = mYAxis.mV[VX];
-	*(ogl_matrix + 5)  = mYAxis.mV[VY];
-	*(ogl_matrix + 9)  = mYAxis.mV[VZ];
-
-	*(ogl_matrix + 2)  = mZAxis.mV[VX];
-	*(ogl_matrix + 6)  = mZAxis.mV[VY];
-	*(ogl_matrix + 10) = mZAxis.mV[VZ];
-
-	*(ogl_matrix + 3)  = 0.0f;
-	*(ogl_matrix + 7)  = 0.0f;
-	*(ogl_matrix + 11) = 0.0f;
-
-	*(ogl_matrix + 12) = 0.0f;
-	*(ogl_matrix + 13) = 0.0f;
-	*(ogl_matrix + 14) = 0.0f;
-	*(ogl_matrix + 15) = 1.0f;
-}
-
-
-// S24 (2026-08-22, plan item A - DX-native derivation): CONFIRMED via live
-// in-game test (the "pink box" front/back controlled test - user-confirmed
-// "looks precisely the same as the GL version, no issues"). This is the
-// exact transpose of getOpenGLRotation(). Root cause: getOpenGLRotation()
-// places mXAxis/mYAxis/mZAxis as ROWS of the resulting matrix (verified
-// directly this session: element layout ogl_matrix[0,4,8]=mXAxis.x/y/z is
-// GL's own column-major flat-array encoding of ROW 0 = mXAxis), meaning M*v
-// (GL convention) computes dot(mXAxis,v)/dot(mYAxis,v)/dot(mZAxis,v) per
-// component - a world-to-local projection, not the plain local-to-world
-// rotation the "Rotation" name suggests. This matrix reaches the shader via
-// gGL.loadMatrix() -> LLRender::syncMatrices() - a DIFFERENT upload path
-// from the one already independently verified correct for env_mat
-// (uniformMatrix3fv(), which does its own explicit transpose handling).
-// syncMatrices()'s DX_RENDER path evidently does NOT apply the same
-// transpose, so the raw GL-row-order data was landing in the shader
-// un-transposed - this function supplies it already-transposed instead,
-// fixing that specific gap without touching syncMatrices() itself (a much
-// higher-blast-radius shared function) or any of the GL-shared capture/
-// resample tables. This was the real, confirmed root cause of the
-// long-standing "front/back reversed" reflection-probe symptom.
-//
-// Only remaining question, not yet tested: whether the per-face flipCol/
-// fixHandedness patches (llreflectionmapmanager.cpp's radiance/irradiance-
-// gen loops, gated cf==0||cf==1) are now redundant/harmful compensations
-// for this same bug, now that the actual root cause is fixed - test
-// disabling them next, as an isolated follow-up.
-void LLCoordFrame::getDirectXRotation(F32 *dx_matrix) const
-{
-	dx_matrix[0]  = mXAxis.mV[VX];
-	dx_matrix[1]  = mYAxis.mV[VX];
-	dx_matrix[2]  = mZAxis.mV[VX];
-	dx_matrix[3]  = 0.0f;
-
-	dx_matrix[4]  = mXAxis.mV[VY];
-	dx_matrix[5]  = mYAxis.mV[VY];
-	dx_matrix[6]  = mZAxis.mV[VY];
-	dx_matrix[7]  = 0.0f;
-
-	dx_matrix[8]  = mXAxis.mV[VZ];
-	dx_matrix[9]  = mYAxis.mV[VZ];
-	dx_matrix[10] = mZAxis.mV[VZ];
-	dx_matrix[11] = 0.0f;
-
-	dx_matrix[12] = 0.0f;
-	dx_matrix[13] = 0.0f;
-	dx_matrix[14] = 0.0f;
-	dx_matrix[15] = 1.0f;
-}
-
-
-void LLCoordFrame::getOpenGLTransform(F32 *ogl_matrix) const
-{
-	*(ogl_matrix + 0)  = mXAxis.mV[VX];
-	*(ogl_matrix + 4)  = mXAxis.mV[VY];
-	*(ogl_matrix + 8)  = mXAxis.mV[VZ];
-	*(ogl_matrix + 12) = -mOrigin * mXAxis;
-
-	*(ogl_matrix + 1)  = mYAxis.mV[VX];
-	*(ogl_matrix + 5)  = mYAxis.mV[VY];
-	*(ogl_matrix + 9)  = mYAxis.mV[VZ];
-	*(ogl_matrix + 13) = -mOrigin * mYAxis;
-
-	*(ogl_matrix + 2)  = mZAxis.mV[VX];
-	*(ogl_matrix + 6)  = mZAxis.mV[VY];
-	*(ogl_matrix + 10) = mZAxis.mV[VZ];
-	*(ogl_matrix + 14) = -mOrigin * mZAxis;
-
-	*(ogl_matrix + 3)  = 0.0f;
-	*(ogl_matrix + 7)  = 0.0f;
-	*(ogl_matrix + 11) = 0.0f;
-	*(ogl_matrix + 15) = 1.0f;
+	*(dx_matrix + 3)  = 0.0f;
+	*(dx_matrix + 7)  = 0.0f;
+	*(dx_matrix + 11) = 0.0f;
+	*(dx_matrix + 15) = 1.0f;
 }
 
 

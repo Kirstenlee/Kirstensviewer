@@ -1831,7 +1831,11 @@ bool LLKeyframeMotion::deserialize(LLDataPacker& dp, const LLUUID& asset_id, boo
 
     if (num_constraints > MAX_CONSTRAINTS || num_constraints < 0)
     {
-        LL_WARNS() << "Bad number of constraints... ignoring: " << num_constraints
+        // S24 (2026-09-10): gracefully degrades (animation still loads and
+        // plays, just without constraints - verified this is the last field
+        // read from the stream, so nothing downstream desyncs) - not
+        // actionable by the user, was log poison at WARNS.
+        LL_DEBUGS() << "Bad number of constraints... ignoring: " << num_constraints
                    << " for animation " << asset() << LL_ENDL;
     }
     else

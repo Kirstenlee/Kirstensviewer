@@ -30,10 +30,10 @@ void LLHLSLShader::uniform1f(const std::string& uniform, F32 num)
 {
 }
 
-void LLHLSLShader::uniform3fv(const std::string& uniform, U32 count, const GLfloat *v)
+void LLHLSLShader::uniform3fv(const std::string& uniform, U32 count, const F32 *v)
 {
 }
 
-void LLHLSLShader::uniform4fv(U32 index, U32 count, const GLfloat* v)
+void LLHLSLShader::uniform4fv(U32 index, U32 count, const F32* v)
 {
 }

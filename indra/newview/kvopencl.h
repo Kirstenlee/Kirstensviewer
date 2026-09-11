@@ -34,6 +34,8 @@
 
 #include <string>
 #include <unordered_map>
+#include <mutex>
+#include <atomic>
 
 // ============================================================
 //  OpenCL Wrapper Class
@@ -49,6 +51,27 @@ public:
     //  Initialization
     // ============================================================
     bool init();
+
+    // S24 (2026-09-09, BC7 texture-compression pipeline): was private -
+    // this is exactly what an out-of-TU background caller (DXBC7Compressor,
+    // dxrender/) needs to safely lazy-init this class the same way every
+    // existing run*() method already does internally. Now guarded by
+    // mInitMutex (see .cpp) so it's safe to call concurrently with the main
+    // thread's own per-frame VFX use - previously an unguarded
+    // check-then-set race on `initialized`.
+    bool ensureInit();
+
+    // S24 (2026-09-09, BC7 pipeline): accessors for a second, independent
+    // caller (DXBC7Compressor) that needs its own dedicated cl_command_queue
+    // (so its blocking writeBuffer/readBuffer calls on a background thread
+    // never contend with the main thread's per-frame VFX queue) and its own
+    // dedicated cl_kernel (so it never touches the unguarded, main-thread-
+    // only kernelCache/getKernel() path). context/device/platform are
+    // create-once in init() and never reassigned after - safe to read from
+    // any thread once ensureInit() has returned true.
+    cl_context getContext() const { return context; }
+    cl_device_id getDevice() const { return device; }
+    cl_command_queue getComputeQueue() const { return computeQueue; }
 
     // ============================================================
     //  Program & Kernel Management
@@ -146,7 +169,30 @@ public:
     cl_device_id device;
     cl_context context;
     cl_command_queue queue;
-    bool initialized;
+    // S24 (2026-09-09, BC7 pipeline): second queue, same context/device
+    // (OpenCL spec explicitly allows multiple queues sharing one context) -
+    // reserved for DXBC7Compressor's background-thread use so it never
+    // shares a queue (and therefore never needs to serialize) with the main
+    // thread's per-frame VFX enqueue calls on `queue` above.
+    cl_command_queue computeQueue;
+    // S24 (2026-09-09, BC7 pipeline): was a plain bool - ensureInit()'s
+    // fast-path check (the overwhelmingly common case: already initialized,
+    // called every frame per VFX effect) reads this with NO lock for speed,
+    // so it needs to be an atomic rather than a data race over a plain bool.
+    // The actual init-or-not transition is still fully serialized by
+    // mInitMutex inside init() itself - this atomic only makes the cheap
+    // "are we already done" read safe to do lock-free.
+    std::atomic<bool> initialized;
+
+    // S24 (2026-09-09, BC7 pipeline): guards the init()/ensureInit()
+    // check-then-set and ensures only one thread ever runs the actual
+    // clCreateContext/clCreateCommandQueue sequence. Also guards
+    // kernelCache below - getKernel() is otherwise an unguarded
+    // unordered_map find+insert, unsafe if ever called from more than one
+    // thread (DXBC7Compressor does NOT use it - see getKernel()'s own
+    // comment - but this still closes the theoretical gap for any future
+    // caller).
+    std::mutex mInitMutex;
 
     // ============================================================
     //  Kernel Cache (for performance)
@@ -156,7 +202,6 @@ public:
     // ============================================================
     //  Internal Helpers
     // ============================================================
-    bool ensureInit();
     cl_kernel getKernel(const std::string& name, const char* source);
 
     // GPU work group optimization helpers
@@ -185,6 +230,13 @@ public:
     static const char* kCLGrayImage;     // Image2D grayscale
     static const char* kCLInvertImage;   // Image2D inversion
 };
+
+// S24 (2026-09-09, BC7 texture-compression pipeline): the single shared
+// KVOpenCL instance (defined non-static now in kveffects.cpp - see its own
+// comment there). Declared here rather than in kveffects.h so callers that
+// only need the OpenCL wrapper itself (DXBC7Compressor, dxrender/) don't
+// need to pull in kveffects.h's VFX-specific API surface at all.
+extern KVOpenCL gCL;
 
 #endif // KVOPENCL_HPP
 

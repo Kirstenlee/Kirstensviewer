@@ -26,10 +26,18 @@
 
 #include "varying/starsShootingVarying.hlsli"
 
-// S24 (2026-09-04): same daylight-fade uniform/curve as starsF.hlsl's
-// point-star field ("factor") - see dxdrawpoolwlsky.cpp's
-// renderShootingStarsDeferred() for where star_alpha is computed/bound.
-uniform float custom_alpha;
+// S24 (2026-09-05): originally reused starsF.hlsl's point-star daylight
+// curve (custom_alpha, driven by the active preset's Star Brightness
+// setting) - user feedback: a bright moon could push that value low enough
+// to "eradicate" shooting stars on nights when the sun was still well
+// below the horizon, since Star Brightness is an artist-authored day-cycle
+// curve, not a measure of whether the sun is actually up. Switched to a
+// real geometric sun-elevation gate instead - see
+// dxdrawpoolwlsky.cpp's renderShootingStarsDeferred() for where
+// sun_elevation is computed/bound (LLSettingsSky::getSunDirection().mV[2],
+// the normalized sun direction's vertical component - 0 at the horizon,
+// same convention LLSettingsSky::getIsSunUp() itself uses).
+uniform float sun_elevation;
 
 struct PSOutput
 {
@@ -68,7 +76,11 @@ PSOutput main(PSInput IN)
     width_falloff = width_falloff * width_falloff;
 
     float envelope = IN.varying.vertex_color.a;
-    float daylight_factor = smoothstep(0.0f, 0.9f, custom_alpha);
+    // Fully visible once the sun is a little below the horizon (~-3deg,
+    // sin(-3deg)=-0.05), fully hidden once it's comfortably up (~8.6deg,
+    // sin(8.6deg)=0.15) - a civil-twilight-width fade, independent of moon
+    // brightness or the active preset's own Star Brightness curve.
+    float daylight_factor = 1.0f - smoothstep(-0.05f, 0.15f, sun_elevation);
 
     float3 streak_color = lerp(float3(0.65, 0.75, 1.0), float3(1.0, 1.0, 1.0), head_glow);
 

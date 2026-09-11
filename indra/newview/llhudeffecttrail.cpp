@@ -46,6 +46,7 @@
 #include "llrender.h"
 #include "lluicolortable.h"
 #include "llviewerwindow.h"
+#include "lldxlinewidth.h"
 
 LLHUDEffectSpiral::LLHUDEffectSpiral(const U8 type) : LLHUDEffect(type), mbInit(false)
 {
@@ -462,56 +463,23 @@ void LLHUDEffectSpiral::render()
         // already used) - renders identically, and at real width, on both GL
         // and DX_RENDER, so GL involvement here drops to zero rather than
         // just being gated around.
-        // S24 (2026-08-16): a FIXED world-space width looked "wide as hell"
-        // up close - the old glLineWidth(3.0f) was a constant SCREEN-space
-        // (pixel) width, not a world-space one, and build/edit work routinely
-        // puts the camera very close to one end of the beam (Focus mode
-        // zooms right up to the target). Convert a desired pixel half-width
-        // to world-space meters PER ENDPOINT using the same
-        // getPixelMeterRatio() technique this file already uses for particle
-        // scaling a few lines up (llviewerpartsource.cpp does the same for
-        // its own particle sizing) - so each end of the ribbon stays a true
-        // ~3px on screen regardless of how close the camera gets to it,
-        // matching the original GL behavior instead of a raw meter guess.
-        constexpr F32 BEAM_HALF_PIXEL_WIDTH = 1.5f; // ~3px total, matches the old glLineWidth(3.0f)
-        F32 pixel_meter_ratio = LLViewerCamera::getInstance()->getPixelMeterRatio();
-        LLVector3 cam_origin = LLViewerCamera::getInstance()->getOrigin();
+        // S24 (2026-09-05, task #309): the per-endpoint screen-space-constant
+        // width math (world-space-per-endpoint via getPixelMeterRatio(), same
+        // technique this file established) was factored out into
+        // dxLineWidth() (lldxlinewidth.h) so llglsandbox.cpp's beacon pillar
+        // can share it instead of re-deriving the same geometry a second
+        // time. The old hardcoded 1.5 (3px total, "matches the old
+        // glLineWidth(3.0f)") is now a real user-facing slider
+        // (SelectionBeamWidth, KVTweaks) - user feedback was that the fixed
+        // 3px default reads as too thick once it's real solid geometry
+        // rather than a soft GL rasterized line, so the new default is
+        // thinner (1.0 half-pixel-width, 2px total) and adjustable.
+        F32 half_pixel_width = (F32)gSavedSettings.getF32("SelectionBeamWidth") * 0.5f;
 
-        LLVector3 to_camera = cam_origin - source_pos;
-        to_camera.normalize();
-
-        LLVector3 width_dir = beam_vec % to_camera;
-        if (width_dir.lengthSquared() < 0.000001f)
+        auto emit_quad = [&base_color, half_pixel_width](const LLVector3& a, const LLVector3& b)
         {
-            // Beam points directly at the camera - fall back to the camera's
-            // up axis so the quad doesn't degenerate to zero width.
-            width_dir = beam_vec % LLViewerCamera::getInstance()->getUpAxis();
-        }
-        width_dir.normalize();
-
-        auto half_width_at = [pixel_meter_ratio, cam_origin](const LLVector3& p) -> F32
-        {
-            F32 dist = (cam_origin - p).length();
-            return BEAM_HALF_PIXEL_WIDTH * dist / pixel_meter_ratio;
+            dxLineWidth(a, b, half_pixel_width, base_color);
         };
-
-        auto emit_quad = [&width_dir, &half_width_at](const LLVector3& a, const LLVector3& b)
-        {
-            LLVector3 wa = width_dir * half_width_at(a);
-            LLVector3 wb = width_dir * half_width_at(b);
-            LLVector3 v1 = a - wa;
-            LLVector3 v2 = a + wa;
-            LLVector3 v3 = b + wb;
-            LLVector3 v4 = b - wb;
-            gDX.vertex3fv(v1.mV);
-            gDX.vertex3fv(v2.mV);
-            gDX.vertex3fv(v3.mV);
-            gDX.vertex3fv(v1.mV);
-            gDX.vertex3fv(v3.mV);
-            gDX.vertex3fv(v4.mV);
-        };
-
-        gDX.color4fv(base_color.mV);
 
         if (line_style == 0)
         {

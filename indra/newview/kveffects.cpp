@@ -48,7 +48,16 @@
 // ============================================================
 //  Global OpenCL Instance
 // ============================================================
-static KVOpenCL gCL;  // Single instance for all GPU operations
+// S24 (2026-09-09, BC7 texture-compression pipeline): was `static` (internal
+// linkage - only this TU could name it). DXBC7Compressor (dxrender/) needs
+// to reach the same instance (shared platform/device/context, its own
+// dedicated queue/kernel per KVOpenCL's own new getComputeQueue()/
+// getContext() accessors) rather than creating a second, redundant OpenCL
+// context - promoted to external linkage, declared `extern` in kvopencl.h
+// (not here - kveffects.h is UTF-16-encoded with no BOM, an existing,
+// unrelated file anomaly not touched by this change; kvopencl.h is the more
+// natural home for "the OpenCL wrapper singleton" anyway).
+KVOpenCL gCL;  // Single instance for all GPU operations
 
 // ============================================================
 //  GPU-Accelerated Effects (OpenCL with OpenGL Interop)

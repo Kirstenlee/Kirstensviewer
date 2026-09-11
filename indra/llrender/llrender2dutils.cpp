@@ -1044,6 +1044,7 @@ void gl_draw_scaled_rotated_image(S32 x, S32 y, S32 width, S32 height, F32 degre
 		rv[3] = LLVector3(offset_x, offset_y, 0.f) * quat;
 		rv[4] = LLVector3(-offset_x, -offset_y, 0.f) * quat;
 		rv[5] = LLVector3(offset_x, -offset_y, 0.f) * quat;
+
 		LLVector2 ruv[6] = {
 			LLVector2(uv_rect.mRight, uv_rect.mTop),
 			LLVector2(uv_rect.mLeft, uv_rect.mTop),
@@ -1053,42 +1054,72 @@ void gl_draw_scaled_rotated_image(S32 x, S32 y, S32 width, S32 height, F32 degre
 			LLVector2(uv_rect.mRight, uv_rect.mBottom),
 		};
 
-#ifdef DX_RENDER
-		// S24 (2026-08-16): this branch (degrees != 0.f) previously had no
-		// DX_RENDER handling at all - always fell through to raw gDX
-		// immediate mode below even under DX_RENDER, unlike the degrees==0.f
-		// branch above. Same DXRender2DUtils::glDrawScaledImage()/
-		// ScaledImageGeometry reuse as that branch - the 6-vertex triangle-
-		// list shape is identical, only the position math (rotated vs
-		// axis-aligned) differs.
-		if (LLHLSLShader* shader = LLHLSLShader::sCurBoundShaderPtr)
-		{
-			gDX.flush();
-			DXRender2DUtils::ScaledImageGeometry geom;
-			for (S32 v = 0; v < 6; ++v)
-			{
-				geom.pos[v][0] = rv[v].mV[0]; geom.pos[v][1] = rv[v].mV[1]; geom.pos[v][2] = rv[v].mV[2];
-				geom.uv[v][0] = ruv[v].mV[0]; geom.uv[v][1] = ruv[v].mV[1];
-			}
-			gDXUIBatch.flushPending();
-			DXRender2DUtils::glDrawScaledImage(geom, color);
-			gDX.syncMatrices();
-			if (ID3DBlob* vsb = shader->mDXVertexShader.getVSBytecode())
-			{
-				gDXUIBatch.flush(vsb->GetBufferPointer(), vsb->GetBufferSize(), shader->mDXVertexShader.getVS(), shader->mDXPixelShader.getPS(), true, shader->mName.c_str());
-			}
-		}
-#else
+		// S24 (2026-09-09, task TBD): this branch (degrees != 0.f) was
+		// missing the gDX.begin(TRIANGLES)/gDX.end() wrapping that the
+		// degrees==0.f branch above always had around its own DX_RENDER
+		// gDXUIBatch submission - LLRender::begin() has a real, needed side
+		// effect (llrender.cpp: if switching away from a LINES/TRIANGLES/
+		// POINTS mode, it flushes gDX's own pending immediate-mode buffer
+		// FIRST, before this batch starts) that nothing else in this
+		// function was providing for the rotated case. end() itself is a
+		// no-op here (mCount stays 0 on the gDXUIBatch path), but begin()'s
+		// flush-barrier isn't - matches the proven-working structure now.
 		gDX.begin(LLRender::TRIANGLES);
 		{
+#ifdef DX_RENDER
+			// S24 (2026-08-16): this branch (degrees != 0.f) previously had no
+			// DX_RENDER handling at all - always fell through to raw gDX
+			// immediate mode below even under DX_RENDER, unlike the degrees==0.f
+			// branch above. Same DXRender2DUtils::glDrawScaledImage()/
+			// ScaledImageGeometry reuse as that branch - the 6-vertex triangle-
+			// list shape is identical, only the position math (rotated vs
+			// axis-aligned) differs.
+			if (LLHLSLShader* shader = LLHLSLShader::sCurBoundShaderPtr)
+			{
+				gDX.flush();
+				// S24 (2026-09-09, task TBD): THE actual bug - rv[] (built
+				// above) is only the rotated corner offset RELATIVE TO THE
+				// ICON'S OWN CENTER (matching the degrees==0.f branch's
+				// per-vertex position BEFORE it adds ui_translation). This
+				// code was pushing rv[] into geom.pos[] directly, with the
+				// screen-space offset (x, y, and the center offset already
+				// accumulated into gDX's UI-matrix stack via the two
+				// translateUI() calls above) never added in at all - drawing
+				// at the wrong location (near the tiny local rv[] values)
+				// instead of the folder row's actual position, not
+				// invisibly. Matches the degrees==0.f branch's own
+				// ui_translation/ui_scale handling (llrender2dutils.cpp,
+				// same function, ~40 lines up).
+				LLVector3 ui_scale = gDX.getUIScale();
+				LLVector3 ui_translation = gDX.getUITranslation();
+				ui_translation.scaleVec(ui_scale);
+				DXRender2DUtils::ScaledImageGeometry geom;
+				for (S32 v = 0; v < 6; ++v)
+				{
+					LLVector3 scaled_rv = rv[v];
+					scaled_rv.scaleVec(ui_scale);
+					geom.pos[v][0] = ui_translation.mV[VX] + scaled_rv.mV[VX];
+					geom.pos[v][1] = ui_translation.mV[VY] + scaled_rv.mV[VY];
+					geom.pos[v][2] = ui_translation.mV[VZ] + scaled_rv.mV[VZ];
+					geom.uv[v][0] = ruv[v].mV[0]; geom.uv[v][1] = ruv[v].mV[1];
+				}
+				gDXUIBatch.flushPending();
+				DXRender2DUtils::glDrawScaledImage(geom, color);
+				gDX.syncMatrices();
+				if (ID3DBlob* vsb = shader->mDXVertexShader.getVSBytecode())
+				{
+					gDXUIBatch.flush(vsb->GetBufferPointer(), vsb->GetBufferSize(), shader->mDXVertexShader.getVS(), shader->mDXPixelShader.getPS(), true, shader->mName.c_str());
+				}
+			}
+#else
 			for (S32 v = 0; v < 6; ++v)
 			{
 				gDX.texCoord2f(ruv[v].mV[0], ruv[v].mV[1]);
 				gDX.vertex2f(rv[v].mV[0], rv[v].mV[1]);
 			}
+#endif
 		}
 		gDX.end();
-#endif
 		gDX.popUIMatrix();
 	}
 }
@@ -1304,7 +1335,7 @@ void gl_ring(F32 radius, F32 width, const LLColor4& center_color, const LLColor4
 }
 
 // Draw gray and white checkerboard with black border
-void gl_rect_2d_checkerboard(const LLRect& rect, GLfloat alpha)
+void gl_rect_2d_checkerboard(const LLRect& rect, F32 alpha)
 {
 	//polygon stipple is deprecated, use "Checker" texture
 	LLPointer<LLUIImage> img = LLRender2D::getInstance()->getUIImage("Checker");
@@ -2264,7 +2295,7 @@ void LLRender2D::setLineWidth(F32 width)
 #ifndef DX_RENDER
 	// If outside the allowed range, glLineWidth fails with "invalid value".
 	// On Darwin, the range is [1, 1].
-	static GLfloat range[2]{ 0.0 };
+	static F32 range[2]{ 0.0 };
 	if (range[1] == 0)
 	{
 		glGetFloatv(GL_SMOOTH_LINE_WIDTH_RANGE, range);

@@ -97,6 +97,16 @@ uniform float proj_ambiance;
 uniform int classic_mode;
 #endif
 
+// S24 (2026-09-07, task #266 continuation): also declared (guarded) by
+// reflectionProbeF.hlsl/softenLightF.hlsl/hazeF.hlsl/skyV.hlsl/
+// atmosphericsFuncs.hlsl - needed here for pbrBaseLight()'s direct-light
+// dampening during a reflection-probe capture, see that function's own
+// comment.
+#ifndef LL_CUBE_SNAPSHOT_DECLARED
+#define LL_CUBE_SNAPSHOT_DECLARED
+uniform int cube_snapshot;
+#endif
+
 // light params - also declared by pointLightF.hlsl/spotLightF.hlsl (their
 // own point/spot-light color+size) - genuinely the same shared uniform,
 // include-guarded rather than renamed (see pointLightF.hlsl's comment for
@@ -549,6 +559,27 @@ float3 pbrBaseLight(float3 diffuseColor, float3 specularColor, float metallic, f
     float3 specPunc = float3(0, 0, 0);
     pbrPunctual(diffuseColor, specularColor, perceptualRoughness, metallic, norm, v, normalize(light_dir), nl, diffPunc, specPunc);
 
+    // S24 (2026-09-07, task #266 continuation): live-diagnosed by the user -
+    // direct sunlight hitting one side of an enclosed room (e.g. through a
+    // window at sunrise) legitimately illuminates that one captured cube
+    // face while the opposite face, receiving no direct light, stays dark -
+    // real physics, not a bug, but baking that hard directional gap
+    // permanently into a probe's 6 captured faces reads as banding once
+    // reflected. Confirmed NOT fixable by blending/desaturating the
+    // ALREADY-captured result after the fact without also flattening
+    // everything else wanted (user: pushing contrast enough to hide the
+    // gap blacks out the whole floor). Real fix is upstream: dampen the
+    // DIRECT light term specifically while THIS capture is running, so the
+    // probe represents general room ambience rather than a frozen sun-hit
+    // snapshot - SSR and the main view's own per-frame lighting already
+    // handle real, live direct highlights correctly for whatever's
+    // actually on screen; the probe only needs to be the ambient fallback.
+    // 0.2 - first-pass value, not physically derived, live-tune from here -
+    // deliberately NOT zero, a fully flat capture would lose all
+    // directional character even for genuinely-lit spaces (windows,
+    // skylights) that should still read as brighter than a sealed room.
+    float directLightMult = (cube_snapshot == 1) ? 0.2 : 1.0;
+
     if (classic_mode > 0)
     {
         irradiance.rgb = srgb_to_linear(irradiance * 0.9);
@@ -560,12 +591,12 @@ float3 pbrBaseLight(float3 diffuseColor, float3 specularColor, float metallic, f
         sun_contrib = srgb_to_linear(linear_to_srgb(sun_contrib) * sunlit * 0.7) * M_PI;
 
         float3 finalAmbient = irradiance.rgb * diffuseColor.rgb;
-        float3 finalSun = clamp(sun_contrib * ((diffPunc.rgb + specPunc.rgb) * scol), float3(0, 0, 0), float3(10, 10, 10));
+        float3 finalSun = clamp(sun_contrib * ((diffPunc.rgb + specPunc.rgb) * scol), float3(0, 0, 0), float3(10, 10, 10)) * directLightMult;
         color.rgb = srgb_to_linear(linear_to_srgb(finalAmbient) + (linear_to_srgb(finalSun) * 1.1));
     }
     else
     {
-        color += clamp(nl * (diffPunc + specPunc), float3(0, 0, 0), float3(10, 10, 10)) * sunlit * 3.0 * scol;
+        color += clamp(nl * (diffPunc + specPunc), float3(0, 0, 0), float3(10, 10, 10)) * sunlit * 3.0 * scol * directLightMult;
     }
 
     color.rgb += iblSpec.rgb;

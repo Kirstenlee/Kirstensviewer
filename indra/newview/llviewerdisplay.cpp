@@ -1718,14 +1718,14 @@ void render_ui(F32 zoom_factor, int subfield)
 		// never reloaded here at all before this fix (confirmed via grep -
 		// only modelview was) - added symmetrically.
 		const LLMatrix4& live_modelview = LLViewerCamera::getInstance()->getModelview();
-		gDX.loadMatrix((const GLfloat*)live_modelview.mMatrix);
-		set_current_modelview(glm::make_mat4((const GLfloat*)live_modelview.mMatrix));
+		gDX.loadMatrix((const F32*)live_modelview.mMatrix);
+		set_current_modelview(glm::make_mat4((const F32*)live_modelview.mMatrix));
 
 		gDX.matrixMode(LLRender::MM_PROJECTION);
 		gDX.pushMatrix();
 		const LLMatrix4& live_projection = LLViewerCamera::getInstance()->getProjection();
-		gDX.loadMatrix((const GLfloat*)live_projection.mMatrix);
-		set_current_projection(glm::make_mat4((const GLfloat*)live_projection.mMatrix));
+		gDX.loadMatrix((const F32*)live_projection.mMatrix);
+		set_current_projection(glm::make_mat4((const F32*)live_projection.mMatrix));
 		gDX.matrixMode(LLRender::MM_MODELVIEW);
 #else
 		gDX.loadMatrix(gGLLastModelView);

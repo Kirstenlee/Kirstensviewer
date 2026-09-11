@@ -77,6 +77,25 @@ namespace
     }
 }
 
+bool DXTexture::repackToRGBA8(const uint8_t* data, int width, int height, int components,
+    std::vector<uint8_t>& out, bool alpha_only, bool bgra, bool raw_channels)
+{
+    if (width <= 0 || height <= 0 || !data)
+    {
+        return false;
+    }
+
+    out.resize((size_t)width * height * 4);
+    for (int i = 0; i < width * height; ++i)
+    {
+        if (!repackPixel(data + (size_t)i * components, components, out.data() + (size_t)i * 4, alpha_only, bgra, raw_channels))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
 bool DXTexture::create(const uint8_t* data, int width, int height, int components, bool generate_mips, bool alpha_only, bool bgra, bool raw_channels)
 {
     if (width <= 0 || height <= 0)
@@ -109,6 +128,7 @@ bool DXTexture::create(const uint8_t* data, int width, int height, int component
     destroyLocked();
 
     mGenerateMips = generate_mips;
+    mIsCompressed = false;
 
     const uint8_t* upload_data = data;
     std::vector<uint8_t> rgba;
@@ -218,6 +238,7 @@ bool DXTexture::createCompressed(const uint8_t* data, int width, int height, DXG
 
     destroyLocked();
     mGenerateMips = false;
+    mIsCompressed = true;
 
     D3D11_TEXTURE2D_DESC desc = {};
     desc.Width = width;
@@ -262,6 +283,65 @@ bool DXTexture::createCompressed(const uint8_t* data, int width, int height, DXG
     return true;
 }
 
+bool DXTexture::createCompressedMips(const std::vector<DXCompressedMipData>& mips, DXGI_FORMAT format)
+{
+    if (mips.empty() || mips[0].width <= 0 || mips[0].height <= 0 || !mips[0].data)
+    {
+        return false;
+    }
+
+    destroyLocked();
+    mGenerateMips = false;
+    mIsCompressed = true;
+
+    D3D11_TEXTURE2D_DESC desc = {};
+    desc.Width = mips[0].width;
+    desc.Height = mips[0].height;
+    desc.ArraySize = 1;
+    desc.MipLevels = (UINT)mips.size();
+    desc.Format = format;
+    desc.SampleDesc.Count = 1;
+    desc.Usage = D3D11_USAGE_DEFAULT;
+    desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+
+    // BC7 (the only format this method is used for today) packs a 4x4 block
+    // into 16 bytes - same block-size convention as createCompressed()
+    // above, computed per-mip here since each mip has its own dimensions.
+    const UINT block_size = (format == DXGI_FORMAT_BC1_UNORM) ? 8 : 16;
+
+    std::vector<D3D11_SUBRESOURCE_DATA> init_data(mips.size());
+    for (size_t i = 0; i < mips.size(); ++i)
+    {
+        if (!mips[i].data || mips[i].width <= 0 || mips[i].height <= 0)
+        {
+            return false;
+        }
+        const UINT blocks_wide = (UINT)((mips[i].width + 3) / 4);
+        const UINT blocks_high = (UINT)((mips[i].height + 3) / 4);
+        init_data[i].pSysMem = mips[i].data;
+        init_data[i].SysMemPitch = blocks_wide * block_size;
+        init_data[i].SysMemSlicePitch = init_data[i].SysMemPitch * blocks_high;
+    }
+
+    HRESULT hr = gDXDevice.getDevice()->CreateTexture2D(&desc, init_data.data(), &mTexture);
+    if (FAILED(hr))
+    {
+        LL_WARNS("Texture") << "DXTexture::createCompressedMips: CreateTexture2D failed, hr=0x" << std::hex << (unsigned long)hr << std::dec << LL_ENDL;
+        return false;
+    }
+
+    hr = gDXDevice.getDevice()->CreateShaderResourceView(mTexture, nullptr, &mSRV);
+    if (FAILED(hr))
+    {
+        LL_WARNS("Texture") << "DXTexture::createCompressedMips: CreateShaderResourceView failed, hr=0x" << std::hex << (unsigned long)hr << std::dec << LL_ENDL;
+        mTexture->Release();
+        mTexture = nullptr;
+        return false;
+    }
+
+    return true;
+}
+
 bool DXTexture::createFloat(const float* data, int width, int height, int components)
 {
     if (width <= 0 || height <= 0)
@@ -271,6 +351,7 @@ bool DXTexture::createFloat(const float* data, int width, int height, int compon
 
     destroyLocked();
     mGenerateMips = false;
+    mIsCompressed = false;
 
     std::vector<float> rgba;
     const float* upload_data = data;
@@ -342,6 +423,18 @@ bool DXTexture::createFloat(const float* data, int width, int height, int compon
 bool DXTexture::updateSubImage(const uint8_t* data, int data_width, int x_pos, int y_pos, int width, int height, int components, bool alpha_only, bool bgra)
 {
     if (!mTexture || !data || width <= 0 || height <= 0)
+    {
+        return false;
+    }
+
+    // S24 (2026-09-09, BC7 pipeline, task #318 CTD fix): see
+    // isCompressedFormat()'s header comment - this method's RGBA8-repack
+    // UpdateSubresource() below is only valid for the uncompressed path.
+    // A BC7-upgraded texture should never reach here anyway (nothing in
+    // this pipeline calls updateSubImage() after an upgrade), but this is
+    // the same class of silent-corruption hazard readBackRaw() actually
+    // hit - refuse rather than trust that invariant implicitly.
+    if (mIsCompressed)
     {
         return false;
     }
@@ -496,6 +589,15 @@ bool DXTexture::scaleDown(int src_mip_level, int new_width, int new_height)
 bool DXTexture::copySubImageFromFrameBuffer(int fb_x, int fb_y, int x_pos, int y_pos, int width, int height)
 {
     if (!mTexture || width <= 0 || height <= 0)
+    {
+        return false;
+    }
+
+    // S24 (2026-09-09, BC7 pipeline, task #318 CTD fix): see
+    // isCompressedFormat()'s header comment - CopySubresourceRegion()
+    // below requires format-compatible source/destination, which an
+    // ordinary (RGBA8) render target and a BC7 destination are not.
+    if (mIsCompressed)
     {
         return false;
     }

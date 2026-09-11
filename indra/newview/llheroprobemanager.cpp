@@ -85,17 +85,6 @@ void LLHeroProbeManager::update()
         return;
     }
 
-    // Part of a hacky workaround to fix #3331.
-    // For some reason clearing shaders will cause mirrors to actually work.
-    // There's likely some deeper state issue that needs to be resolved.
-    // - Geenz 2025-02-25
-    if (!mInitialized && LLStartUp::getStartupState() > STATE_PRECACHE)
-    {
-        LLViewerShaderMgr::instance()->clearShaderCache();
-        LLViewerShaderMgr::instance()->setShaders();
-        mInitialized = true;
-    }
-
     LL_PROFILE_GPU_ZONE("hero manager update");
     llassert(!gCubeSnapshot); // assert a snapshot is not in progress
     if (LLAppViewer::instance()->logoutRequestSent())
@@ -103,7 +92,33 @@ void LLHeroProbeManager::update()
         return;
     }
 
+    // S24 (2026-09-08, task #316): initReflectionMaps() now runs BEFORE the
+    // one-time shader-reload workaround below (previously ran after it).
+    // setShaders() (re)binds shader/texture-unit state; if the hero-probe
+    // texture is reallocated to a new resolution AFTER that bind, the
+    // workaround's shader rebind happens against a stale/mismatched probe
+    // texture with nothing forcing a second rebind once the real texture is
+    // ready - a second, structural reason mirrors could end up black after
+    // a resolution change, independent of the workaround's own gating.
     initReflectionMaps();
+
+    // Part of a hacky workaround to fix #3331.
+    // For some reason clearing shaders will cause mirrors to actually work.
+    // There's likely some deeper state issue that needs to be resolved.
+    // - Geenz 2025-02-25
+    //
+    // S24 (2026-09-08, task #316): re-arms only on a genuine RenderMirrors
+    // off->on transition or a hero probe resolution change
+    // (LLHeroProbeManager::requireShaderReinit(), called from
+    // llviewercontrol.cpp) - re-arming on every reset() from every caller
+    // (e.g. an unrelated HDR toggle) turned every settings tweak into a
+    // ~19s synchronous stall.
+    if (!mInitialized && LLStartUp::getStartupState() > STATE_PRECACHE)
+    {
+        LLViewerShaderMgr::instance()->clearShaderCache();
+        LLViewerShaderMgr::instance()->setShaders();
+        mInitialized = true;
+    }
 
     static LLCachedControl<bool> render_hdr(gSavedSettings, "RenderHDREnabled", true);
 
@@ -333,20 +348,6 @@ void LLHeroProbeManager::updateProbeFace(LLReflectionMap* probe, U32 face, bool 
 
     probe->update(mRenderTarget.getWidth(), face, is_dynamic, near_clip);
 
-    // S24 (2026-08-22, task #156 follow-up, removed 2026-08-23 pre-alpha
-    // perf sweep): temporary diagnostic - mirrors still rendered solid black
-    // after the occlusion-gate fix; this read back mHeroProbeRT.screen's raw
-    // capture via a blocking DXReadback::readPixels() every 2 seconds for
-    // the life of any session with RenderMirrors on, to narrow down whether
-    // the black output originates at capture or downstream of it. Gated
-    // behind RenderMirrors (off by default) so it never cost anything on a
-    // default-settings install, but a real recurring GPU stall for anyone
-    // who opted into mirrors - not appropriate to ship live. Investigation
-    // was NOT concluded before removal: as of this commit, mirror/hero-probe
-    // output is still suspected to render solid black - RenderMirrors stays
-    // off by default for pre-alpha; revisit with a fresh diagnostic (bounded
-    // to a handful of samples, not indefinite) if picked back up.
-
     gPipeline.mRT = &gPipeline.mMainRT;
 
     S32 sourceIdx = mReflectionProbeCount;
@@ -370,6 +371,15 @@ void LLHeroProbeManager::updateProbeFace(LLReflectionMap* probe, U32 face, bool 
         gDX.loadIdentity();
 
         gDX.flush();
+        // S24 (2026-09-08, task #316): REVERTED same session - changing
+        // this to `mProbeResolution` (matching gPipeline.mHeroProbeRT's
+        // real 1x allocation) was live-tested and made the ONE previously-
+        // working case (mirrors off at login, manually enabled) display
+        // incorrectly (a static, angle-independent single cube face
+        // visible) instead of fixing anything - net regression, not
+        // progress. Back to the original `* 2` pending further
+        // investigation into why that mismatch doesn't actually manifest
+        // as the theory predicted.
         U32 res = mProbeResolution * 2;
 
         static LLStaticHashedString resScale("resScale");
@@ -502,6 +512,16 @@ void LLHeroProbeManager::generateRadiance(LLReflectionMap* probe)
 
             U32 res = mMipChain[0].getWidth();
 
+            // S24 (2026-09-08, task #316): briefly changed to the full
+            // mMipChain.size() (no division) after a cross-check against
+            // LLReflectionMapManager's own radiance-gen loop looked like a
+            // porting divergence - REVERTED same session. reflectionProbeF.
+            // hlsl's tapHeroProbe() (`w = lerp(0, w, clamp(glossiness-0.75,
+            // 0,1)*4)`, its own comment: "We only generate a quarter of the
+            // mips for the hero probes") shows this /4 is deliberate,
+            // intentionally matched by the shader's own glossiness gate -
+            // not a bug. Confirmed unrelated to the real black-mirror cause
+            // (LLRenderTarget::isComplete()/release(), fixed separately).
             for (int i = 0; i < mMipChain.size() / 4; ++i)
             {
                 LL_PROFILE_GPU_ZONE("hero probe radiance gen");
@@ -511,7 +531,7 @@ void LLHeroProbeManager::generateRadiance(LLReflectionMap* probe)
                 static LLStaticHashedString sStrength("probe_strength");
 
                 gHeroRadianceGenProgram.uniform1f(sRoughness, (F32) i / (F32) (mMipChain.size() - 1));
-                gHeroRadianceGenProgram.uniform1f(sMipLevel, (GLfloat)i);
+                gHeroRadianceGenProgram.uniform1f(sMipLevel, (F32)i);
                 gHeroRadianceGenProgram.uniform1i(sWidth, mProbeResolution);
                 gHeroRadianceGenProgram.uniform1f(sStrength, 1);
 
@@ -655,7 +675,6 @@ void LLHeroProbeManager::initReflectionMaps()
 
     if ((mTexture.isNull() || mReflectionProbeCount != count || mReset) && LLPipeline::RenderMirrors)
     {
-
         if (mReset)
         {
             cleanup();
@@ -664,6 +683,25 @@ void LLHeroProbeManager::initReflectionMaps()
         mReset = false;
         mReflectionProbeCount = count;
         mProbeResolution      = gSavedSettings.getS32("RenderHeroProbeResolution");
+
+        // S24 (2026-09-08, task #316): mRenderTarget/mMipChain are the
+        // actual render targets the probe-capture pass writes into - they
+        // were previously only invalidated by cleanup() (mReset-gated,
+        // above), but mTexture is unconditionally replaced with a NEW
+        // DXCubeMapArray instance every time this block runs, including the
+        // mReset==false path taken when LLViewerShaderMgr::setShaders()'s
+        // OWN internal releaseGLBuffers()/createGLBuffers() cycle (part of
+        // update()'s "hacky workaround to fix #3331") reallocates a second
+        // time after the mReset-triggered allocation above. Without this,
+        // that second reallocation left mRenderTarget/mMipChain pointing at
+        // the ORPHANED previous mTexture instance - the capture pass kept
+        // rendering into stale targets nothing ever copied into the live
+        // texture, which stayed at its cleared/default black. Now tied to
+        // "did mTexture just get replaced" instead of "did mReset request
+        // a reset", so they always track whichever mTexture instance is
+        // actually live.
+        mRenderTarget.release();
+        mMipChain.clear();
 
         mTexture = new DXCubeMapArray();
 

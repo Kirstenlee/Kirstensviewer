@@ -65,6 +65,14 @@ uniform float4x4 inv_proj;
 uniform float2 screen_res;
 #endif
 uniform float4x4 projection_matrix;
+// S24 (2026-09-06, task #271 rebuild): last_projection_matrix - the SAME
+// dedicated uniform temporalResolveSSAOF.hlsl (task #190, a real, shipping,
+// proven-working reprojection feature solving almost this exact problem)
+// uses when projecting a position that has already been moved into
+// last-frame view space. Never previously declared/uploaded for any
+// reflection-probe/SSR-consuming shader - see LLPipeline::bindReflectionProbes()
+// (pipeline.cpp) for the matching new upload, added alongside this.
+uniform float4x4 last_projection_matrix;
 uniform float4x4 modelview_delta;    // transform from last camera space to current camera space
 uniform float4x4 inv_modelview_delta;
 
@@ -78,21 +86,53 @@ float random(float2 uv)
 // Based off of https://github.com/RoundedGlint585/ScreenSpaceReflection/
 // A few tweaks here and there to suit our needs.
 
+// S24 (2026-09-06, task #271 rebuild): CAMERA MODULE. Single low-level
+// forward-projection primitive - view-space position + an explicit
+// projection matrix -> screen UV. Two real, structural bugs fixed here
+// relative to the original ported-from-GL version:
+//
+// 1) No w>0 guard before the perspective divide. Every proven-working
+//    reprojection helper in this engine (getScreenCoord() in
+//    deferredUtil.hlsl, temporalResolveSSAOF.hlsl's own forward-projection
+//    step) checks this before dividing - dividing unconditionally is
+//    exactly what produces wild/inverted UVs once w goes small or negative,
+//    which is what tonight's diagnostics (SSR7/9/10) actually measured.
+//    Returns a sentinel float2(-1,-1) on failure - guaranteed to fail the
+//    existing [0,1] bounds check at every call site with no further changes
+//    needed there.
+// 2) No baked-in Y-flip. getScreenCoord()/getPositionWithNDC() (the proven,
+//    shared primitives) never flip Y - they leave that entirely to the
+//    actual .Sample() call site (getDepth()'s own established pattern).
+//    The old version baked a flip into its return value, which was then
+//    fed into getPositionWithDepth() (which expects an UNFLIPPED UV) by
+//    getLinearDepth() below - a real, silent vertical-mirror bug in the
+//    reconstructed position for anything but a perfectly symmetric case.
+//    Flip is now applied ONLY at the texture .Sample() call sites that
+//    actually need it (getLinearDepth() below, and the final hit-color
+//    reads), matching the rest of this codebase exactly.
+bool ssrProject(float3 pos, float4x4 proj, out float2 uv)
+{
+    float4 clip = mul(proj, float4(pos, 1.f));
+    if (clip.w <= 0.0)
+    {
+        uv = float2(-1, -1);
+        return false;
+    }
+    uv = (clip.xy / clip.w) * 0.5 + 0.5;
+    return true;
+}
+
+// External contract preserved exactly (pbralphaF.hlsl calls this by name)
+// - projects a CURRENT-frame view-space position using the current frame's
+// own projection_matrix. Callers of this specific function only ever use
+// the result for flip-invariant purposes (vignette falloff, jitter seed),
+// never a direct texture sample, so the unflipped convention here is safe
+// for that existing external use.
 float2 generateProjectedPosition(float3 pos)
 {
-    float4 samplePosition = mul(projection_matrix, float4(pos, 1.f));
-    samplePosition.xy = (samplePosition.xy / samplePosition.w) * 0.5 + 0.5;
-    // S24: flipped once here, at the point of definition, rather than at
-    // each .Sample() call site - every use of this return value is either
-    // a texture sample (getLinearDepth() below, the final hit-color read
-    // in tapScreenSpaceReflection()) or the x/y in-[0,1] bounds-reject
-    // check (flip-invariant, since 1-y maps [0,1] to [0,1] too) - unlike
-    // vary_fragcoord elsewhere, this value is never used for NDC/position
-    // reconstruction, so flipping it once here is safe (matches this
-    // session's own established "safe to flip at the point of definition
-    // when only used for sampling" rule).
-    samplePosition.y = 1.0 - samplePosition.y;
-    return samplePosition.xy;
+    float2 uv;
+    ssrProject(pos, projection_matrix, uv);
+    return uv;
 }
 
 static bool isBinarySearchEnabled = true;
@@ -109,7 +149,26 @@ uniform float adaptiveStepMultiplier;
 uniform float noiseSine;
 
 static float epsilon = 0.1;
+// S24 (2026-09-06, task #271): hard cap on how far a ray is allowed to
+// march before giving up (world units, measured along the marching
+// position's own Z as it travels). Mild first pass, live-tuning - stops
+// the ray before it reaches the far, coarsely-stepped zone where hits
+// start looking banded/distorted, trading reach for crispness on what
+// does resolve. Misses beyond this range fall back to nothing (the cube
+// contribution is intentionally zeroed for SSR-eligible surfaces, see
+// reflectionProbeF.hlsl's doProbeSample()), not a graceful cube fallback -
+// accepted tradeoff for now, revisit if a softer falloff is wanted later.
+static float maxReflectionDepth = 6.0;
 
+// S24 (2026-09-06, task #271 rebuild): DEPTH MODULE. tc here is the
+// UNFLIPPED convention (matches ssrProject()'s return and
+// getPositionWithDepth()'s own expectation) - the Y-flip is applied ONLY at
+// this actual .Sample() call, exactly matching deferredUtil.hlsl's
+// getDepth()/getNorm() pattern (D3D11 top-left vs GL bottom-left texture
+// origin - see that file's own comment). getPositionWithDepth() itself is
+// the same proven, reversed-Z-aware primitive SSAO/shadows/lighting already
+// use successfully - not reimplemented here, just fed the correct
+// (unflipped) UV this time.
 float getLinearDepth(float2 tc)
 {
     // S24: SampleLevel (explicit LOD 0), not Sample - this is called from
@@ -120,7 +179,7 @@ float getLinearDepth(float2 tc)
     // fails outright since the trip count isn't statically known (X3511,
     // task #156 hotfix round 4). SampleLevel has no gradient requirement,
     // so the loop can stay a real dynamic [loop] instead.
-    float depth = sceneDepth.SampleLevel(depthMapSampler, tc, 0).r;
+    float depth = sceneDepth.SampleLevel(depthMapSampler, float2(tc.x, 1.0 - tc.y), 0).r;
 
     float4 pos = getPositionWithDepth(tc, depth);
 
@@ -158,7 +217,24 @@ bool traceScreenRay(float3 position, float3 reflection, out float4 hitColor, out
         [loop]
         for (; i < (int)iterationCount && !hit; i++)
         {
-            screenPosition = generateProjectedPosition(marchingPosition);
+            // S24 (2026-09-06, task #271): max-reflection-depth cap - stop
+            // before the ray reaches the far, coarsely-stepped zone at all.
+            if (abs(marchingPosition.z - position.z) > maxReflectionDepth)
+            {
+                hit = false;
+                break;
+            }
+            // S24 (2026-09-06, task #271 rebuild): marchingPosition lives in
+            // LAST-FRAME view space (transformed once, above) - projecting
+            // it needs last_projection_matrix, not the current frame's
+            // projection_matrix (the old code's real bug: mismatched space
+            // and matrix). ssrProject()'s w>0 guard replaces the implicit
+            // "hope it's in bounds" the old unconditional divide relied on.
+            if (!ssrProject(marchingPosition, last_projection_matrix, screenPosition))
+            {
+                hit = false;
+                break;
+            }
             if (screenPosition.x > 1 || screenPosition.x < 0 ||
                 screenPosition.y > 1 || screenPosition.y < 0)
             {
@@ -187,8 +263,42 @@ bool traceScreenRay(float3 position, float3 reflection, out float4 hitColor, out
                     // perf warning it also happened to trigger. Dividing by
                     // 2.0 promotes to a real float divide.
                     color = float4(0.5 + sign(delta) / 2.0, 0.3, 0.5 - sign(delta) / 2.0, 0);
-                hitColor = textureFrame.SampleLevel(textureFrameSampler, screenPosition, 0) * color;
+                // S24 (2026-09-06, task #271 rebuild): Y-flip applied here,
+                // at the actual sample call, matching getDepth()'s
+                // established pattern - screenPosition itself stays
+                // unflipped (see ssrProject()'s own comment).
+                hitColor = textureFrame.SampleLevel(textureFrameSampler, float2(screenPosition.x, 1.0 - screenPosition.y), 0) * color;
                 hitDepth = depthFromScreen;
+
+                // S24 (2026-09-07, task #266/#315 continuation): distance-
+                // based confidence fade - live-reported (Cat2.png/floor.png)
+                // as a smeared, "hall of mirrors" mess reflecting distant
+                // ceiling/roof structure through a flat glass floor, NOT
+                // fixed by two separate, real convergence-algorithm fixes
+                // (step-length cap + growth-gating) that were live-tested
+                // and made zero difference - ruling out the march's OWN
+                // convergence behavior as the cause. A flat floor reflecting
+                // distant content is close to the worst-case geometry for
+                // screen-space ray marching: at that shallow/grazing angle,
+                // a tiny error in where the fixed-threshold "close enough"
+                // (distanceBias) crossing gets accepted corresponds to a
+                // huge error in which actual scene surface gets sampled -
+                // every hit up to now has been treated as equally reliable
+                // right up to the hard maxReflectionDepth cutoff, with zero
+                // distinction between a confident nearby hit and a marginal
+                // one found only after marching most of the whole budget.
+                // Fades hitColor toward black as travel distance approaches
+                // maxReflectionDepth, instead of a hard cliff - this both
+                // directly de-weights the far/grazing/unreliable hits most
+                // likely to be wrong, AND (combined with the existing near-
+                // black-hit rejection above in the caller) lets sufficiently-
+                // faded distant hits fall back gracefully to the cube/
+                // equalized probe content instead of showing full-confidence
+                // wrong color.
+                float travelDist = abs(marchingPosition.z - position.z);
+                float distanceFade = 1.0 - saturate(travelDist / maxReflectionDepth);
+                hitColor.rgb *= distanceFade * distanceFade;
+
                 hit = true;
                 break;
             }
@@ -196,6 +306,16 @@ bool traceScreenRay(float3 position, float3 reflection, out float4 hitColor, out
             {
                 break;
             }
+            // S24 (2026-09-07, task #266/#315 continuation): tracks whether
+            // this iteration just overshot the surface (see
+            // isAdaptiveStepEnabled branch below) - used to gate the
+            // exponential growth further down. Declared here (not inside
+            // that branch) so it's still in scope there even when
+            // isAdaptiveStepEnabled is off (stays 0, never suppresses
+            // growth in that case - behavior for that combination is
+            // unchanged).
+            float overshotSign = 0.0;
+
             if (isAdaptiveStepEnabled)
             {
                 float directionSign = sign(abs(marchingPosition.z) - depthFromScreen);
@@ -203,15 +323,69 @@ bool traceScreenRay(float3 position, float3 reflection, out float4 hitColor, out
                 //some implementation doing it by binary search, but I found this idea more cheaty and way easier to implement
                 step = step * (1.0 - rayStep * max(directionSign, 0.0));
                 marchingPosition += step * (-directionSign);
+                overshotSign = directionSign;
             }
             else
             {
                 marchingPosition += step;
             }
 
-            if (isExponentialStepEnabled)
+            // S24 (2026-09-07, task #266/#315 continuation): live-reported
+            // (Cat2.png, 1 gloss sample/25 iterations - a single ray with
+            // no stochastic averaging to mask the underlying issue) as
+            // "iterations just slide away into infinity producing a
+            // smeared mess." Real structural gap beyond the step-length cap
+            // above: exponential growth ran EVERY iteration unconditionally,
+            // even right after the adaptive branch had just shrunk the step
+            // to correct an overshoot - immediately undoing that correction
+            // and letting the march re-accelerate past the true crossing
+            // instead of converging onto it, a genuine non-convergence risk
+            // (oscillate/overshoot progressively farther) independent of
+            // the raw magnitude cap. A correctly-converging march should
+            // only grow its step while still searching forward for the
+            // first crossing; once it has overshot at least once, every
+            // subsequent step should keep shrinking (the adaptive branch's
+            // own (1-rayStep) factor already does this correctly on its
+            // own) rather than being regrown. Gated below on
+            // overshotSign<=0 - once true convergence-mode kicks in, no
+            // more exponential growth.
+            if (isExponentialStepEnabled && overshotSign <= 0.0)
             {
                 step *= adaptiveStepMultiplier;
+
+                // S24 (2026-09-07, task #266/#315 continuation): live-
+                // reported (floor.png) as "fragmentary and distorted...
+                // each depth iteration more offset than the last, with
+                // distorted bends" - a "hall of mirrors" look that got
+                // WORSE, not better, with more gloss samples or more
+                // iterations, and was completely unaffected by camera
+                // motion (confirmed stationary). Root cause: this
+                // multiply had no cap at all - step compounds
+                // exponentially every iteration with no ceiling, so by
+                // later iterations a single step can jump a huge fraction
+                // of the entire maxReflectionDepth budget in one go. Since
+                // this runs once per independent stochastic sample (each
+                // with a slightly different jittered direction), a tiny
+                // direction difference between samples gets amplified by
+                // the runaway exponential into landing on completely
+                // unrelated surfaces at wildly different distances -
+                // averaging those together is exactly the torn, multi-
+                // layered ghosting reported. More samples/iterations only
+                // ever made this worse (more divergent hits to average,
+                // more room for the exponential to run away before the
+                // total-distance safety check below catches it), which
+                // matches why no amount of tuning helped. Capping the
+                // single-step magnitude to a fraction of the total
+                // maxReflectionDepth budget keeps the early-iteration
+                // speedup (still reaches distant content efficiently) but
+                // stops it from blowing up into an unpredictable single
+                // jump later in the same march.
+                float stepLen = length(step);
+                float maxStepLen = maxReflectionDepth * 0.15;
+                if (stepLen > maxStepLen)
+                {
+                    step *= maxStepLen / stepLen;
+                }
             }
         }
         if (isBinarySearchEnabled)
@@ -222,7 +396,14 @@ bool traceScreenRay(float3 position, float3 reflection, out float4 hitColor, out
                 step *= 0.5;
                 marchingPosition = marchingPosition - step * sign(delta);
 
-                screenPosition = generateProjectedPosition(marchingPosition);
+                // S24 (2026-09-06, task #271 rebuild): same fix as the main
+                // loop above - last_projection_matrix, not projection_matrix,
+                // plus the w>0 guard.
+                if (!ssrProject(marchingPosition, last_projection_matrix, screenPosition))
+                {
+                    hit = false;
+                    break;
+                }
                 if (screenPosition.x > 1 || screenPosition.x < 0 ||
                     screenPosition.y > 1 || screenPosition.y < 0)
                 {
@@ -251,8 +432,18 @@ bool traceScreenRay(float3 position, float3 reflection, out float4 hitColor, out
                     // perf warning it also happened to trigger. Dividing by
                     // 2.0 promotes to a real float divide.
                     color = float4(0.5 + sign(delta) / 2.0, 0.3, 0.5 - sign(delta) / 2.0, 0);
-                    hitColor = textureFrame.SampleLevel(textureFrameSampler, screenPosition, 0) * color;
+                    // S24 (2026-09-06, task #271 rebuild): same flip-at-
+                    // sample fix as the main loop's hit above.
+                    hitColor = textureFrame.SampleLevel(textureFrameSampler, float2(screenPosition.x, 1.0 - screenPosition.y), 0) * color;
                     hitDepth = depthFromScreen;
+
+                    // S24 (2026-09-07, task #266/#315 continuation): same
+                    // distance-based confidence fade as the coarse loop's
+                    // hit above - see that comment for the full reasoning.
+                    float travelDistRefined = abs(marchingPosition.z - position.z);
+                    float distanceFadeRefined = 1.0 - saturate(travelDistRefined / maxReflectionDepth);
+                    hitColor.rgb *= distanceFadeRefined * distanceFadeRefined;
+
                     hit = true;
                     break;
                 }
@@ -413,6 +604,14 @@ float tapScreenSpaceReflection(int totalSamples, float2 tc, float3 viewPos, floa
     int hits = 0;
 
     float depth = -viewPos.z;
+    // S24 (2026-09-06, task #271): kept separately from `depth` below, which
+    // gets overwritten with each iteration's own hit depth (see the
+    // existing comment on the traceScreenRay() call further down) -
+    // startDepth stays fixed at this surface point's own distance from the
+    // camera, used to measure how far a found reflection is FROM the
+    // surface itself (not from the camera) for the progressive-blur jitter
+    // widening below.
+    float startDepth = depth;
 
     float3 rayDirection = normalize(reflect(viewPos, normalize(n)));
 
@@ -422,14 +621,28 @@ float tapScreenSpaceReflection(int totalSamples, float2 tc, float3 viewPos, floa
     // ported, not just this port. Omitted rather than carried over as
     // inert code (also sidesteps GLSL mod() vs HLSL fmod() sign-behavior
     // differences for a value that was never used).
+    // S24 (2026-09-06, task #271 rebuild): now that the ray march itself is
+    // fixed and proven to find genuine hits, this confidence weighting was
+    // found to be far too conservative - up to 4 discount factors
+    // multiplying together capped real, correct hits around ~10-15% blend
+    // weight against the cube probe, which is why the cube visibly
+    // dominated (including its own box-probe parallax-boundary artifacts)
+    // even on a solid SSR hit. Two changes:
+    // 1) The 3 remaining geometric falloff terms (screen-position, viewing
+    //    angle, far-distance) are now sqrt()'d - keeps 0->0 and 1->1 but
+    //    lifts mid-range values substantially, so a decent-but-not-perfect
+    //    angle/position no longer gets crushed as hard.
+    // 2) The 4th term (clamp(glossiness*3-1.7,0,1)) is removed outright -
+    //    it's a SECOND, hardcoded, non-exposed glossiness gate, redundant
+    //    with (and stricter than) reflectionProbeF.hlsl's already-exposed,
+    //    user-tunable ssrGlossThreshold uniform, which every caller of this
+    //    function has already had to clear before reaching here at all.
     float2 screenpos = 1 - abs(tc * 2 - 1);
-    float vignette = clamp((abs(screenpos.x) * abs(screenpos.y)) * 16, 0, 1);
-    vignette *= clamp((dot(normalize(viewPos), n) * 0.5 + 0.5) * 5.5 - 0.8, 0, 1);
+    float vignette = sqrt(clamp((abs(screenpos.x) * abs(screenpos.y)) * 16, 0, 1));
+    vignette *= sqrt(clamp((dot(normalize(viewPos), n) * 0.5 + 0.5) * 5.5 - 0.8, 0, 1));
 
     float zFar = 128.0;
-    vignette *= clamp(1.0 + (viewPos.z / zFar), 0.0, 1.0);
-
-    vignette *= clamp(glossiness * 3 - 1.7, 0, 1);
+    vignette *= sqrt(clamp(1.0 + (viewPos.z / zFar), 0.0, 1.0));
 
     float4 hitpoint;
 
@@ -438,6 +651,11 @@ float tapScreenSpaceReflection(int totalSamples, float2 tc, float3 viewPos, floa
     totalSamples = (int)max(glossySampleCount, glossySampleCount * glossiness * vignette);
 
     totalSamples = max(totalSamples, 1);
+    // S24 (2026-09-05, task #271): tested theory that this hardcoded gate
+    // (independent of reflectionProbeF.hlsl's tunable ssrGlossThreshold) was
+    // silently zeroing the sampling loop for the floor material. Live-tested
+    // forced to `if (true)` - no change to the floor symptom, theory
+    // refuted. Restored to the original, upstream-faithful condition.
     if (glossiness < 0.35)
     {
         if (vignette > 0)
@@ -446,15 +664,60 @@ float tapScreenSpaceReflection(int totalSamples, float2 tc, float3 viewPos, floa
             {
                 float3 firstBasis = normalize(cross(getPoissonSample(i), rayDirection));
                 float3 secondBasis = normalize(cross(rayDirection, firstBasis));
-                // S24: GLSL's vec2(scalar) single-arg constructor broadcasts
-                // to both components - HLSL has no such constructor overload
-                // (X3014 "incorrect number of arguments" - confirmed via
-                // build, task #156 hotfix round 3), a cast is the real HLSL
-                // splat idiom instead. Keeps this a single evaluation (not
-                // two), matching the GLSL source exactly rather than
-                // doubling the random() calls.
-                float2 coeffs = (float2)(random(tc + float2(0, i)) + random(tc + float2(i, 0)));
-                float3 reflectionDirectionRandomized = rayDirection + ((firstBasis * coeffs.x + secondBasis * coeffs.y) * glossiness);
+                // S24 (2026-09-06, task #156 hotfix round 3): GLSL's
+                // vec2(scalar) single-arg constructor broadcasts to both
+                // components - HLSL has no such constructor overload, a
+                // cast was used as the splat idiom, faithfully matching the
+                // GLSL source's own vec2(scalar) call.
+                //
+                // S24 (2026-09-07, task #266/#315 continuation): that
+                // faithful port carried over TWO real, structural bugs live-
+                // reported as a "torn"/"smeared"/incoherent-between-pixels
+                // reflection that no amount of sample-count or iteration-
+                // count tuning could fix (Cat.png/Cat2.png/Cat3.png/
+                // floor.png) - and correctly so, since neither bug is in the
+                // march itself, both are in the STARTING direction fed into
+                // it, upstream of every march-quality fix tried tonight:
+                // (1) the splat forces coeffs.x==coeffs.y always, so the
+                //     jitter isn't 2D at all - it's locked to a single fixed
+                //     diagonal (firstBasis+secondBasis), only its magnitude
+                //     varies, not its direction.
+                // (2) random() returns [0,1), so a sum of two calls is
+                //     [0,2) with a mean around 1.0 - never zero, never
+                //     negative. This is not "the true reflection direction,
+                //     jittered around it" - it's "the true direction, plus a
+                //     guaranteed one-sided push," always in the same fixed
+                //     diagonal, with a magnitude that's never zero.
+                // Every neighboring pixel gets an independently-biased,
+                // never-zero, single-axis-locked push away from the correct
+                // mirror direction - exactly the incoherent, torn look
+                // reported, and correctly untouched by tuning ray-march
+                // quality settings, since those only affect how well the
+                // march converges onto whatever (wrong) direction it's
+                // given. Fixed: two INDEPENDENT random sums (real 2D
+                // jitter, not one axis locked to the other) and both
+                // centered by -1.0 so the sum-of-two-uniforms range [0,2)
+                // becomes [-1,1) - a genuine, symmetric jitter around the
+                // true direction instead of a one-sided shove.
+                float2 coeffs = float2(
+                    random(tc + float2(0, i)) + random(tc + float2(i, 0)),
+                    random(tc + float2(i, i)) + random(tc + float2(-i, -i))
+                ) - 1.0;
+                // S24 (2026-09-06, task #271): progressive blur - widens the
+                // jitter spread for reflections that land far from the
+                // reflecting surface itself (using `depth`'s existing
+                // carry-over from the previous iteration's hit, vs the fixed
+                // startDepth captured above), so multi-sample averaging
+                // naturally softens "deep" reflections into suggested
+                // shapes while close/shallow ones stay sharp. Dialed back
+                // (2026-09-06, live test) - the original 2x-at-8-units cap
+                // spread individual stochastic samples too far apart for
+                // this sample count to blend smoothly, showing as visible
+                // banding/streaking instead of a soft blur. Now caps at
+                // 1.3x spread over a longer 14-unit range - gentler curve,
+                // less likely to outrun what this many samples can smooth.
+                float depthBlur = saturate(abs(depth - startDepth) / 14.0);
+                float3 reflectionDirectionRandomized = rayDirection + ((firstBasis * coeffs.x + secondBasis * coeffs.y) * glossiness * (1.0 + depthBlur * 0.3));
 
                 // S24: the GLSL original passes `depth` as BOTH the out
                 // hitDepth destination (4th arg) and the by-value depth
@@ -468,7 +731,54 @@ float tapScreenSpaceReflection(int totalSamples, float2 tc, float3 viewPos, floa
                 // separate unused local).
                 bool hit = traceScreenRay(viewPos, normalize(reflectionDirectionRandomized), hitpoint, depth, depth, source, sourceSampler);
 
+                // S24 (2026-09-06, task #271 rebuild; loosened 2026-09-07,
+                // task #266/#315 continuation): reject hits whose sampled
+                // color is suspiciously near-black - a genuinely dark/
+                // shadowed reflection still has some non-zero variation; a
+                // uniformly pure-black result is the signature of the ray
+                // converging on an unpainted/invalid region of the copied
+                // scene rather than real geometry. Live-reported (Cat.png)
+                // as "reflections are way too scattered" on a genuinely
+                // dark wood floor - the original 0.01 threshold is high
+                // enough to also catch REAL, VALID dark-but-nonzero hits on
+                // a naturally dark surface, discarding them as if they were
+                // misses. Since a discarded-but-valid dark hit and a true
+                // miss look identical (hits-- either way), that
+                // systematically strips out the correct dark majority of
+                // this floor's reflection and leaves only the sparse bright
+                // hits behind - exactly a "scattered dots on black" look.
+                // Tightened an order of magnitude so it only catches
+                // genuinely near-zero/invalid regions, not real dark
+                // content.
+                if (hit && dot(hitpoint.rgb, float3(0.333, 0.334, 0.333)) < 0.0008)
+                {
+                    hit = false;
+                }
+
                 hitpoint.a = 0;
+
+                // S24 (2026-09-07, task #266/#315 continuation): firefly
+                // clamp - with only glossySampleCount (default 4) fully
+                // independent stochastic samples per pixel and zero
+                // temporal accumulation anywhere in this SSR
+                // implementation, a single sample landing on a genuinely
+                // bright pixel (a lamp, a window, a bright material) reads
+                // as a huge outlier relative to its dark neighbors once
+                // averaged over so few samples - the classic Monte-Carlo
+                // "firefly" artifact, and the exact bright-scattered-dot
+                // look reported. Clamping each individual hit's luminance
+                // before accumulation (not the final averaged result, which
+                // already has its own separate boost/highlight treatment
+                // below) caps how much any one lucky/unlucky sample can
+                // dominate the average, without discarding it outright the
+                // way the near-black rejection above does for the opposite
+                // extreme. 4.0 - generous, HDR-appropriate, first-pass
+                // value, not physically derived.
+                float hitLuminance = dot(hitpoint.rgb, float3(0.2126, 0.7152, 0.0722));
+                if (hitLuminance > 4.0)
+                {
+                    hitpoint.rgb *= 4.0 / hitLuminance;
+                }
 
                 if (hit)
                 {
@@ -481,6 +791,22 @@ float tapScreenSpaceReflection(int totalSamples, float2 tc, float3 viewPos, floa
             if (hits > 0)
             {
                 collectedColor /= hits;
+                // S24 (2026-09-06, task #271): modest color/luminosity
+                // boost - live feedback that correct SSR hits still looked
+                // noticeably dark/desaturated. Lifts saturation slightly
+                // (push away from the color's own luminance) then overall
+                // brightness (1.25->1.35, bumped again per live feedback).
+                // Tunable, not derived from anything physical.
+                float luminance = dot(collectedColor.rgb, float3(0.2126, 0.7152, 0.0722));
+                collectedColor.rgb = lerp(float3(luminance, luminance, luminance), collectedColor.rgb, 1.2) * 1.35;
+                // S24 (2026-09-06, task #271): light-source boost - bright
+                // pixels (lamps, screens, windows) reflected via SSR get an
+                // extra lift above a threshold, on top of the flat boost
+                // above, so real light sources visibly pop in the
+                // reflection rather than just being uniformly brighter like
+                // everything else. Smooth quadratic ramp, not a hard cutoff.
+                float highlight = saturate((luminance - 0.6) / 0.4);
+                collectedColor.rgb += collectedColor.rgb * highlight * highlight * 1.5;
             }
             else
             {
@@ -490,6 +816,15 @@ float tapScreenSpaceReflection(int totalSamples, float2 tc, float3 viewPos, floa
     }
     float hitAlpha = hits;
     hitAlpha /= totalSamples;
-    collectedColor.a = hitAlpha * vignette;
+    // S24 (2026-09-06, task #271 rebuild): sqrt()'ing the 3 vignette terms
+    // individually wasn't enough on its own - boosting the FINAL combined
+    // weight directly here instead, so a real hit reaches much closer to a
+    // full override of the cube regardless of how the 3 terms above
+    // multiply together. Zero hits still means hitAlpha=0, so this can
+    // never manufacture a contribution where there genuinely isn't one -
+    // only strengthens a real one. Dialed back from 4x to 2x (2026-09-06,
+    // live test) - 4x combined with the near-black-hit guard above still
+    // over-amplified toward the cube's replacement; retune from here.
+    collectedColor.a = saturate(hitAlpha * vignette * 2.0);
     return (float)hits;
 }

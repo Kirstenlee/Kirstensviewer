@@ -44,6 +44,10 @@ SamplerState nextDiffuseMapSampler : register(s1);
 uniform float blend_factor;
 uniform float custom_alpha;
 uniform float time;
+// S24 (2026-09-05): nebula-only daylight gate - see the is_nebula branch's
+// own comment below for why this differs from custom_alpha/daylight_factor
+// (which still drive the point-star field, unchanged).
+uniform float sun_elevation;
 
 // S24 (task #279 stage 2, "RENDER WOW"): KVTweaks-exposed night-sky
 // controls - see dxdrawpoolwlsky.cpp for the uniform1f() call sites and
@@ -183,7 +187,15 @@ PSOutput main(PSInput IN)
     // custom_alpha ("factor" below) - moved that same fade curve up here so
     // both branches share it, matching the user's expectation that nebula
     // "behave in the same manner as stars do."
+    // S24 (2026-09-05 follow-up): custom_alpha is the active preset's
+    // artist-authored Star Brightness curve, not an actual measure of
+    // whether the sun is up - a bright moon can push it low enough to
+    // "eradicate" the nebula on nights when the sun is still well below
+    // the horizon. Point stars keep using it (daylight_factor, below,
+    // unchanged - no report of them being affected by this). Nebula now
+    // gates on real sun elevation instead - see sun_elevation_factor below.
     float daylight_factor = smoothstep(0.0f, 0.9f, custom_alpha);
+    float sun_elevation_factor = 1.0f - smoothstep(-0.05f, 0.15f, sun_elevation);
 
     if (is_nebula)
     {
@@ -228,7 +240,7 @@ PSOutput main(PSInput IN)
         mottle = saturate(mottle * 0.65 + 0.5);
         float3 neb_color = lerp(color_a, color_b, mottle);
 
-        float alpha = falloff * falloff * 0.35 * nebula_intensity * drift * neb_ring * daylight_factor;
+        float alpha = falloff * falloff * 0.35 * nebula_intensity * drift * neb_ring * sun_elevation_factor;
 
         OUT.data1 = float4(0.0f, 0.0f, 0.0f, 0.0f);
         OUT.data2 = float4(0.0, 1.0, 0.0, GBUFFER_FLAG_SKIP_ATMOS);

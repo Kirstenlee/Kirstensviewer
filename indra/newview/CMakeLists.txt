@@ -204,6 +204,7 @@ set(viewer_SOURCE_FILES
     lldrawpoolwater.cpp
     lldrawpoolwlsky.cpp
     lldrawpoolwaterexclusion.cpp
+    lldxlinewidth.cpp
     lldynamictexture.cpp
     llemote.cpp
     llenvironment.cpp
@@ -900,6 +901,7 @@ set(viewer_HEADER_FILES
     lldrawpoolwater.h
     lldrawpoolwlsky.h
     lldrawpoolwaterexclusion.h
+    lldxlinewidth.h
     lldynamictexture.h
     llemote.h
     llenvironment.h
@@ -1761,6 +1763,15 @@ if(DX_RENDER)
   # #109), same pattern as the other dxdrawpool* files.
   list(APPEND viewer_SOURCE_FILES dxdrawpoolwater.cpp)
   list(APPEND viewer_HEADER_FILES dxdrawpoolwater.h)
+  # DX_RENDER: dxbc7compressor.{cpp,h} is the BC7 texture-compression
+  # pipeline's compute layer (task #318) - DXGI/DXTexture-specific, so it
+  # belongs in this DX_RENDER-only list rather than the unconditional
+  # kveffects.cpp/kvopencl.cpp entries above (those are backend-agnostic
+  # OpenCL utility; this is not).
+  list(APPEND viewer_SOURCE_FILES dxbc7compressor.cpp)
+  list(APPEND viewer_HEADER_FILES dxbc7compressor.h)
+  list(APPEND viewer_SOURCE_FILES dxbc7uploadmanager.cpp)
+  list(APPEND viewer_HEADER_FILES dxbc7uploadmanager.h)
 endif()
 
 list(APPEND viewer_SOURCE_FILES ${viewer_HEADER_FILES})

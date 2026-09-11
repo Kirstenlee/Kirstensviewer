@@ -209,6 +209,79 @@ public:
     // LLTexUnit) - a small public accessor is cleaner than growing the
     // friend list for one narrow need.
     ID3D11Texture2D* getDXTexturePtr() const { return mDXTexture.getTexture(); }
+
+    // S24 (2026-09-09, BC7 texture-compression pipeline, task #318):
+    // monotonic counter, bumped once per real setImage() upload (see its
+    // own comment) - lets the background BC7 compressor detect a stale
+    // result (a newer discard-level upload superseded the pixel data an
+    // in-flight compression job was working from) without needing any
+    // cross-thread pointer/lifetime tracking into this object's internals.
+    // Plain U32, not atomic - only ever written from setImage() and read
+    // from upgradeToCompressedMips(), both main-thread-only calls (the
+    // background job only ever touches a captured COPY of this value taken
+    // before dispatch, never this field itself).
+    U32 getDXUploadGeneration() const { return mDXUploadGeneration; }
+
+    // S24 (2026-09-09, BC7 pipeline): main-thread-only completion hook for
+    // the background BC7 compressor - swaps this texture's live GPU
+    // resource for the newly-encoded BC7 version via
+    // DXTexture::createCompressedMips() (dxrender), UNLESS `expected_generation`
+    // no longer matches getDXUploadGeneration() (a newer real upload already
+    // superseded the pixel data this compressed result was built from - the
+    // caller must silently discard in that case, not retry or warn, this is
+    // an expected/normal race between compression latency and ordinary
+    // discard-level streaming, not an error). Returns false (no-op) on a
+    // stale generation OR on any underlying createCompressedMips() failure -
+    // callers must treat both identically (texture stays as it already is,
+    // uncompressed - this feature is a pure VRAM optimization, never load-
+    // bearing for correctness/visibility).
+    bool upgradeToCompressedMips(const std::vector<DXCompressedMipData>& mips, DXGI_FORMAT format, U32 expected_generation)
+    {
+        if (mDXUploadGeneration != expected_generation)
+        {
+            return false;
+        }
+        if (!mDXTexture.createCompressedMips(mips, format))
+        {
+            return false;
+        }
+
+        // S24 (2026-09-09, task #318): real gap found live - this used to
+        // stop right after the swap above, leaving mTextureMemory (and the
+        // sTextureBytes fallback VRAM-pressure total it feeds via
+        // LLImageGLMemory::allocDXTextureBytes(), see that function's own
+        // comment) at whatever setImage() computed for the ORIGINAL
+        // uncompressed upload - a plain formula
+        // (getMipBytes()/width*height*components*mip-chain-factor), never
+        // touched again by anything in the BC7 pipeline. The compression
+        // itself was working perfectly (log-confirmed: 371/371 applied,
+        // consistent 75% real reduction, 776MB -> 194MB in one test scene)
+        // but every UI/stat surface reading getTextureMemory() (the Texture
+        // Console among them) kept reporting the pre-compression size
+        // forever, making a real ~580MB-per-scene saving look like it did
+        // almost nothing. 16 bytes per 4x4 BC7 block, per mip, summed -
+        // matches the exact SysMemPitch math DXTexture::createCompressedMips()
+        // itself already uses.
+        U64 compressed_bytes = 0;
+        for (const auto& mip : mips)
+        {
+            const U64 blocks_wide = (U64)((mip.width + 3) / 4);
+            const U64 blocks_high = (U64)((mip.height + 3) / 4);
+            compressed_bytes += blocks_wide * blocks_high * 16;
+        }
+        mTextureMemory = (S64Bytes)compressed_bytes;
+        LLImageGLMemory::allocDXTextureBytes(this, compressed_bytes);
+
+        return true;
+    }
+
+    // S24 (2026-09-09, BC7 pipeline): whether this instance's caller opted
+    // out of compression via the existing allow_compression constructor
+    // arg/setAllowCompression() - already correctly set false by e.g.
+    // LLFontBitmapCache for glyph atlases (llfontbitmapcache.cpp) before
+    // this feature existed; reused as-is rather than inventing a second,
+    // parallel eligibility flag.
+    bool getAllowCompression() const { return mAllowCompression; }
 #endif
 
     bool getIsAlphaMask() const;
@@ -297,6 +370,10 @@ private:
     // (both are friends of this class already, via the friend declaration
     // above).
     DXTexture mDXTexture;
+
+    // S24 (2026-09-09, BC7 pipeline): see getDXUploadGeneration()'s public
+    // comment. Bumped in setImage() on every successful real upload.
+    U32 mDXUploadGeneration = 0;
 #endif
 
     bool mAllowCompression;
@@ -336,7 +413,6 @@ public:
     static bool sGlobalUseAnisotropic;
     static LLImageGL* sDefaultGLTexture ;
     static bool sAutomatedTest;
-    static bool sCompressTextures;          //use GL texture compression
 #if DEBUG_MISS
     bool mMissed; // Missed on last bind?
     bool getMissed() const { return mMissed; };

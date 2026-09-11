@@ -576,7 +576,7 @@ void LLRenderPass::applyModelMatrix(const LLMatrix4* model_matrix)
         gDX.loadMatrix(gGLModelView);
         if (model_matrix)
         {
-            gDX.multMatrix((GLfloat*) model_matrix->mMatrix);
+            gDX.multMatrix((F32*) model_matrix->mMatrix);
         }
         gPipeline.mMatrixOpCount++;
     }
@@ -645,7 +645,7 @@ void LLRenderPass::pushBatch(LLDrawInfo& params, bool texture, bool batch_textur
                     tex_setup = true;
                     gDX.getTexUnit(0)->activate();
                     gDX.matrixMode(LLRender::MM_TEXTURE);
-                    gDX.loadMatrix((GLfloat*) params.mTextureMatrix->mMatrix);
+                    gDX.loadMatrix((F32*) params.mTextureMatrix->mMatrix);
                     gPipeline.mTextureMatrixOps++;
                 }
             }
@@ -708,7 +708,7 @@ bool LLRenderPass::uploadMatrixPalette(LLVOAvatar* avatar, LLMeshSkinInfo* skinI
     LLHLSLShader::sCurBoundShaderPtr->uniformMatrix3x4fv(LLViewerShaderMgr::AVATAR_MATRIX,
         count,
         false,
-        (GLfloat*)&(mpc.mGLMp[0]));
+        (F32*)&(mpc.mGLMp[0]));
 
     return true;
 }
@@ -743,7 +743,7 @@ bool LLRenderPass::uploadMatrixPalette(LLVOAvatar* avatar, LLMeshSkinInfo* skinI
         LLHLSLShader::sCurBoundShaderPtr->uniformMatrix3x4fv(LLViewerShaderMgr::AVATAR_MATRIX,
             count,
             false,
-            (GLfloat*)&(mpc.mGLMp[0]));
+            (F32*)&(mpc.mGLMp[0]));
     }
 
     return !skipLastSkin;
@@ -780,7 +780,7 @@ bool LLRenderPass::uploadMatrixPalette(LLVOAvatar* avatar, LLMeshSkinInfo* skinI
         LLHLSLShader::sCurBoundShaderPtr->uniformMatrix3x4fv(LLViewerShaderMgr::AVATAR_MATRIX,
             count,
             false,
-            (GLfloat*)&(mpc.mGLMp[0]));
+            (F32*)&(mpc.mGLMp[0]));
     }
 
     return !skipLastSkin;
@@ -792,7 +792,7 @@ void setup_texture_matrix(LLDrawInfo& params)
     { //special case implementation of texture animation here because of special handling of textures for PBR batches
         gDX.getTexUnit(0)->activate();
         gDX.matrixMode(LLRender::MM_TEXTURE);
-        gDX.loadMatrix((GLfloat*)params.mTextureMatrix->mMatrix);
+        gDX.loadMatrix((F32*)params.mTextureMatrix->mMatrix);
         gPipeline.mTextureMatrixOps++;
     }
 }

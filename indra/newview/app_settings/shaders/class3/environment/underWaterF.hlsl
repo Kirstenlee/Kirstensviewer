@@ -79,6 +79,19 @@ struct PSInput
 float4 applyWaterFogViewLinearNoClip(float3 pos, float4 color);
 void mirrorClip(float3 position);
 
+// S24 (2026-09-07, DX Water V1): Reoriented Normal Mapping compose - see
+// waterF.hlsl's RNMBlend() for the full comment/reference
+// (blog.selfshadow.com/publications/blending-in-detail). Duplicated here
+// rather than shared via an include since this file and waterF.hlsl are
+// separate compile units with no existing shared-utility header between
+// them.
+float3 RNMBlend(float3 n1, float3 n2)
+{
+    n1 += float3(0, 0, 1);
+    n2 *= float3(-1, -1, 1);
+    return n1 * dot(n1, n2) / n1.z - n2;
+}
+
 float4 main(PSInput IN) : SV_Target
 {
     mirrorClip(IN.vary_position);
@@ -108,7 +121,14 @@ float4 main(PSInput IN) : SV_Target
     float3 wave1 = bumpMap.Sample(bumpMapSampler, float2(IN.bigWaveX, IN.view.w)).xyz*2.0-1.0;
     float3 wave2 = bumpMap.Sample(bumpMapSampler, IN.littleWave.xy).xyz*2.0-1.0;
     float3 wave3 = bumpMap.Sample(bumpMapSampler, IN.littleWave.zw).xyz*2.0-1.0;
-    float3 wavef = normalize(wave1+wave2+wave3);
+    // S24 (2026-09-07, DX Water V1): RNM compose instead of a plain vector
+    // sum+normalize - see waterF.hlsl's RNMBlend()/matching comment for the
+    // full root-cause writeup (littleWave.zw's direction fix in waterV.hlsl
+    // is the other half of this same fix, shared by both above- and
+    // below-water surfaces since they consume the same varyings).
+    float3 wavef = normalize(wave1);
+    wavef = RNMBlend(wavef, normalize(wave2));
+    wavef = RNMBlend(wavef, normalize(wave3));
 
     //figure out distortion vector (ripply)
     float2 distort = screen_tc;

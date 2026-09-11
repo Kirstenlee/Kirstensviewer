@@ -162,6 +162,24 @@ PSOutput main(PSInput IN)
     color.rgb *= cloud_layer_tint;
     alpha1 *= cloud_layer_alpha_mult;
 
+    // S24 (2026-09-05, task #312): alpha1 was already clamped to [0,1]
+    // above (line ~143) BEFORE this cloud_layer_alpha_mult multiply - but
+    // nothing re-clamped it after. cloud_layer_alpha_mult is
+    // RenderCloudLayerOpacity (KVTweaks slider, documented/allowed up to
+    // 2.0) times 0.4 (cirrus) or 0.75 (cumulus), so at higher slider
+    // settings this can genuinely exceed 1.0. Since the PRE-multiplier
+    // alpha1 is itself a noise function - only close to 1.0 at sparse
+    // density peaks, mostly well below it elsewhere - only those isolated
+    // peaks were ever pushed over 1.0, not the whole cloud layer: an
+    // alpha >1 reaching the blend equation is undefined territory (some
+    // hardware/format combinations can turn InvSrcAlpha=1-alpha negative,
+    // subtracting rather than blending). This is the confirmed root cause
+    // of "stars/sky render as black dots under clouds" (user bisected it
+    // directly to RenderCloudLayerOpacity above ~1.2, independent of
+    // anything else touched this session) - re-clamp so this shader never
+    // outputs an out-of-range alpha regardless of how high the slider goes.
+    alpha1 = saturate(alpha1);
+
     /// Gamma correct for WL (soft clip effect).
 
     OUT.data1 = float4(0.0, 0.0, 0.0, 0.0);

@@ -204,7 +204,6 @@ S32 LLImageGL::sCount                   = 0;
 bool LLImageGL::sGlobalUseAnisotropic   = false;
 F32 LLImageGL::sLastFrameTime           = 0.f;
 LLImageGL* LLImageGL::sDefaultGLTexture = NULL ;
-bool LLImageGL::sCompressTextures = false;
 std::unordered_set<LLImageGL*> LLImageGL::sImageList;
 
 
@@ -951,6 +950,17 @@ bool LLImageGL::setImage(const U8* data_in, bool data_hasmips /* = false */, S32
             }
         }
     }
+
+    // S24 (2026-09-09, BC7 pipeline, task #318): a real new upload just
+    // landed (or failed - see below) - see getDXUploadGeneration()'s own
+    // comment for why this needs to advance here specifically. Bumped
+    // unconditionally, success or failure: a FAILED create()/createCompressed()
+    // still means whatever pixel data an in-flight background BC7 job was
+    // compressing is no longer what this texture holds (it may hold nothing,
+    // or stale prior content) - either way, that job's eventual result must
+    // be treated as stale too, not applied.
+    ++mDXUploadGeneration;
+
     return dx_success;
 #endif
 
@@ -1690,52 +1700,16 @@ void LLImageGL::setManualImage(U32 target, S32 miplevel, S32 intformat, S32 widt
         }
     }
 
-    const bool compress = LLImageGL::sCompressTextures && allow_compression;
-    if (compress)
-    {
-        switch (intformat)
-        {
-        case GL_RED:
-        case GL_R8:
-            intformat = GL_COMPRESSED_RED;
-            break;
-        case GL_RG:
-        case GL_RG8:
-            intformat = GL_COMPRESSED_RG;
-            break;
-        case GL_RGB:
-        case GL_RGB8:
-            intformat = GL_COMPRESSED_RGB;
-            break;
-        case GL_SRGB:
-        case GL_SRGB8:
-            intformat = GL_COMPRESSED_SRGB;
-            break;
-        case GL_RGBA:
-        case GL_RGBA8:
-            intformat = GL_COMPRESSED_RGBA;
-            break;
-        case GL_SRGB_ALPHA:
-        case GL_SRGB8_ALPHA8:
-            intformat = GL_COMPRESSED_SRGB_ALPHA;
-            break;
-        case GL_LUMINANCE:
-        case GL_LUMINANCE8:
-            intformat = GL_COMPRESSED_LUMINANCE;
-            break;
-        case GL_LUMINANCE_ALPHA:
-        case GL_LUMINANCE8_ALPHA8:
-            intformat = GL_COMPRESSED_LUMINANCE_ALPHA;
-            break;
-        case GL_ALPHA:
-        case GL_ALPHA8:
-            intformat = GL_COMPRESSED_ALPHA;
-            break;
-        default:
-            LL_WARNS() << "Could not compress format: " << std::hex << intformat << std::dec << LL_ENDL;
-            break;
-        }
-    }
+    // S24 (2026-09-09, task #318): was the GL-era "Enable Texture
+    // Compression" driver-hint path (LLImageGL::sCompressTextures &&
+    // allow_compression, remapping intformat to a generic GL_COMPRESSED_*
+    // enum and letting the driver pick the actual block format) - already
+    // confirmed dead under DX_RENDER before this task even started
+    // (setImage()'s DX_RENDER branch always returns before ever reaching
+    // this function), and now fully replaced by a real BC7 pipeline
+    // (dxbc7compressor.h/dxbc7uploadmanager.h, gated by the same
+    // RenderCompressTextures setting). Removed rather than left dead.
+    const bool compress = false;
 
     stop_glerror();
     {
@@ -2224,6 +2198,24 @@ bool LLImageGL::readBackRaw(S32 discard_level, LLImageRaw* imageraw, bool compre
 
     ID3D11Texture2D* dx_tex = mDXTexture.getTexture();
     if (!dx_tex)
+    {
+        return false;
+    }
+
+    // S24 (2026-09-09, BC7 texture-compression pipeline, task #318 CTD
+    // fix): real, confirmed crash - this whole function (and the "DXTexture
+    // always stores RGBA8" comment a few lines below) predates the BC7
+    // upgrade pipeline, which can silently replace this texture's GPU
+    // resource with a compressed one after the fact (LLImageGL::
+    // upgradeToCompressedMips()). DXReadback::readPixels() below assumes
+    // RGBA8 stride/size - reading a BC7 resource with those assumptions is
+    // an out-of-bounds read, crash-confirmed via a live dump
+    // (DXReadback::readPixels -> memcpy, access violation). Bail out
+    // cleanly instead - matches this function's own pre-existing,
+    // already-documented "compressed-format readback isn't supported"
+    // rule above, just now also correctly catching the upgrade case that
+    // rule didn't originally anticipate.
+    if (mDXTexture.isCompressedFormat())
     {
         return false;
     }

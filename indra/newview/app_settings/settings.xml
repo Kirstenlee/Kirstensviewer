@@ -7847,7 +7847,7 @@
     <key>RenderCompressTextures</key>
     <map>
       <key>Comment</key>
-      <string>Enable texture compression on OpenGL 3.0 and later implementations (EXPERIMENTAL, requires restart)</string>
+      <string>S24 task #318: real-time BC7 GPU texture compression (OpenCL-based) - uploads textures uncompressed as usual, then upgrades them to BC7 in the background a few frames later to cut VRAM usage (~4:1 vs uncompressed) with minimal frame-time impact. EXPERIMENTAL, no restart required (takes effect for newly-loaded/re-decoded textures).</string>
       <key>Persist</key>
       <integer>1</integer>
       <key>Type</key>
@@ -8097,7 +8097,7 @@
       <key>Type</key>
       <string>Boolean</string>
       <key>Value</key>
-      <integer>0</integer>
+      <integer>1</integer>
     </map>
     <key>RenderScreenSpaceReflectionIterations</key>
     <map>
@@ -8168,13 +8168,13 @@
     <key>RenderScreenSpaceReflectionGlossThreshold</key>
     <map>
       <key>Comment</key>
-      <string>Minimum glossiness (1-roughness) a surface needs before Screen-Space Reflections engage. Below ~0.57 SSR's own internal vignette falloff already fades it to zero, so values much lower than that waste GPU cost for no visible gain. PBR alpha-blend (glass) materials cap at 0.7 due to a separate roughness floor.</string>
+      <string>Minimum glossiness (1-roughness) a surface needs before Screen-Space Reflections engage. Defaults to 0 (no artificial gate) - SSR's own internal vignette falloff already fades it to zero below ~0.57, so that natural falloff is the only real limiter; a separate hard cutoff on top of it was blocking materials (e.g. PBR alpha-blend/glass, which caps at 0.7 due to a separate roughness floor) that should otherwise be able to use SSR.</string>
       <key>Persist</key>
       <integer>1</integer>
       <key>Type</key>
       <string>F32</string>
       <key>Value</key>
-      <real>0.9</real>
+      <real>0.0</real>
     </map>
     <key>RenderBumpmapMinDistanceSquared</key>
     <map>
@@ -9734,6 +9734,28 @@
       <key>Value</key>
       <real>0.2</real>
     </map>
+    <key>RenderReflectionProbeEqualize</key>
+    <map>
+      <key>Comment</key>
+      <string>Blend this probe's reflection toward its own fully-averaged top mip (S24 Runtime Tweak). 0=no change (full detail), 1=fully equalized (this room's own averaged tone, blended across all 6 captured faces) - a different tool from Saturation (crushes hue) and Contrast (compresses spread toward a fixed midpoint): pulls per-face brightness/color differences toward this probe's own real average instead of an arbitrary neutral.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>0.0</real>
+    </map>
+    <key>RenderReflectionProbeOpacity</key>
+    <map>
+      <key>Comment</key>
+      <string>Reflection probe visibility blend, 0%-100% (S24 Runtime Tweak). 100%=fully visible (no change), 0%=fully transparent (reflection probe contributes nothing, revealing the surface's other lighting on its own). Separate from Intensity (a 0-2 multiplier that can also boost past normal) - a clean, one-way visibility-only knob.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>1.0</real>
+    </map>
     <key>SmoothKeyboardMovement</key>
     <map>
       <key>Comment</key>
@@ -10612,6 +10634,71 @@
       <key>Value</key>
       <integer>0</integer>
     </map>
+    <key>RenderJellyGhostBaseColor</key>
+    <map>
+      <key>Comment</key>
+      <string>S24 task: base body color of the too-complex/too-slow "jelly doll" ghost effect (RGB; alpha unused, see RenderJellyGhostBaseAlpha).</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Color4</string>
+      <key>Value</key>
+      <array>
+        <real>0.0</real>
+        <real>0.0</real>
+        <real>0.0</real>
+        <real>1.0</real>
+      </array>
+    </map>
+    <key>RenderJellyGhostBaseAlpha</key>
+    <map>
+      <key>Comment</key>
+      <string>S24 task: base translucency of the jelly-doll ghost effect - 0 is fully invisible, 1 is fully opaque. 0.2 is roughly "80% transparent".</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>0.07</real>
+    </map>
+    <key>RenderJellyGhostRimColor</key>
+    <map>
+      <key>Comment</key>
+      <string>S24 task: glow color along the jelly-doll ghost's silhouette edge (RGB; alpha unused).</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Color4</string>
+      <key>Value</key>
+      <array>
+        <real>0.0</real>
+        <real>0.0</real>
+        <real>0.0</real>
+        <real>1.0</real>
+      </array>
+    </map>
+    <key>RenderJellyGhostRimIntensity</key>
+    <map>
+      <key>Comment</key>
+      <string>S24 task: strength of the jelly-doll ghost's silhouette edge glow. 0 disables it entirely (flat translucent silhouette only).</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>0.45</real>
+    </map>
+    <key>RenderJellyGhostRimWidth</key>
+    <map>
+      <key>Comment</key>
+      <string>S24 task: how far the jelly-doll ghost's edge glow reaches from the silhouette boundary - higher values give a thicker glow.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>1.2</real>
+    </map>
     <key>RenderHUDObjectsWarning</key>
     <map>
       <key>Comment</key>
@@ -10871,13 +10958,13 @@
     <key>RenderTonemapType</key>
     <map>
       <key>Comment</key>
-      <string>What tonemapper to use: 0 = Khronos Neutral, 1 = ACES, 2 = Hable (Uncharted 2), 3 = Uchimura</string>
+      <string>What tonemapper to use: 0 = Khronos Neutral, 1 = ACES, 2 = Hable (Uncharted 2), 3 = Uchimura, 4 = ACES (Fast), 5 = AgX</string>
       <key>Persist</key>
       <integer>1</integer>
       <key>Type</key>
       <string>U32</string>
       <key>Value</key>
-      <integer>1</integer>
+      <integer>0</integer>
     </map>
     <key>ReplaySession</key>
     <map>
@@ -12389,6 +12476,17 @@
       <string>S32</string>
       <key>Value</key>
       <integer>0</integer>
+    </map>
+    <key>SelectionBeamWidth</key>
+    <map>
+      <key>Comment</key>
+      <string>S24 (task #309): width in screen pixels of the selection beam's line core, drawn as a real DX11 billboard quad since D3D11 has no glLineWidth() equivalent. Part of selection beam enhancement feature.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>2.0</real>
     </map>
     <key>SelectionBeamParticleScale</key>
     <map>

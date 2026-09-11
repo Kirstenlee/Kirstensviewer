@@ -2752,7 +2752,7 @@ void renderTexelDensity(LLDrawable* drawable)
 
         gDX.getTexUnit(0)->bind(LLViewerTexture::sCheckerBoardImagep, true);
         gDX.matrixMode(LLRender::MM_TEXTURE);
-        gDX.loadMatrix((GLfloat*)&checkerboard_matrix.mMatrix);
+        gDX.loadMatrix((F32*)&checkerboard_matrix.mMatrix);
 
         if (buffer && (facep->getGeomCount() >= 3))
         {
@@ -3662,9 +3662,13 @@ public:
     bool mPickRigged;
     bool mPickUnselectable;
     bool mPickReflectionProbe;
+    // S24 (2026-09-06, task #271): see check(LLViewerOctreeEntry*)'s own
+    // comment - lets a caller that needs real geometric presence (not
+    // "was this recently on screen") bypass the isVisible() early-out.
+    bool mIgnoreVisibility;
 
     LLOctreeIntersect(const LLVector4a& start, const LLVector4a& end, bool pick_transparent, bool pick_rigged, bool pick_unselectable, bool pick_reflection_probe,
-                      S32* face_hit, LLVector4a* intersection, LLVector2* tex_coord, LLVector4a* normal, LLVector4a* tangent)
+                      S32* face_hit, LLVector4a* intersection, LLVector2* tex_coord, LLVector4a* normal, LLVector4a* tangent, bool ignore_visibility = false)
         : mStart(start),
           mEnd(end),
           mFaceHit(face_hit),
@@ -3676,7 +3680,8 @@ public:
           mPickTransparent(pick_transparent),
           mPickRigged(pick_rigged),
           mPickUnselectable(pick_unselectable),
-          mPickReflectionProbe(pick_reflection_probe)
+          mPickReflectionProbe(pick_reflection_probe),
+          mIgnoreVisibility(ignore_visibility)
     {
     }
 
@@ -3734,7 +3739,28 @@ public:
     {
         LLDrawable* drawable = (LLDrawable*)entry->getDrawable();
 
-        if (!drawable || !gPipeline.hasRenderType(drawable->getRenderType()) || !drawable->isVisible())
+        // S24 (2026-09-06, task #271): drawable->isVisible() is a stale,
+        // camera-cull-history-dependent flag (only set true when SOME
+        // camera's actual frustum-cull pass touched this drawable on the
+        // CURRENT frame - exact frame-counter equality, no leniency, see
+        // LLViewerOctreeEntryData::isVisible()) - not a geometric fact about
+        // whether the drawable exists. Correct and intentional for real
+        // screen-picking (mouse clicks, object selection - you genuinely
+        // shouldn't be able to pick what isn't currently rendered), but
+        // LLReflectionMap::autoAdjustOrigin()'s placement ray-cast (the
+        // OTHER 4 callers of this class are all real picking, confirmed via
+        // full call-site audit) needs "does real geometry exist here",
+        // not "was this in the avatar's view frustum this exact frame" - no
+        // single camera position can ever have all of a room's walls in
+        // frustum at once, so that ray-cast was structurally guaranteed to
+        // treat un-currently-visible walls as empty space, live-confirmed
+        // in-world to place an automatic probe's origin entirely outside
+        // its building. mIgnoreVisibility (default false, so every existing
+        // caller is unaffected) lets that one caller opt out of just this
+        // check while keeping the hasRenderType() filter, which reflects a
+        // deliberate, intentional render-type mask rather than transient
+        // staleness.
+        if (!drawable || !gPipeline.hasRenderType(drawable->getRenderType()) || (!mIgnoreVisibility && !drawable->isVisible()))
         {
             return false;
         }
@@ -3811,11 +3837,12 @@ LLDrawable* LLSpatialPartition::lineSegmentIntersect(const LLVector4a& start, co
                                                      LLVector4a* intersection,         // return the intersection point
                                                      LLVector2* tex_coord,            // return the texture coordinates of the intersection point
                                                      LLVector4a* normal,               // return the surface normal at the intersection point
-                                                     LLVector4a* tangent            // return the surface tangent at the intersection point
+                                                     LLVector4a* tangent,            // return the surface tangent at the intersection point
+                                                     bool ignore_visibility
     )
 
 {
-    LLOctreeIntersect intersect(start, end, pick_transparent, pick_rigged, pick_unselectable, pick_reflection_probe, face_hit, intersection, tex_coord, normal, tangent);
+    LLOctreeIntersect intersect(start, end, pick_transparent, pick_rigged, pick_unselectable, pick_reflection_probe, face_hit, intersection, tex_coord, normal, tangent, ignore_visibility);
     LLDrawable* drawable = intersect.check(mOctree);
 
     return drawable;
@@ -3830,11 +3857,12 @@ LLDrawable* LLSpatialGroup::lineSegmentIntersect(const LLVector4a& start, const 
     LLVector4a* intersection,         // return the intersection point
     LLVector2* tex_coord,            // return the texture coordinates of the intersection point
     LLVector4a* normal,               // return the surface normal at the intersection point
-    LLVector4a* tangent         // return the surface tangent at the intersection point
+    LLVector4a* tangent,         // return the surface tangent at the intersection point
+    bool ignore_visibility
 )
 
 {
-    LLOctreeIntersect intersect(start, end, pick_transparent, pick_rigged, pick_unselectable, pick_reflection_probe, face_hit, intersection, tex_coord, normal, tangent);
+    LLOctreeIntersect intersect(start, end, pick_transparent, pick_rigged, pick_unselectable, pick_reflection_probe, face_hit, intersection, tex_coord, normal, tangent, ignore_visibility);
     LLDrawable* drawable = intersect.check(getOctreeNode());
 
     return drawable;

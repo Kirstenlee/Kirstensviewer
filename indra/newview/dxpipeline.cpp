@@ -690,28 +690,22 @@ void DXPipeline::renderGeomPostDeferred(LLPipeline& pipeline, LLCamera& camera)
     // leading suspect for "attaching a HUD obliterates the UI."
     gDX.setColorMask(true, true);
 
-    // S24 (2026-08-11, task #156, SSR milestone 1): GL's own
-    // renderGeomPostDeferred() (pipeline.cpp ~9467-9476) ends with this
-    // exact capture - "this is the end of the 3D scene render, grab a
-    // copy of the modelview and projection matrix for use in off-by-one-
-    // frame effects in the next frame" - but that whole GL body (this
-    // function's own early-return redirect target) never runs under
-    // DX_RENDER, so gGLLastModelView/gGLLastProjection were never updated
-    // here, staying at whatever they were last set to (never, on a pure
-    // DX_RENDER session) regardless of camera movement. screenSpaceReflUtil.hlsl's
-    // real ray-march (once ported) needs a genuine frame-to-frame camera
-    // delta for this exact reason - get_last_modelview()/get_current_modelview()
-    // (llrender.cpp) are the same backend-agnostic accessors GL's own code
-    // would read from here, so mirroring this capture is sufficient - no
-    // new state needed, just make sure it actually gets taken each frame.
-    if (!gCubeSnapshot)
-    {
-        for (U32 i = 0; i < 16; i++)
-        {
-            gGLLastModelView[i] = gGLModelView[i];
-            gGLLastProjection[i] = gGLProjection[i];
-        }
-    }
+    // S24 (2026-09-09, SSAO flicker investigation): the gGLLastModelView/
+    // gGLLastProjection "advance to current, for next frame's reprojection"
+    // capture that used to live here was moved to the single real end-of-
+    // world-scene point, DXPipeline::renderDeferredLighting()'s own tail
+    // (right after this function's OWN call from there returns) - see that
+    // call site's comment for why. This function runs from too many
+    // different contexts (the main world camera, EARLY, from
+    // llviewerdisplay.cpp; the main world camera again, LATE, from
+    // renderDeferredLighting() below; and the HUD camera, from
+    // render_hud_attachments()) to safely own a "the real frame's camera
+    // just finished" side effect - the HUD-camera call in particular was
+    // clobbering gGLLastModelView with the HUD's own matrix every single
+    // frame, AFTER the main scene, so anything reprojecting off "last
+    // frame's real camera" (SSAO's temporal resolve, task #190; SSR's ray
+    // march) was silently working off the previous frame's HUD transform
+    // instead of the previous frame's WORLD camera - a real, confirmed bug.
 }
 
 namespace
@@ -869,7 +863,7 @@ namespace
             gDeferredPostNoDoFNoiseProgram.bindTexture(LLShaderMgr::DEFERRED_DIFFUSE, src);
             gDeferredPostNoDoFNoiseProgram.bindTexture(LLShaderMgr::DEFERRED_DEPTH, &pipeline.mRT->deferredScreen, true);
             gDeferredPostNoDoFNoiseProgram.uniform2f(LLShaderMgr::DEFERRED_SCREEN_RES,
-                (GLfloat)src->getWidth(), (GLfloat)src->getHeight());
+                (F32)src->getWidth(), (F32)src->getHeight());
 
             {
                 LLGLDepthTest depth_test(GL_TRUE, GL_TRUE, GL_ALWAYS);
@@ -1060,7 +1054,7 @@ void DXPipeline::presentDeferredScreen(LLPipeline& pipeline)
 
             gamma_shader.bind();
             gamma_shader.bindTexture(LLShaderMgr::DEFERRED_DIFFUSE, &pipeline.mRT->screen, false, LLTexUnit::TFO_POINT);
-            gamma_shader.uniform2f(LLShaderMgr::DEFERRED_SCREEN_RES, (GLfloat)pipeline.mRT->screen.getWidth(), (GLfloat)pipeline.mRT->screen.getHeight());
+            gamma_shader.uniform2f(LLShaderMgr::DEFERRED_SCREEN_RES, (F32)pipeline.mRT->screen.getWidth(), (F32)pipeline.mRT->screen.getHeight());
 
             // S24 (task #164): matches LLPipeline::gammaCorrect()'s own
             // shader (postDeferredGammaCorrect.hlsl) not declaring/using
@@ -2260,8 +2254,8 @@ void DXPipeline::renderDeferredLighting(LLPipeline& pipeline)
                         U32 idx = fs_count - 1;
                         pipeline.bindDeferredShader(gDeferredMultiLightProgram[idx]);
                         gDeferredMultiLightProgram[idx].uniform1i(LLShaderMgr::MULTI_LIGHT_COUNT, fs_count);
-                        gDeferredMultiLightProgram[idx].uniform4fv(LLShaderMgr::MULTI_LIGHT, fs_count, (GLfloat*)light_arr);
-                        gDeferredMultiLightProgram[idx].uniform4fv(LLShaderMgr::MULTI_LIGHT_COL, fs_count, (GLfloat*)col_arr);
+                        gDeferredMultiLightProgram[idx].uniform4fv(LLShaderMgr::MULTI_LIGHT, fs_count, (F32*)light_arr);
+                        gDeferredMultiLightProgram[idx].uniform4fv(LLShaderMgr::MULTI_LIGHT_COL, fs_count, (F32*)col_arr);
                         gDeferredMultiLightProgram[idx].uniform1f(LLShaderMgr::MULTI_LIGHT_FAR_Z, far_z);
                         gDeferredMultiLightProgram[idx].uniform1i(LLShaderMgr::CLASSIC_MODE, (psky && psky->canAutoAdjust()) ? 1 : 0);
                         far_z = 0.f;
@@ -2369,4 +2363,30 @@ void DXPipeline::renderDeferredLighting(LLPipeline& pipeline)
     // writes to it regardless of whether local_light_count gates the local-
     // lights block off.
     screen_target->flush();
+
+    // S24 (2026-09-09, SSAO flicker investigation, task #190 follow-up):
+    // "advance last-frame's camera to this frame's, for next frame's
+    // reprojection" - moved here (the single real end of the WORLD-camera
+    // scene render) from inside renderGeomPostDeferred(), which is also
+    // called from llviewerdisplay.cpp for an EARLY, now-superseded world-
+    // camera pass (before this function's own SSAO-temporal-resolve block
+    // above even ran, which was clobbering gGLLastModelView/gGLLastProjection
+    // to THIS frame's own value before this frame's SSAO temporal resolve
+    // could read the real previous frame's value - making its reprojection
+    // delta identity, i.e. no motion compensation at all) and from
+    // render_hud_attachments() (with the HUD camera, AFTER this function -
+    // clobbering the value AGAIN with the HUD's transform, so even the
+    // NEXT frame's SSAO/SSR reprojection was working off last frame's HUD
+    // matrix instead of the world camera). Doing it here instead - once,
+    // with the real world camera, after every in-frame consumer of "last
+    // frame's real camera" has already run, before render_hud_attachments()
+    // gets a chance to run later in display() - is the single correct point.
+    if (!gCubeSnapshot)
+    {
+        for (U32 i = 0; i < 16; i++)
+        {
+            gGLLastModelView[i] = gGLModelView[i];
+            gGLLastProjection[i] = gGLProjection[i];
+        }
+    }
 }

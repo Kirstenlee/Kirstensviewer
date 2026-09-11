@@ -31,6 +31,7 @@
 #include "llrender.h"
 
 #include "llvoavatar.h"
+#include "llcharacter.h"
 #include "m3math.h"
 #include "llmatrix4a.h"
 
@@ -279,8 +280,97 @@ void LLDrawPoolAvatar::renderPostDeferred(S32 pass)
     else
     {
         render(2);
+        // S24 (2026-09-10): jelly-doll ghosts - not part of render(2)'s own
+        // per-face avatar iteration (jelly dolls have no real rigged faces
+        // assigned to this pool by design), so a separate draw. Skipped
+        // during LLPipeline::sImpostorRender (baking another avatar's OWN
+        // impostor) - a jelly-dolled avatar visible in the background of
+        // someone else's bake should still read as opaque grey there,
+        // consistent with how the old pass-0 impostor draw behaved.
+        renderJellyDollGhosts();
     }
     is_post_deferred_render = false;
+}
+
+void LLDrawPoolAvatar::renderJellyDollGhosts()
+{
+    LL_PROFILE_ZONE_SCOPED_CATEGORY_AVATAR;
+
+    std::vector<LLVOAvatar*> ghosts;
+    for (LLCharacter* character : LLCharacter::sInstances)
+    {
+        LLVOAvatar* avatarp = dynamic_cast<LLVOAvatar*>(character);
+        if (avatarp && !avatarp->isDead() && avatarp->mDrawable.notNull()
+            && avatarp->getOverallAppearance() == LLVOAvatar::AOA_JELLYDOLL
+            && avatarp->mImpostor.isComplete())
+        {
+            ghosts.push_back(avatarp);
+        }
+    }
+
+    if (ghosts.empty())
+    {
+        return;
+    }
+
+    // Save/restore whatever shader was bound (gDeferredAvatarAlphaProgram,
+    // bound by beginPostDeferredPass() just before renderPostDeferred()
+    // runs) - same pattern dxdrawpoolalpha.cpp's own emissive sub-passes
+    // use for a temporary mid-pass shader swap. endPostDeferredPass() still
+    // expects sVertexProgram (unchanged, still &gDeferredAvatarAlphaProgram)
+    // to be the actually-bound shader when it unbinds - must be restored
+    // before returning.
+    LLHLSLShader* lastShader = LLHLSLShader::sCurBoundShaderPtr;
+
+    gDeferredJellyGhostProgram.bind();
+    S32 diffuse_channel = gDeferredJellyGhostProgram.enableTexture(LLViewerShaderMgr::DIFFUSE_MAP);
+    gDeferredJellyGhostProgram.setMinimumAlpha(0.01f);
+
+    static LLStaticHashedString sBaseColor("jelly_base_color");
+    static LLStaticHashedString sBaseAlpha("jelly_base_alpha");
+    static LLStaticHashedString sRimColor("jelly_rim_color");
+    static LLStaticHashedString sRimIntensity("jelly_rim_intensity");
+    static LLStaticHashedString sRimWidth("jelly_rim_width");
+
+    static LLCachedControl<LLColor4> base_color(gSavedSettings, "RenderJellyGhostBaseColor", LLColor4(0.f, 0.f, 0.f, 1.f));
+    static LLCachedControl<F32> base_alpha(gSavedSettings, "RenderJellyGhostBaseAlpha", 0.2f);
+    static LLCachedControl<LLColor4> rim_color(gSavedSettings, "RenderJellyGhostRimColor", LLColor4(0.7f, 0.85f, 1.f, 1.f));
+    static LLCachedControl<F32> rim_intensity(gSavedSettings, "RenderJellyGhostRimIntensity", 1.2f);
+    static LLCachedControl<F32> rim_width(gSavedSettings, "RenderJellyGhostRimWidth", 12.f);
+
+    gDeferredJellyGhostProgram.uniform3fv(sBaseColor, 1, LLColor4(base_color).mV);
+    gDeferredJellyGhostProgram.uniform1f(sBaseAlpha, base_alpha);
+    gDeferredJellyGhostProgram.uniform3fv(sRimColor, 1, LLColor4(rim_color).mV);
+    gDeferredJellyGhostProgram.uniform1f(sRimIntensity, rim_intensity);
+    gDeferredJellyGhostProgram.uniform1f(sRimWidth, rim_width);
+
+    {
+        // Real translucent draw - depth-TESTED (correctly occluded behind
+        // walls/other opaque geometry) but not depth-WRITTEN, the standard
+        // convention for alpha-blended content in this engine (matches
+        // dxdrawpoolalpha.cpp's own emissive passes).
+        LLGLEnable blend(GL_BLEND);
+        gDX.setSceneBlendType(LLRender::BT_ALPHA);
+        LLGLDepthTest depth(GL_TRUE, GL_FALSE);
+
+        for (LLVOAvatar* avatarp : ghosts)
+        {
+            // Color is white/opaque here deliberately - jellyGhostF.hlsl
+            // computes its own final color entirely from the uniforms
+            // above, not from this per-vertex tint (unlike the opaque
+            // impostor path, which used this color to stomp the whole
+            // quad - see gDX.color4ubv(color.mV) inside renderImpostor()).
+            avatarp->renderImpostor(LLColor4U(255, 255, 255, 255), diffuse_channel);
+        }
+    }
+
+    gDeferredJellyGhostProgram.disableTexture(LLViewerShaderMgr::DIFFUSE_MAP);
+    gDeferredJellyGhostProgram.unbind();
+
+    if (lastShader)
+    {
+        lastShader->bind();
+    }
 }
 
 
@@ -785,18 +875,28 @@ void LLDrawPoolAvatar::renderAvatars(LLVOAvatar* single_avatar, S32 pass)
 //      if (impostor || (LLVOAvatar::AV_DO_NOT_RENDER == avatarp->getVisualMuteSettings() && !avatarp->needsImpostorUpdate()))
         if (impostor || (LLVOAvatar::AOA_NORMAL != avatarp->getOverallAppearance() && !avatarp->needsImpostorUpdate()))
         {
-            if (LLPipeline::sRenderDeferred && !LLPipeline::sReflectionRender && avatarp->mImpostor.isComplete())
+            // S24 (2026-09-10): jelly-dolled avatars no longer draw their
+            // opaque impostor here at all - they're drawn as a real
+            // alpha-blended "ghost" instead, in the post-deferred pass
+            // (see LLDrawPoolAvatar::renderJellyDollGhosts(), called from
+            // renderPostDeferred()). Ordinary distance-LOD impostors
+            // (AOA_NORMAL, impostor==true) are unaffected - still opaque,
+            // still drawn here exactly as before.
+            if (avatarp->getOverallAppearance() != LLVOAvatar::AOA_JELLYDOLL)
             {
-                if (normal_channel > -1)
+                if (LLPipeline::sRenderDeferred && !LLPipeline::sReflectionRender && avatarp->mImpostor.isComplete())
                 {
-                    avatarp->mImpostor.bindTexture(2, normal_channel);
+                    if (normal_channel > -1)
+                    {
+                        avatarp->mImpostor.bindTexture(2, normal_channel);
+                    }
+                    if (specular_channel > -1)
+                    {
+                        avatarp->mImpostor.bindTexture(1, specular_channel);
+                    }
                 }
-                if (specular_channel > -1)
-                {
-                    avatarp->mImpostor.bindTexture(1, specular_channel);
-                }
+                avatarp->renderImpostor(avatarp->getMutedAVColor(), sDiffuseChannel);
             }
-            avatarp->renderImpostor(avatarp->getMutedAVColor(), sDiffuseChannel);
         }
         return;
     }

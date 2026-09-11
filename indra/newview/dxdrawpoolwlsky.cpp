@@ -49,6 +49,13 @@ namespace
 {
     LLStaticHashedString sCamPosLocal("camPosLocal");
     LLStaticHashedString sCustomAlpha("custom_alpha");
+    // S24 (2026-09-05): nebula/shooting-star daylight gate - real sun
+    // elevation (LLSettingsSky::getSunDirection().mV[2], 0 at the horizon)
+    // rather than the active preset's Star Brightness curve (custom_alpha),
+    // which a bright moon can push low enough to hide them even when the
+    // sun is still well below the horizon. Point stars keep using
+    // custom_alpha, unaffected by this - see starsF.hlsl's own comment.
+    LLStaticHashedString sSunElevation("sun_elevation");
 
     // S24 (task #279 stage 2, "RENDER WOW"): KVTweaks-exposed night-sky
     // controls - see starsF.hlsl for consumption and settings.xml for the
@@ -221,14 +228,25 @@ namespace
         constexpr F32 STAR_BRIGHTNESS_SCALE = 500.0f;
         F32 star_alpha = LLEnvironment::instance().getCurrentSky()->getStarBrightness() / STAR_BRIGHTNESS_SCALE;
 
+        // S24 (2026-09-05): sun elevation for the nebula's own daylight gate
+        // (starsF.hlsl's sun_elevation_factor) - real geometry, independent
+        // of the preset's Star Brightness curve. See sSunElevation's own
+        // comment for why.
+        F32 sun_elevation = LLEnvironment::instance().getCurrentSky()->getSunDirection().mV[2];
+
         if (LLPipeline::sReflectionRender)
         {
             star_alpha = 1.0f;
+            sun_elevation = -1.0f; // always show for reflection-probe captures
         }
 
-        if (star_alpha < 0.001f)
+        // Only skip the whole draw (point stars AND nebula share this call)
+        // if NEITHER would be visible - point stars via star_alpha, nebula
+        // via sun elevation (0.15 matches starsF.hlsl's own upper fade
+        // threshold, beyond which sun_elevation_factor is exactly 0).
+        if (star_alpha < 0.001f && sun_elevation >= 0.15f)
         {
-            LL_DEBUGS("SKY") << "star_brightness below threshold." << LL_ENDL;
+            LL_DEBUGS("SKY") << "star_brightness below threshold and sun is up." << LL_ENDL;
             return;
         }
 
@@ -279,6 +297,7 @@ namespace
 
         gDeferredStarProgram.uniform1f(LLShaderMgr::BLEND_FACTOR, blend_factor);
         gDeferredStarProgram.uniform1f(sCustomAlpha, star_alpha);
+        gDeferredStarProgram.uniform1f(sSunElevation, sun_elevation);
 
         sStarTime = (F32)LLFrameTimer::getElapsedSeconds() * 0.5f;
         gDeferredStarProgram.uniform1f(LLShaderMgr::WATER_TIME, sStarTime);
@@ -335,15 +354,20 @@ namespace
         // renderStarsDeferred()'s own star_alpha computation above in this
         // file - same reasoning, same early-out threshold, but only skips
         // the draw (see comment above on why the update stays unconditional).
-        constexpr F32 STAR_BRIGHTNESS_SCALE = 500.0f;
-        F32 star_alpha = LLEnvironment::instance().getCurrentSky()->getStarBrightness() / STAR_BRIGHTNESS_SCALE;
+        // S24 (2026-09-05 follow-up): user report - a bright moon could push
+        // the preset's Star Brightness curve (star_alpha) low enough to
+        // "eradicate" shooting stars even with the sun still well below the
+        // horizon, since that curve is artist-authored content, not an
+        // actual measure of whether the sun is up. Switched entirely to
+        // real sun elevation - see sSunElevation's own comment.
+        F32 sun_elevation = LLEnvironment::instance().getCurrentSky()->getSunDirection().mV[2];
 
         if (LLPipeline::sReflectionRender)
         {
-            star_alpha = 1.0f;
+            sun_elevation = -1.0f; // always show for reflection-probe captures
         }
 
-        if (star_alpha < 0.001f)
+        if (sun_elevation >= 0.15f) // matches starsShootingF.hlsl's own upper fade threshold
         {
             return;
         }
@@ -356,7 +380,7 @@ namespace
         gDX.pushMatrix();
         gDX.translatef(camPosLocal.mV[0], camPosLocal.mV[1], camPosLocal.mV[2]);
 
-        gDeferredStarShootingProgram.uniform1f(sCustomAlpha, star_alpha);
+        gDeferredStarShootingProgram.uniform1f(sSunElevation, sun_elevation);
 
         gSky.mVOWLSkyp->drawShootingStars();
 
@@ -379,6 +403,32 @@ namespace
             LLSettingsSky::ptr_t psky = LLEnvironment::instance().getCurrentSky();
 
             LLGLSPipelineBlendSkyBox pipeline_state(true, true);
+
+            // S24 (2026-09-05): this never set its own blend function -
+            // LLGLSPipelineBlendSkyBox's mBlend only toggles blending ON,
+            // it doesn't choose additive vs. alpha (that's a separate piece
+            // of state, LLRender::blendFunc(), which only re-applies when
+            // the factors actually CHANGE from whatever's cached). Clouds
+            // are drawn right after the star/shooting-star passes, both of
+            // which explicitly set BT_ADD_WITH_ALPHA - with nothing here to
+            // override it, clouds were silently inheriting that additive
+            // blend instead of the standard over-blend cloudsF.hlsl is
+            // actually written for (float4(color.rgb, alpha1), a plain
+            // opacity). Under additive blend a fully-opaque cloud ADDS its
+            // color instead of REPLACING what's behind it - including the
+            // data2 G-buffer flag channel the deferred lighting pass reads
+            // to know a pixel is a self-lit star (skip normal atmospheric
+            // compositing) - so a cloud drawn over a star never cleared
+            // that flag, leaving the lighting pass treating a now-cloud-
+            // covered pixel as if it were still a star with mismatched
+            // color data underneath. Set explicitly here so cloud
+            // correctness no longer depends on what the previous pass
+            // happened to leave active. (The actual root cause of "black
+            // dots under clouds" turned out to be a separate, pre-existing
+            // bug - task #312, cloudsF.hlsl's alpha1 not re-clamped after
+            // the RenderCloudLayerOpacity multiply, fixed in r3750 - but
+            // this blend-state fix is independently correct and kept.)
+            gDX.setSceneBlendType(LLRender::BT_ALPHA);
 
             cloudshader->bind();
 

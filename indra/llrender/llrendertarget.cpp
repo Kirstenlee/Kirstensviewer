@@ -583,6 +583,20 @@ void LLRenderTarget::release()
 	llassert(!isBoundInStack());
 
 #ifdef DX_RENDER
+	// S24 (2026-09-08, task #316): was missing `mUseDepth = false;` -
+	// isComplete() (below) returns `mDXRenderTarget.getNumColorAttachments()
+	// > 0 || mUseDepth`, so once any caller ever allocate()'d this target
+	// with depth=true (setting mUseDepth=true), a later release() cleared
+	// the real DX-side color attachment but left mUseDepth stale-true,
+	// making isComplete() permanently lie "yes, still complete" even though
+	// the actual color texture is gone. Any caller gated on
+	// `if (!isComplete()) allocate(...)` (e.g.
+	// LLHeroProbeManager::update()'s own mRenderTarget rebuild) would then
+	// never reallocate again for the rest of the process - confirmed live
+	// via direct GPU readback (getDXColorTexture(0) returning null) as the
+	// real root cause of hero-probe mirrors working exactly once per
+	// process then permanently failing on any later reset/reallocation.
+	mUseDepth = false;
 	mDXRenderTarget.release();
 	mTex.clear();
 	mInternalFormat.clear();
@@ -831,6 +845,13 @@ void LLRenderTarget::bindTexture(U32 index, S32 channel, LLTexUnit::eTextureFilt
 	{
 		gDXDevice.getContext()->PSSetSamplers(channel, 1, &sampler);
 	}
+	// S24 (2026-09-10, task #273/#280): close the cache-desync gap the
+	// comment above has been documenting since task #254 - tell this
+	// channel's LLTexUnit what's really bound now, so a later bind()/
+	// bindFast() call for the same channel can't be fooled by stale
+	// bookkeeping into wrongly skipping a real rebind. Pure bookkeeping,
+	// changes no GPU state - the PSSet calls above are unchanged.
+	gDX.getTexUnit(channel)->syncDXBindState((void*)srv, (void*)sampler);
 #else
 	gDX.getTexUnit(channel)->bindManual(mUsage, getTexture(index), filter_options == LLTexUnit::TFO_TRILINEAR || filter_options == LLTexUnit::TFO_ANISOTROPIC);
 	gDX.getTexUnit(channel)->setTextureFilteringOption(filter_options);

@@ -2047,10 +2047,50 @@ LLTextureCache::handle_t LLTextureCache::writeToCache(const LLUUID& id,
         purgeTexturesLazy(TEXTURE_LAZY_PURGE_TIME_LIMIT);
         mDoPurge = !mPurgeEntryList.empty();
     }
+
+    // S24 (2026-09-10): give the async disk-cache write its own private copy
+    // of the pixel data instead of sharing the caller's LLPointer. rawimage
+    // here is always ALSO still held by the texture fetch worker's own
+    // mRawImage member (lltexturefetch.cpp) - the main thread legitimately
+    // grabs a second reference to that same object via
+    // LLTextureFetch::getRequestFinished() and can mutate/free it (e.g.
+    // LLImageRaw::deleteData(), once its GPU upload is done) completely
+    // independently of whether this write has actually reached the front of
+    // the (separate, async) texture-cache worker thread's queue yet. A
+    // refcount-gated duplicate() (as writeToFastCache() below already uses,
+    // for a different reason) is NOT safe here: at the moment writeToCache()
+    // is called, rawimage's refcount is almost always still 1 - the sharing
+    // with the main thread happens strictly AFTER this call returns, so a
+    // refcount check right now can never catch it. Only an unconditional,
+    // immediate deep copy - taken under LLImageRaw's own data lock so it
+    // can't race an in-progress deleteData() either - guarantees the write
+    // path ends up with pixel data nothing else can ever touch. This closes
+    // the race that was producing a flood of harmless-but-wasteful
+    // "INIT state check failed: isBufferInvalid()" warnings (task #322) -
+    // every texture that lost the race never made it into the on-disk
+    // cache and had to be fully re-fetched next time it was needed.
+    LLPointer<LLImageRaw> cache_rawimage;
+    if (rawimage.notNull())
+    {
+        LLImageDataSharedLock lock(rawimage);
+        if (!rawimage->isBufferInvalid())
+        {
+            cache_rawimage = new LLImageRaw(rawimage->getData(), rawimage->getWidth(),
+                                             rawimage->getHeight(), rawimage->getComponents());
+        }
+    }
+    if (cache_rawimage.isNull())
+    {
+        // rawimage was already null/invalid before we ever got a chance to
+        // copy it - fall through with the original so the worker's own
+        // INIT state check still rejects it exactly as before this fix.
+        cache_rawimage = rawimage;
+    }
+
     LLMutexLock lock(&mWorkersMutex);
     LLTextureCacheWorker* worker = new LLTextureCacheRemoteWorker(this, id,
                                                                   data, datasize, 0,
-                                                                  imagesize, rawimage, discardlevel, responder);
+                                                                  imagesize, cache_rawimage, discardlevel, responder);
     handle_t handle = worker->write();
     mWriters[handle] = worker;
     return handle;

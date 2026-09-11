@@ -356,7 +356,7 @@ WorkQueue gMainloopWork("mainloop", 1024 * 1024);
 
 ////////////////////////////////////////////////////////////
 // Internal globals
-static std::string gArgs = "DX(3745) - Hradr"; // S24 My Build Number! KL
+static std::string gArgs = "DX (3784) - Hradr"; // S24 My Build Number! KL
 const int MAX_MARKER_LENGTH = 1024;
 const std::string MARKER_FILE_NAME("KirstensS24.exec_marker");
 const std::string START_MARKER_FILE_NAME("KirstensS24.start_marker");
@@ -539,7 +539,10 @@ static void settings_to_globals()
 	// sDebugLayerEnabled above.
 	DXShader::sShaderCacheEnabled = gSavedSettings.getBOOL("RenderDXShaderCacheEnabled");
 	LLImageGL::sGlobalUseAnisotropic = gSavedSettings.getBOOL("RenderAnisotropic");
-	LLImageGL::sCompressTextures = gSavedSettings.getBOOL("RenderCompressTextures");
+	// S24 (2026-09-09, task #318): LLImageGL::sCompressTextures (the GL-era
+	// driver-hint compression path) is gone - RenderCompressTextures now
+	// drives the real BC7 pipeline instead (DXBC7UploadManager::requestUpgrade(),
+	// read directly from gSavedSettings there rather than cached here).
 	LLVOVolume::sLODFactor = llclamp(gSavedSettings.getF32("RenderVolumeLODFactor"), 0.01f, MAX_LOD_FACTOR);
 	LLVOVolume::sDistanceFactor = 1.f - LLVOVolume::sLODFactor * 0.1f;
 	LLVolumeImplFlexible::sUpdateFactor = gSavedSettings.getF32("RenderFlexTimeFactor");

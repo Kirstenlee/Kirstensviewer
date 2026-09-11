@@ -51,7 +51,23 @@ struct VSInput
     float3 position : POSITION;
     float3 normal : NORMAL;
     float4 tangent : TANGENT;
-    float4 diffuse_color : COLOR0;
+    // S24 (2026-09-10): was `float4 diffuse_color : COLOR0;` - never read
+    // anywhere in main() below (confirmed: neither this file nor
+    // pbrterrainF.hlsl reference it). HLSL keeps every semantic-tagged
+    // input-struct field in the compiled vertex shader's input signature
+    // regardless of whether the body uses it, so this dead field forced
+    // every PBR terrain permutation's compiled bytecode to REQUIRE a
+    // COLOR0 vertex element - but LLDrawPoolTerrain::VERTEX_DATA_MASK
+    // (lldrawpoolterrain.h) has never included MAP_COLOR, so the C++ side
+    // never supplied one. Real, confirmed bug: DXVertexLayout::getOrCreate()
+    // (dxrender/resources/DXVertexLayout.cpp) failed CreateInputLayout()
+    // with E_INVALIDARG for every PBR terrain shader permutation (log-
+    // confirmed for "Deferred PBR Terrain Shader 0 heightmap-with-noise
+    // flat", hr=0x80070057) - silently, no crash, just every draw call
+    // using that layout becoming a no-op (IASetInputLayout(nullptr) is a
+    // legal call; subsequent draws with no bound input layout are just
+    // dropped). PBR terrain never actually rendered. Removing the unused
+    // field drops the COLOR0 requirement entirely.
 #if TERRAIN_PAINT_TYPE == TERRAIN_PAINT_TYPE_HEIGHTMAP_WITH_NOISE
     float2 texcoord1 : TEXCOORD1;
 #endif

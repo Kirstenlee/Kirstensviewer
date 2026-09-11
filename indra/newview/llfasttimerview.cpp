@@ -1113,7 +1113,7 @@ void LLFastTimerView::drawLineGraph()
                 break;
             }
             gDX.vertex2f(x,y);
-            gDX.vertex2f(x,(GLfloat)mGraphRect.mBottom);
+            gDX.vertex2f(x,(F32)mGraphRect.mBottom);
         }
         gDX.end();
 

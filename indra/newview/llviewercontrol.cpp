@@ -481,6 +481,23 @@ static bool handleReflectionProbeDetailChanged(const LLSD& newvalue)
         LLPipeline::refreshCachedSettings();
         gPipeline.mReflectionMapManager.reset();
         gPipeline.mHeroProbeManager.reset();
+
+        // S24 (2026-09-08, task #316): re-arm the one-time shader-reload
+        // workaround (LLHeroProbeManager::update(), "hacky workaround to
+        // fix #3331") only on a genuine RenderMirrors off->on transition -
+        // this handler is shared by several settings (probe level/detail,
+        // SSR, reflections-enabled) that don't need the ~19s synchronous
+        // reload repeated every time they change. Tracked locally since
+        // this callback only receives the fired control's own new value,
+        // not which control fired.
+        static bool s_wasMirrorsOn = gSavedSettings.getBOOL("RenderMirrors");
+        bool nowMirrorsOn = gSavedSettings.getBOOL("RenderMirrors");
+        if (nowMirrorsOn && !s_wasMirrorsOn)
+        {
+            gPipeline.mHeroProbeManager.requireShaderReinit();
+        }
+        s_wasMirrorsOn = nowMirrorsOn;
+
         gPipeline.releaseGLBuffers();
         gPipeline.createGLBuffers();
         // Defer shader reload to avoid blocking main thread
@@ -500,10 +517,30 @@ static bool handleHeroProbeResolutionChanged(const LLSD &newvalue)
 {
     if (gPipeline.isInit())
     {
+        // S24 (2026-09-07, task #316): this handler used to tear down and
+        // rebuild the ENTIRE pipeline's render targets
+        // (releaseGLBuffers()/createGLBuffers() - deferred screen, shadow
+        // maps, SSAO, glow, all of it) for a setting that only affects the
+        // hero-probe/mirror subsystem specifically. Compare
+        // handleReflectionProbeCountChanged just above - the analogous
+        // handler for the non-hero reflection-probe-count setting - which
+        // only calls its own manager's refreshSettings(), nothing
+        // pipeline-wide. gPipeline.mHeroProbeManager.reset() is already
+        // fully self-contained: it nulls and rebuilds the hero-probe
+        // texture, mip chain, vertex buffer, and probe list on its own,
+        // with no dependency on the main pipeline's screen buffers.
         LLPipeline::refreshCachedSettings();
         gPipeline.mHeroProbeManager.reset();
-        gPipeline.releaseGLBuffers();
-        gPipeline.createGLBuffers();
+
+        // S24 (2026-09-08, task #316): a resolution change replaces the
+        // hero-probe texture itself (new size, new underlying resource) -
+        // shaders/texture-unit bindings referencing the OLD texture must be
+        // rebound regardless of the extra ~19s synchronous cost, same as a
+        // genuine off->on activation.
+        if (LLPipeline::RenderMirrors)
+        {
+            gPipeline.mHeroProbeManager.requireShaderReinit();
+        }
     }
     return true;
 }

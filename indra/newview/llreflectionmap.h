@@ -97,6 +97,24 @@ public:
     // radius of this probe's affected area
     F32 mRadius = 16.f;
 
+    // S24 (2026-09-05, task #271 - real fix, not a workaround): for a BOX-
+    // shaped manual probe, mRadius above is the DIAGONAL half-length
+    // (getBox()/autoAdjustOrigin()'s `s.magVec()`) - a single scalar
+    // collapsed from the box's real, usually-anisotropic per-axis half-
+    // extent, used correctly as a parallax-correction/weight radius
+    // elsewhere, but WRONG as an occlusion-query proxy box size (doOcclusion()
+    // used to pass mRadius,mRadius,mRadius as BOX_SIZE - an isotropic cube
+    // for what's usually a non-cubic room, e.g. wide/long with a modest
+    // ceiling height, drawing a proxy far larger than the real room in its
+    // shorter axis and producing unreliable, frequently-false-occluded query
+    // results). Stores the REAL per-axis half-extent (box probes only -
+    // stays 0 for sphere/automatic probes, where mRadius,mRadius,mRadius IS
+    // the correct isotropic proxy, matching this project's established
+    // pattern for LLOcclusionCullingGroup's spatial-partition occlusion,
+    // llvieweroctree.cpp, which always uses real per-axis bounds, never a
+    // collapsed radius).
+    LLVector4a mBoxExtent;
+
     // last time this probe was updated (or when its update timer got reset)
     F32 mLastUpdateTime = 0.f;
 

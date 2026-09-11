@@ -309,7 +309,16 @@ public:
         LLVector4a* intersection = NULL,         // return the intersection point
         LLVector2* tex_coord = NULL,            // return the texture coordinates of the intersection point
         LLVector4a* normal = NULL,               // return the surface normal at the intersection point
-        LLVector4a* tangent = NULL             // return the surface tangent at the intersection point
+        LLVector4a* tangent = NULL,             // return the surface tangent at the intersection point
+        // S24 (2026-09-06, task #271): when true, skip the drawable->isVisible()
+        // early-out - see LLOctreeIntersect::check(LLViewerOctreeEntry*)'s own
+        // comment (llspatialpartition.cpp) for why that check is unsafe for
+        // anything that isn't real screen-picking (isVisible() is a stale,
+        // camera-cull-history-dependent flag, not a geometric fact). Defaults
+        // to false so every existing caller (real mouse-picking/selection) is
+        // unaffected; only LLReflectionMap::autoAdjustOrigin()'s placement
+        // ray-cast passes true.
+        bool ignore_visibility = false
     );
 
 
@@ -387,7 +396,12 @@ public:
                                      LLVector4a* intersection = NULL,         // return the intersection point
                                      LLVector2* tex_coord = NULL,            // return the texture coordinates of the intersection point
                                      LLVector4a* normal = NULL,               // return the surface normal at the intersection point
-                                     LLVector4a* tangent = NULL             // return the surface tangent at the intersection point
+                                     LLVector4a* tangent = NULL,             // return the surface tangent at the intersection point
+                                     // S24 (2026-09-06, task #271): see the
+                                     // LLSpatialGroup overload's matching
+                                     // comment above - same flag, threaded
+                                     // through to the same LLOctreeIntersect.
+                                     bool ignore_visibility = false
         );
 
 

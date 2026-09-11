@@ -868,8 +868,30 @@ void LLViewerObjectList::update(LLAgent& agent)
 	U32 idle_count = 0;
 	mNumAvatars = 0;
 
-	// Reserve space upfront to avoid reallocations during iteration
-	idle_list.reserve(mActiveObjects.size());
+	static LLCachedControl<bool> freeze_time(gSavedSettings, "FreezeTime");
+
+	// S24 (2026-09-06, perf): fused what used to be two separate linear
+	// passes over the active-object list into one - this loop used to only
+	// build idle_list, with a second pass further down re-walking idle_list
+	// to filter non-avatars into nonavatar_idle_list. Building both here
+	// avoids a redundant full iteration+branch over every active object.
+	// Also fixes a real (if harmless in every current STL implementation)
+	// UB: idle_list used to be reserve()'d then written via operator[] -
+	// valid within capacity() but past size(), which every real vector
+	// implementation tolerates (contiguous storage to capacity regardless
+	// of size) but is undefined per the standard, and would break under
+	// checked/debug iterators. resize() up front makes idle_list[idle_count]
+	// a genuinely valid write; resize() back down to idle_count afterward
+	// (a cheap truncation, no realloc) makes idle_list.end() accurate again
+	// so idle_end no longer needs to be hand-computed.
+	idle_list.resize(mActiveObjects.size());
+
+	static std::vector<LLViewerObject*> nonavatar_idle_list;
+	nonavatar_idle_list.clear();
+	if (!freeze_time)
+	{
+		nonavatar_idle_list.reserve(mActiveObjects.size());
+	}
 
 	{
 		for (std::vector<LLPointer<LLViewerObject> >::iterator active_iter = mActiveObjects.begin();
@@ -884,6 +906,10 @@ void LLViewerObjectList::update(LLAgent& agent)
 				{
 					mNumAvatars++;
 				}
+				else if (!freeze_time)
+				{
+					nonavatar_idle_list.push_back(objectp);
+				}
 			}
 			else
 			{
@@ -894,9 +920,9 @@ void LLViewerObjectList::update(LLAgent& agent)
 		}
 	}
 
-	std::vector<LLViewerObject*>::iterator idle_end = idle_list.begin() + idle_count;
+	idle_list.resize(idle_count);
+	std::vector<LLViewerObject*>::iterator idle_end = idle_list.end();
 
-	static LLCachedControl<bool> freeze_time(gSavedSettings, "FreezeTime");
 	if (freeze_time)
 	{
 		for (std::vector<LLViewerObject*>::iterator iter = idle_list.begin();
@@ -922,19 +948,9 @@ void LLViewerObjectList::update(LLAgent& agent)
 		// they're off the main thread and stage themselves into the chunk's
 		// LLDeferredPipelineMarks (pipeline.h) instead of touching pipeline state,
 		// replayed serially below once every chunk has finished.
-		static std::vector<LLViewerObject*> nonavatar_idle_list;
-		nonavatar_idle_list.clear();
-		nonavatar_idle_list.reserve(idle_count);
-
-		for (std::vector<LLViewerObject*>::iterator idle_iter = idle_list.begin();
-			idle_iter != idle_end; idle_iter++)
-		{
-			objectp = *idle_iter;
-			if (!objectp->isAvatar())
-			{
-				nonavatar_idle_list.push_back(objectp);
-			}
-		}
+		// S24 (2026-09-06, perf): nonavatar_idle_list is now built directly
+		// in the fused setup loop above (see its comment) - no longer
+		// re-derived here from a second pass over idle_list.
 
 		LL::WorkQueue::ptr_t dxpool_queue = LL::WorkQueue::getInstance("DXPool");
 		const U32 dxpool_width = dxpool_queue ? (U32)LL::ThreadPoolBase::getWidth("DXPool", 3) : 0;

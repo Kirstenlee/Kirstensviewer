@@ -159,6 +159,8 @@ uniform float probe_saturation;         // Color saturation (0.0-2.0, default 1.
 uniform float probe_contrast;           // Contrast adjustment (0.0-2.0, default 1.0)
 uniform float probe_blur_lod_bias;      // Blur via LOD bias (-3.0 to 3.0, default 0.0)
 uniform float probe_ambient_multiplier; // Ambient contribution (0.0-2.0, default 1.0)
+uniform float probe_equalize;           // Blend toward this probe's own fully-averaged top mip (0.0-1.0, default 0.0) - see tapRefMap()
+uniform float probe_opacity;            // Dedicated visibility blend: 1.0=fully visible, 0.0=fully transparent (default 1.0)
 
 // S24 (2026-08-09, task #147b): must byte-match llreflectionmapmanager.h's
 // ReflectionProbeData struct exactly - same field order, same types
@@ -509,7 +511,37 @@ float3 tapRefMap(float3 pos, float3 dir, out float w, out float dw, float lod, f
         // ones), which is both proportional for any probe size AND actually
         // wider than the old buggy 25% shell (matches manual reflections
         // more decisively near floors/walls than before, the original goal).
-        dw = saturate(d * 2.0);
+        //
+        // S24 (2026-09-07, task #266 continuation): still real, live-
+        // reported (box1.png, annotated) - a visible boundary where this
+        // box probe's own content fades toward the automatic/void probe's
+        // (generic, unrelated, visibly darker) content, worst near the
+        // box's corners (where d, the box-local proximity-to-center term,
+        // is smallest from all 3 axes at once) - and since d is recomputed
+        // per-pixel from world position, the exact screen-space crossing
+        // point slides continuously as the camera/avatar moves, reading as
+        // a "seam that follows the wall." *2.0 only reaches full box-probe
+        // priority (dw=1) once d>=0.5 - the outer HALF of the box's own
+        // volume still fades toward the mismatched automatic probe. Same
+        // proportional shape (still (0,0,0,0)->(1,1,1,1) at the box's own
+        // center/wall, no absolute-meters term - the earlier *max(r,1)*4
+        // regression this replaced was from mixing an absolute term into a
+        // normalized value, not from being proportional per se), just
+        // steepened so the fade band shrinks to the outer ~17% of the box
+        // instead of the outer 50% - full box-probe priority reached much
+        // closer to its own walls, corners included.
+        //
+        // S24 (2026-09-07, live-tune round 2): user confirmed *6.0 improved
+        // it but wanted more - steepened to *10.0 (full priority at
+        // d>=0.1), but the wall-corner seam then got WORSE, not better -
+        // rolled back to *6.0 (the last state actually confirmed as an
+        // improvement) while a real diagnostic (see radianceGenF.hlsl's
+        // own face-ID comment) establishes whether this dw/automatic-blend
+        // mechanism is even the right thing to be tuning for that specific
+        // seam - it may be a different mechanism (face-to-face content
+        // mismatch within this box probe's own capture) that steepening
+        // dw was incidentally unmasking rather than fixing.
+        dw = saturate(d * 6.0);
     }
     else
     { // sphere probe
@@ -555,9 +587,46 @@ float3 tapRefMap(float3 pos, float3 dir, out float w, out float dw, float lod, f
     // revisiting. Next suspect: captured cubemap content or array-index/
     // mip selection, not this function's direction math.
 
-    // S24: Apply LOD bias for blur/sharpness control
-    float adjusted_lod = lod + probe_blur_lod_bias;
+    // S24 (2026-09-07, task #266 continuation): live-reported - pushing
+    // probe_blur_lod_bias strongly positive blacks out the reflection
+    // instead of settling on a smooth, fully-averaged result. Root cause:
+    // this was never clamped before being handed to SampleLevel() as an
+    // EXPLICIT LOD. Unlike Sample()'s automatic LOD selection, SampleLevel()
+    // does not clamp an out-of-range explicit level to the texture's real
+    // mip count for you - reading past the last actually-allocated mip
+    // (max_probe_lod) is out-of-bounds and reads back as black, exactly
+    // matching what was reported. This also blocks the one thing the user
+    // was specifically asking for: max_probe_lod's own mip IS the fully
+    // GGX-convolved, whole-hemisphere-averaged result (radianceGenF.hlsl's
+    // prefilterEnvMap(), roughness=1 at the top mip) - a real, physically
+    // energy-preserving average across this probe's own faces, not a
+    // desaturation hack. Clamping means dialing blur bias up now actually
+    // reaches and holds at that already-computed equalized result instead
+    // of overshooting into invalid/black territory before getting there.
+    float adjusted_lod = clamp(lod + probe_blur_lod_bias, 0.0, max_probe_lod);
     float4 ret = reflectionProbes.SampleLevel(environmentMapSampler, float4(v.xyz, (float)refIndex[i].x), adjusted_lod) * refParams[i].y;
+
+    // S24 (2026-09-07, task #266 continuation): live-confirmed the blur-
+    // bias clamp above made no difference to the per-face shade mismatch -
+    // that theory is refuted, this is a separate, real ask ("what other
+    // tools do we have to equalize the cube walls besides desaturating").
+    // A genuinely different tool from probe_saturation (crushes hue toward
+    // luminance) and probe_contrast (compresses spread toward a fixed 0.5
+    // midpoint, unrelated to this room's actual tone): blend the requested
+    // sharp/detail sample toward a SECOND sample taken at this SAME probe's
+    // own top mip (max_probe_lod) - the already fully GGX-convolved,
+    // whole-6-face-hemisphere average (see radianceGenF.hlsl's
+    // prefilterEnvMap()). This pulls per-face brightness/color differences
+    // toward this room's own real averaged tone rather than an arbitrary
+    // neutral, while fully preserving detail/hue at probe_equalize=0.0
+    // (default, no change) - literally the "blend N% toward a uniform
+    // reference" the user asked for, just using a physically-averaged
+    // reference instead of flat gray or a desaturated value.
+    if (probe_equalize > 0.0)
+    {
+        float4 equalized = reflectionProbes.SampleLevel(environmentMapSampler, float4(v.xyz, (float)refIndex[i].x), max_probe_lod) * refParams[i].y;
+        ret = lerp(ret, equalized, saturate(probe_equalize));
+    }
 
     return ret.rgb;
 }
@@ -687,6 +756,16 @@ float3 sampleProbes(float3 pos, float3 dir, float lod)
         float luma = dot(result, float3(0.299, 0.587, 0.114));
         result = lerp(float3(luma, luma, luma), result, probe_saturation);
     }
+
+    // S24 (2026-09-07, task #266 continuation): dedicated Opacity control,
+    // live-requested (corrected from an earlier "desaturate" ask - this is
+    // a plain visibility blend, not a color operation). 1.0=fully visible
+    // (no change), 0.0=fully transparent (this probe's reflection
+    // contributes nothing at all, revealing whatever the surface's other
+    // lighting terms produce on their own). Separate from probe_intensity
+    // above (0-2, can also boost past normal) - this is a clean, one-way
+    // 0%-100% visibility knob only.
+    result *= saturate(probe_opacity);
 
     // Contrast
     if (probe_contrast != 1.0)
@@ -882,6 +961,26 @@ void doProbeSample(inout float3 ambenv, inout float3 glossenv,
 #ifdef SSR
     if (cube_snapshot != 1 && glossiness >= ssrGlossThreshold)
     {
+        // S24 (2026-09-06, task #271; revised 2026-09-07): was a hard zero
+        // for SSR-eligible surfaces (the low-res, blurred cube array is
+        // visibly worse than a genuine SSR hit) - but that also meant a
+        // genuine SSR MISS fell back to pure black/nothing, live-reported
+        // twice: as "black highlights" on water (its dominant reflection
+        // content is the sky, mostly off-screen - a guaranteed miss at
+        // exactly the grazing angles where a bright reflection is
+        // expected) and, more generally, as the cube contributing nothing
+        // at all to the ambient/reflection fill anywhere SSR is active.
+        // Explicit ask: keep the cube around at a low, fixed weight so it
+        // still fills in on a miss (or just adds a subtle base layer
+        // everywhere) without fighting a genuine SSR hit for dominance -
+        // dimming BEFORE the lerp below achieves both: on a real hit
+        // (ssr.a -> 1) the lerp result is still ~100% ssr.rgb regardless of
+        // this dim factor; on a miss (ssr.a == 0) the result is exactly
+        // this dimmed cube value instead of black. First-pass value, not
+        // physically derived - live-tune from here.
+        static const float kSSRCubeFillWeight = 0.25;
+        glossenv *= kSSRCubeFillWeight;
+
         float4 ssr = float4(0, 0, 0, 0);
         if (transparent)
         {

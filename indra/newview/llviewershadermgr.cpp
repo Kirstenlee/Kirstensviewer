@@ -50,6 +50,13 @@
 #include "lljoint.h"
 #include "llskinningutil.h"
 
+#ifdef DX_RENDER
+#include "DXShader.h"
+#include "workqueue.h"
+#include <condition_variable>
+#include <mutex>
+#endif
+
 static LLStaticHashedString sTexture0("texture0");
 static LLStaticHashedString sTexture1("texture1");
 static LLStaticHashedString sTex0("tex0");
@@ -139,6 +146,7 @@ LLHLSLShader            gPostScreenSpaceReflectionProgram;
 
 // Deferred rendering shaders
 LLHLSLShader            gDeferredImpostorProgram;
+LLHLSLShader            gDeferredJellyGhostProgram;
 LLHLSLShader            gDeferredDiffuseProgram;
 LLHLSLShader            gDeferredDiffuseAlphaMaskProgram;
 LLHLSLShader            gDeferredSkinnedDiffuseAlphaMaskProgram;
@@ -911,11 +919,18 @@ std::string LLViewerShaderMgr::loadBasicShaders()
         attribs["SSR"] = "1";
     }
 
-    if (has_reflection_probes)
-    {
-        attribs["REFMAP_LEVEL"] = std::to_string(probe_level);
-        attribs["REF_SAMPLE_COUNT"] = "32";
-    }
+    // S24 (2026-09-07, re-applied after an accidental svn revert wiped the
+    // original uncommitted fix): REFMAP_LEVEL/REF_SAMPLE_COUNT must be
+    // defined unconditionally, not just when has_reflection_probes is true -
+    // reflectionProbeF.hlsl uses REF_SAMPLE_COUNT as a fixed HLSL array size
+    // (`static int probeIndex[REF_SAMPLE_COUNT];`) regardless of that flag,
+    // so leaving it undefined for any shader that attaches this file with
+    // has_reflection_probes false is a real compile-time gap, not a cosmetic
+    // one - this is the direct cause of "CTD disabling SSR" (see the
+    // matching class-tier fix on reflectionProbeF.glsl/screenSpaceReflUtil.glsl
+    // just below - same root bug class, same fix session).
+    attribs["REFMAP_LEVEL"] = std::to_string(probe_level);
+    attribs["REF_SAMPLE_COUNT"] = "32";
 
     if (mirrors)
     {
@@ -980,8 +995,20 @@ std::string LLViewerShaderMgr::loadBasicShaders()
     index_channels.push_back(-1);    shaders.push_back( make_pair( "deferred/aoUtil.glsl",                          1) );
     index_channels.push_back(-1);    shaders.push_back( make_pair( "deferred/pbrterrainUtilF.glsl",                 1) );
     index_channels.push_back(-1);    shaders.push_back( make_pair( "deferred/tonemapUtilF.glsl",                    1) );
-    index_channels.push_back(-1);    shaders.push_back( make_pair( "deferred/reflectionProbeF.glsl",                has_reflection_probes ? 3 : 2) );
-    index_channels.push_back(-1);    shaders.push_back( make_pair( "deferred/screenSpaceReflUtil.glsl",             ssr ? 3 : 1) );
+    // S24 (2026-09-07, re-applied after an accidental svn revert wiped the
+    // original uncommitted fix): both of these were previously cached at a
+    // LOWER class tier whenever has_reflection_probes/ssr was false (e.g.
+    // right after the user disables SSR) - LLShaderMgr::mFragmentShaderSourceText
+    // caches this file's resolved source ONCE, keyed by bare filename, then
+    // reuses that SAME cached text for every later shader that attaches it
+    // regardless of THAT shader's own class level. A shader still needing
+    // the higher-tier body (e.g. one compiled earlier this same session,
+    // before the toggle) attaching the now-lower-tier cached text is the
+    // real, confirmed cause of "CTD disabling SSR" - always request the
+    // highest tier (3) unconditionally so the cached text is never
+    // downgraded out from under a shader that needs it.
+    index_channels.push_back(-1);    shaders.push_back( make_pair( "deferred/reflectionProbeF.glsl",                3) );
+    index_channels.push_back(-1);    shaders.push_back( make_pair( "deferred/screenSpaceReflUtil.glsl",             3) );
     index_channels.push_back(-1);    shaders.push_back( make_pair( "lighting/lightNonIndexedF.glsl",                    mShaderLevel[SHADER_LIGHTING] ) );
     index_channels.push_back(-1);    shaders.push_back( make_pair( "lighting/lightAlphaMaskNonIndexedF.glsl",                   mShaderLevel[SHADER_LIGHTING] ) );
     index_channels.push_back(ch);    shaders.push_back( make_pair( "lighting/lightF.glsl",                  mShaderLevel[SHADER_LIGHTING] ) );
@@ -1163,6 +1190,7 @@ bool LLViewerShaderMgr::loadShadersDeferred()
         gDeferredBumpProgram.unload();
         gDeferredSkinnedBumpProgram.unload();
         gDeferredImpostorProgram.unload();
+        gDeferredJellyGhostProgram.unload();
         gDeferredTerrainProgram.unload();
         gDeferredLightProgram.unload();
         for (U32 i = 0; i < LL_DEFERRED_MULTI_LIGHT_COUNT; ++i)
@@ -1352,6 +1380,19 @@ bool LLViewerShaderMgr::loadShadersDeferred()
     gDeferredMaterialProgram[9+LLMaterial::SHADER_COUNT].mFeatures.hasLighting = false;
     gDeferredMaterialProgram[13+LLMaterial::SHADER_COUNT].mFeatures.hasLighting = false;
 
+#ifdef DX_RENDER
+    // S24 (2026-09-05, task #277): pending-count + mutex/cv used to wait for
+    // this permutation array's background D3DCompile() prefetch (below) to
+    // finish before the real, necessarily-sequential compile loop runs.
+    // Guarded entirely by material_prefetch_mutex, per the standard
+    // "mutate-and-check-predicate-under-the-same-lock" condition_variable
+    // idiom - a plain int is enough, no separate atomic needed.
+    int material_prefetch_pending = 0;
+    std::mutex material_prefetch_mutex;
+    std::condition_variable material_prefetch_cv;
+    auto material_prefetch_queue = DXShader::sShaderCacheEnabled ? LL::WorkQueue::getInstance("DXPool") : nullptr;
+#endif
+
     for (U32 i = 0; i < LLMaterial::SHADER_COUNT*2; ++i)
     {
         if (success)
@@ -1422,6 +1463,86 @@ bool LLViewerShaderMgr::loadShadersDeferred()
                 gDeferredMaterialProgram[i].mRiggedVariant = &gDeferredMaterialProgram[i + 0x10];
             }
 
+#ifdef DX_RENDER
+            // S24 (2026-09-05, task #277): warm the D3DCompile() bytecode
+            // disk cache for this permutation on a DXPool worker thread while
+            // setup for later permutations continues on the main thread -
+            // see DXShader::prefetchVertexShader()/prefetchPixelShader()'s
+            // own comments for why only this step (not the device-touching
+            // real compile below) is safe to parallelize. Purely a warm-up:
+            // the real createShader() loop further down is completely
+            // unchanged and correct either way, this only makes it faster
+            // once the cache is warm. buildDXSource() itself stays on the
+            // main thread (touches LLShaderMgr's shared source-text caches).
+            if (material_prefetch_queue && gDeferredMaterialProgram[i].buildDXSource())
+            {
+                std::string debug_name = gDeferredMaterialProgram[i].mName;
+                std::string vs_source = gDeferredMaterialProgram[i].mDXVertexSource;
+                std::string ps_source = gDeferredMaterialProgram[i].mDXPixelSource;
+
+                if (!vs_source.empty())
+                {
+                    {
+                        std::lock_guard<std::mutex> lk(material_prefetch_mutex);
+                        ++material_prefetch_pending;
+                    }
+                    bool posted = material_prefetch_queue->post(
+                        [vs_source, debug_name, &material_prefetch_pending, &material_prefetch_mutex, &material_prefetch_cv]()
+                        {
+                            DXShader::prefetchVertexShader(vs_source, debug_name);
+                            {
+                                std::lock_guard<std::mutex> lk(material_prefetch_mutex);
+                                --material_prefetch_pending;
+                            }
+                            material_prefetch_cv.notify_one();
+                        });
+                    if (!posted)
+                    {
+                        std::lock_guard<std::mutex> lk(material_prefetch_mutex);
+                        --material_prefetch_pending;
+                    }
+                }
+
+                if (!ps_source.empty())
+                {
+                    {
+                        std::lock_guard<std::mutex> lk(material_prefetch_mutex);
+                        ++material_prefetch_pending;
+                    }
+                    bool posted = material_prefetch_queue->post(
+                        [ps_source, debug_name, &material_prefetch_pending, &material_prefetch_mutex, &material_prefetch_cv]()
+                        {
+                            DXShader::prefetchPixelShader(ps_source, debug_name);
+                            {
+                                std::lock_guard<std::mutex> lk(material_prefetch_mutex);
+                                --material_prefetch_pending;
+                            }
+                            material_prefetch_cv.notify_one();
+                        });
+                    if (!posted)
+                    {
+                        std::lock_guard<std::mutex> lk(material_prefetch_mutex);
+                        --material_prefetch_pending;
+                    }
+                }
+            }
+#endif
+        }
+    }
+
+#ifdef DX_RENDER
+    if (material_prefetch_queue)
+    {
+        LL_PROFILE_ZONE_NAMED_CATEGORY_SHADER("materialProgramPrefetchWait");
+        std::unique_lock<std::mutex> lk(material_prefetch_mutex);
+        material_prefetch_cv.wait(lk, [&material_prefetch_pending] { return material_prefetch_pending == 0; });
+    }
+#endif
+
+    for (U32 i = 0; i < LLMaterial::SHADER_COUNT*2; ++i)
+    {
+        if (success)
+        {
             success = gDeferredMaterialProgram[i].createShader();
             llassert(success);
         }
@@ -1681,6 +1802,24 @@ bool LLViewerShaderMgr::loadShadersDeferred()
         add_common_permutations(&gDeferredImpostorProgram);
 
         success = gDeferredImpostorProgram.createShader();
+        llassert(success);
+    }
+
+    if (success)
+    {
+        // S24 (2026-09-10): jelly-doll ghost - real alpha-blended,
+        // post-deferred draw of the same cached impostor quad, see
+        // LLDrawPoolAvatar::renderJellyDollGhosts().
+        gDeferredJellyGhostProgram.mName = "Deferred Jelly Ghost Shader";
+        gDeferredJellyGhostProgram.mFeatures.hasSrgb = true;
+        gDeferredJellyGhostProgram.mShaderFiles.clear();
+        gDeferredJellyGhostProgram.mShaderFiles.push_back(make_pair("deferred/jellyGhostV.glsl", GL_VERTEX_SHADER));
+        gDeferredJellyGhostProgram.mShaderFiles.push_back(make_pair("deferred/jellyGhostF.glsl", GL_FRAGMENT_SHADER));
+        gDeferredJellyGhostProgram.mShaderLevel = mShaderLevel[SHADER_DEFERRED];
+
+        add_common_permutations(&gDeferredJellyGhostProgram);
+
+        success = gDeferredJellyGhostProgram.createShader();
         llassert(success);
     }
 

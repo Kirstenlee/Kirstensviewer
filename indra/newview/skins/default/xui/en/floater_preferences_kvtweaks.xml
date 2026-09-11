@@ -964,11 +964,12 @@
         control_name="RenderCompressTextures"
         height="20"
         initial_value="true"
-        label="Enable Texture Compression"
+        label="Enable Texture Compression (BC7)"
         layout="topleft"
         left="20"
         top_pad="10"
         name="compress_textures"
+        tool_tip="Real-time BC7 GPU texture compression (OpenCL). Uploads normally, then compresses in the background a few frames later to cut VRAM usage with minimal frame-time impact. Experimental."
         width="250" />
 
       <check_box
@@ -1257,6 +1258,151 @@
         (Requires restart)
       </text>
 
+      <text
+        type="string"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="20"
+        top_pad="20"
+        width="300"
+        font="SansSerifBold"
+        text_color="White">
+        Jelly Doll Ghost Effect
+      </text>
+      <text
+        type="string"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="20"
+        top_pad="5"
+        width="180"
+        font="SansSerif">
+        Base Transparency:
+      </text>
+      <slider
+        control_name="RenderJellyGhostBaseAlpha"
+        decimal_digits="2"
+        follows="left|top"
+        height="20"
+        increment="0.05"
+        initial_value="0.2"
+        layout="topleft"
+        left_delta="0"
+        min_val="0.0"
+        max_val="1.0"
+        name="jelly_base_alpha_slider"
+        tool_tip="How opaque the jelly-doll ghost's body is - 0 is fully invisible, 1 is fully opaque. ~0.2 is roughly '80% transparent'."
+        top_pad="2"
+        width="300" />
+      <spinner
+        control_name="RenderJellyGhostBaseAlpha"
+        decimal_digits="2"
+        follows="left|top"
+        height="20"
+        increment="0.05"
+        initial_value="0.2"
+        layout="topleft"
+        left_pad="5"
+        min_val="0.0"
+        max_val="1.0"
+        name="jelly_base_alpha_spinner"
+        top_delta="0"
+        width="65" />
+      <text
+        type="string"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="20"
+        top_pad="5"
+        width="180"
+        font="SansSerif">
+        Rim Glow Intensity:
+      </text>
+      <slider
+        control_name="RenderJellyGhostRimIntensity"
+        decimal_digits="2"
+        follows="left|top"
+        height="20"
+        increment="0.1"
+        initial_value="1.2"
+        layout="topleft"
+        left_delta="0"
+        min_val="0.0"
+        max_val="3.0"
+        name="jelly_rim_intensity_slider"
+        tool_tip="Strength of the glowing edge along the jelly-doll ghost's silhouette. 0 disables it entirely (flat translucent silhouette only)."
+        top_pad="2"
+        width="300" />
+      <spinner
+        control_name="RenderJellyGhostRimIntensity"
+        decimal_digits="2"
+        follows="left|top"
+        height="20"
+        increment="0.1"
+        initial_value="1.2"
+        layout="topleft"
+        left_pad="5"
+        min_val="0.0"
+        max_val="3.0"
+        name="jelly_rim_intensity_spinner"
+        top_delta="0"
+        width="65" />
+      <text
+        type="string"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="20"
+        top_pad="5"
+        width="180"
+        font="SansSerif">
+        Rim Glow Width:
+      </text>
+      <slider
+        control_name="RenderJellyGhostRimWidth"
+        decimal_digits="1"
+        follows="left|top"
+        height="20"
+        increment="1.0"
+        initial_value="12.0"
+        layout="topleft"
+        left_delta="0"
+        min_val="1.0"
+        max_val="40.0"
+        name="jelly_rim_width_slider"
+        tool_tip="How far the jelly-doll ghost's edge glow reaches from the silhouette boundary - higher values give a thicker glow."
+        top_pad="2"
+        width="300" />
+      <spinner
+        control_name="RenderJellyGhostRimWidth"
+        decimal_digits="1"
+        follows="left|top"
+        height="20"
+        increment="1.0"
+        initial_value="12.0"
+        layout="topleft"
+        left_pad="5"
+        min_val="1.0"
+        max_val="40.0"
+        name="jelly_rim_width_spinner"
+        top_delta="0"
+        width="65" />
+      <text
+        type="string"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="20"
+        top_pad="8"
+        width="440"
+        font="SansSerifSmall"
+        text_color="White_25">
+        Base/rim colors: RenderJellyGhostBaseColor / RenderJellyGhostRimColor (Debug Settings)
+      </text>
+
     </panel>
 
     <!-- ==================== TAB 4: SCREEN SPACE REFLECTIONS (SSR) ==================== -->
@@ -1289,7 +1435,7 @@
       <check_box
         control_name="RenderScreenSpaceReflections"
         height="20"
-        initial_value="false"
+        initial_value="true"
         label="Enable Screen Space Reflections"
         layout="topleft"
         left="20"
@@ -1393,13 +1539,13 @@
         follows="left|top"
         height="20"
         increment="0.01"
-        initial_value="0.9"
+        initial_value="0.0"
         label="SSR Glossiness Threshold:"
         label_width="220"
         layout="topleft"
         left="20"
         max_val="1.0"
-        min_val="0.5"
+        min_val="0.0"
         name="ssr_gloss_threshold"
         tool_tip="Minimum glossiness before SSR engages. Lower = more surfaces get real screen-space reflections, but pulls in far more ordinary (non-mirror) geometry and costs more GPU time. PBR alpha-blend (glass) materials cap at 0.7 glossiness due to a separate roughness floor, so anything above 0.7 leaves them unaffected."
         top_pad="5"
@@ -4003,6 +4149,25 @@
           value="3" />
       </combo_box>
 
+      <!-- S24 (task #309): Beam Width Slider - pixels, real DX11 billboard
+           geometry since D3D11 has no glLineWidth() equivalent -->
+      <slider
+        control_name="SelectionBeamWidth"
+        decimal_digits="1"
+        follows="left|top"
+        height="20"
+        increment="0.5"
+        initial_value="2.0"
+        label="Beam Width:"
+        label_width="120"
+        layout="topleft"
+        left="20"
+        min_val="0.5"
+        max_val="6.0"
+        name="beam_width"
+        top_pad="10"
+        width="300" />
+
       <!-- S24: Particle Glow Scale Slider -->
       <slider
         control_name="SelectionBeamParticleScale"
@@ -4344,6 +4509,112 @@
         font="SansSerifSmall"
         text_color="LtGray">
         (0-10)
+      </text>
+
+      <text
+        type="string"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="20"
+        top_pad="5"
+        width="180"
+        font="SansSerif">
+        Equalize Faces:
+      </text>
+      <slider
+        control_name="RenderReflectionProbeEqualize"
+        decimal_digits="2"
+        follows="left|top"
+        height="20"
+        increment="0.05"
+        initial_value="0.0"
+        layout="topleft"
+        left_delta="0"
+        min_val="0.0"
+        max_val="1.0"
+        name="probe_equalize_slider"
+        tool_tip="Blend toward this probe's own fully-averaged reflection: 0=full detail, 1=fully equalized across all 6 faces"
+        top_pad="2"
+        width="300" />
+      <spinner
+        control_name="RenderReflectionProbeEqualize"
+        decimal_digits="2"
+        follows="left|top"
+        height="20"
+        increment="0.05"
+        initial_value="0.0"
+        layout="topleft"
+        left_pad="5"
+        min_val="0.0"
+        max_val="1.0"
+        name="probe_equalize_spinner"
+        top_delta="0"
+        width="65" />
+      <text
+        type="string"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left_pad="5"
+        top_delta="2"
+        width="60"
+        font="SansSerifSmall"
+        text_color="LtGray">
+        (0-1)
+      </text>
+
+      <text
+        type="string"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="20"
+        top_pad="5"
+        width="180"
+        font="SansSerif">
+        Opacity:
+      </text>
+      <slider
+        control_name="RenderReflectionProbeOpacity"
+        decimal_digits="2"
+        follows="left|top"
+        height="20"
+        increment="0.05"
+        initial_value="1.0"
+        layout="topleft"
+        left_delta="0"
+        min_val="0.0"
+        max_val="1.0"
+        name="probe_opacity_slider"
+        tool_tip="Reflection probe visibility: 100%=fully visible, 0%=fully transparent"
+        top_pad="2"
+        width="300" />
+      <spinner
+        control_name="RenderReflectionProbeOpacity"
+        decimal_digits="2"
+        follows="left|top"
+        height="20"
+        increment="0.05"
+        initial_value="1.0"
+        layout="topleft"
+        left_pad="5"
+        min_val="0.0"
+        max_val="1.0"
+        name="probe_opacity_spinner"
+        top_delta="0"
+        width="65" />
+      <text
+        type="string"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left_pad="5"
+        top_delta="2"
+        width="60"
+        font="SansSerifSmall"
+        text_color="LtGray">
+        (0-100%)
       </text>
 
       <check_box

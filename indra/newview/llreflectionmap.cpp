@@ -139,7 +139,15 @@ void LLReflectionMap::autoAdjustOrigin()
             {
                 int face = -1;
                 LLVector4a intersection;
-                LLDrawable* drawable = mGroup->lineSegmentIntersect(bounds[0], corners[i], false, false, true, true, &face, &intersection);
+                // S24 (2026-09-06, task #271): ignore_visibility=true - see
+                // LLOctreeIntersect::check(LLViewerOctreeEntry*)'s comment
+                // (llspatialpartition.cpp) for why this ray-cast needs real
+                // geometric presence, not "was this in the avatar's camera
+                // frustum this exact frame" (isVisible() - a wall simply
+                // outside the current view reads as empty space otherwise,
+                // live-confirmed to place an automatic probe's origin
+                // entirely outside its building).
+                LLDrawable* drawable = mGroup->lineSegmentIntersect(bounds[0], corners[i], false, false, true, true, &face, &intersection, nullptr, nullptr, nullptr, true);
                 if (drawable != nullptr)
                 {
                     hit = true;
@@ -179,6 +187,7 @@ void LLReflectionMap::autoAdjustOrigin()
             }
 
             mRadius = llmax(sqrtf(r2.getF32()), 8.f);
+            mBoxExtent.splat(mRadius); // S24 (task #271): automatic probe, isotropic - see mBoxExtent's own header comment.
 
             // make sure near clip doesn't poke through ground
             fp[2] = llmax(fp[2], height+mRadius*0.5f);
@@ -194,10 +203,12 @@ void LLReflectionMap::autoAdjustOrigin()
         {
             LLVector3 s = mViewerObject->getScale().scaledVec(LLVector3(0.5f, 0.5f, 0.5f));
             mRadius = s.magVec();
+            mBoxExtent.load3(s.mV); // S24 (task #271): real per-axis half-extent, see mBoxExtent's own header comment.
         }
         else
         {
             mRadius = mViewerObject->getScale().mV[0] * 0.5f;
+            mBoxExtent.splat(mRadius); // S24 (task #271): sphere probe, isotropic is correct here.
         }
     }
 }
@@ -241,7 +252,32 @@ F32 LLReflectionMap::getNearClip() const
     }
     else if (mGroup)
     {
-        ret = mRadius * 0.5f; // default to half radius for automatic object probes
+        // S24 (2026-09-06, task #271 - real fix, not a guess: live-confirmed
+        // via debug overlay that this exact probe's raw captured content is
+        // empty specifically for a downward/floor-facing direction, while
+        // the same probe's other directions - walls - capture fine and
+        // weighting/selection are both independently confirmed correct).
+        // mRadius here is the room's diagonal/corner-distance size
+        // (autoAdjustOrigin()'s ray-cast-to-8-corners logic) - dominated by
+        // the room's WIDEST (usually horizontal) dimension. Was mRadius*0.5
+        // unconditionally - for a typical wide/long room with a modest
+        // ceiling height, that can be several meters, easily exceeding the
+        // real vertical distance from the probe's position to the floor -
+        // near-plane-clipping the floor completely out of the probe's own
+        // downward-facing capture pass while walls (much farther away
+        // horizontally) remain safely beyond the near clip and capture
+        // correctly. Capped at 1m (matching the terrain-probe branch's own
+        // existing 1m default just below) - small enough to stay well
+        // clear of a typical room's shortest real dimension. Independently
+        // re-verified (2026-09-06): autoAdjustOrigin()'s group branch
+        // floors mRadius at 8m unconditionally (`llmax(sqrtf(r2), 8.f)`),
+        // and registerSpatialGroup() only registers group probes for
+        // 15-17m octree nodes in the first place - so mRadius*0.5 was
+        // ALWAYS >= 4m for every automatic room probe, not just wide/short
+        // ones, and this cap always evaluates to the constant 1.0m in
+        // practice (not a graduated scale-down for smaller probes, since
+        // there aren't any this small).
+        ret = llmin(mRadius * 0.5f, 1.f);
     }
     else
     {
@@ -275,6 +311,7 @@ bool LLReflectionMap::getBox(LLMatrix4& box)
             glm::mat4 mv(get_current_modelview());
             LLVector3 s = mViewerObject->getScale().scaledVec(LLVector3(0.5f, 0.5f, 0.5f));
             mRadius = s.magVec();
+            mBoxExtent.load3(s.mV); // S24 (task #271): real per-axis half-extent, see mBoxExtent's own header comment.
             glm::mat4 scale = glm::scale(glm::vec3(s));
             if (mViewerObject->mDrawable != nullptr)
             {
@@ -341,9 +378,10 @@ void LLReflectionMap::doOcclusion(const LLVector4a& eye)
 
     LLVector4a eye_offset;
     eye_offset.setSub(mOrigin, eye);
+    F32 eye_dist = eye_offset.getLength3().getF32();
 
     // Eye inside influence radius → never occlude
-    if (eye_offset.getLength3().getF32() < min_occlusion_dist)
+    if (eye_dist < min_occlusion_dist)
     {
         mOccluded = false;
         return;
@@ -423,7 +461,22 @@ void LLReflectionMap::doOcclusion(const LLVector4a& eye)
     if (shader)
     {
         shader->uniform3fv(LLShaderMgr::BOX_CENTER, 1, mOrigin.getF32ptr());
-        shader->uniform3f(LLShaderMgr::BOX_SIZE, mRadius, mRadius, mRadius);
+        // S24 (2026-09-05, task #271 - real fix): was mRadius,mRadius,mRadius
+        // - for a box-shaped manual probe, mRadius is the DIAGONAL half-
+        // length (an isotropic collapse of the box's real, usually
+        // anisotropic per-axis scale), correct for parallax-correction/
+        // weight math elsewhere but wrong as an occlusion-query proxy size -
+        // it draws a cube far larger than the real room in its shorter axis
+        // (e.g. ceiling height), likely intersecting unrelated geometry
+        // above/below and producing unreliable, frequently-false-occluded
+        // query results. mBoxExtent holds the real per-axis half-extent for
+        // box probes (mRadius,mRadius,mRadius for sphere/automatic probes,
+        // where isotropic is already correct) - see its own header comment.
+        // Matches the established, proven-correct convention
+        // LLOcclusionCullingGroup already uses for spatial-partition
+        // occlusion (llvieweroctree.cpp - real per-axis bounds, never a
+        // collapsed radius).
+        shader->uniform3f(LLShaderMgr::BOX_SIZE, mBoxExtent.getF32ptr()[0], mBoxExtent.getF32ptr()[1], mBoxExtent.getF32ptr()[2]);
 
 #ifdef DX_RENDER
         dx_get_occlusion_box_vb()->setBuffer();

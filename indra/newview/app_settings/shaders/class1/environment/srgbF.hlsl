@@ -112,10 +112,18 @@ float3 inv_RRTAndODTFit(float3 x)
     return (A - D * x) / (2.0 * (C * x - 1.0)) - sqrt(pow(D * x - A, float3(2.0, 2.0, 2.0)) - 4.0 * (C * x - 1.0) * (B + E * x)) / (2.0 * (C * x - 1.0));
 }
 
+// S24 (2026-09-05, task #184 follow-up): same HLSL-row-major-vs-GLSL-column-
+// major matrix-literal transpose bug as tonemapUtilF.hlsl's toneMapACES_Hill
+// (task #234 precedent) - mul(M, color) computed transpose(M)*color instead
+// of the intended M*color. Fixed the same way: swap to mul(color, M). No
+// live rendering impact today (this function has zero call sites in either
+// the GL or DX shader trees - already-dead, LL-original "experimental"
+// scaffolding per its own GLSL comment), fixed anyway for tree-wide
+// consistency in case it's ever wired up.
 float3 inv_toneMapACES_Hill(float3 color)
 {
-    color = mul(inv_ACESOutputMat, color);
+    color = mul(color, inv_ACESOutputMat);
     color = inv_RRTAndODTFit(color);
-    color = mul(inv_ACESInputMat, color);
+    color = mul(color, inv_ACESInputMat);
     return color;
 }

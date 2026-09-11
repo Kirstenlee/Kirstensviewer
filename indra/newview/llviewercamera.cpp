@@ -210,7 +210,7 @@ void LLViewerCamera::updateFrustumPlanes(LLCamera& camera, bool ortho, bool zfli
 
 	LLVector3 frust[8];
 
-	glm::vec3 obj;
+	glm::vec3 obj = {};
 	if (no_hacks)
 	{
 		obj = glm::unProject(glm::vec3(viewport[0], viewport[1], 0), model, proj, viewport);
@@ -441,7 +441,7 @@ void LLViewerCamera::setPerspective(bool for_selection,
 			gViewerWindow->getWorldViewRectRaw().getWidth(),
 			gViewerWindow->getWorldViewRectRaw().getHeight());
 
-		proj_mat = glm::pickMatrix(glm::vec2(x + width / 2.f, y_from_bot + height / 2.f), glm::vec2((GLfloat)width, (GLfloat)height), viewport);
+		proj_mat = glm::pickMatrix(glm::vec2(x + width / 2.f, y_from_bot + height / 2.f), glm::vec2((F32)width, (F32)height), viewport);
 
 		if (limit_select_distance)
 		{
@@ -473,9 +473,9 @@ void LLViewerCamera::setPerspective(bool for_selection,
 		int pos_y = mZoomSubregion / llceil(mZoomFactor);
 		int pos_x = mZoomSubregion - (pos_y * llceil(mZoomFactor));
 
-		glm::mat4 translate;
+		glm::mat4 translate = {};
 		translate = glm::translate(glm::vec3(offset - (F32)pos_x * 2.f, offset - (F32)pos_y * 2.f, 0.f));
-		glm::mat4 scale;
+		glm::mat4 scale = {};
 		scale = glm::scale(glm::vec3(mZoomFactor, mZoomFactor, 1.f));
 
 		proj_mat = scale * proj_mat;
@@ -545,13 +545,13 @@ void LLViewerCamera::setPerspective(bool for_selection,
 
 	gDX.matrixMode(LLRender::MM_MODELVIEW);
 
-	glm::mat4 modelview(glm::make_mat4((GLfloat*)OGL_TO_CFR_ROTATION));
+	glm::mat4 modelview(glm::make_mat4((F32*)OGL_TO_CFR_ROTATION));
 
-	GLfloat         ogl_matrix[16];
+	F32 dx_matrix[16];
 
-	getOpenGLTransform(ogl_matrix);
+	getDirectXTransform(dx_matrix);
 
-	modelview *= glm::make_mat4(ogl_matrix);
+	modelview *= glm::make_mat4(dx_matrix);
 
 	// S24 Stereo: Camera position offset is now handled by rotateToEye() in llviewerdisplay.cpp
 	// setPerspective() only handles the asymmetric frustum for convergence plane

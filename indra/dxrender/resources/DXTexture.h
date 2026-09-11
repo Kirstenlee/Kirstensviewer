@@ -3,6 +3,21 @@
 #include <cstdint>
 #include <vector>
 
+// S24 (2026-09-09, BC7 texture-compression pipeline): one already-encoded
+// mip level's worth of block-compressed bytes, for
+// DXTexture::createCompressedMips() below. `data` must stay valid for the
+// duration of that call only (copied into the GPU resource synchronously,
+// same convention as D3D11_SUBRESOURCE_DATA itself - no need to keep it
+// alive afterward). `width`/`height` are this mip's REAL (possibly non-
+// multiple-of-4) pixel dimensions, not a padded/block-aligned size - see
+// createCompressedMips()'s own comment for why.
+struct DXCompressedMipData
+{
+    const uint8_t* data = nullptr;
+    int width = 0;
+    int height = 0;
+};
+
 // Wraps one D3D11 2D texture + shader resource view, populated synchronously
 // from a single top-level image. No discard-level streaming (see
 // LLImageGL::setImage()'s DX_RENDER branch, the only caller) - that parity
@@ -106,6 +121,26 @@ public:
     // same convention as create().
     bool createCompressed(const uint8_t* data, int width, int height, DXGI_FORMAT format);
 
+    // S24 (2026-09-09, BC7 texture-compression pipeline): sibling to
+    // createCompressed() above, extended for a FULL mip chain in one
+    // CreateTexture2D call - kept as a separate method rather than an
+    // overload since the data shape genuinely differs (a per-mip list, not
+    // one buffer) and createCompressed()'s existing single-mip BC1-3
+    // callers (pre-compressed S3TC asset sources, see its own comment)
+    // don't need this. `mips[0]` is the top-level (most detailed) level;
+    // `desc.Width`/`Height` use its REAL pixel size directly (matching
+    // createCompressed()'s own established convention - D3D11 handles a
+    // non-multiple-of-4 BC texture size internally, computing the same
+    // ceil-to-4 block count this function and its caller both already use),
+    // not any padded/block-aligned size. Building a full mip chain here
+    // (rather than relying on GenerateMips(), impossible for block-
+    // compressed formats - see this class's own header comment) is the
+    // caller's job: each mip must already be independently BC-encoded from
+    // its own raw pixel mip (see DXBC7Compressor::encodeMip() and
+    // LLImageBase::generateMip(), the raw-mip-chain box filter this
+    // pipeline reuses rather than inventing a new one).
+    bool createCompressedMips(const std::vector<DXCompressedMipData>& mips, DXGI_FORMAT format);
+
     // S24 (2026-08-03, task #84): float-precision variant of create() above,
     // for procedural textures whose values genuinely exceed the [0,1] range
     // create()'s RGBA8 UNORM format can hold (e.g. pipeline.cpp's SSAO-style
@@ -184,6 +219,26 @@ public:
         return mTexture != nullptr;
     }
 
+    // S24 (2026-09-09, BC7 texture-compression pipeline, task #318 CTD
+    // fix): true when the CURRENT GPU resource is block-compressed
+    // (created via createCompressed()/createCompressedMips()), false for
+    // the ordinary RGBA8 path (create()/createFloat()). Real, confirmed
+    // crash found live: LLImageGL::readBackRaw() (and DXTexture's own
+    // updateSubImage()/scaleDown()) hard-assumed "this is always RGBA8" -
+    // true before this feature existed, since createCompressed() was only
+    // ever used for pre-compressed S3TC ASSET sources, not for silently
+    // upgrading an already-uncompressed texture after the fact. Once BC7
+    // upgrades started happening, code that still made that assumption
+    // read/wrote using RGBA8 stride math against an actual BC7 (16-bytes-
+    // per-4x4-block) resource - an out-of-bounds memcpy, confirmed via a
+    // crash dump (DXReadback::readPixels, called from
+    // LLImageGL::readBackRaw). Every RGBA8-assuming method now checks this
+    // and safely no-ops (returns false) instead of corrupting memory.
+    bool isCompressedFormat() const
+    {
+        return mIsCompressed;
+    }
+
     // S24 (2026-07-25): needed by LLImageGL::readBackRaw()'s DX_RENDER
     // branch (GPU->CPU readback via DXReadback, mirroring GL's
     // glGetTexImage()) - DXReadback::readPixels() takes a raw
@@ -192,6 +247,18 @@ public:
     {
         return mTexture;
     }
+
+    // S24 (2026-09-09, BC7 texture-compression pipeline, task #318): the
+    // same 1-4 component -> RGBA8 repack create() uses internally (see its
+    // own comment), exposed as a small public utility so a caller
+    // preparing data for something OTHER than this specific DXTexture's own
+    // upload (the background BC7 compressor, which needs its OWN separate
+    // RGBA8 copy of a texture's pixel data to encode off the main thread)
+    // can reuse the exact same channel-remap rules rather than duplicating
+    // them. `out` is resized to width*height*4 bytes. Returns false for an
+    // unsupported component count (1-4 only), same as the internal version.
+    static bool repackToRGBA8(const uint8_t* data, int width, int height, int components,
+        std::vector<uint8_t>& out, bool alpha_only = false, bool bgra = false, bool raw_channels = false);
 
 private:
     // Shared "release whatever GPU resources this instance currently holds"
@@ -205,4 +272,5 @@ private:
     ID3D11Texture2D* mTexture = nullptr;
     ID3D11ShaderResourceView* mSRV = nullptr;
     bool mGenerateMips = false;
+    bool mIsCompressed = false;
 };

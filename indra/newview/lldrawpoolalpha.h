@@ -35,6 +35,13 @@ class LLFace;
 class LLColor4;
 class LLHLSLShader;
 
+// S24 (2026-09-05, task #291): gutted down to what's actually reachable
+// under DX_RENDER - see lldrawpoolalpha.cpp's own top comment. The real
+// alpha-pool implementation (forwardRender/renderAlpha/renderDebugAlpha/
+// renderAlphaHighlight/the emissive helpers/TexSetup, and every shader-
+// pointer/blend-factor member that only existed to support them) now lives
+// entirely in dxdrawpoolalpha.cpp/DXDrawPoolAlpha - this class is just the
+// LLDrawPool-required scaffolding plus the two functions that bridge to it.
 class LLDrawPoolAlpha final: public LLRenderPass
 {
 public:
@@ -58,43 +65,9 @@ public:
     /*virtual*/ void renderPostDeferred(S32 pass);
     /*virtual*/ S32  getNumPasses() { return 1; }
 
-    void forwardRender(bool write_depth = false);
     /*virtual*/ void prerender();
 
-    void renderDebugAlpha();
-
-    void renderGroupAlpha(LLSpatialGroup* group, U32 type, U32 mask, bool texture = true);
-    void renderAlpha(U32 mask, bool depth_only = false, bool rigged = false);
-    void renderAlphaHighlight();
-
     static bool sShowDebugAlpha;
-
-private:
-    LLHLSLShader* target_shader;
-
-    // setup by beginFooPass, [0] is static variant, [1] is rigged variant
-    LLHLSLShader* simple_shader = nullptr;
-    LLHLSLShader* fullbright_shader = nullptr;
-    LLHLSLShader* emissive_shader = nullptr;
-    LLHLSLShader* pbr_emissive_shader = nullptr;
-    LLHLSLShader* pbr_shader = nullptr;
-
-    void drawEmissive(LLDrawInfo* draw);
-    void renderEmissives(std::vector<LLDrawInfo*>& emissives);
-    void renderRiggedEmissives(std::vector<LLDrawInfo*>& emissives);
-    void renderPbrEmissives(std::vector<LLDrawInfo*>& emissives);
-    void renderRiggedPbrEmissives(std::vector<LLDrawInfo*>& emissives);
-    bool TexSetup(LLDrawInfo* draw, bool use_material);
-    void RestoreTexSetup(bool tex_setup);
-
-    // our 'normal' alpha blend function for this pass
-    LLRender::eBlendFactor mColorSFactor;
-    LLRender::eBlendFactor mColorDFactor;
-    LLRender::eBlendFactor mAlphaSFactor;
-    LLRender::eBlendFactor mAlphaDFactor;
-
-    // if true, we're executing a rigged render pass
-    bool mRigged = false;
 };
 
 #endif // LL_LLDRAWPOOLALPHA_H

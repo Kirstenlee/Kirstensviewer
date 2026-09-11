@@ -332,7 +332,7 @@ void LLPostProcess::viewOrthogonal(unsigned int width, unsigned int height)
     gDX.matrixMode(LLRender::MM_PROJECTION);
     gDX.pushMatrix();
     gDX.loadIdentity();
-    gDX.ortho( 0.f, (GLfloat) width , (GLfloat) height , 0.f, -1.f, 1.f );
+    gDX.ortho( 0.f, (F32) width , (F32) height , 0.f, -1.f, 1.f );
     gDX.matrixMode(LLRender::MM_MODELVIEW);
     gDX.pushMatrix();
     gDX.loadIdentity();

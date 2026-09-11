@@ -362,13 +362,24 @@ void DXDrawPoolBump::renderDeferred(LLDrawPoolBump& pool, S32 pass)
         const LLVOAvatar* lastAvatar = nullptr;
         U64 lastMeshId = 0;
         bool skipLastSkin = false;
+        // S24 (2026-09-06, perf): setMinimumAlpha() (llhlslshader.cpp) does a
+        // gDX.flush() PLUS a uniform upload - was called unconditionally for
+        // every draw item here, unlike dxdrawpoolmaterials.cpp's otherwise-
+        // identical loop, which already gates this behind a last-value
+        // comparison. -1.f is outside mAlphaMaskCutoff's valid [0,1] range so
+        // the first item always uploads once, matching prior behavior.
+        F32 lastAlphaMaskCutoff = -1.f;
 
         for (LLCullResult::drawinfo_iterator i = begin; i != end; )
         {
             LLDrawInfo& params = **i;
             LLCullResult::increment_iterator(i, end);
 
-            LLHLSLShader::sCurBoundShaderPtr->setMinimumAlpha(params.mAlphaMaskCutoff);
+            if (lastAlphaMaskCutoff != params.mAlphaMaskCutoff)
+            {
+                lastAlphaMaskCutoff = params.mAlphaMaskCutoff;
+                LLHLSLShader::sCurBoundShaderPtr->setMinimumAlpha(lastAlphaMaskCutoff);
+            }
             if (bump_channel > -1)
             {
                 LLDrawPoolBump::bindBumpMap(params, bump_channel);

@@ -70,6 +70,7 @@ Kirstens Viewer respects user privacy and disables or limits the following compo
 | 3664  | HRADR    | DX_RENDER 0.1 |
 | 3693  | HRADR    | DX_RENDER 0.2 |
 | 3745  | HRADR    | DX_RENDER 0.3 |
+| 3783  | HRADR    | DX_RENDER 0.4 |
 
 **Forked from Viewer Develop / 2026.3**
 
@@ -83,8 +84,9 @@ GLSL shader source and the OpenGL rendering path were removed, so
 `DX_RENDER` is now the viewer's only renderer (a longer-term pass to retire
 remaining GL-era class names/scaffolding is ongoing).
 `DX_RENDER` was publicly released as pre-alpha 0.1 (2026-08-23), reached
-release point **0.2** (2026-08-29, SVN r3693), and is now at pre-alpha
-**0.3** (2026-09-05, SVN r3745).
+release point **0.2** (2026-08-29, SVN r3693), pre-alpha **0.3**
+(2026-09-05, SVN r3745), and is now at pre-alpha **0.4** (2026-09-11, SVN
+r3783).
 
 **Architecture**: the D3D11 backend lives in its own module,
 `indra/dxrender/` — `core/` (device/context/state: `DXDevice`,
@@ -105,12 +107,15 @@ Since 0.2, the depth buffer moved to reversed-Z (fixing z-fighting and
 distant water shore-fade draining), and the legacy `LLCubeMap`/
 `LLCubeMapArray` classes were replaced with real `DXCubeMap`/
 `DXCubeMapArray` equivalents (fixing the hero-probe mirrors along the way).
-Known gaps: reflection-probe box/floor content (e.g. a glossy floor should
-show a recognisable reflection of nearby objects) is still not fully
-correct despite several rounds of fixes — a screen-space-reflections-primary
-approach was tried and abandoned; the probe-array path remains primary, and
-avatar GPU-cost throttling (AutoFPS) is a known no-op under `DX_RENDER`,
-deferred past 0.3.
+Since 0.3, real Screen-Space Reflections went live (a from-scratch rebuild
+fixed a missing perspective-divide guard, a wrong reprojection matrix, and a
+biased ray-jitter direction that had made early attempts look "torn"),
+hero-probe mirrors were fixed for good (they'd only ever worked once per
+process), box-probe banding was addressed on four separate fronts, and a
+real BC7 GPU texture-compression pipeline shipped (58% VRAM reduction on
+eligible content, opt-in). Known gaps: reflection quality is still being
+tuned by eye rather than fully derived, and avatar GPU-cost throttling
+(AutoFPS) remains a known no-op under `DX_RENDER`, deferred past 0.4.
 
 ---
 
@@ -118,10 +123,12 @@ deferred past 0.3.
 
 Every entry below is sourced directly from the SVN commit history, from
 the first commit after build 3535 (r3536, 2026-07-12 — the start of the
-DirectX 11 conversion project) through the current pre-alpha 0.3 point
-(r3746, 2026-09-05) — 209 commits total, grouped by category and, from the
-0.2 point onward, compressed where several commits form one continuous
-piece of work rather than kept one-line-per-commit.
+DirectX 11 conversion project) through the current pre-alpha 0.4 point
+(r3784, 2026-09-11) — roughly 246 commits total, grouped by category and,
+from the 0.2 point onward, compressed where several commits form one
+continuous piece of work rather than kept one-line-per-commit. A handful of
+the least-descriptive early entries have also been trimmed or merged this
+pass to keep the log readable rather than exhaustive.
 
 #### 🎨 Graphics & Rendering
 
@@ -153,7 +160,6 @@ piece of work rather than kept one-line-per-commit.
 - S24: stage 7 - deep dive
 - S24: shader modifications, vary TEXCOORD for input
 - S24: shader modifications, vary TEXCOORD for input
-- S24: core update
 - S24: fix VS/PS interpolant register mismatch tree-wide (96 files)
 - S24: Stage 8 phase 1 refinement and live render
 - S24: stage 8 - first login!
@@ -179,31 +185,19 @@ piece of work rather than kept one-line-per-commit.
 - S24: fix DXVertexLayout WEIGHT4 bit mapping and guard DXTexture copySubImageFromFrameBuffer against an invalid-region device-removed crash
 - S24: fix SSAO noise/depth texture sampling missing GL-to-D3D11 texture-origin flip
 - S24: real directional/spot shadow-map rendering working end-to-end (task #158)
-- S24: screen flip / origin bugs in shaders, testing WIP
-- S24: PBR alpha WIP, attenuation mixed up
-- S24: shiny primitives WIP
-- S24: shiny primitives / reflections part 2, WIP
-- S24: HW light issues WIP
 - S24: CTD in pbropaque vary_sign
-- S24: missing gaps between GLSL and HLSL in pbralpha
 - S24: compressed texture gap fixed
 - S24: Post Pipeline - FXAA & KV 64bit DOF wired in
 - S24: FEATURE - OpenCL effect VFX coded for DX RENDER
 - S24: flip imposters for correct render
 - S24: fix degenerate triangle LINE_LOOP visualization in model preview
 - S24: atmospherics and water haze as per LL spec
-- S24: clear-colour durability fix
-- S24: HW light system (custom) V1
-- S24: GLTF gaps closed
 - S24: fix stale texture-bind dedup causing wrong-texture flashes and redundant flush churn under VRAM-pressure downscaling
 - S24: fix CEF content texture colour format issue
-- S24: alpha research gaps, small fixes
-- S24: REVERT - DX syncLightState TODO
 - S24: full FXAA/SMAA HLSL implementation
 - S24: FXAA enhanced
 - S24: HLSL sampleSpotShadow re-ported
 - S24: GLTF PBR material fixes
-- S24: shader fixes ported from GLSL to HLSL
 - S24: cull face not carried over to DX11 pipeline (fixed)
 - S24: occlusion culling wired live - real D3D11 occlusion queries, reflection-probe CTD fix, TRIANGLE_FAN false-occlusion fix
 - S24: add DXOcclusionQuery (real D3D11 occlusion query wrapper)
@@ -229,6 +223,22 @@ piece of work rather than kept one-line-per-commit.
 - DX_RENDER: fixed the build-tool X/Y/Z readout's HUD/manipulation-line offset - a chrome-rect mismatch that scaled with menu/favorites-bar height
 - DX_RENDER: fixed an avatar GPU-profiling crash in the Performance floater's Nearby tab
 - S24: removed deprecated Highlight glow (158 lines); fixed the Film Menu's shader toggles; renamed gGLActive to gDXActive; fixed a font-collection use-after-free/leak and a log-file corruption bug; reverted a failed viewport-to-shader Y-flip experiment; beacon (find/sun-moon) rewrite with real DX11 billboard geometry
+- DX_RENDER: retired the dead GL-era `lldrawpoolalpha`/`lldrawpoolwlsky` implementations (Stage 9 GL removal) — `DXDrawPoolAlpha`/`DXDrawPoolWLSky` were always the real path under `DX_RENDER`; ~1,300 combined dead lines removed
+- DX_RENDER: added `dxLineWidth()`, a shared D3D11 line-width replacement (real camera-facing billboard geometry, screen-space-constant width) for the selection beam, the find/sun-moon beacon, and parcel-edit boundary posts; also gave the selection beam a real width setting instead of a hardcoded constant
+- DX_RENDER: fixed black dots under 2.5D clouds at opacity above 1.0, and nebula/shooting stars fading on moonlight instead of sun elevation
+- DX_RENDER: fixed a real green tint in the ACES tonemap (an HLSL/GLSL row-vs-column-major matrix mismatch, same bug class as the earlier TBN fix); added ACES (Fast) and AgX tonemap options; factory default changed from ACES to Khronos Neutral
+- DX_RENDER: code-audit pass — straight-lined dead GL `#ifdef`s in `pipeline.cpp`, fixed real uninitialized-read bugs (raycast results, shadow matrices) and a spot-shadow/reflection-probe-capture state cross-contamination bug; GL-era naming/dead-code purge elsewhere (`GLfloat`→`F32`, `GLboolean`→`bool`, `getOpenGLTransform()`→`getDirectXTransform()`, 3 confirmed-dead functions removed)
+- DX_RENDER: reflection-probe auto-placement no longer escapes through out-of-frustum walls; removed the hardcoded SSR gloss threshold that structurally excluded glass/PBR-alpha materials from ever reaching reflections
+- DX_RENDER: Screen-Space Reflections rebuilt from scratch — fixed a missing perspective-divide guard, a wrong (current- instead of last-frame) reprojection matrix, and a Y-flip double-application; real reflections working for the first time, with a first tuning pass on blend/confidence/black-hit rejection
+- DX_RENDER: water/reflection-probe quality pass — fixed visibly-pixellated wave-normal feed into SSR, and four distinct box-probe banding causes (blend-fade falloff, unclamped mip LOD, sun-relative lighting baked into probe captures); added Equalize Faces and Opacity reflection-probe tuning controls
+- DX_RENDER: fixed torn/incoherent "hall of mirrors" SSR reflections — the per-sample jitter was locked to a single fixed diagonal instead of being genuinely 2D and centered; also improved march convergence and firefly suppression
+- DX_RENDER: fixed a real crash when disabling Screen Space Reflections (a stale, lower-quality cached shader source getting reused by a shader that still needed the higher tier)
+- DX_RENDER: fixed hero-probe mirrors working correctly only once per process — a render-target cleanup path never reset an internal depth flag, so the viewer silently stopped reallocating the mirror's render target after the first use
+- DX_RENDER: fixed rotated UI icons (e.g. inventory folder disclosure triangles) drawing at the wrong screen position instead of appearing invisible — the rotated-icon path never added the accumulated UI translation into its own vertex positions
+- DX_RENDER: fixed SSAO/SSR temporal-reprojection flicker — the HUD camera was overwriting the main view's last-frame matrix every frame
+- DX_RENDER: real BC7 GPU texture-compression pipeline (background-thread encode, live resource swap, zero added latency) replaces the long-dead GL-era compression checkbox — 58% real VRAM reduction confirmed live on eligible content, opt-in
+- DX_RENDER: fixed PBR terrain never actually rendering on any paint-type permutation — an unused vertex-input field was silently breaking GPU input-layout creation for every permutation
+- DX_RENDER: replaced the flat opaque grey "jelly doll" look for too-complex/too-slow avatars with a translucent, rim-glowing ghost silhouette — same cached-impostor performance cost, far less immersion-breaking
 
 #### ⚡ Performance & Optimisation
 
@@ -252,6 +262,12 @@ piece of work rather than kept one-line-per-commit.
 - S24: 0.2 perf pass, texture dedup reverted
 - S24: more cached controls, and GL cleanup
 - DX_RENDER: GPU eviction tuning; added a dedicated DXPool worker-thread pool and parallelized idleUpdate() for non-avatar objects (task #283)
+- DX_RENDER: full async shader-compile cache — `D3DCompile()` now prefetches ahead of time on a worker thread instead of blocking the frame it's needed on, and cache coverage went from a staged per-shader allowlist to blanket coverage; also fixed the long-dead "Reload Vertex Shader" developer menu entry
+- DX_RENDER: perf tuning pass — hoisted redundant per-plane math out of the camera frustum-clipping hot loop, gated a redundant per-draw uniform upload behind a last-value check, and fused two separate passes over the active-object list into one
+- DX_RENDER: removed a leftover per-frame diagnostic log with a real, measurable frame-time cost (including one line firing on every reflection-probe occlusion-query result); avoided redundant per-drawable uniform uploads in the alpha pool
+- DX_RENDER: matrix-upload caching for `syncMatrices()` — skips redundant vertex/pixel constant recomputation and re-upload when the camera hasn't actually moved since the shader's last sync
+- DX_RENDER: fixed a texture disk-cache write race — thousands of textures per session were silently skipping the on-disk cache due to a shared-pointer race with the main thread; the write path now takes its own private copy before handing off
+- DX_RENDER: re-fixed redundant D3D11 texture/sampler rebinds (skips redundant GPU calls when nothing actually changed) — an earlier attempt regressed lit-surface rendering and was reverted; root-caused to a render-target bind path that bypassed the cache entirely, and re-fixed with independent texture/sampler change-tracking
 
 #### 🖌️ UI, Themes & Skins
 
@@ -280,6 +296,8 @@ piece of work rather than kept one-line-per-commit.
 
 #### 🎥 Camera & Input
 
+- DX_RENDER: fixed SpaceNavigator and Xbox-style/generic game controllers being completely non-functional — the build flag gating the whole joystick/controller subsystem was never actually being set by the build system, silently compiling it out entirely (predates `DX_RENDER`)
+
 #### 🛠️ Debug & Diagnostics
 
 - S24: stages 5.7/5.8 skipped for now - debug consoles will be handled in a later conversion phase
@@ -295,6 +313,7 @@ piece of work rather than kept one-line-per-commit.
 - S24: raw-bind audit
 - S24: fix resets and folder paths based on build type, GL / DX
 - DX_RENDER: cleaned up 6 leftover investigation diagnostics and a dead counter; fixed 2 shader compile failures and 5 real bugs found during a warnings cleanup pass; fixed a handful of misc runtime issues (wasted shadow-map allocation, a dead shader cache, misleading warnings, a missing emoji asset); fixed a flush_glerror() crash risk; expanded the shader bytecode cache to cover FXAA, SMAA, and the GLTF/PBR shader family
+- DX_RENDER: downgraded several non-actionable warnings from WARN to DEBUG (a routine mute-list cache clear, a malformed cached UUID string, a benign avatar-appearance packet-ordering artifact, an animation exceeding an old joint-constraint cap) — none were things a user could act on, just log noise
 
 #### 🔒 Privacy & Moderation
 
@@ -316,6 +335,7 @@ piece of work rather than kept one-line-per-commit.
 - S24: fix stale Boost baseline fallback
 - S24: update packager script
 - S24: prepare for / bump version to Pre-Alpha 0.3
+- S24: prepare for / bump version to Pre-Alpha 0.4
 
 **Binaries signed:** Codesign Serial: `4e2969400a179e151ba7323da181f8b0`
 ---

@@ -231,6 +231,10 @@ extern LLHLSLShader         gPostScreenSpaceReflectionProgram;
 
 // Deferred rendering shaders
 extern LLHLSLShader         gDeferredImpostorProgram;
+// S24 (2026-09-10): jelly-doll "ghost" impostor - real alpha-blended,
+// rim-glowing silhouette, drawn post-deferred instead of into the opaque
+// G-buffer. See LLDrawPoolAvatar::renderJellyDollGhosts().
+extern LLHLSLShader         gDeferredJellyGhostProgram;
 extern LLHLSLShader         gDeferredDiffuseProgram;
 extern LLHLSLShader         gDeferredDiffuseAlphaMaskProgram;
 extern LLHLSLShader         gDeferredNonIndexedDiffuseAlphaMaskProgram;

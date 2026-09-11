@@ -161,6 +161,23 @@ void LLStandardBumpmap::addstandard()
         gStandardBumpmapList[LLStandardBumpmap::sStandardBumpmapCount].mImage =
             LLViewerTextureManager::getFetchedTexture(LLUUID(bump_image_id));
         gStandardBumpmapList[LLStandardBumpmap::sStandardBumpmapCount].mImage->setBoostLevel(LLGLTexture::LOCAL) ;
+        // S24 (2026-09-09, BC7 texture-compression pipeline, task #318):
+        // this asset feeds LLBumpImageList::onSourceStandardLoaded()'s
+        // generateNormalMapFromAlpha() - a classic finite-difference/emboss
+        // bump technique, not a normal color lookup. That technique reads
+        // two NEARBY texel samples and subtracts them to derive a gradient -
+        // any lossy block compression's per-pixel quantization error, while
+        // imperceptible for ordinary color content, gets massively
+        // amplified by that subtraction, producing sharp black/triangular
+        // artifacts that reveal the underlying mesh triangulation (live-
+        // confirmed by the user, task #318, "BBM.png" - Bump map w/
+        // Brightness). Opt out via the same allow_compression mechanism
+        // LLFontBitmapCache already uses for glyph atlases, for the same
+        // class of reason - gradient-sensitive data, not a color image.
+        if (LLImageGL* bump_gl_tex = gStandardBumpmapList[LLStandardBumpmap::sStandardBumpmapCount].mImage->getGLTexture())
+        {
+            bump_gl_tex->setAllowCompression(false);
+        }
         gStandardBumpmapList[LLStandardBumpmap::sStandardBumpmapCount].mImage->setLoadedCallback(LLBumpImageList::onSourceStandardLoaded, 0, true, false, NULL, NULL );
         gStandardBumpmapList[LLStandardBumpmap::sStandardBumpmapCount].mImage->forceToSaveRawImage(0, 30.f) ;
         LLStandardBumpmap::sStandardBumpmapCount++;
@@ -1057,11 +1074,11 @@ void LLRenderPass::pushBumpBatch(LLDrawInfo& params, bool texture, bool batch_te
             {
                 gDX.getTexUnit(0)->activate();
                 gDX.matrixMode(LLRender::MM_TEXTURE);
-                gDX.loadMatrix((GLfloat*) params.mTextureMatrix->mMatrix);
+                gDX.loadMatrix((F32*) params.mTextureMatrix->mMatrix);
                 gPipeline.mTextureMatrixOps++;
             }
 
-            gDX.loadMatrix((GLfloat*) params.mTextureMatrix->mMatrix);
+            gDX.loadMatrix((F32*) params.mTextureMatrix->mMatrix);
             gPipeline.mTextureMatrixOps++;
 
             tex_setup = true;

@@ -173,6 +173,27 @@ float3 BlendNormal(float3 bump1, float3 bump2)
     return lerp(bump1, bump2, blend_factor);
 }
 
+// S24 (2026-09-07, DX Water V1): Reoriented Normal Mapping (RNM) - composes
+// a "detail" tangent-space normal onto a "base" one the way a bump actually
+// sits on an already-bumpy surface, instead of averaging two vectors that
+// can partially cancel when out of phase. Standard technique (Colin
+// Barre-Brisebois/Stephen Hill, "Blending in Detail",
+// blog.selfshadow.com/publications/blending-in-detail) - this is the
+// well-known unpacked-normal fast path (both inputs are already in -1..1,
+// roughly-unit tangent-space normals with z toward the viewer). Used below
+// to combine wave1/wave2/wave3 instead of the old
+// "(wave1 + wave2*0.4 + wave3*0.6) * 0.5" plain weighted sum, which is the
+// real, confirmed source of a slow visible "flatten/sharpen" pulse
+// whenever two layers' phases drifted toward cancellation (see
+// waterV.hlsl's own comment on the matching root-cause fix for littleWave.zw's
+// direction).
+float3 RNMBlend(float3 n1, float3 n2)
+{
+    n1 += float3(0, 0, 1);
+    n2 *= float3(-1, -1, 1);
+    return n1 * dot(n1, n2) / n1.z - n2;
+}
+
 void generateWaveNormals(PSInput IN, out float3 wave1, out float3 wave2, out float3 wave3)
 {
     // Generate all of our wave normals.
@@ -234,6 +255,16 @@ float4 main(PSInput IN) : SV_Target
 
     generateWaveNormals(IN, wave1, wave2, wave3);
 
+    // S24 (2026-09-07, DX Water V1): RNM compose instead of a plain
+    // weighted average - see RNMBlend()'s own comment above. wave2/wave3
+    // are attenuated toward flat (0,0,1) by their original 0.4/0.6 weights
+    // BEFORE composing, preserving this shader's original "wave3 matters
+    // more than wave2" intent while avoiding the old amplitude-cancellation
+    // artifact between out-of-phase layers.
+    float3 wavef = normalize(wave1);
+    wavef = RNMBlend(wavef, normalize(lerp(float3(0, 0, 1), normalize(wave2), 0.4)));
+    wavef = RNMBlend(wavef, normalize(lerp(float3(0, 0, 1), normalize(wave3), 0.6)));
+
     float dmod = sqrt(dist);
     // S24 (2026-08-09, task #146): the original GLSL divides refCoord.xy
     // by refCoord.z (not w) to approximate a screen-space UV - a trick
@@ -251,8 +282,6 @@ float4 main(PSInput IN) : SV_Target
     // NDC reconstruction, which must not be flipped).
     float2 distort = getScreenCoord(IN.refCoord);
 
-    float3 wavef = (wave1 + wave2 * 0.4 + wave3 * 0.6) * 0.5;
-
     float3 df3 = float3(0, 0, 0);
     float2 df2 = float2(0, 0);
 
@@ -269,7 +298,36 @@ float4 main(PSInput IN) : SV_Target
     float3 up = transform_normal(float3(0, 0, 1));
     float vdu = -dot(viewVec, up) * 2;
 
-    float3 wave_ibl = wavef * normScale;
+    // S24 (2026-09-07, DX Water SSR V1): wave_ibl feeds the reflection-
+    // probe/SSR ray direction (sampleReflectionProbesWater() call below) -
+    // deliberately built from a COARSER normal than wavef (which still
+    // drives direct lighting/fresnel/specular further down, untouched).
+    // Live-reported: water SSR looks noticeably more "pixellated"/flickery
+    // than opaque-surface SSR. Root cause, confirmed by reading
+    // tapScreenSpaceReflection() (screenSpaceReflUtil.hlsl): the traced ray
+    // direction is `reflect(viewPos, normalize(n))` - directly, highly
+    // sensitive to whatever normal it's given. wavef is the full 3-layer
+    // RNM-composited detail normal, which by design wobbles at high spatial
+    // AND temporal frequency (that's what makes choppy water look choppy).
+    // For an opaque floor/glass surface this SSR code was originally tuned
+    // against, the normal barely changes frame to frame, so the traced ray
+    // is stable; water's normal never stops moving, so the ray direction -
+    // and therefore which scene pixel it hits - changes every pixel, every
+    // frame. With only 4 stochastic samples per pixel
+    // (RenderScreenSpaceReflectionGlossySamples) and zero temporal
+    // accumulation anywhere in this SSR implementation, that shows up
+    // exactly as visible per-pixel noise and frame-to-frame flicker.
+    // waveCoarse below is mostly wave1 (the big, slow swell layer) with
+    // only a small amount of wave2/wave3's fast detail blended in via the
+    // same RNM technique as wavef itself - stabilizes the traced ray
+    // direction without touching how sharp the water actually looks
+    // (wavef, still full detail, still drives lighting/fresnel/waver/norm
+    // exactly as before).
+    float3 waveCoarse = normalize(wave1);
+    waveCoarse = RNMBlend(waveCoarse, normalize(lerp(float3(0, 0, 1), normalize(wave2), 0.15)));
+    waveCoarse = RNMBlend(waveCoarse, normalize(lerp(float3(0, 0, 1), normalize(wave3), 0.15)));
+
+    float3 wave_ibl = waveCoarse * normScale;
     wave_ibl.z *= 2.0;
     wave_ibl = transform_normal(normalize(wave_ibl));
 

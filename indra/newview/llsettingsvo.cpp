@@ -1086,8 +1086,8 @@ void LLSettingsVOWater::applySpecial(void *ptarget, bool force)
         glm::mat4 invtrans = glm::transpose(glm::inverse(mat));
         invtrans[0][3] = invtrans[1][3] = invtrans[2][3] = 0.f;
 
-        glm::vec3 enorm;
-        glm::vec3 ep;
+        glm::vec3 enorm = {};
+        glm::vec3 ep = {};
         enorm = mul_mat4_vec3(invtrans, norm);
         enorm = glm::normalize(enorm);
         ep = mul_mat4_vec3(mat, p);

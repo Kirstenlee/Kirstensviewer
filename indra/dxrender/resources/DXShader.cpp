@@ -9,7 +9,6 @@
 #include <d3dcompiler.h>
 #include <fstream>
 #include <regex>
-#include <unordered_set>
 #include <vector>
 
 bool DXShader::sShaderCacheEnabled = false;
@@ -211,126 +210,42 @@ bool DXShader::isCacheEligible(const std::string& debugName)
         return false;
     }
 
-    // S24 allowlist, extended in passes as confidence grows (see
-    // DXShader.h's sShaderCacheEnabled comment) - each addition gets its own
-    // live playtest, same as any other DX_RENDER change. Deliberately
-    // excludes anything with a known live issue for now: the reflection-
-    // probe/SSR family (task #156 umbrella still has open children), the
-    // full avatar body shaders (gDeferredAvatarProgram and siblings - the
-    // real per-vertex skin animation path, not to be confused with the
-    // rigged-attachment "Skinned Material" permutations below, which are
-    // simpler and now included), shadow-cascade shaders, and the Buffer
-    // Visualization shader specifically (task #261's AMD lazy-compile
-    // lockup).
-    //
-    // 2026-08-26 (pilot): the occlusion probe box shader - simple, no
-    // permutations, low blast radius, proven live over one session.
-    //
-    // 2026-08-29 (pass 2): bump/material shaders plus a batch of other
-    // structurally simple, single-purpose utility/highlight shaders with no
-    // permutation loop of their own.
-    //
-    // 2026-08-29 (pass 3): the big one for startup time -
-    // gDeferredMaterialProgram[LLMaterial::SHADER_COUNT*2] (llviewershadermgr.cpp)
-    // is a 32-way permutation loop (normal map x specular map x 4 alpha
-    // modes x sun-shadow x rigged, llmaterial.h's SHADER_COUNT=16) that
-    // compiles unconditionally at every startup regardless of what's in
-    // view - named "Material Shader %d"/"Skinned Material Shader %d" by
-    // index, matched by prefix below since the exact names are only known at
-    // runtime. This is most of what's actually driving the "a lot of
-    // materials shaders compiling at startup" load-time cost - by far the
-    // biggest lever here. Also added: the indexed-texture diffuse/fullbright
-    // families (deferred/materialV+F.hlsl's simpler siblings - same permute-
-    // by-alpha-mode shape, much smaller permutation count) and the emissive
-    // shader.
-    //
-    // 2026-09-05 (pass 5): FXAA and SMAA, both already live-proven this
-    // week (r3733's SMAA fix; FXAA has been the long-running default) -
-    // low risk, and each is a small runtime-numbered quality-preset
-    // permutation set (4 presets each, gFXAAProgram[4]/gSMAAEdgeDetectProgram[4]/
-    // gSMAABlendWeightsProgram[4]/gSMAANeighborhoodBlendProgram[4] in
-    // llviewershadermgr.cpp), named e.g. "FXAA Shader (Low)"/"SMAA Edge
-    // Detection (Ultra)" - matched by prefix below, same shape as the
-    // "Material Shader "/"Skinned Material Shader " pattern already in use.
-    //
-    // 2026-09-04 (pass 4): the GLTF family, previously excluded wholesale
-    // for "an active D3DCompile failure - redefinition of 'clipPlane'"
-    // (task #262 era). That specific bug was already fixed 2026-09-02 (see
-    // gltf/pbrmetallicroughnessF.hlsl's own comment - a local clipPlane/
-    // clipSign pair collided with globalF.hlsl's, confirmed genuinely dead
-    // and removed) - the exclusion had just gone stale, nobody circled back
-    // to re-add it after. "GLTF PBR Metallic Roughness Shader" is the big
-    // one for startup time here: make_gltf_variants() compiles it as 16 full
-    // permutations (ALPHA_BLEND x RIGGED x UNLIT x MULTI_UV,
-    // LLHLSLShader::NUM_GLTF_VARIANTS) sharing this one debugName - the
-    // cache key itself (source text + target hash, dxShaderCachePath())
-    // already disambiguates all 16 correctly despite the shared name, so one
-    // allowlist entry covers every variant. Also added the two GLTF shadow
-    // shaders (single compile each, no permutation loop, much lower blast
-    // radius, and structurally unrelated to pbrmetallicroughnessF.hlsl's
-    // fixed bug - just grouped under the same "GLTF family" ask).
-    static const std::unordered_set<std::string> allowlist = {
-        "GLTF PBR Metallic Roughness Shader",
-        "Deferred GLTF Shadow Alpha Mask Shader",
-        "Deferred GLTF Shadow Alpha Blend Shader",
-        "Occlusion Cube Shader",
-        "Occlusion Shader",
-
-        "Deferred Bump Shader",
-        "Bump Shader",
-
-        "Highlight Shader",
-        "Highlight Normals Shader",
-        "Highlight Spec Shader",
-        "Solid Color Shader",
-        "Debug Shader",
-        "Clip Shader",
-        "Alpha Mask Shader",
-        "Copy Shader",
-        "Copy Depth Shader",
-        "Draw Color Shader",
-        "Two Texture Compare Shader",
-        "One Texture Filter Shader",
-
-        "Deferred Diffuse Shader",
-        "Deferred Diffuse Alpha Mask Shader",
-        "Deferred Diffuse Non-Indexed Alpha Mask Shader",
-        "Deferred Diffuse Non-Indexed Alpha Mask No Color Shader",
-        "Deferred Fullbright Shader",
-        "HUD Fullbright Shader",
-        "Deferred Fullbright Alpha Masking Shader",
-        "HUD Fullbright Alpha Masking Shader",
-        "Deferred Fullbright Alpha Masking Alpha Shader",
-        "HUD Fullbright Alpha Masking Alpha Shader",
-        "Deferred FullbrightShiny Shader",
-        "HUD FullbrightShiny Shader",
-        "Deferred Emissive Shader",
-    };
-    if (allowlist.count(debugName) != 0)
-    {
-        return true;
-    }
-
-    // gDeferredMaterialProgram[]'s 32 runtime-numbered permutations - see
-    // this function's own 2026-08-29 (pass 3) comment above.
-    static const std::string material_prefix = "Material Shader ";
-    static const std::string skinned_material_prefix = "Skinned Material Shader ";
-    if (debugName.compare(0, material_prefix.size(), material_prefix) == 0
-        || debugName.compare(0, skinned_material_prefix.size(), skinned_material_prefix) == 0)
-    {
-        return true;
-    }
-
-    // FXAA/SMAA's 4 runtime-numbered quality-preset permutations each - see
-    // this function's own 2026-09-05 (pass 5) comment above.
-    static const std::string fxaa_prefix = "FXAA Shader (";
-    static const std::string smaa_edge_prefix = "SMAA Edge Detection (";
-    static const std::string smaa_blend_prefix = "SMAA Blending Weights (";
-    static const std::string smaa_neighborhood_prefix = "SMAA Neighborhood Blending (";
-    return debugName.compare(0, fxaa_prefix.size(), fxaa_prefix) == 0
-        || debugName.compare(0, smaa_edge_prefix.size(), smaa_edge_prefix) == 0
-        || debugName.compare(0, smaa_blend_prefix.size(), smaa_blend_prefix) == 0
-        || debugName.compare(0, smaa_neighborhood_prefix.size(), smaa_neighborhood_prefix) == 0;
+    // S24 (2026-09-05, task #277): was a staged per-shader allowlist,
+    // grown pilot -> pass 2 -> ... -> pass 6 (r3689 onward) so each addition
+    // could get its own live playtest before trusting the next. That staging
+    // was about proving the CACHE MECHANISM, not about any real per-shader
+    // caching risk - flipped to blanket eligibility now that the mechanism
+    // is proven and shader iteration has a real, fast reload path (Develop >
+    // Rendering > Reload Vertex Shader, wired to setShaders() this same
+    // session - previously an inert stub). Reasoning for why blanket
+    // coverage is safe, not just convenient:
+    // - The cache only ever persists the exact D3DCompile() bytecode a
+    //   shader would have produced anyway, keyed on that shader's own fully-
+    //   resolved HLSL text (dxShaderCachePath()) - identical text always
+    //   produces identical output, cached or not, so caching cannot change a
+    //   shader's own rendering behavior or correctness, only whether the
+    //   compile step is skipped on a repeat launch.
+    // - It's fully self-healing: if CreateVertexShader()/CreatePixelShader()
+    //   ever rejects a cached blob (e.g. a truncated file from a crash
+    //   mid-write), compileVertexShader()/compilePixelShader() fall back to
+    //   a real compile and re-cache automatically.
+    // - Editing a live shader's source changes its content hash, which is a
+    //   guaranteed cache miss - a Reload Vertex Shader always recompiles
+    //   whatever actually changed and never serves stale bytecode for it.
+    // - The previously-named exclusions (reflection-probe/SSR's still-open
+    //   task #156 umbrella, the real avatar body-skinning shaders) are
+    //   rendering-QUALITY concerns, unrelated to whether their bytecode is
+    //   cached - they render identically either way.
+    // - task #261's Buffer Visualization / task #313's Brdf Gen Shader
+    //   startup-hang family is diagnosed at CreatePixelShader() (DXBC ->
+    //   native GPU ISA, the GPU driver's own backend compiler) - a step this
+    //   cache never touches at all (it only ever caches the upstream
+    //   D3DCompile() bytecode). Caching those shaders is harmless and still
+    //   speeds up the step ahead of the hang, but does not fix or worsen it
+    //   - a real fix there is still task #261's lazy-compile-relocation
+    //   pattern, unrelated to this cache. See task #277's own notes for the
+    //   full history if that family ever needs revisiting.
+    return true;
 }
 
 bool DXShader::compileVertexShader(const std::string& source, const std::string& debugName)
@@ -413,6 +328,28 @@ bool DXShader::compilePixelShader(const std::string& source, const std::string& 
     reflectConstants(blob->GetBufferPointer(), blob->GetBufferSize());
     blob->Release(); // no input layout involved on the pixel-shader side, unlike the VS bytecode
     return true;
+}
+
+void DXShader::prefetchVertexShader(const std::string& source, const std::string& debugName)
+{
+    std::string cache_path;
+    bool used_cache = false;
+    ID3DBlob* blob = getOrCompileHLSL(source, debugName, "main", "vs_5_0", &cache_path, &used_cache);
+    if (blob)
+    {
+        blob->Release();
+    }
+}
+
+void DXShader::prefetchPixelShader(const std::string& source, const std::string& debugName)
+{
+    std::string cache_path;
+    bool used_cache = false;
+    ID3DBlob* blob = getOrCompileHLSL(source, debugName, "main", "ps_5_0", &cache_path, &used_cache);
+    if (blob)
+    {
+        blob->Release();
+    }
 }
 
 void DXShader::reflectConstants(const void* bytecode, size_t size)

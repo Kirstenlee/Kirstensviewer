@@ -173,7 +173,7 @@ namespace
                 tex_setup = true;
                 gDX.getTexUnit(0)->activate();
                 gDX.matrixMode(LLRender::MM_TEXTURE);
-                gDX.loadMatrix((GLfloat*)draw->mTextureMatrix->mMatrix);
+                gDX.loadMatrix((F32*)draw->mTextureMatrix->mMatrix);
                 gPipeline.mTextureMatrixOps++;
             }
         }
@@ -243,7 +243,7 @@ namespace
                         tex_setup = true;
                         gDX.getTexUnit(0)->activate();
                         gDX.matrixMode(LLRender::MM_TEXTURE);
-                        gDX.loadMatrix((GLfloat*)draw->mTextureMatrix->mMatrix);
+                        gDX.loadMatrix((F32*)draw->mTextureMatrix->mMatrix);
                         gPipeline.mTextureMatrixOps++;
                     }
                 }
@@ -466,6 +466,18 @@ namespace
         const LLHLSLShader* lastAvatarShader = nullptr;
         bool skipLastSkin = false;
 
+        // S24 (2026-09-09, perf pass): sentinels outside each field's real
+        // range, matching dxdrawpoolmaterials.cpp's identical pattern - avoid
+        // re-uploading these 3 per-drawable uniforms (each a hashed
+        // mConstants lookup + write in DXShader::setUniformFloatArray(), x2
+        // for vertex+pixel stage) when the value hasn't actually changed
+        // since the last draw item. Reset to the sentinel whenever the bound
+        // shader changes (below) so the newly-bound shader's own constant
+        // buffer still gets a real first set.
+        LLVector4 lastSpecColor(-1.f, -1.f, -1.f, -1.f);
+        F32 lastEnvIntensity = -1.f;
+        F32 lastBrightness = -1.f;
+
         LLCullResult::sg_iterator begin;
         LLCullResult::sg_iterator end;
 
@@ -635,6 +647,15 @@ namespace
                                     gDX.getTexUnit(channel)->bind(&gPipeline.mExposureMap);
                                 }
                             }
+
+                            // S24 (2026-09-09, perf pass): force a real set
+                            // of all 3 uniforms below on this newly-bound
+                            // shader - its own constant buffer hasn't seen
+                            // these values yet, even if they happen to match
+                            // whatever the PREVIOUSLY bound shader last had.
+                            lastSpecColor.setVec(-1.f, -1.f, -1.f, -1.f);
+                            lastEnvIntensity = -1.f;
+                            lastBrightness = -1.f;
                         }
 
                         LLVector4 spec_color(1, 1, 1, 1);
@@ -650,9 +671,21 @@ namespace
 
                         if (LLHLSLShader::sCurBoundShaderPtr)
                         {
-                            LLHLSLShader::sCurBoundShaderPtr->uniform4f(LLShaderMgr::SPECULAR_COLOR, spec_color.mV[VRED], spec_color.mV[VGREEN], spec_color.mV[VBLUE], spec_color.mV[VALPHA]);
-                            LLHLSLShader::sCurBoundShaderPtr->uniform1f(LLShaderMgr::ENVIRONMENT_INTENSITY, env_intensity);
-                            LLHLSLShader::sCurBoundShaderPtr->uniform1f(LLShaderMgr::EMISSIVE_BRIGHTNESS, brightness);
+                            if (spec_color != lastSpecColor)
+                            {
+                                lastSpecColor = spec_color;
+                                LLHLSLShader::sCurBoundShaderPtr->uniform4f(LLShaderMgr::SPECULAR_COLOR, spec_color.mV[VRED], spec_color.mV[VGREEN], spec_color.mV[VBLUE], spec_color.mV[VALPHA]);
+                            }
+                            if (env_intensity != lastEnvIntensity)
+                            {
+                                lastEnvIntensity = env_intensity;
+                                LLHLSLShader::sCurBoundShaderPtr->uniform1f(LLShaderMgr::ENVIRONMENT_INTENSITY, env_intensity);
+                            }
+                            if (brightness != lastBrightness)
+                            {
+                                lastBrightness = brightness;
+                                LLHLSLShader::sCurBoundShaderPtr->uniform1f(LLShaderMgr::EMISSIVE_BRIGHTNESS, brightness);
+                            }
                         }
                     }
 

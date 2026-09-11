@@ -374,14 +374,22 @@ void LLTexUnit::bindFast(LLTexture* texture)
 	// LLImageGL object identity - scaleDown() never destroys that wrapper,
 	// only swaps the DXTexture's internal raw pointers) catches this
 	// deterministically regardless of address reuse.
-	// S24 (2026-08-29, task #278/#273, REVERTED same day - user-reported
-	// "lights/projected lights strobing badly" live regression, root cause
-	// not yet isolated): the generation-gated skip here is suspected but not
-	// confirmed - reverted to always calling PSSetShaderResources/
-	// PSSetSamplers as a safe bisection step while the real cause is found,
-	// rather than leaving a known-bad frame visible. mDXSRVGeneration is
-	// still stamped (harmless) so re-enabling the skip later is a small diff.
-	if (bound_image_changed || mCurrDXSRV != (void*)srv)
+	// S24 (2026-09-10, task #273/#280 re-attempt): the 2026-08-29 attempt at
+	// this skip was reverted whole-hog after live "lights strobing" reports -
+	// root cause since isolated to LLRenderTarget::bindTexture() raw-binding
+	// G-buffer channels completely outside this cache (fixed separately,
+	// same session - see that function's comment) PLUS this skip previously
+	// being keyed only on the SRV pointer, not independently on the sampler:
+	// bind(LLRenderTarget*,...)'s useComparisonSampler can legitimately want
+	// a DIFFERENT sampler for the SAME SRV (comparison vs regular), which a
+	// shared skip condition would have wrongly suppressed. Two independent
+	// checks now: srv_changed gates the SRV rebind (plus the generation
+	// check for the RTV-auto-unbind hazard - see mDXSRVGeneration's own
+	// comment), sampler_changed gates the sampler rebind on its own, never
+	// piggybacking on the SRV decision.
+	bool srv_changed = bound_image_changed || mCurrDXSRV != (void*)srv;
+	bool generation_stale = mDXSRVGeneration != DXStateCache::getRTVGeneration();
+	if (srv_changed)
 	{
 		// S24 (2026-08-28, task #254): flush BEFORE updating mCurrBoundImageGL/
 		// mCurrDXSRV below - see bind(LLImageGL*)'s matching comment for the
@@ -403,7 +411,10 @@ void LLTexUnit::bindFast(LLTexture* texture)
 		? DXSampler::getOrCreate((int)gl_tex->getAddressMode(), (int)gl_tex->getFilteringOption())
 		: DXSampler::getOrCreate((int)LLTexUnit::TAM_WRAP, (int)LLTexUnit::TFO_BILINEAR);
 
-	gDXDevice.getContext()->PSSetShaderResources(mIndex, 1, &srv);
+	if (srv_changed || generation_stale)
+	{
+		gDXDevice.getContext()->PSSetShaderResources(mIndex, 1, &srv);
+	}
 	// S24 (2026-08-04): D3D11 caps pixel-shader sampler slots at 16
 	// (s0-s15) but SRV/texture slots go up to 128 - a shader with more
 	// than 16 distinct textures (e.g. pbrterrainF.hlsl's 4-detail-layer
@@ -419,12 +430,11 @@ void LLTexUnit::bindFast(LLTexture* texture)
 	// permanent fix - skip the now-meaningless PSSetSamplers call for
 	// any texture bound past slot 15 rather than passing an invalid
 	// StartSlot to the API.
-	mCurrDXSampler = (void*)sampler;
-	if (mIndex < 16)
+	if (mIndex < 16 && mCurrDXSampler != (void*)sampler)
 	{
 		gDXDevice.getContext()->PSSetSamplers(mIndex, 1, &sampler);
-		mCurrDXSampler = (void*)sampler;
 	}
+	mCurrDXSampler = (void*)sampler;
 #else
 	LLImageGL* gl_tex = texture->getGLTexture();
 
@@ -558,9 +568,13 @@ bool LLTexUnit::bind(LLImageGL* texture, bool for_rendering, bool forceBind, S32
 	// (DXTexture::scaleDown() Releases+recreates the SRV on every VRAM-
 	// pressure downscale; a coincidentally-reused address would otherwise
 	// read as "unchanged" and suppress a flush that's actually needed).
-	// S24 (2026-08-29, task #278/#273, REVERTED same day) - see bindFast()'s
-	// matching revert comment above.
-	if (bound_image_changed || mCurrDXSRV != (void*)srv)
+	// S24 (2026-09-10, task #273/#280 re-attempt): see bindFast()'s matching
+	// comment for the full re-enable rationale (root cause isolated to
+	// LLRenderTarget::bindTexture()'s raw G-buffer binds, fixed separately;
+	// srv/sampler skip decisions now independent of each other).
+	bool srv_changed = bound_image_changed || mCurrDXSRV != (void*)srv;
+	bool generation_stale = mDXSRVGeneration != DXStateCache::getRTVGeneration();
+	if (srv_changed)
 	{
 		// S24 (2026-08-28, task #254): flush BEFORE updating mCurrBoundImageGL/
 		// mCurrDXSRV below, not after. The old ordering set the "current
@@ -593,12 +607,15 @@ bool LLTexUnit::bind(LLImageGL* texture, bool for_rendering, bool forceBind, S32
 	mCurrBoundImageGL = texture;
 	ID3D11SamplerState* sampler = DXSampler::getOrCreate(
 		(int)texture->getAddressMode(), (int)texture->getFilteringOption());
-	gDXDevice.getContext()->PSSetShaderResources(mIndex, 1, &srv);
-	mCurrDXSampler = (void*)sampler;
-	if (mIndex < 16) // see bindFast()'s comment - sampler slots cap at 16, SRV slots don't
+	if (srv_changed || generation_stale)
+	{
+		gDXDevice.getContext()->PSSetShaderResources(mIndex, 1, &srv);
+	}
+	if (mIndex < 16 && mCurrDXSampler != (void*)sampler) // see bindFast()'s comment - sampler slots cap at 16, SRV slots don't
 	{
 		gDXDevice.getContext()->PSSetSamplers(mIndex, 1, &sampler);
 	}
+	mCurrDXSampler = (void*)sampler;
 	return true;
 #else
 	if (mIndex < 0 || !texture) return false;
@@ -648,7 +665,11 @@ bool LLTexUnit::bind(DXCubeMap* cubeMap)
 	{
 		srv = getWhiteTextureSRV();
 	}
-	if (mCurrDXSRV != (void*)srv)
+	// S24 (2026-09-10, task #273/#280 re-attempt): see bindFast()'s matching
+	// comment for the re-enable rationale.
+	bool srv_changed = mCurrDXSRV != (void*)srv;
+	bool generation_stale = mDXSRVGeneration != DXStateCache::getRTVGeneration();
+	if (srv_changed)
 	{
 		gDX.flush();
 		// S24 (2026-08-16): also flush gDXUIBatch's separate pending queue -
@@ -660,12 +681,15 @@ bool LLTexUnit::bind(DXCubeMap* cubeMap)
 	// CLAMP + TRILINEAR - avoids seams at face edges - and the full mip
 	// chain DXCubeTexture::create() always generates.
 	ID3D11SamplerState* sampler = DXSampler::getOrCreate(2, 2);
-	gDXDevice.getContext()->PSSetShaderResources(mIndex, 1, &srv);
-	mCurrDXSampler = (void*)sampler;
-	if (mIndex < 16) // see bindFast()'s comment - sampler slots cap at 16, SRV slots don't
+	if (srv_changed || generation_stale)
+	{
+		gDXDevice.getContext()->PSSetShaderResources(mIndex, 1, &srv);
+	}
+	if (mIndex < 16 && mCurrDXSampler != (void*)sampler) // see bindFast()'s comment - sampler slots cap at 16, SRV slots don't
 	{
 		gDXDevice.getContext()->PSSetSamplers(mIndex, 1, &sampler);
 	}
+	mCurrDXSampler = (void*)sampler;
 	return true;
 }
 
@@ -682,7 +706,11 @@ bool LLTexUnit::bind(DXCubeMapArray* cubeMapArray)
 	{
 		srv = getWhiteTextureSRV();
 	}
-	if (mCurrDXSRV != (void*)srv)
+	// S24 (2026-09-10, task #273/#280 re-attempt): see bindFast()'s matching
+	// comment for the re-enable rationale.
+	bool srv_changed = mCurrDXSRV != (void*)srv;
+	bool generation_stale = mDXSRVGeneration != DXStateCache::getRTVGeneration();
+	if (srv_changed)
 	{
 		gDX.flush();
 		// S24 (2026-08-16): also flush gDXUIBatch's separate pending queue -
@@ -694,12 +722,15 @@ bool LLTexUnit::bind(DXCubeMapArray* cubeMapArray)
 	// CLAMP + TRILINEAR - same convention as bind(DXCubeMap*) above (avoids
 	// seams at face edges, full mip chain always generated).
 	ID3D11SamplerState* sampler = DXSampler::getOrCreate(2, 2);
-	gDXDevice.getContext()->PSSetShaderResources(mIndex, 1, &srv);
-	mCurrDXSampler = (void*)sampler;
-	if (mIndex < 16) // see bindFast()'s comment - sampler slots cap at 16, SRV slots don't
+	if (srv_changed || generation_stale)
+	{
+		gDXDevice.getContext()->PSSetShaderResources(mIndex, 1, &srv);
+	}
+	if (mIndex < 16 && mCurrDXSampler != (void*)sampler) // see bindFast()'s comment - sampler slots cap at 16, SRV slots don't
 	{
 		gDXDevice.getContext()->PSSetSamplers(mIndex, 1, &sampler);
 	}
+	mCurrDXSampler = (void*)sampler;
 	return true;
 }
 
@@ -727,18 +758,31 @@ bool LLTexUnit::bind(LLRenderTarget* renderTarget, bool bindDepth, bool useCompa
 	{
 		return false;
 	}
-	// S24 (2026-08-29, task #278/#273, REVERTED same day - THIS is the prime
-	// suspect for the user-reported "lights/projected lights strobing badly"
-	// regression: this overload is THE chokepoint for shadow map + G-buffer
-	// binds used every frame by the deferred lighting pass, and is exactly
-	// where mPostPingMap/mPostPongMap and every other ping-ponged render
-	// target flow through). Reverted to unconditional Set calls as a safe
-	// bisection step - see bindFast()'s matching revert comment for the
-	// general pattern. If reverting this alone fixes the strobing, the bug is
-	// somewhere in the mDXSRVGeneration invalidation logic specifically for
-	// render-target-sourced SRVs, not the simpler LLImageGL-sourced binds
-	// above.
-	if (mCurrDXSRV != (void*)srv)
+	// S24 (2026-08-29, task #278/#273, REVERTED same day) then
+	// S24 (2026-09-10, RE-ENABLED, task #273/#280): this overload was the
+	// prime suspect for the 2026-08-29 "lights/projected lights strobing
+	// badly" regression - it's THE chokepoint for shadow map + G-buffer
+	// binds used every frame by the deferred lighting pass. Root cause since
+	// isolated to TWO real gaps, both now closed:
+	// (1) LLRenderTarget::bindTexture() (llrendertarget.cpp) raw-binds the
+	//     G-buffer diffuse/specular/normal/emissive channels completely
+	//     outside this cache - a later bind() here for the SAME channel
+	//     index could be fooled into skipping a real rebind. Fixed
+	//     separately this session (see that function's own comment) via
+	//     LLTexUnit::syncDXBindState().
+	// (2) THIS overload's skip was keyed on the SRV pointer alone - but
+	//     useComparisonSampler means the SAME srv can legitimately need a
+	//     DIFFERENT sampler (comparison vs regular) on two different calls;
+	//     a shared skip condition would wrongly suppress the sampler
+	//     rebind, leaving a SamplerComparisonState-declared register bound
+	//     to an ordinary sampler (explicitly undefined behavior per
+	//     DXSampler::getOrCreateComparison()'s own comment) - a very
+	//     plausible source of exactly the intermittent shadow/lit-surface
+	//     corruption reported. Sampler skip is now independent of the SRV
+	//     skip below, keyed on its own freshly-computed pointer.
+	bool srv_changed = mCurrDXSRV != (void*)srv;
+	bool generation_stale = mDXSRVGeneration != DXStateCache::getRTVGeneration();
+	if (srv_changed)
 	{
 		gDX.flush();
 		// S24 (2026-08-16): also flush gDXUIBatch's separate pending queue -
@@ -765,12 +809,15 @@ bool LLTexUnit::bind(LLRenderTarget* renderTarget, bool bindDepth, bool useCompa
 	ID3D11SamplerState* sampler = useComparisonSampler
 		? DXSampler::getOrCreateComparison(D3D11_COMPARISON_GREATER_EQUAL)
 		: DXSampler::getOrCreate(2, 1);
-	gDXDevice.getContext()->PSSetShaderResources(mIndex, 1, &srv);
-	mCurrDXSampler = (void*)sampler;
-	if (mIndex < 16) // see bindFast()'s comment - sampler slots cap at 16, SRV slots don't
+	if (srv_changed || generation_stale)
+	{
+		gDXDevice.getContext()->PSSetShaderResources(mIndex, 1, &srv);
+	}
+	if (mIndex < 16 && mCurrDXSampler != (void*)sampler) // see bindFast()'s comment - sampler slots cap at 16, SRV slots don't
 	{
 		gDXDevice.getContext()->PSSetSamplers(mIndex, 1, &sampler);
 	}
+	mCurrDXSampler = (void*)sampler;
 	return true;
 #else
 	gDX.flush();
@@ -847,9 +894,11 @@ bool LLTexUnit::bind(DXTexture& tex, eTextureAddressMode address_mode, eTextureF
 		srv = getWhiteTextureSRV();
 	}
 
-	// S24 (2026-08-29, task #278/#273, REVERTED same day) - see bindFast()'s
-	// matching revert comment above.
-	if (mCurrDXSRV != (void*)srv)
+	// S24 (2026-09-10, task #273/#280 re-attempt): see bindFast()'s matching
+	// comment for the re-enable rationale.
+	bool srv_changed = mCurrDXSRV != (void*)srv;
+	bool generation_stale = mDXSRVGeneration != DXStateCache::getRTVGeneration();
+	if (srv_changed)
 	{
 		gDX.flush();
 		// S24 (2026-08-16): also flush gDXUIBatch's separate pending queue -
@@ -860,12 +909,15 @@ bool LLTexUnit::bind(DXTexture& tex, eTextureAddressMode address_mode, eTextureF
 	mDXSRVGeneration = DXStateCache::getRTVGeneration();
 
 	ID3D11SamplerState* sampler = DXSampler::getOrCreate((int)address_mode, (int)filter_option);
-	gDXDevice.getContext()->PSSetShaderResources(mIndex, 1, &srv);
-	mCurrDXSampler = (void*)sampler;
-	if (mIndex < 16) // see bindFast()'s comment - sampler slots cap at 16, SRV slots don't
+	if (srv_changed || generation_stale)
+	{
+		gDXDevice.getContext()->PSSetShaderResources(mIndex, 1, &srv);
+	}
+	if (mIndex < 16 && mCurrDXSampler != (void*)sampler) // see bindFast()'s comment - sampler slots cap at 16, SRV slots don't
 	{
 		gDXDevice.getContext()->PSSetSamplers(mIndex, 1, &sampler);
 	}
+	mCurrDXSampler = (void*)sampler;
 	return true;
 }
 #endif
@@ -887,9 +939,11 @@ void LLTexUnit::unbind(eTextureType type)
 	// highlight) calls this before pushing its verts; without the flush,
 	// those verts can end up drawn with whatever a LATER bind() switches
 	// to instead of this white fallback.
-	// S24 (2026-08-29, task #278/#273, REVERTED same day) - see bindFast()'s
-	// matching revert comment above.
-	if (mCurrDXSRV != (void*)srv)
+	// S24 (2026-09-10, task #273/#280 re-attempt): see bindFast()'s matching
+	// comment for the re-enable rationale.
+	bool srv_changed = mCurrDXSRV != (void*)srv;
+	bool generation_stale = mDXSRVGeneration != DXStateCache::getRTVGeneration();
+	if (srv_changed)
 	{
 		gDX.flush();
 		// S24 (2026-08-16): also flush gDXUIBatch's separate pending queue -
@@ -903,12 +957,15 @@ void LLTexUnit::unbind(eTextureType type)
 	// go to null here rather than staying whatever the last real bind() set.
 	mCurrBoundImageGL = nullptr;
 	ID3D11SamplerState* sampler = DXSampler::getOrCreate(0, 0); // WRAP, POINT - matches a solid white texel regardless
-	gDXDevice.getContext()->PSSetShaderResources(mIndex, 1, &srv);
-	mCurrDXSampler = (void*)sampler;
-	if (mIndex < 16) // see bindFast()'s comment - sampler slots cap at 16, SRV slots don't
+	if (srv_changed || generation_stale)
+	{
+		gDXDevice.getContext()->PSSetShaderResources(mIndex, 1, &srv);
+	}
+	if (mIndex < 16 && mCurrDXSampler != (void*)sampler) // see bindFast()'s comment - sampler slots cap at 16, SRV slots don't
 	{
 		gDXDevice.getContext()->PSSetSamplers(mIndex, 1, &sampler);
 	}
+	mCurrDXSampler = (void*)sampler;
 #else
 	stop_glerror();
 
@@ -944,9 +1001,11 @@ void LLTexUnit::unbindFast(eTextureType type)
 	ID3D11ShaderResourceView* srv = getWhiteTextureSRV();
 	// S24 (2026-07-23): same missing-flush bug as bind(LLImageGL*)/unbind() -
 	// see their comments.
-	// S24 (2026-08-29, task #278/#273, REVERTED same day) - see bindFast()'s
-	// matching revert comment above.
-	if (mCurrDXSRV != (void*)srv)
+	// S24 (2026-09-10, task #273/#280 re-attempt): see bindFast()'s matching
+	// comment for the re-enable rationale.
+	bool srv_changed = mCurrDXSRV != (void*)srv;
+	bool generation_stale = mDXSRVGeneration != DXStateCache::getRTVGeneration();
+	if (srv_changed)
 	{
 		gDX.flush();
 		// S24 (2026-08-16): also flush gDXUIBatch's separate pending queue -
@@ -958,12 +1017,15 @@ void LLTexUnit::unbindFast(eTextureType type)
 	// S24 (2026-08-17, task #54): see unbind()'s matching fix/mCurrBoundImageGL's comment.
 	mCurrBoundImageGL = nullptr;
 	ID3D11SamplerState* sampler = DXSampler::getOrCreate(0, 0);
-	gDXDevice.getContext()->PSSetShaderResources(mIndex, 1, &srv);
-	mCurrDXSampler = (void*)sampler;
-	if (mIndex < 16) // see bindFast()'s comment - sampler slots cap at 16, SRV slots don't
+	if (srv_changed || generation_stale)
+	{
+		gDXDevice.getContext()->PSSetShaderResources(mIndex, 1, &srv);
+	}
+	if (mIndex < 16 && mCurrDXSampler != (void*)sampler) // see bindFast()'s comment - sampler slots cap at 16, SRV slots don't
 	{
 		gDXDevice.getContext()->PSSetSamplers(mIndex, 1, &sampler);
 	}
+	mCurrDXSampler = (void*)sampler;
 #else
 	activate();
 
@@ -977,6 +1039,20 @@ void LLTexUnit::unbindFast(eTextureType type)
 	}
 #endif // DX_RENDER
 }
+
+#ifdef DX_RENDER
+// S24 (2026-09-10, task #273/#280): see this method's declaration comment
+// in llrender.h - pure bookkeeping, no GPU call. Mirrors the
+// mCurrDXSRV/mDXSRVGeneration/mCurrDXSampler update every real bind()/
+// bindFast() overload above already does after its own PSSetShaderResources/
+// PSSetSamplers calls, for a caller that made those calls itself.
+void LLTexUnit::syncDXBindState(void* srv, void* sampler)
+{
+	mCurrDXSRV = srv;
+	mCurrDXSampler = sampler;
+	mDXSRVGeneration = DXStateCache::getRTVGeneration();
+}
+#endif // DX_RENDER
 
 void LLTexUnit::setTextureAddressMode(eTextureAddressMode mode)
 {
@@ -1539,21 +1615,47 @@ void LLRender::syncMatrices()
 	LL_PROFILE_ZONE_SCOPED_CATEGORY_DISPLAY;
 
 #ifdef DX_RENDER
-	// Deliberately simple, no hash-based memoization (unlike the GL path
-	// below) - correctness first, matching the "always re-upload" choice
-	// already made for DXBuffer::upload(); can be optimized later. Only
-	// pushes the uniforms the currently-ported base shaders (diffuseV.hlsl)
-	// actually declare - modelview/projection/normal/texture0 - not GL's
-	// full inverse-matrix/texture1-3 set, since nothing converted so far
-	// uses those. mUniformsDirty's actual per-shader constant/uniform
-	// binding (LLHLSLShader::bind()'s comment) is still a separate, larger
-	// gap - this only wires the matrices syncMatrices() itself is
-	// responsible for.
+	// Only pushes the uniforms the currently-ported base shaders
+	// (diffuseV.hlsl) actually declare - modelview/projection/normal/
+	// texture0 - not GL's full inverse-matrix/texture1-3 set, since nothing
+	// converted so far uses those. mUniformsDirty's actual per-shader
+	// constant/uniform binding (LLHLSLShader::bind()'s comment) is still a
+	// separate, larger gap - this only wires the matrices syncMatrices()
+	// itself is responsible for.
 	LLHLSLShader* dx_shader = LLHLSLShader::sCurBoundShaderPtr;
 	if (dx_shader)
 	{
 		DXShader& vs = dx_shader->mDXVertexShader;
+		DXShader& ps = dx_shader->mDXPixelShader;
 
+		// S24 (2026-09-10, task #274): skip the matrix math and
+		// setUniformMatrix4/3 calls below when nothing relevant changed
+		// since THIS shader's last sync - was "deliberately simple, no
+		// hash-based memoization... correctness first", unconditional
+		// on every draw call regardless of whether the camera actually
+		// moved. mMatHash[mode] is a monotonic per-mode counter, already
+		// correctly bumped by every real matrix mutator (loadMatrix/
+		// multMatrix/loadIdentity/popMatrix/translatef/etc, below in this
+		// file) regardless of backend - shadow cascades and avatar
+		// impostors push matrices directly via loadMatrix() (bypassing
+		// LLCamera entirely), while reflection/hero-probe cube faces
+		// mutate the real LLCamera singleton, which flows through
+		// LLViewerCamera::setPerspective() into loadMatrix() too - so this
+		// cannot miss a real camera switch from any of the ~20-25 per-frame
+		// matrix changes across those systems. Matches the GL branch's own
+		// already-proven pattern just below in this same function.
+		// vs.uploadConstants()/VSSetConstantBuffers()/ps.uploadConstants()/
+		// PSSetConstantBuffers() further down stay UNCONDITIONAL regardless
+		// of this gate - each is already cheap when nothing's dirty, and
+		// still needed to flush any OTHER unrelated pending uniform write
+		// and to rebind the correct buffer after a shader switch.
+		bool matrices_changed =
+			(mMatHash[MM_MODELVIEW] != dx_shader->mMatHash[MM_MODELVIEW]) ||
+			(mMatHash[MM_PROJECTION] != dx_shader->mMatHash[MM_PROJECTION]) ||
+			(mMatHash[MM_TEXTURE0] != dx_shader->mMatHash[MM_TEXTURE0]);
+
+		if (matrices_changed)
+		{
 		const glm::mat4& mdv = mMatrix[MM_MODELVIEW][mMatIdx[MM_MODELVIEW]];
 
 		// GL-convention projection matrices (glm::frustum()/ortho(), e.g.
@@ -1651,6 +1753,19 @@ void LLRender::syncMatrices()
 		// and ps here is safe for every other already-converted shader.
 		glm::mat4 inv_proj = glm::inverse(raw_proj);
 		vs.setUniformMatrix4("inv_proj", glm::value_ptr(inv_proj));
+		// S24 (2026-08-05): softenLightF.hlsl needs inv_proj in the PIXEL
+		// stage too (see this same comment further down, pre-task-#274) -
+		// push to both stages, harmless no-op wherever a shader's reflected
+		// constants don't include it.
+		ps.setUniformMatrix4("inv_proj", glm::value_ptr(inv_proj));
+
+		// S24 (2026-09-10, task #274): remember what this shader was just
+		// synced with, so the NEXT draw using this same shader can detect
+		// "nothing changed" and skip straight past this whole block.
+		dx_shader->mMatHash[MM_MODELVIEW] = mMatHash[MM_MODELVIEW];
+		dx_shader->mMatHash[MM_PROJECTION] = mMatHash[MM_PROJECTION];
+		dx_shader->mMatHash[MM_TEXTURE0] = mMatHash[MM_TEXTURE0];
+		}
 
 		// S24 (2026-08-18, task #155): attempted to call syncLightState()
 		// here (GL's only call site is inside this function's #else branch -
@@ -1697,12 +1812,11 @@ void LLRender::syncMatrices()
 		// for every shader whose pixel stage declares no top-level uniforms
 		// (mDXPixelShader.getConstantBuffer() returns nullptr - reflectConstants()
 		// never created one).
-		DXShader& ps = dx_shader->mDXPixelShader;
-		// S24 (2026-08-05): softenLightF.hlsl needs inv_proj in the PIXEL
-		// stage (see the vs.setUniformMatrix4("inv_proj", ...) comment
-		// above) - push to both stages, harmless no-op wherever a shader's
-		// reflected constants don't include it.
-		ps.setUniformMatrix4("inv_proj", glm::value_ptr(inv_proj));
+		// S24 (2026-09-10, task #274): ps itself, and its own inv_proj
+		// push, moved up into the matrices_changed block above (with vs's)
+		// - ps is declared right after vs near the top of this function
+		// now. ps.uploadConstants()/PSSetConstantBuffers() below stay
+		// unconditional regardless - see this task's own comment above.
 		ps.uploadConstants();
 		if (ID3D11Buffer* pcb = ps.getConstantBuffer())
 		{
@@ -1855,7 +1969,7 @@ void LLRender::syncMatrices()
 #endif // DX_RENDER
 }
 
-void LLRender::translatef(const GLfloat& x, const GLfloat& y, const GLfloat& z)
+void LLRender::translatef(const F32& x, const F32& y, const F32& z)
 {
 	flush();
 
@@ -1865,7 +1979,7 @@ void LLRender::translatef(const GLfloat& x, const GLfloat& y, const GLfloat& z)
 	}
 }
 
-void LLRender::scalef(const GLfloat& x, const GLfloat& y, const GLfloat& z)
+void LLRender::scalef(const F32& x, const F32& y, const F32& z)
 {
 	flush();
 
@@ -1885,7 +1999,7 @@ void LLRender::ortho(F32 left, F32 right, F32 bottom, F32 top, F32 zNear, F32 zF
 	}
 }
 
-void LLRender::rotatef(const GLfloat& a, const GLfloat& x, const GLfloat& y, const GLfloat& z)
+void LLRender::rotatef(const F32& a, const F32& x, const F32& y, const F32& z)
 {
 	flush();
 
@@ -1928,16 +2042,16 @@ void LLRender::popMatrix()
 	}
 }
 
-void LLRender::loadMatrix(const GLfloat* m)
+void LLRender::loadMatrix(const F32* m)
 {
 	flush();
 	{
-		mMatrix[mMatrixMode][mMatIdx[mMatrixMode]] = glm::make_mat4((GLfloat*)m);
+		mMatrix[mMatrixMode][mMatIdx[mMatrixMode]] = glm::make_mat4((F32*)m);
 		mMatHash[mMatrixMode]++;
 	}
 }
 
-void LLRender::multMatrix(const GLfloat* m)
+void LLRender::multMatrix(const F32* m)
 {
 	flush();
 	{
@@ -2684,7 +2798,7 @@ void LLRender::resetStriders(S32 count)
 	mCount = 0;
 }
 
-void LLRender::vertex3f(const GLfloat& x, const GLfloat& y, const GLfloat& z)
+void LLRender::vertex3f(const F32& x, const F32& y, const F32& z)
 {
 	//the range of mVerticesp, mColorsp and mTexcoordsp is [0, 4095]
 	if (mCount > 2048)
@@ -2832,35 +2946,35 @@ void LLRender::vertexBatchPreTransformed(const LLVector4a* verts, const LLVector
 
 void LLRender::vertex2i(const GLint& x, const GLint& y)
 {
-	vertex3f((GLfloat)x, (GLfloat)y, 0);
+	vertex3f((F32)x, (F32)y, 0);
 }
 
-void LLRender::vertex2f(const GLfloat& x, const GLfloat& y)
+void LLRender::vertex2f(const F32& x, const F32& y)
 {
 	vertex3f(x, y, 0);
 }
 
-void LLRender::vertex2fv(const GLfloat* v)
+void LLRender::vertex2fv(const F32* v)
 {
 	vertex3f(v[0], v[1], 0);
 }
 
-void LLRender::vertex3fv(const GLfloat* v)
+void LLRender::vertex3fv(const F32* v)
 {
 	vertex3f(v[0], v[1], v[2]);
 }
 
-void LLRender::texCoord2f(const GLfloat& x, const GLfloat& y)
+void LLRender::texCoord2f(const F32& x, const F32& y)
 {
 	mTexcoordsp[mCount] = LLVector2(x, y);
 }
 
 void LLRender::texCoord2i(const GLint& x, const GLint& y)
 {
-	texCoord2f((GLfloat)x, (GLfloat)y);
+	texCoord2f((F32)x, (F32)y);
 }
 
-void LLRender::texCoord2fv(const GLfloat* tc)
+void LLRender::texCoord2fv(const F32* tc)
 {
 	texCoord2f(tc[0], tc[1]);
 }
@@ -2881,7 +2995,7 @@ void LLRender::color4ubv(const GLubyte* c)
 	color4ub(c[0], c[1], c[2], c[3]);
 }
 
-void LLRender::color4f(const GLfloat& r, const GLfloat& g, const GLfloat& b, const GLfloat& a)
+void LLRender::color4f(const F32& r, const F32& g, const F32& b, const F32& a)
 {
 	color4ub((GLubyte)(llclamp(r, 0.f, 1.f) * 255),
 		(GLubyte)(llclamp(g, 0.f, 1.f) * 255),
@@ -2889,17 +3003,17 @@ void LLRender::color4f(const GLfloat& r, const GLfloat& g, const GLfloat& b, con
 		(GLubyte)(llclamp(a, 0.f, 1.f) * 255));
 }
 
-void LLRender::color4fv(const GLfloat* c)
+void LLRender::color4fv(const F32* c)
 {
 	color4f(c[0], c[1], c[2], c[3]);
 }
 
-void LLRender::color3f(const GLfloat& r, const GLfloat& g, const GLfloat& b)
+void LLRender::color3f(const F32& r, const F32& g, const F32& b)
 {
 	color4f(r, g, b, 1);
 }
 
-void LLRender::color3fv(const GLfloat* c)
+void LLRender::color3fv(const F32* c)
 {
 	color4f(c[0], c[1], c[2], 1);
 }
