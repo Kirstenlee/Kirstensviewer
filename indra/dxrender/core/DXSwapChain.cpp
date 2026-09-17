@@ -1,6 +1,7 @@
 #include "DXSwapChain.h"
 #include "DXDevice.h"
 #include "llerror.h"
+#include "llformat.h"
 #include <dxgi1_5.h>
 
 DXSwapChain gDXSwapChain;
@@ -39,8 +40,8 @@ bool DXSwapChain::create(HWND hwnd, int width, int height, bool vsync)
         return false;
     }
 
-    // S24 (task #210): tearing support is a per-adapter/driver/OS feature,
-    // not guaranteed (needs Windows 10 1511+ and a compatible driver) - only
+    // Tearing support is a per-adapter/driver/OS feature, not guaranteed
+    // (needs Windows 10 1511+ and a compatible driver) - only
     // trust it if IDXGIFactory5::CheckFeatureSupport says yes. A missing
     // IDXGIFactory5 (older OS) just means mAllowTearing stays false, not a
     // hard error.
@@ -69,8 +70,8 @@ bool DXSwapChain::create(HWND hwnd, int width, int height, bool vsync)
     desc.SampleDesc.Quality = 0;
     desc.Windowed = TRUE;
 
-    // S24 (task #210): flip model (required for DXGI_PRESENT_ALLOW_TEARING,
-    // and a strict upgrade over BitBlt-model DISCARD even without tearing -
+    // Flip model (required for DXGI_PRESENT_ALLOW_TEARING, and a strict
+    // upgrade over BitBlt-model DISCARD even without tearing -
     // avoids composition-copy stutter/latency on Windows 10+) attempted
     // first; falls back to the old BitBlt-model DISCARD if creation fails
     // (e.g. an exotic/older driver that advertises D3D11 support but not
@@ -198,8 +199,8 @@ bool DXSwapChain::resize(int width, int height)
     releaseBackBufferRTV();
     releaseDepthStencilView();
 
-    // S24 (task #210): ResizeBuffers' own Flags parameter is NOT "keep
-    // whatever the swap chain already has" - passing 0 here would silently
+    // ResizeBuffers' own Flags parameter is NOT "keep whatever the swap
+    // chain already has" - passing 0 here would silently
     // drop DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING every time the window resizes,
     // even though the swap chain was created with it. Re-supply the same
     // flags used at creation (mSwapChainFlags), matching the pattern used in
@@ -248,14 +249,28 @@ void DXSwapChain::present()
         return;
     }
 
-    // S24 (task #210): DXGI_PRESENT_ALLOW_TEARING is only legal when VSync
+    // DXGI_PRESENT_ALLOW_TEARING is only legal when VSync
     // is off AND the swap chain was actually created with
     // DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING (mAllowTearing) - using the flag
     // otherwise is a documented DXGI error, not just a no-op.
     UINT present_flags = (!mVSync && mAllowTearing) ? DXGI_PRESENT_ALLOW_TEARING : 0;
-    mSwapChain->Present(mVSync ? 1 : 0, present_flags);
+    HRESULT hr = mSwapChain->Present(mVSync ? 1 : 0, present_flags);
 
-    // S24 (task #210): under flip model, GetBuffer(0,...) means "the
+    if ((hr == DXGI_ERROR_DEVICE_REMOVED || hr == DXGI_ERROR_DEVICE_RESET) && !mDeviceLost)
+    {
+        // S24: minimal handling only - detect + log + let the caller show a real error and quit.
+        // No attempt to recreate the device/swapchain (TDR/driver-crash/eGPU-unplug recovery is a
+        // much larger feature); every further D3D11 call on this device will also fail, so the
+        // one useful thing left to do is stop silently rendering garbage and tell the user why.
+        ID3D11Device* device = gDXDevice.getDevice();
+        HRESULT removed_reason = device ? device->GetDeviceRemovedReason() : hr;
+        LL_WARNS("DXRender") << "D3D11 device lost during Present() - hr="
+            << llformat("0x%08X", (unsigned)hr) << ", GetDeviceRemovedReason="
+            << llformat("0x%08X", (unsigned)removed_reason) << LL_ENDL;
+        mDeviceLost = true;
+    }
+
+    // Under flip model, GetBuffer(0,...) means "the
     // current back buffer," which rotates every Present() call - unlike the
     // old BitBlt model where index 0 was the same physical buffer forever.
     // Re-fetch it here, right after Present(), so it's correct before
