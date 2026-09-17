@@ -526,17 +526,17 @@ void LLViewerObject::markDead()
 
 void LLViewerObject::dump() const
 {
-    LL_INFOS() << "Type: " << pCodeToString(mPrimitiveCode) << LL_ENDL;
-    LL_INFOS() << "Drawable: " << (LLDrawable *)mDrawable << LL_ENDL;
-    LL_INFOS() << "Update Age: " << LLFrameTimer::getElapsedSeconds() - mLastMessageUpdateSecs << LL_ENDL;
+    LL_WARNS() << "Type: " << pCodeToString(mPrimitiveCode) << LL_ENDL;
+    LL_WARNS() << "Drawable: " << (LLDrawable *)mDrawable << LL_ENDL;
+    LL_WARNS() << "Update Age: " << LLFrameTimer::getElapsedSeconds() - mLastMessageUpdateSecs << LL_ENDL;
 
-    LL_INFOS() << "Parent: " << getParent() << LL_ENDL;
-    LL_INFOS() << "ID: " << mID << LL_ENDL;
-    LL_INFOS() << "LocalID: " << mLocalID << LL_ENDL;
-    LL_INFOS() << "PositionRegion: " << getPositionRegion() << LL_ENDL;
-    LL_INFOS() << "PositionAgent: " << getPositionAgent() << LL_ENDL;
-    LL_INFOS() << "PositionGlobal: " << getPositionGlobal() << LL_ENDL;
-    LL_INFOS() << "Velocity: " << getVelocity() << LL_ENDL;
+    LL_WARNS() << "Parent: " << getParent() << LL_ENDL;
+    LL_WARNS() << "ID: " << mID << LL_ENDL;
+    LL_WARNS() << "LocalID: " << mLocalID << LL_ENDL;
+    LL_WARNS() << "PositionRegion: " << getPositionRegion() << LL_ENDL;
+    LL_WARNS() << "PositionAgent: " << getPositionAgent() << LL_ENDL;
+    LL_WARNS() << "PositionGlobal: " << getPositionGlobal() << LL_ENDL;
+    LL_WARNS() << "Velocity: " << getVelocity() << LL_ENDL;
     if (mDrawable.notNull() &&
         mDrawable->getNumFaces() &&
         mDrawable->getFace(0))
@@ -544,8 +544,8 @@ void LLViewerObject::dump() const
         LLFacePool *poolp = mDrawable->getFace(0)->getPool();
         if (poolp)
         {
-            LL_INFOS() << "Pool: " << poolp << LL_ENDL;
-            LL_INFOS() << "Pool reference count: " << poolp->mReferences.size() << LL_ENDL;
+            LL_WARNS() << "Pool: " << poolp << LL_ENDL;
+            LL_WARNS() << "Pool reference count: " << poolp->mReferences.size() << LL_ENDL;
         }
     }
        
@@ -557,7 +557,7 @@ void LLViewerObject::printNameValuePairs() const
          iter != mNameValuePairs.end(); iter++)
     {
         LLNameValue* nv = iter->second;
-        LL_INFOS() << nv->printNameValue() << LL_ENDL;
+        LL_WARNS() << nv->printNameValue() << LL_ENDL;
     }
 }
 

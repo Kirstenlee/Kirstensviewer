@@ -1924,7 +1924,18 @@ void LLViewerRegion::killInvisibleObjects(F32 max_time)
         mInvisibilityCheckHistory |= 1;
         for (auto drawable : delete_list)
         {
-            gObjectList.killObject(drawable->getVObj());
+            // S24: crash fix (null pointer read, llviewerregion.cpp:1927, WER dump-confirmed) -
+            // a null entry was reaching delete_list here and this dereferenced it unconditionally.
+            // killObject(LLVOCacheEntry*, delete_list) above only ever push_back()s a drawablep
+            // already verified non-null at that point, so the exact mechanism producing a null (or
+            // dangling, read-as-null) entry by the time this loop runs is not confirmed - flagging
+            // for continued watch rather than claiming this is the full root cause.
+            // gObjectList.killObject(LLViewerObject*) already null-tolerates its argument, so
+            // guarding the dereference here is sufficient and doesn't skip any real cleanup.
+            if (drawable)
+            {
+                gObjectList.killObject(drawable->getVObj());
+            }
         }
         delete_list.clear();
     }
@@ -3842,10 +3853,10 @@ void log_capabilities(const CapabilityMap &capmap)
     {
         if (!iter->second.empty())
         {
-            LL_INFOS() << "log_capabilities: " << iter->first << " URL is " << iter->second << LL_ENDL;
+            LL_WARNS() << "log_capabilities: " << iter->first << " URL is " << iter->second << LL_ENDL;
         }
     }
-    LL_INFOS() << "log_capabilities: Dumped " << count << " entries." << LL_ENDL;
+    LL_WARNS() << "log_capabilities: Dumped " << count << " entries." << LL_ENDL;
 }
 void LLViewerRegion::resetMaterialsCapThrottle()
 {

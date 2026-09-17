@@ -662,7 +662,6 @@ LLHUDParticlePartition::LLHUDParticlePartition(LLViewerRegion* regionp) :
 
 void LLParticlePartition::rebuildGeom(LLSpatialGroup* group)
 {
-    LL_PROFILE_GPU_ZONE("particle vbo");
     if (group->isDead() || !group->hasState(LLSpatialGroup::GEOM_DIRTY))
     {
         return;

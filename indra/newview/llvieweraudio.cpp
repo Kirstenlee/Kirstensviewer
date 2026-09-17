@@ -414,9 +414,19 @@ void audio_update_volume(bool force_update)
 	{
         mute_audio = true;
 	}
-	F32 mute_volume = mute_audio ? 0.0f : 1.0f;
 
-	if (gAudiop) 
+    // S24: suppress ALL audible output - not just the SFX engine (which already gated on this via
+    // setMuted() below) - while the login/teleport progress screen is up. Streaming music/media/
+    // voice gain (further down) all derive from mute_volume too, so this one flag now holds
+    // everything quiet during world load instead of letting it play at full volume the instant
+    // each subsystem finishes initializing, then only catching up to the real (muted) level on
+    // the NEXT audio_update_volume() call a frame later - a real, audible startup blip, not just
+    // a cosmetic one. The world "revealing" (progress view dismissed) is what lets real volume
+    // back in, exactly like the SFX engine already did.
+    bool progress_view_visible = gViewerWindow->getShowProgress();
+	F32 mute_volume = (mute_audio || progress_view_visible) ? 0.0f : 1.0f;
+
+	if (gAudiop)
 	{
 		// Sound Effects
 
@@ -436,7 +446,6 @@ void audio_update_volume(bool force_update)
             gAudiop->setRolloffFactor(AUDIO_LEVEL_UNDERWATER_ROLLOFF);
         }
 
-        bool progress_view_visible = gViewerWindow->getShowProgress();
 		gAudiop->setMuted(mute_audio || progress_view_visible);
 		
 		//Play any deferred sounds when unmuted

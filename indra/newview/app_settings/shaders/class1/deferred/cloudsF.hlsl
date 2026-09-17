@@ -38,17 +38,12 @@ uniform float3 cloud_pos_density2;
 uniform float cloud_scale;
 uniform float cloud_variance;
 
-// S24 (2026-08-31, task #303 "2.5D cloud layers"): additional decks are
-// just extra draws of this SAME dome/shader with different CLOUD_SCALE/
-// CLOUD_POS_DENSITY1/2 uniform overrides (see dxdrawpoolwlsky.cpp's
-// renderSkyCloudsDeferred()) - this tint/alpha pair is the only genuinely
-// new shader-side addition, giving each deck its own aerial-perspective
-// colour cast and opacity so they read as physically distinct layers
-// rather than the same cloud pattern redrawn at a different scale.
-// Explicitly reset to (1,1,1)/1.0 before the base/unchanged layer's draw
-// every frame - GPU shader constants persist across draw calls, so a
-// previous layer's values would otherwise leak into the next frame's base
-// pass if this shader happened to be reused without an override.
+// S24: additional cloud decks reuse this same dome/shader with different
+// CLOUD_SCALE/CLOUD_POS_DENSITY1/2 overrides (see dxdrawpoolwlsky.cpp's
+// renderSkyCloudsDeferred()); this tint/alpha pair gives each deck its
+// own aerial-perspective colour and opacity. Reset to (1,1,1)/1.0 before
+// the base layer's draw each frame - shader constants persist across
+// draw calls otherwise.
 uniform float3 cloud_layer_tint;
 uniform float cloud_layer_alpha_mult;
 
@@ -66,22 +61,13 @@ struct PSOutput
 
 float4 cloudNoise(float2 uv)
 {
-   // S24 (2026-08-09, task #164): near the WLSky dome's planar-pole UV
-   // singularity (straight up/down - buildStripsBuffer()'s planar UV
-   // formula pinches every vertex there toward the same UV regardless of
-   // longitude), adjacent screen pixels can map to wildly different UV
-   // coordinates. Sample()'s automatic screen-space derivatives explode
-   // at that discontinuity, and the resulting mip/LOD selection is a
-   // genuine, implementation-defined difference between HLSL and GLSL at
-   // singularities like this - confirmed via GL vs DX screenshot
-   // comparison (GL shows a smooth gray gradient there, DX shows a sharp
-   // aliased "sunburst" of full-opacity noise) plus a live OM blend-state
-   // readback and a real-alpha recolor test that both confirmed alpha
-   // blending itself is correct on both backends - this is a texture-
-   // sampling aliasing artifact at the singularity, not a blend/alpha
-   // bug. Computing derivatives explicitly and clamping their magnitude
-   // bounds the mip selection at the singularity without changing
-   // sampling anywhere else the derivatives are already small.
+   // S24: near the WLSky dome's planar-pole UV singularity (straight
+   // up/down, where buildStripsBuffer()'s planar UV formula pinches every
+   // vertex toward the same UV regardless of longitude), adjacent pixels
+   // map to wildly different UVs, so Sample()'s automatic screen-space
+   // derivatives explode and mip selection aliases. Clamping ddx/ddy
+   // explicitly bounds the mip selection there without affecting sampling
+   // elsewhere.
    float2 dx = clamp(ddx(uv), -0.05, 0.05);
    float2 dy = clamp(ddy(uv), -0.05, 0.05);
    float4 a = cloud_noise_texture.SampleGrad(cloud_noise_textureSampler, uv, dx, dy);
@@ -90,8 +76,8 @@ float4 cloudNoise(float2 uv)
    return cloud_noise_sample;
 }
 
-// S24 (2026-08-02): see uiF.hlsl's comment - real register mismatch,
-// confirmed via fxc.exe disassembly, affects every bare-Varying PS input.
+// S24: bare-Varying PS input structs need an explicit SV_Position field,
+// or VS/PS register binding shifts - see uiF.hlsl.
 struct PSInput
 {
     float4 position : SV_Position;
@@ -157,27 +143,14 @@ PSOutput main(PSInput IN)
     color.rgb = clamp(color.rgb, float3(0, 0, 0), float3(1, 1, 1));
     color.rgb *= 2.0;
 
-    // S24 (task #303): per-layer aerial-perspective tint + opacity - see
-    // the uniform declarations above.
     color.rgb *= cloud_layer_tint;
     alpha1 *= cloud_layer_alpha_mult;
 
-    // S24 (2026-09-05, task #312): alpha1 was already clamped to [0,1]
-    // above (line ~143) BEFORE this cloud_layer_alpha_mult multiply - but
-    // nothing re-clamped it after. cloud_layer_alpha_mult is
-    // RenderCloudLayerOpacity (KVTweaks slider, documented/allowed up to
-    // 2.0) times 0.4 (cirrus) or 0.75 (cumulus), so at higher slider
-    // settings this can genuinely exceed 1.0. Since the PRE-multiplier
-    // alpha1 is itself a noise function - only close to 1.0 at sparse
-    // density peaks, mostly well below it elsewhere - only those isolated
-    // peaks were ever pushed over 1.0, not the whole cloud layer: an
-    // alpha >1 reaching the blend equation is undefined territory (some
-    // hardware/format combinations can turn InvSrcAlpha=1-alpha negative,
-    // subtracting rather than blending). This is the confirmed root cause
-    // of "stars/sky render as black dots under clouds" (user bisected it
-    // directly to RenderCloudLayerOpacity above ~1.2, independent of
-    // anything else touched this session) - re-clamp so this shader never
-    // outputs an out-of-range alpha regardless of how high the slider goes.
+    // S24: alpha1 is clamped to [0,1] above, but cloud_layer_alpha_mult
+    // (derived from the RenderCloudLayerOpacity slider, allowed up to 2.0)
+    // can push it back over 1.0 here. Re-clamp - alpha >1 reaching the
+    // blend equation is undefined on some hardware (InvSrcAlpha can go
+    // negative instead of blending).
     alpha1 = saturate(alpha1);
 
     /// Gamma correct for WL (soft clip effect).

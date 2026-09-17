@@ -22,40 +22,20 @@
  * SOFTWARE.
  */
 
-// S24 (2026-08-09, task #143): real port of class1/environment/waterV.glsl -
-// the previous HLSL body here was a leftover from the initial mechanical
-// port, output a completely different (and incomplete) varying set
-// (WaterVarying: vary_position/vary_texcoord0-2/vary_eyeVec) than either
-// real fragment shader consuming this VS actually needs. This is the ONLY
-// waterV.hlsl in the tree (no class2/class3 override), shared by both
-// gWaterProgram (waterF.hlsl, above-water) and gUnderWaterProgram
-// (underWaterF.hlsl) - underWaterF.hlsl's own PSInput (refCoord/littleWave/
-// view/vary_position, TEXCOORD0-3) already expected exactly this output
-// shape and was silently mismatched against the old VS the whole time.
+// Shared by both gWaterProgram (waterF.hlsl, above-water) and
+// gUnderWaterProgram (underWaterF.hlsl); no class2/class3 override.
+// VSOutput's TEXCOORD0-3 match underWaterF's PSInput prefix (D3D11 VS/PS
+// linkage matches by semantic name+index, not struct position, so a PS can
+// omit interpolants it doesn't need). TEXCOORD4-6 (vary_light_dir/
+// vary_tangent/vary_normal) and TEXCOORD7 (bigWaveX) are consumed only by
+// waterF.hlsl/underWaterF.hlsl.
 //
-// VSOutput below is a superset: TEXCOORD0-3 exactly match underWaterF's
-// PSInput prefix (order/types identical, so that file needs no changes -
-// D3D11 VS/PS linkage matches by semantic name+index, not raw struct
-// position, so a PS can freely omit interpolants it doesn't need without
-// needing to declare a contiguous prefix). TEXCOORD4-6 (vary_light_dir/
-// vary_tangent/vary_normal) and TEXCOORD7 (bigWaveX) are appended after,
-// consumed only by the new waterF.hlsl/underWaterF.hlsl.
-//
-// S24 (2026-08-09, task #146): refCoord.w used to be repurposed to carry
-// bigWave.x (packing it into an otherwise-unused varying slot, mirroring
-// the original GLSL's own space-saving trick). That broke under D3D11: both
-// waterF.hlsl and underWaterF.hlsl derive their screen-space reflection/
-// refraction UV via "refCoord.xy / refCoord.z" - a GL-only approximation
-// that happens to produce a usable pseudo-perspective-divide because of
-// how GL's clip-space Z (range -w..w before divide) relates to its own W;
-// D3D11's clip-space Z uses a different range (0..w), so the same divide
-// produces a warped, mispositioned result (reported in-world as a
-// "fisheye" reflection with no visible ripple - the wave perturbation is
-// real but tiny next to how wrong the base UV already is). Real fix: use
-// the true clip W (already proven correct via getScreenCoord() in every
-// other converted shader - pointLightF.hlsl, spotLightF.hlsl, softenLightF.hlsl)
-// instead of Z. refCoord.w now carries the genuine, unmodified clip W;
-// bigWave.x moved to its own dedicated TEXCOORD7.
+// refCoord.w carries the genuine, unmodified clip W (not Z): both
+// waterF.hlsl and underWaterF.hlsl derive their screen-space reflection UV
+// via refCoord.xy/refCoord.z, but D3D11's clip-space Z range (0..w) differs
+// from GL's (-w..w), so dividing by Z instead of W produces a warped
+// result. Use the true clip W instead (same as getScreenCoord() elsewhere -
+// pointLightF.hlsl, spotLightF.hlsl, softenLightF.hlsl).
 
 uniform float4x4 modelview_matrix;
 uniform float3x3 normal_matrix;
@@ -139,29 +119,13 @@ VSOutput main(VSInput IN)
     float2 bigWave = (v.xy) * float2(0.04, 0.04) + waveDir1 * time * 0.055;
     // get two normal map (detail map) texture coordinates
     OUT.littleWave.xy = (v.xy) * float2(0.45, 0.9) + waveDir2 * time * 0.13;
-    // S24 (2026-09-07, DX Water V1, task #317 root cause): this used to
-    // reuse waveDir1 verbatim (same direction as bigWave above, only a
-    // different scroll rate: 0.1 vs 0.055). Two layers scrolling in the
-    // IDENTICAL direction at different rates have a simple, real, 1D beat -
-    // their relative phase drifts at |0.1-0.055|=0.045 UV/s (scaled by
-    // |waveDir1| and waterWaveSpeed), a slow periodic constructive/
-    // destructive cancellation in the combined surface normal. This is a
-    // real, confirmed defect, not a guess - live-reported as a wave
-    // "twitch"/stepping that gets MORE visible at low RenderWaterWaveSpeed
-    // (a slower beat period is one your eye can actually track, instead of
-    // blurring into general chop) and was independently confirmed NOT
-    // caused by reflection-probe recapture (live A/B test, probes
-    // disabled, no change) or frame-timer cadence (idle()/display() are
-    // 1:1 per rendered frame, confirmed by reading llappviewer.cpp's main
-    // loop directly). Standard real-time water technique (multiple
-    // industry references, not just this codebase's own past mistake) is
-    // every scrolling normal-map layer should use a DISTINCT direction, not
-    // just a distinct speed, specifically to avoid this exact periodic
-    // interference. Fixed here by rotating waveDir1 by a fixed 57 degrees
-    // for this one detail layer only - keeps it visually tied to the
-    // EEP-authored wind direction (not an arbitrary unrelated angle) while
-    // making the two waveDir1-derived layers' relative phase drift
-    // continuously instead of periodically - no more beat.
+    // Two normal-map layers scrolling in the identical direction at
+    // different rates produce a periodic beat (constructive/destructive
+    // interference) in the combined surface normal, visible as a slow wave
+    // "twitch". Standard fix: give each scrolling layer a distinct
+    // direction, not just a distinct speed. Rotated 57 degrees off
+    // waveDir1 here, keeping it tied to the EEP wind direction while making
+    // the phase drift continuous instead of periodic.
     static const float S24_ROT57_COS = 0.544639035;
     static const float S24_ROT57_SIN = 0.838670568;
     float2 waveDir3 = float2(

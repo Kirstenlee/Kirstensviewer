@@ -16,15 +16,24 @@
   save_rect="true"
   save_visibility="false"
   single_instance="true"
-  height="32"
-  min_height="32"
-  max_height="32"
+  height="36"
+  min_height="36"
+  max_height="36"
   layout="topleft"
   name="kv_quick_chat"
   title="Q Chat"
   width="400"
   min_width="200"
   max_width="800">
+
+  <!-- S24: 8px of empty space above the controls (top="8" below, vs the floater's own
+       header-less top edge) is a deliberate grab strip. LLFloater's drag handle
+       (LLDragHandleTop, built by layoutDragHandle() in llfloater.cpp) always covers the
+       floater's ENTIRE local rect regardless of header_height/show_title - it's not a
+       separate thin title-bar area. With no gap, the chat_box + emoji button covered 100%
+       of the floater's surface, leaving zero pixels for that drag handle to ever receive a
+       mousedown - the floater was completely undraggable, and once docked/positioned badly
+       (e.g. its toolbar anchor button moved/removed), there was no way to grab it back out. -->
 
   <!-- Chat input field -->
   <line_editor
@@ -36,7 +45,7 @@
    layout="topleft"
    left="4"
    right="-32"
-   top="4"
+   top="8"
    max_length_bytes="1023"
    name="chat_box"
    spellcheck="true"
@@ -52,7 +61,7 @@
    layout="topleft"
    name="emoji_picker_btn"
    tool_tip="Insert emoji"
-   top="4"
+   top="8"
    right="-4"
    width="23" />
 

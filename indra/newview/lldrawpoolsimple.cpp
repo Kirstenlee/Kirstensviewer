@@ -28,61 +28,32 @@
 
 #include "lldrawpoolsimple.h"
 
-#include "llviewercamera.h"
-#include "lldrawable.h"
-#include "llface.h"
-#include "llsky.h"
-#include "pipeline.h"
-#include "llspatialpartition.h"
 #include "llviewershadermgr.h"
 #include "llrender.h"
-#include "gltfscenemanager.h"
+#include "pipeline.h"
 #ifdef DX_RENDER
 #include "dxdrawpoolsimple.h"
 #endif
 
 static LLTrace::BlockTimerStatHandle FTM_RENDER_SIMPLE_DEFERRED("Deferred Simple");
-static LLTrace::BlockTimerStatHandle FTM_RENDER_GRASS_DEFERRED("Deferred Grass");
 
+// DXDrawPoolSimple (dxdrawpoolsimple.cpp) is the sole, real implementation
+// for 4 of these 5 pools. LLDrawPoolSimple::renderDeferred() below is
+// deliberately left as its own in-place #ifdef branch rather than moved
+// there - it predates the DXDrawPoolSimple split (see dxdrawpoolsimple.h)
+// and is grandfathered by that earlier design choice, not an oversight.
 
 void LLDrawPoolGlow::renderPostDeferred(S32 pass)
 {
 #ifdef DX_RENDER
     DXDrawPoolSimple::renderGlowPostDeferred(*this, pass);
-    return;
 #endif
-
-    LLHLSLShader* shader = &gDeferredEmissiveProgram;
-
-    LLGLEnable blend(GL_BLEND);
-    gDX.flush();
-    /// Get rid of z-fighting with non-glow pass.
-    LLGLEnable polyOffset(GL_POLYGON_OFFSET_FILL);
-    glPolygonOffset(-1.0f, -1.0f);
-    gDX.setSceneBlendType(LLRender::BT_ADD);
-
-    LLGLDepthTest depth(GL_TRUE, GL_FALSE);
-    gDX.setColorMask(false, true);
-
-    //first pass -- static objects
-    shader->bind();
-    pushBatches(LLRenderPass::PASS_GLOW, true, true);
-
-    // second pass -- rigged objects
-    shader = shader->mRiggedVariant;
-    shader->bind();
-    pushRiggedBatches(LLRenderPass::PASS_GLOW_RIGGED, true, true);
-
-    gDX.setColorMask(true, false);
-    gDX.setSceneBlendType(LLRender::BT_ALPHA);
 }
 
 LLDrawPoolSimple::LLDrawPoolSimple() :
     LLRenderPass(POOL_SIMPLE)
 {
 }
-
-static LLTrace::BlockTimerStatHandle FTM_RENDER_ALPHA_MASK("Alpha Mask");
 
 LLDrawPoolAlphaMask::LLDrawPoolAlphaMask() :
     LLRenderPass(POOL_ALPHA_MASK)
@@ -108,24 +79,12 @@ void LLDrawPoolSimple::renderDeferred(S32 pass)
     LL_RECORD_BLOCK_TIME(FTM_RENDER_SIMPLE_DEFERRED);
     LLGLDisable blend(GL_BLEND);
 
-#ifdef DX_RENDER
-    // S24 (2026-08-09, task #170): rigged (skinned) geometry needed
-    // WEIGHT/WEIGHT4/JOINT vertex attributes, which DXVertexLayout rejected
-    // outright - fixed by task #168 (MAP_WEIGHT4 support). Now renders both
-    // passes, matching the GL body below exactly.
+    // Rigged (skinned) geometry needs WEIGHT/WEIGHT4/JOINT vertex
+    // attributes, supported via DXVertexLayout's MAP_WEIGHT4. Renders both
+    // passes.
     gDeferredDiffuseProgram.bind();
     pushBatches(LLRenderPass::PASS_SIMPLE, true, true);
 
-    gDeferredDiffuseProgram.bind(true);
-    pushRiggedBatches(LLRenderPass::PASS_SIMPLE_RIGGED, true, true);
-    return;
-#endif
-
-    //render static
-    gDeferredDiffuseProgram.bind();
-    pushBatches(LLRenderPass::PASS_SIMPLE, true, true);
-
-    //render rigged
     gDeferredDiffuseProgram.bind(true);
     pushRiggedBatches(LLRenderPass::PASS_SIMPLE_RIGGED, true, true);
 }
@@ -138,17 +97,7 @@ void LLDrawPoolAlphaMask::renderDeferred(S32 pass)
     LL_RECORD_BLOCK_TIME(FTM_RENDER_ALPHA_MASK_DEFERRED);
 #ifdef DX_RENDER
     DXDrawPoolSimple::renderAlphaMaskDeferred(*this, pass);
-    return;
 #endif
-    LLHLSLShader* shader = &gDeferredDiffuseAlphaMaskProgram;
-
-    //render static
-    shader->bind();
-    pushMaskBatches(LLRenderPass::PASS_ALPHA_MASK, true, true);
-
-    //render rigged
-    shader->bind(true);
-    pushRiggedMaskBatches(LLRenderPass::PASS_ALPHA_MASK_RIGGED, true, true);
 }
 
 // grass drawpool
@@ -162,15 +111,7 @@ void LLDrawPoolGrass::renderDeferred(S32 pass)
 {
 #ifdef DX_RENDER
     DXDrawPoolSimple::renderGrassDeferred(*this, pass);
-    return;
 #endif
-    {
-        gDeferredNonIndexedDiffuseAlphaMaskProgram.bind();
-        gDeferredNonIndexedDiffuseAlphaMaskProgram.setMinimumAlpha(0.5f);
-
-        //render grass
-        LLRenderPass::pushBatches(LLRenderPass::PASS_GRASS, getVertexDataMask());
-    }
 }
 
 
@@ -185,31 +126,7 @@ void LLDrawPoolFullbright::renderPostDeferred(S32 pass)
     LL_RECORD_BLOCK_TIME(FTM_RENDER_FULLBRIGHT);
 #ifdef DX_RENDER
     DXDrawPoolSimple::renderFullbrightPostDeferred(*this, pass);
-    return;
 #endif
-
-    LLHLSLShader* shader = nullptr;
-    if (LLPipeline::sRenderingHUDs)
-    {
-        shader = &gHUDFullbrightProgram;
-    }
-    else
-    {
-        shader = &gDeferredFullbrightProgram;
-    }
-
-    gDX.setSceneBlendType(LLRender::BT_ALPHA);
-
-    // render static
-    shader->bind();
-    pushBatches(LLRenderPass::PASS_FULLBRIGHT, true, true);
-
-    if (!LLPipeline::sRenderingHUDs)
-    {
-        // render rigged
-        shader->bind(true);
-        pushRiggedBatches(LLRenderPass::PASS_FULLBRIGHT_RIGGED, true, true);
-    }
 }
 
 void LLDrawPoolFullbrightAlphaMask::renderPostDeferred(S32 pass)
@@ -217,34 +134,6 @@ void LLDrawPoolFullbrightAlphaMask::renderPostDeferred(S32 pass)
     LL_RECORD_BLOCK_TIME(FTM_RENDER_FULLBRIGHT);
 #ifdef DX_RENDER
     DXDrawPoolSimple::renderFullbrightAlphaMaskPostDeferred(*this, pass);
-    return;
 #endif
-
-    // render unrigged unlit GLTF
-    LL::GLTFSceneManager::instance().render(true, false, true);
-    LL::GLTFSceneManager::instance().render(true, true, true);
-
-    LLHLSLShader* shader = nullptr;
-    if (LLPipeline::sRenderingHUDs)
-    {
-        shader = &gHUDFullbrightAlphaMaskProgram;
-    }
-    else
-    {
-        shader = &gDeferredFullbrightAlphaMaskProgram;
-    }
-
-    LLGLDisable blend(GL_BLEND);
-
-    // render static
-    shader->bind();
-    pushMaskBatches(LLRenderPass::PASS_FULLBRIGHT_ALPHA_MASK, true, true);
-
-    if (!LLPipeline::sRenderingHUDs)
-    {
-        // render rigged
-        shader->bind(true);
-        pushRiggedMaskBatches(LLRenderPass::PASS_FULLBRIGHT_ALPHA_MASK_RIGGED, true, true);
-    }
 }
 

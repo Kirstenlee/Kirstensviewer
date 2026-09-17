@@ -66,9 +66,7 @@ uniform float2 screen_res;
 #endif
 
 // sun_up_factor is also declared by atmosphericsFuncs.hlsl, guarded there -
-// reuse the same guard here (sun_dir/moon_dir just above are NOT declared
-// by atmosphericsFuncs.hlsl - confirmed via grep, different names there -
-// so only sun_up_factor needs this).
+// reuse the same guard here.
 #ifndef LL_SUN_UP_FACTOR_DECLARED
 #define LL_SUN_UP_FACTOR_DECLARED
 uniform int sun_up_factor;
@@ -79,23 +77,15 @@ float pcfShadow(Texture2D shadowMap, SamplerComparisonState shadowSampler, float
 #if defined(SUN_SHADOW)
     float offset = shadow_bias * bias_mul;
     stc.xyz /= stc.w;
-    // S24 (2026-08-11, task #158): GL-vs-D3D11 texture-origin flip, same
-    // class of fix already applied throughout this session (G-buffer/depth/
-    // lightMap reads, aoUtil.hlsl's SSAO) - stc.xy is computed via the
-    // shared/ported trans*proj*view*inv_view chain (generateSunShadow(),
-    // pipeline.cpp), which assumes GL's texture-row convention. stc is only
-    // ever used for shadow-map sampling in this function (never position
-    // math), so flipping it once here (rather than per-tap at each of the 5
-    // SampleCmpLevelZero() calls below) is safe and equivalent.
+    // GL-vs-D3D11 texture-origin flip: stc.xy comes from a GL-convention
+    // trans*proj*view*inv_view chain (generateSunShadow(), pipeline.cpp).
+    // stc is only used for shadow-map sampling here, so flipping once is
+    // equivalent to flipping each tap below.
     stc.y = 1.0 - stc.y;
-    // S24 (reversed-Z conversion): -= offset, was += offset - this bias
-    // pushes the comparison depth "away from the light" to avoid
-    // self-shadowing acne. Under the old convention (shadow-map texture
-    // space near=0/far=1) that meant adding; under the new reversed
-    // convention (near=1/far=0, see kGLtoDXDepthRemap's comment,
-    // llrender.cpp, and the matching trans-matrix fix in
-    // generateSunShadow(), pipeline.cpp) "away from the light" is now the
-    // smaller value, so this must subtract instead.
+    // Bias pushes the comparison depth "away from the light" to avoid
+    // self-shadowing acne. Under the reversed-Z convention (near=1/far=0,
+    // see kGLtoDXDepthRemap, llrender.cpp) that direction is the smaller
+    // value, hence subtract rather than add.
     stc.z -= offset * 2.0;
     stc.x = floor(stc.x * shadow_res.x + frac(pos_screen.y * shadow_res.y)) / shadow_res.x;
     float cs = shadowMap.SampleCmpLevelZero(shadowSampler, stc.xy, stc.z);
@@ -114,11 +104,8 @@ float pcfSpotShadow(Texture2D shadowMap, SamplerComparisonState shadowSampler, f
 {
 #if defined(SPOT_SHADOW)
     stc.xyz /= stc.w;
-    // S24 (2026-08-11, task #158): same GL-vs-D3D11 texture-origin flip as
-    // pcfShadow() above - see its comment.
+    // Same GL-vs-D3D11 texture-origin flip and reversed-Z bias sign as pcfShadow() above.
     stc.y = 1.0 - stc.y;
-    // S24 (reversed-Z conversion): -= bias, was += bias - see pcfShadow()'s
-    // matching comment above.
     stc.z -= spot_shadow_bias * bias_scale;
     stc.x = floor(proj_shadow_res.x * stc.x + frac(pos_screen.y * 0.666666666)) / proj_shadow_res.x;
 
@@ -128,12 +115,6 @@ float pcfSpotShadow(Texture2D shadowMap, SamplerComparisonState shadowSampler, f
     float2 off = 1.0 / proj_shadow_res;
     off.y *= 1.5;
 
-    // S24 (2026-09-02): was `stc.xy + float3(x, y, 0.0)` - adding a float2 to
-    // a float3 forced an implicit truncation back to float2 (X3206,
-    // reported in every one of the 9+ shaders that attach this file), just
-    // to immediately discard the always-zero .z component. Numerically
-    // identical result via a float2 offset directly, no implicit
-    // conversion needed at all.
     shadow_val += shadowMap.SampleCmpLevelZero(shadowSampler, stc.xy + float2(off.x * 2.0, off.y), stc.z);
     shadow_val += shadowMap.SampleCmpLevelZero(shadowSampler, stc.xy + float2(off.x, -off.y), stc.z);
     shadow_val += shadowMap.SampleCmpLevelZero(shadowSampler, stc.xy + float2(-off.x, off.y), stc.z);
@@ -147,24 +128,9 @@ float pcfSpotShadow(Texture2D shadowMap, SamplerComparisonState shadowSampler, f
 float sampleDirectionalShadow(float3 pos, float3 norm, float2 pos_screen)
 {
 #if defined(SUN_SHADOW)
-    // S24 (2026-09-02): full rewrite of this function's tail. Two real,
-    // separate bugs were already fixed here (lpos left genuinely
-    // uninitialized across the 4 cascade-blocks; shadow/weight could hit
-    // a 0.0/0.0 NaN) - both fixes were correct and are preserved below,
-    // but an X4000 "potentially uninitialized variable" warning kept
-    // firing at this function's tail regardless, across every one of the
-    // 9+ shaders that attach this file, even after those fixes landed.
-    // Rather than keep guessing which specific local FXC's conservative
-    // dataflow checker is still unhappy about, restructured the whole
-    // tail to remove the pattern most likely to confuse it: a shared
-    // mutable accumulator (the old `shadow`/`weight`) written via
-    // compound += across 4 independent (non-exclusive) `if` blocks, then
-    // conditionally overwritten again via a later if/else immediately
-    // before return. Renamed to accum_shadow/accum_weight (avoids any
-    // aliasing with this function's own name, which the warning kept
-    // citing), and the final if/else is now a single ternary feeding
-    // directly into one `return` - one unambiguous value on every path,
-    // nothing left to prove.
+    // accum_shadow/accum_weight accumulate independently across 4
+    // non-exclusive cascade `if` blocks; the final ternary avoids an
+    // uninitialized-variable warning FXC raises on the equivalent if/else.
     float3 light_dir = normalize((sun_up_factor == 1) ? sun_dir : moon_dir);
 
     float dp_directional_light = max(0.0, dot(norm.xyz, light_dir));
@@ -240,16 +206,6 @@ float sampleDirectionalShadow(float3 pos, float3 norm, float2 pos_screen)
 float sampleSpotShadow(float3 pos, float3 norm, int index, float2 pos_screen)
 {
 #if defined(SPOT_SHADOW)
-    // S24 (2026-08-19, task #232, task #227 audit finding): this whole
-    // function was a wrong re-derivation, not a port - it copied
-    // sampleDirectionalShadow()'s light_dir/dp_directional_light-based
-    // offset instead of shadowUtil.glsl's real (and much simpler) normal
-    // offset, hardcoded bias_scale to 1.0 instead of 0.8, dropped the
-    // distance-based falloff weight (w/weight) and the additive
-    // near-clip term entirely, added an `if (lpos.z > 0.0)` gate GLSL
-    // doesn't have, and passed the real screen-space pos_screen into
-    // pcfSpotShadow()'s dither-snap instead of GLSL's spos.xy. Re-ported
-    // faithfully from shadowUtil.glsl's real sampleSpotShadow() below.
     float shadow = 0.0f;
     pos += norm * spot_shadow_offset;
 

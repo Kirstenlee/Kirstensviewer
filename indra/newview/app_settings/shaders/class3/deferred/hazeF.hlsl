@@ -38,7 +38,7 @@ uniform int sun_up_factor;
 
 struct PSInput
 {
-    // S24 (2026-08-02): missing SV_Position - see uiF.hlsl's comment (fxc.exe-confirmed VS/PS register-shift bug).
+    // S24: SV_Position semantic required here, or every subsequent VS/PS interpolant register shifts (see uiF.hlsl).
     float4 position : SV_Position;
 
     float2 vary_fragcoord : TEXCOORD0;
@@ -62,11 +62,8 @@ float3 srgb_to_linear(float3 c);
 uniform float4 waterPlane;
 #endif
 
-// S24 (2026-08-11, task #156 hotfix round 5): also declared (guarded) by
-// reflectionProbeF.hlsl/softenLightF.hlsl, both always co-attached
-// whenever this file is - unguarded copy caused an X3003 redefinition in
-// "Haze Shader", same collision class as depthMapSampler/inv_proj/
-// screen_res earlier in this same hotfix chain.
+// S24: guarded because reflectionProbeF.hlsl/softenLightF.hlsl declare the same uniform
+// and are always co-attached with this file - unguarded causes an X3003 redefinition.
 #ifndef LL_CUBE_SNAPSHOT_DECLARED
 #define LL_CUBE_SNAPSHOT_DECLARED
 uniform int cube_snapshot;
@@ -110,8 +107,7 @@ float4 main(PSInput IN) : SV_Target
     float3  irradiance = float3(0, 0, 0);
     float3  radiance  = float3(0, 0, 0);
 
-    // S24 (reversed-Z conversion): far is now 0.0, was 1.0 - see
-    // kGLtoDXDepthRemap's comment (llrender.cpp).
+    // S24: reversed-Z under DX_RENDER - far is 0.0, near is 1.0 (see kGLtoDXDepthRemap, llrender.cpp).
     if (depth <= 0.0)
     {
         //should only be true of sky, clouds, sun/moon, and stars

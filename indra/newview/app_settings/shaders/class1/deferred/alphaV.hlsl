@@ -95,16 +95,6 @@ VSOutput main(VSInput IN)
 
     //transform vertex
 #ifdef HAS_SKIN
-    // S24 (2026-08-09, task #157): bisection rounds 2-3 confirmed skin +
-    // modelview + projection all now produce a recognizable, correctly-
-    // positioned avatar shape for OTHER avatars' rigged content (user
-    // confirmed seeing a real avatar body via the round-3 override before
-    // realizing it belonged to a different agent who then teleported
-    // away). The render/transform chain itself is proven correct. The
-    // remaining bug is specific to the SELF avatar's own rigged content -
-    // being investigated via an isSelf() split in the C++-side render
-    // loop (dxdrawpoolalpha.cpp) rather than further shader changes.
-    // Reverted to the real transform.
     float4x4 trans = getObjectSkinnedTransform();
     trans = mul(modelview_matrix, trans);
 

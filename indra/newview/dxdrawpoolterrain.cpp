@@ -75,21 +75,9 @@ namespace
         compp->boost();
     }
 
-    // S24 (2026-08-06): this used to only ever bind detail_0, to hardcoded
-    // unit 0 - a documented workaround from when LLHLSLShader::enableTexture()
-    // was a hardcoded -1 no-op under DX_RENDER (phase 5.2). Task #103 (this
-    // same session, well before tonight) already gave enableTexture() a
-    // real D3D-reflection-based channel mapping, but this function was
-    // never updated to actually use it - meaning detail_1/detail_2/detail_3/
-    // alpha_ramp were NEVER bound at all, every frame, leaving those 4
-    // texture slots holding whatever a completely unrelated, previous draw
-    // call happened to leave there. Root cause of a real, reported bug:
-    // terrain visibly "grabbing" other scene objects' textures, changing
-    // live with camera rotation/freecam (since draw order - i.e. what's
-    // left in those slots - depends on what else is visible/culled), and
-    // showing solid red on an empty test sim (nothing else drawn first to
-    // leave a texture behind). Rewritten to bind all 5 textures for real,
-    // mirroring lldrawpoolterrain.cpp's GL renderFullShaderTextures() exactly.
+    // Must bind all 5 textures (detail_0-3 + alpha_ramp) via enableTexture()'s
+    // real channel mapping. Binding only unit 0 leaves the other slots holding
+    // whatever a previously-drawn, unrelated object left bound there.
     void renderFullShaderTextures(LLDrawPoolTerrain& pool)
     {
         LLViewerRegion* regionp = pool.mDrawFace[0]->getDrawable()->getVObj()->getRegion();
@@ -164,6 +152,16 @@ namespace
         gDX.getTexUnit(detail0)->activate();
     }
 
+    // Full GLTF PBR terrain path: per-material-slot (0-3) base color/normal/metal-rough/emissive
+    // textures, the KHR_texture_transform-derived UV transform, the paint-map/alpha-ramp texture
+    // that blends between the 4 slots, and the GLTF material factor uniforms (base color,
+    // metallic, roughness, emissive, alpha cutoff) that pbrterrainF.hlsl's main() reads. Ported
+    // 1:1 from the GL backout's LLDrawPoolTerrain::renderFullShaderPBR() - this DX port had been
+    // left binding only detail_0_base_color and setting no uniforms at all, so paint_map/
+    // alpha_ramp (register t0) went unbound and every GLTF factor uniform was left at whatever
+    // the previous shader's binding happened to leave in the constant buffer. That silently broke
+    // material slots 1-3, the paint/alpha blend, and Develop > Terrain's "Create/Delete Local
+    // Paintmap" (the baked paintmap was never actually sampled at draw time).
     void renderFullShaderPBR(LLDrawPoolTerrain& pool, bool use_local_materials)
     {
         LLViewerRegion* regionp = pool.mDrawFace[0]->getDrawable()->getVObj()->getRegion();
@@ -175,25 +173,191 @@ namespace
             fetched_materials = gLocalTerrainMaterials.getDetailRenderMaterials();
         }
 
-        const LLFetchedGLTFMaterial* fetched_material = fetched_materials[0].get();
-        LLViewerTexture* detail_basecolor_texturep = fetched_material ? fetched_material->mBaseColorTexture.get() : nullptr;
+        constexpr U32 terrain_material_count = LLVLComposition::ASSET_COUNT;
 
-        gDX.getTexUnit(0)->activate();
-        if (detail_basecolor_texturep)
+        const LLGLTFMaterial* materials[terrain_material_count];
+        for (U32 i = 0; i < terrain_material_count; ++i)
         {
-            gDX.getTexUnit(0)->bind(detail_basecolor_texturep);
+            materials[i] = fetched_materials[i].get();
+            if (!materials[i]) { materials[i] = &LLGLTFMaterial::sDefault; }
         }
-        else
+
+        U32 paint_type = use_local_materials ? gLocalTerrainMaterials.getPaintType() : compp->getPaintType();
+        paint_type = llclamp(paint_type, 0, TERRAIN_PAINT_TYPE_COUNT);
+
+        S32 detail_basecolor[terrain_material_count];
+        S32 detail_normal[terrain_material_count];
+        S32 detail_metalrough[terrain_material_count];
+        S32 detail_emissive[terrain_material_count];
+
+        for (U32 i = 0; i < terrain_material_count; ++i)
         {
-            gDX.getTexUnit(0)->bind(LLViewerFetchedTexture::sWhiteImagep);
+            const LLFetchedGLTFMaterial* fetched_material = fetched_materials[i].get();
+            LLViewerTexture* detail_basecolor_texturep = fetched_material ? fetched_material->mBaseColorTexture.get() : nullptr;
+            LLViewerTexture* detail_normal_texturep = fetched_material ? fetched_material->mNormalTexture.get() : nullptr;
+            LLViewerTexture* detail_metalrough_texturep = fetched_material ? fetched_material->mMetallicRoughnessTexture.get() : nullptr;
+            LLViewerTexture* detail_emissive_texturep = fetched_material ? fetched_material->mEmissiveTexture.get() : nullptr;
+
+            detail_basecolor[i] = sShader->enableTexture(LLViewerShaderMgr::TERRAIN_DETAIL0_BASE_COLOR + i);
+            gDX.getTexUnit(detail_basecolor[i])->bind(detail_basecolor_texturep ? detail_basecolor_texturep : LLViewerFetchedTexture::sWhiteImagep.get());
+            gDX.getTexUnit(detail_basecolor[i])->setTextureAddressMode(LLTexUnit::TAM_WRAP);
+            gDX.getTexUnit(detail_basecolor[i])->activate();
+
+            if (LLDrawPoolTerrain::sPBRDetailMode >= TERRAIN_PBR_DETAIL_NORMAL)
+            {
+                detail_normal[i] = sShader->enableTexture(LLViewerShaderMgr::TERRAIN_DETAIL0_NORMAL + i);
+                gDX.getTexUnit(detail_normal[i])->bind(detail_normal_texturep ? detail_normal_texturep : LLViewerFetchedTexture::sFlatNormalImagep.get());
+                gDX.getTexUnit(detail_normal[i])->setTextureAddressMode(LLTexUnit::TAM_WRAP);
+                gDX.getTexUnit(detail_normal[i])->activate();
+            }
+
+            if (LLDrawPoolTerrain::sPBRDetailMode >= TERRAIN_PBR_DETAIL_METALLIC_ROUGHNESS)
+            {
+                detail_metalrough[i] = sShader->enableTexture(LLViewerShaderMgr::TERRAIN_DETAIL0_METALLIC_ROUGHNESS + i);
+                gDX.getTexUnit(detail_metalrough[i])->bind(detail_metalrough_texturep ? detail_metalrough_texturep : LLViewerFetchedTexture::sWhiteImagep.get());
+                gDX.getTexUnit(detail_metalrough[i])->setTextureAddressMode(LLTexUnit::TAM_WRAP);
+                gDX.getTexUnit(detail_metalrough[i])->activate();
+            }
+
+            if (LLDrawPoolTerrain::sPBRDetailMode >= TERRAIN_PBR_DETAIL_EMISSIVE)
+            {
+                detail_emissive[i] = sShader->enableTexture(LLViewerShaderMgr::TERRAIN_DETAIL0_EMISSIVE + i);
+                gDX.getTexUnit(detail_emissive[i])->bind(detail_emissive_texturep ? detail_emissive_texturep : LLViewerFetchedTexture::sWhiteImagep.get());
+                gDX.getTexUnit(detail_emissive[i])->setTextureAddressMode(LLTexUnit::TAM_WRAP);
+                gDX.getTexUnit(detail_emissive[i])->activate();
+            }
         }
-        gDX.getTexUnit(0)->setTextureAddressMode(LLTexUnit::TAM_WRAP);
+
+        // PBR UV origin is the region's Southwest corner; RenderTerrainPBRScale is folded into
+        // the KHR_texture_transform scale (only valid because it's uniform and no other
+        // transform is applied to the terrain UVs elsewhere).
+        LLGLTFMaterial::TextureTransform::PackTight transforms_packed[terrain_material_count];
+        for (U32 i = 0; i < terrain_material_count; ++i)
+        {
+            const LLFetchedGLTFMaterial* fetched_material = fetched_materials[i].get();
+            LLGLTFMaterial::TextureTransform transform;
+            if (fetched_material)
+            {
+                transform = fetched_material->mTextureTransform[LLGLTFMaterial::GLTF_TEXTURE_INFO_BASE_COLOR];
+            }
+            transform.mScale.mV[VX] *= LLDrawPoolTerrain::sPBRDetailScale;
+            transform.mScale.mV[VY] *= LLDrawPoolTerrain::sPBRDetailScale;
+
+            transform.getPackedTight(transforms_packed[i]);
+        }
+        const U32 transform_param_count = LLGLTFMaterial::TextureTransform::PACK_TIGHT_SIZE * terrain_material_count;
+        constexpr U32 vec4_size = 4;
+        const U32 transform_vec4_count = (transform_param_count + (vec4_size - 1)) / vec4_size;
+        sShader->uniform4fv(LLShaderMgr::TERRAIN_TEXTURE_TRANSFORMS, transform_vec4_count, (F32*)transforms_packed);
+
+        //
+        // Alpha ramp or paint map - blends between the 4 detail material slots
+        //
+        S32 alpha_ramp = -1;
+        S32 paint_map = -1;
+        if (paint_type == TERRAIN_PAINT_TYPE_HEIGHTMAP_WITH_NOISE)
+        {
+            alpha_ramp = sShader->enableTexture(LLViewerShaderMgr::TERRAIN_ALPHARAMP);
+            gDX.getTexUnit(alpha_ramp)->bind(pool.m2DAlphaRampImagep);
+            gDX.getTexUnit(alpha_ramp)->setTextureAddressMode(LLTexUnit::TAM_CLAMP);
+        }
+        else if (paint_type == TERRAIN_PAINT_TYPE_PBR_PAINTMAP)
+        {
+            paint_map = sShader->enableTexture(LLViewerShaderMgr::TERRAIN_PAINTMAP);
+            LLViewerTexture* tex_paint_map = use_local_materials ? gLocalTerrainMaterials.getPaintMap() : compp->getPaintMap();
+            // No paintmap baked yet - fall back to rendering just material slot 1.
+            if (!tex_paint_map) { tex_paint_map = LLViewerTexture::sBlackImagep.get(); }
+            gDX.getTexUnit(paint_map)->bind(tex_paint_map);
+            gDX.getTexUnit(paint_map)->setTextureAddressMode(LLTexUnit::TAM_CLAMP);
+
+            sShader->uniform1f(LLShaderMgr::REGION_SCALE, regionp->getWidth());
+        }
+
+        //
+        // GLTF material factor uniforms
+        //
+        LLColor4 base_color_factors[terrain_material_count];
+        F32 metallic_factors[terrain_material_count];
+        F32 roughness_factors[terrain_material_count];
+        LLColor3 emissive_colors[terrain_material_count];
+        F32 minimum_alphas[terrain_material_count];
+        for (U32 i = 0; i < terrain_material_count; ++i)
+        {
+            const LLGLTFMaterial* material = materials[i];
+
+            base_color_factors[i] = material->mBaseColor;
+            metallic_factors[i] = material->mMetallicFactor;
+            roughness_factors[i] = material->mRoughnessFactor;
+            emissive_colors[i] = material->mEmissiveColor;
+            // mAlphaCutoff is only valid for ALPHA_MODE_MASK; dividing by transparency lets the
+            // shader compare against the alpha value of the texture without needing transparency.
+            F32 min_alpha = -0.0f;
+            if (material->mAlphaMode == LLGLTFMaterial::ALPHA_MODE_MASK)
+            {
+                min_alpha = material->mAlphaCutoff / material->mBaseColor.mV[3];
+            }
+            minimum_alphas[i] = min_alpha;
+        }
+        sShader->uniform4fv(LLShaderMgr::TERRAIN_BASE_COLOR_FACTORS, terrain_material_count, (F32*)base_color_factors);
+        if (LLDrawPoolTerrain::sPBRDetailMode >= TERRAIN_PBR_DETAIL_METALLIC_ROUGHNESS)
+        {
+            sShader->uniform4f(LLShaderMgr::TERRAIN_METALLIC_FACTORS, metallic_factors[0], metallic_factors[1], metallic_factors[2], metallic_factors[3]);
+            sShader->uniform4f(LLShaderMgr::TERRAIN_ROUGHNESS_FACTORS, roughness_factors[0], roughness_factors[1], roughness_factors[2], roughness_factors[3]);
+        }
+        if (LLDrawPoolTerrain::sPBRDetailMode >= TERRAIN_PBR_DETAIL_EMISSIVE)
+        {
+            sShader->uniform3fv(LLShaderMgr::TERRAIN_EMISSIVE_COLORS, terrain_material_count, (F32*)emissive_colors);
+        }
+        sShader->uniform4f(LLShaderMgr::TERRAIN_MINIMUM_ALPHAS, minimum_alphas[0], minimum_alphas[1], minimum_alphas[2], minimum_alphas[3]);
 
         drawLoop(pool);
 
-        gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
-        gDX.getTexUnit(0)->enable(LLTexUnit::TT_TEXTURE);
-        gDX.getTexUnit(0)->activate();
+        if (paint_type == TERRAIN_PAINT_TYPE_HEIGHTMAP_WITH_NOISE)
+        {
+            sShader->disableTexture(LLViewerShaderMgr::TERRAIN_ALPHARAMP);
+            gDX.getTexUnit(alpha_ramp)->unbind(LLTexUnit::TT_TEXTURE);
+            gDX.getTexUnit(alpha_ramp)->disable();
+            gDX.getTexUnit(alpha_ramp)->activate();
+        }
+        else if (paint_type == TERRAIN_PAINT_TYPE_PBR_PAINTMAP)
+        {
+            sShader->disableTexture(LLViewerShaderMgr::TERRAIN_PAINTMAP);
+            gDX.getTexUnit(paint_map)->unbind(LLTexUnit::TT_TEXTURE);
+            gDX.getTexUnit(paint_map)->disable();
+            gDX.getTexUnit(paint_map)->activate();
+        }
+
+        for (U32 i = 0; i < terrain_material_count; ++i)
+        {
+            sShader->disableTexture(LLViewerShaderMgr::TERRAIN_DETAIL0_BASE_COLOR + i);
+            gDX.getTexUnit(detail_basecolor[i])->unbind(LLTexUnit::TT_TEXTURE);
+            gDX.getTexUnit(detail_basecolor[i])->disable();
+            gDX.getTexUnit(detail_basecolor[i])->activate();
+
+            if (LLDrawPoolTerrain::sPBRDetailMode >= TERRAIN_PBR_DETAIL_NORMAL)
+            {
+                sShader->disableTexture(LLViewerShaderMgr::TERRAIN_DETAIL0_NORMAL + i);
+                gDX.getTexUnit(detail_normal[i])->unbind(LLTexUnit::TT_TEXTURE);
+                gDX.getTexUnit(detail_normal[i])->disable();
+                gDX.getTexUnit(detail_normal[i])->activate();
+            }
+
+            if (LLDrawPoolTerrain::sPBRDetailMode >= TERRAIN_PBR_DETAIL_METALLIC_ROUGHNESS)
+            {
+                sShader->disableTexture(LLViewerShaderMgr::TERRAIN_DETAIL0_METALLIC_ROUGHNESS + i);
+                gDX.getTexUnit(detail_metalrough[i])->unbind(LLTexUnit::TT_TEXTURE);
+                gDX.getTexUnit(detail_metalrough[i])->disable();
+                gDX.getTexUnit(detail_metalrough[i])->activate();
+            }
+
+            if (LLDrawPoolTerrain::sPBRDetailMode >= TERRAIN_PBR_DETAIL_EMISSIVE)
+            {
+                sShader->disableTexture(LLViewerShaderMgr::TERRAIN_DETAIL0_EMISSIVE + i);
+                gDX.getTexUnit(detail_emissive[i])->unbind(LLTexUnit::TT_TEXTURE);
+                gDX.getTexUnit(detail_emissive[i])->disable();
+                gDX.getTexUnit(detail_emissive[i])->activate();
+            }
+        }
     }
 
     void renderFullShader(LLDrawPoolTerrain& pool)
@@ -262,9 +426,7 @@ namespace
         sShader->bind();
         gDX.diffuseColor4f(1, 1, 1, 1);
         LLGLEnable polyOffset(GL_POLYGON_OFFSET_FILL);
-        // S24 (2026-08-28, task #242): was skipped entirely ("no DX11
-        // runtime equivalent") - now real via LLRender::setPolygonOffset()
-        // (llrender.cpp), no #ifdef needed here.
+        // Real via LLRender::setPolygonOffset() (llrender.cpp), no #ifdef needed.
         gDX.setPolygonOffset(-1.0f, -1.0f);
 
         renderOwnership(pool);
@@ -302,8 +464,6 @@ void DXDrawPoolTerrain::renderDeferred(LLDrawPoolTerrain& pool, S32 pass)
 
     renderFullShader(pool);
 
-    // S24 (2026-08-23, pre-alpha perf sweep): raw per-frame (per visible
-    // terrain pool) gSavedSettings lookup.
     static LLCachedControl<bool> show_parcel_owners(gSavedSettings, "ShowParcelOwners", false);
     if (show_parcel_owners)
     {

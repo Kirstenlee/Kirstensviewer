@@ -24,25 +24,10 @@
 
 /*[EXTRA_CODE_HERE]*/
 
-// S24 (2026-08-09, task #164): this file was previously an incomplete port -
-// only toneMapACES_Hill existed, hardcoded as the sole result of toneMap(),
-// with no exposure handling, no tonemap_mix blend, and no tonemap_type
-// selector - meaning DX_RENDER never actually read the RenderTonemapType
-// preference (Khronos/ACES/Hable/Uchimura) at all. Confirmed via direct
-// comparison against tonemapUtilF.glsl's real toneMap()/toneMapNoExposure(),
-// which switch on tonemap_type and blend via tonemap_mix. Real root cause of
-// task #164's "disable haze -> pure white sky": DX_RENDER's present chain
-// was calling postDeferredGammaCorrect.hlsl (linear_to_srgb + hard clamp,
-// no tonemap curve at all) instead of postDeferredTonemap.hlsl - see
-// dxpipeline.cpp's presentDeferredScreen() for the wiring fix.
-//
-// exposureMap - new register. t8/s8 chosen as the one slot free across
-// every consumer of this shared utility file: water (waterF.hlsl uses
-// t4-t7 for exclusion/bump/screen, t9/s9 for environmentMap via
-// reflectionProbeF.hlsl) and the post-process tonemap family
-// (postDeferredTonemap.hlsl, isDeferred=true so t0-t3/s0-s3 are reserved
-// by deferredUtil.hlsl, and its own diffuseRect now lives at t7/s7 to
-// match postDeferredGammaCorrect.hlsl's established convention).
+// t8/s8 is the one slot free across every consumer of this shared utility
+// file: water (waterF.hlsl uses t4-t7, t9/s9 for environmentMap) and the
+// post-process tonemap family (postDeferredTonemap.hlsl, t0-t3/s0-s3
+// reserved by deferredUtil.hlsl, diffuseRect at t7/s7).
 Texture2D exposureMap : register(t8);
 SamplerState exposureMapSampler : register(s8);
 
@@ -74,13 +59,9 @@ static const float3x3 ACESOutputMat = float3x3
 // ACES tone map (faster approximation)
 // see: https://knarkowicz.wordpress.com/2016/01/06/aces-filmic-tone-mapping-curve/
 //
-// S24 (2026-09-05, task #184 follow-up): this was carried over from GLSL
-// fully written but never wired to tonemap_type's switch (dead code in both
-// the GL and DX shader trees) - a single fitted curve, no matrix multiply
-// involved at all (unlike toneMapACES_Hill above), so no per-channel color
-// shift risk the way the matrix-based fit had. Wired up as tonemap_type 4
-// ("ACES (Fast)") - a real, cheaper alternative for anyone who still wants
-// an ACES-family look without toneMapACES_Hill's fuller RRT/ODT fit.
+// A single fitted curve, no matrix multiply involved (unlike toneMapACES_Hill
+// above), so no per-channel color-shift risk. Wired up as tonemap_type 4
+// ("ACES (Fast)") - a cheaper alternative to toneMapACES_Hill's fuller RRT/ODT fit.
 float3 toneMapACES_Narkowicz(float3 color)
 {
     const float A = 2.51;
@@ -96,13 +77,11 @@ float3 toneMapACES_Narkowicz(float3 color)
 // (Benjamin Wrensch's widely-used "Minimal AgX implementation", MIT license -
 // the same fit reused verbatim across many open-source engines)
 //
-// S24 (2026-09-05, task #184 follow-up): matrix literals typed identically
-// to the published reference's mat3(...) (GLSL, column-major fill) -
-// following this file's own toneMapACES_Hill fix above, HLSL's float3x3(...)
-// fills that SAME literal list ROW-major, so mul(color, M) (not
-// mul(M, color)) is used for both matrices to get the mathematically-
-// equivalent M*color the reference intends, without hand-transposing any
-// published literal.
+// Matrix literals typed identically to the published reference's mat3(...)
+// (GLSL fills column-major; HLSL's float3x3(...) fills the same literal
+// list row-major), so mul(color, M) rather than mul(M, color) is used for
+// both matrices to get the reference's intended M*color without
+// hand-transposing the literals.
 static const float3x3 AgXInputMat = float3x3
 (
     0.842479062253094, 0.0423282422610123, 0.0423756549057051,
@@ -133,27 +112,19 @@ float3 agxDefaultContrastApprox(float3 x)
          - 0.00232;
 }
 
-// S24 note: the published reference's final step ("agxEotf") is
-// mul(color, AgXOutputMat) followed by pow(color, 2.2) - that combined
-// agx()+agxEotf() pair is designed to be a complete replacement for BOTH
-// tonemap AND display gamma encode in one shot, since the reference assumes
-// nothing further is applied downstream. This engine's toneMap()/
-// toneMapNoExposure() contract is different: every operator here (Khronos,
-// ACES, Hable, Uchimura, Narkowicz) returns a still-LINEAR [0,1] result, and
-// a single shared linear_to_srgb() pass (postDeferredTonemap.hlsl) does the
-// real display gamma encode afterward for all of them uniformly. Baking the
-// reference's own pow(2.2) in here as well would double-encode gamma on top
-// of that shared pass - so it's deliberately omitted, stopping right after
-// the inverse color matrix to match every sibling operator's own contract.
+// The published reference's final step ("agxEotf") also applies pow(color,
+// 2.2) as a combined tonemap+display-gamma step. This engine's toneMap()
+// contract instead has every operator return a still-linear [0,1] result,
+// with a single shared linear_to_srgb() pass (postDeferredTonemap.hlsl)
+// doing display gamma encode afterward - so pow(2.2) is deliberately
+// omitted here to avoid double-encoding gamma.
 float3 toneMapAgX(float3 color)
 {
     const float min_ev = -12.47393;
     const float max_ev = 4.026069;
 
-    // log2() of a zero/negative input is -infinity/NaN - same drift-guard
-    // class already established in this file's toneMapUchimura() (see its
-    // own comment) - a poisoned NaN here would wreck this whole pixel, not
-    // just look slightly off.
+    // log2() of a zero/negative input is -infinity/NaN, which would poison
+    // this whole pixel - same guard as toneMapUchimura() below.
     color = max(color, 0.000001);
     color = mul(color, AgXInputMat);
     color = clamp(log2(color), min_ev, max_ev);
@@ -179,20 +150,12 @@ float3 RRTAndODTFit(float3 color)
 
 // tone mapping
 //
-// S24 (2026-09-05, task #184 follow-up): ACESInputMat/ACESOutputMat's 9
-// literal values above were copy-pasted verbatim from the GLSL reference's
-// mat3(...) constructor, but HLSL's float3x3(...) constructor fills
-// ROW-major from that same literal list while GLSL's mat3(...) fills
-// COLUMN-major - the identical 9 values produce transposed matrices between
-// the two languages (same bug class as irradianceGenF.hlsl's TBN fix, task
-// #234). mul(ACESInputMat, color) then computed transpose(M)*color instead
-// of the intended M*color - a real, silent color-shifted ACES curve (this
-// is what was behind ACES looking "a little green" as the shipped default,
-// RenderTonemapType=1). Fixed the same way task #234 did: swap to
-// mul(color, M), which is mathematically M^T * color under HLSL's
-// vector-times-matrix convention - i.e. exactly the GLSL-intended M*color,
-// with the matrix literals left untouched (matching the reference exactly,
-// easiest to audit against).
+// ACESInputMat/ACESOutputMat's literals are copy-pasted verbatim from the
+// GLSL reference's mat3(...), which fills column-major, while HLSL's
+// float3x3(...) fills the same literal list row-major - the identical
+// values produce transposed matrices between the two languages. Use
+// mul(color, M) rather than mul(M, color) to get the GLSL-intended M*color
+// under HLSL's vector-times-matrix convention, with literals left untouched.
 float3 toneMapACES_Hill(float3 color)
 {
     color = mul(color, ACESInputMat);
@@ -213,15 +176,6 @@ float3 toneMapACES_Hill(float3 color)
 // Input color is non-negative and resides in the Linear Rec. 709 color space.
 // Output color is also Linear Rec. 709, but in the [0, 1] range.
 //
-// S24 (2026-08-19, task #233, task #227 audit finding): the body below was
-// a completely different algorithm (a luminance-dot-product compression
-// curve) with no relation to the real Khronos PBR Neutral formula GLSL
-// uses (min-channel offset + peak-based compression + desaturation mix) -
-// not a simplified port, an unrelated substitute. This is tonemap_type 0,
-// the DEFAULT, so every user on the default (or explicitly Khronos-Neutral)
-// RenderTonemapType got a materially different tonemap curve under
-// DX_RENDER for every frame. Re-ported faithfully from tonemapUtilF.glsl's
-// real PBRNeutralToneMapping() below.
 float3 PBRNeutralToneMapping(float3 color)
 {
     const float startCompression = 0.8 - 0.04;
@@ -284,16 +238,10 @@ float3 toneMapUchimura(float3 x)
     float3 w2 = step(S0, x);
     float3 w1 = 1.0 - w0 - w2;
 
-    // S24 (2026-09-02): was pow(x/m, ...) unguarded - x is the input HDR
-    // color, which should be non-negative in principle but isn't
-    // guaranteed to stay exactly so under floating-point drift from
-    // upstream lighting math. pow() with a negative base and non-integer
-    // exponent is undefined behavior, and D3D11 is more likely to reliably
-    // return NaN for it than to silently degrade - a NaN here would
-    // poison this whole pixel's final tonemapped color, not just look
-    // slightly off. Same established fix already used for this exact
-    // problem in atmosphericsFuncs.hlsl's calcAtmosphericVars() (see its
-    // own comment) - wrap with abs() rather than leave unguarded.
+    // x (input HDR color) isn't guaranteed non-negative under floating-point
+    // drift; pow() with a negative base and non-integer exponent is
+    // undefined and D3D11 tends to return NaN, poisoning the pixel - guard
+    // with abs(), same as atmosphericsFuncs.hlsl's calcAtmosphericVars().
     float3 T = m * pow(abs(x / m), float3(c, c, c)) + b;
     float3 S = P - (P - S1) * exp(CP * (x - S0));
     float3 L = m + a * (x - m);

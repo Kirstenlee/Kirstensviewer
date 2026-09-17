@@ -80,14 +80,8 @@ uniform float3  glow;
 uniform float sun_moon_glow_factor;
 #endif
 
-// S24 (2026-09-07): guarded, was bare - atmosphericsFuncs.hlsl now also
-// declares this (needed there for ambientLighting()'s probe-capture check,
-// task #266) and is co-attached here via calculatesAtmospherics/
-// hasAtmospherics, causing a real X3003 redefinition compile failure
-// ("Environment Map Program") without this guard. Same include-guard
-// pattern already established throughout this codebase for dual-declared
-// uniforms (see reflectionProbeF.hlsl/softenLightF.hlsl's own identical
-// guard).
+// Guarded: atmosphericsFuncs.hlsl also declares cube_snapshot and is
+// co-attached here, causing an X3003 redefinition without this guard.
 #ifndef LL_CUBE_SNAPSHOT_DECLARED
 #define LL_CUBE_SNAPSHOT_DECLARED
 uniform int cube_snapshot;

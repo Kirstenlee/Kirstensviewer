@@ -37,11 +37,9 @@ class LLHLSLShader;
 
 class LLDrawPoolWater final: public LLFacePool
 {
-    // S24 (2026-08-04, task #109): DXDrawPoolWater is a staged full
-    // duplicate of renderPostDeferred()'s DX_RENDER path (same pattern as
-    // DXDrawPoolBump/DXDrawPoolAlpha) - needs mWaterNormp for the wave
-    // normal-map blend, which stays protected here since nothing else
-    // needs it public.
+    // DXDrawPoolWater duplicates renderPostDeferred()'s DX_RENDER path (same
+    // pattern as DXDrawPoolBump/DXDrawPoolAlpha) and needs mWaterNormp for
+    // the wave normal-map blend - stays protected, nothing else needs it public.
     friend class DXDrawPoolWater;
 protected:
     LLPointer<LLViewerTexture> mWaterImagep[2];
@@ -81,9 +79,6 @@ public:
     void setNormalMaps(const LLUUID& normalMapId, const LLUUID& nextNormalMapId);
 
     void pushWaterPlanes(int pass);
-
-protected:
-    void renderOpaqueLegacyWater();
 };
 
 void cgErrorCallback();

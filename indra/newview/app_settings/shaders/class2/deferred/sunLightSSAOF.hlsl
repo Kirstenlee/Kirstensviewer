@@ -28,7 +28,7 @@
 
 struct PSInput
 {
-    // S24 (2026-08-02): missing SV_Position - see uiF.hlsl's comment (fxc.exe-confirmed VS/PS register-shift bug).
+    // S24: missing SV_Position - see uiF.hlsl's comment (VS/PS register-shift bug).
     float4 position : SV_Position;
 
     float2 vary_fragcoord : TEXCOORD0;
@@ -47,8 +47,7 @@ float4 main(PSInput IN) : SV_Target
     float4 pos  = getPosition(pos_screen);
     float4 norm = getNorm(pos_screen);
 
-    // S24 (2026-09-02): zero-initialized - see sunLightF.hlsl's matching
-    // fix/comment, identical pattern.
+    // S24: zero-initialized - see sunLightF.hlsl's matching comment.
     float4 col = float4(0, 0, 0, 0);
     col.r = sampleDirectionalShadow(pos.xyz, norm.xyz, pos_screen);
     col.g = calcAmbientOcclusion(pos, norm.xyz, pos_screen);

@@ -24,30 +24,18 @@
 
 /*[EXTRA_CODE_HERE]*/
 
-// S24 (2026-08-26, task #263): separable 4-tap Catmull-Rom (a=-0.5) bicubic
-// resize pass - one shader, bound TWICE per resize (horizontal then
-// vertical) with a different glowDelta each time, exactly the same reuse
-// pattern gGlowProgram already uses for its own separable blur
-// (LLPipeline::generateGlow(), pipeline.cpp) - not two separate shaders.
-// LLGPUResize::resize() (newview/llgpuresize.cpp) is the only caller.
-//
-// t7/s7 matches postDeferredGammaCorrect.hlsl's established "free slot for
-// a single post-fx input" convention. glowDelta is glow's own uniform
-// (LLShaderMgr::GLOW_DELTA, "glowDelta") reused here rather than adding a
-// new uniform name - same shape (a per-axis UV step, nonzero on exactly
-// one axis per pass), just a different consumer.
+// Separable 4-tap Catmull-Rom (a=-0.5) bicubic resize: this shader is bound
+// TWICE per resize (horizontal then vertical) with a different glowDelta
+// each time, same reuse pattern as gGlowProgram's separable blur.
+// glowDelta is glow's own uniform, reused here rather than adding a new name.
 Texture2D diffuseRect : register(t7);
 SamplerState diffuseRectSampler : register(s7);
 
 uniform float2 glowDelta;
 
-// S24 (2026-08-26, task #263 round 6): blend the 4 taps in linear light,
-// not on the raw gamma-encoded source (this shader's input is the final
-// post-gamma-correct composited target) - weighting gamma-encoded values
-// directly biases the result toward the brighter of two neighbouring
-// texels (gamma encoding is a concave curve), visible as a faint darkening/
-// desaturation of soft edges under close inspection. hasSrgb (see
-// llviewershadermgr.cpp) attaches the real definitions of these two.
+// Blend the 4 taps in linear light, not raw gamma-encoded values (this
+// shader's input is the post-gamma-correct composited target) - weighting
+// gamma-encoded values directly biases toward the brighter neighbour texel.
 float3 srgb_to_linear(float3 cs);
 float3 linear_to_srgb(float3 cl);
 
@@ -66,14 +54,10 @@ float crw3(float f) { return f * f * (-0.5 + 0.5 * f); }
 
 float4 main(PSInput IN) : SV_Target
 {
-    // S24 (2026-08-26, task #263): flip GL-origin -> D3D11-origin ONCE,
-    // here, then do the entire 4-tap offset/weight computation in that
-    // single already-correctly-oriented space - NOT by flipping each tap
-    // independently (postDeferredGammaCorrect.hlsl's usual per-tap-flip
-    // convenience is only safe for symmetric kernels like glow's; Catmull-
-    // Rom's weights are NOT symmetric - w0/w3 and w1/w2 genuinely differ -
-    // so flipping each tap on its own would silently reverse which weight
-    // lands on which texel for the vertical pass specifically).
+    // Flip GL-origin -> D3D11-origin ONCE, then do the whole 4-tap
+    // computation in that space - NOT per-tap. Catmull-Rom's weights are
+    // NOT symmetric (w0/w3 and w1/w2 differ), so flipping each tap
+    // independently would reverse which weight lands on which texel.
     float2 tc = float2(IN.vary_fragcoord.x, 1.0 - IN.vary_fragcoord.y);
 
     // glowDelta is exactly 1 source texel's UV step along the active axis
@@ -87,22 +71,11 @@ float4 main(PSInput IN) : SV_Target
     float texelIndex = floor(texelPos);
     float f = texelPos - texelIndex;
 
-    // S24 (2026-08-26, task #263 round 5): sample UVs built from the
-    // EXPLICIT integer texel index (texelIndex+0.5, scaled back to UV),
-    // not "tc +/- step1" - tc itself is an arbitrary, non-texel-aligned
-    // position (it's the OUTPUT pixel's UV, mapped into a differently-
-    // sized source), so offsetting it by whole-texel steps does NOT
-    // reliably land each tap on an exact texel center under POINT
-    // filtering - right at a texel boundary, floating-point rounding can
-    // push a sample to the wrong neighbour, silently shifting all 4 taps
-    // by one texel and applying the wrong Catmull-Rom weight to the wrong
-    // texel. Building "base" from the known integer index first guarantees
-    // every tap lands exactly on a texel center regardless of tc's own
-    // fractional position - found by hand-tracing the boundary case (f=0.5)
-    // after a "still jagged/crude under close inspection" report on an
-    // otherwise-working build; not the AA source of that report (see
-    // rawSnapshot()'s forced-FXAA comment), but a real, separate bug worth
-    // fixing regardless.
+    // Sample UVs are built from the EXPLICIT integer texel index
+    // (texelIndex+0.5, scaled back to UV), not "tc +/- step1": tc is an
+    // arbitrary non-texel-aligned position, so offsetting it by whole-texel
+    // steps risks floating-point rounding pushing a sample to the wrong
+    // neighbour right at a texel boundary, shifting all 4 taps by one texel.
     float2 base = horizontal
         ? float2((texelIndex + 0.5) * stepLen, tc.y)
         : float2(tc.x, (texelIndex + 0.5) * stepLen);
@@ -117,9 +90,8 @@ float4 main(PSInput IN) : SV_Target
     float4 c2 = diffuseRect.Sample(diffuseRectSampler, base + step1);
     float4 c3 = diffuseRect.Sample(diffuseRectSampler, base + step1 * 2.0);
 
-    // S24 (2026-08-26, task #263 round 6): linearize -> weight -> re-encode.
-    // Alpha is left alone (not a light quantity, and this pipeline's alpha
-    // is a hardcoded constant anyway - see softenLightF.hlsl).
+    // Linearize -> weight -> re-encode. Alpha is left alone (not a light
+    // quantity, and this pipeline's alpha is a hardcoded constant anyway).
     float3 l0 = srgb_to_linear(c0.rgb);
     float3 l1 = srgb_to_linear(c1.rgb);
     float3 l2 = srgb_to_linear(c2.rgb);

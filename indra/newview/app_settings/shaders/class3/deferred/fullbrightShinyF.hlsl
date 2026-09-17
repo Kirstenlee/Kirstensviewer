@@ -24,14 +24,24 @@
 
 /*[EXTRA_CODE_HERE]*/
 
+// S24: this shader has mFeatures.hasReflectionProbes=true (llviewershadermgr.cpp), which
+// attaches deferredUtil.hlsl - its normalMap/depthMap/projectionMap/brdfLut claim t0-t3,
+// colliding with the stock t0/s0 this declared. Dead code in practice (mIndexedTextureChannels
+// is unconditionally 4 for this program, so HAS_DIFFUSE_LOOKUP always wins and this branch
+// never compiles) - moved to t5/s5 anyway, matching this shader's own indexed tex0/tex0Sampler
+// register (mutually exclusive #ifdef, safe to share), so it's correct if that ever changes.
+// The real bug this file's diffuse texture reads as white/grey for was in
+// LLRenderPass::pushBatch()'s single-texture path (lldrawpool.cpp) hardcoding texture unit 0
+// regardless of which register the bound shader's indexed lookup actually expects - see the
+// fix there.
 #ifndef HAS_DIFFUSE_LOOKUP
-Texture2D diffuseMap : register(t0);
-SamplerState diffuseMapSampler : register(s0);
+Texture2D diffuseMap : register(t5);
+SamplerState diffuseMapSampler : register(s5);
 #endif
 
 struct PSInput
 {
-    // S24 (2026-08-02): missing SV_Position - see uiF.hlsl's comment (fxc.exe-confirmed VS/PS register-shift bug).
+    // S24: SV_Position semantic required here, or every subsequent VS/PS interpolant register shifts (see uiF.hlsl).
     float4 position : SV_Position;
 
     float4 vertex_color : COLOR0;
@@ -94,20 +104,10 @@ float4 main(PSInput IN) : SV_Target
     float env_intensity = IN.vertex_color.a;
 
     float3 ambenv;
-    // S24 (2026-09-02): both zero-initialized - D3DCompile flagged X4000
-    // "potentially uninitialized variable" for legacyenv here. Real risk,
-    // not a false alarm: sampleReflectionProbesLegacy()/its glossiness
-    // branch only write these when envIntensity>0.0/spec.a>0.0
-    // respectively - with env_intensity==0 (routine; a FullbrightShiny
-    // material with no explicit Environment Intensity set), legacyenv
-    // stays whatever garbage was in this register and flows straight into
-    // applyLegacyEnv()'s math. That math IS designed to cancel out at
-    // envIntensity==0 (reflected_color *= envIntensity, then
-    // lerp(color, reflected_color*0.5, envIntensity)) - but only for
-    // finite garbage; NaN/Inf survive a zero-weight lerp in IEEE float
-    // (0*NaN=NaN, not 0), which uninitialized memory is not guaranteed to
-    // avoid. softenLightF.hlsl/alphaF.hlsl's own callers already
-    // correctly zero-init - this one just didn't.
+    // S24: ambenv/legacyenv must be zero-initialized. sampleReflectionProbesLegacy() only
+    // writes them when envIntensity>0.0/spec.a>0.0, so at envIntensity==0 uninitialized
+    // memory reaches applyLegacyEnv()'s lerp - and unlike finite garbage, NaN/Inf survive
+    // a zero-weight lerp (0*NaN=NaN).
     float3 glossenv = float3(0, 0, 0);
     float3 legacyenv = float3(0, 0, 0);
     float3 norm = normalize(IN.vary_texcoord1.xyz);

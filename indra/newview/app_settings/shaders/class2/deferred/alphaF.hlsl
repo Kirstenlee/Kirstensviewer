@@ -101,18 +101,9 @@ void mirrorClip(float3 pos);
 void sampleReflectionProbesLegacy(inout float3 ambenv, inout float3 glossenv, inout float3 legacyenv,
     float2 tc, float3 pos, float3 norm, float glossiness, float envIntensity, bool transparent, float3 amblit_linear);
 
-// S24 (task #155, 2026-08-18): was a crude, non-matching simplification -
-// wrong distance-attenuation curve (naive inverted_la/dist instead of the
-// real dist_atten formula below), and completely missing the `diffuse`
-// color multiply (returned raw `da * light_col`, so local-light contribution
-// on any alpha-blended surface - hair, alpha clothing, alpha sculpts -
-// ignored the surface's own texture color entirely and used a different
-// falloff shape than every other lit surface in the scene). Re-ported
-// faithfully from alphaF.glsl's real body - the class3/deferred/
-// materialF.hlsl version of this same function (legacy materials) was
-// already a correct, careful port and served as a working reference for
-// this fix; the spec/glare terms there don't apply here (this file's own
-// GLSL never had them - "no spec for alpha shader...").
+// S24: ported from alphaF.glsl's real body; class3/deferred/materialF.hlsl's
+// version of this function is a working reference (its spec/glare terms
+// don't apply here - this file's own GLSL never had them).
 float3 calcPointLightOrSpotLight(float3 light_col, float3 diffuse, float3 v, float3 n, float4 lp, float3 ln, float la, float fa, float is_pointlight, float ambiance)
 {
     // SL-14895 inverted attenuation work-around
@@ -174,12 +165,8 @@ float3 calcPointLightOrSpotLight(float3 light_col, float3 diffuse, float3 v, flo
 
 struct PSInput
 {
-    // S24 (2026-08-02): field order must match alphaV.hlsl's VSOutput
-    // exactly - confirmed via D3D11 debug-layer VS/PS linkage error
-    // (id=343, "Semantic 'TEXCOORD' is defined for mismatched hardware
-    // registers"). vertex_color was declared last here but the VS declares
-    // it between vary_position and vary_texcoord0 (when USE_VERTEX_COLOR
-    // is set) - that shift moved every register after it out of alignment.
+    // S24: field order must match alphaV.hlsl's VSOutput exactly (a VS/PS
+    // register mismatch here is a linkage error, not a compile error).
     float4 position : SV_Position;
 
     float3 vary_fragcoord : TEXCOORD0;
@@ -196,22 +183,9 @@ struct PSInput
 
 float4 main(PSInput IN) : SV_Target
 {
-    // S24 (2026-08-28, task #225): was missing entirely - GLSL's flat in
-    // int vary_texture_index is a real cross-stage varying, automatically
-    // linked by name with no code needed on the fragment side; HLSL has no
-    // such linkage; every field must be explicitly copied from PSInput.
-    // Without this, the static int vary_texture_index diffuseLookup()'s
-    // generated switch() reads (llshadermgr.cpp, texture_index_channels>1
-    // case) was never assigned - HLSL zero-initializes an unassigned
-    // static, so it silently stayed 0 for every pixel, on every face,
-    // always sampling tex0 regardless of which texture a given face was
-    // actually supposed to use. Invisible whenever a batch only ever had
-    // one texture at index 0 (the common case), but as soon as two
-    // differently-textured faces sharing this shader (both set to real
-    // Alpha Blending, not Alpha Masking - the only path that reaches this
-    // exact file) got batched together, every pixel in the whole batch
-    // showed whichever texture happened to land at index 0 - the "leaf
-    // shows the trunk's bark texture" root cause.
+    // S24: GLSL's `flat in int vary_texture_index` auto-links by name across
+    // stages; HLSL has no such linkage, so it must be copied explicitly from
+    // PSInput or diffuseLookup()'s switch() always reads the zero-init default.
 #ifdef HAS_DIFFUSE_LOOKUP
     vary_texture_index = IN.vary_texture_index;
 #endif

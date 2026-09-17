@@ -82,6 +82,7 @@
 #include "llmutelist.h"
 #include "llviewerhelp.h"
 #include "lluicolortable.h"
+#include "lluihueshift.h"
 #include "llurldispatcher.h"
 #include "llurlhistory.h"
 #include "llrender.h"
@@ -104,7 +105,7 @@
 #include "kvramcache.h"
 #include "llvopartgroup.h"
 #include "llweb.h"
-#include "llvoicewebrtc.h" // S24
+#include "llvoicewebrtc.h"
 #include "llspellcheck.h"
 #include "llscenemonitor.h"
 #include "llavatarrenderinfoaccountant.h"
@@ -162,7 +163,7 @@ using namespace boost::placeholders;
 #include "llevents.h"
 
 // The files below handle dependencies from cleanup.
-#include "AresWin32.h"  // S24 clean up sentinal
+#include "AresWin32.h"
 #include "llkeyframemotion.h"
 #include "llhudmanager.h"
 #include "lltoolmgr.h"
@@ -214,7 +215,7 @@ using namespace boost::placeholders;
 #include "llfloaterreg.h"
 #include "llfloatersimplesnapshot.h"
 #include "llfloatersnapshot.h"
-#include "llfloatercamera.h"  // S24 - Camera recorder update independent of UI
+#include "llfloatercamera.h"
 #include "llsidepanelinventory.h"
 
 // includes for idle() idleShutdown()
@@ -285,8 +286,6 @@ static LLAppViewerListener sAppViewerListener(LLAppViewer::instance);
 //----------------------------------------------------------------------------
 // viewer.cpp - these are only used in viewer, should be easily moved.
 
-extern bool gRandomizeFramerate;
-extern bool gPeriodicSlowFrame;
 extern bool gDebugGL;
 
 ////////////////////////////////////////////////////////////
@@ -340,9 +339,6 @@ std::string gLastVersionChannel;
 LLVector3			gWindVec(3.0, 3.0, 0.0);
 LLVector3			gRelativeWindVec(0.0, 0.0, 0.0);
 
-bool gRandomizeFramerate = false;
-bool gPeriodicSlowFrame = false;
-
 bool gCrashOnStartup = false;
 bool gLLErrorActivated = false;
 bool gLogoutInProgress = false;
@@ -356,7 +352,7 @@ WorkQueue gMainloopWork("mainloop", 1024 * 1024);
 
 ////////////////////////////////////////////////////////////
 // Internal globals
-static std::string gArgs = "DX (3784) - Hradr"; // S24 My Build Number! KL
+static std::string gArgs = "DX (3855) - Hradr";
 const int MAX_MARKER_LENGTH = 1024;
 const std::string MARKER_FILE_NAME("KirstensS24.exec_marker");
 const std::string START_MARKER_FILE_NAME("KirstensS24.start_marker");
@@ -532,17 +528,16 @@ static void settings_to_globals()
 	// run before initWindow() (device creation) - settings_to_globals() is
 	// called well before that in LLAppViewer::init().
 	DXDevice::sDebugLayerEnabled = gSavedSettings.getBOOL("S24DXDebugLayerEnabled");
-	// S24 (2026-08-29): DX-native shader bytecode disk cache master switch -
-	// see RenderDXShaderCacheEnabled's own comment (settings.xml) and
-	// DXShader.h's sShaderCacheEnabled comment. Must run before
-	// gPipeline.init()'s shader compilation, same timing requirement as
-	// sDebugLayerEnabled above.
+	// S24: DX-native shader bytecode disk cache master switch - see
+	// RenderDXShaderCacheEnabled's comment (settings.xml) and DXShader.h's
+	// sShaderCacheEnabled comment. Must run before gPipeline.init()'s shader
+	// compilation, same timing requirement as sDebugLayerEnabled above.
 	DXShader::sShaderCacheEnabled = gSavedSettings.getBOOL("RenderDXShaderCacheEnabled");
 	LLImageGL::sGlobalUseAnisotropic = gSavedSettings.getBOOL("RenderAnisotropic");
-	// S24 (2026-09-09, task #318): LLImageGL::sCompressTextures (the GL-era
-	// driver-hint compression path) is gone - RenderCompressTextures now
-	// drives the real BC7 pipeline instead (DXBC7UploadManager::requestUpgrade(),
-	// read directly from gSavedSettings there rather than cached here).
+	// S24: LLImageGL::sCompressTextures (GL-era driver-hint compression) is
+	// gone - RenderCompressTextures now drives the real BC7 pipeline instead
+	// (DXBC7UploadManager::requestUpgrade() reads it directly from
+	// gSavedSettings rather than caching it here).
 	LLVOVolume::sLODFactor = llclamp(gSavedSettings.getF32("RenderVolumeLODFactor"), 0.01f, MAX_LOD_FACTOR);
 	LLVOVolume::sDistanceFactor = 1.f - LLVOVolume::sLODFactor * 0.1f;
 	LLVolumeImplFlexible::sUpdateFactor = gSavedSettings.getF32("RenderFlexTimeFactor");
@@ -574,7 +569,6 @@ static void settings_modify()
 	LLVOSurfacePatch::sLODFactor = gSavedSettings.getF32("RenderTerrainLODFactor");
 	LLVOSurfacePatch::sLODFactor *= LLVOSurfacePatch::sLODFactor;  // square lod factor to get exponential range of [1,4]
 	gDebugGL = gDebugSession;
-	gDebugPipeline = gSavedSettings.getBOOL("RenderDebugPipeline");
 }
 
 class LLFastTimerLogThread : public LLThread
@@ -667,13 +661,13 @@ LLAppViewer::LLAppViewer()
 
 	// Need to do this initialization before we do anything else, since anything
 	// that touches files should really go through the lldir API
-	// S24 (DX_RENDER, 2026-08-18): separate Roaming settings/logs dir from the
-	// GL build too (cache dir was already split, see lldir.cpp) - keeps DX
-	// alpha testing from clobbering an existing GL install's settings.xml.
+	// S24: DX build uses a separate Roaming settings/logs dir from GL (cache
+	// dir was already split, see lldir.cpp) so DX alpha testing doesn't
+	// clobber an existing GL install's settings.xml.
 #ifdef DX_RENDER
-	gDirUtilp->initAppDirs("Kirstens S24 DX"); // S24
+	gDirUtilp->initAppDirs("Kirstens S24 DX");
 #else
-	gDirUtilp->initAppDirs("Kirstens S24"); // S24
+	gDirUtilp->initAppDirs("Kirstens S24");
 #endif
 	//
 	// IMPORTANT! Do NOT put anything that will write
@@ -693,7 +687,6 @@ LLAppViewer::LLAppViewer()
 
 	// Under some circumstances we want to read the static_debug_info.log file
 
-	// S24 we dont use these
 }
 
 LLAppViewer::~LLAppViewer()
@@ -719,9 +712,6 @@ bool LLAppViewer::init()
 {
 	setupErrorHandling(mSecondInstance);
 
-	//
-	// S24 Start of the application
-	//
 
 	// initialize the LLSettingsType translation bridge.
 	LLTranslationBridge::ptr_t trans = std::make_shared<LLUITranslationBridge>();
@@ -936,7 +926,12 @@ bool LLAppViewer::init()
 	writeSystemInfo();
 
 	// initWindow also initializes the Feature List, so now we can initialize this global.
-	DXCubeMap::sUseCubeMaps = LLFeatureManager::getInstance()->isFeatureAvailable("RenderCubeMap");
+	// S24: previously ignored the user's own RenderCubeMap saved setting entirely -
+	// isFeatureAvailable() only consults the GPU-tier feature table (featuretable.txt
+	// hardcodes RenderCubeMap=1, always available), so the KVTweaks checkbox bound to
+	// gSavedSettings had zero effect. Set once at startup (not live-refreshed), matching
+	// this value's existing use as a plain static bool rather than an LLCachedControl.
+	DXCubeMap::sUseCubeMaps = gSavedSettings.getBOOL("RenderCubeMap") && LLFeatureManager::getInstance()->isFeatureAvailable("RenderCubeMap");
 
 	// call all self-registered classes
 	LLInitClassList::instance().fireCallbacks();
@@ -1022,8 +1017,8 @@ bool LLAppViewer::init()
 		}
 	}
 
-	// NOTE : S24 dead code here,no longer valid to check for old graphics cards,
-	// and we dont want to scare users with false positives about unsupported hardware. KL
+	// S24: old-graphics-card check disabled - avoids false positives scaring
+	// users about unsupported hardware.
 
 	// save the graphics card
 	gDebugInfo["GraphicsCard"] = LLFeatureManager::getInstance()->getGPUString();
@@ -1137,9 +1132,8 @@ void LLAppViewer::initMaxHeapSize()
 	//------------------------------------------------------------------------------------------
 	F32Gigabytes max_heap_size_gb = (F32Gigabytes)gSavedSettings.getF32("MaxHeapSize64");
 
-	// S24 STAGE 2: Adjust heap size for KVRAM Cache if enabled
-	// RAM cache allocates directly from heap, so we must account for it
-	// to avoid OOM crashes when user sets large cache sizes
+	// S24: RAM cache allocates directly from the heap, so its size must be
+	// accounted for here to avoid OOM when the user sets a large cache size.
 	if (gSavedSettings.getBOOL("KVRAMCacheEnabled"))
 	{
 		U32 ram_cache_mb = gSavedSettings.getU32("KVRAMCacheRAMBudgetMB");
@@ -1223,9 +1217,6 @@ bool LLAppViewer::frame()
 	return ret;
 }
 
-// S24 - Minor refactor to improve performance of frame() by breaking it into smaller functions
-// and reducing the amount of code in the try/catch block.
-// This should help with debugging and also make it easier to read and maintain.
 
 bool LLAppViewer::doFrame()
 {
@@ -1306,7 +1297,6 @@ bool LLAppViewer::doFrame()
 		LLCoros::instance().rethrow();
 	}
 
-	// S24: Update KVRAM Cache per frame
 	if (gSavedSettings.getBOOL("KVRAMCacheEnabled") && KVRAMCache::instanceExists())
 	{
 		F32 delta_time = gFrameTimeSeconds;
@@ -1553,7 +1543,6 @@ bool LLAppViewer::cleanup()
 
 	LLLeap::instance_snapshot().deleteAll();
 
-	// S24: Shutdown KVRAM Cache
 	if (KVRAMCache::instanceExists())
 	{
 		LL_INFOS("AppCache") << "Shutting down KVRAM Cache" << LL_ENDL;
@@ -1866,7 +1855,8 @@ bool LLAppViewer::cleanup()
 		LL_INFOS() << "ViewerWindow deleted" << LL_ENDL;
 	}
 
-	// S24 ARES: Console already shown at userQuit() - no need to show again
+	// S24: Ares console already shown at userQuit() - LLSplashScreen calls
+	// below stay disabled.
 	// LLSplashScreen::show();  // S24 DISABLED - Ares console replaces this
 	// LLSplashScreen::update(LLTrans::getString("ShuttingDown"));  // S24 DISABLED
 
@@ -1959,7 +1949,6 @@ bool LLAppViewer::cleanup()
 
 	LLViewerAssetStatsFF::cleanup();
 
-	// S24: Purge shader cache if user enabled the option
 	static LLCachedControl<bool> purge_shader_cache(gSavedSettings, "RenderPurgeShaderCacheOnExit", false);
 	if (purge_shader_cache)
 	{
@@ -1987,12 +1976,12 @@ bool LLAppViewer::cleanup()
 	LL_INFOS() << "Cleaning up LLProxy." << LL_ENDL;
 	SUBSYSTEM_CLEANUP(LLProxy);
 
-	// S24 Factory Reset: Pass flag to Ares (flag was read earlier before settings cleanup)
-	AresWin32::RunFinalSweep(false, doFactoryReset); // S24 Kill everything stray process such as errent SLPlugins!
+	// S24: pass the factory-reset flag captured earlier, before
+	// gSavedSettings.cleanup() destroyed it.
+	AresWin32::RunFinalSweep(false, doFactoryReset); // S24: also kills stray SLPlugin processes
 	LL_WARNS() << "All subsystems killed" << LL_ENDL;
 	Sleep(250); // Give the LOGS time to catch up! Kirstens closes down in 3 seconds!!
 
-	// S24 Basically after this line the world ends and everything goes Dark
 	LLCore::LLHttp::cleanup();
 
 	ll_close_fail_log();
@@ -2024,7 +2013,7 @@ bool LLAppViewer::cleanup()
 
 	removeDumpDir();
 
-	AresWin32::RunFinalSweep(true); // S24 Nuclear Option SHOULD NEVER GET HERE!!!
+	AresWin32::RunFinalSweep(true); // S24: should never be reached (last-resort fallback)
 	return 0;
 }
 
@@ -2039,19 +2028,15 @@ void LLAppViewer::initGeneralThread()
 	mGeneralThreadPool->start();
 }
 
-// S24 (DX_RENDER, eviction-tuning follow-up, task #283): dedicated worker
-// pool, kept deliberately separate from sImageDecodeThread/gMeshRepo so
-// future CPU-only work posted here (e.g. a parallelized idleUpdate() - see
-// task #283) can never contend with texture decode or mesh loading for the
-// same threads under load - exactly the scenario that motivated this ("wire
-// in without disturbing decode"). A small, fixed width like "General"
-// (not ImageDecode's aggressive cores-based formula) is deliberate for the
-// same reason. Respects a "DXPool" key in the ThreadPoolSizes LLSD setting
-// automatically (ThreadPoolBase's own constructor does the lookup - see
-// threadpool.h), same as every other named ThreadPool in this codebase - no
-// override wiring needed here.
+// S24: dedicated worker pool for future CPU-only work, kept separate from
+// sImageDecodeThread/gMeshRepo's thread so it never contends with texture
+// decode or mesh loading. A small fixed width (not ImageDecode's
+// cores-based formula) is deliberate for the same reason. Respects a
+// "DXPool" key in the ThreadPoolSizes LLSD setting automatically
+// (ThreadPoolBase's constructor does the lookup - see threadpool.h), same
+// as every other named ThreadPool - no override wiring needed here.
 //
-// SAFETY CONTRACT (task #283): work posted to this pool's queue
+// SAFETY CONTRACT: work posted to this pool's queue
 // (LL::WorkQueue::getInstance("DXPool")->post(...), the same idiom used for
 // "General"/"mainloop" elsewhere in this codebase) must be pure CPU
 // computation only. NEVER call into D3D11/GL directly from work running
@@ -2094,24 +2079,19 @@ bool LLAppViewer::initThreads()
 		cores = llmin(cores, (S32)max_cores);
 	}
 
-	// S24 pull user set values if available.
 	U32 kvmax_cores = gSavedSettings.getU32("KVmax_cores");
 	U32 kvmin_cores = gSavedSettings.getU32("KVmin_cores");
 	U32 kvdefault_cores = gSavedSettings.getU32("KVdefault_cores");
 
-	// S24 Ensure defaults if not set in saved settings.
 	kvmax_cores = kvmax_cores == 0 ? 16 : kvmax_cores;
 	kvmin_cores = kvmin_cores == 0 ? 2 : kvmin_cores;
 	kvdefault_cores = kvdefault_cores == 0 ? 8 : kvdefault_cores;
 
-	// S24 Ensure kvmin_cores is greater than zero and set to 1 if needed
 	kvmin_cores = kvmin_cores > 0 ? kvmin_cores : 1;
 
-	// S24 Ensure kvmax_cores and kvdefault_cores do not exceed cores
 	kvmax_cores = llmin(kvmax_cores, cores);
 	kvdefault_cores = llmin(kvdefault_cores, cores);
 
-	// S24 Ensure kvdefault_cores is less than kvmax_cores
 	if (kvdefault_cores >= kvmax_cores)
 	{
 		kvdefault_cores = kvmax_cores - 1; // or any other value that makes sense in your context
@@ -2120,7 +2100,6 @@ bool LLAppViewer::initThreads()
 	// The viewer typically starts around 8 threads not including image decode,
 	// so try to leave at least one core free
 
-	//S24 --- cores vs clamped values for image decode, default or user set!
 	S32 image_decode_count = llclamp(cores - kvdefault_cores, kvmin_cores, kvmax_cores);
 
 	threadCounts["ImageDecode"] = image_decode_count;
@@ -2136,9 +2115,7 @@ bool LLAppViewer::initThreads()
 	// general task background thread (LLPerfStats, etc)
 	LLAppViewer::instance()->initGeneralThread();
 
-	// S24 (DX_RENDER, task #283): dedicated pool for future CPU-only
-	// parallelized work, kept separate from ImageDecode/mesh threads.
-	// See initDXPool()'s own comment for the full rationale.
+	// S24: dedicated CPU-only work pool - see initDXPool() for rationale.
 	LLAppViewer::instance()->initDXPool();
 
 	LLAppViewer::sPurgeDiskCacheThread = new LLPurgeDiskCacheThread();
@@ -2357,13 +2334,11 @@ bool LLAppViewer::loadSettingsFromDirectory(const std::string& location_key,
 				else if (!gDirUtilp->fileExists(full_settings_path)
 					&& gDirUtilp->getDirName(full_settings_path).empty())
 				{
-					// S24: file_name_setting controls (e.g. ClientSettingsFile,
-					// set in LLAppViewer::init()) are stored as already-expanded
-					// absolute paths, not bare filenames - only expand here if
-					// full_settings_path has no directory component of its own,
-					// else this doubles the user_settings prefix on first run
-					// (settings.xml legitimately doesn't exist yet) and produces
-					// an unopenable path that crashes on load.
+					// S24: file_name_setting values (e.g. ClientSettingsFile) are
+					// already-expanded absolute paths - only expand here if there's
+					// no directory component of its own, else this doubles the
+					// user_settings prefix on first run (settings.xml doesn't exist
+					// yet) and produces an unopenable path.
 					full_settings_path = gDirUtilp->getExpandedFilename((ELLPath)path_index, full_settings_path);
 				}
 			}
@@ -2889,6 +2864,10 @@ bool LLAppViewer::initConfiguration()
 
 	loadColorSettings();
 
+	// S24: must run after loadColorSettings() - snapshots the skin-authored color table before
+	// applying any saved RenderUIHueShift* values, see lluihueshift.h.
+	LLUIHueShift::init();
+
 	// Let anyone else who cares know that we've populated our settings
 	// variables.
 	for (const auto& key : LLControlGroup::key_snapshot())
@@ -3073,7 +3052,6 @@ bool LLAppViewer::initWindow()
 	gPipeline.init();
 	LL_INFOS("AppInit") << "gPipeline Initialized" << LL_ENDL;
 
-	stop_glerror();
 	gViewerWindow->initGLDefaults();
 
 	gSavedSettings.setBOOL("RenderInitError", false);
@@ -3186,12 +3164,11 @@ LLSD LLAppViewer::getViewerInfo() const
 	info["MEMORY_MB"] = LLSD::Integer(gSysMemory.getPhysicalMemoryKB().valueInUnits<LLUnits::Megabytes>());
 	// Moved hack adjustment to Windows memory size into llsys.cpp
 	info["OS_VERSION"] = LLOSInfo::instance().getOSString();
-	// S24 (2026-08-05): these used to call glGetString(GL_VENDOR/GL_RENDERER)
-	// directly - a real crash risk under DX_RENDER (no GL context ever
-	// exists), and this floater is reachable from the Help menu at any time.
-	// gGLManager.mGLVendor/mGLRenderer are already correctly populated for
-	// both backends (initGL() for GL, LLGLManager::initGLDX() for DX_RENDER,
-	// llgl.cpp) - use those instead, unconditionally.
+	// S24: gGLManager.mGLVendor/mGLRenderer are populated for both backends
+	// (initGL() for GL, LLGLManager::initGLDX() for DX_RENDER, llgl.cpp) - use
+	// those instead of calling glGetString() directly, which would crash
+	// under DX_RENDER (no GL context exists); this floater is reachable from
+	// the Help menu at any time.
 	info["GRAPHICS_CARD_VENDOR"] = gGLManager.mGLVendor;
 	info["GRAPHICS_CARD"] = gGLManager.mGLRenderer;
 
@@ -3231,12 +3208,10 @@ LLSD LLAppViewer::getViewerInfo() const
 		}
 	}
 
-	// S24 (2026-08-05): was a raw glGetString(GL_VERSION) call - same crash
-	// risk as GRAPHICS_CARD_VENDOR/GRAPHICS_CARD above. mGLVersionString is
-	// a real driver-reported string under GL and a real D3D11 feature-level
-	// string under DX_RENDER (see LLGLManager::initGLDX(), llgl.cpp) - the
-	// key name stays OPENGL_VERSION (matches strings.xml's substitution),
-	// but the label text itself was reworded to be backend-neutral.
+	// S24: mGLVersionString is a real driver-reported string under GL and a
+	// real D3D11 feature-level string under DX_RENDER (LLGLManager::initGLDX(),
+	// llgl.cpp). Key name stays OPENGL_VERSION (matches strings.xml), though
+	// the label text was reworded to be backend-neutral.
 	info["OPENGL_VERSION"] = gGLManager.mGLVersionString;
 
 	// Settings
@@ -3939,8 +3914,8 @@ void LLAppViewer::requestQuit()
 
 	LLViewerRegion* region = gAgent.getRegion();
 
-	// S24 ROBUSTNESS: If already disconnected, skip graceful shutdown entirely.
-	// Waiting for server responses when disconnected leads to hangs and crashes.
+	// S24: if already disconnected, skip graceful shutdown entirely - waiting
+	// for server responses when disconnected leads to hangs and crashes.
 	if (gDisconnected)
 	{
 		LL_WARNS() << "requestQuit called while disconnected - forcing immediate quit" << LL_ENDL;
@@ -4000,7 +3975,6 @@ static bool finish_quit(const LLSD& notification, const LLSD& response)
 
 	if (option == 0)
 	{
-		// S24 ARES SHOWTIME - User confirmed quit, show console NOW
 		LL_WARNS() << "S24: User confirmed quit - launching Ares console..." << LL_ENDL;
 		AresWin32::ShowAresShutdownDialog();
 		LL_WARNS() << "S24: Ares console launched, proceeding with quit..." << LL_ENDL;
@@ -4020,7 +3994,6 @@ void LLAppViewer::userQuit()
 		|| !gViewerWindow->getProgressView()
 		|| gViewerWindow->getProgressView()->getVisible())
 	{
-		// S24 ARES SHOWTIME - No confirmation dialog, show console immediately
 		LL_WARNS() << "S24: Direct quit - launching Ares console..." << LL_ENDL;
 		AresWin32::ShowAresShutdownDialog();
 
@@ -4028,7 +4001,7 @@ void LLAppViewer::userQuit()
 	}
 	else
 	{
-		// S24 NOTE: Ares console will show AFTER user confirms in finish_quit()
+		// S24: Ares console shows after the user confirms, in finish_quit().
 		LLNotificationsUtil::add("ConfirmQuit");
 	}
 }
@@ -4186,7 +4159,7 @@ bool LLAppViewer::initCache()
 			texture_cache_mismatch = true;
 		}
 
-		// S24 - Purge logs if user requested it (before logging system opens files)
+		// S24: purge logs if requested, before the logging system opens files
 		if (gSavedSettings.getBOOL("PurgeLogsOnNextStartup"))
 		{
 			LL_INFOS("AppCache") << "S24: Startup logs purge requested" << LL_ENDL;
@@ -4648,14 +4621,11 @@ public:
 static LLTrace::BlockTimerStatHandle FTM_AUDIO_UPDATE("Update Audio");
 static LLTrace::BlockTimerStatHandle FTM_CLEANUP("Cleanup");
 static LLTrace::BlockTimerStatHandle FTM_CLEANUP_DRAWABLES("Drawables");
-static LLTrace::BlockTimerStatHandle FTM_IDLE_CB("Idle Callbacks");
 static LLTrace::BlockTimerStatHandle FTM_LOD_UPDATE("Update LOD");
 static LLTrace::BlockTimerStatHandle FTM_OBJECTLIST_UPDATE("Update Objectlist");
 static LLTrace::BlockTimerStatHandle FTM_REGION_UPDATE("Update Region");
 static LLTrace::BlockTimerStatHandle FTM_WORLD_UPDATE("Update World");
 static LLTrace::BlockTimerStatHandle FTM_NETWORK("Network");
-static LLTrace::BlockTimerStatHandle FTM_AGENT_NETWORK("Agent Network");
-static LLTrace::BlockTimerStatHandle FTM_VLMANAGER("VL Manager");
 static LLTrace::BlockTimerStatHandle FTM_AGENT_POSITION("Agent Position");
 static LLTrace::BlockTimerStatHandle FTM_HUD_EFFECTS("HUD Effects");
 
@@ -4665,27 +4635,7 @@ static LLTrace::BlockTimerStatHandle FTM_HUD_EFFECTS("HUD Effects");
 // Called every time the window is not doing anything.
 // Receive packets, update statistics, and schedule a redisplay.
 ///////////////////////////////////////////////////////
-	// ═══════════════════════════════════════════════════════════════════════════
-	// S24 MAIN LOOP START - THE BIG ENCHILADA
-	// ═══════════════════════════════════════════════════════════════════════════
-	// This function executes EVERY FRAME (60+ times/sec target)
-	// EVERY MICROSECOND SAVED HERE = 60+ microseconds saved per second
-	// NO wasteful branching, NO unnecessary logging, NO debug checks in production
-	//
-	// Approximate timing budget per frame @ 60 FPS = 16.67ms total
-	// Main loop portion: ~5-10ms (rest is rendering)
-	//
-	// Flow overview:
-	//   1. Frame timing updates              ~0.1ms
-	//   2. Startup check (early exit)        ~0.1ms or return
-	//   3. Agent/network updates             ~1-2ms
-	//   4. Statistics management             ~0.1-0.5ms
-	//   5. UI updates                        ~1-2ms
-	//   6. Agent/camera movement             ~1-2ms
-	//   7. Object updates & cleanup          ~2-4ms
-	//   8. World updates (particles, etc.)   ~1-3ms
-	//   9. Audio updates                     ~0.5-1ms
-	// ═══════════════════════════════════════════════════════════════════════════
+	// S24: idle() runs every frame - avoid unnecessary branching/logging here.
 
 void LLAppViewer::idle()
 {
@@ -4778,22 +4728,9 @@ void LLAppViewer::idle()
 	gMainloopWork.runFor(sMainWorkTimeslice);
 
 
-	// ─────────────────────────────────────────────────────────────────────────
-	// SECTION 3: S24 - Stable Frame Timing & FPS Smoothing (~0.02ms)
-	// ─────────────────────────────────────────────────────────────────────────
-	//
-	// Modern engines don't clamp FPS to arbitrary min/max values.
-	// Instead, we protect against pathological dt spikes caused by:
-	//   - debugger halts
-	//   - alt‑tab / focus loss
-	//   - OS compositor stalls
-	//   - GPU driver resets
-	//
-	// Everything else should be measured honestly.
-	//
-	// We keep a smoothed FPS value for UI/telemetry only.
-	// This does NOT affect simulation or rendering.
-	//
+	// S24: dt is clamped only to guard against pathological spikes (debugger
+	// halts, alt-tab, driver resets), not to shape performance. gFPSClamped is
+	// smoothed for UI/telemetry only and does not affect simulation/rendering.
 
 	// Reasonable dt bounds (protect against nonsense, not real frames)
 	static constexpr F32 MIN_REASONABLE_DT = 0.0005f;   // 2000 FPS ceiling
@@ -4811,11 +4748,6 @@ void LLAppViewer::idle()
 	// Smooth FPS for UI/debug overlays (first‑order IIR low‑pass)
 	static constexpr F32 FPS_SMOOTHING = 0.2f;  // 20% new, 80% history
 	gFPSClamped = lerp(gFPSClamped, fps_instant, FPS_SMOOTHING);
-
-	// S24 - Removed QuitAfterSeconds debug check from main loop
-	// This was a DEBUG/TESTING feature that checked EVERY FRAME
-	// Gains: ~20-30 cycles per frame from eliminated gSavedSettings.getF32() call
-	// Rationale: Debug feature, not needed in production. If you want auto-quit, set it elsewhere.
 
 	// Must wait until both have avatar object and mute list, so poll
 	// here.
@@ -4894,18 +4826,12 @@ void LLAppViewer::idle()
 		// *FIX: (?) SAMANTHA
 		if (viewer_stats_timer.getElapsedTimeF32() >= SEND_STATS_PERIOD && !gDisconnected)
 		{
-			// S24 - Removed LL_INFOS from stats transmission (executes every 5 min)
-			// Gains: ~30-50 cycles when triggered
-			// Rationale: Spammy, no user value
 			bool include_preferences = false;
 			send_viewer_stats(include_preferences);
 			viewer_stats_timer.reset();
 		}
 
-		// S24 - Removed object debug stats logging from main loop
-		// This checked EVERY 5 SECONDS in the main loop and logged to console
-		// Gains: ~40-60 cycles per 5-second check from eliminated timer + 2x LL_INFOS
-		// Rationale: Debug feature, spam logs. If you need this, enable debug logging separately.
+		// S24: disabled - was spammy per-5-second debug-only logging.
 		// Print the object debugging stats
 		// static LLFrameTimer object_debug_timer;
 		// if (object_debug_timer.getElapsedTimeF32() > 5.f)
@@ -4955,17 +4881,8 @@ void LLAppViewer::idle()
 		LLAvatarTracker::instance().idleNotifyObservers();
 	}
 
-	// ─────────────────────────────────────────────────────────────────────────
-	// SECTION 9: Metrics Reporting - **REMOVED FOR PRIVACY** (S24)
-	// ─────────────────────────────────────────────────────────────────────────
-	// S24 - PRIVACY: Metrics collection EXPUNGED from main loop
-	// This was phoning home to LL servers with usage telemetry - unacceptable privacy invasion.
-	// Gains: ~5-20 cycles per frame from eliminated timer check
-	//        ~500-2000 cycles when metrics upload triggered (every app_metrics_interval seconds)
-	// Rationale: Kirstens Viewer respects user privacy. No surveillance, no telemetry, no tracking.
-	//            Users have the right to determinism without being monitored.
-	// Original code: metricsSend(!gDisconnected) every app_metrics_interval (600s default)
-	// If you want metrics, run your own metrics system that YOU control.
+	// S24: metricsSend() (periodic usage telemetry to LL servers) intentionally
+	// removed for privacy - do not re-add.
 
 	// ─────────────────────────────────────────────────────────────────────────
 	// SECTION 10: UI Updates (~1-2ms)
@@ -5026,8 +4943,8 @@ void LLAppViewer::idle()
 	}
 
 	{
-		// S24 - Update camera recorder independent of UI visibility
-		// Ensures smooth playback continues even when UI is hidden (Ctrl+Shift+F1)
+		// S24: update independent of UI visibility so playback continues
+		// smoothly even when the UI is hidden (Ctrl+Shift+F1).
 		LLFloaterCamera::updateCameraRecorder(gFrameDTClamped);
 	}
 
@@ -5231,7 +5148,7 @@ void LLAppViewer::idle()
 			audio_update_listener();
 			audio_update_wind(false);
 			audio_update_stream_metadata();
-			audio_update_equalizer(); // S24 - Update FMOD equalizer
+			audio_update_equalizer();
 
 			// this line actually commits the changes we've made to source positions, etc.
 			gAudiop->idle();
@@ -5250,12 +5167,6 @@ void LLAppViewer::idle()
 		idleShutdown();
 	}
 
-	// ═══════════════════════════════════════════════════════════════════════════
-	// S24 MAIN LOOP END
-	// ═══════════════════════════════════════════════════════════════════════════
-	// Total main loop budget: ~5-10ms (excluding rendering which follows)
-	// Remaining budget goes to: display(), swap buffers, input handling
-	// ═══════════════════════════════════════════════════════════════════════════
 }
 
 void LLAppViewer::idleShutdown()
@@ -5324,18 +5235,14 @@ void LLAppViewer::idleShutdown()
 		return;
 	}
 
-	// S24 - PRIVACY: Removed metrics upload delay from shutdown
-	// Original code delayed logout up to SHUTDOWN_UPLOAD_SAVE_TIME (5 seconds!)
-	// waiting for telemetry uploads to complete. Your logout should not be held
-	// hostage by surveillance systems.
-	// Gains: Immediate logout, no artificial delays
-	// if (gPendingMetricsUploads > 0 ...) { wait and show progress } // REMOVED
+	// S24: logout is not delayed waiting for telemetry uploads (that wait,
+	// up to SHUTDOWN_UPLOAD_SAVE_TIME, was removed).
 
 	// All floaters are closed.  Tell server we want to quit.
 	if (!logoutRequestSent())
 	{
-		// S24 ROBUSTNESS: If disconnected during shutdown sequence (e.g., from failed TP),
-		// don't try to send logout - just force quit immediately.
+		// S24: if disconnected during shutdown (e.g. from a failed TP), don't
+		// try to send logout - just force quit immediately.
 		if (gDisconnected)
 		{
 			LL_WARNS() << "idleShutdown: disconnected before logout sent - forcing immediate quit" << LL_ENDL;
@@ -5352,7 +5259,7 @@ void LLAppViewer::idleShutdown()
 		return;
 	}
 
-	// S24 ROBUSTNESS: Reduce timeout when disconnected - no point waiting for replies.
+	// S24: reduce timeout when disconnected - no point waiting for replies.
 	F32 effectiveTimeout = gDisconnected ? 1.0f : gLogoutMaxTime;
 
 	// Make sure that we quit if we haven't received a reply from the server.
@@ -5562,30 +5469,9 @@ void LLAppViewer::idleNameCache()
 constexpr F32 CHECK_MESSAGES_DEFAULT_MAX_TIME = 0.020f; // 50 ms = 50 fps (just for messages!)
 static F32 CheckMessagesMaxTime = CHECK_MESSAGES_DEFAULT_MAX_TIME;
 
-static LLTrace::BlockTimerStatHandle FTM_IDLE_NETWORK("Idle Network");
-static LLTrace::BlockTimerStatHandle FTM_MESSAGE_ACKS("Message Acks");
-static LLTrace::BlockTimerStatHandle FTM_RETRANSMIT("Retransmit");
-static LLTrace::BlockTimerStatHandle FTM_TIMEOUT_CHECK("Timeout Check");
-static LLTrace::BlockTimerStatHandle FTM_DYNAMIC_THROTTLE("Dynamic Throttle");
-static LLTrace::BlockTimerStatHandle FTM_CHECK_REGION_CIRCUIT("Check Region Circuit");
-
-// ═══════════════════════════════════════════════════════════════════════════
-// S24 NETWORK MESSAGE PUMP - CRITICAL HOT PATH
-// ═══════════════════════════════════════════════════════════════════════════
-// This function executes EVERY FRAME (60+ times/sec) and processes ALL network traffic.
-// Every UDP packet, every message, every object update flows through here.
-// ULTRA-SENSITIVE to overhead - this is latency-critical code.
-//
-// Flow overview (~1-2ms total):
-//   1. Message loop        ~0.5-1.5ms  (processes up to MESSAGE_MAX_PER_FRAME)
-//   2. ACK processing      ~0.1-0.3ms  (acknowledgment handling)
-//   3. Retransmit check    ~0.05-0.1ms (unacked packet retry)
-//   4. Throttle update     ~0.05-0.1ms (dynamic bandwidth adjustment)
-//   5. Circuit health      ~0.05-0.1ms (region connection check)
-//
-// Performance budget: Messages limited to CHECK_MESSAGES_DEFAULT_MAX_TIME (20ms)
-//                     to prevent network from starving rendering
-// ═══════════════════════════════════════════════════════════════════════════
+// S24: idleNetwork() runs every frame and processes all network traffic -
+// latency-critical hot path. Message processing is capped by
+// CHECK_MESSAGES_DEFAULT_MAX_TIME to avoid starving rendering.
 
 void LLAppViewer::idleNetwork()
 {
@@ -5593,13 +5479,6 @@ void LLAppViewer::idleNetwork()
 
 	gObjectList.mNumNewObjects = 0;
 	S32 total_decoded = 0;
-
-	// S24 - Removed SpeedTest debug check from network hot path
-	// This was a DEBUG/TESTING setting checked EVERY FRAME for no production value
-	// Gains: ~15-25 cycles per frame from eliminated LLCachedControl fetch + conditional
-	// Rationale: Test code should not pollute production hot paths
-	// Original: static LLCachedControl<bool> speed_test(...); if (!speed_test()) { ... }
-	// If you need speed testing, use a profiler or separate test build
 
 	// ─────────────────────────────────────────────────────────────────────────
 	// SECTION 1: Message Processing Loop (~0.5-1.5ms)
@@ -5668,8 +5547,6 @@ void LLAppViewer::idleNetwork()
 		}
 	}
 
-	// S24 - Optimized statistics collection to avoid overhead on zero
-	// Only record when we actually received new objects
 	if (gObjectList.mNumNewObjects > 0)
 	{
 		add(LLStatViewer::NUM_NEW_OBJECTS, gObjectList.mNumNewObjects);
@@ -5719,8 +5596,8 @@ void LLAppViewer::disconnectViewer()
 		return;
 	}
 
-	// S24 ROBUSTNESS: Kill network connections aggressively before cleanup.
-	// This prevents hangs in crash handler (ARES) when viewer crashes during
+	// S24: kill network connections aggressively before cleanup - prevents
+	// hangs in the crash handler (ARES) when the viewer crashes during
 	// a failed teleport with stale network state.
 	if (gMessageSystem)
 	{
@@ -5866,7 +5743,15 @@ void LLAppViewer::forceErrorOSSpecificException()
 void LLAppViewer::forceErrorDriverCrash()
 {
 	LL_WARNS() << "Forcing a deliberate driver crash" << LL_ENDL;
-	glDeleteTextures(1, NULL);
+	// S24: glDeleteTextures(1, NULL) was the GL version of this - nothing renders
+	// through a real GL context anymore under DX_RENDER, so that call stopped
+	// actually crashing anything (forceErrorBadMemoryAccess() already covers a
+	// plain application-side null deref). Real DX11 equivalent: pass a garbage
+	// (non-null but invalid) resource pointer into a real D3D11 call, so the
+	// crash still originates from inside the graphics API/driver itself, same
+	// intent as the original.
+	ID3D11ShaderResourceView* bogus_srv = reinterpret_cast<ID3D11ShaderResourceView*>((uintptr_t)0xDEADBEEFull);
+	gDXDevice.getContext()->PSSetShaderResources(0, 1, &bogus_srv);
 }
 
 void LLAppViewer::forceErrorCoroutineCrash()

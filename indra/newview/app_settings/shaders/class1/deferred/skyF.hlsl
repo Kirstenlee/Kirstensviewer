@@ -77,8 +77,7 @@ float3 halo22(float d)
     return halo_map.Sample(halo_mapSampler, float2(0, v)).rgb * ice_level;
 }
 
-// S24 (2026-08-02): see uiF.hlsl's comment - real register mismatch,
-// confirmed via fxc.exe disassembly, affects every bare-Varying PS input.
+// SV_Position required on bare-Varying PS inputs - see uiF.hlsl's comment.
 struct PSInput
 {
     float4 position : SV_Position;

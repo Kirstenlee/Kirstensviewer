@@ -37,7 +37,7 @@ float sampleSpotShadow(float3 pos, float3 norm, int index, float2 pos_screen);
 
 struct PSInput
 {
-    // S24 (2026-08-02): missing SV_Position - see uiF.hlsl's comment (fxc.exe-confirmed VS/PS register-shift bug).
+    // S24: missing SV_Position - see uiF.hlsl's comment (VS/PS register-shift bug).
     float4 position : SV_Position;
 
     float2 vary_fragcoord : TEXCOORD0;
@@ -49,12 +49,8 @@ float4 main(PSInput IN) : SV_Target
     float4 pos = getPosition(pos_screen);
     float4 norm = getNorm(pos_screen);
 
-    // S24 (2026-09-02): zero-initialized - was `float4 col;` then written
-    // component-by-component (col.r=/.g=/.b=/.a=). FXC's dataflow checker
-    // is unreliable at proving 4 separate swizzle-writes together cover
-    // the whole vector, and mislabels the resulting X4000 warning after
-    // whichever call it sees first (sampleDirectionalShadow, even though
-    // that function itself is not the actual issue here).
+    // S24: zero-initialized - FXC's dataflow checker can't prove 4 separate
+    // per-component swizzle writes cover the whole vector, and warns (X4000).
     float4 col = float4(0, 0, 0, 0);
     col.r = sampleDirectionalShadow(pos.xyz, norm.xyz, pos_screen);
     col.g = 1.0f;

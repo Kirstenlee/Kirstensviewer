@@ -37,7 +37,7 @@ class LLPipeline;
 // structurally-different copy forever. DXPipeline only owns the "given this
 // visible-pool-set, issue draw calls" layer, called from LLPipeline's
 // existing entry points via a thin #ifdef DX_RENDER redirect (same pattern
-// used throughout this stage - see LLGLSLShader::bind()/createShader() for
+// used throughout this stage - see LLHLSLShader::bind()/createShader() for
 // precedent), rather than fencing pipeline.cpp's dense GL body in place.
 //
 // Scope note: only draw pools explicitly whitelisted in the .cpp are drawn -
@@ -51,9 +51,9 @@ class DXPipeline
 {
 public:
     // Mirrors LLPipeline::renderGeomDeferred()'s GL loop, simplified per the
-    // class comment above. S24 (2026-08-19, task #182): do_occlusion now
-    // wired through - see the .cpp for the real DXOcclusionQuery-backed
-    // occlusion pass this triggers, matching GL's own POOL_GRASS threshold.
+    // class comment above. do_occlusion triggers a real DXOcclusionQuery-
+    // backed occlusion pass in the .cpp, matching GL's own POOL_GRASS
+    // threshold.
     static void renderGeomDeferred(LLPipeline& pipeline, LLCamera& camera, bool do_occlusion);
 
     // Mirrors LLPipeline::renderGeomPostDeferred()'s GL loop (the "forward"/
@@ -72,33 +72,33 @@ public:
     // renderDeferredLighting() didn't complete this frame or the gamma
     // shader failed to compile, so a shader/lighting gap degrades
     // gracefully instead of showing a blank window.
-    // S24 (2026-08-27, GL-tail audit): the note that used to list SSR/
-    // tonemap/CAS/OpenCL-effects/buffer-visualization as "still NOT
-    // ported" here is stale - all of those are wired in now (SSR scene-
-    // copy, full tonemap/gamma-correct family, glow, DoF, FXAA/SMAA,
-    // KVOpenCL effects, and Develop > Rendering > Buffer Visualization as
-    // of task #267's GL-tail follow-up). The one genuine remaining gap is
-    // HDR auto-exposure (generateLuminance()/generateExposure() - dynamic
-    // eye adaptation): still a confirmed no-op under DX_RENDER (see the
-    // .cpp), so the tonemap curve itself is correct but exposure never
-    // adapts to scene brightness. Possible contributor to task #184
-    // (user reports needing a manual +4.0 tonemap gain).
+    // HDR auto-exposure (generateLuminance()/generateExposure(), dynamic eye
+    // adaptation) is still a no-op under DX_RENDER (see the .cpp) - the
+    // tonemap curve itself is correct but exposure never adapts to scene
+    // brightness.
     static void presentDeferredScreen(LLPipeline& pipeline);
 
-    // S24 (2026-08-04): v1 of the real deferred lighting-combine pass -
-    // mirrors LLPipeline::renderDeferredLighting()'s GL body, starting with
-    // just the ambient+sun/atmospherics term (softenLightF/V.hlsl, via the
-    // already-DX-safe bindDeferredShader() chokepoint), writing the lit
-    // result into mRT->screen.
-    // S24 (2026-08-27, GL-tail audit): the note that used to say this
-    // "deliberately does NOT port the sun-shadow/SSAO lightmap pass... or
-    // the local point/spot light loop" is stale - both were added later,
-    // further down in the same function (sun-shadow/SSAO lightmap: task
-    // #158; local lights/spotlights: task #165). Read the .cpp, not this
-    // summary, for current coverage.
+    // The ONE place the two eyes' color ever actually mixes. Call once,
+    // after both eyes' presentDeferredScreen() passes have captured into
+    // pipeline.mStereoEyeL/mStereoEyeR (see getCurrentStereoEyeTarget()'s
+    // comment in the .cpp), right before the frame's single swap(). No-ops
+    // safely if either eye target has nothing in it yet.
+    static void presentStereoComposite(LLPipeline& pipeline);
+
+    // Mirrors LLPipeline::renderDeferredLighting()'s GL body: the
+    // ambient+sun/atmospherics term (softenLightF/V.hlsl) via the
+    // bindDeferredShader() chokepoint, writing the lit result into
+    // mRT->screen; also covers the sun-shadow/SSAO lightmap pass and the
+    // local point/spot light loop further down in the .cpp.
     // presentDeferredScreen() falls back to its existing raw deferredScreen
     // blit whenever gDeferredSoftenProgram isn't complete, so a shader
     // compile failure here degrades gracefully instead of breaking the
     // frame.
     static void renderDeferredLighting(LLPipeline& pipeline);
+
+    // SMAA.hlsl's own LinearSampler(s13)/PointSampler(s14) - must be bound before every SMAA
+    // pass (edge-detect, blend-weights, neighborhood-blend); nothing else in this codebase
+    // touches these slots. Was 3 duplicated inline snippets across LLPipeline::
+    // generateSMAABuffers()/applySMAA() - task #290's consolidation pass.
+    static void bindSMAAStaticSamplers();
 };

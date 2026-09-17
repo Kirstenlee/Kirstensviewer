@@ -64,7 +64,7 @@ float4 encodeNormal(float3 n, float env, float gbuffer_flag);
 
 struct PSInput
 {
-    // S24 (2026-08-02): missing SV_Position - see uiF.hlsl's comment (fxc.exe-confirmed VS/PS register-shift bug).
+    // S24: SV_Position semantic required here, or every subsequent VS/PS interpolant register shifts (see uiF.hlsl).
     float4 position : SV_Position;
 
     float3 vary_position : TEXCOORD0;
@@ -121,11 +121,8 @@ uniform float3x3 env_mat;
 
 uniform float is_mirror;
 
-// S24 (2026-08-03): was a bare, unguarded declaration - collided with
-// softenLightF.hlsl's own guarded copy (LL_SUN_MOON_DIR_DECLARED, see e.g.
-// alphaF.hlsl for the same pattern already applied there) the moment both
-// got concatenated into the same shader - only reachable when HAS_SUN_SHADOW
-// is defined (shadows enabled), which is why this went unnoticed until now.
+// S24: guarded - collides with softenLightF.hlsl's own copy of this uniform when both
+// are concatenated into the same shader (only reachable with HAS_SUN_SHADOW defined).
 #ifndef LL_SUN_MOON_DIR_DECLARED
 #define LL_SUN_MOON_DIR_DECLARED
 uniform float3 sun_dir;
@@ -150,25 +147,11 @@ uniform float3 light_diffuse[8];
 float getAmbientClamp();
 void waterClip(float3 pos);
 
-// S24 (2026-07-23, re-traced 2026-08-01): D3DCompile reports X4000 "use of
-// potentially uninitialized variable" for this function on some
-// permutations (Material Shader 1/5/9/13, Skinned Material Shader
-// 17/21/25/29). Traced every local through every branch - col/da are
-// unconditionally initialized before the outer if; lit/amb_da are
-// initialized at the top of the outer if-block, before any read inside it;
-// the spec-highlight block's h/nh/nv/vh/sa/fres/gtdenom/gt are all assigned
-// immediately at declaration. No actual read-before-write path exists -
-// this is FXC being conservative about the 4-deep nested if control flow
-// (outer dist/inverted_la check, da>=0, spec.a>0, nh>0) combined with this
-// function's two return statements (an early `return col;` plus the final
-// return), not a real bug.
-// A `#pragma warning(disable : 4000)` was tried first (2026-08-01) but
-// confirmed NOT to work - FXC accepts the pragma syntactically but doesn't
-// actually implement per-diagnostic suppression for X4000, so the warning
-// kept firing at shifted line numbers in the next build. Real fix:
-// collapsed the two returns down to one (see the inverted `dist_atten`
-// guard below) - eliminating the multi-exit shape is what FXC's checker
-// actually needed to prove definite assignment.
+// S24: FXC flags X4000 "potentially uninitialized variable" on this function's original
+// two-return shape (early `return col;` plus the final return) even though every local
+// is provably assigned on every path - `#pragma warning(disable : 4000)` does NOT
+// suppress it (FXC accepts the syntax but ignores it). Fix is structural: single exit
+// point only (see the inverted `dist_atten` guard below), not a pragma.
 float3 calcPointLightOrSpotLight(float3 light_col, float3 npos, float3 diffuse, float4 spec, float3 v, float3 n, float4 lp, float3 ln, float la, float fa, float is_pointlight, inout float glare, float ambiance)
 {
     // SL-14895 inverted attenuation work-around
@@ -200,12 +183,8 @@ float3 calcPointLightOrSpotLight(float3 light_col, float3 npos, float3 diffuse, 
         dist_atten *= dist_atten;
         dist_atten *= 2.0f;
 
-        // S24 (2026-08-01): was `if (dist_atten <= 0.0) { return col; }` -
-        // rewritten as the inverted guard around the rest of this block
-        // instead, so the function has a single exit point (see comment
-        // above calcPointLightOrSpotLight's signature). Behaviorally
-        // identical: skipping straight to the final return leaves col/da/
-        // lit/amb_da/glare exactly as they'd be at the old early return.
+        // S24: inverted guard (instead of an early `return col;`) keeps this function to
+        // a single exit point - see comment above calcPointLightOrSpotLight's signature.
         if (dist_atten > 0.0)
         {
             // spotlight coefficient.
@@ -421,13 +400,9 @@ PSOutput main(PSInput IN)
     float3 amblit_linear = amblit;
 
     float3 ambenv = amblit;
-    // S24 (2026-09-02): zero-initialized - same X4000-flagged real UB
-    // already fixed in fullbrightShinyF.hlsl (see its own comment for the
-    // full mechanism: sampleReflectionProbesLegacy() only writes these
-    // when envIntensity>0.0/glossiness>0.0, so garbage can reach
-    // applyLegacyEnv()'s math otherwise). Missed fixing this file the
-    // first time - found via the same grep that found the original,
-    // didn't check every result.
+    // S24: glossenv/legacyenv must be zero-initialized - see fullbrightShinyF.hlsl's
+    // identical comment for the mechanism (uninitialized memory reaching applyLegacyEnv()
+    // at envIntensity==0/glossiness==0).
     float3 glossenv = float3(0, 0, 0);
     float3 legacyenv = float3(0, 0, 0);
     sampleReflectionProbesLegacy(ambenv, glossenv, legacyenv, pos.xy*0.5+0.5, pos.xyz, norm.xyz, glossiness, env, true, amblit_linear);

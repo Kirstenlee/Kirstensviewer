@@ -51,7 +51,7 @@ uniform float dof_height;
 
 struct PSInput
 {
-    // S24 (2026-08-02): missing SV_Position - see uiF.hlsl's comment (fxc.exe-confirmed VS/PS register-shift bug).
+    // SV_Position required here - omitting it shifts every VS/PS interpolant register; see uiF.hlsl.
     float4 position : SV_Position;
 
     float2 vary_fragcoord : TEXCOORD0;
@@ -62,12 +62,8 @@ float4 dofSample(Texture2D tex, SamplerState texSampler, float2 tc)
     tc.x = min(tc.x, dof_width);
     tc.y = min(tc.y, dof_height);
 
-    // S24 (2026-08-11, quick-win origin sweep): GL-vs-D3D11 texture-origin
-    // flip - applied after the dof_width/dof_height edge clamp above (those
-    // bounds are unrelated to Y-origin convention), immediately before the
-    // actual .Sample() call. Same bug class as task #158/#185. Callers pass
-    // their raw/unflipped coordinate in, matching the established
-    // "flip only at the .Sample() call site" pattern.
+    // GL-vs-D3D11 texture Y-origin flip, applied immediately before the
+    // .Sample() call - callers pass raw/unflipped coordinates in.
     tc.y = 1.0 - tc.y;
 
     return tex.Sample(texSampler, tc);
@@ -77,9 +73,7 @@ float4 main(PSInput IN) : SV_Target
 {
     float4 dof = dofSample(diffuseRect, diffuseRectSampler, IN.vary_fragcoord.xy*res_scale);
 
-    // S24 (2026-08-11, quick-win origin sweep): same flip as dofSample()
-    // above, inlined at each direct lightMap.Sample() call site (this file
-    // has no position-reconstruction use of vary_fragcoord to preserve).
+    // Same Y-origin flip as dofSample() above, inlined at this direct .Sample() call site.
     float4 diff = lightMap.Sample(lightMapSampler, float2(IN.vary_fragcoord.x, 1.0 - IN.vary_fragcoord.y));
 
     float a = min(abs(diff.a*2.0-1.0) * max_cof*res_scale*res_scale, 1.0);

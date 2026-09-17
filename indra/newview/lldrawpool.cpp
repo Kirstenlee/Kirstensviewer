@@ -369,13 +369,8 @@ void LLFacePool::LLOverrideFaceColor::setColor(const LLColor4& color)
 
 void LLFacePool::LLOverrideFaceColor::setColor(const LLColor4U& color)
 {
-    // S24 (DX_RENDER, 2026-07-25): was a raw glColor4ubv() call, the only one
-    // of this class's 3 setColor() overloads not already routed through
-    // gDX's shader-uniform-based diffuseColor4*() wrapper (the other two
-    // already call gDX.diffuseColor4fv()/diffuseColor4f() - this one was
-    // just missed). diffuseColor4ubv() already handles DX_RENDER internally
-    // (LLHLSLShader::uniform4f()'s DX_RENDER branch), so no new #ifdef is
-    // needed here - this alone makes it backend-safe.
+    // Routed through gDX.diffuseColor4ubv(), like this class's other two
+    // setColor() overloads - handles DX_RENDER internally, no #ifdef needed.
     gDX.diffuseColor4ubv(color.mV);
 }
 
@@ -599,29 +594,13 @@ void LLRenderPass::pushBatch(LLDrawInfo& params, bool texture, bool batch_textur
         if (batch_textures && params.mTextureList.size() > 1)
         {
 #ifdef DX_RENDER
-            // S24 (2026-08-28, task #225): mirrors llshadermgr.cpp's
-            // kIndexedTexRegisterBase / dxdrawpoolalpha.cpp's
-            // indexedTexRegisterBase() exactly - keep all three in lockstep.
-            // GL's indexed-texture samplers have no fixed "physical
-            // register" (glUniform1i() assigns tex0..texN-1 to units 0..N-1
-            // unconditionally, decoupled from whatever else is also bound),
-            // so gDX.getTexUnit(i) starting at 0 has always been correct
-            // here for GL. HLSL's Texture2D tex0..texN-1 ARE fixed to real
-            // t-registers at shader-compile time, and shift to base t5 (not
-            // t0) whenever the bound shader also attaches deferredUtil.hlsl
-            // (t0-t3) - dxdrawpoolalpha.cpp's own texSetup() already knows
-            // this, but this shared LLRenderPass::pushBatch() (used by the
-            // deferred/opaque pools' indexed alpha-mask/materials batches,
-            // a different call path) never did: it always bound at unit i,
-            // unconditionally, silently sampling whatever texture happened
-            // to be left resident in t5-t8 from an earlier, unrelated draw
-            // call whenever the actual shader needed the +5 offset. Root
-            // cause of task #225 (a linked mesh's leaf/cutout faces
-            // rendering with an unrelated sibling prim's texture) - only
-            // manifests for indexed batches whose bound shader has
-            // isDeferred/hasReflectionProbes set, which most simple/single-
-            // texture content never exercises, explaining why this was rare
-            // and looked object-specific rather than a general regression.
+            // Mirrors llshadermgr.cpp's kIndexedTexRegisterBase and
+            // dxdrawpoolalpha.cpp's indexedTexRegisterBase() - keep all
+            // three in lockstep. HLSL Texture2D tex0..texN-1 are fixed to
+            // real t-registers at shader-compile time and shift to base t5
+            // (not t0) whenever the bound shader also attaches
+            // deferredUtil.hlsl (t0-t3); GL's indexed samplers have no fixed
+            // register, so starting at unit 0 is always correct there.
             LLHLSLShader* cur_shader = LLHLSLShader::sCurBoundShaderPtr;
             const S32 indexed_base = (cur_shader && (cur_shader->mFeatures.isDeferred || cur_shader->mFeatures.hasReflectionProbes)) ? 5 : 0;
 #else
@@ -639,11 +618,29 @@ void LLRenderPass::pushBatch(LLDrawInfo& params, bool texture, bool batch_textur
         { //not batching textures or batch has only 1 texture -- might need a texture matrix
             if (params.mTexture.notNull())
             {
-                gDX.getTexUnit(0)->bindFast(params.mTexture);
+#ifdef DX_RENDER
+                // S24: this single-texture path used to hardcode unit 0, but a shader with
+                // HAS_DIFFUSE_LOOKUP compiled in (mIndexedTextureChannels>0, effectively every
+                // shader routed through the generic pushBatch()) samples via diffuseLookup()'s
+                // tex0, which shifts to t5 whenever the shader also attaches deferredUtil.hlsl
+                // (isDeferred||hasReflectionProbes) - same indexed_base formula as the batched
+                // branch just above, mirrored in llshadermgr.cpp's kIndexedTexRegisterBase and
+                // dxdrawpoolalpha.cpp's indexedTexRegisterBase(). Diffuse-only shaders (e.g.
+                // diffuseF.hlsl) have neither flag set, so this still resolves to 0 for them -
+                // unchanged. Shaders that DO set one (e.g. fullbrightShinyF.hlsl, needed for its
+                // legacy-env-reflection call into reflectionProbeF.hlsl) were silently sampling
+                // an unbound t5 while the real texture sat unread at t0 - every diffuse texture
+                // reading as the D3D11 null-SRV default, identically regardless of content.
+                LLHLSLShader* cur_shader = LLHLSLShader::sCurBoundShaderPtr;
+                const S32 indexed_base = (cur_shader && (cur_shader->mFeatures.isDeferred || cur_shader->mFeatures.hasReflectionProbes)) ? 5 : 0;
+#else
+                const S32 indexed_base = 0;
+#endif
+                gDX.getTexUnit(indexed_base)->bindFast(params.mTexture);
                 if (params.mTextureMatrix)
                 {
                     tex_setup = true;
-                    gDX.getTexUnit(0)->activate();
+                    gDX.getTexUnit(indexed_base)->activate();
                     gDX.matrixMode(LLRender::MM_TEXTURE);
                     gDX.loadMatrix((F32*) params.mTextureMatrix->mMatrix);
                     gPipeline.mTextureMatrixOps++;

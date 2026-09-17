@@ -107,7 +107,6 @@ LLDrawable *LLVOWater::createDrawable(LLPipeline *pipeline)
 
 bool LLVOWater::updateGeometry(LLDrawable* drawable)
 {
-    LL_PROFILE_ZONE_SCOPED; // S24 No-op: Water geometry update (merge with LL)
 
     // S24 perf
     // Ensure at least one face exists

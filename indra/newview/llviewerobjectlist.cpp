@@ -198,7 +198,6 @@ bool LLViewerObjectList::removeFromLocalIDTable(LLViewerObject* objectp)
 
     return false ;
 }
-// S24
 void LLViewerObjectList::setUUIDAndLocal(const LLUUID& id,
 	const U32 local_id,
 	const U32 ip,
@@ -617,9 +616,8 @@ void LLViewerObjectList::processObjectUpdate(LLMessageSystem* mesgsys,
 			}
 #endif
 
-			// S24: Block muted objects from being created (derender via mute list)
-			// Check if object itself is muted OR if owner is muted
-			// This prevents muted objects from ever rendering, perfect for movie making
+			// Block muted objects from being created (derender via mute list) - checks object itself
+			// and owner.
 			if (LLMuteList::getInstance()->isMuted(fullid, LLMute::flagAll))
 			{
 				LL_DEBUGS("ObjectUpdate") << "Blocked muted object " << fullid << LL_ENDL;
@@ -811,7 +809,7 @@ void LLViewerObjectList::update(LLAgent& agent)
 {
 
 	// Update globals
-	// S24: Cache these settings lookups - they're called every frame and hash lookups are expensive
+	// Cached: called every frame, hash lookups are expensive otherwise.
 	static LLCachedControl<bool> velocity_interpolate(gSavedSettings, "VelocityInterpolate");
 	static LLCachedControl<bool> ping_interpolate(gSavedSettings, "PingInterpolate");
 	static LLCachedControl<F32> interpolation_time(gSavedSettings, "InterpolationTime");
@@ -870,20 +868,9 @@ void LLViewerObjectList::update(LLAgent& agent)
 
 	static LLCachedControl<bool> freeze_time(gSavedSettings, "FreezeTime");
 
-	// S24 (2026-09-06, perf): fused what used to be two separate linear
-	// passes over the active-object list into one - this loop used to only
-	// build idle_list, with a second pass further down re-walking idle_list
-	// to filter non-avatars into nonavatar_idle_list. Building both here
-	// avoids a redundant full iteration+branch over every active object.
-	// Also fixes a real (if harmless in every current STL implementation)
-	// UB: idle_list used to be reserve()'d then written via operator[] -
-	// valid within capacity() but past size(), which every real vector
-	// implementation tolerates (contiguous storage to capacity regardless
-	// of size) but is undefined per the standard, and would break under
-	// checked/debug iterators. resize() up front makes idle_list[idle_count]
-	// a genuinely valid write; resize() back down to idle_count afterward
-	// (a cheap truncation, no realloc) makes idle_list.end() accurate again
-	// so idle_end no longer needs to be hand-computed.
+	// Builds idle_list AND nonavatar_idle_list in one pass (avoids a second full walk). resize() up
+	// front (not reserve()+operator[]) makes idle_list[idle_count] a genuinely valid write - writing
+	// past size() via operator[] is UB per the standard even though it works on every real vector impl.
 	idle_list.resize(mActiveObjects.size());
 
 	static std::vector<LLViewerObject*> nonavatar_idle_list;
@@ -937,20 +924,13 @@ void LLViewerObjectList::update(LLAgent& agent)
 	}
 	else
 	{
-		// S24 (DX_RENDER, task #283 Phase 1): split into a serial avatar pass (run on
-		// the main thread, unchanged) and a parallel non-avatar pass dispatched to
-		// DXPool. Avatars are excluded here because LLVOAvatar::idleUpdate()
-		// synchronously reaches gPipeline.updateMoveDampedAsync/NormalAsync() ->
-		// LLDrawable::updateMove(), and LLVOAvatar::updateCharacter() hasn't been
-		// audited for shared/static state beyond markMoved()/markRebuild() - see task
-		// #283. Ordinary LLViewerObject/LLVOVolume idleUpdate() only ever reaches
-		// gPipeline.markMoved()/markRebuild() via updateDrawable(); those calls detect
-		// they're off the main thread and stage themselves into the chunk's
-		// LLDeferredPipelineMarks (pipeline.h) instead of touching pipeline state,
-		// replayed serially below once every chunk has finished.
-		// S24 (2026-09-06, perf): nonavatar_idle_list is now built directly
-		// in the fused setup loop above (see its comment) - no longer
-		// re-derived here from a second pass over idle_list.
+		// Serial avatar pass (main thread) + parallel non-avatar pass on DXPool. Avatars are excluded
+		// from the parallel pass because LLVOAvatar::updateCharacter() hasn't been audited for
+		// shared/static state beyond markMoved()/markRebuild(). Ordinary LLViewerObject/LLVOVolume
+		// idleUpdate() only reaches gPipeline.markMoved()/markRebuild() via updateDrawable(), which
+		// detects it's off the main thread and stages into the chunk's LLDeferredPipelineMarks
+		// (pipeline.h) instead of touching pipeline state directly, replayed serially once every
+		// chunk finishes.
 
 		LL::WorkQueue::ptr_t dxpool_queue = LL::WorkQueue::getInstance("DXPool");
 		const U32 dxpool_width = dxpool_queue ? (U32)LL::ThreadPoolBase::getWidth("DXPool", 3) : 0;
@@ -960,7 +940,9 @@ void LLViewerObjectList::update(LLAgent& agent)
 			const U32 chunk_count = dxpool_width;
 			std::vector<LLDeferredPipelineMarks> chunk_marks(chunk_count);
 
-			std::atomic<U32> remaining(chunk_count);
+			// S24: plain U32, not atomic - see the crash-fix comment at the decrement site below for
+			// why an atomic counter alone isn't sufficient here.
+			U32 remaining = chunk_count;
 			std::mutex join_mutex;
 			std::condition_variable join_cv;
 
@@ -988,9 +970,26 @@ void LLViewerObjectList::update(LLAgent& agent)
 						}
 						LLPipeline::setDeferredMarksForThisThread(nullptr);
 
+						// S24: crash fix - WER-confirmed access violation inside
+						// ntdll!RtlWakeConditionVariable (use-after-free on join_cv/join_mutex, both
+						// stack-local to the calling idleUpdate() frame). The original code decremented
+						// the ATOMIC `remaining` counter OUTSIDE the mutex, then separately locked the
+						// mutex to notify: `if (--remaining == 0) { lock_guard lock(join_mutex);
+						// join_cv.notify_one(); }`. That left a real window between the two steps - the
+						// main thread's join_cv.wait(lock, [&]{ return remaining==0; }) predicate reads
+						// `remaining` directly (no lock needed for an atomic read), so it could see the
+						// decremented-to-0 value and return BEFORE this worker had actually reached its
+						// own lock_guard/notify_one() line, let the enclosing scope exit, and destroy
+						// join_mutex/join_cv while this worker was still about to use them - a genuine
+						// UAF on a background thread. Fix: decrement `remaining` (now a plain U32, no
+						// longer needs to be atomic) INSIDE the same critical section as the notify, the
+						// standard correct shape - the main thread's wait() cannot observe remaining==0
+						// without holding this same mutex, so it can't proceed (and therefore can't
+						// destroy join_mutex/join_cv) until this worker's notify_one() call, and the lock
+						// release that follows it, have both already happened.
+						std::lock_guard<std::mutex> lock(join_mutex);
 						if (--remaining == 0)
 						{
-							std::lock_guard<std::mutex> lock(join_mutex);
 							join_cv.notify_one();
 						}
 					});
@@ -1197,7 +1196,7 @@ void LLViewerObjectList::fetchObjectCostsCoro(std::string url)
 	{
 		if (result.has("error"))
 		{
-			// S24: Completely silence spam - only log once per session if needed
+			// Only log once per session.
 			static bool logged_cost_error = false;
 			if (!logged_cost_error)
 			{
@@ -1207,7 +1206,7 @@ void LLViewerObjectList::fetchObjectCostsCoro(std::string url)
 				logged_cost_error = true;
 			}
 
-			// S24: If server says too many objects, batching should handle it
+			// If server says too many objects, batching should handle it.
 			if (result["error"]["identifier"].asString().find("TooMany") != std::string::npos)
 			{
 				LL_DEBUGS("ObjectCost") << "Server rejected request for " << idList.size() << " objects (batch too large)" << LL_ENDL;
@@ -1473,7 +1472,6 @@ void LLViewerObjectList::killObjects(LLViewerRegion* regionp)
 	// Immediate cleanup since the region is becoming invalid
 	cleanDeadObjects(false);
 }
-// S24 PERF
 void LLViewerObjectList::killAllObjects()
 {
     // Used only on global destruction.
@@ -2031,7 +2029,6 @@ S32 LLViewerObjectList::findReferences(LLDrawable* drawablep) const
 	return num_refs;
 }
 
-// S24 Perf
 void LLViewerObjectList::orphanize(LLViewerObject* childp, U32 parent_id, U32 ip, U32 port)
 {
     LL_DEBUGS("ORPHANS") << "Orphaning object " << childp->getID() << " with parent " << parent_id << LL_ENDL;
@@ -2076,7 +2073,6 @@ void LLViewerObjectList::orphanize(LLViewerObject* childp, U32 parent_id, U32 ip
 	}
 }
 
-// S24 perf
 void LLViewerObjectList::findOrphans(LLViewerObject* objectp, U32 ip, U32 port)
 {
 

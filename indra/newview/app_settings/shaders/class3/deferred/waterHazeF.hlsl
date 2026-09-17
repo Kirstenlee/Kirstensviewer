@@ -25,7 +25,7 @@
 // Inputs
 struct PSInput
 {
-    // S24 (2026-08-02): missing SV_Position - see uiF.hlsl's comment (fxc.exe-confirmed VS/PS register-shift bug).
+    // SV_Position must be declared first in PSInput to match VS output register order - see uiF.hlsl.
     float4 position : SV_Position;
 
     float4 vary_fragcoord : TEXCOORD0;
@@ -45,11 +45,8 @@ float4 main(PSInput IN) : SV_Target
 {
     float2  tc           = IN.vary_fragcoord.xy/IN.vary_fragcoord.w*0.5+0.5;
     float depth        = getDepth(tc.xy);
-    // S24 (2026-08-11, quick-win origin sweep): GL-vs-D3D11 texture-origin
-    // flip - tc itself must stay unflipped (getDepth() above already does
-    // its own internal flip and expects raw input), so the flip is inlined
-    // here only. Same bug class as task #158/#185, and as waterF.hlsl/
-    // underWaterF.hlsl's own already-fixed identical exclusionTex reads.
+    // GL-vs-D3D11 texture-origin flip inlined here only; tc itself stays
+    // unflipped since getDepth() above already applies its own internal flip.
     float mask = exclusionTex.Sample(exclusionTexSampler, float2(tc.x, 1.0 - tc.y)).r;
 
     if (above_water > 0)
@@ -67,24 +64,14 @@ float4 main(PSInput IN) : SV_Target
         // with depth testing against render targets that are bound for sampling in the same shader
         // so we do it manually here
 
-        // S24 (reversed-Z investigation): removed the "*0.5+0.5" - it was
-        // ported verbatim from GLSL, where raw clip.z/w genuinely is NDC
-        // [-1,1] and needs that remap to compare against the [0,1] depth
-        // buffer. Under DX_RENDER, vary_fragcoord is set (waterHazeV.hlsl)
-        // to the exact same value as SV_Position, built from the same
-        // modelview_projection_matrix that already carries the D3D depth
-        // remap (kGLtoDXDepthRemap, llrender.cpp) - so vary_fragcoord.z/w
-        // is ALREADY the final stored-depth-buffer convention directly, no
-        // further remap needed. The old "*0.5+0.5" was squashing this into
-        // [0.5,1] regardless of convention - a pre-existing porting
-        // mismatch that reversed-Z's storage-range change made much worse
-        // (this above-water haze discard was very likely firing for
-        // nearly all near-camera geometry), matching the confirmed
-        // above-water-missing/below-water-fine haze split.
+        // No "*0.5+0.5" remap needed: vary_fragcoord (waterHazeV.hlsl) is set to
+        // the same value as SV_Position, built from modelview_projection_matrix,
+        // which already carries the D3D depth remap (kGLtoDXDepthRemap,
+        // llrender.cpp) - so vary_fragcoord.z/w is already the stored-depth-buffer
+        // convention directly.
         float cur_depth = IN.vary_fragcoord.z / IN.vary_fragcoord.w;
-        // S24 (reversed-Z conversion): flipped > to < - "haze plane is
-        // farther than (occluded by) the real scene" now means a SMALLER
-        // stored value (near=1.0/far=0.0), not larger.
+        // Reversed-Z: "haze plane occluded by real scene" means a SMALLER stored
+        // value now (near=1.0/far=0.0), hence < instead of >.
         if (cur_depth < depth)
         {
             discard;

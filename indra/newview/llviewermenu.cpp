@@ -238,7 +238,6 @@ void handle_buy_contents(LLSaleInfo sale_info);
 void near_sit_down_point(bool success, void *);
 
 // Debug menu
-void handle_visual_leak_detector_toggle();
 void handle_rebake_textures();
 bool check_admin_override();
 void handle_admin_override_toggle();
@@ -566,7 +565,7 @@ void init_menus()
     }
     else
     {
-        color = LLUIColorTable::instance().getColor( "MenuBarBgColor" ); // S24 KL
+        color = LLUIColorTable::instance().getColor( "MenuBarBgColor" );
     }
 
     LLView* menu_stack = gViewerWindow->getMainView()->findChildView("menu_stack");
@@ -825,7 +824,6 @@ class LLAdvancedClearGroupCache : public view_listener_t
 // RENDER TYPE //
 /////////////////
 
-// S24: Refactored to use unordered_map for better performance and maintainability
 U32 render_type_from_string(std::string_view render_type)
 {
     static const std::unordered_map<std::string_view, U32> render_type_map = {
@@ -894,11 +892,8 @@ U32 feature_from_string(std::string_view feature)
     static const std::unordered_map<std::string_view, U32> feature_map = {
         {"ui", LLPipeline::RENDER_DEBUG_FEATURE_UI},
         {"selected", LLPipeline::RENDER_DEBUG_FEATURE_SELECTED},
-        {"highlighted", LLPipeline::RENDER_DEBUG_FEATURE_HIGHLIGHTED},
         {"dynamic textures", LLPipeline::RENDER_DEBUG_FEATURE_DYNAMIC_TEXTURES},
-        {"foot shadows", LLPipeline::RENDER_DEBUG_FEATURE_FOOT_SHADOWS},
         {"fog", LLPipeline::RENDER_DEBUG_FEATURE_FOG},
-        {"fr info", LLPipeline::RENDER_DEBUG_FEATURE_FR_INFO},
         {"flexible", LLPipeline::RENDER_DEBUG_FEATURE_FLEXIBLE}
     };
 
@@ -1008,7 +1003,6 @@ class LLAdvancedSetDisplayTextureDensity : public view_listener_t
 // INFO DISPLAY //
 //////////////////
 
-// S24: Refactored to use unordered_map for better performance and maintainability
 U64 info_display_from_string(std::string_view info_display)
 {
     static const std::unordered_map<std::string_view, U64> info_display_map = {
@@ -1080,53 +1074,6 @@ class LLAdvancedCheckInfoDisplay : public view_listener_t
     {
         const U64 info_display = info_display_from_string(userdata.asString());
         return (info_display != 0) && LLPipeline::toggleRenderDebugControl(info_display);
-    }
-};
-
-
-///////////////////////////
-//// RANDOMIZE FRAMERATE //
-///////////////////////////
-
-
-class LLAdvancedToggleRandomizeFramerate : public view_listener_t
-{
-    bool handleEvent(const LLSD& userdata)
-    {
-        gRandomizeFramerate = !(gRandomizeFramerate);
-        return true;
-    }
-};
-
-class LLAdvancedCheckRandomizeFramerate : public view_listener_t
-{
-    bool handleEvent(const LLSD& userdata)
-    {
-        bool new_value = gRandomizeFramerate;
-        return new_value;
-    }
-};
-
-///////////////////////////
-//// PERIODIC SLOW FRAME //
-///////////////////////////
-
-
-class LLAdvancedTogglePeriodicSlowFrame : public view_listener_t
-{
-    bool handleEvent(const LLSD& userdata)
-    {
-        gPeriodicSlowFrame = !(gPeriodicSlowFrame);
-        return true;
-    }
-};
-
-class LLAdvancedCheckPeriodicSlowFrame : public view_listener_t
-{
-    bool handleEvent(const LLSD& userdata)
-    {
-        bool new_value = gPeriodicSlowFrame;
-        return new_value;
     }
 };
 
@@ -2163,6 +2110,7 @@ class LLAdvancedPurgeShaderCache : public view_listener_t
     bool handleEvent(const LLSD& userdata)
     {
         LLViewerShaderMgr::instance()->clearShaderCache();
+        LLShaderMgr::instance()->clearRawShaderFileCache();
         LLViewerShaderMgr::instance()->setShaders();
         return true;
     }
@@ -2355,15 +2303,6 @@ class LLAdvancedToggleViewAdminOptions : public view_listener_t
     bool handleEvent(const LLSD& userdata)
     {
         handle_admin_override_toggle();
-        return true;
-    }
-};
-
-class LLAdvancedToggleVisualLeakDetector : public view_listener_t
-{
-    bool handleEvent(const LLSD& userdata)
-    {
-        handle_visual_leak_detector_toggle();
         return true;
     }
 };
@@ -4042,14 +3981,14 @@ void handle_region_dump_settings()
     LLViewerRegion* regionp = gAgent.getRegion();
     if (regionp)
     {
-        LL_INFOS() << "Damage:    " << (regionp->getAllowDamage() ? "on" : "off") << LL_ENDL;
-        LL_INFOS() << "Landmark:  " << (regionp->getAllowLandmark() ? "on" : "off") << LL_ENDL;
-        LL_INFOS() << "SetHome:   " << (regionp->getAllowSetHome() ? "on" : "off") << LL_ENDL;
-        LL_INFOS() << "ResetHome: " << (regionp->getResetHomeOnTeleport() ? "on" : "off") << LL_ENDL;
-        LL_INFOS() << "SunFixed:  " << (regionp->getSunFixed() ? "on" : "off") << LL_ENDL;
-        LL_INFOS() << "BlockFly:  " << (regionp->getBlockFly() ? "on" : "off") << LL_ENDL;
-        LL_INFOS() << "AllowP2P:  " << (regionp->getAllowDirectTeleport() ? "on" : "off") << LL_ENDL;
-        LL_INFOS() << "Water:     " << (regionp->getWaterHeight()) << LL_ENDL;
+        LL_WARNS() << "Damage:    " << (regionp->getAllowDamage() ? "on" : "off") << LL_ENDL;
+        LL_WARNS() << "Landmark:  " << (regionp->getAllowLandmark() ? "on" : "off") << LL_ENDL;
+        LL_WARNS() << "SetHome:   " << (regionp->getAllowSetHome() ? "on" : "off") << LL_ENDL;
+        LL_WARNS() << "ResetHome: " << (regionp->getResetHomeOnTeleport() ? "on" : "off") << LL_ENDL;
+        LL_WARNS() << "SunFixed:  " << (regionp->getSunFixed() ? "on" : "off") << LL_ENDL;
+        LL_WARNS() << "BlockFly:  " << (regionp->getBlockFly() ? "on" : "off") << LL_ENDL;
+        LL_WARNS() << "AllowP2P:  " << (regionp->getAllowDirectTeleport() ? "on" : "off") << LL_ENDL;
+        LL_WARNS() << "Water:     " << (regionp->getWaterHeight()) << LL_ENDL;
     }
 }
 
@@ -4096,7 +4035,7 @@ void handle_dump_focus()
 {
     LLUICtrl *ctrl = dynamic_cast<LLUICtrl*>(gFocusMgr.getKeyboardFocus());
 
-    LL_INFOS() << "Keyboard focus " << (ctrl ? ctrl->getName() : "(none)") << LL_ENDL;
+    LL_WARNS() << "Keyboard focus " << (ctrl ? ctrl->getName() : "(none)") << LL_ENDL;
 }
 
 class LLSelfStandUp : public view_listener_t
@@ -4230,35 +4169,6 @@ void handle_admin_override_toggle()
 
     // The above may have affected which debug menus are visible
     show_debug_menus();
-}
-
-void handle_visual_leak_detector_toggle()
-{
-    static bool vld_enabled = false;
-
-    if ( vld_enabled )
-    {
-#ifdef INCLUDE_VLD
-        // only works for debug builds (hard coded into vld.h)
-#ifdef _DEBUG
-        // start with Visual Leak Detector turned off
-        VLDDisable();
-#endif // _DEBUG
-#endif // INCLUDE_VLD
-        vld_enabled = false;
-    }
-    else
-    {
-#ifdef INCLUDE_VLD
-        // only works for debug builds (hard coded into vld.h)
-    #ifdef _DEBUG
-        // start with Visual Leak Detector turned off
-        VLDEnable();
-    #endif // _DEBUG
-#endif // INCLUDE_VLD
-
-        vld_enabled = true;
-    };
 }
 
 void handle_god_mode()
@@ -6229,7 +6139,7 @@ void print_agent_nvpairs()
 {
     LLViewerObject *objectp;
 
-    LL_INFOS() << "Agent Name Value Pairs" << LL_ENDL;
+    LL_WARNS() << "Agent Name Value Pairs" << LL_ENDL;
 
     objectp = gObjectList.findObject(gAgentID);
     if (objectp)
@@ -6238,7 +6148,7 @@ void print_agent_nvpairs()
     }
     else
     {
-        LL_INFOS() << "Can't find agent object" << LL_ENDL;
+        LL_WARNS() << "Can't find agent object" << LL_ENDL;
     }
     
     LL_INFOS() << "Camera at " << gAgentCamera.getCameraPositionGlobal() << LL_ENDL;
@@ -6921,7 +6831,7 @@ class LLShowS24EngineGuide : public view_listener_t
 {
     bool handleEvent(const LLSD& userdata)
     {
-        // S24 - Show native XML guide floater (instant load, no CEF)
+        // Native XML guide floater - instant load, no CEF
         LLFloaterReg::showInstance("help_browser");
         return true;
     }
@@ -7983,7 +7893,7 @@ void handle_dump_attachments()
                             !attached_object->mDrawable->isRenderType(0));
             LLVector3 pos;
             if (visible) pos = attached_object->mDrawable->getPosition();
-            LL_INFOS() << "ATTACHMENT " << key << ": item_id=" << attached_object->getAttachmentItemID()
+            LL_WARNS() << "ATTACHMENT " << key << ": item_id=" << attached_object->getAttachmentItemID()
                     << (attached_object ? " present " : " absent ")
                     << (visible ? "visible " : "invisible ")
                     <<  " at " << pos
@@ -8070,7 +7980,21 @@ class LLAdvancedClickRenderBenchmark: public view_listener_t
 {
     bool handleEvent(const LLSD& userdata)
     {
-        gpu_benchmark();
+        // S24: gpu_benchmark()'s only prior feedback was LL_INFOS("Benchmark") - invisible by
+        // default under this project's own "no LL_INFOS, LL_WARNS only" convention, so a run
+        // that succeeded looked identical to a click doing nothing at all. Surface the real
+        // result directly instead of requiring a log dig.
+        F32 gbps = gpu_benchmark();
+        LLSD args;
+        if (gbps > 0.f)
+        {
+            args["MESSAGE"] = llformat("GPU memory bandwidth: %.3f GB/sec", gbps);
+        }
+        else
+        {
+            args["MESSAGE"] = "Benchmark failed to run - see the log for details.";
+        }
+        LLNotificationsUtil::add("GenericAlert", args);
         return true;
     }
 };
@@ -8152,20 +8076,6 @@ class LLAdvancedClickResizeWindow : public view_listener_t
     }
 };
 
-
-// these are used in the gl menus to set control values that require shader recompilation
-class LLToggleShaderControl : public view_listener_t
-{
-    bool handleEvent(const LLSD& userdata)
-    {
-        std::string control_name = userdata.asString();
-        bool checked = gSavedSettings.getBOOL( control_name );
-        gSavedSettings.setBOOL( control_name, !checked );
-        LLPipeline::refreshCachedSettings();
-        LLViewerShaderMgr::instance()->setShaders();
-        return !checked;
-    }
-};
 
 void menu_toggle_attached_lights()
 {
@@ -8546,20 +8456,17 @@ class LLToolsEditLinkedParts : public view_listener_t
 
 void reload_vertex_shader()
 {
-    // S24 (2026-09-05, task #277): this was a no-op stub left over from LL's
-    // original code (DaveP's own comment above said as much) - Develop >
-    // Reload Vertex Shader has done literally nothing since day one. Wired
-    // to the same setShaders() call every graphics-settings-change listener
-    // already uses (llfeaturemanager.cpp, llviewerwindow.cpp, pipeline.cpp,
-    // etc) to give shader development a real "detect + recompile" trigger:
-    // loadShaderFile() always re-reads .hlsl files fresh from disk on every
-    // call (see llhlslshader.cpp's buildDXSource()), and DXShader's disk
-    // cache is keyed on the fully-resolved HLSL text's own content hash (see
-    // DXShader::isCacheEligible()'s comment) - so a recompile picked up here
-    // naturally produces a different cache key for anything actually edited
-    // (recompiles it for real) while anything unchanged still hits its warm
-    // cache entry, no separate "did this file change" bookkeeping needed.
-    LL_INFOS() << "S24: Reload Vertex Shader - reloading all shaders" << LL_ENDL;
+    // Wired to the same setShaders() call other graphics-settings-change listeners use.
+    // clearRawShaderFileCache() forces loadShaderFile() to genuinely re-read every .hlsl file from
+    // disk this one time (settings-triggered reloads deliberately skip this - see its own comment,
+    // llshadermgr.h), and DXShader's disk bytecode cache is keyed on the resolved HLSL text's own
+    // content hash (see DXShader::isCacheEligible()), so this naturally recompiles anything edited
+    // while anything unchanged still hits its cache entry. Rebuilds every shader (vertex+pixel
+    // together, always paired under DX_RENDER), not just "vertex" ones - see the menu label
+    // ("Rebuild Shaders", was "Reload Vertex Shader" - a GL-era name from when vertex/fragment
+    // objects really could be reloaded independently).
+    LL_WARNS("ShaderLoading") << "S24: Rebuild Shaders - reloading all shaders" << LL_ENDL;
+    LLShaderMgr::instance()->clearRawShaderFileCache();
     LLViewerShaderMgr::instance()->setShaders();
 }
 
@@ -8903,7 +8810,6 @@ void handle_buy_currency_test()
     replace["[SESSION_ID]"] = gAgent.getSecureSessionID().asString();
     replace["[LANGUAGE]"] = LLUI::getLanguage();
     LLStringUtil::format(url, replace);
-    // S24 anything to do with currency deserves serious logs.
     LL_WARNS() << "buy currency url " << url << LL_ENDL;
 
     LLFloaterReg::showInstance("buy_currency_html", LLSD(url));
@@ -9847,10 +9753,6 @@ void initialize_menus()
     view_listener_t::addMenu(new LLAdvancedToggleWireframe(), "Advanced.ToggleWireframe");
     view_listener_t::addMenu(new LLAdvancedCheckWireframe(), "Advanced.CheckWireframe");
     // Develop > Render
-    view_listener_t::addMenu(new LLAdvancedToggleRandomizeFramerate(), "Advanced.ToggleRandomizeFramerate");
-    view_listener_t::addMenu(new LLAdvancedCheckRandomizeFramerate(), "Advanced.CheckRandomizeFramerate");
-    view_listener_t::addMenu(new LLAdvancedTogglePeriodicSlowFrame(), "Advanced.TogglePeriodicSlowFrame");
-    view_listener_t::addMenu(new LLAdvancedCheckPeriodicSlowFrame(), "Advanced.CheckPeriodicSlowFrame");
     view_listener_t::addMenu(new LLAdvancedHandleAttachedLightParticles(), "Advanced.HandleAttachedLightParticles");
     view_listener_t::addMenu(new LLAdvancedCheckRenderShadowOption(), "Advanced.CheckRenderShadowOption");
     view_listener_t::addMenu(new LLAdvancedClickRenderShadowOption(), "Advanced.ClickRenderShadowOption");
@@ -9997,7 +9899,6 @@ void initialize_menus()
     view_listener_t::addMenu(new LLAdvancedEnableViewAdminOptions(), "Advanced.EnableViewAdminOptions");
     view_listener_t::addMenu(new LLAdvancedToggleViewAdminOptions(), "Advanced.ToggleViewAdminOptions");
     view_listener_t::addMenu(new LLAdvancedCheckViewAdminOptions(), "Advanced.CheckViewAdminOptions");
-    view_listener_t::addMenu(new LLAdvancedToggleVisualLeakDetector(), "Advanced.ToggleVisualLeakDetector");
 
     view_listener_t::addMenu(new LLAdvancedRequestAdminStatus(), "Advanced.RequestAdminStatus");
     view_listener_t::addMenu(new LLAdvancedLeaveAdminStatus(), "Advanced.LeaveAdminStatus");
@@ -10158,7 +10059,6 @@ void initialize_menus()
     view_listener_t::addMenu(new LLShowAgentProfilePicks(), "ShowAgentProfilePicks");
     view_listener_t::addMenu(new LLToggleAgentProfile(), "ToggleAgentProfile");
     view_listener_t::addMenu(new LLToggleControl(), "ToggleControl");
-    view_listener_t::addMenu(new LLToggleShaderControl(), "ToggleShaderControl");
     view_listener_t::addMenu(new LLCheckControl(), "CheckControl");
     view_listener_t::addMenu(new LLGoToObject(), "GoToObject");
     commit.add("PayObject", boost::bind(&handle_give_money_dialog));

@@ -69,6 +69,17 @@ protected:
 	// S24 - Movement tab handlers
 	void onClickResetMovement();
 
+	// S24 - UI Hue Shift tab handler
+	void onClickResetUIHue();
+
+	// S24 - UI Hue color profile handlers
+	void onUIHueProfileSelected();
+	void onUIHueProfileSave();
+	bool onUIHueProfileSaveCommit(const LLSD& notification, const LLSD& response);
+	void onUIHueProfileDelete();
+	bool onUIHueProfileDeleteCommit(const LLSD& notification, const LLSD& response);
+	void refreshUIHueProfileCombo(const std::string& select_name = std::string());
+
 	void updateGroundAccelText();
 	void updateGroundDecelText();
 	void updateFlightAccelText();

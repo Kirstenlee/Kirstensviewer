@@ -24,33 +24,15 @@
 
 /*[EXTRA_CODE_HERE]*/
 
-// screen_res/inv_proj are also declared (real, used internally) by
-// deferredUtil.hlsl (attached below, gPostScreenSpaceReflectionProgram
-// sets isDeferred=true) - both are dead in this file (confirmed via grep
-// of both this file and the original GLSL - zero other references) so
-// simply deleting (not guarding) is correct: deferredUtil.hlsl's own
-// guarded block fires normally since nothing here pre-empts its guard
-// macro.
+// screen_res/inv_proj are also declared (and used) by deferredUtil.hlsl,
+// attached below - deleted here rather than guarded since unused in this file.
 //
-// CORRECTION (2026-09-02): the old comment here claimed projection_matrix
-// "doesn't collide with anything by name" - false, confirmed via a real
-// D3D11 X3003 compile failure (dumped source: KirstensS24-LOG.log,
-// "Screen Space Reflection Post" context). screenSpaceReflUtil.hlsl
-// (attached below whenever hasScreenSpaceReflections is set, which this
-// program does) ALSO declares an unguarded `uniform float4x4
-// projection_matrix;` (its own, genuinely used, header comment on that
-// declaration explains why) - two unguarded declarations of the same
-// name in one concatenated compile is a hard HLSL error, unlike GLSL's
-// separate-compile-then-link model which tolerates it. This program
-// (gPostScreenSpaceReflectionProgram, "Screen Space Reflection Post") is
-// independently confirmed dead on both backends - grepped the whole tree
-// including the pre-DX_RENDER backout, it's created at startup and never
-// bound/drawn anywhere - so this is a real but functionally-inert compile
-// failure. Genuinely unused in THIS file's own code (only referenced via
-// the forward-declared getPositionWithDepth()/getPosition(), whose real
-// bodies live in deferredUtil.hlsl and use inv_proj, not this), so it's
-// simply renamed rather than deleted, to keep this fix minimal/obviously
-// safe without having to re-verify every helper function's disassembly.
+// projection_matrix is renamed (not deleted) below: screenSpaceReflUtil.hlsl
+// (also attached whenever hasScreenSpaceReflections is set) declares its own
+// unguarded `projection_matrix` uniform, and two unguarded declarations of
+// the same name in one concatenated HLSL compile is a hard error (X3003),
+// unlike GLSL's separate-compile-then-link model. Unused in this file's own
+// code, so renaming is a safe minimal fix.
 uniform float4x4 unused_dead_projection_matrix;
 uniform float zNear;
 uniform float zFar;
@@ -80,8 +62,7 @@ float random (float2 uv);
 
 float tapScreenSpaceReflection(int totalSamples, float2 tc, float3 viewPos, float3 n, inout float4 collectedColor, Texture2D source, SamplerState sourceSampler, float glossiness);
 
-// S24 (2026-08-02): see uiF.hlsl's comment - real register mismatch,
-// confirmed via fxc.exe disassembly, affects every bare-Varying PS input.
+// SV_Position must be declared first in PSInput to match VS output register order - see uiF.hlsl.
 struct PSInput
 {
     float4 position : SV_Position;
@@ -94,11 +75,9 @@ float4 main(PSInput IN) : SV_Target
     float depth = linearDepth01(getDepth(tc), zNear, zFar);
     float4 norm = getNorm(tc); // need `norm.w` for GET_GBUFFER_FLAG()
     float3 pos = getPositionWithDepth(tc, getDepth(tc)).xyz;
-    // S24 (2026-08-11, quick-win origin sweep): GL-vs-D3D11 texture-origin
-    // flip - tc itself must stay unflipped (getDepth()/getNorm()/
-    // getPositionWithDepth() above already do their own internal flip and
-    // expect raw input), so the flip is inlined at each direct .Sample()
-    // call site only. Same bug class as task #158/#185.
+    // GL-vs-D3D11 texture-origin flip inlined at each direct .Sample() call;
+    // tc itself stays unflipped since getDepth()/getNorm()/getPositionWithDepth()
+    // above already apply their own internal flip and expect raw input.
     float4 spec    = specularRect.Sample(specularRectSampler, float2(tc.x, 1.0 - tc.y));
     float2 hitpixel;
 

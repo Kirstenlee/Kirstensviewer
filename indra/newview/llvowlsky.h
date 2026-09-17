@@ -29,8 +29,8 @@
 
 #include "llviewerobject.h"
 
-// S24 (task #279 stage 2, "RENDER WOW"): a single shooting star's CPU-tracked
-// state - see LLVOWLSky::updateShootingStars()/updateShootingStarGeometry().
+// A single shooting star's CPU-tracked state - see
+// LLVOWLSky::updateShootingStars()/updateShootingStarGeometry().
 struct LLShootingStarState
 {
     LLVector3 mOrigin;          // dome-space start point (on the star sphere)
@@ -62,19 +62,28 @@ public:
     void drawStars(void);
     void drawDome(void);
     void drawFsSky(void); // fullscreen sky for advanced atmo
+    // Same full-screen quad as drawFsSky(), but leaves blending as the caller set it up (drawFsSky()
+    // unconditionally forces it off, meant for an opaque base layer) - see
+    // dxdrawpoolwlsky.cpp's renderGalacticBandDeferred(), a translucent additive overlay.
+    void drawGalacticBandQuad(void);
     void resetVertexBuffers(void);
 
     void cleanupGL();
     void restoreGL();
 
-    // S24 (task #279 stage 2): per-frame shooting-star spawn/age/expire
-    // logic, called from idleUpdate(). Cheap - fixed-size pool, no
-    // allocation on the steady-state path.
+    // Per-frame shooting-star spawn/age/expire logic, called from the DX_RENDER draw path
+    // (dxdrawpoolwlsky.cpp), not idleUpdate(). Cheap - fixed-size pool, no allocation on the
+    // steady-state path.
     void updateShootingStars(F32 dt);
-    // S24 (task #279 stage 2): draws the (tiny, dynamic) shooting-star
-    // vertex buffer - DX_RENDER call site is dxdrawpoolwlsky.cpp, mirroring
-    // drawStars().
+    // Draws the (tiny, dynamic) shooting-star vertex buffer - DX_RENDER call site is
+    // dxdrawpoolwlsky.cpp, mirroring drawStars().
     void drawShootingStars(void);
+
+    // Optional thin dotted lines connecting each constellation's stars (RenderConstellationLines) -
+    // Real Constellations style (RenderSkyStyle==1) only. Immediate-mode (dxLineWidth()), call from
+    // inside the same camera-relative matrix transform drawStars() uses so it stays aligned with the
+    // star field's slow drift rotation - see dxdrawpoolwlsky.cpp's renderStarsDeferred().
+    void drawConstellationLines(void);
 
 private:
 
@@ -99,9 +108,8 @@ private:
     // helper function for updating the stars geometry.
     bool updateStarGeometry(LLDrawable *drawable);
 
-    // S24 (task #279 stage 2): (re)builds mShootingStarVerts from the
-    // current mShootingStars pool state. Tiny buffer, safe to rebuild
-    // every frame a shooting star is active.
+    // (re)builds mShootingStarVerts from the current mShootingStars pool state. Tiny buffer, safe to
+    // rebuild every frame a shooting star is active.
     bool updateShootingStarGeometry();
 
 private:
@@ -113,7 +121,7 @@ private:
     std::vector<LLColor4>   mStarColors;                // Star colors
     std::vector<F32>        mStarIntensities;           // Star intensities
 
-    // S24 (task #279 stage 2): shooting-star pool state.
+    // Shooting-star pool state.
     LLPointer<LLVertexBuffer>            mShootingStarVerts;
     std::vector<LLShootingStarState>     mShootingStars;
     F32                                  mNextShootingStarCheck = 0.f;

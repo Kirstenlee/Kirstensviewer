@@ -122,7 +122,6 @@ void Node::updateTransforms(Asset& asset, const mat4& parentMatrix)
 
 void Asset::updateTransforms()
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_GLTF;
     for (auto& scene : mScenes)
     {
         scene.updateTransforms(*this);
@@ -133,7 +132,6 @@ void Asset::updateTransforms()
 
 void Asset::uploadTransforms()
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_GLTF;
     // prepare matrix palette
     U32 max_nodes = LLSkinningUtil::getMaxGLTFJointCount();
 
@@ -179,9 +177,8 @@ void Asset::uploadTransforms()
     }
 
 #ifdef DX_RENDER
-    // S24 (task #79): glGenBuffers/glBindBuffer/glBufferData are raw GL -
-    // null fn ptrs under DX_RENDER (OpenGL is fully delinked from
-    // DX_RENDER=ON builds). Mirrors LLReflectionMapManager::updateUniforms()'s
+    // glGenBuffers/glBindBuffer/glBufferData are raw GL, null under DX_RENDER.
+    // Mirrors LLReflectionMapManager::updateUniforms()'s
     // DXBuffer::createConstantBuffer()/upload() pattern.
     if (!mDXNodesUBO.getBuffer())
     {
@@ -205,7 +202,6 @@ void Asset::uploadTransforms()
 
 void Asset::uploadMaterials()
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_GLTF;
     // see pbrmetallicroughnessV.glsl for the layout of the material UBO
     std::vector<vec4> md;
 
@@ -474,7 +470,6 @@ const Image& Image::operator=(const Value& src)
 
 void Asset::update()
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_GLTF;
     F32 dt = gFrameTimeSeconds - mLastUpdateTime;
 
     if (dt > 0.f)
@@ -499,7 +494,6 @@ void Asset::update()
         uploadMaterials();
 
         {
-            LL_PROFILE_ZONE_NAMED_CATEGORY_GLTF("gltf - addTextureStats");
 
             for (auto& image : mImages)
             {
@@ -519,7 +513,6 @@ void Asset::update()
 
 bool Asset::prep()
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_GLTF;
     // check required extensions
     for (auto& extension : mExtensionsRequired)
     {
@@ -722,7 +715,6 @@ Asset::Asset(const Value& src)
 
 bool Asset::load(std::string_view filename, bool loadIntoVRAM)
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_GLTF;
     mLoadIntoVRAM = loadIntoVRAM;
     mFilename = filename;
     std::string ext = gDirUtilp->getExtension(mFilename);

@@ -76,7 +76,6 @@ public:
 public:
 	LLFace(LLDrawable* drawablep, LLViewerObject* objp)
 	{
-        LL_PROFILE_ZONE_SCOPED;
 		init(drawablep, objp);
 	}
 	~LLFace()  { destroy(); }
@@ -259,14 +258,13 @@ public:
 	LLMatrix4*	mNormalMapMatrix;
 	LLDrawInfo* mDrawInfo;
     LLVOAvatar* mAvatar = nullptr;
-    // S24 (alpha attachment-order fix, AYAstorm-derived, LGPL v2.1) - BROADER
-    // than mAvatar above: mAvatar is only set for genuinely RIGGED/skinned
-    // content (see llvovolume.cpp's `rigged` condition, requires skinInfo).
-    // This captures ANY object attached to an avatar, rigged or not (a rigid
-    // prim attachment - eyelash/eyebrow decoration, jewelry - has no
+    // Broader than mAvatar above: mAvatar is only set for genuinely
+    // RIGGED/skinned content (llvovolume.cpp's `rigged` condition, requires
+    // skinInfo). This captures ANY object attached to an avatar, rigged or
+    // not (e.g. a rigid prim attachment like eyelash/jewelry has no
     // skinInfo and never sets mAvatar, but is still isAttachment()==true).
-    // Set unconditionally per-face in llvovolume.cpp, not gated by the
-    // rigged/skinInfo check mAvatar's assignment is.
+    // Set unconditionally per-face in llvovolume.cpp. (Alpha
+    // attachment-order fix, AYAstorm-derived, LGPL v2.1.)
     LLVOAvatar* mAttachedToAvatar = nullptr;
     LLMeshSkinInfo* mSkinInfo = nullptr;
     

@@ -22,9 +22,8 @@
  * SOFTWARE.
  */
 
-// S24 (task #279 stage 2, "RENDER WOW"): the shooting-star streak quad -
-// geometry is CPU-built fresh every active frame by
-// LLVOWLSky::updateShootingStarGeometry(), this just transforms/passes it
+// Streak quad geometry is CPU-built fresh every active frame by
+// LLVOWLSky::updateShootingStarGeometry(); this just transforms/passes it
 // through. Mirrors starsV.hlsl's structure deliberately.
 
 uniform float4x4 modelview_projection_matrix;
@@ -50,9 +49,8 @@ VSOutput main(VSInput IN)
 
     float4 pos = mul(modelview_projection_matrix, float4(IN.position, 1.0));
 
-    // S24: same reversed-Z "smash to far plane" trick as starsV.hlsl - see
-    // that file's comment. Avoids writing gl_FragDepth (slow) while keeping
-    // streaks from rendering on top of the moon/closer geometry.
+    // Same reversed-Z "smash to far plane" trick as starsV.hlsl - avoids
+    // writing gl_FragDepth (slow) while keeping streaks behind closer geometry.
     pos.z = 0.0;
 
     OUT.position = pos;

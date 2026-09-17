@@ -35,7 +35,7 @@ SamplerState specularMapSampler : register(s2);
 
 struct PSInput
 {
-    // S24 (2026-08-02): missing SV_Position - see uiF.hlsl's comment (fxc.exe-confirmed VS/PS register-shift bug).
+    // SV_Position required here - omitting it shifts every VS/PS interpolant register; see uiF.hlsl.
     float4 position : SV_Position;
 
     float2 vary_texcoord0 : TEXCOORD0;

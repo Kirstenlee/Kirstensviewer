@@ -26,43 +26,30 @@
 
 Texture2D diffuseMap : register(t0);
 SamplerState diffuseMapSampler : register(s0);
-// S24 (2026-08-29, task #279 "RENDER WOW"): this second texture channel was
-// declared as a genuine feature on the C++ side all along -
-// lldrawpoolwlsky.cpp binds LLVOSky::getBloomTex()/getBloomTexNext() to
-// texture units 0/1 and computes a real blend_factor (windlight sky-preset
-// transitions can use different star sprite assets) - but this file only
-// ever declared/sampled register(t0), so col_a and col_b below were
-// SAMPLING THE SAME TEXTURE at the same coordinates, making the lerp() a
-// permanent no-op regardless of blend_factor. Fixed by actually sampling
-// the second channel. When only one texture is bound, unit 1 falls back to
-// the white texture (LLTexUnit::unbind()'s DX_RENDER behavior) but
-// blend_factor is also forced to 0 by lldrawpoolwlsky.cpp in that case, so
-// col_b's contribution is always fully excluded when it would otherwise be
-// wrong - see that file's blend_factor=0.0f comments.
+// Second sprite channel: lldrawpoolwlsky.cpp binds getBloomTex()/
+// getBloomTexNext() to units 0/1 with a real blend_factor for windlight
+// sky-preset transitions. When only one texture is bound, unit 1 falls back
+// to the white texture but blend_factor is also forced to 0 in that case.
 Texture2D nextDiffuseMap : register(t1);
 SamplerState nextDiffuseMapSampler : register(s1);
 uniform float blend_factor;
 uniform float custom_alpha;
 uniform float time;
-// S24 (2026-09-05): nebula-only daylight gate - see the is_nebula branch's
-// own comment below for why this differs from custom_alpha/daylight_factor
-// (which still drive the point-star field, unchanged).
+// Nebula-only daylight gate, distinct from custom_alpha/daylight_factor
+// (which drive the point-star field) - see the is_nebula branch below.
 uniform float sun_elevation;
 
-// S24 (task #279 stage 2, "RENDER WOW"): KVTweaks-exposed night-sky
-// controls - see dxdrawpoolwlsky.cpp for the uniform1f() call sites and
-// RenderStarGlow/RenderStarDensity/RenderStarDustIntensity/
+// KVTweaks-exposed night-sky controls - see dxdrawpoolwlsky.cpp for the
+// uniform1f() call sites and RenderStarGlow/RenderStarDensity/
 // RenderNebulaEnabled/RenderNebulaIntensity in settings.xml.
 uniform float star_glow;
 uniform float star_density;
-uniform float star_dust_intensity;
 uniform float nebula_enabled;
 uniform float nebula_intensity;
 
-// S24 (task #302, "Starry Night" sky style, 2026-08-31): 0=Default,
-// 1=Real Constellations (llvowlsky.cpp placement only, no shader change),
-// 2=Starry Night (blue/gold duotone + swirl distortion, this file).
-// See RenderSkyStyle in settings.xml / dxdrawpoolwlsky.cpp's uniform1f().
+// RenderSkyStyle: 0=Default, 1=Real Constellations (llvowlsky.cpp placement
+// only, no shader change), 2=Starry Night (blue/gold duotone + swirl
+// distortion, this file). See settings.xml / dxdrawpoolwlsky.cpp's uniform1f().
 uniform float sky_style;
 
 #include "varying/starsVarying.hlsli"
@@ -80,20 +67,15 @@ struct PSOutput
 // See:
 // ALM off: class1/environment/starsF.hlsl
 // ALM on : class1/deferred/starsF.hlsl
-// S24 (2026-08-02): see uiF.hlsl's comment - real register mismatch,
-// confirmed via fxc.exe disassembly, affects every bare-Varying PS input.
+// SV_Position required on bare-Varying PS inputs - see uiF.hlsl's comment.
 struct PSInput
 {
     float4 position : SV_Position;
     StarsVarying varying;
 };
 
-// S24 (task #279, round 2 - user feedback: "could be even more distinct
-// like blue stars! and red giants"): pushed the endpoint colors themselves
-// much more saturated (round 1's c_red/c_blue were too close to white to
-// read clearly once blended) AND rebalanced the range so white is a
-// narrower band in the middle rather than half the population - more of
-// the population now lands on a visibly-tinted stop.
+// Endpoint colors are pushed saturated (near-white reads unclear once
+// blended) with white kept to a narrow middle band rather than half the range.
 float3 starColorFromSeed(float t)
 {
     float3 c_red    = float3(1.00, 0.18, 0.08); // red giant
@@ -108,11 +90,9 @@ float3 starColorFromSeed(float t)
     else               return lerp(c_white,  c_blue,   (t - 0.55) / 0.45);
 }
 
-// S24 (task #279 stage 2): nebula patches (the last NUM_NEBULA_PATCHES
-// slots of the baked star field, flagged via vertex_color.g==0 - see
-// llvowlsky.cpp's initStars()) pick one of three tasteful emission/
-// reflection-nebula palettes off the same star_seed hash everything else
-// here already uses.
+// Nebula patches (last NUM_NEBULA_PATCHES slots of the baked star field,
+// flagged via vertex_color.g==0 - see llvowlsky.cpp's initStars()) pick one
+// of three emission/reflection-nebula palettes off the shared star_seed hash.
 float3 nebulaColorFromSeed(float t)
 {
     float3 c_emission   = float3(0.95, 0.15, 0.10); // red (H-alpha emission)
@@ -124,11 +104,8 @@ float3 nebulaColorFromSeed(float t)
     else               return c_planetary;
 }
 
-// S24 (task #302, "Starry Night" sky style): user's ask was "based on the
-// general star field, just fantastic blue and yellow swirly effects, a
-// stylised version" - a deliberately limited, exaggerated duotone in place
-// of the naturalistic temperature palette above (Van Gogh's sky uses far
-// fewer, far more saturated hues than a realistic starfield).
+// Starry Night style: a deliberately limited, exaggerated blue/gold duotone
+// in place of the naturalistic temperature palette above.
 float3 starryNightColorFromSeed(float t)
 {
     float3 c_deep_blue = float3(0.10, 0.18, 0.55);
@@ -141,23 +118,13 @@ float3 starryNightColorFromSeed(float t)
     else               return lerp(c_gold,      c_white_hot,(t - 0.75) / 0.25);
 }
 
-// S24 (task #302, 2nd revision - user: "perhaps rather than swirls,
-// concentric rings growing in size and fading as they grow, forever
-// cyclic"): a classic "sonar ping" outward radial wave. `phase` decreases
-// with time and increases with radius, so lines of constant phase (the
-// rings themselves) physically move outward as time passes - each ring is
-// born at the center, expands, and fades before the next begins, forever,
-// with no start/end state to track (pure function of time+radius). Contrast
-// is highest near the center and tapers to 0 by the edge, so a ring
-// visibly dissipates as it grows rather than remaining sharp all the way
-// out. Returns roughly [1-contrast, 1+contrast], meant as a direct
-// brightness multiplier.
-// S24 (task #302, 3rd revision, user: "we are being way too conservative,
-// need multiple rings bigger spacing radiating out in huge spans, this has
-// to be not so realistic and more artistic"): `contrast_falloff` controls
-// how far the rings persist before fading (lower = rings stay visible much
-// further from center, for a big dramatic span); `freq` lower = fewer,
-// wider-spaced rings instead of a tight repeating pattern.
+// Outward radial "sonar ping" wave: `phase` decreases with time and
+// increases with radius, so lines of constant phase move outward as time
+// passes, each ring born at the center and fading before the next begins -
+// a pure function of time+radius, no state to track. Contrast tapers to 0
+// at the edge so a ring dissipates as it grows. Returns ~[1-contrast,
+// 1+contrast] as a direct brightness multiplier. `contrast_falloff` controls
+// how far rings persist before fading; lower `freq` gives fewer, wider-spaced rings.
 float ringPulse(float2 uv, float freq, float speed, float phase_offset, float contrast_falloff)
 {
     float2 centered = uv - 0.5;
@@ -174,26 +141,17 @@ PSOutput main(PSInput IN)
 
     float seed = IN.varying.star_seed;
 
-    // S24 (task #279 stage 2): nebula slots are flagged via vertex_color.g
-    // ==0 (a real star's green channel is hardcoded to 1.0 and never
-    // touched again after init - see llvowlsky.cpp's initStars()). They're
-    // deliberately oversized quads (updateStarGeometry()) rendered as a
-    // soft radial-gradient color blob using vary_texcoord0 directly,
-    // instead of sampling the point-star sprite texture at all.
+    // Nebula slots are flagged via vertex_color.g==0 (a real star's green
+    // channel is hardcoded to 1.0 - see llvowlsky.cpp's initStars()). They're
+    // oversized quads rendered as a soft radial-gradient color blob using
+    // vary_texcoord0 directly, not the point-star sprite texture.
     bool is_nebula = IN.varying.vertex_color.g < 0.5;
 
-    // S24 (2026-09-04): user report - nebula/shooting stars stayed fully
-    // visible in broad daylight while point stars correctly faded via
-    // custom_alpha ("factor" below) - moved that same fade curve up here so
-    // both branches share it, matching the user's expectation that nebula
-    // "behave in the same manner as stars do."
-    // S24 (2026-09-05 follow-up): custom_alpha is the active preset's
-    // artist-authored Star Brightness curve, not an actual measure of
-    // whether the sun is up - a bright moon can push it low enough to
-    // "eradicate" the nebula on nights when the sun is still well below
-    // the horizon. Point stars keep using it (daylight_factor, below,
-    // unchanged - no report of them being affected by this). Nebula now
-    // gates on real sun elevation instead - see sun_elevation_factor below.
+    // Nebula gates on real sun elevation rather than custom_alpha
+    // (daylight_factor, below): custom_alpha is the preset's artist-authored
+    // Star Brightness curve, not an actual measure of whether the sun is up -
+    // a bright moon can push it low enough to hide the nebula while the sun
+    // is still well below the horizon. Point stars still use custom_alpha.
     float daylight_factor = smoothstep(0.0f, 0.9f, custom_alpha);
     float sun_elevation_factor = 1.0f - smoothstep(-0.05f, 0.15f, sun_elevation);
 
@@ -211,8 +169,7 @@ PSOutput main(PSInput IN)
         float falloff = saturate(1.0 - dist);
         falloff = falloff * falloff * (3.0 - 2.0 * falloff); // smoothstep shape
 
-        // S24 (task #302, 2nd revision): expanding concentric rings - see
-        // ringPulse()'s comment.
+        // Expanding concentric rings - see ringPulse()'s comment.
         float neb_ring = starry_night
             ? ringPulse(IN.varying.vary_texcoord0.xy, 5.0, 0.5, seed * 9.0, 0.9)
             : 1.0;
@@ -222,14 +179,11 @@ PSOutput main(PSInput IN)
         // star twinkle below.
         float drift = 0.85 + 0.15 * sin(time * 0.15 + seed * 17.0);
 
-        // S24 (task #279 stage 2, user feedback: "LOVE the nebulas mixed
-        // green and red as opposed to single colour blobs"): pick TWO
-        // palette entries per blob off decorrelated seed hashes, then
-        // mottle-blend between them across the quad's local UV (a cheap
-        // 2D standing-wave interference pattern, not true noise, but reads
-        // as genuine internal structure rather than a flat tinted disc).
-        // S24 (task #302): Starry Night mode swaps the red/blue/green
-        // nebula palette for the same blue/gold duotone used on the stars.
+        // Pick TWO palette entries per blob off decorrelated seed hashes,
+        // then mottle-blend between them across the quad's local UV (a cheap
+        // 2D standing-wave interference pattern, not true noise) so the blob
+        // reads as internal structure rather than a flat tinted disc.
+        // Starry Night mode swaps the palette for the blue/gold star duotone.
         float3 color_a = starry_night
             ? starryNightColorFromSeed(frac(seed * 6.191))
             : nebulaColorFromSeed(frac(seed * 6.191));
@@ -257,17 +211,21 @@ PSOutput main(PSInput IN)
 
     bool starry_night = sky_style > 1.5;
 
-    // S24 (task #301 follow-up, user feedback: "they should ignore star
-    // density altogether and be always visible irrespective of density"):
-    // constellation stars are flagged via VBLUE in [0.30,0.45] (see
-    // llvowlsky.cpp's initStars() comment - unambiguous, every other star's
-    // blue channel is always in [0.75,1.0]). Reconstruct a normal-looking
-    // blue tint from star_seed so the flag has no visible side effect on
-    // the star's actual rendered colour.
+    // Constellation stars are flagged via VBLUE in [0.30,0.45] (every other
+    // star's blue channel is always in [0.75,1.0] - see llvowlsky.cpp's
+    // initStars()). Reconstruct a normal-looking blue tint from star_seed so
+    // the flag has no visible effect on the star's actual rendered colour.
     bool is_constellation = IN.varying.vertex_color.b < 0.5;
+    // VRED carries an authored spectral-type color_t for constellation stars
+    // (llvowlsky.cpp's kConstellations data - e.g. Betelgeuse red, Rigel
+    // blue) instead of the usual decorative near-white value - captured here
+    // before vcol.r gets reconstructed to a neutral tint below, same
+    // treatment as vcol.b just above.
+    float authored_color_t = IN.varying.vertex_color.r;
     float3 vcol = IN.varying.vertex_color.rgb;
     if (is_constellation)
     {
+        vcol.r = 1.0;
         vcol.b = 0.75 + frac(seed * 8.219) * 0.25;
     }
 
@@ -277,16 +235,9 @@ PSOutput main(PSInput IN)
     float4 col_b = nextDiffuseMap.Sample(nextDiffuseMapSampler, IN.varying.vary_texcoord0.xy);
     float4 col = lerp(col_a, col_b, blend_factor);
 
-    // S24 (task #279, round 2 - user feedback: "not twinkle, it's more
-    // smooth turning on and off / a gentle pulse"): round 1 was a single
-    // sine wave, which is smooth and symmetric by construction - reads as
-    // breathing, not sparkle. Real atmospheric scintillation is faster and
-    // less regular. Fixed by combining two decorrelated sine octaves (a
-    // slower base + a faster detail layer, different frequency/phase per
-    // star) then reshaping through pow() so the curve spends more time near
-    // its peak and dips quickly rather than swinging symmetrically - and
-    // floored well above 0 so a star never reads as fully "turning off",
-    // just flickering in brightness.
+    // Two decorrelated sine octaves (slower base + faster detail layer, per
+    // star) reshaped via pow() so brightness dwells near its peak and dips
+    // quickly, floored above 0 so a star never fully turns off.
     float base_freq = lerp(2.2, 5.5, frac(seed * 7.1913));
     float base_phase = frac(seed * 13.377) * 6.2831853;
     float detail_freq = lerp(6.0, 11.0, frac(seed * 5.471));
@@ -297,102 +248,54 @@ PSOutput main(PSInput IN)
     twinkle = pow(twinkle, 1.8);
     twinkle = lerp(0.45, 1.0, twinkle);
 
-    // S24 (task #279, round 2 - "more flare and bloom"): ~10% of stars are
-    // "flare" stars - biased toward the red/orange end of the palette (real
-    // red giants: rare but among the brightest naked-eye stars) and given a
-    // much bigger alpha boost so they push harder into the existing bloom/
-    // glow threshold (LLPipeline::generateGlow(), pipeline.cpp - unmodified,
-    // this just feeds it a stronger source) rather than needing a hand-
-    // rolled flare/diffraction-spike effect of their own.
+    // ~10% of stars are "flare" stars, given a bigger alpha boost so they
+    // push harder into the existing bloom/glow threshold
+    // (LLPipeline::generateGlow(), pipeline.cpp) instead of a hand-rolled
+    // flare/diffraction-spike effect.
     float flare_roll = frac(seed * 4.129);
     float is_flare = step(0.90, flare_roll);
-    // S24 (task #302 follow-up, root cause of "just a cool blue starfield"):
-    // this bias compresses color_t toward 0 for flare stars, which under
-    // the DEFAULT palette (starColorFromSeed, t=0 -> red) puts the
-    // brightest/biggest stars at the red end as intended. But under
-    // starryNightColorFromSeed, t=0 is DEEP BLUE - so every flare star
-    // (extra-bright by design, flare_boost below) was being pushed toward
-    // the coolest color, drowning out gold with the most visually dominant
-    // stars in the scene. Starry Night mode biases the OTHER way instead,
-    // toward the gold/white-hot end (t near 1.0) - matching the painting's
-    // actual radiant golden stars - while the other 90% of the field still
-    // spans the full blue->gold gradient at random, keeping the blue
-    // population intact.
+    // Under the default palette (starColorFromSeed, t=0 -> red) biasing
+    // color_t toward 0 puts flare stars at the red end. starryNightColorFromSeed
+    // has t=0 as deep blue instead, so Starry Night biases toward t near 1.0
+    // (gold/white-hot) so flare stars don't drown out gold with blue.
     float color_t = starry_night
         ? lerp(frac(seed * 3.257), 0.82 + frac(seed * 3.257) * 0.18, is_flare)
         : lerp(frac(seed * 3.257), frac(seed * 3.257) * 0.34, is_flare);
+    // Real Constellations: use the authored spectral-type color instead of the random
+    // per-seed hue above - Betelgeuse should actually be red, not whatever the hash rolls.
+    color_t = is_constellation ? authored_color_t : color_t;
     float flare_boost = 1.0 + is_flare * 2.5;
 
-    // S24 (task #302): Starry Night mode swaps the naturalistic temperature
-    // palette for the blue/gold duotone - see starryNightColorFromSeed().
+    // Starry Night mode swaps the naturalistic temperature palette for the
+    // blue/gold duotone - see starryNightColorFromSeed().
     float3 star_tint = starry_night ? starryNightColorFromSeed(color_t) : starColorFromSeed(color_t);
-    // Stardust/galactic band: stars inside it lean blue-white (young, hot
-    // stars cluster along a real galactic plane) and burn brighter/denser-
-    // looking, without needing a separate nebula texture or fullscreen pass.
-    // S24 (task #279 stage 2): "clump" gives the band visible texture
-    // (patchy dust lane) instead of a smooth gradient, cheaply, off the same
-    // per-star seed hash rather than a real 2D noise field; both clump and
-    // the band's overall reach are user-scaled via star_dust_intensity.
-    // S24 (task #279 stage 2, user feedback: "so faint as not to be
-    // noticible"): both the tint blend and the brightness boost below were
-    // capped well under their own visible range even at band==1 - raised
-    // substantially so the band reads as an actual bright dust lane rather
-    // than a faint tinge on a couple of stars.
-    float clump = 0.55 + 0.75 * frac(seed * 41.719);
-    float band = IN.varying.galactic_band * clump * star_dust_intensity;
-    float3 band_tint = lerp(star_tint, float3(0.75, 0.85, 1.00), saturate(band * 1.4));
-    col.rgb *= band_tint * vcol;
+    col.rgb *= star_tint * vcol;
 
     float factor = daylight_factor;
-    float density_boost = 1.0 + band * 2.5;
 
-    // S24 (task #279 stage 2): RenderStarDensity is a pure per-star
-    // visibility cull against star_seed - 1.0 shows every baked star (the
-    // field's full NUM_REAL_STARS count, see llvowlsky.cpp), lower values
-    // thin it out. No geometry/CPU cost, matches every other control here.
-    // S24 (task #301 follow-up): constellation stars are exempt entirely -
-    // the whole point of the mode is a readable, always-visible pattern.
+    // RenderStarDensity is a per-star visibility cull against star_seed -
+    // 1.0 shows every baked star, lower values thin it out. Constellation
+    // stars are exempt entirely (always visible regardless of density).
     float density_vis = is_constellation ? 1.0 : step(seed, star_density);
 
-    // S24 (task #279 stage 2, user feedback: "under 1.0 you get a better
-    // distribution of colour, over that it blows everything out to white -
-    // I was expecting more bloom/haze not less colour, value has not got
-    // much value above 3.0"): the old scheme multiplied star_glow straight
-    // into col.a, which multiplies the additive contribution of every RGB
-    // channel together - since channels saturate to 1.0 (white) at
-    // different magnitudes, pushing that product past ~1-2x collapses hue
-    // entirely, and pushing it further does nothing MORE visible once every
-    // channel is already clipped. Split it in two: 0-1 keeps the exact old
-    // behaviour (a plain brightness scalar - this is the range the user
-    // liked). Above 1.0 no longer brightens the point itself - it instead
-    // fades in a wider, separate soft halo (same UV-radial technique as the
-    // nebula blobs above), hue-anchored to the star's own tint rather than
-    // the sprite texture, and its RADIUS - not just its intensity - grows
-    // with the slider, so higher values genuinely keep doing more (spread
-    // further) instead of asymptoting to a fully white core by ~2-3.
+    // star_glow split in two ranges: 0-1 is a plain brightness scalar on
+    // col.a directly (multiplying RGB channels that saturate at different
+    // magnitudes collapses hue past ~1-2x, so pushing further does nothing
+    // visible). Above 1.0 instead fades in a separate soft halo (same
+    // UV-radial technique as the nebula blobs), hue-anchored to the star's
+    // tint, whose RADIUS also grows with the slider.
     float glow_base = min(star_glow, 1.0);
     float glow_haze = max(star_glow - 1.0, 0.0);
 
-    col.a = (col.a * factor) * 32.0f * density_boost * flare_boost * glow_base;
+    col.a = (col.a * factor) * 32.0f * flare_boost * glow_base;
     col.a *= twinkle * density_vis;
 
-    // S24 (task #302, 4th revision, user: "better but the circles are
-    // hitting the billboard... square needs to be bigger so the rings
-    // dissapate into the night without clipping... even at glow 0.0 they
-    // are BRIGHT they could do with less... the speed is just right just
-    // need them to have the space to dissapate"): the previous pass's
-    // falloff coefficients never actually reached 0 within the quad's own
-    // radius range (max ~1.4 at the corners) - contrast/envelope were both
-    // still positive right up to the hard geometric edge, so the pattern
-    // visibly cut off in a square silhouette instead of fading to black.
-    // Tightened both so they reach true 0 well inside the quad (~0.7-0.8),
-    // leaving real margin before the edge; updateStarGeometry() compensates
-    // with a bigger billboard so the ABSOLUTE visible size doesn't shrink,
-    // it just gets genuine empty space to dissipate into. Ring speed/
-    // frequency untouched per "the speed is just right". Corona base
-    // brightness reduced (this is what's actually visible at
-    // RenderStarGlow=0, since that setting zeroes the base point but never
-    // gated the corona - see the col.a assignment above).
+    // Falloff coefficients reach true 0 well inside the quad (~0.7-0.8),
+    // leaving margin before the hard geometric edge so the pattern fades to
+    // black instead of cutting off in a square silhouette; updateStarGeometry()
+    // uses a bigger billboard to compensate so absolute visible size is
+    // unchanged. Corona base brightness is kept low since RenderStarGlow=0
+    // zeroes the base point but never gates the corona itself.
     if (starry_night)
     {
         float2 sn_uv = IN.varying.vary_texcoord0.xy - 0.5;
@@ -417,7 +320,7 @@ PSOutput main(PSInput IN)
         haze_falloff *= haze_falloff;
 
         float haze_alpha = haze_falloff * glow_haze * 0.4 * flare_boost * twinkle * density_vis;
-        col.rgb = lerp(col.rgb, band_tint * IN.varying.vertex_color.rgb, haze_falloff);
+        col.rgb = lerp(col.rgb, star_tint * IN.varying.vertex_color.rgb, haze_falloff);
         col.a += haze_alpha;
     }
 

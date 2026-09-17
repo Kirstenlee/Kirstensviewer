@@ -5113,11 +5113,11 @@ const void LLAgent::getTeleportSourceSLURL(LLSLURL& slurl) const
 // static
 void LLAgent::dumpGroupInfo()
 {
-    LL_INFOS() << "group   " << gAgent.mGroupName << LL_ENDL;
-    LL_INFOS() << "ID      " << gAgent.mGroupID << LL_ENDL;
-    LL_INFOS() << "powers " << gAgent.mGroupPowers << LL_ENDL;
-    LL_INFOS() << "title   " << gAgent.mGroupTitle << LL_ENDL;
-    //LL_INFOS() << "insig   " << gAgent.mGroupInsigniaID << LL_ENDL;
+    LL_WARNS() << "group   " << gAgent.mGroupName << LL_ENDL;
+    LL_WARNS() << "ID      " << gAgent.mGroupID << LL_ENDL;
+    LL_WARNS() << "powers " << gAgent.mGroupPowers << LL_ENDL;
+    LL_WARNS() << "title   " << gAgent.mGroupTitle << LL_ENDL;
+    //LL_WARNS() << "insig   " << gAgent.mGroupInsigniaID << LL_ENDL;
 }
 
 // Draw a representation of current autopilot target

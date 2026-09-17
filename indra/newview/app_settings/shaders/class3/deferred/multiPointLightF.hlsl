@@ -94,7 +94,7 @@ GBufferInfo getGBuffer(float2 screenpos);
 
 struct PSInput
 {
-    // S24 (2026-08-02): missing SV_Position - see uiF.hlsl's comment (fxc.exe-confirmed VS/PS register-shift bug).
+    // S24: SV_Position semantic required here, or every subsequent VS/PS interpolant register shifts (see uiF.hlsl).
     float4 position : SV_Position;
 
     float4 vary_fragcoord : TEXCOORD0;
@@ -120,23 +120,15 @@ float4 main(PSInput IN) : SV_Target
         float metallic = orm.b;
         float3 f0 = 0.04;
         float3 baseColor = diffuse.rgb;
-        // S24 (2026-08-19, task #235, task #227 audit finding): was missing
-        // the *(1.0-f0) term GLSL has (~4% too bright) - sibling
-        // spotLightF.hlsl already has it correctly, confirming this was a
-        // real, inconsistent omission.
+        // S24: *(1.0-f0) term required to match GLSL - see spotLightF.hlsl's copy.
         float3 diffuseColor = baseColor.rgb * (float3(1.0, 1.0, 1.0) - f0);
         diffuseColor *= 1.0 - metallic;
         float3 specularColor = lerp(f0, baseColor.rgb, metallic);
 
-        // S24 (2026-08-15, task #165): was looping the compile-time
-        // LIGHT_COUNT permutation constant instead of the real runtime
-        // light_count uniform (declared above, matches GL's multiLightF.glsl
-        // which loops `i < light_count`) - functionally masked today since
-        // unused slots have light[i].w=0 (dist=length/0=inf, skipped), but
-        // wastes iterations on the fullscreen pass and risks phantom lights
-        // if a slot is ever left non-zero (stale staging data, partial
-        // upload). Found via a user-compiled deep-dive report on task #165,
-        // verified against source before applying.
+        // S24: must loop the runtime light_count uniform, not the compile-time LIGHT_COUNT
+        // permutation constant (matches GL's multiLightF.glsl `i < light_count`) - looping
+        // LIGHT_COUNT wastes iterations and risks phantom lights if an unused slot is ever
+        // left non-zero.
         int clamped_light_count = min(light_count, LIGHT_COUNT);
         for (int light_idx = 0; light_idx < clamped_light_count; ++light_idx)
         {
@@ -161,8 +153,7 @@ float4 main(PSInput IN) : SV_Target
     {
         diffuse = srgb_to_linear(diffuse);
         spec.rgb = srgb_to_linear(spec.rgb);
-        // S24 (2026-08-15, task #165): see the PBR branch's identical fix
-        // above - same LIGHT_COUNT -> light_count correction.
+        // S24: same LIGHT_COUNT -> light_count correction as the PBR branch above.
         int clamped_light_count_legacy = min(light_count, LIGHT_COUNT);
         for (int i = 0; i < clamped_light_count_legacy; ++i)
         {
@@ -171,67 +162,13 @@ float4 main(PSInput IN) : SV_Target
             if (dist <= 1.0)
             {
                 float nl2 = dot(n, lv / length(lv));
-                // S24 (2026-08-16): task #165 round-24 diagnostic removed -
-                // it `return`ed solid blue for any backfacing light instead
-                // of just skipping that light's contribution, which also
-                // short-circuited the whole function (inside this loop) and
-                // silently dropped every OTHER light still owed to this
-                // pixel. Answered: not the bug in itself, but was causing
-                // visible blue patches in-world of its own. See
-                // diagnostic-lifecycle.
-                //
-                // S24 (2026-08-17, task #165, ROOT CAUSE + FIX after 24
-                // rounds of investigation): this WAS the real mechanism -
-                // just not a state/geometry/buffer bug the way every prior
-                // round was looking for. `if (nl2 > 0.0)` is a genuine,
-                // zero-margin binary step: at nl2=+0.001 this light
-                // contributes its full computed color; at nl2=-0.001
-                // (a camera-orientation change of a small fraction of a
-                // degree) it contributes literally nothing. nl2 is
-                // recomputed fresh from the camera-relative geometry EVERY
-                // rendered frame with no memory of the previous frame's
-                // result - so whether this looks like a stable light or a
-                // flickering one depends entirely on how densely those
-                // recomputations sample whatever tiny, continuous camera
-                // motion is happening (mouse-look micro-motion, idle/
-                // breathing sway) at the moment nl2 sits near zero, i.e. how
-                // many times per REAL second the frame is being rendered.
-                // This is why the "DX culls more aggressive than GL" framing
-                // this task started with was always going to be a dead end
-                // to chase in isolation: this exact hard-cutoff shape
-                // (compare pointLightF.hlsl's own `if (nl < 0.0) discard` -
-                // same pattern, though that one turns out to be dead code,
-                // since calcHalfVectors() already clamps nl to >=1e-6 before
-                // that check ever runs) is inherited, unmodified LL design
-                // present in BOTH backends' source (pipeline.cpp's own
-                // deferred point-light loop has no smoothing here either -
-                // confirmed by direct read this session) - there is no GL
-                // divergence to find here, because there isn't one. What
-                // DOES differ is how often each backend's frame gets
-                // sampled against real wall-clock time under THIS
-                // session's own diagnostic conditions, and the user's own
-                // discovery that an unfocused/BackgroundYieldTime-throttled
-                // window (camera frozen, no input delivered, ~20fps) shows
-                // every walkway light rock-solid ON while the same scene
-                // focused (camera subject to continuous micro-motion,
-                // 60-144+fps) pops constantly is EXACTLY what you'd expect
-                // from a step function being sampled at wildly different
-                // rates against a continuously-varying input - a real
-                // temporal-aliasing artifact, not a spatial/state bug, which
-                // is exactly why 24 rounds of single-frame, fixed-camera,
-                // and GPU-readback diagnostics (each one implicitly holding
-                // the camera still to get a clean sample - the unfocused-
-                // equivalent condition) kept coming back clean.
-                //
-                // Real fix: replace the hard step with a continuous ramp
-                // (smoothstep) across a small epsilon band around nl2=0.
-                // A continuous function has no sampling-rate-dependent
-                // popping by construction - it doesn't matter how often you
-                // sample it, the value only ever changes by a proportionally
-                // small amount per proportionally small camera-angle change.
-                // This is a genuine, deliberate DX-only improvement, not a
-                // GL-parity restoration - GL's own pipeline.cpp has the
-                // identical unsmoothed cutoff and was never touched.
+                // S24: a hard `nl2 > 0.0` cutoff pops on/off between frames under continuous
+                // camera micro-motion (mouse-look, idle sway) - a temporal-aliasing artifact
+                // from resampling a step function every frame, not a state/geometry bug.
+                // smoothstep across a small epsilon band around nl2=0 removes the popping
+                // since a continuous function's value can only change proportionally to a
+                // proportionally small angle change. Deliberate DX-only improvement - GL's
+                // pipeline.cpp keeps the same unsmoothed cutoff pointLightF.hlsl also has.
                 const float NL_SMOOTH_EPS = 0.05; // ~87-93 degree grazing band
                 float nl_atten = smoothstep(-NL_SMOOTH_EPS, NL_SMOOTH_EPS, nl2);
                 if (nl_atten > 0.0)
@@ -249,23 +186,11 @@ float4 main(PSInput IN) : SV_Target
                         float gt = max(0, min(2 * nh * nv / vh, 2 * nh * nl2 / vh));
                         if (nh > 0.0)
                         {
-                            // S24 (2026-09-02): was Sample() (implicit LOD/
-                            // derivative) - this loop's trip count depends
-                            // on the runtime uniform light_count, not a
-                            // compile-time constant, so FXC can't statically
-                            // prove every pixel in a quad takes the same
-                            // number of iterations and forcibly unrolls the
-                            // whole loop (up to 16x for this file's highest
-                            // LIGHT_COUNT permutation) just to make the
-                            // gradient computation provable (X3570).
-                            // SampleLevel(...,0) needs no derivative, so the
-                            // loop no longer has to be unrolled for this
-                            // reason. Zero behavior change: mDXLightFunc
-                            // (DXTexture::createFloat()) hardcodes
-                            // MipLevels=1/mGenerateMips=false - there is
-                            // only ever mip 0, so implicit-LOD Sample() and
-                            // explicit-LOD-0 SampleLevel() are identical
-                            // here, not an approximation.
+                            // S24: SampleLevel(...,0) instead of Sample() - this loop's trip
+                            // count depends on the runtime light_count uniform, so FXC can't
+                            // prove uniform derivatives across a quad and forcibly unrolls
+                            // the loop to make Sample()'s implicit LOD provable (X3570).
+                            // Equivalent here since mDXLightFunc has only mip 0 (MipLevels=1).
                             float scol = fres * lightFunc.SampleLevel(lightFuncSampler, float2(nh, spec.a), 0).r * gt / (nh * nl2);
                             col += lit * scol * light_col[i].rgb * spec.rgb;
                         }

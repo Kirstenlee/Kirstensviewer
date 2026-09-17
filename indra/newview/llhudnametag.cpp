@@ -118,10 +118,9 @@ LLHUDNameTag::LLHUDNameTag(const U8 type)
 LLHUDNameTag::~LLHUDNameTag()
 {
 #ifdef DX_RENDER
-    // S24 (2026-08-28, task #193 follow-up): return the query name to the
-    // shared pool - matches LLOcclusionCullingGroup's own use of the same
-    // getNewOcclusionQueryObjectName()/releaseOcclusionQueryObjectName()
-    // pool. Safe even if mOcclusionQueryPending is still true - release just
+    // Returns the query name to the pool shared with LLOcclusionCullingGroup
+    // (getNewOcclusionQueryObjectName()/releaseOcclusionQueryObjectName()).
+    // Safe even if mOcclusionQueryPending is still true - release only
     // returns the name to the free list, it doesn't touch the async result.
     if (mOcclusionQuery)
     {
@@ -240,7 +239,6 @@ bool LLHUDNameTag::lineSegmentIntersect(const LLVector4a& start, const LLVector4
 
 void LLHUDNameTag::render()
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_UI;
     if (sDisplayText)
     {
         LLGLDepthTest gls_depth(GL_TRUE, GL_FALSE);
@@ -255,7 +253,6 @@ void LLHUDNameTag::renderText()
         return;
     }
 
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_UI;
 
         gDX.getTexUnit(0)->enable(LLTexUnit::TT_TEXTURE);
 
@@ -269,11 +266,8 @@ void LLHUDNameTag::renderText()
             alpha_factor = llmax(0.f, 1.f - (mLastDistance - mFadeDistance)/mFadeRange);
         }
     }
-    // S24 (2026-08-28, task #193 follow-up): occlusion-fade folded into the
-    // same alpha_factor every other value below (bg_color, label colors,
-    // text_color) already multiplies by unconditionally - see this class's
-    // .h for the full design writeup. mOcclusionFadeAlpha defaults to 1.0
-    // and is a true no-op under GL / before a query has resolved.
+    // mOcclusionFadeAlpha defaults to 1.0, so this is a no-op under GL or
+    // before a query has resolved. See the .h for the occlusion-fade design.
     alpha_factor *= mOcclusionFadeAlpha;
     text_color.mV[3] = text_color.mV[3]*alpha_factor;
     if (text_color.mV[3] < 0.01f)
@@ -289,10 +283,6 @@ void LLHUDNameTag::renderText()
     static LLUIColor nametag_bg_color = LLUIColorTable::instance().getColor("NameTagBackground");
     LLColor4 bg_color = nametag_bg_color;
     bg_color.setAlpha(bubble_opacity * alpha_factor);
-    // S24 (2026-08-11, task #191): confirmed via temporary diagnostic
-    // (forced alpha=0.05, panel went invisible) that real alpha correctly
-    // reaches the draw3D()/DXUIBatch blend chain - the pipeline works.
-    // Diagnostic removed.
 
     // scale screen size of borders down
     //RN: for now, text on hud objects is never occluded
@@ -332,26 +322,12 @@ void LLHUDNameTag::renderText()
     }
     LLGLDepthTest gls_depth(GL_TRUE, GL_FALSE, render_over_water ? GL_ALWAYS : GL_LEQUAL);
 
-    // S24 (2026-08-11, task #191): matrix-sync theory tried above (kept in
-    // history, not here) tested as zero-effect - ruled out. Real cause
-    // (user's own theory, confirmed by reading the code): LLUIImage::draw3D()
-    // (the background box below) draws against WHATEVER D3D11 viewport is
-    // currently bound, with no explicit reset of its own. hud_render_text()
-    // (further down, this same nametag's text) explicitly calls
-    // gViewerWindow->setup3DViewport() right before it draws, which resets
-    // the viewport to mWorldViewRectRaw (the area left over after the menu
-    // bar/chrome, task #110's own fix). Between presentDeferredScreen()
-    // (which last set the CORRECT chrome-excluded viewport, via its own
-    // setPresentViewport()) and here, render_hud_attachments() calls
-    // renderGeomPostDeferred() a second time for HUD-attached objects,
-    // which binds render targets via DXRenderTarget::bindTarget()/
-    // bindSwapChainBackBuffer() - both of which reset the viewport to
-    // match their OWN full target size (chrome INCLUDED), with nothing
-    // re-applying the chrome-excluded correction afterward. So by the time
-    // this function runs, the box draws against the wrong (larger, chrome-
-    // inclusive) viewport while the text explicitly fixes its own - exactly
-    // the fixed, chrome-sized offset observed. Match hud_render_text()'s
-    // own fix here too, for the box.
+    // LLUIImage::draw3D() (the background box below) draws against whatever
+    // D3D11 viewport is currently bound with no reset of its own. HUD-attached
+    // objects trigger a second renderGeomPostDeferred() pass that rebinds
+    // render targets and resets the viewport to their own chrome-inclusive
+    // size, so this must be reset here too, matching hud_render_text()'s fix
+    // for the text below.
     gViewerWindow->setup3DViewport();
 
     LLRect screen_rect;
@@ -442,10 +418,9 @@ void LLHUDNameTag::renderText()
     gDX.color4f(1.0f, 1.0f, 1.0f, 1.0f);
 }
 
-// S24 (2026-08-28, task #193 follow-up): called once per frame from
-// LLPipeline::doOcclusion() (pipeline.cpp) while gOcclusionCubeProgram/
-// mCubeVB are already bound for spatial-group occlusion culling - reused
-// here rather than standing up a second shader-bind/buffer-setup path.
+// Called once per frame from LLPipeline::doOcclusion() (pipeline.cpp) while
+// gOcclusionCubeProgram/mCubeVB are already bound for spatial-group
+// occlusion culling - reuses that bind rather than its own shader/buffer setup.
 void LLHUDNameTag::issueOcclusionQueries()
 {
 #ifdef DX_RENDER
@@ -851,7 +826,6 @@ void LLHUDNameTag::updateSize()
 
 void LLHUDNameTag::updateAll()
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_UI;
     // iterate over all text objects, calculate their restoration forces,
     // and add them to the visible set if they are on screen and close enough
     sVisibleTextObjects.clear();
@@ -863,9 +837,9 @@ void LLHUDNameTag::updateAll()
         textp->mTargetPositionOffset.clearVec();
         textp->updateSize();
         textp->updateVisibility();
-        // S24 (2026-08-28, task #193 follow-up): poll last frame's
-        // occlusion-query result here, before this frame's doOcclusion()
-        // (pipeline.cpp) issues the next one via issueOcclusionQueries().
+        // Polls last frame's occlusion-query result before this frame's
+        // doOcclusion() (pipeline.cpp) issues the next one via
+        // issueOcclusionQueries().
         textp->updateOcclusionFade();
     }
 

@@ -25,14 +25,10 @@
 float3 srgb_to_linear(float3 cs)
 {
     float3 low_range = cs / float3(12.92, 12.92, 12.92);
-    // S24 (task #240, task #227 audit finding): the abs() here isn't in
-    // GLSL's srgb_to_linear()/srgb_to_linear4() - reviewed and kept
-    // deliberately, not "fixed" to match. pow() with a negative base and a
-    // non-integer exponent (2.4) is undefined behavior on both GL and D3D,
-    // but D3D11 is more likely to reliably produce NaN (which would then
-    // propagate into every single texture read using this near-ubiquitous
-    // function) than GL is to silently degrade - the safer divergence to
-    // keep, given how central this function is.
+    // abs() here isn't in GLSL's version - kept deliberately: pow() with a
+    // negative base and non-integer exponent is undefined, and D3D11 tends
+    // to reliably produce NaN which would propagate through this
+    // near-ubiquitous function.
     float3 high_range = pow(abs((cs + float3(0.055, 0.055, 0.055)) / float3(1.055, 1.055, 1.055)), float3(2.4, 2.4, 2.4));
     bool3 lte = cs <= float3(0.04045, 0.04045, 0.04045);
 #ifdef OLD_SELECT
@@ -49,7 +45,7 @@ float3 srgb_to_linear(float3 cs)
 float4 srgb_to_linear4(float4 cs)
 {
     float4 low_range = cs / float4(12.92, 12.92, 12.92, 12.92);
-    // S24 (task #240): see srgb_to_linear()'s matching comment above.
+    // abs() kept deliberately - see srgb_to_linear()'s matching comment above.
     float4 high_range = pow(abs((cs + float4(0.055, 0.055, 0.055, 0.055)) / float4(1.055, 1.055, 1.055, 1.055)), float4(2.4, 2.4, 2.4, 2.4));
     bool4 lte = cs <= float4(0.04045, 0.04045, 0.04045, 0.04045);
 #ifdef OLD_SELECT
@@ -112,14 +108,8 @@ float3 inv_RRTAndODTFit(float3 x)
     return (A - D * x) / (2.0 * (C * x - 1.0)) - sqrt(pow(D * x - A, float3(2.0, 2.0, 2.0)) - 4.0 * (C * x - 1.0) * (B + E * x)) / (2.0 * (C * x - 1.0));
 }
 
-// S24 (2026-09-05, task #184 follow-up): same HLSL-row-major-vs-GLSL-column-
-// major matrix-literal transpose bug as tonemapUtilF.hlsl's toneMapACES_Hill
-// (task #234 precedent) - mul(M, color) computed transpose(M)*color instead
-// of the intended M*color. Fixed the same way: swap to mul(color, M). No
-// live rendering impact today (this function has zero call sites in either
-// the GL or DX shader trees - already-dead, LL-original "experimental"
-// scaffolding per its own GLSL comment), fixed anyway for tree-wide
-// consistency in case it's ever wired up.
+// Same HLSL-row-major-vs-GLSL-column-major matrix-literal issue as
+// tonemapUtilF.hlsl's toneMapACES_Hill - use mul(color, M) not mul(M, color).
 float3 inv_toneMapACES_Hill(float3 color)
 {
     color = mul(color, inv_ACESOutputMat);

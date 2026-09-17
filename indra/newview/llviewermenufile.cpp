@@ -1120,8 +1120,8 @@ void handle_compress_image()
         {
             std::string outfile = infile + ".j2c";
 
-            LL_INFOS() << "Input:  " << infile << LL_ENDL;
-            LL_INFOS() << "Output: " << outfile << LL_ENDL;
+            LL_WARNS() << "Input:  " << infile << LL_ENDL;
+            LL_WARNS() << "Output: " << outfile << LL_ENDL;
 
             bool success;
 
@@ -1129,11 +1129,11 @@ void handle_compress_image()
 
             if (success)
             {
-                LL_INFOS() << "Compression complete" << LL_ENDL;
+                LL_WARNS() << "Compression complete" << LL_ENDL;
             }
             else
             {
-                LL_INFOS() << "Compression failed: " << LLImage::getLastThreadError() << LL_ENDL;
+                LL_WARNS() << "Compression failed: " << LLImage::getLastThreadError() << LL_ENDL;
             }
 
             infile = picker.getNextFile();
@@ -1183,7 +1183,7 @@ void handle_compress_file_test()
             {
                 S64Bytes packed_size = S64Bytes(get_file_size(packfile));
 
-                LL_INFOS() << "Packing complete, time: " << result_pack_seconds << " size: " << packed_size << LL_ENDL;
+                LL_WARNS() << "Packing complete, time: " << result_pack_seconds << " size: " << packed_size << LL_ENDL;
                 total_seconds = LLTimer::getTotalSeconds();
                 success = gunzip_file(packfile, unpackfile);
                 F64 result_unpack_seconds = LLTimer::getTotalSeconds() - total_seconds;
@@ -1192,7 +1192,7 @@ void handle_compress_file_test()
                 {
                     S64Bytes unpacked_size = S64Bytes(get_file_size(unpackfile));
 
-                    LL_INFOS() << "Unpacking complete, time: " << result_unpack_seconds << " size: " << unpacked_size << LL_ENDL; 
+                    LL_WARNS() << "Unpacking complete, time: " << result_unpack_seconds << " size: " << unpacked_size << LL_ENDL;
 
                     LLSD args;
                     args["FILE"] = infile;
@@ -1208,19 +1208,19 @@ void handle_compress_file_test()
                 }
                 else
                 {
-                    LL_INFOS() << "Failed to uncompress file: " << packfile << LL_ENDL;   
+                    LL_WARNS() << "Failed to uncompress file: " << packfile << LL_ENDL;
                     LLFile::remove(packfile);
                 }
 
             }
             else
             {
-                LL_INFOS() << "Failed to compres file: " << infile << LL_ENDL;
+                LL_WARNS() << "Failed to compres file: " << infile << LL_ENDL;
             }
         }
         else
         {
-            LL_INFOS() << "Failed to open file" << LL_ENDL;
+            LL_WARNS() << "Failed to open file" << LL_ENDL;
         }
     }
     else

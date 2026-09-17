@@ -32,7 +32,7 @@ SamplerState srcMapSampler : register(s0);
 
 struct PSInput
 {
-    // S24 (2026-08-02): missing SV_Position - see uiF.hlsl's comment (fxc.exe-confirmed VS/PS register-shift bug).
+    // Required (unused) SV_Position field - omitting it shifts VS/PS register bindings; see uiF.hlsl.
     float4 position : SV_Position;
 
     float2 vary_texcoord0 : TEXCOORD0;

@@ -22,11 +22,7 @@
  * SOFTWARE.
  */
 
-// S24 (2026-09-10, task: jelly-doll ghost rendering): identical billboard-
-// quad transform to class1/deferred/impostorV.hlsl - the jelly-doll ghost
-// draws the SAME cached impostor quad geometry as the ordinary opaque
-// impostor path, just through a different (alpha-blended, post-deferred)
-// fragment shader. No skinning needed - it's a flat camera-facing quad.
+// Same billboard-quad transform as impostorV.hlsl; no skinning needed - flat camera-facing quad.
 
 uniform float4x4 texture_matrix0;
 uniform float4x4 modelview_projection_matrix;

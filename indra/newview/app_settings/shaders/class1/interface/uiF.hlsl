@@ -27,17 +27,9 @@ SamplerState diffuseMapSampler : register(s0);
 
 #include "varying/uiVarying.hlsli"
 
-// S24 (2026-08-02): confirmed via fxc.exe disassembly, not inference - the
-// VS's OWN output signature (uiV.hlsl) assigns SV_Position to a REAL,
-// NUMBERED output register (0), pushing TEXCOORD0 to register 1 and
-// COLOR0 to register 2. This PSInput previously had no SV_Position field
-// at all, so its first declared member (TEXCOORD0) started fresh at
-// register 0 - a genuine register mismatch (D3D11 debug-layer id=343,
-// "TEXCOORD... mismatched hardware registers"), invisible from reading
-// either file's source alone since both LOOKED structurally identical.
-// Wrapping UIVarying in a local struct with its own (unused) SV_Position
-// field first mirrors the VS's exact shape, restoring identical register
-// numbering on both sides.
+// S24: uiV.hlsl's VS output assigns SV_Position to register 0, shifting
+// TEXCOORD0/COLOR0 up by one. PSInput must declare SV_Position first too,
+// or the VS/PS interpolant registers mismatch.
 struct PSInput
 {
     float4 position : SV_Position;

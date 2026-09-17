@@ -256,8 +256,7 @@ void LLMuteList::clearCachedMutes()
 {
     mMutes.clear();
     mLegacyMutes.clear();
-    // S24 (2026-09-10): internal lifecycle event only, nothing the user can
-    // act on - was log poison at WARNS.
+    // Internal lifecycle event only, nothing user-actionable - keep below WARNS.
     LL_DEBUGS() << "Cached mutes cleared" << LL_ENDL;
 }
 
@@ -497,15 +496,8 @@ void LLMuteList::updateAdd(const LLMute& mute)
     // ML_LOADED. As a workaround, set it regardless of current state.
     mLoadState = ML_LOADED;
 
-    // ============================================================================
-    // S24 CUSTOM: Object Derender on Mute
-    // ============================================================================
-    // RATIONALE: S24 implements object derender by setting FORCE_INVISIBLE flag
-    //            instead of blocking object creation (LL default behavior).
-    //            This allows objects to stay in memory for instant unmute recovery.
-    // WHY:       Blocking creation breaks unmute after relog (object not in memory).
-    // MERGE:     Keep this entire block - core S24 derender feature.
-    // ============================================================================
+    // S24: derender via FORCE_INVISIBLE instead of blocking object creation (LL default), so the
+    // object stays in memory and unmute can restore it instantly without a relog. Keep on LL merge.
     if (mute.mType == LLMute::OBJECT && mute.mID.notNull())
     {
         LLViewerObject* obj = gObjectList.findObject(mute.mID);
@@ -561,9 +553,6 @@ void LLMuteList::updateAdd(const LLMute& mute)
             }
         }
     }
-    // ============================================================================
-    // END S24 CUSTOM: Object Derender on Mute
-    // ============================================================================
 }
 
 
@@ -649,15 +638,8 @@ void LLMuteList::updateRemove(const LLMute& mute)
         return;
     }
 
-    // ============================================================================
-    // S24 CUSTOM: Object Re-render on Unmute
-    // ============================================================================
-    // RATIONALE: When unmuting, clear FORCE_INVISIBLE and force spatial rebuild
-    //            to ensure object becomes visible immediately without relog.
-    // WHY:       Objects stay in memory when muted (see updateAdd), so we can
-    //            instantly restore them. Requires spatial partition refresh.
-    // MERGE:     Keep this entire block - core S24 unmute recovery feature.
-    // ============================================================================
+    // S24: clears FORCE_INVISIBLE and forces a spatial partition rebuild so the object (kept in
+    // memory by updateAdd's derender) becomes visible immediately, no relog needed. Keep on LL merge.
     if (mute.mType == LLMute::OBJECT && mute.mID.notNull())
     {
         LLViewerObject* obj = gObjectList.findObject(mute.mID);
@@ -718,9 +700,6 @@ void LLMuteList::updateRemove(const LLMute& mute)
             LL_DEBUGS("MuteList") << "Object not in memory yet, will be handled on creation" << LL_ENDL;
         }
     }
-    // ============================================================================
-    // END S24 CUSTOM: Object Re-render on Unmute
-    // ============================================================================
 
     LLMessageSystem* msg = gMessageSystem;
     msg->newMessageFast(_PREHASH_RemoveMuteListEntry);
@@ -822,7 +801,6 @@ std::vector<LLMute> LLMuteList::getMutes() const
 //-----------------------------------------------------------------------------
 bool LLMuteList::loadFromFile(const std::string& filename, EMuteListSource source)
 {
-    LL_PROFILE_ZONE_SCOPED;
 
     if(!filename.size())
     {
@@ -868,16 +846,9 @@ bool LLMuteList::loadFromFile(const std::string& filename, EMuteListSource sourc
         {
             mMutes.insert(mute);
 
-            // ============================================================================
-            // S24 CUSTOM: Load-Time Derender Enforcement
-            // ============================================================================
-            // RATIONALE: When mute list loads from server/cache after relog, objects
-            //            may already be in memory before mute state is known. This
-            //            applies FORCE_INVISIBLE to already-loaded muted objects.
-            // WHY:       Fixes bug where objects stay visible after relog despite mute.
-            //            LL only adds mute to internal list but never hides the object.
-            // MERGE:     Keep this entire block - critical relog recovery fix.
-            // ============================================================================
+            // S24: applies FORCE_INVISIBLE to muted objects already in memory at mute-list
+            // load time (relog) - LL only adds the mute to the internal list, never hides
+            // the object. Keep on LL merge.
             if (mute.mType == LLMute::OBJECT && mute.mID.notNull())
             {
                 LLViewerObject* obj = gObjectList.findObject(mute.mID);
@@ -925,9 +896,6 @@ bool LLMuteList::loadFromFile(const std::string& filename, EMuteListSource sourc
                     }
                 }
             }
-            // ============================================================================
-            // END S24 CUSTOM: Load-Time Derender Enforcement
-            // ============================================================================
         }
     }
     fclose(fp);
@@ -1228,20 +1196,8 @@ void LLMuteList::removeObserver(LLMuteListObserver* observer)
 
 void LLMuteList::setLoaded(EMuteListSource source)
 {
-    // ============================================================================
-    // S24 ENHANCEMENT: Smart Duplicate Load Detection & Log Management
-    // ============================================================================
-    // RATIONALE: Track previous load state and source to intelligently handle
-    //            duplicate setLoaded() calls and prevent log spam.
-    // WHY:       LL's version warns/logs on EVERY call, even harmless duplicates.
-    //            Example: calling setLoaded(SERVER) twice logs:
-    //              "WARN: already loaded from SERVER, switching to SERVER" (confusing!)
-    //              "INFO: Mute list loaded from SERVER" (spam!)
-    // BENEFIT:   - Only warns when source ACTUALLY changes (cache→server)
-    //            - Only logs "loaded" message ONCE per session
-    //            - Cleaner logs, better UX, less confusion
-    // MERGE:     Keep S24 version - superior to LL's naive implementation.
-    // ============================================================================
+    // S24: tracks prior load state/source so a duplicate setLoaded() call doesn't re-warn or
+    // re-log - LL's version warns/logs on every call. Keep on LL merge.
     const bool was_loaded = isLoaded();
     const EMuteListSource prev_source = mLoadSource;
 
@@ -1265,8 +1221,6 @@ void LLMuteList::setLoaded(EMuteListSource source)
         LL_INFOS() << "Mute list loaded from "
                    << sourceToString(source)
                    << LL_ENDL;
-
-        // S24: REMOVED dirty flag logic - we now use applyObjectDerender() at startup instead
     }
 
     // Disconnect region callback once loaded from server (LL standard behavior)
@@ -1275,9 +1229,6 @@ void LLMuteList::setLoaded(EMuteListSource source)
         LL_INFOS() << "Mute list loaded from server, disconnecting region change callback" << LL_ENDL;
         mRegionChangedCallback.disconnect();
     }
-    // ============================================================================
-    // END S24 ENHANCEMENT: Smart Duplicate Load Detection & Log Management
-    // ============================================================================
 }
 
 void LLMuteList::notifyObservers()
@@ -1354,23 +1305,12 @@ bool LLRenderMuteList::loadFromFile()
 {
     std::string filename = gDirUtilp->getExpandedFilename(LL_PATH_PER_SL_ACCOUNT, "render_mute_settings.txt");
 
-    // ============================================================================
-    // S24 CUSTOM: File Existence Check Before Opening
-    // ============================================================================
-    // RATIONALE: Check if file exists before attempting fopen() to distinguish
-    //            between "file doesn't exist yet" (normal) vs "can't open file" (error).
-    // WHY:       New users don't have render_mute_settings.txt yet - LL's version
-    //            logs scary warnings every login until first render mute usage.
-    // MERGE:     Keep this check - prevents log spam and improves UX.
-    // ============================================================================
+    // S24: distinguishes "doesn't exist yet" (normal for new users) from a real fopen() error.
     if (!LLFile::isfile(filename))
     {
         LL_DEBUGS() << "Render mute list file does not exist yet (will be created on first use): " << filename << LL_ENDL;
         return false;
     }
-    // ============================================================================
-    // END S24 CUSTOM: File Existence Check Before Opening
-    // ============================================================================
 
     LLFILE* fp = LLFile::fopen(filename, "rb");
     if (!fp)
@@ -1458,15 +1398,8 @@ void LLRenderMuteList::notifyObservers()
     }
 }
 
-// ============================================================================
-// S24 CUSTOM: Apply Object Derender (Copy of Working updateAdd Logic)
-// ============================================================================
-// RATIONALE: Per-session derender (updateAdd) WORKS PERFECTLY. This function
-//            uses the EXACT SAME LOGIC but applies it to ALL muted objects.
-// WHY:       Instead of complex startup hooks, just replicate what works!
-// WHEN:      Call after mute list loads, after teleport, after region change.
-// MERGE:     Keep this - it's the proven working solution.
-// ============================================================================
+// S24: applies updateAdd()'s per-object derender logic to every muted object; called after
+// mute list load, teleport, and region change.
 void LLMuteList::applyObjectDerender()
 {
     LL_INFOS() << "S24: Applying object derender to all muted objects" << LL_ENDL;
@@ -1547,13 +1480,8 @@ void LLMuteList::applyObjectDerender()
         LL_INFOS() << "S24: No muted objects found in memory to derender" << LL_ENDL;
     }
 }
-// ============================================================================
-// END S24 CUSTOM: Apply Object Derender
-// ============================================================================
 
-// ============================================================================
-// S24 CUSTOM: Enforce Region Derender (Called from LLViewerRegion::idleUpdate)
-// ============================================================================
+// S24: called from LLViewerRegion::idleUpdate.
 void LLMuteList::enforceRegionDerender(LLViewerRegion* region)
 {
     if (!region || !isLoaded())
@@ -1620,6 +1548,3 @@ void LLMuteList::enforceRegionDerender(LLViewerRegion* region)
         }
     }
 }
-// ============================================================================
-// END S24 CUSTOM: Enforce Region Derender
-// ============================================================================

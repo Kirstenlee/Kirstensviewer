@@ -24,18 +24,9 @@
 
 /*[EXTRA_CODE_HERE]*/
 
-// S24 (2026-08-19, task #236, task #227 audit finding): this file was a
-// byte-for-byte copy of screenSpaceReflTraceF.hlsl (the G-buffer fullscreen-
-// pass pattern: PSInput{vary_fragcoord, camera_ray}, getGBuffer()/getDepth()/
-// getPositionWithDepth()), not a port of its own screenSpaceReflAlphaF.glsl
-// at all - which is a forward-shaded, per-vertex-input alpha/GLTF pass
-// (vary_position/vary_normal/base_color_texcoord/etc, matching this file's
-// own paired screenSpaceReflAlphaV.hlsl, never actually read by the old
-// body). screenSpaceReflUtil.hlsl's own comment confirms this whole program
-// group (screenSpaceReflAlphaF/TraceF/FilterF/PostV/F/WaterF's SSR-alpha
-// variant) is currently unreferenced by any registered shader program - so
-// this had zero live effect, but was still a genuinely wrong port. Real
-// body ported below, faithfully.
+// Forward-shaded alpha/GLTF SSR pass: per-vertex position/normal/texcoord
+// inputs, unlike the G-buffer fullscreen SSR passes (TraceF/PostF) which
+// take screen-space vary_fragcoord and look up the G-buffer instead.
 Texture2D diffuseMap : register(t0);
 SamplerState diffuseMapSampler : register(s0);
 Texture2D specularMap : register(t1);

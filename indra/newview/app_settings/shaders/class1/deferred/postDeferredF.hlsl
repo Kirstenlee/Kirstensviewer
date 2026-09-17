@@ -51,7 +51,7 @@ uniform float res_scale;
 
 struct PSInput
 {
-    // S24 (2026-08-02): missing SV_Position - see uiF.hlsl's comment (fxc.exe-confirmed VS/PS register-shift bug).
+    // S24: missing SV_Position shifts every subsequent semantic register by one relative to the VS output.
     float4 position : SV_Position;
 
     float2 vary_fragcoord : TEXCOORD0;
@@ -98,18 +98,12 @@ float3 clampHDRRange(float3 color);
 
 float4 main(PSInput IN) : SV_Target
 {
-    // S24 (2026-08-11, quick-win origin sweep): GL-vs-D3D11 texture-origin
-    // flip - tc is used only for diffuseRect reads in this file (main's own
-    // Sample() below, plus dofSample()/dofSampleNear()'s SampleLevel()
-    // calls, which just take whatever tc is passed to them), so it's safe
-    // to flip once here. Same bug class as task #158/#185.
+    // S24: GL-vs-D3D11 texture-origin flip — tc is used only for diffuseRect reads in this file, so flipping once here is safe.
     float2 tc = float2(IN.vary_fragcoord.x, 1.0 - IN.vary_fragcoord.y);
 
     float4 diff = diffuseRect.Sample(diffuseRectSampler, tc);
 
-    // S24 (2026-08-31, DoF feathering fix v2): kept aside, untouched, so the
-    // sc<=0.5 dead-zone below can stay bit-for-bit identical to it (see the
-    // gate's own comment for why that guarantee matters).
+    // S24: kept aside, untouched, so the sc<=0.5 dead-zone below can stay bit-for-bit identical to it (see the gate's own comment for why that guarantee matters).
     float4 sharp = diff;
 
     {
@@ -118,25 +112,12 @@ float4 main(PSInput IN) : SV_Target
         static const float PI = 3.14159265358979323846264;
         float feather = 0.0;
 
-        // S24 (2026-08-31, DoF feathering fix v2): the 0.5px GATE ITSELF is
-        // deliberately UNCHANGED from stock - a prior attempt to lower it
-        // (see project_dxrender_dof_alpha_mitigation_2026_08_31.md memory)
-        // let dofCombineF.hlsl's blend pull in the half-resolution blur
-        // buffer for almost any nonzero CoC, and since that buffer is a
-        // genuinely lower-resolution reconstruction of the scene, blending
-        // even a little of it in everywhere read as a resolution-mismatch
-        // shimmer across the whole frame - reverted. The ACTUAL "hard
-        // threshold pop" the gate itself was blamed for turned out to be a
-        // different, narrower problem: the moment the FIRST sample is ever
-        // taken (sc just above 0.5), the normalization weight `w` jumps
-        // from exactly 1.0 (100% center/sharp) to roughly 1+wg in one step
-        // - wg (0.25 plus a sample's own RGB) is not small, so that first
-        // sample is a substantial blend, not a gentle start, regardless of
-        // how close sc is to the 0.5 boundary. `feather` ramps that blend
-        // in smoothly over sc in [0.5, 1.0] instead - sc<=0.5 still takes
-        // the gate exactly as before (feather stays 0.0, diff stays
-        // `sharp`, byte-identical to stock), only the transition just above
-        // the boundary is smoothed, not the boundary's existence.
+        // S24: the sc<=0.5 gate itself must stay exact — lowering the threshold pulls
+        // dofCombineF.hlsl's half-resolution blur buffer into the blend for almost any nonzero
+        // CoC, and since that buffer is a genuinely lower-resolution reconstruction, blending
+        // even a little of it in everywhere reads as a resolution-mismatch shimmer across the
+        // whole frame. `feather` instead ramps the blend smoothly across sc in (0.5, 1.0], so
+        // sc<=0.5 stays byte-identical to stock (feather 0.0, diff stays `sharp`).
         if (sc > 0.5)
         {
             feather = smoothstep(0.5, 1.0, sc);

@@ -1501,6 +1501,28 @@
       <key>Value</key>
       <real>1.0</real>
     </map>
+    <key>Randomize Framerate</key>
+    <map>
+      <key>Comment</key>
+      <string>Develop > Render Tests debug toggle - sleeps a random 0-200ms every frame to simulate an unstable framerate</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
+    <key>Periodic Slow Frame</key>
+    <map>
+      <key>Comment</key>
+      <string>Develop > Render Tests debug toggle - sleeps 500ms every 10th frame to simulate periodic hitching</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
     <key>CameraFramingEnabled</key>
     <map>
       <key>Comment</key>
@@ -2499,17 +2521,6 @@
       <key>Value</key>
       <integer>0</integer>
     </map>
-    <key>DebugShowUploadCost</key>
-    <map>
-      <key>Comment</key>
-      <string>Show mesh upload cost</string>
-      <key>Persist</key>
-      <integer>1</integer>
-      <key>Type</key>
-      <string>Boolean</string>
-      <key>Value</key>
-      <integer>1</integer>
-    </map>
     <key>DebugShowXUINames</key>
     <map>
       <key>Comment</key>
@@ -3132,17 +3143,6 @@
       <string>Return false if there is not enable popup selected in the list of floater preferences popups</string>
       <key>Persist</key>
       <integer>0</integer>
-      <key>Type</key>
-      <string>Boolean</string>
-      <key>Value</key>
-      <integer>0</integer>
-    </map>
-    <key>FixedWeather</key>
-    <map>
-      <key>Comment</key>
-      <string>Weather effects do not change over time</string>
-      <key>Persist</key>
-      <integer>1</integer>
       <key>Type</key>
       <string>Boolean</string>
       <key>Value</key>
@@ -7730,6 +7730,17 @@
       <key>Value</key>
       <real>3000.0</real>
     </map>
+    <key>RenderProcessQoS</key>
+    <map>
+      <key>Comment</key>
+      <string>S24 task: main process CPU Quality-of-Service tier applied at window creation (llwindowwin32.cpp). 0=Eco (Windows EcoQoS power throttling enabled, background-friendly), 1=Normal (default OS scheduling, throttling disabled), 2=High (throttling disabled, main thread priority boosted to HIGHEST, process priority class raised to ABOVE_NORMAL).</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>S32</string>
+      <key>Value</key>
+      <integer>1</integer>
+    </map>
     <key>RenderComplexityColorMin</key>
     <map>
       <key>Comment</key>
@@ -8242,17 +8253,6 @@
       <key>Value</key>
       <real>0.1</real>
     </map>
-    <key>RenderDebugPipeline</key>
-    <map>
-      <key>Comment</key>
-      <string>Enable strict pipeline debugging.</string>
-      <key>Persist</key>
-      <integer>1</integer>
-      <key>Type</key>
-      <string>Boolean</string>
-      <key>Value</key>
-      <integer>0</integer>
-    </map>
     <key>RenderDisablePostProcessing</key>
     <map>
       <key>Comment</key>
@@ -8417,6 +8417,17 @@
       <string>U32</string>
       <key>Value</key>
       <integer>2048</integer>
+    </map>
+    <key>RenderMinFreeMainMemoryThreshold</key>
+    <map>
+      <key>Comment</key>
+      <string>Minimum free main (system) memory in MB before the texture pipeline starts discarding cached textures more aggressively.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>U32</string>
+      <key>Value</key>
+      <integer>512</integer>
     </map>
     <key>RenderDownScaleMethod</key>
     <map>
@@ -10925,7 +10936,7 @@
     <key>RenderDXShaderCacheEnabled</key>
     <map>
       <key>Comment</key>
-      <string>S24 (DX_RENDER): enable the DX11 shader bytecode disk cache. RenderShaderCacheEnabled/RenderShaderCacheVersion above are GL-only (glProgramBinary) and have no effect under DX_RENDER - this is the separate DX-native cache, currently limited to a small allowlist of proven-safe shaders in DXShader.cpp (expanded as confidence grows). Uses the same shader_cache folder and the KVTweaks "Purge Shader Cache" button clears it too.</string>
+      <string>S24 (DX_RENDER): enable the DX11 shader bytecode disk cache. RenderShaderCacheEnabled/RenderShaderCacheVersion above are GL-only (glProgramBinary) and have no effect under DX_RENDER - this is the separate DX-native cache, covering every DX_RENDER shader (DXShader::isCacheEligible() has had blanket coverage since r3753, no allowlist). Uses the same shader_cache folder and the KVTweaks "Purge Shader Cache" button clears it too.</string>
       <key>Persist</key>
       <integer>1</integer>
       <key>Type</key>
@@ -11130,17 +11141,6 @@
       <string>Boolean</string>
       <key>Value</key>
       <integer>0</integer>
-    </map>
-    <key>SaveMinidump</key>
-    <map>
-      <key>Comment</key>
-      <string>Save minidump for developer debugging on crash</string>
-      <key>Persist</key>
-      <integer>1</integer>
-      <key>Type</key>
-      <string>Boolean</string>
-      <key>Value</key>
-      <integer>1</integer>
     </map>
     <key>ScaleShowAxes</key>
     <map>
@@ -12636,17 +12636,6 @@
         <real>0.67</real>
         <real>1.0</real>
       </array>
-    </map>
-    <key>SkyOverrideSimSunPosition</key>
-    <map>
-      <key>Comment</key>
-      <string />
-      <key>Persist</key>
-      <integer>0</integer>
-      <key>Type</key>
-      <string>Boolean</string>
-      <key>Value</key>
-      <integer>0</integer>
     </map>
     <key>SkySunDefaultPosition</key>
     <map>
@@ -18373,6 +18362,160 @@
       <key>Value</key>
       <real>1.0</real>
     </map>
+    <key>RenderWaterColorAbsorptionRate</key>
+    <map>
+      <key>Comment</key>
+      <string>S24 Advanced - How quickly water color tint ramps in with depth (Beer-Lambert style absorption, per meter). Lower=clearer shallow water with a longer gradient to full tint, Higher=tint appears almost immediately at the shore.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>0.15</real>
+    </map>
+    <key>RenderWaterWindInfluence</key>
+    <map>
+      <key>Comment</key>
+      <string>S24 Advanced - How much live simulator wind (the same system used for sailing, Develop&gt;Wind Vectors to visualize) blends into water wave direction and animation speed. 0.0=ignore wind entirely, use the EEP water preset's authored direction/speed only (default, preserves creator intent). 1.0=fully follow live wind.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>0.0</real>
+    </map>
+    <key>RenderUIHueShiftFloaters</key>
+    <map>
+      <key>Comment</key>
+      <string>S24 - Hue rotation (degrees) applied to floater/window chrome and panel background colors. 0=no shift, uses the skin's own authored colors.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>0.0</real>
+    </map>
+    <key>RenderUIHueShiftMenus</key>
+    <map>
+      <key>Comment</key>
+      <string>S24 - Hue rotation (degrees) applied to menu bar, pie menu, toolbar and chiclet colors. 0=no shift, uses the skin's own authored colors.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>0.0</real>
+    </map>
+    <key>RenderUIHueShiftControls</key>
+    <map>
+      <key>Comment</key>
+      <string>S24 - Hue rotation (degrees) applied to button, slider, scrollbar and color-swatch colors. 0=no shift, uses the skin's own authored colors.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>0.0</real>
+    </map>
+    <key>RenderUIHueShiftText</key>
+    <map>
+      <key>Comment</key>
+      <string>S24 - Hue rotation (degrees) applied to text, chat, nametag, notification and tooltip colors. 0=no shift, uses the skin's own authored colors.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>0.0</real>
+    </map>
+    <key>RenderUIHueShiftInventory</key>
+    <map>
+      <key>Comment</key>
+      <string>S24 - Hue rotation (degrees) applied to inventory, filter and outfit-gallery colors. 0=no shift, uses the skin's own authored colors.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>0.0</real>
+    </map>
+    <key>RenderUIHueShiftMap</key>
+    <map>
+      <key>Comment</key>
+      <string>S24 - Hue rotation (degrees) applied to minimap, beacon, pathfinding and selection-silhouette colors. 0=no shift, uses the skin's own authored colors.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>0.0</real>
+    </map>
+    <key>RenderUIHueShiftScript</key>
+    <map>
+      <key>Comment</key>
+      <string>S24 - Hue rotation (degrees) applied to the script editor's background and syntax-highlighting colors. 0=no shift, uses the skin's own authored colors.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>0.0</real>
+    </map>
+    <key>RenderUIHueShiftMisc</key>
+    <map>
+      <key>Comment</key>
+      <string>S24 - Hue rotation (degrees) applied to every other UI color not covered by the other hue-shift categories (login screen, base palette, avatar-list icons, materials, etc). 0=no shift, uses the skin's own authored colors.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>0.0</real>
+    </map>
+    <key>RenderUIContrast</key>
+    <map>
+      <key>Comment</key>
+      <string>S24 - Contrast multiplier for every UI element covered by the hue-shift mechanism (floaters, panels, buttons, icons, sliders, scrollbars, progress bars, inventory icons). 1.0=neutral, &lt;1.0=flatter/lower contrast, &gt;1.0=punchier/higher contrast. Independent of the per-category hue sliders - works even when they're all 0.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>1.0</real>
+    </map>
+    <key>RenderUIGrayscale</key>
+    <map>
+      <key>Comment</key>
+      <string>S24 - Desaturates every UI element covered by the hue-shift mechanism to grayscale (luminance-weighted). Independent of the per-category hue sliders - works even when they're all 0.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
+    <key>RenderUIShine</key>
+    <map>
+      <key>Comment</key>
+      <string>S24 - Strength of a fixed diagonal glass-sheen highlight overlaid on every UI element covered by the hue-shift mechanism. 0=off, 1.0=strongest. Independent of the per-category hue sliders - works even when they're all 0.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>0.0</real>
+    </map>
+    <key>RenderWaterWindMagnitudeCap</key>
+    <map>
+      <key>Comment</key>
+      <string>S24 Advanced - Hard ceiling on the live wind vector's own strength before it affects water (only matters when RenderWaterWindInfluence &gt; 0). Limits how much a strong storm/gust can push wave speed/direction regardless of how extreme the simulator's actual wind data gets. 0.0=always treat wind as calm.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>15.0</real>
+    </map>
     <key>RenderStarGlow</key>
     <map>
       <key>Comment</key>
@@ -18524,6 +18667,17 @@
       <integer>1</integer>
       <key>Type</key>
       <string>S32</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
+    <key>RenderConstellationLines</key>
+    <map>
+      <key>Comment</key>
+      <string>S24 - draw thin dotted lines connecting each constellation's stars (Real Constellations style only) - educational "star chart" look. Live-toggle, no restart needed.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
       <key>Value</key>
       <integer>0</integer>
     </map>

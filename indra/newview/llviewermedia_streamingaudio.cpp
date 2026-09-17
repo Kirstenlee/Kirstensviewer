@@ -57,6 +57,17 @@ void LLStreamingAudio_MediaPlugins::start(const std::string& url)
 	{
 		mMediaPlugin = initializeMedia("audio/mpeg"); // assumes that whatever media implementation supports mp3 also supports vorbis.
 		LL_INFOS() << "streaming audio mMediaPlugin is now " << mMediaPlugin << LL_ENDL;
+
+		// S24: a freshly-created plugin subprocess otherwise starts playing at its OWN internal
+		// default volume (full) the instant loadURI()/start() below reach it - any setGain() call
+		// made before this point (e.g. muting while the login progress screen is up) was silently
+		// dropped, since setGain() itself early-returns when mMediaPlugin is still null. Push the
+		// already-known mGain into the plugin now, before it ever plays a single frame, so it
+		// can't audibly blip at full volume before the next real setGain() call catches up.
+		if (mMediaPlugin)
+		{
+			mMediaPlugin->setVolume(llclamp(mGain, 0.f, 1.f));
+		}
 	}
 
 	if(!mMediaPlugin)

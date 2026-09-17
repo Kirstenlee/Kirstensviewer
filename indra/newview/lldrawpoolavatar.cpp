@@ -116,7 +116,6 @@ LLDrawPoolAvatar::~LLDrawPoolAvatar()
 // virtual
 bool LLDrawPoolAvatar::isDead()
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_AVATAR;
 
     if (!LLFacePool::isDead())
     {
@@ -128,14 +127,12 @@ bool LLDrawPoolAvatar::isDead()
 
 S32 LLDrawPoolAvatar::getShaderLevel() const
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_AVATAR;
 
     return (S32) LLViewerShaderMgr::instance()->getShaderLevel(LLViewerShaderMgr::SHADER_AVATAR);
 }
 
 void LLDrawPoolAvatar::prerender()
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_AVATAR;
 
     mShaderLevel = LLViewerShaderMgr::instance()->getShaderLevel(LLViewerShaderMgr::SHADER_AVATAR);
 
@@ -144,7 +141,6 @@ void LLDrawPoolAvatar::prerender()
 
 LLMatrix4& LLDrawPoolAvatar::getModelView()
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_AVATAR;
 
     static LLMatrix4 ret;
 
@@ -164,7 +160,6 @@ LLMatrix4& LLDrawPoolAvatar::getModelView()
 
 void LLDrawPoolAvatar::beginDeferredPass(S32 pass)
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_AVATAR;
 
     sSkipTransparent = true;
     is_deferred_render = true;
@@ -174,12 +169,9 @@ void LLDrawPoolAvatar::beginDeferredPass(S32 pass)
         ++pass;
     }
 
-    // S24 (2026-08-09, task #171): was DX_RENDER-gated to pass 2 only
-    // ("skinned") - impostors (pass 0) and rigid meshes/eyeballs (pass 1)
-    // were deliberately deferred during phase 5.10c. Un-skipped now:
-    // beginDeferredImpostor()/beginDeferredRigid() were checked and use
-    // only already-established-safe primitives (enableTexture()/bind()/
-    // setMinimumAlpha()), same as beginDeferredSkinned() already did.
+    // All 3 passes (impostor/rigid/skinned) render under DX_RENDER;
+    // beginDeferredImpostor()/beginDeferredRigid() use only already-safe
+    // primitives (enableTexture()/bind()/setMinimumAlpha()).
     switch (pass)
     {
     case 0:
@@ -196,7 +188,6 @@ void LLDrawPoolAvatar::beginDeferredPass(S32 pass)
 
 void LLDrawPoolAvatar::endDeferredPass(S32 pass)
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_AVATAR;
 
     sSkipTransparent = false;
     is_deferred_render = false;
@@ -206,10 +197,7 @@ void LLDrawPoolAvatar::endDeferredPass(S32 pass)
         ++pass;
     }
 
-    // S24 (2026-08-09, task #171): see beginDeferredPass()'s comment -
-    // un-skipped, endDeferredImpostor()/endDeferredRigid() also use only
-    // already-established-safe primitives (disableTexture()/unbind()/
-    // gDX.getTexUnit(0)->activate()/unbindDeferredShader()).
+    // See beginDeferredPass()'s comment - same reasoning applies here.
     switch (pass)
     {
     case 0:
@@ -226,12 +214,10 @@ void LLDrawPoolAvatar::endDeferredPass(S32 pass)
 
 void LLDrawPoolAvatar::renderDeferred(S32 pass)
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_AVATAR;
 
-    // S24 (2026-08-09, task #171): see beginDeferredPass()'s comment - all
-    // 3 passes now render. render(pass) -> renderAvatars(NULL, pass), whose
-    // own pass==0/pass==1 branches (renderImpostor()/renderRigid()) were
-    // already real and untouched - they simply never got called before.
+    // See beginDeferredPass()'s comment - render(pass) routes to
+    // renderAvatars(NULL, pass), whose pass==0/pass==1 branches
+    // (renderImpostor()/renderRigid()) handle the other two passes.
     render(pass);
 }
 
@@ -242,7 +228,6 @@ S32 LLDrawPoolAvatar::getNumPostDeferredPasses()
 
 void LLDrawPoolAvatar::beginPostDeferredPass(S32 pass)
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_AVATAR;
 
     sSkipOpaque = true;
     sShaderLevel = mShaderLevel;
@@ -258,7 +243,6 @@ void LLDrawPoolAvatar::beginPostDeferredPass(S32 pass)
 
 void LLDrawPoolAvatar::endPostDeferredPass(S32 pass)
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_AVATAR;
     // if we're in software-blending, remember to set the fence _after_ we draw so we wait till this rendering is done
     sRenderingSkinned = false;
     sSkipOpaque = false;
@@ -270,7 +254,6 @@ void LLDrawPoolAvatar::endPostDeferredPass(S32 pass)
 
 void LLDrawPoolAvatar::renderPostDeferred(S32 pass)
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_AVATAR;
 
     is_post_deferred_render = true;
     if (LLPipeline::sImpostorRender)
@@ -280,13 +263,10 @@ void LLDrawPoolAvatar::renderPostDeferred(S32 pass)
     else
     {
         render(2);
-        // S24 (2026-09-10): jelly-doll ghosts - not part of render(2)'s own
-        // per-face avatar iteration (jelly dolls have no real rigged faces
-        // assigned to this pool by design), so a separate draw. Skipped
-        // during LLPipeline::sImpostorRender (baking another avatar's OWN
-        // impostor) - a jelly-dolled avatar visible in the background of
-        // someone else's bake should still read as opaque grey there,
-        // consistent with how the old pass-0 impostor draw behaved.
+        // Jelly-doll ghosts are drawn separately since jelly dolls have no
+        // real rigged faces in this pool. Skipped during
+        // LLPipeline::sImpostorRender so a jelly-dolled avatar still reads
+        // as opaque grey in someone else's impostor bake.
         renderJellyDollGhosts();
     }
     is_post_deferred_render = false;
@@ -294,7 +274,6 @@ void LLDrawPoolAvatar::renderPostDeferred(S32 pass)
 
 void LLDrawPoolAvatar::renderJellyDollGhosts()
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_AVATAR;
 
     std::vector<LLVOAvatar*> ghosts;
     for (LLCharacter* character : LLCharacter::sInstances)
@@ -382,7 +361,6 @@ S32 LLDrawPoolAvatar::getNumShadowPasses()
 
 void LLDrawPoolAvatar::beginShadowPass(S32 pass)
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_AVATAR;
 
     if (pass == SHADOW_PASS_AVATAR_OPAQUE)
     {
@@ -440,7 +418,6 @@ void LLDrawPoolAvatar::beginShadowPass(S32 pass)
 
 void LLDrawPoolAvatar::endShadowPass(S32 pass)
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_AVATAR;
 
     if (sShaderLevel > 0)
     {
@@ -453,7 +430,6 @@ void LLDrawPoolAvatar::endShadowPass(S32 pass)
 
 void LLDrawPoolAvatar::renderShadow(S32 pass)
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_AVATAR;
 
     if (mDrawFace.empty())
     {
@@ -526,7 +502,6 @@ S32 LLDrawPoolAvatar::getNumDeferredPasses()
 
 void LLDrawPoolAvatar::render(S32 pass)
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_AVATAR;
     if (LLPipeline::sImpostorRender)
     {
         renderAvatars(NULL, ++pass);
@@ -538,7 +513,6 @@ void LLDrawPoolAvatar::render(S32 pass)
 
 void LLDrawPoolAvatar::beginRenderPass(S32 pass)
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_AVATAR;
     //reset vertex buffer mappings
     LLVertexBuffer::unbind();
 
@@ -568,7 +542,6 @@ void LLDrawPoolAvatar::beginRenderPass(S32 pass)
 
 void LLDrawPoolAvatar::endRenderPass(S32 pass)
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_AVATAR;
 
     if (LLPipeline::sImpostorRender)
     {
@@ -591,7 +564,6 @@ void LLDrawPoolAvatar::endRenderPass(S32 pass)
 
 void LLDrawPoolAvatar::beginImpostor()
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_AVATAR;
 
     if (!LLPipeline::sReflectionRender)
     {
@@ -607,7 +579,6 @@ void LLDrawPoolAvatar::beginImpostor()
 
 void LLDrawPoolAvatar::endImpostor()
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_AVATAR;
 
         gImpostorProgram.unbind();
     gPipeline.enableLightsDynamic();
@@ -615,7 +586,6 @@ void LLDrawPoolAvatar::endImpostor()
 
 void LLDrawPoolAvatar::beginRigid()
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_AVATAR;
 
     if (gPipeline.shadersLoaded())
     {
@@ -635,7 +605,6 @@ void LLDrawPoolAvatar::beginRigid()
 
 void LLDrawPoolAvatar::endRigid()
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_AVATAR;
 
     sShaderLevel = mShaderLevel;
     if (sVertexProgram != NULL)
@@ -646,7 +615,6 @@ void LLDrawPoolAvatar::endRigid()
 
 void LLDrawPoolAvatar::beginDeferredImpostor()
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_AVATAR;
 
     if (!LLPipeline::sReflectionRender)
     {
@@ -663,7 +631,6 @@ void LLDrawPoolAvatar::beginDeferredImpostor()
 
 void LLDrawPoolAvatar::endDeferredImpostor()
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_AVATAR;
 
     sShaderLevel = mShaderLevel;
     sVertexProgram->disableTexture(LLViewerShaderMgr::NORMAL_MAP);
@@ -676,7 +643,6 @@ void LLDrawPoolAvatar::endDeferredImpostor()
 
 void LLDrawPoolAvatar::beginDeferredRigid()
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_AVATAR;
 
     sVertexProgram = &gDeferredNonIndexedDiffuseAlphaMaskNoColorProgram;
     sDiffuseChannel = sVertexProgram->enableTexture(LLViewerShaderMgr::DIFFUSE_MAP);
@@ -686,7 +652,6 @@ void LLDrawPoolAvatar::beginDeferredRigid()
 
 void LLDrawPoolAvatar::endDeferredRigid()
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_AVATAR;
 
     sShaderLevel = mShaderLevel;
     sVertexProgram->disableTexture(LLViewerShaderMgr::DIFFUSE_MAP);
@@ -697,7 +662,6 @@ void LLDrawPoolAvatar::endDeferredRigid()
 
 void LLDrawPoolAvatar::beginSkinned()
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_AVATAR;
 
     // used for preview only
 
@@ -711,7 +675,6 @@ void LLDrawPoolAvatar::beginSkinned()
 
 void LLDrawPoolAvatar::endSkinned()
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_AVATAR;
 
     // if we're in software-blending, remember to set the fence _after_ we draw so we wait till this rendering is done
     if (sShaderLevel > 0)
@@ -737,7 +700,6 @@ void LLDrawPoolAvatar::endSkinned()
 
 void LLDrawPoolAvatar::beginDeferredSkinned()
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_AVATAR;
 
     sShaderLevel = mShaderLevel;
     sVertexProgram = &gDeferredAvatarProgram;
@@ -751,7 +713,6 @@ void LLDrawPoolAvatar::beginDeferredSkinned()
 
 void LLDrawPoolAvatar::endDeferredSkinned()
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_AVATAR;
 
     // if we're in software-blending, remember to set the fence _after_ we draw so we wait till this rendering is done
     sRenderingSkinned = false;
@@ -813,7 +774,7 @@ void LLDrawPoolAvatar::renderAvatars(LLVOAvatar* single_avatar, S32 pass)
         {
             // debug code to draw a sphere in place of avatar
             gDX.getTexUnit(0)->bind(LLViewerFetchedTexture::sWhiteImagep);
-            gDX.setColorMask(true, true);
+            gDX.setColorWriteMask(true, true);
             LLVector3 pos = avatarp->getPositionAgent();
             gDX.color4f(1.0f, 1.0f, 1.0f, 0.7f);
 
@@ -826,7 +787,7 @@ void LLDrawPoolAvatar::renderAvatars(LLVOAvatar* single_avatar, S32 pass)
              gSphere.renderGGL();
 
              gDX.popMatrix();
-             gDX.setColorMask(true, false);
+             gDX.setColorWriteMask(true, false);
         }
         // don't render please
         return;
@@ -875,13 +836,9 @@ void LLDrawPoolAvatar::renderAvatars(LLVOAvatar* single_avatar, S32 pass)
 //      if (impostor || (LLVOAvatar::AV_DO_NOT_RENDER == avatarp->getVisualMuteSettings() && !avatarp->needsImpostorUpdate()))
         if (impostor || (LLVOAvatar::AOA_NORMAL != avatarp->getOverallAppearance() && !avatarp->needsImpostorUpdate()))
         {
-            // S24 (2026-09-10): jelly-dolled avatars no longer draw their
-            // opaque impostor here at all - they're drawn as a real
-            // alpha-blended "ghost" instead, in the post-deferred pass
-            // (see LLDrawPoolAvatar::renderJellyDollGhosts(), called from
-            // renderPostDeferred()). Ordinary distance-LOD impostors
-            // (AOA_NORMAL, impostor==true) are unaffected - still opaque,
-            // still drawn here exactly as before.
+            // Jelly-dolled avatars skip their opaque impostor here - drawn
+            // instead as an alpha-blended ghost by renderJellyDollGhosts()
+            // (post-deferred pass). Ordinary AOA_NORMAL impostors unaffected.
             if (avatarp->getOverallAppearance() != LLVOAvatar::AOA_JELLYDOLL)
             {
                 if (LLPipeline::sRenderDeferred && !LLPipeline::sReflectionRender && avatarp->mImpostor.isComplete())
@@ -939,14 +896,11 @@ void LLDrawPoolAvatar::renderAvatars(LLVOAvatar* single_avatar, S32 pass)
     }
 }
 
-static LLTrace::BlockTimerStatHandle FTM_RIGGED_VBO("Rigged VBO");
-
 //-----------------------------------------------------------------------------
 // getDebugTexture()
 //-----------------------------------------------------------------------------
 LLViewerTexture *LLDrawPoolAvatar::getDebugTexture()
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_AVATAR;
 
     if (mReferences.empty())
     {

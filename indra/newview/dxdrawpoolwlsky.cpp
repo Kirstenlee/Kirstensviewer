@@ -41,6 +41,7 @@
 #include "llvowlsky.h"
 #include "llsettingsvo.h"
 #include "llviewercontrol.h"
+#include "llmatrix4a.h"
 
 extern bool gCubeSnapshot;
 extern LLPointer<LLImageGL> gEXRImage;
@@ -49,32 +50,38 @@ namespace
 {
     LLStaticHashedString sCamPosLocal("camPosLocal");
     LLStaticHashedString sCustomAlpha("custom_alpha");
-    // S24 (2026-09-05): nebula/shooting-star daylight gate - real sun
-    // elevation (LLSettingsSky::getSunDirection().mV[2], 0 at the horizon)
-    // rather than the active preset's Star Brightness curve (custom_alpha),
-    // which a bright moon can push low enough to hide them even when the
-    // sun is still well below the horizon. Point stars keep using
-    // custom_alpha, unaffected by this - see starsF.hlsl's own comment.
+    // Nebula/shooting-star daylight gate uses real sun elevation
+    // (LLSettingsSky::getSunDirection().mV[2], 0 at horizon) rather than the
+    // Star Brightness curve (custom_alpha), which a bright moon can push low
+    // enough to hide them while the sun is still below the horizon. Point
+    // stars still use custom_alpha - see starsF.hlsl.
     LLStaticHashedString sSunElevation("sun_elevation");
 
-    // S24 (task #279 stage 2, "RENDER WOW"): KVTweaks-exposed night-sky
-    // controls - see starsF.hlsl for consumption and settings.xml for the
-    // RenderStar*/RenderNebula*/RenderShootingStar* keys these read.
+    // KVTweaks-exposed night-sky controls - see starsF.hlsl for consumption
+    // and settings.xml for the RenderStar*/RenderNebula*/RenderShootingStar*
+    // keys these read.
     LLStaticHashedString sStarGlow("star_glow");
     LLStaticHashedString sStarDensity("star_density");
     LLStaticHashedString sStarDustIntensity("star_dust_intensity");
     LLStaticHashedString sNebulaEnabled("nebula_enabled");
     LLStaticHashedString sNebulaIntensity("nebula_intensity");
-    // S24 (task #301/#302): 0=Default, 1=Real Constellations (llvowlsky.cpp
-    // placement only), 2=Starry Night (starsF.hlsl blue/gold+swirl).
+    // 0=Default, 1=Real Constellations (llvowlsky.cpp placement only),
+    // 2=Starry Night (starsF.hlsl blue/gold+swirl).
     LLStaticHashedString sSkyStyle("sky_style");
 
-    // S24 (task #303, "2.5D cloud layers"): extra cloud decks reuse
-    // cloudsV/F.hlsl unchanged, just with overridden CLOUD_SCALE/
-    // CLOUD_POS_DENSITY1/2 and this tint/alpha pair - see
+    // Extra cloud decks reuse cloudsV/F.hlsl unchanged, just with overridden
+    // CLOUD_SCALE/CLOUD_POS_DENSITY1/2 and this tint/alpha pair - see
     // renderSkyCloudsDeferred().
     LLStaticHashedString sCloudLayerTint("cloud_layer_tint");
     LLStaticHashedString sCloudLayerAlphaMult("cloud_layer_alpha_mult");
+
+    // Galactic band basis, view-space - see renderGalacticBandDeferred()'s comment. Rotated from
+    // fixed world-space constants every frame (cheap - 3 vectors) since "inv_modelview" isn't
+    // among the reserved uniforms llrender.cpp actually auto-syncs (only inv_proj is), so the
+    // shader can't recover world space from view space on its own.
+    LLStaticHashedString sGalacticNormalView("galactic_normal_view");
+    LLStaticHashedString sBandUView("band_u_view");
+    LLStaticHashedString sBandVView("band_v_view");
 
     LLHLSLShader* cloud_shader = nullptr;
     LLHLSLShader* sky_shader   = nullptr;
@@ -93,17 +100,11 @@ namespace
             false;
     }
 
-    // S24 (task #303, "cloud base" height stratification, user follow-up):
-    // layer_height_skew is a non-uniform Y-scale applied to the dome, only
-    // for the extra cloud-layer draws (default 1.0 = no change, every
-    // other caller - sky haze, base cloud layer - is untouched). >1.0
-    // stretches the dome taller (a layer's clouds read as sitting higher,
-    // closer to zenith); <1.0 squashes it (reads lower, closer to the
-    // horizon). NOT true altitude - the dome recenters on the camera every
-    // frame (see the translatef() below), so there's no real depth to
-    // separate layers in; this is a pure visual skew trick, cheap and
-    // effective for the decorative "these read as different heights" cue
-    // without touching geometry or the shared sky-haze pass at all.
+    // layer_height_skew is a non-uniform Y-scale applied to the dome for the
+    // extra cloud-layer draws only (default 1.0 = unchanged; sky haze/base
+    // cloud layer callers are unaffected). NOT true altitude - the dome
+    // recenters on the camera every frame (see translatef() below) - this is
+    // a pure visual skew to make layers read as different heights.
     void renderDome(const LLVector3& camPosLocal, F32 camHeightLocal, LLHLSLShader* shader, F32 layer_height_skew = 1.0f)
     {
         llassert_always(nullptr != shader);
@@ -215,6 +216,86 @@ namespace
         }
     }
 
+    // Procedural galactic-dust band. Deliberately NOT drawn on the shared sky-dome mesh
+    // (haze/clouds/stars all use it via renderDome()) - that mesh's buildStripsBuffer() only
+    // spans a small local angle near its own zenith and relies on a perspective illusion (camera
+    // pinned just inside a huge-radius dome) to APPEAR to cover the whole sky; haze/clouds get
+    // away with that because their color comes from a smooth texture/gradient with no real
+    // large-scale geometric meaning, but this band's large-scale dot-product shape needs true
+    // angular correctness - on the dome mesh it came out skimming the horizon instead of arching
+    // overhead, and got mutilated on the mesh's below-horizon "skirt" (see git history for both).
+    // Instead this is a full-screen pass: reconstruct each pixel's real camera-ray direction via
+    // inv_proj (same idea stars/constellations already get right by using true unit-sphere
+    // positions instead of the dome mesh). inv_proj gives a VIEW-space ray, and "inv_modelview"
+    // isn't among the reserved uniforms llrender.cpp actually auto-syncs (only inv_proj is) - so
+    // the band's fixed world-space basis is rotated into view-space here, once a frame, and the
+    // shader dots the view-space ray against that directly instead. depth-tests against the
+    // already-rendered scene (far-plane-pinned output, see galacticBandV.hlsl) so it never paints
+    // over terrain/water/objects - no dome geometry, so no skirt to fight either.
+    void renderGalacticBandDeferred()
+    {
+        if (!gSky.mVOSkyp || use_hdri_sky())
+        {
+            return;
+        }
+
+        static LLCachedControl<F32> dust_intensity(gSavedSettings, "RenderStarDustIntensity", 1.0f);
+        if (dust_intensity < 0.01f)
+        {
+            return;
+        }
+
+        F32 sun_elevation = LLEnvironment::instance().getCurrentSky()->getSunDirection().mV[2];
+        if (LLPipeline::sReflectionRender)
+        {
+            sun_elevation = -1.0f;
+        }
+        if (sun_elevation >= 0.15f) // matches the fade's own upper bound - see galacticBandF.hlsl
+        {
+            return;
+        }
+
+        // Fixed world-space band orientation - arbitrary but fixed, matching how the (retired)
+        // dome-mesh version and the star field's own constellation placement both pick a fixed
+        // world direction rather than anything tied to the camera.
+        LLVector3 galactic_normal(1.0f, 0.4f, 0.12f);
+        galactic_normal.normVec();
+        LLVector3 band_u = galactic_normal % LLVector3(0.f, 0.f, 1.f);
+        band_u.normVec();
+        LLVector3 band_v = galactic_normal % band_u;
+
+        LLMatrix4a modelview;
+        modelview.loadu(gGLModelView);
+
+        LLVector4a gn_v, bu_v, bv_v;
+        modelview.rotate(LLVector4a(galactic_normal.mV[0], galactic_normal.mV[1], galactic_normal.mV[2]), gn_v);
+        modelview.rotate(LLVector4a(band_u.mV[0], band_u.mV[1], band_u.mV[2]), bu_v);
+        modelview.rotate(LLVector4a(band_v.mV[0], band_v.mV[1], band_v.mV[2]), bv_v);
+
+        // Deliberately NOT LLGLSPipelineBlendSkyBox here (unlike every other sky element) - its
+        // LLGLSquashToFarClip pins the PROJECTION MATRIX to the far plane, which this pass's
+        // vertex shader has no use for (it outputs SV_Position.z=0.0 itself, no dome-mesh MVP
+        // involved) and which would corrupt the "inv_proj" this pass's pixel shader relies on for
+        // camera-ray reconstruction (auto-synced from whatever the CURRENT projection matrix is
+        // at bind time - squashed would silently reconstruct the wrong rays).
+        LLGLEnable blend(GL_BLEND);
+        LLGLDisable cull(GL_CULL_FACE);
+        LLGLDepthTest depth(GL_TRUE, GL_FALSE, GL_LEQUAL);
+        gDX.setSceneBlendType(LLRender::BT_ADD_WITH_ALPHA);
+
+        gDeferredGalacticBandProgram.bind();
+        gDeferredGalacticBandProgram.uniform1f(sStarDustIntensity, dust_intensity);
+        gDeferredGalacticBandProgram.uniform1f(sSunElevation, sun_elevation);
+        gDeferredGalacticBandProgram.uniform1f(LLShaderMgr::WATER_TIME, (F32)LLFrameTimer::getElapsedSeconds() * 0.5f);
+        gDeferredGalacticBandProgram.uniform3fv(sGalacticNormalView, 1, gn_v.getF32ptr());
+        gDeferredGalacticBandProgram.uniform3fv(sBandUView, 1, bu_v.getF32ptr());
+        gDeferredGalacticBandProgram.uniform3fv(sBandVView, 1, bv_v.getF32ptr());
+
+        gSky.mVOWLSkyp->drawGalacticBandQuad();
+
+        gDeferredGalacticBandProgram.unbind();
+    }
+
     void renderStarsDeferred(const LLVector3& camPosLocal)
     {
         if (!gSky.mVOSkyp || use_hdri_sky())
@@ -228,10 +309,8 @@ namespace
         constexpr F32 STAR_BRIGHTNESS_SCALE = 500.0f;
         F32 star_alpha = LLEnvironment::instance().getCurrentSky()->getStarBrightness() / STAR_BRIGHTNESS_SCALE;
 
-        // S24 (2026-09-05): sun elevation for the nebula's own daylight gate
-        // (starsF.hlsl's sun_elevation_factor) - real geometry, independent
-        // of the preset's Star Brightness curve. See sSunElevation's own
-        // comment for why.
+        // Sun elevation for the nebula's daylight gate (starsF.hlsl's
+        // sun_elevation_factor) - see sSunElevation's comment above.
         F32 sun_elevation = LLEnvironment::instance().getCurrentSky()->getSunDirection().mV[2];
 
         if (LLPipeline::sReflectionRender)
@@ -304,7 +383,6 @@ namespace
 
         gDeferredStarProgram.uniform1f(sStarGlow, gSavedSettings.getF32("RenderStarGlow"));
         gDeferredStarProgram.uniform1f(sStarDensity, gSavedSettings.getF32("RenderStarDensity"));
-        gDeferredStarProgram.uniform1f(sStarDustIntensity, gSavedSettings.getF32("RenderStarDustIntensity"));
         gDeferredStarProgram.uniform1f(sNebulaEnabled, gSavedSettings.getBOOL("RenderNebulaEnabled") ? 1.0f : 0.0f);
         gDeferredStarProgram.uniform1f(sNebulaIntensity, gSavedSettings.getF32("RenderNebulaIntensity"));
         gDeferredStarProgram.uniform1f(sSkyStyle, (F32)gSavedSettings.getS32("RenderSkyStyle"));
@@ -315,51 +393,51 @@ namespace
         gDX.getTexUnit(1)->unbind(LLTexUnit::TT_TEXTURE);
 
         gDeferredStarProgram.unbind();
+
+        // Optional constellation connector lines (RenderConstellationLines) - gDeferredSkyLineProgram,
+        // not gUIProgram: this immediate-mode line geometry sits at the star dome's distance, which
+        // uiV.hlsl's plain transform (no far-clip pin) would silently clip away whenever the dome
+        // radius exceeds RenderFarClip - see skyLineV.hlsl's comment. Drawn inside the same pushed/
+        // translated/rotated matrix as the stars above so it tracks the star field's slow drift.
+        if (gSavedSettings.getS32("RenderSkyStyle") == 1 && gSavedSettings.getBOOL("RenderConstellationLines"))
+        {
+            gDeferredSkyLineProgram.bind();
+            gSky.mVOWLSkyp->drawConstellationLines();
+            gDeferredSkyLineProgram.unbind();
+        }
+
         gDX.popMatrix();
     }
 
     void renderShootingStarsDeferred(const LLVector3& camPosLocal)
     {
-        // S24 (task #279 stage 2, "RENDER WOW"): small dedicated program +
-        // dynamic buffer - see LLVOWLSky::drawShootingStars()/
-        // updateShootingStarGeometry(). Gated the same way as the main star
-        // field (skip during HDRI sky / no VOSky).
+        // Small dedicated program + dynamic buffer - see
+        // LLVOWLSky::drawShootingStars()/updateShootingStarGeometry(). Gated
+        // the same way as the main star field (skip during HDRI sky / no
+        // VOSky).
         if (!gSky.mVOSkyp || use_hdri_sky())
         {
             return;
         }
 
-        // S24 (task #279 stage 2 follow-up): spawn/age/expire is driven
-        // from here, NOT LLVOWLSky::idleUpdate() - that override is dead
-        // code (LLVOWLSky::isActive() hardcodes false, so the engine's
-        // active-object idle dispatch never calls it; see idleUpdate()'s
-        // own comment). This render call happens every frame regardless,
-        // matching how sStarTime etc. are already computed fresh here
-        // rather than via idle ticks. updateShootingStars() itself checks
+        // Spawn/age/expire is driven from here, NOT LLVOWLSky::idleUpdate() -
+        // that override is dead code (LLVOWLSky::isActive() hardcodes false,
+        // so the engine's active-object idle dispatch never calls it).
+        // updateShootingStars() itself checks
         // RenderShootingStars/RenderShootingStarFrequency internally.
         //
-        // S24 (2026-09-04): kept unconditional (even though the draw below
-        // is now gated on daylight, see star_alpha) so the spawn timer/pool
-        // keeps ticking normally through daylight hours rather than
-        // accumulating one huge dt and bursting streaks the moment night
-        // falls again.
+        // Kept unconditional even though the draw below is gated on
+        // daylight (see star_alpha) so the spawn timer/pool keeps ticking
+        // through daylight hours rather than accumulating one huge dt and
+        // bursting streaks when night falls again.
         static LLFrameTimer shooting_star_timer;
         F32 dt = shooting_star_timer.getElapsedTimeF32();
         shooting_star_timer.reset();
         gSky.mVOWLSkyp->updateShootingStars(dt);
 
-        // S24 (2026-09-04): user report - shooting stars (and nebula, fixed
-        // alongside in starsF.hlsl) stayed fully visible in broad daylight
-        // instead of fading the same way the point-star field does. Mirrors
-        // renderStarsDeferred()'s own star_alpha computation above in this
-        // file - same reasoning, same early-out threshold, but only skips
-        // the draw (see comment above on why the update stays unconditional).
-        // S24 (2026-09-05 follow-up): user report - a bright moon could push
-        // the preset's Star Brightness curve (star_alpha) low enough to
-        // "eradicate" shooting stars even with the sun still well below the
-        // horizon, since that curve is artist-authored content, not an
-        // actual measure of whether the sun is up. Switched entirely to
-        // real sun elevation - see sSunElevation's own comment.
+        // Daylight gate mirrors renderStarsDeferred()'s star_alpha/
+        // sun_elevation logic (draw-only; the update above stays
+        // unconditional) - see sSunElevation's comment.
         F32 sun_elevation = LLEnvironment::instance().getCurrentSky()->getSunDirection().mV[2];
 
         if (LLPipeline::sReflectionRender)
@@ -390,9 +468,8 @@ namespace
 
     void renderSkyCloudsDeferred(const LLVector3& camPosLocal, F32 camHeightLocal, LLHLSLShader* cloudshader)
     {
-        // S24 (task #149, resolved): renderDome() (the actual geometry
-        // draw) is shared between sky haze and clouds - only the bound
-        // shader/texture differs.
+        // renderDome() (the actual geometry draw) is shared between sky
+        // haze and clouds - only the bound shader/texture differs.
         if (use_hdri_sky())
         {
             return;
@@ -404,30 +481,13 @@ namespace
 
             LLGLSPipelineBlendSkyBox pipeline_state(true, true);
 
-            // S24 (2026-09-05): this never set its own blend function -
-            // LLGLSPipelineBlendSkyBox's mBlend only toggles blending ON,
-            // it doesn't choose additive vs. alpha (that's a separate piece
-            // of state, LLRender::blendFunc(), which only re-applies when
-            // the factors actually CHANGE from whatever's cached). Clouds
-            // are drawn right after the star/shooting-star passes, both of
-            // which explicitly set BT_ADD_WITH_ALPHA - with nothing here to
-            // override it, clouds were silently inheriting that additive
-            // blend instead of the standard over-blend cloudsF.hlsl is
-            // actually written for (float4(color.rgb, alpha1), a plain
-            // opacity). Under additive blend a fully-opaque cloud ADDS its
-            // color instead of REPLACING what's behind it - including the
-            // data2 G-buffer flag channel the deferred lighting pass reads
-            // to know a pixel is a self-lit star (skip normal atmospheric
-            // compositing) - so a cloud drawn over a star never cleared
-            // that flag, leaving the lighting pass treating a now-cloud-
-            // covered pixel as if it were still a star with mismatched
-            // color data underneath. Set explicitly here so cloud
-            // correctness no longer depends on what the previous pass
-            // happened to leave active. (The actual root cause of "black
-            // dots under clouds" turned out to be a separate, pre-existing
-            // bug - task #312, cloudsF.hlsl's alpha1 not re-clamped after
-            // the RenderCloudLayerOpacity multiply, fixed in r3750 - but
-            // this blend-state fix is independently correct and kept.)
+            // LLGLSPipelineBlendSkyBox only toggles blending ON; it doesn't
+            // select the blend function (LLRender::blendFunc() only
+            // re-applies when the factors change from the cached value).
+            // Clouds draw right after the star/shooting-star passes, which
+            // set BT_ADD_WITH_ALPHA - must set BT_ALPHA explicitly here or
+            // clouds inherit additive blend, which corrupts the data2
+            // G-buffer "is a star" flag under opaque clouds.
             gDX.setSceneBlendType(LLRender::BT_ALPHA);
 
             cloudshader->bind();
@@ -469,21 +529,14 @@ namespace
             cloudshader->uniform1f(LLShaderMgr::CLOUD_VARIANCE, cloud_variance);
             cloudshader->uniform1f(LLShaderMgr::SUN_MOON_GLOW_FACTOR, psky->getSunMoonGlowFactor());
 
-            // S24 (task #303, "2.5D cloud layers", user: "take the math and
-            // the EEP/Windlight settings and extrapolate... volumetric?" ->
-            // agreed on a cheaper 2.5D approach instead of true raymarched
-            // volumetrics). The dome/shader are shared with the sky haze
-            // pass and drawn once today (renderDome() below, unchanged from
-            // before this task - default/off behaviour is byte-identical).
-            // Extra "layers" are just this same dome+shader redrawn with
-            // overridden CLOUD_SCALE (bigger number = bigger-looking cells,
-            // see cloudsV.hlsl's uv/=cloud_scale) and CLOUD_POS_DENSITY1's
-            // xy (independently-scaled wind scroll, added on top of the
-            // static EEP base position - NOT true camera-motion parallax,
-            // the WL dome recenters on the camera every frame so there's no
-            // real depth to parallax against; the depth cue here comes from
-            // differential wind-scroll speed, cell size, and the new tint/
-            // alpha uniforms below, not from geometry).
+            // 2.5D cloud layers: a cheaper alternative to true raymarched
+            // volumetrics. Extra "layers" are the same dome+shader redrawn
+            // with overridden CLOUD_SCALE (see cloudsV.hlsl's uv/=cloud_scale)
+            // and CLOUD_POS_DENSITY1.xy (independently-scaled wind scroll on
+            // top of the static EEP base position). NOT true camera-motion
+            // parallax - the WL dome recenters on the camera every frame, so
+            // the depth cue comes from differential scroll speed, cell size,
+            // and the tint/alpha uniforms below, not from geometry.
             cloudshader->uniform3f(sCloudLayerTint, 1.f, 1.f, 1.f);
             cloudshader->uniform1f(sCloudLayerAlphaMult, 1.f);
             renderDome(camPosLocal, camHeightLocal, cloudshader);
@@ -498,13 +551,10 @@ namespace
                 LLVector2 scroll = LLEnvironment::instance().getCloudScrollDelta();
                 scroll.mV[0] = -scroll.mV[0]; // match applySpecial()'s X-flip
 
-                // S24 (task #303 follow-up, user: "can we have some
-                // controls like cloudbase layers etc"): cell-size/scroll
-                // ratios are now user-tunable (were hardcoded 0.55/1.7 and
-                // 1.6/0.6). Height skew ("cloud base" stratification) is a
-                // single 0..1 strength that maps to a taller/shorter dome
-                // per layer via renderDome()'s layer_height_skew - see that
-                // function's comment for why this is a skew trick, not true
+                // Cell-size/scroll ratios are user-tunable (were hardcoded
+                // 0.55/1.7 and 1.6/0.6). Height skew is a single 0..1
+                // strength mapped to renderDome()'s layer_height_skew - see
+                // that function's comment for why this is a skew, not true
                 // altitude.
                 F32 cirrus_scale_ratio = gSavedSettings.getF32("RenderCloudCirrusScale");
                 F32 cumulus_scale_ratio = gSavedSettings.getF32("RenderCloudCumulusScale");
@@ -719,6 +769,7 @@ void DXDrawPoolWLSky::renderDeferred(LLDrawPoolWLSky& pool, S32 pass)
 
         if (!gCubeSnapshot)
         {
+            renderGalacticBandDeferred();
             renderStarsDeferred(origin);
             renderShootingStarsDeferred(origin);
         }

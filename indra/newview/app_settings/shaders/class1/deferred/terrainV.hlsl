@@ -27,11 +27,8 @@ uniform float4x4 modelview_matrix;
 uniform float4x4 texture_matrix0;
 uniform float3x3 normal_matrix;
 
-// S24 (2026-08-06): were missing entirely - the whole point of this port
-// bug (see below). Real GL_OBJECT_LINEAR-texgen-equivalent uniforms, set
-// by LLDrawPoolTerrain::renderFullShaderTextures() every frame
-// (uniform4fv(OBJECT_PLANE_S/T, ...)) - already correctly wired on the
-// C++ side, just never consumed here.
+// GL_OBJECT_LINEAR-texgen-equivalent uniforms, set by
+// LLDrawPoolTerrain::renderFullShaderTextures() every frame.
 uniform float4 object_plane_s;
 uniform float4 object_plane_t;
 
@@ -41,9 +38,6 @@ struct VSInput
 {
     float3 position : POSITION;
     float3 normal : NORMAL;
-    // S24 (2026-08-06): was "float2 texcoord0 : TEXCOORD0" - terrainV.glsl
-    // has no texcoord0 input at all, only "in vec2 texcoord1" - wrong
-    // semantic entirely, not just a naming mismatch (see below).
     float2 texcoord1 : TEXCOORD1;
 };
 
@@ -53,11 +47,9 @@ struct VSOutput
     TerrainVarying varying;
 };
 
-// S24 (2026-08-06): real port of terrainV.glsl's texgen_object() - GL's
-// legacy GL_OBJECT_LINEAR texture-coordinate generation, done by hand
-// since D3D11 has no fixed-function equivalent: s/t = dot(object-space
-// position, object_plane_s/t), then transformed by texture_matrix0 (the
-// same shape as the GLSL original, not simplified/changed).
+// GL_OBJECT_LINEAR texture-coordinate generation, done by hand since D3D11
+// has no fixed-function equivalent: s/t = dot(object-space position,
+// object_plane_s/t), then transformed by texture_matrix0.
 float2 texgen_object(float4 vpos, float4x4 mat, float4 tp0, float4 tp1)
 {
     float4 tcoord;
@@ -76,15 +68,11 @@ VSOutput main(VSInput IN)
     OUT.varying.pos = mul(modelview_matrix, float4(IN.position.xyz, 1.0)).xyz;
     OUT.varying.vary_normal = normalize(mul(normal_matrix, IN.normal));
 
-    // S24 (2026-08-06): this whole block used to collapse all four detail/
-    // alpha-ramp UV channels into one repeated, wrongly-sourced value (see
-    // git history/session notes) - restored to match terrainV.glsl exactly.
-    // vary_texcoord0.xy: detail-texture UV, real object-space texgen (used
+    // vary_texcoord0.xy: detail-texture UV, object-space texgen (used
     // identically by all 4 detail textures in terrainF.hlsl). vary_texcoord0.zw/
     // vary_texcoord1.xy/.zw: three DIFFERENT alpha-ramp sample coordinates,
     // each a different x-offset slice of the SAME per-vertex texcoord1
-    // attribute (the elevation-based blend-ramp lookup, entirely separate
-    // per-vertex data from the detail-texture UV above).
+    // attribute (the elevation-based blend-ramp lookup).
     OUT.varying.vary_texcoord0.xy = texgen_object(float4(IN.position, 1.0), texture_matrix0, object_plane_s, object_plane_t);
 
     float4 t = float4(IN.texcoord1, 0, 1);

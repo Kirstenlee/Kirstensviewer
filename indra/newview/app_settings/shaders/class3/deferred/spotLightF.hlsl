@@ -94,7 +94,7 @@ uniform float falloff;
 
 struct PSInput
 {
-    // S24 (2026-08-02): missing SV_Position - see uiF.hlsl's comment (fxc.exe-confirmed VS/PS register-shift bug).
+    // SV_Position must be declared first in PSInput to match VS output register order - see uiF.hlsl.
     float4 position : SV_Position;
 
     float4 vary_fragcoord : TEXCOORD0;
@@ -184,16 +184,9 @@ float4 main(PSInput IN) : SV_Target
 
     if (proj_shadow_idx >= 0)
     {
-        // S24 (2026-08-09, task #144, origin sweep): direct .Sample() on a
-        // screen-space render target using the raw, unflipped screen UV -
-        // unlike this file's getGBuffer()/getPosition() calls above (which
-        // already apply the GL-vs-D3D11 texture-origin flip internally, at
-        // their own .Sample() sites - see deferredUtil.hlsl/gbufferUtil.hlsl),
-        // this one bypassed that composition and read lightMap directly.
-        // Same fix shape as every other instance of this bug class this
-        // session: flip only at the .Sample() call, tc itself stays
-        // unflipped (also used above for getPosition()'s NDC reconstruction,
-        // which must not be flipped).
+        // GL-vs-D3D11 texture-origin flip inlined at this .Sample() call only;
+        // tc itself stays unflipped since it's also used above for getPosition()'s
+        // NDC reconstruction, which must not be flipped.
         float4 shd = lightMap.Sample(lightMapSampler, float2(tc.x, 1.0 - tc.y));
         shadow = (proj_shadow_idx==0)?shd.b:shd.a;
         shadow += shadow_fade;
@@ -246,6 +239,11 @@ float4 main(PSInput IN) : SV_Target
 
             lv = normalize(lv);
 
+            // S24: was called twice with byte-identical arguments (once inside the nl>0.0
+            // block, once again right after it) - diffPunc/specPunc don't depend on anything
+            // computed in between, so hoisted to a single call reused by both terms below.
+            pbrPunctual(diffuseColor, specularColor, perceptualRoughness, metallic, n.xyz, v, lv, nl, diffPunc, specPunc);
+
             if (nl > 0.0)
             {
                 amb_da += (nl*0.5 + 0.5) * proj_ambiance;
@@ -254,13 +252,10 @@ float4 main(PSInput IN) : SV_Target
 
                 float3 intensity = dist_atten * dlit * 3.25 * shadow; // Legacy attenuation, magic number to balance with legacy materials
 
-                pbrPunctual(diffuseColor, specularColor, perceptualRoughness, metallic, n.xyz, v, normalize(lv), nl, diffPunc, specPunc);
-
                 final_color += intensity * clamp(nl * (diffPunc + specPunc), float3(0, 0, 0), float3(10, 10, 10));
             }
 
             amb_rgb = getProjectedLightAmbiance( amb_da, dist_atten, lit, nl, 1.0, proj_tc.xy ) * 3.25; //magic number to balance with legacy ambiance
-            pbrPunctual(diffuseColor, specularColor, perceptualRoughness, metallic, n.xyz, v, normalize(lv), nl, diffPunc, specPunc);
 
             final_color += amb_rgb * clamp(nl * (diffPunc + specPunc), float3(0, 0, 0), float3(10, 10, 10));
         }

@@ -318,11 +318,8 @@ void LLViewerParcelMgr::renderRect(const LLVector3d &west_south_bottom_global,
     F32 ne_top = ne_bottom + PARCEL_POST_HEIGHT;
     F32 nw_top = nw_bottom + PARCEL_POST_HEIGHT;
 
-    // S24 (2026-09-05, task #309): LLUI::setLineWidth(2.f) is a no-op under
-    // DX_RENDER (D3D11 has no per-draw line-width control at all) - these 4
-    // posts are real, simple world-space segments with no local transform
-    // in play, so they're a direct dxLineWidth() candidate like the beam/
-    // beacon pillar before them.
+    // LLUI::setLineWidth() is a no-op under DX_RENDER (D3D11 has no per-draw
+    // line-width control) - these posts use dxLineWidth() instead.
     LLColor4 post_color(1.f, 1.f, 0.f, 1.f);
     gDX.color4fv(post_color.mV);
 
@@ -700,36 +697,18 @@ void draw_cross_lines(const LLVector3& center, F32 dx, F32 dy, F32 dz)
     gDX.vertex3f(center.mV[VX], center.mV[VY], center.mV[VZ] + dz);
 }
 
-// S24 (2026-09-04): the tall "sky pillar" beacon (draw_cross_lines() at
-// dz=50) used to rely on glLineWidth() for visual weight - D3D11's
-// rasterizer has no line-width control at all (a real cross-API gap, not a
-// port gap - see DXStateCache.h's own comment on this), so under DX_RENDER
-// it was permanently a 1px, alpha-0.25 hairline spanning 100 world units -
-// effectively invisible at any real distance, exactly the "GL artifact,
-// no longer works" the beacon system was reported as. Replaced with a real
-// camera-facing billboard quad, same technique llhudeffecttrail.cpp's beam
-// already established for this identical problem: constant SCREEN-space
-// pixel width via getPixelMeterRatio() (stays visible at any distance,
-// doesn't blow up to a giant slab up close), fading from the base color to
-// fully transparent at the top so it reads as a beam of light rather than a
-// fence post, plus a gentle pulse so it's not a static/flat GL-era leftover.
-// S24 (2026-09-04): takes an explicit `top` rather than a straight-up
-// height so the same billboard technique also covers renderSunMoonBeacons()
-// below (an arbitrary-direction beam toward the sun/moon, not a vertical
-// pillar) - see that function's own comment, same dead-glLineWidth bug.
-//
-// S24 (2026-09-05, task #309): the billboard-quad geometry itself (was
-// duplicated here and in llhudeffecttrail.cpp's selection beam) is now
-// shared via dxLineWidth() (lldxlinewidth.h) - this function only keeps its
-// own beacon-specific behavior: the pulse animation and the fade-to-
-// transparent-at-top look.
+// D3D11 has no line-width control, so this billboard quad (constant
+// screen-space pixel width via getPixelMeterRatio(), fading to transparent
+// at `top`) replaces the old glLineWidth()-based beacon geometry. Takes an
+// explicit `top` rather than a height so renderSunMoonBeacons() can reuse it
+// for an arbitrary-direction beam. Billboard-quad geometry itself lives in
+// dxLineWidth() (lldxlinewidth.h); this function adds the pulse animation
+// and fade-to-transparent-at-top look.
 void draw_beacon_pillar(const LLVector3& base, const LLVector3& top, F32 half_pixel_width, const LLColor4& color)
 {
-    // S24 (2026-09-04, user feedback): widened swing (was 0.8+/-0.2) so the
-    // bright half of the pulse genuinely punches past 1.0 - combined with
-    // BT_ADD_WITH_ALPHA (see renderObjectBeacons()) that overshoot is what
-    // actually reads as "brighter than the sky" rather than just less
-    // transparent.
+    // Swing intentionally overshoots 1.0 - combined with BT_ADD_WITH_ALPHA
+    // (see renderObjectBeacons()) that's what reads as "brighter than the
+    // sky" rather than just less transparent.
     F32 pulse = 1.0f + 0.5f * sinf((F32)LLFrameTimer::getElapsedSeconds() * 3.0f);
 
     LLColor4 base_color = color;
@@ -740,11 +719,8 @@ void draw_beacon_pillar(const LLVector3& base, const LLVector3& top, F32 half_pi
     dxLineWidth(base, top, half_pixel_width, base_color, top_color);
 }
 
-// S24 (2026-09-04): replaces the small close-range draw_cross_lines()
-// (dz=0.5) - same dead-glLineWidth reasoning as draw_beacon_pillar() above.
-// A solid downward-pointing pyramid reads unambiguously as "the source is
-// HERE" from any horizontal viewing angle without needing to be
-// camera-billboarded (unlike the pillar, it has real extent on every axis).
+// A solid downward-pointing pyramid, unlike draw_beacon_pillar() this has
+// real extent on every axis so it doesn't need camera-billboarding.
 void draw_beacon_arrow(const LLVector3& target, F32 size, const LLColor4& color)
 {
     LLVector3 base_center = target;
@@ -773,21 +749,14 @@ void LLViewerObjectList::renderObjectBeacons()
 
     gUIProgram.bind();
 
-    // S24 (2026-09-04): mLineWidth/glLineWidth() dropped entirely (not just
-    // gated) - both draw calls below are real triangle geometry now, so
-    // there's no per-width GL state left to batch around. See
-    // draw_beacon_pillar()/draw_beacon_arrow()'s own comments.
+    // Both draw calls below are real triangle geometry - no per-width GL
+    // state to batch around.
     {
         gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
 
-        // S24 (2026-09-04, user feedback: "quick difficult to pick up
-        // against a bright background"): normal alpha blend gets visually
-        // diluted the brighter whatever's behind it is - a plain
-        // alpha-blended beam over a bright midday sky ends up barely
-        // tinting it. Switched to additive-with-alpha (same technique the
-        // night-sky stars/shooting-stars already use) so the pillar ADDS
-        // light instead of blending toward it - stays punchy against any
-        // background, bright sky included. Reset back to plain alpha right
+        // Additive-with-alpha (same technique the night-sky stars use) so the
+        // pillar adds light instead of blending toward the background,
+        // staying visible against a bright sky. Reset to plain alpha right
         // after so the depth-tested cube/arrow below aren't affected.
         gDX.setSceneBlendType(LLRender::BT_ADD_WITH_ALPHA);
 
@@ -797,11 +766,8 @@ void LLViewerObjectList::renderObjectBeacons()
             const LLDebugBeacon &debug_beacon = *iter;
             LLColor4 color = debug_beacon.mColor;
             color.mV[3] *= 0.45f;
-            // S24 (2026-09-04): DebugBeaconLineWidth (mLineWidth) used to
-            // feed glLineWidth() directly - restore it as a real, visible
-            // tunable rather than letting it go dead alongside that API
-            // under DX_RENDER (1.25px half-width per setting unit, so the
-            // default of 1 gives a readable ~2.5px-wide beam).
+            // 1.25px half-width per setting unit, so the default of 1 gives a
+            // readable ~2.5px-wide beam.
             F32 half_pixel_width = (F32)debug_beacon.mLineWidth * 1.25f;
             LLVector3 top = debug_beacon.mPositionAgent;
             top.mV[VZ] += 50.f;
@@ -878,13 +844,8 @@ void LLSky::renderSunMoonBeacons(const LLVector3& pos_agent, const LLVector3& di
         pos_end.mV[i] = pos_agent.mV[i] + (50 * direction.mV[i]);
     }
 
-    // S24 (2026-09-04): same dead-glLineWidth bug as renderObjectBeacons()'s
-    // old tall pillar (see draw_beacon_pillar()'s own comment, and the small
-    // draw_cross_lines() caps this used to draw at each end had the exact
-    // same problem) - D3D11 has no line-width control at all, so this
-    // sun/moon direction beam was a permanent 1px hairline under DX_RENDER.
-    // Reuses the same billboard-beam technique; additive blend so it stays
-    // visible against the bright sky it's usually pointing across.
+    // Reuses draw_beacon_pillar()'s billboard-beam technique; additive blend
+    // so it stays visible against the bright sky it's usually pointing across.
     color.mV[3] *= 0.5f;
     gDX.setSceneBlendType(LLRender::BT_ADD_WITH_ALPHA);
     gDX.begin(LLRender::TRIANGLES);
@@ -913,37 +874,45 @@ struct ShaderProfileHelper
     }
 };
 
-// This helper class is used to ensure that each generateTextures() call
-// is matched by a corresponding deleteTextures() call. It also handles
-// the bindManual() calls using those textures.
+// Holds `size` independent real textures for the memory-bandwidth benchmark below - real
+// LLImageGL objects uploaded via createGLTexture(), not bare generated GL texture names bound
+// via LLTexUnit::bindManual(), which is a documented no-op under DX_RENDER (see
+// dxdrawpoolwlsky.cpp's SMAA sample-map comment for the same limitation) - a benchmark that
+// silently never actually bound its stress-test textures would just measure however fast the
+// GPU can draw with whatever happened to already be bound, not real memory bandwidth.
 class TextureHolder
 {
 public:
     TextureHolder(U32 unit, U32 size) :
-        texUnit(gDX.getTexUnit(unit)),
-        source(size)            // preallocate vector
+        texUnit(gDX.getTexUnit(unit))
     {
-        // takes (count, pointer)
-        // &vector[0] gets pointer to contiguous array
-        LLImageGL::generateTextures(static_cast<S32>(source.size()), &source[0]);
+        images.resize(size);
     }
 
     ~TextureHolder()
     {
-        // unbind
         if (texUnit)
         {
                 texUnit->unbind(LLTexUnit::TT_TEXTURE);
         }
-        // ensure that we delete these textures regardless of how we exit
-        LLImageGL::deleteTextures(static_cast<S32>(source.size()), &source[0]);
+    }
+
+    // Uploads real random pixel data into a fresh res x res RGBA8 texture at `index`. No
+    // mipmaps + point filtering (set directly on the image, not via the currently-bound unit -
+    // there isn't one yet at creation time) to force real cache misses during the timed loop.
+    void create(U32 index, U32 res, const U8* pixels)
+    {
+        LLPointer<LLImageGL> img = new LLImageGL(res, res, 4, false);
+        img->setFilteringOption(LLTexUnit::TFO_POINT);
+        img->createGLTexture(0, pixels);
+        images[index] = img;
     }
 
     bool bind(U32 index)
     {
-        if (texUnit) // should always be there with dummy (-1), but just in case
+        if (texUnit && images[index].notNull()) // should always be there with dummy (-1), but just in case
         {
-            return texUnit->bindManual(LLTexUnit::TT_TEXTURE, source[index]);
+            return texUnit->bind(images[index].get());
         }
         return false;
     }
@@ -952,8 +921,7 @@ private:
     // capture which LLTexUnit we're going to use
     LLTexUnit* texUnit;
 
-    // use std::vector for implicit resource management
-    std::vector<U32> source;
+    std::vector<LLPointer<LLImageGL>> images;
 };
 
 class ShaderBinder
@@ -985,6 +953,11 @@ F32 shader_timer_benchmark(std::vector<LLRenderTarget> & dest, TextureHolder & t
         ShaderProfileHelper initProfile;
         dest[0].bindTarget();
         gBenchmarkProgram.bind();
+        // S24: LLHLSLShader::startProfile()/stopProfile() (the generic per-bind hook this was
+        // presumably meant to ride on) has zero callers anywhere in the engine - ShaderProfileHelper
+        // alone only resets/reads the stats, nothing actually places or reads the GPU query around
+        // this draw loop. Call it explicitly here instead of relying on that dead hook.
+        gBenchmarkProgram.placeProfileQuery();
         for (S32 c = 0; c < samples; ++c)
         {
             for (U32 i = 0; i < textures_count; ++i)
@@ -994,6 +967,10 @@ F32 shader_timer_benchmark(std::vector<LLRenderTarget> & dest, TextureHolder & t
                 buff->drawArrays(LLRender::TRIANGLES, 0, 3);
             }
         }
+        // force_read: this is a one-shot explicit benchmark, not a per-frame runtime overlay - an
+        // immediate blocking readback is exactly what's wanted (and required under DX_RENDER's
+        // query model, which has no "ready yet?" poll loop to fall back on across frames here).
+        gBenchmarkProgram.readProfileQuery(false, true);
         gBenchmarkProgram.unbind();
         dest[0].flush();
     }
@@ -1013,22 +990,14 @@ F32 shader_timer_benchmark(std::vector<LLRenderTarget> & dest, TextureHolder & t
 //-----------------------------------------------------------------------------
 F32 gpu_benchmark()
 {
-#ifdef DX_RENDER
-    // S24 (2026-08-05): GL-only (compiles a GLSL/HLSL benchmark shader,
-    // times it via GL_TIMER queries) and never audited for DX_RENDER -
-    // menu-triggerable independently of LLFeatureManager::loadGPUClass()
-    // (llviewermenu.cpp), so guard here too rather than only at that one
-    // call site. See loadGPUClass()'s own DX_RENDER comment for the real
-    // GPU classification path used instead.
-    return -1.f;
-#endif
-
+#ifndef DX_RENDER
     if (gGLManager.mGLVersion < 3.3f)
     { // don't bother benchmarking venerable drivers which don't support accurate timing anyway
         return -1.f;
     }
+#endif
 
-    if (gBenchmarkProgram.mProgramObject == 0)
+    if (!gBenchmarkProgram.isComplete())
     {
         LLViewerShaderMgr::instance()->initAttribsAndUniforms();
 
@@ -1073,7 +1042,7 @@ F32 gpu_benchmark()
         pixels[i] = (U8) ll_rand(255);
     }
 
-    gDX.setColorMask(true, true);
+    gDX.setColorWriteMask(true, true);
     LLGLDepthTest depth(GL_FALSE);
 
     LLTimer alloc_timer;
@@ -1092,18 +1061,7 @@ F32 gpu_benchmark()
         dest[i].clear();
         dest[i].flush();
 
-        if (!texHolder.bind(i))
-        {
-            // can use a dummy value mDummyTexUnit = new LLTexUnit(-1);
-            LL_WARNS("Benchmark") << "Failed to bind tex unit." << LL_ENDL;
-            // abandon the benchmark test
-            delete[] pixels;
-            return -1.f;
-        }
-        LLImageGL::setManualImage(GL_TEXTURE_2D, 0, GL_RGBA, res,res,GL_RGBA, GL_UNSIGNED_BYTE, pixels);
-        // disable mipmaps and use point filtering to cause cache misses
-        gDX.getTexUnit(0)->setHasMipMaps(false);
-        gDX.getTexUnit(0)->setTextureFilteringOption(LLTexUnit::TFO_POINT);
+        texHolder.create(i, res, pixels);
 
         if (alloc_timer.getElapsedTimeF32() > time_limit)
         {
@@ -1151,11 +1109,11 @@ F32 gpu_benchmark()
     F32 seconds = 0;
     F32 gbps = shader_timer_benchmark(dest, texHolder, count, buff.get(), seconds);
 
-    LL_INFOS("Benchmark") << "Memory bandwidth, 1st run is " << llformat("%.3f", gbps) << " GB/sec according to ARB_timer_query, total time " << seconds << " seconds" << LL_ENDL;
+    LL_WARNS("Benchmark") << "Memory bandwidth, 1st run is " << llformat("%.3f", gbps) << " GB/sec, total time " << seconds << " seconds" << LL_ENDL;
 
     gbps = shader_timer_benchmark(dest, texHolder, count, buff.get(), seconds);
 
-    LL_INFOS("Benchmark") << "Memory bandwidth, final run is " << llformat("%.3f", gbps) << " GB/sec according to ARB_timer_query, total time " << seconds << " seconds" << LL_ENDL;
+    LL_WARNS("Benchmark") << "Memory bandwidth, final run is " << llformat("%.3f", gbps) << " GB/sec, total time " << seconds << " seconds" << LL_ENDL;
 
     return gbps;
 }

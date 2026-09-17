@@ -102,8 +102,8 @@ GBufferInfo getGBuffer(float2 screenpos);
 
 #include "varying/pointLightVarying.hlsli"
 
-// S24 (2026-08-02): see uiF.hlsl's comment - real register mismatch,
-// confirmed via fxc.exe disassembly, affects every bare-Varying PS input.
+// S24: SV_Position semantic required here, or every subsequent VS/PS interpolant register
+// shifts (see uiF.hlsl) - applies to every bare-Varying PS input, not just this one.
 struct PSInput
 {
     float4 position : SV_Position;
@@ -134,10 +134,7 @@ float4 main(PSInput IN) : SV_Target
         float metallic = orm.b;
         float3 f0 = float3(0.04, 0.04, 0.04);
         float3 baseColor = diffuse.rgb;
-        // S24 (2026-08-19, task #235, task #227 audit finding): was missing
-        // the *(1.0-f0) term GLSL has (~4% too bright) - sibling
-        // spotLightF.hlsl already has it correctly, confirming this was a
-        // real, inconsistent omission.
+        // S24: *(1.0-f0) term required to match GLSL - see spotLightF.hlsl's copy.
         float3 diffuseColor = baseColor.rgb * (float3(1.0, 1.0, 1.0) - f0);
         diffuseColor *= 1.0 - metallic;
         float3 specularColor = lerp(f0, baseColor.rgb, metallic);
@@ -148,14 +145,9 @@ float4 main(PSInput IN) : SV_Target
     }
     else
     {
-        // S24 (2026-08-17, task #165): dead code, left as documentation
-        // rather than removed - calcHalfVectors() above (called
-        // unconditionally, before the PBR/legacy branch) already clamps nl
-        // to [1e-6, 1.0], so `nl < 0.0` can never be true here. This box-
-        // mesh path never had the hard N.L popping bug multiPointLightF.hlsl
-        // did (see that file's real fix+explanation) - it's already
-        // continuous by construction, just via an accidental side effect of
-        // the clamp rather than deliberate design. No behavior change.
+        // S24: dead code - calcHalfVectors() above already clamps nl to [1e-6, 1.0], so
+        // this can never be true. Kept as documentation; see multiPointLightF.hlsl for the
+        // analogous hard-cutoff popping issue this path happens not to have.
         if (nl < 0.0) discard;
         diffuse = srgb_to_linear(diffuse);
         spec.rgb = srgb_to_linear(spec.rgb);

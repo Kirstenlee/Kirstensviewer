@@ -223,13 +223,16 @@ LLHLSLShader            gCASProgram;
 LLHLSLShader            gCASLegacyGammaProgram;
 LLHLSLShader            gDeferredPostNoDoFProgram;
 LLHLSLShader            gDeferredPostNoDoFNoiseProgram;
+LLHLSLShader            gStereoAnaglyphProgram;
 LLHLSLShader            gDeferredWLSkyProgram;
 LLHLSLShader            gEnvironmentMapProgram;
 LLHLSLShader            gDeferredWLCloudProgram;
 LLHLSLShader            gDeferredWLSunProgram;
 LLHLSLShader            gDeferredWLMoonProgram;
 LLHLSLShader            gDeferredStarProgram;
-LLHLSLShader            gDeferredStarShootingProgram; // S24 task #279 stage 2
+LLHLSLShader            gDeferredStarShootingProgram;
+LLHLSLShader            gDeferredSkyLineProgram;
+LLHLSLShader            gDeferredGalacticBandProgram;
 LLHLSLShader            gDeferredFullbrightShinyProgram;
 LLHLSLShader            gHUDFullbrightShinyProgram;
 LLHLSLShader            gDeferredSkinnedFullbrightShinyProgram;
@@ -469,27 +472,10 @@ void LLViewerShaderMgr::finalizeShaderList()
     mShaderList.push_back(&gDeferredDiffuseProgram);
     mShaderList.push_back(&gDeferredBumpProgram);
     mShaderList.push_back(&gDeferredPBROpaqueProgram);
-    // S24 (2026-08-26, task #262): gHUDPBROpaqueProgram was the one shader
-    // in the whole Deferred/HUD pairing above missing its push_back - every
-    // other "Deferred X" -> "HUD X" pair is registered together (Alpha,
-    // Fullbright x3, PBRAlpha, etc.), this one wasn't. Confirmed via
-    // llhlslshader.cpp's LLHLSLShader::bind(): a shader only gets
-    // LLShaderMgr::updateShaderUniforms() called for it (WindLight/
-    // environment param propagation - gamma, sun/ambient, atmospherics)
-    // when mUniformsDirty is true, which is ONLY ever set by
-    // LLEnvironment::update()'s per-frame loop over THIS list
-    // (beginShaders()/endShaders()) - a shader missing from this list never
-    // receives those uniforms at all, same "never uploaded, not a math bug"
-    // class as the amblit/sunlit/atten bug already diagnosed for
-    // softenLightF.hlsl (see this file's DX_RENDER branch of bind()).
-    // Symptom this explains: PBR-opaque materials on HUD attachments
-    // (routed to gHUDPBROpaqueProgram, dxrender/../pbropaqueF.hlsl's IS_HUD
-    // branch) render solid black; switching the face to any alpha-blend
-    // mode routes it through gHUDPBRAlphaProgram instead - which WAS
-    // correctly registered here - masking the real gap as an "alpha fixes
-    // it" workaround. User feedback (public alpha 0.1), not locally
-    // reproducible - fix is a direct pattern match against every other
-    // already-working Deferred/HUD pair above, not live-verified.
+    // gHUDPBROpaqueProgram needs its own push_back here like every other Deferred/HUD pair
+    // (Alpha, Fullbright, PBRAlpha) - a shader missing from mShaderList never gets
+    // LLEnvironment::update()'s per-frame updateShaderUniforms() call (mUniformsDirty), so its
+    // WindLight/environment params (gamma, sun/ambient, atmospherics) are never uploaded.
     mShaderList.push_back(&gHUDPBROpaqueProgram);
 
     if (gSavedSettings.getBOOL("GLTFEnabled"))
@@ -639,6 +625,26 @@ void LLViewerShaderMgr::setShaders()
         //llclamp<S32>(max_texture_index, 1, gGLManager.mNumTextureImageUnits-reserved_texture_units);
 
     reentrance = true;
+
+    // S24: a full shader reload (triggered by toggling SSR/Mirrors/HDR/Water/Reflection
+    // Probe settings in Preferences) blocks the message pump for real seconds - long enough
+    // that Windows paints the "(Not Responding)" ghost overlay, which has led users to
+    // conclude the viewer crashed and kill it via Task Manager mid-reload. Reuses the exact
+    // same native dialog already proven for this at startup (LLSplashScreenWin32 runs its
+    // window on a dedicated thread pumping its own message queue, so it stays visually
+    // responsive no matter how long this thread blocks) instead of building a new one.
+    // LLSplashScreen::show()/update() are idempotent - if this reload happens to run during
+    // actual startup (the splash is already up from llappviewer.cpp), this only updates its
+    // message; splashWasAlreadyVisible then makes sure this function's own hide() below
+    // doesn't tear down a dialog it didn't show, leaving that to the normal startup flow.
+    bool splashWasAlreadyVisible = LLSplashScreen::isVisible();
+    LLSplashScreen::update("Updating graphics settings, please wait...");
+    struct SplashGuard
+    {
+        bool mSkipHide;
+        explicit SplashGuard(bool skip_hide) : mSkipHide(skip_hide) {}
+        ~SplashGuard() { if (!mSkipHide) { LLSplashScreen::hide(); } }
+    } splash_guard(splashWasAlreadyVisible);
 
     // Make sure the compiled shader map is cleared before we recompile shaders.
     mVertexShaderObjects.clear();
@@ -919,16 +925,9 @@ std::string LLViewerShaderMgr::loadBasicShaders()
         attribs["SSR"] = "1";
     }
 
-    // S24 (2026-09-07, re-applied after an accidental svn revert wiped the
-    // original uncommitted fix): REFMAP_LEVEL/REF_SAMPLE_COUNT must be
-    // defined unconditionally, not just when has_reflection_probes is true -
-    // reflectionProbeF.hlsl uses REF_SAMPLE_COUNT as a fixed HLSL array size
-    // (`static int probeIndex[REF_SAMPLE_COUNT];`) regardless of that flag,
-    // so leaving it undefined for any shader that attaches this file with
-    // has_reflection_probes false is a real compile-time gap, not a cosmetic
-    // one - this is the direct cause of "CTD disabling SSR" (see the
-    // matching class-tier fix on reflectionProbeF.glsl/screenSpaceReflUtil.glsl
-    // just below - same root bug class, same fix session).
+    // REFMAP_LEVEL/REF_SAMPLE_COUNT must be defined unconditionally, not only when
+    // has_reflection_probes is true: reflectionProbeF.hlsl uses REF_SAMPLE_COUNT as a fixed
+    // HLSL array size regardless of that flag, so leaving it undefined is a compile-time gap.
     attribs["REFMAP_LEVEL"] = std::to_string(probe_level);
     attribs["REF_SAMPLE_COUNT"] = "32";
 
@@ -995,18 +994,10 @@ std::string LLViewerShaderMgr::loadBasicShaders()
     index_channels.push_back(-1);    shaders.push_back( make_pair( "deferred/aoUtil.glsl",                          1) );
     index_channels.push_back(-1);    shaders.push_back( make_pair( "deferred/pbrterrainUtilF.glsl",                 1) );
     index_channels.push_back(-1);    shaders.push_back( make_pair( "deferred/tonemapUtilF.glsl",                    1) );
-    // S24 (2026-09-07, re-applied after an accidental svn revert wiped the
-    // original uncommitted fix): both of these were previously cached at a
-    // LOWER class tier whenever has_reflection_probes/ssr was false (e.g.
-    // right after the user disables SSR) - LLShaderMgr::mFragmentShaderSourceText
-    // caches this file's resolved source ONCE, keyed by bare filename, then
-    // reuses that SAME cached text for every later shader that attaches it
-    // regardless of THAT shader's own class level. A shader still needing
-    // the higher-tier body (e.g. one compiled earlier this same session,
-    // before the toggle) attaching the now-lower-tier cached text is the
-    // real, confirmed cause of "CTD disabling SSR" - always request the
-    // highest tier (3) unconditionally so the cached text is never
-    // downgraded out from under a shader that needs it.
+    // LLShaderMgr::mFragmentShaderSourceText caches each file's resolved source once, keyed by
+    // bare filename, and reuses it regardless of the requesting shader's own class level. Always
+    // request the highest tier (3) here so an already-compiled shader needing the higher-tier
+    // body is never handed a lower-tier cached text if has_reflection_probes/ssr toggles later.
     index_channels.push_back(-1);    shaders.push_back( make_pair( "deferred/reflectionProbeF.glsl",                3) );
     index_channels.push_back(-1);    shaders.push_back( make_pair( "deferred/screenSpaceReflUtil.glsl",             3) );
     index_channels.push_back(-1);    shaders.push_back( make_pair( "lighting/lightNonIndexedF.glsl",                    mShaderLevel[SHADER_LIGHTING] ) );
@@ -1261,6 +1252,8 @@ bool LLViewerShaderMgr::loadShadersDeferred()
         gDeferredWLMoonProgram.unload();
         gDeferredStarProgram.unload();
         gDeferredStarShootingProgram.unload();
+        gDeferredSkyLineProgram.unload();
+        gDeferredGalacticBandProgram.unload();
         gDeferredFullbrightShinyProgram.unload();
         gHUDFullbrightShinyProgram.unload();
         gDeferredSkinnedFullbrightShinyProgram.unload();
@@ -1381,12 +1374,9 @@ bool LLViewerShaderMgr::loadShadersDeferred()
     gDeferredMaterialProgram[13+LLMaterial::SHADER_COUNT].mFeatures.hasLighting = false;
 
 #ifdef DX_RENDER
-    // S24 (2026-09-05, task #277): pending-count + mutex/cv used to wait for
-    // this permutation array's background D3DCompile() prefetch (below) to
-    // finish before the real, necessarily-sequential compile loop runs.
-    // Guarded entirely by material_prefetch_mutex, per the standard
-    // "mutate-and-check-predicate-under-the-same-lock" condition_variable
-    // idiom - a plain int is enough, no separate atomic needed.
+    // Pending-count + mutex/cv wait for the background D3DCompile() prefetch below to finish
+    // before the real sequential compile loop runs; guarded by material_prefetch_mutex per the
+    // standard mutate-and-check-predicate-under-the-same-lock idiom, so a plain int suffices.
     int material_prefetch_pending = 0;
     std::mutex material_prefetch_mutex;
     std::condition_variable material_prefetch_cv;
@@ -1464,16 +1454,11 @@ bool LLViewerShaderMgr::loadShadersDeferred()
             }
 
 #ifdef DX_RENDER
-            // S24 (2026-09-05, task #277): warm the D3DCompile() bytecode
-            // disk cache for this permutation on a DXPool worker thread while
-            // setup for later permutations continues on the main thread -
-            // see DXShader::prefetchVertexShader()/prefetchPixelShader()'s
-            // own comments for why only this step (not the device-touching
-            // real compile below) is safe to parallelize. Purely a warm-up:
-            // the real createShader() loop further down is completely
-            // unchanged and correct either way, this only makes it faster
-            // once the cache is warm. buildDXSource() itself stays on the
-            // main thread (touches LLShaderMgr's shared source-text caches).
+            // Warms the D3DCompile() bytecode disk cache for this permutation on a DXPool worker
+            // thread while setup continues on the main thread - purely a speed warm-up, the real
+            // createShader() loop below is unchanged either way. buildDXSource() itself stays on
+            // the main thread since it touches LLShaderMgr's shared source-text caches; only the
+            // device-touching compile is unsafe to parallelize (see DXShader::prefetchVertexShader()).
             if (material_prefetch_queue && gDeferredMaterialProgram[i].buildDXSource())
             {
                 std::string debug_name = gDeferredMaterialProgram[i].mName;
@@ -1533,7 +1518,6 @@ bool LLViewerShaderMgr::loadShadersDeferred()
 #ifdef DX_RENDER
     if (material_prefetch_queue)
     {
-        LL_PROFILE_ZONE_NAMED_CATEGORY_SHADER("materialProgramPrefetchWait");
         std::unique_lock<std::mutex> lk(material_prefetch_mutex);
         material_prefetch_cv.wait(lk, [&material_prefetch_pending] { return material_prefetch_pending == 0; });
     }
@@ -1807,9 +1791,8 @@ bool LLViewerShaderMgr::loadShadersDeferred()
 
     if (success)
     {
-        // S24 (2026-09-10): jelly-doll ghost - real alpha-blended,
-        // post-deferred draw of the same cached impostor quad, see
-        // LLDrawPoolAvatar::renderJellyDollGhosts().
+        // Jelly-doll ghost: alpha-blended, post-deferred draw of the cached impostor quad.
+        // See LLDrawPoolAvatar::renderJellyDollGhosts().
         gDeferredJellyGhostProgram.mName = "Deferred Jelly Ghost Shader";
         gDeferredJellyGhostProgram.mFeatures.hasSrgb = true;
         gDeferredJellyGhostProgram.mShaderFiles.clear();
@@ -1973,11 +1956,9 @@ bool LLViewerShaderMgr::loadShadersDeferred()
 
     if (success)
     {
-        // S24 (2026-08-23, task #190 temporal-SSAO follow-up): reprojects
-        // and blends last frame's AO history with this frame's spatially-
-        // blurred AO to remove screen-locked-noise flicker during camera
-        // movement. Reuses blurLightV.hlsl unchanged - see dxpipeline.cpp's
-        // renderDeferredLighting() for the insertion point/orchestration.
+        // Temporal AO: reprojects and blends last frame's AO history with this frame's
+        // spatially-blurred AO to remove screen-locked-noise flicker during camera movement.
+        // Reuses blurLightV.hlsl unchanged; see dxpipeline.cpp's renderDeferredLighting().
         gDeferredTemporalResolveSSAOProgram.mName = "Deferred Temporal Resolve SSAO Shader";
         gDeferredTemporalResolveSSAOProgram.mFeatures.isDeferred = true;
 
@@ -2722,23 +2703,13 @@ bool LLViewerShaderMgr::loadShadersDeferred()
 
     if (success)
     {
-        // S24 (2026-08-26, task #263): deliberately NOT mFeatures.isDeferred/
-        // hasSrgb - unlike gDeferredPostGammaCorrectProgram above, this is a
-        // standalone image resize with no deferred G-buffer dependency and
-        // no color-space conversion of its own (operates on already-gamma-
-        // corrected content) - same minimal registration shape gGlowProgram
-        // uses for the same reason. Not added to mShaderList either (see
-        // that list's own "ONLY shaders that need WL Param management"
-        // comment) - this shader has no WindLight/environment uniforms.
+        // Standalone image resize, no deferred G-buffer dependency - deliberately not
+        // mFeatures.isDeferred, and not added to mShaderList (no WindLight/environment uniforms),
+        // same minimal registration as gGlowProgram.
         gResizeBicubicProgram.mName = "GPU Resize Bicubic";
-        // S24 (2026-08-26, task #263 round 6): hasSrgb attaches srgbF.glsl's
-        // srgb_to_linear()/linear_to_srgb() (same mechanism gCASProgram/
-        // gDeferredPostGammaCorrectProgram use) so the shader can blend its
-        // 4 taps in linear light instead of on the already gamma-encoded
-        // source (the composited post target this reads is post-gamma-
-        // correct) - blending gamma-encoded values directly is a real,
-        // if subtle, error: it weights mid-tones wrong versus blending the
-        // light they actually represent.
+        // hasSrgb attaches srgbF.glsl's srgb_to_linear()/linear_to_srgb() so the 4 taps blend in
+        // linear light instead of on the already gamma-encoded source - blending gamma-encoded
+        // values directly weights mid-tones wrong.
         gResizeBicubicProgram.mFeatures.hasSrgb = true;
         gResizeBicubicProgram.mShaderFiles.clear();
         gResizeBicubicProgram.clearPermutations();
@@ -3118,6 +3089,22 @@ bool LLViewerShaderMgr::loadShadersDeferred()
 
     if (success)
     {
+        // Final stereo composite. Deliberately not mFeatures.isDeferred=true - self-contained
+        // (own t0/s0+t1/s1 eye textures), needs no deferredUtil.hlsl helpers.
+        gStereoAnaglyphProgram.mName = "Stereo Anaglyph Composite Shader";
+        gStereoAnaglyphProgram.mShaderFiles.clear();
+        gStereoAnaglyphProgram.mShaderFiles.push_back(make_pair("deferred/stereoAnaglyphV.glsl", GL_VERTEX_SHADER));
+        gStereoAnaglyphProgram.mShaderFiles.push_back(make_pair("deferred/stereoAnaglyphF.glsl", GL_FRAGMENT_SHADER));
+
+        gStereoAnaglyphProgram.clearPermutations();
+
+        gStereoAnaglyphProgram.mShaderLevel = mShaderLevel[SHADER_DEFERRED];
+        success = gStereoAnaglyphProgram.createShader();
+        llassert(success);
+    }
+
+    if (success)
+    {
         gEnvironmentMapProgram.mName = "Environment Map Program";
         gEnvironmentMapProgram.mShaderFiles.clear();
         gEnvironmentMapProgram.mFeatures.calculatesAtmospherics = true;
@@ -3238,9 +3225,7 @@ bool LLViewerShaderMgr::loadShadersDeferred()
 
     if (success)
     {
-        // S24 (task #279 stage 2, "RENDER WOW"): mirrors gDeferredStarProgram
-        // above exactly - see starsShootingV/F.hlsl and
-        // LLVOWLSky::drawShootingStars().
+        // Mirrors gDeferredStarProgram above; see starsShootingV/F.hlsl and LLVOWLSky::drawShootingStars().
         gDeferredStarShootingProgram.mName = "Deferred Shooting Star Program";
         gDeferredStarShootingProgram.mShaderFiles.clear();
         gDeferredStarShootingProgram.mShaderFiles.push_back(make_pair("deferred/starsShootingV.glsl", GL_VERTEX_SHADER));
@@ -3251,6 +3236,40 @@ bool LLViewerShaderMgr::loadShadersDeferred()
         add_common_permutations(&gDeferredStarShootingProgram);
 
         success = gDeferredStarShootingProgram.createShader();
+        llassert(success);
+    }
+
+    if (success)
+    {
+        // Minimal flat-vertex-color line shader for sky-dome-distance immediate-mode geometry
+        // (constellation connector lines) - see skyLineV.hlsl's comment for why gUIProgram can't
+        // be reused here (no far-clip pin, silently clips sky-dome-distance geometry away).
+        gDeferredSkyLineProgram.mName = "Deferred Sky Line Program";
+        gDeferredSkyLineProgram.mShaderFiles.clear();
+        gDeferredSkyLineProgram.mShaderFiles.push_back(make_pair("deferred/skyLineV.glsl", GL_VERTEX_SHADER));
+        gDeferredSkyLineProgram.mShaderFiles.push_back(make_pair("deferred/skyLineF.glsl", GL_FRAGMENT_SHADER));
+        gDeferredSkyLineProgram.mShaderLevel = mShaderLevel[SHADER_DEFERRED];
+        gDeferredSkyLineProgram.mShaderGroup = LLHLSLShader::SG_SKY;
+
+        add_common_permutations(&gDeferredSkyLineProgram);
+
+        success = gDeferredSkyLineProgram.createShader();
+        llassert(success);
+    }
+
+    if (success)
+    {
+        // Procedural galactic-dust band - see galacticBandV.hlsl's comment.
+        gDeferredGalacticBandProgram.mName = "Deferred Galactic Band Program";
+        gDeferredGalacticBandProgram.mShaderFiles.clear();
+        gDeferredGalacticBandProgram.mShaderFiles.push_back(make_pair("deferred/galacticBandV.glsl", GL_VERTEX_SHADER));
+        gDeferredGalacticBandProgram.mShaderFiles.push_back(make_pair("deferred/galacticBandF.glsl", GL_FRAGMENT_SHADER));
+        gDeferredGalacticBandProgram.mShaderLevel = mShaderLevel[SHADER_DEFERRED];
+        gDeferredGalacticBandProgram.mShaderGroup = LLHLSLShader::SG_SKY;
+
+        add_common_permutations(&gDeferredGalacticBandProgram);
+
+        success = gDeferredGalacticBandProgram.createShader();
         llassert(success);
     }
 
@@ -3275,60 +3294,22 @@ bool LLViewerShaderMgr::loadShadersDeferred()
         success = gDeferredGenBrdfLutProgram.createShader();
     }
 
-    // S24 (2026-09-04): removed from the eager startup chain entirely - a
-    // live, reproducible startup hang ("we seem to be hanging on screen
-    // space reflection post shader") landed directly on this program's
-    // compile, same symptom/chokepoint as task #261's AMD buffer-
-    // visualization lockup just above (LLHLSLShader::createShader()'s
-    // driver-side CreatePixelShader() call). Unlike that shader, this one
-    // has no lazy-compile-on-first-use option to fall back to - task #269's
-    // audit (2026-08-27) and this file's own screenSpaceReflPostF.hlsl
-    // comment both independently confirm gPostScreenSpaceReflectionProgram
-    // is created at startup and NEVER bound/drawn anywhere on either
-    // backend (re-confirmed via tree-wide grep just now: zero .bind()/
-    // .isComplete() call sites at all, only its own creation). No legitimate
-    // trigger point exists to defer compilation to, so simply never
-    // compiling it is a strictly safe, unconditionally-correct fix
-    // regardless of root cause - dead code has no business blocking
-    // startup for everyone. mName/mShaderFiles left uncleared/unset
-    // (default-constructed LLHLSLShader, isComplete() stays false, matching
-    // its prior "never bound" reality exactly).
+    // gPostScreenSpaceReflectionProgram is never bound/drawn anywhere on either backend (zero
+    // .bind()/.isComplete() call sites, only its own creation) and caused a startup hang on its
+    // driver-side compile. Simply never compiling it is safe: mName/mShaderFiles are left unset
+    // (default-constructed LLHLSLShader, isComplete() stays false, matching "never bound" reality).
 
-    // S24 (2026-08-24, task #261): gDeferredBufferVisualProgram's own
-    // createShader() call moved OUT of this eager startup chain - see
-    // loadShaderBufferVisualization() below for why.
+    // gDeferredBufferVisualProgram's createShader() call moved out of this eager startup chain -
+    // see loadShaderBufferVisualization() below.
 
     return success;
 }
 
-// S24 (2026-08-24, task #261): first real 0.1 alpha bug report - two
-// independent AMD GPU users both saw the viewer lock up on the startup
-// "Compiling shader: ..." splash dialog (LLHLSLShader::createShader()'s
-// LLSplashScreen::update() call is the exact chokepoint named in the
-// report), and static analysis narrowed it to specifically this shader:
-// "Deferred Buffer Visualization Shader" (Develop > Rendering > Buffer
-// Visualization, postDeferredVisualizeBuffers.hlsl) is genuinely a debug/
-// diagnostic-only feature never used in normal gameplay, yet was being
-// unconditionally compiled during loadShadersDeferred()'s mandatory startup
-// chain like every real rendering shader - meaning a driver-side compile
-// hang here (CreatePixelShader() invokes the GPU vendor's own DXBC->native-
-// ISA backend compiler, a genuinely different code path per vendor, unlike
-// the vendor-neutral CPU-side D3DCompile front-end step) blocked EVERY user
-// from ever reaching the main viewer, not just the ones who'd actually open
-// this debug view. No definite root cause was found via source inspection
-// alone (the shader itself is trivial - one texture sample, no loops; no
-// register collisions with unconditionally-attached shared files; no class3
-// override exists to be silently substituted) - a genuine AMD driver-side
-// compiler bug on some legal-but-unusual generated-bytecode pattern is
-// plausible but unconfirmed without live AMD hardware to repro against.
-// Rather than guess at the shader content, this is a real, unconditionally-
-// correct mitigation regardless of root cause: a rarely-used debug shader
-// has no business being compiled eagerly at startup at all. Moved to a
-// lazy, on-first-use compile from LLPipeline::visualizeBuffers() instead -
-// this cannot block startup for anyone who never opens the debug view, and
-// if it does still hang for someone who does open it, that's now an
-// isolated, diagnosable-in-the-moment problem instead of an unconditional
-// block on the whole viewer for every user with this GPU class.
+// "Deferred Buffer Visualization Shader" (Develop > Rendering > Buffer Visualization,
+// postDeferredVisualizeBuffers.hlsl) is a debug-only feature that was being compiled eagerly
+// during loadShadersDeferred()'s mandatory startup chain, where a driver-side compile hang
+// (CreatePixelShader(), GPU-vendor-specific) blocked startup for every user, not just those who
+// open the debug view. Compiled lazily on first use from LLPipeline::visualizeBuffers() instead.
 bool LLViewerShaderMgr::loadShaderBufferVisualization()
 {
     gDeferredBufferVisualProgram.mName = "Deferred Buffer Visualization Shader";
@@ -3538,6 +3519,18 @@ bool LLViewerShaderMgr::loadShadersInterface()
         gUIProgram.mShaderFiles.push_back(make_pair("interface/uiF.glsl", GL_FRAGMENT_SHADER));
         gUIProgram.mShaderLevel = mShaderLevel[SHADER_INTERFACE];
         success = gUIProgram.createShader();
+    }
+
+    if (success)
+    {
+        // S24: uiHueShiftF.hlsl variant - see llrender/llhlslshader.h's own comment on
+        // gUIHueShiftProgram for why this is a separate program from gUIProgram.
+        gUIHueShiftProgram.mName = "UI Hue Shift Shader";
+        gUIHueShiftProgram.mShaderFiles.clear();
+        gUIHueShiftProgram.mShaderFiles.push_back(make_pair("interface/uiV.glsl", GL_VERTEX_SHADER));
+        gUIHueShiftProgram.mShaderFiles.push_back(make_pair("interface/uiHueShiftF.glsl", GL_FRAGMENT_SHADER));
+        gUIHueShiftProgram.mShaderLevel = mShaderLevel[SHADER_INTERFACE];
+        success = gUIHueShiftProgram.createShader();
     }
 
     if (success)
@@ -3784,32 +3777,37 @@ bool LLViewerShaderMgr::loadShadersInterface()
         success = gDrawColorProgram.createShader();
     }
 
-    if (gSavedSettings.getBOOL("LocalTerrainPaintEnabled"))
+    if (success)
     {
-        if (success)
-        {
-            LLHLSLShader* shader = &gPBRTerrainBakeProgram;
-            U32 bit_depth = gSavedSettings.getU32("TerrainPaintBitDepth");
-            // LLTerrainPaintMap currently uses an RGB8 texture internally
-            bit_depth = llclamp(bit_depth, 1, 8);
-            shader->mName = llformat("Terrain Bake Shader RGB%o", bit_depth);
-            shader->mFeatures.isPBRTerrain = true;
+        // S24: used to be gated on gSavedSettings.getBOOL("LocalTerrainPaintEnabled") - but that
+        // flag starts false every session and only gets set true by Develop > Terrain > Create
+        // Local Paintmap AFTER it already needs this shader to bake, with nothing anywhere
+        // forcing a shader reload once the flag flips - a permanent chicken-and-egg gap that left
+        // gPBRTerrainBakeProgram uncompiled forever (LLHLSLShader::bind() silently no-ops on an
+        // incomplete shader, and LLVertexBuffer::setupVertexBuffer()'s null sCurBoundShaderPtr
+        // deref right after has no guard - Access Violation). Always compile it, like every other
+        // interface shader in this function - it's a small utility shader, no reason to withhold it.
+        LLHLSLShader* shader = &gPBRTerrainBakeProgram;
+        U32 bit_depth = gSavedSettings.getU32("TerrainPaintBitDepth");
+        // LLTerrainPaintMap currently uses an RGB8 texture internally
+        bit_depth = llclamp(bit_depth, 1, 8);
+        shader->mName = llformat("Terrain Bake Shader RGB%o", bit_depth);
+        shader->mFeatures.isPBRTerrain = true;
 
-            shader->mShaderFiles.clear();
-            shader->mShaderFiles.push_back(make_pair("interface/pbrTerrainBakeV.glsl", GL_VERTEX_SHADER));
-            shader->mShaderFiles.push_back(make_pair("interface/pbrTerrainBakeF.glsl", GL_FRAGMENT_SHADER));
-            shader->mShaderLevel = mShaderLevel[SHADER_INTERFACE];
-            const U32 value_range = (1 << bit_depth) - 1;
-            shader->addPermutation("TERRAIN_PAINT_PRECISION", llformat("%d", value_range));
-            success = success && shader->createShader();
-            //llassert(success);
-            if (!success)
-            {
-                LL_WARNS() << "Failed to create shader '" << shader->mName << "', disabling!" << LL_ENDL;
-                gSavedSettings.setBOOL("RenderCanUseTerrainBakeShaders", false);
-                // continue as if this shader never happened
-                success = true;
-            }
+        shader->mShaderFiles.clear();
+        shader->mShaderFiles.push_back(make_pair("interface/pbrTerrainBakeV.glsl", GL_VERTEX_SHADER));
+        shader->mShaderFiles.push_back(make_pair("interface/pbrTerrainBakeF.glsl", GL_FRAGMENT_SHADER));
+        shader->mShaderLevel = mShaderLevel[SHADER_INTERFACE];
+        const U32 value_range = (1 << bit_depth) - 1;
+        shader->addPermutation("TERRAIN_PAINT_PRECISION", llformat("%d", value_range));
+        success = success && shader->createShader();
+        //llassert(success);
+        if (!success)
+        {
+            LL_WARNS() << "Failed to create shader '" << shader->mName << "', disabling!" << LL_ENDL;
+            gSavedSettings.setBOOL("RenderCanUseTerrainBakeShaders", false);
+            // continue as if this shader never happened
+            success = true;
         }
     }
 
@@ -3839,13 +3837,8 @@ bool LLViewerShaderMgr::loadShadersInterface()
 
     if (success)
     {
-        // S24 (2026-08-09, task #147 step 1): was "Reflection Mip Shader" -
-        // an exact copy-paste duplicate of gReflectionMipProgram.mName just
-        // above, making crash-log shader names ambiguous (the one time
-        // reflection-probe capture crashed, the D3D11 debug layer named
-        // "Reflection Mip Shader" as the culprit with no way to tell which
-        // of these two distinct programs actually caused it). Renamed to be
-        // unique so future logs are unambiguous.
+        // Renamed from a copy-paste duplicate of gReflectionMipProgram.mName - shared names
+        // make D3D11 debug-layer crash logs unable to distinguish which program is at fault.
         gGaussianProgram.mName = "Gaussian Blur Shader";
         gGaussianProgram.mFeatures.isDeferred = true;
         gGaussianProgram.mFeatures.hasGamma = true;

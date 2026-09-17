@@ -97,11 +97,10 @@ uniform float proj_ambiance;
 uniform int classic_mode;
 #endif
 
-// S24 (2026-09-07, task #266 continuation): also declared (guarded) by
-// reflectionProbeF.hlsl/softenLightF.hlsl/hazeF.hlsl/skyV.hlsl/
-// atmosphericsFuncs.hlsl - needed here for pbrBaseLight()'s direct-light
-// dampening during a reflection-probe capture, see that function's own
-// comment.
+// S24: also declared (guarded) by reflectionProbeF.hlsl/softenLightF.hlsl/
+// hazeF.hlsl/skyV.hlsl/atmosphericsFuncs.hlsl - needed here for
+// pbrBaseLight()'s direct-light dampening during a reflection-probe
+// capture, see that function's own comment.
 #ifndef LL_CUBE_SNAPSHOT_DECLARED
 #define LL_CUBE_SNAPSHOT_DECLARED
 uniform int cube_snapshot;
@@ -182,17 +181,12 @@ float2 getScreenCoordinate(float2 screenpos)
     return screenpos.xy * 2.0 - float2(1.0, 1.0);
 }
 
-// S24 (2026-08-04): GL's texture origin is bottom-left, D3D11's is
-// top-left - deferredScreen was written using D3D11's native top-left-
-// origin convention, so sampling it back with an unflipped screen-space
-// UV reads it upside down. Flipped here, at the actual .Sample() call,
-// rather than in the UV computation itself (softenLightV.hlsl's
-// vary_fragcoord) - that was tried first and reverted, since
-// vary_fragcoord is ALSO used to reconstruct world position via the
-// inverse projection matrix (getPositionWithDepth()/getScreenCoordinate()
-// below), which must stay in the camera's own NDC convention and must
-// NOT be flipped. Flipping only at the texture-read call sites keeps
-// both correct.
+// S24: GL's texture origin is bottom-left, D3D11's is top-left, so
+// sampling deferredScreen with an unflipped screen-space UV reads it
+// upside down. Flip only at the .Sample() call, not in vary_fragcoord
+// itself - vary_fragcoord is also used to reconstruct world position via
+// the inverse projection matrix and must stay in the camera's own NDC
+// convention.
 float4 getNorm(float2 screenpos)
 {
     return decodeNormal(normalMap.Sample(normalMapSampler, float2(screenpos.x, 1.0 - screenpos.y)));
@@ -205,11 +199,9 @@ float4 getNormRaw(float2 screenpos)
 
 float linearDepth(float d, float znear, float zfar)
 {
-    // S24 (reversed-Z conversion): 1.0-d*2.0, was d*2.0-1.0 - reconstructs
-    // the same GL-convention NDC z (-1=near,+1=far) from the now-reversed
-    // stored depth (near=1.0/far=0.0, see kGLtoDXDepthRemap's comment,
-    // llrender.cpp). Everything below this line already operates on that
-    // GL-convention NDC z and needs no further change.
+    // S24: reversed-Z: 1.0-d*2.0, not d*2.0-1.0 - reconstructs the
+    // GL-convention NDC z (-1=near,+1=far) from the reversed stored depth
+    // (near=1.0/far=0.0, see kGLtoDXDepthRemap in llrender.cpp).
     d = 1.0 - d * 2.0;
     return znear * 2.0 * zfar / (zfar + znear - d * (zfar - znear));
 }
@@ -221,10 +213,8 @@ float linearDepth01(float d, float znear, float zfar)
 
 float getDepth(float2 pos_screen)
 {
-    // S24 (2026-08-04): same texture-origin flip as getNorm()/getNormRaw()
-    // above - see their comment. pos_screen itself (and everything
-    // downstream, e.g. getPositionWithDepth()'s inverse-projection math)
-    // stays unflipped; only this actual texture read is corrected.
+    // S24: same texture-origin flip as getNorm()/getNormRaw() above -
+    // pos_screen itself stays unflipped; only this texture read is corrected.
     return depthMap.Sample(depthMapSampler, float2(pos_screen.x, 1.0 - pos_screen.y)).r;
 }
 
@@ -312,8 +302,7 @@ float4 getPosition(float2 pos_screen)
 {
     float depth = getDepth(pos_screen);
     float2 sc = getScreenCoordinate(pos_screen);
-    // S24 (reversed-Z conversion): 1.0-2.0*depth, was 2.0*depth-1.0 - see
-    // linearDepth()/getPositionWithDepth() comments above.
+    // S24: reversed-Z - see linearDepth()'s comment above.
     float4 ndc = float4(sc.x, sc.y, 1.0 - 2.0 * depth, 1.0);
     float4 pos = mul(inv_proj, ndc);
     pos /= pos.w;
@@ -330,8 +319,7 @@ float3 getPositionWithNDC(float3 ndc)
 float4 getPositionWithDepth(float2 pos_screen, float depth)
 {
     float2 sc = getScreenCoordinate(pos_screen);
-    // S24 (reversed-Z conversion): 1.0-2.0*depth, was 2.0*depth-1.0 - see
-    // linearDepth()'s matching comment above.
+    // S24: reversed-Z - see linearDepth()'s comment above.
     float3 ndc = float3(sc.x, sc.y, 1.0 - 2.0 * depth);
     return float4(getPositionWithNDC(ndc), 1.0);
 }
@@ -559,25 +547,15 @@ float3 pbrBaseLight(float3 diffuseColor, float3 specularColor, float metallic, f
     float3 specPunc = float3(0, 0, 0);
     pbrPunctual(diffuseColor, specularColor, perceptualRoughness, metallic, norm, v, normalize(light_dir), nl, diffPunc, specPunc);
 
-    // S24 (2026-09-07, task #266 continuation): live-diagnosed by the user -
-    // direct sunlight hitting one side of an enclosed room (e.g. through a
-    // window at sunrise) legitimately illuminates that one captured cube
-    // face while the opposite face, receiving no direct light, stays dark -
-    // real physics, not a bug, but baking that hard directional gap
-    // permanently into a probe's 6 captured faces reads as banding once
-    // reflected. Confirmed NOT fixable by blending/desaturating the
-    // ALREADY-captured result after the fact without also flattening
-    // everything else wanted (user: pushing contrast enough to hide the
-    // gap blacks out the whole floor). Real fix is upstream: dampen the
-    // DIRECT light term specifically while THIS capture is running, so the
-    // probe represents general room ambience rather than a frozen sun-hit
-    // snapshot - SSR and the main view's own per-frame lighting already
-    // handle real, live direct highlights correctly for whatever's
-    // actually on screen; the probe only needs to be the ambient fallback.
-    // 0.2 - first-pass value, not physically derived, live-tune from here -
-    // deliberately NOT zero, a fully flat capture would lose all
-    // directional character even for genuinely-lit spaces (windows,
-    // skylights) that should still read as brighter than a sealed room.
+    // S24: a probe's 6 baked faces freeze whichever face direct sunlight
+    // happens to hit (e.g. through a window), reading as hard banding once
+    // reflected - real per-face lighting, not a bug, but not fixable by
+    // post-processing the captured result. Dampen the direct-light term
+    // during capture instead, so the probe represents general room
+    // ambience; SSR and per-frame lighting already handle live direct
+    // highlights for whatever's on screen. 0.2 is a tuned, not physically
+    // derived, value - kept nonzero so genuinely-lit spaces (windows,
+    // skylights) still read brighter than a sealed room.
     float directLightMult = (cube_snapshot == 1) ? 0.2 : 1.0;
 
     if (classic_mode > 0)

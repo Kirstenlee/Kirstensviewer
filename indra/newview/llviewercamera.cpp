@@ -72,7 +72,7 @@ LLViewerCamera::LLViewerCamera() : LLCamera()
 	mZoomSubregion = 1;
 	mAverageSpeed = 0.f;
 	mAverageAngularSpeed = 0.f;
-	// S24 3D Auto-adjust smoothing - initialize to 0 to trigger auto-detection
+	// Auto-adjust smoothing - initialize to 0 to trigger auto-detection
 	mStereoSmoothFocalDistance = 0.0f;
 	mStereoSmoothStrength = 1.0f;
 
@@ -296,8 +296,6 @@ void LLViewerCamera::setPerspective(bool for_selection,
 	bool limit_select_distance,
 	F32 z_near, F32 z_far)
 {
-	// S24 3D
-
 	// Calculate common values at the start
 	F32 fov_y = getView(); // Vertical FOV in RADS for the frustum projection
 	F32 aspect = getAspect(); // returns float mAspect width / height
@@ -307,116 +305,19 @@ void LLViewerCamera::setPerspective(bool for_selection,
 	if (z_default_far) z_far = getFar(); // In Meters
 	if (z_near <= 0) z_near = getNear(); // In Meters
 
-	// S24 3D variables cached
-	static LLCachedControl <F32> eye_separation(gSavedSettings, ("StereoEyeSeparation"));
-	static LLCachedControl <F32> focal_distance(gSavedSettings, ("StereoFocalDistance"));
 	static LLCachedControl <F32> FOV_multiplier(gSavedSettings, ("StereoFOVmultiplier"));
 	static LLCachedControl <F32> z_near_offset(gSavedSettings, ("StereoZnear"));
-	static LLCachedControl <F32> stereo_strength(gSavedSettings, ("StereoStrength"));
-	static LLCachedControl <bool> auto_adjust(gSavedSettings, ("StereoAutoAdjust"));
 	bool stereo_enabled = gSavedSettings.getBOOL("StereoMode");
 
-	// S24 3D - Auto-adjust stereo parameters based on camera distance
-	// When enabled, focal distance matches camera-to-subject distance for natural convergence
-	// and stereo strength scales down at very close distances to prevent eye strain
-	float effective_focal_distance = focal_distance;
-	float effective_stereo_strength = stereo_strength;
-
-	if (stereo_enabled && auto_adjust)
-	{
-		// Calculate distance from camera to point of interest
-		LLVector3 camera_to_poi = mLastPointOfInterest - getOrigin();
-		float camera_distance = camera_to_poi.length();
-
-		// Clamp to reasonable range (0.5m to 50m)
-		camera_distance = llclamp(camera_distance, 0.5f, 50.0f);
-
-		// Target values for this frame
-		float target_focal_distance = camera_distance;
-		float target_strength = stereo_strength;
-
-		// Scale stereo strength based on distance to prevent eye strain at close range and avatar ghosting
-		// Full strength at 5.0m and beyond (extended from 2.5m to reduce avatar ghosting in third-person view)
-		// Gradually reduce to 0.7x at 0.5m for better fusion at close range
-		// Third-person camera (2-4m) now gets reduced strength to minimize avatar separation/ghosting
-		if (camera_distance < 5.0f)
-		{
-			float distance_factor = (camera_distance - 0.5f) / 4.5f; // Range 0.5m-5.0m maps to 0.0-1.0
-			distance_factor = llclamp(distance_factor, 0.0f, 1.0f);
-			// Interpolate between 0.7x and full stereo_strength
-			// At 2.5m (typical avatar distance): ~0.833x strength (was 1.0x)
-			// At 3.5m (far avatar distance): ~0.9x strength (was 1.0x)
-			target_strength = stereo_strength * (0.7f + 0.3f * distance_factor);
-		}
-
-		// Smooth interpolation to prevent jerkiness during camera movement
-		// Use exponential smoothing (lerp) with time-independent factor
-		// Higher lerp_factor = faster response but more jitter
-		// Lower lerp_factor = smoother but more lag
-		const float lerp_factor = 0.15f; // 15% of target per frame (~60fps = smooth follow)
-
-		mStereoSmoothFocalDistance = mStereoSmoothFocalDistance + (target_focal_distance - mStereoSmoothFocalDistance) * lerp_factor;
-		mStereoSmoothStrength = mStereoSmoothStrength + (target_strength - mStereoSmoothStrength) * lerp_factor;
-
-		// Use smoothed values
-		effective_focal_distance = mStereoSmoothFocalDistance;
-		effective_stereo_strength = mStereoSmoothStrength;
-	}
-	else
-	{
-		// When auto-adjust is disabled, reset smoothed values to manual settings
-		// This ensures immediate response when re-enabling or switching modes
-		mStereoSmoothFocalDistance = focal_distance;
-		mStereoSmoothStrength = stereo_strength;
-	}
-
-	// S24 3D - Apply stereo strength multiplier to eye separation
-	// This allows artistic control (0.1-2.0x) while keeping realistic IPD values (50-80mm)
-	// Useful for large monitors at close viewing distance (reduce to 0.5x-0.7x)
-	// or distant viewing/small screens (increase to 1.5x-2.0x)
-	const float effective_eye_sep = eye_separation * effective_stereo_strength;
-
-	// S24 number crunch
+	// Per-eye stereo offset/smoothing (StereoFocalDistance/Strength/AutoAdjust/EyeSeparation) belongs
+	// entirely to rotateToEye(), which owns mStereoSmoothFocalDistance/mStereoSmoothStrength - do not
+	// recompute or overwrite them here.
 	const float rads = fov_y * FOV_multiplier;
 	const float wd2 = (z_near + z_near_offset) * tan(rads);
-	const float ndfl = (z_near + z_near_offset) / effective_focal_distance;
 
-	// S24 3D - Determine eye-specific frustum offset based on camera ID
-	// getMaskMode() returns MASK_MODE_LEFT for left eye, MASK_MODE_RIGHT for right eye
-	// Left eye needs to converge right (+offset on left, -offset on right)
-	// Right eye needs to converge left (-offset on left, +offset on right)
-	S32 eye_sign = 0;
-	S32 mask_mode = gViewerWindow->getMaskMode();
-	if (mask_mode == MASK_MODE_LEFT)
-	{
-		eye_sign = 1; // Left eye converges right
-	}
-	else if (mask_mode == MASK_MODE_RIGHT)
-	{
-		eye_sign = -1; // Right eye converges left
-	}
-
-	// S24 3D - Ultrawide aspect ratio compensation
-	// Without this, ultrawide displays (21:9, 32:9) show edge distortion because
-	// frustum width scales linearly with aspect ratio but convergence offset stays constant.
-	// This causes edge regions to have different perceived depth than center.
-	// Normalize to 16:9 (aspect = 1.78) baseline for proportional scaling.
-	float aspect_compensation = 1.0f;
-	if (stereo_enabled && aspect > 1.78f)
-	{
-		aspect_compensation = aspect / 1.78f;
-	}
-
-	// S24 3D - Pure parallel-axis stereo method (NO toe-in convergence)
-	// Previous implementation used asymmetric frustum (toe-in method) which caused:
-	// - Geometric distortion on center-screen objects (avatars)
-	// - Vertical size mismatch between eyes
-	// - Keystoning on flat surfaces
-	// - Compound parallax (angular + positional) = "eyes on stalks"
-	//
-	// Now using SYMMETRIC frustum for both eyes, letting rotateToEye() camera translation
-	// provide ALL stereo separation via parallel-axis method (geometrically correct).
-	// No angular convergence = no distortion, natural binocular fusion creates depth.
+	// Symmetric frustum for both eyes; rotateToEye()'s camera translation alone provides stereo
+	// separation (parallel-axis method). Avoids the toe-in/asymmetric-frustum artifacts (keystoning,
+	// compound parallax) of the previous approach.
 
 	// Define symmetric frustum (identical for both eyes except viewing position)
 	float left = -(aspect * wd2);
@@ -429,7 +330,6 @@ void LLViewerCamera::setPerspective(bool for_selection,
 	gDX.loadIdentity();
 
 	glm::mat4 proj_mat = glm::identity<glm::mat4>();
-	// S24 for_selection and ZoomFactor before..... handling projection see line:409
 
 	if (for_selection)
 	{
@@ -483,7 +383,6 @@ void LLViewerCamera::setPerspective(bool for_selection,
 	}
 
 	calcProjection(z_far); // Update the projection matrix cache
-	// S24 3D
 	// If stereo is OFF → symmetric frustum
 	if (!stereo_enabled)
 	{
@@ -493,16 +392,8 @@ void LLViewerCamera::setPerspective(bool for_selection,
 		float r = t * aspect;
 		float l = -r;
 
-		// ============================================================================
-		// S24 FIX: Shift-Click Selection Pick Matrix Preservation
-		// ============================================================================
-		// ISSUE:      Shift-click object selection was selecting multiple objects
-		//             instead of single object under cursor.
-		// ROOT CAUSE: When for_selection==true, glm::pickMatrix creates a narrow
-		//             frustum around mouse cursor (line 444), but the code below
-		//             was REPLACING it entirely with glm::frustum(), destroying
-		//             the pick region and making selection use full-screen frustum.
-		// ============================================================================
+		// Must multiply the pick matrix (glm::pickMatrix above) by the frustum, not replace it, or the
+		// narrow pick region around the cursor is destroyed and selection uses the full-screen frustum.
 		if (for_selection)
 		{
 			proj_mat = proj_mat * glm::frustum(l, r, b, t, z_near, z_far);
@@ -511,19 +402,10 @@ void LLViewerCamera::setPerspective(bool for_selection,
 		{
 			proj_mat = glm::frustum(l, r, b, t, z_near, z_far);
 		}
-		// ============================================================================
-		// END S24 FIX: Shift-Click Selection Pick Matrix Preservation
-		// ============================================================================
 	}
 	else
 	{
-		// Stereo enabled → use asymmetric S24 frustum
-		// ============================================================================
-		// S24 FIX: Shift-Click Selection Pick Matrix Preservation (Stereo Mode)
-		// ============================================================================
-		// Same fix as above, but for stereo mode using asymmetric frustum.
-		// When in 3D anaglyph/stereo mode, selection must still work precisely.
-		// ============================================================================
+		// Stereo enabled → use asymmetric frustum. Same multiply-not-replace reasoning as above applies.
 		if (for_selection)
 		{
 			proj_mat = proj_mat * glm::frustum(left, right, bottom, top, z_near, z_far);
@@ -532,9 +414,6 @@ void LLViewerCamera::setPerspective(bool for_selection,
 		{
 			proj_mat = glm::frustum(left, right, bottom, top, z_near, z_far);
 		}
-		// ============================================================================
-		// END S24 FIX: Shift-Click Selection Pick Matrix Preservation (Stereo Mode)
-		// ============================================================================
 	}
 
 	// Load into GL
@@ -553,9 +432,8 @@ void LLViewerCamera::setPerspective(bool for_selection,
 
 	modelview *= glm::make_mat4(dx_matrix);
 
-	// S24 Stereo: Camera position offset is now handled by rotateToEye() in llviewerdisplay.cpp
-	// setPerspective() only handles the asymmetric frustum for convergence plane
-	// This prevents duplicate camera offsets from compounding (which caused logarithmic scaling)
+	// Per-eye camera position offset is handled by rotateToEye() in llviewerdisplay.cpp, not here -
+	// avoids duplicate offsets compounding.
 
 	gDX.loadMatrix(glm::value_ptr(modelview));
 
@@ -951,7 +829,6 @@ bool LLViewerCamera::areVertsVisible(LLViewerObject* volumep, bool all_verts)
 
 extern bool gCubeSnapshot;
 
-// S24 3D
 void LLViewerCamera::updateStereoValues()
 {
 	// get the current camera position to calculate the offsets
@@ -962,13 +839,13 @@ void LLViewerCamera::updateStereoValues()
 
 void LLViewerCamera::rotateToEye(S32 eye_sign)
 {
-	// S24 3D FIX: Corrected eye sign interpretation
-	// eye_sign = +1 for left eye (moves LEFT), -1 for right eye (moves RIGHT)
-	// Previous implementation had this reversed, causing left/right eye swap
+	// eye_sign = +1 for left eye (moves left), -1 for right eye (moves right).
 
 	// Fetch settings once
 	const F32 eye_separation = gSavedSettings.getF32("StereoEyeSeparation");
-	static LLCachedControl<bool> auto_focal_distance(gSavedSettings, "StereoAutoFocalDistance", true);
+	// Reads StereoAutoAdjust - the real, persisted, UI-exposed "Auto-Adjust Stereo" setting.
+	// "StereoAutoFocalDistance" does not exist in settings.xml.
+	static LLCachedControl<bool> auto_focal_distance(gSavedSettings, "StereoAutoAdjust", true);
 	static LLCachedControl<F32> min_focal_distance(gSavedSettings, "StereoMinFocalDistance", 4.0f);
 	static LLCachedControl<F32> focal_distance_smooth(gSavedSettings, "StereoFocalDistanceSmooth", 0.15f);
 
@@ -1034,7 +911,6 @@ void LLViewerCamera::rotateToEye(S32 eye_sign)
 	// Apply camera transform
 	updateCameraLocation(new_pos, getUpAxis(), new_poi);
 }
-// S24 3D END
 
 // changes local camera and broadcasts change
 /* virtual */ void LLViewerCamera::setView(F32 vertical_fov_rads)
@@ -1079,7 +955,7 @@ void LLViewerCamera::setDefaultFOV(F32 vertical_fov_rads)
 	mCosHalfCameraFOV = cosf(mCameraFOVDefault * 0.5f);
 }
 
-bool LLViewerCamera::isDefaultFOVChanged() //S24 watch this with 3D Stereo might need work?
+bool LLViewerCamera::isDefaultFOVChanged()
 {
 	if (mPrevCameraFOVDefault != mCameraFOVDefault)
 	{

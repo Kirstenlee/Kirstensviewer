@@ -56,9 +56,6 @@ namespace
             shader = &gHUDFullbrightShinyProgram;
         }
 
-        // S24 (2026-08-09, task #170): was never selected - rigged batches
-        // were skipped entirely until task #168 fixed DXVertexLayout's
-        // MAP_WEIGHT4 rejection.
         if (rigged)
         {
             llassert(shader->mRiggedVariant);
@@ -74,40 +71,10 @@ namespace
 
         DXCubeMap* cube_map = gSky.mVOSkyp ? gSky.mVOSkyp->getCubeMap() : nullptr;
 
-        // S24 (2026-08-09, task #123 follow-up): mirrors LLPipeline::
-        // bindDeferredShader()'s own "use_legacy_env_map" override
-        // (pipeline.cpp, task #113, 2026-08-06) - this pool has its OWN
-        // separate copy of the legacy-vs-modern env-map branching (it
-        // doesn't route through bindDeferredShader() at all), and that
-        // copy was never updated to match. Real, confirmed consequence:
-        // LLPipeline::bindReflectionProbes() (the "modern" branch below)
-        // never binds ENVIRONMENT_MAP at all - only the array-based
-        // REFLECTION_PROBES/IRRADIANCE_PROBES, which stay null forever
-        // under DX_RENDER since the real capture pipeline never runs (see
-        // llreflectionmapmanager.cpp's own DX_RENDER gate, task #147).
-        // With sReflectionProbesEnabled true (the default), this pool was
-        // taking the "modern" branch, calling bindReflectionProbes()
-        // which does nothing useful, leaving "environmentMap" (what the
-        // current simplified reflectionProbeF.hlsl actually samples)
-        // permanently unbound - shiny/bump materials read whatever
-        // texture an unrelated earlier draw call left in that slot. This
-        // is what was showing through water's own (legitimate, working)
-        // screen-space refraction as a "fishbowl"-looking reflection -
-        // water's own radiance term was already fixed/zeroed (task #147),
-        // but water was honestly reflecting already-broken nearby shiny
-        // objects.
-        //
-        // S24 (2026-08-10, task #147/#184, SUPERSEDED): the real capture
-        // pipeline this comment describes as "never runs" now does - see
-        // pipeline.cpp's own bindDeferredShader() override (same fix,
-        // fuller writeup there). reflectionProbeF.hlsl already declares
-        // and samples the real TextureCubeArray reflectionProbes/
-        // irradianceProbes registers (t16/t17) - bindReflectionProbes()
-        // (the "modern" branch below) is what feeds those, so matching
-        // GL's condition here now gets bump/shiny materials real,
-        // correctly-oriented probe data instead of a legacy cubemap whose
-        // own producer (llvosky.cpp) stopped updating it the moment
-        // sReflectionProbesEnabled went true.
+        // use_legacy_env_map mirrors LLPipeline::bindDeferredShader()'s own
+        // legacy-vs-modern env-map override (pipeline.cpp) - this pool has its
+        // own separate copy of that branching since it doesn't route through
+        // bindDeferredShader() at all, so keep the two in sync.
         bool use_legacy_env_map = !LLPipeline::sReflectionProbesEnabled;
 
         if (cube_map && use_legacy_env_map)
@@ -155,26 +122,25 @@ namespace
 
         LLGLEnable blend_enable(GL_BLEND);
 
-        // S24 (2026-08-09, task #170): render rigged - was skipped until
-        // task #168 fixed DXVertexLayout's MAP_WEIGHT4 rejection.
+        // S24: gDeferredFullbrightShinyProgram sets mFeatures.mIndexedTextureChannels
+        // unconditionally (llviewershadermgr.cpp), not gated on mShaderLevel - the shader
+        // always compiles with HAS_DIFFUSE_LOOKUP and always expects a texture batch's
+        // mTextureList bound across tex0..tex3. Gating batch_textures on mShaderLevel>1
+        // here disagreed with that: at mShaderLevel<=1, real multi-texture LLDrawInfo
+        // batches (built by the geometry side regardless of shader level) got pushed with
+        // batch_textures=false, so pushBatch() only ever bound ONE of the batch's several
+        // real textures (params.mTexture) to tex0/t5, leaving tex1-tex3 unbound - any face
+        // whose vary_texture_index picked one of those read the D3D11 null-SRV default
+        // (white/grey), while whichever face happened to land on index 0 rendered fine.
+        // Matches LLDrawPoolSimple::renderDeferred()'s own unconditional
+        // pushBatches(PASS_SIMPLE, true, true) - same shader capability, same fix.
         if (rigged)
         {
-            if (pool.mShaderLevel > 1)
-            {
-                pool.pushRiggedBatches(LLRenderPass::PASS_FULLBRIGHT_SHINY_RIGGED, true, true);
-            }
-            else
-            {
-                pool.pushRiggedBatches(LLRenderPass::PASS_FULLBRIGHT_SHINY_RIGGED);
-            }
-        }
-        else if (pool.mShaderLevel > 1)
-        {
-            pool.pushBatches(LLRenderPass::PASS_FULLBRIGHT_SHINY, true, true);
+            pool.pushRiggedBatches(LLRenderPass::PASS_FULLBRIGHT_SHINY_RIGGED, true, true);
         }
         else
         {
-            pool.pushBatches(LLRenderPass::PASS_FULLBRIGHT_SHINY);
+            pool.pushBatches(LLRenderPass::PASS_FULLBRIGHT_SHINY, true, true);
         }
     }
 
@@ -182,12 +148,9 @@ namespace
     {
         LL_RECORD_BLOCK_TIME(FTM_RENDER_SHINY);
 
-        // S24 (2026-08-09, task #123 follow-up, SUPERSEDED 2026-08-10 task
-        // #147/#184): mirrors beginFullbrightShiny()'s own override - see
-        // its fuller writeup there. unbindReflectionProbes() is
-        // intentionally NOT called when using the legacy path, matching
-        // begin*()'s choice to call setEnvMat() instead of
-        // bindReflectionProbes() there.
+        // Mirrors beginFullbrightShiny()'s legacy/modern branch: unbindReflectionProbes()
+        // is intentionally skipped on the legacy path, since begin() called
+        // setEnvMat() there instead of bindReflectionProbes().
         DXCubeMap* cube_map = gSky.mVOSkyp ? gSky.mVOSkyp->getCubeMap() : nullptr;
         bool use_legacy_env_map = !LLPipeline::sReflectionProbesEnabled;
         if (cube_map && use_legacy_env_map)
@@ -211,9 +174,6 @@ namespace
 
         shader = &gObjectBumpProgram;
 
-        // S24 (2026-08-09, task #170): was never selected - rigged batches
-        // were skipped entirely until task #168 fixed DXVertexLayout's
-        // MAP_WEIGHT4 rejection.
         if (rigged)
         {
             llassert(shader->mRiggedVariant);
@@ -232,22 +192,15 @@ namespace
         LLGLEnable blend(GL_BLEND);
         gDX.diffuseColor4f(1, 1, 1, 1);
 
-        // S24 (2026-08-19, degenerate-triangle foliage investigation): real
-        // fix, replacing the "no DX11 runtime equivalent" gap this comment
-        // used to describe - see DXStateCache::getRasterizerState()'s
-        // depth_bias_enabled param for the full writeup. This emboss-bump
-        // pass draws a second, MULTIPLY-blended layer at the SAME depth as
-        // the base surface it's decorating; without a bias pushing it
-        // slightly toward the camera (matching GL's glPolygonOffset(-1,-1)),
-        // the two passes z-fight per-pixel/per-triangle on any curved or
-        // grazing-angle geometry (thin mesh foliage leaves being the
-        // reported case) - visually a blotchy, triangulated darkening
-        // pattern, not a smooth bump effect. Read current cull/scissor/
-        // depth-clamp so this doesn't clobber whatever's already active,
-        // matching every other applyDXState() rasterizer case's pattern.
+        // Biases depth (-1,-1), matching GL's glPolygonOffset(-1,-1): this
+        // emboss-bump pass draws a second, MULTIPLY-blended layer at the same
+        // depth as the base surface it decorates, and without the bias the two
+        // passes z-fight on curved/grazing-angle geometry (thin foliage
+        // especially). Reads current cull/scissor/depth-clamp so it doesn't
+        // clobber other active state, matching other applyDXState() rasterizer cases.
         ID3D11DeviceContext* ctx = gDXDevice.getContext();
         ID3D11RasterizerState* biased_rs = DXStateCache::getRasterizerState(
-            LLGLState::isEnabled(GL_CULL_FACE), LLGLState::isEnabled(GL_SCISSOR_TEST), LLGLState::isEnabled(GL_DEPTH_CLAMP), -1.0f, -1.0f);
+            DXState::isEnabled(GL_CULL_FACE), DXState::isEnabled(GL_SCISSOR_TEST), DXState::isEnabled(GL_DEPTH_CLAMP), -1.0f, -1.0f);
         ctx->RSSetState(biased_rs);
 
         pool.pushBumpBatches(LLRenderPass::PASS_POST_BUMP);
@@ -255,18 +208,15 @@ namespace
         // Restore the non-biased state so nothing after this pass inherits
         // the bias unexpectedly.
         ID3D11RasterizerState* normal_rs = DXStateCache::getRasterizerState(
-            LLGLState::isEnabled(GL_CULL_FACE), LLGLState::isEnabled(GL_SCISSOR_TEST), LLGLState::isEnabled(GL_DEPTH_CLAMP), 0.f, 0.f);
+            DXState::isEnabled(GL_CULL_FACE), DXState::isEnabled(GL_SCISSOR_TEST), DXState::isEnabled(GL_DEPTH_CLAMP), 0.f, 0.f);
         ctx->RSSetState(normal_rs);
     }
 
-    // S24 (2026-08-09, task #170): rigged counterpart of renderBump() above.
-    // Can't just call pool.pushBumpBatches(PASS_POST_BUMP) a second time
-    // expecting rigged behavior - LLDrawPoolBump::mRigged (which that real
-    // member function checks internally) is private and this DX pool has no
-    // access to it, so the rigged loop is reimplemented here directly,
-    // mirroring pushBumpBatches()'s own rigged branch (lldrawpoolbump.cpp)
-    // using only public members (bindBumpMap()/uploadMatrixPalette()/
-    // pushBumpBatch()).
+    // Rigged counterpart of renderBump() above. LLDrawPoolBump::mRigged (which
+    // pushBumpBatches() checks internally) is private, so this DX pool can't
+    // just call pushBumpBatches(PASS_POST_BUMP) a second time for rigged
+    // behavior - the loop is reimplemented here using only public members
+    // (bindBumpMap()/uploadMatrixPalette()/pushBumpBatch()).
     void renderBumpRigged(LLDrawPoolBump& pool)
     {
         LL_RECORD_BLOCK_TIME(FTM_RENDER_BUMP);
@@ -274,12 +224,11 @@ namespace
         LLGLEnable blend(GL_BLEND);
         gDX.diffuseColor4f(1, 1, 1, 1);
 
-        // S24 (2026-08-19): same real depth-bias fix as renderBump() above -
-        // see its comment for the full writeup. Rigged foliage/attachments
-        // need this exactly as much as static mesh does.
+        // Same depth-bias fix as renderBump() above - rigged foliage/attachments
+        // need it just as much as static mesh does.
         ID3D11DeviceContext* ctx = gDXDevice.getContext();
         ID3D11RasterizerState* biased_rs = DXStateCache::getRasterizerState(
-            LLGLState::isEnabled(GL_CULL_FACE), LLGLState::isEnabled(GL_SCISSOR_TEST), LLGLState::isEnabled(GL_DEPTH_CLAMP), -1.0f, -1.0f);
+            DXState::isEnabled(GL_CULL_FACE), DXState::isEnabled(GL_SCISSOR_TEST), DXState::isEnabled(GL_DEPTH_CLAMP), -1.0f, -1.0f);
         ctx->RSSetState(biased_rs);
 
         const LLVOAvatar* lastAvatar = nullptr;
@@ -303,7 +252,7 @@ namespace
         }
 
         ID3D11RasterizerState* normal_rs = DXStateCache::getRasterizerState(
-            LLGLState::isEnabled(GL_CULL_FACE), LLGLState::isEnabled(GL_SCISSOR_TEST), LLGLState::isEnabled(GL_DEPTH_CLAMP), 0.f, 0.f);
+            DXState::isEnabled(GL_CULL_FACE), DXState::isEnabled(GL_SCISSOR_TEST), DXState::isEnabled(GL_DEPTH_CLAMP), 0.f, 0.f);
         ctx->RSSetState(normal_rs);
     }
 
@@ -321,34 +270,18 @@ void DXDrawPoolBump::renderDeferred(LLDrawPoolBump& pool, S32 pass)
     (void)pass; // unused - only ever called with a single (non-rigged) pass here
     LL_RECORD_BLOCK_TIME(FTM_RENDER_BUMP);
 
-    // S24 (2026-08-09, task #170): now loops twice (static + rigged, i==0/1)
-    // matching lldrawpoolbump.cpp's renderDeferred() exactly - was skipped
-    // entirely until task #168 fixed DXVertexLayout's MAP_WEIGHT4 rejection.
+    // Loops static (pass_i==0) then rigged (pass_i==1), matching
+    // lldrawpoolbump.cpp's renderDeferred().
     for (int pass_i = 0; pass_i < 2; ++pass_i)
     {
         bool rigged = (pass_i == 1);
         gDeferredBumpProgram.bind(rigged);
 
-        // S24 (2026-08-09): CORRECTION - the "no per-material texture-channel
-        // registration" reasoning below predates the general D3D11-
-        // reflection-based texture-channel fix built for the PBR texture-bind
-        // bug (see project_dxrender_stage8_status memory) -
-        // LLHLSLShader::enableTexture() now resolves a real channel from
-        // shader reflection for ANY named texture the bound shader actually
-        // declares, not just diffuse. Confirmed bumpF.hlsl declares and
-        // samples `Texture2D bumpMap : register(t1)` for real (not a stub),
-        // and LLDrawPoolBump::bindBumpMap() (lldrawpoolbump.cpp) - the
-        // function that resolves a bump_code (brightness/darkness-derived OR
-        // one of the ~17 standard library patterns like woodgrain/bark/brick)
-        // to the right texture and binds it - is entirely backend-agnostic,
-        // no #ifdef DX_RENDER anywhere in it. So the fix is exactly what GL
-        // already does: get a real bump_channel and call bindBumpMap() per
-        // drawinfo. diffuse_channel is intentionally still hardcoded to unit
-        // 0 below (not switched to enableTexture(DIFFUSE_MAP)) - bumpF.hlsl
-        // confirmed at t0 already, so this was never actually wrong, just
-        // wasn't proven so before. Found via a user-compiled deep-dive report
-        // + live testing (all bump variations rendering uniformly grey - the
-        // exact symptom this explains).
+        // bump_channel is resolved via LLHLSLShader::enableTexture()'s shader-reflection
+        // lookup (bumpF.hlsl declares bumpMap at register t1); LLDrawPoolBump::bindBumpMap()
+        // (lldrawpoolbump.cpp) is backend-agnostic and does the actual per-drawinfo texture
+        // selection from bump_code. diffuse_channel stays hardcoded to unit 0 below -
+        // bumpF.hlsl samples diffuse at t0.
         S32 bump_channel = LLHLSLShader::sCurBoundShaderPtr->enableTexture(LLViewerShaderMgr::BUMP_MAP);
         if (bump_channel > -1)
         {
@@ -362,12 +295,10 @@ void DXDrawPoolBump::renderDeferred(LLDrawPoolBump& pool, S32 pass)
         const LLVOAvatar* lastAvatar = nullptr;
         U64 lastMeshId = 0;
         bool skipLastSkin = false;
-        // S24 (2026-09-06, perf): setMinimumAlpha() (llhlslshader.cpp) does a
-        // gDX.flush() PLUS a uniform upload - was called unconditionally for
-        // every draw item here, unlike dxdrawpoolmaterials.cpp's otherwise-
-        // identical loop, which already gates this behind a last-value
-        // comparison. -1.f is outside mAlphaMaskCutoff's valid [0,1] range so
-        // the first item always uploads once, matching prior behavior.
+        // setMinimumAlpha() (llhlslshader.cpp) does a gDX.flush() plus a uniform
+        // upload, so it's gated behind a last-value comparison rather than called
+        // per draw item. -1.f is outside mAlphaMaskCutoff's valid [0,1] range so
+        // the first item always uploads once.
         F32 lastAlphaMaskCutoff = -1.f;
 
         for (LLCullResult::drawinfo_iterator i = begin; i != end; )
@@ -421,12 +352,9 @@ void DXDrawPoolBump::renderDeferred(LLDrawPoolBump& pool, S32 pass)
 void DXDrawPoolBump::renderPostDeferred(LLDrawPoolBump& pool, S32 pass)
 {
     (void)pass; // unused - only ever called with a single (non-rigged) pass here
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_DRAWPOOL;
 
-    // S24 (2026-08-09, task #170): now runs 2 passes (static + rigged)
-    // unless rendering HUDs, matching lldrawpoolbump.cpp's
-    // renderPostDeferred() exactly - was skipped entirely until task #168
-    // fixed DXVertexLayout's MAP_WEIGHT4 rejection.
+    // Runs 2 passes (static + rigged) unless rendering HUDs, matching
+    // lldrawpoolbump.cpp's renderPostDeferred().
     S32 num_passes = LLPipeline::sRenderingHUDs ? 1 : 2;
 
     for (S32 i = 0; i < num_passes; ++i)

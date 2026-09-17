@@ -36,7 +36,7 @@ uniform float4x4      projection_matrix;
 
 struct PSInput
 {
-    // S24 (2026-08-02): missing SV_Position - see uiF.hlsl's comment (fxc.exe-confirmed VS/PS register-shift bug).
+    // SV_Position must be declared first in PSInput to match VS output register order - see uiF.hlsl.
     float4 position : SV_Position;
 
     float4 refCoord : TEXCOORD0;

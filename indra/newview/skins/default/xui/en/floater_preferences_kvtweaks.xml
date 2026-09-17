@@ -160,19 +160,20 @@
         width="310" />
 
       <slider
-        control_name="RenderCPUBasis"
+        control_name="RenderProcessQoS"
         decimal_digits="0"
         follows="left|top"
         height="20"
-        increment="100"
-        initial_value="3000"
-        label="Reference CPU Freq for GPU Bias:"
+        increment="1"
+        initial_value="1"
+        label="CPU Process QoS:"
         label_width="240"
         layout="topleft"
         left="20"
-        min_val="1000"
-        max_val="6000"
-        name="cpu_gpu_balance"
+        min_val="0"
+        max_val="2"
+        name="process_qos"
+        tool_tip="Real Windows process/thread scheduling tier, applied at launch. 0 = Eco (EcoQoS power throttling enabled - background-friendly, lower priority). 1 = Normal (default OS scheduling). 2 = High (throttling disabled, main thread and process priority boosted for best frame timing)."
         top_pad="5"
         width="380" />
       <text
@@ -180,10 +181,12 @@
         follows="left|top"
         height="16"
         layout="topleft"
-        left_delta="385"
-        top_delta="2"
-        width="40">
-        MHz
+        left="20"
+        top_pad="2"
+        width="200"
+        font="SansSerifSmall"
+        text_color="LtGray">
+        (0=Eco 1=Normal 2=High)
       </text>
 
       <check_box
@@ -553,7 +556,7 @@
         width="200"
         font="SansSerifBold"
         text_color="White">
-        Grace Period (Hold Time):
+        Retention Time (Hold Time):
       </text>
 
       <slider
@@ -570,14 +573,6 @@
         top="315"
         width="350"
         tool_tip="Minimum retention time - textures must be in cache this long before eligible for eviction (0.1-30 seconds in 0.1 second steps)"/>
-      <!-- S24 (2026-09-02): control_name was still the pre-rename
-           KVRAMCacheGracePeriodSec (settings.xml itself was renamed to
-           KVRAMCacheRetentionTimeSec - see its own "KV:GC->RT" comment)
-           - this XUI file was missed at rename time, so the slider never
-           actually bound to a real setting (LLUICtrl::setControlName
-           logged "control ... does not exist" every time this panel
-           built). Same rename miss as kvram_grace_period below, name= was
-           already updated then, control_name= wasn't. -->
 
       <text
         name="kvram_retention_time_text"
@@ -828,35 +823,9 @@
         top_pad="10"
         width="380" />
 
-      <spinner
-        control_name="RenderAutoMuteRenderWeightLimit"
-        decimal_digits="0"
-        follows="left|top"
-        height="20"
-        increment="1000"
-        initial_value="0"
-        label="Auto-Mute Avatar Complexity:"
-        label_width="200"
-        layout="topleft"
-        left="20"
-        max_val="500000"
-        min_val="0"
-        name="auto_mute_complexity"
-        tool_tip="Automatically mute avatars exceeding this complexity (0=disabled)"
-        top_pad="5"
-        width="310" />
-      <text
-        type="string"
-        follows="left|top"
-        height="16"
-        layout="topleft"
-        left_delta="315"
-        top_delta="2"
-        width="150"
-        font="SansSerifSmall"
-        text_color="LtGray">
-        (0=Off)
-      </text>
+      <!-- RenderAutoMuteRenderWeightLimit control removed: the setting itself is OBSOLETE
+           (settings.xml: "renamed RenderAvatarMaxNonImpostors", Persist=0 - never saves/loads).
+           The real control lives in Preferences > Graphics > Advanced (RenderAvatarMaxNonImpostors). -->
 
       <spinner
         control_name="RenderAutoMuteSurfaceAreaLimit"
@@ -938,7 +907,7 @@
         follows="left|top"
         height="16"
         layout="topleft"
-        left_delta="385"
+        left_delta="370"
         top_delta="2"
         width="100"
         font="SansSerifSmall"
@@ -1092,20 +1061,6 @@
         height="16"
         layout="topleft"
         left="10"
-          top_pad="15"
-          width="460"
-          font="SansSerifBold"
-          text_color="White">
-          Geometry Rendering Performance
-        </text>
-
-        <text
-          type="string"
-        length="1"
-        follows="left|top"
-        height="16"
-        layout="topleft"
-        left="10"
         top_pad="15"
         width="460"
         font="SansSerifBold"
@@ -1124,23 +1079,9 @@
         name="enable_bump"
         width="250" />
 
-      <spinner
-        control_name="RenderBumpmapMinDistanceSquared"
-        decimal_digits="0"
-        follows="left|top"
-        height="20"
-        increment="10"
-        initial_value="10"
-        label="Bumpmap Min Distance²:"
-        label_width="200"
-        layout="topleft"
-        left="20"
-        max_val="1000"
-        min_val="1"
-        name="bumpmap_min_dist"
-        tool_tip="Minimum distance² to render bump maps (reduce for better detail)"
-        top_pad="5"
-        width="310" />
+      <!-- RenderBumpmapMinDistanceSquared control removed: the setting has never had a real
+           C++ consumer in this codebase (confirmed absent even in the pre-DX GL baseline) -
+           was decorative UI over dead settings.xml scaffolding, not a working feature. -->
 
       <text
         type="string"
@@ -1188,7 +1129,7 @@
         follows="left|top"
         height="16"
         layout="topleft"
-        left_delta="405"
+        left_delta="400"
         top_delta="2"
         width="70"
         font="SansSerifSmall"
@@ -1222,6 +1163,7 @@
         width="300"
         tool_tip="DX_RENDER only: runs full D3D11 state/shader-binding validation on every draw call, surfacing hazards as debug-output messages instead of silent wrong pixels. Real per-draw-call cost - disproportionately expensive on passes with many draw calls (e.g. shadow rendering, which redraws the scene once per cascade/spot light). Off by default - developers only, enable when testing; normal runs should get full performance." />
       <text
+        type="string"
         name="requires_restart_dx_debug_layer"
         follows="left|top"
         layout="topleft"
@@ -1246,6 +1188,7 @@
         width="300"
         tool_tip="DX_RENDER only: caches compiled D3D11 shader bytecode to disk (shader_cache folder) instead of recompiling every shader from HLSL source on every launch. Currently limited to a small allowlist of proven-safe shaders, expanded over time. Use 'Purge Shader Cache' below to clear it if you ever suspect a stale/bad cached shader." />
       <text
+        type="string"
         name="requires_restart_dx_shader_cache"
         follows="left|top"
         layout="topleft"
@@ -1390,19 +1333,6 @@
         name="jelly_rim_width_spinner"
         top_delta="0"
         width="65" />
-      <text
-        type="string"
-        follows="left|top"
-        height="16"
-        layout="topleft"
-        left="20"
-        top_pad="8"
-        width="440"
-        font="SansSerifSmall"
-        text_color="White_25">
-        Base/rim colors: RenderJellyGhostBaseColor / RenderJellyGhostRimColor (Debug Settings)
-      </text>
-
     </panel>
 
     <!-- ==================== TAB 4: SCREEN SPACE REFLECTIONS (SSR) ==================== -->
@@ -1682,10 +1612,11 @@
         width="420" />
       <text
         type="string"
+        length="1"
         follows="left|top"
         height="16"
         layout="topleft"
-        left_delta="425"
+        left_delta="410"
         top_delta="2"
         width="60"
         font="SansSerifSmall"
@@ -1832,18 +1763,6 @@
         tool_tip="HARDCODED as 2.0 in stock viewer! 1.0=soft linear, 2.0=normal, 4.0=sharp dramatic edges"
         top_pad="10"
         width="420" />
-      <text
-        type="string"
-        follows="left|top"
-        height="16"
-        layout="topleft"
-        left_delta="425"
-        top_delta="2"
-        width="60"
-        font="SansSerifSmall"
-        text_color="LtGray">
-        UNLOCKED!
-      </text>
 
       <slider
         control_name="RenderWaterWaveSpeed"
@@ -1864,6 +1783,42 @@
         width="420" />
 
       <slider
+        control_name="RenderWaterWindInfluence"
+        decimal_digits="2"
+        follows="left|top"
+        height="20"
+        increment="0.05"
+        initial_value="0.0"
+        label="Live Wind Influence:"
+        label_width="220"
+        layout="topleft"
+        left="20"
+        min_val="0.0"
+        max_val="1.0"
+        name="water_wind_influence"
+        tool_tip="Blends live simulator wind (Develop&gt;Wind Vectors to visualize) into wave direction/speed. 0.0=ignore wind, use the EEP preset's authored waves only (default). 1.0=fully follow live wind."
+        top_pad="5"
+        width="420" />
+
+      <slider
+        control_name="RenderWaterWindMagnitudeCap"
+        decimal_digits="1"
+        follows="left|top"
+        height="20"
+        increment="1.0"
+        initial_value="15.0"
+        label="Wind Strength Cap:"
+        label_width="220"
+        layout="topleft"
+        left="20"
+        min_val="0.0"
+        max_val="50.0"
+        name="water_wind_magnitude_cap"
+        tool_tip="Ceiling on how strong live wind is allowed to push wave speed/direction, regardless of how extreme the simulator's actual wind gets. Only matters when Live Wind Influence &gt; 0. 0.0=always treat wind as calm."
+        top_pad="5"
+        width="420" />
+
+      <slider
         control_name="RenderWaterShoreFadeDistance"
         decimal_digits="1"
         follows="left|top"
@@ -1878,6 +1833,24 @@
         max_val="120.0"
         name="water_shore_fade_distance"
         tool_tip="HARDCODED as 60 in stock viewer! Lower=softer beach, Higher=sharper rocky coast"
+        top_pad="5"
+        width="420" />
+
+      <slider
+        control_name="RenderWaterColorAbsorptionRate"
+        decimal_digits="2"
+        follows="left|top"
+        height="20"
+        increment="0.01"
+        initial_value="0.15"
+        label="Color Absorption Rate:"
+        label_width="220"
+        layout="topleft"
+        left="20"
+        min_val="0.01"
+        max_val="1.0"
+        name="water_color_absorption_rate"
+        tool_tip="How fast water tint ramps in with depth. Lower=clearer shallows with a long gradient, Higher=tint appears almost immediately at the shore"
         top_pad="5"
         width="420" />
 
@@ -1914,56 +1887,6 @@
         max_val="2.0"
         name="water_reflection_warmth"
         tool_tip="&lt;1.0=cool/cold moonlight, 1.0=neutral, &gt;1.0=warm golden hour. Artistic color grading."
-        top_pad="5"
-        width="420" />
-
-      <text
-        type="string"
-        length="1"
-        follows="left|top"
-        height="16"
-        layout="topleft"
-        left="10"
-        top_pad="15"
-        width="460"
-        font="SansSerifSmall"
-        text_color="White">
-        Screen Space Reflections (duplicated from SSR tab):
-      </text>
-
-      <slider
-        control_name="RenderWaterSSRIterations"
-        decimal_digits="0"
-        follows="left|top"
-        height="20"
-        increment="1"
-        initial_value="15"
-        label="Water SSR Iterations:"
-        label_width="220"
-        layout="topleft"
-        left="20"
-        min_val="0"
-        max_val="50"
-        name="water_ssr_iterations_dup"
-        tool_tip="Ray march iterations for water SSR. 0=disable water SSR."
-        top_pad="5"
-        width="420" />
-
-      <slider
-        control_name="RenderWaterSSRRayStep"
-        decimal_digits="2"
-        follows="left|top"
-        height="20"
-        increment="0.05"
-        initial_value="0.15"
-        label="Water SSR Ray Step:"
-        label_width="220"
-        layout="topleft"
-        left="20"
-        min_val="0.05"
-        max_val="0.5"
-        name="water_ssr_raystep_dup"
-        tool_tip="Step size for water SSR ray marching."
         top_pad="5"
         width="420" />
 
@@ -2078,6 +2001,18 @@
         text_color="Yellow">
         (Requires viewer restart - star placement is baked once at startup)
       </text>
+
+      <check_box
+        control_name="RenderConstellationLines"
+        height="20"
+        initial_value="false"
+        label="Draw Constellation Lines (Real Constellations style only)"
+        layout="topleft"
+        left="20"
+        top_pad="10"
+        name="constellation_lines"
+        tool_tip="Thin dotted lines connecting each constellation's stars into its real shape - a star-chart overlay. Live-toggle, no restart needed."
+        width="450" />
 
       <slider
         control_name="RenderStarGlow"
@@ -2194,10 +2129,11 @@
         width="420" />
       <text
         type="string"
+        length="1"
         follows="left|top"
         height="16"
         layout="topleft"
-        left_delta="425"
+        left_delta="410"
         top_delta="2"
         width="60"
         font="SansSerifSmall"
@@ -2455,39 +2391,9 @@
            but the slider was treating it as a float, causing shadow corruption. Default (4.0, 3.0, 1.5) works well.
            If you need to adjust it, edit settings.xml directly. -->
 
-      <slider
-        control_name="RenderShadowProjOffset"
-        decimal_digits="2"
-        follows="left|top"
-        height="20"
-        increment="0.01"
-        initial_value="0.2"
-        label="Shadow Projection Offset:"
-        label_width="200"
-        layout="topleft"
-        left="20"
-        min_val="0.0"
-        max_val="2.0"
-        name="shadow_proj_offset"
-        top_pad="5"
-        width="400" />
-
-      <slider
-        control_name="RenderShadowProjExponent"
-        decimal_digits="2"
-        follows="left|top"
-        height="20"
-        increment="0.01"
-        initial_value="0.5"
-        label="Shadow Projection Exponent:"
-        label_width="200"
-        layout="topleft"
-        left="20"
-        min_val="0.0"
-        max_val="2.0"
-        name="shadow_proj_exp"
-        top_pad="5"
-        width="400" />
+      <!-- RenderShadowProjOffset/RenderShadowProjExponent sliders removed: neither setting has
+           ever had a real C++ consumer in this codebase (confirmed absent even in the pre-DX GL
+           baseline) - decorative UI over dead settings.xml scaffolding, not a working feature. -->
 
       <text
         type="string"
@@ -2537,22 +2443,9 @@
         top_pad="5"
         width="400" />
 
-      <slider
-        control_name="RenderShadowBlurSamples"
-        decimal_digits="0"
-        follows="left|top"
-        height="20"
-        increment="1"
-        initial_value="4"
-        label="Shadow Blur Samples:"
-        label_width="200"
-        layout="topleft"
-        left="20"
-        min_val="1"
-        max_val="16"
-        name="shadow_blur_samples"
-        top_pad="5"
-        width="400" />
+      <!-- RenderShadowBlurSamples slider removed: the setting has never had a real C++ consumer
+           in this codebase (confirmed absent even in the pre-DX GL baseline) - decorative UI over
+           dead settings.xml scaffolding, not a working feature. -->
 
       <slider
         control_name="RenderShadowBlurDistFactor"
@@ -2814,16 +2707,9 @@
         name="spotlights_nondeferred"
         width="250" />
 
-      <check_box
-        control_name="RenderBakeSunlight"
-        height="20"
-        initial_value="false"
-        label="Bake Sunlight Into Diffuse"
-        layout="topleft"
-        left="20"
-        top_pad="5"
-        name="bake_sunlight"
-        width="250" />
+      <!-- RenderBakeSunlight check_box removed: the setting has never had a real C++ consumer
+           in this codebase (confirmed absent even in the pre-DX GL baseline) - decorative UI over
+           dead settings.xml scaffolding, not a working feature. -->
 
       <text
         type="string"
@@ -3959,7 +3845,20 @@
         left="20"
         top_pad="5"
         name="enable_cubemap"
-        width="400" />
+        tool_tip="Master toggle for cube-map-based reflections (water, bump/shiny materials, sky). Applied at launch."
+        width="300" />
+      <text
+        name="requires_restart_cubemap"
+        follows="left|top"
+        layout="topleft"
+        top_delta="2"
+        left_delta="305"
+        height="20"
+        width="150"
+        font="SansSerifSmall"
+        text_color="White_25">
+        (Requires restart)
+      </text>
 
       <text
         type="string"
@@ -4034,7 +3933,7 @@
         follows="left|top"
         layout="topleft"
         top_delta="2"
-        left_delta="335"
+        left_delta="320"
         height="20"
         width="150"
         font="SansSerifSmall"
@@ -4063,7 +3962,7 @@
         follows="left|top"
         layout="topleft"
         top_delta="2"
-        left_delta="335"
+        left_delta="320"
         height="20"
         width="150"
         font="SansSerifSmall"
@@ -4190,7 +4089,7 @@
 
     </panel>
 
-    <!-- ==================== TAB 11: RAM CACHE ==================== -->
+    <!-- ==================== TAB 11: REFLECTIONS ==================== -->
     <panel
       border="true"
       follows="all"
@@ -5310,6 +5209,296 @@
 
     </panel>
 
+    <!-- ==================== TAB: UI HUE SHIFT (S24) ==================== -->
+    <panel
+      border="true"
+      follows="all"
+      height="585"
+      label="UI Hue"
+      layout="topleft"
+      left="1"
+      help_topic="tweaks_tab_ui_hue"
+      name="tab_ui_hue"
+      top="20"
+      width="490">
+
+      <text
+        type="string"
+        length="1"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="10"
+        top="10"
+        width="460"
+        font="SansSerifBold"
+        text_color="White">
+        🎨 UI Color Hue Shift
+      </text>
+
+      <text
+        type="string"
+        follows="left|top"
+        height="32"
+        layout="topleft"
+        left="20"
+        top_pad="5"
+        width="450"
+        font="SansSerifSmall"
+        text_color="LtGray"
+        word_wrap="true">
+        Rotates each category's own colors around the hue wheel independently. 0=skin default. Pure white/gray/black elements are unaffected (hue has no meaning at zero saturation).
+      </text>
+
+      <check_box
+        control_name="RenderUIGrayscale"
+        height="20"
+        initial_value="false"
+        label="Grayscale"
+        layout="topleft"
+        left="20"
+        top_pad="10"
+        name="ui_grayscale"
+        tool_tip="Desaturates every UI element covered by this system, independent of the sliders below"
+        width="200" />
+
+      <slider
+        control_name="RenderUIContrast"
+        decimal_digits="2"
+        follows="left|top"
+        height="20"
+        increment="0.05"
+        initial_value="1.0"
+        label="Contrast:"
+        label_width="220"
+        layout="topleft"
+        left="20"
+        min_val="0.5"
+        max_val="2.0"
+        name="ui_contrast"
+        tool_tip="1.0=neutral, &lt;1.0=flatter/lower contrast, &gt;1.0=punchier/higher contrast"
+        top_pad="10"
+        width="420" />
+
+      <slider
+        control_name="RenderUIShine"
+        decimal_digits="2"
+        follows="left|top"
+        height="20"
+        increment="0.05"
+        initial_value="0.0"
+        label="Shine:"
+        label_width="220"
+        layout="topleft"
+        left="20"
+        min_val="0.0"
+        max_val="1.0"
+        name="ui_shine"
+        tool_tip="Fixed diagonal glass-sheen highlight overlay. 0=off, 1.0=strongest"
+        top_pad="5"
+        width="420" />
+
+      <slider
+        control_name="RenderUIHueShiftFloaters"
+        decimal_digits="0"
+        follows="left|top"
+        height="20"
+        increment="5"
+        initial_value="0"
+        label="Floaters, Panels &amp; Notifications:"
+        label_width="220"
+        layout="topleft"
+        left="20"
+        min_val="-180"
+        max_val="180"
+        name="ui_hue_floaters"
+        tool_tip="Floater window chrome, panel backgrounds (notification toasts, volume/pulldown panels), title bars, resize handles"
+        top_pad="24"
+        width="420" />
+
+      <slider
+        control_name="RenderUIHueShiftMenus"
+        decimal_digits="0"
+        follows="left|top"
+        height="20"
+        increment="5"
+        initial_value="0"
+        label="Menu Bar &amp; Pie Menu:"
+        label_width="220"
+        layout="topleft"
+        left="20"
+        min_val="-180"
+        max_val="180"
+        name="ui_hue_menus"
+        tool_tip="Menu bar and pie (radial) menu backgrounds, chiclet flash, system well. Toolbar button icons are under Controls, not here."
+        top_pad="5"
+        width="420" />
+
+      <slider
+        control_name="RenderUIHueShiftControls"
+        decimal_digits="0"
+        follows="left|top"
+        height="20"
+        increment="5"
+        initial_value="0"
+        label="Buttons, Icons &amp; Controls:"
+        label_width="220"
+        layout="topleft"
+        left="20"
+        min_val="-180"
+        max_val="180"
+        name="ui_hue_controls"
+        tool_tip="Buttons, toolbar &amp; CHUI icons, sliders, scrollbars, progress bars, color swatches. Avatar/RL profile photos are always protected."
+        top_pad="5"
+        width="420" />
+
+      <slider
+        control_name="RenderUIHueShiftText"
+        decimal_digits="0"
+        follows="left|top"
+        height="20"
+        increment="5"
+        initial_value="0"
+        label="Text, Chat &amp; Tooltips:"
+        label_width="220"
+        layout="topleft"
+        left="20"
+        min_val="-180"
+        max_val="180"
+        name="ui_hue_text"
+        tool_tip="Chat/IM text, nametags, tooltip &amp; notification text colors (notification backgrounds are under Floaters)"
+        top_pad="5"
+        width="420" />
+
+      <slider
+        control_name="RenderUIHueShiftInventory"
+        decimal_digits="0"
+        follows="left|top"
+        height="20"
+        increment="5"
+        initial_value="0"
+        label="Inventory, Folders &amp; Items:"
+        label_width="220"
+        layout="topleft"
+        left="20"
+        min_val="-180"
+        max_val="180"
+        name="ui_hue_inventory"
+        tool_tip="Inventory panel colors, folder &amp; item type icons, filters, outfit gallery"
+        top_pad="5"
+        width="420" />
+
+      <slider
+        control_name="RenderUIHueShiftMap"
+        decimal_digits="0"
+        follows="left|top"
+        height="20"
+        increment="5"
+        initial_value="0"
+        label="Map &amp; World Overlays:"
+        label_width="220"
+        layout="topleft"
+        left="20"
+        min_val="-180"
+        max_val="180"
+        name="ui_hue_map"
+        tool_tip="Minimap, beacons, pathfinding, selection silhouettes"
+        top_pad="5"
+        width="420" />
+
+      <slider
+        control_name="RenderUIHueShiftScript"
+        decimal_digits="0"
+        follows="left|top"
+        height="20"
+        increment="5"
+        initial_value="0"
+        label="Script Editor:"
+        label_width="220"
+        layout="topleft"
+        left="20"
+        min_val="-180"
+        max_val="180"
+        name="ui_hue_script"
+        tool_tip="Script editor background and syntax highlighting"
+        top_pad="5"
+        width="420" />
+
+      <slider
+        control_name="RenderUIHueShiftMisc"
+        decimal_digits="0"
+        follows="left|top"
+        height="20"
+        increment="5"
+        initial_value="0"
+        label="Everything Else:"
+        label_width="220"
+        layout="topleft"
+        left="20"
+        min_val="-180"
+        max_val="180"
+        name="ui_hue_misc"
+        tool_tip="Login screen and any other flat UI color not covered by the categories above"
+        top_pad="5"
+        width="420" />
+
+      <!-- RESET BUTTON -->
+      <button
+        label="Reset UI Hue Defaults"
+        name="reset_ui_hue_btn"
+        top_pad="20"
+        left="20"
+        width="220"
+        height="25"
+        tool_tip="Reset all UI hue-shift categories to 0 (skin default)" />
+
+      <!-- S24 UI Hue Color Profiles -->
+      <text
+        type="string"
+        length="1"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="10"
+        top_pad="30"
+        width="460"
+        font="SansSerifSmall"
+        text_color="White">
+        Color Profiles - Save/Load Favorite Combinations:
+      </text>
+
+      <combo_box
+        follows="left|top"
+        height="23"
+        layout="topleft"
+        left="20"
+        top_pad="5"
+        name="UIHueProfileCombo"
+        tool_tip="Select a saved UI hue color profile to load it instantly"
+        width="200" />
+
+      <button
+        follows="top|left"
+        height="23"
+        label="Save"
+        layout="topleft"
+        left_pad="5"
+        name="UIHueProfileSave"
+        tool_tip="Save the current hue sliders as a new color profile"
+        width="60" />
+
+      <button
+        follows="top|left"
+        height="23"
+        label="Delete"
+        layout="topleft"
+        left_pad="5"
+        name="UIHueProfileDelete"
+        tool_tip="Delete the selected color profile"
+        width="60" />
+
+    </panel>
+
   </tab_container>
 
   <!-- Bottom border -->
@@ -5321,19 +5510,6 @@
     name="horiz_border"
     top="650"
     width="614"/>
-
-  <!-- Hidden dummy checkboxes for preset save/load -->
-  <check_box
-    control_name="RenderAvatarMaxComplexity"
-    visible="false"
-    height="0"
-    label="RenderAvatarMaxComplexity"
-    layout="topleft"
-    left="0"
-    name="RenderAvatarMaxComplexity"
-    top="0"
-    width="0" />
-
 
   </floater>
 

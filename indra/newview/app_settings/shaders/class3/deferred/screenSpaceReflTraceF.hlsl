@@ -50,7 +50,7 @@ float tapScreenSpaceReflection(int totalSamples, float2 tc, float3 viewPos, floa
 
 struct PSInput
 {
-    // S24 (2026-08-02): missing SV_Position - see uiF.hlsl's comment (fxc.exe-confirmed VS/PS register-shift bug).
+    // SV_Position must be declared first in PSInput to match VS output register order - see uiF.hlsl.
     float4 position : SV_Position;
 
     float2 vary_fragcoord : TEXCOORD0;
@@ -61,8 +61,7 @@ float4 main(PSInput IN) : SV_Target
 {
     float2 tc = IN.vary_fragcoord.xy;
     float depth = getDepth(tc);
-    // S24 (reversed-Z conversion): far is now 0.0, was 1.0 - see
-    // kGLtoDXDepthRemap's comment (llrender.cpp).
+    // Reversed-Z: far is 0.0, near is 1.0 - see kGLtoDXDepthRemap (llrender.cpp).
     if (depth <= 0.0) return float4(0.0, 0.0, 0.0, 0.0);
 
     GBufferInfo gb = getGBuffer(tc);

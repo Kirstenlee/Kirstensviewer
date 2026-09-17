@@ -153,7 +153,7 @@
 		top_pad="5"
 		left="10"
 		name="StereoAutoAdjust"
-		tool_tip="Automatically adjust focal distance and strength based on camera zoom - no manual tweaking needed!"
+		tool_tip="Automatically adjust focal distance to match your point of interest as you move the camera - no manual tweaking needed!"
 		width="315" />
 	<slider
 		control_name="StereoEyeSeparation"
@@ -198,7 +198,7 @@
 		follows="left|top"
 		height="16"
 		increment="0.5"
-		initial_value="10.0"
+		initial_value="6.0"
 		label="Manual Focal Distance:"
 		label_width="160"
 		layout="topleft"
@@ -253,7 +253,7 @@
 		  follows="left|top"
 		  height="16"
 		  increment="0.01"
-		  initial_value="0.00"
+		  initial_value="0.01"
 		  label="Near Clip Offset:"
 		  label_width="160"
 		  layout="topleft"
@@ -261,7 +261,7 @@
 		  max_val="0.1"
 		  min_val="0.0"
 		  name="StereoZnear"
-	  tool_tip="Near clipping plane offset in meters (advanced, usually keep at 0.0)"
+	  tool_tip="Near clipping plane offset in meters (advanced, default 0.01, usually kept close to 0)"
 		  top_pad="5"
 		  width="324" />
 	<slider
@@ -279,7 +279,7 @@
 		  max_val="0.8"
 		  min_val="0.3"
 		  name="Stereo FOV"
-	  tool_tip="Field-of-view scaling factor (affects convergence strength and frustum width)"
+	  tool_tip="Field-of-view scaling factor for the stereo frustum width (does not affect convergence - eye separation/focal distance handle that)"
 		  top_pad="5"
 		  width="324" />
 

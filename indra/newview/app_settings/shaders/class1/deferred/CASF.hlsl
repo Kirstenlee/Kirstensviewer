@@ -42,7 +42,8 @@ float3 linear_to_srgb(float3 cl);
 
 struct PSInput
 {
-    // S24 (2026-08-02): missing SV_Position - see uiF.hlsl's comment (fxc.exe-confirmed VS/PS register-shift bug).
+    // SV_Position must stay declared here - see uiF.hlsl (omitting it
+    // shifts every VS/PS register for bare-Varying PS inputs).
     float4 position : SV_Position;
 
     float2 vary_fragcoord : TEXCOORD0;
@@ -52,28 +53,14 @@ struct PSInput
 // Based on AMD FidelityFX CAS implementation
 // See: https://github.com/GPUOpen-Effects/FidelityFX-CAS
 
-// S24 (2026-08-19, task #231, task #227 audit finding): this was a from-
-// scratch simplified box sharpen, not a port of AMD's real CasFilter()
-// (CASF.glsl lines 2073-2202, the noScaling==true branch - the only branch
-// this project's wrapper ever uses). Real bugs fixed: cas_param_0/1 were
-// declared but never read at all (the user's sharpness setting had zero
-// effect - GLSL's `peak` comes from `AF1_AU1(const1.x)`, a BIT-LEVEL
-// reinterpret of cas_param_1.x as a float via CasSetup()'s packing, not a
-// numeric cast - matched here with asfloat()); the min/max neighborhood
-// was missing a real sample entirely (GLSL's diagonal a/c/g/i pass, added
-// on top of the cross d/e/f/b/h pass under CAS_BETTER_DIAGONALS - this
-// file's own #define at the top already enables that path, just never
-// implemented it); the sqrt() amp-shaping step was missing; and the pass's
-// output never went through linear_to_srgb() at all (added below, matching
-// main()'s real tail: `diff.rgb = linear_to_srgb(diff.rgb);`).
+// This port implements CASF.glsl's noScaling==true branch only (the only
+// branch this project's wrapper uses). `peak` (cas_param_1.x) must be read
+// via asfloat(), not a numeric cast - GLSL's AF1_AU1() is a bit-level
+// reinterpret, not a value conversion.
 //
-// AMD's ffx_a.h fast-inverse/fast-sqrt bit-trick approximations
-// (APrxLoRcpF1/APrxLoSqrtF1/APrxMedRcpF1, used because CAS_GO_SLOWER isn't
-// defined upstream either) aren't ported here - real 1.0/x and sqrt() are
-// used instead. This is the SAME configuration AMD's own CAS_GO_SLOWER
-// path already uses (a real, supported, more-precise mode in the original
-// library, not an invented shortcut) - correctness is unaffected, this
-// pass just costs a little more GPU time than the bit-trick version would.
+// AMD's ffx_a.h fast-inverse/fast-sqrt bit-trick approximations are not
+// ported here; real 1.0/x and sqrt() are used instead, matching AMD's own
+// CAS_GO_SLOWER configuration (slightly more GPU cost, no precision loss).
 float4 main(PSInput IN) : SV_Target
 {
     float2 pos = IN.vary_fragcoord;

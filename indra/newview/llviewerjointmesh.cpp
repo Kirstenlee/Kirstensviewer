@@ -176,12 +176,10 @@ void LLViewerJointMesh::uploadJointMatrices()
                 memcpy(mat+offset*4, vector, sizeof(F32)*4);
             }
         }
-        stop_glerror();
         if (LLHLSLShader::sCurBoundShaderPtr)
         {
             LLHLSLShader::sCurBoundShaderPtr->uniform4fv(LLViewerShaderMgr::AVATAR_MATRIX, 45, mat);
         }
-        stop_glerror();
     }
     else
     {
@@ -228,7 +226,6 @@ U32 LLViewerJointMesh::drawShape( F32 pixelArea, bool first_pass, bool is_dummy)
 
     S32 diffuse_channel = LLDrawPoolAvatar::sDiffuseChannel;
 
-    stop_glerror();
 
     //----------------------------------------------------------------
     // setup current color
@@ -238,7 +235,6 @@ U32 LLViewerJointMesh::drawShape( F32 pixelArea, bool first_pass, bool is_dummy)
     else
         gDX.diffuseColor4fv(mColor.mV);
 
-    stop_glerror();
 
     LLGLSSpecular specular(LLColor4(1.f,1.f,1.f,1.f), 0.f);
 

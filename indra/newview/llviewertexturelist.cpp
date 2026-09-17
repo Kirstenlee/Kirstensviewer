@@ -408,15 +408,13 @@ LLViewerFetchedTexture* LLViewerTextureList::getImageFromFile(const std::string&
                                                    LLGLenum primary_format,
                                                    const LLUUID& force_id)
 {
-    LL_PROFILE_ZONE_TEXT(filename.c_str(), filename.size());
     if(!mInitialized)
     {
         return NULL ;
     }
 
-    // S24 DEFENSIVE: Catch UI strings being passed as texture filenames
-    // This should NEVER happen - indicates a bug where UI placeholder text is leaking into texture system
-    if (filename == "Loading..." || filename == "(Loading...)" || filename == "loading..." || 
+    // Catches UI placeholder text (e.g. "Loading...") accidentally used as a texture filename.
+    if (filename == "Loading..." || filename == "(Loading...)" || filename == "loading..." ||
         filename == "Uploading..." || filename == "(Uploading...)")
     {
         LL_WARNS("TextureList") << "**** BUG: UI placeholder string passed as texture filename ****" << LL_ENDL;
@@ -430,9 +428,8 @@ LLViewerFetchedTexture* LLViewerTextureList::getImageFromFile(const std::string&
     std::string full_path = gDirUtilp->findSkinnedFilename("textures", filename);
     if (full_path.empty())
     {
-        // S24: Suppress warning for expected placeholder/sentinel texture names
-        // When file not found, we return fallback IMG_DEFAULT texture anyway
-        // Only warn for unexpected missing files, not known placeholders
+        // Suppress the warning for known placeholder/sentinel names - the fallback IMG_DEFAULT
+        // texture is still returned either way.
         if (filename != "unknown" && filename != "Loading...")
         {
             LL_WARNS() << "Failed to find local image file: " << filename << LL_ENDL;
@@ -827,18 +824,11 @@ void LLViewerTextureList::updateImages(F32 max_time)
             clearFetchingRequests();
             gPipeline.clearRebuildGroups();
 
-            // S24: proactive VRAM cleanup on a genuine cross-region teleport, before the
-            // new region's content starts loading. Excludes TELEPORT_LOCAL specifically
-            // -- an in-region teleport (or the TeleportStart-after-TELEPORT_LOCAL race
-            // this state also covers, see llviewermessage.cpp) never leaves the current
-            // region's objects/textures, so there's nothing orphaned to flush and doing
-            // so would just force re-fetching things still on screen.
-            // OFF by default (RenderFlushOrphanedTexturesOnTeleport) -- playtesting
-            // linked this to avatar rendering flakiness and lower heavy-scene framerate,
-            // suspected cause being a too-blunt refcount/boost-level rule evicting
-            // something an avatar's messier texture lifecycle (baked layers, attachments,
-            // impostor swaps) needed again almost immediately. Kept behind a toggle
-            // rather than removed so it can still be A/B tested.
+            // Excludes TELEPORT_LOCAL: an in-region teleport (or the TeleportStart-after-TELEPORT_LOCAL
+            // race, see llviewermessage.cpp) never leaves the current region's textures orphaned.
+            // RenderFlushOrphanedTexturesOnTeleport is OFF by default - live testing linked it to
+            // avatar rendering flakiness, likely a too-blunt refcount/boost-level eviction rule
+            // evicting something an avatar's baked-layer/attachment lifecycle needed again immediately.
             static LLCachedControl<bool> flush_on_teleport(gSavedSettings, "RenderFlushOrphanedTexturesOnTeleport", false);
             if (flush_on_teleport && gAgent.getTeleportState() != LLAgent::TELEPORT_LOCAL)
             {
@@ -855,18 +845,11 @@ void LLViewerTextureList::updateImages(F32 max_time)
             return;
         }
 
-        // S24: catch-up sweep. The flush above runs the instant the teleport starts,
-        // which can miss a texture that's transiently sitting in
-        // mDownScaleQueue/mCreateTextureList (or LLViewerTexture's own emergency
-        // queues) at that exact moment -- those hold an LLPointer ref, so the texture
-        // looks "still needed" and gets skipped. It isn't permanently stuck: once its
-        // queue drains, the ref drops and it becomes eligible again -- but only through
-        // the slow round-robin lazy-flush, which can lag well behind a second, quick
-        // teleport. Left unchecked across several fast hops, each hop's missed
-        // textures pile up waiting on that one slow mechanism. ARRIVING is already a
-        // deliberate delay ("let things decode, cache and process"), so by now those
-        // queues have had several frames to drain -- sweep once more here to catch
-        // whatever the first pass missed before it has a chance to compound.
+        // Catch-up sweep: the flush above can miss a texture transiently held by an LLPointer ref in
+        // mDownScaleQueue/mCreateTextureList - it becomes eligible again once that queue drains, but
+        // only via the slow round-robin lazy-flush, which can lag behind a second, fast teleport.
+        // ARRIVING is already a deliberate delay, so those queues have had time to drain by now; sweep
+        // once more to catch what the first pass missed.
         if (!arrival_flush_done)
         {
             arrival_flush_done = true;
@@ -878,8 +861,7 @@ void LLViewerTextureList::updateImages(F32 max_time)
                 forceFlushOrphanedTextures();
             }
 
-            // S24 (2026-08-24, task #258): the scene just changed wholesale - don't
-            // wait for the VRAM allocator's normal ~0.5s cadence to catch up.
+            // Kick the VRAM allocator immediately instead of waiting for its normal ~0.5s cadence.
             runVRAMBudgetAllocation();
             mVRAMAllocationTimer.reset();
         }
@@ -913,51 +895,23 @@ void LLViewerTextureList::updateImages(F32 max_time)
 
     //handle results from decode threads
 #ifdef DX_RENDER
-    // S24 (DX_RENDER): LLImageGL::initClass() now unconditionally disables
-    // LLImageGLThread (sEnabledTextures/sEnabledMedia forced off - see its
-    // own comment: DXTexture::create()/updateSubImage() use the D3D11
-    // IMMEDIATE context, not thread-safe, so a worker thread racing the
-    // main render thread's own use of it was a real crash/corruption risk).
-    // That correctness fix has a real throughput cost: every single texture
-    // (every UI icon/button image, every font atlas growth, every world
-    // texture) now goes through mCreateTextureList and gets created
-    // synchronously on the MAIN thread instead, inside this one call,
-    // which normally only gets whatever sliver of RenderTextureUpdateBudgetMS
-    // (default 2ms total, split 3 ways with updateImagesLoadingFastCache()/
-    // updateImagesFetchTextures() above) happens to remain. That budget was
-    // tuned assuming a separate worker thread absorbed the real GPU-upload
-    // cost - with it gone, 2ms/frame is nowhere near enough during any
-    // texture-heavy moment (login, opening a menu-and-icon-heavy floater),
-    // so the create queue can never catch up and most UI renders unbound/
-    // blank indefinitely. Give this phase a real, DX_RENDER-specific floor
-    // instead of trusting the shared, worker-thread-tuned budget.
+    // LLImageGL::initClass() disables LLImageGLThread under DX_RENDER (DXTexture::create()/
+    // updateSubImage() use the D3D11 immediate context, not thread-safe against the main render
+    // thread), so every texture create now happens synchronously here on the main thread. The shared
+    // RenderTextureUpdateBudgetMS (tuned for a worker-thread world) isn't enough on its own during any
+    // texture-heavy moment - give this phase its own real, DX_RENDER-specific floor.
     static LLCachedControl<F32> dx_create_texture_budget_ms(gSavedSettings, "RenderDXCreateTextureBudgetMS", 16.f);
     updateImagesCreateTextures(llmax(remaining_time, (F32)dx_create_texture_budget_ms * 0.001f));
 #else
     updateImagesCreateTextures(remaining_time);
 #endif
 
-    // S24 (2026-08-24, task #258): periodic deterministic greedy VRAM budget
-    // allocator - replaces the old discard-bias pressure ramp. Runs on its own
-    // coarse timer, not every frame - see runVRAMBudgetAllocation()'s own
-    // comment for why ~0.5s is the right cadence.
-    //
-    // S24 (eviction tuning, 2026-08-29): a pressure-adaptive faster cadence
-    // (down to 0.1s once usage crossed the soft-pressure line) was tried and
-    // REVERTED after live testing. runVRAMBudgetAllocation() unconditionally
-    // resets every texture's forced floor and recomputes fresh every single
-    // call (needed for correctness - see its own comment on why a gated
-    // reset caused textures to get permanently stuck) - under sustained
-    // pressure the same least-important candidates get relaxed and
-    // immediately re-cut on every call, which is real work (potential
-    // refetch/recreate on relax, an mDownScaleQueue entry on re-cut), not
-    // free bookkeeping. Running that 5x more often multiplied a CPU/driver-
-    // side churn cost that was already present at 0.5s - symptom was low,
-    // spiky GPU utilization with fps collapsing into the teens (CPU/driver-
-    // bound, not GPU-bound). Fixed cadence only for now; a real fix for slow
-    // reaction under sudden demand spikes would need to break the relax/
-    // re-cut coupling itself (e.g. genuine per-texture hysteresis) rather
-    // than just calling the same coupled cycle more often.
+    // Periodic deterministic greedy VRAM budget allocator, replacing the old discard-bias pressure
+    // ramp. Runs on its own coarse timer (~0.5s), not every frame: a faster adaptive cadence under
+    // pressure was tried and reverted - runVRAMBudgetAllocation() unconditionally resets and
+    // recomputes every call (a gated reset gets textures permanently stuck, see its own comment), so
+    // running it more often just multiplies relax/re-cut churn. A real fix for slow reaction to demand
+    // spikes needs per-texture hysteresis, not a faster cadence of the same coupled cycle.
     {
         static LLCachedControl<F32> vram_alloc_interval(gSavedSettings, "RenderVRAMAllocationIntervalSeconds", 0.5f);
 
@@ -1064,7 +1018,6 @@ void LLViewerTextureList::forceFlushOrphanedTextures()
 }
 
 extern bool gCubeSnapshot;
-// S24 Enhanced Version
 void LLViewerTextureList::updateImageDecodePriority(LLViewerFetchedTexture* imagep, bool flush_images)
 {
     llassert(!gCubeSnapshot);
@@ -1138,14 +1091,9 @@ void LLViewerTextureList::updateImageDecodePriority(LLViewerFetchedTexture* imag
                 min_scale = llclamp(min_scale * min_scale, texture_scale_min(), texture_scale_max());
                 vsize /= min_scale;
 
-                // S24 (2026-08-24, task #258): onscreen faces receive an importance
-                // boost - genuine screen-importance weighting, not VRAM-pressure
-                // related, kept as-is. The old "!face->mInFrustum ||| VRAM pressure
-                // high" branch that divided vsize down by a bias-derived scaler is
-                // gone - mMaxVirtualSize is now a pure screen-geometry number with
-                // zero VRAM-pressure awareness; LLViewerTextureList::
-                // runVRAMBudgetAllocation() is what applies pressure-awareness now,
-                // as a direct global budget decision, not a per-texture vsize mangle.
+                // Onscreen-face importance boost is pure screen-geometry weighting, independent of
+                // VRAM pressure - runVRAMBudgetAllocation() applies pressure-awareness as a direct
+                // global budget decision, not a per-texture vsize mangle.
                 if (face->mInFrustum)
                 {
                     static LLCachedControl<F32> texture_camera_boost(gSavedSettings, "TextureCameraBoost", 8.f);
@@ -1173,8 +1121,8 @@ void LLViewerTextureList::updateImageDecodePriority(LLViewerFetchedTexture* imag
             // Do we ever remove it? This also sets texture nodelete!
         }
 
-        // S24 NOTE: Removed channel-based priority code to match Linden upstream
-        // and eliminate LLCachedControl<LLVector4> template redefinition warning
+        // Channel-based priority code removed to match Linden upstream and avoid an
+        // LLCachedControl<LLVector4> template redefinition warning.
 
         imagep->addTextureStats(max_vsize);
     }
@@ -1206,7 +1154,6 @@ void LLViewerTextureList::updateImageDecodePriority(LLViewerFetchedTexture* imag
     {
         // still referenced outside of image list, reset timer
         imagep->getLastReferencedTimer()->reset();
-        // S24 unloop
         if (imagep->hasSavedRawImage() &&
             imagep->getElapsedLastReferencedSavedRawImageTime() > max_inactive_time)
         {
@@ -1218,7 +1165,6 @@ void LLViewerTextureList::updateImageDecodePriority(LLViewerFetchedTexture* imag
         }
     }
 
-    // S24 cleaner Logic
     if (!imagep->isInImageList() || imagep->isInFastCacheList())
     {
         return;
@@ -1227,76 +1173,28 @@ void LLViewerTextureList::updateImageDecodePriority(LLViewerFetchedTexture* imag
     imagep->processTextureStats();
 }
 
-// S24 (2026-08-24, task #258): the deterministic replacement for the old
-// discard-bias pressure ramp. Root cause of the ramp's instability: every
-// texture decided its own desired quality independently from screen size
-// alone, with the ramp as the ONLY (indirect, laggy) cross-texture budget
-// awareness. This function is the direct alternative - sum every eligible
-// texture's real desired bytes, compare to the real budget, and if over,
-// cut the least important textures until it fits. A complete, independent
-// recomputation every pass (no persisted ramp state) means pass N+1 can
-// never "overreact" to pass N, which is what caused the observed
-// dip/reset/climb cycling under real load.
-//
-// Runs on its own coarse timer (LLViewerTextureList::updateImages(),
-// RenderVRAMAllocationIntervalSeconds, default 0.5s) rather than every
-// frame: LLViewerTextureList::updateImagesFetchTextures()'s existing 5%-
-// per-frame round-robin already completes a full sweep of mUUIDMap in ~20
-// frames (~0.3-0.7s at 30-60fps) regardless of list size, so every pass here
-// works from mMaxVirtualSize values at most one sweep stale - the same
-// staleness the round-robin already tolerates today - while giving the
-// PREVIOUS pass's queued mDownScaleQueue work real frames to actually drain
-// before the next decision is made. Deciding on top of not-yet-applied
-// state was a real contributor to the old oscillation. A full std::sort of
-// a several-thousand-texture candidate set twice a second is trivially
-// cheap (sub-millisecond to a couple ms), not something that needs
-// time-slicing the way the actual GPU work in mDownScaleQueue does.
+// Deterministic replacement for the old discard-bias pressure ramp, whose instability came from every
+// texture deciding quality independently with only a laggy indirect ramp for cross-texture awareness.
+// Sums every eligible texture's real desired bytes against the real budget and cuts the least
+// important ones if over - a full independent recomputation each pass, so pass N+1 never overreacts to
+// pass N. Runs on its own coarse timer (RenderVRAMAllocationIntervalSeconds, ~0.5s) rather than every
+// frame, matching the staleness the existing 5%-per-frame round-robin already tolerates, and letting
+// the previous pass's queued mDownScaleQueue work drain before the next decision.
 void LLViewerTextureList::runVRAMBudgetAllocation()
 {
-    // S24 (2026-08-24, task #258 follow-up): temporary LL_WARNS/LLTimer
-    // instrumentation (added to chase a live ~110fps vs 130-160fps baseline
-    // regression report) has been removed now that it answered the question:
-    // the ~0.5s periodic trigger fires correctly and reliably, a full pass
-    // costs 0.02-3.35ms (peak ~5900 textures, ~0.11ms/frame amortized), and
-    // zero cuts occurred for the entire test session even at peak load - so
-    // this allocator's own execution is NOT the regression's cause. Likely
-    // explanation: textures now legitimately render at full natural quality
-    // instead of the old ramp's perpetual degradation (a quality/fps
-    // tradeoff, not a bug). Below is optimized for per-pass cost regardless,
-    // since it still walks the full texture list twice a second - virtual
-    // calls deferred behind cheap field/inline checks, the running budget
-    // total folded into the same walk instead of a second pass, and the
-    // eviction-candidate struct caching its LLImageGL* so the cut loop below
-    // never re-derives it. Some of this trades readability for it - see
-    // task #258 resolution notes if this needs revisiting.
-    // S24 (eviction tuning, follow-up to task #258): a triggered cut now aims
-    // down to a SOFT target (sVRAMAllocatorSoftTargetMegabytes) instead of
-    // landing exactly on the hard budget line, so a pass leaves real
-    // headroom rather than guaranteeing the very next texture request
-    // re-triggers another cut.
+    // Optimized for per-pass cost since this walks the full texture list twice a second: virtual
+    // calls deferred behind cheap field checks, the running budget total folded into the same walk,
+    // and the eviction-candidate struct caches its LLImageGL* so the cut loop below never re-derives it.
     //
-    // REVERTED (same session, live-tested): this used to also carry a
-    // second, emergency-only tier admitting OTHER avatars' baked textures
-    // into the candidate pool when tier 1 alone couldn't clear the hard
-    // line. Root cause of the live regression: a busy/crowded scene can hand
-    // that tier dozens-to-hundreds of candidates in a SINGLE pass, and every
-    // one of them funnels into the pre-existing gTextureList.mDownScaleQueue
-    // drain (this same file, updateImagesCreateTextures() below) - whose
-    // "severe pressure" floor deliberately ignores its own max_time budget
-    // to guarantee forward progress on a backlog (see that code's own
-    // comment). That guarantee was tuned for the ordinary, much smaller
-    // BOOST_NONE backlogs a camera swing produces, not a whole crowd's
-    // avatar bakes landing at once - the result was a burst of synchronous
-    // CopySubresourceRegion calls holding the D3D11 immediate context (CPU
-    // locked waiting on real PCIe transfers) for tens of ms, which both
-    // shows up directly as a frametime spike/rubberbanding AND starves the
-    // sibling new-texture-creation loop sharing the same function, so
-    // regular nearby objects sat un-created (grey placeholder) the whole
-    // time. A real fix needs the emergency tier to be queue-aware (capped by
-    // how much mDownScaleQueue/its drain can absorb per interval, checking
-    // mDownScalePending before re-selecting) - not attempted blind here;
-    // avatar-baked textures are back to being fully exempt from eviction,
-    // same as before this task, until that's built properly.
+    // A triggered cut aims for a SOFT target (sVRAMAllocatorSoftTargetMegabytes) rather than landing
+    // exactly on the hard budget line, so a pass leaves headroom instead of guaranteeing the next
+    // texture request re-triggers another cut.
+    //
+    // Avatar-baked textures are fully exempt from eviction here: an emergency tier that also admitted
+    // them once caused synchronous CopySubresourceRegion bursts (CPU-locked on PCIe transfers for tens
+    // of ms) that both spiked frametime and starved the sibling texture-creation loop sharing this
+    // function. Re-adding that tier needs it to be queue-aware (capped by how much mDownScaleQueue can
+    // absorb per interval), not blind.
     struct Candidate
     {
         LLViewerLODTexture* tex;
@@ -1315,21 +1213,11 @@ void LLViewerTextureList::runVRAMBudgetAllocation()
     for (auto& entry : mUUIDMap)
     {
         LLViewerFetchedTexture* imagep = entry.second;
-        // S24 (eviction tuning): REVERTED (2026-08-29, live-tested) a
-        // has_slack-gated version of this reset that only relaxed a forced
-        // floor back to natural once usage dropped below the soft target,
-        // carrying a cut forward otherwise as a thrash guard. Real bug: in a
-        // genuinely busy area usage can sit above the soft target
-        // continuously for as long as you're there, and the cut loop below
-        // only ever RAISES a floor for whatever it selects this pass - it
-        // never clears one for a texture that's fallen out of the "needs
-        // cutting" set (e.g. you walked up to it and it's now high-priority),
-        // so a texture cut once could get stuck at that floor indefinitely,
-        // visibly never recovering even sitting right in front of the
-        // camera. Back to an unconditional reset every pass (the original
-        // task #258 baseline) - the soft-margin cut (below) already reduces
-        // how often a cut triggers at all, a safer way to cut down on thrash
-        // than freezing floors on whatever got cut once.
+        // Must reset unconditionally every pass, not gated on has_slack: a gated version that only
+        // relaxed a forced floor once usage dropped below the soft target let a texture cut once get
+        // stuck at that floor indefinitely - the cut loop below only ever raises floors, never clears
+        // one for a texture that's fallen out of the "needs cutting" set, even sitting right in front
+        // of the camera.
         imagep->setVRAMForcedDiscardLevel(-1);
 
         // Cheapest-first ordering: plain field reads, then non-virtual inline
@@ -1343,25 +1231,16 @@ void LLViewerTextureList::runVRAMBudgetAllocation()
         // actually get scaled down today. Forcing a floor on baked/terrain
         // textures would be a silent no-op, so exclude them from the
         // candidate set entirely rather than compute a cut that can't apply.
-        // (Was briefly relaxed for an emergency avatar-eviction tier this
-        // same session - reverted, see this function's header comment.)
         if (imagep->getBoostLevel() != LLGLTexture::BOOST_NONE) continue;
         if (!imagep->getUseDiscard()) continue; // covers mDontDiscard/!mUseMipMaps
         if (imagep->getType() != LLViewerTexture::LOD_TEXTURE) continue;
 
-        // S24 (2026-08-24, task #260): a DXImageThread worker thread may be
-        // mid-createGLTexture() for this exact texture right now, writing
-        // mWidth/mHeight/mFormatPrimary/mCurrentDiscardLevel/mTexName with no
-        // synchronization of its own (DXTexture::mMutex only covers its own
-        // mTexture/mSRV, not LLImageGL's bookkeeping - confirmed via direct
-        // code read, not assumed). mNeedsCreateTexture is the codebase's own
-        // atomic signal for exactly this window (see
-        // LLViewerFetchedTexture::isCreateTexturePending()'s comment) - skip
-        // outright rather than read fields that may be torn mid-write; this
-        // texture is re-evaluated on the very next pass once creation has
-        // completed and handed back to the main thread. This was the
-        // confirmed root cause of task #260's CTD under
-        // RenderDXMultiThreadedTextures.
+        // A DXImageThread worker may be mid-createGLTexture() for this texture, writing
+        // mWidth/mHeight/mFormatPrimary/mCurrentDiscardLevel/mTexName with no synchronization
+        // (DXTexture::mMutex only covers mTexture/mSRV, not LLImageGL's bookkeeping).
+        // isCreateTexturePending() is the atomic signal for this window - skip rather than read fields
+        // that may be torn mid-write; re-evaluated next pass once creation completes. Root cause of a
+        // real CTD under RenderDXMultiThreadedTextures - do not remove this check.
         if (imagep->isCreateTexturePending()) continue;
 
         LLImageGL* img = imagep->getGLTexture();
@@ -1431,19 +1310,14 @@ F32 LLViewerTextureList::updateImagesCreateTextures(F32 max_time)
     if (gGLManager.mIsDisabled) return 0.0f;
 
 #ifdef DX_RENDER
-    // S24 (2026-09-09, BC7 texture-compression pipeline, task #318): applies
-    // any background BC7 compression jobs that finished since last frame -
-    // see DXBC7UploadManager::update()'s own comment. Cheap no-op when
-    // nothing is pending; placed here since this function already runs
-    // once per frame on the main thread regardless of whether there's
-    // anything new to create this frame.
+    // Applies any background BC7 compression jobs finished since last frame (see
+    // DXBC7UploadManager::update()) - cheap no-op when nothing is pending.
     DXBC7UploadManager::update();
 #endif
 
-    // S24 MEMORY SAFETY: Emergency flush of stale raw images when critical
-    // If the decode queue is bloated AND system memory is critical, drain
-    // completed decodes without creating GL textures to free their raw memory.
-    // The decoded J2C data remains in KVRAMCache or disk cache for re-decode.
+    // If the decode queue is bloated AND system memory is critical, drain completed decodes without
+    // creating GL textures to free their raw memory - the decoded data survives in KVRAMCache/disk
+    // cache for re-decode.
     if (LLViewerTexture::isSystemMemoryCritical())
     {
         size_t pending = LLAppViewer::getImageDecodeThread()->getPending();
@@ -1503,43 +1377,21 @@ F32 LLViewerTextureList::updateImagesCreateTextures(F32 max_time)
             imagep->createTexture();
 
 #ifdef DX_RENDER
-            // S24 (2026-09-09, BC7 texture-compression pipeline, task #318):
-            // kick off a background BC7 upgrade for the pixel data just
-            // uploaded - must happen here, between createTexture() and
-            // postCreateTexture(), since the latter is what eventually
-            // calls destroyRawImage() (see its own comment) and mRawImage
-            // is exactly the pixel data that just got uploaded. Cheap when
-            // disabled/ineligible - see DXBC7UploadManager::requestUpgrade()'s
-            // own comment for every gate it checks internally.
+            // Kick off the background BC7 upgrade here, between createTexture() and
+            // postCreateTexture() - the latter eventually calls destroyRawImage(), and mRawImage is
+            // exactly the pixel data just uploaded. Cheap when disabled/ineligible (see
+            // DXBC7UploadManager::requestUpgrade()'s gates).
             //
-            // S24 (2026-09-09, same task): explicit BOOST_BUMP exclusion
-            // here too, on top of the per-instance allow_compression flag
-            // LLStandardBumpmap::init() now sets on the 2 standard bump
-            // presets (lldrawpoolbump.cpp) - this boost level is the more
-            // general "this texture feeds gradient-sensitive bump/normal
-            // math, not a color lookup" tag (also used for the default
-            // flat-normal sentinel), so any other bump-map source that
-            // ever adopts it is covered automatically without needing its
-            // own explicit opt-out call site.
+            // BOOST_BUMP is excluded too, on top of the per-instance allow_compression flag: it's the
+            // general "feeds gradient-sensitive bump/normal math" tag (also used for the flat-normal
+            // sentinel), so any bump-map source adopting it is covered without its own opt-out.
             //
-            // S24 (2026-09-09, same task, live-confirmed "terrain low/
-            // uniform detail" fix): GL_ALPHA (1-component) sources - e.g.
-            // alpha_gradient.tga/alpha_gradient_2d.j2c (IMG_ALPHA_GRAD*,
-            // llviewertexturelist.cpp's own preload list), used for
-            // terrain/blend gradient ramps - store their real data in the
-            // ALPHA channel, not luminance (see repackToRGBA8()'s
-            // alpha_only parameter and DXTexture::create()'s matching
-            // comment). This call site was always passing alpha_only=false
-            // (the common-case assumption documented when this pipeline was
-            // first built), which is wrong for these: the real blend-weight
-            // data would land in .rgb (compressed and read back as if it
-            // were color) while .a came back as a flat, meaningless
-            // constant - exactly "uniform/low detail" blending. Rather than
-            // just fixing the repack flag, exclude GL_ALPHA sources from
-            // compression entirely, same reasoning as the bump-map
-            // exclusion above: blend/gradient-weight data is exactly the
-            // category most vulnerable to lossy block compression, small
-            // textures like these have little VRAM to gain anyway.
+            // GL_ALPHA (1-component) sources store real data in the ALPHA channel, not luminance (see
+            // repackToRGBA8()'s alpha_only parameter and DXTexture::create()'s matching comment) -
+            // compressing them with alpha_only=false puts blend-weight data in .rgb and a meaningless
+            // constant in .a, producing flat/uniform-looking terrain blends. Excluded from BC7
+            // entirely: gradient/blend-weight data is exactly what's most vulnerable to lossy block
+            // compression, and these textures are small anyway.
             LLImageRaw* raw = imagep->getRawImage();
             LLImageGL* glTex = imagep->getGLTexture();
             if (raw && raw->getData() && glTex
@@ -1549,7 +1401,32 @@ F32 LLViewerTextureList::updateImagesCreateTextures(F32 max_time)
                 std::vector<uint8_t> rgba8;
                 if (DXTexture::repackToRGBA8(raw->getData(), raw->getWidth(), raw->getHeight(), raw->getComponents(), rgba8))
                 {
-                    DXBC7UploadManager::requestUpgrade(glTex, rgba8.data(), raw->getWidth(), raw->getHeight());
+                    // Fine alpha-channel detail (hair cards, foliage cutouts, any real
+                    // alpha-blend/mask content) is exactly what's most vulnerable to BC7's
+                    // 4x4 block alpha quantization - confirmed live: hair shadows showed
+                    // blocky/pixelated alpha remnants with compression on. Sample the alpha
+                    // channel (stride keeps this cheap on large textures) and skip
+                    // compression if it shows real per-pixel variance; a uniformly opaque
+                    // or uniformly transparent alpha channel (most world textures) is safe.
+                    bool alpha_sensitive = false;
+                    const size_t texel_count = rgba8.size() / 4;
+                    if (texel_count > 0)
+                    {
+                        U8 amin = 255, amax = 0;
+                        const size_t stride = 16;
+                        for (size_t i = 0; i < texel_count; i += stride)
+                        {
+                            U8 a = rgba8[i * 4 + 3];
+                            if (a < amin) amin = a;
+                            if (a > amax) amax = a;
+                        }
+                        alpha_sensitive = (amax - amin) > 32;
+                    }
+
+                    if (!alpha_sensitive)
+                    {
+                        DXBC7UploadManager::requestUpgrade(glTex, rgba8.data(), raw->getWidth(), raw->getHeight());
+                    }
                 }
             }
 #endif
@@ -1564,21 +1441,11 @@ F32 LLViewerTextureList::updateImagesCreateTextures(F32 max_time)
     }
 
 #ifdef DX_RENDER
-    // S24 (2026-08-16): the GL-only FBO-blit scaffolding this block used to
-    // wrap every scaleDown() call in below (bind mDownResMap as a render
-    // target, bind gCopyProgram, set up a screen-triangle VB) is real,
-    // unrelated D3D11 pipeline state that DXTexture::scaleDown() doesn't
-    // need or expect - it's a fully self-contained CreateTexture2D/
-    // CopySubresourceRegion/GenerateMips sequence with its own resources,
-    // no render target or shader required. Leaving that scaffolding running
-    // unconditionally meant every real scaleDown() call happened while an
-    // unrelated render target and shader were bound (gCopyProgram.bind()
-    // even triggers this session's own gDXUIBatch.flushPending() hook) -
-    // confirmed via a live crash dump (D3D11 debug layer detected heap
-    // corruption, surfaced later during an unrelated blend-state Release())
-    // that this concurrent, unnecessary state churn was corrupting things.
-    // Also don't gate on mDownResMap.isComplete() - that's GL-FBO-blit
-    // scratch space DX_RENDER's scaleDown() never touches at all.
+    // GL's FBO-blit scaffolding (mDownResMap render target, gCopyProgram, screen-triangle VB) is
+    // unrelated D3D11 state that DXTexture::scaleDown() (a self-contained CreateTexture2D/
+    // CopySubresourceRegion/GenerateMips sequence) doesn't need - leaving it bound during every
+    // scaleDown() call caused unrelated render-target/shader churn that corrupted D3D11 state. Also
+    // don't gate on mDownResMap.isComplete(), that's GL-only scratch space DX_RENDER never touches.
     if (!mDownScaleQueue.empty())
 #else
     if (!mDownScaleQueue.empty() && gPipeline.mDownResMap.isComplete())
@@ -1586,7 +1453,7 @@ F32 LLViewerTextureList::updateImagesCreateTextures(F32 max_time)
     {
 #ifndef DX_RENDER
         LLGLDisable blend(GL_BLEND);
-        gDX.setColorMask(true, true);
+        gDX.setColorWriteMask(true, true);
 
         // just in case we downres textures, bind downresmap and copy program
         gPipeline.mDownResMap.bindTarget();
@@ -1597,57 +1464,33 @@ F32 LLViewerTextureList::updateImagesCreateTextures(F32 max_time)
         // give time to downscaling first -- if mDownScaleQueue is not empty, we're running out of memory and need
         // to free up memory by discarding off screen textures quickly
 
-        // S24: severity-aware floor. The original unconditional floor below (kept for
-        // genuine severe pressure) guarantees forward progress on this queue even past
-        // max_time -- explicitly so ("if we don't downres quickly the viewer will hit
-        // swap and may freeze"). But a backlog here isn't always that dire: a fast
-        // camera swing through a dense scene can burst many faces between on/off-screen
-        // within one window, populating this queue without VRAM actually being in a
-        // genuine emergency. Forcing the
-        // same large floor through in that everyday case is a real source of
-        // frame-time spikes during camming for no real benefit -- nothing is actually
-        // at risk of swapping/freezing yet. Only use the aggressive floor when pressure
-        // is genuinely severe. Otherwise respect max_time almost strictly (min_count=1:
-        // stop as soon as possible once over budget) and let the backlog spread across
-        // more frames instead of hammering this one.
+        // Only use the aggressive floor (guarantees forward progress even past max_time) when pressure
+        // is genuinely severe - a fast camera swing through a dense scene can burst many faces
+        // between on/off-screen without VRAM actually being in an emergency, and forcing the large
+        // floor there just spikes frame time for no benefit. Otherwise respect max_time almost
+        // strictly (min_count=1) and let the backlog spread across more frames.
         //
-        // Also fixes a latent bug found while touching this: the floor used to scale
-        // with mCreateTextureList.size() (a different queue, the pending-GL-upload
-        // list, already mostly drained by the loop above by this point) instead of
-        // mDownScaleQueue.size() (the queue actually being drained here).
+        // Floor must scale with mDownScaleQueue.size() (the queue actually drained here), not
+        // mCreateTextureList.size() (a different, already-mostly-drained queue).
         //
-        // S24 (2026-08-24, task #258): "severe" is now a direct used/budget ratio
-        // instead of the deleted sDesiredDiscardBias ramp - same "direct number, no
-        // ramping" style KVRAMCache::getRAMPressure() already uses in this codebase
-        // (newview/kvramcache.cpp).
+        // "severe" is a direct used/budget ratio, same "direct number, no ramping" style
+        // KVRAMCache::getRAMPressure() uses (newview/kvramcache.cpp).
         const bool severe_pressure = LLViewerTexture::sVRAMUsedMegabytes
                 / llmax(LLViewerTexture::sVRAMBudgetMegabytes, 1.f) > 1.1f
             || LLViewerTexture::isSystemMemoryCritical();
 
-        // S24 (2026-08-24, task #258): the non-severe floor used to be a hard 1 -
-        // meaning once max_time was exceeded, exactly one more texture got
-        // downscaled that frame no matter how large the backlog was. Fine for the
-        // camera-swing case this floor was designed to protect (small, transient
-        // queues stay at min_count=1, unchanged below), but under SUSTAINED
-        // moderate pressure (bias 1.0-2.0, i.e. real over-budget load that just
-        // hasn't crossed the "severe" line) a large backlog could accumulate faster
-        // than it drained, only catching up once the scene quieted down and new
-        // pressure stopped arriving - the "images dumping" slow-drain symptom
-        // observed live in a populated scene. Scaling gently with backlog size
-        // (capped at 5, well below severe_pressure's own floor) gives sustained
-        // moderate pressure real forward progress without reopening the frame-time
-        // spike problem for small, transient bursts.
+        // Non-severe floor scales gently with backlog size (capped at 5, well below
+        // severe_pressure's own floor) rather than a hard 1: under sustained moderate pressure (real
+        // over-budget load that hasn't crossed the "severe" line) a large backlog could otherwise
+        // accumulate faster than it drained. Small, transient queues (the camera-swing case this floor
+        // was designed to protect) stay at min_count=1 either way.
         S32 min_count = severe_pressure ? (S32)mDownScaleQueue.size() / 20 + 5
                                          : llclamp((S32)mDownScaleQueue.size() / 50, 1, 5);
 
-        // S24 (2026-08-24, task #258): one-shot size-sort on the RISING EDGE of
-        // severe pressure only (not every frame - would add real per-frame cost to
-        // this hot path, and FIFO order is fine under merely-moderate pressure
-        // where D1 above already keeps the backlog draining). Under genuine
-        // emergency, processing the largest queued textures first frees the most
-        // VRAM per item downscaled - insertion order has zero relationship to that
-        // goal. Deliberately not a full LRU/priority-queue rearchitecture, just a
-        // single sort of whatever's queued at the moment pressure turns severe.
+        // One-shot size-sort on the rising edge of severe pressure only (not every frame - real
+        // per-frame cost on this hot path, and FIFO is fine under merely-moderate pressure). Under
+        // genuine emergency, processing the largest queued textures first frees the most VRAM per item
+        // downscaled - insertion order has no relation to that goal.
         static bool was_severe_pressure = false;
         if (severe_pressure && !was_severe_pressure)
         {
@@ -1695,7 +1538,6 @@ F32 LLViewerTextureList::updateImagesCreateTextures(F32 max_time)
     return create_timer.getElapsedTimeF32();
 }
 
-// S24 perf
 F32 LLViewerTextureList::updateImagesLoadingFastCache(F32 max_time)
 {
     if (gGLManager.mIsDisabled || mFastCacheList.empty())
@@ -1782,12 +1624,9 @@ F32 LLViewerTextureList::updateImagesFetchTextures(F32 max_time)
     // Deletion rules check ref count, so be careful not to hold any LLPointer references to the textures here other than the one in entries.
 
     //update MIN_UPDATE_COUNT or 5% of other textures, whichever is greater
-    // S24 (2026-08-24, task #258): the old sDesiredDiscardBias-driven "update more
-    // aggressively under pressure" multiplier is gone - this round-robin's job is
-    // now just "keep mMaxVirtualSize reasonably fresh," a fixed cadence regardless
-    // of VRAM pressure. Budget-aware reaction to pressure is entirely
-    // LLViewerTextureList::runVRAMBudgetAllocation()'s job now, on its own
-    // independent timer, not this per-frame sweep's.
+    // This round-robin's job is just "keep mMaxVirtualSize reasonably fresh" at a fixed cadence
+    // regardless of VRAM pressure - budget-aware reaction to pressure is entirely
+    // runVRAMBudgetAllocation()'s job, on its own independent timer.
     update_count = llmax((U32) MIN_UPDATE_COUNT, (U32) mUUIDMap.size()/20);
     update_count = llmin(update_count, (U32) mUUIDMap.size());
 
@@ -1846,7 +1685,7 @@ void LLViewerTextureList::updateImagesUpdateStats()
     }
 }
 
-// S24 no-profiling and timer is conditional rather than called each time based off max_time
+// Profiling/timer here is conditional on max_time rather than always active.
 void LLViewerTextureList::decodeAllImages(F32 max_time)
 {
     const bool enable_timing = max_time < F32_MAX;

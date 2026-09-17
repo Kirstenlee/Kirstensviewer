@@ -60,6 +60,9 @@
 // S24 - Include for water preset support
 #include "llpresetsmanager.h"
 
+// S24 - Include for UI hue shift + color profile support
+#include "lluihueshift.h"
+
 
 
 LLFloaterKVTweaks::LLFloaterKVTweaks(const LLSD& key)
@@ -144,6 +147,19 @@ bool LLFloaterKVTweaks::postBuild()
 
     // S24 - Hook up Movement tab controls
     childSetAction("reset_movement_btn", boost::bind(&LLFloaterKVTweaks::onClickResetMovement, this));
+
+    // S24 - Hook up UI Hue Shift tab controls
+    childSetAction("reset_ui_hue_btn", boost::bind(&LLFloaterKVTweaks::onClickResetUIHue, this));
+
+    // S24 - Initialize UI hue color profile combo box
+    LLComboBox* ui_hue_profile_combo = getChild<LLComboBox>("UIHueProfileCombo");
+    if (ui_hue_profile_combo)
+    {
+        refreshUIHueProfileCombo();
+        ui_hue_profile_combo->setCommitCallback(boost::bind(&LLFloaterKVTweaks::onUIHueProfileSelected, this));
+    }
+    childSetAction("UIHueProfileSave", boost::bind(&LLFloaterKVTweaks::onUIHueProfileSave, this));
+    childSetAction("UIHueProfileDelete", boost::bind(&LLFloaterKVTweaks::onUIHueProfileDelete, this));
 
     // Ground movement slider updates
     getChild<LLUICtrl>("smooth_movement_accel_time")->setCommitCallback(boost::bind(&LLFloaterKVTweaks::updateGroundAccelText, this));
@@ -369,7 +385,7 @@ void LLFloaterKVTweaks::onClickResetToDefaults()
         "KVdefault_cores",
         "KVmin_cores",
         "KVmax_cores",
-        "RenderCPUBasis",
+        "RenderProcessQoS",
         "MaxHeapSize64",
         "RenderMaxVRAMBudget",
         "RenderVRAMAllocationIntervalSeconds",
@@ -385,7 +401,6 @@ void LLFloaterKVTweaks::onClickResetToDefaults()
         "RenderTreeLODFactor",
         "RenderFlexTimeFactor",
         "RenderFarClip",
-        "RenderAutoMuteRenderWeightLimit",
         "RenderAutoMuteSurfaceAreaLimit",
         "AvatarExtentRefreshPeriodBatch",
         "AvatarFeathering",
@@ -417,6 +432,19 @@ void LLFloaterKVTweaks::onClickResetToDefaults()
         "RenderWaterShoreFadeDistance",
         "RenderWaterUnderwaterFogMult",
         "RenderWaterReflectionWarmth",
+        "RenderWaterColorAbsorptionRate",
+        "RenderWaterWindInfluence",
+        "RenderWaterWindMagnitudeCap",
+
+        // Tab: UI Hue Shift
+        "RenderUIHueShiftFloaters",
+        "RenderUIHueShiftMenus",
+        "RenderUIHueShiftControls",
+        "RenderUIHueShiftText",
+        "RenderUIHueShiftInventory",
+        "RenderUIHueShiftMap",
+        "RenderUIHueShiftScript",
+        "RenderUIHueShiftMisc",
 
         // Tab 3: SSR
         "RenderScreenSpaceReflections",
@@ -431,11 +459,8 @@ void LLFloaterKVTweaks::onClickResetToDefaults()
         "RenderShadowBias",
         "RenderShadowOffset",
         "RenderShadowSplitExponent",
-        "RenderShadowProjOffset",
-        "RenderShadowProjExponent",
         "RenderShadowNoise",
         "RenderShadowBlurSize",
-        "RenderShadowBlurSamples",
         "RenderShadowBlurDistFactor",
         "RenderShadowThrottleEnabled",
         "RenderShadowThrottleSettleFrames",
@@ -450,7 +475,6 @@ void LLFloaterKVTweaks::onClickResetToDefaults()
         "RenderLocalLightCount",
         "RenderAttachedLights",
         "RenderSpotLightsInNondeferred",
-        "RenderBakeSunlight",
         "RenderDeferredSpotShadowBias",
         "RenderDeferredSpotShadowOffset",
         "RenderLocalLightHoldTime",
@@ -463,7 +487,6 @@ void LLFloaterKVTweaks::onClickResetToDefaults()
         "TextureLoadFullRes",
         "RenderMaxTextureResolution",
         "RenderObjectBump",
-        "RenderBumpmapMinDistanceSquared",
         "RenderGlow",
         "RenderGlowResolutionPow",
         "TextureFetchConcurrency",
@@ -516,7 +539,7 @@ void LLFloaterKVTweaks::onClickResetToDefaults()
         "SelectionBeamLineStyle",
         "SelectionBeamParticleScale",
 
-        // Tab: Night Sky (S24 - task #279 stage 2)
+        // Tab: Night Sky
         "RenderStarGlow",
         "RenderStarDensity",
         "RenderStarDustIntensity",
@@ -525,6 +548,7 @@ void LLFloaterKVTweaks::onClickResetToDefaults()
         "RenderShootingStars",
         "RenderShootingStarFrequency",
         "RenderSkyStyle",
+        "RenderConstellationLines",
         "RenderCloudLayers",
         "RenderCloudLayerOpacity",
         "RenderCloudLayerHeightSkew",
@@ -567,6 +591,9 @@ void LLFloaterKVTweaks::onClickResetWater()
         "RenderWaterShoreFadeDistance",
         "RenderWaterUnderwaterFogMult",
         "RenderWaterReflectionWarmth",
+        "RenderWaterColorAbsorptionRate",
+        "RenderWaterWindInfluence",
+        "RenderWaterWindMagnitudeCap",
         // SSR duplicates (already in main reset, but include for completeness)
         "RenderWaterSSRIterations",
         "RenderWaterSSRRayStep"
@@ -859,6 +886,9 @@ void LLFloaterKVTweaks::refreshWaterControls()
         "RenderWaterShoreFadeDistance",
         "RenderWaterUnderwaterFogMult",
         "RenderWaterReflectionWarmth",
+        "RenderWaterColorAbsorptionRate",
+        "RenderWaterWindInfluence",
+        "RenderWaterWindMagnitudeCap",
         "RenderWaterSSRIterations",
         "RenderWaterSSRRayStep"
     };
@@ -968,6 +998,132 @@ void LLFloaterKVTweaks::onClickResetMovement()
 
     // Refresh UI
     refresh();
+}
+
+void LLFloaterKVTweaks::onClickResetUIHue()
+{
+    // S24 - Reset all UI hue-shift categories to defaults (0.0 = no shift). Each control's own
+    // signal listener (lluihueshift.cpp) fires on resetToDefault() and re-applies automatically -
+    // no manual LLUIHueShift::applyAll() call needed here.
+    const char* ui_hue_control_names[] = {
+        "RenderUIHueShiftFloaters",
+        "RenderUIHueShiftMenus",
+        "RenderUIHueShiftControls",
+        "RenderUIHueShiftText",
+        "RenderUIHueShiftInventory",
+        "RenderUIHueShiftMap",
+        "RenderUIHueShiftScript",
+        "RenderUIHueShiftMisc",
+        "RenderUIContrast",
+        "RenderUIGrayscale",
+        "RenderUIShine"
+    };
+
+    for (size_t i = 0; i < sizeof(ui_hue_control_names) / sizeof(ui_hue_control_names[0]); ++i)
+    {
+        LLControlVariable* control = gSavedSettings.getControl(ui_hue_control_names[i]);
+        if (control)
+        {
+            control->resetToDefault(true);
+        }
+    }
+}
+
+// S24 - UI hue color profile handlers
+void LLFloaterKVTweaks::refreshUIHueProfileCombo(const std::string& select_name)
+{
+    LLComboBox* combo = getChild<LLComboBox>("UIHueProfileCombo");
+    if (!combo)
+    {
+        return;
+    }
+
+    std::string previous_selection = select_name.empty() ? combo->getSimple() : select_name;
+
+    combo->removeall();
+    for (const std::string& name : LLUIHueShift::getProfileNames())
+    {
+        combo->add(name);
+    }
+
+    if (!previous_selection.empty())
+    {
+        combo->selectByValue(previous_selection);
+    }
+}
+
+void LLFloaterKVTweaks::onUIHueProfileSelected()
+{
+    LLComboBox* combo = getChild<LLComboBox>("UIHueProfileCombo");
+    if (combo)
+    {
+        std::string selected = combo->getSimple();
+        if (!selected.empty())
+        {
+            LLUIHueShift::loadProfile(selected);
+        }
+    }
+}
+
+void LLFloaterKVTweaks::onUIHueProfileSave()
+{
+    LLNotificationsUtil::add("SaveUIHueProfileAs", LLSD(), LLSD(),
+        boost::bind(&LLFloaterKVTweaks::onUIHueProfileSaveCommit, this, _1, _2));
+}
+
+bool LLFloaterKVTweaks::onUIHueProfileSaveCommit(const LLSD& notification, const LLSD& response)
+{
+    S32 option = LLNotificationsUtil::getSelectedOption(notification, response);
+    if (0 == option)
+    {
+        std::string profile_name = response["message"].asString();
+        LLStringUtil::trim(profile_name);
+        if (!profile_name.empty())
+        {
+            LLUIHueShift::saveProfile(profile_name);
+            refreshUIHueProfileCombo(profile_name);
+        }
+    }
+    return false;
+}
+
+void LLFloaterKVTweaks::onUIHueProfileDelete()
+{
+    LLComboBox* combo = getChild<LLComboBox>("UIHueProfileCombo");
+    if (!combo)
+    {
+        return;
+    }
+
+    std::string selected = combo->getSimple();
+    if (selected.empty())
+    {
+        return;
+    }
+
+    LLSD args;
+    args["MESSAGE"] = "Delete UI hue color profile '" + selected + "'?";
+    LLNotificationsUtil::add("GenericAlertYesCancel", args, LLSD(),
+        boost::bind(&LLFloaterKVTweaks::onUIHueProfileDeleteCommit, this, _1, _2));
+}
+
+bool LLFloaterKVTweaks::onUIHueProfileDeleteCommit(const LLSD& notification, const LLSD& response)
+{
+    S32 option = LLNotificationsUtil::getSelectedOption(notification, response);
+    if (0 == option)
+    {
+        LLComboBox* combo = getChild<LLComboBox>("UIHueProfileCombo");
+        if (combo)
+        {
+            std::string selected = combo->getSimple();
+            if (!selected.empty())
+            {
+                LLUIHueShift::deleteProfile(selected);
+                refreshUIHueProfileCombo();
+            }
+        }
+    }
+    return false;
 }
 
 void LLFloaterKVTweaks::updateGroundAccelText()

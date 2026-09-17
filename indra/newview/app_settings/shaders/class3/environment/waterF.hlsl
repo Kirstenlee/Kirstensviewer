@@ -22,17 +22,9 @@
  * SOFTWARE.
  */
 
-// S24 (2026-08-09, task #143): real port of class3/environment/waterF.glsl -
-// the previous body here was a placeholder (`return float4(0,0,0,1)`), so
-// the above-water surface (the normal view looking down at water) rendered
-// solid opaque black unconditionally. This is the real 375-line
-// implementation, ported to HLSL with the same "improve where it makes
-// sense, no requirement to stay slavish to GL" latitude already used
-// elsewhere this session - dead/unused forward declarations present in the
-// GLSL source (scaleSoftClipFragLinear, BRDF, pbrIbl, pbrBaseLight,
-// linear_to_srgb, atmosLighting, scaleSoftClip, toneMapNoExposure - none
-// of these are actually called from main()) were dropped rather than
-// carried over as dead weight.
+// S24: ported from class3/environment/waterF.glsl; unused forward declarations present in the
+// GLSL source (scaleSoftClipFragLinear, BRDF, pbrIbl, pbrBaseLight, linear_to_srgb,
+// atmosLighting, scaleSoftClip, toneMapNoExposure) were dropped since main() never calls them.
 #define WATER_MINIMAL 1
 
 #ifdef HAS_SUN_SHADOW
@@ -56,21 +48,9 @@ float getDepth(float2 pos_screen);
 
 float3 srgb_to_linear(float3 c);
 
-// S24 (2026-08-09, task #144 register sweep): moved off t0-t4 (which
-// collided with deferredUtil.hlsl's normalMap/depthMap/projectionMap/
-// brdfLut at t0-t3 - both attached here since gWaterProgram sets
-// hasReflectionProbes=true, per attachShaderFeatures()'s
-// isDeferred||hasReflectionProbes condition, llshadermgr.cpp:214) into
-// t5-t8 for water's own 4 non-exclusion textures. exclusionTex originally
-// went to t9 to match the alpha shaders' established free zone (t5-t9),
-// but a real build (2026-08-09) surfaced a genuine X4500 "overlapping
-// register semantics" collision there: reflectionProbeF.hlsl's
-// environmentMap (also attached via hasReflectionProbes) is actually at
-// t9/s9, not t4 as an earlier comment (materialF.hlsl family) suggested -
-// verified directly against this shader's own resolved/dumped source
-// (t0-t3 deferredUtil, t5-t8 water's own, t9 environmentMap, t10-t15
-// shadowUtil - t4 is the one genuinely free slot). exclusionTex moved
-// there instead.
+// S24: register map for this shader (hasReflectionProbes=true pulls in extra attached files):
+// t0-t3 deferredUtil.hlsl, t5-t8 water's own textures, t9 reflectionProbeF.hlsl's environmentMap,
+// t10-t15 shadowUtil. t4 is the only free slot, used by exclusionTex below.
 Texture2D bumpMap : register(t5);
 Texture2D bumpMap2 : register(t6);
 SamplerState bumpMapSampler : register(s5);
@@ -80,35 +60,13 @@ uniform float blend_factor;
 #ifdef TRANSPARENT_WATER
 Texture2D screenTex : register(t7);
 SamplerState screenTexSampler : register(s7);
-// S24 (2026-08-09, task #123): the original GLSL declares its own
-// "depthMap" uniform directly, sampled with a plain texture() call - that
-// works under GL because separate-compile-then-link tolerates identical
-// uniform redeclarations across attached files (same reasoning documented
-// throughout this session for other dual-declared uniforms). It does NOT
-// work here: deferredUtil.hlsl (attached since gWaterProgram sets
-// hasReflectionProbes=true) already declares its own "depthMap" at t1 -
-// a second same-named Texture2D would be a duplicate-symbol compile
-// error, which is why an earlier version of this file renamed its copy to
-// "waterDepthMap" at a different register to dodge the collision.
-//
-// That rename silently broke the actual depth data path: LLPipeline::
-// bindDeferredShader(shader, nullptr, &mWaterDis) (dxdrawpoolwater.cpp) -
-// which this pool calls specifically to redirect water's depth read to
-// the mWaterDis snapshot instead of the live G-buffer - works by finding
-// a texture named exactly "depthMap" (LLShaderMgr::DEFERRED_DEPTH's
-// reserved name, llshadermgr.cpp:1580) and binding mWaterDis there. A
-// texture named "waterDepthMap" doesn't match that lookup, so it was
-// never bound by anything - real, confirmed root cause of "the reflection
-// fights the water / self-referencing screen-copy hazard" once this
-// shader had real Sample() calls to expose it (the old stub never
-// sampled it, so this never surfaced).
-//
-// Real fix: don't declare a second depth texture at all - use
-// deferredUtil.hlsl's own already-attached, already-correctly-bound
-// getDepth() (forward-declared below), the same function pointLightF.hlsl/
-// spotLightF.hlsl/softenLightF.hlsl already use for exactly this purpose.
-// It already applies the GL-vs-D3D11 texture-origin flip internally too,
-// so no manual "1.0 - y" needed at the call sites below.
+// S24: do not declare a second "depthMap" texture here - deferredUtil.hlsl (attached since
+// hasReflectionProbes=true) already declares one at t1, and HLSL rejects the duplicate symbol
+// (unlike GL's separate-compile-then-link). LLPipeline::bindDeferredShader(shader, nullptr,
+// &mWaterDis) binds mWaterDis to that exact reserved "depthMap" name (LLShaderMgr::DEFERRED_DEPTH)
+// to redirect water's depth read - a texture under any other name won't receive it. Use
+// deferredUtil.hlsl's getDepth() (forward-declared below) instead; it already applies the
+// GL-vs-D3D11 origin flip internally.
 #endif
 
 Texture2D exclusionTex : register(t4);
@@ -123,13 +81,11 @@ uniform float3 normScale;
 uniform float fresnelScale;
 uniform float fresnelOffset;
 
-// S24 - Advanced water material controls (unlock hardcoded values)
 uniform float waterMetallic;
 uniform float waterRoughnessOverride;
 uniform float waterSpecularIntensity;
 uniform float waterReflectionIntensity;
 
-// S24 - Advanced artistic controls (Phase 1 & 2)
 uniform float3 waterColorTint;
 uniform float waterColorTintAlpha;
 uniform float waterFresnelPower;
@@ -137,6 +93,7 @@ uniform float waterWaveSpeed;           // Applied in C++ to phase_time
 uniform float waterShoreFadeDistance;
 uniform float waterUnderwaterFogMult;   // Applied in C++ to fog_density
 uniform float waterReflectionWarmth;
+uniform float waterColorAbsorptionRate;
 
 struct PSInput
 {
@@ -157,10 +114,8 @@ struct PSInput
 
 float2 getScreenCoord(float4 clip);
 
-// S24: HLSL globals default to implicitly-const (X3025) unless marked
-// static - unlike GLSL, where a plain global is ordinary mutable storage.
-// vN/vT/vB are written to in main() below (transform_normal() reads them
-// back), so this needs "static" to compile at all.
+// S24: HLSL globals are implicitly-const (X3025) unless marked static, unlike GLSL where a plain
+// global is mutable. vN/vT/vB are written in main() and read back by transform_normal().
 static float3 vN, vT, vB;
 
 float3 transform_normal(float3 vNt)
@@ -173,20 +128,10 @@ float3 BlendNormal(float3 bump1, float3 bump2)
     return lerp(bump1, bump2, blend_factor);
 }
 
-// S24 (2026-09-07, DX Water V1): Reoriented Normal Mapping (RNM) - composes
-// a "detail" tangent-space normal onto a "base" one the way a bump actually
-// sits on an already-bumpy surface, instead of averaging two vectors that
-// can partially cancel when out of phase. Standard technique (Colin
-// Barre-Brisebois/Stephen Hill, "Blending in Detail",
-// blog.selfshadow.com/publications/blending-in-detail) - this is the
-// well-known unpacked-normal fast path (both inputs are already in -1..1,
-// roughly-unit tangent-space normals with z toward the viewer). Used below
-// to combine wave1/wave2/wave3 instead of the old
-// "(wave1 + wave2*0.4 + wave3*0.6) * 0.5" plain weighted sum, which is the
-// real, confirmed source of a slow visible "flatten/sharpen" pulse
-// whenever two layers' phases drifted toward cancellation (see
-// waterV.hlsl's own comment on the matching root-cause fix for littleWave.zw's
-// direction).
+// S24: Reoriented Normal Mapping (RNM) - composes a "detail" tangent-space normal onto a "base"
+// one instead of averaging, which can partially cancel when two wave layers' phases drift out of
+// sync (Barre-Brisebois/Hill, "Blending in Detail", blog.selfshadow.com/publications/blending-in-detail).
+// Unpacked-normal fast path: both inputs are unit tangent-space normals in -1..1 with z toward viewer.
 float3 RNMBlend(float3 n1, float3 n2)
 {
     n1 += float3(0, 0, 1);
@@ -225,7 +170,6 @@ void calculateFresnelFactors(out float3 df3, out float2 df2, float3 viewVec, flo
         dot(viewVec, wave3)
     ) * fresnelScale + fresnelOffset);
 
-    // S24 Advanced - Unlock hardcoded power-of-2, use user-controlled fresnel power
     df3 = pow(df3, float3(waterFresnelPower, waterFresnelPower, waterFresnelPower)); // Was: df3 *= df3 (hardcoded power of 2)
 
     df2 = max(float2(0, 0), float2(
@@ -255,31 +199,18 @@ float4 main(PSInput IN) : SV_Target
 
     generateWaveNormals(IN, wave1, wave2, wave3);
 
-    // S24 (2026-09-07, DX Water V1): RNM compose instead of a plain
-    // weighted average - see RNMBlend()'s own comment above. wave2/wave3
-    // are attenuated toward flat (0,0,1) by their original 0.4/0.6 weights
-    // BEFORE composing, preserving this shader's original "wave3 matters
-    // more than wave2" intent while avoiding the old amplitude-cancellation
-    // artifact between out-of-phase layers.
+    // S24: RNM compose (see RNMBlend() above) instead of a plain weighted average. wave2/wave3 are
+    // attenuated toward flat (0,0,1) by their original 0.4/0.6 weights before composing, preserving
+    // the original "wave3 matters more than wave2" balance.
     float3 wavef = normalize(wave1);
     wavef = RNMBlend(wavef, normalize(lerp(float3(0, 0, 1), normalize(wave2), 0.4)));
     wavef = RNMBlend(wavef, normalize(lerp(float3(0, 0, 1), normalize(wave3), 0.6)));
 
     float dmod = sqrt(dist);
-    // S24 (2026-08-09, task #146): the original GLSL divides refCoord.xy
-    // by refCoord.z (not w) to approximate a screen-space UV - a trick
-    // that happens to work under GL's -w..w clip-space Z range, but
-    // produces a warped ("fisheye"), mispositioned result under D3D11's
-    // 0..w range (confirmed via a real in-world test - solid reflection-
-    // shaped color with no visible wave perturbation, since the base UV
-    // was already wrong enough to swamp the small ripple offset). Fixed
-    // by using the real clip W via the same getScreenCoord() every other
-    // converted shader already uses for this exact purpose (pointLightF.hlsl/
-    // spotLightF.hlsl/softenLightF.hlsl) - a true perspective divide,
-    // API-convention-independent. distort itself stays unflipped (used
-    // below for reflection-probe/refraction lookups that already apply
-    // the flip at their own .Sample() sites, and for getPositionWithNDC()'s
-    // NDC reconstruction, which must not be flipped).
+    // S24: getScreenCoord() does a true perspective divide by clip W - dividing refCoord.xy by
+    // refCoord.z instead only works under GL's -w..w clip-space Z range and warps under D3D11's
+    // 0..w range. distort stays unflipped; flip is applied at each .Sample() site instead, and
+    // getPositionWithNDC()'s NDC reconstruction requires the unflipped value.
     float2 distort = getScreenCoord(IN.refCoord);
 
     float3 df3 = float3(0, 0, 0);
@@ -298,31 +229,13 @@ float4 main(PSInput IN) : SV_Target
     float3 up = transform_normal(float3(0, 0, 1));
     float vdu = -dot(viewVec, up) * 2;
 
-    // S24 (2026-09-07, DX Water SSR V1): wave_ibl feeds the reflection-
-    // probe/SSR ray direction (sampleReflectionProbesWater() call below) -
-    // deliberately built from a COARSER normal than wavef (which still
-    // drives direct lighting/fresnel/specular further down, untouched).
-    // Live-reported: water SSR looks noticeably more "pixellated"/flickery
-    // than opaque-surface SSR. Root cause, confirmed by reading
-    // tapScreenSpaceReflection() (screenSpaceReflUtil.hlsl): the traced ray
-    // direction is `reflect(viewPos, normalize(n))` - directly, highly
-    // sensitive to whatever normal it's given. wavef is the full 3-layer
-    // RNM-composited detail normal, which by design wobbles at high spatial
-    // AND temporal frequency (that's what makes choppy water look choppy).
-    // For an opaque floor/glass surface this SSR code was originally tuned
-    // against, the normal barely changes frame to frame, so the traced ray
-    // is stable; water's normal never stops moving, so the ray direction -
-    // and therefore which scene pixel it hits - changes every pixel, every
-    // frame. With only 4 stochastic samples per pixel
-    // (RenderScreenSpaceReflectionGlossySamples) and zero temporal
-    // accumulation anywhere in this SSR implementation, that shows up
-    // exactly as visible per-pixel noise and frame-to-frame flicker.
-    // waveCoarse below is mostly wave1 (the big, slow swell layer) with
-    // only a small amount of wave2/wave3's fast detail blended in via the
-    // same RNM technique as wavef itself - stabilizes the traced ray
-    // direction without touching how sharp the water actually looks
-    // (wavef, still full detail, still drives lighting/fresnel/waver/norm
-    // exactly as before).
+    // S24: wave_ibl feeds the SSR/reflection-probe ray direction and is deliberately built from a
+    // COARSER normal than wavef (which still drives lighting/fresnel/specular below, untouched).
+    // tapScreenSpaceReflection()'s traced ray is `reflect(viewPos, normalize(n))`, directly
+    // sensitive to the input normal; wavef's full 3-layer detail changes every pixel/frame, and
+    // with only a few stochastic SSR samples and no temporal accumulation that reads as flicker.
+    // waveCoarse keeps mostly wave1 (slow swell) with a little wave2/wave3 blended in via the same
+    // RNM technique, stabilizing the ray direction without softening wavef's own visible detail.
     float3 waveCoarse = normalize(wave1);
     waveCoarse = RNMBlend(waveCoarse, normalize(lerp(float3(0, 0, 1), normalize(wave2), 0.15)));
     waveCoarse = RNMBlend(waveCoarse, normalize(lerp(float3(0, 0, 1), normalize(wave3), 0.15)));
@@ -346,10 +259,9 @@ float4 main(PSInput IN) : SV_Target
 
     float shadow = 1.0f;
 
-    // S24 (origin sweep): exclusionTex is a real D3D11 render target
-    // (mWaterExclusionMask) - flip at the sample site, distort itself
-    // stays unflipped (also feeds sampleDirectionalShadow()/reflection
-    // probes below).
+    // S24: exclusionTex (mWaterExclusionMask) is a real D3D11 render target - flip at this sample
+    // site only; distort itself stays unflipped since it also feeds sampleDirectionalShadow()/
+    // reflection probes below.
     float water_mask = exclusionTex.Sample(exclusionTexSampler, float2(distort.x, 1.0 - distort.y)).r;
 
 #ifdef HAS_SUN_SHADOW
@@ -359,19 +271,28 @@ float4 main(PSInput IN) : SV_Target
     float3 sunlit_linear = sunlit;
     float fade = 1;
 #ifdef TRANSPARENT_WATER
-    // S24 (task #123): getDepth() reads mWaterDis's depth (bound via this
-    // pool's bindDeferredShader(shader, nullptr, &mWaterDis) call - see
-    // this file's header comment on why a separately-declared texture
-    // here doesn't work) and already applies the origin flip internally.
+    // S24: getDepth() reads mWaterDis (bound via bindDeferredShader(shader, nullptr, &mWaterDis) -
+    // see this file's header comment) and applies the origin flip internally.
     float depth = getDepth(distort);
 
-    // S24 (reversed-Z conversion): 1.0-2.0*depth, was 2.0*depth-1.0 - see
-    // deferredUtil.hlsl's linearDepth()/getPositionWithDepth() comments.
-    // This is the actual root cause of the "ocean drains at camera
-    // distance" bug: the standard (non-reversed) depth buffer lost enough
-    // precision reconstructing the seabed's position at range that this
-    // shore-fade heuristic misjudged deep water as shallow.
+    // S24: 1.0-2.0*depth (reversed-Z), not 2.0*depth-1.0 - see deferredUtil.hlsl's linearDepth().
+    // Precision loss from the non-reversed form at range caused the shore-fade heuristic to
+    // misjudge deep water as shallow.
     float3 refPos = getPositionWithNDC(float3(distort * 2.0 - float2(1.0, 1.0), 1.0 - 2.0 * depth));
+
+    // S24: depth-under-surface at this pixel, feeds the Beer-Lambert-style color absorption below.
+    // (pos.z - refPos.z) alone is a VIEW-SPACE Z delta along the camera ray, not a true vertical
+    // depth - at normal eye-level viewing angles (looking across the water toward the horizon
+    // rather than straight down) the ray travels almost parallel to the surface, so this delta is
+    // dominated by horizontal travel distance and stays huge/saturated almost everywhere, which is
+    // why an earlier version of this looked like it "did nothing" except right at the shoreline.
+    // Multiplying by vdu (already computed above - how much the view ray points downward into the
+    // water, 0=grazing/horizontal, 1=straight down) converts that into a real vertical-depth
+    // approximation instead: the same real depth read at a steep angle gives a small Z delta and a
+    // shallow (near-horizontal) angle gives a huge one, so dividing back out by "how steep" the ray
+    // is recovers the actual vertical distance regardless of camera angle. The 0.05 floor keeps a
+    // little absorption alive at pure-grazing angles rather than forcing it fully off.
+    float waterDepth = max(0.0, pos.z - refPos.z) * max(vdu, 0.05);
 
     // Calculate some distance fade in the water to better assist with refraction blending and reducing the refraction texture's "disconnect".
     fade = max(0, min(1, (pos.z - refPos.z) / 10));
@@ -380,8 +301,7 @@ float4 main(PSInput IN) : SV_Target
     distort2 = lerp(distort, distort2, min(1, fade * 10));
     depth = getDepth(distort2);
 
-    // S24 (reversed-Z conversion): 1.0-2.0*depth, was 2.0*depth-1.0 - see
-    // matching comment above.
+    // S24: reversed-Z, see matching comment above.
     refPos = getPositionWithNDC(float3(distort2 * 2.0 - float2(1.0, 1.0), 1.0 - 2.0 * depth));
 
     if (pos.z < refPos.z - 0.05)
@@ -396,30 +316,24 @@ float4 main(PSInput IN) : SV_Target
 
     if (water_mask < 1)
         discard;
+
+    // S24: no screen-space refraction data available in this (Transparent Water OFF) path, so no
+    // real per-pixel depth to base absorption on - treat as always-deep so the tint behaves exactly
+    // as it did before this feature existed.
+    float waterDepth = 1000.0;
 #endif
 
-    // S24 - Use controllable water material properties instead of hardcoded values
     float metallic = waterMetallic; // Was: 1.0 HARDCODED
     float perceptualRoughness = waterRoughnessOverride > 0.0 ? waterRoughnessOverride : blurMultiplier;
     float gloss = 1 - perceptualRoughness;
 
     float3 irradiance = float3(0, 0, 0);
     float3 radiance = float3(0, 0, 0);
-    // S24 (2026-08-09, task #147 step 0): re-enabled. The claim in the
-    // comment this replaced - "environmentMap/t9 is never bound under
-    // DX_RENDER" - is now STALE: LLPipeline::bindDeferredShader()
-    // (pipeline.cpp:8823-8862, task #113, 2026-08-06) force-binds the
-    // legacy single-cubemap environmentMap/t9 for any shader with
-    // mFeatures.hasReflectionProbes, which gWaterProgram has - confirmed
-    // by direct read, not assumed. sampleReflectionProbesWater() ->
-    // sampleReflectionProbes() (reflectionProbeF.hlsl) already samples
-    // exactly that texture correctly. This is step 0 of task #147's real
-    // capture-pipeline work (see llreflectionmapmanager.cpp) - a fast,
-    // independent test of the legacy-env-map plumbing before the larger
-    // LLCubeMapArray-based per-probe work lands. Expected result: a real
-    // but non-per-position (single static sky cubemap) reflection instead
-    // of flat black; per-probe accuracy arrives once the array pipeline
-    // and reflectionProbeF.hlsl's v1 TextureCubeArray sample are in.
+    // S24: LLPipeline::bindDeferredShader() force-binds the legacy single-cubemap environmentMap/t9
+    // for any shader with mFeatures.hasReflectionProbes, which gWaterProgram has; sampled by
+    // sampleReflectionProbesWater() -> sampleReflectionProbes() (reflectionProbeF.hlsl). This gives
+    // a real but non-per-position (single static sky cubemap) reflection, not flat black; per-probe
+    // accuracy needs the LLCubeMapArray-based per-probe pipeline (llreflectionmapmanager.cpp).
     sampleReflectionProbesWater(irradiance, radiance, distort2, pos.xyz, wave_ibl.xyz, gloss, amblit);
 
     float3 diffuseColor = float3(0, 0, 0);
@@ -439,42 +353,38 @@ float4 main(PSInput IN) : SV_Target
 
     pbrPunctual(diffuseColor, specularColor, perceptualRoughness, metallic, normalize(wavef + up * max(dist, 32.0) / 32.0 * (1.0 - vdu)), v, normalize(light_dir), nl, diffPunc, specPunc);
 
-    // S24 - Apply specular intensity multiplier for user control
     float3 punctual = clamp(nl * (diffPunc + specPunc * waterSpecularIntensity), float3(0, 0, 0), float3(10, 10, 10)) * sunlit_linear * shadow * atten;
 
-    // S24 - Apply reflection intensity multiplier and color temperature control
     radiance *= df2.y * waterReflectionIntensity;
-    // S24 Advanced - Apply reflection color warmth (artistic color grading)
     radiance *= waterReflectionWarmth;
 
-    // S24 Advanced - Apply water color tint with alpha blending for artistic control
+    // S24: depth-based (Beer-Lambert-style) tint ramp - shallow/shoreline water shows more of the
+    // real refracted seafloor color instead of a flat uniform tint, deep water ramps up to the
+    // full waterColorTintAlpha strength. Previously this was a single flat blend regardless of
+    // depth, which is a big part of why SL water reads as an artificial, uniformly-tinted
+    // "plastic" surface even right at the shore where real water is nearly clear.
+    float depthAbsorb = 1.0 - exp(-waterDepth * waterColorAbsorptionRate);
     float3 tintedWater = fb.rgb * waterColorTint;
     float3 untintedWater = fb.rgb;
-    float3 finalWater = lerp(untintedWater, tintedWater, waterColorTintAlpha);
-    // With radiance forced to zero (see the task #147 note above), this
-    // lerp still does something sensible: at grazing angles (high
-    // df2.x/Fresnel, where a real reflection would dominate) water fades
-    // toward black instead of showing garbage - a graceful, physically-
-    // reasonable degradation rather than an arbitrary special case. Real
-    // reflection color returns automatically once #147 lands and radiance
-    // is genuinely populated - no change needed here at that point.
+    float3 finalWater = lerp(untintedWater, tintedWater, waterColorTintAlpha * depthAbsorb);
+    // At grazing angles (high df2.x/Fresnel, where reflection dominates)
+    // this lerp still degrades gracefully toward black if radiance is ever
+    // weak/unpopulated, rather than showing garbage.
     float3 color = lerp(finalWater, radiance, min(1, df2.x)) + punctual.rgb;
 
-    // S24 Advanced - Unlock hardcoded shore fade distance (was 60)
     // We shorten the fade here at the shoreline so it doesn't appear too soft from a distance.
     fade *= waterShoreFadeDistance;
     fade = min(1, fade);
     color = lerp(fb.rgb, color, fade);
 
-    float spec = min(max(max(punctual.r, punctual.g), punctual.b), 0);
+    // S24: was min(..., 0) - punctual is clamped non-negative above (line 356), so max(...) was
+    // always >=0 and min(that, 0) always collapsed to exactly 0, permanently zeroing this alpha
+    // output. Swapped min->max (a floor, matching the clamp idiom just below) to actually pass
+    // the punctual specular magnitude through.
+    float spec = max(max(max(punctual.r, punctual.g), punctual.b), 0);
 
-    // S24 (2026-08-09, task #148): round-2 diagnostic (paint water solid
-    // yellow via fade/water_mask, no shading) removed - it did its job:
-    // the yellow shape itself hovered/rocked, proving real GEOMETRY motion,
-    // not a shading bug. Root cause found: DXPipeline::renderGeomPostDeferred()
-    // (dxpipeline.cpp) never reset the model matrix between pools, so water
-    // (the one post-deferred pool with no per-item applyModelMatrix() call)
-    // inherited whatever model matrix the last-drawn alpha object left
-    // behind. Fixed there - see that function's comment.
+    // S24: water is the one post-deferred pool with no per-item applyModelMatrix() call, so it
+    // depends on DXPipeline::renderGeomPostDeferred() (dxpipeline.cpp) resetting the model matrix
+    // between pools - otherwise it inherits whatever matrix the previously-drawn pool left behind.
     return min(float4(1, 1, 1, 1), max(float4(color.rgb, spec * water_mask), float4(0, 0, 0, 0)));
 }

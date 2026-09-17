@@ -680,7 +680,6 @@ static LLTrace::SampleStatHandle<> sNumActiveCachedObjects("numactivecachedobjec
 
 void LLWorld::updateRegions(F32 max_update_time)
 {
-    LL_PROFILE_ZONE_SCOPED;
     LLTimer update_timer;
     mNumOfActiveCachedObjects = 0;
 
@@ -767,7 +766,6 @@ void LLWorld::updateParticles()
 
 void LLWorld::renderPropertyLines()
 {
-    LL_PROFILE_ZONE_SCOPED;
     for (region_list_t::iterator iter = mVisibleRegionList.begin();
          iter != mVisibleRegionList.end(); ++iter)
     {
@@ -856,7 +854,6 @@ F32 LLWorld::getLandFarClip() const
 
 void LLWorld::setLandFarClip(const F32 far_clip)
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_ENVIRONMENT;
     static S32 const rwidth = (S32)REGION_WIDTH_U32;
     S32 const n1 = (llceil(mLandFarClip) - 1) / rwidth;
     S32 const n2 = (llceil(far_clip) - 1) / rwidth;
@@ -1040,7 +1037,6 @@ void LLWorld::updateWaterObjects()
 
 void LLWorld::shiftRegions(const LLVector3& offset)
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_PIPELINE;
     for (region_list_t::const_iterator i = getRegionList().begin(); i != getRegionList().end(); ++i)
     {
         LLViewerRegion* region = *i;
@@ -1113,7 +1109,6 @@ void LLWorld::disconnectRegions()
 
 void process_enable_simulator(LLMessageSystem *msg, void **user_data)
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_NETWORK;
     // enable the appropriate circuit for this simulator and
     // add its values into the gSimulator structure
     U64     handle;
@@ -1203,7 +1198,6 @@ public:
 // Called in response to "DisableSimulator" message.
 void process_disable_simulator(LLMessageSystem *mesgsys, void **user_data)
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_NETWORK;
 
     LLHost host = mesgsys->getSender();
 
@@ -1216,7 +1210,6 @@ void process_disable_simulator(LLMessageSystem *mesgsys, void **user_data)
 
 void process_region_handshake(LLMessageSystem* msg, void** user_data)
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_NETWORK;
     LLHost host = msg->getSender();
     LLViewerRegion* regionp = LLWorld::getInstance()->getRegion(host);
     if (!regionp)
@@ -1266,7 +1259,6 @@ void send_agent_pause()
 
 void send_agent_resume()
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_NETWORK;
     // Note: used to check for LLWorld initialization before it became a singleton.
     // Rather than just remove this check I'm changing it to assure that the message
     // system has been initialized. -MG

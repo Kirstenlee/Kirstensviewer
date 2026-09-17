@@ -57,7 +57,7 @@ private:
     LLLineEditor* mInputEditor;
     LLButton* mEmojiPickerBtn;
 
-    static const S32 QUICK_CHAT_HEIGHT = 32;  // Fixed height: controls + padding (no title bar)
+    static const S32 QUICK_CHAT_HEIGHT = 36;  // Fixed height: 8px top grab strip + controls (23px) + 5px bottom padding
 };
 
 #endif // KV_KVFLOATERQUICKCHAT_H

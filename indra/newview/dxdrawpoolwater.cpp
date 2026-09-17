@@ -37,13 +37,13 @@
 #include "llenvironment.h"
 #include "llsettingssky.h"
 #include "llsettingswater.h"
+#include "llappviewer.h"
 
 // static
 void DXDrawPoolWater::beginPostDeferredPass(LLDrawPoolWater& pool, S32 pass)
 {
     (void)pass;
-    LL_PROFILE_GPU_ZONE("water beginPostDeferredPass");
-    gDX.setColorMask(true, true);
+    gDX.setColorWriteMask(true, true);
 
     if (LLPipeline::sRenderTransparentWater)
     {
@@ -71,19 +71,21 @@ void DXDrawPoolWater::beginPostDeferredPass(LLDrawPoolWater& pool, S32 pass)
     }
 }
 
+// Real handle defined in lldrawpoolwater.cpp - shared, not a separate instance
+// (LLTrace::BlockTimerStatHandle registers itself in a global name-keyed
+// registry; two independently-constructed handles with the same display
+// name collide and crash during static initialization).
+extern LLTrace::BlockTimerStatHandle FTM_RENDER_WATER_OPAQUE;
+
 // static
 void DXDrawPoolWater::renderPostDeferred(LLDrawPoolWater& pool, S32 pass)
 {
     (void)pass;
-
-    // S24 (2026-08-09, task #148): draw-list diagnostic removed - it did
-    // its job (confirmed face composition/Z values are normal/expected,
-    // ruling out culling as the cause). Real root cause found in
-    // DXPipeline::renderGeomPostDeferred() (dxpipeline.cpp) - see there.
+    LL_RECORD_BLOCK_TIME(FTM_RENDER_WATER_OPAQUE);
 
     LLGLDisable blend(GL_BLEND);
 
-    gDX.setColorMask(true, true);
+    gDX.setColorWriteMask(true, true);
 
     LLColor3 light_diffuse(0, 0, 0);
 
@@ -93,8 +95,6 @@ void DXDrawPoolWater::renderPostDeferred(LLDrawPoolWater& pool, S32 pass)
     LLVector3              light_dir       = environment.getLightDirection();
     bool                   sun_up          = environment.getIsSunUp();
     bool                   moon_up         = environment.getIsMoonUp();
-    // S24 (2026-08-23, pre-alpha perf sweep): raw per-frame gSavedSettings
-    // lookup - same fix already applied to water_wave_speed just below.
     static LLCachedControl<bool> render_water_mip_normal(gSavedSettings, "RenderWaterMipNormal", true);
     bool                   has_normal_mips = render_water_mip_normal;
     bool                   underwater      = LLViewerCamera::getInstance()->cameraUnderWater();
@@ -121,9 +121,75 @@ void DXDrawPoolWater::renderPostDeferred(LLDrawPoolWater& pool, S32 pass)
 
     LLTexUnit::eTextureFilterOptions filter_mode = has_normal_mips ? LLTexUnit::TFO_ANISOTROPIC : LLTexUnit::TFO_POINT;
 
-    // S24 Advanced - Apply wave animation speed multiplier
     static LLCachedControl<F32> water_wave_speed(gSavedSettings, "RenderWaterWaveSpeed", 1.0f);
-    F32           phase_time = (F32) LLFrameTimer::getElapsedSeconds() * 0.5f * llmax(0.0f, (F32)water_wave_speed);
+    static LLCachedControl<F32> water_wind_influence(gSavedSettings, "RenderWaterWindInfluence", 0.0f);
+    static LLCachedControl<F32> water_wind_magnitude_cap(gSavedSettings, "RenderWaterWindMagnitudeCap", 15.0f);
+
+    // S24: live wind coupling - gWindVec (llappviewer.cpp, resampled every frame at the agent's
+    // position from the region's LLWind grid, see llwind.h/.cpp) blends into both wave scroll
+    // direction (below, at the WATER_WAVE_DIR1/2 upload) and animation speed here, gated by
+    // RenderWaterWindInfluence so EEP-authored water presets stay fully in control by default -
+    // 0.0 (the default) ignores wind entirely, matching pre-existing behavior exactly.
+    F32 wind_influence = llclamp((F32)water_wind_influence, 0.0f, 1.0f);
+    F32 wind_speed_scale = 1.0f;
+    LLVector2 wind_dir(0.f, 0.f);
+    F32 wind_speed = 0.f;
+    if (wind_influence > 0.0f)
+    {
+        // S24: raw gWindVec is spatially AND temporally noisy - sampled at the agent's current
+        // position from a 16x16 per-region grid (llwind.cpp) that changes in discrete jumps
+        // whenever a new wind patch arrives from the simulator (no interpolation between old/new
+        // values), and re-sampled at a different grid cell every frame the avatar moves. Fed
+        // straight into wave direction this made the water visibly jerk/snap on every raw sample
+        // change - low-pass filtering it with a simple frame-rate-independent exponential smooth
+        // turns that into a gradual drift (like a real gust building or a lull settling) instead.
+        // S24: a single exponential low-pass filter (one pole) has its FASTEST rate of change the
+        // instant a target changes and eases off only as it nears the new value - the opposite of
+        // "smooth acceleration" (it snaps straight into fast motion, then coasts), which read as
+        // "zero to 100 too readily" once the outright jerkiness above was fixed. Cascading the same
+        // filter twice in series (two poles) gives the classic S-curve response instead - it starts
+        // at zero rate of change, eases into motion, then eases out approaching the target - with no
+        // overshoot risk, unlike a spring/damper system would have if mistuned.
+        static LLVector2 s_windStage1(0.f, 0.f);
+        static LLVector2 s_windStage2(0.f, 0.f);
+        static F32 s_lastWindSampleTime = -1.f;
+
+        F32 now = (F32)LLFrameTimer::getElapsedSeconds();
+        F32 dt  = (s_lastWindSampleTime < 0.f) ? 0.f : llclamp(now - s_lastWindSampleTime, 0.0f, 0.5f);
+        s_lastWindSampleTime = now;
+
+        static const F32 kWindSmoothingTau = 6.0f; // seconds - how long a gust/lull takes to settle in
+        F32 alpha = (dt <= 0.f) ? 0.0f : (1.0f - expf(-dt / kWindSmoothingTau));
+
+        // S24: hard cap on the raw wind vector's own magnitude, applied before it ever reaches the
+        // smoothing filter - limits how strong a real storm/gust can push the water regardless of
+        // how extreme the simulator's actual wind data gets. 0.0 caps to zero, i.e. wind is always
+        // treated as calm (a real, if extreme, tuning point - not the same as RenderWaterWindInfluence
+        // itself being 0, which disables wind coupling entirely).
+        LLVector2 raw_wind(gWindVec.mV[VX], gWindVec.mV[VY]);
+        F32 magnitude_cap = llmax(0.0f, (F32)water_wind_magnitude_cap);
+        F32 raw_speed = raw_wind.length();
+        if (raw_speed > magnitude_cap && raw_speed > 0.0001f)
+        {
+            raw_wind = raw_wind * (magnitude_cap / raw_speed);
+        }
+        s_windStage1 = s_windStage1 + (raw_wind    - s_windStage1) * alpha;
+        s_windStage2 = s_windStage2 + (s_windStage1 - s_windStage2) * alpha;
+
+        wind_speed = s_windStage2.length();
+        if (wind_speed > 0.01f)
+        {
+            wind_dir = s_windStage2 * (1.0f / wind_speed);
+            // gWindVec's magnitude is an SL-relative measure (WIND_SCALE_HACK-scaled in llwind.cpp),
+            // not real-world m/s - map its typical range to a 0.6x (calm) - 2.0x (stormy) multiplier
+            // on top of the user's own RenderWaterWaveSpeed base, scaled by wind_influence so this
+            // stays a blend rather than a hard override.
+            F32 target_scale = llclamp(0.6f + wind_speed * 0.12f, 0.6f, 2.0f);
+            wind_speed_scale = 1.0f + (target_scale - 1.0f) * wind_influence;
+        }
+    }
+
+    F32           phase_time = (F32) LLFrameTimer::getElapsedSeconds() * 0.5f * llmax(0.0f, (F32)water_wave_speed) * wind_speed_scale;
     LLHLSLShader *shader     = nullptr;
 
     // select shader - see lldrawpoolwater.cpp's comment (Geenz 2025-02-11):
@@ -139,9 +205,8 @@ void DXDrawPoolWater::renderPostDeferred(LLDrawPoolWater& pool, S32 pass)
 
     gPipeline.bindDeferredShader(*shader, nullptr, &gPipeline.mWaterDis);
 
-    // S24 (2026-08-04): mWaterNormp is protected on LLDrawPoolWater -
-    // accessible here via the friend declaration added alongside this
-    // conversion (see lldrawpoolwater.h).
+    // mWaterNormp is protected on LLDrawPoolWater; accessible here via a
+    // friend declaration in lldrawpoolwater.h.
     LLViewerTexture* tex_a = pool.mWaterNormp[0];
     LLViewerTexture* tex_b = pool.mWaterNormp[1];
 
@@ -167,15 +232,12 @@ void DXDrawPoolWater::renderPostDeferred(LLDrawPoolWater& pool, S32 pass)
         tex_b->setFilteringOption(filter_mode);
     }
 
-    // S24 (2026-08-04): both of these go through LLHLSLShader::bindTexture
-    // (S32, LLRenderTarget*, ...) - was a hardcoded DX_RENDER no-op before
-    // this conversion, fixed in llhlslshader.cpp (see dxdrawpoolwater.h's
-    // comment).
+    // Both go through the LLHLSLShader::bindTexture(S32, LLRenderTarget*, ...)
+    // overload; see llhlslshader.cpp.
     shader->bindTexture(LLShaderMgr::WATER_EXCLUSIONTEX, &gPipeline.mWaterExclusionMask);
 
     shader->uniform1f(LLShaderMgr::BLEND_FACTOR, blend_factor);
 
-    // S24 Advanced - Apply underwater fog multiplier for independent underwater visibility control
     static LLCachedControl<F32> water_underwater_fog_mult_setting(gSavedSettings, "RenderWaterUnderwaterFogMult", 1.0f);
     F32 fog_mult = underwater ? llclamp((F32)water_underwater_fog_mult_setting, 0.1f, 5.0f) : 1.0f;
     F32 fog_density = pwater->getModifiedWaterFogDensity(underwater) * fog_mult;
@@ -195,8 +257,21 @@ void DXDrawPoolWater::renderPostDeferred(LLDrawPoolWater& pool, S32 pass)
 
     shader->uniform3fv(LLShaderMgr::WATER_SPECULAR, 1, light_diffuse.mV);
 
-    shader->uniform2fv(LLShaderMgr::WATER_WAVE_DIR1, 1, pwater->getWave1Dir().mV);
-    shader->uniform2fv(LLShaderMgr::WATER_WAVE_DIR2, 1, pwater->getWave2Dir().mV);
+    LLVector2 wave1_dir = pwater->getWave1Dir();
+    LLVector2 wave2_dir = pwater->getWave2Dir();
+    if (wind_influence > 0.0f && wind_speed > 0.01f)
+    {
+        // Second bump layer offset ~30 degrees off the first so the two wave layers don't scroll
+        // in lockstep under strong wind influence - matches the EEP-authored presets' own
+        // convention of two non-parallel wave directions (see waterV.hlsl's own waveDir3
+        // comment for the same anti-lockstep concern on the third, derived layer).
+        LLVector2 wind_dir2(wind_dir.mV[VX] * 0.866f - wind_dir.mV[VY] * 0.5f,
+                             wind_dir.mV[VX] * 0.5f  + wind_dir.mV[VY] * 0.866f);
+        wave1_dir = wave1_dir + (wind_dir  - wave1_dir) * wind_influence;
+        wave2_dir = wave2_dir + (wind_dir2 - wave2_dir) * wind_influence;
+    }
+    shader->uniform2fv(LLShaderMgr::WATER_WAVE_DIR1, 1, wave1_dir.mV);
+    shader->uniform2fv(LLShaderMgr::WATER_WAVE_DIR2, 1, wave2_dir.mV);
 
     shader->uniform3fv(LLShaderMgr::WATER_LIGHT_DIR, 1, light_dir.mV);
 
@@ -205,7 +280,6 @@ void DXDrawPoolWater::renderPostDeferred(LLDrawPoolWater& pool, S32 pass)
     shader->uniform1f(LLShaderMgr::WATER_FRESNEL_OFFSET, pwater->getFresnelOffset());
     shader->uniform1f(LLShaderMgr::WATER_BLUR_MULTIPLIER, fmaxf(0, pwater->getBlurMultiplier()) * 2);
 
-    // S24 - Advanced water material controls (unlock hardcoded values)
     static LLCachedControl<F32> water_metallic(gSavedSettings, "RenderWaterMetallic", 1.0f);
     static LLCachedControl<F32> water_roughness_override(gSavedSettings, "RenderWaterRoughnessOverride", 0.0f);
     static LLCachedControl<F32> water_specular_intensity(gSavedSettings, "RenderWaterSpecularIntensity", 1.0f);
@@ -216,7 +290,6 @@ void DXDrawPoolWater::renderPostDeferred(LLDrawPoolWater& pool, S32 pass)
     shader->uniform1f(LLShaderMgr::WATER_SPECULAR_INTENSITY, llmax(0.0f, (F32)water_specular_intensity));
     shader->uniform1f(LLShaderMgr::WATER_REFLECTION_INTENSITY, llclamp((F32)water_reflection_intensity, 0.0f, 3.0f));
 
-    // S24 Advanced - Phase 1 & 2 artistic controls
     static LLCachedControl<F32> water_color_tint_r(gSavedSettings, "RenderWaterColorTintR", 1.0f);
     static LLCachedControl<F32> water_color_tint_g(gSavedSettings, "RenderWaterColorTintG", 1.0f);
     static LLCachedControl<F32> water_color_tint_b(gSavedSettings, "RenderWaterColorTintB", 1.0f);
@@ -224,6 +297,7 @@ void DXDrawPoolWater::renderPostDeferred(LLDrawPoolWater& pool, S32 pass)
     static LLCachedControl<F32> water_fresnel_power(gSavedSettings, "RenderWaterFresnelPower", 2.0f);
     static LLCachedControl<F32> water_shore_fade_distance(gSavedSettings, "RenderWaterShoreFadeDistance", 60.0f);
     static LLCachedControl<F32> water_reflection_warmth(gSavedSettings, "RenderWaterReflectionWarmth", 1.0f);
+    static LLCachedControl<F32> water_color_absorption_rate(gSavedSettings, "RenderWaterColorAbsorptionRate", 0.15f);
 
     LLVector3 water_color_tint(
         llclamp((F32)water_color_tint_r, 0.0f, 2.0f),
@@ -236,6 +310,7 @@ void DXDrawPoolWater::renderPostDeferred(LLDrawPoolWater& pool, S32 pass)
     shader->uniform1f(LLShaderMgr::WATER_FRESNEL_POWER, llclamp((F32)water_fresnel_power, 0.5f, 4.0f));
     shader->uniform1f(LLShaderMgr::WATER_SHORE_FADE_DISTANCE, llmax(1.0f, (F32)water_shore_fade_distance));
     shader->uniform1f(LLShaderMgr::WATER_REFLECTION_WARMTH, llclamp((F32)water_reflection_warmth, 0.5f, 2.0f));
+    shader->uniform1f(LLShaderMgr::WATER_COLOR_ABSORPTION_RATE, llclamp((F32)water_color_absorption_rate, 0.01f, 1.0f));
 
     static LLStaticHashedString s_exposure("exposure");
     static LLStaticHashedString tonemap_mix("tonemap_mix");
@@ -272,13 +347,9 @@ void DXDrawPoolWater::renderPostDeferred(LLDrawPoolWater& pool, S32 pass)
 
     LLGLDisable cullface(GL_CULL_FACE);
 
-    // S24 (2026-08-09, task #148): depth-test-state probe removed - it did
-    // its job (confirmed DepthEnable=true/LEQUAL/real DSV bound on every
-    // sampled frame, ruling out a state gap). Real root cause found in
-    // DXPipeline::renderGeomPostDeferred() (dxpipeline.cpp): the model
-    // matrix was never reset between pools, so water inherited whatever
-    // matrix the last-drawn alpha object left behind - see that function's
-    // comment.
+    // NOTE: the model matrix must be reset before this pool runs - see
+    // DXPipeline::renderGeomPostDeferred() - or water inherits whatever
+    // matrix the last-drawn alpha object left behind.
 
     // Only push the water planes once - see lldrawpoolwater.cpp's comment
     // (Geenz 2025-02-11) for why there's no separate void-water pass.
@@ -287,5 +358,5 @@ void DXDrawPoolWater::renderPostDeferred(LLDrawPoolWater& pool, S32 pass)
     // clean up
     gPipeline.unbindDeferredShader(*shader);
 
-    gDX.setColorMask(true, false);
+    gDX.setColorWriteMask(true, false);
 }

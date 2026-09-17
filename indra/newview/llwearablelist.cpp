@@ -112,7 +112,6 @@ void LLWearableList::processGetAssetReply( const char* filename, const LLAssetID
         return;
     }
 
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_AVATAR;
 
     bool isNewWearable = false;
     LLWearableArrivedData* data = (LLWearableArrivedData*) userdata;

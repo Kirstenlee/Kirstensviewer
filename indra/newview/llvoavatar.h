@@ -35,6 +35,11 @@
 
 #include <boost/signals2/trackable.hpp>
 
+#ifdef DX_RENDER
+struct ID3D11Query; // S24: opaque forward-decl, see mDXProfileQueries below - avoids pulling
+                     // <d3d11.h> into this widely-included header just for a pointer type.
+#endif
+
 #include "llavatarappearance.h"
 #include "llchat.h"
 #include "lldrawpoolalpha.h"
@@ -577,6 +582,25 @@ private:
 
     // profile handle
     U32 mGPUTimerQuery = 0;
+
+#ifdef DX_RENDER
+    // S24: D3D11 has no single "elapsed time" query like GL's GL_TIME_ELAPSED - a disjoint query
+    // (frequency + validity) brackets a pair of plain timestamp queries instead (timestamps only
+    // support End(), never Begin()). Mirrors LLHLSLShader's own mDXProfileQueries
+    // (llrender/llhlslshader.h/.cpp) exactly, but as this avatar's OWN instance rather than
+    // reusing gDebugProgram's shared one: this profile can stay pending across several frames
+    // (see readProfileQuery()'s retry loop), and gDebugProgram is also used for the separate,
+    // synchronous per-attachment profiling path (LLPipeline::profileAvatar()) - sharing one set
+    // of query objects between an async multi-frame profile and an unrelated synchronous one
+    // would corrupt whichever is still in flight.
+    struct DXAvatarProfileQueries
+    {
+        ID3D11Query* disjoint = nullptr;
+        ID3D11Query* timestampBegin = nullptr;
+        ID3D11Query* timestampEnd = nullptr;
+    };
+    DXAvatarProfileQueries mDXProfileQueries;
+#endif
 
     // profile results
 

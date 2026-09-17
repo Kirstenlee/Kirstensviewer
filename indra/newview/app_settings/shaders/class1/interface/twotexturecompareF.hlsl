@@ -34,10 +34,7 @@ uniform float dither_scale_t;
 
 #include "varying/twoTexCompareVarying.hlsli"
 
-// S24 (2026-08-02): see uiF.hlsl's comment - a bare Varying-struct PS input
-// has no SV_Position field, so its first member starts at register 0
-// while the VS's matching field (shifted by SV_Position's own real output
-// register) is at register 1 - confirmed via fxc.exe disassembly.
+// SV_Position required on bare-Varying PS inputs - see uiF.hlsl's comment.
 struct PSInput
 {
     float4 position : SV_Position;

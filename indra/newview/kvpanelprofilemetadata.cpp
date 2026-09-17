@@ -90,7 +90,47 @@ void KVPanelProfileMetadata::processProperties(void* data, EAvatarProcessorType 
 {
     if (APT_PROPERTIES == type || APT_PROPERTIES_LEGACY == type)
     {
-        const LLAvatarData* avatar_data = static_cast<const LLAvatarData*>(data);
+        // S24: crash fix (WER-confirmed access violation, std::list iteration on garbage/OOB stack
+        // memory) - this used to unconditionally reinterpret `data` as `LLAvatarData*` regardless of
+        // `type`, but APT_PROPERTIES_LEGACY replies (processAvatarLegacyPropertiesReply(),
+        // llavatarpropertiesprocessor.cpp) actually carry a stack-local LLAvatarLegacyData - a
+        // smaller, different struct that shares LLAvatarData's first 13 fields (agent_id..flags,
+        // same order) but has no hide_age/notes/group_list/picks_list at all. Reading those fields
+        // through a static_cast<const LLAvatarData*> of an actual LLAvatarLegacyData object reads
+        // past the end of that (smaller) object - garbage stack bytes, interpreted as a std::list's
+        // internal head-node pointer, crash on iteration. Legacy replies genuinely never carry
+        // groups/picks/notes/hide_age (see LLAvatarLegacyData's own comment) - building a
+        // well-defined local LLAvatarData with those left at their safe default-constructed (empty/
+        // false) values is the correct fix, not just a defensive guard.
+        LLAvatarData legacy_as_full;
+        const LLAvatarData* avatar_data;
+        if (APT_PROPERTIES_LEGACY == type)
+        {
+            const LLAvatarLegacyData* legacy = static_cast<const LLAvatarLegacyData*>(data);
+            if (!legacy)
+            {
+                return;
+            }
+            legacy_as_full.agent_id      = legacy->agent_id;
+            legacy_as_full.avatar_id     = legacy->avatar_id;
+            legacy_as_full.image_id      = legacy->image_id;
+            legacy_as_full.fl_image_id   = legacy->fl_image_id;
+            legacy_as_full.partner_id    = legacy->partner_id;
+            legacy_as_full.about_text    = legacy->about_text;
+            legacy_as_full.fl_about_text = legacy->fl_about_text;
+            legacy_as_full.born_on       = legacy->born_on;
+            legacy_as_full.profile_url   = legacy->profile_url;
+            legacy_as_full.caption_index = legacy->caption_index;
+            legacy_as_full.caption_text  = legacy->caption_text;
+            legacy_as_full.customer_type = legacy->customer_type;
+            legacy_as_full.flags         = legacy->flags;
+            avatar_data = &legacy_as_full;
+        }
+        else
+        {
+            avatar_data = static_cast<const LLAvatarData*>(data);
+        }
+
         if (!avatar_data || !mDataList)
         {
             return;

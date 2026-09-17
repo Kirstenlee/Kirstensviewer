@@ -24,20 +24,9 @@
 
 /*[EXTRA_CODE_HERE]*/
 
-// S24 (2026-08-09, task #172 fix): CTD on login - gHUDPBRAlphaProgram never
-// sets mFeatures.isDeferred (only gDeferredPBRAlphaProgram/its rigged
-// variant do, see llviewershadermgr.cpp), so deferredUtil.hlsl (which
-// supplies waterClip()'s real body, plus pbrBaseLight/pbrIbl/pbrPunctual)
-// is never attached to the HUD permutation. My first pass at this file
-// called waterClip() unconditionally, which compiled fine for the two
-// isDeferred=true variants but produced a hard D3DCompile failure ("function
-// waterClip missing implementation") for "HUD PBR Alpha Shader" specifically
-// - fatal at shader-load time during login, before any avatar/scene code
-// runs. pbralphaV.hlsl's own IS_HUD branch confirms this isn't a corner
-// case to paper over: it emits an entirely different, much simpler
-// VSOutput (no normal/tangent/metallic-roughness texcoord/vary_fragcoord
-// at all) for HUDs - matching pbropaqueF.hlsl's own real (already-working)
-// #ifndef IS_HUD / #else split, mirrored here.
+// S24: gHUDPBRAlphaProgram never sets mFeatures.isDeferred, so deferredUtil.hlsl
+// (waterClip/pbrBaseLight/pbrIbl/pbrPunctual) is never attached to the HUD
+// permutation - split into IS_HUD / non-HUD branches, matching pbropaqueF.hlsl.
 #ifndef IS_HUD
 
 // deferred PBR alpha implementation
@@ -79,21 +68,9 @@ uniform int sun_up_factor;
 uniform float3 sun_dir;
 uniform float3 moon_dir;
 #endif
-// S24 (task #226 follow-up, 2026-08-19): pbralphaF.glsl wraps this uniform
-// (and its discard check below) in #ifdef HAS_ALPHA_MASK - MASK-mode PBR
-// content only, per its own comment ("PBR alphaMode: MASK"). This HLSL copy
-// had it unconditional - gDeferredPBRAlphaProgram (the BLEND-mode shader,
-// used by any glTF material with alphaMode=BLEND, e.g. hair) never defines
-// HAS_ALPHA_MASK (its C++ construction hardcodes DIFFUSE_ALPHA_MODE_BLEND,
-// llviewershadermgr.cpp), so in GL this whole block compiles out entirely
-// for BLEND mode. Under DX_RENDER it stayed active with whatever minimum_alpha
-// happened to hold (C++ never had a reason to set it for a uniform GLSL
-// never reads in this mode) - silently discarding any pixel below that
-// threshold instead of letting it blend, hard-cutting exactly the soft,
-// feathered, low-alpha edges alpha-BLEND content depends on (hair-card
-// textures, etc.) into a hard rectangular silhouette. Root cause of
-// "alpha not blending at all, producing a mess" on glTF-material BLEND-mode
-// mesh (user-confirmed via screenshots, Z fight.PNG).
+// S24: minimum_alpha and its discard check are MASK-mode-only per pbralphaF.glsl
+// - must stay gated behind HAS_ALPHA_MASK, or BLEND-mode materials (alphaMode=
+// BLEND, e.g. hair) get their soft low-alpha edges hard-discarded.
 #ifdef HAS_ALPHA_MASK
 uniform float minimum_alpha; // PBR alphaMode: MASK, See: mAlphaCutoff, setAlphaCutoff()
 #endif
@@ -110,31 +87,15 @@ float4 applySkyAndWaterFog(float3 pos, float3 additive, float3 atten, float4 col
 void mirrorClip(float3 pos);
 void waterClip(float3 pos);
 void calcDiffuseSpecular(float3 baseColor, float metallic, inout float3 diffuseColor, inout float3 specularColor);
-// S24 (task #173): matches alphaF.hlsl's identical forward-declaration -
-// shadowUtil.hlsl supplies the real body (already attached here via
-// isDeferred=true, same as every other consumer of this function).
+// S24: body in shadowUtil.hlsl (attached via isDeferred=true).
 #ifdef HAS_SUN_SHADOW
 float sampleDirectionalShadow(float3 pos, float3 norm, float2 pos_screen);
 #endif
-// S24 (task #173): real reflection-probe IBL, matching softenLightF.hlsl's
-// PBR branch exactly.
-//
-// CORRECTION (2026-09-06, task #271): the claim below this comment used to
-// make - that tc's divide-by-z approximation is "more than sufficient"
-// because SSR "is deliberately not ported here" - was true only as long as
-// RenderScreenSpaceReflectionGlossThreshold's old 0.9 default structurally
-// excluded this material's glossiness (capped at 0.7) from ever reaching
-// tapScreenSpaceReflection() at all. Now that the threshold gate is gone,
-// SSR does run for this material, and the approximate tc (divide-by-.z,
-// since pbralphaV.hlsl's vary_fragcoord never carries a real .w to divide
-// by) sends its ray march from the wrong starting screen position - live-
-// confirmed as "zero SSR contribution reaches the surface" once the
-// threshold stopped hiding it. Fixed below: a separate, precisely-computed
-// screen UV (generateProjectedPosition(), screenSpaceReflUtil.hlsl - the
-// same proven-correct helper tapScreenSpaceReflection()'s own real callers
-// use, including its non-obvious deliberate Y-flip) is used for the probe/
-// SSR call specifically, leaving tc itself completely untouched for the
-// shadow lookup above, which was never broken and doesn't need touching.
+// S24: tc's divide-by-z approximation (pbralphaV.hlsl's vary_fragcoord has no
+// real .w) is fine for the shadow lookup but not for SSR, which needs a true
+// perspective-correct screen UV - generateProjectedPosition() (screenSpaceReflUtil.hlsl,
+// same helper tapScreenSpaceReflection()'s real callers use, incl. its Y-flip)
+// is used for the probe/SSR call instead, leaving tc for shadow only.
 float2 generateProjectedPosition(float3 pos);
 void sampleReflectionProbes(inout float3 ambenv, inout float3 glossenv,
     float2 tc, float3 pos, float3 norm, float glossiness, bool transparent, float3 amblit_linear);
@@ -143,14 +104,8 @@ void sampleReflectionProbes(inout float3 ambenv, inout float3 glossenv,
 // softenLightF.hlsl's own real, already-working PBR lighting path uses.
 // Reused here rather than re-deriving the BRDF math.
 float3 pbrBaseLight(float3 diffuseColor, float3 specularColor, float metallic, float3 v, float3 norm, float perceptualRoughness, float3 light_dir, float3 sunlit, float scol, float3 radiance, float3 irradiance, float3 colorEmissive, float ao, float3 additive, float3 atten);
-// S24 (2026-08-16, task #155/#157): real body already ported in
-// deferredUtil.hlsl (attached here via isDeferred=true) - pbralphaF.glsl's
-// LIGHT_LOOP(1..7) calling this was never carried over to this file at all,
-// unlike the legacy (non-PBR) class2/deferred/alphaF.hlsl, which already
-// calls the non-PBR calcPointLightOrSpotLight() successfully under
-// DX_RENDER, proving light_position[]/light_direction[]/etc. are populated
-// correctly for this draw pool. Any PBR-material rigged mesh (e.g. hair)
-// got zero contribution from local point/spot lights until this fix.
+// S24: body in deferredUtil.hlsl (isDeferred=true); ports pbralphaF.glsl's
+// LIGHT_LOOP(1..7) local point/spot light contribution.
 float3 pbrCalcPointLightOrSpotLight(float3 diffuseColor, float3 specularColor,
                     float perceptualRoughness,
                     float metallic,
@@ -164,14 +119,9 @@ float3 pbrCalcPointLightOrSpotLight(float3 diffuseColor, float3 specularColor,
 
 struct PSInput
 {
-    // CORRECTED (task #172): this struct's field order did not match
-    // pbralphaV.hlsl's VSOutput at all (vary_position/vary_fragcoord were
-    // swapped at TEXCOORD0/1, and vary_normal/vary_tangent/vary_sign were
-    // shifted by one slot at TEXCOORD6-8) - the real cause of the D3D11
-    // "Signatures between stages are incompatible" VS/PS linkage error
-    // spamming every frame once rigged PBR-alpha content started actually
-    // drawing (task #170). Now mirrors pbralphaV.hlsl's non-HUD VSOutput
-    // exactly, field for field.
+    // This struct's field order must exactly match pbralphaV.hlsl's
+    // VSOutput, field for field - a TEXCOORD-slot mismatch here causes a
+    // D3D11 "Signatures between stages are incompatible" VS/PS linkage error.
     float4 position : SV_Position;
     float3 vary_position : TEXCOORD0;
     float3 vary_fragcoord : TEXCOORD1;
@@ -193,20 +143,6 @@ struct PSInput
 // tangent-space normal reconstruction and pbrBaseLight()'s real IBL+punctual
 // lighting combine; ambient comes from real sky/windlight atmospherics
 // (calcAtmosphericVarsLinear), not a flat constant.
-// S24 (task #173, 2026-08-11): real shadow-map sampling (sampleDirectionalShadow(),
-// matching alphaF.hlsl's already-working pattern) and real reflection-probe
-// IBL (sampleReflectionProbes(), matching softenLightF.hlsl's PBR branch)
-// are both now wired in below. Both were previously believed to need a true
-// perspective-divide-by-w screen UV this forward shader's vary_fragcoord
-// can't provide (only xyz is stored, see pbralphaV.hlsl) - that assumption
-// was wrong for both: shadow lookup already tolerates the coarser
-// divide-by-z approximation, and the probe sample's tc parameter turned out
-// to be completely unused inside doProbeSample() (confirmed by reading
-// reflectionProbeF.hlsl directly - only SSR, not ported here, would need a
-// real one). The white/blown-out "shiny" window look this was blocking
-// (task #173) was near-fully-metallic materials with zero environment to
-// reflect (radiance hardcoded to 0) - confirmed via a diagnostic packing
-// metallic/roughness/scol into the output color before this fix landed.
 float4 main(PSInput IN) : SV_Target
 {
     mirrorClip(IN.vary_position);
@@ -216,18 +152,11 @@ float4 main(PSInput IN) : SV_Target
     basecolor.rgb = srgb_to_linear(basecolor.rgb);
     basecolor *= IN.vertex_color;
 
-    // S24 (task #226 follow-up): see minimum_alpha's declaration comment
-    // above - this discard is MASK-mode-only in the real GLSL, unconditional
-    // here was the bug.
 #ifdef HAS_ALPHA_MASK
     if (basecolor.a < minimum_alpha)
         discard;
 #endif
 
-    // S24 (2026-08-09, task #173): diagnostic bisection (return basecolor;)
-    // confirmed texture sampling/binding is correct - grey/flat/no-shine
-    // was the raw unlit texture, exactly as expected with lighting skipped.
-    // Real lighting restored below.
     float3 vNt = bumpMap.Sample(bumpMapSampler, IN.normal_texcoord.xy).xyz * 2.0 - 1.0;
     float sign = IN.vary_sign;
     float3 vN = normalize(IN.vary_normal);
@@ -235,34 +164,18 @@ float4 main(PSInput IN) : SV_Target
     float3 vB = sign * cross(vN, vT);
     float3 norm = normalize(vNt.x * vT + vNt.y * vB + vNt.z * vN);
 
-    // S24 (2026-08-16, task #155/#157): pbralphaF.glsl:156 flips the normal
-    // for back-facing polygons (`norm *= gl_FrontFacing ? 1.0 : -1.0;`) -
-    // absent entirely from this file until now. Hair and similar PBR
-    // attachments are routinely authored as double-sided planar/card
-    // geometry; without this, back-facing triangles lit with an inward-
-    // pointing normal (dark/wrong-shaded from the "inside"). Same
-    // SV_IsFrontFace idiom already proven working in pbrterrainF.hlsl.
+    // S24: flips normal for back-facing polys (pbralphaF.glsl's gl_FrontFacing
+    // equivalent) - hair/card geometry is routinely double-sided.
     norm *= IN.isFrontFace ? 1.0 : -1.0;
 
     // ORM texture: r=occlusion, g=roughness, b=metallic (standard glTF
     // packing, matches pbropaqueF.hlsl's identical convention).
     float3 orm = specularMap.Sample(specularMapSampler, IN.metallic_roughness_texcoord.xy).rgb;
     float ao = orm.r;
-    // S24 (2026-08-09, task #173): floored well above pbrPunctual's own
-    // 8/255 minimum. Originally added because this v1 forward-alpha path
-    // had no reflection-probe IBL - a near-mirror surface with nothing to
-    // reflect produced a genuine unbounded highlight on large flat surfaces
-    // like windows whenever the sun's reflection direction lined up with
-    // the view (confirmed via user report, "windows render solid white",
-    // and a follow-up diagnostic that traced it to exactly this: near-fully
-    // metallic "shiny" materials with radiance hardcoded to 0).
-    // S24 (2026-08-11): both real shadow attenuation (scol) and real
-    // reflection-probe IBL (radiance) are now wired in below, which
-    // together address the actual root cause this floor was working around
-    // - kept as an extra margin rather than removed outright, since
-    // shadow-map visual correctness itself is still a separate, ongoing
-    // investigation (task #186). Revisit removing/relaxing this once both
-    // are confirmed solid by the user's next build.
+    // S24: floored well above pbrPunctual's own 8/255 minimum - avoids an
+    // unbounded highlight on near-mirror surfaces (e.g. windows) when the
+    // sun's reflection direction lines up with the view; kept as margin
+    // even with real IBL/shadow wired in below.
     float perceptualRoughness = max(orm.g * roughnessFactor, 0.3);
     float metallic = orm.b * metallicFactor;
 
@@ -281,26 +194,13 @@ float4 main(PSInput IN) : SV_Target
     float3 amblit;
     float3 atten;
     float3 additive;
-    // S24 (2026-08-11, task #173): REAL ROOT CAUSE of the white/black
-    // diagnostic contradiction (bright output despite a black pbrBaseLight()
-    // input) - this call had additive/atten swapped relative to the actual
-    // definition (atmosphericsFuncs.hlsl:196, out order is
-    // ..., additive, atten), matching alphaF.hlsl's already-correct call
-    // exactly wrong. atmosFragLighting() (called via applySkyAndWaterFog()
-    // below) treats its 2nd arg as an HDR additive sky-light term (gamma-
-    // expanded, doubled, HDR-scaled) and its 3rd as a plain 0-1
-    // attenuation multiplier - with the swap, the real attenuation value
-    // (normally a modest fraction) was being fed through the HDR-additive
-    // path instead, producing a bright result completely independent of
-    // the surface's actual lit color. Fixed to match the real signature.
+    // S24: out-param order is (..., additive, atten) - atmosphericsFuncs.hlsl:196.
+    // Don't swap: applySkyAndWaterFog()'s atmosFragLighting() treats additive
+    // as an HDR additive sky-light term and atten as a plain 0-1 multiplier.
     calcAtmosphericVarsLinear(pos, norm, light_dir, sunlit, amblit, additive, atten);
 
-    // S24 (task #173): tc feeds the shadow lookup below - divide-by-z
-    // screen UV, same as alphaF.hlsl's already-working shadow pattern (see
-    // pbralphaV.hlsl's near_clip bias). Sufficient for the shadow map, which
-    // tolerates the approximation - see the forward-declaration comment
-    // above for why this is NOT reused for the reflection-probe/SSR call
-    // below anymore.
+    // S24: divide-by-z screen UV, adequate for the shadow lookup only - not
+    // reused for the reflection-probe/SSR call below (see generateProjectedPosition()).
     float2 tc = IN.vary_fragcoord.xy / IN.vary_fragcoord.z * 0.5 + 0.5;
 
     float scol = 1.0;
@@ -308,30 +208,19 @@ float4 main(PSInput IN) : SV_Target
     scol = sampleDirectionalShadow(pos, norm, tc);
 #endif
 
-    // S24 (2026-08-11, task #173): real reflection-probe IBL - diagnostic
-    // (packed metallic/roughness/scol into the output color) confirmed
-    // these are near-fully-metallic ("shiny") materials; with radiance
-    // hardcoded to 0 they had literally no environment to reflect, which is
-    // what produced the blown-out/white look, independent of shadow
-    // attenuation. irradiance is seeded with the atmospherics ambient
-    // (amblit) and then overwritten in place by sampleReflectionProbes()
-    // with a real probe-sampled value, exactly mirroring softenLightF.hlsl's
-    // PBR branch.
+    // S24: irradiance seeded with amblit, then overwritten in place by
+    // sampleReflectionProbes() - mirrors softenLightF.hlsl's PBR branch.
     float3 irradiance = amblit;
     float3 radiance = float3(0, 0, 0);
     float gloss = 1.0 - perceptualRoughness;
-    // S24 (2026-09-06, task #271): real perspective-correct screen UV,
-    // separate from tc above - see the forward-declaration comment near
-    // sampleReflectionProbes()'s own declaration for why.
+    // S24: perspective-correct screen UV, separate from tc above (needed for SSR).
     float2 probe_tc = generateProjectedPosition(pos);
     sampleReflectionProbes(irradiance, radiance, probe_tc, pos, norm, gloss, false, amblit);
 
     float3 color = pbrBaseLight(diffuseColor, specularColor, metallic, v, norm, perceptualRoughness, light_dir, sunlit, scol, radiance, irradiance, colorEmissive, ao, additive, atten);
 
-    // S24 (2026-08-16, task #155/#157): local point/spot light contribution,
-    // ported from pbralphaF.glsl's LIGHT_LOOP(1..7) macro - see the
-    // pbrCalcPointLightOrSpotLight forward-declaration comment above for why
-    // this was missing entirely.
+    // S24: local point/spot light contribution, ported from pbralphaF.glsl's
+    // LIGHT_LOOP(1..7) macro.
     float3 light = float3(0, 0, 0);
     light += pbrCalcPointLightOrSpotLight(diffuseColor, specularColor, perceptualRoughness, metallic, norm, pos, v, light_position[1].xyz, light_direction[1].xyz, light_diffuse[1].rgb, light_deferred_attenuation[1].x, light_deferred_attenuation[1].y, light_attenuation[1].z, light_attenuation[1].w);
     light += pbrCalcPointLightOrSpotLight(diffuseColor, specularColor, perceptualRoughness, metallic, norm, pos, v, light_position[2].xyz, light_direction[2].xyz, light_diffuse[2].rgb, light_deferred_attenuation[2].x, light_deferred_attenuation[2].y, light_attenuation[2].z, light_attenuation[2].w);
@@ -361,8 +250,7 @@ Texture2D emissiveMap : register(t1);
 SamplerState emissiveMapSampler : register(s1);
 
 uniform float3 emissiveColor;
-// S24 (task #226 follow-up): see the non-HUD branch's matching comment -
-// MASK-mode-only in the real GLSL, was unconditional here.
+// S24: MASK-mode-only, see the non-HUD branch's matching declaration.
 #ifdef HAS_ALPHA_MASK
 uniform float minimum_alpha; // PBR alphaMode: MASK, See: mAlphaCutoff, setAlphaCutoff()
 #endif

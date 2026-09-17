@@ -33,6 +33,7 @@
 #include "llfloaterreg.h"
 #include "llgl.h"
 #include "llrender.h"
+#include "llui.h"
 #include "lluicolor.h"
 #include "v4color.h"
 #include "v2math.h"
@@ -631,7 +632,6 @@ void LLViewerParcelOverlay::setDirty()
 
 void LLViewerParcelOverlay::updateGL()
 {
-    LL_PROFILE_ZONE_SCOPED;
     updateOverlayTexture();
 }
 
@@ -810,7 +810,9 @@ void LLViewerParcelOverlay::renderPropertyLinesOnMinimap(F32 scale_pixels_per_me
     const S32 GRIDS_PER_EDGE   = mParcelGridsPerEdge;
 
     gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
-    glLineWidth(1.0f);
+    // S24: raw glLineWidth() was unguarded here - found in a tree-wide stray-GL sweep (task #311).
+    // LLUI::setLineWidth() is the same no-op-under-DX_RENDER replacement used tree-wide.
+    LLUI::setLineWidth(1.0f);
     gDX.color4fv(parcel_outline_color);
     for (S32 i = 0; i <= GRIDS_PER_EDGE; i++)
     {

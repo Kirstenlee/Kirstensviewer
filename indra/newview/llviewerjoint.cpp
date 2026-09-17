@@ -69,7 +69,6 @@ LLViewerJoint::~LLViewerJoint()
 //--------------------------------------------------------------------
 U32 LLViewerJoint::render( F32 pixelArea, bool first_pass, bool is_dummy )
 {
-    stop_glerror();
 
     U32 triangle_count = 0;
 
@@ -105,12 +104,12 @@ U32 LLViewerJoint::render( F32 pixelArea, bool first_pass, bool is_dummy )
                     triangle_count += drawShape( pixelArea, first_pass, is_dummy );
                 }
                 // second pass writes to z buffer only
-                gDX.setColorMask(false, false);
+                gDX.setColorWriteMask(false, false);
                 {
                     triangle_count += drawShape( pixelArea, false, is_dummy  );
                 }
                 // third past respects z buffer and writes color
-                gDX.setColorMask(true, false);
+                gDX.setColorWriteMask(true, false);
                 {
                     LLGLDepthTest gls_depth(GL_TRUE, GL_FALSE);
                     triangle_count += drawShape( pixelArea, false, is_dummy  );
@@ -119,23 +118,18 @@ U32 LLViewerJoint::render( F32 pixelArea, bool first_pass, bool is_dummy )
             else
             {
                 // Render Inside (no Z buffer write)
-#ifndef DX_RENDER
-                glCullFace(GL_FRONT);
-#endif
+                // S24: gDX.cullFace() is a cross-backend replacement for raw glCullFace() - see
+                // llrender.h/.cpp and DXStateCache::getRasterizerState()'s cull_front parameter.
+                // Previously guarded #ifndef DX_RENDER (silently culling back faces regardless
+                // under DX_RENDER, losing this pass's front-face cull - a real visual gap on
+                // hair/skirt geometry, not a crash); no guard needed now, call unconditionally.
+                gDX.cullFace(GL_FRONT);
                 {
                     LLGLDepthTest gls_depth(GL_TRUE, GL_FALSE);
                     triangle_count += drawShape( pixelArea, first_pass, is_dummy  );
                 }
                 // Render Outside (write to the Z buffer)
-#ifndef DX_RENDER
-                // S24 (DX_RENDER): DXStateCache doesn't track cull direction
-                // (front vs. back), only enable/disable - matches the
-                // existing documented gap (see project memory). Always
-                // culls back faces under DX_RENDER; the "render inside"
-                // pass above loses its front-face-cull, a visual gap on
-                // hair/skirt geometry, not a crash.
-                glCullFace(GL_BACK);
-#endif
+                gDX.cullFace(GL_BACK);
                 {
                     triangle_count += drawShape( pixelArea, false, is_dummy  );
                 }

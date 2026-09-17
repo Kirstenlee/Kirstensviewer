@@ -22,28 +22,17 @@
  * SOFTWARE.
  */
 
-// S24 (2026-09-10): jelly-doll "ghost" rendering. Replaces the old opaque
-// flat-grey impostor look with a translucent, rim-glowing silhouette -
-// same cached impostor texture, same zero extra geometry/texture cost,
-// drawn through LLDrawPoolAvatar's existing post-deferred avatar-alpha
-// pass (real alpha blend, composited against the already-lit scene -
-// see LLDrawPoolAvatar::renderJellyDollGhosts()) instead of the opaque
-// G-buffer impostor pass.
+// Jelly-doll "ghost" impostor: drawn through LLDrawPoolAvatar's post-deferred
+// avatar-alpha pass (real alpha blend against the already-lit scene - see
+// LLDrawPoolAvatar::renderJellyDollGhosts()), not the opaque G-buffer
+// impostor pass.
 //
-// Deliberately does NOT sample the impostor's baked RGB - only its ALPHA
-// channel is used, as a silhouette shape mask (the bake's color-stomp pass,
-// LLPipeline::generateImpostor(), still writes a real per-pixel alpha built
-// from a depth test against the avatar's true silhouette - see that
-// function's own comment). This shader supplies its own color entirely
-// from uniforms instead, so the old baked RGB value is irrelevant here.
+// Only the impostor's ALPHA channel is sampled, as a silhouette mask - its
+// baked RGB is unused; color comes entirely from the uniforms below.
 //
-// Edge/rim glow: a billboarded impostor quad has no real 3D surface normal
-// to run an actual fresnel (dot(N,V)) term against - the standard, cheap
-// substitute for a flat sprite/billboard is to use the SCREEN-SPACE
-// GRADIENT of the alpha mask itself: deep inside the silhouette the mask is
-// flat (~1, zero gradient); right at the silhouette's edge it transitions
-// sharply (large gradient). ddx()/ddy() give that gradient for free, no
-// extra texture samples needed.
+// Rim glow: a billboarded impostor quad has no real surface normal for a
+// fresnel term, so the screen-space gradient of the alpha mask (ddx/ddy)
+// stands in for it - flat inside the silhouette, sharp at its edge.
 
 uniform float minimum_alpha;
 uniform float3 jelly_base_color;
@@ -70,17 +59,11 @@ float4 main(PSInput IN) : SV_Target
         discard;
     }
 
-    // S24 (2026-09-10): rim MUST be clamped to [0,1] before it drives either
-    // output - the original version saturated the raw gradient and then
-    // multiplied by jelly_rim_intensity *after*, so rim could exceed 1.0
-    // (e.g. 1.2 at the default intensity). That pushed rgb past white
-    // (clipping to a hard pure-white outline) and alpha to fully opaque
-    // across the whole gradient band (not just a thin edge, since a
-    // filtered/mip-mapped impostor alpha edge is several texels wide, not
-    // a single pixel) - live-tested result was a solid black cutout with a
-    // thick jagged white sticker-outline, not the intended gentle
-    // translucent glow. smoothstep() softens the [0,1] response into a
-    // gradual S-curve instead of a hard threshold, killing the jaggedness.
+    // rim must be clamped to [0,1] BEFORE jelly_rim_intensity multiplies it,
+    // not after - clamping after intensity lets rim exceed 1.0, pushing rgb
+    // to solid white and alpha to fully opaque across the whole (multi-texel,
+    // filtered) edge band instead of a soft glow. smoothstep() avoids a hard
+    // threshold, which would look jagged.
     float grad = length(float2(ddx(silhouette), ddy(silhouette)));
     float rim = smoothstep(0.0, 1.0, saturate(grad * jelly_rim_width));
 

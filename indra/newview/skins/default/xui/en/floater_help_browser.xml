@@ -83,17 +83,21 @@ This guide provides quick reference for advanced settings, defaults, and tuning 
 
 CPU &amp; Memory      → Core count, thread pool, RAM/VRAM allocation
 RAM Cache          → KVRAM texture buffer: budget, thresholds, eviction timing
-Rendering          → LOD factors, draw distance, performance tuning  
-Rendering Adv      → Pool skip optimization, advanced pipeline controls
+Rendering Core     → LOD factors, draw distance, avatar complexity/feathering
+Rendering Adv      → SSAO, bump/glow, pool skip, D3D11 debug layer, shader cache
 SSR                → Screen-space reflections (global, all surfaces)
-Water              → Water appearance: metallic, roughness, color
+Water              → Water appearance: metallic, roughness, color, presets
+Night Sky          → Star style, glow, density, nebulas, shooting stars
+Sky                → Extra 2.5D cirrus/cumulus cloud decks over the active preset
 Shadows            → Shadow quality, bias, throttling, resolution
-Reflections        → Reflection probes: intensity, saturation, blur
 Lighting           → Ambient, sun/moon controls
+Textures           → Discard level, max resolution, fetch concurrency, HUD limits
+Network            → Bandwidth throttle, ACK timing, plugin threading/CPU limit
 Audio              → Streaming engine, metadata, FMOD/OpenAL
-Movement           → Smooth keyboard movement with acceleration curves
 Experimental       → Selection beam styling and custom colors
+Reflections        → Reflection probes: intensity, saturation, blur
 Resets             → Cache purging, settings reset, factory reset
+Movement           → Smooth keyboard movement with acceleration curves
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -110,7 +114,7 @@ and their defaults. Then explore specific tabs for detailed controls.
 • Changes can impact stability and performance
 • TPV Policy compliant - all settings reset to Linden Lab defaults
 • Reflections/Water enhancements are opt-in and default to standard values
-• Movement smoothing is disabled by default
+• Ground movement smoothing is disabled by default; flight smoothing is enabled by default
       </text_editor>
     </panel>
 
@@ -152,12 +156,12 @@ EmulateCoreCount
   Notes: Override CPU core count detection. 0 = auto, 1-128 = manual override
 
 KVdefault_cores
-  Default: 8
+  Default: 6
   Range: 1-128
   Notes: Default cores allocated for texture decode operations
 
 KVmin_cores
-  Default: 4
+  Default: 2
   Range: 1-128
   Notes: Minimum cores for texture decode (prevents under-allocation)
 
@@ -166,14 +170,21 @@ KVmax_cores
   Range: 1-128
   Notes: Maximum cores for texture decode (prevents over-allocation)
 
-RenderCPUBasis
-  Default: 3000 MHz
-  Range: 1000-6000 MHz
-  Notes: Reference CPU frequency for GPU bias calculation
+RenderProcessQoS ("CPU Process QoS" slider)
+  Default: 1 (Normal)
+  Range: 0-2 (0=Eco, 1=Normal, 2=High)
+  Notes: Real Windows process/thread scheduling tier, applied at launch. Eco enables
+         EcoQoS power throttling (background-friendly); High disables throttling and
+         boosts main-thread/process priority for best frame timing.
 
 RunMultipleThreads
   Default: true
   Notes: Keep background threads active during render
+
+RenderCPUBasis (console/settings.xml only - not exposed as a KVTweaks slider)
+  Default: 3000 MHz
+  Notes: Reference CPU frequency the GPU benchmark biases its classification against,
+         so a high-end GPU isn't over-classified on a weak CPU
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -189,17 +200,18 @@ RenderMaxVRAMBudget
   Range: 0-32768 MB
   Notes: Maximum VRAM budget. 0 = automatic detection and management
 
-RenderVRAMAllocationIntervalSeconds
-  Default: 0.5
-  Notes: How often the deterministic VRAM budget allocator recomputes which textures need a lower discard level to stay under budget.
+RenderVRAMSoftPressureFraction
+  Default: 0.8 (80%)
+  Range: 0.5-1.0
+  Notes: VRAM usage fraction at which the deterministic budget allocator starts
+         lowering texture discard levels to stay under budget
 
 RenderMinFreeMainMemoryThreshold
   Default: 512 MB
-  Range: 128-4096 MB
-  Notes: Minimum free RAM threshold before viewer reduces memory usage
+  Notes: Minimum free RAM threshold before viewer reduces memory usage.
 
 NonvisibleObjectsInMemoryTime
-  Default: 300 frames
+  Default: 64 frames
   Range: 0-1024 (0=no limit)
   Notes: How many frames to keep non-visible objects in memory
 
@@ -213,34 +225,69 @@ MainWorkTime
 🎨 RENDERING CORE (KVTweaks → Rendering Core)
 
 RenderVolumeLODFactor
-  Default: 2.0
-  Range: 0.5-4.0
+  Default: 4.125
+  Range: 0.0-8.0
   Notes: Mesh detail multiplier. Higher = more detail, more GPU load
 
 RenderAvatarLODFactor
-  Default: 1.0
-  Range: 0.5-2.0
+  Default: 0.5
+  Range: 0.0-4.0
   Notes: Avatar mesh detail multiplier
 
 RenderTerrainLODFactor
-  Default: 2.0
-  Range: 0.5-4.0
+  Default: 1.0
+  Range: 1.0-4.0
   Notes: Terrain mesh resolution multiplier
 
 RenderTreeLODFactor
-  Default: 1.0
-  Range: 0.5-2.0
+  Default: 0.5
+  Range: 0.0-4.0
   Notes: Legacy Linden tree detail
 
 RenderFarClip
-  Default: 128 meters
+  Default: 256 meters
   Range: 64-1024 meters
   Notes: Draw distance. Higher = more objects rendered, more load
 
-RenderGeometryEmptyPoolSkip
-  Default: 1 (enabled)
-  Notes: S24 CPU optimization - skips rendering empty geometry pools
-  Location: KVTweaks → Rendering Adv
+RenderAutoMuteSurfaceAreaLimit
+  Default: 1000.0 m²
+  Notes: Auto-mute avatars whose attachments exceed this surface area (0=off)
+
+AvatarFeathering
+  Default: 16.0
+  Range: 0.0-8.0 (KVTweaks slider - note the shipped default exceeds the slider's own max)
+  Notes: Softens avatar LOD transitions - lower = softer
+
+RenderCompressTextures
+  Default: false (Experimental, opt-in)
+  Notes: Real-time BC7 GPU texture compression (background, minimal frame-time impact)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🖼️ TEXTURES (KVTweaks → Textures)
+
+TextureDiscardLevel
+  Default: 0 (full quality)
+  Range: 0-5
+  Notes: Force lower-resolution textures. Higher = more VRAM saved, less detail
+
+RenderMaxTextureResolution
+  Default: 2048 px
+  Range: 512-4096 px
+  Notes: Maximum allowed texture resolution per dimension
+
+TextureFetchConcurrency
+  Default: 0 (auto - scales to 16)
+  Range: 0-64
+  Notes: S24 raised the manual cap from 16→64 for modern connections
+
+TextureNewByteRange
+  Default: true
+  Notes: HTTP byte-range requests for progressive texture loading
+
+RenderHUDTexturesWarning / RenderHUDOversizedTexturesWarning / RenderHUDTexturesMemoryWarning
+  Defaults: 200 textures / 6 oversized / ~30.5 MB (32,000,000 bytes)
+  Notes: Warning thresholds only - HUD still renders past them, just logs a warning
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -251,32 +298,125 @@ Water Preset System
   Features: Save/Load/Delete custom water shader profiles
   Notes: Complete S24 water control system with named presets
 
-WaterMetallic
+RenderWaterMetallic
   Default: 1.0 (fully metallic mirror)
-  Range: 0.0-1.0
-  Notes: S24 runtime control - LL hardcoded at 1.0, now fully adjustable
+  Range: 0.35-1.0 (below 0.35 causes whiteout)
+  Notes: S24 runtime control - LL hardcodes this at 1.0, now fully adjustable
 
-WaterRoughness
+RenderWaterRoughnessOverride
   Default: 0.0 (use environment blur)
+  Range: 0.0-0.60 (above 0.60 causes whiteout)
+  Notes: 0.0 = LL behavior, 0.01+ = manual override for custom reflections
+
+RenderWaterReflectionIntensity / RenderWaterSpecularIntensity
+  Default: 1.0 / 1.0
+  Range: 0.0-3.0 / 0.0-5.0
+  Notes: Global reflection strength, and sun/moon specular sparkle intensity
+
+RenderWaterColorTintR/G/B/A
+  Default: 1.0 / 1.0 / 1.0 / 1.0 (neutral, no tint)
+  Range: 0.0-2.0 (RGB), 0.0-1.0 (A = tint strength)
+  Notes: A is the master strength - 0.0 disables the tint entirely regardless of RGB
+
+RenderWaterFresnelPower
+  Default: 2.0
+  Range: 0.5-4.0
+  Notes: LL hardcodes this at 2.0. Lower=soft linear edge, higher=sharp dramatic edge
+
+RenderWaterWaveSpeed
+  Default: 1.0
+  Range: 0.0-3.0 (0.0 freezes animation)
+  Notes: Wave animation playback speed
+
+RenderWaterShoreFadeDistance
+  Default: 60.0 m
+  Range: 10.0-120.0 m
+  Notes: LL hardcodes this at 60. Lower=softer beach, higher=sharper rocky coast
+
+RenderWaterUnderwaterFogMult
+  Default: 1.0
+  Range: 0.1-5.0
+  Notes: Underwater-only visibility multiplier, doesn't affect above-water fog
+
+RenderWaterReflectionWarmth
+  Default: 1.0
+  Range: 0.5-2.0
+  Notes: Artistic color grading - below 1.0 cools toward moonlight, above warms toward golden hour
+
+RenderWaterColorAbsorptionRate
+  Default: 0.15 (per meter)
+  Range: 0.01-1.0
+  Notes: How fast the water tint ramps in with depth (Beer-Lambert style). Lower=clearer shallow water with a long gradient to full tint, higher=tint appears almost immediately at the shore
+
+RenderWaterWindInfluence
+  Default: 0.0 (off)
   Range: 0.0-1.0
-  Notes: 0.0 = LL behavior, 0.01-1.0 = manual override for custom reflections
+  Notes: Blends live simulator wind (the same system used for sailing - Develop&gt;Wind Vectors to visualize it) into water wave direction and animation speed. 0.0=ignore wind, use only the EEP water preset's authored waves. 1.0=fully follow live wind
 
-Water Wave Direction X/Y
-  Default: Environment-controlled
-  Notes: Wave direction vectors - adjustable in real-time
+RenderWaterWindMagnitudeCap
+  Default: 15.0
+  Range: 0.0-50.0
+  Notes: Ceiling on the live wind vector's own strength before it affects water - limits how much a storm/gust can push wave speed/direction regardless of how extreme the simulator's actual wind gets. Only matters when RenderWaterWindInfluence &gt; 0. 0.0=always treat wind as calm
 
-Water Wave Scale
-  Default: Environment-controlled
-  Notes: Wave size and detail control
+RenderUIHueShiftFloaters / Menus / Controls / Text / Inventory / Map / Script / Misc
+  Default: 0.0 (degrees) each
+  Range: -180.0 to 180.0
+  Notes: Rotates each UI color category's hue independently (KVTweaks "UI Hue" tab). Floaters=window chrome/panels, Menus=menu bar/pie menu/toolbar, Controls=buttons/sliders/scrollbars, Text=chat/nametags/notifications/tooltips, Inventory=inventory/filters/outfits, Map=minimap/beacons/pathfinding, Script=script editor/syntax highlighting, Misc=everything else (login screen included). 0=skin default; pure white/gray/black elements are unaffected since hue has no meaning at zero saturation
 
-Water Normal Map Strength
-  Default: Environment-controlled
-  Range: 0.0-2.0+
-  Notes: Bump map intensity for surface detail
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Fresnel Scale &amp; Offset
-  Default: Preset-dependent
-  Notes: Water transparency vs reflection balance at viewing angles
+🌌 NIGHT SKY (KVTweaks → Night Sky - S24 Exclusive System)
+
+RenderSkyStyle
+  Default: 0 (Default)
+  Options: 0=Default, 1=Real Constellations, 2=Starry Night (Van Gogh)
+  Notes: Requires a viewer restart - star placement is baked once at startup
+
+RenderStarGlow
+  Default: 1.0
+  Range: 0.0-3.0
+  Notes: 0-1 scales brightness; above 1.0 adds a soft colored haze halo instead of blowing out to white
+
+RenderStarDensity
+  Default: 1.0
+  Range: 0.0-1.0
+  Notes: Fraction of the star field shown - pure visibility cull, no performance cost
+
+RenderStarDustIntensity / RenderNebulaIntensity
+  Default: 1.0 / 1.0
+  Range: 0.0-2.0
+  Notes: Milky-Way-style dust band and soft colored nebula patch strength
+
+RenderShootingStars / RenderShootingStarFrequency
+  Default: true / 4.0 per minute
+  Range (frequency): 0.0-20.0
+  Notes: 0=effectively off, 20=meteor shower
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+☁️ SKY / CLOUD LAYERS (KVTweaks → Sky - S24 2.5D Depth System)
+
+RenderCloudLayers
+  Default: true
+  Notes: Extra cirrus/cumulus decks layered on top of the active WindLight preset's own clouds - complementary, not a replacement
+
+RenderCloudLayerOpacity
+  Default: 1.0
+  Range: 0.0-2.0
+  Notes: Opacity multiplier for the extra decks
+
+RenderCloudLayerHeightSkew
+  Default: 0.3
+  Range: 0.0-1.0
+  Notes: Visual skew trick to make cirrus read higher / cumulus read lower than the base layer - not true altitude
+
+RenderCloudCirrusScale / RenderCloudCumulusScale
+  Default: 0.55 / 1.7
+  Notes: Cell-size ratios relative to the active preset's own cloud scale
+
+RenderCloudCirrusScrollMult / RenderCloudCumulusScrollMult
+  Default: 1.6 / 0.6
+  Notes: Wind-scroll speed multipliers relative to the base cloud layer's own rate
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -295,12 +435,12 @@ KVRAMCacheRAMBudgetMB
 
 KVRAMCacheSoftThreshold
   Default: 0.75 (75%)
-  Range: 0.0-1.0
+  Range: 0.5-1.0
   Notes: Begin gentle RAM-to-Disk eviction at this buffer usage level. Passive cleanup.
 
 KVRAMCacheHardThreshold
   Default: 0.90 (90%)
-  Range: 0.0-1.0
+  Range: 0.7-1.0
   Notes: Aggressive RAM-to-Disk eviction at this usage (emergency mode). Prevents overflow.
 
 KVRAMCacheRetentionTimeSec (renamed from KVRAMCacheGracePeriodSec)
@@ -323,69 +463,125 @@ KVRAMCacheDebugLogging
 
 RenderShadowResolutionScale
   Default: 3.0
-  Notes: S24 uses advanced cascade system - higher than standard LL values
+  Range: 0.25-4.0
+  Notes: S24 uses an advanced cascade system - higher than standard LL values
 
-Shadow Bias Settings
-  Location: KVTweaks → Shadows tab
-  Notes: Multiple bias controls (spot, deferred, terrain) - see Shadows tab for details
+RenderShadowBias / RenderShadowOffset
+  Default: -0.002 / 0.01
+  Range: -0.5 to 0.5 (both)
+  Notes: Main directional-light shadow depth bias/offset - reduces acne (too low) or
+         peter-panning (too high). Separate Spot Shadow and Tree Shadow bias/offset
+         controls also exist further down the Shadows tab.
 
-ShadowThrottleEnabled
+RenderShadowThrottleEnabled
   Default: true
-  Notes: LL default - reduces shadow updates when FPS drops
+  Notes: S24 dynamic cascade throttling - distant cascades update less often while the
+         camera is still, for free performance with no visible quality loss
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 ✨ REFLECTIONS (KVTweaks → Reflections)
 
-Enable Reflection Probes
-  Location: Preferences → Graphics → Advanced
-  Notes: Must be enabled for KVTweaks reflection controls to function
+Enable Reflection Probes (RenderReflectionProbesEnabled)
+  Default: true
+  Notes: Master toggle, right here in the Reflections tab - requires a shader rebuild
+         (RESETS → Purge Shader Cache → Restart) to take effect
 
-Probe Intensity
-  Default: 1.0
-  Range: 0.0-2.0+
-  Notes: S24 runtime control - reflection strength multiplier
+Reflection Intensity / Saturation / Contrast
+  Default: 1.0 / 1.0 / 1.0
+  Range: 0.0-10.0 / 0.0-5.0 / 0.0-5.0
+  Notes: RenderReflectionProbeIntensity/Saturation/Contrast - brightness, color, and
+         punch of what the probes capture
 
-Probe Blur LOD Bias
+Reflection Blur (RenderReflectionProbeBlurLODBias)
   Default: 0.0
-  Notes: Adjusts reflection blur/sharpness
+  Range: -10.0 to 10.0
+  Notes: Negative = sharper, positive = softer
 
-Ambient Multiplier
-  Default: 1.0
-  Range: 0.0-2.0+
-  Notes: S24 runtime control - ambient probe contribution
+Ambient Contribution (RenderReflectionProbeAmbientMultiplier)
+  Default: 0.2
+  Range: 0.0-10.0
+  Notes: Kept low by design - local lights are additive on top of ambient, so a low
+         floor here lets local light actually read instead of being washed out
+
+Equalize Faces / Opacity (RenderReflectionProbeEqualize / RenderReflectionProbeOpacity)
+  Default: 0.0 / 1.0
+  Range: 0.0-1.0 (both)
+  Notes: Equalize blends toward a fully-averaged reflection across all 6 probe faces
+         (0=full detail, 1=fully equalized); Opacity is probe visibility (0=transparent)
+
+  ⚠ If any of these tweaks appear to do nothing: RESETS → Purge Shader Cache → Restart.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 🎮 MOVEMENT (KVTweaks → Movement)
 
-SmoothMovementEnable
+SmoothKeyboardMovement (ground walking/running)
   Default: Disabled (false)
   Notes: S24 feature - off by default, purely aesthetic enhancement
 
-AccelerationTime
-  Default: 0.2 seconds
-  Notes: Time to reach full speed
+SmoothMovementAccelTime / SmoothMovementDecelTime
+  Default: 0.20s / 0.15s
+  Range: 0.05-1.0s (both)
+  Notes: Time to reach full speed / time to stop, for ground movement
 
-DecelerationTime
-  Default: 0.15 seconds
-  Notes: Time to stop from full speed
+SmoothFlightMovement (flying)
+  Default: Enabled (true)
+  Notes: Separate system from ground smoothing - on by default, unlike it
+
+SmoothFlightAccelTime / SmoothFlightDecelTime
+  Default: 0.35s / 0.40s
+  Range: 0.05-1.0s (both)
+  Notes: Time to reach full speed / time to stop, for flight
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-🔬 SELECTION BEAM (Preferences → My Effects)
+🌐 NETWORK (KVTweaks → Network)
 
-BeamStyle
-  Default: 2 (Hybrid - Line + Glow)
-  Options: 0=Particles Only, 1=Line Only, 2=Line+Glow (Lightsaber)
+ThrottleBandwidthKBPS
+  Default: 3000 kbps
+  Range: 500-50000 kbps
+  Notes: S24 raised the cap from 10 Mbps to 50 Mbps for modern connections. Recommend 20000-40000 for fast fiber
 
-LineWidth
-  Default: 3.0 pixels
-  Range: 1.0-8.0 (driver may clamp)
+AckCollectTime
+  Default: 0.1 sec
+  Range: 0.001-1.0 sec
+  Notes: Time to batch ACK messages before sending - affects network efficiency
 
-CustomColor
-  Default: Theme color from colors.xml
-  Notes: Accessible via Preferences → My Effects (Selection Beam)
+PluginUseReadThread
+  Default: false
+  Notes: Offload plugin (media/CEF) I/O to a dedicated thread
+
+PluginInstancesCPULimit
+  Default: 0.90 (90%)
+  Range: 0.0-0.99 (0=disabled)
+  Notes: Maximum CPU usage allowed for plugin processes combined
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🔬 SELECTION BEAM (KVTweaks → Experimental)
+
+SelectionBeamStyle
+  Default: 2 (Hybrid - Line + Glow, "Lightsaber")
+  Options: 0=Particles Only (Classic), 1=Solid Line Only, 2=Hybrid Line+Glow
+
+SelectionBeamLineStyle
+  Default: 0 (Solid)
+  Options: 0=Solid, 1=Dotted, 2=Dashed, 3=Dash-Dot
+
+SelectionBeamWidth
+  Default: 2.0 pixels
+  Range: 0.5-6.0
+  Notes: Real DX11 billboard geometry - D3D11 has no glLineWidth() equivalent
+
+SelectionBeamParticleScale
+  Default: 1.5
+  Range: 0.5-3.0
+  Notes: Glow particle size for the Hybrid style
+
+Beam Color
+  Location: Preferences → Colors → My Effects
+  Notes: Not a KVTweaks control - separate color picker panel
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -429,28 +625,33 @@ Command-line interface to the viewer. Access with Ctrl+Shift+4
 
 🔍 OBJECT &amp; AVATAR COMMANDS
 
-find &lt;text&gt;
-  Search for objects by name/description in your view
-  Example: find chair
+find &lt;name|uuid&gt;
+  Select and beacon a specific avatar (or object, by UUID) - great for
+  locating something transparent or hard to see
+  Example: find john
 
-top
-  List top 10 scripted objects (UNIX-style tool)
-  Filters: scripts, sounds, complex
-  Scopes: /p (parcel), /r (region), /o (owner)
-  Example: top scripts /p
+find clear
+  Remove the active beacon (also: find off)
 
-lookat &lt;name&gt;
-  Point camera at avatar (partial name matching)
+top [mode] [options]
+  Top objects by cost/physics/streaming/triangles/scripts (UNIX-style tool)
+  Modes: cost/render, physics/phys, streaming, triangles/tris, script/scripts
+  Scope: -p/--parcel, -r/--region
+  Ownership: -s/--self, -g/--group, -o/--owner UUID
+  Display: -n/--limit N (default 10, max 50)
+  Example: top scripts -p -s
+  Full syntax: top --help
+
+lookat &lt;name|uuid&gt;
+  Point camera at avatar or object (partial name matching)
   Example: lookat john
 
-beacon &lt;name&gt;
-  Toggle tracking beacon on avatar
-  Example: beacon john
+scan [range]
+  Show all avatars in sim with distance and UUID (optional range in meters,
+  default unlimited)
+  Example: scan 50
 
-scan
-  Show all avatars in sim with distance and position
-
-whois &lt;name&gt;
+whois &lt;name|uuid&gt;
   Show detailed avatar information (UUID, display name, profile)
   Example: whois john
 
@@ -460,16 +661,12 @@ whois &lt;name&gt;
 
 get &lt;setting&gt;
   Read current value of a debug setting
-  Supports wildcard: get Render* 
+  Supports wildcard: get *texture*
   Example: get RenderFarClip
 
 set &lt;setting&gt; &lt;value&gt;
-  Change a debug setting value
+  Change a debug setting value (auto-detects BOOL/S32/U32/F32/STRING)
   Example: set RenderFarClip 256
-
-reset &lt;setting&gt;
-  Restore setting to default value
-  Example: reset RenderFarClip
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -495,27 +692,29 @@ uptime
 
 🪟 FLOATER MANAGEMENT
 
-floater &lt;name&gt;
-  Toggle floater visibility
-  Example: floater inventory
+open list
+  Show all registered floater names in the viewer
 
-list floaters
-  Show all available floater names
-
-closeall
-  Close all open floaters
-
-open &lt;floater&gt;
-  Open specific floater window
+open &lt;name&gt;
+  Open a specific floater window
   Example: open preferences
+
+open close &lt;name&gt;
+  Close a specific floater window
+  Example: open close inventory
+
+open toggle &lt;name&gt;
+  Toggle a floater's visibility
+  Example: open toggle preferences
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 ✈️ MOVEMENT &amp; POSITIONING
 
-tp &lt;x&gt; &lt;y&gt; &lt;z&gt;
-  Teleport to local coordinates
-  Example: tp 128 128 50
+tp &lt;home|back|cam|name|uuid&gt;
+  Teleport to home, your previous location, your camera position, or a
+  named/UUID avatar - use lookat/scan first to identify a target
+  Example: tp home
 
 fly
   Toggle flight mode on/off
@@ -558,34 +757,41 @@ calc &lt;expression&gt;
   Evaluate mathematical expression
   Example: calc 2 + 2 * 3
 
-uuid &lt;text&gt;
-  Generate or validate UUID
-  Example: uuid
+uuid &lt;uuid&gt;
+  Identify what a UUID represents (avatar, object, texture, inventory,
+  group, or your own agent/session ID)
+  Example: uuid 00000000-0000-0000-0000-000000000000
 
-clear
-  Clear console history
+clear (alias: cls)
+  Clear the console output buffer
 
-quit
-  Close the S24 Console window (exit/quit are aliases)
+quit (alias: exit)
+  Close the S24 Console window
 
-shutdown [seconds]
-  Schedule viewer exit (IMMEDIATE if no delay)
+shutdown now
+  Quit the viewer immediately (clean shutdown - skips the confirmation
+  dialog, logout/metrics still run normally)
+
+shutdown &lt;seconds&gt;
+  Quit the viewer after a countdown
   Example: shutdown 300 (exit in 5 minutes)
-  ⚠️ WARNING: BRUTAL shutdown - experienced users only!
+
+shutdown cancel
+  Abort a scheduled shutdown timer (aliases: abort, stop)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 📖 HELP SYSTEM
 
-help
-  List all available commands
+list
+  Display the full command list with syntax (this reference, in-console)
 
 help &lt;command&gt;
   Show quick help for specific command
   Example: help top
 
 &lt;command&gt; --help
-  Show detailed documentation with examples
+  Show detailed documentation with examples (where available, e.g. top)
   Example: top --help
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

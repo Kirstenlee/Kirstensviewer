@@ -233,8 +233,8 @@ extern bool gDepthDirty;
 extern bool gResizeScreenTexture;
 extern bool gCubeSnapshot;
 extern bool gSnapshotNoPost;
-// S24 (2026-08-26, task #263): see llviewerdisplay.cpp's own comment, next
-// to gSnapshotNoPost - the true final composited snapshot-capture source.
+// The true final composited snapshot-capture source; see llviewerdisplay.cpp's comment next to
+// gSnapshotNoPost.
 extern LLRenderTarget* gLastCompositedPostTarget;
 
 LLViewerWindow* gViewerWindow = NULL;
@@ -429,7 +429,7 @@ private:
 			: text(in_text), x(in_x), y(in_y), color(in_color) {}
 		std::string text;
 		S32 x, y;
-		LLColor4 color; // S24: Per-line color support
+		LLColor4 color;
 	};
 
 	LLViewerWindow* mWindow;
@@ -449,7 +449,7 @@ private:
 
 	void addText(S32 x, S32 y, const std::string& text)
 	{
-		mLineList.push_back(Line(text, x, y, mTextColor)); // S24: Use default color
+		mLineList.push_back(Line(text, x, y, mTextColor));
 	}
 
 	void clearText() { mLineList.clear(); }
@@ -489,7 +489,7 @@ public:
 
 		// Draw the statistics in a light gray
 		// and in a thin font
-		mTextColor = LLColor4(0.96f, 0.86f, 0.96f, 1.f); // S24 slightly brighter better to see against the background
+		mTextColor = LLColor4(0.96f, 0.86f, 0.96f, 1.f);
 
 		// Draw stuff growing up from right lower corner of screen
 		S32 x_right = mWindow->getWorldViewWidthScaled();
@@ -523,7 +523,6 @@ public:
 		
 		if (debug_show_memory)
 		{
-			// S24: Enhanced memory display with color coding
 			U64 current_rss = LLMemory::getCurrentRSS() / 1024; // KB
 			U64 max_mem = LLMemory::getMaxMemKB();
 			F32 percent_used = max_mem > 0 ? (F32(current_rss) / F32(max_mem)) * 100.0f : 0.0f;
@@ -552,11 +551,10 @@ public:
 					(U32)(current_rss / 1024), 
 					(U32)(max_mem / 1024),
 					percent_used),
-				mem_color); // S24: Pass color explicitly
+				mem_color);
 			ypos += y_inc;
 		}
 
-		// S24: FPS counter with color-coded performance indicators
 		if (debug_show_fps)
 		{
 			F32 fps = LLTrace::get_frame_recording().getPeriodMedianPerSec(LLStatViewer::FPS);
@@ -878,23 +876,15 @@ public:
 			S32 x_raw = (S32)llround(coord.mX * gViewerWindow->getWindowWidthRaw() / (F32)gViewerWindow->getWindowWidthScaled());
 			S32 y_raw = (S32)llround(coord.mY * gViewerWindow->getWindowHeightRaw() / (F32)gViewerWindow->getWindowHeightScaled());
 
-#ifdef DX_RENDER
-			// S24 (DX_RENDER): no explicit render target is bound here -
-			// this reads from whatever's currently the default framebuffer,
-			// which for this single-window viewer is always the swap
-			// chain back buffer (DXGI_FORMAT_R8G8B8A8_UNORM, matching
-			// GL_RGBA/GL_UNSIGNED_BYTE exactly - no format conversion
-			// needed). GL's y_raw is measured from the bottom of the
-			// framebuffer; D3D11 textures are top-left-origin - flip.
+			// No explicit render target bound here - reads the swap chain back buffer
+			// (DXGI_FORMAT_R8G8B8A8_UNORM, matches GL_RGBA/GL_UNSIGNED_BYTE, no format conversion
+			// needed). GL's y_raw is bottom-origin; D3D11 textures are top-left-origin - flip.
 			if (ID3D11Texture2D* back_buffer = gDXSwapChain.getBackBufferTexture())
 			{
 				S32 dx_y = gDXSwapChain.getHeight() - 1 - y_raw;
 				DXReadback::readPixels(back_buffer, x_raw, dx_y, 1, 1, 4, color);
 				back_buffer->Release();
 			}
-#else
-			glReadPixels(x_raw, y_raw, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, color);
-#endif
 			addText(xpos, ypos, llformat("Pixel <%1d, %1d> R:%1d G:%1d B:%1d A:%1d", x_raw, y_raw, color[0], color[1], color[2], color[3]));
 			ypos += y_inc;
 		}
@@ -1043,7 +1033,6 @@ public:
 			iter != mLineList.end(); ++iter)
 		{
 			const Line& line = *iter;
-			// S24: Use per-line color instead of global mTextColor
 			LLFontGL::getFontMonospace()->renderUTF8(line.text, 0, (F32)line.x, (F32)line.y, line.color,
 				LLFontGL::LEFT, LLFontGL::TOP, LLFontGL::NORMAL, LLFontGL::NO_SHADOW);
 		}
@@ -1488,7 +1477,7 @@ bool LLViewerWindow::handleOtherMouseUp(LLWindow* window, LLCoordGL pos, MASK ma
 	return handleOtherMouse(window, pos, mask, button, false);
 }
 
-//  S24 - test WARNING: This is potentially called multiple times per frame
+//  WARNING: This is potentially called multiple times per frame
 void LLViewerWindow::handleMouseMove(LLWindow* window, LLCoordGL pos, MASK mask)
 {
 	// Scale the input mouse position
@@ -1760,7 +1749,7 @@ void LLViewerWindow::handleMenuSelect(LLWindow* window, S32 menu_item)
 
 bool LLViewerWindow::handlePaint(LLWindow* window, S32 x, S32 y, S32 width, S32 height)
 {
-// S24 we are windows exclusively so no need for a define block
+// Windows-only build - no #ifdef needed here.
 	if (gHeadlessClient)
 	{
 		HWND window_handle = (HWND)window->getPlatformWindow();
@@ -1929,9 +1918,6 @@ std::string LLViewerWindow::translateString(const char* tag,
 	return LLTrans::getString(std::string(tag), args_copy);
 }
 
-//
-// Classes S24 re arranged in correct order of definition
-//
 LLViewerWindow::LLViewerWindow(const Params& p)
 	: mWindow(NULL),
 	mActive(true),
@@ -1988,7 +1974,6 @@ LLViewerWindow::LLViewerWindow(const Params& p)
 	U32 max_core_count = gSavedSettings.getU32("EmulateCoreCount");
 	F32 max_gl_version = gSavedSettings.getF32("RenderMaxOpenGLVersion");
 
-	// S24: Get borderless setting with safety check (defaults to false if not loaded yet)
 	bool borderless = false;
 	if (gSavedSettings.controlExists("WindowBorderless"))
 	{
@@ -2114,10 +2099,9 @@ LLViewerWindow::LLViewerWindow(const Params& p)
 
 	// Init the image list.  Must happen after GL is initialized and before the images that
 	// LLViewerWindow needs are requested, as well as before LLViewerMedia starts updating images.
-	// S24 (2026-08-26, task #260 CLOSED not-applicable): thread_texture_loads/
-	// thread_media_updates hardcoded false - background-thread D3D11 texture/
-	// media creation was removed after confirming an unfixable driver-level
-	// NVIDIA bug. See LLImageGL::initClass()'s DX_RENDER branch (llimagegl.cpp).
+	// thread_texture_loads/thread_media_updates hardcoded false: background-thread D3D11
+	// texture/media creation hits an unfixable driver-level NVIDIA bug. See LLImageGL::initClass()'s
+	// DX_RENDER branch (llimagegl.cpp).
 	LLImageGL::initClass(mWindow, LLViewerTexture::MAX_GL_IMAGE_CATEGORY, false, false, false);
 	gTextureList.init();
 	LLViewerTextureManager::init();
@@ -2505,24 +2489,19 @@ void LLViewerWindow::shutdownGL()
 	//--------------------------------------------------------
 	LLFontGL::destroyDefaultFonts();
 	SUBSYSTEM_CLEANUP(LLFontManager);
-	stop_glerror();
 
 	gSky.cleanup();
-	stop_glerror();
 
 	LL_INFOS() << "Cleaning up pipeline" << LL_ENDL;
 	gPipeline.cleanup();
-	stop_glerror();
 
 	//MUST clean up pipeline before cleaning up wearables
 	LL_INFOS() << "Cleaning up wearables" << LL_ENDL;
 	LLWearableList::instance().cleanup();
 
 	gTextureList.shutdown();
-	stop_glerror();
 
 	gBumpImageList.shutdown();
-	stop_glerror();
 
 	LLWorldMapView::cleanupTextures();
 
@@ -2536,7 +2515,6 @@ void LLViewerWindow::shutdownGL()
 
 	LL_INFOS() << "Stopping GL during shutdown" << LL_ENDL;
 	stopGL();
-	stop_glerror();
 
 	gDX.shutdown();
 
@@ -2618,27 +2596,12 @@ void LLViewerWindow::reshape(S32 width, S32 height)
 
 		//glViewport(0, 0, width, height );
 #ifdef DX_RENDER
-		// S24 (DX_RENDER, 2026-07-25): GL has no equivalent of this step -
-		// there's no explicit "swap chain" object to resize, the OS window's
-		// default framebuffer just IS whatever size the window currently is.
-		// D3D11's IDXGISwapChain is a real, separately-sized GPU resource
-		// that must be told about every resize (ResizeBuffers) or it stays
-		// locked at whatever size DXSwapChain::create() was originally given
-		// (the window's size at first switchContext() call) forever -
-		// nothing else in the codebase called DXSwapChain::resize() before
-		// this (confirmed via grep - the function existed, fully
-		// implemented, but was dead code, never invoked). Every frame after
-		// any resize/maximize/DPI change was rendering at the ORIGINAL
-		// creation-time back-buffer size and letting DXGI's Present()
-		// stretch/squash the result to fit the actual (now different-sized)
-		// window - real cause of "everything renders in the wrong screen
-		// position/size" (and, most likely, of small precisely-positioned
-		// text becoming unreadable/invisible under that same distortion,
-		// while large solid rects stayed merely visually wrong rather than
-		// imperceptible). DXContext::beginFrame() unconditionally sets its
-		// viewport to gDXSwapChain.getWidth()/getHeight() every frame - that
-		// logic was already correct, it just had no accurate size to read
-		// once a resize had happened.
+		// GL has no equivalent of this step - the OS window's default framebuffer just is whatever
+		// size the window currently is. D3D11's IDXGISwapChain is a separately-sized GPU resource that
+		// must be told about every resize (ResizeBuffers) via DXSwapChain::resize(), or it stays
+		// locked at its create()-time size and DXGI's Present() stretches/squashes to fit, distorting
+		// everything on screen. DXContext::beginFrame() already sets its viewport from
+		// gDXSwapChain.getWidth()/getHeight() every frame, so this is the only piece needed.
 		if (width > 0 && height > 0)
 		{
 			gDXSwapChain.resize(width, height);
@@ -2749,7 +2712,6 @@ void LLViewerWindow::setMenuBackgroundColor(bool god_mode, bool dev_grid)
 	LLSD args;
 	LLUIColor new_bg_color;
 
-	// S24 in all circumstances standard colour we are ALWAYS a test :) exception godmode!
 	if (god_mode)
 	{
 		if (LLGridManager::getInstance()->isInProductionGrid())
@@ -2824,12 +2786,9 @@ void LLViewerWindow::draw()
 	//#if LL_DEBUG
 	LLView::sIsDrawing = true;
 	//#endif
-	stop_glerror();
 
-	// S24 (task #224, diagnostics removed 2026-08-25): the live toggles that
-	// were here narrowed the bug to LLUIImage's display-list cache (task
-	// #54), which now defaults off - see lluiimage.cpp's sEnableDisplayListsCollection
-	// comment for the full story.
+	// See lluiimage.cpp's sEnableDisplayListsCollection comment - LLUIImage's display-list cache
+	// defaults off.
 	LLUI::setLineWidth(1.f);
 
 	LLUI::setLineWidth(1.f);
@@ -2897,7 +2856,6 @@ void LLViewerWindow::draw()
 		if (gAgentCamera.cameraMouselook() || LLFloaterCamera::inFreeCameraMode())
 		{
 			drawMouselookInstructions();
-			stop_glerror();
 		}
 
 		// Draw all nested UI views.
@@ -3519,7 +3477,6 @@ void append_xui_tooltip(LLView* viewp, LLToolTip::Params& params)
 // event processing.
 void LLViewerWindow::updateUI()
 {
-	LL_PROFILE_ZONE_SCOPED_CATEGORY_UI; //LL_RECORD_BLOCK_TIME(ftm);
 
 	static std::string last_handle_msg;
 
@@ -4190,22 +4147,11 @@ void LLViewerWindow::updateWorldViewRect(bool use_full_window)
 	if (mWorldViewRectRaw != new_world_rect)
 	{
 		mWorldViewRectRaw = new_world_rect;
-		// S24 (2026-08-29): this used to skip requesting a resize whenever
-		// RenderScreenSpaceReflections was on ("avoid resizing during raw
-		// snapshots to prevent reflections being obliterated") - r2988,
-		// 2026-03-09, predates DX_RENDER's SSR implementation entirely
-		// (task #156, 2026-08-11). SSR under DX_RENDER re-copies its scene
-		// map fresh every frame (pipeline.cpp's "ssr copy" zone) rather than
-		// persisting a GL-FBO-attachment-shaped history buffer across
-		// resizes, so the original GL-era corruption concern doesn't apply -
-		// and skipping the resize meant gResizeScreenTexture was never set
-		// (and resizeScreenTexture() never even called - see its own sole
-		// call site in llviewerdisplay.cpp gating on this exact flag) for
-		// ANY world-view-rect change that isn't a real OS window resize,
-		// e.g. opening/closing a side panel, or rawSnapshot()'s show_ui
-		// toggle - leaving the deferred/post-fx buffers at the wrong size
-		// against the new viewport whenever SSR is enabled. Always request
-		// the resize now.
+		// Always request the resize, even with SSR on: DX_RENDER's SSR re-copies its scene map fresh
+		// every frame (pipeline.cpp's "ssr copy" zone) rather than persisting a history buffer across
+		// resizes, so skipping gResizeScreenTexture here (a GL-era concern) just leaves the
+		// deferred/post-fx buffers at the wrong size for any world-view-rect change that isn't a real
+		// OS window resize (e.g. a side panel opening/closing).
 		gResizeScreenTexture = true;
 
 		LLViewerCamera::getInstance()->setViewHeightInPixels(mWorldViewRectRaw.getHeight());
@@ -4260,11 +4206,6 @@ void LLViewerWindow::renderSelections(bool for_gl_pick, bool pick_parcel_walls, 
 {
 	LLObjectSelectionHandle selection = LLSelectMgr::getInstance()->getSelection();
 
-	// S24 (2026-09-02): a 2026-08-09 (task #132) diagnostic removed here -
-	// confirmed this function and tool->render() were reached with correct
-	// gate values, the manipulator-invisibility bug it was chasing was
-	// something else entirely (resolved separately, long since fixed).
-
 	if (!for_hud && !for_gl_pick)
 	{
 		// Call this once and only once
@@ -4284,7 +4225,6 @@ void LLViewerWindow::renderSelections(bool for_gl_pick, bool pick_parcel_walls, 
 	{
 		LLSelectMgr::getInstance()->renderSilhouettes(for_hud);
 
-		stop_glerror();
 
 		// setup HUD render
 		if (selection->getSelectType() == SELECT_TYPE_HUD && LLSelectMgr::getInstance()->getSelection()->getObjectCount())
@@ -4341,19 +4281,14 @@ void LLViewerWindow::renderSelections(bool for_gl_pick, bool pick_parcel_walls, 
 						gSphere.render();
 
 						// Render Inside
-#ifndef DX_RENDER
-						// S24 (DX_RENDER): DXStateCache doesn't track cull
-						// direction (front vs. back), only enable/disable -
-						// matches the existing documented gap (see project
-						// memory). Skipped under DX_RENDER; inner sphere
-						// face culling looks wrong (visual gap only) for
-						// this edit-mode light-radius debug visualization.
-						glCullFace(GL_FRONT);
-#endif
+						// S24: this used to be a dead GL-only glCullFace() pair (DXStateCache
+						// didn't track cull direction, only enable/disable, at the time this was
+						// written) - real fix now exists (llrender/llrender.h's cullFace(), same
+						// one used for LLViewerJoint::render()'s hair/skirt "render inside" pass),
+						// so wired up for real instead of just removing the dead calls.
+						gDX.cullFace(GL_FRONT);
 						gSphere.render();
-#ifndef DX_RENDER
-						glCullFace(GL_BACK);
-#endif
+						gDX.cullFace(GL_BACK);
 
 						gDX.popMatrix();
 					}
@@ -4421,7 +4356,6 @@ void LLViewerWindow::renderSelections(bool for_gl_pick, bool pick_parcel_walls, 
 
 			gDX.matrixMode(LLRender::MM_MODELVIEW);
 			gDX.popMatrix();
-			stop_glerror();
 		}
 	}
 }
@@ -5078,11 +5012,10 @@ void LLViewerWindow::onSnapshotNotificationClick(const LLSD& notification, const
 // static
 void LLViewerWindow::movieSize(S32 new_width, S32 new_height)
 {
-	// S24: If borderless mode, maximize instead of using specific size
-	// Borderless windows should fill the screen, not be arbitrary sizes
+	// Borderless windows should fill the screen, not be arbitrary sizes.
 	if (gViewerWindow->getWindow()->getBorderless())
 	{
-		LL_INFOS("Window") << "S24: Ignoring window size request in borderless mode, maximizing instead" << LL_ENDL;
+		LL_INFOS("Window") << "Ignoring window size request in borderless mode, maximizing instead" << LL_ENDL;
 		gViewerWindow->getWindow()->maximize();
 		return;
 	}
@@ -5189,14 +5122,9 @@ bool LLViewerWindow::rawSnapshot(LLImageRaw* raw, S32 image_width, S32 image_hei
 	gSnapshotNoPost = no_post;
 	gDisplaySwapBuffers = false;
 
-#ifndef DX_RENDER
-	// S24 (DX_RENDER): pre-render clear, fully overwritten by the display()
-	// call that follows shortly after in this same function - matches the
-	// established pattern for this exact class of clear already used
-	// throughout llviewerdisplay.cpp (skip rather than reach for a raw
-	// glClear() with no GL context behind it).
-	glClear(GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT); // stencil buffer is deprecated | GL_STENCIL_BUFFER_BIT);
-#endif
+	// S24: pre-render clear removed - fully overwritten by the display() call that follows
+	// shortly after anyway. GL branch removed - task #300 (full GL removal), never compiled in
+	// this DX_RENDER-only build.
 	setCursor(UI_CURSOR_WAIT);
 
 	// Hide all the UI widgets first and draw a frame
@@ -5241,21 +5169,12 @@ bool LLViewerWindow::rawSnapshot(LLImageRaw* raw, S32 image_width, S32 image_hei
 	S32 original_height = 0;
 	bool reset_deferred = false;
 
-#ifndef DX_RENDER
-	LLRenderTarget scratch_space;
-#endif
 #ifdef DX_RENDER
-	// S24 (2026-08-26, task #263): a 4K request from a smaller window was
-	// confirmed (live repro) to reallocate the ENTIRE deferred pipeline
-	// (G-buffer, 4 shadow maps, SSAO, reflection probes, post-fx targets)
-	// to 4K and render one full frame through all of it - too much single-
-	// frame GPU work for the driver's TDR timeout, resulting in a genuine
-	// device-removed reset (thousands of failed CreateBuffer calls logged,
-	// swap chain itself then failing to recreate, forced app shutdown).
-	// Cap the actual NATIVE render size; anything beyond the cap renders at
-	// the capped size (same cost class as today's normal frame) and gets
-	// GPU-upscaled afterward (LLGPUResize, newview/llgpuresize.h) instead
-	// of ever attempting a native render at the full requested size.
+	// An oversized snapshot request reallocates the entire deferred pipeline (G-buffer, shadow maps,
+	// SSAO, reflection probes, post-fx targets) to that size and renders one frame through it - too
+	// much single-frame GPU work, causing a driver TDR/device-removed reset. Cap the native render
+	// size; anything beyond the cap renders at the capped size and gets GPU-upscaled (LLGPUResize,
+	// newview/llgpuresize.h) instead of ever rendering natively at the full requested size.
 	bool need_gpu_upscale = false;
 	S32 render_width = image_width;
 	S32 render_height = image_height;
@@ -5263,45 +5182,24 @@ bool LLViewerWindow::rawSnapshot(LLImageRaw* raw, S32 image_width, S32 image_hei
 #endif
 
 #ifdef DX_RENDER
-	// S24 (2026-08-26, task #263 round 4): a live repro proved even a
-	// render SMALLER than the window still hangs the driver - the risk was
-	// never really "how big is the render", it's gPipeline.allocateScreenBuffer()
-	// itself tearing down and rebuilding the ENTIRE deferred pipeline
-	// (G-buffer, 4 shadow maps, SSAO, reflection probes, post-fx targets)
-	// to a size DIFFERENT from whatever it's already safely running at
-	// every ordinary frame - regardless of whether that new size is bigger
-	// or smaller. Fix: for a color, no-UI, oversized request, never call
-	// allocateScreenBuffer() at all. Render one frame at whatever
-	// resolution the pipeline is ALREADY allocated at (identical to what
-	// every normal frame already does, proven stable), then GPU-upscale
-	// (LLGPUResize) that native capture directly to the requested size.
-	// Self-contained and returns directly - does not fall through to the
-	// scratch_ready/allocateScreenBuffer(render_width,...)/reset_deferred
-	// machinery below at all, which remains for GL and for DX_RENDER's
-	// rarer show_ui/depth-type oversized edge cases only.
+	// The TDR risk isn't render size, it's allocateScreenBuffer() tearing down/rebuilding the entire
+	// deferred pipeline to a size different from what's already running - regardless of bigger or
+	// smaller. For an oversized color/no-UI capture, skip allocateScreenBuffer() entirely: render one
+	// frame at the pipeline's current resolution (identical to a normal frame) and GPU-upscale
+	// (LLGPUResize) that native capture to the requested size. Returns directly, bypassing the
+	// scratch_ready/allocateScreenBuffer()/reset_deferred path below (kept for GL and DX_RENDER's
+	// rarer show_ui/depth-type oversized cases).
 	if (!show_ui && type == LLSnapshotModel::SNAPSHOT_TYPE_COLOR &&
 		(image_width > window_width || image_height > window_height))
 	{
 		gDisplaySwapBuffers = false;
 		gDepthDirty = true;
 
-		// S24 (2026-08-26, task #263 round 5): force real edge AA for this
-		// one capture regardless of the user's live gameplay FSAA setting -
-		// upscaling faithfully preserves whatever was in the source, so
-		// jagged/aliased silhouette edges in the native capture just get
-		// scaled up to bigger jagged edges no matter how good the resize
-		// filter is (Catmull-Rom included) - a resize filter smooths pixel-
-		// to-pixel colour transitions, it can't invent sub-pixel edge
-		// precision that was never captured. Originally forced FXAA rather
-		// than SMAA here specifically to avoid SMAA's separate edge/blend-
-		// weight buffers first-time-allocating mid-capture, back when this
-		// function was hitting GPU driver TDR every round; that instability
-		// is now fully resolved (round 4's allocateScreenBuffer()-avoidance
-		// fix), and SMAA is a single-shot per-frame pass with no cross-frame
-		// state (confirmed: mSMAABlendBuffer/mFXAAMap are cleared and
-		// rewritten every call, pipeline.cpp:8102-8110), so it's safe now -
-		// switched to SMAA for cleaner edges than FXAA gives. Saved/restored
-		// around the one display() call only.
+		// Force SMAA for this one capture regardless of the user's live FSAA setting: upscaling
+		// preserves jagged source edges no matter how good the resize filter is, and a resize filter
+		// can't invent sub-pixel edge precision that was never captured. SMAA has no cross-frame state
+		// (mSMAABlendBuffer/mFXAAMap are cleared and rewritten every call, pipeline.cpp), so it's safe
+		// to force here. Saved/restored around the one display() call only.
 		U32 saved_fsaa_type = LLPipeline::RenderFSAAType;
 		LLPipeline::RenderFSAAType = 2;
 		display(do_rebuild, 1.f, 0, true);
@@ -5381,40 +5279,21 @@ bool LLViewerWindow::rawSnapshot(LLImageRaw* raw, S32 image_width, S32 image_hei
 		if ((image_width <= gGLManager.mGLMaxTextureSize && image_height <= gGLManager.mGLMaxTextureSize) &&
 			(image_width > window_width || image_height > window_height) && LLPipeline::sRenderDeferred && !show_ui)
 		{
-			// S24 (2026-08-26, task #263): scratch_space (GL-only below) was
-			// a GL-era assumption that binding a render target before
-			// calling display() would redirect where the frame renders -
-			// D3D11 has no such implicit "current FBO" concept, so under
-			// DX_RENDER scratch_space was allocated but NEVER actually
-			// written to, and reading it back always produced black. The
-			// real fix: gPipeline.allocateScreenBuffer() below already
-			// correctly resizes the pipeline's own internal post-fx targets
-			// (mPostPingMap/mPostPongMap) to this resolution - the capture
-			// now reads directly from gLastCompositedPostTarget (set by
-			// DXPipeline::presentDeferredScreen(), llviewerdisplay.cpp/
-			// dxpipeline.cpp) after display() runs, below. No scratch target
-			// needed under DX_RENDER at all.
-#ifndef DX_RENDER
-			U32 color_fmt = type == LLSnapshotModel::SNAPSHOT_TYPE_DEPTH ? GL_DEPTH_COMPONENT : GL_RGBA;
-			bool scratch_ready = scratch_space.allocate(image_width, image_height, color_fmt, true);
-#else
+			// scratch_space (GL-only) used to assume binding a render target before display()
+			// redirects where the frame renders - D3D11 has no implicit "current FBO" concept, so
+			// nothing was ever written to it under DX_RENDER. The capture instead reads
+			// gLastCompositedPostTarget (set by DXPipeline::presentDeferredScreen()) after display()
+			// runs below; no scratch target needed under DX_RENDER. GL branch (scratch_space itself)
+			// removed - task #300 (full GL removal), never compiled in this DX_RENDER-only build.
 			bool scratch_ready = true;
-#endif
 			if (scratch_ready)
 			{
 				original_width = gPipeline.mRT->deferredScreen.getWidth();
 				original_height = gPipeline.mRT->deferredScreen.getHeight();
 
 #ifdef DX_RENDER
-				// S24 (2026-08-26, task #263): default dropped from 2.0 to
-				// 1.0 after a live repro on a 3440-wide ultrawide window -
-				// a 4K (3840x2160) request never exceeded a 2x-window cap
-				// (6880x2880) there, so it still went through a full native
-				// re-render and hit the exact same TDR this cap exists to
-				// avoid. Window-native size is the ONLY resolution actually
-				// confirmed safe on this hardware/driver combination -
-				// anything beyond it goes through the GPU upscale path now,
-				// unconditionally, with no "generous multiplier" allowance.
+				// Window-native size (multiplier 1.0) is the only resolution confirmed safe against
+				// the TDR above; anything beyond the limit always goes through the GPU upscale path.
 				static LLCachedControl<F32> native_render_limit(gSavedSettings, "RenderSnapshotNativeSizeLimit", 1.0f);
 				const S32 native_limit_w = (S32)((F32)window_width * (F32)native_render_limit);
 				const S32 native_limit_h = (S32)((F32)window_height * (F32)native_render_limit);
@@ -5437,15 +5316,9 @@ bool LLViewerWindow::rawSnapshot(LLImageRaw* raw, S32 image_width, S32 image_hei
 					mWorldViewRectRaw.set(0, render_height, render_width, 0);
 					LLViewerCamera::getInstance()->setViewHeightInPixels(mWorldViewRectRaw.getHeight());
 					LLViewerCamera::getInstance()->setAspect(getWorldViewAspectRatio());
-#ifndef DX_RENDER
-					scratch_space.bindTarget();
-#endif
 				}
 				else
 				{
-#ifndef DX_RENDER
-					scratch_space.release();
-#endif
 					gPipeline.allocateScreenBuffer(original_width, original_height);
 				}
 			}
@@ -5549,15 +5422,11 @@ bool LLViewerWindow::rawSnapshot(LLImageRaw* raw, S32 image_width, S32 image_hei
 				}
 
 #ifdef DX_RENDER
-				// S24 (2026-08-26, task #263): the frame above rendered at
-				// the capped render_width x render_height (see
-				// need_gpu_upscale's own comment) - GPU-upscale it to the
-				// TRUE requested image_width x image_height now, once,
-				// before the readback loop below runs. upscale_target is
-				// left unallocated (isComplete()==false) when
-				// need_gpu_upscale is false, so the color-source resolution
-				// below falls through to gLastCompositedPostTarget exactly
-				// as it always did.
+				// The frame above rendered at the capped render_width x render_height (see
+				// need_gpu_upscale above) - GPU-upscale it to the true requested image_width x
+				// image_height once, before the readback loop. upscale_target stays unallocated when
+				// need_gpu_upscale is false, so the color-source selection below falls through to
+				// gLastCompositedPostTarget as usual.
 				if (need_gpu_upscale && gLastCompositedPostTarget)
 				{
 					if (upscale_target.allocate(image_width, image_height, GL_RGBA, false))
@@ -5576,46 +5445,21 @@ bool LLViewerWindow::rawSnapshot(LLImageRaw* raw, S32 image_width, S32 image_hei
 #endif
 
 #ifdef DX_RENDER
-				// S24 (2026-08-26, task #263): read directly from
-				// gLastCompositedPostTarget (mPostPingMap/mPostPongMap,
-				// whichever DXPipeline::presentDeferredScreen() landed on
-				// this frame - dxpipeline.cpp/llviewerdisplay.cpp) instead
-				// of scratch_space (removed above under DX_RENDER - it was
-				// never actually written to, see that comment) or the
-				// window-locked swap chain (wrong resolution for an
-				// oversized capture - gDXSwapChain is never resized for
-				// snapshots; confirmed its only resize call site is the
-				// real OS window-resize handler). display() just ran
-				// (above), so this reflects exactly the frame this loop
-				// iteration is reading, at whatever resolution
-				// allocateScreenBuffer() last set. getDXColorTexture()
-				// returns a cached, NOT AddRef'd pointer (owned by the
-				// render target); getBackBufferTexture() DOES AddRef
-				// (GetResource()'s COM convention) - only the fallback
-				// branch needs releasing after the loop below.
+				// Read from gLastCompositedPostTarget (set by DXPipeline::presentDeferredScreen())
+				// rather than the window-locked swap chain, which is never resized for snapshots.
+				// getDXColorTexture() returns a cached, non-AddRef'd pointer; getBackBufferTexture()
+				// DOES AddRef (COM convention) - only the swap-chain fallback branch needs releasing
+				// after the loop below.
 				ID3D11Texture2D* dx_color_source = nullptr;
 				int dx_source_height = 0;
 				bool dx_color_source_owned = false;
-				// S24 (2026-08-26, task #263): prefer the just-upscaled
-				// target over the native-resolution composite when the
-				// render_width/render_height cap above was applied - see
-				// need_gpu_upscale's own comment.
-				// S24 (2026-08-29): a show_ui capture must read the swap
-				// chain, never gLastCompositedPostTarget - the latter is set
-				// by DXPipeline::presentDeferredScreen() BEFORE the UI is
-				// drawn (UI composites directly onto the swap chain's back
-				// buffer afterward - see this function's window_rect comment
-				// above) and is sized to the smaller 3D-only world view rect,
-				// while a show_ui capture's window_width/window_height (and
-				// therefore read_width/read_height below) are the full
-				// window size. Reading the post target here produced both a
-				// UI-less capture AND a CopySubresourceRegion box taller
-				// than the actual source texture (dx_source_height <
-				// read_height -> negative region_y_start below) - a
-				// malformed copy region, the same class of bug that has
-				// driven GPU driver TDR/hard-lock resets elsewhere in this
-				// snapshot code (task #263's history). Confirmed root cause
-				// of the "Display UI in Snapshot" hard lock.
+				// Prefer the just-upscaled target over the native composite when the render-size cap
+				// above was applied. A show_ui capture must read the swap chain, never
+				// gLastCompositedPostTarget: the latter is set before the UI is drawn and sized to
+				// the smaller 3D-only world view rect, while a show_ui capture's dimensions are the
+				// full window - reading the post target here produced a UI-less capture with a copy
+				// region taller than its source texture (a malformed CopySubresourceRegion box), the
+				// root cause of the "Display UI in Snapshot" hard lock.
 				if (upscale_target.isComplete())
 				{
 					dx_color_source = upscale_target.getDXColorTexture(0);
@@ -5633,19 +5477,12 @@ bool LLViewerWindow::rawSnapshot(LLImageRaw* raw, S32 image_width, S32 image_hei
 					dx_color_source_owned = true;
 				}
 
-				// S24 (2026-08-26, task #263): ONE region read for this
-				// whole tile instead of one DXReadback::readPixels() call
-				// per output row - the per-row version (still used by the
-				// depth branch below) was confirmed live to trigger the
-				// SAME GPU driver TDR reset the render-resolution cap above
-				// was built to avoid: thousands of synchronous staging-
-				// texture-create+Map GPU round trips in a tight loop, no
-				// pacing, is by itself enough to blow the driver's timeout
-				// even when the render itself is cheap. dx_y decreases as
-				// out_y increases (GL-bottom -> D3D11-top origin flip), so
-				// the region's row order is the output's row order
-				// reversed - region_scratch row (read_height-1-out_y) is
-				// output row out_y, not row out_y directly.
+				// One region read for the whole tile instead of one DXReadback::readPixels() call per
+				// output row - the per-row version (still used by the depth branch below) alone is
+				// enough to trigger a GPU driver TDR (thousands of synchronous staging-texture Map
+				// round trips with no pacing). dx_y decreases as out_y increases (GL-bottom ->
+				// D3D11-top flip), so region_scratch row (read_height-1-out_y) is output row out_y,
+				// not row out_y directly.
 				bool region_read_ok = false;
 				static thread_local std::vector<U8> region_scratch;
 				if (type == LLSnapshotModel::SNAPSHOT_TYPE_COLOR && dx_color_source && read_width > 0 && read_height > 0)
@@ -5675,7 +5512,6 @@ bool LLViewerWindow::rawSnapshot(LLImageRaw* raw, S32 image_width, S32 image_hei
 					{
 						if (type == LLSnapshotModel::SNAPSHOT_TYPE_COLOR)
 						{
-#ifdef DX_RENDER
 							// Source is DXGI_FORMAT_R8G8B8A8_UNORM (4 bytes/
 							// pixel) - GL_RGB wants 3 (no alpha). region_scratch
 							// (read once for the whole tile, above) holds the
@@ -5694,44 +5530,20 @@ bool LLViewerWindow::rawSnapshot(LLImageRaw* raw, S32 image_width, S32 image_hei
 									dst[px * 3 + 2] = src[px * 4 + 2];
 								}
 							}
-#else
-							glReadPixels(
-								subimage_x_offset, out_y + subimage_y_offset,
-								read_width, 1,
-								GL_RGB, GL_UNSIGNED_BYTE,
-								raw->getData() + output_buffer_offset
-							);
-#endif
 						}
 						else // LLSnapshotModel::SNAPSHOT_TYPE_DEPTH
 						{
 							LLPointer<LLImageRaw> depth_line_buffer = new LLImageRaw(read_width, 1, sizeof(GL_FLOAT)); // need to store floating point values
-#ifdef DX_RENDER
-							// S24 (2026-08-26, task #263): depth lives on
-							// pipeline.mRT->deferredScreen (mPostPingMap/
-							// mPostPongMap, read for color above, are
-							// color-only) - resized to the same snapshot
-							// resolution by the same allocateScreenBuffer()
-							// call as the color targets, see
-							// gLastCompositedPostTarget's own comment.
-							// Replaces the old scratch_space-based lookup,
-							// which had the same root problem as the color
-							// path (never actually written to under
-							// DX_RENDER). getDXDepthTexture() is a cached,
-							// NOT AddRef'd pointer - no Release() needed.
+							// Depth lives on pipeline.mRT->deferredScreen (mPostPingMap/mPostPongMap,
+							// read for color above, are color-only), resized to snapshot resolution by
+							// the same allocateScreenBuffer() call as the color targets.
+							// getDXDepthTexture() is a cached, non-AddRef'd pointer - no Release()
+							// needed.
 							if (ID3D11Texture2D* depth_tex = gPipeline.mRT->deferredScreen.getDXDepthTexture())
 							{
 								S32 dx_y = (S32)gPipeline.mRT->deferredScreen.getHeight() - 1 - (S32)(out_y + subimage_y_offset);
 								DXReadback::readDepthPixels(depth_tex, subimage_x_offset, dx_y, read_width, 1, (float*)depth_line_buffer->getData());
 							}
-#else
-							glReadPixels(
-								subimage_x_offset, out_y + subimage_y_offset,
-								read_width, 1,
-								GL_DEPTH_COMPONENT, GL_FLOAT,
-								depth_line_buffer->getData()// current output pixel is beginning of buffer...
-							);
-#endif
 
 							for (S32 i = 0; i < (S32)read_width; i++)
 							{
@@ -5756,7 +5568,6 @@ bool LLViewerWindow::rawSnapshot(LLImageRaw* raw, S32 image_width, S32 image_hei
 #endif
 			}
 			output_buffer_offset_x += subimage_x_offset;
-			stop_glerror();
 		}
 		output_buffer_offset_y += subimage_y_offset;
 	}
@@ -5814,10 +5625,6 @@ bool LLViewerWindow::rawSnapshot(LLImageRaw* raw, S32 image_width, S32 image_hei
 		mWorldViewRectRaw = window_rect;
 		LLViewerCamera::getInstance()->setViewHeightInPixels(mWorldViewRectRaw.getHeight());
 		LLViewerCamera::getInstance()->setAspect(getWorldViewAspectRatio());
-#ifndef DX_RENDER
-		scratch_space.flush();
-		scratch_space.release();
-#endif
 		gPipeline.allocateScreenBuffer(original_width, original_height);
 	}
 
@@ -5834,14 +5641,9 @@ bool LLViewerWindow::simpleSnapshot(LLImageRaw* raw, S32 image_width, S32 image_
 {
 	gDisplaySwapBuffers = false;
 
-#ifndef DX_RENDER
-	// S24 (DX_RENDER): pre-render clear, fully overwritten by the display()
-	// call that follows shortly after in this same function - matches the
-	// established pattern for this exact class of clear already used
-	// throughout llviewerdisplay.cpp (skip rather than reach for a raw
-	// glClear() with no GL context behind it).
-	glClear(GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT); // stencil buffer is deprecated | GL_STENCIL_BUFFER_BIT);
-#endif
+	// S24: pre-render clear removed - fully overwritten by the display() call that follows
+	// shortly after anyway. GL branch removed - task #300 (full GL removal), never compiled in
+	// this DX_RENDER-only build.
 	setCursor(UI_CURSOR_WAIT);
 
 	bool prev_draw_ui = gPipeline.hasRenderDebugFeatureMask(LLPipeline::RENDER_DEBUG_FEATURE_UI);
@@ -5907,23 +5709,10 @@ bool LLViewerWindow::simpleSnapshot(LLImageRaw* raw, S32 image_width, S32 image_
 
 	LLImageDataSharedLock lock(raw);
 
-#ifdef DX_RENDER
-	// S24 (DX_RENDER): same source-selection/repack pattern as
-	// rawSnapshot() above - GL's glReadPixels() with no explicit
-	// framebuffer override reads whatever's currently bound
-	// (scratch_space if allocate()/bindTarget() above succeeded, else
-	// falls through to the swap chain back buffer). Source is
-	// DXGI_FORMAT_R8G8B8A8_UNORM either way; GL_RGB wants 3 bytes/pixel,
-	// no alpha - read full RGBA then repack, same as DXTexture::create()'s
-	// repackPixel() elsewhere in this project. GL's glReadPixels(0,0,...)
-	// reads from the bottom of the (bottom-left-origin) source, filling
-	// raw->getData() starting with that bottom row - confirmed by grep
-	// that neither this function nor its callers apply any subsequent
-	// LLImageRaw::verticalFlip(), so that row order is exactly what's
-	// expected downstream. D3D11 textures are top-left-origin, so reading
-	// them straight would hand back the same rows in the opposite order -
-	// reversed explicitly in the repack loop below (D3D11 row 0 == top ==
-	// GL's *last* filled row).
+	// Same source-selection/repack pattern as rawSnapshot() above. Source is
+	// DXGI_FORMAT_R8G8B8A8_UNORM; repack to GL_RGB the same as DXTexture::create()'s repackPixel().
+	// D3D11 textures are top-left-origin vs GL's bottom-left-origin - reversed explicitly in the
+	// repack loop below (D3D11 row 0 == top == GL's last filled row).
 	ID3D11Texture2D* dx_source = nullptr;
 	int dx_source_height = 0;
 	if (scratch_space.isComplete())
@@ -5972,16 +5761,6 @@ bool LLViewerWindow::simpleSnapshot(LLImageRaw* raw, S32 image_width, S32 image_
 		}
 		dx_source->Release();
 	}
-#else
-	glReadPixels(
-		0, 0,
-		image_width,
-		image_height,
-		GL_RGB, GL_UNSIGNED_BYTE,
-		raw->getData()
-	);
-	stop_glerror();
-#endif
 
 	gDisplaySwapBuffers = false;
 	gDepthDirty = true;
@@ -6015,7 +5794,6 @@ void display_cube_face();
 bool LLViewerWindow::cubeSnapshot(const LLVector3& origin, DXCubeMapArray* cubearray, S32 cubeIndex, S32 face, F32 near_clip, bool dynamic_render, bool useCustomClipPlane, LLPlane clipPlane)
 {
 	// NOTE: implementation derived from LLFloater360Capture::capture360Images() and simpleSnapshot
-	LL_PROFILE_GPU_ZONE("cubeSnapshot");
 	llassert(LLPipeline::sRenderDeferred);
 	llassert(!gCubeSnapshot); //assert a snapshot isn't already in progress
 
@@ -6052,14 +5830,9 @@ bool LLViewerWindow::cubeSnapshot(const LLVector3& origin, DXCubeMapArray* cubea
 
 	gPipeline.pushRenderTypeMask();
 
-#ifndef DX_RENDER
-	// S24 (DX_RENDER): pre-render clear, fully overwritten by the display()
-	// call that follows shortly after in this same function - matches the
-	// established pattern for this exact class of clear already used
-	// throughout llviewerdisplay.cpp (skip rather than reach for a raw
-	// glClear() with no GL context behind it).
-	glClear(GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT); // stencil buffer is deprecated | GL_STENCIL_BUFFER_BIT);
-#endif
+	// S24: pre-render clear removed - fully overwritten by the display() call that follows
+	// shortly after anyway. GL branch removed - task #300 (full GL removal), never compiled in
+	// this DX_RENDER-only build.
 
 	U32 dynamic_render_types[] = {
 		LLPipeline::RENDER_TYPE_AVATAR,
@@ -6100,25 +5873,12 @@ bool LLViewerWindow::cubeSnapshot(const LLVector3& origin, DXCubeMapArray* cubea
 	// these are the 6 directions we will point the camera, matching D3D11's
 	// documented cubemap slice order (0=+X,1=-X,2=+Y,3=-Y,4=+Z,5=-Z).
 	//
-	// S24 (2026-08-13, task #194 round 11, REVERTED): tried swapping
-	// look_dirs[0]/[1] and [4]/[5] (DX_RENDER only) to fix a reported
-	// whole-scene 180-degree azimuth reversal - made things dramatically
-	// worse ("completely jumbled", sky/ground swapped too, despite Y being
-	// untouched). Root cause: look_upvecs[i] (DXCubeMapFaces::sUpVecs) is
-	// tuned PER-DIRECTION, not per-index - it encodes the specific up
-	// vector needed to correctly orient THAT SPECIFIC direction's capture
-	// per D3D11's addressing table. Swapping look_dirs[i] alone pairs a
-	// new direction with the OLD index's up vector (tuned for a different
-	// direction entirely), corrupting that capture's internal orientation
-	// - a much more fundamental break than anything the per-face radiance-
-	// gen table fixes were addressing. Any future attempt at re-assigning
-	// which world direction populates which face slot MUST swap the
-	// complete (look_dir, look_upvec) PAIR together, never look_dirs alone.
-	//
-	// S24 (2026-08-31, DXCubeMap rewrite plan, Step 2): sourced from
-	// DXCubeMapFaces::sLookDirs (same values as before) instead of a local
-	// literal array, so this capture stage and the Step 3 convolution-camera
-	// rewrite share one table instead of each hand-deriving their own.
+	// look_upvecs[i] (DXCubeMapFaces::sUpVecs) is tuned PER-DIRECTION, not per-index - swapping
+	// look_dirs[i] alone pairs a new direction with the wrong index's up vector and corrupts that
+	// face's orientation. Any future re-assignment of which world direction populates which face slot
+	// must swap the complete (look_dir, look_upvec) pair together, never look_dirs alone. Sourced from
+	// DXCubeMapFaces::sLookDirs so this capture stage and the convolution-camera rewrite share one
+	// table instead of each hand-deriving their own.
 	LLVector3 look_dirs[6] = {
 		LLVector3(DXCubeMapFaces::sLookDirs[0]),
 		LLVector3(DXCubeMapFaces::sLookDirs[1]),
@@ -6128,14 +5888,10 @@ bool LLViewerWindow::cubeSnapshot(const LLVector3& origin, DXCubeMapArray* cubea
 		LLVector3(DXCubeMapFaces::sLookDirs[5])
 	};
 
-#ifdef DX_RENDER
-	// S24 (task #194, 2026-08-13): D3D11-native up vectors, NOT the GL-
-	// native ones - see DXCubeMapFaces.h's header comment for the full
-	// derivation (a real per-API handedness difference for cubemap face
-	// addressing, not something a viewport flip can compensate for).
-	// Replaces the earlier viewport-Y-flip approach (task #147/#184,
-	// reverted) which fixed individual-face orientation but not
-	// inter-face seam continuity.
+	// D3D11-native up vectors, not the GL-native ones - see DXCubeMapFaces.h's header comment for the
+	// derivation (a per-API handedness difference for cubemap face addressing, not something a
+	// viewport flip can compensate for). GL branch removed - task #300 (full GL removal), never
+	// compiled in this DX_RENDER-only build.
 	LLVector3 look_upvecs[6] = {
 		LLVector3(DXCubeMapFaces::sUpVecs[0]),
 		LLVector3(DXCubeMapFaces::sUpVecs[1]),
@@ -6144,16 +5900,6 @@ bool LLViewerWindow::cubeSnapshot(const LLVector3& origin, DXCubeMapArray* cubea
 		LLVector3(DXCubeMapFaces::sUpVecs[4]),
 		LLVector3(DXCubeMapFaces::sUpVecs[5])
 	};
-#else
-	LLVector3 look_upvecs[6] = {
-		LLVector3(0, -1, 0),
-		LLVector3(0, -1, 0),
-		LLVector3(0, 0, 1),
-		LLVector3(0, 0, -1),
-		LLVector3(0, -1, 0),
-		LLVector3(0, -1, 0)
-	};
-#endif
 
 	// for each of six sides of cubemap
 	//for (int i = 0; i < 6; ++i)
@@ -6162,21 +5908,10 @@ bool LLViewerWindow::cubeSnapshot(const LLVector3& origin, DXCubeMapArray* cubea
 		// set up camera to look in each direction
 		camera->lookDir(look_dirs[i], look_upvecs[i]);
 
-		// S24 (2026-08-22): a TEMPORARY diagnostic lived here (logged the
-		// resulting camera at/left/up axes per face) to check whether the
-		// capture camera was pointed where intended for faces 0/1 (+X/-X).
-		// Answered and removed: resultUp=(0,1,0) for ALL of faces 0,1,4,5
-		// alike (identical convention) - faces 4/5 are confirmed correct
-		// with the same treatment, so the capture camera orientation is
-		// NOT the source of the remaining +X/-X defect. See
-		// llreflectionmapmanager.cpp's radianceGenV.hlsl-adjacent comments
-		// (follow-ups #1-10) for the full investigation - all 8 possible
-		// within-face dihedral orientations were subsequently tested and
-		// rejected too, ruling out a pure orientation bug altogether. Next
-		// lead: the GGX/roughness prefilter stage (prefilterEnvMap() in
-		// radianceGenF.hlsl), not yet examined - or the possibility that
-		// some "wrong" content is actually a real, correctly-captured
-		// distant mountain peak overlapping the sky.
+		// Capture camera orientation is confirmed NOT the source of the remaining +X/-X defect
+		// (faces 0,1,4,5 share resultUp=(0,1,0); all 8 within-face dihedral orientations were tested
+		// and rejected too). Next lead: the GGX/roughness prefilter stage (prefilterEnvMap() in
+		// radianceGenF.hlsl) - see llreflectionmapmanager.cpp for the full investigation.
 
 		// turning this flag off here prohibits the screen swap
 		// to present the new page to the viewer - this stops
@@ -6222,23 +5957,12 @@ bool LLViewerWindow::cubeSnapshot(const LLVector3& origin, DXCubeMapArray* cubea
 	set_current_modelview(saved_mod);
 	set_current_projection(saved_proj);
 
-	// S24 (task #194, 2026-08-14): also restore gDX's OWN matrix stack
-	// (mMatrix[MM_MODELVIEW]/[MM_PROJECTION], read by LLRender::
-	// getModelviewMatrix()/getProjectionMatrix()), not just the separate
-	// gGLModelView/gGLProjection globals set_current_modelview()/
-	// set_current_projection() above already fix. display_cube_face() (via
-	// display_update_camera() -> setup3DRender() -> LLViewerCamera::
-	// setPerspective()) calls gDX.loadMatrix() unconditionally for EVERY
-	// capture face, overwriting gDX's stack with that face's camera -
-	// previously harmless since nothing read the stack for this purpose,
-	// but DX_RENDER's env_mat (LLPipeline::setEnvMat(), task #194) now
-	// does. Without this, gDX's stack stays stuck on whichever cube face
-	// was captured most recently until the NEXT frame's main-camera
-	// setPerspective() call happens to overwrite it - producing an
-	// intermittent, direction-correlated wrong reflection that "fights"
-	// itself as probe updates cycle through faces (confirmed via user
-	// testing: real-time instability specifically near one cardinal
-	// direction, tracking which face had most recently been captured).
+	// Also restore gDX's own matrix stack (mMatrix[MM_MODELVIEW]/[MM_PROJECTION]), not just the
+	// separate gGLModelView/gGLProjection globals set_current_modelview/projection() above already
+	// fix. display_cube_face() calls gDX.loadMatrix() unconditionally for every capture face,
+	// overwriting gDX's stack with that face's camera; DX_RENDER's env_mat (LLPipeline::setEnvMat())
+	// reads that stack, so without this restore it stays stuck on the most-recently-captured cube
+	// face until the next frame's main-camera setPerspective() happens to overwrite it.
 	gDX.matrixMode(LLRender::MM_MODELVIEW);
 	gDX.loadMatrix(glm::value_ptr(saved_mod));
 	gDX.matrixMode(LLRender::MM_PROJECTION);
@@ -6357,11 +6081,7 @@ void LLViewerWindow::setup2DViewport(S32 x_offset, S32 y_offset)
 	gGLViewport[1] = mWindowRectRaw.mBottom + y_offset;
 	gGLViewport[2] = mWindowRectRaw.getWidth();
 	gGLViewport[3] = mWindowRectRaw.getHeight();
-#ifdef DX_RENDER
 	gDXContext.setViewport(gGLViewport[0], gGLViewport[1], gGLViewport[2], gGLViewport[3]);
-#else
-	glViewport(gGLViewport[0], gGLViewport[1], gGLViewport[2], gGLViewport[3]);
-#endif
 }
 
 void LLViewerWindow::setup3DRender()
@@ -6377,36 +6097,14 @@ void LLViewerWindow::setup3DViewport(S32 x_offset, S32 y_offset)
 	gGLViewport[1] = mWorldViewRectRaw.mBottom + y_offset;
 	gGLViewport[2] = mWorldViewRectRaw.getWidth();
 	gGLViewport[3] = mWorldViewRectRaw.getHeight();
-#ifdef DX_RENDER
-	// S24 (2026-08-22, plan item E - re-derived): this call's justification
-	// used to be scoped entirely to cube-face-capture reasoning (see prior
-	// history below), even though setup3DViewport() runs every frame for
-	// the MAIN game viewport, not cube captures - a scope leak that was
-	// never actually re-verified. Re-derived properly this time: grepped
-	// every consumer of the main view's render targets (the deferred/postfx
-	// chain - fxaaF.hlsl:724/727, dofCombineF.hlsl:71/83/91,
-	// postDeferredF.hlsl:106, and SMAA.hlsl's shared API_V_COORD macro +
-	// explicit flips feeding SMAAEdgeDetectF/BlendWeightsF/NeighborhoodBlendF)
-	// and confirmed every single one already applies its own matching
-	// `1.0 - y` compensation. That's the real reason "main view looks fine"
-	// despite this flip - it's genuinely load-bearing for the main
-	// viewport's D3D11 top-down vs. GL-derived bottom-up row order, same
-	// underlying cause already fixed 3 times elsewhere in this exact form
-	// (FXAA, SMAA, DoF), not a coincidence and not dead weight inherited
-	// from cube-capture reasoning.
-	//
-	// Prior history (2026-08-13/14, task #163 follow-up): flip_y was forced
-	// false on the theory the cube-face Y-flip was never validated and
-	// simply wrong; reverted after reflections were still reported upside
-	// down with it false, restoring true to match the 3 explicit viewport
-	// sites in llreflectionmapmanager.cpp's radiance/irradiance generation
-	// loops. That restoration turned out to be correct, just for the reason
-	// documented above rather than the cube-capture reason it was
-	// originally restored for.
+	// This flip is genuinely load-bearing for the MAIN viewport too, not just cube captures: every
+	// consumer of the main view's render targets (fxaaF.hlsl, dofCombineF.hlsl, postDeferredF.hlsl,
+	// SMAA.hlsl's API_V_COORD-fed passes) already applies its own matching `1.0 - y` compensation for
+	// D3D11's top-down vs. GL-derived bottom-up row order - matches the same underlying cause already
+	// fixed elsewhere (FXAA, SMAA, DoF), and also matches the 3 explicit viewport sites in
+	// llreflectionmapmanager.cpp's radiance/irradiance generation loops. GL branch removed - task
+	// #300 (full GL removal), never compiled in this DX_RENDER-only build.
 	gDXContext.setViewport(gGLViewport[0], gGLViewport[1], gGLViewport[2], gGLViewport[3], true);
-#else
-	glViewport(gGLViewport[0], gGLViewport[1], gGLViewport[2], gGLViewport[3]);
-#endif
 }
 
 void LLViewerWindow::revealIntroPanel()
@@ -6470,7 +6168,6 @@ void LLViewerWindow::setProgressPercent(const F32 percent)
 	}
 }
 
-// S24: Update tech status display
 void LLViewerWindow::setProgressTechStatus(const std::string& status_text)
 {
 	if (mProgressView)
@@ -6523,24 +6220,18 @@ void LLViewerWindow::stopGL()
 		LLAppViewer::getTextureFetch()->pause();
 
 		gSky.destroyGL();
-		stop_glerror();
 
 		LLManipTranslate::destroyGL();
-		stop_glerror();
 
 		gBumpImageList.destroyGL();
-		stop_glerror();
 
 		LLFontGL::destroyAllGL();
-		stop_glerror();
 
 		LLVOAvatar::destroyGL();
-		stop_glerror();
 
 		LLVOPartGroup::destroyGL();
 
 		LLViewerDynamicTexture::destroyGL();
-		stop_glerror();
 
 		if (gPipeline.isInit())
 		{
@@ -6555,10 +6246,8 @@ void LLViewerWindow::stopGL()
 		}
 
 		gTextureList.destroyGL();
-		stop_glerror();
 
 		gGLManager.mIsDisabled = true;
-		stop_glerror();
 
 		//unload shader's
 		while (LLHLSLShader::sInstances.size())
@@ -6589,7 +6278,7 @@ void LLViewerWindow::restoreGL(const std::string& progress_message)
 		gGLManager.mIsDisabled = false;
 
 		initGLDefaults();
-		LLGLState::restoreGL();
+		DXState::restoreGL();
 
 		// for future support of non-square pixels, and fonts that are properly stretched
 		LLFontGL::destroyDefaultFonts(); // KL I have noted a few instances of font corruption on toggling reflections...
@@ -7076,7 +6765,6 @@ void LLPickInfo::getSurfaceInfo()
 	}
 }
 
-//S24 Tidy - static
 bool LLPickInfo::isFlora(LLViewerObject* object)
 {
 	if (!object) return false;

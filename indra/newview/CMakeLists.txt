@@ -690,6 +690,7 @@ set(viewer_SOURCE_FILES
     lltransientfloatermgr.cpp
     lltranslate.cpp
     lluiavatar.cpp
+    lluihueshift.cpp
     lluilistener.cpp
     lluploaddialog.cpp
     llurl.cpp
@@ -1379,6 +1380,7 @@ set(viewer_HEADER_FILES
     lltranslate.h
     lluiconstants.h
     lluiavatar.h
+    lluihueshift.h
     lluilistener.h
     lluploaddialog.h
     lluploadfloaterobservers.h

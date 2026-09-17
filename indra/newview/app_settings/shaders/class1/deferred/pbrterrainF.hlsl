@@ -33,15 +33,9 @@
 #define TERRAIN_PAINT_TYPE_PBR_PAINTMAP 1
 
 #if TERRAIN_PLANAR_TEXTURE_SAMPLE_COUNT == 3
-// S24 (2026-08-06): was "#define TerrainCoord float4[3]" - valid GLSL
-// array-type syntax, but HLSL requires array brackets AFTER the
-// identifier ("float4 name[3]", not "float4[3] name") - using this as a
-// type prefix for a parameter/local ("TerrainCoord terrain_coord")
-// produced "error X3000: syntax error: unexpected token '['". Never hit
-// before tonight since RenderTerrainPBRPlanarSampleCount defaulted to a
-// non-triplanar value in this environment - first real build/compile of
-// this permutation. typedef is the correct HLSL equivalent of a GLSL
-// array-type alias, usable identically at every existing call site.
+// S24: HLSL array types go after the identifier (float4 name[3]), not before it as a type
+// prefix like GLSL's "float4[3] name" — typedef is the correct HLSL equivalent of a GLSL
+// array-type alias.
 typedef float4 TerrainCoord[3];
 #elif TERRAIN_PLANAR_TEXTURE_SAMPLE_COUNT == 1
 #define TerrainCoord float2
@@ -140,22 +134,10 @@ SamplerState detail_1_emissiveSampler : register(s14);
 Texture2D detail_2_emissive : register(t15);
 SamplerState detail_2_emissiveSampler : register(s15);
 Texture2D detail_3_emissive : register(t16);
-// S24 (2026-08-04): register(s16) doesn't exist - D3D11 caps pixel-shader
-// sampler slots at 16 (s0-s15), and this shader already uses s0 (paint/
-// alpha ramp) + s1-s15 (the other 15 detail textures), so this 16th
-// detail-texture sampler has nowhere left to go. Reuses
-// detail_2_emissiveSampler (s15) instead of its own register - safe
-// because every detail-map texture (base color/normal/metallic-roughness/
-// emissive, all 4 layers) is bound with identical wrap/filter settings via
-// the same enableTexture()/bindTexture() chokepoint, so which specific
-// bind call last wrote slot 15 doesn't matter, only that it's a "detail
-// map" sampler. Root cause of a real crash: this register overflow failed
-// to compile (X4509), leaving the shader's mDXVertexShader/mDXPixelShader
-// null, and a later unconditional LLHLSLShader::bind() call for it hit
-// mDXVertexShader.getVS() != nullptr's ASSERT - confirmed via the D3DCompile
-// failure + immediate bind() assert in the same log, triggered by enabling
-// HDR Emissive (adds this 4th HAS_EMISSIVE detail sampler that pushed the
-// count over 16).
+// S24: D3D11 caps pixel-shader sampler slots at 16 (s0-s15); this 4th detail-emissive sampler
+// has no register left, so it reuses detail_2_emissiveSampler (s15) instead. Safe because every
+// detail-map texture across all 4 layers is bound with identical wrap/filter settings via the
+// same bind chokepoint.
 #endif
 
 uniform float4 baseColorFactors[4]; // See also vertex_color in pbropaqueV.hlsl
@@ -168,13 +150,7 @@ uniform float3 emissiveColors[4];
 #endif
 uniform float4 minimum_alphas; // PBR alphaMode: MASK, See: mAlphaCutoff, setAlphaCutoff()
 
-// S24 (2026-08-02): see uiF.hlsl's comment - real register mismatch,
-// confirmed via fxc.exe disassembly. pbrterrainV.hlsl's VSOutput declares
-// SV_Position first (consuming register 0), shifting its TEXCOORD0 to
-// register 1 - this PSInput had no SV_Position field at all, so its own
-// TEXCOORD0 started fresh at register 0. Same bug as the bare-Varying-
-// struct files, just with hand-written explicit semantics instead of a
-// shared struct.
+// S24: SV_Position must be declared first here, matching pbrterrainV.hlsl's VSOutput field order — otherwise TEXCOORD0 starts fresh at register 0 instead of 1.
 struct PSInput
 {
     float4 position : SV_Position;

@@ -22,10 +22,8 @@
  * SOFTWARE.
  */
 
-// S24 (2026-08-31, DXCubeMap rewrite plan, Step 3): see radianceGenV.hlsl's
-// header comment for the full derivation/proof - this is the same proven
-// closed-form per-face direction formula, mirrored here so radiance and
-// irradiance generation stay in sync (they always have).
+// Same closed-form per-face direction formula as radianceGenV.hlsl - see its
+// header comment for the derivation. Kept in sync with that file.
 uniform int cubeFace;
 
 struct VSInput
@@ -43,18 +41,13 @@ VSOutput main(VSInput IN)
 {
     VSOutput OUT;
 
-    // S24 (task #194 follow-up, 2026-08-13): see radianceGenV.hlsl's
-    // identical fix - IN.position.z is a constant -1, invalid under
-    // D3D11's [0,1] clip-z range, which clips this pass's whole quad away
-    // every draw call. 0.0 matches LLPipeline::mScreenTriangleVB's
-    // already-proven-safe convention; depth test/write are both disabled
-    // for this pass so the specific value is otherwise irrelevant.
+    // IN.position.z is a constant -1, invalid under D3D11's [0,1] clip-z
+    // range - would clip this pass's whole quad away. Depth test/write are
+    // disabled for this pass so 0.0 is otherwise arbitrary.
     OUT.position = float4(IN.position.xy, 0.0, 1.0);
 
-    // S24 (2026-09-02, REVERTED same day): see radianceGenV.hlsl's matching
-    // comment - the y-negation/normal-viewport substitution broke
-    // hero-probe mirror orientation live, reverted to the proven-correct
-    // pairing (unmodified y, negative-height viewport at the C++ call sites).
+    // y is left unmodified here; the Y-flip is paired with a negative-height
+    // viewport at the C++ call sites instead (see radianceGenV.hlsl).
     float x = IN.position.x;
     float y = IN.position.y;
 

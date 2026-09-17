@@ -25,44 +25,26 @@
  */
 
 #include "llviewerprecompiledheaders.h"
-#include "llfeaturemanager.h"
 #include "lldrawpoolwater.h"
 
-#include "llviewercontrol.h"
-#include "lldir.h"
-#include "llerror.h"
-#include "m3math.h"
-#include "llrender.h"
-
-#include "llagent.h"        // for gAgent for getRegion for getWaterHeight
 #include "DXCubeMap.h"
-#include "lldrawable.h"
 #include "llface.h"
-#include "llsky.h"
 #include "llviewertexturelist.h"
-#include "llviewerregion.h"
 #include "llvowater.h"
-#include "llworld.h"
-#include "pipeline.h"
 #include "llviewershadermgr.h"
 #include "llenvironment.h"
-#include "llsettingssky.h"
 #include "llsettingswater.h"
 
 #ifdef DX_RENDER
 #include "dxdrawpoolwater.h"
 #endif
 
-// S24: Fast timers for water rendering breakdown
-static LLTrace::BlockTimerStatHandle FTM_RENDER_WATER_OPAQUE("Water Opaque");
-static LLTrace::BlockTimerStatHandle FTM_RENDER_WATER_REFLECTION("Water Reflection");
+LLTrace::BlockTimerStatHandle FTM_RENDER_WATER_OPAQUE("Water Opaque");
 
 bool LLDrawPoolWater::sSkipScreenCopy = false;
 bool LLDrawPoolWater::sNeedsReflectionUpdate = true;
 bool LLDrawPoolWater::sNeedsDistortionUpdate = true;
 F32 LLDrawPoolWater::sWaterFogEnd = 0.f;
-
-extern bool gCubeSnapshot;
 
 LLDrawPoolWater::LLDrawPoolWater() : LLFacePool(POOL_WATER)
 {
@@ -126,247 +108,14 @@ void LLDrawPoolWater::beginPostDeferredPass(S32 pass)
 {
 #ifdef DX_RENDER
     DXDrawPoolWater::beginPostDeferredPass(*this, pass);
-    return;
 #endif
-    LL_PROFILE_GPU_ZONE("water beginPostDeferredPass");
-    gDX.setColorMask(true, true);
-
-    if (LLPipeline::sRenderTransparentWater)
-    {
-        // copy framebuffer contents so far to a texture to be used for
-        // reflections and refractions
-        LLGLDepthTest depth(GL_TRUE, GL_TRUE, GL_ALWAYS);
-
-        LLRenderTarget& src = gPipeline.mRT->screen;
-        LLRenderTarget& depth_src = gPipeline.mRT->deferredScreen;
-        LLRenderTarget& dst = gPipeline.mWaterDis;
-
-        dst.bindTarget();
-        gCopyDepthProgram.bind();
-
-        S32 diff_map = gCopyDepthProgram.getTextureChannel(LLShaderMgr::DIFFUSE_MAP);
-        S32 depth_map = gCopyDepthProgram.getTextureChannel(LLShaderMgr::DEFERRED_DEPTH);
-
-        gDX.getTexUnit(diff_map)->bind(&src);
-        gDX.getTexUnit(depth_map)->bind(&depth_src, true);
-
-        gPipeline.mScreenTriangleVB->setBuffer();
-        gPipeline.mScreenTriangleVB->drawArrays(LLRender::TRIANGLES, 0, 3);
-
-        dst.flush();
-    }
 }
 
 void LLDrawPoolWater::renderPostDeferred(S32 pass)
 {
 #ifdef DX_RENDER
     DXDrawPoolWater::renderPostDeferred(*this, pass);
-    return;
 #endif
-    LL_RECORD_BLOCK_TIME(FTM_RENDER_WATER_OPAQUE);
-    LLGLDisable blend(GL_BLEND);
-
-    gDX.setColorMask(true, true);
-
-    LLColor3 light_diffuse(0, 0, 0);
-
-    LLEnvironment& environment = LLEnvironment::instance();
-    LLSettingsWater::ptr_t pwater = environment.getCurrentWater();
-    LLSettingsSky::ptr_t   psky   = environment.getCurrentSky();
-    LLVector3              light_dir       = environment.getLightDirection();
-    bool                   sun_up          = environment.getIsSunUp();
-    bool                   moon_up         = environment.getIsMoonUp();
-    bool                   has_normal_mips = gSavedSettings.getBOOL("RenderWaterMipNormal");
-    bool                   underwater      = LLViewerCamera::getInstance()->cameraUnderWater();
-    LLColor4               fog_color       = LLColor4(pwater->getWaterFogColor(), 0.f);
-    LLColor3               fog_color_linear = linearColor3(fog_color);
-
-    if (sun_up)
-    {
-        light_diffuse += psky->getSunlightColor();
-    }
-    // moonlight is several orders of magnitude less bright than sunlight,
-    // so only use this color when the moon alone is showing
-    else if (moon_up)
-    {
-        light_diffuse += psky->getMoonlightColor();
-    }
-
-    // Apply magic numbers translating light direction into intensities
-    light_dir.normalize();
-    F32 ground_proj_sq = light_dir.mV[0] * light_dir.mV[0] + light_dir.mV[1] * light_dir.mV[1];
-    if (0.f < light_diffuse.normalize())  // Normalizing a color? Puzzling...
-    {
-        light_diffuse *= (1.5f + (6.f * ground_proj_sq));
-    }
-
-    LLTexUnit::eTextureFilterOptions filter_mode = has_normal_mips ? LLTexUnit::TFO_ANISOTROPIC : LLTexUnit::TFO_POINT;
-
-    LLColor4      specular(sun_up ? psky->getSunlightColor() : psky->getMoonlightColor());
-
-    // S24 Advanced - Apply wave animation speed multiplier
-    static LLCachedControl<F32> water_wave_speed(gSavedSettings, "RenderWaterWaveSpeed", 1.0f);
-    F32           phase_time = (F32) LLFrameTimer::getElapsedSeconds() * 0.5f * llmax(0.0f, (F32)water_wave_speed);
-    LLHLSLShader *shader     = nullptr;
-
-    // two passes, first with standard water shader bound, second with edge water shader bound
-    // There isn't a good reason anymore to really have void water run in a separate pass.
-    // It also just introduced a bunch of weird state consistency stuff that we really don't need.
-    // Not to mention, re-binding the the same shader and state for that shader is kind of wasteful.
-    // - Geenz 2025-02-11
-        // select shader
-        if (underwater)
-        {
-            shader = &gUnderWaterProgram;
-        }
-        else
-        {
-                shader = &gWaterProgram;
-            }
-
-        gPipeline.bindDeferredShader(*shader, nullptr, &gPipeline.mWaterDis);
-
-        LLViewerTexture* tex_a = mWaterNormp[0];
-        LLViewerTexture* tex_b = mWaterNormp[1];
-
-        F32 blend_factor = (F32)pwater->getBlendFactor();
-
-        if (tex_a && (!tex_b || (tex_a == tex_b)))
-        {
-        shader->bindTexture(LLViewerShaderMgr::BUMP_MAP, tex_a);
-        tex_a->setFilteringOption(filter_mode);
-            blend_factor = 0; // only one tex provided, no blending
-        }
-        else if (tex_b && !tex_a)
-        {
-        shader->bindTexture(LLViewerShaderMgr::BUMP_MAP, tex_b);
-        tex_b->setFilteringOption(filter_mode);
-            blend_factor = 0; // only one tex provided, no blending
-        }
-        else if (tex_b != tex_a)
-        {
-        shader->bindTexture(LLViewerShaderMgr::BUMP_MAP, tex_a);
-        tex_a->setFilteringOption(filter_mode);
-        shader->bindTexture(LLViewerShaderMgr::BUMP_MAP2, tex_b);
-        tex_b->setFilteringOption(filter_mode);
-        }
-
-    shader->bindTexture(LLShaderMgr::WATER_EXCLUSIONTEX, &gPipeline.mWaterExclusionMask);
-
-    shader->uniform1f(LLShaderMgr::BLEND_FACTOR, blend_factor);
-
-    // S24 Advanced - Apply underwater fog multiplier for independent underwater visibility control
-    static LLCachedControl<F32> water_underwater_fog_mult_setting(gSavedSettings, "RenderWaterUnderwaterFogMult", 1.0f);
-    F32 fog_mult = underwater ? llclamp((F32)water_underwater_fog_mult_setting, 0.1f, 5.0f) : 1.0f;
-    F32 fog_density = pwater->getModifiedWaterFogDensity(underwater) * fog_mult;
-
-    shader->bindTexture(LLShaderMgr::WATER_SCREENTEX, &gPipeline.mWaterDis);
-
-        if (mShaderLevel == 1)
-        {
-            fog_color.mV[VALPHA] = (F32)(log(fog_density) / log(2));
-        }
-
-        F32 water_height = environment.getWaterHeight();
-        F32 camera_height = LLViewerCamera::getInstance()->getOrigin().mV[2];
-        shader->uniform1f(LLShaderMgr::WATER_WATERHEIGHT, camera_height - water_height);
-        shader->uniform1f(LLShaderMgr::WATER_TIME, phase_time);
-        shader->uniform3fv(LLShaderMgr::WATER_EYEVEC, 1, LLViewerCamera::getInstance()->getOrigin().mV);
-
-        shader->uniform3fv(LLShaderMgr::WATER_SPECULAR, 1, light_diffuse.mV);
-
-        shader->uniform2fv(LLShaderMgr::WATER_WAVE_DIR1, 1, pwater->getWave1Dir().mV);
-        shader->uniform2fv(LLShaderMgr::WATER_WAVE_DIR2, 1, pwater->getWave2Dir().mV);
-
-        shader->uniform3fv(LLShaderMgr::WATER_LIGHT_DIR, 1, light_dir.mV);
-
-        shader->uniform3fv(LLShaderMgr::WATER_NORM_SCALE, 1, pwater->getNormalScale().mV);
-    shader->uniform1f(LLShaderMgr::WATER_FRESNEL_SCALE, pwater->getFresnelScale());
-    shader->uniform1f(LLShaderMgr::WATER_FRESNEL_OFFSET, pwater->getFresnelOffset());
-    shader->uniform1f(LLShaderMgr::WATER_BLUR_MULTIPLIER, fmaxf(0, pwater->getBlurMultiplier()) * 2);
-
-    // S24 - Advanced water material controls (unlock hardcoded values)
-    static LLCachedControl<F32> water_metallic(gSavedSettings, "RenderWaterMetallic", 1.0f);
-    static LLCachedControl<F32> water_roughness_override(gSavedSettings, "RenderWaterRoughnessOverride", 0.0f);
-    static LLCachedControl<F32> water_specular_intensity(gSavedSettings, "RenderWaterSpecularIntensity", 1.0f);
-    static LLCachedControl<F32> water_reflection_intensity(gSavedSettings, "RenderWaterReflectionIntensity", 1.0f);
-
-    shader->uniform1f(LLShaderMgr::WATER_METALLIC, llclamp((F32)water_metallic, 0.35f, 1.0f));
-    shader->uniform1f(LLShaderMgr::WATER_ROUGHNESS_OVERRIDE, llclamp((F32)water_roughness_override, 0.0f, 0.60f));
-    shader->uniform1f(LLShaderMgr::WATER_SPECULAR_INTENSITY, llmax(0.0f, (F32)water_specular_intensity));
-    shader->uniform1f(LLShaderMgr::WATER_REFLECTION_INTENSITY, llclamp((F32)water_reflection_intensity, 0.0f, 3.0f));
-
-    // S24 Advanced - Phase 1 & 2 artistic controls
-    static LLCachedControl<F32> water_color_tint_r(gSavedSettings, "RenderWaterColorTintR", 1.0f);
-    static LLCachedControl<F32> water_color_tint_g(gSavedSettings, "RenderWaterColorTintG", 1.0f);
-    static LLCachedControl<F32> water_color_tint_b(gSavedSettings, "RenderWaterColorTintB", 1.0f);
-    static LLCachedControl<F32> water_color_tint_a(gSavedSettings, "RenderWaterColorTintA", 1.0f);
-    static LLCachedControl<F32> water_fresnel_power(gSavedSettings, "RenderWaterFresnelPower", 2.0f);
-    static LLCachedControl<F32> water_shore_fade_distance(gSavedSettings, "RenderWaterShoreFadeDistance", 60.0f);
-    static LLCachedControl<F32> water_reflection_warmth(gSavedSettings, "RenderWaterReflectionWarmth", 1.0f);
-
-    LLVector3 water_color_tint(
-        llclamp((F32)water_color_tint_r, 0.0f, 2.0f),
-        llclamp((F32)water_color_tint_g, 0.0f, 2.0f),
-        llclamp((F32)water_color_tint_b, 0.0f, 2.0f)
-    );
-
-    shader->uniform3fv(LLShaderMgr::WATER_COLOR_TINT, 1, water_color_tint.mV);
-    shader->uniform1f(LLShaderMgr::WATER_COLOR_TINT_ALPHA, llclamp((F32)water_color_tint_a, 0.0f, 1.0f));
-    shader->uniform1f(LLShaderMgr::WATER_FRESNEL_POWER, llclamp((F32)water_fresnel_power, 0.5f, 4.0f));
-    shader->uniform1f(LLShaderMgr::WATER_SHORE_FADE_DISTANCE, llmax(1.0f, (F32)water_shore_fade_distance));
-    shader->uniform1f(LLShaderMgr::WATER_REFLECTION_WARMTH, llclamp((F32)water_reflection_warmth, 0.5f, 2.0f));
-
-    static LLStaticHashedString s_exposure("exposure");
-    static LLStaticHashedString tonemap_mix("tonemap_mix");
-    static LLStaticHashedString tonemap_type("tonemap_type");
-
-    static LLCachedControl<F32> exposure(gSavedSettings, "RenderExposure", 1.f);
-
-    F32 e = llclamp(exposure(), 0.5f, 4.f);
-
-    static LLCachedControl<bool> should_auto_adjust(gSavedSettings, "RenderSkyAutoAdjustLegacy", false);
-
-    shader->uniform1f(s_exposure, e);
-    static LLCachedControl<U32> tonemap_type_setting(gSavedSettings, "RenderTonemapType", 0U);
-    shader->uniform1i(tonemap_type, tonemap_type_setting);
-    shader->uniform1f(tonemap_mix, psky->getTonemapMix(should_auto_adjust()));
-
-    F32 sunAngle = llmax(0.f, light_dir.mV[1]);
-    F32 scaledAngle = 1.f - sunAngle;
-
-    shader->uniform1i(LLShaderMgr::SUN_UP_FACTOR, sun_up ? 1 : 0);
-
-        // SL-15861 This was changed from getRotatedLightNorm() as it was causing
-        // lightnorm in shaders\class1\windlight\atmosphericsFuncs.glsl in have inconsistent additive lighting for 180 degrees of the FOV.
-        LLVector4 rotated_light_direction = LLEnvironment::instance().getClampedLightNorm();
-        shader->uniform3fv(LLViewerShaderMgr::LIGHTNORM, 1, rotated_light_direction.mV);
-
-        shader->uniform3fv(LLShaderMgr::WL_CAMPOSLOCAL, 1, LLViewerCamera::getInstance()->getOrigin().mV);
-
-        if (LLViewerCamera::getInstance()->cameraUnderWater())
-        {
-            shader->uniform1f(LLShaderMgr::WATER_REFSCALE, pwater->getScaleBelow());
-        }
-        else
-        {
-            shader->uniform1f(LLShaderMgr::WATER_REFSCALE, pwater->getScaleAbove());
-        }
-
-    LLGLDisable cullface(GL_CULL_FACE);
-
-    // Only push the water planes once.
-    // Previously we did this twice: once for void water and one for region water.
-    // However, the void water and region water shaders are the same exact shader.
-    // They also had the same exact state with the sole exception setting an edge water flag.
-    // That flag was not actually used anywhere in the shaders.
-    // - Geenz 2025-02-11
-    pushWaterPlanes(0);
-
-    // clean up
-    gPipeline.unbindDeferredShader(*shader);
-
-    gDX.setColorMask(true, false);
 }
 
 void LLDrawPoolWater::pushWaterPlanes(int pass)

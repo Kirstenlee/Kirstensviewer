@@ -29,12 +29,8 @@ uniform float minimum_alpha;
 
 #include "varying/uiVarying.hlsli"
 
-// S24 (2026-08-02): confirmed via fxc.exe disassembly (uiF.hlsl's own fix,
-// same shared UIVarying struct) - the VS's SV_Position consumes a real,
-// numbered output register, shifting every subsequent interpolant by one.
-// A bare UIVarying PS input has no SV_Position field, so its first member
-// starts at register 0 instead of 1 - a genuine register mismatch, not
-// just a hypothetical one. Wrapping restores identical numbering.
+// SV_Position required on bare-Varying PS inputs - its absence shifts every
+// interpolant register by one (see uiF.hlsl).
 struct PSInput
 {
     float4 position : SV_Position;

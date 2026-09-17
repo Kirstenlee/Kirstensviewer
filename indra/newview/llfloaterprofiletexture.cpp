@@ -50,6 +50,9 @@ LLProfileImageCtrl::LLProfileImageCtrl(const LLProfileImageCtrl::Params& p)
     , mWasNoDelete(false)
     , mImageLoadedSignal(NULL)
 {
+    // S24: this control shows real user photo content (avatar profile pic / RL pic), not
+    // decorative skin chrome - never let UI hue shift distort it.
+    setExcludeFromHueShift(true);
 }
 
 LLProfileImageCtrl::~LLProfileImageCtrl()

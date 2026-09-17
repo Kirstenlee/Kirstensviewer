@@ -41,7 +41,7 @@ uniform float warmthAmount;
 
 struct PSInput
 {
-    // S24 (2026-08-02): missing SV_Position - see uiF.hlsl's comment (fxc.exe-confirmed VS/PS register-shift bug).
+    // SV_Position required here - its absence shifts every interpolant register (see uiF.hlsl).
     float4 position : SV_Position;
 
     float2 vary_texcoord0 : TEXCOORD0;
@@ -49,15 +49,9 @@ struct PSInput
 
 float4 main(PSInput IN) : SV_Target
 {
-    // S24 (2026-08-09, task #138): same GL-vs-D3D11 texture-origin mismatch
-    // already fixed for postDeferredGammaCorrect.hlsl/softenLightF.hlsl -
-    // flip belongs here, at the actual Texture2D .Sample() call sites, not
-    // in the vertex shader (glowExtractV.hlsl passes texcoord0 straight
-    // through from the vertex buffer, unflipped, same as every other pass
-    // built this way). Never hit until generateGlow() was actually wired
-    // into DX_RENDER for the first time (task #138) - confirmed via
-    // "upside down" report right after that fix landed, same as
-    // postDeferredGammaCorrect.hlsl's own history (task #121).
+    // GL-vs-D3D11 texture-origin flip, same as postDeferredGammaCorrect.hlsl/
+    // softenLightF.hlsl - belongs here at the Sample() call, not in the
+    // vertex shader (glowExtractV.hlsl passes texcoord0 through unflipped).
     float2 tc = float2(IN.vary_texcoord0.x, 1.0 - IN.vary_texcoord0.y);
     float4 col = diffuseMap.Sample(diffuseMapSampler, tc);
     /// CALCULATING LUMINANCE (Using NTSC lum weights)

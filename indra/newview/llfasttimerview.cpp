@@ -1059,7 +1059,10 @@ void LLFastTimerView::drawLineGraph()
         if (mHoverID == idp)
         {
             gDX.flush();
-            glLineWidth(3);
+            // S24: raw glLineWidth() was unguarded here - found in a tree-wide stray-GL sweep
+            // (task #311). LLUI::setLineWidth() is the same no-op-under-DX_RENDER replacement
+            // used tree-wide.
+            LLUI::setLineWidth(3);
         }
 
         llassert(idp->getIndex() < sTimerColors.size());
@@ -1120,7 +1123,7 @@ void LLFastTimerView::drawLineGraph()
         if (mHoverID == idp)
         {
             gDX.flush();
-            glLineWidth(1);
+            LLUI::setLineWidth(1);
         }
 
         if (idp->getTreeNode().mCollapsed)

@@ -100,7 +100,7 @@ LONG WINAPI catchallCrashHandler(EXCEPTION_POINTERS* /*ExceptionInfo*/)
 	return 0;
 }
 
-const std::string LLAppViewerWin32::sWindowClass = "Kirstens S24";  // S24
+const std::string LLAppViewerWin32::sWindowClass = "Kirstens S24";
 
 /*
 	This function is used to print to the command line a text message
@@ -277,7 +277,6 @@ void ll_nvapi_init(NvDRSSessionHandle hSession)
             return;
 	}
 
-	// --- S24 SPICY ENHANCEMENTS: For advanced testing ---
         status = NvAPI_DRS_SaveSettings(hSession);
         if (status != NVAPI_OK) 
         {
@@ -304,23 +303,10 @@ int APIENTRY WINMAIN(HINSTANCE hInstance,
 	PWSTR     pCmdLine,
 	int       nCmdShow)
 {
-	// S24 (2026-08-24, task #257 follow-up): REVERTED as a diagnostic isolation
-	// step - a login hang ("not responding", black screen including UI) was
-	// observed on 2026-08-24 in the first genuine Release build of the session
-	// (build-config confusion meant this exact call was never actually
-	// verified in Release before - see feedback_s24_build_system.md). This is
-	// the exact same "hangs at login" signature as the ORIGINAL regression
-	// this call caused when first introduced (task #257), before being
-	// reverted and reportedly re-confirmed safe - that re-confirmation may
-	// itself have been against a stale/wrong-config build. Reverting first to
-	// restore a working viewer and isolate the variable; re-investigate
-	// properly (with login tested under a genuine Release build specifically)
-	// before re-attempting this fix.
+	// S24: on_main_thread() below is disabled - calling it this early caused a
+	// login hang (black screen, UI unresponsive) before window creation.
+	// Re-verify under a genuine Release build before re-enabling.
 	// on_main_thread();
-
-	// S23 test
-	LL_PROFILER_FRAME_END;
-	LL_PROFILER_SET_THREAD_NAME("App");
 
 	const S32 MAX_HEAPS = 255;
 	DWORD heap_enable_lfh_error[MAX_HEAPS];
@@ -435,7 +421,7 @@ int APIENTRY WINMAIN(HINSTANCE hInstance,
 		}
 #endif
 
-		gDXActive = true; // S24 (2026-08-31): renamed from gGLActive
+		gDXActive = true; // S24: renamed from gGLActive
 
 		viewer_app_ptr->cleanup();
 
@@ -591,15 +577,12 @@ bool LLAppViewerWin32::init()
 
 	disableWinErrorReporting();
 
-	// S24 (2026-08-02): re-gated after enabling this caused a lockup/crash
-	// before window creation - LLWinDebug's vectored exception handler
-	// intercepts EVERY exception process-wide, including ordinary
-	// first-chance C++ exceptions libraries throw-and-catch internally as
-	// normal control flow (CEF/media plugin init, etc, all run before the
-	// window exists). With minidump writing enabled, each one triggered a
-	// full MiniDumpWriteDump() call - slow, and apparently reentrant/
-	// unstable enough to lock up before a window ever appeared. Not a safe
-	// diagnostic path for this codebase - back to log-based tracing only.
+	// S24: LLWinDebug's vectored exception handler intercepts every
+	// process-wide exception, including ordinary first-chance C++ exceptions
+	// libraries throw-and-catch internally (CEF/media plugin init, etc, run
+	// before the window exists). Each one triggers a full MiniDumpWriteDump()
+	// call, which can lock up before a window ever appears - keep gated to
+	// after window creation.
 #ifndef LL_RELEASE_FOR_DOWNLOAD
 	// Merely requesting the LLSingleton instance initializes it.
 	LLWinDebug::instance();
@@ -627,6 +610,14 @@ bool LLAppViewerWin32::cleanup()
 	return result;
 }
 
+// S24: real process/thread QoS tier applied by LLWindowWin32's constructor
+// (llwindowwin32.cpp) - 0=Eco/1=Normal/2=High, set below from
+// RenderProcessQoS before the window (and this global's reader) exists.
+// Plain extern rather than threading a new parameter through
+// LLWindowManager::createWindow()'s cross-platform signature - see
+// llwindowwin32.cpp's matching extern declaration.
+S32 gRenderProcessQoS = 1;
+
 bool LLAppViewerWin32::initWindow()
 {
 	// This is a workaround/hotfix for a change in Windows 11 24H2 (and possibly later)
@@ -646,6 +637,8 @@ bool LLAppViewerWin32::initWindow()
 			LL_WARNS("AppInit") << "Unable to set WindowWidth and WindowHeight for FullScreen mode" << LL_ENDL;
 		}
 	}
+
+	gRenderProcessQoS = gSavedSettings.getS32("RenderProcessQoS");
 
 	return LLAppViewer::initWindow();
 }

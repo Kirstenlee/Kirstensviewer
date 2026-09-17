@@ -49,13 +49,12 @@
 #include <functional>
 #include <vector>
 
-// S24 (DX_RENDER, task #283 Phase 1): staging list for pipeline-mutating calls made
-// from a DXPool worker thread during LLViewerObjectList::update()'s parallel
-// idleUpdate() dispatch (llviewerobjectlist.cpp). markMoved()/markRebuild()/etc push
-// into shared, unlocked containers - not safe to call directly off the main thread.
-// Set via LLPipeline::setDeferredMarksForThisThread() before dispatching work to a
-// worker thread; each intercepted call defers itself into mActions instead of
-// mutating pipeline state, for later serial replay on the main thread.
+// Staging list for pipeline-mutating calls made from a DXPool worker thread during
+// LLViewerObjectList::update()'s parallel idleUpdate() dispatch (llviewerobjectlist.cpp).
+// markMoved()/markRebuild()/etc push into shared, unlocked containers - not safe to call directly off
+// the main thread. Set via LLPipeline::setDeferredMarksForThisThread() before dispatching work to a
+// worker thread; each intercepted call defers itself into mActions for later serial replay on the main
+// thread.
 struct LLDeferredPipelineMarks
 {
     std::vector<std::function<void()> > mActions;
@@ -85,26 +84,17 @@ bool setup_hud_matrices(const LLRect& screen_region); // specify portion of scre
 
 
 extern LLTrace::BlockTimerStatHandle FTM_RENDER_GEOMETRY;
-extern LLTrace::BlockTimerStatHandle FTM_RENDER_GRASS;
 extern LLTrace::BlockTimerStatHandle FTM_RENDER_INVISIBLE;
 extern LLTrace::BlockTimerStatHandle FTM_RENDER_SHINY;
-extern LLTrace::BlockTimerStatHandle FTM_RENDER_SIMPLE;
 extern LLTrace::BlockTimerStatHandle FTM_RENDER_TERRAIN;
 extern LLTrace::BlockTimerStatHandle FTM_RENDER_TREES;
 extern LLTrace::BlockTimerStatHandle FTM_RENDER_UI;
-extern LLTrace::BlockTimerStatHandle FTM_RENDER_WATER;
 extern LLTrace::BlockTimerStatHandle FTM_RENDER_WL_SKY;
-extern LLTrace::BlockTimerStatHandle FTM_RENDER_ALPHA;
 extern LLTrace::BlockTimerStatHandle FTM_RENDER_CHARACTERS;
 extern LLTrace::BlockTimerStatHandle FTM_RENDER_BUMP;
-extern LLTrace::BlockTimerStatHandle FTM_RENDER_MATERIALS;
 extern LLTrace::BlockTimerStatHandle FTM_RENDER_FULLBRIGHT;
-extern LLTrace::BlockTimerStatHandle FTM_RENDER_GLOW;
 extern LLTrace::BlockTimerStatHandle FTM_STATESORT;
-extern LLTrace::BlockTimerStatHandle FTM_PIPELINE;
-extern LLTrace::BlockTimerStatHandle FTM_CLIENT_COPY;
 
-extern LLTrace::BlockTimerStatHandle FTM_RENDER_UI_HUD;
 extern LLTrace::BlockTimerStatHandle FTM_RENDER_UI_3D;
 extern LLTrace::BlockTimerStatHandle FTM_RENDER_UI_2D;
 
@@ -225,9 +215,9 @@ public:
 	void		markPartitionMove(LLDrawable* drawablep);
 	void		markMeshDirty(LLSpatialGroup* group);
 
-	// S24 (task #283 Phase 1): see LLDeferredPipelineMarks above. Pass non-null before
-	// posting idleUpdate() work for a chunk of objects to a DXPool worker thread, and
-	// null again once that chunk is done - never leave it set on the main thread.
+	// See LLDeferredPipelineMarks above. Pass non-null before posting idleUpdate() work for a chunk of
+	// objects to a DXPool worker thread, and null again once that chunk is done - never leave it set on
+	// the main thread.
 	static void setDeferredMarksForThisThread(LLDeferredPipelineMarks* marks);
 
 	//get the object between start and end that's closest to start.
@@ -293,7 +283,7 @@ public:
 	void processPartitionQ();
 	void updateGeom(F32 max_dtime);
 	void updateGL();
-	void rebuildPriorityGroups();
+	void rebuildPriorityGroups(F32 max_dtime);
 	void rebuildGroups();
 	void clearRebuildGroups();
 	void clearRebuildDrawables();
@@ -434,7 +424,7 @@ public:
 	void pushRenderDebugFeatureMask();
 	void popRenderDebugFeatureMask();
 
-	static void toggleRenderType(U32 type);
+	static void toggleRenderType(U32 type, bool mark_dirty = true);
 
 	// For UI control of render features
 	static bool hasRenderTypeControl(U32 data);
@@ -609,13 +599,10 @@ public:
 	{
 		RENDER_DEBUG_FEATURE_UI					= 0x0001,
 		RENDER_DEBUG_FEATURE_SELECTED			= 0x0002,
-		RENDER_DEBUG_FEATURE_HIGHLIGHTED		= 0x0004,
 		RENDER_DEBUG_FEATURE_DYNAMIC_TEXTURES	= 0x0008,
 // 		RENDER_DEBUG_FEATURE_HW_LIGHTING		= 0x0010,
 		RENDER_DEBUG_FEATURE_FLEXIBLE			= 0x0010,
 		RENDER_DEBUG_FEATURE_FOG				= 0x0020,
-		RENDER_DEBUG_FEATURE_FR_INFO			= 0x0080,
-		RENDER_DEBUG_FEATURE_FOOT_SHADOWS		= 0x0100,
 	};
 
 	enum LLRenderDebugMask: U64
@@ -702,21 +689,11 @@ public:
 	static bool				sRenderAttachedParticles;
 	static bool				sRenderDeferred;
     static bool				sReflectionProbesEnabled;
-    // S24 (2026-08-31, task #197 root-cause investigation): sReflectionProbesEnabled
-    // (RenderReflectionsEnabled) gates whether the probe-capture pipeline runs
-    // at all, but the SHADER-side legacy/environmentMap fallback (reflectionProbeF.hlsl's
-    // sampleReflectionProbesLegacy()/sampleReflectionProbesWater()) actually
-    // decides per-pixel whether to sample the probe array based on a SEPARATE
-    // setting, RenderReflectionProbesEnabled - the shader takes the legacy
-    // branch whenever EITHER is off. LLVOSky::updateSky() (the legacy
-    // cubemap's producer) and bindDeferredShader()'s environmentMap texture
-    // bind were both keyed on sReflectionProbesEnabled alone, so whenever
-    // RenderReflectionsEnabled was on but RenderReflectionProbesEnabled was
-    // off (the KVTweaks "Reflection Probes" checkbox - the only one of the
-    // two actually exposed in any UI), the shader would take the legacy
-    // branch and sample a texture nobody was updating or binding. This
-    // helper is the single source of truth both C++ producers and the
-    // shader's own fallback condition should agree on.
+    // sReflectionProbesEnabled (RenderReflectionsEnabled) gates whether the probe-capture pipeline runs
+    // at all, but reflectionProbeF.hlsl's legacy/environmentMap fallback decides per-pixel based on a
+    // SEPARATE setting, RenderReflectionProbesEnabled - it takes the legacy branch whenever EITHER is
+    // off. C++ producers (LLVOSky::updateSky(), bindDeferredShader()'s environmentMap bind) must key on
+    // this helper, not sReflectionProbesEnabled alone, to stay in sync with the shader's condition.
     static bool				shouldUseLegacyEnvMap();
 	static S32				sVisibleLightCount;
 	static bool				sRenderingHUDs;
@@ -770,11 +747,18 @@ public:
     LLRenderTarget          mPostPingMap;
     LLRenderTarget          mPostPongMap;
 
-    // S24 (2026-08-23, task #190 temporal-SSAO follow-up): last frame's
-    // fully-resolved AO/shadow lightmap, reprojected and blended with this
-    // frame's raw value in DXPipeline::renderDeferredLighting() to remove
-    // per-frame screen-locked-noise flicker. Same history-buffer pattern as
-    // mLastExposure below - see generateExposure() for the precedent.
+    // Anaglyph 3D: each eye's fully composited post-fx result is captured here (via
+    // DXPipeline::presentFinal()'s optional destination parameter) instead of relying on left/right
+    // tint surviving as ambient GPU colormask state across the frame. DXPipeline::presentStereoComposite()
+    // reads both and writes the real back buffer once. Allocated unconditionally alongside
+    // mPostPingMap/mPostPongMap, not gated on StereoMode, so toggling stereo at runtime never depends
+    // on catching a settings-change path that would trigger reallocation.
+    LLRenderTarget          mStereoEyeL;
+    LLRenderTarget          mStereoEyeR;
+
+    // Last frame's fully-resolved AO/shadow lightmap, reprojected and blended with this frame's raw
+    // value in DXPipeline::renderDeferredLighting() to remove per-frame screen-locked-noise flicker.
+    // Same history-buffer pattern as mLastExposure below (see generateExposure()).
     LLRenderTarget          mSSAOHistory;
 
     // FXAA helper target
@@ -845,16 +829,11 @@ public:
     U32                 mSMAASampleMap = 0;
 
 #ifdef DX_RENDER
-    // S24 (2026-08-03, task #84): DX-native backing for the 6 procedural
-    // textures above - these are plain raw-GLuint fields (no LLImageGL
-    // wrapper at all), created/bound via LLImageGL::generateTextures()+
-    // gDX.getTexUnit()->bindManual()+LLImageGL::setManualImage(), an
-    // ambient-GL-state idiom bindManual() can't translate to DX_RENDER's
-    // explicit-resource model (there's no "currently bound for upload"
-    // concept, and no unique per-call name to look anything up by even if
-    // there were - see project_dxrender memory for the full investigation).
-    // Each raw field keeps its GL-only meaning unchanged; these are used
-    // instead, directly, at each call site's DX_RENDER branch.
+    // DX-native backing for the 6 procedural textures above. Those are plain raw-GLuint fields (no
+    // LLImageGL wrapper) created/bound via an ambient-GL-state idiom (bindManual() then
+    // setManualImage()) that has no DX_RENDER translation - there's no "currently bound for upload"
+    // concept in D3D11's explicit-resource model. Each raw field keeps its GL-only meaning; these
+    // DXTexture fields are used instead, directly, at each call site's DX_RENDER branch.
     DXTexture mDXNoiseMap;
     DXTexture mDXTrueNoiseMap;
     DXTexture mDXLightFunc;
@@ -1179,18 +1158,13 @@ public:
 
 void render_bbox(const LLVector3 &min, const LLVector3 &max);
 void render_hud_elements();
-// S24 (2026-08-17): was `static` - gave every TU including this header its
-// own internally-linked (and, outside pipeline.cpp, undefined) copy of this
-// declaration, so it could never actually be CALLED from another TU.
-// Harmless until DXPipeline::presentDeferredScreen() (dxpipeline.cpp)
-// needed to call it directly (DX_RENDER's renderFinalize() early-returns
-// before GL's own body - which normally calls this - ever runs). Matches
-// effectsMask's own `static` removal, same reason (pipeline.cpp).
-void updateEffectMask(); // S24
+// Not `static`: DXPipeline::presentDeferredScreen() (dxpipeline.cpp) calls this directly, since
+// DX_RENDER's renderFinalize() early-returns before GL's own body (which normally calls this) ever
+// runs. `static` would give every other TU an internally-linked, undefined copy.
+void updateEffectMask();
 
 
 extern LLPipeline gPipeline;
-extern bool gDebugPipeline;
 extern const LLMatrix4* gGLLastMatrix;
 
 #endif

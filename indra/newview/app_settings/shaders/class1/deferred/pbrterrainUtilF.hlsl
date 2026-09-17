@@ -284,10 +284,7 @@ float terrain_mix(TerrainMix tm, float4 tms4)
 // Triplanar mapping
 
 // Pre-transformed texture coordinates for each axial uv slice (Packing: xy, yz, (-x)z, unused)
-// S24 (2026-08-06): was "#define TerrainCoord float4[3]" - see
-// pbrterrainF.hlsl's matching comment for the full explanation (invalid
-// HLSL array-type-as-prefix syntax, X3000 syntax error, never hit before
-// tonight since triplanar was never actually compiled in this environment).
+// S24: HLSL array types go after the identifier (float4 name[3]), not before it as a type prefix — see pbrterrainF.hlsl's matching typedef.
 typedef float4 TerrainCoord[3];
 
 // If sign_or_zero is positive, use uv_unflippped, otherwise use uv_flipped
@@ -351,11 +348,9 @@ PBRMix terrain_sample_pbr(
 {
     PBRMix mix = init_pbr_mix();
 
-// S24 (2026-08-06): were zero-parameter function-like macros
-// ("#define get_uv_x() ..."), same rejected-by-HLSL-preprocessor shape
-// already fixed in pbrterrainV.hlsl (transform_xy etc.) - D3DCompile gave
-// X1500 syntax errors at every call site. Converted to plain object-like
-// macros; every call site below drops the now-meaningless trailing "()".
+// S24: zero-parameter function-like macros ("#define X() ...") aren't supported by the HLSL
+// preprocessor (X1500) — these are plain object-like macros instead, so call sites below use
+// them without "()". Same fix as pbrterrainV.hlsl's transform_xy etc.
 #define get_uv_x _t_uv(terrain_coord[0].zw, terrain_coord[1].zw, sign(vary_vertex_normal.x))
 #define get_uv_y _t_uv(terrain_coord[1].xy, terrain_coord[2].xy, sign(vary_vertex_normal.y))
 #define get_uv_z _t_uv(terrain_coord[0].xy, float2(0, 0),        sign(vary_vertex_normal.z))

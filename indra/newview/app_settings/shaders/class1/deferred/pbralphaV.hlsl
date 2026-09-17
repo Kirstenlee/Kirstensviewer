@@ -36,10 +36,8 @@ uniform float4x4 modelview_projection_matrix;
 #endif
 uniform float4x4 texture_matrix0;
 
-// S24 (task #173): matches alphaV.hlsl's identical near_clip bias on
-// vary_fragcoord.z - shadowUtil.hlsl's sampleDirectionalShadow() (now wired
-// into pbralphaF.hlsl) needs this same small bias for its screen-position
-// reconstruction, same reasoning as the already-working legacy alpha path.
+// Matches alphaV.hlsl's near_clip bias on vary_fragcoord.z - shadowUtil.hlsl's
+// sampleDirectionalShadow() needs the same bias for its screen-position reconstruction.
 uniform float near_clip;
 
 #if !defined(HAS_SKIN)

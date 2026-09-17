@@ -53,7 +53,9 @@ float4 main(PSInput IN) : SV_Target
     alpha *= IN.vertex_color.a;
 #endif
 
-    bayerDitherDiscard(alpha, 0.88, IN.svPosition);
+    // Lowered from upstream's 0.88 so wispy/translucent hair casts little to
+    // no shadow; see pipeline.cpp's ALPHA_BLEND_CUTOFF, tune together.
+    bayerDitherDiscard(alpha, 0.4, IN.svPosition);
 
     return float4(1, 1, 1, 1);
 }

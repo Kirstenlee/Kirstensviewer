@@ -59,7 +59,7 @@ uniform float2 screen_res;
 
 struct PSInput
 {
-    // S24 (2026-08-02): missing SV_Position - see uiF.hlsl's comment (fxc.exe-confirmed VS/PS register-shift bug).
+    // S24: needs explicit SV_Position, or VS/PS register binding shifts - see uiF.hlsl.
     float4 position : SV_Position;
 
     float2 vary_fragcoord : TEXCOORD0;
@@ -82,21 +82,15 @@ float calc_cof(float depth)
 
 float4 main(PSInput IN) : SV_Target
 {
-    // S24 (2026-08-11, quick-win origin sweep): GL-vs-D3D11 texture-origin
-    // flip - tc here is used only for the two direct Sample() calls below
-    // (the depth read's NDC.xy is hardcoded to (0,0), not derived from tc),
-    // so it's safe to flip once here rather than at each call site. Same
-    // bug class as task #158/#185 (shadows/SSAO) - found via a proactive
-    // sweep after those two fixes, never hit until DoF (task #140) is wired
-    // in and exercised for real.
+    // S24: GL-vs-D3D11 texture-origin flip - tc feeds only the two direct
+    // Sample() calls below (the depth read's NDC.xy is hardcoded), so it's
+    // safe to flip once here rather than per call site.
     float2 tc = float2(IN.vary_fragcoord.x, 1.0 - IN.vary_fragcoord.y);
 
     float z = depthMap.Sample(depthMapSampler, tc).r;
-    // S24 (reversed-Z conversion, missed in the original r3704 sweep -
-    // cofF.hlsl wasn't in that pass's file list): 1.0-z*2.0, was z*2.0-1.0 -
-    // see deferredUtil.hlsl's linearDepth() comment for the full reasoning.
-    // Left uncorrected, DoF's calc_cof() computed depth against an inverted
-    // sense of near/far, throwing off the whole focal-plane/blur falloff.
+    // S24: reversed-Z: 1.0-z*2.0, not z*2.0-1.0 - see deferredUtil.hlsl's
+    // linearDepth() comment. Getting this wrong inverts calc_cof()'s
+    // near/far sense and breaks the focal-plane/blur falloff.
     z = 1.0 - z*2.0;
     float4 ndc = float4(0.0, 0.0, z, 1.0);
     float4 p = mul(inv_proj, ndc);

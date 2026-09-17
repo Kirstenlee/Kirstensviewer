@@ -394,6 +394,39 @@ void LLFloaterCamera::showDebugInfo(bool show)
             []() { return gAgent.getPosAgentFromGlobal(gAgentCamera.calcFocusPositionTargetGlobal()); }));
     }
 
+    // S24: viewer_camera_info/agent_camera_info (floater_camera.xml, top="135"/"285") were
+    // declared assuming they'd sit below camera_tabs (the "Controls"/"Composition Guides"/
+    // "Camera Recorder" tab container, top="20" height="170") - but at those offsets they instead
+    // land ON TOP of it (135 falls inside camera_tabs' own 20-190 span). camera_tabs also used to
+    // have follows="all", so the first version of this fix (just growing the floater) made
+    // camera_tabs itself stretch to fill the new height instead of fixing anything - now
+    // follows="left|top|right", a fixed 170px regardless of the floater's own height. Byte-
+    // identical positions in the pre-DX GL baseline - not a DX_RENDER regression, just never
+    // finished. Reposition both panels once, right below camera_tabs' real bottom edge, instead
+    // of trusting their XML offsets; then grow the floater to actually reveal them.
+    if (mNormalHeight == 0)
+    {
+        mNormalHeight = getRect().getHeight();
+
+        constexpr S32 DEBUG_PANEL_MARGIN = 5;
+        const S32 controls_bottom = getChild<LLView>("camera_tabs")->getRect().mBottom;
+        const S32 delta = (controls_bottom - DEBUG_PANEL_MARGIN) - mViewerCameraInfo->getRect().mTop;
+        mViewerCameraInfo->translate(0, delta);
+        mAgentCameraInfo->translate(0, delta);
+    }
+    if (show)
+    {
+        const S32 overflow = llmax(-mViewerCameraInfo->getRect().mBottom, -mAgentCameraInfo->getRect().mBottom);
+        if (overflow > 0)
+        {
+            reshape(getRect().getWidth(), mNormalHeight + overflow);
+        }
+    }
+    else
+    {
+        reshape(getRect().getWidth(), mNormalHeight);
+    }
+
     mAgentCameraInfo->setVisible(show);
     mViewerCameraInfo->setVisible(show);
 }

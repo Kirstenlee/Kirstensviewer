@@ -42,7 +42,7 @@ float3 linear_to_srgb(float3 cl);
 
 struct PSInput
 {
-    // S24 (2026-08-02): missing SV_Position - see uiF.hlsl's comment (fxc.exe-confirmed VS/PS register-shift bug).
+    // S24: missing SV_Position shifts every subsequent semantic register by one relative to the VS output.
     float4 position : SV_Position;
 
     float2 vary_fragcoord : TEXCOORD0;
@@ -57,14 +57,7 @@ float3 legacyGamma(float3 color)
 
 float4 main(PSInput IN) : SV_Target
 {
-    // S24 (2026-08-06): same GL-vs-D3D11 texture-origin mismatch already
-    // fixed elsewhere this session (softenLightF.hlsl's getGBuffer()/
-    // getDepth() reads, etc.) - vary_fragcoord itself stays in GL's
-    // original convention (postDeferredNoTCV.hlsl), the flip belongs here,
-    // at the actual Texture2D .Sample() call site. Never hit until this
-    // pass was actually wired into presentDeferredScreen() for the first
-    // time (task #121) - confirmed via "upside down" report right after
-    // that fix landed.
+    // S24: GL-vs-D3D11 texture-origin flip — vary_fragcoord itself stays in GL's original convention (postDeferredNoTCV.hlsl); the flip belongs here, at the Sample() call site.
     float2 tc = float2(IN.vary_fragcoord.x, 1.0 - IN.vary_fragcoord.y);
     float4 diff = diffuseRect.Sample(diffuseRectSampler, tc);
     diff.rgb = linear_to_srgb(diff.rgb);

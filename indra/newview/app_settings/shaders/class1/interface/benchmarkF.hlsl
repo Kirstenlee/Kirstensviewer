@@ -27,7 +27,7 @@ SamplerState diffuseMapSampler : register(s0);
 
 struct PSInput
 {
-    // S24 (2026-08-02): missing SV_Position - see uiF.hlsl's comment (fxc.exe-confirmed VS/PS register-shift bug).
+    // SV_Position required here - its absence shifts every interpolant register (see uiF.hlsl).
     float4 position : SV_Position;
 
     float2 tc0 : TEXCOORD0;

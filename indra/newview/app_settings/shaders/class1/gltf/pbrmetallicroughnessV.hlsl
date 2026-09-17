@@ -58,14 +58,10 @@ void unpackTextureTransforms()
     }
 }
 
-// S24 (task #154): was never ported from pbrmetallicroughnessV.glsl - every
-// GLTF object rendered using only its root transform, ignoring per-node
-// offsets in the asset's scene graph. gltfscenemanager.cpp already binds
-// this cbuffer at b2 (see its own comment, task #79) and sets gltf_node_id
-// via uniform1i(GLTF_NODE_ID, ...) unconditionally for the non-rigged path,
-// exactly like gltf_material_id above - both just needed the HLSL side.
-// Skinning (HAS_SKIN/GLTFJoints) is NOT ported here - a separate, larger,
-// already-tracked gap (DXVertexLayout has no HAS_SKIN path).
+// gltfscenemanager.cpp binds this cbuffer at b2 and sets gltf_node_id via
+// uniform1i(GLTF_NODE_ID, ...) unconditionally for the non-rigged path.
+// Skinning (HAS_SKIN/GLTFJoints) is NOT handled here - DXVertexLayout has no
+// HAS_SKIN path.
 cbuffer GLTFNodes : register(b2)
 {
     float4 gltf_nodes[MAX_NODES_PER_GLTF_OBJECT];
@@ -81,16 +77,10 @@ float4x4 getGLTFTransform()
     float4 src1 = gltf_nodes[idx + 1];
     float4 src2 = gltf_nodes[idx + 2];
 
-    // GLSL builds ret[0..3] as COLUMNS (mat4[i] indexes columns in GLSL:
-    // ret[0]=vec4(src0.xyz,0), ret[1]=vec4(src1.xyz,0), ret[2]=vec4(src2.xyz,0),
-    // ret[3]=vec4(src0.w,src1.w,src2.w,1)). HLSL's ret[i] always means ROW i
-    // regardless of storage order - the same GLSL-column-vs-HLSL-row trap
-    // already fixed in objectSkinV.hlsl::getObjectSkinnedTransform() (see
-    // that file's comment for the general pattern/lesson). Build the
-    // equivalent rows directly so mul(ret, v) reproduces the exact same
-    // numeric matrix as GLSL's ret * v, instead of transliterating the
-    // column assignments verbatim (which would silently corrupt every
-    // GLTF node transform under DX_RENDER).
+    // GLSL builds ret[0..3] as COLUMNS; HLSL's ret[i] always means ROW i
+    // regardless of storage order (same GLSL-column-vs-HLSL-row trap as
+    // objectSkinV.hlsl::getObjectSkinnedTransform()). Build the equivalent
+    // rows directly so mul(ret, v) reproduces GLSL's ret * v.
     float4x4 ret;
     ret[0] = float4(src0.x, src1.x, src2.x, src0.w);
     ret[1] = float4(src0.y, src1.y, src2.y, src1.w);
@@ -103,21 +93,12 @@ float4x4 getGLTFTransform()
 float2 khr_texture_transform(float2 texcoord, float2 scale, float rotation, float2 offset);
 float2 texture_transform(float2 vertex_texcoord, float4 khr_gltf_transform[2], float4x4 sl_animation_transform);
 
-// S24 (2026-08-19, task #239, task #227 audit finding): this file was
-// calling the WRONG function - the shared tangent_space_transform() from
-// textureUtilV.hlsl (a different function, with SL-animation/scale-sign
-// terms that don't exist in the GLTF-local original) - instead of
-// pbrmetallicroughnessV.glsl's own LOCAL gltf_tangent_space_transform().
-// Worse, it passed that shared function the raw OBJECT-SPACE IN.tangent
-// together with the already EYE-SPACE n, then applied `mat` to the
-// RESULT afterward - mixing object-space and eye-space vectors in a
-// cross-product is only valid if `mat` is a pure rotation (no scale),
-// silently breaking normal-map lighting direction on any scaled glTF
-// mesh. Real gltf_tangent_space_transform() ported below, faithfully -
-// GLSL's mat2(cos,-sin,sin,cos)*weights rotation is column-major, so it's
-// written out as explicit scalar math here rather than reproduced with
-// HLSL's row-major float2x2 (same GLSL-column-vs-HLSL-row lesson already
-// applied in this file's own getGLTFTransform(), see its comment).
+// Both vertex_tangent and vertex_normal must already be in the same space
+// (eye-space) before this function combines them via cross product - mixing
+// object-space and eye-space vectors here is only valid if the transform
+// applied afterward is a pure rotation (no scale). GLSL's
+// mat2(cos,-sin,sin,cos)*weights rotation is column-major, so it's written
+// out as explicit scalar math here rather than HLSL's row-major float2x2.
 float3 gltf_tangent_space_transform(float4 vertex_tangent, float3 vertex_normal, float4 khr_gltf_transform[2])
 {
     float2 weights = float2(0.0, 1.0);
@@ -163,10 +144,8 @@ VSOutput main(VSInput IN)
     VSOutput OUT;
     unpackTextureTransforms();
 
-    // S24 (task #154): node transform folded into the modelview multiply,
-    // matching GLSL's `mat = modelview_matrix * getGLTFTransform()` - was
-    // missing entirely before (position/normal/tangent all used
-    // modelview_matrix directly, ignoring per-node offsets).
+    // Node transform folded into the modelview multiply, matching GLSL's
+    // `mat = modelview_matrix * getGLTFTransform()`.
     float4x4 mat = mul(modelview_matrix, getGLTFTransform());
 
     float4 pos = mul(mat, float4(IN.position.xyz, 1.0));
@@ -180,13 +159,10 @@ VSOutput main(VSInput IN)
     OUT.varying.emissive_uv = texture_transform(vertex_texcoord, texture_emissive_transform, identity);
     OUT.varying.vertex_color = IN.diffuse_color;
 
-    // S24 (task #239): both n and t transformed to eye-space via the plain
-    // 3x3 upper-left multiply BEFORE calling gltf_tangent_space_transform()
-    // - mathematically identical to GLSL's point-offset trick
-    // ((mat*vec4(v+p,1)).xyz-pos.xyz reduces algebraically to mat3x3*v for
-    // any affine mat, translation cancels out), just reusing the form this
-    // file already established for n. See the function's own comment above
-    // for what was wrong before.
+    // Both n and t transformed to eye-space via the 3x3 upper-left multiply
+    // BEFORE calling gltf_tangent_space_transform() - mathematically
+    // identical to GLSL's point-offset trick since translation cancels out
+    // for any affine mat.
     float3 n = normalize(mul((float3x3)mat, IN.normal));
     float3 t_eye = mul((float3x3)mat, IN.tangent.xyz);
     float3 tan = normalize(gltf_tangent_space_transform(float4(t_eye, IN.tangent.w), n, texture_normal_transform));
@@ -199,10 +175,7 @@ VSOutput main(VSInput IN)
     OUT.varying.metallic_roughness_uv = texture_transform(vertex_texcoord, texture_metallic_roughness_transform, identity);
     OUT.varying.occlusion_uv = texture_transform(vertex_texcoord, texture_occlusion_transform, identity);
 
-    // S24 (task #238): needed by pbrmetallicroughnessF.hlsl's newly-ported
-    // ALPHA_BLEND lit branch (shadow-lookup tc) - matches
-    // pbrmetallicroughnessV.glsl's `vary_fragcoord = vert.xyz;` where
-    // vert == the clip-space position, same value as OUT.position here.
+    // Needed by pbrmetallicroughnessF.hlsl's ALPHA_BLEND branch (shadow-lookup tc).
     OUT.varying.vary_fragcoord = OUT.position.xyz;
 
     return OUT;

@@ -26,7 +26,7 @@
 
 struct PSInput
 {
-    // S24 (2026-08-02): missing SV_Position - see uiF.hlsl's comment (fxc.exe-confirmed VS/PS register-shift bug).
+    // S24: needs explicit SV_Position, or VS/PS register binding shifts - see uiF.hlsl.
     float4 position : SV_Position;
 
     float2 vary_fragcoord : TEXCOORD0;
@@ -67,13 +67,9 @@ float4 main(PSInput IN) : SV_Target
     float2 tc = IN.vary_fragcoord.xy;
     float4 norm = getNorm(tc);
     float3 pos = getPosition(tc).xyz;
-    // S24 (2026-08-11, quick-win origin sweep): GL-vs-D3D11 texture-origin
-    // flip - tc itself must stay unflipped (getNorm()/getPosition() above
-    // already do their own internal flip and expect raw input, same
-    // "shared coordinate used for two different purposes" pattern as
-    // softenLightF.hlsl/aoUtil.hlsl elsewhere this session), so the flip is
-    // inlined at each direct lightMap.Sample() call site only. Same bug
-    // class as task #158/#185.
+    // S24: tc must stay unflipped - getNorm()/getPosition() expect raw
+    // screen-space input and do their own internal GL-vs-D3D11 flip;
+    // lightMap.Sample() needs the flip applied inline at each call site.
     float4 ccol = lightMap.Sample(lightMapSampler, float2(tc.x, 1.0 - tc.y)).rgba;
 
     float2 dlt = kern_scale * delta / (1.0 + norm.xy * norm.xy);

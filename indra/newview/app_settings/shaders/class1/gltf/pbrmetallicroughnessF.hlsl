@@ -54,22 +54,11 @@ void unpackMaterial()
 
 // t0-t3/s0-s3 are reserved by deferredUtil.hlsl's normalMap/depthMap/
 // projectionMap/brdfLut (attached here via isDeferred on the alpha-blend
-// variant) - moved this file's own textures to t5-t9/s5-s9 to avoid
-// collision, same pattern as materialF.hlsl/pbralphaF.hlsl. Also renamed
-// this file's own "normalMap" to "gltfNormalMap" - it collided by NAME
-// with deferredUtil.hlsl's normalMap even before the register move (two
-// genuinely different resources that happened to share a name, not a
-// duplicate of the same one - same shape as the earlier depthMap/
-// waterDepthMap rename).
-//
-// CORRECTION (2026-09-02): the comment above used to also claim t4/s4
-// was reserved by reflectionProbeF.hlsl's environmentMap - false, real
-// X4500 "overlapping register semantics" compile failure traced it:
-// environmentMap/environmentMapSampler are actually at t9/s9 (see that
-// file's own declaration), not t4/s4. This file's occlusionMap was
-// sitting at t9/s9 too, directly colliding. t4/s4 was never actually
-// used by anything this shader attaches - moved occlusionMap there for
-// real (freeing t9/s9 for reflectionProbeF.hlsl's genuine use).
+// variant) - this file's own textures live at t5-t9/s5-s9 to avoid
+// collision, same pattern as materialF.hlsl/pbralphaF.hlsl. "normalMap" is
+// renamed "gltfNormalMap" to avoid a name collision with deferredUtil.hlsl's
+// normalMap (two different resources, same name). occlusionMap is at
+// t4/s4, not t9/s9, which is reflectionProbeF.hlsl's environmentMap.
 Texture2D diffuseMap : register(t5);
 SamplerState diffuseMapSampler : register(s5);
 Texture2D emissiveMap : register(t6);
@@ -89,30 +78,11 @@ Texture2D occlusionMap : register(t4);
 SamplerState occlusionMapSampler : register(s4);
 #endif
 
-// S24 (2026-08-19, task #238, task #227 audit finding): this whole
-// ALPHA_BLEND declaration block was missing entirely - pbrmetallicroughnessF.glsl
-// has a full #ifdef ALPHA_BLEND lit-forward-shading branch (punctual+IBL PBR
-// lighting, shadow sampling, sky/water fog) that this HLSL file never had any
-// trace of; the ALPHA_BLEND permutation instead silently fell through to the
-// G-buffer/MRT branch below, which writes SV_Target0-3, not the single
-// forward-blended SV_Target this permutation actually needs - a real, live
-// gap (gltfscenemanager.cpp sets GLTFVariant::ALPHA_BLEND for any non-opaque
-// GLTF material). Ported faithfully below, reusing the exact same shared
-// functions (deferredUtil.hlsl/reflectionProbeF.hlsl/shadowUtil.hlsl, all
-// attached here since isDeferred/hasReflectionProbes/hasShadows are all set
-// for this variant - see make_gltf_variant(), llviewershadermgr.cpp) that
-// class2/deferred/pbralphaF.hlsl's own already-working equivalent uses.
+// ALPHA_BLEND: lit forward-shading branch (punctual+IBL PBR lighting,
+// shadow sampling, sky/water fog), mirroring class2/deferred/pbralphaF.hlsl's
+// equivalent, writing a single forward-blended SV_Target rather than
+// SV_Target0-3.
 #ifdef ALPHA_BLEND
-// S24 (2026-09-02): a local clipPlane/clipSign pair used to be declared
-// here, copied in during task #238's port - real D3DCompile failure
-// (X3003 redefinition of 'clipPlane', this shader) traced it to
-// globalF.hlsl's own clipPlane/clipSign (used by mirrorClip(), always
-// attached to every fragment shader per that file's own comment).
-// Confirmed genuinely dead here: waterClip()'s real body (deferredUtil.hlsl)
-// uses waterPlane/waterSign, not clipPlane/clipSign at all, and
-// pbralphaF.hlsl - the file this whole block was "ported faithfully" from
-// - never declared this pair either. Same bug class already hit and fixed
-// once for heroClipPlane (see reflectionProbeF.hlsl's own comment).
 void waterClip(float3 pos);
 void calcAtmosphericVarsLinear(float3 inPositionEye, float3 norm, float3 light_dir, out float3 sunlit, out float3 amblit, out float3 atten, out float3 additive);
 float4 applySkyAndWaterFog(float3 pos, float3 additive, float3 atten, float4 color);
@@ -121,16 +91,9 @@ float4 applySkyAndWaterFog(float3 pos, float3 additive, float3 atten, float4 col
 #ifdef HAS_SUN_SHADOW
 Texture2D lightMap : register(t10);
 SamplerState lightMapSampler : register(s10);
-// S24 (2026-09-02): real D3DCompile failure (X3003 redefinition of
-// 'screen_res') - this file also declares inv_proj/screen_res later, as a
-// pair, under LL_INV_PROJ_DECLARED (matching deferredUtil.hlsl's pair).
-// This line was copied in alone during task #238's ALPHA_BLEND port,
-// unguarded, before that guard existed further down. Fixed by declaring
-// the SAME pair here under the SAME guard (not just screen_res alone) -
-// this block is textually first when HAS_SUN_SHADOW is defined, so a
-// lone screen_res-only declaration would claim the guard macro and
-// silently skip the later block's inv_proj declaration entirely, leaving
-// it undeclared wherever this file actually uses it.
+// inv_proj/screen_res declared as a pair under this guard (matching
+// deferredUtil.hlsl's pair) - a lone screen_res-only declaration here would
+// claim the guard and skip the later block's inv_proj declaration.
 #ifndef LL_INV_PROJ_DECLARED
 #define LL_INV_PROJ_DECLARED
 uniform float4x4 inv_proj;
@@ -176,10 +139,8 @@ float3 pbrCalcPointLightOrSpotLight(float3 diffuseColor, float3 specularColor,
 
 #include "varying/pbrMetallicRoughnessVarying.hlsli"
 
-// S24 (2026-08-02): see uiF.hlsl's comment - real register mismatch,
-// confirmed via fxc.exe disassembly, affects every bare-Varying PS input.
+// SV_Position required on bare-Varying PS inputs - see uiF.hlsl's comment.
 // Shared by both main() variants below (UNLIT and the full G-buffer path).
-// isFrontFace added task #238 - see the lit main()'s norm-flip comment.
 struct PSInput
 {
     float4 position : SV_Position;
@@ -208,16 +169,11 @@ float4 main(PSInput IN) : SV_Target
     return frag_color;
 }
 #elif defined(ALPHA_BLEND)
-// S24 (2026-08-19, task #238): real lit forward-blend path - see the
-// declaration block above's comment for the full root-cause writeup.
-// Mirrors class2/deferred/pbralphaF.hlsl's already-working, already-live-
-// tested equivalent function-for-function; only the varying/uniform names
-// differ (this file's own GLTF material-uniform unpacking, base_color_uv
-// etc.) and the a=basecolor.a*vertex_color.a line at the end intentionally
-// re-multiplies by vertex_color.a a second time (basecolor.a already
-// includes it from the `baseColor *= IN.varying.vertex_color;` line above)
-// - matches pbrmetallicroughnessF.glsl line-for-line even though this looks
-// odd; not this port's place to "fix" upstream's own arithmetic.
+// Mirrors class2/deferred/pbralphaF.hlsl function-for-function. The final
+// `a = baseColor.a * IN.varying.vertex_color.a` intentionally re-multiplies
+// by vertex_color.a a second time (baseColor.a already includes it from the
+// `baseColor *= IN.varying.vertex_color` line above) - matches
+// pbrmetallicroughnessF.glsl's own arithmetic exactly.
 float4 main(PSInput IN) : SV_Target
 {
     unpackMaterial();
@@ -242,9 +198,7 @@ float4 main(PSInput IN) : SV_Target
     float3 vT = IN.varying.vary_tangent;
     float3 vB = sign * cross(vN, vT);
     float3 norm = normalize(vNt.x * vT + vNt.y * vB + vNt.z * vN);
-    // S24 (task #238): pbrmetallicroughnessF.glsl:221 flips the normal for
-    // back-facing polygons (`norm *= gl_FrontFacing ? 1.0 : -1.0;`) - same
-    // idiom already proven working in pbralphaF.hlsl/pbrterrainF.hlsl.
+    // Flip the normal for back-facing polygons, same idiom as pbralphaF.hlsl/pbrterrainF.hlsl.
     norm *= IN.isFrontFace ? 1.0 : -1.0;
 
     float3 orm = metallicRoughnessMap.Sample(metallicRoughnessMapSampler, IN.varying.metallic_roughness_uv).rgb;
@@ -327,12 +281,7 @@ PSOutput main(PSInput IN)
     float3 b = IN.varying.vary_sign * cross(n, t);
     float3 tnorm = normalize(gltfNormalMap.Sample(gltfNormalMapSampler, IN.varying.normal_uv).xyz * 2.0 - 1.0);
     tnorm = normalize(tnorm.x * t + tnorm.y * b + tnorm.z * n);
-    // S24 (task #238, found alongside the ALPHA_BLEND port): this G-buffer
-    // path was also missing pbrmetallicroughnessF.glsl:221's back-facing
-    // normal flip (`norm *= gl_FrontFacing ? 1.0 : -1.0;`) - not flagged by
-    // the task #227 audit (it only caught the missing ALPHA_BLEND branch),
-    // found while re-reading this file for that fix. Same idiom already
-    // proven working in pbralphaF.hlsl/pbrterrainF.hlsl.
+    // Flip the normal for back-facing polygons, same idiom as pbralphaF.hlsl/pbrterrainF.hlsl.
     tnorm *= IN.isFrontFace ? 1.0 : -1.0;
 
     float3 orm = metallicRoughnessMap.Sample(metallicRoughnessMapSampler, IN.varying.metallic_roughness_uv).rgb;

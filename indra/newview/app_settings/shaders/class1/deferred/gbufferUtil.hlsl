@@ -71,14 +71,11 @@ GBufferInfo getGBuffer(float2 screenpos)
     float4 specInfo = float4(0, 0, 0, 0);
     float4 emissInfo = float4(0, 0, 0, 0);
 
-    // S24 (2026-08-04): GL's texture origin is bottom-left, D3D11's is
-    // top-left - flip here, at the actual texture reads, not in screenpos
-    // itself (screenpos/vary_fragcoord is also used elsewhere - e.g.
-    // getPositionWithDepth()'s inverse-projection math - which must stay
-    // in the camera's own NDC convention and must NOT be flipped; see
-    // getNorm()/getDepth() in deferredUtil.hlsl for the same fix and
-    // fuller explanation). getNormRaw() already does its own flip
-    // internally, so it's called with the unflipped screenpos here.
+    // GL-vs-D3D11 Y-origin flip is applied here at the texture reads, not to
+    // screenpos itself - screenpos/vary_fragcoord must stay in the camera's
+    // NDC convention for getPositionWithDepth() elsewhere (see
+    // getNorm()/getDepth() in deferredUtil.hlsl). getNormRaw() flips
+    // internally, so it is called with the unflipped screenpos.
     float2 flipped = float2(screenpos.x, 1.0 - screenpos.y);
     diffInfo = diffuseRect.Sample(diffuseSampler, flipped);
     specInfo = specularRect.Sample(specularSampler, flipped);

@@ -22,26 +22,11 @@
  * SOFTWARE.
  */
 
-// S24 (2026-08-23, task #160 ROOT CAUSE): this shader's VSInput used to
-// declare a separate `texcoord0 : TEXCOORD0` vertex attribute and multiply
-// position by a modelview_projection_matrix uniform - neither exists in
-// the real GLSL source (glowExtractV.glsl: `in vec3 position` only, no
-// matrix multiply, `gl_Position = vec4(position, 1.0)`, texcoord derived
-// as `position.xy * 0.5 + 0.5`). LLPipeline::mScreenTriangleVB (the vertex
-// buffer this shader actually draws with, generateGlow()'s extract pass)
-// only ever supplies POSITION data - a live D3D11 debug-layer log
-// (DXVertexLayout::getOrCreate) confirmed CreateInputLayout() failing
-// outright with E_INVALIDARG for this exact shader ("Glow Extract Shader
-// (Post) (+Noise)", data_mask=0x1 i.e. position-only) because the compiled
-// vertex shader's input signature demanded a TEXCOORD0 attribute that was
-// never actually bound. With no valid input layout, the extract draw call
-// never ran, mGlow[2] (and everything downstream: the blur ping-pong,
-// mGlow[1], combineGlow()'s composite) stayed permanently empty regardless
-// of scene content - the real root cause of glow/bloom producing zero
-// bloom under DX_RENDER (task #160). Fixed to match this codebase's own
-// already-proven-working full-screen-triangle convention (see
-// postDeferredV.hlsl, gFXAAProgram's vertex shader): position-only input,
-// no matrix multiply, texcoord derived procedurally.
+// LLPipeline::mScreenTriangleVB (the vertex buffer this shader draws with)
+// only ever supplies POSITION data - VSInput must stay position-only, no
+// matrix multiply, texcoord derived procedurally (same convention as
+// postDeferredV.hlsl's vertex shader). A TEXCOORD0 attribute here fails
+// CreateInputLayout() since nothing binds it.
 struct VSInput
 {
     float3 position : POSITION;

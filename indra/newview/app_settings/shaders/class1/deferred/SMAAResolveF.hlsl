@@ -43,7 +43,8 @@ float4 SMAAResolvePS(float2 texcoord,
 
 struct PSInput
 {
-    // S24 (2026-08-02): missing SV_Position - see uiF.hlsl's comment (fxc.exe-confirmed VS/PS register-shift bug).
+    // SV_Position must stay declared here - see uiF.hlsl (omitting it
+    // shifts every VS/PS register for bare-Varying PS inputs).
     float4 position : SV_Position;
 
     float2 vary_texcoord0 : TEXCOORD0;

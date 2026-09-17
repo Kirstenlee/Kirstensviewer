@@ -58,6 +58,9 @@ public:
 	void requestDeferredShaderReload();
 	// Check and process any pending shader reload requests
 	void processDeferredShaderReload();
+	// True if a deferred reload is queued and hasn't run yet - lets a caller that's about to do
+	// its own immediate setShaders() skip it instead, since the pending one will cover the same work.
+	bool isDeferredShaderReloadPending() const { return mDeferredShaderReloadPending; }
 
 	// loadBasicShaders in case of a failure returns
 	// name of a file error happened at, otherwise
@@ -65,11 +68,8 @@ public:
 	std::string loadBasicShaders();
 	bool loadShadersEffects();
 	bool loadShadersDeferred();
-	// S24 (2026-08-24, task #261): NOT called from loadShadersDeferred()'s
-	// eager startup chain - see loadShaderBufferVisualization()'s own
-	// comment (llviewershadermgr.cpp) for why. Called lazily instead, from
-	// LLPipeline::visualizeBuffers() on first actual use of the Develop >
-	// Rendering > Buffer Visualization debug view.
+	// Not called from loadShadersDeferred()'s eager startup chain; called lazily instead from
+	// LLPipeline::visualizeBuffers() on first use of the debug view (see llviewershadermgr.cpp).
 	bool loadShaderBufferVisualization();
 	bool loadShadersObject();
 	bool loadShadersAvatar();
@@ -143,7 +143,6 @@ public:
 
 	/* virtual */ void updateShaderUniforms(LLHLSLShader* shader);
 
-	// S24: Purge shader cache directory for shader rebuild on next startup
 	static void purgeShaderCache();
 
 private:
@@ -231,9 +230,8 @@ extern LLHLSLShader         gPostScreenSpaceReflectionProgram;
 
 // Deferred rendering shaders
 extern LLHLSLShader         gDeferredImpostorProgram;
-// S24 (2026-09-10): jelly-doll "ghost" impostor - real alpha-blended,
-// rim-glowing silhouette, drawn post-deferred instead of into the opaque
-// G-buffer. See LLDrawPoolAvatar::renderJellyDollGhosts().
+// Jelly-doll "ghost" impostor: alpha-blended, rim-glowing silhouette drawn post-deferred
+// instead of into the opaque G-buffer. See LLDrawPoolAvatar::renderJellyDollGhosts().
 extern LLHLSLShader         gDeferredJellyGhostProgram;
 extern LLHLSLShader         gDeferredDiffuseProgram;
 extern LLHLSLShader         gDeferredDiffuseAlphaMaskProgram;
@@ -273,10 +271,12 @@ extern LLHLSLShader         gCASProgram;
 extern LLHLSLShader         gCASLegacyGammaProgram;
 extern LLHLSLShader         gDeferredPostNoDoFProgram;
 extern LLHLSLShader         gDeferredPostNoDoFNoiseProgram;
+
+// Final stereo composite; see stereoAnaglyphF.hlsl.
+extern LLHLSLShader         gStereoAnaglyphProgram;
 extern LLHLSLShader         gDeferredPostGammaCorrectProgram;
-// S24 (2026-08-26, task #263): separable Catmull-Rom bicubic resize - one
-// program, bound twice (horizontal then vertical) via LLGPUResize::resize()
-// (newview/llgpuresize.h) - see resizeBicubic.hlsl's own comment.
+// Separable Catmull-Rom bicubic resize: one program, bound twice (horizontal then vertical)
+// via LLGPUResize::resize() (newview/llgpuresize.h); see resizeBicubic.hlsl.
 extern LLHLSLShader         gResizeBicubicProgram;
 extern LLHLSLShader         gLegacyPostGammaCorrectProgram;
 extern LLHLSLShader         gDeferredPostTonemapProgram;
@@ -309,7 +309,16 @@ extern LLHLSLShader         gDeferredWLCloudProgram;
 extern LLHLSLShader         gDeferredWLSunProgram;
 extern LLHLSLShader         gDeferredWLMoonProgram;
 extern LLHLSLShader         gDeferredStarProgram;
-extern LLHLSLShader         gDeferredStarShootingProgram; // S24 task #279 stage 2
+extern LLHLSLShader         gDeferredStarShootingProgram;
+// Minimal flat-vertex-color line shader for sky-dome-distance immediate-mode geometry
+// (constellation connector lines, dxLineWidth()-based) - see skyLineV.hlsl's comment for why this
+// can't just reuse gUIProgram (no far-clip pin, silently clips sky-dome-distance geometry away).
+extern LLHLSLShader         gDeferredSkyLineProgram;
+// Procedural galactic-dust band (RenderStarDustIntensity) - a real noise-based cloudy lane rendered
+// on the existing sky-dome mesh, replacing the earlier photo-overlay attempt (pole/horizon warping,
+// see git history) and the original sprite-scatter dust patches (read as dots/streaks, not a haze) -
+// see galacticBandV.hlsl's comment.
+extern LLHLSLShader         gDeferredGalacticBandProgram;
 extern LLHLSLShader         gDeferredFullbrightShinyProgram;
 extern LLHLSLShader         gHUDFullbrightShinyProgram;
 extern LLHLSLShader         gNormalMapGenProgram;

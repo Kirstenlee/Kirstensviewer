@@ -78,7 +78,7 @@
 #include "llslurl.h"
 #include "llstartup.h"
 #include "llperfstats.h"
-#include "llcolorswatch.h" // S24: For beam color picker callbacks
+#include "llcolorswatch.h" // For beam color picker callbacks
 
 
 // Third party library includes
@@ -191,10 +191,8 @@ static bool handleSetShaderChanged(const LLSD& newvalue)
     return true;
 }
 
-// S24: Fixed LL's backwards logic for RenderPerformanceTest.
-// When the setting is FALSE (normal operation), all render types should be ENABLED.
-// When the setting is TRUE (performance test mode), world geometry should stay visible
-// but UI/HUD/sky/water should be DISABLED for clean GPU bandwidth measurement.
+// When RenderPerformanceTest is TRUE, world geometry stays visible but UI/HUD/sky/water are disabled,
+// for clean GPU bandwidth measurement.
 // LL had this completely backwards - they disabled world geometry during perf tests!
 static bool handleRenderPerfTestChanged(const LLSD& newvalue)
 {
@@ -233,8 +231,9 @@ bool handleRenderTransparentWaterChanged(const LLSD& newvalue)
     if (gPipeline.isInit())
     {
         gPipeline.updateRenderTransparentWater();
-        gPipeline.releaseGLBuffers();
-        gPipeline.createGLBuffers();
+        // S24: no releaseGLBuffers()/createGLBuffers() here - same redundancy as
+        // handleReflectionProbeDetailChanged() above, setShaders() already does this exact
+        // pair itself as part of the deferred reload requested below.
         // Defer shader reload to avoid blocking main thread
         LLViewerShaderMgr::instance()->requestDeferredShaderReload();
     }
@@ -270,11 +269,9 @@ static bool handleEnableEmissiveChanged(const LLSD& newvalue)
     return handleReleaseGLBufferChanged(newvalue) && handleSetShaderChanged(newvalue);
 }
 
-// S24 (2026-08-31): RenderShadowDetail/RenderDeferredSSAO both gate shader
-// permutations (need handleSetShaderChanged's reload) AND are inputs to
-// mRT->deferredLight's allocation condition in pipeline.cpp (need
-// handleReleaseGLBufferChanged's reallocation) - same combined-listener
-// shape as handleEnableEmissiveChanged above, for the same reason.
+// RenderShadowDetail/RenderDeferredSSAO both gate shader permutations (handleSetShaderChanged) and
+// feed mRT->deferredLight's allocation condition in pipeline.cpp (handleReleaseGLBufferChanged) - same
+// combined-listener shape as handleEnableEmissiveChanged above.
 static bool handleShaderAndBufferChanged(const LLSD& newvalue)
 {
     return handleReleaseGLBufferChanged(newvalue) && handleSetShaderChanged(newvalue);
@@ -291,7 +288,18 @@ static bool handleEnableHDR(const LLSD& newvalue)
 {
     gPipeline.mReflectionMapManager.reset();
     gPipeline.mHeroProbeManager.reset();
-    return handleReleaseGLBufferChanged(newvalue) && handleSetShaderChanged(newvalue);
+    // S24: RenderHDREnabled has no shader compile-time dependency at all - unlike
+    // RenderEnableEmissiveBuffer (HAS_EMISSIVE define, genuinely needs handleSetShaderChanged,
+    // see handleEnableEmissiveChanged() above), every consumer of this setting
+    // (dxpipeline.cpp/pipeline.cpp/llreflectionmapmanager.cpp/llheroprobemanager.cpp) reads it
+    // via a runtime LLCachedControl<bool>, and presentDeferredScreen() already has both the
+    // tonemap and plain-gamma shader variants compiled unconditionally, just picking between
+    // them at runtime. The previous handleSetShaderChanged() call here triggered a full,
+    // unnecessary engine-wide shader reload (every shader program, not just this pipeline's)
+    // on every single HDR toggle for no behavioral reason - this was the dominant cost of the
+    // "disabling HDR pauses for ~15-20s" symptom. Buffer recreation (format/precision) is still
+    // needed, so handleReleaseGLBufferChanged() stays.
+    return handleReleaseGLBufferChanged(newvalue);
 }
 
 static bool handleLUTBufferChanged(const LLSD& newvalue)
@@ -482,26 +490,43 @@ static bool handleReflectionProbeDetailChanged(const LLSD& newvalue)
         gPipeline.mReflectionMapManager.reset();
         gPipeline.mHeroProbeManager.reset();
 
-        // S24 (2026-09-08, task #316): re-arm the one-time shader-reload
-        // workaround (LLHeroProbeManager::update(), "hacky workaround to
-        // fix #3331") only on a genuine RenderMirrors off->on transition -
-        // this handler is shared by several settings (probe level/detail,
-        // SSR, reflections-enabled) that don't need the ~19s synchronous
-        // reload repeated every time they change. Tracked locally since
-        // this callback only receives the fired control's own new value,
-        // not which control fired.
+        // Re-arm the one-time shader-reload workaround (LLHeroProbeManager::update()'s fix for #3331)
+        // only on a genuine RenderMirrors off->on transition - this handler is shared by several
+        // settings that don't need that ~19s synchronous reload every time they change. Tracked
+        // locally since this callback only receives the fired control's own new value.
         static bool s_wasMirrorsOn = gSavedSettings.getBOOL("RenderMirrors");
         bool nowMirrorsOn = gSavedSettings.getBOOL("RenderMirrors");
+        bool armedHeroReinit = false;
         if (nowMirrorsOn && !s_wasMirrorsOn)
         {
             gPipeline.mHeroProbeManager.requireShaderReinit();
+            armedHeroReinit = true;
         }
         s_wasMirrorsOn = nowMirrorsOn;
 
-        gPipeline.releaseGLBuffers();
-        gPipeline.createGLBuffers();
+        // S24: no releaseGLBuffers()/createGLBuffers() here - setShaders() (llviewershadermgr.cpp)
+        // already does that exact pair itself, unconditionally, as part of the deferred reload
+        // requested below. Doing it here too just tears the whole G-buffer set down and rebuilds
+        // it a second time one frame later with the same final settings state - pure waste on
+        // every SSR/Mirrors/ReflectionProbeLevel/Detail toggle, not a correctness fix.
+        //
+        // S24: skip queueing our own deferred reload when we just armed requireShaderReinit()
+        // above - LLHeroProbeManager::update() (llviewerdisplay.cpp, called from display() later
+        // THIS SAME FRAME, after idle()/this handler but before processDeferredShaderReload()
+        // would even get a chance to fire on a LATER frame) does its own clearShaderCache()+
+        // setShaders() as soon as it sees mInitialized==false - a strict superset of this
+        // deferred reload for the exact same settings state. An earlier attempt at this fix
+        // had update() check requestDeferredShaderReload()'s pending flag instead, but
+        // processDeferredShaderReload() (llappviewer.cpp) runs BEFORE display() each frame, so
+        // by the time update() looked the flag was already consumed - the two compiles the user
+        // saw were requestDeferredShaderReload()'s (first, same frame) then update()'s workaround
+        // (second, same frame, cache already wiped under it). Skipping at the source here is the
+        // correct fix - avoids the ordering trap entirely.
         // Defer shader reload to avoid blocking main thread
-        LLViewerShaderMgr::instance()->requestDeferredShaderReload();
+        if (!armedHeroReinit)
+        {
+            LLViewerShaderMgr::instance()->requestDeferredShaderReload();
+        }
     }
     return true;
 }
@@ -517,37 +542,20 @@ static bool handleHeroProbeResolutionChanged(const LLSD &newvalue)
 {
     if (gPipeline.isInit())
     {
-        // S24 (2026-09-07, task #316): this handler used to tear down and
-        // rebuild the ENTIRE pipeline's render targets
-        // (releaseGLBuffers()/createGLBuffers() - deferred screen, shadow
-        // maps, SSAO, glow, all of it) for a setting that only affects the
-        // hero-probe/mirror subsystem specifically. Compare
-        // handleReflectionProbeCountChanged just above - the analogous
-        // handler for the non-hero reflection-probe-count setting - which
-        // only calls its own manager's refreshSettings(), nothing
-        // pipeline-wide. gPipeline.mHeroProbeManager.reset() is already
-        // fully self-contained: it nulls and rebuilds the hero-probe
-        // texture, mip chain, vertex buffer, and probe list on its own,
-        // with no dependency on the main pipeline's screen buffers.
+        // gPipeline.mHeroProbeManager.reset() is self-contained (rebuilds its own texture, mip chain,
+        // vertex buffer and probe list) with no dependency on the main pipeline's screen buffers - this
+        // setting only affects the hero-probe/mirror subsystem, unlike handleReflectionProbeCountChanged
+        // above which is pipeline-wide.
         LLPipeline::refreshCachedSettings();
         gPipeline.mHeroProbeManager.reset();
 
-        // S24 (2026-09-08, task #316): a resolution change replaces the
-        // hero-probe texture itself (new size, new underlying resource) -
-        // shaders/texture-unit bindings referencing the OLD texture must be
-        // rebound regardless of the extra ~19s synchronous cost, same as a
-        // genuine off->on activation.
+        // A resolution change replaces the hero-probe texture itself, so shader/texture-unit bindings
+        // to the old texture must be rebound - same as a genuine off->on activation.
         if (LLPipeline::RenderMirrors)
         {
             gPipeline.mHeroProbeManager.requireShaderReinit();
         }
     }
-    return true;
-}
-
-static bool handleRenderDebugPipelineChanged(const LLSD& newvalue)
-{
-    gDebugPipeline = newvalue.asBoolean();
     return true;
 }
 
@@ -683,17 +691,14 @@ bool toggle_freeze_animation(const LLSD& newvalue)
 {
     if (isAgentAvatarValid())
     {
-        // S24: Set frozen state - animations continue playing but don't apply to skeleton
+        // Set frozen state - animations continue playing but don't apply to skeleton
         gAgentAvatarp->getMotionController().setFrozen(newvalue.asBoolean());
     }
     return true;
 }
 
-// ========================================================================
-// S24: SELECTION BEAM COLOR PICKER CALLBACKS
-// ========================================================================
-// Color swatches don't support direct control_name binding to Color4 settings,
-// so we need explicit get/set callbacks like the UI colors panel uses.
+// Color swatches don't support direct control_name binding to Color4 settings, so explicit get/set
+// callbacks are needed here, as with the UI colors panel.
 // ========================================================================
 void handleGetBeamColor(LLUICtrl* ctrl, const LLSD& param)
 {
@@ -933,7 +938,6 @@ void settings_setup_listeners()
     setting_setup_signal_listener(gSavedSettings, "RenderDynamicLOD", handleRenderDynamicLODChanged);
     setting_setup_signal_listener(gSavedSettings, "RenderVSyncEnable", handleVSyncChanged);
     setting_setup_signal_listener(gSavedSettings, "RenderDeferredNoise", handleReleaseGLBufferChanged);
-    setting_setup_signal_listener(gSavedSettings, "RenderDebugPipeline", handleRenderDebugPipelineChanged);
     setting_setup_signal_listener(gSavedSettings, "RenderResolutionDivisor", handleRenderResolutionDivisorChanged);
     setting_setup_signal_listener(gSavedSettings, "RenderReflectionProbeLevel", handleReflectionProbeDetailChanged);
     setting_setup_signal_listener(gSavedSettings, "RenderReflectionProbeDetail", handleReflectionProbeDetailChanged);
@@ -942,21 +946,12 @@ void settings_setup_listeners()
     setting_setup_signal_listener(gSavedSettings, "RenderScreenSpaceReflections", handleReflectionProbeDetailChanged);
     setting_setup_signal_listener(gSavedSettings, "RenderMirrors", handleReflectionProbeDetailChanged);
     setting_setup_signal_listener(gSavedSettings, "RenderHeroProbeResolution", handleHeroProbeResolutionChanged);
-    // S24 (2026-08-31): both were plain handleSetShaderChanged (shader
-    // reload only, no buffer reallocation) - but both are also inputs to
-    // mRT->deferredLight's allocation gate (pipeline.cpp: "if (hdr ||
-    // shadow_detail>0 || ssao || RenderDepthOfField)"). Toggling either
-    // without a reallocation call meant deferredLight could stay released
-    // even after being turned back on (if it was released while shadows/
-    // SSAO/DoF/HDR all happened to be off at once) - bindDeferredShader()
-    // then falls back to a solid-white 1x1 texture for the AO/shadow term,
-    // overexposing the whole deferred-lit scene to white (forward-shaded
-    // alpha/hair, unaffected by this buffer, stays visibly grey instead of
-    // white - the exact symptom reported from toggling "Render SSAO" in the
-    // Film menu). handleShaderAndBufferChanged keeps the shader-reload
-    // behavior both settings still need (shadow detail/SSAO on-off gate
-    // real shader permutations) while adding the missing reallocation,
-    // same combined shape as handleEnableEmissiveChanged above.
+    // RenderShadowDetail/RenderDeferredSSAO are inputs to mRT->deferredLight's allocation gate
+    // (pipeline.cpp: "if (hdr || shadow_detail>0 || ssao || RenderDepthOfField)"), not just shader
+    // permutations - a plain shader-reload listener can leave deferredLight released after being
+    // toggled back on, and bindDeferredShader() then falls back to a solid-white AO/shadow texture,
+    // overexposing the deferred-lit scene. handleShaderAndBufferChanged adds the missing reallocation
+    // on top of the shader reload, same combined shape as handleEnableEmissiveChanged above.
     setting_setup_signal_listener(gSavedSettings, "RenderShadowDetail", handleShaderAndBufferChanged);
     setting_setup_signal_listener(gSavedSettings, "RenderDeferredSSAO", handleShaderAndBufferChanged);
     setting_setup_signal_listener(gSavedSettings, "RenderPerformanceTest", handleRenderPerfTestChanged);

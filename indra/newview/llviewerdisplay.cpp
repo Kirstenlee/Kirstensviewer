@@ -122,15 +122,8 @@ bool gCubeSnapshot = false;
 bool gSnapshotNoPost = false;
 bool gShaderProfileFrame = false;
 
-// S24 (2026-08-26, task #263): DXPipeline::presentDeferredScreen() ping-
-// pongs the final post-fx composite between mPostPingMap/mPostPongMap
-// (dxpipeline.cpp) before blitting to the swap chain - this exposes which
-// one it landed on, sized to whatever LLPipeline::allocateScreenBuffer()
-// was last called with (the true snapshot resolution when one is in
-// progress, not necessarily the window). Set right before presentFinal()
-// in dxpipeline.cpp, both branches; never null after presentDeferredScreen()
-// has run at least once. Same "thin per-frame handshake global" pattern as
-// gSnapshotNoPost above - rawSnapshot() (llviewerwindow.cpp) is the reader.
+// Exposes whichever of mPostPingMap/mPostPongMap DXPipeline::presentDeferredScreen()
+// last composited into, for rawSnapshot() (llviewerwindow.cpp) to read.
 LLRenderTarget* gLastCompositedPostTarget = nullptr;
 
 // This is how long the sim will try to teleport you before giving up.
@@ -150,8 +143,8 @@ void render_hud_attachments();
 void render_ui_3d();
 void render_ui_2d();
 void render_disconnected_background();
-void render_anaglyph(); // S24 3D
-void render_normal();   // S24 3D
+void render_anaglyph();
+void render_normal();
 void getProfileStatsContext(boost::json::object& stats);
 std::string getProfileStatsFilename();
 
@@ -181,7 +174,7 @@ void display_startup()
 	// Required for HTML update in login screen
 	static S32 frame_count = 0;
 
-	LLGLState::checkStates();
+	DXState::checkStates();
 
 	if (frame_count++ > 1) // make sure we have rendered a frame first
 	{
@@ -192,11 +185,8 @@ void display_startup()
 		LL_DEBUGS("Window") << "First display_startup frame" << LL_ENDL;
 	}
 
-	LLGLState::checkStates();
+	DXState::checkStates();
 
-#ifndef DX_RENDER
-	glClear(GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT); // | GL_STENCIL_BUFFER_BIT);
-#endif
 	LLGLSUIDefault gls_ui;
 	gPipeline.disableLights();
 
@@ -208,14 +198,10 @@ void display_startup()
 
 	LLVertexBuffer::unbind();
 
-	LLGLState::checkStates();
+	DXState::checkStates();
 
 	if (gViewerWindow && gViewerWindow->getWindow())
 		gViewerWindow->getWindow()->swapBuffers();
-
-#ifndef DX_RENDER
-	glClear(GL_DEPTH_BUFFER_BIT);
-#endif
 }
 
 void display_update_camera()
@@ -237,13 +223,8 @@ void display_update_camera()
 	}
 	else
 	{
-		// S24 (2026-08-24, task #258): driven by the real used/budget ratio now,
-		// not the deleted sDesiredDiscardBias ramp - same "direct number, no
-		// ramping" replacement used throughout task #258 (see
-		// LLViewerTextureList::updateImagesCreateTextures()'s severe_pressure).
-		// 1.1x = genuinely over budget (same threshold used there); scales up
-		// from there instead of a ramped scalar that could lag well behind the
-		// real pressure this lever exists to relieve.
+		// Scales draw distance directly off the used/budget VRAM ratio (no ramping);
+		// 1.1x threshold matches LLViewerTextureList::updateImagesCreateTextures()'s severe_pressure.
 		const F32 pressure_ratio = LLViewerTexture::sVRAMUsedMegabytes
 			/ llmax(LLViewerTexture::sVRAMBudgetMegabytes, 1.f);
 		if (pressure_ratio > 1.1f)
@@ -262,10 +243,9 @@ void display_update_camera()
 	}
 }
 
-// S24
 void display_stats()
 {
-	constexpr F32 FPS_LOG_FREQUENCY = 60.f; // S24
+	constexpr F32 FPS_LOG_FREQUENCY = 60.f;
 	if (gRecentFPSTime.getElapsedTimeF32() >= FPS_LOG_FREQUENCY)
 	{
 		LLTrace::Recording& recording = LLTrace::get_frame_recording().getLastRecording();
@@ -293,7 +273,6 @@ void display_stats()
 	}
 }
 
-// S24 Set MASK for Stereo Anaglyph
 void render_anaglyph()
 {
 	/////////////////////////////////////////////////////////
@@ -325,7 +304,6 @@ void render_anaglyph()
 	return;
 }
 
-// S24 Set MASK to normal when Stereo Anaglyph not used.
 void render_normal()
 {
 	gViewerWindow->setMaskMode(MASK_MODE_NONE); // Make sure this is SET when StereoMode is Disabled!!!!
@@ -477,22 +455,16 @@ static void update_tp_display(bool minimized)
 // Paint the display!
 void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 {
-	LL_PROFILE_GPU_ZONE("Render");
 
 	LLPerfStats::RecordSceneTime T(LLPerfStats::StatType_t::RENDER_DISPLAY); // render time capture - This is the main stat for overall rendering.
 
-	// S24 3D - Improved Logic
 	gSavedSettings.getBOOL("StereoMode") ? render_anaglyph() : render_normal();
 	S32 mode = gViewerWindow->getMaskMode();
-	// S24 - End
 
 	if (gWindowResized)
 	{
 		LL_DEBUGS("Window") << "Resizing window" << LL_ENDL;
 		gDX.flush();
-#ifndef DX_RENDER
-		glClear(GL_COLOR_BUFFER_BIT);
-#endif
 		gViewerWindow->getWindow()->swapBuffers();
 		LLPipeline::refreshCachedSettings();
 		gPipeline.resizeScreenTexture();
@@ -519,7 +491,7 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 
 	LLVertexBuffer::unbind();
 
-	LLGLState::checkStates();
+	DXState::checkStates();
 
 	gPipeline.disableLights();
 
@@ -534,14 +506,10 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 		// Clean up memory the pools may have allocated
 		if (rebuild)
 		{
-			stop_glerror();
 			gPipeline.rebuildPools();
-			stop_glerror();
 		}
 
-		stop_glerror();
 		gViewerWindow->returnEmptyPicks();
-		stop_glerror();
 
 		// We still need to update the teleport progress (to get changes done
 		// in TP states, else the sim does not get the messages signaling the
@@ -565,7 +533,6 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 			}
 
 			{
-				// S24 - Adaptive texture budget based on available VRAM
 				static LLCachedControl<F32> texture_budget(gSavedSettings, "RenderTextureUpdateBudgetMS", 2.0f);
 				F32 max_image_decode_time = (F32)texture_budget * 0.001f;
 				gTextureList.updateImages(max_image_decode_time);
@@ -586,7 +553,7 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 	}
 
 	LLAppViewer::instance()->pingMainloopTimeout("Display:CheckStates");
-	LLGLState::checkStates();
+	DXState::checkStates();
 
 	//////////////////////////////////////////////////////////
 	//
@@ -622,7 +589,7 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 		LLHLSLShader::initProfile();
 	}
 
-	//LLGLState::verify(false);
+	//DXState::verify(false);
 	//
 	/////////////////////////////////////////////////
 	//
@@ -630,14 +597,12 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 	//
 
 	LLAppViewer::instance()->pingMainloopTimeout("Display:TextureStats");
-	stop_glerror();
 
 	LLImageGL::updateStats(gFrameTimeSeconds);
 
 	static LLCachedControl<S32> avatar_name_tag_mode(gSavedSettings, "AvatarNameTagMode", 1);
 	static LLCachedControl<S32> name_tag_show_group_titles(gSavedSettings, "GroupTitlesTagMode", 2 /*all group tags*/);
 
-	// S24 Logic to suppress name tags automatically when any effects are active.
 	static LLCachedControl<bool> UseDesaturation(gSavedSettings, "UseDesaturation", false);
 	static LLCachedControl<bool> UseInvert(gSavedSettings, "UseInvert", false);
 	static LLCachedControl<bool> UseCelShading(gSavedSettings, "UseCelShade", false);
@@ -719,7 +684,6 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 
 	if (LLViewerCamera::instanceExists())
 	{
-		// S24 3D - Camera setup for Stereoscopic Eye Position
 		switch (mode)
 		{
 		case MASK_MODE_LEFT:
@@ -761,7 +725,6 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 	//
 
 	LLAppViewer::instance()->pingMainloopTimeout("Display:RenderSetup");
-	stop_glerror();
 
 	///////////////////////////////////////
 	//
@@ -769,9 +732,7 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 	// Note that these are not the same as GL defaults...
 	//
 
-	stop_glerror();
 	gDX.setAmbientLightColor(LLColor4::white);
-	stop_glerror();
 
 	/////////////////////////////////////
 	//
@@ -786,10 +747,7 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 		LLAppViewer::instance()->pingMainloopTimeout("Display:DynamicTextures");
 		if (LLViewerDynamicTexture::updateAllInstances())
 		{
-			gDX.setColorMask(true, true);
-#ifndef DX_RENDER
-			glClear(GL_DEPTH_BUFFER_BIT);
-#endif
+			gDX.setColorWriteMask(true, true);
 		}
 	}
 
@@ -803,7 +761,6 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 		// This ensures the scene state in the hero probes are exactly the same as the rest of the scene before we render it.
 		if (gPipeline.RenderMirrors && !gSnapshot)
 		{
-			LL_PROFILE_GPU_ZONE("hero manager");
 			gPipeline.mHeroProbeManager.update();
 			gPipeline.mHeroProbeManager.renderProbes();
 		}
@@ -819,9 +776,7 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 			gPipeline.toggleRenderType(LLPipeline::RENDER_TYPE_HUD_PARTICLES);
 		}
 
-		stop_glerror();
 		display_update_camera();
-		stop_glerror();
 
 		{
 			// update all the sky/atmospheric/water settings
@@ -832,7 +787,6 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 		{
 			LLHUDManager::getInstance()->updateEffects();
 			LLHUDObject::updateAll();
-			stop_glerror();
 		}
 
 		{
@@ -840,12 +794,10 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 			gPipeline.createObjects(max_geom_update_time);
 			gPipeline.processPartitionQ();
 			gPipeline.updateGeom(max_geom_update_time);
-			stop_glerror();
 		}
 
 		gPipeline.updateGL();
 
-		stop_glerror();
 
 		LLAppViewer::instance()->pingMainloopTimeout("Display:Cull");
 
@@ -862,74 +814,44 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 		}
 		gDepthDirty = false;
 
-		LLGLState::checkStates();
+		DXState::checkStates();
 
 		static LLCullResult result;
 		LLViewerCamera::sCurCameraID = LLViewerCamera::CAMERA_WORLD;
 		LLPipeline::sUnderWaterRender = LLViewerCamera::getInstance()->cameraUnderWater();
 		gPipeline.updateCull(*LLViewerCamera::getInstance(), result);
-		stop_glerror();
 
-		LLGLState::checkStates();
+		DXState::checkStates();
 
 		LLAppViewer::instance()->pingMainloopTimeout("Display:Swap");
 
 		{
-			LL_PROFILE_ZONE_NAMED_CATEGORY_DISPLAY("display - 2")
 				if (gResizeScreenTexture)
 				{
 					gPipeline.resizeScreenTexture();
 					gResizeScreenTexture = false;
 				}
 
-			// Set color mask based on mode
-			// S24 3D - For anaglyph stereo, only clear on LEFT eye (first pass)
-			// RIGHT eye must render on top to create combined red+cyan image
-			switch (mode)
-			{
-			case MASK_MODE_LEFT:
-				gDX.setColorMask(true, true);
-#ifndef DX_RENDER
-				glClearColor(0.f, 0.f, 0.f, 0.f);
-				glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-#endif
-				gDX.setColorMask(true, false, false, true); // Red
-				break;
-			case MASK_MODE_RIGHT:
-				// Don't clear! Render cyan on top of red for anaglyph
-#ifndef DX_RENDER
-				glClear(GL_DEPTH_BUFFER_BIT); // Only clear depth for proper occlusion
-#endif
-				gDX.setColorMask(false, true, true, true); // Cyan
-				break;
-			case MASK_MODE_NONE:
-				gDX.setColorMask(true, true); // Normal
-#ifndef DX_RENDER
-				glClearColor(0.f, 0.f, 0.f, 0.f);
-				glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-#endif
-				break;
-			}
+			// Each stereo eye renders into its own offscreen target (mStereoEyeL/R) and
+			// composites only at the end, so both eyes get a normal unconditional clear.
+			gDX.setColorWriteMask(true, true);
 
-			LLGLState::checkStates();
+			DXState::checkStates();
 
 			if (!for_snapshot)
 			{
 				if (gFrameCount > 1 && !for_snapshot)
 				{
-					// S24 3D - In stereo mode, shadow maps are the same for both eyes
+					// Shadow maps are shared between stereo eyes, generated once.
 						gPipeline.generateSunShadow(*LLViewerCamera::getInstance());
 				}
 
 				LLVertexBuffer::unbind();
 
-				LLGLState::checkStates();
+				DXState::checkStates();
 
 				glm::mat4 proj = get_current_projection();
 				glm::mat4 mod = get_current_modelview();
-#ifndef DX_RENDER
-				glViewport(0, 0, 512, 512);
-#endif
 
 				LLVOAvatar::updateImpostors();
 
@@ -941,7 +863,7 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 				gDX.loadMatrix(glm::value_ptr(mod));
 				gViewerWindow->setup3DViewport();
 
-				LLGLState::checkStates();
+				DXState::checkStates();
 			}
 		}
 
@@ -953,10 +875,7 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 		// Update bump image list before texture list
 		gBumpImageList.updateImages();
 
-		// S24 - Fixed texture budget for smooth frame pacing
-		// Old: Budget scaled with frame time (slow frames got MORE texture time → spiral)
-		// New: Fixed budget regardless of framerate prevents micro-stutter during camera movement
-		// Textures load slightly slower when moving, but movement feels smooth
+		// Fixed budget regardless of frame time avoids a slow-frame -> more-texture-time -> spiral.
 		static LLCachedControl<F32> texture_budget(gSavedSettings, "RenderTextureUpdateBudgetMS", 2.0f);
 		F32 max_image_decode_time = (F32)texture_budget * 0.001f; // Convert ms to seconds
 		gTextureList.updateImages(max_image_decode_time);
@@ -964,105 +883,72 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 		//remove dead gltf materials
 		gGLTFMaterialList.flushMaterials();
 
-		LLGLState::checkStates();
+		DXState::checkStates();
 
 		LLAppViewer::instance()->pingMainloopTimeout("Display:StateSort");
 
 		LLViewerCamera::sCurCameraID = LLViewerCamera::CAMERA_WORLD;
 		gPipeline.stateSort(*LLViewerCamera::getInstance(), result);
-		stop_glerror();
 
 		if (rebuild)
 		{
 			gPipeline.rebuildPools();
-			stop_glerror();
 		}
 
 		LLSceneMonitor::getInstance()->fetchQueryResult();
 
-		LLGLState::checkStates();
+		DXState::checkStates();
 
 		LLPipeline::sUseOcclusion = occlusion;
 
 		LLAppViewer::instance()->pingMainloopTimeout("Display:Sky");
 		gSky.updateSky();
 
-#ifndef DX_RENDER
-		if (gUseWireframe)
-		{
-			glClearColor(0.5f, 0.5f, 0.5f, 0.f);
-			glClear(GL_COLOR_BUFFER_BIT);
-		}
-#endif
-
 		LLAppViewer::instance()->pingMainloopTimeout("Display:RenderStart");
 
 		LLPipeline::sUnderWaterRender = LLViewerCamera::getInstance()->cameraUnderWater();
 
-		LLGLState::checkStates();
+		DXState::checkStates();
 
-		stop_glerror();
 
-		switch (mode)
-		{
-		case(MASK_MODE_LEFT):
-			gDX.setColorMask(true, false, false, true); // red
-			break;
-		case(MASK_MODE_RIGHT):
-			gDX.setColorMask(false, true, true, true); // cyan
-			break;
-		case(MASK_MODE_NONE):
-			gDX.setColorMask(true, true);
-			break;
-		}
+		// Each eye renders full color into its own target; eyes only mix once, in
+		// the composite shader before swap() - see DXPipeline::presentStereoComposite().
+		gDX.setColorWriteMask(true, true);
 
 		gPipeline.mRT->deferredScreen.bindTarget();
-#ifndef DX_RENDER
+		// S24: DXRenderTarget::clear() clears to mClearColor (default black) - unlike GL's
+		// glClearColor()+glClear() two-step, D3D11 has no ambient "current clear color" state, so
+		// the color has to be set explicitly on the target itself, and it's REMEMBERED for every
+		// future clear() on it too, not just this one - must be explicitly reset back to
+		// transparent black when wireframe goes off again, or it would stay grey forever. Real
+		// wireframe background, matching GL's own mid-grey (0.5) - reads as a light grey/near-white
+		// once gamma-corrected for display, same as GL's version did. The non-wireframe magenta
+		// debug-sentinel color GL uses here (catches anything that skips atmospherics) stays
+		// GL-only - not wireframe-related, not what was asked for here.
 		if (gUseWireframe)
 		{
 			constexpr F32 g = 0.5f;
-			glClearColor(g, g, g, 1.f);
+			gPipeline.mRT->deferredScreen.clearColor(g, g, g, 1.f);
 		}
 		else
 		{
-			glClearColor(1, 0, 1, 1);
+			gPipeline.mRT->deferredScreen.clearColor(0.f, 0.f, 0.f, 0.f);
 		}
-#endif
-		// DXRenderTarget::clear()'s DX_RENDER branch always clears to a
-		// hardcoded transparent black regardless of glClearColor() (D3D11's
-		// ClearRenderTargetView takes an explicit color argument, not a
-		// "current state" the way GL's glClearColor+glClear two-step does) -
-		// the magenta/grey debug-clear colors above are GL-only, not lost
-		// functionality under DX_RENDER.
 		gPipeline.mRT->deferredScreen.clear();
 
-		// S24 3D - Don't override stereo color masks
-		// Restore stereo-specific color masks after deferred screen clear
-		switch (mode)
-		{
-		case(MASK_MODE_LEFT):
-			gDX.setColorMask(true, false, false, true); // red
-			break;
-		case(MASK_MODE_RIGHT):
-			gDX.setColorMask(false, true, true, true); // cyan
-			break;
-		case(MASK_MODE_NONE):
-			gDX.setColorMask(true, false); // Normal depth-only
-			break;
-		}
+		gDX.setColorWriteMask(true, false); // depth-only, matches the render pass right below
 
 		LLAppViewer::instance()->pingMainloopTimeout("Display:RenderGeom");
 
 		if (!(LLAppViewer::instance()->logoutRequestSent() && LLAppViewer::instance()->hasSavedFinalSnapshot())
 			&& !gRestoreGL)
 		{
-			LL_PROFILE_ZONE_NAMED_CATEGORY_DISPLAY("display - 5")
 				LLViewerCamera::sCurCameraID = LLViewerCamera::CAMERA_WORLD;
 
 			static LLCachedControl<bool> render_depth_pre_pass(gSavedSettings, "RenderDepthPrePass", false);
 			if (render_depth_pre_pass)
 			{
-				gDX.setColorMask(false, false);
+				gDX.setColorWriteMask(false, false);
 
 				constexpr U32 types[] = {
 					LLRenderPass::PASS_SIMPLE,
@@ -1080,45 +966,18 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 				gOcclusionProgram.unbind();
 			}
 
-			switch (mode)
-			{
-			case(MASK_MODE_LEFT):
-				gDX.setColorMask(true, false, false, true); // red
-				gPipeline.renderGeomDeferred(*LLViewerCamera::getInstance(), true);
-				break;
-			case(MASK_MODE_RIGHT):
-				gDX.setColorMask(false, true, true, true); // cyan
-				gPipeline.renderGeomDeferred(*LLViewerCamera::getInstance(), true);
-				break;
-			case(MASK_MODE_NONE):
-				gDX.setColorMask(true, true);
-				gPipeline.renderGeomDeferred(*LLViewerCamera::getInstance(), true);
-				break;
-			}
+			gDX.setColorWriteMask(true, true);
+			gPipeline.renderGeomDeferred(*LLViewerCamera::getInstance(), true);
 		}
 
 		{
 			for (S32 i = 0; i < gGLManager.mNumTextureImageUnits; i++)
 			{ //dummy cleanup of any currently bound textures
-#ifdef DX_RENDER
-				// S24 (2026-08-10, task #158): mCurrTexType never leaves
-				// TT_NONE under DX_RENDER (see LLHLSLShader::disableTexture()'s
-				// comment for the full explanation) - this gate always
-				// evaluated false, so this per-frame, all-texture-unit
-				// cleanup pass never actually unbound anything under
-				// DX_RENDER. Same bug class, much larger blast radius (every
-				// slot, every frame) - real contributor to the "resource
-				// still bound on input" D3D11 debug-layer warnings this
-				// session traced to the same root cause. Unconditional here.
+				// mCurrTexType never leaves TT_NONE under DX_RENDER (see
+				// LLHLSLShader::disableTexture()), so the getCurrType() gate below
+				// never fires here - unbind unconditionally instead.
 				gDX.getTexUnit(i)->unbind(LLTexUnit::TT_TEXTURE);
 				gDX.getTexUnit(i)->disable();
-#else
-				if (gDX.getTexUnit(i)->getCurrType() != LLTexUnit::TT_NONE)
-				{
-					gDX.getTexUnit(i)->unbind(gDX.getTexUnit(i)->getCurrType());
-					gDX.getTexUnit(i)->disable();
-				}
-#endif
 			}
 		}
 
@@ -1141,44 +1000,17 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 
 		LLAppViewer::instance()->pingMainloopTimeout("Display:RenderUI");
 
-		// S24 3D - Logic - always assume a normal render! irrespective of setting.
-		bool localSwap = true;
-
 		if (!for_snapshot)
 		{
-			// S24 3D - Stereo anaglyph requires both eyes rendered before swap
-			// MASK_MODE_LEFT (red) renders first, MASK_MODE_RIGHT (cyan) renders second
-			// Only swap after RIGHT eye to get combined red+cyan anaglyph image
-			if (mode == MASK_MODE_LEFT || mode == MASK_MODE_NONE)
-			{
-				// Left eye or normal: render full UI, don't swap yet
-				// S24 3D - HUDs must render with full color mask to prevent strobing
-				gDX.setColorMask(true, true); // Temporarily reset to full RGBA
-				render_ui();
-				// Restore stereo color mask for next frame if in stereo mode
-				if (mode == MASK_MODE_LEFT)
-				{
-					gDX.setColorMask(true, false, false, true); // Restore RED mask
-				}
-				localSwap = (mode == MASK_MODE_NONE); // Only swap for non-stereo
-			}
-			else if (mode == MASK_MODE_RIGHT)
-			{
-				// Right eye: render full UI and swap to display combined anaglyph
-				// S24 3D - HUDs must render with full color mask to prevent strobing
-				gDX.setColorMask(true, true); // Temporarily reset to full RGBA
-				render_ui();
-				// Restore stereo color mask for next frame if in stereo mode
-				gDX.setColorMask(false, true, true, true); // Restore CYAN mask
-				localSwap = true;
-			}
-
-			if (localSwap)
+			// render_ui() must run on every eye's pass since its renderFinalize() call is what
+			// captures each eye into its own offscreen target (mStereoEyeL/R); render_ui() itself
+			// handles the per-eye early-return/composite split. Only swap() is gated to once per frame.
+			render_ui();
+			if (mode != MASK_MODE_LEFT)
 			{
 				swap();
 			}
 		}
-		// S24 END
 
 		LLSpatialGroup::sNoDelete = false;
 		gPipeline.clearReferences();
@@ -1186,7 +1018,6 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 
 	LLAppViewer::instance()->pingMainloopTimeout("Display:FrameStats");
 
-	stop_glerror();
 
 	display_stats();
 
@@ -1197,9 +1028,8 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 	if (gShaderProfileFrame)
 	{
 		gShaderProfileFrame = false;
-		// S24 : parens (not braces) -- braced-init prefers value's
-		// initializer_list<value_ref> ctor over the object_kind_t tag ctor,
-		// which fails to compile against boost::json 1.91 (vcpkg).
+		// Parens, not braces: braced-init would prefer value's initializer_list<value_ref>
+		// ctor over the object_kind_t tag ctor (fails against boost::json 1.91).
 		boost::json::value stats(boost::json::object_kind);
 		getProfileStatsContext(stats.as_object());
 		LLHLSLShader::finishProfile(stats);
@@ -1287,8 +1117,6 @@ std::string getProfileStatsFilename()
 // WIP simplified copy of display() that does minimal work
 void display_cube_face()
 {
-	S32 mode = gViewerWindow->getMaskMode();
-	LL_PROFILE_GPU_ZONE("display cube face");
 
 	llassert(!gSnapshot);
 	llassert(!gTeleportDisplay);
@@ -1337,29 +1165,10 @@ void display_cube_face()
 	LLPipeline::sUnderWaterRender = LLViewerCamera::getInstance()->cameraUnderWater();
 	gPipeline.updateCull(*LLViewerCamera::getInstance(), result);
 
-	switch (mode)
-	{
-	case(MASK_MODE_LEFT):
-		gDX.setColorMask(true, false, false, true); // red
-		break;
-	case(MASK_MODE_RIGHT):
-		gDX.setColorMask(false, true, true, true); // cyan
-		break;
-	case(MASK_MODE_NONE):
-		gDX.setColorMask(true, true);
-		break;
-	}
+	// A reflection probe's captured cubemap is a single shared resource, not per-eye - always full color.
+	gDX.setColorWriteMask(true, true);
 
-	//gDX.setColorMask(true, true);
-
-#ifndef DX_RENDER
-	glClearColor(0.f, 0.f, 0.f, 0.f);
-#endif
 	gPipeline.generateSunShadow(*LLViewerCamera::getInstance());
-
-#ifndef DX_RENDER
-	glClear(GL_DEPTH_BUFFER_BIT); // | GL_STENCIL_BUFFER_BIT);
-#endif
 
 	{
 		LLViewerCamera::sCurCameraID = LLViewerCamera::CAMERA_WORLD;
@@ -1373,7 +1182,6 @@ void display_cube_face()
 			//
 			//
 			gPipeline.rebuildPools();
-			stop_glerror();
 		}
 	}
 
@@ -1383,31 +1191,21 @@ void display_cube_face()
 
 	LLPipeline::sUnderWaterRender = LLViewerCamera::getInstance()->cameraUnderWater();
 
-	switch (mode)
-	{
-	case(MASK_MODE_LEFT):
-		gDX.setColorMask(true, false, false, true); // red
-		break;
-	case(MASK_MODE_RIGHT):
-		gDX.setColorMask(false, true, true, true); // cyan
-		break;
-	case(MASK_MODE_NONE):
-		gDX.setColorMask(true, true);
-		break;
-	}
-	//gDX.setColorMask(true, true);
+	gDX.setColorWriteMask(true, true);
 
 	gPipeline.mRT->deferredScreen.bindTarget();
-#ifndef DX_RENDER
+	// S24: same clearColor()-then-clear() mechanism as the main display() path above - see that
+	// site's comment. Must reset back to transparent black when wireframe is off, since the color
+	// is remembered on the target across calls.
 	if (gUseWireframe)
 	{
-		glClearColor(0.5f, 0.5f, 0.5f, 1.f);
+		constexpr F32 g = 0.5f;
+		gPipeline.mRT->deferredScreen.clearColor(g, g, g, 1.f);
 	}
 	else
 	{
-		glClearColor(1.f, 0.f, 1.f, 1.f);
+		gPipeline.mRT->deferredScreen.clearColor(0.f, 0.f, 0.f, 0.f);
 	}
-#endif
 	gPipeline.mRT->deferredScreen.clear();
 
 	LLViewerCamera::sCurCameraID = LLViewerCamera::CAMERA_WORLD;
@@ -1415,48 +1213,17 @@ void display_cube_face()
 	gPipeline.renderGeomDeferred(*LLViewerCamera::getInstance());
 
 #ifdef DX_RENDER
-	// S24 (2026-08-03): LLPipeline::renderDeferredLighting() is a confirmed
-	// no-op stub under DX_RENDER (returns at its own top, see its comment) -
-	// but the GL body it skips is also the ONLY call site for
-	// renderGeomPostDeferred(*LLViewerCamera::getInstance()) (the main-
-	// camera forward/alpha/glow pass, buried deep inside renderDeferredLighting()
-	// at pipeline.cpp's "render non-deferred geometry (alpha, fullbright,
-	// glow)" block). That means DXPipeline::renderGeomPostDeferred() (built
-	// this session) was correctly wired but structurally unreachable for
-	// the world scene - confirmed via a diagnostic that only ever fired
-	// from the separate HUD call site (render_hud_attachments(), below),
-	// never for the main camera.
-	//
-	// S24 (2026-08-03) REVISED after a real regression: an earlier version
-	// of this fix called DXPipeline::presentDeferredScreen() (the blit of
-	// deferredScreen onto the swap chain back buffer) HERE, reasoning that
-	// deferredScreen.flush() leaves the back buffer bound, so the alpha
-	// pass could draw directly onto it. That broke the whole frame to
-	// solid black - moving the ONLY back-buffer-bind-and-blit step this
-	// early left the entire rest of the frame (reflection probes, shadows,
-	// snapshots, impostors - anything that rebinds a render target) free
-	// to leave something OTHER than the back buffer bound by the time
-	// Present() actually runs, since nothing later re-established it.
-	//
-	// Correct fix: don't move the blit at all - draw the alpha/glow pass
-	// directly INTO deferredScreen instead (which still holds this frame's
-	// opaque content, and its own matching depth buffer for correct
-	// occlusion), BEFORE deferredScreen.flush() below hands the back
-	// buffer back over. The single real blit stays exactly where it always
-	// was (LLPipeline::renderFinalize(), late in the frame, right before
-	// UI) - it now just picks up alpha/glow content for free, since it's
-	// already sitting in the same G-buffer attachment (data0) that blit
-	// reads from. dxdrawpoolalpha.cpp's shaders only write a single
-	// SV_Target (not deferredScreen's full multi-target PSOutput) - with
-	// deferredScreen's 3-4 RTVs bound, that just means only data0 (the
-	// diffuse/color attachment presentDeferredScreen() blits) receives the
-	// write; data1-3 (specular/normal/emissive) are simply left untouched,
-	// which is fine for this first pass (no per-pixel lighting response
-	// from alpha content yet, matching the "plain world" state everything
-	// else is still in). deferredScreen is still the actively bound render
-	// target at this point (flush() hasn't run yet - see below), so no
-	// rebind is needed or safe to do (LLRenderTarget::bindTarget() asserts
-	// it isn't already bound).
+	// LLPipeline::renderDeferredLighting() is a no-op stub under DX_RENDER, but its GL body is
+	// also the only call site for renderGeomPostDeferred() (main-camera alpha/glow pass), so it
+	// must be called explicitly here instead. Draws directly into deferredScreen (which still
+	// holds this frame's opaque content + depth buffer) rather than the back buffer: the real
+	// back-buffer blit stays in LLPipeline::renderFinalize() and picks up this content for free
+	// since it reads the same G-buffer attachment (data0). Do NOT move the blit earlier - nothing
+	// later re-establishes the back buffer as the bound target for Present(). dxdrawpoolalpha.cpp's
+	// shaders only write a single SV_Target, not deferredScreen's full multi-target PSOutput -
+	// with its 3-4 RTVs still bound, only data0 receives the write; data1-3 are left untouched.
+	// deferredScreen is still the actively-bound target here (flush() hasn't run yet), so do not
+	// rebind it - LLRenderTarget::bindTarget() asserts it isn't already bound.
 	gPipeline.renderGeomPostDeferred(*LLViewerCamera::getInstance());
 #endif
 
@@ -1542,7 +1309,12 @@ void render_hud_attachments()
 		gPipeline.toggleRenderType(LLPipeline::RENDER_TYPE_ALPHA_MASK);
 		gPipeline.toggleRenderType(LLPipeline::RENDER_TYPE_FULLBRIGHT_ALPHA_MASK);
 		gPipeline.toggleRenderType(LLPipeline::RENDER_TYPE_FULLBRIGHT);
-		gPipeline.toggleRenderType(LLPipeline::RENDER_TYPE_GLTF_PBR);
+		// S24: mark_dirty=false - RENDER_TYPE_GLTF_PBR's toggle normally calls
+		// markAllGeometryDirty() (full octree traversal, every region/partition) so a genuine
+		// user-facing PBR setting change re-sorts faces into correct pools. This call site is
+		// pure internal mask bookkeeping that runs every single frame while anything is
+		// HUD-attached, not a real setting change - the dirty-marking was flooring frametime.
+		gPipeline.toggleRenderType(LLPipeline::RENDER_TYPE_GLTF_PBR, false);
 		gPipeline.toggleRenderType(LLPipeline::RENDER_TYPE_GLTF_PBR_ALPHA_MASK);
 
 		// Toggle render passes
@@ -1679,8 +1451,7 @@ void render_ui(F32 zoom_factor, int subfield)
 {
 	LLPerfStats::RecordSceneTime T(LLPerfStats::StatType_t::RENDER_UI); // render time capture - Primary UI stat can have HUD time overlap (TODO)
 	LL_RECORD_BLOCK_TIME(FTM_RENDER_UI);
-	LL_PROFILE_GPU_ZONE("ui");
-	LLGLState::checkStates();
+	DXState::checkStates();
 
 	glm::mat4 saved_view = get_current_modelview();
 #ifdef DX_RENDER
@@ -1690,33 +1461,12 @@ void render_ui(F32 zoom_factor, int subfield)
 	if (!gSnapshot)
 	{
 		gDX.pushMatrix();
-#ifdef DX_RENDER
-		// S24 (2026-08-16): load the LIVE camera's current modelview
-		// instead of gGLLastModelView - that global is only ever updated
-		// for SSR's benefit (DXPipeline::renderGeomPostDeferred()'s own
-		// comment: "screenSpaceReflUtil.hlsl's real ray-march (once
-		// ported) needs a genuine frame-to-frame camera delta for this
-		// exact reason") and SSR isn't ported to DX_RENDER yet (task
-		// #156, still in progress) - confirmed via a full-tree grep that
-		// get_last_modelview()/get_last_projection() have zero callers
-		// outside pipeline.cpp's GL-only body, so nothing DX_RENDER-
-		// reachable depends on this value being "last frame's" anything
-		// right now. This capture-and-reload pair is properly scoped
-		// (pushed here, popped/restored to saved_view/saved_proj a few
-		// lines down before this function returns) and never touches the
-		// capture site itself (dxpipeline.cpp still updates
-		// gGLLastModelView/gGLLastProjection exactly as before, for
-		// whenever SSR needs it) - purely changes what THIS pass draws
-		// with. LLHUDObject::renderAll() (world-space HUD effects - the
-		// selection beam, nametags, voice visualizer) runs entirely
-		// within this scope and was projecting otherwise-correct world
-		// positions through a matrix that could be stale by camera
-		// movement since the last capture - the actual root cause of the
-		// long-hunted beam/HUD "bounce" (position math was independently
-		// proven correct via extensive live diagnostics; the projection
-		// matrix used to draw it was the missing piece). Projection was
-		// never reloaded here at all before this fix (confirmed via grep -
-		// only modelview was) - added symmetrically.
+		// Loads the LIVE camera's modelview/projection instead of gGLLastModelView, which is
+		// only updated for SSR's frame-to-frame delta (not yet ported to DX_RENDER) and has no
+		// other DX_RENDER-reachable readers. LLHUDObject::renderAll() (selection beam, nametags,
+		// voice visualizer) runs in this scope and needs the current, not stale, camera matrices
+		// to avoid world-space "bounce". Pushed here, popped back to saved_view/saved_proj below;
+		// dxpipeline.cpp's own gGLLastModelView/gGLLastProjection capture is untouched.
 		const LLMatrix4& live_modelview = LLViewerCamera::getInstance()->getModelview();
 		gDX.loadMatrix((const F32*)live_modelview.mMatrix);
 		set_current_modelview(glm::make_mat4((const F32*)live_modelview.mMatrix));
@@ -1727,10 +1477,6 @@ void render_ui(F32 zoom_factor, int subfield)
 		gDX.loadMatrix((const F32*)live_projection.mMatrix);
 		set_current_projection(glm::make_mat4((const F32*)live_projection.mMatrix));
 		gDX.matrixMode(LLRender::MM_MODELVIEW);
-#else
-		gDX.loadMatrix(gGLLastModelView);
-		set_current_modelview(glm::make_mat4(gGLLastModelView));
-#endif
 	}
 
 	if (LLSceneMonitor::getInstance()->needsUpdate())
@@ -1745,14 +1491,42 @@ void render_ui(F32 zoom_factor, int subfield)
 	// apply gamma correction and post effects
 	gPipeline.renderFinalize();
 
+	// renderFinalize() above triggers presentFinal(), which in stereo mode captures this eye's
+	// frame into its own offscreen target (mStereoEyeL/R) instead of the back buffer. The LEFT
+	// eye returns early here (nothing else should draw into whatever happens to be bound); the
+	// RIGHT eye composites both eyes into the real back buffer now, before HUD/2D UI draws.
+	// Non-stereo MASK_MODE_NONE falls through both checks - its frame already landed
+	// directly in the real back buffer via presentFinal()'s own
+	// dest=nullptr path, exactly as before this rewrite.
 	{
-		LLGLState::checkStates();
+		S32 stereo_mode = gViewerWindow->getMaskMode();
+		if (stereo_mode == MASK_MODE_LEFT)
+		{
+			if (!gSnapshot)
+			{
+				gDX.matrixMode(LLRender::MM_PROJECTION);
+				gDX.popMatrix();
+				set_current_projection(saved_proj);
+				gDX.matrixMode(LLRender::MM_MODELVIEW);
+				set_current_modelview(saved_view);
+				gDX.popMatrix();
+			}
+			return;
+		}
+		if (stereo_mode == MASK_MODE_RIGHT)
+		{
+			DXPipeline::presentStereoComposite(gPipeline);
+		}
+	}
+
+	{
+		DXState::checkStates();
 
 		render_hud_elements();
-		LLGLState::checkStates();
+		DXState::checkStates();
 		render_hud_attachments();
 
-		LLGLState::checkStates();
+		DXState::checkStates();
 
 		LLGLSDefault gls_default;
 		LLGLSUIDefault gls_ui;
@@ -1766,9 +1540,9 @@ void render_ui(F32 zoom_factor, int subfield)
 			if (!gDisconnected)
 			{
 				LL_RECORD_BLOCK_TIME(FTM_RENDER_UI_3D);
-				LLGLState::checkStates();
+				DXState::checkStates();
 				render_ui_3d();
-				LLGLState::checkStates();
+				DXState::checkStates();
 			}
 			else
 			{
@@ -1786,12 +1560,10 @@ void render_ui(F32 zoom_factor, int subfield)
 			LL_RECORD_BLOCK_TIME(FTM_RENDER_UI_2D);
 			LLHUDObject::renderAll();
 #ifdef DX_RENDER
-			// S24 (2026-08-16): hard pass-boundary flush - LLHUDObject::
-			// renderAll() draws depth-tested world-space content (nametags/
-			// icons) via gDXUIBatch; render_ui_2d() draws non-depth-tested
-			// screen-space UI through the same batcher. Without this, the
-			// two could merge into one draw call sharing only one of their
-			// depth states. See DXUIBatch.h's top comment.
+			// Hard pass boundary: renderAll() draws depth-tested world-space content via
+			// gDXUIBatch; render_ui_2d() draws non-depth-tested screen-space UI through the
+			// same batcher. Without this flush they could merge into one draw call sharing
+			// only one of their depth states. See DXUIBatch.h.
 			gDXUIBatch.flushPending();
 #endif
 			render_ui_2d();
@@ -1801,8 +1573,7 @@ void render_ui(F32 zoom_factor, int subfield)
 		gViewerWindow->updateDebugText();
 		gViewerWindow->drawDebugText();
 #ifdef DX_RENDER
-		// S24 (2026-08-16): end-of-2D-UI-pass flush - anything still batched
-		// (debug text etc.) must draw before this scope ends / Present().
+		// Anything still batched (debug text etc.) must draw before this scope ends / Present().
 		gDXUIBatch.flushPending();
 #endif
 	}
@@ -1823,7 +1594,6 @@ void render_ui(F32 zoom_factor, int subfield)
 void swap()
 {
 	LLPerfStats::RecordSceneTime T(LLPerfStats::StatType_t::RENDER_SWAP); // render time capture - Swap buffer time - can signify excessive data transfer to/from GPU
-	LL_PROFILE_GPU_ZONE("swap");
 	if (gDisplaySwapBuffers)
 	{
 		gViewerWindow->getWindow()->swapBuffers();
@@ -1919,7 +1689,6 @@ void render_ui_3d()
 
 	// Debugging stuff goes before the UI.
 
-	stop_glerror();
 
 	gUIProgram.bind();
 	gDX.color4f(1.f, 1.f, 1.f, 1.f);
@@ -1946,7 +1715,6 @@ void render_ui_3d()
 		LLHUDObject::renderAllForTimer();
 	}
 
-	stop_glerror();
 }
 
 void render_ui_2d()
@@ -1956,11 +1724,6 @@ void render_ui_2d()
 	/////////////////////////////////////////////////////////////
 	//
 	// Render 2D UI elements that overlay the world (no z compare)
-
-	//  Disable wireframe mode below here, as this is HUD/menus
-#ifndef DX_RENDER
-	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-#endif
 
 	//  Menu overlays, HUD, etc
 	gViewerWindow->setup2DRender();
@@ -1978,7 +1741,6 @@ void render_ui_2d()
 		LLFontGL::sCurOrigin.mY -= ll_round((F32)gViewerWindow->getWindowHeightScaled() * (F32)pos_y / zoom_factor);
 	}
 
-	stop_glerror();
 
 	// render outline for HUD
 	if (isAgentAvatarValid() && gAgentCamera.mHUDCurZoom < 0.98f)
@@ -1995,82 +1757,12 @@ void render_ui_2d()
 		gl_rect_2d(-half_width, half_height, half_width, -half_height, false);
 		gDX.popMatrix();
 		gUIProgram.unbind();
-		stop_glerror();
 	}
 
-#ifdef DX_RENDER
-	// S24 (DX_RENDER): RenderUIBuffer's screen-aligned UI cache is built
-	// entirely on LLTexUnit::bind(LLRenderTarget*, bool) (unconverted, see
-	// the project's open-issues ledger) plus a raw glClear() - same "cache
-	// bypassed under DX_RENDER" precedent as LLUIImage's display-list cache
-	// (phase 5.9). Off by default (RenderUIBuffer=0), so this only affects
-	// users who've explicitly enabled it; falls back to the direct-draw path
-	// used when the setting is off anyway.
+	// RenderUIBuffer's screen-aligned UI cache relies on unconverted GL calls (LLTexUnit::bind
+	// with LLRenderTarget*, plus raw glClear()) - bypassed under DX_RENDER like LLUIImage's
+	// display-list cache. Off by default; falls back to the direct-draw path either way.
 	gViewerWindow->draw();
-#else
-	if (LLPipeline::RenderUIBuffer)
-	{
-		if (LLView::sIsRectDirty)
-		{
-			LLView::sIsRectDirty = false;
-			LLRect t_rect;
-
-			gPipeline.mUIScreen.bindTarget();
-			gDX.setColorMask(true, true);
-			{
-				constexpr S32 pad = 8;
-
-				LLView::sDirtyRect.mLeft -= pad;
-				LLView::sDirtyRect.mRight += pad;
-				LLView::sDirtyRect.mBottom -= pad;
-				LLView::sDirtyRect.mTop += pad;
-
-				LLGLEnable scissor(GL_SCISSOR_TEST);
-				static LLRect last_rect = LLView::sDirtyRect;
-
-				//union with last rect to avoid mouse poop
-				last_rect.unionWith(LLView::sDirtyRect);
-
-				t_rect = LLView::sDirtyRect;
-				LLView::sDirtyRect = last_rect;
-				last_rect = t_rect;
-
-				last_rect.mLeft = LLRect::tCoordType(last_rect.mLeft / LLUI::getScaleFactor().mV[0]);
-				last_rect.mRight = LLRect::tCoordType(last_rect.mRight / LLUI::getScaleFactor().mV[0]);
-				last_rect.mTop = LLRect::tCoordType(last_rect.mTop / LLUI::getScaleFactor().mV[1]);
-				last_rect.mBottom = LLRect::tCoordType(last_rect.mBottom / LLUI::getScaleFactor().mV[1]);
-
-				LLRect clip_rect(last_rect);
-
-				glClear(GL_COLOR_BUFFER_BIT);
-
-				gViewerWindow->draw();
-			}
-
-			gPipeline.mUIScreen.flush();
-			gDX.setColorMask(true, false);
-
-			LLView::sDirtyRect = t_rect;
-		}
-
-		LLGLDisable cull(GL_CULL_FACE);
-		LLGLDisable blend(GL_BLEND);
-		S32 width = gViewerWindow->getWindowWidthScaled();
-		S32 height = gViewerWindow->getWindowHeightScaled();
-		gDX.getTexUnit(0)->bind(&gPipeline.mUIScreen);
-		gDX.begin(LLRender::TRIANGLE_STRIP);
-		gDX.color4f(1.f, 1.f, 1.f, 1.f);
-		gDX.texCoord2f(0.f, 0.f);                 gDX.vertex2i(0, 0);
-		gDX.texCoord2f((F32)width, 0.f);          gDX.vertex2i(width, 0);
-		gDX.texCoord2f(0.f, (F32)height);         gDX.vertex2i(0, height);
-		gDX.texCoord2f((F32)width, (F32)height);  gDX.vertex2i(width, height);
-		gDX.end();
-	}
-	else
-	{
-		gViewerWindow->draw();
-	}
-#endif
 
 	// reset current origin for font rendering, in case of tiling render
 	LLFontGL::sCurOrigin.set(0, 0);

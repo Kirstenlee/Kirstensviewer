@@ -24,17 +24,13 @@
 
 /*[EXTRA_CODE_HERE]*/
 
-// S24 (2026-08-09, task #164): t0-t3/s0-s3 reserved by deferredUtil.hlsl
-// (mFeatures.isDeferred=true on every program using this file) - matches
-// the same fix and convention already established in
-// postDeferredGammaCorrect.hlsl's own diffuseRect (t7/s7). exposureMap
-// (tonemapUtilF.hlsl, attached via mFeatures.hasTonemap) uses t8/s8.
+// S24: t0-t3/s0-s3 reserved by deferredUtil.hlsl (mFeatures.isDeferred=true on every program using this file), same convention as postDeferredGammaCorrect.hlsl's diffuseRect (t7/s7). exposureMap (tonemapUtilF.hlsl, mFeatures.hasTonemap) uses t8/s8.
 Texture2D diffuseRect : register(t7);
 SamplerState diffuseRectSampler : register(s7);
 
 struct PSInput
 {
-    // S24 (2026-08-02): missing SV_Position - see uiF.hlsl's comment (fxc.exe-confirmed VS/PS register-shift bug).
+    // S24: missing SV_Position shifts every subsequent semantic register by one relative to the VS output.
     float4 position : SV_Position;
 
     float2 vary_fragcoord : TEXCOORD0;
@@ -59,12 +55,7 @@ float3 legacyGamma(float3 color)
 
 float4 main(PSInput IN) : SV_Target
 {
-    // S24 (2026-08-09, task #164): same GL-vs-D3D11 texture-origin flip
-    // already established elsewhere in this post-fx chain (see
-    // postDeferredGammaCorrect.hlsl's own identical comment) - never hit
-    // until this file was actually wired into presentDeferredScreen() for
-    // the first time (this same task), confirmed via "world upside down"
-    // report right after that fix landed.
+    // S24: GL-vs-D3D11 texture-origin flip, same convention as postDeferredGammaCorrect.hlsl.
     float2 tc = float2(IN.vary_fragcoord.x, 1.0 - IN.vary_fragcoord.y);
     float4 diff = diffuseRect.Sample(diffuseRectSampler, tc);
 #ifndef NO_POST

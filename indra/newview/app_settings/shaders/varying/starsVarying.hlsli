@@ -26,19 +26,22 @@
 // starsF.hlsl (the ALM-on variant) - see varying/uiVarying.hlsli's comment
 // for why this exists.
 //
-// S24 (2026-08-29, task #279 "RENDER WOW"): star_seed/galactic_band added -
-// see starsV.hlsl's comment for how they're derived and starsF.hlsl's for
-// how they're used (per-star color/twinkle variety, a soft Milky-Way-style
-// brightness band). screenpos is no longer read anywhere (it drove the old
-// twinkle() function's screen-position-based flicker, replaced by a real
-// time+seed-based sinusoidal twinkle) - kept as-is rather than removed, in
-// case a future GL-side port of this same upgrade wants it back for
-// parity; genuinely dead weight otherwise.
+// S24 (2026-08-29, task #279 "RENDER WOW"): star_seed added - see
+// starsV.hlsl's comment for how it's derived and starsF.hlsl's for how it's
+// used (per-star color/twinkle variety). screenpos is no longer read
+// anywhere (it drove the old twinkle() function's screen-position-based
+// flicker, replaced by a real time+seed-based sinusoidal twinkle) - kept
+// as-is rather than removed, in case a future GL-side port of this same
+// upgrade wants it back for parity; genuinely dead weight otherwise.
+// galactic_band (the old per-star recolor approach to the Milky Way band)
+// was removed once the dust-haze blob system replaced it; that sprite-blob
+// system was itself later replaced by a fully separate procedural noise
+// band on the sky dome mesh - see dxdrawpoolwlsky.cpp's
+// renderGalacticBandDeferred()/galacticBandV.hlsl.
 struct StarsVarying
 {
     float4 vertex_color : COLOR0;
     float2 vary_texcoord0 : TEXCOORD0;
     float2 screenpos : TEXCOORD1;
     float star_seed : TEXCOORD2;
-    float galactic_band : TEXCOORD3;
 };

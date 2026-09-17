@@ -78,8 +78,9 @@ bool KVFloaterQuickChat::postBuild()
     }
 
     // Lock the height - floater should only resize horizontally
-    // Height is just big enough for: controls (23px) + padding (9px) = 32px (no title bar)
-    setResizeLimits(200, QUICK_CHAT_HEIGHT);  // min_width=200, min_height=32 (same as XML)
+    // Height: 8px top grab strip (no title bar, but see floater_kv_quick_chat.xml's comment -
+    // this is a real drag-handle hit area, not decorative) + controls (23px) + 5px bottom padding
+    setResizeLimits(200, QUICK_CHAT_HEIGHT);  // min_width=200, min_height=36 (same as XML)
 
     // Prevent vertical resizing by making min and max height the same
     LLRect rect = getRect();
@@ -124,7 +125,17 @@ void KVFloaterQuickChat::dockToToolbarButton(const std::string& toolbarButtonNam
     LLView* anchor_panel = gToolBarView->findChildView(toolbarButtonName);
 
     if (!anchor_panel)
+    {
+        // S24: anchor button not found (removed from all toolbars, or not yet placed) - undock
+        // and recenter rather than silently leaving the floater wherever its last saved/docked
+        // position happened to be. Docked position is normally recomputed live relative to the
+        // anchor every time, so a stale saved rect from before undocking (or before the anchor
+        // moved) could otherwise leave this floater sitting behind other chrome with no drag
+        // handle reachable to pull it back out.
+        setDocked(false);
+        center();
         return;
+    }
 
     // No dock tongue (arrow): keeps the flyout flush against the toolbar
     // instead of leaving a gap for the arrow to draw in.

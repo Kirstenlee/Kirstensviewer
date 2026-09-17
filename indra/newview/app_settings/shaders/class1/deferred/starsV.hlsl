@@ -41,16 +41,11 @@ struct VSOutput
     StarsVarying varying;
 };
 
-// S24 (2026-08-29, task #279 "RENDER WOW"): cheap deterministic float3->float
-// hash (classic sin/frac trick - no HLSL builtin noise() the way old GLSL
-// briefly had one). Seeded from IN.diffuse_color.rgb rather than IN.position
-// - LLVOWLSky::updateStarGeometry() (newview/llvowlsky.cpp) writes the SAME
-// mStarColors[vtx] value to all 6 vertices of one star's billboard quad
-// (2 triangles), but IN.position differs per corner (each corner is the
-// star's center +/- an up/left billboard offset) - hashing position would
-// give each of the 4 corners of the SAME star a different seed, visibly
-// desyncing color/twinkle across one star's own quad. vertex_color is the
-// only per-vertex input that's genuinely constant across a whole star.
+// Cheap deterministic float3->float hash (sin/frac trick; no HLSL builtin
+// noise()). Seeded from IN.diffuse_color.rgb rather than IN.position:
+// LLVOWLSky::updateStarGeometry() writes the same mStarColors[vtx] value to
+// all 6 vertices of one star's billboard quad, but IN.position differs per
+// corner - hashing position would desync color/twinkle across one star's quad.
 float starHash(float3 seed)
 {
     float n = dot(seed, float3(12.9898, 78.233, 37.719));
@@ -66,12 +61,9 @@ VSOutput main(VSInput IN)
 
     // smash to far clip plane to
     // avoid rendering on top of moon (do NOT write to gl_FragDepth, it's slow)
-    // S24 (reversed-Z conversion, missed original sweep): pos.z=0.0, was
-    // pos.z=pos.w - modelview_projection_matrix already carries
-    // kGLtoDXDepthRemap (llrender.cpp), so post-divide z/w IS the stored
-    // depth directly (no separate GL-style *2-1 remap for D3D's native
-    // pipeline) - far is now 0.0, not 1.0. Left as pos.w, stars were
-    // smashing to the NEAR plane and rendering in front of everything.
+    // Reversed-Z: far plane is 0.0, not 1.0 (modelview_projection_matrix
+    // already carries kGLtoDXDepthRemap, see llrender.cpp) - pos.z=pos.w
+    // would smash to the near plane instead.
     pos.z = 0.0;
 
     OUT.position = pos;
@@ -82,32 +74,6 @@ VSOutput main(VSInput IN)
     OUT.varying.vertex_color = IN.diffuse_color;
 
     OUT.varying.star_seed = starHash(IN.diffuse_color.rgb);
-
-    // S24 (task #279): soft Milky-Way-style stardust band - brightest along
-    // a fixed great circle across the sky dome, fading with angular
-    // distance. IN.position is close enough to the star's true center
-    // direction (the billboard offset is tiny relative to DISTANCE_TO_STARS,
-    // llvowlsky.cpp's dome radius) that using it directly per-corner is
-    // visually smooth, unlike star_seed above which needs to be EXACTLY
-    // stable per corner.
-    //
-    // S24 (task #279 stage 2, user feedback: "the galactic band runs around
-    // the waterline not overhead"): the band is the set of directions
-    // roughly PERPENDICULAR to galactic_normal - a normal that's mostly
-    // vertical (the old (0.35,0.15,0.92), dominant Z) makes that
-    // perpendicular set mostly HORIZONTAL directions, i.e. a ring hugging
-    // the horizon. For the band to instead arc up and OVER the sky (like a
-    // real Milky Way band), galactic_normal itself needs to be mostly
-    // horizontal - fixed by dropping its Z component way down.
-    float3 galactic_normal = normalize(float3(1.0, 0.4, 0.12));
-    float band_dist = dot(normalize(IN.position), galactic_normal);
-    // S24 (task #279 stage 2, user feedback: "so faint as not to be
-    // noticible as dust"): widened from 0.35 - more of the field now falls
-    // inside the band, giving starsF.hlsl's per-star brightness/tint boost
-    // (band_tint/density_boost, scaled by RenderStarDustIntensity) enough
-    // stars to actually read as a haze rather than a couple of slightly
-    // bluer points.
-    OUT.varying.galactic_band = 1.0 - smoothstep(0.0, 0.55, abs(band_dist));
 
     return OUT;
 }

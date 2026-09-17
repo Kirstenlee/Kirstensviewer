@@ -80,10 +80,9 @@ const F32 SNAP_ARROW_SCALE = 0.7f;
 
 static LLPointer<LLViewerTexture> sGridTex = NULL ;
 #ifdef DX_RENDER
-// S24 (2026-08-03, task #84): DX-native backing for sGridTex - the raw
-// GLuint*+bindManual()+setManualImage() upload below has no DX_RENDER
-// translation (same ambient-GL-state issue as pipeline.cpp's procedural
-// textures - see that file's mDXNoiseMap etc. for the fuller writeup).
+// DX-native backing for sGridTex - the raw GLuint*+bindManual()+setManualImage() upload below has no
+// DX_RENDER translation (same ambient-GL-state issue as pipeline.cpp's procedural textures, e.g.
+// mDXNoiseMap).
 static DXTexture sDXGridTex;
 #endif
 
@@ -281,10 +280,9 @@ void LLManipTranslate::restoreGL()
             }
         }
 #ifdef DX_RENDER
-        // S24 (2026-08-03, task #84): only the top mip is genuinely uploaded -
-        // generate_mips=true lets D3D11 auto-build the rest instead of
-        // replicating this loop's hand-tuned per-mip anti-aliasing (a real,
-        // documented simplification, not a silent behavior change).
+        // Only the top mip is uploaded here - generate_mips=true lets D3D11 build the rest instead of
+        // replicating this loop's per-mip anti-aliasing. A deliberate simplification, not a behavior
+        // regression.
         sDXGridTex.create(reinterpret_cast<const uint8_t*>(d), rez, rez, 4, true);
         break;
 #else
@@ -1084,16 +1082,6 @@ bool LLManipTranslate::handleMouseUp(S32 x, S32 y, MASK mask)
 
 void LLManipTranslate::render()
 {
-    // S24 (2026-09-02): task #132/133's reachability-marker and OM/pixel-
-    // readback diagnostics (both logged under "S24Diag") removed - their
-    // investigation (a "no render target bound"/nothing-drawn theory for
-    // the move gizmo) was already confirmed resolved per their own
-    // comments, they'd been sitting here as dead weight since, and the
-    // readback diagnostic specifically did 81 synchronous GPU->CPU
-    // pixel reads (DXReadback::readPixels(), a real pipeline stall each
-    // time) on every one of its first 5 activations - a genuine, if
-    // bounded, stutter the first few times this tool renders each
-    // session, for zero remaining purpose.
     gDX.matrixMode(LLRender::MM_MODELVIEW);
     gDX.pushMatrix();
     if (mObjectSelection->getSelectType() == SELECT_TYPE_HUD)
@@ -1710,7 +1698,7 @@ void LLManipTranslate::highlightIntersection(LLVector3 normal,
         //LLGLEnable stencil(GL_STENCIL_TEST);
         LLGLDepthTest depth (GL_TRUE, GL_FALSE, GL_ALWAYS);
         //glStencilFunc(GL_ALWAYS, 0, stencil_mask);
-        gDX.setColorMask(false, false);
+        gDX.setColorWriteMask(false, false);
         gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
 
         gDX.diffuseColor4f(1,1,1,1);
@@ -1765,7 +1753,7 @@ void LLManipTranslate::highlightIntersection(LLVector3 normal,
             LLPipeline::toggleRenderType(LLPipeline::RENDER_TYPE_CLOUDS);
         }
 
-        gDX.setColorMask(true, false);
+        gDX.setColorWriteMask(true, false);
     }
     gDX.color4f(1,1,1,1);
 

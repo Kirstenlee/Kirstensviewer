@@ -61,10 +61,8 @@ const F32 OBJECT_DAMPING_TIME_CONSTANT = 0.06f;
 
 extern bool gShiftFrame;
 
-// S24: Fast timers for critical drawable operations
 static LLTrace::BlockTimerStatHandle FTM_UPDATE_XFORM("Update Transform", "Render");
 static LLTrace::BlockTimerStatHandle FTM_UPDATE_SPATIAL_EXTENTS("Update Spatial Extents", "Render");
-static LLTrace::BlockTimerStatHandle FTM_DRAWABLE_UPDATE("Drawable Update", "Render");
 
 
 ////////////////////////
@@ -104,7 +102,6 @@ LLDrawable::LLDrawable(LLViewerObject* vobj, bool new_entry)
 
 void LLDrawable::init(bool new_entry)
 {
-	LL_PROFILE_ZONE_SCOPED_CATEGORY_DRAWABLE; // S24: Merged from LL (no-op)
 
 	// mXform
 	mParent = nullptr;
@@ -300,7 +297,6 @@ S32 LLDrawable::findReferences(LLDrawable* drawablep)
 
 LLFace* LLDrawable::addFace(LLFacePool* poolp, LLViewerTexture* texturep)
 {
-	LL_PROFILE_ZONE_SCOPED_CATEGORY_DRAWABLE; // S24: Merged from LL (no-op)
 
 	LLFace* face;
 	{
@@ -328,7 +324,6 @@ LLFace* LLDrawable::addFace(LLFacePool* poolp, LLViewerTexture* texturep)
 
 LLFace* LLDrawable::addFace(const LLTextureEntry* te, LLViewerTexture* texturep)
 {
-	LL_PROFILE_ZONE_SCOPED_CATEGORY_DRAWABLE; // S24: Merged from LL (no-op)
 
 	LLFace* face;
 
@@ -350,7 +345,6 @@ LLFace* LLDrawable::addFace(const LLTextureEntry* te, LLViewerTexture* texturep)
 
 LLFace* LLDrawable::addFace(const LLTextureEntry* te, LLViewerTexture* texturep, LLViewerTexture* normalp)
 {
-	LL_PROFILE_ZONE_SCOPED_CATEGORY_DRAWABLE; // S24: Merged from LL (no-op)
 
 	LLFace* face;
 	face = new LLFace(this, mVObjp);
@@ -372,7 +366,6 @@ LLFace* LLDrawable::addFace(const LLTextureEntry* te, LLViewerTexture* texturep,
 
 LLFace* LLDrawable::addFace(const LLTextureEntry* te, LLViewerTexture* texturep, LLViewerTexture* normalp, LLViewerTexture* specularp)
 {
-	LL_PROFILE_ZONE_SCOPED_CATEGORY_DRAWABLE; // S24: Merged from LL (no-op)
 
 	LLFace* face;
 	face = new LLFace(this, mVObjp);
@@ -443,7 +436,6 @@ void LLDrawable::setNumFacesFast(const S32 newFaces, LLFacePool* poolp, LLViewer
 
 void LLDrawable::mergeFaces(LLDrawable* src)
 {
-	LL_PROFILE_ZONE_SCOPED_CATEGORY_DRAWABLE; // S24: Merged from LL (no-op)
 
 	auto face_count = mFaces.size() + src->mFaces.size();
 
@@ -488,7 +480,6 @@ void LLDrawable::updateMaterial()
 
 void LLDrawable::makeActive()
 {
-	LL_PROFILE_ZONE_SCOPED_CATEGORY_DRAWABLE; // S24: Merged from LL (no-op)
 
 #if !LL_RELEASE_FOR_DOWNLOAD
 	if (mVObjp.notNull())
@@ -552,7 +543,6 @@ void LLDrawable::makeActive()
 
 void LLDrawable::makeStatic(bool warning_enabled)
 {
-	LL_PROFILE_ZONE_SCOPED_CATEGORY_DRAWABLE; // S24: Merged from LL (no-op)
 
 	if (isState(ACTIVE) &&
 		!isState(ACTIVE_CHILD) &&
@@ -602,7 +592,11 @@ F32 LLDrawable::updateXform(bool undamped)
 {
 	LL_RECORD_BLOCK_TIME(FTM_UPDATE_XFORM); // S24: Critical transform update path
 
-	bool damped = !undamped;
+	// S24: HUD attachments never damped-interpolate here - the interpolation threshold below is
+	// scaled by mDistanceWRTCamera^2 (world-camera distance semantics), meaningless/near-zero for
+	// HUD-space content rendered against its own fixed hud_cam. Should track its attachment
+	// transform exactly, not lag behind it.
+	bool damped = !undamped && !(mVObjp && mVObjp->isHUDAttachment());
 
 	// Position
 	const LLVector3 old_pos(mXform.getPosition());
@@ -763,7 +757,6 @@ void LLDrawable::moveUpdatePipeline(bool moved)
 
 void LLDrawable::movePartition()
 {
-	LL_PROFILE_ZONE_SCOPED_CATEGORY_DRAWABLE; // S24: Merged from LL (no-op)
 
 	LLSpatialPartition* part = getSpatialPartition();
 	if (part)
@@ -817,7 +810,6 @@ bool LLDrawable::updateMoveUndamped()
 
 void LLDrawable::updatePartition()
 {
-	LL_PROFILE_ZONE_SCOPED_CATEGORY_DRAWABLE; // S24: Merged from LL (no-op)
 
 	if (!getVOVolume())
 	{
@@ -836,7 +828,6 @@ void LLDrawable::updatePartition()
 
 bool LLDrawable::updateMoveDamped()
 {
-	LL_PROFILE_ZONE_SCOPED_CATEGORY_DRAWABLE; // S24: Merged from LL (no-op)
 
 	F32 dist_squared = updateXform(false);
 
@@ -861,7 +852,6 @@ bool LLDrawable::updateMoveDamped()
 
 void LLDrawable::updateDistance(LLCamera& camera, bool force_update)
 {
-	LL_PROFILE_ZONE_SCOPED_CATEGORY_DRAWABLE; // S24: Merged from LL (no-op)
 
 	if (LLViewerCamera::sCurCameraID != LLViewerCamera::CAMERA_WORLD)
 	{
@@ -976,7 +966,6 @@ void LLDrawable::updateTexture()
 
 bool LLDrawable::updateGeometry()
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_DRAWABLE;
 
     llassert(mVObjp.notNull());
     bool res = mVObjp && mVObjp->updateGeometry(this);
@@ -1189,7 +1178,6 @@ void LLDrawable::setGroup(LLViewerOctreeGroup* groupp)
 */
 LLSpatialPartition* LLDrawable::getSpatialPartition()
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_DRAWABLE; // S24: Merged from LL (no-op)
 
 	LLSpatialPartition* retval = nullptr;
 
@@ -1279,7 +1267,6 @@ LLSpatialBridge::LLSpatialBridge(LLDrawable* root, bool render_by_group, U32 dat
 	LLDrawable(root->getVObj(), true),
 	LLSpatialPartition(data_mask, render_by_group, regionp)
 {
-	LL_PROFILE_ZONE_SCOPED_CATEGORY_DRAWABLE; // S24: Merged from LL (no-op)
 	mOcclusionEnabled = false;
 	mBridge = this;
 	mDrawable = root;
@@ -1325,7 +1312,6 @@ void LLSpatialBridge::destroyTree()
 
 void LLSpatialBridge::updateSpatialExtents()
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_DRAWABLE; // S24: Merged from LL (no-op)
 
 	auto* root = (LLSpatialGroup*)mOctree->getListener(0);
 
@@ -1497,7 +1483,6 @@ public:
 
 void LLSpatialBridge::setVisible(LLCamera& camera_in, std::vector<LLDrawable*>* results, bool for_select)
 {
-	LL_PROFILE_ZONE_SCOPED_CATEGORY_DRAWABLE; // S24: Merged from LL (no-op)
 
 	if (!gPipeline.hasRenderType(mDrawableType))
 	{
@@ -1596,7 +1581,6 @@ void LLSpatialBridge::setVisible(LLCamera& camera_in, std::vector<LLDrawable*>* 
 
 void LLSpatialBridge::updateDistance(LLCamera& camera_in, bool force_update)
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_DRAWABLE; // S24: Merged from LL (no-op)
 
 	if (mDrawable == nullptr)
 	{

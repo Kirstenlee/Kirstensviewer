@@ -24,25 +24,10 @@
 
 /*[EXTRA_CODE_HERE]*/
 
-// S24 (2026-08-17, task #139 live-test fix): this file previously
-// implemented a 9-tap depth-weighted bilateral blur with a naive
-// clamp(0,1) and no depth output - NOT what postDeferredNoDoFF.glsl (the
-// real GLSL source this is supposed to be a port of) actually does. That
-// drifted version was silently dormant since it was written (nothing ever
-// bound+drew this shader in a live DX_RENDER frame until presentFinal()
-// wired it in for real, dxpipeline.cpp) - first live test showed a hard
-// red-orange tint over all real scene geometry (sky unaffected). Rewritten
-// to faithfully match the GLSL: sample diffuse, optionally add a TINY
-// dither (HAS_NOISE, +-0.003, not a spatial blur), clampHDRRange() (real
-// HDR-range clamp, deferredUtil.hlsl - was wrongly hard-clamped to [0,1]
-// before), and critically write depth out (gl_FragDepth in GLSL, SV_Depth
-// here) so the swap chain's own depth buffer gets the scene's real depth -
-// see DXRenderTarget.cpp's bindSwapChainBackBuffer() comment: later
-// 3D-in-UI-space content (manipulator gizmos, etc.) depth-tests against
-// this. Also added the GL/D3D11 texture-origin flip on vary_fragcoord -
-// postDeferredF.hlsl (same vertex shader, postDeferredNoTCV.hlsl, same
-// vary_fragcoord convention) already needed this exact fix (task #145
-// sweep, 2026-08-11) and this file was never brought in line with it.
+// S24: must write depth out (SV_Depth, matching GLSL's gl_FragDepth) — later UI-space 3D content
+// (manipulator gizmos etc., see DXRenderTarget.cpp's bindSwapChainBackBuffer()) depth-tests
+// against the swap chain's depth buffer afterward. Also needs the GL/D3D11 texture-origin flip
+// on vary_fragcoord, matching postDeferredF.hlsl's convention (same vertex shader/varying).
 
 // t0-t3/s0-s3 reserved by deferredUtil.hlsl (attached below, isDeferred=true
 // on gDeferredPostNoDoFProgram/gDeferredPostNoDoFNoiseProgram) - moved this
@@ -73,7 +58,7 @@ float3 clampHDRRange(float3 color);
 
 struct PSInput
 {
-    // S24 (2026-08-02): missing SV_Position - see uiF.hlsl's comment (fxc.exe-confirmed VS/PS register-shift bug).
+    // S24: missing SV_Position shifts every subsequent semantic register by one relative to the VS output.
     float4 position : SV_Position;
 
     float2 vary_fragcoord : TEXCOORD0;
@@ -120,9 +105,7 @@ PSOutput main(PSInput IN)
 {
     PSOutput OUT;
 
-    // S24 (2026-08-17): GL-vs-D3D11 texture-origin flip - see postDeferredF.hlsl's
-    // identical fix (task #145 sweep, 2026-08-11). Both diffuseRect and
-    // depthMap reads use tc below, matching that file's approach.
+    // S24: GL-vs-D3D11 texture-origin flip — both diffuseRect and depthMap reads use tc below, matching postDeferredF.hlsl's approach.
     float2 tc = float2(IN.vary_fragcoord.x, 1.0 - IN.vary_fragcoord.y);
 
     float4 diff = diffuseRect.Sample(diffuseRectSampler, tc);

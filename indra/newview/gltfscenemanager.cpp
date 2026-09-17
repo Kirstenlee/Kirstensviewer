@@ -52,7 +52,6 @@
 #include "llviewercontrol.h"
 #include "boost/json.hpp"
 
-// S24: Fast timers for GLTF rendering performance tracking
 static LLTrace::BlockTimerStatHandle FTM_RENDER_GLTF("GLTF Objects");
 static LLTrace::BlockTimerStatHandle FTM_RENDER_GLTF_VARIANT("GLTF Variant Pass");
 static LLTrace::BlockTimerStatHandle FTM_RENDER_GLTF_ASSET("GLTF Asset");
@@ -199,7 +198,6 @@ void GLTFSceneManager::uploadSelection()
 
                     LLNewBufferedResourceUploadInfo::uploadFailure_f failure = [this](LLUUID assetId, LLSD response, std::string reason)
                         {
-                            // S24: Silence warnings - GLTF texture upload failures may occur on unsupported servers
                             mPendingImageUploads--;
                             LL_DEBUGS("GLTF") << "GLTF texture upload failed: " << reason << LL_ENDL;
                             return false;
@@ -254,7 +252,6 @@ void GLTFSceneManager::uploadSelection()
 
             LLNewBufferedResourceUploadInfo::uploadFailure_f failure = [this](LLUUID assetId, LLSD response, std::string reason)
                 {
-                    // S24: Silence warnings - GLTF upload failures are expected on servers without GLTF support
                     mPendingBinaryUploads--;
                     mUploadingAsset = nullptr;
                     mUploadingObject = nullptr;
@@ -359,8 +356,7 @@ GLTFSceneManager::~GLTFSceneManager()
     mObjects.clear();
 }
 
-// S24: Separate dead object cleanup from hot render loop
-// This runs once per frame (or less) instead of during every render pass
+// Separate from the hot render loop; runs once per frame (or less) instead.
 void GLTFSceneManager::cleanupDeadObjects()
 {
     for (U32 i = 0; i < mObjects.size(); ++i)
@@ -375,7 +371,7 @@ void GLTFSceneManager::cleanupDeadObjects()
 
 void GLTFSceneManager::renderOpaque()
 {
-    cleanupDeadObjects(); // S24: Clean up once per opaque pass instead of during every render call
+    cleanupDeadObjects(); // Once per opaque pass, not during every render call
     render(true);
 }
 
@@ -525,7 +521,6 @@ void GLTFSceneManager::update()
 
             LLNewBufferedResourceUploadInfo::uploadFailure_f failure = [this](LLUUID assetId, LLSD response, std::string reason)
                 {
-                    // S24: Silence warnings - GLTF upload failures are expected on servers without GLTF support
                     LL_DEBUGS("GLTF") << "GLTF json upload failed (expected if server lacks GLTF support): " << reason << LL_ENDL;
                     LL_DEBUGS("GLTF") << "Response: " << response << LL_ENDL;
 
@@ -634,13 +629,13 @@ void GLTFSceneManager::render(U8 variant)
 
     bool rigged = variant & LLHLSLShader::GLTFVariant::RIGGED;
 
-    // S24: Dead object cleanup moved to separate maintenance pass
-    // Doing vector erases during render was O(n) waste in hot loop
+    // Dead-object cleanup lives in cleanupDeadObjects() — erasing here would be
+    // O(n) waste in this hot loop.
     for (U32 i = 0; i < mObjects.size(); ++i)
     {
         if (mObjects[i]->isDead() || mObjects[i]->mGLTFAsset == nullptr)
         {
-            continue; // S24: Skip dead objects, cleanup happens elsewhere
+            continue;
         }
 
         Asset* asset = mObjects[i]->mGLTFAsset.get();
@@ -663,7 +658,7 @@ void GLTFSceneManager::render(Asset& asset, U8 variant)
 {
     LL_RECORD_BLOCK_TIME(FTM_RENDER_GLTF_ASSET);
 
-    // S24: Use function-local static for lazy init - avoids static initialization order issues
+    // Function-local static for lazy init — avoids static initialization order issues.
     static LLCachedControl<bool> can_use_shaders(gSavedSettings, "RenderCanUseGLTFPBROpaqueShaders", true);
     if (!can_use_shaders)
     {
@@ -713,25 +708,12 @@ void GLTFSceneManager::render(Asset& asset, U8 variant)
                 }
 
 #ifdef DX_RENDER
-                // S24 (task #79): glBindBufferBase is raw GL - null fn ptr
-                // under DX_RENDER. GLTFMaterials is a real, already-working
-                // HLSL cbuffer at register(b0) in both pbrmetallicroughnessV/F.hlsl
-                // (verified via grep) - bind the real D3D11 buffer there for
-                // both stages. This explicit b0 claim pushes this shader's
-                // implicit $Globals (modelview_matrix/projection_matrix/
-                // gltf_material_id) to b1 at compile time - previously
-                // LLRender::syncMatrices() would have clobbered this bind by
-                // hardcoding $Globals to slot 0 right after this call runs;
-                // fixed as part of this same task by making syncMatrices()
-                // bind to DXShader::getConstantBufferBindPoint()'s real
-                // reflected slot instead (see llrender.cpp), so the two no
-                // longer collide. GLTFNodes has NO corresponding HLSL
-                // cbuffer yet (getGLTFTransform()/node-indexed lookup was
-                // never ported from the GLSL original - a separate, larger
-                // gap, not fixed here) - still bind it (at b2, clear of both
-                // b0 and b1) so the crash is fixed and the buffer is ready
-                // for whenever that HLSL work lands; it's simply unread by
-                // the shader until then.
+                // GLTFMaterials cbuffer bound at b0 (both stages), which pushes
+                // this shader's implicit $Globals to b1 — see
+                // LLRender::syncMatrices()'s reflected-slot bind in llrender.cpp,
+                // which avoids colliding with this claim. GLTFNodes has no HLSL
+                // cbuffer yet (node-indexed lookup never ported from GLSL); bound
+                // at b2 regardless so it's ready once that lands — unread until then.
                 if (!rigged)
                 {
                     ID3D11Buffer* nodes_cb = asset.mDXNodesUBO.getBuffer();
@@ -792,16 +774,10 @@ void GLTFSceneManager::render(Asset& asset, U8 variant)
                     llassert(node.mSkin != INVALID_INDEX);
                     Skin& skin = asset.mSkins[node.mSkin];
 #ifdef DX_RENDER
-                    // S24 (task #79): same crash-fix as the GLTFNodes/
-                    // GLTFMaterials binds above. Also note: this whole
-                    // `rigged` branch is presently unreachable under
-                    // DX_RENDER in practice - rigged/skinned vertex layouts
-                    // aren't supported yet (DXVertexLayout has no HAS_SKIN
-                    // path, a known, separately-tracked gap - see the
-                    // avatar-skinning milestone). Guarding this defensively
-                    // anyway since Skin::uploadMatrixPalette() can still run
-                    // (and did need its own crash fix) independent of
-                    // whether this draw path ever executes.
+                    // This `rigged` branch is currently unreachable under DX_RENDER —
+                    // skinned vertex layouts aren't supported yet (DXVertexLayout has
+                    // no HAS_SKIN path). Guarded anyway since Skin::uploadMatrixPalette()
+                    // can still run independently of whether this draw path executes.
                     ID3D11Buffer* joints_cb = skin.mDXUBO.getBuffer();
                     if (joints_cb)
                     {
@@ -847,25 +823,13 @@ void GLTFSceneManager::bindTexture(Asset& asset, TextureType texture_type, Textu
 
     if (channel > -1)
     {
-        // S24 (DX_RENDER, 2026-07-30): this whole block used to be raw
-        // glActiveTexture/glBindTexture/glTexParameteri with zero DX_RENDER
-        // fencing - reachable every frame via renderOpaque()/render(), so a
-        // real (not dead-code) gap. Fixed by routing through the already-
-        // hardened LLTexUnit::bind() chokepoint and LLImageGL::setAddressMode()
-        // instead - both are already backend-agnostic (GL applies wrap mode
-        // at next bind via mTexOptionsDirty; DX_RENDER's DXSampler::getOrCreate()
-        // reads mAddressMode straight off the LLImageGL at bind time - see
-        // either function's own comment in llrender.cpp) so no new #ifdef is
-        // needed here at all. LLTexUnit's address mode is one value for both
-        // S/T (no independent per-axis wrap), so an asymmetric glTF sampler
-        // (mWrapS != mWrapT) loses that distinction - a real but minor
-        // fidelity gap, rare in practice, preferable to leaving this
-        // unguarded raw GL in place. Deliberately NOT translating
-        // mMagFilter: LLTexUnit's eTextureFilterOptions sets min+mag+mip
-        // together, and the original GL code explicitly avoided touching
-        // min filter to respect the user's graphics-quality preference -
-        // skipping the filter override entirely preserves that intent for
-        // both backends rather than fighting the API's granularity.
+        // Routed through LLTexUnit::bind()/LLImageGL::setAddressMode() (both
+        // backend-agnostic) rather than raw GL calls. LLTexUnit's address mode
+        // is one value for both S/T, so an asymmetric glTF sampler
+        // (mWrapS != mWrapT) loses that distinction — a minor, rare fidelity gap.
+        // mMagFilter is deliberately not translated: LLTexUnit sets min+mag+mip
+        // together, and skipping the override preserves the user's
+        // graphics-quality min-filter preference for both backends.
         LLViewerTexture* tex = nullptr;
         Sampler* sampler = nullptr;
 
@@ -1187,7 +1151,7 @@ void GLTFSceneManager::renderDebug()
         for (U32 i = 0; i < 2; ++i)
         {
             LLGLDepthTest depth(GL_TRUE, i == 0 ? GL_FALSE : GL_TRUE, i == 0 ? GL_GREATER : GL_LEQUAL);
-            LLGLState blend(GL_BLEND, i == 0 ? GL_TRUE : GL_FALSE);
+            DXState blend(GL_BLEND, i == 0 ? GL_TRUE : GL_FALSE);
 
             for (auto& obj : mObjects)
             {

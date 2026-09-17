@@ -181,7 +181,6 @@ void LLOutfitsList::onOpen(const LLSD& info)
 
 void LLOutfitsList::updateAddedCategory(LLUUID cat_id)
 {
-    LL_PROFILE_ZONE_SCOPED;
     LLViewerInventoryCategory *cat = gInventory.getCategory(cat_id);
     if (!cat) return;
 
@@ -649,7 +648,6 @@ void LLOutfitsList::applyFilterToTab(
     LLOutfitAccordionCtrlTab* tab,
     const std::string&  filter_substring)
 {
-    LL_PROFILE_ZONE_SCOPED;
     if (!tab) return;
     LLWearableItemsList* list = dynamic_cast<LLWearableItemsList*>(tab->getAccordionView());
     if (!list) return;
@@ -1090,7 +1088,6 @@ void LLOutfitListBase::onIdle(void* userdata)
 
 void LLOutfitListBase::onIdleRefreshList()
 {
-    LL_PROFILE_ZONE_SCOPED;
     if (LLAppViewer::instance()->quitRequested())
     {
         mRefreshListState.CategoryUUID.setNull();

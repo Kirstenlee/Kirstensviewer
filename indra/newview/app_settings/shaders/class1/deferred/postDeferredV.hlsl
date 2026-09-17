@@ -24,17 +24,8 @@
 
 uniform float2 screen_res;
 
-// S24 (2026-08-19, task #228): this VS is used exclusively by gFXAAProgram
-// (confirmed - no other program construction in llviewershadermgr.cpp
-// references postDeferredV.glsl/.hlsl), so adding vary_tc/tc_scale here is
-// safe and doesn't affect any other shader. postDeferredV.glsl's real GL
-// counterpart already outputs both vary_fragcoord (unscaled) AND vary_tc
-// (scaled by tc_scale) - fxaaF.glsl's wrapper passes vary_tc, not
-// vary_fragcoord, as the real FxaaPixelShader()'s `pos` input. tc_scale
-// itself was already being uploaded correctly by LLPipeline::applyFXAA()
-// (uniform2f(LLShaderMgr::FXAA_TC_SCALE, ...), real under DX_RENDER since
-// task #107) - this HLSL vertex shader just never had anywhere for it to
-// land.
+// This VS is used exclusively by gFXAAProgram; vary_tc (scaled by tc_scale)
+// is the FxaaPixelShader() `pos` input, distinct from unscaled vary_fragcoord.
 uniform float2 tc_scale;
 
 struct VSInput

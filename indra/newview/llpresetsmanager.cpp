@@ -326,6 +326,9 @@ void LLPresetsManager::getWaterControlNames(std::vector<std::string>& names)
         "RenderWaterShoreFadeDistance",
         "RenderWaterUnderwaterFogMult",
         "RenderWaterReflectionWarmth",
+        "RenderWaterColorAbsorptionRate",
+        "RenderWaterWindInfluence",
+        "RenderWaterWindMagnitudeCap",
         "RenderWaterSSRIterations",
         "RenderWaterSSRRayStep",
     };

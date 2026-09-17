@@ -57,6 +57,11 @@
 #include "lleditingmotion.h"
 #include "llemote.h"
 #include "llfloatertools.h"
+#include "llui.h"
+
+#ifdef DX_RENDER
+#include "DXDevice.h"
+#endif
 #include "llheadrotmotion.h"
 #include "llhudeffecttrail.h"
 #include "llhudmanager.h"
@@ -821,6 +826,14 @@ void LLVOAvatar::debugAvatarRezTime(std::string notification_name, std::string c
 LLVOAvatar::~LLVOAvatar()
 {
     sInstances.remove(this);
+
+#ifdef DX_RENDER
+    // S24: release this avatar's own GPU profile-query COM objects (see llvoavatar.h's
+    // mDXProfileQueries comment) - mirrors LLHLSLShader::DXProfileQueries::reset().
+    if (mDXProfileQueries.disjoint)       { mDXProfileQueries.disjoint->Release();       mDXProfileQueries.disjoint = nullptr; }
+    if (mDXProfileQueries.timestampBegin) { mDXProfileQueries.timestampBegin->Release(); mDXProfileQueries.timestampBegin = nullptr; }
+    if (mDXProfileQueries.timestampEnd)   { mDXProfileQueries.timestampEnd->Release();   mDXProfileQueries.timestampEnd = nullptr; }
+#endif
 
     if (!mFullyLoaded)
     {
@@ -2148,7 +2161,6 @@ void LLVOAvatar::buildCharacter()
     processAnimationStateChanges();
 
     mIsBuilt = true;
-    stop_glerror();
 
     mMeshValid = true;
 }
@@ -4319,9 +4331,9 @@ void LLVOAvatar::updateFootstepSounds()
 void LLVOAvatar::computeUpdatePeriod()
 {
     bool visually_muted = isVisuallyMuted();
-    // S24: remember whether this avatar was impostored last frame, before
-    // mUpdatePeriod gets overwritten below - shouldImpostorWithHysteresis()
-    // needs this to decide which side of the hysteresis band to apply.
+    // Remember whether this avatar was impostored last frame, before mUpdatePeriod gets overwritten
+    // below - shouldImpostorWithHysteresis() needs this to pick which side of the hysteresis band to
+    // apply.
     const bool was_impostored = sLimitNonImpostors && (mUpdatePeriod > 1);
     if (mDrawable.notNull()
         && isVisible()
@@ -5326,7 +5338,7 @@ U32 LLVOAvatar::renderSkinned()
 
         if (!LLDrawPoolAvatar::sSkipTransparent || LLPipeline::sImpostorRender)
         {
-            LLGLState blend(GL_BLEND, !mIsDummy);
+            DXState blend(GL_BLEND, !mIsDummy);
             num_indices += renderTransparent(first_pass);
         }
 
@@ -5449,7 +5461,11 @@ U32 LLVOAvatar::renderImpostor(LLColor4U color, S32 diffuse_channel)
         gDX.begin(LLRender::LINES);
         gDX.color4f(1.f,1.f,1.f,1.f);
         F32 thickness = llmax(F32(5.0f-5.0f*(gFrameTimeSeconds-mLastImpostorUpdateFrameTime)),1.0f);
-        glLineWidth(thickness);
+        // S24: raw glLineWidth() was unguarded here - a real, live GL-landmine call under this
+        // DX-only build (found in a tree-wide stray-GL sweep). LLUI::setLineWidth() is the same
+        // no-op-under-DX_RENDER replacement already used everywhere else this pattern occurs
+        // (task #309's beacon fix, llmanip*.cpp, llviewerobject.cpp, llworldmapview.cpp).
+        LLUI::setLineWidth(thickness);
         gDX.vertex3fv((pos+left-up).mV);
         gDX.vertex3fv((pos-left-up).mV);
         gDX.vertex3fv((pos-left-up).mV);
@@ -5468,22 +5484,10 @@ U32 LLVOAvatar::renderImpostor(LLColor4U color, S32 diffuse_channel)
     gDX.getTexUnit(diffuse_channel)->bind(&mImpostor);
     gDX.begin(LLRender::TRIANGLES);
     {
-        // S24 (2026-08-17): GL-vs-D3D11 texture-origin flip - same bug
-        // class as the post-fx chain's read-side fixes (fxaaF.hlsl/
-        // postDeferredF.hlsl/dofCombineF.hlsl/postDeferredNoDoFF.hlsl,
-        // task #145 sweep), just applied in C++ here instead of HLSL since
-        // this is a raw immediate-mode quad, not a shader sample. mImpostor
-        // is rendered via a real perspective camera (LLPipeline::
-        // generateImpostor(), same renderGeomDeferred()/
-        // renderGeomPostDeferred() the main scene uses) - the capture
-        // itself is correct, matching the main view. The bug is purely in
-        // this UV mapping: it hardcodes GL's convention (v=0 = bottom row
-        // of the rendered image = the avatar's feet, "-up" world offset).
-        // Under D3D11's top-down addressing, v=0 samples the TOP row
-        // instead (the avatar's head) - unflipped, that places the head
-        // texture data at the "-up" (feet) end of the billboard, i.e. the
-        // reported "heads on the floor". Flipping v here corrects it
-        // without touching the shared vertex-position math above.
+        // GL-vs-D3D11 texture-origin flip, same bug class as the post-fx chain's shader-side fixes.
+        // This UV mapping hardcodes GL's convention (v=0 = bottom row = feet); under D3D11's top-down
+        // addressing v=0 samples the top row (head) instead, putting head texture data at the feet end
+        // of the billboard unless flipped here.
 #ifdef DX_RENDER
         const F32 v_bottom = 1.f, v_top = 0.f;
 #else
@@ -6107,7 +6111,6 @@ void LLVOAvatar::processAnimationStateChanges()
         }
     }
 
-    stop_glerror();
 }
 
 
@@ -7429,7 +7432,6 @@ void LLVOAvatar::updateGL()
 //-----------------------------------------------------------------------------
 bool LLVOAvatar::updateGeometry(LLDrawable* drawable)
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_AVATAR;
     if (!(gPipeline.hasRenderType(mIsControlAvatar ? LLPipeline::RENDER_TYPE_CONTROL_AV : LLPipeline::RENDER_TYPE_AVATAR)))
     {
         return true;
@@ -7614,7 +7616,7 @@ const LLViewerJointAttachment *LLVOAvatar::attachObject(LLViewerObject *viewer_o
 
     if (!attachment || !attachment->addObject(viewer_object))
     {
-        // S24: Removed wasteful LL_WARNS - user cannot rectify, wastes CPU on string/UUID formatting
+        // S24: no LL_WARNS here - user cannot rectify, wastes CPU on string/UUID formatting
         return 0;
     }
 
@@ -8734,15 +8736,10 @@ void LLVOAvatar::updateTooSlow()
         }
     }
 
-    // S24: hysteresis band around the ART cap. mGPURenderTimeSmoothed is
-    // already an EMA (see readProfileQuery()), but even a smoothed value
-    // can sit right on a single cutoff under sustained load. Once an
-    // avatar has tripped mTooSlow it must drop back below
-    // S24_TOO_SLOW_RELEASE_FACTOR * max_art_ms (not just max_art_ms
-    // again) before it recovers, so it can't chatter every frame between
-    // full render and impostor - each flip re-triggers a full
-    // LLPipeline::generateImpostor() render pass, so chatter here is a
-    // direct frame time cost, not just a visual one.
+    // Hysteresis band around the ART cap: once mTooSlow trips, it must drop back below
+    // TOO_SLOW_RELEASE_FACTOR * max_art_ms (not just max_art_ms again) before recovering, so it can't
+    // chatter every frame between full render and impostor - each flip re-triggers a full
+    // LLPipeline::generateImpostor() pass, a real frame-time cost.
     static const F32 S24_TOO_SLOW_RELEASE_FACTOR = 0.85f;
     const F32 art_cap_ms = mTooSlow ? (max_art_ms * S24_TOO_SLOW_RELEASE_FACTOR) : max_art_ms;
 
@@ -10138,30 +10135,18 @@ void LLVOAvatar::onBakedTextureMasksLoaded( bool success, LLViewerFetchedTexture
 
             U32 gl_name;
             LLImageGL::generateTextures(1, &gl_name );
-            stop_glerror();
 
             gDX.getTexUnit(0)->bindManual(LLTexUnit::TT_TEXTURE, gl_name);
-            stop_glerror();
 
 #ifndef DX_RENDER
-            // S24 (2026-08-03, task #84): this GL texture is never actually
-            // bound/sampled anywhere - grep confirms mMaskTexName (which
-            // stores gl_name below) is only ever passed to deleteTextures(),
-            // never bound. The real morph mask application below
-            // (self->applyMorphMask()) reads aux_src's raw pixel data
-            // directly, CPU-side - this upload is dead weight for rendering
-            // purposes on both backends. Under DX_RENDER, setManualImage()
-            // itself has no DX_RENDER branch anywhere in its body (unlike
-            // generateTextures()/bindManual() above, both already safe
-            // no-ops) - it unconditionally calls the real glTexImage2D, a
-            // null function pointer under DX_RENDER (no GL context exists),
-            // which would crash. Skipped entirely rather than given a real
-            // DXTexture backing, since nothing would ever read it.
+            // mMaskTexName is never bound/sampled - applyMorphMask() reads aux_src's raw pixel data
+            // directly, CPU-side, so this upload is dead weight on both backends. setManualImage() has
+            // no DX_RENDER branch and would call the real glTexImage2D (null function pointer, no GL
+            // context) - skipped entirely under DX_RENDER rather than given a DXTexture backing.
             LLImageGL::setManualImage(
                 GL_TEXTURE_2D, 0, GL_ALPHA8,
                 aux_src->getWidth(), aux_src->getHeight(),
                 GL_ALPHA, GL_UNSIGNED_BYTE, aux_src->getData());
-            stop_glerror();
 
             gDX.getTexUnit(0)->setTextureFilteringOption(LLTexUnit::TFO_BILINEAR);
 #endif
@@ -10987,25 +10972,12 @@ bool LLVOAvatar::shouldImpostor(const F32 rank_factor)
     return sLimitNonImpostors && (mVisibilityRank > sMaxNonImpostors * rank_factor);
 }
 
-// S24: hysteresis band for the primary "should this avatar be impostored
-// at all" decision (rank_factor == 1.0 case of shouldImpostor(), used by
-// computeUpdatePeriod() to pick mUpdatePeriod == 1 vs an impostor tier).
-//
-// mVisibilityRank is fully recomputed every frame in
-// cullAvatarsByPixelArea(), which re-sorts *every* avatar by
-// mVisibilityPreference and reassigns ranks 2..N from scratch. An avatar
-// sitting near the sMaxNonImpostors cutoff can cross a bare threshold on
-// consecutive frames purely because some *other* avatar's rank shifted,
-// with no movement of its own - worse the more avatars are in the scene.
-// Each crossing flips isImpostor()/mUpdatePeriod, which re-triggers a
-// full LLPipeline::generateImpostor() render pass, so the flicker is a
-// real frame time cost, not just a visual one.
-//
-// Only the rank_factor==1.0 boundary gets this treatment: the further-out
-// tiers (rank_factor 3.0/4.0 in computeUpdatePeriod()) only pick how often
-// an already-impostored avatar's impostor texture refreshes, not whether
-// it's impostored, so flicker there doesn't produce the reported
-// fully-rendered/billboard flip.
+// Hysteresis band for the primary "should this avatar be impostored at all" decision (rank_factor ==
+// 1.0 case of shouldImpostor()). mVisibilityRank is fully recomputed every frame in
+// cullAvatarsByPixelArea(), so an avatar near the sMaxNonImpostors cutoff can cross a bare threshold
+// on consecutive frames purely because another avatar's rank shifted - each crossing re-triggers a
+// full LLPipeline::generateImpostor() pass. Only the rank_factor==1.0 boundary needs this: the
+// further-out tiers only pick impostor-texture refresh rate, not whether an avatar is impostored.
 bool LLVOAvatar::shouldImpostorWithHysteresis(bool was_impostored)
 {
     if (isSelf())
@@ -12002,20 +11974,11 @@ void LLVOAvatar::calcMutedAVColor()
 #endif
     else
     {
-        // S24 (2026-09-10): was LLColor4::grey4 - the flat opaque grey
-        // "jelly doll" look. Real visual replacement (translucent black +
-        // rim-glow) is now entirely a DRAW-TIME effect in the new
-        // gDeferredJellyGhostProgram shader (see
-        // LLDrawPoolAvatar::renderJellyDollGhosts()), which reads only the
-        // impostor's baked ALPHA channel as a silhouette mask and computes
-        // its own color from uniforms - this RGB value is no longer
-        // rendered anywhere visible for a jellydolled avatar (the old
-        // opaque pass-0 renderImpostor() call is skipped for them now).
-        // Kept dark/neutral rather than removed outright since
-        // pipeline.cpp's bake-time alpha-mask stomp (generateImpostor())
-        // still reads this same color's ALPHA (kept at 1.0, unchanged) to
-        // build that silhouette mask, and a stray other reader finding a
-        // sane dark value is safer than an unrelated leftover grey.
+        // The jelly-doll visual (translucent black + rim-glow) is a draw-time effect in
+        // gDeferredJellyGhostProgram (LLDrawPoolAvatar::renderJellyDollGhosts()), which reads only the
+        // impostor's baked ALPHA channel as a silhouette mask - this RGB is never rendered visibly.
+        // Kept dark/neutral rather than removed: pipeline.cpp's generateImpostor() still reads this
+        // color's ALPHA (kept at 1.0) to build that silhouette mask.
         new_color = LLColor4(0.05f, 0.05f, 0.05f, 1.0f);
         change_msg = " over limit color (ghost)";
     }
@@ -12124,22 +12087,44 @@ bool LLVOAvatar::isTextureVisible(LLAvatarAppearanceDefines::ETextureIndex type,
 
 void LLVOAvatar::placeProfileQuery()
 {
-    // S24 (2026-09-04): raw OpenGL GPU timer query (glGenQueries/
-    // glBeginQuery), completely unguarded - OpenGL is deliberately not
-    // linked into a DX_RENDER=ON build at all (see newview/CMakeLists.txt's
-    // own enforcement comment), so these are unresolved function pointers
-    // under DX_RENDER. Confirmed live crash: Performance floater's Nearby
-    // tab -> LLWorld::getNearbyAvatarsAndMaxGPUTime() -> LLPipeline::
-    // profileAvatar() -> here - a null-function-pointer jump (WER dump:
-    // SOFTWARE_NX_FAULT_NULL_INVALID_POINTER_EXECUTE, faulting in
-    // LLVOAvatar::placeProfileQuery). LLPipeline::profileAvatar()'s own
-    // `gGLManager.mGLVersion < 3.25f` guard doesn't catch this - mGLVersion
-    // is deliberately spoofed to 4.6 under DX_RENDER elsewhere (to avoid
-    // false negatives in unrelated "GL too old" checks), so it reads as
-    // "profiling available" here too. No DX11-native GPU timer-query
-    // equivalent exists yet - safe no-op for now (mGPURenderTime just stays
-    // at its last/default value rather than crashing).
-#ifndef DX_RENDER
+    // S24: glGenQueries/glBeginQuery are unresolved function pointers under DX_RENDER (OpenGL
+    // isn't linked into a DX_RENDER=ON build) - LLPipeline::profileAvatar()'s
+    // `gGLManager.mGLVersion < 3.25f` guard doesn't catch this since mGLVersion is deliberately
+    // spoofed to 4.6 under DX_RENDER for unrelated "GL too old" checks. This used to just no-op
+    // under DX_RENDER, leaving mGPURenderTime permanently stale/0 - real avatar-complexity
+    // throttling logic (isTooSlow()) depends on it. Fixed with a real D3D11 disjoint+timestamp
+    // query pair, own instance per avatar (mDXProfileQueries, see llvoavatar.h) rather than
+    // reusing gDebugProgram's shared one - this profile can stay pending across several frames
+    // (see readProfileQuery()'s retry loop below), and gDebugProgram is also used by the separate,
+    // synchronous per-attachment profiling path (LLPipeline::profileAvatar()'s profile_attachments
+    // branch) - sharing query objects between an async multi-frame profile and an unrelated
+    // synchronous one on the same shader instance would corrupt whichever is still in flight.
+#ifdef DX_RENDER
+    ID3D11Device* device = gDXDevice.getDevice();
+    ID3D11DeviceContext* context = gDXDevice.getContext();
+    if (!device || !context)
+    {
+        return;
+    }
+
+    if (!mDXProfileQueries.disjoint)
+    {
+        D3D11_QUERY_DESC qd = {};
+        qd.Query = D3D11_QUERY_TIMESTAMP_DISJOINT;
+        device->CreateQuery(&qd, &mDXProfileQueries.disjoint);
+        qd.Query = D3D11_QUERY_TIMESTAMP;
+        device->CreateQuery(&qd, &mDXProfileQueries.timestampBegin);
+        device->CreateQuery(&qd, &mDXProfileQueries.timestampEnd);
+    }
+
+    if (!mDXProfileQueries.disjoint || !mDXProfileQueries.timestampBegin)
+    {
+        return;
+    }
+
+    context->Begin(mDXProfileQueries.disjoint);
+    context->End(mDXProfileQueries.timestampBegin);
+#else
     if (mGPUTimerQuery == 0)
     {
         glGenQueries(1, &mGPUTimerQuery);
@@ -12151,11 +12136,74 @@ void LLVOAvatar::placeProfileQuery()
 
 void LLVOAvatar::readProfileQuery(S32 retries)
 {
-    // S24 (2026-09-04): see placeProfileQuery()'s matching comment - same
-    // raw-GL crash, same fix.
 #ifdef DX_RENDER
-    return;
-#endif
+    // S24: same disjoint+timestamp pattern as LLHLSLShader::readProfileQuery() (see its comment,
+    // llrender/llhlslshader.cpp) - non-blocking poll (D3D11_ASYNC_GETDATA_DONOTFLUSH) since this
+    // runs on the continuous background avatar-complexity-throttling path (llworld.cpp), which
+    // must never stall a frame waiting on the GPU.
+    if (!mDXProfileQueries.disjoint)
+    {
+        return;
+    }
+
+    ID3D11DeviceContext* context = gDXDevice.getContext();
+    if (!context)
+    {
+        return;
+    }
+
+    if (!mGPUProfilePending)
+    {
+        context->End(mDXProfileQueries.timestampEnd);
+        context->End(mDXProfileQueries.disjoint);
+        mGPUProfilePending = true;
+    }
+
+    D3D11_QUERY_DATA_TIMESTAMP_DISJOINT disjoint_data = {};
+    HRESULT hr = context->GetData(mDXProfileQueries.disjoint, &disjoint_data, sizeof(disjoint_data), D3D11_ASYNC_GETDATA_DONOTFLUSH);
+
+    if (hr == S_OK || --retries <= 0)
+    { // query available (or out of patience), readback result
+        UINT64 t0 = 0, t1 = 0;
+        context->GetData(mDXProfileQueries.timestampBegin, &t0, sizeof(t0), 0);
+        context->GetData(mDXProfileQueries.timestampEnd, &t1, sizeof(t1), 0);
+        mGPUProfilePending = false;
+
+        if (hr == S_OK && !disjoint_data.Disjoint && disjoint_data.Frequency > 0 && t1 > t0)
+        {
+            mGPURenderTime = (F32)(((double)(t1 - t0) / (double)disjoint_data.Frequency) * 1000.0);
+        }
+
+        // EMA-smooth the raw per-frame sample so updateTooSlow()'s isTooSlow() decision isn't
+        // reacting to single-frame GPU timer noise; alpha=0.25 damps jitter while still tracking
+        // a sustained cost increase within ~a dozen frames.
+        static const F32 S24_GPU_TIME_EMA_ALPHA = 0.25f;
+        mGPURenderTimeSmoothed = (mGPURenderTimeSmoothed <= 0.f)
+            ? mGPURenderTime
+            : lerp(mGPURenderTimeSmoothed, mGPURenderTime, S24_GPU_TIME_EMA_ALPHA);
+
+        setDebugText(llformat("%d", (S32)(mGPURenderTime * 1000.f)));
+    }
+    else
+    { // wait until next frame
+        const LLUUID id = getID();
+
+        LL::WorkQueue::getInstance("mainloop")->post([id, retries]
+        {
+            LLViewerObject* object = gObjectList.findObject(id);
+            if (object
+                && !object->isDead()
+                && object->isAvatar()) // probably excessive, pcode isn't supposed to change
+            {
+                LLVOAvatar* avatar = (LLVOAvatar*)object;
+                if (avatar)
+                {
+                    avatar->readProfileQuery(retries);
+                }
+            }
+        });
+    }
+#else
     if (!mGPUProfilePending)
     {
         glEndQuery(GL_TIME_ELAPSED);
@@ -12172,10 +12220,9 @@ void LLVOAvatar::readProfileQuery(S32 retries)
         mGPURenderTime = time_elapsed / 1000000.f;
         mGPUProfilePending = false;
 
-        // S24: smooth the raw per-frame sample with an EMA so the
-        // isTooSlow() decision (updateTooSlow()) isn't reacting to single-
-        // frame GPU timer noise. alpha=0.25 damps jitter while still
-        // tracking a genuine sustained cost increase within ~a dozen frames.
+        // EMA-smooth the raw per-frame sample so updateTooSlow()'s isTooSlow() decision isn't reacting
+        // to single-frame GPU timer noise; alpha=0.25 damps jitter while still tracking a sustained
+        // cost increase within ~a dozen frames.
         static const F32 S24_GPU_TIME_EMA_ALPHA = 0.25f;
         mGPURenderTimeSmoothed = (mGPURenderTimeSmoothed <= 0.f)
             ? mGPURenderTime
@@ -12204,6 +12251,7 @@ void LLVOAvatar::readProfileQuery(S32 retries)
             }
             });
     }
+#endif
 }
 
 

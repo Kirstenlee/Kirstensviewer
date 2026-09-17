@@ -57,19 +57,6 @@ public:
     void pushBumpBatches(U32 type);
     void renderGroup(LLSpatialGroup* group, U32 type, bool texture) override;
 
-    S32 numBumpPasses();
-
-    void beginFullbrightShiny();
-    void renderFullbrightShiny();
-    void endFullbrightShiny();
-
-    void beginBump();
-    void renderBump(U32 pass = LLRenderPass::PASS_BUMP);
-    void endBump(U32 pass = LLRenderPass::PASS_BUMP);
-
-    static void bindCubeMap(LLHLSLShader* shader, S32 shader_level, S32& diffuse_channel, S32& cube_channel);
-    static void unbindCubeMap(LLHLSLShader* shader, S32 shader_level, S32& diffuse_channel, S32& cube_channel);
-
     virtual S32 getNumDeferredPasses() override;
     /*virtual*/ void renderDeferred(S32 pass) override;
 

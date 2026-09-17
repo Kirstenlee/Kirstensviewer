@@ -24,54 +24,30 @@
 
 /*[EXTRA_CODE_HERE]*/
 
-// S24 (2026-08-19, task #228): real port of fxaaF.glsl's NVIDIA FXAA 3.11
-// reference algorithm (Timothy Lottes, (C) NVIDIA - see the license block
-// further down, preserved from the original), replacing the simplified
-// custom 9-tap approximation this file carried since the 2026-08-17 fix
-// (that round fixed only the uniform/texture NAMES - see git history for
-// that comment - without attempting this larger port).
+// Real port of fxaaF.glsl's NVIDIA FXAA 3.11 algorithm (Timothy Lottes,
+// (C) NVIDIA - license block below), not a simplified approximation.
+// Config mirrors llviewershadermgr.cpp's gFXAAProgram build: FXAA_PC=1,
+// FXAA_HLSL_5=1 (Texture2D/SamplerState + Gather intrinsics),
+// FXAA_QUALITY__PRESET set via addPermutation(), FXAA_GATHER4_ALPHA=1
+// (HLSL_5's gather path), FXAA_GREEN_AS_LUMA=0 (luma is baked into alpha by
+// glowcombineFXAAF.hlsl), FXAA_DISCARD=0 (unused TEX+ROP optimization).
+// FXAA_PC_CONSOLE/360/PS3-only parameters are dropped from
+// FxaaPixelShader()'s signature - upstream only shares one signature across
+// platforms.
 //
-// Scoped to exactly this project's config, matching how llviewershadermgr.cpp
-// constructs gFXAAProgram: FXAA_PC=1 (the PC-quality algorithm; the
-// FXAA_PC_CONSOLE/FXAA_360/FXAA_PS3 variants elsewhere in fxaaF.glsl are for
-// completely different platforms and were never reachable here), FXAA_HLSL_5=1
-// (native Texture2D/SamplerState + Gather intrinsics), FXAA_QUALITY__PRESET
-// permutation-driven (Low=12/Medium=23/High=28/Ultra=39, addPermutation() in
-// llviewershadermgr.cpp), FXAA_GATHER4_ALPHA=1 (HLSL_5 always sets this - the
-// real algorithm's own gather-optimized path, matching what genuine D3D11
-// GatherAlpha()/GatherGreen() SM5 intrinsics were built for), FXAA_GREEN_AS_LUMA=0
-// and FXAA_DISCARD=0 (both match this project's actual usage - luma is baked
-// into alpha by glowcombineFXAAF.hlsl, and DISCARD's "concurrent TEX+ROP"
-// optimization was never enabled by GL either). The many FXAA_PC_CONSOLE/
-// FXAA_360/FXAA_PS3-only function parameters (fxaaConsolePosPos,
-// fxaaConsole360TexExpBiasNegOne/Two, fxaaConsoleRcpFrameOpt/Opt2,
-// fxaaConsole360RcpFrameOpt2, fxaaConsoleEdgeSharpness/Threshold/ThresholdMin,
-// fxaaConsole360ConstDir) are dropped from FxaaPixelShader()'s signature below
-// - confirmed none of them are referenced anywhere inside the FXAA_PC-only
-// function body, they exist upstream only to give every platform variant an
-// identical signature ("all inputs for all shaders are the same to enable
-// easy porting between platforms" - fxaaF.glsl's own docs).
+// vary_tc (fxaaF.glsl's real `pos` input) lives on postDeferredV.hlsl, this
+// program's only vertex shader.
 //
-// vary_tc (TEXCOORD1, tc_scale-adjusted) had to be added to postDeferredV.hlsl
-// (this shader's exclusive vertex shader - confirmed no other program uses
-// it) - fxaaF.glsl's own wrapper passes vary_tc, not vary_fragcoord, as the
-// real algorithm's `pos` input; the HLSL vertex shader only ever had
-// vary_fragcoord before. See postDeferredV.hlsl's own comment.
-//
-// GL-vs-D3D11 read-side flip (task #158/#185/SMAA precedent, 2026-08-17
-// original FXAA fix): kept, now applied to vary_tc (the real algorithm's
-// input) for color sampling and to vary_fragcoord (unchanged) for the depth
-// passthrough - matches fxaaF.glsl's own wrapper using two different
-// coordinates for those two reads.
+// GL-vs-D3D11 Y-origin flip applies to vary_tc for color sampling and to
+// vary_fragcoord for the depth passthrough - two different coordinates for
+// two different reads, matching fxaaF.glsl's own wrapper.
 #define FXAA_PC 1
 #define FXAA_HLSL_5 1
 
-// S24 (2026-08-19, task #227 lead-in): #ifndef fallback, not an unconditional
-// #define - see git history, this was a real macro-redefinition bug
-// (X1519 warning) against the Medium/High/Ultra permutations
-// llviewershadermgr.cpp injects via addPermutation(). Now that the real
-// algorithm below actually reads FXAA_QUALITY__PRESET (unlike the old
-// simplified body), getting this right actually matters visually.
+// #ifndef, not an unconditional #define - addPermutation() may already
+// inject FXAA_QUALITY__PRESET for Medium/High/Ultra; redefining it causes a
+// macro-redefinition warning and, since the algorithm below reads this
+// value, the wrong quality preset.
 #ifndef FXAA_QUALITY__PRESET
 #define FXAA_QUALITY__PRESET 12
 #endif
@@ -698,7 +674,7 @@ static const float FXAA_QUALITY_EDGE_THRESHOLD_MIN = 0.03;
 
 struct PSInput
 {
-    // S24 (2026-08-02): missing SV_Position - see uiF.hlsl's comment (fxc.exe-confirmed VS/PS register-shift bug).
+    // SV_Position required here - omitting it shifts every VS/PS interpolant register; see uiF.hlsl.
     float4 position : SV_Position;
 
     float2 vary_fragcoord : TEXCOORD0;
@@ -715,11 +691,9 @@ PSOutput main(PSInput IN)
 {
     PSOutput OUT;
 
-    // S24: GL-vs-D3D11 read-side flip (task #158/#185/SMAA precedent) - the
-    // real algorithm samples via vary_tc (tc_scale-adjusted, matches
-    // fxaaF.glsl's wrapper passing vary_tc as `pos`), the depth passthrough
-    // still uses vary_fragcoord (matches fxaaF.glsl's own wrapper using a
-    // different coordinate for that read too).
+    // GL-vs-D3D11 read-side Y flip: color sampling uses vary_tc, depth
+    // passthrough uses vary_fragcoord - two different coordinates, matching
+    // fxaaF.glsl's own wrapper.
     float2 pos = IN.vary_tc;
     pos.y = 1.0 - pos.y;
 

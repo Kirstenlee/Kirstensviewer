@@ -33,6 +33,7 @@
 #include "llviewerregion.h"
 #include "llagentcamera.h"
 #include "llsdserialize.h"
+#include "pipeline.h"
 #include "llworld.h" // For LLWorld::getInstance()
 //static variables
 U32 LLVOCacheEntry::sMinFrameRange = 0;
@@ -1013,6 +1014,15 @@ S32 LLVOCachePartition::cull(LLCamera &camera, bool do_occlusion)
         return 0;
     }
     if(mRegionp->isPaused())
+    {
+        return 0;
+    }
+    // S24: render_hud_attachments() spoofs sCurCameraID = CAMERA_WORLD (LLDrawable::updateDistance()
+    // requires it), so the HUD pass's updateCull() reaches this VO-cache partition under a false
+    // world-camera identity, redundantly re-culling or corrupting the world camera's once-per-frame
+    // cull tracking (mCulledTime[sCurCameraID] keyed on the same spoofed ID). VO cache is a
+    // world-streaming structure - meaningless for the HUD's own narrowed pass, bail out explicitly.
+    if (LLPipeline::sRenderingHUDs)
     {
         return 0;
     }

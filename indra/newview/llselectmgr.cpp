@@ -1656,30 +1656,30 @@ void LLSelectMgr::demoteSelectionToIndividuals()
 }
 
 //-----------------------------------------------------------------------------
-// dump() S24 not in production builds
+// dump()
 //-----------------------------------------------------------------------------
 void LLSelectMgr::dump()
 {
-    LL_INFOS() << "Selection Manager: " << mSelectedObjects->getNumNodes() << " items" << LL_ENDL;
+    LL_WARNS() << "Selection Manager: " << mSelectedObjects->getNumNodes() << " items" << LL_ENDL;
 
-        LL_INFOS() << "TE mode " << mTEMode << LL_ENDL;
+        LL_WARNS() << "TE mode " << mTEMode << LL_ENDL;
 
     S32 count = 0;
     for (LLObjectSelection::iterator iter = getSelection()->begin();
          iter != getSelection()->end(); iter++ )
     {
         LLViewerObject* objectp = (*iter)->getObject();
-        LL_INFOS() << "Object " << count << " type " << LLPrimitive::pCodeToString(objectp->getPCode()) << LL_ENDL;
-        LL_INFOS() << "  hasLSL " << objectp->flagScripted() << LL_ENDL;
-        LL_INFOS() << "  hasTouch " << objectp->flagHandleTouch() << LL_ENDL;
-        LL_INFOS() << "  hasMoney " << objectp->flagTakesMoney() << LL_ENDL;
-        LL_INFOS() << "  getposition " << objectp->getPosition() << LL_ENDL;
-        LL_INFOS() << "  getpositionAgent " << objectp->getPositionAgent() << LL_ENDL;
-        LL_INFOS() << "  getpositionRegion " << objectp->getPositionRegion() << LL_ENDL;
-        LL_INFOS() << "  getpositionGlobal " << objectp->getPositionGlobal() << LL_ENDL;
+        LL_WARNS() << "Object " << count << " type " << LLPrimitive::pCodeToString(objectp->getPCode()) << LL_ENDL;
+        LL_WARNS() << "  hasLSL " << objectp->flagScripted() << LL_ENDL;
+        LL_WARNS() << "  hasTouch " << objectp->flagHandleTouch() << LL_ENDL;
+        LL_WARNS() << "  hasMoney " << objectp->flagTakesMoney() << LL_ENDL;
+        LL_WARNS() << "  getposition " << objectp->getPosition() << LL_ENDL;
+        LL_WARNS() << "  getpositionAgent " << objectp->getPositionAgent() << LL_ENDL;
+        LL_WARNS() << "  getpositionRegion " << objectp->getPositionRegion() << LL_ENDL;
+        LL_WARNS() << "  getpositionGlobal " << objectp->getPositionGlobal() << LL_ENDL;
         LLDrawable* drawablep = objectp->mDrawable;
-        LL_INFOS() << "  " << (drawablep&& drawablep->isVisible() ? "visible" : "invisible") << LL_ENDL;
-        LL_INFOS() << "  " << (drawablep&& drawablep->isState(LLDrawable::FORCE_INVISIBLE) ? "force_invisible" : "") << LL_ENDL;
+        LL_WARNS() << "  " << (drawablep&& drawablep->isVisible() ? "visible" : "invisible") << LL_ENDL;
+        LL_WARNS() << "  " << (drawablep&& drawablep->isState(LLDrawable::FORCE_INVISIBLE) ? "force_invisible" : "") << LL_ENDL;
         count++;
     }
 
@@ -1695,14 +1695,14 @@ void LLSelectMgr::dump()
         {
             if (node->isTESelected(te))
             {
-                LL_INFOS() << "Object " << objectp << " te " << te << LL_ENDL;
+                LL_WARNS() << "Object " << objectp << " te " << te << LL_ENDL;
             }
         }
     }
 
-    LL_INFOS() << mHighlightedObjects->getNumNodes() << " objects currently highlighted." << LL_ENDL;
+    LL_WARNS() << mHighlightedObjects->getNumNodes() << " objects currently highlighted." << LL_ENDL;
 
-    LL_INFOS() << "Center global " << mSelectionCenterGlobal << LL_ENDL;
+    LL_WARNS() << "Center global " << mSelectionCenterGlobal << LL_ENDL;
 }
 
 //-----------------------------------------------------------------------------
@@ -6761,7 +6761,6 @@ void LLSelectMgr::renderSilhouettes(bool for_hud)
         gDX.matrixMode(LLRender::MM_MODELVIEW);
         gDX.popMatrix();
         gDX.popUIMatrix();
-        stop_glerror();
     }
 
     gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
@@ -7224,12 +7223,6 @@ void LLSelectNode::renderOneSilhouette(const LLColor4 &color)
         llassert(!"renderOneWireframe() was removed SL-10194");
         return;
     }
-
-    // S24 (2026-09-02): a 2026-08-09 (task #132) diagnostic removed here -
-    // confirmed renderOneSilhouette() is reached, with mSilhouetteExists/
-    // vertex counts already valid - the manipulator-invisibility bug it
-    // was chasing was something else entirely (resolved separately, long
-    // since fixed).
 
     if (!mSilhouetteExists)
     {

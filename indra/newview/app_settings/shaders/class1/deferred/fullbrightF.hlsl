@@ -45,10 +45,8 @@ void mirrorClip(float3 pos);
 
 #include "varying/fullbrightVarying.hlsli"
 
-// S24 (2026-08-02): see uiF.hlsl's comment - real register mismatch,
-// confirmed via fxc.exe disassembly, affects every bare-Varying PS input -
-// this file already had a custom PSInput wrapper (for vary_texture_index)
-// but was still missing the SV_Position field itself.
+// Custom PSInput wrapper (for vary_texture_index) needs its own SV_Position
+// field - omitting it shifts every VS/PS interpolant register; see uiF.hlsl.
 struct PSInput
 {
     float4 position : SV_Position;

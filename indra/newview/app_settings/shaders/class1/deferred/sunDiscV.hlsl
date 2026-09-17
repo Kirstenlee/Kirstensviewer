@@ -54,9 +54,7 @@ VSOutput main(VSInput IN)
     OUT.varying.sun_fade = smoothstep(0.3, 1.0, (IN.position.z + 50) / 512.0f);
 
     // smash to *almost* far clip plane -- behind clouds but in front of stars
-    // S24 (reversed-Z conversion, missed original sweep): 0.000001, was
-    // 0.999999 - far is now 0.0 not 1.0 (see starsV.hlsl's comment); mirrored
-    // via 1.0-0.999999 to preserve the exact same near/far margin.
+    // Reversed-Z: far is 0.0 not 1.0 (see starsV.hlsl), mirrored via 1.0-0.999999.
     pos.z = pos.w*0.000001;
     OUT.position = pos;
 

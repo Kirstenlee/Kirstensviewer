@@ -43,7 +43,10 @@ float4 main(PSInput IN) : SV_Target
     float alpha = diffuseMap.Sample(diffuseMapSampler, IN.vary_texcoord0.xy).a;
     alpha *= IN.vertex_color.a;
 
-    bayerDitherDiscard(alpha, 0.88, IN.svPosition);
+    // Threshold lowered from upstream's 0.88 - see pipeline.cpp's ALPHA_BLEND_CUTOFF comment.
+    // No hard minimum_alpha gate here (unlike shadowAlphaMaskF.hlsl), so this dither threshold
+    // is the only alpha control for PBR/GLTF rigged alpha content - tune together with that file.
+    bayerDitherDiscard(alpha, 0.4, IN.svPosition);
 
     return float4(1, 1, 1, 1);
 }

@@ -4421,37 +4421,57 @@ public:
 // *NOTE: DEBUG functionality
 void LLInventoryModel::dumpInventory() const
 {
-    LL_INFOS() << "\nBegin Inventory Dump\n**********************:" << LL_ENDL;
-    LL_INFOS() << "mCategory[] contains " << mCategoryMap.size() << " items." << LL_ENDL;
+    // S24: a real inventory can easily hold tens of thousands of items - the original one-
+    // LL_WARNS()-per-line version meant tens of thousands of individual log calls (each doing
+    // its own stream formatting, timestamp/tag prefix, mutex lock, and synchronous disk write)
+    // on the main thread with no yielding, which is what actually froze the viewer, not the
+    // sheer volume of text. Building the whole dump in memory first and writing it out in one
+    // shot avoids that per-line overhead entirely, and a real file is a more usable artifact for
+    // a "dump everything" debug tool than tens of thousands of lines of log scrollback anyway.
+    std::ostringstream out;
+    out << "\nBegin Inventory Dump\n**********************:\n";
+    out << "mCategory[] contains " << mCategoryMap.size() << " items.\n";
     for(cat_map_t::const_iterator cit = mCategoryMap.begin(); cit != mCategoryMap.end(); ++cit)
     {
         const LLViewerInventoryCategory* cat = cit->second;
         if(cat)
         {
-            LL_INFOS() << "  " <<  cat->getUUID() << " '" << cat->getName() << "' "
-                    << cat->getVersion() << " " << cat->getDescendentCount()
-            << LL_ENDL;
-    }
+            out << "  " <<  cat->getUUID() << " '" << cat->getName() << "' "
+                << cat->getVersion() << " " << cat->getDescendentCount() << "\n";
+        }
         else
         {
-            LL_INFOS() << "  NULL!" << LL_ENDL;
+            out << "  NULL!\n";
         }
     }
-    LL_INFOS() << "mItemMap[] contains " << mItemMap.size() << " items." << LL_ENDL;
+    out << "mItemMap[] contains " << mItemMap.size() << " items.\n";
     for(item_map_t::const_iterator iit = mItemMap.begin(); iit != mItemMap.end(); ++iit)
     {
         const LLViewerInventoryItem* item = iit->second;
         if(item)
         {
-            LL_INFOS() << "  " << item->getUUID() << " "
-                    << item->getName() << LL_ENDL;
+            out << "  " << item->getUUID() << " " << item->getName() << "\n";
         }
         else
         {
-            LL_INFOS() << "  NULL!" << LL_ENDL;
+            out << "  NULL!\n";
+        }
     }
+    out << "\n**********************\nEnd Inventory Dump";
+
+    const std::string dump_path = gDirUtilp->getExpandedFilename(LL_PATH_LOGS, "inventory_dump.txt");
+    llofstream dump_file(dump_path.c_str());
+    if (dump_file.is_open())
+    {
+        dump_file << out.str();
+        dump_file.close();
+        LL_WARNS() << "Dumped inventory (" << mCategoryMap.size() << " categories, " << mItemMap.size()
+            << " items) to " << dump_path << LL_ENDL;
     }
-    LL_INFOS() << "\n**********************\nEnd Inventory Dump" << LL_ENDL;
+    else
+    {
+        LL_WARNS() << "Failed to open " << dump_path << " for inventory dump" << LL_ENDL;
+    }
 }
 
 // Do various integrity checks on model, logging issues found and

@@ -226,14 +226,11 @@ public:
     void addOnIdleCallback(const std::function<void()>& cb); // add a callback to fire (once) when idle
 
     void initGeneralThread();
-    // S24 (DX_RENDER, eviction-tuning follow-up, task #283): dedicated worker
-    // pool for future CPU-only parallelized work (e.g. idleUpdate() staging -
-    // see task #283's findings). Deliberately separate from sImageDecodeThread
-    // and gMeshRepo's own thread so it never contends with texture decode or
-    // mesh loading for the same cores under load. A no-op under the GL build
-    // (mDXPool stays null) - this pool exists specifically because of
-    // DX_RENDER's single-threaded-immediate-context constraint, not a
-    // general-purpose addition. Not yet wired to any actual work.
+    // S24: dedicated worker pool for future CPU-only parallelized work,
+    // deliberately separate from sImageDecodeThread/gMeshRepo's thread so it
+    // never contends with texture decode or mesh loading. No-op under the GL
+    // build (mDXPool stays null); exists for DX_RENDER's single-threaded
+    // immediate-context constraint. Not yet wired to any actual work.
     void initDXPool();
 	void purgeUserDataOnExit() { mPurgeUserDataOnExit = true; }
     void purgeCefStaleCaches();  // Remove old, stale CEF cache folders
@@ -436,8 +433,6 @@ extern std::string gLastVersionChannel;
 extern LLVector3 gWindVec;
 extern LLVector3 gRelativeWindVec;
 
-extern bool gRandomizeFramerate;
-extern bool gPeriodicSlowFrame;
 extern bool gDoDisconnect;
 
 extern bool gSimulateMemLeak;

@@ -460,7 +460,6 @@ void LLViewerTextureManager::init()
 
 void LLViewerTextureManager::cleanup()
 {
-    stop_glerror();
 
     delete gTextureManagerBridgep;
     LLImageGL::sDefaultGLTexture = NULL;
@@ -501,15 +500,11 @@ void LLViewerTexture::updateClass()
 
     LLViewerMediaTexture::updateClass();
 
-    // S24 (2026-08-24, task #258): root-and-branch replacement of the old
-    // discard-bias pressure ramp. `used` is now a single, deterministic
-    // figure - the exact sum of tracked texture + vertex bytes - not a poll
-    // or a fudge-factored estimate, so there is no more "Live vs Est." mode
-    // to flip between. Budget-vs-usage RECONCILIATION (deciding which
-    // textures actually get downgraded) happens entirely in
-    // LLViewerTextureList::runVRAMBudgetAllocation(), a periodic direct
-    // greedy allocator - not here. This function's remaining job is just:
-    // compute the real numbers, expose them, and set the allocator's target.
+    // `used` is a single deterministic figure (exact sum of tracked texture + vertex bytes), not a
+    // poll or fudge-factored estimate - no more "Live vs Est." mode. Budget-vs-usage reconciliation
+    // (deciding which textures get downgraded) happens entirely in
+    // LLViewerTextureList::runVRAMBudgetAllocation(); this function just computes the numbers and sets
+    // the allocator's target.
     static constexpr F32 MIN_VRAM_BUDGET = 768.f;
     static constexpr F32 BUDGET_RESERVE = 512.f;
 
@@ -535,30 +530,22 @@ void LLViewerTexture::updateClass()
     sVRAMBudgetMegabytes = raw_budget;
     sVRAMBudgetIsLive = has_live_budget;
 
-    // S24: halve the allocator's effective target while backgrounded/minimized -
-    // the direct equivalent of the old sDesiredDiscardBias=5.f override, but
-    // flowing through the same greedy-cut mechanism instead of a separate
-    // special-cased ramp. No debounce timers needed: the allocator is a
-    // stateless recompute every ~0.5s (LLViewerTextureList::
-    // runVRAMBudgetAllocation()), so there's no ramp to gate - the moment
-    // in_background flips, that class independently detects the same edge
-    // and forces its next pass immediately.
+    // Halves the allocator's effective target while backgrounded/minimized - the direct equivalent of
+    // the old sDesiredDiscardBias=5.f override, now flowing through the same greedy-cut mechanism. No
+    // debounce needed: the allocator recomputes statelessly every ~0.5s and independently detects the
+    // same backgrounded edge to force its next pass immediately.
     static constexpr F32 BACKGROUND_BUDGET_FRACTION = 0.5f;
     const bool in_background = (gViewerWindow && !gViewerWindow->getWindow()->getVisible()) || !gFocusMgr.getAppHasFocus();
     sVRAMAllocatorBudgetMegabytes = in_background ? target * BACKGROUND_BUDGET_FRACTION : target;
 
-    // S24 (eviction tuning): the softer line a triggered cut actually aims
-    // for - see sVRAMAllocatorSoftTargetMegabytes's own comment. Derived from
-    // the same (possibly backgrounded-halved) budget above, not the raw
-    // target, so the two stay proportionally consistent in every state.
+    // Derived from the same (possibly backgrounded-halved) budget above, not the raw target, so the
+    // two stay proportionally consistent in every state.
     static LLCachedControl<F32> soft_pressure_fraction(gSavedSettings, "RenderVRAMSoftPressureFraction", 0.8f);
     sVRAMAllocatorSoftTargetMegabytes = sVRAMAllocatorBudgetMegabytes * llclamp((F32)soft_pressure_fraction, 0.5f, 1.0f);
 
-    // S24: system RAM pressure is a genuinely separate resource from VRAM -
-    // the old code nudged the VRAM bias scalar on system-RAM-critical too,
-    // which was a category error (freeing GPU VRAM does nothing for system
-    // RAM pressure). Fully decoupled now: this section only ever reacts to
-    // isSystemMemoryLow()/isSystemMemoryCritical(), never to VRAM used/budget.
+    // System RAM pressure is fully decoupled from VRAM: this section only reacts to
+    // isSystemMemoryLow()/isSystemMemoryCritical(), never to VRAM used/budget (freeing GPU VRAM does
+    // nothing for system RAM pressure).
     const bool is_sys_low = isSystemMemoryLow();
     static bool was_low = false;
 
@@ -780,11 +767,9 @@ void LLViewerTexture::init(bool firstinit)
     }
 
     mMainQueue  = LL::WorkQueue::getInstance("mainloop");
-    // S24 (2026-08-26, task #260 CLOSED not-applicable): DX_RENDER never
-    // posts to this queue (LLImageGLThread::sEnabledTextures is permanently
-    // false there - see LLImageGL::initClass()) - "LLImageGL" unconditionally
-    // matches the GL path's own thread-pool name; harmless/unused under
-    // DX_RENDER since it's never looked up as a live instance there.
+    // DX_RENDER never posts to this queue (LLImageGLThread::sEnabledTextures is permanently false -
+    // see LLImageGL::initClass()); "LLImageGL" is the GL path's own thread-pool name, unused but
+    // harmless here.
     mImageQueue = LL::WorkQueue::getInstance("LLImageGL");
 }
 
@@ -880,7 +865,6 @@ bool LLViewerTexture::bindDefaultImage(S32 stage)
     {
         LL_WARNS() << "LLViewerTexture::bindDefaultImage failed." << LL_ENDL;
     }
-    stop_glerror();
 
     LLTexturePipelineTester* tester = (LLTexturePipelineTester*)LLMetricPerformanceTesterBasic::getTester(sTesterName);
     if (tester)
@@ -1641,12 +1625,10 @@ void LLViewerFetchedTexture::scheduleCreateTexture()
             }
 #endif
             mNeedsCreateTexture = true;
-            // S24 (2026-08-26, task #260 CLOSED not-applicable): background-
-            // thread D3D11 texture creation was removed after confirming an
-            // unfixable driver-level NVIDIA bug - sEnabledTextures is
-            // permanently false under DX_RENDER now, so this always resolves
-            // to nullptr (synchronous, main-thread creation) there. See
-            // LLImageGL::initClass()'s DX_RENDER branch (llimagegl.cpp).
+            // Background-thread D3D11 texture creation was removed after an unfixable driver-level
+            // NVIDIA bug - sEnabledTextures is permanently false under DX_RENDER, so this always
+            // resolves to nullptr (synchronous, main-thread creation). See LLImageGL::initClass()'s
+            // DX_RENDER branch.
             auto mainq = LLImageGLThread::sEnabledTextures ? mMainQueue.lock() : nullptr;
             if (mainq)
             {
@@ -1690,11 +1672,8 @@ void LLViewerFetchedTexture::scheduleCreateTexture()
                         {
 #endif
                         //finalize on main thread
-                        // S24 (2026-08-24, task #257): no separate finalize
-                        // step needed anymore - createTexture() above already
-                        // did the complete, mutex-protected D3D11 upload
-                        // (DXTexture's own std::shared_mutex), whichever
-                        // thread ran it.
+                        // No separate finalize needed - createTexture() above already completed the
+                        // mutex-protected (DXTexture's shared_mutex) upload on whichever thread ran it.
                         postCreateTexture();
                         unref();
                     });
@@ -3114,13 +3093,9 @@ void LLViewerLODTexture::processTextureStats()
         //
 
         S32 current_discard = getDiscardLevel();
-        // S24 (eviction tuning, 2026-08-29): briefly relaxed for BOOST_AVATAR_BAKED
-        // to support an emergency VRAM-eviction tier - reverted after a live
-        // test showed it could burst a crowd's worth of avatar textures into
-        // gTextureList.mDownScaleQueue at once, overwhelming that queue's
-        // severe-pressure drain (see LLViewerTextureList::
-        // runVRAMBudgetAllocation()'s header comment for the full post-mortem).
-        // Back to upstream behavior: avatar bakes never scale down.
+        // BOOST_AVATAR_BAKED was briefly relaxed here to support an emergency VRAM-eviction tier -
+        // reverted after it could burst a crowd's avatar textures into gTextureList.mDownScaleQueue at
+        // once, overwhelming its severe-pressure drain. Back to upstream: avatar bakes never scale down.
         if (mBoostLevel < LLGLTexture::BOOST_AVATAR_BAKED)
         {
             if (current_discard < mDesiredDiscardLevel && !mForceToSaveRawImage)
@@ -3139,13 +3114,10 @@ void LLViewerLODTexture::processTextureStats()
         mDesiredDiscardLevel = llmin(mDesiredDiscardLevel, (S32)mLoadedCallbackDesiredDiscardLevel);
     }
 
-    // S24 (2026-08-24, task #258): apply the VRAM budget allocator's forced
-    // floor, if runVRAMBudgetAllocation()'s last pass cut this texture -
-    // always itself capped by mMinDesiredDiscardLevel immediately after, so
-    // an explicit per-texture protection always wins over a global budget
-    // cut, never the reverse. Applied here (after every branch above has
-    // already settled mDesiredDiscardLevel) so it composes uniformly
-    // regardless of which branch fired.
+    // Apply the VRAM budget allocator's forced floor, if runVRAMBudgetAllocation()'s last pass cut
+    // this texture - always capped by mMinDesiredDiscardLevel immediately after, so per-texture
+    // protection always wins over a global budget cut. Applied after every branch above has already
+    // settled mDesiredDiscardLevel so it composes uniformly.
     if (mVRAMForcedDiscardLevel >= 0)
     {
         mDesiredDiscardLevel = (S8)llmax((S32)mDesiredDiscardLevel, (S32)mVRAMForcedDiscardLevel);
@@ -3166,20 +3138,12 @@ void LLViewerLODTexture::processTextureStats()
     }
 }
 
-// S24 (2026-08-24, task #258): pure, side-effect-free replica of
-// processTextureStats()'s discard-level decision tree above (kept as a
-// SEPARATE function rather than a literal extraction, deliberately - the
-// real function's scaleDown()/isUpdateFrozen() side effects only fire from
-// its "main case" branch, not the full-res/dontDiscard/tiny-vsize/unknown-
-// dimensions special cases, and restructuring the real function to share
-// code risked changing exactly which textures get scaleDown() called on
-// them today. This function must be kept in sync with processTextureStats()
-// if that decision tree ever changes - both implement the same "what
-// quality does this texture want given screen size alone" question, this
-// one just never mutates state or calls scaleDown(). Used by
-// LLViewerTextureList::runVRAMBudgetAllocation() to ask that question for
-// every cut-candidate in one allocation pass without disturbing per-texture
-// state until the allocator has actually decided anything.
+// Pure, side-effect-free replica of processTextureStats()'s discard-level decision tree above, kept as
+// a SEPARATE function rather than an extraction: the real function's scaleDown()/isUpdateFrozen() side
+// effects only fire from its "main case" branch, not the special cases, and sharing code risked
+// changing which textures get scaleDown() called. Must be kept in sync with processTextureStats() if
+// that decision tree changes. Used by runVRAMBudgetAllocation() to ask "what quality does this texture
+// want" for every cut-candidate without disturbing per-texture state.
 S32 LLViewerLODTexture::computeNaturalDiscardLevel() const
 {
     static LLCachedControl<bool> textures_fullres(gSavedSettings, "TextureLoadFullRes", false);

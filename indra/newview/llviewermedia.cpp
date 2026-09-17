@@ -1676,11 +1676,9 @@ LLViewerMediaImpl::LLViewerMediaImpl(const LLUUID& texture_id,
 	}
 
 	mMainQueue = LL::WorkQueue::getInstance("mainloop");
-	// S24 (2026-08-26, task #260 CLOSED not-applicable): DX_RENDER never
-	// posts to this queue (LLImageGLThread::sEnabledMedia is permanently
-	// false there - see LLImageGL::initClass()) - "LLImageGL" unconditionally
-	// matches the GL path's own thread-pool name; harmless/unused under
-	// DX_RENDER since it's never looked up as a live instance there.
+	// DX_RENDER never posts to this queue (LLImageGLThread::sEnabledMedia is permanently false - see
+	// LLImageGL::initClass()); "LLImageGL" is the GL path's own thread-pool name, unused but harmless
+	// here.
 	mTexUpdateQueue = LL::WorkQueue::getInstance("LLImageGL"); // Share work queue with tex loader.
 }
 
@@ -2909,8 +2907,6 @@ bool LLViewerMediaImpl::canNavigateBack()
 
 //////////////////////////////////////////////////////////////////////////////////////////
 static LLTrace::BlockTimerStatHandle FTM_MEDIA_DO_UPDATE("Do Update");
-static LLTrace::BlockTimerStatHandle FTM_MEDIA_GET_DATA("Get Data");
-static LLTrace::BlockTimerStatHandle FTM_MEDIA_SET_SUBIMAGE("Set Subimage");
 
 void LLViewerMediaImpl::update()
 {
@@ -3021,10 +3017,8 @@ void LLViewerMediaImpl::update()
 #if LL_IMAGEGL_THREAD_CHECK
 					media_tex->getGLTexture()->mActiveThread = LLThread::currentID();
 #endif
-					// S24 (2026-08-24, task #257): no separate finalize step
-					// needed anymore - doMediaTexUpdate() above already did
-					// the complete, mutex-protected D3D11 upload (DXTexture's
-					// own std::shared_mutex), whichever thread ran it.
+					// No separate finalize needed - doMediaTexUpdate() above already completed the
+					// mutex-protected (DXTexture's shared_mutex) upload on whichever thread ran it.
 					mTextureUpdatePending = false;
 					media_tex->unref();
 					unref();

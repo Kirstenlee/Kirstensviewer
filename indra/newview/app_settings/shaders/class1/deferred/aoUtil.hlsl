@@ -66,26 +66,14 @@ float2 getScreenCoordinateAo(float2 screenpos)
 
 float getDepthAo(float2 pos_screen)
 {
-    // S24 (2026-08-10, task #158/#184 follow-up): same GL-vs-D3D11 texture-
-    // origin flip already applied everywhere else this session that reads
-    // a G-buffer/depth/lightmap render target with a screen-space UV
-    // (getGBuffer()/getDepth() in gbufferUtil.hlsl/deferredUtil.hlsl,
-    // softenLightF.hlsl's lightMap sample) - this file was never updated
-    // with it. pos_screen itself stays unflipped (getScreenCoordinateAo()
-    // below uses it for NDC/position reconstruction, which must stay in
-    // the camera's own convention, same "two different uses of the same
-    // screen coordinate" split already established for vary_fragcoord
-    // elsewhere) - the flip is inlined at this .Sample() call site only,
-    // not carried by the parameter.
-    // S24 (2026-09-02): was Sample() (implicit LOD) - this is called from
-    // inside the SSAO loop below (for i<8) with a per-iteration, per-pixel
-    // data-dependent UV (samppos_screen, built from noise/kernel/scale),
-    // which FXC can't prove has a safe/uniform derivative across a pixel
-    // quad - triggers X3570 and forces the whole loop to unroll just to
-    // make the gradient provable. SampleLevel(...,0) needs no derivative.
-    // depthMap is a per-frame G-buffer/depth render target, never
-    // mipmapped, so this is not an approximation - same reasoning already
-    // established for lightFunc's identical fix in multiPointLightF.hlsl.
+    // Screen-space UV is flipped only at this .Sample() call site (GL-vs-D3D
+    // origin convention); pos_screen itself must stay unflipped since
+    // getScreenCoordinateAo() below needs it in the camera's own convention.
+    //
+    // SampleLevel(...,0), not Sample(): called from the SSAO loop below with
+    // a per-pixel data-dependent UV, whose derivative FXC can't prove safe
+    // (X3570) without forcing a full loop unroll. depthMap is never
+    // mipmapped, so this is not an approximation.
     float depth = depthMap.SampleLevel(depthMapSampler, float2(pos_screen.x, 1.0 - pos_screen.y), 0).r;
     return depth;
 }
@@ -94,8 +82,8 @@ float4 getPositionAo(float2 pos_screen)
 {
     float depth = getDepthAo(pos_screen);
     float2 sc = getScreenCoordinateAo(pos_screen);
-    // S24 (reversed-Z conversion): 1.0-2.0*depth, was 2.0*depth-1.0 - see
-    // deferredUtil.hlsl's linearDepth()/getPositionWithDepth() comments.
+    // Reversed-Z: 1.0-2.0*depth, not 2.0*depth-1.0 - see deferredUtil.hlsl's
+    // linearDepth()/getPositionWithDepth().
     float4 ndc = float4(sc.x, sc.y, 1.0 - 2.0 * depth, 1.0);
     float4 pos = mul(inv_proj, ndc);
     pos /= pos.w;
@@ -125,25 +113,16 @@ float calcAmbientOcclusion(float4 pos, float3 norm, float2 pos_screen)
     float ret = 1.0;
     float3 pos_world = pos.xyz;
 
-    // S24 (2026-08-19, task #229, task #227 audit finding): GLSL early-outs
-    // here for distant pixels (SSAO has negligible effect beyond ~64m) -
-    // this HLSL copy was missing it entirely and always ran the full
-    // 8-sample kernel regardless of distance, producing a real (potentially
-    // non-1.0) occlusion value for far geometry that GLSL always keeps at
-    // exactly 1.0 (no occlusion).
+    // Distant pixels (>64m) always return full visibility - SSAO's effect
+    // is negligible there.
     if (-pos_world.z > 64.0)
     {
         return 1.0;
     }
 
-    // S24 (2026-08-10, task #158/#184 follow-up): same texture-origin flip
-    // as getDepthAo() above - noiseMap is a tiled rotation-noise texture
-    // sampled with a screen-space UV, same class of read as depth/G-buffer
-    // samples elsewhere. Confirmed root cause of a real, reported "upside
-    // down pixel dither" artifact tied specifically to SSAO (disappears
-    // when SSAO is disabled) - the unflipped tiled noise pattern read
-    // mismatched screen rows, producing a visibly wrong, static-looking
-    // dither instead of the intended per-pixel kernel rotation.
+    // Same texture-origin flip as getDepthAo() above - noiseMap is a tiled
+    // rotation-noise texture sampled with a screen-space UV, same class of
+    // read as depth/G-buffer samples elsewhere.
     float2 noise_reflect = noiseMap.Sample(noiseSampler, float2(pos_screen.x, 1.0 - pos_screen.y) * (screen_res / 128)).xy;
 
     float angle_hidden = 0.0;

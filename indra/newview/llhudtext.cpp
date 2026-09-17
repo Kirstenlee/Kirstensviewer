@@ -81,7 +81,7 @@ LLHUDText::LLHUDText(const U8 type) :
             mVertAlignment(ALIGN_VERT_CENTER),
 //          mLOD(0),
             mHidden(false)
-{   // S24 improved version to control hovertext objects.
+{
 	static LLCachedControl<F32> fade_distance (gSavedSettings, "HoverTextDistance");
 	static LLCachedControl<F32> fade_range (gSavedSettings, "HoverTextFadeDistance");
 	
@@ -119,7 +119,7 @@ void LLHUDText::renderText()
 
     gDX.getTexUnit(0)->enable(LLTexUnit::TT_TEXTURE);
 
-    LLGLState gls_blend(GL_BLEND, true);
+    DXState gls_blend(GL_BLEND, true);
 
     LLColor4 shadow_color(0.f, 0.f, 0.f, 1.f);
     F32 alpha_factor = 1.f;
@@ -480,26 +480,10 @@ LLVector2 LLHUDText::updateScreenPos(LLVector2 &offset)
     screen_pos_vec.setVec((F32)screen_pos.mX, (F32)screen_pos.mY);
 
     LLRect world_rect = gViewerWindow->getWorldViewRectScaled();
-    // S24 (2026-08-16): world_rect (getWorldViewRectScaled(), ultimately
-    // LLViewerWindow::updateWorldViewRect() reading the "world_view_rect"
-    // placeholder panel's real on-screen rect) already excludes ALL
-    // currently-docked TOP chrome - menu bar and nav/favorites bar are
-    // siblings of the world view panel inside the same auto-resizing
-    // vertical layout_stack (main_view.xml's "menu_stack"), and
-    // LLViewerWindow::reshapeStatusBarContainer() keeps that stack's
-    // reservation in sync whenever the nav/favorites bar toggles. Also
-    // subtracting the hardcoded MENU_BAR_HEIGHT global (llmenugl.cpp, always
-    // 18, never reassigned at runtime to reflect real state) double-counted
-    // that same chrome on top of an already-correct bound, shrinking the
-    // nametag's usable vertical band by an extra, wrong 18px - worse
-    // relative to the true gap the more real top chrome is actually
-    // showing. This produced both the visible "compression" and a
-    // mouseover-hit-test area (mSoftScreenRect, below) that didn't match
-    // where the label actually rendered. STATUS_BAR_HEIGHT below is
-    // different and stays: the bottom toolbar tray is a plain overlay
-    // *inside* world_view_rect's own bounds (main_view.xml's
-    // toolbar_view_holder), not a layout_stack sibling, so world_rect.mBottom
-    // does NOT already exclude it - that compensation is real.
+    // world_rect (getWorldViewRectScaled()) already excludes all docked TOP chrome (menu/nav/favorites
+    // bars) - do not also subtract MENU_BAR_HEIGHT, that double-counts. STATUS_BAR_HEIGHT below is
+    // different: the bottom toolbar tray sits *inside* world_view_rect's own bounds, so it must still
+    // be added.
     S32 bottom = world_rect.mBottom + STATUS_BAR_HEIGHT;
 
     LLVector2 screen_center;
@@ -615,7 +599,7 @@ void LLHUDText::markDead()
 
 void LLHUDText::renderAllHUD()
 {
-    LLGLState::checkStates();
+    DXState::checkStates();
 
     {
         LLGLDepthTest depth(GL_FALSE, GL_FALSE);
@@ -630,7 +614,7 @@ void LLHUDText::renderAllHUD()
 
     LLVertexBuffer::unbind();
 
-    LLGLState::checkStates();
+    DXState::checkStates();
 }
 
 void LLHUDText::shiftAll(const LLVector3& offset)

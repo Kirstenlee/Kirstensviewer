@@ -79,8 +79,7 @@ float4 getWaterFogViewNoClip(float3 pos)
     float t2 = kd + ks * es;
     float t3 = pow(F, t2 * l) - 1.0;
 
-    // S24 (task #240, task #227 audit finding): abs() not in GLSL, kept
-    // deliberately - see srgbF.hlsl's matching comment for why.
+    // abs() not in GLSL, kept deliberately - see srgbF.hlsl's matching comment.
     float L = pow(abs(min(t1 / t2 * t3, 1.0)), 1.0 / 1.7);
 
     float D = pow(0.98, l * kd);

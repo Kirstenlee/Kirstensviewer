@@ -48,10 +48,8 @@ VSOutput main(VSInput IN)
 
     // smash to *almost* far clip plane -- stars are still behind
     // SL-19283 - finagle the moon position to be between clouds and stars.
-    // S24 (reversed-Z conversion, missed original sweep): 0.000009, was
-    // 0.999991 - far is now 0.0 not 1.0 (see starsV.hlsl's comment); mirrored
-    // via 1.0-0.999991 to preserve the exact same near/far margin and the
-    // moon-nearer-than-sun ordering relative to sunDiscV.hlsl's own margin.
+    // Reversed-Z: mirrored from the old 0.999991 (far is now 0.0, not 1.0 - see starsV.hlsl) to
+    // preserve the same near/far margin and keep the moon nearer than the sun (cf. sunDiscV.hlsl).
     pos.z = pos.w*0.000009;
     OUT.position = pos;
 

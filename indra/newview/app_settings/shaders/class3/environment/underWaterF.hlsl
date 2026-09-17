@@ -63,7 +63,7 @@ uniform float2 screenRes;
 
 struct PSInput
 {
-    // S24 (2026-08-02): missing SV_Position - see uiF.hlsl's comment (fxc.exe-confirmed VS/PS register-shift bug).
+    // S24: SV_Position must be declared here - omitting it shifts every subsequent interpolant register (see uiF.hlsl).
     float4 position : SV_Position;
 
     // refCoord.w is the real, unmodified clip W (see waterV.hlsl's own
@@ -79,12 +79,8 @@ struct PSInput
 float4 applyWaterFogViewLinearNoClip(float3 pos, float4 color);
 void mirrorClip(float3 position);
 
-// S24 (2026-09-07, DX Water V1): Reoriented Normal Mapping compose - see
-// waterF.hlsl's RNMBlend() for the full comment/reference
-// (blog.selfshadow.com/publications/blending-in-detail). Duplicated here
-// rather than shared via an include since this file and waterF.hlsl are
-// separate compile units with no existing shared-utility header between
-// them.
+// S24: Reoriented Normal Mapping compose (blog.selfshadow.com/publications/blending-in-detail).
+// Duplicated from waterF.hlsl's RNMBlend() - separate compile units, no shared-utility header between them.
 float3 RNMBlend(float3 n1, float3 n2)
 {
     n1 += float3(0, 0, 1);
@@ -95,24 +91,12 @@ float3 RNMBlend(float3 n1, float3 n2)
 float4 main(PSInput IN) : SV_Target
 {
     mirrorClip(IN.vary_position);
-    // S24 (2026-08-09, task #146): was refCoord.xy/refCoord.z - a GL-only
-    // approximation (relies on GL's -w..w clip-space Z range) that produces
-    // a warped, mispositioned reflection under D3D11's 0..w range. Fixed
-    // to a true perspective divide by the real clip W (see waterV.hlsl's
-    // own comment on why refCoord.w is now the genuine clip W rather than
-    // a repurposed bigWave.x slot). Not routed through the shared
-    // getScreenCoord() (deferredUtil.hlsl) since this shader doesn't set
-    // hasReflectionProbes/isDeferred, so that file isn't attached here -
-    // inlined instead, same formula.
+    // S24: true perspective divide by clip W (refCoord.w), not refCoord.z - z-based division only
+    // works under GL's -w..w clip-space Z range and warps under D3D11's 0..w range. Inlined rather
+    // than deferredUtil.hlsl's getScreenCoord() since that file isn't attached here.
     float2 screen_tc = (IN.refCoord.xy / IN.refCoord.w) * 0.5 + 0.5;
-    // S24 (2026-08-09, task #144, origin sweep): screen_tc is a raw clip-
-    // derived screen coordinate (GL's own convention, unflipped - matches
-    // every other file's "keep the shared coordinate unflipped, flip only
-    // at each .Sample() site" pattern). exclusionTex (mWaterExclusionMask)
-    // and screenTex (mWaterDis, sampled below via distort) are both real
-    // D3D11 render targets with D3D11's native top-left origin - both
-    // reads need the flip, screen_tc itself does not (nothing here uses it
-    // for position/NDC reconstruction, unlike deferredUtil.hlsl's pattern).
+    // S24: screen_tc stays unflipped (GL convention); flip only at each real-render-target .Sample()
+    // site below, matching exclusionTex/screenTex's native D3D11 top-left origin.
     float water_mask = exclusionTex.Sample(exclusionTexSampler, float2(screen_tc.x, 1.0 - screen_tc.y)).r;
 
     float4 color;
@@ -121,11 +105,9 @@ float4 main(PSInput IN) : SV_Target
     float3 wave1 = bumpMap.Sample(bumpMapSampler, float2(IN.bigWaveX, IN.view.w)).xyz*2.0-1.0;
     float3 wave2 = bumpMap.Sample(bumpMapSampler, IN.littleWave.xy).xyz*2.0-1.0;
     float3 wave3 = bumpMap.Sample(bumpMapSampler, IN.littleWave.zw).xyz*2.0-1.0;
-    // S24 (2026-09-07, DX Water V1): RNM compose instead of a plain vector
-    // sum+normalize - see waterF.hlsl's RNMBlend()/matching comment for the
-    // full root-cause writeup (littleWave.zw's direction fix in waterV.hlsl
-    // is the other half of this same fix, shared by both above- and
-    // below-water surfaces since they consume the same varyings).
+    // S24: RNM compose (see RNMBlend() above) instead of a plain vector sum+normalize, which lets
+    // out-of-phase wave layers partially cancel. littleWave.zw's direction (waterV.hlsl) is the
+    // other half of this fix, shared by both above- and below-water surfaces.
     float3 wavef = normalize(wave1);
     wavef = RNMBlend(wavef, normalize(wave2));
     wavef = RNMBlend(wavef, normalize(wave3));
@@ -135,9 +117,7 @@ float4 main(PSInput IN) : SV_Target
     distort = lerp(distort, distort+wavef.xy*refScale, water_mask);
 
 #ifdef TRANSPARENT_WATER
-    // S24 (2026-08-09, task #144, origin sweep): distort is derived from
-    // the same unflipped screen_tc above - flip here at the actual
-    // .Sample() call, matching exclusionTex's fix above.
+    // S24: distort is unflipped (derived from screen_tc); flip only at this .Sample() call.
     float4 fb = screenTex.Sample(screenTexSampler, float2(distort.x, 1.0 - distort.y));
 #else
     float4 fb = float4(waterFogColorLinear, 0.0);

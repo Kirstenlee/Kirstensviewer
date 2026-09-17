@@ -35,22 +35,27 @@
 #include "llviewercontrol.h"
 #include "llenvironment.h"
 #include "llsettingssky.h"
+#include "lldxlinewidth.h"
 
 constexpr U32 MIN_SKY_DETAIL = 8;
 constexpr U32 MAX_SKY_DETAIL = 180;
 
-// S24 (task #279 stage 2, "RENDER WOW"): bumped from the original 1000 for
-// RenderStarDensity headroom - density is a pure shader-side visibility cull
-// against the baked field (see starsF.hlsl), so a bigger baked field gives
-// the slider real range instead of just thinning an already-sparse sky.
-// The last NUM_NEBULA_PATCHES slots of that field are repurposed as soft
-// nebula blobs (see initStars()/updateStarGeometry()) rather than points.
+// Bumped from the original 1000 for RenderStarDensity headroom - density is a shader-side visibility
+// cull against the baked field (starsF.hlsl), so a bigger field gives the slider real range instead
+// of just thinning an already-sparse sky. The last NUM_NEBULA_PATCHES slots of that field are
+// repurposed as soft nebula blobs (see initStars()/updateStarGeometry()) rather than points.
+//
+// The galactic dust band itself is NOT part of this sprite field - see dxdrawpoolwlsky.cpp's
+// renderGalacticBandDeferred()/galacticBandV.hlsl for the current (procedural, dome-mesh-based)
+// implementation. An earlier sprite-scatter attempt lived here (NUM_DUST_PATCHES, elongated
+// streak billboards) but read as isolated dots/streaks rather than a continuous haze - removed
+// rather than kept dead/disabled.
 constexpr U32 NUM_STARS = 2500;
 constexpr U32 NUM_NEBULA_PATCHES = 8;
 constexpr U32 NUM_REAL_STARS = NUM_STARS - NUM_NEBULA_PATCHES;
 
-// S24 (task #279 stage 2): shooting stars are a small CPU-tracked pool,
-// unrelated to the baked star field above - see updateShootingStars().
+// Shooting stars are a small CPU-tracked pool, unrelated to the baked star field above - see
+// updateShootingStars().
 constexpr U32 MAX_SHOOTING_STARS = 4;
 
 inline U32 LLVOWLSky::getNumStacks(void)
@@ -91,15 +96,11 @@ LLVOWLSky::LLVOWLSky(const LLUUID &id, const LLPCode pcode, LLViewerRegion *regi
 
 void LLVOWLSky::idleUpdate(LLAgent &agent, const F64 &time)
 {
-    // S24 (task #279 stage 2): NOT a reliable per-frame hook for this
-    // object - LLVOWLSky::isActive() hardcodes false, and
-    // LLViewerObjectList's idle dispatch only calls idleUpdate() on objects
-    // on the active list (llassert(objectp->isActive()) guards every call
-    // site). Learned the hard way: shooting stars wired here never spawned.
-    // updateShootingStars() is instead driven straight from the DX_RENDER
-    // draw path (dxdrawpoolwlsky.cpp's renderShootingStarsDeferred()),
-    // matching how this whole sky subsystem already computes its own
-    // per-frame time (sStarTime etc.) without relying on idle ticks at all.
+    // NOT a reliable per-frame hook: LLVOWLSky::isActive() hardcodes false, and
+    // LLViewerObjectList's idle dispatch only calls idleUpdate() on active-list objects.
+    // updateShootingStars() is instead driven from the DX_RENDER draw path
+    // (dxdrawpoolwlsky.cpp's renderShootingStarsDeferred()), matching how this sky subsystem already
+    // computes its own per-frame time (sStarTime etc.) without relying on idle ticks.
 }
 
 bool LLVOWLSky::isActive(void) const
@@ -119,7 +120,6 @@ LLDrawable * LLVOWLSky::createDrawable(LLPipeline * pipeline)
     return mDrawable;
 }
 
-//S24 - Skydome Tessalation 64bit internal
 inline F32 calcPhi(const U32 &i, const F32 &reciprocal_num_stacks)
 {
     // promote to double for all math
@@ -310,22 +310,17 @@ void LLVOWLSky::drawStars(void)
     if (mStarsVerts.notNull())
     {
         mStarsVerts->setBuffer();
-        // S24 (task #279 stage 2): was *4 - each star is 2 triangles (6
-        // verts, see updateStarGeometry()'s per-star write loop), so *4
-        // silently dropped the last third of every star's field pre-fix
-        // (harmless when it was just thinning an already-random field, but
-        // now directly under NUM_STARS/RenderStarDensity's control, and the
-        // nebula patches specifically live in the highest-indexed, most-
-        // truncated slots - this needs to be exact).
+        // Must be *6, not *4: each star is 2 triangles (6 verts, see updateStarGeometry()'s per-star
+        // write loop). Nebula patches live in the highest-indexed slots, so any undercount here drops
+        // them first.
         mStarsVerts->drawArrays(LLRender::TRIANGLES, 0, getStarsNumVerts()*6);
     }
 }
 
 void LLVOWLSky::drawShootingStars(void)
 {
-    // S24 (task #279 stage 2): unlike the static star field, this pool's
-    // positions change every frame while active, so the (tiny) buffer is
-    // rebuilt here rather than in updateGeometry().
+    // Unlike the static star field, this pool's positions change every frame while active, so the
+    // (tiny) buffer is rebuilt here rather than in updateGeometry().
     U32 active_count = 0;
     for (const auto& s : mShootingStars)
     {
@@ -364,6 +359,19 @@ void LLVOWLSky::drawFsSky(void)
     LLVertexBuffer::unbind();
 }
 
+void LLVOWLSky::drawGalacticBandQuad(void)
+{
+    if (mFsSkyVerts.isNull())
+    {
+        updateGeometry(mDrawable);
+    }
+
+    mFsSkyVerts->setBuffer();
+    mFsSkyVerts->drawRange(LLRender::TRIANGLES, 0, mFsSkyVerts->getNumVerts() - 1, mFsSkyVerts->getNumIndices(), 0);
+    gPipeline.addTrianglesDrawn(mFsSkyVerts->getNumIndices());
+    LLVertexBuffer::unbind();
+}
+
 void LLVOWLSky::drawDome(void)
 {
     if (mStripsVerts.empty())
@@ -391,70 +399,119 @@ void LLVOWLSky::drawDome(void)
     LLVertexBuffer::unbind();
 }
 
-// S24 (task #301, "Real Constellations" sky style, 2026-08-31): stylized
-// approximations of well-known constellation asterism shapes, hand-encoded
-// as 2D offsets in an arbitrary local unit around each anchor direction.
-// Deliberately NOT presented as precise astronomical RA/Dec data - these
-// are common-knowledge shapes (the Big Dipper's ladle, Orion's belt and
-// four corner stars, Cassiopeia's W, the Southern Cross, etc.) placed by
-// eye for recognizability, per the user's explicit "need not be over
-// complex, just a star map of constellations with a little randomness"
-// framing. See LLVOWLSky::initStars() for how these get placed on the dome
-// and folded into the existing per-star twinkle/color/flare system.
-struct LLConstellationStar { F32 x, y; };
+// Stylized approximations of well-known constellation asterism shapes, hand-encoded as 2D offsets in
+// an arbitrary local unit around each anchor direction - not precise astronomical RA/Dec data, placed
+// by eye for recognizability. See LLVOWLSky::initStars() for how these get placed on the dome and
+// folded into the existing per-star twinkle/color/flare system.
+//
+// `colorT` is an authored spectral-type color, on the same [0,1] scale starsF.hlsl's
+// starColorFromSeed() uses (0=red giant, ~0.16-0.34=orange, ~0.34-0.55=warm white, >0.55=blue-white) -
+// approximate real spectral classes for each constellation's brightest/most notable stars (e.g.
+// Betelgeuse red, Rigel blue) rather than the fully random per-seed hue every other star gets.
+struct LLConstellationStar { F32 x, y, colorT; };
+// Index pair into a constellation's own star array, for the optional connector-line overlay
+// (RenderConstellationLines) - NOT simply "connect consecutive array indices", real asterisms
+// branch/close (e.g. the Big Dipper's bowl is a closed loop with the handle branching off one
+// corner, not a straight chain).
+struct LLConstellationEdge { U32 a, b; };
 struct LLConstellationDef
 {
     LLVector3 anchor; // rough placement direction (need not be normalized)
     const LLConstellationStar* stars;
     U32 count;
+    const LLConstellationEdge* edges;
+    U32 edgeCount;
 };
 
+// Local tangent-plane scale shared by the constellation placement loop and the anchored Orion
+// Nebula placement below - kept in sync deliberately rather than duplicated as a magic number.
+constexpr F32 CONSTELLATION_SCALE = 0.18f;
+
 static const LLConstellationStar kBigDipperStars[] = {
-    {-1.00f, 0.30f}, {-1.00f,-0.20f}, {-0.50f,-0.30f}, {-0.40f, 0.25f}, // bowl
-    { 0.10f, 0.10f}, { 0.60f, 0.35f}, { 1.00f, 0.15f}                  // handle
+    // bowl: Dubhe (orange K giant, outer pointer star), Merak/Phecda/Megrez (white A)
+    {-1.00f, 0.30f, 0.20f}, {-1.00f,-0.20f, 0.50f}, {-0.50f,-0.30f, 0.50f}, {-0.40f, 0.25f, 0.55f},
+    // handle: Alioth/Mizar (white A), Alkaid (blue-white B3)
+    { 0.10f, 0.10f, 0.55f}, { 0.60f, 0.35f, 0.60f}, { 1.00f, 0.15f, 0.70f}
 };
 static const LLConstellationStar kOrionStars[] = {
-    {-0.50f, 0.80f}, { 0.50f, 0.75f},                                  // shoulders
-    {-0.20f, 0.10f}, { 0.00f, 0.05f}, { 0.20f, 0.00f},                 // belt
-    {-0.45f,-0.80f}, { 0.50f,-0.75f}                                   // feet
+    // shoulders: Betelgeuse (red supergiant), Bellatrix (blue-white giant)
+    {-0.50f, 0.80f, 0.03f}, { 0.50f, 0.75f, 0.80f},
+    // belt: Mintaka/Alnilam/Alnitak, all hot blue-white O/B stars
+    {-0.20f, 0.10f, 0.78f}, { 0.00f, 0.05f, 0.78f}, { 0.20f, 0.00f, 0.78f},
+    // feet: Saiph (blue-white B), Rigel (blue supergiant, brightest in Orion)
+    {-0.45f,-0.80f, 0.85f}, { 0.50f,-0.75f, 0.90f}
 };
 static const LLConstellationStar kCassiopeiaStars[] = {
-    {-1.00f, 0.00f}, {-0.50f, 0.40f}, { 0.00f, 0.00f}, { 0.50f, 0.50f}, { 1.00f, 0.10f}
+    // Shedar (orange K giant), Caph/Ruchbah (white F/A), Gamma Cas/Segin (blue-white B)
+    {-1.00f, 0.00f, 0.20f}, {-0.50f, 0.40f, 0.55f}, { 0.00f, 0.00f, 0.65f}, { 0.50f, 0.50f, 0.55f}, { 1.00f, 0.10f, 0.70f}
 };
 static const LLConstellationStar kSouthernCrossStars[] = {
-    { 0.00f, 1.00f}, { 0.00f,-1.00f}, {-0.70f,-0.10f}, { 0.60f, 0.20f}, { 0.05f, 0.05f}
+    // Gacrux (red giant, notable exception in an otherwise blue-white cross), Acrux/Mimosa/Delta Crucis (blue-white B)
+    { 0.00f, 1.00f, 0.08f}, { 0.00f,-1.00f, 0.80f}, {-0.70f,-0.10f, 0.85f}, { 0.60f, 0.20f, 0.75f}, { 0.05f, 0.05f, 0.50f}
 };
 static const LLConstellationStar kScorpiusStars[] = {
-    {-1.00f, 0.60f}, {-0.70f, 0.50f}, {-0.40f, 0.30f}, {-0.10f, 0.10f},
-    { 0.20f,-0.10f}, { 0.40f,-0.40f}, { 0.50f,-0.70f}, { 0.35f,-0.95f}
+    // Antares (red supergiant, the scorpion's "heart"), rest of the curving tail is hot blue-white
+    {-1.00f, 0.60f, 0.04f}, {-0.70f, 0.50f, 0.70f}, {-0.40f, 0.30f, 0.75f}, {-0.10f, 0.10f, 0.78f},
+    { 0.20f,-0.10f, 0.78f}, { 0.40f,-0.40f, 0.80f}, { 0.50f,-0.70f, 0.82f}, { 0.35f,-0.95f, 0.85f}
 };
 static const LLConstellationStar kCygnusStars[] = {
-    { 0.00f, 1.20f}, { 0.00f, 0.00f}, { 0.00f,-1.00f}, {-0.80f, 0.10f}, { 0.80f, 0.15f}
+    // Deneb (blue-white supergiant, tail), Sadr/wings (blue-white), Albireo (famous gold+blue binary - shown gold, the head)
+    { 0.00f, 1.20f, 0.85f}, { 0.00f, 0.00f, 0.75f}, { 0.00f,-1.00f, 0.25f}, {-0.80f, 0.10f, 0.70f}, { 0.80f, 0.15f, 0.70f}
 };
 static const LLConstellationStar kLeoStars[] = {
-    {-0.90f, 0.10f}, {-0.60f, 0.50f}, {-0.20f, 0.60f}, { 0.10f, 0.35f}, { 0.05f,-0.10f}, { 0.60f,-0.15f}
+    // Regulus (blue-white B, brightest), Algieba (orange K giant), Denebola (white A, tail)
+    {-0.90f, 0.10f, 0.65f}, {-0.60f, 0.50f, 0.22f}, {-0.20f, 0.60f, 0.55f}, { 0.10f, 0.35f, 0.60f}, { 0.05f,-0.10f, 0.65f}, { 0.60f,-0.15f, 0.55f}
 };
 static const LLConstellationStar kLyraStars[] = {
-    { 0.00f, 0.60f}, {-0.15f, 0.00f}, { 0.15f, 0.05f}, { 0.10f,-0.30f}, {-0.10f,-0.28f}
+    // Vega (brilliant blue-white A0, dominates the constellation), rest are far fainter white/blue-white
+    { 0.00f, 0.60f, 0.85f}, {-0.15f, 0.00f, 0.60f}, { 0.15f, 0.05f, 0.60f}, { 0.10f,-0.30f, 0.55f}, {-0.10f,-0.28f, 0.55f}
+};
+
+// Star-index connectivity per shape (see LLConstellationEdge's comment) - array indices are
+// local to each constellation's own star array above, not global star-buffer indices.
+static const LLConstellationEdge kBigDipperEdges[] = {
+    {0,1},{1,2},{2,3},{3,0}, // bowl, closed loop
+    {3,4},{4,5},{5,6}        // handle, branches off the bowl corner nearest it
+};
+static const LLConstellationEdge kOrionEdges[] = {
+    {0,2},{1,4},   // shoulders down to the nearer belt star
+    {2,3},{3,4},   // belt
+    {2,5},{4,6}    // belt down to the nearer foot
+};
+static const LLConstellationEdge kCassiopeiaEdges[] = { {0,1},{1,2},{2,3},{3,4} }; // the W/M zigzag
+static const LLConstellationEdge kSouthernCrossEdges[] = {
+    {0,1},       // main vertical bar (Gacrux to Acrux)
+    {2,4},{4,3}  // horizontal arm, via the near-center 5th star
+};
+static const LLConstellationEdge kScorpiusEdges[] = { {0,1},{1,2},{2,3},{3,4},{4,5},{5,6},{6,7} }; // curving tail
+static const LLConstellationEdge kCygnusEdges[] = {
+    {0,1},{1,2}, // tail-center-head (the "Northern Cross" long axis)
+    {1,3},{1,4}  // wings
+};
+static const LLConstellationEdge kLeoEdges[] = { {0,1},{1,2},{2,3},{3,4},{4,5} }; // sickle + body chain
+static const LLConstellationEdge kLyraEdges[] = {
+    {0,1},           // Vega down to the small parallelogram
+    {1,2},{2,3},{3,4},{4,1} // parallelogram, closed loop
 };
 
 static const LLConstellationDef kConstellations[] = {
-    { LLVector3( 0.55f, 0.35f, 0.55f), kBigDipperStars,    sizeof(kBigDipperStars)/sizeof(kBigDipperStars[0]) },
-    { LLVector3(-0.60f, 0.20f, 0.45f), kOrionStars,        sizeof(kOrionStars)/sizeof(kOrionStars[0]) },
-    { LLVector3( 0.10f,-0.60f, 0.60f), kCassiopeiaStars,   sizeof(kCassiopeiaStars)/sizeof(kCassiopeiaStars[0]) },
-    { LLVector3(-0.30f,-0.50f, 0.35f), kSouthernCrossStars,sizeof(kSouthernCrossStars)/sizeof(kSouthernCrossStars[0]) },
-    { LLVector3( 0.65f,-0.35f, 0.30f), kScorpiusStars,     sizeof(kScorpiusStars)/sizeof(kScorpiusStars[0]) },
-    { LLVector3(-0.70f,-0.15f, 0.55f), kCygnusStars,       sizeof(kCygnusStars)/sizeof(kCygnusStars[0]) },
-    { LLVector3( 0.25f, 0.65f, 0.40f), kLeoStars,          sizeof(kLeoStars)/sizeof(kLeoStars[0]) },
-    { LLVector3(-0.15f, 0.60f, 0.65f), kLyraStars,         sizeof(kLyraStars)/sizeof(kLyraStars[0]) },
+    { LLVector3( 0.55f, 0.35f, 0.55f), kBigDipperStars,    sizeof(kBigDipperStars)/sizeof(kBigDipperStars[0]),    kBigDipperEdges,    sizeof(kBigDipperEdges)/sizeof(kBigDipperEdges[0]) },
+    { LLVector3(-0.60f, 0.20f, 0.45f), kOrionStars,        sizeof(kOrionStars)/sizeof(kOrionStars[0]),            kOrionEdges,        sizeof(kOrionEdges)/sizeof(kOrionEdges[0]) },
+    { LLVector3( 0.10f,-0.60f, 0.60f), kCassiopeiaStars,   sizeof(kCassiopeiaStars)/sizeof(kCassiopeiaStars[0]),  kCassiopeiaEdges,   sizeof(kCassiopeiaEdges)/sizeof(kCassiopeiaEdges[0]) },
+    { LLVector3(-0.30f,-0.50f, 0.35f), kSouthernCrossStars,sizeof(kSouthernCrossStars)/sizeof(kSouthernCrossStars[0]), kSouthernCrossEdges, sizeof(kSouthernCrossEdges)/sizeof(kSouthernCrossEdges[0]) },
+    { LLVector3( 0.65f,-0.35f, 0.30f), kScorpiusStars,     sizeof(kScorpiusStars)/sizeof(kScorpiusStars[0]),      kScorpiusEdges,     sizeof(kScorpiusEdges)/sizeof(kScorpiusEdges[0]) },
+    { LLVector3(-0.70f,-0.15f, 0.55f), kCygnusStars,       sizeof(kCygnusStars)/sizeof(kCygnusStars[0]),          kCygnusEdges,       sizeof(kCygnusEdges)/sizeof(kCygnusEdges[0]) },
+    { LLVector3( 0.25f, 0.65f, 0.40f), kLeoStars,          sizeof(kLeoStars)/sizeof(kLeoStars[0]),                kLeoEdges,          sizeof(kLeoEdges)/sizeof(kLeoEdges[0]) },
+    { LLVector3(-0.15f, 0.60f, 0.65f), kLyraStars,         sizeof(kLyraStars)/sizeof(kLyraStars[0]),              kLyraEdges,         sizeof(kLyraEdges)/sizeof(kLyraEdges[0]) },
 };
+// Index of Orion within kConstellations[], used by the anchored Orion Nebula placement below -
+// asserted against a name match isn't practical for a plain array, so this is kept adjacent and
+// commented rather than magic.
+constexpr U32 ORION_CONSTELLATION_INDEX = 1;
 
-// S24 (task #301, user feedback: "real sky setting very very hard to tell,
-// im almost tempted to exaggerate them by making the stars of the
-// constellations 3x the size"): constellation stars are always placed
-// first, filling indices [0, getConstellationTotalStars()) - used by
-// updateStarGeometry() to size-boost exactly that range. Computed instead
-// of hardcoded so it can't drift out of sync with kConstellations above.
+// Constellation stars are always placed first, filling indices [0, getConstellationTotalStars()) -
+// used by updateStarGeometry() to size-boost exactly that range. Computed instead of hardcoded so it
+// can't drift out of sync with kConstellations above.
 static U32 getConstellationTotalStars()
 {
     U32 total = 0;
@@ -480,16 +537,12 @@ void LLVOWLSky::initStars()
 
     U32 i = 0;
 
-    // S24 (task #301): "Real Constellations" sky style fills the front of
-    // the field with the hand-authored shapes above, brighter/steadier than
-    // the random background fill so the pattern reads clearly against it,
-    // then falls through to the same random scatter as every other style
-    // for the rest - every existing per-star system (twinkle/color/flare
-    // hash off vertex_color, density cull, nebula patches at the tail end)
-    // keeps working unchanged, this only changes WHERE some stars land.
+    // "Real Constellations" style fills the front of the field with the hand-authored shapes above,
+    // brighter/steadier than the random background fill, then falls through to the same random scatter
+    // as every other style for the rest. Existing per-star systems (twinkle/color/flare, density cull,
+    // nebula patches) keep working unchanged - this only changes WHERE some stars land.
     if (gSavedSettings.getS32("RenderSkyStyle") == 1)
     {
-        constexpr F32 CONSTELLATION_SCALE = 0.18f;
         for (const auto& def : kConstellations)
         {
             LLVector3 anchor = def.anchor;
@@ -507,18 +560,16 @@ void LLVOWLSky::initStars()
                 *v_p = pos * DISTANCE_TO_STARS;
 
                 *v_i = 0.95f; // steadier/brighter than the background field
-                v_c->mV[VRED]   = 0.85f + ll_frand() * 0.15f;
+                // VRED carries the authored spectral-type colorT for constellation stars
+                // (starsF.hlsl reads it back in place of the usual random-seed hue) - every
+                // other star (background field, nebula patches) still gets a decorative
+                // near-white VRED, so this repurposing only affects constellation stars.
+                v_c->mV[VRED]   = def.stars[s].colorT;
                 v_c->mV[VGREEN] = 1.f;
-                // S24 (task #301 follow-up, user feedback: "they should
-                // ignore star density altogether and be always visible
-                // irrespective of density"): VBLUE in [0.30,0.45] is an
-                // unambiguous flag - every other star (background field AND
-                // nebula patches) uses the random [0.75,1.0] range set
-                // above/below, this is the only place a value under 0.5 is
-                // ever written to blue. starsF.hlsl detects it, exempts the
-                // star from the density cull, and reconstructs a normal-
-                // looking blue tint from star_seed so the flag itself has
-                // no visible side effect.
+                // VBLUE in [0.30,0.45] flags a constellation star as exempt from the density cull -
+                // every other star (background field and nebula patches) uses [0.75,1.0], so this
+                // range is unambiguous. starsF.hlsl detects it and reconstructs a normal-looking blue
+                // tint from star_seed, so the flag has no visible side effect.
                 v_c->mV[VBLUE]  = 0.30f + ll_frand() * 0.15f;
                 v_c->mV[VALPHA] = 1.f;
                 v_c->clamp();
@@ -527,6 +578,36 @@ void LLVOWLSky::initStars()
                 v_c++;
                 v_i++;
             }
+        }
+
+        // The Orion Nebula (M42) sits just below Orion's belt, in the "sword" - anchor one of the
+        // NUM_NEBULA_PATCHES slots there instead of letting it land randomly like the rest. Recomputes
+        // Orion's own local tangent frame (not stored above) since this runs after that loop exits.
+        if (i < getStarsNumVerts())
+        {
+            const LLConstellationDef& orion = kConstellations[ORION_CONSTELLATION_INDEX];
+            LLVector3 anchor = orion.anchor;
+            anchor.normVec();
+            LLVector3 left = anchor % LLVector3(0.f, 0.f, 1.f);
+            left.normVec();
+            LLVector3 up = anchor % left;
+
+            // Belt stars sit at local y~0.05-0.10; the sword hangs further below (more negative y).
+            LLVector3 pos = anchor + up * (-0.55f * CONSTELLATION_SCALE);
+            pos.normVec();
+            *v_p = pos * DISTANCE_TO_STARS;
+
+            *v_i = 1.f;
+            v_c->mV[VRED]   = 0.95f;
+            v_c->mV[VGREEN] = 0.f; // nebula flag (VGREEN==0), see initStars()'s comment below
+            v_c->mV[VBLUE]  = 0.85f;
+            v_c->mV[VALPHA] = 1.f;
+            v_c->clamp();
+
+            v_p++;
+            v_c++;
+            v_i++;
+            ++i;
         }
     }
 
@@ -541,18 +622,16 @@ void LLVOWLSky::initStars()
 
         v_p->normVec();
         *v_p *= DISTANCE_TO_STARS;
+
         *v_i = llmin((F32)pow(ll_frand(),2.f) + 0.1f, 1.f);
         v_c->mV[VRED]   = 0.75f + ll_frand() * 0.25f ;
         v_c->mV[VGREEN] = 1.f ;
         v_c->mV[VBLUE]  = 0.75f + ll_frand() * 0.25f ;
         v_c->mV[VALPHA] = 1.f;
 
-        // S24 (task #279 stage 2): the last NUM_NEBULA_PATCHES slots of the
-        // baked field are nebula blobs, not point stars. VGREEN==1.0 always
-        // for a real star (set above, never touched again outside this
-        // function), so 0.0 here is an unambiguous, updateStarColors()-proof
-        // flag (that function only ever rewrites VALPHA) - starsF.hlsl reads
-        // it back via vertex_color.g. No new varying needed.
+        // The last NUM_NEBULA_PATCHES slots of the baked field are soft blobs, not
+        // point stars. VGREEN==1.0 always for a real star (set above, never touched again), so 0.0
+        // here is an unambiguous flag - starsF.hlsl reads it back via vertex_color.g.
         if (i >= NUM_REAL_STARS)
         {
             v_c->mV[VGREEN] = 0.f;
@@ -563,6 +642,69 @@ void LLVOWLSky::initStars()
         v_c++;
         v_i++;
     }
+}
+
+void LLVOWLSky::drawConstellationLines(void)
+{
+    if (gSavedSettings.getS32("RenderSkyStyle") != 1 || !gSavedSettings.getBOOL("RenderConstellationLines"))
+    {
+        return;
+    }
+
+    if (mStarVertices.size() < getConstellationTotalStars())
+    {
+        return;
+    }
+
+    // Cool-white "star chart" overlay - unobtrusive but real; additive blend against a dark sky
+    // needs more than a token alpha to actually register.
+    LLColor4 line_color(0.55f, 0.70f, 0.85f, 0.65f);
+
+    gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+
+    gDX.begin(LLRender::TRIANGLES);
+
+    U32 base = 0;
+    for (const auto& def : kConstellations)
+    {
+        for (U32 e = 0; e < def.edgeCount; ++e)
+        {
+            const LLVector3& a = mStarVertices[base + def.edges[e].a];
+            const LLVector3& b = mStarVertices[base + def.edges[e].b];
+
+            LLVector3 seg = b - a;
+            F32 seg_length = seg.length();
+            if (seg_length < 0.001f)
+            {
+                continue;
+            }
+            seg *= 1.f / seg_length;
+
+            // Dot/gap sized as a fraction of this edge's own length, so the pattern scales sensibly
+            // regardless of the dome's absolute radius or how far apart any given pair of stars is,
+            // rather than a fixed meter size (which would be meaningless at star-dome distances).
+            F32 dot_length = seg_length * 0.015f;
+            F32 gap_length = seg_length * 0.025f;
+            F32 pattern_length = dot_length + gap_length;
+            S32 num_dots = (S32)(seg_length / pattern_length);
+
+            for (S32 d = 0; d <= num_dots; ++d)
+            {
+                F32 start_dist = d * pattern_length;
+                if (start_dist >= seg_length)
+                {
+                    break;
+                }
+                F32 end_dist = llmin(start_dist + dot_length, seg_length);
+                LLVector3 dot_start = a + seg * start_dist;
+                LLVector3 dot_end = a + seg * end_dist;
+                dxLineWidth(dot_start, dot_end, 1.1f, line_color);
+            }
+        }
+        base += def.count;
+    }
+
+    gDX.end();
 }
 
 void LLVOWLSky::buildStripsBuffer(U32 begin_stack,
@@ -742,37 +884,21 @@ bool LLVOWLSky::updateStarGeometry(LLDrawable *drawable)
         LLVector3 left = at%LLVector3(0,0,1);
         LLVector3 up = at%left;
 
-        // S24 (task #279 stage 2): nebula slots (last NUM_NEBULA_PATCHES,
-        // flagged via VGREEN==0 in initStars()) get a much larger billboard
-        // - starsF.hlsl renders them as a soft radial-gradient color blob
-        // instead of a point sprite, so they need real screen coverage.
-        // S24 (task #301, user feedback: "3x the size" for constellation
-        // stars, real-sky pattern was unreadable at normal size) - front
-        // slots of the field are constellation stars only when that style
-        // is active; the 16-36 base range triples to roughly 48-108.
+        // Nebula slots (flagged via VGREEN==0 in initStars()) get a much larger billboard - starsF.hlsl
+        // renders them as a soft radial-gradient blob instead of a point sprite, needing real screen
+        // coverage. Checked via the actual flag rather than "vtx >= NUM_REAL_STARS" alone - the
+        // anchored Orion Nebula star (Real Constellations style) sits earlier in the array, outside
+        // that index range, but is still a real nebula-flagged slot.
+        bool is_nebula_slot = (vtx >= NUM_REAL_STARS) || (mStarColors[vtx].mV[VGREEN] < 0.5f);
         bool is_constellation_star = (gSavedSettings.getS32("RenderSkyStyle") == 1)
             && (vtx < getConstellationTotalStars());
-        // S24 (task #302, 3rd revision, user feedback: "i spotted 1
-        // singular concentric ring very very small, not a single other
-        // star... as far as i can see"): root cause - starsF.hlsl's ring
-        // pulse/duotone recolor is computed across each star's OWN quad,
-        // but a normal 16-36 unit quad covers only a couple of screen
-        // pixels at typical viewing distance, nowhere near enough
-        // resolution to show a ring band OR register a clear hue (the one
-        // ring that WAS visible was luck - a flare star that happened to
-        // roll a large quad AND the extra brightness to be legible). Same
-        // fix as constellations above: boost every star's billboard when
-        // Starry Night is active, this time for every star (not just a
-        // front-loaded subset) since the whole field needs to be legible.
-        // S24 (task #302, 4th revision, user: "circles are hitting the
-        // billboard... square needs to be bigger so the rings dissapate
-        // into the night without clipping"): starsF.hlsl's falloff now
-        // terminates well inside the quad (~0.7-0.8 of its radius) instead
-        // of staying visible right up to the hard edge, so this bumps up
-        // again to compensate - keeps the absolute visible ring size from
-        // shrinking while giving it genuine empty margin to fade into.
+        // Starry Night boosts every star's billboard (not just a front-loaded subset): a normal 16-36
+        // unit quad is far too small at typical viewing distance for starsF.hlsl's ring/duotone recolor
+        // (computed per-quad) to register legibly. The size is tuned to leave genuine empty margin
+        // before the quad's hard edge, since the falloff terminates inside the quad rather than at it.
         bool is_starry_night = gSavedSettings.getS32("RenderSkyStyle") == 2;
-        F32 sc = (vtx >= NUM_REAL_STARS)
+
+        F32 sc = is_nebula_slot
             ? (260.0f + ll_frand() * 220.0f)
             : is_constellation_star
                 ? (48.0f + ll_frand() * 60.0f)
@@ -808,11 +934,10 @@ bool LLVOWLSky::updateStarGeometry(LLDrawable *drawable)
     return true;
 }
 
-// S24 (task #279 stage 2, "RENDER WOW"): spawn/age/expire logic for the
-// shooting-star pool, called once per idle tick from idleUpdate(). Does not
-// touch the GPU - updateShootingStarGeometry() (called from the DX_RENDER
-// draw path, dxdrawpoolwlsky.cpp) rebuilds the tiny vertex buffer from
-// whatever this leaves in mShootingStars.
+// Spawn/age/expire logic for the shooting-star pool, called once per frame from the DX_RENDER draw
+// path (dxdrawpoolwlsky.cpp), not idleUpdate() (see idleUpdate()'s own comment). Does not touch the
+// GPU - updateShootingStarGeometry() rebuilds the tiny vertex buffer from whatever this leaves in
+// mShootingStars.
 void LLVOWLSky::updateShootingStars(F32 dt)
 {
     if (mShootingStars.empty())

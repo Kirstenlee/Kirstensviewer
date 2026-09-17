@@ -85,10 +85,12 @@ bool LLTerrainPaintMap::bakeHeightNoiseIntoPBRPaintMapRGB(const LLViewerRegion& 
         return false;
     }
     gDX.getTexUnit(0)->disable();
-    stop_glerror();
 
     scratch_target.bindTarget();
-    glClearColor(0, 0, 0, 0);
+    // S24: glClearColor() here was dead under DX_RENDER (a no-op - scratch_target's real clear
+    // color is DXRenderTarget::mClearColor, which already defaults to transparent black, the same
+    // (0,0,0,0) this call was setting). Real DX equivalent would be scratch_target.clearColor(),
+    // but there's nothing to change from the default here, so just removed rather than guarded.
     scratch_target.clear();
 
     // Render terrain heightmap to paint map via shader
@@ -107,8 +109,10 @@ bool LLTerrainPaintMap::bakeHeightNoiseIntoPBRPaintMapRGB(const LLViewerRegion& 
     const LLVector3 camera_origin = LLVector3(0.0f, 0.0f, region_camera_height) + region_center;
     camera.lookAt(camera_origin, region_center, LLVector3::y_axis);
     camera.setAspect(F32(scratch_target.getWidth()) / F32(scratch_target.getHeight()));
-    const LLRect texture_rect(0, scratch_target.getHeight(), scratch_target.getWidth(), 0);
-    glViewport(texture_rect.mLeft, texture_rect.mBottom, texture_rect.getWidth(), texture_rect.getHeight());
+    // S24: glViewport() here was dead under DX_RENDER (glViewport resolves to a real but inert
+    // function pointer with no GL context behind it - see lldynamictexture.cpp's matching note).
+    // scratch_target.bindTarget() (above) already issues the equivalent RSSetViewports() call
+    // covering the full (0,0,width,height) target - exactly what this call was requesting.
     // Manually get modelview matrix from camera orientation.
     glm::mat4 modelview(glm::make_mat4((F32 *) OGL_TO_CFR_ROTATION));
     F32 dx_matrix[16];
@@ -152,6 +156,20 @@ bool LLTerrainPaintMap::bakeHeightNoiseIntoPBRPaintMapRGB(const LLViewerRegion& 
     if (LLHLSLShader::sCurBoundShaderPtr == nullptr)
     { // make sure a shader is bound to satisfy mVertexBuffer->setBuffer
         gDebugProgram.bind();
+    }
+    if (LLHLSLShader::sCurBoundShaderPtr == nullptr)
+    {
+        // gDebugProgram.bind() no-ops without setting sCurBoundShaderPtr if the
+        // shader hasn't finished compiling yet (see LLHLSLShader::bind()'s
+        // isComplete() guard) - LLVertexBuffer::setupVertexBuffer() then
+        // unconditionally dereferences sCurBoundShaderPtr with only an
+        // llassert (a no-op in Release), which is a guaranteed access
+        // violation rather than a graceful failure.
+        LL_WARNS() << "No shader available to bake terrain paintmap (gDebugProgram not ready) - bake skipped" << LL_ENDL;
+        gDX.matrixMode(LLRender::MM_PROJECTION);
+        gDX.popMatrix();
+        scratch_target.flush();
+        return false;
     }
     LLPointer<LLVertexBuffer> buf = new LLVertexBuffer(LLVertexBuffer::MAP_VERTEX | LLVertexBuffer::MAP_TEXCOORD1);
     {
@@ -229,6 +247,17 @@ bool LLTerrainPaintMap::bakeHeightNoiseIntoPBRPaintMapRGB(const LLViewerRegion& 
         // alpha ramp threshold (TERRAIN_RAMP_MIX_THRESHOLD)
         LLHLSLShader& shader = gPBRTerrainBakeProgram;
         shader.bind();
+        if (LLHLSLShader::sCurBoundShaderPtr == nullptr)
+        {
+            // gPBRTerrainBakeProgram never compiled (see RenderCanUseTerrainBakeShaders) -
+            // bind() no-op'd. Same guaranteed-crash shape as the sCurBoundShaderPtr check
+            // above - bail out instead of reaching buf->setBuffer() with nothing bound.
+            LL_WARNS() << "gPBRTerrainBakeProgram not ready - paintmap bake skipped" << LL_ENDL;
+            gDX.matrixMode(LLRender::MM_PROJECTION);
+            gDX.popMatrix();
+            scratch_target.flush();
+            return false;
+        }
 
         LLGLDisable stencil(GL_STENCIL_TEST);
         LLGLDisable scissor(GL_SCISSOR_TEST);
@@ -274,8 +303,13 @@ bool LLTerrainPaintMap::bakeHeightNoiseIntoPBRPaintMapRGB(const LLViewerRegion& 
     {
         LL_WARNS() << "Failed to copy framebuffer to paintmap" << LL_ENDL;
     }
-    glGenerateMipmap(GL_TEXTURE_2D);
-    stop_glerror();
+    // S24: glGenerateMipmap() here was a call through a null function pointer under DX_RENDER -
+    // glGenerateMipmap needs a real GL 3.0+ context to resolve via wglGetProcAddress, and none is
+    // ever created here, unlike core-1.1 functions such as glViewport/glClearColor which resolve
+    // (inertly) from opengl32.dll's static export table regardless. Real fix lives in
+    // DXTexture::copySubImageFromFrameBuffer() (setSubImageFromFrameBuffer()'s DX_RENDER path,
+    // called just above) - it now regenerates the mip chain itself when the destination texture
+    // was created with mip generation on, mirroring updateSubImage()'s existing pattern.
 
     scratch_target.flush();
 

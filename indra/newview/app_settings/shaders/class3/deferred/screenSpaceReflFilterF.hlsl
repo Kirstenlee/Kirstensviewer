@@ -32,7 +32,7 @@ uniform float filterScale;
 
 struct PSInput
 {
-    // S24 (2026-08-02): missing SV_Position - see uiF.hlsl's comment (fxc.exe-confirmed VS/PS register-shift bug).
+    // SV_Position must be declared first in PSInput to match VS output register order - see uiF.hlsl.
     float4 position : SV_Position;
 
     float2 vary_fragcoord : TEXCOORD0;
@@ -40,9 +40,7 @@ struct PSInput
 
 float4 main(PSInput IN) : SV_Target
 {
-    // S24 (2026-08-11, quick-win origin sweep): GL-vs-D3D11 texture-origin
-    // flip - tc is used only for diffuseMap sampling in this file, safe to
-    // flip once here. Same bug class as task #158/#185.
+    // GL-vs-D3D11 texture-origin flip; tc is used only for diffuseMap sampling here, safe to flip once.
     float2 tc = float2(IN.vary_fragcoord.x, 1.0 - IN.vary_fragcoord.y);
 
     const float weights[4] = { 0.214607, 0.189879, 0.131514, 0.071303 };

@@ -71,20 +71,12 @@ public:
     static F32 sPBRDetailScale; // textures per meter
 
 protected:
-    void boostTerrainDetailTextures();
-
-    void renderSimple();
-    void renderOwnership();
-
-    void renderFull2TU();
-    void renderFull4TU();
-    void renderFullShader();
-    void renderFullShaderTextures();
-    void renderFullShaderPBR(bool use_local_materials = false);
+    // Still real - LLDrawPoolTerrain::renderShadow() (no DX_RENDER redirect, genuinely shared)
+    // calls this directly. Every other GL-only render helper that used to live here
+    // (renderFullShader()/renderFullShaderTextures()/renderFullShaderPBR()/hilightParcelOwners()/
+    // renderOwnership()/boostTerrainDetailTextures() and the already-dead-in-both-builds
+    // renderFull2TU()/renderFull4TU()/renderSimple()) was removed - see lldrawpoolterrain.cpp.
     void drawLoop();
-
-private:
-    void hilightParcelOwners();
 };
 
 #endif // LL_LLDRAWPOOLSIMPLE_H

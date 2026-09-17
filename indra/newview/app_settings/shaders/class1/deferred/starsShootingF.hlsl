@@ -26,17 +26,11 @@
 
 #include "varying/starsShootingVarying.hlsli"
 
-// S24 (2026-09-05): originally reused starsF.hlsl's point-star daylight
-// curve (custom_alpha, driven by the active preset's Star Brightness
-// setting) - user feedback: a bright moon could push that value low enough
-// to "eradicate" shooting stars on nights when the sun was still well
-// below the horizon, since Star Brightness is an artist-authored day-cycle
-// curve, not a measure of whether the sun is actually up. Switched to a
-// real geometric sun-elevation gate instead - see
-// dxdrawpoolwlsky.cpp's renderShootingStarsDeferred() for where
-// sun_elevation is computed/bound (LLSettingsSky::getSunDirection().mV[2],
-// the normalized sun direction's vertical component - 0 at the horizon,
-// same convention LLSettingsSky::getIsSunUp() itself uses).
+// Real geometric sun-elevation gate rather than custom_alpha (Star
+// Brightness is an artist-authored day-cycle curve, not a measure of
+// whether the sun is actually up). See dxdrawpoolwlsky.cpp's
+// renderShootingStarsDeferred() - sun_elevation is
+// LLSettingsSky::getSunDirection().mV[2], 0 at the horizon.
 uniform float sun_elevation;
 
 struct PSOutput
@@ -49,8 +43,7 @@ struct PSOutput
 #endif
 };
 
-// S24 (2026-08-02): see uiF.hlsl's comment - real register mismatch,
-// confirmed via fxc.exe disassembly, affects every bare-Varying PS input.
+// SV_Position required on bare-Varying PS inputs - see uiF.hlsl's comment.
 struct PSInput
 {
     float4 position : SV_Position;

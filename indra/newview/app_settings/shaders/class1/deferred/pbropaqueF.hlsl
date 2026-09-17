@@ -41,13 +41,7 @@ uniform float metallicFactor;
 uniform float roughnessFactor;
 uniform float3 emissiveColor;
 
-// S24 (2026-08-02): see uiF.hlsl's comment - real register mismatch,
-// confirmed via fxc.exe disassembly. pbropaqueV.hlsl's VSOutput declares
-// SV_Position first (consuming register 0), shifting everything after it
-// by one - this PSInput had no SV_Position field at all, so its own first
-// field started fresh at register 0. Same bug as the bare-Varying-struct
-// files, just with hand-written explicit semantics instead of a shared
-// struct.
+// S24: SV_Position must be declared first here, matching pbropaqueV.hlsl's VSOutput field order — otherwise every subsequent register shifts by one.
 struct PSInput
 {
     float4 position : SV_Position;
@@ -116,29 +110,10 @@ PSOutput main(PSInput IN)
     float3 emissive = emissiveColor;
     emissive *= srgb_to_linear(emissiveMap.Sample(emissiveMapSampler, IN.emissive_texcoord.xy).rgb);
 
-    // S24 (2026-08-16, task #155/#157): mechanical-port bug found comparing
-    // against pbropaqueF.glsl:106 (`tnorm *= gl_FrontFacing ? 1.0 : -1.0;`)
-    // - vary_sign (tangent-handedness, unrelated) had been substituted for
-    // the rasterizer-generated front/back flag. A first attempt at the real
-    // fix (`SV_IsFrontFace`, same idiom already working in pbrterrainF.hlsl)
-    // was reverted the same day after a teleport CTD correlated with it -
-    // but never proven as root cause (only correlation: this was the one
-    // structurally novel change in that session, on the one shader in the
-    // crashing call stack).
-    //
-    // S24 (2026-09-03, task #266/#271 investigation): re-attempted, this
-    // time with real corroborating evidence the original fix was correct
-    // and safe - user-reported symptoms (a UV-mirrored mesh showing a
-    // razor-straight lighting split down its mirror seam, "Odd shadow.PNG";
-    // "silvery" mirrored-UV foliage cards) are the exact, textbook signature
-    // of flipping on tangent-mirroring instead of facing. Also: pbralphaF.hlsl
-    // already carries this identical `bool isFrontFace : SV_IsFrontFace` +
-    // `norm *= IN.isFrontFace ? 1.0 : -1.0` fix live today with no reported
-    // crashes (task #155/#157 itself, applied there without incident) - since
-    // that's the SAME semantic on a SIBLING PBR shader in the SAME GLTF draw
-    // family, it's strong evidence SV_IsFrontFace itself isn't the hazard.
-    // If a crash recurs specifically on teleport, that now isolates it to
-    // something else in this file, not this semantic in general.
+    // S24: flip using the rasterizer's front/back facing flag (SV_IsFrontFace), not vary_sign
+    // (tangent-handedness) — the two are unrelated, and substituting one for the other mirrors
+    // lighting across UV seams instead of correcting back-face normals. pbralphaF.hlsl carries
+    // the identical fix.
     tnorm *= IN.isFrontFace ? 1.0 : -1.0;
 
     OUT.target0 = max(float4(col, 0.0), float4(0, 0, 0, 0));
@@ -162,9 +137,7 @@ uniform SamplerState emissiveMapSampler : register(s1);
 
 uniform float3 emissiveColor;
 
-// S24 (2026-08-02): same fix as the non-HUD PSInput above - the paired
-// VSOutput (pbropaqueV.hlsl's IS_HUD branch) also declares SV_Position
-// first.
+// S24: same fix as the non-HUD PSInput above — the paired VSOutput (pbropaqueV.hlsl's IS_HUD branch) also declares SV_Position first.
 struct PSInput
 {
     float4 position : SV_Position;

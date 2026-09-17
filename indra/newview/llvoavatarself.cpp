@@ -1026,22 +1026,11 @@ void LLVOAvatarSelf::idleUpdateTractorBeam()
     {
         LLObjectSelectionHandle selection = LLSelectMgr::getInstance()->getSelection();
 
-        // S24 (2026-08-16): rewritten to target the selected/edited object
-        // directly and live, every frame - completely disconnected from
-        // gAgentCamera.mPointAt/LLHUDEffectPointAt/LLSelectMgr::updatePointAt().
-        // That system exists to drive the avatar's arm-pointing animation
-        // and eye-contact look-at; it's a poor fit for this beam, since it
-        // only updates its target on discrete selection-CHANGE events
-        // (never continuously, never on mouse-up) - it froze at whatever
-        // point you originally clicked to select an object and never
-        // corrected itself while the same object stayed selected, which a
-        // multi-round live diagnostic pass this session proved
-        // conclusively (target-object logic checked out exactly correct at
-        // every layer once isolated from that system - see task history).
-        // Targeting the object directly instead reads its real, live
-        // position every single frame via getPositionAgent() and can never
-        // go stale, exactly like the particle trail's own object-tracking
-        // already does.
+        // Targets the selected object directly rather than via gAgentCamera.mPointAt/
+        // LLHUDEffectPointAt/LLSelectMgr::updatePointAt() - that system only updates on discrete
+        // selection-CHANGE events (never continuously), so it goes stale while an object stays
+        // selected. Reading the object's live position via getPositionAgent() every frame avoids that,
+        // same as the particle trail's own object-tracking.
         if (selection->getFirstRootObject() &&
                 selection->getSelectType() != SELECT_TYPE_HUD)
         {
@@ -1870,7 +1859,7 @@ void LLVOAvatarSelf::setBakedReady(LLAvatarAppearanceDefines::ETextureIndex type
 // virtual
 void LLVOAvatarSelf::dumpLocalTextures() const
 {
-    LL_INFOS() << "Local Textures:" << LL_ENDL;
+    LL_WARNS() << "Local Textures:" << LL_ENDL;
 
     /* ETextureIndex baked_equiv[] = {
        TEX_UPPER_BAKED,
@@ -1891,19 +1880,19 @@ void LLVOAvatarSelf::dumpLocalTextures() const
         // index is baked texture - index is not relevant. putting in 0 as placeholder
         if (isTextureDefined(baked_equiv, 0))
         {
-            // S24 this code was not helpful made stealing textures easier - KL total removal
+            // Intentionally left empty: the old branch here made texture theft easier.
                     }
         else if (local_tex_obj && local_tex_obj->getImage() != NULL)
         {
             if (local_tex_obj->getImage()->getID() == IMG_DEFAULT_AVATAR)
             {
-                LL_INFOS() << "LocTex " << name << ": None" << LL_ENDL; // S24 still questionable
+                LL_WARNS() << "LocTex " << name << ": None" << LL_ENDL;
             }
             else
             {
                 LLViewerFetchedTexture* image = dynamic_cast<LLViewerFetchedTexture*>( local_tex_obj->getImage() );
 
-                        LL_INFOS() << "LocTex " << name << ": "
+                        LL_WARNS() << "LocTex " << name << ": "
                         << "Discard " << image->getDiscardLevel() << ", "
                         << "(" << image->getWidth() << ", " << image->getHeight() << ") "
                         << "Priority: " << image->getMaxVirtualSize()
@@ -1912,7 +1901,7 @@ void LLVOAvatarSelf::dumpLocalTextures() const
         }
         else
         {
-            LL_INFOS() << "LocTex " << name << ": No LLViewerTexture" << LL_ENDL;
+            LL_WARNS() << "LocTex " << name << ": No LLViewerTexture" << LL_ENDL;
         }
     }
 }
@@ -2903,7 +2892,6 @@ void LLVOAvatarSelf::deleteScratchTextures()
         ++it)
     {
         LLImageGL::deleteTextures(1, (U32 *)it->second );
-        stop_glerror();
     }
 
     if( sScratchTexBytes.value() )

@@ -58,7 +58,6 @@
 #define TINYEXR_IMPLEMENTATION
 #include "tinyexr/tinyexr.h"
 
-// S24: Fast timers for reflection probe performance tracking
 static LLTrace::BlockTimerStatHandle FTM_REFLECTION_PROBE_UPDATE("Reflection Probes");
 static LLTrace::BlockTimerStatHandle FTM_REFLECTION_PROBE_GEN("Probe Generation");
 
@@ -216,17 +215,9 @@ void LLReflectionMapManager::update()
 {
     LL_RECORD_BLOCK_TIME(FTM_REFLECTION_PROBE_UPDATE);
 
-    // S24 (2026-08-09, task #147 v1): real DX_RENDER capture pipeline now
-    // built - this function's gate ("!!! DO NOT REMOVE WITHOUT READING
-    // TASK #147 !!!") is gone. What changed: DXCubeMapArray now has a real
-    // D3D11 backing (DXCubeArrayTexture, dxrender/resources/DXCubeMapArray.h/.cpp), and
-    // updateProbeFace() below has real CopySubresourceRegion-based
-    // replacements for the three glCopyTexSubImage3D call sites that used
-    // to have zero DX_RENDER translation (the actual missing piece - not
-    // the crash itself, see DXCubeArrayTexture.h's class comment for why
-    // those copies never need the destination bound as an SRV, which is
-    // what avoids the "resource bound as both OM output and SRV input"
-    // hazard the original gate's crash hit).
+    // updateProbeFace() below uses CopySubresourceRegion-based copies (see DXCubeArrayTexture.h) instead
+    // of glCopyTexSubImage3D - the destination is never bound as an SRV, avoiding the "resource bound
+    // as both OM output and SRV input" hazard.
     //
     // Still deliberately NOT done here (tracked as #147b and separate
     // follow-ups, not bugs to "fix" reactively if noticed):
@@ -245,7 +236,6 @@ void LLReflectionMapManager::update()
         return;
     }
 
-    LL_PROFILE_GPU_ZONE("reflection manager update");
     llassert(!gCubeSnapshot); // assert a snapshot is not in progress
     if (LLAppViewer::instance()->logoutRequestSent())
     {
@@ -317,38 +307,21 @@ void LLReflectionMapManager::update()
     {
         U32 res = mProbeResolution;
 
-        // S24 (2026-09-03, task #266/#271): was an independently recomputed
-        // `(U32)(log2((F32)res) + 0.5f)` guess - read the texture's REAL
-        // allocated mip count instead (see mMaxProbeLOD's identical fix a
-        // few lines above in initReflectionMaps() for the full explanation).
-        // The old guess under-counted by one for this resolution, so this
-        // scratch chain - and the write loop below that copies each of its
-        // mips into mTexture - never reached the array's real final mip.
+        // Read the texture's real allocated mip count (see mMaxProbeLOD's identical pattern in
+        // initReflectionMaps()) rather than recomputing log2(res) - a recomputed guess can under-count
+        // by one, leaving this scratch chain one mip short of the array's real final mip.
         U32 count = mTexture->getDXTexture()->getMipLevels();
 
         mMipChain.resize(count);
         for (U32 i = 0; i < count; ++i)
         {
-            // S24 (2026-08-10, task #147/#184 follow-up): DX_RENDER-only
-            // format override. GL_R11F_G11F_B10F/GL_RGB8 map to D3D11's
-            // R11G11B10_FLOAT/(some 3-channel-adjacent format), but
-            // DXCubeArrayTexture::create() (mTexture/mIrradianceMaps, this
-            // mip chain's real copy destination) deliberately uses
-            // R16G16B16A16_FLOAT/R8G8B8A8_UNORM instead - its own header
-            // comment explains why (R11G11B10_FLOAT's GenerateMips support
-            // isn't guaranteed at feature-level 11 baseline). Two genuinely
-            // different, non-castable formats - a real, confirmed root
-            // cause of "Cannot invoke CopySubresourceRegion when the
-            // Formats...are not the same or castable" (D3D11 debug layer,
-            // "Reflection Mip Shader"/"Irradiance Gen Shader"/"Radiance Gen
-            // Shader" contexts, tens of thousands of occurrences per
-            // session). GL_RGBA16F/GL_RGBA are the same format request
-            // already used and proven working under DX_RENDER for
-            // mRT->screen/mRT->deferredLight (pipeline.cpp's own
-            // `hdr ? GL_RGBA16F : GL_RGBA` pattern) - reused here instead of
-            // inventing a new mapping. GL build behavior is completely
-            // unchanged (GL_R11F_G11F_B10F/GL_RGB8 kept for GL, matching
-            // upstream exactly).
+            // DX_RENDER-only format override: DXCubeArrayTexture::create() (mTexture/mIrradianceMaps)
+            // deliberately uses R16G16B16A16_FLOAT/R8G8B8A8_UNORM rather than GL's
+            // R11F_G11F_B10F/RGB8-equivalent D3D11 formats (GenerateMips isn't guaranteed for
+            // R11G11B10_FLOAT at feature-level 11 baseline), so this mip chain must request the
+            // matching GL_RGBA16F/GL_RGBA format or CopySubresourceRegion rejects it as non-castable.
+            // Same format already used for mRT->screen/mRT->deferredLight (pipeline.cpp's
+            // `hdr ? GL_RGBA16F : GL_RGBA`). GL build is unchanged (GL_R11F_G11F_B10F/GL_RGB8).
 #ifdef DX_RENDER
             mMipChain[i].allocate(res, res, render_hdr ? GL_RGBA16F : GL_RGBA);
 #else
@@ -641,11 +614,9 @@ GLuint LLReflectionMapManager::allocateQuery()
     if (mQueryPool.empty())
     {
         GLuint query = 0;
-        // S24 (2026-08-19, task #182 CTD fix): raw glGenQueries() is a
-        // null extension-function-pointer crash under DX_RENDER - see
-        // LLReflectionMap::doOcclusion()'s comment for the full story.
-        // This is the allocation side of the same query pool that
-        // function uses, so it needs the same DXOcclusionQuery routing.
+        // raw glGenQueries() is a null extension-function-pointer crash under DX_RENDER - route through
+        // DXOcclusionQuery instead, same as LLReflectionMap::doOcclusion() (this is the allocation side
+        // of the same query pool).
 #ifdef DX_RENDER
         DXOcclusionQuery::genQueries(1, &query);
 #else
@@ -855,7 +826,6 @@ void LLReflectionMapManager::doProbeUpdate()
 // In effect this simulates single-bounce lighting.
 void LLReflectionMapManager::updateProbeFace(LLReflectionMap* probe, U32 face)
 {
-    LL_PROFILE_GPU_ZONE("probe update");
     // hacky hot-swap of camera specific render targets
     gPipeline.mRT = &gPipeline.mAuxillaryRT;
 
@@ -895,7 +865,7 @@ void LLReflectionMapManager::updateProbeFace(LLReflectionMap* probe, U32 face)
         sourceIdx += 1;
     }
 
-    gDX.setColorMask(true, true);
+    gDX.setColorWriteMask(true, true);
     LLGLDepthTest depth(GL_FALSE, GL_FALSE);
     LLGLDisable cull(GL_CULL_FACE);
     LLGLDisable blend(GL_BLEND);
@@ -920,30 +890,10 @@ void LLReflectionMapManager::updateProbeFace(LLReflectionMap* probe, U32 face)
 
         LLRenderTarget* screen_rt = &gPipeline.mAuxillaryRT.screen;
 
-        // S24 (task #194, 2026-08-14): a temporary face-ID color diagnostic
-        // lived here (solid, distinct color per cube face instead of real
-        // captured content). Answered its question - see
-        // [[project_dxrender_stage8_status]]/memorygraph for the full
-        // result - and was removed per the diagnostic-lifecycle convention.
-        // Conclusion: face SELECTION is correct and stable for every
-        // cardinal/vertical direction (matches the natural X=E/W, Y=N/S,
-        // Z=up/down expectation) except an isolated west/south flicker -
-        // the "wrong content"/upside-down symptoms chased most of this
-        // session are therefore a WITHIN-FACE content-orientation problem
-        // (the right face is chosen, its own captured image is rotated/
-        // mirrored wrong), not a sample-direction/slot-selection problem -
-        // don't re-attempt v.x/v.y/v.z sign flips in tapRefMap()/
-        // tapIrradianceMap() without new evidence contradicting this.
-
-        // S24 (2026-08-22): the A0 orientation-marker diagnostic that lived
-        // here did its job - confirmed the capture->display pipeline is
-        // live end-to-end (markers reached the screen on a nearby glass
-        // cube), and separately surfaced that the glass FLOOR shows no
-        // local-probe content at all (marker or otherwise) - a probe
-        // selection/weighting issue independent of face orientation, not
-        // yet resolved. Removed per diagnostic-lifecycle convention now
-        // that this file's own look/up-vector math is being rederived
-        // directly (see cubeSnapshot() and DXCubeMapFaces::sUpVecs).
+        // Cube face SELECTION is correct/stable per-direction - any content mis-orientation is a
+        // WITHIN-FACE problem (the right face is chosen, its own image is rotated/mirrored wrong), not
+        // a sample-direction/slot-selection problem; don't re-attempt v.x/v.y/v.z sign flips in
+        // tapRefMap()/tapIrradianceMap() without new evidence.
 
         // perform a gaussian blur on the super sampled render before downsampling
         {
@@ -969,17 +919,9 @@ void LLReflectionMapManager::updateProbeFace(LLReflectionMap* probe, U32 face)
         }
 
 
-        // S24 (2026-09-03, task #266/#271): was an independently recomputed
-        // `(S32)(log2((F32)mProbeResolution) + 0.5f)` guess - see
-        // mMaxProbeLOD's identical fix in initReflectionMaps() for the full
-        // explanation. This one is more than just a stale LOD range though:
-        // it directly controls `mip` (a few lines below,
-        // `i - (mMipChain.size() - mips)`), which now that mMipChain.size()
-        // correctly reads 8 (this same session's fix) would otherwise be
-        // mismatched against a still-7-here `mips`, shifting EVERY scratch
-        // mip this loop copies into mTexture's source/scratch slot by one
-        // level - a real regression this exact fix would have introduced if
-        // left inconsistent. Read the same real allocated mip count instead.
+        // Must track the texture's real allocated mip count (see mMaxProbeLOD in initReflectionMaps()),
+        // not a recomputed log2(mProbeResolution) guess - `mip` below (`i - (mMipChain.size() - mips)`)
+        // needs `mips` consistent with mMipChain.size() or every scratch mip shifts by one slot.
         S32 mips = (S32)mTexture->getDXTexture()->getMipLevels();
 
         gReflectionMipProgram.bind();
@@ -987,7 +929,6 @@ void LLReflectionMapManager::updateProbeFace(LLReflectionMap* probe, U32 face)
 
         for (int i = 0; i < mMipChain.size(); ++i)
         {
-            LL_PROFILE_GPU_ZONE("probe mip");
             mMipChain[i].bindTarget();
             if (i == 0)
             {
@@ -1010,27 +951,12 @@ void LLReflectionMapManager::updateProbeFace(LLReflectionMap* probe, U32 face)
 
             if (mip >= 0)
             {
-                LL_PROFILE_GPU_ZONE("probe mip copy");
 #ifdef DX_RENDER
-                // S24 (2026-08-09, task #147 step 5): glCopyTexSubImage3D
-                // has no DX_RENDER translation (never existed anywhere in
-                // this codebase before now) - replaced with a real
-                // CopySubresourceRegion-based equivalent. Deliberately does
-                // NOT bind mTexture as anything (no SRV, no texture-unit
-                // bind) - mMipChain[i], bound as the render target just
-                // above (bindTarget() at the top of this loop iteration),
-                // is resolved directly via OMGetRenderTargets() inside
-                // copySliceFromBoundRenderTarget(). This is what avoids the
-                // "resource bound as both OM output and SRV input"
-                // hazard class by construction - the exact crash class
-                // that made this whole function unreachable under
-                // DX_RENDER until this task. See DXCubeArrayTexture.h's
-                // own class comment for the full reasoning. mMipChain[i] is
-                // already a dedicated, correctly-sized-for-this-iteration
-                // target (unlike the radiance/irradiance loops below), but
-                // passing the explicit size anyway for consistency/safety
-                // now that the API supports it - matches GL's own explicit
-                // res,res args to glCopyTexSubImage3D() just below.
+                // glCopyTexSubImage3D has no DX_RENDER translation; copySliceFromBoundRenderTarget()
+                // resolves mMipChain[i] (already bound as render target above) via
+                // OMGetRenderTargets() instead of binding mTexture as an SRV, avoiding the "resource
+                // bound as both OM output and SRV input" hazard by construction (see
+                // DXCubeArrayTexture.h).
                 mTexture->getDXTexture()->copySliceFromBoundRenderTarget(mip, sourceIdx * 6 + face, (UINT)mMipChain[i].getWidth(), (UINT)mMipChain[i].getHeight());
 #else
                 mTexture->bind(0);
@@ -1052,13 +978,9 @@ void LLReflectionMapManager::updateProbeFace(LLReflectionMap* probe, U32 face)
     if (face == 5)
     {
         mMipChain[0].bindTarget();
-        // S24 (2026-09-02, REVERTED same day): the negative-height flip
-        // relocation attempt (moving it into radianceGenV.hlsl as a y
-        // negation instead) made zero difference to the empty-mip symptom
-        // it was meant to investigate and broke hero-probe mirror
-        // orientation live (confirmed, "Mirror Fault.PNG"). Back to the
-        // proven-correct negative-height viewport, matching
-        // DXContext::setViewport(...,true)'s semantics (task #147/#184/#163).
+        // Negative-height viewport is deliberate - matches DXContext::setViewport(...,true)'s
+        // semantics. Moving this flip into radianceGenV.hlsl as a shader-side y negation instead
+        // breaks hero-probe mirror orientation.
 #ifdef DX_RENDER
         {
             D3D11_VIEWPORT vp = {};
@@ -1089,7 +1011,6 @@ void LLReflectionMapManager::updateProbeFace(LLReflectionMap* probe, U32 face)
 
             for (int i = 0; i < mMipChain.size(); ++i)
             {
-                LL_PROFILE_GPU_ZONE("probe radiance gen");
                 static LLStaticHashedString sMipLevel("mipLevel");
                 static LLStaticHashedString sRoughness("roughness");
                 static LLStaticHashedString sWidth("u_width");
@@ -1101,64 +1022,23 @@ void LLReflectionMapManager::updateProbeFace(LLReflectionMap* probe, U32 face)
                 for (int cf = 0; cf < 6; ++cf)
                 { // for each cube face
 #ifdef DX_RENDER
-                    // S24 (2026-08-22, plan item A - CLOSED-FORM REWRITE):
-                    // replaces the whole LLCoordFrame::lookAt() +
-                    // getDirectXRotation() + per-face flipCol/fixHandedness/
-                    // poleRotate patch history (task #194, 47+ "round N"
-                    // comments; getDirectXRotation() itself fixed the
-                    // original front/back symptom but the per-face patches
-                    // on top of it never converged - 2-side, 4-side, and
-                    // pole-only combinations were each tried and only
-                    // partly right) with Direct3D's own documented per-face
-                    // cubemap addressing formula, hardcoded directly in
-                    // radianceGenV.hlsl and driven by nothing but this face
-                    // index. See that shader's header comment for the full
-                    // derivation of why a generic rotation-matrix approach
-                    // could never be made to match hardware addressing by
-                    // hand-tuning individual faces. GL path is completely
-                    // untouched (still frame.lookAt()+getOpenGLRotation()
-                    // below).
+                    // Direct3D's documented per-face cubemap addressing formula, hardcoded in
+                    // radianceGenV.hlsl and driven only by this face index - replaces the old
+                    // LLCoordFrame::lookAt()+getDirectXRotation()+per-face rotation-matrix patching,
+                    // which could never be hand-tuned to match hardware addressing exactly (see that
+                    // shader's header comment). GL path untouched (still lookAt()+getOpenGLRotation()).
                     static LLStaticHashedString sCubeFace("cubeFace");
                     gRadianceGenProgram.uniform1i(sCubeFace, cf);
-
-                    // S24 (2026-08-31, DXCubeMap rewrite plan, Step 3): the
-                    // LIVE ORIENTATION TUNER's dbgSwap/dbgSignA/dbgSignB
-                    // uniforms are gone from radianceGenV.hlsl - the formula
-                    // they drove was independently proven exactly correct
-                    // (see that shader's header comment) and is now
-                    // hardcoded there. Step 4 (2026-09-02): s24GetCubeOrientDebug()
-                    // and the KVTweaks "Cube Orient" tab are now fully
-                    // retired (dead weight since this rewrite, and the tab's
-                    // ~18 checkboxes were missing their mandatory `name=`
-                    // attribute besides).
-#endif // DX_RENDER - GL body removed 2026-08-31 (LLCubeMapArray deletion, this project is DX_RENDER-only)
+#endif // DX_RENDER - GL body removed (LLCubeMapArray deleted, DX_RENDER-only project)
 
                     mVertexBuffer->drawArrays(gDX.TRIANGLE_STRIP, 0, 4);
 
-                    // S24 (2026-08-09, task #147 step 5): see the mip-copy
-                    // block above for the full reasoning - mMipChain[0]
-                    // (bound as render target once, before this whole
-                    // face/mip loop, at mMipChain[0].bindTarget() a few
-                    // lines up) is resolved via OMGetRenderTargets(), no
-                    // SRV bind of mTexture needed for the copy itself.
-                    //
-                    // S24 (2026-08-10, task #147/#184 follow-up): mMipChain[0]
-                    // stays bound as render target for EVERY iteration of
-                    // this loop (never rebound per-i, unlike the reflection-
-                    // mip loop above) - only a shrinking top-left `res x res`
-                    // sub-region of it is actually rendered into via
-                    // RSSetViewports each iteration (see the glViewport/
-                    // RSSetViewports call a few lines below, and GL's own
-                    // explicit res,res args to glCopyTexSubImage3D() right
-                    // below this branch). Passing 0 (whole-subresource) here
-                    // was silently copying mMipChain[0]'s FULL, unshrunk size
-                    // every iteration regardless of i - a real, confirmed
-                    // root cause of the "pSrcBox does not fit on the
-                    // destination subresource" D3D11 debug-layer errors
-                    // (context='Radiance Gen Shader', ~18000 occurrences/
-                    // session). res already correctly tracks this loop's
-                    // current iteration's shrinking size (see its own
-                    // declaration/update above).
+                    // mMipChain[0] stays bound as render target for every iteration of this loop
+                    // (never rebound per-i); only the viewport (RSSetViewports below) narrows what's
+                    // drawn into it. Must pass the real, currently-shrunk `res,res` size here - passing
+                    // 0 (whole-subresource) copies mMipChain[0]'s full unshrunk size regardless of i,
+                    // which D3D11's debug layer rejects as "pSrcBox does not fit on the destination
+                    // subresource".
 #ifdef DX_RENDER
                     mTexture->getDXTexture()->copySliceFromBoundRenderTarget(i, probe->mCubeIndex * 6 + cf, res, res);
 #else
@@ -1169,21 +1049,12 @@ void LLReflectionMapManager::updateProbeFace(LLReflectionMap* probe, U32 face)
                 if (i != mMipChain.size() - 1)
                 {
                     res /= 2;
-                    // S24 (2026-08-09, task #147 v1): glViewport was
-                    // unguarded raw GL - this whole function was
-                    // unreachable under DX_RENDER before this task (the
-                    // now-removed update() gate), so it was never audited.
-                    // Real crash cause found the hard way: OpenGL is fully
-                    // delinked from DX_RENDER=ON builds, so this resolved
-                    // to a null function pointer at runtime (0xc0000005,
-                    // offset 0x0 - same signature as the original login
-                    // crash, task #95/#96).
+                    // Raw glViewport has no DX_RENDER translation (OpenGL is fully delinked from
+                    // DX_RENDER=ON builds - a null function pointer, not a silent no-op).
 #ifdef DX_RENDER
                     {
-                        // S24 (2026-09-02, REVERTED same day): see
-                        // mMipChain[0]'s viewport above (face==5 entry) for
-                        // the full reasoning - back to the proven-correct
-                        // negative-height viewport.
+                        // Negative-height viewport is deliberate, matching mMipChain[0]'s viewport
+                        // above (face==5 entry) - do not "fix" to a positive height.
                         D3D11_VIEWPORT vp = {};
                         vp.TopLeftX = 0.0f;
                         vp.TopLeftY = (float)res;
@@ -1225,16 +1096,10 @@ void LLReflectionMapManager::updateProbeFace(LLReflectionMap* probe, U32 face)
             //for (int i = start_mip; i < mMipChain.size(); ++i)
             {
                 int i = start_mip;
-                LL_PROFILE_GPU_ZONE("probe irradiance gen");
-                // S24 (2026-08-09, task #147 v1): see the other glViewport
-                // fix just above in this function for the full reasoning
-                // (unguarded raw GL, null fn ptr crash under DX_RENDER).
 #ifdef DX_RENDER
                 {
-                    // S24 (2026-09-02, REVERTED same day): see the
-                    // radiance-gen loop's matching viewport above for the
-                    // full reasoning - back to the proven-correct
-                    // negative-height viewport.
+                    // Negative-height viewport is deliberate, matching the radiance-gen loop's viewport
+                    // above.
                     D3D11_VIEWPORT vp = {};
                     vp.TopLeftX = 0.0f;
                     vp.TopLeftY = (float)mMipChain[i].getHeight();
@@ -1250,48 +1115,22 @@ void LLReflectionMapManager::updateProbeFace(LLReflectionMap* probe, U32 face)
                 for (int cf = 0; cf < 6; ++cf)
                 { // for each cube face
 #ifdef DX_RENDER
-                    // S24 (2026-08-22, plan item A - CLOSED-FORM REWRITE):
-                    // see the matching radiance-gen loop above for the full
-                    // derivation - replaces lookAt()+getDirectXRotation()+
-                    // flipCol/fixHandedness/poleRotate with a single face
-                    // index, consumed by irradianceGenV.hlsl's hardcoded
-                    // per-face formula. GL path untouched below.
+                    // Same per-face addressing formula as the radiance-gen loop above, hardcoded in
+                    // irradianceGenV.hlsl.
                     static LLStaticHashedString sCubeFaceIrr("cubeFace");
                     gIrradianceGenProgram.uniform1i(sCubeFaceIrr, cf);
-
-                    // S24 (2026-08-31, DXCubeMap rewrite plan, Step 3): see
-                    // the matching radiance-gen loop above - dbgSwap/
-                    // dbgSignA/dbgSignB are gone from irradianceGenV.hlsl,
-                    // formula is proven and hardcoded there now.
-#endif // DX_RENDER - GL body removed 2026-08-31 (LLCubeMapArray deletion, this project is DX_RENDER-only)
+#endif // DX_RENDER - GL body removed (LLCubeMapArray deleted, DX_RENDER-only project)
 
                     mVertexBuffer->drawArrays(gDX.TRIANGLE_STRIP, 0, 4);
 
 #ifdef DX_RENDER
-                    // S24 (2026-08-09, task #147 step 5): see the mip-copy
-                    // block above for the full reasoning. Unlike the GL
-                    // path, no mIrradianceMaps->bind()/mTexture->bind()
-                    // rebind dance is needed here at all - the copy method
-                    // never touches texture-unit/SRV bind state (it only
-                    // reads OMGetRenderTargets() and issues a resource-level
-                    // CopySubresourceRegion), so mTexture's own SRV bind
-                    // from before this loop (line ~1020, still needed for
-                    // gIrradianceGenProgram's own sampling of REFLECTION_PROBES
-                    // on the NEXT face's draw call) is never disturbed.
-                    //
-                    // S24 (2026-08-10, task #147/#184 follow-up): mMipChain[0]
-                    // (bound once at the very top of this whole face==5
-                    // block, shared by BOTH the radiance-gen loop above and
-                    // this irradiance-gen section - never rebound to
-                    // mMipChain[start_mip] specifically) stays the actual
-                    // bound render target throughout - only the viewport
-                    // (set a few lines above, mMipChain[i].getWidth()/
-                    // getHeight()) narrows what's actually drawn into.
-                    // Passing 0 (whole-subresource) here copied mMipChain[0]'s
-                    // full, unshrunk size regardless of the much smaller
-                    // irradiance-map resolution - a real, confirmed root
-                    // cause of the "pSrcBox does not fit" D3D11 debug-layer
-                    // errors (context='Irradiance Gen Shader').
+                    // No mIrradianceMaps->bind()/mTexture->bind() rebind needed - the copy method only
+                    // reads OMGetRenderTargets() and issues a CopySubresourceRegion, never touching
+                    // texture-unit/SRV state, so mTexture's SRV bind (needed for the next face's draw)
+                    // is undisturbed. mMipChain[0] stays bound as render target throughout (shared with
+                    // the radiance-gen loop, never rebound to mMipChain[start_mip]) - must pass the
+                    // real mMipChain[i] width/height here, not 0 (whole-subresource), since the
+                    // irradiance-map resolution is smaller than mMipChain[0]'s full size.
                     mIrradianceMaps->getDXTexture()->copySliceFromBoundRenderTarget(i - start_mip, probe->mCubeIndex * 6 + cf, (UINT)mMipChain[i].getWidth(), (UINT)mMipChain[i].getHeight());
 #else
                     S32 res = mMipChain[i].getWidth();
@@ -1377,7 +1216,6 @@ void LLReflectionMapManager::updateUniforms()
         return;
     }
 
-    LL_PROFILE_GPU_ZONE("rmmu - uniforms");
 
 
     mReflectionMaps.resize(mReflectionProbeCount);
@@ -1461,35 +1299,19 @@ void LLReflectionMapManager::updateUniforms()
                 {
                     LLVector3 s = vobj->getScale().scaledVec(LLVector3(0.5f, 0.5f, 0.5f));
                     refmap->mRadius = s.magVec();
-                    refmap->mBoxExtent.load3(s.mV); // S24 (task #271): real per-axis half-extent, see mBoxExtent's own header comment.
+                    refmap->mBoxExtent.load3(s.mV); // real per-axis half-extent, see mBoxExtent's own header comment.
                 }
                 else
                 {
                     refmap->mRadius = refmap->mViewerObject->getScale().mV[0] * 0.5f;
-                    refmap->mBoxExtent.splat(refmap->mRadius); // S24 (task #271): sphere probe, isotropic is correct here.
+                    refmap->mBoxExtent.splat(refmap->mRadius); // sphere probe, isotropic is correct here.
                 }
 
-                // S24 (2026-09-05, task #271 - LIVE FIX, confirmed via debug
-                // overlay: every manual probe in the scene uploaded with
-                // refIndex[].w == 0, i.e. classified as automatic): mPriority
-                // is the ONLY source of the shader's manual-vs-automatic
-                // classification (sampleProbes()'s `p = clamp(abs(refIndex[i].w),
-                // 0, 1)`), but its only other writer is
-                // LLReflectionMap::autoAdjustOrigin()'s manual branch
-                // (llreflectionmap.cpp:190), which is only ever called from
-                // this manager's per-probe update loop gated on
-                // `if (probe->mComplete)` - i.e. only AFTER a probe's first
-                // full 6-face capture already finished. This block already
-                // proves mOrigin/mRadius need to be live/immediate for a
-                // manual probe regardless of capture-completion state (that's
-                // exactly why it re-derives them here every frame instead of
-                // relying on autoAdjustOrigin()) - mPriority was the one
-                // piece of that same "live manual-probe identity" left
-                // depending on the completion-gated path instead. Set
-                // immediately here too, mirroring autoAdjustOrigin()'s own
-                // manual-branch value (1), so a manual probe is correctly
-                // classified from the moment it exists, not only after (and
-                // only if) its first capture cycle happens to complete.
+                // mPriority is the only source of the shader's manual-vs-automatic classification
+                // (sampleProbes()'s `p = clamp(abs(refIndex[i].w), 0, 1)`); its other writer,
+                // LLReflectionMap::autoAdjustOrigin()'s manual branch, only runs after a probe's first
+                // capture completes. Set it here too so a manual probe is classified correctly from
+                // the moment it exists, not only after its first capture cycle.
                 refmap->mPriority = 1;
             }
             modelview.affineTransform(refmap->mOrigin, oa);
@@ -1593,13 +1415,6 @@ void LLReflectionMapManager::updateUniforms()
 
     mProbeData.refmapCount = count;
 
-    // S24 (2026-08-22): a temporary diagnostic lived here during the task
-    // #156 "reflections show only sky" investigation - confirmed refmapCount/
-    // completeCount/occlusion/cbuffer state were all healthy, ruling out the
-    // C++ capture pipeline. Root cause traced to RenderReflectionProbeBlurLODBias
-    // sitting at a stale 1.5 in the user's settings.xml (default 0.0) rather
-    // than any code gap. Removed per diagnostic-lifecycle convention.
-
     gPipeline.mHeroProbeManager.updateUniforms();
 
     // Get the hero data.
@@ -1611,22 +1426,10 @@ void LLReflectionMapManager::updateUniforms()
     mProbeData.heroProbeCount = gPipeline.mHeroProbeManager.mHeroData.heroProbeCount;
 
     //copy rpd into uniform buffer object
-    // S24 (2026-08-09, task #147b): real D3D11 constant buffer - task #147
-    // v1 deliberately skipped this (mProbeData/ReflectionProbeData is the
-    // per-probe bucket/box/sphere/neighbor blend data v1's simplified
-    // single-slice shader sample didn't read), guarded #ifndef DX_RENDER.
-    // Now that reflectionProbeF.hlsl's real multi-probe blend reads this
-    // data (cbuffer ReflectionProbes : register(b1)), it needs to actually
-    // exist. mDXUBO mirrors mUBO's GL lifecycle: create once
-    // (D3D11_USAGE_DYNAMIC, matching GL_STREAM_DRAW's "re-uploaded every
-    // frame" usage pattern), then Map(WRITE_DISCARD)-based re-upload every
-    // call after that - DXBuffer::upload() already does exactly this, no
-    // new pattern needed. mUBO itself stays 0 under DX_RENDER (nothing
-    // GL-side to allocate) - "created yet" is checked via
-    // mDXUBO.getBuffer() (real resource pointer, correctly goes back to
-    // null after cleanup()'s mDXUBO.destroy() call - e.g. on teleport -
-    // triggering a real recreation next call, unlike a separate bool flag
-    // which wouldn't reset itself the same way).
+    // mDXUBO mirrors mUBO's GL lifecycle: create once (D3D11_USAGE_DYNAMIC, matching GL_STREAM_DRAW),
+    // then Map(WRITE_DISCARD) re-upload via DXBuffer::upload() thereafter. mUBO itself stays 0 under
+    // DX_RENDER; "created yet" is checked via mDXUBO.getBuffer() instead, which correctly goes back to
+    // null after cleanup()'s destroy() (e.g. on teleport), triggering recreation next call.
 #ifdef DX_RENDER
     {
         if (!mDXUBO.getBuffer())
@@ -1669,21 +1472,9 @@ void LLReflectionMapManager::updateUniforms()
 
 void LLReflectionMapManager::setUniforms()
 {
-    // S24 (2026-08-15, task #194 offshoot): this used to return here with
-    // no uniform written at all - confirmed real gap, verified against
-    // pipeline.cpp:8881 (bindReflectionProbes(shader) is called
-    // UNCONDITIONALLY, outside the use_legacy_env_map branch, so this
-    // function still runs every frame regardless of the toggle) and
-    // reflectionProbeF.hlsl's sampleProbes() (gated on the shader-side
-    // "probes_enabled" uniform, a SEPARATE control from
-    // sReflectionProbesEnabled - see RenderReflectionProbesEnabled vs
-    // RenderReflectionsEnabled). With no write here, "probes_enabled"
-    // kept whatever value was last uploaded (1, from this setting's own
-    // true default) - the shader kept trying to sample the probe array
-    // even when the C++ side had switched to the legacy binding path and
-    // the capture pipeline had stopped updating that array. Now
-    // explicitly tells the shader to stop sampling before returning,
-    // instead of silently leaving it in whatever state it was last in.
+    // Must explicitly clear the shader-side "probes_enabled" uniform before returning - it's a
+    // separate control from sReflectionProbesEnabled and otherwise keeps whatever value was last
+    // uploaded, so the shader keeps sampling a probe array the capture pipeline has stopped updating.
     if (!LLPipeline::sReflectionProbesEnabled)
     {
         static LLStaticHashedString sProbesEnabledOff("probes_enabled");
@@ -1694,18 +1485,10 @@ void LLReflectionMapManager::setUniforms()
         return;
     }
 
-    // S24 (2026-08-27, task #267): mUBO is GL-only and stays 0 forever under
-    // DX_RENDER (see the mDXUBO comment above updateUniforms()'s D3D11 block),
-    // so `mUBO == 0` was permanently true here and updateUniforms() - the full
-    // probe-bucket rebuild + GPU buffer re-upload - ran on every setUniforms()
-    // call (every reflection-sampling shader bind, many times/frame) instead
-    // of the intended "bootstrap before the first per-frame update" case.
-    // pipeline.cpp:4292 already calls updateUniforms() once per frame
-    // unconditionally, so this guard only needs to catch the case where
-    // setUniforms() runs before that has ever happened - mDXUBO.getBuffer()
-    // is the correct DX-side equivalent of mUBO's "has this been created yet"
-    // GL semantics (same accessor already used a few lines below, and in
-    // updateUniforms()'s own D3D11 create/upload branch).
+    // mUBO stays 0 forever under DX_RENDER, so this bootstrap-gate must check mDXUBO.getBuffer()
+    // instead (the DX-side equivalent of mUBO's "created yet" check) - otherwise updateUniforms()'s
+    // full probe-bucket rebuild + GPU re-upload would run on every setUniforms() call instead of only
+    // before the first per-frame update.
 #ifdef DX_RENDER
     if (!mDXUBO.getBuffer())
 #else
@@ -1714,13 +1497,9 @@ void LLReflectionMapManager::setUniforms()
     {
         updateUniforms();
     }
-    // S24 (2026-08-09, task #147b): real bind - register(b1) in
-    // reflectionProbeF.hlsl's "cbuffer ReflectionProbes" declaration.
-    // register(b0) is already taken by every shader's auto-generated
-    // $Globals cbuffer (see LLRender's hardcoded VSSetConstantBuffers(0,...)/
-    // PSSetConstantBuffers(0,...) call sites, llrender.cpp) - this is a
-    // SEPARATE, explicit slot 1 bind, pixel-stage only (nothing in the
-    // reflection-probe blend math runs in a vertex shader).
+    // Binds register(b1) in reflectionProbeF.hlsl's "cbuffer ReflectionProbes" - register(b0) is
+    // already taken by every shader's auto-generated $Globals cbuffer (llrender.cpp). Pixel-stage
+    // only; nothing in the reflection-probe blend math runs in a vertex shader.
 #ifdef DX_RENDER
     {
         ID3D11Buffer* cb = mDXUBO.getBuffer();
@@ -1733,35 +1512,22 @@ void LLReflectionMapManager::setUniforms()
     glBindBufferBase(GL_UNIFORM_BUFFER, LLHLSLShader::UB_REFLECTION_PROBES, mUBO);
 #endif
 
-    // S24: Set probe control uniforms for shader tweaks (runtime adjustable)
+    // Probe control uniforms for shader tweaks (runtime adjustable)
     static LLCachedControl<bool> probes_enabled(gSavedSettings, "RenderReflectionProbesEnabled", true);
     static LLCachedControl<F32> probe_intensity(gSavedSettings, "RenderReflectionProbeIntensity", 1.0f);
     static LLCachedControl<F32> probe_saturation(gSavedSettings, "RenderReflectionProbeSaturation", 1.0f);
     static LLCachedControl<F32> probe_contrast(gSavedSettings, "RenderReflectionProbeContrast", 1.0f);
     static LLCachedControl<F32> probe_blur_lod_bias(gSavedSettings, "RenderReflectionProbeBlurLODBias", 0.0f);
     static LLCachedControl<F32> probe_ambient_mult(gSavedSettings, "RenderReflectionProbeAmbientMultiplier", 1.0f);
-    // S24 (2026-09-07, task #266 continuation): live-requested tool - blend
-    // this probe's sharp/detail-mip sample toward its OWN top mip
-    // (max_probe_lod, the already fully GGX-convolved whole-hemisphere
-    // average across all 6 faces - see reflectionProbeF.hlsl's tapRefMap())
-    // at a tunable 0-1 weight. Different from probe_saturation (crushes hue
-    // toward luminance) and probe_contrast (compresses spread toward a
-    // fixed 0.5 midpoint) - this equalizes per-face brightness/color
-    // differences by blending toward this room's own real averaged tone,
-    // not an arbitrary neutral, while still preserving full detail at 0.0
-    // (default, no change).
+    // Blends this probe's detail-mip sample toward its own top mip (max_probe_lod, the fully
+    // GGX-convolved whole-hemisphere average - see tapRefMap()) at a tunable 0-1 weight. Unlike
+    // probe_saturation/probe_contrast, this equalizes per-face brightness/color toward the room's own
+    // averaged tone rather than an arbitrary neutral; 0.0 (default) preserves full detail.
     static LLCachedControl<F32> probe_equalize(gSavedSettings, "RenderReflectionProbeEqualize", 0.0f);
-    // S24 (2026-09-07, task #266 continuation): dedicated visibility blend
-    // (corrected from an earlier "desaturate" ask) - 1.0=fully visible,
-    // 0.0=fully transparent. See reflectionProbeF.hlsl's own comment.
+    // Visibility blend: 1.0=fully visible, 0.0=fully transparent. See reflectionProbeF.hlsl.
     static LLCachedControl<F32> probe_opacity(gSavedSettings, "RenderReflectionProbeOpacity", 1.0f);
-    // S24 (2026-09-05, task #271): live debug toggle for sampleProbes()'s
-    // automatic-vs-manual blend-weight visualization - see its own uniform
-    // comment in reflectionProbeF.hlsl. Deliberately NOT persisted (no real
-    // default needed beyond false) and deliberately a plain top-level
-    // uniform like every other control here, not a new KVTweaks-only
-    // mechanism - reload_vertex_shader()/setShaders() already picks up a
-    // gSavedSettings change live, same as every other slider on this list.
+    // Debug toggle for sampleProbes()'s automatic-vs-manual blend-weight visualization - see its
+    // uniform comment in reflectionProbeF.hlsl.
     static LLCachedControl<bool> debug_box_weight(gSavedSettings, "RenderDebugBoxProbeWeight", false);
 
     static LLStaticHashedString sProbesEnabled("probes_enabled");
@@ -1784,23 +1550,9 @@ void LLReflectionMapManager::setUniforms()
     LLHLSLShader::sCurBoundShaderPtr->uniform1f(sProbeOpacity, probe_opacity);
     LLHLSLShader::sCurBoundShaderPtr->uniform1i(sDebugBoxWeight, debug_box_weight ? 1 : 0);
 
-    // S24 (2026-09-03, task #266/#271 box-probe reflection investigation):
-    // REFLECTION_PROBE_MAX_LOD (max_probe_lod - tapRefMap()'s roughness->mip
-    // conversion) was previously uploaded to real-time sampling shaders ONLY
-    // from LLPipeline::bindDeferredShader() (pipeline.cpp) - real, confirmed
-    // gap, same bug class as the task #156 "glass floor shows zero
-    // reflections" fix a few lines above this function (dxdrawpoolalpha.cpp's
-    // header comment on its bindReflectionProbes() call). gDeferredPBRAlphaProgram
-    // (and any other shader that reaches sampleProbes()/tapRefMap() via THIS
-    // function rather than bindDeferredShader()) never had this uniform
-    // deliberately written for its entire lifetime - confirmed via live
-    // shader-debug this session, the exact PBR alpha material shader used for
-    // a broken floor reflection reads a real-looking but never-explicitly-set
-    // max_probe_lod. Uploaded here instead, alongside this function's other
-    // plain top-level uniforms, so every shader that successfully binds the
-    // reflection probe textures (the `if (bound)` gate in
-    // LLPipeline::bindReflectionProbes()) gets this one too, not just the
-    // shaders that separately happen to also go through bindDeferredShader().
+    // Upload max_probe_lod here too, not only from LLPipeline::bindDeferredShader() - any shader that
+    // reaches sampleProbes()/tapRefMap() via this function alone (e.g. gDeferredPBRAlphaProgram) would
+    // otherwise read a never-explicitly-set value.
     static LLStaticHashedString sMaxProbeLOD("max_probe_lod");
     LLHLSLShader::sCurBoundShaderPtr->uniform1f(sMaxProbeLOD, mMaxProbeLOD);
 }
@@ -1945,18 +1697,11 @@ void LLReflectionMapManager::initReflectionMaps()
             }
         }
 
-        // S24 (2026-09-03, task #266/#271 box-probe reflection investigation):
-        // was `log2f((F32)mProbeResolution) - 1.f` (an independently
-        // recomputed guess), read from the texture's REAL allocated mip
-        // count instead - DXCubeArrayTexture::create()'s generate_mips=true
-        // path requests D3D11's full auto mip chain (MipLevels=0), which for
-        // a power-of-two resolution allocates one more level than the old
-        // formula assumed (confirmed live via RenderDoc this session: 128x128
-        // reported "8 mips", this formula said 7). The old, too-low value fed
-        // both the write-side roughness->mip mapping (radianceGenF.hlsl) and
-        // the read-side LOD selection (tapRefMap()) via max_probe_lod,
-        // shifting the whole roughness<->LOD curve by one level and leaving
-        // the texture's real highest mip permanently unwritten.
+        // Read the texture's real allocated mip count rather than computing log2f(mProbeResolution) -
+        // DXCubeArrayTexture::create()'s generate_mips=true (MipLevels=0) allocates one more level than
+        // that formula assumes for a power-of-two resolution, which would shift the whole
+        // roughness<->LOD curve (radianceGenF.hlsl/tapRefMap() via max_probe_lod) by one level and
+        // leave the real highest mip permanently unwritten.
         mMaxProbeLOD = (F32)mTexture->getDXTexture()->getMipLevels() - 1.f; // number of mips - 1
 
         // reset probe state
@@ -2042,12 +1787,8 @@ void LLReflectionMapManager::cleanup()
     mDefaultProbe = nullptr;
     mUpdatingProbe = nullptr;
 
-    // S24 (2026-08-09, task #147b): real destroy - mDXUBO now backs
-    // mUBO's data under DX_RENDER (task #147 v1 never created it, so this
-    // was previously just a guarded no-op here). Also called on every
-    // teleport, not just shutdown - destroy()/getBuffer()==nullptr
-    // afterward correctly triggers updateUniforms() to recreate it next
-    // time, same as GL's mUBO==0 check does.
+    // Also called on every teleport, not just shutdown - destroy() leaves getBuffer()==nullptr, which
+    // correctly triggers updateUniforms() to recreate it next time, same as GL's mUBO==0 check.
 #ifdef DX_RENDER
     mDXUBO.destroy();
 #else
@@ -2066,18 +1807,10 @@ void LLReflectionMapManager::cleanupQueryPool()
     if (!mQueryPool.empty())
     {
         std::vector<GLuint> queries(mQueryPool.begin(), mQueryPool.end());
-        // S24 (2026-08-21, CTD fix): raw glDeleteQueries() is a null
-        // extension-function-pointer crash under DX_RENDER - same bug class
-        // as allocateQuery()'s glGenQueries() (task #182 CTD fix) and
-        // LLReflectionMap::doOcclusion()'s glBeginQuery()/glEndQuery() (task
-        // #249) - this is the release side of the same query pool, missed
-        // by both of those earlier passes since it's only reached when
-        // refreshSettings() runs (a settings-change listener, e.g. toggling
-        // RenderScreenSpaceReflections/RenderReflectionProbeDetail) or on
-        // teleport/shutdown (destroy()), not during normal per-frame
-        // rendering - confirmed via a real minidump (RIP=0, called from
-        // cleanupQueryPool -> refreshSettings -> handleReflectionProbeDetailChanged,
-        // fired by clicking the SSR toggle).
+        // raw glDeleteQueries() is a null extension-function-pointer crash under DX_RENDER - same bug
+        // class as allocateQuery()'s glGenQueries() and LLReflectionMap::doOcclusion()'s
+        // glBeginQuery()/glEndQuery(). This is the release side of the same query pool, only reached
+        // via refreshSettings() (e.g. toggling RenderReflectionProbeDetail) or teleport/shutdown.
 #ifdef DX_RENDER
         DXOcclusionQuery::deleteQueries(static_cast<int>(queries.size()), queries.data());
 #else

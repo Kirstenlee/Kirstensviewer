@@ -148,12 +148,9 @@ void calcAtmosphericVars(float3 inPositionEye, float3 light_dir, float ambFactor
     haze_glow = max(haze_glow, .001);  // set a minimum "angle" (smaller glow.y allows tighter, brighter hotspot)
     haze_glow *= glow.x;
     // higher glow.x gives dimmer glow (because next step is 1 / "angle")
-    // S24 (task #240, task #227 audit finding): the abs() here isn't in
-    // GLSL - kept deliberately, not "fixed" to match GLSL exactly. pow()
-    // with a negative base and non-integer exponent is undefined behavior
-    // on both APIs, but D3D11 is more likely to reliably return NaN (which
-    // would then propagate) than GL is to silently degrade - reviewed and
-    // left as a real, intentional D3D-safety divergence.
+    // S24: abs() here isn't in the original GLSL - intentional D3D11-safety
+    // divergence, since pow() with a negative base is more likely to yield
+    // a propagating NaN on D3D11 than to silently degrade as on GL.
     haze_glow = clamp(pow(abs(haze_glow), glow.z), -100000, 100000);
     // glow.z should be negative, so we're doing a sort of (1 / "angle") function
 
@@ -187,10 +184,8 @@ void calcAtmosphericVars(float3 inPositionEye, float3 light_dir, float ambFactor
 
 float3 srgb_to_linear(float3 col);
 
-// S24 (2026-09-07, task #266 continuation): cube_snapshot - see
-// reflectionProbeF.hlsl's own identical guard/comment. Needed here so
-// ambientLighting() below can detect a reflection-probe/hero-probe capture
-// and skip its own sun-relative darkening for it specifically.
+// S24: cube_snapshot lets ambientLighting() below detect a reflection/hero-probe
+// capture and skip sun-relative darkening for it - see reflectionProbeF.hlsl.
 #ifndef LL_CUBE_SNAPSHOT_DECLARED
 #define LL_CUBE_SNAPSHOT_DECLARED
 uniform int cube_snapshot;
@@ -200,24 +195,11 @@ uniform int cube_snapshot;
 // so areas in shadow don't lose all detail
 float ambientLighting(float3 norm, float3 light_dir)
 {
-    // S24 (2026-09-07, task #266 continuation): live-reported (box1.png,
-    // annotated) - each face of a box-probe capture shows a visibly
-    // different, fixed shade level, described by the user as unaffected by
-    // time of day. Root cause traced here: this term multiplies ambient by
-    // as little as 0.5 for any surface whose NORMAL is closely aligned
-    // with (or opposed to) the sun/moon direction, and by up to 1.0 for
-    // surfaces perpendicular to it - a real, structural, per-surface-
-    // orientation ambient darkening. For the MAIN view this is a
-    // deliberate shadow-fill feature (see this function's own header
-    // comment) - reasonable there. But baked directly into a reflection-
-    // probe capture, this freezes a sun-relative shading pattern onto the
-    // 6 faces permanently until the next recapture, which reads as "some
-    // faces are just darker than others" exactly as reported - a
-    // reflection probe should represent stable, orientation-independent
-    // room ambient, not a snapshot of sun-relative shadow-fill. Skipped
-    // entirely during any probe capture (cube_snapshot==1) - full,
-    // uniform ambient across all 6 faces; the main view's own shadow-fill
-    // behavior is completely untouched.
+    // S24: this term darkens ambient by up to 0.5x based on normal-vs-sun
+    // alignment (deliberate shadow-fill for the main view). Skipped during
+    // probe capture, since baking it in would freeze a sun-relative shading
+    // pattern onto the cube faces instead of stable, orientation-independent
+    // room ambient.
     if (cube_snapshot == 1)
     {
         return 1.0;

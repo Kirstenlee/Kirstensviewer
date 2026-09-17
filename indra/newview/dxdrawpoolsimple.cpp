@@ -54,8 +54,6 @@ void DXDrawPoolSimple::renderAlphaMaskDeferred(LLDrawPoolAlphaMask& pool, S32 pa
     shader->bind();
     pool.pushMaskBatches(LLRenderPass::PASS_ALPHA_MASK, true, true);
 
-    // S24 (2026-08-09, task #170): render rigged - was skipped until
-    // task #168 fixed DXVertexLayout's MAP_WEIGHT4 rejection.
     shader->bind(true);
     pool.pushRiggedMaskBatches(LLRenderPass::PASS_ALPHA_MASK_RIGGED, true, true);
 }
@@ -82,8 +80,6 @@ void DXDrawPoolSimple::renderFullbrightAlphaMaskPostDeferred(LLDrawPoolFullbrigh
     shader->bind();
     pool.pushMaskBatches(LLRenderPass::PASS_FULLBRIGHT_ALPHA_MASK, true, true);
 
-    // S24 (2026-08-09, task #170): render rigged - was skipped until
-    // task #168 fixed DXVertexLayout's MAP_WEIGHT4 rejection.
     if (!LLPipeline::sRenderingHUDs)
     {
         shader->bind(true);
@@ -110,8 +106,6 @@ void DXDrawPoolSimple::renderFullbrightPostDeferred(LLDrawPoolFullbright& pool, 
     shader->bind();
     pool.pushBatches(LLRenderPass::PASS_FULLBRIGHT, true, true);
 
-    // S24 (2026-08-09, task #170): render rigged - was skipped until
-    // task #168 fixed DXVertexLayout's MAP_WEIGHT4 rejection.
     if (!LLPipeline::sRenderingHUDs)
     {
         shader->bind(true);
@@ -127,27 +121,22 @@ void DXDrawPoolSimple::renderGlowPostDeferred(LLDrawPoolGlow& pool, S32 pass)
     LLGLEnable blend(GL_BLEND);
     gDX.flush();
 
-    // S24 (2026-08-28, task #242): real again via LLRender::setPolygonOffset()
-    // (llrender.cpp) - biases depth to avoid z-fighting with the non-glow
-    // pass, previously skipped entirely ("D3D11 has no runtime-callable
-    // equivalent").
+    // Biases depth via setPolygonOffset() to avoid z-fighting with the non-glow pass.
     LLGLEnable polyOffset(GL_POLYGON_OFFSET_FILL);
     gDX.setPolygonOffset(-1.0f, -1.0f);
     gDX.setSceneBlendType(LLRender::BT_ADD);
 
     LLGLDepthTest depth(GL_TRUE, GL_FALSE);
-    gDX.setColorMask(false, true);
+    gDX.setColorWriteMask(false, true);
 
     // render static
     shader->bind();
     pool.pushBatches(LLRenderPass::PASS_GLOW, true, true);
 
-    // S24 (2026-08-09, task #170): render rigged - was skipped until
-    // task #168 fixed DXVertexLayout's MAP_WEIGHT4 rejection.
     shader = shader->mRiggedVariant;
     shader->bind();
     pool.pushRiggedBatches(LLRenderPass::PASS_GLOW_RIGGED, true, true);
 
-    gDX.setColorMask(true, false);
+    gDX.setColorWriteMask(true, false);
     gDX.setSceneBlendType(LLRender::BT_ALPHA);
 }

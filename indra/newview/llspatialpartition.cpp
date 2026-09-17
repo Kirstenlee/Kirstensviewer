@@ -34,6 +34,7 @@
 #include "llimageworker.h"
 #include "llviewerwindow.h"
 #include "llviewerobjectlist.h"
+#include "llui.h"
 #include "llvovolume.h"
 #include "llvolume.h"
 #include "llvolumeoctree.h"
@@ -1645,16 +1646,19 @@ void renderOctree(LLSpatialGroup* group)
 
         {
             LLGLDepthTest gl_depth(false, false);
-            glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+            // S24: glPolygonMode(GL_LINE) removed - confirmed dead (no D3D11 per-draw wireframe
+            // wrapper exists, see DXStateCache::getRasterizerState()'s wireframe_enabled comment;
+            // live-tested via Develop>Render Info>Octree with no crash, just no wireframe effect).
+            // Found in a tree-wide stray-GL sweep.
 
             gDX.diffuseColor4f(1,0,0,group->mBuilt);
             gDX.flush();
-            glLineWidth(5.f);
+            LLUI::setLineWidth(5.f);
 
             const LLVector4a* bounds = group->getObjectBounds();
             drawBoxOutline(bounds[0], bounds[1]);
             gDX.flush();
-            glLineWidth(1.f);
+            LLUI::setLineWidth(1.f);
             gDX.flush();
 
             const LLVOAvatar* lastAvatar = nullptr;
@@ -1742,7 +1746,6 @@ void renderOctree(LLSpatialGroup* group)
                     gDX.popMatrix();
                 }
             }
-            glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
             gDebugProgram.bind(); // make sure non-rigged variant is bound
             gDX.diffuseColor4f(1,1,1,1);
         }
@@ -1964,12 +1967,14 @@ void renderBoundingBox(LLDrawable* drawable, bool set_color = true)
     if (vobj && vobj->onActiveList())
     {
         gDX.flush();
-        glLineWidth(llmax(4.f*sinf(gFrameTimeSeconds*2.f)+1.f, 1.f));
-        //glLineWidth(4.f*(sinf(gFrameTimeSeconds*2.f)*0.25f+0.75f));
-        stop_glerror();
+        // S24: raw glLineWidth() was unguarded here (found in a tree-wide stray-GL sweep, live-
+        // tested via Develop>Render Info>Bounding Box - no crash, just no pulsing-width effect on
+        // active-object boxes). LLUI::setLineWidth() is the same no-op-under-DX_RENDER replacement
+        // used tree-wide.
+        LLUI::setLineWidth(llmax(4.f*sinf(gFrameTimeSeconds*2.f)+1.f, 1.f));
         drawBoxOutline(pos,size);
         gDX.flush();
-        glLineWidth(1.f);
+        LLUI::setLineWidth(1.f);
     }
     else
     {
@@ -2048,32 +2053,44 @@ void renderNormals(LLDrawable *drawablep)
             drawable_faces = &drawablep->getFaces();
         }
 
+        // S24: "Normals" (RENDER_DEBUG_NORMALS) and "Tangent Basis" (ShowTangentBasis, Develop >
+        // Rendering) are independent toggles - the caller now invokes this function when either is
+        // on, and each line color is gated on its own condition here, rather than tangents drawing
+        // unconditionally as a bonus whenever normals happen to be on. ShowTangentBasis previously
+        // had zero consumers anywhere - a dead checkbox - despite this exact tangent data already
+        // being computed right here for the normals debug draw.
+        bool show_normals = gPipeline.hasRenderDebugMask(LLPipeline::RENDER_DEBUG_NORMALS);
+        bool show_tangents = gSavedSettings.getBOOL("ShowTangentBasis");
+
         if (faces)
         {
             for (auto it = faces->begin(); it != faces->end(); ++it)
             {
                 const LLVolumeFace& face = *it;
 
-                gDX.flush();
-                gDX.diffuseColor4f(1, 1, 0, 1);
-                gDX.begin(LLRender::LINES);
-                for (S32 j = 0; j < face.mNumVertices; ++j)
+                if (show_normals)
                 {
-                    LLVector4a n, p;
+                    gDX.flush();
+                    gDX.diffuseColor4f(1, 1, 0, 1);
+                    gDX.begin(LLRender::LINES);
+                    for (S32 j = 0; j < face.mNumVertices; ++j)
+                    {
+                        LLVector4a n, p;
 
-                    n.setMul(face.mNormals[j], 1.0);
-                    n.mul(inv_scale);  // Pre-scale normal, so it's left with an inverse-transpose xform after MVP
-                    n.normalize3fast();
-                    n.mul(draw_length);
-                    p.setAdd(face.mPositions[j], n);
+                        n.setMul(face.mNormals[j], 1.0);
+                        n.mul(inv_scale);  // Pre-scale normal, so it's left with an inverse-transpose xform after MVP
+                        n.normalize3fast();
+                        n.mul(draw_length);
+                        p.setAdd(face.mPositions[j], n);
 
-                    gDX.vertex3fv(face.mPositions[j].getF32ptr());
-                    gDX.vertex3fv(p.getF32ptr());
+                        gDX.vertex3fv(face.mPositions[j].getF32ptr());
+                        gDX.vertex3fv(p.getF32ptr());
+                    }
+                    gDX.end();
                 }
-                gDX.end();
 
                 // Tangents are simple vectors and do not require reorientation via pre-scaling
-                if (face.mTangents)
+                if (show_tangents && face.mTangents)
                 {
                     gDX.flush();
                     gDX.diffuseColor4f(0, 1, 1, 1);
@@ -2206,9 +2223,6 @@ void renderPhysicsShape(LLDrawable* drawable, LLVOVolume* volume, bool wireframe
 
     //not allowed to return at this point without rendering *something*
 
-    // S24 (2026-08-28, perf sweep): were raw gSavedSettings lookups, called
-    // once per drawable while "Show Physics Shapes" is on - converted to
-    // LLCachedControl.
     static LLCachedControl<F32> threshold_setting(gSavedSettings, "ObjectCostHighThreshold");
     F32 threshold = threshold_setting();
     F32 cost = volume->getObjectCost();
@@ -2488,12 +2502,16 @@ void renderPhysicsShape(LLDrawable* drawable, LLVOVolume* volume, bool wireframe
 
             llassert(LLHLSLShader::sCurBoundShader != 0);
             LLVertexBuffer::unbind();
-            glVertexPointer(3, GL_FLOAT, 16, phys_volume->mHullPoints);
 
             gDX.diffuseColor4fv(color.mV);
 
-            gDX.syncMatrices();
-            glDrawElements(GL_TRIANGLES, phys_volume->mNumHullIndices, GL_UNSIGNED_SHORT, phys_volume->mHullIndices);
+            // S24: was raw client-array glVertexPointer()/glDrawElements() - no DX11 equivalent at
+            // all (old fixed-function immediate-mode drawing), a real no-op under DX_RENDER that
+            // silently drew nothing for convex-hull physics shapes specifically (the PRIM_MESH/
+            // PRIM_BOX cases above already went through the real drawElements() overload). mHullPoints/
+            // mHullIndices are already LLVector4a*/U16* - the exact types that overload expects.
+            LLVertexBuffer::drawElements(LLRender::TRIANGLES, phys_volume->mHullPoints, nullptr,
+                (U32)phys_volume->mNumHullIndices, phys_volume->mHullIndices);
         }
         else
         {
@@ -2686,7 +2704,7 @@ void renderTextureAnim(LLDrawInfo* params)
 void renderBatchSize(LLDrawInfo* params)
 {
     LLGLEnable offset(GL_POLYGON_OFFSET_FILL);
-    // S24 (2026-08-28, task #242): gDX.setPolygonOffset(), see llmanipscale.cpp's comment.
+    // gDX.setPolygonOffset() is cross-backend, see llmanipscale.cpp's comment.
     gDX.setPolygonOffset(-1.f, 1.f);
     LLHLSLShader* old_shader = LLHLSLShader::sCurBoundShaderPtr;
     bool bind = false;
@@ -2903,7 +2921,7 @@ public:
             if (i == 1)
             {
                 gDX.flush();
-                glLineWidth(3.f);
+                LLUI::setLineWidth(3.f);
             }
 
             gDX.begin(LLRender::TRIANGLES);
@@ -2922,7 +2940,7 @@ public:
             if (i == 1)
             {
                 gDX.flush();
-                glLineWidth(1.f);
+                LLUI::setLineWidth(1.f);
             }
         }
     }
@@ -2992,7 +3010,9 @@ void renderRaycast(LLDrawable* drawablep)
                     dir.setSub(end, start);
 
                     gDX.flush();
-                    glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+                    // S24: glPolygonMode(GL_LINE)/(GL_FILL) pair removed - confirmed dead (no
+                    // D3D11 per-draw wireframe wrapper exists yet). Found in a tree-wide stray-GL
+                    // sweep.
 
                     {
                         //render face positions
@@ -3011,7 +3031,6 @@ void renderRaycast(LLDrawable* drawablep)
                     }
 
                     gDX.popMatrix();
-                    glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
                 }
             }
         }
@@ -3162,12 +3181,10 @@ public:
         if (!mCamera || mCamera->AABBInFrustumNoFarClip(bounds[0], bounds[1]))
         {
             node->accept(this);
-            stop_glerror();
 
             for (U32 i = 0; i < node->getChildCount(); i++)
             {
                 traverse(node->getChild(i));
-                stop_glerror();
             }
 
             //draw tight fit bounding boxes for spatial group
@@ -3177,7 +3194,6 @@ public:
                 group->rebuildMesh();
 
                 renderOctree(group);
-                stop_glerror();
             }
         }
     }
@@ -3217,7 +3233,8 @@ public:
                 renderBoundingBox(drawable);
             }
 
-            if (gPipeline.hasRenderDebugMask(LLPipeline::RENDER_DEBUG_NORMALS))
+            if (gPipeline.hasRenderDebugMask(LLPipeline::RENDER_DEBUG_NORMALS)
+                || gSavedSettings.getBOOL("ShowTangentBasis"))
             {
                 renderNormals(drawable);
             }
@@ -3334,12 +3351,10 @@ public:
         if (!mCamera || mCamera->AABBInFrustumNoFarClip(bounds[0], bounds[1]))
         {
             node->accept(this);
-            stop_glerror();
 
             for (U32 i = 0; i < node->getChildCount(); i++)
             {
                 traverse(node->getChild(i));
-                stop_glerror();
             }
 
             //render visibility wireframe
@@ -3353,7 +3368,6 @@ public:
                 gGLLastMatrix = NULL;
                 gDX.loadMatrix(gGLModelView);
                 renderXRay(group, mCamera);
-                stop_glerror();
                 gGLLastMatrix = NULL;
                 gDX.popMatrix();
             }
@@ -3380,12 +3394,10 @@ public:
         if (!mCamera || mCamera->AABBInFrustumNoFarClip(bounds[0], bounds[1]))
         {
             node->accept(this);
-            stop_glerror();
 
             for (U32 i = 0; i < node->getChildCount(); i++)
             {
                 traverse(node->getChild(i));
-                stop_glerror();
             }
 
             group->rebuildGeom();
@@ -3599,22 +3611,19 @@ void LLSpatialPartition::renderDebug()
 
             LLGLEnable blend(GL_BLEND);
             LLGLDepthTest depth_under(GL_TRUE, GL_FALSE, GL_GREATER);
-            glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
             gDX.diffuseColor4f(0.5f, 0.0f, 0, 0.25f);
 
             LLGLEnable offset(GL_POLYGON_OFFSET_LINE);
-            // S24 (2026-08-28, task #242): gDX.setPolygonOffset(), see llmanipscale.cpp's comment.
-            // Note: the glPolygonMode(GL_LINE) two lines up is a SEPARATE,
-            // still-open gap (no generic cross-backend wireframe-fill-mode
-            // wrapper exists yet, unlike this one) - out of scope here, this
-            // debug-only occlusion/octree overlay still renders solid-filled
-            // under DX_RENDER regardless of this fix.
+            // gDX.setPolygonOffset() is cross-backend, see llmanipscale.cpp's comment. The
+            // glPolygonMode(GL_LINE)/(GL_FILL) pair that used to bracket this (removed - confirmed
+            // dead, no cross-backend wrapper exists) meant this debug-only occlusion/octree overlay
+            // always rendered solid-filled under DX_RENDER regardless; removing the dead calls
+            // doesn't change that, just stops pretending they did anything. Found in a tree-wide
+            // stray-GL sweep.
             gDX.setPolygonOffset(-1.f, -1.f);
 
             LLOctreeRenderXRay xray(camera);
             xray.traverse(mOctree);
-
-            glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
         }
     }
     gDebugProgram.unbind();
@@ -3662,9 +3671,8 @@ public:
     bool mPickRigged;
     bool mPickUnselectable;
     bool mPickReflectionProbe;
-    // S24 (2026-09-06, task #271): see check(LLViewerOctreeEntry*)'s own
-    // comment - lets a caller that needs real geometric presence (not
-    // "was this recently on screen") bypass the isVisible() early-out.
+    // See check(LLViewerOctreeEntry*)'s own comment - lets a caller that needs real geometric presence
+    // (not "was this recently on screen") bypass the isVisible() early-out.
     bool mIgnoreVisibility;
 
     LLOctreeIntersect(const LLVector4a& start, const LLVector4a& end, bool pick_transparent, bool pick_rigged, bool pick_unselectable, bool pick_reflection_probe,
@@ -3739,27 +3747,14 @@ public:
     {
         LLDrawable* drawable = (LLDrawable*)entry->getDrawable();
 
-        // S24 (2026-09-06, task #271): drawable->isVisible() is a stale,
-        // camera-cull-history-dependent flag (only set true when SOME
-        // camera's actual frustum-cull pass touched this drawable on the
-        // CURRENT frame - exact frame-counter equality, no leniency, see
-        // LLViewerOctreeEntryData::isVisible()) - not a geometric fact about
-        // whether the drawable exists. Correct and intentional for real
-        // screen-picking (mouse clicks, object selection - you genuinely
-        // shouldn't be able to pick what isn't currently rendered), but
-        // LLReflectionMap::autoAdjustOrigin()'s placement ray-cast (the
-        // OTHER 4 callers of this class are all real picking, confirmed via
-        // full call-site audit) needs "does real geometry exist here",
-        // not "was this in the avatar's view frustum this exact frame" - no
-        // single camera position can ever have all of a room's walls in
-        // frustum at once, so that ray-cast was structurally guaranteed to
-        // treat un-currently-visible walls as empty space, live-confirmed
-        // in-world to place an automatic probe's origin entirely outside
-        // its building. mIgnoreVisibility (default false, so every existing
-        // caller is unaffected) lets that one caller opt out of just this
-        // check while keeping the hasRenderType() filter, which reflects a
-        // deliberate, intentional render-type mask rather than transient
-        // staleness.
+        // drawable->isVisible() is a stale, camera-cull-history-dependent flag (only true when a
+        // frustum-cull pass touched this drawable on the exact current frame - see
+        // LLViewerOctreeEntryData::isVisible()), not a geometric fact about whether it exists. Correct
+        // for real screen-picking (the other callers of this class), but LLReflectionMap::
+        // autoAdjustOrigin()'s placement ray-cast needs "does real geometry exist here" regardless of
+        // frustum history - no single camera position has all of a room's walls in frustum at once.
+        // mIgnoreVisibility (default false) lets that one caller skip just this check, keeping the
+        // hasRenderType() filter (a deliberate render-type mask, not transient staleness).
         if (!drawable || !gPipeline.hasRenderType(drawable->getRenderType()) || (!mIgnoreVisibility && !drawable->isVisible()))
         {
             return false;

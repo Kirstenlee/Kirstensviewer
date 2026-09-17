@@ -44,6 +44,7 @@
 #include "lllandmarkactions.h"
 #include "lllocalcliprect.h"
 #include "llresmgr.h"
+#include "llui.h"
 #include "llnotificationsutil.h"
 #include "llslurl.h"
 #include "llsnapshotlivepreview.h"
@@ -235,13 +236,19 @@ bool LLSnapshotLivePreview::setSnapshotQuality(S32 quality, bool set_by_user)
 
 void LLSnapshotLivePreview::drawPreviewRect(S32 offset_x, S32 offset_y, LLColor4 alpha_color)
 {
-	F32 line_width;
-	glGetFloatv(GL_LINE_WIDTH, &line_width);
-	glLineWidth(2.0f * line_width);
+	// S24: this used to query the CURRENT GL line width, double it, draw, then restore it - raw
+	// glGetFloatv()/glLineWidth() calls with no DX_RENDER guard at all (found in a tree-wide stray-
+	// GL sweep), live every frame the Snapshot/Photo floater is open. Worse than just a no-op: under
+	// this DX-only build glGetFloatv() never writes to line_width, which was never initialized
+	// either, so `2.0f * line_width` was reading garbage stack memory. LLUI::setLineWidth() is a
+	// documented no-op under DX_RENDER anyway (D3D11 has no per-draw line width) - same replacement
+	// already used tree-wide (llmanip.cpp, llviewerobject.cpp, llworldmapview.cpp) - so there's
+	// nothing meaningful left to query/restore; just set a fixed width and reset to the default.
+	LLUI::setLineWidth(2.0f);
 	LLColor4 color(0.0f, 0.0f, 0.0f, 1.0f);
 	gl_rect_2d(mPreviewRect.mLeft + offset_x, mPreviewRect.mTop + offset_y,
 		mPreviewRect.mRight + offset_x, mPreviewRect.mBottom + offset_y, color, false);
-	glLineWidth(line_width);
+	LLUI::setLineWidth(1.0f);
 
 	//draw four alpha rectangles to cover areas outside of the snapshot image
 	if (!mKeepAspectRatio)

@@ -28,7 +28,7 @@ uniform float4 color;
 
 struct PSInput
 {
-    // S24 (2026-08-02): missing SV_Position - see uiF.hlsl's comment (fxc.exe-confirmed VS/PS register-shift bug).
+    // S24: SV_Position must be declared here to match VS output register numbering - see uiF.hlsl.
     float4 position : SV_Position;
 
     float2 vary_texcoord0 : TEXCOORD0;

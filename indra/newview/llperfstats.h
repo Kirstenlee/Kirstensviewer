@@ -173,19 +173,16 @@ namespace LLPerfStats
 
 		static inline void send(StatsRecord&& upd)
 		{
-			LL_PROFILE_ZONE_SCOPED_CATEGORY_STATS;
 			StatsRecorder::getInstance().processUpdate(upd);
 		}
 
 		static void endFrame()
 		{
-			LL_PROFILE_ZONE_SCOPED_CATEGORY_STATS;
 			StatsRecorder::getInstance().processUpdate(StatsRecord{ StatType_t::RENDER_DONE, ObjType_t::OT_GENERAL, LLUUID::null, LLUUID::null, 0 });
 		}
 
 		static void clearStats()
 		{
-			LL_PROFILE_ZONE_SCOPED_CATEGORY_STATS;
 			StatsRecorder::getInstance().processUpdate(StatsRecord{ StatType_t::RENDER_DONE, ObjType_t::OT_GENERAL, LLUUID::null, LLUUID::null, 1 });
 		}
 
@@ -236,7 +233,6 @@ namespace LLPerfStats
 
 		void processUpdate(const StatsRecord& upd) const
 		{
-			LL_PROFILE_ZONE_SCOPED_CATEGORY_STATS;
 
 			// Note: nullptr is used as the key for global stats
 
@@ -265,7 +261,6 @@ namespace LLPerfStats
 
 		static inline void doUpd(const LLUUID& key, ObjType_t ot, StatType_t type, uint64_t val)
 		{
-			LL_PROFILE_ZONE_SCOPED_CATEGORY_STATS;
 			using ST = StatType_t;
 			StatsMap& stm{ statsDoubleBuffer[writeBuffer][static_cast<size_t>(ot)] };
 			auto& thisAsset = stm[key];
@@ -310,14 +305,12 @@ namespace LLPerfStats
 			start{ LLTrace::BlockTimer::getCPUClockCount64() },
 			stat{ type, ObjTypeDiscriminator, std::move(av), std::move(id), 0, isRiggedAtt, isHUDAtt }
 		{
-			LL_PROFILE_ZONE_SCOPED_CATEGORY_STATS;
 		};
 
 		template < ObjType_t OD = ObjTypeDiscriminator,
 			std::enable_if_t<OD == ObjType_t::OT_GENERAL>* = nullptr>
 		explicit RecordTime(StatType_t type) :RecordTime<ObjTypeDiscriminator>(LLUUID::null, LLUUID::null, type)
 		{
-			LL_PROFILE_ZONE_SCOPED_CATEGORY_STATS;
 		};
 
 		~RecordTime()

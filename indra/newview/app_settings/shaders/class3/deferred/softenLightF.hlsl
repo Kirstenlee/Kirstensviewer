@@ -87,7 +87,7 @@ uniform int classic_mode;
 
 struct PSInput
 {
-    // S24 (2026-08-02): missing SV_Position - see uiF.hlsl's comment (fxc.exe-confirmed VS/PS register-shift bug).
+    // SV_Position must be declared first in PSInput to match VS output register order - see uiF.hlsl.
     float4 position : SV_Position;
 
     float2 vary_fragcoord : TEXCOORD0;
@@ -125,11 +125,7 @@ float3 srgb_to_linear(float3 c);
 // fix) - this copy was unused here (only ever referenced at its own
 // declaration), dead code - deleted, not guarded.
 
-// S24 (2026-08-11, task #156): guarded (was bare) - reflectionProbeF.hlsl
-// (always co-attached here) now also declares this, needed there for its
-// restored SSR blend blocks in files that attach it WITHOUT this one
-// (pbralphaF.hlsl/alphaF.hlsl/materialF.hlsl). Same include-guard pattern
-// already established throughout this codebase for dual-declared uniforms.
+// Guarded: reflectionProbeF.hlsl (always co-attached here) also declares this.
 #ifndef LL_CUBE_SNAPSHOT_DECLARED
 #define LL_CUBE_SNAPSHOT_DECLARED
 uniform int cube_snapshot;
@@ -208,9 +204,7 @@ float4 main(PSInput IN) : SV_Target
     float4 spec        = gb.specular; // NOTE: PBR linear Emissive
 
 #if defined(HAS_SUN_SHADOW) || defined(HAS_SSAO)
-    // S24 (2026-08-04): same texture-origin flip as getGBuffer()/getDepth()
-    // (gbufferUtil.hlsl/deferredUtil.hlsl) - lightMap is another G-buffer-
-    // adjacent render target sampled with a screen-space UV here.
+    // Same texture-origin flip as getGBuffer()/getDepth() (gbufferUtil.hlsl/deferredUtil.hlsl).
     float2 scol_ambocc = lightMap.Sample(lightMapSampler, float2(IN.vary_fragcoord.x, 1.0 - IN.vary_fragcoord.y)).rg;
 #endif
 

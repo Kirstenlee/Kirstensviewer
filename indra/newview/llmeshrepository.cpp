@@ -1023,7 +1023,6 @@ void LLMeshRepoThread::run()
         // On the other hand, this may actually be an effective and efficient scheme...
 
         mSignal->wait();
-        LL_PROFILE_ZONE_NAMED("mesh_thread_loop")
 
         if (LLApp::isExiting())
         {

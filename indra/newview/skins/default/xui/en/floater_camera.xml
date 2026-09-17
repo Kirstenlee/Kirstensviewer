@@ -37,7 +37,7 @@
 
     <!-- Tab container for Camera Controls and Framing -->
     <tab_container
-     follows="all"
+     follows="left|top|right"
      height="170"
      halign="center"
      layout="topleft"
@@ -637,6 +637,7 @@
 
   <panel
     name="viewer_camera_info"
+    follows="left|top"
     left="0"
     top="135"
     width="400"
@@ -646,6 +647,7 @@
     background_visible="true"/>
   <panel
     name="agent_camera_info"
+    follows="left|top"
     left="0"
     top="285"
     width="400"

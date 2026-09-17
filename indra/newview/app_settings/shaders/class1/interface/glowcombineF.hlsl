@@ -31,7 +31,7 @@ SamplerState emissiveRectSampler : register(s1);
 
 struct PSInput
 {
-    // S24 (2026-08-02): missing SV_Position - see uiF.hlsl's comment (fxc.exe-confirmed VS/PS register-shift bug).
+    // SV_Position required here - its absence shifts every interpolant register (see uiF.hlsl).
     float4 position : SV_Position;
 
     float2 tc : TEXCOORD0;
@@ -39,9 +39,8 @@ struct PSInput
 
 float4 main(PSInput IN) : SV_Target
 {
-    // S24 (2026-08-09, task #138): same GL-vs-D3D11 texture-origin mismatch
-    // already fixed for postDeferredGammaCorrect.hlsl/glowExtractF.hlsl/
-    // glowF.hlsl - flip belongs here, at the actual Texture2D .Sample() call
+    // GL-vs-D3D11 texture-origin flip, same fix as postDeferredGammaCorrect.hlsl/
+    // glowExtractF.hlsl/glowF.hlsl - belongs here, at the Sample() call
     // site, not in glowcombineV.hlsl (tc = position.xy*0.5+0.5, same
     // pattern as postDeferredNoTCV.hlsl - kept in GL's original convention).
     float2 tc = float2(IN.tc.x, 1.0 - IN.tc.y);

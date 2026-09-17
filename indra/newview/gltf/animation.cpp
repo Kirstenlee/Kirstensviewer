@@ -90,14 +90,12 @@ void Animation::update(Asset& asset, F32 dt)
 
 void Animation::apply(Asset& asset, float time)
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_GLTF;
 
     // convert time to animation loop time
     time = fmod(time, mMaxTime - mMinTime) + mMinTime;
 
     // apply each channel
     {
-        LL_PROFILE_ZONE_NAMED_CATEGORY_GLTF("gltfanim - rotation");
 
         for (auto& channel : mRotationChannels)
         {
@@ -106,7 +104,6 @@ void Animation::apply(Asset& asset, float time)
     }
 
     {
-        LL_PROFILE_ZONE_NAMED_CATEGORY_GLTF("gltfanim - translation");
 
         for (auto& channel : mTranslationChannels)
         {
@@ -115,7 +112,6 @@ void Animation::apply(Asset& asset, float time)
     }
 
     {
-        LL_PROFILE_ZONE_NAMED_CATEGORY_GLTF("gltfanim - scale");
 
         for (auto& channel : mScaleChannels)
         {
@@ -205,7 +201,6 @@ const Animation::Channel& Animation::Channel::operator=(const Value& src)
 
 void Animation::Sampler::getFrameInfo(Asset& asset, F32 time, U32& frameIndex, F32& t)
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_GLTF;
     llassert(mFrameTimes.size() > 1); // if there is only one frame, there is no need to interpolate
 
     if (time < mMinTime)
@@ -394,9 +389,8 @@ const Animation& Animation::operator=(const Value& src)
 Skin::~Skin()
 {
 #ifdef DX_RENDER
-    // S24 (task #79): glDeleteBuffers is raw GL - null fn ptr under
-    // DX_RENDER. mDXUBO's own destructor already releases its D3D11
-    // buffer; mUBO stays 0 under DX_RENDER so this branch is a no-op.
+    // glDeleteBuffers is raw GL, null under DX_RENDER. mDXUBO's own destructor
+    // already releases its D3D11 buffer; mUBO stays 0 so this branch is a no-op.
     mDXUBO.destroy();
 #else
     if (mUBO)
@@ -409,7 +403,6 @@ Skin::~Skin()
 void Skin::uploadMatrixPalette(Asset& asset)
 {
     // prepare matrix palette
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_GLTF;
 
     U32 max_joints = LLSkinningUtil::getMaxGLTFJointCount();
 

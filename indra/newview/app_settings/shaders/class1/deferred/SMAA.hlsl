@@ -24,69 +24,26 @@
 
 /*[EXTRA_CODE_HERE]*/
 
-// S24 (2026-08-19, task #227 lead-in): this file was previously a 50-line
-// stub of bare forward declarations with NO function bodies at all - none of
-// SMAAEdgeDetectV.hlsl/SMAAEdgeDetectF.hlsl/SMAABlendWeightsV.hlsl/
-// SMAABlendWeightsF.hlsl/SMAANeighborhoodBlendV.hlsl/SMAANeighborhoodBlendF.hlsl
-// (which all #include this file and call into it) could ever link -
-// D3DCompile failed every launch with "function 'SMAAEdgeDetectionVS'/
-// 'SMAAColorEdgeDetectionPS' missing implementation", so SMAA silently
-// disabled itself at every startup (LLViewerShaderMgr::loadShadersDeferred).
-// This is the real, faithful port of the algorithm from the ~1475-line
-// SMAA.glsl (Jorge Jimenez et al.'s reference SMAA library), scoped to
-// exactly what this project's llviewershadermgr.cpp actually wires up:
-//   - Color edge detection only (SMAAColorEdgeDetectionPS) - the Luma and
-//     Depth edge-detection variants are real functions in SMAA.glsl but
-//     have no HLSL entry-point file calling them anywhere in this tree, so
-//     they're dead code under both backends here and are not ported.
-//   - SMAA_PREDICATION=0 and SMAA_REPROJECTION=0 always (see
-//     llviewershadermgr.cpp's `defines` map for the SMAA program group) -
-//     matches the #if guards already present, unmodified, in the existing
-//     entry-point files, so the predication/velocity-texture code paths are
-//     never compiled in either backend and are not ported.
-//   - Diagonal + corner detection ARE ported (guarded by the same
-//     SMAA_DISABLE_DIAG_DETECTION/SMAA_DISABLE_CORNER_DETECTION defines the
-//     Low/Medium presets set) since the High/Ultra presets use them.
-//   - SMAAResolvePS/SMAASeparatePS (temporal supersampling / MSAA-separate,
-//     optional passes) are not wired up by any C++ call site under either
-//     backend and are not ported.
+// Port of SMAA.glsl (Jorge Jimenez et al.), scoped to what
+// llviewershadermgr.cpp wires up: color edge detection only (Luma/Depth
+// variants have no HLSL entry point and are not ported); SMAA_PREDICATION
+// and SMAA_REPROJECTION are always 0, so those paths are not ported;
+// diagonal + corner detection ARE ported (used by the High/Ultra presets);
+// SMAAResolvePS/SMAASeparatePS are not wired up anywhere and not ported.
 //
-// GLSL-vs-HLSL note: the real SMAA.glsl already writes its function bodies
-// using float2/float3/float4/int2/mad/lerp/saturate names throughout (via
-// its own SMAA_GLSL_* porting-macro layer aliasing them to GLSL's native
-// vec2/mix/clamp etc.) - meaning the bodies below are near-verbatim copies
-// of the GLSL source, not a syntax rewrite. The one real semantic port is
-// the *sampling* macros just below: GLSL's SMAA_HLSL_4 target (which this
-// follows) implements SMAASampleLevelZeroOffset() et al as PREPROCESSOR
-// MACROS, not functions - this is not a style choice, it's required by
-// Direct3D: Texture2D::Sample()/SampleLevel()'s `offset` parameter must be a
-// true compile-time immediate literal at the intrinsic call site (SM5
-// restriction), not a value merely known-constant through a function
-// parameter. Every offset used by this algorithm is a small int2 literal at
-// each call site (e.g. int2(-1,0)), so macro-expansion (textually inlining
-// the literal right next to the intrinsic) satisfies this; a generic helper
-// *function* taking `int2 offset` as a parameter would not compile. Also:
-// unlike the entry-point files' 5 top-level functions (whose signatures are
-// fixed by the already-existing, unmodified entry files and take explicit
-// Texture2D+SamplerState pairs matching this project's usual convention),
-// every INTERNAL-only helper below samples through its own fixed
-// LinearSampler/PointSampler (declared here, matching GLSL's SMAA_HLSL_4
-// porting layer exactly) rather than a caller-supplied sampler - this is
-// deliberate and matches upstream: the algorithm's correctness depends on
-// point-vs-linear filtering being exactly what each tap needs, not on
-// whatever filter mode happens to be bound at the LLTexUnit level for that
-// channel. The *Sampler parameters the entry files pass in are therefore
-// unused inside the corresponding top-level function bodies below - that's
-// intentional, not a leftover.
+// SMAASampleLevelZeroOffset() et al must stay preprocessor macros, not
+// functions: Texture2D::Sample()/SampleLevel()'s `offset` argument must be
+// a true compile-time immediate literal at the intrinsic call site (SM5
+// restriction), not merely a value that's constant through a function
+// parameter. Each top-level function below therefore samples through its
+// own fixed LinearSampler/PointSampler (matching GLSL's SMAA_HLSL_4 porting
+// layer) rather than the *Sampler parameters entry-point files pass in -
+// those parameters are intentionally unused.
 //
-// SMAA_FLIP_Y: GLSL/GL targets set this to 1 (bottom-up texture origin);
-// SMAA_HLSL_4/4_1 defaults to 0 (top-left origin, Direct3D's native
-// convention) - this project targets D3D11 throughout, so the API_V_*
-// macros below are hardcoded to the FLIP_Y=0 branch directly rather than
-// keeping GLSL's runtime #if, matching the same GL-vs-D3D UV-origin
-// direction already resolved (the other way, i.e. GL needing the flip) in
-// every other file this project has hit this in (SSAO dither, avatar
-// impostor UVs, hero-probe viewport).
+// This project targets D3D11 only, but the API_V_* macros below implement
+// the SMAA_FLIP_Y=1 (bottom-up) branch, not HLSL_4's default FLIP_Y=0: this
+// pipeline's intermediate render targets need the same bottom-up-origin
+// compensation GLSL's SMAA_GLSL_4 branch uses.
 
 #ifdef VERTEX_SHADER
     #define SMAA_INCLUDE_VS 1
@@ -205,21 +162,12 @@ uniform float4 SMAA_RT_METRICS;
 // Porting: sampler objects + sampling macros (SMAA_HLSL_4 target, see
 // top-of-file comment for why these must stay macros, not functions)
 
-// S24 (2026-09-04): explicit high slots (s13/s14), matching this project's
-// established "safe unused register" convention (see reflectionProbeF.hlsl's
-// t16/t17 comment) - every SMAA entry-point file's own per-texture samplers
-// (edgesTexSampler/areaTexSampler/searchTexSampler etc, all declared/unused
-// per the comments below) sit at s0-s2, so s13/s14 can never collide. This
-// codebase's raw-D3D11 shader path does NOT auto-bind samplers from an
-// inline initializer block like this - unlike the Effects11 framework, the
-// {Filter=...} values here are compiled-in metadata only, not a real bound
-// sampler. Without an explicit register (letting the compiler auto-assign
-// one) AND a matching PSSetSamplers() call at that slot from C++, these reads
-// used whatever sampler a prior, unrelated draw left bound to the auto-
-// assigned slot that frame - undefined per-frame garbage, not really
-// point/linear at all. DXSampler::bindStatic(13,...)/(14,...) in
-// generateSMAABuffers()/applySMAA() (pipeline.cpp) now binds real samplers
-// here every pass.
+// Explicit high slots (s13/s14) avoid collision with each entry-point
+// file's own per-texture samplers at s0-s2. This codebase's raw-D3D11 path
+// does not auto-bind samplers from an inline initializer block like this -
+// the {Filter=...} values are compiled-in metadata only. Real samplers are
+// bound at these slots by DXSampler::bindStatic(13/14, ...) in
+// generateSMAABuffers()/applySMAA() (pipeline.cpp).
 SamplerState LinearSampler : register(s13) { Filter = MIN_MAG_LINEAR_MIP_POINT; AddressU = Clamp; AddressV = Clamp; };
 SamplerState PointSampler : register(s14) { Filter = MIN_MAG_MIP_POINT; AddressU = Clamp; AddressV = Clamp; };
 
@@ -232,14 +180,6 @@ SamplerState PointSampler : register(s14) { Filter = MIN_MAG_MIP_POINT; AddressU
 #define SMAA_FLATTEN [flatten]
 #define SMAA_BRANCH [branch]
 
-// S24 (2026-08-19, live-test fix): first attempt hardcoded the SMAA_FLIP_Y=0
-// ("vanilla D3D11 top-left origin") branch per the reference library's own
-// stated SMAA_HLSL_4 default - live-tested WRONG, entire frame rendered
-// upside down. Same GL-vs-D3D origin-convention bug class this project has
-// hit repeatedly (SSAO dither, avatar impostor UVs, hero-probe viewport) -
-// this pipeline's intermediate render targets evidently need the SAME
-// bottom-up-origin compensation GLSL's own SMAA_GLSL_4 branch uses, not the
-// reference library's generic HLSL default. Swapped to match.
 #define API_V_DIR(v) (-(v))
 #define API_V_COORD(v) (1.0 - (v))
 #define API_V_BELOW(v1, v2) ((v1) < (v2))
@@ -306,17 +246,11 @@ float2 SMAAColorEdgeDetectionPS(float2 texcoord,
     // colorTexSampler/predicationTex* are unused; sampling below always goes
     // through this file's own LinearSampler/PointSampler.
 
-    // S24 (2026-08-19, live-test fix): colorTex here is the raw scene buffer
-    // (src/sourceBuffer passed to generateSMAABuffers()) - same GL-style
-    // bottom-up storage glowcombineFXAAF.hlsl already compensates for when
-    // reading the identical buffer at the identical pipeline stage
-    // (float2(tc.x, 1.0-tc.y)) for FXAA's own bake step. Missing this exact
-    // flip here was why the whole frame rendered upside down with SMAA on -
-    // flipped once, before all the neighbor sampling below, matching
-    // fxaaF.hlsl's "flip the base coordinate once" approach (safe because
-    // every sample below is colorTex - unlike SMAANeighborhoodBlendingPS,
-    // which also reads SMAA's own self-consistent blendTex and must NOT
-    // flip that one).
+    // colorTex is the raw scene buffer (GL-style bottom-up storage, same
+    // convention glowcombineFXAAF.hlsl compensates for) - flipped once here
+    // before all the neighbor sampling below, since every sample in this
+    // function reads colorTex. Unlike SMAANeighborhoodBlendingPS's blendTex
+    // (SMAA's own self-consistent internal buffer), which must NOT be flipped.
     texcoord.y = 1.0 - texcoord.y;
     offset[0].y = 1.0 - offset[0].y;
     offset[0].w = 1.0 - offset[0].w;
@@ -756,13 +690,10 @@ float4 SMAANeighborhoodBlendingPS(float2 texcoord,
     a.y = SMAASample(blendTex, offset.zw).g; // Top
     a.wz = SMAASample(blendTex, texcoord).xz; // Bottom / Left
 
-    // S24 (2026-08-19, live-test fix): colorTex here is the raw scene
-    // buffer (src) - unlike blendTex above, this needs the same read-side
-    // flip SMAAColorEdgeDetectionPS's matching fix documents (same GL-style
-    // bottom-up storage, same fix pattern as glowcombineFXAAF.hlsl). Kept
-    // as a separate coordinate rather than flipping texcoord itself, since
-    // this function - unlike fxaaF.hlsl - samples two buffers with
-    // DIFFERENT conventions in the same pass.
+    // colorTex is the raw scene buffer and needs the same read-side flip as
+    // SMAAColorEdgeDetectionPS. Kept as a separate coordinate rather than
+    // flipping texcoord itself, since this function samples two buffers
+    // with different origin conventions (colorTex vs. blendTex) in the same pass.
     float2 colorTexcoord = float2(texcoord.x, 1.0 - texcoord.y);
 
     // Is there any blending weight with a value greater than 0.0?

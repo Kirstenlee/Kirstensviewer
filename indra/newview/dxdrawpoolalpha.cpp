@@ -66,21 +66,9 @@ namespace
     const F32 MINIMUM_ALPHA = 0.004f; // ~ 1/255
     const F32 MINIMUM_IMPOSTOR_ALPHA = 0.1f;
 
-    // S24 (alpha attachment-order fix, AYAstorm-derived, LGPL v2.1 - adopted
-    // per that project's public spec, explicitly released for free adoption
-    // by any LL-derived viewer fork, no PR required). Fixes a real bug also
-    // present in stock lldrawpoolalpha.cpp (which this file was ported from
-    // "exactly"): in POOL_ALPHA_POST_WATER, rigged content (hair) draws
-    // first and writes depth, so non-rigged alpha behind it (windows, lace,
-    // foliage) fails the depth test before its own fragment shader runs and
-    // reverts to raw skybox. A naive "swap the order" fix then breaks
-    // non-rigged AVATAR ATTACHMENTS specifically (eyelashes/eyebrows drawn
-    // before hair, over-blended into invisibility) - this 3-value filter,
-    // used to split the non-rigged pass into a SIM-only sub-pass and an
-    // attachment-only sub-pass either side of the rigged pass, is how
-    // AYAstorm's refined fix avoids that regression. See
-    // DXDrawPoolAlpha::renderPostDeferred()'s dispatch for the actual 3-pass
-    // sequence this enables.
+    // Filters renderAlpha()'s draw loop by avatar-attachment status. Used by
+    // renderPostDeferred()'s POST_WATER 3-pass split (see there) to avoid a
+    // depth-order regression between rigged content and non-rigged alpha.
     enum AlphaAttachmentFilter
     {
         ATTACHMENT_ALL,   // default - every existing call site, unchanged behavior
@@ -124,39 +112,17 @@ namespace
             shader->setMinimumAlpha(MINIMUM_ALPHA);
         }
 
-        // S24 (2026-08-09, task #170): now that DXVertexLayout supports
-        // MAP_WEIGHT4 (task #168), rigged batches are no longer skipped -
-        // also prime the rigged variant, matching the real GL source
-        // (lldrawpoolalpha.cpp's prepare_alpha_shader()) exactly.
         if (shader->mRiggedVariant && shader->mRiggedVariant != shader)
         {
             prepare_alpha_shader(shader->mRiggedVariant, deferredEnvironment, water_sign);
         }
     }
 
-    // S24 (2026-08-09, task #142): the indexed/simple-texture diffuse bind
-    // below (draw->mTextureList / draw->mTexture, the "not a real material"
-    // branch every non-GLTF alpha face with no bound normal/spec map takes -
-    // glass, plants, particles, hair, most everyday alpha content) used to
-    // bind unconditionally at gDX.getTexUnit(0)/getTexUnit(i), mirroring
-    // GL's own code verbatim. That's correct under GL - tex0's sampler
-    // uniform is set to texture image unit 0 by convention regardless of
-    // where in the GLSL source it's declared. It is NOT correct under
-    // DX_RENDER: llshadermgr.cpp's dynamic diffuseLookup() HLSL generation
-    // (loadShaderFile(), texture_index_channels > 0 branch) places tex0..N
-    // at register t5.. (not t0..) whenever the shader also attaches
-    // deferredUtil.hlsl (kIndexedTexRegisterBase, gated on
-    // isDeferred || hasReflectionProbes - true for every alpha shader this
-    // pool binds) to avoid colliding with deferredUtil.hlsl's own t0-t3
-    // G-buffer/depth samplers. Binding the actual diffuse SRV to slot 0
-    // left the shader's real t5 slot holding whatever an unrelated earlier
-    // draw call left there - sampled as (0,0,0,0), so every alpha face's
-    // diffuse alpha read as 0 and either discarded (USE_VERTEX_COLOR's
-    // minimum_alpha check) or blended fully transparent - real root cause
-    // of "alpha renders nothing, toggling render types changes nothing"
-    // (not a gating/blend-state bug - every face WAS drawing, just
-    // invisibly). Mirrors llshadermgr.cpp's exact kIndexedTexRegisterBase
-    // formula so the two stay in lockstep.
+    // Under DX_RENDER, indexed diffuse texture registers start at t5, not
+    // t0, whenever the shader also attaches deferredUtil.hlsl (isDeferred ||
+    // hasReflectionProbes - true for every alpha shader here), to avoid
+    // colliding with its t0-t3 G-buffer/depth samplers. Must match
+    // llshadermgr.cpp's kIndexedTexRegisterBase formula exactly.
     S32 indexedTexRegisterBase(LLHLSLShader* shader)
     {
         return (shader && (shader->mFeatures.isDeferred || shader->mFeatures.hasReflectionProbes)) ? 5 : 0;
@@ -211,16 +177,9 @@ namespace
                     }
                     else
                     {
-                        // S24 (2026-08-06): the single-texture branch below
-                        // (mTexture.notNull() == false) already unbinds on
-                        // null - this loop didn't, leaving channel i holding
-                        // whatever an unrelated EARLIER draw call bound there
-                        // (e.g. terrain's detail_0-3/alpha_ramp, channels 0-4,
-                        // drawn earlier in the same frame via
-                        // renderGeomDeferred() before this post-deferred
-                        // pool runs) - found via a real reported symptom
-                        // (alpha mesh showing a grey/black blend-pattern
-                        // texture matching terrain's alpha_ramp look).
+                        // Must explicitly unbind here on null - this channel may still
+                        // hold a stale bind from an earlier draw call (e.g. terrain's
+                        // detail_0-3/alpha_ramp) in the same frame.
                         gDX.getTexUnit(indexed_base + i)->unbindFast(LLTexUnit::TT_TEXTURE);
                     }
                 }
@@ -302,10 +261,6 @@ namespace
         }
     }
 
-    // S24 (2026-08-09, task #170): rigged counterparts of renderEmissives()/
-    // renderPbrEmissives() - ported directly from lldrawpoolalpha.cpp,
-    // no DX-specific changes needed (LLGLDepthTest, uploadMatrixPalette(),
-    // setBuffer()/drawRange() are all already DX-safe by composition).
     void renderRiggedEmissives(std::vector<LLDrawInfo*>& emissives)
     {
         LLGLDepthTest depth(GL_TRUE, GL_FALSE); // disable depth writes since "emissive" is additive so sorting doesn't matter
@@ -351,8 +306,6 @@ namespace
         }
     }
 
-    // S24 (2026-08-09, task #170): now a real 2-pass (static + rigged) loop,
-    // matching lldrawpoolalpha.cpp's renderAlphaHighlight() exactly.
     void renderAlphaHighlight()
     {
         for (int pass = 0; pass < 2; ++pass)
@@ -423,7 +376,6 @@ namespace
             gDX.diffuseColor4f(0, 1, 0, 1);
             pool.pushUntexturedBatches(LLRenderPass::PASS_INVISIBLE);
 
-            // S24 (2026-08-09, task #170): rigged half, ported directly.
             gHighlightProgram.mRiggedVariant->bind();
             gDX.diffuseColor4f(1, 0, 0, 1);
 
@@ -445,19 +397,12 @@ namespace
         }
     }
 
-    // S24 (2026-08-09, task #170): now takes `rigged`, matching
-    // lldrawpoolalpha.cpp's renderAlpha(mask, depth_only, rigged) exactly -
-    // called once with rigged=false (static geometry, PASS_ALPHA /
-    // beginAlphaGroups()) and once with rigged=true (rigged mesh
-    // attachments/clothing/mesh bodies, PASS_ALPHA_RIGGED /
-    // beginRiggedAlphaGroups()) from forwardRender() below. This is the
-    // real fix for task #157 (invisible avatar mesh bodies/clothing) - the
-    // vertex-layout wall (task #168) and POOL_AVATAR whitelist (task #169)
-    // were necessary but not sufficient; rigged batches never reached a
-    // draw call at all until now.
+    // Called with rigged=false for static geometry (PASS_ALPHA /
+    // beginAlphaGroups()) and rigged=true for rigged mesh
+    // attachments/clothing/mesh bodies (PASS_ALPHA_RIGGED /
+    // beginRiggedAlphaGroups()).
     void renderAlpha(LLDrawPoolAlpha& pool, U32 mask, bool depth_only, bool rigged, AlphaAttachmentFilter filter = ATTACHMENT_ALL)
     {
-        LL_PROFILE_ZONE_SCOPED_CATEGORY_DRAWPOOL;
         bool initialized_lighting = false;
         bool light_enabled = true;
 
@@ -466,14 +411,11 @@ namespace
         const LLHLSLShader* lastAvatarShader = nullptr;
         bool skipLastSkin = false;
 
-        // S24 (2026-09-09, perf pass): sentinels outside each field's real
-        // range, matching dxdrawpoolmaterials.cpp's identical pattern - avoid
-        // re-uploading these 3 per-drawable uniforms (each a hashed
-        // mConstants lookup + write in DXShader::setUniformFloatArray(), x2
-        // for vertex+pixel stage) when the value hasn't actually changed
-        // since the last draw item. Reset to the sentinel whenever the bound
-        // shader changes (below) so the newly-bound shader's own constant
-        // buffer still gets a real first set.
+        // Sentinels outside each field's real range - skip re-uploading these
+        // 3 per-drawable uniforms when unchanged since the last draw item.
+        // Reset whenever the bound shader changes (below) so the newly-bound
+        // shader's own constant buffer gets a real first set. Matches
+        // dxdrawpoolmaterials.cpp's identical pattern.
         LLVector4 lastSpecColor(-1.f, -1.f, -1.f, -1.f);
         F32 lastEnvIntensity = -1.f;
         F32 lastBrightness = -1.f;
@@ -556,8 +498,7 @@ namespace
                         continue;
                     }
 
-                    // S24 (alpha attachment-order fix) - see this file's
-                    // AlphaAttachmentFilter comment. No-op when filter is
+                    // See AlphaAttachmentFilter above; no-op when filter is
                     // the default ATTACHMENT_ALL.
                     if (filter == ATTACHMENT_NONE && params.mAttachedToAvatar)
                     {
@@ -648,11 +589,9 @@ namespace
                                 }
                             }
 
-                            // S24 (2026-09-09, perf pass): force a real set
-                            // of all 3 uniforms below on this newly-bound
-                            // shader - its own constant buffer hasn't seen
-                            // these values yet, even if they happen to match
-                            // whatever the PREVIOUSLY bound shader last had.
+                            // Force a real re-upload of the 3 uniforms below - the
+                            // newly-bound shader's own constant buffer hasn't seen
+                            // them yet even if the values match the previous shader's.
                             lastSpecColor.setVec(-1.f, -1.f, -1.f, -1.f);
                             lastEnvIntensity = -1.f;
                             lastBrightness = -1.f;
@@ -814,14 +753,12 @@ namespace
         }
     }
 
-    // S24 (2026-08-09, task #170): now takes `rigged`, matching
-    // lldrawpoolalpha.cpp's forwardRender(bool rigged) exactly.
     void forwardRender(LLDrawPoolAlpha& pool, bool rigged, AlphaAttachmentFilter filter = ATTACHMENT_ALL)
     {
         gPipeline.enableLightsDynamic();
 
         LLGLSPipelineAlpha gls_pipeline_alpha;
-        gDX.setColorMask(true, true);
+        gDX.setColorWriteMask(true, true);
 
         bool write_depth = rigged
             || LLDrawPoolWater::sSkipScreenCopy
@@ -846,7 +783,7 @@ namespace
 
         renderAlpha(pool, pool.getVertexDataMask() | LLVertexBuffer::MAP_TEXTURE_INDEX | LLVertexBuffer::MAP_TANGENT | LLVertexBuffer::MAP_TEXCOORD1 | LLVertexBuffer::MAP_TEXCOORD2, false, rigged, filter);
 
-        gDX.setColorMask(true, false);
+        gDX.setColorWriteMask(true, false);
 
         if (!rigged && (LLPipeline::sRenderingHUDs || pool.getType() == LLDrawPool::POOL_ALPHA_POST_WATER))
         {
@@ -858,7 +795,6 @@ namespace
 // static
 void DXDrawPoolAlpha::renderPostDeferred(LLDrawPoolAlpha& pool, S32 pass)
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_DRAWPOOL;
 
     if (LLPipeline::isWaterClip() && pool.getType() == LLDrawPool::POOL_ALPHA_PRE_WATER)
     {
@@ -910,36 +846,17 @@ void DXDrawPoolAlpha::renderPostDeferred(LLDrawPoolAlpha& pool, S32 pass)
 
     prepare_alpha_shader(pbr_shader, true, water_sign);
 
-    // S24 (2026-08-22, plan item D2 - investigated, reverted): a proposed
-    // "structural fix" here (reset sCurBoundShaderPtr instead of the
-    // explicit bindReflectionProbes call below) turned out to be built on a
-    // mechanism that doesn't hold up: LLHLSLShader::unbind() (called a few
-    // lines below, before the real draw loop) already sets
-    // sCurBoundShaderPtr = nullptr under DX_RENDER (llhlslshader.cpp:1385),
-    // so the dedup-cache-poisoning theory doesn't actually explain why the
-    // explicit call below was needed. Since that explicit call is a live,
-    // confirmed fix for a real bug ("glass floor shows zero reflections"),
-    // and the true mechanism isn't yet understood, left AS-IS rather than
-    // risk reintroducing a known bug on an unverified theory. Revisit only
-    // with a live diagnostic proving the actual mechanism first.
-    // S24 (2026-08-22, task #156 follow-up): pbralphaF.hlsl's real body
-    // (class2/deferred, task #173) calls sampleReflectionProbes() -
-    // probes_enabled/probe_intensity/etc (reflectionProbeF.hlsl's plain
-    // top-level uniforms, NOT part of the b1 cbuffer) and the SSR
-    // modelview_delta/inv_modelview_delta matrices are only ever uploaded
-    // inside LLPipeline::bindReflectionProbes(shader) - and that call
-    // targets THIS shader's own per-program uniform storage specifically
-    // (same D3D11 per-shader-cbuffer limitation already fixed for the
-    // legacy bump/shiny pool via this exact call, task #147/#184 -
-    // dxdrawpoolbump.cpp's beginFullbrightShiny()). This alpha pool never
-    // called it for gDeferredPBRAlphaProgram, so probes_enabled/the SSR
-    // deltas were never set for PBR alpha-blend materials (glTF glass,
-    // water-adjacent transparent surfaces) - real, confirmed root cause of
-    // "glass floor shows zero reflections" while nearby opaque/bump-shiny
-    // content (routed through bindDeferredShader()/dxdrawpoolbump.cpp,
-    // both of which already call this) reflects correctly. HUD PBR alpha
-    // has no deferredUtil.hlsl attachment (no reflectionProbeF.hlsl either,
-    // see gHUDPBRAlphaProgram's own comment), so this is skipped for HUDs.
+    // Do not remove as "redundant" - despite sCurBoundShaderPtr already
+    // being reset to nullptr in unbind() below, this explicit call is a
+    // confirmed fix for reflections vanishing on PBR alpha-blend materials;
+    // the exact mechanism isn't understood.
+    //
+    // pbralphaF.hlsl's sampleReflectionProbes() uniforms (probes_enabled,
+    // probe_intensity, SSR modelview_delta matrices) live in this shader's
+    // own per-program cbuffer (D3D11's per-shader-cbuffer limit - same
+    // reason dxdrawpoolbump.cpp's beginFullbrightShiny() needs this call for
+    // bump/shiny). Skipped for HUDs: HUD PBR alpha has no
+    // reflectionProbeF.hlsl attachment.
     if (!LLPipeline::sRenderingHUDs)
     {
         gPipeline.bindReflectionProbes(*pbr_shader);
@@ -947,10 +864,6 @@ void DXDrawPoolAlpha::renderPostDeferred(LLDrawPoolAlpha& pool, S32 pass)
 
     LLHLSLShader::unbind();
 
-    // S24 (2026-08-09, task #170): first pass, render rigged objects only
-    // and render to depth buffer - matches lldrawpoolalpha.cpp's
-    // renderPostDeferred() exactly. Was skipped entirely before the
-    // vertex-layout wall (task #168) was fixed.
     if (LLPipeline::sRenderingHUDs)
     {
         // unchanged - HUDs never ran a rigged pass here anyway
@@ -958,20 +871,12 @@ void DXDrawPoolAlpha::renderPostDeferred(LLDrawPoolAlpha& pool, S32 pass)
     }
     else if (pool.getType() == LLDrawPool::POOL_ALPHA_POST_WATER)
     {
-        // S24 (2026-08-30, task #155, AYAstorm-derived alpha attachment-
-        // order fix, LGPL v2.1, adopted per their public spec's explicit
-        // "free adoption, no PR required" terms) - rigged content (hair)
-        // drawing+depth-writing before non-rigged alpha behind it (windows,
-        // lace, foliage) was causing that content to fail the depth test
-        // and revert to raw skybox instead of blending. Splitting into 3
-        // sub-passes (SIM non-rigged, then all rigged, then avatar-
-        // attachment non-rigged) fixes that without the eyelash/eyebrow-
-        // attachment regression AYAstorm's first, simpler 2-pass reorder
-        // attempt hit (rigid non-skinned attachments have no mAvatar/
-        // skinInfo, so they need their own late sub-pass via the broader
-        // mAttachedToAvatar discriminator, not mAvatar). Does NOT fix the
-        // original dome/glass-pane intra-mesh per-triangle sort bug (task
-        // #155's WBOIT attempt, abandoned/reverted) - different bug.
+        // Rigged content (hair) writes depth first; non-rigged alpha behind it
+        // (windows, lace, foliage) must draw before that or fail the depth
+        // test and revert to skybox. But avatar attachments (eyelashes,
+        // eyebrows) must draw AFTER the rigged pass or get over-blended into
+        // invisibility. Hence 3 sub-passes, filtered by mAttachedToAvatar
+        // (not mAvatar - rigid non-skinned attachments have neither).
         forwardRender(pool, false, ATTACHMENT_NONE); // SIM non-rigged first
         forwardRender(pool, true);                    // all rigged (depth-writing)
         forwardRender(pool, false, ATTACHMENT_ONLY);  // avatar-attachment non-rigged last
@@ -991,11 +896,11 @@ void DXDrawPoolAlpha::renderPostDeferred(LLDrawPoolAlpha& pool, S32 pass)
         simple_shader->bind();
         simple_shader->setMinimumAlpha(0.33f);
 
-        gDX.setColorMask(false, false);
+        gDX.setColorWriteMask(false, false);
 
         renderAlpha(pool, pool.getVertexDataMask() | LLVertexBuffer::MAP_TEXTURE_INDEX | LLVertexBuffer::MAP_TANGENT | LLVertexBuffer::MAP_TEXCOORD1 | LLVertexBuffer::MAP_TEXCOORD2,
             true, false);
 
-        gDX.setColorMask(true, false);
+        gDX.setColorWriteMask(true, false);
     }
 }

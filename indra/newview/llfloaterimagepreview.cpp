@@ -335,10 +335,9 @@ void LLFloaterImagePreview::draw()
             if(mImagep.notNull())
             {
 #ifdef DX_RENDER
-                // S24 (2026-08-03, task #84): mImagep is a real LLViewerTexture
-                // (has an LLImageGL/DXTexture behind it), not a raw GL name
-                // with nothing to look up - use the already-DX-aware
-                // bind(LLTexture*) chokepoint instead of bindManual().
+                // mImagep is a real LLViewerTexture (has an LLImageGL/
+                // DXTexture behind it) - use the DX-aware bind(LLTexture*)
+                // chokepoint instead of bindManual().
                 gDX.getTexUnit(0)->bind(mImagep);
 #else
                 gDX.getTexUnit(0)->bindManual(LLTexUnit::TT_TEXTURE, mImagep->getTexName());
@@ -354,7 +353,6 @@ void LLFloaterImagePreview::draw()
 #else
                 gDX.getTexUnit(0)->bindManual(LLTexUnit::TT_TEXTURE, mImagep->getTexName());
 #endif
-                stop_glerror();
 
                 gDX.getTexUnit(0)->setTextureFilteringOption(LLTexUnit::TFO_BILINEAR);
 
@@ -387,7 +385,6 @@ void LLFloaterImagePreview::draw()
 
             gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
 
-            stop_glerror();
         }
         else
         {
@@ -834,7 +831,6 @@ bool LLImagePreviewAvatar::render()
         LLVector3::z_axis,                                                                  // up
         target_pos + (mCameraOffset  * av_rot) );                                           // point of interest
 
-    stop_glerror();
 
     LLViewerCamera::getInstance()->setAspect((F32)mFullWidth / mFullHeight);
     LLViewerCamera::getInstance()->setView(LLViewerCamera::getInstance()->getDefaultFOV() / mCameraZoom);
@@ -1037,7 +1033,6 @@ bool LLImagePreviewSculpted::render()
         LLVector3::z_axis,                                                                  // up
         target_pos + (mCameraOffset  * av_rot) );                                           // point of interest
 
-    stop_glerror();
 
     LLViewerCamera::getInstance()->setAspect((F32) mFullWidth / mFullHeight);
     LLViewerCamera::getInstance()->setView(LLViewerCamera::getInstance()->getDefaultFOV() / mCameraZoom);

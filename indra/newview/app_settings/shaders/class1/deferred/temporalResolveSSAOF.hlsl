@@ -24,32 +24,24 @@
 
 /*[EXTRA_CODE_HERE]*/
 
-// S24 (2026-08-23, task #190 temporal-SSAO follow-up): reprojects last
-// frame's fully-resolved AO/shadow lightmap (mSSAOHistory) into this
-// frame's screen space and blends it with this frame's spatially-blurred
-// lightmap (deferred_light_target), specifically to fix per-frame
-// screen-locked-noise flicker in calcAmbientOcclusion() (aoUtil.hlsl) that
-// spatial blur alone cannot remove - see that file's own noiseMap comment.
-// Only the AO channel (green) is temporally blended; directional/spot
-// shadow channels (r/b/a) pass through unchanged - those don't share AO's
-// screen-locked-noise problem and temporally blending real moving shadows
-// would introduce shadow lag/ghosting that isn't wanted.
+// Reprojects last frame's resolved AO/shadow lightmap (mSSAOHistory) into
+// this frame's screen space and blends it with the spatially-blurred
+// lightmap, to fix screen-locked-noise flicker in calcAmbientOcclusion()
+// (aoUtil.hlsl) that spatial blur alone cannot remove. Only the AO channel
+// (green) is temporally blended; shadow channels (r/b/a) pass through
+// unchanged to avoid introducing shadow lag/ghosting.
 
 struct PSInput
 {
-    // S24 (2026-08-02): missing SV_Position - see uiF.hlsl's comment (fxc.exe-confirmed VS/PS register-shift bug).
+    // SV_Position required here - its absence shifts every interpolant register (see uiF.hlsl).
     float4 position : SV_Position;
 
     float2 vary_fragcoord : TEXCOORD0;
 };
 
 // t0-t3/s0-s3 reserved by deferredUtil.hlsl (isDeferred=true pulls it in).
-// t7/s7 matches the established free-slot convention this shader family
-// uses for its own lightMap (blurLightF.hlsl, sunLightSSAOF.hlsl) - reused
-// here since DEFERRED_LIGHT is bound the same way (bindDeferredShader()'s
-// light_target parameter). t8/s8 is the next free slot for the new history
-// buffer - confirmed unused by anything isDeferred=true pulls in (shadowUtil's
-// t10-t15 only attaches under HAS_SUN_SHADOW, which this shader doesn't set).
+// t7/s7 is the established free-slot convention for lightMap (blurLightF.hlsl,
+// sunLightSSAOF.hlsl); t8/s8 is the next free slot, for the history buffer.
 uniform Texture2D lightMap : register(t7);
 uniform SamplerState lightMapSampler : register(s7);
 
@@ -77,10 +69,8 @@ float4 main(PSInput IN) : SV_Target
 {
     float2 tc = IN.vary_fragcoord.xy;
 
-    // S24: GL-vs-D3D11 texture-origin flip, inlined at the sample call site
-    // only - same convention as every other render-target read in this
-    // shader family (aoUtil.hlsl, blurLightF.hlsl, copyF.hlsl). tc itself
-    // stays unflipped since getPosition() below needs it in that form.
+    // GL-vs-D3D11 texture-origin flip, inlined at the sample call only - tc
+    // itself stays unflipped since getPosition() below needs it in that form.
     float4 current = lightMap.Sample(lightMapSampler, float2(tc.x, 1.0 - tc.y));
 
     float3 pos_cur_eye = getPosition(tc).xyz;

@@ -34,22 +34,9 @@
 #include "dxdrawpoolalpha.h"
 #endif
 
-// S24 (2026-09-05, task #291): this used to carry a full GL-era
-// implementation (forwardRender()/renderAlpha()/renderDebugAlpha()/
-// renderAlphaHighlight(), the emissive helpers, TexSetup()/
-// RestoreTexSetup(), and every shader-pointer/blend-factor member that
-// existed only to support them - ~750 lines) behind renderPostDeferred()'s
-// existing #ifdef DX_RENDER redirect. Confirmed via full-tree grep that
-// NONE of it had any caller outside this file, and renderPostDeferred() -
-// the only real entry point (LLDrawPool::render() is a base-class no-op
-// for this pool, deferred-only) - already returned before ever reaching it
-// under DX_RENDER, making it permanently unreachable in the shipped build.
-// It's also now doubly dead: task #300's full GL shader-source removal
-// (r3712) deleted the .glsl files this body would need, so even a
-// hypothetical GL build could no longer run it. DXDrawPoolAlpha
-// (dxdrawpoolalpha.cpp) is the sole, real implementation now - this file
-// is just the LLDrawPool-required scaffolding plus the two functions that
-// bridge to it (prerender(), renderPostDeferred()).
+// DXDrawPoolAlpha (dxdrawpoolalpha.cpp) is the sole, real implementation
+// under DX_RENDER; this file is just the LLDrawPool-required scaffolding
+// plus prerender()/renderPostDeferred() that bridge to it.
 
 bool LLDrawPoolAlpha::sShowDebugAlpha = false;
 
@@ -77,7 +64,6 @@ S32 LLDrawPoolAlpha::getNumPostDeferredPasses()
 
 void LLDrawPoolAlpha::renderPostDeferred(S32 pass)
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_DRAWPOOL;
 
 #ifdef DX_RENDER
     DXDrawPoolAlpha::renderPostDeferred(*this, pass);

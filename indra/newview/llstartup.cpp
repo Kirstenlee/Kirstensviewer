@@ -754,6 +754,18 @@ bool idle_startup()
 						}
 					}
 					gAudiop->setMuted(true);
+
+					// S24: setMuted() above only zeroes the SFX engine's own internal gain - the
+					// separate streaming (music) implementation just constructed above defaults to
+					// its own full-volume gain (1.0) and is otherwise left completely untouched
+					// until the next real audio_update_volume() call, which doesn't happen again
+					// until STATE_STARTED - i.e. after the whole login/loading sequence. Any
+					// autoplay parcel music that starts streaming before then (which does happen,
+					// mid-login) would begin at that stale full-volume gain - an audible startup
+					// blip. Force it silent now, at the earliest possible moment, so there's no
+					// window where it can play at an uncontrolled volume before real volume gets
+					// applied once the world is revealed.
+					gAudiop->setInternetStreamGain(0.f);
 				}
 				else
 				{
@@ -1666,11 +1678,11 @@ bool idle_startup()
 		// Initialize global class data needed for surfaces (i.e. textures)
 		LL_DEBUGS("AppInit") << "Initializing sky..." << LL_ENDL;
 		// Initialize all of the viewer object classes for the first time (doing things like texture fetches.
-		LLGLState::checkStates();
+		DXState::checkStates();
 
 		gSky.init();
 
-		LLGLState::checkStates();
+		DXState::checkStates();
 
 		do_startup_frame();
 
@@ -1840,7 +1852,6 @@ bool idle_startup()
 	//---------------------------------------------------------------------
 	if (STATE_INVENTORY_SEND == LLStartUp::getStartupState())
 	{
-		LL_PROFILE_ZONE_NAMED("State inventory send")
 			do_startup_frame();
 
 		// request mute list
@@ -1891,14 +1902,12 @@ bool idle_startup()
 
 	if (STATE_INVENTORY_SKEL == LLStartUp::getStartupState())
 	{
-		LL_PROFILE_ZONE_NAMED("State inventory load skeleton")
 
 			LLSD response = LLLoginInstance::getInstance()->getResponse();
 
 		LLSD inv_skel_lib = response["inventory-skel-lib"];
 		if (inv_skel_lib.isDefined() && gInventory.getLibraryOwnerID().notNull())
 		{
-			LL_PROFILE_ZONE_NAMED("load library inv")
 				if (!gInventory.loadSkeleton(inv_skel_lib, gInventory.getLibraryOwnerID()))
 				{
 					LL_WARNS("AppInit") << "Problem loading inventory-skel-lib" << LL_ENDL;
@@ -1909,7 +1918,6 @@ bool idle_startup()
 		LLSD inv_skeleton = response["inventory-skeleton"];
 		if (inv_skeleton.isDefined())
 		{
-			LL_PROFILE_ZONE_NAMED("load personal inv")
 				if (!gInventory.loadSkeleton(inv_skeleton, gAgent.getID()))
 				{
 					LL_WARNS("AppInit") << "Problem loading inventory-skel-targets" << LL_ENDL;
@@ -1923,7 +1931,6 @@ bool idle_startup()
 
 	if (STATE_INVENTORY_SEND2 == LLStartUp::getStartupState())
 	{
-		LL_PROFILE_ZONE_NAMED("State inventory send2")
 
 			LLSD response = LLLoginInstance::getInstance()->getResponse();
 

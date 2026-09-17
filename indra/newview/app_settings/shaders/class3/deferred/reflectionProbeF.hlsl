@@ -22,25 +22,13 @@
  * SOFTWARE.
  */
 
-// S24 (2026-08-09, task #147b): real per-pixel multi-probe blend - a close
-// port of class3/deferred/reflectionProbeF.glsl (961 lines), replacing
-// task #147 v1's simplified single-slice sample. History: this file was an
-// unreachable placeholder until 2026-08-05's emergency stabilization (a
-// minimal single-legacy-cubemap fallback, to get PSInput redefinition
-// crashes fixed), then task #147 v1 (2026-08-09) added a real but
-// simplified TextureCubeArray sample (array slice 0 only, no per-pixel
-// probe selection). This is the real thing: nearest-probe bucket search
-// (refBucket, depth-indexed), box/sphere influence-volume intersection,
-// distance+angular attenuation weighting, automatic-vs-manual probe
-// blending, neighbor-probe blending.
+// S24: per-pixel multi-probe blend, ported from class3/deferred/reflectionProbeF.glsl -
+// nearest-probe bucket search (refBucket, depth-indexed), box/sphere influence-volume
+// intersection, distance+angular attenuation weighting, automatic-vs-manual probe
+// blending, neighbor-probe blending. SSR (doProbeSample()/sampleReflectionProbesLegacy()'s
+// #ifdef SSR blocks, tapScreenSpaceReflection() body in screenSpaceReflUtil.hlsl) included.
 //
-// S24 (2026-08-11, task #156): SSR restored - see doProbeSample()/
-// sampleReflectionProbesLegacy()'s own #ifdef SSR blocks below, and
-// screenSpaceReflUtil.hlsl for tapScreenSpaceReflection()'s real body
-// (was a debug stub). Was deliberately deferred at the time the comment
-// below was written ("its own body of work") - this is that follow-up.
-//
-// Still NOT ported (out of scope for #156 too, unrelated features):
+// Still NOT ported (unrelated features):
 //   - Hero probes (#if defined(HERO_PROBES) - mirrors) - tapHeroProbe() is
 //     kept as the original's own unconditional empty-body fallback (matches
 //     the GLSL's own "#else" branch when HERO_PROBES isn't defined), so the
@@ -55,17 +43,11 @@
 //     the existing "show nothing" stub, a decorative debug-overlay feature,
 //     not the actual reflection math.
 //
-// Real D3D11 constant buffer backing this (llreflectionmapmanager.cpp's
-// updateUniforms()/setUniforms(), DXBuffer-based) - register(b1), since
-// register(b0) is always the auto-generated $Globals cbuffer for whatever
-// top-level "uniform" declarations this file/its host shader has (see
-// LLRender's hardcoded VSSetConstantBuffers(0,...)/PSSetConstantBuffers(0,...),
-// llrender.cpp). This cbuffer's field order/types MUST match
-// llreflectionmapmanager.h's ReflectionProbeData struct exactly, byte for
-// byte - float4x4/float4/int4 pack identically to std140 mat4/vec4/ivec4
-// (both default to the same "4-byte-tight, 16-byte-aligned" rules for
-// vector-shaped array elements), confirmed by direct reasoning about both
-// APIs' packing rules, not assumed.
+// S24: register(b1), not b0 - b0 is always the auto-generated $Globals cbuffer for this
+// shader's top-level "uniform" declarations (LLRender's hardcoded
+// VSSetConstantBuffers(0,...)/PSSetConstantBuffers(0,...), llrender.cpp). This cbuffer's
+// field order/types must byte-match llreflectionmapmanager.h's ReflectionProbeData struct
+// exactly - float4x4/float4/int4 pack the same as std140 mat4/vec4/ivec4.
 
 #define FLT_MAX 3.402823466e+38
 #define MAX_REFMAP_COUNT 256
@@ -73,68 +55,33 @@
 TextureCube environmentMap : register(t9);
 SamplerState environmentMapSampler : register(s9);
 
-// S24 (2026-08-09): t16/t17 chosen after a full-tree register audit (see
-// task #147 v1's own comment, still accurate) - t16 confirmed free for
-// every shader that attaches this file, t17 is the next slot and equally
-// unused project-wide (grep-confirmed). ps_5_0 SRV slots go up to t127, so
-// t16/t17 are fine.
-//
-// CORRECTION (fixed a real X4509 compile failure): an earlier version of
-// this comment argued each texture needs its own sampler at the matching
-// register (s16/s17), reasoning from LLTexUnit::bind(LLCubeMapArray*)'s
-// PSSetSamplers(mIndex,...) pattern. That's wrong - unlike SRV slots,
-// D3D11 pixel-shader SAMPLER slots are hard-capped at 16 (s0-s15), so
-// s16/s17 don't exist and failed to compile. This is the exact same
-// bug class already hit and fixed once in pbrterrainF.hlsl (task #114,
-// see that file's own comment) - the fix there and here is the same:
-// reuse an existing, already-validly-bound sampler with compatible
-// filter settings rather than inventing a new out-of-range slot. Both
-// reflectionProbes and irradianceProbes sample via environmentMapSampler
-// (s9) - safe because all three are cubemap-shaped textures bound
-// CLAMP+TRILINEAR (DXSampler::getOrCreate(2,2)), so the sampler object
-// itself doesn't need to be texture-specific. (LLTexUnit::bind(LLCubeMapArray*)'s
-// own `if (mIndex < 16)` guard on its PSSetSamplers call already
-// anticipated this cap - it just wasn't propagated back to this
-// declaration when these two textures were added for #147b.)
+// S24: t16/t17 SRV slots (ps_5_0 SRV slots go up to t127, so plenty of room). Both textures
+// reuse environmentMapSampler (s9) rather than declaring their own s16/s17 - unlike SRV
+// slots, D3D11 pixel-shader SAMPLER slots are hard-capped at 16 (s0-s15), so s16/s17 don't
+// exist. Safe to share since all three are cubemap-shaped, bound CLAMP+TRILINEAR
+// (DXSampler::getOrCreate(2,2)) - same fix as pbrterrainF.hlsl's identical bug class.
 TextureCubeArray reflectionProbes : register(t16);
 TextureCubeArray irradianceProbes : register(t17);
 
-// S24 (2026-08-11, task #156): SSR restored - see this file's own earlier
-// "Deliberately NOT ported... SSR/hero probe is its own body of work"
-// header comment, and the session plan (task #156 section) for the full
-// investigation. tapScreenSpaceReflection()'s real body now lives in
-// screenSpaceReflUtil.hlsl (always co-attached whenever SSR is defined,
-// same "SSR" permutation gDeferredSoftenProgram/every PBR-lit shader
-// already receives via llviewershadermgr.cpp's shared attribs map).
-// sceneMap reuses environmentMapSampler (s9) rather than declaring a new
-// sampler - same "D3D11 samplers cap at s15, reuse an already-bound
-// compatible one" reasoning as reflectionProbes/irradianceProbes just
-// above (t19 chosen as the next free SRV slot after t16/t17, same "grep-
-// confirmed free project-wide" discipline).
+// S24: tapScreenSpaceReflection()'s body lives in screenSpaceReflUtil.hlsl (always
+// co-attached whenever SSR is defined). sceneMap reuses environmentMapSampler (s9) rather
+// than a new sampler slot - same D3D11 s0-s15 cap reasoning as reflectionProbes/
+// irradianceProbes above; t19 is the next free SRV slot after t16/t17.
 #ifdef SSR
 float tapScreenSpaceReflection(int totalSamples, float2 tc, float3 viewPos, float3 n, inout float4 collectedColor, Texture2D source, SamplerState sourceSampler, float glossiness);
 Texture2D sceneMap : register(t19);
 
-// S24 (2026-09-03, task #266/#271): was a bare `glossiness >= 0.9` literal at
-// both call sites below. That's structurally unreachable for pbralphaF.hlsl
-// (the PBR alpha-blend material class - confirmed via live RenderDoc shader-
-// debug this session to be the exact shader behind the box-probe floor this
-// whole investigation started from): its own `perceptualRoughness = max(orm.g
-// * roughnessFactor, 0.3)` floor caps glossiness at 0.7, so SSR could never
-// fire for that material at ANY setting under the old hardcoded gate. Made
-// tunable instead of just lowering the literal, since screenSpaceReflUtil.hlsl's
-// own internal vignette term (`clamp(glossiness*3-1.7,0,1)`) already fades SSR
-// out below ~0.567 - the right value depends on live testing, not a guess.
+// S24: tunable, not a hardcoded `glossiness >= 0.9` literal - pbralphaF.hlsl's
+// `perceptualRoughness = max(orm.g * roughnessFactor, 0.3)` floor caps glossiness at 0.7,
+// so a fixed 0.9 gate made SSR unreachable for that material at any setting.
+// screenSpaceReflUtil.hlsl's own vignette (`clamp(glossiness*3-1.7,0,1)`) already fades
+// SSR out below ~0.567.
 uniform float ssrGlossThreshold;
 #endif
 
-// S24 (2026-08-11, task #156): also declared (unguarded) by softenLightF.hlsl,
-// which is always co-attached whenever this file is used for the deferred
-// lighting combine - guarded here (and there) with the same include-guard
-// pattern already established throughout this codebase for dual-declared
-// uniforms, since this file is ALSO attached to forward/alpha shaders
-// (pbralphaF.hlsl, alphaF.hlsl, materialF.hlsl) that never include
-// softenLightF.hlsl at all.
+// S24: also declared by softenLightF.hlsl (co-attached for the deferred lighting combine)
+// - guarded since this file is also attached standalone to forward/alpha shaders
+// (pbralphaF.hlsl, alphaF.hlsl, materialF.hlsl) that never include softenLightF.hlsl.
 #ifndef LL_CUBE_SNAPSHOT_DECLARED
 #define LL_CUBE_SNAPSHOT_DECLARED
 uniform int cube_snapshot;
@@ -142,11 +89,8 @@ uniform int cube_snapshot;
 
 uniform float reflection_probe_ambiance;
 uniform float max_probe_lod;
-// S24 (2026-08-09): classic_mode is also declared (guarded) by deferredUtil.hlsl,
-// which is always co-attached with this file (isDeferred||hasReflectionProbes
-// vs. hasReflectionProbes - a strict subset). Must use the exact same guard
-// macro name so whichever file concatenates first wins - see that file's own
-// comment on this same uniform.
+// S24: classic_mode also declared (guarded, same macro name) by deferredUtil.hlsl, always
+// co-attached with this file.
 #ifndef LL_CLASSIC_MODE_DECLARED
 #define LL_CLASSIC_MODE_DECLARED
 uniform int classic_mode;
@@ -162,11 +106,8 @@ uniform float probe_ambient_multiplier; // Ambient contribution (0.0-2.0, defaul
 uniform float probe_equalize;           // Blend toward this probe's own fully-averaged top mip (0.0-1.0, default 0.0) - see tapRefMap()
 uniform float probe_opacity;            // Dedicated visibility blend: 1.0=fully visible, 0.0=fully transparent (default 1.0)
 
-// S24 (2026-08-09, task #147b): must byte-match llreflectionmapmanager.h's
-// ReflectionProbeData struct exactly - same field order, same types
-// (float4x4~LLMatrix4, float4~LLVector4, int4~GLint[4]/GLint[256][4] which
-// are themselves already ivec4-shaped in the C++ struct - see that
-// header's own "should always match reflectionProbeF.glsl" comment).
+// S24: must byte-match llreflectionmapmanager.h's ReflectionProbeData struct exactly -
+// same field order and types (float4x4~LLMatrix4, float4~LLVector4, int4~GLint[4]).
 cbuffer ReflectionProbes : register(b1)
 {
     // for box probes, matrix that transforms from camera space to a [-1, 1] cube representing the bounding box of
@@ -472,75 +413,14 @@ float3 tapRefMap(float3 pos, float3 dir, out float w, out float dw, float lod, f
 
         w = max(d, 0.001);
 
-        // S24 (2026-08-15, task #194): `dw` (distance-only weight, used by
-        // sampleProbes()'s automatic-vs-manual blend as
-        // lerp(col[0], col[1], min(dwsum[1], 1.0))) was never written on
-        // this branch - real, confirmed gap (present in reflectionProbeF.glsl
-        // too, not a DX_RENDER-only porting bug), leaving it genuinely
-        // uninitialized per HLSL/GLSL's own semantics for an `out` param no
-        // caller ever wrote. Fixed to mirror the sphere branch's own
-        // convention (below) so manual probes decisively override automatic
-        // ones within their volume, matching shouldSampleProbe()'s already-
-        // stated intent ("never allow automatic probes to encroach on box
-        // probes").
-        //
-        // S24 (2026-09-03, task #266/#271): a follow-up fix here (`dw = w *
-        // max(r, 1.0) * 4.0`, mirroring sphereWeight()'s own `* max(r,1.0)`
-        // term) turned out to be a units mismatch, not a valid mirror -
-        // REVERTED 2026-09-04 after a live regression report (a hard-edged
-        // "square" seam visible in water reflections around large
-        // structures, screenshots "water gloss.png"/"water gloss2.png").
-        // sphereWeight()'s `w` is 1/d2 - INVERSE REAL-WORLD DISTANCE from the
-        // probe center, unbounded, so multiplying by `r` there rescales it
-        // back toward a sane magnitude. Box's `w` (== `d` here) is already a
-        // normalized [0,1] box-local fraction (1 = center, 0 = at the wall)
-        // - multiplying THAT by an absolute real-world radius `r` (tens of
-        // meters for a building-sized probe) makes dw reach 1.0 (fully
-        // manual, zero blend with the void/automatic fallback) within a
-        // sliver `d >= 1/(4r)` of the box surface - for a large probe that's
-        // an almost-instant snap, not a fade, which is exactly what a hard
-        // visible edge looks like. The ORIGINAL bug this was chasing (task
-        // #266/#271: old flat `w*4.0` made every box's automatic-fallback
-        // fade a fixed, size-independent 25% shell, washing out large rooms'
-        // floors) is still real and still needs solving, but scaling by `r`
-        // isn't the fix - proportional-only (no absolute-size term at all)
-        // is: ramp dw from 0 to 1 across the outer 50% of `d` (mirrors
-        // sphereWeight()'s OWN "r1 = r*0.5" convention conceptually, i.e.
-        // fade starts at the 50%-of-the-way-to-center mark - just expressed
-        // in box's already-normalized units instead of sphere's real-meter
-        // ones), which is both proportional for any probe size AND actually
-        // wider than the old buggy 25% shell (matches manual reflections
-        // more decisively near floors/walls than before, the original goal).
-        //
-        // S24 (2026-09-07, task #266 continuation): still real, live-
-        // reported (box1.png, annotated) - a visible boundary where this
-        // box probe's own content fades toward the automatic/void probe's
-        // (generic, unrelated, visibly darker) content, worst near the
-        // box's corners (where d, the box-local proximity-to-center term,
-        // is smallest from all 3 axes at once) - and since d is recomputed
-        // per-pixel from world position, the exact screen-space crossing
-        // point slides continuously as the camera/avatar moves, reading as
-        // a "seam that follows the wall." *2.0 only reaches full box-probe
-        // priority (dw=1) once d>=0.5 - the outer HALF of the box's own
-        // volume still fades toward the mismatched automatic probe. Same
-        // proportional shape (still (0,0,0,0)->(1,1,1,1) at the box's own
-        // center/wall, no absolute-meters term - the earlier *max(r,1)*4
-        // regression this replaced was from mixing an absolute term into a
-        // normalized value, not from being proportional per se), just
-        // steepened so the fade band shrinks to the outer ~17% of the box
-        // instead of the outer 50% - full box-probe priority reached much
-        // closer to its own walls, corners included.
-        //
-        // S24 (2026-09-07, live-tune round 2): user confirmed *6.0 improved
-        // it but wanted more - steepened to *10.0 (full priority at
-        // d>=0.1), but the wall-corner seam then got WORSE, not better -
-        // rolled back to *6.0 (the last state actually confirmed as an
-        // improvement) while a real diagnostic (see radianceGenF.hlsl's
-        // own face-ID comment) establishes whether this dw/automatic-blend
-        // mechanism is even the right thing to be tuning for that specific
-        // seam - it may be a different mechanism (face-to-face content
-        // mismatch within this box probe's own capture) that steepening
-        // dw was incidentally unmasking rather than fixing.
+        // S24: dw ramps 0->1 across the outer ~17% of the box's own volume (d>=0.83), so
+        // manual box probes decisively override the automatic/void fallback near their own
+        // walls/corners. Must stay proportional to box-local `d` (already normalized [0,1])
+        // - do NOT scale by an absolute real-world radius like sphereWeight() does for
+        // spheres (`w` there is unbounded inverse distance, a different unit entirely);
+        // mixing an absolute term into this normalized value causes a hard-edged seam.
+        // A residual per-face content mismatch near corners may be a separate cubemap-
+        // capture issue (see radianceGenF.hlsl's face-ID diagnostic), not this weight.
         dw = saturate(d * 6.0);
     }
     else
@@ -561,67 +441,25 @@ float3 tapRefMap(float3 pos, float3 dir, out float w, out float dw, float lod, f
 
     v = mul(env_mat, v);
 
-    // S24 (task #194, 2026-08-14): a direct x/z (and later x/y/z) negation
-    // was tried here across several rounds to fix a confirmed front/back
-    // reflection reversal (controlled two-wall test: reflections showed
-    // what's beyond the object instead of behind the viewer). Every
-    // combination tried (x/z only, x/y/z, with and without the
-    // llviewerwindow.cpp/llreflectionmapmanager.cpp viewport Y-flip
-    // restored) either left it upside down or broke east/west again -
-    // never both correct at once. Reverted to no post-env_mat correction
-    // (the original, pre-2026-08-14 behavior: front/back reversed, but
-    // top/bottom and the rest of the pipeline in a known-clean state) while
-    // a face-ID color diagnostic is added to actually trace which physical
-    // cube face lands where, instead of guessing more sign combinations.
-    // env_mat's own construction and the per-face capture tables
-    // (DXCubeMapFaces::sUpVecs) both independently verified correct - do
-    // not touch either without new evidence.
+    // S24: no post-env_mat sign correction here, deliberately - a known front/back
+    // reflection reversal exists, but every x/y/z negation combination tried either fixed
+    // it while breaking east/west, or vice versa. env_mat's own construction and the
+    // per-face capture tables (DXCubeMapFaces::sUpVecs) are independently verified correct;
+    // do not add a sign flip here without new evidence pinpointing which face/axis is
+    // actually wrong (suspect: captured cubemap content or array-index/mip selection, not
+    // this function's direction math).
 
-    // S24 (2026-08-15, task #194 offshoot): a 3-round visual diagnostic
-    // sequence lived here (PositionLS validity, `v` magnitude, `v`
-    // direction-as-color) - all three came back clean/coherent for box
-    // probes, ruling out a degenerate value or gross sign/axis error
-    // anywhere in this function's own math. Removed per diagnostic-
-    // lifecycle convention; see [[project_dxrender_open_issues]]/
-    // memorygraph for the full round-by-round result if this needs
-    // revisiting. Next suspect: captured cubemap content or array-index/
-    // mip selection, not this function's direction math.
-
-    // S24 (2026-09-07, task #266 continuation): live-reported - pushing
-    // probe_blur_lod_bias strongly positive blacks out the reflection
-    // instead of settling on a smooth, fully-averaged result. Root cause:
-    // this was never clamped before being handed to SampleLevel() as an
-    // EXPLICIT LOD. Unlike Sample()'s automatic LOD selection, SampleLevel()
-    // does not clamp an out-of-range explicit level to the texture's real
-    // mip count for you - reading past the last actually-allocated mip
-    // (max_probe_lod) is out-of-bounds and reads back as black, exactly
-    // matching what was reported. This also blocks the one thing the user
-    // was specifically asking for: max_probe_lod's own mip IS the fully
-    // GGX-convolved, whole-hemisphere-averaged result (radianceGenF.hlsl's
-    // prefilterEnvMap(), roughness=1 at the top mip) - a real, physically
-    // energy-preserving average across this probe's own faces, not a
-    // desaturation hack. Clamping means dialing blur bias up now actually
-    // reaches and holds at that already-computed equalized result instead
-    // of overshooting into invalid/black territory before getting there.
+    // S24: lod must be clamped before SampleLevel()'s EXPLICIT LOD param - unlike Sample()'s
+    // automatic LOD, SampleLevel() does not clamp an out-of-range level to the texture's
+    // real mip count, so an unclamped bias reads past max_probe_lod and comes back black.
     float adjusted_lod = clamp(lod + probe_blur_lod_bias, 0.0, max_probe_lod);
     float4 ret = reflectionProbes.SampleLevel(environmentMapSampler, float4(v.xyz, (float)refIndex[i].x), adjusted_lod) * refParams[i].y;
 
-    // S24 (2026-09-07, task #266 continuation): live-confirmed the blur-
-    // bias clamp above made no difference to the per-face shade mismatch -
-    // that theory is refuted, this is a separate, real ask ("what other
-    // tools do we have to equalize the cube walls besides desaturating").
-    // A genuinely different tool from probe_saturation (crushes hue toward
-    // luminance) and probe_contrast (compresses spread toward a fixed 0.5
-    // midpoint, unrelated to this room's actual tone): blend the requested
-    // sharp/detail sample toward a SECOND sample taken at this SAME probe's
-    // own top mip (max_probe_lod) - the already fully GGX-convolved,
-    // whole-6-face-hemisphere average (see radianceGenF.hlsl's
-    // prefilterEnvMap()). This pulls per-face brightness/color differences
-    // toward this room's own real averaged tone rather than an arbitrary
-    // neutral, while fully preserving detail/hue at probe_equalize=0.0
-    // (default, no change) - literally the "blend N% toward a uniform
-    // reference" the user asked for, just using a physically-averaged
-    // reference instead of flat gray or a desaturated value.
+    // S24: probe_equalize blends toward a second sample at this same probe's own top mip
+    // (max_probe_lod) - the fully GGX-convolved, whole-hemisphere average (see
+    // radianceGenF.hlsl's prefilterEnvMap()) - to even out per-face brightness/color using
+    // this probe's own real averaged tone, unlike probe_saturation/probe_contrast which
+    // pull toward an arbitrary neutral. Default 0.0 preserves full detail/hue.
     if (probe_equalize > 0.0)
     {
         float4 equalized = reflectionProbes.SampleLevel(environmentMapSampler, float4(v.xyz, (float)refIndex[i].x), max_probe_lod) * refParams[i].y;
@@ -649,10 +487,6 @@ float3 tapIrradianceMap(float3 pos, float3 dir, out float w, out float dw, float
         v = boxIntersect(pos, dir, refBox[i], d, 3.0);
         w = max(d, 0.001);
 
-        // S24 (2026-08-15, task #194): see tapRefMap()'s identical fix -
-        // `dw` was never written on this branch either, same real
-        // uninitialized-out-param gap (present in reflectionProbeF.glsl
-        // too), same fix.
         dw = w * 4.0;
     }
     else
@@ -672,10 +506,7 @@ float3 tapIrradianceMap(float3 pos, float3 dir, out float w, out float dw, float
     v -= c;
     v = mul(env_mat, v);
 
-    // S24 (task #194, 2026-08-14): sign-flip experiments reverted, see
-    // tapRefMap()'s matching comment - a face-ID color diagnostic is being
-    // added instead of guessing more combinations.
-
+    // S24: no post-env_mat sign correction here either - see tapRefMap()'s matching comment.
     float3 col = irradianceProbes.SampleLevel(environmentMapSampler, float4(v.xyz, (float)refIndex[i].x), 0).rgb * refParams[i].x;
 
     col = lerp(amblit, col, min(refParams[i].x, 1.0));
@@ -757,14 +588,8 @@ float3 sampleProbes(float3 pos, float3 dir, float lod)
         result = lerp(float3(luma, luma, luma), result, probe_saturation);
     }
 
-    // S24 (2026-09-07, task #266 continuation): dedicated Opacity control,
-    // live-requested (corrected from an earlier "desaturate" ask - this is
-    // a plain visibility blend, not a color operation). 1.0=fully visible
-    // (no change), 0.0=fully transparent (this probe's reflection
-    // contributes nothing at all, revealing whatever the surface's other
-    // lighting terms produce on their own). Separate from probe_intensity
-    // above (0-2, can also boost past normal) - this is a clean, one-way
-    // 0%-100% visibility knob only.
+    // S24: probe_opacity is a plain visibility blend (0.0=this probe contributes nothing,
+    // 1.0=no change) - distinct from probe_intensity above, which can boost past 1.0.
     result *= saturate(probe_opacity);
 
     // Contrast
@@ -847,46 +672,33 @@ float3 sampleProbeAmbient(float3 pos, float3 dir, float3 amblit)
     return result;
 }
 
-// S24 (2026-08-09, task #147b): hero probes (mirrors) deliberately not
-// ported - see this file's header comment. This is the original GLSL's
-// own "#else" (HERO_PROBES not defined) fallback, kept unconditional here
-// since this file never declares HERO_PROBES.
+// S24: this is the original GLSL's own "#else" (HERO_PROBES not defined) fallback stub,
+// kept unconditional since this file never declares HERO_PROBES itself.
 //
 #if defined(HERO_PROBES)
 
-// S24 (2026-08-22): real port of reflectionProbeF.glsl's HERO_PROBES branch
-// (mirrors) - this function was an unconditional empty stub regardless of
-// whether HERO_PROBES was defined for the compiled permutation, even though
-// llviewershadermgr.cpp sets attribs["HERO_PROBES"]="1" whenever RenderMirrors
-// is on (shared, backend-agnostic - matches GLSL exactly). LLHeroProbeManager
-// is a real, fully-working DX-native capture pipeline (6-face capture,
-// gaussian blur, mip chain, radiance-gen convolution, all confirmed via
-// CopySubresourceRegion translations already in place) that ran every frame
-// and was correctly bound to this shader's HERO_PROBE texture channel
-// (LLPipeline::bindReflectionProbes()) - but nothing ever sampled it, so
-// mirrors fell back 100% to the generic low-res (128px) reflection-probe
-// cubemap. heroProbes register is the next free slot after this file's
-// existing t16-t19 (reflectionProbes/irradianceProbes/sceneDepth/sceneMap);
-// reuses environmentMapSampler (s9), same convention as every other
-// cubemap-shaped texture in this file.
+// S24: heroProbes reuses environmentMapSampler (s9), same convention as every other
+// cubemap-shaped texture in this file; register t20 is the next free slot after t16-t19.
 //
-// S24 (2026-08-22, CTD fix): named `heroClipPlane`, NOT `clipPlane` - GLSL
-// uses the generic name, but that collides with Water Shader's own
-// unrelated `clipPlane` uniform (water-plane clipping, a different concept)
-// once this file is attached to a shader that also pulls in that
-// declaration. Confirmed via a real D3DCompile failure (X3003 redefinition
-// of 'clipPlane', "Water Shader") that left mDXVertexShader null and
-// crashed on the next LLHLSLShader::bind() assert. LLHeroProbeManager::
-// mCurrentClipPlane is tracked in C++ but not currently uploaded to any
-// shader (a separate, likely pre-existing gap on both backends, not unique
-// to this port); until that's wired up this falls back to a clipDist of 0,
-// which the formula below still handles safely (just without real edge
-// falloff).
+// S24: named `heroClipPlane`, NOT `clipPlane` (GLSL's name) - collides with Water Shader's
+// own unrelated `clipPlane` uniform (water-plane clipping) when both are concatenated,
+// causing an X3003 redefinition. LLHeroProbeManager::mCurrentClipPlane is tracked in C++
+// but not currently uploaded to any shader; until wired up this falls back to clipDist=0
+// (handled safely below, just without real edge falloff).
 uniform float4 heroClipPlane;
 TextureCubeArray heroProbes : register(t20);
 
 void tapHeroProbe(inout float3 glossenv, float3 pos, float3 norm, float glossiness)
 {
+    // S24: perf - the lerp below always collapses to w=0 (no-op) for glossiness<=0.75 (only a
+    // quarter of the mips are generated for hero probes, so anything below that threshold gets
+    // zero weight regardless of clipDist/box/sphere result) - skip the box/sphere intersect and
+    // cubemap sample entirely rather than computing and discarding them every pixel.
+    if (glossiness <= 0.75)
+    {
+        return;
+    }
+
     float clipDist = dot(pos.xyz, heroClipPlane.xyz) + heroClipPlane.w;
     float w = 0;
     float dw = 0;
@@ -953,31 +765,15 @@ void doProbeSample(inout float3 ambenv, inout float3 glossenv,
     float lod = (1.0 - glossiness) * reflection_lods;
     glossenv = sampleProbes(pos, normalize(refnormpersp), lod);
 
-    // S24 (2026-08-11, task #156): restored - matches reflectionProbeF.glsl's
-    // #if defined(SSR) block exactly (only for near-mirror surfaces,
-    // glossiness >= 0.9, and never during a reflection-probe capture itself
-    // - cube_snapshot != 1 - which would otherwise recursively sample the
-    // screen it's currently rendering into).
+    // S24: cube_snapshot != 1 avoids recursively sampling the screen during a reflection-
+    // probe capture itself.
 #ifdef SSR
     if (cube_snapshot != 1 && glossiness >= ssrGlossThreshold)
     {
-        // S24 (2026-09-06, task #271; revised 2026-09-07): was a hard zero
-        // for SSR-eligible surfaces (the low-res, blurred cube array is
-        // visibly worse than a genuine SSR hit) - but that also meant a
-        // genuine SSR MISS fell back to pure black/nothing, live-reported
-        // twice: as "black highlights" on water (its dominant reflection
-        // content is the sky, mostly off-screen - a guaranteed miss at
-        // exactly the grazing angles where a bright reflection is
-        // expected) and, more generally, as the cube contributing nothing
-        // at all to the ambient/reflection fill anywhere SSR is active.
-        // Explicit ask: keep the cube around at a low, fixed weight so it
-        // still fills in on a miss (or just adds a subtle base layer
-        // everywhere) without fighting a genuine SSR hit for dominance -
-        // dimming BEFORE the lerp below achieves both: on a real hit
-        // (ssr.a -> 1) the lerp result is still ~100% ssr.rgb regardless of
-        // this dim factor; on a miss (ssr.a == 0) the result is exactly
-        // this dimmed cube value instead of black. First-pass value, not
-        // physically derived - live-tune from here.
+        // S24: dim the cube sample before the lerp below rather than zeroing it - on a real
+        // SSR hit (ssr.a -> 1) the lerp result is still ~100% ssr.rgb regardless of this
+        // factor, but on a miss (ssr.a == 0) it fills in with a dim cube value instead of
+        // black (e.g. water's sky reflection, a near-guaranteed miss at grazing angles).
         static const float kSSRCubeFillWeight = 0.25;
         glossenv *= kSSRCubeFillWeight;
 
@@ -1009,18 +805,9 @@ void sampleReflectionProbes(inout float3 ambenv, inout float3 glossenv,
 void sampleReflectionProbesWater(inout float3 ambenv, inout float3 glossenv,
         float2 tc, float3 pos, float3 norm, float glossiness, float3 amblit_linear)
 {
-    // S24 (2026-08-31, task #197): was unconditional - this always sampled
-    // the probe array via doProbeSample() below regardless of probes_enabled,
-    // giving water dark/flat reflections whenever the array wasn't actually
-    // being captured. Mirrors sampleReflectionProbesLegacy()'s existing
-    // probes_enabled==0 fallback (task #194) - environmentMap/env_mat are
-    // now guaranteed live and bound whenever this branch runs, see
-    // LLPipeline::shouldUseLegacyEnvMap()'s comment (pipeline.h/.cpp) for
-    // why that wasn't previously true for every case this condition covers.
-    // Mirrors doProbeSample()'s own SSR-tap/hero-probe structure below too
-    // (transparent=false, same as water's own call to it further down) so
-    // both branches produce an equivalent final result, not just an
-    // equivalent base sample.
+    // S24: probes_enabled==0 fallback mirrors sampleReflectionProbesLegacy()'s own fallback
+    // and doProbeSample()'s SSR-tap/hero-probe structure (transparent=false, matching
+    // water's own call to it further below) - keep both branches structurally equivalent.
     if (probes_enabled == 0)
     {
         float3 refnormpersp = reflect(pos.xyz, norm.xyz);
@@ -1030,22 +817,10 @@ void sampleReflectionProbesWater(inout float3 ambenv, inout float3 glossenv,
             ambenv = sampleProbeAmbient(pos, norm, amblit_linear);
 
         float3 env_vec = mul(env_mat, normalize(refnormpersp));
-        // S24 (2026-09-04, task #200 investigation): this raw legacy-cubemap
-        // sample was going straight into glossenv unconverted - every other
-        // glossenv producer in this shader family (class2's real GL-reference
-        // sampleReflectionProbes(), doProbeSample()'s sampleProbes() calls)
-        // treats glossenv as linear-space data, converting via
-        // srgb_to_linear() right at the sample point. This branch was modeled
-        // on sampleReflectionProbesLegacy()'s own probes_enabled==0 fallback
-        // (see that function's comment) - correct for THAT function, where
-        // the raw sample feeds legacyenv/applyLegacyEnv()'s special
-        // mix-then-single-convert roundtrip (confirmed against the pristine
-        // GL reference, S:\Dev\XREF Other Source\S24 Backout - class2's
-        // reflectionProbeF.glsl has both patterns side by side: converting
-        // for glossenv, raw for legacyenv). Copied the sampling call but not
-        // the color-space handling that made it correct there - glossenv
-        // here was silently too bright/wrong-contrast whenever this fallback
-        // engaged (RenderReflectionProbesEnabled off, water reflections).
+        // S24: glossenv is always linear-space, so this sample must go through
+        // srgb_to_linear() here - unlike legacyenv (sampleReflectionProbesLegacy()'s
+        // fallback below), which applyLegacyEnv() expects raw/un-converted. Both patterns
+        // exist side by side in the GL reference; don't copy one convention to the other.
         glossenv = srgb_to_linear(environmentMap.Sample(environmentMapSampler, env_vec).rgb);
 
 #ifdef SSR
@@ -1072,11 +847,8 @@ void sampleReflectionProbesWater(inout float3 ambenv, inout float3 glossenv,
 
 float4 sampleReflectionProbesDebug(float3 pos)
 {
-    // S24 (2026-08-09, task #147b): debug volume visualization
-    // (sphereIntersectDebug/boxIntersectDebug/debugTapRefMap) deliberately
-    // not ported - show nothing, same as task #147 v1's stub. This is a
-    // decorative debug-overlay feature (RENDER_DEBUG_REFLECTION_PROBES),
-    // not the actual reflection math.
+    // S24: debug volume visualization (sphereIntersectDebug/boxIntersectDebug/
+    // debugTapRefMap) not ported - decorative RENDER_DEBUG_REFLECTION_PROBES overlay only.
     return float4(0, 0, 0, 0);
 }
 
@@ -1101,18 +873,9 @@ void sampleReflectionProbesLegacy(inout float3 ambenv, inout float3 glossenv, in
 
     if (envIntensity > 0.0)
     {
-        // S24 (2026-08-15, task #194 offshoot): this always sampled the
-        // probe array (sampleProbes()), even when probes are disabled -
-        // confirmed via full-file read that this file's own environmentMap
-        // (t9, declared above) was never sampled anywhere, despite being
-        // bound every frame by the legacy branch in
-        // LLPipeline::bindDeferredShader() (pipeline.cpp). class2's copy
-        // of this same function already samples environmentMap correctly
-        // (env_vec = mul(env_mat, normalize(reflect(pos,norm))); .Sample()) -
-        // ported that path here, gated on the same probes_enabled uniform
-        // setUniforms() now correctly writes to 0 when
-        // sReflectionProbesEnabled is off, instead of leaving the probe
-        // array (uncaptured/stale in that state) as the only source.
+        // S24: probes_enabled==0 samples environmentMap (t9) directly instead of the probe
+        // array, which is uncaptured/stale in that state - environmentMap is still bound
+        // every frame by the legacy branch in LLPipeline::bindDeferredShader().
         if (probes_enabled == 0)
         {
             float3 env_vec = mul(env_mat, normalize(refnormpersp));
@@ -1124,12 +887,8 @@ void sampleReflectionProbesLegacy(inout float3 ambenv, inout float3 glossenv, in
         }
     }
 
-    // S24 (2026-08-11, task #156): restored - matches reflectionProbeF.glsl's
-    // #if defined(SSR) block in sampleReflectionProbesLegacy() exactly (no
-    // glossiness threshold here, unlike doProbeSample()'s block above - the
-    // legacy/bump-shiny path taps SSR for any glossiness, matching the
-    // original). This is the block task #163 (shiny reflections not
-    // appearing on the legacy/bump path) is most likely to interact with.
+    // S24: no glossiness threshold here, unlike doProbeSample()'s SSR block above - the
+    // legacy/bump-shiny path taps SSR for any glossiness, matching the GL reference.
 #ifdef SSR
     if (cube_snapshot != 1)
     {
@@ -1146,32 +905,35 @@ void sampleReflectionProbesLegacy(inout float3 ambenv, inout float3 glossenv, in
         }
 
         glossenv = lerp(glossenv, ssr.rgb, ssr.a);
-        // S24 (2026-08-19, task #237, task #227 audit finding): GLSL also
-        // blends SSR into legacyenv here (reflectionProbeF.glsl:930), right
-        // after the glossenv line above - this file only had the glossenv
-        // half. legacyenv feeds applyLegacyEnv() (legacy/bump-shiny
-        // materials), so SSR contributions never reached that path at all
-        // under DX_RENDER - this comment block above already names task
-        // #163 as the most likely thing this interacts with; probable real
-        // root cause.
+        // S24: GLSL also blends SSR into legacyenv here, not just glossenv - legacyenv
+        // feeds applyLegacyEnv() (legacy/bump-shiny materials).
         legacyenv = lerp(legacyenv, ssr.rgb, ssr.a);
     }
 #endif
 
     tapHeroProbe(glossenv, pos, norm, glossiness);
-    tapHeroProbe(legacyenv, pos, norm, 1.0);
+    // S24: perf - hardcoding glossiness=1.0 here defeated tapHeroProbe()'s own <=0.75 early-out,
+    // paying a full box/sphere-intersect + cubemap sample every pixel even though legacyenv is
+    // only ever consumed downstream when envIntensity>0 (applyLegacyEnv() callers all gate on it).
+    // Match that same gate here instead of always tapping.
+    if (envIntensity > 0.0)
+    {
+        tapHeroProbe(legacyenv, pos, norm, 1.0);
+    }
 
+    // S24: legacyenv feeds applyLegacyEnv() directly (its lerp does not clamp the blend
+    // target) - built from the same probe/SSR/hero-probe samples as glossenv just below,
+    // but was missing the equivalent clamp. fullbrightShinyF.hlsl's applyLegacyEnv() call
+    // (old texture + Fullbright + any legacy Shininess) has no direct-specular term to
+    // dilute this against - it's the color, full stop - so an unclamped HDR sample there
+    // (SSR/reflection probe catching the sun, an overexposed sky patch) blows straight to
+    // white. Matches user-observed repro: old texture + Fullbright + Shiny = white face.
     glossenv = clamp(glossenv, float3(0, 0, 0), float3(10, 10, 10));
+    legacyenv = clamp(legacyenv, float3(0, 0, 0), float3(10, 10, 10));
 }
 
 void applyGlossEnv(inout float3 color, float3 glossenv, float4 spec, float3 pos, float3 norm)
 {
-    // S24 (2026-08-09, task #147b): real logic - task #147 v1 (and the
-    // emergency-stabilization stub before it) left this completely empty
-    // (a no-op), so glossenv never actually contributed to bump/shiny
-    // materials' final color even once real probe data existed. Ported
-    // directly from reflectionProbeF.glsl - unrelated to the cube-array
-    // work itself, just a genuinely dead function found along the way.
     glossenv *= 0.5; // fudge darker
     float fresnel = clamp(1.0 + dot(normalize(pos.xyz), norm.xyz), 0.3, 1.0);
     fresnel *= fresnel;
@@ -1183,13 +945,8 @@ void applyGlossEnv(inout float3 color, float3 glossenv, float4 spec, float3 pos,
 
 void applyLegacyEnv(inout float3 color, float3 legacyenv, float4 spec, float3 pos, float3 norm, float envIntensity)
 {
-    // S24 (2026-08-15, task #194 offshoot): this had diverged from
-    // reflectionProbeF.glsl's real formula - was a flat
-    // lerp(color, legacyenv*2.0, envIntensity) with no Fresnel term and
-    // 2.0x instead of GLSL's 0.5x (a real 4x brightness difference on top
-    // of the missing view-angle falloff). Restored to match GLSL exactly:
-    // real Fresnel (grazing angles reflect more, head-on less), *0.5
-    // blend, no srgb round-trip (GLSL's mix() doesn't do one either).
+    // S24: must match GLSL exactly - real Fresnel term (grazing angles reflect more,
+    // head-on less), *0.5 blend, no srgb round-trip.
     float3 reflected_color = legacyenv;
     float3 lookAt = normalize(pos);
     float fresnel = 1.0 + dot(lookAt, norm.xyz);

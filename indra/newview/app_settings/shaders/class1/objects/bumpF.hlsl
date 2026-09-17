@@ -31,8 +31,7 @@ void mirrorClip(float3 pos);
 
 #include "varying/bumpVarying.hlsli"
 
-// S24 (2026-08-02): see uiF.hlsl's comment - real register mismatch,
-// confirmed via fxc.exe disassembly, affects every bare-Varying PS input.
+// S24: SV_Position must be declared here to match VS output register numbering - see uiF.hlsl.
 struct PSInput
 {
     float4 position : SV_Position;

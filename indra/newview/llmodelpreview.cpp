@@ -3493,7 +3493,6 @@ bool LLModelPreview::render()
 
     LLViewerCamera::getInstance()->setPerspective(false, mOrigin.mX, mOrigin.mY, width, height, false, z_near, z_far);
 
-    stop_glerror();
 
     gDX.pushMatrix();
     gDX.color4fv(PREVIEW_EDGE_COL.mV);
@@ -3591,11 +3590,15 @@ bool LLModelPreview::render()
                     gDX.diffuseColor4fv(PREVIEW_EDGE_COL.mV);
                     if (show_edges)
                     {
-                        glLineWidth(PREVIEW_EDGE_WIDTH);
-                        glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+                        // S24: raw glLineWidth()/glPolygonMode() were unguarded here - found in a
+                        // tree-wide stray-GL sweep (task #311). LLUI::setLineWidth() is the same
+                        // no-op-under-DX_RENDER replacement used tree-wide; glPolygonMode(GL_LINE/
+                        // GL_FILL) removed outright - confirmed dead, no D3D11 per-draw wireframe
+                        // equivalent exists (see DXStateCache::getRasterizerState()'s wireframe_enabled
+                        // comment).
+                        LLUI::setLineWidth(PREVIEW_EDGE_WIDTH);
                         buffer->drawRange(LLRender::TRIANGLES, 0, buffer->getNumVerts() - 1, buffer->getNumIndices(), 0);
-                        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-                        glLineWidth(1.f);
+                        LLUI::setLineWidth(1.f);
                     }
                     buffer->unmapBuffer();
                 }
@@ -3610,15 +3613,15 @@ bool LLModelPreview::render()
                 {
                     if (pass == 0)
                     { //depth only pass
-                        gDX.setColorMask(false, false);
+                        gDX.setColorWriteMask(false, false);
                     }
                     else
                     {
-                        gDX.setColorMask(true, true);
+                        gDX.setColorWriteMask(true, true);
                     }
 
                     //enable alpha blending on second pass but not first pass
-                    LLGLState blend(GL_BLEND, pass);
+                    DXState blend(GL_BLEND, pass);
 
                     gDX.blendFunc(LLRender::BF_SOURCE_ALPHA, LLRender::BF_ONE_MINUS_SOURCE_ALPHA);
 
@@ -3718,12 +3721,12 @@ bool LLModelPreview::render()
                                     buffer->drawRange(LLRender::TRIANGLES, 0, buffer->getNumVerts() - 1, buffer->getNumIndices(), 0);
 
                                     gDX.diffuseColor4fv(PREVIEW_PSYH_EDGE_COL.mV);
-                                    glLineWidth(PREVIEW_PSYH_EDGE_WIDTH);
-                                    glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+                                    // S24: raw glLineWidth()/glPolygonMode() were unguarded here -
+                                    // see the show_edges block above for the full rationale (task #311).
+                                    LLUI::setLineWidth(PREVIEW_PSYH_EDGE_WIDTH);
                                     buffer->drawRange(LLRender::TRIANGLES, 0, buffer->getNumVerts() - 1, buffer->getNumIndices(), 0);
 
-                                    glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-                                    glLineWidth(1.f);
+                                    LLUI::setLineWidth(1.f);
 
                                     buffer->unmapBuffer();
                                 }
@@ -3735,8 +3738,16 @@ bool LLModelPreview::render()
                     // only do this if mDegenerate was set in the preceding mesh checks [Check this if the ordering ever breaks]
                     if (mHasDegenerate)
                     {
-                        glLineWidth(PREVIEW_DEG_EDGE_WIDTH);
+                        // S24: raw glLineWidth()/glPointSize() were unguarded here - found in a
+                        // tree-wide stray-GL sweep (task #311). LLUI::setLineWidth() is the usual
+                        // cross-backend replacement; glPointSize() has no equivalent wrapper yet
+                        // (D3D11 has no per-draw point size either - points always render 1px,
+                        // same class of gap as line width), so it's just guarded like the raw
+                        // calls elsewhere in this codebase that don't have one built yet.
+                        LLUI::setLineWidth(PREVIEW_DEG_EDGE_WIDTH);
+#ifndef DX_RENDER
                         glPointSize(PREVIEW_DEG_POINT_SIZE);
+#endif
                         gPipeline.enableLightsFullbright();
                         //show degenerate triangles
                         LLGLDepthTest depth(GL_TRUE, GL_TRUE, GL_ALWAYS);
@@ -3793,22 +3804,11 @@ bool LLModelPreview::render()
 
                                             if (ll_is_degenerate(v1, v2, v3))
                                             {
-                                                // S24 (2026-08-17, task #128): was buffer->draw(LLRender::LINE_LOOP, 3, i)
-                                                // - a direct indexed VBO draw, bypassing LLRender::flush() entirely, so
-                                                // task #106's LINE_LOOP-closed-into-LINE_STRIP fix (llrender.cpp) never
-                                                // covered this call site. D3D11 has no LINE_LOOP topology (sDXMode[]
-                                                // maps it to D3D11_PRIMITIVE_TOPOLOGY_UNDEFINED), and unlike task #106's
-                                                // fix - which can just append a duplicate vertex to the immediate-mode
-                                                // striders - this call reads 3 CONSECUTIVE indices from buffer's own
-                                                // fixed index array, with no room to splice in a 4th (closing) index
-                                                // without a temporary index buffer. v1/v2/v3 are already extracted as
-                                                // plain CPU-side vectors just above for the ll_is_degenerate() check, so
-                                                // routing through gDX's own immediate-mode begin()/vertex3fv()/end()
-                                                // instead is simpler than special-casing the indexed path - reuses
-                                                // task #106's already-proven LINE_LOOP handling at LLRender::flush()'s
-                                                // shared chokepoint, identical output under GL (native LINE_LOOP either
-                                                // way), and gDX.diffuseColor4f() (already set once above this loop)
-                                                // drives the color the same way regardless of which draw path is used.
+                                                // D3D11 has no LINE_LOOP topology. This call reads 3 consecutive indices
+                                                // from buffer's own fixed index array (no room to splice in a closing
+                                                // 4th index without a temporary index buffer), so route through gDX's
+                                                // own immediate-mode begin()/vertex3fv()/end() instead of an indexed
+                                                // VBO draw.
                                                 gDX.begin(LLRender::LINE_LOOP);
                                                 gDX.vertex3fv(v1.getF32ptr());
                                                 gDX.vertex3fv(v2.getF32ptr());
@@ -3830,8 +3830,10 @@ bool LLModelPreview::render()
 
                             gDX.popMatrix();
                         }
-                        glLineWidth(1.f);
+                        LLUI::setLineWidth(1.f);
+#ifndef DX_RENDER
                         glPointSize(1.f);
+#endif
                         gPipeline.enableLightsPreview();
                         gDX.setSceneBlendType(LLRender::BT_ALPHA);
                     }
@@ -3950,13 +3952,13 @@ bool LLModelPreview::render()
 
                             if (show_edges)
                             {
+                                // S24: raw glLineWidth()/glPolygonMode() were unguarded here - see
+                                // the earlier show_edges block above for the full rationale (task #311).
                                 gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
                                 gDX.diffuseColor4fv(PREVIEW_EDGE_COL.mV);
-                                glLineWidth(PREVIEW_EDGE_WIDTH);
-                                glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+                                LLUI::setLineWidth(PREVIEW_EDGE_WIDTH);
                                 buffer->draw(LLRender::TRIANGLES, buffer->getNumIndices(), 0);
-                                glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-                                glLineWidth(1.f);
+                                LLUI::setLineWidth(1.f);
                             }
                         }
                     }

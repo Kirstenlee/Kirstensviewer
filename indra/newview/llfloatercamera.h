@@ -141,6 +141,10 @@ private:
     LLPanel* mControls { nullptr };
     LLPanel* mViewerCameraInfo { nullptr };
     LLPanel* mAgentCameraInfo { nullptr };
+    // The floater's XML-declared height (floater_camera.xml), captured once before
+    // showDebugInfo() ever grows it to fit mViewerCameraInfo/mAgentCameraInfo - see
+    // showDebugInfo()'s comment.
+    S32 mNormalHeight { 0 };
     LLComboBox* mPresetCombo { nullptr };
     LLTextBox* mPreciseCtrls { nullptr };
 

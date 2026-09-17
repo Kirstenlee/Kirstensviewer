@@ -141,6 +141,13 @@
              function="Floater.Toggle"
              parameter="preferences" />
         </menu_item_call>
+        <menu_item_call
+         label="⚠️ S24 Engine..."
+         name="S24 Engine">
+            <menu_item_call.on_click
+             function="Floater.ToggleOrBringToFront"
+             parameter="prefs_kvtweaks" />
+        </menu_item_call>
          <menu_item_call
          label="🧰 Toolbar buttons..."
          name="Toolbars">
@@ -2580,7 +2587,7 @@ function="World.EnvPreset"
           </menu_item_check>
           <menu_item_check
              label="Fullbright"
-             name="Rendering Type Glow">
+             name="Rendering Type Fullbright">
             <menu_item_check.on_check
              function="Advanced.CheckRenderType"
              parameter="fullbright" />
@@ -2758,17 +2765,6 @@ function="World.EnvPreset"
                  parameter="selected" />
             </menu_item_check>
             <menu_item_check
-             label="Highlighted"
-             name="Highlighted"
-             shortcut="control|alt|F3">
-                <menu_item_check.on_check
-                 function="Advanced.CheckFeature"
-                 parameter="highlighted" />
-                <menu_item_check.on_click
-                 function="Advanced.ToggleFeature"
-                 parameter="highlighted" />
-            </menu_item_check>
-            <menu_item_check
              label="Dynamic Textures"
              name="Dynamic Textures"
              shortcut="control|alt|F4">
@@ -2780,17 +2776,6 @@ function="World.EnvPreset"
                  parameter="dynamic textures" />
             </menu_item_check>
             <menu_item_check
-             label="Foot Shadows"
-             name="Foot Shadows"
-             shortcut="control|alt|F5">
-                <menu_item_check.on_check
-                 function="Advanced.CheckFeature"
-                 parameter="foot shadows" />
-                <menu_item_check.on_click
-                 function="Advanced.ToggleFeature"
-                 parameter="foot shadows" />
-            </menu_item_check>
-            <menu_item_check
              label="Fog"
              name="Fog"
              shortcut="control|alt|F6">
@@ -2800,17 +2785,6 @@ function="World.EnvPreset"
                 <menu_item_check.on_click
                  function="Advanced.ToggleFeature"
                  parameter="fog" />
-            </menu_item_check>
-            <menu_item_check
-             label="Test FRInfo"
-             name="Test FRInfo"
-             shortcut="control|alt|F8">
-                <menu_item_check.on_check
-                 function="Advanced.CheckFeature"
-                 parameter="fr info" />
-                <menu_item_check.on_click
-                 function="Advanced.ToggleFeature"
-                 parameter="fr info" />
             </menu_item_check>
             <menu_item_check
              label="Flexible Objects"
@@ -3123,16 +3097,6 @@ function="World.EnvPreset"
                  function="ToggleControl"
                  parameter="DebugShowTime" />
             </menu_item_check>
-          <menu_item_check
-             label="Show Upload Cost"
-             name="Show Upload Cost">
-              <menu_item_check.on_check
-             function="CheckControl"
-             parameter="DebugShowUploadCost" />
-            <menu_item_check.on_click
-                 function="ToggleControl"
-                 parameter="DebugShowUploadCost" />
-            </menu_item_check>
             <menu_item_check
              label="Show Render Info"
              name="Show Render Info">
@@ -3273,6 +3237,12 @@ function="World.EnvPreset"
              name="Force Software Exception">
                 <menu_item_call.on_click
                  function="Advanced.ForceErrorSoftwareException" />
+            </menu_item_call>
+            <menu_item_call
+             label="Force Software Exception in a Coroutine"
+             name="Force Software Exception in a Coroutine">
+                <menu_item_call.on_click
+                 function="Advanced.ForceErrorSoftwareExceptionCoro" />
             </menu_item_call>
             <menu_item_call
              label="Force OS Exception"
@@ -3417,20 +3387,21 @@ function="World.EnvPreset"
              label="Randomize Framerate"
              name="Randomize Framerate">
                 <menu_item_check.on_check
-                 function="Advanced.CheckRandomizeFramerate"
+                 function="CheckControl"
                  parameter="Randomize Framerate" />
                 <menu_item_check.on_click
-                 function="Advanced.ToggleRandomizeFramerate" />
+                 function="ToggleControl"
+                 parameter="Randomize Framerate" />
             </menu_item_check>
             <menu_item_check
              label="Periodic Slow Frame"
              name="Periodic Slow Frame">
                 <menu_item_check.on_check
-                 function="Advanced.CheckPeriodicSlowFrame"
-                 parameter="points" />
+                 function="CheckControl"
+                 parameter="Periodic Slow Frame" />
                 <menu_item_check.on_click
-                 function="Advanced.TogglePeriodicSlowFrame"
-                 parameter="points" />
+                 function="ToggleControl"
+                 parameter="Periodic Slow Frame" />
             </menu_item_check>
           <menu_item_call
              label="Frame Profile"
@@ -3749,7 +3720,7 @@ function="World.EnvPreset"
          name="Rendering"
          tear_off="true">
             <menu_item_check
-             label="Axes"
+             label="Coordinate Axes"
              name="Axes">
                 <menu_item_check.on_check
                  function="CheckControl"
@@ -3803,7 +3774,7 @@ function="World.EnvPreset"
                  parameter="UseOcclusion" />
             </menu_item_check>
             <menu_item_call
-             label="Reload Vertex Shader"
+             label="Rebuild Shaders"
              name="Reload Vertex Shader">
                 <menu_item_call.on_click
                  function="Advanced.ReloadVertexShader" />
@@ -3836,16 +3807,6 @@ function="World.EnvPreset"
           </menu_item_check>
           <menu_item_separator />
 
-            <menu_item_check
-             label="Debug Pipeline"
-             name="Debug Pipeline">
-                <menu_item_check.on_check
-                 function="CheckControl"
-                 parameter="RenderDebugPipeline" />
-                <menu_item_check.on_click
-                 function="ToggleControl"
-                 parameter="RenderDebugPipeline" />
-            </menu_item_check>
             <menu_item_check
              label="Automatic Alpha Masks (deferred)"
              name="Automatic Alpha Masks (deferred)">
@@ -3947,16 +3908,6 @@ function="World.EnvPreset"
                  parameter="CollectUIImageVertexBuffers" />
             </menu_item_check>
           <menu_item_separator />
-          <menu_item_check
-             label="Enable Shader Cache"
-             name="Enable Shader Cache">
-            <menu_item_check.on_check
-             function="CheckControl"
-             parameter="RenderShaderCacheEnabled" />
-            <menu_item_check.on_click
-             function="ToggleShaderControl"
-             parameter="RenderShaderCacheEnabled" />
-          </menu_item_check>
           <menu_item_call
             enabled="true"
             label="Clear Shader Cache"
@@ -4134,26 +4085,6 @@ function="World.EnvPreset"
          label="World"
          name="DevelopWorld"
          tear_off="true">
-            <menu_item_check
-             label="Sim Sun Override"
-             name="Sim Sun Override">
-                <menu_item_check.on_check
-                 function="CheckControl"
-                 parameter="SkyOverrideSimSunPosition" />
-                <menu_item_check.on_click
-                 function="ToggleControl"
-                 parameter="SkyOverrideSimSunPosition" />
-            </menu_item_check>
-            <menu_item_check
-             label="Fixed Weather"
-             name="Fixed Weather">
-                <menu_item_check.on_check
-                 function="CheckControl"
-                 parameter="FixedWeather" />
-                <menu_item_check.on_click
-                 function="ToggleControl"
-                 parameter="FixedWeather" />
-            </menu_item_check>
             <menu_item_call
              label="Dump Region Object Cache"
              name="Dump Region Object Cache">
@@ -4237,13 +4168,6 @@ function="World.EnvPreset"
                  function="Floater.Show"
                  parameter="inventory_thumbnails_helper" />
             </menu_item_call>
-            <menu_item_call
-           label="FB Connect Test"
-           name="FB Connect Test">
-            <menu_item_call.on_click
-             function="Advanced.WebContentTest"
-             parameter="https://cryptic-ridge-1632.herokuapp.com/"/>
-          </menu_item_call>
           <menu_item_call
            label="Dump Fonts"
            name="Dump Fonts">
@@ -4748,23 +4672,6 @@ function="World.EnvPreset"
          function="Advanced.CompressFileTest" />
       </menu_item_call>
 
-      <menu_item_call
-         label="Enable Visual Leak Detector"
-         name="Enable Visual Leak Detector">
-        <menu_item_call.on_click
-           function="Advanced.ToggleVisualLeakDetector" />
-        </menu_item_call>
-      
-        <menu_item_check
-         label="Output Debug Minidump"
-         name="Output Debug Minidump">
-            <menu_item_check.on_check
-             function="CheckControl"
-             parameter="SaveMinidump" />
-            <menu_item_check.on_click
-             function="ToggleControl"
-             parameter="SaveMinidump" />
-        </menu_item_check>
         <menu_item_check
          label="Console Window on next Run"
          name="Console Window">

@@ -23,7 +23,7 @@
  * Linden Research, Inc., 945 Battery Street, San Francisco, CA  94111  USA
  * $/LicenseInfo$
  */
-#include "llviewerprecompiledheaders.h" // S24 these headers to the TOP!
+#include "llviewerprecompiledheaders.h"
 
 #include "llvoicewebrtc.h"
 #include "../llwebrtc/llwebrtc.h"
@@ -546,7 +546,6 @@ void LLWebRTCVoiceClient::voiceConnectionCoro()
         LLMuteList::getInstance()->addObserver(this);
         while (!sShuttingDown)
         {
-            LL_PROFILE_ZONE_NAMED_CATEGORY_VOICE("voiceConnectionCoroLoop")
             // TODO: Doing some measurement and calculation here,
             // we could reduce the timeout to take into account the
             // time spent on the previous loop to have the loop
@@ -2899,7 +2898,6 @@ bool LLVoiceWebRTCConnection::connectionStateMachine()
     {
         case VOICE_STATE_START_SESSION:
         {
-            LL_PROFILE_ZONE_NAMED_CATEGORY_VOICE("VOICE_STATE_START_SESSION")
             if (mShutDown)
             {
                 setVoiceConnectionState(VOICE_STATE_SESSION_EXIT);
@@ -3163,18 +3161,9 @@ void LLVoiceWebRTCConnection::OnDataReceivedImpl(const std::string &data, bool b
         if (!mPrimary && isSpatial() && gAgent.getRegion())
         {
             is_primary_region = (mRegionID == gAgent.getRegion()->getRegionID());
-            // S24 (2026-09-04): this isn't an error condition - a non-primary
-            // spatial connection (a neighboring-region voice link near a
-            // region border) is completely normal, and this fires on every
-            // single data-channel message from it (participant power/join
-            // updates arrive frequently during active voice chat), not once.
-            // Was LL_WARNS() with no tag at all (inconsistent with every
-            // other log line in this file, all tagged "Voice"), spamming the
-            // log file on a per-message basis for routine multi-region voice
-            // - purely diagnostic, not something a user/dev needs surfaced by
-            // default. is_primary_region itself is still computed and used
-            // for real logic below (line 3267/3285) - only the logging
-            // changes.
+            // A non-primary spatial connection (a neighboring-region voice link near a region border)
+            // is normal, not an error - logged as LL_DEBUGS("Voice") rather than LL_WARNS(), since it
+            // fires on every data-channel message from such a connection.
             LL_DEBUGS("Voice") << "mPrimary is false, expected: " << is_primary_region << " connection state: " << getVoiceConnectionState() << LL_ENDL;
         }
         boost::json::object voice_data = voice_data_parsed.as_object();
@@ -3299,16 +3288,9 @@ void LLVoiceWebRTCConnection::OnDataReceivedImpl(const std::string &data, bool b
                     // mute info message can be received before join message, so try to mute again later
                     if (participant_obj.contains("m") && participant_obj["m"].is_bool())
                     {
-                        // S24 (2026-09-04): this is expected, self-healing
-                        // behavior (see comment above), not an error - the
-                        // retry below is the actual handling. Was untagged
-                        // LL_WARNS(), which formats/logs unconditionally on
-                        // every mute-info message that races ahead of its
-                        // join message (can happen repeatedly per
-                        // not-yet-joined participant), wasting cycles on
-                        // string work for pure console spam. Downgraded to
-                        // LL_DEBUGS, same as the "still not found after
-                        // delay" case below.
+                        // Expected, self-healing behavior, not an error - the retry below is the
+                        // actual handling. Logged as LL_DEBUGS rather than LL_WARNS, same as the
+                        // "still not found after delay" case below.
                         LL_DEBUGS("Voice") << "Mute info msg received: " << participant_obj["m"].as_bool()
                                    << " but participant " << agent_id
                                    << " was not found in channel " << mChannelID << LL_ENDL;
@@ -3332,11 +3314,9 @@ void LLVoiceWebRTCConnection::OnDataReceivedImpl(const std::string &data, bool b
                                 }
                                 else
                                 {
-                                    // S24 (2026-09-04): same reasoning as the
-                                    // initial "was not found" LL_WARNS above -
-                                    // a participant who left/never joined
-                                    // during the 1.5s retry window is routine
-                                    // voice-channel churn, not an error.
+                                    // Same reasoning as above - a participant who left/never joined
+                                    // during the 1.5s retry window is routine voice-channel churn,
+                                    // not an error.
                                     LL_DEBUGS("Voice") << "Participant " << agent_id << " is still not found in channel " << channel_id << LL_ENDL;
                                 }
                             }, delay);
