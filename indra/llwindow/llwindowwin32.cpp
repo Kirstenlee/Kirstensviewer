@@ -290,6 +290,14 @@ HMODULE LLWindowWin32::sGLDLLHandle = nullptr;
 
 static HWND sWindowHandleForMessageBox = NULL;
 
+// S24: real process/thread QoS tier (0=Eco/1=Normal/2=High), set by
+// LLAppViewerWin32::initWindow() from RenderProcessQoS (gSavedSettings)
+// before this window is constructed - llwindow can't see gSavedSettings
+// directly (newview links against llwindow, not the reverse), so this is
+// a plain extern global rather than threading a new parameter through
+// LLWindowManager::createWindow()'s cross-platform signature.
+extern S32 gRenderProcessQoS;
+
 // The following class LLWinImm delegates Windows IMM APIs.
 // It was originally introduced to support US Windows XP, on which we needed
 // to dynamically load IMM32.DLL and use GetProcAddress to resolve its entry
@@ -669,17 +677,53 @@ LLWindowWin32::LLWindowWin32(LLWindowCallbacks* callbacks,
 		LL_WARNS("Window") << "Failed to register main thread with MMCSS: " << GetLastError() << LL_ENDL;
 	}
 
-	// Raise main/render thread priority to HIGHEST for better frame timing
-	setThreadPriorityHigh();
-
-	// Disable power throttling for the entire process to prevent frame drops.
-	// Available on Windows 10 1709+ (Fall Creators Update).
-	PROCESS_POWER_THROTTLING_STATE pptState;
-	RtlZeroMemory(&pptState, sizeof(pptState));
-	pptState.Version = PROCESS_POWER_THROTTLING_CURRENT_VERSION;
-	pptState.ControlMask = PROCESS_POWER_THROTTLING_EXECUTION_SPEED;
-	pptState.StateMask = 0; // clear bit = disable throttling
-	SetProcessInformation(GetCurrentProcess(), ProcessPowerThrottling, &pptState, sizeof(pptState));
+	// S24 (RenderProcessQoS, repurposed from the old GL-era "CPU basis" GPU-
+	// class bias slider - see llfeaturemanager.cpp for that unrelated,
+	// still-live usage of RenderCPUBasis): real Windows process/thread QoS
+	// tier, set by LLAppViewerWin32::initWindow() before this constructor
+	// runs. 0=Eco (EcoQoS power throttling enabled, background-friendly),
+	// 1=Normal (default OS scheduling), 2=High (throttling disabled, main
+	// thread + process priority boosted). Defaults to Normal if unset.
+	switch (gRenderProcessQoS)
+	{
+	case 0: // Eco
+	{
+		PROCESS_POWER_THROTTLING_STATE pptState;
+		RtlZeroMemory(&pptState, sizeof(pptState));
+		pptState.Version = PROCESS_POWER_THROTTLING_CURRENT_VERSION;
+		pptState.ControlMask = PROCESS_POWER_THROTTLING_EXECUTION_SPEED;
+		pptState.StateMask = PROCESS_POWER_THROTTLING_EXECUTION_SPEED; // set bit = enable throttling (EcoQoS)
+		SetProcessInformation(GetCurrentProcess(), ProcessPowerThrottling, &pptState, sizeof(pptState));
+		setThreadPriorityNormal();
+		break;
+	}
+	case 2: // High
+	{
+		PROCESS_POWER_THROTTLING_STATE pptState;
+		RtlZeroMemory(&pptState, sizeof(pptState));
+		pptState.Version = PROCESS_POWER_THROTTLING_CURRENT_VERSION;
+		pptState.ControlMask = PROCESS_POWER_THROTTLING_EXECUTION_SPEED;
+		pptState.StateMask = 0; // clear bit = disable throttling
+		SetProcessInformation(GetCurrentProcess(), ProcessPowerThrottling, &pptState, sizeof(pptState));
+		if (!SetPriorityClass(GetCurrentProcess(), ABOVE_NORMAL_PRIORITY_CLASS))
+		{
+			LL_WARNS("Window") << "SetPriorityClass(ABOVE_NORMAL) failed: 0x" << std::hex << GetLastError() << LL_ENDL;
+		}
+		setThreadPriorityHigh();
+		break;
+	}
+	default: // Normal
+	{
+		PROCESS_POWER_THROTTLING_STATE pptState;
+		RtlZeroMemory(&pptState, sizeof(pptState));
+		pptState.Version = PROCESS_POWER_THROTTLING_CURRENT_VERSION;
+		pptState.ControlMask = PROCESS_POWER_THROTTLING_EXECUTION_SPEED;
+		pptState.StateMask = 0; // clear bit = disable throttling
+		SetProcessInformation(GetCurrentProcess(), ProcessPowerThrottling, &pptState, sizeof(pptState));
+		setThreadPriorityNormal();
+		break;
+	}
+	}
 
 	mFSAASamples = fsaa_samples;
 	mIconResource = gIconResource;
@@ -785,8 +829,8 @@ LLWindowWin32::LLWindowWin32(LLWindowCallbacks* callbacks,
 	S32 virtual_screen_width = GetSystemMetrics(SM_CXVIRTUALSCREEN);
 	S32 virtual_screen_height = GetSystemMetrics(SM_CYVIRTUALSCREEN);
 
-	// S24: Extra safety for non-borderless windows - ensure titlebar is accessible
-	// This prevents windows from being stuck offscreen if user switches from borderless maximized to windowed
+	// S24: keeps the titlebar accessible - prevents the window being stuck offscreen
+	// after switching from borderless maximized to windowed.
 	if (!borderless && !fullscreen)
 	{
 		// Get primary monitor work area (excludes taskbar)
@@ -889,7 +933,7 @@ LLWindowWin32::LLWindowWin32(LLWindowCallbacks* callbacks,
 	}
 	else
 	{
-		current_refresh = 75; // S24
+		current_refresh = 75;
 	}
 	mRefreshRate = current_refresh;
 	//-----------------------------------------------------------------------
@@ -1298,27 +1342,19 @@ bool LLWindowWin32::maximize()
 	bool success = false;
 	if (!mWindowHandle) return success;
 
-	// S24: Handle borderless maximize differently
 	if (mBorderless)
 	{
 		maximizeBorderless();
 		return true;
 	}
 
-	// S24: this used to fire-and-forget the SetWindowPlacement() call, which
-	// left a race on maximized startup: the OS window snaps to its maximized
-	// size almost immediately, but the WM_SIZE this triggers relays through
+	// S24: the WM_SIZE triggered by SetWindowPlacement() relays through
 	// mFunctionQueue (WINDOW_IMP_POST -> handleResize() -> reshape() ->
-	// gDXSwapChain.resize()), and that queue is only drained inside
-	// gatherInput() from the main frame loop - which doesn't run at all
-	// during LLAppViewer::init()'s long synchronous startup block
-	// (gPipeline.init()/initGLDefaults()/asset loading). The result was a
-	// swap chain still sized for the pre-maximize window for that whole
-	// startup window, showing as a blank white DWM-filled gap until the
-	// first real frame finally drained the queue. Blocking here until the
-	// window thread's SetWindowPlacement() call completes, then draining the
-	// queue once immediately, lets the resize land before that long block
-	// begins.
+	// gDXSwapChain.resize()), which is only drained inside gatherInput() from the
+	// main frame loop - a loop that doesn't run during LLAppViewer::init()'s long
+	// synchronous startup block. Block here until SetWindowPlacement() completes
+	// and drain the queue once immediately, so the swap chain resizes before that
+	// startup block begins (otherwise: blank DWM-filled gap until first real frame).
 	std::promise<void> promise;
 	auto future = promise.get_future();
 
@@ -1590,10 +1626,9 @@ bool LLWindowWin32::switchContext(bool fullscreen, const LLCoordScreen& size, bo
 		window_rect.top = (long)(posp ? posp->mY : 0);
 		window_rect.bottom = (long)height + window_rect.top;
 
-		// S24: Check for borderless window mode
 		if (mBorderless)
 		{
-			// S24: Borderless windowed mode - no titlebar/frame
+			// Borderless windowed mode - no titlebar/frame
 			dw_ex_style = WS_EX_APPWINDOW;
 			dw_style = WS_POPUP;
 		}
@@ -1636,15 +1671,13 @@ bool LLWindowWin32::switchContext(bool fullscreen, const LLCoordScreen& size, bo
 		return false;
 	}
 
-	// S24 (2026-08-05): real DXGI-based GPU detection, mirroring the GL
-	// branch's gGLManager.initGL() call below - see LLGLManager::initGLDX()'s
-	// comment (llgl.h/.cpp) for why this matters (LLFeatureManager was
-	// silently masking real features off with no real GPU data to work from).
+	// S24: real DXGI-based GPU detection, mirroring the GL branch's
+	// gGLManager.initGL() call below - see LLGLManager::initGLDX()'s comment
+	// (llgl.h/.cpp): without this, LLFeatureManager silently masks real
+	// features off with no real GPU data to work from.
 	gGLManager.initGLDX();
 #else
-	// S24 (2026-07-23): moved down from switchContext()'s top - only ever
-	// used in this GL-only branch, was an unreferenced-variable warning
-	// under DX_RENDER (that branch above never touches it).
+	// S24: only used in this GL-only branch (DX_RENDER never touches it).
 	GLuint  pixel_format;
 
 	//-----------------------------------------------------------------------
@@ -2160,6 +2193,18 @@ void LLWindowWin32::recreateWindow(RECT window_rect, DWORD dw_ex_style, DWORD dw
                 // Update mWindowThread's own mWindowHandle and mhDC.
                 self->mWindowHandleThrd = handle;
                 self->mhDCThrd = GetDC(handle);
+
+                // S24: ghosting/"(Not Responding)" tracking is per-thread, so this must run
+                // on this window's own creation thread, not wherever LLWindowWin32's ctor
+                // happens to run. Real, documented Win32 API for exactly this case: a known,
+                // intentional, bounded main-thread stall (e.g. a full shader reload
+                // triggered by toggling SSR/Mirrors/HDR/Water in Preferences, which blocks
+                // the message pump for real seconds) that isn't an actual hang. Without this,
+                // Windows paints the grey "ghost window"/Not Responding overlay a few seconds
+                // in, which has led users to conclude the viewer crashed and kill it via Task
+                // Manager mid-reload - losing nothing technically, but a bad, confusing
+                // experience for something that was always going to finish on its own.
+                DisableProcessWindowsGhosting();
 			}
 
 			updateWindowRect();  // Possibly realign sizing
@@ -2196,17 +2241,11 @@ void LLWindowWin32::recreateWindow(RECT window_rect, DWORD dw_ex_style, DWORD dw
 	sWindowHandleForMessageBox = mWindowHandle;
 }
 
-// S24 (2026-08-31, task #300 GL-retirement): was real WGL shared-context
-// creation (version-negotiation loop against wglCreateContextAttribsARB,
-// falling back to wglCreateContext) - both call sites are confirmed dead
-// under DX_RENDER: LLWindowWin32::switchContext()'s own #else (non-
-// DX_RENDER) branch, and LLImageGLThread's constructor (llimagegl.cpp),
-// which the class's own existing comment already documents as "DX_RENDER
-// never constructs this class... GL-only" (task #260). Stubbed to match
-// LLWindowHeadless::createSharedContext()'s existing convention for "no
-// shared context available" (llwindowheadless.h) rather than resurrecting
-// the wglCreateContextAttribsARB extension pointer just to keep dead code
-// compiling.
+// S24: real WGL shared-context creation used to live here; both call sites
+// (switchContext()'s non-DX_RENDER #else branch, LLImageGLThread's ctor in
+// llimagegl.cpp) are GL-only and dead under DX_RENDER. Stubbed to match
+// LLWindowHeadless::createSharedContext()'s "no shared context available"
+// convention (llwindowheadless.h).
 void* LLWindowWin32::createSharedContext()
 {
 	return nullptr;
@@ -2215,7 +2254,6 @@ void* LLWindowWin32::createSharedContext()
 void LLWindowWin32::makeContextCurrent(void* contextPtr)
 {
 	wglMakeCurrent(mhDC, (HGLRC)contextPtr);
-	LL_PROFILER_GPU_CONTEXT;
 }
 
 void LLWindowWin32::destroySharedContext(void* contextPtr)
@@ -2226,12 +2264,10 @@ void LLWindowWin32::destroySharedContext(void* contextPtr)
 void LLWindowWin32::toggleVSync(bool enable_vsync)
 {
 #ifdef DX_RENDER
-	// S24 (2026-08-16): real DX-native live toggle, replacing the previous
-	// unconditional call into the GL-only path below (which always hit its
-	// "no active GL context" early return under DX_RENDER, since mhDC/mhRC
-	// are never populated here - RenderVSyncEnable had zero live effect).
-	// gDXSwapChain.setVSync() takes effect on the very next Present() call,
-	// no context/extension-probing dance needed at all.
+	// S24: mhDC/mhRC are never populated under DX_RENDER, so the GL-only path
+	// below always hit its "no active GL context" early return and
+	// RenderVSyncEnable had zero live effect. gDXSwapChain.setVSync() takes
+	// effect on the next Present() call.
 	gDXSwapChain.setVSync(enable_vsync);
 	LL_INFOS("Window") << "VSync " << (enable_vsync ? "enabled" : "disabled") << " (DXGI present interval = " << (enable_vsync ? 1 : 0) << ")" << LL_ENDL;
 	return;
@@ -2385,7 +2421,6 @@ void LLWindowWin32::hideCursor()
 
 void LLWindowWin32::showCursor()
 {
-	LL_PROFILE_ZONE_SCOPED_CATEGORY_WIN32;
 
 	ASSERT_MAIN_THREAD();
 
@@ -2498,7 +2533,6 @@ void LLWindowWin32::initCursors()
 void LLWindowWin32::updateCursor()
 {
 	ASSERT_MAIN_THREAD();
-	LL_PROFILE_ZONE_SCOPED_CATEGORY_WIN32;
 	if (mNextCursor == UI_CURSOR_ARROW
 		&& mBusyCount > 0)
 	{
@@ -2528,7 +2562,6 @@ void LLWindowWin32::captureMouse()
 
 void LLWindowWin32::releaseMouse()
 {
-	LL_PROFILE_ZONE_SCOPED_CATEGORY_WIN32;
 	ReleaseCapture();
 }
 
@@ -2540,7 +2573,6 @@ void LLWindowWin32::delayInputProcessing()
 void LLWindowWin32::gatherInput()
 {
 	ASSERT_MAIN_THREAD();
-	LL_PROFILE_ZONE_SCOPED_CATEGORY_WIN32;
 	MSG msg;
 
 	{
@@ -2553,13 +2585,11 @@ void LLWindowWin32::gatherInput()
 
 	if (mWindowThread->getQueue().size())
 	{
-		LL_PROFILE_ZONE_NAMED_CATEGORY_WIN32("gi - PostMessage");
 		kickWindowThread();
 	}
 
 	while (mWindowThread->mMessageQueue.tryPopBack(msg))
 	{
-		LL_PROFILE_ZONE_NAMED_CATEGORY_WIN32("gi - message queue");
 		if (mInputProcessingPaused)
 		{
 			continue;
@@ -2568,13 +2598,11 @@ void LLWindowWin32::gatherInput()
 		// For async host by name support.  Really hacky.
 		if (gAsyncMsgCallback && (LL_WM_HOST_RESOLVED == msg.message))
 		{
-			LL_PROFILE_ZONE_NAMED_CATEGORY_WIN32("gi - callback");
 			gAsyncMsgCallback(msg);
 		}
 	}
 
 	{
-		LL_PROFILE_ZONE_NAMED_CATEGORY_WIN32("gi - PeekMessage");
 		S32 msg_count = 0;
 		while ((msg_count < MAX_MESSAGE_PER_UPDATE) && PeekMessage(&msg, NULL, WM_USER, WM_USER, PM_REMOVE))
 		{
@@ -2585,7 +2613,6 @@ void LLWindowWin32::gatherInput()
 	}
 
 	{
-		LL_PROFILE_ZONE_NAMED_CATEGORY_WIN32("gi - function queue");
 		//process any pending functions
 		std::function<void()> curFunc;
 		while (mFunctionQueue.tryPopBack(curFunc))
@@ -2597,14 +2624,12 @@ void LLWindowWin32::gatherInput()
 	// send one and only one mouse move event per frame BEFORE handling mouse button presses
 	if (mLastCursorPosition != mCursorPosition)
 	{
-		LL_PROFILE_ZONE_NAMED_CATEGORY_WIN32("gi - mouse move");
 		mCallbacks->handleMouseMove(this, mCursorPosition.convert(), mMouseMask);
 	}
 
 	mLastCursorPosition = mCursorPosition;
 
 	{
-		LL_PROFILE_ZONE_NAMED_CATEGORY_WIN32("gi - mouse queue");
 		// handle mouse button presses AFTER updating mouse cursor position
 		std::function<void()> curFunc;
 		while (mMouseQueue.tryPopBack(curFunc))
@@ -2618,7 +2643,6 @@ void LLWindowWin32::gatherInput()
 	updateCursor();
 }
 
-static LLTrace::BlockTimerStatHandle FTM_KEYHANDLER("Handle Keyboard");
 static LLTrace::BlockTimerStatHandle FTM_MOUSEHANDLER("Handle Mouse");
 
 #define WINDOW_IMP_POST(x) window_imp->post([=]() { x; })
@@ -2626,7 +2650,6 @@ static LLTrace::BlockTimerStatHandle FTM_MOUSEHANDLER("Handle Mouse");
 LRESULT CALLBACK LLWindowWin32::mainWindowProc(HWND h_wnd, UINT u_msg, WPARAM w_param, LPARAM l_param)
 {
 	ASSERT_WINDOW_THREAD();
-	LL_PROFILE_ZONE_SCOPED_CATEGORY_WIN32;
 
 	if (u_msg == WM_POST_FUNCTION_)
 	{
@@ -2668,14 +2691,12 @@ LRESULT CALLBACK LLWindowWin32::mainWindowProc(HWND h_wnd, UINT u_msg, WPARAM w_
 
 		case WM_TIMER:
 		{
-			LL_PROFILE_ZONE_NAMED_CATEGORY_WIN32("mwp - WM_TIMER");
 			WINDOW_IMP_POST(window_imp->mCallbacks->handleTimerEvent(window_imp));
 			break;
 		}
 
 		case WM_DEVICECHANGE:
 		{
-			LL_PROFILE_ZONE_NAMED_CATEGORY_WIN32("mwp - WM_DEVICECHANGE");
 			if (w_param == DBT_DEVNODES_CHANGED || w_param == DBT_DEVICEARRIVAL)
 			{
 				WINDOW_IMP_POST(window_imp->mCallbacks->handleDeviceChange(window_imp));
@@ -2687,7 +2708,6 @@ LRESULT CALLBACK LLWindowWin32::mainWindowProc(HWND h_wnd, UINT u_msg, WPARAM w_
 
 		case WM_PAINT:
 		{
-			LL_PROFILE_ZONE_NAMED_CATEGORY_WIN32("mwp - WM_PAINT");
 			GetUpdateRect(window_imp->mWindowHandle, &update_rect, FALSE);
 			update_width = update_rect.right - update_rect.left + 1;
 			update_height = update_rect.bottom - update_rect.top + 1;
@@ -2703,7 +2723,6 @@ LRESULT CALLBACK LLWindowWin32::mainWindowProc(HWND h_wnd, UINT u_msg, WPARAM w_
 
 		case WM_SETCURSOR:
 		{
-			LL_PROFILE_ZONE_NAMED_CATEGORY_WIN32("mwp - WM_SETCURSOR");
 			// This message is sent whenever the cursor is moved in a window.
 			// You need to set the appropriate cursor appearance.
 
@@ -2718,21 +2737,18 @@ LRESULT CALLBACK LLWindowWin32::mainWindowProc(HWND h_wnd, UINT u_msg, WPARAM w_
 		}
 		case WM_ENTERMENULOOP:
 		{
-			LL_PROFILE_ZONE_NAMED_CATEGORY_WIN32("mwp - WM_ENTERMENULOOP");
 			WINDOW_IMP_POST(window_imp->mCallbacks->handleWindowBlock(window_imp));
 			break;
 		}
 
 		case WM_EXITMENULOOP:
 		{
-			LL_PROFILE_ZONE_NAMED_CATEGORY_WIN32("mwp - WM_EXITMENULOOP");
 			WINDOW_IMP_POST(window_imp->mCallbacks->handleWindowUnblock(window_imp));
 			break;
 		}
 
 		case WM_ACTIVATEAPP:
 		{
-			LL_PROFILE_ZONE_NAMED_CATEGORY_WIN32("mwp - WM_ACTIVATEAPP");
 			window_imp->post([=]()
 				{
 					// This message should be sent whenever the app gains or loses focus.
@@ -2765,7 +2781,6 @@ LRESULT CALLBACK LLWindowWin32::mainWindowProc(HWND h_wnd, UINT u_msg, WPARAM w_
 		}
 		case WM_ACTIVATE:
 		{
-			LL_PROFILE_ZONE_NAMED_CATEGORY_WIN32("mwp - WM_ACTIVATE");
 			window_imp->post([=]()
 				{
 					// Can be one of WA_ACTIVE, WA_CLICKACTIVE, or WA_INACTIVE
@@ -2786,7 +2801,6 @@ LRESULT CALLBACK LLWindowWin32::mainWindowProc(HWND h_wnd, UINT u_msg, WPARAM w_
 
 		case WM_SYSCOMMAND:
 		{
-			LL_PROFILE_ZONE_NAMED_CATEGORY_WIN32("mwp - WM_SYSCOMMAND");
 			switch (w_param)
 			{
 			case SC_KEYMENU:
@@ -2819,7 +2833,6 @@ LRESULT CALLBACK LLWindowWin32::mainWindowProc(HWND h_wnd, UINT u_msg, WPARAM w_
 		}
 		case WM_CLOSE:
 		{
-			LL_PROFILE_ZONE_NAMED_CATEGORY_WIN32("mwp - WM_CLOSE");
 			window_imp->post([=]()
 				{
 					// Will the app allow the window to close?
@@ -2834,7 +2847,6 @@ LRESULT CALLBACK LLWindowWin32::mainWindowProc(HWND h_wnd, UINT u_msg, WPARAM w_
 		}
 		case WM_DESTROY:
 		{
-			LL_PROFILE_ZONE_NAMED_CATEGORY_WIN32("mwp - WM_DESTROY");
 			if (window_imp->shouldPostQuit())
 			{
 				PostQuitMessage(0);  // Posts WM_QUIT with an exit code of 0
@@ -2852,7 +2864,6 @@ LRESULT CALLBACK LLWindowWin32::mainWindowProc(HWND h_wnd, UINT u_msg, WPARAM w_
         {
             // OS session is shutting down, initiate cleanup.
             // Comes after WM_QUERYENDSESSION
-            LL_PROFILE_ZONE_NAMED_CATEGORY_WIN32("mwp - WM_ENDSESSION");
             LL_INFOS("Window") << "Received WM_ENDSESSION with wParam: " << (U32)w_param << " lParam: " << (U32)l_param << LL_ENDL;
             unsigned int end_session_flags = (U32)l_param;
 
@@ -2884,7 +2895,6 @@ LRESULT CALLBACK LLWindowWin32::mainWindowProc(HWND h_wnd, UINT u_msg, WPARAM w_
 		}
 		case WM_COMMAND:
 		{
-			LL_PROFILE_ZONE_NAMED_CATEGORY_WIN32("mwp - WM_COMMAND");
 			if (!HIWORD(w_param)) // this message is from a menu
 			{
 				WINDOW_IMP_POST(window_imp->mCallbacks->handleMenuSelect(window_imp, LOWORD(w_param)));
@@ -2893,7 +2903,6 @@ LRESULT CALLBACK LLWindowWin32::mainWindowProc(HWND h_wnd, UINT u_msg, WPARAM w_
 		}
 		case WM_SYSKEYDOWN:
 		{
-			LL_PROFILE_ZONE_NAMED_CATEGORY_WIN32("mwp - WM_SYSKEYDOWN");
 			// allow system keys, such as ALT-F4 to be processed by Windows
 			eat_keystroke = false;
 			// intentional fall-through here
@@ -2901,7 +2910,6 @@ LRESULT CALLBACK LLWindowWin32::mainWindowProc(HWND h_wnd, UINT u_msg, WPARAM w_
 		}
 		case WM_KEYDOWN:
 		{
-			LL_PROFILE_ZONE_NAMED_CATEGORY_WIN32("mwp - WM_KEYDOWN");
 			window_imp->post([=]()
 				{
 					window_imp->mKeyCharCode = 0; // don't know until wm_char comes in next
@@ -2922,7 +2930,6 @@ LRESULT CALLBACK LLWindowWin32::mainWindowProc(HWND h_wnd, UINT u_msg, WPARAM w_
 			[[fallthrough]];
 		case WM_KEYUP:
 		{
-			LL_PROFILE_ZONE_NAMED_CATEGORY_WIN32("mwp - WM_KEYUP");
 			window_imp->post([=]()
 				{
 					window_imp->mKeyScanCode = (l_param >> 16) & 0xff;
@@ -2932,7 +2939,6 @@ LRESULT CALLBACK LLWindowWin32::mainWindowProc(HWND h_wnd, UINT u_msg, WPARAM w_
 					window_imp->mRawLParam = (U32)l_param;
 
 					{
-						LL_PROFILE_ZONE_NAMED_CATEGORY_WIN32("mwp - WM_KEYUP");
 						gKeyboard->handleKeyUp((U16)w_param, mask);
 					}
 				});
@@ -2941,7 +2947,6 @@ LRESULT CALLBACK LLWindowWin32::mainWindowProc(HWND h_wnd, UINT u_msg, WPARAM w_
 		}
 		case WM_IME_SETCONTEXT:
 		{
-			LL_PROFILE_ZONE_NAMED_CATEGORY_WIN32("mwp - WM_IME_SETCONTEXT");
 			if (LLWinImm::isAvailable() && window_imp->mPreeditor)
 			{
 				l_param &= ~ISC_SHOWUICOMPOSITIONWINDOW;
@@ -2951,7 +2956,6 @@ LRESULT CALLBACK LLWindowWin32::mainWindowProc(HWND h_wnd, UINT u_msg, WPARAM w_
 		}
 		case WM_IME_STARTCOMPOSITION:
 		{
-			LL_PROFILE_ZONE_NAMED_CATEGORY_WIN32("mwp - WM_IME_STARTCOMPOSITION");
 			if (LLWinImm::isAvailable() && window_imp->mPreeditor)
 			{
 				WINDOW_IMP_POST(window_imp->handleStartCompositionMessage());
@@ -2961,7 +2965,6 @@ LRESULT CALLBACK LLWindowWin32::mainWindowProc(HWND h_wnd, UINT u_msg, WPARAM w_
 		}
 		case WM_IME_ENDCOMPOSITION:
 		{
-			LL_PROFILE_ZONE_NAMED_CATEGORY_WIN32("mwp - WM_IME_ENDCOMPOSITION");
 			if (LLWinImm::isAvailable() && window_imp->mPreeditor)
 			{
 				return 0;
@@ -2970,7 +2973,6 @@ LRESULT CALLBACK LLWindowWin32::mainWindowProc(HWND h_wnd, UINT u_msg, WPARAM w_
 		}
 		case WM_IME_COMPOSITION:
 		{
-			LL_PROFILE_ZONE_NAMED_CATEGORY_WIN32("mwp - WM_IME_COMPOSITION");
 			if (LLWinImm::isAvailable() && window_imp->mPreeditor)
 			{
 				WINDOW_IMP_POST(window_imp->handleCompositionMessage((U32)l_param));
@@ -2980,7 +2982,6 @@ LRESULT CALLBACK LLWindowWin32::mainWindowProc(HWND h_wnd, UINT u_msg, WPARAM w_
 		}
 		case WM_IME_REQUEST:
 		{
-			LL_PROFILE_ZONE_NAMED_CATEGORY_WIN32("mwp - WM_IME_REQUEST");
 			if (LLWinImm::isAvailable() && window_imp->mPreeditor)
 			{
 				LRESULT result;
@@ -2991,7 +2992,6 @@ LRESULT CALLBACK LLWindowWin32::mainWindowProc(HWND h_wnd, UINT u_msg, WPARAM w_
 		}
 		case WM_CHAR:
 		{
-			LL_PROFILE_ZONE_NAMED_CATEGORY_WIN32("mwp - WM_CHAR");
 			window_imp->post([=]()
 				{
 					window_imp->mKeyCharCode = (U32)w_param;
@@ -3018,7 +3018,6 @@ LRESULT CALLBACK LLWindowWin32::mainWindowProc(HWND h_wnd, UINT u_msg, WPARAM w_
 		}
 		case WM_NCLBUTTONDOWN:
 		{
-			LL_PROFILE_ZONE_NAMED_CATEGORY_WIN32("mwp - WM_NCLBUTTONDOWN");
 			{
 				// A click in a non-client area, e.g. title bar or window border.
 				window_imp->post([=]()
@@ -3031,7 +3030,6 @@ LRESULT CALLBACK LLWindowWin32::mainWindowProc(HWND h_wnd, UINT u_msg, WPARAM w_
 		}
 		case WM_LBUTTONDOWN:
 		{
-			LL_PROFILE_ZONE_NAMED_CATEGORY_WIN32("mwp - WM_LBUTTONDOWN");
 			{
 				LL_RECORD_BLOCK_TIME(FTM_MOUSEHANDLER);
 				window_imp->postMouseButtonEvent([=]()
@@ -3056,7 +3054,6 @@ LRESULT CALLBACK LLWindowWin32::mainWindowProc(HWND h_wnd, UINT u_msg, WPARAM w_
 
 		case WM_LBUTTONDBLCLK:
 		{
-			LL_PROFILE_ZONE_NAMED_CATEGORY_WIN32("mwp - WM_LBUTTONDBLCLK");
 			window_imp->postMouseButtonEvent([=]()
 				{
 					//RN: ignore right button double clicks for now
@@ -3077,7 +3074,6 @@ LRESULT CALLBACK LLWindowWin32::mainWindowProc(HWND h_wnd, UINT u_msg, WPARAM w_
 		}
 		case WM_LBUTTONUP:
 		{
-			LL_PROFILE_ZONE_NAMED_CATEGORY_WIN32("mwp - WM_LBUTTONUP");
 			{
 				window_imp->postMouseButtonEvent([=]()
 					{
@@ -3100,7 +3096,6 @@ LRESULT CALLBACK LLWindowWin32::mainWindowProc(HWND h_wnd, UINT u_msg, WPARAM w_
 		case WM_RBUTTONDBLCLK:
 		case WM_RBUTTONDOWN:
 		{
-			LL_PROFILE_ZONE_NAMED_CATEGORY_WIN32("mwp - WM_RBUTTONDOWN");
 			{
 				LL_RECORD_BLOCK_TIME(FTM_MOUSEHANDLER);
 				window_imp->post([=]()
@@ -3123,7 +3118,6 @@ LRESULT CALLBACK LLWindowWin32::mainWindowProc(HWND h_wnd, UINT u_msg, WPARAM w_
 
 		case WM_RBUTTONUP:
 		{
-			LL_PROFILE_ZONE_NAMED_CATEGORY_WIN32("mwp - WM_RBUTTONUP");
 			{
 				LL_RECORD_BLOCK_TIME(FTM_MOUSEHANDLER);
 				window_imp->postMouseButtonEvent([=]()
@@ -3138,7 +3132,6 @@ LRESULT CALLBACK LLWindowWin32::mainWindowProc(HWND h_wnd, UINT u_msg, WPARAM w_
 		case WM_MBUTTONDOWN:
 			//      case WM_MBUTTONDBLCLK:
 		{
-			LL_PROFILE_ZONE_NAMED_CATEGORY_WIN32("mwp - WM_MBUTTONDOWN");
 			{
 				LL_RECORD_BLOCK_TIME(FTM_MOUSEHANDLER);
 				window_imp->postMouseButtonEvent([=]()
@@ -3157,7 +3150,6 @@ LRESULT CALLBACK LLWindowWin32::mainWindowProc(HWND h_wnd, UINT u_msg, WPARAM w_
 
 		case WM_MBUTTONUP:
 		{
-			LL_PROFILE_ZONE_NAMED_CATEGORY_WIN32("mwp - WM_MBUTTONUP");
 			{
 				LL_RECORD_BLOCK_TIME(FTM_MOUSEHANDLER);
 				window_imp->postMouseButtonEvent([=]()
@@ -3170,7 +3162,6 @@ LRESULT CALLBACK LLWindowWin32::mainWindowProc(HWND h_wnd, UINT u_msg, WPARAM w_
 		break;
 		case WM_XBUTTONDOWN:
 		{
-			LL_PROFILE_ZONE_NAMED_CATEGORY_WIN32("mwp - WM_XBUTTONDOWN");
 			window_imp->postMouseButtonEvent([=]()
 				{
 					LL_RECORD_BLOCK_TIME(FTM_MOUSEHANDLER);
@@ -3189,7 +3180,6 @@ LRESULT CALLBACK LLWindowWin32::mainWindowProc(HWND h_wnd, UINT u_msg, WPARAM w_
 
 		case WM_XBUTTONUP:
 		{
-			LL_PROFILE_ZONE_NAMED_CATEGORY_WIN32("mwp - WM_XBUTTONUP");
 			window_imp->postMouseButtonEvent([=]()
 				{
 					LL_RECORD_BLOCK_TIME(FTM_MOUSEHANDLER);
@@ -3204,7 +3194,6 @@ LRESULT CALLBACK LLWindowWin32::mainWindowProc(HWND h_wnd, UINT u_msg, WPARAM w_
 
 		case WM_MOUSEWHEEL:
 		{
-			LL_PROFILE_ZONE_NAMED_CATEGORY_WIN32("mwp - WM_MOUSEWHEEL");
 			static short z_delta = 0;
 
 			RECT    client_rect;
@@ -3261,7 +3250,6 @@ LRESULT CALLBACK LLWindowWin32::mainWindowProc(HWND h_wnd, UINT u_msg, WPARAM w_
 		*/
 		case WM_MOUSEHWHEEL:
 		{
-			LL_PROFILE_ZONE_NAMED_CATEGORY_WIN32("mwp - WM_MOUSEHWHEEL");
 			static short h_delta = 0;
 
 			RECT    client_rect;
@@ -3298,12 +3286,10 @@ LRESULT CALLBACK LLWindowWin32::mainWindowProc(HWND h_wnd, UINT u_msg, WPARAM w_
 		// Handle mouse movement within the window
 		case WM_MOUSEMOVE:
 		{
-			LL_PROFILE_ZONE_NAMED_CATEGORY_WIN32("mwp - WM_MOUSEMOVE");
 			// DO NOT use mouse event queue for move events to ensure cursor position is updated
 			// when button events are handled
 			WINDOW_IMP_POST(
 				{
-					LL_PROFILE_ZONE_NAMED_CATEGORY_WIN32("mwp - WM_MOUSEMOVE lambda");
 
 					MASK mask = gKeyboard->currentMask(true);
 					window_imp->mMouseMask = mask;
@@ -3314,7 +3300,6 @@ LRESULT CALLBACK LLWindowWin32::mainWindowProc(HWND h_wnd, UINT u_msg, WPARAM w_
 
 		case WM_GETMINMAXINFO:
 		{
-			LL_PROFILE_ZONE_NAMED_CATEGORY_WIN32("mwp - WM_GETMINMAXINFO");
 			LPMINMAXINFO min_max = (LPMINMAXINFO)l_param;
 			min_max->ptMinTrackSize.x = window_imp->mMinWindowWidth;
 			min_max->ptMinTrackSize.y = window_imp->mMinWindowHeight;
@@ -3328,7 +3313,6 @@ LRESULT CALLBACK LLWindowWin32::mainWindowProc(HWND h_wnd, UINT u_msg, WPARAM w_
 		}
 		case WM_SIZE:
 		{
-			LL_PROFILE_ZONE_NAMED_CATEGORY_WIN32("mwp - WM_SIZE");
 			window_imp->updateWindowRect();
 
 			// There's an odd behavior with WM_SIZE that I would call a bug. If
@@ -3357,14 +3341,11 @@ LRESULT CALLBACK LLWindowWin32::mainWindowProc(HWND h_wnd, UINT u_msg, WPARAM w_
 				WINDOW_IMP_POST(window_imp->mCallbacks->handleActivate(window_imp, false));
 			}
 
-			// S24 NOTE: LL visual_polish #321a6e962b adds setThreadPriorityHigh/Normal calls here
-			// to save power when minimized. We intentionally DO NOT apply this because:
-			// 1. S24 uses MMCSS "Pro Audio" registration which owns thread priority management
-			// 2. We explicitly disabled priority boost & power throttling for max performance
-			// 3. Manual priority changes conflict with MMCSS scheduler behavior
-			// 4. S24's design philosophy is "always max performance", not power-saving on minimize
-			// Our superior thread management stack (MMCSS + boost disable + throttle disable)
-			// is incompatible with dynamic priority toggling for laptop/mobile power efficiency.
+			// S24: LL's visual_polish patch #321a6e962b adds setThreadPriorityHigh/Normal
+			// calls here to save power when minimized - intentionally not applied. This
+			// build's MMCSS "Pro Audio" registration already owns thread priority (for
+			// max performance, not power-saving), and manual priority changes here would
+			// conflict with the MMCSS scheduler.
 
 			// Actually resize all of our views
 			if (w_param != SIZE_MINIMIZED)
@@ -3382,7 +3363,6 @@ LRESULT CALLBACK LLWindowWin32::mainWindowProc(HWND h_wnd, UINT u_msg, WPARAM w_
 
 		case WM_DPICHANGED:
 		{
-			LL_PROFILE_ZONE_NAMED_CATEGORY_WIN32("mwp - WM_DPICHANGED");
 			LPRECT lprc_new_scale;
 			F32 new_scale = F32(LOWORD(w_param)) / F32(USER_DEFAULT_SCREEN_DPI);
 			lprc_new_scale = (LPRECT)l_param;
@@ -3409,21 +3389,18 @@ LRESULT CALLBACK LLWindowWin32::mainWindowProc(HWND h_wnd, UINT u_msg, WPARAM w_
 
 		case WM_SETFOCUS:
 		{
-			LL_PROFILE_ZONE_NAMED_CATEGORY_WIN32("mwp - WM_SETFOCUS");
 			WINDOW_IMP_POST(window_imp->mCallbacks->handleFocus(window_imp));
 			return 0;
 		}
 
 		case WM_KILLFOCUS:
 		{
-			LL_PROFILE_ZONE_NAMED_CATEGORY_WIN32("mwp - WM_KILLFOCUS");
 			WINDOW_IMP_POST(window_imp->mCallbacks->handleFocusLost(window_imp));
 			return 0;
 		}
 
 		case WM_COPYDATA:
 		{
-			LL_PROFILE_ZONE_NAMED_CATEGORY_WIN32("mwp - WM_COPYDATA");
 			{
 				// received a URL
 				PCOPYDATASTRUCT myCDS = (PCOPYDATASTRUCT)l_param;
@@ -3441,7 +3418,6 @@ LRESULT CALLBACK LLWindowWin32::mainWindowProc(HWND h_wnd, UINT u_msg, WPARAM w_
 		}
 		case WM_SETTINGCHANGE:
 		{
-			LL_PROFILE_ZONE_NAMED_CATEGORY_WIN32("mwp - WM_SETTINGCHANGE");
 			if (w_param == SPI_SETMOUSEVANISH)
 			{
 				if (!SystemParametersInfo(SPI_GETMOUSEVANISH, 0, &window_imp->mMouseVanish, 0))
@@ -3465,7 +3441,6 @@ LRESULT CALLBACK LLWindowWin32::mainWindowProc(HWND h_wnd, UINT u_msg, WPARAM w_
 
 		case WM_INPUT:
 		{
-			LL_PROFILE_ZONE_NAMED_CATEGORY_WIN32("MWP - WM_INPUT");
 
 			UINT dwSize = 0;
 			GetRawInputData((HRAWINPUT)l_param, RID_INPUT, NULL, &dwSize, sizeof(RAWINPUTHEADER));
@@ -3548,7 +3523,6 @@ LRESULT CALLBACK LLWindowWin32::mainWindowProc(HWND h_wnd, UINT u_msg, WPARAM w_
 
 		default:
 		{
-			LL_PROFILE_ZONE_NAMED_CATEGORY_WIN32("mwp - default");
 			LL_DEBUGS("Window") << "Unhandled windows message code: 0x" << std::hex << U32(u_msg) << LL_ENDL;
 		}
 		break;
@@ -3567,7 +3541,6 @@ LRESULT CALLBACK LLWindowWin32::mainWindowProc(HWND h_wnd, UINT u_msg, WPARAM w_
 	// pass unhandled messages down to Windows
 	LRESULT ret;
 	{
-		LL_PROFILE_ZONE_NAMED_CATEGORY_WIN32("mwp - DefWindowProc");
 		ret = DefWindowProc(h_wnd, u_msg, w_param, l_param);
 	}
 	return ret;
@@ -3747,7 +3720,6 @@ bool LLWindowWin32::copyTextToClipboard(const LLWString& wstr)
 // Constrains the mouse to the window.
 void LLWindowWin32::setMouseClipping(bool b)
 {
-	LL_PROFILE_ZONE_SCOPED_CATEGORY_WIN32;
 	ASSERT_MAIN_THREAD();
 	if (b != mIsMouseClipping)
 	{
@@ -4043,18 +4015,24 @@ bool LLWindowWin32::resetDisplayResolution()
 void LLWindowWin32::swapBuffers()
 {
 	{
-		LL_PROFILE_ZONE_SCOPED_CATEGORY_WIN32;
 #ifdef DX_RENDER
-		// S24 (stage 5 phase 5.5, 2026-07-18): fixed an ordering bug left
-		// over from the milestone-1 vertical slice - beginFrame() used to
-		// run BEFORE present() here, clearing the back buffer right before
-		// presenting it, which wiped out whatever this frame actually
-		// rendered (e.g. DXPipeline::presentDeferredScreen()'s blit) every
-		// single frame. present() now shows what this frame rendered;
-		// beginFrame() then clears/rebinds the back buffer to prepare it
-		// for the *next* frame's rendering, matching the natural
-		// double-buffering order.
+		// S24: present() must come before beginFrame() - beginFrame() clears/rebinds
+		// the back buffer for the *next* frame, so doing it first would wipe out
+		// this frame's render before it's presented.
 		gDXSwapChain.present();
+
+		if (gDXSwapChain.isDeviceLost())
+		{
+			// S24: no recovery attempted (TDR/driver-crash/eGPU-unplug device+swapchain
+			// recreation is out of scope) - every further D3D11 call would also fail, so
+			// terminate immediately rather than continuing into beginFrame() (which would
+			// itself fail against the dead device) and rendering garbage/nothing forever
+			// with no diagnostic.
+			OSMessageBox(mCallbacks->translateString("MBDeviceLost"),
+				mCallbacks->translateString("MBError"), OSMB_OK);
+			TerminateProcess(GetCurrentProcess(), 1);
+		}
+
 		gDXContext.beginFrame();
 #else
 		SwapBuffers(mhDC);
@@ -4062,8 +4040,6 @@ void LLWindowWin32::swapBuffers()
 	}
 
 	{
-		LL_PROFILE_ZONE_NAMED_CATEGORY_WIN32("GPU Collect");
-		LL_PROFILER_GPU_COLLECT;
 	}
 }
 
@@ -4081,24 +4057,13 @@ LLSplashScreenWin32::~LLSplashScreenWin32()
 
 void LLSplashScreenWin32::showImpl()
 {
-	// S24: this window used to be created directly on the calling (main
-	// application) thread via a plain CreateDialog() call, with no message
-	// loop of its own. That same thread immediately goes on to do
-	// LLAppViewer::init()'s long synchronous startup work (gPipeline.init(),
-	// shader compilation, texture cache warm-up, etc.) - any mouse click or
-	// min/max on the splash queues input to THIS window's message queue,
-	// which then never gets drained until that whole synchronous block
-	// finally finishes, so Windows marks the window "(Not Responding)" the
-	// moment it's touched even though real startup work is proceeding fine
-	// in the background (matches the reported symptom exactly: viewer
-	// keeps loading, only the little dialog appears frozen). This is the
-	// same class of bug already solved once for the main game window via
-	// its own dedicated mWindowThread (see LLWindowWin32::maximize()'s
-	// comment on gatherInput() not running during this exact startup
-	// block) - give the splash dialog its own tiny dedicated thread that
-	// does nothing but own this one window and continuously pump its
-	// message queue for its whole lifetime, fully decoupled from whatever
-	// the main thread is doing.
+	// S24: a plain CreateDialog() on the main thread has no message loop of its own,
+	// so once LLAppViewer::init()'s long synchronous startup work begins, any input
+	// to the splash window queues and never drains until startup finishes - Windows
+	// then marks it "(Not Responding)" even though startup is proceeding fine. Same
+	// class of bug as the main window's own mWindowThread (see maximize()'s comment
+	// on gatherInput() not running during this startup block) - give the splash
+	// dialog its own dedicated thread to pump its message queue independently.
 	std::promise<void> ready;
 	auto ready_future = ready.get_future();
 
@@ -4164,13 +4129,10 @@ void LLSplashScreenWin32::hideImpl()
 {
 	if (mWindow)
 	{
-		// S24: mWindow is now owned by mSplashThread, not this (the
-		// caller's) thread - DestroyWindow() must be called by a window's
-		// owning thread, so ask that thread to close itself via WM_CLOSE
-		// (handled explicitly in windowProc below, which calls
-		// destroy_window_handler() on the correct thread) rather than
-		// destroying it directly here. Joining afterwards keeps hideImpl()'s
-		// previous synchronous "window is gone by the time this returns"
+		// S24: mWindow is owned by mSplashThread, not this thread - DestroyWindow()
+		// must be called by a window's owning thread, so ask it to close itself via
+		// WM_CLOSE (handled in windowProc below) instead of destroying it directly.
+		// Joining afterwards keeps the "window is gone by the time this returns"
 		// contract intact.
 		PostMessage(mWindow, WM_CLOSE, 0, 0);
 
@@ -4188,7 +4150,6 @@ void LLSplashScreenWin32::hideImpl()
 LRESULT CALLBACK LLSplashScreenWin32::windowProc(HWND h_wnd, UINT u_msg,
 	WPARAM w_param, LPARAM l_param)
 {
-	// S24: Custom dark theme for splash screen
 	switch (u_msg)
 	{
 	case WM_CTLCOLORDLG:
@@ -4203,10 +4164,9 @@ LRESULT CALLBACK LLSplashScreenWin32::windowProc(HWND h_wnd, UINT u_msg,
 			static HBRUSH hbrBkgnd = CreateSolidBrush(RGB(26, 26, 26));
 			return (INT_PTR)hbrBkgnd;
 		}
-	// S24: this window now runs its own dedicated message loop (see
-	// showImpl()) - WM_CLOSE is how hideImpl() asks that loop to tear
-	// itself down cleanly from its own (owning) thread, then exit via
-	// PostQuitMessage() so GetMessage() returns 0 and the loop ends.
+	// S24: this window runs its own dedicated message loop (see showImpl()) -
+	// WM_CLOSE lets hideImpl() ask that loop to tear itself down cleanly from its
+	// own thread, then exit via PostQuitMessage() so GetMessage() returns 0.
 	case WM_CLOSE:
 		if (!destroy_window_handler(h_wnd))
 		{
@@ -5277,15 +5237,10 @@ void LLWindowWin32::selectHighPerformanceAdapter()
 			D3D_FEATURE_LEVEL featureLevel;
 			D3D_FEATURE_LEVEL requestedLevels[] = { D3D_FEATURE_LEVEL_11_0, D3D_FEATURE_LEVEL_11_1 };
 
-			// S24 (2026-08-16): now gated by DXDevice::sDebugLayerEnabled (see
-			// its header comment) instead of hardcoded on - both create-device
-			// call sites here need the same value so the debug layer's state
-			// is consistent regardless of which adapter path this system
-			// takes.
-			// S24 (2026-08-29, task #278): D3D11_CREATE_DEVICE_SINGLETHREADED
-			// added to both call sites below too, matching DXDevice.cpp's own
-			// device-creation flags - see that file's comment on this exact
-			// flag for the full rationale.
+			// S24: gated by DXDevice::sDebugLayerEnabled (see its header comment) so
+			// the debug layer's state is consistent regardless of adapter path.
+			// D3D11_CREATE_DEVICE_SINGLETHREADED is set here too, matching
+			// DXDevice.cpp's device-creation flags - see that file for the rationale.
 			bool adapterSelected = (pSelectedAdapter != nullptr);
 			if (adapterSelected)
 			{
@@ -5472,15 +5427,12 @@ void LLWindowWin32::LLWindowWin32Thread::pollVRAMBudgetChange()
 {
     if (!mVRAMBudgetChangeEvent || !mDXGIAdapter) { return; }
 
-    // S24: RegisterVideoMemoryBudgetChangeNotificationEvent only fires when Windows
-    // changes *our* OS-recommended budget (external GPU competition) -- it does NOT
-    // fire when our own usage changes. Relying on it alone left mVRAMCurrentUsage
-    // frozen for long stretches during heavy texture loading, then jumping in one
-    // large step whenever an unrelated budget event happened to fire. QueryVideoMemoryInfo
-    // is documented as cheap/safe to call frequently (it's the one-time factory/adapter
-    // creation that's expensive, not this query), so poll it on a short interval
-    // unconditionally to keep CurrentUsage fresh; keep the event as a fast-path for
-    // genuine external budget changes on top of that.
+    // S24: RegisterVideoMemoryBudgetChangeNotificationEvent only fires on OS-level
+    // budget changes (external GPU competition), not on our own usage changing, so
+    // relying on it alone leaves mVRAMCurrentUsage stale for long stretches.
+    // QueryVideoMemoryInfo is cheap to call frequently (only adapter/factory creation
+    // is expensive), so poll it unconditionally on a short interval to keep
+    // CurrentUsage fresh, and keep the event as a fast-path on top of that.
     constexpr std::chrono::milliseconds VRAM_POLL_INTERVAL{500};
     static std::chrono::steady_clock::time_point last_poll{};
     const auto now = std::chrono::steady_clock::now();
@@ -5524,18 +5476,13 @@ void LLWindowWin32::LLWindowWin32Thread::checkDXMem()
     // proceed to set up the adapter + live budget-change event below, so the live VRAM
     // signal is available on those systems too, not just Intel/DXGI-fallback systems.
 
-    // S24 (2026-08-24, task #258): resolve the live-VRAM-query adapter by walking UP
-    // from the actual rendering device (gD3D11Device) via IDXGIDevice::GetAdapter() -
-    // the same technique LLWindowWin32::detectGPUChange() already uses just above in
-    // this file, and LLGLManager::initGLDX() (llrender/llgl.cpp) uses for the static
-    // VRAM-capacity query - NOT by re-enumerating adapters and guessing index 0 is
-    // the right one. selectHighPerformanceAdapter() picks the rendering adapter by
-    // most VRAM, not by enumeration index, so a blind index-0 query could silently
-    // report a completely different physical GPU's budget/usage on any hybrid-
-    // graphics or multi-GPU system - this was an open, unresolved question in the
-    // prior version of this function ("Should it check largest one isntead of
-    // first?"). Confirmed as the likely root cause of task #258's "impossible" VRAM
-    // readouts (FREE exceeding the real card's total capacity).
+    // S24: resolve the live-VRAM-query adapter by walking UP from the actual rendering
+    // device (gD3D11Device) via IDXGIDevice::GetAdapter() - same technique as
+    // detectGPUChange() above and LLGLManager::initGLDX() (llrender/llgl.cpp) - rather
+    // than re-enumerating adapters and guessing index 0. selectHighPerformanceAdapter()
+    // picks the rendering adapter by most VRAM, not by enumeration index, so a blind
+    // index-0 query can silently report a different physical GPU's budget/usage on a
+    // hybrid-graphics or multi-GPU system.
     if (!mDXGIAdapter && gD3D11Device)
     {
         IDXGIDevice* p_dxgi_device = nullptr;
@@ -5668,7 +5615,6 @@ void LLWindowWin32::LLWindowWin32Thread::run()
 
     while (! getQueue().done())
     {
-        LL_PROFILE_ZONE_SCOPED_CATEGORY_WIN32;
 
         // Check memory budget using DirectX if OpenGL doesn't have the means to tell us
         checkDXMem();
@@ -5682,13 +5628,11 @@ void LLWindowWin32::LLWindowWin32Thread::run()
             BOOL status;
             if (mhDCThrd == 0)
             {
-                LL_PROFILE_ZONE_NAMED_CATEGORY_WIN32("w32t - PeekMessage");
                 logger.onChange("PeekMessage(", std::hex, mWindowHandleThrd, ")");
                 status = PeekMessage(&msg, mWindowHandleThrd, 0, 0, PM_REMOVE);
             }
             else
             {
-                LL_PROFILE_ZONE_NAMED_CATEGORY_WIN32("w32t - GetMessage");
                 logger.always("GetMessage(", std::hex, mWindowHandleThrd, ")");
                 status = GetMessage(&msg, NULL, 0, 0);
             }
@@ -5704,7 +5648,6 @@ void LLWindowWin32::LLWindowWin32Thread::run()
         }
 
         {
-            LL_PROFILE_ZONE_NAMED_CATEGORY_WIN32("w32t - Function Queue");
             logger.onChange("runPending()");
             //process any pending functions
             getQueue().runPending();
@@ -5712,7 +5655,6 @@ void LLWindowWin32::LLWindowWin32Thread::run()
 
 #if 0
         {
-            LL_PROFILE_ZONE_NAMED_CATEGORY_WIN32("w32t - Sleep");
             logger.always("sleep(1)");
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
 		}
@@ -5856,7 +5798,6 @@ void LLWindowWin32::kickWindowThread(HWND windowHandle)
 
 void LLWindowWin32::updateWindowRect()
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_WIN32;
     //called from window thread
     RECT rect;
     RECT client_rect;

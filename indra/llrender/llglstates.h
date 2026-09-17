@@ -36,18 +36,20 @@ class LLGLDepthTest
 {
 	// Enabled by default
 public:
-	LLGLDepthTest(GLboolean depth_enabled, GLboolean write_enabled = GL_TRUE, GLenum depth_func = GL_LEQUAL);
-	
+	// S24: depth_func never reaches a real GL call under DX_RENDER -
+	// glDepthFuncToDX() translates it to a D3D11 comparison enum instead.
+	LLGLDepthTest(GLboolean depth_enabled, GLboolean write_enabled = GL_TRUE, DXenum depth_func = GL_LEQUAL);
+
 	~LLGLDepthTest();
-	
+
 	void checkState();
 
 	GLboolean mPrevDepthEnabled;
-	GLenum mPrevDepthFunc;
+	DXenum mPrevDepthFunc;
 	GLboolean mPrevWriteEnabled;
 private:
 	static GLboolean sDepthEnabled; // defaults to GL_FALSE
-	static GLenum sDepthFunc; // defaults to GL_LESS
+	static DXenum sDepthFunc; // defaults to GL_LESS
 	static GLboolean sWriteEnabled; // defaults to GL_TRUE
 };
 
@@ -174,13 +176,8 @@ public:
 	{
 		mShininess = shininess;
 #ifndef DX_RENDER
-		// S24 (DX_RENDER, 2026-07-30): fixed-function glMaterialfv/glMateriali
-		// have no D3D11 equivalent (this codebase's shader-based lighting
-		// never reads them) and are unreachable at runtime today only because
-		// this class's one caller (llviewerjointmesh.cpp) always passes
-		// shininess=0.f - the same "safe by accidental invariant" class of
-		// risk already fixed elsewhere in LLTexUnit this session. Guarded
-		// explicitly instead of relying on that staying true.
+		// S24: GL-only, guarded explicitly rather than relying on the sole
+		// caller (llviewerjointmesh.cpp) always passing shininess=0.f.
 		if (mShininess > 0.0f)
 		{
 			glMaterialfv(GL_FRONT_AND_BACK, GL_SPECULAR, color.mV);

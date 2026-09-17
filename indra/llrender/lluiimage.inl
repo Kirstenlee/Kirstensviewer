@@ -66,7 +66,6 @@ void LLUIImage::draw(S32 x, S32 y, S32 width, S32 height, const LLColor4& color,
             // gDXUIBatch still had pending from neighboring UI content.
             gDXUIBatch.flushPending();
 #endif
-            LL_PROFILE_ZONE_SCOPED;
             gDX.getTexUnit(0)->enable(LLTexUnit::TT_TEXTURE);
 
             //gDX.pushUIMatrix();

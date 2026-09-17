@@ -1424,7 +1424,6 @@ LLNotificationChannelPtr LLNotifications::getChannel(const std::string& channelN
 // this function is called once at construction time, after the object is constructed.
 void LLNotifications::initSingleton()
 {
-    LL_PROFILE_ZONE_SCOPED;
     loadTemplates();
     loadVisibilityRules();
     createDefaultChannels();
@@ -1437,7 +1436,6 @@ void LLNotifications::cleanupSingleton()
 
 void LLNotifications::createDefaultChannels()
 {
-    LL_PROFILE_ZONE_SCOPED;
 
     LL_INFOS("Notifications") << "Generating default notification channels" << LL_ENDL;
     // now construct the various channels AFTER loading the notifications,
@@ -1581,7 +1579,6 @@ void addPathIfExists(const std::string& new_path, std::vector<std::string>& path
 
 bool LLNotifications::loadTemplates()
 {
-    LL_PROFILE_ZONE_SCOPED;
 
     LL_INFOS("Notifications") << "Reading notifications template" << LL_ENDL;
     // Passing findSkinnedFilenames(constraint=LLDir::ALL_SKINS) makes it
@@ -1668,7 +1665,6 @@ bool LLNotifications::loadTemplates()
 
 bool LLNotifications::loadVisibilityRules()
 {
-    LL_PROFILE_ZONE_SCOPED;
 
     const std::string xml_filename = "notification_visibility.xml";
     // Note that here we're looking for the "en" version, the default

@@ -121,7 +121,6 @@ LLSD LLHTTPNode::simplePost(const LLSD& input) const
 // virtual
 void LLHTTPNode::get(LLHTTPNode::ResponsePtr response, const LLSD& context) const
 {
-    LL_PROFILE_ZONE_SCOPED;
 	try
 	{
 		response->result(simpleGet());
@@ -135,7 +134,6 @@ void LLHTTPNode::get(LLHTTPNode::ResponsePtr response, const LLSD& context) cons
 // virtual
 void LLHTTPNode::put(LLHTTPNode::ResponsePtr response, const LLSD& context, const LLSD& input) const
 {
-    LL_PROFILE_ZONE_SCOPED;
 	try
 	{
 		response->result(simplePut(input));
@@ -149,7 +147,6 @@ void LLHTTPNode::put(LLHTTPNode::ResponsePtr response, const LLSD& context, cons
 // virtual
 void LLHTTPNode::post(LLHTTPNode::ResponsePtr response, const LLSD& context, const LLSD& input) const
 {
-    LL_PROFILE_ZONE_SCOPED;
 	try
 	{
 		response->result(simplePost(input));
@@ -163,7 +160,6 @@ void LLHTTPNode::post(LLHTTPNode::ResponsePtr response, const LLSD& context, con
 // virtual
 void LLHTTPNode::del(LLHTTPNode::ResponsePtr response, const LLSD& context) const
 {
-    LL_PROFILE_ZONE_SCOPED;
     try
     {
 	response->result(simpleDel(context));

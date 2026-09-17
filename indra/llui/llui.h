@@ -323,6 +323,18 @@ public:
 	static LLPointer<LLUIImage> getUIImage(const std::string& name, S32 priority = 0)
 		{ return LLRender2D::getInstance()->getUIImage(name, priority); }
 
+	// S24: shared entry point for every per-widget UI recolor call site (floater chrome, panel
+	// backgrounds, buttons, icons, sliders, scrollbars, progress bars, inventory icons) - binds
+	// gUIHueShiftProgram and sets its hue/contrast/grayscale/shine uniforms if the caller's own
+	// per-category hue_shift_degrees is non-zero OR any of the global RenderUIContrast/
+	// RenderUIGrayscale/RenderUIShine toggles is active; otherwise does nothing and returns false
+	// (caller draws with whatever shader is already bound). Centralizes the global toggles'
+	// LLCachedControl lookups in one place rather than duplicating them across all 8 call-site
+	// files. Callers that get true back MUST call unbindUIEffectsShader() after their draw
+	// call(s).
+	static bool bindUIEffectsShader(F32 hue_shift_degrees);
+	static void unbindUIEffectsShader();
+
 	//
 	// Data
 	//

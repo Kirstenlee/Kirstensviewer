@@ -223,7 +223,6 @@ void LLAudioEngine::updateChannels()
 
 void LLAudioEngine::idle()
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_MEDIA;
 	// "Update" all of our audio sources, clean up dead ones.
 	// Primarily does position updating, cleanup of unused audio sources.
 	// Also does regeneration of the current priority of each audio source.
@@ -766,7 +765,7 @@ F64 LLAudioEngine::mapWindVecToPan(LLVector3 wind_vec)
 }
 
 
-// S24 (task #283 Phase 2 prep): see LLDeferredAudioActions in llaudioengine.h.
+// S24: see LLDeferredAudioActions in llaudioengine.h.
 static thread_local LLDeferredAudioActions* sTLSDeferredAudioActions = nullptr;
 
 void LLAudioEngine::setDeferredActionsForThisThread(LLDeferredAudioActions* actions)
@@ -914,7 +913,6 @@ LLAudioSource* LLAudioEngine::findAudioSource(const LLUUID& source_id)
 
 LLAudioData* LLAudioEngine::getAudioData(const LLUUID& audio_uuid)
 {
-	LL_PROFILE_ZONE_SCOPED_CATEGORY_MEDIA;
 	data_map::iterator iter;
 	iter = mAllData.find(audio_uuid);
 	if (iter == mAllData.end())

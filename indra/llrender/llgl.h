@@ -69,20 +69,10 @@ public:
     bool initGL();
     void shutdownGL();
 
-    // S24 (2026-08-05): initGL() above is pure OpenGL (glGetString/WGL/AMD/
-    // NVX extension queries) and is never called at all - switchContext()
-    // (llwindowwin32.cpp) calls initDX11Context() instead, which never
-    // touches mGLVendor/mGLRenderer/mGLVersion/mIsNVIDIA/mIsAMD/mIsIntel/
-    // mVRAM/mGLVendorShort, leaving them at their zero/empty/1.0f
-    // constructor defaults for the whole session. This silently starves
-    // LLFeatureManager of real GPU data - confirmed root cause of a live
-    // bug where LLFeatureManager::applyBaseMasks()'s "mGLVersion < 3.99f"
-    // check (always true at the 1.0f default) unconditionally applies the
-    // "GL3" feature mask, which explicitly zeroes RenderReflectionsEnabled
-    // regardless of actual GPU - masking real user settings as if hardware
-    // didn't support them. initGLDX() is the real DXGI-based equivalent,
-    // called once from switchContext() right after initDX11Context()
-    // succeeds, mirroring initGL()'s own call site.
+    // S24: initGL() above is pure OpenGL and never called under DX_RENDER.
+    // initGLDX() is the real DXGI-based equivalent that populates
+    // mGLVendor/mGLRenderer/mGLVersion/etc - without it those stay at
+    // zero/empty defaults, which starves LLFeatureManager of real GPU data.
     bool initGLDX();
 
     void initWGL(); // Initializes stupid WGL extensions
@@ -157,9 +147,6 @@ public:
     U32 mVRAMBudget = 0;       // DXGI_QUERY_VIDEO_MEMORY_INFO::Budget, in MB
     U32 mVRAMCurrentUsage = 0; // DXGI_QUERY_VIDEO_MEMORY_INFO::CurrentUsage, in MB
 
-    // Real-time GPU memory query (returns available VRAM in MB, 0 if unsupported)
-    U32 queryAvailableVRAM() const;
-
     std::string getGLInfoString();
     void printGLInfoString();
     void getGLInfo(LLSD& info);
@@ -174,7 +161,6 @@ public:
     std::string mGLRenderer;
 
 private:
-    void initExtensions();
     void initGLStates();
 };
 
@@ -190,18 +176,6 @@ void flush_glerror(); // Flush GL errors when we know we're handling them correc
 void clear_glerror();
 
 
-// S24 (2026-08-19): do_assert_glerror() (llgl.cpp) already early-returns
-// unconditionally before touching any GL call - these two macros are
-// GL-error-checking helpers with no D3D11 equivalent (checking HRESULTs is
-// a completely different mechanism, not something these could ever do), so
-// every one of their ~164+ call sites across newview/llrender was still
-// paying for a real function call + branch that's guaranteed to do
-// nothing. Gated at the macro itself rather than at each call site - one
-// chokepoint fix instead of touching every site individually, true
-// zero-cost (compiles to nothing, not just an inert call).
-# define stop_glerror() ((void)0)
-# define llglassertok() ((void)0)
-
 // stop_glerror is still needed on OS X but has performance implications
 // use macro below to conditionally add stop_glerror to non-release builds
 // on OS X
@@ -210,14 +184,6 @@ void clear_glerror();
 #else
 #define STOP_GLERROR
 #endif
-
-// S24 (2026-08-31): llglassertok_always()/assert_glerror()/
-// do_assert_glerror()/log_glerror() removed entirely - a follow-up to the
-// stop_glerror()/llglassertok() fix above found via the Develop-menu "Start
-// Debug GL" audit (task #306). Unlike those two, these had ZERO real
-// callers anywhere in the tree (confirmed via grep for the macro name
-// itself, not just the function) - not a hot-path cost like stop_glerror
-// was, just orphaned dead code left over from whatever last called them.
 
 ////////////////////////
 //
@@ -229,7 +195,7 @@ void clear_glerror();
 /*
     GL STATE MANAGEMENT DESCRIPTION
 
-    LLGLState and its two subclasses, LLGLEnable and LLGLDisable, manage the current
+    DXState and its two subclasses, LLGLEnable and LLGLDisable, manage the current
     enable/disable states of the GL to prevent redundant setting of state within a
     render path or the accidental corruption of what state the next path expects.
 
@@ -264,9 +230,9 @@ void clear_glerror();
         renderHUD();
     }
 
-    A LLGLState initialized with a parameter of 0 does nothing.
+    A DXState initialized with a parameter of 0 does nothing.
 
-    LLGLState works by maintaining a map of the current GL states, and ignoring redundant
+    DXState works by maintaining a map of the current GL states, and ignoring redundant
     enables/disables.  If a redundant call is attempted, it becomes a noop, otherwise,
     it is set in the constructor and reset in the destructor.
 
@@ -275,14 +241,11 @@ void clear_glerror();
 
 */
 
-class LLGLState
+class DXState
 {
 public:
     static void initClass();
     static void restoreGL();
-
-    static void resetTextureStates();
-    static void dumpStates();
 
     // make sure GL blend function, GL states, and GL color mask match
     // what we expect
@@ -297,13 +260,24 @@ public:
     // setEnabled()); this is a plain accessor, not a friend declaration.
     static bool isEnabled(LLGLenum state) { return sStateMap[state] == GL_TRUE; }
 
+    // S24: GL's glCullFace(GL_FRONT/GL_BACK) direction, tracked the same way sStateMap tracks
+    // GL_CULL_FACE's enable/disable - D3D11 bundles cull direction into the same rasterizer-state
+    // object as everything else applyDXRasterizerState() gathers (llrender.cpp), so whoever calls
+    // LLRender::cullFace() needs this readable from outside. Defaults to GL_BACK, matching GL's
+    // own default and this codebase's prior assumption (glCullFace() was never called anywhere
+    // before LLViewerJoint::render()'s hair/skirt "render inside" pass needed it) - see
+    // DXStateCache::getRasterizerState()'s cull_front parameter.
+    static LLGLenum getCullFace() { return sCullFace; }
+    static void setCullFace(LLGLenum face) { sCullFace = face; }
+
 protected:
     static std::unordered_map<LLGLenum, LLGLboolean> sStateMap;
+    static LLGLenum sCullFace;
 
 public:
     enum { CURRENT_STATE = -2, DISABLED_STATE = 0, ENABLED_STATE = 1 };
-    LLGLState(LLGLenum state, S32 enabled = CURRENT_STATE);
-    ~LLGLState();
+    DXState(LLGLenum state, S32 enabled = CURRENT_STATE);
+    ~DXState();
     void setEnabled(S32 enabled);
     void enable() { setEnabled(ENABLED_STATE); }
     void disable() { setEnabled(DISABLED_STATE); }
@@ -313,25 +287,25 @@ protected:
     bool mIsEnabled;
 };
 
-// New LLGLState class wrappers that don't depend on actual GL flags.
-class LLGLEnableBlending : public LLGLState
+// New DXState class wrappers that don't depend on actual GL flags.
+class LLGLEnableBlending : public DXState
 {
 public:
     LLGLEnableBlending(bool enable);
 };
 
-class LLGLEnableAlphaReject : public LLGLState
+class LLGLEnableAlphaReject : public DXState
 {
 public:
     LLGLEnableAlphaReject(bool enable);
 };
 
 // Enable with functor
-class LLGLEnableFunc : LLGLState
+class LLGLEnableFunc : DXState
 {
 public:
     LLGLEnableFunc(LLGLenum state, bool enable, std::function<void()> func)
-        : LLGLState(state, enable)
+        : DXState(state, enable)
     {
         if (enable)
         {
@@ -341,17 +315,17 @@ public:
 };
 
 /// TODO: Being deprecated.
-class LLGLEnable : public LLGLState
+class LLGLEnable : public DXState
 {
 public:
-    LLGLEnable(LLGLenum state) : LLGLState(state, ENABLED_STATE) {}
+    LLGLEnable(LLGLenum state) : DXState(state, ENABLED_STATE) {}
 };
 
 /// TODO: Being deprecated.
-class LLGLDisable : public LLGLState
+class LLGLDisable : public DXState
 {
 public:
-    LLGLDisable(LLGLenum state) : LLGLState(state, DISABLED_STATE) {}
+    LLGLDisable(LLGLenum state) : DXState(state, DISABLED_STATE) {}
 };
 
 /*
@@ -381,7 +355,7 @@ private:
 
     glm::mat4 mProjection;
     glm::mat4 mModelview;
-    glm::mat4 mProjectionInverse; // S24 - Projection matrix inverse
+    glm::mat4 mProjectionInverse;
 };
 
 /*
@@ -431,32 +405,8 @@ public:
     virtual void updateGL() = 0;
 };
 
-const U32 FENCE_WAIT_TIME_NANOSECONDS = 1000;  //1 ms
-
-class LLGLFence
-{
-public:
-    virtual ~LLGLFence()
-    {
-    }
-
-    virtual void placeFence() = 0;
-    virtual bool isCompleted() = 0;
-    virtual void wait() = 0;
-};
-
-class LLGLSyncFence : public LLGLFence
-{
-public:
-    GLsync mSync;
-
-    LLGLSyncFence();
-    virtual ~LLGLSyncFence();
-
-    void placeFence();
-    bool isCompleted();
-    void wait();
-};
+// S24: LLGLFence/LLGLSyncFence (GL-only fence sync) removed; DX_RENDER's
+// equivalent is DXQuery (see llviewerstats.cpp's checkGPUFrameCompletion()).
 
 extern LLMatrix4 gGLObliqueProjectionInverse;
 
@@ -469,14 +419,9 @@ void parse_gl_version( S32* major, S32* minor, S32* release, std::string* vendor
 extern bool gClothRipple;
 extern bool gHeadlessClient;
 extern bool gNonInteractive;
-// S24 (2026-08-31): renamed from gGLActive - true while llappviewer.cpp is
-// inside a region that actively touches the render context (window init/
-// cleanup, display(), idle_startup(), idleShutdown()) - see each set site's
-// own comment. Currently write-only (no live reads - its one real
-// consumer, assert_glerror()'s "GL used while not active" check, was
-// removed as dead code in task #306), kept/renamed rather than deleted
-// since it's a genuinely useful invariant marker for future DX_RENDER
-// validation/assertions, not just legacy GL naming debt.
+// S24: renamed from gGLActive; true while llappviewer.cpp actively touches
+// the render context. Currently write-only, kept as an invariant marker for
+// future DX_RENDER assertions.
 extern bool gDXActive;
 
 // Deal with changing glext.h definitions for newer SDK versions, specifically

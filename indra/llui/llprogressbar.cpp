@@ -39,8 +39,34 @@
 #include "llfocusmgr.h"
 #include "lluictrlfactory.h"
 #include "lluiimage.h"
+#include "llcontrol.h"
+#include "llrender2dutils.h"
 
 static LLDefaultChildRegistry::Register<LLProgressBar> r("progress_bar");
+
+namespace
+{
+    // S24: same "image * vertex-tint" fix as LLFloater::draw()'s drawFloaterBackgroundImage()
+    // (llfloater.cpp) - see its header comment for the full rationale. LLProgressBar draws its
+    // bar/fill images directly rather than through LLPanel/LLButton, so it needs its own copy of
+    // the shader swap. Reuses the Controls category (RenderUIHueShiftControls) - same bucket as
+    // sliders/scrollbars.
+    void drawProgressBarImage(LLUIImage* image, const LLRect& rect, const LLColor4& color)
+    {
+        static LLCachedControl<F32> hue_shift_degrees(*LLUI::getInstance()->mSettingGroups["config"], "RenderUIHueShiftControls", 0.f);
+        F32 degrees = hue_shift_degrees;
+
+        if (!LLUI::bindUIEffectsShader(degrees))
+        {
+            image->draw(rect, color);
+            return;
+        }
+
+        image->draw(rect, color);
+
+        LLUI::unbindUIEffectsShader();
+    }
+}
 
 LLProgressBar::Params::Params()
 :	image_bar("image_bar"),
@@ -73,7 +99,7 @@ void LLProgressBar::draw()
     {
         LLColor4 image_bar_color = mColorBackground.get();
         image_bar_color.setAlpha(alpha);
-        mImageBar->draw(getLocalRect(), image_bar_color);
+        drawProgressBarImage(mImageBar, getLocalRect(), image_bar_color);
     }
 
     if (mImageFill)
@@ -83,7 +109,7 @@ void LLProgressBar::draw()
         bar_color.mV[VALPHA] *= alpha; // modulate alpha
         LLRect progress_rect = getLocalRect();
         progress_rect.mRight = ll_round(getRect().getWidth() * (mPercentDone / 100.f));
-        mImageFill->draw(progress_rect, bar_color);
+        drawProgressBarImage(mImageFill, progress_rect, bar_color);
     }
 }
 

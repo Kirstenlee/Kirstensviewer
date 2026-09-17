@@ -87,7 +87,7 @@ bool LLMotionRegistry::registerMotion( const LLUUID& id, LLMotionConstructor con
     return false;
 }
 
-// S24 (task #283 Phase 2 prep): see LLDeferredMotionActions in llmotioncontroller.h.
+// S24: see LLDeferredMotionActions in llmotioncontroller.h.
 static thread_local LLDeferredMotionActions* sTLSDeferredMotionActions = nullptr;
 
 void LLMotionRegistry::setDeferredActionsForThisThread(LLDeferredMotionActions* actions)
@@ -149,7 +149,7 @@ LLMotionController::LLMotionController()
 	  mHasRunOnce(false),
 	  mPaused(false),
 	  mPausedFrame(0),
-	  mFrozen(false),  // S24: Initialize frozen state
+	  mFrozen(false),
 	  mTimeStep(0.f),
 	  mTimeStepCount(0),
 	  mLastInterp(0.f),
@@ -248,9 +248,8 @@ void LLMotionController::purgeExcessMotions()
 	}
 
 	U32 loaded_count = static_cast<U32>(mLoadedMotions.size());
-	// S24: Changed to DEBUG - user can't control other avatars' animations - 2026-04-27
-	// Purge handles excess motions automatically. High counts are normal in populated areas.
-	// Only log for debugging if count seems excessive after purge attempts.
+	// S24: DEBUG not WARNS - purge handles excess motions automatically, so high
+	// counts in populated areas are normal, not actionable by the user.
 	if (loaded_count > (2 * MAX_MOTION_INSTANCES))
 	{
 		LL_DEBUGS("Animation") << loaded_count << " motions loaded after purge (target: " 
@@ -514,7 +513,6 @@ void LLMotionController::resetJointSignatures()
 //-----------------------------------------------------------------------------
 void LLMotionController::updateIdleMotion(LLMotion* motionp)
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_AVATAR;
 	if (motionp->isStopped() && mAnimTime > motionp->getStopTime() + motionp->getEaseOutDuration())
 	{
 		deactivateMotionInstance(motionp);
@@ -553,7 +551,6 @@ void LLMotionController::updateIdleMotion(LLMotion* motionp)
 //-----------------------------------------------------------------------------
 void LLMotionController::updateIdleActiveMotions()
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_AVATAR;
 	for (motion_list_t::iterator iter = mActiveMotions.begin();
 		 iter != mActiveMotions.end(); )
 	{
@@ -568,7 +565,6 @@ void LLMotionController::updateIdleActiveMotions()
 //-----------------------------------------------------------------------------
 void LLMotionController::updateMotionsByType(LLMotion::LLMotionBlendType anim_type)
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_AVATAR;
     bool update_result = true;
 	U8 last_joint_signature[LL_CHARACTER_MAX_ANIMATED_JOINTS];
 
@@ -779,7 +775,6 @@ void LLMotionController::updateMotionsByType(LLMotion::LLMotionBlendType anim_ty
 //-----------------------------------------------------------------------------
 void LLMotionController::updateLoadingMotions()
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_AVATAR;
 	// query pending motions for completion
 	for (motion_set_t::iterator iter = mLoadingMotions.begin();
 		 iter != mLoadingMotions.end(); )
@@ -827,7 +822,6 @@ void LLMotionController::updateLoadingMotions()
 //-----------------------------------------------------------------------------
 void LLMotionController::updateMotions(bool force_update)
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_AVATAR;
     // SL-763: "Distant animated objects run at super fast speed"
     // The use_quantum optimization or possibly the associated code in setTimeStamp()
     // does not work as implemented.
@@ -900,7 +894,6 @@ void LLMotionController::updateMotions(bool force_update)
 		// update all regular motions
 		updateRegularMotions();
 
-		// S24: Skip applying motions to joints if skeleton is frozen
 		if (!mFrozen)
 		{
 			if (use_quantum)
@@ -924,7 +917,6 @@ void LLMotionController::updateMotions(bool force_update)
 //-----------------------------------------------------------------------------
 void LLMotionController::updateMotionsMinimal()
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_AVATAR;
 	// Always update mPrevTimerElapsed
 	mPrevTimerElapsed = mTimer.getElapsedTimeF32();
 
@@ -942,7 +934,6 @@ void LLMotionController::updateMotionsMinimal()
 //-----------------------------------------------------------------------------
 bool LLMotionController::activateMotionInstance(LLMotion *motion, F32 time)
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_AVATAR;
 	// It's not clear why the getWeight() line seems to be crashing this, but
 	// hopefully this fixes it.
 	if (motion == NULL || motion->getPose() == NULL)

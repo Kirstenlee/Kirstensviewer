@@ -36,4 +36,10 @@ typedef F32 LLGLfloat;
 typedef F64 LLGLdouble;
 typedef U8 LLGLboolean;
 
+// S24: DXenum - GL-vocabulary-free U32 alias for LLGLenum, adopted
+// opportunistically as files are touched rather than mass-renamed tree-wide.
+// LLGLuint/LLGLint/LLGLfloat/LLGLdouble/LLGLboolean are candidates for the
+// same treatment later.
+typedef U32 DXenum;
+
 #endif

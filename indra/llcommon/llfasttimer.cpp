@@ -202,7 +202,6 @@ namespace LLTrace
 	// this preserves partial order derived from current frame's observations
 	void BlockTimer::incrementalUpdateTimerTree()
 	{
-		LL_PROFILE_ZONE_SCOPED_CATEGORY_STATS;
 		for (block_timer_tree_df_post_iterator_t it = begin_block_timer_tree_df_post(BlockTimer::getRootTimeBlock());
 			it != end_block_timer_tree_df_post();
 			++it)
@@ -242,7 +241,6 @@ namespace LLTrace
 
 	void BlockTimer::updateTimes()
 	{
-		LL_PROFILE_ZONE_SCOPED_CATEGORY_STATS;
 		// walk up stack of active timers and accumulate current time while leaving timing structures active
 		BlockTimerStackRecord* stack_record = LLThreadLocalSingletonPointer<BlockTimerStackRecord>::getInstance();
 		if (!stack_record) return;
@@ -396,7 +394,7 @@ namespace LLTrace
 				<< std::setprecision(3) << total_time.valueInUnits<LLUnits::Milliseconds>() << " ms, "
 				<< num_calls << " calls";
 
-			LL_INFOS() << out_str.str() << LL_ENDL;
+			LL_WARNS() << out_str.str() << LL_ENDL;
 		}
 	}
 

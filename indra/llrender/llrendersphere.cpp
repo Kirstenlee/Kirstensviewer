@@ -55,7 +55,6 @@ inline LLVector3 polar_to_cart(F32 latitude, F32 longitude)
 
 void LLRenderSphere::renderGGL()
 {
-    LL_PROFILE_ZONE_SCOPED;
     S32 const LATITUDE_SLICES = 20;
     S32 const LONGITUDE_SLICES = 30;
 

@@ -345,7 +345,6 @@ S32 LLFolderView::arrange( S32* unused_width, S32* unused_height )
 
 void LLFolderView::filter( LLFolderViewFilter& filter )
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_UI;
     const S32 TIME_VISIBLE = 10; // in milliseconds
     const S32 TIME_INVISIBLE = 1;
     filter.resetTime(llclamp((mParentPanel.get()->getVisible() ? TIME_VISIBLE : TIME_INVISIBLE), 1, 100));
@@ -509,7 +508,6 @@ bool LLFolderView::changeSelection(LLFolderViewItem* selection, bool selected)
 
 void LLFolderView::sanitizeSelection()
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_UI;
     // store off current item in case it is automatically deselected
     // and we want to preserve context
     LLFolderViewItem* original_selected_item = getCurSelectedItem();
@@ -1722,9 +1720,10 @@ static LLTrace::BlockTimerStatHandle FTM_INVENTORY("Inventory");
 // Main idle routine
 void LLFolderView::update()
 {
+    LL_RECORD_BLOCK_TIME(FTM_INVENTORY);
+
     // If this is associated with the user's inventory, don't do anything
     // until that inventory is loaded up.
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_UI; //LL_RECORD_BLOCK_TIME(FTM_INVENTORY);
 
     // If there's no model, the view is in suspended state (being deleted) and shouldn't be updated
     if (getFolderViewModel() == NULL)

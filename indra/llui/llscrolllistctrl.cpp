@@ -3136,7 +3136,6 @@ LLScrollListColumn* LLScrollListCtrl::getColumn(const std::string& name)
 
 LLScrollListItem* LLScrollListCtrl::addElement(const LLSD& element, EAddPosition pos, void* userdata)
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_UI;
     LLScrollListItem::Params item_params;
     LLParamSDParser parser;
     parser.readSD(element, item_params);
@@ -3146,14 +3145,12 @@ LLScrollListItem* LLScrollListCtrl::addElement(const LLSD& element, EAddPosition
 
 LLScrollListItem* LLScrollListCtrl::addRow(const LLScrollListItem::Params& item_p, EAddPosition pos)
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_UI;
     LLScrollListItem *new_item = new LLScrollListItem(item_p);
     return addRow(new_item, item_p, pos);
 }
 
 LLScrollListItem* LLScrollListCtrl::addRow(LLScrollListItem *new_item, const LLScrollListItem::Params& item_p, EAddPosition pos)
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_UI;
     if (!item_p.validateBlock() || !new_item) return NULL;
     new_item->setNumColumns(static_cast<S32>(mColumns.size()));
 

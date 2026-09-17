@@ -65,7 +65,6 @@ LLTimer* LLTimer::sTimer = NULL;
 #if 0
 void ms_sleep(U32 ms)
 {
-    LL_PROFILE_ZONE_SCOPED;
     using TimePoint = std::chrono::steady_clock::time_point;
     auto resume_time = TimePoint::clock::now() + std::chrono::milliseconds(ms);
     while (TimePoint::clock::now() < resume_time)
@@ -86,14 +85,12 @@ U32 micro_sleep(U64 us, U32 max_yields)
 
 U32 micro_sleep(U64 us, U32 max_yields)
 {
-    LL_PROFILE_ZONE_SCOPED;
     Sleep((DWORD)(us / 1000));
     return 0;
 }
 
 void ms_sleep(U32 ms)
 {
-    LL_PROFILE_ZONE_SCOPED;
     micro_sleep(ms * 1000, 0);
 }
 

@@ -40,10 +40,35 @@
 #include "llpanel.h"
 #include "lltrans.h"
 #include "llwindow.h"
+#include "llcontrol.h"
+#include "llrender2dutils.h"
 
 ///----------------------------------------------------------------------------
 /// Class LLFolderViewItem
 ///----------------------------------------------------------------------------
+
+namespace
+{
+    // S24: same "image * vertex-tint" fix as LLFloater::draw()'s drawFloaterBackgroundImage()
+    // (llfloater.cpp) - see its header comment for the full rationale. Folder/item type icons
+    // are drawn directly here rather than through LLIconCtrl, so they need their own copy of the
+    // shader swap. Reuses the Inventory category (RenderUIHueShiftInventory).
+    void drawFolderIconImage(LLUIImage* image, S32 x, S32 y)
+    {
+        static LLCachedControl<F32> hue_shift_degrees(*LLUI::getInstance()->mSettingGroups["config"], "RenderUIHueShiftInventory", 0.f);
+        F32 degrees = hue_shift_degrees;
+
+        if (!LLUI::bindUIEffectsShader(degrees))
+        {
+            image->draw(x, y);
+            return;
+        }
+
+        image->draw(x, y);
+
+        LLUI::unbindUIEffectsShader();
+    }
+}
 
 static LLDefaultChildRegistry::Register<LLFolderViewItem> r("folder_view_item");
 
@@ -824,9 +849,17 @@ void LLFolderViewItem::drawOpenFolderArrow()
 
     if (hasVisibleChildren() || !isFolderComplete())
     {
+        static LLCachedControl<F32> hue_shift_degrees(*LLUI::getInstance()->mSettingGroups["config"], "RenderUIHueShiftInventory", 0.f);
+        bool shifted = LLUI::bindUIEffectsShader(hue_shift_degrees);
+
         gl_draw_scaled_rotated_image(
             mIndentation, getRect().getHeight() - mArrowSize - mArrowPadTop - sTopPad,
             mArrowSize, mArrowSize, mControlLabelRotation, sFolderArrowImg->getImage(), sFgColor);
+
+        if (shifted)
+        {
+            LLUI::unbindUIEffectsShader();
+        }
     }
 }
 
@@ -859,6 +892,9 @@ void LLFolderViewItem::drawFavoriteIcon()
         {
             x_offset = getRect().getWidth();
         }
+        static LLCachedControl<F32> hue_shift_degrees(*LLUI::getInstance()->mSettingGroups["config"], "RenderUIHueShiftInventory", 0.f);
+        bool shifted = LLUI::bindUIEffectsShader(hue_shift_degrees);
+
         gl_draw_scaled_image(
             x_offset - FAVORITE_IMAGE_SIZE - FAVORITE_IMAGE_PAD,
             getRect().getHeight() - mItemHeight + FAVORITE_IMAGE_PAD,
@@ -866,6 +902,11 @@ void LLFolderViewItem::drawFavoriteIcon()
             FAVORITE_IMAGE_SIZE,
             favorite_image->getImage(),
             sFgColor);
+
+        if (shifted)
+        {
+            LLUI::unbindUIEffectsShader();
+        }
     }
 }
 
@@ -1037,16 +1078,16 @@ void LLFolderViewItem::draw()
     const S32 rect_height = getRect().getHeight();
     if (!mIconOpen.isNull() && (llabs(mControlLabelRotation) > 80)) // For open folders
     {
-        mIconOpen->draw(icon_x, rect_height - mIconOpen->getHeight() - sTopPad + 1);
+        drawFolderIconImage(mIconOpen, icon_x, rect_height - mIconOpen->getHeight() - sTopPad + 1);
     }
     else if (mIcon)
     {
-        mIcon->draw(icon_x, rect_height - mIcon->getHeight() - sTopPad + 1);
+        drawFolderIconImage(mIcon, icon_x, rect_height - mIcon->getHeight() - sTopPad + 1);
     }
 
     if (mIconOverlay && getRoot()->showItemLinkOverlays())
     {
-        mIconOverlay->draw(icon_x, rect_height - mIcon->getHeight() - sTopPad + 1);
+        drawFolderIconImage(mIconOverlay, icon_x, rect_height - mIcon->getHeight() - sTopPad + 1);
     }
 
     //--------------------------------------------------------------------------------//

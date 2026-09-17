@@ -156,7 +156,6 @@ LLUI::LLUI(const settings_map_t& settings,
 	mRootView(NULL),
 	mHelpImpl(NULL)
 {
-    LL_PROFILE_ZONE_SCOPED;
 	LLRender2D::createInstance(image_provider);
 	LLSpellChecker::createInstance();
 
@@ -508,6 +507,40 @@ LLVector2& LLUI::getScaleFactor()
 void LLUI::setScaleFactor(const LLVector2& scale_factor)
 {
 	LLRender::sUIGLScaleFactor = scale_factor;
+}
+
+//static
+bool LLUI::bindUIEffectsShader(F32 hue_shift_degrees)
+{
+    static LLCachedControl<F32> contrast(*LLUI::getInstance()->mSettingGroups["config"], "RenderUIContrast", 1.f);
+    static LLCachedControl<bool> grayscale(*LLUI::getInstance()->mSettingGroups["config"], "RenderUIGrayscale", false);
+    static LLCachedControl<F32> shine(*LLUI::getInstance()->mSettingGroups["config"], "RenderUIShine", 0.f);
+
+    if (hue_shift_degrees == 0.f && contrast == 1.f && !grayscale && shine == 0.f)
+    {
+        return false;
+    }
+
+    F32 shift_turns = hue_shift_degrees / 360.0f;
+    shift_turns = shift_turns - floorf(shift_turns); // wrap to [0,1)
+
+    gUIHueShiftProgram.bind();
+    static LLStaticHashedString sUiHueShiftTurns("uiHueShiftTurns");
+    static LLStaticHashedString sUiContrast("uiContrast");
+    static LLStaticHashedString sUiGrayscale("uiGrayscale");
+    static LLStaticHashedString sUiShine("uiShine");
+    gUIHueShiftProgram.uniform1f(sUiHueShiftTurns, shift_turns);
+    gUIHueShiftProgram.uniform1f(sUiContrast, contrast);
+    gUIHueShiftProgram.uniform1f(sUiGrayscale, grayscale ? 1.f : 0.f);
+    gUIHueShiftProgram.uniform1f(sUiShine, shine);
+
+    return true;
+}
+
+//static
+void LLUI::unbindUIEffectsShader()
+{
+    gUIProgram.bind();
 }
 
 // LLLocalClipRect and LLScreenClipRect moved to lllocalcliprect.h/cpp

@@ -467,7 +467,6 @@ U32 LLMaterial::getShaderMask(U32 alpha_mode, bool is_alpha)
 
 LLUUID LLMaterial::getHash() const
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_TEXTURE;
     // HACK - hash the bytes of this LLMaterial, but trim off the S32 in LLRefCount
     LLUUID id;
     HBXXH128::digest(id, (unsigned char*)this + sizeof(LLRefCount), sizeof(*this) - sizeof(LLRefCount));

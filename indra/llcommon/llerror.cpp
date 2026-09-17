@@ -116,7 +116,6 @@ namespace {
         virtual void recordMessage(LLError::ELevel level,
                                     const std::string& message) override
         {
-            LL_PROFILE_ZONE_SCOPED_CATEGORY_LOGGING;
             if (LLError::getAlwaysFlush())
             {
                 mFile << message << std::endl;
@@ -183,7 +182,6 @@ namespace {
 		virtual void recordMessage(LLError::ELevel level,
 					   const std::string& message) override
 		{
-            LL_PROFILE_ZONE_SCOPED_CATEGORY_LOGGING;
             // The default colors for error, warn and debug are now a bit more pastel
             // and easier to read on the default (black) terminal background but you 
             // now have the option to set the color of each via an environment variables:
@@ -213,7 +211,6 @@ namespace {
 			}
             else
             {
-                LL_PROFILE_ZONE_NAMED("fprintf");
                  fprintf(stderr, "%s\n", message.c_str());
             }
 		}
@@ -223,7 +220,6 @@ namespace {
 
         LL_FORCE_INLINE void writeANSI(const std::string& ansi_code, const std::string& message)
 		{
-            LL_PROFILE_ZONE_SCOPED_CATEGORY_LOGGING;
             static std::string s_ansi_bold = createBoldANSI();  // bold text
             static std::string s_ansi_reset = createResetANSI();  // reset
 			// ANSI color code escape sequence, message, and reset in one fprintf call
@@ -260,7 +256,6 @@ namespace {
 		virtual void recordMessage(LLError::ELevel level,
 								   const std::string& message) override
 		{
-            LL_PROFILE_ZONE_SCOPED_CATEGORY_LOGGING;
 			mBuffer->addLine(message);
 		}
 	
@@ -287,7 +282,6 @@ namespace {
 		virtual void recordMessage(LLError::ELevel level,
 								   const std::string& message) override
 		{
-            LL_PROFILE_ZONE_SCOPED_CATEGORY_LOGGING;
 			debugger_print(message);
 		}
 	};
@@ -452,7 +446,7 @@ namespace
         LLError::TimeFunction               mTimeFunction;
 
         Recorders                           mRecorders;
-        LL_PROFILE_MUTEX_NAMED(LLCoros::RMutex, mRecorderMutex, "Log Recorders");
+        LLCoros::RMutex                     mRecorderMutex;
 
         int                                 mShouldLogCallCounter;
 
@@ -976,7 +970,7 @@ namespace LLError
 			return;
 		}
 		SettingsConfigPtr s = Globals::getInstance()->getSettingsConfig();
-        std::unique_lock lock(s->mRecorderMutex); LL_PROFILE_MUTEX_LOCK(s->mRecorderMutex);
+        std::unique_lock lock(s->mRecorderMutex);
 		s->mRecorders.push_back(recorder);
 	}
 
@@ -987,7 +981,7 @@ namespace LLError
 			return;
 		}
 		SettingsConfigPtr s = Globals::getInstance()->getSettingsConfig();
-        std::unique_lock lock(s->mRecorderMutex); LL_PROFILE_MUTEX_LOCK(s->mRecorderMutex);
+        std::unique_lock lock(s->mRecorderMutex);
 		s->mRecorders.erase(std::remove(s->mRecorders.begin(), s->mRecorders.end(), recorder),
 							s->mRecorders.end());
 	}
@@ -1036,7 +1030,7 @@ namespace LLError
     std::shared_ptr<RECORDER> findRecorder()
     {
         SettingsConfigPtr s = Globals::getInstance()->getSettingsConfig();
-        std::unique_lock lock(s->mRecorderMutex); LL_PROFILE_MUTEX_LOCK(s->mRecorderMutex);
+        std::unique_lock lock(s->mRecorderMutex);
         return findRecorderPos<RECORDER>(s).first;
     }
 
@@ -1047,7 +1041,7 @@ namespace LLError
     bool removeRecorder()
     {
         SettingsConfigPtr s = Globals::getInstance()->getSettingsConfig();
-        std::unique_lock lock(s->mRecorderMutex); LL_PROFILE_MUTEX_LOCK(s->mRecorderMutex);
+        std::unique_lock lock(s->mRecorderMutex);
         auto found = findRecorderPos<RECORDER>(s);
         if (found.first)
         {
@@ -1106,19 +1100,11 @@ namespace
 {
     std::string escapedMessageLines(const std::string& message)
     {
-        // S24 (2026-08-31, external report): this used to also escape bare
-        // '\\' (so it could distinguish a literal backslash from its own
-        // "\\n"/"\\r" escape sequences on decode) - but nothing in this
-        // codebase ever decodes a log line (confirmed via grep, zero
-        // unescape callers anywhere), so that reversibility was purely
-        // theoretical, paid for at a real, pervasive cost: every Windows
-        // path in every log line (source file locations, settings paths,
-        // system error text) got each '\' doubled - the reporter measured
-        // 43 of 115 lines in one otherwise-normal startup log. Only \n/\r
-        // still get escaped, which is the property that actually matters:
-        // collapsing a message with a real embedded newline back onto one
-        // physical log-file line, so per-line log tooling doesn't see it
-        // as multiple entries.
+        // S24: only \n/\r are escaped here, not bare '\\' - nothing in this codebase
+        // decodes a log line, so backslash-doubling every Windows path in every log
+        // line bought no real reversibility. Escaping \n/\r still matters: it collapses
+        // a message with an embedded newline onto one physical log-file line so
+        // per-line log tooling doesn't see it as multiple entries.
         std::ostringstream out;
         size_t written_out = 0;
         size_t all_content = message.length();
@@ -1157,13 +1143,12 @@ namespace
 
 	void writeToRecorders(const LLError::CallSite& site, const std::string& message)
 	{
-        LL_PROFILE_ZONE_SCOPED_CATEGORY_LOGGING;
 		LLError::ELevel level = site.mLevel;
 		SettingsConfigPtr s = Globals::getInstance()->getSettingsConfig();
 
         std::string escaped_message;
 
-        std::unique_lock lock(s->mRecorderMutex); LL_PROFILE_MUTEX_LOCK(s->mRecorderMutex);
+        std::unique_lock lock(s->mRecorderMutex);
 		for (LLError::RecorderPtr& r : s->mRecorders)
 		{
             if (!r->enabled())
@@ -1230,13 +1215,13 @@ namespace {
 	{
 	// Some logging calls happen very early in processing -- so early that our
 	// module-static variables aren't yet initialized. getMutex() wraps a
-        static LL_PROFILE_MUTEX_NAMED(std::recursive_mutex, sLogMutex, "Log Mutex");
+        static std::recursive_mutex sLogMutex;
         return &sLogMutex;
     }
     auto getStacksMutex()
 	{
 		// guaranteed to be initialized the first time control reaches here
-        static LL_PROFILE_MUTEX_NAMED(std::recursive_mutex, sStacksMutex, "Stacks Mutex");
+        static std::recursive_mutex sStacksMutex;
         return &sStacksMutex;
 	}
 
@@ -1286,8 +1271,7 @@ namespace LLError
 
 	bool Log::shouldLog(CallSite& site)
 	{
-        LL_PROFILE_ZONE_SCOPED_CATEGORY_LOGGING;
-        std::unique_lock lock(*getLogMutex(), std::try_to_lock); LL_PROFILE_MUTEX_LOCK(*getLogMutex());
+        std::unique_lock lock(*getLogMutex(), std::try_to_lock);
         if (!lock)
 		{
 			return false;
@@ -1329,8 +1313,7 @@ namespace LLError
 
 	void Log::flush(const std::ostringstream& out, const CallSite& site)
 	{
-        LL_PROFILE_ZONE_SCOPED_CATEGORY_LOGGING;
-        std::unique_lock lock(*getLogMutex(), std::try_to_lock); LL_PROFILE_MUTEX_LOCK(*getLogMutex());
+        std::unique_lock lock(*getLogMutex(), std::try_to_lock);
         if (!lock)
 		{
 			return;
@@ -1461,7 +1444,7 @@ namespace LLError
     //static
     void LLCallStacks::push(const char* function, const int line)
     {
-        std::unique_lock lock(*getStacksMutex(), std::try_to_lock); LL_PROFILE_MUTEX_LOCK(*getStacksMutex());
+        std::unique_lock lock(*getStacksMutex(), std::try_to_lock);
         if (!lock)
         {
             return;
@@ -1486,7 +1469,7 @@ namespace LLError
     //static
     void LLCallStacks::end(const std::ostringstream& out)
     {
-        std::unique_lock lock(*getStacksMutex(), std::try_to_lock); LL_PROFILE_MUTEX_LOCK(*getStacksMutex());
+        std::unique_lock lock(*getStacksMutex(), std::try_to_lock);
         if (!lock)
         {
             return;
@@ -1503,7 +1486,7 @@ namespace LLError
     //static
     void LLCallStacks::print()
     {
-        std::unique_lock lock(*getStacksMutex(), std::try_to_lock); LL_PROFILE_MUTEX_LOCK(*getStacksMutex());
+        std::unique_lock lock(*getStacksMutex(), std::try_to_lock);
         if (!lock)
         {
             return;

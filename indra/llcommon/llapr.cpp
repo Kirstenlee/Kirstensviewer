@@ -232,27 +232,17 @@ bool _ll_apr_warn_status(apr_status_t status, const char* file, int line)
 {
 	if(APR_SUCCESS == status) return false;
 
-	// S24 - Don't warn on normal operational conditions
 	if(APR_STATUS_IS_EOF(status)) return false;        // Reading to EOF is NORMAL
 	if(APR_STATUS_IS_TIMEUP(status)) return false;     // Timeout is often expected (non-blocking I/O)
 	if(APR_STATUS_IS_EAGAIN(status)) return false;     // Non-blocking would block - NORMAL
 
 	char buf[MAX_STRING];	/* Flawfinder: ignore */
 	apr_strerror(status, buf, sizeof(buf));
-	// S24 (2026-08-31, fixed - external report with byte-level proof: a
-	// forced APR failure on a Japanese system logged CP932 bytes for
-	// "status 720003" that don't parse as UTF-8 at all, verified byte-for-
-	// byte against Windows' own FormatMessage output for error 3
-	// ERROR_PATH_NOT_FOUND encoded as CP932): on Windows, apr_strerror()
-	// for OS-level errors (APR_OS_START_SYSERR) goes through FormatMessageA
-	// and comes back in the system ANSI codepage, not UTF-8 - on any
-	// non-English locale this makes the log line invalid UTF-8 (mojibake,
-	// and un-pasteable into a bug report) whenever the message happens to
-	// contain a byte above 0x7F, which a CJK codepage always will.
-	// ll_convert_string_to_utf8_string() (llstring.cpp) is this project's
-	// existing, already-used-elsewhere (lldate.cpp, llformat.cpp) ANSI-
-	// >UTF-8 fixup - safe to apply unconditionally, since pure-ASCII input
-	// round-trips through it as a no-op.
+	// S24: on Windows, apr_strerror() for OS-level errors (APR_OS_START_SYSERR) goes
+	// through FormatMessageA and comes back in the system ANSI codepage, not UTF-8 -
+	// on non-English locales this can produce invalid UTF-8 (mojibake) in the log.
+	// ll_convert_string_to_utf8_string() (llstring.cpp) is this project's existing
+	// ANSI->UTF-8 fixup; safe unconditionally since pure-ASCII input is a no-op.
 	std::string buf_utf8 = ll_convert_string_to_utf8_string(buf);
 	LL_WARNS("APR") << "APR: " << file << ":" << line << " (status " << status << ") " << buf_utf8 << LL_ENDL;
 
@@ -549,10 +539,9 @@ S32 LLAPRFile::seek(apr_file_t* file_handle, apr_seek_where_t where, S32 offset)
 //static
 S32 LLAPRFile::readEx(const std::string& filename, void *buf, S32 offset, S32 nbytes, LLVolatileAPRPool* pool)
 {
-    LL_PROFILE_ZONE_SCOPED;
 	//*****************************************
 	LLAPRFilePoolScope scope(pool);
-	apr_file_t* file_handle = open(filename, scope.getVolatileAPRPool(), APR_READ|APR_BINARY); 
+	apr_file_t* file_handle = open(filename, scope.getVolatileAPRPool(), APR_READ|APR_BINARY);
 	//*****************************************
 	if (!file_handle)
 	{
@@ -593,7 +582,6 @@ S32 LLAPRFile::readEx(const std::string& filename, void *buf, S32 offset, S32 nb
 //static
 S32 LLAPRFile::writeEx(const std::string& filename, const void *buf, S32 offset, S32 nbytes, LLVolatileAPRPool* pool)
 {
-    LL_PROFILE_ZONE_SCOPED;
 	apr_int32_t flags = APR_CREATE|APR_WRITE|APR_BINARY;
 	if (offset < 0)
 	{

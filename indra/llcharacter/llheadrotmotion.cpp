@@ -175,7 +175,6 @@ bool LLHeadRotMotion::onActivate()
 //-----------------------------------------------------------------------------
 bool LLHeadRotMotion::onUpdate(F32 time, U8* joint_mask)
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_AVATAR;
 	LLQuaternion	targetHeadRotWorld;
 	LLQuaternion	currentRootRotWorld = mRootJoint->getWorldRotation();
 	LLQuaternion	currentInvRootRotWorld = ~currentRootRotWorld;
@@ -457,7 +456,6 @@ void LLEyeMotion::adjustEyeTarget(LLVector3* targetPos, LLJointState& left_eye_s
 //-----------------------------------------------------------------------------
 bool LLEyeMotion::onUpdate(F32 time, U8* joint_mask)
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_AVATAR;
 	//calculate jitter
 	if (mEyeJitterTimer.getElapsedTimeF32() > mEyeJitterTime)
 	{

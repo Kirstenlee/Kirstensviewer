@@ -83,8 +83,13 @@ public:
     void            setImage(LLPointer<LLUIImage> image) { mImagep = image; }
     const LLPointer<LLUIImage> getImage() { return mImagep; }
 
+    // S24: for icons showing real user photo content (avatar profile pic, RL pic) rather than
+    // decorative skin chrome - UI hue shift must never distort someone's actual photo.
+    void            setExcludeFromHueShift(bool exclude) { mExcludeFromHueShift = exclude; }
+
 protected:
     S32 mPriority;
+    bool mExcludeFromHueShift;
 
     //the output size of the icon image if set.
     S32 mMinWidth,

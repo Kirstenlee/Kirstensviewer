@@ -30,6 +30,7 @@
 #include "linden_common.h"
 #include "llviewereventrecorder.h"
 #include "llfloater.h"
+#include "llrender2dutils.h"
 
 #include "llfocusmgr.h"
 
@@ -1986,11 +1987,46 @@ void LLFloater::onClickCloseBtn(bool app_quitting)
 }
 
 
+namespace
+{
+    // S24: draws the floater background image, using the dedicated gUIHueShiftProgram (rotates
+    // the SAMPLED TEXEL's own hue - see uiHueShiftF.hlsl's header comment) instead of the normal
+    // gUIProgram whenever a shift is actually dialed in. Two earlier approaches were tried and
+    // abandoned for floater chrome specifically: shifting the LLUIColorTable entry (no visible
+    // effect - a live-per-frame recheck showed the color genuinely updates in the table but
+    // something in the XUI-attribute-to-LLUIColor parsing path freezes a copy for this widget),
+    // and a CPU-side per-frame HSL shift of the vertex tint (also no visible effect - the actual
+    // floater chrome textures are near-black, and vertex_color*texel can only ever darken/leave
+    // dark pixels dark, never brighten or re-hue them - confirmed via a 4-agent investigation).
+    // Rotating the texture's own sampled hue in the shader is the only approach that can reach
+    // color genuinely baked into the art.
+    //
+    // gUIHueShiftProgram is bound ONLY for this one draw call and gUIProgram is rebound
+    // immediately after - LLUIImage::draw() (llrender/lluiimage.inl) does NOT rebind a shader
+    // itself on the normal (non-cached) draw path taken by default, so whatever's bound here stays
+    // bound afterward unless explicitly restored; llrender.cpp has an assert elsewhere expecting
+    // gUIProgram to be the current shader during UI rendering, so leaving a different one bound
+    // would be a real, if latent, hazard for whatever draws next.
+    void drawFloaterBackgroundImage(LLUIImage* image, const LLRect& rect, const LLColor4& color)
+    {
+        static LLCachedControl<F32> hue_shift_degrees(*LLUI::getInstance()->mSettingGroups["config"], "RenderUIHueShiftFloaters", 0.f);
+        F32 degrees = hue_shift_degrees;
+
+        if (!LLUI::bindUIEffectsShader(degrees))
+        {
+            image->draw(rect, color);
+            return;
+        }
+
+        image->draw(rect, color);
+
+        LLUI::unbindUIEffectsShader();
+    }
+}
+
 // virtual
 void LLFloater::draw()
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_UI;
-    LL_PROFILE_ZONE_TEXT(getTitle().c_str(), getTitle().length());
 
     const F32 alpha = getCurrentTransparency();
 
@@ -2024,7 +2060,7 @@ void LLFloater::draw()
         if (image)
         {
             // We're using images for this floater's backgrounds
-            image->draw(getLocalRect(), overlay_color % alpha);
+            drawFloaterBackgroundImage(image, getLocalRect(), overlay_color % alpha);
         }
         else
         {
@@ -3409,7 +3445,6 @@ boost::signals2::connection LLFloater::setCloseCallback( const commit_signal_t::
 
 bool LLFloater::initFloaterXML(LLXMLNodePtr node, LLView *parent, const std::string& filename, LLXMLNodePtr output_node)
 {
-    LL_PROFILE_ZONE_SCOPED;
     Params default_params(LLUICtrlFactory::getDefaultParams<LLFloater>());
     Params params(default_params);
 
@@ -3558,7 +3593,6 @@ bool LLFloater::isVisible(const LLFloater* floater)
 
 bool LLFloater::buildFromFile(const std::string& filename)
 {
-    LL_PROFILE_ZONE_SCOPED;
     LLXMLNodePtr root;
 
     if (!LLUICtrlFactory::getLayeredXMLNode(filename, root))

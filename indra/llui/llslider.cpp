@@ -35,6 +35,33 @@
 #include "llkeyboard.h"         // for the MASK constants
 #include "llcontrol.h"
 #include "lluictrlfactory.h"
+#include "llrender2dutils.h"
+
+namespace
+{
+    // S24: same pattern as LLFloater::draw()'s drawFloaterBackgroundImage() / LLButton::draw()'s
+    // drawButtonImage() / LLIconCtrl::draw()'s drawIconImage() - see llfloater.cpp's header comment
+    // for the full rationale. Sliders already respond reasonably to the CPU/LLUIColorTable-based
+    // shift (their thumb art apparently already carries real color on most skins), but this covers
+    // the same architecture consistently - including track/highlight images, which are drawn with a
+    // hardcoded neutral white tint (not a named table color) and so were never touched by the CPU
+    // approach at all. Reuses the Controls category (RenderUIHueShiftControls), same as buttons.
+    void drawSliderImage(LLUIImage* image, const LLRect& rect, const LLColor4& color)
+    {
+        static LLCachedControl<F32> hue_shift_degrees(*LLUI::getInstance()->mSettingGroups["config"], "RenderUIHueShiftControls", 0.f);
+        F32 degrees = hue_shift_degrees;
+
+        if (!LLUI::bindUIEffectsShader(degrees))
+        {
+            image->draw(rect, color);
+            return;
+        }
+
+        image->draw(rect, color);
+
+        LLUI::unbindUIEffectsShader();
+    }
+}
 
 static LLDefaultChildRegistry::Register<LLSlider> r1("slider_bar");
 //FIXME: make this into an unregistered template so that code constructed sliders don't
@@ -330,8 +357,8 @@ void LLSlider::draw()
     }
 
     LLColor4 color = isInEnabledChain() ? LLColor4::white % alpha : LLColor4::white % (0.6f * alpha);
-    trackImage->draw(track_rect, color);
-    trackHighlightImage->draw(highlight_rect, color);
+    drawSliderImage(trackImage, track_rect, color);
+    drawSliderImage(trackHighlightImage, highlight_rect, color);
 
     // Thumb
     if (hasFocus())
@@ -345,25 +372,25 @@ void LLSlider::draw()
         // Show ghost where thumb was before dragging began.
         if (mThumbImage.notNull())
         {
-            mThumbImage->draw(mDragStartThumbRect, mThumbCenterColor.get() % (0.3f * alpha));
+            drawSliderImage(mThumbImage, mDragStartThumbRect, mThumbCenterColor.get() % (0.3f * alpha));
         }
         if (mThumbImagePressed.notNull())
         {
-            mThumbImagePressed->draw(mThumbRect, mThumbOutlineColor % alpha);
+            drawSliderImage(mThumbImagePressed, mThumbRect, mThumbOutlineColor % alpha);
         }
     }
     else if (!isInEnabledChain())
     {
         if (mThumbImageDisabled.notNull())
         {
-            mThumbImageDisabled->draw(mThumbRect, mThumbCenterColor % alpha);
+            drawSliderImage(mThumbImageDisabled, mThumbRect, mThumbCenterColor % alpha);
         }
     }
     else
     {
         if (mThumbImage.notNull())
         {
-            mThumbImage->draw(mThumbRect, mThumbCenterColor % alpha);
+            drawSliderImage(mThumbImage, mThumbRect, mThumbCenterColor % alpha);
         }
     }
 

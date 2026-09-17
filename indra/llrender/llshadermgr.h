@@ -195,12 +195,9 @@ public:
         INVERSE_MODELVIEW_DELTA_MATRIX,     //  "inv_modelview_delta"
         CUBE_SNAPSHOT,                      //  "cube_snapshot"
 
-        // S24 (2026-08-23, task #190 temporal-SSAO follow-up): reprojection
-        // uniform for the new temporal-resolve pass (dxpipeline.cpp) - no
-        // "last projection" uniform existed anywhere in the codebase before
-        // this (confirmed via full-tree grep); needed alongside the
-        // already-existing inv_modelview_delta to reproject a current-frame
-        // eye-space position into last frame's screen UV.
+        // S24: reprojection uniform for the temporal-resolve pass
+        // (dxpipeline.cpp); used with inv_modelview_delta to reproject a
+        // current-frame eye-space position into last frame's screen UV.
         LAST_PROJECTION_MATRIX,             //  "last_projection_matrix"
         // History-buffer texture channel for the same pass (mSSAOHistory).
         DEFERRED_SSAO_HISTORY_MAP,          //  "history_map"
@@ -280,6 +277,7 @@ public:
         WATER_SHORE_FADE_DISTANCE,          //  "waterShoreFadeDistance" // S24 Advanced
         WATER_UNDERWATER_FOG_MULT,          //  "waterUnderwaterFogMult" // S24 Advanced
         WATER_REFLECTION_WARMTH,            //  "waterReflectionWarmth" // S24 Advanced
+        WATER_COLOR_ABSORPTION_RATE,        //  "waterColorAbsorptionRate" // S24 Advanced
 
         WL_CAMPOSLOCAL,                     //  "camPosLocal"
 
@@ -373,17 +371,18 @@ public:
     virtual void initAttribsAndUniforms(void);
 
     bool attachShaderFeatures(LLHLSLShader * shader);
-    void dumpObjectLog(GLuint ret, bool warns = true, const std::string& filename = "");
-    void dumpShaderSource(U32 shader_code_count, GLchar** shader_code_text);
-    bool    linkProgramObject(GLuint obj, bool suppress_errors = false);
-    bool    validateProgramObject(GLuint obj);
+    // S24: dumpObjectLog()/dumpShaderSource()/linkProgramObject()/validateProgramObject() removed
+    // - all dead (zero live callers tree-wide), part of task #300 (full GL removal). See
+    // llshadermgr.cpp's matching comment above loadShaderFile().
     // attaches_deferred_util should be true whenever this call's shader
     // instance will cause deferredUtil.glsl/deferredUtil.hlsl to be attached
     // - i.e. mFeatures.isDeferred || mFeatures.hasReflectionProbes (the real
     // attachShaderFeatures() gate for that file, not isDeferred alone - see
     // loadShaderFile()'s HLSL indexed-texture-channel register-base comment
     // for why this distinction matters).
-    GLuint loadShaderFile(const std::string& filename, S32 & shader_level, GLenum type, std::map<std::string, std::string>* defines = NULL, S32 texture_index_channels = -1, bool attaches_deferred_util = false);
+    // S24: type branches HLSL compile-target selection but never reaches a
+    // real GL call under DX_RENDER.
+    GLuint loadShaderFile(const std::string& filename, S32 & shader_level, DXenum type, std::map<std::string, std::string>* defines = NULL, S32 texture_index_channels = -1, bool attaches_deferred_util = false);
 
     // Implemented in the application to actually point to the shader directory.
     virtual std::string getShaderDirPrefix(void) = 0; // Pure Virtual
@@ -394,14 +393,24 @@ public:
     void initShaderCache(bool enabled, const LLUUID& old_cache_version, const LLUUID& current_cache_version, bool second_instance);
     void clearShaderCache();
     void persistShaderCacheMetadata();
-
-    bool loadCachedProgramBinary(LLHLSLShader* shader);
-    bool saveCachedProgramBinary(LLHLSLShader* shader);
+    // Clears mRawShaderFileTextCache (see its own comment) - call before a setShaders() that must
+    // see live edits to .hlsl files on disk. Settings-triggered reloads deliberately do NOT call
+    // this, since the fast path (reusing cached file text) is the whole point there.
+    void clearRawShaderFileCache() { mRawShaderFileTextCache.clear(); }
 
 public:
     // Map of shader names to compiled
     std::map<std::string, GLuint> mVertexShaderObjects;
     std::map<std::string, GLuint> mFragmentShaderObjects;
+
+    // Raw (BOM-stripped, pre-per-call-splice) on-disk shader file text, keyed by
+    // "<filename>@<resolved gpu class>" - see loadShaderFile()'s own comment. A settings-triggered
+    // shader reload calls loadShaderFile() again for every attached file of every shader
+    // unconditionally, even though the vast majority of that file content can't have changed
+    // mid-session - this cache skips the real disk read/probe on a repeat call for the same key.
+    // clearRawShaderFileCache() forces a genuine re-read (Develop > Rebuild Shaders / Purge Shader
+    // Cache).
+    std::map<std::string, std::string> mRawShaderFileTextCache;
 
 #ifdef DX_RENDER
     // DX_RENDER has no separately-compiled/linkable shader objects (unlike

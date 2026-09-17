@@ -105,7 +105,6 @@ LLImageDecodeThread::~LLImageDecodeThread()
 // virtual
 size_t LLImageDecodeThread::update(F32 max_time_ms)
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_TEXTURE;
     return getPending();
 }
 
@@ -120,7 +119,6 @@ LLImageDecodeThread::handle_t LLImageDecodeThread::decodeImage(
     bool needs_aux,
     const LLPointer<LLImageDecodeThread::Responder>& responder)
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_TEXTURE;
 
     // S24 MEMORY SAFETY: Cap decode queue depth to prevent unbounded growth
     // When the decode backlog exceeds available memory budget, reject
@@ -197,7 +195,6 @@ ImageRequest::~ImageRequest()
 // Returns true when done, whether or not decode was successful.
 bool ImageRequest::processRequest()
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_TEXTURE;
     if (mFormattedImage.isNull())
         return true;
 	const F32 decode_time_slice = 0.f; //disable time slicing
@@ -256,7 +253,6 @@ bool ImageRequest::processRequest()
 
 void ImageRequest::finishRequest(bool completed)
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_TEXTURE;
 	if (mResponder.notNull())
 	{
 		bool success = completed && mDecodedRaw && (!mNeedsAux || mDecodedAux);

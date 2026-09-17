@@ -71,7 +71,6 @@ void LL::WorkQueueBase::runUntilClose()
     {
         for (;;)
         {
-            LL_PROFILE_ZONE_SCOPED_CATEGORY_THREAD;
             callWork(pop_());
         }
     }
@@ -82,7 +81,6 @@ void LL::WorkQueueBase::runUntilClose()
 
 bool LL::WorkQueueBase::runPending()
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_THREAD;
     for (Work work; tryPop_(work); )
     {
         callWork(work);
@@ -102,7 +100,6 @@ bool LL::WorkQueueBase::runOne()
 
 bool LL::WorkQueueBase::runUntil(const TimePoint& until)
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_THREAD;
     // Should we subtract some slop to allow for typical Work execution time?
     // How much slop?
     // runUntil() is simply a time-bounded runPending().
@@ -136,7 +133,13 @@ namespace
 
     static const U32 STATUS_MSC_EXCEPTION = 0xE06D7363; // compiler specific
 
-    U32 exception_filter(U32 code, struct _EXCEPTION_POINTERS* exception_infop)
+    // out_address is only settable here, during filter evaluation - Get
+    // ExceptionInformation()'s result is invalid once inside the __except
+    // body below, so the real fault address must be captured now or it's
+    // lost (previously was: a real access-violation crash on a background
+    // WorkQueue task converted to a bare "SEH, code: <n>" with no location,
+    // making it undiagnosable from a crash dump - see feedback_s24_workqueue_seh_graceful_failure).
+    U32 exception_filter(U32 code, struct _EXCEPTION_POINTERS* exception_infop, void*& out_address)
     {
          if (code == STATUS_MSC_EXCEPTION)
         {
@@ -146,6 +149,10 @@ namespace
         else
         {
             // handle it, convert to std::exception
+            if (exception_infop && exception_infop->ExceptionRecord)
+            {
+                out_address = exception_infop->ExceptionRecord->ExceptionAddress;
+            }
             return EXCEPTION_EXECUTE_HANDLER;
         }
 
@@ -170,16 +177,20 @@ namespace
 
     void sehandle(const LL::WorkQueueBase::Work& work)
     {
+        U32 seh_code = 0;
+        void* seh_address = nullptr;
         __try
         {
             // handle stop and continue exceptions first
             cpphandle(work);
         }
-        __except (exception_filter(GetExceptionCode(), GetExceptionInformation()))
+        __except (seh_code = GetExceptionCode(), exception_filter(seh_code, GetExceptionInformation(), seh_address))
         {
-            // convert to C++ styled exception
+            // convert to C++ styled exception, with the real fault address
+            // captured above so a caught-and-logged occurrence (see
+            // callWork() below) is actually diagnosable.
             char integer_string[512];
-            sprintf(integer_string, "SEH, code: %lu\n", GetExceptionCode());
+            sprintf(integer_string, "SEH exception 0x%08lX at address %p", seh_code, seh_address);
             throw std::exception(integer_string);
         }
     }
@@ -187,11 +198,20 @@ namespace
 
 void LL::WorkQueueBase::callWork(const Work& work)
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_THREAD;
-
-    // S24 do not merge non windows code!
-    sehandle(work);
-
+    // S24: one queued work item throwing (including a genuine SEH exception
+    // like an access violation, converted to a C++ exception by sehandle()
+    // above) must not crash the whole process - log it and let the run loop
+    // (runUntilClose()/runPending()/runOne()/runUntil()) move on to the next
+    // item, same spirit as cpphandle()'s LLContinueError handling above.
+    try
+    {
+        sehandle(work);
+    }
+    catch (const std::exception& e)
+    {
+        LL_WARNS("WorkQueue") << "Unhandled exception from queued work on \""
+            << getKey() << "\": " << e.what() << LL_ENDL;
+    }
 }
 
 void LL::WorkQueueBase::error(const std::string& msg)

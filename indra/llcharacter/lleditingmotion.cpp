@@ -163,7 +163,6 @@ bool LLEditingMotion::onActivate()
 //-----------------------------------------------------------------------------
 bool LLEditingMotion::onUpdate(F32 time, U8* joint_mask)
 {
-    LL_PROFILE_ZONE_SCOPED;
 	LLVector3 focus_pt;
 	LLVector3* pointAtPt = (LLVector3*)mCharacter->getAnimationData("PointAtPoint");
 

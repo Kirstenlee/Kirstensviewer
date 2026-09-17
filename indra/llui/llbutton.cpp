@@ -46,6 +46,7 @@
 #include "llfontgl.h"
 #include "llfontvertexbuffer.h"
 #include "llwindow.h"
+#include "llrender2dutils.h"
 #include "llnotificationsutil.h"
 #include "llrender.h"
 #include "lluictrlfactory.h"
@@ -676,6 +677,42 @@ void LLButton::getOverlayImageSize(S32& overlay_width, S32& overlay_height)
 }
 
 
+namespace
+{
+    // S24: same pattern as LLFloater::draw()'s drawFloaterBackgroundImage() (llfloater.cpp) - see
+    // its header comment for the full rationale (CPU/LLUIColorTable-based tinting can only ever
+    // darken/leave-alone a texture's own baked color, never brighten or re-hue it; recoloring
+    // texture-based UI art needs a shader that rotates the SAMPLED TEXEL's own hue). Buttons use
+    // the identical "image * vertex-tint" architecture as floater chrome (imagep->draw() below),
+    // so they need the identical fix. gUIHueShiftProgram is bound ONLY for this one draw call and
+    // gUIProgram is rebound immediately after.
+    void drawButtonImage(LLUIImage* image, const LLRect& rect, const LLColor4& color)
+    {
+        static LLCachedControl<F32> hue_shift_degrees(*LLUI::getInstance()->mSettingGroups["config"], "RenderUIHueShiftControls", 0.f);
+        F32 degrees = hue_shift_degrees;
+
+        if (!LLUI::bindUIEffectsShader(degrees))
+        {
+            image->draw(rect, color);
+            return;
+        }
+
+        image->draw(rect, color);
+
+        LLUI::unbindUIEffectsShader();
+    }
+
+    void drawButtonImage(LLUIImage* image, S32 x, S32 y, const LLColor4& color)
+    {
+        drawButtonImage(image, LLRect(x, y + image->getHeight(), x + image->getWidth(), y), color);
+    }
+
+    void drawButtonImage(LLUIImage* image, S32 x, S32 y, S32 width, S32 height, const LLColor4& color)
+    {
+        drawButtonImage(image, LLRect(x, y + height, x + width, y), color);
+    }
+}
+
 // virtual
 void LLButton::draw()
 {
@@ -870,7 +907,7 @@ void LLButton::draw()
         LLColor4 disabled_color = mFadeWhenDisabled ? mDisabledImageColor.get() % 0.5f : mDisabledImageColor.get();
         if ( mScaleImage)
         {
-            imagep->draw(getLocalRect(), (enabled ? mImageColor.get() : disabled_color) % alpha  );
+            drawButtonImage(imagep, getLocalRect(), (enabled ? mImageColor.get() : disabled_color) % alpha  );
             if (mCurGlowStrength > 0.01f)
             {
                 gDX.setSceneBlendType(glow_type);
@@ -881,7 +918,7 @@ void LLButton::draw()
         else
         {
             S32 y = getLocalRect().getHeight() - imagep->getHeight();
-            imagep->draw(0, y, (enabled ? mImageColor.get() : disabled_color) % alpha);
+            drawButtonImage(imagep, 0, y, (enabled ? mImageColor.get() : disabled_color) % alpha);
             if (mCurGlowStrength > 0.01f)
             {
                 gDX.setSceneBlendType(glow_type);
@@ -937,7 +974,7 @@ void LLButton::draw()
 
         if (mImageOverlayRightDelta > 0)
         {
-            mImageOverlay->draw(getRect().getWidth() - overlay_width - mImageOverlayRightDelta,
+            drawButtonImage(mImageOverlay, getRect().getWidth() - overlay_width - mImageOverlayRightDelta,
                             center_y - (overlay_height / 2),
                             overlay_width,
                             overlay_height,
@@ -951,7 +988,7 @@ void LLButton::draw()
         case LLFontGL::LEFT:
             text_left += overlay_width + mImgOverlayLabelSpace;
             text_width -= overlay_width + mImgOverlayLabelSpace;
-            mImageOverlay->draw(
+            drawButtonImage(mImageOverlay,
                 mLeftHPad,
                 center_y - (overlay_height / 2),
                 overlay_width,
@@ -959,7 +996,7 @@ void LLButton::draw()
                 overlay_color);
             break;
         case LLFontGL::HCENTER:
-            mImageOverlay->draw(
+            drawButtonImage(mImageOverlay,
                 center_x - (overlay_width / 2),
                 center_y - (overlay_height / 2),
                 overlay_width,
@@ -969,7 +1006,7 @@ void LLButton::draw()
         case LLFontGL::RIGHT:
             text_right -= overlay_width + mImgOverlayLabelSpace;
             text_width -= overlay_width + mImgOverlayLabelSpace;
-            mImageOverlay->draw(
+            drawButtonImage(mImageOverlay,
                 getRect().getWidth() - mRightHPad - overlay_width,
                 center_y - (overlay_height / 2),
                 overlay_width,

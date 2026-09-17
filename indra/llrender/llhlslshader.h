@@ -208,30 +208,18 @@ public:
     // mDXPixelShader.
     bool createShaderDX();
 
-    // S24 (2026-09-05, task #277): the text-resolution portion of
-    // createShaderDX() (load mShaderFiles + attachShaderFeatures() +
-    // resolveIncludes()/injectSkinningInputs()/injectTextureIndexInputs()/
-    // buildDXShaderHeader(), populating mDXVertexSource/mDXPixelSource) split
-    // out on its own so a startup prefetch pass can build the final HLSL text
-    // early and warm DXShader's D3DCompile() disk cache on a worker thread,
-    // before createShaderDX() itself runs (main thread only, as always) and
-    // hits that now-warm cache. Touches LLShaderMgr's shared, unsynchronized
-    // source-text caches (mVertexShaderSourceText/mFragmentShaderSourceText)
-    // and sInstances, so - like createShaderDX() - this must only ever be
-    // called from the main thread. Idempotent: safe to call more than once on
-    // the same instance (createShaderDX() always calls it again itself, even
-    // if a prefetch pass already called it) - it fully rebuilds
-    // mDXVertexSource/mDXPixelSource from scratch each time rather than
-    // appending.
+    // S24: text-resolution portion of createShaderDX(), split out so a
+    // startup prefetch pass can build the HLSL text early and warm
+    // DXShader's D3DCompile() disk cache on a worker thread. Touches
+    // LLShaderMgr's shared, unsynchronized source-text caches and
+    // sInstances, so main-thread only, like createShaderDX(). Idempotent -
+    // fully rebuilds mDXVertexSource/mDXPixelSource each call.
     bool buildDXSource();
 #endif
     bool attachFragmentObject(std::string object);
     bool attachVertexObject(std::string object);
     void attachObject(GLuint object);
     void attachObjects(GLuint* objects = NULL, S32 count = 0);
-    bool mapAttributes();
-    bool mapUniforms();
-    void mapUniform(GLint index);
     void uniform1i(U32 index, GLint i);
     void uniform1f(U32 index, F32 v);
     void fastUniform1f(U32 index, F32 v);
@@ -274,7 +262,6 @@ public:
     GLint getUniformLocation(U32 index);
 
     GLint getAttribLocation(U32 attrib);
-    GLint mapUniformTextureChannel(GLint location, GLenum type, GLint size);
 
     void clearPermutations();
     void addPermutation(std::string name, std::string value);
@@ -305,24 +292,14 @@ public:
     S32 unbindTexture(const std::string& uniform, LLTexUnit::eTextureType mode = LLTexUnit::TT_TEXTURE);
     S32 unbindTexture(S32 uniform, LLTexUnit::eTextureType mode = LLTexUnit::TT_TEXTURE);
 
-    bool link(bool suppress_errors = false);
     void bind();
     //helper to conditionally bind mRiggedVariant instead of this
     void bind(bool rigged);
 
 #ifdef DX_RENDER
-    // S24 (DX_RENDER, 2026-07-25): mProgramObject is a raw GL program name -
-    // always 0 under DX_RENDER, since glCreateProgram()/glLinkProgram() never
-    // run. The GL-only body below made isComplete() unconditionally false for
-    // every shader regardless of real DX compile success, silently disabling
-    // every one of its callers under DX_RENDER: gDeferredGenBrdfLutProgram
-    // (PBR specular LUT generation - "Brdf Gen Shader failed to load, cannot
-    // be used!" in the log is this, not an actual compile failure),
-    // gCASProgram/gCASLegacyGammaProgram (CAS sharpening), gFXAAProgram[0]/
-    // gSMAAEdgeDetectProgram[0] (FXAA/SMAA, both post-process AND silently
-    // removed from the graphics-preferences AA dropdown). "Complete" under
-    // DX_RENDER means both stages actually produced a real D3D11 shader
-    // object - mirrors GL's link-success semantics without a link step.
+    // S24: mProgramObject is always 0 under DX_RENDER (no glCreateProgram/
+    // glLinkProgram). "Complete" here means both stages produced a real
+    // D3D11 shader object - mirrors GL's link-success semantics.
     bool isComplete() const { return mDXVertexShader.getVS() != nullptr && mDXPixelShader.getPS() != nullptr; }
 #else
     bool isComplete() const { return mProgramObject != 0; }
@@ -360,8 +337,16 @@ public:
     S32 mShaderLevel;
     S32 mShaderGroup; // see LLHLSLShader::eGroup
     bool mUniformsDirty;
+    // S24: bind() logs+skips (rather than asserting/crashing) the first time it's called on a
+    // shader that failed to compile - see bind()'s own comment. Per-object so a genuinely broken
+    // shader's failure isn't masked by LL_WARNS_ONCE's call-site-wide dedup swallowing every
+    // OTHER shader's first failure too.
+    bool mLoggedIncompleteBind = false;
     LLShaderFeatures mFeatures;
-    std::vector< std::pair< std::string, GLenum > > mShaderFiles;
+    // S24: feeds LLShaderMgr::loadShaderFile()'s type param, which branches
+    // HLSL compile-target selection - live under DX_RENDER even though the
+    // value (GL_VERTEX_SHADER/GL_FRAGMENT_SHADER) is a plain int macro.
+    std::vector< std::pair< std::string, DXenum > > mShaderFiles;
     std::string mName;
     typedef std::map<std::string, std::string> defines_map_t; //NOTE: this must be an ordered map to maintain hash consistency
     defines_map_t mDefines;
@@ -384,6 +369,25 @@ public:
     U32 mTimerQuery;
     U32 mSamplesQuery;
     U32 mPrimitivesQuery;
+
+#ifdef DX_RENDER
+    // D3D11 equivalent of the GL query objects above - GL_TIME_ELAPSED has no direct D3D11
+    // counterpart, so elapsed time needs a disjoint query (frequency + validity) bracketing a
+    // pair of plain timestamp queries (timestamps only support End(), never Begin() - see
+    // placeProfileQuery()/readProfileQuery() in the .cpp). occlusion/pipelineStats are the
+    // GL_SAMPLES_PASSED/GL_PRIMITIVES_GENERATED analogues.
+    struct DXProfileQueries
+    {
+        ID3D11Query* disjoint = nullptr;
+        ID3D11Query* timestampBegin = nullptr;
+        ID3D11Query* timestampEnd = nullptr;
+        ID3D11Query* occlusion = nullptr;
+        ID3D11Query* pipelineStats = nullptr;
+
+        void reset();
+    };
+    DXProfileQueries mDXProfileQueries;
+#endif
 
     U64 mTimeElapsed;
     static U64 sTotalTimeElapsed;
@@ -435,6 +439,11 @@ private:
 
 //UI shader (declared here so llui_libtest will link properly)
 extern LLHLSLShader         gUIProgram;
+// S24: uiHueShiftF.hlsl variant of gUIProgram - rotates the sampled texel's own hue, used only at
+// specific call sites (currently LLFloater::draw()'s background image) that need to recolor a
+// texture-based UI asset, not just a CPU-side vertex tint. See uiHueShiftF.hlsl's own header
+// comment for why this is a separate program rather than a uniform on gUIProgram itself.
+extern LLHLSLShader         gUIHueShiftProgram;
 //output vec4(color.rgb,color.a*tex0[tc0].a)
 extern LLHLSLShader         gSolidColorProgram;
 //Alpha mask shader (declared here so llappearance can access properly)

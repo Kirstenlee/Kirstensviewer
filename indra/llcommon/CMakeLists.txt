@@ -4,14 +4,14 @@
 project(llcommon)
 
 include(00-Common)
-include(Icu4c)
+include(ICU4C)
 include(LLCommon)
 include(Linking)
 include(Boost)
 
 
-include(Glm)
-include(ZLib)
+include(GLM)
+include(ZLIB)
 
 include_directories(
     ${EXPAT_INCLUDE_DIRS}
@@ -199,7 +199,6 @@ set(llcommon_HEADER_FILES
     llnametable.h
     llpointer.h
     llprofiler.h
-    llprofilercategories.h
     llpounceable.h
     llpredicate.h
     llpreprocessor.h

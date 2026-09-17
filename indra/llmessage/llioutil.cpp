@@ -55,7 +55,6 @@ LLIOPipe::EStatus LLIOSleep::process_impl(
 	LLSD& context,
 	LLPumpIO* pump)
 {
-    LL_PROFILE_ZONE_SCOPED;
 	if(mSeconds > 0.0)
 	{
 		if(pump) pump->sleepChain(mSeconds);
@@ -75,7 +74,6 @@ LLIOPipe::EStatus LLIOAddChain::process_impl(
 	LLSD& context,
 	LLPumpIO* pump)
 {
-    LL_PROFILE_ZONE_SCOPED;
 	pump->addChain(mChain, mTimeout);
 	return STATUS_DONE;
 }

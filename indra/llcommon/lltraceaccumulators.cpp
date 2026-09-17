@@ -38,7 +38,6 @@ namespace LLTrace
 
 AccumulatorBufferGroup::AccumulatorBufferGroup()
 {
-	LL_PROFILE_ZONE_SCOPED_CATEGORY_STATS;
 }
 
 AccumulatorBufferGroup::AccumulatorBufferGroup(const AccumulatorBufferGroup& other)
@@ -47,17 +46,14 @@ AccumulatorBufferGroup::AccumulatorBufferGroup(const AccumulatorBufferGroup& oth
 	mEvents(other.mEvents),
 	mStackTimers(other.mStackTimers)
 {
-	LL_PROFILE_ZONE_SCOPED_CATEGORY_STATS;
 }
 
 AccumulatorBufferGroup::~AccumulatorBufferGroup()
 {
-	LL_PROFILE_ZONE_SCOPED_CATEGORY_STATS;
 }
 
 void AccumulatorBufferGroup::handOffTo(AccumulatorBufferGroup& other)
 {
-	LL_PROFILE_ZONE_SCOPED_CATEGORY_STATS;
 	other.mCounts.reset(&mCounts);
 	other.mSamples.reset(&mSamples);
 	other.mEvents.reset(&mEvents);
@@ -66,7 +62,6 @@ void AccumulatorBufferGroup::handOffTo(AccumulatorBufferGroup& other)
 
 void AccumulatorBufferGroup::makeCurrent()
 {
-	LL_PROFILE_ZONE_SCOPED_CATEGORY_STATS;
 	mCounts.makeCurrent();
 	mSamples.makeCurrent();
 	mEvents.makeCurrent();
@@ -88,7 +83,6 @@ void AccumulatorBufferGroup::makeCurrent()
 //static
 void AccumulatorBufferGroup::clearCurrent()
 {
-	LL_PROFILE_ZONE_SCOPED_CATEGORY_STATS;
 	AccumulatorBuffer<CountAccumulator>::clearCurrent();
 	AccumulatorBuffer<SampleAccumulator>::clearCurrent();
 	AccumulatorBuffer<EventAccumulator>::clearCurrent();
@@ -102,7 +96,6 @@ bool AccumulatorBufferGroup::isCurrent() const
 
 void AccumulatorBufferGroup::append( const AccumulatorBufferGroup& other )
 {
-	LL_PROFILE_ZONE_SCOPED_CATEGORY_STATS;
 	mCounts.addSamples(other.mCounts, SEQUENTIAL);
 	mSamples.addSamples(other.mSamples, SEQUENTIAL);
 	mEvents.addSamples(other.mEvents, SEQUENTIAL);
@@ -111,7 +104,6 @@ void AccumulatorBufferGroup::append( const AccumulatorBufferGroup& other )
 
 void AccumulatorBufferGroup::merge( const AccumulatorBufferGroup& other)
 {
-	LL_PROFILE_ZONE_SCOPED_CATEGORY_STATS;
 	mCounts.addSamples(other.mCounts, NON_SEQUENTIAL);
 	mSamples.addSamples(other.mSamples, NON_SEQUENTIAL);
 	mEvents.addSamples(other.mEvents, NON_SEQUENTIAL);
@@ -121,7 +113,6 @@ void AccumulatorBufferGroup::merge( const AccumulatorBufferGroup& other)
 
 void AccumulatorBufferGroup::reset(AccumulatorBufferGroup* other)
 {
-	LL_PROFILE_ZONE_SCOPED_CATEGORY_STATS;
 	mCounts.reset(other ? &other->mCounts : NULL);
 	mSamples.reset(other ? &other->mSamples : NULL);
 	mEvents.reset(other ? &other->mEvents : NULL);
@@ -130,7 +121,6 @@ void AccumulatorBufferGroup::reset(AccumulatorBufferGroup* other)
 
 void AccumulatorBufferGroup::sync()
 {
-	LL_PROFILE_ZONE_SCOPED_CATEGORY_STATS;
 	if (isCurrent())
 	{
 		F64SecondsImplicit time_stamp = LLTimer::getTotalSeconds();

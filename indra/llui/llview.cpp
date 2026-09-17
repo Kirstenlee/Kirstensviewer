@@ -1644,7 +1644,6 @@ LLView* LLView::getChildView(std::string_view name, bool recurse) const
 
 LLView* LLView::findChildView(std::string_view name, bool recurse) const
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_UI;
 	
     // Look for direct children *first*
 	for (LLView* childp : mChildList)

@@ -34,30 +34,18 @@
 #include <algorithm>
 
 #ifdef DX_RENDER
-// S24 (task #54): LLVertexBufferData::mDXImage (llvertexbuffer.h) is an
-// LLPointer<LLImageGL> - mDisplayLists' CachedDisplayList entries hold these
-// via buffer_data_list_t, so ~LLUIImage() (defined out-of-line below) needs
-// LLImageGL's complete type to destroy them.
+// S24: LLVertexBufferData::mDXImage is an LLPointer<LLImageGL>; ~LLUIImage()
+// needs LLImageGL's complete type to destroy cached display-list entries.
 #include "llimagegl.h"
 #endif
 
 // Static member initialization
 std::vector<LLPointer<LLUIImage> > LLUIImage::sImageList;
 size_t LLUIImage::sCleanupIndex = 0;
-// S24 (2026-08-25, task #224): defaults OFF now - this cache (task #54) is a
-// pure performance optimization, not needed for correctness (LLRender's own
-// general-purpose hash-keyed vertex buffer cache, bufferfromCache() in
-// llrender.cpp, already avoids redundant GPU uploads for unchanging
-// geometry). Four independent, real correctness fixes were made chasing a
-// button hover-highlight flicker traced to this cache's cross-frame replay
-// (a missing gDXUIBatch flush in the replay path; an unsafe "skip if same
-// buffer+shader as last time" dedup in LLVertexBuffer::setBuffer(); the same
-// dedup bug class in LLHLSLShader::bind(); DXUIBatch batching bypass ruled
-// out as unrelated) - all real, all kept, none sufficient to stop the
-// flicker. Disabling this cache entirely was the only thing that reliably
-// fixed it, confirmed live multiple times. Not worth further root-causing
-// given the fallback path is already proven-correct, well-tested machinery
-// used throughout the rest of the engine.
+// S24: defaults OFF - this cache is a pure perf optimization (LLRender's own
+// hash-keyed vertex buffer cache already avoids redundant GPU uploads), and
+// it was the source of a hover-highlight flicker that several targeted fixes
+// didn't fully resolve. Disabled rather than further root-caused.
 bool LLUIImage::sEnableDisplayListsCollection = false;
 
 LLUIImage::LLUIImage(const std::string& name, LLPointer<LLTexture> image)
@@ -115,7 +103,6 @@ buffer_data_list_t* LLUIImage::findDisplayList(S32 x, S32 y, S32 width, S32 heig
 
 buffer_data_list_t* LLUIImage::genDisplayList(S32 x, S32 y, S32 width, S32 height, const LLColor4& color, bool solid_color) const
 {
-    LL_PROFILE_ZONE_SCOPED;
     LLVector3 ui_translation = gDX.getUITranslation();
     LLVector3 ui_scale = gDX.getUIScale();
     auto key = PackedKey::create(x, y, width, height, color, solid_color, ui_translation, ui_scale);

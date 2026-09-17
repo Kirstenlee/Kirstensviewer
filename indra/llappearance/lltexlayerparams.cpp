@@ -260,7 +260,6 @@ bool LLTexLayerParamAlpha::getSkip() const
 
 bool LLTexLayerParamAlpha::render(S32 x, S32 y, S32 width, S32 height)
 {
-	LL_PROFILE_ZONE_SCOPED;
 	bool success = true;
 
 	if (!mTexLayer)
@@ -349,7 +348,6 @@ bool LLTexLayerParamAlpha::render(S32 x, S32 y, S32 width, S32 height)
 				gDX.getTexUnit(0)->bind(mCachedProcessedTexture);
 				gl_rect_2d_simple_tex(width, height);
 				gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
-				stop_glerror();
 			}
 		}
 

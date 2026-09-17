@@ -145,7 +145,6 @@ void LLThread::threadRun()
 {
 	set_thread_name(-1, mName.c_str());
 
-	LL_PROFILER_SET_THREAD_NAME(mName.c_str());
 
 	// this is the first point at which we're actually running in the new thread
 	mID = currentID();
@@ -378,7 +377,6 @@ bool LLThread::runCondition(void)
 // Stop thread execution if requested until unpaused.
 void LLThread::checkPause()
 {
-	LL_PROFILE_ZONE_SCOPED_CATEGORY_THREAD;
 	mDataLock->lock();
 
 	// This is in a while loop because the pthread API allows for spurious wakeups.
@@ -410,20 +408,17 @@ void LLThread::setQuitting()
 // static
 LLThread::id_t LLThread::currentID()
 {
-	LL_PROFILE_ZONE_SCOPED_CATEGORY_THREAD;
 	return std::this_thread::get_id();
 }
 
 // static
 void LLThread::yield()
 {
-	LL_PROFILE_ZONE_SCOPED_CATEGORY_THREAD;
 	std::this_thread::yield();
 }
 
 void LLThread::wake()
 {
-	LL_PROFILE_ZONE_SCOPED_CATEGORY_THREAD;
 	mDataLock->lock();
 	if (!shouldSleep())
 	{
@@ -434,7 +429,6 @@ void LLThread::wake()
 
 void LLThread::wakeLocked()
 {
-	LL_PROFILE_ZONE_SCOPED_CATEGORY_THREAD;
 	if (!shouldSleep())
 	{
 		mRunCondition->signal();
@@ -443,13 +437,11 @@ void LLThread::wakeLocked()
 
 void LLThread::lockData()
 {
-	LL_PROFILE_ZONE_SCOPED_CATEGORY_THREAD;
 	mDataLock->lock();
 }
 
 void LLThread::unlockData()
 {
-	LL_PROFILE_ZONE_SCOPED_CATEGORY_THREAD;
 	mDataLock->unlock();
 }
 

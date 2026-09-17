@@ -184,7 +184,6 @@ bool LLGLTFMaterial::operator==(const LLGLTFMaterial& rhs) const
 
 bool LLGLTFMaterial::fromJSON(const std::string& json, std::string& warn_msg, std::string& error_msg)
 {
-    LL_PROFILE_ZONE_SCOPED;
     tinygltf::TinyGLTF gltf;
 
     tinygltf::Model model_in;
@@ -201,7 +200,6 @@ bool LLGLTFMaterial::fromJSON(const std::string& json, std::string& warn_msg, st
 
 std::string LLGLTFMaterial::asJSON(bool prettyprint) const
 {
-    LL_PROFILE_ZONE_SCOPED;
     tinygltf::TinyGLTF gltf;
 
     tinygltf::Model model_out;
@@ -219,7 +217,6 @@ std::string LLGLTFMaterial::asJSON(bool prettyprint) const
 
 void LLGLTFMaterial::setFromModel(const tinygltf::Model& model, S32 mat_index)
 {
-    LL_PROFILE_ZONE_SCOPED;
     if (model.materials.size() <= mat_index)
     {
         return;
@@ -308,7 +305,6 @@ F32 LLGLTFMaterial::floatFromJson(const tinygltf::Value::Object& object, const c
 
 void LLGLTFMaterial::writeToModel(tinygltf::Model& model, S32 mat_index) const
 {
-    LL_PROFILE_ZONE_SCOPED;
     if (model.materials.size() < mat_index+1)
     {
         model.materials.resize(mat_index + 1);
@@ -611,7 +607,6 @@ void LLGLTFMaterial::applyOverrideUUID(LLUUID& dst_id, const LLUUID& override_id
 
 void LLGLTFMaterial::applyOverride(const LLGLTFMaterial& override_mat)
 {
-    LL_PROFILE_ZONE_SCOPED;
 
     for (U32 i = 0; i < GLTF_TEXTURE_INFO_COUNT; ++i)
     {
@@ -683,7 +678,6 @@ void LLGLTFMaterial::applyOverride(const LLGLTFMaterial& override_mat)
 
 void LLGLTFMaterial::getOverrideLLSD(const LLGLTFMaterial& override_mat, LLSD& data) const
 {
-    LL_PROFILE_ZONE_SCOPED;
     llassert(data.isUndefined());
 
     // make every effort to shave bytes here
@@ -862,7 +856,6 @@ void LLGLTFMaterial::applyOverrideLLSD(const LLSD& data)
 
 LLUUID LLGLTFMaterial::getHash() const
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_TEXTURE;
     // *HACK: hash the bytes of this object but do not include the ref count
     // neither the local texture overrides (which is a map, with pointers to
     // key/value pairs that would change from one LLGLTFMaterial instance to

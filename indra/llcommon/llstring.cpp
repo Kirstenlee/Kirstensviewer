@@ -1585,7 +1585,6 @@ bool LLStringUtil::formatDatetime(std::string& replacement, std::string token,
 template<> 
 S32 LLStringUtil::format(std::string& s, const format_map_t& substitutions)
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_STRING;
 	S32 res = 0;
 
 	std::string output;
@@ -1658,7 +1657,6 @@ S32 LLStringUtil::format(std::string& s, const format_map_t& substitutions)
 template<> 
 S32 LLStringUtil::format(std::string& s, const LLSD& substitutions)
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_STRING;
 	S32 res = 0;
 
 	if (!substitutions.isMap()) 

@@ -731,7 +731,6 @@ S32 LLProfile::getNumPoints(const LLProfileParams& params, bool path_open, F32 d
 bool LLProfile::generate(const LLProfileParams& params, bool path_open, F32 detail, S32 split,
 	bool is_sculpted, S32 sculpt_size)
 {
-	LL_PROFILE_ZONE_SCOPED_CATEGORY_VOLUME;
 
 	if ((!mDirty) && (!is_sculpted))
 	{
@@ -1207,7 +1206,6 @@ S32 LLPath::getNumNGonPoints(const LLPathParams& params, S32 sides, F32 startOff
 
 void LLPath::genNGon(const LLPathParams& params, S32 sides, F32 startOff, F32 end_scale, F32 twist_scale)
 {
-	LL_PROFILE_ZONE_SCOPED_CATEGORY_VOLUME;
 
 	// Generates a circular path, starting at (1, 0, 0), counterclockwise along the xz plane.
 	constexpr F32 tableScale[] = { 1, 1, 1, 0.5f, 0.707107f, 0.53f, 0.525f, 0.5f };
@@ -1444,7 +1442,6 @@ S32 LLPath::getNumPoints(const LLPathParams& params, F32 detail)
 bool LLPath::generate(const LLPathParams& params, F32 detail, S32 split,
 	bool is_sculpted, S32 sculpt_size)
 {
-	LL_PROFILE_ZONE_SCOPED_CATEGORY_VOLUME;
 
 	if ((!mDirty) && (!is_sculpted))
 	{
@@ -2016,7 +2013,6 @@ LLVolume::~LLVolume()
 
 bool LLVolume::generate()
 {
-	LL_PROFILE_ZONE_SCOPED_CATEGORY_VOLUME;
 
 	LL_CHECK_MEMORY
 		llassert_always(mProfilep);
@@ -2275,7 +2271,6 @@ bool LLVolumeFace::VertexData::compareNormal(const LLVolumeFace::VertexData& rhs
 
 bool LLVolume::unpackVolumeFaces(std::istream& is, S32 size)
 {
-	LL_PROFILE_ZONE_SCOPED_CATEGORY_VOLUME;
 
 	//input stream is now pointing at a zlib compressed block of LLSD
 	//decompress block
@@ -2776,7 +2771,6 @@ S32 LLVolume::getNumFaces() const
 
 void LLVolume::createVolumeFaces()
 {
-	LL_PROFILE_ZONE_SCOPED_CATEGORY_VOLUME;
 
 	if (mGenerateSingleFace)
 	{
@@ -3688,7 +3682,6 @@ bool LLVolumeParams::validate(U8 prof_curve, F32 prof_begin, F32 prof_end, F32 h
 void LLVolume::getLoDTriangleCounts(const LLVolumeParams& params, S32* counts)
 { //attempt to approximate the number of triangles that will result from generating a volume LoD set for the
 	//supplied LLVolumeParams -- inaccurate, but a close enough approximation for determining streaming cost
-	LL_PROFILE_ZONE_SCOPED_CATEGORY_VOLUME;
 	F32 detail[] = { 1.f, 1.5f, 2.5f, 4.f };
 	for (S32 i = 0; i < 4; i++)
 	{
@@ -3742,7 +3735,6 @@ void LLVolumeFace::generateSilhouetteEdge(const LLVolume* volume, std::vector<S3
 				volume->getParams().getPathParams().getCurveType() == LL_PCODE_PATH_LINE)
 			)
 		{
-			LL_PROFILE_ZONE_NAMED_CATEGORY_VOLUME("llvfgse - CAP_MASK");
 
 			const LLAlignedArray<LLVector4a, 64>& profile = volume->getProfile().mProfile;
 			S32 grid_size = (profile.size() - 1) / 4;
@@ -3848,7 +3840,6 @@ void LLVolumeFace::generateSilhouetteEdge(const LLVolume* volume, std::vector<S3
 	}
 	else if ((mTypeMask & END_MASK) || (mTypeMask & SIDE_MASK))
 	{
-		LL_PROFILE_ZONE_NAMED_CATEGORY_VOLUME("llvfgse - END_MASK or SIDE_MASK");
 
 		edge.resize(mNumIndices);
 		llassert(edge.size() == 6 * (mNumS - 1) * (mNumT - 1));
@@ -3935,7 +3926,6 @@ void LLVolume::generateSilhouetteVertices(std::vector<LLVector3>& vertices,
 	const LLMatrix3& norm_mat_in,
 	S32 face_mask)
 {
-	LL_PROFILE_ZONE_SCOPED_CATEGORY_VOLUME;
 
 	LLMatrix4a mat;
 	mat.loadu(mat_in);
@@ -5073,7 +5063,6 @@ void LLVolumeFace::freeData()
 
 bool LLVolumeFace::create(LLVolume* volume, bool partial_build)
 {
-	LL_PROFILE_ZONE_SCOPED_CATEGORY_VOLUME;
 
 	//tree for this face is no longer valid
 	destroyOctree();
@@ -5649,7 +5638,6 @@ struct MikktData
 
 bool LLVolumeFace::cacheOptimize(bool gen_tangents)
 { //optimize for vertex cache according to Forsyth method:
-	LL_PROFILE_ZONE_SCOPED_CATEGORY_VOLUME;
 	llassert(!mOptimized);
 	mOptimized = true;
 
@@ -5848,7 +5836,6 @@ bool LLVolumeFace::cacheOptimize(bool gen_tangents)
 
 void LLVolumeFace::createOctree(F32 scaler, const LLVector4a& center, const LLVector4a& size)
 {
-	LL_PROFILE_ZONE_SCOPED_CATEGORY_VOLUME;
 
 	if (getOctree())
 	{
@@ -6072,7 +6059,6 @@ bool LLVolumeFace::createUnCutCubeCap(LLVolume* volume, bool partial_build)
 
 	if (!partial_build)
 	{
-		LL_PROFILE_ZONE_NAMED_CATEGORY_VOLUME("llvfcuccm - generate indices");
 
 		resizeIndices(grid_size * grid_size * 6);
 
@@ -6540,7 +6526,6 @@ bool LLVolumeFace::createCap(LLVolume* volume, bool partial_build)
 
 void LLVolumeFace::createTangents()
 {
-	LL_PROFILE_ZONE_SCOPED_CATEGORY_VOLUME;
 
 	if (!mTangents)
 	{
@@ -6568,7 +6553,6 @@ void LLVolumeFace::createTangents()
 
 void LLVolumeFace::resizeVertices(S32 num_verts)
 {
-	LL_PROFILE_ZONE_SCOPED_CATEGORY_VOLUME;
 
 	ll_aligned_free<64>(mPositions);
 	//DO NOT free mNormals and mTexCoords as they are part of mPositions buffer
@@ -6689,7 +6673,6 @@ void LLVolumeFace::allocateJointIndices(S32 num_verts)
 
 void LLVolumeFace::resizeIndices(S32 num_indices)
 {
-	LL_PROFILE_ZONE_SCOPED_CATEGORY_VOLUME;
 
 	ll_aligned_free_16(mIndices);
 	llassert(num_indices % 3 == 0);
@@ -6752,7 +6735,6 @@ void LLVolumeFace::fillFromLegacyData(std::vector<LLVolumeFace::VertexData>& v, 
 
 bool LLVolumeFace::createSide(LLVolume* volume, bool partial_build)
 {
-	LL_PROFILE_ZONE_SCOPED_CATEGORY_VOLUME;
 
 	LL_CHECK_MEMORY
 		bool flat = mTypeMask & FLAT_MASK;
@@ -6797,7 +6779,7 @@ bool LLVolumeFace::createSide(LLVolume* volume, bool partial_build)
 	bool test = (mTypeMask & INNER_MASK) && (mTypeMask & FLAT_MASK) && mNumS > 2;
 
 	// Copy the vertices into the array
-    { LL_PROFILE_ZONE_NAMED_CATEGORY_VOLUME("llvfcs - copy verts");
+    {
 		for (t = mBeginT; t < end_t; t++)
 		{
 			tt = path_data[t].mTexT;
@@ -6939,7 +6921,6 @@ bool LLVolumeFace::createSide(LLVolume* volume, bool partial_build)
 
 	if (!partial_build)
 	{
-		LL_PROFILE_ZONE_NAMED_CATEGORY_VOLUME("llvfcs - generate indices");
 
 		// Now we generate the indices.
 		for (t = 0; t < (mNumT - 1); t++)
@@ -7211,7 +7192,6 @@ bool LLVolumeFace::createSide(LLVolume* volume, bool partial_build)
 void LLCalculateTangentArray(U32 vertexCount, const LLVector4a* vertex, const LLVector4a* normal,
 	const LLVector2* texcoord, U32 triangleCount, const U16* index_array, LLVector4a* tangent)
 {
-	LL_PROFILE_ZONE_SCOPED_CATEGORY_VOLUME;
 
 	//LLVector4a *tan1 = new LLVector4a[vertexCount * 2];
 	LLVector4a* tan1 = (LLVector4a*)ll_aligned_malloc_16(vertexCount * 2 * sizeof(LLVector4a));

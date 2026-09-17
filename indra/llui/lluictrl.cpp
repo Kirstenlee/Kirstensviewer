@@ -475,7 +475,6 @@ LLViewModel* LLUICtrl::getViewModel() const
 //virtual
 bool LLUICtrl::postBuild()
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_UI;
     //
     // Find all of the children that want to be in front and move them to the front
     //
@@ -787,7 +786,6 @@ bool LLUICtrl::getIsChrome() const
 
 bool LLUICtrl::focusFirstItem(bool prefer_text_fields, bool focus_flash)
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_UI;
     // try to select default tab group child
     LLViewQuery query = getTabOrderQuery();
     child_list_t result = query(this);

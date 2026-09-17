@@ -69,7 +69,7 @@ public:
     LLAvatarBoneInfo() : mIsJoint(false) {}
     ~LLAvatarBoneInfo()
     {
-        // S24 Modern range-based loop replaces std::for_each(DeletePointer()) - 2026-04-27
+        // S24 Modern range-based loop replaces std::for_each(DeletePointer())
         for (LLAvatarBoneInfo* child : mChildren)
         {
             delete child;
@@ -106,7 +106,7 @@ public:
         mNumBones(0), mNumCollisionVolumes(0) {}
     ~LLAvatarSkeletonInfo()
     {
-        // S24 Modern range-based loop replaces std::for_each(DeletePointer()) - 2026-04-27
+        // S24 Modern range-based loop replaces std::for_each(DeletePointer())
         for (LLAvatarBoneInfo* bone : mBoneInfoList)
         {
             delete bone;
@@ -142,7 +142,7 @@ LLAvatarAppearance::LLAvatarXmlInfo::LLAvatarXmlInfo()
 
 LLAvatarAppearance::LLAvatarXmlInfo::~LLAvatarXmlInfo()
 {
-    // S24 Modern range-based loops replace std::for_each(DeletePointer()) - 2026-04-27
+    // S24 Modern range-based loops replace std::for_each(DeletePointer())
     for (LLAvatarMeshInfo* mesh : mMeshInfoList)
     {
         delete mesh;
@@ -194,7 +194,7 @@ LLAvatarAppearance::LLAvatarXmlInfo::~LLAvatarXmlInfo()
 //-----------------------------------------------------------------------------
 // Static Data
 //-----------------------------------------------------------------------------
-// S24 Modern nullptr replaces NULL - 2026-04-27
+// S24 Modern nullptr replaces NULL
 LLAvatarSkeletonInfo* LLAvatarAppearance::sAvatarSkeletonInfo = nullptr;
 LLAvatarAppearance::LLAvatarXmlInfo* LLAvatarAppearance::sAvatarXmlInfo = nullptr;
 LLAvatarAppearanceDefines::LLAvatarAppearanceDictionary* LLAvatarAppearance::sAvatarDictionary = nullptr;
@@ -206,12 +206,12 @@ LLAvatarAppearance::LLAvatarAppearance(LLWearableData* wearable_data) :
 {
     llassert_always(mWearableData);
     mBakedTextureDatas.resize(LLAvatarAppearanceDefines::BAKED_NUM_INDICES);
-    // S24 Modern range-based loop with structured binding - 2026-04-27
+    // S24 Modern range-based loop with structured binding
     U32 i = 0;
     for (auto& baked_data : mBakedTextureDatas)
     {
         baked_data.mLastTextureID = IMG_DEFAULT_AVATAR;
-        baked_data.mTexLayerSet = nullptr;  // S24 nullptr replaces NULL - 2026-04-27
+        baked_data.mTexLayerSet = nullptr;  // S24 nullptr replaces NULL
         baked_data.mIsLoaded = false;
         baked_data.mIsUsed = false;
         baked_data.mMaskTexName = 0;
@@ -300,13 +300,13 @@ LLAvatarAppearance::~LLAvatarAppearance()
     delete_and_clear(mTexHairColor);
     delete_and_clear(mTexEyeColor);
 
-    // S24 Modern range-based loop replaces indexed loop - 2026-04-27
+    // S24 Modern range-based loop replaces indexed loop
     for (auto& baked_data : mBakedTextureDatas)
     {
         delete_and_clear(baked_data.mTexLayerSet);
         baked_data.mJointMeshes.clear();
 
-        // S24 Modern range-based loop already used here, keep it clean - 2026-04-27
+        // S24 Modern range-based loop already used here, keep it clean
         for (LLMaskedMorph* masked_morph : baked_data.mMaskedMorphs)
         {
             delete masked_morph;
@@ -324,14 +324,14 @@ LLAvatarAppearance::~LLAvatarAppearance()
     clearSkeleton();
     delete_and_clear_array(mCollisionVolumes);
 
-    // S24 Modern range-based loop replaces std::for_each(DeletePairedPointer()) - 2026-04-27
+    // S24 Modern range-based loop replaces std::for_each(DeletePairedPointer())
     for (auto& poly_pair : mPolyMeshes)
     {
         delete poly_pair.second;
     }
     mPolyMeshes.clear();
 
-    // S24 Modernize nested cleanup - 2026-04-27
+    // S24 Modernize nested cleanup
     for (LLAvatarJoint* joint : mMeshLOD)
     {
         for (LLAvatarJointMesh* mesh : joint->mMeshParts)
@@ -643,7 +643,7 @@ bool LLAvatarAppearance::parseSkeletonFile(const std::string& filename, LLXmlTre
 //-----------------------------------------------------------------------------
 bool LLAvatarAppearance::setupBone(const LLAvatarBoneInfo* info, LLJoint* parent, S32 &volume_num, S32 &joint_num)
 {
-    LLJoint* joint = nullptr;  // S24 nullptr replaces NULL - 2026-04-27
+    LLJoint* joint = nullptr;  // S24 nullptr replaces NULL
 
     LL_DEBUGS("BVH") << "bone info: name " << info->mName
                      << " isJoint " << info->mIsJoint
@@ -772,7 +772,7 @@ bool LLAvatarAppearance::buildSkeleton(const LLAvatarSkeletonInfo *info)
 //-----------------------------------------------------------------------------
 void LLAvatarAppearance::clearSkeleton()
 {
-    // S24 Modern range-based loop replaces std::for_each(DeletePointer()) - 2026-04-27
+    // S24 Modern range-based loop replaces std::for_each(DeletePointer())
     for (LLJoint* joint : mSkeleton)
     {
         delete joint;
@@ -852,7 +852,6 @@ void LLAvatarAppearance::buildCharacter()
     LLTimer timer;
 
     bool status = loadAvatar();
-    stop_glerror();
 
 //  gPrintMessagesThisFrame = true;
     LL_DEBUGS() << "Avatar load took " << timer.getElapsedTimeF32() << " seconds." << LL_ENDL;
@@ -925,14 +924,11 @@ void LLAvatarAppearance::buildCharacter()
     mPelvisp->setPosition( LLVector3(0.0f, 0.0f, 0.0f) );
 
     mIsBuilt = true;
-    stop_glerror();
 
 }
 
 bool LLAvatarAppearance::loadAvatar()
 {
-//  LL_RECORD_BLOCK_TIME(FTM_LOAD_AVATAR);
-
     // avatar_skeleton.xml
     if( !buildSkeleton(sAvatarSkeletonInfo) )
     {
@@ -1136,7 +1132,7 @@ bool LLAvatarAppearance::loadMeshNodes()
         const std::string &type = info->mType;
         S32 lod = info->mLOD;
 
-        LLAvatarJointMesh* mesh = nullptr;  // S24 nullptr replaces NULL - 2026-04-27
+        LLAvatarJointMesh* mesh = nullptr;  // S24 nullptr replaces NULL
         U8 mesh_id = 0;
         bool found_mesh_id = false;
 
@@ -1178,7 +1174,7 @@ bool LLAvatarAppearance::loadMeshNodes()
         // Do not touch!!!
         mesh->setColor( LLColor4::white );
 
-        LLPolyMesh *poly_mesh = nullptr;  // S24 nullptr replaces NULL - 2026-04-27
+        LLPolyMesh *poly_mesh = nullptr;  // S24 nullptr replaces NULL
 
         if (!info->mReferenceMeshName.empty())
         {
@@ -1255,7 +1251,6 @@ bool LLAvatarAppearance::loadLayersets()
 
             if (!layer_set->setInfo(layerset_info))
             {
-                stop_glerror();
                 delete layer_set;
                 LL_WARNS() << "avatar file: layer_set->setInfo() failed" << LL_ENDL;
                 return false;
@@ -1774,7 +1769,7 @@ void LLAvatarAppearance::makeJointAliases(LLAvatarBoneInfo* bone_info)
     std::string alias;
     while (ss >> alias)
     {
-        // S24 Use insert to avoid double lookup - 2026-04-27
+        // S24 Use insert to avoid double lookup
         auto [iter, inserted] = mJointAliasMap.insert({alias, bone_name});
         if (!inserted)
         {

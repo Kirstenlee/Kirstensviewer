@@ -275,7 +275,6 @@ template <typename ElementT, typename QueueT>
 template <typename CALLABLE>
 bool LLThreadSafeQueue<ElementT, QueueT>::tryLock(CALLABLE&& callable)
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_THREAD;
     lock_t lock1(mLock, std::defer_lock);
     if (!lock1.try_lock())
         return false;
@@ -292,7 +291,6 @@ bool LLThreadSafeQueue<ElementT, QueueT>::tryLockUntil(
     const std::chrono::time_point<Clock, Duration>& until,
     CALLABLE&& callable)
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_THREAD;
     lock_t lock1(mLock, std::defer_lock);
     if (!lock1.try_lock_until(until))
         return false;
@@ -306,7 +304,6 @@ template <typename ElementT, typename QueueT>
 template <typename T>
 bool LLThreadSafeQueue<ElementT, QueueT>::push_(lock_t& lock, T&& element)
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_THREAD;
     if (mStorage.size() >= mCapacity)
         return false;
 
@@ -322,7 +319,6 @@ template <typename ElementT, typename QueueT>
 template <typename T>
 bool LLThreadSafeQueue<ElementT, QueueT>::pushIfOpen(T&& element)
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_THREAD;
     lock_t lock1(mLock);
     while (true)
     {
@@ -345,7 +341,6 @@ template <typename ElementT, typename QueueT>
 template<typename T>
 void LLThreadSafeQueue<ElementT, QueueT>::push(T&& element)
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_THREAD;
     if (! pushIfOpen(std::forward<T>(element)))
     {
         LLTHROW(LLThreadSafeQueueInterrupt());
@@ -357,7 +352,6 @@ template<typename ElementT, typename QueueT>
 template<typename T>
 bool LLThreadSafeQueue<ElementT, QueueT>::tryPush(T&& element)
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_THREAD;
     return tryLock(
         [this, element=std::move(element)](lock_t& lock)
         {
@@ -374,7 +368,6 @@ bool LLThreadSafeQueue<ElementT, QueueT>::tryPushFor(
     const std::chrono::duration<Rep, Period>& timeout,
     T&& element)
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_THREAD;
     // Convert duration to time_point: passing the same timeout duration to
     // each of multiple calls is wrong.
     return tryPushUntil(std::chrono::steady_clock::now() + timeout,
@@ -388,7 +381,6 @@ bool LLThreadSafeQueue<ElementT, QueueT>::tryPushUntil(
     const std::chrono::time_point<Clock, Duration>& until,
     T&& element)
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_THREAD;
     return tryLockUntil(
         until,
         [this, until, element=std::move(element)](lock_t& lock)
@@ -421,7 +413,6 @@ template <typename ElementT, typename QueueT>
 typename LLThreadSafeQueue<ElementT, QueueT>::pop_result
 LLThreadSafeQueue<ElementT, QueueT>::pop_(lock_t& lock, ElementT& element)
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_THREAD;
     // If mStorage is empty, there's no head element.
     if (mStorage.empty())
         return mClosed? DONE : EMPTY;
@@ -443,7 +434,6 @@ LLThreadSafeQueue<ElementT, QueueT>::pop_(lock_t& lock, ElementT& element)
 template<typename ElementT, typename QueueT>
 ElementT LLThreadSafeQueue<ElementT, QueueT>::pop(void)
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_THREAD;
     lock_t lock1(mLock);
     ElementT value;
     while (true)
@@ -474,7 +464,6 @@ ElementT LLThreadSafeQueue<ElementT, QueueT>::pop(void)
 template<typename ElementT, typename QueueT>
 bool LLThreadSafeQueue<ElementT, QueueT>::tryPop(ElementT & element)
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_THREAD;
     return tryLock(
         [this, &element](lock_t& lock)
         {
@@ -492,7 +481,6 @@ bool LLThreadSafeQueue<ElementT, QueueT>::tryPopFor(
     const std::chrono::duration<Rep, Period>& timeout,
     ElementT& element)
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_THREAD;
     // Convert duration to time_point: passing the same timeout duration to
     // each of multiple calls is wrong.
     return tryPopUntil(std::chrono::steady_clock::now() + timeout, element);
@@ -505,7 +493,6 @@ bool LLThreadSafeQueue<ElementT, QueueT>::tryPopUntil(
     const std::chrono::time_point<Clock, Duration>& until,
     ElementT& element)
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_THREAD;
     return tryLockUntil(
         until,
         [this, until, &element](lock_t& lock)
@@ -525,7 +512,6 @@ LLThreadSafeQueue<ElementT, QueueT>::tryPopUntil_(
     const std::chrono::time_point<Clock, Duration>& until,
     ElementT& element)
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_THREAD;
     while (true)
     {
         pop_result popped = pop_(lock, element);
@@ -552,7 +538,6 @@ LLThreadSafeQueue<ElementT, QueueT>::tryPopUntil_(
 template<typename ElementT, typename QueueT>
 size_t LLThreadSafeQueue<ElementT, QueueT>::size(void)
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_THREAD;
     lock_t lock(mLock);
     return mStorage.size();
 }
@@ -561,7 +546,6 @@ size_t LLThreadSafeQueue<ElementT, QueueT>::size(void)
 template<typename ElementT, typename QueueT>
 void LLThreadSafeQueue<ElementT, QueueT>::close()
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_THREAD;
     lock_t lock(mLock);
     mClosed = true;
     lock.unlock();
@@ -575,7 +559,6 @@ void LLThreadSafeQueue<ElementT, QueueT>::close()
 template<typename ElementT, typename QueueT>
 bool LLThreadSafeQueue<ElementT, QueueT>::isClosed()
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_THREAD;
     lock_t lock(mLock);
     return mClosed;
 }
@@ -584,7 +567,6 @@ bool LLThreadSafeQueue<ElementT, QueueT>::isClosed()
 template<typename ElementT, typename QueueT>
 bool LLThreadSafeQueue<ElementT, QueueT>::done()
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_THREAD;
     lock_t lock(mLock);
     return mClosed && mStorage.empty();
 }

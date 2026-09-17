@@ -79,7 +79,6 @@ std::string LLDate::asRFC1123() const
 
 std::string LLDate::toLocalDateString (std::string fmt) const
 {
-    LL_PROFILE_ZONE_SCOPED;
 
     time_t locSeconds = (time_t) mSecondsSinceEpoch;
     struct tm * lt = localtime (&locSeconds);
@@ -88,8 +87,7 @@ std::string LLDate::toLocalDateString (std::string fmt) const
 
 std::string LLDate::toHTTPDateString (std::string fmt) const
 {
-    LL_PROFILE_ZONE_SCOPED;
-	
+
 	time_t locSeconds = (time_t) mSecondsSinceEpoch;
 	struct tm * gmt = gmtime (&locSeconds);
 	return toHTTPDateString(gmt, fmt);
@@ -97,7 +95,6 @@ std::string LLDate::toHTTPDateString (std::string fmt) const
 
 std::string LLDate::toHTTPDateString (tm * gmt, std::string fmt)
 {
-    LL_PROFILE_ZONE_SCOPED;
 
 	// avoid calling setlocale() unnecessarily - it's expensive.
 	static std::string prev_locale = "";

@@ -75,30 +75,32 @@ std::ostream& operator<<(std::ostream& s, const LLColor3 &a)
 
 static F32 hueToRgb(F32 val1In, F32 val2In, F32 valHueIn)
 {
-	// Wrap hue within [0,1] range
+	// S24: was an 8-wide AVX implementation of what is fundamentally scalar math (one float in,
+	// one float out) - live-tested (lluihueshift.cpp) and hand-verified against the standard HSL
+	// formula to produce genuinely out-of-range results (e.g. hue=1/6 exactly landing on a channel
+	// that should evaluate to ~1.0 instead came out as 2.4) - a real bug in the intrinsics, not
+	// speculative. Replaced with the textbook scalar algorithm; this runs at most a few hundred
+	// times per user-driven color change, never a per-frame hot path, so there's no performance
+	// case for SIMD here even if it had been correct.
 	valHueIn = fmodf(valHueIn + 1.0f, 1.0f);
+	if (valHueIn < 0.0f)
+	{
+		valHueIn += 1.0f;
+	}
 
-	// Load values into AVX registers
-	__m256 val1 = _mm256_set1_ps(val1In);
-	__m256 val2 = _mm256_set1_ps(val2In);
-	__m256 hue = _mm256_set1_ps(valHueIn);
-
-	// Compute blend values
-	__m256 blend1 = _mm256_mul_ps(_mm256_sub_ps(val2, val1), _mm256_mul_ps(hue, _mm256_set1_ps(6.0f)));
-	__m256 blend2 = _mm256_mul_ps(_mm256_sub_ps(val2, val1), _mm256_mul_ps(_mm256_sub_ps(_mm256_set1_ps(2.0f / 3.0f), hue), _mm256_set1_ps(6.0f)));
-
-	// Compute conditions
-	__m256 cond1 = _mm256_cmp_ps(hue, _mm256_set1_ps(1.0f / 6.0f), _CMP_LT_OS);
-	__m256 cond2 = _mm256_cmp_ps(hue, _mm256_set1_ps(1.0f / 2.0f), _CMP_LT_OS);
-	__m256 cond3 = _mm256_cmp_ps(hue, _mm256_set1_ps(2.0f / 3.0f), _CMP_LT_OS);
-
-	// Select values using AVX blending
-	__m256 result = _mm256_blendv_ps(val1, _mm256_add_ps(val1, blend1), cond1);
-	result = _mm256_blendv_ps(result, val2, cond2);
-	result = _mm256_blendv_ps(result, _mm256_add_ps(val1, blend2), cond3);
-
-	// Extract single float value
-	return _mm256_cvtss_f32(result);
+	if (valHueIn < 1.0f / 6.0f)
+	{
+		return val1In + (val2In - val1In) * 6.0f * valHueIn;
+	}
+	if (valHueIn < 1.0f / 2.0f)
+	{
+		return val2In;
+	}
+	if (valHueIn < 2.0f / 3.0f)
+	{
+		return val1In + (val2In - val1In) * (2.0f / 3.0f - valHueIn) * 6.0f;
+	}
+	return val1In;
 }
 
 void LLColor3::setHSL(F32 hValIn, F32 sValIn, F32 lValIn)

@@ -41,6 +41,7 @@
 #include "llstrider.h"
 #include "llpointer.h"
 #include "llglheaders.h"
+#include "llgltypes.h"
 #include "llmatrix4a.h"
 #include "glm/mat4x4.hpp"
 #include <boost/align/aligned_allocator.hpp>
@@ -195,13 +196,13 @@ public:
     bool bind(DXCubeMap* cubeMap);
 
     // Binds a cubemap ARRAY to this texture unit (LLReflectionMapManager's
-    // per-probe mTexture/mIrradianceMaps - task #147). Direct sibling of
+    // per-probe mTexture/mIrradianceMaps). Direct sibling of
     // bind(DXCubeMap*) just above.
     bool bind(DXCubeMapArray* cubeMapArray);
 
     // Binds a render target to this texture unit
     // (automatically enables the texture unit for the RT's texture type)
-    // useComparisonSampler (DX_RENDER only, task #124): binds a real D3D11
+    // useComparisonSampler (DX_RENDER only): binds a real D3D11
     // comparison sampler instead of the default regular one - required for
     // any register a shader declares as HLSL's SamplerComparisonState (e.g.
     // shadowUtil.hlsl's shadowMap0-5Sampler, sampled via .SampleCmp() for
@@ -215,15 +216,10 @@ public:
     bool bindManual(eTextureType type, U32 texture, bool hasMips = false);
 
 #ifdef DX_RENDER
-    // S24 (2026-08-03, task #84): DX-native equivalent of bindManual() for
-    // callers that build/own a DXTexture directly (procedural textures with
-    // no LLImageGL wrapper - noise/SMAA/light-function maps, the edit-tool
-    // grid texture, etc.) - bindManual()'s raw-GLuint-name overload above
-    // can't be translated generically (there's no unique per-instance name
-    // to look anything up by under DX_RENDER, and no "currently bound"
-    // ambient-state concept to hang a lookup off either), so callers that
-    // already hold a real DXTexture reference use this instead, mirroring
-    // bindFast()'s already-working SRV+sampler bind logic exactly.
+    // S24: DX-native equivalent of bindManual() for callers that build/own a
+    // DXTexture directly (procedural textures with no LLImageGL wrapper) -
+    // bindManual()'s raw-GLuint overload can't be translated generically
+    // under DX_RENDER, so this mirrors bindFast()'s SRV+sampler bind logic.
     bool bind(DXTexture& tex, eTextureAddressMode address_mode, eTextureFilterOptions filter_option);
 #endif
 
@@ -257,17 +253,11 @@ public:
     void setHasMipMaps(bool hasMips) { mHasMipMaps = hasMips; }
 
 #ifdef DX_RENDER
-    // S24 (2026-09-10, task #273/#280): lets a caller that just performed its
-    // OWN raw PSSetShaderResources/PSSetSamplers call - bypassing bind()/
-    // bindFast() entirely - tell this unit's cache what's really bound now,
-    // so a LATER bind()/bindFast() call for the same channel can't be fooled
-    // into wrongly skipping a real rebind. Pure bookkeeping: does not touch
-    // the GPU itself. See LLRenderTarget::bindTexture()'s own comment (its
-    // one real caller today, via LLPipeline::bindDeferredShader()'s G-buffer
-    // channel binds) for the concrete, previously-documented gap this closes
-    // - task #280's reverted light-strobing regression is the predicted
-    // failure mode from that comment finally manifesting once the
-    // generation-gated skip logic in bind()/bindFast() was briefly live.
+    // S24: lets a caller that just issued its own raw
+    // PSSetShaderResources/PSSetSamplers call (bypassing bind()/bindFast())
+    // tell this unit's cache what's really bound now, so a later
+    // bind()/bindFast() for the same channel isn't fooled into skipping a
+    // real rebind. Pure bookkeeping - see LLRenderTarget::bindTexture().
     void syncDXBindState(void* srv, void* sampler);
 #endif
 
@@ -289,50 +279,26 @@ protected:
     // d3d11.h; cast at the two or three call sites in llrender.cpp.
     void* mCurrDXSRV = nullptr;
 
-    // S24 (2026-08-29, task #278/#273): last real PSSetShaderResources() the
-    // RTV generation counter (DXStateCache::getRTVGeneration()) was at when
-    // this unit's mCurrDXSRV was actually set on the GPU. D3D11 auto-unbinds
-    // an SRV slot when the SAME resource is later bound as a render target
-    // (input/output hazard prevention) - this codebase's post-fx ping-pong
-    // (mPostPingMap/mPostPongMap) does exactly that every frame. Comparing
-    // mCurrDXSRV alone would wrongly skip the rebind after such a hazard:
-    // the pointer still matches, but the driver silently emptied the slot.
-    // DXStateCache::bumpRTVGeneration() is called from every real
-    // OMSetRenderTargets() call site - if this unit's stamp doesn't match
-    // the CURRENT generation, always rebind regardless of what mCurrDXSRV
-    // says, even though that's occasionally a redundant-but-safe rebind for
-    // a texture that wasn't actually hazarded by that particular RTV
-    // switch. Deliberately coarse (invalidates ALL units on ANY RTV bind
-    // anywhere, not just ones referencing the specific resource involved) -
-    // correctness over precision; still skips the common case of many
-    // consecutive draws sharing the same textures between RTV switches.
+    // S24: RTV generation counter (DXStateCache::getRTVGeneration()) as of
+    // the last real PSSetShaderResources() for mCurrDXSRV. D3D11 auto-unbinds
+    // an SRV slot when the same resource is later bound as a render target
+    // (the post-fx ping-pong does this every frame), so comparing
+    // mCurrDXSRV alone would wrongly skip a rebind after such a hazard - if
+    // this stamp doesn't match the current generation, always rebind.
+    // Deliberately coarse: invalidates all units on any RTV bind anywhere.
     uint64_t mDXSRVGeneration = 0;
 
-    // S24 (2026-08-29, task #278/#273): mirrors mCurrDXSRV's role but for
-    // PSSetSamplers() - samplers are plain filter/address-mode state
-    // objects (DXSampler::getOrCreate(), deduplicated by value), never
-    // affected by the RTV-unbind hazard mCurrDXSRV/mDXSRVGeneration exists
-    // for, so a plain last-value pointer compare is sufficient here with no
-    // generation check needed.
+    // S24: mirrors mCurrDXSRV's role but for PSSetSamplers() - samplers are
+    // deduplicated-by-value state objects, not affected by the RTV-unbind
+    // hazard, so a plain last-value pointer compare is enough here.
     void* mCurrDXSampler = nullptr;
 
-    // S24 (task #54): tracks the LLImageGL actually bound by bind(LLImageGL*)
-    // or resolved by bindFast(LLTexture*)/bind(LLTexture*) via
-    // texture->getGLTexture(), so LLRender::flush() can capture it into a
-    // cached LLVertexBufferData (see llvertexbuffer.h) when recording a
-    // display list. Cache replay then re-issues a real bind(LLImageGL*) call
-    // instead of the raw-GLuint bindManual() replay GL uses, which has no
-    // DX11 resource to translate.
-    // S24 (2026-08-17): DOES get reset to nullptr by unbind()/unbindFast()
-    // now - was deliberately left stale originally ("harmless, nothing reads
-    // it except flush() capture, which only matters while a real texture is
-    // bound"), true at the time since nothing that called unbind() also fed
-    // flush()'s capture path. That stopped being true once submitUnderline()
-    // (llfontgl.cpp) gained a recording-mode fallback that DOES route
-    // through flush() - it explicitly unbinds (no texture for an underline)
-    // right before submitting, and a stale non-null mCurrBoundImageGL would
-    // get captured/replayed as the WRONG texture (whatever was bound before
-    // the preceding text run) instead of "no texture".
+    // S24: tracks the LLImageGL actually bound, so LLRender::flush() can
+    // capture it into a cached LLVertexBufferData when recording a display
+    // list; replay re-issues a real bind(LLImageGL*) call. Reset to nullptr
+    // by unbind()/unbindFast() - needed since submitUnderline() (llfontgl.cpp)
+    // explicitly unbinds before submitting, and a stale pointer here would
+    // get captured/replayed as the wrong texture instead of "no texture".
     LLImageGL* mCurrBoundImageGL = nullptr;
 #endif
 
@@ -522,16 +488,11 @@ public:
     // if list is set, will store buffers in list for later use, if list isn't set, will use cache
     void beginList(std::list<LLVertexBufferData> *list);
     void endList();
-    // S24 (task #54): lets a caller check whether a beginList()/endList()
-    // recording is currently active without needing direct access to
-    // llrender.cpp's private sBufferDataList - used by LLFontGL::
-    // submitGlyphBatch()/submitUnderline() and llrender2dutils.cpp's image-
-    // drawing functions to choose between the fast gDXUIBatch path (no
-    // recording - the common case) and falling back to this class's own
-    // begin()/vertexBatchPreTransformed()/end() (recording active - lets
-    // flush()'s existing, already-DX_RENDER-safe sBufferDataList capture
-    // logic build a real, replayable LLVertexBufferData the same way it
-    // always has for GL).
+    // S24: lets a caller check whether a beginList()/endList() recording is
+    // active without direct access to sBufferDataList - used by LLFontGL and
+    // llrender2dutils.cpp to choose between the fast gDXUIBatch path and
+    // falling back to begin()/vertexBatchPreTransformed()/end() so flush()'s
+    // capture logic can build a replayable LLVertexBufferData, as for GL.
     bool isRecording() const;
 
     void begin(const GLuint& mode);
@@ -574,8 +535,8 @@ public:
     void vertexBatchPreTransformed(const LLVector4a* verts, const LLVector2* uvs, S32 vert_count);
     void vertexBatchPreTransformed(const LLVector4a* verts, const LLVector2* uvs, const LLColor4U*, S32 vert_count);
 
-    void setColorMask(bool writeColor, bool writeAlpha);
-    void setColorMask(bool writeColorR, bool writeColorG, bool writeColorB, bool writeAlpha);
+    void setColorWriteMask(bool writeColor, bool writeAlpha);
+    void setColorWriteMask(bool writeColorR, bool writeColorG, bool writeColorB, bool writeAlpha);
     void setSceneBlendType(eBlendType type);
 
     // applies blend func to both color and alpha
@@ -585,48 +546,45 @@ public:
                eBlendFactor alpha_sfactor, eBlendFactor alpha_dfactor);
 
 #ifdef DX_RENDER
-    // Gathers the *current* combination of blend-enabled (LLGLState's
+    // Gathers the *current* combination of blend-enabled (DXState's
     // sStateMap, via the small public accessor), blend factors
     // (mCurrBlendColorSFactor/DFactor), and color write mask
     // (mCurrColorMask) into one DXStateCache::getBlendState() call + binds
     // it - D3D11 needs all three together in one ID3D11BlendState, unlike
     // GL's independent glEnable(GL_BLEND)/glBlendFunc()/glColorMask() calls.
-    // Called from blendFunc()/setColorMask() (whichever piece changed) and
-    // from LLGLState's GL_BLEND toggle (llgl.cpp) - public so that cross-
+    // Called from blendFunc()/setColorWriteMask() (whichever piece changed) and
+    // from DXState's GL_BLEND toggle (llgl.cpp) - public so that cross-
     // class call is a plain accessor, not a friend declaration.
     void applyDXBlendState();
 
-    // S24 (2026-08-28, task #242): same shape as applyDXBlendState() above,
-    // for the rasterizer state's polygon-offset dimension - gathers cull/
-    // scissor/depth-clamp/wireframe (all already read fresh from LLGLState
-    // elsewhere) plus mCurrPolygonOffsetFactor/Units into one
-    // DXStateCache::getRasterizerState() call + binds it. Called from
-    // setPolygonOffset() below and from LLGLState's GL_POLYGON_OFFSET_FILL/
-    // GL_POLYGON_OFFSET_LINE toggle (llgl.cpp) - same reasoning as
-    // applyDXBlendState() for why this needs to be public rather than a
-    // friend declaration. wireframe is deliberately NOT read from LLGLState
-    // here (it has no such generic toggle - see DXStateCache.h's
-    // wireframe_enabled comment; the two call sites that need it call
-    // getRasterizerState() directly themselves and never go through this
-    // path) - always false from here.
+    // S24: same shape as applyDXBlendState() above, for the rasterizer
+    // state's polygon-offset dimension - gathers cull/scissor/depth-clamp
+    // plus mCurrPolygonOffsetFactor/Units into one
+    // DXStateCache::getRasterizerState() call + binds it. Also reads
+    // DXStateCache::sWireframeScopeActive (Develop > Rendering > Wireframe) -
+    // see that flag's own comment for why this chokepoint, not gUseWireframe
+    // directly, is what decides wireframe here.
     void applyDXRasterizerState();
 #endif
 
-    // S24 (2026-08-28, task #242): cross-backend replacement for the raw
-    // glPolygonOffset(factor, units) call this codebase's ~10 call sites
-    // used to make directly - that's a real, statically-linked core-GL
-    // symbol with no DX11 dispatch-table entry, so it silently did nothing
-    // under DX_RENDER (confirmed root cause of task #254's decisive fix
-    // being needed in the first place, and independently the documented gap
-    // behind terrain/gizmo/wireframe z-fighting - see task #242). GL branch
-    // is the original call, unchanged; DX branch stores the values and
-    // rebinds the rasterizer state immediately if polygon-offset is
-    // currently enabled (mirrors GL's own "takes effect on the next state
-    // change" semantics - callers may enable via LLGLEnable BEFORE or AFTER
-    // calling this, both orderings need to end up correct). No #ifdef
+    // S24: cross-backend replacement for the raw glPolygonOffset() call -
+    // that's a statically-linked core-GL symbol with no DX11 dispatch-table
+    // entry, so it silently did nothing under DX_RENDER. GL branch is the
+    // original call, unchanged; DX branch stores the values and rebinds the
+    // rasterizer state immediately if polygon-offset is currently enabled
+    // (mirrors GL's "takes effect on next state change" semantics). No #ifdef
     // needed at any call site - call this unconditionally from both
     // backends.
     void setPolygonOffset(F32 factor, F32 units);
+
+    // S24: cross-backend replacement for the raw glCullFace() call - a statically-linked core-GL
+    // symbol with no DX11 dispatch-table entry, so it silently did nothing under DX_RENDER (found
+    // via LLViewerJoint::render()'s hair/skirt "render inside" pass, llviewerjoint.cpp, always
+    // culling back faces regardless of the front-face cull it asked for). GL branch is the
+    // original call, unchanged; DX branch tracks the direction (DXState::setCullFace()) and
+    // rebinds the rasterizer state immediately, mirroring setPolygonOffset() above. No #ifdef
+    // needed at any call site - call this unconditionally from both backends.
+    void cullFace(LLGLenum face);
 
     LLLightState* getLight(U32 index);
     void setAmbientLightColor(const LLColor4& color);
@@ -635,17 +593,11 @@ public:
 
     U32 getCurrentTexUnitIndex(void) const { return mCurrTextureUnitIndex; }
 
-    // S24 (DX_RENDER, 2026-07-25): the "ambient current color" GL immediate
-    // mode carries forward (set via color4f()/color4fv()/color4ub(), read
-    // implicitly by vertex2i()/vertex2f() etc. via mColorsp[mCount]) has no
-    // DX_RENDER equivalent to read from - dxrender/ has zero llrender
-    // dependency by design, so DXRender2DUtils' functions all take an
-    // explicit color parameter instead of assuming ambient state. This is
-    // the accessor llrender2dutils.cpp's DX_RENDER fences use to capture
-    // that ambient value at the one point (the fence itself) that still
-    // knows about it, for functions whose GL body relies on a color already
-    // set by an earlier, separate color4fv()-style call rather than
-    // receiving one as a parameter (e.g. gl_rect_2d(left,top,right,bottom,filled)).
+    // S24: dxrender/ has zero llrender dependency by design, so it can't
+    // read GL's ambient "current color" state directly - this accessor lets
+    // llrender2dutils.cpp's DX_RENDER fences capture that value explicitly
+    // for functions whose GL body relies on an earlier color4fv()-style call
+    // rather than a parameter (e.g. gl_rect_2d()).
     // Not const: LLStrider<Object>::operator[] isn't const-qualified (see
     // llstrider.h), so indexing mColorsp requires a non-const *this.
     LLColor4U getCurrentColor(void) { return mColorsp[mCount]; }
@@ -707,9 +659,8 @@ private:
     eBlendFactor mCurrBlendAlphaDFactor;
 
 #ifdef DX_RENDER
-    // S24 (2026-08-28, task #242): see setPolygonOffset()/
-    // applyDXRasterizerState()'s comments above. GL doesn't need this - the
-    // real glPolygonOffset() call carries its own state on the GL side.
+    // S24: see setPolygonOffset()/applyDXRasterizerState() above. GL doesn't
+    // need this - the real glPolygonOffset() call carries its own state.
     F32 mCurrPolygonOffsetFactor = 0.f;
     F32 mCurrPolygonOffsetUnits = 0.f;
 #endif

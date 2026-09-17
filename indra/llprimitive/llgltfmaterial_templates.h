@@ -64,7 +64,6 @@ void LLGLTFMaterial::setFromTexture(const tinygltf::Model& model, const T& textu
 template<typename T>
 void LLGLTFMaterial::setFromTexture(const tinygltf::Model& model, const T& texture_info, LLUUID& texture_id, TextureTransform& transform)
 {
-    LL_PROFILE_ZONE_SCOPED;
     const std::string uri = gltf_get_texture_image(model, texture_info);
     texture_id.set(uri);
 
@@ -111,7 +110,6 @@ void LLGLTFMaterial::writeToTexture(tinygltf::Model& model, T& texture_info, Tex
 template<typename T>
 void LLGLTFMaterial::writeToTexture(tinygltf::Model& model, T& texture_info, const LLUUID& texture_id, const TextureTransform& transform, bool force_write)
 {
-    LL_PROFILE_ZONE_SCOPED;
     const bool is_blank_transform = transform == sDefault.mTextureTransform[0];
     // Check if this material matches all the fallback values, and if so, then
     // skip including it to reduce material size

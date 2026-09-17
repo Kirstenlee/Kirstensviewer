@@ -41,6 +41,33 @@
 #include "llcontrol.h"
 #include "llrender.h"
 #include "lluictrlfactory.h"
+#include "llrender2dutils.h"
+
+namespace
+{
+    // S24: same pattern as llfloater.cpp/llbutton.cpp/lliconctrl.cpp/llslider.cpp - see
+    // llfloater.cpp's header comment for the full rationale. Only wraps the THUMB draws below -
+    // the TRACK uses LLUIImage::drawSolid() (gSolidColorProgram, "output
+    // vec4(color.rgb,color.a*tex0[tc0].a)"), which replaces the texture's RGB outright rather than
+    // multiplying onto it, so it's already immune to the near-black-texture problem this fixes and
+    // doesn't need it. Reuses the Controls category (RenderUIHueShiftControls), same as buttons/
+    // sliders.
+    void drawScrollbarThumb(LLUIImage* image, const LLRect& rect, const LLColor4& color)
+    {
+        static LLCachedControl<F32> hue_shift_degrees(*LLUI::getInstance()->mSettingGroups["config"], "RenderUIHueShiftControls", 0.f);
+        F32 degrees = hue_shift_degrees;
+
+        if (!LLUI::bindUIEffectsShader(degrees))
+        {
+            image->draw(rect, color);
+            return;
+        }
+
+        image->draw(rect, color);
+
+        LLUI::unbindUIEffectsShader();
+    }
+}
 
 static LLDefaultChildRegistry::Register<LLScrollbar> register_scrollbar("scroll_bar");
 
@@ -544,7 +571,7 @@ void LLScrollbar::draw()
                 mTrackImageH->draw(outline_rect, gFocusMgr.getFocusColor());
             }
 
-            mThumbImageH->draw(mThumbRect, mThumbColor.get());
+            drawScrollbarThumb(mThumbImageH, mThumbRect, mThumbColor.get());
             if (mCurGlowStrength > 0.01f)
             {
                 gDX.setSceneBlendType(LLRender::BT_ADD_WITH_ALPHA);
@@ -565,7 +592,7 @@ void LLScrollbar::draw()
                 mTrackImageV->draw(outline_rect, gFocusMgr.getFocusColor());
             }
 
-            mThumbImageV->draw(mThumbRect, mThumbColor.get());
+            drawScrollbarThumb(mThumbImageV, mThumbRect, mThumbColor.get());
             if (mCurGlowStrength > 0.01f)
             {
                 gDX.setSceneBlendType(LLRender::BT_ADD_WITH_ALPHA);

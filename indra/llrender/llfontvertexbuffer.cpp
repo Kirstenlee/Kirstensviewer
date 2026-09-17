@@ -121,11 +121,9 @@ S32 LLFontVertexBuffer::render(
     {
         return static_cast<S32>(text.length());
     }
-    // S24 (task #54): used to unconditionally bypass this whole cache under
-    // DX_RENDER here - LLFontGL::submitGlyphBatch()/submitUnderline() now
-    // have a recording-mode fallback (see their own comments) that lets
-    // genBuffers()'s beginList()/endList() bracket below actually populate
-    // mBufferList, so the normal cache-hit/miss logic works the same as GL.
+    // S24: relies on LLFontGL::submitGlyphBatch()/submitUnderline()'s
+    // recording-mode fallback so beginList()/endList() below actually
+    // populates mBufferList, matching GL's cache-hit/miss behavior.
     if (!sEnableBufferCollection)
     {
         // For debug purposes and performance testing
@@ -275,7 +273,6 @@ F32 LLFontWidthBuffer::getWidth(
     S32 max_chars,
     bool no_padding)
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_UI;
     if (!fontp || !wchars)
     {
         return 0.f;

@@ -187,7 +187,6 @@ HttpHandle HttpRequest::requestGet(policy_t policy_id,
 								   const HttpHeaders::ptr_t & headers,
 								   HttpHandler::ptr_t user_handler)
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_NETWORK;
 	HttpStatus status;
 
     HttpOpRequest::ptr_t op = std::make_shared<HttpOpRequest>();
@@ -216,7 +215,6 @@ HttpHandle HttpRequest::requestGetByteRange(policy_t policy_id,
 											const HttpHeaders::ptr_t & headers,
 											HttpHandler::ptr_t user_handler)
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_NETWORK;
 	HttpStatus status;
 
     HttpOpRequest::ptr_t op = std::make_shared<HttpOpRequest>();

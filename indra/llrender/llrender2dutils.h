@@ -170,5 +170,6 @@ private:
 
 extern LLHLSLShader gSolidColorProgram;
 extern LLHLSLShader gUIProgram;
+extern LLHLSLShader gUIHueShiftProgram;
 
 #endif // LL_RENDER2DUTILS_H

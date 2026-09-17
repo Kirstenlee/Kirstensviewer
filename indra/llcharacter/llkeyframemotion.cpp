@@ -683,7 +683,6 @@ bool LLKeyframeMotion::onActivate()
 //-----------------------------------------------------------------------------
 bool LLKeyframeMotion::onUpdate(F32 time, U8* joint_mask)
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_AVATAR;
 	// llassert(time >= 0.f);		// This will fire
 	time = llmax(0.f, time);
 
@@ -1484,10 +1483,9 @@ bool LLKeyframeMotion::deserialize(LLDataPacker& dp, const LLUUID& asset_id, boo
             joint_name = joint->getName(); // canonical name in case this is an alias.
             if ((joint_num >= (S32)LL_CHARACTER_MAX_ANIMATED_JOINTS) || (joint_num < 0))
             {
-                // S24: PERFORMANCE - Changed to LL_DEBUGS to eliminate console spam and CPU waste
-                // Joint is omitted (joint set to NULL) and animation continues gracefully
-                // Logging UUIDs wastes cycles: asset_id.asString() + char.getID().asString() + I/O
-                // Security: Animation asset UUIDs + character UUIDs expose user inventory + identity (PII)
+                // S24: LL_DEBUGS not WARNS - out-of-range joint is dropped and animation
+                // continues normally; WARNS-level UUID logging here is a PII leak
+                // (asset/character ids reveal inventory contents and identity).
                 LL_DEBUGS("Animation") << "Joint will be omitted from animation: joint_num " << joint_num
                            << " is outside of legal range [0-"
                            << LL_CHARACTER_MAX_ANIMATED_JOINTS << ") for joint " << joint->getName()
@@ -1497,12 +1495,9 @@ bool LLKeyframeMotion::deserialize(LLDataPacker& dp, const LLUUID& asset_id, boo
         }
         else
         {
-            // S24: PERFORMANCE - Changed to LL_DEBUGS to eliminate console spam and CPU waste
-            // Fires once per unknown joint (common with custom mesh avatars using non-standard bones)
-            // Animation can have 100+ joints, causing massive spam when joint names don't match
-            // Each log call wastes cycles: 2x UUID->string conversion + concatenation + I/O
-            // Invalid joints are gracefully handled (joint stays NULL, allow_invalid_joints controls error)
-            // Security: Animation asset UUIDs + character UUIDs reveal inventory contents + user identity (PII)
+            // S24: LL_DEBUGS not WARNS - unknown joint names are common with custom mesh
+            // avatars and handled gracefully; UUID logging here is a PII leak
+            // (asset/character ids reveal inventory contents and identity).
             LL_DEBUGS("Animation") << "invalid joint name: " << joint_name
                        << " for animation " << asset() << LL_ENDL;
             if (!allow_invalid_joints)
@@ -1672,11 +1667,8 @@ bool LLKeyframeMotion::deserialize(LLDataPacker& dp, const LLUUID& asset_id, boo
         if (joint_motion->mRotationCurve.mNumKeys > joint_motion->mRotationCurve.mKeys.size())
         {
             rotation_duplicates++;
-            // S24: Changed to LL_DEBUGS - duplicate keys are handled gracefully (std::map auto-deduplicates)
-            // Fires once per joint with duplicates - animations can have 100+ joints, causing massive spam
-            // This is normal for some animation formats (not an error), std::map silently handles it
-            // Potential gain: Eliminate 100+ log lines per animation + remove UUID exposure
-            // Security: Animation asset UUIDs reveal user inventory contents (PII)
+            // S24: LL_DEBUGS not WARNS - std::map silently deduplicates, not an error;
+            // asset UUID logging here is a PII leak.
             LL_DEBUGS("Animation") << "Removed " << (joint_motion->mRotationCurve.mNumKeys - joint_motion->mRotationCurve.mKeys.size())
                 << " duplicate rotation keys for joint " << joint_motion->mJointName << LL_ENDL;
         }
@@ -1790,11 +1782,8 @@ bool LLKeyframeMotion::deserialize(LLDataPacker& dp, const LLUUID& asset_id, boo
         if (joint_motion->mPositionCurve.mNumKeys > joint_motion->mPositionCurve.mKeys.size())
         {
             position_duplicates++;
-            // S24: Changed to LL_DEBUGS - duplicate keys are handled gracefully (std::map auto-deduplicates)
-            // Fires once per joint with duplicates - animations can have 100+ joints, causing massive spam
-            // This is normal for some animation formats (not an error), std::map silently handles it
-            // Potential gain: Eliminate 100+ log lines per animation + remove UUID exposure
-            // Security: Animation asset UUIDs reveal user inventory contents (PII)
+            // S24: LL_DEBUGS not WARNS - std::map silently deduplicates, not an error;
+            // asset UUID logging here is a PII leak.
             LL_DEBUGS("Animation") << "Removed " << (joint_motion->mPositionCurve.mNumKeys - joint_motion->mPositionCurve.mKeys.size())
                 << " duplicate position keys for joint " << joint_motion->mJointName << LL_ENDL;
         }
@@ -1804,16 +1793,14 @@ bool LLKeyframeMotion::deserialize(LLDataPacker& dp, const LLUUID& asset_id, boo
 
     if (rotation_duplicates > 0)
     {
-        // S24: Changed to LL_DEBUGS - summary of duplicate key removal (not an error)
-        // Potential gain: Remove UUID exposure from production logs
+        // S24: LL_DEBUGS not WARNS - summary of duplicate key removal, not an error.
         LL_DEBUGS("Animation") << "Animation had " << rotation_duplicates
             << " joints with duplicated rotation keys that were removed" << LL_ENDL;
     }
 
     if (position_duplicates > 0)
     {
-        // S24: Changed to LL_DEBUGS - summary of duplicate key removal (not an error)
-        // Potential gain: Remove UUID exposure from production logs
+        // S24: LL_DEBUGS not WARNS - summary of duplicate key removal, not an error.
         LL_DEBUGS("Animation") << "Animation had " << position_duplicates
             << " joints with duplicated position keys that were removed" << LL_ENDL;
     }
@@ -1831,10 +1818,9 @@ bool LLKeyframeMotion::deserialize(LLDataPacker& dp, const LLUUID& asset_id, boo
 
     if (num_constraints > MAX_CONSTRAINTS || num_constraints < 0)
     {
-        // S24 (2026-09-10): gracefully degrades (animation still loads and
-        // plays, just without constraints - verified this is the last field
-        // read from the stream, so nothing downstream desyncs) - not
-        // actionable by the user, was log poison at WARNS.
+        // S24: LL_DEBUGS not WARNS - degrades gracefully (animation still loads and
+        // plays, just without constraints); this is the last field read from the
+        // stream so nothing downstream desyncs.
         LL_DEBUGS() << "Bad number of constraints... ignoring: " << num_constraints
                    << " for animation " << asset() << LL_ENDL;
     }
@@ -2498,11 +2484,8 @@ void LLKeyframeMotion::onLoadComplete(const LLUUID& asset_uuid,
     }
     else
     {
-        // S24: Changed to LL_DEBUGS - this is NOT an error, it's normal behavior when animations finish before asset loads
-        // Fires on every gesture/animation that completes quickly (most gestures, short animations)
-        // The motion was valid, played successfully, and cleaned up before async asset load completed
-        // Potential gain: Eliminate massive spam from gesture system + reduce UUID exposure in client logs
-        // Security: Animation asset UUIDs are PII (can identify user's inventory), shouldn't be in production logs
+        // S24: LL_DEBUGS not WARNS - normal when a motion completes and is cleaned up
+        // before its async asset load finishes; asset UUID logging here is a PII leak.
         LL_DEBUGS("Animation") << "Motion already cleaned up for asset: " << asset_uuid << LL_ENDL;
     }
 }

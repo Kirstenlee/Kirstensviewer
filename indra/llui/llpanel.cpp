@@ -48,9 +48,36 @@
 #include "lluictrl.h"
 #include "lluictrlfactory.h"
 #include "llviewborder.h"
+#include "llrender2dutils.h"
 
 static LLDefaultChildRegistry::Register<LLPanel> r1("panel", &LLPanel::fromXML);
 LLPanel::factory_stack_t    LLPanel::sFactoryStack;
+
+namespace
+{
+    // S24: same "image * vertex-tint" architecture/fix as LLFloater::draw()'s
+    // drawFloaterBackgroundImage() (llfloater.cpp) - see its header comment for the full
+    // rationale. LLPanel's own background draw (used directly by toasts/notifications, the
+    // volume/pulldown panels, and any other plain LLPanel with an authored bg image - none of
+    // which are LLFloater and so never went through that fix) needs the identical shader swap.
+    // Reuses the Floaters category (RenderUIHueShiftFloaters) since LLUIHueShift already
+    // buckets "Panel*" color names there.
+    void drawPanelBackgroundImage(LLUIImage* image, const LLRect& rect, const LLColor4& color)
+    {
+        static LLCachedControl<F32> hue_shift_degrees(*LLUI::getInstance()->mSettingGroups["config"], "RenderUIHueShiftFloaters", 0.f);
+        F32 degrees = hue_shift_degrees;
+
+        if (!LLUI::bindUIEffectsShader(degrees))
+        {
+            image->draw(rect, color);
+            return;
+        }
+
+        image->draw(rect, color);
+
+        LLUI::unbindUIEffectsShader();
+    }
+}
 
 
 // Compiler optimization, generate extern template
@@ -213,7 +240,7 @@ void LLPanel::draw()
             // opaque, in-front look
             if (mBgOpaqueImage.notNull())
             {
-                mBgOpaqueImage->draw( local_rect, mBgOpaqueImageOverlay % alpha );
+                drawPanelBackgroundImage( mBgOpaqueImage, local_rect, mBgOpaqueImageOverlay % alpha );
             }
             else
             {
@@ -226,7 +253,7 @@ void LLPanel::draw()
             // transparent, in-back look
             if (mBgAlphaImage.notNull())
             {
-                mBgAlphaImage->draw( local_rect, mBgAlphaImageOverlay % alpha );
+                drawPanelBackgroundImage( mBgAlphaImage, local_rect, mBgAlphaImageOverlay % alpha );
             }
             else
             {
@@ -783,7 +810,6 @@ boost::signals2::connection LLPanel::setVisibleCallback( const commit_signal_t::
 //-----------------------------------------------------------------------------
 bool LLPanel::buildFromFile(const std::string& filename, const LLPanel::Params& default_params)
 {
-    LL_PROFILE_ZONE_SCOPED;
     bool didPost = false;
     LLXMLNodePtr root;
 

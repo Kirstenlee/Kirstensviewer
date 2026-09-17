@@ -588,7 +588,6 @@ bool LLFlatListView::postBuild()
 
 void LLFlatListView::rearrangeItems()
 {
-    LL_PROFILE_ZONE_SCOPED;
     static LLUICachedControl<S32> scrollbar_size ("UIScrollbarSize", 0);
 
     setNoItemsCommentVisible(0==size());
@@ -1590,7 +1589,6 @@ bool LLFlatListView::removeItemPair(item_pair_t* item_pair, bool rearrange)
 
 void LLFlatListView::notifyParentItemsRectChanged()
 {
-    LL_PROFILE_ZONE_SCOPED;
     S32 comment_height = 0;
 
     // take into account comment text height if exists

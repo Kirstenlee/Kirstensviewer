@@ -33,7 +33,6 @@
 #include "lltracethreadrecorder.h"
 #include "llcleanup.h"
 
-thread_local bool gProfilerEnabled = false;
 //static
 bool LLCommon::sAprInitialized = false;
 

@@ -179,7 +179,6 @@ void LLWorkerThread::WorkRequest::deleteRequest()
 // virtual
 bool LLWorkerThread::WorkRequest::processRequest()
 {
-    LL_PROFILE_ZONE_SCOPED;
 	LLWorkerClass* workerclass = getWorkerClass();
 	workerclass->setWorking(true);
 	bool complete = workerclass->doWork(getParam());
@@ -190,7 +189,6 @@ bool LLWorkerThread::WorkRequest::processRequest()
 // virtual
 void LLWorkerThread::WorkRequest::finishRequest(bool completed)
 {
-    LL_PROFILE_ZONE_SCOPED;
 	LLWorkerClass* workerclass = getWorkerClass();
 	workerclass->finishWork(getParam(), completed);
 	U32 flags = LLWorkerClass::WCF_WORK_FINISHED | (completed ? 0 : LLWorkerClass::WCF_WORK_ABORTED);

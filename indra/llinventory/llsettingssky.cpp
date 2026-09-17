@@ -572,7 +572,6 @@ bool lerp_legacy_float(F32& a, bool& a_has_legacy, F32 b, bool b_has_legacy, F32
 
 void LLSettingsSky::blend(LLSettingsBase::ptr_t& end, F64 blendf)
 {
-	LL_PROFILE_ZONE_SCOPED_CATEGORY_ENVIRONMENT;
 	llassert(getSettingsType() == end->getSettingsType());
 
 	LLSettingsSky::ptr_t other = PTR_NAMESPACE::dynamic_pointer_cast<LLSettingsSky>(end);
@@ -1208,7 +1207,6 @@ LLSD LLSettingsSky::translateLegacySettings(const LLSD& legacy)
 
 void LLSettingsSky::updateSettings()
 {
-	LL_PROFILE_ZONE_SCOPED_CATEGORY_ENVIRONMENT;
 
 	// base class clears dirty flag so as to not trigger recursive update
 	LLSettingsBase::updateSettings();
@@ -1253,7 +1251,6 @@ LLColor3 get_color(bool& use_legacy, LLSD& settings, const std::string& key, con
 
 void LLSettingsSky::loadValuesFromLLSD()
 {
-	LL_PROFILE_ZONE_SCOPED_CATEGORY_ENVIRONMENT;
 
 	LLSettingsBase::loadValuesFromLLSD();
 
@@ -1342,7 +1339,6 @@ void set_legacy(LLSD& settings, LLSD& legacy, const std::string& key, bool has_v
 
 void LLSettingsSky::saveValuesToLLSD()
 {
-	LL_PROFILE_ZONE_SCOPED_CATEGORY_ENVIRONMENT;
 
 	LLSettingsBase::saveValuesToLLSD();
 
@@ -1472,7 +1468,6 @@ LLColor3 LLSettingsSky::getLightDiffuse() const
 
 LLColor3 LLSettingsSky::getColor(const std::string& key, const LLColor3& default_value)
 {
-	LL_PROFILE_ZONE_SCOPED_CATEGORY_ENVIRONMENT;
 	LLSD& settings = getSettings();
 	if (settings.has(SETTING_LEGACY_HAZE) && settings[SETTING_LEGACY_HAZE].has(key))
 	{
@@ -1487,7 +1482,6 @@ LLColor3 LLSettingsSky::getColor(const std::string& key, const LLColor3& default
 
 F32 LLSettingsSky::getFloat(const std::string& key, F32 default_value)
 {
-	LL_PROFILE_ZONE_SCOPED_CATEGORY_ENVIRONMENT;
 
 	LLSD& settings = getSettings();
 	if (settings.has(SETTING_LEGACY_HAZE) && settings[SETTING_LEGACY_HAZE].has(key))

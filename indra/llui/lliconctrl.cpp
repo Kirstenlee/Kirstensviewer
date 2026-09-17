@@ -38,8 +38,35 @@
 #include "llwindow.h"
 
 #include "llgltexture.h"
+#include "llrender2dutils.h"
 
 static LLDefaultChildRegistry::Register<LLIconCtrl> r("icon");
+
+namespace
+{
+    // S24: same pattern as LLFloater::draw()'s drawFloaterBackgroundImage() / LLButton::draw()'s
+    // drawButtonImage() - see llfloater.cpp's header comment for the full rationale. LLIconCtrl is
+    // the same "image * vertex-tint" architecture as floater chrome/buttons (it's what draws every
+    // decorative background icon too, e.g. KVTweaks' full-panel "Powder" decoration), so it needs
+    // the identical fix. Reuses the Controls category's hue value (RenderUIHueShiftControls) -
+    // icons don't have their own category and are the closest sibling to buttons; a dedicated
+    // category can be split out later if finer control turns out to be wanted.
+    void drawIconImage(LLUIImage* image, const LLRect& rect, const LLColor4& color)
+    {
+        static LLCachedControl<F32> hue_shift_degrees(*LLUI::getInstance()->mSettingGroups["config"], "RenderUIHueShiftControls", 0.f);
+        F32 degrees = hue_shift_degrees;
+
+        if (!LLUI::bindUIEffectsShader(degrees))
+        {
+            image->draw(rect, color);
+            return;
+        }
+
+        image->draw(rect, color);
+
+        LLUI::unbindUIEffectsShader();
+    }
+}
 
 LLIconCtrl::Params::Params()
 :   image("image_name"),
@@ -58,6 +85,7 @@ LLIconCtrl::LLIconCtrl(const LLIconCtrl::Params& p)
     mUseDrawContextAlpha(p.use_draw_context_alpha),
     mInteractable(p.interactable),
     mPriority(0),
+    mExcludeFromHueShift(false),
     mMinWidth(p.min_width),
     mMinHeight(p.min_height),
     mMaxWidth(0),
@@ -80,7 +108,14 @@ void LLIconCtrl::draw()
     if( mImagep.notNull() )
     {
         const F32 alpha = mUseDrawContextAlpha ? getDrawContext().mAlpha : getCurrentTransparency();
-        mImagep->draw(getLocalRect(), mColor.get() % alpha );
+        if (mExcludeFromHueShift)
+        {
+            mImagep->draw(getLocalRect(), mColor.get() % alpha );
+        }
+        else
+        {
+            drawIconImage(mImagep, getLocalRect(), mColor.get() % alpha );
+        }
     }
 
     LLUICtrl::draw();

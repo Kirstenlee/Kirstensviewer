@@ -212,7 +212,6 @@ LLSD LLTextureEntry::asLLSD() const
 
 void LLTextureEntry::asLLSD(LLSD& sd) const
 {
-    LL_PROFILE_ZONE_SCOPED;
 	sd["imageid"] = mID;
 	sd["colors"] = ll_sd_from_color4(mColor);
 	sd["scales"] = mScaleS;
@@ -240,7 +239,6 @@ void LLTextureEntry::asLLSD(LLSD& sd) const
 
 bool LLTextureEntry::fromLLSD(const LLSD& sd)
 {
-    LL_PROFILE_ZONE_SCOPED;
 	const char *w, *x;
 	w = "imageid";
 	if (sd.has(w))

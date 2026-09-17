@@ -485,7 +485,6 @@ namespace
 
     ImplMap& ImplMap::makeMap(LLSD::Impl*& var)
     {
-        LL_PROFILE_ZONE_SCOPED_CATEGORY_LLSD;
         if (shared())
         {
             ImplMap* i = new ImplMap(mData);
@@ -500,21 +499,18 @@ namespace
 
     bool ImplMap::has(const std::string_view k) const
     {
-        LL_PROFILE_ZONE_SCOPED_CATEGORY_LLSD;
         DataMap::const_iterator i = mData.find(k);
         return i != mData.end();
     }
 
     LLSD ImplMap::get(const std::string_view k) const
     {
-        LL_PROFILE_ZONE_SCOPED_CATEGORY_LLSD;
         DataMap::const_iterator i = mData.find(k);
         return (i != mData.end()) ? i->second : LLSD();
     }
 
     LLSD ImplMap::getKeys() const
     {
-        LL_PROFILE_ZONE_SCOPED_CATEGORY_LLSD;
         LLSD keys = LLSD::emptyArray();
         DataMap::const_iterator iter = mData.begin();
         while (iter != mData.end())
@@ -527,31 +523,26 @@ namespace
 
     void ImplMap::insert(std::string&& k, const LLSD& v)
     {
-        LL_PROFILE_ZONE_SCOPED_CATEGORY_LLSD;
         mData.emplace(std::move(k), v);
     }
 
     void ImplMap::insert(std::string&& k, LLSD&& v)
     {
-        LL_PROFILE_ZONE_SCOPED_CATEGORY_LLSD;
         mData.emplace(std::move(k), std::move(v));
     }
 
     void ImplMap::insert(std::string_view k, const LLSD& v)
     {
-        LL_PROFILE_ZONE_SCOPED_CATEGORY_LLSD;
         mData.emplace(k, v);
     }
 
     void ImplMap::insert(std::string_view k, LLSD&& v)
     {
-        LL_PROFILE_ZONE_SCOPED_CATEGORY_LLSD;
         mData.emplace(k, std::move(v));
     }
 
     void ImplMap::erase(const LLSD::String& k)
     {
-        LL_PROFILE_ZONE_SCOPED_CATEGORY_LLSD;
         mData.erase(k);
     }
 
@@ -870,7 +861,6 @@ const LLSD::Impl& LLSD::Impl::safe(const Impl* impl)
 
 ImplMap& LLSD::Impl::makeMap(Impl*& var)
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_LLSD;
 	ImplMap* im = new ImplMap;
 	reset(var, im);
 	return *im;
@@ -1136,19 +1126,16 @@ void LLSD::erase(const String& k)       { makeMap(impl).erase(k); }
 
 LLSD& LLSD::operator[](const std::string_view k)
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_LLSD;
     return makeMap(impl).ref(k);
 }
 
 LLSD& LLSD::operator[](std::string&& k)
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_LLSD;
     return makeMap(impl).ref(std::move(k));
 }
 
 const LLSD& LLSD::operator[](const std::string_view k) const
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_LLSD;
     return safe(impl).ref(k);
 }
 
@@ -1190,12 +1177,10 @@ void LLSD::erase(Integer i)				{ makeArray(impl).erase(i); }
 
 LLSD& LLSD::operator[](size_t i)
 { 
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_LLSD;
     return makeArray(impl).ref(i); 
 }
 const LLSD& LLSD::operator[](size_t i) const
 { 
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_LLSD;
     return safe(impl).ref(i);
 }
 

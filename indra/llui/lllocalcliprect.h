@@ -47,7 +47,7 @@ private:
     static void updateScissorRegion();
 
 private:
-    LLGLState       mScissorState;
+    DXState       mScissorState;
     bool            mEnabled;
 
     static std::stack<LLRect> sClipRectStack;

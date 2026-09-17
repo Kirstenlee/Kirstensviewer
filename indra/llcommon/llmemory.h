@@ -106,7 +106,6 @@ public:                                     \
 #else
     inline void* ll_aligned_malloc_fallback( size_t size, size_t align )
     {
-        LL_PROFILE_ZONE_SCOPED_CATEGORY_MEMORY;
     #if defined(LL_WINDOWS)
         void* ret = _aligned_malloc(size, align);
     #else
@@ -121,14 +120,11 @@ public:                                     \
         }
         void* ret = aligned;
     #endif
-        LL_PROFILE_ALLOC(ret, size);
         return ret;
     }
 
     inline void ll_aligned_free_fallback( void* ptr )
     {
-        LL_PROFILE_ZONE_SCOPED_CATEGORY_MEMORY;
-        LL_PROFILE_FREE(ptr);
     #if defined(LL_WINDOWS)
         _aligned_free(ptr);
     #else
@@ -188,7 +184,6 @@ inline void* ll_aligned_malloc(size_t size)
 	if constexpr (LL_DEFAULT_HEAP_ALIGN % ALIGNMENT == 0)
 	{
         ret = malloc(size);
-        LL_PROFILE_ALLOC(ret, size);
 	}
 	else if constexpr (ALIGNMENT == 16)
 	{
@@ -212,10 +207,8 @@ inline void* ll_aligned_malloc(size_t size)
 template<size_t ALIGNMENT>
 LL_FORCE_INLINE void ll_aligned_free(void* ptr)
 {
-	LL_PROFILE_ZONE_SCOPED_CATEGORY_MEMORY;
     if constexpr (ALIGNMENT == LL_DEFAULT_HEAP_ALIGN)
 	{
-		LL_PROFILE_FREE(ptr);
 		free(ptr);
 	}
     else if constexpr (ALIGNMENT == 16)

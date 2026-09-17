@@ -1025,7 +1025,6 @@ void LLInventoryItem::asLLSD( LLSD& sd ) const
 
 bool LLInventoryItem::fromLLSD(const LLSD& sd, bool is_new)
 {
-    LL_PROFILE_ZONE_SCOPED;
     if (is_new)
     {
         // If we're adding LLSD to an existing object, need avoid

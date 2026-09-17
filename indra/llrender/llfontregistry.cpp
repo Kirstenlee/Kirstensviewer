@@ -552,17 +552,8 @@ LLFontGL* LLFontRegistry::createFont(const LLFontDescriptor& desc)
 			S32 num_faces = is_ft_collection ? fontp->getNumFaces(font_path) : 1;
 			if (num_faces <= 0)
 			{
-				// S24 (2026-08-31): getNumFaces() (llfontfreetype.cpp)
-				// returns 0 when the file can't be opened at all (missing/
-				// unreadable, load_collection="true" files only - a plain
-				// file always hardcodes num_faces=1 above) - the face loop
-				// below never executes in that case, so the LLFontGL just
-				// allocated above would otherwise leak: either lost when
-				// the next search-path attempt's `fontp = new LLFontGL;`
-				// reassigns this variable, or never freed at all if this
-				// was the last search path (the outer !is_font_loaded
-				// cleanup only frees whatever fontp currently is, not any
-				// earlier ones already lost to reassignment).
+				// S24: getNumFaces() returning 0 means the face loop below
+				// never runs, so free fontp here or it leaks.
 				delete fontp;
 				fontp = NULL;
 			}
@@ -578,29 +569,12 @@ LLFontGL* LLFontRegistry::createFont(const LLFontDescriptor& desc)
 					is_font_loaded = true;
 					if (is_first_found)
 					{
-						// S24 (2026-08-31, prompted by an external WER-dump
-						// report on LLFontRegistry::createFont() null/UAF
-						// risk - see task tracker): fontp MUST be cleared
-						// here, mirroring the else-branch below. Without
-						// this, fontp keeps aliasing result for the REST of
-						// this face loop (used for load_collection="true"
-						// multi-face files, e.g. Cambria.ttc, or any font
-						// FreeType reports >1 face for). On the next
-						// iteration the `if (fontp == NULL)` guard above is
-						// skipped, so either: (a) loadFace() is called
-						// again on the SAME object that IS result,
-						// corrupting/reloading over its already-loaded
-						// face, or (b) that face's load fails and
-						// `delete fontp;` in the else-branch below deletes
-						// result out from under itself - result is left
-						// dangling, and the next successful face's
-						// `result->mFontFreetype->addFallbackFont(...)`
-						// (or the next font_file_it's fallback attempt)
-						// dereferences freed memory. Confirmed via direct
-						// trace, not just the external report's guess -
-						// this reads as a small/zeroed offset off a freed
-						// heap block, matching a low-address read AV with
-						// zeroed registers.
+						// S24: fontp MUST be cleared here, mirroring the
+						// else-branch below - otherwise it keeps aliasing
+						// result for the rest of a multi-face loop, and the
+						// next iteration's `if (fontp == NULL)` guard is
+						// skipped, either reloading over result's face or
+						// deleting result out from under itself (UAF).
 						result = fontp;
 						fontp = NULL;
 						is_first_found = false;
@@ -806,19 +780,19 @@ const LLFontDescriptor* LLFontRegistry::getClosestFontTemplate(const LLFontDescr
 
 void LLFontRegistry::dump()
 {
-	LL_INFOS() << "LLFontRegistry dump: " << LL_ENDL;
+	LL_WARNS() << "LLFontRegistry dump: " << LL_ENDL;
 	for (font_size_map_t::iterator size_it = mFontSizes.begin();
 		size_it != mFontSizes.end();
 		++size_it)
 	{
-		LL_INFOS() << "Size: " << size_it->first << " => " << size_it->second << LL_ENDL;
+		LL_WARNS() << "Size: " << size_it->first << " => " << size_it->second << LL_ENDL;
 	}
 	for (font_reg_map_t::iterator font_it = mFontMap.begin();
 		font_it != mFontMap.end();
 		++font_it)
 	{
 		const LLFontDescriptor& desc = font_it->first;
-		LL_INFOS() << "Font: name=" << desc.getName()
+		LL_WARNS() << "Font: name=" << desc.getName()
 			<< " style=[" << ((S32)desc.getStyle()) << "]"
 			<< " size=[" << desc.getSize() << "]"
 			<< " fileNames="
@@ -827,7 +801,7 @@ void LLFontRegistry::dump()
 			file_it != desc.getFontFiles().end();
 			++file_it)
 		{
-			LL_INFOS() << "  file: " << file_it->FileName << LL_ENDL;
+			LL_WARNS() << "  file: " << file_it->FileName << LL_ENDL;
 		}
 	}
 }

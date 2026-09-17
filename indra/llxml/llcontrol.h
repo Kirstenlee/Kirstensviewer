@@ -229,7 +229,6 @@ public:
 	// generic getter
     template<typename T> T get(std::string_view name)
 	{
-        LL_PROFILE_ZONE_SCOPED_CATEGORY_LLSD;
 		LLControlVariable* control = getControl(name);
 		LLSD value;
 		eControlType type = TYPE_COUNT;

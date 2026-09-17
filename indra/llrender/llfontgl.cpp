@@ -190,17 +190,11 @@ void LLFontGL::submitGlyphBatch(const LLVector4a* vertices, const LLVector2* uvs
     {
         return;
     }
-    // S24 (2026-08-17, task #54): when LLFontVertexBuffer::genBuffers() has
-    // a display-list recording open (beginList()/endList()), route through
-    // gDX's own immediate-mode path instead of the fast gDXUIBatch path -
-    // LLRender::flush()'s existing sBufferDataList capture (genBuffer() +
-    // mDXImage, both already backend-agnostic/DX-safe) builds a real,
-    // replayable LLVertexBufferData from this call, exactly like it always
-    // has for GL. This is the COLD path - recording only happens once per
-    // genBuffers() call (i.e. only when the cached render() params actually
-    // changed), so the extra LLVertexBuffer allocation cost here is a
-    // one-time thing, not a per-frame one. The common case (no recording,
-    // every other frame) is completely unchanged below.
+    // S24: when a display-list recording is open (beginList()/endList()),
+    // route through gDX's immediate-mode path instead of gDXUIBatch, so
+    // LLRender::flush()'s sBufferDataList capture builds a real, replayable
+    // LLVertexBufferData - same as GL. Cold path only (once per genBuffers()
+    // call); the common no-recording case is unchanged below.
     if (gDX.isRecording())
     {
         gDX.begin(LLRender::TRIANGLES);
@@ -210,27 +204,12 @@ void LLFontGL::submitGlyphBatch(const LLVector4a* vertices, const LLVector2* uvs
     }
     if (LLHLSLShader* shader = LLHLSLShader::sCurBoundShaderPtr)
     {
-        // S24 (2026-08-16): DXUIBatch's batching key is (shader, topology,
-        // alpha_blend, depth) only - it has no idea the MVP is about to
-        // change, so two different text strings sharing that same key
-        // (e.g. 2D UI text and a world-space HUD nametag both use
-        // gUIProgram/TriangleList/alpha-blend/no-depth) can get silently
-        // merged into ONE pending batch even though each was positioned
-        // assuming its OWN, different transform. Only the LAST-synced MVP
-        // before the eventual Draw() actually takes effect - any
-        // earlier-pushed text in the same batch gets drawn with the wrong
-        // matrix, distorting/misplacing it. The existing pass-boundary
-        // flushPending() hooks (llviewerdisplay.cpp, llhudobject.cpp) only
-        // guard specific call-site boundaries and don't reach every case;
-        // closing it here instead - unconditionally draining any batch that
-        // was pending under a DIFFERENT (now-stale) matrix before this
-        // string's own vertices/matrix get pushed - guarantees every string
-        // of text always draws with its own correct transform regardless of
-        // what any particular caller remembers to flush. Narrows the
-        // batching granularity to "one draw per text string" instead of
-        // "one draw per matching-state run", which is still far fewer
-        // draws than the pre-batching one-draw-per-glyph baseline task #211
-        // fixed - correctness over squeezing out the last few draw calls.
+        // S24: DXUIBatch's batching key is (shader, topology, alpha_blend,
+        // depth) only, with no MVP awareness, so two different-transform
+        // strings can share a key and get merged into one pending batch,
+        // drawing the earlier one with the wrong (later) matrix. Flush any
+        // pending batch here, before pushing this string's own vertices, so
+        // every string always draws under its own transform.
         gDXUIBatch.flushPending();
 
         static thread_local std::vector<DXUIVertex> dx_verts;
@@ -264,13 +243,9 @@ void LLFontGL::submitUnderline(F32 x0, F32 x1, F32 y, const LLColor4U& color) co
     // color is passed explicitly (text_color/emoji_color) rather than
     // relying on GL's ambient "current color" carry-forward, since each
     // DXUIBatch draw is self-contained.
-    // S24 (2026-08-17, task #54): same recording-mode fallback as
-    // submitGlyphBatch() above (see its comment) - here it also sidesteps
-    // the "DXUIBatch has no line topology" quad-expansion below entirely,
-    // replaying as a real LINES draw instead (matching GL's own topology
-    // exactly, since this path goes through the general-purpose
-    // LLVertexBuffer/DXVertexLayout machinery, which already handles LINES
-    // natively - no CPU-side quad expansion needed here, unlike TRIANGLE_FAN).
+    // S24: same recording-mode fallback as submitGlyphBatch(); replays as a
+    // real LINES draw here, sidestepping the quad-expansion below (DXUIBatch
+    // has no line topology, but the general vertex-buffer path does).
     if (gDX.isRecording())
     {
         gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
@@ -285,12 +260,7 @@ void LLFontGL::submitUnderline(F32 x0, F32 x1, F32 y, const LLColor4U& color) co
     // quad centered on y instead (matching GL's default line width).
     if (LLHLSLShader* shader = LLHLSLShader::sCurBoundShaderPtr)
     {
-        // S24 (2026-08-16): same matrix-vs-batching-key gap as
-        // submitGlyphBatch() above (see its comment) - an underline shares
-        // the same (shader, topology, alpha_blend, depth) signature as
-        // glyph quads and plain text-adjacent geometry, so it's just as
-        // able to get silently merged with something needing a different
-        // transform.
+        // S24: same matrix-vs-batching-key gap as submitGlyphBatch() above.
         gDXUIBatch.flushPending();
 
         constexpr F32 HALF_WIDTH = 0.5f;
@@ -322,7 +292,6 @@ void LLFontGL::submitUnderline(F32 x0, F32 x1, F32 y, const LLColor4U& color) co
 S32 LLFontGL::render(const LLWString &wstr, S32 begin_offset, F32 x, F32 y, const LLColor4 &color, HAlign halign, VAlign valign, U8 style,
                      ShadowType shadow, S32 max_chars, S32 max_pixels, F32* right_x, bool use_ellipses, bool use_color) const
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_UI;
 
     if(!sDisplayFont) //do not display texts
     {
@@ -415,22 +384,10 @@ S32 LLFontGL::render(const LLWString &wstr, S32 begin_offset, F32 x, F32 y, cons
 
     const LLFontBitmapCache* font_bitmap_cache = mFontFreetype->getFontBitmapCache();
 
-    // S24: this WAS "compute once before the loop", flagged by the
-    // original comment below (kept for context) as looking wrong - it is.
-    // LLFontBitmapCache::mBitmapWidth/mBitmapHeight are shared across BOTH
-    // glyph types (Grayscale and Color use the same two fields, not
-    // per-type ones - llfontbitmapcache.h), and nextOpenPos() overwrites
-    // them the moment either atlas needs a fresh page (llfontbitmapcache.cpp,
-    // "Make a new one" branch). getGlyphInfo() below can trigger exactly
-    // that mid-loop (first-ever glyph of a given type this session), which
-    // silently invalidates a value captured once up here for every glyph
-    // rendered afterward - wrong UV divisors, sampling the wrong region of
-    // the (now differently-sized) atlas texture. Confirmed as the root
-    // cause of task #254 (SMP color-emoji rendering as garbage under
-    // DX_RENDER, specifically in LLFontVertexBuffer-cached callers that
-    // bake one render() pass's UVs in permanently - uncached callers
-    // self-heal next frame once the atlas size has settled, masking this
-    // everywhere else). Moved inside the loop; recomputed per glyph.
+    // S24: mBitmapWidth/mBitmapHeight are shared across both glyph types and
+    // get overwritten by nextOpenPos() whenever either atlas needs a fresh
+    // page - getGlyphInfo() below can trigger that mid-loop, so these must
+    // be recomputed per glyph, not captured once before the loop.
     //
     // This looks wrong, value is dynamic.
     // LLFontBitmapCache::nextOpenPos can alter these values when
@@ -487,10 +444,7 @@ S32 LLFontGL::render(const LLWString &wstr, S32 begin_offset, F32 x, F32 y, cons
             LL_ERRS() << "Missing Glyph Info" << LL_ENDL;
             break;
         }
-        // S24: recomputed every glyph, not once before the loop - see the
-        // comment above the loop for why. getGlyphInfo() just above can have
-        // just allocated a fresh atlas page (of either glyph type), so these
-        // must reflect the CURRENT (possibly just-changed) atlas size.
+        // S24: recomputed per glyph - see comment above the loop.
         F32 inv_width = 1.f / font_bitmap_cache->getBitmapWidth();
         F32 inv_height = 1.f / font_bitmap_cache->getBitmapHeight();
         // Per-glyph bitmap texture.
@@ -508,13 +462,6 @@ S32 LLFontGL::render(const LLWString &wstr, S32 begin_offset, F32 x, F32 y, cons
             bitmap_entry = next_bitmap_entry;
             LLImageGL* font_image = font_bitmap_cache->getImageGL(bitmap_entry.first, bitmap_entry.second);
             bindGlyphTexture(font_image);
-            // S24 (2026-07-23): a diagnostic here (comparing this bind()'s
-            // actual bound SRV against LLImageGL::setImage()'s own
-            // per-instance call log) traced "no text" to
-            // LLImageGL::setSubImage()'s full-image HACK branch calling
-            // setImage() - which destroys/recreates the whole DXTexture -
-            // on every single glyph addition. Fixed at the source
-            // (llimagegl.cpp); this bind() was never the problem.
 
             // For some reason it's not enough to compare by bitmap_entry.
             // Issue hits emojis, japenese and chinese glyphs, only on first run.
@@ -703,7 +650,6 @@ F32 LLFontGL::getWidthF32(const std::string& utf8text, S32 begin_offset, S32 max
 
 F32 LLFontGL::getWidthF32(const llwchar* wchars, S32 begin_offset, S32 max_chars, bool no_padding) const
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_UI;
     const S32 LAST_CHARACTER = LLFontFreetype::LAST_CHAR_FULL;
 
     F32 cur_x = 0;
@@ -761,7 +707,6 @@ F32 LLFontGL::getWidthF32(const llwchar* wchars, S32 begin_offset, S32 max_chars
 
 void LLFontGL::generateASCIIglyphs()
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_UI;
     for (U32 i = 32; (i < 127); i++)
     {
         mFontFreetype->getGlyphInfo(i, EFontGlyphType::Grayscale);
@@ -771,7 +716,6 @@ void LLFontGL::generateASCIIglyphs()
 // Returns the max number of complete characters from text (up to max_chars) that can be drawn in max_pixels
 S32 LLFontGL::maxDrawableChars(const llwchar* wchars, F32 max_pixels, S32 max_chars, EWordWrapStyle end_on_word_boundary) const
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_UI;
     if (!wchars || !wchars[0] || max_chars == 0)
     {
         return 0;
@@ -1082,7 +1026,6 @@ void LLFontGL::dumpFontTextures()
 // static
 bool LLFontGL::loadDefaultFonts()
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_UI;
     bool succ = true;
     succ &= (NULL != getFontSansSerifSmall());
     succ &= (NULL != getFontSansSerif());
@@ -1095,7 +1038,6 @@ bool LLFontGL::loadDefaultFonts()
 
 void LLFontGL::loadCommonFonts()
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_UI;
     getFont(LLFontDescriptor("SansSerif", "Small", BOLD));
     getFont(LLFontDescriptor("SansSerif", "Large", BOLD));
     getFont(LLFontDescriptor("SansSerif", "Huge", BOLD));

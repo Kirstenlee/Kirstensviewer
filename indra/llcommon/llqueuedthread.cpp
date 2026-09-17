@@ -140,7 +140,6 @@ void LLQueuedThread::shutdown()
 // virtual
 size_t LLQueuedThread::update(F32 max_time_ms)
 {
-    LL_PROFILE_ZONE_SCOPED;
 	if (!mStarted)
 	{
 		if (!mThreaded)
@@ -154,7 +153,6 @@ size_t LLQueuedThread::update(F32 max_time_ms)
 
 size_t LLQueuedThread::updateQueue(F32 max_time_ms)
 {
-    LL_PROFILE_ZONE_SCOPED;
 	// Frame Update
 	if (mThreaded)
 	{
@@ -163,7 +161,6 @@ size_t LLQueuedThread::updateQueue(F32 max_time_ms)
         {
             mRequestQueue.post([=, this]()
                 {
-                    LL_PROFILE_ZONE_NAMED_CATEGORY_THREAD("qt - update");
                     mIdleThread = false;
                     threadedUpdate();
                     mIdleThread = true;
@@ -246,7 +243,6 @@ LLQueuedThread::handle_t LLQueuedThread::generateHandle()
 // MAIN thread
 bool LLQueuedThread::addRequest(QueuedRequest* req)
 {
-    LL_PROFILE_ZONE_SCOPED;
 	if (mStatus == QUITTING)
 	{
 		return false;
@@ -269,7 +265,6 @@ bool LLQueuedThread::addRequest(QueuedRequest* req)
 // MAIN thread
 bool LLQueuedThread::waitForResult(LLQueuedThread::handle_t handle, bool auto_complete)
 {
-    LL_PROFILE_ZONE_SCOPED;
 	llassert (handle != nullHandle());
 	bool res = false;
 	bool waspaused = isPaused();
@@ -336,7 +331,6 @@ LLQueuedThread::status_t LLQueuedThread::getRequestStatus(handle_t handle)
 
 void LLQueuedThread::abortRequest(handle_t handle, bool autocomplete)
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_THREAD;
 	lockData();
 	QueuedRequest* req = (QueuedRequest*)mRequestHash.find(handle);
 	if (req)
@@ -360,7 +354,6 @@ void LLQueuedThread::setFlags(handle_t handle, U32 flags)
 
 bool LLQueuedThread::completeRequest(handle_t handle)
 {
-    LL_PROFILE_ZONE_SCOPED;
 	bool res = false;
 	lockData();
 	QueuedRequest* req = (QueuedRequest*)mRequestHash.find(handle);
@@ -390,7 +383,6 @@ bool LLQueuedThread::check()
 
 void LLQueuedThread::processRequest(LLQueuedThread::QueuedRequest* req)
 {
-    LL_PROFILE_ZONE_SCOPED_CATEGORY_THREAD;
 
     mIdleThread = false;
     //threadedUpdate();
@@ -400,7 +392,6 @@ void LLQueuedThread::processRequest(LLQueuedThread::QueuedRequest* req)
 	
 	if ((req->getFlags() & FLAG_ABORT) || (mStatus == QUITTING))
 	{
-        LL_PROFILE_ZONE_NAMED_CATEGORY_THREAD("qtpr - abort");
 		req->setStatus(STATUS_ABORTED);
 		req->finishRequest(false);
 		if (req->getFlags() & FLAG_AUTO_COMPLETE)
@@ -430,7 +421,6 @@ void LLQueuedThread::processRequest(LLQueuedThread::QueuedRequest* req)
 
             if (complete)
             {
-                LL_PROFILE_ZONE_NAMED_CATEGORY_THREAD("qtpr - complete");
                 lockData();
                 req->setStatus(STATUS_COMPLETE);
                 req->finishRequest(true);
@@ -444,7 +434,6 @@ void LLQueuedThread::processRequest(LLQueuedThread::QueuedRequest* req)
             }
             else
             {
-                LL_PROFILE_ZONE_NAMED_CATEGORY_THREAD("qtpr - retry");
                 //put back on queue and try again in 0.1ms
                 lockData();
                 req->setStatus(STATUS_QUEUED);
@@ -458,7 +447,6 @@ void LLQueuedThread::processRequest(LLQueuedThread::QueuedRequest* req)
                 auto retry_time = LL::WorkQueue::TimePoint::clock::now() + 16ms;
                 mRequestQueue.post([=, this]
                     {
-                        LL_PROFILE_ZONE_NAMED("processRequest - retry");
                         if (LL::WorkQueue::TimePoint::clock::now() < retry_time)
                         {
                             auto sleep_time = std::chrono::duration_cast<std::chrono::milliseconds>(retry_time - LL::WorkQueue::TimePoint::clock::now());

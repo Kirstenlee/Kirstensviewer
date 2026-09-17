@@ -150,7 +150,6 @@ LLIOPipe::EStatus LLHTTPPipe::process_impl(
     LLSD& context,
     LLPumpIO* pump)
 {
-    LL_PROFILE_ZONE_SCOPED;
     PUMP_DEBUG;
     LL_DEBUGS() << "LLSDHTTPServer::process_impl" << LL_ENDL;
 
@@ -471,7 +470,6 @@ LLIOPipe::EStatus LLHTTPResponseHeader::process_impl(
     LLSD& context,
     LLPumpIO* pump)
 {
-    LL_PROFILE_ZONE_SCOPED;
     PUMP_DEBUG;
     if(eos)
     {
@@ -669,7 +667,6 @@ LLIOPipe::EStatus LLHTTPResponder::process_impl(
     LLSD& context,
     LLPumpIO* pump)
 {
-    LL_PROFILE_ZONE_SCOPED;
     PUMP_DEBUG;
     LLIOPipe::EStatus status = STATUS_OK;
 

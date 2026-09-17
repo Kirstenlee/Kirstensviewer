@@ -50,17 +50,9 @@ namespace
         switch (color_fmt)
         {
         case GL_RGBA:      return DXGI_FORMAT_R8G8B8A8_UNORM;
-        // S24 (2026-08-27): was falling through to the default:/RGBA8 case -
-        // confirmed via a "glColorFormatToDX: unmapped GL format 0x805b"
-        // log line (0x805B = GL_RGBA16). addDeferredAttachments()
-        // (pipeline.cpp) requests this for the deferred G-buffer's NORMAL
-        // attachment specifically, so this was a live, always-on precision
-        // bug: every DX_RENDER frame's encoded normals were quantized to
-        // 8 bits/channel instead of the intended 16 - a real (if subtle)
-        // source of lighting/normal-encoding banding, not cosmetic-only.
-        // R16G16B16A16_UNORM (not _FLOAT) matches GL_RGBA16's own semantics -
-        // a normalized fixed-point format, same as GL_RGBA's UNORM mapping
-        // just wider - not a floating-point one like GL_RGBA16F below.
+        // S24: R16G16B16A16_UNORM (not _FLOAT) matches GL_RGBA16's own
+        // semantics - a normalized fixed-point format, same as GL_RGBA's
+        // UNORM mapping just wider, not floating-point like GL_RGBA16F below.
         case GL_RGBA16:    return DXGI_FORMAT_R16G16B16A16_UNORM;
         case GL_RGBA16F:   return DXGI_FORMAT_R16G16B16A16_FLOAT;
         case GL_RGB16F:    return DXGI_FORMAT_R16G16B16A16_FLOAT;
@@ -69,23 +61,12 @@ namespace
         case GL_R8:        return DXGI_FORMAT_R8_UNORM;
         case GL_RG16F:     return DXGI_FORMAT_R16G16_FLOAT;
         case GL_R16F:      return DXGI_FORMAT_R16_FLOAT;
-        // S24 (2026-08-27): GL_RGBA8/GL_RGB8 are distinct enum values from
-        // GL_RGBA/GL_RGB above (sized-internal-format tokens, not the
-        // generic ones) and had no case of their own - they were landing in
-        // default:/RGBA8 too, just correctly BY COINCIDENCE (both really
-        // are 8-bit/channel already). Made explicit so this doesn't depend
-        // on the default happening to match, and so real callers
-        // (llheroprobemanager.cpp's non-HDR color_fmt, llreflectionmapmanager.cpp's
-        // non-HDR color_fmt) stop spamming the unmapped-format warning.
+        // S24: GL_RGBA8/GL_RGB8 are distinct enum values from GL_RGBA/GL_RGB
+        // above (sized-internal-format tokens) - made explicit rather than
+        // relying on the default:/RGBA8 fallback happening to match.
         case GL_RGBA8:     return DXGI_FORMAT_R8G8B8A8_UNORM;
         case GL_RGB8:      return DXGI_FORMAT_R8G8B8A8_UNORM;
-        // S24 (2026-08-27): real gap, NOT coincidentally-correct like the
-        // two above - llreflectionmapmanager.cpp's HDR reflection-probe
-        // render target requests this (RenderHDREnabled, default on)
-        // specifically to avoid clipping/banding reflections brighter than
-        // 1.0, and was silently getting 8-bit UNORM instead (same
-        // "unmapped format -> RGBA8" fallback as the GL_RGBA16 bug above).
-        // R11G11B10_FLOAT is GL_R11F_G11F_B10F's exact DXGI equivalent -
+        // S24: R11G11B10_FLOAT is GL_R11F_G11F_B10F's exact DXGI equivalent -
         // same packed layout, no alpha channel in either.
         case GL_R11F_G11F_B10F: return DXGI_FORMAT_R11G11B10_FLOAT;
         default:
@@ -99,23 +80,11 @@ namespace
 LLRenderTarget* LLRenderTarget::sBoundTarget = NULL;
 U32 LLRenderTarget::sBytesAllocated = 0;
 
-// S24 - Optimized framebuffer status check for GPU allocation hot path
-// This function was called 5+ times during EVERY render target allocation (initialization, resize)
-// Gains: ~100-300 cycles per allocation by making status check debug-only
-// Rationale: Framebuffer validation is expensive GPU roundtrip (glCheckFramebufferStatus).
-//            Production code should trust allocation succeeded (failure is catastrophic anyway).
-//            User can't fix GPU driver bugs - warning spam provides zero value.
 void check_framebuffer_status()
 {
 #if LL_DEBUG && !defined(DX_RENDER)
-	// S24 (DX_RENDER, 2026-07-24): all real call sites are already GL-only
-	// branches (see this file's DX_RENDER fixes), so this never runs under
-	// DX_RENDER today - but the function's own body was still unconditionally
-	// compiled regardless of DX_RENDER, only gated by LL_DEBUG. A debug
-	// DX_RENDER=ON build would have tried to link glCheckFramebufferStatus,
-	// an unresolved symbol now that OpenGL is deliberately not linked (see
-	// newview/CMakeLists.txt). Gated explicitly rather than relying on "no
-	// caller reaches it" to stay true forever.
+	// S24: gated on DX_RENDER too, not just LL_DEBUG - glCheckFramebufferStatus
+	// is an unresolved symbol once OpenGL is delinked.
 	if (gDebugGL)
 	{
 		GLenum status = glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER);
@@ -153,7 +122,6 @@ LLRenderTarget::~LLRenderTarget()
 {
 	release();
 }
-// S24 improve
 void LLRenderTarget::resize(U32 resx, U32 resy)
 {
 	// Skip if dimensions are unchanged
@@ -216,7 +184,6 @@ void LLRenderTarget::resize(U32 resx, U32 resy)
 
 bool LLRenderTarget::allocate(U32 resx, U32 resy, U32 color_fmt, bool depth, LLTexUnit::eTextureType usage, LLTexUnit::eTextureMipGeneration generateMipMaps)
 {
-	LL_PROFILE_ZONE_SCOPED_CATEGORY_DISPLAY;
 	llassert(usage == LLTexUnit::TT_TEXTURE);
 	llassert(!isBoundInStack());
 
@@ -244,30 +211,16 @@ bool LLRenderTarget::allocate(U32 resx, U32 resy, U32 color_fmt, bool depth, LLT
 	}
 
 #ifdef DX_RENDER
-	// S24 (2026-09-02): color_fmt==0 is an established, deliberate "no
-	// color attachment, depth-only" convention already used by real
-	// callers (pipeline.cpp's shadow[i]/mSpotShadow[i] allocations) -
-	// route it straight to DXGI_FORMAT_UNKNOWN (0) rather than through
-	// glColorFormatToDX(), which has no case for 0 and was silently
-	// defaulting it to RGBA8 (logging "unmapped GL format 0x0" every
-	// time, recurring throughout the session, not just at startup).
-	// DXRenderTarget::allocate() below now skips creating a color
-	// attachment entirely when it sees DXGI_FORMAT_UNKNOWN - previously
-	// it created one unconditionally, meaning every shadow-map render
-	// target got a real, wasted RGBA8 D3D11 texture + RTV it never used.
-	// A genuinely unrecognized (non-zero, non-mapped) format still goes
-	// through glColorFormatToDX()'s existing warn-and-fall-back-to-RGBA8
-	// path unchanged - this only special-cases the real "no color wanted"
-	// signal.
+	// S24: color_fmt==0 is an established "no color attachment, depth-only"
+	// convention (pipeline.cpp's shadow[i]/mSpotShadow[i] allocations) -
+	// route it straight to DXGI_FORMAT_UNKNOWN rather than through
+	// glColorFormatToDX(), which has no case for 0. DXRenderTarget::
+	// allocate() skips creating a color attachment when it sees
+	// DXGI_FORMAT_UNKNOWN.
 	return mDXRenderTarget.allocate(resx, resy, color_fmt == 0 ? DXGI_FORMAT_UNKNOWN : glColorFormatToDX(color_fmt), depth);
 #else
 	if (depth)
 	{
-		// S24 - Removed "Failed to allocate depth buffer" warning from allocation hot path
-		// Gains: ~30-50 cycles per depth allocation failure
-		// Rationale: If depth allocation fails, rendering will fail catastrophically anyway.
-		//            User can't fix GPU memory exhaustion - reduce video settings instead.
-		//            Warning provides no actionable information.
 		if (!allocateDepth())
 		{
 			return false;
@@ -292,17 +245,11 @@ bool LLRenderTarget::allocate(U32 resx, U32 resy, U32 color_fmt, bool depth, LLT
 void LLRenderTarget::setColorAttachment(LLImageGL* img, LLGLuint use_name)
 {
 #ifdef DX_RENDER
-	// S24 (DX_RENDER, 2026-07-24): a real gap, not yet closed - this is the
-	// "point this render target at a particular LLImageGL" alternate usage
-	// mode (see the class comment), distinct from allocate()'s normal
-	// self-owned-texture path. DXRenderTarget has no equivalent - it can't
-	// render into an arbitrary externally-owned DXTexture, only its own.
-	// Only known caller today is LLDrawPoolBump's bump-map to normal-map
-	// conversion (lldrawpoolbump.cpp), which is itself unguarded - see the
-	// matching fix there, which skips the whole conversion under DX_RENDER
-	// rather than call this and leave a half-set-up render target. Kept as
-	// a loud one-time warning rather than a silent no-op, in case some
-	// future caller reaches this without the same care.
+	// S24: real gap, not yet closed - DXRenderTarget can't render into an
+	// arbitrary externally-owned DXTexture, only its own. Only known caller
+	// (LLDrawPoolBump's bump-map to normal-map conversion) already skips
+	// this under DX_RENDER. Kept as a loud one-time warning rather than a
+	// silent no-op, in case a future caller reaches this without the same care.
 	static bool warned = false;
 	if (!warned)
 	{
@@ -336,7 +283,6 @@ void LLRenderTarget::setColorAttachment(LLImageGL* img, LLGLuint use_name)
 	glBindFramebuffer(GL_FRAMEBUFFER, mFBO);
 	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
 		LLTexUnit::getInternalType(mUsage), use_name, 0);
-	stop_glerror();
 
 	check_framebuffer_status();
 
@@ -344,7 +290,6 @@ void LLRenderTarget::setColorAttachment(LLImageGL* img, LLGLuint use_name)
 #endif // DX_RENDER
 }
 
-// S24
 void LLRenderTarget::releaseColorAttachment()
 {
 #ifdef DX_RENDER
@@ -375,10 +320,8 @@ void LLRenderTarget::releaseColorAttachment()
 #endif // DX_RENDER
 }
 
-// S24
 bool LLRenderTarget::addColorAttachment(U32 color_fmt)
 {
-	LL_PROFILE_ZONE_SCOPED_CATEGORY_DISPLAY;
 	llassert(!isBoundInStack());
 
 	if (color_fmt == 0)
@@ -388,11 +331,6 @@ bool LLRenderTarget::addColorAttachment(U32 color_fmt)
 	return mDXRenderTarget.addColorAttachment(glColorFormatToDX(color_fmt));
 #else
 	const U32 offset = static_cast<U32>(mTex.size());
-	// S24 - Removed "Too many color attachments" warning from hot path
-	// Gains: ~30-40 cycles per excessive attachment attempt
-	// Rationale: llassert still fires in debug builds, production should trust the limit.
-	//            This is a programmer error (exceeded GL_MAX_COLOR_ATTACHMENTS), not user error.
-	//            User can't fix it anyway.
 	if (offset >= 4)
 	{
 		llassert(offset < 4);
@@ -408,7 +346,6 @@ bool LLRenderTarget::addColorAttachment(U32 color_fmt)
 	LLImageGL::generateTextures(1, &tex);
 	gDX.getTexUnit(0)->bindManual(mUsage, tex);
 
-	stop_glerror();
 
 	const U32 internal_type = LLTexUnit::getInternalType(mUsage);
 
@@ -425,25 +362,17 @@ bool LLRenderTarget::addColorAttachment(U32 color_fmt)
 		nullptr,
 		false
 	);
-	// S24 - Removed "Could not allocate color buffer" warning from allocation hot path
-	// Gains: ~40-60 cycles per allocation failure
-	// Rationale: GPU memory exhaustion is catastrophic - warning won't help user.
-	//            If allocation fails, rendering will break obviously (black screen, artifacts).
-	//            User's only recourse: reduce graphics settings, upgrade GPU.
-	//            Console spam during VRAM exhaustion doesn't help diagnosis.
 	if (glGetError() != GL_NO_ERROR)
 	{
 		return false;
 	}
 
 	sBytesAllocated += mResX * mResY * 4;
-	stop_glerror();
 
 	// Filtering: bilinear for first attachment, point for additional
 	gDX.getTexUnit(0)->setTextureFilteringOption(
 		offset == 0 ? LLTexUnit::TFO_BILINEAR : LLTexUnit::TFO_POINT
 	);
-	stop_glerror();
 
 	// Address mode: mirror unless rectangular texture (ATI quirk)
 	gDX.getTexUnit(0)->setTextureAddressMode(
@@ -451,7 +380,6 @@ bool LLRenderTarget::addColorAttachment(U32 color_fmt)
 		? LLTexUnit::TAM_MIRROR
 		: LLTexUnit::TAM_CLAMP
 	);
-	stop_glerror();
 
 	// Attach to FBO if available
 	if (mFBO)
@@ -481,10 +409,8 @@ bool LLRenderTarget::addColorAttachment(U32 color_fmt)
 #endif // DX_RENDER
 }
 
-// S24
 bool LLRenderTarget::allocateDepth()
 {
-	LL_PROFILE_ZONE_SCOPED_CATEGORY_DISPLAY;
 
 #ifdef DX_RENDER
 	if (!mDXRenderTarget.allocateDepth())
@@ -500,7 +426,6 @@ bool LLRenderTarget::allocateDepth()
 
 	const U32 internal_type = LLTexUnit::getInternalType(mUsage);
 
-	stop_glerror();
 	clear_glerror();
 
 	// Allocate depth storage
@@ -518,12 +443,6 @@ bool LLRenderTarget::allocateDepth()
 
 	gDX.getTexUnit(0)->setTextureFilteringOption(LLTexUnit::TFO_POINT);
 
-	// S24 - Correct order: It checks for OpenGL errors before updating memory accounting.
-	// S24 - Removed "Unable to allocate depth buffer" warning from allocation hot path
-	// Gains: ~40-60 cycles per depth allocation failure
-	// Rationale: Same as color buffer above - GPU memory exhaustion is catastrophic.
-	//            Depth allocation failure breaks rendering entirely (Z-fighting, no depth test).
-	//            User can't fix GPU VRAM exhaustion from console warning.
 	if (glGetError() != GL_NO_ERROR)
 	{
 		return false;
@@ -536,7 +455,6 @@ bool LLRenderTarget::allocateDepth()
 #endif // DX_RENDER
 }
 
-// S24
 void LLRenderTarget::shareDepthBuffer(LLRenderTarget& target)
 {
 	llassert(!isBoundInStack());
@@ -576,26 +494,16 @@ void LLRenderTarget::shareDepthBuffer(LLRenderTarget& target)
 #endif // DX_RENDER
 }
 
-// S24
 void LLRenderTarget::release()
 {
-	LL_PROFILE_ZONE_SCOPED_CATEGORY_DISPLAY;
 	llassert(!isBoundInStack());
 
 #ifdef DX_RENDER
-	// S24 (2026-09-08, task #316): was missing `mUseDepth = false;` -
-	// isComplete() (below) returns `mDXRenderTarget.getNumColorAttachments()
-	// > 0 || mUseDepth`, so once any caller ever allocate()'d this target
-	// with depth=true (setting mUseDepth=true), a later release() cleared
-	// the real DX-side color attachment but left mUseDepth stale-true,
-	// making isComplete() permanently lie "yes, still complete" even though
-	// the actual color texture is gone. Any caller gated on
-	// `if (!isComplete()) allocate(...)` (e.g.
-	// LLHeroProbeManager::update()'s own mRenderTarget rebuild) would then
-	// never reallocate again for the rest of the process - confirmed live
-	// via direct GPU readback (getDXColorTexture(0) returning null) as the
-	// real root cause of hero-probe mirrors working exactly once per
-	// process then permanently failing on any later reset/reallocation.
+	// S24: must reset mUseDepth here - isComplete() returns
+	// `mDXRenderTarget.getNumColorAttachments() > 0 || mUseDepth`, so
+	// leaving it stale-true after release() makes isComplete() lie "still
+	// complete" even though the color texture is gone, and any caller gated
+	// on `if (!isComplete()) allocate(...)` never reallocates again.
 	mUseDepth = false;
 	mDXRenderTarget.release();
 	mTex.clear();
@@ -658,10 +566,8 @@ void LLRenderTarget::release()
 #endif // DX_RENDER
 }
 
-// S24
 void LLRenderTarget::bindTarget(bool bind_depth)
 {
-	LL_PROFILE_GPU_ZONE("bindTarget");
 	llassert(!isBoundInStack());
 
 #ifdef DX_RENDER
@@ -717,10 +623,8 @@ void LLRenderTarget::bindTarget(bool bind_depth)
 #endif // DX_RENDER
 }
 
-// S24
 void LLRenderTarget::clear(U32 mask_in)
 {
-	LL_PROFILE_GPU_ZONE("clear");
 
 #ifdef DX_RENDER
 	mDXRenderTarget.clear((mask_in & GL_COLOR_BUFFER_BIT) != 0, mUseDepth && (mask_in & GL_DEPTH_BUFFER_BIT) != 0);
@@ -732,21 +636,17 @@ void LLRenderTarget::clear(U32 mask_in)
 
 #if LL_DEBUG  // keep expensive checks only in debug
 	check_framebuffer_status();
-	stop_glerror();
 #endif
 
 	glClear(mask & mask_in);
 
 #if LL_DEBUG
-	stop_glerror();
 #endif
 #endif // DX_RENDER
 }
 
-// S24
 void LLRenderTarget::clearColor(float r, float g, float b, float a)
 {
-	LL_PROFILE_GPU_ZONE("clearColor");
 
 #ifdef DX_RENDER
 	mDXRenderTarget.clearColor(r, g, b, a);
@@ -772,27 +672,12 @@ U32 LLRenderTarget::getNumTextures() const
 void LLRenderTarget::bindTexture(U32 index, S32 channel, LLTexUnit::eTextureFilterOptions filter_options)
 {
 #ifdef DX_RENDER
-	// S24 (2026-08-04): was completely unguarded - routed through
-	// bindManual() with a raw GL texture name from getTexture(index),
-	// always a no-op under DX_RENDER (see bindManual()'s own comment -
-	// nothing to translate a bare GLuint into). This is THE chokepoint for
-	// binding one SPECIFIC attachment of a multi-attachment render target
-	// (diffuse/specular/normal/emissive - anything via an explicit index,
-	// as opposed to LLTexUnit::bind(LLRenderTarget*, bool)'s single-
-	// attachment-0-only overload) as an input texture for a later pass -
-	// LLPipeline::bindDeferredShader() uses exactly this for all of the
-	// deferred lighting pass's G-buffer reads. Root cause of a real bug:
-	// softenLightF.hlsl's getGBuffer() read (0,0,0,0) at every sampled
-	// point even where the G-buffer itself (confirmed via a completely
-	// separate readback path, DXReadback::readPixels() on the raw
-	// resource) had real, varied diffuse color - because diffuseRect/
-	// specularRect/normalMap were never actually bound to their texture
-	// channels at all. This was a known, documented gap - see
-	// DXRenderTarget.h's own class comment ("the read side... has no
-	// DX_RENDER equivalent yet, since no such pass has been converted so
-	// far") - this is that pass. Uses getColorSRV(index) (already exists,
-	// already used by DXReadback/presentDeferredScreen), not the raw-
-	// GLuint path.
+	// S24: this is THE chokepoint for binding one specific attachment of a
+	// multi-attachment render target (diffuse/specular/normal/emissive via
+	// explicit index) as an input texture - LLPipeline::bindDeferredShader()
+	// uses this for all of the deferred lighting pass's G-buffer reads.
+	// Uses getColorSRV(index), not the raw-GLuint bindManual() path (which
+	// has nothing to translate a bare GLuint into under DX_RENDER).
 	if (channel < 0)
 	{
 		return;
@@ -809,27 +694,10 @@ void LLRenderTarget::bindTexture(U32 index, S32 channel, LLTexUnit::eTextureFilt
 	// rather than risk leaving pending batched vertices drawn under stale
 	// state.
 	gDX.flush();
-	// S24 (2026-08-27, task #254): this call was missing entirely - every
-	// other texture-bind chokepoint (LLTexUnit::bind(LLImageGL*)/bindFast()/
-	// bind(DXTexture&)/bind(LLRenderTarget*,bool)) pairs gDX.flush() with
-	// gDXUIBatch.flushPending() (see DXUIBatch.h's "texture changes are a
-	// hazard" contract - drawAndPop() never touches PSSetShaderResources
-	// itself, it trusts whatever's already ambient). This function raw-binds
-	// PSSetShaderResources completely outside LLTexUnit's bookkeeping, so
-	// LLTexUnit::mCurrDXSRV never learns the real GPU state changed - a
-	// LATER, otherwise-correct LLTexUnit::bind() call for the SAME texture
-	// its own bookkeeping already believes is current would then wrongly
-	// skip its own flush+rebind, leaving whatever THIS function bound
-	// (diffuse/specular/normal/emissive G-buffer channels, called every
-	// frame from LLPipeline::bindDeferredShader() - the deferred lighting
-	// pass's main texture chokepoint) resident on that channel instead.
-	// Confirmed live via a GPU-vs-CPU SRV cross-reference diagnostic: the
-	// actual bound SRV at DXUIBatch::drawAndPop()'s real Draw() call for a
-	// glyph text batch did not match any SRV LLTexUnit::bind() had itself
-	// logged as "just bound" in the same window - a genuine ambient-state
-	// leak, not a CPU-side logic bug (CPU-side atlas/UV/glyph-type logic was
-	// independently confirmed correct via multiple other diagnostics this
-	// same investigation).
+	// S24: this function raw-binds PSSetShaderResources completely outside
+	// LLTexUnit's bookkeeping, so without also flushing gDXUIBatch here, a
+	// later LLTexUnit::bind() call for the same channel could wrongly think
+	// its own cached state is still current and skip a real rebind.
 	gDXUIBatch.flushPending();
 	// CLAMP address mode baked in here (GL's setTextureAddressMode(TAM_CLAMP)
 	// call that normally follows this one is a confirmed no-op under
@@ -845,12 +713,8 @@ void LLRenderTarget::bindTexture(U32 index, S32 channel, LLTexUnit::eTextureFilt
 	{
 		gDXDevice.getContext()->PSSetSamplers(channel, 1, &sampler);
 	}
-	// S24 (2026-09-10, task #273/#280): close the cache-desync gap the
-	// comment above has been documenting since task #254 - tell this
-	// channel's LLTexUnit what's really bound now, so a later bind()/
-	// bindFast() call for the same channel can't be fooled by stale
-	// bookkeeping into wrongly skipping a real rebind. Pure bookkeeping,
-	// changes no GPU state - the PSSet calls above are unchanged.
+	// S24: tell this channel's LLTexUnit what's really bound now - see the
+	// comment above. Pure bookkeeping, changes no GPU state.
 	gDX.getTexUnit(channel)->syncDXBindState((void*)srv, (void*)sampler);
 #else
 	gDX.getTexUnit(channel)->bindManual(mUsage, getTexture(index), filter_options == LLTexUnit::TFO_TRILINEAR || filter_options == LLTexUnit::TFO_ANISOTROPIC);
@@ -858,7 +722,6 @@ void LLRenderTarget::bindTexture(U32 index, S32 channel, LLTexUnit::eTextureFilt
 #endif
 }
 
-// S24
 void LLRenderTarget::flush()
 {
 	gDX.flush();
@@ -881,20 +744,12 @@ void LLRenderTarget::flush()
 		sBoundTarget = nullptr;
 		DXRenderTarget::bindSwapChainBackBuffer();
 
-		// S24 (2026-08-21): bindSwapChainBackBuffer() always sets a viewport
-		// covering the FULL swap chain (DXRenderTarget.cpp) - it has no idea
-		// LLViewerWindow::mWorldViewRectRaw carves out a smaller area below
-		// the menu bar/location bar chrome. GL's own fallback just below
-		// (the #else branch) explicitly restores gGLViewport here; this
-		// branch never did, so any RT stack unwinding to the back buffer
-		// mid-frame (e.g. render_hud_attachments()'s renderGeomPostDeferred()
-		// re-triggering doWaterExclusionMask()'s bindTarget()/flush() cycle)
-		// silently widened the live D3D11 viewport back to the full window -
-		// aspect mismatch crushed HUD text/geometry, and the origin shift
-		// (0,0 vs the chrome-adjusted top) read as an offset. gGLViewport
-		// itself (used by llviewercamera.cpp's unProject() for manipulator
-		// picking) was never touched by bindSwapChainBackBuffer(), so picking
-		// silently disagreed with what was actually on screen.
+		// S24: bindSwapChainBackBuffer() always sets a viewport covering the
+		// full swap chain, with no idea LLViewerWindow::mWorldViewRectRaw
+		// carves out a smaller area below the menu/location bar chrome -
+		// restore gGLViewport explicitly here, matching the GL #else branch
+		// below, or any RT stack unwind to the back buffer mid-frame widens
+		// the live D3D11 viewport back to the full window.
 		D3D11_VIEWPORT vp = {};
 		vp.TopLeftX = (float)gGLViewport[0];
 		vp.TopLeftY = (float)(gDXSwapChain.getHeight() - (gGLViewport[1] + gGLViewport[3]));
@@ -965,7 +820,6 @@ bool LLRenderTarget::isBoundInStack() const
 	return cur == this;
 }
 
-// S24
 void LLRenderTarget::swapFBORefs(LLRenderTarget& other)
 {
 	// Preconditions: both valid, unbound, and compatible

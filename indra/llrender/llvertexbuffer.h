@@ -94,31 +94,18 @@ public:
     glm::mat4 mModelView;
     glm::mat4 mTexture0;
 #ifdef DX_RENDER
-    // S24 (task #54): DX-native counterpart to mTexName above - captured by
-    // LLRender::flush() from LLTexUnit::mCurrBoundImageGL when recording a
-    // display list (see LLFontVertexBuffer/LLUIImage's caches). A strong ref
-    // keeps the texture alive for as long as this cached entry exists, which
-    // mTexName's raw GLuint never guaranteed on the GL side either. draw()/
-    // drawWithMatrix() replay this via a real bind(LLImageGL*) call instead
-    // of GL's bindManual(mTexName), which has no DX11 resource to translate.
+    // S24: DX-native counterpart to mTexName, captured by LLRender::flush()
+    // from LLTexUnit::mCurrBoundImageGL when recording a display list. A
+    // strong ref keeps the texture alive; draw()/drawWithMatrix() replay via
+    // bind(LLImageGL*) instead of GL's bindManual(mTexName).
     LLPointer<LLImageGL> mDXImage;
 
-    // S24 (2026-08-28, task #254): same rationale as mDXImage above, for the
-    // shader stage instead of the texture stage. Captured by LLRender::
-    // flush() from LLHLSLShader::sCurBoundShaderPtr when recording. Without
-    // this, draw()/drawWithMatrix() never rebind a shader at all - they
-    // inherit whatever VS/PS happen to be ambiently bound on the GPU at
-    // replay time, which DXUIBatch::drawAndPop() (dxrender/resources/
-    // DXUIBatch.cpp) can leave arbitrarily wrong: it sets VS/PS directly via
-    // ctx->VSSetShader()/PSSetShader() without updating sCurBoundShaderPtr
-    // (see LLHLSLShader::bind()'s comment, task #224) - so the bookkeeping
-    // setupVertexBuffer() reads to build the input layout can desync from
-    // what's actually bound. A cached/replayed buffer (LLFontVertexBuffer,
-    // LLUIImage's display-list cache) recorded once under one shader could
-    // then replay under a completely different one depending on whatever
-    // ran earlier in that specific frame - not a raw pointer (no ownership
-    // implied, matches how sCurBoundShaderPtr itself is held; LLHLSLShader
-    // instances are process-lifetime singletons, never destroyed mid-run).
+    // S24: same rationale as mDXImage, for the shader stage - captured from
+    // LLHLSLShader::sCurBoundShaderPtr. Without it, replay inherits whatever
+    // VS/PS happen to be ambiently bound at replay time instead of the
+    // shader this buffer was actually recorded under. Raw pointer: matches
+    // how sCurBoundShaderPtr itself is held (LLHLSLShader instances are
+    // process-lifetime singletons).
     LLHLSLShader* mDXShader = nullptr;
 #endif
 };
@@ -350,7 +337,7 @@ private:
     friend class LLNavShapeVBOManager;
     friend class LLNavMeshVBOManager;
 
-    void flush_vbo(GLenum target, U32 start, U32 end, void* data, U8* dst);
+    void flush_vbo(DXenum target, U32 start, U32 end, void* data, U8* dst);
 
     LLVertexBuffer(U32 typemask, U32 usage)
         : LLVertexBuffer(typemask)
@@ -370,11 +357,9 @@ public:
     static U64 getBytesAllocated();
     static const U32 sTypeSize[TYPE_MAX];
     static const U32 sGLMode[LLRender::NUM_MODES];
-    // S24: thread_local (was plain static) — these are a CPU-side cache of "what's bound
-    // in the calling thread's current GL context" used to elide redundant glBindBuffer calls.
-    // GL bind state is per-context, so a plain global corrupts the render thread's cache the
-    // moment any other thread binds a buffer on its own shared context. Mirrors gDX's own
-    // thread_local pattern (llrender.h).
+    // S24: thread_local, not plain static - a per-context CPU-side cache of
+    // the bound buffer; a plain global would corrupt this when another
+    // thread binds a buffer on its own shared context.
     static thread_local U32 sGLRenderBuffer;
     static thread_local U32 sGLRenderIndices;
 #ifdef DX_RENDER

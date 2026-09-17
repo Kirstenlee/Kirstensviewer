@@ -364,107 +364,13 @@ bool LLShaderMgr::attachShaderFeatures(LLHLSLShader* shader)
 //============================================================================
 // Load Shader
 
-static std::string get_shader_log(GLuint ret)
+// S24: get_shader_log()/get_program_log()/get_object_log()/dumpShaderSource()/dumpObjectLog()
+// removed - all dead (zero live callers, confirmed by grep across the whole tree) once
+// loadShaderFile()'s GL compile branch and linkProgramObject()/validateProgramObject() (also
+// removed below) are gone. Part of task #300 (full GL removal) - this file only ever compiled
+// its DX_RENDER branch in this build anyway; these were never-taken GL fallback paths.
+GLuint LLShaderMgr::loadShaderFile(const std::string& filename, S32& shader_level, DXenum type, std::map<std::string, std::string>* defines, S32 texture_index_channels, bool attaches_deferred_util)
 {
-	std::string res;
-
-	//get log length
-	GLint length;
-	glGetShaderiv(ret, GL_INFO_LOG_LENGTH, &length);
-	if (length > 0)
-	{
-		//the log could be any size, so allocate appropriately
-		GLchar* log = new GLchar[length];
-		glGetShaderInfoLog(ret, length, &length, log);
-		res = std::string((char*)log);
-		delete[] log;
-	}
-	return res;
-}
-
-static std::string get_program_log(GLuint ret)
-{
-	LL_PROFILE_ZONE_SCOPED_CATEGORY_SHADER;
-	std::string res;
-
-	//get log length
-	GLint length;
-	glGetProgramiv(ret, GL_INFO_LOG_LENGTH, &length);
-	if (length > 0)
-	{
-		//the log could be any size, so allocate appropriately
-		GLchar* log = new GLchar[length];
-		glGetProgramInfoLog(ret, length, &length, log);
-		res = std::string((char*)log);
-		delete[] log;
-	}
-	return res;
-}
-
-// get the info log for the given object, be it a shader or program object
-// NOTE: ret MUST be a shader OR a program object
-static std::string get_object_log(GLuint ret)
-{
-	if (glIsProgram(ret))
-	{
-		return get_program_log(ret);
-	}
-	else
-	{
-		llassert(glIsShader(ret));
-		return get_shader_log(ret);
-	}
-}
-
-//dump shader source for debugging
-void LLShaderMgr::dumpShaderSource(U32 shader_code_count, GLchar** shader_code_text)
-{
-	char num_str[16]; // U32 = max 10 digits
-
-	LL_SHADER_LOADING_WARNS() << "\n";
-
-	for (U32 i = 0; i < shader_code_count; i++)
-	{
-		snprintf(num_str, sizeof(num_str), "%4d: ", i + 1);
-		std::string line_number(num_str);
-		LL_CONT << line_number << shader_code_text[i];
-	}
-	LL_CONT << LL_ENDL;
-}
-
-void LLShaderMgr::dumpObjectLog(GLuint ret, bool warns, const std::string& filename)
-{
-	std::string log;
-	log = get_object_log(ret);
-	std::string fname = filename;
-	if (filename.empty())
-	{
-		fname = "unknown shader file";
-	}
-
-	if (log.length() > 0)
-	{
-		LL_SHADER_LOADING_WARNS() << "Shader loading from " << fname << LL_ENDL;
-		LL_SHADER_LOADING_WARNS() << "\n" << log << LL_ENDL;
-	}
-}
-
-GLuint LLShaderMgr::loadShaderFile(const std::string& filename, S32& shader_level, GLenum type, std::map<std::string, std::string>* defines, S32 texture_index_channels, bool attaches_deferred_util)
-{
-
-#ifndef DX_RENDER
-	// Under DX_RENDER there is no real, current GL context (Milestone 1
-	// replaced GL context creation with initDX11Context()), so glGetError()
-	// here is meaningless - it doesn't report a real error, just noise
-	// logged once per file for every one of ~150+ shader-file loads.
-	GLenum error = GL_NO_ERROR;
-
-	error = glGetError();
-	if (error != GL_NO_ERROR)
-	{
-		LL_SHADER_LOADING_WARNS() << "GL ERROR entering loadShaderFile(): " << error << " for file: " << filename << LL_ENDL;
-	}
-#endif
 
 	if (filename.empty())
 	{
@@ -479,6 +385,24 @@ GLuint LLShaderMgr::loadShaderFile(const std::string& filename, S32& shader_leve
 	S32 gpu_class;
 
 	std::string open_file_name;
+
+	// See mRawShaderFileTextCache's own comment (llshadermgr.h) - the resolved file (and its
+	// content) for a given (filename, try_gpu_class) pair can't change mid-session outside of a
+	// deliberate Develop > Rebuild Shaders / Purge Shader Cache, both of which call
+	// clearRawShaderFileCache() first - so a hit here skips the real disk probe/read below
+	// entirely. Keyed by the ORIGINAL (pre extension-swap) filename, same as
+	// mVertexShaderSourceText/mFragmentShaderSourceText below.
+	const std::string raw_cache_key = filename + "@" + std::to_string(try_gpu_class);
+	std::string source_text;
+	bool have_source = false;
+	{
+		auto cached = mRawShaderFileTextCache.find(raw_cache_key);
+		if (cached != mRawShaderFileTextCache.end())
+		{
+			source_text = cached->second;
+			have_source = true;
+		}
+	}
 
 #ifdef DX_RENDER
 	// filename arrives with ".glsl" already baked in by ~150 call sites in
@@ -496,24 +420,7 @@ GLuint LLShaderMgr::loadShaderFile(const std::string& filename, S32& shader_leve
 	}
 #endif
 
-#if 0  // WIP -- try to come up with a way to fallback to an error shader without needing debug stubs all over the place in the shader tree
-	if (shader_level == -1)
-	{
-		// use "error" fallback
-		if (type == GL_VERTEX_SHADER)
-		{
-			open_file_name = gDirUtilp->getExpandedFilename(LL_PATH_APP_SETTINGS, "shaders/errorV.glsl");
-		}
-		else
-		{
-			llassert(type == GL_FRAGMENT_SHADER);  // type must be vertex or fragment shader
-			open_file_name = gDirUtilp->getExpandedFilename(LL_PATH_APP_SETTINGS, "shaders/errorF.glsl");
-		}
-
-		file = LLFile::fopen(open_file_name, "r");
-	}
-	else
-#endif
+	if (!have_source)
 	{
 		//find the most relevant file
 		for (gpu_class = try_gpu_class; gpu_class > 0; gpu_class--)
@@ -549,29 +456,25 @@ GLuint LLShaderMgr::loadShaderFile(const std::string& filename, S32& shader_leve
 				break; // done
 			}
 		}
-	}
-
-    if (file == NULL)
-    {
+	if (file == NULL)
+	{
         if (gDirUtilp->fileExists(open_file_name))
         {
-            LL_WARNS("ShaderLoading") << "GLSL Shader file failed to open: " << open_file_name << LL_ENDL;
+            LL_WARNS("ShaderLoading") << "Shader file failed to open: " << open_file_name << LL_ENDL;
         }
         else
         {
-            LL_WARNS("ShaderLoading") << "GLSL Shader file not found: " << open_file_name << LL_ENDL;
+            LL_WARNS("ShaderLoading") << "Shader file not found: " << open_file_name << LL_ENDL;
         }
         return 0;
     }
 
-#ifdef DX_RENDER
 	// HLSL has no separately-compiled/linkable shader objects (unlike GL,
 	// D3DCompile takes one source blob per stage) - just cache the raw file
 	// text here. Real per-stage compilation happens later, once
 	// LLHLSLShader::createShaderDX() has concatenated this entry file's text
 	// with its attached utility files' text (see mVertexShaderSourceText/
 	// mFragmentShaderSourceText in llshadermgr.h).
-	std::string source_text;
 	{
 		char line_buf[1024];
 		while (fgets(line_buf, sizeof(line_buf), file) != NULL)
@@ -589,6 +492,9 @@ GLuint LLShaderMgr::loadShaderFile(const std::string& filename, S32& shader_leve
 	if (source_text.compare(0, 3, "\xEF\xBB\xBF") == 0)
 	{
 		source_text.erase(0, 3);
+	}
+
+		mRawShaderFileTextCache[raw_cache_key] = source_text;
 	}
 
 	if (type == GL_FRAGMENT_SHADER && texture_index_channels > 0)
@@ -694,425 +600,10 @@ GLuint LLShaderMgr::loadShaderFile(const std::string& filename, S32& shader_leve
 
 	shader_level = try_gpu_class;
 	return 1; // truthy sentinel - DX_RENDER has no real GL shader object
-#else
-	//we can't have any lines longer than 1024 characters
-	//or any shaders longer than 4096 lines... deal - DaveP
-	GLchar buff[1024];
-	GLchar* extra_code_text[1024];
-	GLchar* shader_code_text[4096 + LL_ARRAY_SIZE(extra_code_text)] = { NULL };
-	GLuint extra_code_count = 0, shader_code_count = 0;
-	BOOST_STATIC_ASSERT(LL_ARRAY_SIZE(extra_code_text) < LL_ARRAY_SIZE(shader_code_text));
-
-	S32 major_version = gGLManager.mGLSLVersionMajor;
-	S32 minor_version = gGLManager.mGLSLVersionMinor;
-
-	if (major_version == 1 && minor_version < 30)
-	{
-		llassert(false); // GL 3.1 or later required
-	}
-	else
-	{
-		if (major_version >= 4)
-		{
-			//set version to 400 or 420
-			if (minor_version >= 20)
-			{
-				shader_code_text[shader_code_count++] = strdup("#version 420\n");
-			}
-			else
-			{
-				shader_code_text[shader_code_count++] = strdup("#version 400\n");
-			}
-		}
-		else if (major_version == 3)
-		{
-			if (minor_version <= 29)
-			{
-				// OpenGL 3.2 had GLSL version 1.50.  anything after that the version numbers match.
-				// https://www.khronos.org/opengl/wiki/Core_Language_(GLSL)#OpenGL_and_GLSL_versions
-				shader_code_text[shader_code_count++] = strdup("#version 150\n");
-			}
-			else
-			{
-				shader_code_text[shader_code_count++] = strdup("#version 330\n");
-			}
-		}
-		else
-		{
-			// OpenGL 3.2 had GLSL version 1.50.  anything after that the version numbers match.
-			if (type == GL_GEOMETRY_SHADER || minor_version >= 50)
-			{
-				//set version to 1.50
-				shader_code_text[shader_code_count++] = strdup("#version 150\n");
-				//some implementations of GLSL 1.30 require integer precision be explicitly declared
-				extra_code_text[extra_code_count++] = strdup("precision mediump int;\n");
-				extra_code_text[extra_code_count++] = strdup("precision highp float;\n");
-			}
-			else
-			{
-				//set version to 1.40
-				shader_code_text[shader_code_count++] = strdup("#version 140\n");
-				//some implementations of GLSL 1.30 require integer precision be explicitly declared
-				extra_code_text[extra_code_count++] = strdup("precision mediump int;\n");
-				extra_code_text[extra_code_count++] = strdup("precision highp float;\n");
-			}
-		}
-	}
-
-	if (type == GL_FRAGMENT_SHADER)
-	{
-		extra_code_text[extra_code_count++] = strdup("#define FRAGMENT_SHADER 1\n");
-	}
-	else
-	{
-		extra_code_text[extra_code_count++] = strdup("#define VERTEX_SHADER 1\n");
-	}
-
-	// Use alpha float to store bit flags
-	// See: C++: addDeferredAttachment(), shader: frag_data[2]
-	extra_code_text[extra_code_count++] = strdup("#define GBUFFER_FLAG_SKIP_ATMOS   0.0 \n"); // atmo kill
-	extra_code_text[extra_code_count++] = strdup("#define GBUFFER_FLAG_HAS_ATMOS    0.34\n"); // bit 0
-	extra_code_text[extra_code_count++] = strdup("#define GBUFFER_FLAG_HAS_PBR      0.67\n"); // bit 1
-	extra_code_text[extra_code_count++] = strdup("#define GBUFFER_FLAG_HAS_HDRI      1.0\n");  // bit 2
-	extra_code_text[extra_code_count++] = strdup("#define GET_GBUFFER_FLAG(data, flag)    (abs(data-flag)< 0.1)\n");
-
-	if (defines)
-	{
-		for (auto iter = defines->begin(); iter != defines->end(); ++iter)
-		{
-			std::string define = "#define " + iter->first + " " + iter->second + "\n";
-			extra_code_text[extra_code_count++] = (GLchar*)strdup(define.c_str());
-		}
-	}
-
-	if (gGLManager.mIsAMD)
-	{
-		extra_code_text[extra_code_count++] = strdup("#define IS_AMD_CARD 1\n");
-	}
-
-	if (texture_index_channels > 0 && type == GL_FRAGMENT_SHADER)
-	{
-		extra_code_text[extra_code_count++] = strdup("#define HAS_DIFFUSE_LOOKUP\n");
-
-		//uniform declartion
-		for (S32 i = 0; i < texture_index_channels; ++i)
-		{
-			std::string decl = llformat("uniform sampler2D tex%d;\n", i);
-			extra_code_text[extra_code_count++] = strdup(decl.c_str());
-		}
-
-		if (texture_index_channels > 1)
-		{
-			extra_code_text[extra_code_count++] = strdup("flat in int vary_texture_index;\n");
-		}
-
-		extra_code_text[extra_code_count++] = strdup("vec4 diffuseLookup(vec2 texcoord)\n");
-		extra_code_text[extra_code_count++] = strdup("{\n");
-
-		if (texture_index_channels == 1)
-		{ //don't use flow control, that's silly
-			extra_code_text[extra_code_count++] = strdup("return texture(tex0, texcoord);\n");
-			extra_code_text[extra_code_count++] = strdup("}\n");
-		}
-		else if (major_version > 1 || minor_version >= 30)
-		{  //switches are supported in GLSL 1.30 and later
-			if (gGLManager.mIsNVIDIA)
-			{ //switches are unreliable on some NVIDIA drivers
-				for (S32 i = 0; i < texture_index_channels; ++i)
-				{
-					std::string if_string = llformat("\t%sif (vary_texture_index == %d) { return texture(tex%d, texcoord); }\n", i > 0 ? "else " : "", i, i);
-					extra_code_text[extra_code_count++] = strdup(if_string.c_str());
-				}
-				extra_code_text[extra_code_count++] = strdup("\treturn vec4(1,0,1,1);\n");
-				extra_code_text[extra_code_count++] = strdup("}\n");
-			}
-			else
-			{
-				extra_code_text[extra_code_count++] = strdup("\tvec4 ret = vec4(1,0,1,1);\n");
-				extra_code_text[extra_code_count++] = strdup("\tswitch (vary_texture_index)\n");
-				extra_code_text[extra_code_count++] = strdup("\t{\n");
-
-				//switch body
-				for (S32 i = 0; i < texture_index_channels; ++i)
-				{
-					std::string case_str = llformat("\t\tcase %d: return texture(tex%d, texcoord);\n", i, i);
-					extra_code_text[extra_code_count++] = strdup(case_str.c_str());
-				}
-
-				extra_code_text[extra_code_count++] = strdup("\t}\n");
-				extra_code_text[extra_code_count++] = strdup("\treturn ret;\n");
-				extra_code_text[extra_code_count++] = strdup("}\n");
-			}
-		}
-		else
-		{ //should never get here.  Indexed texture rendering requires GLSL 1.30 or later
-			// (for passing integers between vertex and fragment shaders)
-			LL_ERRS() << "Indexed texture rendering requires GLSL 1.30 or later." << LL_ENDL;
-		}
-	}
-
-	// Master definition can be found in deferredUtil.glsl
-	extra_code_text[extra_code_count++] = strdup("struct GBufferInfo { vec4 albedo; vec4 specular; vec3 normal; vec4 emissive; float gbufferFlag; float envIntensity; };\n");
-
-	//copy file into memory
-	enum {
-		flag_write_to_out_of_extra_block_area = 0x01
-		, flag_extra_block_marker_was_found = 0x02
-	};
-
-	unsigned char flags = flag_write_to_out_of_extra_block_area;
-
-	GLuint out_of_extra_block_counter = 0, start_shader_code = shader_code_count, file_lines_count = 0;
-
-#define TOUCH_SHADERS 0
-
-#if TOUCH_SHADERS
-    const char* marker = "// touched";
-    bool touched = false;
-#endif
-
-	while (NULL != fgets((char*)buff, 1024, file)
-		&& shader_code_count < (LL_ARRAY_SIZE(shader_code_text) - LL_ARRAY_SIZE(extra_code_text)))
-	{
-		file_lines_count++;
-
-		bool extra_block_area_found = NULL != strstr((const char*)buff, "[EXTRA_CODE_HERE]");
-
-#if TOUCH_SHADERS
-        if (NULL != strstr((const char*)buff, marker))
-        {
-            touched = true;
-        }
-#endif
-
-		if (extra_block_area_found && !(flag_extra_block_marker_was_found & flags))
-		{
-			if (!(flag_write_to_out_of_extra_block_area & flags))
-			{
-				//shift
-				for (GLuint to = start_shader_code, from = extra_code_count + start_shader_code;
-					from < shader_code_count; ++to, ++from)
-				{
-					shader_code_text[to] = shader_code_text[from];
-				}
-
-				shader_code_count -= extra_code_count;
-			}
-
-			//copy extra code
-			for (GLuint n = 0; n < extra_code_count
-				&& shader_code_count < (LL_ARRAY_SIZE(shader_code_text) - LL_ARRAY_SIZE(extra_code_text)); ++n)
-			{
-				shader_code_text[shader_code_count++] = extra_code_text[n];
-			}
-
-			extra_code_count = 0;
-
-			flags &= ~flag_write_to_out_of_extra_block_area;
-			flags |= flag_extra_block_marker_was_found;
-		}
-		else
-		{
-			shader_code_text[shader_code_count] = (GLchar*)strdup((char*)buff);
-
-			if (flag_write_to_out_of_extra_block_area & flags)
-			{
-				shader_code_text[extra_code_count + start_shader_code + out_of_extra_block_counter]
-					= shader_code_text[shader_code_count];
-				out_of_extra_block_counter++;
-
-				if (out_of_extra_block_counter == extra_code_count)
-				{
-					shader_code_count += extra_code_count;
-					flags &= ~flag_write_to_out_of_extra_block_area;
-				}
-			}
-
-			++shader_code_count;
-		}
-	} //while
-
-	if (!(flag_extra_block_marker_was_found & flags))
-	{
-		for (GLuint n = start_shader_code; n < extra_code_count + start_shader_code; ++n)
-		{
-			shader_code_text[n] = extra_code_text[n - start_shader_code];
-		}
-
-		if (file_lines_count < extra_code_count)
-		{
-			shader_code_count += extra_code_count;
-		}
-
-		extra_code_count = 0;
-	}
-
-#if TOUCH_SHADERS
-    if (!touched)
-    {
-        fprintf(file, "\n%s\n", marker);
-    }
-#endif
-
-	fclose(file);
-
-	//create shader object
-	GLuint ret = glCreateShader(type);
-
-    error = glGetError();
-    if (error != GL_NO_ERROR)
-    {
-        LL_WARNS("ShaderLoading") << "GL ERROR in glCreateShader: " << error << " for file: " << open_file_name << LL_ENDL;
-        if (ret)
-        {
-            glDeleteShader(ret); //no longer need handle
-            ret = 0;
-        }
-    }
-
-	// Load shader source
-    if (ret)
-    {
-        LL_DEBUGS("ShaderLoading") << "glCreateShader done" << LL_ENDL;
-        glShaderSource(ret, shader_code_count, (const GLchar**)shader_code_text, NULL);
-
-        error = glGetError();
-        if (error != GL_NO_ERROR)
-	{
-            LL_WARNS("ShaderLoading") << "GL ERROR in glShaderSource: " << error << " for file: " << open_file_name << LL_ENDL;
-		glDeleteShader(ret);
-            ret = 0;
-	}
-    }
-
-	// Compile shader
-    if (ret)
-    {
-        LL_DEBUGS("ShaderLoading") << "glShaderSource done" << U32(ret) << LL_ENDL;
-	glCompileShader(ret);
-
-        error = glGetError();
-        if (error != GL_NO_ERROR)
-	{
-            LL_WARNS("ShaderLoading") << "GL ERROR in glCompileShader: " << error << " for file: " << open_file_name << LL_ENDL;
-		glDeleteShader(ret);
-            ret = 0;
-	}
-    }
-
-    if (error == GL_NO_ERROR)
-    {
-        //check for errors
-        LL_DEBUGS("ShaderLoading") << "glCompileShader done" << U32(ret) << LL_ENDL;
-	GLint success = GL_TRUE;
-	glGetShaderiv(ret, GL_COMPILE_STATUS, &success);
-
-        error = glGetError();
-	if (error != GL_NO_ERROR || success == GL_FALSE)
-	{
-            //an error occured, print log
-		LL_WARNS("ShaderLoading") << "GLSL Compilation Error:" << LL_ENDL;
-		dumpObjectLog(ret, true, open_file_name);
-		dumpShaderSource(shader_code_count, shader_code_text);
-		glDeleteShader(ret);
-		ret = 0;
-	}
-    }
-    else
-    {
-        LL_DEBUGS("ShaderLoading") << "loadShaderFile() completed, ret: " << U32(ret) << LL_ENDL;
-        ret = 0;
-    }
-	stop_glerror();
-
-	// Free shader source buffers
-    for (GLuint i = 0; i < shader_code_count; i++)
-	{
-		free(shader_code_text[i]);
-	}
-
-	// Success: store and update shader level
-	if (ret)
-	{
-        // Add shader file to map
-        if (type == GL_VERTEX_SHADER) {
-			mVertexShaderObjects[filename] = ret;
-        }
-        else if (type == GL_FRAGMENT_SHADER) {
-			mFragmentShaderObjects[filename] = ret;
-        }
-		shader_level = try_gpu_class;
-	}
-	else
-	{
-		if (shader_level > 1)
-		{
-			shader_level--;
-			return loadShaderFile(filename, shader_level, type, defines, texture_index_channels, attaches_deferred_util);
-		}
-		LL_WARNS("ShaderLoading") << "Failed to load " << filename << LL_ENDL;
-	}
-
-	LL_DEBUGS("ShaderLoading") << "loadShaderFile() completed, ret: " << U32(ret) << LL_ENDL;
-	return ret;
-#endif // DX_RENDER
-}
-
-bool LLShaderMgr::linkProgramObject(GLuint obj, bool suppress_errors)
-{
-	//check for errors
-	{
-		LL_PROFILE_ZONE_NAMED_CATEGORY_SHADER("glLinkProgram");
-		glLinkProgram(obj);
-	}
-
-	GLint success = GL_TRUE;
-
-	{
-		LL_PROFILE_ZONE_NAMED_CATEGORY_SHADER("glsl check link status");
-		glGetProgramiv(obj, GL_LINK_STATUS, &success);
-		if (!suppress_errors && success == GL_FALSE)
-		{
-			//an error occured, print log
-			LL_SHADER_LOADING_WARNS() << "GLSL Linker Error:" << LL_ENDL;
-			dumpObjectLog(obj, true, "linker");
-			return success;
-		}
-	}
-
-	std::string log = get_program_log(obj);
-	LLStringUtil::toLower(log);
-	if (log.find("software") != std::string::npos)
-	{
-		LL_SHADER_LOADING_WARNS() << "GLSL Linker: Running in Software:" << LL_ENDL;
-		success = GL_FALSE;
-		suppress_errors = false;
-	}
-	return success;
-}
-
-bool LLShaderMgr::validateProgramObject(GLuint obj)
-{
-	//check program validity against current GL
-	glValidateProgram(obj);
-	GLint success = GL_TRUE;
-	glGetProgramiv(obj, GL_LINK_STATUS, &success);
-	if (success == GL_FALSE)
-	{
-		LL_SHADER_LOADING_WARNS() << "GLSL program not valid: " << LL_ENDL;
-		dumpObjectLog(obj);
-	}
-	else
-	{
-		dumpObjectLog(obj, false);
-	}
-
-	return success;
 }
 
 void LLShaderMgr::initShaderCache(bool enabled, const LLUUID& old_cache_version, const LLUUID& current_cache_version, bool second_instance)
 {
-    LL_PROFILE_ZONE_SCOPED;
     LL_INFOS("ShaderMgr") << "Initializing shader cache" << LL_ENDL;
 
 	mShaderCacheEnabled = gGLManager.mGLVersion >= 4.09 && enabled;
@@ -1129,7 +620,6 @@ void LLShaderMgr::initShaderCache(bool enabled, const LLUUID& old_cache_version,
 		std::string meta_out_path = gDirUtilp->add(mShaderCacheDir, "shaderdata.llsd");
 		if (gDirUtilp->fileExists(meta_out_path))
 		{
-            LL_PROFILE_ZONE_NAMED("shader_cache");
             LL_INFOS("ShaderMgr") << "Loading shader cache metadata" << LL_ENDL;
 
             llifstream instream(meta_out_path, std::ifstream::in | std::ifstream::binary);
@@ -1191,17 +681,10 @@ void LLShaderMgr::clearShaderCache()
 void LLShaderMgr::persistShaderCacheMetadata()
 {
 #ifdef DX_RENDER
-    // S24 (2026-09-02): this whole function persists mShaderBinaryCache,
-    // which is only ever populated by saveCachedProgramBinary() (raw
-    // glGetProgramBinary()/shader->mProgramObject calls) - reachable only
-    // from LLHLSLShader::link(), the GL program-linking step, which
-    // DX_RENDER's real shader path (createShaderDX()/DXShader.cpp) never
-    // goes through at all. mShaderBinaryCache can therefore never contain
-    // anything under this build - "No shader cache entries to persist"
-    // wasn't routine status, it was this entire GL-only subsystem running
-    // for nothing, every session. The real, working DX shader cache is
-    // the separate content-hash-keyed .dxbc mechanism in DXShader.cpp
-    // (dxShaderCachePath()/getDXShaderCacheDir()), untouched by this.
+    // S24: mShaderBinaryCache is only ever populated by the GL program-
+    // linking step, never reached under DX_RENDER, so it's always empty
+    // here. The real DX shader cache is the separate content-hash-keyed
+    // .dxbc mechanism in DXShader.cpp.
     return;
 #endif
 	if (!mShaderCacheEnabled) return;
@@ -1257,20 +740,10 @@ void LLShaderMgr::persistShaderCacheMetadata()
 	std::string meta_out_path = gDirUtilp->add(mShaderCacheDir, "shaderdata.llsd");
     if (shaders.size() == 0)
     {
-        // S24 (2026-09-02): was LL_WARNS - "no entries to persist" is a
-        // completely normal, expected status (first run, shader cache
-        // disabled, or just purged), not a warning-worthy condition. Fires
-        // every session close under those circumstances, forever, as pure
-        // noise. LL_INFOS matches this project's own "ShaderMgr"-tag
-        // gating (see the untagged LL_WARNS a few lines up/task #133's own
-        // comment on this exact suppression) - genuinely inconsequential
-        // status, not something that needs to fight its way past that gate.
         LL_INFOS("ShaderMgr") << "No shader cache entries to persist, removing cache metadata file" << LL_ENDL;
-        // S24 (2026-09-02): suppress ENOENT, matching the identical fix
-        // already applied a few lines up (shader_path removal) - deleting a
-        // metadata file that's already gone (e.g. first run, or a previous
-        // persist already cleaned it up) is the desired end state, not a
-        // real failure worth a WARNING-level log line every time.
+        // S24: suppress ENOENT - a metadata file that's already gone (first
+        // run, or a previous persist already cleaned it up) is the desired
+        // end state, not a failure worth a warning every time.
         LLFile::remove(meta_out_path, ENOENT);
         return;
     }
@@ -1296,106 +769,10 @@ void LLShaderMgr::persistShaderCacheMetadata()
         << " entries. Removed " << (S32)removed << " entries." << LL_ENDL;
 }
 
-bool LLShaderMgr::loadCachedProgramBinary(LLHLSLShader* shader)
-{
-	if (!mShaderCacheEnabled) return false;
-
-	glProgramParameteri(shader->mProgramObject, GL_PROGRAM_BINARY_RETRIEVABLE_HINT, GL_TRUE);
-
-	auto binary_iter = mShaderBinaryCache.find(shader->mShaderHash);
-	if (binary_iter != mShaderBinaryCache.end())
-	{
-		std::string in_path = gDirUtilp->add(mShaderCacheDir, shader->mShaderHash.asString() + ".shaderbin");
-		auto& shader_info = binary_iter->second;
-
-        try
-        {
-            constexpr GLsizei MAX_SHADER_BINARY_SIZE = 1024 * 1024; // 1 MB, normally around 10KB
-            if (shader_info.mBinaryLength > 0 && shader_info.mBinaryLength <= MAX_SHADER_BINARY_SIZE)
-		{
-			std::vector<U8> in_data;
-			in_data.resize(shader_info.mBinaryLength);
-
-			LLUniqueFile filep = LLFile::fopen(in_path, "rb");
-			if (filep)
-			{
-				size_t result = fread(in_data.data(), sizeof(U8), in_data.size(), filep);
-				filep.close();
-
-				if (result == in_data.size())
-				{
-					GLenum error = glGetError(); // Clear current error
-					glProgramBinary(shader->mProgramObject, shader_info.mBinaryFormat, in_data.data(), shader_info.mBinaryLength);
-
-					error = glGetError();
-					GLint success = GL_TRUE;
-					glGetProgramiv(shader->mProgramObject, GL_LINK_STATUS, &success);
-					if (error == GL_NO_ERROR && success == GL_TRUE)
-					{
-						binary_iter->second.mLastUsedTime = (F32)LLTimer::getTotalSeconds();
-						LL_INFOS() << "Loaded cached binary for shader: " << shader->mName << LL_ENDL;
-						return true;
-					}
-				}
-                    else
-                    {
-                        LL_WARNS("ShaderMgr") << "Incomplete read of shader binary. Expected: "
-                            << in_data.size() << ", read: " << result << LL_ENDL;
-			}
-		}
-            }
-        }
-        catch (const std::bad_alloc&)
-        {
-            LL_WARNS("ShaderMgr") << "Failed to allocate memory for shader binary ("
-                << shader_info.mBinaryLength << " bytes) for: "
-                << shader->mName << LL_ENDL;
-        }
-        catch (const std::exception& err)
-        {
-            LL_WARNS("ShaderMgr") << "Caught exception " << err.what() << " while loading shader binary for: " << shader->mName << LL_ENDL;
-        }
-
-		//an error occured, normally we would print log but in this case it means the shader needs recompiling.
-		LL_INFOS() << "Failed to load cached binary for shader: " << shader->mName << " falling back to compilation" << LL_ENDL;
-		LLFile::remove(in_path, ENOENT);
-		mShaderBinaryCache.erase(binary_iter);
-	}
-	return false;
-}
-
-bool LLShaderMgr::saveCachedProgramBinary(LLHLSLShader* shader)
-{
-	if (!mShaderCacheEnabled) return true;
-
-	ProgramBinaryData binary_info = ProgramBinaryData();
-	glGetProgramiv(shader->mProgramObject, GL_PROGRAM_BINARY_LENGTH, &binary_info.mBinaryLength);
-	if (binary_info.mBinaryLength > 0)
-	{
-		std::vector<U8> program_binary;
-		program_binary.resize(binary_info.mBinaryLength);
-
-		GLenum error = glGetError(); // Clear current error
-		glGetProgramBinary(shader->mProgramObject, static_cast<GLsizei>(program_binary.size() * sizeof(U8)), nullptr, &binary_info.mBinaryFormat, program_binary.data());
-		error = glGetError();
-		if (error == GL_NO_ERROR)
-		{
-			std::string out_path = gDirUtilp->add(mShaderCacheDir, shader->mShaderHash.asString() + ".shaderbin");
-			LLUniqueFile outfile = LLFile::fopen(out_path, "wb");
-			if (outfile)
-			{
-				fwrite(program_binary.data(), sizeof(U8), program_binary.size(), outfile);
-				outfile.close();
-
-				binary_info.mLastUsedTime = (F32)LLTimer::getTotalSeconds();
-
-				mShaderBinaryCache.insert_or_assign(shader->mShaderHash, binary_info);
-				return true;
-			}
-		}
-	}
-	return false;
-}
+// S24: loadCachedProgramBinary()/saveCachedProgramBinary() removed - the
+// GL-native shader-binary disk cache (glProgramBinary()-based), unreachable
+// under DX_RENDER. DX_RENDER has its own DX-native shader bytecode cache
+// (DXShader.h/.cpp).
 
 //virtual
 void LLShaderMgr::initAttribsAndUniforms()
@@ -1673,6 +1050,7 @@ void LLShaderMgr::initAttribsAndUniforms()
 	mReservedUniforms.push_back("waterShoreFadeDistance"); // S24 Advanced
 	mReservedUniforms.push_back("waterUnderwaterFogMult"); // S24 Advanced
 	mReservedUniforms.push_back("waterReflectionWarmth"); // S24 Advanced
+	mReservedUniforms.push_back("waterColorAbsorptionRate"); // S24 Advanced
 
 	mReservedUniforms.push_back("camPosLocal");
 

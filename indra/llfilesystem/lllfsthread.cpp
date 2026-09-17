@@ -85,7 +85,6 @@ LLLFSThread::handle_t LLLFSThread::read(const std::string& filename,	/* Flawfind
 	U8* buffer, S32 offset, S32 numbytes,
 	Responder* responder)
 {
-	LL_PROFILE_ZONE_SCOPED;
 	handle_t handle = generateHandle();
 
 	Request* req = new Request(this, handle,
@@ -106,7 +105,6 @@ LLLFSThread::handle_t LLLFSThread::write(const std::string& filename,
 	U8* buffer, S32 offset, S32 numbytes,
 	Responder* responder)
 {
-	LL_PROFILE_ZONE_SCOPED;
 	handle_t handle = generateHandle();
 
 	Request* req = new Request(this, handle,
@@ -153,7 +151,6 @@ LLLFSThread::Request::~Request()
 // virtual, called from own thread
 void LLLFSThread::Request::finishRequest(bool completed)
 {
-	LL_PROFILE_ZONE_SCOPED;
 	if (mResponder.notNull())
 	{
 		mResponder->completed(completed ? mBytesRead : 0);
@@ -163,7 +160,6 @@ void LLLFSThread::Request::finishRequest(bool completed)
 
 void LLLFSThread::Request::deleteRequest()
 {
-	LL_PROFILE_ZONE_SCOPED;
 	if (getStatus() == STATUS_QUEUED)
 	{
 		LL_ERRS() << "Attempt to delete a queued LLLFSThread::Request!" << LL_ENDL;
@@ -178,7 +174,6 @@ void LLLFSThread::Request::deleteRequest()
 
 bool LLLFSThread::Request::processRequest()
 {
-	LL_PROFILE_ZONE_SCOPED;
 	bool complete = false;
 	if (mOperation == FILE_READ)
 	{

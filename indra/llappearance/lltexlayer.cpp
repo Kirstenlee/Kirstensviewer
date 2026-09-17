@@ -138,7 +138,7 @@ void LLTexLayerSetBuffer::postRenderTexLayerSet(bool success)
 bool LLTexLayerSetBuffer::renderTexLayerSet(LLRenderTarget* bound_target)
 {
     // Default color mask for tex layer render
-    gDX.setColorMask(true, true);
+    gDX.setColorWriteMask(true, true);
 
     bool success = true;
 
@@ -160,7 +160,7 @@ bool LLTexLayerSetBuffer::renderTexLayerSet(LLRenderTarget* bound_target)
     LLVertexBuffer::unbind();
 
     // reset GL state
-    gDX.setColorMask(true, true);
+    gDX.setColorWriteMask(true, true);
     gDX.setSceneBlendType(LLRender::BT_ALPHA);
 
     return success;
@@ -313,7 +313,6 @@ bool LLTexLayerSet::setInfo(const LLTexLayerSetInfo *info)
 
     requestUpdate();
 
-    stop_glerror();
 
     return true;
 }
@@ -372,7 +371,7 @@ bool LLTexLayerSet::render( S32 x, S32 y, S32 width, S32 height, LLRenderTarget*
 
     LLGLSUIDefault gls_ui;
     LLGLDepthTest gls_depth(GL_FALSE, GL_FALSE);
-    gDX.setColorMask(true, true);
+    gDX.setColorWriteMask(true, true);
 
     // clear buffer area to ensure we don't pick up UI elements
     {
@@ -402,7 +401,6 @@ bool LLTexLayerSet::render( S32 x, S32 y, S32 width, S32 height, LLRenderTarget*
 
         renderAlphaMaskTextures(x, y, width, height, bound_target, false);
 
-        stop_glerror();
     }
     else
     {
@@ -459,7 +457,6 @@ const LLTexLayerSetBuffer* LLTexLayerSet::getComposite() const
 
 void LLTexLayerSet::gatherMorphMaskAlpha(U8 *data, S32 origin_x, S32 origin_y, S32 width, S32 height, LLRenderTarget* bound_target)
 {
-    LL_PROFILE_ZONE_SCOPED;
     memset(data, 255, width * height);
 
     for(LLTexLayerInterface* layer : mLayerList)
@@ -473,10 +470,9 @@ void LLTexLayerSet::gatherMorphMaskAlpha(U8 *data, S32 origin_x, S32 origin_y, S
 
 void LLTexLayerSet::renderAlphaMaskTextures(S32 x, S32 y, S32 width, S32 height, LLRenderTarget* bound_target, bool forceClear)
 {
-    LL_PROFILE_ZONE_SCOPED;
     const LLTexLayerSetInfo *info = getInfo();
 
-    gDX.setColorMask(false, true);
+    gDX.setColorWriteMask(false, true);
     gDX.setSceneBlendType(LLRender::BT_REPLACE);
 
     // (Optionally) replace alpha with a single component image from a tga file.
@@ -524,7 +520,7 @@ void LLTexLayerSet::renderAlphaMaskTextures(S32 x, S32 y, S32 width, S32 height,
 
     gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
 
-    gDX.setColorMask(true, true);
+    gDX.setColorWriteMask(true, true);
     gDX.setSceneBlendType(LLRender::BT_ALPHA);
 }
 
@@ -1024,7 +1020,6 @@ bool LLTexLayer::render(S32 x, S32 y, S32 width, S32 height, LLRenderTarget* bou
 {
     // *TODO: Is this correct?
     //gPipeline.disableLights();
-    stop_glerror();
 
     LLColor4 net_color;
     bool color_specified = findNetColor(&net_color);
@@ -1145,7 +1140,6 @@ bool LLTexLayer::render(S32 x, S32 y, S32 width, S32 height, LLRenderTarget* bou
         // Restore standard blend func value
         gDX.flush();
         gDX.setSceneBlendType(LLRender::BT_ALPHA);
-        stop_glerror();
     }
 
     if( !success )
@@ -1271,13 +1265,12 @@ void LLTexLayer::renderMorphMasks(S32 x, S32 y, S32 width, S32 height, const LLC
         LL_DEBUGS("Morph") << "skipping renderMorphMasks for " << getUUID() << LL_ENDL;
         return;
     }
-    LL_PROFILE_ZONE_SCOPED;
     bool success = true;
 
     llassert( !mParamAlphaList.empty() );
 
     gAlphaMaskProgram.setMinimumAlpha(0.f);
-    gDX.setColorMask(false, true);
+    gDX.setColorWriteMask(false, true);
 
     LLTexLayerParamAlpha* first_param = *mParamAlphaList.begin();
     // Note: if the first param is a mulitply, multiply against the current buffer's alpha
@@ -1359,7 +1352,7 @@ void LLTexLayer::renderMorphMasks(S32 x, S32 y, S32 width, S32 height, const LLC
 
     LLGLSUIDefault gls_ui;
 
-    gDX.setColorMask(true, true);
+    gDX.setColorWriteMask(true, true);
 
     if (hasMorph() && success)
     {
@@ -1431,7 +1424,7 @@ void LLTexLayer::renderMorphMasks(S32 x, S32 y, S32 width, S32 height, const LLC
                     }
 
                     glGetTexImage(LLTexUnit::getInternalType(LLTexUnit::TT_TEXTURE), 0, GL_RGBA, GL_UNSIGNED_BYTE, temp);
-                    GLenum error = glGetError();
+                    DXenum error = glGetError();
                     if (error != GL_NO_ERROR)
                     {
                         LL_INFOS("Morph") << "GL Error while reading back morph texture. Error code: " << error << LL_ENDL;
@@ -1487,7 +1480,6 @@ void LLTexLayer::renderMorphMasks(S32 x, S32 y, S32 width, S32 height, const LLC
 
 void LLTexLayer::addAlphaMask(U8 *data, S32 originX, S32 originY, S32 width, S32 height, LLRenderTarget* bound_target)
 {
-    LL_PROFILE_ZONE_SCOPED;
     S32 size = width * height;
     const U8* alphaData = getAlphaData();
     if (!alphaData && hasAlphaParams())
@@ -1826,7 +1818,6 @@ void LLTexLayerStaticImageList::deleteCachedImages()
 // Caches the result to speed identical subsequent requests.
 LLImageTGA* LLTexLayerStaticImageList::getImageTGA(const std::string& file_name)
 {
-    LL_PROFILE_ZONE_SCOPED;
     const char *namekey = mImageNames.addString(file_name);
     image_tga_map_t::const_iterator iter = mStaticImageListTGA.find(namekey);
     if( iter != mStaticImageListTGA.end() )
@@ -1855,7 +1846,6 @@ LLImageTGA* LLTexLayerStaticImageList::getImageTGA(const std::string& file_name)
 // Caches the result to speed identical subsequent requests.
 LLGLTexture* LLTexLayerStaticImageList::getTexture(const std::string& file_name, bool is_mask)
 {
-    LL_PROFILE_ZONE_SCOPED;
     LLPointer<LLGLTexture> tex;
     const char *namekey = mImageNames.addString(file_name);
 
@@ -1907,7 +1897,6 @@ LLGLTexture* LLTexLayerStaticImageList::getTexture(const std::string& file_name,
 // Returns true if successful.
 bool LLTexLayerStaticImageList::loadImageRaw(const std::string& file_name, LLImageRaw* image_raw)
 {
-    LL_PROFILE_ZONE_SCOPED;
     bool success = false;
     std::string path;
     path = gDirUtilp->getExpandedFilename(LL_PATH_CHARACTER,file_name);

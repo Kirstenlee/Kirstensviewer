@@ -90,7 +90,6 @@ void LLMemory::initMaxHeapSizeGB(F32Gigabytes max_heap_size)
 //static 
 void LLMemory::updateMemoryInfo() 
 {
-    LL_PROFILE_ZONE_SCOPED;
 
     sMaxPhysicalMemInKB = gSysMemory.getPhysicalMemoryKB();
 
@@ -162,7 +161,6 @@ void* LLMemory::tryToAlloc(void* desired_addr, U32 size)
 //static 
 void LLMemory::logMemoryInfo(bool update)
 {
-    LL_PROFILE_ZONE_SCOPED;
 	if(update)
 	{
 		updateMemoryInfo() ;

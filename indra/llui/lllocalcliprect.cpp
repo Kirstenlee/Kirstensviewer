@@ -90,15 +90,12 @@ void LLScreenClipRect::updateScissorRegion()
     // finish any deferred calls in the old clipping region
     gDX.flush();
 #ifdef DX_RENDER
-    // S24 (2026-08-16): also flush gDXUIBatch's separate pending queue -
-    // this is the highest-frequency scissor-rect chokepoint (every nested
-    // scroll/tab/list panel pushes/pops one) and the previous code only
-    // protected LLRender's own queue - see DXUIBatch.h's top comment.
+    // S24: also flush gDXUIBatch's separate pending queue, not just LLRender's -
+    // see DXUIBatch.h's top comment.
     gDXUIBatch.flushPending();
 #endif
 
     LLRect rect = sClipRectStack.top();
-    stop_glerror();
     S32 x,y,w,h;
     x = llfloor(rect.mLeft * LLUI::getScaleFactor().mV[VX]);
     y = llfloor(rect.mBottom * LLUI::getScaleFactor().mV[VY]);
@@ -106,22 +103,12 @@ void LLScreenClipRect::updateScissorRegion()
     h = llmax(0, llceil(rect.getHeight() * LLUI::getScaleFactor().mV[VY])) + 1;
 #ifndef DX_RENDER
     glScissor( x,y,w,h );
-    stop_glerror();
 #else
-    // S24 (2026-08-07, task #129): real D3D11 scissor-rect support. GL's
-    // glScissor(x,y,w,h) takes a bottom-left-origin rect (y measured up from
-    // the window bottom, matching every other GL screen-space call in this
-    // codebase) - D3D11_RECT is top-left-origin (left/top/right/bottom, all
-    // measured down from the target's top), same convention mismatch already
-    // solved for the swap-chain present viewport (see
-    // DXPipeline::setPresentViewport(), dxpipeline.cpp, task #110). Rather
-    // than pull in a new llui->newview dependency (gViewerWindow) just to
-    // get the window height, read it straight back off the currently-bound
-    // D3D11 viewport - LLViewerWindow::setup2DRender()/setup2DViewport()
-    // already establishes that viewport (mWindowRectRaw) as the active one
-    // for all UI drawing before any clipped element draws, so this rect
-    // lands in exactly the coordinate frame the viewport itself defines,
-    // with no assumption needed about which LLRect fed it.
+    // S24: GL's glScissor(x,y,w,h) is bottom-left-origin; D3D11_RECT is
+    // top-left-origin, so y needs flipping - same convention mismatch as
+    // DXPipeline::setPresentViewport() (dxpipeline.cpp). Window height is read
+    // back off the currently-bound D3D11 viewport rather than pulling in a new
+    // llui->newview dependency (gViewerWindow) just to get it.
     ID3D11DeviceContext* ctx = gDXDevice.getContext();
     if (ctx)
     {
@@ -138,7 +125,6 @@ void LLScreenClipRect::updateScissorRegion()
             ctx->RSSetScissorRects(1, &scissor);
         }
     }
-    stop_glerror();
 #endif
 }
 

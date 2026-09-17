@@ -188,7 +188,6 @@ namespace LLError
         {}
         void recordMessage(LLError::ELevel level, const std::string& message) override
         {
-            LL_PROFILE_ZONE_SCOPED;
             mCallable(level, message);
         }
     private:
