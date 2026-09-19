@@ -1462,6 +1462,17 @@ DXState::~DXState()
     }
 }
 
+LLGLCullFace::LLGLCullFace(LLGLenum face) :
+    mPrevFace(DXState::getCullFace())
+{
+    gDX.cullFace(face);
+}
+
+LLGLCullFace::~LLGLCullFace()
+{
+    gDX.cullFace(mPrevFace);
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 
 void LLGLManager::initGLStates()

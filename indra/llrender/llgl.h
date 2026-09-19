@@ -328,6 +328,24 @@ public:
     LLGLDisable(LLGLenum state) : DXState(state, DISABLED_STATE) {}
 };
 
+// S24: RAII guard for DXState::sCullFace (GL_FRONT/GL_BACK) - unlike GL's stateless per-call
+// glCullFace(), this global has to be tracked explicitly under DX_RENDER (see DXState::
+// getCullFace()'s own comment) and was being restored by hand with a second, un-guarded
+// LLRender::cullFace(GL_BACK) call at the matching call site (llviewerjoint.cpp) - any early
+// return/exception between the two calls would leave it stuck, silently corrupting the cull
+// direction of every subsequent draw call that touches the rasterizer state (including
+// unrelated objects' shadow-map rendering, via LLRender::setPolygonOffset()) until something
+// else happened to call cullFace() again. Matches this file's own LLGLEnable/LLGLDisable
+// pattern - always restores on scope exit, regardless of how the scope is left.
+class LLGLCullFace
+{
+public:
+    LLGLCullFace(LLGLenum face);
+    ~LLGLCullFace();
+private:
+    LLGLenum mPrevFace;
+};
+
 /*
   Store and modify projection matrix to create an oblique
   projection that clips to the specified plane.  Oblique

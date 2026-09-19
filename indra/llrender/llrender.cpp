@@ -1156,16 +1156,30 @@ void LLRender::syncMatrices()
 		dx_shader->mMatHash[MM_TEXTURE0] = mMatHash[MM_TEXTURE0];
 		}
 
-		// S24: DO NOT call syncLightState() here without a real fix in hand.
-		// Local point/spot lights contribute zero illumination to forward-lit
-		// alpha surfaces under DX_RENDER (light_position[]/light_direction[]/
-		// light_attenuation[]/light_diffuse[]/sun_up_factor are never
-		// uploaded) - a real gap, but wiring it in here was live-tested and
-		// caused severe sunrise/sunset "disco" flicker (LLSettingsSky::
-		// getIsSunUp()'s hard sunDir.mV[2]>=0.0f threshold reacting badly to
-		// this). A C++-side hold-time debounce only changed the symptom's
-		// shape, not the underlying cause. Reverted; needs a proper
-		// investigation before re-attempting.
+		// S24: re-enabled (task #328) - without this, local point/spot lights
+		// contribute zero illumination to forward-lit alpha surfaces (avatar
+		// hair, alpha-blend/cutout clothing) under DX_RENDER, since
+		// light_position[]/light_direction[]/light_attenuation[]/
+		// light_diffuse[]/sun_up_factor were never uploaded to those shaders.
+		// A prior attempt to wire this in was reverted after live-testing
+		// found a sunrise/sunset "disco" flicker elsewhere (suspected
+		// LLSettingsSky::getIsSunUp()'s hard sunDir.mV[2]>=0.0f threshold);
+		// a C++-side hold-time debounce didn't fix it. syncLightState() itself
+		// is unchanged from that attempt.
+		//
+		// Gated the same way canonical upstream LL gates this exact call
+		// (LLRender::syncMatrices(), llrender.cpp) - only for shaders that
+		// actually declare lighting/atmospherics, not unconditionally for
+		// every shader bind (UI, water, post-process, etc. never needed
+		// this). The earlier attempt here may well have been calling this
+		// unconditionally too; matching upstream's real gating is a genuine
+		// behavioral difference, not just cosmetic. NEEDS LIVE TESTING
+		// ACROSS A SUNRISE/SUNSET TRANSITION before this can be considered
+		// fully safe.
+		if (dx_shader->mFeatures.hasLighting || dx_shader->mFeatures.calculatesLighting || dx_shader->mFeatures.calculatesAtmospherics)
+		{
+			syncLightState();
+		}
 
 		vs.uploadConstants();
 

@@ -118,18 +118,20 @@ U32 LLViewerJoint::render( F32 pixelArea, bool first_pass, bool is_dummy )
             else
             {
                 // Render Inside (no Z buffer write)
-                // S24: gDX.cullFace() is a cross-backend replacement for raw glCullFace() - see
-                // llrender.h/.cpp and DXStateCache::getRasterizerState()'s cull_front parameter.
-                // Previously guarded #ifndef DX_RENDER (silently culling back faces regardless
-                // under DX_RENDER, losing this pass's front-face cull - a real visual gap on
-                // hair/skirt geometry, not a crash); no guard needed now, call unconditionally.
-                gDX.cullFace(GL_FRONT);
+                // S24: LLGLCullFace RAII-guards the front-face cull direction so it always
+                // restores on scope exit (matching this file's own LLGLDepthTest pattern right
+                // below it), even on an early return/exception - a raw paired
+                // cullFace(GL_FRONT)/cullFace(GL_BACK) call left DXState::sCullFace genuinely
+                // global and un-scoped, and any interruption between the two calls silently
+                // corrupted the cull direction for every later draw call that touches the
+                // rasterizer state (including unrelated objects' shadow-map rendering, via
+                // LLRender::setPolygonOffset()).
                 {
+                    LLGLCullFace cull_inside(GL_FRONT);
                     LLGLDepthTest gls_depth(GL_TRUE, GL_FALSE);
                     triangle_count += drawShape( pixelArea, first_pass, is_dummy  );
                 }
-                // Render Outside (write to the Z buffer)
-                gDX.cullFace(GL_BACK);
+                // Render Outside (write to the Z buffer) - cull direction already restored above
                 {
                     triangle_count += drawShape( pixelArea, false, is_dummy  );
                 }

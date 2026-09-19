@@ -157,12 +157,12 @@ BEGIN
         BEGIN
             VALUE "CompanyName", "Kirstens Viewers"
             VALUE "FileDescription", "Kirstens S24 DX"
-            VALUE "FileVersion", "26.9,3855,0"
+            VALUE "FileVersion", "26.9,3868,0"
             VALUE "InternalName", "Second Life"
             VALUE "LegalCopyright", "Copyright 2008-2026, Kirstenlee Cinquetti"
             VALUE "OriginalFilename", "Kirstens-S24.exe"
             VALUE "ProductName", "Kirstens S24"
-            VALUE "ProductVersion", "26.9,3855,0"
+            VALUE "ProductVersion", "26.9,3868,0"
         END
     END
     BLOCK "VarFileInfo"

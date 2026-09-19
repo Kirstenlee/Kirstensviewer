@@ -194,10 +194,19 @@ float3 calcPointLightOrSpotLight(float3 light_col, float3 npos, float3 diffuse, 
             //angular attenuation
             da *= dot(n, lv);
 
+            // S24: clamp da non-negative here (matches alphaF.hlsl's calcPointLightOrSpotLight,
+            // which has this exact clamp) - da goes negative on the side of a surface facing away
+            // from the light, and further down this function divides by da directly in the
+            // specular branch (gt/(nh*da)) when spec.a>0. Left unclamped, da crosses through zero
+            // right at the light/dark terminator, producing garbage specular output exactly there
+            // - visible as wrong/bleeding light right at the boundary on materials-shaded (PBR)
+            // content specifically (task #328).
+            da = max(0.0, da);
+
             float lit = 0.0f;
 
             float amb_da = ambiance;
-            if (da >= 0)
+            if (da > 0)
             {
                 lit = clamp(da * dist_atten, 0.0, 1.0);
                 col = lit * light_col * diffuse;

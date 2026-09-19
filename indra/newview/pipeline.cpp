@@ -240,12 +240,28 @@ const U32 LLPipeline::MAX_PREVIEW_WIDTH = 512;
 
 const F32 BACKLIGHT_DAY_MAGNITUDE_OBJECT = 0.1f;
 const F32 BACKLIGHT_NIGHT_MAGNITUDE_OBJECT = 0.08f;
-// Lowered from upstream's 0.598f: that value, combined with the shadow-alpha shaders' own stacked
-// bayerDitherDiscard(alpha, 0.88, ...) gate (shadowAlphaMaskF.hlsl, pbrShadowAlphaBlendF.hlsl), made
-// mostly-translucent rigged-attachment alpha content (hair, "wispy/volume" textures) cast little to no
-// shadow, since nearly the entire mesh's alpha sat below the hard cutoff before dithering ran. A
-// deliberate quality tuning, not a regression fix - both values are unmodified upstream elsewhere.
-const F32 ALPHA_BLEND_CUTOFF = 0.1f;
+// *** DO NOT TOUCH - DO NOT MERGE THESE TWO BACK INTO ONE CONSTANT ***
+// General/world alpha-blend shadow-casting hard cutoff (shadowAlphaMaskF.hlsl/
+// pbrShadowAlphaBlendF.hlsl's `minimum_alpha` uniform, gating BEFORE their own stacked
+// bayerDitherDiscard(alpha, 0.4, ...)). Genuinely translucent world content (glass, windows,
+// tinted materials) needs this HIGH - real alpha gradients in that 0.1-0.4 range are common
+// there, and dropping below 0.4 makes them always survive the dither gate too, i.e. cast a
+// full solid shadow regardless of how see-through they actually look.
+// HISTORY: this WAS a single shared constant, lowered 0.598->0.1 on 2026-09-12 to fix wispy
+// rigged hair casting too little shadow. That single change broke shadow casting for EVERY
+// piece of translucent world geometry instead (confirmed live: a glass/lattice roof went from
+// a crisp lattice-shadow + light-through-glass look to one solid opaque blob covering the whole
+// area) - live-confirmed fixed 2026-09-18 by splitting into two constants. If you're tempted to
+// "simplify" this back to one shared value: don't - re-lowering this one to fix hair will
+// reintroduce the exact regression described above for every glass/window/translucent object
+// in the world. Tune ALPHA_BLEND_CUTOFF_RIGGED below instead for anything hair/attachment-related.
+const F32 ALPHA_BLEND_CUTOFF = 0.598f;
+// Rigged-attachment-only alpha-blend cutoff, deliberately lower than the general
+// ALPHA_BLEND_CUTOFF above - mostly-translucent rigged content (hair, "wispy/volume" textures)
+// was casting little to no shadow at 0.598, since nearly the entire mesh's alpha sat below that
+// hard cutoff before dithering ever ran. Only used for renderAlphaObjects()'s rigged=true
+// branches (hair/attachments) - never for general world geometry. See the warning above.
+const F32 ALPHA_BLEND_CUTOFF_RIGGED = 0.1f;
 const F32 DEFERRED_LIGHT_FALLOFF = 0.5f;
 const U32 DEFERRED_VB_MASK = LLVertexBuffer::MAP_VERTEX | LLVertexBuffer::MAP_TEXCOORD0 | LLVertexBuffer::MAP_TEXCOORD1;
 
@@ -1862,6 +1878,17 @@ void LLPipeline::unlinkDrawable(LLDrawable* drawable)
 		if (mShadowSpotLight[i] == drawablep)
 		{
 			mShadowSpotLight[i] = NULL;
+			// S24: mSpotLightFade[i] must go to 0 in lockstep with mShadowSpotLight[i] going
+			// NULL - the reassignment check further down (generateShadows) treats an empty slot
+			// and a fully-decayed fade as interchangeable (`fade==0.f || isNull()`), but this is
+			// an abrupt null outside that decay path. Left stale (e.g. near 1.0 from a
+			// previously fully-visible light), a slot reassigned here to a DIFFERENT light before
+			// its own natural fade-out would inherit the old light's near-1.0 value, so
+			// PROJECTOR_SHADOW_FADE (1-mSpotLightFade) comes out near 0 instead of 1 - the
+			// masking grace period that's supposed to hide a freshly (re)assigned slot's
+			// transient state never runs, and the real (possibly still-wrong) shadow sample goes
+			// straight to screen with no fade-in.
+			mSpotLightFade[i] = 0.f;
 		}
 
 		if (mTargetShadowSpotLight[i] == drawablep)
@@ -6849,7 +6876,7 @@ void LLPipeline::renderAlphaObjects(bool rigged)
 				gDeferredShadowGLTFAlphaBlendProgram.bind(rigged);
 				LLHLSLShader::sCurBoundShaderPtr->uniform1i(LLShaderMgr::SUN_UP_FACTOR, sun_up);
 				LLHLSLShader::sCurBoundShaderPtr->uniform1f(LLShaderMgr::DEFERRED_SHADOW_TARGET_WIDTH, (float)target_width);
-				LLHLSLShader::sCurBoundShaderPtr->setMinimumAlpha(ALPHA_BLEND_CUTOFF);
+				LLHLSLShader::sCurBoundShaderPtr->setMinimumAlpha(ALPHA_BLEND_CUTOFF_RIGGED);
 				if (LLRenderPass::uploadMatrixPalette(pparams->mAvatar, pparams->mSkinInfo, lastAvatarGLTF, lastMeshIdGLTF, skipLastSkinGLTF))
 				{
 					LLRenderPass::pushGLTFBatch(*pparams);
@@ -6860,7 +6887,7 @@ void LLPipeline::renderAlphaObjects(bool rigged)
 				gDeferredShadowAlphaMaskProgram.bind(rigged);
 				LLHLSLShader::sCurBoundShaderPtr->uniform1i(LLShaderMgr::SUN_UP_FACTOR, sun_up);
 				LLHLSLShader::sCurBoundShaderPtr->uniform1f(LLShaderMgr::DEFERRED_SHADOW_TARGET_WIDTH, (float)target_width);
-				LLHLSLShader::sCurBoundShaderPtr->setMinimumAlpha(ALPHA_BLEND_CUTOFF);
+				LLHLSLShader::sCurBoundShaderPtr->setMinimumAlpha(ALPHA_BLEND_CUTOFF_RIGGED);
 				if (mSimplePool->uploadMatrixPalette(pparams->mAvatar, pparams->mSkinInfo, lastAvatar, lastMeshId, skipLastSkin))
 				{
 					mSimplePool->pushBatch(*pparams, true, true);
@@ -9314,6 +9341,13 @@ void LLPipeline::generateSunShadow(LLCamera& camera)
 
 	LL_RECORD_BLOCK_TIME(FTM_GEN_SUN_SHADOW);
 
+	// S24: defensive backstop - DXState::sCullFace is a genuinely global, un-scoped rasterizer
+	// flag (see LLGLCullFace's own comment in llgl.h), so an unrelated leftover from a previous
+	// frame/pass could otherwise silently corrupt cull direction for every object this shadow
+	// pass draws (sun + spot shadows, alpha/complex geometry included). Reset to GL's own
+	// default here so this pass always starts from a known-good state regardless.
+	DXState::setCullFace(GL_BACK);
+
 	LLDisableOcclusionCulling no_occlusion;
 
 	bool skip_avatar_update = false;
@@ -10065,7 +10099,10 @@ void LLPipeline::generateSunShadow(LLCamera& camera)
 
 			if (!volume)
 			{
+				// S24: keep mSpotLightFade[i] in lockstep with this abrupt null - see the
+				// matching comment at unlinkDrawable()'s mShadowSpotLight[i]=NULL above.
 				mShadowSpotLight[i] = NULL;
+				mSpotLightFade[i] = 0.f;
 				continue;
 			}
 
@@ -10123,9 +10160,17 @@ void LLPipeline::generateSunShadow(LLCamera& camera)
 				0.0f, 0.0f, -0.5f, 0.0f,
 				0.5f, 0.5f, 0.5f, 1.0f);
 
-			// Apply the ndc-to-texture transform to the perspective projection:
-			proj[i + 4] = ndcToTexture * proj[i + 4];
-
+			// S24: do NOT pre-multiply proj[i+4] by ndcToTexture before using it to render (this
+			// used to happen here) - proj[i+4] is what gets fed to set_current_projection()/
+			// renderShadow() below, and LLRender::syncMatrices()'s DX branch (llrender.cpp)
+			// unconditionally applies its own kGLtoDXDepthRemap to whatever the current projection
+			// is when the shadow geometry actually draws. Baking ndcToTexture in here meant the
+			// rasterized depth values in the spot shadow map were computed through BOTH transforms
+			// stacked - a real, self-inflicted double remap, corrupting every depth value actually
+			// written to shadowMap4/5. The sibling sun-shadow code directly above in this same
+			// function (proj[j]/mSunShadowMatrix[j]) already gets this right: render with the raw
+			// perspective projection, apply the NDC-to-texture remap exactly once, only in the
+			// CPU-side sampling matrix below. Mirror that here instead of double-transforming.
 			set_current_modelview(view[i + 4]);
 			set_current_projection(proj[i + 4]);
 
@@ -10167,7 +10212,10 @@ void LLPipeline::generateSunShadow(LLCamera& camera)
 	}
 	else
 	{ //no spotlight shadows
+		// S24: keep mSpotLightFade[] in lockstep with this abrupt null - see the matching
+		// comment at unlinkDrawable()'s mShadowSpotLight[i]=NULL above.
 		mShadowSpotLight[0] = mShadowSpotLight[1] = NULL;
+		mSpotLightFade[0] = mSpotLightFade[1] = 0.f;
 	}
 
 	if (!CameraOffset)

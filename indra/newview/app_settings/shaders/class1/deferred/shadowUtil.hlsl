@@ -206,44 +206,35 @@ float sampleDirectionalShadow(float3 pos, float3 norm, float2 pos_screen)
 float sampleSpotShadow(float3 pos, float3 norm, int index, float2 pos_screen)
 {
 #if defined(SPOT_SHADOW)
-    float shadow = 0.0f;
     pos += norm * spot_shadow_offset;
 
     float4 spos = float4(pos, 1.0);
     if (spos.z > -shadow_clip.w)
     {
+        // S24: this used to run a 4-cascade-style transition-weight blend (near_split/far_split/
+        // transition_domain, all derived from shadow_clip - which is the SUN's own cascade clip
+        // planes, mSunClipPlanes in pipeline.cpp, not anything spot-light-specific) around a
+        // single pcfSpotShadow() sample, plus an extra unexplained "shadow += max(...)" term also
+        // built from the sun's clip-plane distances. A spot light has exactly one shadow sample,
+        // not cascades to blend between - there was nothing to weight-blend. The weight
+        // multiply-then-divide-by-itself was algebraically a no-op in the normal case (real risk:
+        // a genuine divide-by-zero/NaN if that weight ever landed on exactly 0), and the extra
+        // term added an unrelated, sun-cascade-distance-derived contribution to a spot light's
+        // own occlusion test. Removed - this is a direct single-sample lookup now, matching what
+        // a spot light with one shadow map actually needs.
         float4 lpos;
-
-        float4 near_split = shadow_clip * -0.75;
-        float4 far_split = shadow_clip * -1.25;
-        float4 transition_domain = near_split - far_split;
-        float weight = 0.0;
-
+        if (index == 0)
         {
-            float w = 1.0;
-            w -= max(spos.z - far_split.z, 0.0) / transition_domain.z;
-
-            if (index == 0)
-            {
-                lpos = mul(shadow_matrix[4], spos);
-                shadow += pcfSpotShadow(shadowMap4, shadowMap4Sampler, lpos, 0.8, spos.xy) * w;
-            }
-            else
-            {
-                lpos = mul(shadow_matrix[5], spos);
-                shadow += pcfSpotShadow(shadowMap5, shadowMap5Sampler, lpos, 0.8, spos.xy) * w;
-            }
-            weight += w;
-            shadow += max((pos.z + shadow_clip.z) / (shadow_clip.z - shadow_clip.w) * 2.0 - 1.0, 0.0);
+            lpos = mul(shadow_matrix[4], spos);
+            return pcfSpotShadow(shadowMap4, shadowMap4Sampler, lpos, 0.8, spos.xy);
         }
-
-        shadow /= weight;
+        else
+        {
+            lpos = mul(shadow_matrix[5], spos);
+            return pcfSpotShadow(shadowMap5, shadowMap5Sampler, lpos, 0.8, spos.xy);
+        }
     }
-    else
-    {
-        shadow = 1.0f;
-    }
-    return shadow;
+    return 1.0f;
 #else
     return 1.0;
 #endif

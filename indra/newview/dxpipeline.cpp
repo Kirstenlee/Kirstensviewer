@@ -350,6 +350,15 @@ void DXPipeline::renderGeomDeferred(LLPipeline& pipeline, LLCamera& camera, bool
     // modelview bound correctly.
     bool occlude = LLPipeline::sUseOcclusion > 1 && do_occlusion && !LLHLSLShader::sProfileEnabled && !gCubeSnapshot;
 
+    // S24: GL calls setupHWLights() 3x/frame - here, in renderGeomPostDeferred()
+    // (calcNearbyLights()+setupHWLights() below), and in renderDeferredLighting()'s
+    // local-light block. This call was missing, so every pool drawn here (WLSky,
+    // materials, avatar) read the PREVIOUS frame's sun/moon state while later
+    // passes in the SAME frame already had the current one - a within-frame
+    // mismatch, not a threshold issue. That's what caused the sunrise/sunset
+    // flicker: two halves of one frame disagreeing on whether the sun is up.
+    pipeline.setupHWLights();
+
     LL_RECORD_BLOCK_TIME(FTM_DEFERRED_POOLRENDER);
     for (LLDrawPool* poolp : pipeline.getPools())
     {
@@ -1672,20 +1681,30 @@ void DXPipeline::renderDeferredLighting(LLPipeline& pipeline)
                 // down. Also applies to projected/spot lights.
                 LLVector3 cam_origin = camera->getOrigin();
 
-                // NOTE: this is real Euclidean clearance (2x the light's
-                // own size), not GL's flat per-axis 0.2m margin. A per-axis
-                // OR test only guarantees the camera clears the box in AT
-                // LEAST ONE world axis - the camera can sit deep inside 2 of
-                // 3 axes, barely past the margin in the third, and still
-                // pass as "outside," at which point half the box's corners
-                // land on the wrong side of the camera's eye-plane and
-                // produce corrupted, screen-spanning clip geometry. Scaling
-                // the margin to the light's own size keeps close-in lights
-                // on the fullscreen multi-light path (immune to this clip
-                // corruption) instead of ever reaching the box-mesh path in
-                // this degenerate zone.
+                // NOTE: this is real Euclidean clearance, not GL's flat
+                // per-axis 0.2m margin. A per-axis OR test only guarantees
+                // the camera clears the box in AT LEAST ONE world axis - the
+                // camera can sit deep inside 2 of 3 axes, barely past the
+                // margin in the third, and still pass as "outside," at which
+                // point half the box's corners land on the wrong side of the
+                // camera's eye-plane and produce corrupted, screen-spanning
+                // clip geometry. Scaling the margin to the light's own size
+                // keeps close-in lights on the fullscreen multi-light path
+                // (immune to this clip corruption) instead of ever reaching
+                // the box-mesh path in this degenerate zone.
+                //
+                // Radius is the box's own circumscribing sphere (half-extent
+                // `s` per axis -> corner distance s*sqrt(3)) plus the same
+                // 0.2m margin GL uses - not an arbitrary 2x. That circumsphere
+                // is the minimum radius that still fully contains the box
+                // from every direction (the previous 2x overshot it,
+                // unnecessarily forcing extra lights the box-mesh path could
+                // safely have handled onto the fullscreen path instead -
+                // itself confirmed correct this session, but this keeps
+                // DX's classification as close to GL's as the degenerate-zone
+                // fix allows, rather than diverging further than necessary).
                 F32 dist_to_center = (cam_origin - LLVector3(c[0], c[1], c[2])).length();
-                bool camera_outside_box = dist_to_center > (s * 2.0f + 0.2f);
+                bool camera_outside_box = dist_to_center > (s * 1.7320508f + 0.2f);
 
                 if (camera_outside_box)
                 {
@@ -1734,7 +1753,16 @@ void DXPipeline::renderDeferredLighting(LLPipeline& pipeline)
             // camera-OUTSIDE-box spotlights - camera-inside ones are
             // diverted to fullscreen_spot_lights above and drawn via the
             // gDeferredMultiSpotLightProgram fullscreen pass below.
-            if (!spot_lights.empty())
+            // S24: bind() safely no-ops on a shader that never compiled (logs once,
+            // returns without updating sCurBoundShaderPtr or rebinding VS/PS - see
+            // its own comment) - but nothing downstream of bindDeferredShader() here
+            // checks for that, so a broken gDeferredSpotLightProgram would still run
+            // enableTexture()/setupSpotLight()/uniform uploads and draw, all landing
+            // on whatever shader was left bound from the previous pass. Guard at the
+            // block level instead, matching gDeferredSoftenProgram's isComplete()
+            // check at the top of this function - skip the whole block cleanly
+            // rather than draw with a silently wrong shader bound.
+            if (!spot_lights.empty() && gDeferredSpotLightProgram.isComplete())
             {
                 LLGLDepthTest spot_depth(GL_TRUE, GL_FALSE);
                 LLGLEnable spot_blend(GL_BLEND);
@@ -1820,7 +1848,8 @@ void DXPipeline::renderDeferredLighting(LLPipeline& pipeline)
             // inside the box of. Mirrors GL: one draw per light (not
             // batched, unlike the point-light case above), via
             // gDeferredMultiSpotLightProgram.
-            if (!fullscreen_spot_lights.empty())
+            // S24: same isComplete() guard as the box-mesh spot block above - see its comment.
+            if (!fullscreen_spot_lights.empty() && gDeferredMultiSpotLightProgram.isComplete())
             {
                 LLGLDepthTest depth(GL_FALSE);
 

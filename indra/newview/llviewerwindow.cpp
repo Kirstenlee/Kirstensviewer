@@ -4281,14 +4281,14 @@ void LLViewerWindow::renderSelections(bool for_gl_pick, bool pick_parcel_walls, 
 						gSphere.render();
 
 						// Render Inside
-						// S24: this used to be a dead GL-only glCullFace() pair (DXStateCache
-						// didn't track cull direction, only enable/disable, at the time this was
-						// written) - real fix now exists (llrender/llrender.h's cullFace(), same
-						// one used for LLViewerJoint::render()'s hair/skirt "render inside" pass),
-						// so wired up for real instead of just removing the dead calls.
-						gDX.cullFace(GL_FRONT);
-						gSphere.render();
-						gDX.cullFace(GL_BACK);
+						// S24: LLGLCullFace RAII-guards the cull direction so it always restores
+						// on scope exit - see its own comment (llgl.h) for why a raw paired
+						// cullFace(GL_FRONT)/cullFace(GL_BACK) call is unsafe (DXState::sCullFace
+						// is genuinely global, not scoped to this draw).
+						{
+							LLGLCullFace cull_inside(GL_FRONT);
+							gSphere.render();
+						}
 
 						gDX.popMatrix();
 					}
