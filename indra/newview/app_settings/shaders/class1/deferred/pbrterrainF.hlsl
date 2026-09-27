@@ -32,6 +32,17 @@
 #define TERRAIN_PAINT_TYPE_HEIGHTMAP_WITH_NOISE 0
 #define TERRAIN_PAINT_TYPE_PBR_PAINTMAP 1
 
+// Also declared, identically, by pbrterrainUtilF.hlsl - same
+// include-guard reasoning as TerrainMix/PBRMix below (this file's own
+// main() uses TerrainCoord before that attached utility file's text
+// appears in the concatenated source, so this copy can't simply be
+// deleted). Confirmed live as a real D3DCompile failure at
+// TERRAIN_PLANAR_TEXTURE_SAMPLE_COUNT==3 specifically ("redefinition of
+// 'TerrainCoord'", error X3003) - the ==1 path's plain #define is
+// silently tolerant of being repeated, which is why this went unnoticed
+// until someone actually ran with triplanar sampling on.
+#ifndef LL_TERRAINCOORD_DECLARED
+#define LL_TERRAINCOORD_DECLARED
 #if TERRAIN_PLANAR_TEXTURE_SAMPLE_COUNT == 3
 // S24: HLSL array types go after the identifier (float4 name[3]), not before it as a type
 // prefix like GLSL's "float4[3] name" — typedef is the correct HLSL equivalent of a GLSL
@@ -39,6 +50,7 @@
 typedef float4 TerrainCoord[3];
 #elif TERRAIN_PLANAR_TEXTURE_SAMPLE_COUNT == 1
 #define TerrainCoord float2
+#endif
 #endif
 
 #define MIX_X    1 << 3

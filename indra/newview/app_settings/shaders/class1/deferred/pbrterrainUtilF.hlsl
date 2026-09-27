@@ -285,7 +285,17 @@ float terrain_mix(TerrainMix tm, float4 tms4)
 
 // Pre-transformed texture coordinates for each axial uv slice (Packing: xy, yz, (-x)z, unused)
 // S24: HLSL array types go after the identifier (float4 name[3]), not before it as a type prefix — see pbrterrainF.hlsl's matching typedef.
+// Also declared, identically, by pbrterrainF.hlsl (entry file, wins when
+// both are attached) - see that file's comment for why an include guard
+// is used instead of deleting either copy. Confirmed live as a real
+// D3DCompile error X3003 ("redefinition of 'TerrainCoord'") before this
+// guard existed - only hit at TERRAIN_PLANAR_TEXTURE_SAMPLE_COUNT==3,
+// since a repeated typedef errors but a repeated #define (the ==1 path
+// below) does not.
+#ifndef LL_TERRAINCOORD_DECLARED
+#define LL_TERRAINCOORD_DECLARED
 typedef float4 TerrainCoord[3];
+#endif
 
 // If sign_or_zero is positive, use uv_unflippped, otherwise use uv_flipped
 float2 _t_uv(float2 uv_unflipped, float2 uv_flipped, float sign_or_zero)
@@ -438,7 +448,15 @@ PBRMix terrain_sample_pbr(
 
 #elif TERRAIN_PLANAR_TEXTURE_SAMPLE_COUNT == 1
 
+// Same LL_TERRAINCOORD_DECLARED guard as the ==3 branch above - see its
+// own comment. A repeated #define is harmless in HLSL (unlike a
+// repeated typedef), so this branch was never the one that actually
+// failed to compile, but it's guarded for consistency with pbrterrainF.hlsl's
+// combined ==3/==1 guard block.
+#ifndef LL_TERRAINCOORD_DECLARED
+#define LL_TERRAINCOORD_DECLARED
 #define TerrainCoord float2
+#endif
 
 #endif
 
