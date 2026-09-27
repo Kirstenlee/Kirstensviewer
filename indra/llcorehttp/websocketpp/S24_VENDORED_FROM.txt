@@ -1,0 +1,105 @@
+Vendored directly into source (header-only, dropped from vcpkg's registry --
+see docs/lua-editor-phase5-dependency.md if present, or project memory
+project_slua_luau_introduction_2026_09_20.md).
+
+Upstream: https://github.com/zaphoyd/websocketpp
+Commit:   4dfe1be74e684acca19ac1cf96cce0df9eac2a2d (2025-04-19)
+License:  BSD 3-clause, see COPYING in this directory.
+
+LOCALLY PATCHED (2026-09-20): the vendored commit predates Boost's removal
+of io_service/io_service::work (fully gone as of S24's Boost 1.92, replaced
+by io_context/executor_work_guard). Patched the following 9 files for
+Boost 1.92 compatibility; no behavior change intended, compatibility port
+only:
+  roles/server_endpoint.hpp
+  transport/asio/base.hpp
+  transport/asio/connection.hpp
+  transport/asio/endpoint.hpp
+  transport/asio/security/none.hpp
+  transport/asio/security/tls.hpp
+  transport/debug/endpoint.hpp
+  transport/iostream/endpoint.hpp
+  transport/stub/endpoint.hpp
+
+Changes, in order of how much judgment they required:
+1. io_service -> io_context (mechanical rename, incl. io_service_ptr/
+   io_service::strand -> io_context_ptr/io_context::strand). Base of this
+   rename taken from a community fork, TroniusGaming/websocketpp, commit
+   41cc1d6e (2024-05-23, "Renamed io_service to io_context") - actively
+   used in production per its commit history (JIRA-ticketed gaming/casino
+   SaaS), 9 GitHub stars, still being pushed to as of 2026-09-07. Applied
+   via `git apply` for the 6 files where it applied cleanly against our
+   newer base (endpoint.hpp/security/none.hpp/security/tls.hpp had real
+   version drift - our vendored commit is genuinely newer than that fork's
+   base and carries independent upstream fixes it lacks - so those 3 were
+   hand-ported with the same rename pattern instead of file-replaced).
+2. io_context::work (still present in the fork's fix, since their Boost
+   hadn't fully dropped it yet) -> lib::asio::executor_work_guard<
+   lib::asio::io_context::executor_type>, constructed via
+   m_io_context->get_executor() and reset()/shared_ptr lifetime otherwise
+   unchanged. Confined entirely to transport/asio/endpoint.hpp (work_ptr
+   typedef, start_perpetual()). Not covered by any fork found; hand-ported
+   against boost/asio/executor_work_guard.hpp's actual installed
+   constructor signature.
+3. tcp::resolver::query/iterator (removed) -> resolve()/async_resolve()
+   called with host+service strings directly, returning/passing
+   results_type (a range) instead of an iterator pair. basic_resolver_entry
+   implicitly converts to endpoint_type so most call sites needed no other
+   change. 2 call sites in transport/asio/endpoint.hpp (listen(), the
+   async DNS resolve in handle_resolve()/its async_connect() calls).
+4. timer->expires_from_now() (removed) -> (timer->expiry() - clock_type::
+   now()), preserving the existing is_neg() duration check helper
+   unchanged. 6 call sites across connection.hpp and endpoint.hpp.
+5. socket_base::max_connections -> socket_base::max_listen_connections
+   (renamed in modern Boost). 3 call sites in endpoint.hpp.
+
+Verification: no consumer exists in S24 yet (Phase 5's llwebsocketmgr.cpp/
+lljsonrpcws.cpp not yet vendored), so verified by compiling two throwaway
+test .cpp files directly against these headers + S24's real installed
+Boost 1.92 (cl.exe /std:c++20, same compiler S24 uses) - one instantiating
+websocketpp::server<config::asio> (exercises server_endpoint.hpp, base.hpp,
+connection.hpp, endpoint.hpp, security/none.hpp) and one instantiating
+websocketpp::server<config::asio_tls> (adds security/tls.hpp) - both
+compiled clean (exit 0), including exercising start_perpetual()/
+stop_perpetual() (the work_guard fix) and the resolve/connect paths.
+transport/debug|iostream|stub/endpoint.hpp were not exercised by these
+tests (different transport policies, not used by the asio/asio_tls
+configs) but were confirmed to need zero non-mechanical changes via direct
+diff against the community fork's fix before applying.
+Test scaffold was deleted after verification, not committed.
+
+Confidence: high on the mechanical io_context rename (community-fork-
+sourced, actively used elsewhere) and the resolver/timer/max_connections
+fixes (standard, well-documented Boost 1.66+ migration patterns, each
+verified against boost's actual installed headers before applying, not
+guessed). Medium-high on the work_guard migration specifically - it's the
+one piece with no existing reference implementation to check against, so
+while it compiles correctly and the constructor/lifetime semantics were
+verified against boost's actual header, it has not been exercised under
+real concurrent load (only compile-verified, not runtime-tested - no
+consumer exists yet to runtime-test against).
+
+FURTHER FIXES (2026-09-20, Stage A round): the above was verified only
+against a minimal 2-file smoke test (server instantiation + start/stop
+perpetual). Vendoring the real consumers (llwebsocketmgr.cpp/lljsonrpcws.cpp)
+exercised more of the API surface and surfaced 2 more issues, both fixed:
+6. transport/asio/endpoint.hpp listen()'s synchronous resolve() call used
+   lib::error_code (== std::error_code on MSVC, see common/system_error.hpp)
+   as the resolve() error_code output parameter, but boost::asio's resolver
+   overload isn't templated on arbitrary error_code types - it specifically
+   wants lib::asio::error_code (== boost::system::error_code). The async
+   resolve path (handle_resolve()) already correctly used lib::asio::error_code;
+   the sync listen() path didn't match that pattern. Fixed by changing the
+   local resolve_ec variable's type to match.
+7. transport/asio/connection.hpp's interrupt()/dispatch() called the removed
+   io_context::post() member method (4 call sites). Replaced with the
+   free-function lib::asio::post(*m_io_context, handler) (boost::asio::post),
+   the modern equivalent.
+Both found and fixed by actually vendoring+building the real consumers
+(indra/llcorehttp/llwebsocketmgr.cpp, lljsonrpcws.cpp) against these headers
+- MSBuild build succeeded with 0 errors after these fixes. This is stronger
+verification than the earlier smoke test (real production code, not a
+synthetic exerciser) but the underlying honesty from above still applies:
+compile-verified, not yet runtime-tested under real concurrent load, since
+nothing constructs a WSServer or starts the event loop yet (Stage A keeps
+this code entirely uncalled/inert - see llcorehttp/CMakeLists.txt).

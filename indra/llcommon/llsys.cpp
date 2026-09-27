@@ -374,6 +374,9 @@ LLCPUInfo::LLCPUInfo()
     {
         mSSEVersions.append("4a");
     }
+
+    // S24: AVX is a fixed baseline, not runtime-detected - see hasAVX().
+    mSIMDVersions.append("AVX");
 }
 
 bool LLCPUInfo::hasAltivec() const
@@ -429,6 +432,11 @@ std::string LLCPUInfo::getCPUString() const
 const LLSD& LLCPUInfo::getSSEVersions() const
 {
     return mSSEVersions;
+}
+
+const LLSD& LLCPUInfo::getSIMDVersions() const
+{
+    return mSIMDVersions;
 }
 
 void LLCPUInfo::stream(std::ostream& s) const
@@ -592,15 +600,17 @@ LLSD LLMemoryInfo::loadStatsMap()
     state.dwLength = sizeof(state);
     GlobalMemoryStatusEx(&state);
 
-    DWORDLONG div = 1024;
+    static constexpr DWORDLONG div = 1024;
 
     stats.add("Percent Memory use", state.dwMemoryLoad/div);
     stats.add("Total Physical KB",  state.ullTotalPhys/div);
     stats.add("Avail Physical KB",  state.ullAvailPhys/div);
     stats.add("Total page KB",      state.ullTotalPageFile/div);
     stats.add("Avail page KB",      state.ullAvailPageFile/div);
-    stats.add("Total Virtual KB",   state.ullTotalVirtual/div);
-    stats.add("Avail Virtual KB",   state.ullAvailVirtual/div);
+
+    static constexpr DWORDLONG mb_div = 1024 * 1024;
+    stats.add("Total Virtual MB", state.ullTotalVirtual/mb_div);  // ~134 million MB
+    stats.add("Avail Virtual MB", state.ullAvailVirtual/mb_div);
 
     // SL-12122 - Call to GetPerformanceInfo() was removed here. Took
     // on order of 10 ms, causing unacceptable frame time spike every

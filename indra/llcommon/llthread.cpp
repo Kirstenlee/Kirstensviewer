@@ -251,9 +251,14 @@ void LLThread::shutdown()
         // Thread is still running - initiate graceful shutdown
         // Signal the thread to quit by setting the quitting flag
         setQuitting();
+        if (!isStopped())
+        {
+            // Give the thread a chance to update status.
+            yield();
+        }
 
         // Wait for the thread to exit gracefully with timeout
-        // Maximum wait time: MAX_WAIT * 100ms = 60 seconds
+        // Maximum wait time: MAX_WAIT * 10ms = 6 seconds
         S32 counter = 0;
         const S32 MAX_WAIT = 600;
         while (counter < MAX_WAIT)
@@ -262,14 +267,14 @@ void LLThread::shutdown()
             {
                 break;
             }
-            // Sleep for 100 milliseconds between checks
-            ms_sleep(100);
-            yield();
+            // Sleep for 10ms between checks
+            // Warning: This can be called from the main thread
+            ms_sleep(10);
             counter++;
 
-            // Re-broadcast every second (10 iterations) to handle
+            // Re-broadcast every second (100 iterations) to handle
             // potential spurious wakeups or missed signals
-            if ((counter % 10) == 0)
+            if ((counter % 100) == 0)
             {
                 mDataLock->lock();
                 mRunCondition->broadcast();

@@ -1,12 +1,22 @@
 # -*- cmake -*-
 
+# S24 :: websocketpp/ (header-only, vendored directly -- dropped from
+# vcpkg's registry, locally patched for Boost 1.92's io_context API) sits
+# under this directory and is already on the include path below via
+# CMAKE_CURRENT_SOURCE_DIR. See websocketpp/S24_VENDORED_FROM.txt.
+# Consumed by llwebsocketmgr.cpp/lljsonrpcws.cpp below (Phase 5, SLua/Luau
+# external editor bridge - see project_slua_luau_introduction_2026_09_20.md).
+# _WEBSOCKETPP_CPP11_STL_ is required: MSVC's __cplusplus macro reports the
+# legacy pre-C++11 value unless /Zc:__cplusplus is passed (not set anywhere
+# in this tree), which websocketpp's own C++11-detection depends on.
+
 project(llcorehttp)
 
 include(00-Common)
-include(Curl)
+include(CURL)
 include(OpenSSL)
-include(NgHttp2)
-include(ZLib)
+include(NGHTTP2)
+include(ZLIB)
 include(LLCoreHttp)
 include(LLMessage)
 include(LLCommon)
@@ -30,6 +40,8 @@ set(llcorehttp_SOURCE_FILES
     httprequest.cpp
     httpresponse.cpp
     httpstats.cpp
+    lljsonrpcws.cpp
+    llwebsocketmgr.cpp
     _httplibcurl.cpp
     _httpopcancel.cpp
     _httpoperation.cpp
@@ -58,6 +70,8 @@ set(llcorehttp_HEADER_FILES
     httprequest.h
     httpresponse.h
     httpstats.h
+    lljsonrpcws.h
+    llwebsocketmgr.h
     _httpinternal.h
     _httplibcurl.h
     _httpopcancel.h
@@ -83,6 +97,7 @@ set_source_files_properties(${llcorehttp_HEADER_FILES}
 list(APPEND llcorehttp_SOURCE_FILES ${llcorehttp_HEADER_FILES})
 
 add_library (llcorehttp ${llcorehttp_SOURCE_FILES})
+target_compile_definitions(llcorehttp PRIVATE _WEBSOCKETPP_CPP11_STL_)
 target_link_libraries(
   llcorehttp
   ${CURL_LIBRARIES}

@@ -87,7 +87,7 @@ LLVector3 totalSkinOffset(LLAvatarJoint *joint)
 //-----------------------------------------------------------------------------
 LLSkinJoint::LLSkinJoint()
 {
-    mJoint = nullptr;  // S24 nullptr replaces NULL - 2026-04-27
+    mJoint = nullptr;  // S24 nullptr replaces NULL
 }
 
 //-----------------------------------------------------------------------------
@@ -95,7 +95,7 @@ LLSkinJoint::LLSkinJoint()
 //-----------------------------------------------------------------------------
 LLSkinJoint::~LLSkinJoint()
 {
-    mJoint = nullptr;  // S24 nullptr replaces NULL - 2026-04-27
+    mJoint = nullptr;  // S24 nullptr replaces NULL
 }
 
 
@@ -153,12 +153,12 @@ LLAvatarJointMesh::LLAvatarJointMesh()
     mShiny = 0.0f;
     mCullBackFaces = true;
 
-    mMesh = nullptr;  // S24 nullptr replaces NULL - 2026-04-27
+    mMesh = nullptr;  // S24 nullptr replaces NULL
 
     mNumSkinJoints = 0;
-    mSkinJoints = nullptr;  // S24 nullptr replaces NULL - 2026-04-27
+    mSkinJoints = nullptr;  // S24 nullptr replaces NULL
 
-    mFace = nullptr;  // S24 nullptr replaces NULL - 2026-04-27
+    mFace = nullptr;  // S24 nullptr replaces NULL
 
     mMeshID = 0;
     mUpdateXform = false;
@@ -175,8 +175,8 @@ LLAvatarJointMesh::LLAvatarJointMesh()
 //-----------------------------------------------------------------------------
 LLAvatarJointMesh::~LLAvatarJointMesh()
 {
-    mMesh = nullptr;     // S24 nullptr replaces NULL - 2026-04-27
-    mTexture = nullptr;  // S24 nullptr replaces NULL - 2026-04-27
+    mMesh = nullptr;     // S24 nullptr replaces NULL
+    mTexture = nullptr;  // S24 nullptr replaces NULL
     freeSkinData();
 }
 
@@ -198,7 +198,7 @@ void LLAvatarJointMesh::freeSkinData()
 {
     mNumSkinJoints = 0;
     delete [] mSkinJoints;
-    mSkinJoints = nullptr;  // S24 nullptr replaces NULL - 2026-04-27
+    mSkinJoints = nullptr;  // S24 nullptr replaces NULL
 }
 
 //--------------------------------------------------------------------
@@ -240,14 +240,14 @@ void LLAvatarJointMesh::setColor( const LLColor4& color )
 //--------------------------------------------------------------------
 // LLAvatarJointMesh::setTexture()
 //--------------------------------------------------------------------
-void LLAvatarJointMesh::setTexture( LLGLTexture *texture )
+void LLAvatarJointMesh::setTexture( LLDXTexture *texture )
 {
     mTexture = texture;
 
     // texture and dynamic_texture are mutually exclusive
     if( texture )
     {
-        mLayerSet = nullptr;  // S24 nullptr replaces NULL - 2026-04-27
+        mLayerSet = nullptr;  // S24 nullptr replaces NULL
         //texture->bindTexture(0);
         //texture->setClamp(true, true);
     }
@@ -270,7 +270,7 @@ void LLAvatarJointMesh::setLayerSet( LLTexLayerSet* layer_set )
     // texture and dynamic_texture are mutually exclusive
     if( layer_set )
     {
-        mTexture = nullptr;  // S24 nullptr replaces NULL - 2026-04-27
+        mTexture = nullptr;  // S24 nullptr replaces NULL
     }
 }
 
@@ -299,7 +299,7 @@ void LLAvatarJointMesh::setMesh( LLPolyMesh *mesh )
     // release any existing skin joints
     freeSkinData();
 
-    if ( mMesh == nullptr )  // S24 nullptr replaces NULL - 2026-04-27
+    if ( mMesh == nullptr )  // S24 nullptr replaces NULL
     {
         return;
     }
@@ -318,7 +318,7 @@ void LLAvatarJointMesh::setMesh( LLPolyMesh *mesh )
         allocateSkinData( numJointNames );
         std::string *jointNames = mMesh->getJointNames();
 
-        // S24 Modern loop variable declaration - 2026-04-27
+        // S24 Modern loop variable declaration
         for (U32 jn = 0; jn < numJointNames; jn++)
         {
             LLAvatarJoint* joint = (LLAvatarJoint*)(getRoot()->findJoint(jointNames[jn]) );
@@ -340,7 +340,7 @@ void LLAvatarJointMesh::setMesh( LLPolyMesh *mesh )
 //-----------------------------------------------------------------------------
 void LLAvatarJointMesh::setupJoint(LLAvatarJoint* current_joint)
 {
-    // S24 Modern loop variable declaration - 2026-04-27
+    // S24 Modern loop variable declaration
     for (U32 sj = 0; sj < mNumSkinJoints; sj++)
     {
         LLSkinJoint &js = mSkinJoints[sj];
@@ -371,7 +371,7 @@ void LLAvatarJointMesh::setupJoint(LLAvatarJoint* current_joint)
         // otherwise add our ancestor and ourselves
         else
         {
-            jrd.push_back(new LLJointRenderData(&ancestor->getWorldMatrix(), nullptr));  // S24 nullptr replaces NULL - 2026-04-27
+            jrd.push_back(new LLJointRenderData(&ancestor->getWorldMatrix(), nullptr));  // S24 nullptr replaces NULL
             LL_DEBUGS("Avatar") << "add2 ancestor joint[" << (jrd.size()-1) << "] = " << ancestor->getName() << LL_ENDL;
             jrd.push_back(new LLJointRenderData(&current_joint->getWorldMatrix(), &js));
             LL_DEBUGS("Avatar") << "add2 joint[" << (jrd.size()-1) << "] = " << current_joint->getName() << LL_ENDL;

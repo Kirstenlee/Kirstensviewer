@@ -78,6 +78,7 @@ public:
 
     std::string getCPUString() const;
     const LLSD& getSSEVersions() const;
+    const LLSD& getSIMDVersions() const;
 
     bool hasAltivec() const;
     bool hasSSE() const;
@@ -87,6 +88,9 @@ public:
     bool hasSSE41() const;
     bool hasSSE42() const;
     bool hasSSE4a() const;
+    // S24: AVX is a fixed baseline requirement, not runtime-detected -
+    // always true, no CPUID/XGETBV probing needed.
+    bool hasAVX() const { return true; }
     F64 getMHz() const;
 
     // Family is "AMD Duron" or "Intel Pentium Pro"
@@ -105,6 +109,7 @@ private:
     std::string mFamily;
     std::string mCPUString;
     LLSD mSSEVersions;
+    LLSD mSIMDVersions;
 };
 
 //=============================================================================

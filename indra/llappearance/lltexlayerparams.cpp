@@ -105,7 +105,7 @@ void LLTexLayerParamAlpha::getCacheByteCount(S32* gl_bytes)
 
 	for (LLTexLayerParamAlpha* instance : sInstances)
 	{
-		LLGLTexture* tex = instance->mCachedProcessedTexture;
+		LLDXTexture* tex = instance->mCachedProcessedTexture;
 		if (tex)
 		{
 			S32 bytes = (S32)tex->getWidth() * tex->getHeight() * tex->getComponents();
@@ -346,7 +346,7 @@ bool LLTexLayerParamAlpha::render(S32 x, S32 y, S32 width, S32 height)
 				}
 
 				gDX.getTexUnit(0)->bind(mCachedProcessedTexture);
-				gl_rect_2d_simple_tex(width, height);
+				dx_rect_2d_simple_tex(width, height);
 				gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
 			}
 		}
@@ -362,7 +362,7 @@ bool LLTexLayerParamAlpha::render(S32 x, S32 y, S32 width, S32 height)
 	{
 		gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
 		gDX.color4f(0.f, 0.f, 0.f, effective_weight);
-		gl_rect_2d_simple(width, height);
+		dx_rect_2d_simple(width, height);
 	}
 
 	return success;

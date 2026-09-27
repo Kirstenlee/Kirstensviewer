@@ -380,7 +380,7 @@ bool LLTexLayerSet::render( S32 x, S32 y, S32 width, S32 height, LLRenderTarget*
         gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
         gDX.color4f( 0.f, 0.f, 0.f, 1.f );
 
-        gl_rect_2d_simple( width, height );
+        dx_rect_2d_simple( width, height );
 
         gDX.flush();
         gAlphaMaskProgram.setMinimumAlpha(0.004f);
@@ -412,7 +412,7 @@ bool LLTexLayerSet::render( S32 x, S32 y, S32 width, S32 height, LLRenderTarget*
         gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
         gDX.color4f( 0.f, 0.f, 0.f, 0.f );
 
-        gl_rect_2d_simple( width, height );
+        dx_rect_2d_simple( width, height );
         gDX.setSceneBlendType(LLRender::BT_ALPHA);
 
         gDX.flush();
@@ -480,12 +480,12 @@ void LLTexLayerSet::renderAlphaMaskTextures(S32 x, S32 y, S32 width, S32 height,
     {
         gDX.flush();
         {
-            LLGLTexture* tex = LLTexLayerStaticImageList::getInstance()->getTexture(info->mStaticAlphaFileName, true);
+            LLDXTexture* tex = LLTexLayerStaticImageList::getInstance()->getTexture(info->mStaticAlphaFileName, true);
             if( tex )
             {
                 LLGLSUIDefault gls_ui;
                 gDX.getTexUnit(0)->bind(tex);
-                gl_rect_2d_simple_tex( width, height );
+                dx_rect_2d_simple_tex( width, height );
             }
         }
         gDX.flush();
@@ -498,7 +498,7 @@ void LLTexLayerSet::renderAlphaMaskTextures(S32 x, S32 y, S32 width, S32 height,
         gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
         gDX.color4f( 0.f, 0.f, 0.f, 1.f );
 
-        gl_rect_2d_simple( width, height );
+        dx_rect_2d_simple( width, height );
 
         gDX.flush();
         gAlphaMaskProgram.setMinimumAlpha(0.004f);
@@ -1060,7 +1060,7 @@ bool LLTexLayer::render(S32 x, S32 y, S32 width, S32 height, LLRenderTarget* bou
     if ((getInfo()->mLocalTexture != -1) && !getInfo()->mUseLocalTextureAlphaOnly)
     {
         {
-            LLGLTexture* tex = NULL;
+            LLDXTexture* tex = NULL;
             if (mLocalTextureObject && mLocalTextureObject->getImage())
         {
                 tex = mLocalTextureObject->getImage();
@@ -1088,7 +1088,7 @@ bool LLTexLayer::render(S32 x, S32 y, S32 width, S32 height, LLRenderTarget* bou
             gDX.getTexUnit(0)->bind(tex, true);
             gDX.getTexUnit(0)->setTextureAddressMode(LLTexUnit::TAM_CLAMP);
 
-            gl_rect_2d_simple_tex(width, height);
+            dx_rect_2d_simple_tex(width, height);
 
             gDX.getTexUnit(0)->setTextureAddressMode(old_mode);
             gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
@@ -1108,11 +1108,11 @@ bool LLTexLayer::render(S32 x, S32 y, S32 width, S32 height, LLRenderTarget* bou
     if( !getInfo()->mStaticImageFileName.empty() )
     {
         {
-            LLGLTexture* tex = LLTexLayerStaticImageList::getInstance()->getTexture(getInfo()->mStaticImageFileName, getInfo()->mStaticImageIsMask);
+            LLDXTexture* tex = LLTexLayerStaticImageList::getInstance()->getTexture(getInfo()->mStaticImageFileName, getInfo()->mStaticImageIsMask);
             if( tex )
             {
                 gDX.getTexUnit(0)->bind(tex, true);
-                gl_rect_2d_simple_tex( width, height );
+                dx_rect_2d_simple_tex( width, height );
                 gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
             }
             else
@@ -1131,7 +1131,7 @@ bool LLTexLayer::render(S32 x, S32 y, S32 width, S32 height, LLRenderTarget* bou
 
         gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
         gDX.color4fv( net_color.mV );
-        gl_rect_2d_simple( width, height );
+        dx_rect_2d_simple( width, height );
         gAlphaMaskProgram.setMinimumAlpha(0.004f);
     }
 
@@ -1220,12 +1220,12 @@ bool LLTexLayer::blendAlphaTexture(S32 x, S32 y, S32 width, S32 height)
 
     if( !getInfo()->mStaticImageFileName.empty() )
     {
-        LLGLTexture* tex = LLTexLayerStaticImageList::getInstance()->getTexture( getInfo()->mStaticImageFileName, getInfo()->mStaticImageIsMask );
+        LLDXTexture* tex = LLTexLayerStaticImageList::getInstance()->getTexture( getInfo()->mStaticImageFileName, getInfo()->mStaticImageIsMask );
         if( tex )
         {
             gAlphaMaskProgram.setMinimumAlpha(0.f);
             gDX.getTexUnit(0)->bind(tex, true);
-            gl_rect_2d_simple_tex( width, height );
+            dx_rect_2d_simple_tex( width, height );
             gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
             gAlphaMaskProgram.setMinimumAlpha(0.004f);
         }
@@ -1238,12 +1238,12 @@ bool LLTexLayer::blendAlphaTexture(S32 x, S32 y, S32 width, S32 height)
     {
         if (getInfo()->mLocalTexture >=0 && getInfo()->mLocalTexture < TEX_NUM_INDICES)
         {
-            LLGLTexture* tex = mLocalTextureObject->getImage();
+            LLDXTexture* tex = mLocalTextureObject->getImage();
             if (tex)
             {
                 gAlphaMaskProgram.setMinimumAlpha(0.f);
                 gDX.getTexUnit(0)->bind(tex);
-                gl_rect_2d_simple_tex( width, height );
+                dx_rect_2d_simple_tex( width, height );
                 gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
                 gAlphaMaskProgram.setMinimumAlpha(0.004f);
             }
@@ -1283,7 +1283,7 @@ void LLTexLayer::renderMorphMasks(S32 x, S32 y, S32 width, S32 height, const LLC
         gDX.setSceneBlendType(LLRender::BT_REPLACE);
 
         gDX.color4f( 0.f, 0.f, 0.f, 0.f );
-        gl_rect_2d_simple( width, height );
+        dx_rect_2d_simple( width, height );
     }
 
     // Accumulate alphas
@@ -1305,7 +1305,7 @@ void LLTexLayer::renderMorphMasks(S32 x, S32 y, S32 width, S32 height, const LLC
     // Accumulate the alpha component of the texture
     if( getInfo()->mLocalTexture != -1 )
     {
-        LLGLTexture* tex = mLocalTextureObject->getImage();
+        LLDXTexture* tex = mLocalTextureObject->getImage();
         if( tex && (tex->getComponents() == 4) )
         {
             LLTexUnit::eTextureAddressMode old_mode = tex->getAddressMode();
@@ -1313,7 +1313,7 @@ void LLTexLayer::renderMorphMasks(S32 x, S32 y, S32 width, S32 height, const LLC
             gDX.getTexUnit(0)->bind(tex, true);
             gDX.getTexUnit(0)->setTextureAddressMode(LLTexUnit::TAM_CLAMP);
 
-            gl_rect_2d_simple_tex( width, height );
+            dx_rect_2d_simple_tex( width, height );
 
             gDX.getTexUnit(0)->setTextureAddressMode(old_mode);
             gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
@@ -1322,13 +1322,13 @@ void LLTexLayer::renderMorphMasks(S32 x, S32 y, S32 width, S32 height, const LLC
 
     if( !getInfo()->mStaticImageFileName.empty() && getInfo()->mStaticImageIsMask )
     {
-        LLGLTexture* tex = LLTexLayerStaticImageList::getInstance()->getTexture(getInfo()->mStaticImageFileName, getInfo()->mStaticImageIsMask);
+        LLDXTexture* tex = LLTexLayerStaticImageList::getInstance()->getTexture(getInfo()->mStaticImageFileName, getInfo()->mStaticImageIsMask);
         if( tex )
         {
             if( (tex->getComponents() == 4) || (tex->getComponents() == 1) )
             {
                 gDX.getTexUnit(0)->bind(tex, true);
-                gl_rect_2d_simple_tex( width, height );
+                dx_rect_2d_simple_tex( width, height );
                 gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
             }
             else
@@ -1345,7 +1345,7 @@ void LLTexLayer::renderMorphMasks(S32 x, S32 y, S32 width, S32 height, const LLC
     {
         gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
         gDX.color4fv(layer_color.mV);
-        gl_rect_2d_simple( width, height );
+        dx_rect_2d_simple( width, height );
     }
 
     gAlphaMaskProgram.setMinimumAlpha(0.004f);
@@ -1373,6 +1373,15 @@ void LLTexLayer::renderMorphMasks(S32 x, S32 y, S32 width, S32 height, const LLC
                 // We should only be doing this when we believe something has changed with respect to the user's appearance.
         {
             LL_DEBUGS("Morph") << "gl alpha cache of morph mask not found, doing readback: " << getName() << LL_ENDL;
+
+            // Replace the cached mask without leaking its old allocation.
+            alpha_cache_t::iterator cached = mAlphaCache.find(cache_index);
+            if (cached != mAlphaCache.end())
+            {
+                ll_aligned_free_32(cached->second);
+                mAlphaCache.erase(cached);
+            }
+
                         // clear out a slot if we have filled our cache
             S32 max_cache_entries = getTexLayerSet()->getAvatarAppearance()->isSelf() ? 4 : 1;
             while ((S32)mAlphaCache.size() >= max_cache_entries)
@@ -1409,6 +1418,7 @@ void LLTexLayer::renderMorphMasks(S32 x, S32 y, S32 width, S32 height, const LLC
                     U8* temp = (U8*)ll_aligned_malloc_32(mem_size << 2); // allocate same size, but RGBA
                     if (!temp)
                     {
+                        ll_aligned_free_32(alpha_data);
                         LLError::LLUserWarningMsg::showOutOfMemory();
                         LL_ERRS() << "Failed to allocate temporary memory for morph texture readback: " << (S32)(mem_size << 2) << LL_ENDL;
                         return;
@@ -1451,6 +1461,7 @@ void LLTexLayer::renderMorphMasks(S32 x, S32 y, S32 width, S32 height, const LLC
                     U8* temp_data = (U8*)ll_aligned_malloc_32(mem_size * TEMP_BYTES_PER_PIXEL);
                     if (!temp_data)
                     {
+                        ll_aligned_free_32(alpha_data);
                         LLError::LLUserWarningMsg::showOutOfMemory();
                         LL_ERRS() << "Failed to allocate temporary memory for morph texture: " << (S32)(mem_size * TEMP_BYTES_PER_PIXEL) << LL_ENDL;
                         return;
@@ -1523,7 +1534,7 @@ LLUUID LLTexLayer::getUUID() const
     LLUUID uuid;
     if( getInfo()->mLocalTexture != -1 )
     {
-            LLGLTexture* tex = mLocalTextureObject->getImage();
+            LLDXTexture* tex = mLocalTextureObject->getImage();
             if (tex)
             {
                 uuid = mLocalTextureObject->getID();
@@ -1531,7 +1542,7 @@ LLUUID LLTexLayer::getUUID() const
     }
     if( !getInfo()->mStaticImageFileName.empty() )
     {
-            LLGLTexture* tex = LLTexLayerStaticImageList::getInstance()->getTexture(getInfo()->mStaticImageFileName, getInfo()->mStaticImageIsMask);
+            LLDXTexture* tex = LLTexLayerStaticImageList::getInstance()->getTexture(getInfo()->mStaticImageFileName, getInfo()->mStaticImageIsMask);
             if( tex )
             {
                 uuid = tex->getID();
@@ -1844,9 +1855,9 @@ LLImageTGA* LLTexLayerStaticImageList::getImageTGA(const std::string& file_name)
 
 // Returns a GL Image (without a backing ImageRaw) that contains the decoded data from a tga file named file_name.
 // Caches the result to speed identical subsequent requests.
-LLGLTexture* LLTexLayerStaticImageList::getTexture(const std::string& file_name, bool is_mask)
+LLDXTexture* LLTexLayerStaticImageList::getTexture(const std::string& file_name, bool is_mask)
 {
-    LLPointer<LLGLTexture> tex;
+    LLPointer<LLDXTexture> tex;
     const char *namekey = mImageNames.addString(file_name);
 
     texture_map_t::const_iterator iter = mStaticImageList.find(namekey);
@@ -1873,7 +1884,7 @@ LLGLTexture* LLTexLayerStaticImageList::getTexture(const std::string& file_name,
 
                 image_raw->copyUnscaledAlphaMask(alpha_image_raw, LLColor4U::black);
             }
-            if (!tex->createGLTexture(0, image_raw, 0, true, LLGLTexture::LOCAL))
+            if (!tex->createGLTexture(0, image_raw, 0, true, LLDXTexture::LOCAL))
             {
                 LL_WARNS() << "Failed to create GL texture for image: " << file_name << LL_ENDL;
             }
