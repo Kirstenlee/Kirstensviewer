@@ -2020,8 +2020,17 @@ LLViewerObject* LLViewerRegion::addNewObject(LLVOCacheEntry* entry)
     }
     else
     {
-        LLViewerRegion* old_regionp = ((LLDrawable*)entry->getEntry()->getDrawable())->getRegion();
-        if(old_regionp != this)
+        LLDrawable* drawablep = (LLDrawable*)entry->getEntry()->getDrawable();
+        if (!drawablep || drawablep->isDead() || drawablep->getVObj().isNull())
+        {
+            LL_DEBUGS("VOCache") << "Entry: " << entry->getLocalID() << " has a dead or invalid drawable; resetting to inactive." << LL_ENDL;
+            mImpl->mVisibleEntries.erase(entry);
+            entry->setState(LLVOCacheEntry::INACTIVE);
+            return NULL;
+        }
+
+        LLViewerRegion* old_regionp = drawablep->getRegion();
+        if (old_regionp != this)
         {
             // S24 REGION PERF / VOCache: Entry exists in two regions simultaneously
             // CRITICAL: This is a NORMAL TRANSIENT STATE during region crossings and teleports
@@ -3442,6 +3451,7 @@ void LLViewerRegionImpl::buildCapabilityNames(LLSD& capabilityNames)
     capabilityNames.append("ViewerMetrics");
     capabilityNames.append("ViewerStartAuction");
     capabilityNames.append("ViewerStats");
+    capabilityNames.append("ScriptDefinitions");
 
     // Please add new capabilities alphabetically to reduce
     // merge conflicts.

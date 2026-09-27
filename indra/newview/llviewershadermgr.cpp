@@ -136,7 +136,6 @@ LLHLSLShader        gPathfindingNoNormalsProgram;
 
 //avatar shader handles
 LLHLSLShader        gAvatarProgram;
-LLHLSLShader        gAvatarEyeballProgram;
 LLHLSLShader        gImpostorProgram;
 
 // Effects Shaders
@@ -428,7 +427,6 @@ void LLViewerShaderMgr::finalizeShaderList()
     //ONLY shaders that need WL Param management should be added here
     mShaderList.push_back(&gAvatarProgram);
     mShaderList.push_back(&gWaterProgram);
-    mShaderList.push_back(&gAvatarEyeballProgram);
     mShaderList.push_back(&gImpostorProgram);
     mShaderList.push_back(&gObjectBumpProgram);
     mShaderList.push_back(&gObjectFullbrightAlphaMaskProgram);
@@ -595,27 +593,6 @@ void LLViewerShaderMgr::setShaders()
         return;
     }
 
-    {
-        static LLCachedControl<bool> shader_cache_enabled(gSavedSettings, "RenderShaderCacheEnabled", true);
-        static LLUUID old_cache_version;
-        static LLUUID current_cache_version;
-        if (current_cache_version.isNull())
-        {
-            HBXXH128 hash_obj;
-            hash_obj.update(LLVersionInfo::instance().getVersion());
-            current_cache_version = hash_obj.digest();
-
-            old_cache_version = LLUUID(gSavedSettings.getString("RenderShaderCacheVersion"));
-            gSavedSettings.setString("RenderShaderCacheVersion", current_cache_version.asString());
-        }
-
-        initShaderCache(
-            shader_cache_enabled,
-            old_cache_version,
-            current_cache_version,
-            LLAppViewer::instance()->isSecondInstance());
-    }
-
     static LLCachedControl<U32> max_texture_index(gSavedSettings, "RenderMaxTextureIndex", 16);
 
     // when using indexed texture rendering, leave some texture units available for shadow and reflection maps
@@ -645,10 +622,6 @@ void LLViewerShaderMgr::setShaders()
         explicit SplashGuard(bool skip_hide) : mSkipHide(skip_hide) {}
         ~SplashGuard() { if (!mSkipHide) { LLSplashScreen::hide(); } }
     } splash_guard(splashWasAlreadyVisible);
-
-    // Make sure the compiled shader map is cleared before we recompile shaders.
-    mVertexShaderObjects.clear();
-    mFragmentShaderObjects.clear();
 
     initAttribsAndUniforms();
     gPipeline.releaseGLBuffers();
@@ -781,7 +754,7 @@ void LLViewerShaderMgr::setShaders()
         if (loadShadersObject())
         { //hardware skinning is enabled and rigged attachment shaders loaded correctly
             // cloth is a class3 shader
-            S32 avatar_class = 1;
+            constexpr S32 avatar_class = 1;
 
             // Set the actual level
             mShaderLevel[SHADER_AVATAR] = avatar_class;
@@ -790,19 +763,21 @@ void LLViewerShaderMgr::setShaders()
             llassert(loaded);
         }
         else
-        { //hardware skinning not possible, neither is deferred rendering
-            llassert(false); // SHOULD NOT BE POSSIBLE
+        {
+            // SHOULD NOT BE POSSIBLE
+            // Hardware skinning not possible, neither is deferred rendering,
+            // but both are a hard requirement - can't keep going, but prefer
+            // an orderly quit (flush settings/cache, clean disconnect) over
+            // LL_ERRS()'s abrupt fatal-abort.
+            LL_WARNS() << "Failed to load object shaders, cannot continue." << LL_ENDL;
+            LLAppViewer::instance()->earlyExitNoNotify();
+            return;
         }
     }
 
     llassert(loaded);
     loaded = loaded && loadShadersDeferred();
     llassert(loaded);
-
-    if (!LLAppViewer::instance()->isSecondInstance())
-    {
-    persistShaderCacheMetadata();
-    }
 
     if (gViewerWindow)
     {
@@ -3418,14 +3393,6 @@ bool LLViewerShaderMgr::loadShadersAvatar()
 {
 #if 1 // DEPRECATED -- forward rendering is deprecated
     bool success = true;
-
-    if (mShaderLevel[SHADER_AVATAR] == 0)
-    {
-        gAvatarProgram.unload();
-        gAvatarEyeballProgram.unload();
-        return true;
-    }
-
     if (success)
     {
         gAvatarProgram.mName = "Avatar Shader";
@@ -3449,27 +3416,13 @@ bool LLViewerShaderMgr::loadShadersAvatar()
         }
     }
 
-    if (success)
-    {
-        gAvatarEyeballProgram.mName = "Avatar Eyeball Program";
-        gAvatarEyeballProgram.mFeatures.calculatesLighting = true;
-        gAvatarEyeballProgram.mFeatures.isSpecular = true;
-        gAvatarEyeballProgram.mFeatures.calculatesAtmospherics = true;
-        gAvatarEyeballProgram.mFeatures.hasGamma = true;
-        gAvatarEyeballProgram.mFeatures.hasAtmospherics = true;
-        gAvatarEyeballProgram.mFeatures.hasLighting = true;
-        gAvatarEyeballProgram.mFeatures.hasAlphaMask = true;
-        gAvatarEyeballProgram.mShaderFiles.clear();
-        gAvatarEyeballProgram.mShaderFiles.push_back(make_pair("avatar/eyeballV.glsl", GL_VERTEX_SHADER));
-        gAvatarEyeballProgram.mShaderFiles.push_back(make_pair("avatar/eyeballF.glsl", GL_FRAGMENT_SHADER));
-        gAvatarEyeballProgram.mShaderLevel = mShaderLevel[SHADER_AVATAR];
-        success = gAvatarEyeballProgram.createShader();
-    }
-
     if( !success )
     {
+        // This isn't supposed to fail, otherwise defferred shaders would have failed.
+        // Is only used for avatar previews (like LLVisualParamHint)
         mShaderLevel[SHADER_AVATAR] = 0;
         mMaxAvatarShaderLevel = 0;
+        LL_WARNS() << "Failed to create avatar shader!" << LL_ENDL;
         return false;
     }
 #endif

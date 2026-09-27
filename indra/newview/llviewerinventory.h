@@ -42,6 +42,8 @@ class LLViewerInventoryCategory;
 class LLInventoryCallback;
 class LLAvatarName;
 
+constexpr U8 NO_INV_SUBTYPE{ 0 };
+
 //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // Class LLViewerInventoryItem
 //
@@ -153,6 +155,10 @@ public:
     LLViewerInventoryItem *getLinkedItem() const;
     LLViewerInventoryCategory *getLinkedCategory() const;
 
+    // Script running/faulted state, parsed from task inventory cap responses.
+    bool getIsRunning() const { return mIsRunning; }
+    bool getIsFaulted() const { return mIsFaulted; }
+
     // Checks the items permissions (for owner, group, or everyone) and returns true if all mask bits are set.
     bool checkPermissionsSet(PermissionMask mask) const;
     PermissionMask getPermissionMask() const;
@@ -165,6 +171,8 @@ public:
 
 public:
     bool mIsComplete;
+    bool mIsRunning = false;
+    bool mIsFaulted = false;
     LLTransactionID mTransactionID;
 };
 
@@ -377,9 +385,6 @@ public:
     static bool is_instantiated() { return sInstance != NULL; }
 };
 extern LLInventoryCallbackManager gInventoryCallbacks;
-
-
-const U8 NO_INV_SUBTYPE{ 0 };
 
 // *TODO: Find a home for these
 void create_inventory_item(const LLUUID& agent_id, const LLUUID& session_id,

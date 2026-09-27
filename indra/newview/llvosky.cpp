@@ -215,7 +215,7 @@ void LLSkyTex::create()
 void LLSkyTex::createGLImage(S32 which)
 {
     mTexture[which]->setExplicitFormat(GL_RGBA8, GL_RGBA);
-    mTexture[which]->createGLTexture(0, mImageRaw[which], 0, true, LLGLTexture::LOCAL);
+    mTexture[which]->createGLTexture(0, mImageRaw[which], 0, true, LLDXTexture::LOCAL);
     mTexture[which]->setAddressMode(LLTexUnit::TAM_CLAMP);
 }
 
@@ -489,8 +489,8 @@ void LLVOSky::init()
 
     mHeavenlyBodyUpdated = false ;
 
-    mRainbowMap = LLViewerTextureManager::getFetchedTexture(psky->getRainbowTextureId(), FTT_DEFAULT, true, LLGLTexture::BOOST_UI);
-    mHaloMap    = LLViewerTextureManager::getFetchedTexture(psky->getHaloTextureId(),  FTT_DEFAULT, true, LLGLTexture::BOOST_UI);
+    mRainbowMap = LLViewerTextureManager::getFetchedTexture(psky->getRainbowTextureId(), FTT_DEFAULT, true, LLDXTexture::BOOST_UI);
+    mHaloMap    = LLViewerTextureManager::getFetchedTexture(psky->getHaloTextureId(),  FTT_DEFAULT, true, LLDXTexture::BOOST_UI);
 }
 
 
@@ -700,12 +700,9 @@ bool LLVOSky::updateSky()
     LLHeavenBody::setInterpVal( mInterpVal );
     updateDirections(psky);
 
-    // S24 (2026-08-31, task #197 root-cause fix): was `sReflectionProbesEnabled`
-    // alone - see LLPipeline::shouldUseLegacyEnvMap()'s declaration comment
-    // (pipeline.h). This cubemap is only ever sampled by the shader's legacy
-    // fallback branch, so its update machinery should run whenever that
-    // branch might actually be taken, not just when the master probe-capture
-    // toggle is on.
+    // This cubemap is only ever sampled by the shader's legacy fallback branch, so its update
+    // machinery must run whenever that branch might be taken (LLPipeline::shouldUseLegacyEnvMap(),
+    // pipeline.h) - not just when the master probe-capture toggle is on.
     if (!mCubeMap || !LLPipeline::shouldUseLegacyEnvMap())
     {
         mCubeMapUpdateStage = NUM_CUBEMAP_FACES;
@@ -729,7 +726,7 @@ bool LLVOSky::updateSky()
             mForceUpdate = false;
         }
     }
-    else if (mCubeMapUpdateStage == NUM_CUBEMAP_FACES && LLPipeline::shouldUseLegacyEnvMap()) // S24 (task #197 root-cause fix): see comment above
+    else if (mCubeMapUpdateStage == NUM_CUBEMAP_FACES && LLPipeline::shouldUseLegacyEnvMap()) // see comment above
     {
         LLSkyTex::stepCurrent();
 
@@ -788,7 +785,7 @@ bool LLVOSky::updateSky()
         mCubeMapUpdateStage = -1;
     }
     // run 0 to 5 faces, each face in own frame
-    else if (mCubeMapUpdateStage >= 0 && mCubeMapUpdateStage < NUM_CUBEMAP_FACES && LLPipeline::shouldUseLegacyEnvMap()) // S24 (task #197 root-cause fix): see comment above
+    else if (mCubeMapUpdateStage >= 0 && mCubeMapUpdateStage < NUM_CUBEMAP_FACES && LLPipeline::shouldUseLegacyEnvMap()) // see comment above
     {
         S32 side = mCubeMapUpdateStage;
         // CPU hungry part, createSkyTexture() is math heavy
@@ -877,8 +874,8 @@ void LLVOSky::setMoonScale(F32 moon_scale)
 void LLVOSky::setSunTextures(const LLUUID& sun_texture, const LLUUID& sun_texture_next)
 {
     // We test the UUIDs here because we explicitly do not want the default image returned by getFetchedTexture in that case...
-    mSunTexturep[0] = sun_texture.isNull() ? nullptr : LLViewerTextureManager::getFetchedTexture(sun_texture, FTT_DEFAULT, true, LLGLTexture::BOOST_UI);
-    mSunTexturep[1] = sun_texture_next.isNull() ? nullptr : LLViewerTextureManager::getFetchedTexture(sun_texture_next, FTT_DEFAULT, true, LLGLTexture::BOOST_UI);
+    mSunTexturep[0] = sun_texture.isNull() ? nullptr : LLViewerTextureManager::getFetchedTexture(sun_texture, FTT_DEFAULT, true, LLDXTexture::BOOST_UI);
+    mSunTexturep[1] = sun_texture_next.isNull() ? nullptr : LLViewerTextureManager::getFetchedTexture(sun_texture_next, FTT_DEFAULT, true, LLDXTexture::BOOST_UI);
 
     bool can_use_wl = gPipeline.canUseWindLightShaders();
 
@@ -921,8 +918,8 @@ void LLVOSky::setMoonTextures(const LLUUID& moon_texture, const LLUUID& moon_tex
 
     bool can_use_wl = gPipeline.canUseWindLightShaders();
 
-    mMoonTexturep[0] = moon_texture.isNull()      ? nullptr : LLViewerTextureManager::getFetchedTexture(moon_texture, FTT_DEFAULT, true, LLGLTexture::BOOST_UI);
-    mMoonTexturep[1] = moon_texture_next.isNull() ? nullptr : LLViewerTextureManager::getFetchedTexture(moon_texture_next, FTT_DEFAULT, true, LLGLTexture::BOOST_UI);
+    mMoonTexturep[0] = moon_texture.isNull()      ? nullptr : LLViewerTextureManager::getFetchedTexture(moon_texture, FTT_DEFAULT, true, LLDXTexture::BOOST_UI);
+    mMoonTexturep[1] = moon_texture_next.isNull() ? nullptr : LLViewerTextureManager::getFetchedTexture(moon_texture_next, FTT_DEFAULT, true, LLDXTexture::BOOST_UI);
 
     if (mFace[FACE_MOON])
     {
@@ -944,8 +941,8 @@ void LLVOSky::setCloudNoiseTextures(const LLUUID& cloud_noise_texture, const LLU
 {
     LLSettingsSky::ptr_t psky = LLEnvironment::instance().getCurrentSky();
 
-    mCloudNoiseTexturep[0] = cloud_noise_texture.isNull() ? nullptr : LLViewerTextureManager::getFetchedTexture(cloud_noise_texture, FTT_DEFAULT, true, LLGLTexture::BOOST_UI);
-    mCloudNoiseTexturep[1] = cloud_noise_texture_next.isNull() ? nullptr : LLViewerTextureManager::getFetchedTexture(cloud_noise_texture_next, FTT_DEFAULT, true, LLGLTexture::BOOST_UI);
+    mCloudNoiseTexturep[0] = cloud_noise_texture.isNull() ? nullptr : LLViewerTextureManager::getFetchedTexture(cloud_noise_texture, FTT_DEFAULT, true, LLDXTexture::BOOST_UI);
+    mCloudNoiseTexturep[1] = cloud_noise_texture_next.isNull() ? nullptr : LLViewerTextureManager::getFetchedTexture(cloud_noise_texture_next, FTT_DEFAULT, true, LLDXTexture::BOOST_UI);
 
     if (mCloudNoiseTexturep[0])
     {
@@ -965,8 +962,8 @@ void LLVOSky::setBloomTextures(const LLUUID& bloom_texture, const LLUUID& bloom_
     LLUUID bloom_tex = bloom_texture.isNull() ? psky->GetDefaultBloomTextureId() : bloom_texture;
     LLUUID bloom_tex_next = bloom_texture_next.isNull() ? (bloom_texture.isNull() ? psky->GetDefaultBloomTextureId() : bloom_texture) : bloom_texture_next;
 
-    mBloomTexturep[0] = bloom_tex.isNull() ? nullptr : LLViewerTextureManager::getFetchedTexture(bloom_tex, FTT_DEFAULT, true, LLGLTexture::BOOST_UI);
-    mBloomTexturep[1] = bloom_tex_next.isNull() ? nullptr : LLViewerTextureManager::getFetchedTexture(bloom_tex_next, FTT_DEFAULT, true, LLGLTexture::BOOST_UI);
+    mBloomTexturep[0] = bloom_tex.isNull() ? nullptr : LLViewerTextureManager::getFetchedTexture(bloom_tex, FTT_DEFAULT, true, LLDXTexture::BOOST_UI);
+    mBloomTexturep[1] = bloom_tex_next.isNull() ? nullptr : LLViewerTextureManager::getFetchedTexture(bloom_tex_next, FTT_DEFAULT, true, LLDXTexture::BOOST_UI);
 
     if (mBloomTexturep[0])
     {

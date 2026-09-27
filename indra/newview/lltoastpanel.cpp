@@ -202,7 +202,7 @@ bool LLCheckBoxToastPanel::setCheckBox(const std::string& check_title,
         return false;
     }
 
-    const LLFontGL* font = mCheck->getFont();
+    const LLFontDX* font = mCheck->getFont();
     const S32 LINE_HEIGHT = font->getLineHeight();
 
     std::vector<std::string> lines;

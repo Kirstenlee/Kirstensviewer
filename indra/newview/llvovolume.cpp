@@ -839,7 +839,7 @@ void LLVOVolume::updateTextureVirtualSize(bool forced)
 		{
 			F32 area = (F32)camera->getScreenPixelArea();
 			vsize = area;
-			imagep->setBoostLevel(LLGLTexture::BOOST_HUD);
+			imagep->setBoostLevel(LLDXTexture::BOOST_HUD);
 			face->setPixelArea(area); // treat as full screen
 			face->setVirtualSize(vsize);
 		}
@@ -929,7 +929,7 @@ void LLVOVolume::updateTextureVirtualSize(bool forced)
 	{
 		LLLightImageParams* params = getLightImageParams();
 		LLUUID id = params->getLightTexture();
-		mLightTexture = LLViewerTextureManager::getFetchedTexture(id, FTT_DEFAULT, true, LLGLTexture::BOOST_NONE);
+		mLightTexture = LLViewerTextureManager::getFetchedTexture(id, FTT_DEFAULT, true, LLDXTexture::BOOST_NONE);
 		if (mLightTexture.notNull())
 		{
 			F32 rad = getLightRadius();
@@ -1128,7 +1128,7 @@ bool LLVOVolume::setVolume(const LLVolumeParams& params_in, const S32 detail, bo
 
 	if (is404)
 	{
-		setIcon(LLViewerTextureManager::getFetchedTextureFromFile("icons/Inv_Mesh.png", FTT_LOCAL_FILE, true, LLGLTexture::BOOST_UI));
+		setIcon(LLViewerTextureManager::getFetchedTextureFromFile("icons/Inv_Mesh.png", FTT_LOCAL_FILE, true, LLDXTexture::BOOST_UI));
 		//render prim proxy when mesh loading attempts give up
 		volume_params.setSculptID(LLUUID::null, LL_SCULPT_TYPE_NONE);
 
@@ -1223,7 +1223,7 @@ void LLVOVolume::updateSculptTexture()
 			LLUUID id = sculpt_params->getSculptTexture();
 			if (id.notNull())
 			{
-				mSculptTexture = LLViewerTextureManager::getFetchedTexture(id, FTT_DEFAULT, true, LLGLTexture::BOOST_SCULPTED, LLViewerTexture::LOD_TEXTURE);
+				mSculptTexture = LLViewerTextureManager::getFetchedTexture(id, FTT_DEFAULT, true, LLDXTexture::BOOST_SCULPTED, LLViewerTexture::LOD_TEXTURE);
 				mSculptTexture->forceToSaveRawImage(0, F32_MAX);
 				mSculptTexture->setKnownDrawSize(256, 256);
 			}
@@ -3358,7 +3358,7 @@ LLViewerTexture* LLVOVolume::getLightTexture()
 	{
 		if (mLightTexture.isNull() || id != mLightTexture->getID())
 		{
-			mLightTexture = LLViewerTextureManager::getFetchedTexture(id, FTT_DEFAULT, true, LLGLTexture::BOOST_NONE);
+			mLightTexture = LLViewerTextureManager::getFetchedTexture(id, FTT_DEFAULT, true, LLDXTexture::BOOST_NONE);
 		}
 	}
 	else

@@ -28,7 +28,7 @@
 
 #include "lluploaddialog.h"
 #include "llviewerwindow.h"
-#include "llfontgl.h"
+#include "llfontdx.h"
 #include "llresmgr.h"
 #include "lltextbox.h"
 #include "llbutton.h"
@@ -69,7 +69,7 @@ LLUploadDialog::LLUploadDialog( const std::string& msg)
     }
     LLUploadDialog::sDialog = this;
 
-    const LLFontGL* font = LLFontGL::getFontSansSerif();
+    const LLFontDX* font = LLFontDX::getFontSansSerif();
     LLRect msg_rect;
     for (int line_num=0; line_num<16; ++line_num)
     {
@@ -90,7 +90,7 @@ LLUploadDialog::LLUploadDialog( const std::string& msg)
 
 void LLUploadDialog::setMessage( const std::string& msg)
 {
-    const LLFontGL* font = LLFontGL::getFontSansSerif();
+    const LLFontDX* font = LLFontDX::getFontSansSerif();
 
     const S32 VPAD = 16;
     const S32 HPAD = 25;

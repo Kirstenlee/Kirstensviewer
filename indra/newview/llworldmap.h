@@ -35,7 +35,7 @@
 #include "llsingleton.h"
 #include "llviewerregion.h"
 #include "llviewertexture.h"
-#include "llgltexture.h"
+#include "lldxtexture.h"
 
 // Description of objects like hubs, events, land for sale, people and more (TBD).
 // Note: we don't store a "type" in there so we need to store instances of this class in

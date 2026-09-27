@@ -30,13 +30,15 @@
 #include "llviewerthrottle.h"
 
 #ifdef DX_RENDER
-#include "DXQuery.h" // S24 (2026-08-16, task #98): native D3D11 GPU-completion fence for FPS/frametime telemetry
+#include "DXQuery.h" // native D3D11 GPU-completion fence for FPS/frametime telemetry
 #endif
 
 #include "message.h"
 #include "llfloaterreg.h"
+#include "llimagedx.h"
 #include "llmemory.h"
 #include "lltimer.h"
+#include "llvertexbuffer.h"
 
 #include "llappviewer.h"
 
@@ -238,6 +240,8 @@ LLTrace::SampleStatHandle<U32> FRAMETIME_JITTER_EVENTS("frametimeevents", "Numbe
                                 FRAMETIME_JITTER_EVENTS_PER_MINUTE("frametimeeventspm", "Average number of frametime events per minute."),
                                 FRAMETIME_JITTER_EVENTS_LAST_MINUTE("frametimeeventslastmin", "Number of frametime events in the last minute.");
 
+LLTrace::SampleStatHandle<U64> DOFRAME_TIME_US("doframetimeus", "doFrame wall time in microseconds.");
+
 LLTrace::SampleStatHandle<F64> NOTRMALIZED_FRAMETIME_JITTER_SESSION("normalizedframetimejitter", "Normalized frametime jitter over the session.");
 LLTrace::SampleStatHandle<F64> NFTV("nftv", "Normalized frametime variation.");
 LLTrace::SampleStatHandle<F64> NORMALIZED_FRAMTIME_JITTER_PERIOD("normalizedframetimejitterperiod", "Normalized frametime jitter over the last 5 seconds.");
@@ -294,13 +298,7 @@ LLViewerStats::LLViewerStats()
 
 LLViewerStats::~LLViewerStats()
 {
-    // Clean up any remaining GPU fences. S24 (2026-08-16, task #98): this
-    // was an unguarded glDeleteSync() call - harmless only because
-    // mGPUFrameFences was always empty under DX_RENDER before this task
-    // (notifyFrameSubmitted() no-op'd), the same masked-null-function-
-    // pointer hazard class as the crash that no-op was originally added to
-    // avoid. Now that the queue is actually populated under DX_RENDER too,
-    // it needs its own real cleanup path.
+    // Clean up any remaining GPU fences.
     for (auto& fence : mGPUFrameFences)
     {
         if (fence.sync)
@@ -744,6 +742,8 @@ void send_viewer_stats(bool include_preferences)
     system["os"] = LLOSInfo::instance().getOSStringSimple();
     system["cpu"] = gSysCPU.getCPUString();
     system["cpu_sse"] = gSysCPU.getSSEVersions();
+    system["cpu_simd"] = gSysCPU.getSIMDVersions();
+    system["cpu_mhz"] = gSysCPU.getMHz();
     system["address_size"] = ADDRESS_SIZE;
     system["os_bitness"] = LLOSInfo::instance().getOSBitness();
     system["hardware_concurrency"] = (LLSD::Integer) std::thread::hardware_concurrency();
@@ -766,6 +766,17 @@ void send_viewer_stats(bool include_preferences)
     system["gpu_vendor"] = gGLManager.mGLVendorShort;
     system["gpu_version"] = gGLManager.mDriverVersionVendorString;
     system["opengl_version"] = gGLManager.mGLVersionString;
+    system["gpu_vram_mb"] = (S32)gGLManager.mVRAM;
+
+    // Resource usage
+    // getAvailableMemKB might be a bit stale, but that's fine, this is statistics,
+    // not a debug tool.
+    system["ram_avail_mb"] = (S32Megabytes)(LLMemory::getAvailableMemKB()).value();
+    system["ram_allocated_mb"] = (S32Megabytes)(LLMemory::getAllocatedMemKB()).value();
+    static constexpr F64 BYTES_TO_MB = 1024.0 * 1024.0;
+    F64 texture_bytes_alloc = LLImageDX::getTextureBytesAllocated() / BYTES_TO_MB;
+    F64 vertex_bytes_alloc = LLVertexBuffer::getBytesAllocated() / BYTES_TO_MB;
+    system["gpu_vram_tracked_mb"] = (F32)(texture_bytes_alloc + vertex_bytes_alloc);
 
     gGLManager.asLLSD(system["gl"]);
 
@@ -843,7 +854,6 @@ void send_viewer_stats(bool include_preferences)
     // If the current revision is recent, ping the previous author before overriding
     LLSD &misc = body["stats"]["misc"];
 
-    // S24 - No Vulcan stats required.
     misc["string_1"] = llformat("Unused");
 
     misc["string_2"] = llformat("Unused");
@@ -965,12 +975,9 @@ void LLViewerStats::PhaseMap::recordPhaseStat(const std::string& phase_name, F32
 void LLViewerStats::notifyFrameSubmitted()
 {
 #ifdef DX_RENDER
-    // S24 (2026-08-16, task #98): real GPU-completion fence via a D3D11
-    // event query (DXQuery), replacing the previous no-op left by the
-    // 2026-08-02 fix (glFenceSync was a GL-only function pointer, never
-    // populated under DX_RENDER - calling it null-pointer-crashed on every
-    // frame; see the git history for that incident). Mirrors the GL branch
-    // below exactly, just swapping glFenceSync -> DXQuery::issue().
+    // Real GPU-completion fence via a D3D11 event query (DXQuery); glFenceSync is a GL-only function
+    // pointer, never populated under DX_RENDER. Mirrors the GL branch below, swapping
+    // glFenceSync -> DXQuery::issue().
     ID3D11Query* query = DXQuery::issue();
     if (query)
     {
@@ -1019,8 +1026,7 @@ void LLViewerStats::notifyFrameSubmitted()
 void LLViewerStats::checkGPUFrameCompletion()
 {
 #ifdef DX_RENDER
-    // S24 (2026-08-16, task #98): poll each pending DXQuery, oldest first -
-    // mirrors the GL branch below exactly, just swapping
+    // Poll each pending DXQuery, oldest first - mirrors the GL branch below, swapping
     // glClientWaitSync/glDeleteSync -> DXQuery::isComplete()/release().
     auto it = mGPUFrameFences.begin();
     while (it != mGPUFrameFences.end())

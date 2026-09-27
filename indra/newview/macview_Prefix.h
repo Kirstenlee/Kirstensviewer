@@ -148,7 +148,7 @@
 /////////////////// From llpanel.cpp
 #include "llpanel.h"
 
-#include "llfontgl.h"
+#include "llfontdx.h"
 #include "llrect.h"
 #include "llerror.h"
 #include "lltimer.h"
@@ -207,7 +207,7 @@
 #include "llloginview.h"
 
 #include "indra_constants.h"		// for key and mask constants
-#include "llfontgl.h"
+#include "llfontdx.h"
 #include "v4color.h"
 #include "llwindow_impl.h"
 

@@ -75,7 +75,7 @@
 #include "llassetstorage.h"
 #include "lldate.h"
 #include "llerrorcontrol.h"
-#include "llfontgl.h"
+#include "llfontdx.h"
 #include "llvertexbuffer.h"
 #include "llmousehandler.h"
 #include "llrect.h"
@@ -118,6 +118,7 @@
 #include "llfloaterinspect.h"
 #include "llfloatermap.h"
 #include "llfloaternamedesc.h"
+#include "llfloaterpopout.h"
 #include "llfloaterpreference.h"
 #include "llfloatersnapshot.h"
 #include "llfloatertools.h"
@@ -199,7 +200,6 @@
 #include "llviewerjoystick.h"
 #include "llviewermenufile.h" // LLFilePickerReplyThread
 #include "llviewernetwork.h"
-#include "llpostprocess.h"
 #include "llfloaterimnearbychat.h"
 #include "llagentui.h"
 #include "llwearablelist.h"
@@ -214,6 +214,7 @@
 
 #include "llwindowlistener.h"
 #include "llviewerwindowlistener.h"
+#include "llstatslistener.h"
 #include "llcleanup.h"
 
 #if LL_WINDOWS
@@ -730,10 +731,10 @@ public:
 				ypos += y_inc;
 			}
 
-			addText(xpos, ypos, llformat("%d Texture Binds", LLImageGL::sBindCount));
+			addText(xpos, ypos, llformat("%d Texture Binds", LLImageDX::sBindCount));
 			ypos += y_inc;
 
-			addText(xpos, ypos, llformat("%d Unique Textures", LLImageGL::sUniqueCount));
+			addText(xpos, ypos, llformat("%d Unique Textures", LLImageDX::sUniqueCount));
 			ypos += y_inc;
 
 			addText(xpos, ypos, llformat("%d Render Calls", (U32)last_frame_recording.getSampleCount(LLPipeline::sStatBatchSize)));
@@ -1023,18 +1024,18 @@ public:
 		if (mBackRectCamera1.mTop >= 0)
 		{
 			mBackColor.setAlpha(0.75f);
-			gl_rect_2d(mBackRectCamera1, mBackColor, true);
+			dx_rect_2d(mBackRectCamera1, mBackColor, true);
 
 			mBackColor.setAlpha(0.66f);
-			gl_rect_2d(mBackRectCamera2, mBackColor, true);
+			dx_rect_2d(mBackRectCamera2, mBackColor, true);
 		}
 
 		for (line_list_t::iterator iter = mLineList.begin();
 			iter != mLineList.end(); ++iter)
 		{
 			const Line& line = *iter;
-			LLFontGL::getFontMonospace()->renderUTF8(line.text, 0, (F32)line.x, (F32)line.y, line.color,
-				LLFontGL::LEFT, LLFontGL::TOP, LLFontGL::NORMAL, LLFontGL::NO_SHADOW);
+			LLFontDX::getFontMonospace()->renderUTF8(line.text, 0, (F32)line.x, (F32)line.y, line.color,
+				LLFontDX::LEFT, LLFontDX::TOP, LLFontDX::NORMAL, LLFontDX::NO_SHADOW);
 		}
 	}
 };
@@ -1116,6 +1117,14 @@ bool LLViewerWindow::handleAnyMouseClick(LLWindow* window, LLCoordGL pos, MASK m
 			mLeftMouseDown = down;
 			buttonname = "Left Double Click";
 			break;
+		case CLICK_DOUBLERIGHT:
+			mRightMouseDown = down;
+			buttonname = "Right Double Click";
+			break;
+		case CLICK_DOUBLEMIDDLE:
+			mMiddleMouseDown = down;
+			buttonname = "Middle Double Click";
+			break;
 		case CLICK_BUTTON4:
 			buttonname = "Button 4";
 			break;
@@ -1179,6 +1188,12 @@ bool LLViewerWindow::handleAnyMouseClick(LLWindow* window, LLCoordGL pos, MASK m
 				handlePieMenu(x, y, mask);
 				r = true;
 			}
+			else if (down && clicktype == CLICK_DOUBLERIGHT && gMenuHolder)
+			{
+				// UI doesn't support double right click at the moment, but world does
+				// Just close menus.
+				gMenuHolder->hideMenus();
+			}
 			return r;
 		}
 
@@ -1230,6 +1245,12 @@ bool LLViewerWindow::handleAnyMouseClick(LLWindow* window, LLCoordGL pos, MASK m
 		handlePieMenu(x, y, mask);
 		return true;
 	}
+	if (down && clicktype == CLICK_DOUBLERIGHT && gMenuHolder)
+	{
+		// UI doesn't support double right click at the moment, but world does
+		// Just close menus.
+		gMenuHolder->hideMenus();
+	}
 
 	// If we got this far on a down-click, it wasn't handled.
 	// Up-clicks, though, are always handled as far as the OS is concerned.
@@ -1253,7 +1274,7 @@ bool LLViewerWindow::handleMouseDown(LLWindow* window, LLCoordGL pos, MASK mask)
 	return gViewerInput.handleMouse(window, pos, mask, CLICK_LEFT, down);
 }
 
-bool LLViewerWindow::handleDoubleClick(LLWindow* window, LLCoordGL pos, MASK mask)
+bool LLViewerWindow::handleLeftMouseDoubleClick(LLWindow* window, LLCoordGL pos, MASK mask)
 {
 	// try handling as a double-click first, then a single-click if that
 	// wasn't handled.
@@ -1263,6 +1284,40 @@ bool LLViewerWindow::handleDoubleClick(LLWindow* window, LLCoordGL pos, MASK mas
 		return true;
 	}
 	return handleMouseDown(window, pos, mask);
+}
+
+bool LLViewerWindow::handleRightMouseDoubleClick(LLWindow* window, LLCoordGL pos, MASK mask)
+{
+	// try handling as a double-click first, then a single-click if that
+	// wasn't handled.
+	bool down = true;
+	if (gViewerInput.handleMouse(window, pos, mask, CLICK_DOUBLERIGHT, down))
+	{
+		return true;
+	}
+
+	// If right-double is bound, don't fall back to single-right menu behavior.
+	// Note that by default CLICK_RIGHT can't be bound.
+	const S32 mode = gViewerInput.getMode();
+	const bool has_double_right = gViewerInput.isMouseBindUsed(CLICK_DOUBLERIGHT, mask, mode);
+	if (has_double_right)
+	{
+		return true;
+	}
+
+	return handleRightMouseDown(window, pos, mask);
+}
+
+bool LLViewerWindow::handleMiddleMouseDoubleClick(LLWindow* window, LLCoordGL pos, MASK mask)
+{
+	// try handling as a double-click first, then a single-click if that
+	// wasn't handled.
+	bool down = true;
+	if (gViewerInput.handleMouse(window, pos, mask, CLICK_DOUBLEMIDDLE, down))
+	{
+		return true;
+	}
+	return handleMiddleMouseDown(window, pos, mask);
 }
 
 bool LLViewerWindow::handleMouseUp(LLWindow* window, LLCoordGL pos, MASK mask)
@@ -1615,6 +1670,28 @@ void LLViewerWindow::handleFocus(LLWindow* window)
 // The top-level window has lost focus (e.g. via ALT-TAB)
 void LLViewerWindow::handleFocusLost(LLWindow* window)
 {
+	// S24: a popped-out floater's host window (LLFloaterPopoutManager,
+	// newview/llfloaterpopout.cpp) is a genuine separate top-level HWND on
+	// its OWN thread, and legitimately taking real OS keyboard focus is
+	// how it receives WM_KEYDOWN/WM_CHAR at all. The llwindowwin32.cpp
+	// WM_KILLFOCUS handler already tries to recognize this as a same-
+	// process focus transfer (mirroring its existing WM_ACTIVATEAPP
+	// guard), but that relies on wParam correctly carrying the gaining
+	// window's HWND - cross-thread focus transfers (this window's thread
+	// vs the popout's own dedicated thread) don't reliably do that the
+	// same way a same-thread SetFocus() does, so that guard alone isn't
+	// trustworthy here. Asking the framework directly instead of
+	// inferring anything from Win32 message parameters is unconditionally
+	// correct: while any floater is popped out, losing focus to it (or to
+	// anything else while it exists) must never wipe gFocusMgr's mouse
+	// capture out from under whatever the popped-out widget just took -
+	// confirmed live as text selection starting but never being able to
+	// extend/highlight while popped out (mid-drag capture silently lost).
+	if (LLFloaterPopoutManager::isPoppedOut())
+	{
+		return;
+	}
+
 	gFocusMgr.setAppHasFocus(false);
 	//LLModalDialog::onAppFocusLost();
 	LLToolMgr::getInstance()->onAppFocusLost();
@@ -1853,7 +1930,7 @@ bool LLViewerWindow::handleDeviceChange(LLWindow* window)
 
 bool LLViewerWindow::handleDPIChanged(LLWindow* window, F32 ui_scale_factor, S32 window_width, S32 window_height)
 {
-	LLFontGL::sResolutionGeneration++;
+	LLFontDX::sResolutionGeneration++;
 	if (ui_scale_factor >= MIN_UI_SCALE && ui_scale_factor <= MAX_UI_SCALE)
 	{
 		LLViewerWindow::reshape(window_width, window_height);
@@ -1869,31 +1946,16 @@ bool LLViewerWindow::handleDPIChanged(LLWindow* window, F32 ui_scale_factor, S32
 
 bool LLViewerWindow::handleDisplayChanged()
 {
-	LLFontGL::sResolutionGeneration++;
+	LLFontDX::sResolutionGeneration++;
 	return false;
 }
 
 bool LLViewerWindow::handleWindowDidChangeScreen(LLWindow* window)
 {
-	LLCoordScreen window_rect;
+	LLCoordWindow window_rect;
 	mWindow->getSize(&window_rect);
 	reshape(window_rect.mX, window_rect.mY);
 	return true;
-}
-
-void LLViewerWindow::handlePingWatchdog(LLWindow* window, const char* msg)
-{
-	LLAppViewer::instance()->pingMainloopTimeout(msg);
-}
-
-void LLViewerWindow::handleResumeWatchdog(LLWindow* window)
-{
-	LLAppViewer::instance()->resumeMainloopTimeout();
-}
-
-void LLViewerWindow::handlePauseWatchdog(LLWindow* window)
-{
-	LLAppViewer::instance()->pauseMainloopTimeout();
 }
 
 //virtual
@@ -1946,6 +2008,7 @@ LLViewerWindow::LLViewerWindow(const Params& p)
     LLWindowListener::KeyboardGetter getter = [](){ return gKeyboard; };
     mWindowListener = std::make_unique<LLWindowListener>(this, getter);
     mViewerWindowListener = std::make_unique<LLViewerWindowListener>(this);
+    mStatsListener = std::make_unique<LLStatsListener>();
 
 	mSystemChannel.reset(new LLNotificationChannel("System", "Visible", LLNotificationFilters::includeEverything));
 	mCommunicationChannel.reset(new LLCommunicationChannel("Communication", "Visible"));
@@ -2042,7 +2105,7 @@ LLViewerWindow::LLViewerWindow(const Params& p)
 	mDisplayScale.setVec(llmax(1.f / mWindow->getPixelAspectRatio(), 1.f), llmax(mWindow->getPixelAspectRatio(), 1.f));
 	mDisplayScale *= ui_scale_factor;
 	LLUI::setScaleFactor(mDisplayScale);
-	LLFontGL::sResolutionGeneration++;
+	LLFontDX::sResolutionGeneration++;
 
 	{
 		LLCoordWindow size;
@@ -2053,14 +2116,10 @@ LLViewerWindow::LLViewerWindow(const Params& p)
 
 	LLFontManager::initClass();
 
-	// fonts use an GL_UNSIGNED_BYTE image format,
-	// so they need convertion, init buffers if needed
-	LLImageGL::allocateConversionBuffer();
-
 	// Init font system, load default fonts and generate basic glyphs
 	// currently it takes aprox. 0.5 sec and we would load these fonts anyway
 	// before login screen.
-	LLFontGL::initClass(gSavedSettings.getF32("FontScreenDPI"),
+	LLFontDX::initClass(gSavedSettings.getF32("FontScreenDPI"),
 		mDisplayScale.mV[VX],
 		mDisplayScale.mV[VY],
 		gDirUtilp->getAppRODataDir());
@@ -2100,9 +2159,9 @@ LLViewerWindow::LLViewerWindow(const Params& p)
 	// Init the image list.  Must happen after GL is initialized and before the images that
 	// LLViewerWindow needs are requested, as well as before LLViewerMedia starts updating images.
 	// thread_texture_loads/thread_media_updates hardcoded false: background-thread D3D11
-	// texture/media creation hits an unfixable driver-level NVIDIA bug. See LLImageGL::initClass()'s
-	// DX_RENDER branch (llimagegl.cpp).
-	LLImageGL::initClass(mWindow, LLViewerTexture::MAX_GL_IMAGE_CATEGORY, false, false, false);
+	// texture/media creation hits an unfixable driver-level NVIDIA bug. See LLImageDX::initClass()'s
+	// DX_RENDER branch (llimagedx.cpp).
+	LLImageDX::initClass(mWindow, LLViewerTexture::MAX_GL_IMAGE_CATEGORY, false, false, false);
 	gTextureList.init();
 	LLViewerTextureManager::init();
 	gBumpImageList.init();
@@ -2166,7 +2225,7 @@ void LLViewerWindow::initBase()
 	LL_DEBUGS("AppInit") << "initializing edit menu" << LL_ENDL;
 	initialize_edit_menu();
 
-	LLFontGL::loadCommonFonts();
+	LLFontDX::loadCommonFonts();
 
 	// Create the floater view at the start so that other views can add children to it.
 	// (But wait to add it as a child of the root view so that it will be in front of the
@@ -2487,7 +2546,7 @@ void LLViewerWindow::shutdownGL()
 	//--------------------------------------------------------
 	// Shutdown GL cleanly.  Order is very important here.
 	//--------------------------------------------------------
-	LLFontGL::destroyDefaultFonts();
+	LLFontDX::destroyDefaultFonts();
 	SUBSYSTEM_CLEANUP(LLFontManager);
 
 	gSky.cleanup();
@@ -2506,9 +2565,9 @@ void LLViewerWindow::shutdownGL()
 	LLWorldMapView::cleanupTextures();
 
 	LLViewerTextureManager::cleanup();
-	SUBSYSTEM_CLEANUP(LLImageGL);
+	SUBSYSTEM_CLEANUP(LLImageDX);
 
-	LL_INFOS() << "All textures and llimagegl images are destroyed!" << LL_ENDL;
+	LL_INFOS() << "All textures and llimagedx images are destroyed!" << LL_ENDL;
 
 	LL_INFOS() << "Cleaning up select manager" << LL_ENDL;
 	LLSelectMgr::getInstance()->cleanup();
@@ -2619,7 +2678,7 @@ void LLViewerWindow::reshape(S32 width, S32 height)
 
 		bool display_scale_changed = mDisplayScale != LLUI::getScaleFactor();
 		LLUI::setScaleFactor(mDisplayScale);
-		LLFontGL::sResolutionGeneration++;
+		LLFontDX::sResolutionGeneration++;
 
 		// update our window rectangle
 		mWindowRectScaled.mRight = mWindowRectScaled.mLeft + ll_round((F32)width / mDisplayScale.mV[VX]);
@@ -2804,6 +2863,12 @@ void LLViewerWindow::draw()
 		LLView::sDirtyRect = getWindowRectScaled();
 	}
 
+	// Draw all nested UI views.
+	// No translation needed, this view is glued to 0,0
+
+	gUIProgram.bind();
+	gDX.color4f(1, 1, 1, 1);
+
 	// HACK for timecode debugging
 	if (gSavedSettings.getBOOL("DisplayTimecode"))
 	{
@@ -2813,19 +2878,13 @@ void LLViewerWindow::draw()
 		gDX.loadIdentity();
 
 		microsecondsToTimecodeString(gFrameTime, text);
-		const LLFontGL* font = LLFontGL::getFontSansSerif();
+		const LLFontDX* font = LLFontDX::getFontSansSerif();
 		font->renderUTF8(text, 0,
 			ll_round((getWindowWidthScaled() / 2) - 100.f),
 			ll_round((getWindowHeightScaled() - 60.f)),
 			LLColor4(1.f, 1.f, 1.f, 1.f),
-			LLFontGL::LEFT, LLFontGL::TOP);
+			LLFontDX::LEFT, LLFontDX::TOP);
 	}
-
-	// Draw all nested UI views.
-	// No translation needed, this view is glued to 0,0
-
-	gUIProgram.bind();
-	gDX.color4f(1, 1, 1, 1);
 
 	gDX.pushMatrix();
 	LLUI::pushMatrix();
@@ -2889,12 +2948,12 @@ void LLViewerWindow::draw()
 
 			// Used for special titles such as "Second Life - Special E3 2003 Beta"
 			const S32 DIST_FROM_TOP = 20;
-			LLFontGL::getFontSansSerifBig()->renderUTF8(
+			LLFontDX::getFontSansSerifBig()->renderUTF8(
 				mOverlayTitle, 0,
 				ll_round(getWindowWidthScaled() * 0.5f),
 				getWindowHeightScaled() - DIST_FROM_TOP,
 				LLColor4(1, 1, 1, 0.4f),
-				LLFontGL::HCENTER, LLFontGL::TOP);
+				LLFontDX::HCENTER, LLFontDX::TOP);
 		}
 
 		LLUI::setScaleFactor(old_scale_factor);
@@ -3540,6 +3599,30 @@ void LLViewerWindow::updateUI()
 	LLMouseHandler* mouse_captor = gFocusMgr.getMouseCapture();
 	LLView* captor_view = dynamic_cast<LLView*>(mouse_captor);
 
+	// S24: gFocusMgr is one global shared with LLFloaterPopoutManager's
+	// popped-out floater host window (newview/llfloaterpopout.cpp, its own
+	// idle() dispatch), which runs on the SAME main thread but is driven
+	// by that OTHER window's real cursor position. This function uses
+	// mCurrentMousePoint - the cursor's last known position WITHIN THIS
+	// (main) window - completely stale/irrelevant while the mouse is
+	// actually over the popped-out window instead. Below,
+	// mouse_captor->handleHover(local_x, local_y, mask) would otherwise
+	// fire EVERY FRAME with those wrong coordinates on whatever widget
+	// the popped-out floater just correctly captured (e.g. mid text
+	// drag-select or scrollbar-thumb drag), immediately corrupting the
+	// very state LLFloaterPopoutManager::idle() just set up moments
+	// earlier in the SAME frame - confirmed live as drag gestures that
+	// react to the initial click but never continue tracking while held
+	// (a plain click's simple, one-shot effect survives; sustained drag
+	// state does not). Treating capture as absent here whenever it
+	// belongs to the popped-out floater's own tree is the correct
+	// semantic: this window's mouse genuinely isn't there right now.
+	if (captor_view && LLFloaterPopoutManager::isViewInAnyPoppedOutFloater(captor_view))
+	{
+		mouse_captor = nullptr;
+		captor_view = nullptr;
+	}
+
 	//FIXME: only include captor and captor's ancestors if mouse is truly over them --RN
 
 	//build set of views containing mouse cursor by traversing UI hierarchy and testing
@@ -4039,6 +4122,31 @@ void LLViewerWindow::updateKeyboardFocus()
 	{
 		bool is_in_visible_chain = cur_focus->isInVisibleChain();
 		bool is_in_enabled_chain = cur_focus->isInEnabledChain();
+
+		// S24: a popped-out floater (LLFloaterPopoutManager,
+		// newview/llfloaterpopout.cpp) is deliberately setVisible(false) in
+		// the MAIN window's own tree - that's how it's removed from the
+		// main window's draw walk/hit-testing while its own separate
+		// desktop window renders it instead. isInVisibleChain() above walks
+		// straight up through that same ancestor chain and sees
+		// "invisible", which the block below (running every frame,
+		// unconditionally, from updateUI()) then treats as "this focus
+		// holder has become orphaned - reassign or release its focus" -
+		// stripping keyboard focus from whatever the popped-out floater's
+		// own widget legitimately holds it, moments after it's granted.
+		// Confirmed live as text editors appearing to have zero
+		// interactivity while popped out - clicking still runs and sets
+		// cursor/selection state correctly, but focus never survives past
+		// the same or next frame, and LLTextBase::drawSelectionBackground()'s
+		// own alpha depends on hasFocus() too, so even a surviving
+		// selection would render invisibly dim. Its invisibility here is
+		// intentional, not an orphaning event this cleanup should react to.
+		if (LLFloaterPopoutManager::isViewInAnyPoppedOutFloater(cur_focus))
+		{
+			is_in_visible_chain = true;
+			is_in_enabled_chain = true;
+		}
+
 		if (!is_in_visible_chain || !is_in_enabled_chain)
 		{
 			// don't release focus, just reassign so that if being given
@@ -5502,11 +5610,6 @@ bool LLViewerWindow::rawSnapshot(LLImageRaw* raw, S32 image_width, S32 image_hei
 						- (output_buffer_offset_y * (raw->getWidth()))  // ...minus buffer padding y...
 						) * raw->getComponents();
 
-					// Ping the watchdog thread every 100 lines to keep us alive (arbitrary number, feel free to change)
-					if (out_y % 100 == 0)
-					{
-						LLAppViewer::instance()->pingMainloopTimeout("LLViewerWindow::rawSnapshot");
-					}
 					// disable use of glReadPixels when doing nVidia nSight graphics debugging
 					if (!LLRender::sNsightDebugSupport)
 					{
@@ -5989,7 +6092,7 @@ void LLViewerWindow::drawMouselookInstructions()
 {
 	// Draw instructions for mouselook ("Press ESC to return to World View" partially transparent at the bottom of the screen.)
 	const std::string instructions = LLTrans::getString("LeaveMouselook");
-	const LLFontGL* font = LLFontGL::getFont(LLFontDescriptor("SansSerif", "Large", LLFontGL::BOLD));
+	const LLFontDX* font = LLFontDX::getFont(LLFontDescriptor("SansSerif", "Large", LLFontDX::BOLD));
 
 	//to be on top of Bottom bar when it is opened
 	const S32 INSTRUCTIONS_PAD = 50;
@@ -5999,8 +6102,8 @@ void LLViewerWindow::drawMouselookInstructions()
 		getWorldViewRectScaled().getCenterX(),
 		getWorldViewRectScaled().mBottom + INSTRUCTIONS_PAD,
 		LLColor4(1.0f, 1.0f, 1.0f, 0.5f),
-		LLFontGL::HCENTER, LLFontGL::TOP,
-		LLFontGL::NORMAL, LLFontGL::DROP_SHADOW);
+		LLFontDX::HCENTER, LLFontDX::TOP,
+		LLFontDX::NORMAL, LLFontDX::DROP_SHADOW);
 }
 
 void* LLViewerWindow::getPlatformWindow() const
@@ -6071,17 +6174,17 @@ S32 LLViewerWindow::getWindowWidthRaw() const
 void LLViewerWindow::setup2DRender()
 {
 	// setup ortho camera
-	gl_state_for_2d(mWindowRectRaw.getWidth(), mWindowRectRaw.getHeight());
+	dx_state_for_2d(mWindowRectRaw.getWidth(), mWindowRectRaw.getHeight());
 	setup2DViewport();
 }
 
 void LLViewerWindow::setup2DViewport(S32 x_offset, S32 y_offset)
 {
-	gGLViewport[0] = mWindowRectRaw.mLeft + x_offset;
-	gGLViewport[1] = mWindowRectRaw.mBottom + y_offset;
-	gGLViewport[2] = mWindowRectRaw.getWidth();
-	gGLViewport[3] = mWindowRectRaw.getHeight();
-	gDXContext.setViewport(gGLViewport[0], gGLViewport[1], gGLViewport[2], gGLViewport[3]);
+	gDXViewport[0] = mWindowRectRaw.mLeft + x_offset;
+	gDXViewport[1] = mWindowRectRaw.mBottom + y_offset;
+	gDXViewport[2] = mWindowRectRaw.getWidth();
+	gDXViewport[3] = mWindowRectRaw.getHeight();
+	gDXContext.setViewport(gDXViewport[0], gDXViewport[1], gDXViewport[2], gDXViewport[3]);
 }
 
 void LLViewerWindow::setup3DRender()
@@ -6093,10 +6196,10 @@ void LLViewerWindow::setup3DRender()
 
 void LLViewerWindow::setup3DViewport(S32 x_offset, S32 y_offset)
 {
-	gGLViewport[0] = mWorldViewRectRaw.mLeft + x_offset;
-	gGLViewport[1] = mWorldViewRectRaw.mBottom + y_offset;
-	gGLViewport[2] = mWorldViewRectRaw.getWidth();
-	gGLViewport[3] = mWorldViewRectRaw.getHeight();
+	gDXViewport[0] = mWorldViewRectRaw.mLeft + x_offset;
+	gDXViewport[1] = mWorldViewRectRaw.mBottom + y_offset;
+	gDXViewport[2] = mWorldViewRectRaw.getWidth();
+	gDXViewport[3] = mWorldViewRectRaw.getHeight();
 	// This flip is genuinely load-bearing for the MAIN viewport too, not just cube captures: every
 	// consumer of the main view's render targets (fxaaF.hlsl, dofCombineF.hlsl, postDeferredF.hlsl,
 	// SMAA.hlsl's API_V_COORD-fed passes) already applies its own matching `1.0 - y` compensation for
@@ -6104,7 +6207,7 @@ void LLViewerWindow::setup3DViewport(S32 x_offset, S32 y_offset)
 	// fixed elsewhere (FXAA, SMAA, DoF), and also matches the 3 explicit viewport sites in
 	// llreflectionmapmanager.cpp's radiance/irradiance generation loops. GL branch removed - task
 	// #300 (full GL removal), never compiled in this DX_RENDER-only build.
-	gDXContext.setViewport(gGLViewport[0], gGLViewport[1], gGLViewport[2], gGLViewport[3], true);
+	gDXContext.setViewport(gDXViewport[0], gDXViewport[1], gDXViewport[2], gDXViewport[3], true);
 }
 
 void LLViewerWindow::revealIntroPanel()
@@ -6225,7 +6328,7 @@ void LLViewerWindow::stopGL()
 
 		gBumpImageList.destroyGL();
 
-		LLFontGL::destroyAllGL();
+		LLFontDX::destroyAllGL();
 
 		LLVOAvatar::destroyGL();
 
@@ -6239,11 +6342,6 @@ void LLViewerWindow::stopGL()
 		}
 
 		gBox.cleanupGL();
-
-		if (gPostProcess)
-		{
-			gPostProcess->invalidate();
-		}
 
 		gTextureList.destroyGL();
 
@@ -6281,7 +6379,7 @@ void LLViewerWindow::restoreGL(const std::string& progress_message)
 		DXState::restoreGL();
 
 		// for future support of non-square pixels, and fonts that are properly stretched
-		LLFontGL::destroyDefaultFonts(); // KL I have noted a few instances of font corruption on toggling reflections...
+		LLFontDX::destroyDefaultFonts(); // KL I have noted a few instances of font corruption on toggling reflections...
 		initFonts();
 
 		gSky.restoreGL();
@@ -6319,12 +6417,12 @@ void LLViewerWindow::restoreGL(const std::string& progress_message)
 
 void LLViewerWindow::initFonts(F32 zoom_factor)
 {
-	LLFontGL::destroyAllGL();
+	LLFontDX::destroyAllGL();
 	// Initialize with possibly different zoom factor
 
 	LLFontManager::initClass();
 
-	LLFontGL::initClass(gSavedSettings.getF32("FontScreenDPI"),
+	LLFontDX::initClass(gSavedSettings.getF32("FontScreenDPI"),
 		mDisplayScale.mV[VX] * zoom_factor,
 		mDisplayScale.mV[VY] * zoom_factor,
 		gDirUtilp->getAppRODataDir());

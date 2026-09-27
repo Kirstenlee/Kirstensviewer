@@ -2968,7 +2968,7 @@ void process_agent_movement_complete(LLMessageSystem* msg, void**)
     msg->getUUIDFast(_PREHASH_AgentData, _PREHASH_SessionID, session_id);
     if((gAgent.getID() != agent_id) || (gAgent.getSessionID() != session_id))
     {
-		return; // S24 SPAM - ignore messages not meant for us
+		return; // ignore messages not meant for us
     }
 
     // *TODO: check timestamp to make sure the movement compleation
@@ -2987,8 +2987,8 @@ void process_agent_movement_complete(LLMessageSystem* msg, void**)
     {
         // Could happen if you were immediately god-teleported away on login,
         // maybe other cases.  Continue, but warn.
-        // S24 - Removed warning spam from hot path - NULL avatarp is normal during teleport/region crossing initialization
-        // The check remains for safety, but the warning provided no actionable information
+        // NULL avatarp here is normal during teleport/region-crossing init; check remains for safety
+        // but no longer warns.
     }
 
     F32 x, y;
@@ -3386,9 +3386,10 @@ void send_agent_update(bool force_send, bool send_reliable)
     static F32 last_draw_disatance_step = 1024;
     F32 memory_limited_draw_distance = gAgentCamera.mDrawDistance;
 
-    if (LLViewerTexture::isSystemMemoryCritical())
+    if (LLViewerTexture::getSystemMemoryBudgetFactor() > 1.f)
     {
-        // If we are low on memory, reduce requested draw distance
+        // We are critically low on memory or recovering,
+        // limit requested draw distance
         memory_limited_draw_distance = llmax(gAgentCamera.mDrawDistance / LLViewerTexture::getSystemMemoryBudgetFactor(), gAgentCamera.mDrawDistance / 2.f);
     }
 
@@ -3995,13 +3996,9 @@ void process_avatar_animation(LLMessageSystem *mesgsys, void **user_data)
 
     if (!avatarp)
     {
-        // S24 (2026-09-04): a broken/out-of-range avatar can keep sending
-        // AvatarAnimation messages indefinitely - this was LL_WARNS, which
-        // formats a string and hits the log file on every single occurrence
-        // regardless of debug-tag filtering, so a spammy sender measurably
-        // hurt frametime. Already an early return (cheapest possible path
-        // otherwise); downgraded to LL_DEBUGS so it's a no-op unless the
-        // Messaging tag is explicitly enabled.
+        // LL_DEBUGS not LL_WARNS: a broken/out-of-range avatar can keep sending AvatarAnimation
+        // messages indefinitely, and LL_WARNS formats+logs on every occurrence regardless of debug-tag
+        // filtering, measurably hurting frametime under a spammy sender.
         LL_DEBUGS("Messaging") << "Received animation state for unknown avatar " << uuid << LL_ENDL;
         return;
     }
@@ -4169,14 +4166,14 @@ void process_avatar_appearance(LLMessageSystem *mesgsys, void **user_data)
     if (avatarp)
     {
         avatarp->processAvatarAppearance( mesgsys );
+        return;
     }
-    else
-    {
-        // S24 (2026-09-10): benign sim packet-ordering artifact (appearance
-        // arriving before the avatar object itself, common in busy scenes)
-        // - nothing the user can do about it, was log poison at WARNS.
-        LL_DEBUGS("Messaging") << "avatar_appearance sent for unknown avatar " << uuid << LL_ENDL;
-    }
+    // The avatar object doesn't exist yet.
+    // We will re-request its appearance data after it is created.
+    LLVOAvatar::registerEarlyAppearance(uuid);
+    // Benign sim packet-ordering artifact (appearance arriving before the avatar object itself,
+    // common in busy scenes) - not worth WARNS.
+    LL_DEBUGS("Messaging") << "AvatarAppearance received for avatar " << uuid << " before object created" << LL_ENDL;
 }
 
 void process_camera_constraint(LLMessageSystem *mesgsys, void **user_data)
@@ -4253,6 +4250,10 @@ void process_clear_follow_cam_properties(LLMessageSystem *mesgsys, void **user_d
     mesgsys->getUUIDFast(_PREHASH_ObjectData, _PREHASH_ObjectID, source_id);
 
     LLFollowCamMgr::getInstance()->removeFollowCamParams(source_id);
+    if (!LLFollowCamMgr::getInstance()->getActiveFollowCamParams())
+    {
+        gAgentCamera.notifyFollowCamParamsCleared();
+    }
 }
 
 void process_set_follow_cam_properties(LLMessageSystem *mesgsys, void **user_data)
@@ -4322,6 +4323,10 @@ void process_set_follow_cam_properties(LLMessageSystem *mesgsys, void **user_dat
         case FOLLOWCAM_ACTIVE:
             //if 1, set using followcam,.
             LLFollowCamMgr::getInstance()->setCameraActive(source_id, value != 0.f);
+            if (value == 0.f && !LLFollowCamMgr::getInstance()->getActiveFollowCamParams())
+            {
+                gAgentCamera.notifyFollowCamParamsCleared();
+            }
             break;
         case FOLLOWCAM_POSITION_X:
             settingPosition = true;
@@ -4918,10 +4923,12 @@ bool handle_teleport_access_blocked(LLSD& llsdBlock, const std::string & notific
     {
         U8 regionAccess = static_cast<U8>(llsdBlock["_region_access"].asInteger());
         std::string regionMaturity = LLViewerRegion::accessToString(regionAccess);
+        llsdBlock["REGIONMATURITY_CAP"] = regionMaturity;
         LLStringUtil::toLower(regionMaturity);
         llsdBlock["REGIONMATURITY"] = regionMaturity;
 
         LLNotificationPtr tp_failure_notification;
+        bool skip_notif = false;
         std::string notifySuffix;
 
         if (notificationID == std::string("TeleportEntryAccessBlocked"))
@@ -4991,21 +4998,39 @@ bool handle_teleport_access_blocked(LLSD& llsdBlock, const std::string & notific
             }
         }       // End of special handling for "TeleportEntryAccessBlocked"
         else
-        {   // Normal case, no message munging
-            gAgent.clearTeleportRequest();
-            if (LLNotifications::getInstance()->templateExists(notificationID))
+        {
+            if (notificationID == "RegionTPAccessBlocked")
             {
-                tp_failure_notification = LLNotificationsUtil::add(notificationID, llsdBlock, llsdBlock);
+                bool can_change_maturity = (regionAccess == SIM_ACCESS_MATURE) ? gAgent.isMature() : gAgent.isAdult();
+                if (can_change_maturity)
+                {
+                    LLFloaterReg::showInstance("maturity_dialog", LLSD((S32)regionAccess));
+                    skip_notif = true;
+                }
+                else
+                {
+                    gAgent.clearTeleportRequest();
+                    tp_failure_notification = LLNotificationsUtil::add("RegionTPAccessBlocked_NotifyAdultsOnly", llsdBlock);
+                }
             }
             else
             {
-                llsdBlock["MESSAGE"] = defaultMessage;
-                tp_failure_notification = LLNotificationsUtil::add("GenericAlertOK", llsdBlock);
+                // Normal case, no message munging
+                gAgent.clearTeleportRequest();
+                if (LLNotifications::getInstance()->templateExists(notificationID))
+                {
+                    tp_failure_notification = LLNotificationsUtil::add(notificationID, llsdBlock, llsdBlock);
+                }
+                else
+                {
+                    llsdBlock["MESSAGE"] = defaultMessage;
+                    tp_failure_notification = LLNotificationsUtil::add("GenericAlertOK", llsdBlock);
+                }
             }
             returnValue = true;
         }
 
-        if ((tp_failure_notification == NULL) || tp_failure_notification->isIgnored())
+        if (((tp_failure_notification == NULL) || tp_failure_notification->isIgnored()) && !skip_notif)
         {
             // Given a simple notification if no tp_failure_notification is set or it is ignore
             LLNotificationsUtil::add(notificationID + notifySuffix, llsdBlock);

@@ -102,7 +102,9 @@
 #include "llparcel.h"
 #include "llrootview.h"
 #include "llsceneview.h"
+#include "llscripteditorws.h"
 #include "llselectmgr.h"
+#include "llwebsocketmgr.h"
 #include "llsidepanelappearance.h"
 #include "llspellcheckmenuhandler.h"
 #include "llstatusbar.h"
@@ -122,6 +124,7 @@
 #include "llviewernetwork.h"
 #include "llviewerobjectlist.h"
 #include "llviewerparcelmgr.h"
+#include "llviewerregion.h"
 #include "llviewerstats.h"
 #include "llviewerstatsrecorder.h"
 #include "llvlcomposition.h"
@@ -3814,17 +3817,6 @@ void handle_avatar_eject(const LLSD& avatar_id)
         }
 }
 
-bool my_profile_visible()
-{
-    LLFloater* floaterp = LLAvatarActions::getProfileFloater(gAgentID);
-    return floaterp && floaterp->isInVisibleChain();
-}
-
-bool picks_tab_visible()
-{
-    return my_profile_visible() && LLAvatarActions::isPickTabSelected(gAgentID);
-}
-
 bool enable_freeze_eject(const LLSD& avatar_id)
 {
     // Use avatar_id if available, otherwise default to right-click avatar
@@ -4866,6 +4858,31 @@ static void derez_objects(EDeRezDestination dest, const LLUUID& dest_id)
     derez_objects(dest, dest_id, first_region, error, NULL);
 }
 
+bool save_object_back_to_contents(LLViewerObject* object, const LLUUID& source_task_id)
+{
+    if (!object || source_task_id.isNull())
+    {
+        return false;
+    }
+
+    LLViewerRegion* first_region = object->getRegion();
+    if (!first_region)
+    {
+        return false;
+    }
+
+    std::vector<LLViewerObjectPtr> objects;
+    objects.push_back(object);
+
+    std::string error;
+    derez_objects(DRD_SAVE_INTO_TASK_INVENTORY, source_task_id, first_region, error, &objects);
+    if (!error.empty())
+    {
+        return false;
+    }
+    return true;
+}
+
 static void derez_objects_separate(EDeRezDestination dest, const LLUUID &dest_id)
 {
     std::vector<LLViewerObjectPtr> derez_object_list;
@@ -5441,10 +5458,13 @@ class LLToolsSaveToObjectInventory : public view_listener_t
     bool handleEvent(const LLSD& userdata)
     {
         LLSelectNode* node = LLSelectMgr::getInstance()->getSelection()->getFirstRootNode();
-        if(node && (node->mValid) && (!node->mFromTaskID.isNull()))
+        if (node && node->mValid && !node->mFromTaskID.isNull())
         {
-            // *TODO: check to see if the fromtaskid object exists.
-            derez_objects(DRD_SAVE_INTO_TASK_INVENTORY, node->mFromTaskID);
+            LLViewerObject* object = node->getObject();
+            if (object)
+            {
+                save_object_back_to_contents(object, node->mFromTaskID);
+            }
         }
         return true;
     }
@@ -5526,6 +5546,52 @@ class LLToolsCheckSelectionLODMode : public view_listener_t
     }
 };
 
+
+class LLToolsCheckScriptEditorServer : public view_listener_t
+{
+    bool handleEvent(const LLSD& userdata)
+    {
+        LLScriptEditorWSServer::ptr_t server = LLScriptEditorWSServer::getServer();
+        return server && server->isRunning();
+    }
+};
+
+class LLToolsEnableScriptEditorServer : public view_listener_t
+{
+    bool handleEvent(const LLSD& userdata)
+    {
+        return LLScriptEditorWSServer::isEnabled();
+    }
+};
+
+class LLToolsToggleScriptEditorServer : public view_listener_t
+{
+    bool handleEvent(const LLSD& userdata)
+    {
+        LLScriptEditorWSServer::ptr_t server = LLScriptEditorWSServer::getServer();
+        if (server && server->isRunning())
+        {
+            LLWebsocketMgr::instance().stopServer(LLScriptEditorWSServer::DEFAULT_SERVER_NAME);
+        }
+        else
+        {
+            if (LLScriptEditorWSServer::isTightIntegration())
+            {
+                LLScriptEditorWSServer::launchVSCode();
+            }
+            else
+            {
+                LLScriptEditorWSServer::ensureServerRunning();
+            }
+        }
+
+        if (gFloaterTools)
+        {
+            gFloaterTools->dirty();
+        }
+        return true;
+    }
+};
 
 // Round the position of all root objects to the grid
 class LLToolsSnapObjectXY : public view_listener_t
@@ -6458,7 +6524,7 @@ class LLAvatarTogglePicks : public view_listener_t
             instance->setFocus(true);
             LLAvatarActions::showPicks(gAgent.getID());
         }
-        else if (picks_tab_visible())
+        else if (LLAvatarActions::myPicksTabVisible())
         {
             instance->closeFloater();
         }
@@ -7719,13 +7785,27 @@ class LLToolsSelectedScriptAction : public view_listener_t
     bool handleEvent(const LLSD& userdata)
     {
         std::string action = userdata.asString();
-        bool mono = false;
+        std::string target = "lsl2";
         std::string msg, name;
         std::string title;
         if (action == "compile mono")
         {
             name = "compile_queue";
-            mono = true;
+            target = "mono";
+            msg = "Recompile";
+            title = LLTrans::getString("CompileQueueTitle");
+        }
+        else if (action == "compile lua")
+        {
+            name = "compile_queue";
+            target = "luau";
+            msg = "Recompile";
+            title = LLTrans::getString("CompileQueueTitle");
+        }
+        else if (action == "compile lsl-luau")
+        {
+            name = "compile_queue";
+            target = "lsl-luau";
             msg = "Recompile";
             title = LLTrans::getString("CompileQueueTitle");
         }
@@ -7758,7 +7838,7 @@ class LLToolsSelectedScriptAction : public view_listener_t
         LLFloaterScriptQueue* queue =LLFloaterReg::getTypedInstance<LLFloaterScriptQueue>(name, LLSD(id));
         if (queue)
         {
-            queue->setMono(mono);
+            queue->setCompileTarget(target);
             if (queue_actions(queue, msg))
             {
                 queue->setTitle(title);
@@ -8154,6 +8234,27 @@ class LLEditableSelectedMono : public view_listener_t
             new_value = is_editable_selected() && have_cap;
         }
         return new_value;
+    }
+};
+
+static bool is_lua_scripts_enabled()
+{
+    LLViewerRegion* region = gAgent.getRegion();
+    if (!region || region->getCapability("UpdateScriptTask").empty() || !region->simulatorFeaturesReceived())
+    {
+        return false;
+    }
+
+    LLSD simulator_features;
+    region->getSimulatorFeatures(simulator_features);
+    return simulator_features["LuaScriptsEnabled"].asBoolean();
+}
+
+class LLEditableSelectedLua : public view_listener_t
+{
+    bool handleEvent(const LLSD& userdata)
+    {
+        return is_editable_selected() && is_lua_scripts_enabled();
     }
 };
 
@@ -9521,6 +9622,23 @@ void show_topinfobar_context_menu(LLView* ctrl, S32 x, S32 y)
     LLMenuGL::showPopup(ctrl, show_topbarinfo_context_menu, x, y);
 }
 
+static void register_agent_ui_callbacks()
+{
+    // These functions are used by menu and commands, they need to persist for the lifetime of the application
+    // Note: executes before LLToolBar::createButton and before menu builds
+    LLUICtrl::EnableCallbackRegistry::Registrar& global_enable = LLUICtrl::EnableCallbackRegistry::defaultRegistrar();
+    LLUICtrl::CommitCallbackRegistry::Registrar& global_commit = LLUICtrl::CommitCallbackRegistry::defaultRegistrar();
+    global_commit.add("Agent.toggleFlying", boost::bind(&LLAgent::toggleFlying));
+    global_enable.add("Agent.enableFlyLand", boost::bind(&enable_fly_land));
+    global_commit.add("Agent.PressMicrophone", boost::bind(&LLAgent::pressMicrophone, _2));
+    global_commit.add("Agent.ReleaseMicrophone", boost::bind(&LLAgent::releaseMicrophone, _2));
+    global_commit.add("Agent.ToggleMicrophone", boost::bind(&LLAgent::toggleMicrophone, _2));
+    global_enable.add("Agent.IsMicrophoneOn", boost::bind(&LLAgent::isMicrophoneOn, _2));
+    global_enable.add("Agent.IsActionAllowed", boost::bind(&LLAgent::isActionAllowed, _2));
+    global_enable.add("Avatar.IsMyProfileOpen", boost::bind(&LLAvatarActions::myProfileVisible));
+    global_enable.add("Avatar.IsPicksTabOpen", boost::bind(&LLAvatarActions::myPicksTabVisible));
+}
+
 void initialize_edit_menu()
 {
     view_listener_t::addMenu(new LLEditUndo(), "Edit.Undo");
@@ -9559,6 +9677,8 @@ void initialize_spellcheck_menu()
 void initialize_menus()
 {
 
+    register_agent_ui_callbacks();
+
     // A parameterized event handler used as ctrl-8/9/0 zoom controls below.
     class LLZoomer : public view_listener_t
     {
@@ -9595,15 +9715,6 @@ void initialize_menus()
     // S24: Selection beam color picker callbacks
     commit.add("Pref.getBeamColor", boost::bind(&handleGetBeamColor, _1, _2));
     commit.add("Pref.setBeamColor", boost::bind(&handleSetBeamColor, _1, _2));
-
-    // Agent
-    commit.add("Agent.toggleFlying", boost::bind(&LLAgent::toggleFlying));
-    enable.add("Agent.enableFlyLand", boost::bind(&enable_fly_land));
-    commit.add("Agent.PressMicrophone", boost::bind(&LLAgent::pressMicrophone, _2));
-    commit.add("Agent.ReleaseMicrophone", boost::bind(&LLAgent::releaseMicrophone, _2));
-    commit.add("Agent.ToggleMicrophone", boost::bind(&LLAgent::toggleMicrophone, _2));
-    enable.add("Agent.IsMicrophoneOn", boost::bind(&LLAgent::isMicrophoneOn, _2));
-    enable.add("Agent.IsActionAllowed", boost::bind(&LLAgent::isActionAllowed, _2));
 
     // File menu
     init_menu_file();
@@ -9911,8 +10022,8 @@ void initialize_menus()
     commit.add("Develop.ClearCache", boost::bind(&handle_cache_clear_immediately) );
 
     // Develop (Fonts debugging)
-    commit.add("Develop.Fonts.Dump", boost::bind(&LLFontGL::dumpFonts));
-    commit.add("Develop.Fonts.DumpTextures", boost::bind(&LLFontGL::dumpFontTextures));
+    commit.add("Develop.Fonts.Dump", boost::bind(&LLFontDX::dumpFonts));
+    commit.add("Develop.Fonts.DumpTextures", boost::bind(&LLFontDX::dumpFontTextures));
 
     // Admin >Object
     view_listener_t::addMenu(new LLAdminForceTakeCopy(), "Admin.ForceTakeCopy");
@@ -9967,8 +10078,6 @@ void initialize_menus()
     view_listener_t::addMenu(new LLAvatarResetSkeletonAndAnimations(), "Avatar.ResetSkeletonAndAnimations");
     view_listener_t::addMenu(new LLAvatarResetSelfSkeleton(), "Avatar.ResetSelfSkeleton");
     view_listener_t::addMenu(new LLAvatarResetSelfSkeletonAndAnimations(), "Avatar.ResetSelfSkeletonAndAnimations");
-    enable.add("Avatar.IsMyProfileOpen", boost::bind(&my_profile_visible));
-    enable.add("Avatar.IsPicksTabOpen", boost::bind(&picks_tab_visible));
 
     commit.add("Avatar.OpenMarketplace", boost::bind(&LLWeb::loadURLExternal, gSavedSettings.getString("MarketplaceURL")));
 
@@ -10087,5 +10196,9 @@ void initialize_menus()
     view_listener_t::addMenu(new LLSomethingSelectedNoHUD(), "SomethingSelectedNoHUD");
     view_listener_t::addMenu(new LLEditableSelected(), "EditableSelected");
     view_listener_t::addMenu(new LLEditableSelectedMono(), "EditableSelectedMono");
+    view_listener_t::addMenu(new LLEditableSelectedLua(), "EditableSelectedLua");
+    view_listener_t::addMenu(new LLToolsCheckScriptEditorServer(), "Tools.CheckScriptEditorServer");
+    view_listener_t::addMenu(new LLToolsEnableScriptEditorServer(), "Tools.EnableScriptEditorServer");
+    view_listener_t::addMenu(new LLToolsToggleScriptEditorServer(), "Tools.ToggleScriptEditorServer");
     view_listener_t::addMenu(new LLToggleUIHints(), "ToggleUIHints");
 }

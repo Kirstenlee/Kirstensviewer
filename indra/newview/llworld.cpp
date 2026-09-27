@@ -1225,10 +1225,6 @@ void process_region_handshake(LLMessageSystem* msg, void** user_data)
 
 void send_agent_pause()
 {
-    // *NOTE:Mani Pausing the mainloop timeout. Otherwise a long modal event may cause
-    // the thread monitor to timeout.
-    LLAppViewer::instance()->pauseMainloopTimeout();
-
     // Note: used to check for LLWorld initialization before it became a singleton.
     // Rather than just remove this check I'm changing it to assure that the message
     // system has been initialized. -MG
@@ -1285,8 +1281,6 @@ void send_agent_resume()
 
     // Resume data collection to ignore invalid rates
     LLViewerStats::instance().getRecording().resume();
-
-    LLAppViewer::instance()->resumeMainloopTimeout();
 }
 
 static LLVector3d unpackLocalToGlobalPosition(U32 compact_local, const LLVector3d& region_origin)

@@ -100,6 +100,7 @@ class LLVOAvatar :
 public:
     friend class LLVOAvatarSelf;
     friend class LLAvatarCheckImpostorMode;
+    friend class LLVisualParamHint;
 
 /********************************************************************************
  **                                                                            **
@@ -300,7 +301,7 @@ public:
     static void     invalidateNameTag(const LLUUID& agent_id);
     // force all name tags to rebuild, useful when display names turned on/off
     static void     invalidateNameTags();
-    void            addNameTagLine(const std::string& line, const LLColor4& color, S32 style, const LLFontGL* font, const bool use_ellipses = false);
+    void            addNameTagLine(const std::string& line, const LLColor4& color, S32 style, const LLFontDX* font, const bool use_ellipses = false);
     void            idleUpdateRenderComplexity();
     void            idleUpdateDebugInfo();
     void            accountRenderComplexityForObject(LLViewerObject *attached_object,
@@ -805,8 +806,8 @@ private:
     // Constants
     //--------------------------------------------------------------------
 public:
-    virtual LLViewerTexture::EBoostLevel    getAvatarBoostLevel() const { return LLGLTexture::BOOST_AVATAR; }
-    virtual LLViewerTexture::EBoostLevel    getAvatarBakedBoostLevel() const { return LLGLTexture::BOOST_AVATAR_BAKED; }
+    virtual LLViewerTexture::EBoostLevel    getAvatarBoostLevel() const { return LLDXTexture::BOOST_AVATAR; }
+    virtual LLViewerTexture::EBoostLevel    getAvatarBakedBoostLevel() const { return LLDXTexture::BOOST_AVATAR_BAKED; }
     virtual S32                         getTexImageSize() const;
     /*virtual*/ S32                     getTexImageArea() const { return getTexImageSize()*getTexImageSize(); }
 
@@ -978,9 +979,26 @@ protected:
  **                    APPEARANCE
  **/
 
+public:
+    // Used when an AvatarAppearance UDP message is received before the
+    // corresponding avatar could be created.
+    static void registerEarlyAppearance(const LLUUID& av_id)
+    {
+        sEarlyAppearanceList.emplace(av_id);
+    }
+
+    // Entries left behind by agents who never get instantiated (e.g. an
+    // AvatarAppearance message arrives for an avatar we never rez) are a
+    // small resource leak. Teleporting to another region invalidates the
+    // whole list, since it was only ever relevant to avatars in the region
+    // we're leaving, so clear it out at that point to bound the leak.
+    static void resetEarlyAppearanceList()
+    {
+        sEarlyAppearanceList.clear();
+    }
+
     LLPointer<LLAppearanceMessageContents>  mLastProcessedAppearance;
 
-public:
     void            parseAppearanceMessage(LLMessageSystem* mesgsys, LLAppearanceMessageContents& msg);
     void            processAvatarAppearance(LLMessageSystem* mesgsys);
     void            applyParsedAppearanceMessage(LLAppearanceMessageContents& contents, bool slam_params);
@@ -1011,6 +1029,8 @@ private:
     F32             mLastAppearanceBlendTime;
     bool            mIsEditingAppearance; // flag for if we're actively in appearance editing mode
     bool            mUseLocalAppearance; // flag for if we're using a local composite
+
+    static uuid_list_t  sEarlyAppearanceList;
 
     //--------------------------------------------------------------------
     // Visibility

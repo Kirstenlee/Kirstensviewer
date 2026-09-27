@@ -616,6 +616,8 @@ const LLUUID LLVOAvatar::sStepSounds[LL_MCODE_END] =
     SND_RUBBER_RUBBER
 };
 
+uuid_list_t LLVOAvatar::sEarlyAppearanceList;
+
 S32 LLVOAvatar::sRenderName = RENDER_NAME_ALWAYS;
 S32 LLVOAvatar::sRenderGroupTitles = RENDER_GROUP_TITLE_ALWAYS;
 S32 LLVOAvatar::sNumVisibleChatBubbles = 0;
@@ -780,6 +782,20 @@ LLVOAvatar::LLVOAvatar(const LLUUID& id,
     mVisuallyMuteSetting = LLVOAvatar::VisualMuteSettings(LLRenderMuteList::getInstance()->getSavedVisualMuteSetting(getID()));
 
     sInstances.push_back(this);
+
+    uuid_list_t::iterator it = sEarlyAppearanceList.find(id);
+    if (it != sEarlyAppearanceList.end())
+    {
+        // Note: aside from LLVOAvatar::resetEarlyAppearanceList() (called on
+        // teleport), this is the only place where we remove from
+        // sEarlyAppearanceList, which means any agent who receives an
+        // AvatarAppearance message but is never actually instantiated will
+        // remain on the list until the next teleport. This is a resource leak
+        // but we expect it to be small enough per-session to not cause problems.
+        sEarlyAppearanceList.erase(it);
+        LL_INFOS("Avatar") << "Re-requesting AvatarAppearance for new avatar " << id << LL_ENDL;
+        LLAvatarPropertiesProcessor::getInstance()->sendAvatarTexturesRequest(getID());
+    }
 }
 
 std::string LLVOAvatar::avString() const
@@ -968,7 +984,7 @@ void LLVOAvatar::deleteLayerSetCaches(bool clearAll)
         }
         if (mBakedTextureDatas[i].mMaskTexName)
         {
-            LLImageGL::deleteTextures(1, (GLuint*)&(mBakedTextureDatas[i].mMaskTexName));
+            LLImageDX::deleteTextures(1, (GLuint*)&(mBakedTextureDatas[i].mMaskTexName));
             mBakedTextureDatas[i].mMaskTexName = 0 ;
         }
     }
@@ -2569,6 +2585,10 @@ void LLVOAvatar::updateMeshData()
                 f_num++ ;
             }
         }
+
+        mDirtyMesh = 0;
+        mNeedsSkin = true;
+        mDrawable->clearState(LLDrawable::REBUILD_GEOMETRY);
     }
 }
 
@@ -2629,7 +2649,7 @@ LLViewerFetchedTexture *LLVOAvatar::getBakedTextureImage(const U8 te, const LLUU
         }
         LL_DEBUGS("Avatar") << avString() << "get server-bake image from URL " << url << LL_ENDL;
         result = LLViewerTextureManager::getFetchedTextureFromUrl(
-            url, FTT_SERVER_BAKE, true, LLGLTexture::BOOST_NONE, LLViewerTexture::LOD_TEXTURE, 0, 0, uuid);
+            url, FTT_SERVER_BAKE, true, LLDXTexture::BOOST_NONE, LLViewerTexture::LOD_TEXTURE, 0, 0, uuid);
         if (result->isMissingAsset())
         {
             result->setIsMissingAsset(false);
@@ -3568,8 +3588,8 @@ void LLVOAvatar::idleUpdateNameTagText(bool new_name)
             }
             // trim last ", "
             line.resize( line.length() - 2 );
-            addNameTagLine(line, name_tag_color, LLFontGL::NORMAL,
-                LLFontGL::getFontSansSerifSmall());
+            addNameTagLine(line, name_tag_color, LLFontDX::NORMAL,
+                LLFontDX::getFontSansSerifSmall());
         }
         bool render_title = (sRenderGroupTitles == RENDER_GROUP_TITLE_ALWAYS) ||
                             (isSelf() && (sRenderGroupTitles == RENDER_GROUP_TITLE_SELF));
@@ -3578,8 +3598,8 @@ void LLVOAvatar::idleUpdateNameTagText(bool new_name)
         {
             std::string title_str = title->getString();
             LLStringFn::replace_ascii_controlchars(title_str,LL_UNKNOWN_CHAR);
-            addNameTagLine(title_str, name_tag_color, LLFontGL::NORMAL,
-                LLFontGL::getFontSansSerifSmall(), true);
+            addNameTagLine(title_str, name_tag_color, LLFontDX::NORMAL,
+                LLFontDX::getFontSansSerifSmall(), true);
         }
 
         static LLUICachedControl<bool> show_display_names("NameTagShowDisplayNames", true);
@@ -3599,29 +3619,29 @@ void LLVOAvatar::idleUpdateNameTagText(bool new_name)
             // Might be blank if name not available yet, that's OK
             if (show_display_names)
             {
-                addNameTagLine(av_name.getDisplayName(), name_tag_color, LLFontGL::NORMAL,
-                    LLFontGL::getFontSansSerif(), true);
+                addNameTagLine(av_name.getDisplayName(), name_tag_color, LLFontDX::NORMAL,
+                    LLFontDX::getFontSansSerif(), true);
             }
             // Suppress SLID display if display name matches exactly (ugh)
             if (show_usernames && !av_name.isDisplayNameDefault())
             {
                 // *HACK: Desaturate the color
                 LLColor4 username_color = name_tag_color * 0.83f;
-                addNameTagLine(av_name.getUserName(), username_color, LLFontGL::NORMAL,
-                    LLFontGL::getFontSansSerifSmall(), true);
+                addNameTagLine(av_name.getUserName(), username_color, LLFontDX::NORMAL,
+                    LLFontDX::getFontSansSerifSmall(), true);
             }
         }
         else
         {
-            const LLFontGL* font = LLFontGL::getFontSansSerif();
+            const LLFontDX* font = LLFontDX::getFontSansSerif();
             std::string full_name = LLCacheName::buildFullName( firstname->getString(), lastname->getString() );
-            addNameTagLine(full_name, name_tag_color, LLFontGL::NORMAL, font, true);
+            addNameTagLine(full_name, name_tag_color, LLFontDX::NORMAL, font, true);
         }
 
         if (show_rez_status)
         {
             std::string av_string = LLVOAvatar::rezStatusToString(mLastRezzedStatus);
-            addNameTagLine(av_string, name_tag_color, LLFontGL::NORMAL, LLFontGL::getFontSansSerifSmall(), true);
+            addNameTagLine(av_string, name_tag_color, LLFontDX::NORMAL, LLFontDX::getFontSansSerifSmall(), true);
         }
 
         mNameAway = is_away;
@@ -3637,7 +3657,7 @@ void LLVOAvatar::idleUpdateNameTagText(bool new_name)
 
     if (mVisibleChat)
     {
-        mNameText->setFont(LLFontGL::getFontSansSerif());
+        mNameText->setFont(LLFontDX::getFontSansSerif());
         mNameText->setTextAlignment(LLHUDNameTag::ALIGN_TEXT_LEFT);
         mNameText->setFadeDistance(CHAT_NORMAL_RADIUS * 2.f, 5.f);
 
@@ -3657,17 +3677,17 @@ void LLVOAvatar::idleUpdateNameTagText(bool new_name)
         for(; chat_iter != mChats.end(); ++chat_iter)
         {
             F32 chat_fade_amt = llclamp((F32)((LLFrameTimer::getElapsedSeconds() - chat_iter->mTime) / CHAT_FADE_TIME), 0.f, 4.f);
-            LLFontGL::StyleFlags style;
+            LLFontDX::StyleFlags style;
             switch(chat_iter->mChatType)
             {
             case CHAT_TYPE_WHISPER:
-                style = LLFontGL::ITALIC;
+                style = LLFontDX::ITALIC;
                 break;
             case CHAT_TYPE_SHOUT:
-                style = LLFontGL::BOLD;
+                style = LLFontDX::BOLD;
                 break;
             default:
-                style = LLFontGL::NORMAL;
+                style = LLFontDX::NORMAL;
                 break;
             }
             if (chat_fade_amt < 1.f)
@@ -3715,7 +3735,7 @@ void LLVOAvatar::idleUpdateNameTagText(bool new_name)
     }
 }
 
-void LLVOAvatar::addNameTagLine(const std::string& line, const LLColor4& color, S32 style, const LLFontGL* font, const bool use_ellipses)
+void LLVOAvatar::addNameTagLine(const std::string& line, const LLColor4& color, S32 style, const LLFontDX* font, const bool use_ellipses)
 {
     // extra width (NAMETAG_MAX_WIDTH) is for names only, not for chat
     llassert(mNameText);
@@ -3725,7 +3745,7 @@ void LLVOAvatar::addNameTagLine(const std::string& line, const LLColor4& color, 
     }
     else
     {
-        mNameText->addLine(line, color, (LLFontGL::StyleFlags)style, font, use_ellipses, LLHUDNameTag::NAMETAG_MAX_WIDTH);
+        mNameText->addLine(line, color, (LLFontDX::StyleFlags)style, font, use_ellipses, LLHUDNameTag::NAMETAG_MAX_WIDTH);
     }
     mNameIsSet |= !line.empty();
 }
@@ -4854,7 +4874,8 @@ bool LLVOAvatar::updateCharacter(LLAgent &agent)
         LLMotion *motionp = mMotionController.findMotion(ANIM_AGENT_SIT_GROUND_CONSTRAINED);
         if (!motionp || !mMotionController.isMotionLoading(motionp))
         {
-            getOffObject();
+            // Route through setParent(NULL) so self also resets its camera.
+            setParent(NULL);
         }
     }
 
@@ -5182,9 +5203,6 @@ U32 LLVOAvatar::renderSkinned()
         if (needs_rebuild || mDirtyMesh >= 2 || mVisibilityRank <= 4)
         {
             updateMeshData();
-            mDirtyMesh = 0;
-            mNeedsSkin = true;
-            mDrawable->clearState(LLDrawable::REBUILD_GEOMETRY);
         }
     }
 
@@ -5682,7 +5700,7 @@ void LLVOAvatar::releaseOldTextures()
             if (imagep)
             {
                 current_texture_mem += imagep->getTextureMemory();
-                if (imagep->getTextureState() == LLGLTexture::NO_DELETE)
+                if (imagep->getTextureState() == LLDXTexture::NO_DELETE)
                 {
                     // This will allow the texture to be deleted if not in use.
                     imagep->forceActive();
@@ -8055,6 +8073,18 @@ void LLVOAvatar::getOffObject()
 
     if (sit_object)
     {
+        // A dead sit_object may be temporarily unavailable while it is being
+        // reconstructed during a crossing.
+        // Preserve the follow-cam grace period in that case.
+        // An avatar getting off an object is an explicit action that clears
+        // the grace period on its own.
+        // In such a case, FollowCam Params should've been or will be cleared
+        // in a different path.
+        if (isSelf() && !sit_object->isDead())
+        {
+            gAgentCamera.notifyFollowCamParamsCleared();
+        }
+
         stopMotionFromSource(sit_object->getID());
         LLFollowCamMgr::getInstance()->setCameraActive(sit_object->getID(), false);
 
@@ -8067,6 +8097,11 @@ void LLVOAvatar::getOffObject()
             stopMotionFromSource(child_objectp->getID());
             LLFollowCamMgr::getInstance()->setCameraActive(child_objectp->getID(), false);
         }
+    }
+    else if (isSelf())
+    {
+        // Recover from a missing seat parent without retaining a stale followcam.
+        LLFollowCamMgr::getInstance()->clearActiveFollowCamParams();
     }
 
     // assumes that transform will not be updated with drawable still having a parent
@@ -8626,6 +8661,10 @@ bool LLVOAvatar::processFullyLoadedChange(bool loading)
 
     if (changed && isSelf())
     {
+        // Agent's own avatar doesn't track bakes the same way as other avatars.
+        // So just update here, on cloud removal.
+        markBodyPartsComplexityDirty();
+
         // to know about outfit switching
         LLAvatarRenderNotifier::getInstance()->updateNotificationState();
     }
@@ -9872,7 +9911,7 @@ void LLVOAvatar::applyParsedAppearanceMessage(LLAppearanceMessageContents& conte
         {
             LL_DEBUGS("Avatar") << avString() << " baked_index " << (S32) baked_index << " using mLastTextureID " << mBakedTextureDatas[baked_index].mLastTextureID << LL_ENDL;
             setTEImage(mBakedTextureDatas[baked_index].mTextureIndex,
-                LLViewerTextureManager::getFetchedTexture(mBakedTextureDatas[baked_index].mLastTextureID, FTT_DEFAULT, true, LLGLTexture::BOOST_NONE, LLViewerTexture::LOD_TEXTURE));
+                LLViewerTextureManager::getFetchedTexture(mBakedTextureDatas[baked_index].mLastTextureID, FTT_DEFAULT, true, LLDXTexture::BOOST_NONE, LLViewerTexture::LOD_TEXTURE));
         }
         else
         {
@@ -9960,7 +9999,7 @@ void LLVOAvatar::applyParsedAppearanceMessage(LLAppearanceMessageContents& conte
         if (visualParamWeightsAreDefault() && mRuthTimer.getElapsedTimeF32() > LOADING_TIMEOUT_SECONDS)
         {
             // re-request appearance, hoping that it comes back with a shape next time
-            LL_INFOS() << "Re-requesting AvatarAppearance for object: "  << getID() << LL_ENDL;
+            LL_INFOS() << "Re-requesting AvatarAppearance for agent: "  << getID() << LL_ENDL;
             LLAvatarPropertiesProcessor::getInstance()->sendAvatarTexturesRequest(getID());
             mRuthTimer.reset();
         }
@@ -10134,7 +10173,7 @@ void LLVOAvatar::onBakedTextureMasksLoaded( bool success, LLViewerFetchedTexture
             }
 
             U32 gl_name;
-            LLImageGL::generateTextures(1, &gl_name );
+            LLImageDX::generateTextures(1, &gl_name );
 
             gDX.getTexUnit(0)->bindManual(LLTexUnit::TT_TEXTURE, gl_name);
 
@@ -10143,7 +10182,7 @@ void LLVOAvatar::onBakedTextureMasksLoaded( bool success, LLViewerFetchedTexture
             // directly, CPU-side, so this upload is dead weight on both backends. setManualImage() has
             // no DX_RENDER branch and would call the real glTexImage2D (null function pointer, no GL
             // context) - skipped entirely under DX_RENDER rather than given a DXTexture backing.
-            LLImageGL::setManualImage(
+            LLImageDX::setManualImage(
                 GL_TEXTURE_2D, 0, GL_ALPHA8,
                 aux_src->getWidth(), aux_src->getHeight(),
                 GL_ALPHA, GL_UNSIGNED_BYTE, aux_src->getData());
@@ -10174,7 +10213,7 @@ void LLVOAvatar::onBakedTextureMasksLoaded( bool success, LLViewerFetchedTexture
                         maskData->mLastDiscardLevel = discard_level;
                         if (self->mBakedTextureDatas[baked_index].mMaskTexName)
                         {
-                            LLImageGL::deleteTextures(1, &(self->mBakedTextureDatas[baked_index].mMaskTexName));
+                            LLImageDX::deleteTextures(1, &(self->mBakedTextureDatas[baked_index].mMaskTexName));
                         }
                         self->mBakedTextureDatas[baked_index].mMaskTexName = gl_name;
                         found_texture_id = true;
@@ -10220,6 +10259,10 @@ void LLVOAvatar::onInitialBakedTextureLoaded( bool success, LLViewerFetchedTextu
     }
     if (final || !success )
     {
+        if (selfp)
+        {
+            selfp->markBodyPartsComplexityDirty();
+        }
         delete avatar_idp;
     }
 }
@@ -10779,9 +10822,6 @@ bool LLVOAvatar::updateLOD()
     if (mDirtyMesh >= 2 || mDrawable->isState(LLDrawable::REBUILD_GEOMETRY))
     {   //LOD changed or new mesh created, allocate new vertex buffer if needed
         updateMeshData();
-        mDirtyMesh = 0;
-        mNeedsSkin = true;
-        mDrawable->clearState(LLDrawable::REBUILD_GEOMETRY);
     }
     updateVisibility();
 
@@ -11147,7 +11187,7 @@ void LLVOAvatar::idleUpdateDebugInfo()
         F32 red_level;
         F32 green_level;
         LLColor4 info_color;
-        LLFontGL::StyleFlags info_style;
+        LLFontDX::StyleFlags info_style;
 
         if ( !mText )
         {
@@ -11173,12 +11213,12 @@ void LLVOAvatar::idleUpdateDebugInfo()
             red_level   = llmin((F32) mVisualComplexity/(F32)max_render_cost, 1.f);
             info_color.set(red_level, green_level, 0.0, 1.0);
             info_style = (  mVisualComplexity > max_render_cost
-                          ? LLFontGL::BOLD : LLFontGL::NORMAL );
+                          ? LLFontDX::BOLD : LLFontDX::NORMAL );
         }
         else
         {
             info_color.set(LLColor4::grey);
-            info_style = LLFontGL::NORMAL;
+            info_style = LLFontDX::NORMAL;
         }
         mText->addLine(info_line, info_color, info_style);
 
@@ -11186,7 +11226,7 @@ void LLVOAvatar::idleUpdateDebugInfo()
         info_line = llformat("%d rank", mVisibilityRank);
         // Use grey for imposters, white for normal rendering or no impostors
         info_color.set(isImpostor() ? LLColor4::grey : (isControlAvatar() ? LLColor4::yellow : LLColor4::white));
-        info_style = LLFontGL::NORMAL;
+        info_style = LLFontDX::NORMAL;
         mText->addLine(info_line, info_color, info_style);
 
         // Triangle count
@@ -11205,13 +11245,13 @@ void LLVOAvatar::idleUpdateDebugInfo()
             red_level   = llmin(mAttachmentSurfaceArea/max_attachment_area, 1.f);
             info_color.set(red_level, green_level, 0.0, 1.0);
             info_style = (  mAttachmentSurfaceArea > max_attachment_area
-                          ? LLFontGL::BOLD : LLFontGL::NORMAL );
+                          ? LLFontDX::BOLD : LLFontDX::NORMAL );
 
         }
         else
         {
             info_color.set(LLColor4::grey);
-            info_style = LLFontGL::NORMAL;
+            info_style = LLFontDX::NORMAL;
         }
 
         mText->addLine(info_line, info_color, info_style);

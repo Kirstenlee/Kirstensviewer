@@ -204,7 +204,7 @@ void LLViewerCamera::calcProjection(const F32 far_distance) const
 //static
 void LLViewerCamera::updateFrustumPlanes(LLCamera& camera, bool ortho, bool zflip, bool no_hacks)
 {
-	glm::ivec4 viewport = glm::make_vec4((GLint*)gGLViewport);
+	glm::ivec4 viewport = glm::make_vec4((GLint*)gDXViewport);
 	glm::mat4 model = get_current_modelview();
 	glm::mat4 proj = get_current_projection();
 
@@ -361,10 +361,10 @@ void LLViewerCamera::setPerspective(bool for_selection,
 			z_far = MAX_FAR_CLIP;
 		}
 		glViewport(x, y_from_bot, width, height);
-		gGLViewport[0] = x;
-		gGLViewport[1] = y_from_bot;
-		gGLViewport[2] = width;
-		gGLViewport[3] = height;
+		gDXViewport[0] = x;
+		gDXViewport[1] = y_from_bot;
+		gDXViewport[2] = width;
+		gDXViewport[3] = height;
 	}
 
 	if (mZoomFactor > 1.f)
@@ -462,7 +462,7 @@ void LLViewerCamera::setPerspective(bool for_selection,
 // screen coordinates to the agent's region.
 void LLViewerCamera::projectScreenToPosAgent(const S32 screen_x, const S32 screen_y, LLVector3* pos_agent) const
 {
-	glm::vec3 agent_coord = glm::unProject(glm::vec3(screen_x, screen_y, 0.f), get_current_modelview(), get_current_projection(), glm::make_vec4(gGLViewport));
+	glm::vec3 agent_coord = glm::unProject(glm::vec3(screen_x, screen_y, 0.f), get_current_modelview(), get_current_projection(), glm::make_vec4(gDXViewport));
 	pos_agent->setVec((F32)agent_coord.x, (F32)agent_coord.y, (F32)agent_coord.z);
 }
 

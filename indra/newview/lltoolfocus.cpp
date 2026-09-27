@@ -31,7 +31,7 @@
 
 // Library includes
 #include "v3math.h"
-#include "llfontgl.h"
+#include "llfontdx.h"
 #include "llui.h"
 
 // Viewer includes

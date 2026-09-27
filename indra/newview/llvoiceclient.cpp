@@ -119,7 +119,7 @@ std::string LLVoiceClientStatusObserver::status2string(LLVoiceClientStatusObserv
 
 LLVoiceModuleInterface *getVoiceModule(const std::string &voice_server_type)
 {
-    if (voice_server_type == WEBRTC_VOICE_SERVER_TYPE)
+    if (voice_server_type == WEBRTC_VOICE_SERVER_TYPE || voice_server_type.empty())
     {
         return (LLVoiceModuleInterface *) LLWebRTCVoiceClient::getInstance();
     }
@@ -855,7 +855,7 @@ class LLViewerRequiredVoiceVersion : public LLHTTPNode
 
         LLVoiceModuleInterface *voiceModule = NULL;
 
-        if (voice_server_type == "webrtc" || voice_server_type.empty())
+        if (voice_server_type == WEBRTC_VOICE_SERVER_TYPE || voice_server_type.empty())
         {
             voiceModule = (LLVoiceModuleInterface *) LLWebRTCVoiceClient::getInstance();
         }

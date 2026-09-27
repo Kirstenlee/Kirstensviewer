@@ -175,7 +175,7 @@ public:
         mEditor(editor)
     {
 
-        mStyle = new LLStyle(LLStyle::Params().font(LLFontGL::getFontSansSerif()));
+        mStyle = new LLStyle(LLStyle::Params().font(LLFontDX::getFontSansSerif()));
         mToolTip = inv_item->getName() + '\n' + inv_item->getDescription();
     }
 
@@ -243,7 +243,7 @@ public:
         const LLColor4& color = mEditor.getReadOnly() ? embedded_item_readonly_col : embedded_item_col;
 
         F32 right_x;
-        mStyle->getFont()->render(mLabel, 0, image_rect.mRight + EMBEDDED_ITEM_LABEL_PADDING, draw_rect.mTop, color, LLFontGL::LEFT, LLFontGL::TOP, LLFontGL::UNDERLINE, LLFontGL::NO_SHADOW, static_cast<S32>(mLabel.length()), S32_MAX, &right_x);
+        mStyle->getFont()->render(mLabel, 0, image_rect.mRight + EMBEDDED_ITEM_LABEL_PADDING, draw_rect.mTop, color, LLFontDX::LEFT, LLFontDX::TOP, LLFontDX::UNDERLINE, LLFontDX::NO_SHADOW, static_cast<S32>(mLabel.length()), S32_MAX, &right_x);
         return right_x;
     }
 

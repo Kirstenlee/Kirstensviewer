@@ -72,7 +72,7 @@ namespace
         llassert(tex);
         if (!tex) { return; }
 
-        tex->setBoostLevel(LLGLTexture::BOOST_TERRAIN); // in case the raw image is at low detail
+        tex->setBoostLevel(LLDXTexture::BOOST_TERRAIN); // in case the raw image is at low detail
         tex->addTextureStats(virtual_size); // priority
     }
 
@@ -88,7 +88,7 @@ namespace
     void unboost_minimap_texture(LLViewerFetchedTexture* tex)
     {
         if (!tex) { return; }
-        tex->setBoostLevel(LLGLTexture::BOOST_NONE);
+        tex->setBoostLevel(LLDXTexture::BOOST_NONE);
         tex->setMinDiscardLevel(MAX_DISCARD_LEVEL + 1);
     }
 

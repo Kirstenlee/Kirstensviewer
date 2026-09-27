@@ -222,7 +222,6 @@ extern LLHLSLShader         gPathfindingNoNormalsProgram;
 
 // avatar shader handles
 extern LLHLSLShader         gAvatarProgram;
-extern LLHLSLShader         gAvatarEyeballProgram;
 extern LLHLSLShader         gImpostorProgram;
 
 // Post Process Shaders

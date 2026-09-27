@@ -131,7 +131,7 @@ LLVoiceVisualizer::LLVoiceVisualizer( const U8 type )
     for (int i=0; i<NUM_VOICE_SYMBOL_WAVES; i++)
     {
         mSoundSymbol.mWaveFadeOutStartTime  [i] = mCurrentTime;
-        mSoundSymbol.mTexture               [i] = LLViewerTextureManager::getFetchedTextureFromFile(sound_level_img[i], FTT_LOCAL_FILE, false, LLGLTexture::BOOST_UI);
+        mSoundSymbol.mTexture               [i] = LLViewerTextureManager::getFetchedTextureFromFile(sound_level_img[i], FTT_LOCAL_FILE, false, LLDXTexture::BOOST_UI);
         mSoundSymbol.mWaveActive            [i] = false;
         mSoundSymbol.mWaveOpacity           [i] = 1.0f;
         mSoundSymbol.mWaveExpansion         [i] = 1.0f;
@@ -336,9 +336,8 @@ void LLVoiceVisualizer::render()
         return;
     }
 
-    // S24 (2026-08-28, task #193 follow-up): fully occluded - skip the draw
-    // entirely rather than drawing at ~0 alpha. mOcclusionFadeAlpha defaults
-    // to 1.0, so this is a no-op under GL / before a query has resolved.
+    // Fully occluded - skip the draw entirely rather than drawing at ~0 alpha. mOcclusionFadeAlpha
+    // defaults to 1.0, so this is a no-op under GL / before a query has resolved.
     if (mOcclusionFadeAlpha < 0.01f)
     {
         return;
@@ -359,33 +358,19 @@ void LLVoiceVisualizer::render()
         // some gl state
         //---------------------------------------------------------------
         LLGLSPipelineAlpha alpha_blend;
-        // S24 (2026-08-16): was LLGLDepthTest(GL_TRUE, GL_FALSE) - real
-        // depth-test enabled, no write. By the time LLHUDObject::renderAll()
-        // (this function's caller) runs, the real 3D scene's depth buffer is
-        // long gone - only the swap chain's own depth buffer remains (task
-        // #132), built for relative ordering AMONG this pass's own 3D-in-UI-
-        // space content, not real world occlusion (see DXSwapChain.h's own
-        // header comment). Task #193 already hit this exact wall trying to
-        // depth-test a nametag panel here - "caused a regression, the panel
-        // vanished entirely, reverted" - and every other HUD-space element
-        // in this codebase (nametags, the selection beam) already avoids
-        // real depth-testing for the same reason. This was the one thing
-        // structurally different about the voice dot/visualizer versus
-        // everything else in this pass, and matches its symptom exactly
-        // (not offset or distorted - completely absent). Matches
-        // LLHUDObject::renderAll()'s own outer-loop default
-        // (LLGLDepthTest(GL_FALSE, GL_FALSE)) instead of overriding it.
+        // Do not real depth-test here: by the time LLHUDObject::renderAll() (this function's caller)
+        // runs, the real 3D scene's depth buffer is gone - only the swap chain's own depth buffer
+        // remains (built for ordering among this pass's own 3D-in-UI-space content, not world
+        // occlusion; see DXSwapChain.h). Match renderAll()'s own outer-loop default
+        // (LLGLDepthTest(GL_FALSE, GL_FALSE)) like every other HUD-space element (nametags, selection
+        // beam) instead of overriding it.
         LLGLDepthTest depth(GL_FALSE, GL_FALSE);
         //LLGLDisable gls_stencil(GL_STENCIL_TEST);
 
-        // S24 (2026-08-16, task #217 follow-up): same viewport gap found and
-        // fixed in the selection beam (llhudeffecttrail.cpp) - a HUD's
-        // second-per-frame renderGeomPostDeferred() call (render_hud_attachments(),
-        // llviewerdisplay.cpp) leaves the D3D11 viewport in its own pass's
-        // full/chrome-inclusive state, and nothing resets it before the rest
-        // of LLHUDObject::renderAll()'s consumers draw unless they do it
-        // themselves (llhudnametag.cpp:334, llmanip.cpp already do). Applying
-        // pre-emptively here too, same consumer group, same architectural gap.
+        // render_hud_attachments()'s (llviewerdisplay.cpp) second-per-frame renderGeomPostDeferred()
+        // call leaves the D3D11 viewport in its pass's full/chrome-inclusive state; nothing resets it
+        // before LLHUDObject::renderAll()'s consumers draw unless they do it themselves (as
+        // llhudnametag.cpp and llmanip.cpp already do).
         gViewerWindow->setup3DViewport();
 
         //-------------------------------------------------------------
@@ -554,10 +539,9 @@ void LLVoiceVisualizer::render()
 
 }//---------------------------------------------------
 
-// S24 (2026-08-28, task #193 follow-up): called once per frame from
-// LLHUDObject::issueOcclusionQueries() (llhudobject.cpp) while
-// gOcclusionCubeProgram/mCubeVB are already bound - same mechanism and
-// pattern as LLHUDNameTag::issueOcclusionQuery() (llhudnametag.cpp).
+// Called once per frame from LLHUDObject::issueOcclusionQueries() (llhudobject.cpp) while
+// gOcclusionCubeProgram/mCubeVB are already bound - same mechanism as
+// LLHUDNameTag::issueOcclusionQuery() (llhudnametag.cpp).
 void LLVoiceVisualizer::issueOcclusionQuery()
 {
 #ifdef DX_RENDER
@@ -661,9 +645,8 @@ VoiceGesticulationLevel LLVoiceVisualizer::getCurrentGesticulationLevel()
 LLVoiceVisualizer::~LLVoiceVisualizer()
 {
 #ifdef DX_RENDER
-    // S24 (2026-08-28, task #193 follow-up): return the query name to the
-    // shared pool - matches LLHUDNameTag's own destructor (llhudnametag.cpp)
-    // using the same LLOcclusionCullingGroup pool.
+    // Return the query name to the shared pool - matches LLHUDNameTag's own destructor
+    // (llhudnametag.cpp) using the same LLOcclusionCullingGroup pool.
     if (mOcclusionQuery)
     {
         LLOcclusionCullingGroup::releaseOcclusionQueryObjectName(mOcclusionQuery);

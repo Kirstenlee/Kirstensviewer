@@ -35,7 +35,7 @@
 #include "llbox.h"
 #include "message.h"
 #include "llview.h"
-#include "llfontgl.h"
+#include "llfontdx.h"
 #include "llui.h"
 
 // newview headers

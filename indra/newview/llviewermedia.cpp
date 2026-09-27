@@ -39,7 +39,7 @@
 #include "llfilepicker.h"
 #include "llfloaterwebcontent.h"    // for handling window close requests and geometry change requests in media browser windows.
 #include "llfocusmgr.h"
-#include "llimagegl.h"
+#include "llimagedx.h"
 #include "llkeyboard.h"
 #include "lllogininstance.h"
 #include "llmarketplacefunctions.h"
@@ -559,55 +559,34 @@ LLViewerMedia::impl_list& LLViewerMedia::getPriorityList()
 // This is the predicate function used to sort sViewerMediaImplList by priority.
 bool LLViewerMedia::priorityComparitor(const LLViewerMediaImpl* i1, const LLViewerMediaImpl* i2)
 {
-	if (i1->isForcedUnloaded() && !i2->isForcedUnloaded())
+	// isForcedUnloaded can be pricey, avoid a repeat,
+	// note that this one is specifically i2, when everything else is i1
+	// Consider making isForcedUnloaded cache the value temporarily?
+	bool i2_forced_unloaded = i2->isForcedUnloaded();
+	if (i1->isForcedUnloaded() != i2_forced_unloaded)
 	{
 		// Muted or failed items always go to the end of the list, period.
-		return false;
+		return i2_forced_unloaded;
 	}
-	else if (i2->isForcedUnloaded() && !i1->isForcedUnloaded())
-	{
-		// Muted or failed items always go to the end of the list, period.
-		return true;
-	}
-	else if (i1->hasFocus())
+	else if (i1->hasFocus() != i2->hasFocus())
 	{
 		// The item with user focus always comes to the front of the list, period.
-		return true;
+		return i1->hasFocus();
 	}
-	else if (i2->hasFocus())
-	{
-		// The item with user focus always comes to the front of the list, period.
-		return false;
-	}
-	else if (i1->isParcelMedia())
+	else if (i1->isParcelMedia() != i2->isParcelMedia())
 	{
 		// The parcel media impl sorts above all other inworld media, unless one has focus.
-		return true;
+		return i1->isParcelMedia();
 	}
-	else if (i2->isParcelMedia())
+	else if (i1->getUsedInUI() != i2->getUsedInUI())
 	{
-		// The parcel media impl sorts above all other inworld media, unless one has focus.
-		return false;
+		// UI elements sort above inworld media.
+		return i1->getUsedInUI();
 	}
-	else if (i1->getUsedInUI() && !i2->getUsedInUI())
-	{
-		// i1 is a UI element, i2 is not.  This makes i1 "less than" i2, so it sorts earlier in our list.
-		return true;
-	}
-	else if (i2->getUsedInUI() && !i1->getUsedInUI())
-	{
-		// i2 is a UI element, i1 is not.  This makes i2 "less than" i1, so it sorts earlier in our list.
-		return false;
-	}
-	else if (i1->isPlayable() && !i2->isPlayable())
+	else if (i1->isPlayable() != i2->isPlayable())
 	{
 		// Playable items sort above ones that wouldn't play even if they got high enough priority
-		return true;
-	}
-	else if (!i1->isPlayable() && i2->isPlayable())
-	{
-		// Playable items sort above ones that wouldn't play even if they got high enough priority
-		return false;
+		return i1->isPlayable();
 	}
 	else if (i1->getInterest() == i2->getInterest())
 	{
@@ -1676,10 +1655,10 @@ LLViewerMediaImpl::LLViewerMediaImpl(const LLUUID& texture_id,
 	}
 
 	mMainQueue = LL::WorkQueue::getInstance("mainloop");
-	// DX_RENDER never posts to this queue (LLImageGLThread::sEnabledMedia is permanently false - see
-	// LLImageGL::initClass()); "LLImageGL" is the GL path's own thread-pool name, unused but harmless
+	// DX_RENDER never posts to this queue (LLImageDXThread::sEnabledMedia is permanently false - see
+	// LLImageDX::initClass()); "LLImageDX" is the GL path's own thread-pool name, unused but harmless
 	// here.
-	mTexUpdateQueue = LL::WorkQueue::getInstance("LLImageGL"); // Share work queue with tex loader.
+	mTexUpdateQueue = LL::WorkQueue::getInstance("LLImageDX"); // Share work queue with tex loader.
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////
@@ -2997,7 +2976,7 @@ void LLViewerMediaImpl::update()
 	if (preMediaTexUpdate(media_tex, data, data_width, data_height, x_pos, y_pos, width, height))
 	{
 		// Push update to worker thread
-		auto main_queue = LLImageGLThread::sEnabledMedia ? mMainQueue.lock() : nullptr;
+		auto main_queue = LLImageDXThread::sEnabledMedia ? mMainQueue.lock() : nullptr;
 		if (main_queue)
 		{
 			mTextureUpdatePending = true;
@@ -3007,14 +2986,14 @@ void LLViewerMediaImpl::update()
 				mTexUpdateQueue, // Worker thread queue
 				[=, this]() // work done on update worker thread
 				{
-#if LL_IMAGEGL_THREAD_CHECK
+#if LL_IMAGEDX_THREAD_CHECK
 					media_tex->getGLTexture()->mActiveThread = LLThread::currentID();
 #endif
 					doMediaTexUpdate(media_tex, data, data_width, data_height, x_pos, y_pos, width, height, true);
 				},
 				[=, this]() // callback to main thread
 				{
-#if LL_IMAGEGL_THREAD_CHECK
+#if LL_IMAGEDX_THREAD_CHECK
 					media_tex->getGLTexture()->mActiveThread = LLThread::currentID();
 #endif
 					// No separate finalize needed - doMediaTexUpdate() above already completed the
@@ -3094,7 +3073,7 @@ void LLViewerMediaImpl::doMediaTexUpdate(LLViewerMediaTexture* media_tex, U8* da
 	// -Cosmic,2023-04-04
 	// Allocate GL texture based on LLImageRaw but do NOT copy to GL
 	LLGLuint tex_name = 0;
-    if (!media_tex->createGLTexture(0, raw, 0, true, LLGLTexture::OTHER, true, &tex_name))
+    if (!media_tex->createGLTexture(0, raw, 0, true, LLDXTexture::OTHER, true, &tex_name))
     {
         LL_WARNS("Media") << "Failed to create media texture" << LL_ENDL;
     }
@@ -3414,6 +3393,11 @@ void LLViewerMediaImpl::handleMediaEvent(LLPluginClassMedia* plugin, LLPluginCla
 	case LLViewerMediaObserver::MEDIA_EVENT_FILE_DOWNLOAD:
 	{
 		LL_DEBUGS("Media") << "Media event - file download requested - filename is " << plugin->getFileDownloadFilename() << LL_ENDL;
+	}
+	break;
+
+	case LLViewerMediaObserver::MEDIA_EVENT_FILE_DOWNLOAD_PROGRESS:
+	{
 	}
 	break;
 

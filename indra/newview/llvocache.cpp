@@ -494,7 +494,7 @@ void LLVOCacheEntry::updateDebugSettings()
     static const F32 MIN_RADIUS = 1.0f;
 
     F32 draw_radius = gAgentCamera.mDrawDistance;
-    if (LLViewerTexture::isSystemMemoryCritical())
+    if (LLViewerTexture::getSystemMemoryBudgetFactor() > 1.f)
     {
         // Factor is intended to go from 1.0 to 2.0
         // For safety cap reduction at 50%, we don't want to go below half of draw distance
@@ -514,8 +514,24 @@ void LLVOCacheEntry::updateDebugSettings()
     static LLCachedControl<U32> inv_obj_time(gSavedSettings,"NonvisibleObjectsInMemoryTime");
     static const U32 MIN_FRAMES = 10;
     static const U32 MAX_FRAMES = 64;
-    const U32 clamped_frames = inv_obj_time ? llclamp((U32) inv_obj_time, MIN_FRAMES, MAX_FRAMES) : MAX_FRAMES; // [10, 64], with zero => 64
-    sMinFrameRange = MIN_FRAMES + (U32)((clamped_frames - MIN_FRAMES) * adjust_factor);
+    // S24: 0 = genuinely unlimited (never evicted) - previously silently
+    // clamped to MAX_FRAMES instead, contradicting the setting's own "0 = No
+    // Limit" UI label. Bypasses the memory-adaptive scaling below entirely -
+    // scaling "unlimited" back down under memory pressure would defeat the
+    // point. Sentinel is a plain frame count (not a special-cased flag) so
+    // the three sMinFrameRange consumers (llvocache.cpp) need no changes -
+    // 100M frames is far beyond any realistic session length but leaves
+    // ample headroom below S32_MAX for their +64/-1 arithmetic.
+    static const U32 UNLIMITED_FRAMES = 100000000U;
+    if (inv_obj_time == 0)
+    {
+        sMinFrameRange = UNLIMITED_FRAMES;
+    }
+    else
+    {
+        const U32 clamped_frames = llclamp((U32) inv_obj_time, MIN_FRAMES, MAX_FRAMES); // [10, 64]
+        sMinFrameRange = MIN_FRAMES + (U32)((clamped_frames - MIN_FRAMES) * adjust_factor);
+    }
 }
 #endif // LL_TEST
 

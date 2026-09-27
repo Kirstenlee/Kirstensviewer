@@ -154,27 +154,23 @@ private:
     void updateImagesUpdateStats();
     F32  updateImagesLoadingFastCache(F32 max_time);
 
-    // S24 (2026-08-24, task #258): periodic deterministic greedy VRAM budget
-    // allocator, replacing the old discard-bias pressure ramp. Runs on its
-    // own coarse timer (mVRAMAllocationTimer, RenderVRAMAllocationIntervalSeconds
-    // setting, default 0.5s) rather than every frame - see the class-level
-    // rationale in llviewertexturelist.cpp. Sums every cut-eligible texture's
-    // real desired GPU bytes (LLImageGL::getMipBytes()), compares to
-    // LLViewerTexture::sVRAMAllocatorBudgetMegabytes, and if over, sorts by
-    // priority and mandates a coarser discard level (LLViewerFetchedTexture::
-    // mVRAMForcedDiscardLevel) for the least important textures until it fits.
+    // Periodic deterministic greedy VRAM budget allocator, replacing the old discard-bias pressure
+    // ramp. Runs on its own timer (mVRAMAllocationTimer, RenderVRAMAllocationIntervalSeconds, ~0.5s).
+    // Sums every cut-eligible (BOOST_NONE) candidate's real desired GPU bytes
+    // (LLImageDX::getMipBytes()) against sVRAMAllocatorBudgetMegabytes, and if over, mandates a
+    // coarser mVRAMForcedDiscardLevel for the least important textures down to the softer
+    // sVRAMAllocatorSoftTargetMegabytes line. Avatar bakes are fully exempt from eviction (see the
+    // .cpp for why an emergency avatar tier was tried and reverted).
     void runVRAMBudgetAllocation();
     LLFrameTimer mVRAMAllocationTimer;
 
     void addImage(LLViewerFetchedTexture *image, ETexListType tex_type);
     void deleteImage(LLViewerFetchedTexture *image);
 
-    // S24: one-shot proactive eviction of already-orphaned textures, called on a
-    // genuine cross-region teleport. Does NOT bypass the ref-count check
-    // deleteImage()/updateImageDecodePriority() already rely on -- only the two
-    // time-based grace gates (lazy_flush_timeout, getBoundRecently()) that exist to
-    // protect against premature disposal on a quick glance-away, which isn't a concern
-    // right after leaving a region for good.
+    // One-shot proactive eviction of already-orphaned textures on a genuine cross-region teleport.
+    // Does NOT bypass the ref-count check deleteImage()/updateImageDecodePriority() rely on - only the
+    // two time-based grace gates (lazy_flush_timeout, getBoundRecently()) meant to protect against
+    // premature disposal on a quick glance-away.
     void forceFlushOrphanedTextures();
 
     void addImageToList(LLViewerFetchedTexture *image);
@@ -183,7 +179,7 @@ private:
     LLViewerFetchedTexture * getImage(const LLUUID &image_id,
                                      FTType f_type = FTT_DEFAULT,
                                      bool usemipmap = true,
-                                     LLViewerTexture::EBoostLevel boost_priority = LLGLTexture::BOOST_NONE,     // Get the requested level immediately upon creation.
+                                     LLViewerTexture::EBoostLevel boost_priority = LLDXTexture::BOOST_NONE,     // Get the requested level immediately upon creation.
                                      S8 texture_type = LLViewerTexture::FETCHED_TEXTURE,
                                      LLGLint internal_format = 0,
                                      LLGLenum primary_format = 0,
@@ -193,7 +189,7 @@ private:
     LLViewerFetchedTexture * getImageFromFile(const std::string& filename,
                                      FTType f_type = FTT_LOCAL_FILE,
                                      bool usemipmap = true,
-                                     LLViewerTexture::EBoostLevel boost_priority = LLGLTexture::BOOST_NONE,     // Get the requested level immediately upon creation.
+                                     LLViewerTexture::EBoostLevel boost_priority = LLDXTexture::BOOST_NONE,     // Get the requested level immediately upon creation.
                                      S8 texture_type = LLViewerTexture::FETCHED_TEXTURE,
                                      LLGLint internal_format = 0,
                                      LLGLenum primary_format = 0,
@@ -203,7 +199,7 @@ private:
     LLViewerFetchedTexture* getImageFromUrl(const std::string& url,
                                      FTType f_type,
                                      bool usemipmap = true,
-                                     LLViewerTexture::EBoostLevel boost_priority = LLGLTexture::BOOST_NONE,     // Get the requested level immediately upon creation.
+                                     LLViewerTexture::EBoostLevel boost_priority = LLDXTexture::BOOST_NONE,     // Get the requested level immediately upon creation.
                                      S8 texture_type = LLViewerTexture::FETCHED_TEXTURE,
                                      LLGLint internal_format = 0,
                                       LLGLenum primary_format = 0,
@@ -216,7 +212,7 @@ private:
     LLViewerFetchedTexture* createImage(const LLUUID &image_id,
                                      FTType f_type,
                                      bool usemipmap = true,
-                                     LLViewerTexture::EBoostLevel boost_priority = LLGLTexture::BOOST_NONE,     // Get the requested level immediately upon creation.
+                                     LLViewerTexture::EBoostLevel boost_priority = LLDXTexture::BOOST_NONE,     // Get the requested level immediately upon creation.
                                      S8 texture_type = LLViewerTexture::FETCHED_TEXTURE,
                                      LLGLint internal_format = 0,
                                      LLGLenum primary_format = 0,
@@ -226,7 +222,7 @@ private:
     // Request image from a specific host, used for baked avatar textures.
     // Implemented in header in case someone changes default params above. JC
     LLViewerFetchedTexture* getImageFromHost(const LLUUID& image_id, FTType f_type, LLHost host)
-    { return getImage(image_id, f_type, true, LLGLTexture::BOOST_NONE, LLViewerTexture::LOD_TEXTURE, 0, 0, host); }
+    { return getImage(image_id, f_type, true, LLDXTexture::BOOST_NONE, LLViewerTexture::LOD_TEXTURE, 0, 0, host); }
 
 public:
     typedef std::unordered_set<LLPointer<LLViewerFetchedTexture> > image_list_t;
@@ -235,11 +231,9 @@ public:
     // images that have been loaded but are waiting to be uploaded to GL
     image_queue_t mCreateTextureList;
 
-    // S24 (2026-08-24, task #258): images that must be downscaled quickly so we don't
-    // run out of memory. std::deque, not the shared image_queue_t typedef above -
-    // needs direct iteration for a one-shot severity-triggered size-sort
-    // (updateImagesCreateTextures()), which mCreateTextureList has no need for. Still
-    // used FIFO-style (front()/pop_front()) in the ordinary case.
+    // std::deque, not the shared image_queue_t typedef above: needs direct iteration for a one-shot
+    // severity-triggered size-sort (updateImagesCreateTextures()). Still used FIFO-style
+    // (front()/pop_front()) in the ordinary case.
     std::deque<LLPointer<LLViewerFetchedTexture> > mDownScaleQueue;
 
     image_list_t mCallbackList;
@@ -288,12 +282,12 @@ private:
     LLPointer<LLUIImage> loadUIImageByName(const std::string& name, const std::string& filename,
                                    bool use_mips = false, const LLRect& scale_rect = LLRect::null,
                                    const LLRect& clip_rect = LLRect::null,
-                                   LLViewerTexture::EBoostLevel boost_priority = LLGLTexture::BOOST_UI,
+                                   LLViewerTexture::EBoostLevel boost_priority = LLDXTexture::BOOST_UI,
                                    LLUIImage::EScaleStyle = LLUIImage::SCALE_INNER);
     LLPointer<LLUIImage> loadUIImageByID(const LLUUID& id,
                                  bool use_mips = false, const LLRect& scale_rect = LLRect::null,
                                  const LLRect& clip_rect = LLRect::null,
-                                 LLViewerTexture::EBoostLevel boost_priority = LLGLTexture::BOOST_UI,
+                                 LLViewerTexture::EBoostLevel boost_priority = LLDXTexture::BOOST_UI,
                                  LLUIImage::EScaleStyle = LLUIImage::SCALE_INNER);
 
     LLPointer<LLUIImage> loadUIImage(LLViewerFetchedTexture* imagep, const std::string& name, bool use_mips = false, const LLRect& scale_rect = LLRect::null, const LLRect& clip_rect = LLRect::null, LLUIImage::EScaleStyle = LLUIImage::SCALE_INNER);

@@ -34,9 +34,7 @@
 #include "llviewershadermgr.h"
 #include "lldrawpoolwater.h"
 
-#ifdef DX_RENDER
 #include "DXOcclusionQuery.h"
-#endif
 
 //-----------------------------------------------------------------------------------
 //static variables definitions
@@ -138,30 +136,13 @@ LLVertexBuffer* ll_create_cube_vb(U32 type_mask)
     return ret;
 }
 
-#ifdef DX_RENDER
-// S24 (2026-08-19, task #250 CTD/false-occlusion fix): D3D11 has no
-// TRIANGLE_FAN primitive topology (llvertexbuffer.cpp's sDXMode[] maps it to
-// D3D11_PRIMITIVE_TOPOLOGY_UNDEFINED - the llassert() guarding that is
-// debug-only, so a Release build silently binds UNDEFINED topology and
-// DrawIndexed() rasterizes NOTHING). Every occlusion-query proxy-box draw in
-// this codebase (LLOcclusionCullingGroup::doOcclusion() below AND
-// LLReflectionMap::doOcclusion(), llreflectionmap.cpp) used
-// gPipeline.mCubeVB->drawRange(TRIANGLE_FAN, ...) - meaning the proxy
-// geometry never actually rendered under DX_RENDER, every occlusion query
-// counted zero samples passed, and every spatial group/probe eventually
-// got marked OCCLUDED once its first query completed - a progressive,
-// widespread false-occlusion cascade (reported: water and house geometry
-// disappearing from the live camera view once task #182 made occlusion
-// queries actually run).
-//
-// Same fix already proven for local-light box volumes (dxpipeline.cpp's
-// sDXBoxLightVB/sBoxLightTriangleIndices, task #165 era) - reused verbatim
-// here rather than re-derived: sOcclusionTriangleIndices[8][18] is the
-// standard fan-to-list expansion of sOcclusionIndices[] above
-// ((v0,v1,v2),(v0,v2,v3),...,(v0,v6,v7) per cypher), hand-confirmed to match
-// vertex winding/culling. A flat, non-indexed 144-vertex buffer (8 cyphers x
-// 18 triangle-list vertices), drawn via drawArrays(TRIANGLES, cypher*18, 18)
-// instead of drawRange(TRIANGLE_FAN, 0, 7, 8, cypher*8).
+// D3D11 has no TRIANGLE_FAN primitive topology (sDXMode[] maps it to D3D11_PRIMITIVE_TOPOLOGY_UNDEFINED
+// - a Release build silently binds UNDEFINED and DrawIndexed() rasterizes nothing, causing a
+// false-occlusion cascade). sOcclusionTriangleIndices[8][18] is the fan-to-list expansion of
+// sOcclusionIndices[] above ((v0,v1,v2),(v0,v2,v3),...,(v0,v6,v7) per cypher) - a flat, non-indexed
+// 144-vertex buffer (8 cyphers x 18 triangle-list vertices), drawn via
+// drawArrays(TRIANGLES, cypher*18, 18) instead of drawRange(TRIANGLE_FAN, 0, 7, 8, cypher*8). Same
+// approach as dxpipeline.cpp's sDXBoxLightVB/sBoxLightTriangleIndices for local-light box volumes.
 namespace
 {
     const U8 sOcclusionTriangleIndices[8][18] =
@@ -213,7 +194,6 @@ U32 get_box_triangle_offset(LLCamera* camera, const LLVector4a& center)
 
     return cypher * 18;
 }
-#endif
 
 #define LL_TRACK_PENDING_OCCLUSION_QUERIES 0
 
@@ -872,7 +852,7 @@ std::set<U32> LLOcclusionCullingGroup::sPendingQueries;
 
 static std::queue<GLuint> sFreeQueries;
 
-//#define QUERY_POOL_SIZE 1024  // S24 never used!
+//#define QUERY_POOL_SIZE 1024  // never used!
 
 U32 LLOcclusionCullingGroup::getNewOcclusionQueryObjectName()
 {
@@ -881,20 +861,10 @@ U32 LLOcclusionCullingGroup::getNewOcclusionQueryObjectName()
     {
         //seed 1024 query names into the free query pool
         GLuint queries[1024];
-#ifdef DX_RENDER
-        // S24 (2026-08-19, occlusion-culling investigation): raw glGenQueries()
-        // is a silent no-op under DX_RENDER (no live GL context) - queries[]
-        // was left completely uninitialized, handing out garbage stack values
-        // as "query names" ever since occlusion culling first became reachable
-        // (gated on LLFeatureManager::isFeatureAvailable("UseOcclusion"), which
-        // only started reporting true once the GPU-detection fix landed -
-        // same "unmasked a chain of dormant bugs" pattern as that fix's own
-        // history). DXOcclusionQuery::genQueries() allocates real
-        // D3D11_QUERY_OCCLUSION objects instead - see its header comment.
+        // raw glGenQueries() would be a silent no-op under DX_RENDER, leaving queries[] uninitialized and
+        // handing out garbage stack values as "query names". DXOcclusionQuery::genQueries() allocates
+        // real D3D11_QUERY_OCCLUSION objects instead - see its header comment.
         DXOcclusionQuery::genQueries(1024, queries);
-#else
-        glGenQueries(1024, queries);
-#endif
         for (int i = 0; i < 1024; ++i)
         {
             sFreeQueries.push(queries[i]);
@@ -1217,53 +1187,25 @@ void LLOcclusionCullingGroup::checkOcclusion()
         {
             GLuint available = 0;
             {
-#ifdef DX_RENDER
-                // S24 (2026-08-19, occlusion-culling investigation): raw
-                // glGetQueryObjectuiv() is a silent no-op under DX_RENDER -
-                // `available` was left uninitialized (now zero-initialized
-                // above as a defensive default regardless), reading garbage
-                // and driving real, silent OCCLUDED decisions off whatever
-                // happened to be on the stack. Real query via DXOcclusionQuery
-                // instead - see its header comment.
+                // raw glGetQueryObjectuiv() would be a silent no-op under DX_RENDER, leaving `available`
+                // uninitialized (defensively zero-initialized above regardless). Real query via
+                // DXOcclusionQuery instead - see its header comment.
                 available = DXOcclusionQuery::isResultAvailable(mOcclusionQuery[LLViewerCamera::sCurCameraID]) ? 1 : 0;
-#else
-                glGetQueryObjectuiv(mOcclusionQuery[LLViewerCamera::sCurCameraID], GL_QUERY_RESULT_AVAILABLE, &available);
-#endif
                 mOcclusionCheckCount[LLViewerCamera::sCurCameraID]++;
             }
 
-            static LLCachedControl<U32> occlusion_timeout(gSavedSettings, "RenderOcclusionTimeout", 4);
-
-            // S24 (2026-08-22, task #156 follow-up): under DX_RENDER, never
-            // force the timeout-triggered blocking getResult() call below -
-            // GL's glGetQueryObjectuiv(..., GL_QUERY_RESULT, ...) is a
-            // driver-optimized blocking read (cheap by spec), but DXOcclusionQuery::
-            // getResult() is a real CPU busy-poll of GetData() with a bounded
-            // retry (added this session after an actual unbounded-hang report).
-            // RenderOcclusionTimeout defaults to just 4 FRAMES - during the
-            // startup burst, hundreds of spatial-group queries (plus
-            // reflection/hero-probe queries) all cross that threshold around
-            // the same moment, and forcing each one to block-poll in turn -
-            // even bounded - was the real, confirmed root cause of a 36-40s
-            // world-load stall (user-reproduced, tied to SSR/mirror startup).
-            // Skipping the forced block and only ever reading via the cheap
-            // non-blocking isResultAvailable() check above means a query that
-            // needs a few more frames to resolve just... takes a few more
-            // frames, instead of stalling the whole thread waiting for it.
-#ifdef DX_RENDER
+            // Never force a timeout-triggered blocking getResult() call: GL's
+            // glGetQueryObjectuiv(..., GL_QUERY_RESULT, ...) would be a cheap driver-optimized blocking read,
+            // but DXOcclusionQuery::getResult() busy-polls GetData() with a bounded retry - forcing
+            // hundreds of queries to block-poll at once during startup causes a multi-second stall.
+            // Only read via the non-blocking isResultAvailable() check above; a slow query just
+            // resolves a few frames later instead of stalling the thread.
             if (available)
-#else
-            if (available || mOcclusionCheckCount[LLViewerCamera::sCurCameraID] > occlusion_timeout)
-#endif
             {
                 mOcclusionCheckCount[LLViewerCamera::sCurCameraID] = 0;
                 GLuint query_result = 0;    // Will be # samples drawn, or a boolean depending on mHasOcclusionQuery2 (both are type GLuint)
                 {
-#ifdef DX_RENDER
                     query_result = (GLuint)llmin(DXOcclusionQuery::getResult(mOcclusionQuery[LLViewerCamera::sCurCameraID]), (unsigned long long)0xFFFFFFFFu);
-#else
-                    glGetQueryObjectuiv(mOcclusionQuery[LLViewerCamera::sCurCameraID], GL_QUERY_RESULT, &query_result);
-#endif
                 }
 #if LL_TRACK_PENDING_OCCLUSION_QUERIES
                 sPendingQueries.erase(mOcclusionQuery[LLViewerCamera::sCurCameraID]);
@@ -1334,11 +1276,6 @@ void LLOcclusionCullingGroup::doOcclusion(LLCamera* camera, const LLVector4a* sh
 
                     LLGLEnable clamp(use_depth_clamp ? GL_DEPTH_CLAMP : 0);
 
-                    U32 mode = gGLManager.mGLVersion >= 3.3f ? GL_ANY_SAMPLES_PASSED : GL_SAMPLES_PASSED;
-#ifdef DX_RENDER
-                    (void)mode; // DXOcclusionQuery::beginQuery()/endQuery() below don't need a GL query-target enum
-#endif
-
 #if LL_TRACK_PENDING_OCCLUSION_QUERIES
                     sPendingQueries.insert(mOcclusionQuery[LLViewerCamera::sCurCameraID]);
 #endif
@@ -1354,11 +1291,7 @@ void LLOcclusionCullingGroup::doOcclusion(LLCamera* camera, const LLVector4a* sh
                             //get an occlusion query that hasn't been used in awhile
                             releaseOcclusionQueryObjectName(mOcclusionQuery[LLViewerCamera::sCurCameraID]);
                             mOcclusionQuery[LLViewerCamera::sCurCameraID] = getNewOcclusionQueryObjectName();
-#ifdef DX_RENDER
                             DXOcclusionQuery::beginQuery(mOcclusionQuery[LLViewerCamera::sCurCameraID]);
-#else
-                            glBeginQuery(mode, mOcclusionQuery[LLViewerCamera::sCurCameraID]);
-#endif
                         }
 
                         LLHLSLShader* shader = LLHLSLShader::sCurBoundShaderPtr;
@@ -1369,60 +1302,36 @@ void LLOcclusionCullingGroup::doOcclusion(LLCamera* camera, const LLVector4a* sh
                                                                  bounds[1][1]+SG_OCCLUSION_FUDGE,
                                                                  bounds[1][2]+OCCLUSION_FUDGE_Z);
 
-#ifdef DX_RENDER
                         dx_get_occlusion_box_vb()->setBuffer();
-#endif
                         if (!use_depth_clamp && mSpatialPartition->mDrawableType == LLPipeline::RENDER_TYPE_VOIDWATER)
                         {
 
                             LLGLSquashToFarClip squash;
                             if (camera->getOrigin().isExactlyZero())
                             { //origin is invalid, draw entire box
-#ifdef DX_RENDER
                                 dx_get_occlusion_box_vb()->drawArrays(LLRender::TRIANGLES, 0, 18);
                                 dx_get_occlusion_box_vb()->drawArrays(LLRender::TRIANGLES, b111*18, 18);
-#else
-                                gPipeline.mCubeVB->drawRange(LLRender::TRIANGLE_FAN, 0, 7, 8, 0);
-                                gPipeline.mCubeVB->drawRange(LLRender::TRIANGLE_FAN, 0, 7, 8, b111*8);
-#endif
                             }
                             else
                             {
-#ifdef DX_RENDER
                                 dx_get_occlusion_box_vb()->drawArrays(LLRender::TRIANGLES, get_box_triangle_offset(camera, bounds[0]), 18);
-#else
-                                gPipeline.mCubeVB->drawRange(LLRender::TRIANGLE_FAN, 0, 7, 8, get_box_fan_indices(camera, bounds[0]));
-#endif
                             }
                         }
                         else
                         {
                             if (camera->getOrigin().isExactlyZero())
                             { //origin is invalid, draw entire box
-#ifdef DX_RENDER
                                 dx_get_occlusion_box_vb()->drawArrays(LLRender::TRIANGLES, 0, 18);
                                 dx_get_occlusion_box_vb()->drawArrays(LLRender::TRIANGLES, b111*18, 18);
-#else
-                                gPipeline.mCubeVB->drawRange(LLRender::TRIANGLE_FAN, 0, 7, 8, 0);
-                                gPipeline.mCubeVB->drawRange(LLRender::TRIANGLE_FAN, 0, 7, 8, b111*8);
-#endif
                             }
                             else
                             {
-#ifdef DX_RENDER
                                 dx_get_occlusion_box_vb()->drawArrays(LLRender::TRIANGLES, get_box_triangle_offset(camera, bounds[0]), 18);
-#else
-                                gPipeline.mCubeVB->drawRange(LLRender::TRIANGLE_FAN, 0, 7, 8, get_box_fan_indices(camera, bounds[0]));
-#endif
                             }
                         }
 
                         {
-#ifdef DX_RENDER
                             DXOcclusionQuery::endQuery(mOcclusionQuery[LLViewerCamera::sCurCameraID]);
-#else
-                            glEndQuery(mode);
-#endif
                         }
                     }
                 }
@@ -1661,6 +1570,5 @@ void LLViewerOctreeDebug::visit(const OctreeNode* branch)
 //virtual
 void LLViewerOctreeDebug::processGroup(LLViewerOctreeGroup* group)
 {
- // S24 unused
 }
 //--------------------------------------------------------------

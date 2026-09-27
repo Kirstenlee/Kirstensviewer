@@ -170,7 +170,7 @@ void LLToolSelectRect::draw()
             gDX.color4f(1.f, 1.f, 0.f, 1.f);
         }
         gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
-        gl_rect_2d(
+        dx_rect_2d(
             llmin(mDragStartX, mDragEndX),
             llmax(mDragStartY, mDragEndY),
             llmax(mDragStartX, mDragEndX),
@@ -184,7 +184,7 @@ void LLToolSelectRect::draw()
         {
             gDX.color4f(1.f, 1.f, 0.f, 0.1f);
         }
-        gl_rect_2d(
+        dx_rect_2d(
             llmin(mDragStartX, mDragEndX),
             llmax(mDragStartY, mDragEndY),
             llmax(mDragStartX, mDragEndX),

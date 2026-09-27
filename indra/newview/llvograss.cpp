@@ -99,7 +99,7 @@ void LLVOGrass::updateSpecies()
         SpeciesMap::const_iterator it = sSpeciesTable.begin();
         mSpecies = (*it).first;
     }
-    setTEImage(0, LLViewerTextureManager::getFetchedTexture(sSpeciesTable[mSpecies]->mTextureID, FTT_DEFAULT, true, LLGLTexture::BOOST_NONE, LLViewerTexture::LOD_TEXTURE));
+    setTEImage(0, LLViewerTextureManager::getFetchedTexture(sSpeciesTable[mSpecies]->mTextureID, FTT_DEFAULT, true, LLDXTexture::BOOST_NONE, LLViewerTexture::LOD_TEXTURE));
 }
 
 

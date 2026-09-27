@@ -47,6 +47,7 @@
 #include "llenvironment.h"
 #include "llfasttimer.h"
 #include "llfeaturemanager.h"
+#include "llfloaterpopout.h"
 #include "llfloatertools.h"
 #include "llfocusmgr.h"
 #include "llgl.h"
@@ -58,7 +59,6 @@
 #include "llmemory.h"
 #include "llparcel.h"
 #include "llperfstats.h"
-#include "llpostprocess.h"
 #include "llrender.h"
 #include "llscenemonitor.h"
 #include "llsdjson.h"
@@ -503,6 +503,32 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 		|| gViewerWindow->getWindow()->getMinimized()
 		|| gNonInteractive)
 	{
+		// S24: deliberately NOT calling LLFloaterPopoutManager::
+		// renderPoppedOut() here. It was tried (rendering a popped-out
+		// floater from this early-exit branch while the main window is
+		// minimized, since renderPoppedOut() never touches the main swap
+		// chain/backbuffer this branch exists to protect) and confirmed
+		// live to corrupt tab rendering and fonts while minimized,
+		// self-healing once the main window was restored - almost
+		// certainly the same class of glyph-cache/cached-vertex-buffer
+		// replay bug that got the FIRST popout attempt (a second swap
+		// chain/window, 2026-09-25, see [[project_floater_popout_window_2026_09_25]])
+		// fully reverted, not a hard GPU error. renderPoppedOut()'s only
+		// PROVEN-safe call site is deep inside render_ui() (below, past
+		// this early return), after a large amount of matrix/GL-state
+		// preamble (gDX.pushMatrix() of the live camera, gPipeline.
+		// renderFinalize(), HUD rendering, LLGLSDefault/LLGLSUIDefault
+		// guards...) that this branch has no way to safely replicate or
+		// skip past without risking touching the very backbuffer this
+		// early-exit exists to avoid. Net effect: a popped-out floater's
+		// visuals freeze at their last good frame while the main window
+		// is fully minimized, rather than updating with corrupted ones -
+		// its own idle()/input dispatch (llappviewer.cpp) is NOT gated
+		// here and keeps running at full rate regardless (see
+		// BackgroundYieldTime's own skip-while-popped-out fix, same
+		// round) so it stays fully interactive, just visually static
+		// until the main window is restored.
+
 		// Clean up memory the pools may have allocated
 		if (rebuild)
 		{
@@ -552,7 +578,6 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 		gViewerWindow->performPick();
 	}
 
-	LLAppViewer::instance()->pingMainloopTimeout("Display:CheckStates");
 	DXState::checkStates();
 
 	//////////////////////////////////////////////////////////
@@ -579,7 +604,6 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 	//
 	if (LLStartUp::getStartupState() < STATE_PRECACHE)
 	{
-		LLAppViewer::instance()->pingMainloopTimeout("Display:Startup");
 		display_startup();
 		return;
 	}
@@ -596,9 +620,7 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 	// Update GL Texture statistics (used for discard logic?)
 	//
 
-	LLAppViewer::instance()->pingMainloopTimeout("Display:TextureStats");
-
-	LLImageGL::updateStats(gFrameTimeSeconds);
+	LLImageDX::updateStats(gFrameTimeSeconds);
 
 	static LLCachedControl<S32> avatar_name_tag_mode(gSavedSettings, "AvatarNameTagMode", 1);
 	static LLCachedControl<S32> name_tag_show_group_titles(gSavedSettings, "GroupTitlesTagMode", 2 /*all group tags*/);
@@ -633,13 +655,11 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 
 	if (gTeleportDisplay)
 	{
-		LLAppViewer::instance()->pingMainloopTimeout("Display:Teleport");
 		// Note: false = not minimized, do update the TP screen. HB
 		update_tp_display(false);
 	}
 	else if (LLAppViewer::instance()->logoutRequestSent())
 	{
-		LLAppViewer::instance()->pingMainloopTimeout("Display:Logout");
 		F32 percent_done = gLogoutTimer.getElapsedTimeF32() * 100.f / gLogoutMaxTime;
 		if (percent_done > 100.f)
 		{
@@ -657,7 +677,6 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 	else
 		if (gRestoreGL)
 		{
-			LLAppViewer::instance()->pingMainloopTimeout("Display:RestoreGL");
 			F32 percent_done = gRestoreGLTimer.getElapsedTimeF32() * 100.f / RESTORE_GL_TIME;
 			if (percent_done > 100.f)
 			{
@@ -679,8 +698,6 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 	//
 	// Update the camera
 	//
-
-	LLAppViewer::instance()->pingMainloopTimeout("Display:Camera");
 
 	if (LLViewerCamera::instanceExists())
 	{
@@ -714,7 +731,6 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 
 	if (gDisconnected)
 	{
-		LLAppViewer::instance()->pingMainloopTimeout("Display:Disconnected");
 		render_ui();
 		swap();
 	}
@@ -723,8 +739,6 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 	//
 	// Set rendering options
 	//
-
-	LLAppViewer::instance()->pingMainloopTimeout("Display:RenderSetup");
 
 	///////////////////////////////////////
 	//
@@ -744,7 +758,6 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 	// do render-to-texture stuff here
 	if (gPipeline.hasRenderDebugFeatureMask(LLPipeline::RENDER_DEBUG_FEATURE_DYNAMIC_TEXTURES))
 	{
-		LLAppViewer::instance()->pingMainloopTimeout("Display:DynamicTextures");
 		if (LLViewerDynamicTexture::updateAllInstances())
 		{
 			gDX.setColorWriteMask(true, true);
@@ -765,7 +778,6 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 			gPipeline.mHeroProbeManager.renderProbes();
 		}
 
-		LLAppViewer::instance()->pingMainloopTimeout("Display:Update");
 		if (gPipeline.hasRenderType(LLPipeline::RENDER_TYPE_HUD))
 		{ //don't draw hud objects in this frame
 			gPipeline.toggleRenderType(LLPipeline::RENDER_TYPE_HUD);
@@ -799,8 +811,6 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 		gPipeline.updateGL();
 
 
-		LLAppViewer::instance()->pingMainloopTimeout("Display:Cull");
-
 		//Increment drawable frame counter
 		LLDrawable::incrementVisible();
 
@@ -822,8 +832,6 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 		gPipeline.updateCull(*LLViewerCamera::getInstance(), result);
 
 		DXState::checkStates();
-
-		LLAppViewer::instance()->pingMainloopTimeout("Display:Swap");
 
 		{
 				if (gResizeScreenTexture)
@@ -867,8 +875,6 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 			}
 		}
 
-		LLAppViewer::instance()->pingMainloopTimeout("Display:UpdateImages");
-
 		// Update viewer texture class
 		LLViewerTexture::updateClass();
 
@@ -885,8 +891,6 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 
 		DXState::checkStates();
 
-		LLAppViewer::instance()->pingMainloopTimeout("Display:StateSort");
-
 		LLViewerCamera::sCurCameraID = LLViewerCamera::CAMERA_WORLD;
 		gPipeline.stateSort(*LLViewerCamera::getInstance(), result);
 
@@ -901,10 +905,7 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 
 		LLPipeline::sUseOcclusion = occlusion;
 
-		LLAppViewer::instance()->pingMainloopTimeout("Display:Sky");
 		gSky.updateSky();
-
-		LLAppViewer::instance()->pingMainloopTimeout("Display:RenderStart");
 
 		LLPipeline::sUnderWaterRender = LLViewerCamera::getInstance()->cameraUnderWater();
 
@@ -937,8 +938,6 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 		gPipeline.mRT->deferredScreen.clear();
 
 		gDX.setColorWriteMask(true, false); // depth-only, matches the render pass right below
-
-		LLAppViewer::instance()->pingMainloopTimeout("Display:RenderGeom");
 
 		if (!(LLAppViewer::instance()->logoutRequestSent() && LLAppViewer::instance()->hasSavedFinalSnapshot())
 			&& !gRestoreGL)
@@ -981,8 +980,6 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 			}
 		}
 
-		LLAppViewer::instance()->pingMainloopTimeout("Display:RenderFlush");
-
 		LLRenderTarget& rt = (gPipeline.sRenderDeferred ? gPipeline.mRT->deferredScreen : gPipeline.mRT->screen);
 		rt.flush();
 
@@ -997,8 +994,6 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 			//capture the frame buffer.
 			LLSceneMonitor::getInstance()->capture();
 		}
-
-		LLAppViewer::instance()->pingMainloopTimeout("Display:RenderUI");
 
 		if (!for_snapshot)
 		{
@@ -1016,12 +1011,7 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 		gPipeline.clearReferences();
 	}
 
-	LLAppViewer::instance()->pingMainloopTimeout("Display:FrameStats");
-
-
 	display_stats();
-
-	LLAppViewer::instance()->pingMainloopTimeout("Display:Done");
 
 	gShiftFrame = false;
 
@@ -1186,8 +1176,6 @@ void display_cube_face()
 	}
 
 	LLPipeline::sUseOcclusion = occlusion;
-
-	LLAppViewer::instance()->pingMainloopTimeout("Display:RenderStart");
 
 	LLPipeline::sUnderWaterRender = LLViewerCamera::getInstance()->cameraUnderWater();
 
@@ -1576,6 +1564,11 @@ void render_ui(F32 zoom_factor, int subfield)
 		// Anything still batched (debug text etc.) must draw before this scope ends / Present().
 		gDXUIBatch.flushPending();
 #endif
+
+		// Render-to-texture + DirectComposition floater popout framework
+		// (inherited-tickling-kurzweil plan) - no-op unless a floater is
+		// currently popped out.
+		LLFloaterPopoutManager::renderPoppedOut();
 	}
 
 	if (!gSnapshot)
@@ -1737,8 +1730,8 @@ void render_ui_2d()
 		int pos_y = sub_region / llceil(zoom_factor);
 		int pos_x = sub_region - (pos_y * llceil(zoom_factor));
 		// offset for this tile
-		LLFontGL::sCurOrigin.mX -= ll_round((F32)gViewerWindow->getWindowWidthScaled() * (F32)pos_x / zoom_factor);
-		LLFontGL::sCurOrigin.mY -= ll_round((F32)gViewerWindow->getWindowHeightScaled() * (F32)pos_y / zoom_factor);
+		LLFontDX::sCurOrigin.mX -= ll_round((F32)gViewerWindow->getWindowWidthScaled() * (F32)pos_x / zoom_factor);
+		LLFontDX::sCurOrigin.mY -= ll_round((F32)gViewerWindow->getWindowHeightScaled() * (F32)pos_y / zoom_factor);
 	}
 
 
@@ -1754,7 +1747,7 @@ void render_ui_2d()
 		F32 zoom = gAgentCamera.mHUDCurZoom;
 		gDX.scalef(zoom, zoom, 1.f);
 		gDX.color4fv(LLColor4::white.mV);
-		gl_rect_2d(-half_width, half_height, half_width, -half_height, false);
+		dx_rect_2d(-half_width, half_height, half_width, -half_height, false);
 		gDX.popMatrix();
 		gUIProgram.unbind();
 	}
@@ -1765,7 +1758,7 @@ void render_ui_2d()
 	gViewerWindow->draw();
 
 	// reset current origin for font rendering, in case of tiling render
-	LLFontGL::sCurOrigin.set(0, 0);
+	LLFontDX::sCurOrigin.set(0, 0);
 }
 
 void render_disconnected_background()
@@ -1834,7 +1827,7 @@ void render_disconnected_background()
 
 			gDX.getTexUnit(0)->bind(gDisconnectedImagep);
 			gDX.color4f(1.f, 1.f, 1.f, 1.f);
-			gl_rect_2d_simple_tex(width, height);
+			dx_rect_2d_simple_tex(width, height);
 			gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
 		}
 		gDX.popMatrix();

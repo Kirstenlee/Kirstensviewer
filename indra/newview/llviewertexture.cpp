@@ -49,7 +49,7 @@
 #include "llnotificationsutil.h"
 
 // viewer includes
-#include "llimagegl.h"
+#include "llimagedx.h"
 #include "lldrawpool.h"
 #include "lltexturefetch.h"
 #include "llviewertexturelist.h"
@@ -115,6 +115,7 @@ F32 LLViewerTexture::sVRAMAllocatorBudgetMegabytes = MIN_VRAM_BUDGET;
 F32 LLViewerTexture::sVRAMAllocatorSoftTargetMegabytes = MIN_VRAM_BUDGET;
 U32 LLViewerTexture::sVRAMAllocatorLastCutCount = 0;
 U32 LLViewerTexture::sVRAMAllocatorCandidateCount = 0;
+F32 LLViewerTexture::sSysMemoryFactor = 1.f;
 
 LLViewerTexture::EDebugTexels LLViewerTexture::sDebugTexelsMode = LLViewerTexture::DEBUG_TEXELS_OFF;
 
@@ -176,7 +177,7 @@ void LLLoadedCallbackEntry::cleanUpCallbackList(LLLoadedCallbackEntry::source_ca
     }
 }
 
-LLViewerMediaTexture* LLViewerTextureManager::createMediaTexture(const LLUUID &media_id, bool usemipmaps, LLImageGL* gl_image)
+LLViewerMediaTexture* LLViewerTextureManager::createMediaTexture(const LLUUID &media_id, bool usemipmaps, LLImageDX* gl_image)
 {
     return new LLViewerMediaTexture(media_id, usemipmaps, gl_image);
 }
@@ -220,7 +221,7 @@ LLViewerMediaTexture* LLViewerTextureManager::findMediaTexture(const LLUUID &med
     return LLViewerMediaTexture::findMediaTexture(media_id);
 }
 
-LLViewerMediaTexture*  LLViewerTextureManager::getMediaTexture(const LLUUID& id, bool usemipmaps, LLImageGL* gl_image)
+LLViewerMediaTexture*  LLViewerTextureManager::getMediaTexture(const LLUUID& id, bool usemipmaps, LLImageDX* gl_image)
 {
     LLViewerMediaTexture* tex = LLViewerMediaTexture::findMediaTexture(id);
     if(!tex)
@@ -260,7 +261,7 @@ LLPointer<LLViewerTexture> LLViewerTextureManager::getLocalTexture(bool usemipma
     if(generate_gl_tex)
     {
         tex->generateGLTexture();
-        tex->setCategory(LLGLTexture::LOCAL);
+        tex->setCategory(LLDXTexture::LOCAL);
     }
     return tex;
 }
@@ -270,14 +271,14 @@ LLPointer<LLViewerTexture> LLViewerTextureManager::getLocalTexture(const LLUUID&
     if(generate_gl_tex)
     {
         tex->generateGLTexture();
-        tex->setCategory(LLGLTexture::LOCAL);
+        tex->setCategory(LLDXTexture::LOCAL);
     }
     return tex;
 }
 LLPointer<LLViewerTexture> LLViewerTextureManager::getLocalTexture(const LLImageRaw* raw, bool usemipmaps)
 {
     LLPointer<LLViewerTexture> tex = new LLViewerTexture(raw, usemipmaps);
-    tex->setCategory(LLGLTexture::LOCAL);
+    tex->setCategory(LLDXTexture::LOCAL);
     return tex;
 }
 LLPointer<LLViewerTexture> LLViewerTextureManager::getLocalTexture(const U32 width, const U32 height, const U8 components, bool usemipmaps, bool generate_gl_tex)
@@ -286,7 +287,7 @@ LLPointer<LLViewerTexture> LLViewerTextureManager::getLocalTexture(const U32 wid
     if(generate_gl_tex)
     {
         tex->generateGLTexture();
-        tex->setCategory(LLGLTexture::LOCAL);
+        tex->setCategory(LLDXTexture::LOCAL);
     }
     return tex;
 }
@@ -359,17 +360,17 @@ LLViewerFetchedTexture* LLViewerTextureManager::getFetchedTextureFromHost(const 
 // Create a bridge to the viewer texture manager.
 class LLViewerTextureManagerBridge : public LLTextureManagerBridge
 {
-    /*virtual*/ LLPointer<LLGLTexture> getLocalTexture(bool usemipmaps = true, bool generate_gl_tex = true)
+    /*virtual*/ LLPointer<LLDXTexture> getLocalTexture(bool usemipmaps = true, bool generate_gl_tex = true)
     {
         return LLViewerTextureManager::getLocalTexture(usemipmaps, generate_gl_tex);
     }
 
-    /*virtual*/ LLPointer<LLGLTexture> getLocalTexture(const U32 width, const U32 height, const U8 components, bool usemipmaps, bool generate_gl_tex = true)
+    /*virtual*/ LLPointer<LLDXTexture> getLocalTexture(const U32 width, const U32 height, const U8 components, bool usemipmaps, bool generate_gl_tex = true)
     {
         return LLViewerTextureManager::getLocalTexture(width, height, components, usemipmaps, generate_gl_tex);
     }
 
-    /*virtual*/ LLGLTexture* getFetchedTexture(const LLUUID &image_id)
+    /*virtual*/ LLDXTexture* getFetchedTexture(const LLUUID &image_id)
     {
         return LLViewerTextureManager::getFetchedTexture(image_id);
     }
@@ -422,10 +423,10 @@ void LLViewerTextureManager::init()
     }
     image_raw = NULL;
 #else
-    LLViewerFetchedTexture::sDefaultImagep = LLViewerTextureManager::getFetchedTexture(IMG_DEFAULT, true, LLGLTexture::BOOST_UI);
+    LLViewerFetchedTexture::sDefaultImagep = LLViewerTextureManager::getFetchedTexture(IMG_DEFAULT, true, LLDXTexture::BOOST_UI);
 #endif
     LLViewerFetchedTexture::sDefaultImagep->dontDiscard();
-    LLViewerFetchedTexture::sDefaultImagep->setCategory(LLGLTexture::OTHER);
+    LLViewerFetchedTexture::sDefaultImagep->setCategory(LLDXTexture::OTHER);
 
     image_raw = new LLImageRaw(32,32,3);
     data = image_raw->getData();
@@ -462,7 +463,7 @@ void LLViewerTextureManager::cleanup()
 {
 
     delete gTextureManagerBridgep;
-    LLImageGL::sDefaultGLTexture = NULL;
+    LLImageDX::sDefaultGLTexture = NULL;
     LLViewerTexture::sNullImagep = NULL;
     LLViewerTexture::sBlackImagep = NULL;
     LLViewerTexture::sCheckerBoardImagep = NULL;
@@ -485,7 +486,14 @@ void LLViewerTextureManager::cleanup()
 // static
 void LLViewerTexture::initClass()
 {
-    LLImageGL::sDefaultGLTexture = LLViewerFetchedTexture::sDefaultImagep->getGLTexture();
+    LLImageDX::sDefaultGLTexture = LLViewerFetchedTexture::sDefaultImagep->getGLTexture();
+}
+
+S32Megabytes get_render_free_main_memory_treshold()
+{
+    static LLCachedControl<U32> min_free_main_memory(gSavedSettings, "RenderMinFreeMainMemoryThreshold", 512);
+    const U32Megabytes MIN_FREE_MAIN_MEMORY(min_free_main_memory);
+    return MIN_FREE_MAIN_MEMORY;
 }
 
 //static
@@ -511,7 +519,7 @@ void LLViewerTexture::updateClass()
     // Cache setting lookup (static init only)
     static const U32 max_vram_budget = gSavedSettings.getU32("RenderMaxVRAMBudget");
 
-    const F64 texture_bytes = (F64)LLImageGL::getTextureBytesAllocated();
+    const F64 texture_bytes = (F64)LLImageDX::getTextureBytesAllocated();
     const F64 vertex_bytes = (F64)LLVertexBuffer::getBytesAllocated();
     const F32 used = (F32)((texture_bytes + vertex_bytes) / (1024.0 * 1024.0));
 
@@ -589,10 +597,10 @@ void LLViewerTexture::updateClass()
                 // Preserve UI, icon, and sculpty textures (need raw for
                 // correct rendering or are too small to matter)
                 S32 boost = fetched->getBoostLevel();
-                if (boost == LLGLTexture::BOOST_UI ||
-                    boost == LLGLTexture::BOOST_ICON ||
-                    boost == LLGLTexture::BOOST_SCULPTED ||
-                    boost == LLGLTexture::BOOST_THUMBNAIL)
+                if (boost == LLDXTexture::BOOST_UI ||
+                    boost == LLDXTexture::BOOST_ICON ||
+                    boost == LLDXTexture::BOOST_SCULPTED ||
+                    boost == LLDXTexture::BOOST_THUMBNAIL)
                 {
                     continue;
                 }
@@ -618,6 +626,63 @@ void LLViewerTexture::updateClass()
     }
 
     was_low = is_sys_low;
+
+    // System memory factor
+    // sSysMemoryFactor affects draw distance
+    //
+    // We only decrement when more than 406MB is free, but increment
+    // when below 256MB free. This should provide a stable value
+    // in the 256-406MB range to avoid draw range fluctuations.
+    //
+    // Draw range reduction is a last resort, texture bias is supposed
+    // to free at least some memory before we get here.
+    {
+        const bool is_sys_critically_low = isSystemMemoryCritical();
+        const S32Megabytes free_sys_mem = getFreeSystemMemory();
+        static bool sys_was_low = false;
+
+        if (is_sys_critically_low)
+        {
+            const S32Megabytes MIN_FREE_MAIN_MEMORY(get_render_free_main_memory_treshold() / 2);
+            // debt is a negative value since MIN_FREE_MAIN_MEMORY > free memory.
+            S32 sys_budget_debt = free_sys_mem - MIN_FREE_MAIN_MEMORY;
+
+            // Leave some padding, otherwise we will crash out of memory before hitting factor 2.
+            const S32Megabytes PAD_BUFFER(32);
+            S32Megabytes budget_target = MIN_FREE_MAIN_MEMORY - PAD_BUFFER;
+            if (!sys_was_low)
+            {
+                // Result should range from 1 at 0 debt to 2 at -224 debt, 2.14 at -256MB
+                F32 new_factor = 1.f - (F32)sys_budget_debt / (F32)budget_target;
+                sSysMemoryFactor = llmax(sSysMemoryFactor, new_factor);
+            }
+            else
+            {
+                // Slowly ramp up factor to free memory (increasing factor decreases draw range)
+                constexpr F32 MAX_INCREMENT = 0.05f;
+                F32 increment = MAX_INCREMENT * llmax(-(F32)sys_budget_debt / (F32)budget_target, 0.f);
+                sSysMemoryFactor += increment * gFrameIntervalSeconds;
+            }
+            sSysMemoryFactor = llclamp(sSysMemoryFactor, 1.f, 2.f);
+        }
+        else
+        {
+            const S32Megabytes MIN_FREE_MAIN_MEMORY(get_render_free_main_memory_treshold() / 2);
+            // Only start ramping down when we have breathing room.
+            // This should be under the value of isSystemMemoryLow to not throw texture
+            // bias into 1.5+ territory each time we fluctuate around isSystemMemoryLow's
+            // treshold.
+            const S32Megabytes MEM_THRESHOLD = MIN_FREE_MAIN_MEMORY + S32Megabytes(150);
+            if (free_sys_mem > MEM_THRESHOLD && sSysMemoryFactor > 1.f)
+            {
+                // Ramp down factor over time.
+                constexpr F32 DECREMENT = 0.02f;
+                sSysMemoryFactor -= DECREMENT * gFrameIntervalSeconds;
+                sSysMemoryFactor = llclamp(sSysMemoryFactor, 1.f, 2.f);
+            }
+        }
+        sys_was_low = is_sys_critically_low;
+    }
 
     // Drain both emergency queues a bounded amount every frame (not gated on is_low,
     // so a backlog still gets steady progress even after pressure subsides) -- same
@@ -668,13 +733,6 @@ U32Megabytes LLViewerTexture::getFreeSystemMemory()
     return physical_res;
 }
 
-S32Megabytes get_render_free_main_memory_treshold()
-{
-    static LLCachedControl<U32> min_free_main_memory(gSavedSettings, "RenderMinFreeMainMemoryThreshold", 512);
-    const U32Megabytes MIN_FREE_MAIN_MEMORY(min_free_main_memory);
-    return MIN_FREE_MAIN_MEMORY;
-}
-
 //static
 bool LLViewerTexture::isSystemMemoryLow()
 {
@@ -687,18 +745,10 @@ bool LLViewerTexture::isSystemMemoryCritical()
     return getFreeSystemMemory() < get_render_free_main_memory_treshold() / 2;
 }
 
+//static
 F32 LLViewerTexture::getSystemMemoryBudgetFactor()
 {
-    const S32Megabytes MIN_FREE_MAIN_MEMORY(get_render_free_main_memory_treshold() / 2);
-    S32 free_budget = (S32Megabytes)getFreeSystemMemory() - MIN_FREE_MAIN_MEMORY;
-    if (free_budget < 0)
-    {
-        // Leave some padding, otherwise we will crash out of memory before hitting factor 2.
-        const S32Megabytes PAD_BUFFER(32);
-        // Result should range from 1 at 0 free budget to 2 at -224 free budget, 2.14 at -256MB
-        return 1.f - free_budget / (MIN_FREE_MAIN_MEMORY - PAD_BUFFER);
-    }
-    return 1.f;
+    return sSysMemoryFactor;
 }
 
 //end of static functions
@@ -706,7 +756,7 @@ F32 LLViewerTexture::getSystemMemoryBudgetFactor()
 const U32 LLViewerTexture::sCurrentFileVersion = 1;
 
 LLViewerTexture::LLViewerTexture(bool usemipmaps) :
-    LLGLTexture(usemipmaps)
+    LLDXTexture(usemipmaps)
 {
     init(true);
 
@@ -715,7 +765,7 @@ LLViewerTexture::LLViewerTexture(bool usemipmaps) :
 }
 
 LLViewerTexture::LLViewerTexture(const LLUUID& id, bool usemipmaps) :
-    LLGLTexture(usemipmaps),
+    LLDXTexture(usemipmaps),
     mID(id)
 {
     init(true);
@@ -724,7 +774,7 @@ LLViewerTexture::LLViewerTexture(const LLUUID& id, bool usemipmaps) :
 }
 
 LLViewerTexture::LLViewerTexture(const U32 width, const U32 height, const U8 components, bool usemipmaps)  :
-    LLGLTexture(width, height, components, usemipmaps)
+    LLDXTexture(width, height, components, usemipmaps)
 {
     init(true);
 
@@ -733,7 +783,7 @@ LLViewerTexture::LLViewerTexture(const U32 width, const U32 height, const U8 com
 }
 
 LLViewerTexture::LLViewerTexture(const LLImageRaw* raw, bool usemipmaps) :
-    LLGLTexture(raw, usemipmaps)
+    LLDXTexture(raw, usemipmaps)
 {
     init(true);
 
@@ -767,10 +817,10 @@ void LLViewerTexture::init(bool firstinit)
     }
 
     mMainQueue  = LL::WorkQueue::getInstance("mainloop");
-    // DX_RENDER never posts to this queue (LLImageGLThread::sEnabledTextures is permanently false -
-    // see LLImageGL::initClass()); "LLImageGL" is the GL path's own thread-pool name, unused but
+    // DX_RENDER never posts to this queue (LLImageDXThread::sEnabledTextures is permanently false -
+    // see LLImageDX::initClass()); "LLImageDX" is the GL path's own thread-pool name, unused but
     // harmless here.
-    mImageQueue = LL::WorkQueue::getInstance("LLImageGL");
+    mImageQueue = LL::WorkQueue::getInstance("LLImageDX");
 }
 
 //virtual
@@ -796,7 +846,7 @@ void LLViewerTexture::cleanup()
 // virtual
 void LLViewerTexture::dump()
 {
-    LLGLTexture::dump();
+    LLDXTexture::dump();
 
     LL_INFOS() << "LLViewerTexture"
             << " mID " << mID
@@ -1287,7 +1337,7 @@ void LLViewerFetchedTexture::loadFromFastCache()
         }
         else
         {
-            if (mBoostLevel == LLGLTexture::BOOST_ICON)
+            if (mBoostLevel == LLDXTexture::BOOST_ICON)
             {
                 // Shouldn't do anything usefull since texures in fast cache are 16x16,
                 // it is here in case fast cache changes.
@@ -1300,7 +1350,7 @@ void LLViewerFetchedTexture::loadFromFastCache()
                 }
             }
 
-            if (mBoostLevel == LLGLTexture::BOOST_THUMBNAIL)
+            if (mBoostLevel == LLDXTexture::BOOST_THUMBNAIL)
             {
                 if (mRawImage && (mRawImage->getWidth() > DEFAULT_THUMBNAIL_DIMENSIONS || mRawImage->getHeight() > DEFAULT_THUMBNAIL_DIMENSIONS))
                 {
@@ -1328,7 +1378,7 @@ void LLViewerFetchedTexture::setForSculpt()
     forceToSaveRawImage(0, F32_MAX);
 
     setBoostLevel(llmax((S32)getBoostLevel(),
-        (S32)LLGLTexture::BOOST_SCULPTED));
+        (S32)LLDXTexture::BOOST_SCULPTED));
 
     mForSculpt = true;
     if(isForSculptOnly() && hasGLTexture() && !getBoundRecently())
@@ -1446,7 +1496,7 @@ void LLViewerFetchedTexture::addToCreateTexture()
 // ONLY called from LLViewerTextureList
 bool LLViewerFetchedTexture::preCreateTexture(S32 usename/*= 0*/)
 {
-#if LL_IMAGEGL_THREAD_CHECK
+#if LL_IMAGEDX_THREAD_CHECK
     mGLTexturep->checkActiveThread();
 #endif
 
@@ -1520,7 +1570,7 @@ bool LLViewerFetchedTexture::preCreateTexture(S32 usename/*= 0*/)
         size_okay = false;
     }
 
-    if (!LLImageGL::checkSize(mRawImage->getWidth(), mRawImage->getHeight()))
+    if (!LLImageDX::checkSize(mRawImage->getWidth(), mRawImage->getHeight()))
     {
         // A non power-of-two image was uploaded (through a non standard client)
         LL_INFOS() << "Non power of two width or height: (" << mRawImage->getWidth() << "," << mRawImage->getHeight() << ")" << LL_ENDL;
@@ -1579,7 +1629,7 @@ void LLViewerFetchedTexture::postCreateTexture()
     {
         return;
     }
-#if LL_IMAGEGL_THREAD_CHECK
+#if LL_IMAGEDX_THREAD_CHECK
     mGLTexturep->checkActiveThread();
 #endif
 
@@ -1613,7 +1663,7 @@ void LLViewerFetchedTexture::scheduleCreateTexture()
         mNeedsCreateTexture = true;
         if (preCreateTexture())
         {
-#if LL_IMAGEGL_THREAD_CHECK
+#if LL_IMAGEDX_THREAD_CHECK
             //grab a copy of the raw image data to make sure it isn't modified pending texture creation
             U8* data = mRawImage->getData();
             U8* data_copy = nullptr;
@@ -1627,16 +1677,16 @@ void LLViewerFetchedTexture::scheduleCreateTexture()
             mNeedsCreateTexture = true;
             // Background-thread D3D11 texture creation was removed after an unfixable driver-level
             // NVIDIA bug - sEnabledTextures is permanently false under DX_RENDER, so this always
-            // resolves to nullptr (synchronous, main-thread creation). See LLImageGL::initClass()'s
+            // resolves to nullptr (synchronous, main-thread creation). See LLImageDX::initClass()'s
             // DX_RENDER branch.
-            auto mainq = LLImageGLThread::sEnabledTextures ? mMainQueue.lock() : nullptr;
+            auto mainq = LLImageDXThread::sEnabledTextures ? mMainQueue.lock() : nullptr;
             if (mainq)
             {
                 ref();
                 mainq->postTo(
                     mImageQueue,
-                    // work to be done on LLImageGL worker thread
-#if LL_IMAGEGL_THREAD_CHECK
+                    // work to be done on LLImageDX worker thread
+#if LL_IMAGEDX_THREAD_CHECK
                     [this, data, data_copy, size]()
                     {
                         mGLTexturep->mActiveThread = LLThread::currentID();
@@ -1651,7 +1701,7 @@ void LLViewerFetchedTexture::scheduleCreateTexture()
                         //actually create the texture on a background thread
                         createTexture();
 
-#if LL_IMAGEGL_THREAD_CHECK
+#if LL_IMAGEDX_THREAD_CHECK
                         //verify data is unmodified
                         llassert(data == mRawImage->getData());
                         llassert(mRawImage->getDataSize() == size);
@@ -1659,7 +1709,7 @@ void LLViewerFetchedTexture::scheduleCreateTexture()
 #endif
                     },
                     // callback to be run on main thread
-#if LL_IMAGEGL_THREAD_CHECK
+#if LL_IMAGEDX_THREAD_CHECK
                         [this, data, data_copy, size]()
                     {
                         mGLTexturep->mActiveThread = LLThread::currentID();
@@ -1750,7 +1800,7 @@ void LLViewerFetchedTexture::processTextureStats()
         static LLCachedControl<bool> textures_fullres(gSavedSettings,"TextureLoadFullRes", false);
 
         U32 max_tex_res = MAX_IMAGE_SIZE_DEFAULT;
-        if (mBoostLevel < LLGLTexture::BOOST_HIGH)
+        if (mBoostLevel < LLDXTexture::BOOST_HIGH)
         {
             // restrict texture resolution to download based on RenderMaxTextureResolution
             static LLCachedControl<U32> max_texture_resolution(gSavedSettings, "RenderMaxTextureResolution", 2048);
@@ -1763,7 +1813,7 @@ void LLViewerFetchedTexture::processTextureStats()
         {
             mDesiredDiscardLevel = 0;
         }
-        else if (mDontDiscard && (mBoostLevel == LLGLTexture::BOOST_ICON || mBoostLevel == LLGLTexture::BOOST_THUMBNAIL))
+        else if (mDontDiscard && (mBoostLevel == LLDXTexture::BOOST_ICON || mBoostLevel == LLDXTexture::BOOST_THUMBNAIL))
         {
             if (mFullWidth > MAX_IMAGE_SIZE_DEFAULT || mFullHeight > MAX_IMAGE_SIZE_DEFAULT)
             {
@@ -1897,7 +1947,7 @@ bool LLViewerFetchedTexture::processFetchResults(S32& desired_discard, S32 curre
 
                 mIsRawImageValid = true;
 
-            if (mBoostLevel == LLGLTexture::BOOST_ICON)
+            if (mBoostLevel == LLDXTexture::BOOST_ICON)
             {
                 S32 expected_width = mKnownDrawWidth > 0 ? mKnownDrawWidth : DEFAULT_ICON_DIMENSIONS;
                 S32 expected_height = mKnownDrawHeight > 0 ? mKnownDrawHeight : DEFAULT_ICON_DIMENSIONS;
@@ -1916,7 +1966,7 @@ bool LLViewerFetchedTexture::processFetchResults(S32& desired_discard, S32 curre
                 }
             }
 
-            if (mBoostLevel == LLGLTexture::BOOST_THUMBNAIL)
+            if (mBoostLevel == LLDXTexture::BOOST_THUMBNAIL)
             {
                 S32 expected_width = mKnownDrawWidth > 0 ? mKnownDrawWidth : DEFAULT_THUMBNAIL_DIMENSIONS;
                 S32 expected_height = mKnownDrawHeight > 0 ? mKnownDrawHeight : DEFAULT_THUMBNAIL_DIMENSIONS;
@@ -2414,7 +2464,7 @@ void LLViewerFetchedTexture::deleteCallbackEntry(const LLLoadedCallbackEntry::so
             destroySavedRawImage();
         }
     }
-    else if(needsToSaveRawImage() && mBoostLevel != LLGLTexture::BOOST_PREVIEW)
+    else if(needsToSaveRawImage() && mBoostLevel != LLDXTexture::BOOST_PREVIEW)
     {
         if(desired_raw_discard != INVALID_DISCARD_LEVEL)
         {
@@ -2806,7 +2856,7 @@ void LLViewerFetchedTexture::saveRawImage()
     LLImageDataSharedLock lock(mRawImage);
 
     mSavedRawDiscardLevel = mRawDiscardLevel;
-    if (mBoostLevel == LLGLTexture::BOOST_ICON)
+    if (mBoostLevel == LLDXTexture::BOOST_ICON)
     {
         S32 expected_width = mKnownDrawWidth > 0 ? mKnownDrawWidth : DEFAULT_ICON_DIMENSIONS;
         S32 expected_height = mKnownDrawHeight > 0 ? mKnownDrawHeight : DEFAULT_ICON_DIMENSIONS;
@@ -2820,7 +2870,7 @@ void LLViewerFetchedTexture::saveRawImage()
             mSavedRawImage = new LLImageRaw(mRawImage->getData(), mRawImage->getWidth(), mRawImage->getHeight(), mRawImage->getComponents());
         }
     }
-    else if (mBoostLevel == LLGLTexture::BOOST_THUMBNAIL)
+    else if (mBoostLevel == LLDXTexture::BOOST_THUMBNAIL)
     {
         if (mRawImage->getWidth() > DEFAULT_THUMBNAIL_DIMENSIONS || mRawImage->getHeight() > DEFAULT_THUMBNAIL_DIMENSIONS)
         {
@@ -2832,7 +2882,7 @@ void LLViewerFetchedTexture::saveRawImage()
             mSavedRawImage = new LLImageRaw(mRawImage->getData(), mRawImage->getWidth(), mRawImage->getHeight(), mRawImage->getComponents());
         }
     }
-    else if (mBoostLevel == LLGLTexture::BOOST_SCULPTED)
+    else if (mBoostLevel == LLDXTexture::BOOST_SCULPTED)
     {
         S32 expected_width = mKnownDrawWidth > 0 ? mKnownDrawWidth : sMaxSculptRez;
         S32 expected_height = mKnownDrawHeight > 0 ? mKnownDrawHeight : sMaxSculptRez;
@@ -3016,7 +3066,7 @@ void LLViewerLODTexture::processTextureStats()
     static LLCachedControl<bool> textures_fullres(gSavedSettings,"TextureLoadFullRes", false);
 
     F32 max_tex_res = MAX_IMAGE_SIZE_DEFAULT;
-    if (mBoostLevel < LLGLTexture::BOOST_HIGH)
+    if (mBoostLevel < LLDXTexture::BOOST_HIGH)
     {
         // restrict texture resolution to download based on RenderMaxTextureResolution
         static LLCachedControl<U32> max_texture_resolution(gSavedSettings, "RenderMaxTextureResolution", 2048);
@@ -3036,7 +3086,7 @@ void LLViewerLODTexture::processTextureStats()
         if (mFullWidth > MAX_IMAGE_SIZE_DEFAULT || mFullHeight > MAX_IMAGE_SIZE_DEFAULT)
             mDesiredDiscardLevel = 1; // MAX_IMAGE_SIZE_DEFAULT = 2048 and max size ever is 4096
     }
-    else if (mBoostLevel < LLGLTexture::BOOST_HIGH && mMaxVirtualSize <= 10.f)
+    else if (mBoostLevel < LLDXTexture::BOOST_HIGH && mMaxVirtualSize <= 10.f)
     {
         // S24: Reduced threshold from 10.f to 0.1f - 10.f was too aggressive and culled visible vendor signs/large textures
         mDesiredDiscardLevel = llmin(mMinDesiredDiscardLevel, (S8)(MAX_DISCARD_LEVEL + 1));
@@ -3096,7 +3146,7 @@ void LLViewerLODTexture::processTextureStats()
         // BOOST_AVATAR_BAKED was briefly relaxed here to support an emergency VRAM-eviction tier -
         // reverted after it could burst a crowd's avatar textures into gTextureList.mDownScaleQueue at
         // once, overwhelming its severe-pressure drain. Back to upstream: avatar bakes never scale down.
-        if (mBoostLevel < LLGLTexture::BOOST_AVATAR_BAKED)
+        if (mBoostLevel < LLDXTexture::BOOST_AVATAR_BAKED)
         {
             if (current_discard < mDesiredDiscardLevel && !mForceToSaveRawImage)
             { // should scale down
@@ -3105,7 +3155,7 @@ void LLViewerLODTexture::processTextureStats()
         }
 
         if (isUpdateFrozen() // we are out of memory and nearing max allowed bias
-            && mBoostLevel < LLGLTexture::BOOST_SCULPTED
+            && mBoostLevel < LLDXTexture::BOOST_SCULPTED
             && mDesiredDiscardLevel < current_discard)
         {
             // stop requesting more
@@ -3150,7 +3200,7 @@ S32 LLViewerLODTexture::computeNaturalDiscardLevel() const
 
     F32 max_tex_res = MAX_IMAGE_SIZE_DEFAULT;
     F32 max_virtual_size = mMaxVirtualSize;
-    if (mBoostLevel < LLGLTexture::BOOST_HIGH)
+    if (mBoostLevel < LLDXTexture::BOOST_HIGH)
     {
         static LLCachedControl<U32> max_texture_resolution(gSavedSettings, "RenderMaxTextureResolution", 2048);
         max_tex_res = (F32)llclamp((S32)max_texture_resolution, 512, MAX_IMAGE_SIZE_DEFAULT);
@@ -3165,7 +3215,7 @@ S32 LLViewerLODTexture::computeNaturalDiscardLevel() const
     {
         return (mFullWidth > MAX_IMAGE_SIZE_DEFAULT || mFullHeight > MAX_IMAGE_SIZE_DEFAULT) ? 1 : 0;
     }
-    if (mBoostLevel < LLGLTexture::BOOST_HIGH && max_virtual_size <= 10.f)
+    if (mBoostLevel < LLDXTexture::BOOST_HIGH && max_virtual_size <= 10.f)
     {
         S32 level = llmin((S32)mMinDesiredDiscardLevel, MAX_DISCARD_LEVEL + 1);
         return llmin(level, (S32)mLoadedCallbackDesiredDiscardLevel);
@@ -3283,7 +3333,7 @@ LLViewerMediaTexture* LLViewerMediaTexture::findMediaTexture(const LLUUID& media
     return media_tex;
 }
 
-LLViewerMediaTexture::LLViewerMediaTexture(const LLUUID& id, bool usemipmaps, LLImageGL* gl_image)
+LLViewerMediaTexture::LLViewerMediaTexture(const LLUUID& id, bool usemipmaps, LLImageDX* gl_image)
     : LLViewerTexture(id, usemipmaps),
     mMediaImplp(NULL),
     mUpdateVirtualSizeTime(0)
@@ -3305,7 +3355,7 @@ LLViewerMediaTexture::LLViewerMediaTexture(const LLUUID& id, bool usemipmaps, LL
 
     setMediaImpl();
 
-    setCategory(LLGLTexture::MEDIA);
+    setCategory(LLDXTexture::MEDIA);
 
     LLViewerTexture* tex = gTextureList.findImage(mID, TEX_LIST_STANDARD);
     if(tex) //this media is a parcel media for tex.
@@ -3806,7 +3856,7 @@ void LLTexturePipelineTester::update()
         {
             //start a new fetching session
             reset();
-            mStartFetchingTime = LLImageGL::sLastFrameTime;
+            mStartFetchingTime = LLImageDX::sLastFrameTime;
             mPause = false;
         }
 
@@ -3814,7 +3864,7 @@ void LLTexturePipelineTester::update()
         if(mUsingDefaultTexture)
         {
             mUsingDefaultTexture = false;
-            mTotalGrayTime = LLImageGL::sLastFrameTime - mStartFetchingTime;
+            mTotalGrayTime = LLImageDX::sLastFrameTime - mStartFetchingTime;
         }
 
         //update the stablizing timer.
@@ -3869,7 +3919,7 @@ void LLTexturePipelineTester::outputTestRecord(LLSD *sd)
     (*sd)[currentLabel]["StartTimeLoadingSculpties"]     = (LLSD::Real)mStartTimeLoadingSculpties;
     (*sd)[currentLabel]["EndTimeLoadingSculpties"]       = (LLSD::Real)mEndTimeLoadingSculpties;
 
-    (*sd)[currentLabel]["Time"]                          = LLImageGL::sLastFrameTime;
+    (*sd)[currentLabel]["Time"]                          = LLImageDX::sLastFrameTime;
     (*sd)[currentLabel]["TotalBytesBound"]               = (LLSD::Integer)mLastTotalBytesUsed.value();
     (*sd)[currentLabel]["TotalBytesBoundForLargeImage"]  = (LLSD::Integer)mLastTotalBytesUsedForLargeImage.value();
     (*sd)[currentLabel]["PercentageBytesBound"]          = (LLSD::Real)(100.f * mLastTotalBytesUsed / mTotalBytesLoaded);
@@ -3907,9 +3957,9 @@ void LLTexturePipelineTester::updateTextureLoadingStats(const LLViewerFetchedTex
 
         if(mStartTimeLoadingSculpties > mEndTimeLoadingSculpties)
         {
-            mStartTimeLoadingSculpties = LLImageGL::sLastFrameTime;
+            mStartTimeLoadingSculpties = LLImageDX::sLastFrameTime;
         }
-        mEndTimeLoadingSculpties = LLImageGL::sLastFrameTime;
+        mEndTimeLoadingSculpties = LLImageDX::sLastFrameTime;
     }
 }
 
@@ -3922,9 +3972,9 @@ void LLTexturePipelineTester::setStablizingTime()
 {
     if(mStartStablizingTime <= mStartFetchingTime)
     {
-        mStartStablizingTime = LLImageGL::sLastFrameTime;
+        mStartStablizingTime = LLImageDX::sLastFrameTime;
     }
-    mEndStablizingTime = LLImageGL::sLastFrameTime;
+    mEndStablizingTime = LLImageDX::sLastFrameTime;
 }
 
 void LLTexturePipelineTester::updateStablizingTime()
@@ -3936,7 +3986,7 @@ void LLTexturePipelineTester::updateStablizingTime()
         if(t > F_ALMOST_ZERO && (t - mTotalStablizingTime) < F_ALMOST_ZERO)
         {
             //already stablized
-            mTotalStablizingTime = LLImageGL::sLastFrameTime - mStartStablizingTime;
+            mTotalStablizingTime = LLImageDX::sLastFrameTime - mStartStablizingTime;
 
             //cancel the timer
             mStartStablizingTime = 0.f;

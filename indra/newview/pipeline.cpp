@@ -42,7 +42,7 @@
 #include "llerror.h"
 #include "llviewercontrol.h"
 #include "llfasttimer.h"
-#include "llfontgl.h"
+#include "llfontdx.h"
 #include "llfontvertexbuffer.h"
 #include "llnamevalue.h"
 #include "llpointer.h"
@@ -1010,7 +1010,7 @@ bool LLPipeline::allocateScreenBufferInternal(U32 resX, U32 resY)
 		assert(success);
 
 		// used to scale down textures
-		// See LLViwerTextureList::updateImagesCreateTextures and LLImageGL::scaleDown
+		// See LLViwerTextureList::updateImagesCreateTextures and LLImageDX::scaleDown
 		mDownResMap.allocate(1024, 1024, GL_RGBA);
 
 		mBakeMap.allocate(LLAvatarAppearanceDefines::SCRATCH_TEX_WIDTH, LLAvatarAppearanceDefines::SCRATCH_TEX_HEIGHT, GL_RGBA);
@@ -1215,25 +1215,25 @@ void LLPipeline::releaseGLBuffers()
 
 	if (mNoiseMap)
 	{
-		LLImageGL::deleteTextures(1, &mNoiseMap);
+		LLImageDX::deleteTextures(1, &mNoiseMap);
 		mNoiseMap = 0;
 	}
 
 	if (mTrueNoiseMap)
 	{
-		LLImageGL::deleteTextures(1, &mTrueNoiseMap);
+		LLImageDX::deleteTextures(1, &mTrueNoiseMap);
 		mTrueNoiseMap = 0;
 	}
 
 	if (mSMAAAreaMap)
 	{
-		LLImageGL::deleteTextures(1, &mSMAAAreaMap);
+		LLImageDX::deleteTextures(1, &mSMAAAreaMap);
 		mSMAAAreaMap = 0;
 	}
 
 	if (mSMAASearchMap)
 	{
-		LLImageGL::deleteTextures(1, &mSMAASearchMap);
+		LLImageDX::deleteTextures(1, &mSMAASearchMap);
 		mSMAASearchMap = 0;
 	}
 
@@ -4100,7 +4100,6 @@ U32 LLPipeline::sCurRenderPoolType = 0;
 
 void LLPipeline::renderGeomDeferred(LLCamera& camera, bool do_occlusion)
 {
-	LLAppViewer::instance()->pingMainloopTimeout("Pipeline:RenderGeomDeferred");
 	LL_RECORD_BLOCK_TIME(FTM_RENDER_GEOMETRY);
 	LL_RECORD_BLOCK_TIME(FTM_RENDER_GEOMETRY_DEFERRED); // S24: Critical - main deferred geometry rendering
 
@@ -7176,7 +7175,7 @@ void LLPipeline::generateExposure(LLRenderTarget* src, LLRenderTarget* dst, bool
 	}
 }
 
-extern LLPointer<LLImageGL> gEXRImage;
+extern LLPointer<LLImageDX> gEXRImage;
 
 void LLPipeline::tonemap(LLRenderTarget* src, LLRenderTarget* dst, bool gamma_correct)
 {
@@ -7510,10 +7509,10 @@ void LLPipeline::applyFXAA(LLRenderTarget* src, LLRenderTarget* dst)
 				mFXAAMap.bindTexture(0, channel, LLTexUnit::TFO_BILINEAR);
 			}
 
-			gGLViewport[0] = gViewerWindow->getWorldViewRectRaw().mLeft;
-			gGLViewport[1] = gViewerWindow->getWorldViewRectRaw().mBottom;
-			gGLViewport[2] = gViewerWindow->getWorldViewRectRaw().getWidth();
-			gGLViewport[3] = gViewerWindow->getWorldViewRectRaw().getHeight();
+			gDXViewport[0] = gViewerWindow->getWorldViewRectRaw().mLeft;
+			gDXViewport[1] = gViewerWindow->getWorldViewRectRaw().mBottom;
+			gDXViewport[2] = gViewerWindow->getWorldViewRectRaw().getWidth();
+			gDXViewport[3] = gViewerWindow->getWorldViewRectRaw().getHeight();
 
 			// dst->bindTarget() above already set a D3D11 viewport of (0,0,dst width,dst height). dst is
 			// always one of mPostPingMap/mPostPongMap, both allocated at exactly
@@ -8172,18 +8171,15 @@ void LLPipeline::bindDeferredShader(LLHLSLShader& shader, LLRenderTarget* light_
 		gDX.getTexUnit(channel)->bind(&mExposureMap);
 	}
 
-	if (shader.getUniformLocation(LLShaderMgr::VIEWPORT) != -1)
-	{
-		shader.uniform4f(LLShaderMgr::VIEWPORT, (F32)gGLViewport[0],
-			(F32)gGLViewport[1],
-			(F32)gGLViewport[2],
-			(F32)gGLViewport[3]);
-	}
-
-	if (sReflectionRender && !shader.getUniformLocation(LLShaderMgr::MODELVIEW_MATRIX))
-	{
-		shader.uniformMatrix4fv(LLShaderMgr::MODELVIEW_MATRIX, 1, false, glm::value_ptr(mReflectionModelView));
-	}
+	// S24: both of these were gated on getUniformLocation(), which was a
+	// permanent -1 (or, for the '!' check below, always-truthy-so-always-
+	// false) stub under DX_RENDER - no GL program object concept ever
+	// existed to reflect a real location from. Neither upload has actually
+	// run in this build; removed alongside the rest of that dead reflection
+	// API rather than kept as a conditional with no real check left to gate
+	// on. Revisit only if VIEWPORT/MODELVIEW_MATRIX are found missing from a
+	// shader that needs them - a real reflection or per-shader-declares
+	// check would need to be built from scratch, not restored.
 
 	channel = shader.enableTexture(LLShaderMgr::DEFERRED_NOISE);
 	if (channel > -1)
@@ -8309,11 +8305,8 @@ void LLPipeline::bindDeferredShader(LLHLSLShader& shader, LLRenderTarget* light_
 
 	shader.uniform1i(LLShaderMgr::CUBE_SNAPSHOT, gCubeSnapshot ? 1 : 0);
 
-	if (shader.getUniformLocation(LLShaderMgr::DEFERRED_NORM_MATRIX) >= 0)
-	{
-		glm::mat4 norm_mat = glm::transpose(glm::inverse(get_current_modelview()));
-		shader.uniformMatrix4fv(LLShaderMgr::DEFERRED_NORM_MATRIX, 1, false, glm::value_ptr(norm_mat));
-	}
+	// S24: see the getUniformLocation() removal comment above - same
+	// permanently-false gate, this upload has never actually run.
 
 	// auto adjust legacy sun color if needed
 	static LLCachedControl<bool> should_auto_adjust(gSavedSettings, "RenderSkyAutoAdjustLegacy", false);
@@ -9993,7 +9986,7 @@ void LLPipeline::generateSunShadow(LLCamera& camera)
 
 
 			mRT->shadow[j].bindTarget();
-			mRT->shadow[j].getViewport(gGLViewport);
+			mRT->shadow[j].getViewport(gDXViewport);
 			mRT->shadow[j].clear();
 
 			{
@@ -10193,7 +10186,7 @@ void LLPipeline::generateSunShadow(LLCamera& camera)
 				//
 
 				mSpotShadow[i].bindTarget();
-				mSpotShadow[i].getViewport(gGLViewport);
+				mSpotShadow[i].getViewport(gDXViewport);
 				mSpotShadow[i].clear();
 
 				static LLCullResult result[2];

@@ -161,7 +161,7 @@ void LLToastScriptQuestion::createButtons()
         if ("button" == form_element["type"].asString())
         {
             LLButton::Params p;
-            const LLFontGL* font = LLFontGL::getFontSansSerif();
+            const LLFontDX* font = LLFontDX::getFontSansSerif();
             p.name(form_element["name"].asString());
             p.label(form_element["text"].asString());
             p.layout("topleft");

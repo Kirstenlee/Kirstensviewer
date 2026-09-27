@@ -33,6 +33,7 @@
 #include "llwindow.h"   // getGamma()
 
 // For Listeners
+#include "DXSampler.h"
 #include "llaudioengine.h"
 #include "llagent.h"
 #include "llagentcamera.h"
@@ -312,10 +313,9 @@ static bool handleLUTBufferChanged(const LLSD& newvalue)
     return true;
 }
 
-static bool handleAnisotropicChanged(const LLSD& newvalue)
+static bool handleAnisotropicLevelChanged(const LLSD& newvalue)
 {
-    LLImageGL::sGlobalUseAnisotropic = newvalue.asBoolean();
-    LLImageGL::dirtyTexOptions();
+    DXSampler::setMaxAnisotropy(newvalue.asInteger());
     return true;
 }
 
@@ -914,7 +914,7 @@ void settings_setup_listeners()
     setting_setup_signal_listener(gSavedSettings, "RenderSpecularResX", handleLUTBufferChanged);
     setting_setup_signal_listener(gSavedSettings, "RenderSpecularResY", handleLUTBufferChanged);
     setting_setup_signal_listener(gSavedSettings, "RenderSpecularExponent", handleLUTBufferChanged);
-    setting_setup_signal_listener(gSavedSettings, "RenderAnisotropic", handleAnisotropicChanged);
+    setting_setup_signal_listener(gSavedSettings, "RenderAnisotropicLevel", handleAnisotropicLevelChanged);
     setting_setup_signal_listener(gSavedSettings, "RenderShadowResolutionScale", handleShadowsResized);
     setting_setup_signal_listener(gSavedSettings, "RenderGlow", handleReleaseGLBufferChanged);
     setting_setup_signal_listener(gSavedSettings, "RenderGlow", handleSetShaderChanged);

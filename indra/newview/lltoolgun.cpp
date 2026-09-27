@@ -35,7 +35,7 @@
 #include "llsky.h"
 #include "llappviewer.h"
 #include "llresmgr.h"
-#include "llfontgl.h"
+#include "llfontdx.h"
 #include "llui.h"
 #include "llviewertexturelist.h"
 #include "llviewercamera.h"

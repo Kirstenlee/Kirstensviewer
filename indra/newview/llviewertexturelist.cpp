@@ -33,7 +33,7 @@
 
 #include "llagent.h"
 #include "llgl.h" // fot gathering stats from GL
-#include "llimagegl.h"
+#include "llimagedx.h"
 #include "llimagebmp.h"
 #include "llimagej2c.h"
 #include "llimagetga.h"
@@ -234,7 +234,7 @@ void LLViewerTextureList::doPrefetchImages()
 
     LLViewerTextureManager::getFetchedTexture(IMG_SHOT);
     LLViewerTextureManager::getFetchedTexture(IMG_SMOKE_POOF);
-    LLViewerFetchedTexture::sSmokeImagep = LLViewerTextureManager::getFetchedTexture(IMG_SMOKE, FTT_DEFAULT, true, LLGLTexture::BOOST_UI);
+    LLViewerFetchedTexture::sSmokeImagep = LLViewerTextureManager::getFetchedTexture(IMG_SMOKE, FTT_DEFAULT, true, LLDXTexture::BOOST_UI);
     LLViewerFetchedTexture::sSmokeImagep->setNoDelete();
 
     LLStandardBumpmap::addstandard();
@@ -273,7 +273,7 @@ void LLViewerTextureList::doPrefetchImages()
 
         if((LLViewerTexture::FETCHED_TEXTURE == texture_type || LLViewerTexture::LOD_TEXTURE == texture_type))
         {
-            LLViewerFetchedTexture* image = LLViewerTextureManager::getFetchedTexture(uuid, FTT_DEFAULT, MIPMAP_TRUE, LLGLTexture::BOOST_NONE, texture_type);
+            LLViewerFetchedTexture* image = LLViewerTextureManager::getFetchedTexture(uuid, FTT_DEFAULT, MIPMAP_TRUE, LLDXTexture::BOOST_NONE, texture_type);
             if (image)
             {
                 texture_count += 1;
@@ -387,7 +387,7 @@ void LLViewerTextureList::dump()
 
 void LLViewerTextureList::destroyGL()
 {
-    LLImageGL::destroyGL();
+    LLImageDX::destroyGL();
 }
 
 /* Vertical tab container button image IDs
@@ -422,7 +422,7 @@ LLViewerFetchedTexture* LLViewerTextureList::getImageFromFile(const std::string&
         LL_WARNS("TextureList") << "This indicates a bug where UI text is being used as a texture name!" << LL_ENDL;
         LL_WARNS("TextureList") << "Returning default texture to prevent crash." << LL_ENDL;
         llassert(false);  // Trigger breakpoint in debug builds
-        return LLViewerTextureManager::getFetchedTexture(IMG_DEFAULT, FTT_DEFAULT, true, LLGLTexture::BOOST_UI);
+        return LLViewerTextureManager::getFetchedTexture(IMG_DEFAULT, FTT_DEFAULT, true, LLDXTexture::BOOST_UI);
     }
 
     std::string full_path = gDirUtilp->findSkinnedFilename("textures", filename);
@@ -434,7 +434,7 @@ LLViewerFetchedTexture* LLViewerTextureList::getImageFromFile(const std::string&
         {
             LL_WARNS() << "Failed to find local image file: " << filename << LL_ENDL;
         }
-        LLViewerTexture::EBoostLevel priority = LLGLTexture::BOOST_UI;
+        LLViewerTexture::EBoostLevel priority = LLDXTexture::BOOST_UI;
         return LLViewerTextureManager::getFetchedTexture(IMG_DEFAULT, FTT_DEFAULT, true, priority);
     }
 
@@ -585,7 +585,7 @@ LLViewerFetchedTexture* LLViewerTextureList::getImage(const LLUUID &image_id,
 
     if (image_id.isNull())
     {
-        return (LLViewerTextureManager::getFetchedTexture(IMG_DEFAULT, FTT_DEFAULT, true, LLGLTexture::BOOST_UI));
+        return (LLViewerTextureManager::getFetchedTexture(IMG_DEFAULT, FTT_DEFAULT, true, LLDXTexture::BOOST_UI));
     }
 
     LLPointer<LLViewerFetchedTexture> imagep = findImage(image_id, get_element_type(boost_priority));
@@ -895,7 +895,7 @@ void LLViewerTextureList::updateImages(F32 max_time)
 
     //handle results from decode threads
 #ifdef DX_RENDER
-    // LLImageGL::initClass() disables LLImageGLThread under DX_RENDER (DXTexture::create()/
+    // LLImageDX::initClass() disables LLImageDXThread under DX_RENDER (DXTexture::create()/
     // updateSubImage() use the D3D11 immediate context, not thread-safe against the main render
     // thread), so every texture create now happens synchronously here on the main thread. The shared
     // RenderTextureUpdateBudgetMS (tuned for a worker-thread world) isn't enough on its own during any
@@ -1001,10 +1001,10 @@ void LLViewerTextureList::forceFlushOrphanedTextures()
         // exclusion already used for the raw-image scavenge in
         // LLViewerTexture::updateClass().
         S32 boost = imagep->getBoostLevel();
-        if (boost == LLGLTexture::BOOST_UI ||
-            boost == LLGLTexture::BOOST_ICON ||
-            boost == LLGLTexture::BOOST_SCULPTED ||
-            boost == LLGLTexture::BOOST_THUMBNAIL)
+        if (boost == LLDXTexture::BOOST_UI ||
+            boost == LLDXTexture::BOOST_ICON ||
+            boost == LLDXTexture::BOOST_SCULPTED ||
+            boost == LLDXTexture::BOOST_THUMBNAIL)
         {
             continue;
         }
@@ -1184,7 +1184,7 @@ void LLViewerTextureList::runVRAMBudgetAllocation()
 {
     // Optimized for per-pass cost since this walks the full texture list twice a second: virtual
     // calls deferred behind cheap field checks, the running budget total folded into the same walk,
-    // and the eviction-candidate struct caches its LLImageGL* so the cut loop below never re-derives it.
+    // and the eviction-candidate struct caches its LLImageDX* so the cut loop below never re-derives it.
     //
     // A triggered cut aims for a SOFT target (sVRAMAllocatorSoftTargetMegabytes) rather than landing
     // exactly on the hard budget line, so a pass leaves headroom instead of guaranteeing the next
@@ -1198,7 +1198,7 @@ void LLViewerTextureList::runVRAMBudgetAllocation()
     struct Candidate
     {
         LLViewerLODTexture* tex;
-        LLImageGL* img;
+        LLImageDX* img;
         S32 natural_discard;
         S64 current_bytes;
         S64 natural_bytes;
@@ -1226,24 +1226,24 @@ void LLViewerTextureList::runVRAMBudgetAllocation()
         // never pay for a vtable indirection at all.
         if (imagep->mMaxVirtualSize <= 0.f) continue; // already forced near-minimal elsewhere
         // BOOST_NONE only, not "< BOOST_HIGH": processTextureStats()'s own
-        // scaleDown() gate is `mBoostLevel < LLGLTexture::BOOST_AVATAR_BAKED`
+        // scaleDown() gate is `mBoostLevel < LLDXTexture::BOOST_AVATAR_BAKED`
         // (BOOST_NONE=0, BOOST_AVATAR_BAKED=2) - only BOOST_NONE textures ever
         // actually get scaled down today. Forcing a floor on baked/terrain
         // textures would be a silent no-op, so exclude them from the
         // candidate set entirely rather than compute a cut that can't apply.
-        if (imagep->getBoostLevel() != LLGLTexture::BOOST_NONE) continue;
+        if (imagep->getBoostLevel() != LLDXTexture::BOOST_NONE) continue;
         if (!imagep->getUseDiscard()) continue; // covers mDontDiscard/!mUseMipMaps
         if (imagep->getType() != LLViewerTexture::LOD_TEXTURE) continue;
 
         // A DXImageThread worker may be mid-createGLTexture() for this texture, writing
         // mWidth/mHeight/mFormatPrimary/mCurrentDiscardLevel/mTexName with no synchronization
-        // (DXTexture::mMutex only covers mTexture/mSRV, not LLImageGL's bookkeeping).
+        // (DXTexture::mMutex only covers mTexture/mSRV, not LLImageDX's bookkeeping).
         // isCreateTexturePending() is the atomic signal for this window - skip rather than read fields
         // that may be torn mid-write; re-evaluated next pass once creation completes. Root cause of a
         // real CTD under RenderDXMultiThreadedTextures - do not remove this check.
         if (imagep->isCreateTexturePending()) continue;
 
-        LLImageGL* img = imagep->getGLTexture();
+        LLImageDX* img = imagep->getGLTexture();
         if (!img || !img->getHasGLTexture()) continue;
 
         LLViewerLODTexture* lod_tex = static_cast<LLViewerLODTexture*>(imagep);
@@ -1393,9 +1393,9 @@ F32 LLViewerTextureList::updateImagesCreateTextures(F32 max_time)
             // entirely: gradient/blend-weight data is exactly what's most vulnerable to lossy block
             // compression, and these textures are small anyway.
             LLImageRaw* raw = imagep->getRawImage();
-            LLImageGL* glTex = imagep->getGLTexture();
+            LLImageDX* glTex = imagep->getGLTexture();
             if (raw && raw->getData() && glTex
-                && imagep->getBoostLevel() != LLGLTexture::BOOST_BUMP
+                && imagep->getBoostLevel() != LLDXTexture::BOOST_BUMP
                 && glTex->getPrimaryFormat() != GL_ALPHA)
             {
                 std::vector<uint8_t> rgba8;
@@ -1499,8 +1499,8 @@ F32 LLViewerTextureList::updateImagesCreateTextures(F32 max_time)
             std::sort(mDownScaleQueue.begin(), mDownScaleQueue.end(),
                 [](const LLPointer<LLViewerFetchedTexture>& a, const LLPointer<LLViewerFetchedTexture>& b)
                 {
-                    LLImageGL* img_a = a->getGLTexture();
-                    LLImageGL* img_b = b->getGLTexture();
+                    LLImageDX* img_a = a->getGLTexture();
+                    LLImageDX* img_b = b->getGLTexture();
                     const S64 bytes_a = img_a ? img_a->getMipBytes() : 0;
                     const S64 bytes_b = img_b ? img_b->getMipBytes() : 0;
                     return bytes_a > bytes_b;
@@ -1514,7 +1514,7 @@ F32 LLViewerTextureList::updateImagesCreateTextures(F32 max_time)
             LLViewerFetchedTexture* image = mDownScaleQueue.front();
             llassert(image->mDownScalePending);
 
-            LLImageGL* img = image->getGLTexture();
+            LLImageDX* img = image->getGLTexture();
             if (img && img->getHasGLTexture())
             {
                 img->scaleDown(image->getDesiredDiscardLevel());
@@ -1612,6 +1612,26 @@ void LLViewerTextureList::forceImmediateUpdate(LLViewerFetchedTexture* imagep)
 
 F32 LLViewerTextureList::updateImagesFetchTextures(F32 max_time)
 {
+    // S24: ease in when the texture cache worker thread just reported a burst of
+    // INIT-state-check failures (lltexturecache.cpp's doWrite(), usually
+    // mRawImage->isBufferInvalid()) - a known, pre-existing race where mRawImage
+    // crosses the fetch-worker/main-thread boundary without real mutex protection
+    // (see the "don't modify image while fetcher is working" comments in
+    // lltexturefetch.cpp and llviewertexture.cpp). A real fix means locking that
+    // whole handoff; this is a much smaller, low-risk mitigation - a heavy burst of
+    // fetches/updates (teleport + map-tile load, etc) is exactly what widens the
+    // unprotected race window, so briefly slowing this loop's own request rate
+    // during a detected burst reduces how often it gets hit, without touching the
+    // handoff itself.
+    {
+        static const S32 FLOOD_THRESHOLD = 5;
+        static const U32 EASE_IN_MS = 2;
+        S32 recent_failures = LLAppViewer::getTextureCache()->consumeRecentWriteInitFailures();
+        if (recent_failures >= FLOOD_THRESHOLD)
+        {
+            ms_sleep(EASE_IN_MS);
+        }
+    }
 
     typedef std::vector<LLPointer<LLViewerFetchedTexture> > entries_list_t;
     entries_list_t entries;
@@ -1722,7 +1742,7 @@ void LLViewerTextureList::decodeAllImages(F32 max_time)
         imagep->updateFetch();
     }
 
-    auto main_queue = LLImageGLThread::sEnabledTextures ? LL::WorkQueue::getInstance("mainloop") : NULL;
+    auto main_queue = LLImageDXThread::sEnabledTextures ? LL::WorkQueue::getInstance("mainloop") : NULL;
     size_t fetch_pending = 0;
 
     if (enable_timing)
@@ -2014,9 +2034,9 @@ LLUIImagePtr LLUIImageList::loadUIImageByName(const std::string& name, const std
                                               bool use_mips, const LLRect& scale_rect, const LLRect& clip_rect, LLViewerTexture::EBoostLevel boost_priority,
                                               LLUIImage::EScaleStyle scale_style)
 {
-    if (boost_priority == LLGLTexture::BOOST_NONE)
+    if (boost_priority == LLDXTexture::BOOST_NONE)
     {
-        boost_priority = LLGLTexture::BOOST_UI;
+        boost_priority = LLDXTexture::BOOST_UI;
     }
     LLViewerFetchedTexture* imagep = LLViewerTextureManager::getFetchedTextureFromFile(filename, FTT_LOCAL_FILE, MIPMAP_NO, boost_priority);
     return loadUIImage(imagep, name, use_mips, scale_rect, clip_rect, scale_style);
@@ -2026,9 +2046,9 @@ LLUIImagePtr LLUIImageList::loadUIImageByID(const LLUUID& id,
                                             bool use_mips, const LLRect& scale_rect, const LLRect& clip_rect, LLViewerTexture::EBoostLevel boost_priority,
                                             LLUIImage::EScaleStyle scale_style)
 {
-    if (boost_priority == LLGLTexture::BOOST_NONE)
+    if (boost_priority == LLDXTexture::BOOST_NONE)
     {
-        boost_priority = LLGLTexture::BOOST_UI;
+        boost_priority = LLDXTexture::BOOST_UI;
     }
     LLViewerFetchedTexture* imagep = LLViewerTextureManager::getFetchedTexture(id, FTT_DEFAULT, MIPMAP_NO, boost_priority);
     return loadUIImage(imagep, id.asString(), use_mips, scale_rect, clip_rect, scale_style);
@@ -2047,9 +2067,9 @@ LLUIImagePtr LLUIImageList::loadUIImage(LLViewerFetchedTexture* imagep, const st
     LLUIImagePtr new_imagep = new LLUIImage(name, imagep);
     new_imagep->setScaleStyle(scale_style);
 
-    if (imagep->getBoostLevel() != LLGLTexture::BOOST_ICON
-        && imagep->getBoostLevel() != LLGLTexture::BOOST_THUMBNAIL
-        && imagep->getBoostLevel() != LLGLTexture::BOOST_PREVIEW)
+    if (imagep->getBoostLevel() != LLDXTexture::BOOST_ICON
+        && imagep->getBoostLevel() != LLDXTexture::BOOST_THUMBNAIL
+        && imagep->getBoostLevel() != LLDXTexture::BOOST_PREVIEW)
     {
         // Don't add downloadable content into this list
         // all UI images are non-deletable and list does not support deletion
@@ -2061,7 +2081,7 @@ LLUIImagePtr LLUIImageList::loadUIImage(LLViewerFetchedTexture* imagep, const st
     //Note:
     //Some other textures such as ICON also through this flow to be fetched.
     //But only UI textures need to set this callback.
-    if(imagep->getBoostLevel() == LLGLTexture::BOOST_UI)
+    if(imagep->getBoostLevel() == LLDXTexture::BOOST_UI)
     {
         LLUIImageLoadData* datap = new LLUIImageLoadData;
         datap->mImageName = name;
@@ -2083,7 +2103,7 @@ LLUIImagePtr LLUIImageList::preloadUIImage(const std::string& name, const std::s
         LL_ERRS() << "UI Image " << name << " already loaded." << LL_ENDL;
     }
 
-    return loadUIImageByName(name, filename, use_mips, scale_rect, clip_rect, LLGLTexture::BOOST_UI, scale_style);
+    return loadUIImageByName(name, filename, use_mips, scale_rect, clip_rect, LLDXTexture::BOOST_UI, scale_style);
 }
 
 //static

@@ -209,7 +209,21 @@ extern SimMeasurement<F64Megabytes >	SIM_PHYSICS_MEM;
 
 
 extern LLTrace::SampleStatHandle<F64Milliseconds >	FRAMETIME_JITTER,
-													SIM_PING;
+													FRAMETIME,
+													SIM_PING,
+													FRAMETIME_JITTER_99TH,
+													FRAMETIME_JITTER_95TH,
+													FRAMETIME_99TH,
+													FRAMETIME_95TH,
+													FRAMETIME_JITTER_CUMULATIVE,
+													FRAMETIME_JITTER_STDDEV,
+													FRAMETIME_STDDEV;
+
+extern LLTrace::SampleStatHandle<U32>				FRAMETIME_JITTER_EVENTS,
+													FRAMETIME_JITTER_EVENTS_PER_MINUTE,
+													FRAMETIME_JITTER_EVENTS_LAST_MINUTE;
+
+extern LLTrace::SampleStatHandle<F64> NFTV;
 
 extern LLTrace::EventStatHandle<LLUnit<F64, LLUnits::Meters> > AGENT_POSITION_SNAP;
 
@@ -228,6 +242,8 @@ extern LLTrace::EventStatHandle<F64Seconds >	AVATAR_EDIT_TIME,
                                                                 MOUSELOOK_TIME;
 
 extern LLTrace::EventStatHandle<LLUnit<F32, LLUnits::Percent> > OBJECT_CACHE_HIT_RATE;
+
+extern LLTrace::SampleStatHandle<U64> DOFRAME_TIME_US;
 
 extern LLTrace::SampleStatHandle<F64> NOTRMALIZED_FRAMETIME_JITTER_SESSION;
 extern LLTrace::SampleStatHandle<F64> NORMALIZED_FRAMTIME_JITTER_PERIOD;

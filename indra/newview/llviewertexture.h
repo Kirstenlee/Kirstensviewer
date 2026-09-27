@@ -28,7 +28,7 @@
 #define LL_LLVIEWERTEXTURE_H
 
 #include "llatomic.h"
-#include "llgltexture.h"
+#include "lldxtexture.h"
 #include "lltimer.h"
 #include "llframetimer.h"
 #include "llhost.h"
@@ -43,7 +43,7 @@
 #include <list>
 
 class LLFace;
-class LLImageGL ;
+class LLImageDX ;
 class LLImageRaw;
 class LLViewerObject;
 class LLViewerTexture;
@@ -90,7 +90,7 @@ public:
 
 class LLTextureBar;
 
-class LLViewerTexture : public LLGLTexture
+class LLViewerTexture : public LLDXTexture
 {
 public:
     enum
@@ -116,6 +116,8 @@ public:
     static void updateClass();
     static bool isSystemMemoryLow();
     static bool isSystemMemoryCritical();
+
+    // Ranges from 1 (no RAM deficit) to 2 (RAM deficit)
     static F32 getSystemMemoryBudgetFactor();
 
     LLViewerTexture(bool usemipmaps = true);
@@ -229,17 +231,13 @@ public:
     static bool sFreezeImageUpdates;
     static F32  sCurrentTime ;
 
-    // S24 (2026-08-24, task #258): "headroom" against the allocator's target -
-    // target minus sVRAMUsedMegabytes. NOT actual free VRAM - a self-imposed
-    // target minus real tracked usage. Can go negative (over target); the
-    // greedy allocator (LLViewerTextureList::runVRAMBudgetAllocation()) is what
-    // actually reacts to this, not a ramped bias scalar.
+    // "Headroom" against the allocator's target (target minus sVRAMUsedMegabytes) - NOT actual free
+    // VRAM. Can go negative (over target); LLViewerTextureList::runVRAMBudgetAllocation() is the
+    // greedy allocator that reacts to this.
     static F32 sFreeVRAMMegabytes;
 
-    // S24 (2026-08-24, task #258): exact sum of tracked texture + vertex bytes
-    // this frame - not a poll, not an estimate, no fudge factor. There is only
-    // ONE `used` formula now (see updateClass()) so this can never disagree
-    // with itself the way the old Live/Est split could.
+    // Exact sum of tracked texture + vertex bytes this frame - not a poll or estimate. Only ONE
+    // `used` formula now (see updateClass()).
     static F32 sVRAMUsedMegabytes;
 
     // The budget sVRAMUsedMegabytes is being compared against - live DXGI Budget
@@ -253,17 +251,19 @@ public:
     // updateClass()). Diagnostics read this directly rather than re-deriving it.
     static F32 sVRAMAllocatorBudgetMegabytes;
 
-    // S24 (eviction tuning): sVRAMAllocatorBudgetMegabytes * RenderVRAMSoftPressureFraction.
-    // A cut, once genuinely triggered (usage over sVRAMAllocatorBudgetMegabytes),
-    // aims down to THIS line instead of the hard budget - real headroom on
-    // every pass instead of landing exactly on the edge (see
-    // runVRAMBudgetAllocation()).
+    // sVRAMAllocatorBudgetMegabytes * RenderVRAMSoftPressureFraction. A triggered cut aims down to
+    // THIS line instead of the hard budget, leaving real headroom instead of landing exactly on the
+    // edge (see runVRAMBudgetAllocation()).
     static F32 sVRAMAllocatorSoftTargetMegabytes;
 
     // How many of the pass's cut-eligible candidates actually got trimmed, and
     // how many were eligible in total - texture console diagnostics.
     static U32 sVRAMAllocatorLastCutCount;
     static U32 sVRAMAllocatorCandidateCount;
+
+    // Hysteretic system-RAM pressure factor (1 = no deficit, 2 = deficit), updated once per
+    // frame in updateClass() - see getSystemMemoryBudgetFactor(). Decoupled from VRAM.
+    static F32 sSysMemoryFactor;
 
     enum EDebugTexels
     {
@@ -353,7 +353,7 @@ public:
 
     //call to determine if createTexture is necessary
     bool preCreateTexture(S32 usename = 0);
-     // ONLY call from LLViewerTextureList or ImageGL background thread
+     // ONLY call from LLViewerTextureList or ImageDX background thread
     bool createTexture(S32 usename = 0);
     void postCreateTexture();
     void scheduleCreateTexture();
@@ -373,22 +373,16 @@ public:
     S32  getDesiredDiscardLevel()            { return mDesiredDiscardLevel; }
     void setMinDiscardLevel(S32 discard)    { mMinDesiredDiscardLevel = llmin(mMinDesiredDiscardLevel,(S8)discard); }
 
-    // S24 (2026-08-24, task #258): set by LLViewerTextureList::
-    // runVRAMBudgetAllocation() - see mVRAMForcedDiscardLevel's own comment.
+    // Set by LLViewerTextureList::runVRAMBudgetAllocation() - see mVRAMForcedDiscardLevel's own comment.
     void setVRAMForcedDiscardLevel(S32 discard) const { mVRAMForcedDiscardLevel = (S8)discard; }
     S32 getVRAMForcedDiscardLevel() const             { return mVRAMForcedDiscardLevel; }
 
-    // S24 (2026-08-24, task #260): mNeedsCreateTexture is already the
-    // codebase's own atomic (LLAtomicBool) signal that this texture's
-    // LLImageGL fields (mWidth/mHeight/mFormatPrimary/mCurrentDiscardLevel)
-    // may currently be getting written by a DXImageThread worker thread
-    // inside createGLTexture() - set true before scheduleCreateTexture()
-    // posts the work, cleared only by postCreateTexture() back on the main
-    // thread once the worker's call has fully returned. Exposed read-only so
-    // runVRAMBudgetAllocation() can skip a texture while it's mid-creation
-    // instead of racing those unsynchronized field reads. Not const:
-    // LLAtomicBool's own operator Type() is non-const (a live atomic read,
-    // not a logically-const query).
+    // mNeedsCreateTexture is the atomic (LLAtomicBool) signal that this texture's LLImageDX fields may
+    // currently be getting written by a DXImageThread worker inside createGLTexture() - set before
+    // scheduleCreateTexture() posts the work, cleared by postCreateTexture() on the main thread once
+    // the worker's call returns. Exposed read-only so runVRAMBudgetAllocation() can skip a
+    // mid-creation texture instead of racing those unsynchronized field reads. Not const:
+    // LLAtomicBool's operator Type() is a live atomic read, not a logically-const query.
     bool isCreateTexturePending() { return mNeedsCreateTexture; }
 
     void setBoostLevel(S32 level) override;
@@ -510,13 +504,10 @@ protected:
     S8  mDesiredDiscardLevel;           // The discard level we'd LIKE to have - if we have it and there's space
     S8  mMinDesiredDiscardLevel;    // The minimum discard level we'd like to have
 
-    // S24 (2026-08-24, task #258): -1 = the VRAM budget allocator has not cut
-    // this texture this pass; else the discard level it mandates until its
-    // next pass (~0.5s later). Reset to -1 at the top of every
-    // runVRAMBudgetAllocation() pass - no persistent drift between passes.
-    // Applied in processTextureStats() as a floor, always itself capped by
-    // mMinDesiredDiscardLevel - an explicit per-texture protection always
-    // wins over a global budget cut.
+    // -1 = the VRAM budget allocator has not cut this texture this pass; else the discard level it
+    // mandates until its next pass (~0.5s). Reset to -1 at the top of every runVRAMBudgetAllocation()
+    // pass. Applied in processTextureStats() as a floor, capped by mMinDesiredDiscardLevel so an
+    // explicit per-texture protection always wins over a global budget cut.
     mutable S8 mVRAMForcedDiscardLevel = -1;
 
     bool mNeedsAux;                 // We need to decode the auxiliary channels
@@ -600,14 +591,11 @@ public:
     void processTextureStats() override;
     bool isUpdateFrozen() ;
 
-    // S24 (2026-08-24, task #258): pure, side-effect-free extraction of
-    // processTextureStats()'s log4 "how many mip texels needed to cover this
-    // many screen pixels" formula - same math, just callable without
-    // triggering processTextureStats()'s other side effects (mutating
-    // mDesiredDiscardLevel directly, calling scaleDown()). Used by
-    // LLViewerTextureList::runVRAMBudgetAllocation() to ask "what would this
-    // texture naturally want" for every candidate in one pass, without
-    // disturbing per-texture state until the allocator has decided.
+    // Pure, side-effect-free extraction of processTextureStats()'s log4 "how many mip texels needed to
+    // cover this many screen pixels" formula, callable without triggering that function's other side
+    // effects (mutating mDesiredDiscardLevel, calling scaleDown()). Used by
+    // runVRAMBudgetAllocation() to ask "what would this texture naturally want" without disturbing
+    // per-texture state.
     S32 computeNaturalDiscardLevel() const;
 
     bool scaleDown() override;
@@ -626,7 +614,7 @@ protected:
     /*virtual*/ ~LLViewerMediaTexture() ;
 
 public:
-    LLViewerMediaTexture(const LLUUID& id, bool usemipmaps = true, LLImageGL* gl_image = NULL) ;
+    LLViewerMediaTexture(const LLUUID& id, bool usemipmaps = true, LLImageDX* gl_image = NULL) ;
 
     /*virtual*/ S8 getType() const;
     void reinit(bool usemipmaps = true);
@@ -705,12 +693,12 @@ public:
     static LLViewerFetchedTexture*    findFetchedTexture(const LLUUID& id, S32 tex_type);
     static LLViewerMediaTexture*      findMediaTexture(const LLUUID& id) ;
 
-    static LLViewerMediaTexture*      createMediaTexture(const LLUUID& id, bool usemipmaps = true, LLImageGL* gl_image = NULL) ;
+    static LLViewerMediaTexture*      createMediaTexture(const LLUUID& id, bool usemipmaps = true, LLImageDX* gl_image = NULL) ;
 
     //
     //"get-texture" will create a new texture if the texture does not exist.
     //
-    static LLViewerMediaTexture*      getMediaTexture(const LLUUID& id, bool usemipmaps = true, LLImageGL* gl_image = NULL) ;
+    static LLViewerMediaTexture*      getMediaTexture(const LLUUID& id, bool usemipmaps = true, LLImageDX* gl_image = NULL) ;
 
     static LLPointer<LLViewerTexture> getLocalTexture(bool usemipmaps = true, bool generate_gl_tex = true);
     static LLPointer<LLViewerTexture> getLocalTexture(const LLUUID& id, bool usemipmaps, bool generate_gl_tex = true) ;
@@ -722,7 +710,7 @@ public:
     static LLViewerFetchedTexture* getFetchedTexture(const LLUUID &image_id,
                                      FTType f_type = FTT_DEFAULT,
                                      bool usemipmap = true,
-                                     LLViewerTexture::EBoostLevel boost_priority = LLGLTexture::BOOST_NONE,     // Get the requested level immediately upon creation.
+                                     LLViewerTexture::EBoostLevel boost_priority = LLDXTexture::BOOST_NONE,     // Get the requested level immediately upon creation.
                                      S8 texture_type = LLViewerTexture::FETCHED_TEXTURE,
                                      LLGLint internal_format = 0,
                                      LLGLenum primary_format = 0,
@@ -732,7 +720,7 @@ public:
     static LLViewerFetchedTexture* getFetchedTextureFromFile(const std::string& filename,
                                      FTType f_type = FTT_LOCAL_FILE,
                                      bool usemipmap = true,
-                                     LLViewerTexture::EBoostLevel boost_priority = LLGLTexture::BOOST_NONE,
+                                     LLViewerTexture::EBoostLevel boost_priority = LLDXTexture::BOOST_NONE,
                                      S8 texture_type = LLViewerTexture::FETCHED_TEXTURE,
                                      LLGLint internal_format = 0,
                                      LLGLenum primary_format = 0,
@@ -742,7 +730,7 @@ public:
     static LLViewerFetchedTexture* getFetchedTextureFromUrl(const std::string& url,
                                      FTType f_type,
                                      bool usemipmap = true,
-                                     LLViewerTexture::EBoostLevel boost_priority = LLGLTexture::BOOST_NONE,
+                                     LLViewerTexture::EBoostLevel boost_priority = LLDXTexture::BOOST_NONE,
                                      S8 texture_type = LLViewerTexture::FETCHED_TEXTURE,
                                      LLGLint internal_format = 0,
                                      LLGLenum primary_format = 0,

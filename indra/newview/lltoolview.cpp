@@ -28,7 +28,7 @@
 
 #include "lltoolview.h"
 
-#include "llfontgl.h"
+#include "llfontdx.h"
 #include "llrect.h"
 
 #include "llagent.h"
@@ -87,7 +87,7 @@ LLToolView::~LLToolView()
 //      "",
 //      &LLToolView::onClickToolButton,
 //      contain,
-//      LLFontGL::getFontSansSerif());
+//      LLFontDX::getFontSansSerif());
 
 //  contain->mPanel = panel;
 //  contain->mTool = tool;
@@ -96,7 +96,7 @@ LLToolView::~LLToolView()
 //  mButtonCount++;
 
 //  const S32 LABEL_TOP_SPACING = 0;
-//  const LLFontGL* font = LLResMgr::getInstance()->getRes( LLFONT_SANSSERIF_SMALL );
+//  const LLFontDX* font = LLResMgr::getInstance()->getRes( LLFONT_SANSSERIF_SMALL );
 //  S32 label_width = font->getWidth( label );
 //  LLRect label_rect;
 //  label_rect.setLeftTopAndSize(
