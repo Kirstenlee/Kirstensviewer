@@ -34,9 +34,9 @@
 #include <algorithm>
 
 #ifdef DX_RENDER
-// S24: LLVertexBufferData::mDXImage is an LLPointer<LLImageGL>; ~LLUIImage()
-// needs LLImageGL's complete type to destroy cached display-list entries.
-#include "llimagegl.h"
+// S24: LLVertexBufferData::mDXImage is an LLPointer<LLImageDX>; ~LLUIImage()
+// needs LLImageDX's complete type to destroy cached display-list entries.
+#include "llimagedx.h"
 #endif
 
 // Static member initialization
@@ -87,10 +87,17 @@ S32 LLUIImage::getHeight() const
 
 buffer_data_list_t* LLUIImage::findDisplayList(S32 x, S32 y, S32 width, S32 height, const LLColor4& color, bool solid_color) const
 {
+    LLImageDX* gl_image = mImage->getGLTexture();
+    if (!gl_image)
+    {
+        return nullptr;
+    }
+
     LLVector3 ui_translation = gDX.getUITranslation();
     LLVector3 ui_scale = gDX.getUIScale();
+    U32 upload_gen = gl_image->getDXUploadGeneration();
 
-    auto key = PackedKey::create(x, y, width, height, color, solid_color, ui_translation, ui_scale);
+    auto key = PackedKey::create(x, y, width, height, color, solid_color, ui_translation, ui_scale, upload_gen);
 
     auto it = mDisplayLists.find(key);
     if (it != mDisplayLists.end())
@@ -103,9 +110,18 @@ buffer_data_list_t* LLUIImage::findDisplayList(S32 x, S32 y, S32 width, S32 heig
 
 buffer_data_list_t* LLUIImage::genDisplayList(S32 x, S32 y, S32 width, S32 height, const LLColor4& color, bool solid_color) const
 {
+    LLImageDX* gl_image = mImage->getGLTexture();
+    if (!gl_image)
+    {
+        // Don't cache when texture hasn't been created yet
+        // draw just aborts in this case, so don't draw either.
+        return nullptr;
+    }
+
     LLVector3 ui_translation = gDX.getUITranslation();
     LLVector3 ui_scale = gDX.getUIScale();
-    auto key = PackedKey::create(x, y, width, height, color, solid_color, ui_translation, ui_scale);
+    U32 upload_gen = gl_image->getDXUploadGeneration();
+    auto key = PackedKey::create(x, y, width, height, color, solid_color, ui_translation, ui_scale, upload_gen);
 
     CachedDisplayList cached;
     cached.last_used = std::chrono::steady_clock::now();
@@ -113,7 +129,7 @@ buffer_data_list_t* LLUIImage::genDisplayList(S32 x, S32 y, S32 width, S32 heigh
     // Generate the display list by capturing the draw commands
     gDX.beginList(&cached.list);
 
-    gl_draw_scaled_image_with_border(
+    dx_draw_scaled_image_with_border(
         x, y,
         width, height,
         mImage,
@@ -287,7 +303,7 @@ void LLUIImage::draw3D(const LLVector3& origin_agent, const LLVector3& x_axis, c
                             mClipRegion.mBottom + mScaleRegion.mTop * mClipRegion.getHeight(),
                             mClipRegion.mLeft + mScaleRegion.mRight * mClipRegion.getWidth(),
                             mClipRegion.mBottom + mScaleRegion.mBottom * mClipRegion.getHeight());
-        gl_segmented_rect_3d_tex(mClipRegion,
+        dx_segmented_rect_3d_tex(mClipRegion,
                                 center_uv_rect,
                                 LLRectf(border_width * border_scale * 0.5f / (F32)rect.getWidth(),
                                         (rect.getHeight() - (border_height * border_scale * 0.5f)) / (F32)rect.getHeight(),

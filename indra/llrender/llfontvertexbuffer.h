@@ -1,5 +1,5 @@
 /**
- * @file llfontgl.h
+ * @file llfontvertexbuffer.h
  * @author Andrii Kleshchev
  * @brief Buffer storage for font rendering.
  *
@@ -28,7 +28,7 @@
 #ifndef LL_LLFONTVERTEXBUFFER_H
 #define LL_LLFONTVERTEXBUFFER_H
 
-#include "llfontgl.h"
+#include "llfontdx.h"
 
 class LLVertexBufferData;
 
@@ -40,40 +40,40 @@ public:
 
     void reset();
 
-    S32 render(const LLFontGL* fontp,
+    S32 render(const LLFontDX* fontp,
         const LLWString& text,
         S32 begin_offset,
         LLRect rect,
         const LLColor4& color,
-        LLFontGL::HAlign halign = LLFontGL::LEFT, LLFontGL::VAlign valign = LLFontGL::BASELINE,
-        U8 style = LLFontGL::NORMAL,
-        LLFontGL::ShadowType shadow = LLFontGL::NO_SHADOW,
+        LLFontDX::HAlign halign = LLFontDX::LEFT, LLFontDX::VAlign valign = LLFontDX::BASELINE,
+        U8 style = LLFontDX::NORMAL,
+        LLFontDX::ShadowType shadow = LLFontDX::NO_SHADOW,
         S32 max_chars = S32_MAX, S32 max_pixels = S32_MAX,
         F32* right_x = NULL,
         bool use_ellipses = false,
         bool use_color = true);
 
-    S32 render(const LLFontGL* fontp,
+    S32 render(const LLFontDX* fontp,
         const LLWString& text,
         S32 begin_offset,
         LLRectf rect,
         const LLColor4& color,
-        LLFontGL::HAlign halign = LLFontGL::LEFT, LLFontGL::VAlign valign = LLFontGL::BASELINE,
-        U8 style = LLFontGL::NORMAL,
-        LLFontGL::ShadowType shadow = LLFontGL::NO_SHADOW,
+        LLFontDX::HAlign halign = LLFontDX::LEFT, LLFontDX::VAlign valign = LLFontDX::BASELINE,
+        U8 style = LLFontDX::NORMAL,
+        LLFontDX::ShadowType shadow = LLFontDX::NO_SHADOW,
         S32 max_chars = S32_MAX,
         F32* right_x = NULL,
         bool use_ellipses = false,
         bool use_color = true);
 
-    S32 render(const LLFontGL* fontp,
+    S32 render(const LLFontDX* fontp,
         const LLWString& text,
         S32 begin_offset,
         F32 x, F32 y,
         const LLColor4& color,
-        LLFontGL::HAlign halign = LLFontGL::LEFT, LLFontGL::VAlign valign = LLFontGL::BASELINE,
-        U8 style = LLFontGL::NORMAL,
-        LLFontGL::ShadowType shadow = LLFontGL::NO_SHADOW,
+        LLFontDX::HAlign halign = LLFontDX::LEFT, LLFontDX::VAlign valign = LLFontDX::BASELINE,
+        U8 style = LLFontDX::NORMAL,
+        LLFontDX::ShadowType shadow = LLFontDX::NO_SHADOW,
         S32 max_chars = S32_MAX, S32 max_pixels = S32_MAX,
         F32* right_x = NULL,
         bool use_ellipses = false,
@@ -82,14 +82,14 @@ public:
     static void enableBufferCollection(bool enable) { sEnableBufferCollection = enable; }
 private:
 
-    void genBuffers(const LLFontGL* fontp,
+    void genBuffers(const LLFontDX* fontp,
          const LLWString& text,
          S32 begin_offset,
          F32 x, F32 y,
          const LLColor4& color,
-         LLFontGL::HAlign halign, LLFontGL::VAlign valign,
+         LLFontDX::HAlign halign, LLFontDX::VAlign valign,
          U8 style,
-        LLFontGL::ShadowType shadow,
+        LLFontDX::ShadowType shadow,
          S32 max_chars, S32 max_pixels,
          F32* right_x,
          bool use_ellipses,
@@ -99,20 +99,20 @@ private:
 
     std::list<LLVertexBufferData> mBufferList;
     S32 mChars = 0;
-    const LLFontGL *mLastFont = nullptr;
+    const LLFontDX *mLastFont = nullptr;
     S32 mLastOffset = 0;
     S32 mLastMaxChars = 0;
     S32 mLastMaxPixels = 0;
     F32 mLastX = 0.f;
     F32 mLastY = 0.f;
     LLColor4 mLastColor;
-    LLFontGL::HAlign mLastHalign = LLFontGL::LEFT;
-    LLFontGL::VAlign mLastValign = LLFontGL::BASELINE;
-    U8 mLastStyle = LLFontGL::NORMAL;
-    LLFontGL::ShadowType mLastShadow = LLFontGL::NO_SHADOW;
+    LLFontDX::HAlign mLastHalign = LLFontDX::LEFT;
+    LLFontDX::VAlign mLastValign = LLFontDX::BASELINE;
+    U8 mLastStyle = LLFontDX::NORMAL;
+    LLFontDX::ShadowType mLastShadow = LLFontDX::NO_SHADOW;
     F32 mLastRightX = 0.f;
 
-    // LLFontGL's statics
+    // LLFontDX's statics
     F32 mLastScaleX = 1.f;
     F32 mLastScaleY = 1.f;
     F32 mLastVertDPI = 0.f;
@@ -141,7 +141,7 @@ public:
 
     void reset();
 
-    F32 getWidth(const LLFontGL* fontp,
+    F32 getWidth(const LLFontDX* fontp,
         const llwchar* wchars,
         S32 begin_offset,
         S32 max_chars,
@@ -149,13 +149,13 @@ public:
 
     static void enableBufferCollection(bool enable) { sEnableBufferCollection = enable; }
 private:
-        const LLFontGL* mLastFont = nullptr;
+        const LLFontDX* mLastFont = nullptr;
         S32 mLastOffset = 0;
         S32 mLastMaxChars = 0;
         bool mLastNoPadding = false;
         F32 mWidth = -1.f;
 
-        // LLFontGL's values that affect width calculation
+        // LLFontDX's values that affect width calculation
         F32 mLastScaleX = 1.f;
         F32 mLastScaleY = 1.f;
         F32 mLastVertDPI = 0.f;

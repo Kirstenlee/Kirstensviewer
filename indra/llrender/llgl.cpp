@@ -1071,8 +1071,6 @@ bool LLGLManager::initGLDX()
     mHasCubeMapArray = true;
     mHasTransformFeedback = true;
     mHasDebugOutput = true;
-    mHasAnisotropic = true;
-    mMaxAnisotropy = 16.f;
 
     mGLMaxTextureSize = 16384;
     mNumTextureImageUnits = 32;

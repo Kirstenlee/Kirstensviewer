@@ -69,6 +69,15 @@ namespace
         // S24: R11G11B10_FLOAT is GL_R11F_G11F_B10F's exact DXGI equivalent -
         // same packed layout, no alpha channel in either.
         case GL_R11F_G11F_B10F: return DXGI_FORMAT_R11G11B10_FLOAT;
+        // S24: DirectComposition's IDCompositionDevice::CreateSurface only
+        // accepts a small fixed set of formats (B8G8R8A8_UNORM chief among
+        // them) - DXGI_FORMAT_R8G8B8A8_UNORM is rejected outright
+        // (E_INVALIDARG), and CopySubresourceRegion can't convert between
+        // the two (different typeless families, not just a byte swap).
+        // GL_BGRA lets a render target be allocated directly in the
+        // composition-surface-compatible channel order, so the copy in
+        // DXCompositionSurface::update() is a same-format GPU copy.
+        case GL_BGRA:      return DXGI_FORMAT_B8G8R8A8_UNORM;
         default:
             LL_WARNS("RenderTarget") << "glColorFormatToDX: unmapped GL format 0x" << std::hex << color_fmt << std::dec << ", defaulting to RGBA8" << LL_ENDL;
             return DXGI_FORMAT_R8G8B8A8_UNORM;
@@ -80,30 +89,11 @@ namespace
 LLRenderTarget* LLRenderTarget::sBoundTarget = NULL;
 U32 LLRenderTarget::sBytesAllocated = 0;
 
-void check_framebuffer_status()
-{
-#if LL_DEBUG && !defined(DX_RENDER)
-	// S24: gated on DX_RENDER too, not just LL_DEBUG - glCheckFramebufferStatus
-	// is an unresolved symbol once OpenGL is delinked.
-	if (gDebugGL)
-	{
-		GLenum status = glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER);
-		if (status != GL_FRAMEBUFFER_COMPLETE)
-		{
-			// Debug build only: log and fail hard on incomplete framebuffer
-			LL_WARNS() << "check_framebuffer_status failed -- " << std::hex << status << LL_ENDL;
-			ll_fail("check_framebuffer_status failed");
-		}
-	}
-#endif
-	// Release builds, or DX_RENDER: no-op (trust GPU allocation succeeded)
-}
-
 bool LLRenderTarget::sUseFBO = false;
 U32 LLRenderTarget::sCurFBO = 0;
 
 
-extern S32 gGLViewport[4];
+extern S32 gDXViewport[4];
 
 U32 LLRenderTarget::sCurResX = 0;
 U32 LLRenderTarget::sCurResY = 0;
@@ -128,72 +118,15 @@ void LLRenderTarget::resize(U32 resx, U32 resy)
 	if (resx == mResX && resy == mResY)
 		return;
 
-#ifdef DX_RENDER
 	mDXRenderTarget.resize(resx, resy);
 	mResX = resx;
 	mResY = resy;
-#else
-	// Pixel delta for memory accounting
-	const S32 pix_diff = static_cast<S32>(resx) * static_cast<S32>(resy)
-		- static_cast<S32>(mResX) * static_cast<S32>(mResY);
-
-	mResX = resx;
-	mResY = resy;
-
-	llassert(mInternalFormat.size() == mTex.size());
-
-	const U32 internal_type = LLTexUnit::getInternalType(mUsage);
-
-	// Resize color attachments
-	for (size_t i = 0; i < mTex.size(); ++i)
-	{
-		gDX.getTexUnit(0)->bindManual(mUsage, mTex[i]);
-		LLImageGL::setManualImage(
-			internal_type,
-			0,
-			mInternalFormat[i],
-			mResX,
-			mResY,
-			GL_RGBA,
-			GL_UNSIGNED_BYTE,
-			nullptr,
-			false
-		);
-		sBytesAllocated += pix_diff * 4;
-	}
-
-	// Resize depth attachment if present
-	if (mDepth)
-	{
-		gDX.getTexUnit(0)->bindManual(mUsage, mDepth);
-		LLImageGL::setManualImage(
-			internal_type,
-			0,
-			GL_DEPTH_COMPONENT24,
-			mResX,
-			mResY,
-			GL_DEPTH_COMPONENT,
-			GL_UNSIGNED_INT,
-			nullptr,
-			false
-		);
-		sBytesAllocated += pix_diff * 4;
-	}
-#endif // DX_RENDER
 }
 
 bool LLRenderTarget::allocate(U32 resx, U32 resy, U32 color_fmt, bool depth, LLTexUnit::eTextureType usage, LLTexUnit::eTextureMipGeneration generateMipMaps)
 {
 	llassert(usage == LLTexUnit::TT_TEXTURE);
 	llassert(!isBoundInStack());
-
-#ifndef DX_RENDER
-	// gGLManager.mGLMaxTextureSize defaults to 0 and is only ever populated
-	// by real GL init (glGetIntegerv), which never happens under DX_RENDER -
-	// clamping against it there would zero out every render target.
-	resx = llmin(resx, (U32)gGLManager.mGLMaxTextureSize);
-	resy = llmin(resy, (U32)gGLManager.mGLMaxTextureSize);
-#endif
 
 	release();
 
@@ -210,7 +143,6 @@ bool LLRenderTarget::allocate(U32 resx, U32 resy, U32 color_fmt, bool depth, LLT
 		mMipLevels = 1 + (U32)floor(log10((float)llmax(mResX, mResY)) / log10(2.0));
 	}
 
-#ifdef DX_RENDER
 	// S24: color_fmt==0 is an established "no color attachment, depth-only"
 	// convention (pipeline.cpp's shadow[i]/mSpotShadow[i] allocations) -
 	// route it straight to DXGI_FORMAT_UNKNOWN rather than through
@@ -218,33 +150,10 @@ bool LLRenderTarget::allocate(U32 resx, U32 resy, U32 color_fmt, bool depth, LLT
 	// allocate() skips creating a color attachment when it sees
 	// DXGI_FORMAT_UNKNOWN.
 	return mDXRenderTarget.allocate(resx, resy, color_fmt == 0 ? DXGI_FORMAT_UNKNOWN : glColorFormatToDX(color_fmt), depth);
-#else
-	if (depth)
-	{
-		if (!allocateDepth())
-		{
-			return false;
-		}
-	}
-
-	glGenFramebuffers(1, (GLuint*)&mFBO);
-
-	if (mDepth)
-	{
-		glBindFramebuffer(GL_FRAMEBUFFER, mFBO);
-
-		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, LLTexUnit::getInternalType(mUsage), mDepth, 0);
-
-		glBindFramebuffer(GL_FRAMEBUFFER, sCurFBO);
-	}
-
-	return addColorAttachment(color_fmt);
-#endif // DX_RENDER
 }
 
-void LLRenderTarget::setColorAttachment(LLImageGL* img, LLGLuint use_name)
+void LLRenderTarget::setColorAttachment(LLImageDX* img, LLGLuint use_name)
 {
-#ifdef DX_RENDER
 	// S24: real gap, not yet closed - DXRenderTarget can't render into an
 	// arbitrary externally-owned DXTexture, only its own. Only known caller
 	// (LLDrawPoolBump's bump-map to normal-map conversion) already skips
@@ -257,67 +166,12 @@ void LLRenderTarget::setColorAttachment(LLImageGL* img, LLGLuint use_name)
 		LL_WARNS("RenderTarget") << "LLRenderTarget::setColorAttachment: not supported under DX_RENDER - caller must skip this render target under DX_RENDER instead." << LL_ENDL;
 	}
 	return;
-#else
-	llassert(img != nullptr); // img must not be null
-	llassert(sUseFBO); // FBO support must be enabled
-	llassert(mDepth == 0); // depth buffers not supported with this mode
-	llassert(mTex.empty()); // mTex must be empty with this mode (binding target should be done via LLImageGL)
-	llassert(!isBoundInStack());
-
-	if (mFBO == 0)
-	{
-		glGenFramebuffers(1, (GLuint*)&mFBO);
-	}
-
-	mResX = img->getWidth();
-	mResY = img->getHeight();
-	mUsage = img->getTarget();
-
-	if (use_name == 0)
-	{
-		use_name = img->getTexName();
-	}
-
-	mTex.push_back(use_name);
-
-	glBindFramebuffer(GL_FRAMEBUFFER, mFBO);
-	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
-		LLTexUnit::getInternalType(mUsage), use_name, 0);
-
-	check_framebuffer_status();
-
-	glBindFramebuffer(GL_FRAMEBUFFER, sCurFBO);
-#endif // DX_RENDER
 }
 
 void LLRenderTarget::releaseColorAttachment()
 {
-#ifdef DX_RENDER
 	// Mirrors setColorAttachment()'s DX_RENDER no-op above - see its comment.
 	return;
-#else
-	// Preconditions: not bound, single color attachment, valid FBO
-	llassert(!isBoundInStack());
-	llassert(mTex.size() == 1);
-	llassert(mFBO != 0);
-
-	if (mTex.empty())
-		return; // nothing to release
-
-	const U32 internal_type = LLTexUnit::getInternalType(mUsage);
-
-	glBindFramebuffer(GL_FRAMEBUFFER, mFBO);
-	glFramebufferTexture2D(
-		GL_FRAMEBUFFER,
-		GL_COLOR_ATTACHMENT0,
-		internal_type,
-		0,
-		0
-	);
-	glBindFramebuffer(GL_FRAMEBUFFER, sCurFBO);
-
-	mTex.clear();
-#endif // DX_RENDER
 }
 
 bool LLRenderTarget::addColorAttachment(U32 color_fmt)
@@ -327,178 +181,33 @@ bool LLRenderTarget::addColorAttachment(U32 color_fmt)
 	if (color_fmt == 0)
 		return true; // No attachment requested
 
-#ifdef DX_RENDER
 	return mDXRenderTarget.addColorAttachment(glColorFormatToDX(color_fmt));
-#else
-	const U32 offset = static_cast<U32>(mTex.size());
-	if (offset >= 4)
-	{
-		llassert(offset < 4);
-		return false;
-	}
-	if (offset > 0 && mFBO == 0)
-	{
-		llassert(mFBO != 0);
-		return false;
-	}
-
-	U32 tex = 0;
-	LLImageGL::generateTextures(1, &tex);
-	gDX.getTexUnit(0)->bindManual(mUsage, tex);
-
-
-	const U32 internal_type = LLTexUnit::getInternalType(mUsage);
-
-	// Allocate texture storage
-	clear_glerror();
-	LLImageGL::setManualImage(
-		internal_type,
-		0,
-		color_fmt,
-		mResX,
-		mResY,
-		GL_RGBA,
-		GL_UNSIGNED_BYTE,
-		nullptr,
-		false
-	);
-	if (glGetError() != GL_NO_ERROR)
-	{
-		return false;
-	}
-
-	sBytesAllocated += mResX * mResY * 4;
-
-	// Filtering: bilinear for first attachment, point for additional
-	gDX.getTexUnit(0)->setTextureFilteringOption(
-		offset == 0 ? LLTexUnit::TFO_BILINEAR : LLTexUnit::TFO_POINT
-	);
-
-	// Address mode: mirror unless rectangular texture (ATI quirk)
-	gDX.getTexUnit(0)->setTextureAddressMode(
-		mUsage != LLTexUnit::TT_RECT_TEXTURE
-		? LLTexUnit::TAM_MIRROR
-		: LLTexUnit::TAM_CLAMP
-	);
-
-	// Attach to FBO if available
-	if (mFBO)
-	{
-		glBindFramebuffer(GL_FRAMEBUFFER, mFBO);
-		glFramebufferTexture2D(
-			GL_FRAMEBUFFER,
-			GL_COLOR_ATTACHMENT0 + offset,
-			internal_type,
-			tex,
-			0
-		);
-		check_framebuffer_status();
-		glBindFramebuffer(GL_FRAMEBUFFER, sCurFBO);
-	}
-
-	mTex.push_back(tex);
-	mInternalFormat.push_back(color_fmt);
-
-	if (gDebugGL)
-	{
-		bindTarget();
-		flush();
-	}
-
-	return true;
-#endif // DX_RENDER
 }
 
 bool LLRenderTarget::allocateDepth()
 {
-
-#ifdef DX_RENDER
 	if (!mDXRenderTarget.allocateDepth())
 	{
 		return false;
 	}
 	mUseDepth = true;
 	return true;
-#else
-	// Generate and bind depth texture
-	LLImageGL::generateTextures(1, &mDepth);
-	gDX.getTexUnit(0)->bindManual(mUsage, mDepth);
-
-	const U32 internal_type = LLTexUnit::getInternalType(mUsage);
-
-	clear_glerror();
-
-	// Allocate depth storage
-	LLImageGL::setManualImage(
-		internal_type,
-		0,
-		GL_DEPTH_COMPONENT24,
-		mResX,
-		mResY,
-		GL_DEPTH_COMPONENT,
-		GL_UNSIGNED_INT,
-		nullptr,
-		false
-	);
-
-	gDX.getTexUnit(0)->setTextureFilteringOption(LLTexUnit::TFO_POINT);
-
-	if (glGetError() != GL_NO_ERROR)
-	{
-		return false;
-	}
-
-	// Memory accounting (4 bytes per pixel for depth24 + padding)
-	sBytesAllocated += mResX * mResY * 4;
-
-	return true;
-#endif // DX_RENDER
 }
 
 void LLRenderTarget::shareDepthBuffer(LLRenderTarget& target)
 {
 	llassert(!isBoundInStack());
 
-#ifdef DX_RENDER
 	// mFBO/mDepth stay 0 under DX_RENDER (no GL resources are ever created),
 	// so the GL preconditions below would misfire - check the real DX state.
 	mDXRenderTarget.shareDepthBuffer(target.mDXRenderTarget);
 	target.mUseDepth = mUseDepth;
-#else
-	// Precondition checks
-	if (!mFBO || !target.mFBO)
-		LL_ERRS() << "Cannot share depth buffer between non-FBO render targets." << LL_ENDL;
-
-	if (target.mDepth || target.mUseDepth)
-		LL_ERRS() << "Target already has a depth buffer. Detach it first." << LL_ENDL;
-
-	// Nothing to share if we don't have a depth texture
-	if (!mDepth)
-		return;
-
-	const U32 internal_type = LLTexUnit::getInternalType(mUsage);
-
-	glBindFramebuffer(GL_FRAMEBUFFER, target.mFBO);
-	glFramebufferTexture2D(
-		GL_FRAMEBUFFER,
-		GL_DEPTH_ATTACHMENT,
-		internal_type,
-		mDepth,
-		0
-	);
-
-	check_framebuffer_status();
-	glBindFramebuffer(GL_FRAMEBUFFER, sCurFBO);
-
-	target.mUseDepth = true;
-#endif // DX_RENDER
 }
 
 void LLRenderTarget::release()
 {
 	llassert(!isBoundInStack());
 
-#ifdef DX_RENDER
 	// S24: must reset mUseDepth here - isComplete() returns
 	// `mDXRenderTarget.getNumColorAttachments() > 0 || mUseDepth`, so
 	// leaving it stale-true after release() makes isComplete() lie "still
@@ -509,68 +218,12 @@ void LLRenderTarget::release()
 	mTex.clear();
 	mInternalFormat.clear();
 	mResX = mResY = 0;
-#else
-	const size_t tex_count = mTex.size();
-	const U32 internal_type = LLTexUnit::getInternalType(mUsage);
-
-	// Depth texture teardown
-	if (mDepth)
-	{
-		LLImageGL::deleteTextures(1, &mDepth);
-		mDepth = 0;
-		sBytesAllocated -= mResX * mResY * 4;
-	}
-	else if (mFBO && mUseDepth)
-	{
-		glBindFramebuffer(GL_FRAMEBUFFER, mFBO);
-		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, internal_type, 0, 0);
-		mUseDepth = false;
-		glBindFramebuffer(GL_FRAMEBUFFER, sCurFBO);
-	}
-
-	// Extra color attachments teardown
-	if (mFBO && tex_count > 1)
-	{
-		glBindFramebuffer(GL_FRAMEBUFFER, mFBO);
-		for (size_t z = tex_count - 1; z >= 1; --z)
-		{
-			sBytesAllocated -= mResX * mResY * 4;
-			glFramebufferTexture2D(GL_FRAMEBUFFER, static_cast<GLenum>(GL_COLOR_ATTACHMENT0 + z), internal_type, 0, 0);
-			LLImageGL::deleteTextures(1, &mTex[z]);
-		}
-		glBindFramebuffer(GL_FRAMEBUFFER, sCurFBO);
-	}
-
-	// FBO teardown
-	if (mFBO)
-	{
-		if (mFBO == sCurFBO)
-		{
-			sCurFBO = 0;
-			glBindFramebuffer(GL_FRAMEBUFFER, 0);
-		}
-		glDeleteFramebuffers(1, reinterpret_cast<GLuint*>(&mFBO));
-		mFBO = 0;
-	}
-
-	// Primary color texture teardown
-	if (tex_count > 0)
-	{
-		sBytesAllocated -= mResX * mResY * 4;
-		LLImageGL::deleteTextures(1, &mTex[0]);
-	}
-
-	mTex.clear();
-	mInternalFormat.clear();
-	mResX = mResY = 0;
-#endif // DX_RENDER
 }
 
 void LLRenderTarget::bindTarget(bool bind_depth)
 {
 	llassert(!isBoundInStack());
 
-#ifdef DX_RENDER
 	// mFBO stays 0 under DX_RENDER (no GL FBO is ever created) - the
 	// mPreviousRT/sBoundTarget stack bookkeeping below is shared/backend-
 	// agnostic (DXRenderTarget deliberately has no bind-stack of its own -
@@ -578,84 +231,16 @@ void LLRenderTarget::bindTarget(bool bind_depth)
 	mDXRenderTarget.bindTarget(bind_depth);
 	mPreviousRT = sBoundTarget;
 	sBoundTarget = this;
-#else
-	(void)bind_depth; // GL's FBO depth attachment is fixed at allocate()/shareDepthBuffer() time, not per-bind
-	llassert(mFBO);
-
-	// Bind only if not already bound
-	if (sCurFBO != mFBO)
-	{
-		glBindFramebuffer(GL_FRAMEBUFFER, mFBO);
-		sCurFBO = mFBO;
-	}
-
-	static const GLenum drawbuffers[] = {
-		GL_COLOR_ATTACHMENT0,
-		GL_COLOR_ATTACHMENT1,
-		GL_COLOR_ATTACHMENT2,
-		GL_COLOR_ATTACHMENT3
-	};
-
-	const size_t tex_count = mTex.size();
-	if (tex_count == 0)
-	{
-		glDrawBuffer(GL_NONE);
-		glReadBuffer(GL_NONE);
-	}
-	else
-	{
-		glDrawBuffers(static_cast<GLsizei>(tex_count), drawbuffers);
-		glReadBuffer(GL_COLOR_ATTACHMENT0);
-	}
-
-	check_framebuffer_status();
-
-	// Only update viewport if dimensions changed
-	if (sCurResX != mResX || sCurResY != mResY)
-	{
-		glViewport(0, 0, mResX, mResY);
-		sCurResX = mResX;
-		sCurResY = mResY;
-	}
-
-	mPreviousRT = sBoundTarget;
-	sBoundTarget = this;
-#endif // DX_RENDER
 }
 
 void LLRenderTarget::clear(U32 mask_in)
 {
-
-#ifdef DX_RENDER
 	mDXRenderTarget.clear((mask_in & GL_COLOR_BUFFER_BIT) != 0, mUseDepth && (mask_in & GL_DEPTH_BUFFER_BIT) != 0);
-#else
-	llassert(mFBO);
-
-	// Build clear mask in one expression
-	const U32 mask = GL_COLOR_BUFFER_BIT | (mUseDepth ? GL_DEPTH_BUFFER_BIT : 0);
-
-#if LL_DEBUG  // keep expensive checks only in debug
-	check_framebuffer_status();
-#endif
-
-	glClear(mask & mask_in);
-
-#if LL_DEBUG
-#endif
-#endif // DX_RENDER
 }
 
 void LLRenderTarget::clearColor(float r, float g, float b, float a)
 {
-
-#ifdef DX_RENDER
 	mDXRenderTarget.clearColor(r, g, b, a);
-#else
-	// No GL caller exists yet - nothing on the GL side has hit the gap this
-	// exists for (see DXRenderTarget::clearColor()'s comment). Kept as a
-	// loud stub rather than silently doing nothing, in case that changes.
-	llassert_always(false && "LLRenderTarget::clearColor() has no GL implementation");
-#endif // DX_RENDER
 }
 
 U32 LLRenderTarget::getTexture(U32 attachment) const
@@ -671,7 +256,6 @@ U32 LLRenderTarget::getNumTextures() const
 
 void LLRenderTarget::bindTexture(U32 index, S32 channel, LLTexUnit::eTextureFilterOptions filter_options)
 {
-#ifdef DX_RENDER
 	// S24: this is THE chokepoint for binding one specific attachment of a
 	// multi-attachment render target (diffuse/specular/normal/emissive via
 	// explicit index) as an input texture - LLPipeline::bindDeferredShader()
@@ -716,17 +300,12 @@ void LLRenderTarget::bindTexture(U32 index, S32 channel, LLTexUnit::eTextureFilt
 	// S24: tell this channel's LLTexUnit what's really bound now - see the
 	// comment above. Pure bookkeeping, changes no GPU state.
 	gDX.getTexUnit(channel)->syncDXBindState((void*)srv, (void*)sampler);
-#else
-	gDX.getTexUnit(channel)->bindManual(mUsage, getTexture(index), filter_options == LLTexUnit::TFO_TRILINEAR || filter_options == LLTexUnit::TFO_ANISOTROPIC);
-	gDX.getTexUnit(channel)->setTextureFilteringOption(filter_options);
-#endif
 }
 
 void LLRenderTarget::flush()
 {
 	gDX.flush();
 
-#ifdef DX_RENDER
 	// Mip generation (mGenerateMipMaps == TMG_AUTO) has no DX_RENDER
 	// equivalent yet - matches DXTexture's "no mip chain" scoping (see its
 	// comment); not exercised by deferredScreen (allocated with TMG_NONE).
@@ -747,58 +326,25 @@ void LLRenderTarget::flush()
 		// S24: bindSwapChainBackBuffer() always sets a viewport covering the
 		// full swap chain, with no idea LLViewerWindow::mWorldViewRectRaw
 		// carves out a smaller area below the menu/location bar chrome -
-		// restore gGLViewport explicitly here, matching the GL #else branch
-		// below, or any RT stack unwind to the back buffer mid-frame widens
-		// the live D3D11 viewport back to the full window.
+		// restore gDXViewport explicitly here, or any RT stack unwind to the
+		// back buffer mid-frame widens the live D3D11 viewport back to the
+		// full window.
 		D3D11_VIEWPORT vp = {};
-		vp.TopLeftX = (float)gGLViewport[0];
-		vp.TopLeftY = (float)(gDXSwapChain.getHeight() - (gGLViewport[1] + gGLViewport[3]));
-		vp.Width = (float)gGLViewport[2];
-		vp.Height = (float)gGLViewport[3];
+		vp.TopLeftX = (float)gDXViewport[0];
+		vp.TopLeftY = (float)(gDXSwapChain.getHeight() - (gDXViewport[1] + gDXViewport[3]));
+		vp.Width = (float)gDXViewport[2];
+		vp.Height = (float)gDXViewport[3];
 		vp.MinDepth = 0.0f;
 		vp.MaxDepth = 1.0f;
 		gDXDevice.getContext()->RSSetViewports(1, &vp);
 	}
-#else
-	llassert(mFBO);
-	llassert(sCurFBO == mFBO);
-	llassert(sBoundTarget == this);
-
-	if (mGenerateMipMaps == LLTexUnit::TMG_AUTO)
-	{
-		bindTexture(0, 0, LLTexUnit::TFO_TRILINEAR);
-		glGenerateMipmap(GL_TEXTURE_2D);
-	}
-
-	if (mPreviousRT)
-	{
-		// Restore previous render target in stack
-		sBoundTarget = mPreviousRT->mPreviousRT;
-		mPreviousRT->bindTarget();
-	}
-	else
-	{
-		sBoundTarget = nullptr;
-		glBindFramebuffer(GL_FRAMEBUFFER, 0);
-		sCurFBO = 0;
-		glViewport(gGLViewport[0], gGLViewport[1], gGLViewport[2], gGLViewport[3]);
-		sCurResX = gGLViewport[2];
-		sCurResY = gGLViewport[3];
-		glReadBuffer(GL_BACK);
-		glDrawBuffer(GL_BACK);
-	}
-#endif // DX_RENDER
 }
 
 bool LLRenderTarget::isComplete() const
 {
-#ifdef DX_RENDER
 	// mTex/mDepth stay empty/0 under DX_RENDER (no GL resources are ever
 	// created) - check the real DX-side state instead.
 	return mDXRenderTarget.getNumColorAttachments() > 0 || mUseDepth;
-#else
-	return !mTex.empty() || mDepth;
-#endif // DX_RENDER
 }
 
 void LLRenderTarget::getViewport(S32* viewport)
@@ -823,22 +369,21 @@ bool LLRenderTarget::isBoundInStack() const
 void LLRenderTarget::swapFBORefs(LLRenderTarget& other)
 {
 	// Preconditions: both valid, unbound, and compatible
-	llassert(mFBO && other.mFBO);
-	llassert(sCurFBO != mFBO && sCurFBO != other.mFBO);
 	llassert(!isBoundInStack() && !other.isBoundInStack());
-
-	llassert(sUseFBO == other.sUseFBO);
 	llassert(mResX == other.mResX && mResY == other.mResY);
-	llassert(mInternalFormat == other.mInternalFormat);
-	llassert(mTex.size() == other.mTex.size());
-	llassert(mDepth == other.mDepth);
-	llassert(mUseDepth == other.mUseDepth);
-	llassert(mGenerateMipMaps == other.mGenerateMipMaps);
-	llassert(mMipLevels == other.mMipLevels);
 	llassert(mUsage == other.mUsage);
 
 	using std::swap;
+	// S24: mFBO/mTex are vestigial GL-era fields, always 0/empty under
+	// DX_RENDER (see release()) - swapping only those was a no-op on the
+	// real GPU resources. The actual D3D11 attachments live in
+	// mDXRenderTarget (real RTV/SRV/DSV pointers, no user-declared copy/move
+	// so std::swap exchanges them safely) - callers depending on this
+	// actually exchanging content (LLGLTFMaterialPreviewMgr's exposure-map
+	// hide/restore and no-AA screen/mPostPingMap swap) need that swapped,
+	// not just the dead fields.
+	swap(mDXRenderTarget, other.mDXRenderTarget);
+	swap(mUseDepth, other.mUseDepth);
 	swap(mFBO, other.mFBO);
 	swap(mTex, other.mTex);
-	// If other members are logically tied to the FBO, swap them here too
 }

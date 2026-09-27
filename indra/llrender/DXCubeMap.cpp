@@ -63,11 +63,11 @@ void DXCubeMap::initFaceTextures()
     }
 
     U32 texname = 0;
-    LLImageGL::generateTextures(1, &texname);
+    LLImageDX::generateTextures(1, &texname);
 
     for (int face = 0; face < 6; ++face)
     {
-        mImages[face] = new LLImageGL(RESOLUTION, RESOLUTION, 4, false);
+        mImages[face] = new LLImageDX(RESOLUTION, RESOLUTION, 4, false);
         mImages[face]->setTarget(mTargets[face], LLTexUnit::TT_CUBE_MAP);
         mRawImages[face] = new LLImageRaw(RESOLUTION, RESOLUTION, 4);
 
@@ -189,9 +189,9 @@ void DXCubeMap::initReflectionMap(U32 resolution, U32 components)
 {
     U32 texname = 0;
 
-    LLImageGL::generateTextures(1, &texname);
+    LLImageDX::generateTextures(1, &texname);
 
-    mImages[0] = new LLImageGL(resolution, resolution, components, true);
+    mImages[0] = new LLImageDX(resolution, resolution, components, true);
     mImages[0]->setTexName(texname);
     mImages[0]->setTarget(mTargets[0], LLTexUnit::TT_CUBE_MAP);
     gDX.getTexUnit(0)->bindManual(LLTexUnit::TT_CUBE_MAP, texname);
@@ -217,11 +217,11 @@ void DXCubeMap::initEnvironmentMap(const std::vector<LLPointer<LLImageRaw>>& raw
     }
 
     U32 texname = 0;
-    LLImageGL::generateTextures(1, &texname);
+    LLImageDX::generateTextures(1, &texname);
 
     for (int face = 0; face < 6; ++face)
     {
-        mImages[face] = new LLImageGL(resolution, resolution, components, true);
+        mImages[face] = new LLImageDX(resolution, resolution, components, true);
         mImages[face]->setTarget(mTargets[face], LLTexUnit::TT_CUBE_MAP);
         mRawImages[face] = rawimages[face];
         mImages[face]->createGLTexture(0, mRawImages[face], texname);

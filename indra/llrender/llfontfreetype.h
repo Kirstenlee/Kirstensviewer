@@ -30,7 +30,7 @@
 #include "llpointer.h"
 #include "llstl.h"
 
-#include "llimagegl.h"
+#include "llimagedx.h"
 #include "llfontbitmapcache.h"
 
 #include <unordered_map>
@@ -82,7 +82,7 @@ struct LLFontGlyphInfo
     // Metrics
     S32 mWidth;         // In pixels
     S32 mHeight;        // In pixels
-    F32 mXAdvance;      // In pixels
+    F32 mXAdvanceRaw;   // In pixels, don't use directly, use getXAdvance() for tabular numbers to work correctly.
     F32 mYAdvance;      // In pixels
 
     // Information for actually rendering

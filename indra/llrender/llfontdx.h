@@ -1,5 +1,5 @@
 /**
- * @file llfontgl.h
+ * @file llfontdx.h
  * @author Doug Soo
  * @brief Wrapper around FreeType
  *
@@ -25,12 +25,12 @@
  * $/LicenseInfo$
  */
 
-#ifndef LL_LLFONTGL_H
-#define LL_LLFONTGL_H
+#ifndef LL_LLFONTDX_H
+#define LL_LLFONTDX_H
 
 #include "llcoord.h"
 #include "llfontregistry.h"
-#include "llimagegl.h"
+#include "llimagedx.h"
 #include "llpointer.h"
 #include "llrect.h"
 #include "v2math.h"
@@ -43,7 +43,7 @@ class LLFontFreetype;
 // Structure used to store previously requested fonts.
 class LLFontRegistry;
 
-class LLFontGL
+class LLFontDX
 {
 public:
     enum HAlign
@@ -79,8 +79,8 @@ public:
         DROP_SHADOW_SOFT
     };
 
-    LLFontGL();
-    ~LLFontGL();
+    LLFontDX();
+    ~LLFontDX();
 
 
     void reset(); // Reset a font after GL cleanup.  ONLY works on an already loaded font.
@@ -183,34 +183,34 @@ public:
     static U8 getStyleFromString(const std::string &style);
     static std::string getStringFromStyle(U8 style);
 
-    static std::string nameFromFont(const LLFontGL* fontp);
-    static std::string sizeFromFont(const LLFontGL* fontp);
+    static std::string nameFromFont(const LLFontDX* fontp);
+    static std::string sizeFromFont(const LLFontDX* fontp);
 
-    static std::string nameFromHAlign(LLFontGL::HAlign align);
-    static LLFontGL::HAlign hAlignFromName(const std::string& name);
+    static std::string nameFromHAlign(LLFontDX::HAlign align);
+    static LLFontDX::HAlign hAlignFromName(const std::string& name);
 
-    static std::string nameFromVAlign(LLFontGL::VAlign align);
-    static LLFontGL::VAlign vAlignFromName(const std::string& name);
+    static std::string nameFromVAlign(LLFontDX::VAlign align);
+    static LLFontDX::VAlign vAlignFromName(const std::string& name);
 
     static void setFontDisplay(bool flag) { sDisplayFont = flag; }
 
-    static LLFontGL* getFontEmojiSmall();
-    static LLFontGL* getFontEmojiMedium();
-    static LLFontGL* getFontEmojiLarge();
-    static LLFontGL* getFontEmojiHuge();
-    static LLFontGL* getFontMonospace();
-    static LLFontGL* getFontSansSerifSmall();
-    static LLFontGL* getFontSansSerifSmallBold();
-    static LLFontGL* getFontSansSerifSmallItalic();
-    static LLFontGL* getFontSansSerif();
-    static LLFontGL* getFontSansSerifMedium();
-    static LLFontGL* getFontSansSerifBig();
-    static LLFontGL* getFontSansSerifHuge();
-    static LLFontGL* getFontSansSerifBold();
-    static LLFontGL* getFont(const LLFontDescriptor& desc);
+    static LLFontDX* getFontEmojiSmall();
+    static LLFontDX* getFontEmojiMedium();
+    static LLFontDX* getFontEmojiLarge();
+    static LLFontDX* getFontEmojiHuge();
+    static LLFontDX* getFontMonospace();
+    static LLFontDX* getFontSansSerifSmall();
+    static LLFontDX* getFontSansSerifSmallBold();
+    static LLFontDX* getFontSansSerifSmallItalic();
+    static LLFontDX* getFontSansSerif();
+    static LLFontDX* getFontSansSerifMedium();
+    static LLFontDX* getFontSansSerifBig();
+    static LLFontDX* getFontSansSerifHuge();
+    static LLFontDX* getFontSansSerifBold();
+    static LLFontDX* getFont(const LLFontDescriptor& desc);
     // Use with legacy names like "SANSSERIF_SMALL" or "OCRA"
-    static LLFontGL* getFontByName(const std::string& name);
-    static LLFontGL* getFontDefault(); // default fallback font
+    static LLFontDX* getFontByName(const std::string& name);
+    static LLFontDX* getFontDefault(); // default fallback font
 
     static std::string getFontPathLocal();
     static std::string getFontPathSystem();
@@ -234,8 +234,8 @@ private:
     friend class LLTextBillboard;
     friend class LLHUDText;
 
-    LLFontGL(const LLFontGL &source);
-    LLFontGL &operator=(const LLFontGL &source);
+    LLFontDX(const LLFontDX &source);
+    LLFontDX &operator=(const LLFontDX &source);
 
     LLFontDescriptor mFontDescriptor;
     LLPointer<LLFontFreetype> mFontFreetype;
@@ -243,14 +243,11 @@ private:
     void renderTriangle(LLVector4a* vertex_out, LLVector2* uv_out, LLColor4U* colors_out, const LLRectf& screen_rect, const LLRectf& uv_rect, const LLColor4U& color, F32 slant_amt) const;
     void drawGlyph(S32& glyph_count, LLVector4a* vertex_out, LLVector2* uv_out, LLColor4U* colors_out, const LLRectf& screen_rect, const LLRectf& uv_rect, const LLColor4U& color, U8 style, ShadowType shadow, F32 drop_shadow_fade) const;
 
-    // S24 (DXUIBatch plan, phase 1): the only rendering-facing seams in this
-    // class - isolated out of render(F32,F32,...) so a native DX11 backend
-    // (dxrender/ui/DXUIBatch, phase 4) has exactly one place each to plug
-    // into, without touching the surrounding kerning/layout/style math.
-    // Pure extraction - GL behavior is unchanged.
+    // S24: the only rendering-facing seams in this class, isolated out of
+    // render() so DXUIBatch has one place each to plug into.
     void beginTextRender() const;
     void endTextRender() const;
-    void bindGlyphTexture(LLImageGL* font_image) const;
+    void bindGlyphTexture(LLImageDX* font_image) const;
     void submitGlyphBatch(const LLVector4a* vertices, const LLVector2* uvs, const LLColor4U* colors, S32 vertex_count) const;
     void submitUnderline(F32 x0, F32 x1, F32 y, const LLColor4U& color) const;
 

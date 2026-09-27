@@ -37,9 +37,8 @@
 #include "llvertexbuffer.h"
 
 #ifdef DX_RENDER
-// S24 (2026-08-25, task #224): lluiimage.inl's cached-display-list replay
-// path (included at the bottom of this header) needs gDXUIBatch's
-// flushPending() - see that comment for why.
+// S24: lluiimage.inl's cached-display-list replay path needs gDXUIBatch's
+// flushPending().
 #include "DXUIBatch.h"
 #endif
 
@@ -105,7 +104,7 @@ public:
     LL_FORCE_INLINE void drawBorder(S32 x, S32 y, const LLColor4& color, S32 border_width) const { drawBorder(x, y, getWidth(), getHeight(), color, border_width); }
 
     // Note: draw3D is not cached with display lists because it uses world-space rendering
-    // with dynamic transforms (gl_segmented_rect_3d_tex). These calls are infrequent and
+    // with dynamic transforms (dx_segmented_rect_3d_tex). These calls are infrequent and
     // highly dynamic, making caching ineffective. The 2D UI methods benefit from caching
     // because they're called many times per frame with the same dimensions.
     void draw3D(const LLVector3& origin_agent, const LLVector3& x_axis, const LLVector3& y_axis, const LLRect& rect, const LLColor4& color);
@@ -139,6 +138,12 @@ protected:
         uint64_t dimensions;  // width and height
         uint64_t translate;   // UI offset
         uint64_t scale;       // UI scale
+        // S24: DX_RENDER has no real GL texture name to key on (LLImageDX::mTexName
+        // is a shared fake sentinel there - see llimagedx.h). Use mDXUploadGeneration
+        // instead, bumped on every real texture upload, so a discard-level change or
+        // texture recreation correctly invalidates any cached display list keyed on
+        // the old generation instead of replaying stale (now wrong) texture content.
+        uint64_t upload_gen;
 
         constexpr bool operator==(const PackedKey& other) const
         {
@@ -146,7 +151,8 @@ protected:
                 color_flags == other.color_flags &&
                 dimensions == other.dimensions &&
                 translate == other.translate &&
-                scale == other.scale;
+                scale == other.scale &&
+                upload_gen == other.upload_gen;
         }
 
         struct Hash
@@ -154,14 +160,16 @@ protected:
             std::size_t operator()(const PackedKey& key) const
             {
                 return static_cast<std::size_t>(key.position ^ key.color_flags ^
-                                               key.dimensions ^ key.translate ^ key.scale);
+                                               key.dimensions ^ key.translate ^
+                                               key.scale ^ key.upload_gen);
             }
         };
 
         // Static factory function to create PackedKey from parameters
         static constexpr PackedKey create(S32 x, S32 y, S32 width, S32 height,
                                          const LLColor4& color, bool solid_color,
-                                         const LLVector3& translate, const LLVector3& scale)
+                                         const LLVector3& translate, const LLVector3& scale,
+                                         U32 upload_generation)
         {
             auto float_to_u8 = [](F32 f) -> uint8_t {
                 return static_cast<uint8_t>(llclamp(f * 255.0f, 0.0f, 255.0f));
@@ -194,7 +202,7 @@ protected:
             uint64_t scl = (static_cast<uint64_t>(float_to_bits(scale.mV[VX])) << 32) |
                 static_cast<uint64_t>(float_to_bits(scale.mV[VY]));
 
-            return PackedKey{ pos, col, dim, trns, scl };
+            return PackedKey{ pos, col, dim, trns, scl, static_cast<uint64_t>(upload_generation) };
         }
     };
 

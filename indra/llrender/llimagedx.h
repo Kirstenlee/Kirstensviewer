@@ -1,5 +1,5 @@
 /**
- * @file llimagegl.h
+ * @file llimagedx.h
  * @brief Object for managing images and their textures
  *
  * $LicenseInfo:firstyear=2001&license=viewerlgpl$
@@ -25,8 +25,8 @@
  */
 
 
-#ifndef LL_LLIMAGEGL_H
-#define LL_LLIMAGEGL_H
+#ifndef LL_LLIMAGEDX_H
+#define LL_LLIMAGEDX_H
 
 #include "llimage.h"
 
@@ -41,11 +41,9 @@
 #include "workqueue.h"
 #include <unordered_set>
 
-#ifdef DX_RENDER
 #include "DXTexture.h"
-#endif
 
-#define LL_IMAGEGL_THREAD_CHECK 0 //set to 1 to enable thread debugging for ImageGL
+#define LL_IMAGEDX_THREAD_CHECK 0 //set to 1 to enable thread debugging for ImageDX
 
 class LLWindow;
 
@@ -56,26 +54,23 @@ class LLWindow;
 #define MEGA_BYTES_TO_BYTES(x) (((U64)(x)) << 20)  // Cast to U64 to avoid overflow for values >4GB
 #endif
 
-namespace LLImageGLMemory
+namespace LLImageDXMemory
 {
     void alloc_tex_image(U32 width, U32 height, U32 intformat, U32 count);
     void free_tex_image(U32 texName);
     void free_tex_images(U32 count, const U32* texNames);
     void free_cur_tex_image();
 
-    // S24 (2026-08-16): DX_RENDER equivalents of alloc_tex_image()/
-    // free_tex_image() above, keyed by an opaque pointer (the owning
-    // LLImageGL instance) instead of a GL texture name - under DX_RENDER
-    // every LLImageGL's mTexName is a shared fake sentinel, not a real
-    // per-texture identifier, so the texName-keyed map above can't be
-    // reused as-is. Both feed the same sTextureBytes total the GL path
-    // does - see LLImageGL.cpp's top comment for why this exists at all.
+    // S24: DX_RENDER equivalents of alloc_tex_image()/free_tex_image(),
+    // keyed by the owning LLImageDX instance rather than a GL texture name -
+    // under DX_RENDER mTexName is a shared fake sentinel, not a real
+    // per-texture identifier, so the texName-keyed map above can't be reused.
     void allocDXTextureBytes(const void* key, U64 size);
     void freeDXTextureBytes(const void* key);
 }
 
 //============================================================================
-class LLImageGL : public LLRefCount
+class LLImageDX : public LLRefCount
 {
     friend class LLTexUnit;
 public:
@@ -107,27 +102,26 @@ public:
 
     // cleanup GL state
     static void destroyGL();
-    static void dirtyTexOptions();
 
     static bool checkSize(S32 width, S32 height);
 
     //for server side use only.
-    // Not currently necessary for LLImageGL, but required in some derived classes,
+    // Not currently necessary for LLImageDX, but required in some derived classes,
     // so include for compatability
-    static bool create(LLPointer<LLImageGL>& dest, bool usemipmaps = true);
-    static bool create(LLPointer<LLImageGL>& dest, U32 width, U32 height, U8 components, bool usemipmaps = true);
-    static bool create(LLPointer<LLImageGL>& dest, const LLImageRaw* imageraw, bool usemipmaps = true);
+    static bool create(LLPointer<LLImageDX>& dest, bool usemipmaps = true);
+    static bool create(LLPointer<LLImageDX>& dest, U32 width, U32 height, U8 components, bool usemipmaps = true);
+    static bool create(LLPointer<LLImageDX>& dest, const LLImageRaw* imageraw, bool usemipmaps = true);
 
 public:
-    LLImageGL(bool usemipmaps = true, bool allow_compression = true);
-    LLImageGL(U32 width, U32 height, U8 components, bool usemipmaps = true, bool allow_compression = true);
-    LLImageGL(const LLImageRaw* imageraw, bool usemipmaps = true, bool allow_compression = true);
+    LLImageDX(bool usemipmaps = true, bool allow_compression = true);
+    LLImageDX(U32 width, U32 height, U8 components, bool usemipmaps = true, bool allow_compression = true);
+    LLImageDX(const LLImageRaw* imageraw, bool usemipmaps = true, bool allow_compression = true);
 
     // For wrapping textures created via GL elsewhere with our API only. Use with caution.
-    LLImageGL(LLGLuint mTexName, U32 components, LLGLenum target, LLGLint  formatInternal, LLGLenum formatPrimary, LLGLenum formatType, LLTexUnit::eTextureAddressMode addressMode);
+    LLImageDX(LLGLuint mTexName, U32 components, LLGLenum target, LLGLint  formatInternal, LLGLenum formatPrimary, LLGLenum formatType, LLTexUnit::eTextureAddressMode addressMode);
 
 protected:
-    virtual ~LLImageGL();
+    virtual ~LLImageDX();
 
     void analyzeAlpha(const void* data_in, U32 w, U32 h);
     void calcAlphaChannelOffsetAndStride();
@@ -138,8 +132,6 @@ public:
     bool setSize(S32 width, S32 height, S32 ncomponents, S32 discard_level = -1);
     void setComponents(S32 ncomponents) { mComponents = (S8)ncomponents ;}
     void setAllowCompression(bool allow) { mAllowCompression = allow; }
-
-    static void setManualImage(U32 target, S32 miplevel, S32 intformat, S32 width, S32 height, U32 pixformat, U32 pixtype, const void *pixels, bool allow_compression = true);
 
     bool createGLTexture() ;
     bool createGLTexture(S32 discard_level, const LLImageRaw* imageraw, S32 usename = 0, bool to_create = true,
@@ -181,60 +173,38 @@ public:
     S64  getBytes(S32 discard_level = -1) const;
     S64  getMipBytes(S32 discard_level = -1) const;
     bool getBoundRecently() const;
-    bool isJustBound() const;
     bool getHasExplicitFormat() const { return mHasExplicitFormat; }
     LLGLenum getPrimaryFormat() const { return mFormatPrimary; }
     LLGLenum getFormatType() const { return mFormatType; }
 
-    // S24 (DX_RENDER, 2026-07-30): under DX_RENDER, mTexName is never a
-    // real handle - it's set to a fake sentinel constant (1) purely so this
-    // function used to read as "true" by coincidence. Ask the real
-    // DX-side resource directly instead, so this stays correct even if
-    // that sentinel convention ever changes.
+    // S24: under DX_RENDER mTexName is a fake sentinel (1), not a real
+    // handle, so ask the real DX-side resource directly instead.
     bool getHasGLTexture() const
     {
-#ifdef DX_RENDER
         return mDXTexture.isValid();
-#else
-        return mTexName != 0;
-#endif
     }
     LLGLuint getTexName() const { return mTexName; }
 
-#ifdef DX_RENDER
-    // S24 (2026-08-06): narrow accessor for LLCubeMap's DX_RENDER path -
-    // it needs the raw per-face ID3D11Texture2D* to CopySubresourceRegion()
-    // each already-uploaded face into a real cubemap array slice (see
-    // DXCubeTexture). LLCubeMap isn't a friend of this class (unlike
-    // LLTexUnit) - a small public accessor is cleaner than growing the
-    // friend list for one narrow need.
+    // S24: narrow accessor for LLCubeMap's DX_RENDER path - needs the raw
+    // per-face ID3D11Texture2D* for CopySubresourceRegion() into a cubemap
+    // array slice. LLCubeMap isn't a friend of this class, unlike LLTexUnit.
     ID3D11Texture2D* getDXTexturePtr() const { return mDXTexture.getTexture(); }
 
-    // S24 (2026-09-09, BC7 texture-compression pipeline, task #318):
-    // monotonic counter, bumped once per real setImage() upload (see its
-    // own comment) - lets the background BC7 compressor detect a stale
-    // result (a newer discard-level upload superseded the pixel data an
-    // in-flight compression job was working from) without needing any
-    // cross-thread pointer/lifetime tracking into this object's internals.
-    // Plain U32, not atomic - only ever written from setImage() and read
-    // from upgradeToCompressedMips(), both main-thread-only calls (the
-    // background job only ever touches a captured COPY of this value taken
-    // before dispatch, never this field itself).
+    // S24: monotonic counter bumped per real setImage() upload, so the
+    // background BC7 compressor can detect a stale result (a newer upload
+    // superseded the pixel data an in-flight compression job used) without
+    // cross-thread lifetime tracking. Plain U32: written only from
+    // setImage(), read only from upgradeToCompressedMips(), both main-thread.
     U32 getDXUploadGeneration() const { return mDXUploadGeneration; }
 
-    // S24 (2026-09-09, BC7 pipeline): main-thread-only completion hook for
-    // the background BC7 compressor - swaps this texture's live GPU
-    // resource for the newly-encoded BC7 version via
-    // DXTexture::createCompressedMips() (dxrender), UNLESS `expected_generation`
-    // no longer matches getDXUploadGeneration() (a newer real upload already
-    // superseded the pixel data this compressed result was built from - the
-    // caller must silently discard in that case, not retry or warn, this is
-    // an expected/normal race between compression latency and ordinary
-    // discard-level streaming, not an error). Returns false (no-op) on a
-    // stale generation OR on any underlying createCompressedMips() failure -
-    // callers must treat both identically (texture stays as it already is,
-    // uncompressed - this feature is a pure VRAM optimization, never load-
-    // bearing for correctness/visibility).
+    // S24: main-thread-only completion hook for the background BC7
+    // compressor - swaps in the newly-encoded BC7 resource via
+    // DXTexture::createCompressedMips(), unless `expected_generation` no
+    // longer matches getDXUploadGeneration() (a newer upload superseded the
+    // source pixel data - expected race, caller silently discards). Returns
+    // false on a stale generation or any createCompressedMips() failure;
+    // texture stays uncompressed either way - pure VRAM optimization, never
+    // load-bearing for correctness.
     bool upgradeToCompressedMips(const std::vector<DXCompressedMipData>& mips, DXGI_FORMAT format, U32 expected_generation)
     {
         if (mDXUploadGeneration != expected_generation)
@@ -246,22 +216,11 @@ public:
             return false;
         }
 
-        // S24 (2026-09-09, task #318): real gap found live - this used to
-        // stop right after the swap above, leaving mTextureMemory (and the
-        // sTextureBytes fallback VRAM-pressure total it feeds via
-        // LLImageGLMemory::allocDXTextureBytes(), see that function's own
-        // comment) at whatever setImage() computed for the ORIGINAL
-        // uncompressed upload - a plain formula
-        // (getMipBytes()/width*height*components*mip-chain-factor), never
-        // touched again by anything in the BC7 pipeline. The compression
-        // itself was working perfectly (log-confirmed: 371/371 applied,
-        // consistent 75% real reduction, 776MB -> 194MB in one test scene)
-        // but every UI/stat surface reading getTextureMemory() (the Texture
-        // Console among them) kept reporting the pre-compression size
-        // forever, making a real ~580MB-per-scene saving look like it did
-        // almost nothing. 16 bytes per 4x4 BC7 block, per mip, summed -
-        // matches the exact SysMemPitch math DXTexture::createCompressedMips()
-        // itself already uses.
+        // S24: mTextureMemory (and the sTextureBytes total it feeds via
+        // LLImageDXMemory::allocDXTextureBytes()) must be updated to the
+        // real compressed size here, or every VRAM stat keeps reporting the
+        // pre-compression size forever. 16 bytes per 4x4 BC7 block, per mip,
+        // summed - matches DXTexture::createCompressedMips()'s own math.
         U64 compressed_bytes = 0;
         for (const auto& mip : mips)
         {
@@ -270,19 +229,15 @@ public:
             compressed_bytes += blocks_wide * blocks_high * 16;
         }
         mTextureMemory = (S64Bytes)compressed_bytes;
-        LLImageGLMemory::allocDXTextureBytes(this, compressed_bytes);
+        LLImageDXMemory::allocDXTextureBytes(this, compressed_bytes);
 
         return true;
     }
 
-    // S24 (2026-09-09, BC7 pipeline): whether this instance's caller opted
-    // out of compression via the existing allow_compression constructor
-    // arg/setAllowCompression() - already correctly set false by e.g.
-    // LLFontBitmapCache for glyph atlases (llfontbitmapcache.cpp) before
-    // this feature existed; reused as-is rather than inventing a second,
-    // parallel eligibility flag.
+    // S24: whether this instance opted out of compression via the
+    // allow_compression constructor arg/setAllowCompression() - e.g.
+    // LLFontBitmapCache sets this false for glyph atlases.
     bool getAllowCompression() const { return mAllowCompression; }
-#endif
 
     bool getIsAlphaMask() const;
 
@@ -300,8 +255,6 @@ public:
     void updatePickMask(S32 width, S32 height, const U8* data_in);
     bool getMask(const LLVector2 &tc);
 
-    void checkTexSize(bool forced = false) const ;
-
     // Sets the addressing mode used to sample the texture
     //  (such as wrapping, mirrored wrapping, and clamp)
     // Note: this actually gets set the next time the texture is bound.
@@ -317,11 +270,11 @@ public:
     LLGLenum getTexTarget()const { return mTarget; }
 
     void init(bool usemipmaps, bool allow_compression);
-    virtual void cleanup(); // Clean up the LLImageGL so it can be reinitialized.  Be careful when using this in derived class destructors
+    virtual void cleanup(); // Clean up the LLImageDX so it can be reinitialized.  Be careful when using this in derived class destructors
 
     void setNeedsAlphaAndPickMask(bool need_mask);
 
-#if LL_IMAGEGL_THREAD_CHECK
+#if LL_IMAGEDX_THREAD_CHECK
     // thread debugging
     std::thread::id mActiveThread;
     void checkActiveThread();
@@ -342,7 +295,45 @@ public:
 private:
     U32 createPickMask(S32 pWidth, S32 pHeight);
     void freePickMask();
-    bool isCompressed() const;
+
+    // S24: does mFormatPrimary declare a pre-compressed SOURCE format
+    // (S3TC/DXT1/3/5)? Answers "which DXTexture upload path applies to NEW
+    // incoming pixel data" - a property of the caller's declared format,
+    // not of whatever GPU resource currently exists. See
+    // isGpuResourceCompressed() for the different, DX-native question of
+    // current GPU state.
+    bool isSourceFormatCompressed() const;
+
+    // S24: is the CURRENTLY-RESIDENT GPU resource block-compressed right
+    // now? Delegates to DXTexture's own real, always-correct state -
+    // unlike isSourceFormatCompressed()/mFormatPrimary, this correctly
+    // reflects a background BC7 upgrade
+    // (DXBC7UploadManager::requestUpgrade() -> upgradeToCompressedMips()),
+    // which never touches mFormatPrimary.
+    bool isGpuResourceCompressed() const { return mDXTexture.isValid() && mDXTexture.isCompressedFormat(); }
+
+    // S24: does mFormatPrimary declare a single-channel ALPHA-only source
+    // (e.g. terrain's alpha_ramp gradients, storing data in the alpha
+    // channel rather than luminance/RGB)? Threaded through to
+    // DXTexture::create()/updateSubImage()'s alpha_only param - GL has no
+    // equivalent parameter, it infers this from the format enum natively.
+    bool isAlphaOnlyFormat() const { return mFormatPrimary == GL_ALPHA; }
+
+    // S24: does mFormatPrimary declare a BGRA-ordered source (CEF's native
+    // OnPaint buffer format)? GL reorders natively via glTexImage2D's
+    // format param; DXTexture has no equivalent and must swap R/B itself -
+    // see its own `bgra` param comment.
+    bool isBGRAFormat() const { return mFormatPrimary == GL_BGRA; }
+
+    // S24: sanity-checks a caller-declared explicit format (setExplicitFormat())
+    // against mComponents - catches a caller that set an explicit format enum
+    // inconsistent with the component count it also declared (e.g. GL_RGBA
+    // with only 3 components).
+    bool isExplicitFormatMismatched() const
+    {
+        return (mFormatPrimary == GL_RGBA && mComponents < 4) ||
+               (mFormatPrimary == GL_RGB && mComponents < 3);
+    }
 
     LLPointer<LLImageRaw> mSaveData; // used for destroyGL/restoreGL
     LL::WorkQueue::weak_t mMainQueue;
@@ -363,18 +354,16 @@ private:
     U16      mWidth;
     U16      mHeight;
     S8       mCurrentDiscardLevel;
-#ifdef DX_RENDER
     // DX_RENDER's equivalent of mTexName - populated by setImage()'s
     // DX_RENDER branch (single top-level image only, see there), read by
-    // LLTexUnit::bindFast()/bind(LLImageGL*, ...)'s DX_RENDER branches
+    // LLTexUnit::bindFast()/bind(LLImageDX*, ...)'s DX_RENDER branches
     // (both are friends of this class already, via the friend declaration
     // above).
     DXTexture mDXTexture;
 
-    // S24 (2026-09-09, BC7 pipeline): see getDXUploadGeneration()'s public
-    // comment. Bumped in setImage() on every successful real upload.
+    // S24: see getDXUploadGeneration(). Bumped in setImage() on every
+    // successful real upload.
     U32 mDXUploadGeneration = 0;
-#endif
 
     bool mAllowCompression;
 
@@ -382,14 +371,12 @@ protected:
     LLGLenum mTarget;       // Normally GL_TEXTURE2D, sometimes something else (ex. cube maps)
     LLTexUnit::eTextureType mBindTarget;    // Normally TT_TEXTURE, sometimes something else (ex. cube maps)
     bool mHasMipMaps;
-    S32 mMipLevels;
 
     LLGLboolean mIsResident;
 
     S8 mComponents;
     S8 mMaxDiscardLevel;
 
-    bool    mTexOptionsDirty;
     LLTexUnit::eTextureAddressMode      mAddressMode;   // Defaults to TAM_WRAP
     LLTexUnit::eTextureFilterOptions    mFilterOption;  // Defaults to TFO_ANISOTROPIC
 
@@ -402,7 +389,7 @@ protected:
 
     // STATICS
 public:
-    static std::unordered_set<LLImageGL*> sImageList;
+    static std::unordered_set<LLImageDX*> sImageList;
     static S32 sCount;
     static U32 sFrameCount;
     static F32 sLastFrameTime;
@@ -410,8 +397,7 @@ public:
     // Global memory statistics
     static U32 sBindCount;                  // Tracks number of texture binds for current frame
     static U32 sUniqueCount;                // Tracks number of unique texture binds for current frame
-    static bool sGlobalUseAnisotropic;
-    static LLImageGL* sDefaultGLTexture ;
+    static LLImageDX* sDefaultGLTexture ;
     static bool sAutomatedTest;
 #if DEBUG_MISS
     bool mMissed; // Missed on last bind?
@@ -422,15 +408,11 @@ public:
 
 public:
     static void initClass(LLWindow* window, S32 num_catagories, bool skip_analyze_alpha = false, bool thread_texture_loads = false, bool thread_media_updates = false);
-    static void allocateConversionBuffer();
     static void cleanupClass() ;
 
 private:
     static S32 sMaxCategories;
     static bool sSkipAnalyzeAlpha;
-    static U32 sScratchPBO;
-    static U32 sScratchPBOSize;
-    static U32* sManualScratch;
 
     //the flag to allow to call readBackRaw(...).
     //can be removed if we do not use that function at all.
@@ -464,21 +446,18 @@ public:
 
 };
 
-class LLImageGLThread : public LLSimpleton<LLImageGLThread>, LL::ThreadPool
+class LLImageDXThread : public LLSimpleton<LLImageDXThread>, LL::ThreadPool
 {
 public:
-    // S24 (2026-08-26, task #260 CLOSED not-applicable): background-thread
-    // texture/media creation - permanently false now, both settings that
-    // used to enable this (RenderDXMultiThreadedTextures/Media) were removed
-    // after 7 rounds of investigation across 3 sessions confirmed a
-    // driver-level NVIDIA bug (610.88) that no application-side mitigation
-    // could route around. See memorygraph tags=["task260"].
+    // S24: background-thread texture/media creation - permanently false;
+    // the settings that used to enable this were removed after tracing a
+    // driver-level NVIDIA bug (610.88) with no application-side mitigation.
     static bool sEnabledTextures;
     static bool sEnabledMedia;
 
-    LLImageGLThread(LLWindow* window);
+    LLImageDXThread(LLWindow* window);
 
-    // post a function to be executed on the LLImageGL background thread
+    // post a function to be executed on the LLImageDX background thread
     template <typename CALLABLE>
     bool post(CALLABLE&& func)
     {
@@ -493,4 +472,4 @@ private:
     LLAtomicBool mFinished;
 };
 
-#endif // LL_LLIMAGEGL_H
+#endif // LL_LLIMAGEDX_H

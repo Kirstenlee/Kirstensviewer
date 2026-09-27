@@ -30,7 +30,7 @@
 
 #include "llpointer.h"
 
-class LLFontGL;
+class LLFontDX;
 
 typedef std::vector<std::string> string_vec_t;
 
@@ -136,7 +136,7 @@ public:
     // GL cleanup
     void destroyGL();
 
-    LLFontGL *getFont(const LLFontDescriptor& desc);
+    LLFontDX *getFont(const LLFontDescriptor& desc);
     const LLFontDescriptor *getMatchingFontDesc(const LLFontDescriptor& desc);
     const LLFontDescriptor *getClosestFontTemplate(const LLFontDescriptor& desc);
 
@@ -149,8 +149,8 @@ public:
 
 private:
     LLFontRegistry(const LLFontRegistry& other); // no-copy
-    LLFontGL *createFont(const LLFontDescriptor& desc);
-    typedef std::map<LLFontDescriptor,LLFontGL*> font_reg_map_t;
+    LLFontDX *createFont(const LLFontDescriptor& desc);
+    typedef std::map<LLFontDescriptor,LLFontDX*> font_reg_map_t;
     typedef std::map<std::string,F32> font_size_map_t;
 
     // Given a descriptor, look up specific font instantiation.

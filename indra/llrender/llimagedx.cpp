@@ -1,5 +1,5 @@
 /**
- * @file llimagegl.cpp
+ * @file llimagedx.cpp
  * @brief Generic GL image handler
  *
  * $LicenseInfo:firstyear=2001&license=viewerlgpl$
@@ -29,7 +29,7 @@
 
 #include "linden_common.h"
 
-#include "llimagegl.h"
+#include "llimagedx.h"
 
 #include "llerror.h"
 #include "llfasttimer.h"
@@ -45,26 +45,23 @@
 #include <format>  // S24: for std::format (C++20)
 #include <unordered_set>
 
-#ifdef DX_RENDER
 #include "DXReadback.h"
-#endif
 
 extern LL_COMMON_API bool on_main_thread();
 
-#if !LL_IMAGEGL_THREAD_CHECK
+#if !LL_IMAGEDX_THREAD_CHECK
 #define checkActiveThread()
 #endif
 
 //----------------------------------------------------------------------------
 const F32 MIN_TEXTURE_LIFETIME = 10.f;
-const F32 CONVERSION_SCRATCH_BUFFER_GL_VERSION = 3.29f;
 
 //which power of 2 is i?
 //assumes i is a power of 2 > 0
 U32 wpo2(U32 i);
 
 
-U32 LLImageGL::sFrameCount = 0;
+U32 LLImageDX::sFrameCount = 0;
 
 
 // texture memory accounting (for macOS)
@@ -74,12 +71,12 @@ static std::atomic<U64> sTextureBytes{0};  // Made atomic for thread-safety
 
 // track a texture alloc on the currently bound texture.
 // asserts that no currently tracked alloc exists
-void LLImageGLMemory::alloc_tex_image(U32 width, U32 height, U32 intformat, U32 count)
+void LLImageDXMemory::alloc_tex_image(U32 width, U32 height, U32 intformat, U32 count)
 {
     U32 texUnit = gDX.getCurrentTexUnitIndex();
     llassert(texUnit == 0); // allocations should always be done on tex unit 0
     U32 texName = gDX.getTexUnit(texUnit)->getCurrTexture();
-    U64 size = LLImageGL::dataFormatBytes(intformat, width, height);
+    U64 size = LLImageDX::dataFormatBytes(intformat, width, height);
     size *= count;
 
     llassert(size >= 0);
@@ -96,7 +93,7 @@ void LLImageGLMemory::alloc_tex_image(U32 width, U32 height, U32 intformat, U32 
 }
 
 // track texture free on given texName
-void LLImageGLMemory::free_tex_image(U32 texName)
+void LLImageDXMemory::free_tex_image(U32 texName)
 {
     sTexMemMutex.lock();
     auto iter = sTextureAllocs.find(texName);
@@ -113,7 +110,7 @@ void LLImageGLMemory::free_tex_image(U32 texName)
 }
 
 // track texture free on given texNames
-void LLImageGLMemory::free_tex_images(U32 count, const U32* texNames)
+void LLImageDXMemory::free_tex_images(U32 count, const U32* texNames)
 {
     for (U32 i = 0; i < count; ++i)
     {
@@ -122,7 +119,7 @@ void LLImageGLMemory::free_tex_images(U32 count, const U32* texNames)
 }
 
 // track texture free on currently bound texture
-void LLImageGLMemory::free_cur_tex_image()
+void LLImageDXMemory::free_cur_tex_image()
 {
     U32 texUnit = gDX.getCurrentTexUnitIndex();
     llassert(texUnit == 0); // frees should always be done on tex unit 0
@@ -131,8 +128,8 @@ void LLImageGLMemory::free_cur_tex_image()
 }
 
 // S24: DX_RENDER-specific texture memory accounting, keyed by the owning
-// LLImageGL instance (`this`) rather than texName - under DX_RENDER every
-// LLImageGL's mTexName is a shared fake sentinel, not a real per-texture
+// LLImageDX instance (`this`) rather than texName - under DX_RENDER every
+// LLImageDX's mTexName is a shared fake sentinel, not a real per-texture
 // identifier, so the texName-keyed map above would collide across textures.
 //
 // This only feeds updateClass()'s self-estimate FALLBACK path (used when the
@@ -144,7 +141,7 @@ void LLImageGLMemory::free_cur_tex_image()
 // never ramp eviction bias even under real, severe VRAM exhaustion.
 static std::unordered_map<const void*, U64> sDXTextureAllocs;
 
-void LLImageGLMemory::allocDXTextureBytes(const void* key, U64 size)
+void LLImageDXMemory::allocDXTextureBytes(const void* key, U64 size)
 {
     sTexMemMutex.lock();
     auto iter = sDXTextureAllocs.find(key);
@@ -153,7 +150,7 @@ void LLImageGLMemory::allocDXTextureBytes(const void* key, U64 size)
         // Unlike alloc_tex_image() above (which asserts no existing
         // allocation - GL always frees/regenerates a name first), a
         // DX_RENDER texture's underlying resource can legitimately be
-        // re-created on the SAME LLImageGL instance without an intervening
+        // re-created on the SAME LLImageDX instance without an intervening
         // destroyGLTexture()/freeDXTextureBytes() call - normal discard-
         // level streaming re-uploads routinely do exactly this. Adjust the
         // tracked size in place rather than asserting.
@@ -168,7 +165,7 @@ void LLImageGLMemory::allocDXTextureBytes(const void* key, U64 size)
     sTexMemMutex.unlock();
 }
 
-void LLImageGLMemory::freeDXTextureBytes(const void* key)
+void LLImageDXMemory::freeDXTextureBytes(const void* key)
 {
     sTexMemMutex.lock();
     auto iter = sDXTextureAllocs.find(key);
@@ -181,114 +178,45 @@ void LLImageGLMemory::freeDXTextureBytes(const void* key)
     sTexMemMutex.unlock();
 }
 
-using namespace LLImageGLMemory;
+using namespace LLImageDXMemory;
 
 // static
-U64 LLImageGL::getTextureBytesAllocated()
+U64 LLImageDX::getTextureBytesAllocated()
 {
     return sTextureBytes;
 }
 
 //statics
 
-U32 LLImageGL::sUniqueCount             = 0;
-U32 LLImageGL::sBindCount               = 0;
-S32 LLImageGL::sCount                   = 0;
+U32 LLImageDX::sUniqueCount             = 0;
+U32 LLImageDX::sBindCount               = 0;
+S32 LLImageDX::sCount                   = 0;
 
-bool LLImageGL::sGlobalUseAnisotropic   = false;
-F32 LLImageGL::sLastFrameTime           = 0.f;
-LLImageGL* LLImageGL::sDefaultGLTexture = NULL ;
-std::unordered_set<LLImageGL*> LLImageGL::sImageList;
+F32 LLImageDX::sLastFrameTime           = 0.f;
+LLImageDX* LLImageDX::sDefaultGLTexture = NULL ;
+std::unordered_set<LLImageDX*> LLImageDX::sImageList;
 
 
-bool LLImageGLThread::sEnabledTextures = false;
-bool LLImageGLThread::sEnabledMedia = false;
+bool LLImageDXThread::sEnabledTextures = false;
+bool LLImageDXThread::sEnabledMedia = false;
 
 //****************************************************************************************************
 //The below for texture auditing use only
 //****************************************************************************************************
 //-----------------------
 //debug use
-S32 LLImageGL::sCurTexSizeBar = -1 ;
-S32 LLImageGL::sCurTexPickSize = -1 ;
-S32 LLImageGL::sMaxCategories = 1 ;
+S32 LLImageDX::sCurTexSizeBar = -1 ;
+S32 LLImageDX::sCurTexPickSize = -1 ;
+S32 LLImageDX::sMaxCategories = 1 ;
 
 //optimization for when we don't need to calculate mIsMask
-bool LLImageGL::sSkipAnalyzeAlpha;
-U32  LLImageGL::sScratchPBO = 0;
-U32  LLImageGL::sScratchPBOSize = 0;
-U32* LLImageGL::sManualScratch = nullptr;
+bool LLImageDX::sSkipAnalyzeAlpha;
 
 
 //------------------------
 //****************************************************************************************************
 //End for texture auditing use only
 //****************************************************************************************************
-
-//**************************************************************************************
-//below are functions for debug use
-//do not delete them even though they are not currently being used.
-
-void LLImageGL::checkTexSize(bool forced) const
-{
-    if ((forced || gDebugGL) && mTarget == GL_TEXTURE_2D)
-    {
-        {
-            //check viewport
-            GLint vp[4] ;
-            glGetIntegerv(GL_VIEWPORT, vp) ;
-            llcallstacks << "viewport: " << vp[0] << " : " << vp[1] << " : " << vp[2] << " : " << vp[3] << llcallstacksendl ;
-        }
-
-        GLint texname;
-        glGetIntegerv(GL_TEXTURE_BINDING_2D, &texname);
-        bool error = false;
-        if (texname != mTexName)
-        {
-            LL_INFOS() << "Bound: " << texname << " Should bind: " << mTexName << " Default: " << LLImageGL::sDefaultGLTexture->getTexName() << LL_ENDL;
-
-            error = true;
-            if (gDebugSession)
-            {
-                gFailLog << "Invalid texture bound!" << std::endl;
-            }
-            else
-            {
-                LL_ERRS() << "Invalid texture bound!" << LL_ENDL;
-            }
-        }
-        LLGLint x = 0, y = 0 ;
-        glGetTexLevelParameteriv(mTarget, 0, GL_TEXTURE_WIDTH, (GLint*)&x);
-        glGetTexLevelParameteriv(mTarget, 0, GL_TEXTURE_HEIGHT, (GLint*)&y) ;
-        llcallstacks << "w: " << x << " h: " << y << llcallstacksendl ;
-
-        if(!x || !y)
-        {
-            return ;
-        }
-        if(x != (mWidth >> mCurrentDiscardLevel) || y != (mHeight >> mCurrentDiscardLevel))
-        {
-            error = true;
-            if (gDebugSession)
-            {
-                gFailLog << "wrong texture size and discard level!" <<
-                    mWidth << " Height: " << mHeight << " Current Level: " << (S32)mCurrentDiscardLevel << std::endl;
-            }
-            else
-            {
-                LL_ERRS() << "wrong texture size and discard level: width: " <<
-                    mWidth << " Height: " << mHeight << " Current Level: " << (S32)mCurrentDiscardLevel << LL_ENDL ;
-            }
-        }
-
-        if (error)
-        {
-            ll_fail("LLImageGL::checkTexSize failed.");
-        }
-    }
-}
-//end of debug functions
-//**************************************************************************************
 
 //----------------------------------------------------------------------------
 bool is_little_endian()
@@ -300,67 +228,28 @@ bool is_little_endian()
 }
 
 //static
-void LLImageGL::initClass(LLWindow* window, S32 num_catagories, bool skip_analyze_alpha /* = false */, bool thread_texture_loads /* = false */, bool thread_media_updates /* = false */)
+void LLImageDX::initClass(LLWindow* window, S32 num_catagories, bool skip_analyze_alpha /* = false */, bool thread_texture_loads /* = false */, bool thread_media_updates /* = false */)
 {
     sSkipAnalyzeAlpha = skip_analyze_alpha;
 
-#ifndef DX_RENDER
-    if (sScratchPBO == 0)
-    {
-        glGenBuffers(1, &sScratchPBO);
-    }
-#endif
-
-#ifdef DX_RENDER
     // S24: background-thread D3D11 texture/media creation was removed - a
     // driver-level NVIDIA bug (610.88) that no application-side mitigation
     // could route around. sEnabledTextures/sEnabledMedia stay permanently
     // false; texture/media creation is always synchronous under DX_RENDER.
+    (void)window;
     (void)thread_texture_loads;
     (void)thread_media_updates;
-#else
-    if (thread_texture_loads || thread_media_updates)
-    {
-        LLImageGLThread::createInstance(window);
-        LLImageGLThread::sEnabledTextures = gGLManager.mGLVersion > 3.95f ? thread_texture_loads : false;
-        LLImageGLThread::sEnabledMedia = gGLManager.mGLVersion > 3.95f ? thread_media_updates : false;
-    }
-#endif
-}
-
-void LLImageGL::allocateConversionBuffer()
-{
-    if (gGLManager.mGLVersion < CONVERSION_SCRATCH_BUFFER_GL_VERSION)
-    {
-        try
-        {
-            sManualScratch = new U32[MAX_IMAGE_AREA];
-        }
-        catch (std::bad_alloc&)
-        {
-            LLError::LLUserWarningMsg::showOutOfMemory();
-            LL_ERRS() << "Failed to allocate sManualScratch" << LL_ENDL;
-        }
-    }
 }
 
 //static
-void LLImageGL::cleanupClass()
+void LLImageDX::cleanupClass()
 {
-    LLImageGLThread::deleteSingleton();
-    if (sScratchPBO != 0)
-    {
-        glDeleteBuffers(1, &sScratchPBO);
-        sScratchPBO = 0;
-        sScratchPBOSize = 0;
-    }
-
-    delete[] sManualScratch;
+    LLImageDXThread::deleteSingleton();
 }
 
 
 //static
-S32 LLImageGL::dataFormatBits(S32 dataformat)
+S32 LLImageDX::dataFormatBits(S32 dataformat)
 {
     switch (dataformat)
     {
@@ -415,13 +304,13 @@ S32 LLImageGL::dataFormatBits(S32 dataformat)
     case GL_RGB32F:                                 return 96;
     case GL_RGBA32F:                                return 128;
     default:
-        LL_ERRS() << "LLImageGL::Unknown format: " << std::hex << dataformat << std::dec << LL_ENDL;
+        LL_ERRS() << "LLImageDX::Unknown format: " << std::hex << dataformat << std::dec << LL_ENDL;
         return 0;
     }
 }
 
 //static
-S64 LLImageGL::dataFormatBytes(S32 dataformat, S32 width, S32 height)
+S64 LLImageDX::dataFormatBytes(S32 dataformat, S32 width, S32 height)
 {
     switch (dataformat)
     {
@@ -447,7 +336,7 @@ S64 LLImageGL::dataFormatBytes(S32 dataformat, S32 width, S32 height)
 }
 
 //static
-S32 LLImageGL::dataFormatComponents(S32 dataformat)
+S32 LLImageDX::dataFormatComponents(S32 dataformat)
 {
     switch (dataformat)
     {
@@ -473,7 +362,7 @@ S32 LLImageGL::dataFormatComponents(S32 dataformat)
       case GL_SRGB_ALPHA:                       return 4;
       case GL_BGRA:                             return 4;       // Used for QuickTime media textures on the Mac
       default:
-        LL_ERRS() << "LLImageGL::Unknown format: " << std::hex << dataformat << std::dec << LL_ENDL;
+        LL_ERRS() << "LLImageDX::Unknown format: " << std::hex << dataformat << std::dec << LL_ENDL;
         return 0;
     }
 }
@@ -481,7 +370,7 @@ S32 LLImageGL::dataFormatComponents(S32 dataformat)
 //----------------------------------------------------------------------------
 
 // static
-void LLImageGL::updateStats(F32 current_time)
+void LLImageDX::updateStats(F32 current_time)
 {
     sLastFrameTime = current_time;
 }
@@ -489,7 +378,7 @@ void LLImageGL::updateStats(F32 current_time)
 //----------------------------------------------------------------------------
 
 //static
-void LLImageGL::destroyGL()
+void LLImageDX::destroyGL()
 {
     for (S32 stage = 0; stage < gGLManager.mNumTextureImageUnits; stage++)
     {
@@ -497,42 +386,31 @@ void LLImageGL::destroyGL()
     }
 }
 
-//static
-void LLImageGL::dirtyTexOptions()
-{
-    for (auto& glimage : sImageList)
-    {
-        glimage->mTexOptionsDirty = true;
-    }
-
-}
-//----------------------------------------------------------------------------
-
 //for server side use only.
 //static
-bool LLImageGL::create(LLPointer<LLImageGL>& dest, bool usemipmaps)
+bool LLImageDX::create(LLPointer<LLImageDX>& dest, bool usemipmaps)
 {
-    dest = new LLImageGL(usemipmaps);
+    dest = new LLImageDX(usemipmaps);
     return true;
 }
 
 //for server side use only.
-bool LLImageGL::create(LLPointer<LLImageGL>& dest, U32 width, U32 height, U8 components, bool usemipmaps)
+bool LLImageDX::create(LLPointer<LLImageDX>& dest, U32 width, U32 height, U8 components, bool usemipmaps)
 {
-    dest = new LLImageGL(width, height, components, usemipmaps);
+    dest = new LLImageDX(width, height, components, usemipmaps);
     return true;
 }
 
 //for server side use only.
-bool LLImageGL::create(LLPointer<LLImageGL>& dest, const LLImageRaw* imageraw, bool usemipmaps)
+bool LLImageDX::create(LLPointer<LLImageDX>& dest, const LLImageRaw* imageraw, bool usemipmaps)
 {
-    dest = new LLImageGL(imageraw, usemipmaps);
+    dest = new LLImageDX(imageraw, usemipmaps);
     return true;
 }
 
 //----------------------------------------------------------------------------
 
-LLImageGL::LLImageGL(bool usemipmaps/* = true*/, bool allow_compression/* = true*/)
+LLImageDX::LLImageDX(bool usemipmaps/* = true*/, bool allow_compression/* = true*/)
 :   mSaveData(0), mExternalTexture(false)
 {
     init(usemipmaps, allow_compression);
@@ -541,7 +419,7 @@ LLImageGL::LLImageGL(bool usemipmaps/* = true*/, bool allow_compression/* = true
     sCount++;
 }
 
-LLImageGL::LLImageGL(U32 width, U32 height, U8 components, bool usemipmaps/* = true*/, bool allow_compression/* = true*/)
+LLImageDX::LLImageDX(U32 width, U32 height, U8 components, bool usemipmaps/* = true*/, bool allow_compression/* = true*/)
 :   mSaveData(0), mExternalTexture(false)
 {
     llassert( components <= 4 );
@@ -551,7 +429,7 @@ LLImageGL::LLImageGL(U32 width, U32 height, U8 components, bool usemipmaps/* = t
     sCount++;
 }
 
-LLImageGL::LLImageGL(const LLImageRaw* imageraw, bool usemipmaps/* = true*/, bool allow_compression/* = true*/)
+LLImageDX::LLImageDX(const LLImageRaw* imageraw, bool usemipmaps/* = true*/, bool allow_compression/* = true*/)
 :   mSaveData(0), mExternalTexture(false)
 {
     init(usemipmaps, allow_compression);
@@ -562,7 +440,7 @@ LLImageGL::LLImageGL(const LLImageRaw* imageraw, bool usemipmaps/* = true*/, boo
     createGLTexture(0, imageraw);
 }
 
-LLImageGL::LLImageGL(
+LLImageDX::LLImageDX(
     LLGLuint texName,
     U32 components,
     LLGLenum target,
@@ -582,20 +460,20 @@ LLImageGL::LLImageGL(
 }
 
 
-LLImageGL::~LLImageGL()
+LLImageDX::~LLImageDX()
 {
     if (!mExternalTexture && gGLManager.mInited)
     {
-        LLImageGL::cleanup();
+        LLImageDX::cleanup();
         sImageList.erase(this);
         freePickMask();
         sCount--;
     }
 }
 
-void LLImageGL::init(bool usemipmaps, bool allow_compression)
+void LLImageDX::init(bool usemipmaps, bool allow_compression)
 {
-#if LL_IMAGEGL_THREAD_CHECK
+#if LL_IMAGEDX_THREAD_CHECK
     mActiveThread = LLThread::currentID();
 #endif
 
@@ -628,14 +506,12 @@ void LLImageGL::init(bool usemipmaps, bool allow_compression)
     mTarget = GL_TEXTURE_2D;
     mBindTarget = LLTexUnit::TT_TEXTURE;
     mHasMipMaps = false;
-    mMipLevels = -1;
 
     mIsResident = 0;
 
     mComponents = 0;
     mMaxDiscardLevel = MAX_DISCARD_LEVEL;
 
-    mTexOptionsDirty = true;
     mAddressMode = LLTexUnit::TAM_WRAP;
     mFilterOption = LLTexUnit::TFO_ANISOTROPIC;
 
@@ -654,7 +530,7 @@ void LLImageGL::init(bool usemipmaps, bool allow_compression)
     mMainQueue = LL::WorkQueue::getInstance("mainloop");
 }
 
-void LLImageGL::cleanup()
+void LLImageDX::cleanup()
 {
     if (!gGLManager.mIsDisabled)
     {
@@ -683,12 +559,12 @@ static bool check_power_of_two(S32 dim)
 }
 
 //static
-bool LLImageGL::checkSize(S32 width, S32 height)
+bool LLImageDX::checkSize(S32 width, S32 height)
 {
     return check_power_of_two(width) && check_power_of_two(height);
 }
 
-bool LLImageGL::setSize(S32 width, S32 height, S32 ncomponents, S32 discard_level)
+bool LLImageDX::setSize(S32 width, S32 height, S32 ncomponents, S32 discard_level)
 {
     if (width != mWidth || height != mHeight || ncomponents != mComponents)
     {
@@ -729,7 +605,7 @@ bool LLImageGL::setSize(S32 width, S32 height, S32 ncomponents, S32 discard_leve
 //----------------------------------------------------------------------------
 
 // virtual
-void LLImageGL::dump()
+void LLImageDX::dump()
 {
     LL_INFOS() << "mMaxDiscardLevel " << S32(mMaxDiscardLevel)
             << " mLastBindTime " << mLastBindTime
@@ -755,12 +631,12 @@ void LLImageGL::dump()
 }
 
 //----------------------------------------------------------------------------
-void LLImageGL::forceUpdateBindStats(void) const
+void LLImageDX::forceUpdateBindStats(void) const
 {
     mLastBindTime = sLastFrameTime;
 }
 
-bool LLImageGL::updateBindStats() const
+bool LLImageDX::updateBindStats() const
 {
     if (mTexName != 0)
     {
@@ -780,12 +656,12 @@ bool LLImageGL::updateBindStats() const
     return false ;
 }
 
-F32 LLImageGL::getTimePassedSinceLastBound()
+F32 LLImageDX::getTimePassedSinceLastBound()
 {
     return sLastFrameTime - mLastBindTime ;
 }
 
-void LLImageGL::setExplicitFormat( LLGLint internal_format, LLGLenum primary_format, LLGLenum type_format, bool swap_bytes )
+void LLImageDX::setExplicitFormat( LLGLint internal_format, LLGLenum primary_format, LLGLenum type_format, bool swap_bytes )
 {
     // Note: must be called before createTexture()
     // Note: it's up to the caller to ensure that the format matches the number of components.
@@ -803,7 +679,7 @@ void LLImageGL::setExplicitFormat( LLGLint internal_format, LLGLenum primary_for
 
 //----------------------------------------------------------------------------
 
-void LLImageGL::setImage(const LLImageRaw* imageraw)
+void LLImageDX::setImage(const LLImageRaw* imageraw)
 {
     llassert((imageraw->getWidth() == getWidth(mCurrentDiscardLevel)) &&
              (imageraw->getHeight() == getHeight(mCurrentDiscardLevel)) &&
@@ -812,10 +688,8 @@ void LLImageGL::setImage(const LLImageRaw* imageraw)
     setImage(rawdata, false);
 }
 
-bool LLImageGL::setImage(const U8* data_in, bool data_hasmips /* = false */, S32 usename /* = 0 */)
+bool LLImageDX::setImage(const U8* data_in, bool data_hasmips /* = false */, S32 usename /* = 0 */)
 {
-
-#ifdef DX_RENDER
     // data_in == nullptr is NOT a rare/unsupported case - every real
     // "unbound" hit at startup is this: LLViewerFetchedTexture's normal discard-level streaming
     // pattern creates the texture object before real pixel data has
@@ -834,17 +708,12 @@ bool LLImageGL::setImage(const U8* data_in, bool data_hasmips /* = false */, S32
     // create()/createCompressed() outcome through to the return below,
     // rather than always reporting success regardless of it.
     bool dx_success = false;
-    if (!isCompressed())
+    if (!isSourceFormatCompressed())
     {
-        // S24: GL_ALPHA-format 1-component sources (terrain's alpha_ramp
-        // gradients) store data in the alpha channel, not luminance/RGB.
-        // mFormatPrimary==GL_BGRA is CEF's declared source format; GL
-        // reorders natively via glTexImage2D's format param, but DXTexture
-        // has no equivalent and must swap R/B itself.
-        dx_success = mDXTexture.create(data_in, getWidth(), getHeight(), mComponents, mUseMipMaps, mFormatPrimary == GL_ALPHA, mFormatPrimary == GL_BGRA);
+        dx_success = mDXTexture.create(data_in, getWidth(), getHeight(), mComponents, mUseMipMaps, isAlphaOnlyFormat(), isBGRAFormat());
         if (!dx_success)
         {
-            LL_WARNS("Texture") << "LLImageGL::setImage: DXTexture::create failed" << LL_ENDL;
+            LL_WARNS("Texture") << "LLImageDX::setImage: DXTexture::create failed" << LL_ENDL;
         }
     }
     else
@@ -875,7 +744,7 @@ bool LLImageGL::setImage(const U8* data_in, bool data_hasmips /* = false */, S32
 
         if (dx_format == DXGI_FORMAT_UNKNOWN)
         {
-            LL_WARNS_ONCE("Texture") << "LLImageGL::setImage: unrecognized compressed format, texture will render unbound"
+            LL_WARNS_ONCE("Texture") << "LLImageDX::setImage: unrecognized compressed format, texture will render unbound"
                 << " (mFormatPrimary=0x" << std::hex << mFormatPrimary << std::dec << ")" << LL_ENDL;
         }
         else
@@ -883,7 +752,7 @@ bool LLImageGL::setImage(const U8* data_in, bool data_hasmips /* = false */, S32
             dx_success = mDXTexture.createCompressed(data_in, getWidth(), getHeight(), dx_format);
             if (!dx_success)
             {
-                LL_WARNS("Texture") << "LLImageGL::setImage: DXTexture::createCompressed failed" << LL_ENDL;
+                LL_WARNS("Texture") << "LLImageDX::setImage: DXTexture::createCompressed failed" << LL_ENDL;
             }
         }
     }
@@ -894,353 +763,9 @@ bool LLImageGL::setImage(const U8* data_in, bool data_hasmips /* = false */, S32
     ++mDXUploadGeneration;
 
     return dx_success;
-#endif
-
-    const bool is_compressed = isCompressed();
-
-    if (mUseMipMaps)
-    {
-        //set has mip maps to true before binding image so tex parameters get set properly
-        gDX.getTexUnit(0)->unbind(mBindTarget);
-
-        mHasMipMaps = true;
-        mTexOptionsDirty = true;
-        setFilteringOption(LLTexUnit::TFO_ANISOTROPIC);
-    }
-    else
-    {
-        mHasMipMaps = false;
-    }
-
-    gDX.getTexUnit(0)->bind(this, false, false, usename);
-
-    if (data_in == nullptr)
-    {
-        S32 w = getWidth();
-        S32 h = getHeight();
-        LLImageGL::setManualImage(mTarget, 0, mFormatInternal, w, h,
-            mFormatPrimary, mFormatType, (GLvoid*)data_in, mAllowCompression);
-    }
-    else if (mUseMipMaps)
-    {
-        if (data_hasmips)
-        {
-            // NOTE: data_in points to largest image; smaller images
-            // are stored BEFORE the largest image
-            for (S32 d=mCurrentDiscardLevel; d<=mMaxDiscardLevel; d++)
-            {
-
-                S32 w = getWidth(d);
-                S32 h = getHeight(d);
-                S32 gl_level = d-mCurrentDiscardLevel;
-
-                mMipLevels = llmax(mMipLevels, gl_level);
-
-                if (d > mCurrentDiscardLevel)
-                {
-                    data_in -= dataFormatBytes(mFormatPrimary, w, h); // see above comment
-                }
-                if (is_compressed)
-                {
-                    GLsizei tex_size = (GLsizei)dataFormatBytes(mFormatPrimary, w, h);
-                    glCompressedTexImage2D(mTarget, gl_level, mFormatPrimary, w, h, 0, tex_size, (GLvoid *)data_in);
-                }
-                else
-                {
-                    if(mFormatSwapBytes)
-                    {
-                        glPixelStorei(GL_UNPACK_SWAP_BYTES, 1);
-                    }
-
-                    LLImageGL::setManualImage(mTarget, gl_level, mFormatInternal, w, h, mFormatPrimary, GL_UNSIGNED_BYTE, (GLvoid*)data_in, mAllowCompression);
-                    if (gl_level == 0)
-                    {
-                        analyzeAlpha(data_in, w, h);
-                    }
-                    updatePickMask(w, h, data_in);
-
-                    if(mFormatSwapBytes)
-                    {
-                        glPixelStorei(GL_UNPACK_SWAP_BYTES, 0);
-                    }
-
-                }
-            }
-        }
-        else if (!is_compressed)
-        {
-            if (mAutoGenMips)
-            {
-                {
-                    if(mFormatSwapBytes)
-                    {
-                        glPixelStorei(GL_UNPACK_SWAP_BYTES, 1);
-                    }
-
-                    S32 w = getWidth(mCurrentDiscardLevel);
-                    S32 h = getHeight(mCurrentDiscardLevel);
-
-                    mMipLevels = wpo2(llmax(w, h));
-
-                    //use legacy mipmap generation mode (note: making this condional can cause rendering issues)
-                    // -- but making it not conditional triggers deprecation warnings when core profile is enabled
-                    //      (some rendering issues while core profile is enabled are acceptable at this point in time)
-                    if (!LLRender::sGLCoreProfile)
-                    {
-                        glTexParameteri(mTarget, GL_GENERATE_MIPMAP, GL_TRUE);
-                    }
-
-                    LLImageGL::setManualImage(mTarget, 0, mFormatInternal,
-                                 w, h,
-                                 mFormatPrimary, mFormatType,
-                                 data_in, mAllowCompression);
-                    analyzeAlpha(data_in, w, h);
-
-                    updatePickMask(w, h, data_in);
-
-                    if(mFormatSwapBytes)
-                    {
-                        glPixelStorei(GL_UNPACK_SWAP_BYTES, 0);
-                    }
-
-                    if (LLRender::sGLCoreProfile)
-                    {
-                        glGenerateMipmap(mTarget);
-                    }
-                }
-            }
-            else
-            {
-                // Create mips by hand
-                // ~4x faster than gluBuild2DMipmaps
-                S32 width = getWidth(mCurrentDiscardLevel);
-                S32 height = getHeight(mCurrentDiscardLevel);
-                S32 nummips = mMaxDiscardLevel - mCurrentDiscardLevel + 1;
-                S32 w = width, h = height;
-
-
-                const U8* new_data = 0;
-                (void)new_data;
-
-                const U8* prev_mip_data = 0;
-                const U8* cur_mip_data = 0;
-#ifdef SHOW_ASSERT
-                S32 cur_mip_size = 0;
-#endif
-                mMipLevels = nummips;
-
-                for (int m=0; m<nummips; m++)
-                {
-                    if (m==0)
-                    {
-                        cur_mip_data = data_in;
-#ifdef SHOW_ASSERT
-                        cur_mip_size = width * height * mComponents;
-#endif
-                    }
-                    else
-                    {
-                        S32 bytes = w * h * mComponents;
-#ifdef SHOW_ASSERT
-                        llassert(prev_mip_data);
-                        llassert(cur_mip_size == bytes*4);
-#endif
-                        U8* new_data = new(std::nothrow) U8[bytes];
-                        if (!new_data)
-                        {
-
-                            if (prev_mip_data)
-                            {
-                                if (prev_mip_data != cur_mip_data)
-                                    delete[] prev_mip_data;
-                                prev_mip_data = nullptr;
-                            }
-                            if (cur_mip_data)
-                            {
-                                delete[] cur_mip_data;
-                                cur_mip_data = nullptr;
-                            }
-
-                            mGLTextureCreated = false;
-                            return false;
-                        }
-                        else
-                        {
-
-#ifdef SHOW_ASSERT
-                            llassert(prev_mip_data);
-                            llassert(cur_mip_size == bytes * 4);
-#endif
-
-                            LLImageBase::generateMip(prev_mip_data, new_data, w, h, mComponents);
-                            cur_mip_data = new_data;
-#ifdef SHOW_ASSERT
-                            cur_mip_size = bytes;
-#endif
-                        }
-
-                    }
-                    llassert(w > 0 && h > 0 && cur_mip_data);
-                    (void)cur_mip_data;
-                    {
-                        if(mFormatSwapBytes)
-                        {
-                            glPixelStorei(GL_UNPACK_SWAP_BYTES, 1);
-                        }
-
-                        LLImageGL::setManualImage(mTarget, m, mFormatInternal, w, h, mFormatPrimary, mFormatType, cur_mip_data, mAllowCompression);
-                        if (m == 0)
-                        {
-                            analyzeAlpha(data_in, w, h);
-                        }
-                        if (m == 0)
-                        {
-                            updatePickMask(w, h, cur_mip_data);
-                        }
-
-                        if(mFormatSwapBytes)
-                        {
-                            glPixelStorei(GL_UNPACK_SWAP_BYTES, 0);
-                        }
-                    }
-                    if (prev_mip_data && prev_mip_data != data_in)
-                    {
-                        delete[] prev_mip_data;
-                    }
-                    prev_mip_data = cur_mip_data;
-                    w >>= 1;
-                    h >>= 1;
-                }
-                if (prev_mip_data && prev_mip_data != data_in)
-                {
-                    delete[] prev_mip_data;
-                    prev_mip_data = NULL;
-                }
-            }
-        }
-        else
-        {
-            LL_ERRS() << "Compressed Image has mipmaps but data does not (can not auto generate compressed mips)" << LL_ENDL;
-        }
-    }
-    else
-    {
-        mMipLevels = 0;
-        S32 w = getWidth();
-        S32 h = getHeight();
-        if (is_compressed)
-        {
-            GLsizei tex_size = (GLsizei)dataFormatBytes(mFormatPrimary, w, h);
-            glCompressedTexImage2D(mTarget, 0, mFormatPrimary, w, h, 0, tex_size, (GLvoid *)data_in);
-        }
-        else
-        {
-            if(mFormatSwapBytes)
-            {
-                glPixelStorei(GL_UNPACK_SWAP_BYTES, 1);
-            }
-
-            LLImageGL::setManualImage(mTarget, 0, mFormatInternal, w, h,
-                         mFormatPrimary, mFormatType, (GLvoid *)data_in, mAllowCompression);
-            analyzeAlpha(data_in, w, h);
-
-            updatePickMask(w, h, data_in);
-
-
-            if(mFormatSwapBytes)
-            {
-                glPixelStorei(GL_UNPACK_SWAP_BYTES, 0);
-            }
-
-        }
-    }
-    mGLTextureCreated = true;
-    return true;
 }
 
-U32 type_width_from_pixtype(U32 pixtype)
-{
-    U32 type_width = 0;
-    switch (pixtype)
-    {
-    case GL_UNSIGNED_BYTE:
-    case GL_BYTE:
-    case GL_UNSIGNED_INT_8_8_8_8_REV:
-        type_width = 1;
-        break;
-    case GL_UNSIGNED_SHORT:
-    case GL_SHORT:
-        type_width = 2;
-        break;
-    case GL_UNSIGNED_INT:
-    case GL_INT:
-    case GL_FLOAT:
-        type_width = 4;
-        break;
-    default:
-        LL_ERRS() << "Unknown type: " << pixtype << LL_ENDL;
-    }
-    return type_width;
-}
-
-bool should_stagger_image_set(bool compressed)
-{
-#if LL_DARWIN
-    return !compressed && on_main_thread() && gGLManager.mIsAMD;
-#else
-    // glTexSubImage2D doesn't work with compressed textures on select tested Nvidia GPUs on Windows 10 -Cosmic,2023-03-08
-    // Setting media textures off-thread seems faster when not using sub_image_lines (Nvidia/Windows 10) -Cosmic,2023-03-31
-    return !compressed && on_main_thread() && !gGLManager.mIsIntel;
-#endif
-}
-
-// Equivalent to calling glSetSubImage2D(target, miplevel, x_offset, y_offset, width, height, pixformat, pixtype, src), assuming the total width of the image is data_width
-// However, instead there are multiple calls to glSetSubImage2D on smaller slices of the image
-void sub_image_lines(U32 target, S32 miplevel, S32 x_offset, S32 y_offset, S32 width, S32 height, U32 pixformat, U32 pixtype, const U8* src, S32 data_width)
-{
-
-
-    U32 components = LLImageGL::dataFormatComponents(pixformat);
-    U32 type_width = type_width_from_pixtype(pixtype);
-
-    const U32 line_width = data_width * components * type_width;
-    const U32 y_offset_end = y_offset + height;
-
-    if (width == data_width && height % 32 == 0)
-    {
-
-        // full width, batch multiple lines at a time
-        // set batch size based on width
-        U32 batch_size = 32;
-
-        if (width > 1024)
-        {
-            batch_size = 8;
-        }
-        else if (width > 512)
-        {
-            batch_size = 16;
-        }
-
-        // full width texture, do 32 lines at a time
-        for (U32 y_pos = y_offset; y_pos < y_offset_end; y_pos += batch_size)
-        {
-            glTexSubImage2D(target, miplevel, x_offset, y_pos, width, batch_size, pixformat, pixtype, src);
-            src += line_width * batch_size;
-        }
-    }
-    else
-    {
-        // partial width or strange height
-        for (U32 y_pos = y_offset; y_pos < y_offset_end; y_pos += 1)
-    {
-        glTexSubImage2D(target, miplevel, x_offset, y_pos, width, 1, pixformat, pixtype, src);
-        src += line_width;
-        }
-    }
-}
-
-bool LLImageGL::setSubImage(const U8* datap, S32 data_width, S32 data_height, S32 x_pos, S32 y_pos, S32 width, S32 height, bool force_fast_update /* = false */, LLGLuint use_name)
+bool LLImageDX::setSubImage(const U8* datap, S32 data_width, S32 data_height, S32 x_pos, S32 y_pos, S32 width, S32 height, bool force_fast_update /* = false */, LLGLuint use_name)
 {
     if (!width || !height)
     {
@@ -1260,123 +785,71 @@ bool LLImageGL::setSubImage(const U8* datap, S32 data_width, S32 data_height, S3
         return false;
     }
 
-    // HACK: allow the caller to explicitly force the fast path (i.e. using glTexSubImage2D here instead of calling setImage) even when updating the full texture.
-    // S24: under DX_RENDER, taking this branch means calling setImage(),
-    // whose DX_RENDER implementation unconditionally destroys+recreates the
-    // texture and SRV, unlike GL's lightweight in-place re-specification.
-    // addGlyphFromFont()'s setSubImage() call always covers the full atlas,
-    // so every glyph addition would hit this branch and rebuild the whole
-    // font atlas from scratch. The incremental path below (UpdateSubresource()
-    // via DXTexture::updateSubImage()) is correct even for a full-extent
-    // write, so DX_RENDER always takes it instead.
-#ifndef DX_RENDER
-    if (!force_fast_update && x_pos == 0 && y_pos == 0 && width == getWidth() && height == getHeight() && data_width == width && data_height == height)
+    // S24: setImage()'s DX_RENDER implementation unconditionally destroys+
+    // recreates the texture and SRV, unlike GL's lightweight in-place
+    // re-specification - addGlyphFromFont()'s setSubImage() call always
+    // covers the full atlas, so the old "full-extent write -> call
+    // setImage() instead" fast path would rebuild the whole font atlas from
+    // scratch on every glyph addition. The incremental path below
+    // (UpdateSubresource() via DXTexture::updateSubImage()) is correct even
+    // for a full-extent write, so that's always used instead.
+    if (mUseMipMaps)
     {
-        setImage(datap, false, tex_name);
+        dump();
+        LL_ERRS() << "setSubImage called with mipmapped image (not supported)" << LL_ENDL;
     }
-    else
-#endif
+    llassert_always(mCurrentDiscardLevel == 0);
+    llassert_always(x_pos >= 0 && y_pos >= 0);
+
+    if (((x_pos + width) > getWidth()) ||
+        (y_pos + height) > getHeight())
     {
-        if (mUseMipMaps)
-        {
-            dump();
-            LL_ERRS() << "setSubImage called with mipmapped image (not supported)" << LL_ENDL;
-        }
-        llassert_always(mCurrentDiscardLevel == 0);
-        llassert_always(x_pos >= 0 && y_pos >= 0);
-
-        if (((x_pos + width) > getWidth()) ||
-            (y_pos + height) > getHeight())
-        {
-            dump();
-            LL_ERRS() << "Subimage not wholly in target image!"
-                   << " x_pos " << x_pos
-                   << " y_pos " << y_pos
-                   << " width " << width
-                   << " height " << height
-                   << " getWidth() " << getWidth()
-                   << " getHeight() " << getHeight()
-                   << LL_ENDL;
-        }
-
-        if ((x_pos + width) > data_width ||
-            (y_pos + height) > data_height)
-        {
-            dump();
-            LL_ERRS() << "Subimage not wholly in source image!"
-                   << " x_pos " << x_pos
-                   << " y_pos " << y_pos
-                   << " width " << width
-                   << " height " << height
-                   << " source_width " << data_width
-                   << " source_height " << data_height
-                   << LL_ENDL;
-        }
-
-#ifdef DX_RENDER
-        // Mirrors GL's GL_UNPACK_ROW_LENGTH + glTexSubImage2D below - see
-        // DXTexture::updateSubImage()'s comment. All the validation above
-        // (mUseMipMaps/discard-level/bounds asserts) is shared/backend-
-        // agnostic and already ran.
-        // S24: this is the per-CEF-paint hot path (LLViewerMediaImpl::
-        // doMediaTexUpdate() -> setSubImage() -> here, every repaint) - see
-        // setImage()'s comment for why mFormatPrimary==GL_BGRA must be
-        // threaded through here too, not just the one-time create() path.
-        if (!mDXTexture.updateSubImage(datap, data_width, x_pos, y_pos, width, height, mComponents, mFormatPrimary == GL_ALPHA, mFormatPrimary == GL_BGRA))
-        {
-            LL_WARNS("Texture") << "LLImageGL::setSubImage: DXTexture::updateSubImage failed" << LL_ENDL;
-        }
-        mGLTextureCreated = true;
-        return true;
-#endif
-
-        glPixelStorei(GL_UNPACK_ROW_LENGTH, data_width);
-
-        if(mFormatSwapBytes)
-        {
-            glPixelStorei(GL_UNPACK_SWAP_BYTES, 1);
-        }
-
-        const U8* sub_datap = datap + (y_pos * data_width + x_pos) * getComponents();
-        // Update the GL texture
-        bool res = gDX.getTexUnit(0)->bindManual(mBindTarget, tex_name);
-        if (!res) LL_ERRS() << "LLImageGL::setSubImage(): bindTexture failed" << LL_ENDL;
-
-        const bool use_sub_image = should_stagger_image_set(isCompressed());
-        if (!use_sub_image)
-        {
-            // *TODO: Why does this work here, in setSubImage, but not in
-            // setManualImage? Maybe because it only gets called with the
-            // dimensions of the full image?  Or because the image is never
-            // compressed?
-            glTexSubImage2D(mTarget, 0, x_pos, y_pos, width, height, mFormatPrimary, mFormatType, sub_datap);
-        }
-        else
-        {
-            sub_image_lines(mTarget, 0, x_pos, y_pos, width, height, mFormatPrimary, mFormatType, sub_datap, data_width);
-        }
-        gDX.getTexUnit(0)->disable();
-
-        if(mFormatSwapBytes)
-        {
-            glPixelStorei(GL_UNPACK_SWAP_BYTES, 0);
-        }
-
-        glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
-        mGLTextureCreated = true;
+        dump();
+        LL_ERRS() << "Subimage not wholly in target image!"
+               << " x_pos " << x_pos
+               << " y_pos " << y_pos
+               << " width " << width
+               << " height " << height
+               << " getWidth() " << getWidth()
+               << " getHeight() " << getHeight()
+               << LL_ENDL;
     }
+
+    if ((x_pos + width) > data_width ||
+        (y_pos + height) > data_height)
+    {
+        dump();
+        LL_ERRS() << "Subimage not wholly in source image!"
+               << " x_pos " << x_pos
+               << " y_pos " << y_pos
+               << " width " << width
+               << " height " << height
+               << " source_width " << data_width
+               << " source_height " << data_height
+               << LL_ENDL;
+    }
+
+    // Mirrors GL's GL_UNPACK_ROW_LENGTH + glTexSubImage2D approach - see
+    // DXTexture::updateSubImage()'s comment. This is the per-CEF-paint hot
+    // path (LLViewerMediaImpl::doMediaTexUpdate() -> setSubImage() -> here,
+    // every repaint) - isBGRAFormat() must be threaded through here too,
+    // not just the one-time create() path.
+    if (!mDXTexture.updateSubImage(datap, data_width, x_pos, y_pos, width, height, mComponents, isAlphaOnlyFormat(), isBGRAFormat()))
+    {
+        LL_WARNS("Texture") << "LLImageDX::setSubImage: DXTexture::updateSubImage failed" << LL_ENDL;
+    }
+    mGLTextureCreated = true;
     return true;
 }
 
-bool LLImageGL::setSubImage(const LLImageRaw* imageraw, S32 x_pos, S32 y_pos, S32 width, S32 height, bool force_fast_update /* = false */, LLGLuint use_name)
+bool LLImageDX::setSubImage(const LLImageRaw* imageraw, S32 x_pos, S32 y_pos, S32 width, S32 height, bool force_fast_update /* = false */, LLGLuint use_name)
 {
     return setSubImage(imageraw->getData(), imageraw->getWidth(), imageraw->getHeight(), x_pos, y_pos, width, height, force_fast_update, use_name);
 }
 
 // Copy sub image from frame buffer
-bool LLImageGL::setSubImageFromFrameBuffer(S32 fb_x, S32 fb_y, S32 x_pos, S32 y_pos, S32 width, S32 height)
+bool LLImageDX::setSubImageFromFrameBuffer(S32 fb_x, S32 fb_y, S32 x_pos, S32 y_pos, S32 width, S32 height)
 {
-#ifdef DX_RENDER
     // S24: real callers are LLViewerDynamicTexture::postRender() and
     // llterrainpaintmap.cpp's PBR terrain paint-map baking.
     // DXTexture::copySubImageFromFrameBuffer() does the real work via
@@ -1387,26 +860,13 @@ bool LLImageGL::setSubImageFromFrameBuffer(S32 fb_x, S32 fb_y, S32 x_pos, S32 y_
     }
     mGLTextureCreated = true;
     return true;
-#else
-    if (gDX.getTexUnit(0)->bind(this, false, true))
-    {
-        glCopyTexSubImage2D(GL_TEXTURE_2D, 0, fb_x, fb_y, x_pos, y_pos, width, height);
-        mGLTextureCreated = true;
-        return true;
-    }
-    else
-    {
-        return false;
-    }
-#endif
 }
 
 // static
-void LLImageGL::generateTextures(S32 numTextures, U32 *textures)
+void LLImageDX::generateTextures(S32 numTextures, U32 *textures)
 {
-#ifdef DX_RENDER
     // S24: real callers under DX_RENDER only need a unique, non-zero,
-    // stable U32 "name" to use as an opaque key (DXTexture/LLGLTexture
+    // stable U32 "name" to use as an opaque key (DXTexture/LLDXTexture
     // lookups don't go through the GL name at all) - hand out an
     // incrementing counter rather than a repeated sentinel, which would
     // risk aliasing distinct textures onto the same key downstream.
@@ -1415,36 +875,13 @@ void LLImageGL::generateTextures(S32 numTextures, U32 *textures)
     {
         textures[i] = s_next_name++;
     }
-    return;
-#endif
-    static constexpr U32 pool_size = 1024;
-    static thread_local U32 name_pool[pool_size]; // pool of texture names
-    static thread_local U32 name_count = 0; // number of available names in the pool
-
-    if (name_count == 0)
-    {
-        // pool is emtpy, refill it
-        glGenTextures(pool_size, name_pool);
-        name_count = pool_size;
-    }
-
-    if ((U32)numTextures <= name_count)
-    {
-        //copy teture names off the end of the pool
-        memcpy(textures, name_pool + name_count - numTextures, sizeof(U32) * numTextures);
-        name_count -= numTextures;
-    }
-    else
-    {
-        glGenTextures(numTextures, textures);
-    }
 }
 
 constexpr int DELETE_DELAY = 3; // number of frames to wait before deleting textures
 static std::vector<U32> sFreeList[DELETE_DELAY+1];
 
 // static
-void LLImageGL::updateClass()
+void LLImageDX::updateClass()
 {
     sFrameCount++;
 
@@ -1461,7 +898,7 @@ void LLImageGL::updateClass()
 }
 
 // static
-void LLImageGL::deleteTextures(S32 numTextures, const U32 *textures)
+void LLImageDX::deleteTextures(S32 numTextures, const U32 *textures)
 {
     if (gGLManager.mInited)
     {
@@ -1474,134 +911,9 @@ void LLImageGL::deleteTextures(S32 numTextures, const U32 *textures)
 }
 
 // static
-void LLImageGL::setManualImage(U32 target, S32 miplevel, S32 intformat, S32 width, S32 height, U32 pixformat, U32 pixtype, const void* pixels, bool allow_compression)
-{
-    if (LLRender::sGLCoreProfile)
-    {
-        if (gGLManager.mGLVersion >= CONVERSION_SCRATCH_BUFFER_GL_VERSION)
-        {
-            if (pixformat == GL_ALPHA)
-            { //GL_ALPHA is deprecated, convert to RGBA
-                const GLint mask[] = { GL_ZERO, GL_ZERO, GL_ZERO, GL_RED };
-                glTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_RGBA, mask);
-                pixformat = GL_RED;
-                intformat = GL_R8;
-            }
-
-            if (pixformat == GL_LUMINANCE)
-            { //GL_LUMINANCE is deprecated, convert to GL_RGBA
-                const GLint mask[] = { GL_RED, GL_RED, GL_RED, GL_ONE };
-                glTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_RGBA, mask);
-                pixformat = GL_RED;
-                intformat = GL_R8;
-            }
-
-            if (pixformat == GL_LUMINANCE_ALPHA)
-            { //GL_LUMINANCE_ALPHA is deprecated, convert to RGBA
-                const GLint mask[] = { GL_RED, GL_RED, GL_RED, GL_GREEN };
-                glTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_RGBA, mask);
-                pixformat = GL_RG;
-                intformat = GL_RG8;
-            }
-        }
-        else
-        {
-            if (pixformat == GL_ALPHA && pixtype == GL_UNSIGNED_BYTE)
-            { //GL_ALPHA is deprecated, convert to RGBA
-                if (pixels != nullptr)
-                {
-                    U32 pixel_count = (U32)(width * height);
-                    for (U32 i = 0; i < pixel_count; i++)
-                    {
-                        U8* pix = (U8*)&sManualScratch[i];
-                        pix[0] = pix[1] = pix[2] = 0;
-                        pix[3] = ((U8*)pixels)[i];
-                    }
-
-                    pixels = sManualScratch;
-            }
-
-            pixformat = GL_RGBA;
-            intformat = GL_RGBA8;
-        }
-
-            if (pixformat == GL_LUMINANCE_ALPHA && pixtype == GL_UNSIGNED_BYTE)
-            { //GL_LUMINANCE_ALPHA is deprecated, convert to RGBA
-                if (pixels != nullptr)
-                {
-                    U32 pixel_count = (U32)(width * height);
-                    for (U32 i = 0; i < pixel_count; i++)
-                    {
-                        U8 lum = ((U8*)pixels)[i * 2 + 0];
-                        U8 alpha = ((U8*)pixels)[i * 2 + 1];
-
-                        U8* pix = (U8*)&sManualScratch[i];
-                        pix[0] = pix[1] = pix[2] = lum;
-                        pix[3] = alpha;
-                    }
-
-                    pixels = sManualScratch;
-                }
-
-                pixformat = GL_RGBA;
-                intformat = GL_RGBA8;
-            }
-
-            if (pixformat == GL_LUMINANCE && pixtype == GL_UNSIGNED_BYTE)
-            { //GL_LUMINANCE_ALPHA is deprecated, convert to RGB
-                if (pixels != nullptr)
-                {
-                    U32 pixel_count = (U32)(width * height);
-                    for (U32 i = 0; i < pixel_count; i++)
-                    {
-                        U8 lum = ((U8*)pixels)[i];
-
-                        U8* pix = (U8*)&sManualScratch[i];
-                        pix[0] = pix[1] = pix[2] = lum;
-                        pix[3] = 255;
-                    }
-
-                    pixels = sManualScratch;
-                }
-                pixformat = GL_RGBA;
-                intformat = GL_RGB8;
-            }
-        }
-    }
-
-    // S24: the old GL driver-hint "Enable Texture Compression" path is
-    // unreachable under DX_RENDER; replaced by the real BC7 pipeline
-    // (dxbc7compressor.h/dxbc7uploadmanager.h).
-    const bool compress = false;
-
-    {
-
-        free_cur_tex_image();
-        const bool use_sub_image = should_stagger_image_set(compress);
-        if (!use_sub_image)
-        {
-            glTexImage2D(target, miplevel, intformat, width, height, 0, pixformat, pixtype, pixels);
-        }
-        else
-        {
-            // break up calls to a manageable size for the GL command buffer
-            {
-                glTexImage2D(target, miplevel, intformat, width, height, 0, pixformat, pixtype, nullptr);
-            }
-
-            U8* src = (U8*)(pixels);
-            if (src)
-            {
-                sub_image_lines(target, miplevel, 0, 0, width, height, pixformat, pixtype, src, width);
-            }
-        }
-        alloc_tex_image(width, height, intformat, 1);
-    }
-}
-
 //create an empty GL texture: just create a texture name
-//the texture is assiciate with some image by calling glTexImage outside LLImageGL
-bool LLImageGL::createGLTexture()
+//the texture is assiciate with some image by calling glTexImage outside LLImageDX
+bool LLImageDX::createGLTexture()
 {
     checkActiveThread();
 
@@ -1613,47 +925,16 @@ bool LLImageGL::createGLTexture()
 
     mGLTextureCreated = false ; //do not save this texture when gl is destroyed.
 
-#ifdef DX_RENDER
     // S24: mirrors GL's "name reserved, no storage yet" semantic - mDXTexture
     // stays unallocated until a real create()/updateSubImage() call gives it
-    // actual dimensions and pixel data. setManualImage() itself still has no
-    // DX_RENDER branch.
+    // actual dimensions and pixel data.
     mTexName = 1; // non-zero sentinel - never used as a real GL name under DX_RENDER, see getHasGLTexture()
     return true;
-#else
-    llassert(gGLManager.mInited);
-
-    if(mTexName)
-    {
-        LLImageGL::deleteTextures(1, (reinterpret_cast<GLuint*>(&mTexName))) ;
-        mTexName = 0;
-    }
-
-
-    LLImageGL::generateTextures(1, &mTexName);
-    if (!mTexName)
-    {
-        LL_WARNS() << "LLImageGL::createGLTexture failed to make an empty texture" << LL_ENDL;
-        return false;
-    }
-
-    return true ;
-#endif
 }
 
-bool LLImageGL::createGLTexture(S32 discard_level, const LLImageRaw* imageraw, S32 usename/*=0*/, bool to_create, S32 category, bool defer_copy, LLGLuint* tex_name)
+bool LLImageDX::createGLTexture(S32 discard_level, const LLImageRaw* imageraw, S32 usename/*=0*/, bool to_create, S32 category, bool defer_copy, LLGLuint* tex_name)
 {
     checkActiveThread();
-
-#ifndef DX_RENDER
-    if (gGLManager.mIsDisabled)
-    {
-        LL_WARNS() << "Trying to create a texture while GL is disabled!" << LL_ENDL;
-        return false;
-    }
-
-    llassert(gGLManager.mInited);
-#endif
 
     if (!imageraw || imageraw->isBufferInvalid())
     {
@@ -1684,10 +965,7 @@ bool LLImageGL::createGLTexture(S32 discard_level, const LLImageRaw* imageraw, S
         return false;
     }
 
-    if (mHasExplicitFormat &&
-        ((mFormatPrimary == GL_RGBA && mComponents < 4) ||
-         (mFormatPrimary == GL_RGB  && mComponents < 3)))
-
+    if (mHasExplicitFormat && isExplicitFormatMismatched())
     {
         LL_WARNS()  << "Incorrect format: " << std::hex << mFormatPrimary << " components: " << (U32)mComponents <<  LL_ENDL;
         mHasExplicitFormat = false;
@@ -1740,12 +1018,11 @@ bool LLImageGL::createGLTexture(S32 discard_level, const LLImageRaw* imageraw, S
     return createGLTexture(discard_level, rawdata, false, usename, defer_copy, tex_name);
 }
 
-bool LLImageGL::createGLTexture(S32 discard_level, const U8* data_in, bool data_hasmips, S32 usename, bool defer_copy, LLGLuint* tex_name)
+bool LLImageDX::createGLTexture(S32 discard_level, const U8* data_in, bool data_hasmips, S32 usename, bool defer_copy, LLGLuint* tex_name)
 // Call with void data, vmem is allocated but unitialized
 {
     checkActiveThread();
 
-#ifdef DX_RENDER
     // Deliberately scoped-down first pass (see setImage()'s comment) - skips
     // GL texture-name generation/bind/mip-parameter setup entirely (none of
     // it applies to a DXTexture) and creates it directly via setImage().
@@ -1779,7 +1056,7 @@ bool LLImageGL::createGLTexture(S32 discard_level, const U8* data_in, bool data_
         mTextureMemory = (S64Bytes)getMipBytes(mCurrentDiscardLevel);
         // S24: feed the sTextureBytes fallback total too - see
         // allocDXTextureBytes().
-        LLImageGLMemory::allocDXTextureBytes(this, mTextureMemory.value());
+        LLImageDXMemory::allocDXTextureBytes(this, mTextureMemory.value());
     }
 
     if (tex_name != nullptr)
@@ -1787,136 +1064,23 @@ bool LLImageGL::createGLTexture(S32 discard_level, const U8* data_in, bool data_
         *tex_name = mTexName;
     }
     return success;
-#endif
-
-    bool main_thread = on_main_thread();
-
-    if (defer_copy)
-    {
-        data_in = nullptr;
-    }
-    else
-    {
-        llassert(data_in);
-    }
-
-
-    if (discard_level < 0)
-    {
-        llassert(mCurrentDiscardLevel >= 0);
-        discard_level = mCurrentDiscardLevel;
-    }
-    discard_level = llclamp(discard_level, 0, (S32)mMaxDiscardLevel);
-    discard_level = llmin(discard_level, MAX_DISCARD_LEVEL);
-
-    if (main_thread // <--- always force creation of new_texname when not on main thread ...
-        && !defer_copy // <--- ... or defer copy is set
-        && mTexName != 0 && discard_level == mCurrentDiscardLevel)
-    {
-        // This will only be true if the size has not changed
-        if (tex_name != nullptr)
-        {
-            *tex_name = mTexName;
-        }
-        return setImage(data_in, data_hasmips);
-    }
-
-    GLuint old_texname = mTexName;
-    GLuint new_texname = 0;
-    if (usename != 0)
-    {
-        llassert(main_thread);
-        new_texname = usename;
-    }
-    else
-    {
-        LLImageGL::generateTextures(1, &new_texname);
-        {
-            gDX.getTexUnit(0)->bind(this, false, false, new_texname);
-            glTexParameteri(LLTexUnit::getInternalType(mBindTarget), GL_TEXTURE_BASE_LEVEL, 0);
-            glTexParameteri(LLTexUnit::getInternalType(mBindTarget), GL_TEXTURE_MAX_LEVEL, mMaxDiscardLevel - discard_level);
-        }
-    }
-
-    if (tex_name != nullptr)
-    {
-        *tex_name = new_texname;
-    }
-
-    if (mUseMipMaps)
-    {
-        mAutoGenMips = true;
-    }
-
-    mCurrentDiscardLevel = discard_level;
-
-    {
-        if (!setImage(data_in, data_hasmips, new_texname))
-        {
-            return false;
-        }
-    }
-
-    // Set texture options to our defaults.
-    gDX.getTexUnit(0)->setHasMipMaps(mHasMipMaps);
-    gDX.getTexUnit(0)->setTextureAddressMode(mAddressMode);
-    gDX.getTexUnit(0)->setTextureFilteringOption(mFilterOption);
-
-    // things will break if we don't unbind after creation
-    gDX.getTexUnit(0)->unbind(mBindTarget);
-
-    //if we're on the image loading thread, be sure to delete old_texname and update mTexName on the main thread
-    if (!defer_copy)
-    {
-        if (!main_thread)
-        {
-            syncToMainThread(new_texname);
-        }
-        else
-        {
-            //not on background thread, immediately set mTexName
-            if (old_texname != 0 && old_texname != new_texname)
-            {
-                LLImageGL::deleteTextures(1, &old_texname);
-            }
-            mTexName = new_texname;
-        }
-    }
-
-
-    mTextureMemory = (S64Bytes)getMipBytes(mCurrentDiscardLevel);
-
-    // mark this as bound at this point, so we don't throw it out immediately
-    mLastBindTime = sLastFrameTime;
-
-    checkActiveThread();
-    return true;
 }
 
-void LLImageGL::syncToMainThread(LLGLuint new_tex_name)
+void LLImageDX::syncToMainThread(LLGLuint new_tex_name)
 {
     llassert(!on_main_thread());
 
-#ifdef DX_RENDER
     // Reached from LLViewerMediaImpl::doMediaTexUpdate() on the media
     // update worker thread (e.g. every CEF frame for an embedded browser -
     // LLPanelLogin's own "login_html" LLMediaCtrl is exactly this path,
     // meaning this was very likely the actual reason the login form never
-    // painted while the surrounding scene/splash rendered fine). The GL
-    // fence/flush dance below is pure GL cross-context-sync machinery -
-    // under DX_RENDER there's no GL context at all on this thread, so
-    // glFenceSync/glWaitSync (extension-loaded, never bound without a real
-    // context) are effectively null and would crash, or - if somehow
-    // non-null - would block forever on a fence nothing will ever signal.
-    // DXTexture::create()/updateSubImage() (called synchronously just
-    // before this, by createGLTexture()/setSubImage() above this
-    // function's only caller) already issue their D3D11 calls immediately,
-    // so just post the texture-name swap straight to the main thread,
-    // skipping the GL-specific fence wait entirely.
-    // S24: this function (and the createTexture() worker-thread path)
-    // should no longer be reachable under DX_RENDER, since initClass()
-    // forces sEnabledTextures/sEnabledMedia off unconditionally; left in
-    // place in case some other caller still exists.
+    // painted while the surrounding scene/splash rendered fine). GL's
+    // cross-context fence/flush dance has no meaning here - there's no GL
+    // context at all on this thread. DXTexture::create()/updateSubImage()
+    // (called synchronously just before this, by createGLTexture()/
+    // setSubImage() above this function's only caller) already issue their
+    // D3D11 calls immediately, so just post the texture-name swap straight
+    // to the main thread.
     ref();
     LL::WorkQueue::postMaybe(
         mMainQueue,
@@ -1925,66 +1089,22 @@ void LLImageGL::syncToMainThread(LLGLuint new_tex_name)
             syncTexName(new_tex_name);
             unref();
         });
-    return;
-#endif
-
-    {
-        if (gGLManager.mIsNVIDIA)
-        {
-            // wait for texture upload to finish before notifying main thread
-            // upload is complete
-            auto sync = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
-            glFlush();
-            glClientWaitSync(sync, 0, GL_TIMEOUT_IGNORED);
-            glDeleteSync(sync);
-        }
-        else
-        {
-            // post a sync to the main thread (will execute before tex name swap lambda below)
-            // glFlush calls here are partly superstitious and partly backed by observation
-            // on AMD hardware
-            glFlush();
-            auto sync = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
-            glFlush();
-            LL::WorkQueue::postMaybe(
-                mMainQueue,
-                [=]()
-                {
-                    {
-                        glWaitSync(sync, 0, GL_TIMEOUT_IGNORED);
-                    }
-                    {
-                        glDeleteSync(sync);
-                    }
-                });
-        }
-    }
-
-    ref();
-    LL::WorkQueue::postMaybe(
-        mMainQueue,
-        [=, this]()
-        {
-            syncTexName(new_tex_name);
-            unref();
-        });
-
 }
 
 
-void LLImageGL::syncTexName(LLGLuint texname)
+void LLImageDX::syncTexName(LLGLuint texname)
 {
     if (texname != 0)
     {
         if (mTexName != 0 && mTexName != texname)
         {
-            LLImageGL::deleteTextures(1, &mTexName);
+            LLImageDX::deleteTextures(1, &mTexName);
         }
         mTexName = texname;
     }
 }
 
-bool LLImageGL::readBackRaw(S32 discard_level, LLImageRaw* imageraw, bool compressed_ok) const
+bool LLImageDX::readBackRaw(S32 discard_level, LLImageRaw* imageraw, bool compressed_ok) const
 {
 
     if (discard_level < 0)
@@ -1992,7 +1112,6 @@ bool LLImageGL::readBackRaw(S32 discard_level, LLImageRaw* imageraw, bool compre
         discard_level = mCurrentDiscardLevel;
     }
 
-#ifdef DX_RENDER
     // S24: uses DXReadback to read the texture's real GPU content back.
     // Deliberately scoped down like DXTexture::create() itself: only the
     // current top-level mip is supported - DXTexture doesn't store discrete
@@ -2009,7 +1128,7 @@ bool LLImageGL::readBackRaw(S32 discard_level, LLImageRaw* imageraw, bool compre
         return false;
     }
 
-    // S24: LLImageGL::upgradeToCompressedMips() can replace this texture's
+    // S24: LLImageDX::upgradeToCompressedMips() can replace this texture's
     // GPU resource with a BC7 one after the fact; DXReadback::readPixels()
     // below assumes RGBA8 stride/size, so reading a BC7 resource with those
     // assumptions is an out-of-bounds read. Bail out cleanly instead.
@@ -2059,118 +1178,9 @@ bool LLImageGL::readBackRaw(S32 discard_level, LLImageRaw* imageraw, bool compre
     }
 
     return true;
-#else
-    if (mTexName == 0 || discard_level < mCurrentDiscardLevel || discard_level > mMaxDiscardLevel )
-    {
-        return false;
-    }
-
-    S32 gl_discard = discard_level - mCurrentDiscardLevel;
-
-    //explicitly unbind texture
-    gDX.getTexUnit(0)->unbind(mBindTarget);
-    llverify(gDX.getTexUnit(0)->bindManual(mBindTarget, mTexName));
-
-    //debug code, leave it there commented.
-    //checkTexSize() ;
-
-    LLGLint glwidth = 0;
-    glGetTexLevelParameteriv(mTarget, gl_discard, GL_TEXTURE_WIDTH, (GLint*)&glwidth);
-    if (glwidth == 0)
-    {
-        // No mip data smaller than current discard level
-        return false;
-    }
-
-    S32 width = getWidth(discard_level);
-    S32 height = getHeight(discard_level);
-    S32 ncomponents = getComponents();
-    if (ncomponents == 0)
-    {
-        return false;
-    }
-    if(width < glwidth)
-    {
-        LL_DEBUGS("TextureReadback") << "texture size is smaller than it should be." << LL_ENDL;
-        LL_DEBUGS("TextureReadback") << "width: " << width << " glwidth: " << glwidth << " mWidth: " << mWidth <<
-            " mCurrentDiscardLevel: " << (S32)mCurrentDiscardLevel << " discard_level: " << (S32)discard_level << LL_ENDL;
-        return false;
-    }
-
-    if (width <= 0 || width > 2048 || height <= 0 || height > 2048 || ncomponents < 1 || ncomponents > 4)
-    {
-        LL_ERRS() << std::format("LLImageGL::readBackRaw: bogus params: {} x {} x {}", width, height, ncomponents) << LL_ENDL;
-    }
-
-    LLGLint is_compressed = 0;
-    if (compressed_ok)
-    {
-        glGetTexLevelParameteriv(mTarget, is_compressed, GL_TEXTURE_COMPRESSED, (GLint*)&is_compressed);
-    }
-
-    GLenum error;
-
-    LLImageDataLock lock(imageraw);
-
-    if (is_compressed)
-    {
-        LLGLint glbytes;
-        glGetTexLevelParameteriv(mTarget, gl_discard, GL_TEXTURE_COMPRESSED_IMAGE_SIZE, (GLint*)&glbytes);
-        if(!imageraw->allocateDataSize(width, height, ncomponents, glbytes))
-        {
-            constexpr S64 MAX_GL_BYTES = 2048 * 2048;
-            if (glbytes > 0 && glbytes <= MAX_GL_BYTES)
-            {
-                LLError::LLUserWarningMsg::showOutOfMemory();
-                LL_ERRS() << "Memory allocation failed for reading back texture. Data size: " << glbytes << LL_ENDL;
-            }
-            else
-            {
-                LL_DEBUGS("TextureReadback") << "Memory allocation failed for reading back texture. Data size is: " << glbytes << LL_ENDL;
-                LL_DEBUGS("TextureReadback") << "width: " << width << " height: " << height << " components: " << ncomponents << LL_ENDL;
-            }
-            return false ;
-        }
-
-        glGetCompressedTexImage(mTarget, gl_discard, (GLvoid*)(imageraw->getData()));
-        //stop_glerror();
-    }
-    else
-    {
-        if(!imageraw->allocateDataSize(width, height, ncomponents))
-        {
-            constexpr F32 MAX_IMAGE_SIZE = 2048 * 2048;
-            F32 size = (F32)width * (F32)height * (F32)ncomponents;
-            if (size > 0 && size <= MAX_IMAGE_SIZE)
-            {
-                LLError::LLUserWarningMsg::showOutOfMemory();
-                LL_ERRS() << "Memory allocation failed for reading back texture. Data size: " << size << LL_ENDL;
-            }
-            else
-            {
-                LL_DEBUGS("TextureReadback") << "Memory allocation failed for reading back texture." << LL_ENDL;
-                LL_DEBUGS("TextureReadback") << "width: " << width << " height: " << height << " components: " << ncomponents << LL_ENDL;
-            }
-            return false ;
-        }
-
-        glGetTexImage(GL_TEXTURE_2D, gl_discard, mFormatPrimary, mFormatType, (GLvoid*)(imageraw->getData()));
-        //stop_glerror();
-    }
-
-    error = glGetError();
-    if(error != GL_NO_ERROR)
-    {
-        LL_DEBUGS("TextureReadback") << "GL Error after reading back texture. Error code: 0x" << std::hex << error << std::dec << LL_ENDL;
-        imageraw->deleteData();
-        return false;
-    }
-
-    return true ;
-#endif // DX_RENDER
 }
 
-void LLImageGL::destroyGLTexture()
+void LLImageDX::destroyGLTexture()
 {
     checkActiveThread();
 
@@ -2181,17 +1191,12 @@ void LLImageGL::destroyGLTexture()
             mTextureMemory = (S64Bytes)0;
         }
 
-#ifdef DX_RENDER
         // mTexName is a non-zero sentinel under DX_RENDER (see
-        // createGLTexture()'s comment), not a real GL name - deleteTextures()
-        // (glDeleteTextures) must not be called with it.
+        // createGLTexture()'s comment), not a real GL name.
         // S24: free this instance's tracked accounting - see
         // allocDXTextureBytes()/freeDXTextureBytes().
-        LLImageGLMemory::freeDXTextureBytes(this);
+        LLImageDXMemory::freeDXTextureBytes(this);
         mDXTexture.destroy();
-#else
-        LLImageGL::deleteTextures(1, &mTexName);
-#endif
         mCurrentDiscardLevel = -1 ; //invalidate mCurrentDiscardLevel.
         mTexName = 0;
         mGLTextureCreated = false ;
@@ -2199,7 +1204,7 @@ void LLImageGL::destroyGLTexture()
 }
 
 //force to invalidate the gl texture, most likely a sculpty texture
-void LLImageGL::forceToInvalidateGLTexture()
+void LLImageDX::forceToInvalidateGLTexture()
 {
     checkActiveThread();
     if (mTexName != 0)
@@ -2214,60 +1219,51 @@ void LLImageGL::forceToInvalidateGLTexture()
 
 //----------------------------------------------------------------------------
 
-void LLImageGL::setAddressMode(LLTexUnit::eTextureAddressMode mode)
+void LLImageDX::setAddressMode(LLTexUnit::eTextureAddressMode mode)
 {
     if (mAddressMode != mode)
     {
-        mTexOptionsDirty = true;
         mAddressMode = mode;
     }
 
     if (gDX.getTexUnit(gDX.getCurrentTexUnitIndex())->getCurrTexture() == mTexName)
     {
         gDX.getTexUnit(gDX.getCurrentTexUnitIndex())->setTextureAddressMode(mode);
-        mTexOptionsDirty = false;
     }
 }
 
-void LLImageGL::setFilteringOption(LLTexUnit::eTextureFilterOptions option)
+void LLImageDX::setFilteringOption(LLTexUnit::eTextureFilterOptions option)
 {
     if (mFilterOption != option)
     {
-        mTexOptionsDirty = true;
         mFilterOption = option;
     }
 
-    if (mTexName != 0 && gDX.getTexUnit(gDX.getCurrentTexUnitIndex())->getCurrTexture() == mTexName)
-    {
-        gDX.getTexUnit(gDX.getCurrentTexUnitIndex())->setTextureFilteringOption(option);
-        mTexOptionsDirty = false;
-    }
+    // S24: the old GL immediate-apply-if-currently-bound branch here was dead
+    // under DX_RENDER, not just unreachable - doubly so. getCurrTexture()
+    // reads LLTexUnit::mCurrTexture, which (per its own comment in
+    // llrender.cpp) stays 0 forever under DX_RENDER since bindFast() never
+    // assigns it, so the guard condition was always false; and even if it
+    // fired, LLTexUnit::setTextureFilteringOption() is itself already a
+    // documented DX_RENDER no-op (see llrender.cpp). The real filter
+    // application happens at bind time - bindFast() reads mFilterOption
+    // (set above) fresh via getFilteringOption() to build the DXSampler, so
+    // call order relative to bindTexture() never matters here.
 }
 
-bool LLImageGL::getIsResident(bool test_now)
+bool LLImageDX::getIsResident(bool test_now)
 {
     if (test_now)
     {
-#ifdef DX_RENDER
         // S24: raw glAreTexturesResident() has no D3D11 equivalent -
         // residency is driver/OS-managed, not queried this way.
         mIsResident = mTexName != 0;
-#else
-        if (mTexName != 0)
-        {
-            glAreTexturesResident(1, (GLuint*)&mTexName, &mIsResident);
-        }
-        else
-        {
-            mIsResident = false;
-        }
-#endif
     }
 
     return mIsResident;
 }
 
-S32 LLImageGL::getHeight(S32 discard_level) const
+S32 LLImageDX::getHeight(S32 discard_level) const
 {
     if (discard_level < 0)
     {
@@ -2278,7 +1274,7 @@ S32 LLImageGL::getHeight(S32 discard_level) const
     return height;
 }
 
-S32 LLImageGL::getWidth(S32 discard_level) const
+S32 LLImageDX::getWidth(S32 discard_level) const
 {
     if (discard_level < 0)
     {
@@ -2289,7 +1285,7 @@ S32 LLImageGL::getWidth(S32 discard_level) const
     return width;
 }
 
-S64 LLImageGL::getBytes(S32 discard_level) const
+S64 LLImageDX::getBytes(S32 discard_level) const
 {
     if (discard_level < 0)
     {
@@ -2302,7 +1298,7 @@ S64 LLImageGL::getBytes(S32 discard_level) const
     return dataFormatBytes(mFormatPrimary, w, h);
 }
 
-S64 LLImageGL::getMipBytes(S32 discard_level) const
+S64 LLImageDX::getMipBytes(S32 discard_level) const
 {
     if (discard_level < 0)
     {
@@ -2310,16 +1306,15 @@ S64 LLImageGL::getMipBytes(S32 discard_level) const
     }
     S32 w = mWidth>>discard_level;
     S32 h = mHeight>>discard_level;
-#ifdef DX_RENDER
     // S24: DXTexture::create() unconditionally repacks every uncompressed
     // source format to DXGI_FORMAT_R8G8B8A8_UNORM (4 bytes/pixel) regardless
     // of mFormatPrimary, so dataFormatBytes(mFormatPrimary,...) would
-    // undercount by up to 4x for 1-3 component sources. isCompressed()
-    // sources instead go through DXTexture::createCompressed() (BC1/BC2/BC3,
-    // 0.5-1 byte/pixel) and must be counted separately, below, or the RGBA8
-    // assumption would over-count them by up to 8x. Mirrors setImage()'s
+    // undercount by up to 4x for 1-3 component sources. A pre-compressed
+    // SOURCE instead goes through DXTexture::createCompressed() (BC1/BC2/
+    // BC3, 0.5-1 byte/pixel) and must be counted separately, below, or the
+    // RGBA8 assumption would over-count it by up to 8x. Mirrors setImage()'s
     // GL->DXGI format mapping - keep the two in sync.
-    if (isCompressed())
+    if (isSourceFormatCompressed())
     {
         S32 block_bytes;
         switch (mFormatPrimary)
@@ -2349,50 +1344,54 @@ S64 LLImageGL::getMipBytes(S32 discard_level) const
         // over-count.
         return (S64)blocks_wide * blocks_high * block_bytes;
     }
+
+    // S24: a texture that started life as an ordinary RGBA8 upload
+    // (isSourceFormatCompressed() false) can still end up block-compressed
+    // later via DXBC7UploadManager's background BC7 upgrade
+    // (upgradeToCompressedMips()) - that path deliberately never touches
+    // mFormatPrimary, so it's invisible to the check above. Ask the real
+    // GPU resource instead. Always DXGI_FORMAT_BC7_UNORM (16-byte blocks) -
+    // requestUpgrade() never requests anything else - and mip0-only for the
+    // same reason as the isSourceFormatCompressed() case above.
+    if (isGpuResourceCompressed())
+    {
+        const S32 blocks_wide = (w + 3) / 4;
+        const S32 blocks_high = (h + 3) / 4;
+        return (S64)blocks_wide * blocks_high * 16;
+    }
+
     S64 res = (S64)w * h * 4;
-#else
-    S64 res = dataFormatBytes(mFormatPrimary, w, h);
-#endif
     if (mUseMipMaps)
     {
         while (w > 1 && h > 1)
         {
             w >>= 1; if (w == 0) w = 1;
             h >>= 1; if (h == 0) h = 1;
-#ifdef DX_RENDER
             res += (S64)w * h * 4;
-#else
-            res += dataFormatBytes(mFormatPrimary, w, h);
-#endif
         }
     }
     return res;
 }
 
-bool LLImageGL::isJustBound() const
-{
-    return sLastFrameTime - mLastBindTime < 0.5f;
-}
-
-bool LLImageGL::getBoundRecently() const
+bool LLImageDX::getBoundRecently() const
 {
     return (bool)(sLastFrameTime - mLastBindTime < MIN_TEXTURE_LIFETIME);
 }
 
-bool LLImageGL::getIsAlphaMask() const
+bool LLImageDX::getIsAlphaMask() const
 {
     llassert_always(!sSkipAnalyzeAlpha);
     return mIsMask;
 }
 
-void LLImageGL::setTarget(const LLGLenum target, const LLTexUnit::eTextureType bind_target)
+void LLImageDX::setTarget(const LLGLenum target, const LLTexUnit::eTextureType bind_target)
 {
     mTarget = target;
     mBindTarget = bind_target;
 }
 
 const S8 INVALID_OFFSET = -99 ;
-void LLImageGL::setNeedsAlphaAndPickMask(bool need_mask)
+void LLImageDX::setNeedsAlphaAndPickMask(bool need_mask)
 {
     if(mNeedsAlphaAndPickMask != need_mask)
     {
@@ -2410,7 +1409,7 @@ void LLImageGL::setNeedsAlphaAndPickMask(bool need_mask)
     }
 }
 
-void LLImageGL::calcAlphaChannelOffsetAndStride()
+void LLImageDX::calcAlphaChannelOffsetAndStride()
 {
     if(mAlphaOffset == INVALID_OFFSET)//do not need alpha mask
     {
@@ -2483,7 +1482,7 @@ void LLImageGL::calcAlphaChannelOffsetAndStride()
     }
 }
 
-void LLImageGL::analyzeAlpha(const void* data_in, U32 w, U32 h)
+void LLImageDX::analyzeAlpha(const void* data_in, U32 w, U32 h)
 {
     if(!data_in || sSkipAnalyzeAlpha || !mNeedsAlphaAndPickMask)
     {
@@ -2586,7 +1585,7 @@ void LLImageGL::analyzeAlpha(const void* data_in, U32 w, U32 h)
 }
 
 //----------------------------------------------------------------------------
-U32 LLImageGL::createPickMask(S32 pWidth, S32 pHeight)
+U32 LLImageDX::createPickMask(S32 pWidth, S32 pHeight)
 {
     freePickMask();
     U32 pick_width = pWidth/2 + 1;
@@ -2604,7 +1603,7 @@ U32 LLImageGL::createPickMask(S32 pWidth, S32 pHeight)
 }
 
 //----------------------------------------------------------------------------
-void LLImageGL::freePickMask()
+void LLImageDX::freePickMask()
 {
     if (mPickMask != NULL)
     {
@@ -2614,7 +1613,7 @@ void LLImageGL::freePickMask()
     mPickMaskWidth = mPickMaskHeight = 0;
 }
 
-bool LLImageGL::isCompressed() const
+bool LLImageDX::isSourceFormatCompressed() const
 {
     llassert(mFormatPrimary != 0);
     // *NOTE: Not all compressed formats are included here.
@@ -2636,7 +1635,7 @@ bool LLImageGL::isCompressed() const
 }
 
 //----------------------------------------------------------------------------
-void LLImageGL::updatePickMask(S32 width, S32 height, const U8* data_in)
+void LLImageDX::updatePickMask(S32 width, S32 height, const U8* data_in)
 {
     if(!mNeedsAlphaAndPickMask)
     {
@@ -2681,7 +1680,7 @@ void LLImageGL::updatePickMask(S32 width, S32 height, const U8* data_in)
     }
 }
 
-bool LLImageGL::getMask(const LLVector2 &tc)
+bool LLImageDX::getMask(const LLVector2 &tc)
 {
     bool res = true;
 
@@ -2733,7 +1732,7 @@ bool LLImageGL::getMask(const LLVector2 &tc)
     return res;
 }
 
-void LLImageGL::setCurTexSizebar(S32 index, bool set_pick_size)
+void LLImageDX::setCurTexSizebar(S32 index, bool set_pick_size)
 {
     sCurTexSizeBar = index ;
 
@@ -2746,59 +1745,19 @@ void LLImageGL::setCurTexSizebar(S32 index, bool set_pick_size)
         sCurTexPickSize = -1 ;
     }
 }
-void LLImageGL::resetCurTexSizebar()
+void LLImageDX::resetCurTexSizebar()
 {
     sCurTexSizeBar = -1 ;
     sCurTexPickSize = -1 ;
 }
 
-bool LLImageGL::scaleDown(S32 desired_discard)
+bool LLImageDX::scaleDown(S32 desired_discard)
 {
-
-#ifdef DX_RENDER
     // S24: real D3D11 downscale, driving the VRAM-pressure discard-bias
     // system for already-resident textures. Every real caller
     // (LLViewerLODTexture) is guaranteed a full mip chain already, so
     // DXTexture::scaleDown() can do this as a pure GPU-to-GPU resource copy.
-    //
-    // Scoped in its own block since the GL code below isn't wrapped in
-    // #else - it falls through textually after this #endif - so without
-    // this brace scope these locals would collide with the GL code's
-    // same-named ones further down in the same function scope.
-    {
-        if (mFormatInternal == -1) // not initialized
-        {
-            return false;
-        }
-
-        desired_discard = llmin(desired_discard, mMaxDiscardLevel);
-
-        if (desired_discard <= mCurrentDiscardLevel)
-        {
-            return false;
-        }
-
-        S32 mip = desired_discard - mCurrentDiscardLevel;
-        S32 desired_width = getWidth(desired_discard);
-        S32 desired_height = getHeight(desired_discard);
-
-        if (!mDXTexture.scaleDown(mip, desired_width, desired_height))
-        {
-            return false;
-        }
-
-        mCurrentDiscardLevel = desired_discard;
-        mTextureMemory = (S64Bytes)getMipBytes(mCurrentDiscardLevel);
-        // S24: feed the sTextureBytes fallback total too - see allocDXTextureBytes().
-        LLImageGLMemory::allocDXTextureBytes(this, mTextureMemory.value());
-
-        return true;
-    }
-#endif
-
-    if (mTarget != GL_TEXTURE_2D
-        || mFormatInternal == -1 // not initialized
-        )
+    if (mFormatInternal == -1) // not initialized
     {
         return false;
     }
@@ -2811,88 +1770,26 @@ bool LLImageGL::scaleDown(S32 desired_discard)
     }
 
     S32 mip = desired_discard - mCurrentDiscardLevel;
-
     S32 desired_width = getWidth(desired_discard);
     S32 desired_height = getHeight(desired_discard);
 
-    if (gGLManager.mDownScaleMethod == 0)
-    { // use an FBO to downscale the texture
-        glViewport(0, 0, desired_width, desired_height);
-
-        // draw a full screen triangle
-        if (gDX.getTexUnit(0)->bind(this, true, true))
-        {
-            glDrawArrays(GL_TRIANGLES, 0, 3);
-
-            free_tex_image(mTexName);
-            glTexImage2D(mTarget, 0, mFormatInternal, desired_width, desired_height, 0, mFormatPrimary, mFormatType, nullptr);
-            glCopyTexSubImage2D(mTarget, 0, 0, 0, 0, 0, desired_width, desired_height);
-            alloc_tex_image(desired_width, desired_height, mFormatInternal, 1);
-
-            mTexOptionsDirty = true;
-
-            if (mHasMipMaps)
-            { // generate mipmaps if needed
-                gDX.getTexUnit(0)->bind(this);
-                glGenerateMipmap(mTarget);
-                gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
-            }
-        }
-        else
-        {
-            LL_WARNS_ONCE("LLImageGL") << "Failed to bind texture for downscaling." << LL_ENDL;
-            return false;
-        }
-    }
-    else
-    { // use a PBO to downscale the texture
-        U64 size = getBytes(desired_discard);
-        llassert(size <= 2048 * 2048 * 4); // we shouldn't be using this method to downscale huge textures, but it'll work
-        gDX.getTexUnit(0)->bind(this, false, true);
-
-        if (sScratchPBO == 0)
-        {
-            glGenBuffers(1, &sScratchPBO);
-            sScratchPBOSize = 0;
-        }
-
-        glBindBuffer(GL_PIXEL_PACK_BUFFER, sScratchPBO);
-
-        if (size > sScratchPBOSize)
-        {
-            glBufferData(GL_PIXEL_PACK_BUFFER, size, NULL, GL_STREAM_COPY);
-            sScratchPBOSize = (U32)size;
-        }
-
-        glGetTexImage(mTarget, mip, mFormatPrimary, mFormatType, nullptr);
-
-        free_tex_image(mTexName);
-
-        glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
-
-        glBindBuffer(GL_PIXEL_UNPACK_BUFFER, sScratchPBO);
-        glTexImage2D(mTarget, 0, mFormatInternal, desired_width, desired_height, 0, mFormatPrimary, mFormatType, nullptr);
-        glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
-
-        alloc_tex_image(desired_width, desired_height, mFormatInternal, 1);
-
-        if (mHasMipMaps)
-        {
-            glGenerateMipmap(mTarget);
-        }
-
-        gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+    if (!mDXTexture.scaleDown(mip, desired_width, desired_height))
+    {
+        return false;
     }
 
     mCurrentDiscardLevel = desired_discard;
+    mTextureMemory = (S64Bytes)getMipBytes(mCurrentDiscardLevel);
+    // S24: feed the sTextureBytes fallback total too - see allocDXTextureBytes().
+    LLImageDXMemory::allocDXTextureBytes(this, mTextureMemory.value());
 
     return true;
 }
 
 
 //----------------------------------------------------------------------------
-#if LL_IMAGEGL_THREAD_CHECK
-void LLImageGL::checkActiveThread()
+#if LL_IMAGEDX_THREAD_CHECK
+void LLImageDX::checkActiveThread()
 {
     llassert(mActiveThread == LLThread::currentID());
 }
@@ -2931,7 +1828,7 @@ void LLImageGL::checkActiveThread()
             llassert(w > 0 && h > 0 && cur_mip_data);
             U8 test = cur_mip_data[w*h*mComponents-1];
             {
-                LLImageGL::setManualImage(mTarget, m, mFormatInternal, w, h, mFormatPrimary, mFormatType, cur_mip_data);
+                LLImageDX::setManualImage(mTarget, m, mFormatInternal, w, h, mFormatPrimary, mFormatType, cur_mip_data);
             }
             if (prev_mip_data && prev_mip_data != rawdata)
             {
@@ -2949,9 +1846,9 @@ void LLImageGL::checkActiveThread()
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL,  nummips);
 */
 
-LLImageGLThread::LLImageGLThread(LLWindow* window)
+LLImageDXThread::LLImageDXThread(LLWindow* window)
     // We want exactly one thread.
-    : LL::ThreadPool("LLImageGL", 1)
+    : LL::ThreadPool("LLImageDX", 1)
     , mWindow(window)
 {
     mFinished = false;
@@ -2962,7 +1859,7 @@ LLImageGLThread::LLImageGLThread(LLWindow* window)
 
 // S24: DX_RENDER never constructs this class - background texture/media
 // creation is permanently disabled under DX_RENDER. GL-only.
-void LLImageGLThread::run()
+void LLImageDXThread::run()
 {
     // We must perform setup on this thread before actually servicing our
     // WorkQueue, likewise cleanup afterwards.

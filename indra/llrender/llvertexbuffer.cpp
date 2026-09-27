@@ -180,14 +180,15 @@ static void delete_buffers(S32 count, GLuint* buffers)
 
 	if (gGLManager.mInited)
 	{
-		U32 idx = LLImageGL::sFrameCount % 4;
+		U32 idx = LLImageDX::sFrameCount % 4;
 
 		for (S32 i = 0; i < count; ++i)
 		{
 			sFreeList[idx].push_back(buffers[i]);
 		}
 
-		idx = (LLImageGL::sFrameCount + 3) % 4;
+		// Clear frame -3 (equals +1), this idx will be written over on the next call
+		idx = (LLImageDX::sFrameCount + 1) % 4;
 
 		if (!sFreeList[idx].empty())
 		{
@@ -479,7 +480,7 @@ void LLVertexBufferData::drawWithMatrix()
 
 #ifdef DX_RENDER
 	// S24: see LLVertexBufferData::mDXImage's comment - replay via a real
-	// bind(LLImageGL*) instead of GL's raw-GLuint bindManual(mTexName).
+	// bind(LLImageDX*) instead of GL's raw-GLuint bindManual(mTexName).
 	if (mDXImage)
 	{
 		gDX.getTexUnit(0)->bind(mDXImage.get());
@@ -537,7 +538,7 @@ void LLVertexBufferData::draw()
 
 #ifdef DX_RENDER
 	// S24: see LLVertexBufferData::mDXImage's comment - replay via a real
-	// bind(LLImageGL*) instead of GL's raw-GLuint bindManual(mTexName).
+	// bind(LLImageDX*) instead of GL's raw-GLuint bindManual(mTexName).
 	if (mDXImage)
 	{
 		gDX.getTexUnit(0)->bind(mDXImage.get());

@@ -38,14 +38,13 @@ set(llrender_SOURCE_FILES
     llfontbitmapcache.cpp
     llfontfreetype.cpp
     llfontfreetypesvg.cpp
-    llfontgl.cpp
+    llfontdx.cpp
     llfontvertexbuffer.cpp
     llfontregistry.cpp
     llgl.cpp
     llhlslshader.cpp
-    llgltexture.cpp
-    llimagegl.cpp
-    llpostprocess.cpp
+    lldxtexture.cpp
+    llimagedx.cpp
     llrender.cpp
     llrender2dutils.cpp
     llrendernavprim.cpp
@@ -64,7 +63,7 @@ set(llrender_SOURCE_FILES
 set(llrender_HEADER_FILES
     CMakeLists.txt
 
-    llfontgl.h
+    llfontdx.h
     llfontvertexbuffer.h
     llfontfreetype.h
     llfontfreetypesvg.h
@@ -74,10 +73,9 @@ set(llrender_HEADER_FILES
     llglheaders.h
     llhlslshader.h
     llglstates.h
-    llgltexture.h
+    lldxtexture.h
     llgltypes.h
-    llimagegl.h
-    llpostprocess.h
+    llimagedx.h
     llrender.h
     llrender2dutils.h
     llrendernavprim.h

@@ -28,7 +28,7 @@
 #include "linden_common.h"
 #include "llgl.h"
 #include "llfontfreetype.h"
-#include "llfontgl.h"
+#include "llfontdx.h"
 #include "llfontregistry.h"
 #include <boost/tokenizer.hpp>
 #include "llcontrol.h"
@@ -149,7 +149,7 @@ LLFontDescriptor LLFontDescriptor::normalize() const
 	U8 new_style(mStyle);
 
 	// Only care about style to extent it can be picked up by font.
-	new_style &= (LLFontGL::BOLD | LLFontGL::ITALIC);
+	new_style &= (LLFontDX::BOLD | LLFontDX::ITALIC);
 
 	// All these transformations are to support old-style font specifications.
 	if (removeSubString(new_name, "Small"))
@@ -172,10 +172,10 @@ LLFontDescriptor LLFontDescriptor::normalize() const
         new_size = "Small";
 
 	if (removeSubString(new_name, "Bold"))
-		new_style |= LLFontGL::BOLD;
+		new_style |= LLFontDX::BOLD;
 
 	if (removeSubString(new_name, "Italic"))
-		new_style |= LLFontGL::ITALIC;
+		new_style |= LLFontDX::ITALIC;
 
 	return LLFontDescriptor(new_name, new_size, new_style, getFontFiles(), getFontCollectionFiles());
 }
@@ -269,7 +269,7 @@ bool font_desc_init_from_xml(LLXMLNodePtr node, LLFontDescriptor& desc)
 		std::string attr_style;
 		if (node->getAttributeString("font_style", attr_style))
 		{
-			desc.setStyle(LLFontGL::getStyleFromString(attr_style));
+			desc.setStyle(LLFontDX::getStyleFromString(attr_style));
 		}
 
 		desc.setSize(s_template_string);
@@ -321,7 +321,7 @@ bool font_desc_init_from_xml(LLXMLNodePtr node, LLFontDescriptor& desc)
 
                 if (attr_flags == "bold")
                 {
-                    flags |= LLFontGL::BOLD;
+                    flags |= LLFontDX::BOLD;
                 }
             }
 
@@ -432,7 +432,7 @@ bool LLFontRegistry::nameToSize(const std::string& size_name, F32& size)
 	return false;
 }
 
-LLFontGL* LLFontRegistry::createFont(const LLFontDescriptor& desc)
+LLFontDX* LLFontRegistry::createFont(const LLFontDescriptor& desc)
 {
 	// Name should hold a font name recognized as a setting; the value
 	// of the setting should be a list of font files.
@@ -473,8 +473,8 @@ LLFontGL* LLFontRegistry::createFont(const LLFontDescriptor& desc)
 	{
 		LL_INFOS() << "-- matching font exists: " << nearest_exact_desc.getName() << " size " << nearest_exact_desc.getSize() << " style " << ((S32)nearest_exact_desc.getStyle()) << LL_ENDL;
 
-		// copying underlying Freetype font, and storing in LLFontGL with requested font descriptor
-		LLFontGL* font = new LLFontGL;
+		// copying underlying Freetype font, and storing in LLFontDX with requested font descriptor
+		LLFontDX* font = new LLFontDX;
 		font->mFontDescriptor = desc;
 		font->mFontFreetype = it->second->mFontFreetype;
 		mFontMap[desc] = font;
@@ -510,19 +510,19 @@ LLFontGL* LLFontRegistry::createFont(const LLFontDescriptor& desc)
 		return NULL;
 	}
 
-	LLFontGL* result = NULL;
+	LLFontDX* result = NULL;
 
 	// The first font will get pulled will be the "head" font, set to non-fallback.
 	// Rest will consitute the fallback list.
 	bool is_first_found = true;
 
 	string_vec_t font_search_paths;
-	font_search_paths.push_back(LLFontGL::getFontPathLocal());
-	font_search_paths.push_back(LLFontGL::getFontPathSystem());
+	font_search_paths.push_back(LLFontDX::getFontPathLocal());
+	font_search_paths.push_back(LLFontDX::getFontPathSystem());
 #if LL_DARWIN
 	font_search_paths.push_back(MACOSX_FONT_PATH_LIBRARY);
 	font_search_paths.push_back(MACOSX_FONT_PATH_LIBRARY + MACOSX_FONT_SUPPLEMENTAL);
-	font_search_paths.push_back(LLFontGL::getFontPathSystem() + MACOSX_FONT_SUPPLEMENTAL);
+	font_search_paths.push_back(LLFontDX::getFontPathSystem() + MACOSX_FONT_SUPPLEMENTAL);
 #endif
 
 	// The fontname string may contain multiple font file names separated by semicolons.
@@ -531,7 +531,7 @@ LLFontGL* LLFontRegistry::createFont(const LLFontDescriptor& desc)
 		font_file_it != font_files.end();
 		++font_file_it)
 	{
-		LLFontGL* fontp = NULL;
+		LLFontDX* fontp = NULL;
 
 		bool is_ft_collection = (std::find_if(font_collection_files.begin(), font_collection_files.end(),
 			[&font_file_it](const LLFontFileInfo& ffi) { return font_file_it->FileName == ffi.FileName; }) != font_collection_files.end());
@@ -548,7 +548,7 @@ LLFontGL* LLFontRegistry::createFont(const LLFontDescriptor& desc)
 		{
 			const std::string font_path = *font_search_path_it + font_file_it->FileName;
 
-			fontp = new LLFontGL;
+			fontp = new LLFontDX;
 			S32 num_faces = is_ft_collection ? fontp->getNumFaces(font_path) : 1;
 			if (num_faces <= 0)
 			{
@@ -561,10 +561,10 @@ LLFontGL* LLFontRegistry::createFont(const LLFontDescriptor& desc)
 			{
 				if (fontp == NULL)
 				{
-					fontp = new LLFontGL;
+					fontp = new LLFontDX;
 				}
                 if (fontp->loadFace(font_path, point_size_scale + font_file_it->mSizeDelta,
-                                 LLFontGL::sVertDPI, LLFontGL::sHorizDPI, font_file_it->mWeight, is_fallback, i, font_file_it->mHinting, font_file_it->mFlags))
+                                 LLFontDX::sVertDPI, LLFontDX::sHorizDPI, font_file_it->mWeight, is_fallback, i, font_file_it->mHinting, font_file_it->mFlags))
 				{
 					is_font_loaded = true;
 					if (is_first_found)
@@ -642,7 +642,7 @@ void LLFontRegistry::clear()
 		it != mFontMap.end();
 		++it)
 	{
-		LLFontGL* fontp = it->second;
+		LLFontDX* fontp = it->second;
 		delete fontp;
 	}
 	mFontMap.clear();
@@ -660,14 +660,14 @@ void LLFontRegistry::destroyGL()
 	}
 }
 
-LLFontGL* LLFontRegistry::getFont(const LLFontDescriptor& desc)
+LLFontDX* LLFontRegistry::getFont(const LLFontDescriptor& desc)
 {
 	font_reg_map_t::iterator it = mFontMap.find(desc);
 	if (it != mFontMap.end())
 		return it->second;
 	else
 	{
-		LLFontGL* fontp = createFont(desc);
+		LLFontDX* fontp = createFont(desc);
 		if (!fontp)
 		{
 			LL_WARNS() << "getFont failed, name " << desc.getName()
@@ -767,7 +767,7 @@ const LLFontDescriptor* LLFontRegistry::getClosestFontTemplate(const LLFontDescr
 		}
 
 		// Tie-breaker: take if it matches bold.
-		if (curr_style_match_bits & LLFontGL::BOLD)  // Bold is requested and this descriptor matches it.
+		if (curr_style_match_bits & LLFontDX::BOLD)  // Bold is requested and this descriptor matches it.
 		{
 			best_match_desc = curr_desc;
 			continue;

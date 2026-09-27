@@ -39,7 +39,7 @@ enum class EFontGlyphType : U32
 };
 
 // Maintain a collection of bitmaps containing rendered glyphs.
-// Generalizes the single-bitmap logic from LLFontFreetype and LLFontGL.
+// Generalizes the single-bitmap logic from LLFontFreetype and LLFontDX.
 class LLFontBitmapCache
 {
 public:
@@ -57,7 +57,7 @@ public:
     void destroyGL();
 
     LLImageRaw* getImageRaw(EFontGlyphType bitmapType, U32 bitmapNum) const;
-    LLImageGL* getImageGL(EFontGlyphType bitmapType, U32 bitmapNum) const;
+    LLImageDX* getImageDX(EFontGlyphType bitmapType, U32 bitmapNum) const;
 
     S32 getMaxCharWidth() const { return mMaxCharWidth; }
     U32 getNumBitmaps(EFontGlyphType bitmapType) const { return (bitmapType < EFontGlyphType::Count) ? static_cast<U32>(mImageRawVec[static_cast<U32>(bitmapType)].size()) : 0U; }
@@ -77,7 +77,7 @@ private:
     S32 mMaxCharHeight = 0;
     S32 mGeneration = 0;
     std::vector<LLPointer<LLImageRaw>> mImageRawVec[static_cast<U32>(EFontGlyphType::Count)];
-    std::vector<LLPointer<LLImageGL>> mImageGLVec[static_cast<U32>(EFontGlyphType::Count)];
+    std::vector<LLPointer<LLImageDX>> mImageDXVec[static_cast<U32>(EFontGlyphType::Count)];
 };
 
 #endif //LL_LLFONTBITMAPCACHE_H

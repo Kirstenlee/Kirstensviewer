@@ -30,7 +30,7 @@
 
 #include "llvertexbuffer.h"
 #include "llhlslshader.h"
-#include "llimagegl.h"
+#include "llimagedx.h"
 #include "llrendertarget.h"
 #include "lltexture.h"
 #include "llshadermgr.h"
@@ -65,7 +65,7 @@ F32 gGLProjection[16];
 glm::mat4 gGLDeltaModelView;
 glm::mat4 gGLInverseDeltaModelView;
 
-S32 gGLViewport[4];
+S32 gDXViewport[4];
 
 
 U32 LLRender::sUICalls = 0;
@@ -215,17 +215,17 @@ void LLTexUnit::disable(void)
 
 void LLTexUnit::bindFast(LLTexture* texture)
 {
-	// Binds this LLImageGL's DXTexture (if uploaded) plus a sampler matching
+	// Binds this LLImageDX's DXTexture (if uploaded) plus a sampler matching
 	// its address-mode/filter settings, to pixel-shader slot mIndex.
 	//
 	// S24: a null SRV samples as (0,0,0,0) in HLSL, not a no-op, so any
 	// shader doing `vertex_color * diffuseMap.Sample(...)` would render
 	// fully transparent instead of unaffected - fall back to
 	// getWhiteTextureSRV() rather than binding null.
-	LLImageGL* gl_tex = texture->getGLTexture();
-	// S24: captured BEFORE mCurrBoundImageGL is overwritten below - needed
+	LLImageDX* gl_tex = texture->getGLTexture();
+	// S24: captured BEFORE mCurrBoundImageDX is overwritten below - needed
 	// in addition to the mCurrDXSRV comparison, see srv_changed below.
-	bool bound_image_changed = (mCurrBoundImageGL != gl_tex);
+	bool bound_image_changed = (mCurrBoundImageDX != gl_tex);
 
 	// S24: gl_tex can legitimately be null (e.g. a texture still streaming
 	// in) - always bind SOMETHING (real texture or white fallback) rather
@@ -239,7 +239,7 @@ void LLTexUnit::bindFast(LLTexture* texture)
 	// it's a raw SRV address, and DXTexture::scaleDown() (VRAM-pressure
 	// downscaling) releases the old SRV and creates a new one, so a freed
 	// COM object's address can be reused by an unrelated texture's SRV.
-	// bound_image_changed (against the stable LLImageGL identity, which
+	// bound_image_changed (against the stable LLImageDX identity, which
 	// scaleDown() never destroys) catches this deterministically regardless
 	// of address reuse.
 	//
@@ -251,7 +251,7 @@ void LLTexUnit::bindFast(LLTexture* texture)
 	bool generation_stale = mDXSRVGeneration != DXStateCache::getRTVGeneration();
 	if (srv_changed)
 	{
-		// S24: flush BEFORE updating mCurrBoundImageGL/mCurrDXSRV below, or
+		// S24: flush BEFORE updating mCurrBoundImageDX/mCurrDXSRV below, or
 		// LLRender::flush()'s mDXImage capture tags still-queued vertices
 		// from the previous texture with the new one instead.
 		gDX.flush();
@@ -261,7 +261,7 @@ void LLTexUnit::bindFast(LLTexture* texture)
 		mCurrDXSRV = (void*)srv;
 	}
 	mDXSRVGeneration = DXStateCache::getRTVGeneration();
-	mCurrBoundImageGL = gl_tex;
+	mCurrBoundImageDX = gl_tex;
 	// gl_tex==nullptr has no address-mode/filter-option to read - TAM_WRAP/
 	// TFO_BILINEAR are this codebase's established default (matches
 	// LLViewerTexture's own default construction elsewhere).
@@ -300,17 +300,17 @@ bool LLTexUnit::bind(LLTexture* texture, bool for_rendering, bool forceBind)
 	return true;
 }
 
-bool LLTexUnit::bind(LLImageGL* texture, bool for_rendering, bool forceBind, S32 usename)
+bool LLTexUnit::bind(LLImageDX* texture, bool for_rendering, bool forceBind, S32 usename)
 {
 	// Mirrors bindFast()'s DX_RENDER body (see its comment) - same
 	// chokepoint as the LLTexture* overload above, just operating directly
-	// on an LLImageGL instead of going through LLTexture::getGLTexture().
+	// on an LLImageDX instead of going through LLTexture::getGLTexture().
 	if (mIndex < 0 || !texture) return false;
 	// S24: see bindFast()'s matching comments - bound_image_changed catches
 	// SRV-address reuse from DXTexture::scaleDown() that mCurrDXSRV alone
 	// would miss, and a null SRV falls back to white rather than sampling
 	// as (0,0,0,0).
-	bool bound_image_changed = (mCurrBoundImageGL != texture);
+	bool bound_image_changed = (mCurrBoundImageDX != texture);
 	ID3D11ShaderResourceView* srv = texture->mDXTexture.getSRV();
 	if (!srv)
 	{
@@ -320,7 +320,7 @@ bool LLTexUnit::bind(LLImageGL* texture, bool for_rendering, bool forceBind, S32
 	bool generation_stale = mDXSRVGeneration != DXStateCache::getRTVGeneration();
 	if (srv_changed)
 	{
-		// S24: flush BEFORE updating mCurrBoundImageGL/mCurrDXSRV, not after -
+		// S24: flush BEFORE updating mCurrBoundImageDX/mCurrDXSRV, not after -
 		// see bindFast()'s matching comment. Without this ordering,
 		// LLRender::flush()'s mDXImage capture tags still-queued vertices
 		// (e.g. from LLFontVertexBuffer's beginList()/endList() recording)
@@ -330,7 +330,7 @@ bool LLTexUnit::bind(LLImageGL* texture, bool for_rendering, bool forceBind, S32
 		mCurrDXSRV = (void*)srv;
 	}
 	mDXSRVGeneration = DXStateCache::getRTVGeneration();
-	mCurrBoundImageGL = texture;
+	mCurrBoundImageDX = texture;
 	ID3D11SamplerState* sampler = DXSampler::getOrCreate(
 		(int)texture->getAddressMode(), (int)texture->getFilteringOption());
 	if (srv_changed || generation_stale)
@@ -477,12 +477,12 @@ bool LLTexUnit::bindManual(eTextureType type, U32 texture, bool hasMips)
 	// Early exit if mIndex is invalid
 	if (mIndex < 0) return false;
 
-	// Unlike bind(LLTexture*)/bind(LLImageGL*), this overload is handed a
-	// raw GLuint object name with no LLImageGL/LLTexture to look a DX11
+	// Unlike bind(LLTexture*)/bind(LLImageDX*), this overload is handed a
+	// raw GLuint object name with no LLImageDX/LLTexture to look a DX11
 	// resource up from - there's nothing to translate. Callers that derive
 	// their channel from getTextureChannel()/enableTexture() already return
 	// above via the mIndex<0 check; this only guards the hardcoded-unit
-	// callers (LLImageGL, LLRenderTarget, LLTexLayer, post-process, edit-tool
+	// callers (LLImageDX, LLRenderTarget, LLTexLayer, post-process, edit-tool
 	// grid texture, startup noise/SMAA LUTs, etc.) that would otherwise reach
 	// the raw glBindTexture() below. GL branch removed - task #300 (full GL
 	// removal), never compiled in this DX_RENDER-only build.
@@ -493,7 +493,7 @@ bool LLTexUnit::bindManual(eTextureType type, U32 texture, bool hasMips)
 // S24: DX-native equivalent of bindManual() for callers holding a real
 // DXTexture reference directly. Mirrors bindFast(LLTexture*)'s SRV+white-
 // fallback+flush-on-change logic exactly, just sourcing the SRV from the
-// caller's own DXTexture instead of an LLImageGL's.
+// caller's own DXTexture instead of an LLImageDX's.
 bool LLTexUnit::bind(DXTexture& tex, eTextureAddressMode address_mode, eTextureFilterOptions filter_option)
 {
 	if (mIndex < 0) return false;
@@ -538,7 +538,7 @@ void LLTexUnit::unbind(eTextureType type)
 		return;
 	}
 	ID3D11ShaderResourceView* srv = getWhiteTextureSRV();
-	// S24: same missing-flush bug as bind(LLImageGL*) - gl_rect_2d() calls
+	// S24: same missing-flush bug as bind(LLImageDX*) - dx_rect_2d() calls
 	// this before pushing its verts; without the flush, those verts can end
 	// up drawn with whatever a LATER bind() switches to instead of white.
 	bool srv_changed = mCurrDXSRV != (void*)srv;
@@ -550,9 +550,9 @@ void LLTexUnit::unbind(eTextureType type)
 		mCurrDXSRV = (void*)srv;
 	}
 	mDXSRVGeneration = DXStateCache::getRTVGeneration();
-	// S24: unbind() means "no texture" - mCurrBoundImageGL must actually go
+	// S24: unbind() means "no texture" - mCurrBoundImageDX must actually go
 	// to null here, not stay whatever the last real bind() set.
-	mCurrBoundImageGL = nullptr;
+	mCurrBoundImageDX = nullptr;
 	ID3D11SamplerState* sampler = DXSampler::getOrCreate(0, 0); // WRAP, POINT - matches a solid white texel regardless
 	if (srv_changed || generation_stale)
 	{
@@ -573,7 +573,7 @@ void LLTexUnit::unbindFast(eTextureType type)
 		return;
 	}
 	ID3D11ShaderResourceView* srv = getWhiteTextureSRV();
-	// S24: same missing-flush bug as bind(LLImageGL*)/unbind() - see their comments.
+	// S24: same missing-flush bug as bind(LLImageDX*)/unbind() - see their comments.
 	bool srv_changed = mCurrDXSRV != (void*)srv;
 	bool generation_stale = mDXSRVGeneration != DXStateCache::getRTVGeneration();
 	if (srv_changed)
@@ -583,8 +583,8 @@ void LLTexUnit::unbindFast(eTextureType type)
 		mCurrDXSRV = (void*)srv;
 	}
 	mDXSRVGeneration = DXStateCache::getRTVGeneration();
-	// S24: see unbind()'s matching fix - mCurrBoundImageGL must go to null too.
-	mCurrBoundImageGL = nullptr;
+	// S24: see unbind()'s matching fix - mCurrBoundImageDX must go to null too.
+	mCurrBoundImageDX = nullptr;
 	ID3D11SamplerState* sampler = DXSampler::getOrCreate(0, 0);
 	if (srv_changed || generation_stale)
 	{
@@ -614,7 +614,7 @@ void LLTexUnit::setTextureAddressMode(eTextureAddressMode mode)
 	// Real no-op, not an accidental one: under DX_RENDER, sampler state
 	// (address mode + filter option together) is built fresh at bind time
 	// by DXSampler::getOrCreate() (see bindFast()'s comment), reading
-	// mAddressMode/mFilterOption directly off the LLImageGL/LLTexture being
+	// mAddressMode/mFilterOption directly off the LLImageDX/LLTexture being
 	// bound - this immediate-state-setting GL idiom has no role to play.
 	// Before this was made explicit, the only thing stopping this function
 	// from reaching the raw glTexParameteri() calls below under DX_RENDER
@@ -1840,7 +1840,7 @@ void LLRender::flush()
 		);
 #ifdef DX_RENDER
 		// S24: see LLVertexBufferData::mDXImage's comment.
-		buffer_data.mDXImage = gDX.getTexUnit(0)->mCurrBoundImageGL;
+		buffer_data.mDXImage = gDX.getTexUnit(0)->mCurrBoundImageDX;
 		// S24: see LLVertexBufferData::mDXShader's comment.
 		buffer_data.mDXShader = shader;
 #endif

@@ -1,6 +1,6 @@
 /**
  * @file llhlslshader.cpp
- * @brief GLSL helper functions and state.
+ * @brief HLSL helper functions and state.
  *
  * $LicenseInfo:firstyear=2005&license=viewerlgpl$
  * Second Life Viewer Source Code
@@ -43,17 +43,12 @@
 #include "OpenGL/OpenGL.h"
 #endif
 
- // Print-print list of shader included source files that are linked together via glAttachShader()
- // i.e. On macOS / OSX the AMD GLSL linker will display an error if a varying is left in an undefined state.
-#define DEBUG_SHADER_INCLUDES 0
-
 // Lots of STL stuff in here, using namespace std to keep things more readable
 using std::vector;
 using std::pair;
 using std::make_pair;
 using std::string;
 
-GLuint LLHLSLShader::sCurBoundShader = 0;
 LLHLSLShader* LLHLSLShader::sCurBoundShaderPtr = NULL;
 S32 LLHLSLShader::sIndexedTextureChannels = 0;
 U32 LLHLSLShader::sMaxGLTFMaterials = 0;
@@ -88,13 +83,8 @@ const std::string gShaderConstsVal[LLHLSLShader::NUM_SHADER_CONSTS] =
 };
 
 
-bool shouldChange(const LLVector4& v1, const LLVector4& v2)
-{
-	return v1 != v2;
-}
-
 //===============================
-// LLGLSL Shader implementation
+// LLHLSLShader implementation
 //===============================
 
 //static
@@ -113,7 +103,7 @@ void LLHLSLShader::initProfile()
 }
 
 
-struct LLGLSLShaderCompareTimeElapsed
+struct LLHLSLShaderCompareTimeElapsed
 {
 	bool operator()(const LLHLSLShader* const& lhs, const LLHLSLShader* const& rhs)
 	{
@@ -129,7 +119,7 @@ void LLHLSLShader::finishProfile(boost::json::value& statsv)
 	if (!statsv.is_null())
 	{
 		std::vector<LLHLSLShader*> sorted(sInstances.begin(), sInstances.end());
-		std::sort(sorted.begin(), sorted.end(), LLGLSLShaderCompareTimeElapsed());
+		std::sort(sorted.begin(), sorted.end(), LLHLSLShaderCompareTimeElapsed());
 
 		auto& stats = statsv.as_object();
 		auto shadersit = stats.emplace("shaders", boost::json::array_kind).first;
@@ -245,7 +235,6 @@ void LLHLSLShader::stopProfile()
 	}
 }
 
-#ifdef DX_RENDER
 void LLHLSLShader::DXProfileQueries::reset()
 {
 	if (disjoint)       { disjoint->Release();       disjoint = nullptr; }
@@ -254,11 +243,9 @@ void LLHLSLShader::DXProfileQueries::reset()
 	if (occlusion)       { occlusion->Release();       occlusion = nullptr; }
 	if (pipelineStats)   { pipelineStats->Release();   pipelineStats = nullptr; }
 }
-#endif
 
 void LLHLSLShader::placeProfileQuery(bool for_runtime)
 {
-#ifdef DX_RENDER
 	// D3D11 has no single "elapsed time" query like GL_TIME_ELAPSED - a disjoint query
 	// (frequency + validity) brackets a pair of plain timestamp queries instead (timestamp
 	// queries only support End(), never Begin()). occlusion/pipelineStats are the
@@ -304,31 +291,10 @@ void LLHLSLShader::placeProfileQuery(bool for_runtime)
 			context->Begin(mDXProfileQueries.pipelineStats);
 		}
 	}
-	return;
-#else
-	if (sProfileEnabled || for_runtime)
-	{
-		if (mTimerQuery == 0)
-		{
-			glGenQueries(1, &mSamplesQuery);
-			glGenQueries(1, &mTimerQuery);
-			glGenQueries(1, &mPrimitivesQuery);
-		}
-
-		glBeginQuery(GL_TIME_ELAPSED, mTimerQuery);
-
-		if (!for_runtime)
-		{
-			glBeginQuery(GL_SAMPLES_PASSED, mSamplesQuery);
-			glBeginQuery(GL_PRIMITIVES_GENERATED, mPrimitivesQuery);
-		}
-	}
-#endif
 }
 
 bool LLHLSLShader::readProfileQuery(bool for_runtime, bool force_read)
 {
-#ifdef DX_RENDER
 	if ((sProfileEnabled || for_runtime) && mDXProfileQueries.disjoint)
 	{
 		ID3D11DeviceContext* context = gDXDevice.getContext();
@@ -403,74 +369,16 @@ bool LLHLSLShader::readProfileQuery(bool for_runtime, bool force_read)
 	}
 
 	return true;
-#else
-	if ((sProfileEnabled || for_runtime) && sCanProfile)
-	{
-		if (!mProfilePending)
-		{
-			glEndQuery(GL_TIME_ELAPSED);
-			if (!for_runtime)
-			{
-				glEndQuery(GL_SAMPLES_PASSED);
-				glEndQuery(GL_PRIMITIVES_GENERATED);
-			}
-			mProfilePending = for_runtime;
-		}
-
-		if (mProfilePending && for_runtime && !force_read)
-		{
-			GLuint64 result = 0;
-			glGetQueryObjectui64v(mTimerQuery, GL_QUERY_RESULT_AVAILABLE, &result);
-
-			if (result != GL_TRUE)
-			{
-				return false;
-			}
-		}
-
-		GLuint64 time_elapsed = 0;
-		glGetQueryObjectui64v(mTimerQuery, GL_QUERY_RESULT, &time_elapsed);
-		mTimeElapsed += time_elapsed;
-		mProfilePending = false;
-
-		if (!for_runtime)
-		{
-			GLuint64 samples_passed = 0;
-			glGetQueryObjectui64v(mSamplesQuery, GL_QUERY_RESULT, &samples_passed);
-
-			GLuint64 primitives_generated = 0;
-			glGetQueryObjectui64v(mPrimitivesQuery, GL_QUERY_RESULT, &primitives_generated);
-			sTotalTimeElapsed += time_elapsed;
-
-			sTotalSamplesDrawn += samples_passed;
-			mSamplesDrawn += samples_passed;
-
-			U32 tri_count = (U32)primitives_generated / 3;
-
-			mTrianglesDrawn += tri_count;
-			sTotalTrianglesDrawn += tri_count;
-
-			sTotalBinds++;
-			mBinds++;
-		}
-	}
-
-	return true;
-#endif
 }
 
 LLHLSLShader::LLHLSLShader()
-	: mProgramObject(0),
-	mAttributeMask(0),
+	: mAttributeMask(0),
 	mTotalUniformSize(0),
 	mActiveTextureChannels(0),
 	mShaderLevel(0),
 	mShaderGroup(SG_DEFAULT),
 	mFeatures(),
-	mUniformsDirty(false),
-	mTimerQuery(0),
-	mSamplesQuery(0),
-	mPrimitivesQuery(0)
+	mUniformsDirty(false)
 {
 	// S24: must be initialized, not left default-constructed - syncMatrices()
 	// compares LLRender::mMatHash[mode] against this array to decide whether
@@ -620,7 +528,7 @@ bool LLHLSLShader::buildDXSource()
 	// HLSL text into mVertexShaderSourceText/mFragmentShaderSourceText.
 	for (auto& file : mShaderFiles)
 	{
-		GLuint ok = LLShaderMgr::instance()->loadShaderFile(file.first, mShaderLevel, file.second, &mDefines, mFeatures.mIndexedTextureChannels, mFeatures.isDeferred || mFeatures.hasReflectionProbes);
+		bool ok = LLShaderMgr::instance()->loadShaderFile(file.first, mShaderLevel, file.second, &mDefines, mFeatures.mIndexedTextureChannels, mFeatures.isDeferred || mFeatures.hasReflectionProbes);
 		if (!ok)
 		{
 			LL_SHADER_LOADING_WARNS() << "Failed to load " << file.first << " for shader " << mName << LL_ENDL;
@@ -722,34 +630,13 @@ bool LLHLSLShader::createShaderDX()
 			UINT bind_point = 0;
 			if (mDXPixelShader.getTextureBindPoint(LLShaderMgr::instance()->mReservedUniforms[i], bind_point))
 			{
-				mTexture[i] = (GLint)bind_point;
+				mTexture[i] = (S32)bind_point;
 			}
 		}
 	}
 
 	return success;
 }
-
-#if DEBUG_SHADER_INCLUDES
-void dumpAttachObject(const char* func_name, GLuint program_object, const std::string& object_path)
-{
-	GLchar* info_log;
-	GLint      info_len_expect = 0;
-	GLint      info_len_actual = 0;
-
-	glGetShaderiv(program_object, GL_INFO_LOG_LENGTH, , &info_len_expect);
-	fprintf(stderr, " * %-20s(), log size: %d, %s\n", func_name, info_len_expect, object_path.c_str());
-
-	if (info_len_expect > 0)
-	{
-		fprintf(stderr, " ========== %s() ========== \n", func_name);
-		info_log = new GLchar[info_len_expect];
-		glGetProgramInfoLog(program_object, info_len_expect, &info_len_actual, info_log);
-		fprintf(stderr, "%s\n", info_log);
-		delete[] info_log;
-	}
-}
-#endif // DEBUG_SHADER_INCLUDES
 
 bool LLHLSLShader::attachVertexObject(std::string object_path)
 {
@@ -780,36 +667,6 @@ bool LLHLSLShader::attachFragmentObject(std::string object_path)
 
 	LL_SHADER_LOADING_WARNS() << "Attempting to attach shader object: '" << object_path << "' that hasn't been compiled." << LL_ENDL;
 	return false;
-}
-
-void LLHLSLShader::attachObject(GLuint object)
-{
-	if (mUsingBinaryProgram)
-		return;
-
-	if (object != 0)
-	{
-		glAttachShader(mProgramObject, object);
-#if DEBUG_SHADER_INCLUDES
-		std::string object_path("???");
-		dumpAttachObject("attachObject", mProgramObject, object_path);
-#endif // DEBUG_SHADER_INCLUDES
-	}
-	else
-	{
-		LL_SHADER_LOADING_WARNS() << "Attempting to attach non existing shader object. " << LL_ENDL;
-	}
-}
-
-void LLHLSLShader::attachObjects(GLuint* objects, S32 count)
-{
-	if (mUsingBinaryProgram)
-		return;
-
-	for (S32 i = 0; i < count; i++)
-	{
-		attachObject(objects[i]);
-	}
 }
 
 // S24: mapAttributes()/mapUniform()/mapUniformTextureChannel()/
@@ -845,8 +702,8 @@ void LLHLSLShader::bind()
 
 	// Minimum needed so LLVertexBuffer::setBuffer() (which asserts
 	// sCurBoundShaderPtr) is reachable: bind the compiled DX shaders and
-	// track "current shader" by pointer identity instead of mProgramObject
-	// (always 0 under DX_RENDER - no GL program object exists).
+	// track "current shader" by pointer identity (no GL program object
+	// concept exists under DX_RENDER).
 	// Matrix uniforms (modelview/projection/normal/texture0) ARE wired -
 	// see LLRender::syncMatrices()'s DX_RENDER branch, called from
 	// LLVertexBuffer::drawRange()/drawArrays() same as GL. mAttributeMask-
@@ -932,15 +789,6 @@ void LLHLSLShader::unbind(void)
 	sCurBoundShaderPtr = nullptr;
 }
 
-S32 LLHLSLShader::bindTexture(const std::string& uniform, LLTexture* texture, LLTexUnit::eTextureType mode)
-{
-
-	S32 channel = 0;
-	channel = getUniformLocation(uniform);
-
-	return bindTexture(channel, texture, mode);
-}
-
 S32 LLHLSLShader::bindTexture(S32 uniform, LLTexture* texture, LLTexUnit::eTextureType mode)
 {
 
@@ -975,24 +823,6 @@ S32 LLHLSLShader::bindTexture(S32 uniform, LLRenderTarget* texture, bool depth, 
 		gDX.getTexUnit(channel)->bind(texture, depth);
 	}
 	return channel;
-}
-
-S32 LLHLSLShader::bindTexture(const std::string& uniform, LLRenderTarget* texture, bool depth, LLTexUnit::eTextureFilterOptions mode)
-{
-
-	S32 channel = 0;
-	channel = getUniformLocation(uniform);
-
-	return bindTexture(channel, texture, depth, mode);
-}
-
-S32 LLHLSLShader::unbindTexture(const std::string& uniform, LLTexUnit::eTextureType mode)
-{
-
-	S32 channel = 0;
-	channel = getUniformLocation(uniform);
-
-	return unbindTexture(channel);
 }
 
 S32 LLHLSLShader::unbindTexture(S32 uniform, LLTexUnit::eTextureType mode)
@@ -1075,7 +905,7 @@ S32 LLHLSLShader::disableTexture(S32 uniform, LLTexUnit::eTextureType mode)
 	return index;
 }
 
-void LLHLSLShader::uniform1i(U32 index, GLint x)
+void LLHLSLShader::uniform1i(U32 index, S32 x)
 {
 	llassert(sCurBoundShaderPtr == this);
 
@@ -1114,15 +944,6 @@ void LLHLSLShader::uniform1f(U32 index, F32 x)
 		mDXVertexShader.setUniformFloatArray(name, v, 1);
 		mDXPixelShader.setUniformFloatArray(name, v, 1);
 	}
-}
-
-void LLHLSLShader::fastUniform1f(U32 index, F32 x)
-{
-	llassert(sCurBoundShaderPtr == this);
-	llassert(mProgramObject);
-	llassert(mUniform.size() <= index);
-	llassert(mUniform[index] >= 0);
-	glUniform1f(mUniform[index], x);
 }
 
 void LLHLSLShader::uniform2f(U32 index, F32 x, F32 y)
@@ -1167,58 +988,6 @@ void LLHLSLShader::uniform4f(U32 index, F32 x, F32 y, F32 z, F32 w)
 		// S24: both stages unconditionally - see uniform1f(U32,...)'s comment.
 		mDXVertexShader.setUniformFloatArray(name, v, 4);
 		mDXPixelShader.setUniformFloatArray(name, v, 4);
-	}
-}
-
-void LLHLSLShader::uniform1iv(U32 index, U32 count, const GLint* v)
-{
-	llassert(sCurBoundShaderPtr == this);
-
-	if (mProgramObject)
-	{
-		if (mUniform.size() <= index)
-		{
-			LL_WARNS_ONCE("Shader") << "Uniform index out of bounds. Size: " << (S32)mUniform.size() << " index: " << index << LL_ENDL;
-			llassert(false);
-			return;
-		}
-
-		if (mUniform[index] >= 0)
-		{
-			const auto& iter = mValue.find(mUniform[index]);
-			LLVector4 vec((F32)v[0], 0.f, 0.f, 0.f);
-			if (iter == mValue.end() || shouldChange(iter->second, vec) || count != 1)
-			{
-				glUniform1iv(mUniform[index], count, v);
-				mValue[mUniform[index]] = vec;
-			}
-		}
-	}
-}
-
-void LLHLSLShader::uniform4iv(U32 index, U32 count, const GLint* v)
-{
-	llassert(sCurBoundShaderPtr == this);
-
-	if (mProgramObject)
-	{
-		if (mUniform.size() <= index)
-		{
-			LL_WARNS_ONCE("Shader") << "Uniform index out of bounds. Size: " << (S32)mUniform.size() << " index: " << index << LL_ENDL;
-			llassert(false);
-			return;
-		}
-
-		if (mUniform[index] >= 0)
-		{
-			const auto& iter = mValue.find(mUniform[index]);
-			LLVector4 vec((F32)v[0], (F32)v[1], (F32)v[2], (F32)v[3]);
-			if (iter == mValue.end() || shouldChange(iter->second, vec) || count != 1)
-			{
-				glUniform1iv(mUniform[index], count, v);
-				mValue[mUniform[index]] = vec;
-			}
-		}
 	}
 }
 
@@ -1276,61 +1045,14 @@ void LLHLSLShader::uniform4fv(U32 index, U32 count, const F32* v)
 	// uniform, unlike per-vertex inputs (see injectSkinningInputs()), so no
 	// VSInput-injection trick is needed here, just the reflected $Globals
 	// constant this shader already declares. mReservedUniforms is a plain
-	// backend-agnostic name table (populated once at startup, independent of
-	// mProgramObject/GL), so index->name resolution works identically under
-	// DX_RENDER.
+	// backend-agnostic name table (populated once at startup), so
+	// index->name resolution works identically under DX_RENDER.
 	if (index < LLShaderMgr::instance()->mReservedUniforms.size())
 	{
 		const std::string& name = LLShaderMgr::instance()->mReservedUniforms[index];
 		// S24: both stages unconditionally - see uniform1f(U32,...)'s comment.
 		mDXVertexShader.setUniformFloatArray(name, v, (size_t)count * 4);
 		mDXPixelShader.setUniformFloatArray(name, v, (size_t)count * 4);
-	}
-}
-
-void LLHLSLShader::uniform4uiv(U32 index, U32 count, const GLuint* v)
-{
-	llassert(sCurBoundShaderPtr == this);
-
-	if (mProgramObject)
-	{
-		if (mUniform.size() <= index)
-		{
-			LL_WARNS_ONCE("Shader") << "Uniform index out of bounds. Size: " << (S32)mUniform.size() << " index: " << index << LL_ENDL;
-			llassert(false);
-			return;
-		}
-
-		if (mUniform[index] >= 0)
-		{
-			const auto& iter = mValue.find(mUniform[index]);
-			LLVector4 vec((F32)v[0], (F32)v[1], (F32)v[2], (F32)v[3]);
-			if (iter == mValue.end() || shouldChange(iter->second, vec) || count != 1)
-			{
-				glUniform4uiv(mUniform[index], count, v);
-				mValue[mUniform[index]] = vec;
-			}
-		}
-	}
-}
-
-void LLHLSLShader::uniformMatrix2fv(U32 index, U32 count, bool transpose, const F32* v)
-{
-	llassert(sCurBoundShaderPtr == this);
-
-	if (mProgramObject)
-	{
-		if (mUniform.size() <= index)
-		{
-			LL_WARNS_ONCE("Shader") << "Uniform index out of bounds. Size: " << (S32)mUniform.size() << " index: " << index << LL_ENDL;
-			llassert(false);
-			return;
-		}
-
-		if (mUniform[index] >= 0)
-		{
-			glUniformMatrix2fv(mUniform[index], count, transpose, v);
-		}
 	}
 }
 
@@ -1483,66 +1205,10 @@ void LLHLSLShader::uniformMatrix4fv(U32 index, U32 count, bool transpose, const 
 	}
 }
 
-GLint LLHLSLShader::getUniformLocation(const LLStaticHashedString& uniform)
+void LLHLSLShader::uniform1i(const LLStaticHashedString& uniform, S32 v)
 {
 
-	GLint ret = -1;
-	if (mProgramObject)
-	{
-		LLStaticStringTable<GLint>::iterator iter = mUniformMap.find(uniform);
-		if (iter != mUniformMap.end())
-		{
-			if (gDebugGL)
-			{
-				if (iter->second != glGetUniformLocation(mProgramObject, uniform.String().c_str()))
-				{
-					LL_ERRS() << "Uniform does not match." << LL_ENDL;
-				}
-			}
-			ret = iter->second;
-		}
-	}
-
-	return ret;
-}
-
-GLint LLHLSLShader::getUniformLocation(U32 index)
-{
-
-	GLint ret = -1;
-	if (mProgramObject)
-	{
-		if (index >= mUniform.size())
-		{
-			LL_WARNS_ONCE("Shader") << "Uniform index " << index << " out of bounds " << (S32)mUniform.size() << LL_ENDL;
-			return ret;
-		}
-		return mUniform[index];
-	}
-
-	return ret;
-}
-
-GLint LLHLSLShader::getAttribLocation(U32 attrib)
-{
-
-	if (attrib < mAttribute.size())
-	{
-		return mAttribute[attrib];
-	}
-	else
-	{
-		return -1;
-	}
-}
-
-void LLHLSLShader::uniform1i(const LLStaticHashedString& uniform, GLint v)
-{
-
-	// S24: this whole LLStaticHashedString-keyed overload family had zero
-	// DX_RENDER handling - getUniformLocation(LLStaticHashedString) always
-	// returns -1, so these were safe no-ops that silently dropped every
-	// value. Both stages set unconditionally - see uniform1f(U32,...)'s
+	// Both stages set unconditionally - see uniform1f(U32,...)'s
 	// comment for why. Reinterprets the int's bits through a float* rather
 	// than converting the value - HLSL cbuffers pack int as raw int32.
 	const std::string& name = uniform.String();
@@ -1551,7 +1217,7 @@ void LLHLSLShader::uniform1i(const LLStaticHashedString& uniform, GLint v)
 	mDXPixelShader.setUniformFloatArray(name, fv, 1);
 }
 
-void LLHLSLShader::uniform1iv(const LLStaticHashedString& uniform, U32 count, const GLint* v)
+void LLHLSLShader::uniform1iv(const LLStaticHashedString& uniform, U32 count, const S32* v)
 {
 
 	// S24: see uniform1i(LLStaticHashedString,...) above - same fix. Uses
@@ -1563,7 +1229,7 @@ void LLHLSLShader::uniform1iv(const LLStaticHashedString& uniform, U32 count, co
 	mDXPixelShader.setUniformPaddedArray(name, fv, 1, count);
 }
 
-void LLHLSLShader::uniform4iv(const LLStaticHashedString& uniform, U32 count, const GLint* v)
+void LLHLSLShader::uniform4iv(const LLStaticHashedString& uniform, U32 count, const S32* v)
 {
 
 	// S24: see uniform1iv(LLStaticHashedString,...) above, component_count=4.
@@ -1573,13 +1239,13 @@ void LLHLSLShader::uniform4iv(const LLStaticHashedString& uniform, U32 count, co
 	mDXPixelShader.setUniformPaddedArray(name, fv, 4, count);
 }
 
-void LLHLSLShader::uniform2i(const LLStaticHashedString& uniform, GLint i, GLint j)
+void LLHLSLShader::uniform2i(const LLStaticHashedString& uniform, S32 i, S32 j)
 {
 
 	// S24: see uniform1iv(LLStaticHashedString,...) above - same
 	// bit-reinterpretation reasoning, non-array case.
 	const std::string& name = uniform.String();
-	const GLint iv[2] = { i, j };
+	const S32 iv[2] = { i, j };
 	const float* fv = reinterpret_cast<const float*>(iv);
 	mDXVertexShader.setUniformFloatArray(name, fv, 2);
 	mDXPixelShader.setUniformFloatArray(name, fv, 2);
@@ -1661,7 +1327,7 @@ void LLHLSLShader::uniform4fv(const LLStaticHashedString& uniform, U32 count, co
 	mDXPixelShader.setUniformPaddedArray(name, v, 4, count);
 }
 
-void LLHLSLShader::uniform4uiv(const LLStaticHashedString& uniform, U32 count, const GLuint* v)
+void LLHLSLShader::uniform4uiv(const LLStaticHashedString& uniform, U32 count, const U32* v)
 {
 
 	// S24: see uniform1iv(LLStaticHashedString,...) above, component_count=4.
@@ -1699,22 +1365,6 @@ void LLHLSLShader::uniformMatrix4fv(const LLStaticHashedString& uniform, U32 cou
 
 		mDXVertexShader.setUniformMatrix4(name, m);
 		mDXPixelShader.setUniformMatrix4(name, m);
-	}
-}
-
-void LLHLSLShader::vertexAttrib4f(U32 index, F32 x, F32 y, F32 z, F32 w)
-{
-	if (mAttribute[index] > 0)
-	{
-		glVertexAttrib4f(mAttribute[index], x, y, z, w);
-	}
-}
-
-void LLHLSLShader::vertexAttrib4fv(U32 index, F32* v)
-{
-	if (mAttribute[index] > 0)
-	{
-		glVertexAttrib4fv(mAttribute[index], v);
 	}
 }
 

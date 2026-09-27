@@ -95,10 +95,10 @@ public:
     glm::mat4 mTexture0;
 #ifdef DX_RENDER
     // S24: DX-native counterpart to mTexName, captured by LLRender::flush()
-    // from LLTexUnit::mCurrBoundImageGL when recording a display list. A
+    // from LLTexUnit::mCurrBoundImageDX when recording a display list. A
     // strong ref keeps the texture alive; draw()/drawWithMatrix() replay via
-    // bind(LLImageGL*) instead of GL's bindManual(mTexName).
-    LLPointer<LLImageGL> mDXImage;
+    // bind(LLImageDX*) instead of GL's bindManual(mTexName).
+    LLPointer<LLImageDX> mDXImage;
 
     // S24: same rationale as mDXImage, for the shader stage - captured from
     // LLHLSLShader::sCurBoundShaderPtr. Without it, replay inherits whatever

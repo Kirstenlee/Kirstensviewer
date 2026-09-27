@@ -27,7 +27,7 @@
 #include "linden_common.h"
 
 #include "llfontfreetype.h"
-#include "llfontgl.h"
+#include "llfontdx.h"
 
 // Freetype stuff
 #include <ft2build.h>
@@ -112,7 +112,7 @@ LLFontGlyphInfo::LLFontGlyphInfo(U32 index, EFontGlyphType glyph_type)
     mChar(0),
     mWidth(0),          // In pixels
     mHeight(0),         // In pixels
-    mXAdvance(0.f),     // In pixels
+    mXAdvanceRaw(0.f),  // In pixels
     mYAdvance(0.f),     // In pixels
     mXBitmapOffset(0),  // Offset to the origin in the bitmap
     mYBitmapOffset(0),  // Offset to the origin in the bitmap
@@ -130,7 +130,7 @@ LLFontGlyphInfo::LLFontGlyphInfo(const LLFontGlyphInfo& fgi)
     , mChar(fgi.mChar)
     , mWidth(fgi.mWidth)
     , mHeight(fgi.mHeight)
-    , mXAdvance(fgi.mXAdvance)
+    , mXAdvanceRaw(fgi.mXAdvanceRaw)
     , mYAdvance(fgi.mYAdvance)
     , mXBitmapOffset(fgi.mXBitmapOffset)
     , mYBitmapOffset(fgi.mYBitmapOffset)
@@ -260,27 +260,27 @@ bool LLFontFreetype::loadFace(const std::string& filename, F32 point_size, F32 v
     mName = filename;
     mPointSize = point_size;
 
-    mStyle = LLFontGL::NORMAL;
+    mStyle = LLFontDX::NORMAL;
     if(mFTFace->style_flags & FT_STYLE_FLAG_BOLD)
     {
-        mStyle |= LLFontGL::BOLD;
+        mStyle |= LLFontDX::BOLD;
     }
-    else if (flags & LLFontGL::BOLD)
+    else if (flags & LLFontDX::BOLD)
     {
         // FontGL applies programmatic bolding to fonts that are a part of 'bold' descriptor but don't have the bold style set.
         // Ex: Inter SemiBold doesn't have FT_STYLE_FLAG_BOLD and without this style it would be bolded programmatically.
-        mStyle |= LLFontGL::BOLD;
+        mStyle |= LLFontDX::BOLD;
     }
     else if (weight >= 600 && variable_font)
     {
         // If the font is heavy enough, consider it bold and avoid programmatic bolding
         // even if it doesn't have the bold style set.
-        mStyle |= LLFontGL::BOLD;
+        mStyle |= LLFontDX::BOLD;
     }
 
     if(mFTFace->style_flags & FT_STYLE_FLAG_ITALIC)
     {
-        mStyle |= LLFontGL::ITALIC;
+        mStyle |= LLFontDX::ITALIC;
     }
 
     return true;
@@ -349,14 +349,14 @@ F32 LLFontFreetype::getXAdvance(llwchar wch) const
         {
             return mMaxDigitWidth;
         }
-        return gi->mXAdvance;
+        return gi->mXAdvanceRaw;
     }
     else
     {
         char_glyph_info_map_t::iterator found_it = mCharGlyphInfoMap.find((llwchar)0);
         if (found_it != mCharGlyphInfoMap.end())
         {
-            return found_it->second->mXAdvance;
+            return found_it->second->mXAdvanceRaw;
         }
     }
 
@@ -375,7 +375,7 @@ F32 LLFontFreetype::getXAdvance(const LLFontGlyphInfo* glyph) const
         return mMaxDigitWidth;
     }
 
-    return glyph->mXAdvance;
+    return glyph->mXAdvanceRaw;
 }
 
 F32 LLFontFreetype::getXKerning(llwchar char_left, llwchar char_right) const
@@ -592,15 +592,15 @@ LLFontGlyphInfo* LLFontFreetype::addGlyphFromFont(const LLFontFreetype *fontp, l
     gi->mLsbDelta = (S32)fontp->mFTFace->glyph->lsb_delta;
     gi->mRsbDelta = (S32)fontp->mFTFace->glyph->rsb_delta;
     // Convert these from 26.6 units to float pixels.
-    gi->mXAdvance = fontp->mFTFace->glyph->advance.x / 64.f;
+    gi->mXAdvanceRaw = fontp->mFTFace->glyph->advance.x / 64.f;
     gi->mYAdvance = fontp->mFTFace->glyph->advance.y / 64.f;
 
     if (mWeight > 0 && wch >= '0' && wch <= '9')
     {
         // Digits are supposed to be preloaded, and buffers
-        // refresh when new chars get added, so this lazy load
-        // should not cause any issues.
-        mMaxDigitWidth = llmax(mMaxDigitWidth, gi->mXAdvance);
+        // refresh when new chars get added (mGeneration),
+        // so this lazy load should not cause any issues.
+        mMaxDigitWidth = llmax(mMaxDigitWidth, gi->mXAdvanceRaw);
     }
 
     insertGlyphInfo(wch, gi);
@@ -669,7 +669,7 @@ LLFontGlyphInfo* LLFontFreetype::addGlyphFromFont(const LLFontFreetype *fontp, l
         llassert(false);
     }
 
-    LLImageGL *image_gl = mFontBitmapCachep->getImageGL(bitmap_glyph_type, bitmap_num);
+    LLImageDX *image_gl = mFontBitmapCachep->getImageDX(bitmap_glyph_type, bitmap_num);
     LLImageRaw *image_raw = mFontBitmapCachep->getImageRaw(bitmap_glyph_type, bitmap_num);
     if (image_gl && image_raw)
     {
@@ -788,7 +788,7 @@ void LLFontFreetype::reset(F32 vert_dpi, F32 horz_dpi)
         // This is the head of the list - need to rebuild ourself and all fallbacks.
         if (mFallbackFonts.empty())
         {
-            LL_WARNS() << "LLFontGL::reset(), no fallback fonts present" << LL_ENDL;
+            LL_WARNS() << "LLFontDX::reset(), no fallback fonts present" << LL_ENDL;
         }
         else
         {

@@ -57,7 +57,7 @@
     ...
 
     //use target as a texture
-    gGL.getTexUnit(INDEX)->bind(&target);
+    gDX.getTexUnit(INDEX)->bind(&target);
     ... <issue drawing commands> ...
 
 */
@@ -92,7 +92,7 @@ public:
     // DO use for render targets that resize often and aren't likely to ruin someone's day if they break
     void resize(U32 resx, U32 resy);
 
-    //point this render target at a particular LLImageGL
+    //point this render target at a particular LLImageDX
     //   Intended usage:
     //      LLRenderTarget target;
     //      target.addColorAttachment(image);
@@ -101,11 +101,11 @@ public:
     //      target.flush();
     //      target.releaseColorAttachment();
     //
-    // attachment -- LLImageGL to render into
+    // attachment -- LLImageDX to render into
     // use_name -- optional texture name to target instead of attachment->getTexName()
     // NOTE: setColorAttachment and releaseColorAttachment cannot be used in conjuction with
     // addColorAttachment, allocateDepth, resize, etc.
-    void setColorAttachment(LLImageGL* attachment, LLGLuint use_name = 0);
+    void setColorAttachment(LLImageDX* attachment, LLGLuint use_name = 0);
 
     // detach from current color attachment
     void releaseColorAttachment();
@@ -175,52 +175,29 @@ public:
     // the G-buffer).
     ID3D11ShaderResourceView* getColorSRV(size_t index) const { return mDXRenderTarget.getColorSRV(index); }
 
-    // S24 (DXReadback, 2026-07-25): same idea as getColorSRV() above -
-    // needed by LLViewerWindow::rawSnapshot()'s depth-snapshot path
-    // (DXReadback::readDepthPixels() reads from the underlying texture,
-    // reached via this SRV's GetResource() - see that call site).
+    // S24: depth counterpart to getColorSRV() - needed by
+    // LLViewerWindow::rawSnapshot()'s depth-snapshot path (DXReadback::
+    // readDepthPixels() reaches the underlying texture via GetResource()).
     ID3D11ShaderResourceView* getDepthSRV() const { return mDXRenderTarget.getDepthSRV(); }
 
-    // S24 (2026-08-17): raw texture accessor, for callers doing direct
-    // CPU<->GPU pixel transfer (DXReadback::readPixels()/writePixels())
-    // rather than sampling this target as a shader input. First real
-    // caller: KVOpenCL's GPU post-fx effects (kveffects.cpp).
+    // S24: raw texture accessor for direct CPU<->GPU transfer
+    // (DXReadback::readPixels()/writePixels()), not shader sampling.
     ID3D11Texture2D* getDXColorTexture(size_t index) const { return mDXRenderTarget.getColorTexture(index); }
 
-    // S24 (2026-08-26, task #263): depth counterpart, same rationale as
-    // getDXColorTexture() above - needed by LLViewerWindow::rawSnapshot()'s
-    // depth-snapshot path to read pipeline.mRT->deferredScreen's depth
-    // directly (removes the inline GetResource()/QueryInterface unwrap that
-    // used to live in rawSnapshot() itself for the now-removed scratch_space
-    // path).
+    // S24: depth counterpart to getDXColorTexture().
     ID3D11Texture2D* getDXDepthTexture() const { return mDXRenderTarget.getDepthTexture(); }
 
-    // S24 (2026-08-06): re-issues OMSetRenderTargets on an ALREADY-bound
-    // target to change whether its depth-stencil view is attached, without
-    // touching the bindTarget()/flush() stack (bindTarget() asserts the
-    // target isn't already bound - calling it a second time mid-pass would
-    // trip that, even though semantically we just want to flip bind_depth).
-    // Needed because DXPipeline::renderDeferredLighting() binds mRT->screen
-    // with bind_depth=false for its own fullscreen ambient/local-lights
-    // draws (avoids the depth-as-SRV-while-DSV hazard documented on
-    // bindTarget()'s own comment), but the real 3D alpha/fullbright/glow
-    // geometry drawn into the same target afterward (renderGeomPostDeferred())
-    // needs real depth testing against the opaque scene to be occluded by
-    // walls/objects in front of it correctly - found via the user reporting
-    // "massive alpha ordering issues" (previously-hidden objects showing
-    // through walls) the first time this pass actually ran. No GL
-    // equivalent needed - GL's FBO depth attachment is fixed at
-    // allocate()/shareDepthBuffer() time, not per-bind, so nothing to
-    // change here for that backend.
+    // S24: re-issues OMSetRenderTargets on an already-bound target to flip
+    // whether its depth-stencil view is attached, without going through
+    // bindTarget()'s already-bound assert. DXPipeline::renderDeferredLighting()
+    // binds mRT->screen with bind_depth=false for its ambient/local-lights
+    // draws, but the alpha/fullbright/glow geometry drawn afterward needs
+    // real depth testing to be occluded correctly. No GL equivalent needed -
+    // GL's FBO depth attachment is fixed at allocate() time, not per-bind.
     //
-    // S24 (2026-08-15): read_only_depth passthrough to DXRenderTarget::
-    // bindTarget() - see that function's own comment. Local lights
-    // (DXPipeline::renderDeferredLighting()'s point/spot light loops) need
-    // this variant: they depth-test against already-written scene depth
-    // (occlusion against walls/objects) while ALSO sampling that same depth
-    // as an SRV for world-position reconstruction (getPosition()/getDepth()
-    // in pointLightF.hlsl/spotLightF.hlsl) - bind_depth=false left them with
-    // no occlusion at all (found via adversarial review, 2026-08-15).
+    // read_only_depth: local lights need to depth-test against already-
+    // written scene depth while ALSO sampling that same depth as an SRV for
+    // world-position reconstruction - see DXRenderTarget::bindTarget().
     void rebindWithDepth(bool bind_depth, bool read_only_depth = false) { mDXRenderTarget.bindTarget(bind_depth, read_only_depth); }
 #endif
 

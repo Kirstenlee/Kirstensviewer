@@ -1,27 +1,17 @@
 #pragma once
 
 #include "llgl.h"
-#include "llimagegl.h"
+#include "llimagedx.h"
 #include "DXCubeTexture.h"
 
 #include <vector>
 
-// S24 (2026-08-31, task #300-adjacent "stop this insanity" rewrite): real
-// DX_RENDER-native replacement for LLCubeMap ("Environment map hack!" - LL's
-// own header comment, copyright 2002/2010). No GL body, no #ifdef DX_RENDER -
-// this project is DX_RENDER-only now. Composes the existing, already-correct
-// DXCubeTexture resource wrapper (unchanged, task #113) rather than
-// reinventing the raw D3D11 resource layer - only the ORCHESTRATION logic
-// (per-face upload, face ordering, bind/texture-matrix state) that used to
-// live inside the GL-era class is what's actually new here.
+// S24: DX_RENDER-native replacement for LLCubeMap. Composes the DXCubeTexture
+// resource wrapper; this class adds only orchestration (per-face upload,
+// face ordering, bind/texture-matrix state).
 //
-// S24 (2026-08-31, layering fix): lives in llrender/, not dxrender/resources/
-// - this class needs LLImageGL/LLGLenum/LLTexUnit friendship, all llrender
-// types, and dxrender is a lower-level module that must never depend back on
-// llrender (llrender already depends on dxrender via DXRENDER_INCLUDE_DIRS/
-// DXRENDER_LIBRARIES - see llrender/CMakeLists.txt). Composes the still-
-// dxrender-resident DXCubeTexture unchanged via its already-exported include
-// path, matching where the original LLCubeMap lived.
+// Lives in llrender/, not dxrender/resources/, because it needs LLImageDX/
+// LLGLenum/LLTexUnit friendship - dxrender must never depend back on llrender.
 //
 // Scope: the legacy sky/"shiny" environment-map cubemap (LLVOSky::mCubeMap),
 // consumed by lldrawpoolbump.cpp/dxdrawpoolbump.cpp/pipeline.cpp for the
@@ -77,13 +67,11 @@ protected:
     friend class LLTexUnit;
     ~DXCubeMap();
 
-    // S24: retained purely as an internal face-slot label for the per-face
-    // LLImageGL upload path (LLImageGL::setTarget() still requires a GL
-    // enum tag - that's an LLImageGL API detail, out of scope to change
-    // here) - NOT a D3D11 face/slice convention. The GL->D3D11 slice remap
-    // happens once, explicitly, in init()'s call to mDXCubeTexture.copyFace().
+    // S24: internal face-slot label for LLImageDX::setTarget(), which still
+    // takes a GL enum tag - NOT a D3D11 face/slice convention. The GL->D3D11
+    // remap happens in init()'s call to mDXCubeTexture.copyFace().
     LLGLenum mTargets[6];
-    LLPointer<LLImageGL> mImages[6];
+    LLPointer<LLImageDX> mImages[6];
     LLPointer<LLImageRaw> mRawImages[6];
     S32 mTextureStage;
     S32 mMatrixStage;

@@ -25,7 +25,7 @@
 
 #include "llglheaders.h"
 
-using namespace LLImageGLMemory;
+using namespace LLImageDXMemory;
 
 DXCubeMapArray::DXCubeMapArray()
     : mTextureStage(0)
@@ -59,7 +59,7 @@ void DXCubeMapArray::allocate(U32 resolution, U32 components, U32 count, bool us
     // mImage is still constructed (texname 0, unused) so callers reading
     // its component/mipmap settings for the resize-copy constructor above
     // keep working unchanged.
-    mImage = new LLImageGL(resolution, resolution, components, use_mips);
+    mImage = new LLImageDX(resolution, resolution, components, use_mips);
 
     if (!mDXTexture.create((int)resolution, (int)resolution, (int)count, hdr, use_mips))
     {

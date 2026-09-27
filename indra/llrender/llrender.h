@@ -56,7 +56,7 @@
 class LLVertexBuffer;
 class DXCubeMap;
 class DXCubeMapArray;
-class LLImageGL;
+class LLImageDX;
 class LLRenderTarget;
 class LLTexture;
 class LLVertexBufferData;
@@ -175,9 +175,9 @@ public:
     // Disables the current texture unit
     void disable(void);
 
-    // Binds the LLImageGL to this texture unit
-    // (automatically enables the unit for the LLImageGL's texture type)
-    bool bind(LLImageGL* texture, bool for_rendering = false, bool forceBind = false, S32 usename = 0);
+    // Binds the LLImageDX to this texture unit
+    // (automatically enables the unit for the LLImageDX's texture type)
+    bool bind(LLImageDX* texture, bool for_rendering = false, bool forceBind = false, S32 usename = 0);
     bool bind(LLTexture* texture, bool for_rendering = false, bool forceBind = false);
 
     // bind implementation for inner loops
@@ -187,7 +187,6 @@ public:
     //  - gl_tex->getTexName() is not zero
     //  - This texture is not being bound redundantly
     //  - USE_SRGB_DECODE is disabled
-    //  - mTexOptionsDirty is false
     //  -
     void bindFast(LLTexture* texture);
 
@@ -217,7 +216,7 @@ public:
 
 #ifdef DX_RENDER
     // S24: DX-native equivalent of bindManual() for callers that build/own a
-    // DXTexture directly (procedural textures with no LLImageGL wrapper) -
+    // DXTexture directly (procedural textures with no LLImageDX wrapper) -
     // bindManual()'s raw-GLuint overload can't be translated generically
     // under DX_RENDER, so this mirrors bindFast()'s SRV+sampler bind logic.
     bool bind(DXTexture& tex, eTextureAddressMode address_mode, eTextureFilterOptions filter_option);
@@ -293,13 +292,13 @@ protected:
     // hazard, so a plain last-value pointer compare is enough here.
     void* mCurrDXSampler = nullptr;
 
-    // S24: tracks the LLImageGL actually bound, so LLRender::flush() can
+    // S24: tracks the LLImageDX actually bound, so LLRender::flush() can
     // capture it into a cached LLVertexBufferData when recording a display
-    // list; replay re-issues a real bind(LLImageGL*) call. Reset to nullptr
+    // list; replay re-issues a real bind(LLImageDX*) call. Reset to nullptr
     // by unbind()/unbindFast() - needed since submitUnderline() (llfontgl.cpp)
     // explicitly unbinds before submitting, and a stale pointer here would
     // get captured/replayed as the wrong texture instead of "no texture".
-    LLImageGL* mCurrBoundImageGL = nullptr;
+    LLImageDX* mCurrBoundImageDX = nullptr;
 #endif
 
     void debugTextureUnit(void);
@@ -489,7 +488,7 @@ public:
     void beginList(std::list<LLVertexBufferData> *list);
     void endList();
     // S24: lets a caller check whether a beginList()/endList() recording is
-    // active without direct access to sBufferDataList - used by LLFontGL and
+    // active without direct access to sBufferDataList - used by LLFontDX and
     // llrender2dutils.cpp to choose between the fast gDXUIBatch path and
     // falling back to begin()/vertexBatchPreTransformed()/end() so flush()'s
     // capture logic can build a replayable LLVertexBufferData, as for GL.
@@ -597,7 +596,7 @@ public:
     // read GL's ambient "current color" state directly - this accessor lets
     // llrender2dutils.cpp's DX_RENDER fences capture that value explicitly
     // for functions whose GL body relies on an earlier color4fv()-style call
-    // rather than a parameter (e.g. gl_rect_2d()).
+    // rather than a parameter (e.g. dx_rect_2d()).
     // Not const: LLStrider<Object>::operator[] isn't const-qualified (see
     // llstrider.h), so indexing mColorsp requires a non-const *this.
     LLColor4U getCurrentColor(void) { return mColorsp[mCount]; }
@@ -673,7 +672,7 @@ extern F32 gGLModelView[16];
 extern F32 gGLLastModelView[16];
 extern F32 gGLLastProjection[16];
 extern F32 gGLProjection[16];
-extern S32 gGLViewport[4];
+extern S32 gDXViewport[4];
 extern glm::mat4 gGLDeltaModelView;
 extern glm::mat4 gGLInverseDeltaModelView;
 

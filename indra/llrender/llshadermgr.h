@@ -382,7 +382,7 @@ public:
     // for why this distinction matters).
     // S24: type branches HLSL compile-target selection but never reaches a
     // real GL call under DX_RENDER.
-    GLuint loadShaderFile(const std::string& filename, S32 & shader_level, DXenum type, std::map<std::string, std::string>* defines = NULL, S32 texture_index_channels = -1, bool attaches_deferred_util = false);
+    bool loadShaderFile(const std::string& filename, S32 & shader_level, DXenum type, std::map<std::string, std::string>* defines = NULL, S32 texture_index_channels = -1, bool attaches_deferred_util = false);
 
     // Implemented in the application to actually point to the shader directory.
     virtual std::string getShaderDirPrefix(void) = 0; // Pure Virtual
@@ -390,19 +390,17 @@ public:
     // Implemented in the application to actually update out of date uniforms for a particular shader
     virtual void updateShaderUniforms(LLHLSLShader * shader) = 0; // Pure Virtual
 
-    void initShaderCache(bool enabled, const LLUUID& old_cache_version, const LLUUID& current_cache_version, bool second_instance);
+    // Deletes the shared shader_cache disk folder (LL_PATH_CACHE/shader_cache) -
+    // DXShader.cpp's real bytecode cache lives in this same folder (see its
+    // own getDXShaderCacheDir() comment) and deliberately has no purge of
+    // its own, relying on this being called instead.
     void clearShaderCache();
-    void persistShaderCacheMetadata();
     // Clears mRawShaderFileTextCache (see its own comment) - call before a setShaders() that must
     // see live edits to .hlsl files on disk. Settings-triggered reloads deliberately do NOT call
     // this, since the fast path (reusing cached file text) is the whole point there.
     void clearRawShaderFileCache() { mRawShaderFileTextCache.clear(); }
 
 public:
-    // Map of shader names to compiled
-    std::map<std::string, GLuint> mVertexShaderObjects;
-    std::map<std::string, GLuint> mFragmentShaderObjects;
-
     // Raw (BOM-stripped, pre-per-call-splice) on-disk shader file text, keyed by
     // "<filename>@<resolved gpu class>" - see loadShaderFile()'s own comment. A settings-triggered
     // shader reload calls loadShaderFile() again for every attached file of every shader
@@ -426,17 +424,6 @@ public:
     std::vector<std::string> mReservedAttribs;
 
     std::vector<std::string> mReservedUniforms;
-
-    struct ProgramBinaryData
-    {
-        GLsizei mBinaryLength = 0;
-        GLenum mBinaryFormat = 0;
-        F32 mLastUsedTime = 0.0;
-    };
-    std::map<LLUUID, ProgramBinaryData> mShaderBinaryCache;
-    LLUUID mShaderCacheVersion;
-    bool mShaderCacheEnabled = false;
-    std::string mShaderCacheDir;
 
 protected:
 

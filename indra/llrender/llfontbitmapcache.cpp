@@ -68,13 +68,13 @@ LLImageRaw *LLFontBitmapCache::getImageRaw(EFontGlyphType bitmap_type, U32 bitma
     return mImageRawVec[bitmap_idx][bitmap_num];
 }
 
-LLImageGL *LLFontBitmapCache::getImageGL(EFontGlyphType bitmap_type, U32 bitmap_num) const
+LLImageDX *LLFontBitmapCache::getImageDX(EFontGlyphType bitmap_type, U32 bitmap_num) const
 {
     const U32 bitmap_idx = static_cast<U32>(bitmap_type);
-    if (bitmap_type >= EFontGlyphType::Count || bitmap_num >= mImageGLVec[bitmap_idx].size())
+    if (bitmap_type >= EFontGlyphType::Count || bitmap_num >= mImageDXVec[bitmap_idx].size())
         return nullptr;
 
-    return mImageGLVec[bitmap_idx][bitmap_num];
+    return mImageDXVec[bitmap_idx][bitmap_num];
 }
 
 
@@ -117,8 +117,8 @@ bool LLFontBitmapCache::nextOpenPos(S32 width, S32& pos_x, S32& pos_y, EFontGlyp
             }
 
             // Make corresponding GL image.
-            mImageGLVec[bitmap_idx].emplace_back(new LLImageGL(image_raw, false, false));
-            LLImageGL* image_gl = getImageGL(bitmap_type, bitmap_num);
+            mImageDXVec[bitmap_idx].emplace_back(new LLImageDX(image_raw, false, false));
+            LLImageDX* image_gl = getImageDX(bitmap_type, bitmap_num);
 
             // Start at beginning of the new image.
             mCurrentOffsetX[bitmap_idx] = 1;
@@ -150,7 +150,7 @@ void LLFontBitmapCache::destroyGL()
 {
     for (U32 idx = 0, cnt = static_cast<U32>(EFontGlyphType::Count); idx < cnt; idx++)
     {
-        for (LLImageGL* image_gl : mImageGLVec[idx])
+        for (LLImageDX* image_gl : mImageDXVec[idx])
         {
             image_gl->destroyGLTexture();
         }
@@ -162,7 +162,7 @@ void LLFontBitmapCache::reset()
     for (U32 idx = 0, cnt = static_cast<U32>(EFontGlyphType::Count); idx < cnt; idx++)
     {
         mImageRawVec[idx].clear();
-        mImageGLVec[idx].clear();
+        mImageDXVec[idx].clear();
         mCurrentOffsetX[idx] = 1;
         mCurrentOffsetY[idx] = 1;
     }

@@ -28,7 +28,7 @@
 #ifndef LL_LLGLSTATES_H
 #define LL_LLGLSTATES_H
 
-#include "llimagegl.h"
+#include "llimagedx.h"
 
 //----------------------------------------------------------------------------
 

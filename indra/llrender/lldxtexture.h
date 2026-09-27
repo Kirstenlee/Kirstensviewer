@@ -1,6 +1,6 @@
 /** 
- * @file llgltexture.h
- * @brief Object for managing opengl textures
+ * @file lldxtexture.h
+ * @brief Object for managing DX textures
  *
  * $LicenseInfo:firstyear=2012&license=viewerlgpl$
  * Second Life Viewer Source Code
@@ -25,8 +25,8 @@
  */
 
 
-#ifndef LL_GL_TEXTURE_H
-#define LL_GL_TEXTURE_H
+#ifndef LL_DX_TEXTURE_H
+#define LL_DX_TEXTURE_H
 
 #include "lltexture.h"
 #include "llgl.h"
@@ -37,7 +37,7 @@ class LLImageRaw;
 //this the parent for the class LLViewerTexture
 //through the following virtual functions, the class LLViewerTexture can be reached from /llrender.
 //
-class LLGLTexture : public LLTexture
+class LLDXTexture : public LLTexture
 {
 public:
 	enum
@@ -84,16 +84,16 @@ public:
 		DELETED = 0,         //removed from memory
 		ACTIVE,              //just being used, can become inactive if not being used for a certain time (10 seconds).
 		NO_DELETE = 99       //stay in memory, can not be removed.
-	} LLGLTextureState;
+	} LLDXTextureState;
 
 protected:
-	virtual ~LLGLTexture();
-	LOG_CLASS(LLGLTexture);
+	virtual ~LLDXTexture();
+	LOG_CLASS(LLDXTexture);
 
 public:
-    LLGLTexture(bool usemipmaps = true);
-    LLGLTexture(const LLImageRaw* raw, bool usemipmaps) ;
-    LLGLTexture(const U32 width, const U32 height, const U8 components, bool usemipmaps) ;
+    LLDXTexture(bool usemipmaps = true);
+    LLDXTexture(const LLImageRaw* raw, bool usemipmaps) ;
+    LLDXTexture(const U32 width, const U32 height, const U8 components, bool usemipmaps) ;
 
 	virtual void dump();	// debug info to INFOS()
 
@@ -109,7 +109,7 @@ public:
 	void destroyGLTexture() ;
 
 	//---------------------------------------------------------------------------------------------
-	//functions to access LLImageGL
+	//functions to access LLImageDX
 	//---------------------------------------------------------------------------------------------
 	/*virtual*/S32	       getWidth(S32 discard_level = -1) const;
 	/*virtual*/S32	       getHeight(S32 discard_level = -1) const;
@@ -123,10 +123,10 @@ public:
     // imageraw - the image to copy from
     // usename - explicit GL name override
     // to_create - set to FALSE to force gl texture to not be created
-    // category - LLGLTexture category for this LLGLTexture
+    // category - LLDXTexture category for this LLDXTexture
     // defer_copy - set to true to allocate GL texture but NOT initialize with imageraw data
     // tex_name - if not null, will be set to the GL name of the texture created
-    bool       createGLTexture(S32 discard_level, const LLImageRaw* imageraw, S32 usename = 0, bool to_create = true, S32 category = LLGLTexture::OTHER, bool defer_copy = false, LLGLuint* tex_name = nullptr);
+    bool       createGLTexture(S32 discard_level, const LLImageRaw* imageraw, S32 usename = 0, bool to_create = true, S32 category = LLDXTexture::OTHER, bool defer_copy = false, LLGLuint* tex_name = nullptr);
 
 	void       setFilteringOption(LLTexUnit::eTextureFilterOptions option);
     void       setExplicitFormat(LLGLint internal_format, LLGLenum primary_format, LLGLenum type_format = 0, bool swap_bytes = false);
@@ -150,14 +150,13 @@ public:
     bool       getMask(const LLVector2 &tc);
     F32        getTimePassedSinceLastBound();
     bool       getMissed() const ;
-    bool       isJustBound()const ;
     void       forceUpdateBindStats(void) const;
 
     bool       isGLTextureCreated() const ;
-    LLGLTextureState getTextureState() const { return mTextureState; }
+    LLDXTextureState getTextureState() const { return mTextureState; }
 
     //---------------------------------------------------------------------------------------------
-    //end of functions to access LLImageGL
+    //end of functions to access LLImageDX
     //---------------------------------------------------------------------------------------------
 
     //-----------------
@@ -165,7 +164,6 @@ public:
     void forceActive() ;
     void setNoDelete() ;
     void dontDiscard() { mDontDiscard = 1; mTextureState = NO_DELETE; }
-    bool getDontDiscard() const { return mDontDiscard; }
     //-----------------
 
 private:
@@ -176,7 +174,7 @@ protected:
 	void setTexelsPerImage();
 
 public:
-	/*virtual*/ LLImageGL* getGLTexture() const ;
+	/*virtual*/ LLImageDX* getGLTexture() const ;
 
 protected:
 	S32 mBoostLevel;				// enum describing priority level
@@ -188,14 +186,14 @@ protected:
 	mutable S8  mNeedsGLTexture;
 
 	//GL texture
-	LLPointer<LLImageGL> mGLTexturep ;
+	LLPointer<LLImageDX> mGLTexturep ;
 	S8 mDontDiscard;			// Keep full res version of this image (for UI, etc)
 
 protected:
-	LLGLTextureState  mTextureState ;
+	LLDXTextureState  mTextureState ;
 
 
 };
 
-#endif // LL_GL_TEXTURE_H
+#endif // LL_DX_TEXTURE_H
 

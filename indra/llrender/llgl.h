@@ -92,7 +92,6 @@ public:
     S32 mGLMaxVertexRange;
     S32 mGLMaxIndexRange;
     S32 mGLMaxTextureSize;
-    F32 mMaxAnisotropy = 0.f;
     // initGL() (llgl.cpp), which normally queries and sanity-clamps this to
     // 65536, never runs (no real GL context) - defaulting to 0 here breaks
     // every consumer that divides by it to size a permutation macro (e.g.
@@ -107,7 +106,6 @@ public:
     bool mHasCubeMapArray = false;
     bool mHasDebugOutput = false;
     bool mHasTransformFeedback = false;
-    bool mHasAnisotropic = false;
 
     // Vendor-specific extensions
     bool mHasAMDAssociations = false;

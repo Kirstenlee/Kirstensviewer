@@ -1,6 +1,6 @@
 /**
  * @file llhlslshader.h
- * @brief GLSL shader wrappers
+ * @brief HLSL shader wrappers
  *
  * $LicenseInfo:firstyear=2001&license=viewerlgpl$
  * Second Life Viewer Source Code
@@ -24,8 +24,8 @@
  * $/LicenseInfo$
  */
 
-#ifndef LL_LLGLSLSHADER_H
-#define LL_LLGLSLSHADER_H
+#ifndef LL_LLHLSLSHADER_H
+#define LL_LLHLSLSHADER_H
 
 #include "llgl.h"
 #include "llrender.h"
@@ -33,10 +33,8 @@
 #include <boost/json.hpp>
 #include <unordered_map>
 
-#ifdef DX_RENDER
 #include "DXShader.h"
 #include "DXDevice.h"
-#endif
 
 class LLShaderFeatures
 {
@@ -153,7 +151,7 @@ public:
         SG_COUNT
     } eGroup;
 
-    enum UniformBlock : GLuint
+    enum UniformBlock : U32
     {
         UB_REFLECTION_PROBES,   // "ReflectionProbes"
         UB_GLTF_JOINTS,         // "GLTFJoints"
@@ -170,7 +168,6 @@ public:
     LLHLSLShader();
     ~LLHLSLShader();
 
-    static GLuint sCurBoundShader;
     static LLHLSLShader* sCurBoundShaderPtr;
     static S32 sIndexedTextureChannels;
 
@@ -198,13 +195,12 @@ public:
     bool readProfileQuery(bool for_runtime = false, bool force_read = false);
 
     bool createShader();
-#ifdef DX_RENDER
     // DX_RENDER's createShader() equivalent - see llhlslshader.cpp. Does not
-    // reuse the GL body at all (no glCreateProgram/glCompileShader concept
+    // reuse a GL body at all (no glCreateProgram/glCompileShader concept
     // applies); instead concatenates mShaderFiles' entry-file HLSL text with
-    // attachShaderFeatures()'s attached-utility HLSL text (via the DX_RENDER
-    // branches in attachVertexObject()/attachFragmentObject() below) into one
-    // source blob per stage, then D3DCompile's each through mDXVertexShader/
+    // attachShaderFeatures()'s attached-utility HLSL text (via
+    // attachVertexObject()/attachFragmentObject() below) into one source
+    // blob per stage, then D3DCompile's each through mDXVertexShader/
     // mDXPixelShader.
     bool createShaderDX();
 
@@ -215,32 +211,25 @@ public:
     // sInstances, so main-thread only, like createShaderDX(). Idempotent -
     // fully rebuilds mDXVertexSource/mDXPixelSource each call.
     bool buildDXSource();
-#endif
+
     bool attachFragmentObject(std::string object);
     bool attachVertexObject(std::string object);
-    void attachObject(GLuint object);
-    void attachObjects(GLuint* objects = NULL, S32 count = 0);
-    void uniform1i(U32 index, GLint i);
+    void uniform1i(U32 index, S32 i);
     void uniform1f(U32 index, F32 v);
-    void fastUniform1f(U32 index, F32 v);
     void uniform2f(U32 index, F32 x, F32 y);
     void uniform3f(U32 index, F32 x, F32 y, F32 z);
     void uniform4f(U32 index, F32 x, F32 y, F32 z, F32 w);
-    void uniform1iv(U32 index, U32 count, const GLint* i);
-    void uniform4iv(U32 index, U32 count, const GLint* i);
     void uniform1fv(U32 index, U32 count, const F32* v);
     void uniform2fv(U32 index, U32 count, const F32* v);
     void uniform3fv(U32 index, U32 count, const F32* v);
     void uniform4fv(U32 index, U32 count, const F32* v);
-    void uniform4uiv(U32 index, U32 count, const GLuint* v);
-    void uniform2i(const LLStaticHashedString& uniform, GLint i, GLint j);
-    void uniformMatrix2fv(U32 index, U32 count, bool transpose, const F32* v);
+    void uniform2i(const LLStaticHashedString& uniform, S32 i, S32 j);
     void uniformMatrix3fv(U32 index, U32 count, bool transpose, const F32* v);
     void uniformMatrix3x4fv(U32 index, U32 count, bool transpose, const F32* v);
     void uniformMatrix4fv(U32 index, U32 count, bool transpose, const F32* v);
-    void uniform1i(const LLStaticHashedString& uniform, GLint i);
-    void uniform1iv(const LLStaticHashedString& uniform, U32 count, const GLint* v);
-    void uniform4iv(const LLStaticHashedString& uniform, U32 count, const GLint* v);
+    void uniform1i(const LLStaticHashedString& uniform, S32 i);
+    void uniform1iv(const LLStaticHashedString& uniform, U32 count, const S32* v);
+    void uniform4iv(const LLStaticHashedString& uniform, U32 count, const S32* v);
     void uniform1f(const LLStaticHashedString& uniform, F32 v);
     void uniform2f(const LLStaticHashedString& uniform, F32 x, F32 y);
     void uniform3f(const LLStaticHashedString& uniform, F32 x, F32 y, F32 z);
@@ -249,19 +238,10 @@ public:
     void uniform2fv(const LLStaticHashedString& uniform, U32 count, const F32* v);
     void uniform3fv(const LLStaticHashedString& uniform, U32 count, const F32* v);
     void uniform4fv(const LLStaticHashedString& uniform, U32 count, const F32* v);
-    void uniform4uiv(const LLStaticHashedString& uniform, U32 count, const GLuint* v);
+    void uniform4uiv(const LLStaticHashedString& uniform, U32 count, const U32* v);
     void uniformMatrix4fv(const LLStaticHashedString& uniform, U32 count, bool transpose, const F32* v);
 
     void setMinimumAlpha(F32 minimum);
-
-    void vertexAttrib4f(U32 index, F32 x, F32 y, F32 z, F32 w);
-    void vertexAttrib4fv(U32 index, F32* v);
-
-    //GLint getUniformLocation(const std::string& uniform);
-    GLint getUniformLocation(const LLStaticHashedString& uniform);
-    GLint getUniformLocation(U32 index);
-
-    GLint getAttribLocation(U32 attrib);
 
     void clearPermutations();
     void addPermutation(std::string name, std::string value);
@@ -285,25 +265,18 @@ public:
 
     // bindTexture returns the texture unit we've bound the texture to.
     // You can reuse the return value to unbind a texture when required.
-    S32 bindTexture(const std::string& uniform, LLTexture* texture, LLTexUnit::eTextureType mode = LLTexUnit::TT_TEXTURE);
     S32 bindTexture(S32 uniform, LLTexture* texture, LLTexUnit::eTextureType mode = LLTexUnit::TT_TEXTURE);
-    S32 bindTexture(const std::string& uniform, LLRenderTarget* texture, bool depth = false, LLTexUnit::eTextureFilterOptions mode = LLTexUnit::TFO_BILINEAR);
     S32 bindTexture(S32 uniform, LLRenderTarget* texture, bool depth = false, LLTexUnit::eTextureFilterOptions mode = LLTexUnit::TFO_BILINEAR, U32 index = 0);
-    S32 unbindTexture(const std::string& uniform, LLTexUnit::eTextureType mode = LLTexUnit::TT_TEXTURE);
     S32 unbindTexture(S32 uniform, LLTexUnit::eTextureType mode = LLTexUnit::TT_TEXTURE);
 
     void bind();
     //helper to conditionally bind mRiggedVariant instead of this
     void bind(bool rigged);
 
-#ifdef DX_RENDER
-    // S24: mProgramObject is always 0 under DX_RENDER (no glCreateProgram/
-    // glLinkProgram). "Complete" here means both stages produced a real
-    // D3D11 shader object - mirrors GL's link-success semantics.
+    // "Complete" means both stages produced a real D3D11 shader object -
+    // mirrors GL's link-success semantics (no glCreateProgram/glLinkProgram
+    // concept exists under DX_RENDER).
     bool isComplete() const { return mDXVertexShader.getVS() != nullptr && mDXPixelShader.getPS() != nullptr; }
-#else
-    bool isComplete() const { return mProgramObject != 0; }
-#endif
 
     LLUUID hash();
 
@@ -313,25 +286,8 @@ public:
     U32 mMatHash[LLRender::NUM_MATRIX_MODES];
     U32 mLightHash;
 
-    GLuint mProgramObject;
-#if LL_RELEASE_WITH_DEBUG_INFO
-    struct attr_name
-    {
-        GLint loc;
-        const char* name;
-        void operator = (GLint _loc) { loc = _loc; }
-        operator GLint () { return loc; }
-    };
-    std::vector<attr_name> mAttribute; //lookup table of attribute enum to attribute channel
-#else
-    std::vector<GLint> mAttribute; //lookup table of attribute enum to attribute channel
-#endif
     U32 mAttributeMask;  //mask of which reserved attributes are set (lines up with LLVertexBuffer::getTypeMask())
-    std::vector<GLint> mUniform;   //lookup table of uniform enum to uniform location
-    LLStaticStringTable<GLint> mUniformMap; //lookup map of uniform name to uniform location
-    typedef std::unordered_map<GLint, LLVector4> uniform_value_map_t;
-    uniform_value_map_t mValue; //lookup map of uniform location to last known value
-    std::vector<GLint> mTexture;
+    std::vector<S32> mTexture;
     S32 mTotalUniformSize;
     S32 mActiveTextureChannels;
     S32 mShaderLevel;
@@ -352,30 +308,24 @@ public:
     defines_map_t mDefines;
     static defines_map_t sGlobalDefines;
     LLUUID mShaderHash;
-    bool mUsingBinaryProgram = false;
 
-#ifdef DX_RENDER
     // Concatenated HLSL text, built up by createShaderDX() (entry file) and
-    // attachVertexObject()/attachFragmentObject()'s DX_RENDER branches
-    // (attached utility files, in attachShaderFeatures()'s existing order).
+    // attachVertexObject()/attachFragmentObject() (attached utility files,
+    // in attachShaderFeatures()'s existing order).
     std::string mDXVertexSource;
     std::string mDXPixelSource;
     DXShader mDXVertexShader;
     DXShader mDXPixelShader;
-#endif
 
     //statistics for profiling shader performance
     bool mProfilePending = false;
-    U32 mTimerQuery;
-    U32 mSamplesQuery;
-    U32 mPrimitivesQuery;
 
-#ifdef DX_RENDER
-    // D3D11 equivalent of the GL query objects above - GL_TIME_ELAPSED has no direct D3D11
-    // counterpart, so elapsed time needs a disjoint query (frequency + validity) bracketing a
-    // pair of plain timestamp queries (timestamps only support End(), never Begin() - see
-    // placeProfileQuery()/readProfileQuery() in the .cpp). occlusion/pipelineStats are the
-    // GL_SAMPLES_PASSED/GL_PRIMITIVES_GENERATED analogues.
+    // GL_TIME_ELAPSED has no direct D3D11 counterpart, so elapsed time needs
+    // a disjoint query (frequency + validity) bracketing a pair of plain
+    // timestamp queries (timestamps only support End(), never Begin() - see
+    // placeProfileQuery()/readProfileQuery() in the .cpp). occlusion/
+    // pipelineStats are the GL_SAMPLES_PASSED/GL_PRIMITIVES_GENERATED
+    // analogues.
     struct DXProfileQueries
     {
         ID3D11Query* disjoint = nullptr;
@@ -387,7 +337,6 @@ public:
         void reset();
     };
     DXProfileQueries mDXProfileQueries;
-#endif
 
     U64 mTimeElapsed;
     static U64 sTotalTimeElapsed;
