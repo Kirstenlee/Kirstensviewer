@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes" ?>
+<floater
+    name="gesture_autocomplete_picker"
+    title="GESTURES"
+    single_instance="true"
+    can_minimize="false"
+    can_tear_off="false"
+    can_resize="true"
+    can_close="false"
+    auto_close="true"
+    layout="topleft"
+    min_width="200"
+    chrome="true"
+    height="125"
+    width="310">
+  <floater.string
+   name="showing_count">
+      Showing [COUNT] of [TOTAL]
+  </floater.string>
+  <scroll_list
+   column_padding="0"
+   draw_heading="false"
+   follows="all"
+   commit_on_keyboard_movement="false"
+   height="120"
+   layout="topleft"
+   left="3"
+   name="gesture_list"
+   right="-1"
+   top="2">
+    <scroll_list.columns
+     label="Trigger"
+     name="trigger"
+     width="90" />
+    <scroll_list.columns
+     label="Name"
+     name="name"
+     width="-1" />
+  </scroll_list>
+</floater>

@@ -299,7 +299,7 @@ void LLFloaterPay::processPayPriceReply(LLMessageSystem* msg, void **userdata)
         // build a string containing the maximum value and calc nerw button width from it.
         std::string balance_str = "L$";
         balance_str += LLResMgr::getInstance()->getMonetaryString( max_pay_amount );
-        const LLFontGL* font = LLFontGL::getFontSansSerif();
+        const LLFontDX* font = LLFontDX::getFontSansSerif();
         S32 new_button_width = font->getWidth( std::string(balance_str));
         new_button_width += ( 12 + 12 );    // padding
 

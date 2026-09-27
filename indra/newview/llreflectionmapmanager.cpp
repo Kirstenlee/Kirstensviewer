@@ -61,7 +61,7 @@
 static LLTrace::BlockTimerStatHandle FTM_REFLECTION_PROBE_UPDATE("Reflection Probes");
 static LLTrace::BlockTimerStatHandle FTM_REFLECTION_PROBE_GEN("Probe Generation");
 
-LLPointer<LLImageGL> gEXRImage;
+LLPointer<LLImageDX> gEXRImage;
 
 void load_exr(const std::string& filename)
 {
@@ -78,9 +78,9 @@ void load_exr(const std::string& filename)
     if (ret == TINYEXR_SUCCESS)
     {
         U32 texName = 0;
-        LLImageGL::generateTextures(1, &texName);
+        LLImageDX::generateTextures(1, &texName);
 
-        gEXRImage = new LLImageGL(texName, 4, GL_TEXTURE_2D, GL_RGB16F, GL_RGB16F, GL_FLOAT, LLTexUnit::TAM_CLAMP);
+        gEXRImage = new LLImageDX(texName, 4, GL_TEXTURE_2D, GL_RGB16F, GL_RGB16F, GL_FLOAT, LLTexUnit::TAM_CLAMP);
         gEXRImage->setHasMipMaps(true);
         gEXRImage->setUseMipMaps(true);
         gEXRImage->setFilteringOption(LLTexUnit::TFO_TRILINEAR);
@@ -89,7 +89,7 @@ void load_exr(const std::string& filename)
 
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB16F, width, height, 0, GL_RGBA, GL_FLOAT, out);
 
-        LLImageGLMemory::alloc_tex_image(width, height, GL_RGB16F, 1);
+        LLImageDXMemory::alloc_tex_image(width, height, GL_RGB16F, 1);
 
         free(out); // release memory of image data
 

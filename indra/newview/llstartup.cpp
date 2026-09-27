@@ -137,6 +137,7 @@
 #include "llsky.h"
 #include "llstatview.h"
 #include "llstatusbar.h"		// sendMoneyBalanceRequest(), owns L$ balance
+#include "llbuycurrencyhtml.h"
 #include "llsurface.h"
 #include "lltexturecache.h"
 #include "lltexturefetch.h"
@@ -184,7 +185,6 @@
 #include "llnamelistctrl.h"
 #include "llnamebox.h"
 #include "llnameeditor.h"
-#include "llpostprocess.h"
 #include "llagentlanguage.h"
 #include "llwearable.h"
 #include "llinventorybridge.h"
@@ -367,7 +367,7 @@ void update_texture_fetch()
 	LLAppViewer::getTextureFetch()->update(1); // unpauses the texture fetch thread
 	gTextureList.updateImages(0.10f);
 
-	if (LLImageGLThread::sEnabledTextures)
+	if (LLImageDXThread::sEnabledTextures)
 	{
 		std::shared_ptr<LL::WorkQueue> main_queue = LL::WorkQueue::getInstance("mainloop");
 		main_queue->runFor(std::chrono::milliseconds(1));
@@ -1389,10 +1389,6 @@ bool idle_startup()
 		LLDrawable::initClass();
 		do_startup_frame();
 
-		// init the shader managers
-		LLPostProcess::initClass();
-		do_startup_frame();
-
 		LLAvatarAppearance::initClass("avatar_lad.xml", "avatar_skeleton.xml");
 		do_startup_frame();
 
@@ -1861,6 +1857,7 @@ bool idle_startup()
 		// Get L$ and ownership credit information
         LL_INFOS() << "Requesting Money Balance" << LL_ENDL;
 		LLStatusBar::sendMoneyBalanceRequest();
+		LLBuyCurrencyHTML::checkFeatureFlag();
 
 		do_startup_frame();
 
@@ -3242,7 +3239,7 @@ void LLStartUp::fontInit()
 	set_startup_status(0.45f, msg.c_str(), gAgent.mMOTD.c_str());
 	do_startup_frame();
 
-	LLFontGL::loadDefaultFonts();
+	LLFontDX::loadDefaultFonts();
 }
 
 void LLStartUp::initNameCache()

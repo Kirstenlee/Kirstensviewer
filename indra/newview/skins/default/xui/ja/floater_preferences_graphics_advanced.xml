@@ -41,7 +41,7 @@
 	<text name="(brightness, lower is brighter)">
 		（０がデフォルトです。低い値ほど明るくなります。）
 	</text>
-	<check_box label="異方的フィルタリング（有効にすると速度が低下します）" name="ani"/>
+	<slider label="異方性フィルタリング:" name="ani"/>
 	<check_box control_name="RenderCompressTextures" label="テクスチャ圧縮の有効化 (再起動後に反映)" name="texture compression" tool_tip="ビデオメモリ内のテクスチャを圧縮し、色の品質をある程度犠牲にして、より高解像度のテクスチャを読み込むようにします。"/>
 	<check_box control_name="HiDPIディスプレイのサポートを有効にする（再起動後に反映）" name="高解像度の描画のためにOpenGLを有効にします。"/>
 	<text name="antialiasing label">

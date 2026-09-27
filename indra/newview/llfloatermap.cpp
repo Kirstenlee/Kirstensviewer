@@ -31,7 +31,7 @@
 
 // Library includes
 #include "llfloaterreg.h"
-#include "llfontgl.h"
+#include "llfontdx.h"
 #include "llglheaders.h"
 
 // Viewer includes

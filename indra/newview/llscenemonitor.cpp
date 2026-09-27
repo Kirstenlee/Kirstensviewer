@@ -390,7 +390,7 @@ void LLSceneMonitor::compare()
     gDX.getTexUnit(2)->bind(mDitheringTexture);
     gDX.getTexUnit(2)->activate();
 
-    gl_rect_2d_simple_tex(width, height);
+    dx_rect_2d_simple_tex(width, height);
 
     mDiff->flush();
 
@@ -444,7 +444,7 @@ void LLSceneMonitor::calcDiffAggregate()
         glBeginQuery(GL_SAMPLES_PASSED, mQueryObject);
     }
 
-    gl_draw_scaled_target(0, 0, S32(mDiff->getWidth() * mDiffPixelRatio), S32(mDiff->getHeight() * mDiffPixelRatio), mDiff);
+    dx_draw_scaled_target(0, 0, S32(mDiff->getWidth() * mDiffPixelRatio), S32(mDiff->getHeight() * mDiffPixelRatio), mDiff);
 
     if(mDiffState == EXECUTE_DIFF)
     {

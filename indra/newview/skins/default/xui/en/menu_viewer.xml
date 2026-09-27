@@ -1391,6 +1391,24 @@ function="World.EnvPreset"
                function="EditableSelectedMono" />
           </menu_item_call>
           <menu_item_call
+             label="Recompile Scripts (Lua)"
+             name="Lua">
+            <menu_item_call.on_click
+               function="Tools.SelectedScriptAction"
+               parameter="compile lua" />
+            <menu_item_call.on_enable
+               function="EditableSelectedLua" />
+          </menu_item_call>
+          <menu_item_call
+             label="Recompile Scripts (LSL on Luau)"
+             name="LSL on Luau">
+            <menu_item_call.on_click
+               function="Tools.SelectedScriptAction"
+               parameter="compile lsl-luau" />
+            <menu_item_call.on_enable
+               function="EditableSelectedLua" />
+          </menu_item_call>
+          <menu_item_call
              label="Recompile Scripts (LSL)"
              name="LSL">
             <menu_item_call.on_click
@@ -1426,6 +1444,17 @@ function="World.EnvPreset"
             <menu_item_call.on_enable
                function="EditableSelected" />
           </menu_item_call>
+          <menu_item_separator/>
+          <menu_item_check
+              label="Script Editor Server"
+              name="Script Editor Server">
+            <menu_item_check.on_check
+                function="Tools.CheckScriptEditorServer" />
+            <menu_item_check.on_click
+                function="Tools.ToggleScriptEditorServer" />
+            <menu_item_check.on_enable
+                function="Tools.EnableScriptEditorServer" />
+          </menu_item_check>
         </menu>
 
       <menu
@@ -1794,17 +1823,27 @@ function="World.EnvPreset"
             <menu_item_call.on_enable
              function="File.EnableUploadMaterial" />
           </menu_item_call>
-	   <menu_item_call
-             label="Bulk..."
-             layout="topleft"
-             name="Bulk Upload">
-                <menu_item_call.on_visible
-                 function="Upload.CalculateCosts"
-                 parameter="Bulk Upload,texture" />
-                <menu_item_call.on_click
-                 function="File.UploadBulk"
-                 parameter="" />
-            </menu_item_call>
+          <menu_item_separator
+           layout="topleft" />
+          <menu_item_call
+           label="Multiple files..."
+           layout="topleft"
+           name="Bulk Upload Files">
+            <menu_item_call.on_visible
+             function="Upload.CalculateCosts"
+             parameter="Bulk Upload,texture" />
+            <menu_item_call.on_click
+             function="File.UploadBulk"
+             parameter="" />
+          </menu_item_call>
+          <menu_item_call
+           label="Folder..."
+           layout="topleft"
+           name="Bulk Upload Folder">
+            <menu_item_call.on_click
+             function="File.UploadBulkFolder"
+             parameter="" />
+          </menu_item_call>
         </menu>
 
       <menu_item_separator/>
@@ -3204,7 +3243,7 @@ function="World.EnvPreset"
             </menu_item_call>
             <menu_item_call
              label="Force LLError, Message And Crash"
-             name="Force LLError And Crash">
+             name="Force LLError Message And Crash">
                 <menu_item_call.on_click
                  function="Advanced.ForceErrorLlerrorMsg" />
             </menu_item_call>

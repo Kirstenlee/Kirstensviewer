@@ -1206,6 +1206,28 @@
       <key>Value</key>
       <integer>1</integer>
     </map>
+    <key>BuyCurrencyHTML</key>
+    <map>
+      <key>Comment</key>
+      <string>Use HTML based L$ packs floater instead of legacy XUI version</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>1</integer>
+    </map>
+    <key>BuyCurrencyPacksURL</key>
+    <map>
+      <key>Comment</key>
+      <string>URL for the L$ packs purchase floater</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>String</string>
+      <key>Value</key>
+      <string>https://accounts.secondlife.com/packs/floater?lang=[LANGUAGE]&amp;shortfall=[SHORTFALL]</string>
+    </map>
     <key>EnableButtonFlashing</key>
     <map>
       <key>Comment</key>
@@ -2761,7 +2783,7 @@
       <key>Type</key>
       <string>String</string>
       <key>Value</key>
-      <string>https://lecs-viewer-web-components.s3.amazonaws.com/v3.0/[GRID_LOWERCASE]/guide.html</string>
+      <string>https://secondlife.com/destinations/whats-hot-now?ctx=viewer</string>
     </map>
     <key>DisableCameraConstraints</key>
     <map>
@@ -5950,7 +5972,7 @@
     <key>NonvisibleObjectsInMemoryTime</key>
     <map>
       <key>Comment</key>
-      <string>Number of frames non-visible objects stay in memory before being removed. 0 means max.</string>
+      <string>Number of frames non-visible objects stay in memory before being removed, clamped [10,64]. 0 means unlimited (never evicted, bypasses memory-adaptive scaling).</string>
       <key>Persist</key>
       <integer>1</integer>
       <key>Type</key>
@@ -6177,7 +6199,7 @@
       <key>Type</key>
       <string>S32</string>
       <key>Value</key>
-      <integer>110</integer>
+      <integer>127</integer>
     </map>
     <key>NotificationChannelRightMargin</key>
     <map>
@@ -7488,7 +7510,7 @@
     <key>QuickBuyCurrency</key>
     <map>
       <key>Comment</key>
-      <string>Toggle between HTML based currency purchase floater and legacy XUI version</string>
+      <string>(Deprecated) Use BuyCurrencyHTML instead</string>
       <key>Persist</key>
       <integer>1</integer>
       <key>Type</key>
@@ -7631,16 +7653,16 @@
       </array>
     </map>
 
-    <key>RenderAnisotropic</key>
+    <key>RenderAnisotropicLevel</key>
     <map>
       <key>Comment</key>
-      <string>Render textures using anisotropic filtering</string>
+      <string>Anisotropic filtering level (1-16) for textures using anisotropic filtering</string>
       <key>Persist</key>
       <integer>1</integer>
       <key>Type</key>
-      <string>Boolean</string>
+      <string>S32</string>
       <key>Value</key>
-      <integer>0</integer>
+      <integer>8</integer>
     </map>
     <key>RenderAppleUseMultGL</key>
     <map>
@@ -10911,32 +10933,10 @@
       <key>Value</key>
       <integer>1</integer>
     </map>
-    <key>RenderShaderCacheEnabled</key>
-    <map>
-      <key>Comment</key>
-      <string>Enable binary shader cache</string>
-      <key>Persist</key>
-      <integer>1</integer>
-      <key>Type</key>
-      <string>Boolean</string>
-      <key>Value</key>
-      <integer>1</integer>
-    </map>
-    <key>RenderShaderCacheVersion</key>
-    <map>
-      <key>Comment</key>
-      <string>Current version hash for shader cache</string>
-      <key>Persist</key>
-      <integer>1</integer>
-      <key>Type</key>
-      <string>String</string>
-      <key>Value</key>
-      <string>00000000-0000-0000-0000-000000000000</string>
-    </map>
     <key>RenderDXShaderCacheEnabled</key>
     <map>
       <key>Comment</key>
-      <string>S24 (DX_RENDER): enable the DX11 shader bytecode disk cache. RenderShaderCacheEnabled/RenderShaderCacheVersion above are GL-only (glProgramBinary) and have no effect under DX_RENDER - this is the separate DX-native cache, covering every DX_RENDER shader (DXShader::isCacheEligible() has had blanket coverage since r3753, no allowlist). Uses the same shader_cache folder and the KVTweaks "Purge Shader Cache" button clears it too.</string>
+      <string>S24 (DX_RENDER): enable the DX11 shader bytecode disk cache - content-hash-keyed, covering every DX_RENDER shader (DXShader::isCacheEligible() has had blanket coverage since r3753, no allowlist). Uses the shader_cache folder and the KVTweaks "Purge Shader Cache" button clears it too.</string>
       <key>Persist</key>
       <integer>1</integer>
       <key>Type</key>
@@ -11273,6 +11273,17 @@
       <string>F32</string>
       <key>Value</key>
       <real>0.02</real>
+    </map>
+    <key>ScriptEditorDisableSyntaxHighlight</key>
+    <map>
+      <key>Comment</key>
+      <string>Disable syntax highlighting in script editor for performance testing</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
     </map>
     <key>ScriptHelpFollowsCursor</key>
     <map>
@@ -12344,6 +12355,17 @@
       <string>Boolean</string>
       <key>Value</key>
       <integer>1</integer>
+    </map>
+    <key>FindLandType</key>
+    <map>
+      <key>Comment</key>
+      <string>Land search results type filter</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>String</string>
+      <key>Value</key>
+      <string>All Types</string>
     </map>
     <key>ShowNearClip</key>
     <map>
@@ -15072,6 +15094,50 @@
       <key>Value</key>
       <string />
     </map>
+    <key>ExternalWebsocketSyncEnable</key>
+    <map>
+      <key>Comment</key>
+      <string>Enables the Websocket JSONRPC server when doing external script editing.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>1</integer>
+    </map>
+    <key>ExternalWebsocketSyncPort</key>
+    <map>
+      <key>Comment</key>
+      <string>Port that the JSONRPC server listens on when editing</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>S32</string>
+      <key>Value</key>
+      <integer>9020</integer>
+    </map>
+    <key>ExternalWebsocketSyncLocal</key>
+    <map>
+      <key>Comment</key>
+      <string>Should the JSONRPC server listen only for local connections.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>1</integer>
+    </map>
+    <key>ExternalWebsocketSyncTightIntegration</key>
+    <map>
+      <key>Comment</key>
+      <string>S24: declared for the setting the code actually reads via LLCachedControl -- not present in upstream's own settings.xml (a real upstream inconsistency), added here so it's a real persisted/configurable setting rather than relying on the undeclared-key fallback default.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
     <key>YawFromMousePosition</key>
     <map>
       <key>Comment</key>
@@ -17270,6 +17336,17 @@
       <key>Value</key>
       <integer>0</integer>
     </map>
+    <key>CEFRemoteDebuggingPort</key>
+    <map>
+      <key>Comment</key>
+      <string>Enable CEF remote debugging on the specified base port (1024 to 65535, 0 to disable). Each new SLPlugin gets base+N.</string>
+      <key>Persist</key>
+      <integer>0</integer>
+      <key>Type</key>
+      <string>U32</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
     <key>360CaptureJPEGEncodeQuality</key>
     <map>
       <key>Comment</key>
@@ -17453,7 +17530,7 @@
       <key>Persist</key>
       <integer>1</integer>
       <key>Type</key>
-      <string>Boolean</string>
+      <string>U32</string>
       <key>Value</key>
       <integer>0</integer>
     </map>

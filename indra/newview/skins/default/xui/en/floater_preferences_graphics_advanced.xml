@@ -361,15 +361,24 @@
   </text>
 
 
-  <check_box
-    control_name="RenderAnisotropic"
+  <slider
+    control_name="RenderAnisotropicLevel"
+    decimal_digits="0"
+    follows="left|top"
     height="16"
-    label="Anisotropic Filtering (slower when enabled)"
+    increment="1"
+    initial_value="8"
+    label="Anisotropic Filtering:"
+    label_width="185"
     layout="topleft"
     left="30"
+    min_val="0"
+    max_val="16"
     name="ani"
+    show_text="true"
+    tool_tip="0 disables anisotropic filtering. Higher values look sharper at oblique angles but cost more GPU time"
     top_delta="16"
-    width="256" />
+    width="300" />
 
   <check_box
     control_name="RenderCompressTextures"
@@ -378,7 +387,7 @@
     label="Enable BC7 Compression"
     layout="topleft"
     left="30"
-    top_delta="16"
+    top_delta="18"
     name="texture compression"
     tool_tip="Real-time BC7 GPU texture compression - cuts VRAM usage roughly 4:1 with minimal frame-time impact. Applies to newly-loaded/re-decoded textures, no restart needed. Experimental."
     width="315" />

@@ -75,14 +75,14 @@ void LLSceneView::draw()
 
     // S24: Darker background for better contrast
     gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
-    gl_rect_2d(0, getRect().getHeight(), getRect().getWidth(), 0, LLColor4(0.f, 0.f, 0.f, 0.65f));
+    dx_rect_2d(0, getRect().getHeight(), getRect().getWidth(), 0, LLColor4(0.f, 0.f, 0.f, 0.65f));
 
     // S24: Title bar with better spacing
     LLColor4 title_color(0.2f, 0.6f, 1.0f, 1.0f);
     std::string title = "Scene Statistics - Region Objects vs Attachments";
-    S32 title_height = (S32)LLFontGL::getFontSansSerifBig()->getLineHeight();
-    LLFontGL::getFontSansSerifBig()->renderUTF8(title, 0, margin, getRect().getHeight() - margin, 
-        title_color, LLFontGL::LEFT, LLFontGL::TOP, LLFontGL::BOLD);
+    S32 title_height = (S32)LLFontDX::getFontSansSerifBig()->getLineHeight();
+    LLFontDX::getFontSansSerifBig()->renderUTF8(title, 0, margin, getRect().getHeight() - margin, 
+        title_color, LLFontDX::LEFT, LLFontDX::TOP, LLFontDX::BOLD);
 
     //aggregate some statistics
 
@@ -188,7 +188,7 @@ void LLSceneView::draw()
                 size_rect = LLRect(margin+new_rect.getWidth()/2, graph_pos[0]-margin, new_rect.getWidth()-margin, margin*2);
             }
 
-            gl_rect_2d(size_rect, LLColor4::white, false);
+            dx_rect_2d(size_rect, LLColor4::white, false);
 
             F32 size_domain[] = { 128.f, 0.f };
 
@@ -232,8 +232,8 @@ void LLSceneView::draw()
             std::string label = llformat("%s Object Sizes (m) | Range: [%.1f - %.1f] | Mean: %.1f | Median: %.1f | Samples: %d",
                                             category[idx], size_domain[0], size_domain[1], total/count, size[idx][count/2], count);
 
-            LLFontGL::getFontSansSerif()->renderUTF8(label,
-                                            0 , size_rect.mLeft, size_rect.mTop+margin+2, label_color, LLFontGL::LEFT, LLFontGL::TOP);
+            LLFontDX::getFontSansSerif()->renderUTF8(label,
+                                            0 , size_rect.mLeft, size_rect.mTop+margin+2, label_color, LLFontDX::LEFT, LLFontDX::TOP);
 
         }
     }
@@ -256,7 +256,7 @@ void LLSceneView::draw()
                 tri_rect = LLRect(new_rect.getWidth()/2+margin, graph_pos[1]-margin, new_rect.getWidth()-margin, graph_pos[0]+margin);
             }
 
-            gl_rect_2d(tri_rect, LLColor4::white, false);
+            dx_rect_2d(tri_rect, LLColor4::white, false);
 
             S32 tri_domain[] = { 65536, 0 };
 
@@ -305,8 +305,8 @@ void LLSceneView::draw()
             std::string label = llformat("%s Triangles | Visible: %.2f K / Total: %.2f K | Visible Geometry: %.2f KB",
                 category[idx], total_visible_triangles[idx]/1024.f, total_ktris, total_visible_bytes[idx]/1024.f);
 
-            LLFontGL::getFontSansSerif()->renderUTF8(label,
-                                            0 , tri_rect.mLeft, tri_rect.mTop+margin+2, tri_color, LLFontGL::LEFT, LLFontGL::TOP);
+            LLFontDX::getFontSansSerif()->renderUTF8(label,
+                                            0 , tri_rect.mLeft, tri_rect.mTop+margin+2, tri_color, LLFontDX::LEFT, LLFontDX::TOP);
 
         }
     }
@@ -329,7 +329,7 @@ void LLSceneView::draw()
                 tri_rect = LLRect(new_rect.getWidth()/2+margin, graph_pos[2]-margin, new_rect.getWidth()-margin, graph_pos[1]+margin);
             }
 
-            gl_rect_2d(tri_rect, LLColor4::white, false);
+            dx_rect_2d(tri_rect, LLColor4::white, false);
 
             F32 streaming_domain[] = { 65536, 0 };
 
@@ -378,8 +378,8 @@ void LLSceneView::draw()
             std::string label = llformat("%s Streaming Cost | Range: [%.2f - %.2f] | Mean: %.2f | Total: %.2f",
                                             category[idx], streaming_domain[0], streaming_domain[1], total/count, total_streaming[idx]);
 
-            LLFontGL::getFontSansSerif()->renderUTF8(label,
-                                            0 , tri_rect.mLeft, tri_rect.mTop+margin+2, cost_color, LLFontGL::LEFT, LLFontGL::TOP);
+            LLFontDX::getFontSansSerif()->renderUTF8(label,
+                                            0 , tri_rect.mLeft, tri_rect.mTop+margin+2, cost_color, LLFontDX::LEFT, LLFontDX::TOP);
 
         }
     }
@@ -402,7 +402,7 @@ void LLSceneView::draw()
                 tri_rect = LLRect(new_rect.getWidth()/2+margin, graph_pos[3]-margin, new_rect.getWidth()-margin, graph_pos[2]+margin);
             }
 
-            gl_rect_2d(tri_rect, LLColor4::white, false);
+            dx_rect_2d(tri_rect, LLColor4::white, false);
 
             F32 physics_domain[] = { 65536, 0 };
 
@@ -451,8 +451,8 @@ void LLSceneView::draw()
             std::string label = llformat("%s Physics Cost | Range: [%.2f - %.2f] | Mean: %.2f | Total: %.2f",
                                             category[idx], physics_domain[0], physics_domain[1], total/count, total_physics[idx]);
 
-            LLFontGL::getFontSansSerif()->renderUTF8(label,
-                                            0 , tri_rect.mLeft, tri_rect.mTop+margin+2, phys_color, LLFontGL::LEFT, LLFontGL::TOP);
+            LLFontDX::getFontSansSerif()->renderUTF8(label,
+                                            0 , tri_rect.mLeft, tri_rect.mTop+margin+2, phys_color, LLFontDX::LEFT, LLFontDX::TOP);
 
         }
     }

@@ -45,7 +45,8 @@ LLScriptEditor::Params::Params()
 LLScriptEditor::LLScriptEditor(const Params& p)
 :   LLTextEditor(p)
 ,   mShowLineNumbers(p.show_line_numbers),
-    mUseDefaultFontSize(p.default_font_size)
+    mUseDefaultFontSize(p.default_font_size),
+    mLuauLanguage(false)
 {
     if (mShowLineNumbers)
     {
@@ -101,8 +102,8 @@ void LLScriptEditor::drawLineNumbers()
         S32 top = getRect().getHeight();
         S32 bottom = 0;
 
-        gl_rect_2d(left, top, UI_TEXTEDITOR_LINE_NUMBER_MARGIN, bottom, mReadOnlyBgColor.get() ); // line number area always read-only
-        gl_rect_2d(UI_TEXTEDITOR_LINE_NUMBER_MARGIN, top, UI_TEXTEDITOR_LINE_NUMBER_MARGIN-1, bottom, LLColor4::grey3); // separator
+        dx_rect_2d(left, top, UI_TEXTEDITOR_LINE_NUMBER_MARGIN, bottom, mReadOnlyBgColor.get() ); // line number area always read-only
+        dx_rect_2d(UI_TEXTEDITOR_LINE_NUMBER_MARGIN, top, UI_TEXTEDITOR_LINE_NUMBER_MARGIN-1, bottom, LLColor4::grey3); // separator
 
         S32 last_line_num = -1;
 
@@ -119,9 +120,9 @@ void LLScriptEditor::drawLineNumbers()
             // draw the line numbers
             if(line.mLineNum != last_line_num && line.mRect.mTop <= scrolled_view_rect.mTop)
             {
-                const LLWString ltext = utf8str_to_wstring(llformat("%d", line.mLineNum ));
+                const LLWString ltext = utf8str_to_wstring(llformat("%d", mLuauLanguage ? line.mLineNum + 1 : line.mLineNum));
                 bool is_cur_line = cursor_line == line.mLineNum;
-                const U8 style = is_cur_line ? LLFontGL::BOLD : LLFontGL::NORMAL;
+                const U8 style = is_cur_line ? LLFontDX::BOLD : LLFontDX::NORMAL;
                 const LLColor4& fg_color = is_cur_line ? mCursorColor : mReadOnlyFgColor;
                 getScriptFont()->render(
                                  ltext, // string to draw
@@ -129,10 +130,10 @@ void LLScriptEditor::drawLineNumbers()
                                  UI_TEXTEDITOR_LINE_NUMBER_MARGIN - 2, // x
                                  (F32)line_bottom, // y
                                  fg_color,
-                                 LLFontGL::RIGHT, // horizontal alignment
-                                 LLFontGL::BOTTOM, // vertical alignment
+                                 LLFontDX::RIGHT, // horizontal alignment
+                                 LLFontDX::BOTTOM, // vertical alignment
                                  style,
-                                 LLFontGL::NO_SHADOW,
+                                 LLFontDX::NO_SHADOW,
                                  S32_MAX, // max chars
                                  UI_TEXTEDITOR_LINE_NUMBER_MARGIN - 2); // max pixels
                 last_line_num = line.mLineNum;
@@ -141,19 +142,22 @@ void LLScriptEditor::drawLineNumbers()
     }
 }
 
-void LLScriptEditor::initKeywords()
+void LLScriptEditor::initKeywords(bool luau_language)
 {
-    mKeywords.initialize(LLSyntaxIdLSL::getInstance()->getKeywordsXML());
+    mKeywordsLua.initialize(LLSyntaxDefCache::getInstance()->getLuaKeywords(), true);
+    mKeywordsLSL.initialize(LLSyntaxDefCache::getInstance()->getLSLKeywords(), false);
+
+    mLuauLanguage = luau_language;
 }
 
 void LLScriptEditor::loadKeywords()
 {
-    mKeywords.processTokens();
+    getKeywords().processTokens();
 
     LLStyleConstSP style = new LLStyle(LLStyle::Params().font(getScriptFont()).color(mDefaultColor.get()));
 
     segment_vec_t segment_list;
-    mKeywords.findSegments(&segment_list, getWText(), *this, style);
+    getKeywords().findSegments(&segment_list, getWText(), *this, style);
 
     mSegments.clear();
     segment_set_t::iterator insert_it = mSegments.begin();
@@ -165,14 +169,14 @@ void LLScriptEditor::loadKeywords()
 
 void LLScriptEditor::updateSegments()
 {
-    if (mReflowIndex < S32_MAX && mKeywords.isLoaded() && mParseOnTheFly)
+    if (mReflowIndex < S32_MAX && getKeywords().isLoaded() && mParseOnTheFly)
     {
 
         LLStyleConstSP style = new LLStyle(LLStyle::Params().font(getScriptFont()).color(mDefaultColor.get()));
 
         // HACK:  No non-ascii keywords for now
         segment_vec_t segment_list;
-        mKeywords.findSegments(&segment_list, getWText(), *this, style);
+        getKeywords().findSegments(&segment_list, getWText(), *this, style);
 
         clearSegments();
         for (segment_vec_t::iterator list_it = segment_list.begin(); list_it != segment_list.end(); ++list_it)
@@ -190,6 +194,21 @@ void LLScriptEditor::clearSegments()
     {
         mSegments.clear();
     }
+}
+
+LLKeywords::keyword_iterator_t LLScriptEditor::keywordsBegin()
+{
+    return getKeywords().begin();
+}
+
+LLKeywords::keyword_iterator_t LLScriptEditor::keywordsEnd()
+{
+    return getKeywords().end();
+}
+
+LLKeywords& LLScriptEditor::getKeywords()
+{
+    return mLuauLanguage ? mKeywordsLua : mKeywordsLSL;
 }
 
 // Most of this is shamelessly copied from LLTextBase
@@ -216,9 +235,8 @@ void LLScriptEditor::drawSelectionBackground()
              ++rect_it)
         {
             LLRect selection_rect = *rect_it;
-            selection_rect = *rect_it;
             selection_rect.translate(mVisibleTextRect.mLeft - content_display_rect.mLeft, mVisibleTextRect.mBottom - content_display_rect.mBottom);
-            gl_rect_2d(selection_rect, selection_color);
+            dx_rect_2d(selection_rect, selection_color);
         }
     }
 }
@@ -229,10 +247,10 @@ std::string LLScriptEditor::getScriptFontSize()
     return size_name;
 }
 
-LLFontGL* LLScriptEditor::getScriptFont()
+LLFontDX* LLScriptEditor::getScriptFont()
 {
     std::string font_size_name = mUseDefaultFontSize ? "Monospace" : getScriptFontSize();
-    return LLFontGL::getFont(LLFontDescriptor("Monospace", font_size_name, 0));
+    return LLFontDX::getFont(LLFontDescriptor("Monospace", font_size_name, 0));
 }
 
 void LLScriptEditor::onFontSizeChange()

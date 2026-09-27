@@ -76,7 +76,7 @@
 
 // library includes
 #include "llfloaterreg.h"
-#include "llfontgl.h"
+#include "llfontdx.h"
 #include "llrect.h"
 #include "llerror.h"
 #include "llnotificationsutil.h"

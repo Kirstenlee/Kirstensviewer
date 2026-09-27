@@ -10,6 +10,29 @@
  title="ABOUT [CAPITALIZED_APP_NAME]"
  width="500">
 
+  <!-- S24: pop-out-to-desktop-window toggle (LLFloaterPopoutManager,
+       newview/llfloaterpopout.cpp). Reuses the SAME icon/pressed-state
+       texture LLFloater's own built-in tear-off button uses
+       (widgets/floater.xml's tear_off_image/tear_off_pressed_image),
+       already skin-provided. left/top below are only a harmless first-
+       frame placeholder - repositionPopoutButton() (llfloaterpopout.cpp,
+       called every frame) is what actually keeps this aligned one slot
+       left of whichever real title button is currently leftmost, since a
+       fixed XML position can't track LLFloater::updateTitleButtons()'s
+       runtime-dependent packing (see that function's own comment). -->
+  <button
+   follows="right|top"
+   name="popout_btn"
+   left="431"
+   top="5"
+   width="16"
+   height="16"
+   image_unselected="tearoffbox.tga"
+   image_selected="tearoff_pressed.tga"
+   image_hover_selected="tearoff_pressed.tga"
+   scale_image="true"
+   tool_tip="Pop out to its own window" />
+
   <tab_container
     follows="all"
     top="25"
@@ -67,8 +90,8 @@ A Second Life client, brought to you by Kirstenlee.
 
 Core  : S-Series 
 Patch : 2026.9
-Build : 3868
-Version : Alpha 1.1
+Build : 4015
+Version : Alpha 1.2
 	  </text_editor>
     </panel>
     <panel

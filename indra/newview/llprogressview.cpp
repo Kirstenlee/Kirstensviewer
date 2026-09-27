@@ -33,7 +33,7 @@
 #include "llgl.h"
 #include "llrender.h"
 #include "llui.h"
-#include "llfontgl.h"
+#include "llfontdx.h"
 #include "lltimer.h"
 #include "lltextbox.h"
 #include "llglheaders.h"
@@ -253,14 +253,14 @@ void LLProgressView::drawStartTexture(F32 alpha)
             gDX.translatef(0.f, -0.5f * (view_aspect / image_aspect - 1.f) * height, 0.f);
             gDX.scalef(1.f, view_aspect / image_aspect, 1.f);
         }
-        gl_rect_2d_simple_tex( getRect().getWidth(), getRect().getHeight() );
+        dx_rect_2d_simple_tex( getRect().getWidth(), getRect().getHeight() );
         gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
     }
     else
     {
         gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
         gDX.color4f(0.f, 0.f, 0.f, 1.f);
-        gl_rect_2d(getRect());
+        dx_rect_2d(getRect());
     }
     gDX.popMatrix();
 }
