@@ -96,7 +96,20 @@ void LLEmojiHelper::showHelper(LLUICtrl* hostctrl_p, S32 local_x, S32 local_y, c
 
 	if (mHelperHandle.isDead())
 	{
+		// S24: LLFloaterReg::getInstance() returns null if the floater
+		// fails to build (missing/malformed XUI file) - same class of
+		// crash confirmed live for the gesture-autocomplete helper's own
+		// twin of this pattern (llgestureautocompletehelper.cpp), once
+		// its XUI file went missing from an install. Bail out gracefully
+		// instead of dereferencing null - a broken/missing emoji popup
+		// should never be able to take the whole viewer down.
 		LLFloater* pHelperFloater = LLFloaterReg::getInstance(DEFAULT_EMOJI_HELPER_FLOATER);
+		if (!pHelperFloater)
+		{
+			LL_WARNS() << "Failed to build '" << DEFAULT_EMOJI_HELPER_FLOATER
+				<< "' floater - emoji helper unavailable this session." << LL_ENDL;
+			return;
+		}
 		mHelperHandle = pHelperFloater->getHandle();
 		mHelperCommitConn = pHelperFloater->setCommitCallback(std::bind([&](const LLSD& sdValue) { onCommitEmoji(utf8str_to_wstring(sdValue.asStringRef())[0]); }, std::placeholders::_2));
         mHelperCloseConn = pHelperFloater->setCloseCallback([this](LLUICtrl* ctrl, const LLSD& param) { onCloseHelper(ctrl, param); });

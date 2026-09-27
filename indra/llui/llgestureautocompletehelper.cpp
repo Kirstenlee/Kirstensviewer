@@ -47,7 +47,20 @@ void LLGestureAutocompleteHelper::showHelper(
 {
     if (mHelperHandle.isDead())
     {
+        // S24: LLFloaterReg::getInstance() returns null if the floater
+        // fails to build (missing/malformed XUI file - confirmed live as
+        // a real crash here once already, floater_gesture_autocomplete_picker.xml
+        // was missing from the install for several builds). Bail out
+        // gracefully instead of dereferencing null - a broken/missing
+        // gesture-autocomplete popup should never be able to take the
+        // whole viewer down.
         LLFloater* helper_floater = LLFloaterReg::getInstance(GESTURE_AUTOCOMPLETE_FLOATER);
+        if (!helper_floater)
+        {
+            LL_WARNS() << "Failed to build '" << GESTURE_AUTOCOMPLETE_FLOATER
+                << "' floater - gesture autocomplete unavailable this session." << LL_ENDL;
+            return;
+        }
         mHelperHandle = helper_floater->getHandle();
         mHelperCommitConn = helper_floater->setCommitCallback(
             [this](LLUICtrl*, const LLSD& param) { onCommitGesture(param.asString()); });
