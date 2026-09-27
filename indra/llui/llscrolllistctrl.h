@@ -34,7 +34,7 @@
 
 #include "lluictrl.h"
 #include "llctrlselectioninterface.h"
-#include "llfontgl.h"
+#include "llfontdx.h"
 #include "llui.h"
 #include "llstring.h"   // LLWString
 #include "lleditmenuhandler.h"
@@ -262,7 +262,8 @@ public:
     bool            selectItemByLabel(const std::string& item, bool case_sensitive = true, S32 column = 0);       // false if item not found
     bool            selectItemByPrefix(const std::string& target, bool case_sensitive = true, S32 column = -1);
     bool            selectItemByPrefix(const LLWString& target, bool case_sensitive = true, S32 column = -1);
-    LLScrollListItem* getItemByLabel(const std::string& item, bool case_sensitive = true, S32 column = 0);
+    LLScrollListItem* getItemByLabel(const std::string& label, bool case_sensitive = true, S32 column = 0);
+    LLScrollListItem* getItemByValue(const std::string& value);
     LLScrollListItem* getItemByIndex(S32 index);
     std::string     getSelectedItemLabel(S32 column = 0) const;
     LLSD            getSelectedValue();

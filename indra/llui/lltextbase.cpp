@@ -160,6 +160,7 @@ LLTextBase::Params::Params()
     track_end("track_end", false),
     read_only("read_only", false),
     skip_link_underline("skip_link_underline", false),
+    link_color("link_color"),
     spellcheck("spellcheck", false),
     v_pad("v_pad", 0),
     h_pad("h_pad", 0),
@@ -198,6 +199,8 @@ LLTextBase::LLTextBase(const LLTextBase::Params &p)
     mReadOnly(p.read_only),
     mSkipTripleClick(false),
     mSkipLinkUnderline(p.skip_link_underline),
+    mHasLinkColor(p.link_color.isProvided()),
+    mLinkColor(p.link_color.isProvided() ? p.link_color() : LLUIColor()),
     mSpellCheck(p.spellcheck),
     mSpellCheckStart(-1),
     mSpellCheckEnd(-1),
@@ -560,13 +563,13 @@ void LLTextBase::drawSelectionBackground()
                 S32 h_delta = 0;
                 switch (mVAlign)
                 {
-                case LLFontGL::TOP:
+                case LLFontDX::TOP:
                     v_delta = mVisibleTextRect.mTop - content_display_rect.mTop - mVPad;
                     break;
-                case LLFontGL::VCENTER:
+                case LLFontDX::VCENTER:
                     v_delta = (llmax(mVisibleTextRect.getHeight() - content_display_rect.mTop, -content_display_rect.mBottom) + (mVisibleTextRect.mBottom - content_display_rect.mBottom)) / 2;
                     break;
-                case LLFontGL::BOTTOM:
+                case LLFontDX::BOTTOM:
                     v_delta = mVisibleTextRect.mBottom - content_display_rect.mBottom;
                     break;
                 default:
@@ -574,13 +577,13 @@ void LLTextBase::drawSelectionBackground()
                 }
                 switch (mHAlign)
                 {
-                case LLFontGL::LEFT:
+                case LLFontDX::LEFT:
                     h_delta = mVisibleTextRect.mLeft - content_display_rect.mLeft + mHPad;
                     break;
-                case LLFontGL::HCENTER:
+                case LLFontDX::HCENTER:
                     h_delta = (llmax(mVisibleTextRect.getWidth() - content_display_rect.mLeft, -content_display_rect.mRight) + (mVisibleTextRect.mRight - content_display_rect.mRight)) / 2;
                     break;
-                case LLFontGL::RIGHT:
+                case LLFontDX::RIGHT:
                     h_delta = mVisibleTextRect.mRight - content_display_rect.mRight;
                     break;
                 default:
@@ -588,7 +591,7 @@ void LLTextBase::drawSelectionBackground()
                 }
                 selection_rect.translate(h_delta, v_delta);
             }
-            gl_rect_2d(selection_rect, selection_color);
+            dx_rect_2d(selection_rect, selection_color);
         }
     }
 }
@@ -625,13 +628,13 @@ void LLTextBase::drawHighlightedBackground()
                 S32 h_delta = 0;
                 switch (mVAlign)
                 {
-                case LLFontGL::TOP:
+                case LLFontDX::TOP:
                     v_delta = mVisibleTextRect.mTop - content_display_rect.mTop - mVPad;
                     break;
-                case LLFontGL::VCENTER:
+                case LLFontDX::VCENTER:
                     v_delta = (llmax(mVisibleTextRect.getHeight() - content_display_rect.mTop, -content_display_rect.mBottom) + (mVisibleTextRect.mBottom - content_display_rect.mBottom)) / 2;
                     break;
-                case LLFontGL::BOTTOM:
+                case LLFontDX::BOTTOM:
                     v_delta = mVisibleTextRect.mBottom - content_display_rect.mBottom;
                     break;
                 default:
@@ -639,13 +642,13 @@ void LLTextBase::drawHighlightedBackground()
                 }
                 switch (mHAlign)
                 {
-                case LLFontGL::LEFT:
+                case LLFontDX::LEFT:
                     h_delta = mVisibleTextRect.mLeft - content_display_rect.mLeft + mHPad;
                     break;
-                case LLFontGL::HCENTER:
+                case LLFontDX::HCENTER:
                     h_delta = (llmax(mVisibleTextRect.getWidth() - content_display_rect.mLeft, -content_display_rect.mRight) + (mVisibleTextRect.mRight - content_display_rect.mRight)) / 2;
                     break;
-                case LLFontGL::RIGHT:
+                case LLFontDX::RIGHT:
                     h_delta = mVisibleTextRect.mRight - content_display_rect.mRight;
                     break;
                 default:
@@ -653,7 +656,7 @@ void LLTextBase::drawHighlightedBackground()
                 }
                 selection_rect.translate(h_delta, v_delta);
             }
-            gl_rect_2d(selection_rect, color);
+            dx_rect_2d(selection_rect, color);
         }
     }
 }
@@ -709,18 +712,18 @@ void LLTextBase::drawCursor()
             LLColor4 cursor_color = mCursorColor.get() % alpha;
             gDX.color4fv( cursor_color.mV );
 
-            gl_rect_2d(cursor_rect);
+            dx_rect_2d(cursor_rect);
 
             if (LL_KIM_OVERWRITE == gKeyboard->getInsertMode() && !hasSelection() && text[mCursorPos] != '\n')
             {
-                const LLFontGL* fontp;
+                const LLFontDX* fontp;
                 const LLColor4& text_color = segmentp->getColor();
                 fontp = segmentp->getStyle()->getFont();
                 fontp->render(text, mCursorPos, cursor_rect,
                     LLColor4(1.f - text_color.mV[VRED], 1.f - text_color.mV[VGREEN], 1.f - text_color.mV[VBLUE], alpha),
-                    LLFontGL::LEFT, mTextVAlign,
-                    LLFontGL::NORMAL,
-                    LLFontGL::NO_SHADOW,
+                    LLFontDX::LEFT, mTextVAlign,
+                    LLFontDX::NORMAL,
+                    LLFontDX::NO_SHADOW,
                     1);
             }
 
@@ -941,10 +944,10 @@ void LLTextBase::drawText()
                 gDX.color4ub(255, 0, 0, 200);
                 while (squiggle_start + 1 < squiggle_end)
                 {
-                    gl_line_2d(squiggle_start, squiggle_bottom, squiggle_start + 2, squiggle_bottom - 2);
+                    dx_line_2d(squiggle_start, squiggle_bottom, squiggle_start + 2, squiggle_bottom - 2);
                     if (squiggle_start + 3 < squiggle_end)
                     {
-                        gl_line_2d(squiggle_start + 2, squiggle_bottom - 3, squiggle_start + 4, squiggle_bottom - 1);
+                        dx_line_2d(squiggle_start + 2, squiggle_bottom - 3, squiggle_start + 4, squiggle_bottom - 1);
                     }
                     squiggle_start += 4;
                 }
@@ -1074,6 +1077,8 @@ S32 LLTextBase::insertStringNoUndo(S32 pos, const LLWString &wstr, LLTextBase::s
                 {
                     // Some segments, like LLInlineViewSegment do not permit splitting
                     // and should not be interrupted by emoji segments
+                    // Also don't split links in two for emojis. Link's tooltip takes
+                    // precedence over emoji's tooltip.
                     continue;
                 }
             }
@@ -1085,7 +1090,7 @@ S32 LLTextBase::insertStringNoUndo(S32 pos, const LLWString &wstr, LLTextBase::s
                 if (!emoji_style)
                 {
                     emoji_style = new LLStyle(getStyleParams());
-                    emoji_style->setFont(LLFontGL::getFontEmojiLarge());
+                    emoji_style->setFont(LLFontDX::getFontEmojiLarge());
                 }
 
                 S32 new_seg_start = pos + text_kitty;
@@ -1556,7 +1561,7 @@ void LLTextBase::draw()
                             : hasFocus()
                                 ? mFocusBgColor.get()
                                 : mWriteableBgColor.get();
-        gl_rect_2d(text_rect, bg_color % alpha, true);
+        dx_rect_2d(text_rect, bg_color % alpha, true);
     }
 
     // Draw highlighted if needed
@@ -1567,7 +1572,7 @@ void LLTextBase::draw()
         if( mScroller )
             bg_rect.intersectWith( text_rect );
 
-        gl_rect_2d( text_rect, bg_color, true );
+        dx_rect_2d( text_rect, bg_color, true );
     }
 
     bool should_clip = mClip || mScroller != NULL;
@@ -1779,11 +1784,11 @@ S32 LLTextBase::getLeftOffset(S32 width)
 {
     switch (mHAlign)
     {
-    case LLFontGL::LEFT:
+    case LLFontDX::LEFT:
         return mHPad;
-    case LLFontGL::HCENTER:
+    case LLFontDX::HCENTER:
         return mHPad + llmax(0, (mVisibleTextRect.getWidth() - width - mHPad) / 2);
-    case LLFontGL::RIGHT:
+    case LLFontDX::RIGHT:
         {
             // Font's rendering rounds string size, if value gets rounded
             // down last symbol might not have enough space to render,
@@ -2420,6 +2425,11 @@ void LLTextBase::appendTextImpl(const std::string& new_text, const LLStyle::Para
 
             LLStyle::Params link_params(style_params);
             link_params.overwriteFrom(match.getStyle());
+            if (mHasLinkColor)
+            {
+                link_params.color = mLinkColor;
+                link_params.readonly_color = mLinkColor;
+            }
 
             // output the text before the Url
             if (start > 0)
@@ -2545,7 +2555,7 @@ bool LLTextBase::useLabel() const
     return !getLength() && !mLabel.empty() && !hasFocus();
 }
 
-void LLTextBase::setFont(const LLFontGL* font)
+void LLTextBase::setFont(const LLFontDX* font)
 {
     mFont = font;
     mStyleDirty = true;
@@ -3244,16 +3254,16 @@ void LLTextBase::updateRects()
 
         switch(mVAlign)
         {
-        case LLFontGL::TOP:
+        case LLFontDX::TOP:
             delta_pos = llmax(mVisibleTextRect.getHeight() - mTextBoundingRect.mTop, -mTextBoundingRect.mBottom);
             break;
-        case LLFontGL::VCENTER:
+        case LLFontDX::VCENTER:
             delta_pos = (llmax(mVisibleTextRect.getHeight() - mTextBoundingRect.mTop, -mTextBoundingRect.mBottom) + (mVisibleTextRect.mBottom - mTextBoundingRect.mBottom)) / 2;
             break;
-        case LLFontGL::BOTTOM:
+        case LLFontDX::BOTTOM:
             delta_pos = mVisibleTextRect.mBottom - mTextBoundingRect.mBottom;
             break;
-        case LLFontGL::BASELINE:
+        case LLFontDX::BASELINE:
             // do nothing
             break;
         }
@@ -3285,12 +3295,12 @@ void LLTextBase::updateRects()
         // push doc rect to top of text widget
         switch(mVAlign)
         {
-        case LLFontGL::TOP:
+        case LLFontDX::TOP:
             doc_rect.translate(0, mVisibleTextRect.getHeight() - doc_rect.mTop);
             break;
-        case LLFontGL::VCENTER:
+        case LLFontDX::VCENTER:
             doc_rect.translate(0, (mVisibleTextRect.getHeight() - doc_rect.mTop) / 2);
-        case LLFontGL::BOTTOM:
+        case LLFontDX::BOTTOM:
         default:
             break;
         }
@@ -3319,16 +3329,16 @@ void LLTextBase::updateRects()
 
         switch(mVAlign)
         {
-        case LLFontGL::TOP:
+        case LLFontDX::TOP:
             delta_pos = llmax(mVisibleTextRect.getHeight() - mTextBoundingRect.mTop, -mTextBoundingRect.mBottom);
             break;
-        case LLFontGL::VCENTER:
+        case LLFontDX::VCENTER:
             delta_pos = (llmax(mVisibleTextRect.getHeight() - mTextBoundingRect.mTop, -mTextBoundingRect.mBottom) + (mVisibleTextRect.mBottom - mTextBoundingRect.mBottom)) / 2;
             break;
-        case LLFontGL::BOTTOM:
+        case LLFontDX::BOTTOM:
             delta_pos = mVisibleTextRect.mBottom - mTextBoundingRect.mBottom;
             break;
-        case LLFontGL::BASELINE:
+        case LLFontDX::BASELINE:
             // do nothing
             break;
         }
@@ -3355,12 +3365,12 @@ void LLTextBase::updateRects()
         // push doc rect to top of text widget
         switch(mVAlign)
         {
-        case LLFontGL::TOP:
+        case LLFontDX::TOP:
             doc_rect.translate(0, mVisibleTextRect.getHeight() - doc_rect.mTop);
             break;
-        case LLFontGL::VCENTER:
+        case LLFontDX::VCENTER:
             doc_rect.translate(0, (mVisibleTextRect.getHeight() - doc_rect.mTop) / 2);
-        case LLFontGL::BOTTOM:
+        case LLFontDX::BOTTOM:
         default:
             break;
         }
@@ -3550,19 +3560,7 @@ LLNormalTextSegment::LLNormalTextSegment( LLStyleConstSP style, S32 start, S32 e
     mEditor(editor),
     mLastGeneration(-1)
 {
-    mFontHeight = mStyle->getFont()->getLineHeight();
-    mCanEdit = !mStyle->getDrawHighlightBg();
-    if (!mCanEdit)
-    {
-        // Emoji shouldn't split the segment with the mention.
-        mPermitsEmoji = false;
-    }
-
-    LLUIImagePtr image = mStyle->getImage();
-    if (image.notNull())
-    {
-        mImageLoadedConnection = image->addLoadedCallback(boost::bind(&LLTextBase::needsReflow, &mEditor, start));
-    }
+    refreshFromStyle();
 }
 
 LLNormalTextSegment::LLNormalTextSegment( const LLUIColor& color, S32 start, S32 end, LLTextBase& editor, bool is_visible)
@@ -3579,6 +3577,28 @@ LLNormalTextSegment::LLNormalTextSegment( const LLUIColor& color, S32 start, S32
 LLNormalTextSegment::~LLNormalTextSegment()
 {
     mImageLoadedConnection.disconnect();
+}
+
+void LLNormalTextSegment::refreshFromStyle()
+{
+    mFontHeight = mStyle->getFont()->getLineHeight();
+    mCanEdit = !mStyle->getDrawHighlightBg();
+    if (!mCanEdit)
+    {
+        // Emoji shouldn't split the segment with the mention.
+        mPermitsEmoji = false;
+    }
+    if (mStyle->isLink())
+    {
+        // Emoji shouldn't split links. Link's tooltip takes precedence over emoji's tooltip.
+        mPermitsEmoji = false;
+    }
+
+    LLUIImagePtr image = mStyle->getImage();
+    if (image.notNull())
+    {
+        mImageLoadedConnection = image->addLoadedCallback(boost::bind(&LLTextBase::needsReflow, &mEditor, mStart));
+    }
 }
 
 
@@ -3622,7 +3642,7 @@ F32 LLNormalTextSegment::drawClippedSegment(S32 seg_start, S32 seg_end, S32 sele
         mFontWidthBuffer.reset();
     }
 
-    const LLFontGL* font = mStyle->getFont();
+    const LLFontDX* font = mStyle->getFont();
     LLColor4 color = (mEditor.getReadOnly() ? mStyle->getReadOnlyColor() : mStyle->getColor())  % (alpha * mStyle->getAlpha());
     bool use_font_buffers = useFontBuffers();
 
@@ -3639,8 +3659,8 @@ F32 LLNormalTextSegment::drawClippedSegment(S32 seg_start, S32 seg_end, S32 sele
                 text, start,
                 rect,
                 color,
-                LLFontGL::LEFT, mEditor.mTextVAlign,
-                LLFontGL::NORMAL,
+                LLFontDX::LEFT, mEditor.mTextVAlign,
+                LLFontDX::NORMAL,
                 mStyle->getShadowType(),
                 length,
                 &right_x,
@@ -3658,8 +3678,8 @@ F32 LLNormalTextSegment::drawClippedSegment(S32 seg_start, S32 seg_end, S32 sele
                 text, start,
                 rect,
                 color,
-                LLFontGL::LEFT, mEditor.mTextVAlign,
-                LLFontGL::NORMAL,
+                LLFontDX::LEFT, mEditor.mTextVAlign,
+                LLFontDX::NORMAL,
                 mStyle->getShadowType(),
                 length,
                 &right_x,
@@ -3683,9 +3703,9 @@ F32 LLNormalTextSegment::drawClippedSegment(S32 seg_start, S32 seg_end, S32 sele
                 text, start,
                 rect,
                 mStyle->getSelectedColor().get(),
-                LLFontGL::LEFT, mEditor.mTextVAlign,
-                LLFontGL::NORMAL,
-                LLFontGL::NO_SHADOW,
+                LLFontDX::LEFT, mEditor.mTextVAlign,
+                LLFontDX::NORMAL,
+                LLFontDX::NO_SHADOW,
                 length,
                 &right_x,
                 mEditor.getUseEllipses(),
@@ -3697,9 +3717,9 @@ F32 LLNormalTextSegment::drawClippedSegment(S32 seg_start, S32 seg_end, S32 sele
                 text, start,
                 rect,
                 mStyle->getSelectedColor().get(),
-                LLFontGL::LEFT, mEditor.mTextVAlign,
-                LLFontGL::NORMAL,
-                LLFontGL::NO_SHADOW,
+                LLFontDX::LEFT, mEditor.mTextVAlign,
+                LLFontDX::NORMAL,
+                LLFontDX::NO_SHADOW,
                 length,
                 &right_x,
                 mEditor.getUseEllipses(),
@@ -3720,8 +3740,8 @@ F32 LLNormalTextSegment::drawClippedSegment(S32 seg_start, S32 seg_end, S32 sele
                 text, start,
                 rect,
                 color,
-                LLFontGL::LEFT, mEditor.mTextVAlign,
-                LLFontGL::NORMAL,
+                LLFontDX::LEFT, mEditor.mTextVAlign,
+                LLFontDX::NORMAL,
                 mStyle->getShadowType(),
                 length,
                 &right_x,
@@ -3734,8 +3754,8 @@ F32 LLNormalTextSegment::drawClippedSegment(S32 seg_start, S32 seg_end, S32 sele
                 text, start,
                 rect,
                 color,
-                LLFontGL::LEFT, mEditor.mTextVAlign,
-                LLFontGL::NORMAL,
+                LLFontDX::LEFT, mEditor.mTextVAlign,
+                LLFontDX::NORMAL,
                 mStyle->getShadowType(),
                 length,
                 &right_x,
@@ -3860,7 +3880,7 @@ bool LLNormalTextSegment::getDimensionsF32(S32 first_char, S32 num_chars, F32& w
         height = mFontHeight;
 
         const LLWString &text = getWText();
-            const LLFontGL* font = mStyle->getFont();
+            const LLFontDX* font = mStyle->getFont();
             width += mFontWidthBuffer.getWidth(font, text.c_str(), mStart + first_char, num_chars, true);
     }
     // if last character is a newline, then return true, forcing line break
@@ -3894,9 +3914,9 @@ S32 LLNormalTextSegment::getNumChars(S32 num_pixels, S32 segment_offset, S32 lin
 
     // if no character yet displayed on this line, don't require word wrapping since
     // we can just move to the next line, otherwise insist on it so we make forward progress
-    LLFontGL::EWordWrapStyle word_wrap_style = (line_offset == 0)
-        ? LLFontGL::WORD_BOUNDARY_IF_POSSIBLE
-        : LLFontGL::ONLY_WORD_BOUNDARIES;
+    LLFontDX::EWordWrapStyle word_wrap_style = (line_offset == 0)
+        ? LLFontDX::WORD_BOUNDARY_IF_POSSIBLE
+        : LLFontDX::ONLY_WORD_BOUNDARIES;
 
 
     S32 offsetLength = static_cast<S32>(text.length()) - (segment_offset + mStart);
@@ -4137,7 +4157,7 @@ S32 LLInlineViewSegment::getNumChars(S32 num_pixels, S32 segment_offset, S32 lin
     {
         return 0;
     }
-    else if (line_offset != 0 && num_pixels < mView->getRect().getWidth())
+    else if (line_offset != 0 && num_pixels < (mLeftPad + mRightPad + mView->getRect().getWidth()))
     {
         return 0;
     }

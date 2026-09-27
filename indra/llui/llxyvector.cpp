@@ -152,7 +152,7 @@ bool LLXYVector::postBuild()
 
 void drawArrow(S32 tailX, S32 tailY, S32 tipX, S32 tipY, LLColor4 color)
 {
-    gl_line_2d(tailX, tailY, tipX, tipY, color);
+    dx_line_2d(tailX, tailY, tipX, tipY, color);
 
     S32 dx = tipX - tailX;
     S32 dy = tipY - tailY;
@@ -167,7 +167,7 @@ void drawArrow(S32 tailX, S32 tailY, S32 tipX, S32 tipY, LLColor4 color)
     F32 rad2 = (F32)(-1 * ARROW_ANGLE * std::atan(1) * 4 / 180);
     F32 x2 = tipX - arrowLength * cos(theta + rad2);
     F32 y2 = tipY - arrowLength * sin(theta + rad2);
-    gl_triangle_2d(tipX, tipY, (S32)x, (S32)y, (S32)x2, (S32)y2, color, true);
+    dx_triangle_2d(tipX, tipY, (S32)x, (S32)y, (S32)x2, (S32)y2, color, true);
 }
 
 void LLXYVector::draw()
@@ -194,11 +194,11 @@ void LLXYVector::draw()
     }
 
     // fill
-    gl_rect_2d(mTouchArea->getRect(), mAreaColor, true);
+    dx_rect_2d(mTouchArea->getRect(), mAreaColor, true);
 
     // draw grid
-    gl_line_2d(centerX, mTouchArea->getRect().mTop, centerX, mTouchArea->getRect().mBottom, mGridColor);
-    gl_line_2d(mTouchArea->getRect().mLeft, centerY, mTouchArea->getRect().mRight, centerY, mGridColor);
+    dx_line_2d(centerX, mTouchArea->getRect().mTop, centerX, mTouchArea->getRect().mBottom, mGridColor);
+    dx_line_2d(mTouchArea->getRect().mLeft, centerY, mTouchArea->getRect().mRight, centerY, mGridColor);
 
     // draw ghost
     if (hasMouseCapture())
@@ -232,7 +232,7 @@ void LLXYVector::draw()
     }
 
     // draw center circle
-    gl_circle_2d((F32)centerX, (F32)centerY, CENTER_CIRCLE_RADIUS, 12, true);
+    dx_circle_2d((F32)centerX, (F32)centerY, CENTER_CIRCLE_RADIUS, 12, true);
 
     LLView::draw();
 }

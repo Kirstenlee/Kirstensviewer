@@ -125,7 +125,7 @@ bool LLToolTipView::handleScrollWheel( S32 x, S32 y, S32 clicks )
 
 void LLToolTipView::drawStickyRect()
 {
-    gl_rect_2d(LLToolTipMgr::instance().getMouseNearRect(), LLColor4::white, false);
+    dx_rect_2d(LLToolTipMgr::instance().getMouseNearRect(), LLColor4::white, false);
 }
 
 // defaults for floater param block pulled from widgets/floater.xml
@@ -183,7 +183,7 @@ LLToolTip::LLToolTip(const LLToolTip::Params& p)
     params.font = p.font;
     params.use_ellipses = true;
     params.wrap = p.wrap;
-    params.font_valign = LLFontGL::VCENTER;
+    params.font_valign = LLFontDX::VCENTER;
     params.parse_urls = false; // disallow hyperlinks in tooltips, as they want to spawn their own explanatory tooltips
     mTextBox = LLUICtrlFactory::create<LLTextBox> (params);
     addChild(mTextBox);

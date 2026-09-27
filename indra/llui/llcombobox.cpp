@@ -251,9 +251,24 @@ void    LLComboBox::resetDirty()
     }
 }
 
-bool LLComboBox::itemExists(const std::string& name)
+bool LLComboBox::itemExists(const std::string& name) const
 {
     return mList->getItemByLabel(name);
+}
+
+bool LLComboBox::valueExists(const std::string& value) const
+{
+    return mList->getItemByValue(value);
+}
+
+LLScrollListItem* LLComboBox::findItemByValue(const std::string& value) const
+{
+    return mList->getItemByValue(value);
+}
+
+std::vector<LLScrollListItem*> LLComboBox::getAllData() const
+{
+    return mList->getAllData();
 }
 
 // add item "name" to menu
@@ -607,7 +622,7 @@ void LLComboBox::createLineEditor(const LLComboBox::Params& p)
         mButton->setRect(LLRect( getRect().getWidth() - llmax(8,arrow_width) - 2 * shadow_size,
                                 rect.mTop, rect.mRight, rect.mBottom));
         mButton->setTabStop(false);
-        mButton->setHAlign(LLFontGL::HCENTER);
+        mButton->setHAlign(LLFontDX::HCENTER);
 
         LLRect text_entry_rect(0, getRect().getHeight(), getRect().getWidth(), 0);
         text_entry_rect.mRight -= llmax(8,arrow_width) + 2 * BTN_DROP_SHADOW;

@@ -153,12 +153,12 @@ void LLScrollListItem::draw(const LLRect& rect, const LLColor4& fg_color, const 
     if (mSelectedIndex < 0 && getSelected())
     {
         // Whole item is highlighted/selected
-        gl_rect_2d(bg_rect, select_color);
+        dx_rect_2d(bg_rect, select_color);
     }
     else if (mHoverIndex < 0)
     {
         // Whole item is highlighted/selected
-        gl_rect_2d(bg_rect, hover_color);
+        dx_rect_2d(bg_rect, hover_color);
     }
 
     S32 cur_x = rect.mLeft;
@@ -182,7 +182,7 @@ void LLScrollListItem::draw(const LLRect& rect, const LLColor4& fg_color, const 
                     cell->getHeight(),
                     cell->getWidth(),
                     0);
-                gl_rect_2d(highlight_rect, select_color);
+                dx_rect_2d(highlight_rect, select_color);
             }
             else if (mHoverIndex == cur_col)
             {
@@ -191,7 +191,7 @@ void LLScrollListItem::draw(const LLRect& rect, const LLColor4& fg_color, const 
                     cell->getHeight(),
                     cell->getWidth() ,
                     0);
-                gl_rect_2d(highlight_rect, hover_color);
+                dx_rect_2d(highlight_rect, hover_color);
             }
 
             cell->draw( fg_color, highlight_color );

@@ -31,7 +31,7 @@
 #include "lltexteditor.h"
 
 #include "llfontfreetype.h" // for LLFontFreetype::FIRST_CHAR
-#include "llfontgl.h"
+#include "llfontdx.h"
 #include "llgl.h"           // LLGLSUIDefault()
 #include "lllocalcliprect.h"
 #include "llrender.h"
@@ -714,7 +714,7 @@ void LLTextEditor::insertEmoji(llwchar emoji)
 {
     LL_INFOS() << "LLTextEditor::insertEmoji(" << wchar_utf8_preview(emoji) << ")" << LL_ENDL;
     auto styleParams = LLStyle::Params();
-    styleParams.font = LLFontGL::getFontEmojiLarge();
+    styleParams.font = LLFontDX::getFontEmojiLarge();
     auto segment = new LLEmojiTextSegment(new LLStyle(styleParams), mCursorPos, mCursorPos + 1, *this);
     insert(mCursorPos, LLWString(1, emoji), false, segment);
     setCursorPos(mCursorPos + 1);
@@ -1693,27 +1693,24 @@ void LLTextEditor::pasteTextWithLinebreaks(LLWString & clean_string)
     std::basic_string<llwchar>::size_type start = 0;
     std::basic_string<llwchar>::size_type pos = clean_string.find('\n',start);
 
-    while((pos != -1) && (pos != clean_string.length() -1))
+    while (pos != std::basic_string<llwchar>::npos)
     {
-        if(pos!=start)
+        if (pos != start)
         {
             std::basic_string<llwchar> str = std::basic_string<llwchar>(clean_string,start,pos-start);
             setCursorPos(mCursorPos + insert(mCursorPos, str, true, LLTextSegmentPtr()));
         }
-        addLineBreakChar(true);         // Add a line break and group with the next addition.
+        const bool trailing_linebreak = (pos == clean_string.length() - 1);
+        addLineBreakChar(!trailing_linebreak);
 
         start = pos+1;
         pos = clean_string.find('\n',start);
     }
 
-    if (pos != start)
+    if (start < clean_string.length())
     {
         std::basic_string<llwchar> str = std::basic_string<llwchar>(clean_string,start,clean_string.length()-start);
         setCursorPos(mCursorPos + insert(mCursorPos, str, false, LLTextSegmentPtr()));
-    }
-    else
-    {
-        addLineBreakChar(false);        // Add a line break and end the grouping.
     }
 }
 
@@ -2418,7 +2415,7 @@ void LLTextEditor::drawPreeditMarker()
 
                 if (mPreeditStandouts[i])
                 {
-                    gl_rect_2d(preedit_left + preedit_standout_gap,
+                    dx_rect_2d(preedit_left + preedit_standout_gap,
                                text_rect.mBottom + (S32)mFont->getDescenderHeight() - 1,
                                preedit_right - preedit_standout_gap - 1,
                                text_rect.mBottom + (S32)mFont->getDescenderHeight() - 1 - preedit_standout_thickness,
@@ -2426,7 +2423,7 @@ void LLTextEditor::drawPreeditMarker()
                 }
                 else
                 {
-                    gl_rect_2d(preedit_left + preedit_marker_gap,
+                    dx_rect_2d(preedit_left + preedit_marker_gap,
                                text_rect.mBottom + (S32)mFont->getDescenderHeight() - 1,
                                preedit_right - preedit_marker_gap - 1,
                                text_rect.mBottom + (S32)mFont->getDescenderHeight() - 1 - preedit_marker_thickness,

@@ -44,7 +44,7 @@
 #include <limits>
 
 // for initparam specialization
-#include "llfontgl.h"
+#include "llfontdx.h"
 
 class LLUUID;
 class LLWindow;
@@ -418,42 +418,42 @@ namespace LLInitParam
 	};
 
 	template<>
-	class ParamValue<const LLFontGL*> 
-	:	public CustomParamValue<const LLFontGL* >
+	class ParamValue<const LLFontDX*> 
+	:	public CustomParamValue<const LLFontDX* >
 	{
-        typedef CustomParamValue<const LLFontGL*> super_t;
+        typedef CustomParamValue<const LLFontDX*> super_t;
 	public:
 		Optional<std::string>	name,
 								size,
 								style;
 
-		ParamValue(const LLFontGL* value);
+		ParamValue(const LLFontDX* value);
 		void updateValueFromBlock();
 		void updateBlockFromValue(bool make_block_authoritative);
 	};
 
 	template<>
-	struct TypeValues<LLFontGL::HAlign> : public TypeValuesHelper<LLFontGL::HAlign>
+	struct TypeValues<LLFontDX::HAlign> : public TypeValuesHelper<LLFontDX::HAlign>
 	{
 		static void declareValues();
 	};
 
 	template<>
-	struct TypeValues<LLFontGL::VAlign> : public TypeValuesHelper<LLFontGL::VAlign>
+	struct TypeValues<LLFontDX::VAlign> : public TypeValuesHelper<LLFontDX::VAlign>
 	{
 		static void declareValues();
 	};
 
 	template<>
-	struct TypeValues<LLFontGL::ShadowType> : public TypeValuesHelper<LLFontGL::ShadowType>
+	struct TypeValues<LLFontDX::ShadowType> : public TypeValuesHelper<LLFontDX::ShadowType>
 	{
 		static void declareValues();
 	};
 
 	template<>
-	struct ParamCompare<const LLFontGL*, false>
+	struct ParamCompare<const LLFontDX*, false>
 	{
-		static bool equals(const LLFontGL* a, const LLFontGL* b);
+		static bool equals(const LLFontDX* a, const LLFontDX* b);
 	};
 
 

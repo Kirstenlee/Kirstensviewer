@@ -54,7 +54,7 @@ S32 round_up(S32 grid, S32 value);
 
 
 class LLUICtrlFactory;
-class LLFontGL;
+class LLFontDX;
 class LLFontVertexBuffer;
 
 //
@@ -217,8 +217,8 @@ public:
     LLFlashTimer*   getFlashTimer() {return mFlashingTimer;}
     void            setFlashColor(const LLUIColor &color) { mFlashBgColor = color; };
 
-    void            setHAlign( LLFontGL::HAlign align )     { mHAlign = align; }
-    LLFontGL::HAlign getHAlign() const                      { return mHAlign; }
+    void            setHAlign( LLFontDX::HAlign align )     { mHAlign = align; }
+    LLFontDX::HAlign getHAlign() const                      { return mHAlign; }
     void            setLeftHPad( S32 pad )                  { mLeftHPad = pad; }
     void            setRightHPad( S32 pad )                 { mRightHPad = pad; }
 
@@ -239,10 +239,10 @@ public:
 
     void            setDisabledSelectedLabelColor( const LLUIColor& c )  { mDisabledSelectedLabelColor = c; }
 
-    void            setImageOverlay(const std::string& image_name, LLFontGL::HAlign alignment = LLFontGL::HCENTER, const LLColor4& color = LLColor4::white);
-    void            setImageOverlay(const LLUUID& image_id, LLFontGL::HAlign alignment = LLFontGL::HCENTER, const LLColor4& color = LLColor4::white);
+    void            setImageOverlay(const std::string& image_name, LLFontDX::HAlign alignment = LLFontDX::HCENTER, const LLColor4& color = LLColor4::white);
+    void            setImageOverlay(const LLUUID& image_id, LLFontDX::HAlign alignment = LLFontDX::HCENTER, const LLColor4& color = LLColor4::white);
     LLPointer<LLUIImage> getImageOverlay() { return mImageOverlay; }
-    LLFontGL::HAlign getImageOverlayHAlign() const  { return mImageOverlayAlignment; }
+    LLFontDX::HAlign getImageOverlayHAlign() const  { return mImageOverlayAlignment; }
 
     void            autoResize();   // resize with label of current btn state
     void            resize(const LLUIString& label); // resize with label input
@@ -254,8 +254,8 @@ public:
     void            setLabelSelected(const LLStringExplicit& label);
     void            setDisabledLabelColor(const LLUIColor& c);
 
-    void            setFont(const LLFontGL* font);
-    const LLFontGL* getFont() const override { return mGLFont; }
+    void            setFont(const LLFontDX* font);
+    const LLFontDX* getFont() const override { return mGLFont; }
     const std::string& getText() const override { return getCurrentLabel().getString(); }
 
     S32             getLastDrawCharsCount() const { return mLastDrawCharsCount; }
@@ -314,7 +314,7 @@ protected:
 	S32							mLastDrawCharsCount;
 
 	LLPointer<LLUIImage>		mImageOverlay;
-	LLFontGL::HAlign			mImageOverlayAlignment;
+	LLFontDX::HAlign			mImageOverlayAlignment;
 	LLUIColor					mImageOverlayColor;
 	LLUIColor					mImageOverlaySelectedColor;
 	LLUIColor					mImageOverlayDisabledColor;
@@ -360,7 +360,7 @@ protected:
     bool                        mUseFontColor;
 	bool						mFlashing;
 
-	LLFontGL::HAlign			mHAlign;
+	LLFontDX::HAlign			mHAlign;
 	S32							mLeftHPad;
 	S32							mRightHPad;
 	S32							mBottomVPad;	// under text label
@@ -394,7 +394,7 @@ protected:
 	bool						mHandleRightMouse;
 
 private:
-    const LLFontGL* mGLFont;
+    const LLFontDX* mGLFont;
     LLFontVertexBuffer          mFontBuffer;
 
 protected:

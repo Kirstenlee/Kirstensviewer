@@ -25,7 +25,7 @@
 #ifndef LLFOLDERVIEWMODEL_H
 #define LLFOLDERVIEWMODEL_H
 
-#include "llfontgl.h"   // just for StyleFlags enum
+#include "llfontdx.h"   // just for StyleFlags enum
 #include "llfolderview.h"
 
 // These are grouping of inventory types.
@@ -38,7 +38,7 @@ enum EInventorySortGroup
     SG_ITEM
 };
 
-class LLFontGL;
+class LLFontDX;
 class LLInventoryModel;
 class LLMenuGL;
 class LLUIImage;
@@ -153,7 +153,7 @@ public:
     virtual LLPointer<LLUIImage> getIconOpen() const { return getIcon(); }
     virtual LLPointer<LLUIImage> getIconOverlay() const { return NULL; }
 
-    virtual LLFontGL::StyleFlags getLabelStyle() const = 0;
+    virtual LLFontDX::StyleFlags getLabelStyle() const = 0;
     virtual std::string getLabelSuffix() const = 0;
 
     virtual void openItem( void ) = 0;

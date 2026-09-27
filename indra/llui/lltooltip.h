@@ -79,7 +79,7 @@ public:
 									visible_time_near,	// time for which tooltip is visible while mouse near it
 									visible_time_far;	// time for which tooltip is visible while mouse moved away
 		Optional<LLRect>			sticky_rect;
-		Optional<const LLFontGL*>	font;
+		Optional<const LLFontDX*>	font;
 		Optional<LLUIImage*>		image;
 		Optional<LLUIColor>			text_color;
 		Optional<bool>				time_based_media,

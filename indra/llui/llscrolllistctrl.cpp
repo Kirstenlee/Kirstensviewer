@@ -643,12 +643,12 @@ S32 LLScrollListCtrl::calcMaxContentWidth()
         if (mColumnWidthsDirty)
         {
             // update max content width for this column, by looking at all items
-            column->mMaxContentWidth = column->mHeader ? LLFontGL::getFontSansSerifSmall()->getWidth(column->mLabel.getWString().c_str()) + mColumnPadding + HEADING_TEXT_PADDING : 0;
+            column->mMaxContentWidth = column->mHeader ? LLFontDX::getFontSansSerifSmall()->getWidth(column->mLabel.getWString().c_str()) + mColumnPadding + HEADING_TEXT_PADDING : 0;
             for (LLScrollListItem* item : mItemList)
             {
                 if (LLScrollListCell* cellp = item->getColumn(column->mIndex))
                 {
-                    column->mMaxContentWidth = llmax(LLFontGL::getFontSansSerifSmall()->getWidth(cellp->getValue().asString()) + mColumnPadding + COLUMN_TEXT_PADDING, column->mMaxContentWidth);
+                    column->mMaxContentWidth = llmax(LLFontDX::getFontSansSerifSmall()->getWidth(cellp->getValue().asString()) + mColumnPadding + COLUMN_TEXT_PADDING, column->mMaxContentWidth);
                 }
             }
         }
@@ -1228,7 +1228,7 @@ LLScrollListItem* LLScrollListCtrl::addSeparator(EAddPosition pos)
     column_params.type = "icon";
     column_params.value = "menu_separator";
     column_params.color = LLColor4(0.f, 0.f, 0.f, 0.7f);
-    column_params.font_halign = LLFontGL::HCENTER;
+    column_params.font_halign = LLFontDX::HCENTER;
     separator_params.columns.add(column_params);
     return addRow( separator_params, pos );
 }
@@ -1280,6 +1280,19 @@ LLScrollListItem* LLScrollListCtrl::getItemByLabel(const std::string& label, boo
             return item;
         }
     }
+    return NULL;
+}
+
+LLScrollListItem* LLScrollListCtrl::getItemByValue(const std::string& value)
+{
+    for (LLScrollListItem* item : mItemList)
+    {
+        if (item->getValue().asString() == value)
+        {
+            return item;
+        }
+    }
+
     return NULL;
 }
 
@@ -1705,7 +1718,7 @@ void LLScrollListCtrl::draw()
     {
         F32 alpha = getCurrentTransparency();
         gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
-        gl_rect_2d(background, getEnabled() ? mBgWriteableColor.get() % alpha : mBgReadOnlyColor.get() % alpha );
+        dx_rect_2d(background, getEnabled() ? mBgWriteableColor.get() % alpha : mBgReadOnlyColor.get() % alpha );
     }
 
     updateColumns();
@@ -1796,7 +1809,7 @@ bool LLScrollListCtrl::handleToolTip(S32 x, S32 y, MASK mask)
             // display tooltip exactly over original cell, in same font
             LLToolTipMgr::instance().show(LLToolTip::Params()
                                         .message(hit_cell->getToolTip())
-                                        .font(LLFontGL::getFontEmojiSmall())
+                                        .font(LLFontDX::getFontEmojiSmall())
                                         .pos(LLCoordGL(sticky_rect.mLeft - 5, sticky_rect.mTop + 6))
                                         .delay_time(0.2f)
                                         .sticky_rect(sticky_rect));
@@ -3270,7 +3283,7 @@ LLScrollListItem* LLScrollListCtrl::addSimpleElement(const std::string& value, E
     item_params.value(entry_id);
     item_params.columns.add()
         .value(value)
-        .font(LLFontGL::getFontEmojiSmall());
+        .font(LLFontDX::getFontEmojiSmall());
 
     return addRow(item_params, pos);
 }

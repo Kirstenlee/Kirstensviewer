@@ -33,7 +33,7 @@
 #include "llmath.h"
 //#include "llviewercontrol.h"
 #include "llcriticaldamp.h"
-#include "llfontgl.h"
+#include "llfontdx.h"
 #include "llgl.h"
 #include "llui.h"
 #include "lluiimage.h"
@@ -41,7 +41,7 @@
 //#include "llviewerimagelist.h"
 //#include "llviewerwindow.h"
 #include "llsd.h"
-#include "llfontgl.h"
+#include "llfontdx.h"
 #include "llmath.h"
 
 //#include "llstartup.h"
@@ -114,24 +114,24 @@ void LLConsole::setFontSize(S32 size_index)
 {
 	if (-1 == size_index)
 	{
-		mFont = LLFontGL::getFontMonospace();
+		mFont = LLFontDX::getFontMonospace();
 	}
 	else if (0 == size_index)
 	{
-		mFont = LLFontGL::getFontSansSerif();
+		mFont = LLFontDX::getFontSansSerif();
 	}
 	else if (1 == size_index)
 	{
-		mFont = LLFontGL::getFontSansSerifBig();
+		mFont = LLFontDX::getFontSansSerifBig();
 	}
 	else
 	{
-		mFont = LLFontGL::getFontSansSerifHuge();
+		mFont = LLFontDX::getFontSansSerifHuge();
 	}
 	// Make sure the font exists
 	if (mFont == NULL)
 	{
-		mFont = LLFontGL::getFontDefault();
+		mFont = LLFontDX::getFontDefault();
 	}
 	
 	for(paragraph_t::iterator paragraph_it = mParagraphs.begin(); paragraph_it != mParagraphs.end(); paragraph_it++)
@@ -237,10 +237,10 @@ void LLConsole::draw()
 							(*seg_it).mColor.mV[VGREEN], 
 							(*seg_it).mColor.mV[VBLUE], 
 							(*seg_it).mColor.mV[VALPHA]*alpha),
-						LLFontGL::LEFT, 
-						LLFontGL::BASELINE,
-						LLFontGL::NORMAL,
-						LLFontGL::DROP_SHADOW,
+						LLFontDX::LEFT, 
+						LLFontDX::BASELINE,
+						LLFontDX::NORMAL,
+						LLFontDX::DROP_SHADOW,
 						S32_MAX,
 						target_width
 						);
@@ -277,7 +277,7 @@ void LLConsole::Paragraph::makeParagraphColorSegments (const LLColor4 &color)
 }
 
 //Called when a paragraph is added to the console or window is resized.
-void LLConsole::Paragraph::updateLines(F32 screen_width, const LLFontGL* font, bool force_resize)
+void LLConsole::Paragraph::updateLines(F32 screen_width, const LLFontDX* font, bool force_resize)
 {
 	if ( !force_resize )
 	{
@@ -322,7 +322,7 @@ void LLConsole::Paragraph::updateLines(F32 screen_width, const LLFontGL* font, b
 			skip_chars = 0;
 		}
 
-        U32 drawable = font->maxDrawableChars(mParagraphText.c_str()+paragraph_offset, screen_width, static_cast<S32>(line_end) - paragraph_offset, LLFontGL::WORD_BOUNDARY_IF_POSSIBLE);
+        U32 drawable = font->maxDrawableChars(mParagraphText.c_str()+paragraph_offset, screen_width, static_cast<S32>(line_end) - paragraph_offset, LLFontDX::WORD_BOUNDARY_IF_POSSIBLE);
 
 		if (drawable != 0)
 		{
@@ -372,7 +372,7 @@ void LLConsole::Paragraph::updateLines(F32 screen_width, const LLFontGL* font, b
 }
 
 //Pass in the string and the default color for this block of text.
-LLConsole::Paragraph::Paragraph (LLWString str, const LLColor4 &color, F32 add_time, const LLFontGL* font, F32 screen_width) 
+LLConsole::Paragraph::Paragraph (LLWString str, const LLColor4 &color, F32 add_time, const LLFontDX* font, F32 screen_width) 
 :	mParagraphText(str), mAddTime(add_time), mMaxWidth(-1)
 {
 	makeParagraphColorSegments(color);

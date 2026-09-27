@@ -27,7 +27,7 @@
 #define LLBADGE_CPP
 #include "llbadge.h"
 
-#include "llfontgl.h"
+#include "llfontdx.h"
 #include "llfontvertexbuffer.h"
 #include "llscrollcontainer.h"
 #include "lluictrlfactory.h"
@@ -196,8 +196,8 @@ void renderBadgeBackground(F32 centerX, F32 centerY, F32 width, F32 height, cons
 	gDX.color4ubv(color.mV);
 	gDX.texCoord2i(0, 0);
 	
-	F32 x = LLFontGL::sCurOrigin.mX + centerX - width * 0.5f;
-	F32 y = LLFontGL::sCurOrigin.mY + centerY - height * 0.5f;
+	F32 x = LLFontDX::sCurOrigin.mX + centerX - width * 0.5f;
+	F32 y = LLFontDX::sCurOrigin.mY + centerY - height * 0.5f;
 	
     LLRectf screen_rect((F32)ll_round(x),
                         (F32)ll_round(y),
@@ -360,9 +360,9 @@ void LLBadge::draw()
 							badge_center_x + mLabelOffsetHoriz,
 							badge_center_y + mLabelOffsetVert,
 							mLabelColor % alpha,
-							LLFontGL::HCENTER, LLFontGL::VCENTER, // centered around the position
-							LLFontGL::NORMAL, // normal text (not bold, italics, etc.)
-							LLFontGL::DROP_SHADOW_SOFT,
+							LLFontDX::HCENTER, LLFontDX::VCENTER, // centered around the position
+							LLFontDX::NORMAL, // normal text (not bold, italics, etc.)
+							LLFontDX::DROP_SHADOW_SOFT,
 							badge_char_length, badge_pixel_length,
 							right_position_out, do_not_use_ellipses);
 		}

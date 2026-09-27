@@ -33,7 +33,7 @@
 
 #include "lltexteditor.h"
 #include "llmath.h"
-#include "llfontgl.h"
+#include "llfontdx.h"
 #include "llgl.h"
 #include "lltimer.h"
 
@@ -1776,7 +1776,7 @@ void LLLineEditor::drawBackground()
     F32 alpha = getCurrentTransparency();
     if (mUseBgColor)
     {
-        gl_rect_2d(getLocalRect(), mBgColor % alpha, true);
+        dx_rect_2d(getLocalRect(), mBgColor % alpha, true);
     }
     else
     {
@@ -1893,7 +1893,7 @@ void LLLineEditor::draw()
                 }
                 if (mPreeditStandouts[i])
                 {
-                    gl_rect_2d(preedit_pixels_left + preedit_standout_gap,
+                    dx_rect_2d(preedit_pixels_left + preedit_standout_gap,
                         background.mBottom + preedit_standout_position,
                         preedit_pixels_right - preedit_standout_gap - 1,
                         background.mBottom + preedit_standout_position - preedit_standout_thickness,
@@ -1902,7 +1902,7 @@ void LLLineEditor::draw()
                 }
                 else
                 {
-                    gl_rect_2d(preedit_pixels_left + preedit_marker_gap,
+                    dx_rect_2d(preedit_pixels_left + preedit_marker_gap,
                         background.mBottom + preedit_marker_position,
                         preedit_pixels_right - preedit_marker_gap - 1,
                         background.mBottom + preedit_marker_position - preedit_marker_thickness,
@@ -1940,9 +1940,9 @@ void LLLineEditor::draw()
                 mText, mScrollHPos,
                 rendered_pixels_right, text_bottom,
                 text_color,
-                LLFontGL::LEFT, LLFontGL::BOTTOM,
+                LLFontDX::LEFT, LLFontDX::BOTTOM,
                 0,
-                LLFontGL::NO_SHADOW,
+                LLFontDX::NO_SHADOW,
                 select_left - mScrollHPos,
                 mTextRightEdge - ll_round(rendered_pixels_right),
                 &rendered_pixels_right);
@@ -1955,7 +1955,7 @@ void LLLineEditor::draw()
             // selected middle
             S32 width = mGLFont->getWidth(mText.getWString().c_str(), mScrollHPos + rendered_text, select_right - mScrollHPos - rendered_text);
             width = llmin(width, mTextRightEdge - ll_round(rendered_pixels_right));
-            gl_rect_2d(ll_round(rendered_pixels_right), cursor_top, ll_round(rendered_pixels_right)+width, cursor_bottom, color);
+            dx_rect_2d(ll_round(rendered_pixels_right), cursor_top, ll_round(rendered_pixels_right)+width, cursor_bottom, color);
 
             LLColor4 tmp_color( 1.f - text_color.mV[0], 1.f - text_color.mV[1], 1.f - text_color.mV[2], alpha );
             rendered_text += mFontBufferSelection.render(
@@ -1963,9 +1963,9 @@ void LLLineEditor::draw()
                 mText, mScrollHPos + rendered_text,
                 rendered_pixels_right, text_bottom,
                 tmp_color,
-                LLFontGL::LEFT, LLFontGL::BOTTOM,
+                LLFontDX::LEFT, LLFontDX::BOTTOM,
                 0,
-                LLFontGL::NO_SHADOW,
+                LLFontDX::NO_SHADOW,
                 select_right - mScrollHPos - rendered_text,
                 mTextRightEdge - ll_round(rendered_pixels_right),
                 &rendered_pixels_right);
@@ -1979,9 +1979,9 @@ void LLLineEditor::draw()
                 mText, mScrollHPos + rendered_text,
                 rendered_pixels_right, text_bottom,
                 text_color,
-                LLFontGL::LEFT, LLFontGL::BOTTOM,
+                LLFontDX::LEFT, LLFontDX::BOTTOM,
                 0,
-                LLFontGL::NO_SHADOW,
+                LLFontDX::NO_SHADOW,
                 S32_MAX,
                 mTextRightEdge - ll_round(rendered_pixels_right),
                 &rendered_pixels_right);
@@ -1994,9 +1994,9 @@ void LLLineEditor::draw()
             mText, mScrollHPos,
             rendered_pixels_right, text_bottom,
             text_color,
-            LLFontGL::LEFT, LLFontGL::BOTTOM,
+            LLFontDX::LEFT, LLFontDX::BOTTOM,
             0,
-            LLFontGL::NO_SHADOW,
+            LLFontDX::NO_SHADOW,
             S32_MAX,
             mTextRightEdge - ll_round(rendered_pixels_right),
             &rendered_pixels_right);
@@ -2090,10 +2090,10 @@ void LLLineEditor::draw()
             gDX.color4ub(255, 0, 0, 200);
             while (pxStart + 1 < pxEnd)
             {
-                gl_line_2d(pxStart, pxBottom, pxStart + 2, pxBottom - 2);
+                dx_line_2d(pxStart, pxBottom, pxStart + 2, pxBottom - 2);
                 if (pxStart + 3 < pxEnd)
                 {
-                    gl_line_2d(pxStart + 2, pxBottom - 3, pxStart + 4, pxBottom - 1);
+                    dx_line_2d(pxStart + 2, pxBottom - 3, pxStart + 4, pxBottom - 1);
                 }
                 pxStart += 4;
             }
@@ -2121,16 +2121,16 @@ void LLLineEditor::draw()
                     cursor_right = cursor_left + llmax(wswidth, width);
                 }
                 // Use same color as text for the Cursor
-                gl_rect_2d(cursor_left, cursor_top,
+                dx_rect_2d(cursor_left, cursor_top,
                     cursor_right, cursor_bottom, text_color);
                 if (LL_KIM_OVERWRITE == gKeyboard->getInsertMode() && !hasSelection())
                 {
                     LLColor4 tmp_color( 1.f - text_color.mV[0], 1.f - text_color.mV[1], 1.f - text_color.mV[2], alpha );
                     mGLFont->render(mText, getCursor(), (F32)(cursor_left + lineeditor_cursor_thickness / 2), text_bottom,
                         tmp_color,
-                        LLFontGL::LEFT, LLFontGL::BOTTOM,
+                        LLFontDX::LEFT, LLFontDX::BOTTOM,
                         0,
-                        LLFontGL::NO_SHADOW,
+                        LLFontDX::NO_SHADOW,
                         1);
                 }
 
@@ -2154,10 +2154,10 @@ void LLLineEditor::draw()
                             mLabel.getWString(), 0,
                             (F32)mTextLeftEdge, (F32)text_bottom,
                             label_color,
-                            LLFontGL::LEFT,
-                            LLFontGL::BOTTOM,
+                            LLFontDX::LEFT,
+                            LLFontDX::BOTTOM,
                             0,
-                            LLFontGL::NO_SHADOW,
+                            LLFontDX::NO_SHADOW,
                             S32_MAX,
                             mTextRightEdge - ll_round(rendered_pixels_right),
                             &rendered_pixels_right, false);
@@ -2180,10 +2180,10 @@ void LLLineEditor::draw()
                             mLabel.getWString(), 0,
                             (F32)mTextLeftEdge, (F32)text_bottom,
                             label_color,
-                            LLFontGL::LEFT,
-                            LLFontGL::BOTTOM,
+                            LLFontDX::LEFT,
+                            LLFontDX::BOTTOM,
                             0,
-                            LLFontGL::NO_SHADOW,
+                            LLFontDX::NO_SHADOW,
                             S32_MAX,
                             mTextRightEdge - ll_round(rendered_pixels_right),
                             &rendered_pixels_right);
@@ -2798,7 +2798,7 @@ void LLLineEditor::setContextMenu(LLContextMenu* new_context_menu)
     }
 }
 
-void LLLineEditor::setFont(const LLFontGL* font)
+void LLLineEditor::setFont(const LLFontDX* font)
 {
     mGLFont = font;
 }

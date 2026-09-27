@@ -51,7 +51,7 @@
 #include "lluictrlfactory.h"
 
 #include "llbutton.h"
-#include "llfontgl.h"
+#include "llfontdx.h"
 #include "llresmgr.h"
 #include "lltrans.h"
 #include "llui.h"
@@ -489,7 +489,7 @@ void LLMenuItemGL::draw( void )
     {
         gDX.color4fv( mHighlightBackground.get().mV );
 
-        gl_rect_2d( 0, getRect().getHeight(), getRect().getWidth(), 0 );
+        dx_rect_2d( 0, getRect().getHeight(), getRect().getWidth(), 0 );
     }
 
     LLColor4 color;
@@ -515,7 +515,7 @@ void LLMenuItemGL::draw( void )
     if (mBriefItem)
     {
         mFont->render( mLabel, 0, BRIEF_PAD_PIXELS / 2, 0, color,
-                       LLFontGL::LEFT, LLFontGL::BOTTOM, LLFontGL::NORMAL);
+                       LLFontDX::LEFT, LLFontDX::BOTTOM, LLFontDX::NORMAL);
     }
     else
     {
@@ -526,19 +526,19 @@ void LLMenuItemGL::draw( void )
         if( !mDrawBoolLabel.empty() )
         {
             mFont->render( mDrawBoolLabel.getWString(), 0, (F32)LEFT_PAD_PIXELS, y, color,
-                           LLFontGL::LEFT, LLFontGL::BOTTOM, LLFontGL::NORMAL, LLFontGL::NO_SHADOW, S32_MAX, S32_MAX, NULL, false );
+                           LLFontDX::LEFT, LLFontDX::BOTTOM, LLFontDX::NORMAL, LLFontDX::NO_SHADOW, S32_MAX, S32_MAX, NULL, false );
         }
         mFont->render( mLabel.getWString(), 0, (F32)LEFT_PLAIN_PIXELS, y, color,
-                       LLFontGL::LEFT, LLFontGL::BOTTOM, LLFontGL::NORMAL, LLFontGL::NO_SHADOW, S32_MAX, S32_MAX, NULL, false );
+                       LLFontDX::LEFT, LLFontDX::BOTTOM, LLFontDX::NORMAL, LLFontDX::NO_SHADOW, S32_MAX, S32_MAX, NULL, false );
         if( !mDrawAccelLabel.empty() )
         {
             mFont->render( mDrawAccelLabel.getWString(), 0, (F32)getRect().mRight - (F32)RIGHT_PLAIN_PIXELS, y, color,
-                           LLFontGL::RIGHT, LLFontGL::BOTTOM, LLFontGL::NORMAL, LLFontGL::NO_SHADOW, S32_MAX, S32_MAX, NULL, false );
+                           LLFontDX::RIGHT, LLFontDX::BOTTOM, LLFontDX::NORMAL, LLFontDX::NO_SHADOW, S32_MAX, S32_MAX, NULL, false );
         }
         if( !mDrawBranchLabel.empty() )
         {
             mFont->render( mDrawBranchLabel.getWString(), 0, (F32)getRect().mRight - (F32)RIGHT_PAD_PIXELS, y, color,
-                           LLFontGL::RIGHT, LLFontGL::BOTTOM, LLFontGL::NORMAL, LLFontGL::NO_SHADOW, S32_MAX, S32_MAX, NULL, false );
+                           LLFontDX::RIGHT, LLFontDX::BOTTOM, LLFontDX::NORMAL, LLFontDX::NO_SHADOW, S32_MAX, S32_MAX, NULL, false );
         }
     }
 
@@ -552,7 +552,7 @@ void LLMenuItemGL::draw( void )
         {
             S32 x_begin = LEFT_PLAIN_PIXELS + mFont->getWidth(mLabel.getWString().c_str(), 0, static_cast<S32>(offset));
             S32 x_end = LEFT_PLAIN_PIXELS + mFont->getWidth(mLabel.getWString().c_str(), 0, static_cast<S32>(offset) + 1);
-            gl_line_2d(x_begin, (MENU_ITEM_PADDING / 2) + 1, x_end, (MENU_ITEM_PADDING / 2) + 1);
+            dx_line_2d(x_begin, (MENU_ITEM_PADDING / 2) + 1, x_end, (MENU_ITEM_PADDING / 2) + 1);
         }
     }
 }
@@ -602,7 +602,7 @@ void LLMenuItemSeparatorGL::draw( void )
     gDX.color4fv( mDisabledColor.get().mV );
     const S32 y = getRect().getHeight() / 2;
     const S32 PAD = 6;
-    gl_line_2d( PAD, y, getRect().getWidth() - PAD, y );
+    dx_line_2d( PAD, y, getRect().getWidth() - PAD, y );
 }
 
 void LLMenuItemSeparatorGL::buildDrawLabel( void )
@@ -761,7 +761,7 @@ void LLMenuItemTearOffGL::draw()
     if( getEnabled() && getHighlight() && !isBriefItem())
     {
         gDX.color4fv( mHighlightBackground.get().mV );
-        gl_rect_2d( 0, getRect().getHeight(), getRect().getWidth(), 0 );
+        dx_rect_2d( 0, getRect().getHeight(), getRect().getWidth(), 0 );
     }
 
     if (getEnabled())
@@ -774,8 +774,8 @@ void LLMenuItemTearOffGL::draw()
     }
     const S32 y = getRect().getHeight() / 3;
     const S32 PAD = 6;
-    gl_line_2d( PAD, y, getRect().getWidth() - PAD, y );
-    gl_line_2d( PAD, y * 2, getRect().getWidth() - PAD, y * 2 );
+    dx_line_2d( PAD, y, getRect().getWidth() - PAD, y );
+    dx_line_2d( PAD, y * 2, getRect().getWidth() - PAD, y * 2 );
 }
 
 U32 LLMenuItemTearOffGL::getNominalHeight( void ) const
@@ -1626,7 +1626,7 @@ void LLMenuItemBranchDownGL::draw( void )
     if( getHighlight() )
     {
         gDX.color4fv( mHighlightBackground.get().mV );
-        gl_rect_2d( 0, getRect().getHeight(), getRect().getWidth(), 0 );
+        dx_rect_2d( 0, getRect().getHeight(), getRect().getWidth(), 0 );
     }
 
     LLColor4 color;
@@ -1643,7 +1643,7 @@ void LLMenuItemBranchDownGL::draw( void )
         color = mDisabledColor.get();
     }
     getFont()->render( mLabel.getWString(), 0, (F32)getRect().getWidth() / 2.f, (F32)LABEL_BOTTOM_PAD_PIXELS, color,
-                   LLFontGL::HCENTER, LLFontGL::BOTTOM, LLFontGL::NORMAL);
+                   LLFontDX::HCENTER, LLFontDX::BOTTOM, LLFontDX::NORMAL);
 
 
     // underline navigation key only when keyboard navigation has been initiated
@@ -1657,7 +1657,7 @@ void LLMenuItemBranchDownGL::draw( void )
             S32 x_offset = ll_round((F32)getRect().getWidth() / 2.f - getFont()->getWidthF32(mLabel.getWString().c_str(), 0, S32_MAX) / 2.f);
             S32 x_begin = x_offset + getFont()->getWidth(mLabel.getWString().c_str(), 0, static_cast<S32>(offset));
             S32 x_end = x_offset + getFont()->getWidth(mLabel.getWString().c_str(), 0, static_cast<S32>(offset) + 1);
-            gl_line_2d(x_begin, LABEL_BOTTOM_PAD_PIXELS, x_end, LABEL_BOTTOM_PAD_PIXELS);
+            dx_line_2d(x_begin, LABEL_BOTTOM_PAD_PIXELS, x_end, LABEL_BOTTOM_PAD_PIXELS);
         }
     }
 }
@@ -2112,8 +2112,8 @@ void LLMenuGL::arrange( void )
         U32 max_height = getTornOff() ? U32_MAX: menu_region_rect.getHeight();
 
         // *FIX: create the item first and then ask for its dimensions?
-        S32 spillover_item_width = PLAIN_PAD_PIXELS + LLFontGL::getFontSansSerif()->getWidth( std::string("More") ); // *TODO: Translate
-        S32 spillover_item_height = LLFontGL::getFontSansSerif()->getLineHeight() + MENU_ITEM_PADDING;
+        S32 spillover_item_width = PLAIN_PAD_PIXELS + LLFontDX::getFontSansSerif()->getWidth( std::string("More") ); // *TODO: Translate
+        S32 spillover_item_height = LLFontDX::getFontSansSerif()->getLineHeight() + MENU_ITEM_PADDING;
 
         // Scrolling support
         item_list_t::iterator first_visible_item_iter;
@@ -3241,13 +3241,13 @@ void LLMenuGL::draw( void )
     if (mDropShadowed && !mTornOff)
     {
         static LLUIColor color_drop_shadow = LLUIColorTable::instance().getColor("ColorDropShadow");
-        gl_drop_shadow(0, getRect().getHeight(), getRect().getWidth(), 0,
+        dx_drop_shadow(0, getRect().getHeight(), getRect().getWidth(), 0,
             color_drop_shadow, DROP_SHADOW_FLOATER);
     }
 
     if( mBgVisible )
     {
-        gl_rect_2d( 0, getRect().getHeight(), getRect().getWidth(), 0, mBackgroundColor.get() );
+        dx_rect_2d( 0, getRect().getHeight(), getRect().getWidth(), 0, mBackgroundColor.get() );
     }
     LLView::draw();
 }
@@ -3257,7 +3257,7 @@ void LLMenuGL::drawBackground(LLMenuItemGL* itemp, F32 alpha)
     LLColor4 color = itemp->getHighlightBgColor() % alpha;
     gDX.color4fv( color.mV );
     LLRect item_rect = itemp->getRect();
-    gl_rect_2d( 0, item_rect.getHeight(), item_rect.getWidth(), 0);
+    dx_rect_2d( 0, item_rect.getHeight(), item_rect.getWidth(), 0);
 }
 
 void LLMenuGL::setVisible(bool visible)

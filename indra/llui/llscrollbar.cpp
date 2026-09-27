@@ -522,7 +522,7 @@ void LLScrollbar::draw()
 
     if(mBGVisible)
     {
-        gl_rect_2d(getLocalRect(), mBGColor.get(), true);
+        dx_rect_2d(getLocalRect(), mBGColor.get(), true);
     }
 
     S32 local_mouse_x;
@@ -543,12 +543,12 @@ void LLScrollbar::draw()
     if (   ( mOrientation == VERTICAL&&(mThumbImageV.isNull() || mThumbImageH.isNull()) )
         || (mOrientation == HORIZONTAL&&(mTrackImageH.isNull() || mTrackImageV.isNull()) ))
     {
-        gl_rect_2d(mOrientation == HORIZONTAL ? mThickness : 0,
+        dx_rect_2d(mOrientation == HORIZONTAL ? mThickness : 0,
         mOrientation == VERTICAL ? getRect().getHeight() - 2 * mThickness : getRect().getHeight(),
         mOrientation == HORIZONTAL ? getRect().getWidth() - 2 * mThickness : getRect().getWidth(),
         mOrientation == VERTICAL ? mThickness : 0, mTrackColor.get(), true);
 
-        gl_rect_2d(mThumbRect, mThumbColor.get(), true);
+        dx_rect_2d(mThumbRect, mThumbColor.get(), true);
 
     }
     else

@@ -32,7 +32,7 @@
 #include "llpanel.h"
 
 #include "llfocusmgr.h"
-#include "llfontgl.h"
+#include "llfontdx.h"
 #include "llrect.h"
 #include "llerror.h"
 #include "lldir.h"
@@ -245,7 +245,7 @@ void LLPanel::draw()
             else
             {
                 // fallback to flat colors when there are no images
-                gl_rect_2d( local_rect, mBgOpaqueColor.get() % alpha);
+                dx_rect_2d( local_rect, mBgOpaqueColor.get() % alpha);
             }
         }
         else
@@ -257,7 +257,7 @@ void LLPanel::draw()
             }
             else
             {
-                gl_rect_2d( local_rect, mBgAlphaColor.get() % alpha );
+                dx_rect_2d( local_rect, mBgAlphaColor.get() % alpha );
             }
         }
     }

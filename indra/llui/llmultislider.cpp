@@ -693,7 +693,7 @@ void LLMultiSlider::draw()
 
         for(mIt = mThumbRects.begin(); mIt != mThumbRects.end(); mIt++) {
 
-            gl_triangle_2d(
+            dx_triangle_2d(
                 mIt->second.mLeft - extra_triangle_width,
                 mIt->second.mTop + extra_triangle_height,
                 mIt->second.mRight + extra_triangle_width,
@@ -725,23 +725,23 @@ void LLMultiSlider::draw()
             }
 
             // the draw command
-            gl_rect_2d(mIt->second, curThumbColor, true);
+            dx_rect_2d(mIt->second, curThumbColor, true);
         }
 
         // now draw the current and hover sliders
         if(curSldrIt != mThumbRects.end())
         {
-            gl_rect_2d(curSldrIt->second, mThumbCenterSelectedColor.get(), true);
+            dx_rect_2d(curSldrIt->second, mThumbCenterSelectedColor.get(), true);
         }
 
         // and draw the drag start
         if (gFocusMgr.getMouseCapture() == this)
         {
-            gl_rect_2d(mDragStartThumbRect, mThumbCenterColor.get() % opacity, false);
+            dx_rect_2d(mDragStartThumbRect, mThumbCenterColor.get() % opacity, false);
         }
         else if (hoverSldrIt != mThumbRects.end())
         {
-            gl_rect_2d(hoverSldrIt->second, mThumbCenterSelectedColor.get(), true);
+            dx_rect_2d(hoverSldrIt->second, mThumbCenterSelectedColor.get(), true);
         }
     }
     else

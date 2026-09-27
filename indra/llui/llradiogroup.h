@@ -102,7 +102,7 @@ public:
     /*virtual*/ bool    operateOnAll(EOperation op);
 
 private:
-    const LLFontGL*     mFont;
+    const LLFontDX*     mFont;
     S32                 mSelectedIndex;
 
     typedef std::vector<class LLRadioCtrl*> button_list_t;

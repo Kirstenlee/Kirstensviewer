@@ -32,7 +32,7 @@
 #include "llinitparam.h"
 #include "lluiimage.h"
 
-class LLFontGL;
+class LLFontDX;
 
 class LLStyle : public LLRefCount
 {
@@ -40,13 +40,13 @@ public:
     struct Params : public LLInitParam::Block<Params>
     {
         Optional<bool>                  visible;
-        Optional<LLFontGL::ShadowType>  drop_shadow;
+        Optional<LLFontDX::ShadowType>  drop_shadow;
         Optional<LLUIColor>             color,
                                         readonly_color,
                                         selected_color,
                                         highlight_bg_color;
         Optional<F32>                   alpha;
-        Optional<const LLFontGL*>       font;
+        Optional<const LLFontDX*>       font;
         Optional<LLUIImage*>            image;
         Optional<std::string>           link_href;
         Optional<bool>                  is_link;
@@ -78,11 +78,11 @@ public:
     bool isVisible() const;
     void setVisible(bool is_visible);
 
-    LLFontGL::ShadowType getShadowType() const { return mDropShadow; }
+    LLFontDX::ShadowType getShadowType() const { return mDropShadow; }
 
-    void setFont(const LLFontGL* font);
-    const LLFontGL* getFont() const;
-    static const LLFontGL* getDefaultFont();
+    void setFont(const LLFontDX* font);
+    const LLFontDX* getFont() const;
+    static const LLFontDX* getDefaultFont();
 
     const std::string& getLinkHREF() const { return mLink; }
     void setLinkHREF(const std::string& href);
@@ -116,7 +116,7 @@ public:
     bool operator!=(const LLStyle& rhs) const { return !(*this == rhs); }
 
 public:
-    LLFontGL::ShadowType        mDropShadow;
+    LLFontDX::ShadowType        mDropShadow;
 
 protected:
     ~LLStyle() = default;
@@ -128,7 +128,7 @@ private:
     LLUIColor           mReadOnlyColor;
     LLUIColor           mSelectedColor;
     LLUIColor           mHighlightBgColor;
-    const LLFontGL*     mFont;
+    const LLFontDX*     mFont;
     LLPointer<LLUIImage> mImagep;
     F32                 mAlpha;
     bool                mVisible;

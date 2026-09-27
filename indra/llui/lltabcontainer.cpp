@@ -118,7 +118,7 @@ protected:
     LLCustomButtonIconCtrl(const Params& p)
     :   LLButton(p),
         mIcon(NULL),
-        mIconAlignment(LLFontGL::HCENTER),
+        mIconAlignment(LLFontDX::HCENTER),
         mIconCtrlPad(p.icon_ctrl_pad)
     {}
 
@@ -133,17 +133,17 @@ public:
 
         switch(mIconAlignment)
         {
-        case LLFontGL::LEFT:
+        case LLFontDX::LEFT:
             icon_rect.setLeftTopAndSize(button_rect.mLeft + mIconCtrlPad, button_rect.mTop - mIconCtrlPad,
                 icon_size, icon_size);
             setLeftHPad(icon_size + mIconCtrlPad * 2);
             break;
-        case LLFontGL::HCENTER:
+        case LLFontDX::HCENTER:
             icon_rect.setLeftTopAndSize(button_rect.mRight - (button_rect.getWidth() + mIconCtrlPad - icon_size)/2, button_rect.mTop - mIconCtrlPad,
                 icon_size, icon_size);
             setRightHPad(icon_size + mIconCtrlPad * 2);
             break;
-        case LLFontGL::RIGHT:
+        case LLFontDX::RIGHT:
             icon_rect.setLeftTopAndSize(button_rect.mRight - mIconCtrlPad - icon_size, button_rect.mTop - mIconCtrlPad,
                 icon_size, icon_size);
             setRightHPad(icon_size + mIconCtrlPad * 2);
@@ -154,7 +154,7 @@ public:
         mIcon->setRect(icon_rect);
     }
 
-    void setIcon(LLIconCtrl* icon, LLFontGL::HAlign alignment = LLFontGL::LEFT)
+    void setIcon(LLIconCtrl* icon, LLFontDX::HAlign alignment = LLFontDX::LEFT)
     {
         if(icon)
         {
@@ -178,7 +178,7 @@ public:
 
 private:
     LLIconCtrl* mIcon;
-    LLFontGL::HAlign mIconAlignment;
+    LLFontDX::HAlign mIconAlignment;
     S32 mIconCtrlPad;
 };
 //============================================================================
@@ -1688,7 +1688,7 @@ void LLTabContainer::setTabImage(LLPanel* child, std::string image_name, const L
     LLTabTuple* tuple = getTabByPanel(child);
     if( tuple )
     {
-        tuple->mButton->setImageOverlay(image_name, LLFontGL::LEFT, color);
+        tuple->mButton->setImageOverlay(image_name, LLFontDX::LEFT, color);
         reshapeTuple(tuple);
     }
 }
@@ -1698,7 +1698,7 @@ void LLTabContainer::setTabImage(LLPanel* child, const LLUUID& image_id, const L
     LLTabTuple* tuple = getTabByPanel(child);
     if( tuple )
     {
-        tuple->mButton->setImageOverlay(image_id, LLFontGL::LEFT, color);
+        tuple->mButton->setImageOverlay(image_id, LLFontDX::LEFT, color);
         reshapeTuple(tuple);
     }
 }
@@ -1806,7 +1806,7 @@ void LLTabContainer::setPanelTitle(S32 index, const std::string& title)
     {
         LLTabTuple* tuple = getTab(index);
         LLButton* tab_button = tuple->mButton;
-        const LLFontGL* fontp = LLFontGL::getFontSansSerifSmall();
+        const LLFontDX* fontp = LLFontDX::getFontSansSerifSmall();
         mTotalTabWidth -= tab_button->getRect().getWidth();
         tab_button->reshape(llclamp(fontp->getWidth(title) + tab_padding + tuple->mPadding, mMinTabWidth, mMaxTabWidth), tab_button->getRect().getHeight());
         mTotalTabWidth += tab_button->getRect().getWidth();

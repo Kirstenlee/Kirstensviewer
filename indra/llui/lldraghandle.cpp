@@ -37,7 +37,7 @@
 #include "llmenugl.h"
 #include "lltextbox.h"
 #include "llcontrol.h"
-#include "llfontgl.h"
+#include "llfontdx.h"
 #include "llwindow.h"
 #include "llfocusmgr.h"
 #include "lluictrlfactory.h"
@@ -106,7 +106,7 @@ void LLDragHandleTop::setTitle(const std::string& title)
 		params.initial_value(trimmed_title);
         params.font(mFont);
 		params.follows.flags(FOLLOWS_TOP | FOLLOWS_LEFT | FOLLOWS_RIGHT);
-        params.font_shadow(LLFontGL::NO_SHADOW);
+        params.font_shadow(LLFontDX::NO_SHADOW);
 		params.use_ellipses = true;
 		params.parse_urls = false; //cancel URL replacement in floater title
 		mTitleBox = LLUICtrlFactory::create<LLTextBox> (params);
@@ -165,16 +165,16 @@ void LLDragHandleTop::draw()
 
 		for( S32 i=0; i<4; i++ )
 		{
-			gl_line_2d(left, line+1, title_rect.mLeft - LEADING_PAD, line+1, mDragHighlightColor);
+			dx_line_2d(left, line+1, title_rect.mLeft - LEADING_PAD, line+1, mDragHighlightColor);
 			if( show_right_side )
 			{
-				gl_line_2d(title_right, line+1, right, line+1, mDragHighlightColor);
+				dx_line_2d(title_right, line+1, right, line+1, mDragHighlightColor);
 			}
 
-			gl_line_2d(left, line, title_rect.mLeft - LEADING_PAD, line, mDragShadowColor);
+			dx_line_2d(left, line, title_rect.mLeft - LEADING_PAD, line, mDragShadowColor);
 			if( show_right_side )
 			{
-				gl_line_2d(title_right, line, right, line, mDragShadowColor);
+				dx_line_2d(title_right, line, right, line, mDragShadowColor);
 			}
 			line -= LINE_SPACING;
 		}
@@ -217,9 +217,9 @@ void LLDragHandleLeft::draw()
 		S32 line = left;
 		for( S32 i=0; i<4; i++ )
 		{
-			gl_line_2d(line, top, line, bottom, mDragHighlightColor);
+			dx_line_2d(line, top, line, bottom, mDragHighlightColor);
 
-			gl_line_2d(line+1, top, line+1, bottom, mDragShadowColor);
+			dx_line_2d(line+1, top, line+1, bottom, mDragShadowColor);
 
 			line += LINE_SPACING;
 		}
@@ -241,7 +241,7 @@ void LLDragHandleTop::reshapeTitleBox()
 	{
 		return;
 	}
-	const LLFontGL* font = LLFontGL::getFontSansSerif();
+	const LLFontDX* font = LLFontDX::getFontSansSerif();
 	S32 title_width = getRect().getWidth();
 	title_width -= LEFT_PAD + 2 * BORDER_PAD + getButtonsRect().getWidth();
 	S32 title_height = font->getLineHeight();

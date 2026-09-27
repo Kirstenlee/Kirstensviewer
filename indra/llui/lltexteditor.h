@@ -40,7 +40,7 @@
 #include "llpreeditor.h"
 #include "llcontrol.h"
 
-class LLFontGL;
+class LLFontDX;
 class LLScrollbar;
 class TextCmd;
 class LLUICtrlFactory;

@@ -183,13 +183,13 @@ void LLScrollListIcon::draw(const LLColor4& color, const LLColor4& highlight_col
         } // else will draw full icon even if cell is smaller
         switch(mAlignment)
         {
-        case LLFontGL::LEFT:
+        case LLFontDX::LEFT:
             mIcon->draw(0, 0, draw_width, draw_height, mColor);
             break;
-        case LLFontGL::RIGHT:
+        case LLFontDX::RIGHT:
             mIcon->draw(getWidth() - draw_width, 0, draw_width, draw_height, mColor);
             break;
-        case LLFontGL::HCENTER:
+        case LLFontDX::HCENTER:
             mIcon->draw((getWidth() - draw_width) / 2, 0, draw_width, draw_height, mColor);
             break;
         default:
@@ -263,7 +263,7 @@ void LLScrollListBar::draw(const LLColor4& color, const LLColor4& highlight_colo
     S32 left = (S32)(bar_width - bar_width * mRatio);
     left = llclamp(left, mLeftPad, getWidth() - mRightPad - 1);
 
-    gl_rect_2d(left, mBottom, getWidth() - mRightPad, mBottom - 1, mColor);
+    dx_rect_2d(left, mBottom, getWidth() - mRightPad, mBottom - 1, mColor);
 }
 
 //
@@ -382,11 +382,11 @@ void LLScrollListText::setFontStyle(const U8 font_style)
 {
     LLFontDescriptor new_desc(mFont->getFontDesc());
     new_desc.setStyle(font_style);
-    mFont = LLFontGL::getFont(new_desc);
+    mFont = LLFontDX::getFont(new_desc);
     mFontBuffer.reset();
 }
 
-void LLScrollListText::setAlignment(LLFontGL::HAlign align)
+void LLScrollListText::setAlignment(LLFontDX::HAlign align)
 {
     mFontAlignment = align;
     mFontBuffer.reset();
@@ -435,13 +435,13 @@ void LLScrollListText::draw(const LLColor4& color, const LLColor4& highlight_col
         S32 left = 0;
         switch(mFontAlignment)
         {
-        case LLFontGL::LEFT:
+        case LLFontDX::LEFT:
             left = mFont->getWidth(mText.getWString().c_str(), 1, mHighlightOffset);
             break;
-        case LLFontGL::RIGHT:
+        case LLFontDX::RIGHT:
             left = getWidth() - mFont->getWidth(mText.getWString().c_str(), mHighlightOffset, S32_MAX);
             break;
-        case LLFontGL::HCENTER:
+        case LLFontDX::HCENTER:
             left = (getWidth() - mFont->getWidth(mText.getWString().c_str())) / 2;
             break;
         }
@@ -458,13 +458,13 @@ void LLScrollListText::draw(const LLColor4& color, const LLColor4& highlight_col
     F32 start_x = 0.f;
     switch(mFontAlignment)
     {
-    case LLFontGL::LEFT:
+    case LLFontDX::LEFT:
         start_x = 1.f;
         break;
-    case LLFontGL::RIGHT:
+    case LLFontDX::RIGHT:
         start_x = (F32)getWidth();
         break;
-    case LLFontGL::HCENTER:
+    case LLFontDX::HCENTER:
         start_x = (F32)getWidth() * 0.5f;
         break;
     }
@@ -473,9 +473,9 @@ void LLScrollListText::draw(const LLColor4& color, const LLColor4& highlight_col
                        start_x, 0.f,
                        display_color,
                        mFontAlignment,
-                       LLFontGL::BOTTOM,
+                       LLFontDX::BOTTOM,
                        0,
-                       LLFontGL::NO_SHADOW,
+                       LLFontDX::NO_SHADOW,
                        string_chars,
                        getTextWidth(),
                        &right_x,
@@ -655,13 +655,13 @@ void LLScrollListIconText::draw(const LLColor4& color, const LLColor4& highlight
         S32 left = 0;
         switch (mFontAlignment)
         {
-        case LLFontGL::LEFT:
+        case LLFontDX::LEFT:
             left = mFont->getWidth(mText.getWString().c_str(), icon_space + 1, mHighlightOffset);
             break;
-        case LLFontGL::RIGHT:
+        case LLFontDX::RIGHT:
             left = getWidth() - mFont->getWidth(mText.getWString().c_str(), mHighlightOffset, S32_MAX) - icon_space;
             break;
-        case LLFontGL::HCENTER:
+        case LLFontDX::HCENTER:
             left = (getWidth() - mFont->getWidth(mText.getWString().c_str()) - icon_space) / 2;
             break;
         }
@@ -679,15 +679,15 @@ void LLScrollListIconText::draw(const LLColor4& color, const LLColor4& highlight
     S32 start_icon_x = 0;
     switch (mFontAlignment)
     {
-    case LLFontGL::LEFT:
+    case LLFontDX::LEFT:
         start_text_x = icon_space + 1.f;
         start_icon_x = 1;
         break;
-    case LLFontGL::RIGHT:
+    case LLFontDX::RIGHT:
         start_text_x = (F32)getWidth();
         start_icon_x = getWidth() - mFont->getWidth(mText.getWString().c_str()) - icon_space;
         break;
-    case LLFontGL::HCENTER:
+    case LLFontDX::HCENTER:
         F32 center = (F32)getWidth()* 0.5f;
         start_text_x = center + ((F32)icon_space * 0.5f);
         start_icon_x = (S32)(center - (((F32)icon_space + mFont->getWidth(mText.getWString().c_str())) * 0.5f));
@@ -699,9 +699,9 @@ void LLScrollListIconText::draw(const LLColor4& color, const LLColor4& highlight
         start_text_x, 0.f,
         display_color,
         mFontAlignment,
-        LLFontGL::BOTTOM,
+        LLFontDX::BOTTOM,
         0,
-        LLFontGL::NO_SHADOW,
+        LLFontDX::NO_SHADOW,
         string_chars,
         getTextWidth(),
         &right_x,

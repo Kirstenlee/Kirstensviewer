@@ -914,7 +914,7 @@ const std::string LLView::getToolTip() const
             const std::string& name = getName();
             std::string tooltip = llformat("Name: \"%s\"", name.c_str());
 
-            if (const LLFontGL* font = getFont())
+            if (const LLFontDX* font = getFont())
             {
                 tooltip += llformat("\nFont: %s (%s)",
                     font->getFontDesc().getName().c_str(),
@@ -1369,8 +1369,8 @@ void LLView::drawDebugRect()
 
 			std::string debug_text = llformat("%s (%d x %d)", getName().c_str(),
 										debug_rect.getWidth(), debug_rect.getHeight());
-			LLFontGL::getFontSansSerifSmall()->renderUTF8(debug_text, 0, (F32)x, (F32)y, border_color,
-					LLFontGL::HCENTER, LLFontGL::BASELINE, LLFontGL::NORMAL, LLFontGL::NO_SHADOW);
+			LLFontDX::getFontSansSerifSmall()->renderUTF8(debug_text, 0, (F32)x, (F32)y, border_color,
+					LLFontDX::HCENTER, LLFontDX::BASELINE, LLFontDX::NORMAL, LLFontDX::NO_SHADOW);
 		}
 	}
 	LLUI::popMatrix();
@@ -2409,15 +2409,15 @@ void LLView::parseFollowsFlags(const LLView::Params& params)
 
 
 // static
-//LLFontGL::HAlign LLView::selectFontHAlign(LLXMLNodePtr node)
+//LLFontDX::HAlign LLView::selectFontHAlign(LLXMLNodePtr node)
 //{
-//	LLFontGL::HAlign gl_hfont_align = LLFontGL::LEFT;
+//	LLFontDX::HAlign gl_hfont_align = LLFontDX::LEFT;
 //
 //	if (node->hasAttribute("halign"))
 //	{
 //		std::string horizontal_align_name;
 //		node->getAttributeString("halign", horizontal_align_name);
-//		gl_hfont_align = LLFontGL::hAlignFromName(horizontal_align_name);
+//		gl_hfont_align = LLFontDX::hAlignFromName(horizontal_align_name);
 //	}
 //	return gl_hfont_align;
 //}

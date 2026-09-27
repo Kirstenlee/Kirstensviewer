@@ -115,9 +115,9 @@ public:
 		Optional<ControlVisibility>		controls_visibility;
 		
 		// font params
-		Optional<const LLFontGL*>		font;
-		Optional<LLFontGL::HAlign>		font_halign;
-		Optional<LLFontGL::VAlign>		font_valign;
+		Optional<const LLFontDX*>		font;
+		Optional<LLFontDX::HAlign>		font_halign;
+		Optional<LLFontDX::VAlign>		font_valign;
 
 		// cruft from LLXMLNode implementation
 		Ignored							type,

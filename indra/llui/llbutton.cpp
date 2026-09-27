@@ -43,7 +43,7 @@
 #include "llfloater.h"
 #include "llfloaterreg.h"
 #include "llfocusmgr.h"
-#include "llfontgl.h"
+#include "llfontdx.h"
 #include "llfontvertexbuffer.h"
 #include "llwindow.h"
 #include "llrender2dutils.h"
@@ -158,7 +158,7 @@ LLButton::LLButton(const LLButton::Params& p)
     mImageOverlayColor(p.image_overlay_color()),
     mImageOverlayDisabledColor(p.image_overlay_disabled_color()),
     mImageOverlaySelectedColor(p.image_overlay_selected_color()),
-    mImageOverlayAlignment(LLFontGL::hAlignFromName(p.image_overlay_alignment)),
+    mImageOverlayAlignment(LLFontDX::hAlignFromName(p.image_overlay_alignment)),
     mImageOverlayTopPad(p.image_top_pad),
     mImageOverlayBottomPad(p.image_bottom_pad),
     mImgOverlayLabelSpace(p.imgoverlay_label_space),
@@ -932,7 +932,7 @@ void LLButton::draw()
         // no image
         LL_DEBUGS() << "No image for button " << getName() << LL_ENDL;
         // draw it in pink so we can find it
-        gl_rect_2d(0, getRect().getHeight(), getRect().getWidth(), 0, LLColor4::pink1 % alpha, false);
+        dx_rect_2d(0, getRect().getHeight(), getRect().getWidth(), 0, LLColor4::pink1 % alpha, false);
     }
 
     // let overlay image and text play well together
@@ -985,7 +985,7 @@ void LLButton::draw()
 
         switch(mImageOverlayAlignment)
         {
-        case LLFontGL::LEFT:
+        case LLFontDX::LEFT:
             text_left += overlay_width + mImgOverlayLabelSpace;
             text_width -= overlay_width + mImgOverlayLabelSpace;
             drawButtonImage(mImageOverlay,
@@ -995,7 +995,7 @@ void LLButton::draw()
                 overlay_height,
                 overlay_color);
             break;
-        case LLFontGL::HCENTER:
+        case LLFontDX::HCENTER:
             drawButtonImage(mImageOverlay,
                 center_x - (overlay_width / 2),
                 center_y - (overlay_height / 2),
@@ -1003,7 +1003,7 @@ void LLButton::draw()
                 overlay_height,
                 overlay_color);
             break;
-        case LLFontGL::RIGHT:
+        case LLFontDX::RIGHT:
             text_right -= overlay_width + mImgOverlayLabelSpace;
             text_width -= overlay_width + mImgOverlayLabelSpace;
             drawButtonImage(mImageOverlay,
@@ -1029,13 +1029,13 @@ void LLButton::draw()
         S32 x;
         switch( mHAlign )
         {
-        case LLFontGL::RIGHT:
+        case LLFontDX::RIGHT:
             x = text_right;
             break;
-        case LLFontGL::HCENTER:
+        case LLFontDX::HCENTER:
             x = text_left + (text_width / 2);
             break;
-        case LLFontGL::LEFT:
+        case LLFontDX::LEFT:
         default:
             x = text_left;
             break;
@@ -1048,16 +1048,16 @@ void LLButton::draw()
 
         // *NOTE: mantipov: before mUseEllipses is implemented in EXT-279 U32_MAX has been passed as
         // max_chars.
-        // LLFontGL::render expects S32 max_chars variable but process in a separate way -1 value.
+        // LLFontDX::render expects S32 max_chars variable but process in a separate way -1 value.
         // Due to U32_MAX is equal to S32 -1 value I have rest this value for non-ellipses mode.
         // Not sure if it is really needed. Probably S32_MAX should be always passed as max_chars.
         mLastDrawCharsCount = mFontBuffer.render(mGLFont, label, 0,
             (F32)x,
             (F32)(getRect().getHeight() / 2 + mBottomVPad),
             label_color % alpha,
-            mHAlign, LLFontGL::VCENTER,
-            LLFontGL::NORMAL,
-            mDropShadowedText ? LLFontGL::DROP_SHADOW_SOFT : LLFontGL::NO_SHADOW,
+            mHAlign, LLFontDX::VCENTER,
+            LLFontDX::NORMAL,
+            mDropShadowedText ? LLFontDX::DROP_SHADOW_SOFT : LLFontDX::NO_SHADOW,
             S32_MAX, text_width,
             NULL, mUseEllipses, mUseFontColor);
     }
@@ -1165,9 +1165,9 @@ void LLButton::setDisabledLabelColor(const LLUIColor& c)
     mFontBuffer.reset();
 }
 
-void LLButton::setFont(const LLFontGL* font)
+void LLButton::setFont(const LLFontDX* font)
 {
-    mGLFont = (font ? font : LLFontGL::getFontSansSerif());
+    mGLFont = (font ? font : LLFontDX::getFontSansSerif());
     mFontBuffer.reset();
 }
 
@@ -1219,11 +1219,11 @@ void LLButton::resize(const LLUIString& label)
 
             switch(mImageOverlayAlignment)
             {
-            case LLFontGL::LEFT:
-            case LLFontGL::RIGHT:
+            case LLFontDX::LEFT:
+            case LLFontDX::RIGHT:
                 min_width += overlay_width + mImgOverlayLabelSpace;
                 break;
-            case LLFontGL::HCENTER:
+            case LLFontDX::HCENTER:
                 min_width = llmax(min_width, overlay_width + mLeftHPad + mRightHPad);
                 break;
             default:
@@ -1293,7 +1293,7 @@ void LLButton::setImageFlash(LLPointer<LLUIImage> image)
     mImageFlash = image;
 }
 
-void LLButton::setImageOverlay(const std::string& image_name, LLFontGL::HAlign alignment, const LLColor4& color)
+void LLButton::setImageOverlay(const std::string& image_name, LLFontDX::HAlign alignment, const LLColor4& color)
 {
     if (image_name.empty())
     {
@@ -1307,7 +1307,7 @@ void LLButton::setImageOverlay(const std::string& image_name, LLFontGL::HAlign a
     }
 }
 
-void LLButton::setImageOverlay(const LLUUID& image_id, LLFontGL::HAlign alignment, const LLColor4& color)
+void LLButton::setImageOverlay(const LLUUID& image_id, LLFontDX::HAlign alignment, const LLColor4& color)
 {
     if (image_id.isNull())
     {

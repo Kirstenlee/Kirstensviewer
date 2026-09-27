@@ -37,7 +37,7 @@
 #include "llcontrol.h"
 
 #include "llstring.h"
-#include "llfontgl.h"
+#include "llfontdx.h"
 #include "lltextbox.h"
 #include "llkeyboard.h"
 

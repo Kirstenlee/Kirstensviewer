@@ -29,7 +29,7 @@
 #include "llcontainerview.h"
 
 #include "llerror.h"
-#include "llfontgl.h"
+#include "llfontdx.h"
 #include "llgl.h"
 #include "llui.h"
 #include "llstring.h"
@@ -115,14 +115,14 @@ void LLContainerView::draw()
         gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
 
         // S24 UI: Slightly darker background (0.3 vs 0.25) for better contrast and text readability
-        gl_rect_2d(0, getRect().getHeight(), getRect().getWidth(), 0, LLColor4(0.f, 0.f, 0.f, 0.3f));
+        dx_rect_2d(0, getRect().getHeight(), getRect().getWidth(), 0, LLColor4(0.f, 0.f, 0.f, 0.3f));
     }
 
     // Draw the label
     if (mShowLabel)
     {
-        LLFontGL::getFontMonospace()->render(
-            mLabel, 0, 2.f, (F32)(getRect().getHeight() - 2), LLColor4(1,1,1,1), LLFontGL::LEFT, LLFontGL::TOP);
+        LLFontDX::getFontMonospace()->render(
+            mLabel, 0, 2.f, (F32)(getRect().getHeight() - 2), LLColor4(1,1,1,1), LLFontDX::LEFT, LLFontDX::TOP);
     }
 
     LLView::draw();

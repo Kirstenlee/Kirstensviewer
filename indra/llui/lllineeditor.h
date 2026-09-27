@@ -50,7 +50,7 @@
 #include "llpreeditor.h"
 #include "lltextvalidate.h"
 
-class LLFontGL;
+class LLFontDX;
 class LLLineEditorRollback;
 class LLButton;
 class LLContextMenu;
@@ -238,8 +238,8 @@ public:
     const LLColor4& getReadOnlyFgColor() const  { return mReadOnlyFgColor.get(); }
     const LLColor4& getTentativeFgColor() const { return mTentativeFgColor.get(); }
 
-    const LLFontGL* getFont() const override { return mGLFont; }
-    void setFont(const LLFontGL* font);
+    const LLFontDX* getFont() const override { return mGLFont; }
+    void setFont(const LLFontDX* font);
 
     void            setIgnoreArrowKeys(bool b)      { mIgnoreArrowKeys = b; }
     void            setIgnoreTab(bool b)            { mIgnoreTab = b; }
@@ -344,7 +344,7 @@ protected:
     line_history_t::iterator    mCurrentHistoryLine;    // currently browsed history line
 
     LLViewBorder* mBorder;
-    const LLFontGL* mGLFont;
+    const LLFontDX* mGLFont;
     LLFontVertexBuffer mFontBufferPreSelection;
     LLFontVertexBuffer mFontBufferSelection;
     LLFontVertexBuffer mFontBufferPostSelection;

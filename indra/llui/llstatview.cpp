@@ -30,7 +30,7 @@
 
 #include "llerror.h"
 #include "llstatbar.h"
-#include "llfontgl.h"
+#include "llfontdx.h"
 #include "llgl.h"
 #include "llui.h"
 

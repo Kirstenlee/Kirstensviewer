@@ -93,7 +93,7 @@ public:
         /**
          * Tab label horizontal alignment
          */
-        Optional<LLFontGL::HAlign>          font_halign;
+        Optional<LLFontDX::HAlign>          font_halign;
 
         /**
          * Tab label ellipses
@@ -311,8 +311,8 @@ private:
 
     LLFrameTimer                    mDragAndDropDelayTimer;
 
-    LLFontGL::HAlign                mFontHalign;
-    const LLFontGL*                 mFont;
+    LLFontDX::HAlign                mFontHalign;
+    const LLFontDX*                 mFont;
 
     TabParams                       mFirstTabParams;
     TabParams                       mMiddleTabParams;

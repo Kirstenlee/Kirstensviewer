@@ -124,7 +124,7 @@ public:
         };
         Optional<Header>                    header;
 
-        Optional<LLFontGL::HAlign>          halign;
+        Optional<LLFontDX::HAlign>          halign;
 
         Params()
         :   name("name"),
@@ -132,7 +132,7 @@ public:
             sort_column("sort_column"),
             sort_direction("sort_direction"),
             sort_ascending("sort_ascending", true),
-            halign("halign", LLFontGL::LEFT)
+            halign("halign", LLFontDX::LEFT)
         {
             // default choice to "dynamic_width"
             changeDefault(width.dynamic_width, true);
@@ -163,7 +163,7 @@ public:
     S32                     mIndex;
     LLScrollListCtrl*       mParentCtrl;
     LLScrollColumnHeader*   mHeader;
-    LLFontGL::HAlign        mFontAlignment;
+    LLFontDX::HAlign        mFontAlignment;
 
 private:
     S32                     mWidth;

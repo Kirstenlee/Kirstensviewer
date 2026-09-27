@@ -151,8 +151,8 @@ private:
     void            updateSliderRect();
     void            reportInvalidData();
 
-    const LLFontGL* mFont;
-    const LLFontGL* mLabelFont;
+    const LLFontDX* mFont;
+    const LLFontDX* mLabelFont;
     bool            mShowText;
     bool            mCanEditText;
 

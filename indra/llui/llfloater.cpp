@@ -184,7 +184,7 @@ LLFloater::Params::Params()
     show_title("show_title", true),
     auto_close("auto_close", false),
     positioning("positioning", LLFloaterEnums::POSITIONING_RELATIVE),
-    header_font("header_font", LLFontGL::getFontSansSerif()),
+    header_font("header_font", LLFontDX::getFontSansSerif()),
     header_height("header_height", 0),
     legacy_header_height("legacy_header_height", 0),
     header_vpad("header_vpad", 7),
@@ -2065,7 +2065,7 @@ void LLFloater::draw()
         else
         {
             // We're not using images, use old-school flat colors
-            gl_rect_2d( left, top, right, bottom, color % alpha );
+            dx_rect_2d( left, top, right, bottom, color % alpha );
 
             // draw highlight on title bar to indicate focus.  RDW
             if(hasFocus()
@@ -2074,9 +2074,9 @@ void LLFloater::draw()
             {
                 static LLUIColor titlebar_focus_color = LLUIColorTable::instance().getColor("TitleBarFocusColor");
 
-                const LLFontGL* font = LLFontGL::getFontSansSerif();
+                const LLFontDX* font = LLFontDX::getFontSansSerif();
                 LLRect r = getRect();
-                gl_rect_2d_offset_local(0, r.getHeight(), r.getWidth(), r.getHeight() - font->getLineHeight() - 1,
+                dx_rect_2d_offset_local(0, r.getHeight(), r.getWidth(), r.getHeight() - font->getLineHeight() - 1,
                     titlebar_focus_color % alpha, 0, true);
             }
         }
@@ -2126,7 +2126,7 @@ void    LLFloater::drawShadow(LLPanel* panel)
         shadow_offset *= 0.2f;
         shadow_color.mV[VALPHA] *= 0.5f;
     }
-    gl_drop_shadow(left, top, right, bottom,
+    dx_drop_shadow(left, top, right, bottom,
         shadow_color % getCurrentTransparency(),
         ll_round(shadow_offset));
 }

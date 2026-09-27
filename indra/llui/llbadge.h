@@ -40,7 +40,7 @@
 // Declarations
 //
 
-class LLFontGL;
+class LLFontDX;
 class LLFontVertexBuffer;
 class LLScrollContainer;
 class LLUICtrlFactory;
@@ -145,7 +145,7 @@ private:
 	LLPointer< LLUIImage >	mBorderImage;
 	LLUIColor				mBorderColor;
 
-	const LLFontGL*			mGLFont;
+	const LLFontDX*			mGLFont;
     LLFontVertexBuffer      mFontBuffer;
 	
 	LLPointer< LLUIImage >	mImage;

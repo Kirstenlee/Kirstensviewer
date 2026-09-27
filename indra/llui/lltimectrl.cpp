@@ -32,7 +32,7 @@
 #include "lluiconstants.h"
 
 #include "llbutton.h"
-#include "llfontgl.h"
+#include "llfontdx.h"
 #include "lllineeditor.h"
 #include "llkeyboard.h"
 #include "llstring.h"

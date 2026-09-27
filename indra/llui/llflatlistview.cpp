@@ -1070,7 +1070,7 @@ void LLFlatListView::drawReorderIndicator()
     for (item_pair_t* pair : mReorderDragGroup)
     {
         const LLRect& dr = pair->first->getRect();
-        gl_rect_2d(panel_rc.mLeft + dr.mLeft, panel_rc.mBottom + dr.mTop,
+        dx_rect_2d(panel_rc.mLeft + dr.mLeft, panel_rc.mBottom + dr.mTop,
                    panel_rc.mLeft + dr.mRight, panel_rc.mBottom + dr.mBottom,
                    color % 0.15f, true);
     }
@@ -1102,7 +1102,7 @@ void LLFlatListView::drawReorderIndicator()
     if (line_y < 0 || line_y > getRect().getHeight())
         return;
 
-    gl_rect_2d(left, line_y, right, line_y - 1, color, true);
+    dx_rect_2d(left, line_y, right, line_y - 1, color, true);
 }
 
 bool LLFlatListView::handleHover(S32 x, S32 y, MASK mask)

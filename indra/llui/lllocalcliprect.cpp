@@ -26,7 +26,7 @@
 
 #include "lllocalcliprect.h"
 
-#include "llfontgl.h"
+#include "llfontdx.h"
 #include "llui.h"
 
 #ifdef DX_RENDER
@@ -132,10 +132,10 @@ void LLScreenClipRect::updateScissorRegion()
 // LLLocalClipRect
 //---------------------------------------------------------------------------
 LLLocalClipRect::LLLocalClipRect(const LLRect& rect, bool enabled /* = true */)
-:   LLScreenClipRect(LLRect(rect.mLeft + LLFontGL::sCurOrigin.mX,
-                    rect.mTop + LLFontGL::sCurOrigin.mY,
-                    rect.mRight + LLFontGL::sCurOrigin.mX,
-                    rect.mBottom + LLFontGL::sCurOrigin.mY), enabled)
+:   LLScreenClipRect(LLRect(rect.mLeft + LLFontDX::sCurOrigin.mX,
+                    rect.mTop + LLFontDX::sCurOrigin.mY,
+                    rect.mRight + LLFontDX::sCurOrigin.mX,
+                    rect.mBottom + LLFontDX::sCurOrigin.mY), enabled)
 {}
 
 LLLocalClipRect::~LLLocalClipRect()

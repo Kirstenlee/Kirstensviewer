@@ -174,7 +174,7 @@ public:
 		
 		Optional<LLFloaterEnums::EOpenPositioning>	positioning;
 		
-        Optional<const LLFontGL*> header_font;
+        Optional<const LLFontDX*> header_font;
 		Optional<S32>			header_height,
                                 legacy_header_height, // HACK see initFromXML()
                                 header_vpad;

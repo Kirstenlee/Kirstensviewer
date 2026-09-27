@@ -37,7 +37,7 @@
 #include "lluiimage.h"
 #include "llwindow.h"
 
-#include "llgltexture.h"
+#include "lldxtexture.h"
 #include "llrender2dutils.h"
 
 static LLDefaultChildRegistry::Register<LLIconCtrl> r("icon");
@@ -134,7 +134,7 @@ bool LLIconCtrl::handleHover(S32 x, S32 y, MASK mask)
 void LLIconCtrl::onVisibilityChange(bool new_visibility)
 {
     LLUICtrl::onVisibilityChange(new_visibility);
-    if (mPriority == LLGLTexture::BOOST_ICON)
+    if (mPriority == LLDXTexture::BOOST_ICON)
     {
         if (new_visibility)
         {
@@ -169,7 +169,7 @@ void LLIconCtrl::setValue(const LLSD& value, S32 priority)
 
 void LLIconCtrl::loadImage(const LLSD& tvalue, S32 priority)
 {
-    if(mPriority == LLGLTexture::BOOST_ICON && !getVisible()) return;
+    if(mPriority == LLDXTexture::BOOST_ICON && !getVisible()) return;
 
     if (tvalue.isUUID())
     {

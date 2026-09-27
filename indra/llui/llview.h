@@ -33,7 +33,7 @@
 
 #include "stdtypes.h"
 #include "llcoord.h"
-#include "llfontgl.h"
+#include "llfontdx.h"
 #include "llhandle.h"
 #include "llmortician.h"
 #include "llmousehandler.h"
@@ -245,7 +245,7 @@ public:
     static F32 getTooltipTimeout();
     virtual const std::string getToolTip() const;
     virtual const std::string& getText() const { return LLStringUtil::null; }
-    virtual const LLFontGL* getFont() const { return nullptr; }
+    virtual const LLFontDX* getFont() const { return nullptr; }
 
 	void		sendChildToFront(LLView* child);
 	void		sendChildToBack(LLView* child);
@@ -491,7 +491,7 @@ public:
 	//////////////////////////////////////////////
 	// statics
 	//////////////////////////////////////////////
-	//static LLFontGL::HAlign selectFontHAlign(LLXMLNodePtr node);
+	//static LLFontDX::HAlign selectFontHAlign(LLXMLNodePtr node);
 	
 	// focuses the item in the list after the currently-focused item, wrapping if necessary
     static  bool focusNext(LLView::child_list_t & result);

@@ -28,13 +28,13 @@
 
 #include "llstyle.h"
 
-#include "llfontgl.h"
+#include "llfontdx.h"
 #include "llstring.h"
 #include "llui.h"
 // S24 ugh hardcoded colors consdier making this dynamic?
 LLStyle::Params::Params()
     : visible("visible", true),
-    drop_shadow("drop_shadow", LLFontGL::NO_SHADOW),
+    drop_shadow("drop_shadow", LLFontDX::NO_SHADOW),
     color("color", LLColor4::black),
     readonly_color("readonly_color", LLColor4::cyan2),
     selected_color("selected_color", LLColor4::black),
@@ -63,20 +63,20 @@ LLStyle::LLStyle(const LLStyle::Params& p)
     mDrawHighlightBg(p.draw_highlight_bg)
 {}
 
-void LLStyle::setFont(const LLFontGL* font)
+void LLStyle::setFont(const LLFontDX* font)
 {
     mFont = font;
 }
 
 
-const LLFontGL* LLStyle::getFont() const
+const LLFontDX* LLStyle::getFont() const
 {
     return mFont;
 }
 
-const LLFontGL* LLStyle::getDefaultFont()
+const LLFontDX* LLStyle::getDefaultFont()
 {
-    return LLFontGL::getFontMonospace();
+    return LLFontDX::getFontMonospace();
 }
 
 void LLStyle::setLinkHREF(const std::string& href)

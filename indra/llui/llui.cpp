@@ -166,7 +166,7 @@ LLUI::LLUI(const settings_map_t& settings,
 		LL_ERRS() << "Failure to initialize configuration groups" << LL_ENDL;
 	}
 
-	LLFontGL::sShadowColor = LLUIColorTable::instance().getColor("ColorDropShadow");
+	LLFontDX::sShadowColor = LLUIColorTable::instance().getColor("ColorDropShadow");
 
 	LLUICtrl::CommitCallbackRegistry::Registrar& reg = LLUICtrl::CommitCallbackRegistry::defaultRegistrar();
 
@@ -580,13 +580,13 @@ namespace LLInitParam
 		control.set("", make_block_authoritative);
 	}
 
-	bool ParamCompare<const LLFontGL*, false>::equals(const LLFontGL* a, const LLFontGL* b)
+	bool ParamCompare<const LLFontDX*, false>::equals(const LLFontDX* a, const LLFontDX* b)
 	{
 		return !(a->getFontDesc() < b->getFontDesc())
 			&& !(b->getFontDesc() < a->getFontDesc());
 	}
 
-	ParamValue<const LLFontGL*>::ParamValue(const LLFontGL* fontp)
+	ParamValue<const LLFontDX*>::ParamValue(const LLFontDX* fontp)
 		: super_t(fontp),
 		name("name"),
 		size("size"),
@@ -594,15 +594,15 @@ namespace LLInitParam
 	{
 		if (!fontp)
 		{
-			updateValue(LLFontGL::getFontDefault());
+			updateValue(LLFontDX::getFontDefault());
 		}
 		addSynonym(name, "");
 		updateBlockFromValue(false);
 	}
 
-	void ParamValue<const LLFontGL*>::updateValueFromBlock()
+	void ParamValue<const LLFontDX*>::updateValueFromBlock()
 	{
-		const LLFontGL* res_fontp = LLFontGL::getFontByName(name);
+		const LLFontDX* res_fontp = LLFontDX::getFontByName(name);
 		if (res_fontp)
 		{
 			updateValue(res_fontp);
@@ -610,26 +610,26 @@ namespace LLInitParam
 		}
 
 		U8 fontstyle = 0;
-		fontstyle = LLFontGL::getStyleFromString(style());
+		fontstyle = LLFontDX::getStyleFromString(style());
 		LLFontDescriptor desc(name(), size(), fontstyle);
-		const LLFontGL* fontp = LLFontGL::getFont(desc);
+		const LLFontDX* fontp = LLFontDX::getFont(desc);
 		if (fontp)
 		{
 			updateValue(fontp);
 		}
 		else
 		{
-			updateValue(LLFontGL::getFontDefault());
+			updateValue(LLFontDX::getFontDefault());
 		}
 	}
 
-	void ParamValue<const LLFontGL*>::updateBlockFromValue(bool make_block_authoritative)
+	void ParamValue<const LLFontDX*>::updateBlockFromValue(bool make_block_authoritative)
 	{
 		if (getValue())
 		{
-			name.set(LLFontGL::nameFromFont(getValue()), make_block_authoritative);
-			size.set(LLFontGL::sizeFromFont(getValue()), make_block_authoritative);
-			style.set(LLFontGL::getStringFromStyle(getValue()->getFontDesc().getStyle()), make_block_authoritative);
+			name.set(LLFontDX::nameFromFont(getValue()), make_block_authoritative);
+			size.set(LLFontDX::sizeFromFont(getValue()), make_block_authoritative);
+			style.set(LLFontDX::getStringFromStyle(getValue()->getFontDesc().getStyle()), make_block_authoritative);
 		}
 	}
 
@@ -745,25 +745,25 @@ namespace LLInitParam
 		y.set(getValue().mY, make_block_authoritative);
 	}
 
-	void TypeValues<LLFontGL::HAlign>::declareValues()
+	void TypeValues<LLFontDX::HAlign>::declareValues()
 	{
-		declare("left", LLFontGL::LEFT);
-		declare("right", LLFontGL::RIGHT);
-		declare("center", LLFontGL::HCENTER);
+		declare("left", LLFontDX::LEFT);
+		declare("right", LLFontDX::RIGHT);
+		declare("center", LLFontDX::HCENTER);
 	}
 
-	void TypeValues<LLFontGL::VAlign>::declareValues()
+	void TypeValues<LLFontDX::VAlign>::declareValues()
 	{
-		declare("top", LLFontGL::TOP);
-		declare("center", LLFontGL::VCENTER);
-		declare("baseline", LLFontGL::BASELINE);
-		declare("bottom", LLFontGL::BOTTOM);
+		declare("top", LLFontDX::TOP);
+		declare("center", LLFontDX::VCENTER);
+		declare("baseline", LLFontDX::BASELINE);
+		declare("bottom", LLFontDX::BOTTOM);
 	}
 
-	void TypeValues<LLFontGL::ShadowType>::declareValues()
+	void TypeValues<LLFontDX::ShadowType>::declareValues()
 	{
-		declare("none", LLFontGL::NO_SHADOW);
-		declare("hard", LLFontGL::DROP_SHADOW);
-		declare("soft", LLFontGL::DROP_SHADOW_SOFT);
+		declare("none", LLFontDX::NO_SHADOW);
+		declare("hard", LLFontDX::DROP_SHADOW);
+		declare("soft", LLFontDX::DROP_SHADOW_SOFT);
 	}
 }

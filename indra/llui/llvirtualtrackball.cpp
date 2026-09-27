@@ -228,8 +228,8 @@ void LLVirtualTrackball::draw()
     if (LLView::sDebugRects)
     {
         gDX.color4fv(LLColor4::red.mV);
-        gl_circle_2d((F32)mTouchArea->getRect().getCenterX(), (F32)mTouchArea->getRect().getCenterY(), (F32)mImgSphere->getWidth() / 2.f, 60, false);
-        gl_circle_2d(draw_point.mV[VX], draw_point.mV[VY], (F32)mImgSunFront->getWidth() / 2.f, 12, false);
+        dx_circle_2d((F32)mTouchArea->getRect().getCenterX(), (F32)mTouchArea->getRect().getCenterY(), (F32)mImgSphere->getWidth() / 2.f, 60, false);
+        dx_circle_2d(draw_point.mV[VX], draw_point.mV[VY], (F32)mImgSunFront->getWidth() / 2.f, 12, false);
     }
 
     // hide the direction labels when disabled

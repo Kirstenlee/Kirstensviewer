@@ -56,8 +56,8 @@ public:
 
     void setText(const LLStringExplicit& text, const LLStyle::Params& input_params = LLStyle::Params()) override;
 	
-	void			setRightAlign()							{ mHAlign = LLFontGL::RIGHT; }
-	void			setHAlign( LLFontGL::HAlign align )		{ mHAlign = align; }
+	void			setRightAlign()							{ mHAlign = LLFontDX::RIGHT; }
+	void			setHAlign( LLFontDX::HAlign align )		{ mHAlign = align; }
     void setClickedCallback(std::function<void(void*)> cb, void* userdata = nullptr);
 
     void            reshapeToFitText(bool called_from_parent = false);

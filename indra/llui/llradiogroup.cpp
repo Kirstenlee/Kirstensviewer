@@ -81,7 +81,7 @@ LLRadioGroup::Params::Params()
 
 LLRadioGroup::LLRadioGroup(const LLRadioGroup::Params& p)
 :   LLUICtrl(p),
-    mFont(p.font.isProvided() ? p.font() : LLFontGL::getFontSansSerifSmall()),
+    mFont(p.font.isProvided() ? p.font() : LLFontDX::getFontSansSerifSmall()),
     mSelectedIndex(-1),
     mAllowDeselect(p.allow_deselect)
 {}

@@ -110,8 +110,8 @@ public:
     KEY getJumpKey() const { return mJumpKey; }
 
     // set the font used by this item.
-    void setFont(const LLFontGL* font) { mFont = font; }
-    const LLFontGL* getFont() const { return mFont; }
+    void setFont(const LLFontDX* font) { mFont = font; }
+    const LLFontDX* getFont() const { return mFont; }
 
     // returns the height in pixels for the current font.
     virtual U32 getNominalHeight( void ) const;
@@ -221,7 +221,7 @@ private:
     bool mBriefItem;
 
     // Font for this item
-    const LLFontGL* mFont;
+    const LLFontDX* mFont;
     bool mDrawTextDisabled;
 
     KEY mJumpKey;
@@ -563,7 +563,7 @@ public:
     // add a context menu branch
     bool appendContextSubMenu(LLMenuGL *menu);
 
-    const LLFontGL *getFont() const { return mFont; }
+    const LLFontDX *getFont() const { return mFont; }
 
   protected:
     void createSpilloverBranch();
@@ -598,7 +598,7 @@ public:
     bool            mNeedsArrange;
 
     // Font for top menu items only
-    const LLFontGL* mFont;
+    const LLFontDX* mFont;
 
 private:
 

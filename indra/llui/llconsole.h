@@ -111,9 +111,9 @@ public:
 	class Paragraph
 	{
 		public:
-			Paragraph (LLWString str, const LLColor4 &color, F32 add_time, const LLFontGL* font, F32 screen_width);
+			Paragraph (LLWString str, const LLColor4 &color, F32 add_time, const LLFontDX* font, F32 screen_width);
 			void makeParagraphColorSegments ( const LLColor4 &color);
-			void updateLines ( F32 screen_width,  const LLFontGL* font, bool force_resize=false );
+			void updateLines ( F32 screen_width,  const LLFontDX* font, bool force_resize=false );
 		public:
 			LLWString mParagraphText;	//The entire text of the paragraph
 			paragraph_color_segments_t	mParagraphColorSegments;
@@ -145,7 +145,7 @@ private:
 
 	F32			mLinePersistTime; // Age at which to stop drawing.
 	F32			mFadeTime; // Age at which to start fading
-	const LLFontGL*	mFont;
+	const LLFontDX*	mFont;
 	S32			mConsoleWidth;
 	S32			mConsoleHeight;
 

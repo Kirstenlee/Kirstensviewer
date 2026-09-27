@@ -116,7 +116,7 @@ void LLWindowShade::initFromParams(const LLWindowShade::Params& params)
 	text_p.rect = LLRect(31, 23, panel->getRect().getWidth() - 5, 3);
 	text_p.follows.flags = FOLLOWS_ALL;
 	text_p.text_color = mTextColor;
-	text_p.font = LLFontGL::getFontSansSerifSmall();
+	text_p.font = LLFontDX::getFontSansSerifSmall();
 	text_p.font.style = "BOLD";
 	text_p.name = "notification_text";
 	text_p.use_ellipses = true;
@@ -316,7 +316,7 @@ void LLWindowShade::displayLatestNotification()
 			label_p.rect = LLRect(cur_x, cur_y, cur_x + LINE_EDITOR_WIDTH, cur_y - WIDGET_HEIGHT);
 			label_p.initial_value = form_element["text"];
 			label_p.text_color = mTextColor;
-			label_p.font_valign = LLFontGL::VCENTER;
+			label_p.font_valign = LLFontDX::VCENTER;
 			label_p.v_pad = 5;
 			LLTextBox* textbox = LLUICtrlFactory::create<LLTextBox>(label_p);
 			textbox->reshapeToFitText();

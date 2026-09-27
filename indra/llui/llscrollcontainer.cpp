@@ -42,7 +42,7 @@
 #include "llframetimer.h"
 #include "lluictrlfactory.h"
 #include "llpanel.h"
-#include "llfontgl.h"
+#include "llfontdx.h"
 
 ///----------------------------------------------------------------------------
 /// Local function declarations, constants, enums, and typedefs
@@ -517,7 +517,7 @@ void LLScrollContainer::draw()
             F32 alpha = getCurrentTransparency();
 
             gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
-            gl_rect_2d(mInnerRect, mBackgroundColor.get() % alpha);
+            dx_rect_2d(mInnerRect, mBackgroundColor.get() % alpha);
         }
 
         // Draw mScrolledViews and update scroll bars.

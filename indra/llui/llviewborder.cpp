@@ -158,12 +158,12 @@ void LLViewBorder::drawOnePixelLines()
 	S32 bottom	= 0;
 
 	gDX.color4fv( top_color.mV );
-	gl_line_2d(left, bottom, left, top);
-	gl_line_2d(left, top, right, top);
+	dx_line_2d(left, bottom, left, top);
+	dx_line_2d(left, top, right, top);
 
 	gDX.color4fv( bottom_color.mV );
-	gl_line_2d(right, top, right, bottom);
-	gl_line_2d(left, bottom, right, bottom);
+	dx_line_2d(right, top, right, bottom);
+	dx_line_2d(left, bottom, right, bottom);
 
 	LLUI::setLineWidth(1.f);
 }
@@ -223,20 +223,20 @@ void LLViewBorder::drawTwoPixelLines()
 
 	// draw borders
 	gDX.color3fv( top_out_color.mV );
-	gl_line_2d(left, bottom, left, top-1);
-	gl_line_2d(left, top-1, right, top-1);
+	dx_line_2d(left, bottom, left, top-1);
+	dx_line_2d(left, top-1, right, top-1);
 
 	gDX.color3fv( top_in_color.mV );
-	gl_line_2d(left+1, bottom+1, left+1, top-2);
-	gl_line_2d(left+1, top-2, right-1, top-2);
+	dx_line_2d(left+1, bottom+1, left+1, top-2);
+	dx_line_2d(left+1, top-2, right-1, top-2);
 
 	gDX.color3fv( bottom_out_color.mV );
-	gl_line_2d(right-1, top-1, right-1, bottom);
-	gl_line_2d(left, bottom, right, bottom);
+	dx_line_2d(right-1, top-1, right-1, bottom);
+	dx_line_2d(left, bottom, right, bottom);
 
 	gDX.color3fv( bottom_in_color.mV );
-	gl_line_2d(right-2, top-2, right-2, bottom+1);
-	gl_line_2d(left+1, bottom+1, right-1, bottom+1);
+	dx_line_2d(right-2, top-2, right-2, bottom+1);
+	dx_line_2d(left+1, bottom+1, right-1, bottom+1);
 }
 
 bool LLViewBorder::getBevelFromAttribute(LLXMLNodePtr node, LLViewBorder::EBevel& bevel_style)

@@ -28,13 +28,13 @@
 #ifndef LLSCROLLLISTCELL_H
 #define LLSCROLLLISTCELL_H
 
-#include "llfontgl.h"       // HAlign
+#include "llfontdx.h"       // HAlign
 #include "llfontvertexbuffer.h"       // HAlign
 #include "llpointer.h"      // LLPointer<>
 #include "lluistring.h"
 #include "v4color.h"
 #include "llui.h"
-#include "llgltexture.h"
+#include "lldxtexture.h"
 
 class LLCheckBoxCtrl;
 class LLSD;
@@ -66,9 +66,9 @@ public:
         Optional<std::string>       label; // description or text
         Optional<std::string>       tool_tip;
 
-        Optional<const LLFontGL*>   font;
+        Optional<const LLFontDX*>   font;
         Optional<LLColor4>          font_color;
-        Optional<LLFontGL::HAlign>  font_halign;
+        Optional<LLFontDX::HAlign>  font_halign;
 
         Optional<LLColor4>          color;
 
@@ -82,10 +82,10 @@ public:
             alt_value("alt_value", ""),
             label("label"),
             tool_tip("tool_tip", ""),
-            font("font", LLFontGL::getFontEmojiSmall()),
+            font("font", LLFontDX::getFontEmojiSmall()),
             font_color("font_color", LLColor4::black),
             color("color", LLColor4::white),
-            font_halign("halign", LLFontGL::LEFT)
+            font_halign("halign", LLFontDX::LEFT)
         {
             addSynonym(column, "name");
             addSynonym(font_color, "font-color");
@@ -161,19 +161,19 @@ public:
 
     void            setText(const LLStringExplicit& text);
     void            setFontStyle(const U8 font_style);
-    void            setAlignment(LLFontGL::HAlign align);
+    void            setAlignment(LLFontDX::HAlign align);
 
 protected:
 
     LLUIString      mText;
     LLUIString      mAltText;
     S32             mTextWidth;
-    const LLFontGL* mFont;
+    const LLFontDX* mFont;
     LLFontVertexBuffer mFontBuffer;
     LLColor4        mColor;
     LLColor4        mHighlightColor;
     U8              mUseColor;
-    LLFontGL::HAlign mFontAlignment;
+    LLFontDX::HAlign mFontAlignment;
     bool            mVisible;
     S32             mHighlightCount;
     S32             mHighlightOffset;
@@ -202,7 +202,7 @@ public:
 private:
     LLPointer<LLUIImage>    mIcon;
     LLColor4                mColor;
-    LLFontGL::HAlign        mAlignment;
+    LLFontDX::HAlign        mAlignment;
     S32                     mIconSize;
 };
 

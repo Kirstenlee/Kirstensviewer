@@ -249,6 +249,23 @@ void show_window_creation_error(const std::string& title)
 	LL_WARNS("Window") << title << LL_ENDL;
 }
 
+// S24: identifies whether a WM_ACTIVATEAPP deactivation (l_param's thread id)
+// belongs to this same process - i.e. a native dialog on its own worker
+// thread, not another application. Used to keep the viewer window from
+// reacting to focus moving to its own owned dialogs.
+static bool is_thread_from_current_process(DWORD thread_id)
+{
+	HANDLE thread_handle = OpenThread(THREAD_QUERY_LIMITED_INFORMATION, FALSE, thread_id);
+	if (!thread_handle)
+	{
+		return false;
+	}
+
+	const DWORD process_id = GetProcessIdOfThread(thread_handle);
+	CloseHandle(thread_handle);
+	return process_id == GetCurrentProcessId();
+}
+
 HGLRC SafeCreateContext(HDC& hdc)
 {
 	__try
@@ -2242,8 +2259,8 @@ void LLWindowWin32::recreateWindow(RECT window_rect, DWORD dw_ex_style, DWORD dw
 }
 
 // S24: real WGL shared-context creation used to live here; both call sites
-// (switchContext()'s non-DX_RENDER #else branch, LLImageGLThread's ctor in
-// llimagegl.cpp) are GL-only and dead under DX_RENDER. Stubbed to match
+// (switchContext()'s non-DX_RENDER #else branch, LLImageDXThread's ctor in
+// llimagedx.cpp) are GL-only and dead under DX_RENDER. Stubbed to match
 // LLWindowHeadless::createSharedContext()'s "no shared context available"
 // convention (llwindowheadless.h).
 void* LLWindowWin32::createSharedContext()
@@ -2749,10 +2766,29 @@ LRESULT CALLBACK LLWindowWin32::mainWindowProc(HWND h_wnd, UINT u_msg, WPARAM w_
 
 		case WM_ACTIVATEAPP:
 		{
+			// S24: resolve ownership now, not inside the deferred lambda - thread
+			// ids can be reused once a thread exits.
+			const bool losing_focus_to_own_process =
+				!w_param && is_thread_from_current_process(static_cast<DWORD>(l_param));
+
 			window_imp->post([=]()
 				{
 					// This message should be sent whenever the app gains or loses focus.
 					BOOL activating = (BOOL)w_param;
+
+					// S24: a native file dialog runs on its own worker thread in this
+					// same process. Focus moving to one of those must not be treated
+					// as switching to another application: mFullscreen (legacy
+					// exclusive display-mode fullscreen) would otherwise minimize the
+					// viewer and drop the display resolution, burying the dialog it
+					// just opened. WindowBorderless (S24's actual fullscreen mode)
+					// never runs the block below in the first place, so this guard
+					// only matters for the legacy path, but skipping unconditionally
+					// also avoids spurious double-click/joystick-reset churn for it.
+					if (losing_focus_to_own_process)
+					{
+						return;
+					}
 
 					if (window_imp->mFullscreen)
 					{
@@ -3056,8 +3092,6 @@ LRESULT CALLBACK LLWindowWin32::mainWindowProc(HWND h_wnd, UINT u_msg, WPARAM w_
 		{
 			window_imp->postMouseButtonEvent([=]()
 				{
-					//RN: ignore right button double clicks for now
-					//case WM_RBUTTONDBLCLK:
 					if (!sHandleDoubleClick)
 					{
 						sHandleDoubleClick = true;
@@ -3067,7 +3101,7 @@ LRESULT CALLBACK LLWindowWin32::mainWindowProc(HWND h_wnd, UINT u_msg, WPARAM w_
 
 					// generate move event to update mouse coordinates
 					window_imp->mCursorPosition = window_coord;
-					window_imp->mCallbacks->handleDoubleClick(window_imp, window_imp->mCursorPosition.convert(), mask);
+					window_imp->mCallbacks->handleLeftMouseDoubleClick(window_imp, window_imp->mCursorPosition.convert(), mask);
 				});
 
 			return 0;
@@ -3094,6 +3128,23 @@ LRESULT CALLBACK LLWindowWin32::mainWindowProc(HWND h_wnd, UINT u_msg, WPARAM w_
 			return 0;
 		}
 		case WM_RBUTTONDBLCLK:
+		{
+			window_imp->postMouseButtonEvent([=]()
+				{
+					if (!sHandleDoubleClick)
+					{
+						sHandleDoubleClick = true;
+						return;
+					}
+					MASK mask = gKeyboard->currentMask(true);
+
+					// generate move event to update mouse coordinates
+					window_imp->mCursorPosition = window_coord;
+					window_imp->mCallbacks->handleRightMouseDoubleClick(window_imp, window_imp->mCursorPosition.convert(), mask);
+				});
+
+			return 0;
+		}
 		case WM_RBUTTONDOWN:
 		{
 			{
@@ -3129,8 +3180,25 @@ LRESULT CALLBACK LLWindowWin32::mainWindowProc(HWND h_wnd, UINT u_msg, WPARAM w_
 		}
 		break;
 
+		case WM_MBUTTONDBLCLK:
+		{
+			window_imp->postMouseButtonEvent([=]()
+				{
+					if (!sHandleDoubleClick)
+					{
+						sHandleDoubleClick = true;
+						return;
+					}
+					MASK mask = gKeyboard->currentMask(true);
+
+					// generate move event to update mouse coordinates
+					window_imp->mCursorPosition = window_coord;
+					window_imp->mCallbacks->handleMiddleMouseDoubleClick(window_imp, window_imp->mCursorPosition.convert(), mask);
+				});
+			return 0;
+		}
+
 		case WM_MBUTTONDOWN:
-			//      case WM_MBUTTONDBLCLK:
 		{
 			{
 				LL_RECORD_BLOCK_TIME(FTM_MOUSEHANDLER);
@@ -3145,6 +3213,7 @@ LRESULT CALLBACK LLWindowWin32::mainWindowProc(HWND h_wnd, UINT u_msg, WPARAM w_
 						window_imp->mCallbacks->handleMiddleMouseDown(window_imp, window_imp->mCursorPosition.convert(), mask);
 					});
 			}
+			return 0;
 		}
 		break;
 
@@ -3160,6 +3229,9 @@ LRESULT CALLBACK LLWindowWin32::mainWindowProc(HWND h_wnd, UINT u_msg, WPARAM w_
 			}
 		}
 		break;
+		case WM_XBUTTONDBLCLK:
+			// TODO: not supported yet.
+			// Fall through to WM_XBUTTONDOWN for now.
 		case WM_XBUTTONDOWN:
 		{
 			window_imp->postMouseButtonEvent([=]()
@@ -3395,7 +3467,30 @@ LRESULT CALLBACK LLWindowWin32::mainWindowProc(HWND h_wnd, UINT u_msg, WPARAM w_
 
 		case WM_KILLFOCUS:
 		{
-			WINDOW_IMP_POST(window_imp->mCallbacks->handleFocusLost(window_imp));
+			// S24: same-process guard, mirroring WM_ACTIVATEAPP's own
+			// is_thread_from_current_process() check just above - resolved
+			// synchronously here for the same reason that comment gives
+			// (a handle/id can be reused later). w_param is the HWND
+			// gaining keyboard focus (NULL if focus isn't going to any
+			// window at all, e.g. a real Alt-Tab away). Without this
+			// guard, ANY same-process window taking OS focus - e.g.
+			// LLFloaterPopoutManager's popped-out floater host window
+			// (newview/llfloaterpopout.cpp) - fires this on the main
+			// window, and LLViewerWindow::handleFocusLost() unconditionally
+			// calls gFocusMgr.setMouseCapture(NULL): that wipes out a
+			// popped-out widget's OWN mouse capture (e.g. mid text drag-
+			// select) through that same single global, even though focus
+			// never actually left this process. Confirmed live as text
+			// selection never being able to extend/highlight while popped
+			// out.
+			DWORD other_window_process_id = 0;
+			const bool losing_focus_to_own_process = w_param &&
+				GetWindowThreadProcessId((HWND)w_param, &other_window_process_id) &&
+				other_window_process_id == GetCurrentProcessId();
+			if (!losing_focus_to_own_process)
+			{
+				WINDOW_IMP_POST(window_imp->mCallbacks->handleFocusLost(window_imp));
+			}
 			return 0;
 		}
 

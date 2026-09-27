@@ -30,7 +30,7 @@
 #include "linden_common.h"
 
 #include "llresmgr.h"
-#include "llfontgl.h"
+#include "llfontdx.h"
 #include "llerror.h"
 #include "llstring.h"
 

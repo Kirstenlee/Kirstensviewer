@@ -102,7 +102,7 @@ protected:
     S32                         mLabelPaddingRight;
     LLFolderViewFolder*         mParentFolder;
     LLPointer<LLFolderViewModelItem> mViewModelItem;
-    LLFontGL::StyleFlags        mLabelStyle;
+    LLFontDX::StyleFlags        mLabelStyle;
     LLWString                   mLabelSuffix;
     bool                        mSuffixNeedsRefresh; //suffix and icons
     LLUIImagePtr                mIcon,
@@ -167,8 +167,8 @@ protected:
     virtual bool isFlashing() { return false; }
     virtual void setFlashState(bool, bool) { }
 
-    static LLFontGL* getLabelFontForStyle(U8 style);
-    const LLFontGL* getLabelFont();
+    static LLFontDX* getLabelFontForStyle(U8 style);
+    const LLFontDX* getLabelFont();
 
     bool                        mIsSelected;
 
@@ -318,7 +318,7 @@ public:
     void drawOpenFolderArrow();
     void drawFavoriteIcon();
     void drawHighlight(bool showContent, bool hasKeyboardFocus, const LLUIColor& selectColor, const LLUIColor& flashColor, const LLUIColor& outlineColor, const LLUIColor& mouseOverColor);
-    void drawLabel(const LLFontGL* font, const F32 x, const F32 y, const LLColor4& color, F32 &right_x);
+    void drawLabel(const LLFontDX* font, const F32 x, const F32 y, const LLColor4& color, F32 &right_x);
     virtual bool handleDragAndDrop(S32 x, S32 y, MASK mask, bool drop,
                                     EDragAndDropType cargo_type,
                                     void* cargo_data,
@@ -326,17 +326,17 @@ public:
                                     std::string& tooltip_msg);
 
 private:
-    static std::map<U8, LLFontGL*> sFonts; // map of styles to fonts
+    static std::map<U8, LLFontDX*> sFonts; // map of styles to fonts
     static S32 sTopPad;
     static LLUIImagePtr sFolderArrowImg;
     static LLUIImagePtr sSelectionImg;
     static LLUIImagePtr sFavoriteImg;
     static LLUIImagePtr sFavoriteContentImg;
-    static LLFontGL* sSuffixFont;
+    static LLFontDX* sSuffixFont;
 
     LLFontVertexBuffer mLabelFontBuffer;
     LLFontVertexBuffer mSuffixFontBuffer;
-    LLFontGL* pLabelFont{nullptr};
+    LLFontDX* pLabelFont{nullptr};
 };
 
 //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

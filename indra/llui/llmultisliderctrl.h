@@ -37,7 +37,7 @@
 //
 // Classes
 //
-class LLFontGL;
+class LLFontDX;
 class LLLineEditor;
 class LLSlider;
 
@@ -153,7 +153,7 @@ private:
     void            reportInvalidData();
 
 private:
-    const LLFontGL* mFont;
+    const LLFontDX* mFont;
     bool            mShowText;
     bool            mCanEditText;
 

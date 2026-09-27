@@ -137,7 +137,7 @@ LLAccordionCtrlTab::LLAccordionCtrlTabHeader::LLAccordionCtrlTabHeader(
 	textboxParams.text_color(p.header_text_color());
 	textboxParams.follows.flags(FOLLOWS_NONE);
 	textboxParams.font( p.font() );
-	textboxParams.font_shadow(LLFontGL::NO_SHADOW);
+	textboxParams.font_shadow(LLFontDX::NO_SHADOW);
 	textboxParams.use_ellipses = true;
 	textboxParams.bg_visible = false;
 	textboxParams.mouse_opaque = false;
@@ -202,7 +202,7 @@ void LLAccordionCtrlTab::LLAccordionCtrlTabHeader::draw()
 	S32 height = getRect().getHeight();
 
 	F32 alpha = getCurrentTransparency();
-    gl_rect_2d(0, 0, width - 1, height - 1, mHeaderBGColor.get() % alpha, true);
+    dx_rect_2d(0, 0, width - 1, height - 1, mHeaderBGColor.get() % alpha, true);
 
 	LLAccordionCtrlTab* parent = dynamic_cast<LLAccordionCtrlTab*>(getParent());
 	bool collapsible = parent && parent->getCollapsible();

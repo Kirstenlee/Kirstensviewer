@@ -73,7 +73,7 @@ namespace
 static LLDefaultChildRegistry::Register<LLFolderViewItem> r("folder_view_item");
 
 // statics
-std::map<U8, LLFontGL*> LLFolderViewItem::sFonts; // map of styles to fonts
+std::map<U8, LLFontDX*> LLFolderViewItem::sFonts; // map of styles to fonts
 
 LLUIColor LLFolderViewItem::sFgColor;
 LLUIColor LLFolderViewItem::sHighlightBgColor;
@@ -89,7 +89,7 @@ LLUIImagePtr LLFolderViewItem::sFolderArrowImg;
 LLUIImagePtr LLFolderViewItem::sSelectionImg;
 LLUIImagePtr LLFolderViewItem::sFavoriteImg;
 LLUIImagePtr LLFolderViewItem::sFavoriteContentImg;
-LLFontGL* LLFolderViewItem::sSuffixFont = nullptr;
+LLFontDX* LLFolderViewItem::sSuffixFont = nullptr;
 LLUIColor LLFolderViewItem::sFavoriteColor;
 bool LLFolderViewItem::sColorSetInitialized = false;
 
@@ -104,16 +104,16 @@ constexpr S32 FAVORITE_IMAGE_PAD = 3;
 
 
 //static
-LLFontGL* LLFolderViewItem::getLabelFontForStyle(U8 style)
+LLFontDX* LLFolderViewItem::getLabelFontForStyle(U8 style)
 {
-    LLFontGL* rtn = sFonts[style];
+    LLFontDX* rtn = sFonts[style];
     if (!rtn) // grab label font with this style, lazily
     {
         LLFontDescriptor labelfontdesc("SansSerif", "Small", style);
-        rtn = LLFontGL::getFont(labelfontdesc);
+        rtn = LLFontDX::getFont(labelfontdesc);
         if (!rtn)
         {
-            rtn = LLFontGL::getFontDefault();
+            rtn = LLFontDX::getFontDefault();
         }
         sFonts[style] = rtn;
     }
@@ -121,7 +121,7 @@ LLFontGL* LLFolderViewItem::getLabelFontForStyle(U8 style)
 }
 
 
-const LLFontGL* LLFolderViewItem::getLabelFont()
+const LLFontDX* LLFolderViewItem::getLabelFont()
 {
     if (!pLabelFont)
     {
@@ -138,7 +138,7 @@ void LLFolderViewItem::initClass()
     sSelectionImg = default_params.selection_image;
     sFavoriteImg = default_params.favorite_image;
     sFavoriteContentImg = default_params.favorite_content_image;
-    sSuffixFont = getLabelFontForStyle(LLFontGL::NORMAL);
+    sSuffixFont = getLabelFontForStyle(LLFontDX::NORMAL);
 
     sFgColor = LLUIColorTable::instance().getColor("MenuItemEnabledColor", DEFAULT_WHITE);
     sHighlightBgColor = LLUIColorTable::instance().getColor("MenuItemHighlightBgColor", DEFAULT_WHITE);
@@ -207,7 +207,7 @@ LLFolderViewItem::LLFolderViewItem(const LLFolderViewItem::Params& p)
     mSelectPending(false),
     mIsItemCut(false),
     mCutGeneration(0),
-    mLabelStyle( LLFontGL::NORMAL ),
+    mLabelStyle( LLFontDX::NORMAL ),
     pLabelFont(nullptr),
     mHasVisibleChildren(false),
     mLocalIndentation(p.folder_indentation),
@@ -488,7 +488,7 @@ S32 LLFolderViewItem::arrange( S32* width, S32* height )
             // it is purely visual, so it is fine to do at our laisure
             refreshSuffix();
         }
-        mLabelWidth = getLabelXPos() + getLabelFontForStyle(mLabelStyle)->getWidth(mLabel.c_str()) + getLabelFontForStyle(LLFontGL::NORMAL)->getWidth(mLabelSuffix.c_str()) + mLabelPaddingRight;
+        mLabelWidth = getLabelXPos() + getLabelFontForStyle(mLabelStyle)->getWidth(mLabel.c_str()) + getLabelFontForStyle(LLFontDX::NORMAL)->getWidth(mLabelSuffix.c_str()) + mLabelPaddingRight;
         mLabelWidthDirty = false;
         if (mIsFavorite)
         {
@@ -590,7 +590,15 @@ bool LLFolderViewItem::isRemovable()
 
 void LLFolderViewItem::destroyView()
 {
-    getRoot()->removeFromSelectionList(this);
+    LLFolderView* root = getRoot();
+    if (root)
+    {
+        root->removeFromSelectionList(this);
+        if (root->getRenameItem() == this)
+        {
+            root->cancelRenaming();
+        }
+    }
 
     if (mParentFolder)
     {
@@ -852,7 +860,7 @@ void LLFolderViewItem::drawOpenFolderArrow()
         static LLCachedControl<F32> hue_shift_degrees(*LLUI::getInstance()->mSettingGroups["config"], "RenderUIHueShiftInventory", 0.f);
         bool shifted = LLUI::bindUIEffectsShader(hue_shift_degrees);
 
-        gl_draw_scaled_rotated_image(
+        dx_draw_scaled_rotated_image(
             mIndentation, getRect().getHeight() - mArrowSize - mArrowPadTop - sTopPad,
             mArrowSize, mArrowSize, mControlLabelRotation, sFolderArrowImg->getImage(), sFgColor);
 
@@ -895,7 +903,7 @@ void LLFolderViewItem::drawFavoriteIcon()
         static LLCachedControl<F32> hue_shift_degrees(*LLUI::getInstance()->mSettingGroups["config"], "RenderUIHueShiftInventory", 0.f);
         bool shifted = LLUI::bindUIEffectsShader(hue_shift_degrees);
 
-        gl_draw_scaled_image(
+        dx_draw_scaled_image(
             x_offset - FAVORITE_IMAGE_SIZE - FAVORITE_IMAGE_PAD,
             getRect().getHeight() - mItemHeight + FAVORITE_IMAGE_PAD,
             FAVORITE_IMAGE_SIZE,
@@ -970,7 +978,7 @@ void LLFolderViewItem::drawHighlight(bool showContent, bool hasKeyboardFocus,
                 // fading in
                 bg_color.mV[VALPHA] = clamp_rescale(fade_time, 0.f, 0.4f, 0.f, bg_color.mV[VALPHA]);
             }
-            gl_rect_2d(FOCUS_LEFT,
+            dx_rect_2d(FOCUS_LEFT,
                        focus_top,
                        getRect().getWidth() - 2,
                        focus_bottom,
@@ -981,13 +989,13 @@ void LLFolderViewItem::drawHighlight(bool showContent, bool hasKeyboardFocus,
         if (isHighlightActive())
         {
             // Background
-            gl_rect_2d(FOCUS_LEFT,
+            dx_rect_2d(FOCUS_LEFT,
                 focus_top,
                 getRect().getWidth() - 2,
                 focus_bottom,
                 bgColor, hasKeyboardFocus);
             // Outline
-            gl_rect_2d(FOCUS_LEFT,
+            dx_rect_2d(FOCUS_LEFT,
                 focus_top,
                 getRect().getWidth() - 2,
                 focus_bottom,
@@ -996,14 +1004,14 @@ void LLFolderViewItem::drawHighlight(bool showContent, bool hasKeyboardFocus,
 
         if (folder_open)
         {
-            gl_rect_2d(FOCUS_LEFT,
+            dx_rect_2d(FOCUS_LEFT,
                 focus_bottom + 1, // overlap with bottom edge of above rect
                 getRect().getWidth() - 2,
                 0,
                 focusOutlineColor, false);
             if (showContent && !isFlashing())
             {
-                gl_rect_2d(FOCUS_LEFT,
+                dx_rect_2d(FOCUS_LEFT,
                     focus_bottom + 1,
                     getRect().getWidth() - 2,
                     0,
@@ -1013,7 +1021,7 @@ void LLFolderViewItem::drawHighlight(bool showContent, bool hasKeyboardFocus,
     }
     else if (mIsMouseOverTitle)
     {
-        gl_rect_2d(FOCUS_LEFT,
+        dx_rect_2d(FOCUS_LEFT,
             focus_top,
             getRect().getWidth() - 2,
             focus_bottom,
@@ -1026,14 +1034,14 @@ void LLFolderViewItem::drawHighlight(bool showContent, bool hasKeyboardFocus,
     if (mDragAndDropTarget)
     {
         gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
-        gl_rect_2d(FOCUS_LEFT,
+        dx_rect_2d(FOCUS_LEFT,
             focus_top,
             getRect().getWidth() - 2,
             focus_bottom,
             bgColor, false);
         if (folder_open)
         {
-            gl_rect_2d(FOCUS_LEFT,
+            dx_rect_2d(FOCUS_LEFT,
                 focus_bottom + 1, // overlap with bottom edge of above rect
                 getRect().getWidth() - 2,
                 0,
@@ -1043,13 +1051,13 @@ void LLFolderViewItem::drawHighlight(bool showContent, bool hasKeyboardFocus,
     }
 }
 
-void LLFolderViewItem::drawLabel(const LLFontGL * font, const F32 x, const F32 y, const LLColor4& color, F32 &right_x)
+void LLFolderViewItem::drawLabel(const LLFontDX * font, const F32 x, const F32 y, const LLColor4& color, F32 &right_x)
 {
     //--------------------------------------------------------------------------------//
     // Draw the actual label text
     //
     mLabelFontBuffer.render(font, mLabel, 0, x, y, color,
-        LLFontGL::LEFT, LLFontGL::BOTTOM, LLFontGL::NORMAL, LLFontGL::NO_SHADOW,
+        LLFontDX::LEFT, LLFontDX::BOTTOM, LLFontDX::NORMAL, LLFontDX::NO_SHADOW,
         S32_MAX, getRect().getWidth() - (S32) x - mLabelPaddingRight, &right_x, /*use_ellipses*/true);
 }
 
@@ -1058,7 +1066,7 @@ void LLFolderViewItem::draw()
     const bool show_context = (getRoot() ? getRoot()->getShowSelectionContext() : false);
     const bool filled = show_context || (getRoot() ? getRoot()->getParentPanel()->hasFocus() : false); // If we have keyboard focus, draw selection filled
 
-    const LLFontGL* font = getLabelFont();
+    const LLFontDX* font = getLabelFont();
     S32 line_height = font->getLineHeight();
 
     getViewModelItem()->update();
@@ -1167,7 +1175,7 @@ void LLFolderViewItem::draw()
     if (!mLabelSuffix.empty())
     {
         mSuffixFontBuffer.render(sSuffixFont, mLabelSuffix, 0, right_x, y, isFadeItem() ? color : sSuffixColor.get(),
-            LLFontGL::LEFT, LLFontGL::BOTTOM, LLFontGL::NORMAL, LLFontGL::NO_SHADOW,
+            LLFontDX::LEFT, LLFontDX::BOTTOM, LLFontDX::NORMAL, LLFontDX::NO_SHADOW,
             S32_MAX, S32_MAX, &right_x);
     }
 
@@ -1181,7 +1189,7 @@ void LLFolderViewItem::draw()
             F32 match_string_left = text_left + font->getWidthF32(combined_string.c_str(), 0, filter_offset + filter_string_length) - font->getWidthF32(combined_string.c_str(), filter_offset, filter_string_length);
             F32 yy = (F32)rect_height - line_height - (F32)mTextPadTop - (F32)sTopPad;
             font->render(combined_string, filter_offset, match_string_left, yy,
-                sFilterTextColor, LLFontGL::LEFT, LLFontGL::BOTTOM, LLFontGL::NORMAL, LLFontGL::NO_SHADOW,
+                sFilterTextColor, LLFontDX::LEFT, LLFontDX::BOTTOM, LLFontDX::NORMAL, LLFontDX::NO_SHADOW,
                 filter_string_length, S32_MAX, &right_x);
         }
         else
@@ -1192,7 +1200,7 @@ void LLFolderViewItem::draw()
                 F32 match_string_left = text_left + font->getWidthF32(mLabel.c_str(), 0, filter_offset + label_filter_length) - font->getWidthF32(mLabel.c_str(), filter_offset, label_filter_length);
                 F32 yy = (F32)rect_height - line_height - (F32)mTextPadTop - (F32)sTopPad;
                 font->render(mLabel, filter_offset, match_string_left, yy,
-                    sFilterTextColor, LLFontGL::LEFT, LLFontGL::BOTTOM, LLFontGL::NORMAL, LLFontGL::NO_SHADOW,
+                    sFilterTextColor, LLFontDX::LEFT, LLFontDX::BOTTOM, LLFontDX::NORMAL, LLFontDX::NO_SHADOW,
                     label_filter_length, S32_MAX, &right_x);
             }
 
@@ -1203,7 +1211,7 @@ void LLFolderViewItem::draw()
                 F32 match_string_left = text_left + font->getWidthF32(mLabel.c_str(), 0, static_cast<S32>(mLabel.size())) + sSuffixFont->getWidthF32(mLabelSuffix.c_str(), 0, suffix_offset + suffix_filter_length) - sSuffixFont->getWidthF32(mLabelSuffix.c_str(), suffix_offset, suffix_filter_length);
                 F32 yy = (F32)rect_height - sSuffixFont->getLineHeight() - (F32)mTextPadTop - (F32)sTopPad;
                 sSuffixFont->render(mLabelSuffix, suffix_offset, match_string_left, yy, sFilterTextColor,
-                    LLFontGL::LEFT, LLFontGL::BOTTOM, LLFontGL::NORMAL, LLFontGL::NO_SHADOW,
+                    LLFontDX::LEFT, LLFontDX::BOTTOM, LLFontDX::NORMAL, LLFontDX::NO_SHADOW,
                     suffix_filter_length, S32_MAX, &right_x);
             }
         }
@@ -1863,6 +1871,8 @@ void LLFolderViewFolder::extractItem( LLFolderViewItem* item, bool deparent_mode
 {
     if (item->isSelected())
         getRoot()->clearSelection();
+    if (getRoot() && getRoot()->getRenameItem() == item)
+        getRoot()->cancelRenaming();
     items_t::iterator it = std::find(mItems.begin(), mItems.end(), item);
     if(it == mItems.end())
     {
