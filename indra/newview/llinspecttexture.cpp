@@ -141,13 +141,13 @@ void LLTexturePreviewView::draw()
         if (4 == m_Image->getComponents())
         {
             const LLColor4 color(.098f, .098f, .098f);
-            gl_rect_2d(rctClient, color, true);
+            dx_rect_2d(rctClient, color, true);
         }
-        gl_draw_scaled_image(rctClient.mLeft, rctClient.mBottom, rctClient.getWidth(), rctClient.getHeight(), m_Image);
+        dx_draw_scaled_image(rctClient.mLeft, rctClient.mBottom, rctClient.getWidth(), rctClient.getHeight(), m_Image);
 
         bool isLoading = (!m_Image->isFullyLoaded()) && (m_Image->getDiscardLevel() > 0);
         if (isLoading)
-            LLFontGL::getFontSansSerif()->renderUTF8(mLoadingText, 0, rctClient.mLeft + 3, rctClient.mTop - 25, LLColor4::white, LLFontGL::LEFT, LLFontGL::BASELINE, LLFontGL::DROP_SHADOW);
+            LLFontDX::getFontSansSerif()->renderUTF8(mLoadingText, 0, rctClient.mLeft + 3, rctClient.mTop - 25, LLColor4::white, LLFontDX::LEFT, LLFontDX::BASELINE, LLFontDX::DROP_SHADOW);
 
         m_Image->setKnownDrawSize(MAX_IMAGE_SIZE, MAX_IMAGE_SIZE);
     }
@@ -155,7 +155,7 @@ void LLTexturePreviewView::draw()
 
 void LLTexturePreviewView::setImageFromAssetId(const LLUUID& idAsset)
 {
-    m_Image = LLViewerTextureManager::getFetchedTexture(idAsset, FTT_DEFAULT, MIPMAP_TRUE, LLGLTexture::BOOST_THUMBNAIL);
+    m_Image = LLViewerTextureManager::getFetchedTexture(idAsset, FTT_DEFAULT, MIPMAP_TRUE, LLDXTexture::BOOST_THUMBNAIL);
     if (m_Image)
     {
         m_Image->forceToSaveRawImage(0);

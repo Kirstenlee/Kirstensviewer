@@ -34,11 +34,9 @@
 #include "lltimer.h"
 #include "lleventtimer.h"
 
-// S24: Standard library includes
 #include <algorithm>  // std::sort for avatar distance sorting
 #include <sstream>    // std::istringstream for argument parsing
 
-// S24: Includes for UUID lookup command
 #include "lluuid.h"
 #include "llagent.h"
 #include "llagentcamera.h"
@@ -86,7 +84,7 @@ public:
 
     virtual void recordMessage(LLError::ELevel level, const std::string& message) override
     {
-        // S24: Time-based throttling to prevent flood crashes
+        // Time-based throttling to prevent flood crashes.
         // WARN/ERROR/FATAL always pass through (important messages)
         // DEBUG/INFO are throttled to prevent spam overload
         static LLTimer sDebugThrottle;
@@ -176,7 +174,6 @@ bool KVDebugConsole::postBuild()
 
 void KVDebugConsole::onOpen(const LLSD& key)
 {
-    // S24: Display boot message on console open
     if (mOutput)
     {
         mOutput->appendText(
@@ -190,7 +187,6 @@ void KVDebugConsole::onOpen(const LLSD& key)
         mLineCount += 5;
     }
 
-    // S24: Register our log recorder when console opens
     if (!sRecorder)
     {
         sRecorder.reset(new RecordToDebugConsole());
@@ -200,20 +196,18 @@ void KVDebugConsole::onOpen(const LLSD& key)
 
 void KVDebugConsole::onClose(bool app_quitting)
 {
-    // S24: Remove recorder when console closes to save performance
+    // Remove recorder when console closes to save performance.
     if (sRecorder)
     {
         LLError::removeRecorder(sRecorder);
         sRecorder.reset();
     }
 
-    // S24: Clear beacon when console closes
     clearBeacon();
 
     LLFloater::onClose(app_quitting);
 }
 
-// S24: Override draw to update persistent beacon each frame
 void KVDebugConsole::draw()
 {
     // Update beacon position (tracks moving avatars)
@@ -320,14 +314,10 @@ void KVDebugConsole::addLogLineError(const std::string& message)
     }
 }
 
-// S24: Helper methods for console command feedback using inverse video highlighting
-// These methods use the same background highlighting technique as the log message handlers
-// to ensure consistent visual styling throughout the console
 void KVDebugConsole::printSuccess(const std::string& message)
 {
     if (mOutput)
     {
-        // S24: Plain text output
         mOutput->appendText(message, false);
         mLineCount++;
     }
@@ -337,7 +327,6 @@ void KVDebugConsole::printError(const std::string& message)
 {
     if (mOutput)
     {
-        // S24: Plain text output
         mOutput->appendText(message, false);
         mLineCount++;
     }
@@ -347,7 +336,6 @@ void KVDebugConsole::printWarning(const std::string& message)
 {
     if (mOutput)
     {
-        // S24: Plain text output
         mOutput->appendText(message, false);
         mLineCount++;
     }
@@ -357,7 +345,6 @@ void KVDebugConsole::printInfo(const std::string& message)
 {
     if (mOutput)
     {
-        // S24: Plain text output
         mOutput->appendText(message, false);
         mLineCount++;
     }
@@ -367,7 +354,6 @@ void KVDebugConsole::printNormal(const std::string& message)
 {
     if (mOutput)
     {
-        // S24: Plain text output
         mOutput->appendText(message, false);
         mLineCount++;
     }
@@ -411,13 +397,9 @@ void KVDebugConsole::updateBeacon()
     // Convert global position to agent-relative position
     LLVector3 pos_agent = gAgent.getPosAgentFromGlobal(sBeaconTarget.pos_global);
 
-    // S24 (2026-09-04): user ask - "enhance clarity and direction of
-    // source". The beacon itself is now a real DX-native billboard pillar
-    // (see llglsandbox.cpp's draw_beacon_pillar()) rather than the old
-    // invisible-under-DX GL line, but you still can't see it (or which way
-    // to walk) until it's in view - append live distance + a coarse compass
-    // bearing to the label so the console output alone is enough to home
-    // in on the target.
+    // Append live distance + coarse compass bearing to the label so the
+    // console output alone is enough to home in on the target before it's
+    // in view. Beacon rendering itself is llglsandbox.cpp's draw_beacon_pillar().
     LLVector3 to_target = pos_agent - gAgent.getPositionAgent();
     F32 distance_m = to_target.length();
 
@@ -442,7 +424,6 @@ void KVDebugConsole::updateBeacon()
     );
 }
 
-// S24: Clear the active beacon
 void KVDebugConsole::clearBeacon()
 {
     sBeaconTarget.active = false;
@@ -1788,7 +1769,7 @@ void KVDebugConsole::processUuidCommand(const std::string& uuid_str)
         // If not found, try to get/fetch it (this will trigger a fetch if valid UUID)
         if (!texture)
         {
-            texture = LLViewerTextureManager::getFetchedTexture(id, FTT_DEFAULT, TRUE, LLGLTexture::BOOST_NONE, LLViewerTexture::LOD_TEXTURE);
+            texture = LLViewerTextureManager::getFetchedTexture(id, FTT_DEFAULT, TRUE, LLDXTexture::BOOST_NONE, LLViewerTexture::LOD_TEXTURE);
         }
 
         if (texture)
@@ -2598,9 +2579,6 @@ void KVDebugConsole::processFlyCommand(const std::string& args)
         mOutput->appendText(llformat("  Target altitude: %.1fm\n", target_pos.mdV[VZ]), false);
         mOutput->appendText(llformat("  Descent: %.1fm\n", descent), false);
         mLineCount += 3;
-        // ============================================================================
-        // END S24 FIX: Use actual flight descent instead of teleport
-        // ============================================================================
         return;
     }
 
@@ -2641,8 +2619,7 @@ void KVDebugConsole::processFlyCommand(const std::string& args)
     LLVector3d current_pos = gAgent.getPositionGlobal();
     LLVector3d target_pos = current_pos;
 
-    // S24: Use absolute altitude instead of relative offset
-    // User commands "fly 1000" = go to z=1000, not z=current+1000
+    // "fly 1000" means go to absolute z=1000, not z=current+1000.
     target_pos.mdV[VZ] = height_offset;
 
     // Safety check - don't go below ground
@@ -2664,23 +2641,9 @@ void KVDebugConsole::processFlyCommand(const std::string& args)
         mLineCount += 2;
     }
 
-    // ============================================================================
-    // S24 FIX: Use built-in autopilot system for smooth flight movement
-    // ============================================================================
-    // ISSUE:      Original teleport approach hit parcel landing zones.
-    //             Timer-based control flag approach caused stuttering/jerkiness.
-    // ROOT CAUSE: Manual control flag manipulation fights with physics every tick.
-    // FIX:        Use LLAgent::startAutoPilotGlobal() - the viewer's built-in
-    //             smooth movement system that handles acceleration/deceleration.
-    // WHY:        Autopilot system is designed for smooth, natural movement with
-    //             proper physics integration. It handles all the complexities of
-    //             velocity ramping, obstacle avoidance, and clean stops.
-    // BENEFIT:    - Smooth, non-jerky flight
-    //             - No landing zone interference
-    //             - Natural hover on arrival
-    //             - Uses proven, battle-tested code path
-    // MERGE:      Essential fix - replaces broken teleport + broken timer approaches.
-    // ============================================================================
+    // Uses LLAgent::startAutoPilotGlobal() rather than teleport (hits parcel
+    // landing zones) or manual control-flag manipulation (fights physics
+    // every tick, causes stuttering).
 
     // Enable flight mode
     if (!gAgent.getFlying())
@@ -2690,17 +2653,10 @@ void KVDebugConsole::processFlyCommand(const std::string& args)
         mLineCount++;
     }
 
-    // ============================================================================
-    // S24 FEATURE: Turbo mode via larger stop distance
-    // ============================================================================
-    // DISCOVERY:   AGENT_CONTROL_FAST_* flags don't affect autopilot speed.
-    //              Autopilot uses internal velocity calculations.
-    // APPROACH:    Autopilot moves faster when farther from target (velocity
-    //              scales with distance). By increasing stop_distance, we can
-    //              keep the avatar in "far zone" longer = faster movement.
-    // LIMITATION:  This is indirect speed boost via stop-distance manipulation.
-    //              True speed multiplier would require autopilot internals modification.
-    // ============================================================================
+    // AGENT_CONTROL_FAST_* flags don't affect autopilot speed. Autopilot's
+    // internal velocity scales with distance-to-target, so a larger
+    // stop_distance keeps it in the "far zone" longer = faster movement.
+    // Indirect; a true speed multiplier would need autopilot internals changed.
     F32 stop_distance = use_fast_mode ? 5.0f : 0.5f;  // 5m vs 0.5m tolerance
 
     // Use autopilot to smoothly fly to target position
@@ -2723,9 +2679,6 @@ void KVDebugConsole::processFlyCommand(const std::string& args)
     F64 vertical_change = target_pos.mdV[VZ] - current_pos.mdV[VZ];
     mOutput->appendText(llformat("  Vertical change:  %+.1fm\n", vertical_change), false);
     mLineCount += 4;
-    // ============================================================================
-    // END S24 FIX: Use actual flight movement instead of teleport
-    // ============================================================================
 }
 
 // S24: Get command - retrieve debug settings with wildcard support
@@ -3287,37 +3240,13 @@ void KVDebugConsole::processOpenCommand(const std::string& args)
         return;
     }
 
-    // S24: Floater Safety Model
-    // ────────────────────────────────────────────────────────────────
-    // This protection layer prevents crashes and server errors when opening
-    // floaters without required context. Floaters fall into three categories:
-    //
-    // SAFE (Passive):
-    //   - Standalone windows with no special requirements
-    //   - Examples: inventory, world_map, preferences, beacons, camera, build
-    //   - These can be opened directly with empty LLSD key
-    //
-    // AUTO-FILLED (Your Data):
-    //   - Require IDs but can safely default to the user's own data
-    //   - profile → uses gAgentID (your profile)
-    //   - avatar_textures → uses gAgentID (your avatar textures)
-    //
-    // PROTECTED (Server/Context Required):
-    //   - Cannot function without external data or active sessions
-    //   - Opening these without context causes crashes or server errors
-    //   - Categories:
-    //     * Session-based: impanel, incoming_call, outgoing_call
-    //     * ID-required: event, classified, experience_profile
-    //     * Picker dialogs: group_picker, avatar_picker (need callbacks)
-    //     * Properties: item_properties, task_properties (need selection)
-    //     * Preview: preview_* (need inventory asset IDs)
-    //     * Upload: upload_* (need file upload context)
-    //     * Object-based: inspect, openobject (need world object selection)
-    //
-    // This approach matches world_map (passive/safe) vs group floaters
-    // (server-centric/protected). The console guides users to the proper
-    // access path for protected floaters rather than letting them crash.
-    // ────────────────────────────────────────────────────────────────
+    // Floaters fall into 3 categories re: required context: SAFE (open with
+    // empty LLSD key - inventory, world_map, preferences, etc), AUTO-FILLED
+    // (default to gAgentID - profile, avatar_textures), and PROTECTED (need
+    // an active session/ID/selection/callback the console can't supply -
+    // impanel, calls, event/classified, pickers, properties, preview_*,
+    // upload_*, inspect/openobject). The branches below reject PROTECTED
+    // floaters with a guiding message instead of opening them and crashing.
 
     LLSD key;
 
@@ -3444,9 +3373,8 @@ void KVDebugConsole::processShutdownCommand(const std::string& args)
 
     if (param == "now")
     {
-        // S24: Immediate shutdown - no timer, no prompts, clean exit
-        // Use requestQuit() instead of forceQuit() to properly logout and send metrics
-        // This bypasses userQuit()'s confirmation dialog but still does clean shutdown
+        // requestQuit() (not forceQuit()) so logout/metrics still happen;
+        // bypasses userQuit()'s confirmation dialog.
         mOutput->appendText("✓ Shutting down viewer now...\n", false);
         mLineCount++;
 
@@ -3490,8 +3418,6 @@ void KVDebugConsole::checkShutdownTimer()
 
     if (remaining <= 0.0f)
     {
-        // S24: Time's up - shut down cleanly
-        // Use requestQuit() to properly logout and send metrics (bypasses confirmation)
         if (sInstance && sInstance->mOutput)
         {
             sInstance->mOutput->appendText("✓ Shutdown timer expired - exiting viewer...\n", false);
@@ -3534,21 +3460,9 @@ void KVDebugConsole::checkShutdownTimer()
     last_warning_time = remaining;
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-// S24: CONSOLE UTILITY COMMANDS
-// Pure console functionality - no LL-specific features
-// These make the command line more powerful and user-friendly
-// ════════════════════════════════════════════════════════════════════════════
-
-// S24: Calculator - evaluate simple math expressions
 void KVDebugConsole::processCalcCommand(const std::string& expression)
 {
-    // S24: Simple recursive descent calculator
-    // Supports: + - * / % ( ) and floating-point numbers
-    // Example: calc 2 + 3 * 4 = 14
-    //          calc (2 + 3) * 4 = 20
-    //          calc 100 / 3 = 33.333333
-
+    // Recursive descent calculator: + - * / % ( ) and floating-point numbers.
     std::string expr = expression;
     LLStringUtil::trim(expr);
 

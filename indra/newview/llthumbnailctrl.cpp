@@ -95,7 +95,7 @@ void LLThumbnailCtrl::draw()
     {
         mBorder->setKeyboardFocusHighlight(hasFocus());
 
-        gl_rect_2d( draw_rect, mBorderColor.get(), false );
+        dx_rect_2d( draw_rect, mBorderColor.get(), false );
         draw_rect.stretch( -1 );
     }
 
@@ -106,10 +106,10 @@ void LLThumbnailCtrl::draw()
         if( mTexturep->getComponents() == 4 )
         {
             const LLColor4 color(.098f, .098f, .098f);
-            gl_rect_2d( draw_rect, color, true);
+            dx_rect_2d( draw_rect, color, true);
         }
 
-        gl_draw_scaled_image( draw_rect.mLeft, draw_rect.mBottom, draw_rect.getWidth(), draw_rect.getHeight(), mTexturep, UI_VERTEX_COLOR % alpha);
+        dx_draw_scaled_image( draw_rect.mLeft, draw_rect.mBottom, draw_rect.getWidth(), draw_rect.getHeight(), mTexturep, UI_VERTEX_COLOR % alpha);
 
         // Thumbnails are usually 256x256 or smaller, either report that or
         // some high value to get image with higher priority
@@ -144,10 +144,10 @@ void LLThumbnailCtrl::draw()
     }
     else
     {
-        gl_rect_2d( draw_rect, LLColor4::grey % alpha, true );
+        dx_rect_2d( draw_rect, LLColor4::grey % alpha, true );
 
         // Draw X
-        gl_draw_x( draw_rect, LLColor4::black );
+        dx_draw_x( draw_rect, LLColor4::black );
     }
 
     // Show "Loading..." string on the top left corner while this texture is loading.
@@ -158,7 +158,7 @@ void LLThumbnailCtrl::draw()
         && !mTexturep->isFullyLoaded())
     {
         U32 v_offset = 25;
-        LLFontGL* font = LLFontGL::getFontSansSerif();
+        LLFontDX* font = LLFontDX::getFontSansSerif();
 
         // Don't show as loaded if the texture is almost fully loaded (i.e. discard1) unless god
         if ((mTexturep->getDiscardLevel() > 1) || gAgent.isGodlike())
@@ -169,9 +169,9 @@ void LLThumbnailCtrl::draw()
                 (draw_rect.mLeft+3),
                 (draw_rect.mTop-v_offset),
                 LLColor4::white,
-                LLFontGL::LEFT,
-                LLFontGL::BASELINE,
-                LLFontGL::DROP_SHADOW);
+                LLFontDX::LEFT,
+                LLFontDX::BASELINE,
+                LLFontDX::DROP_SHADOW);
         }
     }
 
@@ -239,14 +239,14 @@ void LLThumbnailCtrl::initImage()
         if (mImageAssetID.notNull())
         {
             // Should it support baked textures?
-            mTexturep = LLViewerTextureManager::getFetchedTexture(mImageAssetID, FTT_DEFAULT, MIPMAP_YES, LLGLTexture::BOOST_THUMBNAIL);
+            mTexturep = LLViewerTextureManager::getFetchedTexture(mImageAssetID, FTT_DEFAULT, MIPMAP_YES, LLDXTexture::BOOST_THUMBNAIL);
             mTexturep->forceToSaveRawImage(0);
             mTexturep->setKnownDrawSize(MAX_IMAGE_SIZE, MAX_IMAGE_SIZE);
         }
     }
     else if (tvalue.isString())
     {
-        mImagep = LLUI::getUIImage(tvalue.asString(), LLGLTexture::BOOST_UI);
+        mImagep = LLUI::getUIImage(tvalue.asString(), LLDXTexture::BOOST_UI);
         if (mImagep)
         {
             LLViewerFetchedTexture* texture = dynamic_cast<LLViewerFetchedTexture*>(mImagep->getImage().get());

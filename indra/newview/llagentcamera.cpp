@@ -83,6 +83,7 @@ const F32 CAMERA_FUDGE_FROM_OBJECT = 16.f;
 const F32 MAX_CAMERA_SMOOTH_DISTANCE = 50.0f;
 
 const F32 HEAD_BUFFER_SIZE = 0.3f;
+const F64 FOLLOW_CAM_PARAM_LOSS_GRACE_PERIOD = 3.0;
 
 const F32 CUSTOMIZE_AVATAR_CAMERA_ANIM_SLOP = 0.1f;
 
@@ -156,6 +157,7 @@ LLAgentCamera::LLAgentCamera() :
 
     mFocusOnAvatar(true),
     mAllowChangeToFollow(false),
+    mLastValidFollowCamParamsTime(0.0),
     mFocusGlobal(),
     mFocusTargetGlobal(),
     mFocusObject(NULL),
@@ -1344,11 +1346,26 @@ void LLAgentCamera::updateCamera()
                 mFollowCam.copyParams(*current_cam);
                 mFollowCam.setSubjectPositionAndRotation( gAgentAvatarp->getRenderPosition(), avatarRotationForFollowCam );
                 mFollowCam.update();
+                mLastValidFollowCamParamsTime = LLFrameTimer::getTotalSeconds();
                 LLViewerJoystick::getInstance()->setCameraNeedsUpdate(true);
             }
             else
             {
-                changeCameraToThirdPerson(true);
+                const F64 now = LLFrameTimer::getTotalSeconds();
+                if (mLastValidFollowCamParamsTime > 0.0 &&
+                    (now - mLastValidFollowCamParamsTime) < FOLLOW_CAM_PARAM_LOSS_GRACE_PERIOD)
+                {
+                    // Keep the last valid scripted follow-cam briefly to avoid
+                    // temporary source drops at parcel borders.
+                    mFollowCam.setSubjectPositionAndRotation(gAgentAvatarp->getRenderPosition(), avatarRotationForFollowCam);
+                    mFollowCam.update();
+                    LLViewerJoystick::getInstance()->setCameraNeedsUpdate(true);
+                }
+                else
+                {
+                    mLastValidFollowCamParamsTime = 0.0;
+                    changeCameraToThirdPerson(true);
+                }
             }
         }
     }
@@ -1638,33 +1655,8 @@ LLVector3d LLAgentCamera::calcFocusPositionTargetGlobal()
     {
         if (mFocusObject.notNull() && !mFocusObject->isDead() && mFocusObject->mDrawable.notNull())
         {
-            LLDrawable* drawablep = mFocusObject->mDrawable;
-
-            if (mTrackFocusObject &&
-                drawablep &&
-                drawablep->isActive())
-            {
-                if (!mFocusObject->isAvatar())
-                {
-                    if (mFocusObject->isSelected())
-                    {
-                        gPipeline.updateMoveNormalAsync(drawablep);
-                    }
-                    else
-                    {
-                        if (drawablep->isState(LLDrawable::MOVE_UNDAMPED))
-                        {
-                            gPipeline.updateMoveNormalAsync(drawablep);
-                        }
-                        else
-                        {
-                            gPipeline.updateMoveDampedAsync(drawablep);
-                        }
-                    }
-                }
-            }
             // if not tracking object, update offset based on new object position
-            else
+            if (!mTrackFocusObject)
             {
                 updateFocusOffset();
             }
@@ -2182,6 +2174,7 @@ void LLAgentCamera::changeCameraToMouselook(bool animate)
 
     // visibility changes at end of animation
     gViewerWindow->getWindow()->resetBusyCount();
+    mLastValidFollowCamParamsTime = 0.0;
 
     // Menus should not remain open on switching to mouselook...
     LLMenuGL::sMenuContainer->hideMenus();
@@ -2265,6 +2258,7 @@ void LLAgentCamera::changeCameraToFollow(bool animate)
 
     if(mCameraMode != CAMERA_MODE_FOLLOW)
     {
+        mLastValidFollowCamParamsTime = 0.0;
         if (mCameraMode == CAMERA_MODE_MOUSELOOK)
         {
             animate = false;
@@ -2321,6 +2315,7 @@ void LLAgentCamera::changeCameraToThirdPerson(bool animate)
     }
 
     gViewerWindow->getWindow()->resetBusyCount();
+    mLastValidFollowCamParamsTime = 0.0;
 
     mCameraZoomFraction = INITIAL_ZOOM_FRACTION;
 
@@ -2878,6 +2873,11 @@ void LLAgentCamera::lookAtLastChat()
 bool LLAgentCamera::isfollowCamLocked()
 {
     return mFollowCam.getPositionLocked();
+}
+
+void LLAgentCamera::notifyFollowCamParamsCleared()
+{
+    mLastValidFollowCamParamsTime = 0.0;
 }
 
 bool LLAgentCamera::setPointAt(EPointAtType target_type, LLViewerObject *object, LLVector3 position)

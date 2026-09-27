@@ -36,7 +36,7 @@
 #include "llworld.h"
 
 // Linden library includes
-#include "llfontgl.h"
+#include "llfontdx.h"
 #include "llsys.h"
 #include "llgl.h"
 #include "llrender.h"
@@ -514,25 +514,25 @@ void LLFloaterColorPicker::draw()
     const F32 alpha = getSwatchTransparency();
 
     // draw image for RGB area (not really RGB but you'll see what I mean...
-    gl_draw_image ( mRGBViewerImageLeft, mRGBViewerImageTop - mRGBViewerImageHeight, mRGBImage, LLColor4::white % alpha);
+    dx_draw_image ( mRGBViewerImageLeft, mRGBViewerImageTop - mRGBViewerImageHeight, mRGBImage, LLColor4::white % alpha);
 
     // update 'cursor' into RGB Section
     S32 xPos = ( S32 ) ( ( F32 )mRGBViewerImageWidth * getCurH () ) - 8;
     S32 yPos = ( S32 ) ( ( F32 )mRGBViewerImageHeight * getCurS () ) - 8;
-    gl_line_2d ( mRGBViewerImageLeft + xPos,
+    dx_line_2d ( mRGBViewerImageLeft + xPos,
                  mRGBViewerImageTop - mRGBViewerImageHeight + yPos + 8,
                  mRGBViewerImageLeft + xPos + 16,
                  mRGBViewerImageTop - mRGBViewerImageHeight + yPos + 8,
                  LLColor4 ( 0.0f, 0.0f, 0.0f, 1.0f ) );
 
-    gl_line_2d ( mRGBViewerImageLeft + xPos + 8,
+    dx_line_2d ( mRGBViewerImageLeft + xPos + 8,
                  mRGBViewerImageTop - mRGBViewerImageHeight + yPos,
                  mRGBViewerImageLeft + xPos + 8,
                  mRGBViewerImageTop - mRGBViewerImageHeight + yPos + 16,
                  LLColor4 ( 0.0f, 0.0f, 0.0f, 1.0f ) );
 
     // create rgb area outline
-    gl_rect_2d ( mRGBViewerImageLeft,
+    dx_rect_2d ( mRGBViewerImageLeft,
                  mRGBViewerImageTop - mRGBViewerImageHeight,
                  mRGBViewerImageLeft + mRGBViewerImageWidth + 1,
                  mRGBViewerImageTop,
@@ -545,7 +545,7 @@ void LLFloaterColorPicker::draw()
         F32 rValSlider, gValSlider, bValSlider;
         hslToRgb ( getCurH (), getCurS (), ( F32 )y / ( F32 )mLumRegionHeight, rValSlider, gValSlider, bValSlider );
 
-        gl_rect_2d( mLumRegionLeft,
+        dx_rect_2d( mLumRegionLeft,
             mLumRegionTop - mLumRegionHeight + y,
                 mLumRegionLeft + mLumRegionWidth,
                     mLumRegionTop - mLumRegionHeight + y - 1,
@@ -556,13 +556,13 @@ void LLFloaterColorPicker::draw()
     // draw luninance marker
     S32 startX = mLumRegionLeft + mLumRegionWidth;
     S32 startY = mLumRegionTop - mLumRegionHeight + ( S32 ) ( mLumRegionHeight * getCurL () );
-    gl_triangle_2d ( startX, startY,
+    dx_triangle_2d ( startX, startY,
             startX + mLumMarkerSize, startY - mLumMarkerSize,
                 startX + mLumMarkerSize, startY + mLumMarkerSize,
                     LLColor4 ( 0.75f, 0.75f, 0.75f, 1.0f ), true );
 
     // draw luminance slider outline
-    gl_rect_2d ( mLumRegionLeft,
+    dx_rect_2d ( mLumRegionLeft,
                  mLumRegionTop - mLumRegionHeight,
                  mLumRegionLeft + mLumRegionWidth + 1,
                  mLumRegionTop,
@@ -570,7 +570,7 @@ void LLFloaterColorPicker::draw()
                  false );
 
     // draw selected color swatch
-    gl_rect_2d ( mSwatchRegionLeft,
+    dx_rect_2d ( mSwatchRegionLeft,
                  mSwatchRegionTop - mSwatchRegionHeight,
                  mSwatchRegionLeft + mSwatchRegionWidth,
                  mSwatchRegionTop,
@@ -578,7 +578,7 @@ void LLFloaterColorPicker::draw()
                  true );
 
     // draw selected color swatch outline
-    gl_rect_2d ( mSwatchRegionLeft,
+    dx_rect_2d ( mSwatchRegionLeft,
                  mSwatchRegionTop - mSwatchRegionHeight,
                  mSwatchRegionLeft + mSwatchRegionWidth + 1,
                  mSwatchRegionTop,
@@ -651,8 +651,8 @@ void LLFloaterColorPicker::drawPalette ()
             // draw palette entry color
             if ( mPalette [ curEntry ] )
             {
-                gl_rect_2d ( x1 + 2, y1 - 2, x2 - 2, y2 + 2, *mPalette [ curEntry++ ] % alpha, true );
-                gl_rect_2d ( x1 + 1, y1 - 1, x2 - 1, y2 + 1, LLColor4 ( 0.0f, 0.0f, 0.0f, 1.0f ), false );
+                dx_rect_2d ( x1 + 2, y1 - 2, x2 - 2, y2 + 2, *mPalette [ curEntry++ ] % alpha, true );
+                dx_rect_2d ( x1 + 1, y1 - 1, x2 - 1, y2 + 1, LLColor4 ( 0.0f, 0.0f, 0.0f, 1.0f ), false );
             }
         }
     }
@@ -678,8 +678,8 @@ void LLFloaterColorPicker::drawPalette ()
         LLColor4 hlColor ( getComplimentaryColor ( *mPalette [ highlightEntry ] ) );
 
         // mark a cross for entry that is being hovered
-        gl_line_2d ( xCenter - 4, yCenter - 4, xCenter + 4, yCenter + 4, hlColor );
-        gl_line_2d ( xCenter + 4, yCenter - 4, xCenter - 4, yCenter + 4, hlColor );
+        dx_line_2d ( xCenter - 4, yCenter - 4, xCenter + 4, yCenter + 4, hlColor );
+        dx_line_2d ( xCenter + 4, yCenter - 4, xCenter - 4, yCenter + 4, hlColor );
     }
 }
 

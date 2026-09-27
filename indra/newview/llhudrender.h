@@ -27,18 +27,18 @@
 #ifndef LL_LLHUDRENDER_H
 #define LL_LLHUDRENDER_H
 
-#include "llfontgl.h"
+#include "llfontdx.h"
 #include "llfontvertexbuffer.h"
 
 class LLVector3;
-class LLFontGL;
+class LLFontDX;
 
 // Utility classes for rendering HUD elements
 void hud_render_text(const LLWString &wstr,
                      const LLVector3 &pos_agent,
-                     const LLFontGL &font,
+                     const LLFontDX &font,
                      const U8 style,
-                     const LLFontGL::ShadowType,
+                     const LLFontDX::ShadowType,
                      const F32 x_offset,
                      const F32 y_offset,
                      const LLColor4& color,
@@ -47,9 +47,9 @@ void hud_render_text(const LLWString &wstr,
 // Legacy, slower
 void hud_render_utf8text(const std::string &str,
                          const LLVector3 &pos_agent,
-                         const LLFontGL &font,
+                         const LLFontDX &font,
                          const U8 style,
-                        const LLFontGL::ShadowType,
+                        const LLFontDX::ShadowType,
                          const F32 x_offset,
                          const F32 y_offset,
                          const LLColor4& color,

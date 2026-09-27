@@ -44,7 +44,7 @@
 #include "llmatrix4a.h"
 
 extern bool gCubeSnapshot;
-extern LLPointer<LLImageGL> gEXRImage;
+extern LLPointer<LLImageDX> gEXRImage;
 
 namespace
 {
@@ -359,8 +359,8 @@ namespace
 
         gDX.rotatef(gFrameTimeSeconds * 0.01f, 0.f, 0.f, 1.f);
 
-        S32 viewport_width_int = gGLViewport[2];
-        S32 viewport_height_int = gGLViewport[3];
+        S32 viewport_width_int = gDXViewport[2];
+        S32 viewport_height_int = gDXViewport[3];
         F32 viewport_width = (F32)viewport_width_int;
         F32 viewport_height = (F32)viewport_height_int;
 

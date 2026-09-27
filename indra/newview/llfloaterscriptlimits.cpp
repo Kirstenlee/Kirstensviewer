@@ -505,9 +505,9 @@ void LLPanelScriptLimitsRegionMemory::setRegionDetails(LLSD content)
             item_params.value = task_id;
 
             LLScrollListCell::Params cell_params;
-            cell_params.font = LLFontGL::getFontSansSerif();
+            cell_params.font = LLFontDX::getFontSansSerif();
             // Start out right justifying numeric displays
-            cell_params.font_halign = LLFontGL::RIGHT;
+            cell_params.font_halign = LLFontDX::RIGHT;
 
             cell_params.column = "size";
             cell_params.value = size;
@@ -517,7 +517,7 @@ void LLPanelScriptLimitsRegionMemory::setRegionDetails(LLSD content)
             cell_params.value = urls;
             item_params.columns.add(cell_params);
 
-            cell_params.font_halign = LLFontGL::LEFT;
+            cell_params.font_halign = LLFontDX::LEFT;
             // The rest of the columns are text to left justify them
             cell_params.column = "name";
             cell_params.value = name_buf;

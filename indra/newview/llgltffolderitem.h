@@ -62,7 +62,7 @@ public:
     LLPointer<LLUIImage> getIconOpen() const override { return getIcon(); }
     LLPointer<LLUIImage> getIconOverlay() const override { return NULL; }
 
-    LLFontGL::StyleFlags getLabelStyle() const override { return LLFontGL::NORMAL; }
+    LLFontDX::StyleFlags getLabelStyle() const override { return LLFontDX::NORMAL; }
     std::string getLabelSuffix() const override { return std::string(); }
 
     void openItem(void) override {}

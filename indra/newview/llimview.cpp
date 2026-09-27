@@ -33,7 +33,7 @@
 #include "llavataractions.h"
 #include "llfloaterconversationlog.h"
 #include "llfloaterreg.h"
-#include "llfontgl.h"
+#include "llfontdx.h"
 #include "llgl.h"
 #include "llrect.h"
 #include "llerror.h"

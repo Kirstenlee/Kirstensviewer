@@ -709,7 +709,7 @@ void LLFloaterTexturePicker::draw()
                 }
                 if (mGLTFPreview)
                 {
-                    mGLTFPreview->setBoostLevel(LLGLTexture::BOOST_PREVIEW);
+                    mGLTFPreview->setBoostLevel(LLDXTexture::BOOST_PREVIEW);
                 }
             }
             else
@@ -735,7 +735,7 @@ void LLFloaterTexturePicker::draw()
                 }
 
                 mTexturep = texture;
-                mTexturep->setBoostLevel(LLGLTexture::BOOST_PREVIEW);
+                mTexturep->setBoostLevel(LLDXTexture::BOOST_PREVIEW);
             }
         }
 
@@ -757,7 +757,7 @@ void LLFloaterTexturePicker::draw()
 
         // Border
         LLRect border = mPreviewWidget->getRect();
-        gl_rect_2d( border, LLColor4::black, false );
+        dx_rect_2d( border, LLColor4::black, false );
 
 
         // Interior
@@ -781,10 +781,10 @@ void LLFloaterTexturePicker::draw()
             preview->addTextureStats( (F32)(interior.getWidth() * interior.getHeight()) );
             if( preview->getComponents() == 4 )
             {
-                gl_rect_2d_checkerboard( interior, alpha );
+                dx_rect_2d_checkerboard( interior, alpha );
             }
 
-            gl_draw_scaled_image( interior.mLeft, interior.mBottom, interior.getWidth(), interior.getHeight(), preview, UI_VERTEX_COLOR % alpha );
+            dx_draw_scaled_image( interior.mLeft, interior.mBottom, interior.getWidth(), interior.getHeight(), preview, UI_VERTEX_COLOR % alpha );
         }
         else if (!mFallbackImage.isNull())
         {
@@ -792,10 +792,10 @@ void LLFloaterTexturePicker::draw()
         }
         else
         {
-            gl_rect_2d( interior, LLColor4::grey % alpha, true );
+            dx_rect_2d( interior, LLColor4::grey % alpha, true );
 
             // Draw X
-            gl_draw_x(interior, LLColor4::black );
+            dx_draw_x(interior, LLColor4::black );
         }
 
         // Draw Tentative Label over the image
@@ -1773,7 +1773,7 @@ LLTextureCtrl::LLTextureCtrl(const LLTextureCtrl::Params& p)
     S32 image_top = getRect().getHeight();
     S32 image_bottom = BTN_HEIGHT_SMALL;
     S32 image_middle = (image_top + image_bottom) / 2;
-    S32 line_height = LLFontGL::getFontSansSerifSmall()->getLineHeight();
+    S32 line_height = LLFontDX::getFontSansSerifSmall()->getLineHeight();
 
     LLTextBox::Params tentative_label_p(p.multiselect_text);
     tentative_label_p.name("Multiple");
@@ -1786,7 +1786,7 @@ LLTextureCtrl::LLTextureCtrl(const LLTextureCtrl::Params& p)
     style_params.color = LLColor4::white;
 
     mTentativeLabel->setText(LLTrans::getString("multiple_textures"), style_params);
-    mTentativeLabel->setHAlign(LLFontGL::HCENTER);
+    mTentativeLabel->setHAlign(LLFontDX::HCENTER);
     addChild( mTentativeLabel );
 
     LLRect border_rect = getLocalRect();
@@ -2339,15 +2339,15 @@ void LLTextureCtrl::draw()
                 }
                 if (mGLTFPreview)
                 {
-                    mGLTFPreview->setBoostLevel(LLGLTexture::BOOST_PREVIEW);
+                    mGLTFPreview->setBoostLevel(LLDXTexture::BOOST_PREVIEW);
                 }
 
                 preview = mGLTFPreview;
             }
             else
             {
-                mTexturep = LLViewerTextureManager::getFetchedTexture(mImageAssetID, FTT_DEFAULT, true, LLGLTexture::BOOST_NONE, LLViewerTexture::LOD_TEXTURE);
-                mTexturep->setBoostLevel(LLGLTexture::BOOST_PREVIEW);
+                mTexturep = LLViewerTextureManager::getFetchedTexture(mImageAssetID, FTT_DEFAULT, true, LLDXTexture::BOOST_NONE, LLViewerTexture::LOD_TEXTURE);
+                mTexturep->setBoostLevel(LLDXTexture::BOOST_PREVIEW);
                 mTexturep->forceToSaveRawImage(0);
 
                 preview = mTexturep;
@@ -2363,7 +2363,7 @@ void LLTextureCtrl::draw()
 
     // Border
     LLRect border( 0, getRect().getHeight(), getRect().getWidth(), BTN_HEIGHT_SMALL );
-    gl_rect_2d( border, mBorderColor.get(), false );
+    dx_rect_2d( border, mBorderColor.get(), false );
 
     // Interior
     LLRect interior = border;
@@ -2375,10 +2375,10 @@ void LLTextureCtrl::draw()
     {
         if( preview->getComponents() == 4 )
         {
-            gl_rect_2d_checkerboard( interior, alpha );
+            dx_rect_2d_checkerboard( interior, alpha );
         }
 
-        gl_draw_scaled_image( interior.mLeft, interior.mBottom, interior.getWidth(), interior.getHeight(), preview, UI_VERTEX_COLOR % alpha);
+        dx_draw_scaled_image( interior.mLeft, interior.mBottom, interior.getWidth(), interior.getHeight(), preview, UI_VERTEX_COLOR % alpha);
         preview->addTextureStats( (F32)(interior.getWidth() * interior.getHeight()) );
     }
     else if (!mFallbackImage.isNull())
@@ -2387,10 +2387,10 @@ void LLTextureCtrl::draw()
     }
     else
     {
-        gl_rect_2d( interior, LLColor4::grey % alpha, true );
+        dx_rect_2d( interior, LLColor4::grey % alpha, true );
 
         // Draw X
-        gl_draw_x( interior, LLColor4::black );
+        dx_draw_x( interior, LLColor4::black );
     }
 
     mTentativeLabel->setVisible( getTentative() );
@@ -2403,7 +2403,7 @@ void LLTextureCtrl::draw()
         mShowLoadingPlaceholder)
     {
         U32 v_offset = 25;
-        LLFontGL* font = LLFontGL::getFontSansSerif();
+        LLFontDX* font = LLFontDX::getFontSansSerif();
 
         // Don't show as loaded if the texture is almost fully loaded (i.e. discard1) unless god
         if ((mTexturep->getDiscardLevel() > 1) || gAgent.isGodlike())
@@ -2414,32 +2414,32 @@ void LLTextureCtrl::draw()
                 (interior.mLeft+3),
                 (interior.mTop-v_offset),
                 LLColor4::white,
-                LLFontGL::LEFT,
-                LLFontGL::BASELINE,
-                LLFontGL::DROP_SHADOW);
+                LLFontDX::LEFT,
+                LLFontDX::BASELINE,
+                LLFontDX::DROP_SHADOW);
         }
 
         // Optionally show more detailed information.
         if (gSavedSettings.getBOOL("DebugAvatarRezTime"))
         {
-            LLFontGL* font = LLFontGL::getFontSansSerif();
+            LLFontDX* font = LLFontDX::getFontSansSerif();
             std::string tdesc;
             // Show what % the texture has loaded (0 to 100%, 100 is highest), and what level of detail (5 to 0, 0 is best).
 
             v_offset += 12;
             tdesc = llformat("  PK  : %d%%", U32(mTexturep->getDownloadProgress()*100.0));
             font->renderUTF8(tdesc, 0, interior.mLeft+3, interior.mTop-v_offset,
-                             LLColor4::white, LLFontGL::LEFT, LLFontGL::BASELINE, LLFontGL::DROP_SHADOW);
+                             LLColor4::white, LLFontDX::LEFT, LLFontDX::BASELINE, LLFontDX::DROP_SHADOW);
 
             v_offset += 12;
             tdesc = llformat("  LVL: %d", mTexturep->getDiscardLevel());
             font->renderUTF8(tdesc, 0, interior.mLeft+3, interior.mTop-v_offset,
-                             LLColor4::white, LLFontGL::LEFT, LLFontGL::BASELINE, LLFontGL::DROP_SHADOW);
+                             LLColor4::white, LLFontDX::LEFT, LLFontDX::BASELINE, LLFontDX::DROP_SHADOW);
 
             v_offset += 12;
             tdesc = llformat("  ID  : %s...", (mImageAssetID.asString().substr(0,7)).c_str());
             font->renderUTF8(tdesc, 0, interior.mLeft+3, interior.mTop-v_offset,
-                             LLColor4::white, LLFontGL::LEFT, LLFontGL::BASELINE, LLFontGL::DROP_SHADOW);
+                             LLColor4::white, LLFontDX::LEFT, LLFontDX::BASELINE, LLFontDX::DROP_SHADOW);
         }
     }
 

@@ -403,9 +403,9 @@ void LLPanelPermissions::refresh()
     style_params.color = link_color;
     style_params.readonly_color = link_color;
     style_params.is_link = true; // link will be added later
-    const LLFontGL* fontp = mLabelCreatorName->getFont();
-    style_params.font.name = LLFontGL::nameFromFont(fontp);
-    style_params.font.size = LLFontGL::sizeFromFont(fontp);
+    const LLFontDX* fontp = mLabelCreatorName->getFont();
+    style_params.font.name = LLFontDX::nameFromFont(fontp);
+    style_params.font.size = LLFontDX::sizeFromFont(fontp);
     style_params.font.style = "UNDERLINE";
 
     LLAvatarName av_name;
@@ -986,11 +986,11 @@ void LLPanelPermissions::refresh()
 // Shorten name if it doesn't fit into max_pixels of two lines
 void shorten_name(std::string &name, const LLStyle::Params& style_params, S32 max_pixels)
 {
-    const LLFontGL* font = style_params.font();
+    const LLFontDX* font = style_params.font();
 
     LLWString wline = utf8str_to_wstring(name);
     // panel supports two lines long names
-    S32 segment_length = font->maxDrawableChars(wline.c_str(), (F32)max_pixels, static_cast<S32>(wline.length()), LLFontGL::WORD_BOUNDARY_IF_POSSIBLE);
+    S32 segment_length = font->maxDrawableChars(wline.c_str(), (F32)max_pixels, static_cast<S32>(wline.length()), LLFontDX::WORD_BOUNDARY_IF_POSSIBLE);
     if (segment_length == wline.length())
     {
         // no work needed
@@ -998,7 +998,7 @@ void shorten_name(std::string &name, const LLStyle::Params& style_params, S32 ma
     }
 
     S32 first_line_length = segment_length;
-    segment_length = font->maxDrawableChars(wline.substr(first_line_length).c_str(), (F32)max_pixels, static_cast<S32>(wline.length()), LLFontGL::ANYWHERE);
+    segment_length = font->maxDrawableChars(wline.substr(first_line_length).c_str(), (F32)max_pixels, static_cast<S32>(wline.length()), LLFontDX::ANYWHERE);
     if (segment_length + first_line_length == wline.length())
     {
         // no work needed
@@ -1008,7 +1008,7 @@ void shorten_name(std::string &name, const LLStyle::Params& style_params, S32 ma
     // name does not fit, cut it, add ...
     const LLWString dots_pad(utf8str_to_wstring(std::string("....")));
     F32 elipses_width = font->getWidthF32(dots_pad.c_str());
-    segment_length = font->maxDrawableChars(wline.substr(first_line_length).c_str(), (F32)max_pixels - elipses_width, static_cast<S32>(wline.length()), LLFontGL::ANYWHERE);
+    segment_length = font->maxDrawableChars(wline.substr(first_line_length).c_str(), (F32)max_pixels - elipses_width, static_cast<S32>(wline.length()), LLFontDX::ANYWHERE);
 
     name = name.substr(0, segment_length + first_line_length) + std::string("...");
 }

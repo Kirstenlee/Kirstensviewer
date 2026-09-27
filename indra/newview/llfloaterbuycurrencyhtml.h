@@ -24,36 +24,35 @@
  * $/LicenseInfo$
  */
 
-#ifndef LL_LLFLOATERBUYCURRENCYHTML_H
-#define LL_LLFLOATERBUYCURRENCYHTML_H
+#pragma once
 
 #include "llfloater.h"
 #include "llmediactrl.h"
 
-class LLFloaterBuyCurrencyHTML :
+class LLFloaterBuyCurrencyHTML:
     public LLFloater,
     public LLViewerMediaObserver
 {
-    public:
-        LLFloaterBuyCurrencyHTML( const LLSD& key );
+    friend class LLFloaterReg;
 
-        /*virtual*/ bool postBuild();
-        /*virtual*/ void onClose( bool app_quitting );
+public:
+    LLFloaterBuyCurrencyHTML(const LLSD& key);
+    ~LLFloaterBuyCurrencyHTML();
+    bool postBuild() override;
+    void onClose(bool app_quitting) override;
+    void handleMediaEvent(LLPluginClassMedia* self, EMediaEvent event) override;
 
-        // inherited from LLViewerMediaObserver
-        /*virtual*/ void handleMediaEvent( LLPluginClassMedia* self, EMediaEvent event );
+    void navigateToFinalURL();
+    void setShortfall(S32 shortfall) { mShortfall = shortfall; }
+    void setFallbackContext(const std::string& message, S32 sum);
+    static std::string buildURL(S32 shortfall = 0);
 
-        // allow our controlling parent to tell us paramters
-        void setParams( bool specific_sum_requested, const std::string& message, S32 sum );
+private:
+    void fallbackToLegacy();
 
-        // parse and construct URL and set browser to navigate there.
-        void navigateToFinalURL();
-
-    private:
-        LLMediaCtrl* mBrowser;
-        bool mSpecificSumRequested;
-        std::string mMessage;
-        S32 mSum;
+    LLMediaCtrl* mBrowser;
+    S32 mShortfall{0};
+    bool mHasFallbackTarget{false};
+    std::string mFallbackMessage;
+    S32 mFallbackSum{0};
 };
-
-#endif  // LL_LLFLOATERBUYCURRENCYHTML_H

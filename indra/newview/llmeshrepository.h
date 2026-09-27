@@ -864,6 +864,7 @@ public:
     void init();
     void unregisterAllMeshes();
     void shutdown();
+    void shutdownDecomposition();
     S32 update();
 
     void unregisterMesh(LLVOVolume* vobj, const LLVolumeParams& mesh_params, S32 detail);

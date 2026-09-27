@@ -36,7 +36,7 @@
 #include "v2math.h"
 #include "llrect.h"
 //#include "llframetimer.h"
-#include "llfontgl.h"
+#include "llfontdx.h"
 #include "llfontvertexbuffer.h"
 #include <set>
 #include <vector>
@@ -55,22 +55,22 @@ protected:
     class LLHUDTextSegment
     {
     public:
-        LLHUDTextSegment(const LLWString& text, const LLFontGL::StyleFlags style, const LLColor4& color, const LLFontGL* font)
+        LLHUDTextSegment(const LLWString& text, const LLFontDX::StyleFlags style, const LLColor4& color, const LLFontDX* font)
         :   mColor(color),
             mStyle(style),
             mText(text),
             mFont(font)
         {}
-        F32 getWidth(const LLFontGL* font);
+        F32 getWidth(const LLFontDX* font);
         const LLWString& getText() const { return mText; }
         void clearFontWidthMap() { mFontWidthMap.clear(); }
 
         LLColor4                mColor;
-        LLFontGL::StyleFlags    mStyle;
-        const LLFontGL*         mFont;
+        LLFontDX::StyleFlags    mStyle;
+        const LLFontDX*         mFont;
     private:
         LLWString               mText;
-        std::map<const LLFontGL*, F32> mFontWidthMap;
+        std::map<const LLFontDX*, F32> mFontWidthMap;
     };
 
 public:
@@ -99,8 +99,8 @@ public:
     void addLine(
         const std::string &text_utf8,
         const LLColor4& color,
-        const LLFontGL::StyleFlags style = LLFontGL::NORMAL,
-        const LLFontGL* font = NULL,
+        const LLFontDX::StyleFlags style = LLFontDX::NORMAL,
+        const LLFontDX* font = NULL,
         const bool use_ellipses = false,
         F32 max_pixels = HUD_TEXT_MAX_WIDTH);
 
@@ -109,7 +109,7 @@ public:
     void addLabel(const std::string& label_utf8, F32 max_pixels = HUD_TEXT_MAX_WIDTH);
 
     // Sets the default font for lines with no font specified
-    void setFont(const LLFontGL* font);
+    void setFont(const LLFontDX* font);
     void setColor(const LLColor4 &color);
     void setAlpha(F32 alpha);
     void setZCompare(const bool zcompare);
@@ -142,15 +142,11 @@ public:
     static void reshape();
     static void setDisplayText(bool flag) { sDisplayText = flag ; }
 
-    // S24 (2026-08-28, task #193 follow-up): occlusion-fade, not real depth
-    // occlusion - see this class's .cpp for the full writeup of why. No-op
-    // under GL (GL's real depth-test-based occlusion in renderText() already
-    // works correctly and is untouched). issueOcclusionQueries() is called
-    // once per frame from LLPipeline::doOcclusion() (pipeline.cpp), at the
-    // one point in the frame where the real 3D scene's depth buffer is still
-    // bound and gOcclusionCubeProgram/mCubeVB are already set up for this
-    // exact purpose (spatial-group occlusion culling uses the identical
-    // mechanism) - reused here rather than building a second one.
+    // Occlusion-FADE, not real depth occlusion (GL's depth-test-based
+    // occlusion in renderText() is untouched and unaffected). Called once per
+    // frame from LLPipeline::doOcclusion() (pipeline.cpp), reusing the
+    // gOcclusionCubeProgram/mCubeVB bind already set up there for
+    // spatial-group occlusion culling rather than a second bind.
     static void issueOcclusionQueries();
 
 protected:
@@ -184,8 +180,8 @@ private:
     F32             mWidth;
     F32             mHeight;
 //  LLColor4U       mPickColor;
-    const LLFontGL* mFontp;
-    const LLFontGL* mBoldFontp;
+    const LLFontDX* mFontp;
+    const LLFontDX* mBoldFontp;
     LLRectf         mSoftScreenRect;
     LLVector3       mPositionAgent;
     LLVector2       mPositionOffset;
@@ -204,11 +200,9 @@ private:
     LLPointer<LLUIImage> mRoundedRectImgp;
     LLPointer<LLUIImage> mRoundedRectTopImgp;
 
-    // S24 (2026-08-28, task #193 follow-up): occlusion-fade state - see the
-    // public issueOcclusionQueries() comment above. mOcclusionFadeAlpha is
-    // read unconditionally in renderText() (defaults to 1.0 = fully visible,
-    // so it's a true no-op under GL without needing to guard the read site
-    // too); the query handle/pending flag are only meaningful under DX_RENDER.
+    // mOcclusionFadeAlpha is read unconditionally in renderText() (defaults
+    // to 1.0, a no-op under GL); the query handle/pending flag are only
+    // meaningful under DX_RENDER.
     F32             mOcclusionFadeAlpha = 1.f;
 #ifdef DX_RENDER
     unsigned int    mOcclusionQuery = 0;

@@ -30,7 +30,7 @@
 
 #include "llavatarnamecache.h"
 #include "llcoord.h"
-#include "llfontgl.h"
+#include "llfontdx.h"
 #include "llframetimer.h"
 #include "llgl.h"
 #include "llhost.h"

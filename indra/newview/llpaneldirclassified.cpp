@@ -30,7 +30,7 @@
 
 #include "llclassifiedflags.h"
 
-#include "llfontgl.h"
+#include "llfontdx.h"
 #include "message.h"
 #include "llqueryflags.h"
 

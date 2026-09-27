@@ -33,7 +33,7 @@
 #include "llviewercamera.h"
 #include "v3math.h"
 #include "llquaternion.h"
-#include "llfontgl.h"
+#include "llfontdx.h"
 #include "llglheaders.h"
 #include "llviewerwindow.h"
 #include "llui.h"
@@ -42,9 +42,9 @@
 #include <glm/gtc/type_ptr.hpp>
 
 void hud_render_utf8text(const std::string &str, const LLVector3 &pos_agent,
-                     const LLFontGL &font,
+                     const LLFontDX &font,
                      const U8 style,
-                     const LLFontGL::ShadowType shadow,
+                     const LLFontDX::ShadowType shadow,
                      const F32 x_offset, const F32 y_offset,
                      const LLColor4& color,
                      const bool orthographic)
@@ -54,9 +54,9 @@ void hud_render_utf8text(const std::string &str, const LLVector3 &pos_agent,
 }
 
 void hud_render_text(const LLWString &wstr, const LLVector3 &pos_agent,
-                    const LLFontGL &font,
+                    const LLFontDX &font,
                     const U8 style,
-                    const LLFontGL::ShadowType shadow,
+                    const LLFontDX::ShadowType shadow,
                     const F32 x_offset, const F32 y_offset,
                     const LLColor4& color,
                     const bool orthographic)
@@ -115,17 +115,17 @@ void hud_render_text(const LLWString &wstr, const LLVector3 &pos_agent,
     gDX.pushMatrix();
     LLUI::pushMatrix();
 
-    gl_state_for_2d(world_view_rect.getWidth(), world_view_rect.getHeight());
+    dx_state_for_2d(world_view_rect.getWidth(), world_view_rect.getHeight());
     gViewerWindow->setup3DViewport();
 
     win_coord.x -= world_view_rect.mLeft;
     win_coord.y -= world_view_rect.mBottom;
     LLUI::loadIdentity();
     gDX.loadIdentity();
-    LLUI::translate((F32) win_coord.x*1.0f/LLFontGL::sScaleX, (F32) win_coord.y*1.0f/(LLFontGL::sScaleY), -(((F32) win_coord.z*2.f)-1.f));
+    LLUI::translate((F32) win_coord.x*1.0f/LLFontDX::sScaleX, (F32) win_coord.y*1.0f/(LLFontDX::sScaleY), -(((F32) win_coord.z*2.f)-1.f));
     F32 right_x;
 
-    font.render(wstr, 0, 0, 1, color, LLFontGL::LEFT, LLFontGL::BASELINE, style, shadow, static_cast<S32>(wstr.length()), 1000, &right_x, /*use_ellipses*/false, /*use_color*/true);
+    font.render(wstr, 0, 0, 1, color, LLFontDX::LEFT, LLFontDX::BASELINE, style, shadow, static_cast<S32>(wstr.length()), 1000, &right_x, /*use_ellipses*/false, /*use_color*/true);
 
     LLUI::popMatrix();
     gDX.popMatrix();

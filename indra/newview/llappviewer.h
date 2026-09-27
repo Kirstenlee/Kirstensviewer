@@ -59,7 +59,6 @@ class LLPumpIO;
 class LLTextureCache;
 class LLImageDecodeThread;
 class LLTextureFetch;
-class LLWatchdogTimeout;
 class LLViewerJoystick;
 class LLPurgeDiskCacheThread;
 class LLViewerRegion;
@@ -199,17 +198,6 @@ public:
 	std::string getSettingsFilename(const std::string& location_key,
 					const std::string& file);
 	void loadColorSettings();
-
-	// For thread debugging. 
-	// llstartup needs to control init.
-	// llworld, send_agent_pause() also controls pause/resume.
-    void initMainloopTimeout(std::string_view state);
-	void destroyMainloopTimeout();
-	void pauseMainloopTimeout();
-    void resumeMainloopTimeout(std::string_view state = "");
-    void pingMainloopTimeout(std::string_view state);
-
-    F32 getMainloopTimeoutSec() const;
 
 	// Handle the 'login completed' event.
 	// *NOTE:Mani Fix this for login abstraction!!
@@ -367,8 +355,6 @@ private:
     bool mClosingFloaters;
 	bool mLogoutRequestSent;			// Disconnect message sent to simulator, no longer safe to send messages to the sim.
 	struct SettingsFiles* mSettingsLocationList;
-
-	LLWatchdogTimeout* mMainloopTimeout;
 
 	// For performance and metric gathering
 	class LLThread*	mFastTimerLogThread;

@@ -37,7 +37,7 @@
 #include "llcachename.h"
 #include "llcallbacklist.h"
 #include "llcheckboxctrl.h"
-#include "llfontgl.h"
+#include "llfontdx.h"
 #include "llimagepng.h"
 #include "llimagej2c.h"
 #include "llinventory.h"
@@ -924,7 +924,7 @@ void LLFloaterReporter::takeScreenshot(bool use_prev_screenshot)
     // store in the image list so it doesn't try to fetch from the server
     LLPointer<LLViewerFetchedTexture> image_in_list =
         LLViewerTextureManager::getFetchedTexture(mResourceDatap->mAssetInfo.mUuid);
-    image_in_list->createGLTexture(0, mImageRaw, 0, true, LLGLTexture::OTHER);
+    image_in_list->createGLTexture(0, mImageRaw, 0, true, LLDXTexture::OTHER);
 
     // the texture picker then uses that texture
     LLTextureCtrl* texture = getChild<LLTextureCtrl>("screenshot");

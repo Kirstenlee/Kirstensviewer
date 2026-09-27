@@ -36,7 +36,7 @@
 #endif
 
 class LLImageRaw;
-class LLImageGL;
+class LLImageDX;
 class KVCacheThread;
 
 class KVRAMCache : public LLSingleton<KVRAMCache>
@@ -63,7 +63,7 @@ public:
     {
         U64 ram_budget_bytes = MEGA_BYTES_TO_BYTES(1024);   // 1GB default RAM cache
 
-        F32 ram_retention_time_seconds = 5.0f;   // S24 RAMCACHE TUNE: Reduced from 30s to 5s for faster eviction response  // KV:GC→RT Renamed from ram_grace_period_seconds
+        F32 ram_retention_time_seconds = 5.0f;   // KV:GC→RT Renamed from ram_grace_period_seconds
     };
 
     struct CacheEntry
@@ -82,7 +82,6 @@ public:
         U8 components = 0;
         S8 discard_level = -1;           // -1 = not loaded, 0 = full res
 
-        // S24: Priority tier for priority-segmented eviction
         AssetPriority priority = AssetPriority::NORMAL;
 
         F64 mAdmittedAt = 0.0;  // KV:RT Viewer uptime (seconds) when this entry was admitted — minimum retention time starts here
@@ -150,10 +149,6 @@ public:
 
     // ===== PASSIVE BUFFER INTERFACE (Fetch Worker Integration) =====
 
-    // S24 STAGE 3: RAM Cache acts as fast intermediate between memory and disk
-    // Stores J2C compressed texture data (same format as disk cache)
-    // Natural flow: Memory → RAM Cache (J2C) → Disk Cache (J2C) → Network
-
     // Query Interface (Check before disk read)
     // Returns true if texture is in RAM cache
     bool hasTexture(const LLUUID& uuid);
@@ -162,9 +157,7 @@ public:
     // Stores J2C compressed data along with decode metadata
     // Returns true if accepted (or false if cache full and can't evict)
     // Cache makes internal copy of texture_data - caller retains ownership
-    // S24 (2026-08-16): priority is caller-classified (see lltexturefetch.cpp's
-    // classify_kvram_priority()) so the priority-segmented deques actually
-    // segment - previously always NORMAL by construction.
+    // priority is caller-classified — see lltexturefetch.cpp's classify_kvram_priority().
     bool acceptEviction(const LLUUID& uuid, void* texture_data, U64 size_bytes, S32 discard_level,
                         U32 width, U32 height, S8 components,
                         AssetPriority priority);
@@ -205,20 +198,17 @@ public:
     const ExtendedStats& getExtendedStats() const { return mExtendedStats; }
     void removeFromRAMLRU(const LLUUID& uuid);
     F32 getRAMPressure() const;  // Get current RAM pressure (0.0 - 1.0)
-    // S24: Authoritative eviction pressure multiplier (0.0 - 2.0) for UI display —
-    // shares calculateEvictionPressureMultiplier() with processPassiveEviction so the
-    // stats floater can never drift from the actual eviction curve again.
+    // Eviction pressure multiplier (0.0-2.0) for UI display; shares
+    // calculateEvictionPressureMultiplier() with processPassiveEviction() so
+    // the UI can't drift from the real eviction curve.
     F32 getEvictionPressureMultiplier() const;
     void resetExtendedStats();
     void resetStats();
     void dumpState() const;  // Debug logging
 
-    // S24 (2026-08-16): an evicted RAM entry that still needs to be written
-    // to the on-disk texture cache - see evictSlice()'s comment for why this
-    // exists (the disk write this class's own doc-comments always claimed
-    // happened on decay never actually did). `data` is a malloc'd buffer
-    // whose ownership transfers to whoever drains this list - must free() it
-    // exactly once, whether or not the write succeeds.
+    // An evicted RAM entry still pending its on-disk write. `data` is a
+    // malloc'd buffer whose ownership transfers to whoever drains this list —
+    // must free() it exactly once, whether or not the write succeeds.
     struct PendingDiskWrite
     {
         LLUUID uuid;
@@ -234,22 +224,17 @@ public:
         // Passive eviction logic (time/pressure based) - called by worker thread
         void processPassiveEviction(F32 delta_time);
         // KV:RT Added retention_time/now params for minimum age check.
-        // S24 (2026-08-16): out_pending collects entries that need writing to
-        // disk - see PendingDiskWrite's comment. Appending to it is O(1) and
-        // does no I/O/decode, so this doesn't change evictSlice()'s own
-        // locked-section cost; the caller drains it after releasing
-        // mCacheMutex.
+        // out_pending collects entries needing a disk write (see PendingDiskWrite);
+        // appending is O(1), so the caller drains it after releasing mCacheMutex
+        // without changing evictSlice()'s own locked-section cost.
         void evictSlice(U32 slice_size, F64 retention_time, F64 now, std::vector<PendingDiskWrite>& out_pending);
 
-        // S24 (2026-08-16): decodes and writes one evicted entry to the
-        // real on-disk texture cache (LLTextureCache::writeToCache()) -
-        // completing the "decay to disk" this class's doc-comments always
-        // claimed happened. Always frees item.data exactly once (decode
-        // failure or success) - call with no lock held, this does real
-        // CPU decode work.
+        // Decodes and writes one evicted entry to LLTextureCache::writeToCache().
+        // Always frees item.data exactly once (decode failure or success);
+        // call with no lock held — does real CPU decode work.
         void writeEvictedEntryToDisk(const PendingDiskWrite& item);
 
-        // S24: Single source of truth for the pressure->multiplier curve. Used by both
+        // Single source of truth for the pressure->multiplier curve; shared by
         // processPassiveEviction (actual eviction) and getEvictionPressureMultiplier (UI display).
         F32 calculateEvictionPressureMultiplier(F32 pressure) const;
 
@@ -279,7 +264,7 @@ public:
     F32 mEvictionRateAccumulator = 0.0f;
     F32 mEvictionRateTimer = 0.0f;
 
-     // S24: Per-frame eviction accumulator for delta_time-scaled smooth eviction
+     // Per-frame eviction accumulator for delta_time-scaled smooth eviction.
      // Fractions from time-scaled slice sizes accumulate here; when >=1.0, one
      // extra texture is evicted and the accumulator decremented. This prevents
      // truncation loss at low frame rates.
@@ -290,7 +275,7 @@ public:
 
     // LRU queue (oldest at front)
     std::deque<LLUUID> mRAMLRU;
-    // S24: Priority-segmented LRU deques — evict from lowest priority first
+    // Priority-segmented LRU deques — evict from lowest priority first.
     std::deque<LLUUID> mRAMLRU_BACKGROUND;   // Evicted first
     std::deque<LLUUID> mRAMLRU_NORMAL;       // Default tier
     std::deque<LLUUID> mRAMLRU_HIGH;         // Evicted only after NORMAL+ below empty

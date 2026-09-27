@@ -108,7 +108,10 @@ bool LLNotificationStorage::readNotifications(LLSD& pNotificationData, bool is_n
 {
     std::string filename = is_new_filename? mFileName : mOldFileName;
 
-    LL_INFOS("LLNotificationStorage") << "starting read '" << filename << "'" << LL_ENDL;
+    if (!filename.empty())
+    {
+        LL_INFOS("LLNotificationStorage") << "starting read '" << filename << "'" << LL_ENDL;
+    }
 
     bool didFileRead;
 
@@ -118,8 +121,11 @@ bool LLNotificationStorage::readNotifications(LLSD& pNotificationData, bool is_n
     didFileRead = notifyFile.is_open();
     if (!didFileRead)
     {
-        // File not existing is normal - it won't exist on first login or if user has no persistent notifications
-        LL_DEBUGS("LLNotificationStorage") << "Notification file does not exist: '" << filename << "'" << LL_ENDL;
+        if (!filename.empty())
+        {
+            // File not existing is normal - it won't exist on first login or if user has no persistent notifications
+            LL_DEBUGS("LLNotificationStorage") << "Notification file does not exist: '" << filename << "'" << LL_ENDL;
+        }
     }
     else
     {
@@ -143,7 +149,10 @@ bool LLNotificationStorage::readNotifications(LLSD& pNotificationData, bool is_n
             if(didFileRead)
             {
                 writeNotifications(pNotificationData);
-                LLFile::remove(mOldFileName);
+                if (!mOldFileName.empty())
+                {
+                    LLFile::remove(mOldFileName, ENOENT);
+                }
             }
         }
     }

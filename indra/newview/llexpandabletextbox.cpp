@@ -91,7 +91,7 @@ public:
         mStyle->getFont()->render(mExpanderLabel, start,
                                     draw_rect.mRight, draw_rect.mTop,
                                     mStyle->getColor(),
-                                    LLFontGL::RIGHT, LLFontGL::TOP,
+                                    LLFontDX::RIGHT, LLFontDX::TOP,
                                     0,
                                     mStyle->getShadowType(),
                                     end - start, (S32)draw_rect.getWidth(),
@@ -261,11 +261,11 @@ void LLExpandableTextBox::draw()
 {
     if(mBGVisible && !mExpanded)
     {
-        gl_rect_2d(getLocalRect(), mBGColor.get(), true);
+        dx_rect_2d(getLocalRect(), mBGColor.get(), true);
     }
     if(mExpandedBGVisible && mExpanded)
     {
-        gl_rect_2d(getLocalRect(), mExpandedBGColor.get(), true);
+        dx_rect_2d(getLocalRect(), mExpandedBGColor.get(), true);
     }
 
     collapseIfPosChanged();

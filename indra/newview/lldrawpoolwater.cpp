@@ -61,8 +61,8 @@ void LLDrawPoolWater::setTransparentTextures(const LLUUID& transparentTextureId,
     mWaterImagep[1] = LLViewerTextureManager::getFetchedTexture(!nextTransparentTextureId.isNull() ? nextTransparentTextureId : (!transparentTextureId.isNull() ? transparentTextureId : pwater->GetDefaultTransparentTextureAssetId()));
     // S24 BUG FIX: Water textures must have high priority - they're always visible and critical
     // Without boost, water gets stuck in queue after heavy texture load (e.g., post-TP)
-    mWaterImagep[0]->setBoostLevel(LLGLTexture::BOOST_HIGH);
-    mWaterImagep[1]->setBoostLevel(LLGLTexture::BOOST_HIGH);
+    mWaterImagep[0]->setBoostLevel(LLDXTexture::BOOST_HIGH);
+    mWaterImagep[1]->setBoostLevel(LLDXTexture::BOOST_HIGH);
     mWaterImagep[0]->addTextureStats(2048.f*2048.f);  // Increased from 1024x1024
     mWaterImagep[1]->addTextureStats(2048.f*2048.f);
 }
@@ -72,7 +72,7 @@ void LLDrawPoolWater::setOpaqueTexture(const LLUUID& opaqueTextureId)
     LLSettingsWater::ptr_t pwater = LLEnvironment::instance().getCurrentWater();
     mOpaqueWaterImagep = LLViewerTextureManager::getFetchedTexture(opaqueTextureId);
     // S24 BUG FIX: Opaque water texture also needs high priority
-    mOpaqueWaterImagep->setBoostLevel(LLGLTexture::BOOST_HIGH);
+    mOpaqueWaterImagep->setBoostLevel(LLDXTexture::BOOST_HIGH);
     mOpaqueWaterImagep->addTextureStats(2048.f*2048.f);  // Increased from 1024x1024
 }
 
@@ -83,8 +83,8 @@ void LLDrawPoolWater::setNormalMaps(const LLUUID& normalMapId, const LLUUID& nex
     mWaterNormp[1] = LLViewerTextureManager::getFetchedTexture(!nextNormalMapId.isNull() ? nextNormalMapId : (!normalMapId.isNull() ? normalMapId : pwater->GetDefaultWaterNormalAssetId()));
     // S24 BUG FIX: Water normal maps CRITICAL - without them water appears flat/wrong
     // This was causing "stuck water texture" after TP - normals were deprioritized
-    mWaterNormp[0]->setBoostLevel(LLGLTexture::BOOST_SUPER_HIGH);  // Super high - always needed
-    mWaterNormp[1]->setBoostLevel(LLGLTexture::BOOST_SUPER_HIGH);
+    mWaterNormp[0]->setBoostLevel(LLDXTexture::BOOST_SUPER_HIGH);  // Super high - always needed
+    mWaterNormp[1]->setBoostLevel(LLDXTexture::BOOST_SUPER_HIGH);
     mWaterNormp[0]->addTextureStats(2048.f*2048.f);  // Increased from 1024x1024
     mWaterNormp[1]->addTextureStats(2048.f*2048.f);
 }

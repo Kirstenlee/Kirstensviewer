@@ -35,7 +35,7 @@
 #include "v2math.h"
 #include "llrect.h"
 #include "llframetimer.h"
-#include "llfontgl.h"
+#include "llfontdx.h"
 #include <set>
 #include <vector>
 

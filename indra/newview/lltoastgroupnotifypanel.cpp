@@ -114,12 +114,12 @@ LLToastGroupNotifyPanel::LLToastGroupNotifyPanel(const LLNotificationPtr& notifi
     pMessageText->clear();
 
     LLStyle::Params style;
-    LLFontGL* subject_font = LLFontGL::getFontByName(getString("subject_font"));
+    LLFontDX* subject_font = LLFontDX::getFontByName(getString("subject_font"));
     if (subject_font)
         style.font = subject_font;
     pMessageText->appendText(subject, false, style);
 
-    LLFontGL* date_font = LLFontGL::getFontByName(getString("date_font"));
+    LLFontDX* date_font = LLFontDX::getFontByName(getString("date_font"));
     if (date_font)
         style.font = date_font;
     pMessageText->appendText(timeStr + "\n", true, style);

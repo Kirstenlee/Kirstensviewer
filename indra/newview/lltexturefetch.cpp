@@ -231,10 +231,8 @@ const std::string sTesterName("TextureFetchTester");
 
 // Tuning/Parameterization Constants
 
-// S24 PERFORMANCE: Conservative watermarks - balance throughput with stability
-// High water: stop submitting new requests when this many are in-flight
-// Low water: resume submitting requests when count drops to this level
-// Conservative: +20% pipe, +25% nonpipe vs original - enough headroom for 16-64 HTTP connections
+// High water: stop submitting new requests when this many are in-flight.
+// Low water: resume submitting requests when count drops to this level.
 static const S32 HTTP_PIPE_REQUESTS_HIGH_WATER = 200;       // Aggressive (was 120 conservative, orig 100) - Maximum requests to have active in HTTP (pipelined)
 static const S32 HTTP_PIPE_REQUESTS_LOW_WATER = 100;        // Aggressive (was 60 conservative, orig 50) - Active level at which to refill
 static const S32 HTTP_NONPIPE_REQUESTS_HIGH_WATER = 80;     // Aggressive (was 50 conservative, orig 40) - Non-pipelined limit
@@ -1029,22 +1027,14 @@ F32 LLTextureFetchWorker::getImagePriority() const
 	return mImagePriority;
 }
 
-// S24 (2026-08-16): KVRAMCache's priority-segmented eviction deques
-// (BACKGROUND/NORMAL/HIGH/CRITICAL) existed but nothing ever set a
-// CacheEntry's priority away from the default NORMAL, making the
-// segmentation a no-op. Classify using the same boost-level lookup pattern
-// already used a few hundred lines below for gTotalTextureBytesPerBoostLevel
-// (LLViewerTextureManager::findTextures by uuid) - a live, always-current
-// signal, not a value cached at worker-construction time that could go
-// stale (boost level, e.g. BOOST_SELECTED, can change over a texture's
-// life). Ordinary world content (BOOST_NONE) falls back to this worker's
-// own mImagePriority (== the fetch pipeline's on-screen virtual-size
-// estimate) to distinguish still-visible (NORMAL) from went-off-screen-
+// Classify eviction priority via a live boost-level lookup (boost level, e.g. BOOST_SELECTED, can
+// change over a texture's life - a worker-construction-time cache would go stale). BOOST_NONE falls
+// back to this worker's own mImagePriority to distinguish still-visible (NORMAL) from went-off-screen-
 // while-fetching (BACKGROUND), using the same F_ALMOST_ZERO threshold
 // this file already uses to decide when a fetch is no longer worth pursuing.
 static KVRAMCache::AssetPriority classify_kvram_priority(const LLUUID& id, F32 image_priority)
 {
-	S32 boost = LLGLTexture::BOOST_NONE;
+	S32 boost = LLDXTexture::BOOST_NONE;
 	std::vector<LLViewerTexture*> textures;
 	LLViewerTextureManager::findTextures(id, textures);
 	for (LLViewerTexture* tex : textures)
@@ -1057,21 +1047,21 @@ static KVRAMCache::AssetPriority classify_kvram_priority(const LLUUID& id, F32 i
 
 	switch (boost)
 	{
-		case LLGLTexture::BOOST_UI:
-		case LLGLTexture::BOOST_HUD:
-		case LLGLTexture::BOOST_SELECTED:
-		case LLGLTexture::BOOST_AVATAR_SELF:
-		case LLGLTexture::BOOST_AVATAR_BAKED_SELF:
-		case LLGLTexture::BOOST_ICON:
-		case LLGLTexture::BOOST_THUMBNAIL:
+		case LLDXTexture::BOOST_UI:
+		case LLDXTexture::BOOST_HUD:
+		case LLDXTexture::BOOST_SELECTED:
+		case LLDXTexture::BOOST_AVATAR_SELF:
+		case LLDXTexture::BOOST_AVATAR_BAKED_SELF:
+		case LLDXTexture::BOOST_ICON:
+		case LLDXTexture::BOOST_THUMBNAIL:
 			return KVRAMCache::AssetPriority::CRITICAL;
 
-		case LLGLTexture::BOOST_AVATAR:
-		case LLGLTexture::BOOST_AVATAR_BAKED:
-		case LLGLTexture::BOOST_SCULPTED:
-		case LLGLTexture::BOOST_BUMP:
-		case LLGLTexture::BOOST_SUPER_HIGH:
-		case LLGLTexture::BOOST_TERRAIN:
+		case LLDXTexture::BOOST_AVATAR:
+		case LLDXTexture::BOOST_AVATAR_BAKED:
+		case LLDXTexture::BOOST_SCULPTED:
+		case LLDXTexture::BOOST_BUMP:
+		case LLDXTexture::BOOST_SUPER_HIGH:
+		case LLDXTexture::BOOST_TERRAIN:
 			return KVRAMCache::AssetPriority::HIGH;
 
 		default:
@@ -1132,10 +1122,6 @@ bool LLTextureFetchWorker::doWork(S32 param)
 	}
 	if (mState > CACHE_POST && !mCanUseHTTP)
 	{
-		// S24 TEXTURE PERF: State transition check - normal when HTTP disabled
-		// CRITICAL: This executes during every texture fetch attempt when HTTP unavailable
-		// Silent failure - texture will gracefully abort and retry on next priority update
-		// User cannot fix HTTP availability - warning provides zero value
 		//nowhere to get data, abort.
 		LL_DEBUGS(LOG_TXT) << mID << " abort, nowhere to get data" << LL_ENDL;
 		return true;
@@ -1303,13 +1289,9 @@ bool LLTextureFetchWorker::doWork(S32 param)
 			}
 			// RAM CACHE MISS or disabled - proceed with normal disk cache logic
 			//
-			// S24 FIX: this whole block used to run unconditionally, even after a successful
-			// RAM cache hit above had already set mLoaded=true/mFileSize/mCacheReadHandle.
-			// It would immediately stomp mLoaded back to false and either kick off a redundant
-			// disk-cache read or jump to WAIT_HTTP_RESOURCE/LOAD_FROM_NETWORK, discarding data
-			// we already had fully decoded in hand - the "fall through to the mLoaded check
-			// below" comment above never actually held because nothing guarded this path on
-			// mLoaded. The `if (!mLoaded)` below restores that guard.
+			// Guard against re-running disk-cache logic after a RAM-cache hit above already set
+			// mLoaded/mFileSize/mCacheReadHandle - without it this block stomps mLoaded back to
+			// false and discards already-decoded data.
 			if (!mLoaded)
 			{
 				mFileSize = 0;
@@ -1389,10 +1371,6 @@ bool LLTextureFetchWorker::doWork(S32 param)
 			// we have enough data, decode it
 			llassert_always(mFormattedImage->getDataSize() > 0);
 			mLoadedDiscard = mDesiredDiscard;
-			// S24 TEXTURE PERF: Discard level validation - cache hit path
-			// CRITICAL: This check executes for EVERY cache hit (thousands per session)
-			// mLoadedDiscard < 0 is RARE and handled gracefully by decode state
-			// llassert catches this in debug builds - production should proceed silently
 			if (mLoadedDiscard < 0)
 			{
 				LL_DEBUGS(LOG_TXT) << mID << " mLoadedDiscard is " << mLoadedDiscard
@@ -1413,10 +1391,6 @@ bool LLTextureFetchWorker::doWork(S32 param)
 		{
 			if (mUrl.compare(0, 7, "file://") == 0)
 			{
-				// S24 TEXTURE PERF: Local file load failure
-				// CRITICAL: This is a FILE NOT FOUND error (similar to APR_EOF discussion)
-				// User cannot fix missing local files - warning spams console needlessly
-				// Texture system will gracefully handle missing textures with default gray
 				// failed to load local file, we're done.
 				LL_DEBUGS(LOG_TXT) << mID << ": abort, failed to load local file " << mUrl << LL_ENDL;
 				return true;
@@ -1440,10 +1414,6 @@ bool LLTextureFetchWorker::doWork(S32 param)
 		{
 			if (wait_seconds <= 0.0)
 			{
-				// S24 TEXTURE PERF: HTTP retry policy - immediate retry
-				// CRITICAL: Retry logic executes for EVERY failed HTTP fetch (hundreds per session)
-				// Retry is AUTOMATIC and NORMAL after transient failures (503, network hiccups)
-				// Silent operation - user doesn't care about internal retry mechanics
 				LL_DEBUGS(LOG_TXT) << mID << " retrying now" << LL_ENDL;
 			}
 			else
@@ -1466,10 +1436,6 @@ bool LLTextureFetchWorker::doWork(S32 param)
 				{
 					if (mFTType != FTT_DEFAULT)
 					{
-						// S24 TEXTURE PERF: Non-default texture type fetch
-						// CRITICAL: This executes for server bakes, map tiles (FTT_SERVER_BAKE, FTT_MAP_TILE)
-						// These ARE supported and work correctly - warning is obsolete
-						// If this was actually broken, llassert would catch in debug builds
 						LL_DEBUGS(LOG_TXT) << "Trying to fetch a texture of non-default type by UUID. This probably won't work!" << LL_ENDL;
 					}
 					setUrl(http_url + "/?texture_id=" + mID.asString().c_str());
@@ -1572,9 +1538,6 @@ bool LLTextureFetchWorker::doWork(S32 param)
 		if (!mCanUseHTTP)
 		{
 			releaseHttpSemaphore();
-			// S24 TEXTURE PERF: HTTP request state but HTTP unavailable
-			// CRITICAL: This is an internal state consistency check, not user-actionable error
-			// Texture will abort gracefully and retry on next priority update when HTTP available
 			LL_DEBUGS(LOG_TXT) << mID << " abort: SEND_HTTP_REQ but !mCanUseHTTP" << LL_ENDL;
 			return true;
 		}
@@ -1589,9 +1552,6 @@ bool LLTextureFetchWorker::doWork(S32 param)
 				{
 					// We already have all the data, just decode it
 					mLoadedDiscard = mFormattedImage->getDiscardLevel();
-					// S24 TEXTURE PERF: Discard level validation - full data already cached
-					// CRITICAL: Executes when we have complete texture data in cache
-					// Negative discard should be impossible here - defensive check only
 					if (mLoadedDiscard < 0)
 					{
 						LL_DEBUGS(LOG_TXT) << mID << " mLoadedDiscard is " << mLoadedDiscard
@@ -1605,9 +1565,6 @@ bool LLTextureFetchWorker::doWork(S32 param)
 				else
 				{
 					releaseHttpSemaphore();
-					// S24 TEXTURE PERF: HTTP request abort - zero size data
-					// CRITICAL: This is NORMAL when cache/partial data is invalid/empty
-					// Texture will gracefully abort and retry from network on next attempt
 					LL_DEBUGS(LOG_TXT) << mID << " SEND_HTTP_REQ abort: cur_size " << cur_size << " <=0" << LL_ENDL;
 					return true; // abort.
 				}
@@ -1635,10 +1592,6 @@ bool LLTextureFetchWorker::doWork(S32 param)
 
 		if (mUrl.empty())
 		{
-			// S24 TEXTURE PERF: HTTP request with empty URL
-			// CRITICAL: This executes when texture URL not yet available from server
-			// NORMAL during region loading - capabilities arrive asynchronously
-			// Texture will retry on next priority update when URL becomes available
 			// *FIXME:  This should not be reachable except it has become
 			// so after some recent 'work'.  Need to track this down
 			// and illuminate the unenlightened.
@@ -1687,10 +1640,6 @@ bool LLTextureFetchWorker::doWork(S32 param)
 		}
 		if (LLCORE_HTTP_HANDLE_INVALID == mHttpHandle)
 		{
-			// S24 TEXTURE PERF: HTTP request queue failure
-			// CRITICAL: This executes when HTTP request queue is full or unavailable
-			// NORMAL under heavy load or during HTTP subsystem initialization
-			// Texture will retry on next priority update when queue space available
 			// Silent failure - user cannot fix HTTP queue exhaustion
 			LLCore::HttpStatus status(mFetcher->mHttpRequest->getStatus());
 			LL_DEBUGS(LOG_TXT) << "HTTP GET request failed for " << mID
@@ -1725,10 +1674,6 @@ bool LLTextureFetchWorker::doWork(S32 param)
 					{
 						setState(DONE);
 						releaseHttpSemaphore();
-						// S24 TEXTURE PERF: Server bake 404 - texture missing from CDN
-						// CRITICAL: Server bakes can be missing during bake service failures
-						// This is EXPECTED during avatar rebake operations or CDN cache misses
-						// Silent handling - avatar will display with default textures until rebake completes
 						if (mFTType != FTT_MAP_TILE)
 						{
 							LL_DEBUGS(LOG_TXT) << mID << "NOT_WRITE texture missing from server (404), abort: " << mUrl << LL_ENDL;
@@ -1741,10 +1686,6 @@ bool LLTextureFetchWorker::doWork(S32 param)
 						LLViewerRegion* region = getRegion();
 						if (!region || mLastRegionId != region->getRegionID())
 						{
-							// S24 TEXTURE PERF: Texture 404 retry on region change
-							// CRITICAL: Region capability changes can cause transient 404s
-							// NORMAL during region crossings, teleports, or cap updates
-							// Automatic retry handles this gracefully - no user action needed
 							if (mFTType != FTT_MAP_TILE)
 							{
 								LL_DEBUGS(LOG_TXT) << "Texture missing from server (404), retrying: " << mUrl << " mRetryAttempt " << mRetryAttempt << LL_ENDL;
@@ -1758,10 +1699,6 @@ bool LLTextureFetchWorker::doWork(S32 param)
 						}
 					}
 
-					// S24 TEXTURE PERF: Texture 404 final failure
-					// CRITICAL: Texture genuinely missing from server/CDN
-					// NORMAL for deleted/expired content, UUID typos, or CDN failures
-					// Texture system displays default gray - no console spam needed
 					if (mFTType != FTT_MAP_TILE)
 					{
 						LL_DEBUGS(LOG_TXT) << "Texture missing from server (404): " << mUrl << LL_ENDL;
@@ -1769,10 +1706,6 @@ bool LLTextureFetchWorker::doWork(S32 param)
 				}
 				else if (http_service_unavail == mGetStatus)
 				{
-					// S24 TEXTURE PERF: Texture server busy (HTTP 503)
-					// CRITICAL: 503 is NORMAL under heavy server load or maintenance
-					// Automatic retry policy handles this gracefully (exponential backoff)
-					// LL_INFOS_ONCE already rate-limits this to once per session - keep for major events
 					LL_INFOS_ONCE(LOG_TXT) << "Texture server busy (503): " << mUrl << LL_ENDL;
 					if (mCanUseHTTP && !mUrl.empty() && cur_size <= 0)
 					{
@@ -1795,10 +1728,6 @@ bool LLTextureFetchWorker::doWork(S32 param)
 				}
 				else
 				{
-					// S24 TEXTURE PERF: HTTP GET generic failure (network errors, timeouts, etc.)
-					// CRITICAL: Network failures are COMMON - WiFi drops, packet loss, firewall issues
-					// Automatic retry policy handles all transient failures gracefully
-					// User cannot fix network issues from console warnings - zero value
 					LL_DEBUGS(LOG_TXT) << "HTTP GET failed for: " << mUrl
 						<< " Status: " << mGetStatus.toTerseString()
 						<< " Reason: '" << mGetReason << "'"
@@ -1813,9 +1742,6 @@ bool LLTextureFetchWorker::doWork(S32 param)
 				{
 					// Use available data
 					mLoadedDiscard = mFormattedImage->getDiscardLevel();
-					// S24 TEXTURE PERF: Discard level validation - partial HTTP data fallback
-					// CRITICAL: Executes when using partial/corrupted HTTP response data
-					// Negative discard handled gracefully by decode - this is defensive check
 					if (mLoadedDiscard < 0)
 					{
 						LL_DEBUGS(LOG_TXT) << mID << " mLoadedDiscard is " << mLoadedDiscard
@@ -1853,9 +1779,6 @@ bool LLTextureFetchWorker::doWork(S32 param)
 					mHttpBufferArray = NULL;
 				}
 
-				// S24 TEXTURE PERF: HTTP response with no data
-				// CRITICAL: Empty HTTP responses are NORMAL for 404s, network errors, timeouts
-				// Texture will gracefully abort and retry or display default gray
 				// abort.
 				setState(DONE);
 				LL_DEBUGS(LOG_TXT) << mID << " abort: no data received" << LL_ENDL;
@@ -1874,10 +1797,6 @@ bool LLTextureFetchWorker::doWork(S32 param)
 				// Get back into alignment.
 				if (((S32)mHttpReplyOffset > cur_size) || (cur_size > (S32)mHttpReplyOffset + append_size))
 				{
-					// S24 TEXTURE PERF: HTTP 206 partial response misalignment
-					// CRITICAL: Some CDN/proxies return broken HTTP 206 range responses
-					// This is a SERVER/CDN BUG, not viewer issue - user cannot fix
-					// Texture will abort and retry full fetch automatically
 					LL_DEBUGS(LOG_TXT) << "Partial HTTP response produces break in image data for texture "
 						<< mID << ".  Aborting load." << LL_ENDL;
 					setState(DONE);
@@ -1894,10 +1813,6 @@ bool LLTextureFetchWorker::doWork(S32 param)
 			U8* buffer = (U8*)ll_aligned_malloc_16(total_size);
 			if (!buffer)
 			{
-				// S24 TEXTURE PERF: Memory allocation failure for texture buffer
-				// CRITICAL: This is OUT OF MEMORY condition - extremely rare
-				// If this happens, viewer is already in severe memory crisis
-				// Silent failure - texture will abort gracefully and retry when memory available
 				// abort. If we have no space for packet, we have not enough space to decode image
 				setState(DONE);
 				LL_DEBUGS(LOG_TXT) << mID << " abort: out of memory" << LL_ENDL;
@@ -1944,9 +1859,6 @@ bool LLTextureFetchWorker::doWork(S32 param)
 			mHttpReplyOffset = 0;
 
 			mLoadedDiscard = mRequestedDiscard;
-			// S24 TEXTURE PERF: Discard level validation - HTTP complete path
-			// CRITICAL: Final validation before decode state transition
-			// Out-of-range discard levels are rare and handled by decode state
 			if (mLoadedDiscard < 0 || (mLoadedDiscard > MAX_DISCARD_LEVEL && mFormattedImage->getCodec() == IMG_CODEC_J2C))
 			{
 				LL_DEBUGS(LOG_TXT) << mID << " mLoadedDiscard is " << mLoadedDiscard
@@ -1995,10 +1907,6 @@ bool LLTextureFetchWorker::doWork(S32 param)
 
 		if (mFormattedImage->getDataSize() <= 0)
 		{
-			// S24 TEXTURE PERF: Decode state with empty formatted image
-			// CRITICAL: This is internal state consistency check - should be impossible
-			// llassert_always guards against this earlier in code path
-			// If this triggers, there's a logic bug - but graceful abort is correct
 			LL_DEBUGS(LOG_TXT) << "Decode entered with invalid mFormattedImage. ID = " << mID << LL_ENDL;
 
 			//abort, don't decode
@@ -2049,13 +1957,9 @@ bool LLTextureFetchWorker::doWork(S32 param)
 			new DecodeResponder(mFetcher, mID, this));
 		if (mDecodeHandle == 0)
 		{
-			// S24 FIX: handle==0 means either (a) the decode thread pool is genuinely
-			// shutting down, or (b) LLImageDecodeThread's queue-depth cap rejected this
-			// request and wants a retry (see llimageworker.cpp: "caller treats handle_t(0)
-			// as 'try again later'"). Both used to be treated as terminal failure here,
-			// silently dropping the fetch - which conflates "shutting down" with "queue is
-			// temporarily full", the latter being exactly the condition the queue cap
-			// exists to signal under memory pressure. Distinguish them explicitly.
+			// handle==0 can mean either the decode thread pool is shutting down, or
+			// LLImageDecodeThread's queue-depth cap rejected this request wanting a retry (see
+			// llimageworker.cpp) - distinguish rather than treating both as terminal failure.
 			if (LLAppViewer::instance()->quitRequested())
 			{
 				setState(DONE);
@@ -2815,18 +2719,25 @@ S32 LLTextureFetch::createRequest(FTType f_type, const std::string& url, const L
 	{
 		LL_DEBUGS("Avatar") << " requesting " << id << " " << w << "x" << h << " discard " << desired_discard << " type " << f_type << LL_ENDL;
 	}
-	LLTextureFetchWorker* worker = getWorker(id);
+	// Potentially we might remove a request, lock queue here instead
+	// of getWorker to make sure request will persist till removeRequest
+	lockQueue();
+	LLTextureFetchWorker* worker = getWorkerAfterLock(id);
 	if (worker)
 	{
 		if (worker->mHost != host)
 		{
 			LL_WARNS(LOG_TXT) << "LLTextureFetch::createRequest " << id << " called with multiple hosts: "
 				<< host << " != " << worker->mHost << LL_ENDL;
-			removeRequest(worker, true);
+			size_t erased_1 = mRequestMap.erase(worker->mID);
+			llassert_always(erased_1 > 0);
+			unlockQueue();
+			worker->scheduleDelete();
 			worker = NULL;
 			return CREATE_REQUEST_ERROR_MHOSTS;
 		}
 	}
+	unlockQueue();
 
 	S32 desired_size;
 	std::string exten = gDirUtilp->getExtension(url);
@@ -3004,9 +2915,11 @@ void LLTextureFetch::deleteAllRequests()
 		}
 
 		LLTextureFetchWorker* worker = mRequestMap.begin()->second;
+		size_t erased_1 = mRequestMap.erase(worker->mID);
+		llassert_always(erased_1 > 0);
 		unlockQueue();
 
-		removeRequest(worker, true);
+		worker->scheduleDelete();
 	}
 }
 

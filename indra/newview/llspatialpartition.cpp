@@ -2500,7 +2500,7 @@ void renderPhysicsShape(LLDrawable* drawable, LLVOVolume* volume, bool wireframe
         if (phys_volume->mHullPoints && phys_volume->mHullIndices)
         {
 
-            llassert(LLHLSLShader::sCurBoundShader != 0);
+            llassert(LLHLSLShader::sCurBoundShaderPtr != nullptr);
             LLVertexBuffer::unbind();
 
             gDX.diffuseColor4fv(color.mV);
@@ -2657,9 +2657,9 @@ void renderTexturePriority(LLDrawable* drawable)
         drawBox(center, size);
 
         /*S32 boost = imagep->getBoostLevel();
-        if (boost>LLGLTexture::BOOST_NONE)
+        if (boost>LLDXTexture::BOOST_NONE)
         {
-            F32 t = (F32) boost / (F32) (LLGLTexture::BOOST_MAX_LEVEL-1);
+            F32 t = (F32) boost / (F32) (LLDXTexture::BOOST_MAX_LEVEL-1);
             LLVector4 col = lerp(boost_cold, boost_hot, t);
             LLGLEnable blend_on(GL_BLEND);
             gDX.blendFunc(GL_SRC_ALPHA, GL_ONE);

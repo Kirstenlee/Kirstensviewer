@@ -31,7 +31,7 @@
 
 #include "indra_constants.h"        // for key and mask constants
 #include "llfloaterreg.h"
-#include "llfontgl.h"
+#include "llfontdx.h"
 #include "llmd5.h"
 #include "v4color.h"
 
@@ -806,12 +806,8 @@ void LLPanelLogin::onUpdateStartSLURL(const LLSLURL& new_start_slurl)
         break;
 
     case LLSLURL::INVALID:
-        // S24 (2026-09-02): genuinely invalid SLURL - the only case in this
-        // switch worth a WARNING. Split out from the old blanket `default`,
-        // which also caught LAST_LOCATION/EMPTY/APP/HELP - LAST_LOCATION in
-        // particular is the routine default for a normal launch ("start at
-        // my last location"), not an error, so it was logging "invalid
-        // login slurl" on ordinary startups every time.
+        // Only INVALID is genuinely an error here; LAST_LOCATION/EMPTY/APP/HELP fall through to
+        // default and are normal on an ordinary launch, not errors.
         LL_WARNS("AppInit")<<"invalid login slurl, using home"<<LL_ENDL;
         //location_combo->setCurrentByIndex(0); // home location
         break;

@@ -149,7 +149,7 @@ LLViewerFetchedTexture* fetch_texture(const LLUUID& id)
     LLViewerFetchedTexture* img = nullptr;
     if (id.notNull())
     {
-        img = LLViewerTextureManager::getFetchedTexture(id, FTT_DEFAULT, true, LLGLTexture::BOOST_NONE, LLViewerTexture::LOD_TEXTURE);
+        img = LLViewerTextureManager::getFetchedTexture(id, FTT_DEFAULT, true, LLDXTexture::BOOST_NONE, LLViewerTexture::LOD_TEXTURE);
         img->addTextureStats(64.f * 64.f, true);
     }
     return img;

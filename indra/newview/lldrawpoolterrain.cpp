@@ -79,7 +79,7 @@ LLDrawPoolTerrain::LLDrawPoolTerrain(LLViewerTexture *texturep) :
     //gDX.getTexUnit(0)->bind(m2DAlphaRampImagep.get());
     m2DAlphaRampImagep->setAddressMode(LLTexUnit::TAM_CLAMP);
 
-    mTexturep->setBoostLevel(LLGLTexture::BOOST_TERRAIN);
+    mTexturep->setBoostLevel(LLDXTexture::BOOST_TERRAIN);
 
     //gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
 }

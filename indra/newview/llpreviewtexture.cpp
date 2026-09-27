@@ -78,7 +78,7 @@ LLPreviewTexture::LLPreviewTexture(const LLSD& key)
       mAspectRatio(0.f),
       mPreviewToSave(false),
       mImage(NULL),
-      mImageOldBoostLevel(LLGLTexture::BOOST_NONE)
+      mImageOldBoostLevel(LLDXTexture::BOOST_NONE)
 {
     updateImageID();
     if (key.has("save_as"))
@@ -204,14 +204,14 @@ void LLPreviewTexture::draw()
         interior.stretch( -PREVIEW_BORDER_WIDTH );
 
         // ...border
-        gl_rect_2d( border, LLColor4(0.f, 0.f, 0.f, 1.f));
-        gl_rect_2d_checkerboard( interior );
+        dx_rect_2d( border, LLColor4(0.f, 0.f, 0.f, 1.f));
+        dx_rect_2d_checkerboard( interior );
 
         if ( mImage.notNull() )
         {
             // Draw the texture
             gDX.diffuseColor3f( 1.f, 1.f, 1.f );
-            gl_draw_scaled_image(interior.mLeft,
+            dx_draw_scaled_image(interior.mLeft,
                                 interior.mBottom,
                                 interior.getWidth(),
                                 interior.getHeight(),
@@ -237,12 +237,12 @@ void LLPreviewTexture::draw()
 
             if( mLoadingFullImage )
             {
-                LLFontGL::getFontSansSerif()->renderUTF8(LLTrans::getString("Receiving"), 0,
+                LLFontDX::getFontSansSerif()->renderUTF8(LLTrans::getString("Receiving"), 0,
                     interior.mLeft + 4,
                     interior.mBottom + 4,
-                    LLColor4::white, LLFontGL::LEFT, LLFontGL::BOTTOM,
-                    LLFontGL::NORMAL,
-                    LLFontGL::DROP_SHADOW);
+                    LLColor4::white, LLFontDX::LEFT, LLFontDX::BOTTOM,
+                    LLFontDX::NORMAL,
+                    LLFontDX::DROP_SHADOW);
 
                 F32 data_progress = mImage->getDownloadProgress() ;
 
@@ -259,7 +259,7 @@ void LLPreviewTexture::draw()
                 LLColor4 decoded_color(0.f, 1.f, 0.f, 1.0f);
                 LLColor4 downloaded_color(0.f, 0.5f, 0.f, 1.0f);
 
-                gl_rect_2d(left, top, right, bottom, background_color);
+                dx_rect_2d(left, top, right, bottom, background_color);
 
                 if (data_progress > 0.0f)
                 {
@@ -267,19 +267,19 @@ void LLPreviewTexture::draw()
                     right = left + llfloor(data_progress * (F32)bar_width);
                     if (right > left)
                     {
-                        gl_rect_2d(left, top, right, bottom, downloaded_color);
+                        dx_rect_2d(left, top, right, bottom, downloaded_color);
                     }
                 }
             }
             else
             if( !mSavedFileTimer.hasExpired() )
             {
-                LLFontGL::getFontSansSerif()->renderUTF8(LLTrans::getString("FileSaved"), 0,
+                LLFontDX::getFontSansSerif()->renderUTF8(LLTrans::getString("FileSaved"), 0,
                     interior.mLeft + 4,
                     interior.mBottom + 4,
-                    LLColor4::white, LLFontGL::LEFT, LLFontGL::BOTTOM,
-                    LLFontGL::NORMAL,
-                    LLFontGL::DROP_SHADOW);
+                    LLColor4::white, LLFontDX::LEFT, LLFontDX::BOTTOM,
+                    LLFontDX::NORMAL,
+                    LLFontDX::DROP_SHADOW);
             }
         }
     }
@@ -300,7 +300,8 @@ void LLPreviewTexture::saveAs()
     if( mLoadingFullImage )
         return;
 
-    std::string filename = getItem() ? LLDir::getScrubbedFileName(getItem()->getName()) : LLStringUtil::null;
+    // startPicker will sanitize the name
+    std::string filename = getItem() ? getItem()->getName() : LLStringUtil::null;
     LLFilePickerReplyThread::startPicker(boost::bind(&LLPreviewTexture::saveTextureToFile, this, _1), LLFilePicker::FFSAVE_TGAPNG, filename);
 }
 
@@ -626,9 +627,9 @@ void LLPreviewTexture::onAspectRatioCommit(LLUICtrl* ctrl, void* userdata)
 
 void LLPreviewTexture::loadAsset()
 {
-    mImage = LLViewerTextureManager::getFetchedTexture(mImageID, FTT_DEFAULT, MIPMAP_TRUE, LLGLTexture::BOOST_NONE, LLViewerTexture::LOD_TEXTURE);
+    mImage = LLViewerTextureManager::getFetchedTexture(mImageID, FTT_DEFAULT, MIPMAP_TRUE, LLDXTexture::BOOST_NONE, LLViewerTexture::LOD_TEXTURE);
     mImageOldBoostLevel = mImage->getBoostLevel();
-    mImage->setBoostLevel(LLGLTexture::BOOST_PREVIEW);
+    mImage->setBoostLevel(LLDXTexture::BOOST_PREVIEW);
     mImage->forceToSaveRawImage(0) ;
     mAssetStatus = PREVIEW_ASSET_LOADING;
     mUpdateDimensions = true;

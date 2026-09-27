@@ -796,7 +796,7 @@ void LLFloaterSnapshot::Impl::comboSetCustom(LLFloaterSnapshotBase* floater, con
 }
 
 // Clamps width/height to maintain aspect ratio and max size when KeepAspectForSnapshot is set.
-bool LLFloaterSnapshot::Impl::checkImageSize(LLSnapshotLivePreview* previewp, S32& width, S32& height, bool isWidthChanged, S32 max_value)
+bool LLFloaterSnapshot::Impl::checkImageSize(LLSnapshotLivePreview* previewp, S32& width, S32& height, bool isWidthChanged, S32 max_value) const
 {
 	S32 w = width;
 	S32 h = height;
@@ -874,6 +874,8 @@ void LLFloaterSnapshot::Impl::applyCustomResolution(LLFloaterSnapshotBase* view,
 			LLSpinCtrl* w_spinner = getWidthSpinner(view);
 			if (w_spinner)
 				previewp->setMaxImageSize((S32)w_spinner->getMaxValue());
+			else
+				previewp->setMaxImageSize((S32)2048);
 
 			previewp->setSize(w, h);
 
@@ -1105,7 +1107,7 @@ void LLFloaterSnapshotBase::draw()
 			// Apply floater transparency to the texture unless the floater is focused.
 			F32 alpha = getTransparencyType() == TT_ACTIVE ? 1.0f : getCurrentTransparency();
 			LLColor4 color = working ? LLColor4::grey4 : LLColor4::white;
-			gl_draw_scaled_image(offset_x, offset_y,
+			dx_draw_scaled_image(offset_x, offset_y,
 				thumbnail_w, thumbnail_h,
 				previewp->getThumbnailImage(), color % alpha);
 

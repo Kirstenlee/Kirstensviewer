@@ -92,8 +92,8 @@ protected:
     const size_t    mMaxVisible;
     const S32       mPadding;
     const LLUIImagePtr mSelectedImage;
-    const LLFontGL* mIconFont;
-    const LLFontGL* mTextFont;
+    const LLFontDX* mIconFont;
+    const LLFontDX* mTextFont;
 
     std::vector<LLEmojiSearchResult> mEmojis;
     LLScrollbar*    mScrollbar;

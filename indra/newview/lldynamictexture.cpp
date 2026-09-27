@@ -104,7 +104,7 @@ void LLViewerDynamicTexture::generateGLTexture(LLGLint internal_format, LLGLenum
     {
         setExplicitFormat(internal_format, primary_format, type_format, swap_bytes);
     }
-    createGLTexture(0, raw_image, 0, true, LLGLTexture::DYNAMIC_TEX);
+    createGLTexture(0, raw_image, 0, true, LLDXTexture::DYNAMIC_TEX);
     setAddressMode((mClamp) ? LLTexUnit::TAM_CLAMP : LLTexUnit::TAM_WRAP);
     mGLTexturep->setGLTextureCreated(false);
 }
@@ -135,20 +135,9 @@ void LLViewerDynamicTexture::preRender(bool clear_depth)
     mCamera.setView(camera->getView());
     mCamera.setNear(camera->getNear());
 
-    // S24 (2026-08-23): both calls below were completely unguarded raw GL,
-    // with no DX_RENDER branch at all - same class of gap as pipeline.cpp's
-    // DOF viewport fix (task #145 sweep, ~line 8455) and countless others
-    // this session. glViewport() here has ZERO effect under DX_RENDER (no
-    // real GL context backs the D3D11 device), so the actual D3D11 viewport
-    // stayed at whatever a previous pass left it (typically the full main
-    // view) instead of the small mFullWidth x mFullHeight region this
-    // dynamic texture is supposed to render into - root cause of Edit
-    // Shape/Appearance preview icons (LLVisualParamHint) rendering nothing
-    // but their own background, the avatar geometry projected via the
-    // wrong viewport landing far outside the tiny region postRender()'s
-    // copySubImageFromFrameBuffer() reads back from. mOrigin is always
-    // (0,0) here (see comment above) - no cube-face-style Y-flip needed,
-    // this isn't reflection-probe capture.
+    // glViewport() has zero effect under DX_RENDER (no GL context backs the
+    // D3D11 device) - routed through gDXContext.setViewport() instead.
+    // mOrigin is always (0,0) here, so no cube-face-style Y-flip is needed.
 #ifdef DX_RENDER
     gDXContext.setViewport(mOrigin.mX, mOrigin.mY, mFullWidth, mFullHeight);
 #else
@@ -237,27 +226,13 @@ bool LLViewerDynamicTexture::updateAllInstances()
     preview_target.bindTarget();
     preview_target.clear();
 
-    // S24 (2026-08-23): preview_target is gPipeline.mAuxillaryRT.deferredScreen,
-    // but binding it here only sets it as the IMMEDIATE draw target for this
-    // exact moment - it does nothing to gPipeline.mRT, the pointer that the
-    // deferred pipeline's own internal multi-target G-buffer/lighting passes
-    // (renderGeomDeferred()/renderGeomPostDeferred(), reached via
-    // LLVisualParamHint::render() -> LLPipeline::generateImpostor()) actually
-    // read/write through (mRT->deferredScreen, mRT->deferredLight, etc).
-    // Without this swap, mRT still pointed at mMainRT (the main game view's
-    // RT pack) for the whole duration of every avatar-shape preview icon
-    // render (Edit Shape/Appearance floater thumbnails) - the real avatar
-    // geometry silently rendered into the MAIN view's buffers instead of
-    // mAuxillaryRT, leaving preview_target at nothing but its own clear()
-    // color when postRender()'s copySubImageFromFrameBuffer() read it back
-    // moments later. Root cause of every preview icon showing a flat black/
-    // brown fill instead of the avatar render. Same pattern already used
-    // correctly by the sibling GLTF material preview system
-    // (llgltfmaterialpreviewmgr.cpp's SetTemporarily<RenderTargetPack*>
-    // swap to &gPipeline.mAuxillaryRT) - that system never had this bug.
-    // Scoped to only this loop (not the bake_target block below), since
-    // LL_TEX_LAYER_SET_BUFFER-style baked-texture compositing doesn't go
-    // through the deferred pipeline and has no mRT dependency.
+    // Binding preview_target only sets the immediate draw target - it does
+    // not affect gPipeline.mRT, which the deferred pipeline's own internal
+    // passes (reached via LLVisualParamHint::render() ->
+    // LLPipeline::generateImpostor()) actually read/write through. Must
+    // swap mRT to mAuxillaryRT too, same pattern as
+    // llgltfmaterialpreviewmgr.cpp. Scoped to this loop only - bake_target's
+    // baked-texture compositing doesn't go through the deferred pipeline.
     LLPipeline::RenderTargetPack* saved_rt = gPipeline.mRT;
     gPipeline.mRT = &gPipeline.mAuxillaryRT;
 
@@ -273,9 +248,8 @@ bool LLViewerDynamicTexture::updateAllInstances()
                 llassert(dynamicTexture->getFullWidth() <= width);
                 llassert(dynamicTexture->getFullHeight() <= height);
 
-                // S24 (2026-08-23): same inert-under-DX_RENDER raw glClear
-                // as preRender()'s own depth clear just below - route
-                // through the already-bound LLRenderTarget instead.
+                // Raw glClear() is inert under DX_RENDER - route through the
+                // already-bound LLRenderTarget instead.
 #ifdef DX_RENDER
                 renderTarget.clear(GL_DEPTH_BUFFER_BIT);
 #else

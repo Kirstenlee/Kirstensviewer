@@ -684,7 +684,7 @@ void LLConversationViewParticipant::draw()
 
     const bool show_context = (getRoot() ? getRoot()->getShowSelectionContext() : false);
 
-    const LLFontGL* font = getLabelFontForStyle(mLabelStyle);
+    const LLFontDX* font = getLabelFontForStyle(mLabelStyle);
     F32 right_x  = 0;
 
     F32 y = (F32)getRect().getHeight() - font->getLineHeight() - (F32)mTextPad;

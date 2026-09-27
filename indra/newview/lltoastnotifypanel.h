@@ -28,7 +28,7 @@
 #define LLTOASTNOTIFYPANEL_H_
 
 #include "llpanel.h"
-#include "llfontgl.h"
+#include "llfontdx.h"
 #include "llnotificationptr.h"
 #include "llbutton.h"
 #include "lltoastpanel.h"

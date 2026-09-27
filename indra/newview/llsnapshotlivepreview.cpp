@@ -246,7 +246,7 @@ void LLSnapshotLivePreview::drawPreviewRect(S32 offset_x, S32 offset_y, LLColor4
 	// nothing meaningful left to query/restore; just set a fixed width and reset to the default.
 	LLUI::setLineWidth(2.0f);
 	LLColor4 color(0.0f, 0.0f, 0.0f, 1.0f);
-	gl_rect_2d(mPreviewRect.mLeft + offset_x, mPreviewRect.mTop + offset_y,
+	dx_rect_2d(mPreviewRect.mLeft + offset_x, mPreviewRect.mTop + offset_y,
 		mPreviewRect.mRight + offset_x, mPreviewRect.mBottom + offset_y, color, false);
 	LLUI::setLineWidth(1.0f);
 
@@ -259,20 +259,20 @@ void LLSnapshotLivePreview::drawPreviewRect(S32 offset_x, S32 offset_y, LLColor4
 			dwl = (mThumbnailWidth - mPreviewRect.getWidth()) >> 1;
 			dwr = mThumbnailWidth - mPreviewRect.getWidth() - dwl;
 
-			gl_rect_2d(mPreviewRect.mLeft + offset_x - dwl, mPreviewRect.mTop + offset_y,
+			dx_rect_2d(mPreviewRect.mLeft + offset_x - dwl, mPreviewRect.mTop + offset_y,
 				mPreviewRect.mLeft + offset_x, mPreviewRect.mBottom + offset_y, alpha_color, true);
-			gl_rect_2d(mPreviewRect.mRight + offset_x, mPreviewRect.mTop + offset_y,
+			dx_rect_2d(mPreviewRect.mRight + offset_x, mPreviewRect.mTop + offset_y,
 				mPreviewRect.mRight + offset_x + dwr, mPreviewRect.mBottom + offset_y, alpha_color, true);
 		}
 
 		if (mThumbnailHeight > mPreviewRect.getHeight())
 		{
 			S32 dh = (mThumbnailHeight - mPreviewRect.getHeight()) >> 1;
-			gl_rect_2d(mPreviewRect.mLeft + offset_x - dwl, mPreviewRect.mBottom + offset_y,
+			dx_rect_2d(mPreviewRect.mLeft + offset_x - dwl, mPreviewRect.mBottom + offset_y,
 				mPreviewRect.mRight + offset_x + dwr, mPreviewRect.mBottom + offset_y - dh, alpha_color, true);
 
 			dh = mThumbnailHeight - mPreviewRect.getHeight() - dh;
-			gl_rect_2d(mPreviewRect.mLeft + offset_x - dwl, mPreviewRect.mTop + offset_y + dh,
+			dx_rect_2d(mPreviewRect.mLeft + offset_x - dwl, mPreviewRect.mTop + offset_y + dh,
 				mPreviewRect.mRight + offset_x + dwr, mPreviewRect.mTop + offset_y, alpha_color, true);
 		}
 	}
@@ -286,11 +286,11 @@ void LLSnapshotLivePreview::draw()
 		getSnapshotUpToDate())
 	{
 		LLColor4 bg_color(0.f, 0.f, 0.3f, 0.4f);
-		gl_rect_2d(getRect(), bg_color);
+		dx_rect_2d(getRect(), bg_color);
 		const LLRect& rect = getImageRect();
 		LLRect shadow_rect = rect;
 		shadow_rect.stretch(BORDER_WIDTH);
-		gl_drop_shadow(shadow_rect.mLeft, shadow_rect.mTop, shadow_rect.mRight, shadow_rect.mBottom, LLColor4(0.f, 0.f, 0.f, mNeedsFlash ? 0.f : 0.5f), 10);
+		dx_drop_shadow(shadow_rect.mLeft, shadow_rect.mTop, shadow_rect.mRight, shadow_rect.mBottom, LLColor4(0.f, 0.f, 0.f, mNeedsFlash ? 0.f : 0.5f), 10);
 
 		LLColor4 image_color(1.f, 1.f, 1.f, 1.f);
 		gDX.color4fv(image_color.mV);
@@ -326,7 +326,7 @@ void LLSnapshotLivePreview::draw()
 		gDX.popMatrix();
 
 		gDX.color4f(1.f, 1.f, 1.f, mFlashAlpha);
-		gl_rect_2d(getRect());
+		dx_rect_2d(getRect());
 		if (mNeedsFlash)
 		{
 			if (mFlashAlpha < 1.f)
@@ -510,10 +510,10 @@ void LLSnapshotLivePreview::drawGuides(S32 left, S32 bottom, S32 width, S32 heig
 		S32 x2 = l + (w * 2) / 3;
 		S32 y1 = b + h / 3;
 		S32 y2 = b + (h * 2) / 3;
-		gl_line_2d(x1, b, x1, t, col);
-		gl_line_2d(x2, b, x2, t, col);
-		gl_line_2d(l, y1, r, y1, col);
-		gl_line_2d(l, y2, r, y2, col);
+		dx_line_2d(x1, b, x1, t, col);
+		dx_line_2d(x2, b, x2, t, col);
+		dx_line_2d(l, y1, r, y1, col);
+		dx_line_2d(l, y2, r, y2, col);
 	}
 
 	// Golden ratio grid (phi = 0.382 / 0.618)
@@ -523,17 +523,17 @@ void LLSnapshotLivePreview::drawGuides(S32 left, S32 bottom, S32 width, S32 heig
 		S32 x2 = l + (S32)(w * 0.618f);
 		S32 y1 = b + (S32)(h * 0.382f);
 		S32 y2 = b + (S32)(h * 0.618f);
-		gl_line_2d(x1, b, x1, t, col);
-		gl_line_2d(x2, b, x2, t, col);
-		gl_line_2d(l, y1, r, y1, col);
-		gl_line_2d(l, y2, r, y2, col);
+		dx_line_2d(x1, b, x1, t, col);
+		dx_line_2d(x2, b, x2, t, col);
+		dx_line_2d(l, y1, r, y1, col);
+		dx_line_2d(l, y2, r, y2, col);
 	}
 
 	// Diagonals (corner to corner)
 	if (g_diag)
 	{
-		gl_line_2d(l, b, r, t, col_soft);
-		gl_line_2d(l, t, r, b, col_soft);
+		dx_line_2d(l, b, r, t, col_soft);
+		dx_line_2d(l, t, r, b, col_soft);
 	}
 
 	// Center cross
@@ -541,8 +541,8 @@ void LLSnapshotLivePreview::drawGuides(S32 left, S32 bottom, S32 width, S32 heig
 	{
 		S32 cx = l + w / 2;
 		S32 cy = b + h / 2;
-		gl_line_2d(cx, b, cx, t, col_soft);
-		gl_line_2d(l, cy, r, cy, col_soft);
+		dx_line_2d(cx, b, cx, t, col_soft);
+		dx_line_2d(l, cy, r, cy, col_soft);
 	}
 
 	// Safe-zone rectangles: inset preserving target aspect ratio, centered.
@@ -561,7 +561,7 @@ void LLSnapshotLivePreview::drawGuides(S32 left, S32 bottom, S32 width, S32 heig
 			}
 			S32 sl = l + (w - sw) / 2;
 			S32 sb = b + (h - sh) / 2;
-			gl_rect_2d(sl, sb + sh, sl + sw, sb, col_soft, false);
+			dx_rect_2d(sl, sb + sh, sl + sw, sb, col_soft, false);
 		};
 
 	if (g_safe169) draw_safe(16.f / 9.f);

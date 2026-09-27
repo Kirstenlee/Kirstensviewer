@@ -403,12 +403,12 @@ void LLFloaterGesture::addGesture(const LLUUID& item_id , LLMultiGesture* gestur
         // *TODO find out why ["font"]["style"] does not affect font style
             ((LLScrollListIcon*)sl_item->getColumn(0))->setValue("Activate_Checkmark");
             ((LLScrollListIcon*)sl_item->getColumn(0))->setIconSize(10);
-            ((LLScrollListText*)sl_item->getColumn(1))->setFontStyle(LLFontGL::BOLD);
+            ((LLScrollListText*)sl_item->getColumn(1))->setFontStyle(LLFontDX::BOLD);
         }
         else
         {
             ((LLScrollListIcon*)sl_item->getColumn(0))->setValue("");
-            ((LLScrollListText*)sl_item->getColumn(1))->setFontStyle(LLFontGL::NORMAL);
+            ((LLScrollListText*)sl_item->getColumn(1))->setFontStyle(LLFontDX::NORMAL);
         }
     }
 }

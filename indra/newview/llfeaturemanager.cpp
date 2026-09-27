@@ -252,7 +252,7 @@ bool LLFeatureManager::loadFeatureTables()
 	// *TODO - if I or anyone else adds something else to the skipped list
 	// make this data driven.  Put it in the feature table and parse it
 	// correctly
-	mSkippedFeatures.insert("RenderAnisotropic");
+	mSkippedFeatures.insert("RenderAnisotropicLevel");
 	mSkippedFeatures.insert("RenderGamma");
 	mSkippedFeatures.insert("RenderVBOEnable");
 	mSkippedFeatures.insert("RenderFogRatio");
@@ -428,18 +428,10 @@ bool checkRDNA35()
 bool LLFeatureManager::loadGPUClass()
 {
 #ifdef DX_RENDER
-    // S24 (2026-08-05): gpu_benchmark() (llglsandbox.cpp) compiles a
-    // GLSL/HLSL "Benchmark Shader" and times it via GL_TIMER queries - it
-    // has never been audited or converted for DX_RENDER, and its own
-    // internal "mGLVersion < 3.3f -> bail" gate used to accidentally save
-    // us here (mGLVersion defaulted to 1.0f, so it always bailed before
-    // touching any GL-specific code). Now that LLGLManager::initGLDX()
-    // (llgl.cpp) reports a real mGLVersion so LLFeatureManager's other
-    // version-gated checks work correctly, that accidental protection is
-    // gone - so never call it under DX_RENDER at all. Classify directly
-    // from the real DXGI VRAM figure initGLDX() now populates instead of
-    // a memory-bandwidth benchmark; coarser, but real data beats a
-    // GL-only benchmark this build can't safely run.
+    // gpu_benchmark() (llglsandbox.cpp) is GL-only and never audited for
+    // DX_RENDER, so never call it here. Classify directly from the real
+    // DXGI VRAM figure LLGLManager::initGLDX() (llgl.cpp) populates instead
+    // of a memory-bandwidth benchmark - coarser, but safe to run.
     U32 vram = gGLManager.mVRAM;
     if (vram >= 8192)      mGPUClass = GPU_CLASS_5;
     else if (vram >= 6144) mGPUClass = GPU_CLASS_4;
@@ -451,15 +443,9 @@ bool LLFeatureManager::loadGPUClass()
     LL_INFOS("RenderInit") << "DX_RENDER GPU class from VRAM (" << vram
         << "MB): " << (S32)mGPUClass << LL_ENDL;
 
-    // S24 (2026-08-05): this early-return skips the original function's own
-    // tail (mGPUString/mGPUSupported assignment below) - missing this caused
-    // a real regression: mGPUSupported stayed at its constructor default of
-    // false forever, and combined with mGPUClass now always being a real
-    // numeric class instead of GPU_CLASS_UNKNOWN (this fix's whole point),
-    // llappviewer.cpp's "!isGPUSupported() && getGPUClass() !=
-    // GPU_CLASS_UNKNOWN" check fired unconditionally - the "does not meet
-    // minimum requirements" (UnsupportedGPU) warning on every single launch,
-    // regardless of actual GPU.
+    // mGPUSupported must be set here (this function returns before the
+    // non-DX_RENDER tail below) - llappviewer.cpp's unsupported-GPU check
+    // depends on it, otherwise it fires unconditionally on every launch.
     mGPUString = gGLManager.getRawGLString();
     mGPUSupported = true;
 
@@ -500,35 +486,8 @@ bool LLFeatureManager::loadGPUClass()
 		mGPUMemoryBandwidth = gbps;
 
         // bias by CPU speed
-		// S24 - GPU Classification Heuristic (CPU-Biased Bandwidth Scaling)
-		// -----------------------------------------------------------------------------
-		// The GPU bandwidth score (gbps) is scaled by a CPU bias factor to avoid
-		// overestimating GPU capability on systems with weak CPUs.
-		//
-		//   cpu_bias = clamp(cpu_mhz / RenderCPUBasis, 0.5, 1.0)
-		//   gbps     = raw_gpu_bandwidth * cpu_bias
-		//
-		// This ensures that even high-end GPUs are not over-classified on low-end CPUs.
-		//
-		// Example Bias Values:
-		//   CPU MHz     RenderCPUBasis     cpu_bias     Effect on gbps
-		//   --------    ----------------   ---------    ----------------------------
-		//   1500 MHz    3000 MHz           0.5          Halved (minimum bias)
-		//   2400 MHz    3000 MHz           0.8          80% of raw GPU score
-		//   3000 MHz    3000 MHz           1.0          No change
-		//   4800 MHz    3000 MHz           1.0          Clamped to 1.0 (no boost)
-		//
-		// GPU Class Assignment (after bias applied):
-		//   gbps < 0.0                  → GPU_CLASS_0 (fallback)
-		//   gbps ≤ class1_gbps         → GPU_CLASS_1 (low-end)
-		//   gbps ≤ class1_gbps * 2     → GPU_CLASS_2 (mid)
-		//   gbps ≤ class1_gbps * 4     → GPU_CLASS_3 (upper-mid)
-		//   gbps ≤ class1_gbps * 8     → GPU_CLASS_4 (high-end)
-		//   gbps >  class1_gbps * 8     → GPU_CLASS_5 (enthusiast)
-		//
-		// To ensure accurate classification on modern CPUs, consider raising
-		// RenderCPUBasis to 4500–5000 for high-performance systems.
-		// -----------------------------------------------------------------------------
+		// Scales raw GPU bandwidth by cpu_mhz/RenderCPUBasis (clamped to
+		// 0.5-1.0) so a high-end GPU isn't over-classified on a weak CPU.
 		static LLCachedControl<F32> cpu_basis_mhz(gSavedSettings, "RenderCPUBasis");
 		F32 cpu_mhz = (F32)gSysCPU.getMHz();
 		F32 cpu_bias = llclamp(cpu_mhz / cpu_basis_mhz, 0.5f, 1.f);
@@ -804,12 +763,10 @@ void LLFeatureManager::applyBaseMasks()
 
 #ifndef DX_RENDER
 		// make sure to disable background context activity in GL3 mode -
-		// S24 (2026-08-16): this was a GL-driver-vintage-mode safety valve
-		// (mGLVersion < 3.99 old/limited GL implementations). Meaningless
-		// under DX_RENDER, where RenderDXMultiThreadedTextures/Media are the
-		// only gate now - see LLImageGL::initClass()'s DX_RENDER branch.
-		LLImageGLThread::sEnabledMedia = false;
-		LLImageGLThread::sEnabledTextures = false;
+		// GL-only; under DX_RENDER, RenderDXMultiThreadedTextures/Media are
+		// the only gate (see LLImageDX::initClass()'s DX_RENDER branch).
+		LLImageDXThread::sEnabledMedia = false;
+		LLImageDXThread::sEnabledTextures = false;
 #endif
 
 		// Make extra sure that vintage mode also gets enabled.

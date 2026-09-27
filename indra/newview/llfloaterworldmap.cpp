@@ -156,7 +156,22 @@ public:
         }
 
         // support the secondlife:///app/worldmap/{LOCATION}/{COORDS} SLapp
-        const std::string region_name = LLURI::unescape(params[0].asString());
+        // S24: LLURI::pathArray() (lluri.cpp) does not unescape path segments - unlike
+        // query(), it just splits on '/' - so this is the ONLY unescape this name ever
+        // gets. Some external sources (e.g. the search website's "Show on Map" link)
+        // have been observed handing this SLApp an already-escaped name (region "PEAK
+        // Lounge" arriving as "PEAK%2520Lounge" - a %20 that got escaped a second time
+        // upstream, outside viewer code), which a single unescape only partially
+        // resolves ("PEAK%20Lounge"), causing simInfoFromName()/sendNamedRegionRequest()
+        // in trackURL() below to fail to match any real region and the map to just sit
+        // on its default (current-location) view. A real SL region name never contains a
+        // literal '%', so unescape again if one is still present after the normal pass -
+        // fixes the double-escaped case, no-ops for every legitimately single-escaped name.
+        std::string region_name = LLURI::unescape(params[0].asString());
+        if (region_name.find('%') != std::string::npos)
+        {
+            region_name = LLURI::unescape(region_name);
+        }
         S32 x = (params.size() > 1) ? params[1].asInteger() : 128;
         S32 y = (params.size() > 2) ? params[2].asInteger() : 128;
         S32 z = (params.size() > 3) ? params[3].asInteger() : 0;
@@ -419,7 +434,7 @@ bool LLFloaterWorldMap::postBuild()
     mEventsMatureCheck = getChild<LLCheckBoxCtrl>("events_mature_chk");
     mEventsAdultCheck = getChild<LLCheckBoxCtrl>("events_adult_chk");
 
-    mAvatarIcon = getChild<LLUICtrl>("avatar_icon");
+    mFriendAvatarIcon = getChild<LLUICtrl>("friends_icon");
     mLandmarkIcon = getChild<LLUICtrl>("landmark_icon");
     mLocationIcon = getChild<LLUICtrl>("location_icon");
 
@@ -610,11 +625,11 @@ void LLFloaterWorldMap::draw()
     LLTracker::ETrackingStatus tracking_status = LLTracker::getTrackingStatus();
     if (LLTracker::TRACKING_AVATAR == tracking_status)
     {
-        mAvatarIcon->setColor( map_track_color);
+        mFriendAvatarIcon->setColor( map_track_color);
     }
     else
     {
-        mAvatarIcon->setColor( map_track_disabled_color);
+        mFriendAvatarIcon->setColor( map_track_disabled_color);
     }
 
     if (LLTracker::TRACKING_LANDMARK == tracking_status)

@@ -330,12 +330,12 @@ void LLFloaterImagePreview::draw()
 
         if (selected <= 0)
         {
-            gl_rect_2d_checkerboard(mPreviewRect);
+            dx_rect_2d_checkerboard(mPreviewRect);
 
             if(mImagep.notNull())
             {
 #ifdef DX_RENDER
-                // mImagep is a real LLViewerTexture (has an LLImageGL/
+                // mImagep is a real LLViewerTexture (has an LLImageDX/
                 // DXTexture behind it) - use the DX-aware bind(LLTexture*)
                 // chokepoint instead of bindManual().
                 gDX.getTexUnit(0)->bind(mImagep);
@@ -811,7 +811,7 @@ bool LLImagePreviewAvatar::render()
 
     gUIProgram.bind();
 
-    gl_rect_2d_simple( mFullWidth, mFullHeight );
+    dx_rect_2d_simple( mFullWidth, mFullHeight );
 
     gDX.matrixMode(LLRender::MM_PROJECTION);
     gDX.popMatrix();
@@ -1012,7 +1012,7 @@ bool LLImagePreviewSculpted::render()
 
     gUIProgram.bind();
 
-    gl_rect_2d_simple( mFullWidth, mFullHeight );
+    dx_rect_2d_simple( mFullWidth, mFullHeight );
 
     gDX.matrixMode(LLRender::MM_PROJECTION);
     gDX.popMatrix();

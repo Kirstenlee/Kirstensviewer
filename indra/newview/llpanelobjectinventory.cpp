@@ -96,7 +96,7 @@ public:
                       U32 flags=0);
     virtual ~LLTaskInvFVBridge() {}
 
-    virtual LLFontGL::StyleFlags getLabelStyle() const { return LLFontGL::NORMAL; }
+    virtual LLFontDX::StyleFlags getLabelStyle() const { return LLFontDX::NORMAL; }
     virtual std::string getLabelSuffix() const { return LLStringUtil::null; }
 
     static LLTaskInvFVBridge* createObjectBridge(LLPanelObjectInventory* panel,
@@ -1336,6 +1336,14 @@ LLPanelObjectInventory::LLPanelObjectInventory(const LLPanelObjectInventory::Par
 // Destroys the object
 LLPanelObjectInventory::~LLPanelObjectInventory()
 {
+    if (mFolders)
+    {
+        mFolders->cancelRenaming();
+        if (LLEditMenuHandler::gEditMenuHandler == mFolders)
+        {
+            LLEditMenuHandler::gEditMenuHandler = NULL;
+        }
+    }
     if (!gIdleCallbacks.deleteFunction(idle, this))
     {
         LL_WARNS() << "LLPanelObjectInventory::~LLPanelObjectInventory() failed to delete callback" << LL_ENDL;
@@ -1384,6 +1392,15 @@ void LLPanelObjectInventory::clearContents()
     }
 
     clearItemIDs();
+
+    if (mFolders)
+    {
+        mFolders->cancelRenaming();
+        if (LLEditMenuHandler::gEditMenuHandler == mFolders)
+        {
+            LLEditMenuHandler::gEditMenuHandler = NULL;
+        }
+    }
 
     if( mScroller )
     {
@@ -1748,18 +1765,26 @@ void LLPanelObjectInventory::draw()
 
         if (!text.empty())
         {
-            LLFontGL::getFontSansSerif()->renderUTF8(text, 0,
+            LLFontDX::getFontSansSerif()->renderUTF8(text, 0,
                 (S32)(getRect().getWidth() * 0.5f),
                 10,
                 LLColor4(1, 1, 1, 1),
-                LLFontGL::HCENTER,
-                LLFontGL::BOTTOM);
+                LLFontDX::HCENTER,
+                LLFontDX::BOTTOM);
         }
     }
 }
 
 void LLPanelObjectInventory::deleteAllChildren()
 {
+    if (mFolders)
+    {
+        mFolders->cancelRenaming();
+        if (LLEditMenuHandler::gEditMenuHandler == mFolders)
+        {
+            LLEditMenuHandler::gEditMenuHandler = NULL;
+        }
+    }
     mScroller = NULL;
     mFolders = NULL;
     LLView::deleteAllChildren();

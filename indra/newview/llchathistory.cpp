@@ -1125,7 +1125,7 @@ protected:
     time_t              mCreationTime; // Views's time
 
     S32                 mMinUserNameWidth;
-    const LLFontGL*     mUserNameFont;
+    const LLFontDX*     mUserNameFont;
     LLTextBox*          mUserNameTextBox;
     LLTextBox*          mTimeBoxTextBox;
 
@@ -1156,7 +1156,7 @@ LLChatHistory::LLChatHistory(const LLChatHistory::Params& p)
     editor_params.enabled = false; // read only
     editor_params.show_context_menu = "true";
     editor_params.trusted_content = false;
-    editor_params.text_valign = LLFontGL::VAlign::VCENTER;
+    editor_params.text_valign = LLFontDX::VAlign::VCENTER;
     editor_params.use_color = true;
     mEditor = LLUICtrlFactory::create<LLTextEditor>(editor_params, this);
     mEditor->setIsFriendCallback(LLAvatarActions::isFriend);
@@ -1308,9 +1308,9 @@ void LLChatHistory::appendMessage(const LLChat& chat, const LLSD &args, const LL
     LLUIColor name_color(txt_color);
     LLViewerChat::getChatColor(chat, txt_color, alpha);
 
-    LLFontGL* fontp = LLViewerChat::getChatFont();
-    std::string font_name = LLFontGL::nameFromFont(fontp);
-    std::string font_size = LLFontGL::sizeFromFont(fontp);
+    LLFontDX* fontp = LLViewerChat::getChatFont();
+    std::string font_name = LLFontDX::nameFromFont(fontp);
+    std::string font_size = LLFontDX::sizeFromFont(fontp);
 
     LLStyle::Params body_message_params;
     body_message_params.color(txt_color);

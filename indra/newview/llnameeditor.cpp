@@ -30,7 +30,7 @@
 #include "llcachename.h"
 #include "llavatarnamecache.h"
 
-#include "llfontgl.h"
+#include "llfontdx.h"
 
 #include "lluuid.h"
 #include "llrect.h"

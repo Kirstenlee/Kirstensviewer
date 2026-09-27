@@ -29,7 +29,7 @@
 #include "llnamebox.h"
 
 #include "llerror.h"
-#include "llfontgl.h"
+#include "llfontdx.h"
 #include "llui.h"
 #include "llviewercontrol.h"
 #include "lluuid.h"

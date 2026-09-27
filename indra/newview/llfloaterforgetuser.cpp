@@ -297,7 +297,7 @@ void LLFloaterForgetUser::loadGridToList(const std::string &grid, bool show_grid
                 item_params.columns.add()
                     .value(user_label)
                     .column("user")
-                    .font(LLFontGL::getFontSansSerifSmall());
+                    .font(LLFontDX::getFontSansSerifSmall());
                 mScrollList->addRow(item_params, ADD_BOTTOM);
 
                 // Add one to grid count
@@ -339,7 +339,7 @@ void LLFloaterForgetUser::loadGridToList(const std::string &grid, bool show_grid
                 item_params.columns.add()
                     .value(user_label)
                     .column("user")
-                    .font(LLFontGL::getFontSansSerifSmall());
+                    .font(LLFontDX::getFontSansSerifSmall());
                 mScrollList->addRow(item_params, ADD_BOTTOM);
 
                 // Add one to grid count

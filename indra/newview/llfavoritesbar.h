@@ -102,7 +102,7 @@ protected:
     LLHandle<LLView> mContextMenuHandle;
 
     LLUUID mFavoriteFolderId;
-    const LLFontGL *mFont;
+    const LLFontDX *mFont;
     S32 mFirstDropDownItem;
     S32 mDropDownItemsCount;
     bool mUpdateDropDownItems;

@@ -32,7 +32,7 @@
 // linden library includes
 #include "llclickaction.h"
 #include "llerror.h"
-#include "llfontgl.h"
+#include "llfontdx.h"
 #include "llflexibleobject.h"
 #include "llmaterialtable.h"
 #include "llpermissionsflags.h"

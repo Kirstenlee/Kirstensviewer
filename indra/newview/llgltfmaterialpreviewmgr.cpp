@@ -118,12 +118,12 @@ namespace
             }
             else
             {
-                img = LLViewerTextureManager::getFetchedTexture(id, FTT_DEFAULT, true, LLGLTexture::BOOST_NONE, LLViewerTexture::LOD_TEXTURE);
+                img = LLViewerTextureManager::getFetchedTexture(id, FTT_DEFAULT, true, LLDXTexture::BOOST_NONE, LLViewerTexture::LOD_TEXTURE);
             }
         }
         if (img)
         {
-            img->setBoostLevel(LLGLTexture::BOOST_PREVIEW);
+            img->setBoostLevel(LLDXTexture::BOOST_PREVIEW);
             img->forceToSaveRawImage(0);
         }
     };
@@ -525,13 +525,9 @@ bool LLGLTFPreviewTexture::render()
     gPipeline.combineGlow(&gPipeline.mPostPingMap, &screen);
     gPipeline.renderDoF(&screen, &gPipeline.mPostPingMap);
 
-    // S24 (2026-08-19, task #227 lead-in): was an unconditional applyFXAA()
-    // call regardless of RenderFSAAType - if the user's AA setting was SMAA
-    // (RenderFSAAType==2) this preview thumbnail silently got zero
-    // antialiasing (generateSMAABuffers()/applySMAA() were never called from
-    // here at all), unlike the main scene chain which correctly branches on
-    // RenderFSAAType (dxpipeline.cpp, mirrors GL's renderFinalize()). Matched
-    // to the real branch now.
+    // Branches on RenderFSAAType like the main scene chain (dxpipeline.cpp's
+    // renderFinalize()) rather than calling applyFXAA() unconditionally -
+    // otherwise SMAA users get zero AA on this preview thumbnail.
     if (LLPipeline::RenderFSAAType == 1)
     {
         gPipeline.applyFXAA(&gPipeline.mPostPingMap, &screen);

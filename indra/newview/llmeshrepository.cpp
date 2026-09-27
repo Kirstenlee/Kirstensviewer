@@ -1167,7 +1167,17 @@ void LLMeshRepoThread::run()
                     }
                     else
                     {
-                        LL_DEBUGS() << "mHeaderReqQ failed: " << req.mMeshParams << LL_ENDL;
+                        // too many fails -- can't get the header so none of the LODs will
+                        // be available either. Without this, objects waiting on this
+                        // header never learn it's gone and stay at their placeholder
+                        // shape forever (mirrors LLMeshHeaderHandler::processFailure).
+                        LL_WARNS() << "mHeaderReqQ failed too many times: " << req.mMeshParams << " , skip" << LL_ENDL;
+
+                        LLMutexLock lock(mLoadedMutex);
+                        for (int i = 0; i < LLVolumeLODGroup::NUM_LODS; ++i)
+                        {
+                            mUnavailableQ.push_back(LODRequest(req.mMeshParams, i));
+                        }
                     }
                 }
             }
@@ -4256,15 +4266,17 @@ void LLMeshRepository::shutdown()
     delete mMeshMutex;
     mMeshMutex = NULL;
 
-    LL_INFOS(LOG_MESH) << "Shutting down decomposition system." << LL_ENDL;
-
     if (mDecompThread)
     {
         mDecompThread->shutdown();
         delete mDecompThread;
         mDecompThread = NULL;
     }
+}
 
+void LLMeshRepository::shutdownDecomposition()
+{
+    LL_INFOS(LOG_MESH) << "Shutting down decomposition system." << LL_ENDL;
     LLConvexDecomposition::quitSystem();
 }
 

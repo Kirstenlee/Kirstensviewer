@@ -36,7 +36,7 @@
 #include "llviewercontrol.h"
 #include "llcriticaldamp.h"
 #include "lldrawable.h"
-#include "llfontgl.h"
+#include "llfontdx.h"
 #include "llglheaders.h"
 #include "llhudrender.h"
 #include "llui.h"
@@ -92,8 +92,8 @@ LLHUDNameTag::LLHUDNameTag(const U8 type)
 //  mScale(),
     mWidth(0.f),
     mHeight(0.f),
-    mFontp(LLFontGL::getFontSansSerifSmall()),
-    mBoldFontp(LLFontGL::getFontSansSerifBold()),
+    mFontp(LLFontDX::getFontSansSerifSmall()),
+    mBoldFontp(LLFontDX::getFontSansSerifBold()),
     mSoftScreenRect(),
     mPositionAgent(),
     mPositionOffset(),
@@ -352,7 +352,7 @@ void LLHUDNameTag::renderText()
             segment_iter != mLabelSegments.end(); ++segment_iter )
         {
             // Label segments use default font
-            const LLFontGL* fontp = (segment_iter->mStyle == LLFontGL::BOLD) ? mBoldFontp : mFontp;
+            const LLFontDX* fontp = (segment_iter->mStyle == LLFontDX::BOLD) ? mBoldFontp : mFontp;
             y_offset -= fontp->getLineHeight();
 
             F32 x_offset;
@@ -366,7 +366,7 @@ void LLHUDNameTag::renderText()
             }
 
             LLColor4 label_color(0.f, 0.f, 0.f, alpha_factor);
-            hud_render_text(segment_iter->getText(), render_position, *fontp, segment_iter->mStyle, LLFontGL::NO_SHADOW, x_offset, y_offset, label_color, false);
+            hud_render_text(segment_iter->getText(), render_position, *fontp, segment_iter->mStyle, LLFontDX::NO_SHADOW, x_offset, y_offset, label_color, false);
         }
     }
 
@@ -388,12 +388,12 @@ void LLHUDNameTag::renderText()
         for (std::vector<LLHUDTextSegment>::iterator segment_iter = mTextSegments.begin() + start_segment;
              segment_iter != mTextSegments.end(); ++segment_iter )
         {
-            const LLFontGL* fontp = segment_iter->mFont;
+            const LLFontDX* fontp = segment_iter->mFont;
             y_offset -= fontp->getLineHeight();
             y_offset -= LINE_PADDING;
 
             U8 style = segment_iter->mStyle;
-            LLFontGL::ShadowType shadow = LLFontGL::DROP_SHADOW;
+            LLFontDX::ShadowType shadow = LLFontDX::DROP_SHADOW;
 
             F32 x_offset;
             if (mTextAlignment== ALIGN_TEXT_CENTER)
@@ -505,8 +505,8 @@ void LLHUDNameTag::clearString()
 
 void LLHUDNameTag::addLine(const std::string &text_utf8,
                         const LLColor4& color,
-                        const LLFontGL::StyleFlags style,
-                        const LLFontGL* font,
+                        const LLFontDX::StyleFlags style,
+                        const LLFontDX* font,
                         const bool use_ellipses,
                         F32 max_pixels)
 {
@@ -536,7 +536,7 @@ void LLHUDNameTag::addLine(const std::string &text_utf8,
                 // "QualityAssurance AssuresQuality1" will end up as "QualityAssurance AssuresQua..." because we are enforcing single line
                 do
                 {
-                    auto segment_length = font->maxDrawableChars(iter->substr(line_length).c_str(), max_pixels, static_cast<S32>(wline.length()), LLFontGL::ANYWHERE);
+                    auto segment_length = font->maxDrawableChars(iter->substr(line_length).c_str(), max_pixels, static_cast<S32>(wline.length()), LLFontDX::ANYWHERE);
                     if (segment_length + line_length < wline.length()) // since we only draw one string, line_length should be 0
                     {
                         // token does does not fit into signle line, need to draw "...".
@@ -544,7 +544,7 @@ void LLHUDNameTag::addLine(const std::string &text_utf8,
                         const LLWString dots_pad(utf8str_to_wstring(std::string("....")));
                         S32 elipses_width = (S32)font->getWidthF32(dots_pad.c_str());
                         // truncated string length
-                        segment_length = font->maxDrawableChars(iter->substr(line_length).c_str(), max_pixels - elipses_width, static_cast<S32>(wline.length()), LLFontGL::ANYWHERE);
+                        segment_length = font->maxDrawableChars(iter->substr(line_length).c_str(), max_pixels - elipses_width, static_cast<S32>(wline.length()), LLFontDX::ANYWHERE);
                         const LLWString dots(utf8str_to_wstring(std::string("...")));
                         LLHUDTextSegment segment(iter->substr(line_length, segment_length) + dots, style, color, font);
                         mTextSegments.push_back(segment);
@@ -565,7 +565,7 @@ void LLHUDNameTag::addLine(const std::string &text_utf8,
                 // "QualityAssurance AssuresQuality 1" will be split into two lines "QualityAssurance" and "AssuresQuality"
                 do
                 {
-                    S32 segment_length = font->maxDrawableChars(iter->substr(line_length).c_str(), max_pixels, static_cast<S32>(wline.length()), LLFontGL::WORD_BOUNDARY_IF_POSSIBLE);
+                    S32 segment_length = font->maxDrawableChars(iter->substr(line_length).c_str(), max_pixels, static_cast<S32>(wline.length()), LLFontDX::WORD_BOUNDARY_IF_POSSIBLE);
                     LLHUDTextSegment segment(iter->substr(line_length, segment_length), style, color, font);
                     mTextSegments.push_back(segment);
                     line_length += segment_length;
@@ -604,8 +604,8 @@ void LLHUDNameTag::addLabel(const std::string& label_utf8, F32 max_pixels)
             do
             {
                 S32 segment_length = mFontp->maxDrawableChars(iter->substr(line_length).c_str(),
-                    max_pixels, static_cast<S32>(wstr.length()), LLFontGL::WORD_BOUNDARY_IF_POSSIBLE);
-                LLHUDTextSegment segment(iter->substr(line_length, segment_length), LLFontGL::NORMAL, mColor, mFontp);
+                    max_pixels, static_cast<S32>(wstr.length()), LLFontDX::WORD_BOUNDARY_IF_POSSIBLE);
+                LLHUDTextSegment segment(iter->substr(line_length, segment_length), LLFontDX::NORMAL, mColor, mFontp);
                 mLabelSegments.push_back(segment);
                 line_length += segment_length;
             }
@@ -620,7 +620,7 @@ void LLHUDNameTag::setZCompare(const bool zcompare)
     mZCompare = zcompare;
 }
 
-void LLHUDNameTag::setFont(const LLFontGL* font)
+void LLHUDNameTag::setFont(const LLFontDX* font)
 {
     mFontp = font;
 }
@@ -788,7 +788,7 @@ void LLHUDNameTag::updateSize()
     std::vector<LLHUDTextSegment>::iterator iter = mTextSegments.begin() + start_segment;
     while (iter != mTextSegments.end())
     {
-        const LLFontGL* fontp = iter->mFont;
+        const LLFontDX* fontp = iter->mFont;
         height += fontp->getLineHeight();
         height += LINE_PADDING;
         width = llmax(width, llmin(iter->getWidth(fontp), NAMETAG_MAX_WIDTH));
@@ -1038,9 +1038,9 @@ void LLHUDNameTag::reshape()
 
 //============================================================================
 
-F32 LLHUDNameTag::LLHUDTextSegment::getWidth(const LLFontGL* font)
+F32 LLHUDNameTag::LLHUDTextSegment::getWidth(const LLFontDX* font)
 {
-    std::map<const LLFontGL*, F32>::iterator iter = mFontWidthMap.find(font);
+    std::map<const LLFontDX*, F32>::iterator iter = mFontWidthMap.find(font);
     if (iter != mFontWidthMap.end())
     {
         return iter->second;

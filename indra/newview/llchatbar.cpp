@@ -28,7 +28,7 @@
 
 #include "llchatbar.h"
 
-#include "llfontgl.h"
+#include "llfontdx.h"
 #include "llrect.h"
 #include "llerror.h"
 #include "llparcel.h"

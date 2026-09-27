@@ -110,8 +110,8 @@ bool LLCameraPresetFlatItem::postBuild()
     LLStyle::Params style;
     LLTextBox* name_text = getChild<LLTextBox>("preset_name");
     LLFontDescriptor new_desc(name_text->getFont()->getFontDesc());
-    new_desc.setStyle(mIsDefaultPrest ? LLFontGL::ITALIC : LLFontGL::NORMAL);
-    LLFontGL* new_font = LLFontGL::getFont(new_desc);
+    new_desc.setStyle(mIsDefaultPrest ? LLFontDX::ITALIC : LLFontDX::NORMAL);
+    LLFontDX* new_font = LLFontDX::getFont(new_desc);
     style.font = new_font;
     name_text->setText(mPresetName, style);
 

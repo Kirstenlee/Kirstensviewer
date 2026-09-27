@@ -85,7 +85,7 @@ public:
     struct Params : public LLInitParam::Block<Params, LLMenuItemCallGL::Params>
     {
         Mandatory<EType>        item_type;
-        Optional<const LLFontGL*> back_item_font,
+        Optional<const LLFontDX*> back_item_font,
                                 current_item_font,
                                 forward_item_font;
         Optional<std::string>   back_item_image,
@@ -202,7 +202,7 @@ void LLPullButton::onMouseLeave(S32 x, S32 y, MASK mask)
          * Need to decide whether should we fire a signal.
          * We fire if angle between mDraggingDirection and cursor_direction is less that 45 degree
          * Note:
-         * 0.5 * DirectX::XM_PIDIV2 equals to PI/4 radian that equals to angle of 45 degrees
+         * 0.5 * F_PI_BY_TWO equals to PI/4 radian that equals to angle of 45 degrees
          */
         if (angle_between(mDraggingDirection, cursor_direction) < 0.5 * F_PI_BY_TWO)//call if angle < pi/4
         {
@@ -353,7 +353,7 @@ void LLNavigationBar::draw()
     if (isBackgroundVisible())
     {
         static LLUIColor color_drop_shadow = LLUIColorTable::instance().getColor("ColorDropShadow");
-        gl_drop_shadow(0, getRect().getHeight(), getRect().getWidth(), 0,
+        dx_drop_shadow(0, getRect().getHeight(), getRect().getWidth(), 0,
                            color_drop_shadow, DROP_SHADOW_FLOATER);
     }
 

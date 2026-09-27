@@ -405,7 +405,7 @@ void LLFloaterIMNearbyChat::onClickCloseBtn(bool)
     closeHostedFloater();
 }
 
-void LLFloaterIMNearbyChat::onChatFontChange(LLFontGL* fontp)
+void LLFloaterIMNearbyChat::onChatFontChange(LLFontDX* fontp)
 {
     // Update things with the new font whohoo
     if (mInputEditor)

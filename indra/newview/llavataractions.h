@@ -108,6 +108,12 @@ public:
     static bool isPickTabSelected(const LLUUID& avatar_id);
     static LLFloater* getProfileFloater(const LLUUID& avatar_id);
 
+    /**
+     * Profile helpers.
+     */
+    static bool myProfileVisible();
+    static bool myPicksTabVisible();
+
 	/**
 	 * Show avatar on world map.
 	 */

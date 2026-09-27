@@ -77,7 +77,7 @@ public:
     virtual time_t getCreationDate() const { return 0; }
     virtual LLPointer<LLUIImage> getIcon() const { return NULL; }
     virtual LLPointer<LLUIImage> getOpenIcon() const { return getIcon(); }
-    virtual LLFontGL::StyleFlags getLabelStyle() const { return LLFontGL::NORMAL; }
+    virtual LLFontDX::StyleFlags getLabelStyle() const { return LLFontDX::NORMAL; }
     virtual std::string getLabelSuffix() const { return LLStringUtil::null; }
     virtual bool isFavorite() const { return false; }
     virtual bool isAgentInventory() const { return false; }

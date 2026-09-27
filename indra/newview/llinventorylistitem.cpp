@@ -103,7 +103,7 @@ void LLPanelInventoryListItemBase::draw()
     {
 
         static LLPointer<LLUIImage> fav_img = LLRender2D::getInstance()->getUIImage("Inv_Favorite_Star_Full");
-        gl_draw_scaled_image(
+        dx_draw_scaled_image(
             local_rect.getWidth() - FAVORITE_IMAGE_SIZE - FAVORITE_IMAGE_PAD, FAVORITE_IMAGE_PAD,
             FAVORITE_IMAGE_SIZE, FAVORITE_IMAGE_SIZE, fav_img->getImage());
     }

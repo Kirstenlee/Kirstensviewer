@@ -42,8 +42,8 @@
 // * Do not make any assumption as to how those classes or methods work (i.e. don't copy/paste code)
 // * A simulator for a class can be implemented here. Please comment and document thoroughly.
 
-void LLGLTexture::setBoostLevel(S32 ) { }
-LLViewerFetchedTexture* LLViewerTextureManager::getFetchedTextureFromUrl(const std::string&, FTType, bool, LLGLTexture::EBoostLevel, S8,
+void LLDXTexture::setBoostLevel(S32 ) { }
+LLViewerFetchedTexture* LLViewerTextureManager::getFetchedTextureFromUrl(const std::string&, FTType, bool, LLDXTexture::EBoostLevel, S8,
                                                                          LLGLint, LLGLenum, const LLUUID& ) { return NULL; }
 
 LLControlGroup::LLControlGroup(const std::string& name) : LLInstanceTracker<LLControlGroup, std::string>(name) { }

@@ -60,8 +60,8 @@ LLPanelEmojiComplete::LLPanelEmojiComplete(const LLPanelEmojiComplete::Params& p
     , mMaxVisible(p.max_visible)
     , mPadding(p.padding)
     , mSelectedImage(p.selected_image)
-    , mIconFont(LLFontGL::getFontEmojiHuge())
-    , mTextFont(LLFontGL::getFontSansSerifBig())
+    , mIconFont(LLFontDX::getFontEmojiHuge())
+    , mTextFont(LLFontDX::getFontSansSerifBig())
     , mScrollbar(nullptr)
 {
     if (mVertical)
@@ -120,8 +120,8 @@ void LLPanelEmojiComplete::draw()
     {
         LLWString text(1, mEmojis[curIdx].Character);
         mIconFont->render(text, 0, iconCenterX, iconCenterY,
-            LLColor4::white, LLFontGL::HCENTER, LLFontGL::VCENTER, LLFontGL::NORMAL,
-            LLFontGL::DROP_SHADOW_SOFT, 1);
+            LLColor4::white, LLFontDX::HCENTER, LLFontDX::VCENTER, LLFontDX::NORMAL,
+            LLFontDX::DROP_SHADOW_SOFT, 1);
         if (mVertical)
         {
             const std::string& shortCode = mEmojis[curIdx].String;
@@ -131,7 +131,7 @@ void LLPanelEmojiComplete::draw()
             {
                 std::string text = shortCode.substr(0, mEmojis[curIdx].Begin);
                 mTextFont->renderUTF8(text, 0, x0, iconCenterY, LLColor4::white,
-                    LLFontGL::LEFT, LLFontGL::VCENTER, LLFontGL::NORMAL, LLFontGL::NO_SHADOW,
+                    LLFontDX::LEFT, LLFontDX::VCENTER, LLFontDX::NORMAL, LLFontDX::NO_SHADOW,
                     static_cast<S32>(text.size()), (S32)x1);
                 x0 += mTextFont->getWidthF32(text);
                 x1 = textLeft + textWidth - x0;
@@ -140,7 +140,7 @@ void LLPanelEmojiComplete::draw()
             {
                 std::string text = shortCode.substr(mEmojis[curIdx].Begin, mEmojis[curIdx].End - mEmojis[curIdx].Begin);
                 mTextFont->renderUTF8(text, 0, x0, iconCenterY, LLColor4::yellow6,
-                    LLFontGL::LEFT, LLFontGL::VCENTER, LLFontGL::NORMAL, LLFontGL::NO_SHADOW,
+                    LLFontDX::LEFT, LLFontDX::VCENTER, LLFontDX::NORMAL, LLFontDX::NO_SHADOW,
                     static_cast<S32>(text.size()), (S32)x1);
                 x0 += mTextFont->getWidthF32(text);
                 x1 = textLeft + textWidth - x0;
@@ -149,7 +149,7 @@ void LLPanelEmojiComplete::draw()
             {
                 std::string text = shortCode.substr(mEmojis[curIdx].End);
                 mTextFont->renderUTF8(text, 0, x0, iconCenterY, LLColor4::white,
-                    LLFontGL::LEFT, LLFontGL::VCENTER, LLFontGL::NORMAL, LLFontGL::NO_SHADOW,
+                    LLFontDX::LEFT, LLFontDX::VCENTER, LLFontDX::NORMAL, LLFontDX::NO_SHADOW,
                     static_cast<S32>(text.size()), (S32)x1);
             }
             iconCenterY -= mEmojiHeight;

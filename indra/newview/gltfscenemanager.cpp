@@ -823,7 +823,7 @@ void GLTFSceneManager::bindTexture(Asset& asset, TextureType texture_type, Textu
 
     if (channel > -1)
     {
-        // Routed through LLTexUnit::bind()/LLImageGL::setAddressMode() (both
+        // Routed through LLTexUnit::bind()/LLImageDX::setAddressMode() (both
         // backend-agnostic) rather than raw GL calls. LLTexUnit's address mode
         // is one value for both S/T, so an asymmetric glTF sampler
         // (mWrapS != mWrapT) loses that distinction — a minor, rare fidelity gap.
@@ -850,7 +850,7 @@ void GLTFSceneManager::bindTexture(Asset& asset, TextureType texture_type, Textu
 
         if (tex)
         {
-            LLImageGL* img = tex->getGLTexture();
+            LLImageDX* img = tex->getGLTexture();
             if (img)
             {
                 img->setAddressMode(

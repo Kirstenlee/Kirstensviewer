@@ -524,11 +524,11 @@ void LLGLTFMaterialList::onAssetLoadComplete(const LLUUID& id, LLAssetType::ETyp
         // Don't warn on -1 ext_status as it's a common fallthrough value
         if (static_cast<S32>(ext_status) != -1)
         {
-            LL_INFOS("GLTF") << "Error getting material asset data: " << LLAssetStorage::getErrorString(status) << " (" << status << ")" << LL_ENDL;
+            LL_INFOS("GLTF") << "Error getting material asset data: " << LLAssetStorage::getErrorString(status) << " (" << status << ") for asset " << id << LL_ENDL;
         }
         else
         {
-            LL_DEBUGS("GLTF") << "Error getting material asset data: " << LLAssetStorage::getErrorString(status) << " (" << status << ")" << LL_ENDL;
+            LL_DEBUGS("GLTF") << "Error getting material asset data: " << LLAssetStorage::getErrorString(status) << " (" << status << ") for asset " << id << LL_ENDL;
         }
         asset_data->mMaterial->materialComplete(false);
         delete asset_data;

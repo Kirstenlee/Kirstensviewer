@@ -35,7 +35,7 @@
 #include "v4color.h"
 #include "llprimitive.h"
 #include "llview.h"
-#include "llfontgl.h"
+#include "llfontdx.h"
 
 // viewer includes
 #include "llagent.h"
@@ -195,14 +195,14 @@ void LLManipRotate::render()
                     color.setVec( 0.7f, 0.7f, 0.7f, 0.6f );
                 }
                 gDX.diffuseColor4fv(color.mV);
-                gl_washer_2d(mRadiusMeters + width_meters, mRadiusMeters, CIRCLE_STEPS, color, color);
+                dx_washer_2d(mRadiusMeters + width_meters, mRadiusMeters, CIRCLE_STEPS, color, color);
 
 
                 if (mManipPart == LL_NO_PART)
                 {
                     gDX.color4f( 0.7f, 0.7f, 0.7f, 0.3f );
                     gDX.diffuseColor4f(0.7f, 0.7f, 0.7f, 0.3f);
-                    gl_circle_2d( 0, 0,  mRadiusMeters, CIRCLE_STEPS, true );
+                    dx_circle_2d( 0, 0,  mRadiusMeters, CIRCLE_STEPS, true );
                 }
 
                 gDX.flush();
@@ -289,12 +289,12 @@ void LLManipRotate::render()
                         mManipulatorScales = lerp(mManipulatorScales, LLVector4(1.f, 1.f, SELECTED_MANIPULATOR_SCALE, 1.f), LLSmoothInterpolation::getInterpolant(MANIPULATOR_SCALE_HALF_LIFE));
                         gDX.scalef(mManipulatorScales.mV[VZ], mManipulatorScales.mV[VZ], mManipulatorScales.mV[VZ]);
                         // hovering over part
-                        gl_ring( mRadiusMeters, width_meters, LLColor4( 0.f, 0.f, 1.f, 1.f ), LLColor4( 0.f, 0.f, 1.f, 0.5f ), CIRCLE_STEPS, i);
+                        dx_ring( mRadiusMeters, width_meters, LLColor4( 0.f, 0.f, 1.f, 1.f ), LLColor4( 0.f, 0.f, 1.f, 0.5f ), CIRCLE_STEPS, i);
                     }
                     else
                     {
                         // default
-                        gl_ring( mRadiusMeters, width_meters, LLColor4( 0.f, 0.f, 0.8f, 0.8f ), LLColor4( 0.f, 0.f, 0.8f, 0.4f ), CIRCLE_STEPS, i);
+                        dx_ring( mRadiusMeters, width_meters, LLColor4( 0.f, 0.f, 0.8f, 0.8f ), LLColor4( 0.f, 0.f, 0.8f, 0.4f ), CIRCLE_STEPS, i);
                     }
                 }
                 gDX.popMatrix();
@@ -307,12 +307,12 @@ void LLManipRotate::render()
                         mManipulatorScales = lerp(mManipulatorScales, LLVector4(1.f, SELECTED_MANIPULATOR_SCALE, 1.f, 1.f), LLSmoothInterpolation::getInterpolant(MANIPULATOR_SCALE_HALF_LIFE));
                         gDX.scalef(mManipulatorScales.mV[VY], mManipulatorScales.mV[VY], mManipulatorScales.mV[VY]);
                         // hovering over part
-                        gl_ring( mRadiusMeters, width_meters, LLColor4( 0.f, 1.f, 0.f, 1.f ), LLColor4( 0.f, 1.f, 0.f, 0.5f ), CIRCLE_STEPS, i);
+                        dx_ring( mRadiusMeters, width_meters, LLColor4( 0.f, 1.f, 0.f, 1.f ), LLColor4( 0.f, 1.f, 0.f, 0.5f ), CIRCLE_STEPS, i);
                     }
                     else
                     {
                         // default
-                        gl_ring( mRadiusMeters, width_meters, LLColor4( 0.f, 0.8f, 0.f, 0.8f ), LLColor4( 0.f, 0.8f, 0.f, 0.4f ), CIRCLE_STEPS, i);
+                        dx_ring( mRadiusMeters, width_meters, LLColor4( 0.f, 0.8f, 0.f, 0.8f ), LLColor4( 0.f, 0.8f, 0.f, 0.4f ), CIRCLE_STEPS, i);
                     }
                 }
                 gDX.popMatrix();
@@ -326,12 +326,12 @@ void LLManipRotate::render()
                         gDX.scalef(mManipulatorScales.mV[VX], mManipulatorScales.mV[VX], mManipulatorScales.mV[VX]);
 
                         // hovering over part
-                        gl_ring( mRadiusMeters, width_meters, LLColor4( 1.f, 0.f, 0.f, 1.f ), LLColor4( 1.f, 0.f, 0.f, 0.5f ), CIRCLE_STEPS, i);
+                        dx_ring( mRadiusMeters, width_meters, LLColor4( 1.f, 0.f, 0.f, 1.f ), LLColor4( 1.f, 0.f, 0.f, 0.5f ), CIRCLE_STEPS, i);
                     }
                     else
                     {
                         // default
-                        gl_ring( mRadiusMeters, width_meters, LLColor4( 0.8f, 0.f, 0.f, 0.8f ), LLColor4( 0.8f, 0.f, 0.f, 0.4f ), CIRCLE_STEPS, i);
+                        dx_ring( mRadiusMeters, width_meters, LLColor4( 0.8f, 0.f, 0.f, 0.8f ), LLColor4( 0.8f, 0.f, 0.f, 0.4f ), CIRCLE_STEPS, i);
                     }
                 }
                 gDX.popMatrix();
@@ -770,13 +770,13 @@ void LLManipRotate::renderActiveRing( F32 radius, F32 width, const LLColor4& fro
 {
     LLGLEnable cull_face(GL_CULL_FACE);
     {
-        gl_ring(radius, width, back_color, back_color * 0.5f, CIRCLE_STEPS, false);
-        gl_ring(radius, width, back_color, back_color * 0.5f, CIRCLE_STEPS, true);
+        dx_ring(radius, width, back_color, back_color * 0.5f, CIRCLE_STEPS, false);
+        dx_ring(radius, width, back_color, back_color * 0.5f, CIRCLE_STEPS, true);
     }
     {
         LLGLDepthTest gls_depth(GL_FALSE);
-        gl_ring(radius, width, front_color, front_color * 0.5f, CIRCLE_STEPS, false);
-        gl_ring(radius, width, front_color, front_color * 0.5f, CIRCLE_STEPS, true);
+        dx_ring(radius, width, front_color, front_color * 0.5f, CIRCLE_STEPS, false);
+        dx_ring(radius, width, front_color, front_color * 0.5f, CIRCLE_STEPS, true);
     }
 }
 
@@ -898,11 +898,11 @@ void LLManipRotate::renderSnapGuides()
                 F32 end_angle = atan2(y_axis_snap * edge_normal, x_axis_snap * edge_normal);
                 //F32 start_angle = angle_between((-1.f * LLVector3::x_axis) * snap_guide_rot, edge_normal);
                 F32 start_angle = end_angle - F_PI;
-                gl_arc_2d(0.f, 0.f, mRadiusMeters * SNAP_GUIDE_INNER_RADIUS, CIRCLE_STEPS, false, start_angle, end_angle);
+                dx_arc_2d(0.f, 0.f, mRadiusMeters * SNAP_GUIDE_INNER_RADIUS, CIRCLE_STEPS, false, start_angle, end_angle);
             }
             else
             {
-                gl_circle_2d(0.f, 0.f, mRadiusMeters * SNAP_GUIDE_INNER_RADIUS, CIRCLE_STEPS, false);
+                dx_circle_2d(0.f, 0.f, mRadiusMeters * SNAP_GUIDE_INNER_RADIUS, CIRCLE_STEPS, false);
             }
             gDX.popMatrix();
 
@@ -1164,15 +1164,15 @@ void LLManipRotate::renderSnapGuides()
             F32 line_alpha = gSavedSettings.getF32("GridOpacity");
 
             LLVector3 help_text_pos = selection_center_start + (mRadiusMeters * 3.f * offset_dir);
-            const LLFontGL* big_fontp = LLFontGL::getFontSansSerif();
+            const LLFontDX* big_fontp = LLFontDX::getFontSansSerif();
 
             std::string help_text =  LLTrans::getString("manip_hint1");
             LLColor4 help_text_color = LLColor4::white;
             help_text_color.mV[VALPHA] = clamp_rescale(mHelpTextTimer.getElapsedTimeF32(), sHelpTextVisibleTime, sHelpTextVisibleTime + sHelpTextFadeTime, line_alpha, 0.f);
-            hud_render_utf8text(help_text, help_text_pos, *big_fontp, LLFontGL::NORMAL, LLFontGL::NO_SHADOW, -0.5f * big_fontp->getWidthF32(help_text), 3.f, help_text_color, false);
+            hud_render_utf8text(help_text, help_text_pos, *big_fontp, LLFontDX::NORMAL, LLFontDX::NO_SHADOW, -0.5f * big_fontp->getWidthF32(help_text), 3.f, help_text_color, false);
             help_text =  LLTrans::getString("manip_hint2");
             help_text_pos -= offset_dir * mRadiusMeters * 0.4f;
-            hud_render_utf8text(help_text, help_text_pos, *big_fontp, LLFontGL::NORMAL, LLFontGL::NO_SHADOW, -0.5f * big_fontp->getWidthF32(help_text), 3.f, help_text_color, false);
+            hud_render_utf8text(help_text, help_text_pos, *big_fontp, LLFontDX::NORMAL, LLFontDX::NO_SHADOW, -0.5f * big_fontp->getWidthF32(help_text), 3.f, help_text_color, false);
         }
     }
 }

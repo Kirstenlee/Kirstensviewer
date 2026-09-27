@@ -152,13 +152,13 @@ void LLFloaterAuction::draw()
             LLRect rect = snapshot_icon->getRect();
             {
                 gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
-                gl_rect_2d(rect, LLColor4(0.f, 0.f, 0.f, 1.f));
+                dx_rect_2d(rect, LLColor4(0.f, 0.f, 0.f, 1.f));
                 rect.stretch(-1);
             }
             {
                 LLGLSUIDefault gls_ui;
                 gDX.color3f(1.f, 1.f, 1.f);
-                gl_draw_scaled_image(rect.mLeft,
+                dx_draw_scaled_image(rect.mLeft,
                                      rect.mBottom,
                                      rect.getWidth(),
                                      rect.getHeight(),

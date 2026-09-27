@@ -44,7 +44,7 @@
 #include "llcylinder.h"
 #include "lldrawable.h"
 #include "llfloatertools.h"
-#include "llfontgl.h"
+#include "llfontdx.h"
 #include "llglheaders.h"
 #include "llhudrender.h"
 #include "llresmgr.h"
@@ -286,7 +286,7 @@ void LLManipTranslate::restoreGL()
         sDXGridTex.create(reinterpret_cast<const uint8_t*>(d), rez, rez, 4, true);
         break;
 #else
-        LLImageGL::setManualImage(GL_TEXTURE_2D, mip, GL_RGBA, rez, rez, GL_RGBA, GL_UNSIGNED_BYTE, d);
+        LLImageDX::setManualImage(GL_TEXTURE_2D, mip, GL_RGBA, rez, rez, GL_RGBA, GL_UNSIGNED_BYTE, d);
 #endif
         rez = rez >> 1;
         mip++;
@@ -1468,15 +1468,15 @@ void LLManipTranslate::renderSnapGuides()
                 LLVector3 selection_center_start = getSavedPivotPoint();//LLSelectMgr::getInstance()->getSavedBBoxOfSelection().getCenterAgent();
 
                 LLVector3 help_text_pos = selection_center_start + (snap_offset_meters_up * 3.f * mSnapOffsetAxis);
-                const LLFontGL* big_fontp = LLFontGL::getFontSansSerif();
+                const LLFontDX* big_fontp = LLFontDX::getFontSansSerif();
 
                 std::string help_text = LLTrans::getString("manip_hint1");
                 LLColor4 help_text_color = LLColor4::white;
                 help_text_color.mV[VALPHA] = clamp_rescale(mHelpTextTimer.getElapsedTimeF32(), sHelpTextVisibleTime, sHelpTextVisibleTime + sHelpTextFadeTime, line_alpha, 0.f);
-                hud_render_utf8text(help_text, help_text_pos, *big_fontp, LLFontGL::NORMAL, LLFontGL::NO_SHADOW, -0.5f * big_fontp->getWidthF32(help_text), 3.f, help_text_color, false);
+                hud_render_utf8text(help_text, help_text_pos, *big_fontp, LLFontDX::NORMAL, LLFontDX::NO_SHADOW, -0.5f * big_fontp->getWidthF32(help_text), 3.f, help_text_color, false);
                 help_text = LLTrans::getString("manip_hint2");
                 help_text_pos -= LLViewerCamera::getInstance()->getUpAxis() * mSnapOffsetMeters * 0.2f;
-                hud_render_utf8text(help_text, help_text_pos, *big_fontp, LLFontGL::NORMAL, LLFontGL::NO_SHADOW, -0.5f * big_fontp->getWidthF32(help_text), 3.f, help_text_color, false);
+                hud_render_utf8text(help_text, help_text_pos, *big_fontp, LLFontDX::NORMAL, LLFontDX::NO_SHADOW, -0.5f * big_fontp->getWidthF32(help_text), 3.f, help_text_color, false);
             }
         }
     }

@@ -33,7 +33,7 @@
 
 #include "llagent.h"
 #include "lldrawable.h"
-#include "llfontgl.h"
+#include "llfontdx.h"
 #include "llgl.h"
 #include "llglheaders.h"
 #include "llhudrender.h"

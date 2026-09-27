@@ -378,13 +378,12 @@ void LLDrawPoolAvatar::beginShadowPass(S32 pass)
     {
         sVertexProgram = &gDeferredAvatarAlphaShadowProgram;
 
-        // bind diffuse tex so we can reference the alpha channel...
-        S32 loc = sVertexProgram->getUniformLocation(LLViewerShaderMgr::DIFFUSE_MAP);
+        // S24: getUniformLocation(U32) was a permanent -1 stub under
+        // DX_RENDER (no GL program object concept ever existed) - this
+        // diffuse-alpha-channel enable never actually ran. Removed alongside
+        // the rest of that dead reflection API; sDiffuseChannel simply stays
+        // 0, matching the branch's real effect today.
         sDiffuseChannel = 0;
-        if (loc != -1)
-        {
-            sDiffuseChannel = sVertexProgram->enableTexture(LLViewerShaderMgr::DIFFUSE_MAP);
-        }
 
         if ((sShaderLevel > 0))  // for hardware blending
         {
@@ -398,13 +397,9 @@ void LLDrawPoolAvatar::beginShadowPass(S32 pass)
     {
         sVertexProgram = &gDeferredAvatarAlphaMaskShadowProgram;
 
-        // bind diffuse tex so we can reference the alpha channel...
-        S32 loc = sVertexProgram->getUniformLocation(LLViewerShaderMgr::DIFFUSE_MAP);
+        // S24: see SHADOW_PASS_AVATAR_ALPHA_BLEND above - same dead-stub
+        // removal, sDiffuseChannel stays 0.
         sDiffuseChannel = 0;
-        if (loc != -1)
-        {
-            sDiffuseChannel = sVertexProgram->enableTexture(LLViewerShaderMgr::DIFFUSE_MAP);
-        }
 
         if ((sShaderLevel > 0))  // for hardware blending
         {
@@ -663,7 +658,15 @@ void LLDrawPoolAvatar::endDeferredRigid()
 void LLDrawPoolAvatar::beginSkinned()
 {
 
-    // used for preview only
+    // Used for preview only, like LLVisualParamHint
+    // Uses deprecated logic!!!
+    if (!gAvatarProgram.isComplete())
+    {
+        llassert(false); // Avatar shader shouldn't have failed if deferred shader loaded
+        sVertexProgram = nullptr;
+        LLHLSLShader::unbind();
+        return;
+    }
 
     sVertexProgram = &gAvatarProgram;
 
@@ -671,29 +674,24 @@ void LLDrawPoolAvatar::beginSkinned()
 
     sVertexProgram->bind();
     sVertexProgram->setMinimumAlpha(LLDrawPoolAvatar::sMinimumAlpha);
+    sDiffuseChannel = sVertexProgram->enableTexture(LLViewerShaderMgr::DIFFUSE_MAP);
 }
 
 void LLDrawPoolAvatar::endSkinned()
 {
 
+    if (sVertexProgram == nullptr)
+    {
+        return;
+    }
+
     // if we're in software-blending, remember to set the fence _after_ we draw so we wait till this rendering is done
-    if (sShaderLevel > 0)
-    {
-        sRenderingSkinned = false;
-        sVertexProgram->disableTexture(LLViewerShaderMgr::BUMP_MAP);
-        gDX.getTexUnit(0)->activate();
-        sVertexProgram->unbind();
-        sShaderLevel = mShaderLevel;
-    }
-    else
-    {
-        if(gPipeline.shadersLoaded())
-        {
-            // software skinning, use a basic shader for windlight.
-            // TODO: find a better fallback method for software skinning.
-            sVertexProgram->unbind();
-        }
-    }
+    sRenderingSkinned = false;
+    sVertexProgram->disableTexture(LLViewerShaderMgr::DIFFUSE_MAP);
+    sVertexProgram->disableTexture(LLViewerShaderMgr::BUMP_MAP);
+    gDX.getTexUnit(0)->activate();
+    sVertexProgram->unbind();
+    sShaderLevel = mShaderLevel;
 
     gDX.getTexUnit(0)->activate();
 }

@@ -31,7 +31,7 @@
 
 // linden library includes
 #include "llerror.h"
-#include "llfontgl.h"
+#include "llfontdx.h"
 #include "llpermissionsflags.h"
 #include "llstring.h"
 #include "llvolume.h"

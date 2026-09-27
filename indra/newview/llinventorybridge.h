@@ -106,7 +106,7 @@ public:
     virtual LLFolderType::EType getPreferredType() const;
     virtual time_t getCreationDate() const;
         virtual void setCreationDate(time_t creation_date_utc);
-    virtual LLFontGL::StyleFlags getLabelStyle() const { return LLFontGL::NORMAL; }
+    virtual LLFontDX::StyleFlags getLabelStyle() const { return LLFontDX::NORMAL; }
     virtual std::string getLabelSuffix() const { return LLStringUtil::null; }
     virtual void openItem() {}
     virtual void closeItem() {}
@@ -247,7 +247,7 @@ public:
     virtual void gotoItem();
     virtual LLUIImagePtr getIcon() const;
     virtual std::string getLabelSuffix() const;
-    virtual LLFontGL::StyleFlags getLabelStyle() const;
+    virtual LLFontDX::StyleFlags getLabelStyle() const;
     virtual PermissionMask getPermissionMask() const;
     virtual time_t getCreationDate() const;
     virtual bool isItemRenameable() const;
@@ -301,7 +301,7 @@ public:
     virtual LLUIImagePtr getIconOverlay() const;
     static LLUIImagePtr getIcon(LLFolderType::EType preferred_type);
     virtual std::string getLabelSuffix() const;
-    virtual LLFontGL::StyleFlags getLabelStyle() const;
+    virtual LLFontDX::StyleFlags getLabelStyle() const;
     virtual const LLUUID& getThumbnailUUID() const;
     virtual bool isFavorite() const;
 
@@ -519,7 +519,7 @@ public:
         LLItemBridge(inventory, root, uuid) {}
     // Only suffix for gesture items, not task items, because only
     // gestures in your inventory can be active.
-    virtual LLFontGL::StyleFlags getLabelStyle() const;
+    virtual LLFontDX::StyleFlags getLabelStyle() const;
     virtual std::string getLabelSuffix() const;
     virtual void performAction(LLInventoryModel* model, std::string action);
     virtual void openItem();
@@ -813,7 +813,7 @@ public:
     virtual LLUIImagePtr getIcon() const;
     virtual LLUIImagePtr getIconOpen() const;
     virtual std::string getLabelSuffix() const;
-    virtual LLFontGL::StyleFlags getLabelStyle() const;
+    virtual LLFontDX::StyleFlags getLabelStyle() const;
 
 private:
     LLUIImagePtr getMarketplaceFolderIcon(bool is_open) const;

@@ -1044,7 +1044,7 @@ void LLOutfitGalleryItem::draw()
     const LLColor4& border_color = mSelected ? selected_color : unselected_color;
     LLRect border = mPreviewIcon->getRect();
     border.mRight = border.mRight + 1;
-    gl_rect_2d(border, border_color, false);
+    dx_rect_2d(border, border_color, false);
 
     if (mTexturep)
     {
@@ -1057,7 +1057,7 @@ void LLOutfitGalleryItem::draw()
 
         // If the floater is focused, don't apply its alpha to the texture (STORM-677).
         const F32 alpha = getTransparencyType() == TT_ACTIVE ? 1.0f : getCurrentTransparency();
-        gl_draw_scaled_image(interior.mLeft - 1, interior.mBottom, interior.getWidth(), interior.getHeight(), mTexturep, UI_VERTEX_COLOR % alpha);
+        dx_draw_scaled_image(interior.mLeft - 1, interior.mBottom, interior.getWidth(), interior.getHeight(), mTexturep, UI_VERTEX_COLOR % alpha);
     }
 
     static LLUICachedControl<bool> draw_star("InventoryFavoritesUseStar", true);
@@ -1069,7 +1069,7 @@ void LLOutfitGalleryItem::draw()
         static LLPointer<LLUIImage> fav_img = LLRender2D::getInstance()->getUIImage("Inv_Favorite_Star_Full");
 
         const F32 alpha = getTransparencyType() == TT_ACTIVE ? 1.0f : getCurrentTransparency();
-        gl_draw_scaled_image(
+        dx_draw_scaled_image(
             border.getWidth() - image_size - HPAD, image_size + VPAD + mOutfitNameText->getRect().getHeight(),
             image_size, image_size, fav_img->getImage(), UI_VERTEX_COLOR % alpha);
      }
@@ -1097,8 +1097,8 @@ void LLOutfitGalleryItem::setOutfitWorn(bool value)
     std::string worn_string = getString("worn_string", worn_string_args);
     mOutfitWornText->setReadOnlyColor(sDefaultTextColor.get());
     mOutfitNameText->setReadOnlyColor(sDefaultTextColor.get());
-    mOutfitWornText->setFont(value ? LLFontGL::getFontSansSerifBold() : LLFontGL::getFontSansSerifSmall());
-    mOutfitNameText->setFont(value ? LLFontGL::getFontSansSerifBold() : LLFontGL::getFontSansSerifSmall());
+    mOutfitWornText->setFont(value ? LLFontDX::getFontSansSerifBold() : LLFontDX::getFontSansSerifSmall());
+    mOutfitNameText->setFont(value ? LLFontDX::getFontSansSerifBold() : LLFontDX::getFontSansSerifSmall());
     mOutfitWornText->setValue(value ? worn_string : "");
     mOutfitNameText->setText(mOutfitName); // refresh LLTextViewModel to pick up font changes
 
@@ -1208,7 +1208,7 @@ bool LLOutfitGalleryItem::openOutfitsContent()
 
 bool LLOutfitGalleryItem::setImageAssetId(LLUUID image_asset_id)
 {
-    LLPointer<LLViewerFetchedTexture> texture = LLViewerTextureManager::getFetchedTexture(image_asset_id, FTT_DEFAULT, MIPMAP_YES, LLGLTexture::BOOST_NONE, LLViewerTexture::FETCHED_TEXTURE);
+    LLPointer<LLViewerFetchedTexture> texture = LLViewerTextureManager::getFetchedTexture(image_asset_id, FTT_DEFAULT, MIPMAP_YES, LLDXTexture::BOOST_NONE, LLViewerTexture::FETCHED_TEXTURE);
     if (texture)
     {
         mImageAssetId = image_asset_id;

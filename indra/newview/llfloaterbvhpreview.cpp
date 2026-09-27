@@ -1114,7 +1114,7 @@ bool    LLPreviewAnimation::render()
     gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
     gDX.color4f(0.15f, 0.2f, 0.3f, 1.f);
 
-    gl_rect_2d_simple( mFullWidth, mFullHeight );
+    dx_rect_2d_simple( mFullWidth, mFullHeight );
 
     gDX.matrixMode(LLRender::MM_PROJECTION);
     gDX.popMatrix();

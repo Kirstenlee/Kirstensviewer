@@ -108,7 +108,7 @@ LLButton* LLToastNotifyPanel::createButton(const LLSD& form_element, bool is_opt
         }
     }
 
-    const LLFontGL* font = LLFontGL::getFont(LLFontDescriptor(
+    const LLFontDX* font = LLFontDX::getFont(LLFontDescriptor(
         font_name, make_small_btn ? "Small" : "Medium", 0));
     p.name = name;
     p.label = text;
@@ -301,7 +301,7 @@ void LLToastNotifyPanel::init( LLRect rect, bool show_images )
     mIsScriptDialog = (notif_name == "ScriptDialog" || notif_name == "ScriptDialogGroup");
 
     static LLCachedControl<S32> btn_width(gSavedSettings, "ToastButtonWidth", 90);
-    static LLCachedControl<S32> script_button_width(gSavedSettings, "ScriptToastButtonWidth", 110);
+    static LLCachedControl<S32> script_button_width(gSavedSettings, "ScriptToastButtonWidth", 127);
     mButtonWidth = mIsScriptDialog ? script_button_width : btn_width;
 
     bool is_content_trusted = (notif_name != "LoadWebPage");
@@ -332,12 +332,12 @@ void LLToastNotifyPanel::init( LLRect rect, bool show_images )
     if (mIsCaution && !mIsTip)
     {
         mTextBox = getChild<LLTextBox>("caution_text_box");
-        mTextBox->setFont(LLFontGL::getFont(LLFontDescriptor(mIsScriptDialog ? sFontScript : sFontDefault, "Medium", LLFontGL::BOLD)));
+        mTextBox->setFont(LLFontDX::getFont(LLFontDescriptor(mIsScriptDialog ? sFontScript : sFontDefault, "Medium", LLFontDX::BOLD)));
     }
     else
     {
         mTextBox = getChild<LLTextEditor>("text_editor_box");
-        mTextBox->setFont(LLFontGL::getFont(LLFontDescriptor(mIsScriptDialog ? sFontScript : sFontDefault, "Medium", 0)));
+        mTextBox->setFont(LLFontDX::getFont(LLFontDescriptor(mIsScriptDialog ? sFontScript : sFontDefault, "Medium", 0)));
     }
 
     mTextBox->setMaxTextLength(LLToastPanel::MAX_TEXT_LENGTH);

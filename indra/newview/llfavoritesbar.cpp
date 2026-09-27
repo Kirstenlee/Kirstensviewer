@@ -412,7 +412,7 @@ LLFavoritesBarCtrl::Params::Params()
 
 LLFavoritesBarCtrl::LLFavoritesBarCtrl(const LLFavoritesBarCtrl::Params& p)
 :   LLUICtrl(p),
-    mFont(p.font.isProvided() ? p.font() : LLFontGL::getFontSansSerifSmall()),
+    mFont(p.font.isProvided() ? p.font() : LLFontDX::getFontSansSerifSmall()),
     mOverflowMenuHandle(),
     mContextMenuHandle(),
     mImageDragIndication(p.image_drag_indication),

@@ -875,7 +875,7 @@ struct ShaderProfileHelper
 };
 
 // Holds `size` independent real textures for the memory-bandwidth benchmark below - real
-// LLImageGL objects uploaded via createGLTexture(), not bare generated GL texture names bound
+// LLImageDX objects uploaded via createGLTexture(), not bare generated GL texture names bound
 // via LLTexUnit::bindManual(), which is a documented no-op under DX_RENDER (see
 // dxdrawpoolwlsky.cpp's SMAA sample-map comment for the same limitation) - a benchmark that
 // silently never actually bound its stress-test textures would just measure however fast the
@@ -902,7 +902,7 @@ public:
     // there isn't one yet at creation time) to force real cache misses during the timed loop.
     void create(U32 index, U32 res, const U8* pixels)
     {
-        LLPointer<LLImageGL> img = new LLImageGL(res, res, 4, false);
+        LLPointer<LLImageDX> img = new LLImageDX(res, res, 4, false);
         img->setFilteringOption(LLTexUnit::TFO_POINT);
         img->createGLTexture(0, pixels);
         images[index] = img;
@@ -921,7 +921,7 @@ private:
     // capture which LLTexUnit we're going to use
     LLTexUnit* texUnit;
 
-    std::vector<LLPointer<LLImageGL>> images;
+    std::vector<LLPointer<LLImageDX>> images;
 };
 
 class ShaderBinder

@@ -30,7 +30,7 @@
 #include "llfloatertelehub.h"
 
 #include "message.h"
-#include "llfontgl.h"
+#include "llfontdx.h"
 
 #include "llagent.h"
 #include "llfloaterreg.h"

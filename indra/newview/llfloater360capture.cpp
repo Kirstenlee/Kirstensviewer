@@ -541,7 +541,6 @@ void LLFloater360Capture::capture360Images()
     // for each of the 6 directions we shoot...
     for (int i = 0; i < 6; i++)
     {
-        LLAppViewer::instance()->pauseMainloopTimeout();
         LLViewerStats::instance().getRecording().stop();
 
         // these buffers are where the raw, captured pixels are stored and
@@ -582,10 +581,6 @@ void LLFloater360Capture::capture360Images()
         encode_time_total += duration.count();
 
         LLViewerStats::instance().getRecording().resume();
-        LLAppViewer::instance()->resumeMainloopTimeout();
-
-        // update main loop timeout state
-        LLAppViewer::instance()->pingMainloopTimeout("LLFloater360Capture::capture360Images");
     }
 
     // display time to encode all 6 images.  It tends to be a fairly linear
@@ -706,6 +701,26 @@ void LLFloater360Capture::handleMediaEvent(LLPluginClassMedia* self, EMediaEvent
         }
         break;
 
+        case MEDIA_EVENT_FILE_DOWNLOAD:
+            //
+            mWaitingForDownloadCompletion = true;
+            break;
+
+        case MEDIA_EVENT_FILE_DOWNLOAD_PROGRESS:
+            // getFileDownloadProgressComplete for some reason is always false so can't rely on it,
+            // might be expected but means we have to rely onto MEDIA_EVENT_FILE_DOWNLOAD
+            // to know that user is about to pick file and following MEDIA_EVENT_FILE_DOWNLOAD_PROGRESS
+            // to know that file was picked.
+            if (mWaitingForDownloadCompletion)
+            {
+                mWaitingForDownloadCompletion = false;
+                if (!gSavedSettings.getBOOL("QuietSnapshotsToDisk"))
+                {
+                    gViewerWindow->playSnapshotAnimAndSound();
+                }
+            }
+            break;
+
         default:
             break;
     }
@@ -785,10 +800,17 @@ void LLFloater360Capture::onSaveLocalBtn()
     LLPluginClassMedia* plugin = mWebBrowser->getMediaPlugin();
     if (plugin)
     {
+        // We will get a MEDIA_EVENT_FILE_DOWNLOAD_PROGRESS with 100 first
+        // Then MEDIA_EVENT_FILE_DOWNLOAD, which would set mWaitingForDownloadCompletion
+        // Finally MEDIA_EVENT_FILE_DOWNLOAD_PROGRESS will trigger again, assume that
+        // we are done and play sound in that case. If user cancels,
+        // MEDIA_EVENT_FILE_DOWNLOAD_PROGRESS won't arrive.
+        mWaitingForDownloadCompletion = false; // clear flag from previous use if still set
         plugin->executeJavaScript(cmd);
     }
     else
     {
+        mWaitingForDownloadCompletion = false;
         LL_WARNS("360Capture") << "No media plugin found" << LL_ENDL;
     }
 }

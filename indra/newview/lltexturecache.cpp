@@ -544,6 +544,9 @@ bool LLTextureCacheRemoteWorker::doWrite()
             || (mRawImage->isBufferInvalid())) // decode failed or malfunctioned, don't write
         {
             LL_WARNS() << "INIT state check failed for image: " << mID << " Size: " << mImageSize << " DataSize: " << mDataSize << " Discard:" << mRawDiscardLevel << LL_ENDL;
+            // S24: see LLTextureCache::noteWriteInitFailure()'s comment - flood signal only,
+            // not a fix for the mRawImage handoff race this check is actually catching.
+            mCache->noteWriteInitFailure();
             mDataSize = -1; // failed
             done = true;
         }
@@ -1379,7 +1382,6 @@ U32 LLTextureCache::openAndReadEntries(std::vector<Entry>& entries)
         }
         aprfile->seek(APR_SET, (S32)sizeof(EntriesInfo));
     }
-	// S24 Hybrid code
     try
     {
     entries.reserve(num_entries); // Preallocate to avoid reallocations
@@ -1680,11 +1682,6 @@ void LLTextureCache::purgeTexturesLazy(F32 time_limit_sec)
         return;
     }
 
-    if (!mThreaded)
-    {
-        LLAppViewer::instance()->pauseMainloopTimeout();
-    }
-
     // S24 Base purge ammount on if we use ramcache or not. If we use ramcache, we want to purge less at a time to avoid stalling the sim too much
     // but if we don't use ramcache, we can purge more at a time to get rid of more stale textures.
     static LLCachedControl<bool> sUseRamCache(gSavedSettings, "TextureCacheUseRamCache", false);
@@ -1780,12 +1777,6 @@ void LLTextureCache::purgeTextures(bool validate)
     if (mReadOnly)
     {
         return;
-    }
-
-    if (!mThreaded)
-    {
-        // *FIX:Mani - watchdog off.
-        LLAppViewer::instance()->pauseMainloopTimeout();
     }
 
     // S24 Base purge ammount on if we use ramcache or not. If we use ramcache, we want to purge less at a time to avoid stalling the sim too much
@@ -1886,9 +1877,6 @@ void LLTextureCache::purgeTextures(bool validate)
     LL_DEBUGS("TextureCache") << "TEXTURE CACHE: Writing Entries: " << num_entries << LL_ENDL;
 
     writeEntriesAndClose(entries);
-
-    // *FIX:Mani - watchdog back on.
-    LLAppViewer::instance()->resumeMainloopTimeout();
 
     LL_INFOS("TextureCache") << "TEXTURE CACHE:"
             << " PURGED: " << purge_count
@@ -2048,27 +2036,12 @@ LLTextureCache::handle_t LLTextureCache::writeToCache(const LLUUID& id,
         mDoPurge = !mPurgeEntryList.empty();
     }
 
-    // S24 (2026-09-10): give the async disk-cache write its own private copy
-    // of the pixel data instead of sharing the caller's LLPointer. rawimage
-    // here is always ALSO still held by the texture fetch worker's own
-    // mRawImage member (lltexturefetch.cpp) - the main thread legitimately
-    // grabs a second reference to that same object via
-    // LLTextureFetch::getRequestFinished() and can mutate/free it (e.g.
-    // LLImageRaw::deleteData(), once its GPU upload is done) completely
-    // independently of whether this write has actually reached the front of
-    // the (separate, async) texture-cache worker thread's queue yet. A
-    // refcount-gated duplicate() (as writeToFastCache() below already uses,
-    // for a different reason) is NOT safe here: at the moment writeToCache()
-    // is called, rawimage's refcount is almost always still 1 - the sharing
-    // with the main thread happens strictly AFTER this call returns, so a
-    // refcount check right now can never catch it. Only an unconditional,
-    // immediate deep copy - taken under LLImageRaw's own data lock so it
-    // can't race an in-progress deleteData() either - guarantees the write
-    // path ends up with pixel data nothing else can ever touch. This closes
-    // the race that was producing a flood of harmless-but-wasteful
-    // "INIT state check failed: isBufferInvalid()" warnings (task #322) -
-    // every texture that lost the race never made it into the on-disk
-    // cache and had to be fully re-fetched next time it was needed.
+    // Deep-copy rawimage's pixel data here rather than sharing the caller's LLPointer: it's also held
+    // by the fetch worker's mRawImage, and the main thread can mutate/free it (deleteData())
+    // independently of this write reaching the cache thread's queue. A refcount-gated duplicate() (as
+    // writeToFastCache() uses) can't catch this - refcount is still 1 at call time, the sharing
+    // happens after this call returns - so the copy must be unconditional, taken under LLImageRaw's
+    // data lock.
     LLPointer<LLImageRaw> cache_rawimage;
     if (rawimage.notNull())
     {

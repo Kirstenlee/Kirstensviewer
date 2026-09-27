@@ -2075,22 +2075,22 @@ void LLItemBridge::buildSearchableName() const
     }
 }
 
-LLFontGL::StyleFlags LLItemBridge::getLabelStyle() const
+LLFontDX::StyleFlags LLItemBridge::getLabelStyle() const
 {
-    U8 font = LLFontGL::NORMAL;
+    U8 font = LLFontDX::NORMAL;
     const LLViewerInventoryItem* item = getItem();
 
     if (get_is_item_worn(mUUID))
     {
        
-        font |= LLFontGL::BOLD;
+        font |= LLFontDX::BOLD;
     }
     else if(item && item->getIsLinkType())
     {
-        font |= LLFontGL::ITALIC;
+        font |= LLFontDX::ITALIC;
     }
 
-    return (LLFontGL::StyleFlags)font;
+    return (LLFontDX::StyleFlags)font;
 }
 
 // virtual
@@ -2460,9 +2460,9 @@ std::string LLFolderBridge::getLabelSuffix() const
     return LLInvFVBridge::getLabelSuffix() + suffix;
 }
 
-LLFontGL::StyleFlags LLFolderBridge::getLabelStyle() const
+LLFontDX::StyleFlags LLFolderBridge::getLabelStyle() const
 {
-    return LLFontGL::NORMAL;
+    return LLFontDX::NORMAL;
 }
 
 const LLUUID& LLFolderBridge::getThumbnailUUID() const
@@ -4141,6 +4141,17 @@ void LLFolderBridge::perform_pasteFromClipboard()
         }
         else
         {
+            // Check that no folder is being pasted into itself or into one of its descendants
+            for (const LLUUID& item_id : objects)
+            {
+                LLInventoryCategory* cat = model->getCategory(item_id);
+                if (cat && (item_id == mUUID || model->isObjectDescendentOf(mUUID, item_id)))
+                {
+                    LLNotificationsUtil::add("CannotPasteFolderIntoSelf");
+                    return;
+                }
+            }
+
             // Check that all items can be moved into that folder : for the moment, only stock folder mismatch is checked
             for (std::vector<LLUUID>::const_iterator iter = objects.begin(); iter != objects.end(); ++iter)
             {
@@ -5472,9 +5483,9 @@ std::string LLMarketplaceFolderBridge::getLabelSuffix() const
     return LLInvFVBridge::getLabelSuffix() + suffix;
 }
 
-LLFontGL::StyleFlags LLMarketplaceFolderBridge::getLabelStyle() const
+LLFontDX::StyleFlags LLMarketplaceFolderBridge::getLabelStyle() const
 {
-    return (LLMarketplaceData::instance().getActivationState(getUUID()) ? LLFontGL::BOLD : LLFontGL::NORMAL);
+    return (LLMarketplaceData::instance().getActivationState(getUUID()) ? LLFontDX::BOLD : LLFontDX::NORMAL);
 }
 
 
@@ -6883,15 +6894,15 @@ void LLNotecardBridge::buildContextMenu(LLMenuGL& menu, U32 flags)
 // |        LLGestureBridge                          |
 // +=================================================+
 
-LLFontGL::StyleFlags LLGestureBridge::getLabelStyle() const
+LLFontDX::StyleFlags LLGestureBridge::getLabelStyle() const
 {
     if( LLGestureMgr::instance().isGestureActive(mUUID) )
     {
-        return LLFontGL::BOLD;
+        return LLFontDX::BOLD;
     }
     else
     {
-        return LLFontGL::NORMAL;
+        return LLFontDX::NORMAL;
     }
 }
 
@@ -7208,8 +7219,8 @@ void LLObjectBridge::performAction(LLInventoryModel* model, std::string action)
         item = (LLViewerInventoryItem*)gInventory.getItem(object_id);
         if(item && gInventory.isObjectDescendentOf(object_id, gInventory.getRootFolderID()))
         {
-            static LLCachedControl<bool> replace_item(gSavedSettings, "InventoryAddAttachmentBehavior", false);
-            rez_attachment(item, NULL, ("attach" == action) ? replace_item() : true); // Replace if "Wear"ing.
+            static LLCachedControl<U32> add_attachment_behavior(gSavedSettings, "InventoryAddAttachmentBehavior", 0);
+            rez_attachment(item, NULL, ("attach" == action) ? (add_attachment_behavior() == 1) : true); // Replace if "Wear"ing.
         }
         else if(item && item->isFinished())
         {
@@ -8357,8 +8368,8 @@ void LLObjectBridgeAction::attachOrDetach()
     }
     else
     {
-        static LLCachedControl<bool> inventory_linking(gSavedSettings, "InventoryAddAttachmentBehavior", false);
-        LLAppearanceMgr::instance().wearItemOnAvatar(mUUID, true, inventory_linking()); // Don't replace if adding.
+        static LLCachedControl<U32> add_attachment_behavior(gSavedSettings, "InventoryAddAttachmentBehavior", 0);
+        LLAppearanceMgr::instance().wearItemOnAvatar(mUUID, true, add_attachment_behavior() == 1); // Don't replace if adding.
     }
 }
 

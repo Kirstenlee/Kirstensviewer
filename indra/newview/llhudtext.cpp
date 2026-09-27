@@ -34,7 +34,7 @@
 #include "llviewercontrol.h"
 #include "llcriticaldamp.h"
 #include "lldrawable.h"
-#include "llfontgl.h"
+#include "llfontdx.h"
 #include "llglheaders.h"
 #include "llhudrender.h"
 #include "llui.h"
@@ -72,8 +72,8 @@ LLHUDText::LLHUDText(const U8 type) :
 //          mVisibleOffScreen(false),
             mWidth(0.f),
             mHeight(0.f),
-            mFontp(LLFontGL::getFontSansSerifSmall()),
-            mBoldFontp(LLFontGL::getFontSansSerifBold()),
+            mFontp(LLFontDX::getFontSansSerifSmall()),
+            mBoldFontp(LLFontDX::getFontSansSerifBold()),
             mMass(1.f),
             mMaxLines(10),
             mOffsetY(0),
@@ -211,11 +211,11 @@ void LLHUDText::renderText()
         for (std::vector<LLHUDTextSegment>::iterator segment_iter = mTextSegments.begin() + start_segment;
              segment_iter != mTextSegments.end(); ++segment_iter )
         {
-            const LLFontGL* fontp = segment_iter->mFont;
+            const LLFontDX* fontp = segment_iter->mFont;
             y_offset -= fontp->getLineHeight() - 1; // correction factor to match legacy font metrics
 
             U8 style = segment_iter->mStyle;
-            LLFontGL::ShadowType shadow = LLFontGL::DROP_SHADOW;
+            LLFontDX::ShadowType shadow = LLFontDX::DROP_SHADOW;
 
             F32 x_offset;
             if (mTextAlignment== ALIGN_TEXT_CENTER)
@@ -251,8 +251,8 @@ void LLHUDText::clearString()
 
 void LLHUDText::addLine(const std::string& text_utf8,
     const LLColor4& color,
-    const LLFontGL::StyleFlags style,
-    const LLFontGL* font)
+    const LLFontDX::StyleFlags style,
+    const LLFontDX* font)
 {
     LLWString wline = utf8str_to_wstring(text_utf8);
     if (!wline.empty())
@@ -295,7 +295,7 @@ void LLHUDText::addLine(const std::string& text_utf8,
                 S32 segment_length = font->maxDrawableChars(line.substr(line_length).c_str(),
                     max_pixels,
                     static_cast<S32>(line.length()),
-                    LLFontGL::WORD_BOUNDARY_IF_POSSIBLE);
+                    LLFontDX::WORD_BOUNDARY_IF_POSSIBLE);
 
                 LLHUDTextSegment segment(line.substr(line_length, segment_length),
                     style,
@@ -313,7 +313,7 @@ void LLHUDText::setZCompare(const bool zcompare)
     mZCompare = zcompare;
 }
 
-void LLHUDText::setFont(const LLFontGL* font)
+void LLHUDText::setFont(const LLFontDX* font)
 {
     mFontp = font;
 }
@@ -522,7 +522,7 @@ void LLHUDText::updateSize()
     std::vector<LLHUDTextSegment>::iterator iter = mTextSegments.begin() + start_segment;
     while (iter != mTextSegments.end())
     {
-        const LLFontGL* fontp = iter->mFont;
+        const LLFontDX* fontp = iter->mFont;
         height += fontp->getLineHeight() - 1; // correction factor to match legacy font metrics
         width = llmax(width, llmin(iter->getWidth(fontp), HUD_TEXT_MAX_WIDTH));
         ++iter;
@@ -651,9 +651,9 @@ void LLHUDText::reshape()
 
 //============================================================================
 
-F32 LLHUDText::LLHUDTextSegment::getWidth(const LLFontGL* font)
+F32 LLHUDText::LLHUDTextSegment::getWidth(const LLFontDX* font)
 {
-    std::map<const LLFontGL*, F32>::iterator iter = mFontWidthMap.find(font);
+    std::map<const LLFontDX*, F32>::iterator iter = mFontWidthMap.find(font);
     if (iter != mFontWidthMap.end())
     {
         return iter->second;

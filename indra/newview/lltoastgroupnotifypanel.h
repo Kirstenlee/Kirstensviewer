@@ -27,7 +27,7 @@
 #ifndef LL_LLGROUPNOTIFY_H
 #define LL_LLGROUPNOTIFY_H
 
-#include "llfontgl.h"
+#include "llfontdx.h"
 #include "lltoastpanel.h"
 #include "lltimer.h"
 #include "llviewermessage.h"

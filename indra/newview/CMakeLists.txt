@@ -299,6 +299,7 @@ set(viewer_SOURCE_FILES
     llfloaterkvramcachestats.cpp
     llfloatermarketplacelistings.cpp
     llfloatermap.cpp
+    llfloatermaturitydialog.cpp
     llfloatermediasettings.cpp
     llfloatermemleak.cpp
     llfloatermodelpreview.cpp
@@ -319,6 +320,7 @@ set(viewer_SOURCE_FILES
     llfloaterpay.cpp
     llfloaterperformance.cpp
     llfloaterperms.cpp
+    llfloaterpopout.cpp
     llfloaterprofile.cpp
     llfloaterpreference.cpp
     llfloaterpreferencesgraphicsadvanced.cpp
@@ -592,6 +594,7 @@ set(viewer_SOURCE_FILES
     llpreviewnotecard.cpp
     llpreviewscript.cpp
     llpreviewsound.cpp
+    llpublishedobjectmgr.cpp
     llpreviewtexture.cpp
     llproductinforequest.cpp
     llprogressview.cpp
@@ -607,6 +610,7 @@ set(viewer_SOURCE_FILES
     llsceneview.cpp
     llscreenchannel.cpp
     llscripteditor.cpp
+    llscripteditorws.cpp
     llscriptfloater.cpp
     llscrollingpanelparam.cpp
     llscrollingpanelparambase.cpp
@@ -778,13 +782,13 @@ set(viewer_SOURCE_FILES
     llvovolume.cpp
     llvowater.cpp
     llvowlsky.cpp
-    llwatchdog.cpp
     llwearableitemslist.cpp
     llwearablelist.cpp
     llweb.cpp
     llwebprofile.cpp
     llwind.cpp
     llwindowlistener.cpp
+    llstatslistener.cpp
     llwlhandlers.cpp
     llworld.cpp
     llworldmap.cpp
@@ -1001,6 +1005,7 @@ set(viewer_HEADER_FILES
     llfloatermap.h
     llfloatermarketplace.h
     llfloatermarketplacelistings.h
+    llfloatermaturitydialog.h
     llfloatermediasettings.h
     llfloatermemleak.h
     llfloatermodelpreview.h
@@ -1021,6 +1026,7 @@ set(viewer_HEADER_FILES
     llfloaterpay.h
     llfloaterperformance.h
     llfloaterperms.h
+    llfloaterpopout.h
     llfloaterprofile.h
     llfloaterpreference.h
     llfloaterpreferencesgraphicsadvanced.h
@@ -1279,6 +1285,7 @@ set(viewer_HEADER_FILES
     llpreviewsound.h
     llpreviewtexture.h
     llproductinforequest.h
+    llpublishedobjectmgr.h
     llprogressview.h
     llrecentpeople.h
     llreflectionmap.h
@@ -1294,6 +1301,7 @@ set(viewer_HEADER_FILES
     llsceneview.h
     llscreenchannel.h
     llscripteditor.h
+    llscripteditorws.h
     llscriptfloater.h
     llscriptruntimeperms.h
     llscrollingpanelparam.h
@@ -1467,13 +1475,13 @@ set(viewer_HEADER_FILES
     llvovolume.h
     llvowater.h
     llvowlsky.h
-    llwatchdog.h
     llwearableitemslist.h
     llwearablelist.h
     llweb.h
     llwebprofile.h
     llwind.h
     llwindowlistener.h
+    llstatslistener.h
     llwlhandlers.h
     llworld.h
     llworldmap.h
@@ -1663,6 +1671,7 @@ set(viewer_APPSETTINGS_FILES
     app_settings/ignorable_dialogs.xml
     app_settings/key_bindings.xml
     app_settings/keywords_lsl_default.xml
+    app_settings/keywords_lua_default.xml
     app_settings/logcontrol.xml
     app_settings/settings.xml
     app_settings/settings_files.xml

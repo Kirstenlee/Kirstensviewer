@@ -471,7 +471,7 @@ void LLPanelNearByMedia::updateListItem(LLScrollListItem* item,
         cell->setToolTip(item_tooltip);
 
         // *TODO: Make these font styles/colors configurable via XUI
-        U8 font_style = LLFontGL::NORMAL;
+        U8 font_style = LLFontDX::NORMAL;
         LLColor4 cell_color = LLColor4::white;
 
         // Only colorize by class in debug
@@ -496,7 +496,7 @@ void LLPanelNearByMedia::updateListItem(LLScrollListItem* item,
         {
             if (mDebugInfoVisible)
             {
-                font_style |= LLFontGL::ITALIC;
+                font_style |= LLFontDX::ITALIC;
                 cell_color = LLColor4::black;
             }
             else {
@@ -512,7 +512,7 @@ void LLPanelNearByMedia::updateListItem(LLScrollListItem* item,
         // Bold it if it is time-based media and it is playing
         else if (is_time_based_and_playing)
         {
-            if (mDebugInfoVisible) font_style |= LLFontGL::BOLD;
+            if (mDebugInfoVisible) font_style |= LLFontDX::BOLD;
         }
         cell->setColor(cell_color);
         LLScrollListText *text_cell = dynamic_cast<LLScrollListText*> (cell);

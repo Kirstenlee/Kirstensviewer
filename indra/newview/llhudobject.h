@@ -40,7 +40,7 @@
 #include <list>
 
 class LLViewerCamera;
-class LLFontGL;
+class LLFontDX;
 class LLFace;
 class LLViewerObject;
 class LLHUDEffect;
@@ -71,15 +71,9 @@ public:
     static void renderAllForSelect();
     static void renderAllForTimer();
 
-    // S24 (2026-08-28, task #193 follow-up): generic occlusion-fade hook for
-    // any LLHUDObject subtype that wants it - mirrors LLHUDNameTag's own
-    // parallel (non-sHUDObjects) mechanism of the same name, but iterates
-    // this class's own tracked list. Default no-op below, LLVoiceVisualizer
-    // is the first real override. Called once per frame from
-    // LLPipeline::doOcclusion() (pipeline.cpp) while gOcclusionCubeProgram/
-    // mCubeVB are already bound; updateOcclusionFade() (below) polls the
-    // previous frame's result from within updateAll(), before this frame's
-    // issueOcclusionQueries() runs.
+    // Generic occlusion-fade hook for LLHUDObject subtypes (default no-op; LLVoiceVisualizer overrides).
+    // Called once per frame from LLPipeline::doOcclusion() with gOcclusionCubeProgram/mCubeVB bound;
+    // updateOcclusionFade() polls the previous frame's result before issueOcclusionQueries() runs.
     static void issueOcclusionQueries();
 
     // Some objects may need to update when window shape changes

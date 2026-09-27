@@ -96,7 +96,7 @@ const F32 SKIN_WEIGHT_CAMERA_DISTANCE = 16.f;
 
 LLViewerFetchedTexture* bindMaterialDiffuseTexture(const LLImportMaterial& material)
 {
-    LLViewerFetchedTexture *texture = LLViewerTextureManager::getFetchedTexture(material.getDiffuseMap(), FTT_DEFAULT, true, LLGLTexture::BOOST_PREVIEW);
+    LLViewerFetchedTexture *texture = LLViewerTextureManager::getFetchedTexture(material.getDiffuseMap(), FTT_DEFAULT, true, LLDXTexture::BOOST_PREVIEW);
 
     if (texture)
     {
@@ -3215,7 +3215,7 @@ U32 LLModelPreview::loadTextures(LLImportMaterial& material, LLHandle<LLModelPre
         material.mOpaqueData = new LLPointer< LLViewerFetchedTexture >;
         LLPointer< LLViewerFetchedTexture >& tex = (*reinterpret_cast< LLPointer< LLViewerFetchedTexture > * >(material.mOpaqueData));
 
-        tex = LLViewerTextureManager::getFetchedTextureFromUrl("file://" + LLURI::unescape(material.mDiffuseMapFilename), FTT_LOCAL_FILE, true, LLGLTexture::BOOST_PREVIEW);
+        tex = LLViewerTextureManager::getFetchedTextureFromUrl("file://" + LLURI::unescape(material.mDiffuseMapFilename), FTT_LOCAL_FILE, true, LLDXTexture::BOOST_PREVIEW);
         if (tex->getDiscardLevel() < tex->getMaxDiscardLevel())
         {
             // file was loaded previosly, reload image to get potential changes
@@ -3311,7 +3311,7 @@ bool LLModelPreview::render()
         gDX.loadIdentity();
 
         gDX.color4fv(PREVIEW_CANVAS_COL.mV);
-        gl_rect_2d_simple(width, height);
+        dx_rect_2d_simple(width, height);
 
         gDX.matrixMode(LLRender::MM_PROJECTION);
         gDX.popMatrix();

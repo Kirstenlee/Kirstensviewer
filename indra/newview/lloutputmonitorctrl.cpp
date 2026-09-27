@@ -233,7 +233,7 @@ void LLOutputMonitorCtrl::draw()
     //  }
 
     //  // Draw rectangle filled with the color.
-    //  gl_rect_2d(xpos, recttop, xpos+rectw, rectbtm, rect_color, true);
+    //  dx_rect_2d(xpos, recttop, xpos+rectw, rectbtm, rect_color, true);
     //  xpos += period;
     //}
 
@@ -241,7 +241,7 @@ void LLOutputMonitorCtrl::draw()
     // Draw bounding box.
     //
     if(mBorder)
-        gl_rect_2d(0, monh, monw, 0, sColorBound, false);
+        dx_rect_2d(0, monh, monw, 0, sColorBound, false);
 }
 
 // virtual

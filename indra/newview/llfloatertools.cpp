@@ -28,7 +28,7 @@
 
 #include "llfloatertools.h"
 
-#include "llfontgl.h"
+#include "llfontdx.h"
 #include "llcoord.h"
 //#include "llgl.h"
 

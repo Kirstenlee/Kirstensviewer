@@ -29,7 +29,7 @@
 #include "lldebugmessagebox.h"
 
 #include "llresmgr.h"
-#include "llfontgl.h"
+#include "llfontdx.h"
 #include "llbutton.h"
 #include "llsliderctrl.h"
 #include "llcheckboxctrl.h"

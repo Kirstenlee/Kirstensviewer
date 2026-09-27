@@ -207,8 +207,8 @@ void LLTextureBar::draw()
         mImagep->mRequestedDiscardLevel);
 
 
-    LLFontGL::getFontMonospace()->renderUTF8(tex_str, 0, title_x1, getRect().getHeight(),
-                                     color, LLFontGL::LEFT, LLFontGL::TOP);
+    LLFontDX::getFontMonospace()->renderUTF8(tex_str, 0, title_x1, getRect().getHeight(),
+                                     color, LLFontDX::LEFT, LLFontDX::TOP);
 
     // State
     // Hack: mirrored from lltexturefetch.cpp
@@ -233,11 +233,9 @@ void LLTextureBar::draw()
         { "Error", LLColor4(1.0f, 0.2f, 0.2f, 1.0f) }, // LAST_STATE+3 - Bright red (error)
         { "Missing", LLColor4(1.0f, 0.3f, 0.3f, 1.0f) }, // LAST_STATE+4 - Bright red (missing)
         { "Idle", LLColor4(0.6f, 0.6f, 0.6f, 0.8f) }, // LAST_STATE+5 - Dim grey
-        // S24: synthetic slot, not a real mState value -- see below. Deliberately not
-        // reached via LAST_STATE+N arithmetic (those constants are already fully spoken
-        // for and off-by-one against this array besides); selected explicitly below
-        // instead, indexed via fetch_state_desc_size-1 so it always resolves to this
-        // last entry regardless of how many entries precede it.
+        // Synthetic slot, not a real mState value - selected explicitly below (indexed via
+        // fetch_state_desc_size-1) rather than via LAST_STATE+N arithmetic, since those constants are
+        // already fully used and off-by-one against this array.
         { "RamRead", LLColor4(1.0f, 0.84f, 0.0f, 1.0f) }, // KVRAMCache hit - Gold
     };
     const S32 fetch_state_desc_size = (S32)LL_ARRAY_SIZE(fetch_state_desc);
@@ -249,11 +247,9 @@ void LLTextureBar::draw()
         !mImagep->mIsFetching ? LAST_STATE+5 :
         mImagep->mFetchState;
 
-    // S24: mFetchState alone can't tell a KVRAMCache RAM hit apart from a genuine disk
-    // read -- both report LOAD_FROM_TEXTURE_CACHE(2)/CACHE_POST(3). Query the fetcher
-    // directly only in this already-console-only, per-visible-texture draw path (never
-    // from the per-frame updateClass()/texture-stats hot path) so this costs nothing
-    // unless the debug texture console is actually open and showing this row.
+    // mFetchState alone can't distinguish a KVRAMCache RAM hit from a genuine disk read (both report
+    // LOAD_FROM_TEXTURE_CACHE(2)/CACHE_POST(3)) - query the fetcher directly, but only here in this
+    // console's per-visible-texture draw path, never from the per-frame hot path.
     if ((state == 2 || state == 3) // LOAD_FROM_TEXTURE_CACHE / CACHE_POST
         && LLAppViewer::getTextureFetch()->isFromRamCache(mImagep->mID))
     {
@@ -262,9 +258,9 @@ void LLTextureBar::draw()
 
     state = llclamp(state,0,fetch_state_desc_size-1);
 
-    LLFontGL::getFontMonospace()->renderUTF8(fetch_state_desc[state].desc, 0, title_x2, getRect().getHeight(),
+    LLFontDX::getFontMonospace()->renderUTF8(fetch_state_desc[state].desc, 0, title_x2, getRect().getHeight(),
                                      fetch_state_desc[state].color,
-                                     LLFontGL::LEFT, LLFontGL::TOP);
+                                     LLFontDX::LEFT, LLFontDX::TOP);
     gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
 
     // Draw the progress bar.
@@ -275,11 +271,11 @@ void LLTextureBar::draw()
 
     // Background with border
     gDX.color4f(0.1f, 0.1f, 0.1f, 0.8f);
-    gl_rect_2d(left, top, right, bottom);
+    dx_rect_2d(left, top, right, bottom);
 
     // Border
     gDX.color4f(0.3f, 0.3f, 0.3f, 0.9f);
-    gl_rect_2d(left, top, right, bottom, FALSE);
+    dx_rect_2d(left, top, right, bottom, FALSE);
 
     F32 data_progress = mImagep->mDownloadProgress;
 
@@ -307,7 +303,7 @@ void LLTextureBar::draw()
                 // Less than half - bright cyan
                 gDX.color4f(0.3f, 0.9f, 1.0f, 0.85f);
             }
-            gl_rect_2d(left, top, right, bottom);
+            dx_rect_2d(left, top, right, bottom);
         }
     }
 
@@ -343,7 +339,7 @@ void LLTextureBar::draw()
         F32 alpha = 1.f - last_event/pip_max_time;
         clr.setAlpha(llmax(alpha, 0.3f)); // Minimum alpha for visibility
         gDX.color4fv(clr.mV);
-        gl_rect_2d(pip_x, top, pip_x + pip_width, bottom);
+        dx_rect_2d(pip_x, top, pip_x + pip_width, bottom);
     }
     pip_x += pip_width + pip_space;
 
@@ -360,7 +356,7 @@ void LLTextureBar::draw()
             F32 alpha = 1.f - last_event;
             clr.setAlpha(llmax(alpha, 0.3f)); // Minimum alpha for visibility
             gDX.color4fv(clr.mV);
-            gl_rect_2d(pip_x, top, pip_x + pip_width, bottom);
+            dx_rect_2d(pip_x, top, pip_x + pip_width, bottom);
         }
     }
     pip_x += pip_width + pip_space;
@@ -372,8 +368,8 @@ void LLTextureBar::draw()
         {
             std::string num_str = llformat("%3dx%3d (%2d) %7d", mImagep->getWidth(), mImagep->getHeight(),
                 mImagep->getDiscardLevel(), mImagep->hasGLTexture() ? mImagep->getTextureMemory().value() : 0);
-            LLFontGL::getFontMonospace()->renderUTF8(num_str, 0, title_x4, getRect().getHeight(), color,
-                                            LLFontGL::LEFT, LLFontGL::TOP);
+            LLFontDX::getFontMonospace()->renderUTF8(num_str, 0, title_x4, getRect().getHeight(), color,
+                                            LLFontDX::LEFT, LLFontDX::TOP);
         }
     }
 
@@ -409,7 +405,7 @@ public:
         Params()
         :   texture_view("texture_view")
         {
-            S32 line_height = LLFontGL::getFontMonospace()->getLineHeight();
+            S32 line_height = LLFontDX::getFontMonospace()->getLineHeight();
             changeDefault(rect, LLRect(0,0,100,line_height * 4));
         }
     };
@@ -434,7 +430,7 @@ void LLAvatarTexBar::draw()
     LLVOAvatarSelf* avatarp = gAgentAvatarp;
     if (!avatarp) return;
 
-    const S32 line_height = LLFontGL::getFontMonospace()->getLineHeight();
+    const S32 line_height = LLFontDX::getFontMonospace()->getLineHeight();
     const S32 v_offset = 0;
     const S32 l_offset = 3;
 
@@ -456,8 +452,8 @@ void LLAvatarTexBar::draw()
         LLColor4 text_color = LLColor4::white;
 
         std::string text = layerset_buffer->dumpTextureInfo();
-        LLFontGL::getFontMonospace()->renderUTF8(text, 0, l_offset, v_offset + line_height*line_num,
-                                                 text_color, LLFontGL::LEFT, LLFontGL::TOP); //, LLFontGL::BOLD, LLFontGL::DROP_SHADOW_SOFT);
+        LLFontDX::getFontMonospace()->renderUTF8(text, 0, l_offset, v_offset + line_height*line_num,
+                                                 text_color, LLFontDX::LEFT, LLFontDX::TOP); //, LLFontDX::BOLD, LLFontDX::DROP_SHADOW_SOFT);
         line_num++;
     }
     const U32 texture_timeout = gSavedSettings.getU32("AvatarBakedTextureUploadTimeout");
@@ -468,12 +464,12 @@ void LLAvatarTexBar::draw()
     const std::string texture_timeout_str = texture_timeout ? llformat("%d", texture_timeout) : "Disabled";
     const std::string override_tex_discard_level_str = override_tex_discard_level ? llformat("%d",override_tex_discard_level) : "Disabled";
     std::string header_text = llformat("[ Timeout('AvatarBakedTextureUploadTimeout'):%s ] [ LOD_Override('TextureDiscardLevel'):%s ]", texture_timeout_str.c_str(), override_tex_discard_level_str.c_str());
-    LLFontGL::getFontMonospace()->renderUTF8(header_text, 0, l_offset, v_offset + line_height*line_num,
-                                             header_color, LLFontGL::LEFT, LLFontGL::TOP); //, LLFontGL::BOLD, LLFontGL::DROP_SHADOW_SOFT);
+    LLFontDX::getFontMonospace()->renderUTF8(header_text, 0, l_offset, v_offset + line_height*line_num,
+                                             header_color, LLFontDX::LEFT, LLFontDX::TOP); //, LLFontDX::BOLD, LLFontDX::DROP_SHADOW_SOFT);
     line_num++;
     std::string section_text = "Avatar Textures Information:";
-    LLFontGL::getFontMonospace()->renderUTF8(section_text, 0, 0, v_offset + line_height*line_num,
-                                             header_color, LLFontGL::LEFT, LLFontGL::TOP, LLFontGL::BOLD, LLFontGL::DROP_SHADOW_SOFT);
+    LLFontDX::getFontMonospace()->renderUTF8(section_text, 0, 0, v_offset + line_height*line_num,
+                                             header_color, LLFontDX::LEFT, LLFontDX::TOP, LLFontDX::BOLD, LLFontDX::DROP_SHADOW_SOFT);
 }
 
 bool LLAvatarTexBar::handleMouseDown(S32 x, S32 y, MASK mask)
@@ -500,7 +496,7 @@ public:
         Params()
         :   texture_view("texture_view")
         {
-            S32 line_height = LLFontGL::getFontMonospace()->getLineHeight();
+            S32 line_height = LLFontDX::getFontMonospace()->getLineHeight();
             changeDefault(rect, LLRect(0,0,0,line_height * 7));
         }
     };
@@ -522,7 +518,7 @@ void LLGLTexMemBar::draw()
 {
     F32 cache_usage = (F32)LLAppViewer::getTextureCache()->getUsage().valueInUnits<LLUnits::Megabytes>();
     F32 cache_max_usage = (F32)LLAppViewer::getTextureCache()->getMaxUsage().valueInUnits<LLUnits::Megabytes>();
-    S32 line_height = LLFontGL::getFontMonospace()->getLineHeight();
+    S32 line_height = LLFontDX::getFontMonospace()->getLineHeight();
     S32 v_offset = 0;//(S32)((texture_bar_height + 2.2f) * mTextureView->mNumTextureBars + 2.0f);
     F32Bytes total_texture_downloaded = gTotalTextureData;
     F32Bytes total_object_downloaded = gTotalObjectData;
@@ -569,14 +565,10 @@ void LLGLTexMemBar::draw()
    F64 raw_image_bytes_MB = raw_image_bytes / (1024.0 * 1024.0);
    F64 saved_raw_image_bytes_MB = saved_raw_image_bytes / (1024.0 * 1024.0);
    F64 aux_raw_image_bytes_MB = aux_raw_image_bytes / (1024.0 * 1024.0);
-   // S24 (2026-08-24, task #258): was /1024.0/512.0 - the same "Linden fudge
-   // factor" (a deliberate 2x inflation) LLViewerTexture::updateClass() used
-   // to compensate for the self-estimate's tracking miss. That miss doesn't
-   // exist anymore (updateClass()'s `used` is now this exact same real sum,
-   // no separate estimate) - keeping the fudge factor here would just make
-   // this console lie about its own inputs. Real MB now, matching everywhere
-   // else these bytes are reported.
-   F64 texture_bytes_alloc = LLImageGL::getTextureBytesAllocated() / 1024.0 / 1024.0;
+   // Real MB, matching everywhere else these bytes are reported - no more "Linden fudge factor" 2x
+   // inflation (LLViewerTexture::updateClass()'s `used` is now this exact same real sum, not a
+   // separate estimate with a tracking miss to compensate for).
+   F64 texture_bytes_alloc = LLImageDX::getTextureBytesAllocated() / 1024.0 / 1024.0;
    F64 vertex_bytes_alloc = LLVertexBuffer::getBytesAllocated() / 1024.0 / 1024.0;
    F64 render_bytes_alloc = LLRenderTarget::sBytesAllocated / 1024.0 / 1024.0;
 
@@ -611,20 +603,12 @@ void LLGLTexMemBar::draw()
 
     // draw a background above first line.... no idea where the rest of the background comes from for the below text
     gDX.color4f(0.0f, 0.0f, 0.0f, 0.9f); // Darker background for better readability
-    gl_rect_2d(-10, getRect().getHeight() + line_height*2 + 1, getRect().getWidth()+2, getRect().getHeight()+2);
+    dx_rect_2d(-10, getRect().getHeight() + line_height*2 + 1, getRect().getWidth()+2, getRect().getHeight()+2);
 
-    // S24 (2026-08-24, task #258): root-and-branch redesign of this console, twice
-    // over. First pass replaced the old single "%s Free: %d MB ... Bias: %.2f" line
-    // with three lines. Second pass (same session): the old discard-bias ramp this
-    // console was surfacing is gone entirely, replaced by
-    // LLViewerTextureList::runVRAMBudgetAllocation() - a deterministic greedy
-    // allocator with no ramp state, so there's no more "Bias" to show and no more
-    // "Live vs Est." mode to flip between (`used` is now one deterministic figure
-    // in all cases - see LLViewerTexture::updateClass()). `budget` still has two
-    // honest sources though (a live DXGI figure genuinely is better than the static
-    // fallback when available), so that source is still worth labeling. "Cut: N/M"
-    // (how many of this pass's candidates actually got trimmed) replaces the
-    // now-meaningless Bias figure with a genuinely informative number.
+    // `used` is one deterministic figure now (LLViewerTextureList::runVRAMBudgetAllocation(), a
+    // deterministic greedy allocator - no more ramp/Bias state or "Live vs Est." mode). `budget` still
+    // has two honest sources (live DXGI vs the static fallback), worth labeling. "Cut: N/M"
+    // (candidates actually trimmed this pass) replaces the old, now-meaningless Bias figure.
     {
         const F32 vram_used = LLViewerTexture::sVRAMUsedMegabytes;
         const F32 vram_budget = llmax(LLViewerTexture::sVRAMBudgetMegabytes, 1.f);
@@ -645,8 +629,8 @@ void LLGLTexMemBar::draw()
                         (S32)LLViewerTexture::sFreeVRAMMegabytes,
                         LLViewerTexture::sVRAMAllocatorLastCutCount,
                         LLViewerTexture::sVRAMAllocatorCandidateCount);
-        LLFontGL::getFontMonospace()->renderUTF8(text, 0, 0, v_offset + line_height*10,
-                                                 bar_color, LLFontGL::LEFT, LLFontGL::TOP);
+        LLFontDX::getFontMonospace()->renderUTF8(text, 0, 0, v_offset + line_height*10,
+                                                 bar_color, LLFontDX::LEFT, LLFontDX::TOP);
     }
 
     text = llformat("DownscaleQ: %u  CreateQ: %u  Tex/Vtx: %.1f/%.1f MB",
@@ -654,8 +638,8 @@ void LLGLTexMemBar::draw()
                     (U32)gTextureList.mCreateTextureList.size(),
                     texture_bytes_alloc,
                     vertex_bytes_alloc);
-    LLFontGL::getFontMonospace()->renderUTF8(text, 0, 0, v_offset + line_height*9,
-                                             text_color, LLFontGL::LEFT, LLFontGL::TOP);
+    LLFontDX::getFontMonospace()->renderUTF8(text, 0, 0, v_offset + line_height*9,
+                                             text_color, LLFontDX::LEFT, LLFontDX::TOP);
 
     text = llformat("Sys Free: %d MB FBO: %d MB Probe#: %d Probe Mem: %d MB Cache: %.1f/%.1f MB",
                     LLMemory::getAvailableMemKB()/1024,
@@ -664,14 +648,14 @@ void LLGLTexMemBar::draw()
                     gPipeline.mReflectionMapManager.probeMemory(),
                     cache_usage,
                     cache_max_usage);
-    LLFontGL::getFontMonospace()->renderUTF8(text, 0, 0, v_offset + line_height*8,
-                                             text_color, LLFontGL::LEFT, LLFontGL::TOP);
+    LLFontDX::getFontMonospace()->renderUTF8(text, 0, 0, v_offset + line_height*8,
+                                             text_color, LLFontDX::LEFT, LLFontDX::TOP);
 
     text = llformat("Images: %d   Raw: %d (%.2f MB)  Saved: %d (%.2f MB) Aux: %d (%.2f MB)", image_count, raw_image_count, raw_image_bytes_MB,
         saved_raw_image_count, saved_raw_image_bytes_MB,
         aux_raw_image_count, aux_raw_image_bytes_MB);
-    LLFontGL::getFontMonospace()->renderUTF8(text, 0, 0, v_offset + line_height * 7,
-        text_color, LLFontGL::LEFT, LLFontGL::TOP);
+    LLFontDX::getFontMonospace()->renderUTF8(text, 0, 0, v_offset + line_height * 7,
+        text_color, LLFontDX::LEFT, LLFontDX::TOP);
 
     // NOTE: Textures/Vertex below are the exact two tracked totals that sum to
     // "Total" (LLViewerTexture::sVRAMUsedMegabytes) - both are now real tracked
@@ -684,8 +668,8 @@ void LLGLTexMemBar::draw()
                     vertex_bytes_alloc,
                     render_bytes_alloc,
                     LLViewerTexture::sVRAMUsedMegabytes);
-    LLFontGL::getFontMonospace()->renderUTF8(text, 0, 0, v_offset + line_height * 6,
-        text_color, LLFontGL::LEFT, LLFontGL::TOP);
+    LLFontDX::getFontMonospace()->renderUTF8(text, 0, 0, v_offset + line_height * 6,
+        text_color, LLFontDX::LEFT, LLFontDX::TOP);
 
     U32 cache_read(0U), cache_write(0U), res_wait(0U);
     LLAppViewer::getTextureFetch()->getStateStats(&cache_read, &cache_write, &res_wait);
@@ -699,8 +683,8 @@ void LLGLTexMemBar::draw()
                     cache_read,
                     cache_write,
                     res_wait);
-    LLFontGL::getFontMonospace()->renderUTF8(text, 0, 0, v_offset + line_height*5,
-                                             text_color, LLFontGL::LEFT, LLFontGL::TOP);
+    LLFontDX::getFontMonospace()->renderUTF8(text, 0, 0, v_offset + line_height*5,
+                                             text_color, LLFontDX::LEFT, LLFontDX::TOP);
 
     text = llformat("CacheHitRate: %3.2f Read: %d/%d/%d Decode: %d/%d/%d Fetch: %d/%d/%d",
                     cacheHitRate,
@@ -714,8 +698,8 @@ void LLGLTexMemBar::draw()
                     texFetchLatMed,
                     texFetchLatMax);
 
-    LLFontGL::getFontMonospace()->renderUTF8(text, 0, 0, v_offset + line_height*4,
-                                             text_color, LLFontGL::LEFT, LLFontGL::TOP);
+    LLFontDX::getFontMonospace()->renderUTF8(text, 0, 0, v_offset + line_height*4,
+                                             text_color, LLFontDX::LEFT, LLFontDX::TOP);
 
     //----------------------------------------------------------------------------
 
@@ -730,17 +714,17 @@ void LLGLTexMemBar::draw()
                     gTextureList.mCreateTextureList.size());
 
     x_right = 550.0f;
-    LLFontGL::getFontMonospace()->renderUTF8(text, 0, 0.f, (F32)(v_offset + line_height*3),
-                                             text_color, LLFontGL::LEFT, LLFontGL::TOP,
-                                             LLFontGL::NORMAL, LLFontGL::NO_SHADOW, S32_MAX, S32_MAX, &x_right);
+    LLFontDX::getFontMonospace()->renderUTF8(text, 0, 0.f, (F32)(v_offset + line_height*3),
+                                             text_color, LLFontDX::LEFT, LLFontDX::TOP,
+                                             LLFontDX::NORMAL, LLFontDX::NO_SHADOW, S32_MAX, S32_MAX, &x_right);
 
     F32Kilobits bandwidth(LLAppViewer::getTextureFetch()->getTextureBandwidth());
     F32Kilobits max_bandwidth(LLViewerThrottle::getMaxBandwidthKbps());
     color = bandwidth > max_bandwidth ? LLColor4::red : bandwidth > max_bandwidth*.75f ? LLColor4::yellow : text_color;
     color[VALPHA] = text_color[VALPHA];
     text = llformat("BW:%.0f/%.0f",bandwidth.value(), max_bandwidth.value());
-    LLFontGL::getFontMonospace()->renderUTF8(text, 0, (S32)x_right, v_offset + line_height*3,
-                                             color, LLFontGL::LEFT, LLFontGL::TOP);
+    LLFontDX::getFontMonospace()->renderUTF8(text, 0, (S32)x_right, v_offset + line_height*3,
+                                             color, LLFontDX::LEFT, LLFontDX::TOP);
 
     // Mesh status line
     text = llformat("Mesh: Reqs(Tot/Htp/Big): %u/%u/%u Rtr/Err: %u/%u Cread/Cwrite: %u/%u Low/At/High: %d/%d/%d",
@@ -748,42 +732,42 @@ void LLGLTexMemBar::draw()
                     LLMeshRepository::sHTTPRetryCount, LLMeshRepository::sHTTPErrorCount,
                     (U32)LLMeshRepository::sCacheReads, (U32)LLMeshRepository::sCacheWrites,
                     LLMeshRepoThread::sRequestLowWater, LLMeshRepoThread::sRequestWaterLevel, LLMeshRepoThread::sRequestHighWater);
-    LLFontGL::getFontMonospace()->renderUTF8(text, 0, 0, v_offset + line_height*2,
-                                             text_color, LLFontGL::LEFT, LLFontGL::TOP);
+    LLFontDX::getFontMonospace()->renderUTF8(text, 0, 0, v_offset + line_height*2,
+                                             text_color, LLFontDX::LEFT, LLFontDX::TOP);
 
     // Header for texture table columns
     S32 dx1 = 0;
     if (LLAppViewer::getTextureFetch()->mDebugPause)
     {
-        LLFontGL::getFontMonospace()->renderUTF8(std::string("!"), 0, title_x1, v_offset + line_height,
-                                         text_color, LLFontGL::LEFT, LLFontGL::TOP);
+        LLFontDX::getFontMonospace()->renderUTF8(std::string("!"), 0, title_x1, v_offset + line_height,
+                                         text_color, LLFontDX::LEFT, LLFontDX::TOP);
         dx1 += 8;
     }
     if (mTextureView->mFreezeView)
     {
-        LLFontGL::getFontMonospace()->renderUTF8(std::string("*"), 0, title_x1, v_offset + line_height,
-                                         text_color, LLFontGL::LEFT, LLFontGL::TOP);
+        LLFontDX::getFontMonospace()->renderUTF8(std::string("*"), 0, title_x1, v_offset + line_height,
+                                         text_color, LLFontDX::LEFT, LLFontDX::TOP);
         dx1 += 8;
     }
     if (mTextureView->mOrderFetch)
     {
-        LLFontGL::getFontMonospace()->renderUTF8(title_string1b, 0, title_x1+dx1, v_offset + line_height,
-                                         text_color, LLFontGL::LEFT, LLFontGL::TOP);
+        LLFontDX::getFontMonospace()->renderUTF8(title_string1b, 0, title_x1+dx1, v_offset + line_height,
+                                         text_color, LLFontDX::LEFT, LLFontDX::TOP);
     }
     else
     {
-        LLFontGL::getFontMonospace()->renderUTF8(title_string1a, 0, title_x1+dx1, v_offset + line_height,
-                                         text_color, LLFontGL::LEFT, LLFontGL::TOP);
+        LLFontDX::getFontMonospace()->renderUTF8(title_string1a, 0, title_x1+dx1, v_offset + line_height,
+                                         text_color, LLFontDX::LEFT, LLFontDX::TOP);
     }
 
-    LLFontGL::getFontMonospace()->renderUTF8(title_string2, 0, title_x2, v_offset + line_height,
-                                     text_color, LLFontGL::LEFT, LLFontGL::TOP);
+    LLFontDX::getFontMonospace()->renderUTF8(title_string2, 0, title_x2, v_offset + line_height,
+                                     text_color, LLFontDX::LEFT, LLFontDX::TOP);
 
-    LLFontGL::getFontMonospace()->renderUTF8(title_string3, 0, title_x3, v_offset + line_height,
-                                     text_color, LLFontGL::LEFT, LLFontGL::TOP);
+    LLFontDX::getFontMonospace()->renderUTF8(title_string3, 0, title_x3, v_offset + line_height,
+                                     text_color, LLFontDX::LEFT, LLFontDX::TOP);
 
-    LLFontGL::getFontMonospace()->renderUTF8(title_string4, 0, title_x4, v_offset + line_height,
-                                     text_color, LLFontGL::LEFT, LLFontGL::TOP);
+    LLFontDX::getFontMonospace()->renderUTF8(title_string4, 0, title_x4, v_offset + line_height,
+                                     text_color, LLFontDX::LEFT, LLFontDX::TOP);
 }
 
 bool LLGLTexMemBar::handleMouseDown(S32 x, S32 y, MASK mask)
@@ -793,19 +777,12 @@ bool LLGLTexMemBar::handleMouseDown(S32 x, S32 y, MASK mask)
 
 LLRect LLGLTexMemBar::getRequiredRect()
 {
-    // S24 (2026-08-24, task #258): was a hardcoded 78 (with a comment already
-    // admitting it was stale against "line_height * 6" while 8 lines were actually
-    // being drawn below it). Empirically tuned against live feedback, not derived
-    // from LLView anchor-semantics reasoning (that reasoning was tried twice and
-    // was backwards both times - line_height*10 sat one line low, line_height*11
-    // made it two lines low, confirming mTop and downward-shift move together,
-    // not oppositely). Topmost content line is drawn at y=line_height*10; the
-    // correct rect height empirically is one LESS than that, not equal or more.
-    // 2026-08-24 follow-up: user reported text still sitting 1px low after the
-    // line_height*9 fix - mTop/downward-shift move together (see above), so
-    // nudging the text UP means trimming 1px more off mTop, not adding it.
+    // Rect height is empirically tuned, not derived from LLView anchor-semantics reasoning - that was
+    // tried twice and was backwards both times (mTop and downward-shift move together, not
+    // oppositely). Topmost content line draws at y=line_height*10; correct rect height is one LESS
+    // than that.
     LLRect rect;
-    rect.mTop = LLFontGL::getFontMonospace()->getLineHeight() * 9 - 1;
+    rect.mTop = LLFontDX::getFontMonospace()->getLineHeight() * 9 - 1;
     return rect;
 }
 
@@ -845,7 +822,7 @@ bool LLGLTexSizeBar::handleHover(S32 x, S32 y, MASK mask, bool set_pick_size)
 {
     if(y > mBottom && (y < mBottom + (S32)(mTopLoaded * mScale) || y < mBottom + (S32)(mTopBound * mScale)))
     {
-        LLImageGL::setCurTexSizebar(mIndex, set_pick_size);
+        LLImageDX::setCurTexSizebar(mIndex, set_pick_size);
     }
     return true ;
 }
@@ -853,7 +830,7 @@ void LLGLTexSizeBar::draw()
 {
     LLGLSUIDefault gls_ui;
 
-    if(LLImageGL::sCurTexSizeBar == mIndex)
+    if(LLImageDX::sCurTexSizeBar == mIndex)
     {
         LLColor4 text_color(0.95f, 0.95f, 0.95f, 1.0f); // Brighter text for readability
     LLColor4 header_color(0.4f, 0.8f, 1.0f, 1.0f); // Cyan for section headers
@@ -862,18 +839,18 @@ void LLGLTexSizeBar::draw()
         std::string text;
 
         text = llformat("%d", mTopLoaded) ;
-        LLFontGL::getFontMonospace()->renderUTF8(text, 0, mLeft, mBottom + (S32)(mTopLoaded * mScale) + mLineHeight,
-                                     text_color, LLFontGL::LEFT, LLFontGL::TOP);
+        LLFontDX::getFontMonospace()->renderUTF8(text, 0, mLeft, mBottom + (S32)(mTopLoaded * mScale) + mLineHeight,
+                                     text_color, LLFontDX::LEFT, LLFontDX::TOP);
 
         text = llformat("%d", mTopBound) ;
-        LLFontGL::getFontMonospace()->renderUTF8(text, 0, (mLeft + mRight) / 2, mBottom + (S32)(mTopBound * mScale) + mLineHeight,
-                                     text_color, LLFontGL::LEFT, LLFontGL::TOP);
+        LLFontDX::getFontMonospace()->renderUTF8(text, 0, (mLeft + mRight) / 2, mBottom + (S32)(mTopBound * mScale) + mLineHeight,
+                                     text_color, LLFontDX::LEFT, LLFontDX::TOP);
     }
 
     LLColor4 loaded_color(1.0f, 0.0f, 0.0f, 0.75f);
     LLColor4 bound_color(1.0f, 1.0f, 0.0f, 0.75f);
-    gl_rect_2d(mLeft, mBottom + (S32)(mTopLoaded * mScale), (mLeft + mRight) / 2, mBottom, loaded_color) ;
-    gl_rect_2d((mLeft + mRight) / 2, mBottom + (S32)(mTopBound * mScale), mRight, mBottom, bound_color) ;
+    dx_rect_2d(mLeft, mBottom + (S32)(mTopLoaded * mScale), (mLeft + mRight) / 2, mBottom, loaded_color) ;
+    dx_rect_2d((mLeft + mRight) / 2, mBottom + (S32)(mTopBound * mScale), mRight, mBottom, bound_color) ;
 }
 ////////////////////////////////////////////////////////////////////////////
 

@@ -92,7 +92,7 @@ protected:
 
     void sendChat( EChatType type );
     void onChatBoxCommit();
-    void onChatFontChange(LLFontGL* fontp);
+    void onChatFontChange(LLFontDX* fontp);
 
     /*virtual*/ void onTearOffClicked();
     /*virtual*/ void onClickCloseBtn(bool app_qutting = false);

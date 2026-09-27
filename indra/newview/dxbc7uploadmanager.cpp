@@ -2,7 +2,7 @@
 
 #include "dxbc7uploadmanager.h"
 #include "dxbc7compressor.h"
-#include "llimagegl.h"
+#include "llimagedx.h"
 #include "llimage.h"
 #include "llthreadsafequeue.h"
 #include "threadpool.h"
@@ -17,10 +17,10 @@ namespace
     // One finished background job's worth of work, ready to apply on the
     // main thread. Owns all its compressed mip bytes directly (mipBytes[i]
     // backs mips[i].data, built fresh in DXBC7UploadManager::update() right
-    // before the LLImageGL call - see there).
+    // before the LLImageDX call - see there).
     struct UpgradeResult
     {
-        LLPointer<LLImageGL> tex;
+        LLPointer<LLImageDX> tex;
         U32 generation = 0;
         std::vector<std::vector<uint8_t>> mipBytes;
         std::vector<int> mipWidths;
@@ -53,19 +53,17 @@ namespace
     }
 }
 
-void DXBC7UploadManager::requestUpgrade(const LLPointer<LLImageGL>& tex, const uint8_t* rgba8, int width, int height)
+void DXBC7UploadManager::requestUpgrade(const LLPointer<LLImageDX>& tex, const uint8_t* rgba8, int width, int height)
 {
     if (!tex || !rgba8 || width <= 0 || height <= 0)
     {
         return;
     }
 
-    // S24 (task #318): reuses the SAME settings key the legacy GL-era
-    // "Enable Texture Compression" checkbox used (RenderCompressTextures) -
-    // that old system is dead under DX_RENDER (see project memory), this is
-    // its real replacement. Read directly here rather than caching via
-    // LLCachedControl - this call site fires at most once per texture
-    // upload, not a hot per-frame path.
+    // S24: reuses the legacy GL-era "Enable Texture Compression" settings
+    // key (RenderCompressTextures); that old system is dead under
+    // DX_RENDER, this is its replacement. Read directly rather than via
+    // LLCachedControl - fires at most once per texture upload.
     if (!gSavedSettings.getBOOL("RenderCompressTextures"))
     {
         return;

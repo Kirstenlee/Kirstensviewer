@@ -74,7 +74,7 @@ void LLDebugView::init()
     cp.name("debug console");
     cp.max_lines(20);
     cp.rect(r);
-    cp.font(LLFontGL::getFontMonospace());
+    cp.font(LLFontDX::getFontMonospace());
     cp.follows.flags(FOLLOWS_BOTTOM | FOLLOWS_LEFT);
     cp.visible(false);
     mDebugConsolep = LLUICtrlFactory::create<LLConsole>(cp);

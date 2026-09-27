@@ -243,7 +243,7 @@ void LLNetMap::draw()
             // Draw background rectangle
             LLColor4 background_color = mBackgroundColor.get();
             gDX.color4fv( background_color.mV );
-            gl_rect_2d(0, getRect().getHeight(), getRect().getWidth(), 0);
+            dx_rect_2d(0, getRect().getHeight(), getRect().getWidth(), 0);
         }
 
         // region 0,0 is in the middle
@@ -539,7 +539,7 @@ void LLNetMap::draw()
         {
             gDX.pushMatrix();
                 gDX.translatef( ctr_x, ctr_y, 0 );
-                gl_washer_segment_2d(far_clip_pixels, 0, arc_start, arc_end, steps, map_frustum_color(), map_frustum_color());
+                dx_washer_segment_2d(far_clip_pixels, 0, arc_start, arc_end, steps, map_frustum_color(), map_frustum_color());
             gDX.popMatrix();
         }
         else
@@ -548,7 +548,7 @@ void LLNetMap::draw()
                 gDX.translatef( ctr_x, ctr_y, 0 );
                 // If we don't rotate the map, we have to rotate the frustum.
                 gDX.rotatef( atan2( LLViewerCamera::getInstance()->getAtAxis().mV[VX], LLViewerCamera::getInstance()->getAtAxis().mV[VY] ) * RAD_TO_DEG, 0.f, 0.f, -1.f);
-                gl_washer_segment_2d(far_clip_pixels, 0, arc_start, arc_end, steps, map_frustum_color(), map_frustum_color());
+                dx_washer_segment_2d(far_clip_pixels, 0, arc_start, arc_end, steps, map_frustum_color(), map_frustum_color());
             gDX.popMatrix();
         }
     }

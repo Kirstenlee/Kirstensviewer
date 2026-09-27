@@ -31,7 +31,7 @@
 // library includes
 #include "message.h"
 #include "llavatarnamecache.h"
-#include "llfontgl.h"
+#include "llfontdx.h"
 
 #include "llagent.h"
 #include "llbutton.h"

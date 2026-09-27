@@ -214,11 +214,11 @@ void LLColorSwatchCtrl::draw()
         if (!mColor.isOpaque())
         {
             // Draw checker board.
-            gl_rect_2d_checkerboard(interior, alpha);
+            dx_rect_2d_checkerboard(interior, alpha);
         }
 
         // Draw the color swatch
-        gl_rect_2d(interior, mColor % alpha, true);
+        dx_rect_2d(interior, mColor % alpha, true);
 
         if (!mColor.isOpaque())
         {
@@ -247,16 +247,16 @@ void LLColorSwatchCtrl::draw()
         else
         {
             // Draw grey and an X
-            gl_rect_2d(interior, LLColor4::grey % alpha, true);
+            dx_rect_2d(interior, LLColor4::grey % alpha, true);
 
-            gl_draw_x(interior, LLColor4::black % alpha);
+            dx_draw_x(interior, LLColor4::black % alpha);
         }
     }
 
     mBorder->setVisible(show_border_ctrl);
 
     // Draw border
-    gl_rect_2d(gl_border, gl_border_color, false);
+    dx_rect_2d(gl_border, gl_border_color, false);
 
     LLUICtrl::draw();
 }

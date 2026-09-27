@@ -30,6 +30,7 @@
 
  // Viewer includes
 #include "DXCubeMap.h"
+#include "DXSampler.h"
 #include "llversioninfo.h"
 #include "llfeaturemanager.h"
 #include "lluictrlfactory.h"
@@ -146,6 +147,7 @@ using namespace boost::placeholders;
 #include <boost/algorithm/string.hpp>
 #include <boost/regex.hpp>
 #include <boost/throw_exception.hpp>
+#include <chrono>
 
 #	include <share.h> // For _SH_DENYWR in processMarkerFiles
 #include "llwin32headers.h"
@@ -179,7 +181,6 @@ using namespace boost::placeholders;
 #include "lltracker.h"
 #include "llviewerparcelmgr.h"
 #include "llworldmapview.h"
-#include "llpostprocess.h"
 
 #include "lldebugview.h"
 #include "llconsole.h"
@@ -192,7 +193,6 @@ using namespace boost::placeholders;
 #include "llworld.h"
 #include "llhudeffecttrail.h"
 #include "llurlregistry.h"
-#include "llwatchdog.h"
 
 // Included so that constants/settings might be initialized
 // in save_settings_to_globals()
@@ -212,6 +212,7 @@ using namespace boost::placeholders;
 #include "llviewerfloaterreg.h"
 #include "llcommandlineparser.h"
 #include "llfloatermemleak.h"
+#include "llfloaterpopout.h"
 #include "llfloaterreg.h"
 #include "llfloatersimplesnapshot.h"
 #include "llfloatersnapshot.h"
@@ -225,6 +226,7 @@ using namespace boost::placeholders;
 #include "lldeferredsounds.h"
 #include "pipeline.h"
 #include "llgesturemgr.h"
+#include "llinventorymodel.h"
 #include "llsky.h"
 #include "llvlcomposition.h"
 #include "llvlmanager.h"
@@ -352,7 +354,7 @@ WorkQueue gMainloopWork("mainloop", 1024 * 1024);
 
 ////////////////////////////////////////////////////////////
 // Internal globals
-static std::string gArgs = "DX (3868) - Hradr";
+static std::string gArgs = "DX (4015) - Hradr";
 const int MAX_MARKER_LENGTH = 1024;
 const std::string MARKER_FILE_NAME("KirstensS24.exec_marker");
 const std::string START_MARKER_FILE_NAME("KirstensS24.start_marker");
@@ -533,8 +535,8 @@ static void settings_to_globals()
 	// sShaderCacheEnabled comment. Must run before gPipeline.init()'s shader
 	// compilation, same timing requirement as sDebugLayerEnabled above.
 	DXShader::sShaderCacheEnabled = gSavedSettings.getBOOL("RenderDXShaderCacheEnabled");
-	LLImageGL::sGlobalUseAnisotropic = gSavedSettings.getBOOL("RenderAnisotropic");
-	// S24: LLImageGL::sCompressTextures (GL-era driver-hint compression) is
+	DXSampler::setMaxAnisotropy(gSavedSettings.getS32("RenderAnisotropicLevel"));
+	// S24: LLImageDX::sCompressTextures (GL-era driver-hint compression) is
 	// gone - RenderCompressTextures now drives the real BC7 pipeline instead
 	// (DXBC7UploadManager::requestUpgrade() reads it directly from
 	// gSavedSettings rather than caching it here).
@@ -644,7 +646,6 @@ LLAppViewer::LLAppViewer()
 	mQuitRequested(false),
 	mClosingFloaters(false),
 	mLogoutRequestSent(false),
-	mMainloopTimeout(NULL),
 	mAgentRegionLastAlive(false),
 	mRandomizeFramerate(LLCachedControl<bool>(gSavedSettings, "Randomize Framerate", false)),
 	mPeriodicSlowFrame(LLCachedControl<bool>(gSavedSettings, "Periodic Slow Frame", false)),
@@ -692,8 +693,6 @@ LLAppViewer::LLAppViewer()
 LLAppViewer::~LLAppViewer()
 {
 	delete mSettingsLocationList;
-
-	destroyMainloopTimeout();
 
 	// If we got to this destructor somehow, the app didn't hang.
 	removeMarkerFiles();
@@ -1082,10 +1081,6 @@ bool LLAppViewer::init()
 	// TODO: consider moving proxy initialization here or LLCopocedureManager after proxy initialization, may be implement
 	// some other protection to make sure we don't use network before initializng proxy
 
-	/*----------------------------------------------------------------------*/
-	// nat 2016-06-29 moved the following here from the former mainLoop().
-	mMainloopTimeout = new LLWatchdogTimeout();
-
 	// Create IO Pump to use for HTTP Requests.
 	gServicePump = new LLPumpIO(gAPRPoolp);
 
@@ -1206,7 +1201,11 @@ bool LLAppViewer::frame()
 	{
 		try
 		{
+			const auto start = std::chrono::steady_clock::now();
 			ret = doFrame();
+			const auto end = std::chrono::steady_clock::now();
+			const U64 doframe_time_us = (U64)std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+			LLTrace::sample(LLStatViewer::DOFRAME_TIME_US, doframe_time_us);
 		}
 		catch (const LLContinueError&)
 		{
@@ -1264,13 +1263,10 @@ bool LLAppViewer::doFrame()
 	{
 		LLPerfStats::RecordSceneTime idle_timer(LLPerfStats::StatType_t::RENDER_IDLE);
 
-		pingMainloopTimeout("Main:MiscNativeWindowEvents");
 		if (gViewerWindow)
 		{
 			gViewerWindow->getWindow()->processMiscNativeEvents();
 		}
-
-		pingMainloopTimeout("Main:GatherInput");
 
 		if (gViewerWindow)
 		{
@@ -1280,6 +1276,7 @@ bool LLAppViewer::doFrame()
 			}
 
 			gViewerWindow->getWindow()->gatherInput();
+			LLFloaterPopoutManager::idle();
 		}
 
 		if (gSimulateMemLeak)
@@ -1306,8 +1303,6 @@ bool LLAppViewer::doFrame()
 	if (!LLApp::isExiting())
 	{
 		// --- Joystick / keyboard / mouse ---
-		pingMainloopTimeout("Main:JoystickKeyboard");
-
 		if (gViewerWindow
 			&& (gHeadlessClient || gViewerWindow->getWindow()->getVisible())
 			&& gViewerWindow->getActive()
@@ -1323,7 +1318,6 @@ bool LLAppViewer::doFrame()
 		}
 
 		// --- Simulation / idle ---
-		pauseMainloopTimeout();
 		{
 			LLPerfStats::RecordSceneTime idle_timer(LLPerfStats::StatType_t::RENDER_IDLE);
 			idle();
@@ -1335,13 +1329,9 @@ bool LLAppViewer::doFrame()
 			LLViewerShaderMgr::instance()->processDeferredShaderReload();
 		}
 
-		resumeMainloopTimeout();
-
 		// --- Disconnect handling ---
 		if (gDoDisconnect && LLStartUp::getStartupState() == STATE_STARTED)
 		{
-			pauseMainloopTimeout();
-
 			saveFinalSnapshot();
 
 			if (LLVoiceClient::instanceExists())
@@ -1350,8 +1340,6 @@ bool LLAppViewer::doFrame()
 			}
 
 			disconnectViewer();
-
-			resumeMainloopTimeout();
 		}
 
 		// --- Render scene ---
@@ -1361,14 +1349,12 @@ bool LLAppViewer::doFrame()
 			return !LLApp::isRunning();
 		}
 
-		pingMainloopTimeout("Main:Display");
 		gDXActive = true;
 
 		display();
 
 		{
 			LLPerfStats::RecordSceneTime idle_timer(LLPerfStats::StatType_t::RENDER_IDLE);
-			pingMainloopTimeout("Main:Snapshot");
 			gPipeline.mReflectionMapManager.update();
 			LLFloaterSnapshot::update();
 			LLFloaterSimpleSnapshot::update();
@@ -1382,9 +1368,6 @@ bool LLAppViewer::doFrame()
 		}
 
 		// --- Sleep / background work / IO ---
-		pingMainloopTimeout("Main:Sleep");
-		pauseMainloopTimeout();
-
 		{
 			static LLCachedControl<S32> yield_time(gSavedSettings, "YieldTime", -1);
 			if (yield_time >= 0)
@@ -1399,7 +1382,17 @@ bool LLAppViewer::doFrame()
 				ms_sleep(non_interactive_ms_sleep_time);
 			}
 
+			// S24: skip this whole throttle while a floater is popped out
+			// (LLFloaterPopoutManager, newview/llfloaterpopout.cpp) - it's
+			// a real, independent desktop window the user may still be
+			// actively using even while the main window is minimized/
+			// backgrounded, and this sleep blocks the ENTIRE main thread,
+			// including idle()'s own input dispatch and renderPoppedOut()
+			// for it - confirmed live as popped-out windows getting
+			// dragged down to the main window's own background framerate
+			// while it's minimized to the taskbar.
 			if (!LLApp::isExiting()
+				&& !LLFloaterPopoutManager::isPoppedOut()
 				&& ((gViewerWindow && !gViewerWindow->getWindow()->getVisible())
 					|| !gFocusMgr.getAppHasFocus()))
 			{
@@ -1457,8 +1450,6 @@ bool LLAppViewer::doFrame()
 				LLLFSThread::sLocal->pause();
 			}
 
-			resumeMainloopTimeout();
-			pingMainloopTimeout("Main:End");
 		}
 	}
 
@@ -1477,8 +1468,6 @@ bool LLAppViewer::doFrame()
 
 		delete gServicePump;
 		gServicePump = NULL;
-
-		destroyMainloopTimeout();
 
 		LL_INFOS() << "Exiting main_loop" << LL_ENDL;
 	}
@@ -1522,6 +1511,17 @@ void LLAppViewer::flushLFSIO()
 
 bool LLAppViewer::cleanup()
 {
+	// Must run before anything else here, and definitely before process
+	// exit lets static destructors run - LLFloaterPopoutManager::shutdown()
+	// synchronously closes/joins every still-popped-out floater's own host
+	// thread. Several quit paths (force-quit while disconnected, quit
+	// before STATE_STARTED) never call gFloaterView->closeAllChildren(),
+	// so a popped-out floater's host thread would otherwise never be told
+	// to stop at all - and destroying a still-joinable std::thread (which
+	// is exactly what happens when the anonymous-namespace instance map
+	// housing it is statically destroyed) calls std::terminate().
+	LLFloaterPopoutManager::shutdown();
+
 	//ditch LLVOAvatarSelf instance
 	gAgentAvatarp = NULL;
 
@@ -1662,6 +1662,9 @@ bool LLAppViewer::cleanup()
 	if (gViewerWindow)
 		gViewerWindow->shutdownViews();
 
+	// Model previews release their decomposition handles while the UI is destroyed.
+	gMeshRepo.shutdownDecomposition();
+
 	LL_INFOS() << "Cleaning up Inventory" << LL_ENDL;
 
 	// Cleanup Inventory after the UI since it will delete any remaining observers
@@ -1681,8 +1684,6 @@ bool LLAppViewer::cleanup()
 	LLViewerObject::cleanupVOClasses();
 
 	SUBSYSTEM_CLEANUP(LLAvatarAppearance);
-
-	SUBSYSTEM_CLEANUP(LLPostProcess);
 
 	LLTracker::cleanupInstance();
 
@@ -1887,7 +1888,7 @@ bool LLAppViewer::cleanup()
 	if (sTextureFetch)
 	{
 		sTextureFetch->shutdown();
-		sTextureFetch->waitOnPending();
+		sTextureFetch->waitOnPending(10.f);
 		delete sTextureFetch;
 		sTextureFetch = NULL;
 	}
@@ -1945,8 +1946,6 @@ bool LLAppViewer::cleanup()
 	gSavedSettings.cleanup();
 	LLUIColorTable::instance().clear();
 
-	LLWatchdog::getInstance()->cleanup();
-
 	LLViewerAssetStatsFF::cleanup();
 
 	static LLCachedControl<bool> purge_shader_cache(gSavedSettings, "RenderPurgeShaderCacheOnExit", false);
@@ -1983,6 +1982,8 @@ bool LLAppViewer::cleanup()
 	Sleep(250); // Give the LOGS time to catch up! Kirstens closes down in 3 seconds!!
 
 	LLCore::LLHttp::cleanup();
+
+	LLInventoryModel::waitForPendingCacheWrites();
 
 	ll_close_fail_log();
 
@@ -2522,7 +2523,6 @@ bool LLAppViewer::initConfiguration()
 	}
 
 	gSavedSettings.setBOOL("QAMode", true);
-	gSavedSettings.setS32("WatchdogEnabled", 0);
 #endif
 
 	// - read command line settings.
@@ -3003,30 +3003,6 @@ bool LLAppViewer::initWindow()
 
 	LL_INFOS("AppInit") << "gViewerwindow created." << LL_ENDL;
 
-	// Need to load feature table before cheking to start watchdog.
-	bool use_watchdog = false;
-	S32 watchdog_enabled_setting = gSavedSettings.getS32("WatchdogEnabled");
-	if (watchdog_enabled_setting == -1)
-	{
-		use_watchdog = !LLFeatureManager::getInstance()->isFeatureAvailable("WatchdogDisabled");
-	}
-	else
-	{
-		// The user has explicitly set this setting; always use that value.
-		use_watchdog = bool(watchdog_enabled_setting);
-	}
-
-	LL_INFOS("AppInit") << "watchdog"
-		<< (use_watchdog ? " " : " NOT ")
-		<< "enabled"
-		<< " (setting = " << watchdog_enabled_setting << ")"
-		<< LL_ENDL;
-
-	if (use_watchdog)
-	{
-		LLWatchdog::getInstance()->init();
-	}
-
 	LLNotificationsUI::LLNotificationManager::getInstance();
 
 	// S24: don't maximize() here (before gPipeline.init()) - it snaps the
@@ -3342,6 +3318,13 @@ std::string LLAppViewer::getViewerInfoString(bool default_string) const
 			if (ii->second.isUndefined())
 			{
 				args[ii->first] = LLTrans::getString("none_text", default_string);
+			}
+			else if (ii->second.isBoolean())
+			{
+				// LLSD intentionally renders false as an empty string to
+				// preserve string-to-boolean round trips. Viewer info is
+				// human-readable, so show both boolean states explicitly.
+				args[ii->first] = ii->second.asBoolean() ? "true" : "false";
 			}
 			else
 			{
@@ -4639,8 +4622,6 @@ static LLTrace::BlockTimerStatHandle FTM_HUD_EFFECTS("HUD Effects");
 
 void LLAppViewer::idle()
 {
-	pingMainloopTimeout("Main:Idle");
-
 	// ─────────────────────────────────────────────────────────────────────────
 // SECTION 1: Frame Timing & Core Updates (~0.1–0.2ms)
 // Modernised structure, identical behaviour.
@@ -4686,7 +4667,7 @@ void LLAppViewer::idle()
 	gGLManager.mDownScaleMethod = sDownscaleMethod;
 
 	// Texture system maintenance
-	LLImageGL::updateClass();
+	LLImageDX::updateClass();
     LLUIImage::updateClass();
 	// -------------------------------------------------------------------------
 	// 4. Misc. viewer systems
@@ -4781,7 +4762,7 @@ void LLAppViewer::idle()
 	{
 		LL_RECORD_BLOCK_TIME(FTM_NETWORK);
 		// Update spaceserver timeinfo
-		LLWorld::getInstance()->setSpaceTimeUSec(LLWorld::getInstance()->getSpaceTimeUSec() + LLUnits::Seconds::fromValue(dt_raw));
+		LLWorld::getInstance()->setSpaceTimeUSec(LLWorld::getInstance()->getSpaceTimeUSec() + (U64)(dt_raw * USEC_PER_SEC));
 
 		//////////////////////////////////////
 		//
@@ -5475,8 +5456,6 @@ static F32 CheckMessagesMaxTime = CHECK_MESSAGES_DEFAULT_MAX_TIME;
 
 void LLAppViewer::idleNetwork()
 {
-	pingMainloopTimeout("idleNetwork");
-
 	gObjectList.mNumNewObjects = 0;
 	S32 total_decoded = 0;
 
@@ -5822,69 +5801,9 @@ void LLAppViewer::forceExceptionThreadCrash()
 	thread->start();
 }
 
-void LLAppViewer::initMainloopTimeout(std::string_view state)
-{
-	if (!mMainloopTimeout)
-	{
-		mMainloopTimeout = new LLWatchdogTimeout();
-		resumeMainloopTimeout(state);
-	}
-}
-
-void LLAppViewer::destroyMainloopTimeout()
-{
-	if (mMainloopTimeout)
-	{
-		delete mMainloopTimeout;
-		mMainloopTimeout = nullptr;
-	}
-}
-
-void LLAppViewer::resumeMainloopTimeout(std::string_view state)
-{
-	if (mMainloopTimeout)
-	{
-		mMainloopTimeout->setTimeout(getMainloopTimeoutSec());
-		mMainloopTimeout->start(state);
-	}
-}
-
-void LLAppViewer::pauseMainloopTimeout()
-{
-	if (mMainloopTimeout)
-	{
-		mMainloopTimeout->stop();
-	}
-}
-
-void LLAppViewer::pingMainloopTimeout(std::string_view state)
-{
-	if (mMainloopTimeout)
-	{
-		mMainloopTimeout->setTimeout(getMainloopTimeoutSec());
-		mMainloopTimeout->ping(state);
-	}
-}
-
-F32 LLAppViewer::getMainloopTimeoutSec() const
-{
-	if (LLStartUp::getStartupState() == STATE_STARTED
-		&& gAgent.getTeleportState() == LLAgent::TELEPORT_NONE)
-	{
-		static LLCachedControl<F32> mainloop_started(gSavedSettings, "MainloopTimeoutStarted", 30.f);
-		return mainloop_started();
-	}
-	else
-	{
-		static LLCachedControl<F32> mainloop_default(gSavedSettings, "MainloopTimeoutDefault", 120.f);
-		return mainloop_default();
-	}
-}
-
 void LLAppViewer::handleLoginComplete()
 {
 	gLoggedInTime.start();
-	initMainloopTimeout("Mainloop Init");
 
 	// Store some data to DebugInfo in case of a freeze.
 	gDebugInfo["ClientInfo"]["Name"] = LLVersionInfo::instance().getChannel();
@@ -5913,11 +5832,6 @@ void LLAppViewer::handleLoginComplete()
 	{
 		gDebugInfo["CurrentSimHost"] = gAgent.getRegion()->getSimHostName();
 		gDebugInfo["CurrentRegion"] = gAgent.getRegion()->getName();
-	}
-
-	if (LLAppViewer::instance()->mMainloopTimeout)
-	{
-		gDebugInfo["MainloopTimeoutState"] = LLAppViewer::instance()->mMainloopTimeout->getState();
 	}
 
 	mOnLoginCompleted();

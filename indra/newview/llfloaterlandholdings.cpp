@@ -29,7 +29,7 @@
 #include "llfloaterlandholdings.h"
 
 #include "indra_constants.h"
-#include "llfontgl.h"
+#include "llfontdx.h"
 #include "llqueryflags.h"
 #include "llparcel.h"
 #include "message.h"

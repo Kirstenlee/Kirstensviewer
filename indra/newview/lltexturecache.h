@@ -27,6 +27,8 @@
 #ifndef LL_LLTEXTURECACHE_H
 #define LL_LLTEXTURECACHE_H
 
+#include <atomic>
+
 #include "lldir.h"
 #include "llstl.h"
 #include "llstring.h"
@@ -149,6 +151,19 @@ public:
     bool isInCache(const LLUUID& id) ;
     bool isInLocal(const LLUUID& id) ; //not thread safe at the moment
     LLMutex* getFastCacheMutex() { return &mFastCacheMutex; }
+
+    // S24: cheap, atomic-only flood signal for doWrite()'s INIT-state-check-failed
+    // path (LLTextureCacheRemoteWorker, a friend class, calls noteWriteInitFailure()
+    // from the cache worker thread). LLViewerTextureList::updateImagesFetchTextures()
+    // (main thread) polls consumeRecentWriteInitFailures() once a frame and eases
+    // off briefly when a burst is detected - NOT a fix for the underlying mRawImage
+    // handoff race documented in lltexturefetch.cpp/llviewertexture.cpp (that needs
+    // real mutex protection across the fetch-worker/main-thread boundary, out of
+    // scope here), just a throttle that reduces how often the unprotected window
+    // gets hit during a heavy-churn burst (teleport + map-tile load, etc).
+    void noteWriteInitFailure() { mRecentWriteInitFailures.fetch_add(1, std::memory_order_relaxed); }
+    S32 consumeRecentWriteInitFailures() { return mRecentWriteInitFailures.exchange(0, std::memory_order_relaxed); }
+
 protected:
     // Accessed by LLTextureCacheWorker
     std::string getLocalFileName(const LLUUID& id);
@@ -191,6 +206,12 @@ private:
     bool writeToFastCache(LLUUID image_id, S32 cache_id, LLPointer<LLImageRaw> raw, S32 discardlevel);
 
 private:
+    // S24: see noteWriteInitFailure()/consumeRecentWriteInitFailures() above -
+    // written from the cache worker thread, read+reset from the main thread,
+    // hence atomic rather than behind one of the LLMutex members below (this
+    // is a pure counter, not gating access to shared data).
+    std::atomic<S32> mRecentWriteInitFailures{0};
+
     // Internal
     LLMutex mWorkersMutex;
     LLMutex mHeaderMutex;

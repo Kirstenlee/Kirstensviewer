@@ -34,7 +34,7 @@
 #include "llerror.h"
 #include "llrect.h"
 #include "llstring.h"
-#include "llfontgl.h"
+#include "llfontdx.h"
 
 // project includes
 #include "llagent.h"
@@ -4704,7 +4704,7 @@ void LLPanelFace::onPasteTexture(LLViewerObject* objectp, S32 te)
                 else if (img_full_perm)
                 {
                     // Either library, local or existed as fullperm when user made a copy
-                    LLViewerTexture* image = LLViewerTextureManager::getFetchedTexture(imageid, FTT_DEFAULT, true, LLGLTexture::BOOST_NONE, LLViewerTexture::LOD_TEXTURE);
+                    LLViewerTexture* image = LLViewerTextureManager::getFetchedTexture(imageid, FTT_DEFAULT, true, LLDXTexture::BOOST_NONE, LLViewerTexture::LOD_TEXTURE);
                     objectp->setTEImage(U8(te), image);
                 }
             }

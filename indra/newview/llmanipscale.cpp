@@ -294,9 +294,8 @@ void LLManipScale::render()
 
             {
                 LLGLEnable poly_offset(GL_POLYGON_OFFSET_FILL);
-                // S24 (2026-08-28, task #242): gDX.setPolygonOffset() -
-                // cross-backend, real under DX_RENDER now too (was a silent
-                // no-op there, raw glPolygonOffset() has no D3D11 dispatch).
+                // gDX.setPolygonOffset() is cross-backend, real under DX_RENDER (raw glPolygonOffset()
+                // has no D3D11 dispatch, so it was a silent no-op there).
                 gDX.setPolygonOffset( -2.f, -2.f);
 
                 renderCorners( bbox );
@@ -1297,11 +1296,11 @@ void LLManipScale::renderGuidelinesPart( const LLBBox& bbox )
 
     {
         LLGLDepthTest gls_depth(GL_TRUE);
-        gl_line_3d( guideline_start, guideline_end, LLColor4(1.f, 1.f, 1.f, 0.5f) );
+        dx_line_3d( guideline_start, guideline_end, LLColor4(1.f, 1.f, 1.f, 0.5f) );
     }
     {
         LLGLDepthTest gls_depth(GL_FALSE);
-        gl_line_3d( guideline_start, guideline_end, LLColor4(1.f, 1.f, 1.f, 0.25f) );
+        dx_line_3d( guideline_start, guideline_end, LLColor4(1.f, 1.f, 1.f, 0.25f) );
     }
 }
 
@@ -1847,15 +1846,15 @@ void LLManipScale::renderSnapGuides(const LLBBox& bbox)
                 }
 
                 LLVector3 help_text_pos = selection_center_start + (mSnapRegimeOffset * 5.f * offset_dir);
-                const LLFontGL* big_fontp = LLFontGL::getFontSansSerif();
+                const LLFontDX* big_fontp = LLFontDX::getFontSansSerif();
 
                 std::string help_text = LLTrans::getString("manip_hint1");
                 LLColor4 help_text_color = LLColor4::white;
                 help_text_color.mV[VALPHA] = clamp_rescale(mHelpTextTimer.getElapsedTimeF32(), sHelpTextVisibleTime, sHelpTextVisibleTime + sHelpTextFadeTime, grid_alpha, 0.f);
-                hud_render_utf8text(help_text, help_text_pos, *big_fontp, LLFontGL::NORMAL, LLFontGL::NO_SHADOW, -0.5f * big_fontp->getWidthF32(help_text), 3.f, help_text_color, false);
+                hud_render_utf8text(help_text, help_text_pos, *big_fontp, LLFontDX::NORMAL, LLFontDX::NO_SHADOW, -0.5f * big_fontp->getWidthF32(help_text), 3.f, help_text_color, false);
                 help_text = LLTrans::getString("manip_hint2");
                 help_text_pos -= LLViewerCamera::getInstance()->getUpAxis() * mSnapRegimeOffset * 0.4f;
-                hud_render_utf8text(help_text, help_text_pos, *big_fontp, LLFontGL::NORMAL, LLFontGL::NO_SHADOW, -0.5f * big_fontp->getWidthF32(help_text), 3.f, help_text_color, false);
+                hud_render_utf8text(help_text, help_text_pos, *big_fontp, LLFontDX::NORMAL, LLFontDX::NO_SHADOW, -0.5f * big_fontp->getWidthF32(help_text), 3.f, help_text_color, false);
             }
         }
     }

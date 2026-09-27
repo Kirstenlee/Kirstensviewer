@@ -571,10 +571,10 @@ void LLGroupListItem::setBold(bool bold)
     LLFontDescriptor new_desc(mGroupNameBox->getFont()->getFontDesc());
 
     // *NOTE dzaporozhan
-    // On Windows LLFontGL::NORMAL will not remove LLFontGL::BOLD if font
+    // On Windows LLFontDX::NORMAL will not remove LLFontDX::BOLD if font
     // is predefined as bold (SansSerifSmallBold, for example)
-    new_desc.setStyle(bold ? LLFontGL::BOLD : LLFontGL::NORMAL);
-    LLFontGL* new_font = LLFontGL::getFont(new_desc);
+    new_desc.setStyle(bold ? LLFontDX::BOLD : LLFontDX::NORMAL);
+    LLFontDX* new_font = LLFontDX::getFont(new_desc);
     mGroupNameStyle.font = new_font;
 
     // *NOTE: You cannot set the style on a text box anymore, you must

@@ -317,7 +317,7 @@ public:
     void onFocusLost();
     void onFocusReceived();
 
-    LLFontGL* getTextFont();
+    LLFontDX* getTextFont();
 
     void setItemName(std::string name);
     bool isSelected() { return mSelected; }

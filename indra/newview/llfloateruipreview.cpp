@@ -1598,8 +1598,8 @@ void LLOverlapPanel::draw()
     {
         LLUI::translate(5.f, (F32)getRect().getHeight() - 20.f);    // translate to top-5,left-5
         LLView::sDrawPreviewHighlights = false;
-        LLFontGL::getFontSansSerifSmall()->renderUTF8(current_selection_text, 0, 0, 0, text_color,
-                LLFontGL::LEFT, LLFontGL::BASELINE, LLFontGL::NORMAL, LLFontGL::NO_SHADOW);
+        LLFontDX::getFontSansSerifSmall()->renderUTF8(current_selection_text, 0, 0, 0, text_color,
+                LLFontDX::LEFT, LLFontDX::BASELINE, LLFontDX::NORMAL, LLFontDX::NO_SHADOW);
     }
     else
     {
@@ -1615,9 +1615,9 @@ void LLOverlapPanel::draw()
             LLUI::translate(5.f, (F32)getRect().getHeight() - 20.f);    // translate to top-5,left-5
             LLView::sDrawPreviewHighlights = false;
             std::string current_selection = std::string(current_selection_text + LLView::sPreviewClickedElement->getName() + " (no elements overlap)");
-            S32 text_width = LLFontGL::getFontSansSerifSmall()->getWidth(current_selection) + 10;
-            LLFontGL::getFontSansSerifSmall()->renderUTF8(current_selection, 0, 0, 0, text_color,
-                    LLFontGL::LEFT, LLFontGL::BASELINE, LLFontGL::NORMAL, LLFontGL::NO_SHADOW);
+            S32 text_width = LLFontDX::getFontSansSerifSmall()->getWidth(current_selection) + 10;
+            LLFontDX::getFontSansSerifSmall()->renderUTF8(current_selection, 0, 0, 0, text_color,
+                    LLFontDX::LEFT, LLFontDX::BASELINE, LLFontDX::NORMAL, LLFontDX::NO_SHADOW);
             // widen panel enough to fit this text
             LLRect rect = getRect();
             setRect(LLRect(rect.mLeft,rect.mTop,rect.getWidth() < text_width ? rect.mLeft + text_width : rect.mRight,rect.mTop));
@@ -1652,7 +1652,7 @@ void LLOverlapPanel::draw()
 
             // and widen to accomodate text if that's wider
             std::string display_text = current_selection_text + LLView::sPreviewClickedElement->getName();
-            S32 text_width = LLFontGL::getFontSansSerifSmall()->getWidth(display_text) + 10;
+            S32 text_width = LLFontDX::getFontSansSerifSmall()->getWidth(display_text) + 10;
             rect = getRect();
             setRect(LLRect(rect.mLeft,rect.mTop,rect.getWidth() < text_width ? rect.mLeft + text_width : rect.mRight,rect.mTop));
 
@@ -1668,7 +1668,7 @@ void LLOverlapPanel::draw()
 
                 // and widen to accomodate text if that's wider
                 std::string display_text = overlapper_text + viewp->getName();
-                S32 text_width = LLFontGL::getFontSansSerifSmall()->getWidth(display_text) + 10;
+                S32 text_width = LLFontDX::getFontSansSerifSmall()->getWidth(display_text) + 10;
                 rect = getRect();
                 setRect(LLRect(rect.mLeft,rect.mTop,rect.getWidth() < text_width ? rect.mLeft + text_width : rect.mRight,rect.mTop));
             }
@@ -1682,8 +1682,8 @@ void LLOverlapPanel::draw()
 
         // draw currently-selected element at top of overlappers
         LLUI::translate(0.f, -(F32)mSpacing);
-        LLFontGL::getFontSansSerifSmall()->renderUTF8(current_selection_text + LLView::sPreviewClickedElement->getName(), 0, 0, 0, text_color,
-                LLFontGL::LEFT, LLFontGL::BASELINE, LLFontGL::NORMAL, LLFontGL::NO_SHADOW);
+        LLFontDX::getFontSansSerifSmall()->renderUTF8(current_selection_text + LLView::sPreviewClickedElement->getName(), 0, 0, 0, text_color,
+                LLFontDX::LEFT, LLFontDX::BASELINE, LLFontDX::NORMAL, LLFontDX::NO_SHADOW);
         LLUI::translate(0.f, -(F32)mSpacing - (F32)LLView::sPreviewClickedElement->getRect().getHeight()); // skip spacing distance + height
         LLView::sPreviewClickedElement->draw();
 
@@ -1693,12 +1693,12 @@ void LLOverlapPanel::draw()
 
             // draw separating line
             LLUI::translate(0.f, -(F32)mSpacing);
-            gl_line_2d(0,0,getRect().getWidth()-10,0,LLColor4(192.0f/255.0f,192.0f/255.0f,192.0f/255.0f));
+            dx_line_2d(0,0,getRect().getWidth()-10,0,LLColor4(192.0f/255.0f,192.0f/255.0f,192.0f/255.0f));
 
             // draw name
             LLUI::translate(0.f, -(F32)mSpacing);
-            LLFontGL::getFontSansSerifSmall()->renderUTF8(overlapper_text + viewp->getName(), 0, 0, 0, text_color,
-                    LLFontGL::LEFT, LLFontGL::BASELINE, LLFontGL::NORMAL, LLFontGL::NO_SHADOW);
+            LLFontDX::getFontSansSerifSmall()->renderUTF8(overlapper_text + viewp->getName(), 0, 0, 0, text_color,
+                    LLFontDX::LEFT, LLFontDX::BASELINE, LLFontDX::NORMAL, LLFontDX::NO_SHADOW);
 
             // draw element
             LLUI::translate(0.f, -(F32)mSpacing - (F32)viewp->getRect().getHeight());  // skip spacing distance + height

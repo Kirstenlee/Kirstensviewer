@@ -887,7 +887,7 @@ void LLJoystickQuaternion::draw()
     draw_point.mV[mXAxisIndex] = (draw_point.mV[mXAxisIndex] + 1.0f) * halfwidth;
     draw_point.mV[mYAxisIndex] = (draw_point.mV[mYAxisIndex] + 1.0f) * halfheight;
 
-    gl_circle_2d(draw_point.mV[mXAxisIndex], draw_point.mV[mYAxisIndex], 4, 8,
+    dx_circle_2d(draw_point.mV[mXAxisIndex], draw_point.mV[mYAxisIndex], 4, 8,
         draw_point.mV[mZAxisIndex] >= 0.f);
 
 }

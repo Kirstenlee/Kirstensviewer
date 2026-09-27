@@ -151,14 +151,14 @@ void LLStandardBumpmap::addstandard()
         gStandardBumpmapList[LLStandardBumpmap::sStandardBumpmapCount].mLabel = label;
         gStandardBumpmapList[LLStandardBumpmap::sStandardBumpmapCount].mImage =
             LLViewerTextureManager::getFetchedTexture(LLUUID(bump_image_id));
-        gStandardBumpmapList[LLStandardBumpmap::sStandardBumpmapCount].mImage->setBoostLevel(LLGLTexture::LOCAL) ;
+        gStandardBumpmapList[LLStandardBumpmap::sStandardBumpmapCount].mImage->setBoostLevel(LLDXTexture::LOCAL) ;
         // This asset feeds generateNormalMapFromAlpha()'s finite-difference/
         // emboss technique, which subtracts two nearby texel samples to
         // derive a gradient - block-compression quantization error gets
         // amplified by that subtraction into visible artifacts. Opted out of
         // compression via the same allow_compression mechanism
         // LLFontBitmapCache uses for glyph atlases (gradient-sensitive data).
-        if (LLImageGL* bump_gl_tex = gStandardBumpmapList[LLStandardBumpmap::sStandardBumpmapCount].mImage->getGLTexture())
+        if (LLImageDX* bump_gl_tex = gStandardBumpmapList[LLStandardBumpmap::sStandardBumpmapCount].mImage->getGLTexture())
         {
             bump_gl_tex->setAllowCompression(false);
         }
@@ -574,7 +574,7 @@ void LLBumpImageList::onSourceUpdated(LLViewerTexture* src, EBumpEffect bump_cod
     LLPointer<LLViewerTexture> bump = iter->second;
 
 #ifndef DX_RENDER
-    // GL-only: this renders into an existing, externally-owned LLImageGL via
+    // GL-only: this renders into an existing, externally-owned LLImageDX via
     // LLRenderTarget::setColorAttachment() - DXRenderTarget can't render into
     // an arbitrary externally-owned DXTexture yet (see llrendertarget.cpp).
     // Excluded entirely rather than partially no-op; bump-mapped surfaces
@@ -586,8 +586,8 @@ void LLBumpImageList::onSourceUpdated(LLViewerTexture* src, EBumpEffect bump_cod
 
         bump->setExplicitFormat(GL_RGBA, GL_RGBA);
 
-        LLImageGL* src_img = src->getGLTexture();
-        LLImageGL* dst_img = bump->getGLTexture();
+        LLImageDX* src_img = src->getGLTexture();
+        LLImageDX* dst_img = bump->getGLTexture();
         if (!dst_img->setSize(src->getWidth(), src->getHeight(), 4, 0))
         {
             LL_WARNS() << "Failed to setSize for image " << bump->getID() << LL_ENDL;
@@ -598,7 +598,7 @@ void LLBumpImageList::onSourceUpdated(LLViewerTexture* src, EBumpEffect bump_cod
 
         gDX.getTexUnit(0)->bind(bump);
 
-        LLImageGL::setManualImage(GL_TEXTURE_2D, 0, dst_img->getPrimaryFormat(), dst_img->getWidth(), dst_img->getHeight(), GL_RGBA, GL_UNSIGNED_BYTE, nullptr, false);
+        LLImageDX::setManualImage(GL_TEXTURE_2D, 0, dst_img->getPrimaryFormat(), dst_img->getWidth(), dst_img->getHeight(), GL_RGBA, GL_UNSIGNED_BYTE, nullptr, false);
 
         LLGLuint tex_name = dst_img->getTexName();
         // point render target at empty buffer

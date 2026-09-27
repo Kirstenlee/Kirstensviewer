@@ -57,9 +57,9 @@ LLToastIMPanel::LLToastIMPanel(LLToastIMPanel::Params &p) : LLToastPanel(p.notif
     mMessage->setContentTrusted(false);
 
     LLStyle::Params style_params;
-    LLFontGL* fontp = LLViewerChat::getChatFont();
-    std::string font_name = LLFontGL::nameFromFont(fontp);
-    std::string font_size = LLFontGL::sizeFromFont(fontp);
+    LLFontDX* fontp = LLViewerChat::getChatFont();
+    std::string font_name = LLFontDX::nameFromFont(fontp);
+    std::string font_size = LLFontDX::sizeFromFont(fontp);
     style_params.font.name(font_name);
     style_params.font.size(font_size);
 

@@ -130,9 +130,9 @@ void LLPanelGroupCreate::addMembershipRow(const std::string &name)
 
         LLScrollListItem::Params item_params;
         LLScrollListCell::Params cell_params;
-        cell_params.font = LLFontGL::getFontSansSerif();
+        cell_params.font = LLFontDX::getFontSansSerif();
         // Start out right justifying numeric displays
-        cell_params.font_halign = LLFontGL::LEFT;
+        cell_params.font_halign = LLFontDX::LEFT;
         if (is_current)
         {
             cell_params.color = LLUIColorTable::instance().getColor("DrYellow");
