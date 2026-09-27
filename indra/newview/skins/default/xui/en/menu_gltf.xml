@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes" ?>
+<menu
+ layout="topleft"
+ name="Popup"
+ visible="false">
+    <menu_item_call
+     label="Copy all"
+     layout="topleft"
+     name="psr_copy">
+        <menu_item_call.on_click
+         function="PanelObject.menuDoToSelected"
+         parameter="psr_copy" />
+        <menu_item_call.on_enable
+         function="PanelObject.menuEnable"
+         parameter="psr_copy" />
+    </menu_item_call>
+    <menu_item_call
+     label="Paste all"
+     layout="topleft"
+     name="psr_paste">
+        <menu_item_call.on_click
+         function="PanelObject.menuDoToSelected"
+         parameter="psr_paste" />
+        <menu_item_call.on_enable
+         function="PanelObject.menuEnable"
+         parameter="psr_paste" />
+    </menu_item_call>
+    <menu_item_separator layout="topleft" />
+    <menu_item_call
+     label="Copy position"
+     layout="topleft"
+     name="pos_copy">
+        <menu_item_call.on_click
+         function="PanelObject.menuDoToSelected"
+         parameter="pos_copy" />
+        <menu_item_call.on_enable
+         function="PanelObject.menuEnable"
+         parameter="pos_copy" />
+    </menu_item_call>
+    <menu_item_call
+     label="Paste position"
+     layout="topleft"
+     name="pos_paste">
+        <menu_item_call.on_click
+         function="PanelObject.menuDoToSelected"
+         parameter="pos_paste" />
+        <menu_item_call.on_enable
+         function="PanelObject.menuEnable"
+         parameter="pos_paste" />
+    </menu_item_call>
+    <menu_item_separator layout="topleft" />
+    <menu_item_call
+     label="Copy scale"
+     layout="topleft"
+     name="size_copy">
+        <menu_item_call.on_click
+         function="PanelObject.menuDoToSelected"
+         parameter="size_copy" />
+        <menu_item_call.on_enable
+         function="PanelObject.menuEnable"
+         parameter="size_copy" />
+    </menu_item_call>
+    <menu_item_call
+     label="Paste scale"
+     layout="topleft"
+     name="size_paste">
+        <menu_item_call.on_click
+         function="PanelObject.menuDoToSelected"
+         parameter="size_paste" />
+        <menu_item_call.on_enable
+         function="PanelObject.menuEnable"
+         parameter="size_paste" />
+    </menu_item_call>
+    <menu_item_separator layout="topleft" />
+    <menu_item_call
+     label="Copy rotation"
+     layout="topleft"
+     name="rot_copy">
+        <menu_item_call.on_click
+         function="PanelObject.menuDoToSelected"
+         parameter="rot_copy" />
+        <menu_item_call.on_enable
+         function="PanelObject.menuEnable"
+         parameter="rot_copy" />
+    </menu_item_call>
+    <menu_item_call
+     label="Paste rotation"
+     layout="topleft"
+     name="rot_paste">
+        <menu_item_call.on_click
+         function="PanelObject.menuDoToSelected"
+         parameter="rot_paste" />
+        <menu_item_call.on_enable
+         function="PanelObject.menuEnable"
+         parameter="rot_paste" />
+    </menu_item_call>
+</menu>

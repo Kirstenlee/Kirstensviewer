@@ -70,6 +70,20 @@ protected:
     void onMenuDoToSelected(const LLSD& userdata);
     bool onMenuEnableItem(const LLSD& userdata);
 
+    // S24: real implementations of the psr_copy/pos_copy/size_copy/
+    // rot_copy/psr_paste/pos_paste/size_paste/rot_paste commands - see
+    // llfloatergltfasseteditor.cpp's own comment on onMenuDoToSelected()
+    // for why (LL's own stubs, upstream-identical, never implemented).
+    // Mirrors LLPanelObject::onCopyPos()/onPastePos() etc (llpanelobject.cpp) -
+    // the SAME menu_copy_paste_pos/size/rot.xml files, already wired to
+    // this floater's own clipboard buttons, drive both.
+    void onCopyPos();
+    void onCopyScale();
+    void onCopyRot();
+    void onPastePos();
+    void onPasteScale();
+    void onPasteRot();
+
     void setTransformsEnabled(bool val);
     void loadNodeTransforms(S32 id);
 
@@ -104,6 +118,14 @@ private:
     LLSpinCtrl* mCtrlRotX = nullptr;
     LLSpinCtrl* mCtrlRotY = nullptr;
     LLSpinCtrl* mCtrlRotZ = nullptr;
+
+    // S24: node-transform clipboard - see onCopyPos()/onPastePos() etc.
+    LLVector3 mClipboardPos;
+    LLVector3 mClipboardScale;
+    LLVector3 mClipboardRot;
+    bool mHasClipboardPos = false;
+    bool mHasClipboardScale = false;
+    bool mHasClipboardRot = false;
 };
 
 #endif

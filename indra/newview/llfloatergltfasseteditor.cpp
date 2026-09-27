@@ -542,46 +542,57 @@ void LLFloaterGLTFAssetEditor::onCommitTransform()
     mAsset->updateTransforms();
 }
 
+// S24: these 8 branches were ALL upstream `// todo: implement` stubs -
+// confirmed byte-identical in the canonical LL source, not something S24
+// dropped. The floater's own dedicated clipboard buttons (clipboard_pos_btn/
+// clipboard_size_btn/clipboard_rot_btn, floater_gltf_asset_editor.xml)
+// already wire menu_copy_paste_pos/size/rot.xml - real, existing, shared
+// menu files that route through these exact same command strings - so
+// only the C++ logic was actually missing, not the UI. Implemented by
+// mirroring LLPanelObject::onCopyPos()/onPastePos() etc (llpanelobject.cpp,
+// the object-edit "Build" floater's own proven, shipping implementation
+// of this identical command set) - minus that panel's prim/region/
+// attachment-specific clamping, which has no equivalent concept for a
+// GLTF node's transform.
 void LLFloaterGLTFAssetEditor::onMenuDoToSelected(const LLSD& userdata)
 {
     std::string command = userdata.asString();
 
     if (command == "psr_paste")
     {
-        // todo: implement
-        // onPastePos();
-        // onPasteSize();
-        // onPasteRot();
+        onPastePos();
+        onPasteScale();
+        onPasteRot();
     }
     else if (command == "pos_paste")
     {
-        // todo: implement
+        onPastePos();
     }
     else if (command == "size_paste")
     {
-        // todo: implement
+        onPasteScale();
     }
     else if (command == "rot_paste")
     {
-        // todo: implement
+        onPasteRot();
     }
     else if (command == "psr_copy")
     {
-        // onCopyPos();
-        // onCopySize();
-        // onCopyRot();
+        onCopyPos();
+        onCopyScale();
+        onCopyRot();
     }
     else if (command == "pos_copy")
     {
-        // todo: implement
+        onCopyPos();
     }
     else if (command == "size_copy")
     {
-        // todo: implement
+        onCopyScale();
     }
     else if (command == "rot_copy")
     {
-        // todo: implement
+        onCopyRot();
     }
 }
 
@@ -606,17 +617,85 @@ bool LLFloaterGLTFAssetEditor::onMenuEnableItem(const LLSD& userdata)
     }
 
     std::string command = userdata.asString();
-    if (command == "pos_paste" || command == "size_paste" || command == "rot_paste")
+    if (command == "pos_paste")
     {
-        // todo: implement
-        return true;
+        return mHasClipboardPos;
     }
-    if (command == "psr_copy")
+    if (command == "size_paste")
     {
-        // todo: implement
+        return mHasClipboardScale;
+    }
+    if (command == "rot_paste")
+    {
+        return mHasClipboardRot;
+    }
+    if (command == "psr_paste")
+    {
+        return mHasClipboardPos && mHasClipboardScale && mHasClipboardRot;
+    }
+    if (command == "psr_copy" || command == "pos_copy" || command == "size_copy" || command == "rot_copy")
+    {
+        // A valid TYPE_NODE is already selected (checked above) - nothing
+        // else to gate copying on, matching LLPanelObject::menuEnableItem()'s
+        // own "psr_copy" logic once permissions (which have no GLTF-node
+        // equivalent) are set aside.
         return true;
     }
 
     return false;
+}
+
+void LLFloaterGLTFAssetEditor::onCopyPos()
+{
+    mClipboardPos = LLVector3(mCtrlPosX->get(), mCtrlPosY->get(), mCtrlPosZ->get());
+    mHasClipboardPos = true;
+}
+
+void LLFloaterGLTFAssetEditor::onCopyScale()
+{
+    mClipboardScale = LLVector3(mCtrlScaleX->get(), mCtrlScaleY->get(), mCtrlScaleZ->get());
+    mHasClipboardScale = true;
+}
+
+void LLFloaterGLTFAssetEditor::onCopyRot()
+{
+    mClipboardRot = LLVector3(mCtrlRotX->get(), mCtrlRotY->get(), mCtrlRotZ->get());
+    mHasClipboardRot = true;
+}
+
+void LLFloaterGLTFAssetEditor::onPastePos()
+{
+    if (!mHasClipboardPos)
+    {
+        return;
+    }
+    mCtrlPosX->set(mClipboardPos.mV[VX]);
+    mCtrlPosY->set(mClipboardPos.mV[VY]);
+    mCtrlPosZ->set(mClipboardPos.mV[VZ]);
+    onCommitTransform();
+}
+
+void LLFloaterGLTFAssetEditor::onPasteScale()
+{
+    if (!mHasClipboardScale)
+    {
+        return;
+    }
+    mCtrlScaleX->set(mClipboardScale.mV[VX]);
+    mCtrlScaleY->set(mClipboardScale.mV[VY]);
+    mCtrlScaleZ->set(mClipboardScale.mV[VZ]);
+    onCommitTransform();
+}
+
+void LLFloaterGLTFAssetEditor::onPasteRot()
+{
+    if (!mHasClipboardRot)
+    {
+        return;
+    }
+    mCtrlRotX->set(mClipboardRot.mV[VX]);
+    mCtrlRotY->set(mClipboardRot.mV[VY]);
+    mCtrlRotZ->set(mClipboardRot.mV[VZ]);
+    onCommitTransform();
 }
 
