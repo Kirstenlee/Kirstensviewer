@@ -72,6 +72,7 @@ private:
 	bool onHTTPAuthCallback(const std::string host, const std::string realm, std::string& username, std::string& password);
 	void onCursorChangedCallback(dullahan::ECursorType type);
 	const std::vector<std::string> onFileDialog(dullahan::EFileDialogType dialog_type, const std::string dialog_title, const std::string default_file, const std::string dialog_accept_filter, bool& use_default);
+	void onFileDownloadProgressCallback(int percent, bool complete);
 	bool onJSDialogCallback(const std::string origin_url, const std::string message_text, const std::string default_prompt_text);
 	bool onJSBeforeUnloadCallback();
 
@@ -111,6 +112,7 @@ private:
 	std::string mRootCachePath;
 	std::string mCefLogFile;
 	bool mCefLogVerbose;
+	U32 mCefRemoteDebuggingPort;
 	std::vector<std::string> mPickedFiles;
 	VolumeCatcher mVolumeCatcher;
 	F32 mCurVolume;
@@ -153,6 +155,7 @@ MediaPluginBase(host_send_func, host_user_data)
 	mCanSelectAll = false;
 	mCefLogFile = "";
 	mCefLogVerbose = false;
+	mCefRemoteDebuggingPort = 0;
 	mPickedFiles.clear();
 	mCurVolume = 0.0;
 	mPixelsDirty = false;
@@ -400,6 +403,16 @@ const std::vector<std::string> MediaPluginCEF::onFileDialog(dullahan::EFileDialo
 
 ////////////////////////////////////////////////////////////////////////////////
 //
+void MediaPluginCEF::onFileDownloadProgressCallback(int percent, bool complete)
+{
+	LLPluginMessage message(LLPLUGIN_MESSAGE_CLASS_MEDIA, "file_download_progress");
+	message.setValueS32("percent", percent);
+	message.setValueBoolean("complete", complete);
+	sendMessage(message);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+//
 bool MediaPluginCEF::onJSDialogCallback(const std::string origin_url, const std::string message_text, const std::string default_prompt_text)
 {
 	// return true indicates we suppress the JavaScript alert UI entirely
@@ -636,6 +649,7 @@ void MediaPluginCEF::receiveMessage(const char* message_string)
                 mCEFLib->setOnOpenPopupCallback(std::bind(&MediaPluginCEF::onOpenPopupCallback, this, std::placeholders::_1, std::placeholders::_2));
                 mCEFLib->setOnHTTPAuthCallback(std::bind(&MediaPluginCEF::onHTTPAuthCallback, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3, std::placeholders::_4));
                 mCEFLib->setOnFileDialogCallback(std::bind(&MediaPluginCEF::onFileDialog, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3, std::placeholders::_4, std::placeholders::_5));
+                mCEFLib->setOnFileDownloadProgressCallback(std::bind(&MediaPluginCEF::onFileDownloadProgressCallback, this, std::placeholders::_1, std::placeholders::_2));
                 mCEFLib->setOnCursorChangedCallback(std::bind(&MediaPluginCEF::onCursorChangedCallback, this, std::placeholders::_1));
                 mCEFLib->setOnRequestExitCallback(std::bind(&MediaPluginCEF::onRequestExitCallback, this));
                 mCEFLib->setOnJSDialogCallback(std::bind(&MediaPluginCEF::onJSDialogCallback, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3));
@@ -711,6 +725,8 @@ void MediaPluginCEF::receiveMessage(const char* message_string)
 				settings.webgl_enabled = true;
 				settings.log_file = mCefLogFile;
 				settings.log_verbose = mCefLogVerbose;
+				settings.enable_remote_debug = (mCefRemoteDebuggingPort != 0);
+				settings.remote_debugging_port = mCefRemoteDebuggingPort;
 				settings.autoplay_without_gesture = true;
 
 				std::vector<std::string> custom_schemes(1, "secondlife");
@@ -764,6 +780,7 @@ void MediaPluginCEF::receiveMessage(const char* message_string)
 
 				mCefLogFile = message_in.getValue("cef_log_file");
 				mCefLogVerbose = message_in.getValueBoolean("cef_verbose_log");
+				mCefRemoteDebuggingPort = message_in.getValueU32("cef_remote_debugging_port");
 			}
 			else if (message_name == "size_change")
 			{
