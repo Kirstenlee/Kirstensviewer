@@ -45,6 +45,7 @@ set(dxrender_CORE
     core/DXStateCache.cpp
     core/DXWorkerDevice.cpp
     core/DXSharedResource.cpp
+    core/DXCompositionSurface.cpp
 )
 
 set(dxrender_RESOURCES
@@ -72,6 +73,7 @@ set(dxrender_HEADER_FILES
     core/DXStateCache.h
     core/DXWorkerDevice.h
     core/DXSharedResource.h
+    core/DXCompositionSurface.h
 
     resources/DXBuffer.h
     resources/DXTexture.h
@@ -121,6 +123,7 @@ if (BUILD_HEADLESS)
         d3d11
         dxgi
         d3dcompiler
+        dcomp
     )
 
     target_compile_options(dxrenderheadless PRIVATE "/Zc:wchar_t-")
@@ -147,6 +150,7 @@ target_link_libraries(dxrender
     d3d11
     dxgi
     d3dcompiler
+    dcomp
 )
 
 target_compile_options(dxrender PRIVATE "/Zc:wchar_t-")

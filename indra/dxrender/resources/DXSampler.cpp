@@ -1,6 +1,7 @@
 #include "DXSampler.h"
 #include "DXDevice.h"
 #include "llerror.h"
+#include <algorithm>
 #include <unordered_map>
 
 namespace
@@ -28,6 +29,17 @@ namespace
 
     std::unordered_map<int, ID3D11SamplerState*> sCache;
     std::unordered_map<int, ID3D11SamplerState*> sComparisonCache;
+    int sMaxAnisotropy = 8;
+}
+
+void DXSampler::setMaxAnisotropy(int level)
+{
+    level = std::clamp(level, 0, 16);
+    if (level != sMaxAnisotropy)
+    {
+        sMaxAnisotropy = level;
+        clear();
+    }
 }
 
 ID3D11SamplerState* DXSampler::getOrCreate(int address_mode, int filter_option)
@@ -39,12 +51,18 @@ ID3D11SamplerState* DXSampler::getOrCreate(int address_mode, int filter_option)
         return iter->second;
     }
 
+    // Level 0 is the "off" position - fall back to plain trilinear rather
+    // than passing MaxAnisotropy=0, which D3D11_SAMPLER_DESC doesn't accept
+    // (valid range is 1-16 regardless of Filter).
+    bool anisotropic = (filter_option == 3) && (sMaxAnisotropy > 0);
+    int effective_filter = (filter_option == 3 && !anisotropic) ? 2 : filter_option;
+
     D3D11_SAMPLER_DESC desc = {};
-    desc.Filter = toFilter(filter_option);
+    desc.Filter = toFilter(effective_filter);
     desc.AddressU = toAddressMode(address_mode);
     desc.AddressV = toAddressMode(address_mode);
     desc.AddressW = toAddressMode(address_mode);
-    desc.MaxAnisotropy = (filter_option == 3) ? 8 : 1;
+    desc.MaxAnisotropy = anisotropic ? sMaxAnisotropy : 1;
     desc.ComparisonFunc = D3D11_COMPARISON_NEVER;
     desc.MinLOD = 0;
     desc.MaxLOD = D3D11_FLOAT32_MAX;

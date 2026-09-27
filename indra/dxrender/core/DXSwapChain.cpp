@@ -8,6 +8,18 @@ DXSwapChain gDXSwapChain;
 
 bool DXSwapChain::create(HWND hwnd, int width, int height, bool vsync)
 {
+    // S24: switchContext() (llwindowwin32.cpp) calls this a second time for every
+    // fullscreen<->windowed toggle, via a freshly recreated HWND - without releasing
+    // whatever swap chain/RTV/DSV already existed from the prior call first, this
+    // silently overwrote mSwapChain, leaking the old chain (still bound to the just-
+    // destroyed window) and its GPU resources instead of tearing it down. destroy()
+    // already does exactly this cleanup (used by the dtor and by resize()'s own
+    // release-before-recreate pattern) - reuse it here for the same reason.
+    if (mSwapChain)
+    {
+        destroy();
+    }
+
     ID3D11Device* device = gDXDevice.getDevice();
     if (!device)
     {
