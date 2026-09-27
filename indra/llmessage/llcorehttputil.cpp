@@ -118,15 +118,17 @@ bool responseToLLSD(HttpResponse * response, bool log, LLSD & out_llsd)
 {
     // Convert response to LLSD
     BufferArray * body(response->getBody());
-    if (!body || !body->size())
+    size_t body_size(body ? body->size() : 0);
+    if (!body || !body_size)
     {
         return false;
     }
 
     LLCore::BufferArrayStream bas(body);
     LLSD body_llsd;
-    S32 parse_status(LLSDSerialize::fromXML(body_llsd, bas, log));
-    if (LLSDParser::PARSE_FAILURE == parse_status){
+
+    if (!LLSDSerialize::deserialize(body_llsd, bas, body_size))
+    {
         return false;
     }
     out_llsd = body_llsd;

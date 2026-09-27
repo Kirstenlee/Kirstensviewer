@@ -28,6 +28,7 @@
 
 #include "fix_macros.h"
 #include "llregex.h"
+#include "fsyspath.h"
 #include <boost/filesystem.hpp>
 
 namespace fs = boost::filesystem;
@@ -129,20 +130,29 @@ bool LLDirIterator::Impl::next(std::string &fname)
 	{
 		while (mIter != end_itr && !found)
 		{
-			boost::smatch match;
-			std::string name = mIter->path().filename().string();
-			found = ll_regex_match(name, match, mFilterExp);
-			if (found)
+			try
 			{
-				fname = name;
+				boost::smatch match;
+				// S24: filename().string() does a locale-dependent narrow
+				// conversion that can throw on Unicode names - go through
+				// fsyspath's UTF-8-safe u8string() conversion instead.
+				std::string name = fsyspath(std::filesystem::path(mIter->path().filename().native())).string();
+				found = ll_regex_match(name, match, mFilterExp);
+				if (found)
+				{
+					fname = name;
+				}
+			}
+			catch (const fs::filesystem_error&)
+			{
+				// Skip unreadable/unconvertible entry, keep iterating.
 			}
 
 			++mIter;
 		}
 	}
-	catch (const fs::filesystem_error& e)
+	catch (const fs::filesystem_error&)
 	{
-		LL_WARNS() << e.what() << LL_ENDL;
 	}
 
 	return found;

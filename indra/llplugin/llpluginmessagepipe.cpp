@@ -121,8 +121,9 @@ bool LLPluginMessagePipe::addMessage(const std::string &message)
 		mOutputStartIndex = 0;
 	}
 		
+	mOutput.reserve(mOutput.size() + message.size() + 1);
 	mOutput += message;
-	mOutput += MESSAGE_DELIMITER;	// message separator
+	mOutput.push_back(MESSAGE_DELIMITER);	// message separator
 	
 	return true;
 }
@@ -159,7 +160,7 @@ bool LLPluginMessagePipe::pump(F64 timeout)
 	if (LLApp::instance()->isExiting())
 	{
 		if (mOutput.empty())
-			return true; // App exiting, nothing left to write — don't poll input either.
+			return true; // App exiting, nothing left to write ï¿½ don't poll input either.
 	}
 
 	bool result = pumpOutput();

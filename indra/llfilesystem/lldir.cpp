@@ -39,6 +39,7 @@
 #include "lldiriterator.h"
 #include "stringize.h"
 #include "llstring.h"
+#include "fsyspath.h"
 #include <boost/filesystem.hpp>
 #include "llprocess.h"
 #include <boost/bind/bind.hpp>
@@ -107,14 +108,31 @@ std::vector<std::string> LLDir::getFilesInDir(const std::string &dirname)
         if (is_directory(p, ec) && !ec.failed())
         {
             boost::filesystem::directory_iterator end_iter;
-            for (boost::filesystem::directory_iterator dir_itr(p);
-                 dir_itr != end_iter;
-                 ++dir_itr)
+            try
             {
-                if (boost::filesystem::is_regular_file(dir_itr->status()))
+                for (boost::filesystem::directory_iterator dir_itr(p);
+                     dir_itr != end_iter;
+                     ++dir_itr)
                 {
-                    v.push_back(dir_itr->path().filename().string());
+                    try
+                    {
+                        if (boost::filesystem::is_regular_file(dir_itr->status()))
+                        {
+                            // S24: filename().string() does a locale-dependent narrow
+                            // conversion that can throw on Unicode names (e.g. non-ASCII
+                            // avatar/object names in chatlog filenames) - go through
+                            // fsyspath's UTF-8-safe u8string() conversion instead.
+                            v.push_back(fsyspath(std::filesystem::path(dir_itr->path().filename().native())).string());
+                        }
+                    }
+                    catch (const boost::filesystem::filesystem_error&)
+                    {
+                        // Skip unreadable/unconvertible entry, keep listing the rest.
+                    }
                 }
+            }
+            catch (const boost::filesystem::filesystem_error&)
+            {
             }
         }
     }

@@ -176,6 +176,7 @@ set(llmessage_HEADER_FILES
     llxfer_mem.h
     llxfer_vfile.h
     llxorcipher.h
+    llzerocode.h
     machine.h
     mean_collision_data.h
     message.h
