@@ -148,6 +148,13 @@
              function="Floater.ToggleOrBringToFront"
              parameter="prefs_kvtweaks" />
         </menu_item_call>
+        <menu_item_call
+         label="Music Player..."
+         name="Music Player">
+            <menu_item_call.on_click
+             function="Floater.Toggle"
+             parameter="music_player" />
+        </menu_item_call>
          <menu_item_call
          label="Toolbar buttons..."
          name="Toolbars">

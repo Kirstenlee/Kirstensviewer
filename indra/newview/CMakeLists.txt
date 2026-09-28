@@ -304,6 +304,7 @@ set(viewer_SOURCE_FILES
     llfloatermemleak.cpp
     llfloatermodelpreview.cpp
     llfloatermodeluploadbase.cpp
+    llfloatermusicplayer.cpp
     llfloatermyscripts.cpp
     llfloatermyenvironment.cpp
     llfloaternamedesc.cpp
@@ -1010,6 +1011,7 @@ set(viewer_HEADER_FILES
     llfloatermemleak.h
     llfloatermodelpreview.h
     llfloatermodeluploadbase.h
+    llfloatermusicplayer.h
     llfloatermyscripts.h
     llfloatermyenvironment.h
     llfloaternamedesc.h

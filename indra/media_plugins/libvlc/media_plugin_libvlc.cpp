@@ -517,15 +517,60 @@ void MediaPluginLibVLC::playMedia()
 	// buffer size is out of sync with the declared size (width/height) for a frame
 	// or two and the plugin crashes as VLC tries to decode a frame into unallocated
 	// memory.
+	//
+	// S24: libvlc_media_player_stop() is ASYNCHRONOUS - its real
+	// libvlc_MediaPlayerStopped event can arrive on VLC's own event thread
+	// well after the NEW player below is already created and playing.
+	// eventCallbacks() can't tell which player an event came from - it just
+	// stomps the single shared mVlcStatus field - so that late stop event
+	// for this OLD, already-discarded player was silently resetting a
+	// brand-new, already-playing track's status back to STATUS_DONE right
+	// after every track change. A caller polling for STATUS_DONE to
+	// auto-advance a playlist (S24's own music player floater) saw that as
+	// the new track finishing instantly, and skipped straight past it -
+	// "next skips every other track". Detaching this player's callbacks
+	// before stopping it means its event manager has no listener left by
+	// the time that late event arrives, so it can no longer corrupt state
+	// for whatever loads next. release()+null also fixes what was an
+	// unconditional per-track-change leak of the old player object.
 	if (mLibVLCMediaPlayer)
 	{
+		libvlc_event_manager_t* old_player_em = libvlc_media_player_event_manager(mLibVLCMediaPlayer);
+		if (old_player_em)
+		{
+			libvlc_event_detach(old_player_em, libvlc_MediaPlayerOpening, eventCallbacks, this);
+			libvlc_event_detach(old_player_em, libvlc_MediaPlayerPlaying, eventCallbacks, this);
+			libvlc_event_detach(old_player_em, libvlc_MediaPlayerPaused, eventCallbacks, this);
+			libvlc_event_detach(old_player_em, libvlc_MediaPlayerStopped, eventCallbacks, this);
+			libvlc_event_detach(old_player_em, libvlc_MediaPlayerEndReached, eventCallbacks, this);
+			libvlc_event_detach(old_player_em, libvlc_MediaPlayerEncounteredError, eventCallbacks, this);
+			libvlc_event_detach(old_player_em, libvlc_MediaPlayerTimeChanged, eventCallbacks, this);
+			libvlc_event_detach(old_player_em, libvlc_MediaPlayerPositionChanged, eventCallbacks, this);
+			libvlc_event_detach(old_player_em, libvlc_MediaPlayerLengthChanged, eventCallbacks, this);
+			libvlc_event_detach(old_player_em, libvlc_MediaPlayerTitleChanged, eventCallbacks, this);
+		}
+
 		libvlc_media_player_stop(mLibVLCMediaPlayer);
+		libvlc_media_player_release(mLibVLCMediaPlayer);
+		mLibVLCMediaPlayer = 0;
+	}
+
+	if (mLibVLCMedia)
+	{
+		// S24 - same leak: the previous media object was never released
+		// either, it was just overwritten below on every track change.
+		libvlc_event_manager_t* old_media_em = libvlc_media_event_manager(mLibVLCMedia);
+		if (old_media_em)
+		{
+			libvlc_event_detach(old_media_em, libvlc_MediaMetaChanged, eventCallbacks, this);
+		}
+		libvlc_media_release(mLibVLCMedia);
+		mLibVLCMedia = 0;
 	}
 
 	mLibVLCMedia = libvlc_media_new_location(mLibVLC, mURL.c_str());
 	if (!mLibVLCMedia)
 	{
-		mLibVLCMediaPlayer = 0;
 		setStatus(STATUS_ERROR);
 		return;
 	}

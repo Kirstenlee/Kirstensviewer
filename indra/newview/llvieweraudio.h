@@ -57,7 +57,18 @@ public:
 
 	void startInternetStreamWithAutoFade(const std::string &streamURI);
 	void stopInternetStreamWithAutoFade();
-	
+
+	// S24: set by LLFloaterMusicPlayer for as long as it owns audio
+	// playback - startInternetStreamWithAutoFade() no-ops while this is
+	// true, so parcel-audio restarts (parcel crossings re-run
+	// LLViewerParcelMgr::processParcelPropertiesReply() unconditionally,
+	// not just once) can't fight the player for the stream slot.
+	// Deliberately NOT the same thing as the user's own "MuteMusic"
+	// setting - this is a transient ownership flag, never persisted,
+	// never overwrites the user's real preference.
+	void setExternalPlayerActive(bool active) { mExternalPlayerActive = active; }
+	bool isExternalPlayerActive() const { return mExternalPlayerActive; }
+
 	bool onIdleUpdate();
 
 	EFadeState getFadeState() { return mFadeState; }
@@ -72,6 +83,7 @@ public:
 private:
 
 	bool mDone;
+	bool mExternalPlayerActive = false;
 	F32 mFadeTime;
 	std::string mNextStreamURI;
 	EFadeState mFadeState;

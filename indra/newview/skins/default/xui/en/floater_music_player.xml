@@ -1,0 +1,475 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes" ?>
+<floater
+ legacy_header_height="18"
+ can_resize="false"
+ height="580"
+ layout="topleft"
+ name="music_player"
+ help_topic="music_player"
+ save_rect="true"
+ title="MUSIC PLAYER"
+ width="380">
+    <!-- S24: fixed-size layout, no can_resize - three rounds of a resizable
+         layout_stack (empty-on-open needing updateLayout(), then a top/
+         bottom anchor mismatch) confirmed that mechanism isn't worth the
+         risk for a floater this simple. Every position below is absolute
+         (left/top_pad chaining), same proven scheme the very first version
+         of this floater used - the scroll list gets its own native
+         scrollbar for overflow, so a long playlist never needs the floater
+         itself to grow. -->
+    <scroll_list
+     column_padding="0"
+     draw_heading="true"
+     follows="left|top|right"
+     height="270"
+     layout="topleft"
+     left="10"
+     top="24"
+     right="-10"
+     name="playlist_list">
+        <scroll_list.columns
+         label="Track"
+         name="track"
+         width="220" />
+        <scroll_list.columns
+         label="Source"
+         name="source"
+         width="-1" />
+    </scroll_list>
+    <text
+     type="string"
+     follows="left|top|right"
+     height="16"
+     layout="topleft"
+     left="10"
+     name="now_playing_text"
+     top_pad="6"
+     right="-10">
+        Not playing
+    </text>
+    <button
+     follows="top|left"
+     height="24"
+     image_overlay="SkipBackward_Off"
+     image_disabled="PushButton_Disabled"
+     image_disabled_selected="PushButton_Disabled"
+     image_selected="PushButton_Selected"
+     image_unselected="PushButton_Off"
+     hover_glow_amount="0.15"
+     layout="topleft"
+     left="10"
+     name="prev_btn"
+     top_pad="8"
+     tool_tip="Previous track"
+     width="30" />
+    <button
+     follows="top|left"
+     height="24"
+     image_overlay="Play_Off"
+     image_disabled="PushButton_Disabled"
+     image_disabled_selected="PushButton_Disabled"
+     image_selected="PushButton_Selected"
+     image_unselected="PushButton_Off"
+     hover_glow_amount="0.15"
+     layout="topleft"
+     left_pad="4"
+     name="play_pause_btn"
+     top_delta="0"
+     tool_tip="Play"
+     width="30" />
+    <button
+     follows="top|left"
+     height="24"
+     image_overlay="Stop_Off"
+     image_disabled="PushButton_Disabled"
+     image_disabled_selected="PushButton_Disabled"
+     image_selected="PushButton_Selected"
+     image_unselected="PushButton_Off"
+     hover_glow_amount="0.15"
+     layout="topleft"
+     left_pad="4"
+     name="stop_btn"
+     top_delta="0"
+     tool_tip="Stop"
+     width="30" />
+    <button
+     follows="top|left"
+     height="24"
+     image_overlay="SkipForward_Off"
+     image_disabled="PushButton_Disabled"
+     image_disabled_selected="PushButton_Disabled"
+     image_selected="PushButton_Selected"
+     image_unselected="PushButton_Off"
+     hover_glow_amount="0.15"
+     layout="topleft"
+     left_pad="4"
+     name="next_btn"
+     top_delta="0"
+     tool_tip="Next track"
+     width="30" />
+    <slider_bar
+     follows="top|left|right"
+     height="24"
+     increment="0.01"
+     initial_value="0.5"
+     layout="topleft"
+     left_pad="10"
+     name="volume_slider"
+     top_delta="0"
+     tool_tip="Player volume"
+     right="-10" />
+    <line_editor
+     follows="left|top|right"
+     height="22"
+     layout="topleft"
+     left="10"
+     max_length_bytes="1024"
+     name="url_entry"
+     top_pad="10"
+     tool_tip="Paste an internet radio / stream URL"
+     width="220" />
+    <button
+     follows="top|right"
+     height="22"
+     label="Add URL"
+     layout="topleft"
+     left_pad="4"
+     name="add_url_btn"
+     top_delta="0"
+     width="60" />
+    <button
+     follows="top|left"
+     height="22"
+     label="Add File..."
+     layout="topleft"
+     left="10"
+     name="add_file_btn"
+     top_pad="8"
+     width="90" />
+    <button
+     follows="top|left"
+     height="22"
+     label="Add Folder..."
+     layout="topleft"
+     left_pad="4"
+     name="add_folder_btn"
+     top_delta="0"
+     width="90" />
+    <button
+     follows="top|left"
+     height="22"
+     label="Remove"
+     layout="topleft"
+     left_pad="6"
+     name="remove_btn"
+     top_delta="0"
+     width="80" />
+    <check_box
+     follows="top|left"
+     height="18"
+     label="Equalizer"
+     layout="topleft"
+     left="10"
+     name="eq_enable_check"
+     top_pad="14"
+     width="120" />
+    <!-- S24: 10-band graphic EQ, VLC's fixed frequencies (60Hz-16KHz),
+         -20..+20 dB per band and on the preamp below - matches
+         media_plugin_libvlc.cpp's own eq_update clamp range exactly.
+         Vertical slider_bar is a proven existing pattern (floater_camera.xml's
+         zoom_slider), not new widget territory. -->
+    <slider_bar
+     follows="top|left"
+     height="70"
+     increment="1"
+     initial_value="0"
+     layout="topleft"
+     left="10"
+     max_val="20"
+     min_val="-20"
+     name="eq_band_0"
+     orientation="vertical"
+     top_pad="6"
+     tool_tip="60 Hz"
+     width="26" />
+    <slider_bar
+     follows="top|left"
+     height="70"
+     increment="1"
+     initial_value="0"
+     layout="topleft"
+     left_pad="2"
+     max_val="20"
+     min_val="-20"
+     name="eq_band_1"
+     orientation="vertical"
+     top_delta="0"
+     tool_tip="170 Hz"
+     width="26" />
+    <slider_bar
+     follows="top|left"
+     height="70"
+     increment="1"
+     initial_value="0"
+     layout="topleft"
+     left_pad="2"
+     max_val="20"
+     min_val="-20"
+     name="eq_band_2"
+     orientation="vertical"
+     top_delta="0"
+     tool_tip="310 Hz"
+     width="26" />
+    <slider_bar
+     follows="top|left"
+     height="70"
+     increment="1"
+     initial_value="0"
+     layout="topleft"
+     left_pad="2"
+     max_val="20"
+     min_val="-20"
+     name="eq_band_3"
+     orientation="vertical"
+     top_delta="0"
+     tool_tip="600 Hz"
+     width="26" />
+    <slider_bar
+     follows="top|left"
+     height="70"
+     increment="1"
+     initial_value="0"
+     layout="topleft"
+     left_pad="2"
+     max_val="20"
+     min_val="-20"
+     name="eq_band_4"
+     orientation="vertical"
+     top_delta="0"
+     tool_tip="1 KHz"
+     width="26" />
+    <slider_bar
+     follows="top|left"
+     height="70"
+     increment="1"
+     initial_value="0"
+     layout="topleft"
+     left_pad="2"
+     max_val="20"
+     min_val="-20"
+     name="eq_band_5"
+     orientation="vertical"
+     top_delta="0"
+     tool_tip="3 KHz"
+     width="26" />
+    <slider_bar
+     follows="top|left"
+     height="70"
+     increment="1"
+     initial_value="0"
+     layout="topleft"
+     left_pad="2"
+     max_val="20"
+     min_val="-20"
+     name="eq_band_6"
+     orientation="vertical"
+     top_delta="0"
+     tool_tip="6 KHz"
+     width="26" />
+    <slider_bar
+     follows="top|left"
+     height="70"
+     increment="1"
+     initial_value="0"
+     layout="topleft"
+     left_pad="2"
+     max_val="20"
+     min_val="-20"
+     name="eq_band_7"
+     orientation="vertical"
+     top_delta="0"
+     tool_tip="12 KHz"
+     width="26" />
+    <slider_bar
+     follows="top|left"
+     height="70"
+     increment="1"
+     initial_value="0"
+     layout="topleft"
+     left_pad="2"
+     max_val="20"
+     min_val="-20"
+     name="eq_band_8"
+     orientation="vertical"
+     top_delta="0"
+     tool_tip="14 KHz"
+     width="26" />
+    <slider_bar
+     follows="top|left"
+     height="70"
+     increment="1"
+     initial_value="0"
+     layout="topleft"
+     left_pad="2"
+     max_val="20"
+     min_val="-20"
+     name="eq_band_9"
+     orientation="vertical"
+     top_delta="0"
+     tool_tip="16 KHz"
+     width="26" />
+    <text
+     type="string"
+     follows="top|left"
+     halign="center"
+     height="12"
+     font="SansSerifSmall"
+     layout="topleft"
+     left="10"
+     name="eq_label_0"
+     top_pad="2"
+     width="26">
+        60
+    </text>
+    <text
+     type="string"
+     follows="top|left"
+     halign="center"
+     height="12"
+     font="SansSerifSmall"
+     layout="topleft"
+     left_pad="2"
+     name="eq_label_1"
+     top_delta="0"
+     width="26">
+        170
+    </text>
+    <text
+     type="string"
+     follows="top|left"
+     halign="center"
+     height="12"
+     font="SansSerifSmall"
+     layout="topleft"
+     left_pad="2"
+     name="eq_label_2"
+     top_delta="0"
+     width="26">
+        310
+    </text>
+    <text
+     type="string"
+     follows="top|left"
+     halign="center"
+     height="12"
+     font="SansSerifSmall"
+     layout="topleft"
+     left_pad="2"
+     name="eq_label_3"
+     top_delta="0"
+     width="26">
+        600
+    </text>
+    <text
+     type="string"
+     follows="top|left"
+     halign="center"
+     height="12"
+     font="SansSerifSmall"
+     layout="topleft"
+     left_pad="2"
+     name="eq_label_4"
+     top_delta="0"
+     width="26">
+        1K
+    </text>
+    <text
+     type="string"
+     follows="top|left"
+     halign="center"
+     height="12"
+     font="SansSerifSmall"
+     layout="topleft"
+     left_pad="2"
+     name="eq_label_5"
+     top_delta="0"
+     width="26">
+        3K
+    </text>
+    <text
+     type="string"
+     follows="top|left"
+     halign="center"
+     height="12"
+     font="SansSerifSmall"
+     layout="topleft"
+     left_pad="2"
+     name="eq_label_6"
+     top_delta="0"
+     width="26">
+        6K
+    </text>
+    <text
+     type="string"
+     follows="top|left"
+     halign="center"
+     height="12"
+     font="SansSerifSmall"
+     layout="topleft"
+     left_pad="2"
+     name="eq_label_7"
+     top_delta="0"
+     width="26">
+        12K
+    </text>
+    <text
+     type="string"
+     follows="top|left"
+     halign="center"
+     height="12"
+     font="SansSerifSmall"
+     layout="topleft"
+     left_pad="2"
+     name="eq_label_8"
+     top_delta="0"
+     width="26">
+        14K
+    </text>
+    <text
+     type="string"
+     follows="top|left"
+     halign="center"
+     height="12"
+     font="SansSerifSmall"
+     layout="topleft"
+     left_pad="2"
+     name="eq_label_9"
+     top_delta="0"
+     width="26">
+        16K
+    </text>
+    <text
+     type="string"
+     follows="left|top"
+     height="16"
+     layout="topleft"
+     left="10"
+     name="eq_preamp_label"
+     top_pad="10"
+     width="55">
+        Preamp
+    </text>
+    <slider_bar
+     follows="top|left|right"
+     height="20"
+     increment="1"
+     initial_value="0"
+     layout="topleft"
+     left_pad="6"
+     max_val="20"
+     min_val="-20"
+     name="eq_preamp_slider"
+     top_delta="0"
+     tool_tip="Equalizer preamp (dB)"
+     right="-10" />
+</floater>

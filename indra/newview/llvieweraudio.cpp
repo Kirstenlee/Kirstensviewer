@@ -92,6 +92,19 @@ void LLViewerAudio::startInternetStreamWithAutoFade(const std::string &streamURI
 {
     LL_DEBUGS("AudioEngine") << "Start with outo fade: " << streamURI << LL_ENDL;
 
+	// S24: LLFloaterMusicPlayer owns the stream slot right now - every
+	// parcel-audio start request (initial parcel load, a later parcel
+	// crossing, the "yes, play it" response from LLViewerParcelAskPlay)
+	// funnels through this one function, so gating it here - rather than
+	// at each individual caller in llviewerparcelmgr.cpp - is the single
+	// choke point that actually stops parcel audio fighting the player,
+	// not just a first-call courtesy.
+	if (mExternalPlayerActive)
+	{
+		LL_DEBUGS("AudioEngine") << "Skipped - external music player owns the stream" << LL_ENDL;
+		return;
+	}
+
 	// Old and new stream are identical
 	if (mNextStreamURI == streamURI)
 	{
