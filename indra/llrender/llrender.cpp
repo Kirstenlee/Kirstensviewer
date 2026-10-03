@@ -417,7 +417,7 @@ bool LLTexUnit::bind(DXCubeMapArray* cubeMapArray)
 }
 
 // LLRenderTarget is unavailible on the mapserver since it uses FBOs.
-bool LLTexUnit::bind(LLRenderTarget* renderTarget, bool bindDepth, bool useComparisonSampler)
+bool LLTexUnit::bind(LLRenderTarget* renderTarget, bool bindDepth, bool useComparisonSampler, bool bindStencil)
 {
 	if (mIndex < 0 || !renderTarget) return false;
 
@@ -427,7 +427,11 @@ bool LLTexUnit::bind(LLRenderTarget* renderTarget, bool bindDepth, bool useCompa
 	// This is the texture-binding chokepoint for the whole deferred/
 	// post-process chain (bindDeferredShader(), shadow maps, glow, CAS,
 	// FXAA/SMAA, SSR, water/hero-probe depth sampling).
-	ID3D11ShaderResourceView* srv = bindDepth ? renderTarget->getDepthSRV() : renderTarget->getColorSRV(0);
+	//
+	// S24: bindStencil (KRLV_TOUCHPOINT-adjacent, @camtextures) takes
+	// priority over bindDepth - see this function's header comment.
+	ID3D11ShaderResourceView* srv = bindStencil ? renderTarget->getStencilSRV()
+		: (bindDepth ? renderTarget->getDepthSRV() : renderTarget->getColorSRV(0));
 	if (!srv)
 	{
 		return false;

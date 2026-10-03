@@ -977,6 +977,11 @@ void LLShaderMgr::initAttribsAndUniforms()
 	mReservedUniforms.push_back("searchTex");
 	mReservedUniforms.push_back("blendTex");
 
+	// KRLV_TOUCHPOINT-adjacent: @camtextures/@setcam_textures - see
+	// krlv/README.md's Camera section, krlvCamDrawFogF.hlsl.
+	mReservedUniforms.push_back("krlvStencilTex");
+	mReservedUniforms.push_back("krlvSubstituteTex");
+
 	llassert(mReservedUniforms.size() == END_RESERVED_UNIFORMS);
 
 	std::set<std::string> dupe_check;

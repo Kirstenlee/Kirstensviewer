@@ -208,7 +208,11 @@ public:
     // hardware PCF). Only meaningful together with bindDepth=true. Ignored
     // under GL - shadow-sampler comparison mode is set independently there,
     // at texture-parameter time (GL_TEXTURE_COMPARE_MODE), not per-bind.
-    bool bind(LLRenderTarget * renderTarget, bool bindDepth = false, bool useComparisonSampler = false);
+    // KRLV_TOUCHPOINT-adjacent: bindStencil selects renderTarget's
+    // getStencilSRV() instead of getDepthSRV()/getColorSRV(0) - mutually
+    // exclusive with bindDepth (stencil wins if both are somehow true). See
+    // krlv/README.md's Camera section (@camtextures) for the one caller.
+    bool bind(LLRenderTarget * renderTarget, bool bindDepth = false, bool useComparisonSampler = false, bool bindStencil = false);
 
     // Manually binds a texture to the texture unit
     // (automatically enables the tex unit for the given texture type)

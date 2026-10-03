@@ -38,10 +38,10 @@ const F32 OOU16MAX = 1.f/(F32)(U16MAX);
 const U8 U8MAX = 255;
 const F32 OOU8MAX = 1.f/(F32)(U8MAX);
 
-__declspec(align(16)) const F32 F_U16MAX_4A[4] = { 65535.f, 65535.f, 65535.f, 65535.f };
-__declspec(align(16)) const F32 F_OOU16MAX_4A[4] = { OOU16MAX, OOU16MAX, OOU16MAX, OOU16MAX };
-__declspec(align(16)) const F32 F_U8MAX_4A[4] = { 255.f, 255.f, 255.f, 255.f };
-__declspec(align(16)) const F32 F_OOU8MAX_4A[4] = { OOU8MAX, OOU8MAX, OOU8MAX, OOU8MAX };
+alignas(16) const F32 F_U16MAX_4A[4] = { 65535.f, 65535.f, 65535.f, 65535.f };
+alignas(16) const F32 F_OOU16MAX_4A[4] = { OOU16MAX, OOU16MAX, OOU16MAX, OOU16MAX };
+alignas(16) const F32 F_U8MAX_4A[4] = { 255.f, 255.f, 255.f, 255.f };
+alignas(16) const F32 F_OOU8MAX_4A[4] = { OOU8MAX, OOU8MAX, OOU8MAX, OOU8MAX };
 
 const U8 FIRSTVALIDCHAR = 54;
 const U8 MAXSTRINGVAL = U8MAX - FIRSTVALIDCHAR; //we don't allow newline or null 

@@ -180,6 +180,10 @@ public:
     // readDepthPixels() reaches the underlying texture via GetResource()).
     ID3D11ShaderResourceView* getDepthSRV() const { return mDXRenderTarget.getDepthSRV(); }
 
+    // S24: KRLV_TOUCHPOINT-adjacent - stencil-plane counterpart to
+    // getDepthSRV(), see DXRenderTarget::getStencilSRV()'s comment.
+    ID3D11ShaderResourceView* getStencilSRV() const { return mDXRenderTarget.getStencilSRV(); }
+
     // S24: raw texture accessor for direct CPU<->GPU transfer
     // (DXReadback::readPixels()/writePixels()), not shader sampling.
     ID3D11Texture2D* getDXColorTexture(size_t index) const { return mDXRenderTarget.getColorTexture(index); }

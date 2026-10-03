@@ -1388,6 +1388,11 @@ namespace
         D3D11_COMPARISON_FUNC func = glDepthFuncToDX(depth_func);
         ID3D11DepthStencilState* ds = DXStateCache::getDepthStencilState(depth_enabled != GL_FALSE, write_enabled != GL_FALSE, func);
         ctx->OMSetDepthStencilState(ds, 0);
+        // KRLV_TOUCHPOINT-adjacent: lets DXStateCache::tagAttachmentStencil()
+        // (@camtextures) later derive a matching stencil-enabled variant of
+        // THIS exact depth config instead of guessing - see its header
+        // comment in DXStateCache.h.
+        DXStateCache::recordAppliedDepthStencilState(depth_enabled != GL_FALSE, write_enabled != GL_FALSE, func);
     }
 }
 

@@ -809,7 +809,7 @@ S32 LLHLSLShader::bindTexture(S32 uniform, LLTexture* texture, LLTexUnit::eTextu
 	return uniform;
 }
 
-S32 LLHLSLShader::bindTexture(S32 uniform, LLRenderTarget* texture, bool depth, LLTexUnit::eTextureFilterOptions mode, U32 index)
+S32 LLHLSLShader::bindTexture(S32 uniform, LLRenderTarget* texture, bool depth, LLTexUnit::eTextureFilterOptions mode, U32 index, bool stencil)
 {
 
 	// S24: `index` (multi-attachment selection) and `mode` (filter option)
@@ -820,7 +820,7 @@ S32 LLHLSLShader::bindTexture(S32 uniform, LLRenderTarget* texture, bool depth, 
 	S32 channel = getTextureChannel(uniform);
 	if (channel > -1)
 	{
-		gDX.getTexUnit(channel)->bind(texture, depth);
+		gDX.getTexUnit(channel)->bind(texture, depth, false, stencil);
 	}
 	return channel;
 }

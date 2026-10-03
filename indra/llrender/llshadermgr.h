@@ -361,6 +361,11 @@ public:
         SMAA_SEARCH_TEX,                    //  "searchTex"
         SMAA_BLEND_TEX,                     //  "blendTex"
 
+        // KRLV_TOUCHPOINT-adjacent: @camtextures/@setcam_textures - see
+        // krlv/README.md's Camera section, krlvCamDrawFogF.hlsl.
+        KRLV_CAMTEXTURES_STENCIL,           //  "krlvStencilTex"
+        KRLV_CAMTEXTURES_SUBSTITUTE,        //  "krlvSubstituteTex"
+
         END_RESERVED_UNIFORMS
     } eGLSLReservedUniforms;
     // clang-format on

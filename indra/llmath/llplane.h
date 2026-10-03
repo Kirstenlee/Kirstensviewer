@@ -37,9 +37,9 @@
 // The closest approach = D / sqrt(A*A + B*B + C*C)
 
 
-LL_ALIGN_PREFIX(16)
-class LLPlane
+class alignas(16) LLPlane
 {
+    LL_ALIGN_NEW
 public:
 	
 	// Constructors
@@ -102,7 +102,7 @@ public:
 
 private:
 	LLVector4a mV;
-} LL_ALIGN_POSTFIX(16);
+};
 
 static_assert(std::is_trivial<LLPlane>::value, "LLPlane must be a trivial type");
 

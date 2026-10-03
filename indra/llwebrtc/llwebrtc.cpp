@@ -300,9 +300,14 @@ void LLWebRTCImpl::init()
 {
     webrtc::InitializeSSL();
 
-    // Normal logging is rather spammy, so turn it off.
+    // Normal logging is rather spammy, so turn it off. S24: SetLogToStderr(true)
+    // directly contradicted this comment - it re-enabled a raw stderr path that
+    // bypasses LLWebRTCLogSink's severity-based demotion entirely, letting the
+    // vendored library's own chatty internal warnings (e.g. port.cc's routine
+    // "non-STUN packet from unknown address" ICE noise) reach the log as real
+    // WARNING lines regardless of the sink's own file-origin check below.
     webrtc::LogMessage::LogToDebug(webrtc::LS_NONE);
-    webrtc::LogMessage::SetLogToStderr(true);
+    webrtc::LogMessage::SetLogToStderr(false);
     webrtc::LogMessage::AddLogToStream(mLogSink, webrtc::LS_VERBOSE);
 
     // Create the native threads.
