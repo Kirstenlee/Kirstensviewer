@@ -81,8 +81,56 @@ public:
     // Mirrors LLGLDepthTest (llrender/llglstates.h) - depth_enabled/
     // write_enabled/func together, since D3D11 bundles them into one
     // ID3D11DepthStencilState object the same way it bundles blend state.
-    // Stencil is always off - nothing converted so far toggles it.
-    static ID3D11DepthStencilState* getDepthStencilState(bool depth_enabled, bool write_enabled, D3D11_COMPARISON_FUNC func);
+    //
+    // stencil_write_enabled (default false, every pre-existing call site
+    // unaffected): KRLV_TOUCHPOINT-adjacent - when true, the returned state
+    // also has StencilEnable on, an always-pass compare, REPLACE-on-pass for
+    // both faces, and a full write mask. It does NOT bake in a specific
+    // stencil value - callers pass their own per-draw StencilRef straight to
+    // OMSetDepthStencilState(state, ref) themselves (same call shape
+    // DXUIBatch.cpp already uses for its own, unrelated stencil clipping on
+    // a completely separate depth-stencil resource) - reusing ONE cached
+    // state object with a varying ref is the cheap, idiomatic D3D11 pattern
+    // for per-draw tagging, not a new state object per tag value. See
+    // krlv/README.md's Camera section (@camtextures) for the real caller.
+    static ID3D11DepthStencilState* getDepthStencilState(bool depth_enabled, bool write_enabled, D3D11_COMPARISON_FUNC func, bool stencil_write_enabled = false);
+
+    // Called ONLY from applyDXDepthStencilState() (llgl.cpp), right after it
+    // issues its own OMSetDepthStencilState - records the depth config that
+    // is now REALLY active, and bumps a generation counter (same purpose as
+    // getRTVGeneration()/bumpRTVGeneration() below, for the same class of
+    // staleness hazard). tagAttachmentStencil() below reads this back
+    // instead of guessing, so it always derives a stencil-enabled variant
+    // that matches whatever the CURRENT LLGLDepthTest scope actually set,
+    // not a hardcoded assumption.
+    static void recordAppliedDepthStencilState(bool depth_enabled, bool write_enabled, D3D11_COMPARISON_FUNC func);
+
+    // KRLV_TOUCHPOINT-adjacent: true only while @camtextures/@setcam_textures
+    // has an active source - set once per frame, at the top of the deferred
+    // geometry pass (DXPipeline::renderGeomDeferred(), via
+    // KRlv::isCamTexturesActive()), not read/written per-batch. Callers
+    // (pushBatch()/dxdrawpoolalpha.cpp/the GLTF batch path) check this
+    // themselves before ever calling tagAttachmentStencil() below, so the
+    // whole mechanism costs nothing when the restriction isn't active - see
+    // krlv/README.md's Camera section.
+    static bool sTagAttachmentStencilActive;
+
+    // KRLV_TOUCHPOINT-adjacent: tags the upcoming draw call's stencil plane
+    // with 1 (isAttachment=true - exempt from @camtextures blanking) or 0
+    // (world geometry - eligible to be blanked). Derives a stencil-enabled
+    // depth-stencil state matching whatever depth enable/write/func the
+    // CURRENT LLGLDepthTest scope already established (via
+    // recordAppliedDepthStencilState() above), rather than a hardcoded
+    // guess - see that function's comment for why this matters. Skips the
+    // OMSetDepthStencilState call when the ref is unchanged since the last
+    // call through THIS function specifically, but only when nothing else
+    // has touched depth-stencil state since (checked via the same
+    // generation counter recordAppliedDepthStencilState() bumps) - a nested
+    // LLGLDepthTest scope opening/closing between two batches (both
+    // attachments, say) would otherwise silently reset stencil back off
+    // without this function ever finding out, and the stale "ref unchanged"
+    // skip would leave the SECOND batch's geometry wrongly untagged.
+    static void tagAttachmentStencil(bool isAttachment);
 
     // Skips the IASetPrimitiveTopology() driver call when `topology` already
     // matches what's currently bound - mirrors llhlslshader.cpp's

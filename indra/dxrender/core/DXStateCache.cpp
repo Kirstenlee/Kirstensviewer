@@ -58,6 +58,23 @@ namespace
     std::unordered_map<uint32_t, ID3D11BlendState*> sBlendState;
     std::unordered_map<uint32_t, ID3D11DepthStencilState*> sDepthStencilState;
 
+    // See recordAppliedDepthStencilState()/tagAttachmentStencil()'s header
+    // comments. sDepthStencilGeneration bumps on every REAL
+    // OMSetDepthStencilState call (i.e. every applyDXDepthStencilState()
+    // call, llgl.cpp) - tagAttachmentStencil()'s own "ref unchanged, skip"
+    // cache is only valid while this hasn't moved since it last wrote.
+    bool sLastAppliedDepthEnabled = false;
+    bool sLastAppliedWriteEnabled = false;
+    D3D11_COMPARISON_FUNC sLastAppliedDepthFunc = D3D11_COMPARISON_ALWAYS;
+    uint64_t sDepthStencilGeneration = 0;
+
+    // Sentinels: "never tagged anything yet" - UINT_MAX is never a real
+    // stencil ref this codebase uses (only 0/1), and generation 0 is a
+    // legitimate real value once anything has run, so the ref sentinel
+    // alone is what actually forces the very first call through.
+    UINT sLastStencilRef = 0xFFFFFFFFu;
+    uint64_t sLastStencilRefGeneration = 0;
+
     // D3D11_BLEND's real range (1-19) fits in 5 bits; write_mask uses the low
     // 4 (D3D11_COLOR_WRITE_ENABLE_* is a 4-bit RGBA mask); all 6 fields fit
     // in uint32_t (1 + 5+5 + 5+5 + 4 = 25 bits).
@@ -71,11 +88,12 @@ namespace
             | (static_cast<uint32_t>(write_mask) << 21);
     }
 
-    uint32_t depthStencilKey(bool depth_enabled, bool write_enabled, D3D11_COMPARISON_FUNC func)
+    uint32_t depthStencilKey(bool depth_enabled, bool write_enabled, D3D11_COMPARISON_FUNC func, bool stencil_write_enabled)
     {
         return (depth_enabled ? 1u : 0u)
             | (write_enabled ? 2u : 0u)
-            | (static_cast<uint32_t>(func) << 2);
+            | (stencil_write_enabled ? 4u : 0u)
+            | (static_cast<uint32_t>(func) << 3);
     }
 
     // GL's glBlendFunc(sfactor, dfactor) applies the same two factors to both
@@ -195,9 +213,9 @@ ID3D11RasterizerState* DXStateCache::getRasterizerState(bool cull_enabled, bool 
     return state;
 }
 
-ID3D11DepthStencilState* DXStateCache::getDepthStencilState(bool depth_enabled, bool write_enabled, D3D11_COMPARISON_FUNC func)
+ID3D11DepthStencilState* DXStateCache::getDepthStencilState(bool depth_enabled, bool write_enabled, D3D11_COMPARISON_FUNC func, bool stencil_write_enabled)
 {
-    uint32_t key = depthStencilKey(depth_enabled, write_enabled, func);
+    uint32_t key = depthStencilKey(depth_enabled, write_enabled, func, stencil_write_enabled);
     auto iter = sDepthStencilState.find(key);
     if (iter != sDepthStencilState.end())
     {
@@ -208,7 +226,22 @@ ID3D11DepthStencilState* DXStateCache::getDepthStencilState(bool depth_enabled, 
     desc.DepthEnable = depth_enabled;
     desc.DepthWriteMask = write_enabled ? D3D11_DEPTH_WRITE_MASK_ALL : D3D11_DEPTH_WRITE_MASK_ZERO;
     desc.DepthFunc = func;
-    desc.StencilEnable = FALSE;
+    desc.StencilEnable = stencil_write_enabled ? TRUE : FALSE;
+    if (stencil_write_enabled)
+    {
+        // Always pass, always replace with the caller's own per-draw
+        // StencilRef (see this state's header comment) - both faces, since
+        // this codebase never relies on front/back-specific stencil ops.
+        desc.StencilReadMask = 0xFF;
+        desc.StencilWriteMask = 0xFF;
+        D3D11_DEPTH_STENCILOP_DESC op = {};
+        op.StencilFailOp = D3D11_STENCIL_OP_KEEP;
+        op.StencilDepthFailOp = D3D11_STENCIL_OP_KEEP;
+        op.StencilPassOp = D3D11_STENCIL_OP_REPLACE;
+        op.StencilFunc = D3D11_COMPARISON_ALWAYS;
+        desc.FrontFace = op;
+        desc.BackFace = op;
+    }
 
     ID3D11DepthStencilState* state = nullptr;
     HRESULT hr = gDXDevice.getDevice()->CreateDepthStencilState(&desc, &state);
@@ -220,6 +253,40 @@ ID3D11DepthStencilState* DXStateCache::getDepthStencilState(bool depth_enabled, 
 
     sDepthStencilState[key] = state;
     return state;
+}
+
+bool DXStateCache::sTagAttachmentStencilActive = false;
+
+void DXStateCache::recordAppliedDepthStencilState(bool depth_enabled, bool write_enabled, D3D11_COMPARISON_FUNC func)
+{
+    sLastAppliedDepthEnabled = depth_enabled;
+    sLastAppliedWriteEnabled = write_enabled;
+    sLastAppliedDepthFunc = func;
+    ++sDepthStencilGeneration;
+}
+
+void DXStateCache::tagAttachmentStencil(bool isAttachment)
+{
+    const UINT ref = isAttachment ? 1u : 0u;
+    if (ref == sLastStencilRef && sDepthStencilGeneration == sLastStencilRefGeneration)
+    {
+        return;
+    }
+
+    ID3D11DepthStencilState* state = getDepthStencilState(sLastAppliedDepthEnabled, sLastAppliedWriteEnabled, sLastAppliedDepthFunc, true);
+    if (!state)
+    {
+        return;
+    }
+
+    gDXDevice.getContext()->OMSetDepthStencilState(state, ref);
+    sLastStencilRef = ref;
+    // This call itself just changed the bound depth-stencil state, but it
+    // did so THROUGH this cache (not a competing caller), so the ref it
+    // just wrote is still valid at the CURRENT generation - do not bump
+    // sDepthStencilGeneration here (only applyDXDepthStencilState() does,
+    // for changes that bypass this function entirely).
+    sLastStencilRefGeneration = sDepthStencilGeneration;
 }
 
 void DXStateCache::clear()
@@ -241,6 +308,14 @@ void DXStateCache::clear()
     sDepthStencilState.clear();
 
     sLastTopology = D3D11_PRIMITIVE_TOPOLOGY_UNDEFINED;
+
+    sLastAppliedDepthEnabled = false;
+    sLastAppliedWriteEnabled = false;
+    sLastAppliedDepthFunc = D3D11_COMPARISON_ALWAYS;
+    sDepthStencilGeneration = 0;
+    sLastStencilRef = 0xFFFFFFFFu;
+    sLastStencilRefGeneration = 0;
+    sTagAttachmentStencilActive = false;
 }
 
 void DXStateCache::setPrimitiveTopology(ID3D11DeviceContext* ctx, D3D11_PRIMITIVE_TOPOLOGY topology)

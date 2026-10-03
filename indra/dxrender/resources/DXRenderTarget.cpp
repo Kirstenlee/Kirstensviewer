@@ -33,13 +33,9 @@ bool DXRenderTarget::allocate(uint32_t width, uint32_t height, DXGI_FORMAT color
         }
     }
 
-    // S24 (2026-09-02): was unconditional - callers requesting a genuinely
-    // depth-only target (color_format==DXGI_FORMAT_UNKNOWN, routed here
-    // from LLRenderTarget::allocate()'s color_fmt==0 case, e.g.
-    // pipeline.cpp's shadow-map allocations) still got a real, unused
-    // RGBA8 D3D11 texture + render target view created and bound - a
-    // genuine wasted allocation on top of the "unmapped GL format"
-    // warning this used to also trigger upstream.
+    // A genuinely depth-only target (color_format==DXGI_FORMAT_UNKNOWN,
+    // routed here from LLRenderTarget::allocate()'s color_fmt==0 case, e.g.
+    // shadow-map allocations) needs no color attachment at all.
     if (color_format == DXGI_FORMAT_UNKNOWN)
     {
         return true;
@@ -99,24 +95,14 @@ bool DXRenderTarget::allocateDepth()
 {
     releaseDepth();
 
-    // S24 (2026-08-04): was DXGI_FORMAT_D24_UNORM_S8_UINT with
-    // BindFlags = D3D11_BIND_DEPTH_STENCIL only - a depth-stencil format
-    // texture created WITHOUT D3D11_BIND_SHADER_RESOURCE can never have an
-    // SRV created on it (D3D11 requires the bind flag be present at
-    // creation time), so mDepthSRV was never actually creatable and every
-    // getDepthSRV() caller (LLTexUnit::bind(LLRenderTarget*, true) et al)
-    // silently got null and no-op'd - meaning depth was NEVER real read as
-    // a texture anywhere this whole port, and any shader sampling it
-    // (softenLightF.hlsl's getDepth() being the first) read whatever
-    // unrelated SRV happened to already be bound to that texture slot from
-    // an earlier draw call. Root cause of a "grey screen with interference
-    // patterns/blobs/kinked lines" symptom - textbook garbage-bit-pattern
-    // visualization, not a math bug. Real fix: create the texture TYPELESS
-    // (D3D11's standard depth+shader-resource pattern) with BOTH bind
-    // flags, then create the DSV/SRV with explicit, different concrete
-    // formats - D24_UNORM_S8_UINT for depth-test purposes, and
-    // R24_UNORM_X8_TYPELESS (reads just the 24-bit depth channel as a
-    // normalized float, ignoring the 8-bit stencil) for sampling.
+    // A depth-stencil format texture needs D3D11_BIND_SHADER_RESOURCE at
+    // creation time to ever have an SRV created on it later - a
+    // depth-stencil-only bind flag makes any later CreateShaderResourceView
+    // call fail. Created TYPELESS (D3D11's standard depth+shader-resource
+    // pattern) with both bind flags; the DSV/SRV below then use explicit,
+    // different concrete formats - D24_UNORM_S8_UINT for depth-test
+    // purposes, R24_UNORM_X8_TYPELESS (24-bit depth as a normalized float,
+    // ignoring the 8-bit stencil) for sampling.
     mDepthFormat = DXGI_FORMAT_R24G8_TYPELESS;
 
     D3D11_TEXTURE2D_DESC desc = {};
@@ -164,11 +150,9 @@ bool DXRenderTarget::allocateDepth()
         return false;
     }
 
-    // S24 (2026-08-15): read-only companion to mDSV, same texture/format -
-    // see this header's bindTarget() comment for why this exists. Failure
-    // here is non-fatal (matches this depth buffer's pre-existing, already-
-    // working behavior when read-only binding isn't requested) - just leaves
-    // mReadOnlyDSV null, and bindTarget() falls back to mDSV.
+    // Read-only companion to mDSV, same texture/format - see this header's
+    // bindTarget() comment for why this exists. Failure here is non-fatal;
+    // just leaves mReadOnlyDSV null, and bindTarget() falls back to mDSV.
     D3D11_DEPTH_STENCIL_VIEW_DESC ro_dsv_desc = dsv_desc;
     ro_dsv_desc.Flags = D3D11_DSV_READ_ONLY_DEPTH | D3D11_DSV_READ_ONLY_STENCIL;
     hr = gDXDevice.getDevice()->CreateDepthStencilView(mDepthTexture, &ro_dsv_desc, &mReadOnlyDSV);
@@ -176,6 +160,22 @@ bool DXRenderTarget::allocateDepth()
     {
         LL_WARNS("RenderTarget") << "CreateDepthStencilView (read-only) failed, hr=0x" << std::hex << (unsigned long)hr << std::dec << LL_ENDL;
         mReadOnlyDSV = nullptr;
+    }
+
+    // Stencil-plane sibling of mDepthSRV, same underlying mDepthTexture -
+    // see getStencilSRV()'s header comment. Failure here is non-fatal, same
+    // reasoning as mReadOnlyDSV above: only KRLV's @camtextures fog-blind
+    // pass needs this, everything else keeps working without it.
+    D3D11_SHADER_RESOURCE_VIEW_DESC stencil_srv_desc = {};
+    stencil_srv_desc.Format = DXGI_FORMAT_X24_TYPELESS_G8_UINT;
+    stencil_srv_desc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+    stencil_srv_desc.Texture2D.MostDetailedMip = 0;
+    stencil_srv_desc.Texture2D.MipLevels = 1;
+    hr = gDXDevice.getDevice()->CreateShaderResourceView(mDepthTexture, &stencil_srv_desc, &mStencilSRV);
+    if (FAILED(hr))
+    {
+        LL_WARNS("RenderTarget") << "CreateShaderResourceView (stencil) failed, hr=0x" << std::hex << (unsigned long)hr << std::dec << LL_ENDL;
+        mStencilSRV = nullptr;
     }
 
     mOwnsDepth = true;
@@ -202,6 +202,7 @@ void DXRenderTarget::shareDepthBuffer(DXRenderTarget& target)
     target.mDSV = mDSV;
     target.mReadOnlyDSV = mReadOnlyDSV;
     target.mDepthSRV = mDepthSRV;
+    target.mStencilSRV = mStencilSRV;
     target.mOwnsDepth = false;
 }
 
@@ -258,11 +259,13 @@ void DXRenderTarget::releaseDepth()
     if (mOwnsDepth)
     {
         if (mDepthSRV) mDepthSRV->Release();
+        if (mStencilSRV) mStencilSRV->Release();
         if (mReadOnlyDSV) mReadOnlyDSV->Release();
         if (mDSV) mDSV->Release();
         if (mDepthTexture) mDepthTexture->Release();
     }
     mDepthSRV = nullptr;
+    mStencilSRV = nullptr;
     mReadOnlyDSV = nullptr;
     mDSV = nullptr;
     mDepthTexture = nullptr;
@@ -294,9 +297,9 @@ void DXRenderTarget::bindTarget(bool bind_depth, bool read_only_depth)
         dsv_to_bind = (read_only_depth && mReadOnlyDSV) ? mReadOnlyDSV : mDSV;
     }
     ctx->OMSetRenderTargets((UINT)mColor.size(), rtvs, dsv_to_bind);
-    // S24 (2026-08-29, task #278/#273): see DXStateCache::getRTVGeneration()'s
-    // comment - closes the SRV-auto-unbind-on-RTV-hazard gap for the texture-
-    // bind dedup in llrender.cpp.
+    // See DXStateCache::getRTVGeneration()'s comment - closes the
+    // SRV-auto-unbind-on-RTV-hazard gap for the texture-bind dedup in
+    // llrender.cpp.
     DXStateCache::bumpRTVGeneration();
 
     D3D11_VIEWPORT vp = {};
@@ -315,13 +318,9 @@ void DXRenderTarget::clear(bool clear_color, bool clear_depth)
 
     if (clear_color)
     {
-        // S24 (2026-08-17, task #174): was a hardcoded `black[4]` here,
-        // unconditionally, regardless of what color the caller actually
-        // wanted (GL's own clear() honors whatever ambient glClearColor()
-        // was last set - D3D11 has no equivalent ambient state, so nothing
-        // here ever reflected it). mClearColor defaults to black too, so
-        // any target that never calls clearColor() behaves exactly as
-        // before - this only changes behavior for targets that have.
+        // Clears to mClearColor (settable via clearColor() below) since
+        // D3D11 has no ambient clear-color state equivalent to GL's
+        // glClearColor(). Defaults to black.
         for (auto& att : mColor)
         {
             if (att.rtv)
@@ -333,17 +332,16 @@ void DXRenderTarget::clear(bool clear_color, bool clear_depth)
 
     if (clear_depth && mDSV)
     {
-        // S24 (reversed-Z conversion): 0.0f is now "far" - see
-        // kGLtoDXDepthRemap's comment (llrender.cpp).
+        // 0.0f is "far" under the reversed-Z convention - see
+        // kGLtoDXDepthRemap (llrender.cpp).
         ctx->ClearDepthStencilView(mDSV, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 0.0f, 0);
     }
 }
 
 void DXRenderTarget::clearColor(float r, float g, float b, float a)
 {
-    // S24 (2026-08-17, task #174): remember it for every future clear(true, ...)
-    // call on this target too, not just this one-shot clear - see this
-    // function's header comment.
+    // Remembered for every future clear(true, ...) call on this target too,
+    // not just this one-shot clear.
     mClearColor[0] = r;
     mClearColor[1] = g;
     mClearColor[2] = b;
@@ -364,10 +362,9 @@ void DXRenderTarget::bindSwapChainBackBuffer()
 {
     ID3D11DeviceContext* ctx = gDXDevice.getContext();
     ID3D11RenderTargetView* back_buffer = gDXSwapChain.getBackBufferRTV();
-    // S24 (2026-08-09): see DXSwapChain::getDepthStencilView()'s comment -
-    // was nullptr here, meaning nothing drawn after this call (including
-    // everything LLViewerWindow::renderSelections()/render_hud_elements()
-    // draw, later this same frame) had a real depth buffer to test against.
+    // See DXSwapChain::getDepthStencilView()'s comment - without this,
+    // everything drawn after this call (LLViewerWindow::renderSelections()/
+    // render_hud_elements()) has no real depth buffer to test against.
     ctx->OMSetRenderTargets(1, &back_buffer, gDXSwapChain.getDepthStencilView());
     DXStateCache::bumpRTVGeneration();
 

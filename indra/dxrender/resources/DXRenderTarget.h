@@ -43,44 +43,24 @@ public:
     // doesn't enforce this the same way, which is why the original GL body
     // never needed an equivalent flag.
     //
-    // S24 (2026-08-15): read_only_depth=true binds mReadOnlyDSV instead of
-    // mDSV (falls back to mDSV if the read-only view failed to create) -
-    // D3D11 explicitly permits a depth-stencil view created with the
-    // D3D11_DSV_READ_ONLY_* flags to be bound simultaneously with an SRV on
-    // the same underlying resource, which bind_depth=false's SRV-priority
-    // approach above can't offer (it sacrifices depth-TESTING entirely,
-    // not just the write). Needed for any pass that must depth-test against
-    // already-written scene depth (write is never wanted here anyway -
-    // LLGLDepthTest's write_enabled=false) while ALSO reading that same
-    // depth as an SRV for world-position reconstruction - exactly
-    // DXPipeline's local-light pass (pointLightF.hlsl/spotLightF.hlsl's
-    // getPosition()/getDepth()), which bind_depth=false left with no depth
-    // occlusion against opaque geometry at all (lights bled through walls -
-    // found via adversarial review of the "state matches GL" diagnostic,
-    // which only compared depth-stencil STATE OBJECTS and was blind to the
-    // OM attachment itself being null).
-    // S24 (2026-08-17, task #174): clear_color draws from mClearColor
-    // (defaults to black - same as the old hardcoded behavior for any
-    // target that's never called clearColor()) instead of always hardcoding
-    // black. GL's own LLRenderTarget::clear() honors whatever ambient
-    // glClearColor(r,g,b,a) the caller set beforehand; D3D11 has no such
-    // ambient state, so this class remembers the last color explicitly set
-    // via clearColor() below and reuses it on every later clear() call -
-    // set it once (e.g. right after allocate()), not before every single
-    // clear(). See DXRenderTarget.cpp's clear() for the real user-visible
-    // symptom this closes (login-screen strobing from mExposureMap's
-    // releaseGLBuffers()/createGLBuffers() cycling clearing to hardcoded
-    // black instead of its intended neutral white).
+    // read_only_depth=true binds mReadOnlyDSV instead of mDSV (falls back to
+    // mDSV if the read-only view failed to create) - D3D11 permits a
+    // read-only-flagged depth-stencil view to be bound simultaneously with
+    // an SRV on the same resource, unlike bind_depth=false's SRV-priority
+    // approach which sacrifices depth-testing entirely. Needed by any pass
+    // that must depth-test against already-written scene depth while ALSO
+    // reading that same depth as an SRV for world-position reconstruction
+    // (e.g. DXPipeline's local-light pass).
+    //
+    // clear_color (in clear() below) draws from mClearColor rather than a
+    // hardcoded black - D3D11 has no ambient clear-color state equivalent to
+    // GL's glClearColor(), so this class remembers the last color explicitly
+    // set via clearColor() and reuses it on every later clear() call.
     void bindTarget(bool bind_depth = true, bool read_only_depth = false);
     void clear(bool clear_color, bool clear_depth);
 
     // Sets mClearColor (used by every FUTURE clear(true, ...) call on this
-    // target, not just this one) and performs an immediate clear right now
-    // - same two-in-one contract as before, just no longer one-shot. See
-    // the call site in DXPipeline::renderDeferredLighting() for the
-    // original reason this exists (a render target that's a stand-in
-    // "neutral" input for a not-yet-built pass needs a specific non-black
-    // fill, not clear()'s old hardcoded black).
+    // target, not just this one) and performs an immediate clear right now.
     void clearColor(float r, float g, float b, float a);
 
     // The DX_RENDER equivalent of GL's "bind FBO 0" - restores the swap
@@ -96,19 +76,23 @@ public:
     ID3D11ShaderResourceView* getColorSRV(size_t index) const;
     ID3D11ShaderResourceView* getDepthSRV() const { return mDepthSRV; }
 
-    // S24 (2026-08-17): raw texture accessor - needed by callers doing
-    // direct CPU<->GPU pixel transfer (DXReadback::readPixels()/
-    // writePixels()) rather than sampling the attachment as a shader input
-    // (getColorSRV()'s job). First real caller: KVOpenCL's GPU post-fx
-    // effects (kveffects.cpp) - see that file's DX_RENDER branch.
+    // KRLV_TOUCHPOINT-adjacent: stencil-plane view of the SAME depth-stencil
+    // texture as getDepthSRV() (DXGI_FORMAT_X24_TYPELESS_G8_UINT, sibling of
+    // mDepthSRV's DXGI_FORMAT_R24_UNORM_X8_TYPELESS - both legal views of
+    // the DXGI_FORMAT_R24G8_TYPELESS resource allocateDepth() already
+    // creates). Lets a post-process pass sample "was this pixel tagged
+    // exempt" as a plain texture read, no OM stencil test/rebind needed -
+    // see krlv/README.md's Camera section (@camtextures).
+    ID3D11ShaderResourceView* getStencilSRV() const { return mStencilSRV; }
+
+    // Raw texture accessor for direct CPU<->GPU pixel transfer (DXReadback::
+    // readPixels()/writePixels()) rather than sampling the attachment as a
+    // shader input (getColorSRV()'s job).
     ID3D11Texture2D* getColorTexture(size_t index) const;
 
-    // S24 (2026-08-26, task #263): depth counterpart to getColorTexture()
-    // above, same rationale - direct CPU<->GPU transfer (DXReadback::
-    // readDepthPixels()) rather than shader sampling (getDepthSRV()'s job).
-    // First real caller: LLViewerWindow::rawSnapshot()'s depth-snapshot path
-    // reading pipeline.mRT->deferredScreen directly instead of the removed
-    // scratch_space indirection.
+    // Depth counterpart to getColorTexture() above, same rationale - direct
+    // CPU<->GPU transfer (DXReadback::readDepthPixels()) rather than shader
+    // sampling (getDepthSRV()'s job).
     ID3D11Texture2D* getDepthTexture() const { return mDepthTexture; }
 
 private:
@@ -125,18 +109,19 @@ private:
 
     std::vector<Attachment> mColor;
 
-    // S24 (2026-08-17, task #174): see clear()/clearColor()'s own comments.
+    // See clear()/clearColor()'s own comments.
     float mClearColor[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
 
     DXGI_FORMAT mDepthFormat = DXGI_FORMAT_UNKNOWN;
     ID3D11Texture2D* mDepthTexture = nullptr;
     ID3D11DepthStencilView* mDSV = nullptr;
-    // S24 (2026-08-15): same underlying mDepthTexture as mDSV, created with
-    // D3D11_DSV_READ_ONLY_DEPTH|STENCIL - see bindTarget()'s own comment.
-    // May be null (creation failure is non-fatal - bindTarget() falls back
-    // to mDSV, same behavior as before this existed).
+    // Same underlying mDepthTexture as mDSV, created with
+    // D3D11_DSV_READ_ONLY_DEPTH|STENCIL - see bindTarget()'s comment. May be
+    // null; bindTarget() falls back to mDSV in that case.
     ID3D11DepthStencilView* mReadOnlyDSV = nullptr;
     ID3D11ShaderResourceView* mDepthSRV = nullptr;
+    // See getStencilSRV() above.
+    ID3D11ShaderResourceView* mStencilSRV = nullptr;
     // true if this target owns (created) mDepthTexture/mDSV; false if they
     // were adopted from another target via shareDepthBuffer() - release()
     // must not destroy a depth buffer this target doesn't own.

@@ -221,7 +221,7 @@ bool DXTexture::createCompressed(const uint8_t* data, int width, int height, DXG
     // BC1 packs a 4x4 block into 8 bytes; BC2/BC3 use 16 bytes/block.
     // Partial edge blocks (width/height not a multiple of 4) still occupy
     // one full block, hence the ceil-to-4 rounding - matches
-    // LLImageGL::dataFormatBytes()'s own "if (width < 4) width = 4"-style
+    // LLImageDX::dataFormatBytes()'s own "if (width < 4) width = 4"-style
     // block-count rounding for the same GL compressed formats.
     const UINT block_size = (format == DXGI_FORMAT_BC1_UNORM) ? 8 : 16;
     const UINT blocks_wide = (UINT)((width + 3) / 4);
@@ -405,7 +405,7 @@ bool DXTexture::updateSubImage(const uint8_t* data, int data_width, int x_pos, i
     // Extract the (x_pos, y_pos, width, height) rectangle out of the larger
     // data_width-strided source buffer into a tightly-packed RGBA8 buffer -
     // mirrors GL's GL_UNPACK_ROW_LENGTH + glTexSubImage2D combination in
-    // LLImageGL::setSubImage().
+    // LLImageDX::setSubImage().
     std::vector<uint8_t> rgba((size_t)width * height * 4);
     for (int y = 0; y < height; ++y)
     {
@@ -450,8 +450,23 @@ bool DXTexture::scaleDown(int src_mip_level, int new_width, int new_height)
         return false;
     }
 
+    // See copySubImageFromFrameBuffer()'s identical check below -
+    // CopySubresourceRegion() requires format-compatible source/
+    // destination, and this function always creates its destination as
+    // plain RGBA8, which a BC7-compressed source is not. mDXUploadGeneration
+    // (checked by upgradeToCompressedMips()) does not get bumped here, so a
+    // texture that was BC7-compressed in the background after this texture
+    // was last uploaded would otherwise sail straight through to a format-
+    // mismatched GPU copy - no Release-build validation catches it, so the
+    // only symptom is a corrupted resource crashing later, whenever
+    // something else next binds it.
+    if (mIsCompressed)
+    {
+        return false;
+    }
+
     // src_mip_level/new_width/new_height are computed by the caller
-    // (LLImageGL::scaleDown()) from GL-style discard-level arithmetic, which
+    // (LLImageDX::scaleDown()) from GL-style discard-level arithmetic, which
     // is NOT guaranteed to exactly match what D3D11's own automatic mip
     // chain (MipLevels=0 at create() time) actually generated for this
     // texture's real dimensions - D3D11 requires the source subresource to
