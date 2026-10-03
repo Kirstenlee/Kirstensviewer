@@ -47,6 +47,7 @@
 #include "llfilesystem.h"
 #include "llfasttimer.h"
 #include "lldiskcache.h"
+#include "fsyspath.h"
 
 #include <filesystem> // S24 C++17 filesystem library
 
@@ -62,22 +63,24 @@ LLFileSystem::LLFileSystem(const LLUUID& file_id, const LLAssetType::EType file_
     , mBytesRead(0)
     , mMode(mode)
 {
+    // build the path once - every other method on this instance (read/write/
+    // seek/getSize/rename) reuses it instead of recomputing/reformatting the
+    // same filename string on every call.
+    mPath = fsyspath(LLDiskCache::metaDataToFilepath(mFileID, mFileType));
+
     // This block of code was originally called in the read() method but after comments here:
     // https://bitbucket.org/lindenlab/viewer/commits/e28c1b46e9944f0215a13cab8ee7dded88d7fc90#comment-10537114
     // we decided to follow Henri's suggestion and move the code to update the last access time here.
     if (mode == LLFileSystem::READ)
     {
-        // build the filename (TODO: we do this in a few places - perhaps we should factor into a single function)
-        const std::string filename = LLDiskCache::metaDataToFilepath(mFileID, mFileType);
-
         // update the last access time for the file if it exists - this is required
         // even though we are reading and not writing because this is the
         // way the cache works - it relies on a valid "last accessed time" for
         // each file so it knows how to remove the oldest, unused files
         std::error_code ec;
-        if (std::filesystem::exists(filename, ec))
+        if (std::filesystem::exists(mPath, ec))
         {
-            updateFileAccessTime(filename);
+            updateFileAccessTime();
         }
     }
 }
@@ -143,9 +146,7 @@ S32 LLFileSystem::getFileSize(const LLUUID& file_id, LLAssetType::EType file_typ
 
 bool LLFileSystem::read(U8* buffer, S32 bytes)
 {
-    const std::string filename = LLDiskCache::metaDataToFilepath(mFileID, mFileType);
-
-    llifstream file(filename, std::ios::binary);
+    llifstream file(mPath, std::ios::binary);
     if (!file.is_open())
     {
         return false;
@@ -177,11 +178,9 @@ bool LLFileSystem::eof() const
 
 bool LLFileSystem::write(const U8* buffer, S32 bytes)
 {
-    const std::string filename = LLDiskCache::metaDataToFilepath(mFileID, mFileType);
-
     if (mMode == APPEND)
     {
-        llofstream ofs(filename, std::ios::app | std::ios::binary);
+        llofstream ofs(mPath, std::ios::app | std::ios::binary);
         if (ofs)
         {
             ofs.write(reinterpret_cast<const char*>(buffer), bytes);
@@ -193,12 +192,12 @@ bool LLFileSystem::write(const U8* buffer, S32 bytes)
     {
         // Check if file exists first to avoid unnecessary open attempts
         std::error_code ec;
-        const bool file_exists = std::filesystem::exists(filename, ec);
+        const bool file_exists = std::filesystem::exists(mPath, ec);
 
         if (file_exists)
         {
             // Don't truncate if file already exists
-            llofstream ofs(filename, std::ios::in | std::ios::out | std::ios::binary);
+            llofstream ofs(mPath, std::ios::in | std::ios::out | std::ios::binary);
             if (ofs)
             {
                 ofs.seekp(mPosition, std::ios::beg);
@@ -210,7 +209,7 @@ bool LLFileSystem::write(const U8* buffer, S32 bytes)
         else
         {
             // File doesn't exist - open in write mode
-            llofstream ofs(filename, std::ios::binary);
+            llofstream ofs(mPath, std::ios::binary);
             if (ofs)
             {
                 ofs.write(reinterpret_cast<const char*>(buffer), bytes);
@@ -221,7 +220,7 @@ bool LLFileSystem::write(const U8* buffer, S32 bytes)
     }
     else
     {
-        llofstream ofs(filename, std::ios::binary);
+        llofstream ofs(mPath, std::ios::binary);
         if (ofs)
         {
             ofs.write(reinterpret_cast<const char*>(buffer), bytes);
@@ -267,7 +266,18 @@ S32 LLFileSystem::tell() const
 
 S32 LLFileSystem::getSize() const
 {
-    return LLFileSystem::getFileSize(mFileID, mFileType);
+    std::error_code ec;
+    if (std::filesystem::exists(mPath, ec) &&
+        std::filesystem::is_regular_file(mPath, ec))
+    {
+        const auto size = std::filesystem::file_size(mPath, ec);
+        if (!ec)
+        {
+            return static_cast<S32>(size);
+        }
+    }
+
+    return 0;
 }
 
 S32 LLFileSystem::getMaxSize() const
@@ -282,6 +292,7 @@ bool LLFileSystem::rename(const LLUUID& new_id, const LLAssetType::EType new_typ
 
     mFileID = new_id;
     mFileType = new_type;
+    mPath = fsyspath(LLDiskCache::metaDataToFilepath(mFileID, mFileType));
 
     return true;
 }
@@ -292,7 +303,7 @@ bool LLFileSystem::remove() const
     return true;
 }
 
-void LLFileSystem::updateFileAccessTime(const std::string& file_path)
+void LLFileSystem::updateFileAccessTime()
 {
     /**
      * Threshold in time_t units that is used to decide if the last access time
@@ -303,45 +314,32 @@ void LLFileSystem::updateFileAccessTime(const std::string& file_path)
      *
      * Let's start with 1 hour in time_t units and see how that unfolds
      */
-    constexpr std::time_t time_threshold = 1 * 60 * 60;
+    constexpr std::chrono::hours time_threshold(1);
+
+    // current time
+    const std::filesystem::file_time_type cur_time = std::chrono::file_clock::now();
 
     std::error_code ec;
-
-#if LL_WINDOWS
-    const std::filesystem::path fs_path = ll_convert<std::wstring>(file_path);
-#else
-    const std::filesystem::path fs_path = file_path;
-#endif
-
-    // Get file last write time - non-throwing
-    const auto last_write_file_time = std::filesystem::last_write_time(fs_path, ec);
+    // file last write time
+    const std::filesystem::file_time_type last_write_time = std::filesystem::last_write_time(mPath, ec);
     if (ec)
     {
-        LL_WARNS() << "Failed to read last write time for cache file " << file_path << ": " << ec.message() << LL_ENDL;
+        LL_WARNS() << "Failed to read last write time for cache file " << mPath << ": " << ec.message() << LL_ENDL;
         return;
     }
 
-    // Convert file_time to time_t for comparison (C++17 compatible approach)
-    // Calculate offset between file_clock and system_clock at current time
-    const auto sctp = std::chrono::time_point_cast<std::chrono::system_clock::duration>(
-        last_write_file_time - std::filesystem::file_time_type::clock::now() + std::chrono::system_clock::now()
-    );
-    const auto last_write_time = std::chrono::system_clock::to_time_t(sctp);
-    const std::time_t cur_time = std::time(nullptr);
-
     // delta between cur time and last time the file was written
-    const std::time_t delta_time = cur_time - last_write_time;
+    const auto delta_time = cur_time - last_write_time;
 
     // we only write the new value if the time in time_threshold has elapsed
     // before the last one
     if (delta_time > time_threshold)
     {
-        const auto new_file_time = std::filesystem::file_time_type::clock::now();
-        std::filesystem::last_write_time(fs_path, new_file_time, ec);
+        std::filesystem::last_write_time(mPath, cur_time, ec);
 
         if (ec)
         {
-            LL_WARNS() << "Failed to update last write time for cache file " << file_path << ": " << ec.message() << LL_ENDL;
+            LL_WARNS() << "Failed to update last write time for cache file " << mPath << ": " << ec.message() << LL_ENDL;
         }
     }
 }

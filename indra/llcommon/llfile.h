@@ -38,8 +38,8 @@
 typedef FILE	LLFILE;
 
 #include <fstream>
+#include <filesystem>
 #include <sys/stat.h>
-
 
 // windows version of stat function and stat data structure are called _stat
 typedef struct _stat64  llstat;
@@ -63,12 +63,115 @@ typedef struct _stat64  llstat;
 #endif
 
 #include "llstring.h" // safe char* -> std::string conversion
+#include "fsyspath.h"
 
-/// LLFile is a class of static functions operating on paths
+/// LLFile is a class of static functions operating on paths, plus (added here,
+/// ported from upstream's LLUniqueFile-style RAII rewrite) an instance-based
+/// RAII wrapper around a raw OS file handle for callers that want to avoid the
+/// FILE*/LLAPRFile allocation/UTF16-conversion overhead of repeated fopen() calls.
 /// All the functions with a path string input take UTF8 path/filenames
 class LL_COMMON_API LLFile
 {
 public:
+    // ================================================================================
+    /// @name Constants - open mode flags for the instance open()/constructor below.
+    /// Combine with | same as std::ios_base::openmode.
+    ///@{
+    static const std::ios_base::openmode app       = static_cast<std::ios_base::openmode>(1 << 1);    // append to end
+    static const std::ios_base::openmode ate       = static_cast<std::ios_base::openmode>(1 << 2);    // initialize to end
+    static const std::ios_base::openmode binary    = static_cast<std::ios_base::openmode>(1 << 3);    // binary mode
+    static const std::ios_base::openmode in        = static_cast<std::ios_base::openmode>(1 << 4);    // for reading
+    static const std::ios_base::openmode out       = static_cast<std::ios_base::openmode>(1 << 5);    // for writing
+    static const std::ios_base::openmode trunc     = static_cast<std::ios_base::openmode>(1 << 6);    // truncate on open
+    static const std::ios_base::openmode noreplace = static_cast<std::ios_base::openmode>(1 << 7);    // no replace if it exists
+
+    // Optional lock flags (Windows: mandatory; see LockFileEx) - not currently used by
+    // any S24 caller but kept so the open()/constructor signatures match upstream.
+    static const std::ios_base::openmode exclusive = static_cast<std::ios_base::openmode>(1 << 16);
+    static const std::ios_base::openmode shared    = static_cast<std::ios_base::openmode>(1 << 17);
+    static const std::ios_base::openmode noblock   = static_cast<std::ios_base::openmode>(1 << 18);
+    static const std::ios_base::openmode lock_mask = static_cast<std::ios_base::openmode>(exclusive | shared);
+
+    static const std::ios_base::seekdir beg        = std::ios_base::beg;
+    static const std::ios_base::seekdir cur        = std::ios_base::cur;
+    static const std::ios_base::seekdir end         = std::ios_base::end;
+    ///@}
+
+    // ================================================================================
+    /// @name constructor/destructor - instance RAII file handle
+    ///@{
+    LLFile() : mHandle(InvalidHandle) {}
+
+    LLFile(const LLFile&) = delete;
+
+    LLFile(LLFile&& other) noexcept
+    {
+        mHandle = other.mHandle;
+        other.mHandle = InvalidHandle;
+    }
+
+    explicit LLFile(const std::string& filename, std::ios_base::openmode omode, std::error_code& ec, int perm = 0666) :
+        mHandle(InvalidHandle)
+    {
+        open(filename, omode, ec, perm);
+    }
+
+    explicit LLFile(const std::filesystem::path& file_path, std::ios_base::openmode omode, std::error_code& ec, int perm = 0666) :
+        mHandle(InvalidHandle)
+    {
+        open(file_path, omode, ec, perm);
+    }
+
+    ~LLFile() { close(); }
+    ///@}
+
+    // ================================================================================
+    /// @name operators
+    ///@{
+    LLFile& operator=(const LLFile&) = delete;
+
+    LLFile& operator=(LLFile&& other) noexcept
+    {
+        close();
+        std::swap(mHandle, other.mHandle);
+        return *this;
+    }
+
+    explicit operator bool() const { return (mHandle != InvalidHandle); }
+    bool     operator!() const { return (mHandle == InvalidHandle); }
+    ///@}
+
+    // ================================================================================
+    /// @name instance member methods
+    ///@{
+    inline int open(const std::string& filename, std::ios_base::openmode omode, std::error_code& ec, int perm = 0666)
+    {
+        return open(std::filesystem::path(fsyspath(filename)), omode, ec, perm);
+    }
+    int open(const std::filesystem::path& file_path, std::ios_base::openmode omode, std::error_code& ec, int perm = 0666);
+    ///< @returns 0 on success, -1 on failure
+
+    S64 size(std::error_code& ec);
+    ///< @returns the number of bytes in the file or 0 on failure
+
+    S64 tell(std::error_code& ec);
+    ///< @returns the absolute offset of the file pointer or -1 on failure
+
+    int seek(S64 pos, std::error_code& ec);
+    int seek(S64 offset, std::ios_base::seekdir dir, std::error_code& ec);
+    ///< @returns 0 on success, -1 on failure
+
+    S64 read(void* buffer, S64 nbytes, std::error_code& ec);
+    ///< @returns the number of bytes actually read (may be less than nbytes at eof), or -1 on failure
+
+    S64 write(const void* buffer, S64 nbytes, std::error_code& ec);
+    ///< @returns the number of bytes written to the file or -1 on failure
+
+    int close(std::error_code& ec);
+    int close();
+    ///< @returns 0 on success, -1 on failure
+    ///@}
+
 	// All these functions take UTF8 path/filenames.
 	static	LLFILE*	fopen(const std::string& filename,const char* accessmode);	/* Flawfinder: ignore */
     ///< 'accessmode' follows the rules of the Posix fopen() mode parameter
@@ -157,6 +260,16 @@ public:
 
     /// return a path to the temporary directory on the system
 	static  const char * tmpdir();
+
+private:
+    // Windows HANDLE backing the instance RAII API above, kept as an opaque void*
+    // here so this widely-included header doesn't need windows.h (which would
+    // risk a winsock.h/winsock2.h include-order clash in some translation units -
+    // see llfile.cpp, which already needs the real windows.h and casts to/from HANDLE).
+    typedef void*          llfile_handle_t;
+    llfile_handle_t const  InvalidHandle = reinterpret_cast<void*>(static_cast<intptr_t>(-1));
+    llfile_handle_t        mHandle       = InvalidHandle;
+    std::ios_base::openmode mOpen{}; // used to emulate std::ios_base::app
 };
 
 /// RAII class

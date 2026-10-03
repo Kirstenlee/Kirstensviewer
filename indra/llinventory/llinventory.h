@@ -73,7 +73,7 @@ public:
     const LLUUID& getParentUUID() const;
     virtual const LLUUID& getThumbnailUUID() const;
     virtual bool getIsFavorite() const;
-    virtual std::string getRuntime() const;
+    virtual const std::string& getRuntime() const;
     virtual const std::string& getName() const;
     virtual LLAssetType::EType getType() const;
     LLAssetType::EType getActualType() const; // bypasses indirection for linked items

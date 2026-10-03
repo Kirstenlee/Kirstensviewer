@@ -251,6 +251,294 @@ int LLFile::rmdir(const std::string& dirname, int suppress_error)
     return warnif("rmdir", dirname, rc, suppress_error);
 }
 
+//----------------------------------------------------------------------------------------
+// LLFile instance (RAII file handle) member functions
+//----------------------------------------------------------------------------------------
+namespace
+{
+    inline int set_ec_from_system_error(std::error_code& ec, DWORD error)
+    {
+        ec.assign(error, std::system_category());
+        return -1;
+    }
+
+    int set_ec_from_system_error(std::error_code& ec)
+    {
+        return set_ec_from_system_error(ec, GetLastError());
+    }
+
+    inline int set_ec_to_parameter_error(std::error_code& ec)
+    {
+        return set_ec_from_system_error(ec, ERROR_INVALID_PARAMETER);
+    }
+
+    inline DWORD decode_access_mode(std::ios_base::openmode omode)
+    {
+        switch (omode & (LLFile::in | LLFile::out))
+        {
+            case LLFile::in:
+                return GENERIC_READ;
+            case LLFile::out:
+                return GENERIC_WRITE;
+            case static_cast<std::ios_base::openmode>(LLFile::in | LLFile::out):
+                return GENERIC_READ | GENERIC_WRITE;
+        }
+        if (omode & LLFile::app)
+        {
+            return GENERIC_WRITE;
+        }
+        return 0;
+    }
+
+    inline DWORD decode_open_create_flags(std::ios_base::openmode omode)
+    {
+        if (omode & LLFile::noreplace)
+        {
+            return CREATE_NEW; // create if it does not exist, otherwise fail
+        }
+        if (omode & LLFile::trunc)
+        {
+            if (!(omode & LLFile::out))
+            {
+                return TRUNCATE_EXISTING; // open and truncate if it exists, otherwise fail
+            }
+            return CREATE_ALWAYS; // open and truncate if it exists, otherwise create it
+        }
+        if (!(omode & LLFile::out))
+        {
+            return OPEN_EXISTING; // open if it exists, otherwise fail
+        }
+        // LLFile::app or (LLFile::out and (!LLFile::trunc or !LLFile::noreplace))
+        return OPEN_ALWAYS; // open if it exists, otherwise create it
+    }
+
+    inline DWORD decode_share_mode(int omode)
+    {
+        if (omode & LLFile::exclusive)
+        {
+            return 0; // allow no other access
+        }
+        if (omode & LLFile::shared)
+        {
+            return FILE_SHARE_READ; // allow read access
+        }
+        return FILE_SHARE_READ | FILE_SHARE_WRITE; // allow read and write access to others
+    }
+
+    inline DWORD decode_attributes(std::ios_base::openmode omode, int perm)
+    {
+        return (perm & S_IWRITE) ? FILE_ATTRIBUTE_NORMAL : FILE_ATTRIBUTE_READONLY;
+    }
+
+    DWORD seek_mode_from_dir(std::ios_base::seekdir seekdir)
+    {
+        switch (seekdir)
+        {
+            case LLFile::beg:
+                return FILE_BEGIN;
+            case LLFile::cur:
+                return FILE_CURRENT;
+            case LLFile::end:
+                return FILE_END;
+        }
+        return FILE_BEGIN;
+    }
+
+    inline int clear_error(std::error_code& ec)
+    {
+        ec.clear();
+        return 0;
+    }
+
+    inline bool are_open_mode_flags_invalid(std::ios_base::openmode omode)
+    {
+        // at least one of input or output needs to be specified
+        if (!(omode & (LLFile::in | LLFile::out)))
+        {
+            return true;
+        }
+        // output must be possible for any of the extra options
+        if (!(omode & LLFile::out) && (omode & (LLFile::trunc | LLFile::app | LLFile::noreplace)))
+        {
+            return true;
+        }
+        // invalid combination, mutually exclusive
+        if ((omode & LLFile::app) && (omode & (LLFile::trunc | LLFile::noreplace)))
+        {
+            return true;
+        }
+        return false;
+    }
+
+    inline DWORD next_buffer_size(S64 nbytes)
+    {
+        return nbytes > 0x80000000 ? 0x80000000 : (DWORD)nbytes;
+    }
+}
+
+int LLFile::open(const std::filesystem::path& file_path, std::ios_base::openmode omode, std::error_code& ec, int perm)
+{
+    close(ec);
+    if (are_open_mode_flags_invalid(omode))
+    {
+        return set_ec_to_parameter_error(ec);
+    }
+
+    DWORD access = decode_access_mode(omode),
+          share = decode_share_mode(omode),
+          create = decode_open_create_flags(omode),
+          attributes = decode_attributes(omode, perm);
+
+    mHandle = (void*)CreateFileW(file_path.native().c_str(), access, share, nullptr, create, attributes, nullptr);
+    // The dwShareMode = share parameter takes care of locking the file for other processes if indicated,
+    // no need to do anything else for file locking here
+
+    if (mHandle == InvalidHandle)
+    {
+        return set_ec_from_system_error(ec);
+    }
+
+    if (omode & LLFile::ate && seek(0, LLFile::end, ec) != 0)
+    {
+        close();
+        return -1;
+    }
+    mOpen = omode;
+    return clear_error(ec);
+}
+
+S64 LLFile::size(std::error_code& ec)
+{
+    LARGE_INTEGER value = { 0 };
+    if (GetFileSizeEx((HANDLE)mHandle, &value))
+    {
+        clear_error(ec);
+        return value.QuadPart;
+    }
+    set_ec_from_system_error(ec);
+    return 0;
+}
+
+S64 LLFile::tell(std::error_code& ec)
+{
+    LARGE_INTEGER value = { 0 };
+    if (SetFilePointerEx((HANDLE)mHandle, value, &value, FILE_CURRENT))
+    {
+        clear_error(ec);
+        return value.QuadPart;
+    }
+    return set_ec_from_system_error(ec);
+}
+
+int LLFile::seek(S64 pos, std::error_code& ec)
+{
+    return seek(pos, LLFile::beg, ec);
+}
+
+int LLFile::seek(S64 offset, std::ios_base::seekdir dir, std::error_code& ec)
+{
+    S64 newOffset = 0;
+    DWORD seekdir = seek_mode_from_dir(dir);
+    LARGE_INTEGER value;
+    value.QuadPart = offset;
+    if (SetFilePointerEx((HANDLE)mHandle, value, (PLARGE_INTEGER)&newOffset, seekdir))
+    {
+        return clear_error(ec);
+    }
+    return set_ec_from_system_error(ec);
+}
+
+S64 LLFile::read(void* buffer, S64 nbytes, std::error_code& ec)
+{
+    if (nbytes == 0)
+    {
+        return clear_error(ec);
+    }
+    else if (!buffer || nbytes < 0)
+    {
+        return set_ec_to_parameter_error(ec);
+    }
+
+    S64 totalBytes = 0;
+    char *ptr = (char*)buffer;
+    DWORD bytesRead, bytesToRead = next_buffer_size(nbytes);
+
+    // Read in chunks to support >4GB which the S64 nbytes value makes possible
+    while (ReadFile((HANDLE)mHandle, ptr, bytesToRead, &bytesRead, nullptr))
+    {
+        totalBytes += bytesRead;
+        if (nbytes <= totalBytes || // requested amount read
+            bytesRead < bytesToRead) // ReadFile encountered eof
+        {
+            clear_error(ec);
+            return totalBytes;
+        }
+        ptr += bytesRead;
+        bytesToRead = next_buffer_size(nbytes - totalBytes);
+    }
+    return set_ec_from_system_error(ec);
+}
+
+S64 LLFile::write(const void* buffer, S64 nbytes, std::error_code& ec)
+{
+    if (nbytes == 0)
+    {
+        return clear_error(ec);
+    }
+    else if (!buffer || nbytes < 0)
+    {
+        return set_ec_to_parameter_error(ec);
+    }
+
+    // If this was opened in append mode, we emulate it on Windows
+    if (mOpen & LLFile::app && seek(0, LLFile::end, ec) != 0)
+    {
+        return -1;
+    }
+
+    S64 totalBytes = 0;
+    char* ptr = (char*)buffer;
+    DWORD bytesWritten, bytesToWrite = next_buffer_size(nbytes);
+
+    // Write in chunks to support >4GB which the S64 nbytes value makes possible
+    while (WriteFile((HANDLE)mHandle, ptr, bytesToWrite, &bytesWritten, nullptr))
+    {
+        totalBytes += bytesWritten;
+        if (nbytes <= totalBytes)
+        {
+            clear_error(ec);
+            return totalBytes;
+        }
+        ptr += bytesWritten;
+        bytesToWrite = next_buffer_size(nbytes - totalBytes);
+    }
+    return set_ec_from_system_error(ec);
+}
+
+int LLFile::close(std::error_code& ec)
+{
+    if (mHandle != InvalidHandle)
+    {
+        llfile_handle_t handle = InvalidHandle;
+        std::swap(handle, mHandle);
+        if (!CloseHandle((HANDLE)handle))
+        {
+            return set_ec_from_system_error(ec);
+        }
+    }
+    return clear_error(ec);
+}
+
+int LLFile::close()
+{
+    std::error_code ec;
+    return close(ec);
+}
+
+//----------------------------------------------------------------------------------------
+// static member functions (original S24 LLFile API, unchanged)
+//----------------------------------------------------------------------------------------
+
 // static
 LLFILE*	LLFile::fopen(const std::string& filename, const char* mode)	/* Flawfinder: ignore */
 {

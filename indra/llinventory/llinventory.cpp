@@ -136,7 +136,7 @@ bool LLInventoryObject::getIsFavorite() const
     return mFavorite;
 }
 
-std::string LLInventoryObject::getRuntime() const
+const std::string& LLInventoryObject::getRuntime() const
 {
     return mRuntime;
 }
@@ -202,19 +202,21 @@ void LLInventoryObject::setFavorite(bool favorite)
 
 void LLInventoryObject::setRuntime(std::string_view runtime)
 {
-    if (getType() == LLAssetType::AT_LSL_TEXT)
-    {
-        mRuntime = runtime;
-    }
-    else
-    {
-        mRuntime.clear();
-    }
+    // Store the runtime unconditionally; it will be validated/cleared
+    // when the final asset type is known (see setType()).
+    mRuntime = runtime;
 }
 
 void LLInventoryObject::setType(LLAssetType::EType type)
 {
     mType = type;
+
+    // Only LSL text assets are expected to have a runtime; clear any
+    // previously stored runtime for other asset types.
+    if (mType != LLAssetType::AT_LSL_TEXT)
+    {
+        mRuntime.clear();
+    }
 }
 
 
@@ -1144,9 +1146,16 @@ bool LLInventoryItem::fromLLSD(const LLSD& sd, bool is_new)
             case 6: // "script"
                 if (key == INV_SCRIPT_LABEL)
                 {
-                    if (value.has(INV_RUNTIME_LABEL))
+                    const LLSD& script_map = value;
+                    if (script_map.has(INV_RUNTIME_LABEL))
                     {
-                        mRuntime = value[INV_RUNTIME_LABEL].asString();
+                        mRuntime = script_map[INV_RUNTIME_LABEL].asString();
+                    }
+                    else
+                    {
+                        // Clear stale runtime data when a script block is
+                        // present without an explicit runtime value.
+                        mRuntime.clear();
                     }
                     continue;
                 }
@@ -1612,14 +1621,8 @@ bool LLInventoryCategory::importLegacyStream(std::istream& input_stream)
                 setFavorite(false);
             }
 
-            if (metadata.has("script") && metadata["script"].has("runtime"))
-            {
-                setRuntime(metadata["script"]["runtime"].asString());
-            }
-            else
-            {
-                setRuntime(std::string());
-            }
+            // Categories are never scripts, so there is no script.runtime to read.
+            setRuntime(std::string());
         }
         else
         {

@@ -24,14 +24,15 @@
  * $/LicenseInfo$
  */
 
+#include "linden_common.h"
+
 #include "lldiriterator.h"
 
-#include "fix_macros.h"
 #include "llregex.h"
 #include "fsyspath.h"
-#include <boost/filesystem.hpp>
+#include <filesystem>
 
-namespace fs = boost::filesystem;
+namespace fs = std::filesystem;
 
 static std::string glob_to_regex(const std::string& glob);
 
@@ -52,11 +53,7 @@ private:
 LLDirIterator::Impl::Impl(const std::string &dirname, const std::string &mask)
 	: mIsValid(false)
 {
-#ifdef LL_WINDOWS // or BOOST_WINDOWS_API
-    fs::path dir_path(ll_convert<std::wstring>(dirname));
-#else
-    fs::path dir_path(dirname);
-#endif
+    fs::path dir_path = fsyspath(dirname);
 
 	bool is_dir = false;
 
@@ -133,26 +130,24 @@ bool LLDirIterator::Impl::next(std::string &fname)
 			try
 			{
 				boost::smatch match;
-				// S24: filename().string() does a locale-dependent narrow
-				// conversion that can throw on Unicode names - go through
-				// fsyspath's UTF-8-safe u8string() conversion instead.
-				std::string name = fsyspath(std::filesystem::path(mIter->path().filename().native())).string();
+                std::string name = fsyspath(mIter->path().filename()).string();
 				found = ll_regex_match(name, match, mFilterExp);
 				if (found)
 				{
 					fname = name;
 				}
 			}
-			catch (const fs::filesystem_error&)
+            catch (const std::system_error& e)
 			{
-				// Skip unreadable/unconvertible entry, keep iterating.
+                LL_WARNS() << "Exception accessing directory entry: " << e.what() << LL_ENDL;
 			}
 
 			++mIter;
 		}
 	}
-	catch (const fs::filesystem_error&)
+    catch (const std::system_error& e)
 	{
+        LL_WARNS() << "Exception iterating directory: " << e.what() << LL_ENDL;
 	}
 
 	return found;

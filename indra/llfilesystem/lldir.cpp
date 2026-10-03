@@ -40,7 +40,6 @@
 #include "stringize.h"
 #include "llstring.h"
 #include "fsyspath.h"
-#include <boost/filesystem.hpp>
 #include "llprocess.h"
 #include <boost/bind/bind.hpp>
 
@@ -67,6 +66,7 @@ const char
 
 static const char* const empty = "";
 std::string LLDir::sDumpDir = "";
+LLUUID LLDir::sDumpDirSessionID;
 
 LLDir::LLDir()
 :	mAppName(""),
@@ -92,52 +92,43 @@ LLDir::~LLDir()
 
 std::vector<std::string> LLDir::getFilesInDir(const std::string &dirname)
 {
-    //Returns a vector of fullpath filenames.
-
-#ifdef LL_WINDOWS // or BOOST_WINDOWS_API
-    boost::filesystem::path p(ll_convert<std::wstring>(dirname));
-#else
-    boost::filesystem::path p(dirname);
-#endif
-
+    // Returns a vector of filenames in the directory.
+    fsyspath dir_path(dirname);
     std::vector<std::string> v;
-    
-    boost::system::error_code ec;
-    if (exists(p, ec) && !ec.failed())
+    std::error_code ec;
+    if (std::filesystem::is_directory(dir_path, ec))
     {
-        if (is_directory(p, ec) && !ec.failed())
+        std::filesystem::directory_iterator end_iter;
+        try
         {
-            boost::filesystem::directory_iterator end_iter;
-            try
+            for (std::filesystem::directory_iterator dir_itr(dir_path);
+                 dir_itr != end_iter;
+                 ++dir_itr)
             {
-                for (boost::filesystem::directory_iterator dir_itr(p);
-                     dir_itr != end_iter;
-                     ++dir_itr)
+                try
                 {
-                    try
+                    if (std::filesystem::is_regular_file(dir_itr->status()))
                     {
-                        if (boost::filesystem::is_regular_file(dir_itr->status()))
-                        {
-                            // S24: filename().string() does a locale-dependent narrow
-                            // conversion that can throw on Unicode names (e.g. non-ASCII
-                            // avatar/object names in chatlog filenames) - go through
-                            // fsyspath's UTF-8-safe u8string() conversion instead.
-                            v.push_back(fsyspath(std::filesystem::path(dir_itr->path().filename().native())).string());
-                        }
-                    }
-                    catch (const boost::filesystem::filesystem_error&)
-                    {
-                        // Skip unreadable/unconvertible entry, keep listing the rest.
+                        // S24: filename().string() does a locale-dependent narrow
+                        // conversion that can throw on Unicode names (e.g. non-ASCII
+                        // avatar/object names in chatlog filenames) - go through
+                        // fsyspath's UTF-8-safe u8string() conversion instead.
+                        v.push_back(fsyspath(dir_itr->path().filename()).string());
                     }
                 }
+                catch (const std::system_error& e)
+                {
+                    LL_WARNS() << "Exception accessing directory entry: " << e.what() << LL_ENDL;
+                }
             }
-            catch (const boost::filesystem::filesystem_error&)
-            {
-            }
+        }
+        catch (const std::system_error& e)
+        {
+            LL_WARNS() << "Exception iterating directory: " << e.what() << LL_ENDL;
         }
     }
     return v;
-}   
+}
             
 S32 LLDir::deleteFilesInDir(const std::string &dirname, const std::string &mask)
 {
@@ -205,28 +196,23 @@ U32 LLDir::deleteDirAndContents(const std::string& dir_name)
 
 	try
 	{
-#ifdef LL_WINDOWS // or BOOST_WINDOWS_API
-        boost::filesystem::path dir_path(ll_convert<std::wstring>(dir_name));
-#else
-        boost::filesystem::path dir_path(dir_name);
-#endif
-
-	   if (boost::filesystem::exists (dir_path))
+       fsyspath dir_path(dir_name);
+       if (std::filesystem::is_directory(dir_path))
 	   {
-	      if (!boost::filesystem::is_empty (dir_path))
+	      if (!std::filesystem::is_empty(dir_path))
 		  {   // Directory has content
-             num_deleted = (U32)boost::filesystem::remove_all(dir_path);
+             num_deleted = (U32)std::filesystem::remove_all(dir_path);
 		  }
 		  else
 		  {   // Directory is empty
-		     boost::filesystem::remove (dir_path);
+             std::filesystem::remove(dir_path);
 		  }
 	   }
 	}
-	catch (boost::filesystem::filesystem_error &er)
-	{ 
+    catch (std::filesystem::filesystem_error &er)
+	{
 		LL_WARNS() << "Failed to delete " << dir_name << " with error " << er.code().message() << LL_ENDL;
-	} 
+	}
 	return num_deleted;
 }
 
@@ -334,16 +320,23 @@ const std::string &LLDir::getDumpDir() const
 {
     if (sDumpDir.empty() )
     {
-        LLUUID uid;
-        uid.generate();
-        
         sDumpDir = gDirUtilp->getExpandedFilename(LL_PATH_LOGS, "")
-                    + "dump-" + uid.asString();
+                    + "dump-" + getDumpDirSessionUUID().asString();
 
-        dir_exists_or_crash(sDumpDir);  
+        dir_exists_or_crash(sDumpDir);
     }
 
 	return LLDir::sDumpDir;
+}
+
+const LLUUID& LLDir::getDumpDirSessionUUID() const
+{
+    if (sDumpDirSessionID.isNull())
+    {
+        sDumpDirSessionID.generate();
+    }
+
+    return sDumpDirSessionID;
 }
 
 bool LLDir::dumpDirExists() const
