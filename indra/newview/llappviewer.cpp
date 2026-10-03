@@ -42,11 +42,19 @@
 #include "llviewertexturelist.h"
 #include "llgroupmgr.h"
 #include "llagent.h"
+#include "llgroupactions.h" // KRLV_TOUCHPOINT: @setgroup=force hook below
 #include "llagentcamera.h"
 #include "llagentlanguage.h"
 #include "llagentui.h"
 #include "llagentwearables.h"
 #include "lldirpicker.h"
+#include "llinstantmessage.h"
+#include "krlvhandler.h" // KRLV: startup/shutdown hook, see krlv/README.md
+#include "krlvintegrity.h" // KRLV: HMAC hook for state-file signatures
+#include <openssl/evp.h>
+#include <openssl/hmac.h>
+#include <cstdio>
+#include "llfloater.h"   // KRLV: LLFloater::closeFloater() for the floater-close hook below
 #include "llfloaterimcontainer.h"
 #include "llimprocessing.h"
 #include "llwindow.h"
@@ -97,6 +105,11 @@
 #include "llviewermenufile.h"
 #include "llvoicechannel.h"
 #include "llvoavatarself.h"
+#include "llviewerjointattachment.h"
+#include "llappearancemgr.h"
+#include "llwearabletype.h"
+#include "krlvattachment.h" // KRLV_TOUCHPOINT: force-detach / getoutfit / getattach hooks below
+#include "krlvsharedfolders.h" // KRLV_TOUCHPOINT: shared-folder data hooks below
 #include "llurlmatch.h"
 #include "lltextutil.h"
 #include "lllogininstance.h"
@@ -227,6 +240,7 @@ using namespace boost::placeholders;
 #include "pipeline.h"
 #include "llgesturemgr.h"
 #include "llinventorymodel.h"
+#include "llinventoryfunctions.h" // KRLV_TOUCHPOINT: get_is_item_worn() for the shared-folder list-folder hook
 #include "llsky.h"
 #include "llvlcomposition.h"
 #include "llvlmanager.h"
@@ -354,7 +368,7 @@ WorkQueue gMainloopWork("mainloop", 1024 * 1024);
 
 ////////////////////////////////////////////////////////////
 // Internal globals
-static std::string gArgs = "DX (4015) - Hradr";
+static std::string gArgs = "DX (4100) - Hradr";
 const int MAX_MARKER_LENGTH = 1024;
 const std::string MARKER_FILE_NAME("KirstensS24.exec_marker");
 const std::string START_MARKER_FILE_NAME("KirstensS24.start_marker");
@@ -441,7 +455,18 @@ void idle_afk_check()
 	// check idle timers
 	F32 current_idle = gAwayTriggerTimer.getElapsedTimeF32();
 	static LLCachedControl<S32> afk_timeout(gSavedSettings, "AFKTimeout", 300);
-	if (afk_timeout() && (current_idle > afk_timeout()))
+	S32 krlvEffectiveAfkTimeout = afk_timeout();
+
+	// KRLV_TOUCHPOINT: @allowidle=n - the user can't disable automatic
+	// idle-away by setting AFKTimeout to 0; substitute the spec's own
+	// stated 30-minute default for this one comparison instead. See
+	// krlv/README.md's Unofficial section.
+	if (krlvEffectiveAfkTimeout == 0 && gKRlv.isRestricted("allowidle"))
+	{
+		krlvEffectiveAfkTimeout = 1800;
+	}
+
+	if (krlvEffectiveAfkTimeout && (current_idle > krlvEffectiveAfkTimeout))
 	{
 		if (!gAgent.getAFK())
 		{
@@ -1882,6 +1907,9 @@ bool LLAppViewer::cleanup()
 	SUBSYSTEM_CLEANUP(LLFilePickerThread);
 	SUBSYSTEM_CLEANUP(LLDirPickerThread);
 
+	// KRLV_TOUCHPOINT: unregisters the idle callback - see krlv/README.md.
+	KRlvHandler::instance().shutdown();
+
 	//MUST happen AFTER SUBSYSTEM_CLEANUP(LLCurl)
 	delete sTextureCache;
 	sTextureCache = NULL;
@@ -2061,6 +2089,283 @@ void LLAppViewer::initDXPool()
 #endif
 }
 
+namespace
+{
+	// KRLV_TOUCHPOINT support: @setenv_<setting>=force / @getenv_<setting>
+	// name<->LLSettingsSky field translation - see
+	// krlvviewercontrol.cpp's file header for the full research behind
+	// every mapping/approximation below, and krlv/README.md's Viewer
+	// Control section. Lives here (not krlv/) because krlv/ cannot link
+	// llsettingssky.h/llenvironment.h.
+
+	// Plain Second Life platform azimuth/altitude <-> direction-vector
+	// geometry - reimplemented locally (not borrowed from RLV/RLVa; this
+	// is the same math llsettingssky.cpp's own anonymous-namespace
+	// convert_azimuth_and_altitude_to_quat() uses for its legacy
+	// east_angle/sun_angle import, reimplemented independently since
+	// that function is private to that file).
+	LLQuaternion krlv_azimuth_altitude_to_quat(F32 azimuth, F32 altitude)
+	{
+		F32 sinTheta = sin(azimuth);
+		F32 cosTheta = cos(azimuth);
+		F32 sinPhi = sin(altitude);
+		F32 cosPhi = cos(altitude);
+
+		LLVector3 dir;
+		dir.mV[0] = cosTheta * cosPhi;
+		dir.mV[1] = sinTheta * cosPhi;
+		dir.mV[2] = sinPhi;
+
+		LLVector3 axis = LLVector3::x_axis % dir;
+		axis.normalize();
+		F32 angle = acos(LLVector3::x_axis * dir);
+
+		LLQuaternion quat;
+		quat.setAngleAxis(angle, axis);
+		return quat;
+	}
+
+	// Inverse of the above - decomposes a live sun/moon rotation back
+	// into azimuth/altitude, used when only one of @setenv_eastangle/
+	// @setenv_sunmoonposition has been forced (the other is read from
+	// whatever the sky's CURRENT sun rotation already is, not a
+	// fabricated default).
+	void krlv_quat_to_azimuth_altitude(const LLQuaternion& quat, F32& outAzimuth, F32& outAltitude)
+	{
+		LLVector3 dir = LLVector3::x_axis * quat;
+		outAltitude = asin(llclamp(dir.mV[2], -1.f, 1.f));
+		outAzimuth = atan2(dir.mV[1], dir.mV[0]);
+	}
+
+	// Read-modify-write helper for the ~7 legacy parameter families that
+	// pack 3 independent values into one LLColor3 (r/g/b colours AND the
+	// x/y/density cloud-position fields alike - both are plain 3-float
+	// LLColor3 on LLSettingsSky).
+	void krlv_apply_triple(LLColor3& triple, const std::map<std::string, F32>& params,
+		const char* name0, const char* name1, const char* name2)
+	{
+		auto it0 = params.find(name0);
+		if (it0 != params.end()) triple.mV[0] = it0->second;
+		auto it1 = params.find(name1);
+		if (it1 != params.end()) triple.mV[1] = it1->second;
+		auto it2 = params.find(name2);
+		if (it2 != params.end()) triple.mV[2] = it2->second;
+	}
+
+	bool krlv_has_any(const std::map<std::string, F32>& params,
+		const char* name0, const char* name1, const char* name2)
+	{
+		return params.count(name0) || params.count(name1) || params.count(name2);
+	}
+
+	void krlv_apply_forced_environment(const std::map<std::string, F32>& params)
+	{
+		if (!LLEnvironment::instanceExists())
+		{
+			return;
+		}
+
+		LLSettingsSky::ptr_t liveSky = LLEnvironment::instance().getCurrentSky();
+		LLSettingsWater::ptr_t liveWater = LLEnvironment::instance().getCurrentWater();
+		if (!liveSky)
+		{
+			return;
+		}
+
+		LLSettingsSky::ptr_t sky = std::static_pointer_cast<LLSettingsSky>(liveSky->buildDerivedClone());
+		if (!sky)
+		{
+			return;
+		}
+
+		auto has = [&params](const char* name) { return params.count(name) != 0; };
+		auto val = [&params](const char* name) { return params.at(name); };
+
+		// Direct scalars.
+		if (has("scenegamma")) sky->setGamma(val("scenegamma"));
+		if (has("starbrightness")) sky->setStarBrightness(val("starbrightness") * 250.f);
+		if (has("densitymultiplier")) sky->setDensityMultiplier(val("densitymultiplier"));
+		if (has("distancemultiplier")) sky->setDistanceMultiplier(val("distancemultiplier"));
+		if (has("hazedensity")) sky->setHazeDensity(val("hazedensity"));
+		if (has("hazehorizon")) sky->setHazeHorizon(val("hazehorizon"));
+		if (has("maxaltitude")) sky->setMaxY(val("maxaltitude"));
+		if (has("cloudscale")) sky->setCloudScale(val("cloudscale"));
+		if (has("cloudcoverage")) sky->setCloudShadow(val("cloudcoverage"));
+
+		// Colour triples - confirmed legacy-haze fields (ambient/
+		// bluedensity/bluehorizon) plus cloudcolor/sunmooncolor.
+		if (krlv_has_any(params, "ambientr", "ambientg", "ambientb"))
+		{
+			LLColor3 c = sky->getAmbientColor();
+			krlv_apply_triple(c, params, "ambientr", "ambientg", "ambientb");
+			sky->setAmbientColor(c);
+		}
+		if (krlv_has_any(params, "bluedensityr", "bluedensityg", "bluedensityb"))
+		{
+			LLColor3 c = sky->getBlueDensity();
+			krlv_apply_triple(c, params, "bluedensityr", "bluedensityg", "bluedensityb");
+			sky->setBlueDensity(c);
+		}
+		if (krlv_has_any(params, "bluehorizonr", "bluehorizong", "bluehorizonb"))
+		{
+			LLColor3 c = sky->getBlueHorizon();
+			krlv_apply_triple(c, params, "bluehorizonr", "bluehorizong", "bluehorizonb");
+			sky->setBlueHorizon(c);
+		}
+		if (krlv_has_any(params, "cloudcolorr", "cloudcolorg", "cloudcolorb"))
+		{
+			LLColor3 c = sky->getCloudColor();
+			krlv_apply_triple(c, params, "cloudcolorr", "cloudcolorg", "cloudcolorb");
+			sky->setCloudColor(c);
+		}
+		if (krlv_has_any(params, "sunmooncolorr", "sunmooncolorg", "sunmooncolorb"))
+		{
+			LLColor3 c = sky->getSunlightColor();
+			krlv_apply_triple(c, params, "sunmooncolorr", "sunmooncolorg", "sunmooncolorb");
+			sky->setSunlightColor(c);
+		}
+
+		// Cloud position/density triples.
+		if (krlv_has_any(params, "cloudx", "cloudy", "cloudd"))
+		{
+			LLColor3 c = sky->getCloudPosDensity1();
+			krlv_apply_triple(c, params, "cloudx", "cloudy", "cloudd");
+			sky->setCloudPosDensity1(c);
+		}
+		if (krlv_has_any(params, "clouddetailx", "clouddetaily", "clouddetaild"))
+		{
+			LLColor3 c = sky->getCloudPosDensity2();
+			krlv_apply_triple(c, params, "clouddetailx", "clouddetaily", "clouddetaild");
+			sky->setCloudPosDensity2(c);
+		}
+
+		// Cloud scroll - same -10 legacy offset translateLegacySettings()
+		// itself applies when importing old Windlight assets
+		// (llsettingssky.cpp) - see krlvviewercontrol.cpp's file header
+		// for the documented range discrepancy this resolves.
+		if (has("cloudscrollx")) sky->setCloudScrollRateX(val("cloudscrollx") - 10.f);
+		if (has("cloudscrolly")) sky->setCloudScrollRateY(val("cloudscrolly") - 10.f);
+
+		// Glow - documented approximation (direct, unscaled passthrough;
+		// no packing formula found anywhere in this codebase's history -
+		// see krlvviewercontrol.cpp's file header).
+		if (has("sunglowsize") || has("sunglowfocus"))
+		{
+			LLColor3 glow = sky->getGlow();
+			if (has("sunglowsize")) glow.mV[0] = val("sunglowsize");
+			if (has("sunglowfocus")) glow.mV[2] = val("sunglowfocus");
+			sky->setGlow(glow);
+		}
+
+		// Sun/moon rotation - eastangle/sunmoonposition (RLV's spec names
+		// for this codebase's own internal east_angle/sun_angle legacy
+		// keys) and the "daytime" approximation both feed the same
+		// quaternion conversion, so they're handled together. Formula
+		// (azimuth = -east_angle, altitude = sun_angle, moon diametrically
+		// opposed) matches llsettingssky.cpp's own translateLegacySettings()
+		// exactly. Whichever of azimuth/altitude wasn't explicitly forced
+		// is decomposed from the sky's OWN current sun rotation, not a
+		// fabricated default.
+		bool hasEastAngle = has("eastangle");
+		bool hasSunMoonPosition = has("sunmoonposition");
+		bool hasDaytime = has("daytime");
+		if (hasEastAngle || hasSunMoonPosition || hasDaytime)
+		{
+			F32 curAzimuth = 0.f;
+			F32 curAltitude = 0.f;
+			krlv_quat_to_azimuth_altitude(sky->getSunRotation(), curAzimuth, curAltitude);
+
+			F32 azimuth = hasEastAngle ? -val("eastangle") : curAzimuth;
+			F32 altitude = hasSunMoonPosition ? val("sunmoonposition") : curAltitude;
+
+			if (hasDaytime)
+			{
+				// Approximation: sine arc on altitude only (azimuth left
+				// untouched), calibrated to the spec's own unambiguous
+				// sunrise=0.25/sunset=0.75 horizon-crossing anchors - see
+				// krlvviewercontrol.cpp's file header for the documented
+				// divergence from the spec's stated midday=0.567 (this
+				// model peaks at 0.5).
+				const F32 daytime = val("daytime");
+				altitude = sin(F_TWO_PI * (daytime - 0.25f)) * (F_PI * 0.5f);
+			}
+
+			LLQuaternion sunQuat = krlv_azimuth_altitude_to_quat(azimuth, altitude);
+			LLQuaternion moonQuat = krlv_azimuth_altitude_to_quat(azimuth + F_PI, -altitude);
+			sky->setSunRotation(sunQuat);
+			sky->setMoonRotation(moonQuat);
+		}
+
+		LLEnvironment::instance().setEnvironment(LLEnvironment::ENV_LOCAL, sky, liveWater);
+		LLEnvironment::instance().setSelectedEnvironment(LLEnvironment::ENV_LOCAL, LLEnvironment::TRANSITION_INSTANT);
+	}
+
+	// GET side of the same table - read-only, so expressed as a lookup
+	// table rather than mirrored if-chains. "eastangle"/"sunmoonposition"/
+	// "daytime" are deliberately NOT included: reading them back exactly
+	// would require inverting the SAME approximation above, which is more
+	// likely to confuse than help - @getenv_ for those 3 simply gets no
+	// reply, the same as any other genuinely unanswerable query.
+	bool krlv_get_live_environment_setting(const std::string& settingName, F32& outValue)
+	{
+		if (!LLEnvironment::instanceExists())
+		{
+			return false;
+		}
+		LLSettingsSky::ptr_t sky = LLEnvironment::instance().getCurrentSky();
+		if (!sky)
+		{
+			return false;
+		}
+
+		static const std::map<std::string, std::function<F32(const LLSettingsSky&)>> kGetters =
+		{
+			{ "scenegamma", [](const LLSettingsSky& s) { return s.getGamma(); } },
+			{ "starbrightness", [](const LLSettingsSky& s) { return s.getStarBrightness() / 250.f; } },
+			{ "densitymultiplier", [](const LLSettingsSky& s) { return s.getDensityMultiplier(); } },
+			{ "distancemultiplier", [](const LLSettingsSky& s) { return s.getDistanceMultiplier(); } },
+			{ "hazedensity", [](const LLSettingsSky& s) { return s.getHazeDensity(); } },
+			{ "hazehorizon", [](const LLSettingsSky& s) { return s.getHazeHorizon(); } },
+			{ "maxaltitude", [](const LLSettingsSky& s) { return s.getMaxY(); } },
+			{ "cloudscale", [](const LLSettingsSky& s) { return s.getCloudScale(); } },
+			{ "cloudcoverage", [](const LLSettingsSky& s) { return s.getCloudShadow(); } },
+			{ "ambientr", [](const LLSettingsSky& s) { return s.getAmbientColor().mV[0]; } },
+			{ "ambientg", [](const LLSettingsSky& s) { return s.getAmbientColor().mV[1]; } },
+			{ "ambientb", [](const LLSettingsSky& s) { return s.getAmbientColor().mV[2]; } },
+			{ "bluedensityr", [](const LLSettingsSky& s) { return s.getBlueDensity().mV[0]; } },
+			{ "bluedensityg", [](const LLSettingsSky& s) { return s.getBlueDensity().mV[1]; } },
+			{ "bluedensityb", [](const LLSettingsSky& s) { return s.getBlueDensity().mV[2]; } },
+			{ "bluehorizonr", [](const LLSettingsSky& s) { return s.getBlueHorizon().mV[0]; } },
+			{ "bluehorizong", [](const LLSettingsSky& s) { return s.getBlueHorizon().mV[1]; } },
+			{ "bluehorizonb", [](const LLSettingsSky& s) { return s.getBlueHorizon().mV[2]; } },
+			{ "cloudcolorr", [](const LLSettingsSky& s) { return s.getCloudColor().mV[0]; } },
+			{ "cloudcolorg", [](const LLSettingsSky& s) { return s.getCloudColor().mV[1]; } },
+			{ "cloudcolorb", [](const LLSettingsSky& s) { return s.getCloudColor().mV[2]; } },
+			{ "sunmooncolorr", [](const LLSettingsSky& s) { return s.getSunlightColor().mV[0]; } },
+			{ "sunmooncolorg", [](const LLSettingsSky& s) { return s.getSunlightColor().mV[1]; } },
+			{ "sunmooncolorb", [](const LLSettingsSky& s) { return s.getSunlightColor().mV[2]; } },
+			{ "cloudx", [](const LLSettingsSky& s) { return s.getCloudPosDensity1().mV[0]; } },
+			{ "cloudy", [](const LLSettingsSky& s) { return s.getCloudPosDensity1().mV[1]; } },
+			{ "cloudd", [](const LLSettingsSky& s) { return s.getCloudPosDensity1().mV[2]; } },
+			{ "clouddetailx", [](const LLSettingsSky& s) { return s.getCloudPosDensity2().mV[0]; } },
+			{ "clouddetaily", [](const LLSettingsSky& s) { return s.getCloudPosDensity2().mV[1]; } },
+			{ "clouddetaild", [](const LLSettingsSky& s) { return s.getCloudPosDensity2().mV[2]; } },
+			{ "cloudscrollx", [](const LLSettingsSky& s) { return s.getCloudScrollRate().mV[0] + 10.f; } },
+			{ "cloudscrolly", [](const LLSettingsSky& s) { return s.getCloudScrollRate().mV[1] + 10.f; } },
+			{ "sunglowsize", [](const LLSettingsSky& s) { return s.getGlow().mV[0]; } },
+			{ "sunglowfocus", [](const LLSettingsSky& s) { return s.getGlow().mV[2]; } },
+		};
+
+		auto it = kGetters.find(settingName);
+		if (it == kGetters.end())
+		{
+			return false;
+		}
+		outValue = it->second(*sky);
+		return true;
+	}
+}
+
 bool LLAppViewer::initThreads()
 {
 	static const bool enable_threads = true;
@@ -2133,6 +2438,522 @@ bool LLAppViewer::initThreads()
 
 	LLFilePickerThread::initClass();
 	LLDirPickerThread::initClass();
+
+	// KRLV_TOUCHPOINT: brings the whole KRLV module to life - see
+	// krlv/README.md. Everything else it needs (the chat intercept, the
+	// console command) is inert until this has run.
+	KRlvHandler::instance().init();
+
+	// KRLV_TOUCHPOINT: lets KRLV's own idle-tick floater-gate enforcement
+	// (registerFloaterGate(), krlvhandler.cpp) close a named floater
+	// without krlv/ itself linking llui/llrender/llimage just to reach
+	// LLFloaterReg - see krlv/README.md and KRlvFloaterCloseRequest in
+	// krlvhandler.h. Only reports true (a real closure worth logging) if
+	// the floater was actually visible - findInstance() alone returns
+	// non-null for an existing-but-hidden instance too.
+	KRlvHandler::instance().setFloaterCloseHook([](const std::string& name) -> bool
+	{
+		LLFloater* floater = LLFloaterReg::findInstance(name);
+		if (floater && floater->getVisible())
+		{
+			floater->closeFloater();
+			return true;
+		}
+		return false;
+	});
+
+	// KRLV_TOUCHPOINT: lets a KRLV force command (@setrot) command the
+	// avatar to rotate, without krlv/ itself linking llagent.h (newview-
+	// only) - see krlv/README.md and KRlvForceRotateRequest in
+	// krlvhandler.h.
+	KRlvHandler::instance().setForceRotateHook([](const LLVector3& lookAtDirection)
+	{
+		gAgent.resetAxes(lookAtDirection);
+	});
+
+	// KRLV_TOUCHPOINT: lets @adjustheight=force adjust the avatar's hover
+	// offset, without krlv/ itself linking llvoavatarself.h/
+	// llviewercontrol.h - see krlv/README.md and
+	// KRlvForceAdjustHeightRequest in krlvhandler.h. Formula is a derived,
+	// not spec-confirmed, reading of the command's own parameter names -
+	// see krlvmovement.cpp's file header for the full reasoning. Only
+	// writes the AvatarHoverOffsetZ setting, same as
+	// LLFloaterHoverHeight::onFinalCommit() (llfloaterhoverheight.cpp) -
+	// the already-wired handleAvatarHoverOffsetChanged() listener
+	// (llviewercontrol.cpp) applies it via setHoverIfRegionEnabled(),
+	// which also respects the region-enabled check a direct
+	// setHoverOffset() call here would have bypassed.
+	KRlvHandler::instance().setForceAdjustHeightHook([](F32 targetPelvisToFoot, F32 factor, F32 delta)
+	{
+		if (!isAgentAvatarValid())
+		{
+			return;
+		}
+
+		const F32 currentPelvisToFoot = gAgentAvatarp->getPelvisToFoot();
+		const F32 hoverDelta = (targetPelvisToFoot - currentPelvisToFoot) * factor + delta;
+
+		const F32 currentOffsetZ = gSavedPerAccountSettings.getF32("AvatarHoverOffsetZ");
+		const F32 newOffsetZ = llclamp(currentOffsetZ + hoverDelta, MIN_HOVER_Z, MAX_HOVER_Z);
+
+		gSavedPerAccountSettings.setF32("AvatarHoverOffsetZ", newOffsetZ);
+	});
+
+	// KRLV_TOUCHPOINT: lets @setcam_fov=force command the camera's FOV,
+	// and @getcam_fov read it back live, without krlv/ itself linking
+	// llviewercamera.h - see krlv/README.md and KRlvForceFovRequest/
+	// KRlvGetFovRequest in krlvhandler.h.
+	KRlvHandler::instance().setForceFovHook([](F32 fovRadians)
+	{
+		LLViewerCamera::getInstance()->setDefaultFOV(fovRadians);
+	});
+	KRlvHandler::instance().setGetFovHook([]() -> F32
+	{
+		return LLViewerCamera::getInstance()->getDefaultFOV();
+	});
+
+	// KRLV_TOUCHPOINT: lets @tpto=force (global-coordinate syntax only)
+	// command a teleport without krlv/ itself linking llagent.h - see
+	// krlv/README.md and KRlvForceTeleportRequest in krlvhandler.h.
+	KRlvHandler::instance().setForceTeleportHook([](const LLVector3d& posGlobal)
+	{
+		gAgent.teleportViaLocation(posGlobal);
+	});
+
+	// KRLV_TOUCHPOINT: lets @tpto=force's region-name+local-coordinates
+	// syntax resolve a region name to a global position without krlv/
+	// itself linking llworld.h/llviewerregion.h - see krlv/README.md and
+	// KRlvResolveRegionPositionRequest in krlvhandler.h. Only searches
+	// regions the viewer already knows about (current + loaded
+	// neighbours) - a real, documented scope limit, not a bug.
+	KRlvHandler::instance().setResolveRegionPositionHook([](const std::string& regionName, const LLVector3& localPos, LLVector3d& outGlobalPos) -> bool
+	{
+		for (LLViewerRegion* region : LLWorld::getInstance()->getRegionList())
+		{
+			if (region && LLStringUtil::compareInsensitive(region->getName(), regionName) == 0)
+			{
+				outGlobalPos = region->getOriginGlobal() + LLVector3d(localPos);
+				return true;
+			}
+		}
+		return false;
+	});
+
+	// KRLV_TOUCHPOINT: lets @sit:<UUID>=force / @unsit=force /
+	// @sitground=force command sitting/standing, and @getsitid read the
+	// current sit target, without krlv/ itself linking llagent.h/
+	// llviewermenu.h - see krlv/README.md and the KRlvForceSit*/
+	// KRlvGetSitIdRequest hooks in krlvhandler.h.
+	KRlvHandler::instance().setForceSitHook([](const LLUUID& objectId)
+	{
+		handle_object_sit(objectId);
+	});
+	KRlvHandler::instance().setForceStandHook([]()
+	{
+		gAgent.standUp();
+	});
+	KRlvHandler::instance().setForceSitGroundHook([]()
+	{
+		gAgent.sitDown();
+	});
+	KRlvHandler::instance().setGetSitIdHook([]() -> LLUUID
+	{
+		if (isAgentAvatarValid() && gAgentAvatarp->isSitting() && gAgentAvatarp->getParent())
+		{
+			return ((LLViewerObject*)gAgentAvatarp->getParent())->getID();
+		}
+		return LLUUID::null;
+	});
+
+	// KRLV_TOUCHPOINT: lets @standtp poll sit-state and position every
+	// idle tick without krlv/ itself linking llagent.h/llvoavatarself.h -
+	// see krlv/README.md and KRlvGetAgentStateRequest in krlvhandler.h.
+	KRlvHandler::instance().setGetAgentStateHook([](LLVector3d& outPositionGlobal) -> bool
+	{
+		outPositionGlobal = gAgent.getPositionGlobal();
+		return isAgentAvatarValid() && gAgentAvatarp->isSitting();
+	});
+
+	// KRLV_TOUCHPOINT: lets @detach[:attachpt]=force / @remattach[...]=force
+	// / @detachme=force force-detach an attachment (or, when the name
+	// matches a wearable-type instead of an attachment point, force-remove
+	// a clothing layer for @remoutfit:<part>=force) without krlv/ itself
+	// linking llvoavatarself.h/llappearancemgr.h - see krlv/README.md and
+	// KRlvForceDetachRequest in krlvhandler.h. Routes through
+	// LLAppearanceMgr::removeItemsFromAvatar(), the same already-gated
+	// chokepoint the ordinary (non-force) detach/remove paths use, so a
+	// force command still honours an active restriction exactly like
+	// @sit:<UUID>=force/@tpto=force already do for their own categories -
+	// see cmd_0118's own spec text ("@clear,detachme=force") for why that
+	// matters.
+	KRlvHandler::instance().setForceDetachHook([](const LLUUID& sourceId, const std::string& attachPointName)
+	{
+		if (!isAgentAvatarValid())
+		{
+			return;
+		}
+
+		uuid_vec_t idsToRemove;
+
+		if (attachPointName.empty())
+		{
+			LLViewerObject* object = gObjectList.findObject(sourceId);
+			if (object)
+			{
+				idsToRemove.push_back(object->getAttachmentItemID());
+			}
+		}
+		else
+		{
+			bool matchedPoint = false;
+			for (const auto& entry : gAgentAvatarp->mAttachmentPoints)
+			{
+				LLViewerJointAttachment* attachment = entry.second;
+				if (attachment && attachment->getName() == attachPointName)
+				{
+					matchedPoint = true;
+					for (const auto& attachedObj : attachment->mAttachedObjects)
+					{
+						if (attachedObj)
+						{
+							idsToRemove.push_back(attachedObj->getAttachmentItemID());
+						}
+					}
+					break;
+				}
+			}
+
+			if (!matchedPoint)
+			{
+				// Not an attachment point - try it as a wearable-type
+				// name instead (@remoutfit:<part>=force). Only the
+				// base/first layer of a multi-layer type (jacket, ...)
+				// is removed - a documented simplification, see
+				// krlv/README.md.
+				const LLWearableType::EType type = LLWearableType::getInstance()->typeNameToType(attachPointName);
+				if (type != LLWearableType::WT_INVALID && type != LLWearableType::WT_NONE
+					&& LLAgentWearables::selfHasWearable(type))
+				{
+					const LLUUID itemId = gAgentWearables.getWearableItemID(type, 0);
+					if (itemId.notNull())
+					{
+						idsToRemove.push_back(itemId);
+						matchedPoint = true;
+					}
+				}
+			}
+
+			if (!matchedPoint)
+			{
+				// KRLV_TOUCHPOINT: Shared Folders' @detach:<folder_name>=force
+				// - the same command name, a completely different meaning
+				// (empty a "#RLV" sub-folder rather than free an attach
+				// point/wearable-type) - see krlvattachment.cpp's file
+				// header and krlv/README.md for why this collision is
+				// resolved here rather than as a second dispatch entry.
+				const uuid_vec_t folderIds = KRlv::resolveDetachFolderContents(attachPointName);
+				idsToRemove.insert(idsToRemove.end(), folderIds.begin(), folderIds.end());
+			}
+		}
+
+		if (!idsToRemove.empty())
+		{
+			LLAppearanceMgr::instance().removeItemsFromAvatar(idsToRemove);
+		}
+	});
+
+	// KRLV_TOUCHPOINT: lets @getoutfit[:part] / @getattach[:attachpt] read
+	// current worn-clothing/attachment-point occupancy live, without
+	// krlv/ itself linking llagentwearables.h/llvoavatarself.h - see
+	// krlv/README.md and KRlvGetOutfitLayersRequest/
+	// KRlvGetAttachPointsRequest in krlvhandler.h. Digit order for the
+	// no-part/no-point ("every layer"/"every point") form follows
+	// LLWearableType's/mAttachmentPoints' own enumeration order, not
+	// RLVa's own documented fixed order - a known, deliberate
+	// simplification (see krlv/README.md).
+	KRlvHandler::instance().setGetOutfitLayersHook([](const std::string& partName) -> std::string
+	{
+		if (!partName.empty())
+		{
+			const LLWearableType::EType type = LLWearableType::getInstance()->typeNameToType(partName);
+			if (type == LLWearableType::WT_INVALID || type == LLWearableType::WT_NONE)
+			{
+				return std::string();
+			}
+			return LLAgentWearables::selfHasWearable(type) ? "1" : "0";
+		}
+
+		std::string reply;
+		for (S32 i = 0; i < LLWearableType::WT_COUNT; ++i)
+		{
+			reply += LLAgentWearables::selfHasWearable(static_cast<LLWearableType::EType>(i)) ? "1" : "0";
+		}
+		return reply;
+	});
+	KRlvHandler::instance().setGetAttachPointsHook([](const std::string& pointName) -> std::string
+	{
+		if (!isAgentAvatarValid())
+		{
+			return std::string();
+		}
+
+		if (!pointName.empty())
+		{
+			for (const auto& entry : gAgentAvatarp->mAttachmentPoints)
+			{
+				LLViewerJointAttachment* attachment = entry.second;
+				if (attachment && attachment->getName() == pointName)
+				{
+					return (attachment->getNumObjects() > 0) ? "1" : "0";
+				}
+			}
+			return std::string();
+		}
+
+		std::string reply;
+		for (const auto& entry : gAgentAvatarp->mAttachmentPoints)
+		{
+			LLViewerJointAttachment* attachment = entry.second;
+			reply += (attachment && attachment->getNumObjects() > 0) ? "1" : "0";
+		}
+		return reply;
+	});
+
+	// KRLV_TOUCHPOINT: lets @setgroup:<name>=force change the active
+	// group, and @getgroup read it back live, without krlv/ itself
+	// linking llagent.h/llgroupactions.h - see krlv/README.md and
+	// KRlvForceSetGroupRequest/KRlvGetGroupNameRequest in krlvhandler.h.
+	KRlvHandler::instance().setForceSetGroupHook([](const std::string& groupName)
+	{
+		if (groupName.empty())
+		{
+			return;
+		}
+		if (groupName == "none")
+		{
+			LLGroupActions::activate(LLUUID::null);
+			return;
+		}
+		for (const LLGroupData& group : gAgent.mGroups)
+		{
+			if (group.mName == groupName)
+			{
+				LLGroupActions::activate(group.mID);
+				return;
+			}
+		}
+	});
+	KRlvHandler::instance().setGetGroupNameHook([]() -> std::string
+	{
+		return gAgent.getGroupID().isNull() ? "none" : gAgent.getGroupName();
+	});
+
+	// KRLV_TOUCHPOINT: lets @setenv_<setting>=force (and its self-healing
+	// idle-tick reapplication while @setenv is restricted) push a
+	// patched clone of the LIVE current sky into ENV_LOCAL, without
+	// krlv/ itself linking llenvironment.h/llsettingssky.h - see
+	// krlv/README.md's Viewer Control section, krlvviewercontrol.cpp's
+	// file header, and KRlvApplyForcedEnvironmentRequest/
+	// KRlvGetLiveEnvironmentSettingRequest in krlvhandler.h. All name<->
+	// field translation is the free functions defined just above
+	// initThreads() in this file.
+	KRlvHandler::instance().setApplyForcedEnvironmentHook(krlv_apply_forced_environment);
+	KRlvHandler::instance().setGetLiveEnvironmentSettingHook(krlv_get_live_environment_setting);
+
+	// KRLV_TOUCHPOINT: the general-purpose "send a plain text instant
+	// message" primitive processInboundIM()'s manual command replies
+	// (@version, @getblacklist) are built on - and the intended
+	// foundation for a later owner-alert/tamper-notification feature,
+	// not a one-off for just those two - without krlv/ itself linking
+	// llinstantmessage.h/llagent.h. Mirrors LLIMModel::sendTypingState()/
+	// sendLeaveSession()'s own low-level send (llimview.cpp) rather than
+	// LLIMModel::sendMessage() - this deliberately does NOT create or
+	// touch any visible IM session/history, matching the spec's "neither
+	// the message nor the answer appears in the user's IM window"
+	// KRLV integrity: HMAC-SHA256 for state-file signatures, supplied here because
+	// the viewer already ships OpenSSL and krlv does not link it. Integrity only -
+	// an authentication code, not encryption.
+	KRlv::setHmacSha256Hook([](const std::string& key, const std::string& data) -> std::string
+	{
+		unsigned char digest[EVP_MAX_MD_SIZE];
+		unsigned int length = 0;
+		if (HMAC(EVP_sha256(), key.data(), static_cast<int>(key.size()),
+			reinterpret_cast<const unsigned char*>(data.data()), data.size(), digest, &length) == nullptr)
+		{
+			return std::string();
+		}
+		std::string hex;
+		char pair[3];
+		for (unsigned int i = 0; i < length; ++i)
+		{
+			snprintf(pair, sizeof(pair), "%02x", digest[i]);
+			hex += pair;
+		}
+		return hex;
+	});
+
+	// requirement for these commands. See KRlvSendImRequest in
+	// krlvhandler.h and krlv/README.md's "IM subsystem" section.
+	KRlvHandler::instance().setSendImHook([](const LLUUID& toId, const std::string& message)
+	{
+		std::string name;
+		LLAgentUI::buildFullname(name);
+		pack_instant_message(
+			gMessageSystem,
+			gAgent.getID(),
+			false,
+			gAgent.getSessionID(),
+			toId,
+			name,
+			message);
+		gAgent.sendReliableMessage();
+	});
+
+	// KRLV_TOUCHPOINT: Shared Folders' small family of data-fetching
+	// hooks - almost everything this category needs (path parsing,
+	// depth-first search, the whole folder-restriction scheme) is pure
+	// krlv-internal code (krlvsharedfolders.cpp) built on these few
+	// primitives, rather than one hook per command like every other
+	// category - see krlv/README.md's Shared Folders section.
+	//
+	// Finds (or creates) the top-level "#RLV" folder, mirroring this
+	// viewer's own AOEngine::tick() "#Kirstens" pattern exactly
+	// (aoengine.cpp) - not re-found synchronously after creation, same
+	// as that precedent; a caller simply sees it on the next chat command
+	// once inventory has synced.
+	KRlvHandler::instance().setGetSharedRootHook([]() -> LLUUID
+	{
+		if (!gInventory.isInventoryUsable())
+		{
+			return LLUUID::null;
+		}
+		const LLUUID folderId = gInventory.findCategoryByName(KRLV_SHARED_ROOT_FOLDER);
+		if (folderId.isNull())
+		{
+			gInventory.createNewCategory(gInventory.getRootFolderID(), LLFolderType::FT_NONE, KRLV_SHARED_ROOT_FOLDER);
+		}
+		return folderId;
+	});
+
+	// One level of a folder's children (categories AND items).
+	KRlvHandler::instance().setListFolderHook([](const LLUUID& folderId) -> std::vector<KRlvInvEntry>
+	{
+		std::vector<KRlvInvEntry> result;
+		if (folderId.isNull())
+		{
+			return result;
+		}
+		LLInventoryModel::cat_array_t* categories = nullptr;
+		LLInventoryModel::item_array_t* items = nullptr;
+		gInventory.getDirectDescendentsOf(folderId, categories, items);
+		if (categories)
+		{
+			for (const auto& cat : *categories)
+			{
+				KRlvInvEntry entry;
+				entry.id = cat->getUUID();
+				entry.name = cat->getName();
+				entry.isCategory = true;
+				result.push_back(entry);
+			}
+		}
+		if (items)
+		{
+			for (const auto& item : *items)
+			{
+				KRlvInvEntry entry;
+				entry.id = item->getUUID();
+				entry.name = item->getName();
+				entry.isCategory = false;
+				entry.isWorn = get_is_item_worn(item->getUUID());
+				result.push_back(entry);
+			}
+		}
+		return result;
+	});
+
+	// id -> its own name and its parent's id.
+	KRlvHandler::instance().setGetParentHook([](const LLUUID& id, std::string& outSelfName, LLUUID& outParentId) -> bool
+	{
+		LLInventoryObject* obj = gInventory.getObject(id);
+		if (!obj)
+		{
+			return false;
+		}
+		outSelfName = obj->getName();
+		outParentId = obj->getParentUUID();
+		return true;
+	});
+
+	// Attach-point name / clothing-layer name / literal UUID string
+	// (an in-world attached object's id) -> the underlying WORN
+	// inventory item's id.
+	KRlvHandler::instance().setResolveWornHook([](const std::string& pointOrLayerOrUuid) -> LLUUID
+	{
+		if (pointOrLayerOrUuid.empty() || !isAgentAvatarValid())
+		{
+			return LLUUID::null;
+		}
+
+		for (const auto& entry : gAgentAvatarp->mAttachmentPoints)
+		{
+			LLViewerJointAttachment* attachment = entry.second;
+			if (attachment && attachment->getName() == pointOrLayerOrUuid && attachment->getNumObjects() > 0)
+			{
+				LLViewerObject* obj = attachment->mAttachedObjects.front();
+				if (obj)
+				{
+					return obj->getAttachmentItemID();
+				}
+			}
+		}
+
+		const LLWearableType::EType type = LLWearableType::getInstance()->typeNameToType(pointOrLayerOrUuid);
+		if (type != LLWearableType::WT_INVALID && type != LLWearableType::WT_NONE
+			&& LLAgentWearables::selfHasWearable(type))
+		{
+			return gAgentWearables.getWearableItemID(type, 0);
+		}
+
+		LLUUID asUuid;
+		if (asUuid.set(pointOrLayerOrUuid, false) && asUuid.notNull())
+		{
+			LLViewerObject* object = gObjectList.findObject(asUuid);
+			if (object)
+			{
+				return object->getAttachmentItemID();
+			}
+			return asUuid; // treat as a literal inventory item id
+		}
+
+		return LLUUID::null;
+	});
+
+	// True if `itemId` currently lives anywhere under "#RLV".
+	KRlvHandler::instance().setIsSharedItemHook([](const LLUUID& itemId) -> bool
+	{
+		const LLUUID root = KRlvHandler::instance().requestGetSharedRoot();
+		return root.notNull() && gInventory.isObjectDescendentOf(itemId, root);
+	});
+
+	// Batch wear/detach - one-line forwards to the already-gated
+	// LLAppearanceMgr entry points (see krlv/README.md's Attachments
+	// section for why calling these directly with a krlv-gathered id
+	// list needs no new gating).
+	KRlvHandler::instance().setForceWearBatchHook([](const std::vector<LLUUID>& itemIds, bool replace)
+	{
+		if (!itemIds.empty())
+		{
+			LLAppearanceMgr::instance().wearItemsOnAvatar(uuid_vec_t(itemIds.begin(), itemIds.end()), true, replace);
+		}
+	});
+	KRlvHandler::instance().setForceDetachBatchHook([](const std::vector<LLUUID>& itemIds)
+	{
+		if (!itemIds.empty())
+		{
+			LLAppearanceMgr::instance().removeItemsFromAvatar(uuid_vec_t(itemIds.begin(), itemIds.end()));
+		}
+	});
 
 	// *FIX: no error handling here!
 	return true;
@@ -5500,7 +6321,7 @@ void LLAppViewer::idleNetwork()
 					break;
 				}
 			}
-			if (needs_drain || gMessageSystem->mPacketRing.getNumBufferedPackets() > 0)
+			if (needs_drain || gMessageSystem->getNumBufferedPackets() > 0)
 			{
 				// Rather than allow packets to silently backup on the socket
 				// we drain them into our own buffer so we know how many exist.

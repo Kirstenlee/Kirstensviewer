@@ -42,6 +42,7 @@
 #include "llviewertexturelist.h"
 #include "llviewerobject.h"
 #include "llvovolume.h"
+#include "krlvname.h" // KRLV_TOUCHPOINT: @showhovertextall/text/hud/world
 #include "llviewerwindow.h"
 #include "llstatusbar.h"
 #include "llmenugl.h"
@@ -115,6 +116,18 @@ void LLHUDText::renderText()
     if (!mVisible || mHidden)
     {
         return;
+    }
+
+    // KRLV_TOUCHPOINT: @showhovertextall / @showhovertext:<UUID> /
+    // @showhovertexthud / @showhovertextworld - see krlv/README.md's
+    // Name Tags and Hovertext section. Single chokepoint for both the
+    // world-space and HUD render passes (both funnel through here).
+    {
+        LLViewerObject* srcObject = getSourceObject();
+        if (KRlv::isHovertextHidden(srcObject ? srcObject->getID() : LLUUID::null, mOnHUDAttachment))
+        {
+            return;
+        }
     }
 
     gDX.getTexUnit(0)->enable(LLTexUnit::TT_TEXTURE);

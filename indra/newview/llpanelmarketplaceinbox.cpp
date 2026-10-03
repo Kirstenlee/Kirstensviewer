@@ -92,6 +92,9 @@ LLInventoryPanel * LLPanelMarketplaceInbox::setupInventoryPanel()
 
     llassert(mInventoryPanel);
 
+    // S24: build the inbox view at full speed while its layout panel is collapsed.
+    mInventoryPanel->setAlwaysBuildFullSpeed(true);
+
     // Reshape the inventory to the proper size
     LLRect inventory_placeholder_rect = inbox_inventory_placeholder->getRect();
     mInventoryPanel->setShape(inventory_placeholder_rect);

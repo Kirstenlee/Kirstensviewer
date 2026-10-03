@@ -56,6 +56,8 @@
 #include "llviewerobjectlist.h"
 #include "llviewerregion.h"
 #include "llvoavatarself.h"
+#include "krlvhandler.h" // KRLV_TOUCHPOINT: touch/grab gate, see krlv/README.md
+#include "krlvtouch.h"
 #include "llworld.h"
 #include "llmenugl.h"
 
@@ -1152,6 +1154,38 @@ LLVector3d LLToolGrabBase::getGrabPointGlobal()
 void send_ObjectGrab_message(LLViewerObject* object, const LLPickInfo & pick, const LLVector3 &grab_offset)
 {
     if (!object) return;
+
+    // KRLV_TOUCHPOINT: @touchall/@touchworld/@touchthis/@touchme/
+    // @touchattach*/@touchhud/@interact/@fartouch - the single low-level
+    // chokepoint every touch/grab UI path (direct click, pie menu,
+    // LSL-bridge) converges into. See krlv/README.md's Touch section.
+    {
+        const bool isHud = object->isHUDAttachment();
+        const bool isAttach = object->isAttachment();
+        bool isSelfAttach = false;
+        LLUUID attachedAvatarId;
+        if (isAttach)
+        {
+            LLViewerObject* root = object->getRootEdit();
+            LLViewerObject* parent = root ? (LLViewerObject*)root->getParent() : nullptr;
+            if (parent && parent->isAvatar())
+            {
+                attachedAvatarId = parent->getID();
+                isSelfAttach = isAgentAvatarValid() && parent->getID() == gAgentAvatarp->getID();
+            }
+        }
+        if (KRlv::isTouchBlocked(object->getID(), isAttach, isHud, isSelfAttach, attachedAvatarId))
+        {
+            return;
+        }
+
+        F32 krlvMaxDist;
+        if (!isHud && KRlv::getTouchDistanceLimit(krlvMaxDist)
+            && dist_vec(gAgent.getPositionAgent(), object->getPositionAgent()) > krlvMaxDist)
+        {
+            return;
+        }
+    }
 
     LLMessageSystem *msg = gMessageSystem;
 

@@ -37,6 +37,7 @@ include(LLRender)
 if(DX_RENDER)
     include(DXRender)
 endif()
+include(KRLV)
 include(LLUI)
 include(LLFileSystem)
 include(LLWindow)
@@ -100,6 +101,7 @@ include_directories(
 if(DX_RENDER)
   include_directories(${DXRENDER_INCLUDE_DIRS})
 endif()
+include_directories(${KRLV_INCLUDE_DIRS})
 
 include_directories(SYSTEM
     ${LLCOMMON_SYSTEM_INCLUDE_DIRS}
@@ -305,6 +307,7 @@ set(viewer_SOURCE_FILES
     llfloatermodelpreview.cpp
     llfloatermodeluploadbase.cpp
     llfloatermusicplayer.cpp
+    llfloaterkrlvcontrol.cpp
     llfloatermyscripts.cpp
     llfloatermyenvironment.cpp
     llfloaternamedesc.cpp
@@ -351,7 +354,6 @@ set(viewer_SOURCE_FILES
     llfloaterspellchecksettings.cpp
     llfloatertelehub.cpp
     llfloatertestinspectors.cpp
-    llfloatertestlistview.cpp
     llfloatertools.cpp
     llfloatertopobjects.cpp
     llfloatertos.cpp
@@ -789,7 +791,6 @@ set(viewer_SOURCE_FILES
     llwebprofile.cpp
     llwind.cpp
     llwindowlistener.cpp
-    llstatslistener.cpp
     llwlhandlers.cpp
     llworld.cpp
     llworldmap.cpp
@@ -1012,6 +1013,8 @@ set(viewer_HEADER_FILES
     llfloatermodelpreview.h
     llfloatermodeluploadbase.h
     llfloatermusicplayer.h
+    llfloaterkrlvcontrol.h
+    llfloaterkrlvcatalog.h
     llfloatermyscripts.h
     llfloatermyenvironment.h
     llfloaternamedesc.h
@@ -1058,7 +1061,6 @@ set(viewer_HEADER_FILES
     llfloaterspellchecksettings.h
     llfloatertelehub.h
     llfloatertestinspectors.h
-    llfloatertestlistview.h
     llfloatertools.h
     llfloatertopobjects.h
     llfloatertos.h
@@ -1483,7 +1485,6 @@ set(viewer_HEADER_FILES
     llwebprofile.h
     llwind.h
     llwindowlistener.h
-    llstatslistener.h
     llwlhandlers.h
     llworld.h
     llworldmap.h
@@ -1953,6 +1954,7 @@ target_link_libraries(${VIEWER_BINARY_NAME}
     ${LLPHYSICSEXTENSIONS_LIBRARIES}
     ${LLAPPEARANCE_LIBRARIES}
     llwebrtc
+    ${KRLV_LIBRARIES}
 
     # --- System libraries LAST to resolve all static lib deps above ---
     ${viewer_LIBRARIES}

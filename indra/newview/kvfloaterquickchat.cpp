@@ -35,6 +35,13 @@
 #include "llbutton.h"
 #include "llemojihelper.h"
 #include "lltoolbarview.h"
+#include "llfloaterreg.h"
+#include "llfloaterimnearbychat.h"
+#include "llchat.h"
+#include "krlvhandler.h" // KRLV_TOUCHPOINT: @version/@getblacklist's manual form from this chat bar too, see krlv/README.md
+#include "krlvchat.h"    // KRLV_TOUCHPOINT: @sendchat/@emote/@redirchat/@rediremote/@sendchannel* gates, see krlv/README.md
+#include "krlvsafeword.h" // KRLV safeword check on outgoing quick chat
+#include "llnotificationsutil.h"
 
 extern void send_chat_from_viewer(const std::string& utf8_out_text, EChatType type, S32 channel);
 
@@ -242,28 +249,112 @@ void KVFloaterQuickChat::sendChat(EChatType type)
     }
 
     std::string utf8_text = wstring_to_utf8str(out_text);
-    std::string utf8_revised_text;
 
-    // Try to trigger a gesture if on channel 0
+    // KRLV safeword: checked on every outgoing line, quick chat included. The message
+    // still goes out.
+    if (KRlv::checkOutgoingSafeword(utf8_text))
+    {
+        LLNotificationsUtil::add("KRLVSafewordUsed");
+    }
+
+    // KRLV_TOUCHPOINT: @version/@getblacklist's bare "manual" form,
+    // also invokable from this quick chat bar - same gate as
+    // LLFloaterIMNearbyChat::sendChat() (this is a SEPARATE widget/send
+    // path with its own sendChat(), so it needs its own copy of the
+    // check). See krlv/README.md's "IM subsystem" section.
+    bool krlvHandled = false;
     if (channel == 0)
     {
-        // Process gestures - returns true if gesture found
-        if (!LLGestureMgr::instance().triggerAndReviseString(utf8_text, &utf8_revised_text))
+        std::string krlvReply;
+        if (gKRlv.processSelfChatCommand(utf8_text, krlvReply))
+        {
+            krlvHandled = true;
+            if (!krlvReply.empty())
+            {
+                LLFloaterIMNearbyChat* nearby_chat = LLFloaterReg::getTypedInstance<LLFloaterIMNearbyChat>("nearby_chat");
+                if (nearby_chat)
+                {
+                    LLChat krlvChat;
+                    krlvChat.mFromName = "KRLV";
+                    krlvChat.mFromID = LLUUID::null;
+                    krlvChat.mSourceType = CHAT_SOURCE_SYSTEM;
+                    krlvChat.mText = krlvReply;
+                    nearby_chat->addMessage(krlvChat, true, LLSD());
+                }
+            }
+        }
+    }
+
+    std::string utf8_revised_text;
+
+    if (!krlvHandled)
+    {
+        // Try to trigger a gesture if on channel 0
+        if (channel == 0)
+        {
+            // Process gestures - returns true if gesture found
+            if (!LLGestureMgr::instance().triggerAndReviseString(utf8_text, &utf8_revised_text))
+            {
+                utf8_revised_text = utf8_text;
+            }
+        }
+        else
         {
             utf8_revised_text = utf8_text;
         }
-    }
-    else
-    {
-        utf8_revised_text = utf8_text;
-    }
 
-    utf8_revised_text = utf8str_trim(utf8_revised_text);
+        utf8_revised_text = utf8str_trim(utf8_revised_text);
 
-    if (!utf8_revised_text.empty())
-    {
-        // Send the chat with animation
-        send_chat_from_viewer(utf8_revised_text, type, channel);
+        if (!utf8_revised_text.empty())
+        {
+            // KRLV_TOUCHPOINT: @sendchat/@emote/@redirchat/@rediremote
+            // (channel 0) / @sendchannel/@sendchannel_sec/
+            // @sendchannel_except (any other channel) - this widget
+            // calls send_chat_from_viewer() directly, bypassing
+            // LLFloaterIMNearbyChat::sendChatFromViewer()'s own gate
+            // entirely (the same class of gap already found and fixed
+            // for the self-chat manual commands), so it needs its own
+            // copy here too. See krlv/README.md and krlvchat.cpp's file
+            // header for the full filtering/redirect rule.
+            bool krlvBlocked = false;
+            if (channel == 0)
+            {
+                const bool isEmote = (utf8_revised_text.rfind("/me ", 0) == 0) || (utf8_revised_text.rfind("/me'", 0) == 0);
+
+                std::vector<S32> redirectChannels;
+                if (KRlv::getChatRedirectChannels(isEmote, redirectChannels))
+                {
+                    for (S32 redirectChannel : redirectChannels)
+                    {
+                        send_chat_from_viewer(utf8_revised_text, type, redirectChannel);
+                    }
+                    krlvBlocked = true;
+                }
+                else if (gKRlv.isRestricted("sendchat"))
+                {
+                    const bool isSlashMessage = !utf8_revised_text.empty() && utf8_revised_text[0] == '/';
+                    if (!isSlashMessage || !KRlv::filterSendChatText(utf8_revised_text, isEmote))
+                    {
+                        krlvBlocked = true;
+                    }
+                }
+            }
+            else if (gKRlv.isRestricted("sendchannel") || KRlv::isChannelSendBlocked(channel))
+            {
+                krlvBlocked = true;
+            }
+
+            if (!krlvBlocked)
+            {
+                // KRLV_TOUCHPOINT: @chatshout/@chatnormal/@chatwhisper -
+                // same gap class as above, this widget never clamped
+                // volume either.
+                type = KRlv::getClampedChatType(type);
+
+                // Send the chat with animation
+                send_chat_from_viewer(utf8_revised_text, type, channel);
+            }
+        }
     }
 
     // Clear the input and add to history

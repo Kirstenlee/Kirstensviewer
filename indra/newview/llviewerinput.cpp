@@ -48,6 +48,8 @@
 #include "llinitparam.h"
 #include "llselectmgr.h"
 
+#include "krlvhandler.h" // KRLV_TOUCHPOINT: @temprun gate, see krlv/README.md
+
 //
 // Constants
 //
@@ -143,10 +145,17 @@ static void agent_handle_doubletap_run(EKeystate s, LLAgent::EDoubleTapRunMode m
         if (gAgent.mDoubleTapRunMode == mode &&
             gAgent.mDoubleTapRunTimer.getElapsedTimeF32() < NUDGE_TIME)
         {
-            // Same walk-key was pushed again quickly; this is a
-            // double-tap so engage temporary running.
-            gAgent.setRunning();
-            gAgent.sendWalkRun(gAgent.getRunning());
+            // KRLV_TOUCHPOINT: @temprun - only the "engage running" action
+            // is gated; the timer/mode bookkeeping just above and below
+            // this block is harmless and stays unaffected. See
+            // krlv/README.md.
+            if (!gKRlv.isRestricted("temprun"))
+            {
+                // Same walk-key was pushed again quickly; this is a
+                // double-tap so engage temporary running.
+                gAgent.setRunning();
+                gAgent.sendWalkRun(gAgent.getRunning());
+            }
         }
 
         // Pressing any walk-key resets the double-tap timer

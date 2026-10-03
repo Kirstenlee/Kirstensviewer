@@ -404,6 +404,22 @@ void LLSidepanelInventory::onOpen(const LLSD& key)
 #endif
 }
 
+void LLSidepanelInventory::draw()
+{
+    // S24: retry inbox panel setup at most once per second until the Inbox folder resolves.
+    if (mInventoryPanelInbox.get() == NULL && mInboxRetryTimer.getElapsedTimeF32() >= 1.f)
+    {
+        mInboxRetryTimer.reset();
+        const LLUUID inbox_id = gInventory.findCategoryUUIDForType(LLFolderType::FT_INBOX);
+        if (inbox_id.notNull())
+        {
+            observeInboxModifications(inbox_id);
+        }
+    }
+
+    LLPanel::draw();
+}
+
 void LLSidepanelInventory::performActionOnSelection(const std::string &action)
 {
     LLFolderViewItem* current_item = mPanelMainInventory->getActivePanel()->getRootFolder()->getCurSelectedItem();

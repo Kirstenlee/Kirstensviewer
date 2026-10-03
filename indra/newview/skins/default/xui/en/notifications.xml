@@ -2454,6 +2454,156 @@ Viewer run out of memory while opening file. File might be too big.
 You have added "[LANDMARK_NAME]" to your [FOLDER_NAME] folder.
   </notification>
 
+  <!-- KRLV_TOUCHPOINT: template for indra/krlv's Stage 2 stub-hit toast, see krlv/README.md -->
+  <notification
+   icon="notifytip.tga"
+   name="KRLVStubHit"
+   log_to_chat="false"
+   type="notifytip">
+ALERT! RLVa command detected: @[COMMAND] - not yet implemented in KRLV.
+  </notification>
+
+  <!-- S24: KRLV Control floater (llfloaterkrlvcontrol.cpp) -->
+  <notification
+   icon="alert.tga"
+   name="KRLVControlAgeGate"
+   type="alert">
+KRLV Control is only available when the viewer's maturity preference is set to Adult (General, Mature and Adult). Change this in Preferences, then try again.
+    <tag>fail</tag>
+  </notification>
+
+  <notification
+   icon="alert.tga"
+   name="KRLVControlPinWrong"
+   type="alert">
+That PIN is not correct.
+    <tag>fail</tag>
+  </notification>
+
+  <notification
+   icon="alert.tga"
+   name="KRLVControlPinMismatch"
+   type="alert">
+The new PIN is empty or the two entries do not match.
+    <tag>fail</tag>
+  </notification>
+
+  <notification
+   icon="alert.tga"
+   name="KRLVObjectClosedNeedConfirm"
+   type="alert">
+Tick the confirmation before switching to closed mode. In closed mode, objects not on the whitelist are ignored.
+    <tag>fail</tag>
+  </notification>
+
+  <notification
+   icon="alert.tga"
+   name="KRLVObjectSelectSource"
+   type="alert">
+Select a command in the Auto-reply command log first.
+    <tag>fail</tag>
+  </notification>
+
+  <notification
+   icon="alert.tga"
+   name="KRLVObjectSelectEntry"
+   type="alert">
+Select an entry in the list first.
+    <tag>fail</tag>
+  </notification>
+
+  <notification
+   icon="alert.tga"
+   name="KRLVObjectNoSource"
+   type="alert">
+This command has no usable source object or owner, so it cannot be listed.
+    <tag>fail</tag>
+  </notification>
+
+  <notification
+   icon="notify.tga"
+   name="KRLVControlPinSet"
+   type="notify">
+KRLV Control PIN has been set. It will be required each time KRLV Control opens.
+  </notification>
+
+  <notification
+   icon="alert.tga"
+   name="KRLVControlOwnerInvalid"
+   type="alert">
+That is not a valid UUID. Copy the full owner UUID, for example from their profile.
+    <tag>fail</tag>
+  </notification>
+
+  <notification
+   icon="alert.tga"
+   name="KRLVControlOwnerExists"
+   type="alert">
+That owner is already on the list.
+    <tag>fail</tag>
+  </notification>
+
+  <notification
+   icon="notify.tga"
+   name="KRLVControlOwnerTestSent"
+   type="notify">
+Test IM sent to the selected owner.
+  </notification>
+
+  <notification
+   icon="alert.tga"
+   name="KRLVControlNoOwnerSelected"
+   type="alert">
+Select an owner in the list first.
+    <tag>fail</tag>
+  </notification>
+
+  <notification
+   icon="alert.tga"
+   name="KRLVControlPinRequired"
+   type="alert">
+Enter your PIN in the PIN box at the bottom of the Communicate tab. The PIN used to unlock the floater is not kept here.
+    <tag>fail</tag>
+  </notification>
+
+  <notification
+   icon="alert.tga"
+   name="KRLVControlSetPinFirst"
+   type="alert">
+Owners can only be changed once a PIN is set. Set a PIN in the Security tab first.
+    <tag>fail</tag>
+  </notification>
+
+  <notification
+   icon="alert.tga"
+   name="KRLVSafewordUsed"
+   type="alert">
+Safeword used. All KRLV restrictions have been cleared and KRLV is turned off. Your owners have been told. Your message was sent.
+  </notification>
+
+  <notification
+   icon="notify.tga"
+   name="KRLVSafewordSet"
+   type="notify">
+Safeword saved. Typing those three words, in order, in any chat or IM will clear every restriction and turn KRLV off.
+  </notification>
+
+  <notification
+   icon="alert.tga"
+   name="KRLVSafewordInvalid"
+   type="alert">
+[REASON]
+    <tag>fail</tag>
+  </notification>
+
+  <notification
+   icon="alert.tga"
+   name="KRLVSafewordMismatch"
+   type="alert">
+The two safeword entries do not match. Type the same three words in both boxes.
+    <tag>fail</tag>
+  </notification>
+
   <notification
    icon="alert.tga"
    name="LandmarkAlreadyExists"

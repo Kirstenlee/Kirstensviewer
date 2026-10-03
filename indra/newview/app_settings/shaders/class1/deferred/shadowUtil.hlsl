@@ -82,10 +82,11 @@ float pcfShadow(Texture2D shadowMap, SamplerComparisonState shadowSampler, float
     // stc is only used for shadow-map sampling here, so flipping once is
     // equivalent to flipping each tap below.
     stc.y = 1.0 - stc.y;
-    // Bias pushes the comparison depth "away from the light" to avoid
-    // self-shadowing acne. Under the reversed-Z convention (near=1/far=0,
-    // see kGLtoDXDepthRemap, llrender.cpp) that direction is the smaller
-    // value, hence subtract rather than add.
+    // stc.z -= offset * 2 with offset = RenderShadowBias * bias_mul. The tuned
+    // defaults are negative (RenderShadowBias -0.002), so the net depth change is
+    // positive - the direction that suppresses acne under the reversed-Z GE compare
+    // (near=1, see kGLtoDXDepthRemap, llrender.cpp). Positive settings subtract
+    // depth and produce acne everywhere; large negative settings detach shadows.
     stc.z -= offset * 2.0;
     stc.x = floor(stc.x * shadow_res.x + frac(pos_screen.y * shadow_res.y)) / shadow_res.x;
     float cs = shadowMap.SampleCmpLevelZero(shadowSampler, stc.xy, stc.z);
@@ -104,7 +105,8 @@ float pcfSpotShadow(Texture2D shadowMap, SamplerComparisonState shadowSampler, f
 {
 #if defined(SPOT_SHADOW)
     stc.xyz /= stc.w;
-    // Same GL-vs-D3D11 texture-origin flip and reversed-Z bias sign as pcfShadow() above.
+    // Same GL-vs-D3D11 texture-origin flip and bias convention as pcfShadow() above
+    // (negative RenderSpotShadowBias adds depth).
     stc.y = 1.0 - stc.y;
     stc.z -= spot_shadow_bias * bias_scale;
     stc.x = floor(proj_shadow_res.x * stc.x + frac(pos_screen.y * 0.666666666)) / proj_shadow_res.x;

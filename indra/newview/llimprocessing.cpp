@@ -57,6 +57,9 @@
 #include "llvoavatarself.h"
 #include "llworld.h"
 
+#include "krlvhandler.h" // KRLV_TOUCHPOINT: @tplure/@accepttp/@tprequest/@accepttprequest gates, see krlv/README.md
+#include "krlvautoresponse.h" // KRLV auto-response to dropped IM
+
 #include "boost/lexical_cast.hpp"
 
 extern void on_new_message(const LLSD& msg);
@@ -519,6 +522,31 @@ void LLIMProcessing::processNewMessage(LLUUID from_id,
             break;
 
         case IM_NOTHING_SPECIAL:    // p2p IM
+            // KRLV_TOUCHPOINT: the spec's "manual" IM-only commands
+            // (@version, @getblacklist - see krlv/README.md's "IM
+            // subsystem" section) - checked BEFORE @recvim-family gating
+            // below, same as how their chat-form equivalents work
+            // regardless of @sendchat/@recvchat. Any dialog reaching
+            // this case is already, by construction, a genuine avatar
+            // IM (never an object), matching the spec's "will not work
+            // from objects" requirement with no extra check needed.
+            if (gKRlv.processInboundIM(message, from_id))
+            {
+                break;
+            }
+
+            // KRLV_TOUCHPOINT: @recvim/@recvim_sec/@recvimfrom - silently
+            // drops the incoming IM. The spec's "sender is notified they
+            // cannot be read" half is not implemented - see
+            // krlv/README.md. Checked before DND/prelude handling so it
+            // applies uniformly.
+            if ((gKRlv.isRestricted("recvim") && !gKRlv.hasRestrictionFrom("recvim_except", from_id))
+                || gKRlv.hasRestrictionFrom("recvimfrom", from_id))
+            {
+                // KRLV auto-response: tell the sender once, like Do Not Disturb does.
+                KRlv::autoRespondDroppedIM(from_id);
+                break;
+            }
             // Don't show dialog, just do IM
             if (!gAgent.isGodlike()
                 && gAgent.inPrelude()
@@ -1221,6 +1249,28 @@ void LLIMProcessing::processNewMessage(LLUUID from_id,
                     send_do_not_disturb_message(gMessageSystem, from_id);
                 }
 
+                // KRLV_TOUCHPOINT: @tplure/@tplure_sec (offers) and
+                // @tprequest/@tprequest_sec (requests) - auto-decline,
+                // unless the sender is a tracked exception. The "_sec"
+                // object-scoping nuance is not implemented - any
+                // exception UUID is honoured regardless of which object
+                // added it. See krlv/README.md.
+                if (IM_LURE_USER == dialog && gKRlv.isRestricted("tplure") &&
+                    !gKRlv.hasRestrictionFrom("tplure_except", from_id))
+                {
+                    send_simple_im(from_id, LLStringUtil::null, IM_LURE_DECLINED, session_id);
+                    return;
+                }
+                if (IM_TELEPORT_REQUEST == dialog && gKRlv.isRestricted("tprequest") &&
+                    !gKRlv.hasRestrictionFrom("tprequest_except", from_id))
+                {
+                    // Spec: "that other user receives a message if they
+                    // try" - no existing decline-a-request IM was found
+                    // to safely reuse, so only the silent-ignore half is
+                    // implemented here.
+                    return;
+                }
+
                 LLVector3 pos, look_at;
                 U64 region_handle(0);
                 U8 region_access(SIM_ACCESS_MIN);
@@ -1305,6 +1355,28 @@ void LLIMProcessing::processNewMessage(LLUUID from_id,
                 }
                 else
                 {
+                    // KRLV_TOUCHPOINT: @accepttp/@accepttprequest - auto-
+                    // accept by reusing the same forceResponse(..., 0)
+                    // technique this file already uses for the godlike-
+                    // lure auto-accept path below (option 0 is "accept"/
+                    // "yes" for both the "TeleportOffered" and
+                    // "TeleportRequest" functors). Placed here, after the
+                    // maturity checks above, so KRLV never auto-teleports
+                    // somewhere the user's own maturity settings would
+                    // otherwise block. See krlv/README.md.
+                    if (IM_LURE_USER == dialog &&
+                        (gKRlv.isRestricted("accepttp_all") || gKRlv.hasRestrictionFrom("accepttp_from", from_id)))
+                    {
+                        LLNotifications::instance().forceResponse(LLNotification::Params("TeleportOffered").payload(payload), 0);
+                        break;
+                    }
+                    if (IM_TELEPORT_REQUEST == dialog &&
+                        (gKRlv.isRestricted("accepttprequest_all") || gKRlv.hasRestrictionFrom("accepttprequest_from", from_id)))
+                    {
+                        LLNotifications::instance().forceResponse(LLNotification::Params("TeleportRequest").payload(payload), 0);
+                        break;
+                    }
+
                     LLNotification::Params params;
                     if (IM_LURE_USER == dialog)
                     {

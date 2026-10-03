@@ -48,6 +48,8 @@
 #include "llviewerobjectlist.h"
 #include "llvoavatarself.h"
 
+#include "krlvhandler.h" // KRLV_TOUCHPOINT: @share/@share_sec gates, see krlv/README.md
+
 // MAX ITEMS is based on (sizeof(uuid)+2) * count must be < MTUBYTES
 // or 18 * count < 1200 => count < 1200/18 => 66. I've cut it down a
 // bit from there to give some pad.
@@ -185,6 +187,12 @@ bool LLGiveInventory::doGiveInventoryItem(const LLUUID& to_agent,
                                       const LLUUID& im_session_id/* = LLUUID::null*/)
 
 {
+    // KRLV_TOUCHPOINT: @share/@share_sec - see krlv/README.md.
+    if (gKRlv.isRestricted("share") && !gKRlv.hasRestrictionFrom("share_except", to_agent))
+    {
+        return false;
+    }
+
     bool res = true;
     LL_INFOS() << "LLGiveInventory::giveInventory()" << LL_ENDL;
     if (!isInventoryGiveAcceptable(item))
@@ -220,6 +228,12 @@ bool LLGiveInventory::doGiveInventoryCategory(const LLUUID& to_agent,
                                               const std::string& notification_name)
 
 {
+    // KRLV_TOUCHPOINT: @share/@share_sec - see krlv/README.md.
+    if (gKRlv.isRestricted("share") && !gKRlv.hasRestrictionFrom("share_except", to_agent))
+    {
+        return false;
+    }
+
     if (!cat)
     {
         return false;

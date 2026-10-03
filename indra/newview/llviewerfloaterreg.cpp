@@ -106,6 +106,7 @@
 #include "llfloatermodelpreview.h"
 #include "llfloatermusicplayer.h"
 #include "llfloatermyscripts.h"
+#include "llfloaterkrlvcontrol.h"
 #include "llfloatermyenvironment.h"
 #include "llfloaterKVTweaks.h"
 #include "llfloaterkvramcachestats.h"
@@ -149,7 +150,6 @@
 #include "llfloaterspellchecksettings.h"
 #include "llfloatertelehub.h"
 #include "llfloatertestinspectors.h"
-#include "llfloatertestlistview.h"
 #include "llfloatertools.h"
 #include "llfloatertopobjects.h"
 #include "llfloatertos.h"
@@ -456,6 +456,7 @@ void LLViewerFloaterReg::registerFloaters()
     LLFloaterReg::add("preferences", "floater_preferences.xml", (LLFloaterBuildFunc)&LLFloaterReg::build<LLFloaterPreference>);
     LLFloaterReg::add("prefs_graphics_advanced", "floater_preferences_graphics_advanced.xml", (LLFloaterBuildFunc)&LLFloaterReg::build<LLFloaterPreferenceGraphicsAdvanced>);
     LLFloaterReg::add("prefs_kvtweaks", "floater_preferences_kvtweaks.xml", (LLFloaterBuildFunc)&LLFloaterReg::build<LLFloaterKVTweaks>);
+    LLFloaterReg::add("krlv_control", "floater_krlv_control.xml", (LLFloaterBuildFunc)&LLFloaterReg::build<LLFloaterKRLVControl>);
     LLFloaterReg::add("kvram_cache_stats", "floater_kvram_cache_stats.xml", (LLFloaterBuildFunc)&LLFloaterReg::build<LLFloaterKVRAMCacheStats>);
     LLFloaterReg::add("prefs_view_advanced", "floater_preferences_view_advanced.xml", (LLFloaterBuildFunc)&LLFloaterReg::build<LLFloaterPreferenceViewAdvanced>);
     LLFloaterReg::add("prefs_proxy", "floater_preferences_proxy.xml", (LLFloaterBuildFunc)&LLFloaterReg::build<LLFloaterPreferenceProxy>);
@@ -484,7 +485,6 @@ void LLViewerFloaterReg::registerFloaters()
 
     LLFloaterReg::add("telehubs", "floater_telehub.xml",&LLFloaterReg::build<LLFloaterTelehub>);
     LLFloaterReg::add("test_inspectors", "floater_test_inspectors.xml", &LLFloaterReg::build<LLFloaterTestInspectors>);
-    //LLFloaterReg::add("test_list_view", "floater_test_list_view.xml",&LLFloaterReg::build<LLFloaterTestListView>);
     LLFloaterReg::add("test_textbox", "floater_test_textbox.xml", &LLFloaterReg::build<LLFloater>);
     LLFloaterReg::add("test_text_editor", "floater_test_text_editor.xml", &LLFloaterReg::build<LLFloater>);
     LLFloaterReg::add("test_widgets", "floater_test_widgets.xml", &LLFloaterReg::build<LLFloater>);

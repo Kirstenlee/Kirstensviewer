@@ -63,7 +63,9 @@ struct PSInput
 // CAS_GO_SLOWER configuration (slightly more GPU cost, no precision loss).
 float4 main(PSInput IN) : SV_Target
 {
-    float2 pos = IN.vary_fragcoord;
+    // vary_fragcoord is bottom-up (GL-style NDC); DX texture row 0 is the top,
+    // so flip once here as the sibling passes do.
+    float2 pos = float2(IN.vary_fragcoord.x, 1.0 - IN.vary_fragcoord.y);
     float2 rcpOut = 1.0 / out_screen_res;
 
     // 3x3 neighborhood, matching CASF.glsl's own a/b/c/d/e/f/g/h/i grid
@@ -105,7 +107,7 @@ float4 main(PSInput IN) : SV_Target
     float3 rcpWeight = 1.0 / (1.0 + 4.0 * w);
     float3 color = saturate((b * w + d * w + f * w + h * w + e) * rcpWeight);
 
-    color = linear_to_srgb(color);
+    // Input is already display-encoded by the gamma step, so no sRGB encode here.
 
     float alpha = diffuseRect.SampleLevel(diffuseRectSampler, pos, 0).a;
     return float4(color, alpha);

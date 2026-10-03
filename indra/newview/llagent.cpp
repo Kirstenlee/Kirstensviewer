@@ -100,6 +100,9 @@
 #include "llcorehttputil.h"
 #include "lluiusage.h"
 
+#include "krlvhandler.h" // KRLV_TOUCHPOINT: @fly / @alwaysrun / @tplm / @tploc / @tplocal gates, see krlv/README.md
+#include "krlvteleport.h" // KRLV_TOUCHPOINT: @tplocal distance limit query
+
 using namespace LLAvatarAppearanceDefines;
 
 extern LLMenuBarGL* gMenuBarView;
@@ -979,6 +982,11 @@ void LLAgent::movePitch(F32 mag)
 // Does this parcel allow you to fly?
 bool LLAgent::canFly()
 {
+    // KRLV_TOUCHPOINT: @fly - checked before isGodlike() so a worn
+    // restriction can't be bypassed by elevated permissions; see
+    // krlv/README.md.
+    if (gKRlv.isRestricted("fly")) return false;
+
     if (isGodlike()) return true;
 
     LLViewerRegion* regionp = getRegion();
@@ -1101,6 +1109,13 @@ bool LLAgent::isSitting()
 
 void LLAgent::standUp()
 {
+    // KRLV_TOUCHPOINT: @unsit - also naturally inhibits @unsit=force,
+    // which calls this same function via its hook (same "gate the shared
+    // function" pattern as @tploc/@tpto - see krlv/README.md).
+    if (gKRlv.isRestricted("unsit"))
+    {
+        return;
+    }
     setControlFlags(AGENT_CONTROL_STAND_UP);
 }
 
@@ -1474,6 +1489,13 @@ LLVector3d LLAgent::getPosGlobalFromAgent(const LLVector3 &pos_agent) const
 
 void LLAgent::sitDown()
 {
+    // KRLV_TOUCHPOINT: @sit - spec explicitly states @sitground=force
+    // "will fail if the avatar is under a @sit restriction". This
+    // function is also what @sitground=force's hook calls.
+    if (gKRlv.isRestricted("sit"))
+    {
+        return;
+    }
     setControlFlags(AGENT_CONTROL_SIT_ON_GROUND);
 }
 
@@ -3514,6 +3536,18 @@ void LLAgent::sendRevokePermissions(const LLUUID & target, U32 permissions)
     }
 }
 
+void LLAgent::setAlwaysRun()
+{
+    // KRLV_TOUCHPOINT: @alwaysrun - only gates turning it ON; clearAlwaysRun()
+    // is untouched, a restriction never blocks the user going back to
+    // walking. See krlv/README.md.
+    if (gKRlv.isRestricted("alwaysrun"))
+    {
+        return;
+    }
+    mbAlwaysRun = true;
+}
+
 void LLAgent::sendWalkRun(bool running)
 {
     LLMessageSystem* msgsys = gMessageSystem;
@@ -4431,6 +4465,21 @@ void LLAgent::teleportRequest(
     bool look_at_from_camera)
 {
     LLViewerRegion* regionp = getRegion();
+
+    // KRLV_TOUCHPOINT: @tplocal - only gates SAME-region requests; a
+    // cross-region request through this same function is ungated here
+    // (covered instead by @tploc at the public entry points, if
+    // active). See krlv/README.md.
+    if (regionp && region_handle == regionp->getHandle())
+    {
+        F32 krlvMaxDist;
+        if (KRlv::getLocalTeleportDistanceLimit(krlvMaxDist) &&
+            (pos_local - getPositionAgent()).length() > krlvMaxDist)
+        {
+            return;
+        }
+    }
+
     if (regionp && teleportCore(region_handle == regionp->getHandle()))
     {
         LL_INFOS("Teleport") << "Sending TeleportLocationRequest: '" << region_handle << "':"
@@ -4456,6 +4505,12 @@ void LLAgent::teleportRequest(
 // Landmark ID = LLUUID::null means teleport home
 void LLAgent::teleportViaLandmark(const LLUUID& landmark_asset_id)
 {
+    // KRLV_TOUCHPOINT: @tplm - see krlv/README.md.
+    if (gKRlv.isRestricted("tplm"))
+    {
+        return;
+    }
+
     if (landmark_asset_id.isNull())
     {
         gAgentCamera.resetView();
@@ -4586,6 +4641,15 @@ void LLAgent::restoreCanceledTeleportRequest()
 
 void LLAgent::teleportViaLocation(const LLVector3d& pos_global)
 {
+    // KRLV_TOUCHPOINT: @tploc - see krlv/README.md. This is the same
+    // function KRLV's own @tpto=force hook calls, so gating it here also
+    // satisfies the spec's own "@tpto is inhibited by @tploc=n" wording
+    // with no extra code needed.
+    if (gKRlv.isRestricted("tploc"))
+    {
+        return;
+    }
+
     mTeleportRequest = LLTeleportRequestPtr(new LLTeleportRequestViaLocation(pos_global));
     startTeleportRequest();
 }
@@ -4647,6 +4711,13 @@ void LLAgent::doTeleportViaLocation(const LLVector3d& pos_global)
 // Teleport to global position, but keep facing in the same direction
 void LLAgent::teleportViaLocationLookAt(const LLVector3d& pos_global)
 {
+    // KRLV_TOUCHPOINT: @tploc - see krlv/README.md and the note on
+    // teleportViaLocation() above.
+    if (gKRlv.isRestricted("tploc"))
+    {
+        return;
+    }
+
     mTeleportRequest = LLTeleportRequestPtr(new LLTeleportRequestViaLocationLookAt(pos_global));
     startTeleportRequest();
 }

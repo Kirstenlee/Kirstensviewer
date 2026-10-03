@@ -262,6 +262,9 @@ public:
 
     void setSuppressOpenItemAction(bool supress_open_item) { mSuppressOpenItemAction = supress_open_item; }
 
+    // S24: exempts this panel from the hidden-chain build throttle in idle().
+    void setAlwaysBuildFullSpeed(bool always_full_speed) { mAlwaysBuildFullSpeed = always_full_speed; }
+
     LLFolderViewModelInventory* getFolderViewModel() { return &mInventoryViewModel; }
     const LLFolderViewModelInventory* getFolderViewModel() const { return &mInventoryViewModel; }
 
@@ -290,6 +293,7 @@ protected:
     bool                        mShowEmptyMessage;
     bool                        mSuppressFolderMenu;
     bool                        mSuppressOpenItemAction;
+    bool                        mAlwaysBuildFullSpeed = false;
 
     LLHandle<LLFolderView>      mFolderRoot;
     LLScrollContainer*          mScroller;

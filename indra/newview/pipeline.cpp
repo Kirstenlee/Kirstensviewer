@@ -88,6 +88,7 @@
 #include "llviewercamera.h"
 #include "llviewermediafocus.h"
 #include "llviewertexturelist.h"
+#include "llviewertexture.h" // KRLV_TOUCHPOINT-adjacent: LLViewerFetchedTexture::sDefaultImagep, @camtextures
 #include "llviewerobject.h"
 #include "llviewerobjectlist.h"
 #include "llviewerparcelmgr.h"
@@ -6986,7 +6987,7 @@ void apply_cube_face_rotation(U32 face)
 void LLPipeline::bindScreenToTexture()
 {}
 
-void LLPipeline::visualizeBuffers(LLRenderTarget* src, LLRenderTarget* dst, U32 bufferIndex)
+void LLPipeline::visualizeBuffers(LLRenderTarget* src, LLRenderTarget* dst, U32 bufferIndex, bool blend_vertical)
 {
 	// Lazily compiled on first actual use instead of eagerly at startup - see
 	// LLViewerShaderMgr::loadShaderBufferVisualization()'s comment for why. isComplete() stays false if
@@ -7010,6 +7011,9 @@ void LLPipeline::visualizeBuffers(LLRenderTarget* src, LLRenderTarget* dst, U32 
 		gDeferredBufferVisualProgram.uniform1f(mipLevel, 0);
 	else
 		gDeferredBufferVisualProgram.uniform1f(mipLevel, 8);
+
+	static LLStaticHashedString showBlendVertical("showBlendVertical");
+	gDeferredBufferVisualProgram.uniform1f(showBlendVertical, blend_vertical ? 1.f : 0.f);
 
 	mScreenTriangleVB->setBuffer();
 	mScreenTriangleVB->drawArrays(LLRender::TRIANGLES, 0, 3);
@@ -7431,10 +7435,10 @@ void LLPipeline::applyCAS(LLRenderTarget* src, LLRenderTarget* dst)
 	sharpen_shader->bind();
 
 	{
-		static LLStaticHashedString cas_param_0("cas_param_0");
 		static LLStaticHashedString cas_param_1("cas_param_1");
 		static LLStaticHashedString out_screen_res("out_screen_res");
 
+		// const0 is only CasSetup's out-parameter; CASF.hlsl never reads cas_param_0.
 		varAU4(const0);
 		varAU4(const1);
 		CasSetup(const0, const1,
@@ -7442,7 +7446,6 @@ void LLPipeline::applyCAS(LLRenderTarget* src, LLRenderTarget* dst)
 			(AF1)src->getWidth(), (AF1)src->getHeight(),  // Input size.
 			(AF1)dst->getWidth(), (AF1)dst->getHeight()); // Output size.
 
-		sharpen_shader->uniform4uiv(cas_param_0, 1, const0);
 		sharpen_shader->uniform4uiv(cas_param_1, 1, const1);
 
 		sharpen_shader->uniform2f(out_screen_res, (AF1)dst->getWidth(), (AF1)dst->getHeight());
@@ -7619,7 +7622,10 @@ void LLPipeline::generateSMAABuffers(LLRenderTarget* src)
 			edge_shader.unbind();
 			dest.flush();
 
-			gDX.getTexUnit(channel)->unbindFast(LLTexUnit::TT_TEXTURE);
+			if (channel > -1)
+			{
+				gDX.getTexUnit(channel)->unbindFast(LLTexUnit::TT_TEXTURE);
+			}
 		}
 
 		{
@@ -7674,9 +7680,18 @@ void LLPipeline::generateSMAABuffers(LLRenderTarget* src)
 			//}
 			blend_weights_shader.unbind();
 			dest.flush();
-			gDX.getTexUnit(edge_tex_channel)->unbindFast(LLTexUnit::TT_TEXTURE);
-			gDX.getTexUnit(area_tex_channel)->unbindFast(LLTexUnit::TT_TEXTURE);
-			gDX.getTexUnit(search_tex_channel)->unbindFast(LLTexUnit::TT_TEXTURE);
+			if (edge_tex_channel > -1)
+			{
+				gDX.getTexUnit(edge_tex_channel)->unbindFast(LLTexUnit::TT_TEXTURE);
+			}
+			if (area_tex_channel > -1)
+			{
+				gDX.getTexUnit(area_tex_channel)->unbindFast(LLTexUnit::TT_TEXTURE);
+			}
+			if (search_tex_channel > -1)
+			{
+				gDX.getTexUnit(search_tex_channel)->unbindFast(LLTexUnit::TT_TEXTURE);
+			}
 		}
 	}
 }
@@ -7734,8 +7749,14 @@ void LLPipeline::applySMAA(LLRenderTarget* src, LLRenderTarget* dst)
 
 			bound_target->flush();
 			blend_shader.unbind();
-			gDX.getTexUnit(diffuse_channel)->unbindFast(LLTexUnit::TT_TEXTURE);
-			gDX.getTexUnit(blend_channel)->unbindFast(LLTexUnit::TT_TEXTURE);
+			if (diffuse_channel > -1)
+			{
+				gDX.getTexUnit(diffuse_channel)->unbindFast(LLTexUnit::TT_TEXTURE);
+			}
+			if (blend_channel > -1)
+			{
+				gDX.getTexUnit(blend_channel)->unbindFast(LLTexUnit::TT_TEXTURE);
+			}
 		}
 	}
 	else
@@ -7757,6 +7778,57 @@ void LLPipeline::copyRenderTarget(LLRenderTarget* src, LLRenderTarget* dst)
 	mScreenTriangleVB->drawArrays(LLRender::TRIANGLES, 0, 3);
 
 	gDeferredPostNoDoFProgram.unbind();
+
+	dst->flush();
+}
+
+// KRLV_TOUCHPOINT: @camdrawmin/@camdrawmax/@camdrawalphamin/
+// @camdrawalphamax/@camdrawcolor - see krlv/README.md's Camera section.
+// Mirrors copyRenderTarget()'s own shape exactly (this shader's own t7/s7
+// diffuse texture + deferredUtil.hlsl's depth via isDeferred=true, same
+// as krlvCamDrawFogF.hlsl's own file header explains) - krlv_fog_* are
+// plain string-named uniforms (LLHLSLShader::uniformNf(const
+// std::string&, ...)), not new LLShaderMgr:: global enum entries, since
+// this is a self-contained, KRLV-only shader nothing else references.
+void LLPipeline::applyKrlvCamDrawFog(LLRenderTarget* src, LLRenderTarget* dst,
+	F32 minDist, F32 maxDist, F32 minAlpha, F32 maxAlpha,
+	F32 fogColorR, F32 fogColorG, F32 fogColorB,
+	bool camTexturesActive, LLViewerFetchedTexture* camTexturesSubstitute)
+{
+	dst->bindTarget();
+
+	gKrlvCamDrawFogProgram.bind();
+
+	gKrlvCamDrawFogProgram.bindTexture(LLShaderMgr::DEFERRED_DIFFUSE, src);
+	gKrlvCamDrawFogProgram.bindTexture(LLShaderMgr::DEFERRED_DEPTH, &mRT->deferredScreen, true);
+
+	static LLStaticHashedString sKrlvFogMinDist("krlv_fog_min_dist");
+	static LLStaticHashedString sKrlvFogMaxDist("krlv_fog_max_dist");
+	static LLStaticHashedString sKrlvFogMinAlpha("krlv_fog_min_alpha");
+	static LLStaticHashedString sKrlvFogMaxAlpha("krlv_fog_max_alpha");
+	static LLStaticHashedString sKrlvFogColor("krlv_fog_color");
+	static LLStaticHashedString sKrlvCamTexturesActive("krlv_camtextures_active");
+
+	gKrlvCamDrawFogProgram.uniform1f(sKrlvFogMinDist, minDist);
+	gKrlvCamDrawFogProgram.uniform1f(sKrlvFogMaxDist, maxDist);
+	gKrlvCamDrawFogProgram.uniform1f(sKrlvFogMinAlpha, minAlpha);
+	gKrlvCamDrawFogProgram.uniform1f(sKrlvFogMaxAlpha, maxAlpha);
+	gKrlvCamDrawFogProgram.uniform3f(sKrlvFogColor, fogColorR, fogColorG, fogColorB);
+
+	// KRLV_TOUCHPOINT: @camtextures/@setcam_textures - see this function's
+	// header comment (pipeline.h) and krlv/README.md's Camera section.
+	gKrlvCamDrawFogProgram.uniform1i(sKrlvCamTexturesActive, camTexturesActive ? 1 : 0);
+	if (camTexturesActive)
+	{
+		gKrlvCamDrawFogProgram.bindTexture(LLShaderMgr::KRLV_CAMTEXTURES_STENCIL, &mRT->deferredScreen, false, LLTexUnit::TFO_BILINEAR, 0, true);
+		LLViewerFetchedTexture* substitute = camTexturesSubstitute ? camTexturesSubstitute : LLViewerFetchedTexture::sDefaultImagep.get();
+		gKrlvCamDrawFogProgram.bindTexture(LLShaderMgr::KRLV_CAMTEXTURES_SUBSTITUTE, substitute);
+	}
+
+	mScreenTriangleVB->setBuffer();
+	mScreenTriangleVB->drawArrays(LLRender::TRIANGLES, 0, 3);
+
+	gKrlvCamDrawFogProgram.unbind();
 
 	dst->flush();
 }

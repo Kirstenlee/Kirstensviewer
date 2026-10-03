@@ -32,6 +32,7 @@
 // Library includes (should move below)
 #include "indra_constants.h"
 #include "llavatarnamecache.h"
+#include "krlvname.h" // KRLV_TOUCHPOINT: @shownames / @shownearby minimap tooltip
 #include "llmath.h"
 #include "llfloaterreg.h"
 #include "llfocusmgr.h"
@@ -859,6 +860,13 @@ bool LLNetMap::handleToolTipAgent(const LLUUID& avatar_id)
     if (avatar_id.isNull() || !LLAvatarNameCache::get(avatar_id, &av_name))
     {
         return false;
+    }
+
+    // KRLV_TOUCHPOINT: @shownames / @shownearby - see
+    // krlv/README.md's Name Tags and Hovertext section.
+    if (KRlv::isNameCensored(avatar_id) || KRlv::isNearbyNameHidden())
+    {
+        return true;
     }
 
     // only show tooltip if same inspector not already open

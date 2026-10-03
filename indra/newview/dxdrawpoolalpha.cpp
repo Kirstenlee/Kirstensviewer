@@ -42,6 +42,7 @@
 #include "llviewertexture.h"
 #include "llvoavatar.h"
 #include "gltfscenemanager.h"
+#include "DXStateCache.h" // KRLV_TOUCHPOINT: @camtextures stencil tagging, see krlv/README.md
 
 extern bool gCubeSnapshot;
 
@@ -647,6 +648,15 @@ namespace
                         {
                             LLHLSLShader::sCurBoundShaderPtr->setMinimumAlpha(0.f);
                             reset_minimum_alpha = true;
+                        }
+
+                        // KRLV_TOUCHPOINT: @camtextures/@setcam_textures -
+                        // same tagging as LLRenderPass::pushBatch()
+                        // (lldrawpool.cpp), this pool's own separate
+                        // draw path - see krlv/README.md's Camera section.
+                        if (DXStateCache::sTagAttachmentStencilActive)
+                        {
+                            DXStateCache::tagAttachmentStencil(params.mAttachedToAvatar.notNull());
                         }
 
                         params.mVertexBuffer->setBuffer();

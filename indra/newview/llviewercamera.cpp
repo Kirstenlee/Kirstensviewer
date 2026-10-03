@@ -52,6 +52,8 @@
 #include "lltracerecording.h"
 #include "llenvironment.h"
 
+#include "krlvcamera.h" // KRLV_TOUCHPOINT: @camzoommax/min, @setcam_fovmin/max gates, see krlv/README.md
+
 // System includes
 #include <iomanip> // for setprecision
 
@@ -950,6 +952,22 @@ void LLViewerCamera::setViewNoBroadcast(F32 vertical_fov_rads)
 void LLViewerCamera::setDefaultFOV(F32 vertical_fov_rads)
 {
 	vertical_fov_rads = llclamp(vertical_fov_rads, getMinView(), getMaxView());
+
+	// KRLV_TOUCHPOINT: @camzoommax/@camzoommin (multiplier-based) and
+	// @setcam_fovmin/@setcam_fovmax (direct FOV) - applied as two
+	// independent clamps; sequential clamping naturally yields the
+	// intersection if both families are active simultaneously. See
+	// krlv/README.md.
+	F32 krlvFloor, krlvCeil;
+	if (KRlv::getFovBoundsFromZoomMultiplier(krlvFloor, krlvCeil))
+	{
+		vertical_fov_rads = llclamp(vertical_fov_rads, krlvFloor, krlvCeil);
+	}
+	if (KRlv::getFovBoundsDirect(krlvFloor, krlvCeil))
+	{
+		vertical_fov_rads = llclamp(vertical_fov_rads, krlvFloor, krlvCeil);
+	}
+
 	setView(vertical_fov_rads);
 	mCameraFOVDefault = vertical_fov_rads;
 	mCosHalfCameraFOV = cosf(mCameraFOVDefault * 0.5f);

@@ -7,7 +7,8 @@
  legacy_header_height="18"
  can_minimize="true"
  can_close="true"
- height="195"
+ can_resize="false"
+ height="160"
  layout="topleft"
  name="camera_floater"
  help_topic="camera_floater"
@@ -16,7 +17,7 @@
  title="CAMERA CONTROLS"
  chrome="true"
  save_rect="true"
- width="400">
+ width="210">
     <floater.string
      name="rotate_tooltip">
         Rotate Camera Around Focus
@@ -35,612 +36,570 @@
     </floater.string>
     <string name="inactive_combo_text">Use preset</string>
 
-    <!-- Tab container for Camera Controls and Framing -->
-    <tab_container
-     follows="left|top|right"
-     height="170"
-     halign="center"
-     layout="topleft"
-     left="5"
-     name="camera_tabs"
-     tab_min_width="90"
-     tab_height="20"
-     tab_position="top"
-     top="20"
-     width="390">
+    <!-- S24: compact camera floater redesign (resident-requested - the stock
+         floater's footprint was the single biggest complaint). The jogs
+         below are the ONLY thing always on screen now; everything else
+         (quick-view presets, saved presets, Composition Guides, Camera
+         Recorder) lives in ONE shared accordion panel beneath them,
+         picked by accordion_combo and shown/hidden by
+         accordion_toggle_btn - a disclosure toggle, not a 2nd combo
+         state, so switching WHICH panel shows never also closes it.
+         See llfloatercamera.cpp's updateAccordionPanel()/getContentHeight()
+         for the sizing logic this layout depends on. -->
 
-      <!-- TAB 1: Camera Controls -->
-      <panel
-       border="true"
-       follows="all"
-       height="150"
-       label="Controls"
-       layout="topleft"
-       left="1"
-       name="tab_controls"
-       top="20"
-       width="388">
     <panel
      border="false"
-     height="123"
+     follows="left|top"
+     height="88"
      layout="topleft"
-     left="2"
-     top="0"
+     left="8"
+     top="22"
      mouse_opaque="false"
      name="controls"
-     width="220">
-         <!--TODO: replace + - images -->
-         <panel
-            border="false"
-            class="camera_zoom_panel"
-            height="123"
-            layout="topleft"
-            left="0"
-            mouse_opaque="false"
-            name="zoom"
-            top="0"
-            width="220">
-           <joystick_rotate
-              follows="top|left"
-              height="78"
-              layout="topleft"
-              left="7"
-              name="cam_rotate_stick"
-              quadrant="left"
-              sound_flags="3"
-              visible="true"
-              tool_tip="Orbit camera around focus"
-              top="25"
-              width="78" />
-           <button
-              follows="top|left"
-              height="18"
-              image_disabled="AddItem_Disabled"
-              image_selected="AddItem_Press"
-              image_unselected="AddItem_Off"
-              layout="topleft"
-              left_pad="14" 
-              name="zoom_plus_btn"
-              width="18"
-              top="23">
-             <commit_callback
-                function="Zoom.plus" />
-             <mouse_held_callback
-                function="Zoom.plus" />
-           </button>
-           <slider_bar
-              height="50"
-              layout="topleft"
-              name="zoom_slider"
-              orientation="vertical"
-              tool_tip="Zoom camera toward focus"
-              top_pad="0"
-              min_val="0"
-              max_val="1"
-              increment="0.02"
-              width="18">
-             <commit_callback function="Slider.value_changed"/>
-           </slider_bar>
-           <button
-              follows="top|left"
-              height="18"
-              image_disabled="MinusItem_Disabled"
-              image_selected="MinusItem_Press"
-              image_unselected="MinusItem_Off"
-              layout="topleft"
-              name="zoom_minus_btn"
-              top_pad="0"
-              width="18">
-             <commit_callback
-                function="Zoom.minus" />
-             <mouse_held_callback
-                function="Zoom.minus" />
-           </button>
-         <joystick_track
-         follows="top|left"
-         height="78"
-         image_selected="Cam_Tracking_In"
-         image_unselected="Cam_Tracking_Out"
+     width="194">
+      <panel
+         border="false"
+         class="camera_zoom_panel"
+         height="88"
          layout="topleft"
-         left="133"
-         name="cam_track_stick"
-         quadrant="left"
-         scale_image="false"
-         sound_flags="3"
-         tool_tip="Move camera up and down, left and right"
-         top="25"
-         width="78"/>
-         <text
-          type="string"
-          length="1"
-          follows="left|top"
-          height="15"
-          layout="topleft"
-          left="41"
-          top_pad="9"
-          name="precise_ctrs_label"
-          width="200">
-            Use precise controls
-        </text>
-        </panel>
+         left="0"
+         mouse_opaque="false"
+         name="zoom"
+         top="0"
+         width="194">
+        <joystick_rotate
+           follows="top|left"
+           height="78"
+           layout="topleft"
+           left="0"
+           name="cam_rotate_stick"
+           quadrant="left"
+           sound_flags="3"
+           tool_tip="Orbit camera around focus"
+           top="5"
+           width="78" />
+        <button
+           follows="top|left"
+           height="18"
+           image_disabled="AddItem_Disabled"
+           image_selected="AddItem_Press"
+           image_unselected="AddItem_Off"
+           layout="topleft"
+           left_pad="4"
+           name="zoom_plus_btn"
+           width="18"
+           top="8">
+          <commit_callback
+             function="Zoom.plus" />
+          <mouse_held_callback
+             function="Zoom.plus" />
+        </button>
+        <slider_bar
+           height="46"
+           layout="topleft"
+           name="zoom_slider"
+           orientation="vertical"
+           tool_tip="Zoom camera toward focus"
+           top_pad="0"
+           min_val="0"
+           max_val="1"
+           increment="0.02"
+           width="18">
+          <commit_callback function="Slider.value_changed"/>
+        </slider_bar>
+        <button
+           follows="top|left"
+           height="18"
+           image_disabled="MinusItem_Disabled"
+           image_selected="MinusItem_Press"
+           image_unselected="MinusItem_Off"
+           layout="topleft"
+           name="zoom_minus_btn"
+           top_pad="0"
+           width="18">
+          <commit_callback
+             function="Zoom.minus" />
+          <mouse_held_callback
+             function="Zoom.minus" />
+        </button>
+        <joystick_track
+           follows="top|left"
+           height="78"
+           image_selected="Cam_Tracking_In"
+           image_unselected="Cam_Tracking_Out"
+           layout="topleft"
+           left_pad="4"
+           name="cam_track_stick"
+           quadrant="left"
+           scale_image="false"
+           sound_flags="3"
+           tool_tip="Move camera up and down, left and right"
+           top="5"
+           width="78"/>
+      </panel>
     </panel>
-    <panel
+
+    <text
+     type="string"
+     length="1"
      follows="left|top"
-     height="102"
+     height="14"
      layout="topleft"
-     left_pad="2"
-     right="-2"
-     name="buttons_panel"
-     top="22">
-    <panel_camera_item
-      name="front_view"
-      tool_tip="Front View"
-      width="30">
-      <panel_camera_item.mousedown_callback
-        function="CameraPresets.ChangeView"
-        parameter="Front View" />
-      <panel_camera_item.picture
-        image_name="Cam_Preset_Front_Off" />
-      <panel_camera_item.selected_picture
-        image_name="Cam_Preset_Front_On" />
-    </panel_camera_item>
-    <panel_camera_item
-      name="group_view"
-      tool_tip="Side View"
-      width="30"
-      left_pad="4">
-      <panel_camera_item.mousedown_callback
-        function="CameraPresets.ChangeView"
-        parameter="Side View" />
-      <panel_camera_item.picture
-        image_name="Cam_Preset_Side_Off" />
-      <panel_camera_item.selected_picture
-        image_name="Cam_Preset_Side_On" />
-    </panel_camera_item>
-    <panel_camera_item
-      name="rear_view"
-      tool_tip="Rear View"
-      width="30"
-      left_pad="4">
-      <panel_camera_item.mousedown_callback
-        function="CameraPresets.ChangeView"
-        tool_tip="Rear View"
-        parameter="Rear View" />
-      <panel_camera_item.picture
-        image_name="Cam_Preset_Back_Off" />
-      <panel_camera_item.selected_picture
-        image_name="Cam_Preset_Back_On" />
-    </panel_camera_item>
-    <panel_camera_item
-        name="object_view"
-        tool_tip="Object View"
+     left="8"
+     top_pad="2"
+     name="precise_ctrs_label"
+     width="194">
+        Use precise controls
+    </text>
+
+    <!-- Accordion selector: combo picks WHICH panel, toggle button picks
+         shown/hidden - independent, so re-picking never auto-closes. -->
+    <combo_box
+      follows="left|top"
+      height="23"
+      layout="topleft"
+      left="8"
+      top_pad="4"
+      name="accordion_combo"
+      width="166">
+      <combo_box.item
+       label="Presets"
+       name="accordion_presets"
+       value="presets" />
+      <combo_box.item
+       label="Composition Guides"
+       name="accordion_guides"
+       value="guides" />
+      <combo_box.item
+       label="Camera Recorder"
+       name="accordion_recorder"
+       value="recorder" />
+    </combo_box>
+    <button
+      follows="left|top"
+      height="23"
+      width="20"
+      layout="topleft"
+      left_pad="4"
+      name="accordion_toggle_btn"
+      tool_tip="Show/hide more camera controls"
+      image_unselected="Arrow_Right"
+      image_selected="Arrow_Down"
+      is_toggle="true" />
+
+    <!-- ACCORDION PANEL 1/3: Presets (quick views + saved presets) -->
+    <panel
+     border="true"
+     background_visible="true"
+     follows="left|top"
+     visible="false"
+     height="104"
+     layout="topleft"
+     left="8"
+     top_pad="6"
+     name="accordion_presets_panel"
+     width="194">
+      <panel_camera_item
+        name="front_view"
+        tool_tip="Front View"
         width="30"
-        left_pad="4">
+        top="4"
+        left="2">
         <panel_camera_item.mousedown_callback
           function="CameraPresets.ChangeView"
-          parameter="object_view" />
+          parameter="Front View" />
         <panel_camera_item.picture
-          image_name="Object_View_Off" />
+          image_name="Cam_Preset_Front_Off" />
         <panel_camera_item.selected_picture
-          image_name="Object_View_On" />
+          image_name="Cam_Preset_Front_On" />
       </panel_camera_item>
       <panel_camera_item
-        name="mouselook_view"
-        tool_tip="Mouselook View"
+        name="group_view"
+        tool_tip="Side View"
         width="30"
-        left_pad="4">
+        left_pad="2">
         <panel_camera_item.mousedown_callback
           function="CameraPresets.ChangeView"
-          parameter="mouselook_view" />
+          parameter="Side View" />
         <panel_camera_item.picture
-          image_name="MouseLook_View_Off" />
+          image_name="Cam_Preset_Side_Off" />
         <panel_camera_item.selected_picture
-          image_name="MouseLook_View_On" />
+          image_name="Cam_Preset_Side_On" />
       </panel_camera_item>
+      <panel_camera_item
+        name="rear_view"
+        tool_tip="Rear View"
+        width="30"
+        left_pad="2">
+        <panel_camera_item.mousedown_callback
+          function="CameraPresets.ChangeView"
+          tool_tip="Rear View"
+          parameter="Rear View" />
+        <panel_camera_item.picture
+          image_name="Cam_Preset_Back_Off" />
+        <panel_camera_item.selected_picture
+          image_name="Cam_Preset_Back_On" />
+      </panel_camera_item>
+      <panel_camera_item
+          name="object_view"
+          tool_tip="Object View"
+          width="30"
+          left_pad="2">
+          <panel_camera_item.mousedown_callback
+            function="CameraPresets.ChangeView"
+            parameter="object_view" />
+          <panel_camera_item.picture
+            image_name="Object_View_Off" />
+          <panel_camera_item.selected_picture
+            image_name="Object_View_On" />
+        </panel_camera_item>
+        <panel_camera_item
+          name="mouselook_view"
+          tool_tip="Mouselook View"
+          width="30"
+          left_pad="2">
+          <panel_camera_item.mousedown_callback
+            function="CameraPresets.ChangeView"
+            parameter="mouselook_view" />
+          <panel_camera_item.picture
+            image_name="MouseLook_View_Off" />
+          <panel_camera_item.selected_picture
+            image_name="MouseLook_View_On" />
+        </panel_camera_item>
+
+        <combo_box
+          height="23"
+          left="2"
+          mouse_opaque="true"
+          name="preset_combo"
+          top_pad="8"
+          width="138">
+          <combo_list
+          mouse_wheel_opaque="true"/>
+          <combo_box.item
+           label="Use preset"
+           name="Use preset"
+           value="default" />
+        </combo_box>
+        <button
+          height="16"
+          width="16"
+          layout="topleft"
+          mouse_opaque="true"
+          name="gear_btn"
+          tool_tip="My Camera Presets"
+          top_delta="3"
+          left_pad="6"
+          image_selected="Icon_Gear"
+          image_pressed="Icon_Gear"
+          image_unselected="Icon_Gear"
+          is_toggle="true">
+          <button.commit_callback
+            function="CameraPresets.ShowPresetsList"/>
+        </button>
+        <button
+          follows="top|left"
+          height="23"
+          label="Save as preset..."
+          layout="topleft"
+          left="2"
+          name="save_preset_btn"
+          top_pad="8"
+          width="190">
+          <button.commit_callback
+            function="CameraPresets.Save"/>
+        </button>
+    </panel>
+
+    <!-- ACCORDION PANEL 2/3: Composition Guides -->
+    <panel
+     border="true"
+     background_visible="true"
+     follows="left|top"
+     visible="false"
+     height="108"
+     layout="topleft"
+     left="8"
+     top_delta="0"
+     name="accordion_guides_panel"
+     width="194">
+
+      <check_box
+       control_name="CameraFramingEnabled"
+       height="18"
+       initial_value="false"
+       label="Enable Framing Overlay"
+       layout="topleft"
+       left="4"
+       top="4"
+       name="enable_framing"
+       tool_tip="Show composition guides on screen for machinima"
+       width="186" />
+
+      <text
+       type="string"
+       length="1"
+       follows="left|top"
+       height="12"
+       layout="topleft"
+       left="4"
+       top_pad="8"
+       width="40"
+       font="SansSerifSmall">
+        Type:
+      </text>
       <combo_box
-        height="23"
-        left="0"
-        mouse_opaque="true"
-        name="preset_combo"
-        top_pad="10"
-        width="136">
-        <combo_list
-        mouse_wheel_opaque="true"/>
+       control_name="CameraFramingType"
+       height="20"
+       layout="topleft"
+       left_pad="4"
+       name="framing_type_combo"
+       top_delta="-2"
+       width="144">
         <combo_box.item
-         label="Use preset"
-         name="Use preset"
-         value="default" />
+         label="Rule of Thirds"
+         name="rule_of_thirds"
+         value="0" />
+        <combo_box.item
+         label="Golden Ratio"
+         name="golden_ratio"
+         value="1" />
+        <combo_box.item
+         label="Center Cross"
+         name="center_cross"
+         value="2" />
+        <combo_box.item
+         label="Safe Zones"
+         name="safe_zones"
+         value="3" />
+        <combo_box.item
+         label="Diagonal Lines"
+         name="diagonal"
+         value="4" />
+        <combo_box.item
+         label="Triangle"
+         name="triangle"
+         value="5" />
       </combo_box>
+
+      <text
+       type="string"
+       length="1"
+       follows="left|top"
+       height="12"
+       layout="topleft"
+       left="4"
+       top_pad="8"
+       width="60"
+       font="SansSerifSmall">
+        Opacity:
+      </text>
+      <slider
+       control_name="CameraFramingOpacity"
+       follows="left|top"
+       height="16"
+       increment="0.05"
+       initial_value="0.5"
+       layout="topleft"
+       left_pad="4"
+       max_val="1.0"
+       min_val="0.1"
+       name="framing_opacity_slider"
+       top_delta="-2"
+       width="124" />
+
+      <text
+       type="string"
+       length="1"
+       follows="left|top"
+       height="12"
+       layout="topleft"
+       left="4"
+       top_pad="8"
+       width="60"
+       font="SansSerifSmall">
+        Scale:
+      </text>
+      <slider
+       control_name="CameraFramingScale"
+       follows="left|top"
+       height="16"
+       increment="0.05"
+       initial_value="1.0"
+       layout="topleft"
+       left_pad="4"
+       max_val="2.0"
+       min_val="0.5"
+       name="framing_scale_slider"
+       tool_tip="Zoom frame in/out - useful for adjusting golden ratio and other guides"
+       top_delta="-2"
+       width="124" />
+
+    </panel>
+
+    <!-- ACCORDION PANEL 3/3: Camera Recorder -->
+    <panel
+     border="true"
+     background_visible="true"
+     follows="left|top"
+     visible="false"
+     height="122"
+     layout="topleft"
+     left="8"
+     top_delta="0"
+     name="accordion_recorder_panel"
+     width="194">
+
       <button
-        height="16"
-        width="16"  
-        layout="topleft"
-        mouse_opaque="true"
-        name="gear_btn"
-        tool_tip="My Camera Presets"
-        top_delta="3"
-        left_pad="10" 
-        image_selected="Icon_Gear"
-        image_pressed="Icon_Gear"
-        image_unselected="Icon_Gear"
-        is_toggle="true">
+       follows="left|top"
+       height="23"
+       label="⬤ Rec"
+       layout="topleft"
+       left="2"
+       top="4"
+       name="camera_record_btn"
+       tool_tip="Record camera movement at 60fps (3600 keyframes for 60s = ~200KB). Camera unlocks from avatar during recording. Move smoothly for best results."
+       width="60">
         <button.commit_callback
-          function="CameraPresets.ShowPresetsList"/>
+         function="CameraRecorder.Record"/>
       </button>
       <button
-        follows="top|left"
-        height="25"
-        label="Save as preset..."
-        layout="topleft"
-        left="0"
-        name="save_preset_btn"
-        top_pad="18"
-        width="150">
+       follows="left|top"
+       height="23"
+       label="⏹ Stop"
+       layout="topleft"
+       left_pad="4"
+       name="camera_stop_btn"
+       tool_tip="Stop recording or playback"
+       width="60">
         <button.commit_callback
-          function="CameraPresets.Save"/>
+         function="CameraRecorder.Stop"/>
       </button>
-  </panel>
-      </panel>
-
-      <!-- TAB 2: Composition Guides -->
-      <panel
-       border="true"
-       follows="all"
-       height="150"
-       label="Composition Guides"
+      <button
+       follows="left|top"
+       height="23"
+       label="🗑"
        layout="topleft"
-       left="1"
-       name="tab_composition"
-       top="20"
-       width="388">
+       left_pad="4"
+       name="camera_clear_btn"
+       tool_tip="Clear recorded camera path"
+       width="36">
+        <button.commit_callback
+         function="CameraRecorder.Clear"/>
+      </button>
 
-        <text
-         type="string"
-         length="1"
-         follows="left|top"
-         height="16"
-         layout="topleft"
-         left="10"
-         top="5"
-         width="370"
-         font="SansSerifBold"
-         text_color="White">
-          Professional Composition Guides
-        </text>
-
-        <check_box
-         control_name="CameraFramingEnabled"
-         height="20"
-         initial_value="false"
-         label="Enable Framing Overlay"
-         layout="topleft"
-         left="20"
-         top_pad="5"
-         name="enable_framing"
-         tool_tip="Show composition guides on screen for machinima"
-         width="200" />
-
-        <text
-         type="string"
-         follows="left|top"
-         height="14"
-         layout="topleft"
-         left="20"
-         top_pad="10"
-         width="100">
-          Guide Type:
-        </text>
-
-        <combo_box
-         control_name="CameraFramingType"
-         height="20"
-         layout="topleft"
-         left_pad="10"
-         name="framing_type_combo"
-         top_delta="-2"
-         width="180">
-          <combo_box.item
-           label="Rule of Thirds"
-           name="rule_of_thirds"
-           value="0" />
-          <combo_box.item
-           label="Golden Ratio"
-           name="golden_ratio"
-           value="1" />
-          <combo_box.item
-           label="Center Cross"
-           name="center_cross"
-           value="2" />
-          <combo_box.item
-           label="Safe Zones (Action/Title)"
-           name="safe_zones"
-           value="3" />
-          <combo_box.item
-           label="Diagonal Lines"
-           name="diagonal"
-           value="4" />
-          <combo_box.item
-           label="Triangle Composition"
-           name="triangle"
-           value="5" />
-        </combo_box>
-
-        <text
-         type="string"
-         follows="left|top"
-         height="14"
-         layout="topleft"
-         left="20"
-         top_pad="10"
-         width="100">
-          Opacity:
-        </text>
-
-        <slider
-         control_name="CameraFramingOpacity"
-         follows="left|top"
-         height="17"
-         increment="0.05"
-         initial_value="0.5"
-         layout="topleft"
-         left_pad="10"
-         max_val="1.0"
-         min_val="0.1"
-         name="framing_opacity_slider"
-         top_delta="-2"
-         width="180" />
-
-        <text
-         type="string"
-         follows="left|top"
-         height="14"
-         layout="topleft"
-         left="20"
-         top_pad="10"
-         width="100">
-          Frame Scale:
-        </text>
-
-        <slider
-         control_name="CameraFramingScale"
-         follows="left|top"
-         height="17"
-         increment="0.05"
-         initial_value="1.0"
-         layout="topleft"
-         left_pad="10"
-         max_val="2.0"
-         min_val="0.5"
-         name="framing_scale_slider"
-         tool_tip="Zoom frame in/out - useful for adjusting golden ratio and other guides"
-         top_delta="-2"
-         width="180" />
-
-      </panel>
-
-      <!-- TAB 3: Camera Recorder -->
-      <panel
-       border="true"
-       follows="all"
-       height="150"
-       label="Camera Recorder"
+      <button
+       follows="left|top"
+       height="23"
+       label="▶ Play"
        layout="topleft"
-       left="1"
-       name="tab_recorder"
-       top="20"
-       width="388">
+       left="2"
+       top_pad="6"
+       name="camera_play_btn"
+       tool_tip="Play recorded camera path. Avatar can move independently via keyboard or double-click walk during playback."
+       width="92">
+        <button.commit_callback
+         function="CameraRecorder.Play"/>
+      </button>
+      <button
+       follows="left|top"
+       height="23"
+       label="⏸ Pause"
+       layout="topleft"
+       left_pad="4"
+       name="camera_pause_btn"
+       tool_tip="Pause playback"
+       width="92">
+        <button.commit_callback
+         function="CameraRecorder.Pause"/>
+      </button>
 
-        <text
-         type="string"
-         length="1"
-         follows="left|top"
-         height="16"
-         layout="topleft"
-         left="10"
-         top="5"
-         width="370"
-         font="SansSerifBold"
-         text_color="White">
-          Camera Path Recording
-        </text>
+      <text
+       type="string"
+       follows="left|top"
+       height="13"
+       layout="topleft"
+       left="2"
+       top_pad="6"
+       width="190"
+       name="recorder_status_text"
+       text_color="LtGray"
+       font="SansSerifSmall">
+        Ready
+      </text>
+      <text
+       type="string"
+       follows="left|top"
+       height="13"
+       layout="topleft"
+       left="2"
+       top_pad="2"
+       width="190"
+       name="recorder_time_text"
+       text_color="LtGray"
+       font="SansSerifSmall">
+        0:00 / 0:00
+      </text>
 
-        <!-- Recording Controls -->
-        <button
-         follows="left|top"
-         height="25"
-         label="⬤ Record"
-         layout="topleft"
-         left="20"
-         top_pad="8"
-         name="camera_record_btn"
-         tool_tip="Record camera movement at 60fps (3600 keyframes for 60s = ~200KB). Camera unlocks from avatar during recording. Move smoothly for best results."
-         width="110">
-          <button.commit_callback
-           function="CameraRecorder.Record"/>
-        </button>
+      <check_box
+       control_name="CameraRecorderLoop"
+       height="16"
+       initial_value="false"
+       label="Loop"
+       layout="topleft"
+       left="2"
+       top_pad="4"
+       name="recorder_loop_check"
+       tool_tip="Automatically restart playback when finished"
+       width="60" />
+      <check_box
+       control_name="CameraRecorderSmoothInterpolation"
+       height="16"
+       initial_value="false"
+       label="Smooth"
+       layout="topleft"
+       left_pad="4"
+       name="recorder_smooth_check"
+       tool_tip="Enable smooth ease in/out interpolation. Disable for linear playback if experiencing stuttering."
+       width="70" />
+      <combo_box
+       control_name="CameraRecorderPlaybackSpeed"
+       height="18"
+       layout="topleft"
+       left_pad="4"
+       name="playback_speed_combo"
+       width="54"
+       initial_value="1.0">
+        <combo_box.item
+         label="0.25x"
+         name="speed_025"
+         value="0.25" />
+        <combo_box.item
+         label="0.5x"
+         name="speed_05"
+         value="0.5" />
+        <combo_box.item
+         label="1.0x"
+         name="speed_10"
+         value="1.0" />
+        <combo_box.item
+         label="1.5x"
+         name="speed_15"
+         value="1.5" />
+        <combo_box.item
+         label="2.0x"
+         name="speed_20"
+         value="2.0" />
+      </combo_box>
 
-        <button
-         follows="left|top"
-         height="25"
-         label="⏹ Stop"
-         layout="topleft"
-         left_pad="5"
-         name="camera_stop_btn"
-         tool_tip="Stop recording or playback"
-         width="80">
-          <button.commit_callback
-           function="CameraRecorder.Stop"/>
-        </button>
-
-        <button
-         follows="left|top"
-         height="25"
-         label="🗑 Clear"
-         layout="topleft"
-         left_pad="5"
-         name="camera_clear_btn"
-         tool_tip="Clear recorded camera path"
-         width="80">
-          <button.commit_callback
-           function="CameraRecorder.Clear"/>
-        </button>
-
-        <!-- Playback Controls -->
-        <button
-         follows="left|top"
-         height="25"
-         label="▶ Play"
-         layout="topleft"
-         left="20"
-         top_pad="8"
-         name="camera_play_btn"
-         tool_tip="Play recorded camera path. Avatar can move independently via keyboard or double-click walk during playback."
-         width="110">
-          <button.commit_callback
-           function="CameraRecorder.Play"/>
-        </button>
-
-        <button
-         follows="left|top"
-         height="25"
-         label="⏸ Pause"
-         layout="topleft"
-         left_pad="5"
-         name="camera_pause_btn"
-         tool_tip="Pause playback"
-         width="80">
-          <button.commit_callback
-           function="CameraRecorder.Pause"/>
-        </button>
-
-        <!-- Status Display -->
-        <text
-         type="string"
-         follows="left|top"
-         height="14"
-         layout="topleft"
-         left="20"
-         top_pad="10"
-         width="80"
-         font="SansSerifSmall">
-          Status:
-        </text>
-
-        <text
-         type="string"
-         follows="left|top"
-         height="14"
-         layout="topleft"
-         left_pad="5"
-         name="recorder_status_text"
-         width="180"
-         text_color="LtGray"
-         font="SansSerifSmall">
-          Ready
-        </text>
-
-        <text
-         type="string"
-         follows="left|top"
-         height="14"
-         layout="topleft"
-         left="20"
-         top_pad="2"
-         width="80"
-         font="SansSerifSmall">
-          Time:
-        </text>
-
-        <text
-         type="string"
-         follows="left|top"
-         height="14"
-         layout="topleft"
-         left_pad="5"
-         name="recorder_time_text"
-         width="180"
-         text_color="LtGray"
-         font="SansSerifSmall">
-          0:00 / 0:00
-        </text>
-
-        <!-- Playback Options -->
-        <check_box
-         control_name="CameraRecorderLoop"
-         height="20"
-         initial_value="false"
-         label="Loop playback"
-         layout="topleft"
-         left="310"
-         top="40"
-         name="recorder_loop_check"
-         tool_tip="Automatically restart playback when finished"
-         width="70" />
-
-        <check_box
-         control_name="CameraRecorderSmoothInterpolation"
-         height="20"
-         initial_value="false"
-         label="Smooth"
-         layout="topleft"
-         left="310"
-         top_pad="5"
-         name="recorder_smooth_check"
-         tool_tip="Enable smooth ease in/out interpolation. Disable for linear playback if experiencing stuttering."
-         width="70" />
-
-        <text
-         type="string"
-         follows="left|top"
-         height="14"
-         layout="topleft"
-         left="310"
-         top_pad="8"
-         width="70"
-         font="SansSerifSmall">
-          Speed:
-        </text>
-
-        <combo_box
-         control_name="CameraRecorderPlaybackSpeed"
-         height="20"
-         layout="topleft"
-         left="310"
-         name="playback_speed_combo"
-         top_pad="2"
-         width="70"
-         initial_value="1.0">
-          <combo_box.item
-           label="0.25x"
-           name="speed_025"
-           value="0.25" />
-          <combo_box.item
-           label="0.5x"
-           name="speed_05"
-           value="0.5" />
-          <combo_box.item
-           label="1.0x"
-           name="speed_10"
-           value="1.0" />
-          <combo_box.item
-           label="1.5x"
-           name="speed_15"
-           value="1.5" />
-          <combo_box.item
-           label="2.0x"
-           name="speed_20"
-           value="2.0" />
-        </combo_box>
-
-      </panel>
-    </tab_container>
+    </panel>
 
   <panel
     name="viewer_camera_info"
     follows="left|top"
     left="0"
     top="135"
-    width="400"
+    width="210"
     height="150"
     border="true"
     visible="false"
@@ -650,7 +609,7 @@
     follows="left|top"
     left="0"
     top="285"
-    width="400"
+    width="210"
     height="150"
     border="true"
     visible="false"

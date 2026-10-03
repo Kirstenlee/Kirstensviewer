@@ -66,6 +66,9 @@
 #include "llpanelface.h"
 #include "lluiusage.h"
 
+#include "krlvhandler.h" // KRLV_TOUCHPOINT: @rez gate, see krlv/README.md
+#include "krlvtouch.h" // KRLV_TOUCHPOINT: @interact (rez cross-cutting check)
+
 // syntactic sugar
 #define callMemberFunction(object,ptrToMember)  ((object).*(ptrToMember))
 
@@ -1847,6 +1850,14 @@ void LLToolDragAndDrop::dropObject(LLViewerObject* raycast_target,
                    bool from_task_inventory,
                    bool remove_from_inventory)
 {
+    // KRLV_TOUCHPOINT: @rez / @interact - covers rez-from-inventory and
+    // attachment-dropping, the UI paths that converge on this one
+    // function. See krlv/README.md.
+    if (gKRlv.isRestricted("rez") || KRlv::isInteractBlocked())
+    {
+        return;
+    }
+
     LLViewerRegion* regionp = LLWorld::getInstance()->getRegionFromPosGlobal(mLastHitPos);
     if (!regionp)
     {

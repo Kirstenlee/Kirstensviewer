@@ -35,19 +35,6 @@
 
 #include "stdtypes.h"
 
-#if LL_DARWIN
-#include <Carbon/Carbon.h>
-
-// AssertMacros.h does bad things.
-#undef verify
-#undef check
-#undef require
-
-#include <vector>
-#include "llstring.h"
-
-#endif
-
 // Need commdlg.h for OPENFILENAMEA
 #ifdef LL_WINDOWS
 #include "llwin32headers.h"
@@ -159,22 +146,6 @@ private:
 	WCHAR mFilesW[FILENAME_BUFFER_SIZE];
 
     bool setupFilter(ELoadFilter filter);
-#endif
-
-#if LL_DARWIN
-    S32 mPickOptions;
-	std::vector<std::string> mFileVector;
-	
-	bool doNavChooseDialog(ELoadFilter filter);
-	bool doNavChooseDialogModeless(ELoadFilter filter,
-                                   void (*callback)(bool, std::vector<std::string>&, void*),
-                                   void *userdata);
-	bool doNavSaveDialog(ESaveFilter filter, const std::string& filename);
-    std::unique_ptr<std::vector<std::string>> navOpenFilterProc(ELoadFilter filter);
-    bool doNavSaveDialogModeless(ESaveFilter filter,
-                                 const std::string& filename,
-                                 void (*callback)(bool, std::string&, void*),
-                                 void *userdata);
 #endif
 
 #if LL_GTK

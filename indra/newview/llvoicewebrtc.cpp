@@ -399,7 +399,16 @@ void LLWebRTCVoiceClient::LogMessage(llwebrtc::LLWebRTCLogCallback::LogLevel lev
         LL_INFOS("Voice") << message << LL_ENDL; // [voice.logwrap]
         break;
     case llwebrtc::LLWebRTCLogCallback::LOG_LEVEL_WARNING:
-        LL_WARNS("Voice") << message << LL_ENDL;
+        // S24: demoted from LL_WARNS - the upstream file-origin check in
+        // LLWebRTCLogSink::OnLogMessage() (llwebrtc_impl.h) is meant to
+        // filter the vendored library's own chatty internal warnings
+        // (e.g. port.cc's routine STUN/ICE noise) down to VERBOSE before
+        // they ever reach here, but real-world testing showed it isn't
+        // reliably catching every case - killing it at this final,
+        // guaranteed chokepoint instead of chasing the classification
+        // gap further. ERROR severity below is untouched and still
+        // visible, since that's a real, comparatively rare signal.
+        LL_DEBUGS("Voice") << message << LL_ENDL;
         break;
     case llwebrtc::LLWebRTCLogCallback::LOG_LEVEL_ERROR:
         // use WARN so that we don't crash on a webrtc error.

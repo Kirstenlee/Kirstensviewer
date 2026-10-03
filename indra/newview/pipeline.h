@@ -61,6 +61,7 @@ struct LLDeferredPipelineMarks
 };
 
 class LLViewerTexture;
+class LLViewerFetchedTexture; // KRLV_TOUCHPOINT-adjacent: @camtextures substitute texture param
 class LLFace;
 class LLViewerObject;
 class LLTextureEntry;
@@ -172,8 +173,28 @@ public:
     void applySMAA(LLRenderTarget* src, LLRenderTarget* dst);
 	void renderDoF(LLRenderTarget* src, LLRenderTarget* dst);
 	void copyRenderTarget(LLRenderTarget* src, LLRenderTarget* dst);
+
+	// KRLV_TOUCHPOINT: @camdrawmin/@camdrawmax/@camdrawalphamin/
+	// @camdrawalphamax/@camdrawcolor - a distance-based fog blend toward
+	// fogColor, driven entirely by krlv/'s own restriction state (see
+	// KRlv::getCamDrawParams(), krlvcamera.h). See krlv/README.md's
+	// Camera section.
+	//
+	// KRLV_TOUCHPOINT: @camtextures/@setcam_textures share this SAME pass
+	// rather than a separate one - camTexturesActive/camTexturesSubstitute
+	// (see KRlv::isCamTexturesActive(), krlvcamera.h) gate an independent
+	// blank-toward-substitute-texture branch, stencil-masked so already-lit
+	// worn-attachment pixels (tagged by DXStateCache::tagAttachmentStencil()
+	// during the geometry pass) are skipped. camTexturesSubstitute may be
+	// null (falls back to LLViewerFetchedTexture::sDefaultImagep, the
+	// spec's own default grey).
+	void applyKrlvCamDrawFog(LLRenderTarget* src, LLRenderTarget* dst,
+		F32 minDist, F32 maxDist, F32 minAlpha, F32 maxAlpha,
+		F32 fogColorR, F32 fogColorG, F32 fogColorB,
+		bool camTexturesActive, LLViewerFetchedTexture* camTexturesSubstitute);
+
 	void combineGlow(LLRenderTarget* src, LLRenderTarget* dst);
-	void visualizeBuffers(LLRenderTarget* src, LLRenderTarget* dst, U32 bufferIndex);
+	void visualizeBuffers(LLRenderTarget* src, LLRenderTarget* dst, U32 bufferIndex, bool blend_vertical = false);
 
 	void init();
 	void cleanup();
@@ -830,7 +851,7 @@ public:
 
 #ifdef DX_RENDER
     // DX-native backing for the 6 procedural textures above. Those are plain raw-GLuint fields (no
-    // LLImageGL wrapper) created/bound via an ambient-GL-state idiom (bindManual() then
+    // LLImageDX wrapper) created/bound via an ambient-GL-state idiom (bindManual() then
     // setManualImage()) that has no DX_RENDER translation - there's no "currently bound for upload"
     // concept in D3D11's explicit-resource model. Each raw field keeps its GL-only meaning; these
     // DXTexture fields are used instead, directly, at each call site's DX_RENDER branch.

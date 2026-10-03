@@ -426,7 +426,7 @@ public:
 		DOUBLETAP_SLIDERIGHT
 	};
 
-	void			setAlwaysRun() { mbAlwaysRun = true; }
+	void			setAlwaysRun(); // KRLV_TOUCHPOINT: @alwaysrun gate, see krlv/README.md - moved out of this header to llagent.cpp
 	void			clearAlwaysRun() { mbAlwaysRun = false; }
 	void			setRunning() { mbRunning = true; }
 	void			clearRunning() { mbRunning = false; }

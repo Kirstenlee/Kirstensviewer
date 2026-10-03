@@ -122,6 +122,17 @@ private:
     void savePlaylist();
     void loadPlaylist();
 
+    // S24: EQ enable/preamp/10 bands - same LLSD-XML-to-LL_PATH_USER_SETTINGS
+    // shape as savePlaylist()/loadPlaylist() above, own file. Saved once on
+    // close (onClose()), not on every slider commit - EQ changes have no
+    // discrete "action" boundary the way a playlist add/remove does, so
+    // saving continuously while dragging a slider would just be I/O churn
+    // for no benefit; loaded once in postBuild(), right after the EQ
+    // controls are wired up, before playTrack()'s own sendEqualizerUpdate()
+    // ever has a reason to run.
+    void saveEqSettings();
+    void loadEqSettings();
+
     struct Track
     {
         std::string label;       // display name shown in the playlist

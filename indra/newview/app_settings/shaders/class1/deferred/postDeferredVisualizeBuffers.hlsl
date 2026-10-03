@@ -28,6 +28,8 @@ Texture2D diffuseRect : register(t0);
 SamplerState diffuseRectSampler : register(s0);
 
 uniform float mipLevel;
+// 1 = show the SMAA blend buffer's vertical weights (.ba) as .rg, 0 = show the buffer as stored.
+uniform float showBlendVertical;
 
 struct PSInput
 {
@@ -42,5 +44,9 @@ float4 main(PSInput IN) : SV_Target
     // GL/D3D11 texture-origin Y-flip, same as sibling postDeferred* passes reading diffuseRect via vary_fragcoord.
     float2 tc = float2(IN.vary_fragcoord.x, 1.0 - IN.vary_fragcoord.y);
     float4 diff = diffuseRect.SampleLevel(diffuseRectSampler, tc, mipLevel);
+    if (showBlendVertical > 0.5)
+    {
+        return float4(diff.b, diff.a, 0.0, 1.0);
+    }
     return diff;
 }

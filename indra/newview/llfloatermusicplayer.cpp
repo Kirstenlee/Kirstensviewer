@@ -54,6 +54,14 @@ namespace
     {
         return gDirUtilp->getExpandedFilename(LL_PATH_USER_SETTINGS, "music_player_playlist.xml");
     }
+
+    // S24: same "global to the viewer install, not per-SL-account" reasoning
+    // as musicPlayerPlaylistPath() above - EQ taste isn't tied to which
+    // avatar is logged in either.
+    std::string musicPlayerEqPath()
+    {
+        return gDirUtilp->getExpandedFilename(LL_PATH_USER_SETTINGS, "music_player_eq.xml");
+    }
 }
 
 namespace
@@ -181,6 +189,8 @@ bool LLFloaterMusicPlayer::postBuild()
         mEqBandSliders[i]->setCommitCallback(boost::bind(&LLFloaterMusicPlayer::onEqChanged, this));
     }
 
+    loadEqSettings();
+
     loadPlaylist();
     rebuildPlaylistView();
 
@@ -197,6 +207,7 @@ void LLFloaterMusicPlayer::onClose(bool app_quitting)
     gIdleCallbacks.deleteFunction(idle, this);
     stopPlayback(true);
     savePlaylist();
+    saveEqSettings();
 }
 
 void LLFloaterMusicPlayer::ensureMediaPlugin()
@@ -831,6 +842,90 @@ void LLFloaterMusicPlayer::loadPlaylist()
         }
 
         mPlaylist.push_back(track);
+    }
+}
+
+void LLFloaterMusicPlayer::saveEqSettings()
+{
+    if (!mEqEnableCheck || !mEqPreampSlider)
+    {
+        return;
+    }
+
+    LLSD root;
+    root["enabled"] = mEqEnableCheck->get();
+    root["preamp"] = mEqPreampSlider->getValueF32();
+    // S24: volume persistence - bundled into the same file/call sites
+    // as EQ settings rather than a new gSavedSettings key or a second
+    // file, same "not tied to which avatar is logged in" reasoning as
+    // EQ taste above.
+    if (mVolumeSlider)
+    {
+        root["volume"] = mVolumeSlider->getValueF32();
+    }
+
+    LLSD bands = LLSD::emptyArray();
+    for (S32 i = 0; i < S24_MUSIC_PLAYER_EQ_BANDS; ++i)
+    {
+        bands.append(mEqBandSliders[i] ? mEqBandSliders[i]->getValueF32() : 0.f);
+    }
+    root["bands"] = bands;
+
+    std::string path = musicPlayerEqPath();
+    llofstream out(path.c_str());
+    if (!out.good())
+    {
+        LL_WARNS() << "Music player: could not save EQ settings to " << path << LL_ENDL;
+        return;
+    }
+    LLSDSerialize::toXML(root, out);
+}
+
+void LLFloaterMusicPlayer::loadEqSettings()
+{
+    if (!mEqEnableCheck || !mEqPreampSlider)
+    {
+        return;
+    }
+
+    std::string path = musicPlayerEqPath();
+    llifstream in(path.c_str());
+    if (!in.is_open())
+    {
+        return;
+    }
+
+    LLSD root;
+    LLSDSerialize::fromXML(root, in);
+    if (!root.isMap())
+    {
+        return;
+    }
+
+    mEqEnableCheck->set(root["enabled"].asBoolean());
+    mEqPreampSlider->setValue(root["preamp"].asReal());
+
+    // S24: volume - see saveEqSettings()'s comment. Deliberately just
+    // sets the slider's value, not mMediaPlugin->setVolume() directly -
+    // this runs in postBuild(), before the plugin exists at all
+    // (lazily created in ensureMediaPlugin()), which already reads the
+    // slider's CURRENT value at creation time, so nothing else is
+    // needed for the loaded volume to take effect on first playback.
+    if (mVolumeSlider && root.has("volume"))
+    {
+        mVolumeSlider->setValue(root["volume"].asReal());
+    }
+
+    const LLSD& bands = root["bands"];
+    if (bands.isArray())
+    {
+        for (S32 i = 0; i < S24_MUSIC_PLAYER_EQ_BANDS && i < (S32)bands.size(); ++i)
+        {
+            if (mEqBandSliders[i])
+            {
+                mEqBandSliders[i]->setValue(bands[i].asReal());
+            }
+        }
     }
 }
 

@@ -46,6 +46,8 @@
 #include "llviewerparcelmgr.h"
 #include "llviewerregion.h"
 
+#include "krlvhandler.h"        // KRLV_TOUCHPOINT: @showloc, see krlv/README.md
+
 class LLPanelTopInfoBar::LLParcelChangeObserver : public LLParcelObserver
 {
 public:
@@ -232,11 +234,19 @@ void LLPanelTopInfoBar::buildLocationString(std::string& loc_str, bool show_coor
 
 void LLPanelTopInfoBar::setParcelInfoText(const std::string& new_text)
 {
+    // KRLV_TOUCHPOINT: @showloc hides the parcel/region name on this bar -
+    // see krlv/README.md (this is only ONE piece of @showloc's full
+    // scope; krlv/README.md documents what's still missing). All 3 call
+    // sites in this file funnel through here, so one guard covers them
+    // all.
+    static const std::string krlv_hidden_text("???");
+    const std::string& display_text = gKRlv.isRestricted("showloc") ? krlv_hidden_text : new_text;
+
     LLRect old_rect = getRect();
     const LLFontDX* font = mParcelInfoText->getFont();
-    S32 new_text_width = font->getWidth(new_text);
+    S32 new_text_width = font->getWidth(display_text);
 
-    mParcelInfoText->setText(new_text);
+    mParcelInfoText->setText(display_text);
 
     LLRect rect = mParcelInfoText->getRect();
     rect.setOriginAndSize(rect.mLeft, rect.mBottom, new_text_width, rect.getHeight());

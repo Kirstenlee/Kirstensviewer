@@ -486,28 +486,32 @@ void ImageProcessor::motionBlurGPU(ID3D11Texture2D* tex, int width, int height)
 		lastHeight = height;
 	}
 
-	// Create temporary buffers for current frame
-	cl_mem inBuf = gCL.createBuffer(bufSize, CL_MEM_READ_ONLY);
-	cl_mem outBuf = gCL.createBuffer(bufSize, CL_MEM_WRITE_ONLY);
-
-	if (!inBuf || !outBuf)
+	// Per-frame scratch (CL in/out buffers and CPU readback), reallocated only when the size changes.
+	static cl_mem inBuf = nullptr;
+	static cl_mem outBuf = nullptr;
+	static std::vector<unsigned char> tempBuffer;
+	static size_t scratchSize = 0;
+	if (scratchSize != bufSize)
 	{
 		gCL.release(inBuf);
 		gCL.release(outBuf);
+		tempBuffer.resize(bufSize);
+		inBuf = gCL.createBuffer(bufSize, CL_MEM_READ_ONLY);
+		outBuf = gCL.createBuffer(bufSize, CL_MEM_WRITE_ONLY);
+		scratchSize = (inBuf && outBuf) ? bufSize : 0;
+	}
+
+	if (!inBuf || !outBuf)
+	{
 		return;
 	}
 
 	// Fetch blend factor (0.0 = full trail, 1.0 = no blur)
 	static LLCachedControl<F32> blendFactor(gSavedSettings, "MotionBlurBlend");
 
-	// Allocate temporary CPU buffer for texture read
-	std::vector<unsigned char> tempBuffer(bufSize);
-
 	// Read current frame from GPU texture
 	if (!DXReadback::readPixels(tex, 0, 0, width, height, 4, tempBuffer.data()))
 	{
-		gCL.release(inBuf);
-		gCL.release(outBuf);
 		return;
 	}
 
@@ -525,7 +529,4 @@ void ImageProcessor::motionBlurGPU(ID3D11Texture2D* tex, int width, int height)
 
 	// Write blended result back to texture
 	DXReadback::writePixels(tex, 0, 0, width, height, 4, tempBuffer.data());
-
-	gCL.release(inBuf);
-	gCL.release(outBuf);
 }

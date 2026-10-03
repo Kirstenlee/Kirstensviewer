@@ -54,6 +54,9 @@
 #include "llvoavatarself.h"
 #include "llviewerregion.h"
 #include "llwearablelist.h"
+#include "llwearabletype.h"
+#include "krlvattachment.h" // KRLV_TOUCHPOINT: @addoutfit / @remoutfit point locks
+#include "krlvsharedfolders.h" // KRLV_TOUCHPOINT: @unsharedwear / @sharedwear / @unsharedunwear / @sharedunwear
 #include "llsdutil.h"
 #include "llsdserialize.h"
 #include "llhttpretrypolicy.h"
@@ -1500,6 +1503,22 @@ void LLAppearanceMgr::wearItemsOnAvatar(const uuid_vec_t& item_ids_to_wear,
         if (!item_to_wear)
         {
             LL_DEBUGS("Avatar") << "inventory item not found for id " << item_id_to_wear << LL_ENDL;
+            continue;
+        }
+
+        // KRLV_TOUCHPOINT: @addoutfit[:<part>]=n - attachments (AT_OBJECT)
+        // are gated separately at rez_attachment(); see krlv/README.md.
+        if (!KRlv::isDefaultWearAllowed() &&
+            (item_to_wear->getType() == LLAssetType::AT_CLOTHING || item_to_wear->getType() == LLAssetType::AT_BODYPART) &&
+            KRlv::isOutfitPartAttachLocked(LLWearableType::getInstance()->getTypeName(item_to_wear->getWearableType())))
+        {
+            continue;
+        }
+
+        // KRLV_TOUCHPOINT: @unsharedwear / @sharedwear - see
+        // krlv/README.md's Shared Folders section.
+        if (KRlv::isWearBlockedByShareRule(item_to_wear->getUUID()))
+        {
             continue;
         }
 
@@ -4219,8 +4238,38 @@ void LLAppearanceMgr::removeItemsFromAvatar(const uuid_vec_t& ids_to_remove, nul
         if (item && item->getType() == LLAssetType::AT_OBJECT)
         {
             LL_DEBUGS("Avatar") << "ATT removing attachment " << item->getName() << " id " << item->getUUID() << LL_ENDL;
+            // KRLV_TOUCHPOINT: @detach=n / @detach:<point>=n /
+            // @remattach[:<point>]=n - covers every caller of this
+            // function (in-world "Detach" and the inventory panel's own
+            // "Detach"/"Take Off" both funnel through here), on top of
+            // the LLAttachmentDetach*/rez_attachment gates that already
+            // handle the in-world path more cheaply. See
+            // krlv/README.md's Attachments section.
+            if (!KRlv::isDefaultWearAllowed() && isAgentAvatarValid())
+            {
+                std::string pointName;
+                gAgentAvatarp->getAttachedPointName(linked_item_id, pointName);
+                LLViewerObject* attachedObj = gAgentAvatarp->findAttachmentByID(linked_item_id);
+                if ((attachedObj && KRlv::isObjectDetachLocked(attachedObj->getID())) || KRlv::isDetachPointLocked(pointName))
+                {
+                    continue;
+                }
+            }
         }
         if (item && item->getType() == LLAssetType::AT_BODYPART)
+        {
+            continue;
+        }
+        // KRLV_TOUCHPOINT: @remoutfit[:<part>]=n
+        if (item && item->getType() == LLAssetType::AT_CLOTHING &&
+            !KRlv::isDefaultWearAllowed() &&
+            KRlv::isOutfitPartDetachLocked(LLWearableType::getInstance()->getTypeName(item->getWearableType())))
+        {
+            continue;
+        }
+        // KRLV_TOUCHPOINT: @unsharedunwear / @sharedunwear - see
+        // krlv/README.md's Shared Folders section.
+        if (KRlv::isUnwearBlockedByShareRule(linked_item_id))
         {
             continue;
         }

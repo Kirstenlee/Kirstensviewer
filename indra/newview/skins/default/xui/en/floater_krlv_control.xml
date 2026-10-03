@@ -1,0 +1,1048 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes" ?>
+<floater
+ height="640"
+ layout="topleft"
+ name="krlv_control"
+ save_rect="true"
+ title="KRLV CONTROL"
+ width="620">
+
+  <!-- Always-visible warning. Not behind the PIN: anyone who opens this floater
+       must see what RLV can do before enabling anything. -->
+  <panel
+   follows="left|top|right"
+   height="128"
+   layout="topleft"
+   left="10"
+   name="warning_banner"
+   top="26"
+   width="600"
+   background_visible="true"
+   bg_alpha_color="0.35 0.06 0.06 1">
+    <text
+     type="string"
+     length="1"
+     follows="left|top"
+     font="SansSerifBig"
+     height="22"
+     layout="topleft"
+     left="10"
+     name="warning_title"
+     text_color="1 0.85 0.3 1"
+     top="8"
+     width="580">
+      WARNING - READ BEFORE ENABLING
+    </text>
+    <text
+     type="string"
+     length="1"
+     follows="left|top"
+     font="SansSerif"
+     height="88"
+     layout="topleft"
+     left="10"
+     name="warning_body"
+     text_color="White"
+     top_pad="6"
+     width="580"
+     word_wrap="true">
+      KRLV (RLVa) lets scripts in world restrict this viewer and your avatar: what you can say, see, hear, read, teleport to, and where you can walk, fly or sit. Restrictions can hide the viewer's own controls and can be hard to remove. Enable this only if you understand these consequences and you are the adult responsible for this account and machine.
+    </text>
+  </panel>
+
+  <!-- PIN gate. Shown instead of the content whenever a PIN is set and this open
+       has not yet been unlocked. -->
+  <panel
+   follows="left|top|right|bottom"
+   height="450"
+   layout="topleft"
+   left="10"
+   name="locked_panel"
+   top_pad="10"
+   width="600"
+   visible="false">
+    <text
+     type="string"
+     length="1"
+     follows="left|top"
+     font="SansSerifBold"
+     height="18"
+     layout="topleft"
+     left="10"
+     top="20"
+     width="580"
+     text_color="White">
+      Enter your PIN to open KRLV Control
+    </text>
+    <line_editor
+     follows="left|top"
+     height="22"
+     is_password="true"
+     layout="topleft"
+     left="10"
+     max_length_bytes="32"
+     name="pin_entry"
+     top_pad="10"
+     width="220" />
+    <button
+     follows="left|top"
+     height="23"
+     label="Unlock"
+     layout="topleft"
+     left_pad="10"
+     name="pin_unlock_btn"
+     top_delta="0"
+     width="90" />
+  </panel>
+
+  <panel
+   follows="left|top|right|bottom"
+   height="450"
+   layout="topleft"
+   left="10"
+   name="content_panel"
+   top_delta="0"
+   width="600"
+   visible="true">
+
+    <tab_container
+     follows="all"
+     height="440"
+     layout="topleft"
+     left="0"
+     name="krlv_tabs"
+     tab_position="top"
+     top="4"
+     width="600">
+
+      <!-- Order: Control, Restrictions, Security. Security (the PIN) sits last. -->
+      <panel
+       follows="all"
+       height="410"
+       label="Control"
+       layout="topleft"
+       left="0"
+       name="control_tab"
+       top="20"
+       width="600">
+        <check_box
+         control_name="KRLVControlEnabled"
+         follows="left|top"
+         height="18"
+         label="I understand the consequences - enable KRLV"
+         layout="topleft"
+         left="14"
+         name="krlv_enable_check"
+         top="16"
+         width="460" />
+        <text
+         type="string"
+         length="1"
+         follows="left|top"
+         font="SansSerif"
+         height="36"
+         layout="topleft"
+         left="14"
+         top_pad="12"
+         width="570"
+         word_wrap="true"
+         text_color="LtGray">
+          Enabling KRLV does not restrict you by itself: restrictions only apply when an object in world issues them. Disabling stops all restrictions at once.
+        </text>
+        <text
+         name="about_box"
+         type="string"
+         length="1"
+         follows="left|top"
+         font="SansSerif"
+         height="92"
+         layout="topleft"
+         left="14"
+         top_pad="12"
+         width="570"
+         word_wrap="true"
+         text_color="LtGray">
+          About KRLV: a clean-room implementation of the RLV/RLVa restriction API for Kirstens S24. Objects in world can restrict this viewer and your avatar only after you enable KRLV and accept the warning on this floater. Your owners are told when the safeword is used, when the owner list or a protected state file changes or goes missing, and when protected settings are changed. Your safeword clears every restriction at once. Written from the public RLVa API specification, with thanks to Marine Kelley and Kitty Barnett.
+        </text>
+        <text
+         name="status_text"
+         type="string"
+         length="1"
+         follows="left|top"
+         font="SansSerifSmall"
+         height="120"
+         layout="topleft"
+         left="14"
+         top_pad="10"
+         width="570"
+         word_wrap="true"
+         text_color="White">
+          Status: loading...
+        </text>
+      </panel>
+
+      <panel
+       follows="all"
+       height="410"
+       label="Auto-reply"
+       layout="topleft"
+       left="0"
+       name="autoreply_tab"
+       top="20"
+       width="600">
+        <text
+         type="string"
+         length="1"
+         follows="left|top"
+         font="SansSerifBold"
+         height="18"
+         layout="topleft"
+         left="14"
+         top="14"
+         width="570"
+         text_color="White">
+          Command log (last 10 commands KRLV received)
+        </text>
+        <scroll_list
+         name="cmd_log"
+         follows="left|top"
+         height="190"
+         layout="topleft"
+         left="14"
+         top="36"
+         width="570"
+         background_visible="true"
+         draw_stripes="true">
+          <column name="time" label="Time" width="70" />
+          <column name="source" label="Source" width="240" />
+          <column name="command" label="Command" width="150" />
+          <column name="outcome" label="Outcome" width="110" />
+        </scroll_list>
+        <button
+         follows="left|top"
+         height="24"
+         label="Whitelist selected source"
+         layout="topleft"
+         left="14"
+         name="cmd_white_btn"
+         top="230"
+         width="280" />
+        <button
+         follows="left|top"
+         height="24"
+         label="Blacklist selected source"
+         layout="topleft"
+         left="304"
+         name="cmd_black_btn"
+         top="230"
+         width="280" />
+
+        <text
+         type="string"
+         length="1"
+         follows="left|top"
+         font="SansSerifBold"
+         height="18"
+         layout="topleft"
+         left="14"
+         top="262"
+         width="570"
+         text_color="White">
+          Auto-replies when a restriction drops a message
+        </text>
+        <text
+         type="string"
+         length="1"
+         follows="left|top"
+         font="SansSerif"
+         height="16"
+         layout="topleft"
+         left="14"
+         top="286"
+         width="570"
+         text_color="LtGray">
+          Reply to a blocked IM (sent once per sender per cooldown):
+        </text>
+        <line_editor
+         control_name="KRLVAutoResponseIMText"
+         follows="left|top"
+         height="22"
+         layout="topleft"
+         left="14"
+         max_length_bytes="240"
+         name="auto_reply_im"
+         top="304"
+         width="570" />
+        <text
+         type="string"
+         length="1"
+         follows="left|top"
+         font="SansSerif"
+         height="16"
+         layout="topleft"
+         left="14"
+         top="334"
+         width="570"
+         text_color="LtGray">
+          Reply to blocked chat (sent as an IM once per sender per cooldown):
+        </text>
+        <line_editor
+         control_name="KRLVAutoResponseChatText"
+         follows="left|top"
+         height="22"
+         layout="topleft"
+         left="14"
+         max_length_bytes="240"
+         name="auto_reply_chat"
+         top="352"
+         width="570" />
+        <text
+         type="string"
+         length="1"
+         follows="left|top"
+         font="SansSerif"
+         height="16"
+         layout="topleft"
+         left="14"
+         top="384"
+         width="150"
+         text_color="LtGray">
+          Cooldown (seconds):
+        </text>
+        <spinner
+         control_name="KRLVAutoResponseCooldownSeconds"
+         decimal_digits="0"
+         follows="left|top"
+         height="20"
+         increment="60"
+         layout="topleft"
+         left="170"
+         max_val="3600"
+         min_val="60"
+         name="auto_reply_cooldown"
+         top="381"
+         width="90" />
+      </panel>
+
+      <!-- Commands: every RLVa command. Red = available, green = off (ignored by KRLV),
+           yellow = a restriction set by a script. Changes apply on Apply and notify owners. -->
+      <panel
+       follows="all"
+       height="410"
+       label="Restrictions"
+       layout="topleft"
+       left="0"
+       name="restrictions_tab"
+       top="20"
+       width="600">
+        <text
+         type="string"
+         length="1"
+         follows="left|top"
+         font="SansSerifBold"
+         height="18"
+         layout="topleft"
+         left="14"
+         top="10"
+         width="570"
+         text_color="White">
+          Commands: ACTIVE = available, DISABLED = off (ignored), SCRIPT = set by a script
+        </text>
+        <combo_box
+         follows="left|top"
+         height="22"
+         layout="topleft"
+         left="14"
+         name="restr_category"
+         top="34"
+         width="260" />
+        <line_editor
+         follows="left|top"
+         height="22"
+         layout="topleft"
+         left="284"
+         max_length_bytes="40"
+         name="restr_search"
+         top="34"
+         width="300" />
+        <scroll_list
+         follows="left|top"
+         height="230"
+         layout="topleft"
+         left="14"
+         name="restr_list"
+         top="64"
+         width="570"
+         background_visible="true"
+         draw_stripes="true"
+         multi_select="true">
+          <column name="command" label="Command" width="170" />
+          <column name="category" label="Category" width="250" />
+          <column name="state" label="State" width="80" />
+          <column name="lock" label="Lock" width="60" />
+        </scroll_list>
+        <button
+         follows="left|top"
+         height="23"
+         label="Set selected: ACTIVE"
+         layout="topleft"
+         left="14"
+         name="restr_set_red"
+         top="306"
+         width="200" />
+        <button
+         follows="left|top"
+         height="23"
+         label="Set selected: DISABLED"
+         layout="topleft"
+         left="222"
+         name="restr_set_green"
+         top="306"
+         width="200" />
+        <button
+         follows="left|top"
+         height="23"
+         label="Apply changes"
+         layout="topleft"
+         left="430"
+         name="restr_apply"
+         top="306"
+         width="140" />
+        <text
+         name="restr_summary"
+         type="string"
+         length="1"
+         follows="left|top"
+         font="SansSerifSmall"
+         height="40"
+         layout="topleft"
+         left="14"
+         top="340"
+         width="570"
+         text_color="LtGray"
+         word_wrap="true">
+          Select rows, choose a state, then Apply. Pending changes are marked with an asterisk. Owners are told when changes are applied.
+        </text>
+      </panel>
+
+      <!-- Objects: which objects KRLV listens to. Open is the default. -->
+      <panel
+       follows="all"
+       height="410"
+       label="Objects"
+       layout="topleft"
+       left="0"
+       name="objects_tab"
+       top="20"
+       width="600">
+        <text
+         type="string"
+         length="1"
+         follows="left|top"
+         font="SansSerifBold"
+         height="18"
+         layout="topleft"
+         left="14"
+         top="12"
+         width="570"
+         text_color="White">
+          Object lists (which objects KRLV listens to)
+        </text>
+        <text
+         type="string"
+         length="1"
+         follows="left|top"
+         font="SansSerif"
+         height="30"
+         layout="topleft"
+         left="14"
+         top="32"
+         width="570"
+         word_wrap="true"
+         text_color="LtGray">
+          Open (default): every object is heard except blacklisted ones. Closed: only whitelisted objects are heard. An entry matches one object and its owner together.
+        </text>
+        <check_box
+         follows="left|top"
+         height="20"
+         label="Closed mode: hear only whitelisted objects"
+         layout="topleft"
+         left="14"
+         name="object_closed_check"
+         top="68"
+         width="570" />
+        <check_box
+         follows="left|top"
+         height="20"
+         label="I understand: objects not on the whitelist will be ignored"
+         layout="topleft"
+         left="14"
+         name="object_closed_confirm"
+         top="90"
+         width="570" />
+        <button
+         follows="left|top"
+         height="24"
+         label="Apply mode"
+         layout="topleft"
+         left="14"
+         name="object_mode_apply"
+         top="114"
+         width="140" />
+
+        <text
+         type="string"
+         length="1"
+         follows="left|top"
+         font="SansSerifBold"
+         height="18"
+         layout="topleft"
+         left="14"
+         top="148"
+         width="570"
+         text_color="White">
+          Whitelist (always heard)
+        </text>
+        <scroll_list
+         name="object_white_list"
+         follows="left|top"
+         height="80"
+         layout="topleft"
+         left="14"
+         top="170"
+         width="570"
+         background_visible="true"
+         draw_stripes="true">
+          <column name="object" label="Object" width="280" />
+          <column name="owner" label="Owner" width="280" />
+        </scroll_list>
+        <button
+         follows="left|top"
+         height="24"
+         label="Remove selected from whitelist"
+         layout="topleft"
+         left="14"
+         name="object_white_remove"
+         top="254"
+         width="260" />
+
+        <text
+         type="string"
+         length="1"
+         follows="left|top"
+         font="SansSerifBold"
+         height="18"
+         layout="topleft"
+         left="14"
+         top="288"
+         width="570"
+         text_color="White">
+          Blacklist (always refused, in either mode)
+        </text>
+        <scroll_list
+         name="object_black_list"
+         follows="left|top"
+         height="70"
+         layout="topleft"
+         left="14"
+         top="310"
+         width="570"
+         background_visible="true"
+         draw_stripes="true">
+          <column name="object" label="Object" width="280" />
+          <column name="owner" label="Owner" width="280" />
+        </scroll_list>
+        <button
+         follows="left|top"
+         height="24"
+         label="Remove selected from blacklist"
+         layout="topleft"
+         left="14"
+         name="object_black_remove"
+         top="384"
+         width="260" />
+      </panel>
+
+      <!-- Communicate: owners who are notified by IM. Owners can only be added,
+           removed or changed with the PIN, every time. -->
+      <panel
+       follows="all"
+       height="410"
+       label="Communicate"
+       layout="topleft"
+       left="0"
+       name="communicate_tab"
+       top="20"
+       width="600">
+        <text
+         type="string"
+         length="1"
+         follows="left|top"
+         font="SansSerifBold"
+         height="18"
+         layout="topleft"
+         left="14"
+         top="10"
+         width="300"
+         text_color="White">
+          Owners (notified by IM)
+        </text>
+        <text
+         type="string"
+         length="1"
+         follows="left|top"
+         font="SansSerifBold"
+         height="18"
+         layout="topleft"
+         left="330"
+         top="10"
+         width="160"
+         text_color="White">
+          Notify this owner about:
+        </text>
+        <scroll_list
+         follows="left|top"
+         height="120"
+         layout="topleft"
+         left="14"
+         name="owner_list"
+         top="32"
+         width="300"
+         background_visible="true"
+         draw_stripes="true"
+         command_on_update="true">
+          <column name="name" label="Name" dynamicwidth="true" />
+          <column name="uuid" label="UUID" width="160" />
+        </scroll_list>
+        <check_box
+         follows="left|top"
+         height="18"
+         label="Settings accessed or changed"
+         layout="topleft"
+         left="330"
+         name="notify_settings"
+         top="32"
+         width="160" />
+        <check_box
+         follows="left|top"
+         height="18"
+         label="State file corrupted or deleted"
+         layout="topleft"
+         left="330"
+         name="notify_tamper"
+         top="58"
+         width="160" />
+        <check_box
+         follows="left|top"
+         height="18"
+         label="Timestamp mismatch"
+         layout="topleft"
+         left="330"
+         name="notify_timestamp"
+         top="84"
+         width="160" />
+        <check_box
+         follows="left|top"
+         height="18"
+         label="Owner list changes"
+         layout="topleft"
+         left="330"
+         name="notify_ownerchanges"
+         top="110"
+         width="160" />
+        <text
+         type="string"
+         length="1"
+         follows="left|top"
+         font="SansSerif"
+         height="16"
+         layout="topleft"
+         left="14"
+         top="164"
+         width="44"
+         text_color="LtGray">
+          Name:
+        </text>
+        <line_editor
+         follows="left|top"
+         height="22"
+         layout="topleft"
+         left="60"
+         max_length_bytes="64"
+         name="owner_name"
+         top="160"
+         width="150" />
+        <text
+         type="string"
+         length="1"
+         follows="left|top"
+         font="SansSerif"
+         height="16"
+         layout="topleft"
+         left="220"
+         top="164"
+         width="44"
+         text_color="LtGray">
+          UUID:
+        </text>
+        <line_editor
+         follows="left|top"
+         height="22"
+         layout="topleft"
+         left="262"
+         max_length_bytes="36"
+         name="owner_uuid"
+         top="160"
+         width="224" />
+        <button
+         follows="left|top"
+         height="23"
+         label="Add owner"
+         layout="topleft"
+         left="14"
+         name="owner_add_btn"
+         top="226"
+         width="100" />
+        <button
+         follows="left|top"
+         height="23"
+         label="Remove selected"
+         layout="topleft"
+         left="122"
+         name="owner_remove_btn"
+         top="226"
+         width="130" />
+        <button
+         follows="left|top"
+         height="23"
+         label="Test IM"
+         layout="topleft"
+         left="260"
+         name="owner_test_btn"
+         top="226"
+         width="100" />
+        <button
+         follows="left|top"
+         height="23"
+         label="Update owner"
+         layout="topleft"
+         left="370"
+         name="owner_update_btn"
+         top="226"
+         width="116" />
+        <text
+         type="string"
+         length="1"
+         follows="left|top"
+         font="SansSerifSmall"
+         height="30"
+         layout="topleft"
+         left="14"
+         top="258"
+         width="570"
+         text_color="DrYellow"
+         word_wrap="true">
+          Update owner saves the name and notice choices and IMs every owner who gets owner-list notices. Removing an owner IMs that owner straight away. Test IM checks the route to the selected owner.
+        </text>
+        <text
+         type="string"
+         length="1"
+         follows="left|top"
+         font="SansSerifBold"
+         height="18"
+         layout="topleft"
+         left="14"
+         top="312"
+         width="300"
+         text_color="White">
+          Flood limit: seconds between repeated notices
+        </text>
+        <spinner
+         control_name="KRLVNoticeIntervalSeconds"
+         decimal_digits="0"
+         follows="left|top"
+         height="20"
+         increment="5"
+         layout="topleft"
+         left="330"
+         max_val="600"
+         min_val="5"
+         name="notice_interval_spin"
+         top="310"
+         width="90" />
+        <text
+         type="string"
+         length="1"
+         follows="left|top"
+         font="SansSerifSmall"
+         height="30"
+         layout="topleft"
+         left="14"
+         top="336"
+         width="570"
+         text_color="LtGray"
+         word_wrap="true">
+          Repeats of the same kind of notice inside this window are held back and summarised in the next one sent, so an owner is never flooded.
+        </text>
+      </panel>
+
+      <!-- Safeword: the wearer's own emergency exit. Owners cannot change it. -->
+      <panel
+       follows="all"
+       height="410"
+       label="Safeword"
+       layout="topleft"
+       left="0"
+       name="safeword_tab"
+       top="20"
+       width="600">
+        <text
+         type="string"
+         length="1"
+         follows="left|top"
+         font="SansSerifBold"
+         height="18"
+         layout="topleft"
+         left="14"
+         top="12"
+         width="570"
+         text_color="White">
+          Safeword (your emergency exit)
+        </text>
+        <text
+         type="string"
+         length="1"
+         follows="left|top"
+         font="SansSerif"
+         height="48"
+         layout="topleft"
+         left="14"
+         top_pad="6"
+         width="570"
+         word_wrap="true"
+         text_color="LtGray">
+          Choose three words. Type them in order, with single spaces, in any chat or IM and every KRLV restriction is cleared, KRLV is turned off, and your owners are told. Your message still goes out. Capitals and punctuation do not matter. You can use it even while your owners cannot.
+        </text>
+        <text
+         name="safeword_status"
+         type="string"
+         length="1"
+         follows="left|top"
+         font="SansSerifBold"
+         height="18"
+         layout="topleft"
+         left="14"
+         top_pad="10"
+         width="570"
+         text_color="DrYellow">
+          Safeword: not set
+        </text>
+        <text
+         type="string"
+         length="1"
+         follows="left|top"
+         font="SansSerif"
+         height="16"
+         layout="topleft"
+         left="14"
+         top_pad="16"
+         width="200"
+         text_color="LtGray">
+          New safeword (three words):
+        </text>
+        <line_editor
+         follows="left|top"
+         height="22"
+         is_password="true"
+         layout="topleft"
+         left="14"
+         max_length_bytes="64"
+         name="safeword_new"
+         top_pad="4"
+         width="260" />
+        <text
+         type="string"
+         length="1"
+         follows="left|top"
+         font="SansSerif"
+         height="16"
+         layout="topleft"
+         left="14"
+         top_pad="10"
+         width="200"
+         text_color="LtGray">
+          Type it again to confirm:
+        </text>
+        <line_editor
+         follows="left|top"
+         height="22"
+         is_password="true"
+         layout="topleft"
+         left="14"
+         max_length_bytes="64"
+         name="safeword_confirm"
+         top_pad="4"
+         width="260" />
+        <button
+         follows="left|top"
+         height="23"
+         label="Save safeword"
+         layout="topleft"
+         left="14"
+         name="safeword_set_btn"
+         top_pad="12"
+         width="140" />
+        <text
+         type="string"
+         length="1"
+         follows="left|top"
+         font="SansSerifSmall"
+         height="30"
+         layout="topleft"
+         left="14"
+         top_pad="14"
+         width="570"
+         text_color="DrYellow"
+         word_wrap="true">
+          Setting a new safeword replaces the old one at once. Keep it somewhere you will remember under pressure, and do not share it with anyone who should not be able to switch KRLV off.
+        </text>
+      </panel>
+
+      <panel
+       follows="all"
+       height="410"
+       label="Security"
+       layout="topleft"
+       left="0"
+       name="security_tab"
+       top="20"
+       width="600">
+        <text
+         type="string"
+         length="1"
+         follows="left|top"
+         font="SansSerifBold"
+         height="18"
+         layout="topleft"
+         left="14"
+         top="16"
+         width="570"
+         text_color="White">
+          PIN (required on every open once set)
+        </text>
+        <text
+         type="string"
+         length="1"
+         follows="left|top"
+         font="SansSerif"
+         height="16"
+         layout="topleft"
+         left="14"
+         top_pad="10"
+         width="150"
+         text_color="LtGray">
+          New PIN:
+        </text>
+        <line_editor
+         follows="left|top"
+         height="22"
+         is_password="true"
+         layout="topleft"
+         left="14"
+         max_length_bytes="32"
+         name="pin_new"
+         top_pad="4"
+         width="220" />
+        <text
+         type="string"
+         length="1"
+         follows="left|top"
+         font="SansSerif"
+         height="16"
+         layout="topleft"
+         left="14"
+         top_pad="10"
+         width="150"
+         text_color="LtGray">
+          Confirm PIN:
+        </text>
+        <line_editor
+         follows="left|top"
+         height="22"
+         is_password="true"
+         layout="topleft"
+         left="14"
+         max_length_bytes="32"
+         name="pin_confirm"
+         top_pad="4"
+         width="220" />
+        <button
+         follows="left|top"
+         height="23"
+         label="Set / Change PIN"
+         layout="topleft"
+         left="14"
+         name="pin_set_btn"
+         top_pad="12"
+         width="160" />
+
+        <text
+         type="string"
+         length="1"
+         follows="left|top"
+         font="SansSerifBold"
+         height="18"
+         layout="topleft"
+         left="14"
+         top_pad="22"
+         width="570"
+         text_color="White">
+          Re-lock after minimising
+        </text>
+        <text
+         type="string"
+         length="1"
+         follows="left|top"
+         font="SansSerif"
+         height="16"
+         layout="topleft"
+         left="14"
+         top_pad="6"
+         width="570"
+         text_color="LtGray">
+          Seconds minimised before the PIN is required again (0 = never). Closing always re-locks.
+        </text>
+        <spinner
+         control_name="KRLVControlLockSeconds"
+         decimal_digits="0"
+         follows="left|top"
+         height="20"
+         increment="30"
+         layout="topleft"
+         left="14"
+         max_val="3600"
+         min_val="0"
+         name="lock_timeout_spin"
+         top_pad="6"
+         width="90" />
+        <text
+         type="string"
+         length="1"
+         follows="left|top"
+         font="SansSerifBold"
+         height="48"
+         layout="topleft"
+         left="14"
+         name="lock_timeout_warning"
+         text_color="Red"
+         top_pad="8"
+         visible="false"
+         width="570"
+         word_wrap="true">
+          WARNING: 0 means the floater never re-locks while minimised. Anyone at this machine can then use KRLV Control without the PIN until it is closed.
+        </text>
+      </panel>
+
+    </tab_container>
+  </panel>
+</floater>

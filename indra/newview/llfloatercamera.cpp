@@ -58,6 +58,11 @@ const F32 ORBIT_NUDGE_RATE = 0.05f; // fraction of normal speed
 #define ZOOM "zoom"
 #define CONTROLS "controls"
 
+// S24: vertical gap between the accordion selector row and
+// whichever accordion panel is expanded below it, matching
+// floater_camera.xml's own top_pad="6" on each of the 3 accordion panels.
+constexpr S32 ACCORDION_PANEL_GAP = 6;
+
 bool LLFloaterCamera::sFreeCamera = false;
 bool LLFloaterCamera::sAppearanceEditing = false;
 
@@ -383,6 +388,73 @@ void LLFloaterCamera::onDebugCameraToggled()
     }
 }
 
+// S24: the floater's own "normal" height now varies
+// (collapsed, or collapsed + whichever of the 3 accordion panels is
+// currently expanded) instead of being one fixed value, so this can't be
+// cached once the way the old tab-container design's mNormalHeight was -
+// recomputed fresh every time it's needed (updateAccordionPanel() and
+// showDebugInfo() below both depend on it).
+S32 LLFloaterCamera::getContentHeight() const
+{
+    S32 height = mCollapsedHeight;
+    if (mAccordionPresetsPanel->getVisible())
+    {
+        height += mAccordionPresetsPanel->getRect().getHeight() + ACCORDION_PANEL_GAP;
+    }
+    else if (mAccordionGuidesPanel->getVisible())
+    {
+        height += mAccordionGuidesPanel->getRect().getHeight() + ACCORDION_PANEL_GAP;
+    }
+    else if (mAccordionRecorderPanel->getVisible())
+    {
+        height += mAccordionRecorderPanel->getRect().getHeight() + ACCORDION_PANEL_GAP;
+    }
+    return height;
+}
+
+// S24: the combo (WHICH panel) and the toggle button (shown or not) are
+// independent controls, both wired to this single reconciler - re-
+// picking a panel while already expanded swaps content without ever
+// closing it; toggling closed leaves the combo's selection untouched for
+// next time.
+void LLFloaterCamera::updateAccordionPanel()
+{
+    mAccordionPresetsPanel->setVisible(false);
+    mAccordionGuidesPanel->setVisible(false);
+    mAccordionRecorderPanel->setVisible(false);
+
+    if (mAccordionToggleBtn->getToggleState())
+    {
+        const std::string selection = mAccordionCombo->getValue().asString();
+        if (selection == "presets")
+        {
+            mAccordionPresetsPanel->setVisible(true);
+        }
+        else if (selection == "guides")
+        {
+            mAccordionGuidesPanel->setVisible(true);
+        }
+        else if (selection == "recorder")
+        {
+            mAccordionRecorderPanel->setVisible(true);
+        }
+    }
+
+    // S24: LLView::reshape() anchors at the BOTTOM edge and grows
+    // upward (mBottom stays put, mTop increases) - without this
+    // translate the title bar visibly jumps up the screen every time
+    // the accordion opens/closes. Same idiom LLMultiFloater uses for
+    // exactly this reason (llmultifloater.cpp).
+    const S32 old_height = getRect().getHeight();
+    reshape(getRect().getWidth(), getContentHeight());
+    translate(0, old_height - getRect().getHeight());
+
+    if (LLView::sDebugCamera)
+    {
+        showDebugInfo(true);
+    }
+}
+
 void LLFloaterCamera::showDebugInfo(bool show)
 {
     // Initially LLPanel contains 1 child "view_border"
@@ -394,37 +466,33 @@ void LLFloaterCamera::showDebugInfo(bool show)
             []() { return gAgent.getPosAgentFromGlobal(gAgentCamera.calcFocusPositionTargetGlobal()); }));
     }
 
-    // S24: viewer_camera_info/agent_camera_info (floater_camera.xml, top="135"/"285") were
-    // declared assuming they'd sit below camera_tabs (the "Controls"/"Composition Guides"/
-    // "Camera Recorder" tab container, top="20" height="170") - but at those offsets they instead
-    // land ON TOP of it (135 falls inside camera_tabs' own 20-190 span). camera_tabs also used to
-    // have follows="all", so the first version of this fix (just growing the floater) made
-    // camera_tabs itself stretch to fill the new height instead of fixing anything - now
-    // follows="left|top|right", a fixed 170px regardless of the floater's own height. Byte-
-    // identical positions in the pre-DX GL baseline - not a DX_RENDER regression, just never
-    // finished. Reposition both panels once, right below camera_tabs' real bottom edge, instead
-    // of trusting their XML offsets; then grow the floater to actually reveal them.
-    if (mNormalHeight == 0)
-    {
-        mNormalHeight = getRect().getHeight();
+    // S24: the accordion panel makes getContentHeight() vary by
+    // selection, so these two panels are positioned fresh from it every
+    // call rather than cached - the old tab-container design could cache
+    // a one-time offset precisely because ITS content height never
+    // changed on its own. reshape()+translate() below counters
+    // LLView::reshape()'s bottom-anchored growth, same idiom as
+    // updateAccordionPanel() - see that function's comment.
+    constexpr S32 DEBUG_PANEL_MARGIN = 5;
+    constexpr S32 DEBUG_PANEL_HEIGHT = 150;
+    const S32 content_height = getContentHeight();
+    const S32 old_height = getRect().getHeight();
 
-        constexpr S32 DEBUG_PANEL_MARGIN = 5;
-        const S32 controls_bottom = getChild<LLView>("camera_tabs")->getRect().mBottom;
-        const S32 delta = (controls_bottom - DEBUG_PANEL_MARGIN) - mViewerCameraInfo->getRect().mTop;
-        mViewerCameraInfo->translate(0, delta);
-        mAgentCameraInfo->translate(0, delta);
-    }
     if (show)
     {
-        const S32 overflow = llmax(-mViewerCameraInfo->getRect().mBottom, -mAgentCameraInfo->getRect().mBottom);
-        if (overflow > 0)
-        {
-            reshape(getRect().getWidth(), mNormalHeight + overflow);
-        }
+        const S32 new_height = content_height + DEBUG_PANEL_MARGIN + (DEBUG_PANEL_HEIGHT * 2) + DEBUG_PANEL_MARGIN;
+        reshape(getRect().getWidth(), new_height);
+        translate(0, old_height - getRect().getHeight());
+
+        S32 top = new_height - content_height - DEBUG_PANEL_MARGIN;
+        mViewerCameraInfo->setRect(LLRect(0, top, getRect().getWidth(), top - DEBUG_PANEL_HEIGHT));
+        top -= DEBUG_PANEL_HEIGHT;
+        mAgentCameraInfo->setRect(LLRect(0, top, getRect().getWidth(), top - DEBUG_PANEL_HEIGHT));
     }
     else
     {
-        reshape(getRect().getWidth(), mNormalHeight);
+        reshape(getRect().getWidth(), content_height);
+        translate(0, old_height - getRect().getHeight());
     }
 
     mAgentCameraInfo->setVisible(show);
@@ -560,6 +628,18 @@ bool LLFloaterCamera::postBuild()
 
     mPresetCombo->setCommitCallback(boost::bind(&LLFloaterCamera::onCustomPresetSelected, this));
     LLPresetsManager::getInstance()->setPresetListChangeCameraCallback(boost::bind(&LLFloaterCamera::populatePresetCombo, this));
+
+    // S24: compact accordion layout - see llfloatercamera.h's member comment.
+    // Captured before anything can be expanded, so this is always the
+    // true "nothing shown" height regardless of what XML declared it as.
+    mCollapsedHeight = getRect().getHeight();
+    mAccordionCombo = getChild<LLComboBox>("accordion_combo");
+    mAccordionToggleBtn = getChild<LLButton>("accordion_toggle_btn");
+    mAccordionPresetsPanel = getChild<LLPanel>("accordion_presets_panel");
+    mAccordionGuidesPanel = getChild<LLPanel>("accordion_guides_panel");
+    mAccordionRecorderPanel = getChild<LLPanel>("accordion_recorder_panel");
+    mAccordionCombo->setCommitCallback(boost::bind(&LLFloaterCamera::updateAccordionPanel, this));
+    mAccordionToggleBtn->setCommitCallback(boost::bind(&LLFloaterCamera::updateAccordionPanel, this));
 
     // Camera Recorder UI
     mRecorderStatusText = getChild<LLTextBox>("recorder_status_text");

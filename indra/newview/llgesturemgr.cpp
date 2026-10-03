@@ -56,6 +56,8 @@
 #include "llappearancemgr.h"
 #include "llgesturelistener.h"
 
+#include "krlvhandler.h" // KRLV_TOUCHPOINT: @sendgesture gate, see krlv/README.md
+
 // Longest time, in seconds, to wait for all animations to stop playing
 const F32 MAX_WAIT_ANIM_SECS = 30.f;
 // Longest time, in seconds, to wait for a key release.
@@ -534,6 +536,15 @@ void LLGestureMgr::replaceGesture(const LLUUID& item_id, const LLUUID& new_asset
 void LLGestureMgr::playGesture(LLMultiGesture* gesture, bool fromKeyPress)
 {
     if (!gesture) return;
+
+    // KRLV_TOUCHPOINT: @sendgesture - single chokepoint for both
+    // keybind-triggered and UI/chat-triggered gestures (the other public
+    // overload, playGesture(const LLUUID&), routes through here too).
+    // See krlv/README.md.
+    if (gKRlv.isRestricted("sendgesture"))
+    {
+        return;
+    }
 
     // Reset gesture to first step
     gesture->reset();

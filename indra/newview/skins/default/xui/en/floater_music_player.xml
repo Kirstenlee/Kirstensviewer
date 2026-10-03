@@ -7,7 +7,7 @@
  name="music_player"
  help_topic="music_player"
  save_rect="true"
- title="MUSIC PLAYER"
+ title="MEDIA PLAYER"
  width="380">
     <!-- S24: fixed-size layout, no can_resize - three rounds of a resizable
          layout_stack (empty-on-open needing updateLayout(), then a top/

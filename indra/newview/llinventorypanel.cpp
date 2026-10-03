@@ -902,7 +902,8 @@ void LLInventoryPanel::idle(void* user_data)
 
     }
 
-    bool in_visible_chain = panel->isInVisibleChain();
+    // S24: panels flagged mAlwaysBuildFullSpeed skip the hidden-chain throttle.
+    bool in_visible_chain = panel->isInVisibleChain() || panel->mAlwaysBuildFullSpeed;
 
     if (!panel->mBuildRootQueue.empty())
     {

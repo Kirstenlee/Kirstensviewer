@@ -149,7 +149,14 @@
              parameter="prefs_kvtweaks" />
         </menu_item_call>
         <menu_item_call
-         label="🎵 Music Player..."
+         label="🔒 KRLV Control..."
+         name="KRLV Control"
+         shortcut="control|alt|F7">
+            <menu_item_call.on_click
+             function="KRLV.Open" />
+        </menu_item_call>
+        <menu_item_call
+         label="🎵 Media Player..."
          name="Music Player">
             <menu_item_call.on_click
              function="Floater.Toggle"

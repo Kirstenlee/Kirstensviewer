@@ -1349,6 +1349,28 @@
       <key>Value</key>
       <integer>0</integer>
     </map>
+    <key>KRLVEnabled</key>
+    <map>
+      <key>Comment</key>
+      <string>Enable KRLV (RLVa command support). Off by default - RLV is opt-in, scripted objects cannot control the viewer until this is turned on.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
+    <key>KRLVRestrictionsWereActive</key>
+    <map>
+      <key>Comment</key>
+      <string>Internal KRLV tamper-evidence marker - set true whenever krlv_restrictions.dat is saved with at least one active restriction. Not user-facing; do not edit by hand.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
     <key>KVRAMCacheEnabled</key>
     <map>
       <key>Comment</key>
@@ -7869,7 +7891,7 @@
     <key>RenderBufferVisualization</key>
     <map>
       <key>Comment</key>
-      <string>Outputs a selected buffer to the screen.  -1 = final render buffer.  0 = Albedo, 1 = Specular/ORM, 2 = Normal, 3 = Emissive, 4 = Eye luminance, 5 = FXAA Luminance/SMAA Edge Tex, 6 = SMAA Blend Weights</string>
+      <string>Outputs a selected buffer to the screen.  -1 = final render buffer.  0 = Albedo, 1 = Specular/ORM, 2 = Normal, 3 = Emissive, 4 = Eye luminance, 5 = FXAA Luminance/SMAA Edge Tex, 6 = SMAA Blend Weights, 7 = SMAA Blend Weights vertical (.ba)</string>
       <key>Persist</key>
       <integer>0</integer>
       <key>Type</key>
@@ -9744,6 +9766,149 @@
       <string>F32</string>
       <key>Value</key>
       <real>1.0</real>
+    </map>
+    <key>KRLVControlEnabled</key>
+    <map>
+      <key>Comment</key>
+      <string>KRLV Control: user has enabled KRLV (RLVa) restrictions after reading the warning.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
+    <key>KRLVControlPinHash</key>
+    <map>
+      <key>Comment</key>
+      <string>KRLV Control: salted hash of the PIN. Empty means no PIN is set.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>String</string>
+      <key>Value</key>
+      <string></string>
+    </map>
+    <key>KRLVAutoResponseIMText</key>
+    <map>
+      <key>Comment</key>
+      <string>KRLV auto-response: sent once per sender, per cooldown, when @recvim drops their IM.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>String</string>
+      <key>Value</key>
+      <string>I cannot read IMs right now (KRLV is restricting this). I will reply when I can.</string>
+    </map>
+    <key>KRLVAutoResponseChatText</key>
+    <map>
+      <key>Comment</key>
+      <string>KRLV auto-response: sent as an IM once per sender, per cooldown, when @recvchat drops their chat line.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>String</string>
+      <key>Value</key>
+      <string>I cannot receive chat right now, so I may not see your message. Please send an IM instead.</string>
+    </map>
+    <key>KRLVAutoResponseCooldownSeconds</key>
+    <map>
+      <key>Comment</key>
+      <string>KRLV auto-response: minimum seconds before the same sender is answered again. Floor of 60.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>600.0</real>
+    </map>
+    <key>KRLVOwnersWrittenEpoch</key>
+    <map>
+      <key>Comment</key>
+      <string>KRLV tamper checks: written-at time (unix seconds, as text) of the newest owner file this viewer saved. Used to detect an older copy being restored.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>String</string>
+      <key>Value</key>
+      <string></string>
+    </map>
+    <key>KRLVTamperNotifiedKeys</key>
+    <map>
+      <key>Comment</key>
+      <string>KRLV tamper checks: incidents already reported to owners, so each is announced once.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>String</string>
+      <key>Value</key>
+      <string></string>
+    </map>
+    <key>KRLVIntegrityKey</key>
+    <map>
+      <key>Comment</key>
+      <string>KRLV integrity: per-install random key for state-file signatures. Created once, never shared. Changing it makes existing signed files fail their check.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>String</string>
+      <key>Value</key>
+      <string></string>
+    </map>
+    <key>KRLVSafewordHash</key>
+    <map>
+      <key>Comment</key>
+      <string>KRLV safeword: salted hash of the three-word phrase. Empty means no safeword is set. Never stored in plain text.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>String</string>
+      <key>Value</key>
+      <string></string>
+    </map>
+    <key>KRLVSafewordSalt</key>
+    <map>
+      <key>Comment</key>
+      <string>KRLV safeword: salt for the safeword hash, regenerated each time the safeword is set.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>String</string>
+      <key>Value</key>
+      <string></string>
+    </map>
+    <key>KRLVNoticeIntervalSeconds</key>
+    <map>
+      <key>Comment</key>
+      <string>KRLV owner notices: minimum seconds between notices of the same kind. Repeats in between are held back and summarised. Floor of 5.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>60.0</real>
+    </map>
+    <key>KRLVControlLockSeconds</key>
+    <map>
+      <key>Comment</key>
+      <string>KRLV Control: seconds the floater may stay minimised before the PIN lock re-engages. Closing it always re-locks.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>120.0</real>
+    </map>
+    <key>KRLVControlPinSalt</key>
+    <map>
+      <key>Comment</key>
+      <string>KRLV Control: salt used with the PIN hash, regenerated on each PIN change.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>String</string>
+      <key>Value</key>
+      <string></string>
     </map>
     <key>RenderReflectionProbeBlurLODBias</key>
     <map>

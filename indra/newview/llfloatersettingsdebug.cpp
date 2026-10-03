@@ -34,6 +34,8 @@
 #include "llcolorswatch.h"
 #include "llviewercontrol.h"
 #include "lltexteditor.h"
+#include "krlvhandler.h"
+#include "krlvnotice.h"
 
 
 LLFloaterSettingsDebug::LLFloaterSettingsDebug(const LLSD& key)
@@ -101,6 +103,18 @@ void LLFloaterSettingsDebug::onCommitSettings()
 
     if (!controlp)
     {
+        return;
+    }
+
+    // KRLV_TOUCHPOINT: @setdebug=n locks whatever settings are on
+    // KRLV's own user-configured protected list (empty by default -
+    // see krlvviewercontrol.cpp's file header and krlv/README.md's
+    // Viewer Control section) from being edited here.
+    if (gKRlv.isRestricted("setdebug") && gKRlv.isDebugSettingProtected(controlp->getName()))
+    {
+        // Attempted edit of a protected setting: refused, and the owners are told.
+        KRlv::sendOwnerNotice(KRlv::KRlvNoticeKind::Settings,
+            "KRLV: an edit to protected setting " + std::string(controlp->getName()) + " was refused.");
         return;
     }
 
@@ -189,7 +203,14 @@ void LLFloaterSettingsDebug::onClickDefault()
     if (first_selected)
     {
         LLControlVariable* controlp = (LLControlVariable*)first_selected->getUserdata();
-        if (controlp)
+        // KRLV_TOUCHPOINT: same @setdebug=n gate as onCommitSettings()
+        // above - resetting to default is still "changing" the setting.
+        if (controlp && gKRlv.isRestricted("setdebug") && gKRlv.isDebugSettingProtected(controlp->getName()))
+        {
+            KRlv::sendOwnerNotice(KRlv::KRlvNoticeKind::Settings,
+                "KRLV: a reset of protected setting " + std::string(controlp->getName()) + " was refused.");
+        }
+        else if (controlp)
         {
             controlp->resetToDefault(true);
             updateDefaultColumn(controlp);

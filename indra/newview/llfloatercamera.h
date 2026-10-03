@@ -141,12 +141,31 @@ private:
     LLPanel* mControls { nullptr };
     LLPanel* mViewerCameraInfo { nullptr };
     LLPanel* mAgentCameraInfo { nullptr };
-    // The floater's XML-declared height (floater_camera.xml), captured once before
-    // showDebugInfo() ever grows it to fit mViewerCameraInfo/mAgentCameraInfo - see
-    // showDebugInfo()'s comment.
-    S32 mNormalHeight { 0 };
     LLComboBox* mPresetCombo { nullptr };
     LLTextBox* mPreciseCtrls { nullptr };
+
+    // S24: compact camera floater redesign - Presets/Composition Guides/
+    // Camera Recorder share one accordion slot below the jogs instead of
+    // 3 separate always-full-size tabs. mAccordionCombo picks WHICH of
+    // the 3 panels below would show; mAccordionToggleBtn picks whether
+    // it's shown at all - independent, so switching panels never also
+    // collapses. updateAccordionPanel() is the single place that
+    // reconciles both into "what's visible right now" and reshapes the
+    // floater to fit. getContentHeight() is the floater height for
+    // whatever's visible right now (collapsed, or collapsed + whichever
+    // panel is expanded) - showDebugInfo() also depends on this being
+    // accurate, since it positions the debug panels relative to it.
+    LLComboBox* mAccordionCombo { nullptr };
+    LLButton* mAccordionToggleBtn { nullptr };
+    LLPanel* mAccordionPresetsPanel { nullptr };
+    LLPanel* mAccordionGuidesPanel { nullptr };
+    LLPanel* mAccordionRecorderPanel { nullptr };
+    // The floater's XML-declared, nothing-expanded height - captured once
+    // in postBuild(), before anything can possibly be expanded yet.
+    S32 mCollapsedHeight { 0 };
+
+    void updateAccordionPanel();
+    S32 getContentHeight() const;
 
     // Camera Recorder
     struct CameraKeyframe

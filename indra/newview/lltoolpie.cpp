@@ -35,6 +35,7 @@
 #include "llagent.h"
 #include "llagentcamera.h"
 #include "llavatarnamecache.h"
+#include "krlvname.h" // KRLV_TOUCHPOINT: @shownames avatar tooltip
 #include "llfocusmgr.h"
 #include "llfirstuse.h"
 #include "llfloaterland.h"
@@ -1071,6 +1072,13 @@ bool LLToolPie::handleTooltipObject( LLViewerObject* hover_object, std::string l
     line.clear();
     if (hover_object->isAvatar())
     {
+        // KRLV_TOUCHPOINT: @shownames - spec says tooltips are hidden
+        // outright, not shown with a dummy name.
+        if (KRlv::isNameCensored(hover_object->getID()))
+        {
+            return true;
+        }
+
         // only show tooltip if same inspector not already open
         LLFloater* existing_inspector = LLFloaterReg::findInstance("inspect_avatar");
         if (!existing_inspector

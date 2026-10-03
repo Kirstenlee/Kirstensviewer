@@ -56,6 +56,7 @@ public:
     void processFindCommand(const std::string& args);
     void processTpCommand(const std::string& args);
     void processFlyCommand(const std::string& args);
+    void processKrlvCommand(const std::string& args); // KRLV_TOUCHPOINT: see krlv/README.md
     void processGetCommand(const std::string& args);
     void processSetCommand(const std::string& args);
     void processOpenCommand(const std::string& args);

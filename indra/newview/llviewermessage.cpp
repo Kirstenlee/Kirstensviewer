@@ -27,6 +27,12 @@
 #include "llviewerprecompiledheaders.h"
 #include "llviewermessage.h"
 
+// KRLV: inbound command intercept, see krlv/README.md
+#include "krlvhandler.h"
+#include "krlvautoresponse.h" // KRLV auto-response to dropped chat
+#include "krlvattachment.h" // KRLV_TOUCHPOINT: @acceptpermission / @denypermission
+#include "krlvname.h" // KRLV_TOUCHPOINT: @shownames / @shownames_sec chat censoring
+
 // Linden libraries
 #include "llanimationstates.h"
 #include "llaudioengine.h"
@@ -2389,6 +2395,13 @@ void process_chat_from_simulator(LLMessageSystem *msg, void **user_data)
         {
             chat.mFromName = LLCacheName::cleanFullName(from_name);
         }
+
+        // KRLV_TOUCHPOINT: @shownames / @shownames_sec - see
+        // krlv/README.md's Name Tags and Hovertext section.
+        if (KRlv::isNameCensored(from_id))
+        {
+            chat.mFromName = "Someone";
+        }
     }
     else
     {
@@ -2457,6 +2470,16 @@ void process_chat_from_simulator(LLMessageSystem *msg, void **user_data)
         color.setVec(1.f,1.f,1.f,1.f);
         msg->getStringFast(_PREHASH_ChatData, _PREHASH_Message, mesg);
 
+        // KRLV_TOUCHPOINT: inbound command intercept - see krlv/README.md.
+        // A KRLV command is invisible to the user, same as every other
+        // RLV-capable viewer: a fully handled line never reaches chat
+        // history/bubbles below.
+        if (chat.mSourceType == CHAT_SOURCE_OBJECT
+            && gKRlv.processInboundChat(mesg, from_id, owner_id))
+        {
+            return;
+        }
+
         bool ircstyle = false;
 
         // Look for IRC-style emotes here so chatbubbles work
@@ -2465,6 +2488,32 @@ void process_chat_from_simulator(LLMessageSystem *msg, void **user_data)
         {
             ircstyle = true;
         }
+
+        // KRLV_TOUCHPOINT: @recvchat/@recvchat_sec/@recvchatfrom (plain
+        // chat) and @recvemote/@recvemote_sec/@recvemotefrom (ircstyle
+        // "/me" emotes) - see krlv/README.md.
+        if (ircstyle)
+        {
+            if ((gKRlv.isRestricted("recvemote") && !gKRlv.hasRestrictionFrom("recvemote_except", from_id))
+                || gKRlv.hasRestrictionFrom("recvemotefrom", from_id))
+            {
+                return;
+            }
+        }
+        else
+        {
+            if ((gKRlv.isRestricted("recvchat") && !gKRlv.hasRestrictionFrom("recvchat_except", from_id))
+                || gKRlv.hasRestrictionFrom("recvchatfrom", from_id))
+            {
+                // KRLV auto-response: avatars only, never objects.
+                if (chat.mSourceType == CHAT_SOURCE_AGENT)
+                {
+                    KRlv::autoRespondDroppedChat(from_id);
+                }
+                return;
+            }
+        }
+
         chat.mText = mesg;
 
         // Look for the start of typing so we can put "..." in the bubbles.
@@ -5861,7 +5910,21 @@ void process_script_question(LLMessageSystem *msg, void **user_data)
                 return;
             }
 
-            LLNotificationsUtil::add(notification, args, payload);
+            // KRLV_TOUCHPOINT: @acceptpermission / @denypermission - skip
+            // the dialog entirely and auto-respond, matching the spec's
+            // own wording ("the dialog box doesn't even show up"). See
+            // krlv/README.md's Attachments section.
+            const KRlv::ScriptPermissionResponse krlvResponse = KRlv::getScriptPermissionAutoResponse();
+            if (krlvResponse != KRlv::ScriptPermissionResponse::None)
+            {
+                LLNotifications::instance().forceResponse(
+                    LLNotification::Params(notification).substitutions(args).payload(payload),
+                    (krlvResponse == KRlv::ScriptPermissionResponse::AutoAccept) ? 0 : 1);
+            }
+            else
+            {
+                LLNotificationsUtil::add(notification, args, payload);
+            }
         }
     }
 }

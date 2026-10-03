@@ -37,6 +37,7 @@
 #include "llcombobox.h"
 #include "llcoros.h"
 #include "llfloaterreg.h"
+#include "llfloaterkrlvcontrol.h"
 #include "llfloatersidepanelcontainer.h"
 #include "llinventorypanel.h"
 #include "llnotifications.h"
@@ -150,6 +151,11 @@
 #include "llviewershadermgr.h"
 #include "gltfscenemanager.h"
 #include "gltf/asset.h"
+
+#include "krlvhandler.h"     // KRLV_TOUCHPOINT: @sittp gate, see krlv/README.md
+#include "krlvteleport.h"    // KRLV_TOUCHPOINT: @sittp distance limit query
+#include "krlvattachment.h"  // KRLV_TOUCHPOINT: @detach / @remattach point locks
+#include "krlvtouch.h"       // KRLV_TOUCHPOINT: @interact (edit/rez/sit cross-cutting check)
 
 using namespace LLAvatarAppearanceDefines;
 
@@ -2071,7 +2077,7 @@ class LLAdvancedDropPacket : public view_listener_t
 {
     bool handleEvent(const LLSD& userdata)
     {
-        gMessageSystem->mPacketRing.dropPackets(1);
+        gMessageSystem->dropPackets(1);
         return true;
     }
 };
@@ -3073,6 +3079,23 @@ void update_camera()
 
 void handle_object_edit()
 {
+    // KRLV_TOUCHPOINT: @edit/@edit:<UUID>/@editobj:<UUID>/@editworld/
+    // @editattach - all gate this single entry point for opening the
+    // Build & Edit window on the current selection. See krlv/README.md.
+    if (LLViewerObject* krlvObj = LLSelectMgr::getInstance()->getSelection()->getFirstObject())
+    {
+        const bool isAttach = krlvObj->isAttachment();
+        const bool isHud = krlvObj->isHUDAttachment();
+        if ((gKRlv.isRestricted("edit") && !gKRlv.hasRestrictionFrom("edit_except", krlvObj->getID()))
+            || gKRlv.hasRestrictionFrom("editobj", krlvObj->getID())
+            || (!isAttach && gKRlv.isRestricted("editworld"))
+            || (isAttach && !isHud && gKRlv.isRestricted("editattach"))
+            || KRlv::isInteractBlocked()) // KRLV_TOUCHPOINT: @interact
+        {
+            return;
+        }
+    }
+
     update_camera();
 
     LLFloaterReg::showInstance("build");
@@ -4349,6 +4372,22 @@ void handle_object_sit(LLViewerObject *object, const LLVector3 &offset)
 
     if (object && object->getPCode() == LL_PCODE_VOLUME)
     {
+        // KRLV_TOUCHPOINT: @sit / @interact - blocks ALL sitting
+        // unconditionally, including via @sit:<UUID>=force (which
+        // routes through this same function - see krlv/README.md).
+        if (gKRlv.isRestricted("sit") || KRlv::isInteractBlocked())
+        {
+            return;
+        }
+
+        // KRLV_TOUCHPOINT: @sittp - refuse to sit on a prim further than
+        // the effective max distance away. See krlv/README.md.
+        F32 krlvMaxDist;
+        if (KRlv::getSitDistanceLimit(krlvMaxDist) &&
+            dist_vec(object->getPositionGlobal(), gAgent.getPositionGlobal()) > krlvMaxDist)
+        {
+            return;
+        }
 
         gMessageSystem->newMessageFast(_PREHASH_AgentRequestSit);
         gMessageSystem->nextBlockFast(_PREHASH_AgentData);
@@ -6069,6 +6108,11 @@ void handle_object_return()
 
 void handle_object_delete()
 {
+        // KRLV_TOUCHPOINT: @rez / @interact - see krlv/README.md.
+        if (gKRlv.isRestricted("rez") || KRlv::isInteractBlocked())
+        {
+            return;
+        }
 
         if (LLSelectMgr::getInstance())
         {
@@ -7375,14 +7419,21 @@ class LLAttachmentDetachFromPoint : public view_listener_t
     {
         uuid_vec_t ids_to_remove;
         const LLViewerJointAttachment *attachment = get_if_there(gAgentAvatarp->mAttachmentPoints, user_data.asInteger(), (LLViewerJointAttachment*)NULL);
-        if (attachment->getNumObjects() > 0)
+        // KRLV_TOUCHPOINT: @detach:<point>=n / @remattach[:<point>]=n -
+        // block "detach all at this point" outright when the point itself
+        // is locked; otherwise still skip any individual object under a
+        // plain "@detach=n" self-restriction (see krlv/README.md).
+        if (attachment && !KRlv::isDetachPointLocked(attachment->getName()) && attachment->getNumObjects() > 0)
         {
             for (LLViewerJointAttachment::attachedobjs_vec_t::const_iterator iter = attachment->mAttachedObjects.begin();
                  iter != attachment->mAttachedObjects.end();
                  iter++)
             {
                 LLViewerObject *attached_object = iter->get();
-                ids_to_remove.push_back(attached_object->getAttachmentItemID());
+                if (attached_object && !KRlv::isObjectDetachLocked(attached_object->getID()))
+                {
+                    ids_to_remove.push_back(attached_object->getAttachmentItemID());
+                }
             }
         }
         if (!ids_to_remove.empty())
@@ -7465,8 +7516,22 @@ class LLAttachmentDetach : public view_listener_t
             parent = (LLViewerObject*)parent->getParent();
         }
 
+                // KRLV_TOUCHPOINT: @detach=n / @detach:<point>=n - skip
+                // this root instead of queuing it for removal (see
+                // krlv/README.md).
+                const LLUUID itemId = objectp->getAttachmentItemID();
+                std::string pointName;
+                if (isAgentAvatarValid())
+                {
+                    gAgentAvatarp->getAttachedPointName(itemId, pointName);
+                }
+                if (KRlv::isObjectDetachLocked(objectp->getID()) || KRlv::isDetachPointLocked(pointName))
+                {
+                    return true;
+                }
+
                 // std::set to avoid dupplicate 'roots' from linksets
-                mRemoveSet.insert(objectp->getAttachmentItemID());
+                mRemoveSet.insert(itemId);
 
             return true;
         }
@@ -9306,6 +9371,16 @@ class LLWorldEnvSettings : public view_listener_t
     {
         std::string event_name = userdata.asString();
 
+        // KRLV_TOUCHPOINT: @setenv=n locks every environment-changing
+        // action behind the World > Environment submenu - every event
+        // name here except "pause_clouds" (a cosmetic animation toggle,
+        // not an environment override - see krlv/README.md and
+        // krlvviewercontrol.cpp's file header).
+        if (event_name != "pause_clouds" && gKRlv.isRestricted("setenv"))
+        {
+            return true;
+        }
+
         if (event_name == "sunrise")
         {
             LLEnvironment::instance().setEnvironment(LLEnvironment::ENV_LOCAL, LLEnvironment::KNOWN_SKY_SUNRISE, LLEnvironment::TRANSITION_INSTANT);
@@ -10188,6 +10263,18 @@ void initialize_menus()
     enable.add("EnableGLTFSaveAs", boost::bind(&enable_gltf_save_as));
     enable.add("EnableGLTFUpload", boost::bind(&enable_gltf_upload));
     enable.add("EnableTerrainLocalPaintMap", std::bind(&enable_terrain_local_paintmap));
+
+    // S24: KRLV Control menu item and hotkey (Ctrl+Alt+F7). The floater's own
+    // gate (Adult maturity preference) and PIN are applied in openFromMenu().
+    class LLKRLVControlOpen : public view_listener_t
+    {
+        bool handleEvent(const LLSD& userdata) override
+        {
+            LLFloaterKRLVControl::openFromMenu();
+            return true;
+        }
+    };
+    view_listener_t::addMenu(new LLKRLVControlOpen(), "KRLV.Open");
 
     view_listener_t::addMenu(new LLFloaterVisible(), "FloaterVisible");
     view_listener_t::addMenu(new LLShowSidetrayPanel(), "ShowSidetrayPanel");

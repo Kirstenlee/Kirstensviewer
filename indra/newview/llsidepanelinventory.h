@@ -28,6 +28,7 @@
 #define LL_LLSIDEPANELINVENTORY_H
 
 #include "llpanel.h"
+#include "lltimer.h"
 
 class LLButton;
 class LLFolderViewItem;
@@ -55,6 +56,7 @@ public:
 
     /*virtual*/ bool postBuild();
     /*virtual*/ void onOpen(const LLSD& key);
+    /*virtual*/ void draw() override;
 
     LLInventoryPanel* getActivePanel(); // Returns an active inventory panel, if any.
     void selectAllItemsPanel();
@@ -105,6 +107,8 @@ private:
     LLPanelMainInventory*       mPanelMainInventory;
 
     LLLayoutPanel* mInboxLayoutPanel;
+
+    LLTimer                     mInboxRetryTimer;
 
 protected:
     void                        onBackButtonClicked();

@@ -71,6 +71,11 @@
 #include "llautoreplace.h"
 #include "lluiusage.h"
 
+#include "krlvhandler.h" // KRLV_TOUCHPOINT: @sendchat/@sendchannel*/@chatshout/@chatnormal/@chatwhisper gates, see krlv/README.md
+#include "krlvchat.h"    // KRLV_TOUCHPOINT: chat-volume clamp / blocked-channel queries
+#include "krlvsafeword.h" // KRLV safeword check on outgoing chat
+#include "llnotificationsutil.h"
+
 #include <map>
 
 S32 LLFloaterIMNearbyChat::sLastSpecialChatChannel = 0;
@@ -685,29 +690,66 @@ void LLFloaterIMNearbyChat::sendChat( EChatType type )
             updateUsedEmojis(text);
 
             std::string utf8text = wstring_to_utf8str(text);
-            // Try to trigger a gesture, if not chat to a script.
-            std::string utf8_revised_text;
+
+            // KRLV safeword: checked on every outgoing line. The message still goes out.
+            if (KRlv::checkOutgoingSafeword(utf8text))
+            {
+                LLNotificationsUtil::add("KRLVSafewordUsed");
+            }
+
+            // KRLV_TOUCHPOINT: @version/@getblacklist's bare "manual"
+            // form, also invokable from the user's own typed chat
+            // (channel 0 only) - the user's own explicit request.
+            // Checked BEFORE gesture-triggering, same early-intercept
+            // spirit as every other KRLV chat gate. A match never
+            // reaches sendChatFromViewer() at all - same "invisible to
+            // the user" convention as every other recognized KRLV
+            // command. See krlv/README.md's "IM subsystem" section.
+            bool krlvHandled = false;
             if (0 == channel)
             {
-                // discard returned "found" boolean
-                if(!LLGestureMgr::instance().triggerAndReviseString(utf8text, &utf8_revised_text))
+                std::string krlvReply;
+                if (gKRlv.processSelfChatCommand(utf8text, krlvReply))
+                {
+                    krlvHandled = true;
+                    if (!krlvReply.empty())
+                    {
+                        LLChat krlvChat;
+                        krlvChat.mFromName = "KRLV";
+                        krlvChat.mFromID = LLUUID::null;
+                        krlvChat.mSourceType = CHAT_SOURCE_SYSTEM;
+                        krlvChat.mText = krlvReply;
+                        addMessage(krlvChat, true, LLSD());
+                    }
+                }
+            }
+
+            if (!krlvHandled)
+            {
+                // Try to trigger a gesture, if not chat to a script.
+                std::string utf8_revised_text;
+                if (0 == channel)
+                {
+                    // discard returned "found" boolean
+                    if(!LLGestureMgr::instance().triggerAndReviseString(utf8text, &utf8_revised_text))
+                    {
+                        utf8_revised_text = utf8text;
+                    }
+                }
+                else
                 {
                     utf8_revised_text = utf8text;
                 }
-            }
-            else
-            {
-                utf8_revised_text = utf8text;
-            }
 
-            utf8_revised_text = utf8str_trim(utf8_revised_text);
+                utf8_revised_text = utf8str_trim(utf8_revised_text);
 
-            type = processChatTypeTriggers(type, utf8_revised_text);
+                type = processChatTypeTriggers(type, utf8_revised_text);
 
-            if (!utf8_revised_text.empty())
-            {
-                // Chat with animation
-                sendChatFromViewer(utf8_revised_text, type, gSavedSettings.getBOOL("PlayChatAnim"));
+                if (!utf8_revised_text.empty())
+                {
+                    // Chat with animation
+                    sendChatFromViewer(utf8_revised_text, type, gSavedSettings.getBOOL("PlayChatAnim"));
+                }
             }
         }
 
@@ -798,6 +840,52 @@ void LLFloaterIMNearbyChat::sendChatFromViewer(const LLWString &wtext, EChatType
     LLWString out_text = stripChannelNumber(wtext, &channel);
     std::string utf8_out_text = wstring_to_utf8str(out_text);
     std::string utf8_text = wstring_to_utf8str(wtext);
+
+    // KRLV_TOUCHPOINT: @sendchat/@emote/@redirchat/@rediremote (channel
+    // 0) / @sendchannel/@sendchannel_sec/@sendchannel_except (any other
+    // channel) - see krlv/README.md and krlvchat.cpp's file header for
+    // the full filtering/redirect rule.
+    if (channel == 0)
+    {
+        // Same IRC-style emote-prefix check this file's own sendChat()
+        // already uses for chat bubbles.
+        const bool isEmote = (utf8_out_text.rfind("/me ", 0) == 0) || (utf8_out_text.rfind("/me'", 0) == 0);
+
+        // @redirchat (plain chat)/@rediremote (emotes) - reroutes to one
+        // or more private channels INSTEAD of ever reaching public
+        // chat, independent of @sendchat's own state.
+        std::vector<S32> redirectChannels;
+        if (KRlv::getChatRedirectChannels(isEmote, redirectChannels))
+        {
+            for (S32 redirectChannel : redirectChannels)
+            {
+                send_chat_from_viewer(utf8_out_text, type, redirectChannel);
+            }
+            return;
+        }
+
+        if (gKRlv.isRestricted("sendchat"))
+        {
+            const bool isSlashMessage = !utf8_out_text.empty() && utf8_out_text[0] == '/';
+            if (!isSlashMessage || !KRlv::filterSendChatText(utf8_out_text, isEmote))
+            {
+                return;
+            }
+            // utf8_out_text may have been truncated in place above -
+            // utf8_text (used for animation/history logging below) is
+            // deliberately left as the ORIGINAL full text; only what
+            // actually goes out over the wire is filtered.
+        }
+    }
+    else if (gKRlv.isRestricted("sendchannel") || KRlv::isChannelSendBlocked(channel))
+    {
+        return;
+    }
+
+    // KRLV_TOUCHPOINT: @chatshout/@chatnormal/@chatwhisper - clamps the
+    // volume the user actually gets, before it's sent. See
+    // krlv/README.md.
+    type = KRlv::getClampedChatType(type);
 
     utf8_text = utf8str_trim(utf8_text);
     if (!utf8_text.empty())

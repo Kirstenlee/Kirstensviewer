@@ -52,6 +52,9 @@
 #include "llwindow.h"
 #include "llworld.h"
 
+#include "krlvcamera.h" // KRLV_TOUCHPOINT: @camdistmax/min gate, see krlv/README.md
+#include "krlvhandler.h" // KRLV_TOUCHPOINT: @camunlock gate
+
 using namespace LLAvatarAppearanceDefines;
 
 extern LLMenuBarGL* gMenuBarView;
@@ -1895,6 +1898,16 @@ LLVector3d LLAgentCamera::calcCameraPositionTargetGlobal(bool *hit_limit)
 
             mTargetCameraDistance = llmax(camera_distance, MIN_CAMERA_DISTANCE);
 
+            // KRLV_TOUCHPOINT: @camdistmax/@setcam_avdistmax and
+            // @camdistmin/@setcam_avdistmin - see krlv/README.md. Does
+            // NOT implement the spec's Mouselook force-in/force-out side
+            // effects, just the distance clamp itself.
+            F32 krlvFloorDist, krlvCeilDist;
+            if (KRlv::getCamDistanceBounds(krlvFloorDist, krlvCeilDist))
+            {
+                mTargetCameraDistance = llclamp(mTargetCameraDistance, krlvFloorDist, krlvCeilDist);
+            }
+
             if (mTargetCameraDistance != mCurrentCameraDistance)
             {
                 F32 camera_lerp_amt = LLSmoothInterpolation::getInterpolant(CAMERA_ZOOM_HALF_LIFE);
@@ -2711,6 +2724,14 @@ void LLAgentCamera::setSitCamera(const LLUUID &object_id, const LLVector3 &camer
 //-----------------------------------------------------------------------------
 void LLAgentCamera::setFocusOnAvatar(bool focus_on_avatar, bool animate, bool reset_axes)
 {
+    // KRLV_TOUCHPOINT: @camunlock/@setcam_unlock - refuse to unlock
+    // (orbit away from the avatar) while restricted; re-locking is never
+    // blocked. See krlv/README.md.
+    if (!focus_on_avatar && gKRlv.isRestricted("camunlock"))
+    {
+        return;
+    }
+
     if (focus_on_avatar != mFocusOnAvatar)
     {
         if (animate)

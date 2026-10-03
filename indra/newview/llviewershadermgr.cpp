@@ -221,6 +221,7 @@ LLHLSLShader            gSMAANeighborhoodBlendProgram[4];
 LLHLSLShader            gCASProgram;
 LLHLSLShader            gCASLegacyGammaProgram;
 LLHLSLShader            gDeferredPostNoDoFProgram;
+LLHLSLShader            gKrlvCamDrawFogProgram; // KRLV_TOUCHPOINT: @camdrawmin/@camdrawmax/@camdrawalphamin/@camdrawalphamax/@camdrawcolor
 LLHLSLShader            gDeferredPostNoDoFNoiseProgram;
 LLHLSLShader            gStereoAnaglyphProgram;
 LLHLSLShader            gDeferredWLSkyProgram;
@@ -3059,6 +3060,23 @@ bool LLViewerShaderMgr::loadShadersDeferred()
 
         gDeferredPostNoDoFNoiseProgram.mShaderLevel = mShaderLevel[SHADER_DEFERRED];
         success = gDeferredPostNoDoFNoiseProgram.createShader();
+        llassert(success);
+    }
+
+    if (success)
+    {
+        // KRLV_TOUCHPOINT: @camdrawmin/@camdrawmax/@camdrawalphamin/
+        // @camdrawalphamax/@camdrawcolor - see krlv/README.md's Camera
+        // section. isDeferred=true for the same reason every other
+        // shader in this block sets it: deferredUtil.hlsl's
+        // getDepth()/getPositionWithDepth() (see krlvCamDrawFogF.hlsl).
+        gKrlvCamDrawFogProgram.mName = "KRLV Cam Draw Fog Shader";
+        gKrlvCamDrawFogProgram.mFeatures.isDeferred = true;
+        gKrlvCamDrawFogProgram.mShaderFiles.clear();
+        gKrlvCamDrawFogProgram.mShaderFiles.push_back(make_pair("deferred/postDeferredNoTCV.glsl", GL_VERTEX_SHADER));
+        gKrlvCamDrawFogProgram.mShaderFiles.push_back(make_pair("deferred/krlvCamDrawFogF.glsl", GL_FRAGMENT_SHADER));
+        gKrlvCamDrawFogProgram.mShaderLevel = mShaderLevel[SHADER_DEFERRED];
+        success = gKrlvCamDrawFogProgram.createShader();
         llassert(success);
     }
 

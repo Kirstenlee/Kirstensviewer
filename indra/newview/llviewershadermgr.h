@@ -270,6 +270,7 @@ extern LLHLSLShader         gCASProgram;
 extern LLHLSLShader         gCASLegacyGammaProgram;
 extern LLHLSLShader         gDeferredPostNoDoFProgram;
 extern LLHLSLShader         gDeferredPostNoDoFNoiseProgram;
+extern LLHLSLShader         gKrlvCamDrawFogProgram; // KRLV_TOUCHPOINT: @camdrawmin/@camdrawmax/@camdrawalphamin/@camdrawalphamax/@camdrawcolor
 
 // Final stereo composite; see stereoAnaglyphF.hlsl.
 extern LLHLSLShader         gStereoAnaglyphProgram;

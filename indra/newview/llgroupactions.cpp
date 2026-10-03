@@ -42,6 +42,7 @@
 #include "llstartup.h"
 #include "llstatusbar.h"    // can_afford_transaction()
 #include "groupchatlistener.h"
+#include "krlvhandler.h" // KRLV_TOUCHPOINT: @setgroup gate, see krlv/README.md
 
 //
 // Globals
@@ -382,6 +383,14 @@ void LLGroupActions::processLeaveGroupDataResponse(const LLUUID group_id)
 // static
 void LLGroupActions::activate(const LLUUID& group_id)
 {
+    // KRLV_TOUCHPOINT: @setgroup=n - also covers @setgroup:<name>=force,
+    // which routes through this same function. See krlv/README.md's
+    // Group section.
+    if (gKRlv.isRestricted("setgroup"))
+    {
+        return;
+    }
+
     LLMessageSystem* msg = gMessageSystem;
     msg->newMessageFast(_PREHASH_ActivateGroup);
     msg->nextBlockFast(_PREHASH_AgentData);

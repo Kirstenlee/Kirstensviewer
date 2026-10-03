@@ -76,6 +76,7 @@
 #include "llviewerregion.h"
 #include "llviewerwindow.h"
 #include "llvoavatarself.h"
+#include "krlvattachment.h" // KRLV_TOUCHPOINT: @addattach / @detach:<point> gate
 #include "llwearablelist.h"
 #include "llwearableitemslist.h"
 #include "lllandmarkactions.h"
@@ -7292,6 +7293,27 @@ void rez_attachment(LLViewerInventoryItem* item, LLViewerJointAttachment* attach
 {
     const LLUUID& item_id = item->getLinkedUUID();
 
+    // KRLV_TOUCHPOINT: @addattach[:<point>]=n / @detach:<point>=n - see
+    // krlv/README.md's Attachments section. `attachment` is NULL when
+    // called via wearItemsOnAvatar()'s generic batch-wear path (the
+    // server picks the attach point) - the specific point can't be
+    // checked in that case, so fail safe: block outright if ANY specific
+    // point is locked, not just the "lock everything" catch-all.
+    if (!KRlv::isDefaultWearAllowed())
+    {
+        if (attachment)
+        {
+            if (KRlv::isAttachPointLocked(attachment->getName()))
+            {
+                return;
+            }
+        }
+        else if (KRlv::isAttachPointLocked(std::string()) || KRlv::isAnySpecificAttachPointLocked())
+        {
+            return;
+        }
+    }
+
     // Check for duplicate request.
     if (isAgentAvatarValid() &&
         gAgentAvatarp->isWearingAttachment(item_id))
@@ -7510,6 +7532,15 @@ bool LLObjectBridge::renameItem(const std::string& new_name)
 // +=================================================+
 // |        LLLSLTextBridge                          |
 // +=================================================+
+
+LLUIImagePtr LLLSLTextBridge::getIcon() const
+{
+    // Pass the item's flags so the script subtype (e.g. SST_LUA) is honored
+    // and the correct icon (Inv_Script vs Inv_Script_Luau) is selected.
+    LLInventoryItem* item = getItem();
+    U32 misc_flag = item ? item->getFlags() : 0;
+    return LLInventoryIcon::getIcon(LLAssetType::AT_LSL_TEXT, LLInventoryType::IT_LSL, misc_flag, false);
+}
 
 void LLLSLTextBridge::openItem()
 {

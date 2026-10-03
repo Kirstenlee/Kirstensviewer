@@ -41,6 +41,8 @@
 #include "llagent.h" //  Get state values from here
 #include "llagentbenefits.h"
 #include "llagentcamera.h"
+#include "krlvname.h" // KRLV_TOUCHPOINT: @shownames / @shownames_sec / @shownametags
+#include "krlvcamera.h" // KRLV_TOUCHPOINT: @camavdist
 #include "llagentwearables.h"
 #include "llanimationstates.h"
 #include "llavatarnamecache.h"
@@ -3426,6 +3428,14 @@ void LLVOAvatar::idleUpdateNameTag(const LLVector3& root_pos_last)
         render_name = render_name
             && !gAgentCamera.cameraMouselook()
             && (visible_chat || (render_name_show_self && name_tag_mode));
+    }
+
+    // KRLV_TOUCHPOINT: @shownames / @shownames_sec / @shownametags - see
+    // krlv/README.md for why this also blanks a restricted avatar's
+    // floating chat bubble, not just their name line.
+    if (render_name && KRlv::isNameTagHidden(getID()))
+    {
+        render_name = false;
     }
 
     if ( !render_name )
@@ -8696,7 +8706,24 @@ bool LLVOAvatar::isTooComplex() const
     static LLCachedControl<S32> complexity_render_mode(gSavedSettings, "RenderAvatarComplexityMode");
     bool render_friend =  (isBuddy() && complexity_render_mode > AV_RENDER_LIMIT_BY_COMPLEXITY);
 
-    if (isSelf() || render_friend || mVisuallyMuteSetting == AV_ALWAYS_RENDER)
+    F32 krlvCamAvDist;
+    if (isSelf())
+    {
+        too_complex = false;
+    }
+    // KRLV_TOUCHPOINT: @camavdist - reuses this "too complex" jellydoll
+    // ghost as a solid-black-silhouette distance effect, see
+    // KRlv::getCamAvDistLimit() (krlvcamera.h) and krlv/README.md's
+    // Camera section. Deliberately overrides render_friend/
+    // AV_ALWAYS_RENDER below - a restricting object controls what the
+    // wearer perceives, not the wearer's own local rendering preferences.
+    // Only isSelf() (above) is never affected.
+    else if (KRlv::getCamAvDistLimit(krlvCamAvDist) &&
+             dist_vec(getPositionAgent(), LLViewerCamera::getInstance()->getOrigin()) > krlvCamAvDist)
+    {
+        too_complex = true;
+    }
+    else if (render_friend || mVisuallyMuteSetting == AV_ALWAYS_RENDER)
     {
         too_complex = false;
     }

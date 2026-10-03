@@ -74,6 +74,9 @@
 #include "lluiusage.h"
 #include "llurlregistry.h"
 
+#include "krlvhandler.h" // KRLV_TOUCHPOINT: @sendim*/@startim*/@sendimto/@startimto gates, see krlv/README.md
+#include "krlvsafeword.h" // KRLV safeword check on outgoing IM
+
 #include <array>
 
 const static std::string ADHOC_NAME_SUFFIX(" Conference");
@@ -1992,6 +1995,12 @@ void LLIMModel::sendMessage(const std::string& utf8_text,
                      const LLUUID& other_participant_id,
                      EInstantMessage dialog)
 {
+    // KRLV safeword: checked on every outgoing IM. The message still goes out.
+    if (KRlv::checkOutgoingSafeword(utf8_text))
+    {
+        LLNotificationsUtil::add("KRLVSafewordUsed");
+    }
+
     std::string name;
     bool sent = false;
     LLAgentUI::buildFullname(name);
@@ -2019,6 +2028,17 @@ void LLIMModel::sendMessage(const std::string& utf8_text,
         {
             new_dialog = IM_SESSION_SEND;
         }
+
+        // KRLV_TOUCHPOINT: @sendim/@sendim_sec/@sendimto - per the
+        // spec's own wording, a bogus message is sent instead of
+        // suppressing the send outright. See krlv/README.md.
+        std::string krlvSendText = utf8_text;
+        if ((gKRlv.isRestricted("sendim") && !gKRlv.hasRestrictionFrom("sendim_except", other_participant_id))
+            || gKRlv.hasRestrictionFrom("sendimto", other_participant_id))
+        {
+            krlvSendText = "...";
+        }
+
         pack_instant_message(
             gMessageSystem,
             gAgent.getID(),
@@ -2026,7 +2046,7 @@ void LLIMModel::sendMessage(const std::string& utf8_text,
             gAgent.getSessionID(),
             other_participant_id,
             name.c_str(),
-            utf8_text.c_str(),
+            krlvSendText.c_str(),
             offline,
             (EInstantMessage)new_dialog,
             im_session_id);
@@ -3552,6 +3572,15 @@ LLUUID LLIMMgr::addSession(
     //Notify observers that a session was added
     if (new_session)
     {
+        // KRLV_TOUCHPOINT: @startim/@startimto - only gates genuinely
+        // NEW sessions; the "session already exists" path below is never
+        // reached from here, matching the spec's "already-open sessions
+        // are not impacted" wording exactly. See krlv/README.md.
+        if ((gKRlv.isRestricted("startim") && !gKRlv.hasRestrictionFrom("startim_except", other_participant_id))
+            || gKRlv.hasRestrictionFrom("startimto", other_participant_id))
+        {
+            return LLUUID::null;
+        }
         LLIMModel::getInstance()->newSession(session_id, name, dialog, other_participant_id, ids, voiceChannelInfo);
     }
     //Notifies observers that the session was already added

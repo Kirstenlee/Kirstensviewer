@@ -46,6 +46,7 @@
 #include "llface.h"
 #include "llviewerobjectlist.h" // For debug listing.
 #include "pipeline.h"
+#include "DXStateCache.h" // KRLV_TOUCHPOINT: @camtextures stencil tagging, see krlv/README.md
 #include "llspatialpartition.h"
 #include "llviewercamera.h"
 #include "lldrawpoolwlsky.h"
@@ -651,6 +652,18 @@ void LLRenderPass::pushBatch(LLDrawInfo& params, bool texture, bool batch_textur
                 gDX.getTexUnit(0)->unbindFast(LLTexUnit::TT_TEXTURE);
             }
         }
+    }
+
+    // KRLV_TOUCHPOINT: @camtextures/@setcam_textures - tags this batch's
+    // stencil plane so DXPipeline::presentDeferredScreen()'s fog-blind pass
+    // can skip already-lit attachment pixels instead of blanking them. Only
+    // costs anything when the restriction is actually active
+    // (sTagAttachmentStencilActive, set once per frame) - see
+    // DXStateCache::tagAttachmentStencil()'s own comment and
+    // krlv/README.md's Camera section.
+    if (DXStateCache::sTagAttachmentStencilActive)
+    {
+        DXStateCache::tagAttachmentStencil(params.mAttachedToAvatar.notNull());
     }
 
     params.mVertexBuffer->setBuffer();

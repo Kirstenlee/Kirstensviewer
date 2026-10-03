@@ -27,6 +27,7 @@
 
 #include "kvdebugconsole.h"
 
+#include "krlvhandler.h" // KRLV_TOUCHPOINT: "krlv" console command, see krlv/README.md
 #include "lllineeditor.h"
 #include "lltexteditor.h"
 #include "lluictrlfactory.h"
@@ -637,6 +638,12 @@ void KVDebugConsole::onInput(LLUICtrl* ctrl, const LLSD& param)
         {
             // Flight control command
             processFlyCommand(args);
+        }
+        else if (cmd == "krlv")
+        {
+            // KRLV_TOUCHPOINT: thin passthrough - all real logic stays in
+            // indra/krlv, see krlv/README.md.
+            processKrlvCommand(args);
         }
         else if (cmd == "hippos")
         {
@@ -1603,6 +1610,11 @@ void KVDebugConsole::processListCommand()
         "                      (use positions from scan/lookat for coordinates)\n"
         "  fly [height]        Toggle flight or fly to height (fly 1000, fly down)\n"
         "                      (enables flight mode before vertical positioning)\n"
+        "  krlv [on|off]       KRLV (RLVa) status, or enable/disable it\n"
+        "  krlv blacklist [add|remove <name>]  List, or edit, the\n"
+        "                      permanent user-side command blacklist\n"
+        "  krlv protectdebug [add|remove <name>]  List, or edit, which\n"
+        "                      Debug Settings rows @setdebug=n protects\n"
         "\n"
         "CHAT COMMANDS:\n"
         "  say <text>          Send message in normal chat (20m range)\n"
@@ -2679,6 +2691,15 @@ void KVDebugConsole::processFlyCommand(const std::string& args)
     F64 vertical_change = target_pos.mdV[VZ] - current_pos.mdV[VZ];
     mOutput->appendText(llformat("  Vertical change:  %+.1fm\n", vertical_change), false);
     mLineCount += 4;
+}
+
+// KRLV_TOUCHPOINT: thin passthrough into indra/krlv - see krlv/README.md.
+// All real KRLV logic (parsing, dispatch, restriction state) lives there;
+// this function only prints what KRlvHandler::handleConsoleCommand()
+// returns.
+void KVDebugConsole::processKrlvCommand(const std::string& args)
+{
+    printInfo(KRlvHandler::instance().handleConsoleCommand(args) + "\n");
 }
 
 // S24: Get command - retrieve debug settings with wildcard support

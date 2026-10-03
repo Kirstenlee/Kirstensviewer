@@ -37,7 +37,9 @@
 #include "llrendertarget.h"
 #include "llhlslshader.h"
 #include "llviewercontrol.h"
+#include "llviewertexture.h" // KRLV_TOUCHPOINT-adjacent: LLViewerTextureManager::getFetchedTexture(), @camtextures
 #include "llenvironment.h"
+#include "krlvcamera.h" // KRLV_TOUCHPOINT: @camdrawmin/@camdrawmax/@camdrawalphamin/@camdrawalphamax/@camdrawcolor
 #include "llviewershadermgr.h"
 #include "lldrawable.h"
 #include "llviewercamera.h"
@@ -307,6 +309,20 @@ void DXPipeline::renderGeomDeferred(LLPipeline& pipeline, LLCamera& camera, bool
     {
         DXStateCache::sWireframeScopeActive = true;
         gDX.applyDXRasterizerState();
+    }
+
+    // KRLV_TOUCHPOINT: @camtextures/@setcam_textures - checked ONCE per
+    // frame here (not per-batch) so LLRenderPass::pushBatch()
+    // (lldrawpool.cpp) and DXDrawPoolAlpha::renderAlpha()
+    // (dxdrawpoolalpha.cpp) can cheaply skip the whole stencil-tagging
+    // mechanism entirely on every frame the restriction isn't active - see
+    // DXStateCache::sTagAttachmentStencilActive's own comment and
+    // krlv/README.md's Camera section. outSubstituteTextureId isn't needed
+    // here - only presentDeferredScreen()'s post-process pass, later this
+    // same frame, needs it.
+    {
+        LLUUID unusedSubstituteId;
+        DXStateCache::sTagAttachmentStencilActive = KRlv::isCamTexturesActive(unusedSubstituteId);
     }
 
     // bindDeferredShader() (pipeline.cpp) uploads MODELVIEW_DELTA_MATRIX/
@@ -972,6 +988,12 @@ void DXPipeline::presentDeferredScreen(LLPipeline& pipeline)
                         pipeline.visualizeBuffers(&pipeline.mSMAABlendBuffer, sourceBuffer, 0);
                     }
                     break;
+                case 7:
+                    if (LLPipeline::RenderFSAAType == 2)
+                    {
+                        pipeline.visualizeBuffers(&pipeline.mSMAABlendBuffer, sourceBuffer, 0, true);
+                    }
+                    break;
                 default:
                     break;
                 }
@@ -1003,6 +1025,53 @@ void DXPipeline::presentDeferredScreen(LLPipeline& pipeline)
                     if (effectsMask & NIGHT_VISION) ImageProcessor::nightVisionGPU(effects_tex, width, height);
                     if (effectsMask & MOTION_BLUR) ImageProcessor::motionBlurGPU(effects_tex, width, height);
                 }
+            }
+
+            // KRLV_TOUCHPOINT: @camdrawmin/@camdrawmax/@camdrawalphamin/
+            // @camdrawalphamax/@camdrawcolor - a real HLSL shader pass
+            // (unlike the OpenCL block above, this needs the scene depth
+            // buffer, which kveffects' color-only pipeline never touches
+            // - see krlv/README.md's Camera section). Runs after the
+            // OpenCL effects and before presentFinal(), same insertion
+            // point, same src/dst ping-pong idiom every other pass in
+            // this block already uses.
+            {
+                // Zero-initialized: getCamDrawParams() leaves these
+                // untouched (not zeroed) when it returns false - now that
+                // this call can also fire for @camtextures ALONE (see
+                // below), these need a safe "no fog" default (0 dist/alpha
+                // makes the shader's own fogAlpha lerp collapse to 0, a
+                // pure no-op) rather than whatever was on the stack.
+                F32 krlvMinDist = 0.f, krlvMaxDist = 0.f, krlvMinAlpha = 0.f, krlvMaxAlpha = 0.f, krlvColorR = 0.f, krlvColorG = 0.f, krlvColorB = 0.f;
+                const bool krlvFogActive = KRlv::getCamDrawParams(krlvMinDist, krlvMaxDist, krlvMinAlpha, krlvMaxAlpha, krlvColorR, krlvColorG, krlvColorB);
+
+                // KRLV_TOUCHPOINT: @camtextures/@setcam_textures - shares
+                // this SAME pass rather than a separate one, so it must
+                // also run on a frame where ONLY this restriction (and not
+                // camdrawfog) is active - see krlv/README.md's Camera
+                // section and LLPipeline::applyKrlvCamDrawFog()'s comment.
+                LLUUID krlvCamTexturesSubstituteId;
+                const bool krlvCamTexturesActive = KRlv::isCamTexturesActive(krlvCamTexturesSubstituteId);
+
+                if (krlvFogActive || krlvCamTexturesActive)
+                {
+                    LLViewerFetchedTexture* krlvSubstitute = krlvCamTexturesSubstituteId.notNull()
+                        ? LLViewerTextureManager::getFetchedTexture(krlvCamTexturesSubstituteId)
+                        : nullptr;
+                    pipeline.applyKrlvCamDrawFog(sourceBuffer, targetBuffer, krlvMinDist, krlvMaxDist, krlvMinAlpha, krlvMaxAlpha, krlvColorR, krlvColorG, krlvColorB,
+                        krlvCamTexturesActive, krlvSubstitute);
+                    std::swap(sourceBuffer, targetBuffer);
+                }
+            }
+
+            // Contrast Adaptive Sharpening (Advanced Graphics > Sharpening). Last
+            // pass before present; its input is the display-encoded output of the
+            // gamma step, so CASF.hlsl does not re-encode.
+            static LLCachedControl<F32> cas_sharpness(gSavedSettings, "RenderCASSharpness", 0.4f);
+            if (cas_sharpness() > 0.f)
+            {
+                pipeline.applyCAS(sourceBuffer, targetBuffer);
+                std::swap(sourceBuffer, targetBuffer);
             }
 
             gLastCompositedPostTarget = sourceBuffer;
@@ -1522,16 +1591,21 @@ void DXPipeline::renderDeferredLighting(LLPipeline& pipeline)
             // Collected during this same pass (mirrors GL's own spot_lights
             // vector) and rendered afterward in its own block, once
             // light_shader (gDeferredLightProgram) is unbound - see below.
-            std::vector<LLDrawable*> spot_lights;
+            // Static to keep capacity across frames; renderDeferredLighting() runs on the main thread only.
+            static std::vector<LLDrawable*> spot_lights;
+            spot_lights.clear();
 
             // Camera-inside-light-box buckets - mirrors GL's
             // fullscreen_lights/fullscreen_spot_lights and the modelview
             // matrix used to transform their centers into view space for
             // the fullscreen multi-light/multi-spotlight shaders.
             glm::mat4 mat = get_current_modelview();
-            std::vector<LLVector4> fullscreen_lights;
-            std::vector<LLVector4> fullscreen_light_colors;
-            std::vector<LLDrawable*> fullscreen_spot_lights;
+            static std::vector<LLVector4> fullscreen_lights;
+            static std::vector<LLVector4> fullscreen_light_colors;
+            static std::vector<LLDrawable*> fullscreen_spot_lights;
+            fullscreen_lights.clear();
+            fullscreen_light_colors.clear();
+            fullscreen_spot_lights.clear();
 
             S32 count = 0;
             for (const auto& light : pipeline.getNearbyLights())
