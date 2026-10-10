@@ -118,7 +118,7 @@
 //extern LLPipeline gPipeline;
 
 #include "lldrawpoolsimple.h"
-#include "lldrawpoolalpha.h"
+#include "dxdrawpoolalpha.h"
 #include "lldrawpoolavatar.h"
 #include "lldrawpooltree.h"
 #include "lldrawpoolterrain.h"

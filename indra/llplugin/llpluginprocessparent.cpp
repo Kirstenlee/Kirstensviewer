@@ -670,6 +670,13 @@ void LLPluginProcessParent::idle(void)
                 break;
 
             case STATE_GOODBYE:
+                // S24: the child may already have disconnected on its own by the time we get
+                // here (e.g. a short-lived audio-decode plugin that finished playback) - only
+                // attempt the polite shutdown message if the pipe is still alive, so this
+                // expected race doesn't log a "dropping message" warning on every normal
+                // teardown. STATE_EXITING/STATE_CLEANUP below force-kill and clean up either
+                // way, so skipping an already-doomed send changes no actual behavior.
+                if (canSendMessage())
                 {
                     LLPluginMessage message(LLPLUGIN_MESSAGE_CLASS_INTERNAL, "shutdown_plugin");
                     sendMessage(message);

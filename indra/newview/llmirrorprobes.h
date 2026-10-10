@@ -1,6 +1,6 @@
 /**
- * @file llheroprobemanager.h
- * @brief LLHeroProbeManager class declaration
+ * @file llmirrorprobes.h
+ * @brief LLMirrorProbes class declaration
  *
  * $LicenseInfo:firstyear=2022&license=viewerlgpl$
  * Second Life Viewer Source Code
@@ -27,8 +27,8 @@
 #pragma once
 
 #include "llreflectionmap.h"
-#include "llrendertarget.h"
-#include "DXCubeMapArray.h"
+#include "llprobecube.h"
+#include "llprobecapture.h"
 #include "lldrawable.h"
 
 class LLSpatialGroup;
@@ -46,7 +46,7 @@ struct HeroProbeData
     GLint     heroProbeCount;
 };
 
-class alignas(16) LLHeroProbeManager
+class alignas(16) LLMirrorProbes
 {
     LL_ALIGN_NEW
 public:
@@ -58,8 +58,8 @@ public:
     };
 
     // allocate an environment map of the given resolution
-    LLHeroProbeManager();
-    ~LLHeroProbeManager();
+    LLMirrorProbes();
+    ~LLMirrorProbes();
 
     // release any GL state
     void cleanup();
@@ -81,13 +81,10 @@ public:
 
     void reset();
 
-    // S24 (2026-09-08, task #316): re-arms update()'s one-time-only
-    // clearShaderCache()+setShaders() workaround for #3331 (see update()'s
-    // comment) so it runs again on the next genuine RenderMirrors off->on
-    // transition, not just the app's first-ever activation. Deliberately
-    // separate from reset() - reset() is called by several unrelated
-    // settings handlers (HDR toggle, hero probe resolution change) that do
-    // NOT need the full ~19s synchronous shader reload repeated every time.
+    // Re-arms update()'s one-time-only clearShaderCache()+setShaders()
+    // workaround (see update()'s comment). Deliberately separate from
+    // reset(), which is also called by settings handlers that must not
+    // trigger a full synchronous shader reload every time.
     void requireShaderReinit() { mInitialized = false; }
 
     bool registerViewerObject(LLVOVolume *drawablep);
@@ -95,10 +92,14 @@ public:
 
     bool isMirrorPass() const { return mRenderingMirror; }
 
-    // S24 (2026-08-27, task #267 follow-up): same DXPipeline-needs-the-per-
-    // frame-refresh-without-a-second-full-friend-class situation as
-    // LLReflectionMapManager::updateUniformsPerFrame() - see its comment.
+    // Same per-frame-refresh pattern as
+    // LLSphereProbes::updateUniformsPerFrame() - see its comment.
     void updateUniformsPerFrame() { updateUniforms(); }
+
+    // Probe cube storage: the mirror radiance array, bound on the mirror stage.
+    bool hasProbeCubes() const { return mCubes.isAllocated(); }
+    void bindRadiance(S32 stage);
+    void unbindProbeCubes(S32 stage);
 
     LLVector3 mMirrorPosition;
     LLVector3     mMirrorNormal;
@@ -106,21 +107,18 @@ public:
 
 private:
     friend class LLPipeline;
-    friend class LLReflectionMapManager;
+    friend class LLSphereProbes;
 
     // update UBO used for rendering (call only once per render pipe flush)
     void updateUniforms();
 
     // bind UBO used for rendering
 
-    // render target for cube snapshots
-    // used to generate mipmaps without doing a copy-to-texture
-    LLRenderTarget mRenderTarget;
+    // face capture: blur, mip chain and copy into the scratch cube (1x blur, see mirror updateProbeFace)
+    LLProbeCapture mCapture;
 
-    std::vector<LLRenderTarget> mMipChain;
-
-    // storage for reflection probe radiance maps (plus two scratch space cubemaps)
-    LLPointer<DXCubeMapArray> mTexture;
+    // radiance storage for the mirror (plus two scratch space cubemaps)
+    LLProbeCubeStore mCubes;
 
     // vertex buffer for pushing verts to filter shaders
     LLPointer<LLVertexBuffer> mVertexBuffer;

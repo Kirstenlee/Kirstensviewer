@@ -110,7 +110,7 @@ float3  scaleSoftClipFragLinear(float3 l);
 
 // reflection probe interface
 void sampleReflectionProbes(inout float3 ambenv, inout float3 glossenv,
-    float2 tc, float3 pos, float3 norm, float glossiness, bool transparent, float3 amblit_linear);
+    float2 tc, float3 pos, float3 norm, float glossiness, float metallic, bool transparent, float3 amblit_linear);
 void sampleReflectionProbesLegacy(inout float3 ambenv, inout float3 glossenv, inout float3 legacyenv,
         float2 tc, float3 pos, float3 norm, float glossiness, float envIntensity, bool transparent, float3 amblit_linear);
 void applyGlossEnv(inout float3 color, float3 glossenv, float4 spec, float3 pos, float3 norm);
@@ -251,7 +251,7 @@ float4 main(PSInput IN) : SV_Target
         // PBR IBL
         float gloss      = 1.0 - perceptualRoughness;
 
-        sampleReflectionProbes(irradiance, radiance, tc, pos.xyz, gb.normal, gloss, false, amblit_linear);
+        sampleReflectionProbes(irradiance, radiance, tc, pos.xyz, gb.normal, gloss, metallic, false, amblit_linear);
 
         adjustIrradiance(irradiance, ambocc);
 

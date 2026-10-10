@@ -25,6 +25,7 @@
  */
 
 #include "llviewerprecompiledheaders.h"
+#include "dxdrawpoolalpha.h"
 
 #include "llvoavatar.h"
 
@@ -5179,7 +5180,7 @@ void LLVOAvatar::updateVisibility()
 // private
 bool LLVOAvatar::shouldAlphaMask()
 {
-    const bool should_alpha_mask = !LLDrawPoolAlpha::sShowDebugAlpha // Don't alpha mask if "Highlight Transparent" checked
+    const bool should_alpha_mask = !DXDrawPoolAlpha::sShowDebugAlpha // Don't alpha mask if "Highlight Transparent" checked
                             && !LLDrawPoolAvatar::sSkipTransparent;
 
     return should_alpha_mask;
@@ -11619,7 +11620,7 @@ U32 LLVOAvatar::calculateBodyPartsComplexity()
             {
                 // baked textures can use TE images directly
                 if (isTextureDefined(tex_index)
-                    && (getTEImage(tex_index)->getID() != IMG_INVISIBLE || LLDrawPoolAlpha::sShowDebugAlpha))
+                    && (getTEImage(tex_index)->getID() != IMG_INVISIBLE || DXDrawPoolAlpha::sShowDebugAlpha))
                 {
                     cost += COMPLEXITY_BODY_PART_COST;
                 }
@@ -12142,7 +12143,7 @@ bool LLVOAvatar::isTextureVisible(LLAvatarAppearanceDefines::ETextureIndex type,
 
     // baked textures can use TE images directly
     return ((isTextureDefined(type) || isSelf()) &&
-            (getTEImage(type)->getID() != IMG_INVISIBLE || LLDrawPoolAlpha::sShowDebugAlpha));
+            (getTEImage(type)->getID() != IMG_INVISIBLE || DXDrawPoolAlpha::sShowDebugAlpha));
 }
 
 //virtual

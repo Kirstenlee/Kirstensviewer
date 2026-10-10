@@ -981,6 +981,8 @@ void LLShaderMgr::initAttribsAndUniforms()
 	// krlv/README.md's Camera section, krlvCamDrawFogF.hlsl.
 	mReservedUniforms.push_back("krlvStencilTex");
 	mReservedUniforms.push_back("krlvSubstituteTex");
+	mReservedUniforms.push_back("ssrBuffer");
+	mReservedUniforms.push_back("ssrHistory");
 
 	llassert(mReservedUniforms.size() == END_RESERVED_UNIFORMS);
 

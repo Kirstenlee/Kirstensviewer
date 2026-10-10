@@ -1,6 +1,6 @@
 /**
  * @file dxdrawpoolalpha.h
- * @brief Fresh DX11-native implementation of LLDrawPoolAlpha's forward-alpha
+ * @brief Fresh DX11-native implementation of DXAlphaDrawPool's forward-alpha
  * render path.
  *
  * Copyright (c) 2025 Kirstenlee Cinquetti (Lee Quick)
@@ -26,41 +26,57 @@
 
 #pragma once
 
-class LLDrawPoolAlpha;
+#include "lldrawpool.h"
+#include "llrender.h"
+
+// DX alpha draw pool: the LLRenderPass that owns the forward-alpha batches.
+// Rendering is done by DXDrawPoolAlpha (static helpers below).
+class DXAlphaDrawPool final: public LLRenderPass
+{
+public:
+    enum
+    {
+        VERTEX_DATA_MASK =  LLVertexBuffer::MAP_VERTEX |
+                            LLVertexBuffer::MAP_NORMAL |
+                            LLVertexBuffer::MAP_COLOR |
+                            LLVertexBuffer::MAP_TEXCOORD0
+    };
+    virtual U32 getVertexDataMask() { return VERTEX_DATA_MASK; }
+
+    DXAlphaDrawPool(U32 type);
+    /*virtual*/ ~DXAlphaDrawPool();
+
+    /*virtual*/ S32 getNumPostDeferredPasses();
+    /*virtual*/ void renderPostDeferred(S32 pass);
+    /*virtual*/ S32  getNumPasses() { return 1; }
+
+    /*virtual*/ void prerender();
+};
 
 // Deliberate exception to this stage's usual "thin redirect, minimal diff"
 // shape: this is a staged, purpose-built DUPLICATE of
-// LLDrawPoolAlpha::renderPostDeferred()'s call graph (forwardRender(),
+// DXAlphaDrawPool::renderPostDeferred()'s call graph (forwardRender(),
 // renderAlpha(), the emissive helpers, renderDebugAlpha()/
 // renderAlphaHighlight()), not a from-scratch redesign. Chosen deliberately
 // over an in-place #ifdef because most of that call graph is already
 // DX-safe by composition (LLGLDepthTest/blendFunc/LLGLDisable/
-// LLGLSLShader::bind()+bindTexture()/LLVertexBuffer - all fixed in earlier
+// LLHLSLShader::bind()+bindTexture()/LLVertexBuffer - all fixed in earlier
 // phases) and only rigged-batch handling needed to change - see the stage 5
 // hitlist memory for the full reasoning. Understand this means the two
 // copies can and will drift on future GL-side edits/LL merges; that's an
 // accepted tradeoff for keeping the pools API-distinct going forward.
 //
-// S24 (2026-08-09, task #170): rigged (skinned) batch handling - mesh
-// bodies/clothing/attachments, virtually everything modern avatars wear -
-// is now real, mirroring lldrawpoolalpha.cpp's renderAlpha(mask,
-// depth_only, rigged)/forwardRender(rigged) two-pass shape exactly
-// (PASS_ALPHA vs PASS_ALPHA_RIGGED draw maps, beginAlphaGroups() vs
+// Rigged (skinned) batches (mesh bodies/clothing/attachments) get their own
+// pass, in the original GL alpha pool's two-pass rigged/non-rigged shape
+// (PASS_ALPHA vs PASS_ALPHA_RIGGED, beginAlphaGroups() vs
 // beginRiggedAlphaGroups(), mRiggedVariant shader selection,
-// uploadMatrixPalette() per-batch). This was blocked until now by
-// DXVertexLayout rejecting MAP_WEIGHT4 outright (task #168 fixed that) -
-// every rigged-only code path that was previously omitted here
-// (renderRiggedEmissives/renderRiggedPbrEmissives, the rigged half of
-// renderAlphaHighlight()/renderDebugAlpha(), the rigged GLTF-scene-to-
-// depth-buffer pre-pass in forwardRender()) is now ported directly.
-// S24 (2026-08-09): the glow/emissive-accumulation blend call
-// (gGL.blendFunc(BF_ZERO, BF_ONE, BF_ONE, BF_ONE)) is no longer a gap -
-// DXStateCache::getBlendState() gained real, separate alpha_src/alpha_dst
-// parameters in an earlier session (2026-08-06, see DXStateCache.h's own
-// comment), and LLRender::applyDXBlendState() already threads the 4-factor
-// blendFunc() overload's real alpha factors through correctly.
+// uploadMatrixPalette() per-batch).
 class DXDrawPoolAlpha
 {
 public:
-    static void renderPostDeferred(LLDrawPoolAlpha& pool, S32 pass);
+    static void renderPostDeferred(DXAlphaDrawPool& pool, S32 pass);
+
+    // Shared alpha-pool state. Owned here now that the GL pool is being removed.
+    static LLVector4 sWaterPlane;   // water plane in eye space, set by llsettingsvo
+    static bool sShowDebugAlpha;    // debug alpha view toggle
 };

@@ -2,29 +2,6 @@
 <llsd xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
   xsi:noNamespaceSchemaLocation="llsd.xsd">
   <map>
-    <key>360QualitySelection</key>
-    <map>
-      <key>Comment</key>
-      <string>Selected quality level for 360 snapshot capture (radio group).</string>
-      <key>Persist</key>
-      <integer>1</integer>
-      <key>Type</key>
-      <string>U32</string>
-      <key>Value</key>
-      <integer>128</integer>
-    </map>
-
-  <key>360CaptureUseInterestListCap</key>
-  <map>
-    <key>Comment</key>
-    <string>Enable use of Interest List Cap for 360 capture (advanced debug option).</string>
-    <key>Persist</key>
-    <integer>1</integer>
-    <key>Type</key>
-    <string>Boolean</string>
-    <key>Value</key>
-    <integer>0</integer>
-  </map>
   <key>ImporterDebugVerboseLogging</key>
     <map>
       <key>Comment</key>
@@ -1364,6 +1341,17 @@
     <map>
       <key>Comment</key>
       <string>Internal KRLV tamper-evidence marker - set true whenever krlv_restrictions.dat is saved with at least one active restriction. Not user-facing; do not edit by hand.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
+    <key>KRLVOwnersWereSet</key>
+    <map>
+      <key>Comment</key>
+      <string>Internal KRLV tamper-evidence marker - set true whenever the owner list is saved with at least one owner. Not user-facing; do not edit by hand.</string>
       <key>Persist</key>
       <integer>1</integer>
       <key>Type</key>
@@ -7675,6 +7663,28 @@
       </array>
     </map>
 
+    <key>RenderAgsAsyncShaderCompile</key>
+    <map>
+      <key>Comment</key>
+      <string>AMD AGS: let the driver compile shaders asynchronously on background threads, and enable its disk shader cache (AMD GPUs only, requires restart)</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>1</integer>
+    </map>
+    <key>RenderAgsBreadcrumbMarkers</key>
+    <map>
+      <key>Comment</key>
+      <string>AMD AGS: allocate GPU hang/crash diagnostic breadcrumb markers (AMD GPUs only, requires restart) - troubleshooting only, leave off unless asked</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
     <key>RenderAnisotropicLevel</key>
     <map>
       <key>Comment</key>
@@ -8668,6 +8678,17 @@
       <real>0.0</real>
     </map>
 
+    <key>RenderDepthBoundsTest</key>
+    <map>
+      <key>Comment</key>
+      <string>Use the GPU's depth bounds test to skip pixels outside each local light's depth range (AMD AGS / NVAPI, real perf win on both vendors) - troubleshooting toggle if local lights look wrong</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>1</integer>
+    </map>
     <key>RenderDepthPrePass</key>
     <map>
       <key>Comment</key>
@@ -9457,17 +9478,6 @@
       <key>Value</key>
       <integer>2</integer>
     </map>
-    <key>RenderHeroProbeConservativeUpdateMultiplier</key>
-    <map>
-      <key>Comment</key>
-      <string>How many probe updates to wait until it's time to update faces that are not directly facing the camera.  Acts as a multiplier.  E.g., frames to the periphery of the camera updating once every 3 updates, vs ones directly facing the camera updating every update.</string>
-      <key>Persist</key>
-      <integer>1</integer>
-      <key>Type</key>
-      <string>S32</string>
-      <key>Value</key>
-      <integer>16</integer>
-    </map>
     <key>RenderReflectionProbeShowTransparent</key>
     <map>
         <key>Comment</key>
@@ -9590,17 +9600,6 @@
       <integer>1</integer>
     </map>
 
-    <key>RenderReflectionDetail</key>
-    <map>
-      <key>Comment</key>
-      <string>DEPRECATED -- use RenderTransparentWater and RenderReflectionProbeDetail -- Detail of reflection render pass.</string>
-      <key>Persist</key>
-      <integer>1</integer>
-      <key>Type</key>
-      <string>S32</string>
-      <key>Value</key>
-      <integer>2</integer>
-    </map>
     <key>RenderShadowDetail</key>
     <map>
       <key>Comment</key>
@@ -9634,17 +9633,6 @@
       <key>Value</key>
       <integer>1</integer>
     </map>
-    <key>RenderReflectionProbeDynamicAllocation</key>
-    <map>
-      <key>Comment</key>
-      <string>Enable dynamic allocation of reflection probes. -1 means no dynamic allocation. Sets a buffer to allocate when a dynamic allocation occurs otherwise.</string>
-      <key>Persist</key>
-      <integer>1</integer>
-      <key>Type</key>
-      <string>S32</string>
-      <key>Value</key>
-      <integer>-1</integer>
-    </map>
     <key>RenderReflectionProbeCount</key>
     <map>
       <key>Comment</key>
@@ -9659,13 +9647,13 @@
     <key>RenderReflectionProbeResolution</key>
     <map>
       <key>Comment</key>
-      <string>Resolution of reflection probe radiance maps (requires restart).  Will be set to the next highest power of two clamped to [64, 512].  Note that changing this value may consume a massive amount of video memory.</string>
+      <string>Resolution of reflection probe cube faces. Applied at runtime. Rounded to the next highest power of two, clamped to [64, 512]. Higher values use considerably more video memory.</string>
       <key>Persist</key>
       <integer>1</integer>
       <key>Type</key>
       <string>U32</string>
       <key>Value</key>
-      <integer>128</integer>
+      <integer>256</integer>
     </map>
     <key>RenderExposure</key>
     <map>
@@ -9679,6 +9667,50 @@
       <real>1.0</real>
     </map>
 
+    <key>RenderReflectionExcludeAvatarDynamic</key>
+    <map>
+      <key>Comment</key>
+      <string>Excludes avatars and particles from the master reflection cube under Static and dynamic. A performance choice.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
+    <key>RenderReflectionExcludeAvatarRealtime</key>
+    <map>
+      <key>Comment</key>
+      <string>Excludes avatars and particles from the master reflection cube under Realtime. A performance choice.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>1</integer>
+    </map>
+    <key>RenderReflectionMasterCube</key>
+    <map>
+      <key>Comment</key>
+      <string>Captures one realtime master cube centred on the avatar every frame, for testing shiny surfaces. Experimental.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
+    <key>RenderReflectionCellGrid</key>
+    <map>
+      <key>Comment</key>
+      <string>Captures reflection cells on a fixed 16 m grid around the camera for shiny surfaces. Experimental.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
     <key>RenderReflectionProbeDrawDistance</key>
     <map>
       <key>Comment</key>
@@ -9690,17 +9722,6 @@
       <key>Value</key>
       <integer>64</integer>
     </map>
-    <key>RenderReflectionProbeAmbiance</key>
-    <map>
-      <key>Comment</key>
-      <string>Amount reflection probes contribute to ambient light.</string>
-      <key>Persist</key>
-      <integer>1</integer>
-      <key>Type</key>
-      <string>F32</string>
-      <key>Value</key>
-      <real>0</real>
-    </map>
     <key>RenderDefaultProbeUpdatePeriod</key>
     <map>
       <key>Comment</key>
@@ -9711,6 +9732,204 @@
       <string>F32</string>
       <key>Value</key>
       <real>2.0</real>
+    </map>
+    <key>RenderSSRTemporal</key>
+    <map>
+      <key>Comment</key>
+      <string>Temporal accumulation for the screen-space reflection pass. Blends last frame's result into the current trace to remove speckle. Only applies with the SSR pass enabled.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>1</integer>
+    </map>
+    <key>RenderSSRMissFill</key>
+    <map>
+      <key>Comment</key>
+      <string>Scale on the probe reflection where screen-space reflection misses (0 = none, 1 = full probe). Hits always replace it.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>0.25</real>
+    </map>
+    <key>RenderProjectorSpecularReliable</key>
+    <map>
+      <key>Comment</key>
+      <string>Projector lights only: widen the specular highlight and keep its colour with distance. Off = LL behaviour.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
+    <key>RenderAlphaSortExtentFactor</key>
+    <map>
+      <key>Comment</key>
+      <string>Alpha sort depth: fraction of each face's full extent projected onto the view axis and pulled toward the camera. 0.5 = nearest point of the face box. 0 = face centre only.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>0.5</real>
+    </map>
+    <key>RenderAlphaProjectorCount</key>
+    <map>
+      <key>Comment</key>
+      <string>Maximum projector lights added to alpha-pool surfaces per frame (nearest first). Each one adds a draw pass.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>S32</string>
+      <key>Value</key>
+      <integer>2</integer>
+    </map>
+    <key>RenderAlphaProjectors</key>
+    <map>
+      <key>Comment</key>
+      <string>Projected lights also light transparent surfaces, fading with their alpha. Off = previous behaviour.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
+    <key>RenderAlphaDepthWriteThreshold</key>
+    <map>
+      <key>Comment</key>
+      <string>Alpha faces at or above this alpha write depth, so what is behind them is hidden. 1.01 = off.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>0.98</real>
+    </map>
+    <key>RenderAlphaFaceSortDistance</key>
+    <map>
+      <key>Comment</key>
+      <string>Batches nearer than this (metres) are sorted per face. Farther batches are sorted as one entry, which is cheaper.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>24</real>
+    </map>
+    <key>RenderAlphaSortMode</key>
+    <map>
+      <key>Comment</key>
+      <string>Alpha draw order: 0 = batch order (previous behaviour), 1 = per-face nearest-point sort within each batch.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>S32</string>
+      <key>Value</key>
+      <integer>1</integer>
+    </map>
+    <key>RenderAlphaResortThreshold</key>
+    <map>
+      <key>Comment</key>
+      <string>Direction change (unit-vector length) to any alpha group before its transparent draw order is re-sorted. Lower = more accurate sorting, more rebuild work. Was 0.64.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>0.05</real>
+    </map>
+    <key>RenderProjectorPBRLegacySpecular</key>
+    <map>
+      <key>Comment</key>
+      <string>PBR surfaces, projector lights only: take the highlight from the legacy Blinn-Phong lobe (gloss = 1 - roughness) instead of GGX. Off = GGX.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
+    <key>RenderProjectorSpecularExponent</key>
+    <map>
+      <key>Comment</key>
+      <string>Projector specular exponent cap (lower = wider highlight). Used when RenderProjectorSpecularReliable is on.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>24</real>
+    </map>
+    <key>RenderProjectorSpecularLODCap</key>
+    <map>
+      <key>Comment</key>
+      <string>Projector specular mip cap (lower = sharper colour at distance). Used when RenderProjectorSpecularReliable is on.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>1</real>
+    </map>
+    <key>RenderSSRPassEnabled</key>
+    <map>
+      <key>Comment</key>
+      <string>Run the separate screen-space reflection pass before deferred lighting. Off uses the inline trace in the lighting shader, which keeps mirrors working (default off until the pass is fixed).</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
+    <key>RenderCubeConvSwapXY</key>
+    <map>
+      <key>Comment</key>
+      <string>Probe cube convention: swap X and Y of the generator quad (live orientation control, default off).</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
+    <key>RenderCubeConvFlipX</key>
+    <map>
+      <key>Comment</key>
+      <string>Probe cube convention: flip X of the generator quad (live orientation control, default off).</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
+    <key>RenderCubeConvFlipY</key>
+    <map>
+      <key>Comment</key>
+      <string>Probe cube convention: flip Y of the generator quad. Default on: confirmed live for sphere probe reflections.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>1</integer>
+    </map>
+    <key>RenderReflectionBoxProbesEnabled</key>
+    <map>
+      <key>Comment</key>
+      <string>Enable box-volume reflection probes (manual probes whose object is a box). Disable to stop their capture and rendering; sphere probes are unaffected.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>1</integer>
     </map>
     <key>RenderReflectionProbesEnabled</key>
     <map>
@@ -9921,6 +10140,17 @@
       <key>Value</key>
       <real>0.0</real>
     </map>
+    <key>RenderReflectionAutoParallax</key>
+    <map>
+      <key>Comment</key>
+      <string>Automatic reflection probes use their own radius for parallax. Off samples by direction only, which reads as infinitely far away.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>1</integer>
+    </map>
     <key>RenderReflectionProbeAmbientMultiplier</key>
     <map>
       <key>Comment</key>
@@ -9953,6 +10183,50 @@
       <string>F32</string>
       <key>Value</key>
       <real>1.0</real>
+    </map>
+    <key>RenderReflectionGateGlossReject</key>
+    <map>
+      <key>Comment</key>
+      <string>Material reflection gate: gloss (roughness inverted) at or below this gets no reflection. 0 disables the gate (S24 Runtime Tweak).</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>0.0</real>
+    </map>
+    <key>RenderReflectionGateGlossAccept</key>
+    <map>
+      <key>Comment</key>
+      <string>Material reflection gate: gloss (roughness inverted) at or above this gets full reflection, ramped from Reject below it. 0 disables the gate (S24 Runtime Tweak).</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>0.0</real>
+    </map>
+    <key>RenderReflectionGateMetallicReject</key>
+    <map>
+      <key>Comment</key>
+      <string>Material reflection gate: metallic at or below this gets no reflection. PBR materials only. 0 disables the gate (S24 Runtime Tweak).</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>0.0</real>
+    </map>
+    <key>RenderReflectionGateMetallicAccept</key>
+    <map>
+      <key>Comment</key>
+      <string>Material reflection gate: metallic at or above this gets full reflection, ramped from Reject below it. PBR materials only. 0 disables the gate (S24 Runtime Tweak).</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>0.0</real>
     </map>
     <key>SmoothKeyboardMovement</key>
     <map>
@@ -10052,17 +10326,6 @@
       <string>S32</string>
       <key>Value</key>
       <integer>3</integer>
-    </map>
-    <key>RenderReflectionRes</key>
-    <map>
-      <key>Comment</key>
-      <string>Reflection map resolution.</string>
-      <key>Persist</key>
-      <integer>1</integer>
-      <key>Type</key>
-      <string>S32</string>
-      <key>Value</key>
-      <integer>64</integer>
     </map>
     <key>RenderReservedTextureIndices</key>
     <map>
@@ -14422,6 +14685,17 @@
       <key>Value</key>
       <integer>1</integer>
     </map>
+    <key>UseAmdAgs</key>
+    <map>
+      <key>Comment</key>
+      <string>Initialize AMD AGS at startup for AMD GPU/driver detection (NVAPI equivalent)</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>1</integer>
+    </map>
     <key>UseChatBubbles</key>
     <map>
       <key>Comment</key>
@@ -14679,6 +14953,17 @@
     <map>
       <key>Comment</key>
       <string>Replace standard walk/run animations with new ones.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>1</integer>
+    </map>
+    <key>UseNvidiaReflex</key>
+    <map>
+      <key>Comment</key>
+      <string>Enable NVIDIA Reflex low-latency mode (NVIDIA GPUs only)</string>
       <key>Persist</key>
       <integer>1</integer>
       <key>Type</key>
@@ -17511,72 +17796,6 @@
       <string>U32</string>
       <key>Value</key>
       <integer>0</integer>
-    </map>
-    <key>360CaptureJPEGEncodeQuality</key>
-    <map>
-      <key>Comment</key>
-      <string>Quality value to use in the JPEG encoder (0..100)</string>
-      <key>Persist</key>
-      <integer>1</integer>
-      <key>Type</key>
-      <string>U32</string>
-      <key>Value</key>
-      <integer>95</integer>
-    </map>
-    <key>360CaptureDebugSaveImage</key>
-    <map>
-      <key>Comment</key>
-      <string>Flag if set, saves off each cube map as an image, as well as the JavaScript data URL, for debugging purposes</string>
-      <key>Persist</key>
-      <integer>1</integer>
-      <key>Type</key>
-      <string>Boolean</string>
-      <key>Value</key>
-      <integer>0</integer>
-    </map>
-    <key>360CaptureOutputImageWidth</key>
-    <map>
-      <key>Comment</key>
-      <string>Width of the output 360 equirectangular image</string>
-      <key>Persist</key>
-      <integer>1</integer>
-      <key>Type</key>
-      <string>U32</string>
-      <key>Value</key>
-      <integer>4096</integer>
-    </map>
-    <key>360CaptureHideAvatars</key>
-    <map>
-      <key>Comment</key>
-      <string>Flag if set, removes all the avatars from the 360 snapshot</string>
-      <key>Persist</key>
-      <integer>1</integer>
-      <key>Type</key>
-      <string>Boolean</string>
-      <key>Value</key>
-      <integer>0</integer>
-    </map>
-    <key>360CaptureCameraFOV</key>
-    <map>
-      <key>Comment</key>
-      <string>Field of view of the WebGL camera that converts the cubemap to an equirectangular image</string>
-      <key>Persist</key>
-      <integer>1</integer>
-      <key>Type</key>
-      <string>U32</string>
-      <key>Value</key>
-      <integer>75</integer>
-    </map>
-    <key>360CaptureNumRenderPasses</key>
-    <map>
-      <key>Comment</key>
-      <string>Number of times to render the scene while taking a snapshot</string>
-      <key>Persist</key>
-      <integer>1</integer>
-      <key>Type</key>
-      <string>U32</string>
-      <key>Value</key>
-      <integer>3</integer>
     </map>
     <key>ResetUIScaleOnFirstRun</key>
     <map>

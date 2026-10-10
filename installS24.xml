@@ -609,6 +609,13 @@
 
 	<package>
 		<type>tarball</type>
+		<name>amdags</name>
+		<url>https://kirstensviewer.s3.eu-north-1.amazonaws.com/S24/amdags.tar.gz</url>
+		<md5>36f21265e5957b2e450d4f952fabebd4</md5>
+	</package>
+
+	<package>
+		<type>tarball</type>
 		<name>nvapi</name>
 		<url>https://kirstensviewer.s3.eu-north-1.amazonaws.com/S24/nvapi.tar.gz</url>
 		<md5>d4e103d2992605542b2a6438579e88fe</md5>
@@ -623,13 +630,6 @@
 
 	<package>
 		<type>tarball</type>
-		<name>threejs</name>
-		<url>https://kirstensviewer.s3.eu-north-1.amazonaws.com/S24/threejs.tar.gz</url>
-		<md5>178036023261dd3e31e89373d4a2230c</md5>
-	</package>
-
-	<package>
-		<type>tarball</type>
 		<name>tinygltf</name>
 		<url>https://kirstensviewer.s3.eu-north-1.amazonaws.com/S24/tinygltf.tar.gz</url>
 		<md5>1e9af3850b0d3e3ec2f7992cd07c7a25</md5>
@@ -639,12 +639,6 @@
 	<!-- IMAGE & TEXTURE PROCESSING                                       -->
 	<!-- ================================================================ -->
 
-	<package>
-		<type>tarball</type>
-		<name>jpegencoderbasic</name>
-		<url>https://kirstensviewer.s3.eu-north-1.amazonaws.com/S24/jpegencoderbasic.tar.gz</url>
-		<md5>67dbb05b084db27cd4e13d4e13c798cb</md5>
-	</package>
 
 	<package>
 		<type>vcpkg</type>

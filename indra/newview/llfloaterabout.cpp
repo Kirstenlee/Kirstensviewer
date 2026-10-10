@@ -40,6 +40,8 @@
 #include "llvoiceclient.h"
 #include "lluictrlfactory.h"
 #include "llviewertexteditor.h"
+#include "lltexteditor.h"
+#include "llstring.h"
 #include "llviewercontrol.h"
 #include "llviewerstats.h"
 #include "llviewerregion.h"
@@ -125,6 +127,16 @@ LLFloaterAbout::~LLFloaterAbout()
 bool LLFloaterAbout::postBuild()
 {
 	center();
+
+	// Version fields in floater_about.xml are placeholders, filled from the build's version info.
+	LLTextEditor* credits_widget = getChild<LLTextEditor>("credits", true);
+	const LLVersionInfo& version = LLVersionInfo::instance();
+	std::string credits_text = credits_widget->getText();
+	LLStringUtil::replaceString(credits_text, "@CODENAME@", version.getCodename());
+	LLStringUtil::replaceString(credits_text, "@PATCH@", llformat("20%d.%02d", version.getMajor(), version.getMinor()));
+	LLStringUtil::replaceString(credits_text, "@BUILD@", version.getVersion());
+	LLStringUtil::replaceString(credits_text, "@VERSION@", version.getLabel());
+	credits_widget->setText(credits_text);
 	LLViewerTextEditor *support_widget = 
 		getChild<LLViewerTextEditor>("support_editor", true);
 

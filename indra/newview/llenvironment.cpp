@@ -1237,7 +1237,7 @@ void LLEnvironment::setEnvironment(LLEnvironment::EnvSelection_t env, LLEnvironm
 
     if (reset_probes)
     { // the sky changed in a way that merits a reset of reflection probes
-        gPipeline.mReflectionMapManager.reset();
+        gPipeline.mSphereProbes.reset();
     }
 
     if (!mSignalEnvChanged.empty())
@@ -2852,8 +2852,8 @@ void LLEnvironment::DayTransition::animate()
 
 
     // pause probe updates and reset reflection maps on sky change
-    gPipeline.mReflectionMapManager.pause((F32)mTransitionTime);
-    gPipeline.mReflectionMapManager.reset();
+    gPipeline.mSphereProbes.pause((F32)mTransitionTime);
+    gPipeline.mSphereProbes.reset();
 
     mSky = mStartSky->buildClone();
     mBlenderSky = std::make_shared<LLSettingsBlenderTimeDelta>(mSky, mStartSky, mNextInstance->getSky(), mTransitionTime);
@@ -2862,7 +2862,7 @@ void LLEnvironment::DayTransition::animate()
         mBlenderSky.reset();
 
         // resume reflection probe updates
-        gPipeline.mReflectionMapManager.resume();
+        gPipeline.mSphereProbes.resume();
 
         if (!mBlenderSky && !mBlenderWater)
             LLEnvironment::instance().mCurrentEnvironment = mNextInstance;
@@ -3459,8 +3459,8 @@ namespace
             mInjectedSky->setSource(target_sky);
 
             // clear reflection probes and pause updates during sky change
-            gPipeline.mReflectionMapManager.pause((F32)transition);
-            gPipeline.mReflectionMapManager.reset();
+            gPipeline.mSphereProbes.pause((F32)transition);
+            gPipeline.mSphereProbes.reset();
 
             mBlenderSky = std::make_shared<LLSettingsBlenderTimeDelta>(target_sky, start_sky, psky, transition);
             mBlenderSky->setOnFinished(
@@ -3470,7 +3470,7 @@ namespace
                     mInjectedSky->setSource(psky);
 
                     // resume updating reflection probes when done animating sky
-                    gPipeline.mReflectionMapManager.resume();
+                    gPipeline.mSphereProbes.resume();
                     setSky(mInjectedSky);
                     if (!mBlenderWater && (countExperiencesActive() == 0))
                     {

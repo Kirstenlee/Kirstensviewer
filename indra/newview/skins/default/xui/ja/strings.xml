@@ -7107,9 +7107,6 @@ www.secondlife.com から最新バージョンをダウンロードしてくだ�
 	<string name="ParticleHiding">
 		パーティクルを非表示
 	</string>
-	<string name="Command_360_Capture_Label">
-		360度スナップショット
-	</string>
 	<string name="Command_AboutLand_Label">
 		土地情報
 	</string>
@@ -7193,9 +7190,6 @@ www.secondlife.com から最新バージョンをダウンロードしてくだ�
 	</string>
 	<string name="Command_Voice_Label">
 		ボイス設定
-	</string>
-	<string name="Command_360_Capture_Tooltip">
-		360度の正距円筒図法のスナップショット画像を撮影します。
 	</string>
 	<string name="Command_AboutLand_Tooltip">
 		訪問先に関する情報を表示します。

@@ -132,7 +132,6 @@ with the same filename but different name
 
   <texture name="Checker" file_name="checker.png" preload="false" />
   
-  <texture name="Command_360_Capture_Icon"  file_name="toolbar_icons/360_capture.png"  preload="true" />
   <texture name="Command_AboutLand_Icon"    file_name="toolbar_icons/land.png"         preload="true" />
   <texture name="Command_Appearance_Icon"   file_name="toolbar_icons/appearance.png"   preload="true" />
   <texture name="Command_Avatar_Icon"       file_name="toolbar_icons/avatars.png"      preload="true" />
@@ -527,6 +526,12 @@ with the same filename but different name
   <texture name="Play_Press" file_name="icons/Play_Press.png" preload="false" />
   
   <texture name="Powder" file_name="windows/powder.png" preload="true"/>
+  <texture name="Aurora_R1C1" file_name="windows/aurora_tile_r1c1_glass.png" preload="true"/>
+  <texture name="Aurora_R1C2" file_name="windows/aurora_tile_r1c2_glass.png" preload="true"/>
+  <texture name="Aurora_R1C3" file_name="windows/aurora_tile_r1c3_glass.png" preload="true"/>
+  <texture name="Aurora_R2C1" file_name="windows/aurora_tile_r2c1_glass.png" preload="true"/>
+  <texture name="Aurora_R2C2" file_name="windows/aurora_tile_r2c2_glass.png" preload="true"/>
+  <texture name="Aurora_R2C3" file_name="windows/aurora_tile_r2c3_glass.png" preload="true"/>
   
   <texture name="Profile_Badge_Beta" file_name="icons/profile_badge_beta.png" preload="true"/>
   <texture name="Profile_Badge_Beta_Lifetime" file_name="icons/profile_badge_beta_lifetime.png" preload="true"/>

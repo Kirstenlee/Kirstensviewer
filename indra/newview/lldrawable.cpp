@@ -41,6 +41,7 @@
 #include "llsky.h"
 #include "llsurfacepatch.h"
 #include "llviewercamera.h"
+#include "llviewercontrol.h"
 #include "llviewerregion.h"
 #include "llvolume.h"
 #include "llvoavatar.h"
@@ -896,14 +897,17 @@ void LLDrawable::updateDistance(LLCamera& camera, bool force_update)
 				// Compute box dimensions and adjust the position
 				LLVector4a box;
 				box.setSub(facep->mExtents[1], facep->mExtents[0]);
-				box.mul(0.25f);
+				static LLCachedControl<F32> alpha_sort_extent(gSavedSettings, "RenderAlphaSortExtentFactor", 0.5f);
 
 				LLVector3 v = facep->mCenterLocal - origin;
 
 				// Flatten the inner loop for efficiency
-				v.mV[0] -= box[0] * at.mV[0];
-				v.mV[1] -= box[1] * at.mV[1];
-				v.mV[2] -= box[2] * at.mV[2];
+				// Pull the depth toward the camera by the box's projected half-extent along the view axis
+				// (the nearest-point offset). Was a signed product, which pushed away from the camera for
+				// negative view components.
+				v.mV[0] -= alpha_sort_extent * box[0] * std::fabs(at.mV[0]);
+				v.mV[1] -= alpha_sort_extent * box[1] * std::fabs(at.mV[1]);
+				v.mV[2] -= alpha_sort_extent * box[2] * std::fabs(at.mV[2]);
 
 				facep->mDistance = v * at;
 			}

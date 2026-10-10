@@ -22,8 +22,10 @@
  * SOFTWARE.
  */
 
-// Same closed-form per-face direction formula as radianceGenV.hlsl - see its
-// header comment for the derivation. Kept in sync with that file.
+// Placement and sampling follow cubeFaceConvention.hlsli, shared with
+// radianceGenV.hlsl.
+#include "cubeFaceConvention.hlsli"
+
 uniform int cubeFace;
 
 struct VSInput
@@ -46,20 +48,9 @@ VSOutput main(VSInput IN)
     // disabled for this pass so 0.0 is otherwise arbitrary.
     OUT.position = float4(IN.position.xy, 0.0, 1.0);
 
-    // y is left unmodified here; the Y-flip is paired with a negative-height
-    // viewport at the C++ call sites instead (see radianceGenV.hlsl).
-    float x = IN.position.x;
-    float y = IN.position.y;
-
-    float3 dir;
-    if (cubeFace == 0)      dir = float3( 1.0,    y,    x); // +X
-    else if (cubeFace == 1) dir = float3(-1.0,    y,   -x); // -X
-    else if (cubeFace == 2) dir = float3(  -x,  1.0,   -y); // +Y
-    else if (cubeFace == 3) dir = float3(  -x, -1.0,    y); // -Y
-    else if (cubeFace == 4) dir = float3(  -x,    y,  1.0); // +Z
-    else                    dir = float3(   x,    y, -1.0); // -Z
-
-    OUT.vary_dir = dir;
+    // The quad's [-1,1] position is the texel's (x, y) on the face. The
+    // negative-height viewport at the C++ call sites supplies the row flip.
+    OUT.vary_dir = cubeFaceGenDir(cubeFace, IN.position.x, IN.position.y);
 
     return OUT;
 }

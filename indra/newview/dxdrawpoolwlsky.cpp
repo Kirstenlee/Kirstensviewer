@@ -44,6 +44,7 @@
 #include "llmatrix4a.h"
 
 extern bool gCubeSnapshot;
+extern bool gEquirectCapture;
 extern LLPointer<LLImageDX> gEXRImage;
 
 namespace
@@ -95,7 +96,7 @@ namespace
         static LLCachedControl<F32> hdri_split(gSavedSettings, "RenderHDRISplitScreen", 1.f);
         static LLCachedControl<bool> irradiance_only(gSavedSettings, "RenderHDRIIrradianceOnly", false);
 
-        return gCubeSnapshot && (!irradiance_only || !gPipeline.mReflectionMapManager.isRadiancePass()) ? gEXRImage.notNull() :
+        return gCubeSnapshot && (!irradiance_only || !gPipeline.mSphereProbes.isRadiancePass()) ? gEXRImage.notNull() :
             gEXRImage.notNull() ? hdri_split > 0.f :
             false;
     }
@@ -767,14 +768,18 @@ void DXDrawPoolWLSky::renderDeferred(LLDrawPoolWLSky& pool, S32 pass)
         renderSkyHazeDeferred(origin, camHeightLocal);
         renderHeavenlyBodies();
 
-        if (!gCubeSnapshot)
+        // S24 : gEquirectCapture added alongside the pre-existing
+        // isRadiancePass() exception below - a full 360 capture wants real
+        // stars/clouds just like a normal frame, not the reduced detail
+        // reflection/sphere probes intentionally use.
+        if (!gCubeSnapshot || gEquirectCapture)
         {
             renderGalacticBandDeferred();
             renderStarsDeferred(origin);
             renderShootingStarsDeferred(origin);
         }
 
-        if (!gCubeSnapshot || gPipeline.mReflectionMapManager.isRadiancePass())
+        if (!gCubeSnapshot || gPipeline.mSphereProbes.isRadiancePass() || gEquirectCapture)
         {
             renderSkyCloudsDeferred(origin, camHeightLocal, cloud_shader);
         }

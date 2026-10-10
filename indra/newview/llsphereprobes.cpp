@@ -1,6 +1,6 @@
 /**
- * @file llreflectionmapmanager.cpp
- * @brief LLReflectionMapManager class implementation
+ * @file llsphereprobes.cpp
+ * @brief LLSphereProbes class implementation
  *
  * $LicenseInfo:firstyear=2022&license=viewerlgpl$
  * Second Life Viewer Source Code
@@ -26,10 +26,11 @@
 
 #include "llviewerprecompiledheaders.h"
 
-#include "llreflectionmapmanager.h"
+#include "llsphereprobes.h"
 
 #include <vector>
 
+#include "llagent.h"
 #include "llviewercamera.h"
 #include "llspatialpartition.h"
 #include "llviewerregion.h"
@@ -66,8 +67,8 @@ LLPointer<LLImageDX> gEXRImage;
 void load_exr(const std::string& filename)
 {
     // reset reflection maps when previewing a new HDRI
-    gPipeline.mReflectionMapManager.reset();
-    gPipeline.mReflectionMapManager.initReflectionMaps();
+    gPipeline.mSphereProbes.reset();
+    gPipeline.mSphereProbes.initReflectionMaps();
 
     float* out; // width * height * RGBA
     int width;
@@ -133,14 +134,17 @@ void hdri_preview()
 extern bool gCubeSnapshot;
 extern bool gTeleportDisplay;
 
-static U32 sUpdateCount = 0;
-
 // get the next highest power of two of v (or v if v is already a power of two)
 //defined in llvertexbuffer.cpp
 extern U32 nhpo2(U32 v);
 
-static void touch_default_probe(LLReflectionMap* probe)
+static void touch_default_probe(LLReflectionMap* probe, bool force = false)
 {
+    // the origin is fixed for the whole capture unless this is the capture's start
+    if (!force && gPipeline.mSphereProbes.isCapturing(probe))
+    {
+        return;
+    }
     if (LLViewerCamera::getInstance())
     {
         LLVector3 origin = LLViewerCamera::getInstance()->getOrigin();
@@ -150,13 +154,13 @@ static void touch_default_probe(LLReflectionMap* probe)
     }
 }
 
-LLReflectionMapManager::LLReflectionMapManager()
+LLSphereProbes::LLSphereProbes()
 {
     mDynamicProbeCount = LL_MAX_REFLECTION_PROBE_COUNT;
     initCubeFree();
 }
 
-void LLReflectionMapManager::initCubeFree()
+void LLSphereProbes::initCubeFree()
 {
     // start at 1 because index 0 is reserved for mDefaultProbe
     for (U32 i = 1; i < mDynamicProbeCount; ++i)
@@ -171,66 +175,151 @@ struct CompareProbeDistance
 
     bool operator()(const LLPointer<LLReflectionMap>& lhs, const LLPointer<LLReflectionMap>& rhs)
     {
+        // probes the current level excludes never sample, so they rank after every relevant probe and take no slots
+        bool lhs_relevant = lhs->isRelevant();
+        bool rhs_relevant = rhs->isRelevant();
+        if (lhs_relevant != rhs_relevant)
+        {
+            return lhs_relevant;
+        }
+
+        // distance alone decides the order. Priority class does not, or a far manual probe could displace a nearer
+        // complete automatic one, which the retention rules forbid.
         return lhs->mDistance < rhs->mDistance;
     }
 };
 
-static F32 update_score(LLReflectionMap* p)
+// Update priority: staleness, with a distance term so nearer probes refresh sooner. An incomplete
+// probe gets a fixed head start so new probes finish quickly. Because staleness keeps growing, a
+// complete probe can't be starved by an incomplete one that never finishes (SL-20258).
+static F32 probe_update_score(const LLReflectionMap* p)
 {
-    return gFrameTimeSeconds - p->mLastUpdateTime  - p->mDistance*0.1f;
-}
-
-// return true if a is higher priority for an update than b
-static bool check_priority(LLReflectionMap* a, LLReflectionMap* b)
-{
-    if (a->mCubeIndex == -1)
-    { // not a candidate for updating
-        return false;
-    }
-    else if (b->mCubeIndex == -1)
-    { // b is not a candidate for updating, a is higher priority by default
-        return true;
-    }
-    else if (!a->mComplete && !b->mComplete)
-    { //neither probe is complete, use distance
-        return a->mDistance < b->mDistance;
-    }
-    else if (a->mComplete && b->mComplete)
-    { //both probes are complete, use update_score metric
-        return update_score(a) > update_score(b);
-    }
-
-    // a or b is not complete,
-    if (sUpdateCount % 3 == 0)
-    { // every third update, allow complete probes to cut in line in front of non-complete probes to avoid spammy probe generators from deadlocking scheduler (SL-20258))
-        return !b->mComplete;
-    }
-
-    // prioritize incomplete probe
-    return b->mComplete;
+    const F32 incomplete_head_start = 2.f; // seconds of staleness
+    return (gFrameTimeSeconds - p->mLastUpdateTime) + (p->mComplete ? 0.f : incomplete_head_start) - p->mDistance * 0.1f;
 }
 
 // helper class to seed octree with probes
-void LLReflectionMapManager::update()
+// One realtime cube centred on the avatar. Each frame it captures all six faces for both halves, so its radiance
+// and irradiance are always from the same frame, then commits its geometry. Its far clip is the probe draw distance.
+void LLSphereProbes::updateMasterCube()
+{
+    static LLCachedControl<bool> master(gSavedSettings, "RenderReflectionMasterCube", false);
+    if (!master)
+    {
+        mMasterProbe = nullptr; // the entry is deleted once nothing else holds it
+        return;
+    }
+
+    if (mMasterProbe.isNull())
+    {
+        mMasterProbe = new LLReflectionMap();
+        mMasterProbe->mCell = true;
+        mMasterProbe->mPriority = 0;
+        mMasterProbe->mRadius = 64.f;
+        mMasterProbe->mBoxExtent.splat(64.f);
+        mCreateList.push_back(mMasterProbe);
+        return; // gets its slot in the next update, captures from then on
+    }
+
+    if (mMasterProbe->mCubeIndex < 1)
+    {
+        return;
+    }
+
+    // Realtime captures every frame. Once and Static capture once after each reset (a level, detail or resolution
+    // change). Static and dynamic also refreshes at the default probe period, so avatars and particles stay current.
+    if (mRenderReflectionProbeDetail < (S32)DetailLevel::REALTIME && mMasterProbe->mComplete)
+    {
+        static LLCachedControl<F32> sUpdatePeriod(gSavedSettings, "RenderDefaultProbeUpdatePeriod", 2.f);
+        if (mRenderReflectionProbeDetail < (S32)DetailLevel::STATIC_AND_DYNAMIC
+            || (gFrameTimeSeconds - mMasterProbe->mLastUpdateTime) < sUpdatePeriod)
+        {
+            return;
+        }
+    }
+
+    mMasterProbe->mOrigin.load3(gAgent.getPositionAgent().mV);
+    mMasterProbe->captureGeometry();
+
+    const bool radiance_pass = isRadiancePass();
+    mRealtimeUpdate = true;
+    for (U32 pass = 0; pass < 2; ++pass)
+    {
+        mRadiancePass = (pass == 1);
+        for (U32 face = 0; face < 6; ++face)
+        {
+            updateProbeFace(mMasterProbe, face);
+        }
+    }
+    mRealtimeUpdate = false;
+    mRadiancePass = radiance_pass;
+
+    mMasterProbe->commitCapture();
+    mMasterProbe->mComplete = true;
+    mMasterProbe->mLastUpdateTime = gFrameTimeSeconds;
+}
+
+// Keeps a 3x3x3 block of 16 m grid cells around the camera. Each cell is a probe with no owner: it captures the
+// full scene at its centre, and surfaces sample it like any other automatic probe.
+void LLSphereProbes::updateCellGrid(const LLVector4a& camera_pos)
+{
+    static LLCachedControl<bool> cell_grid(gSavedSettings, "RenderReflectionCellGrid", false);
+    if (!cell_grid)
+    {
+        mCellProbes.clear(); // the entries are deleted once nothing else holds them
+        return;
+    }
+
+    const F32 cell_size = 16.f;
+    const S32 reach = 1;
+    const F32* c = camera_pos.getF32ptr();
+    const std::array<S32, 3> cam = {
+        (S32)floorf(c[0] / cell_size), (S32)floorf(c[1] / cell_size), (S32)floorf(c[2] / cell_size) };
+
+    // release cells the camera has moved away from
+    for (auto it = mCellProbes.begin(); it != mCellProbes.end(); )
+    {
+        bool outside = false;
+        for (S32 a = 0; a < 3; ++a)
+        {
+            outside |= llabs(it->first[a] - cam[a]) > reach + 1;
+        }
+        it = outside ? mCellProbes.erase(it) : std::next(it);
+    }
+
+    // create the cells around the camera that do not exist yet
+    for (S32 x = -reach; x <= reach; ++x)
+    {
+        for (S32 y = -reach; y <= reach; ++y)
+        {
+            for (S32 z = -reach; z <= reach; ++z)
+            {
+                std::array<S32, 3> key = { cam[0] + x, cam[1] + y, cam[2] + z };
+                if (mCellProbes.count(key))
+                {
+                    continue;
+                }
+
+                LLReflectionMap* probe = new LLReflectionMap();
+                probe->mCell = true;
+                probe->mPriority = 0;
+                probe->mOrigin.set((key[0] + 0.5f) * cell_size, (key[1] + 0.5f) * cell_size, (key[2] + 0.5f) * cell_size, 1.f);
+                probe->mRadius = cell_size * F_SQRT3 * 0.5f;
+                probe->mBoxExtent.splat(probe->mRadius);
+                mCellProbes[key] = probe;
+                mCreateList.push_back(probe);
+            }
+        }
+    }
+}
+
+void LLSphereProbes::update()
 {
     LL_RECORD_BLOCK_TIME(FTM_REFLECTION_PROBE_UPDATE);
 
     // updateProbeFace() below uses CopySubresourceRegion-based copies (see DXCubeArrayTexture.h) instead
     // of glCopyTexSubImage3D - the destination is never bound as an SRV, avoiding the "resource bound
     // as both OM output and SRV input" hazard.
-    //
-    // Still deliberately NOT done here (tracked as #147b and separate
-    // follow-ups, not bugs to "fix" reactively if noticed):
-    //   - Real per-pixel multi-probe blend (nearest-probe search, box/
-    //     sphere influence volumes, neighbor blending) - reflectionProbeF.hlsl
-    //     samples a single default probe (array slice 0) for v1, not the
-    //     full 900+-line GLSL-derived per-pixel selection math.
-    //   - Local-light contribution during capture - inherits
-    //     DXPipeline::renderDeferredLighting()'s own "v1, ambient+sun only"
-    //     scope (dxpipeline.cpp), not this task's problem.
-    //   - dxdrawpoolbump.cpp's/pipeline.cpp's use_legacy_env_map overrides -
-    //     left as-is deliberately; revisit once this v1 is visually
-    //     confirmed stable, not bundled into the same round.
     if (!LLPipeline::sReflectionProbesEnabled || gTeleportDisplay || LLStartUp::getStartupState() < STATE_PRECACHE)
     {
         return;
@@ -250,103 +339,30 @@ void LLReflectionMapManager::update()
     mResetFade = llmin((F32)(mResetFade + gFrameIntervalSeconds * 2.f), 1.f);
 
     {
+        // Slot count is the RenderReflectionProbeCount setting. Which probes use the slots is decided by
+        // isRelevant(), so the level no longer changes the slot count.
         U32 probe_count_temp = mDynamicProbeCount;
-        if (mRenderReflectionProbeDynamicAllocation > -1)
-        {
-            if (mRenderReflectionProbeLevel == 0)
-            {
-                mDynamicProbeCount = 1;
-            }
-            else if (mRenderReflectionProbeLevel == 1)
-            {
-                mDynamicProbeCount = (U32)mProbes.size();
-            }
-            else if (mRenderReflectionProbeLevel == 2)
-            {
-                mDynamicProbeCount = llmax((U32)mProbes.size(), 128);
-            }
-            else
-            {
-                mDynamicProbeCount = 256;
-            }
-
-            if (mRenderReflectionProbeDynamicAllocation > 1)
-            {
-                // Round mDynamicProbeCount to the nearest increment of 16
-                mDynamicProbeCount = ((mDynamicProbeCount + mRenderReflectionProbeDynamicAllocation / 2) / mRenderReflectionProbeDynamicAllocation) * 16;
-                mDynamicProbeCount = llclamp(mDynamicProbeCount, 1, mRenderReflectionProbeCount);
-            }
-            else
-    {
-                mDynamicProbeCount = llclamp(mDynamicProbeCount + mRenderReflectionProbeDynamicAllocation, 1, mRenderReflectionProbeCount);
-            }
-        }
-        else
-        {
-            mDynamicProbeCount = mRenderReflectionProbeCount;
-        }
-
-        mDynamicProbeCount = llmin(mDynamicProbeCount, LL_MAX_REFLECTION_PROBE_COUNT);
+        mDynamicProbeCount = llmin(mRenderReflectionProbeCount, (U32)LL_MAX_REFLECTION_PROBE_COUNT);
 
         if (mDynamicProbeCount != probe_count_temp)
-            mResetFade = 1.f;
+            mResetFade = 0.f;
     }
 
     initReflectionMaps();
 
     static LLCachedControl<bool> render_hdr(gSavedSettings, "RenderHDREnabled", true);
 
-    if (!mRenderTarget.isComplete())
+    if (!mCapture.isAllocated())
     {
-        U32 color_fmt = render_hdr ? GL_R11F_G11F_B10F : GL_RGB8;
-        U32 targetRes = mProbeResolution * 4; // super sample
-        mRenderTarget.allocate(targetRes, targetRes, color_fmt, true);
-    }
-
-    if (mMipChain.empty())
-    {
-        U32 res = mProbeResolution;
-
-        // Read the texture's real allocated mip count (see mMaxProbeLOD's identical pattern in
-        // initReflectionMaps()) rather than recomputing log2(res) - a recomputed guess can under-count
-        // by one, leaving this scratch chain one mip short of the array's real final mip.
-        U32 count = mTexture->getDXTexture()->getMipLevels();
-
-        mMipChain.resize(count);
-        for (U32 i = 0; i < count; ++i)
-        {
-            // DX_RENDER-only format override: DXCubeArrayTexture::create() (mTexture/mIrradianceMaps)
-            // deliberately uses R16G16B16A16_FLOAT/R8G8B8A8_UNORM rather than GL's
-            // R11F_G11F_B10F/RGB8-equivalent D3D11 formats (GenerateMips isn't guaranteed for
-            // R11G11B10_FLOAT at feature-level 11 baseline), so this mip chain must request the
-            // matching GL_RGBA16F/GL_RGBA format or CopySubresourceRegion rejects it as non-castable.
-            // Same format already used for mRT->screen/mRT->deferredLight (pipeline.cpp's
-            // `hdr ? GL_RGBA16F : GL_RGBA`). GL build is unchanged (GL_R11F_G11F_B10F/GL_RGB8).
-#ifdef DX_RENDER
-            mMipChain[i].allocate(res, res, render_hdr ? GL_RGBA16F : GL_RGBA);
-#else
-            mMipChain[i].allocate(res, res, render_hdr ? GL_R11F_G11F_B10F : GL_RGB8);
-#endif
-            res /= 2;
-        }
+        // Mip count is read from the radiance array (see mMaxProbeLOD in initReflectionMaps()).
+        mCapture.allocate(mProbeResolution, mCubes.radiance().getMipLevels(), render_hdr,
+                          LLProbeCapture::SUPER_SAMPLE, render_hdr ? GL_R11F_G11F_B10F : GL_RGB8);
     }
 
     llassert(mProbes[0] == mDefaultProbe);
 
     LLVector4a camera_pos;
     camera_pos.load3(LLViewerCamera::instance().getOrigin().mV);
-
-    // process kill list
-    for (auto& probe : mKillList)
-    {
-        auto const & iter = std::find(mProbes.begin(), mProbes.end(), probe);
-        if (iter != mProbes.end())
-        {
-            deleteProbe((U32)(iter - mProbes.begin()));
-        }
-    }
-
-    mKillList.clear();
 
     // process create list
     for (auto& probe : mCreateList)
@@ -356,6 +372,8 @@ void LLReflectionMapManager::update()
 
     mCreateList.clear();
 
+    updateCellGrid(camera_pos);
+
     if (mProbes.empty())
     {
         return;
@@ -364,12 +382,17 @@ void LLReflectionMapManager::update()
 
     bool did_update = false;
 
-    bool realtime = mRenderReflectionProbeDetail >= (S32)LLReflectionMapManager::DetailLevel::REALTIME;
+    bool realtime = mRenderReflectionProbeDetail >= (S32)LLSphereProbes::DetailLevel::REALTIME;
 
     LLReflectionMap* closestDynamic = nullptr;
 
     LLReflectionMap* oldestProbe = nullptr;
     LLReflectionMap* oldestOccluded = nullptr;
+
+    // The default probe is a normal candidate, but only once its update period has passed (or while it
+    // is still incomplete, since everything else depends on it).
+    static LLCachedControl<F32> sUpdatePeriod(gSavedSettings, "RenderDefaultProbeUpdatePeriod", 2.f);
+    const bool default_due = !mDefaultProbe->mComplete || (gFrameTimeSeconds - mDefaultProbe->mLastUpdateTime) >= sUpdatePeriod;
 
     if (mUpdatingProbe != nullptr)
     {
@@ -377,16 +400,46 @@ void LLReflectionMapManager::update()
         doProbeUpdate();
     }
 
-    // update distance to camera for all probes
+    // rank this frame's distances before sorting, so a probe created since the last frame is not ranked on its unset default
+    for (U32 i = 1; i < mProbes.size(); ++i)
+    {
+        LLVector4a d;
+        d.setSub(camera_pos, mProbes[i]->mOrigin);
+        mProbes[i]->mDistance = d.getLength3().getF32() - mProbes[i]->mRadius;
+    }
     std::sort(mProbes.begin()+1, mProbes.end(), CompareProbeDistance());
     llassert(mProbes[0] == mDefaultProbe);
-    llassert(mProbes[0]->mCubeArray == mTexture);
     llassert(mProbes[0]->mCubeIndex == 0);
 
     // make sure we're assigning cube slots to the closest probes
 
-    // first free any cube indices for distant probes
-    for (U32 i = mReflectionProbeCount; i < mProbes.size(); ++i)
+    // Probes the current level excludes give their cubes back at once. They never sample, and they must not hold slots.
+    for (U32 i = 1; i < mProbes.size(); ++i)
+    {
+        LLReflectionMap* probe = mProbes[i];
+        if (!probe->isRelevant() && probe->mCubeIndex != -1 && mUpdatingProbe != probe)
+        {
+            mCubeFree.push_back(probe->mCubeIndex);
+            probe->mCubeIndex = -1;
+            probe->mComplete = false;
+            probe->mFadeIn = 0;
+        }
+    }
+
+    // Closest probes still waiting for a cube. Only that many distant cubes are needed.
+    U32 count = llmin(mReflectionProbeCount, (U32)mProbes.size());
+    U32 waiting = 0;
+    for (U32 i = 1; i < count; ++i)
+    {
+        if (mProbes[i]->mCubeIndex == -1 && mProbes[i]->isRelevant())
+        {
+            ++waiting;
+        }
+    }
+
+    // Reclaim cubes from distant probes only while a closer probe needs one, furthest first. A distant probe
+    // keeps its complete cube otherwise, so a reshuffle of the distance order cannot discard a finished capture.
+    for (U32 i = (U32)mProbes.size(); i-- > count && (size_t)waiting > mCubeFree.size(); )
     {
         LLReflectionMap* probe = mProbes[i];
         llassert(probe != nullptr);
@@ -394,8 +447,6 @@ void LLReflectionMapManager::update()
         if (probe && probe->mCubeIndex != -1 && mUpdatingProbe != probe)
         { // free this index
             mCubeFree.push_back(probe->mCubeIndex);
-
-            probe->mCubeArray = nullptr;
             probe->mCubeIndex = -1;
             probe->mComplete = false;
             probe->mFadeIn = 0;
@@ -403,18 +454,16 @@ void LLReflectionMapManager::update()
     }
 
     // next distribute the free indices
-    U32 count = llmin(mReflectionProbeCount, (U32)mProbes.size());
 
     for (U32 i = 1; i < count && !mCubeFree.empty(); ++i)
     {
         // find the closest probe that needs a cube index
         LLReflectionMap* probe = mProbes[i];
 
-        if (probe->mCubeIndex == -1)
+        if (probe->mCubeIndex == -1 && probe->isRelevant())
         {
             S32 idx = allocateCubeIndex();
             llassert(idx > 0); //if we're still in this loop, mCubeFree should not be empty and allocateCubeIndex should be returning good indices
-            probe->mCubeArray = mTexture;
             probe->mCubeIndex = idx;
         }
     }
@@ -424,8 +473,8 @@ void LLReflectionMapManager::update()
     for (unsigned int i = 0; i < mProbes.size(); ++i)
     {
         LLReflectionMap* probe = mProbes[i];
-        if (probe->getNumRefs() == 1)
-        { // no references held outside manager, delete this probe
+        if (probe->getNumRefs() == 1 && probe != mUpdatingProbe)
+        { // no references held outside manager, delete this probe. A probe mid-capture is kept until it finishes.
             deleteProbe(i);
             --i;
             continue;
@@ -443,7 +492,7 @@ void LLReflectionMapManager::update()
         {
             if (probe->mViewerObject) //make sure probes track the viewer objects they are attached to
             {
-                probe->mOrigin.load3(probe->mViewerObject->getPositionAgent().mV);
+                probe->setOriginFromViewerObject();
             }
             d.setSub(camera_pos, probe->mOrigin);
             probe->mDistance = d.getLength3().getF32() - probe->mRadius;
@@ -463,7 +512,7 @@ void LLReflectionMapManager::update()
             probe->autoAdjustOrigin();
             probe->mFadeIn = llmin((F32) (probe->mFadeIn + gFrameIntervalSeconds), 1.f);
         }
-        if (probe->mOccluded && probe->mComplete)
+        if (probe->mOccluded && probe->mComplete && !probe->mStale)
         {
             if (oldestOccluded == nullptr)
             {
@@ -474,14 +523,14 @@ void LLReflectionMapManager::update()
                 oldestOccluded = probe;
             }
         }
-        else
+        else if (!did_update &&
+                 i < mReflectionProbeCount &&
+                 probe->mCubeIndex != -1 &&
+                 (probe != mDefaultProbe || default_due))
         {
-            if (!did_update &&
-                i < mReflectionProbeCount &&
-                (oldestProbe == nullptr ||
-                    check_priority(probe, oldestProbe)))
+            if (oldestProbe == nullptr || probe_update_score(probe) > probe_update_score(oldestProbe))
             {
-               oldestProbe = probe;
+                oldestProbe = probe;
             }
         }
 
@@ -493,48 +542,37 @@ void LLReflectionMapManager::update()
             closestDynamic = probe;
         }
 
-        if (mRenderReflectionProbeLevel == 0)
-        {
-            // only update default probe when coverage is set to none
-            llassert(probe == mDefaultProbe);
-            break;
-        }
     }
 
-    if (realtime && closestDynamic != nullptr)
+    updateMasterCube();
+
+    if (realtime && closestDynamic != nullptr && closestDynamic != mUpdatingProbe)
     {
         // update the closest dynamic probe realtime
         // should do a full irradiance pass on "odd" frames and a radiance pass on "even" frames
         closestDynamic->autoAdjustOrigin();
 
+        // the realtime cube is rendered from the live origin; its geometry is committed once its faces are written
+        closestDynamic->captureGeometry();
+
         // store and override the value of "isRadiancePass" -- parts of the render pipe rely on "isRadiancePass" to set
         // lighting values etc
         bool radiance_pass = isRadiancePass();
         mRadiancePass = mRealtimeRadiancePass;
+        mRealtimeUpdate = true;
         for (U32 i = 0; i < 6; ++i)
         {
             updateProbeFace(closestDynamic, i);
         }
+        mRealtimeUpdate = false;
+        closestDynamic->commitCapture();
         mRealtimeRadiancePass = !mRealtimeRadiancePass;
 
         // restore "isRadiancePass"
         mRadiancePass = radiance_pass;
     }
 
-    static LLCachedControl<F32> sUpdatePeriod(gSavedSettings, "RenderDefaultProbeUpdatePeriod", 2.f);
-    if ((gFrameTimeSeconds - mDefaultProbe->mLastUpdateTime) < sUpdatePeriod)
-    {
-        if (mRenderReflectionProbeLevel == 0)
-        { // when probes are disabled don't update the default probe more often than the prescribed update period
-            oldestProbe = nullptr;
-        }
-    }
-    else if (mRenderReflectionProbeLevel > 0)
-    { // when probes are enabled don't update the default probe less often than the prescribed update period
-      oldestProbe = mDefaultProbe;
-    }
-
-    // switch to updating the next oldest probe
+    // update the chosen probe
     if (!did_update && oldestProbe != nullptr)
     {
         LLReflectionMap* probe = oldestProbe;
@@ -542,7 +580,6 @@ void LLReflectionMapManager::update()
 
         probe->autoAdjustOrigin();
 
-        sUpdateCount++;
         mUpdatingProbe = probe;
         doProbeUpdate();
     }
@@ -555,16 +592,15 @@ void LLReflectionMapManager::update()
     }
 }
 
-void LLReflectionMapManager::refreshSettings()
+void LLSphereProbes::refreshSettings()
 {
     mRenderReflectionProbeDetail = gSavedSettings.getS32("RenderReflectionProbeDetail");
     mRenderReflectionProbeLevel = gSavedSettings.getS32("RenderReflectionProbeLevel");
     mRenderReflectionProbeCount = gSavedSettings.getU32("RenderReflectionProbeCount");
-    mRenderReflectionProbeDynamicAllocation = gSavedSettings.getS32("RenderReflectionProbeDynamicAllocation");
     cleanupQueryPool();
 }
 
-LLReflectionMap* LLReflectionMapManager::addProbe(LLSpatialGroup* group)
+LLReflectionMap* LLSphereProbes::addProbe(LLSpatialGroup* group)
 {
     if (gGLManager.mGLVersion < 4.05f || !LLPipeline::sReflectionProbesEnabled)
     {
@@ -599,29 +635,28 @@ LLReflectionMap* LLReflectionMapManager::addProbe(LLSpatialGroup* group)
     return probe;
 }
 
-U32 LLReflectionMapManager::probeCount()
+U32 LLSphereProbes::probeCount()
 {
     return mDynamicProbeCount;
 }
 
-U32 LLReflectionMapManager::probeMemory()
+U32 LLSphereProbes::probeMemory()
 {
-    return (mDynamicProbeCount * 6 * (mProbeResolution * mProbeResolution) * 4) / 1024 / 1024 + (mDynamicProbeCount * 6 * (LL_IRRADIANCE_MAP_RESOLUTION * LL_IRRADIANCE_MAP_RESOLUTION) * 4) / 1024 / 1024;
+    // Matches the allocations in initReflectionMaps(): radiance has a full mip chain and two scratch
+    // cubes, irradiance has no mips. HDR is R16G16B16A16_FLOAT (8 bytes/texel), otherwise 4.
+    static LLCachedControl<bool> render_hdr(gSavedSettings, "RenderHDREnabled", true);
+    U64 bytes_per_texel = render_hdr ? 8 : 4;
+    U64 radiance_texels = U64(mReflectionProbeCount + 2) * 6 * mProbeResolution * mProbeResolution * 4 / 3;
+    U64 irradiance_texels = U64(mReflectionProbeCount) * 6 * LL_IRRADIANCE_MAP_RESOLUTION * LL_IRRADIANCE_MAP_RESOLUTION;
+    return (U32)((radiance_texels + irradiance_texels) * bytes_per_texel / (1024 * 1024));
 }
 
-GLuint LLReflectionMapManager::allocateQuery()
+GLuint LLSphereProbes::allocateQuery()
 {
     if (mQueryPool.empty())
     {
         GLuint query = 0;
-        // raw glGenQueries() is a null extension-function-pointer crash under DX_RENDER - route through
-        // DXOcclusionQuery instead, same as LLReflectionMap::doOcclusion() (this is the allocation side
-        // of the same query pool).
-#ifdef DX_RENDER
         DXOcclusionQuery::genQueries(1, &query);
-#else
-        glGenQueries(1, &query);
-#endif
         return query;
     }
 
@@ -630,7 +665,7 @@ GLuint LLReflectionMapManager::allocateQuery()
     return query;
 }
 
-void LLReflectionMapManager::recycleQuery(GLuint query)
+void LLSphereProbes::recycleQuery(GLuint query)
 {
     mQueryPool.push_back(query);
 }
@@ -643,7 +678,7 @@ struct CompareProbeDepth
     }
 };
 
-void LLReflectionMapManager::getReflectionMaps(std::vector<LLReflectionMap*>& maps)
+void LLSphereProbes::getReflectionMaps(std::vector<LLReflectionMap*>& maps)
 {
 
     LLMatrix4a modelview;
@@ -652,18 +687,24 @@ void LLReflectionMapManager::getReflectionMaps(std::vector<LLReflectionMap*>& ma
 
     U32 count = 0;
     U32 lastIdx = 0;
+
+    // While the master cube is on and complete it is the only probe sampled, apart from the sky. Otherwise a finished
+    // local automatic probe wins every indoor pixel: the shader breaks full-coverage ties by smaller radius.
+    const bool master_only = mMasterProbe.notNull() && mMasterProbe->mComplete && mMasterProbe->mCubeIndex > 0;
+
     for (U32 i = 0; count < maps.size() && i < mProbes.size(); ++i)
     {
-        mProbes[i]->mLastBindTime = gFrameTimeSeconds; // something wants to use this probe, indicate it's been requested
 
-        if (mProbes[i]->mCubeIndex != -1)
+        // only the closest mReflectionProbeCount probes are sampled, even if distant ones still hold a cube
+        if (i < mReflectionProbeCount && mProbes[i]->mCubeIndex != -1
+            && (!master_only || mProbes[i] == mDefaultProbe || mProbes[i] == mMasterProbe))
         {
-            if (!mProbes[i]->mOccluded && mProbes[i]->mComplete)
+            if (probeUsable(mProbes[i]) && mProbes[i]->mComplete)
             {
                 maps[count++] = mProbes[i];
-                modelview.affineTransform(mProbes[i]->mOrigin, oa);
-                mProbes[i]->mMinDepth = -oa.getF32ptr()[2] - mProbes[i]->mRadius;
-                mProbes[i]->mMaxDepth = -oa.getF32ptr()[2] + mProbes[i]->mRadius;
+                modelview.affineTransform(mProbes[i]->sampleOrigin(), oa);
+                mProbes[i]->mMinDepth = -oa.getF32ptr()[2] - mProbes[i]->sampleRadius();
+                mProbes[i]->mMaxDepth = -oa.getF32ptr()[2] + mProbes[i]->sampleRadius();
             }
         }
         else
@@ -679,14 +720,30 @@ void LLReflectionMapManager::getReflectionMaps(std::vector<LLReflectionMap*>& ma
         mProbes[i]->mProbeIndex = -1;
     }
 
-    if (count > 1)
-    {
-        std::sort(maps.begin(), maps.begin() + count, CompareProbeDepth());
-    }
-
+    // preProbeSample() appends list index 0 as the default probe, so the default stays first and only
+    // the remaining probes are depth-sorted.
+    U32 first_sorted = 0;
     for (U32 i = 0; i < count; ++i)
     {
-        maps[i]->mProbeIndex = i;
+        if (maps[i] == mDefaultProbe.get())
+        {
+            std::swap(maps[0], maps[i]);
+            first_sorted = 1;
+            break;
+        }
+    }
+
+    if (count - first_sorted > 1)
+    {
+        std::sort(maps.begin() + first_sorted, maps.begin() + count, CompareProbeDepth());
+    }
+
+    // Only sphere-volume probes get an index in the sphere uniform block. Box probes get -1 here and
+    // are indexed by LLBoxProbes.
+    U32 sphere_count = 0;
+    for (U32 i = 0; i < count; ++i)
+    {
+        maps[i]->mProbeIndex = maps[i]->isBoxVolume() ? -1 : (S32)sphere_count++;
     }
 
     // null terminate list
@@ -696,7 +753,7 @@ void LLReflectionMapManager::getReflectionMaps(std::vector<LLReflectionMap*>& ma
     }
 }
 
-LLReflectionMap* LLReflectionMapManager::registerSpatialGroup(LLSpatialGroup* group)
+LLReflectionMap* LLSphereProbes::registerSpatialGroup(LLSpatialGroup* group)
 {
     if (!group)
     {
@@ -716,7 +773,7 @@ LLReflectionMap* LLReflectionMapManager::registerSpatialGroup(LLSpatialGroup* gr
     return addProbe(group);
 }
 
-LLReflectionMap* LLReflectionMapManager::registerViewerObject(LLViewerObject* vobj)
+LLReflectionMap* LLSphereProbes::registerViewerObject(LLViewerObject* vobj)
 {
     if (!LLPipeline::sReflectionProbesEnabled)
     {
@@ -727,7 +784,7 @@ LLReflectionMap* LLReflectionMapManager::registerViewerObject(LLViewerObject* vo
 
     LLReflectionMap* probe = new LLReflectionMap();
     probe->mViewerObject = vobj;
-    probe->mOrigin.load3(vobj->getPositionAgent().mV);
+    probe->setOriginFromViewerObject();
 
     if (gCubeSnapshot)
     { //snapshot is in progress, mProbes is being iterated over, defer insertion until next update
@@ -741,7 +798,7 @@ LLReflectionMap* LLReflectionMapManager::registerViewerObject(LLViewerObject* vo
     return probe;
 }
 
-S32 LLReflectionMapManager::allocateCubeIndex()
+S32 LLSphereProbes::allocateCubeIndex()
 {
     if (!mCubeFree.empty())
     {
@@ -753,7 +810,7 @@ S32 LLReflectionMapManager::allocateCubeIndex()
     return -1;
 }
 
-void LLReflectionMapManager::deleteProbe(U32 i)
+void LLSphereProbes::deleteProbe(U32 i)
 {
     LLReflectionMap* probe = mProbes[i];
 
@@ -767,6 +824,7 @@ void LLReflectionMapManager::deleteProbe(U32 i)
     {
         mUpdatingProbe = nullptr;
         mUpdatingFace = 0;
+        mRadiancePass = false; // the next probe starts with its irradiance half
     }
 
     // remove from any Neighbors lists
@@ -782,10 +840,20 @@ void LLReflectionMapManager::deleteProbe(U32 i)
 }
 
 
-void LLReflectionMapManager::doProbeUpdate()
+void LLSphereProbes::doProbeUpdate()
 {
     LL_RECORD_BLOCK_TIME(FTM_REFLECTION_PROBE_GEN);
     llassert(mUpdatingProbe != nullptr);
+
+    // The origin is decided once, at the start of the irradiance pass, and shared by both halves of the capture.
+    if (mUpdatingFace == 0 && !isRadiancePass())
+    {
+        if (mUpdatingProbe == mDefaultProbe)
+        {
+            touch_default_probe(mUpdatingProbe, true);
+        }
+        mUpdatingProbe->captureGeometry();
+    }
 
     updateProbeFace(mUpdatingProbe, mUpdatingFace);
 
@@ -801,6 +869,7 @@ void LLReflectionMapManager::doProbeUpdate()
         mUpdatingFace = 0;
         if (isRadiancePass())
         {
+            mUpdatingProbe->commitCapture();
             mUpdatingProbe->mComplete = true;
             mUpdatingProbe = nullptr;
             mRadiancePass = false;
@@ -824,9 +893,10 @@ void LLReflectionMapManager::doProbeUpdate()
 // The next six passes render the scene with both radiance and irradiance into the same scratch space cube map and generate a simple mip chain.
 // At the end of these passes, a radiance map is generated for this probe and placed into the radiance cube map array at the index for this probe.
 // In effect this simulates single-bounce lighting.
-void LLReflectionMapManager::updateProbeFace(LLReflectionMap* probe, U32 face)
+void LLSphereProbes::updateProbeFace(LLReflectionMap* probe, U32 face)
 {
     // hacky hot-swap of camera specific render targets
+    LLPipeline::RenderTargetPack* prev_rt = gPipeline.mRT;
     gPipeline.mRT = &gPipeline.mAuxillaryRT;
 
     mLightScale = 1.f;
@@ -836,32 +906,62 @@ void LLReflectionMapManager::updateProbeFace(LLReflectionMap* probe, U32 face)
         mLightScale = max_local_light_ambiance / probe->getAmbiance();
     }
 
+    // Content tier (RenderReflectionProbeLevel), applied to every probe the same way:
+    //   0: sky and clouds. 1: adds terrain. 2: adds water. 3: everything, no mask.
+    // Water is only drawn in its own tier. Its surface samples the screen copy during a capture, so the
+    // refraction branch is skipped there (probe_capture in waterF.hlsl).
+    const bool tiered = mRenderReflectionProbeLevel < 3;
     if (probe == mDefaultProbe)
     {
         touch_default_probe(probe);
+    }
 
+    // Whether the master cube captures avatars and particles, separately switchable per Detail mode: a perf
+    // choice, since avatars are the most expensive thing in the capture. Static and dynamic excludes them by
+    // default; Realtime includes them by default.
+    static LLCachedControl<bool> exclude_avatar_dynamic(gSavedSettings, "RenderReflectionExcludeAvatarDynamic", false);
+    static LLCachedControl<bool> exclude_avatar_realtime(gSavedSettings, "RenderReflectionExcludeAvatarRealtime", true);
+    const bool detail_is_dynamic = mRenderReflectionProbeDetail == (S32)DetailLevel::STATIC_AND_DYNAMIC;
+    const bool detail_is_realtime = mRenderReflectionProbeDetail >= (S32)DetailLevel::REALTIME;
+    const bool force_dynamic = (probe == mMasterProbe.get())
+        && ((detail_is_dynamic && !exclude_avatar_dynamic) || (detail_is_realtime && !exclude_avatar_realtime));
+
+    if (tiered)
+    {
         gPipeline.pushRenderTypeMask();
 
-        //only render sky, water, terrain, and clouds
-        gPipeline.andRenderTypeMask(LLPipeline::RENDER_TYPE_SKY, LLPipeline::RENDER_TYPE_WL_SKY,
-            LLPipeline::RENDER_TYPE_WATER, LLPipeline::RENDER_TYPE_VOIDWATER, LLPipeline::RENDER_TYPE_CLOUDS, LLPipeline::RENDER_TYPE_TERRAIN, LLPipeline::END_RENDER_TYPES);
+        if (mRenderReflectionProbeLevel >= 2)
+        {
+            gPipeline.andRenderTypeMask(LLPipeline::RENDER_TYPE_SKY, LLPipeline::RENDER_TYPE_WL_SKY,
+                LLPipeline::RENDER_TYPE_CLOUDS, LLPipeline::RENDER_TYPE_TERRAIN,
+                LLPipeline::RENDER_TYPE_WATER, LLPipeline::RENDER_TYPE_VOIDWATER, LLPipeline::END_RENDER_TYPES);
+        }
+        else if (mRenderReflectionProbeLevel == 1)
+        {
+            gPipeline.andRenderTypeMask(LLPipeline::RENDER_TYPE_SKY, LLPipeline::RENDER_TYPE_WL_SKY,
+                LLPipeline::RENDER_TYPE_CLOUDS, LLPipeline::RENDER_TYPE_TERRAIN, LLPipeline::END_RENDER_TYPES);
+        }
+        else
+        {
+            gPipeline.andRenderTypeMask(LLPipeline::RENDER_TYPE_SKY, LLPipeline::RENDER_TYPE_WL_SKY,
+                LLPipeline::RENDER_TYPE_CLOUDS, LLPipeline::END_RENDER_TYPES);
+        }
 
-        probe->update(mRenderTarget.getWidth(), face);
+        probe->update(mCapture.getSuperSampleResolution(), face, force_dynamic);
 
         gPipeline.popRenderTypeMask();
     }
     else
     {
-        llassert(mRenderReflectionProbeLevel > 0); // should never update a probe that's not the default probe if reflection coverage is none
-        probe->update(mRenderTarget.getWidth(), face);
+        probe->update(mCapture.getSuperSampleResolution(), face, force_dynamic);
     }
 
-    gPipeline.mRT = &gPipeline.mMainRT;
+    gPipeline.mRT = prev_rt;
 
     S32 sourceIdx = mReflectionProbeCount;
 
-    if (probe != mUpdatingProbe)
-    { // this is the "realtime" probe that's updating every frame, use the secondary scratch space channel
+    if (mRealtimeUpdate)
+    { // the realtime probe updates every frame: use the secondary scratch space channel
         sourceIdx += 1;
     }
 
@@ -870,114 +970,12 @@ void LLReflectionMapManager::updateProbeFace(LLReflectionMap* probe, U32 face)
     LLGLDisable cull(GL_CULL_FACE);
     LLGLDisable blend(GL_BLEND);
 
-    // downsample to placeholder map
-    {
-        gDX.matrixMode(gDX.MM_MODELVIEW);
-        gDX.pushMatrix();
-        gDX.loadIdentity();
-
-        gDX.matrixMode(gDX.MM_PROJECTION);
-        gDX.pushMatrix();
-        gDX.loadIdentity();
-
-        gDX.flush();
-        U32 res = mProbeResolution * 2;
-
-        static LLStaticHashedString resScale("resScale");
-        static LLStaticHashedString direction("direction");
-        static LLStaticHashedString znear("znear");
-        static LLStaticHashedString zfar("zfar");
-
-        LLRenderTarget* screen_rt = &gPipeline.mAuxillaryRT.screen;
-
-        // Cube face SELECTION is correct/stable per-direction - any content mis-orientation is a
-        // WITHIN-FACE problem (the right face is chosen, its own image is rotated/mirrored wrong), not
-        // a sample-direction/slot-selection problem; don't re-attempt v.x/v.y/v.z sign flips in
-        // tapRefMap()/tapIrradianceMap() without new evidence.
-
-        // perform a gaussian blur on the super sampled render before downsampling
-        {
-            gGaussianProgram.bind();
-            gGaussianProgram.uniform1f(resScale, 1.f / (mProbeResolution * 2));
-            S32 diffuseChannel = gGaussianProgram.enableTexture(LLShaderMgr::DEFERRED_DIFFUSE, LLTexUnit::TT_TEXTURE);
-
-            // horizontal
-            gGaussianProgram.uniform2f(direction, 1.f, 0.f);
-            gDX.getTexUnit(diffuseChannel)->bind(screen_rt);
-            mRenderTarget.bindTarget();
-            gPipeline.mScreenTriangleVB->setBuffer();
-            gPipeline.mScreenTriangleVB->drawArrays(LLRender::TRIANGLES, 0, 3);
-            mRenderTarget.flush();
-
-            // vertical
-            gGaussianProgram.uniform2f(direction, 0.f, 1.f);
-            gDX.getTexUnit(diffuseChannel)->bind(&mRenderTarget);
-            screen_rt->bindTarget();
-            gPipeline.mScreenTriangleVB->setBuffer();
-            gPipeline.mScreenTriangleVB->drawArrays(LLRender::TRIANGLES, 0, 3);
-            screen_rt->flush();
-        }
-
-
-        // Must track the texture's real allocated mip count (see mMaxProbeLOD in initReflectionMaps()),
-        // not a recomputed log2(mProbeResolution) guess - `mip` below (`i - (mMipChain.size() - mips)`)
-        // needs `mips` consistent with mMipChain.size() or every scratch mip shifts by one slot.
-        S32 mips = (S32)mTexture->getDXTexture()->getMipLevels();
-
-        gReflectionMipProgram.bind();
-        S32 diffuseChannel = gReflectionMipProgram.enableTexture(LLShaderMgr::DEFERRED_DIFFUSE, LLTexUnit::TT_TEXTURE);
-
-        for (int i = 0; i < mMipChain.size(); ++i)
-        {
-            mMipChain[i].bindTarget();
-            if (i == 0)
-            {
-                gDX.getTexUnit(diffuseChannel)->bind(screen_rt);
-            }
-            else
-            {
-                gDX.getTexUnit(diffuseChannel)->bind(&(mMipChain[i - 1]));
-            }
-
-
-            gReflectionMipProgram.uniform1f(resScale, 1.f/(mProbeResolution*2));
-
-            gPipeline.mScreenTriangleVB->setBuffer();
-            gPipeline.mScreenTriangleVB->drawArrays(LLRender::TRIANGLES, 0, 3);
-
-            res /= 2;
-
-            GLint mip = i - (static_cast<GLint>(mMipChain.size()) - mips);
-
-            if (mip >= 0)
-            {
-#ifdef DX_RENDER
-                // glCopyTexSubImage3D has no DX_RENDER translation; copySliceFromBoundRenderTarget()
-                // resolves mMipChain[i] (already bound as render target above) via
-                // OMGetRenderTargets() instead of binding mTexture as an SRV, avoiding the "resource
-                // bound as both OM output and SRV input" hazard by construction (see
-                // DXCubeArrayTexture.h).
-                mTexture->getDXTexture()->copySliceFromBoundRenderTarget(mip, sourceIdx * 6 + face, (UINT)mMipChain[i].getWidth(), (UINT)mMipChain[i].getHeight());
-#else
-                mTexture->bind(0);
-                glCopyTexSubImage3D(GL_TEXTURE_CUBE_MAP_ARRAY, mip, 0, 0, sourceIdx * 6 + face, 0, 0, res, res);
-                mTexture->unbind();
-#endif
-            }
-            mMipChain[i].flush();
-        }
-
-        gDX.popMatrix();
-        gDX.matrixMode(gDX.MM_MODELVIEW);
-        gDX.popMatrix();
-
-        gDX.getTexUnit(diffuseChannel)->unbind(LLTexUnit::TT_TEXTURE);
-        gReflectionMipProgram.unbind();
-    }
+    // Blur, downsample and copy this face into the scratch cube (see LLProbeCapture).
+    mCapture.resolveFace(gPipeline.mAuxillaryRT.screen, mCubes.radiance(), sourceIdx * 6 + face);
 
     if (face == 5)
     {
-        mMipChain[0].bindTarget();
+        mCapture.getMips()[0].bindTarget();
         // Negative-height viewport is deliberate - matches DXContext::setViewport(...,true)'s
         // semantics. Moving this flip into radianceGenV.hlsl as a shader-side y negation instead
         // breaks hero-probe mirror orientation.
@@ -985,9 +983,9 @@ void LLReflectionMapManager::updateProbeFace(LLReflectionMap* probe, U32 face)
         {
             D3D11_VIEWPORT vp = {};
             vp.TopLeftX = 0.0f;
-            vp.TopLeftY = (float)mMipChain[0].getHeight();
-            vp.Width = (float)mMipChain[0].getWidth();
-            vp.Height = -(float)mMipChain[0].getHeight();
+            vp.TopLeftY = (float)mCapture.getMips()[0].getHeight();
+            vp.Width = (float)mCapture.getMips()[0].getWidth();
+            vp.Height = -(float)mCapture.getMips()[0].getHeight();
             vp.MinDepth = 0.0f;
             vp.MaxDepth = 1.0f;
             gDXDevice.getContext()->RSSetViewports(1, &vp);
@@ -999,23 +997,22 @@ void LLReflectionMapManager::updateProbeFace(LLReflectionMap* probe, U32 face)
         {
             //generate radiance map (even if this is not the irradiance map, we need the mip chain for the irradiance map)
             gRadianceGenProgram.bind();
+            LLProbeCubeStore::setGeneratorConvention(gRadianceGenProgram);
             mVertexBuffer->setBuffer();
 
             S32 channel = gRadianceGenProgram.enableTexture(LLShaderMgr::REFLECTION_PROBES, LLTexUnit::TT_CUBE_MAP_ARRAY);
-            mTexture->bind(channel);
+            bindRadiance(channel);
             gRadianceGenProgram.uniform1i(sSourceIdx, sourceIdx);
             gRadianceGenProgram.uniform1f(LLShaderMgr::REFLECTION_PROBE_MAX_LOD, mMaxProbeLOD);
             gRadianceGenProgram.uniform1f(LLShaderMgr::REFLECTION_PROBE_STRENGTH, 1.f);
 
-            U32 res = mMipChain[0].getWidth();
+            U32 res = mCapture.getMips()[0].getWidth();
 
-            for (int i = 0; i < mMipChain.size(); ++i)
+            for (int i = 0; i < mCapture.getMips().size(); ++i)
             {
                 static LLStaticHashedString sMipLevel("mipLevel");
-                static LLStaticHashedString sRoughness("roughness");
                 static LLStaticHashedString sWidth("u_width");
 
-                gRadianceGenProgram.uniform1f(sRoughness, (F32)i / (F32)(mMipChain.size() - 1));
                 gRadianceGenProgram.uniform1f(sMipLevel, (F32)i);
                 gRadianceGenProgram.uniform1i(sWidth, mProbeResolution);
 
@@ -1033,27 +1030,27 @@ void LLReflectionMapManager::updateProbeFace(LLReflectionMap* probe, U32 face)
 
                     mVertexBuffer->drawArrays(gDX.TRIANGLE_STRIP, 0, 4);
 
-                    // mMipChain[0] stays bound as render target for every iteration of this loop
+                    // mCapture.getMips()[0] stays bound as render target for every iteration of this loop
                     // (never rebound per-i); only the viewport (RSSetViewports below) narrows what's
                     // drawn into it. Must pass the real, currently-shrunk `res,res` size here - passing
-                    // 0 (whole-subresource) copies mMipChain[0]'s full unshrunk size regardless of i,
+                    // 0 (whole-subresource) copies mCapture.getMips()[0]'s full unshrunk size regardless of i,
                     // which D3D11's debug layer rejects as "pSrcBox does not fit on the destination
                     // subresource".
 #ifdef DX_RENDER
-                    mTexture->getDXTexture()->copySliceFromBoundRenderTarget(i, probe->mCubeIndex * 6 + cf, res, res);
+                    mCubes.radiance().copySliceFromBoundRenderTarget(i, probe->mCubeIndex * 6 + cf, res, res);
 #else
                     glCopyTexSubImage3D(GL_TEXTURE_CUBE_MAP_ARRAY, i, 0, 0, probe->mCubeIndex * 6 + cf, 0, 0, res, res);
 #endif
                 }
 
-                if (i != mMipChain.size() - 1)
+                if (i != mCapture.getMips().size() - 1)
                 {
                     res /= 2;
                     // Raw glViewport has no DX_RENDER translation (OpenGL is fully delinked from
                     // DX_RENDER=ON builds - a null function pointer, not a silent no-op).
 #ifdef DX_RENDER
                     {
-                        // Negative-height viewport is deliberate, matching mMipChain[0]'s viewport
+                        // Negative-height viewport is deliberate, matching mCapture.getMips()[0]'s viewport
                         // above (face==5 entry) - do not "fix" to a positive height.
                         D3D11_VIEWPORT vp = {};
                         vp.TopLeftX = 0.0f;
@@ -1076,24 +1073,28 @@ void LLReflectionMapManager::updateProbeFace(LLReflectionMap* probe, U32 face)
         {
             //generate irradiance map
             gIrradianceGenProgram.bind();
+            LLProbeCubeStore::setGeneratorConvention(gIrradianceGenProgram);
             S32 channel = gIrradianceGenProgram.enableTexture(LLShaderMgr::REFLECTION_PROBES, LLTexUnit::TT_CUBE_MAP_ARRAY);
-            mTexture->bind(channel);
+            bindRadiance(channel);
 
             gIrradianceGenProgram.uniform1i(sSourceIdx, sourceIdx);
             gIrradianceGenProgram.uniform1f(LLShaderMgr::REFLECTION_PROBE_MAX_LOD, mMaxProbeLOD);
+            // Source face width for the sample LOD. Must match the scratch cube, not a fixed size.
+            static LLStaticHashedString sIrrWidth("u_width");
+            gIrradianceGenProgram.uniform1i(sIrrWidth, mProbeResolution);
 
             mVertexBuffer->setBuffer();
             int start_mip = 0;
             // find the mip target to start with based on irradiance map resolution
-            for (start_mip = 0; start_mip < mMipChain.size(); ++start_mip)
+            for (start_mip = 0; start_mip < mCapture.getMips().size(); ++start_mip)
             {
-                if (mMipChain[start_mip].getWidth() == LL_IRRADIANCE_MAP_RESOLUTION)
+                if (mCapture.getMips()[start_mip].getWidth() == LL_IRRADIANCE_MAP_RESOLUTION)
                 {
                     break;
                 }
             }
 
-            //for (int i = start_mip; i < mMipChain.size(); ++i)
+            //for (int i = start_mip; i < mCapture.getMips().size(); ++i)
             {
                 int i = start_mip;
 #ifdef DX_RENDER
@@ -1102,15 +1103,15 @@ void LLReflectionMapManager::updateProbeFace(LLReflectionMap* probe, U32 face)
                     // above.
                     D3D11_VIEWPORT vp = {};
                     vp.TopLeftX = 0.0f;
-                    vp.TopLeftY = (float)mMipChain[i].getHeight();
-                    vp.Width = (float)mMipChain[i].getWidth();
-                    vp.Height = -(float)mMipChain[i].getHeight();
+                    vp.TopLeftY = (float)mCapture.getMips()[i].getHeight();
+                    vp.Width = (float)mCapture.getMips()[i].getWidth();
+                    vp.Height = -(float)mCapture.getMips()[i].getHeight();
                     vp.MinDepth = 0.0f;
                     vp.MaxDepth = 1.0f;
                     gDXDevice.getContext()->RSSetViewports(1, &vp);
                 }
 #else
-                glViewport(0, 0, mMipChain[i].getWidth(), mMipChain[i].getHeight());
+                glViewport(0, 0, mCapture.getMips()[i].getWidth(), mCapture.getMips()[i].getHeight());
 #endif
                 for (int cf = 0; cf < 6; ++cf)
                 { // for each cube face
@@ -1124,19 +1125,19 @@ void LLReflectionMapManager::updateProbeFace(LLReflectionMap* probe, U32 face)
                     mVertexBuffer->drawArrays(gDX.TRIANGLE_STRIP, 0, 4);
 
 #ifdef DX_RENDER
-                    // No mIrradianceMaps->bind()/mTexture->bind() rebind needed - the copy method only
+                    // No irradiance/radiance bind needed - the copy method only
                     // reads OMGetRenderTargets() and issues a CopySubresourceRegion, never touching
-                    // texture-unit/SRV state, so mTexture's SRV bind (needed for the next face's draw)
-                    // is undisturbed. mMipChain[0] stays bound as render target throughout (shared with
-                    // the radiance-gen loop, never rebound to mMipChain[start_mip]) - must pass the
-                    // real mMipChain[i] width/height here, not 0 (whole-subresource), since the
-                    // irradiance-map resolution is smaller than mMipChain[0]'s full size.
-                    mIrradianceMaps->getDXTexture()->copySliceFromBoundRenderTarget(i - start_mip, probe->mCubeIndex * 6 + cf, (UINT)mMipChain[i].getWidth(), (UINT)mMipChain[i].getHeight());
+                    // texture-unit/SRV state, so the radiance SRV bind (needed for the next face's draw)
+                    // is undisturbed. mCapture.getMips()[0] stays bound as render target throughout (shared with
+                    // the radiance-gen loop, never rebound to mCapture.getMips()[start_mip]) - must pass the
+                    // real mCapture.getMips()[i] width/height here, not 0 (whole-subresource), since the
+                    // irradiance-map resolution is smaller than mCapture.getMips()[0]'s full size.
+                    mCubes.irradiance().copySliceFromBoundRenderTarget(i - start_mip, probe->mCubeIndex * 6 + cf, (UINT)mCapture.getMips()[i].getWidth(), (UINT)mCapture.getMips()[i].getHeight());
 #else
-                    S32 res = mMipChain[i].getWidth();
-                    mIrradianceMaps->bind(channel);
+                    S32 res = mCapture.getMips()[i].getWidth();
+                    bindIrradiance(channel);
                     glCopyTexSubImage3D(GL_TEXTURE_CUBE_MAP_ARRAY, i - start_mip, 0, 0, probe->mCubeIndex * 6 + cf, 0, 0, res, res);
-                    mTexture->bind(channel);
+                    bindRadiance(channel);
 #endif
                 }
             }
@@ -1144,35 +1145,52 @@ void LLReflectionMapManager::updateProbeFace(LLReflectionMap* probe, U32 face)
             gIrradianceGenProgram.unbind();
         }
 
-        mMipChain[0].flush();
+        mCapture.getMips()[0].flush();
     }
 }
 
-void LLReflectionMapManager::reset()
+void LLSphereProbes::reset()
 {
     mReset = true;
 }
 
-void LLReflectionMapManager::pause(F32 duration)
+void LLSphereProbes::pause(F32 duration)
 {
     mPaused = true;
     mResumeTime = gFrameTimeSeconds + duration;
 }
 
-void LLReflectionMapManager::resume()
+void LLSphereProbes::resume()
 {
     mPaused = false;
 }
 
-void LLReflectionMapManager::shift(const LLVector4a& offset)
+void LLSphereProbes::shift(const LLVector4a& offset)
 {
+    mCellProbes.clear(); // cells are keyed in the old frame and are rebuilt around the camera
+
     for (auto& probe : mProbes)
     {
         probe->mOrigin.add(offset);
+
+        // the frozen capture values live in the same region frame as the cube, so they shift too.
+        // mCaptureWorld is column-major with translation in elements 12-14.
+        probe->mCaptureOrigin.add(offset);
+        F32* world = (F32*)probe->mCaptureWorld.mMatrix;
+        world[12] += offset.getF32ptr()[0];
+        world[13] += offset.getF32ptr()[1];
+        world[14] += offset.getF32ptr()[2];
+
+        // a capture in flight commits these, so they shift with the live values
+        probe->mPendingOrigin.add(offset);
+        F32* pending_world = (F32*)probe->mPendingWorld.mMatrix;
+        pending_world[12] += offset.getF32ptr()[0];
+        pending_world[13] += offset.getF32ptr()[1];
+        pending_world[14] += offset.getF32ptr()[2];
     }
 }
 
-void LLReflectionMapManager::updateNeighbors(LLReflectionMap* probe)
+void LLSphereProbes::updateNeighbors(LLReflectionMap* probe)
 {
     if (mDefaultProbe == probe)
     {
@@ -1209,7 +1227,7 @@ void LLReflectionMapManager::updateNeighbors(LLReflectionMap* probe)
     }
 }
 
-void LLReflectionMapManager::updateUniforms()
+void LLSphereProbes::updateUniforms()
 {
     if (!LLPipeline::sReflectionProbesEnabled)
     {
@@ -1244,7 +1262,7 @@ void LLReflectionMapManager::updateUniforms()
     LLSettingsSky::ptr_t psky = environment.getCurrentSky();
 
     static LLCachedControl<bool> should_auto_adjust(gSavedSettings, "RenderSkyAutoAdjustLegacy", false);
-    F32 minimum_ambiance = psky->getReflectionProbeAmbiance(should_auto_adjust);
+    F32 minimum_ambiance = psky ? psky->getReflectionProbeAmbiance(should_auto_adjust) : 0.f;
 
     bool is_ambiance_pass = gCubeSnapshot && !isRadiancePass();
     F32 ambscale = is_ambiance_pass ? 0.f : 1.f;
@@ -1259,6 +1277,12 @@ void LLReflectionMapManager::updateUniforms()
         if (refmap == nullptr)
         {
             break;
+        }
+
+        // box probes are packed by LLBoxProbes
+        if (refmap->isBoxVolume())
+        {
+            continue;
         }
 
         if (refmap != mDefaultProbe)
@@ -1284,39 +1308,16 @@ void LLReflectionMapManager::updateUniforms()
         }
 
         llassert(refmap->mProbeIndex == count);
-        llassert(mReflectionMaps[refmap->mProbeIndex] == refmap);
 
         llassert(refmap->mCubeIndex >= 0); // should always be  true, if not, getReflectionMaps is bugged
 
         {
-            if (refmap->mViewerObject && refmap->mViewerObject->getVolume())
-            { // have active manual probes live-track the object they're associated with
-                LLVOVolume* vobj = (LLVOVolume*)refmap->mViewerObject.get();
-
-                refmap->mOrigin.load3(vobj->getPositionAgent().mV);
-
-                if (vobj->getReflectionProbeIsBox())
-                {
-                    LLVector3 s = vobj->getScale().scaledVec(LLVector3(0.5f, 0.5f, 0.5f));
-                    refmap->mRadius = s.magVec();
-                    refmap->mBoxExtent.load3(s.mV); // real per-axis half-extent, see mBoxExtent's own header comment.
-                }
-                else
-                {
-                    refmap->mRadius = refmap->mViewerObject->getScale().mV[0] * 0.5f;
-                    refmap->mBoxExtent.splat(refmap->mRadius); // sphere probe, isotropic is correct here.
-                }
-
-                // mPriority is the only source of the shader's manual-vs-automatic classification
-                // (sampleProbes()'s `p = clamp(abs(refIndex[i].w), 0, 1)`); its other writer,
-                // LLReflectionMap::autoAdjustOrigin()'s manual branch, only runs after a probe's first
-                // capture completes. Set it here too so a manual probe is classified correctly from
-                // the moment it exists, not only after its first capture cycle.
-                refmap->mPriority = 1;
-            }
-            modelview.affineTransform(refmap->mOrigin, oa);
+            // have active manual probes live-track the object they're associated with
+            refmap->trackViewerObject();
+            // the cube was captured from mCaptureOrigin, so parallax must use the same centre
+            modelview.affineTransform(refmap->mCaptureOrigin, oa);
             mProbeData.refSphere[count].set(oa.getF32ptr());
-            mProbeData.refSphere[count].mV[3] = refmap->mRadius;
+            mProbeData.refSphere[count].mV[3] = refmap->mCaptureRadius;
         }
 
         mProbeData.refIndex[count][0] = refmap->mCubeIndex;
@@ -1324,18 +1325,11 @@ void LLReflectionMapManager::updateUniforms()
         mProbeData.refIndex[count][1] = nc / 4;
         mProbeData.refIndex[count][3] = refmap->mPriority;
 
-        // for objects that are reflection probes, use the volume as the influence volume of the probe
-        // only possibile influence volumes are boxes and spheres, so detect boxes and treat everything else as spheres
-        if (refmap->getBox(mProbeData.refBox[count]))
-        { // negate priority to indicate this probe has a box influence volume
-            mProbeData.refIndex[count][3] = -mProbeData.refIndex[count][3];
-        }
-
         mProbeData.refParams[count].set(
             llmax(minimum_ambiance, refmap->getAmbiance())*ambscale, // ambiance scale
             radscale, // radiance scale
             refmap->mFadeIn, // fade in weight
-            oa.getF32ptr()[2] - refmap->mRadius); // z near
+            oa.getF32ptr()[2] - refmap->mCaptureRadius); // z near
 
         S32 ni = nc; // neighbor ("index") - index into refNeighbor to write indices for current reflection probe's neighbors
         {
@@ -1352,7 +1346,7 @@ void LLReflectionMapManager::updateUniforms()
                 }
 
                 GLint idx = neighbor->mProbeIndex;
-                if (idx == -1 || neighbor->mOccluded || neighbor->mCubeIndex == -1)
+                if (idx == -1 || !probeUsable(neighbor) || neighbor->mCubeIndex == -1)
                 {
                     continue;
                 }
@@ -1389,41 +1383,20 @@ void LLReflectionMapManager::updateUniforms()
         count++;
     }
 
-#if 0
-    {
-        // fill in gaps in refBucket
-        S32 probe_idx = mReflectionProbeCount;
-
-        for (int i = 0; i < 256; ++i)
-        {
-            if (i < count)
-            { // for debugging, store depth of mReflectionsMaps[i]
-                rpd.refBucket[i][1] = (S32) (mReflectionMaps[i]->mDepth * 10);
-            }
-
-            if (rpd.refBucket[i][0] == mReflectionProbeCount)
-            {
-                rpd.refBucket[i][0] = probe_idx;
-            }
-            else
-            {
-                probe_idx = rpd.refBucket[i][0];
-            }
-        }
-    }
-#endif
 
     mProbeData.refmapCount = count;
 
-    gPipeline.mHeroProbeManager.updateUniforms();
+    gPipeline.mMirrorProbes.updateUniforms();
 
     // Get the hero data.
 
-    mProbeData.heroBox = gPipeline.mHeroProbeManager.mHeroData.heroBox;
-    mProbeData.heroSphere = gPipeline.mHeroProbeManager.mHeroData.heroSphere;
-    mProbeData.heroShape  = gPipeline.mHeroProbeManager.mHeroData.heroShape;
-    mProbeData.heroMipCount   = gPipeline.mHeroProbeManager.mHeroData.heroMipCount;
-    mProbeData.heroProbeCount = gPipeline.mHeroProbeManager.mHeroData.heroProbeCount;
+    mProbeData.heroBox = gPipeline.mMirrorProbes.mHeroData.heroBox;
+    mProbeData.heroSphere = gPipeline.mMirrorProbes.mHeroData.heroSphere;
+    mProbeData.heroShape  = gPipeline.mMirrorProbes.mHeroData.heroShape;
+    mProbeData.heroMipCount   = gPipeline.mMirrorProbes.mHeroData.heroMipCount;
+    mProbeData.heroProbeCount = gPipeline.mMirrorProbes.mHeroData.heroProbeCount;
+
+    mBoxProbes.update(mReflectionMaps, LL_MAX_REFLECTION_PROBE_COUNT, radscale);
 
     //copy rpd into uniform buffer object
     // mDXUBO mirrors mUBO's GL lifecycle: create once (D3D11_USAGE_DYNAMIC, matching GL_STREAM_DRAW),
@@ -1454,23 +1427,9 @@ void LLReflectionMapManager::updateUniforms()
     }
 #endif
 
-#if 0
-    if (!gCubeSnapshot)
-    {
-        for (auto& probe : mProbes)
-        {
-            LLViewerObject* vobj = probe->mViewerObject;
-            if (vobj)
-            {
-                F32 time = (F32)gFrameTimeSeconds - probe->mLastUpdateTime;
-                vobj->setDebugText(llformat("%d/%d/%d/%.1f - %.1f/%.1f", probe->mCubeIndex, probe->mProbeIndex, (U32) probe->mNeighbors.size(), probe->mMinDepth, probe->mMaxDepth, time), time > 1.f ? LLColor4::white : LLColor4::green);
-            }
-        }
-    }
-#endif
 }
 
-void LLReflectionMapManager::setUniforms()
+void LLSphereProbes::setUniforms()
 {
     // Must explicitly clear the shader-side "probes_enabled" uniform before returning - it's a
     // separate control from sReflectionProbesEnabled and otherwise keeps whatever value was last
@@ -1511,6 +1470,7 @@ void LLReflectionMapManager::setUniforms()
 #else
     glBindBufferBase(GL_UNIFORM_BUFFER, LLHLSLShader::UB_REFLECTION_PROBES, mUBO);
 #endif
+    mBoxProbes.bind();
 
     // Probe control uniforms for shader tweaks (runtime adjustable)
     static LLCachedControl<bool> probes_enabled(gSavedSettings, "RenderReflectionProbesEnabled", true);
@@ -1518,6 +1478,7 @@ void LLReflectionMapManager::setUniforms()
     static LLCachedControl<F32> probe_saturation(gSavedSettings, "RenderReflectionProbeSaturation", 1.0f);
     static LLCachedControl<F32> probe_contrast(gSavedSettings, "RenderReflectionProbeContrast", 1.0f);
     static LLCachedControl<F32> probe_blur_lod_bias(gSavedSettings, "RenderReflectionProbeBlurLODBias", 0.0f);
+    static LLCachedControl<bool> probe_auto_parallax(gSavedSettings, "RenderReflectionAutoParallax", true);
     static LLCachedControl<F32> probe_ambient_mult(gSavedSettings, "RenderReflectionProbeAmbientMultiplier", 1.0f);
     // Blends this probe's detail-mip sample toward its own top mip (max_probe_lod, the fully
     // GGX-convolved whole-hemisphere average - see tapRefMap()) at a tunable 0-1 weight. Unlike
@@ -1526,29 +1487,40 @@ void LLReflectionMapManager::setUniforms()
     static LLCachedControl<F32> probe_equalize(gSavedSettings, "RenderReflectionProbeEqualize", 0.0f);
     // Visibility blend: 1.0=fully visible, 0.0=fully transparent. See reflectionProbeF.hlsl.
     static LLCachedControl<F32> probe_opacity(gSavedSettings, "RenderReflectionProbeOpacity", 1.0f);
-    // Debug toggle for sampleProbes()'s automatic-vs-manual blend-weight visualization - see its
-    // uniform comment in reflectionProbeF.hlsl.
-    static LLCachedControl<bool> debug_box_weight(gSavedSettings, "RenderDebugBoxProbeWeight", false);
+    // Material accept/reject gate for reflections. Both pairs default to 0/0 (no-op): see
+    // materialReflectionGate() in reflectionProbeF.hlsl.
+    static LLCachedControl<F32> gate_gloss_reject(gSavedSettings, "RenderReflectionGateGlossReject", 0.0f);
+    static LLCachedControl<F32> gate_gloss_accept(gSavedSettings, "RenderReflectionGateGlossAccept", 0.0f);
+    static LLCachedControl<F32> gate_metallic_reject(gSavedSettings, "RenderReflectionGateMetallicReject", 0.0f);
+    static LLCachedControl<F32> gate_metallic_accept(gSavedSettings, "RenderReflectionGateMetallicAccept", 0.0f);
 
     static LLStaticHashedString sProbesEnabled("probes_enabled");
     static LLStaticHashedString sProbeIntensity("probe_intensity");
     static LLStaticHashedString sProbeSaturation("probe_saturation");
     static LLStaticHashedString sProbeContrast("probe_contrast");
     static LLStaticHashedString sProbeBlurLODBias("probe_blur_lod_bias");
+    static LLStaticHashedString sProbeAutoParallax("probe_auto_parallax");
     static LLStaticHashedString sProbeAmbientMultiplier("probe_ambient_multiplier");
     static LLStaticHashedString sProbeEqualize("probe_equalize");
     static LLStaticHashedString sProbeOpacity("probe_opacity");
-    static LLStaticHashedString sDebugBoxWeight("debug_box_weight");
+    static LLStaticHashedString sGateGlossReject("reflection_gate_gloss_reject");
+    static LLStaticHashedString sGateGlossAccept("reflection_gate_gloss_accept");
+    static LLStaticHashedString sGateMetallicReject("reflection_gate_metallic_reject");
+    static LLStaticHashedString sGateMetallicAccept("reflection_gate_metallic_accept");
 
     LLHLSLShader::sCurBoundShaderPtr->uniform1i(sProbesEnabled, probes_enabled ? 1 : 0);
     LLHLSLShader::sCurBoundShaderPtr->uniform1f(sProbeIntensity, probe_intensity);
     LLHLSLShader::sCurBoundShaderPtr->uniform1f(sProbeSaturation, probe_saturation);
     LLHLSLShader::sCurBoundShaderPtr->uniform1f(sProbeContrast, probe_contrast);
     LLHLSLShader::sCurBoundShaderPtr->uniform1f(sProbeBlurLODBias, probe_blur_lod_bias);
+    LLHLSLShader::sCurBoundShaderPtr->uniform1f(sProbeAutoParallax, probe_auto_parallax ? 1.f : 0.f);
     LLHLSLShader::sCurBoundShaderPtr->uniform1f(sProbeAmbientMultiplier, probe_ambient_mult);
     LLHLSLShader::sCurBoundShaderPtr->uniform1f(sProbeEqualize, probe_equalize);
     LLHLSLShader::sCurBoundShaderPtr->uniform1f(sProbeOpacity, probe_opacity);
-    LLHLSLShader::sCurBoundShaderPtr->uniform1i(sDebugBoxWeight, debug_box_weight ? 1 : 0);
+    LLHLSLShader::sCurBoundShaderPtr->uniform1f(sGateGlossReject, gate_gloss_reject);
+    LLHLSLShader::sCurBoundShaderPtr->uniform1f(sGateGlossAccept, gate_gloss_accept);
+    LLHLSLShader::sCurBoundShaderPtr->uniform1f(sGateMetallicReject, gate_metallic_reject);
+    LLHLSLShader::sCurBoundShaderPtr->uniform1f(sGateMetallicAccept, gate_metallic_accept);
 
     // Upload max_probe_lod here too, not only from LLPipeline::bindDeferredShader() - any shader that
     // reaches sampleProbes()/tapRefMap() via this function alone (e.g. gDeferredPBRAlphaProgram) would
@@ -1595,55 +1567,9 @@ void renderReflectionProbe(LLReflectionMap* probe)
         gDX.flush();
     }
 
-#if 0
-    LLSpatialGroup* group = probe->mGroup;
-    if (group)
-    { // draw lines from corners of object aabb to reflection probe
-
-        const LLVector4a* bounds = group->getBounds();
-        LLVector4a o = bounds[0];
-
-        gDX.flush();
-        gDX.diffuseColor4f(0, 0, 1, 1);
-        F32* c = o.getF32ptr();
-
-        const F32* bc = bounds[0].getF32ptr();
-        const F32* bs = bounds[1].getF32ptr();
-
-        // daaw blue lines from corners to center of node
-        gDX.begin(gDX.LINES);
-        gDX.vertex3fv(c);
-        gDX.vertex3f(bc[0] + bs[0], bc[1] + bs[1], bc[2] + bs[2]);
-        gDX.vertex3fv(c);
-        gDX.vertex3f(bc[0] - bs[0], bc[1] + bs[1], bc[2] + bs[2]);
-        gDX.vertex3fv(c);
-        gDX.vertex3f(bc[0] + bs[0], bc[1] - bs[1], bc[2] + bs[2]);
-        gDX.vertex3fv(c);
-        gDX.vertex3f(bc[0] - bs[0], bc[1] - bs[1], bc[2] + bs[2]);
-
-        gDX.vertex3fv(c);
-        gDX.vertex3f(bc[0] + bs[0], bc[1] + bs[1], bc[2] - bs[2]);
-        gDX.vertex3fv(c);
-        gDX.vertex3f(bc[0] - bs[0], bc[1] + bs[1], bc[2] - bs[2]);
-        gDX.vertex3fv(c);
-        gDX.vertex3f(bc[0] + bs[0], bc[1] - bs[1], bc[2] - bs[2]);
-        gDX.vertex3fv(c);
-        gDX.vertex3f(bc[0] - bs[0], bc[1] - bs[1], bc[2] - bs[2]);
-        gDX.end();
-
-        //draw yellow line from center of node to reflection probe origin
-        gDX.flush();
-        gDX.diffuseColor4f(1, 1, 0, 1);
-        gDX.begin(gDX.LINES);
-        gDX.vertex3fv(c);
-        gDX.vertex3fv(po);
-        gDX.end();
-        gDX.flush();
-    }
-#endif
 }
 
-void LLReflectionMapManager::renderDebug()
+void LLSphereProbes::renderDebug()
 {
     gDebugProgram.bind();
 
@@ -1655,45 +1581,69 @@ void LLReflectionMapManager::renderDebug()
     gDebugProgram.unbind();
 }
 
-void LLReflectionMapManager::initReflectionMaps()
+bool LLSphereProbes::setRadiancePass(bool radiance)
 {
-    static LLCachedControl<U32> ref_probe_res(gSavedSettings, "RenderReflectionProbeResolution", 128U);
+    bool previous = mRadiancePass;
+    mRadiancePass = radiance;
+    return previous;
+}
+
+void LLSphereProbes::bindRadiance(S32 stage)
+{
+    gDX.getTexUnit(stage)->bindCubeArraySRV(mCubes.radianceSRV());
+}
+
+void LLSphereProbes::bindIrradiance(S32 stage)
+{
+    gDX.getTexUnit(stage)->bindCubeArraySRV(mCubes.irradianceSRV());
+}
+
+void LLSphereProbes::unbindProbeCubes(S32 stage)
+{
+    gDX.getTexUnit(stage)->unbind(LLTexUnit::TT_CUBE_MAP_ARRAY);
+}
+
+void LLSphereProbes::initReflectionMaps()
+{
+    static LLCachedControl<U32> ref_probe_res(gSavedSettings, "RenderReflectionProbeResolution", 256U);
     U32 probe_resolution = nhpo2(llclamp(ref_probe_res(), (U32)64, (U32)512));
-    if (mTexture.isNull() || mReflectionProbeCount != mDynamicProbeCount || mProbeResolution != probe_resolution || mReset)
+    static LLCachedControl<bool> render_hdr(gSavedSettings, "RenderHDREnabled", true);
+
+    // the cube array survives this reset only if nothing about it changes. The default probe's cube (index 0) goes
+    // blank with the array, so it may keep its complete state only when the array is kept.
+    const bool cubes_kept = mCubes.isAllocated() && mCubes.getResolution() == probe_resolution && mCubes.getCount() == mDynamicProbeCount;
+
+    if (!mCubes.isAllocated() || mReflectionProbeCount != mDynamicProbeCount || mRequestedResolution != probe_resolution || mReset)
     {
-        if(mProbeResolution != probe_resolution)
+        if(mRequestedResolution != probe_resolution)
         {
-            mRenderTarget.release();
-            mMipChain.clear();
+            mCapture.release();
         }
 
         gEXRImage = nullptr;
         mReset = false;
+        mResetFade = 0.f;
         mReflectionProbeCount = mDynamicProbeCount;
+        mRequestedResolution = probe_resolution;
         mProbeResolution = probe_resolution;
 
-        if (mTexture.isNull() ||
-            mTexture->getWidth() != mProbeResolution ||
-            mReflectionProbeCount + 2 != mTexture->getCount())
+        // Reallocates radiance (count + 2 scratch cubes) and irradiance (count cubes) together.
+        if (!mCubes.isAllocated() ||
+            mCubes.getResolution() != mProbeResolution ||
+            mCubes.getCount() != mReflectionProbeCount)
         {
-            if (mTexture)
+            // The GPU refuses some cube arrays (E_OUTOFMEMORY at 512 px with 256 slots). Step down until one fits,
+            // so probes keep sampling at a smaller size instead of going black.
+            while (!mCubes.allocate(mProbeResolution, mReflectionProbeCount, render_hdr) && mProbeResolution > 64)
             {
-                mTexture = new DXCubeMapArray(*mTexture, mProbeResolution, mReflectionProbeCount + 2);
-
-                mIrradianceMaps = new DXCubeMapArray(*mIrradianceMaps, LL_IRRADIANCE_MAP_RESOLUTION, mReflectionProbeCount);
+                LL_WARNS("Probes") << "reflection cube array " << mReflectionProbeCount << " slots at " << mProbeResolution
+                                   << " px did not fit, trying " << mProbeResolution / 2 << " px" << LL_ENDL;
+                mProbeResolution /= 2;
             }
-            else
+
+            if (!mCubes.isAllocated())
             {
-            mTexture = new DXCubeMapArray();
-
-            static LLCachedControl<bool> render_hdr(gSavedSettings, "RenderHDREnabled", true);
-
-            // store mReflectionProbeCount+2 cube maps, final two cube maps are used for render target and radiance map generation source)
-                // source)
-            mTexture->allocate(mProbeResolution, 3, mReflectionProbeCount + 2, true, render_hdr);
-
-            mIrradianceMaps = new DXCubeMapArray();
-            mIrradianceMaps->allocate(LL_IRRADIANCE_MAP_RESOLUTION, 3, mReflectionProbeCount, false, render_hdr);
+                LL_WARNS_ONCE("Probes") << "reflection cube array could not be allocated at any size" << LL_ENDL;
             }
         }
 
@@ -1702,7 +1652,7 @@ void LLReflectionMapManager::initReflectionMaps()
         // that formula assumes for a power-of-two resolution, which would shift the whole
         // roughness<->LOD curve (radianceGenF.hlsl/tapRefMap() via max_probe_lod) by one level and
         // leave the real highest mip permanently unwritten.
-        mMaxProbeLOD = (F32)mTexture->getDXTexture()->getMipLevels() - 1.f; // number of mips - 1
+        mMaxProbeLOD = (F32)mCubes.radiance().getMipLevels() - 1.f; // number of mips - 1
 
         // reset probe state
         mUpdatingFace = 0;
@@ -1711,14 +1661,13 @@ void LLReflectionMapManager::initReflectionMaps()
         mRealtimeRadiancePass = false;
 
         // if default probe already exists, remember whether or not it's complete (SL-20498)
-        bool default_complete = mDefaultProbe.isNull() ? false : mDefaultProbe->mComplete;
+        bool default_complete = cubes_kept && !mDefaultProbe.isNull() && mDefaultProbe->mComplete;
 
         for (auto& probe : mProbes)
         {
             probe->mLastUpdateTime = 0.f;
             probe->mComplete = false;
             probe->mProbeIndex = -1;
-            probe->mCubeArray = nullptr;
             probe->mCubeIndex = -1;
             probe->mNeighbors.clear();
             probe->mFadeIn = 0;
@@ -1737,7 +1686,6 @@ void LLReflectionMapManager::initReflectionMaps()
         llassert(mProbes[0] == mDefaultProbe);
 
         mDefaultProbe->mCubeIndex = 0;
-        mDefaultProbe->mCubeArray = mTexture;
         mDefaultProbe->mDistance = 64.f;
         mDefaultProbe->mRadius = 4096.f;
         mDefaultProbe->mProbeIndex = 0;
@@ -1767,18 +1715,14 @@ void LLReflectionMapManager::initReflectionMaps()
     }
 }
 
-void LLReflectionMapManager::cleanup()
+void LLSphereProbes::cleanup()
 {
     mVertexBuffer = nullptr;
-    mRenderTarget.release();
+    mCapture.release();
 
-    mMipChain.clear();
-
-    mTexture = nullptr;
-    mIrradianceMaps = nullptr;
+    mCubes.release();
 
     mProbes.clear();
-    mKillList.clear();
     mCreateList.clear();
 
     mReflectionMaps.clear();
@@ -1791,6 +1735,7 @@ void LLReflectionMapManager::cleanup()
     // correctly triggers updateUniforms() to recreate it next time, same as GL's mUBO==0 check.
 #ifdef DX_RENDER
     mDXUBO.destroy();
+    mBoxProbes.destroy();
 #else
     glDeleteBuffers(1, &mUBO);
 #endif
@@ -1802,25 +1747,17 @@ void LLReflectionMapManager::cleanup()
     initCubeFree();
 }
 
-void LLReflectionMapManager::cleanupQueryPool()
+void LLSphereProbes::cleanupQueryPool()
 {
     if (!mQueryPool.empty())
     {
         std::vector<GLuint> queries(mQueryPool.begin(), mQueryPool.end());
-        // raw glDeleteQueries() is a null extension-function-pointer crash under DX_RENDER - same bug
-        // class as allocateQuery()'s glGenQueries() and LLReflectionMap::doOcclusion()'s
-        // glBeginQuery()/glEndQuery(). This is the release side of the same query pool, only reached
-        // via refreshSettings() (e.g. toggling RenderReflectionProbeDetail) or teleport/shutdown.
-#ifdef DX_RENDER
         DXOcclusionQuery::deleteQueries(static_cast<int>(queries.size()), queries.data());
-#else
-        glDeleteQueries(static_cast<GLsizei>(queries.size()), queries.data());
-#endif
         mQueryPool.clear();
     }
 }
 
-void LLReflectionMapManager::doOcclusion()
+void LLSphereProbes::doOcclusion()
 {
     LLVector4a eye;
     eye.load3(LLViewerCamera::instance().getOrigin().mV);
@@ -1834,38 +1771,26 @@ void LLReflectionMapManager::doOcclusion()
     }
 }
 
-void LLReflectionMapManager::forceDefaultProbeAndUpdateUniforms(bool force)
+void LLSphereProbes::setDefaultProbeOnly(bool on)
 {
-    static std::vector<bool> mProbeWasOccluded;
-
-    if (force)
+    if (mDefaultProbeOnly != on)
     {
-        llassert(mProbeWasOccluded.empty());
-
-        for (size_t i = 0; i < mProbes.size(); ++i)
-        {
-            auto& probe = mProbes[i];
-            mProbeWasOccluded.push_back(probe->mOccluded);
-            if (probe != nullptr && probe != mDefaultProbe)
-            {
-                probe->mOccluded = true;
-            }
-        }
-
+        mDefaultProbeOnly = on;
         updateUniforms();
     }
-    else
-    {
-        llassert(mProbes.size() == mProbeWasOccluded.size());
+}
 
-        const size_t n = llmin(mProbes.size(), mProbeWasOccluded.size());
-        for (size_t i = 0; i < n; ++i)
-        {
-            auto& probe = mProbes[i];
-            llassert(probe->mOccluded == (probe != mDefaultProbe));
-            probe->mOccluded = mProbeWasOccluded[i];
-        }
-        mProbeWasOccluded.clear();
-        mProbeWasOccluded.shrink_to_fit();
+bool LLSphereProbes::probeUsable(const LLReflectionMap* probe) const
+{
+    if (probe == mDefaultProbe)
+    {
+        return true;
     }
+    if (mDefaultProbeOnly)
+    {
+        return false;
+    }
+    // Occlusion does not hide a probe from sampling. A probe's volume can cover a visible surface while its centre
+    // is behind walls, and sampling costs only a coverage test. Occlusion still steers which probe updates next.
+    return true;
 }

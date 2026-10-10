@@ -368,7 +368,7 @@ WorkQueue gMainloopWork("mainloop", 1024 * 1024);
 
 ////////////////////////////////////////////////////////////
 // Internal globals
-static std::string gArgs = "DX (4100) - Hradr";
+static std::string gArgs;
 const int MAX_MARKER_LENGTH = 1024;
 const std::string MARKER_FILE_NAME("KirstensS24.exec_marker");
 const std::string START_MARKER_FILE_NAME("KirstensS24.start_marker");
@@ -561,6 +561,21 @@ static void settings_to_globals()
 	// compilation, same timing requirement as sDebugLayerEnabled above.
 	DXShader::sShaderCacheEnabled = gSavedSettings.getBOOL("RenderDXShaderCacheEnabled");
 	DXSampler::setMaxAnisotropy(gSavedSettings.getS32("RenderAnisotropicLevel"));
+	// S24: AMD AGS device-creation extension params - read by DXDevice.cpp's
+	// own-device-creation branch and llwindowwin32.cpp's
+	// selectHighPerformanceAdapter(), same "before device creation" timing
+	// requirement as sDebugLayerEnabled above (these fill in
+	// AGSDX11ExtensionParams at the agsDriverExtensionsDX11_CreateDevice
+	// call sites). RenderAgsBreadcrumbMarkers is a troubleshooting-only
+	// toggle, default off; RenderAgsAsyncShaderCompile is a real benefit,
+	// default on.
+	DXDevice::sAgsAsyncShaderCompileEnabled = gSavedSettings.getBOOL("RenderAgsAsyncShaderCompile");
+	DXDevice::sAgsBreadcrumbMarkerCount = gSavedSettings.getBOOL("RenderAgsBreadcrumbMarkers") ? 64 : 0;
+	// S24: Depth Bounds Test for the local-light pass (DXPipeline::
+	// renderDeferredLighting(), newview/dxpipeline.cpp) - read per-frame
+	// there, no device-creation timing requirement, but kept alongside the
+	// other AGS/NVAPI feature flags for discoverability.
+	DXDevice::sDepthBoundsTestEnabled = gSavedSettings.getBOOL("RenderDepthBoundsTest");
 	// S24: LLImageDX::sCompressTextures (GL-era driver-hint compression) is
 	// gone - RenderCompressTextures now drives the real BC7 pipeline instead
 	// (DXBC7UploadManager::requestUpgrade() reads it directly from
@@ -1380,7 +1395,7 @@ bool LLAppViewer::doFrame()
 
 		{
 			LLPerfStats::RecordSceneTime idle_timer(LLPerfStats::StatType_t::RENDER_IDLE);
-			gPipeline.mReflectionMapManager.update();
+			gPipeline.mSphereProbes.update();
 			LLFloaterSnapshot::update();
 			LLFloaterSimpleSnapshot::update();
 		}
@@ -3648,8 +3663,9 @@ bool LLAppViewer::initConfiguration()
 #if LL_DEBUG
 	gWindowTitle += std::string(" [DEBUG]");
 #endif
-	if (!gArgs.empty())
 	{
+		const LLVersionInfo& version = LLVersionInfo::instance();
+		gArgs = "DX (" + std::to_string(version.getPatch()) + ") - " + version.getCodename();
 		gWindowTitle += std::string(" ") + gArgs;
 	}
 	LLStringUtil::truncate(gWindowTitle, 255);

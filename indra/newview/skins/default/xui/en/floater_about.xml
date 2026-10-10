@@ -85,13 +85,13 @@
        top_pad="10"
        width="465"
        word_wrap="true">
-S24(8) DX - Hradr
+S24(8) DX - @CODENAME@
 A Second Life client, brought to you by Kirstenlee.
 
-Core  : S-Series 
-Patch : 2026.10
-Build : 4100
-Version : Alpha 1.3
+Core  : S-Series
+Patch : @PATCH@
+Build : @BUILD@
+Version : @VERSION@
 	  </text_editor>
     </panel>
     <panel

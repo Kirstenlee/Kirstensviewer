@@ -2,22 +2,19 @@
 #include <d3d11.h>
 
 // Wraps a genuine D3D11 TextureCubeArray resource - LLCubeMapArray's
-// DX_RENDER backend, mirroring DXCubeTexture's single-cubemap pattern
-// (task #113) but for the reflection-probe manager's actual array type
-// (mTexture/mIrradianceMaps in llreflectionmapmanager.h).
+// DX_RENDER backend, mirroring DXCubeTexture's single-cubemap pattern but
+// for the reflection-probe manager's actual array type (mTexture/
+// mIrradianceMaps in llsphereprobes.h).
 //
-// S24 (2026-08-09, task #147 step 2): unlike DXCubeTexture::copyFace()
-// (which copies an already-uploaded 2D face texture in, one face at a
-// time, from LLCubeMap's own per-face LLImageGL storage), this class's
+// Unlike DXCubeTexture::copyFace() (which copies an already-uploaded 2D face
+// texture from LLCubeMap's own per-face LLImageDX storage), this class's
 // slices are populated by copying whatever's CURRENTLY BOUND AS RENDER
 // TARGET 0 at call time (copySliceFromBoundRenderTarget()) - mirrors
 // DXTexture::copySubImageFromFrameBuffer()'s OMGetRenderTargets()-based
-// pattern (DXTexture.cpp). This is a deliberate design choice, not an
-// oversight: it never needs the destination array bound as an SRV during
-// the copy, which sidesteps the "resource bound as both OM output and SRV
-// input simultaneously" hazard class entirely (the exact crash class that
-// made LLReflectionMapManager::update() gate itself off under DX_RENDER in
-// the first place) rather than requiring careful call ordering to avoid it.
+// pattern. This is deliberate: it never needs the destination array bound
+// as an SRV during the copy, sidestepping the "resource bound as both OM
+// output and SRV input simultaneously" hazard entirely rather than requiring
+// careful call ordering to avoid it.
 class DXCubeArrayTexture
 {
 public:
@@ -37,24 +34,21 @@ public:
     // OMGetRenderTargets()) into this array's (mip, arraySlice)
     // subresource. arraySlice is the caller's already-computed
     // "probe_index*6 + face" (or equivalent) index - this class has no
-    // opinion on probe/face layout, that's llreflectionmapmanager.cpp's
+    // opinion on probe/face layout, that's llsphereprobes.cpp's
     // job, matching DXCubeTexture::copyFace() taking a raw face index.
     //
-    // S24 (2026-08-10, task #147/#184 follow-up): src_width/src_height
-    // ADDED - the original "full-subresource copy, no D3D11_BOX" design
-    // assumed the bound render target is always exactly the right size for
-    // the destination mip. That's true for llreflectionmapmanager.cpp's
-    // per-mip mMipChain[] usage in isolation, but NOT for its actual usage
-    // pattern: mMipChain[0] (a single, FIXED-size scratch target) stays
-    // bound across an entire mip-generation loop while only a shrinking
-    // top-left sub-region (via RSSetViewports) is actually rendered into
-    // and meant to be copied out each iteration - exactly mirroring GL's
-    // own glCopyTexSubImage3D(..., width, height) call, which explicitly
-    // passes the shrinking region size rather than relying on an implicit
-    // "whole framebuffer" size. Passing 0 for either dimension falls back
-    // to the old whole-subresource behavior (matches the bound target's
-    // full size) for any caller where that assumption still genuinely
-    // holds.
+    // src_width/src_height: needed because llsphereprobes.cpp's
+    // mip-generation loop keeps a single FIXED-size scratch target
+    // (mMipChain[0]) bound while only a shrinking top-left sub-region (via
+    // RSSetViewports) is rendered into and copied out each iteration -
+    // mirroring GL's glCopyTexSubImage3D(..., width, height), which passes
+    // the shrinking region size explicitly rather than assuming "whole
+    // framebuffer". Passing 0 for either dimension falls back to whole-
+    // subresource copy, matching the bound target's full size.
+    //
+    // Returns false, with the reason logged, when the copy is not valid
+    // (bad index, no bound target, format mismatch, or the source does not
+    // fit the destination mip). An invalid copy is never issued to the GPU.
     bool copySliceFromBoundRenderTarget(int mip, int arraySlice, UINT src_width = 0, UINT src_height = 0);
 
     // Fills in the rest of the mip chain via the GPU's native mip
@@ -79,6 +73,9 @@ public:
 private:
     ID3D11Texture2D* mTexture = nullptr;
     ID3D11ShaderResourceView* mSRV = nullptr;
+    UINT mWidth = 0;
+    UINT mHeight = 0;
+    DXGI_FORMAT mFormat = DXGI_FORMAT_UNKNOWN;
     UINT mMipLevels = 1;
     UINT mArraySize = 0;
     bool mGenerateMips = false;

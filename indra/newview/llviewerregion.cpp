@@ -1365,7 +1365,7 @@ void LLViewerRegion::updateReflectionProbes(bool full_update)
 
             if (mReflectionMaps[idx].isNull())
             {
-                mReflectionMaps[idx] = gPipeline.mReflectionMapManager.addProbe();
+                mReflectionMaps[idx] = gPipeline.mSphereProbes.addProbe();
             }
 
             if (mReflectionMaps[idx])

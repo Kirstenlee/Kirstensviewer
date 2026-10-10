@@ -1,6 +1,6 @@
 /**
- * @file llreflectionmapmanager.h
- * @brief LLReflectionMapManager class declaration
+ * @file llsphereprobes.h
+ * @brief LLSphereProbes class declaration
  *
  * $LicenseInfo:firstyear=2022&license=viewerlgpl$
  * Second Life Viewer Source Code
@@ -28,7 +28,12 @@
 
 #include "llreflectionmap.h"
 #include "llrendertarget.h"
-#include "DXCubeMapArray.h"
+#include "llprobecapture.h"
+#include "llprobecube.h"
+#include "llboxprobes.h"
+
+#include <array>
+#include <map>
 
 #ifdef DX_RENDER
 #include "DXBuffer.h"
@@ -37,35 +42,22 @@
 class LLSpatialGroup;
 class LLViewerObject;
 
-// number of reflection probes to keep in vram
-#define LL_MAX_REFLECTION_PROBE_COUNT 256
-
 // reflection probe resolution
 #define LL_IRRADIANCE_MAP_RESOLUTION 16
 
-// reflection probe mininum scale
-#define LL_REFLECTION_PROBE_MINIMUM_SCALE 1.f;
-
 void renderReflectionProbe(LLReflectionMap* probe);
 
-class alignas(16) LLReflectionMapManager
+class alignas(16) LLSphereProbes
 {
     LL_ALIGN_NEW
 public:
-    // S24 (2026-08-15, task #165): mLightScale is private (only LLPipeline
-    // is a friend, per the reflection-probe-capture-only comment on the
-    // member itself) - DXPipeline needs to read it too, to darken local
-    // lights during probe capture the same way GL's LLPipeline::
-    // renderDeferredLighting() does. A scoped getter is a smaller surface
-    // area than adding DXPipeline as a second full friend class.
+    // mLightScale/updateUniforms() are private (LLPipeline-only friend) - DXPipeline needs both
+    // (to darken local lights during probe capture, and to trigger the once-per-frame rebuild
+    // LLPipeline::renderGeomDeferred() does under GL) but can't reach the GL call site under
+    // DX_RENDER. Scoped getter/forwarder is a smaller surface than a second full friend class.
     F32 getLightScale() const { return mLightScale; }
 
-    // S24 (2026-08-27, task #267 follow-up): updateUniforms() itself is
-    // private (LLPipeline-only friend, see above) - DXPipeline needs to
-    // trigger the same once-per-frame rebuild GL's own
-    // LLPipeline::renderGeomDeferred() does (pipeline.cpp), which it can't
-    // reach under DX_RENDER (early-returns before that point). Same scoped-
-    // forwarder pattern as getLightScale() rather than a second full friend.
+
     void updateUniformsPerFrame() { updateUniforms(); }
 
     enum class DetailLevel
@@ -83,10 +75,6 @@ public:
     // -Geenz 2025-03-10
     struct ReflectionProbeData
     {
-        // for box probes, matrix that transforms from camera space to a [-1, 1] cube representing the bounding box of
-        // the box probe
-        LLMatrix4 refBox[LL_MAX_REFLECTION_PROBE_COUNT];
-
         LLMatrix4 heroBox;
 
         // for sphere probes, origin (xyz) and radius (w) of refmaps in clip space
@@ -121,7 +109,7 @@ public:
     };
 
     // allocate an environment map of the given resolution
-    LLReflectionMapManager();
+    LLSphereProbes();
 
     // release any GL state
     void cleanup();
@@ -167,6 +155,16 @@ public:
     // probe debug display is active
     void renderDebug();
 
+    // Sets whether the next capture is a radiance pass (lights at full strength) or an irradiance
+    // pass. Returns the previous value, so an external capture (mirrors) can restore it afterwards.
+    bool setRadiancePass(bool radiance);
+
+    // Probe cube storage. Bind helpers bind the radiance and irradiance arrays to a texture stage.
+    bool hasProbeCubes() const { return mCubes.isAllocated(); }
+    void bindRadiance(S32 stage);
+    void bindIrradiance(S32 stage);
+    void unbindProbeCubes(S32 stage);
+
     // call once at startup to allocate cubemap arrays
     void initReflectionMaps();
 
@@ -176,10 +174,15 @@ public:
     // perform occlusion culling on all active reflection probes
     void doOcclusion();
 
-    // *HACK: "cull" all reflection probes except the default one. Only call
-    // this if you don't intend to call updateUniforms directly. Call again
-    // with false when done.
-    void forceDefaultProbeAndUpdateUniforms(bool force = true);
+    // True while this probe's faces are being rendered. Its origin is frozen for the whole capture.
+    bool isCapturing(const LLReflectionMap* probe) const { return mUpdatingProbe == probe; }
+
+    // Limits the uniforms to the default probe (used by material previews). Off by default.
+    void setDefaultProbeOnly(bool on);
+
+    // True if a probe may be sampled: the default probe always, others unless default-only is set
+    // or an occlusion query has found them hidden.
+    bool probeUsable(const LLReflectionMap* probe) const;
 
     U32 probeCount();
     U32 probeMemory();
@@ -190,7 +193,7 @@ public:
 
 private:
     friend class LLPipeline;
-    friend class LLHeroProbeManager;
+    friend class LLMirrorProbes; // renamed to LLMirrorProbes in the mirror port
 
     // initialize mCubeFree array to default values
     void initCubeFree();
@@ -216,20 +219,19 @@ private:
 
     std::deque<GLuint>                                    mQueryPool;
 
-    // render target for cube snapshots
-    // used to generate mipmaps without doing a copy-to-texture
-    LLRenderTarget mRenderTarget;
+    // face capture: super-sample blur, mip chain and copy into the scratch cube
+    LLProbeCapture mCapture;
 
-    std::vector<LLRenderTarget> mMipChain;
+    // box-volume probes: own packing and uniform block, indexed separately from sphere probes
+    LLBoxProbes mBoxProbes;
 
-    // storage for reflection probe radiance maps (plus two scratch space cubemaps)
-    LLPointer<DXCubeMapArray> mTexture;
+
 
     // vertex buffer for pushing verts to filter shaders
     LLPointer<LLVertexBuffer> mVertexBuffer;
 
-    // storage for reflection probe irradiance maps
-    LLPointer<DXCubeMapArray> mIrradianceMaps;
+    // radiance and irradiance cube storage
+    LLProbeCubeStore mCubes;
 
     // list of free cubemap indices
     std::list<S32> mCubeFree;
@@ -244,7 +246,6 @@ private:
     std::vector<LLPointer<LLReflectionMap> > mProbes;
 
     // list of reflection maps to kill
-    std::vector<LLPointer<LLReflectionMap> > mKillList;
 
     // list of reflection maps to create
     std::vector<LLPointer<LLReflectionMap> > mCreateList;
@@ -252,11 +253,9 @@ private:
     // handle to UBO
     U32 mUBO = 0;
 #ifdef DX_RENDER
-    // S24 (2026-08-09, task #147b): real D3D11 constant buffer backing
-    // mUBO's data (mProbeData/ReflectionProbeData) - see updateUniforms()/
-    // setUniforms() in llreflectionmapmanager.cpp. mUBO itself stays 0
-    // under DX_RENDER (nothing GL-side to allocate), this is the real
-    // resource.
+    // Real D3D11 constant buffer backing mUBO's data (mProbeData/ReflectionProbeData) - see
+    // updateUniforms()/setUniforms() in llsphereprobes.cpp. mUBO itself stays 0 under
+    // DX_RENDER.
     DXBuffer mDXUBO;
 #endif
 
@@ -264,6 +263,9 @@ private:
     std::vector<LLReflectionMap*> mReflectionMaps;
 
     LLReflectionMap* mUpdatingProbe = nullptr;
+    // True only while the realtime probe is updated. Selects the secondary scratch slot explicitly,
+    // instead of comparing against mUpdatingProbe, which can still hold last frame's probe.
+    bool mRealtimeUpdate = false;
     U32 mUpdatingFace = 0;
 
     // if true, we're generating the radiance map for the current probe, otherwise we're generating the irradiance map.
@@ -283,15 +285,26 @@ private:
     U32 mReflectionProbeCount;
 
     U32 mDynamicProbeCount;
+    bool mDefaultProbeOnly = false;
 
     // cached settings from gSavedSettings
     S32 mRenderReflectionProbeDetail = -1;
-    S32 mRenderReflectionProbeLevel = 3;
+    S32 mRenderReflectionProbeLevel = 0;
     U32 mRenderReflectionProbeCount = 256U;
-    S32 mRenderReflectionProbeDynamicAllocation = -1;
 
     // resolution of reflection probes
     U32 mProbeResolution = 128;
+
+    // resolution the setting asks for; mProbeResolution can be lower when the GPU cannot hold the requested array
+    U32 mRequestedResolution = 0;
+
+    // grid cells around the camera (RenderReflectionCellGrid). Keys are integer cell coordinates.
+    std::map<std::array<S32, 3>, LLPointer<LLReflectionMap>> mCellProbes;
+    void updateCellGrid(const LLVector4a& camera_pos);
+
+    // one realtime cube centred on the avatar (RenderReflectionMasterCube), recaptured every frame
+    LLPointer<LLReflectionMap> mMasterProbe;
+    void updateMasterCube();
 
     // maximum LoD of reflection probes (mip levels - 1)
     F32 mMaxProbeLOD = 6.f;
@@ -303,7 +316,6 @@ private:
     bool mReset = false;
 
     float mResetFade = 1.f;
-    float mGlobalFadeTarget = 1.f;
 
     // if true, only update the default probe
     bool mPaused = false;

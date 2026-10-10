@@ -26,8 +26,10 @@
 
 #pragma once
 
-#include "DXCubeMapArray.h"
 #include "llmemory.h"
+
+// maximum number of probes in each uniform block (sphere and box)
+#define LL_MAX_REFLECTION_PROBE_COUNT 256
 
 class LLSpatialGroup;
 class LLViewerObject;
@@ -78,6 +80,18 @@ public:
     // return true if this probe is active for rendering
     bool isActive() const;
 
+    // true if this probe is a manual probe whose object volume is a box (see LLBoxProbes)
+    bool isBoxVolume() const;
+
+    // copies the viewer object's position, radius and box extent into this probe
+    // (manual probes only; no-op otherwise)
+    void trackViewerObject();
+
+    // sphere probes centre on the object's visible bounding box, not its pivot (position).
+    // Falls back to the position when no extents exist yet, and is not used for box volumes.
+    void setOriginFromViewerObject();
+    void computeOriginFromViewerObject();
+
     // perform occlusion query/readback
     void doOcclusion(const LLVector4a& eye);
 
@@ -97,45 +111,59 @@ public:
     // radius of this probe's affected area
     F32 mRadius = 16.f;
 
-    // S24 (2026-09-05, task #271 - real fix, not a workaround): for a BOX-
-    // shaped manual probe, mRadius above is the DIAGONAL half-length
-    // (getBox()/autoAdjustOrigin()'s `s.magVec()`) - a single scalar
-    // collapsed from the box's real, usually-anisotropic per-axis half-
-    // extent, used correctly as a parallax-correction/weight radius
-    // elsewhere, but WRONG as an occlusion-query proxy box size (doOcclusion()
-    // used to pass mRadius,mRadius,mRadius as BOX_SIZE - an isotropic cube
-    // for what's usually a non-cubic room, e.g. wide/long with a modest
-    // ceiling height, drawing a proxy far larger than the real room in its
-    // shorter axis and producing unreliable, frequently-false-occluded query
-    // results). Stores the REAL per-axis half-extent (box probes only -
-    // stays 0 for sphere/automatic probes, where mRadius,mRadius,mRadius IS
-    // the correct isotropic proxy, matching this project's established
-    // pattern for LLOcclusionCullingGroup's spatial-partition occlusion,
-    // llvieweroctree.cpp, which always uses real per-axis bounds, never a
-    // collapsed radius).
+    // mRadius is a single isotropic scalar (diagonal half-length) - correct for sphere/automatic
+    // probes' occlusion proxy, but wrong for box probes (a non-cubic room needs its real per-axis
+    // half-extent, not an isotropic cube, or occlusion queries against the shorter axis are
+    // unreliable). mBoxExtent stores that per-axis extent for box probes only; stays 0 for
+    // sphere/automatic probes where mRadius,mRadius,mRadius is already correct.
     LLVector4a mBoxExtent;
 
     // last time this probe was updated (or when its update timer got reset)
     F32 mLastUpdateTime = 0.f;
 
     // last time this probe was bound for rendering
-    F32 mLastBindTime = 0.f;
 
-    // cube map used to sample this environment map
-    LLPointer<DXCubeMapArray> mCubeArray;
+    // slot in the probe cube store, or -1 if not stored there
     S32 mCubeIndex = -1; // index into cube map array or -1 if not currently stored in cube map array
 
     // probe has had at least one full update and is ready to render
     bool mComplete = false;
 
+    // Origin the current cube was captured from. The shader uploads this, so parallax matches the capture.
+    LLVector4a mCaptureOrigin;
+
+    // Object-to-agent transform (with the box scale) the current box cube was captured with.
+    LLMatrix4 mCaptureWorld;
+    bool mCaptureWorldValid = false;
+    // Records origin, radius and box transform at the start of a capture into pending fields. They become the
+    // sampled values only when the new cube completes (commitCapture), so the old cube keeps its own geometry.
+    void captureGeometry();
+    void commitCapture();
+    F32 mCaptureRadius = 0.f;
+    LLVector4a mPendingOrigin;
+    F32 mPendingRadius = 0.f;
+    LLMatrix4 mPendingWorld;
+    bool mPendingWorldValid = false;
+
+    // moved, resized or re-shaped since the live cube was captured. Still sampled until the recapture completes.
+    bool mStale = false;
+
+    // Origin and radius the cube was captured with. Live values only while no complete capture exists.
+    const LLVector4a& sampleOrigin() const { return mComplete ? mCaptureOrigin : mOrigin; }
+    F32 sampleRadius() const { return mComplete ? mCaptureRadius : mRadius; }
+
+    bool getCaptureBox(LLMatrix4& box);
+    bool getBoxWorld(LLMatrix4& world) const;
+    bool captureTransformChanged() const;
+
     // fade in parameter for this probe
     F32 mFadeIn = 0.f;
 
-    // index into array packed by LLReflectionMapManager::getReflectionMaps
+    // index into array packed by LLSphereProbes::getReflectionMaps
     // WARNING -- only valid immediately after call to getReflectionMaps
     S32 mProbeIndex = -1;
 
-    // set of any LLReflectionMaps that intersect this map (maintained by LLReflectionMapManager
+    // set of any LLReflectionMaps that intersect this map (maintained by LLSphereProbes
     std::vector<LLReflectionMap*> mNeighbors;
 
     // spatial group this probe is tracking (if any)
@@ -143,6 +171,9 @@ public:
 
     // viewer object this probe is tracking (if any)
     LLPointer<LLViewerObject> mViewerObject;
+
+    // grid cell probe (RenderReflectionCellGrid): no owning object or group, full-scene capture
+    bool mCell = false;
 
     // what priority should this probe have (higher is higher priority)
     // currently only 0 or 1
@@ -153,7 +184,6 @@ public:
     // occlusion culling state
     GLuint mOcclusionQuery = 0;
     bool mOccluded = false;
-    U32 mOcclusionPendingFrames = 0;
 
     ProbeType mType;
 };

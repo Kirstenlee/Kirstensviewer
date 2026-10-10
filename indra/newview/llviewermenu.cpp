@@ -25,6 +25,7 @@
  */
 
 #include "llviewerprecompiledheaders.h"
+#include "dxdrawpoolalpha.h"
 
 #ifdef INCLUDE_VLD
 #include "vld.h"
@@ -44,6 +45,8 @@
 #include "llnotificationsutil.h"
 #include "llviewereventrecorder.h"
 #include "v4coloru.h"
+
+#include "llequirectcapture.h"
 
 // newview includes
 #include "llagent.h"
@@ -753,7 +756,6 @@ class LLAdvancedDumpInfoToConsole : public view_listener_t
         return true;
     }
 };
-
 
 //////////////
 // HUD INFO //
@@ -9027,7 +9029,7 @@ class LLViewHighlightTransparent : public view_listener_t
 {
     bool handleEvent(const LLSD& userdata)
     {
-        LLDrawPoolAlpha::sShowDebugAlpha = !LLDrawPoolAlpha::sShowDebugAlpha;
+        DXDrawPoolAlpha::sShowDebugAlpha = !DXDrawPoolAlpha::sShowDebugAlpha;
 
         // invisible objects skip building their render batches unless sShowDebugAlpha is true, so rebuild batches whenever toggling this flag
         gPipeline.rebuildDrawInfo();
@@ -9050,7 +9052,7 @@ class LLViewCheckHighlightTransparent : public view_listener_t
 {
     bool handleEvent(const LLSD& userdata)
     {
-        bool new_value = LLDrawPoolAlpha::sShowDebugAlpha;
+        bool new_value = DXDrawPoolAlpha::sShowDebugAlpha;
         return new_value;
     }
 };
@@ -9414,7 +9416,7 @@ class LLWorldEnvSettings : public view_listener_t
         else if (event_name == "region")
         {
             // reset probe data when reverting back to region sky setting
-            gPipeline.mReflectionMapManager.reset();
+            gPipeline.mSphereProbes.reset();
 
             LLEnvironment::instance().clearEnvironment(LLEnvironment::ENV_LOCAL);
             LLEnvironment::instance().setSelectedEnvironment(LLEnvironment::ENV_LOCAL, LLEnvironment::TRANSITION_INSTANT);

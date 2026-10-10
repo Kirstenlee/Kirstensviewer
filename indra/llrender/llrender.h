@@ -56,6 +56,7 @@
 class LLVertexBuffer;
 class DXCubeMap;
 class DXCubeMapArray;
+class DXCubeTexture;
 class LLImageDX;
 class LLRenderTarget;
 class LLTexture;
@@ -194,10 +195,18 @@ public:
     // (automatically enables the texture unit for cubemaps)
     bool bind(DXCubeMap* cubeMap);
 
-    // Binds a cubemap ARRAY to this texture unit (LLReflectionMapManager's
+    // Binds a cubemap ARRAY to this texture unit (LLSphereProbes's
     // per-probe mTexture/mIrradianceMaps). Direct sibling of
     // bind(DXCubeMap*) just above.
     bool bind(DXCubeMapArray* cubeMapArray);
+    // Binds a cube-array SRV directly (see bind(DXCubeMapArray*)).
+    bool bindCubeArraySRV(void* srv);
+
+    // S24 : task #338 - binds a plain DXCubeTexture (not the DXCubeMap
+    // orchestration wrapper - no texture-stage/matrix state, just the SRV).
+    // No white-texture fallback: callers are expected to only bind an
+    // already-fully-populated cube.
+    bool bind(DXCubeTexture* cubeTexture);
 
     // Binds a render target to this texture unit
     // (automatically enables the texture unit for the RT's texture type)

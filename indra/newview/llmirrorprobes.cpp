@@ -1,6 +1,6 @@
 /**
- * @file LLHeroProbeManager.cpp
- * @brief LLHeroProbeManager class implementation
+ * @file LLMirrorProbes.cpp
+ * @brief LLMirrorProbes class implementation
  *
  * $LicenseInfo:firstyear=2022&license=viewerlgpl$
  * Second Life Viewer Source Code
@@ -26,8 +26,8 @@
 
 #include "llviewerprecompiledheaders.h"
 
-#include "llheroprobemanager.h"
-#include "llreflectionmapmanager.h"
+#include "llmirrorprobes.h"
+#include "llsphereprobes.h"
 #include "llviewercamera.h"
 #include "llspatialpartition.h"
 #include "llviewerregion.h"
@@ -42,10 +42,8 @@
 #include "llviewerjoystick.h"
 #include "llviewermediafocus.h"
 
-#ifdef DX_RENDER
 #include "DXDevice.h"
 #include "DXReadback.h"
-#endif
 
 extern bool gCubeSnapshot;
 extern bool gTeleportDisplay;
@@ -65,11 +63,11 @@ static void touch_default_probe(LLReflectionMap* probe)
     }
 }
 
-LLHeroProbeManager::LLHeroProbeManager()
+LLMirrorProbes::LLMirrorProbes()
 {
 }
 
-LLHeroProbeManager::~LLHeroProbeManager()
+LLMirrorProbes::~LLMirrorProbes()
 {
     cleanup();
 
@@ -78,7 +76,7 @@ LLHeroProbeManager::~LLHeroProbeManager()
 }
 
 // helper class to seed octree with probes
-void LLHeroProbeManager::update()
+void LLMirrorProbes::update()
 {
     if (!LLPipeline::RenderMirrors || !LLPipeline::sReflectionProbesEnabled || gTeleportDisplay || LLStartUp::getStartupState() < STATE_PRECACHE)
     {
@@ -139,27 +137,11 @@ void LLHeroProbeManager::update()
 
     static LLCachedControl<bool> render_hdr(gSavedSettings, "RenderHDREnabled", true);
 
-    if (!mRenderTarget.isComplete())
+    if (!mCapture.isAllocated())
     {
-        U32 color_fmt = render_hdr ? GL_RGBA16F : GL_RGBA8;
-        mRenderTarget.allocate(mProbeResolution, mProbeResolution, color_fmt, true);
-    }
-
-    if (mMipChain.empty())
-    {
-        U32 res = mProbeResolution;
-
-        // Read the texture's real allocated mip count rather than recomputing
-        // it from log2(res) - the two can disagree. See mMaxProbeLOD in
-        // initReflectionMaps() above for the same pattern.
-        U32 count = mTexture->getDXTexture()->getMipLevels();
-
-        mMipChain.resize(count);
-        for (U32 i = 0; i < count; ++i)
-        {
-            mMipChain[i].allocate(res, res, render_hdr ? GL_RGBA16F : GL_RGBA8);
-            res /= 2;
-        }
+        // Mirror blur is 1x (not super-sampled) and uses RGBA16F/RGBA8, unlike the sphere capture.
+        mCapture.allocate(mProbeResolution, mCubes.getRadianceMipCount(), render_hdr, 1,
+                          render_hdr ? GL_RGBA16F : GL_RGBA8);
     }
 
     llassert(mProbes[0] == mDefaultProbe);
@@ -231,18 +213,6 @@ void LLHeroProbeManager::update()
 
             probe_pos.load3(point.mV);
 
-            // Detect visible faces of a cube based on camera direction and distance
-
-            // Define the cube faces
-            static LLVector3 cubeFaces[6] = {
-                LLVector3(1, 0, 0),
-                LLVector3(-1, 0, 0),
-                LLVector3(0, 1, 0),
-                LLVector3(0, -1, 0),
-                LLVector3(0, 0, 1),
-                LLVector3(0, 0, -1)
-            };
-
             mProbes[0]->mOrigin = probe_pos;
             mProbes[0]->mRadius = mNearestHero->getScale().magVec() * 0.5f;
         }
@@ -261,7 +231,7 @@ void LLHeroProbeManager::update()
     }
 }
 
-void LLHeroProbeManager::renderProbes()
+void LLMirrorProbes::renderProbes()
 {
     if (!LLPipeline::RenderMirrors || !LLPipeline::sReflectionProbesEnabled || gTeleportDisplay ||
         LLStartUp::getStartupState() < STATE_PRECACHE)
@@ -278,9 +248,7 @@ void LLHeroProbeManager::renderProbes()
         !gTeleportDisplay && !gDisconnected && !LLAppViewer::instance()->logoutRequestSent())
     {
 
-        bool radiance_pass = gPipeline.mReflectionMapManager.isRadiancePass();
-
-        gPipeline.mReflectionMapManager.mRadiancePass = true;
+        bool radiance_pass = gPipeline.mSphereProbes.setRadiancePass(true);
         mRenderingMirror = true;
 
         S32 rate = sUpdateRate;
@@ -319,7 +287,7 @@ void LLHeroProbeManager::renderProbes()
 
         mRenderingMirror = false;
 
-        gPipeline.mReflectionMapManager.mRadiancePass = radiance_pass;
+        gPipeline.mSphereProbes.setRadiancePass(radiance_pass);
 
         mProbes[0]->mViewerObject = mNearestHero;
         mProbes[0]->autoAdjustOrigin();
@@ -334,173 +302,67 @@ void LLHeroProbeManager::renderProbes()
 // The next six passes render the scene with both radiance and irradiance into the same scratch space cube map and generate a simple mip chain.
 // At the end of these passes, a radiance map is generated for this probe and placed into the radiance cube map array at the index for this probe.
 // In effect this simulates single-bounce lighting.
-void LLHeroProbeManager::updateProbeFace(LLReflectionMap* probe, U32 face, bool is_dynamic, F32 near_clip)
+void LLMirrorProbes::updateProbeFace(LLReflectionMap* probe, U32 face, bool is_dynamic, F32 near_clip)
 {
 
     // hacky hot-swap of camera specific render targets
+    LLPipeline::RenderTargetPack* prev_rt = gPipeline.mRT;
     gPipeline.mRT = &gPipeline.mHeroProbeRT;
 
-    probe->update(mRenderTarget.getWidth(), face, is_dynamic, near_clip);
+    probe->update(mCapture.getSuperSampleResolution(), face, is_dynamic, near_clip);
 
-    gPipeline.mRT = &gPipeline.mMainRT;
+    gPipeline.mRT = prev_rt;
 
     S32 sourceIdx = mReflectionProbeCount;
 
     // Unlike the reflectionmap manager, all probes are considered "realtime" for hero probes.
     sourceIdx += 1;
 
-        gDX.setColorWriteMask(true, true);
+    gDX.setColorWriteMask(true, true);
     LLGLDepthTest depth(GL_FALSE, GL_FALSE);
     LLGLDisable cull(GL_CULL_FACE);
     LLGLDisable blend(GL_BLEND);
 
-    // downsample to placeholder map
-    {
-        gDX.matrixMode(gDX.MM_MODELVIEW);
-        gDX.pushMatrix();
-        gDX.loadIdentity();
-
-        gDX.matrixMode(gDX.MM_PROJECTION);
-        gDX.pushMatrix();
-        gDX.loadIdentity();
-
-        gDX.flush();
-        // Deliberately `* 2`, not `mProbeResolution` alone: despite looking
-        // mismatched against gPipeline.mHeroProbeRT's 1x allocation,
-        // changing this to a plain 1x breaks mirror display.
-        U32 res = mProbeResolution * 2;
-
-        static LLStaticHashedString resScale("resScale");
-        static LLStaticHashedString direction("direction");
-        static LLStaticHashedString znear("znear");
-        static LLStaticHashedString zfar("zfar");
-
-        LLRenderTarget *screen_rt = &gPipeline.mHeroProbeRT.screen;
-        LLRenderTarget *depth_rt  = &gPipeline.mHeroProbeRT.deferredScreen;
-
-        // perform a gaussian blur on the super sampled render before downsampling
-        {
-            gGaussianProgram.bind();
-            gGaussianProgram.uniform1f(resScale, 1.f / (mProbeResolution * 2));
-            S32 diffuseChannel = gGaussianProgram.enableTexture(LLShaderMgr::DEFERRED_DIFFUSE, LLTexUnit::TT_TEXTURE);
-
-            // horizontal
-            gGaussianProgram.uniform2f(direction, 1.f, 0.f);
-            gDX.getTexUnit(diffuseChannel)->bind(screen_rt);
-            mRenderTarget.bindTarget();
-            gPipeline.mScreenTriangleVB->setBuffer();
-            gPipeline.mScreenTriangleVB->drawArrays(LLRender::TRIANGLES, 0, 3);
-            mRenderTarget.flush();
-
-            // vertical
-            gGaussianProgram.uniform2f(direction, 0.f, 1.f);
-            gDX.getTexUnit(diffuseChannel)->bind(&mRenderTarget);
-            screen_rt->bindTarget();
-            gPipeline.mScreenTriangleVB->setBuffer();
-            gPipeline.mScreenTriangleVB->drawArrays(LLRender::TRIANGLES, 0, 3);
-            screen_rt->flush();
-            gGaussianProgram.unbind();
-        }
-
-        // Real allocated mip count, not a recomputed log2() guess - must stay
-        // aligned with mMipChain.size(). See LLReflectionMapManager's
-        // equivalent fix.
-        S32 mips = (S32)mTexture->getDXTexture()->getMipLevels();
-
-        gReflectionMipProgram.bind();
-        S32 diffuseChannel = gReflectionMipProgram.enableTexture(LLShaderMgr::DEFERRED_DIFFUSE, LLTexUnit::TT_TEXTURE);
-        S32 depthChannel   = gReflectionMipProgram.enableTexture(LLShaderMgr::DEFERRED_DEPTH, LLTexUnit::TT_TEXTURE);
-
-        for (int i = 0; i < mMipChain.size(); ++i)
-        {
-            mMipChain[i].bindTarget();
-            if (i == 0)
-            {
-                gDX.getTexUnit(diffuseChannel)->bind(screen_rt);
-            }
-            else
-            {
-                gDX.getTexUnit(diffuseChannel)->bind(&(mMipChain[i - 1]));
-            }
-
-            gDX.getTexUnit(depthChannel)->bind(depth_rt, true);
-
-            gReflectionMipProgram.uniform1f(resScale, 1.f / (mProbeResolution * 2));
-            gReflectionMipProgram.uniform1f(znear, probe->getNearClip());
-            gReflectionMipProgram.uniform1f(zfar, MAX_FAR_CLIP);
-
-            gPipeline.mScreenTriangleVB->setBuffer();
-            gPipeline.mScreenTriangleVB->drawArrays(LLRender::TRIANGLES, 0, 3);
-
-            res /= 2;
-
-            llassert(mMipChain.size() <= size_t(S32_MAX));
-            GLint mip = i - (S32(mMipChain.size()) - mips);
-
-            if (mip >= 0)
-            {
-                mTexture->bind(0);
-
-                // No SRV bind of mTexture needed for the copy - see
-                // DXCubeArrayTexture's own header comment. Mirrors
-                // llreflectionmapmanager.cpp's own mip-copy block.
-#ifdef DX_RENDER
-                mTexture->getDXTexture()->copySliceFromBoundRenderTarget(mip, sourceIdx * 6 + face, res, res);
-#else
-                glCopyTexSubImage3D(GL_TEXTURE_CUBE_MAP_ARRAY, mip, 0, 0, sourceIdx * 6 + face, 0, 0, res, res);
-#endif
-
-                mTexture->unbind();
-            }
-            mMipChain[i].flush();
-        }
-
-        gDX.popMatrix();
-        gDX.matrixMode(gDX.MM_MODELVIEW);
-        gDX.popMatrix();
-
-        gDX.getTexUnit(diffuseChannel)->unbind(LLTexUnit::TT_TEXTURE);
-        gReflectionMipProgram.unbind();
-    }
+    // Blur, downsample and copy this face into the scratch cube (see LLProbeCapture).
+    mCapture.resolveFace(gPipeline.mHeroProbeRT.screen, mCubes.radiance(), sourceIdx * 6 + face);
 }
 
 // Separate out radiance generation as a separate stage.
 // This is to better enable independent control over how we generate radiance vs. having it coupled with processing the final face of the probe.
 // Useful when we may not always be rendering a full set of faces of the probe.
-void LLHeroProbeManager::generateRadiance(LLReflectionMap* probe)
+void LLMirrorProbes::generateRadiance(LLReflectionMap* probe)
 {
     S32 sourceIdx = mReflectionProbeCount;
 
     // Unlike the reflectionmap manager, all probes are considered "realtime" for hero probes.
     sourceIdx += 1;
     {
-        mMipChain[0].bindTarget();
+        mCapture.getMips()[0].bindTarget();
         static LLStaticHashedString sSourceIdx("sourceIdx");
 
         {
             // generate radiance map (even if this is not the irradiance map, we need the mip chain for the irradiance map)
             gHeroRadianceGenProgram.bind();
+            LLProbeCubeStore::setGeneratorConvention(gHeroRadianceGenProgram);
             mVertexBuffer->setBuffer();
 
             S32 channel = gHeroRadianceGenProgram.enableTexture(LLShaderMgr::REFLECTION_PROBES, LLTexUnit::TT_CUBE_MAP_ARRAY);
-            mTexture->bind(channel);
+            bindRadiance(channel);
             gHeroRadianceGenProgram.uniform1i(sSourceIdx, sourceIdx);
             gHeroRadianceGenProgram.uniform1f(LLShaderMgr::REFLECTION_PROBE_MAX_LOD, mMaxProbeLOD);
             gHeroRadianceGenProgram.uniform1f(LLShaderMgr::REFLECTION_PROBE_STRENGTH, mHeroProbeStrength);
 
-            U32 res = mMipChain[0].getWidth();
+            U32 res = mCapture.getMips()[0].getWidth();
 
             // The /4 is deliberate, not a porting bug: reflectionProbeF.hlsl's
             // tapHeroProbe() only samples a quarter of the mips for hero
             // probes (its glossiness gate is matched to this range).
-            for (int i = 0; i < mMipChain.size() / 4; ++i)
+            for (int i = 0; i < (int)mCapture.getMips().size() / 4; ++i)
             {
                 static LLStaticHashedString sMipLevel("mipLevel");
-                static LLStaticHashedString sRoughness("roughness");
                 static LLStaticHashedString sWidth("u_width");
                 static LLStaticHashedString sStrength("probe_strength");
 
-                gHeroRadianceGenProgram.uniform1f(sRoughness, (F32) i / (F32) (mMipChain.size() - 1));
                 gHeroRadianceGenProgram.uniform1f(sMipLevel, (F32)i);
                 gHeroRadianceGenProgram.uniform1i(sWidth, mProbeResolution);
                 gHeroRadianceGenProgram.uniform1f(sStrength, 1);
@@ -510,28 +372,28 @@ void LLHeroProbeManager::generateRadiance(LLReflectionMap* probe)
                     // radianceGenV.hlsl (shared with gRadianceGenProgram) reads
                     // only the `cubeFace` uniform, not a rotation matrix -
                     // must be set explicitly each face, matching
-                    // llreflectionmapmanager.cpp's radiance/irradiance loops.
+                    // llsphereprobes.cpp's radiance/irradiance loops.
                     static LLStaticHashedString sHeroCubeFace("cubeFace");
                     gHeroRadianceGenProgram.uniform1i(sHeroCubeFace, cf);
 
                     mVertexBuffer->drawArrays(gDX.TRIANGLE_STRIP, 0, 4);
 
-                    // mMipChain[0] is bound as render target once before this
-                    // whole face/mip loop - no SRV bind of mTexture needed
+                    // mCapture.getMips()[0] is bound as render target once before this
+                    // whole face/mip loop - no SRV bind of the radiance array needed
                     // for the copy, see DXCubeArrayTexture's header comment.
 #ifdef DX_RENDER
-                    mTexture->getDXTexture()->copySliceFromBoundRenderTarget(i, probe->mCubeIndex * 6 + cf, res, res);
+                    mCubes.radiance().copySliceFromBoundRenderTarget(i, probe->mCubeIndex * 6 + cf, res, res);
 #else
                     glCopyTexSubImage3D(GL_TEXTURE_CUBE_MAP_ARRAY, i, 0, 0, probe->mCubeIndex * 6 + cf, 0, 0, res, res);
 #endif
                 }
 
-                if (i != mMipChain.size() - 1)
+                if (i != (int)mCapture.getMips().size() - 1)
                 {
                     res /= 2;
 #ifdef DX_RENDER
                     // Negative height is required here - matches
-                    // llreflectionmapmanager.cpp's sibling viewport setup.
+                    // llsphereprobes.cpp's sibling viewport setup.
                     // Do not "normalize" to a positive height; that breaks
                     // hero-probe mirror orientation.
                     {
@@ -553,11 +415,11 @@ void LLHeroProbeManager::generateRadiance(LLReflectionMap* probe)
             gHeroRadianceGenProgram.unbind();
         }
 
-        mMipChain[0].flush();
+        mCapture.getMips()[0].flush();
     }
 }
 
-void LLHeroProbeManager::updateUniforms()
+void LLMirrorProbes::updateUniforms()
 {
     if (!gPipeline.RenderMirrors)
     {
@@ -594,11 +456,10 @@ void LLHeroProbeManager::updateUniforms()
         mHeroData.heroSphere.mV[3] = mProbes[0]->mRadius;
     }
 
-    llassert(mMipChain.size() <= size_t(S32_MAX));
-    mHeroData.heroMipCount = S32(mMipChain.size());
+    mHeroData.heroMipCount = (S32)mCapture.getMips().size();
 }
 
-void LLHeroProbeManager::renderDebug()
+void LLMirrorProbes::renderDebug()
 {
     gDebugProgram.bind();
 
@@ -611,11 +472,21 @@ void LLHeroProbeManager::renderDebug()
 }
 
 
-void LLHeroProbeManager::initReflectionMaps()
+void LLMirrorProbes::bindRadiance(S32 stage)
+{
+    gDX.getTexUnit(stage)->bindCubeArraySRV(mCubes.radianceSRV());
+}
+
+void LLMirrorProbes::unbindProbeCubes(S32 stage)
+{
+    gDX.getTexUnit(stage)->unbind(LLTexUnit::TT_CUBE_MAP_ARRAY);
+}
+
+void LLMirrorProbes::initReflectionMaps()
 {
     U32 count = LL_MAX_HERO_PROBE_COUNT;
 
-    if ((mTexture.isNull() || mReflectionProbeCount != count || mReset) && LLPipeline::RenderMirrors)
+    if ((!mCubes.isAllocated() || mReflectionProbeCount != count || mReset) && LLPipeline::RenderMirrors)
     {
         if (mReset)
         {
@@ -626,25 +497,17 @@ void LLHeroProbeManager::initReflectionMaps()
         mReflectionProbeCount = count;
         mProbeResolution      = gSavedSettings.getS32("RenderHeroProbeResolution");
 
-        // mRenderTarget/mMipChain must be invalidated whenever mTexture is
-        // replaced (below), not just on mReset - LLViewerShaderMgr::setShaders()
-        // can reallocate mTexture a second time on its own, and if these
-        // aren't tied to that they end up pointing at an orphaned mTexture.
-        mRenderTarget.release();
-        mMipChain.clear();
-
-        mTexture = new DXCubeMapArray();
+        // The capture must be rebuilt whenever the radiance storage is reallocated, including the
+        // second reallocation setShaders() can trigger on its own.
+        mCapture.release();
 
         static LLCachedControl<bool> render_hdr(gSavedSettings, "RenderHDREnabled", true);
 
-        // store mReflectionProbeCount+2 cube maps, final two cube maps are used for render target and radiance map generation source)
-        mTexture->allocate(mProbeResolution, 3, mReflectionProbeCount + 2, true, render_hdr);
+        // radiance storage: mReflectionProbeCount cubes plus two scratch cubes (see LLProbeCubeStore)
+        mCubes.allocate(mProbeResolution, mReflectionProbeCount, render_hdr);
 
-        // Real allocated mip count, not log2f(mProbeResolution)-1: DXCubeArrayTexture's
-        // generate_mips=true path requests D3D11's full auto mip chain
-        // (MipLevels=0), which allocates one more level than that formula
-        // assumes. See LLReflectionMapManager's equivalent fix.
-        mMaxProbeLOD = (F32)mTexture->getDXTexture()->getMipLevels() - 1.f; // number of mips - 1
+        // Real allocated mip count (see LLSphereProbes::initReflectionMaps()).
+        mMaxProbeLOD = (F32)mCubes.getRadianceMipCount() - 1.f;
 
         if (mDefaultProbe.isNull())
         {
@@ -658,7 +521,6 @@ void LLHeroProbeManager::initReflectionMaps()
         // For hero probes, we treat this as the main mirror probe.
 
         mDefaultProbe->mCubeIndex = 0;
-        mDefaultProbe->mCubeArray = mTexture;
         mDefaultProbe->mDistance  = gSavedSettings.getF32("RenderHeroProbeDistance");
         mDefaultProbe->mRadius = 4096.f;
         mDefaultProbe->mProbeIndex = 0;
@@ -690,21 +552,18 @@ void LLHeroProbeManager::initReflectionMaps()
     }
 }
 
-void LLHeroProbeManager::cleanup()
+void LLMirrorProbes::cleanup()
 {
     mVertexBuffer = nullptr;
-    mRenderTarget.release();
-
-    mMipChain.clear();
-
-    mTexture = nullptr;
+    mCapture.release();
+    mCubes.release();
 
     mProbes.clear();
 
     mDefaultProbe = nullptr;
 }
 
-void LLHeroProbeManager::doOcclusion()
+void LLMirrorProbes::doOcclusion()
 {
     LLVector4a eye;
     eye.load3(LLViewerCamera::instance().getOrigin().mV);
@@ -718,12 +577,12 @@ void LLHeroProbeManager::doOcclusion()
     }
 }
 
-void LLHeroProbeManager::reset()
+void LLMirrorProbes::reset()
 {
     mReset = true;
 }
 
-bool LLHeroProbeManager::registerViewerObject(LLVOVolume* drawablep)
+bool LLMirrorProbes::registerViewerObject(LLVOVolume* drawablep)
 {
     llassert(drawablep != nullptr);
 
@@ -737,7 +596,7 @@ bool LLHeroProbeManager::registerViewerObject(LLVOVolume* drawablep)
     return false;
 }
 
-void LLHeroProbeManager::unregisterViewerObject(LLVOVolume* drawablep)
+void LLMirrorProbes::unregisterViewerObject(LLVOVolume* drawablep)
 {
     std::vector<LLPointer<LLVOVolume>>::iterator found_itr = std::find(mHeroVOList.begin(), mHeroVOList.end(), drawablep);
     if (found_itr != mHeroVOList.end())

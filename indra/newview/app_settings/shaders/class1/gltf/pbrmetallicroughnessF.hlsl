@@ -121,7 +121,7 @@ uniform float3 moon_dir;
 float sampleDirectionalShadow(float3 pos, float3 norm, float2 pos_screen);
 #endif
 void sampleReflectionProbes(inout float3 ambenv, inout float3 glossenv,
-    float2 tc, float3 pos, float3 norm, float glossiness, bool transparent, float3 amblit_linear);
+    float2 tc, float3 pos, float3 norm, float glossiness, float metallic, bool transparent, float3 amblit_linear);
 void calcDiffuseSpecular(float3 baseColor, float metallic, inout float3 diffuseColor, inout float3 specularColor);
 float3 pbrBaseLight(float3 diffuseColor, float3 specularColor, float metallic, float3 v, float3 norm, float perceptualRoughness, float3 light_dir, float3 sunlit, float scol, float3 radiance, float3 irradiance, float3 colorEmissive, float ao, float3 additive, float3 atten);
 float3 pbrCalcPointLightOrSpotLight(float3 diffuseColor, float3 specularColor,
@@ -225,7 +225,7 @@ float4 main(PSInput IN) : SV_Target
     float gloss = 1.0 - perceptualRoughness;
     float3 irradiance = float3(0, 0, 0);
     float3 radiance = float3(0, 0, 0);
-    sampleReflectionProbes(irradiance, radiance, IN.varying.vary_position.xy * 0.5 + 0.5, pos, norm, gloss, true, amblit);
+    sampleReflectionProbes(irradiance, radiance, IN.varying.vary_position.xy * 0.5 + 0.5, pos, norm, gloss, metallic, true, amblit);
 
     float3 diffuseColor, specularColor;
     calcDiffuseSpecular(baseColor.rgb, metallic, diffuseColor, specularColor);

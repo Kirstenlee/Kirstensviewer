@@ -41,6 +41,7 @@
 #include "llvector4a.h"
 #include "llvoavatar.h"
 #include "llfetchedgltfmaterial.h"
+#include "dxdrawinfo.h"
 
 #include <queue>
 #include <unordered_map>
@@ -102,9 +103,8 @@ public:
     const LLMatrix4* mModelMatrix = nullptr;
 
     LLPointer<LLVOAvatar> mAvatar = nullptr;
-    // S24 (alpha attachment-order fix, AYAstorm-derived, LGPL v2.1) - see
-    // LLFace::mAttachedToAvatar's matching comment (llface.h). Copied from
-    // there when this LLDrawInfo is built (llvovolume.cpp).
+    // Alpha attachment-order fix, AYAstorm-derived (LGPL v2.1) - see LLFace::mAttachedToAvatar's
+    // matching comment (llface.h). Copied from there when this LLDrawInfo is built (llvovolume.cpp).
     LLPointer<LLVOAvatar> mAttachedToAvatar = nullptr;
     LLMeshSkinInfo* mSkinInfo = nullptr;
 
@@ -131,6 +131,7 @@ public:
     U8   mShiny = 0;
     bool mFullbright = false;
     bool mHasGlow = false;
+    std::vector<DXDrawFace> mDXFaces; // alpha batches only: per-face ranges for the DX alpha pool
 
     struct CompareTexture
     {
@@ -310,14 +311,10 @@ public:
         LLVector2* tex_coord = NULL,            // return the texture coordinates of the intersection point
         LLVector4a* normal = NULL,               // return the surface normal at the intersection point
         LLVector4a* tangent = NULL,             // return the surface tangent at the intersection point
-        // S24 (2026-09-06, task #271): when true, skip the drawable->isVisible()
-        // early-out - see LLOctreeIntersect::check(LLViewerOctreeEntry*)'s own
-        // comment (llspatialpartition.cpp) for why that check is unsafe for
-        // anything that isn't real screen-picking (isVisible() is a stale,
-        // camera-cull-history-dependent flag, not a geometric fact). Defaults
-        // to false so every existing caller (real mouse-picking/selection) is
-        // unaffected; only LLReflectionMap::autoAdjustOrigin()'s placement
-        // ray-cast passes true.
+        // When true, skips the drawable->isVisible() early-out - see
+        // LLOctreeIntersect::check(LLViewerOctreeEntry*)'s comment (llspatialpartition.cpp) for why
+        // that check is unsafe for anything but real screen-picking. Defaults to false; only
+        // LLReflectionMap::autoAdjustOrigin()'s placement ray-cast passes true.
         bool ignore_visibility = false
     );
 
@@ -397,10 +394,8 @@ public:
                                      LLVector2* tex_coord = NULL,            // return the texture coordinates of the intersection point
                                      LLVector4a* normal = NULL,               // return the surface normal at the intersection point
                                      LLVector4a* tangent = NULL,             // return the surface tangent at the intersection point
-                                     // S24 (2026-09-06, task #271): see the
-                                     // LLSpatialGroup overload's matching
-                                     // comment above - same flag, threaded
-                                     // through to the same LLOctreeIntersect.
+                                     // See the LLSpatialGroup overload's matching comment above - same
+                                     // flag, threaded through to the same LLOctreeIntersect.
                                      bool ignore_visibility = false
         );
 

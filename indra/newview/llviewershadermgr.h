@@ -170,10 +170,16 @@ extern LLHLSLShader         gOcclusionProgram;
 extern LLHLSLShader         gOcclusionCubeProgram;
 extern LLHLSLShader         gGlowCombineProgram;
 extern LLHLSLShader         gReflectionMipProgram;
+extern LLHLSLShader         gSSRProgram;
+extern LLHLSLShader         gSSRResolveProgram;
 extern LLHLSLShader         gGaussianProgram;
 extern LLHLSLShader         gRadianceGenProgram;
 extern LLHLSLShader         gHeroRadianceGenProgram;
 extern LLHLSLShader         gIrradianceGenProgram;
+// S24 : cube-to-equirectangular projection (360 capture).
+extern LLHLSLShader         gEquirectProjectProgram;
+// S24 : un-mirrors one captured cube face before storage - see flipXF.hlsl.
+extern LLHLSLShader         gFlipXProgram;
 extern LLHLSLShader         gGlowCombineFXAAProgram;
 extern LLHLSLShader         gDebugProgram;
 enum NormalDebugShaderVariant : S32
@@ -244,6 +250,10 @@ extern LLHLSLShader         gDeferredTreeShadowProgram;
 extern LLHLSLShader         gDeferredLightProgram;
 extern LLHLSLShader         gDeferredMultiLightProgram[LL_DEFERRED_MULTI_LIGHT_COUNT];
 extern LLHLSLShader         gDeferredSpotLightProgram;
+extern LLHLSLShader         gDeferredAlphaProjectorProgram;
+
+// Compiles the alpha projector program on first call. Returns false if it is unavailable.
+bool loadAlphaProjectorShader();
 extern LLHLSLShader         gDeferredMultiSpotLightProgram;
 extern LLHLSLShader         gDeferredSunProgram;
 extern LLHLSLShader         gDeferredSunProbeProgram;

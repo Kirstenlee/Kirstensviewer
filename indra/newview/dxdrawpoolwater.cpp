@@ -24,6 +24,7 @@
  * SOFTWARE.
  */
 
+extern bool gCubeSnapshot;
 #include "llviewerprecompiledheaders.h"
 
 #include "dxdrawpoolwater.h"
@@ -243,6 +244,10 @@ void DXDrawPoolWater::renderPostDeferred(LLDrawPoolWater& pool, S32 pass)
     F32 fog_density = pwater->getModifiedWaterFogDensity(underwater) * fog_mult;
 
     shader->bindTexture(LLShaderMgr::WATER_SCREENTEX, &gPipeline.mWaterDis);
+
+    // cube captures skip refraction: the screen copy is the main view, not what the cube sees
+    static LLStaticHashedString sProbeCapture("probe_capture");
+    shader->uniform1f(sProbeCapture, gCubeSnapshot ? 1.f : 0.f);
 
     if (pool.mShaderLevel == 1)
     {

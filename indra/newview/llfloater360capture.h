@@ -1,99 +1,69 @@
 /**
  * @file llfloater360capture.h
- * @author Callum Prentice (callum@lindenlab.com)
- * @brief Floater for the 360 capture feature
+ * @brief UI for LLEquirectCapture - resolution choice, preview, save to disk
  *
- * $LicenseInfo:firstyear=2011&license=viewerlgpl$
- * Second Life Viewer Source Code
- * Copyright (C) 2011, Linden Research, Inc.
+ * Copyright (c) 2026 Kirstenlee Cinquetti (Lee Quick)
  *
- * This library is free software; you can redistribute it and/or
- * modify it under the terms of the GNU Lesser General Public
- * License as published by the Free Software Foundation;
- * version 2.1 of the License only.
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
  *
- * This library is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * Lesser General Public License for more details.
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
  *
- * You should have received a copy of the GNU Lesser General Public
- * License along with this library; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
- *
- * Linden Research, Inc., 945 Battery Street, San Francisco, CA  94111  USA
- * $/LicenseInfo$
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
  */
 
-#ifndef LL_FLOATER_360CAPTURE_H
-#define LL_FLOATER_360CAPTURE_H
+#pragma once
 
 #include "llfloater.h"
-#include "llmediactrl.h"
-#include "llcharacter.h"
+#include "llequirectcapture.h"
 
-class LLImageRaw;
-class LLTextBox;
+class LLButton;
 class LLRadioGroup;
+class LLTextBox;
+class LLViewerTexture;
 
-class LLFloater360Capture:
-    public LLFloater,
-    public LLViewerMediaObserver
+class LLFloater360Capture : public LLFloater
 {
-        friend class LLFloaterReg;
+public:
+    LLFloater360Capture(const LLSD& key);
+    /*virtual*/ ~LLFloater360Capture();
 
-    private:
-        LLFloater360Capture(const LLSD& key);
+    /*virtual*/ bool postBuild();
+    /*virtual*/ void draw();
 
-        ~LLFloater360Capture();
-        bool postBuild() override;
-        void onOpen(const LLSD& key) override;
-        void handleMediaEvent(LLPluginClassMedia* self, EMediaEvent event) override;
+private:
+    void onTakeSnapshot();
+    void onSaveToDisk();
+    void onSaveLocationPicked(const std::vector<std::string>& filenames);
+    U32 getSelectedFaceRes() const;
+    void onCaptureComplete(const LLEquirectCapture::Result& result);
+    void setCapturing(bool capturing);
 
-        const std::string getHTMLBaseFolder();
-        void capture360Images();
+    LLRadioGroup* mResolutionRadio;
+    LLButton* mTakeSnapshotBtn;
+    LLButton* mSaveToDiskBtn;
+    LLTextBox* mStatusText;
 
-        const std::string makeFullPathToJS(const std::string filename);
-        void writeDataURLHeader(const std::string filename);
-        void writeDataURLFooter(const std::string filename);
-        bool writeDataURL(const std::string filename, const std::string prefix, U8* data, unsigned int data_len);
-        void encodeAndSave(LLPointer<LLImageRaw> raw_image, const std::string filename, const std::string prefix);
+    LLView* mFacePlaceholder[6];
+    LLView* mEquirectPlaceholder;
 
-        std::vector<LLAnimPauseRequest> mAvatarPauseHandles;
-        void freezeWorld(bool enable);
+    LLPointer<LLViewerTexture> mFacePreviewTex[6];
+    LLPointer<LLViewerTexture> mEquirectPreviewTex;
 
-        void mockSnapShot(LLImageRaw* raw);
+    // S24 : already-written LL_PATH_LOGS path - Save to Disk copies this
+    // file rather than re-encoding the in-memory preview.
+    std::string mLastEquirectPath;
 
-        void suspendForAFrame();
-
-        const std::string generate_proposed_filename();
-
-        void setSourceImageSize();
-
-        LLMediaCtrl* mWebBrowser;
-        const std::string mDefaultHTML = "default.html";
-        const std::string mEqrGenHTML = "eqr_gen.html";
-
-        LLUICtrl* mCaptureBtn;
-        void onCapture360ImagesBtn();
-
-        void onSaveLocalBtn();
-        LLUICtrl* mSaveLocalBtn;
-
-        LLRadioGroup* mQualityRadioGroup;
-        void onChooseQualityRadioGroup();
-        const std::string getSelectedQualityTooltip();
-
-        int mSourceImageSize;
-        float mInitialHeadingDeg;
-        int mOutputImageWidth;
-        int mOutputImageHeight;
-        std::string mImageSaveDir;
-        bool mWaitingForDownloadCompletion = false;
-
-        LLPointer<LLImageRaw> mRawImages[6];
-
-        std::string mStartILMode;
+    bool mCapturing;
 };
-
-#endif  // LL_FLOATER_360CAPTURE_H

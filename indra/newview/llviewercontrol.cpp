@@ -287,12 +287,12 @@ static bool handleDisableVintageMode(const LLSD& newvalue)
 
 static bool handleEnableHDR(const LLSD& newvalue)
 {
-    gPipeline.mReflectionMapManager.reset();
-    gPipeline.mHeroProbeManager.reset();
+    gPipeline.mSphereProbes.reset();
+    gPipeline.mMirrorProbes.reset();
     // S24: RenderHDREnabled has no shader compile-time dependency at all - unlike
     // RenderEnableEmissiveBuffer (HAS_EMISSIVE define, genuinely needs handleSetShaderChanged,
     // see handleEnableEmissiveChanged() above), every consumer of this setting
-    // (dxpipeline.cpp/pipeline.cpp/llreflectionmapmanager.cpp/llheroprobemanager.cpp) reads it
+    // (dxpipeline.cpp/pipeline.cpp/llsphereprobes.cpp/llmirrorprobes.cpp) reads it
     // via a runtime LLCachedControl<bool>, and presentDeferredScreen() already has both the
     // tonemap and plain-gamma shader variants compiled unconditionally, just picking between
     // them at runtime. The previous handleSetShaderChanged() call here triggered a full,
@@ -483,14 +483,14 @@ static bool handleRenderDynamicLODChanged(const LLSD& newvalue)
 
 static bool handleReflectionProbeDetailChanged(const LLSD& newvalue)
 {
-    gPipeline.mReflectionMapManager.refreshSettings();
+    gPipeline.mSphereProbes.refreshSettings();
     if (gPipeline.isInit())
     {
         LLPipeline::refreshCachedSettings();
-        gPipeline.mReflectionMapManager.reset();
-        gPipeline.mHeroProbeManager.reset();
+        gPipeline.mSphereProbes.reset();
+        gPipeline.mMirrorProbes.reset();
 
-        // Re-arm the one-time shader-reload workaround (LLHeroProbeManager::update()'s fix for #3331)
+        // Re-arm the one-time shader-reload workaround (LLMirrorProbes::update()'s fix for #3331)
         // only on a genuine RenderMirrors off->on transition - this handler is shared by several
         // settings that don't need that ~19s synchronous reload every time they change. Tracked
         // locally since this callback only receives the fired control's own new value.
@@ -499,7 +499,7 @@ static bool handleReflectionProbeDetailChanged(const LLSD& newvalue)
         bool armedHeroReinit = false;
         if (nowMirrorsOn && !s_wasMirrorsOn)
         {
-            gPipeline.mHeroProbeManager.requireShaderReinit();
+            gPipeline.mMirrorProbes.requireShaderReinit();
             armedHeroReinit = true;
         }
         s_wasMirrorsOn = nowMirrorsOn;
@@ -511,7 +511,7 @@ static bool handleReflectionProbeDetailChanged(const LLSD& newvalue)
         // every SSR/Mirrors/ReflectionProbeLevel/Detail toggle, not a correctness fix.
         //
         // S24: skip queueing our own deferred reload when we just armed requireShaderReinit()
-        // above - LLHeroProbeManager::update() (llviewerdisplay.cpp, called from display() later
+        // above - LLMirrorProbes::update() (llviewerdisplay.cpp, called from display() later
         // THIS SAME FRAME, after idle()/this handler but before processDeferredShaderReload()
         // would even get a chance to fire on a LATER frame) does its own clearShaderCache()+
         // setShaders() as soon as it sees mInitialized==false - a strict superset of this
@@ -533,7 +533,7 @@ static bool handleReflectionProbeDetailChanged(const LLSD& newvalue)
     
 static bool handleReflectionProbeCountChanged(const LLSD& newvalue)
 {
-    gPipeline.mReflectionMapManager.refreshSettings();
+    gPipeline.mSphereProbes.refreshSettings();
     return true;
 }
 
@@ -542,18 +542,18 @@ static bool handleHeroProbeResolutionChanged(const LLSD &newvalue)
 {
     if (gPipeline.isInit())
     {
-        // gPipeline.mHeroProbeManager.reset() is self-contained (rebuilds its own texture, mip chain,
+        // gPipeline.mMirrorProbes.reset() is self-contained (rebuilds its own texture, mip chain,
         // vertex buffer and probe list) with no dependency on the main pipeline's screen buffers - this
         // setting only affects the hero-probe/mirror subsystem, unlike handleReflectionProbeCountChanged
         // above which is pipeline-wide.
         LLPipeline::refreshCachedSettings();
-        gPipeline.mHeroProbeManager.reset();
+        gPipeline.mMirrorProbes.reset();
 
         // A resolution change replaces the hero-probe texture itself, so shader/texture-unit bindings
         // to the old texture must be rebound - same as a genuine off->on activation.
         if (LLPipeline::RenderMirrors)
         {
-            gPipeline.mHeroProbeManager.requireShaderReinit();
+            gPipeline.mMirrorProbes.requireShaderReinit();
         }
     }
     return true;
@@ -942,6 +942,10 @@ void settings_setup_listeners()
     setting_setup_signal_listener(gSavedSettings, "RenderReflectionProbeLevel", handleReflectionProbeDetailChanged);
     setting_setup_signal_listener(gSavedSettings, "RenderReflectionProbeDetail", handleReflectionProbeDetailChanged);
     setting_setup_signal_listener(gSavedSettings, "RenderReflectionProbeCount", handleReflectionProbeCountChanged);
+    setting_setup_signal_listener(gSavedSettings, "RenderReflectionProbeResolution", handleReflectionProbeDetailChanged);
+    setting_setup_signal_listener(gSavedSettings, "RenderCubeConvSwapXY", handleReflectionProbeDetailChanged);
+    setting_setup_signal_listener(gSavedSettings, "RenderCubeConvFlipX", handleReflectionProbeDetailChanged);
+    setting_setup_signal_listener(gSavedSettings, "RenderCubeConvFlipY", handleReflectionProbeDetailChanged);
     setting_setup_signal_listener(gSavedSettings, "RenderReflectionsEnabled", handleReflectionProbeDetailChanged);
     setting_setup_signal_listener(gSavedSettings, "RenderScreenSpaceReflections", handleReflectionProbeDetailChanged);
     setting_setup_signal_listener(gSavedSettings, "RenderMirrors", handleReflectionProbeDetailChanged);

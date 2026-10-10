@@ -175,8 +175,6 @@ void LLFloaterSnapshotBase::ImplBase::updateLayout(LLFloaterSnapshotBase* floate
 
 	floaterp->getChild<LLUICtrl>("image_res_text")->setVisible(mAdvanced);
 	floaterp->getChild<LLUICtrl>("file_size_label")->setVisible(mAdvanced);
-	if (floaterp->hasChild("360_label", true))
-		floaterp->getChild<LLUICtrl>("360_label")->setVisible(mAdvanced);
 
 	// S24: main Snapshot floater uses fixed-size layout driven from explicit
 	// state transitions only (postBuild/onOpen/onExtendFloater). Never reshape
@@ -1185,6 +1183,12 @@ static void applySnapshotFixedLayout(LLFloaterSnapshot* self, bool advanced)
 	}
 }
 
+void LLFloaterSnapshot::on360Snapshot()
+{
+	LLFloaterReg::showInstance("360capture");
+	closeFloater();
+}
+
 void LLFloaterSnapshot::onExtendFloater()
 {
 	impl->setAdvanced(gSavedSettings.getBOOL("AdvanceSnapshot"));
@@ -1231,12 +1235,6 @@ void LLFloaterSnapshot::onToggleInspector()
 {
 	// control_name on the button already flipped the setting before this fires.
 	applyInspectorLayout(this, gSavedSettings.getBOOL("SnapshotInspectorOpen"));
-}
-
-void LLFloaterSnapshot::on360Snapshot()
-{
-	LLFloaterReg::showInstance("360capture");
-	closeFloater();
 }
 
 //virtual

@@ -51,6 +51,9 @@
 #include "nvapi/nvapi.h"
 #include "nvapi/NvApiDriverSettings.h"
 
+#include "amdags/amd_ags.h"
+#include "DXDevice.h"
+
 #include <stdlib.h>
 
 #include "llweb.h"
@@ -114,6 +117,29 @@ void nvapi_error(NvAPI_Status status)
 
 	//should always trigger when asserts are enabled
 	//llassert(status == NVAPI_OK);
+}
+
+// S24 : AMD AGS equivalent of nvapi_error() above. AGS has no
+// string-message lookup API (unlike NvAPI_GetErrorMessage), so this
+// just names the enum.
+void ags_error(AGSReturnCode status)
+{
+	const char* desc = "AGS_UNKNOWN";
+	switch (status)
+	{
+	case AGS_SUCCESS:                 desc = "AGS_SUCCESS"; break;
+	case AGS_FAILURE:                 desc = "AGS_FAILURE"; break;
+	case AGS_INVALID_ARGS:            desc = "AGS_INVALID_ARGS"; break;
+	case AGS_OUT_OF_MEMORY:           desc = "AGS_OUT_OF_MEMORY"; break;
+	case AGS_MISSING_D3D_DLL:         desc = "AGS_MISSING_D3D_DLL"; break;
+	case AGS_LEGACY_DRIVER:           desc = "AGS_LEGACY_DRIVER"; break;
+	case AGS_NO_AMD_DRIVER_INSTALLED: desc = "AGS_NO_AMD_DRIVER_INSTALLED"; break;
+	case AGS_EXTENSION_NOT_SUPPORTED: desc = "AGS_EXTENSION_NOT_SUPPORTED"; break;
+	case AGS_ADL_FAILURE:             desc = "AGS_ADL_FAILURE"; break;
+	case AGS_DX_FAILURE:              desc = "AGS_DX_FAILURE"; break;
+	case AGS_D3DDEVICE_NOT_CREATED:   desc = "AGS_D3DDEVICE_NOT_CREATED"; break;
+	}
+	LL_WARNS() << desc << LL_ENDL;
 }
 
 // Create app mutex creates a unique global windows object. 
@@ -262,33 +288,10 @@ void ll_nvapi_init(NvDRSSessionHandle hSession)
 		return;
 	}
 
-	// Threaded optimization
-	status = NvAPI_DRS_GetSetting(hSession, hProfile, OGL_THREAD_CONTROL_ID, &drsSetting);
-    if (status == NVAPI_SETTING_NOT_FOUND || (status == NVAPI_OK && drsSetting.u32CurrentValue != OGL_THREAD_CONTROL_ENABLE))
-    {
-        drsSetting.version = NVDRS_SETTING_VER;
-		drsSetting.settingId = OGL_THREAD_CONTROL_ID;
-		drsSetting.settingType = NVDRS_DWORD_TYPE;
-		drsSetting.u32CurrentValue = OGL_THREAD_CONTROL_ENABLE;
-		status = NvAPI_DRS_SetSetting(hSession, hProfile, &drsSetting);
-        if (status != NVAPI_OK)
-        {
-            nvapi_error(status);
-            return;
-	}
-
-        status = NvAPI_DRS_SaveSettings(hSession);
-        if (status != NVAPI_OK) 
-        {
-            nvapi_error(status);
-            return;
-        }
-	}
-	else if (status != NVAPI_OK)
-	{
-		nvapi_error(status);
-		return;
-	}
+	// S24 : OGL_THREAD_CONTROL (threaded optimization) removed - that's an
+	// OpenGL-specific driver setting and this build is DX_RENDER-only, so it
+	// was dead weight riding along with the still-relevant PREFERRED_PSTATE
+	// override above.
 }
 
 //#define DEBUGGING_SEH_FILTER 1
@@ -353,6 +356,40 @@ int APIENTRY WINMAIN(HINSTANCE hInstance,
 	bool found_other_instance = !create_app_mutex();
 	gDebugInfo["FoundOtherInstanceAtStartup"] = LLSD::Boolean(found_other_instance);
 
+	// S24 : AMD AGS must be initialized before viewer_app_ptr->init() runs -
+	// that call chain creates the D3D11 device (LLWindowWin32::
+	// selectHighPerformanceAdapter() / initDX11Context()), and AGS requires
+	// agsInitialize() to run before any ID3D11Device is created (its own
+	// header: "Must be called prior to ID3D11Device or ID3D12Device
+	// creation"). AGS has no per-app driver-profile override API (NvAPI_DRS_*
+	// has no AMD counterpart) - agsInitialize() itself is the GPU/driver
+	// query + context creation step, there is no separate "profile" stage to
+	// mirror ll_nvapi_init()'s settings tuning. DXDevice::sAgsContext is what
+	// DXDevice.cpp/llwindowwin32.cpp's device-creation call sites check to
+	// use the AGS-wrapped D3D11 device creation path for AMD driver
+	// extensions (shader intrinsics, UAV overlap, multi-draw indirect, etc.)
+	// instead of plain D3D11CreateDevice.
+	AGSContext* ags_context = nullptr;
+	static LLCachedControl<bool> use_amd_ags(gSavedSettings, "UseAmdAgs", true);
+	if (use_amd_ags)
+	{
+		AGSGPUInfo gpu_info = {};
+		AGSReturnCode ags_status = agsInitialize(AGS_CURRENT_VERSION, nullptr, &ags_context, &gpu_info);
+
+		if (ags_status == AGS_SUCCESS)
+		{
+			LL_INFOS() << "AMD AGS initialized, driver version " << gpu_info.driverVersion
+				<< ", Radeon Software version " << gpu_info.radeonSoftwareVersion
+				<< ", " << gpu_info.numDevices << " AMD device(s)" << LL_ENDL;
+			DXDevice::sAgsContext = ags_context;
+		}
+		else if (ags_status != AGS_NO_AMD_DRIVER_INSTALLED)
+		{
+			// AGS_NO_AMD_DRIVER_INSTALLED just means a non-AMD GPU - not an error
+			ags_error(ags_status);
+		}
+	}
+
 	bool ok = viewer_app_ptr->init();
 	if (!ok)
 	{
@@ -360,28 +397,59 @@ int APIENTRY WINMAIN(HINSTANCE hInstance,
 		return -1;
 	}
 
+	// S24 : split vendor detection out from the "create app profile" toggle
+	// below - DepthBoundsTest/Reflex are each independently settings-gated
+	// and must work even if the user has turned the profile override off,
+	// so they need to know NVAPI is available regardless of that setting.
 	NvDRSSessionHandle hSession = 0;
-	static LLCachedControl<bool> use_nv_api(gSavedSettings, "NvAPICreateApplicationProfile", true);
-	if (use_nv_api)
+	NvAPI_Status nvapi_init_status = NvAPI_Initialize();
+	DXDevice::sNvApiAvailable = (nvapi_init_status == NVAPI_OK);
+	if (!DXDevice::sNvApiAvailable
+		&& nvapi_init_status != NVAPI_LIBRARY_NOT_FOUND
+		&& nvapi_init_status != NVAPI_NVIDIA_DEVICE_NOT_FOUND)
 	{
-		NvAPI_Status status;
+		// Either of those two just means a non-NVIDIA GPU - not an error
+		nvapi_error(nvapi_init_status);
+	}
 
-		// Initialize NVAPI
-		status = NvAPI_Initialize();
-
-		if (status == NVAPI_OK)
+	static LLCachedControl<bool> use_nv_api(gSavedSettings, "NvAPICreateApplicationProfile", true);
+	if (DXDevice::sNvApiAvailable && use_nv_api)
+	{
+		// Create the session handle to access driver settings
+		NvAPI_Status status = NvAPI_DRS_CreateSession(&hSession);
+		if (status != NVAPI_OK)
 		{
-			// Create the session handle to access driver settings
-			status = NvAPI_DRS_CreateSession(&hSession);
-			if (status != NVAPI_OK)
-			{
-				nvapi_error(status);
-			}
-			else
-			{
-				//override driver setting as needed
-				ll_nvapi_init(hSession);
-			}
+			nvapi_error(status);
+		}
+		else
+		{
+			//override driver setting as needed
+			ll_nvapi_init(hSession);
+		}
+	}
+
+	// S24 : NVIDIA Reflex (low-latency mode) - independent of the profile
+	// toggle above, needs the D3D11 device which now exists post-init().
+	// AGS has no app-callable equivalent (AMD's Anti-Lag is driver-side),
+	// so this stays NVIDIA-only.
+	static LLCachedControl<bool> use_nv_reflex(gSavedSettings, "UseNvidiaReflex", true);
+	if (DXDevice::sNvApiAvailable && use_nv_reflex && gDXDevice.getDevice())
+	{
+		NV_SET_SLEEP_MODE_PARAMS sleep_params = { 0 };
+		sleep_params.version = NV_SET_SLEEP_MODE_PARAMS_VER;
+		sleep_params.bLowLatencyMode = true;
+		sleep_params.bLowLatencyBoost = false;
+		sleep_params.minimumIntervalUs = 0; // no frame rate limit
+		sleep_params.bUseMarkersToOptimize = false; // would need NvAPI_D3D_SetLatencyMarker() calls we don't make
+		NvAPI_Status reflex_status = NvAPI_D3D_SetSleepMode(gDXDevice.getDevice(), &sleep_params);
+		if (reflex_status == NVAPI_OK)
+		{
+			DXDevice::sNvidiaReflexActive = true;
+			LL_INFOS() << "NVIDIA Reflex low-latency mode enabled" << LL_ENDL;
+		}
+		else
+		{
+			nvapi_error(reflex_status);
 		}
 	}
 
@@ -399,8 +467,25 @@ int APIENTRY WINMAIN(HINSTANCE hInstance,
 	}
 
 	// Run the application main loop
-	while (!viewer_app_ptr->frame())
-	{}
+	// S24 : NvAPI_D3D_Sleep() is recommended at the very start of each frame,
+	// before input sampling, for Reflex to actually achieve its lowest
+	// latency - calling SetSleepMode() alone (above) still helps, but the
+	// driver can only sleep at a less optimal point without this. frame()
+	// itself encompasses input/render/present as one call in this
+	// architecture, so immediately before it is the closest real
+	// approximation of "start of frame" available without splitting that
+	// apart.
+	while (true)
+	{
+		if (DXDevice::sNvidiaReflexActive)
+		{
+			NvAPI_D3D_Sleep(gDXDevice.getDevice());
+		}
+		if (viewer_app_ptr->frame())
+		{
+			break;
+		}
+	}
 
 	if (!LLApp::isError())
 	{
@@ -446,6 +531,18 @@ int APIENTRY WINMAIN(HINSTANCE hInstance,
 	{
 		NvAPI_DRS_DestroySession(hSession);
 		hSession = 0;
+	}
+
+	// (AMD AGS) We clean up, matching the NVAPI session teardown above.
+	// viewer_app_ptr->cleanup() (above, inside delete) has already torn down
+	// the D3D11 device via DXDevice::shutdown()'s agsDriverExtensionsDX11_
+	// DestroyDevice() call, which still needed a valid context - so this
+	// runs last, same ordering as the NVAPI session above.
+	if (ags_context)
+	{
+		agsDeInitialize(ags_context);
+		ags_context = nullptr;
+		DXDevice::sAgsContext = nullptr;
 	}
 
 	return 0;

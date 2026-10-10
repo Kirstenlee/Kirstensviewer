@@ -5336,21 +5336,60 @@ void LLWindowWin32::selectHighPerformanceAdapter()
 			// the debug layer's state is consistent regardless of adapter path.
 			// D3D11_CREATE_DEVICE_SINGLETHREADED is set here too, matching
 			// DXDevice.cpp's device-creation flags - see that file for the rationale.
+			UINT deviceFlags = (DXDevice::sDebugLayerEnabled ? D3D11_CREATE_DEVICE_DEBUG : 0) | D3D11_CREATE_DEVICE_SINGLETHREADED;
+
 			bool adapterSelected = (pSelectedAdapter != nullptr);
 			if (adapterSelected)
 			{
-				hr = pD3D11CreateDevice(
-					pSelectedAdapter,
-					D3D_DRIVER_TYPE_UNKNOWN,
-					nullptr,
-					(DXDevice::sDebugLayerEnabled ? D3D11_CREATE_DEVICE_DEBUG : 0) | D3D11_CREATE_DEVICE_SINGLETHREADED,
-					requestedLevels,
-					_countof(requestedLevels),
-					D3D11_SDK_VERSION,
-					&gD3D11Device,
-					&featureLevel,
-					&gD3D11Context
-				);
+				// Prefer the AGS-wrapped creation path when AGS is available
+				// (AMD GPU) for access to AMD's DX11 driver extensions - see
+				// DXDevice.cpp's own-device-creation branch for the same
+				// pattern and its reasoning.
+				bool created_via_ags = false;
+				if (DXDevice::sAgsContext)
+				{
+					AGSDX11DeviceCreationParams creationParams = {};
+					creationParams.pAdapter = pSelectedAdapter;
+					creationParams.DriverType = D3D_DRIVER_TYPE_UNKNOWN;
+					creationParams.Flags = deviceFlags;
+					creationParams.pFeatureLevels = requestedLevels;
+					creationParams.FeatureLevels = _countof(requestedLevels);
+					creationParams.SDKVersion = D3D11_SDK_VERSION;
+
+					AGSDX11ExtensionParams extensionParams = DXDevice::buildAgsExtensionParams();
+					AGSDX11ReturnedParams returnedParams = {};
+					AGSReturnCode ags_hr = agsDriverExtensionsDX11_CreateDevice(DXDevice::sAgsContext, &creationParams, &extensionParams, &returnedParams);
+					if (ags_hr == AGS_SUCCESS)
+					{
+						gD3D11Device = returnedParams.pDevice;
+						gD3D11Context = returnedParams.pImmediateContext;
+						featureLevel = returnedParams.featureLevel;
+						created_via_ags = true;
+						hr = S_OK;
+						DXDevice::applyAgsPostCreateTuning(DXDevice::sAgsContext);
+					}
+					else
+					{
+						LL_WARNS("Window") << "agsDriverExtensionsDX11_CreateDevice failed, code=" << (int)ags_hr
+							<< " - falling back to plain D3D11CreateDevice" << LL_ENDL;
+					}
+				}
+
+				if (!created_via_ags)
+				{
+					hr = pD3D11CreateDevice(
+						pSelectedAdapter,
+						D3D_DRIVER_TYPE_UNKNOWN,
+						nullptr,
+						deviceFlags,
+						requestedLevels,
+						_countof(requestedLevels),
+						D3D11_SDK_VERSION,
+						&gD3D11Device,
+						&featureLevel,
+						&gD3D11Context
+					);
+				}
 				pSelectedAdapter->Release();
 
 				if (!SUCCEEDED(hr))
@@ -5359,23 +5398,60 @@ void LLWindowWin32::selectHighPerformanceAdapter()
 					gExpectedAdapterLUID = { 0, 0 };
 					adapterSelected = false;
 				}
+				else
+				{
+					DXDevice::sAdoptedDeviceViaAgs = created_via_ags;
+				}
 			}
 
 			if (!adapterSelected)
 			{
 				// Either failed to select or didn't find an adapter.
-				hr = pD3D11CreateDevice(
-					nullptr,
-					D3D_DRIVER_TYPE_HARDWARE,
-					nullptr,
-					(DXDevice::sDebugLayerEnabled ? D3D11_CREATE_DEVICE_DEBUG : 0) | D3D11_CREATE_DEVICE_SINGLETHREADED,
-					requestedLevels,
-					_countof(requestedLevels),
-					D3D11_SDK_VERSION,
-					&gD3D11Device,
-					&featureLevel,
-					&gD3D11Context
-				);
+				bool created_via_ags = false;
+				if (DXDevice::sAgsContext)
+				{
+					AGSDX11DeviceCreationParams creationParams = {};
+					creationParams.pAdapter = nullptr;
+					creationParams.DriverType = D3D_DRIVER_TYPE_HARDWARE;
+					creationParams.Flags = deviceFlags;
+					creationParams.pFeatureLevels = requestedLevels;
+					creationParams.FeatureLevels = _countof(requestedLevels);
+					creationParams.SDKVersion = D3D11_SDK_VERSION;
+
+					AGSDX11ExtensionParams extensionParams = DXDevice::buildAgsExtensionParams();
+					AGSDX11ReturnedParams returnedParams = {};
+					AGSReturnCode ags_hr = agsDriverExtensionsDX11_CreateDevice(DXDevice::sAgsContext, &creationParams, &extensionParams, &returnedParams);
+					if (ags_hr == AGS_SUCCESS)
+					{
+						gD3D11Device = returnedParams.pDevice;
+						gD3D11Context = returnedParams.pImmediateContext;
+						featureLevel = returnedParams.featureLevel;
+						created_via_ags = true;
+						hr = S_OK;
+						DXDevice::applyAgsPostCreateTuning(DXDevice::sAgsContext);
+					}
+					else
+					{
+						LL_WARNS("Window") << "agsDriverExtensionsDX11_CreateDevice failed, code=" << (int)ags_hr
+							<< " - falling back to plain D3D11CreateDevice" << LL_ENDL;
+					}
+				}
+
+				if (!created_via_ags)
+				{
+					hr = pD3D11CreateDevice(
+						nullptr,
+						D3D_DRIVER_TYPE_HARDWARE,
+						nullptr,
+						deviceFlags,
+						requestedLevels,
+						_countof(requestedLevels),
+						D3D11_SDK_VERSION,
+						&gD3D11Device,
+						&featureLevel,
+						&gD3D11Context
+					);
+				}
 				if (!SUCCEEDED(hr))
 				{
 					LL_WARNS("Window") << "D3D11 failed to use hardware adapter" << LL_ENDL;
@@ -5384,6 +5460,10 @@ void LLWindowWin32::selectHighPerformanceAdapter()
 					// These shouldn't be set, but make sure they are null.
 					gD3D11Device = nullptr;
 					gD3D11Context = nullptr;
+				}
+				else
+				{
+					DXDevice::sAdoptedDeviceViaAgs = created_via_ags;
 				}
 			}
 		}

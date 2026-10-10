@@ -70,6 +70,11 @@ uniform float sun_wash;
 uniform int proj_shadow_idx;
 uniform float shadow_fade;
 
+// Projector-only specular controls, set in LLPipeline::setupSpotLight(). 0 = LL default.
+uniform float proj_spec_gloss_cap;
+uniform float proj_spec_lod_cap;
+uniform float proj_pbr_legacy_spec;
+
 // classic_mode is also declared by deferredUtil.hlsl/atmosphericsFuncs.hlsl,
 // include-guarded (same reasoning as every other classic_mode fix this
 // session).
@@ -121,6 +126,7 @@ float3 getProjectedLightDiffuseColor(float light_distance, float2 projected_uv )
 float2 getScreenCoord(float4 clip);
 float3 srgb_to_linear(float3 cs);
 float4 texture2DLodSpecular(float2 tc, float lod);
+float4 getTexture2DLodDiffuse(float2 tc, float lod);
 
 float4 getPosition(float2 pos_screen);
 
@@ -156,6 +162,20 @@ struct GBufferInfo
 #endif
 
 GBufferInfo getGBuffer(float2 screenpos);
+
+// Specular projector colour: same mip selection as getProjectedLightDiffuseColor(), but the
+// LOD is capped when proj_spec_lod_cap > 0 so the highlight keeps its colour with distance.
+float3 getProjectedLightSpecLit(float light_distance, float2 projected_uv)
+{
+    float diff = clamp((light_distance - proj_focus) / proj_range, 0.0, 1.0);
+    float lod = diff * proj_lod;
+    if (proj_spec_lod_cap > 0.0)
+    {
+        lod = min(lod, proj_spec_lod_cap);
+    }
+    float4 plcol = getTexture2DLodDiffuse(projected_uv, lod);
+    return color.rgb * plcol.rgb * plcol.a;
+}
 
 float4 main(PSInput IN) : SV_Target
 {
@@ -242,7 +262,15 @@ float4 main(PSInput IN) : SV_Target
             // S24: was called twice with byte-identical arguments (once inside the nl>0.0
             // block, once again right after it) - diffPunc/specPunc don't depend on anything
             // computed in between, so hoisted to a single call reused by both terms below.
-            pbrPunctual(diffuseColor, specularColor, perceptualRoughness, metallic, n.xyz, v, lv, nl, diffPunc, specPunc);
+            // Projector-only controls (0 = off). Legacy lobe: the PBR diffuse term is kept and the
+            // highlight comes from the Blinn-Phong LUT with gloss = 1 - roughness, as on legacy surfaces.
+            // GGX path otherwise: the gloss cap becomes a roughness floor that widens the lobe.
+            float rough = perceptualRoughness;
+            if (proj_spec_gloss_cap > 0.0 && proj_pbr_legacy_spec <= 0.0)
+            {
+                rough = max(rough, 1.0 - proj_spec_gloss_cap);
+            }
+            pbrPunctual(diffuseColor, specularColor, rough, metallic, n.xyz, v, lv, nl, diffPunc, specPunc);
 
             if (nl > 0.0)
             {
@@ -250,9 +278,39 @@ float4 main(PSInput IN) : SV_Target
 
                 dlit = getProjectedLightDiffuseColor( l_dist, proj_tc.xy );
 
-                float3 intensity = dist_atten * dlit * 3.25 * shadow; // Legacy attenuation, magic number to balance with legacy materials
+                if (proj_pbr_legacy_spec > 0.0)
+                {
+                    float3 slit = (proj_spec_lod_cap > 0.0) ? getProjectedLightSpecLit(l_dist, proj_tc.xy) : dlit;
+                    float3 h = normalize(lv + v);
+                    float nh = dot(n.xyz, h);
+                    float nv = dot(n.xyz, v);
+                    float vh = dot(v, h);
+                    float3 lobe = float3(0, 0, 0);
+                    if (nh > 0.0 && vh > 0.0)
+                    {
+                        float gloss = 1.0 - perceptualRoughness;
+                        float fres = pow(abs(1 - vh), 5)*0.4+0.5;
+                        float gtdenom = 2 * nh;
+                        float gt = max(0, min(gtdenom * nv / vh, gtdenom * nl / vh));
+                        float scol = fres*lightFunc.Sample(lightFuncSampler, float2(nh, gloss)).r*gt/(nh*nl);
+                        lobe = scol * specularColor;
+                    }
+                    float3 diffuse_term = dlit * diffPunc * nl;
+                    float3 spec_term = clamp(slit * lobe * min(nl*6.0, 1.0), float3(0, 0, 0), float3(1, 1, 1));
+                    final_color += dist_atten * 3.25 * shadow * (diffuse_term + spec_term);
+                }
+                else if (proj_spec_lod_cap > 0.0)
+                {
+                    // Specular keeps its colour with distance; diffuse keeps the blurred sample.
+                    float3 slit = getProjectedLightSpecLit(l_dist, proj_tc.xy);
+                    final_color += dist_atten * 3.25 * shadow * clamp(nl * (dlit * diffPunc + slit * specPunc), float3(0, 0, 0), float3(10, 10, 10));
+                }
+                else
+                {
+                    float3 intensity = dist_atten * dlit * 3.25 * shadow; // Legacy attenuation, magic number to balance with legacy materials
 
-                final_color += intensity * clamp(nl * (diffPunc + specPunc), float3(0, 0, 0), float3(10, 10, 10));
+                    final_color += intensity * clamp(nl * (diffPunc + specPunc), float3(0, 0, 0), float3(10, 10, 10));
+                }
             }
 
             amb_rgb = getProjectedLightAmbiance( amb_da, dist_atten, lit, nl, 1.0, proj_tc.xy ) * 3.25; //magic number to balance with legacy ambiance
@@ -294,7 +352,19 @@ float4 main(PSInput IN) : SV_Target
 
         if (spec.a > 0.0)
         {
-            dlit *= min(nl*6.0, 1.0) * dist_atten;
+            float3 spec_lit = dlit;
+            if (proj_spec_lod_cap > 0.0 && proj_tc.z > 0.0 &&
+                proj_tc.x > 0.0 && proj_tc.x < 1.0 && proj_tc.y > 0.0 && proj_tc.y < 1.0)
+            {
+                spec_lit = getProjectedLightSpecLit(l_dist, proj_tc.xy);
+            }
+            spec_lit *= min(nl*6.0, 1.0) * dist_atten;
+
+            float spec_gloss = spec.a;
+            if (proj_spec_gloss_cap > 0.0)
+            {
+                spec_gloss = min(spec.a, proj_spec_gloss_cap);
+            }
 
             float fres = pow(abs(1 - vh), 5)*0.4+0.5;
 
@@ -303,8 +373,8 @@ float4 main(PSInput IN) : SV_Target
 
             if (nh > 0.0)
             {
-                float scol = fres*lightFunc.Sample(lightFuncSampler, float2(nh, spec.a)).r*gt/(nh*nl);
-                float3 speccol = dlit*scol*spec.rgb*shadow;
+                float scol = fres*lightFunc.Sample(lightFuncSampler, float2(nh, spec_gloss)).r*gt/(nh*nl);
+                float3 speccol = spec_lit*scol*spec.rgb*shadow;
                 speccol = clamp(speccol, float3(0, 0, 0), float3(1, 1, 1));
                 final_color += speccol;
             }

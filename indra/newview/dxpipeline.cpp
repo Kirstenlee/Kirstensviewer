@@ -25,13 +25,14 @@
  */
 
 #include "llviewerprecompiledheaders.h"
+#include "dxdrawpoolalpha.h"
 
 #include "dxpipeline.h"
 
 #include "pipeline.h"
 #include "lldrawpool.h"
 #include "lldrawpoolpbropaque.h"
-#include "lldrawpoolalpha.h"
+#include "dxdrawpoolalpha.h"
 #include "llspatialpartition.h"
 #include "llvertexbuffer.h"
 #include "llrendertarget.h"
@@ -67,6 +68,10 @@ extern bool gSnapshotNoPost;
 // LLPipeline::renderDeferredLighting()'s GL body.
 extern bool gCubeSnapshot;
 
+// S24 : set by LLEquirectCapture for its whole capture loop - see
+// llviewerdisplay.cpp's definition comment.
+extern bool gEquirectCapture;
+
 // Matches llviewerdisplay.cpp's own extern (defined there, next to
 // gSnapshotNoPost) - set right before both presentFinal() call sites, so
 // rawSnapshot() (llviewerwindow.cpp) can read the true final composited
@@ -82,6 +87,7 @@ extern int effectsMask;
 void updateEffectMask();
 
 #include "DXDevice.h"
+#include "nvapi/nvapi.h"
 #include "DXReadback.h"
 #include "DXRenderTarget.h"
 #include "DXStateCache.h"
@@ -133,7 +139,7 @@ namespace
     // class comment. Everything else is silently skipped, not a bug: those
     // pools haven't had their own DX_RENDER branch written yet.
     //
-    // POOL_GRASS/POOL_ALPHA_MASK (LLDrawPoolGrass/LLDrawPoolAlphaMask) got
+    // POOL_GRASS/POOL_ALPHA_MASK (LLDrawPoolGrass/DXAlphaDrawPoolMask) got
     // their DX_RENDER branch in stage 5 phase 5.1 (see dxdrawpoolsimple.cpp)
     // and hook renderDeferred() same as POOL_SIMPLE, so they fit this
     // existing loop as-is. The other 3 pools converted in that same phase
@@ -179,7 +185,7 @@ namespace
     // phase 5.3 (see dxdrawpoolbump.cpp, a staged full duplicate like
     // dxdrawpoolalpha) - its renderDeferred() hooks the deferred pass, so
     // it fits this loop as-is (beginDeferredPass()/endDeferredPass() are
-    // unoverridden no-ops from the LLDrawPool base). LLDrawPoolAlpha and
+    // unoverridden no-ops from the LLDrawPool base). DXAlphaDrawPool and
     // LLDrawPoolBump's own renderPostDeferred() are NOT whitelisted -
     // same "no orchestration loop yet" situation as the other post-
     // deferred pools above.
@@ -346,16 +352,17 @@ void DXPipeline::renderGeomDeferred(LLPipeline& pipeline, LLCamera& camera, bool
         gGLInverseDeltaModelView = n;
     }
 
-    // GL calls mReflectionMapManager.updateUniformsPerFrame()/
-    // mHeroProbeManager.updateUniformsPerFrame() once per frame here.
+    // GL calls mSphereProbes.updateUniformsPerFrame()/
+    // mMirrorProbes.updateUniformsPerFrame() once per frame here.
     // Mirrored explicitly - nothing else refreshes probe data (positions,
     // bucket assignments, hero-probe box/sphere/mip data) per frame under
     // DX_RENDER, so without this call reflections freeze after the first
-    // shader bind.
-    if (LLViewerShaderMgr::instance()->mShaderLevel[LLViewerShaderMgr::SHADER_DEFERRED] > 1)
+    // shader bind. Main camera only: origins are built from gGLModelView, so a secondary
+    // camera's pass (e.g. impostor generation) would overwrite them with its own view space.
+    if (&camera == LLViewerCamera::getInstance() && LLViewerShaderMgr::instance()->mShaderLevel[LLViewerShaderMgr::SHADER_DEFERRED] > 1)
     {
-        pipeline.mReflectionMapManager.updateUniformsPerFrame();
-        pipeline.mHeroProbeManager.updateUniformsPerFrame();
+        pipeline.mSphereProbes.updateUniformsPerFrame();
+        pipeline.mMirrorProbes.updateUniformsPerFrame();
     }
 
     // Mirrors GL's doOcclusion(camera) call site/gating (sUseOcclusion/
@@ -463,8 +470,11 @@ void DXPipeline::renderGeomPostDeferred(LLPipeline& pipeline, LLCamera& camera)
     U32 atmospherics_pass = LLPipeline::sUnderWaterRender ? (U32)LLDrawPool::POOL_WATER : (U32)LLDrawPool::POOL_ALPHA_POST_WATER;
     U32 water_haze_pass = LLDrawPool::POOL_ALPHA_PRE_WATER;
 
+    // S24 : !gEquirectCapture - a full 360 capture wants the same real
+    // atmospherics/water-haze a normal frame gets, not the reduced-detail
+    // shortcut reflection/sphere probes intentionally take.
     static LLCachedControl<S32> atmospherics_probe_level(gSavedSettings, "RenderReflectionProbeLevel", 0);
-    bool low_detail_probe = atmospherics_probe_level == 0 && gCubeSnapshot;
+    bool low_detail_probe = atmospherics_probe_level == 0 && gCubeSnapshot && !gEquirectCapture;
     done_atmospherics = done_atmospherics || low_detail_probe;
     done_water_haze = done_water_haze || low_detail_probe;
 
@@ -1007,8 +1017,14 @@ void DXPipeline::presentDeferredScreen(LLPipeline& pipeline)
             // glFinish()-equivalent needed before the read:
             // DXReadback::readPixels()'s Map(D3D11_MAP_READ) is already a
             // synchronous GPU/CPU coherence point.
+            //
+            // S24: !gCubeSnapshot mirrors DoF's existing gate just above -
+            // motionBlurGPU() (kveffects.cpp) keeps a persistent cross-frame
+            // OpenCL history buffer, which would otherwise blend unrelated,
+            // discontinuous-orientation cube faces together during a
+            // multi-face capture (360 capture, reflection probes).
             updateEffectMask();
-            if (effectsMask != 0)
+            if (effectsMask != 0 && !gCubeSnapshot)
             {
                 ID3D11Texture2D* effects_tex = sourceBuffer->getDXColorTexture(0);
                 if (effects_tex)
@@ -1164,6 +1180,63 @@ void DXPipeline::presentStereoComposite(LLPipeline& pipeline)
     }
 
     gStereoAnaglyphProgram.unbind();
+}
+
+// S24 : Depth Bounds Test helpers for the local-light loop below (AMD AGS /
+// NVAPI - both vendors expose this, no portable D3D11 equivalent exists).
+// Computes the light's hardware-depth range by replaying its view-space Z
+// extent through the SAME projection matrix the GPU uses this frame, rather
+// than deriving the reversed-Z/standard-Z formula by hand - depth bounds
+// depend only on Z in a standard perspective matrix (the x/y terms in rows
+// 2/3 are zero for both symmetric and off-center frustums), so zeroing x/y
+// here is the standard technique, not an approximation. Returns false (skip
+// depth bounds for this light) on any degenerate result rather than risk
+// clipping real pixels.
+static bool computeLightDepthBounds(const F32* world_center, F32 radius, const glm::mat4& modelview, const glm::mat4& proj, F32& out_min, F32& out_max)
+{
+    glm::vec4 view_center = modelview * glm::vec4(world_center[0], world_center[1], world_center[2], 1.0f);
+
+    glm::vec4 clip0 = proj * glm::vec4(0.f, 0.f, view_center.z + radius, 1.0f);
+    glm::vec4 clip1 = proj * glm::vec4(0.f, 0.f, view_center.z - radius, 1.0f);
+    if (clip0.w == 0.f || clip1.w == 0.f)
+    {
+        return false;
+    }
+
+    F32 z0 = clip0.z / clip0.w;
+    F32 z1 = clip1.z / clip1.w;
+    out_min = llclamp(llmin(z0, z1), 0.f, 1.f);
+    out_max = llclamp(llmax(z0, z1), 0.f, 1.f);
+
+    return (out_max - out_min) > 0.0001f;
+}
+
+static void enableLightDepthBounds(F32 min_depth, F32 max_depth)
+{
+    // Dispatch on what THIS device actually is, not on whether each
+    // vendor's driver merely happens to be installed somewhere on the
+    // system (see wasCreatedViaAgs()'s comment - matters on hybrid
+    // AMD+NVIDIA systems).
+    if (gDXDevice.wasCreatedViaAgs())
+    {
+        agsDriverExtensionsDX11_SetDepthBounds(DXDevice::sAgsContext, gDXDevice.getContext(), true, min_depth, max_depth);
+    }
+    else if (DXDevice::sNvApiAvailable)
+    {
+        NvAPI_D3D11_SetDepthBoundsTest(gDXDevice.getContext(), 1, min_depth, max_depth);
+    }
+}
+
+static void disableLightDepthBounds()
+{
+    if (gDXDevice.wasCreatedViaAgs())
+    {
+        agsDriverExtensionsDX11_SetDepthBounds(DXDevice::sAgsContext, gDXDevice.getContext(), false, 0.f, 1.f);
+    }
+    else if (DXDevice::sNvApiAvailable)
+    {
+        NvAPI_D3D11_SetDepthBoundsTest(gDXDevice.getContext(), 0, 0.f, 1.f);
+    }
 }
 
 // static
@@ -1425,6 +1498,9 @@ void DXPipeline::renderDeferredLighting(LLPipeline& pipeline)
     // value, destroying the real depth just written by the opaque pass.
     screen_target->clear(GL_COLOR_BUFFER_BIT);
 
+    // Opaque screen-space reflections, traced before lighting so softenLight reads them.
+    pipeline.renderSSRPass();
+
     LLHLSLShader& soften_shader = gDeferredSoftenProgram;
 
     // Only the soften/ambient draw itself is atmospheric-gated (matches
@@ -1439,6 +1515,7 @@ void DXPipeline::renderDeferredLighting(LLPipeline& pipeline)
         // nonzero ambiance whenever LLPipeline::sReflectionProbesEnabled is
         // false. This C++/shader uniform-upload chain is not the culprit.
         pipeline.bindDeferredShader(soften_shader);
+        pipeline.bindSSRBuffer(soften_shader);
 
         static LLCachedControl<F32> ssao_scale(gSavedSettings, "RenderSSAOIrradianceScale", 0.5f);
         static LLCachedControl<F32> ssao_max(gSavedSettings, "RenderSSAOIrradianceMax", 0.25f);
@@ -1453,7 +1530,7 @@ void DXPipeline::renderDeferredLighting(LLPipeline& pipeline)
         soften_shader.uniform1i(LLShaderMgr::SUN_UP_FACTOR, environment.getIsSunUp() ? 1 : 0);
         soften_shader.uniform3fv(LLShaderMgr::LIGHTNORM, 1, environment.getClampedLightNorm().mV);
 
-        soften_shader.uniform4fv(LLShaderMgr::WATER_WATERPLANE, 1, LLDrawPoolAlpha::sWaterPlane.mV);
+        soften_shader.uniform4fv(LLShaderMgr::WATER_WATERPLANE, 1, DXDrawPoolAlpha::sWaterPlane.mV);
 
         {
             LLGLDepthTest depth(GL_FALSE);
@@ -1502,15 +1579,18 @@ void DXPipeline::renderDeferredLighting(LLPipeline& pipeline)
         // probe_level > 0)` - local lights must be suppressed during
         // reflection-probe capture unless probe ambiance is above 0.
         // light_scale below must also mirror GL's
-        // mReflectionMapManager.mLightScale multiply during capture, or
+        // mSphereProbes.mLightScale multiply during capture, or
         // probe captures come out double-lit/washed-out relative to GL.
+        //
+        // S24 : gEquirectCapture opts out of both the stale light_scale
+        // read and the local-light suppression below.
         F32 light_scale = 1.f;
-        if (gCubeSnapshot)
+        if (gCubeSnapshot && !gEquirectCapture)
         {
-            light_scale = pipeline.mReflectionMapManager.getLightScale();
+            light_scale = pipeline.mSphereProbes.getLightScale();
         }
 
-        if (local_light_count > 0 && (!gCubeSnapshot || probe_level > 0))
+        if (local_light_count > 0 && (!gCubeSnapshot || probe_level > 0 || gEquirectCapture))
         {
             // GL resets both spot-shadow target slots every frame BEFORE
             // the priority competition in setupSpotLight() runs. Without
@@ -1600,6 +1680,9 @@ void DXPipeline::renderDeferredLighting(LLPipeline& pipeline)
             // matrix used to transform their centers into view space for
             // the fullscreen multi-light/multi-spotlight shaders.
             glm::mat4 mat = get_current_modelview();
+            // S24 : for Depth Bounds Test below (AMD AGS / NVAPI) - computed
+            // once per frame, not per light.
+            glm::mat4 proj = get_current_projection();
             static std::vector<LLVector4> fullscreen_lights;
             static std::vector<LLVector4> fullscreen_light_colors;
             static std::vector<LLDrawable*> fullscreen_spot_lights;
@@ -1799,7 +1882,20 @@ void DXPipeline::renderDeferredLighting(LLPipeline& pipeline)
 
                     gDX.syncMatrices();
 
+                    F32 depth_min, depth_max;
+                    bool bounds_set = DXDevice::sDepthBoundsTestEnabled
+                        && computeLightDepthBounds(c, s, mat, proj, depth_min, depth_max);
+                    if (bounds_set)
+                    {
+                        enableLightDepthBounds(depth_min, depth_max);
+                    }
+
                     sDXBoxLightVB->drawArrays(LLRender::TRIANGLES, cypher * 18, 18);
+
+                    if (bounds_set)
+                    {
+                        disableLightDepthBounds();
+                    }
                 }
                 else
                 {
@@ -1869,7 +1965,21 @@ void DXPipeline::renderDeferredLighting(LLPipeline& pipeline)
                     gDX.syncMatrices();
 
                     U32 cypher = getBoxLightCypher(camera, center);
+
+                    F32 depth_min, depth_max;
+                    bool bounds_set = DXDevice::sDepthBoundsTestEnabled
+                        && computeLightDepthBounds(c, s, mat, proj, depth_min, depth_max);
+                    if (bounds_set)
+                    {
+                        enableLightDepthBounds(depth_min, depth_max);
+                    }
+
                     sDXBoxLightVB->drawArrays(LLRender::TRIANGLES, cypher * 18, 18);
+
+                    if (bounds_set)
+                    {
+                        disableLightDepthBounds();
+                    }
                 }
 
                 gDeferredSpotLightProgram.disableTexture(LLShaderMgr::DEFERRED_PROJECTION);

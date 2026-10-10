@@ -270,6 +270,9 @@ public:
     // SRV instead of depth/color - see LLTexUnit::bind(LLRenderTarget*, ...)
     // in llrender.h/.cpp, the actual chokepoint this delegates to.
     S32 bindTexture(S32 uniform, LLRenderTarget* texture, bool depth = false, LLTexUnit::eTextureFilterOptions mode = LLTexUnit::TFO_BILINEAR, U32 index = 0, bool stencil = false);
+    // S24 : task #338 - direct sibling of the LLRenderTarget* overload above,
+    // for a plain DXCubeTexture (the real chokepoint is LLTexUnit::bind(DXCubeTexture*)).
+    S32 bindTexture(S32 uniform, DXCubeTexture* cubeTexture);
     S32 unbindTexture(S32 uniform, LLTexUnit::eTextureType mode = LLTexUnit::TT_TEXTURE);
 
     void bind();
@@ -373,7 +376,7 @@ public:
     //helper to bind GLTF variant
     void bind(U8 variant);
 
-    // hacky flag used for optimization in LLDrawPoolAlpha
+    // hacky flag used for optimization in DXAlphaDrawPool
     bool mCanBindFast = false;
 
 #if LL_PROFILER_ENABLE_RENDER_DOC

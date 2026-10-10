@@ -59,6 +59,8 @@ uniform float blend_factor;
 
 #ifdef TRANSPARENT_WATER
 Texture2D screenTex : register(t7);
+// Cube captures have no valid screen copy, so they take the fog-coloured surface instead of refraction.
+uniform float probe_capture;
 SamplerState screenTexSampler : register(s7);
 // S24: do not declare a second "depthMap" texture here - deferredUtil.hlsl (attached since
 // hasReflectionProbes=true) already declares one at t1, and HLSL rejects the duplicate symbol
@@ -309,7 +311,9 @@ float4 main(PSInput IN) : SV_Target
         distort2 = distort;
     }
 
-    float4 fb = screenTex.Sample(screenTexSampler, float2(distort2.x, 1.0 - distort2.y));
+    float4 fb = (probe_capture > 0.5)
+        ? applyWaterFogViewLinear(viewVec * 2048.0, float4(1.0, 1.0, 1.0, 1.0))
+        : screenTex.Sample(screenTexSampler, float2(distort2.x, 1.0 - distort2.y));
 
 #else
     float4 fb = applyWaterFogViewLinear(viewVec * 2048.0, float4(1.0, 1.0, 1.0, 1.0));
@@ -333,7 +337,7 @@ float4 main(PSInput IN) : SV_Target
     // for any shader with mFeatures.hasReflectionProbes, which gWaterProgram has; sampled by
     // sampleReflectionProbesWater() -> sampleReflectionProbes() (reflectionProbeF.hlsl). This gives
     // a real but non-per-position (single static sky cubemap) reflection, not flat black; per-probe
-    // accuracy needs the LLCubeMapArray-based per-probe pipeline (llreflectionmapmanager.cpp).
+    // accuracy needs the LLCubeMapArray-based per-probe pipeline (llsphereprobes.cpp).
     sampleReflectionProbesWater(irradiance, radiance, distort2, pos.xyz, wave_ibl.xyz, gloss, amblit);
 
     float3 diffuseColor = float3(0, 0, 0);

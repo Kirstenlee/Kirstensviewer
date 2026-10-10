@@ -27,6 +27,7 @@
  // A "volume" is a box, cylinder, sphere, or other primitive shape.
 
 #include "llviewerprecompiledheaders.h"
+#include "dxdrawpoolalpha.h"
 
 #include "llvovolume.h"
 
@@ -308,7 +309,7 @@ void LLVOVolume::markDead()
 
 		if (mIsHeroProbe)
 		{
-			gPipeline.mHeroProbeManager.unregisterViewerObject(this);
+			gPipeline.mMirrorProbes.unregisterViewerObject(this);
 		}
 	}
 
@@ -3522,9 +3523,9 @@ bool LLVOVolume::setReflectionProbeIsMirror(bool is_mirror)
 			parameterChanged(LLNetworkData::PARAMS_REFLECTION_PROBE, true);
 
 			if (!is_mirror)
-				gPipeline.mHeroProbeManager.unregisterViewerObject(this);
+				gPipeline.mMirrorProbes.unregisterViewerObject(this);
 			else
-				gPipeline.mHeroProbeManager.registerViewerObject(this);
+				gPipeline.mMirrorProbes.registerViewerObject(this);
 
 			return true;
 		}
@@ -4518,7 +4519,7 @@ void LLVOVolume::updateReflectionProbePtr()
 	{
 		if (mReflectionProbe.isNull() && !getReflectionProbeIsMirror())
 		{
-			mReflectionProbe = gPipeline.mReflectionMapManager.registerViewerObject(this);
+			mReflectionProbe = gPipeline.mSphereProbes.registerViewerObject(this);
 		}
 		else if (mReflectionProbe.isNull() && getReflectionProbeIsMirror())
 		{
@@ -4526,7 +4527,7 @@ void LLVOVolume::updateReflectionProbePtr()
 			// What we want to do here is instantiate a hero probe from the hero probe manager.
 
 			if (!mIsHeroProbe)
-				mIsHeroProbe = gPipeline.mHeroProbeManager.registerViewerObject(this);
+				mIsHeroProbe = gPipeline.mMirrorProbes.registerViewerObject(this);
 		}
 	}
 	else if (mReflectionProbe.notNull() || getReflectionProbeIsMirror())
@@ -4538,7 +4539,7 @@ void LLVOVolume::updateReflectionProbePtr()
 
 		if (getReflectionProbeIsMirror())
 		{
-			gPipeline.mHeroProbeManager.unregisterViewerObject(this);
+			gPipeline.mMirrorProbes.unregisterViewerObject(this);
 		}
 	}
 }
@@ -5603,6 +5604,14 @@ void LLVolumeGeometryManager::registerFace(LLSpatialGroup* group, LLFace* facep,
 		draw_info->validate();
 	}
 
+	// DX alpha: record this face's range inside its batch so the alpha pool can sort faces individually.
+	if (type == LLRenderPass::PASS_ALPHA || type == LLRenderPass::PASS_ALPHA_RIGGED)
+	{
+		info->mDXFaces.push_back(DXDrawFace{ facep, (U32)facep->getIndicesStart(), facep->getIndicesCount(),
+			facep->getGeomIndex(), (U32)facep->getGeomIndex() + facep->getGeomCount() - 1,
+			facep->getTextureEntry()->getColor().mV[3] });
+	}
+
 	llassert(info->mGLTFMaterial == nullptr || (info->mVertexBuffer->getTypeMask() & LLVertexBuffer::MAP_TANGENT) != 0);
 	llassert(type != LLPipeline::RENDER_TYPE_PASS_GLTF_PBR || info->mGLTFMaterial != nullptr);
 	llassert(type != LLPipeline::RENDER_TYPE_PASS_GLTF_PBR_RIGGED || info->mGLTFMaterial != nullptr);
@@ -5987,7 +5996,7 @@ void LLVolumeGeometryManager::rebuildGeom(LLSpatialGroup* group)
 								drawablep->setState(LLDrawable::HAS_ALPHA);
 								add_face(sAlphaFaces, alpha_count, facep);
 							}
-							else if ((LLDrawPoolAlpha::sShowDebugAlpha && (render_reflection_object || !vobj->isReflectionProbe())) ||
+							else if ((DXDrawPoolAlpha::sShowDebugAlpha && (render_reflection_object || !vobj->isReflectionProbe())) ||
 								(gPipeline.sRenderHighlight && !drawablep->getParent() &&
 									//only root objects are highlighted with red color in this case
 									drawablep->getVObj() && drawablep->getVObj()->flagScripted() &&
@@ -6021,7 +6030,7 @@ void LLVolumeGeometryManager::rebuildGeom(LLSpatialGroup* group)
 									bool should_render = true;
 									if (gltf_mat->mAlphaMode == LLGLTFMaterial::ALPHA_MODE_BLEND)
 									{
-                                        if (gltf_mat->mBaseColor.mV[3] == 0.0f && !LLDrawPoolAlpha::sShowDebugAlpha)
+                                        if (gltf_mat->mBaseColor.mV[3] == 0.0f && !DXDrawPoolAlpha::sShowDebugAlpha)
 										{
 											should_render = false;
 										}

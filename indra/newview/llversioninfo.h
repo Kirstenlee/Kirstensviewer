@@ -69,6 +69,12 @@ public:
     /// return the viewer version as a string like "2.0.0"
     std::string getShortVersion() const;
 
+    /// return the release label shown to users, e.g. "Alpha 1.31"
+    std::string getLabel() const;
+
+    /// return the release codename, e.g. "Hradr"
+    std::string getCodename() const;
+
     /// return the viewer version and channel as a string
     /// like "Second Life Release 2.0.0.200030"
     std::string getChannelAndVersion() const;

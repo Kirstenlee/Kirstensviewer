@@ -33,7 +33,7 @@
 #include "llagentcamera.h"
 #include "llnotificationsutil.h"
 #include "lldrawable.h"
-#include "lldrawpoolalpha.h"
+#include "dxdrawpoolalpha.h"
 #include "llface.h"
 #include "llsky.h"
 #include "llsurface.h"
@@ -595,7 +595,7 @@ U32 LLVOGrass::getPartitionType() const
 }
 
 LLGrassPartition::LLGrassPartition(LLViewerRegion* regionp)
-: LLSpatialPartition(static_cast<U32>(LLDrawPoolAlpha::VERTEX_DATA_MASK) | static_cast<U32>(LLVertexBuffer::MAP_TEXTURE_INDEX), true, regionp)
+: LLSpatialPartition(static_cast<U32>(DXAlphaDrawPool::VERTEX_DATA_MASK) | static_cast<U32>(LLVertexBuffer::MAP_TEXTURE_INDEX), true, regionp)
 {
     mDrawableType = LLPipeline::RENDER_TYPE_GRASS;
     mPartitionType = LLViewerRegion::PARTITION_GRASS;

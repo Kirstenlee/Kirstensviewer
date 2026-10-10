@@ -25,6 +25,7 @@
  */
 
 #include "llviewerprecompiledheaders.h"
+#include "dxdrawpoolalpha.h"
 
 #include "pipeline.h"
 
@@ -64,7 +65,7 @@
 #include "lltexturefetch.h"
 #include "llimageworker.h"
 #include "lldrawable.h"
-#include "lldrawpoolalpha.h"
+#include "dxdrawpoolalpha.h"
 #include "lldrawpoolavatar.h"
 #include "lldrawpoolbump.h"
 #include "lldrawpooltree.h"
@@ -233,7 +234,6 @@ F32 LLPipeline::RenderWaterSSRRayStep;
 S32 LLPipeline::RenderBufferVisualization;
 bool LLPipeline::RenderMirrors;
 S32 LLPipeline::RenderHeroProbeUpdateRate;
-S32 LLPipeline::RenderHeroProbeConservativeUpdateMultiplier;
 bool LLPipeline::RenderAvatarCloth;
 LLTrace::EventStatHandle<S64> LLPipeline::sStatBatchSize("renderbatchsize");
 
@@ -270,6 +270,7 @@ extern S32 gBoxFrame;
 extern bool gDisplaySwapBuffers;
 extern bool gDebugGL;
 extern bool gCubeSnapshot;
+extern bool gEquirectCapture;
 extern bool gSnapshotNoPost;
 
 bool    gAvatarBacklight = false;
@@ -355,6 +356,7 @@ bool    LLPipeline::sReflectionRender = false;
 bool    LLPipeline::sDistortionRender = false;
 bool    LLPipeline::sImpostorRender = false;
 bool    LLPipeline::sImpostorRenderAlphaDepthPass = false;
+LLViewerObject* LLPipeline::sCaptureExcludeObject = nullptr;
 bool    LLPipeline::sUnderWaterRender = false;
 bool    LLPipeline::sTextureBindTest = false;
 bool    LLPipeline::sRenderAttachedLights = true;
@@ -476,7 +478,7 @@ void LLPipeline::init()
 	sRenderAttachedLights = gSavedSettings.getBOOL("RenderAttachedLights");
 	sRenderAttachedParticles = gSavedSettings.getBOOL("RenderAttachedParticles");
 
-	mReflectionMapManager.refreshSettings();
+	mSphereProbes.refreshSettings();
 
 	mInitialized = true;
 
@@ -655,7 +657,6 @@ void LLPipeline::init()
 	connectRefreshCachedSettingsSafe("RenderBufferVisualization");
 	connectRefreshCachedSettingsSafe("RenderMirrors");
 	connectRefreshCachedSettingsSafe("RenderHeroProbeUpdateRate");
-	connectRefreshCachedSettingsSafe("RenderHeroProbeConservativeUpdateMultiplier");
 	connectRefreshCachedSettingsSafe("RenderAvatarCloth");
 
 	LLPointer<LLControlVariable> cntrl_ptr = gSavedSettings.getControl("CollectFontVertexBuffers");
@@ -760,8 +761,8 @@ void LLPipeline::cleanup()
 
 	mCubeVB = NULL;
 
-	mReflectionMapManager.cleanup();
-	mHeroProbeManager.cleanup();
+	mSphereProbes.cleanup();
+	mMirrorProbes.cleanup();
 }
 
 //============================================================================
@@ -886,17 +887,17 @@ bool LLPipeline::allocateScreenBufferInternal(U32 resX, U32 resY)
 
 		if (sReflectionProbesEnabled)
 		{
-			mReflectionMapManager.initReflectionMaps();
+			mSphereProbes.initReflectionMaps();
 		}
 
 		mRT = &mAuxillaryRT;
-		U32 res = mReflectionMapManager.mProbeResolution * 4;  //multiply by 4 because probes will be 16x super sampled
+		U32 res = mSphereProbes.mProbeResolution * 4;  //multiply by 4 because probes will be 16x super sampled
 		allocateScreenBufferInternal(res, res);
 
 		if (RenderMirrors)
 		{
-			mHeroProbeManager.initReflectionMaps();
-			res = mHeroProbeManager.mProbeResolution;  // We also scale the hero probe RT to the probe res since we don't super sample it.
+			mMirrorProbes.initReflectionMaps();
+			res = mMirrorProbes.mProbeResolution;  // We also scale the hero probe RT to the probe res since we don't super sample it.
 			mRT = &mHeroProbeRT;
 			allocateScreenBufferInternal(res, res);
 		}
@@ -971,10 +972,17 @@ bool LLPipeline::allocateScreenBufferInternal(U32 resX, U32 resY)
 		if (RenderScreenSpaceReflections)
 		{
 			mSceneMap.allocate(resX, resY, screenFormat, true);
+			mSSRBuffer.allocate(resX, resY, screenFormat, false);
+			mSSRResolved[0].allocate(resX, resY, screenFormat, false);
+			mSSRResolved[1].allocate(resX, resY, screenFormat, false);
+			mSSRHistoryValid = false;
 		}
 		else
 		{
 			mSceneMap.release();
+			mSSRBuffer.release();
+			mSSRResolved[0].release();
+			mSSRResolved[1].release();
 		}
 
 		mPostPingMap.allocate(resX, resY, GL_RGBA);
@@ -1191,7 +1199,6 @@ void LLPipeline::refreshCachedSettings()
 	RenderBufferVisualization = gSavedSettings.getS32("RenderBufferVisualization");
 	RenderMirrors = gSavedSettings.getBOOL("RenderMirrors");
 	RenderHeroProbeUpdateRate = gSavedSettings.getS32("RenderHeroProbeUpdateRate");
-	RenderHeroProbeConservativeUpdateMultiplier = gSavedSettings.getS32("RenderHeroProbeConservativeUpdateMultiplier");
 	RenderAvatarCloth = gSavedSettings.getBOOL("RenderAvatarCloth");
 
 	sReflectionProbesEnabled = LLFeatureManager::getInstance()->isFeatureAvailable("RenderReflectionsEnabled") && gSavedSettings.getBOOL("RenderReflectionsEnabled");
@@ -1243,6 +1250,9 @@ void LLPipeline::releaseGLBuffers()
 	mWaterDis.release();
 
 	mSceneMap.release();
+	mSSRBuffer.release();
+	mSSRResolved[0].release();
+	mSSRResolved[1].release();
 
 	mWaterExclusionMask.release();
 
@@ -1266,7 +1276,7 @@ void LLPipeline::releaseGLBuffers()
 		mGlow[i].release();
 	}
 
-	mHeroProbeManager.cleanup(); // release hero probes
+	mMirrorProbes.cleanup(); // release hero probes
 
 	releaseScreenBuffers();
 
@@ -2474,7 +2484,8 @@ static LLTrace::BlockTimerStatHandle FTM_CULL("Object Culling");
 bool LLPipeline::isWaterClip()
 {
 	// We always pretend that we're not clipping water when rendering mirrors.
-	return (gPipeline.mHeroProbeManager.isMirrorPass()) ? false : (!sRenderTransparentWater || gCubeSnapshot) && !sRenderingHUDs;
+	// Probe captures are not clipped at the waterline, so the seabed is captured and terrain joins up.
+	return (gPipeline.mMirrorProbes.isMirrorPass() || gCubeSnapshot) ? false : (!sRenderTransparentWater) && !sRenderingHUDs;
 }
 
 void LLPipeline::updateCull(LLCamera& camera, LLCullResult& result)
@@ -2638,8 +2649,8 @@ void LLPipeline::doOcclusion(LLCamera& camera)
 		}
 		mCubeVB->setBuffer();
 
-		mReflectionMapManager.doOcclusion();
-		mHeroProbeManager.doOcclusion(); // Single invocation
+		mSphereProbes.doOcclusion();
+		mMirrorProbes.doOcclusion(); // Single invocation
 
 		gOcclusionCubeProgram.unbind();
 
@@ -2932,6 +2943,13 @@ void LLPipeline::markVisible(LLDrawable* drawablep, LLCamera& camera)
 {
 	if (drawablep && !drawablep->isDead())
 	{
+		// A probe's own linked set is not drawn into that probe's capture.
+		LLViewerObject* vobj = drawablep->getVObj().get();
+		if (sCaptureExcludeObject && vobj && vobj->getRootEdit() == sCaptureExcludeObject)
+		{
+			return;
+		}
+
 		if (drawablep->isSpatialBridge())
 		{
 			const LLDrawable* root = ((LLSpatialBridge*)drawablep)->mDrawable;
@@ -3084,7 +3102,7 @@ void LLPipeline::shiftObjects(const LLVector3& offset)
 		}
 	}
 
-	mReflectionMapManager.shift(offseta);
+	mSphereProbes.shift(offseta);
 
 	LLHUDText::shiftAll(offset);
 	LLHUDNameTag::shiftAll(offset);
@@ -4665,7 +4683,7 @@ void LLPipeline::renderDebug()
 	//draw reflection probes and links between them
 	if (gPipeline.hasRenderDebugMask(LLPipeline::RENDER_DEBUG_REFLECTION_PROBES) && !hud_only)
 	{
-		mReflectionMapManager.renderDebug();
+		mSphereProbes.renderDebug();
 	}
 
 	static LLCachedControl<bool> render_ref_probe_volumes(gSavedSettings, "RenderReflectionProbeVolumes");
@@ -5065,7 +5083,7 @@ void LLPipeline::addToQuickLookup(LLDrawPool* new_poolp)
 		}
 		else
 		{
-			mAlphaPoolPreWater = (LLDrawPoolAlpha*)new_poolp;
+			mAlphaPoolPreWater = (DXAlphaDrawPool*)new_poolp;
 		}
 		break;
 	case LLDrawPool::POOL_ALPHA_POST_WATER:
@@ -5076,7 +5094,7 @@ void LLPipeline::addToQuickLookup(LLDrawPool* new_poolp)
 		}
 		else
 		{
-			mAlphaPoolPostWater = (LLDrawPoolAlpha*)new_poolp;
+			mAlphaPoolPostWater = (DXAlphaDrawPool*)new_poolp;
 		}
 		break;
 
@@ -5663,9 +5681,11 @@ void LLPipeline::setupHWLights()
 
 	F32 light_scale = 1.f;
 
-	if (gCubeSnapshot)
+	// S24 : !gEquirectCapture - mLightScale is only refreshed per sphere-
+	// probe update cycle, stale for a 360 capture; keep normal brightness.
+	if (gCubeSnapshot && !gEquirectCapture)
 	{ //darken local lights when probe ambiance is above 1
-		light_scale = mReflectionMapManager.mLightScale;
+		light_scale = mSphereProbes.mLightScale;
 	}
 
 
@@ -8393,7 +8413,7 @@ void LLPipeline::bindDeferredShader(LLHLSLShader& shader, LLRenderTarget* light_
 	shader.uniform3fv(LLShaderMgr::SUNLIGHT_COLOR, 1, sun_diffuse.mV);
 	shader.uniform3fv(LLShaderMgr::MOONLIGHT_COLOR, 1, mMoonDiffuse.mV);
 
-	shader.uniform1f(LLShaderMgr::REFLECTION_PROBE_MAX_LOD, mReflectionMapManager.mMaxProbeLOD);
+	shader.uniform1f(LLShaderMgr::REFLECTION_PROBE_MAX_LOD, mSphereProbes.mMaxProbeLOD);
 }
 
 void LLPipeline::renderDeferredLighting()
@@ -8457,7 +8477,7 @@ void LLPipeline::doAtmospherics()
 		haze_shader.uniform1i(LLShaderMgr::SUN_UP_FACTOR, environment.getIsSunUp() ? 1 : 0);
 		haze_shader.uniform3fv(LLShaderMgr::LIGHTNORM, 1, environment.getClampedLightNorm().mV);
 
-		haze_shader.uniform4fv(LLShaderMgr::WATER_WATERPLANE, 1, LLDrawPoolAlpha::sWaterPlane.mV);
+		haze_shader.uniform4fv(LLShaderMgr::WATER_WATERPLANE, 1, DXDrawPoolAlpha::sWaterPlane.mV);
 
 		LLGLDepthTest depth(GL_FALSE);
 
@@ -8516,7 +8536,7 @@ void LLPipeline::doWaterHaze()
 
 		bindDeferredShader(haze_shader, nullptr, &mWaterDis);
 
-		haze_shader.uniform4fv(LLShaderMgr::WATER_WATERPLANE, 1, LLDrawPoolAlpha::sWaterPlane.mV);
+		haze_shader.uniform4fv(LLShaderMgr::WATER_WATERPLANE, 1, DXDrawPoolAlpha::sWaterPlane.mV);
 
 		static LLStaticHashedString above_water_str("above_water");
 		haze_shader.uniform1i(above_water_str, sUnderWaterRender ? -1 : 1);
@@ -8649,6 +8669,27 @@ void LLPipeline::setupSpotLight(LLHLSLShader& shader, LLDrawable* drawablep)
 	shader.uniform1f(LLShaderMgr::PROJECTOR_RANGE, proj_range);
 	shader.uniform1f(LLShaderMgr::PROJECTOR_AMBIANCE, params.mV[2]);
 
+	// Projector-only specular controls. Off (0) leaves the LL lobe and mip selection unchanged.
+	static LLCachedControl<bool> proj_spec_reliable(gSavedSettings, "RenderProjectorSpecularReliable", false);
+	static LLCachedControl<F32> proj_spec_exponent(gSavedSettings, "RenderProjectorSpecularExponent", 24.f);
+	static LLCachedControl<F32> proj_spec_lod(gSavedSettings, "RenderProjectorSpecularLODCap", 1.f);
+	static LLCachedControl<F32> spec_exponent_setting(gSavedSettings, "RenderSpecularExponent", 368.f);
+	static LLStaticHashedString sProjSpecGlossCap("proj_spec_gloss_cap");
+	static LLStaticHashedString sProjSpecLodCap("proj_spec_lod_cap");
+	F32 proj_gloss_cap = 0.f;
+	F32 proj_lod_cap = 0.f;
+	if (proj_spec_reliable)
+	{
+		// Blinn-Phong exponent is gloss^2 * RenderSpecularExponent (createLUTBuffers), so gloss = sqrt(exponent / specExp).
+		proj_gloss_cap = llclamp((F32)sqrt(proj_spec_exponent / llmax((F32)spec_exponent_setting, 1.f)), 0.f, 1.f);
+		proj_lod_cap = proj_spec_lod;
+	}
+	shader.uniform1f(sProjSpecGlossCap, proj_gloss_cap);
+	shader.uniform1f(sProjSpecLodCap, proj_lod_cap);
+	static LLCachedControl<bool> proj_pbr_legacy(gSavedSettings, "RenderProjectorPBRLegacySpecular", false);
+	static LLStaticHashedString sProjPbrLegacySpec("proj_pbr_legacy_spec");
+	shader.uniform1f(sProjPbrLegacySpec, proj_pbr_legacy ? 1.f : 0.f);
+
 	S32 s_idx = -1;
 
 	for (U32 i = 0; i < 2; i++)
@@ -8679,6 +8720,21 @@ void LLPipeline::setupSpotLight(LLHLSLShader& shader, LLDrawable* drawablep)
 		//determine if this light is higher priority than one of the existing spot shadows
 		F32 m_pri = volume->getSpotLightPriority();
 
+		// S24: incumbency hysteresis against single-frame near-tie flips. The competition
+		// above (dxpipeline.cpp) resets mTargetShadowSpotLight[] every frame, so this
+		// tournament has no cross-frame memory of its own - with 3+ spot/projector lights of
+		// close priority in range, ordinary camera-position noise (e.g. soft camera-lag settle
+		// tail) can flip which two win on a near-arbitrary per-frame basis, wobbling
+		// PROJECTOR_SHADOW_FADE every time a light flips in/out of the winning pair. A light
+		// already holding a real-time shadow slot (mShadowSpotLight[], the downstream state
+		// that actually has memory) needs to be clearly beaten, not just marginally, before a
+		// challenger takes its slot.
+		static constexpr F32 kSpotShadowHysteresis = 1.05f;
+		if (potential == mShadowSpotLight[0] || potential == mShadowSpotLight[1])
+		{
+			m_pri *= kSpotShadowHysteresis;
+		}
+
 		for (U32 i = 0; i < 2; i++)
 		{
 			F32 pri = 0.f;
@@ -8692,6 +8748,10 @@ void LLPipeline::setupSpotLight(LLHLSLShader& shader, LLDrawable* drawablep)
 				if (target_volume)
 				{
 					pri = target_volume->getSpotLightPriority();
+					if (mTargetShadowSpotLight[i] == mShadowSpotLight[0] || mTargetShadowSpotLight[i] == mShadowSpotLight[1])
+					{
+						pri *= kSpotShadowHysteresis;
+					}
 				}
 				else
 				{
@@ -8810,37 +8870,45 @@ void LLPipeline::bindReflectionProbes(LLHLSLShader& shader)
 
 	S32 channel = shader.enableTexture(LLShaderMgr::REFLECTION_PROBES, LLTexUnit::TT_CUBE_MAP_ARRAY);
 	bool bound = false;
-	if (channel > -1 && mReflectionMapManager.mTexture.notNull())
+	if (channel > -1 && mSphereProbes.hasProbeCubes())
 	{
-		mReflectionMapManager.mTexture->bind(channel);
+		mSphereProbes.bindRadiance(channel);
 		bound = true;
 	}
 
 	channel = shader.enableTexture(LLShaderMgr::IRRADIANCE_PROBES, LLTexUnit::TT_CUBE_MAP_ARRAY);
-	if (channel > -1 && mReflectionMapManager.mIrradianceMaps.notNull())
+	if (channel > -1 && mSphereProbes.hasProbeCubes())
 	{
-		mReflectionMapManager.mIrradianceMaps->bind(channel);
+		mSphereProbes.bindIrradiance(channel);
 		bound = true;
 	}
 
 	if (RenderMirrors)
 	{
 		channel = shader.enableTexture(LLShaderMgr::HERO_PROBE, LLTexUnit::TT_CUBE_MAP_ARRAY);
-		if (channel > -1 && mHeroProbeManager.mTexture.notNull())
+		if (channel > -1 && mMirrorProbes.hasProbeCubes())
 		{
-			mHeroProbeManager.mTexture->bind(channel);
+			mMirrorProbes.bindRadiance(channel);
 			bound = true;
 		}
 	}
 
 	if (bound)
 	{
-		mReflectionMapManager.setUniforms();
+		mSphereProbes.setUniforms();
 
 		setEnvMat(shader);
 	}
 
-	// reflection probe shaders generally sample the scene map as well for SSR
+	// scene map, scene depth and SSR uniforms (see bindSSRUniforms)
+	bindSSRUniforms(shader);
+
+}
+
+void LLPipeline::bindSSRUniforms(LLHLSLShader& shader)
+{
+	S32 channel = -1;
+
 	channel = shader.enableTexture(LLShaderMgr::SCENE_MAP);
 	if (channel > -1)
 	{
@@ -8866,6 +8934,9 @@ void LLPipeline::bindReflectionProbes(LLHLSLShader& shader)
 	shader.uniform1f(LLShaderMgr::DEFERRED_SSR_NOISE_SINE, (F32)mPoissonOffset);
 	shader.uniform1f(LLShaderMgr::DEFERRED_SSR_ADAPTIVE_STEP_MULT, RenderScreenSpaceReflectionAdaptiveStepMultiplier);
 	shader.uniform1f(LLShaderMgr::DEFERRED_SSR_GLOSS_THRESHOLD, RenderScreenSpaceReflectionGlossThreshold);
+	static LLCachedControl<F32> ssr_miss_fill_setting(gSavedSettings, "RenderSSRMissFill", 0.25f);
+	static LLStaticHashedString sSSRMissFill("ssr_miss_fill");
+	shader.uniform1f(sSSRMissFill, ssr_miss_fill_setting);
 
 	// doProbeSample()'s SSR gate is `cube_snapshot != 1 && glossiness >= ssrGlossThreshold`
 	// (reflectionProbeF.hlsl). Must upload CUBE_SNAPSHOT here too, not just from bindDeferredShader() -
@@ -8903,12 +8974,123 @@ void LLPipeline::bindReflectionProbes(LLHLSLShader& shader)
 	}
 }
 
+void LLPipeline::bindSSRBuffer(LLHLSLShader& shader)
+{
+	S32 channel = shader.enableTexture(LLShaderMgr::SSR_BUFFER);
+	LLRenderTarget* source = mSSRResolveReady ? &mSSRResolved[mSSRLastResolved] : &mSSRBuffer;
+	if (channel > -1 && source->isComplete())
+	{
+		gDX.getTexUnit(channel)->bind(source);
+	}
+
+	// The lighting shader reads the SSR buffer only when the pass ran this frame.
+	static LLStaticHashedString sSSRFromBuffer("ssr_from_buffer");
+	static LLCachedControl<bool> ssr_pass_enabled(gSavedSettings, "RenderSSRPassEnabled", true);
+	bool buffer_ready = RenderScreenSpaceReflections && ssr_pass_enabled && gSSRProgram.isComplete() && mSSRBuffer.isComplete();
+	shader.uniform1i(sSSRFromBuffer, buffer_ready ? 1 : 0);
+}
+
+void LLPipeline::renderSSRPass()
+{
+	// Not during a reflection-probe capture: the buffer would be stale and cube_snapshot gates it anyway.
+	static LLCachedControl<bool> ssr_pass_enabled(gSavedSettings, "RenderSSRPassEnabled", true);
+	if (gCubeSnapshot)
+	{
+		// probe captures must not reset temporal history
+		return;
+	}
+	if (!RenderScreenSpaceReflections || !ssr_pass_enabled || !gSSRProgram.isComplete() || !mSSRBuffer.isComplete())
+	{
+		mSSRResolveReady = false;
+		mSSRHistoryValid = false;
+		return;
+	}
+
+	mSSRBuffer.bindTarget(false);
+	mSSRBuffer.clear(GL_COLOR_BUFFER_BIT);
+
+	gSSRProgram.bind();
+	bindDeferredShader(gSSRProgram);
+	bindSSRUniforms(gSSRProgram);
+
+	{
+		LLGLDepthTest depth(GL_FALSE);
+		LLGLDisable   blend(GL_BLEND);
+		LLGLDisable   cullface(GL_CULL_FACE);
+
+		mScreenTriangleVB->setBuffer();
+		mScreenTriangleVB->drawArrays(LLRender::TRIANGLES, 0, 3);
+	}
+
+	mSSRBuffer.flush();
+	gSSRProgram.unbind();
+
+	renderSSRResolve();
+}
+
+void LLPipeline::renderSSRResolve()
+{
+	static LLCachedControl<bool> temporal(gSavedSettings, "RenderSSRTemporal", true);
+	mSSRResolveReady = false;
+	if (!temporal || !gSSRResolveProgram.isComplete() || !mSSRResolved[0].isComplete() || !mSSRResolved[1].isComplete())
+	{
+		return;
+	}
+
+	S32 cur = mSSRResolveIndex;
+	S32 prev = 1 - cur;
+
+	mSSRResolved[cur].bindTarget(false);
+
+	gSSRResolveProgram.bind();
+	bindDeferredShader(gSSRResolveProgram);
+
+	S32 raw_channel = gSSRResolveProgram.enableTexture(LLShaderMgr::SSR_BUFFER);
+	if (raw_channel > -1)
+	{
+		gDX.getTexUnit(raw_channel)->bind(&mSSRBuffer);
+	}
+	S32 history_channel = gSSRResolveProgram.enableTexture(LLShaderMgr::SSR_HISTORY);
+	if (history_channel > -1)
+	{
+		gDX.getTexUnit(history_channel)->bind(&mSSRResolved[prev]);
+	}
+
+	// Same reprojection inputs as bindSSRUniforms(): world camera now and one real frame ago.
+	glm::mat4 cur_modelview = get_current_modelview();
+	glm::mat4 last_modelview = get_last_modelview();
+	glm::mat4 modelview_delta = cur_modelview * glm::inverse(last_modelview);
+	glm::mat4 inv_modelview_delta = glm::inverse(modelview_delta);
+	gSSRResolveProgram.uniformMatrix4fv(LLShaderMgr::INVERSE_MODELVIEW_DELTA_MATRIX, 1, false, glm::value_ptr(inv_modelview_delta));
+	gSSRResolveProgram.uniformMatrix4fv(LLShaderMgr::LAST_PROJECTION_MATRIX, 1, false, glm::value_ptr(get_last_projection()));
+
+	static LLStaticHashedString sHistoryValid("ssr_history_valid");
+	gSSRResolveProgram.uniform1i(sHistoryValid, mSSRHistoryValid ? 1 : 0);
+
+	{
+		LLGLDepthTest depth(GL_FALSE);
+		LLGLDisable   blend(GL_BLEND);
+		LLGLDisable   cullface(GL_CULL_FACE);
+
+		mScreenTriangleVB->setBuffer();
+		mScreenTriangleVB->drawArrays(LLRender::TRIANGLES, 0, 3);
+	}
+
+	mSSRResolved[cur].flush();
+	gSSRResolveProgram.unbind();
+
+	mSSRLastResolved = cur;
+	mSSRResolveIndex = prev;
+	mSSRHistoryValid = true;
+	mSSRResolveReady = true;
+}
+
 void LLPipeline::unbindReflectionProbes(LLHLSLShader& shader)
 {
 	S32 channel = shader.disableTexture(LLShaderMgr::REFLECTION_PROBES, LLTexUnit::TT_CUBE_MAP);
-	if (channel > -1 && mReflectionMapManager.mTexture.notNull())
+	if (channel > -1 && mSphereProbes.hasProbeCubes())
 	{
-		mReflectionMapManager.mTexture->unbind();
+		mSphereProbes.unbindProbeCubes(channel);
 		if (channel == 0)
 		{
 			gDX.getTexUnit(channel)->enable(LLTexUnit::TT_TEXTURE);
@@ -9653,6 +9835,8 @@ void LLPipeline::generateSunShadow(LLCamera& camera)
 			static LLVector3 s_last_pos;
 			static LLVector3 s_last_at;
 			static U32       s_settle = 0;
+			static U32       s_wake = 0;              // consecutive "moved" frames seen while throttled
+			static bool      s_throttle_active = false;
 			static LLCachedControl<U32> settle_frames(gSavedSettings, "RenderShadowThrottleSettleFrames", 6U);
 
 			const LLVector3 cur_pos = camera.getOrigin();
@@ -9661,16 +9845,39 @@ void LLPipeline::generateSunShadow(LLCamera& camera)
 			// pos_delta: metres moved this frame; rot_delta: 0 = identical, >0 = rotated
 			const F32 pos_delta = (cur_pos - s_last_pos).magVec();
 			const F32 rot_delta = 1.0f - llabs(cur_at * s_last_at);
+			const bool moved = (pos_delta > 0.01f || rot_delta > 0.0001f);
 
-			if (pos_delta > 0.01f || rot_delta > 0.0001f)
+			// S24: exit debounce, symmetric to the settle-frame entry debounce above. A slow
+			// camera-lag settle tail (soft CameraPositionSmoothing/DynamicCameraStrength) decays
+			// exponentially - pos_delta can hover right at the 0.01f threshold for many
+			// consecutive frames, crossing it on ordinary frame-time noise alone. Without this,
+			// a single borderline frame flips shadow_throttle_active off then straight back on,
+			// popping cascades 2/3 between their stale and freshly-computed frustum/matrix each
+			// time - visible as flicker. Requiring 2 consecutive moved frames before dropping
+			// throttle absorbs that noise; entry into throttle (the existing settle_frames count)
+			// is unchanged.
+			if (moved)
+			{
 				s_settle = 0;                                    // camera moved – reset settle counter
-			else if (s_settle < (U32)settle_frames)
-				++s_settle;                                      // camera still – count up to threshold
+				if (s_throttle_active && ++s_wake >= 2)
+				{
+					s_throttle_active = false;
+					s_wake = 0;
+				}
+			}
+			else
+			{
+				s_wake = 0;
+				if (s_settle < (U32)settle_frames)
+					++s_settle;                                  // camera still – count up to threshold
+				if (!s_throttle_active && s_settle >= (U32)settle_frames)
+					s_throttle_active = true;
+			}
 
 			s_last_pos = cur_pos;
 			s_last_at = cur_at;
 
-			shadow_throttle_active = (s_settle >= (U32)settle_frames);
+			shadow_throttle_active = s_throttle_active;
 		}
 
 		static LLCachedControl<U32> mid_cascade_throttle(gSavedSettings, "RenderShadowMidCascadeThrottle", 2U);

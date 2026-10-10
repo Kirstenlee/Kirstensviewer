@@ -36,7 +36,9 @@
  || ! defined(LL_VIEWER_VERSION_MAJOR) \
  || ! defined(LL_VIEWER_VERSION_MINOR) \
  || ! defined(LL_VIEWER_VERSION_PATCH) \
- || ! defined(LL_VIEWER_VERSION_BUILD)
+ || ! defined(LL_VIEWER_VERSION_BUILD) \
+ || ! defined(LL_VIEWER_LABEL)         \
+ || ! defined(LL_VIEWER_CODENAME)
  #error "Channel or Version information is undefined"
 #endif
 
@@ -104,6 +106,16 @@ std::string LLVersionInfo::getVersion() const
 std::string LLVersionInfo::getShortVersion() const
 {
     return short_version;
+}
+
+std::string LLVersionInfo::getLabel() const
+{
+    return std::string(LL_VIEWER_LABEL);
+}
+
+std::string LLVersionInfo::getCodename() const
+{
+    return std::string(LL_VIEWER_CODENAME);
 }
 
 std::string LLVersionInfo::getChannelAndVersion() const

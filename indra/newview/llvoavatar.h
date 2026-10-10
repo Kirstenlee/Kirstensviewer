@@ -42,7 +42,7 @@ struct ID3D11Query; // S24: opaque forward-decl, see mDXProfileQueries below - a
 
 #include "llavatarappearance.h"
 #include "llchat.h"
-#include "lldrawpoolalpha.h"
+#include "dxdrawpoolalpha.h"
 #include "llviewerobject.h"
 #include "llcharacter.h"
 #include "llcontrol.h"

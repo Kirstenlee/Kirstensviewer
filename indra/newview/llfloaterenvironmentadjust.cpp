@@ -136,7 +136,7 @@ void LLFloaterEnvironmentAdjust::onOpen(const LLSD& key)
     mEventConnection = LLEnvironment::instance().setEnvironmentChanged([this](LLEnvironment::EnvSelection_t env, S32 version){ onEnvironmentUpdated(env, version); });
 
     // HACK -- resume reflection map manager because "setEnvironmentChanged" may pause it (SL-20456)
-    gPipeline.mReflectionMapManager.resume();
+    gPipeline.mSphereProbes.resume();
 
     LLFloater::onOpen(key);
     refresh();

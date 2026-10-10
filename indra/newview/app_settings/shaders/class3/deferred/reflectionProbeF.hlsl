@@ -35,7 +35,7 @@
 //     call sites in doProbeSample()/sampleReflectionProbesLegacy() don't
 //     need touching if hero probes are added later - the cbuffer's own
 //     heroBox/heroSphere/heroShape/heroMipCount/heroProbeCount fields ARE
-//     still declared (layout must match llreflectionmapmanager.h's
+//     still declared (layout must match llsphereprobes.h's
 //     ReflectionProbeData struct exactly - this is a direct byte-level
 //     constant-buffer upload, not name-based reflection), just never read.
 //   - Debug volume visualization (sphereIntersectDebug/boxIntersectDebug/
@@ -46,7 +46,7 @@
 // S24: register(b1), not b0 - b0 is always the auto-generated $Globals cbuffer for this
 // shader's top-level "uniform" declarations (LLRender's hardcoded
 // VSSetConstantBuffers(0,...)/PSSetConstantBuffers(0,...), llrender.cpp). This cbuffer's
-// field order/types must byte-match llreflectionmapmanager.h's ReflectionProbeData struct
+// field order/types must byte-match llsphereprobes.h's ReflectionProbeData struct
 // exactly - float4x4/float4/int4 pack the same as std140 mat4/vec4/ivec4.
 
 #define FLT_MAX 3.402823466e+38
@@ -71,12 +71,17 @@ TextureCubeArray irradianceProbes : register(t17);
 float tapScreenSpaceReflection(int totalSamples, float2 tc, float3 viewPos, float3 n, inout float4 collectedColor, Texture2D source, SamplerState sourceSampler, float glossiness);
 Texture2D sceneMap : register(t19);
 
-// S24: tunable, not a hardcoded `glossiness >= 0.9` literal - pbralphaF.hlsl's
-// `perceptualRoughness = max(orm.g * roughnessFactor, 0.3)` floor caps glossiness at 0.7,
-// so a fixed 0.9 gate made SSR unreachable for that material at any setting.
+// S24: tunable, not a hardcoded `glossiness >= 0.9` literal.
 // screenSpaceReflUtil.hlsl's own vignette (`clamp(glossiness*3-1.7,0,1)`) already fades
 // SSR out below ~0.567.
 uniform float ssrGlossThreshold;
+uniform float ssr_miss_fill;
+
+// Deferred lighting reads the SSR pass result (class3/deferred/ssrF.hlsl) from ssrBuffer instead
+// of tracing inline. softenLight sets ssr_from_buffer per frame; forward programs leave it at 0
+// and keep the inline trace below.
+uniform int ssr_from_buffer;
+Texture2D ssrBuffer : register(t21);
 #endif
 
 // S24: also declared by softenLightF.hlsl (co-attached for the deferred lighting combine)
@@ -102,18 +107,31 @@ uniform float probe_intensity;          // Overall reflection strength (0.0-2.0,
 uniform float probe_saturation;         // Color saturation (0.0-2.0, default 1.0)
 uniform float probe_contrast;           // Contrast adjustment (0.0-2.0, default 1.0)
 uniform float probe_blur_lod_bias;      // Blur via LOD bias (-3.0 to 3.0, default 0.0)
+uniform float probe_auto_parallax;      // 1 = automatic probes use their own radius for parallax, 0 = direction only
 uniform float probe_ambient_multiplier; // Ambient contribution (0.0-2.0, default 1.0)
-uniform float probe_equalize;           // Blend toward this probe's own fully-averaged top mip (0.0-1.0, default 0.0) - see tapRefMap()
+uniform float probe_equalize;           // Blend toward this probe's own fully-averaged top mip (0.0-1.0, default 0.0) - see sampleRefCube()
 uniform float probe_opacity;            // Dedicated visibility blend: 1.0=fully visible, 0.0=fully transparent (default 1.0)
 
-// S24: must byte-match llreflectionmapmanager.h's ReflectionProbeData struct exactly -
+// S24: material accept/reject gate for reflections. 0 at or below reject, 1 at or above accept, a smooth ramp
+// between. Both pairs default to 0/0, which always evaluates to 1 (no-op): see materialReflectionGate() below.
+uniform float reflection_gate_gloss_reject;     // roughness/gloss is one value in this codebase (gloss = 1 - roughness)
+uniform float reflection_gate_gloss_accept;
+uniform float reflection_gate_metallic_reject;  // PBR materials only - legacy materials have no metallic channel
+uniform float reflection_gate_metallic_accept;
+
+// Accept/reject window for one material property. reject > accept collapses to a hard cutoff at reject
+// instead of an inverted or undefined smoothstep.
+float materialReflectionGate(float value, float rejectAt, float acceptAt)
+{
+    float lo = min(rejectAt, acceptAt);
+    float hi = max(rejectAt, acceptAt);
+    return (hi > lo) ? smoothstep(lo, hi, value) : step(lo, value);
+}
+
+// S24: must byte-match llsphereprobes.h's ReflectionProbeData struct exactly -
 // same field order and types (float4x4~LLMatrix4, float4~LLVector4, int4~GLint[4]).
 cbuffer ReflectionProbes : register(b1)
 {
-    // for box probes, matrix that transforms from camera space to a [-1, 1] cube representing the bounding box of
-    // the box probe
-    float4x4 refBox[MAX_REFMAP_COUNT];
-
     float4x4 heroBox;
 
     // for sphere probes, origin (xyz) and radius (w) of refmaps in clip space
@@ -149,6 +167,27 @@ cbuffer ReflectionProbes : register(b1)
     int heroProbeCount;
 };
 
+// Box-volume probes (LLBoxProbes). Must byte-match llboxprobes.h's LLBoxProbes::Data.
+cbuffer BoxProbes : register(b2)
+{
+    // camera space -> unit box of each probe's volume
+    float4x4 boxRefBox[MAX_REFMAP_COUNT];
+
+    // xyz: probe origin in camera space, w: radius
+    float4 boxRefOrigin[MAX_REFMAP_COUNT];
+
+    // x: unused, y: radiance scale, z: fade in
+    float4 boxRefParams[MAX_REFMAP_COUNT];
+
+    // [i].x: cubemap array index for this probe
+    int4 boxRefIndex[MAX_REFMAP_COUNT];
+
+    // [i].x: first boxRefIndex entry that can influence depth bucket i
+    int4 boxRefBucket[256];
+
+    int boxCount;
+};
+
 // Inputs
 #ifndef LL_ENV_MAT_DECLARED
 #define LL_ENV_MAT_DECLARED
@@ -169,41 +208,21 @@ static int probeInfluences = 0;
 // see waterF.hlsl's own comment on this same GLSL-vs-HLSL difference.
 static bool sample_automatic = true;
 
-// return true if probe at index i influences position pos
+// return true if sphere probe at index i influences position pos
 bool shouldSampleProbe(int i, float3 pos)
 {
-    if (refIndex[i].w < 0)
+    if (refIndex[i].w == 0 && !sample_automatic)
     {
-        float4 v = mul(refBox[i], float4(pos, 1.0));
-        if (abs(v.x) > 1 ||
-            abs(v.y) > 1 ||
-            abs(v.z) > 1)
-        {
-            return false;
-        }
-
-        // never allow automatic probes to encroach on box probes
-        sample_automatic = false;
-    }
-    else
-    {
-        if (refIndex[i].w == 0 && !sample_automatic)
-        {
-            return false;
-        }
-
-        float3 delta = pos.xyz - refSphere[i].xyz;
-        float d = dot(delta, delta);
-        float r2 = refSphere[i].w;
-        r2 *= r2;
-
-        if (d > r2)
-        { // outside bounding sphere
-            return false;
-        }
+        return false;
     }
 
-    return true;
+    float3 delta = pos.xyz - refSphere[i].xyz;
+    float d = dot(delta, delta);
+    float r2 = refSphere[i].w;
+    r2 *= r2;
+
+    // outside bounding sphere
+    return d <= r2;
 }
 
 int getStartIndex(float3 pos)
@@ -212,16 +231,51 @@ int getStartIndex(float3 pos)
     return clamp(refBucket[idx].x, 1, refmapCount + 1);
 }
 
+// box probes that influence the current pixel (see preBoxProbeSample)
+static int boxIndex[REF_SAMPLE_COUNT];
+static int boxInfluences = 0;
+
+// first box that can influence pos, from the depth buckets
+int getBoxStartIndex(float3 pos)
+{
+    int idx = clamp((int)floor(-pos.z), 0, 255);
+    return clamp(boxRefBucket[idx].x, 0, boxCount);
+}
+
+// Collects every box volume that contains pos. A box containing pos suppresses automatic
+// probes for this pixel, so the result does not depend on the order probes are visited in.
+void preBoxProbeSample(float3 pos)
+{
+    boxInfluences = 0;
+#if REFMAP_LEVEL > 0
+    for (int i = getBoxStartIndex(pos); i < boxCount && boxInfluences < REF_SAMPLE_COUNT; ++i)
+    {
+        float4 v = mul(boxRefBox[i], float4(pos, 1.0));
+        if (abs(v.x) <= 1 && abs(v.y) <= 1 && abs(v.z) <= 1)
+        {
+            boxIndex[boxInfluences++] = i;
+        }
+    }
+
+    if (boxInfluences > 0)
+    {
+        sample_automatic = false;
+    }
+#endif
+}
+
 // call before sampleProbes/sampleProbeAmbient
 // populate "probeIndex" with N probe indices that influence pos where N is REF_SAMPLE_COUNT
 void preProbeSample(float3 pos)
 {
+    preBoxProbeSample(pos);
+
 #if REFMAP_LEVEL > 0
 
     int start = getStartIndex(pos);
 
     // TODO: make some sort of structure that reduces the number of distance checks
-    for (int i = start; i < refmapCount; ++i)
+    for (int i = start; i < refmapCount && probeInfluences < REF_SAMPLE_COUNT; ++i)
     {
         // found an influencing probe
         if (shouldSampleProbe(i, pos))
@@ -235,7 +289,7 @@ void preProbeSample(float3 pos)
                 int neighborCount = refIndex[i].z;
 
                 int count = 0;
-                while (count < neighborCount)
+                while (count < neighborCount && probeInfluences < REF_SAMPLE_COUNT)
                 {
                     // check up to REF_SAMPLE_COUNT-1 neighbors (neighborIdx is int4 index)
 
@@ -307,7 +361,7 @@ void preProbeSample(float3 pos)
         }
     }
 
-    if (sample_automatic)
+    if (sample_automatic && probeInfluences < REF_SAMPLE_COUNT)
     { // probe at index 0 is a special probe for smoothing out automatic probes
         probeIndex[probeInfluences++] = 0;
     }
@@ -337,7 +391,7 @@ float3 sphereIntersect(float3 origin, float3 dir, float3 center, float radius2)
 // get point of intersection with given probe's box influence volume
 // origin - ray origin in clip space
 // dir - ray direction in clip space
-// i - probe's refBox matrix
+// i - probe's box matrix
 // d - distance to nearest wall in clip space
 // scale - scale of box, default 1.0
 float3 boxIntersect(float3 origin, float3 dir, float4x4 i, out float d, float scale)
@@ -393,67 +447,18 @@ float sphereWeight(float3 pos, float3 dir, float3 origin, float r, float4 i, out
     return w;
 }
 
-// Tap a reflection probe
-// pos - position of pixel
-// dir - pixel normal
-//  w - weight of sample (distance and angular attenuation)
-//  dw - weight of sample (distance only)
-// lod - which mip to sample (lower is higher res, sharper reflections)
-// c - center of probe
-// i - index of probe
-float3 tapRefMap(float3 pos, float3 dir, out float w, out float dw, float lod, float3 c, int i)
+// Sample a probe's radiance cube at view-space direction v, relative to the probe origin.
+// cube - slot in the radiance array
+// radscale - radiance scale (capture scale and fade)
+float3 sampleRefCube(float3 v, int cube, float lod, float radscale)
 {
-    // parallax adjustment
-    float3 v;
-
-    if (refIndex[i].w < 0)
-    {  // box probe
-        float d = 0;
-        v = boxIntersect(pos, dir, refBox[i], d);
-
-        w = max(d, 0.001);
-
-        // S24: dw ramps 0->1 across the outer ~17% of the box's own volume (d>=0.83), so
-        // manual box probes decisively override the automatic/void fallback near their own
-        // walls/corners. Must stay proportional to box-local `d` (already normalized [0,1])
-        // - do NOT scale by an absolute real-world radius like sphereWeight() does for
-        // spheres (`w` there is unbounded inverse distance, a different unit entirely);
-        // mixing an absolute term into this normalized value causes a hard-edged seam.
-        // A residual per-face content mismatch near corners may be a separate cubemap-
-        // capture issue (see radianceGenF.hlsl's face-ID diagnostic), not this weight.
-        dw = saturate(d * 6.0);
-    }
-    else
-    { // sphere probe
-        float r = refSphere[i].w;
-
-        float rr = r * r;
-
-        v = sphereIntersect(pos, dir, c,
-        refIndex[i].w < 1 ? 4096.0 * 4096.0 : // <== effectively disable parallax correction for automatically placed probes to keep from bombing the world with obvious spheres
-                rr);
-
-        w = sphereWeight(pos, dir, refSphere[i].xyz, r, refParams[i], dw);
-    }
-
-    v -= c;
-    float3 d3 = normalize(v);
-
     v = mul(env_mat, v);
-
-    // S24: no post-env_mat sign correction here, deliberately - a known front/back
-    // reflection reversal exists, but every x/y/z negation combination tried either fixed
-    // it while breaking east/west, or vice versa. env_mat's own construction and the
-    // per-face capture tables (DXCubeMapFaces::sUpVecs) are independently verified correct;
-    // do not add a sign flip here without new evidence pinpointing which face/axis is
-    // actually wrong (suspect: captured cubemap content or array-index/mip selection, not
-    // this function's direction math).
 
     // S24: lod must be clamped before SampleLevel()'s EXPLICIT LOD param - unlike Sample()'s
     // automatic LOD, SampleLevel() does not clamp an out-of-range level to the texture's
     // real mip count, so an unclamped bias reads past max_probe_lod and comes back black.
     float adjusted_lod = clamp(lod + probe_blur_lod_bias, 0.0, max_probe_lod);
-    float4 ret = reflectionProbes.SampleLevel(environmentMapSampler, float4(v.xyz, (float)refIndex[i].x), adjusted_lod) * refParams[i].y;
+    float4 ret = reflectionProbes.SampleLevel(environmentMapSampler, float4(v.xyz, (float)cube), adjusted_lod) * radscale;
 
     // S24: probe_equalize blends toward a second sample at this same probe's own top mip
     // (max_probe_lod) - the fully GGX-convolved, whole-hemisphere average (see
@@ -462,56 +467,61 @@ float3 tapRefMap(float3 pos, float3 dir, out float w, out float dw, float lod, f
     // pull toward an arbitrary neutral. Default 0.0 preserves full detail/hue.
     if (probe_equalize > 0.0)
     {
-        float4 equalized = reflectionProbes.SampleLevel(environmentMapSampler, float4(v.xyz, (float)refIndex[i].x), max_probe_lod) * refParams[i].y;
+        float4 equalized = reflectionProbes.SampleLevel(environmentMapSampler, float4(v.xyz, (float)cube), max_probe_lod) * radscale;
         ret = lerp(ret, equalized, saturate(probe_equalize));
     }
 
     return ret.rgb;
 }
 
-// Tap an irradiance map
-// pos - position of pixel
-// dir - pixel normal
-// w - weight of sample (distance and angular attenuation)
-// dw - weight of sample (distance only)
-// c - center of probe
-// i - index of probe
-// amblit - fallback ambient if this probe doesn't fully replace it
-float3 tapIrradianceMap(float3 pos, float3 dir, out float w, out float dw, float3 c, int i, float3 amblit)
+// Coverage of a sphere probe at distance d from its origin: 1 inside half its radius, falling
+// linearly to 0 at its radius. Every probe fades over the same proportion of its own volume,
+// so the blend does not depend on the probe's size in metres.
+float probeCoverage(float d, float r)
 {
-    // parallax adjustment
-    float3 v;
-    if (refIndex[i].w < 0)
-    {
-        float d = 0.0;
-        v = boxIntersect(pos, dir, refBox[i], d, 3.0);
-        w = max(d, 0.001);
+    float r1 = r * 0.5;
+    return saturate(1.0 - max(d - r1, 0.0) / max(r - r1, 0.001));
+}
 
-        dw = w * 4.0;
-    }
-    else
-    {
-        float r = refSphere[i].w; // radius of sphere volume
+// Tap a sphere probe.
+// w - blend weight within its class, dw - coverage (0-1), used for the auto/manual crossfade
+// c - probe origin, i - index into the sphere uniform block
+float3 tapSphereProbe(float3 pos, float3 dir, out float w, out float dw, float lod, float3 c, int i)
+{
+    float r = refSphere[i].w;
+    float rr = r * r;
 
-        // pad sphere for manual probe extending into automatic probe space
-        float rr = r * r;
+    // Automatic probes sample by direction only (huge radius) unless probe_auto_parallax is set.
+    // Without parallax their reflections read as if from infinitely far away.
+    bool no_parallax = (refIndex[i].w < 1) && (probe_auto_parallax < 0.5);
+    float3 v = sphereIntersect(pos, dir, c, no_parallax ? 4096.0 * 4096.0 : rr);
 
-        v = sphereIntersect(pos, dir, c,
-        refIndex[i].w < 1 ? 4096.0 * 4096.0 : // <== effectively disable parallax correction for automatically placed probes to keep from bombing the world with obvious spheres
-                rr);
+    float d = length(pos - c);
+    dw = probeCoverage(d, r) * refParams[i].z;
 
-        w = sphereWeight(pos, dir, refSphere[i].xyz, r, refParams[i], dw);
-    }
+    // Automatic probes are nested (terrain/water is the large base, object groups sit inside it), so
+    // the smaller probe must dominate: weight by coverage over radius. A large base probe then no
+    // longer averages in over the object probes that replace it. Manual probes weight by coverage only,
+    // on the same 0-1 scale as box probes.
+    w = (refIndex[i].w < 1) ? dw / max(r, 0.5) : dw;
 
-    v -= c;
-    v = mul(env_mat, v);
+    return sampleRefCube(v - c, refIndex[i].x, lod, refParams[i].y);
+}
 
-    // S24: no post-env_mat sign correction here either - see tapRefMap()'s matching comment.
-    float3 col = irradianceProbes.SampleLevel(environmentMapSampler, float4(v.xyz, (float)refIndex[i].x), 0).rgb * refParams[i].x;
+// Tap a box probe.
+// w - blend weight within the manual class, dw - coverage (0-1), used for the auto/manual crossfade
+// i - index into the box uniform block
+float3 tapBoxProbe(float3 pos, float3 dir, out float w, out float dw, float lod, int i)
+{
+    float d = 0.0;
+    float3 v = boxIntersect(pos, dir, boxRefBox[i], d);
 
-    col = lerp(amblit, col, min(refParams[i].x, 1.0));
+    // Box-local distance to the nearest wall, normalized [0,1]: coverage ramps 0->1 across the
+    // outer ~17% of the box's own volume, on the same 0-1 scale as sphere coverage.
+    dw = saturate(d * 6.0);
+    w = dw;
 
-    return col;
+    return sampleRefCube(v - boxRefOrigin[i].xyz, boxRefIndex[i].x, lod, boxRefParams[i].y);
 }
 
 float3 sampleProbes(float3 pos, float3 dir, float lod)
@@ -522,17 +532,17 @@ float3 sampleProbes(float3 pos, float3 dir, float lod)
         return float3(0, 0, 0);
     }
 
-    float wsum[2];
-    wsum[0] = 0;
-    wsum[1] = 0;
-
-    float dwsum[2];
-    dwsum[0] = 0;
-    dwsum[1] = 0;
-
-    float3 col[2];
-    col[0] = float3(0, 0, 0);
-    col[1] = float3(0, 0, 0);
+    // One probe per class, nothing averaged: the winner is the probe with the highest coverage at
+    // this pixel, with the smaller radius winning ties. Class 0 is automatic, class 1 is manual
+    // (spheres and boxes).
+    int wType[2];
+    int wIdx[2];
+    float wCov[2];
+    float wRad[2];
+    wType[0] = -1; wType[1] = -1;
+    wIdx[0] = -1;  wIdx[1] = -1;
+    wCov[0] = 0.0; wCov[1] = 0.0;
+    wRad[0] = 1e30; wRad[1] = 1e30;
 
     for (int idx = 0; idx < probeInfluences; ++idx)
     {
@@ -544,38 +554,57 @@ float3 sampleProbes(float3 pos, float3 dir, float lod)
             continue;
         }
 
+        float r = refSphere[i].w;
+        float cov = probeCoverage(length(pos - refSphere[i].xyz), r) * refParams[i].z;
+        if (cov > 0.0 && (cov > wCov[p] + 1e-4 || (abs(cov - wCov[p]) <= 1e-4 && r < wRad[p])))
+        {
+            wType[p] = 0;
+            wIdx[p] = i;
+            wCov[p] = cov;
+            wRad[p] = r;
+        }
+    }
+
+    for (int bidx = 0; bidx < boxInfluences; ++bidx)
+    {
+        int i = boxIndex[bidx];
+        float d = 0.0;
+        boxIntersect(pos, dir, boxRefBox[i], d);
+        float cov = saturate(d * 6.0);
+        float r = boxRefOrigin[i].w;
+        if (cov > 0.0 && (cov > wCov[1] + 1e-4 || (abs(cov - wCov[1]) <= 1e-4 && r < wRad[1])))
+        {
+            wType[1] = 1;
+            wIdx[1] = i;
+            wCov[1] = cov;
+            wRad[1] = r;
+        }
+    }
+
+    float3 result = float3(0, 0, 0);
+    if (wType[1] >= 0)
+    {
         float w = 0;
         float dw = 0;
-        float3 refcol;
+        float3 manual_col = (wType[1] == 1)
+            ? tapBoxProbe(pos, dir, w, dw, lod, wIdx[1])
+            : tapSphereProbe(pos, dir, w, dw, lod, refSphere[wIdx[1]].xyz, wIdx[1]);
 
+        result = manual_col;
+
+        // Fade from the automatic winner at the manual probe's edge, so there is no hard cut.
+        if (wType[0] >= 0 && wCov[1] < 1.0)
         {
-            refcol = tapRefMap(pos, dir, w, dw, lod, refSphere[i].xyz, i);
-
-            col[p] += refcol.rgb * w;
-            wsum[p] += w;
-            dwsum[p] += dw;
+            float3 auto_col = tapSphereProbe(pos, dir, w, dw, lod, refSphere[wIdx[0]].xyz, wIdx[0]);
+            result = lerp(auto_col, manual_col, wCov[1]);
         }
     }
-
-    // mix automatic and manual probes
-    if (sample_automatic && wsum[0] > 0.0)
-    { // some automatic probes were sampled
-        col[0] *= 1.0 / wsum[0];
-        if (wsum[1] > 0.0)
-        { //some manual probes were sampled, mix between the two
-            col[1] *= 1.0 / wsum[1];
-            col[1] = lerp(col[0], col[1], min(dwsum[1], 1.0));
-            col[0] = float3(0, 0, 0);
-        }
-    }
-    else if (wsum[1] > 0.0)
+    else if (wType[0] >= 0)
     {
-        // manual probes were sampled but no automatic probes were
-        col[1] *= 1.0 / wsum[1];
-        col[0] = float3(0, 0, 0);
+        float w = 0;
+        float dw = 0;
+        result = tapSphereProbe(pos, dir, w, dw, lod, refSphere[wIdx[0]].xyz, wIdx[0]);
     }
-
-    float3 result = col[1] + col[0];
 
     // S24: Apply reflection probe tweaks
     // Intensity
@@ -602,74 +631,22 @@ float3 sampleProbes(float3 pos, float3 dir, float lod)
     return result;
 }
 
+// Ambient light comes only from the default sky probe (cube slot 0). Local probes never
+// contribute to ambient, so a local capture cannot change the ambient level. The default
+// probe is list index 0 (see getReflectionMaps()) and is sampled by direction with no
+// parallax. Its irradiance scale (refParams.x) carries the reset fade, and the sky ambient
+// colour is the fallback while that scale is zero.
 float3 sampleProbeAmbient(float3 pos, float3 dir, float3 amblit)
 {
-    // S24: Early out if probes disabled
-    if (probes_enabled == 0)
+    if (probes_enabled == 0 || refIndex[0].x != 0)
     {
-        return amblit;
+        return amblit * probe_ambient_multiplier;
     }
 
-    // modified copy/paste of sampleProbes follows, will likely diverge from sampleProbes further
-    // as irradiance map mixing is tuned independently of radiance map mixing
-    float wsum[2];
-    wsum[0] = 0;
-    wsum[1] = 0;
+    float3 irr = irradianceProbes.SampleLevel(environmentMapSampler, float4(mul(env_mat, dir), 0.0), 0).rgb * refParams[0].x;
+    float3 result = lerp(amblit, irr, min(refParams[0].x, 1.0));
 
-    float dwsum[2];
-    dwsum[0] = 0;
-    dwsum[1] = 0;
-
-    float3 col[2];
-    col[0] = float3(0, 0, 0);
-    col[1] = float3(0, 0, 0);
-
-    for (int idx = 0; idx < probeInfluences; ++idx)
-    {
-        int i = probeIndex[idx];
-        int p = clamp(abs(refIndex[i].w), 0, 1);
-
-        if (p == 0 && !sample_automatic)
-        {
-            continue;
-        }
-
-        {
-            float w = 0;
-            float dw = 0;
-
-            float3 refcol = tapIrradianceMap(pos, dir, w, dw, refSphere[i].xyz, i, amblit);
-
-            col[p] += refcol * w;
-            wsum[p] += w;
-            dwsum[p] += dw;
-        }
-    }
-
-    // mix automatic and manual probes
-    if (sample_automatic && wsum[0] > 0.0)
-    { // some automatic probes were sampled
-        col[0] *= 1.0 / wsum[0];
-        if (wsum[1] > 0.0)
-        { //some manual probes were sampled, mix between the two
-            col[1] *= 1.0 / wsum[1];
-            col[1] = lerp(col[0], col[1], min(dwsum[1], 1.0));
-            col[0] = float3(0, 0, 0);
-        }
-    }
-    else if (wsum[1] > 0.0)
-    {
-        // manual probes were sampled but no automatic probes were
-        col[1] *= 1.0 / wsum[1];
-        col[0] = float3(0, 0, 0);
-    }
-
-    float3 result = col[1] + col[0];
-
-    // S24: Apply ambient multiplier to probe ambient contribution
-    result *= probe_ambient_multiplier;
-
-    return result;
+    return result * probe_ambient_multiplier;
 }
 
 // S24: this is the original GLSL's own "#else" (HERO_PROBES not defined) fallback stub,
@@ -722,7 +699,12 @@ void tapHeroProbe(inout float3 glossenv, float3 pos, float3 norm, float glossine
     clipDist = clamp(clipDist * falloffMult, 0, 1);
     w = clamp(w * falloffMult * clipDist, 0, 1);
     w = lerp(0, w, clamp(glossiness - 0.75, 0, 1) * 4); // We only generate a quarter of the mips for the hero probes.  Linearly interpolate between normal probes and hero probes based upon glossiness.
-    float3 heroSample = heroProbes.SampleLevel(environmentMapSampler, float4(mul(env_mat, refnormpersp), 0), (1.0 - glossiness) * heroMipCount).xyz;
+    // Only the first floor(heroMipCount/4) mips are written for hero probes (llmirrorprobes.cpp, the
+    // generate loop). Clamp the lookup to the last written level so trilinear filtering never blends
+    // into an unwritten, stale mip.
+    float heroMaxLod = floor(heroMipCount * 0.25) - 1.0;
+    float heroLod = min((1.0 - glossiness) * heroMipCount, max(heroMaxLod, 0.0));
+    float3 heroSample = heroProbes.SampleLevel(environmentMapSampler, float4(mul(env_mat, refnormpersp), 0), heroLod).xyz;
     glossenv = lerp(glossenv, heroSample, w);
 }
 
@@ -770,15 +752,17 @@ void doProbeSample(inout float3 ambenv, inout float3 glossenv,
 #ifdef SSR
     if (cube_snapshot != 1 && glossiness >= ssrGlossThreshold)
     {
-        // S24: dim the cube sample before the lerp below rather than zeroing it - on a real
-        // SSR hit (ssr.a -> 1) the lerp result is still ~100% ssr.rgb regardless of this
-        // factor, but on a miss (ssr.a == 0) it fills in with a dim cube value instead of
-        // black (e.g. water's sky reflection, a near-guaranteed miss at grazing angles).
-        static const float kSSRCubeFillWeight = 0.25;
-        glossenv *= kSSRCubeFillWeight;
+        // Cube sample scale before the SSR blend. A hit (ssr.a -> 1) replaces it; a miss keeps
+        // this fraction of the probe reflection (RenderSSRMissFill).
+        glossenv *= ssr_miss_fill;
 
         float4 ssr = float4(0, 0, 0, 0);
-        if (transparent)
+        if (ssr_from_buffer != 0)
+        {
+            // buffer is in the texture orientation of the gbuffer (flipped at the sample, as getDepth())
+            ssr = ssrBuffer.SampleLevel(environmentMapSampler, float2(tc.x, 1.0 - tc.y), 0);
+        }
+        else if (transparent)
         {
             tapScreenSpaceReflection(1, tc, pos, norm, ssr, sceneMap, environmentMapSampler, 1);
             ssr.a *= glossiness;
@@ -796,10 +780,13 @@ void doProbeSample(inout float3 ambenv, inout float3 glossenv,
 }
 
 void sampleReflectionProbes(inout float3 ambenv, inout float3 glossenv,
-        float2 tc, float3 pos, float3 norm, float glossiness, bool transparent, float3 amblit_linear)
+        float2 tc, float3 pos, float3 norm, float glossiness, float metallic, bool transparent, float3 amblit_linear)
 {
     preProbeSample(pos);
     doProbeSample(ambenv, glossenv, tc, pos, norm, glossiness, transparent, amblit_linear);
+
+    glossenv *= materialReflectionGate(glossiness, reflection_gate_gloss_reject, reflection_gate_gloss_accept)
+              * materialReflectionGate(metallic, reflection_gate_metallic_reject, reflection_gate_metallic_accept);
 }
 
 void sampleReflectionProbesWater(inout float3 ambenv, inout float3 glossenv,
@@ -894,7 +881,11 @@ void sampleReflectionProbesLegacy(inout float3 ambenv, inout float3 glossenv, in
     {
         float4 ssr = float4(0, 0, 0, 0);
 
-        if (transparent)
+        if (ssr_from_buffer != 0)
+        {
+            ssr = ssrBuffer.SampleLevel(environmentMapSampler, float2(tc.x, 1.0 - tc.y), 0);
+        }
+        else if (transparent)
         {
             tapScreenSpaceReflection(1, tc, pos, norm, ssr, sceneMap, environmentMapSampler, 1);
             ssr.a *= glossiness;
@@ -930,6 +921,11 @@ void sampleReflectionProbesLegacy(inout float3 ambenv, inout float3 glossenv, in
     // white. Matches user-observed repro: old texture + Fullbright + Shiny = white face.
     glossenv = clamp(glossenv, float3(0, 0, 0), float3(10, 10, 10));
     legacyenv = clamp(legacyenv, float3(0, 0, 0), float3(10, 10, 10));
+
+    // legacy materials have no metallic channel - gloss/roughness only
+    float gate = materialReflectionGate(glossiness, reflection_gate_gloss_reject, reflection_gate_gloss_accept);
+    glossenv *= gate;
+    legacyenv *= gate;
 }
 
 void applyGlossEnv(inout float3 color, float3 glossenv, float4 spec, float3 pos, float3 norm)

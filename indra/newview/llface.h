@@ -334,9 +334,19 @@ protected:
 public:
 	struct CompareDistanceGreater
 	{
+		// Farthest first. Distance is quantised to 2 mm so faces at the same depth compare equal,
+		// and then fall through to a fixed tie-break (buffer offset, then address). That keeps
+		// coplanar alpha faces in one stable order instead of flickering between frames.
 		bool operator()(const LLFace* const& lhs, const LLFace* const& rhs)
 		{
-			return !lhs || (rhs && (lhs->mDistance > rhs->mDistance)); // farthest = first
+			if (!lhs) return true;
+			if (!rhs) return false;
+			const F32 l = lhs->mDistance * 500.f, r = rhs->mDistance * 500.f;
+			const S64 lq = (S64)(l + (l >= 0.f ? 0.5f : -0.5f));
+			const S64 rq = (S64)(r + (r >= 0.f ? 0.5f : -0.5f));
+			if (lq != rq) return lq > rq;
+			if (lhs->mGeomIndex != rhs->mGeomIndex) return lhs->mGeomIndex < rhs->mGeomIndex;
+			return lhs < rhs;
 		}
 	};
 	

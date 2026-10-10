@@ -825,6 +825,18 @@ S32 LLHLSLShader::bindTexture(S32 uniform, LLRenderTarget* texture, bool depth, 
 	return channel;
 }
 
+// S24 : task #338 - direct sibling of bindTexture(S32, LLRenderTarget*, ...)
+// above, for a plain DXCubeTexture (the equirect compose pass's cube input).
+S32 LLHLSLShader::bindTexture(S32 uniform, DXCubeTexture* cubeTexture)
+{
+	S32 channel = getTextureChannel(uniform);
+	if (channel > -1)
+	{
+		gDX.getTexUnit(channel)->bind(cubeTexture);
+	}
+	return channel;
+}
+
 S32 LLHLSLShader::unbindTexture(S32 uniform, LLTexUnit::eTextureType mode)
 {
 

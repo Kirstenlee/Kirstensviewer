@@ -439,7 +439,7 @@ bool LLGLTFPreviewTexture::render()
     const S32 old_local_light_count = gSavedSettings.get<S32>("RenderLocalLightCount");
     gSavedSettings.set<S32>("RenderLocalLightCount", 0);
 
-    gPipeline.mReflectionMapManager.forceDefaultProbeAndUpdateUniforms();
+    gPipeline.mSphereProbes.setDefaultProbeOnly(true);
 
     LLViewerCamera camera;
 
@@ -570,7 +570,7 @@ bool LLGLTFPreviewTexture::render()
 
     // Clean up
     gPipeline.setupHWLights();
-    gPipeline.mReflectionMapManager.forceDefaultProbeAndUpdateUniforms(false);
+    gPipeline.mSphereProbes.setDefaultProbeOnly(false);
     gSavedSettings.set<S32>("RenderLocalLightCount", old_local_light_count);
 
     return true;

@@ -36,7 +36,7 @@
 #include "llcoord.h"
 #include "llcriticaldamp.h"
 #include "lldir.h"
-#include "lldrawpoolalpha.h"
+#include "dxdrawpoolalpha.h"
 #include "lldrawpoolbump.h"
 #include "lldrawpoolwater.h"
 #ifdef DX_RENDER
@@ -119,6 +119,15 @@ bool gResizeShadowTexture = false;
 bool gWindowResized = false;
 bool gSnapshot = false;
 bool gCubeSnapshot = false;
+
+// S24 : set by LLEquirectCapture around its whole 6-face capture loop (not
+// reset per-face like gCubeSnapshot is). Lets full-detail-sensitive gates
+// elsewhere (sky clouds, atmospherics/water haze) tell a real 360 capture
+// apart from a reflection/sphere-probe capture, which gCubeSnapshot alone
+// cannot - those gates intentionally drop detail for probes, which a 360
+// capture explicitly does not want.
+bool gEquirectCapture = false;
+
 bool gSnapshotNoPost = false;
 bool gShaderProfileFrame = false;
 
@@ -774,8 +783,8 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 		// This ensures the scene state in the hero probes are exactly the same as the rest of the scene before we render it.
 		if (gPipeline.RenderMirrors && !gSnapshot)
 		{
-			gPipeline.mHeroProbeManager.update();
-			gPipeline.mHeroProbeManager.renderProbes();
+			gPipeline.mMirrorProbes.update();
+			gPipeline.mMirrorProbes.renderProbes();
 		}
 
 		if (gPipeline.hasRenderType(LLPipeline::RENDER_TYPE_HUD))

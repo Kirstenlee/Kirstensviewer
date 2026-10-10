@@ -25,6 +25,7 @@
  */
 
 #include "llviewerprecompiledheaders.h"
+#include "dxdrawpoolalpha.h"
 #include "llviewerwindow.h"
 
 #ifdef DX_RENDER
@@ -103,7 +104,7 @@
 #include "lldebugview.h"
 #include "lldir.h"
 #include "lldrawable.h"
-#include "lldrawpoolalpha.h"
+#include "dxdrawpoolalpha.h"
 #include "lldrawpoolbump.h"
 #include "lldrawpoolwater.h"
 #include "llmaniptranslate.h"
@@ -4518,7 +4519,7 @@ void LLViewerWindow::pickAsync(S32 x,
     static LLCachedControl<bool> select_invisible_objects(gSavedSettings, "SelectInvisibleObjects");
 	// "Show Debug Alpha" means no object actually transparent
 	bool in_build_mode = LLFloaterReg::instanceVisible("build");
-    if (LLDrawPoolAlpha::sShowDebugAlpha || (in_build_mode && select_invisible_objects))
+    if (DXDrawPoolAlpha::sShowDebugAlpha || (in_build_mode && select_invisible_objects))
 	{
 		pick_transparent = true;
 	}
@@ -4582,7 +4583,7 @@ LLPickInfo LLViewerWindow::pickImmediate(S32 x, S32 y_from_bot, bool pick_transp
 {
     static LLCachedControl<bool> select_invisible_objects(gSavedSettings, "SelectInvisibleObjects");
 	bool in_build_mode = LLFloaterReg::instanceVisible("build");
-    if ((in_build_mode && select_invisible_objects) || LLDrawPoolAlpha::sShowDebugAlpha)
+    if ((in_build_mode && select_invisible_objects) || DXDrawPoolAlpha::sShowDebugAlpha)
 	{
 		// build mode allows interaction with all transparent objects
 		// "Show Debug Alpha" means no object actually transparent
@@ -5892,13 +5893,14 @@ bool LLViewerWindow::simpleSnapshot(LLImageRaw* raw, S32 image_width, S32 image_
 
 void display_cube_face();
 
-bool LLViewerWindow::cubeSnapshot(const LLVector3& origin, DXCubeMapArray* cubearray, S32 cubeIndex, S32 face, F32 near_clip, bool dynamic_render, bool useCustomClipPlane, LLPlane clipPlane)
+bool LLViewerWindow::cubeSnapshot(const LLVector3& origin, U32 resolution, S32 face, F32 near_clip, bool dynamic_render, bool useCustomClipPlane, LLPlane clipPlane)
 {
-	// NOTE: implementation derived from LLFloater360Capture::capture360Images() and simpleSnapshot
+	// NOTE: implementation derived from simpleSnapshot
 	llassert(LLPipeline::sRenderDeferred);
 	llassert(!gCubeSnapshot); //assert a snapshot isn't already in progress
 
-	U32 res = gPipeline.mRT->deferredScreen.getWidth();
+	// The capture size comes from the caller (the probe's super-sampled resolution), clamped to the target.
+	U32 res = llmin(resolution, gPipeline.mRT->deferredScreen.getWidth());
 
     //llassert(res <= gPipeline.mRT->deferredScreen.getWidth());
     //llassert(res <= gPipeline.mRT->deferredScreen.getHeight());
@@ -5971,15 +5973,8 @@ bool LLViewerWindow::cubeSnapshot(const LLVector3& origin, DXCubeMapArray* cubea
 
 	mWorldViewRectRaw.set(0, res, res, 0);
 
-	// these are the 6 directions we will point the camera, matching D3D11's
-	// documented cubemap slice order (0=+X,1=-X,2=+Y,3=-Y,4=+Z,5=-Z).
-	//
-	// look_upvecs[i] (DXCubeMapFaces::sUpVecs) is tuned PER-DIRECTION, not per-index - swapping
-	// look_dirs[i] alone pairs a new direction with the wrong index's up vector and corrupts that
-	// face's orientation. Any future re-assignment of which world direction populates which face slot
-	// must swap the complete (look_dir, look_upvec) pair together, never look_dirs alone. Sourced from
-	// DXCubeMapFaces::sLookDirs so this capture stage and the convolution-camera rewrite share one
-	// table instead of each hand-deriving their own.
+	// Face index is D3D11's cubemap slice order (0=+X,1=-X,2=+Y,3=-Y,4=+Z,5=-Z). The look and up
+	// pairs come from DXCubeMapFaces and must change together; see DXCubeMapFaces.h.
 	LLVector3 look_dirs[6] = {
 		LLVector3(DXCubeMapFaces::sLookDirs[0]),
 		LLVector3(DXCubeMapFaces::sLookDirs[1]),
@@ -5989,10 +5984,6 @@ bool LLViewerWindow::cubeSnapshot(const LLVector3& origin, DXCubeMapArray* cubea
 		LLVector3(DXCubeMapFaces::sLookDirs[5])
 	};
 
-	// D3D11-native up vectors, not the GL-native ones - see DXCubeMapFaces.h's header comment for the
-	// derivation (a per-API handedness difference for cubemap face addressing, not something a
-	// viewport flip can compensate for). GL branch removed - task #300 (full GL removal), never
-	// compiled in this DX_RENDER-only build.
 	LLVector3 look_upvecs[6] = {
 		LLVector3(DXCubeMapFaces::sUpVecs[0]),
 		LLVector3(DXCubeMapFaces::sUpVecs[1]),
@@ -6008,11 +5999,6 @@ bool LLViewerWindow::cubeSnapshot(const LLVector3& origin, DXCubeMapArray* cubea
 	{
 		// set up camera to look in each direction
 		camera->lookDir(look_dirs[i], look_upvecs[i]);
-
-		// Capture camera orientation is confirmed NOT the source of the remaining +X/-X defect
-		// (faces 0,1,4,5 share resultUp=(0,1,0); all 8 within-face dihedral orientations were tested
-		// and rejected too). Next lead: the GGX/roughness prefilter stage (prefilterEnvMap() in
-		// radianceGenF.hlsl) - see llreflectionmapmanager.cpp for the full investigation.
 
 		// turning this flag off here prohibits the screen swap
 		// to present the new page to the viewer - this stops
@@ -6203,7 +6189,7 @@ void LLViewerWindow::setup3DViewport(S32 x_offset, S32 y_offset)
 	// SMAA.hlsl's API_V_COORD-fed passes) already applies its own matching `1.0 - y` compensation for
 	// D3D11's top-down vs. GL-derived bottom-up row order - matches the same underlying cause already
 	// fixed elsewhere (FXAA, SMAA, DoF), and also matches the 3 explicit viewport sites in
-	// llreflectionmapmanager.cpp's radiance/irradiance generation loops. GL branch removed - task
+	// llsphereprobes.cpp's radiance/irradiance generation loops. GL branch removed - task
 	// #300 (full GL removal), never compiled in this DX_RENDER-only build.
 	gDXContext.setViewport(gDXViewport[0], gDXViewport[1], gDXViewport[2], gDXViewport[3], true);
 }

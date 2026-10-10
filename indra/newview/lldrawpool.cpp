@@ -32,7 +32,7 @@
 #include "llviewercontrol.h"
 
 #include "lldrawable.h"
-#include "lldrawpoolalpha.h"
+#include "dxdrawpoolalpha.h"
 #include "lldrawpoolavatar.h"
 #include "lldrawpoolbump.h"
 #include "lldrawpoolmaterials.h"
@@ -84,10 +84,10 @@ LLDrawPool *LLDrawPool::createPool(const U32 type, LLViewerTexture *tex0)
         poolp = new LLDrawPoolGlow();
         break;
     case POOL_ALPHA_PRE_WATER:
-        poolp = new LLDrawPoolAlpha(LLDrawPool::POOL_ALPHA_PRE_WATER);
+        poolp = new DXAlphaDrawPool(LLDrawPool::POOL_ALPHA_PRE_WATER);
         break;
     case POOL_ALPHA_POST_WATER:
-        poolp = new LLDrawPoolAlpha(LLDrawPool::POOL_ALPHA_POST_WATER);
+        poolp = new DXAlphaDrawPool(LLDrawPool::POOL_ALPHA_POST_WATER);
         break;
     case POOL_AVATAR:
     case POOL_CONTROL_AV:

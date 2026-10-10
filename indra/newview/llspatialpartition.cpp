@@ -596,7 +596,7 @@ LLSpatialGroup::LLSpatialGroup(OctreeNode* node, LLSpatialPartition* part) : LLO
     gPipeline.markRebuild(this);
 
     // let the reflection map manager know about this spatial group
-    mReflectionProbe = gPipeline.mReflectionMapManager.registerSpatialGroup(this);
+    mReflectionProbe = gPipeline.mSphereProbes.registerSpatialGroup(this);
 
     mRadius = 1;
     mPixelArea = 1024.f;
@@ -658,7 +658,10 @@ F32 LLSpatialPartition::calcDistance(LLSpatialGroup* group, LLCamera& camera)
                 LLVector4a diff;
                 diff.setSub(view_angle, group->mLastUpdateViewAngle);
 
-                if (diff.getLength3().getF32() > 0.64f)
+                // Direction to the group changes with camera translation too, so this also re-sorts on movement.
+                // Was a fixed 0.64 (about 37 degrees); lower values re-sort alpha draw order more often.
+                static LLCachedControl<F32> alpha_resort_threshold(gSavedSettings, "RenderAlphaResortThreshold", 0.05f);
+                if (diff.getLength3().getF32() > alpha_resort_threshold)
                 {
                     group->mViewAngle = view_angle;
                     group->mLastUpdateViewAngle = view_angle;

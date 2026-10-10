@@ -4,12 +4,12 @@
 #include <vector>
 #include <string>
 #include <cstdint>
+#include <thread>
 
 DXDevice gDXDevice;
 
-// S24 (2026-08-26, task #260): shared by both initialize() branches below -
-// QI's mDevice for IDXGIDevice to find which physical adapter it landed on,
-// regardless of whether the device was adopted or created here.
+// Shared by both initialize() branches: QI's mDevice for IDXGIDevice to find
+// which physical adapter it landed on, whether adopted or created here.
 static LUID queryAdapterLuid(ID3D11Device* device)
 {
     LUID luid = { 0, 0 };
@@ -31,10 +31,56 @@ static LUID queryAdapterLuid(ID3D11Device* device)
     return luid;
 }
 
-// S24 (2026-08-16): see DXDevice.h's header comment. Default true to match
-// the pre-existing always-on behavior for anyone who hasn't touched the new
-// setting yet.
+// Default true to match the previously-hardcoded always-on behavior.
 bool DXDevice::sDebugLayerEnabled = true;
+
+AGSContext* DXDevice::sAgsContext = nullptr;
+bool DXDevice::sAdoptedDeviceViaAgs = false;
+bool DXDevice::sNvApiAvailable = false;
+bool DXDevice::sNvidiaReflexActive = false;
+bool DXDevice::sAgsAsyncShaderCompileEnabled = true;
+uint32_t DXDevice::sAgsBreadcrumbMarkerCount = 0;
+bool DXDevice::sDepthBoundsTestEnabled = true;
+
+AGSDX11ExtensionParams DXDevice::buildAgsExtensionParams()
+{
+    AGSDX11ExtensionParams params = {};
+    params.numBreadcrumbMarkers = sAgsBreadcrumbMarkerCount;
+    return params;
+}
+
+void DXDevice::applyAgsPostCreateTuning(AGSContext* context)
+{
+    if (!context || !sAgsAsyncShaderCompileEnabled)
+    {
+        return;
+    }
+
+    // Upper limit, not a demand - "the driver may create fewer threads than
+    // allowed by this function" (amd_ags.h). hardware_concurrency() can
+    // return 0 if it can't determine the count; fall back to a small sane
+    // default rather than passing 0, which disables async compilation
+    // entirely per the same header.
+    unsigned int thread_count = std::thread::hardware_concurrency();
+    if (thread_count == 0)
+    {
+        thread_count = 4;
+    }
+
+    AGSReturnCode ags_hr = agsDriverExtensionsDX11_SetMaxAsyncCompileThreadCount(context, thread_count);
+    if (ags_hr != AGS_SUCCESS)
+    {
+        LL_WARNS("DXRender") << "agsDriverExtensionsDX11_SetMaxAsyncCompileThreadCount failed, code=" << (int)ags_hr << LL_ENDL;
+    }
+
+    ags_hr = agsDriverExtensionsDX11_SetDiskShaderCacheEnabled(context, 1);
+    if (ags_hr != AGS_SUCCESS)
+    {
+        // Expected failure case per the header: disabled explicitly via
+        // Radeon Settings or an app profile - not worth warning about.
+        LL_INFOS("DXRender") << "agsDriverExtensionsDX11_SetDiskShaderCacheEnabled declined, code=" << (int)ags_hr << LL_ENDL;
+    }
+}
 
 bool DXDevice::initialize(ID3D11Device* existing_device, ID3D11DeviceContext* existing_context)
 {
@@ -53,6 +99,7 @@ bool DXDevice::initialize(ID3D11Device* existing_device, ID3D11DeviceContext* ex
         mFeatureLevel = mDevice->GetFeatureLevel();
         mDevice->QueryInterface(__uuidof(ID3D11InfoQueue), (void**)&mInfoQueue);
         mAdapterLuid = queryAdapterLuid(mDevice);
+        mCreatedViaAgs = sAdoptedDeviceViaAgs;
         return true;
     }
 
@@ -60,37 +107,67 @@ bool DXDevice::initialize(ID3D11Device* existing_device, ID3D11DeviceContext* ex
     // selectHighPerformanceAdapter() skips device creation entirely) -
     // create our own.
     D3D_FEATURE_LEVEL requested_levels[] = { D3D_FEATURE_LEVEL_11_1, D3D_FEATURE_LEVEL_11_0 };
-    // S24 (2026-08-16): now gated by S24DXDebugLayerEnabled (see
-    // sDebugLayerEnabled's header comment) instead of being hardcoded on -
-    // enables the runtime validation layer so state/binding hazards surface
-    // as real debug-output messages instead of silent wrong pixels, at a
-    // real per-draw-call performance cost. Requires the Windows "Graphics
-    // Tools" optional feature installed - if missing, this call fails
-    // outright with the flag on (turn the setting off if that happens and
-    // this isn't the path being investigated).
-    // S24 (2026-08-29, task #278): D3D11_CREATE_DEVICE_SINGLETHREADED added -
-    // this codebase confirmed (source review) to never call into the D3D11
-    // device/context from any thread but the main one since task #260
-    // removed the one feature (DXImageThread) that ever did. This flag tells
-    // the driver to skip its internal per-call thread-safety locking
-    // entirely rather than just happening to go uncontended - a real,
-    // measurable per-API-call CPU cost reduction across every single D3D11
-    // call this app makes. Must match at every D3D11CreateDevice call site
-    // (see llwindowwin32.cpp's selectHighPerformanceAdapter(), the other two
-    // sites, for the multi-adapter path) - a mismatched flag between sites
-    // would be meaningless since only one of them actually creates the
-    // device DXDevice::initialize() ends up adopting or owning.
-    HRESULT hr = D3D11CreateDevice(
-        nullptr,
-        D3D_DRIVER_TYPE_HARDWARE,
-        nullptr,
-        (sDebugLayerEnabled ? D3D11_CREATE_DEVICE_DEBUG : 0) | D3D11_CREATE_DEVICE_SINGLETHREADED,
-        requested_levels,
-        _countof(requested_levels),
-        D3D11_SDK_VERSION,
-        &mDevice,
-        &mFeatureLevel,
-        &mContext);
+    // D3D11_CREATE_DEVICE_DEBUG (gated by sDebugLayerEnabled) requires the
+    // Windows "Graphics Tools" optional feature - device creation fails
+    // outright if it's missing while the flag is on.
+    //
+    // D3D11_CREATE_DEVICE_SINGLETHREADED: this codebase never calls into the
+    // D3D11 device/context from any thread but the main one, so the driver
+    // can skip its internal per-call thread-safety locking entirely. Must
+    // match at every D3D11CreateDevice call site (see llwindowwin32.cpp's
+    // selectHighPerformanceAdapter()) since only one site actually creates
+    // the device this class adopts or owns.
+    UINT flags = (sDebugLayerEnabled ? D3D11_CREATE_DEVICE_DEBUG : 0) | D3D11_CREATE_DEVICE_SINGLETHREADED;
+    HRESULT hr = E_FAIL;
+
+    // Prefer the AGS-wrapped creation path when AGS is available (AMD GPU) -
+    // gives this device access to AMD's DX11 driver extensions (shader
+    // intrinsics, UAV overlap, multi-draw indirect, etc.). Falls back to
+    // plain D3D11CreateDevice below on any AGS failure or non-AMD GPU.
+    if (sAgsContext)
+    {
+        AGSDX11DeviceCreationParams creation_params = {};
+        creation_params.pAdapter = nullptr;
+        creation_params.DriverType = D3D_DRIVER_TYPE_HARDWARE;
+        creation_params.Flags = flags;
+        creation_params.pFeatureLevels = requested_levels;
+        creation_params.FeatureLevels = _countof(requested_levels);
+        creation_params.SDKVersion = D3D11_SDK_VERSION;
+
+        AGSDX11ExtensionParams extension_params = buildAgsExtensionParams();
+        AGSDX11ReturnedParams returned_params = {};
+        AGSReturnCode ags_hr = agsDriverExtensionsDX11_CreateDevice(sAgsContext, &creation_params, &extension_params, &returned_params);
+        if (ags_hr == AGS_SUCCESS)
+        {
+            mDevice = returned_params.pDevice;
+            mContext = returned_params.pImmediateContext;
+            mFeatureLevel = returned_params.featureLevel;
+            mCreatedViaAgs = true;
+            hr = S_OK;
+            applyAgsPostCreateTuning(sAgsContext);
+        }
+        else
+        {
+            LL_WARNS("DXRender") << "agsDriverExtensionsDX11_CreateDevice failed, code=" << (int)ags_hr
+                << " - falling back to plain D3D11CreateDevice" << LL_ENDL;
+        }
+    }
+
+    if (FAILED(hr))
+    {
+        hr = D3D11CreateDevice(
+            nullptr,
+            D3D_DRIVER_TYPE_HARDWARE,
+            nullptr,
+            flags,
+            requested_levels,
+            _countof(requested_levels),
+            D3D11_SDK_VERSION,
+            &mDevice,
+            &mFeatureLevel,
+            &mContext);
+        mCreatedViaAgs = false;
+    }
 
     if (FAILED(hr))
     {
@@ -108,11 +185,10 @@ bool DXDevice::initialize(ID3D11Device* existing_device, ID3D11DeviceContext* ex
 
 void DXDevice::shutdown()
 {
-    // S24 (DX_RENDER diagnostic, 2026-07-28): TEMPORARY - logPendingDebugMessages()
-    // only logs each distinct D3D11 message ID once (see its own comment) to
-    // avoid the per-frame I/O cost of logging every occurrence - this final
-    // tally is the cheap way to still see how often each one actually fired
-    // over the whole session, without paying for it at runtime.
+    // Permanent, settings-gated tooling, not a leftover diagnostic.
+    // logPendingDebugMessages() only logs each distinct message ID once (to
+    // avoid per-frame log I/O); this final tally reports the true per-ID
+    // occurrence count for the whole session at shutdown instead.
     for (const auto& entry : mSeenMessageIDs)
     {
         // entry.first is now "messageID|context" (see logPendingDebugMessages()'s
@@ -122,6 +198,18 @@ void DXDevice::shutdown()
     }
 
     if (mInfoQueue) { mInfoQueue->Release(); mInfoQueue = nullptr; }
+
+    if (mCreatedViaAgs && sAgsContext && mDevice)
+    {
+        // Also cleans up the AMD-specific driver extensions allocated by
+        // agsDriverExtensionsDX11_CreateDevice - a plain Release() pair
+        // alone would leak those.
+        unsigned int device_refs = 0, context_refs = 0;
+        agsDriverExtensionsDX11_DestroyDevice(sAgsContext, mDevice, &device_refs, mContext, &context_refs);
+        mContext = nullptr;
+        mDevice = nullptr;
+    }
+
     if (mContext) { mContext->Release(); mContext = nullptr; }
     if (mDevice) { mDevice->Release(); mDevice = nullptr; }
 }
@@ -147,11 +235,9 @@ int DXDevice::logPendingDebugMessages(const char* context)
         D3D11_MESSAGE* msg = (D3D11_MESSAGE*)buffer.data();
         if (SUCCEEDED(mInfoQueue->GetMessage(i, msg, &msg_len)))
         {
-            // S24 (2026-08-02): keyed by (message ID, context) together, not
-            // message ID alone - see this method's header comment. Without
-            // this, a genuinely different shader hitting the exact same
-            // D3D11 validation rule (same numeric ID) as an earlier-seen
-            // one would never be reported at all.
+            // Keyed by (message ID, context) together, not ID alone, so a
+            // different shader hitting the same validation rule under a
+            // different context still gets reported.
             const std::string key = std::to_string((int)msg->ID) + "|" + (context ? context : "");
             uint64_t& seen_count = mSeenMessageIDs[key];
             ++seen_count;

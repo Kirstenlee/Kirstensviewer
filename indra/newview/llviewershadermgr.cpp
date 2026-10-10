@@ -90,10 +90,14 @@ LLHLSLShader    gSkinnedOcclusionProgram;
 LLHLSLShader    gOcclusionCubeProgram;
 LLHLSLShader    gGlowCombineProgram;
 LLHLSLShader    gReflectionMipProgram;
+LLHLSLShader    gSSRProgram;
+LLHLSLShader    gSSRResolveProgram;
 LLHLSLShader    gGaussianProgram;
 LLHLSLShader    gRadianceGenProgram;
 LLHLSLShader    gHeroRadianceGenProgram;
 LLHLSLShader    gIrradianceGenProgram;
+LLHLSLShader    gEquirectProjectProgram;
+LLHLSLShader    gFlipXProgram;
 LLHLSLShader    gGlowCombineFXAAProgram;
 LLHLSLShader    gTwoTextureCompareProgram;
 LLHLSLShader    gOneTextureFilterProgram;
@@ -163,6 +167,7 @@ LLHLSLShader            gDeferredAvatarAlphaProgram;
 LLHLSLShader            gDeferredLightProgram;
 LLHLSLShader            gDeferredMultiLightProgram[16];
 LLHLSLShader            gDeferredSpotLightProgram;
+LLHLSLShader            gDeferredAlphaProjectorProgram;
 LLHLSLShader            gDeferredMultiSpotLightProgram;
 LLHLSLShader            gDeferredSunProgram;
 LLHLSLShader            gDeferredSunProbeProgram;
@@ -1165,6 +1170,7 @@ bool LLViewerShaderMgr::loadShadersDeferred()
             gDeferredMultiLightProgram[i].unload();
         }
         gDeferredSpotLightProgram.unload();
+        gDeferredAlphaProjectorProgram.unload();
         gDeferredMultiSpotLightProgram.unload();
         gDeferredSunProgram.unload();
         gDeferredBlurLightProgram.unload();
@@ -3822,6 +3828,32 @@ bool LLViewerShaderMgr::loadShadersInterface()
         success = gGaussianProgram.createShader();
     }
 
+    if (success)
+    {
+        // Screen-space reflection pass for opaque deferred surfaces (class3/deferred/ssrF.hlsl).
+        // Runs before deferred lighting and writes the SSR buffer that softenLight reads.
+        gSSRProgram.mName = "Screen Space Reflection Shader";
+        gSSRProgram.mFeatures.isDeferred = true;
+        gSSRProgram.mFeatures.hasFullGBuffer = true;
+        gSSRProgram.mFeatures.hasScreenSpaceReflections = true;
+        gSSRProgram.mShaderFiles.clear();
+        gSSRProgram.mShaderFiles.push_back(make_pair("interface/splattexturerectV.glsl", GL_VERTEX_SHADER));
+        gSSRProgram.mShaderFiles.push_back(make_pair("deferred/ssrF.glsl", GL_FRAGMENT_SHADER));
+        gSSRProgram.mShaderLevel = mShaderLevel[SHADER_DEFERRED];
+        // Not part of the shared 'success' chain: if this fails, the lighting shader falls back to its
+        // inline trace (see LLPipeline::bindSSRBuffer) and the remaining programs still load.
+        gSSRProgram.createShader();
+
+        // Temporal resolve of the SSR buffer (class3/deferred/ssrResolveF.hlsl). Also outside the chain.
+        gSSRResolveProgram.mName = "Screen Space Reflection Resolve Shader";
+        gSSRResolveProgram.mFeatures.isDeferred = true;
+        gSSRResolveProgram.mShaderFiles.clear();
+        gSSRResolveProgram.mShaderFiles.push_back(make_pair("interface/splattexturerectV.glsl", GL_VERTEX_SHADER));
+        gSSRResolveProgram.mShaderFiles.push_back(make_pair("deferred/ssrResolveF.glsl", GL_FRAGMENT_SHADER));
+        gSSRResolveProgram.mShaderLevel = mShaderLevel[SHADER_DEFERRED];
+        gSSRResolveProgram.createShader();
+    }
+
     if (success && gGLManager.mHasCubeMapArray)
     {
         gRadianceGenProgram.mName = "Radiance Gen Shader";
@@ -3855,6 +3887,30 @@ bool LLViewerShaderMgr::loadShadersInterface()
         success = gIrradianceGenProgram.createShader();
     }
 
+    if (success)
+    {
+        // S24 : cube-to-equirectangular projection (360 capture). Samples a
+        // real TextureCube (DXCubeTexture) via hardware Sample().
+        gEquirectProjectProgram.mName = "Equirect Projection Shader";
+        gEquirectProjectProgram.mShaderFiles.clear();
+        gEquirectProjectProgram.mShaderFiles.push_back(make_pair("interface/equirectV.glsl", GL_VERTEX_SHADER));
+        gEquirectProjectProgram.mShaderFiles.push_back(make_pair("interface/equirectF.glsl", GL_FRAGMENT_SHADER));
+        gEquirectProjectProgram.mShaderLevel = mShaderLevel[SHADER_INTERFACE];
+        success = gEquirectProjectProgram.createShader();
+    }
+
+    if (success)
+    {
+        // S24 : un-mirrors one captured cube face before it is stored in the
+        // cube resource - see flipXF.hlsl. Reuses copyV.hlsl verbatim.
+        gFlipXProgram.mName = "Flip X Shader";
+        gFlipXProgram.mShaderFiles.clear();
+        gFlipXProgram.mShaderFiles.push_back(make_pair("interface/copyV.glsl", GL_VERTEX_SHADER));
+        gFlipXProgram.mShaderFiles.push_back(make_pair("interface/flipXF.glsl", GL_FRAGMENT_SHADER));
+        gFlipXProgram.mShaderLevel = mShaderLevel[SHADER_INTERFACE];
+        success = gFlipXProgram.createShader();
+    }
+
     if( !success )
     {
         mShaderLevel[SHADER_INTERFACE] = 0;
@@ -3885,3 +3941,34 @@ LLViewerShaderMgr::shader_iter LLViewerShaderMgr::endShaders() const
     return mShaderList.end();
 }
 
+// Forward projector program for alpha-pool surfaces. Compiled on first use, so nothing extra is built
+// unless RenderAlphaProjectors is on. Deliberately kept out of the shared success chain.
+bool loadAlphaProjectorShader()
+{
+    static bool sAttempted = false;
+    if (sAttempted)
+    {
+        return gDeferredAlphaProjectorProgram.isComplete();
+    }
+    sAttempted = true;
+
+    gDeferredAlphaProjectorProgram.mName = "Alpha Projector Shader";
+    gDeferredAlphaProjectorProgram.mShaderFiles.clear();
+    gDeferredAlphaProjectorProgram.mFeatures.hasSrgb = true;
+    gDeferredAlphaProjectorProgram.mFeatures.hasLighting = false;
+    gDeferredAlphaProjectorProgram.mFeatures.isAlphaLighting = true;
+
+    gDeferredAlphaProjectorProgram.clearPermutations();
+    gDeferredAlphaProjectorProgram.mShaderFiles.push_back(make_pair("deferred/alphaV.glsl", GL_VERTEX_SHADER));
+    gDeferredAlphaProjectorProgram.mShaderFiles.push_back(make_pair("deferred/alphaProjectorF.glsl", GL_FRAGMENT_SHADER));
+    gDeferredAlphaProjectorProgram.mShaderLevel = LLViewerShaderMgr::instance()->getShaderLevel(LLViewerShaderMgr::SHADER_DEFERRED);
+
+    add_common_permutations(&gDeferredAlphaProjectorProgram);
+
+    bool success = gDeferredAlphaProjectorProgram.createShader();
+    if (!success)
+    {
+        LL_WARNS() << "Alpha projector shader failed to compile; RenderAlphaProjectors has no effect." << LL_ENDL;
+    }
+    return success;
+}

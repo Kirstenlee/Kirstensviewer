@@ -4721,7 +4721,14 @@ const LLVector3 LLViewerObject::getRenderPosition() const
         }
     }
 
-    if (mDrawable.isNull())
+    // S24: restored generation check (r3965 backport dropped it, diagnosed and reverted
+    // 2026-10-09 - see project_altcam_mesh_spiral_2026_10_09.md). mGeneration starts at -1
+    // (lldrawable.cpp) and only becomes valid once updateMove() has actually run for this
+    // drawable at least once (mGeneration++ happens inside updateMoveUndamped()/
+    // updateMoveDamped()) - without this check, a drawable whose transform has never been
+    // computed yet falls through to the stale/uninitialized mDrawable->getPositionAgent()
+    // instead of the always-valid object-level fallback.
+    if (mDrawable.isNull() || mDrawable->getGeneration() < 0)
     {
         return getPositionAgent();
     }

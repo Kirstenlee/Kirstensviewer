@@ -1476,6 +1476,23 @@ void LLAgentCamera::updateCamera()
                     camera_pos_global = camera_pos_agent + agent_pos;
                 }
             }
+            // S24 : DO NOT add a third "mTrackFocusObject && mFocusObject.notNull()" branch here
+            // that smooths the camera RELATIVE to mFocusGlobal instead of in absolute space
+            // (this is LL's own upstream approach, backport r3949, "Smooth tracked cameras
+            // relative to their focus"). Tried twice in this engine (2026-10-09, see
+            // project_altcam_mesh_spiral_2026_10_09.md), both times live-tested as badly broken
+            // - rubberbands/overshoots on every new alt-click, sometimes violently. Root cause:
+            // mCameraSmoothingLastFocusGlobal is never invalidated when the focus TARGET
+            // switches (clicking a different object) - only a magnitude guard exists
+            // (MAX_CAMERA_SMOOTH_DISTANCE), which doesn't catch "same relative distance, totally
+            // different object," so the lerp blends between two geometrically unrelated
+            // camera-to-focus offsets. Upstream LL has this identical gap - not an S24 bug to
+            // chase, a real flaw in the feature itself. The benefit it buys (smooth tracking of
+            // a focus object that is physically moving, e.g. a driven vehicle) is narrow and not
+            // worth this fragility. If ever revisited, it needs setFocusGlobal() to explicitly
+            // invalidate mCameraSmoothingLastFocusValid on a genuine target switch (its own
+            // `if (old_focus != focus)` check is the natural hook) - untested, not a blind
+            // retry of the old branch.
             else
             {
                 LLVector3d delta = camera_pos_global - mCameraSmoothingLastPositionGlobal;
@@ -1658,8 +1675,43 @@ LLVector3d LLAgentCamera::calcFocusPositionTargetGlobal()
     {
         if (mFocusObject.notNull() && !mFocusObject->isDead() && mFocusObject->mDrawable.notNull())
         {
+            // S24: restored (r3965 backport removed this, diagnosed and reverted 2026-10-09 -
+            // see project_altcam_mesh_spiral_2026_10_09.md). For an actively-animating tracked
+            // object (rigged/animated mesh - drawablep->isActive()), force its pending transform
+            // update to run NOW via updateMoveNormalAsync()/updateMoveDampedAsync() rather than
+            // letting the normal per-frame batch pass process it later - otherwise
+            // getRenderPosition() below reads a one-frame-stale transform every single frame,
+            // which compounds with continuous orbit input into a growing divergence between the
+            // camera and its focus point (the confirmed cause of alt-cam spiraling outward on
+            // rigged/animated mesh focus). Static prims/non-active drawables are unaffected
+            // (isActive() false, falls to the plain updateFocusOffset() path unchanged).
+            LLDrawable* drawablep = mFocusObject->mDrawable;
+
+            if (mTrackFocusObject &&
+                drawablep &&
+                drawablep->isActive())
+            {
+                if (!mFocusObject->isAvatar())
+                {
+                    if (mFocusObject->isSelected())
+                    {
+                        gPipeline.updateMoveNormalAsync(drawablep);
+                    }
+                    else
+                    {
+                        if (drawablep->isState(LLDrawable::MOVE_UNDAMPED))
+                        {
+                            gPipeline.updateMoveNormalAsync(drawablep);
+                        }
+                        else
+                        {
+                            gPipeline.updateMoveDampedAsync(drawablep);
+                        }
+                    }
+                }
+            }
             // if not tracking object, update offset based on new object position
-            if (!mTrackFocusObject)
+            else
             {
                 updateFocusOffset();
             }

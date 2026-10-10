@@ -5,7 +5,7 @@
 
 <p align="center">
      <img src="https://img.shields.io/badge/build-4100-green.svg" alt="Build">
-     <img src="https://img.shields.io/badge/version-Alpha%201.3-blueviolet.svg" alt="Alpha 1.3">
+     <img src="https://img.shields.io/badge/version-Alpha%201.31-blueviolet.svg" alt="Alpha 1.31">
      <img src="https://img.shields.io/badge/platform-Windows-blue.svg" alt="Platform">
      <img src="https://img.shields.io/badge/standard-C%2B%2B20-orange.svg" alt="C++20">
      <img src="https://img.shields.io/badge/renderer-DirectX%2011-9cf.svg" alt="DirectX 11">
@@ -70,7 +70,8 @@ Kirstens Viewer respects user privacy and disables or limits the following compo
 | 3322  | LYSI     | S24.6   |
 | 3500  | MAGN     | S24.7   |
 | 4015  | HRADR    | Alpha 1.2 |
-| **4100** | **—** | **Alpha 1.3 (current)** |
+| **4100** | **—** | **Alpha 1.3** |
+| **4105** | **—** | **Alpha 1.31 (current)** |
 
 **Forked from Viewer Develop / 2026.4**
 
@@ -179,6 +180,13 @@ compatible with `DX_RENDER`, and is our existing behaviour already better.
 
 - Dangling `llstatslistener` references removed, so CMake regenerates cleanly.
 - Version bumped for Alpha 1.3 (build 4100).
+- Fixed websocketpp `C4005` macro-redefinition warnings: the Boost config now defines `_WEBSOCKETPP_NOEXCEPT_TOKEN_` and `_WEBSOCKETPP_CONSTEXPR_TOKEN_` only if they are not already set (r4104).
+
+#### 🛠️ Post-Release Fixes (after build 4100)
+
+- **Startup freeze at "Compiling shader: Brdf Gen Shader":** the BRDF LUT loop in `genbrdflutF.hlsl` is marked `[loop]`, so the driver compiler does not unroll its 1024 iterations. This is a tentative fix for AMD GPUs and needs confirmation on affected hardware (r4102).
+- **KRLV settings:** `KRLVOwnersWereSet` is now declared in `settings.xml`. It was read by the tamper check but missing from the settings file, which logged a warning every minute (r4103).
+- **Version:** the About floater and this README now report Alpha 1.31 (r4105).
 
 ---
 

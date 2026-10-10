@@ -112,7 +112,8 @@ float2 BRDF(float NoV, float roughness)
     float3 V = float3(sqrt(1.0 - NoV*NoV), 0.0, NoV);
 
     float2 LUT = float2(0.0, 0.0);
-    for(uint i = 0u; i < NUM_SAMPLES; i++) {
+    // Keep as a loop: unrolling 1024 iterations is too costly for driver compilers.
+    [loop] for(uint i = 0u; i < NUM_SAMPLES; i++) {
         float2 Xi = hammersley2d(i, NUM_SAMPLES);
         float3 H = importanceSample_GGX(Xi, roughness, N);
         float3 L = 2.0 * dot(V, H) * H - V;

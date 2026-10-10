@@ -98,7 +98,7 @@ float sampleDirectionalShadow(float3 pos, float3 norm, float2 pos_screen);
 // is used for the probe/SSR call instead, leaving tc for shadow only.
 float2 generateProjectedPosition(float3 pos);
 void sampleReflectionProbes(inout float3 ambenv, inout float3 glossenv,
-    float2 tc, float3 pos, float3 norm, float glossiness, bool transparent, float3 amblit_linear);
+    float2 tc, float3 pos, float3 norm, float glossiness, float metallic, bool transparent, float3 amblit_linear);
 // pbrBaseLight (deferredUtil.hlsl, attached here via isDeferred=true) does
 // the real IBL(pbrIbl)+punctual(pbrPunctual) combine - the exact function
 // softenLightF.hlsl's own real, already-working PBR lighting path uses.
@@ -172,11 +172,7 @@ float4 main(PSInput IN) : SV_Target
     // packing, matches pbropaqueF.hlsl's identical convention).
     float3 orm = specularMap.Sample(specularMapSampler, IN.metallic_roughness_texcoord.xy).rgb;
     float ao = orm.r;
-    // S24: floored well above pbrPunctual's own 8/255 minimum - avoids an
-    // unbounded highlight on near-mirror surfaces (e.g. windows) when the
-    // sun's reflection direction lines up with the view; kept as margin
-    // even with real IBL/shadow wired in below.
-    float perceptualRoughness = max(orm.g * roughnessFactor, 0.3);
+    float perceptualRoughness = orm.g * roughnessFactor;
     float metallic = orm.b * metallicFactor;
 
     float3 colorEmissive = emissiveColor;
@@ -215,7 +211,7 @@ float4 main(PSInput IN) : SV_Target
     float gloss = 1.0 - perceptualRoughness;
     // S24: perspective-correct screen UV, separate from tc above (needed for SSR).
     float2 probe_tc = generateProjectedPosition(pos);
-    sampleReflectionProbes(irradiance, radiance, probe_tc, pos, norm, gloss, false, amblit);
+    sampleReflectionProbes(irradiance, radiance, probe_tc, pos, norm, gloss, metallic, false, amblit);
 
     float3 color = pbrBaseLight(diffuseColor, specularColor, metallic, v, norm, perceptualRoughness, light_dir, sunlit, scol, radiance, irradiance, colorEmissive, ao, additive, atten);
 

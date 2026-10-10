@@ -7,6 +7,7 @@ include(00-Common)
 # sets variables on which the 3p .cmake files depend.
 include(Linking)
 
+include(AGS)
 include(Boost)
 include(BuildVersion)
 include(CMakeCopyIfDifferent)
@@ -194,7 +195,6 @@ set(viewer_SOURCE_FILES
     lldndbutton.cpp
     lldrawable.cpp
     lldrawpool.cpp
-    lldrawpoolalpha.cpp
     lldrawpoolavatar.cpp
     lldrawpoolbump.cpp
     lldrawpoolmaterials.cpp
@@ -210,6 +210,7 @@ set(viewer_SOURCE_FILES
     lldynamictexture.cpp
     llemote.cpp
     llenvironment.cpp
+    llequirectcapture.cpp
     llestateinfomodel.cpp
     lleventnotifier.cpp
     lleventpoll.cpp
@@ -225,7 +226,6 @@ set(viewer_SOURCE_FILES
     llfilteredwearablelist.cpp
     llfirstuse.cpp
     llflexibleobject.cpp
-    llfloater360capture.cpp
     llfloaterabout.cpp
     llfloateravatarwelcomepack.cpp
     llfloaterbvhpreview.cpp
@@ -350,6 +350,7 @@ set(viewer_SOURCE_FILES
     llfloatersettingsdebug.cpp
     llfloatersidepanelcontainer.cpp
     llfloaterslapptest.cpp
+    llfloater360capture.cpp
     llfloatersnapshot.cpp
     llfloaterspellchecksettings.cpp
     llfloatertelehub.cpp
@@ -602,9 +603,12 @@ set(viewer_SOURCE_FILES
     llproductinforequest.cpp
     llprogressview.cpp
     llrecentpeople.cpp
+    llboxprobes.cpp
+    llprobecapture.cpp
+    llprobecube.cpp
     llreflectionmap.cpp
-    llreflectionmapmanager.cpp
-    llheroprobemanager.cpp
+    llsphereprobes.cpp
+    llmirrorprobes.cpp
     llregioninfomodel.cpp
     llregionposition.cpp
     llremoteparcelrequest.cpp
@@ -896,7 +900,6 @@ set(viewer_HEADER_FILES
     lldndbutton.h
     lldrawable.h
     lldrawpool.h
-    lldrawpoolalpha.h
     lldrawpoolavatar.h
     lldrawpoolbump.h
     lldrawpoolmaterials.h
@@ -912,6 +915,7 @@ set(viewer_HEADER_FILES
     lldynamictexture.h
     llemote.h
     llenvironment.h
+    llequirectcapture.h
     llestateinfomodel.h
     lleventnotifier.h
     lleventpoll.h
@@ -927,7 +931,6 @@ set(viewer_HEADER_FILES
     llfilteredwearablelist.h
     llfirstuse.h
     llflexibleobject.h
-    llfloater360capture.h
     llfloaterabout.h
     llfloateravatarwelcomepack.h
     llfloaterbvhpreview.h
@@ -1057,6 +1060,7 @@ set(viewer_HEADER_FILES
     llfloatersettingsdebug.h
     llfloatersidepanelcontainer.h
     llfloaterslapptest.h
+    llfloater360capture.h
     llfloatersnapshot.h
     llfloaterspellchecksettings.h
     llfloatertelehub.h
@@ -1292,9 +1296,12 @@ set(viewer_HEADER_FILES
     llpublishedobjectmgr.h
     llprogressview.h
     llrecentpeople.h
+    llboxprobes.h
+    llprobecapture.h
+    llprobecube.h
     llreflectionmap.h
-    llreflectionmapmanager.h
-    llheroprobemanager.h
+    llsphereprobes.h
+    llmirrorprobes.h
     llregioninfomodel.h
     llregionposition.h
     llremoteparcelrequest.h
@@ -1508,7 +1515,7 @@ source_group("CMake Rules" FILES ViewerInstall.cmake)
 #build_data.json creation moved to viewer_manifest.py MAINT-6413
 # the viewer_version.txt file created here is for passing to viewer_manifest and autobuild
 file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/viewer_version.txt"
-           "${VIEWER_SHORT_VERSION}.${VIEWER_VERSION_REVISION}\n")
+           "${VIEWER_FULL_VERSION}\n")
 
 set_source_files_properties(
    llversioninfo.cpp 
@@ -1751,7 +1758,7 @@ if(DX_RENDER)
   list(APPEND viewer_SOURCE_FILES dxdrawpoolmaterials.cpp)
   list(APPEND viewer_HEADER_FILES dxdrawpoolmaterials.h)
   # DX_RENDER: dxdrawpoolalpha.{cpp,h} is a staged, purpose-built duplicate
-  # of LLDrawPoolAlpha's forward-alpha render path (stage 5 phase 5.3) -
+  # of DXAlphaDrawPool's forward-alpha render path (stage 5 phase 5.3) -
   # not a thin redirect, since most of the GL logic is already DX-safe by
   # composition; see dxdrawpoolalpha.h's class comment for why a full copy
   # was chosen here instead.
@@ -1934,6 +1941,7 @@ target_link_libraries(${VIEWER_BINARY_NAME}
     ${LLCOMMON_LIBRARIES}
     ${NDOF_LIBRARY}
     ${NVAPI_LIBRARY}
+    ${AMDAGS_LIBRARY}
     ${HUNSPELL_LIBRARY}
     ${BOOST_PROGRAM_OPTIONS_LIBRARY}
     ${BOOST_REGEX_LIBRARY}

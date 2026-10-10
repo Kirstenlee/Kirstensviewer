@@ -26,6 +26,7 @@
 */
 
 #include "llviewerprecompiledheaders.h"
+#include "dxdrawpoolalpha.h"
 #include "llviewercontrol.h"
 #include "llsettingsvo.h"
 
@@ -691,7 +692,7 @@ void draw_color(LLShaderUniforms* shader, const LLColor3& col, S32 shader_key)
 
     LLVector4 vect4(col.mV[0], col.mV[1], col.mV[2]);
 
-    if (desaturate_irradiance && gCubeSnapshot && !gPipeline.mReflectionMapManager.isRadiancePass())
+    if (desaturate_irradiance && gCubeSnapshot && !gPipeline.mSphereProbes.isRadiancePass())
     { // maximize and remove tinting if this is an irradiance map render pass and the parameter feeds into the sky background color
         auto max_vec = [](LLVector4 col)
         {
@@ -749,7 +750,7 @@ void LLSettingsVOSky::applySpecial(void *ptarget, bool force)
 {
     LLVector3 light_direction = LLVector3(LLEnvironment::instance().getClampedLightNorm().mV);
 
-    bool irradiance_pass = gCubeSnapshot && !gPipeline.mReflectionMapManager.isRadiancePass();
+    bool irradiance_pass = gCubeSnapshot && !gPipeline.mSphereProbes.isRadiancePass();
 
     LLShaderUniforms* shader = &((LLShaderUniforms*)ptarget)[LLHLSLShader::SG_DEFAULT];
     {
@@ -1094,21 +1095,21 @@ void LLSettingsVOWater::applySpecial(void *ptarget, bool force)
 
         LLVector4 waterPlane(enorm.x, enorm.y, enorm.z, -glm::dot(ep, enorm));
 
-        norm = glm::vec3(gPipeline.mHeroProbeManager.mMirrorNormal);
-        p    = glm::vec3(gPipeline.mHeroProbeManager.mMirrorPosition);
+        norm = glm::vec3(gPipeline.mMirrorProbes.mMirrorNormal);
+        p    = glm::vec3(gPipeline.mMirrorProbes.mMirrorPosition);
         enorm = mul_mat4_vec3(invtrans, norm);
         enorm = glm::normalize(enorm);
         ep = mul_mat4_vec3(mat, p);
 
         glm::vec4 mirrorPlane(enorm, -glm::dot(ep, enorm));
 
-        LLDrawPoolAlpha::sWaterPlane = waterPlane;
+        DXDrawPoolAlpha::sWaterPlane = waterPlane;
 
         shader->uniform4fv(LLShaderMgr::WATER_WATERPLANE, waterPlane.mV);
         shader->uniform4fv(LLShaderMgr::CLIP_PLANE, glm::value_ptr(mirrorPlane));
         LLVector4 light_direction = env.getClampedLightNorm();
 
-        if (gPipeline.mHeroProbeManager.isMirrorPass())
+        if (gPipeline.mMirrorProbes.isMirrorPass())
         {
             shader->uniform1f(LLShaderMgr::MIRROR_FLAG, 1);
         }

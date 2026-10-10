@@ -50,7 +50,7 @@ struct PSInput
 static float u_roughness = 1.0;
 static int u_sampleCount = 32;
 static float u_lodBias = 2.0;
-static int u_width = 64;
+uniform int u_width; // source face width, set from the probe resolution by the C++ caller
 
 // Hammersley Points on the Hemisphere
 // CC BY 3.0 (Holger Dammertz)

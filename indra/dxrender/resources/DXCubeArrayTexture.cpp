@@ -17,16 +17,11 @@ bool DXCubeArrayTexture::create(int width, int height, int count, bool hdr, bool
     desc.Width = width;
     desc.Height = height;
     desc.ArraySize = mArraySize;
-    // S24 (2026-08-09, task #147 step 2): D3D11 has no native 3-channel
-    // float format - GL's hdr path uses GL_R11F_G11F_B10F for
-    // components==3 (llcubemaparray.cpp), same reason DXTexture::create()
-    // always expands to a 4-channel format for its own hdr case. Uses
-    // R16G16B16A16_FLOAT rather than R11G11B10_FLOAT specifically because
-    // its D3D11_FORMAT_SUPPORT_MIP_AUTOGEN is guaranteed at feature-level
-    // 11 baseline - R11G11B10_FLOAT's isn't universally, and this array is
-    // always created with generate_mips=true in practice (the reflection
-    // probe manager relies on a real mip chain), so this avoids a
-    // GenerateMips() capability gamble on lower-end hardware.
+    // D3D11 has no native 3-channel float format (GL's hdr path uses
+    // GL_R11F_G11F_B10F). R16G16B16A16_FLOAT is used rather than
+    // R11G11B10_FLOAT because its D3D11_FORMAT_SUPPORT_MIP_AUTOGEN is
+    // guaranteed at feature-level 11 baseline while R11G11B10_FLOAT's isn't,
+    // and this array is always created with generate_mips=true in practice.
     desc.Format = hdr ? DXGI_FORMAT_R16G16B16A16_FLOAT : DXGI_FORMAT_R8G8B8A8_UNORM;
     desc.SampleDesc.Count = 1;
     desc.Usage = D3D11_USAGE_DEFAULT;
@@ -59,6 +54,9 @@ bool DXCubeArrayTexture::create(int width, int height, int count, bool hdr, bool
     D3D11_TEXTURE2D_DESC actual_desc = {};
     mTexture->GetDesc(&actual_desc);
     mMipLevels = actual_desc.MipLevels;
+    mWidth = actual_desc.Width;
+    mHeight = actual_desc.Height;
+    mFormat = actual_desc.Format;
 
     // D3D11_SRV_DIMENSION_TEXTURECUBEARRAY, not TEXTURECUBE -
     // CreateShaderResourceView(mTexture, nullptr, &mSRV) (the nullptr-desc
@@ -110,14 +108,45 @@ bool DXCubeArrayTexture::copySliceFromBoundRenderTarget(int mip, int arraySlice,
         return false;
     }
 
+    // CopySubresourceRegion() returns no HRESULT and fails silently on a bad copy, so the
+    // preconditions it relies on are checked here before anything is issued.
+    ID3D11Texture2D* src_tex = nullptr;
+    HRESULT hr = src_resource->QueryInterface(IID_PPV_ARGS(&src_tex));
+    if (FAILED(hr) || !src_tex)
+    {
+        LL_WARNS_ONCE("Texture") << "DXCubeArrayTexture::copySliceFromBoundRenderTarget: bound target is not a 2D texture" << LL_ENDL;
+        src_resource->Release();
+        return false;
+    }
+
+    D3D11_TEXTURE2D_DESC src_desc = {};
+    src_tex->GetDesc(&src_desc);
+    src_tex->Release();
+
+    // The caller's region, or the whole bound target when no size is given.
+    UINT copy_w = src_width > 0 ? src_width : src_desc.Width;
+    UINT copy_h = src_height > 0 ? src_height : src_desc.Height;
+
+    UINT dst_w = mWidth >> mip;
+    UINT dst_h = mHeight >> mip;
+    if (dst_w == 0) dst_w = 1;
+    if (dst_h == 0) dst_h = 1;
+
+    if (src_desc.Format != mFormat || src_desc.SampleDesc.Count != 1 ||
+        copy_w > src_desc.Width || copy_h > src_desc.Height ||
+        copy_w > dst_w || copy_h > dst_h)
+    {
+        LL_WARNS_ONCE("Texture") << "DXCubeArrayTexture::copySliceFromBoundRenderTarget: copy rejected, mip " << mip
+            << " slice " << arraySlice << " copy " << copy_w << "x" << copy_h
+            << " src " << src_desc.Width << "x" << src_desc.Height << " fmt " << src_desc.Format << " samples " << src_desc.SampleDesc.Count
+            << " dst " << dst_w << "x" << dst_h << " fmt " << mFormat << LL_ENDL;
+        src_resource->Release();
+        return false;
+    }
+
     UINT dst_subresource = D3D11CalcSubresource((UINT)mip, (UINT)arraySlice, mMipLevels);
-    // S24 (2026-08-10, task #147/#184 follow-up): explicit D3D11_BOX when a
-    // size is given - see this method's header comment for why the old
-    // "nullptr box = whole subresource" assumption was wrong for the real
-    // caller (a shrinking sub-region of a fixed-size scratch target, not a
-    // dedicated per-mip target). No SRV of the destination array is created
-    // or bound anywhere in this function - see this class's header comment
-    // for why that matters.
+    // Explicit D3D11_BOX when a size is given - see this method's header
+    // comment for why "nullptr box = whole subresource" isn't always right.
     if (src_width > 0 && src_height > 0)
     {
         D3D11_BOX box = {};

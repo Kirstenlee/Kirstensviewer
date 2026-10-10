@@ -25,6 +25,7 @@
  */
 
 #include "llviewerprecompiledheaders.h"
+#include "dxdrawpoolalpha.h"
 
 #include "llvoavatarself.h"
 #include "llvoavatar.h"
@@ -1111,7 +1112,7 @@ void LLVOAvatarSelf::updateAttachmentVisibility(U32 camera_mode)
             switch (camera_mode)
             {
                 case CAMERA_MODE_MOUSELOOK:
-                    if ((LLVOAvatar::sVisibleInFirstPerson && attachment->getVisibleInFirstPerson()) || gPipeline.mHeroProbeManager.isMirrorPass())
+                    if ((LLVOAvatar::sVisibleInFirstPerson && attachment->getVisibleInFirstPerson()) || gPipeline.mMirrorProbes.isMirrorPass())
                     {
                         attachment->setAttachmentVisibility(true);
                     }
@@ -1606,7 +1607,7 @@ bool LLVOAvatarSelf::isTextureVisible(LLAvatarAppearanceDefines::ETextureIndex t
 
     LLUUID tex_id = getLocalTextureID(type,index);
     return (tex_id != IMG_INVISIBLE)
-            || (LLDrawPoolAlpha::sShowDebugAlpha);
+            || (DXDrawPoolAlpha::sShowDebugAlpha);
 }
 
 //virtual

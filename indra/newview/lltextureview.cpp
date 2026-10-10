@@ -644,8 +644,8 @@ void LLGLTexMemBar::draw()
     text = llformat("Sys Free: %d MB FBO: %d MB Probe#: %d Probe Mem: %d MB Cache: %.1f/%.1f MB",
                     LLMemory::getAvailableMemKB()/1024,
                     LLRenderTarget::sBytesAllocated/(1024*1024),
-                    gPipeline.mReflectionMapManager.probeCount(),
-                    gPipeline.mReflectionMapManager.probeMemory(),
+                    gPipeline.mSphereProbes.probeCount(),
+                    gPipeline.mSphereProbes.probeMemory(),
                     cache_usage,
                     cache_max_usage);
     LLFontDX::getFontMonospace()->renderUTF8(text, 0, 0, v_offset + line_height*8,

@@ -366,6 +366,10 @@ public:
         KRLV_CAMTEXTURES_STENCIL,           //  "krlvStencilTex"
         KRLV_CAMTEXTURES_SUBSTITUTE,        //  "krlvSubstituteTex"
 
+        // Screen-space reflection result for deferred lighting (class3/deferred/ssrF.hlsl).
+        SSR_BUFFER,                         //  "ssrBuffer"
+        SSR_HISTORY,                        //  "ssrHistory"
+
         END_RESERVED_UNIFORMS
     } eGLSLReservedUniforms;
     // clang-format on

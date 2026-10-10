@@ -33,7 +33,7 @@
 #include "llspatialpartition.h"
 #include "m4math.h"
 #include "llpointer.h"
-#include "lldrawpoolalpha.h"
+#include "dxdrawpoolalpha.h"
 #include "lldrawpoolmaterials.h"
 #include "llgl.h"
 #include "lldrawable.h"
@@ -42,8 +42,8 @@
 #ifdef DX_RENDER
 #include "DXTexture.h"
 #endif
-#include "llreflectionmapmanager.h"
-#include "llheroprobemanager.h"
+#include "llsphereprobes.h"
+#include "llmirrorprobes.h"
 
 #include <stack>
 #include <functional>
@@ -69,7 +69,7 @@ class LLCullResult;
 class LLVOAvatar;
 class LLVOPartGroup;
 class LLHLSLShader;
-class LLDrawPoolAlpha;
+class DXAlphaDrawPool;
 class LLSettingsSky;
 
 typedef enum e_avatar_skinning_method
@@ -359,6 +359,13 @@ public:
 
     void bindReflectionProbes(LLHLSLShader& shader);
     void unbindReflectionProbes(LLHLSLShader& shader);
+    // scene map, scene depth and the screen-space reflection uniforms (SSR trace inputs)
+    void bindSSRUniforms(LLHLSLShader& shader);
+    // deferred lighting: binds the SSR buffer and sets ssr_from_buffer
+    void bindSSRBuffer(LLHLSLShader& shader);
+    // opaque deferred SSR pass: traces into mSSRBuffer before deferred lighting
+    void renderSSRPass();
+    void renderSSRResolve();
 
 	void renderDeferredLighting();
 
@@ -502,8 +509,8 @@ public:
 	void restoreHiddenObject( const LLUUID& id );
     void handleShadowDetailChanged();
 
-    LLReflectionMapManager mReflectionMapManager;
-    LLHeroProbeManager mHeroProbeManager;
+    LLSphereProbes mSphereProbes;
+    LLMirrorProbes mMirrorProbes;
 
 private:
 	void unloadShaders();
@@ -703,6 +710,8 @@ public:
     static bool				sDistortionRender;
 	static bool				sImpostorRender;
 	static bool				sImpostorRenderAlphaDepthPass;
+	// Object whose linked set is culled from the current reflection-probe capture (the probe's own object).
+	static LLViewerObject*	sCaptureExcludeObject;
 	static bool				sUnderWaterRender;
 	static bool				sRenderGlow;
 	static bool				sTextureBindTest;
@@ -758,6 +767,15 @@ public:
     // copy of the color/depth buffer just before gamma correction
     // for use by SSR
     LLRenderTarget          mSceneMap;
+
+    // screen-space reflection result (class3/deferred/ssrF.hlsl), read by deferred lighting
+    LLRenderTarget          mSSRBuffer;
+    // temporal resolve of the SSR buffer: ping-pong pair (renderSSRResolve)
+    LLRenderTarget          mSSRResolved[2];
+    S32                     mSSRResolveIndex = 0;   // target written this frame
+    S32                     mSSRLastResolved = 0;   // target holding the last resolved result
+    bool                    mSSRResolveReady = false;
+    bool                    mSSRHistoryValid = false;
 
     // exposure map for getting average color in scene
     LLRenderTarget          mLuminanceMap;
@@ -1006,8 +1024,8 @@ protected:
 	// For quick-lookups into mPools (mapped by texture pointer)
 	std::map<uintptr_t, LLDrawPool*>	mTerrainPools;
 	std::map<uintptr_t, LLDrawPool*>	mTreePools;
-	LLDrawPoolAlpha*			mAlphaPoolPreWater = nullptr;
-    LLDrawPoolAlpha*            mAlphaPoolPostWater = nullptr;
+	DXAlphaDrawPool*			mAlphaPoolPreWater = nullptr;
+    DXAlphaDrawPool*            mAlphaPoolPostWater = nullptr;
 	LLDrawPool*					mSkyPool = nullptr;
 	LLDrawPool*					mTerrainPool = nullptr;
 	LLDrawPool*					mWaterPool = nullptr;
@@ -1173,7 +1191,6 @@ public:
 	static S32 RenderBufferVisualization;
     static bool RenderMirrors;
     static S32 RenderHeroProbeUpdateRate;
-    static S32 RenderHeroProbeConservativeUpdateMultiplier;
     static bool RenderAvatarCloth;
 };
 

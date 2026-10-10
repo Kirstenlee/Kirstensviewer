@@ -22,25 +22,15 @@
  * SOFTWARE.
  */
 
-// The direction formula below is derived from Direct3D/OpenGL's documented
-// TextureCube per-face addressing table (sc/tc/ma per face,
-// s=(sc/ma+1)/2 etc. - the OpenGL spec's "Cubemap Texture Selection" table,
-// which D3D deliberately matches), with one global 180-degree UV rotation
-// (both x and y of this pass's quad-space position run opposite the
-// table's direct (sc,tc)=(ma*x,ma*y) mapping - from this pass's own
-// screen-space quad/viewport convention, not a per-face anomaly).
+// Placement and sampling follow cubeFaceConvention.hlsli. This pass writes
+// face `cubeFace` of a TextureCubeArray through a full-screen quad and
+// CopySubresourceRegion, so the texel position is the placement and vary_dir
+// is the centre of the sample lobe taken from the scratch cube.
 //
-// This pass writes pixels directly into face `cubeFace` of a TextureCubeArray
-// via a full-screen quad + CopySubresourceRegion (see the C++ call site) -
-// it does NOT use D3D11's own cubemap rasterization/array-index machinery,
-// so the formula below must independently match what D3D11's hardware
-// sampler will later associate with (face,x,y) when this texture gets
-// sampled for real (reflectionProbeF.hlsl's tapRefMap()/tapIrradianceMap()).
-//
-// cubeFace must be D3D11's real per-face index (0=+X, 1=-X, 2=+Y, 3=-Y,
-// 4=+Z, 5=-Z), since this value also selects the destination array slice
-// (probe->mCubeIndex*6+cubeFace) that hardware sampling will later read
-// with its own real face addressing.
+// cubeFace must be D3D11's per-face index (0=+X, 1=-X, 2=+Y, 3=-Y, 4=+Z,
+// 5=-Z). It also selects the destination array slice (probe->mCubeIndex*6+cubeFace).
+#include "cubeFaceConvention.hlsli"
+
 uniform int cubeFace;
 
 struct VSInput
@@ -64,24 +54,9 @@ VSOutput main(VSInput IN)
     // disabled for this pass so 0.0 is otherwise arbitrary.
     OUT.position = float4(IN.position.xy, 0.0, 1.0);
 
-    // x/y are this quad's [-1,1] position; the sign pattern below is
-    // Direct3D/OpenGL's documented TextureCube table with one global
-    // 180-degree UV rotation (see header comment). y is left unmodified
-    // here - the Y-flip is paired with a negative-height viewport at the
-    // C++ call sites instead; do not duplicate it with a `y` negation here,
-    // that combination breaks hero-probe mirror orientation.
-    float x = IN.position.x;
-    float y = IN.position.y;
-
-    float3 dir;
-    if (cubeFace == 0)      dir = float3( 1.0,    y,    x); // +X
-    else if (cubeFace == 1) dir = float3(-1.0,    y,   -x); // -X
-    else if (cubeFace == 2) dir = float3(  -x,  1.0,   -y); // +Y
-    else if (cubeFace == 3) dir = float3(  -x, -1.0,    y); // -Y
-    else if (cubeFace == 4) dir = float3(  -x,    y,  1.0); // +Z
-    else                    dir = float3(   x,    y, -1.0); // -Z
-
-    OUT.vary_dir = dir;
+    // The quad's [-1,1] position is the texel's (x, y) on the face. The
+    // negative-height viewport at the C++ call sites supplies the row flip.
+    OUT.vary_dir = cubeFaceGenDir(cubeFace, IN.position.x, IN.position.y);
 
     return OUT;
 }

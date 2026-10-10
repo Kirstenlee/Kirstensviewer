@@ -42,10 +42,9 @@ extern F32SecondsImplicit gFrameTimeSeconds;
 extern U32 get_box_fan_indices(LLCamera* camera, const LLVector4a& center);
 
 #ifdef DX_RENDER
-// S24 (2026-08-19, task #250): see llvieweroctree.cpp's dx_get_occlusion_box_vb()
-// comment - D3D11 has no TRIANGLE_FAN topology, so this probe's occlusion
-// proxy-box draw needs the same triangle-list VB LLOcclusionCullingGroup
-// already uses, not gPipeline.mCubeVB directly.
+// D3D11 has no TRIANGLE_FAN topology (see llvieweroctree.cpp's dx_get_occlusion_box_vb()), so this
+// probe's occlusion proxy-box draw uses the same triangle-list VB LLOcclusionCullingGroup uses, not
+// gPipeline.mCubeVB directly.
 class LLVertexBuffer;
 extern LLVertexBuffer* dx_get_occlusion_box_vb();
 extern U32 get_box_triangle_offset(LLCamera* camera, const LLVector4a& center);
@@ -53,38 +52,35 @@ extern U32 get_box_triangle_offset(LLCamera* camera, const LLVector4a& center);
 
 LLReflectionMap::LLReflectionMap()
 {
+    mCaptureOrigin.splat(0.f);
+    mPendingOrigin.splat(0.f);
 }
 
 LLReflectionMap::~LLReflectionMap()
 {
     if (mOcclusionQuery)
     {
-        gPipeline.mReflectionMapManager.recycleQuery(mOcclusionQuery);
+        gPipeline.mSphereProbes.recycleQuery(mOcclusionQuery);
         mOcclusionQuery = 0;
     }
 }
 
 void LLReflectionMap::update(U32 resolution, U32 face, bool force_dynamic, F32 near_clip, bool useClipPlane, LLPlane clipPlane)
 {
-    if (!mCubeArray.notNull())
+    if (mCubeIndex < 0)
         return;
 
     mLastUpdateTime = gFrameTimeSeconds;
-    llassert(mCubeArray.notNull());
-    llassert(mCubeIndex != -1);
     //llassert(LLPipeline::sRenderDeferred);
 
-    // make sure we don't walk off the edge of the render target
-    while (resolution > gPipeline.mRT->deferredScreen.getWidth() ||
-        resolution > gPipeline.mRT->deferredScreen.getHeight())
-    {
-        resolution /= 2;
-    }
 
     F32 clip = (near_clip > 0) ? near_clip : getNearClip();
     bool dynamic = force_dynamic || getIsDynamic();
 
-    gViewerWindow->cubeSnapshot(LLVector3(mOrigin), mCubeArray, mCubeIndex, face, clip, dynamic, useClipPlane, clipPlane);
+    // Exclude the whole linkset: markVisible compares root objects, and a child's root is the linkset root.
+    LLPipeline::sCaptureExcludeObject = mViewerObject ? mViewerObject->getRootEdit() : nullptr;
+    gViewerWindow->cubeSnapshot(LLVector3(mOrigin), resolution, face, clip, dynamic, useClipPlane, clipPlane);
+    LLPipeline::sCaptureExcludeObject = nullptr;
 }
 
 void LLReflectionMap::autoAdjustOrigin()
@@ -139,14 +135,10 @@ void LLReflectionMap::autoAdjustOrigin()
             {
                 int face = -1;
                 LLVector4a intersection;
-                // S24 (2026-09-06, task #271): ignore_visibility=true - see
-                // LLOctreeIntersect::check(LLViewerOctreeEntry*)'s comment
-                // (llspatialpartition.cpp) for why this ray-cast needs real
-                // geometric presence, not "was this in the avatar's camera
-                // frustum this exact frame" (isVisible() - a wall simply
-                // outside the current view reads as empty space otherwise,
-                // live-confirmed to place an automatic probe's origin
-                // entirely outside its building).
+                // ignore_visibility=true: this ray-cast needs real geometric presence, not isVisible()
+                // (was this in the camera frustum this exact frame) - see
+                // LLOctreeIntersect::check(LLViewerOctreeEntry*) in llspatialpartition.cpp. Without it,
+                // a wall outside the current view reads as empty space, misplacing the probe origin.
                 LLDrawable* drawable = mGroup->lineSegmentIntersect(bounds[0], corners[i], false, false, true, true, &face, &intersection, nullptr, nullptr, nullptr, true);
                 if (drawable != nullptr)
                 {
@@ -187,28 +179,32 @@ void LLReflectionMap::autoAdjustOrigin()
             }
 
             mRadius = llmax(sqrtf(r2.getF32()), 8.f);
-            mBoxExtent.splat(mRadius); // S24 (task #271): automatic probe, isotropic - see mBoxExtent's own header comment.
+            mBoxExtent.splat(mRadius); // automatic probe, isotropic - see mBoxExtent's own header comment.
 
             // make sure near clip doesn't poke through ground
+            F32 z_before = fp[2];
             fp[2] = llmax(fp[2], height+mRadius*0.5f);
 
+            // lifting the origin moves the sphere off the group's corners, so grow the radius by the same amount
+            mRadius += fp[2] - z_before;
+            mBoxExtent.splat(mRadius);
         }
     }
     else if (mViewerObject && !mViewerObject->isDead())
     {
         mPriority = 1;
-        mOrigin.load3(mViewerObject->getPositionAgent().mV);
+        setOriginFromViewerObject();
 
         if (mViewerObject->getVolume() && ((LLVOVolume*)mViewerObject.get())->getReflectionProbeIsBox())
         {
             LLVector3 s = mViewerObject->getScale().scaledVec(LLVector3(0.5f, 0.5f, 0.5f));
             mRadius = s.magVec();
-            mBoxExtent.load3(s.mV); // S24 (task #271): real per-axis half-extent, see mBoxExtent's own header comment.
+            mBoxExtent.load3(s.mV); // real per-axis half-extent, see mBoxExtent's own header comment.
         }
         else
         {
             mRadius = mViewerObject->getScale().mV[0] * 0.5f;
-            mBoxExtent.splat(mRadius); // S24 (task #271): sphere probe, isotropic is correct here.
+            mBoxExtent.splat(mRadius); // sphere probe, isotropic is correct here.
         }
     }
 }
@@ -216,11 +212,11 @@ void LLReflectionMap::autoAdjustOrigin()
 bool LLReflectionMap::intersects(LLReflectionMap* other) const
 {
     LLVector4a delta;
-    delta.setSub(other->mOrigin, mOrigin);
+    delta.setSub(other->sampleOrigin(), sampleOrigin());
 
     F32 dist = delta.dot3(delta).getF32();
 
-    F32 r2 = mRadius + other->mRadius;
+    F32 r2 = sampleRadius() + other->sampleRadius();
 
     r2 *= r2;
 
@@ -252,32 +248,18 @@ F32 LLReflectionMap::getNearClip() const
     }
     else if (mGroup)
     {
-        // S24 (2026-09-06, task #271 - real fix, not a guess: live-confirmed
-        // via debug overlay that this exact probe's raw captured content is
-        // empty specifically for a downward/floor-facing direction, while
-        // the same probe's other directions - walls - capture fine and
-        // weighting/selection are both independently confirmed correct).
-        // mRadius here is the room's diagonal/corner-distance size
-        // (autoAdjustOrigin()'s ray-cast-to-8-corners logic) - dominated by
-        // the room's WIDEST (usually horizontal) dimension. Was mRadius*0.5
-        // unconditionally - for a typical wide/long room with a modest
-        // ceiling height, that can be several meters, easily exceeding the
-        // real vertical distance from the probe's position to the floor -
-        // near-plane-clipping the floor completely out of the probe's own
-        // downward-facing capture pass while walls (much farther away
-        // horizontally) remain safely beyond the near clip and capture
-        // correctly. Capped at 1m (matching the terrain-probe branch's own
-        // existing 1m default just below) - small enough to stay well
-        // clear of a typical room's shortest real dimension. Independently
-        // re-verified (2026-09-06): autoAdjustOrigin()'s group branch
-        // floors mRadius at 8m unconditionally (`llmax(sqrtf(r2), 8.f)`),
-        // and registerSpatialGroup() only registers group probes for
-        // 15-17m octree nodes in the first place - so mRadius*0.5 was
-        // ALWAYS >= 4m for every automatic room probe, not just wide/short
-        // ones, and this cap always evaluates to the constant 1.0m in
-        // practice (not a graduated scale-down for smaller probes, since
-        // there aren't any this small).
+        // mRadius here is the room's diagonal/corner-distance size (autoAdjustOrigin()'s
+        // ray-cast-to-8-corners logic), dominated by the room's widest dimension - mRadius*0.5
+        // unconditionally can exceed the real vertical distance to the floor for a wide/long room with
+        // a modest ceiling, near-clipping the floor out of the downward-facing capture pass while
+        // walls (farther away horizontally) still capture fine. Cap at 1m, matching the terrain-probe
+        // branch's own default below.
         ret = llmin(mRadius * 0.5f, 1.f);
+    }
+    else if (mCell)
+    {
+        // the cell and master centre sits on the avatar. A 1 m clip removes the avatar's own body from its cube.
+        ret = 0.f;
     }
     else
     {
@@ -290,7 +272,7 @@ F32 LLReflectionMap::getNearClip() const
 bool LLReflectionMap::getIsDynamic() const
 {
     static LLCachedControl<S32> detail(gSavedSettings, "RenderReflectionProbeDetail", 1);
-    if (detail() > (S32)LLReflectionMapManager::DetailLevel::STATIC_ONLY &&
+    if (detail() > (S32)LLSphereProbes::DetailLevel::STATIC_ONLY &&
         mViewerObject &&
         !mViewerObject->isDead() &&
         mViewerObject->getVolumeConst())
@@ -311,7 +293,7 @@ bool LLReflectionMap::getBox(LLMatrix4& box)
             glm::mat4 mv(get_current_modelview());
             LLVector3 s = mViewerObject->getScale().scaledVec(LLVector3(0.5f, 0.5f, 0.5f));
             mRadius = s.magVec();
-            mBoxExtent.load3(s.mV); // S24 (task #271): real per-axis half-extent, see mBoxExtent's own header comment.
+            mBoxExtent.load3(s.mV); // real per-axis half-extent, see mBoxExtent's own header comment.
             glm::mat4 scale = glm::scale(glm::vec3(s));
             if (mViewerObject->mDrawable != nullptr)
             {
@@ -334,37 +316,224 @@ bool LLReflectionMap::getBox(LLMatrix4& box)
     return false;
 }
 
+// Object to agent transform of a box volume, including its half-extent scale. Same transform getBox() uses.
+bool LLReflectionMap::getBoxWorld(LLMatrix4& world) const
+{
+    if (!isBoxVolume() || !mViewerObject->mDrawable)
+    {
+        return false;
+    }
+
+    LLVector3 s = mViewerObject->getScale().scaledVec(LLVector3(0.5f, 0.5f, 0.5f));
+    glm::mat4 rm(glm::make_mat4((F32*)mViewerObject->mDrawable->getWorldMatrix().mMatrix));
+    glm::mat4 m = rm * glm::scale(glm::vec3(s));
+    world = LLMatrix4(glm::value_ptr(m));
+    return true;
+}
+
+void LLReflectionMap::captureGeometry()
+{
+    mPendingOrigin = mOrigin;
+    mPendingRadius = mRadius;
+    mPendingWorldValid = getBoxWorld(mPendingWorld);
+}
+
+void LLReflectionMap::commitCapture()
+{
+    mCaptureOrigin = mPendingOrigin;
+    mCaptureRadius = mPendingRadius;
+    mCaptureWorld = mPendingWorld;
+    mCaptureWorldValid = mPendingWorldValid;
+    mStale = false;
+}
+
+// True when a box's scale or rotation no longer matches the transform its cube was captured with.
+bool LLReflectionMap::captureTransformChanged() const
+{
+    LLMatrix4 world;
+    if (!mCaptureWorldValid || !getBoxWorld(world))
+    {
+        return false;
+    }
+
+    const F32* a = (const F32*)world.mMatrix;
+    const F32* b = (const F32*)mCaptureWorld.mMatrix;
+    for (S32 i = 0; i < 16; ++i)
+    {
+        F32 d = a[i] - b[i];
+        if (d > 1e-4f || d < -1e-4f)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+// The box as the camera sees it, built from the transform the cube was captured with (not the live one),
+// so the parallax box and the cube it samples describe the same box. Only valid after a capture.
+bool LLReflectionMap::getCaptureBox(LLMatrix4& box)
+{
+    if (!mCaptureWorldValid)
+    {
+        return false;
+    }
+
+    glm::mat4 world(glm::make_mat4((F32*)mCaptureWorld.mMatrix));
+    glm::mat4 mv = glm::inverse(glm::mat4(get_current_modelview()) * world);
+    box = LLMatrix4(glm::value_ptr(mv));
+    return true;
+}
+
 bool LLReflectionMap::isActive() const
 {
     return mCubeIndex != -1;
 }
 
-bool LLReflectionMap::isRelevant() const
+bool LLReflectionMap::isBoxVolume() const
 {
-    static LLCachedControl<S32> RenderReflectionProbeLevel(gSavedSettings, "RenderReflectionProbeLevel", 3);
-
-    if (mViewerObject && RenderReflectionProbeLevel > 0)
-    { // not an automatic probe
-        return true;
-    }
-
-    if (RenderReflectionProbeLevel == 3)
-    { // all automatics are relevant
-        return true;
-    }
-
-    if (RenderReflectionProbeLevel == 2)
-    { // terrain and water only, ignore probes that have a group
-        return !mGroup;
-    }
-
-    // no automatic probes, yes manual probes
-    return mViewerObject != nullptr;
+    return mViewerObject && mViewerObject->getVolume() && mViewerObject->getReflectionProbeIsBox();
 }
 
-// S24 improved occlusion query handling for reflection probes.
-// We want to avoid stalling the GPU by waiting for occlusion query 
-// results
+void LLReflectionMap::setOriginFromViewerObject()
+{
+    if (!mViewerObject || gPipeline.mSphereProbes.isCapturing(this))
+    {
+        return; // the origin is frozen for the whole capture
+    }
+
+    computeOriginFromViewerObject();
+
+    // a moved, rescaled or rotated manual probe has a stale cube: recapture it.
+    // Compared with the capture origin, so slow drift cannot accumulate under the threshold.
+    LLVector4a moved;
+    moved.setSub(mOrigin, mCaptureOrigin);
+    bool resized = mCaptureRadius - mRadius > 1e-4f || mRadius - mCaptureRadius > 1e-4f;
+    if (mComplete && !mStale && (moved.getLength3().getF32() > 0.1f || resized || captureTransformChanged()))
+    {
+        // stale, not incomplete: the old cube and its captured geometry stay sampled until the recapture commits.
+        // Zeroing the update time puts the probe first in line for that recapture.
+        mStale = true;
+        mLastUpdateTime = 0.f;
+    }
+}
+
+void LLReflectionMap::computeOriginFromViewerObject()
+{
+    if (!mViewerObject)
+    {
+        return;
+    }
+
+    mOrigin.load3(mViewerObject->getPositionAgent().mV);
+
+    // Box probes keep the position: their box transform is built around the object's pivot.
+    if (isBoxVolume())
+    {
+        return;
+    }
+
+    LLDrawable* drawable = mViewerObject->mDrawable;
+    if (!drawable)
+    {
+        return;
+    }
+
+    const LLVector4a* exts = drawable->getSpatialExtents();
+    LLVector4a size;
+    size.setSub(exts[1], exts[0]);
+    if (size.getLength3().getF32() <= 0.f)
+    {
+        return; // extents not computed yet
+    }
+
+    // Inactive drawables' face extents are already agent-space (LLFace::genVolumeBBoxes applies the region
+    // offset), so no offset is added here. Active drawables' extents are object-local and are not corrected yet.
+    LLVector4a lo = exts[0];
+    LLVector4a hi = exts[1];
+
+    LLVector4a centre;
+    centre.setAdd(lo, hi);
+    centre.mul(0.5f);
+    if (drawable->isActive())
+    {
+        // Active extents are in the root object's local frame (the face boxes use the child's relative transform,
+        // which already contains its offset within the root). Take the centre through the root's transform,
+        // not the child's pivot, so the child position is not counted twice.
+        LLViewerObject* root = mViewerObject->getRootEdit();
+        LLVector3 local(centre.getF32ptr());
+        local = local * root->getRenderRotation();
+        LLVector4a base;
+        base.load3(root->getPositionAgent().mV);
+        LLVector4a offset;
+        offset.load3(local.mV);
+        mOrigin.setAdd(base, offset);
+    }
+    else
+    {
+        mOrigin.load3(centre.getF32ptr());
+    }
+}
+
+void LLReflectionMap::trackViewerObject()
+{
+    if (!mViewerObject || !mViewerObject->getVolume())
+    {
+        return;
+    }
+
+    LLVOVolume* vobj = (LLVOVolume*)mViewerObject.get();
+
+    setOriginFromViewerObject();
+
+    if (vobj->getReflectionProbeIsBox())
+    {
+        LLVector3 s = vobj->getScale().scaledVec(LLVector3(0.5f, 0.5f, 0.5f));
+        mRadius = s.magVec();
+        mBoxExtent.load3(s.mV); // real per-axis half-extent, see mBoxExtent's own header comment.
+    }
+    else
+    {
+        mRadius = mViewerObject->getScale().mV[0] * 0.5f;
+        mBoxExtent.splat(mRadius); // sphere probe, isotropic is correct here.
+    }
+
+    // mPriority is the only source of the manual-vs-automatic classification. Set it here so a
+    // manual probe is classified correctly from the moment it exists, not only after its first capture.
+    mPriority = 1;
+}
+
+bool LLReflectionMap::isRelevant() const
+{
+    static LLCachedControl<S32> RenderReflectionProbeLevel(gSavedSettings, "RenderReflectionProbeLevel", 0);
+    static LLCachedControl<bool> RenderReflectionBoxProbesEnabled(gSavedSettings, "RenderReflectionBoxProbesEnabled", true);
+
+    // grid cells and the master cube are always relevant: they have no object to switch them off with
+    if (mCell)
+    {
+        return true;
+    }
+
+    if (!RenderReflectionBoxProbesEnabled && isBoxVolume())
+    {
+        return false;
+    }
+
+    // Level 0: default probe only. Level 1: manual probes. Level 2: manual plus environment probes
+    // (automatic probes outside any object group). Level 3: everything.
+    if (mViewerObject)
+    {
+        return RenderReflectionProbeLevel > 0;
+    }
+
+    switch (RenderReflectionProbeLevel)
+    {
+        case 3: return true;
+        case 2: return !mGroup;
+        default: return false;
+    }
+}
+
+// Non-blocking occlusion query handling - avoids stalling the GPU by waiting for results.
 
 void LLReflectionMap::doOcclusion(const LLVector4a& eye)
 {
@@ -392,7 +561,7 @@ void LLReflectionMap::doOcclusion(const LLVector4a& eye)
     // Allocate query if needed
     if (mOcclusionQuery == 0)
     {
-        mOcclusionQuery = gPipeline.mReflectionMapManager.allocateQuery();
+        mOcclusionQuery = gPipeline.mSphereProbes.allocateQuery();
 
         if (mOcclusionQuery == 0)
         {
@@ -405,44 +574,12 @@ void LLReflectionMap::doOcclusion(const LLVector4a& eye)
     }
     else
     {
-        // Non-blocking check of previous query
-        //
-        // S24 (2026-08-19, task #182 CTD fix): glGetQueryObjectuiv/glBeginQuery/
-        // glEndQuery are extension-loaded function pointers in this codebase
-        // (llgl.cpp, populated only via GLH_EXT_GET_PROC_ADDRESS against a real
-        // GL context) - unlike glPolygonOffset (a statically-linked core symbol
-        // that safely no-ops with no context), these stay nullptr forever under
-        // DX_RENDER, so calling them is an immediate null-function-pointer
-        // crash, not a silent no-op. This whole doOcclusion() function was
-        // unreachable under DX_RENDER until task #182 wired LLPipeline::
-        // doOcclusion() into DXPipeline::renderGeomDeferred() - the raw calls
-        // here were never exercised before that, then crashed the moment they
-        // were. Routed through DXOcclusionQuery (task #245's real
-        // D3D11_QUERY_OCCLUSION wrapper, same one LLOcclusionCullingGroup
-        // already uses) instead.
-#ifdef DX_RENDER
-        bool available = DXOcclusionQuery::isResultAvailable(mOcclusionQuery);
-
-        if (available)
+        // Non-blocking: read the previous query only when its result is ready, never stall on the GPU.
+        if (DXOcclusionQuery::isResultAvailable(mOcclusionQuery))
         {
             GLuint samples_passed = (GLuint)llmin(DXOcclusionQuery::getResult(mOcclusionQuery), (unsigned long long)0xFFFFFFFFu);
-#else
-        GLuint available = 0;
-        glGetQueryObjectuiv(mOcclusionQuery, GL_QUERY_RESULT_AVAILABLE, &available);
-
-        if (available != 0)
-        {
-            GLuint samples_passed = 0;
-            glGetQueryObjectuiv(mOcclusionQuery, GL_QUERY_RESULT, &samples_passed);
-#endif
-
             mOccluded = (samples_passed == 0);
-            mOcclusionPendingFrames = 0;
             should_query = true;
-        }
-        else
-        {
-            ++mOcclusionPendingFrames;
         }
     }
 
@@ -451,56 +588,32 @@ void LLReflectionMap::doOcclusion(const LLVector4a& eye)
         return;
     }
 
-#ifdef DX_RENDER
     DXOcclusionQuery::beginQuery(mOcclusionQuery);
-#else
-    glBeginQuery(GL_ANY_SAMPLES_PASSED, mOcclusionQuery);
-#endif
 
     LLHLSLShader* shader = LLHLSLShader::sCurBoundShaderPtr;
     if (shader)
     {
         shader->uniform3fv(LLShaderMgr::BOX_CENTER, 1, mOrigin.getF32ptr());
-        // S24 (2026-09-05, task #271 - real fix): was mRadius,mRadius,mRadius
-        // - for a box-shaped manual probe, mRadius is the DIAGONAL half-
-        // length (an isotropic collapse of the box's real, usually
-        // anisotropic per-axis scale), correct for parallax-correction/
-        // weight math elsewhere but wrong as an occlusion-query proxy size -
-        // it draws a cube far larger than the real room in its shorter axis
-        // (e.g. ceiling height), likely intersecting unrelated geometry
-        // above/below and producing unreliable, frequently-false-occluded
-        // query results. mBoxExtent holds the real per-axis half-extent for
-        // box probes (mRadius,mRadius,mRadius for sphere/automatic probes,
-        // where isotropic is already correct) - see its own header comment.
+        // mRadius is an isotropic diagonal half-length - correct for parallax-correction/weight math
+        // but wrong as an occlusion-query proxy size for a box probe (draws a cube far larger than the
+        // room in its shorter axis). mBoxExtent holds the real per-axis half-extent instead (see its
+        // header comment); still mRadius,mRadius,mRadius for sphere/automatic probes.
         // Matches the established, proven-correct convention
         // LLOcclusionCullingGroup already uses for spatial-partition
         // occlusion (llvieweroctree.cpp - real per-axis bounds, never a
         // collapsed radius).
         shader->uniform3f(LLShaderMgr::BOX_SIZE, mBoxExtent.getF32ptr()[0], mBoxExtent.getF32ptr()[1], mBoxExtent.getF32ptr()[2]);
 
-#ifdef DX_RENDER
         dx_get_occlusion_box_vb()->setBuffer();
         dx_get_occlusion_box_vb()->drawArrays(
             LLRender::TRIANGLES,
             get_box_triangle_offset(LLViewerCamera::getInstance(), mOrigin),
             18);
-#else
-        gPipeline.mCubeVB->drawRange(
-            LLRender::TRIANGLE_FAN,
-            0,
-            7,
-            8,
-            get_box_fan_indices(LLViewerCamera::getInstance(), mOrigin));
-#endif
     }
     else
     {
         mOccluded = false;
     }
 
-#ifdef DX_RENDER
     DXOcclusionQuery::endQuery(mOcclusionQuery);
-#else
-    glEndQuery(GL_ANY_SAMPLES_PASSED);
-#endif
 }

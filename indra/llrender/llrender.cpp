@@ -47,6 +47,7 @@
 #include "DXUIBatch.h"
 #include "DXCubeMap.h"
 #include "DXCubeMapArray.h"
+#include "DXCubeTexture.h"
 #endif
 
 //#include <algorithm>
@@ -380,6 +381,40 @@ bool LLTexUnit::bind(DXCubeMap* cubeMap)
 	return true;
 }
 
+// S24 : task #338 - direct sibling of bind(DXCubeMap*) above, for a plain
+// DXCubeTexture (no texture-stage/matrix bookkeeping, no white-texture
+// fallback - the caller is expected to only bind an already-fully-populated
+// cube). Same CLAMP+TRILINEAR sampler choice, for the same seam-avoiding
+// reason noted above.
+bool LLTexUnit::bind(DXCubeTexture* cubeTexture)
+{
+	if (mIndex < 0 || !cubeTexture) return false;
+
+	ID3D11ShaderResourceView* srv = cubeTexture->getSRV();
+	if (!srv) return false;
+
+	bool srv_changed = mCurrDXSRV != (void*)srv;
+	bool generation_stale = mDXSRVGeneration != DXStateCache::getRTVGeneration();
+	if (srv_changed)
+	{
+		gDX.flush();
+		gDXUIBatch.flushPending();
+		mCurrDXSRV = (void*)srv;
+	}
+	mDXSRVGeneration = DXStateCache::getRTVGeneration();
+	ID3D11SamplerState* sampler = DXSampler::getOrCreate(2, 2);
+	if (srv_changed || generation_stale)
+	{
+		gDXDevice.getContext()->PSSetShaderResources(mIndex, 1, &srv);
+	}
+	if (mIndex < 16 && mCurrDXSampler != (void*)sampler)
+	{
+		gDXDevice.getContext()->PSSetSamplers(mIndex, 1, &sampler);
+	}
+	mCurrDXSampler = (void*)sampler;
+	return true;
+}
+
 // S24: direct sibling of bind(DXCubeMap*) just above, for the array resource
 // type (DXCubeArrayTexture) instead of the single-cubemap one. No
 // DXCubeMap::sUseCubeMaps-style static gate to check.
@@ -387,7 +422,17 @@ bool LLTexUnit::bind(DXCubeMapArray* cubeMapArray)
 {
 	if (mIndex < 0 || !cubeMapArray) return false;
 
-	ID3D11ShaderResourceView* srv = cubeMapArray->getDXSRV();
+	return bindCubeArraySRV(cubeMapArray->getDXSRV());
+}
+
+// Binds any cube-array SRV (null falls back to the white texture). Shared by
+// bind(DXCubeMapArray*) and LLProbeCubeStore so both use one sampler and SRV path.
+bool LLTexUnit::bindCubeArraySRV(void* srv_ptr)
+{
+	if (mIndex < 0) return false;
+
+	ID3D11ShaderResourceView* srv = static_cast<ID3D11ShaderResourceView*>(srv_ptr);
+
 	if (!srv)
 	{
 		srv = getWhiteTextureSRV();
@@ -404,10 +449,12 @@ bool LLTexUnit::bind(DXCubeMapArray* cubeMapArray)
 	// CLAMP + TRILINEAR - same convention as bind(DXCubeMap*) above (avoids
 	// seams at face edges, full mip chain always generated).
 	ID3D11SamplerState* sampler = DXSampler::getOrCreate(2, 2);
-	if (srv_changed || generation_stale)
-	{
-		gDXDevice.getContext()->PSSetShaderResources(mIndex, 1, &srv);
-	}
+	// Always write the view. The cached pointer alone can be stale: other paths (render-target binds,
+	// texture unbinds) write this slot without updating mCurrDXSRV, and a released view's address can be
+	// reused by a new array view, so a skipped write could leave the slot empty or on an old layout.
+	(void)srv_changed;
+	(void)generation_stale;
+	gDXDevice.getContext()->PSSetShaderResources(mIndex, 1, &srv);
 	if (mIndex < 16 && mCurrDXSampler != (void*)sampler) // S24: sampler slots cap at 16, SRV slots don't - see bindFast()
 	{
 		gDXDevice.getContext()->PSSetSamplers(mIndex, 1, &sampler);
