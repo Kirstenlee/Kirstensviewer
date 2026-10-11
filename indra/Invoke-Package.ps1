@@ -201,7 +201,9 @@ $configPath = $Configuration.ToLower()
 $binaryCopies = @(
     @{ Src = "build-vc145\newview\$configPath\Kirstens-S24.exe"; Dest = 'S24-Packaged'; Name = 'Viewer executable' },
     @{ Src = "build-vc145\llplugin\slplugin\$configPath\SLPlugin.exe"; Dest = 'S24-Packaged'; Name = 'Plugin host' },
-    @{ Src = "build-vc145\llwebrtc\$configPath\llwebrtc.dll"; Dest = 'S24-Packaged'; Name = 'WebRTC library' }
+    @{ Src = "build-vc145\llwebrtc\$configPath\llwebrtc.dll"; Dest = 'S24-Packaged'; Name = 'WebRTC library' },
+    @{ Src = "build-vc145\dxvkproxy\$configPath\d3d11.dll"; Dest = 'S24-Packaged'; Name = 'DXVK proxy (d3d11.dll)' },
+    @{ Src = "build-vc145\dxvkproxy\$configPath\dxgi.dll"; Dest = 'S24-Packaged'; Name = 'DXVK proxy (dxgi.dll)' }
 )
 
 for ($i = 0; $i -lt $binaryCopies.Count; $i++) {
@@ -270,6 +272,28 @@ if (Test-Path "$mediaPluginPath\cef\$Configuration\*.dll") {
 
 Write-Progress -Activity "Stage 5 Complete" -Completed
 Write-Host "✓ Media plugins copied" -ForegroundColor Green
+
+#endregion
+
+#region Stage 5b - Copy DXVK vendor binaries
+
+Write-Stage "Stage 5b: Copying DXVK vendor binaries"
+
+# Real DXVK d3d11.dll/dxgi.dll (not built by this project - vendor binaries
+# maintained manually in newview\vc145\DXVK). Land in a "dxvk" subfolder
+# next to the exe; the dxvkproxy d3d11.dll/dxgi.dll built in Stage 4 above
+# load these from there ONLY when the user has enabled RenderUseDXVK (a
+# marker file the viewer itself writes at runtime - never created here, so
+# DXVK stays off by default for every fresh install).
+if (Test-Path 'newview\vc145\DXVK\*') {
+    Write-Host "  DXVK vendor binaries (d3d11.dll/dxgi.dll/dxvk.conf)..." -ForegroundColor Cyan
+    New-Item -ItemType Directory -Path 'S24-Packaged\dxvk' -Force | Out-Null
+    Copy-Item -Path 'newview\vc145\DXVK\*' -Destination 'S24-Packaged\dxvk' -Force
+    Write-Host "✓ DXVK vendor binaries copied" -ForegroundColor Green
+}
+else {
+    Write-Host "  Warning: DXVK vendor binaries not found in newview\vc145\DXVK\" -ForegroundColor Yellow
+}
 
 #endregion
 

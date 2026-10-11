@@ -2,7 +2,7 @@
 <floater
  legacy_header_height="18"
  can_resize="false"
- height="580"
+ height="610"
  layout="topleft"
  name="music_player"
  help_topic="music_player"
@@ -107,15 +107,26 @@
      top_delta="0"
      tool_tip="Next track"
      width="30" />
+    <text
+     type="string"
+     follows="top|left"
+     height="16"
+     layout="topleft"
+     left_pad="10"
+     name="volume_label"
+     top_delta="4"
+     width="50">
+        Volume:
+    </text>
     <slider_bar
      follows="top|left|right"
      height="24"
      increment="0.01"
      initial_value="0.5"
      layout="topleft"
-     left_pad="10"
+     left_pad="4"
      name="volume_slider"
-     top_delta="0"
+     top_delta="-4"
      tool_tip="Player volume"
      right="-10" />
     <line_editor
@@ -164,32 +175,53 @@
      name="remove_btn"
      top_delta="0"
      width="80" />
+    <!-- S24: 10-band graphic EQ, VLC's fixed frequencies (60Hz-16KHz),
+         -20..+20 dB per band and on the preamp below - matches
+         media_plugin_libvlc.cpp's own eq_update clamp range exactly.
+         Vertical slider_bar is a proven existing pattern (floater_camera.xml's
+         zoom_slider), not new widget territory. Whole cluster lives in its
+         own bordered, tile-textured card (same Aurora_RxCx look as the
+         kvtweaks cards) instead of sitting flush-left bare against the
+         floater background - card spans the floater's own standard 10px
+         edge margins (left=10, width=360, matching the scroll_list/url_entry
+         rows above), with the 278px-wide band-slider block (10 x 26 + 9 x
+         2px gaps) centered inside via its own left offset below, rather than
+         the card itself being sized tightly to the sliders - avoids the
+         card looking like a narrow island with dead space on both sides. -->
+    <panel
+     name="card_eq"
+     follows="top|left"
+     height="166"
+     width="360"
+     left="10"
+     top_pad="14"
+     layout="topleft"
+     border="true"
+     background_visible="true"
+     background_opaque="false"
+     bg_alpha_image="Aurora_R1C1"
+     >
     <check_box
      follows="top|left"
      height="18"
      label="Equalizer"
      layout="topleft"
-     left="10"
+     left="13"
      name="eq_enable_check"
-     top_pad="14"
+     top="10"
      width="120" />
-    <!-- S24: 10-band graphic EQ, VLC's fixed frequencies (60Hz-16KHz),
-         -20..+20 dB per band and on the preamp below - matches
-         media_plugin_libvlc.cpp's own eq_update clamp range exactly.
-         Vertical slider_bar is a proven existing pattern (floater_camera.xml's
-         zoom_slider), not new widget territory. -->
     <slider_bar
      follows="top|left"
      height="70"
      increment="1"
      initial_value="0"
      layout="topleft"
-     left="10"
+     left="41"
      max_val="20"
      min_val="-20"
      name="eq_band_0"
      orientation="vertical"
-     top_pad="6"
+     top_pad="10"
      tool_tip="60 Hz"
      width="26" />
     <slider_bar
@@ -325,7 +357,7 @@
      height="12"
      font="SansSerifSmall"
      layout="topleft"
-     left="10"
+     left="41"
      name="eq_label_0"
      top_pad="2"
      width="26">
@@ -453,14 +485,14 @@
      follows="left|top"
      height="16"
      layout="topleft"
-     left="10"
+     left="13"
      name="eq_preamp_label"
      top_pad="10"
      width="55">
         Preamp
     </text>
     <slider_bar
-     follows="top|left|right"
+     follows="top|left"
      height="20"
      increment="1"
      initial_value="0"
@@ -471,5 +503,6 @@
      name="eq_preamp_slider"
      top_delta="0"
      tool_tip="Equalizer preamp (dB)"
-     right="-10" />
+     width="273" />
+    </panel>
 </floater>

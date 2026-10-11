@@ -602,7 +602,7 @@ void LLSphereProbes::refreshSettings()
 
 LLReflectionMap* LLSphereProbes::addProbe(LLSpatialGroup* group)
 {
-    if (gGLManager.mGLVersion < 4.05f || !LLPipeline::sReflectionProbesEnabled)
+    if (!LLPipeline::sReflectionProbesEnabled)
     {
         return nullptr;
     }

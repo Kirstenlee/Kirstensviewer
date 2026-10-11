@@ -29,6 +29,7 @@
 
 #include "llfocusmgr.h"
 #include "lleditmenuhandler.h"
+#include "llframetimer.h"
 
 #include "llpanel.h"
 #include "llpluginclassmediaowner.h"
@@ -309,7 +310,12 @@ public:
     void setTarget(const std::string& target) { mTarget = target; }
 
     // utility function to create a ready-to-use media instance from a desired media type.
-    static LLPluginClassMedia* newSourceFromMediaType(std::string media_type, LLPluginClassMediaOwner *owner /* may be NULL */, S32 default_width, S32 default_height, F64 zoom_factor, const std::string target = LLStringUtil::null, bool clean_browser = false);
+    // cef_cache_key: caller-supplied, stable key (e.g. a hostname) for this
+    // instance's CEF cache/cookie folder, so the SAME site reliably reuses the SAME
+    // on-disk cookie jar across restarts instead of landing in an arbitrary new folder
+    // every time. Empty = caller has no stable key available (falls back to a
+    // monotonic per-launch counter, e.g. the spare-browser pre-warm path).
+    static LLPluginClassMedia* newSourceFromMediaType(std::string media_type, LLPluginClassMediaOwner *owner /* may be NULL */, S32 default_width, S32 default_height, F64 zoom_factor, const std::string target = LLStringUtil::null, bool clean_browser = false, const std::string& cef_cache_key = LLStringUtil::null);
 
     // Internally set our desired browser user agent string, including
     // the Second Life version and skin name.  Used because we can
@@ -476,6 +482,9 @@ private:
     F64 mInterest;
     bool mUsedInUI;
     bool mHasFocus;
+    // S24: resets whenever this UI-used impl is visible or focused; PluginInstancesUIMax
+    // eviction unloads the longest-idle UI impls first (see LLViewerMedia::updateMedia()).
+    LLFrameTimer mUIIdleTimer;
     LLPluginClassMedia::EPriority mPriority;
     bool mNavigateRediscoverType;
     bool mNavigateServerRequest;
@@ -500,6 +509,7 @@ private:
     bool mNavigateSuspendedDeferred;
     bool mTrustedBrowser;
     std::string mTarget;
+    std::string mCefCacheKey;  // S24: this instance's reserved CEF cache/cookie folder key, released in destroyMediaSource()
     LLNotificationPtr mNotification;
     bool mCleanBrowser;     // force the creation of a clean browsing target with full options enabled
     static std::vector<std::string> sMimeTypesFailed;

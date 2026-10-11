@@ -1063,6 +1063,13 @@ void LLPluginClassMedia::enableMediaPluginDebugging( bool enable )
 	sendMessage( message );
 }
 
+void LLPluginClassMedia::setDisableGPU( bool disable )
+{
+	LLPluginMessage message(LLPLUGIN_MESSAGE_CLASS_MEDIA, "gpu_disabled");
+	message.setValueBoolean( "disable", disable );
+	sendMessage( message );
+}
+
 void LLPluginClassMedia::setTarget(const std::string &target)
 {
 	mTarget = target;

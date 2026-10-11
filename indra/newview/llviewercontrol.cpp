@@ -81,6 +81,9 @@
 #include "llperfstats.h"
 #include "llcolorswatch.h" // For beam color picker callbacks
 
+#include <filesystem>
+#include <fstream>
+
 
 // Third party library includes
 #include <boost/algorithm/string.hpp>
@@ -559,9 +562,46 @@ static bool handleHeroProbeResolutionChanged(const LLSD &newvalue)
     return true;
 }
 
-static bool handleRenderResolutionDivisorChanged(const LLSD&)
+static bool handleRenderScalePercentChanged(const LLSD&)
 {
     gResizeScreenTexture = true;
+    return true;
+}
+
+// S24: the dxvkproxy d3d11.dll/dxgi.dll in the install root decide which
+// real module to forward to by checking for this marker file beside
+// themselves - they load and make that decision before any of this code
+// runs, so there's no way to hand them the setting directly. Writing/
+// removing the marker here is the only bridge between gSavedSettings and
+// that already-loaded proxy; it only takes effect on the NEXT launch.
+static bool handleRenderUseDXVKChanged(const LLSD& newvalue)
+{
+    std::string marker_dir = gDirUtilp->add(gDirUtilp->getExecutableDir(), "dxvk");
+    std::string marker_path = gDirUtilp->add(marker_dir, "dxvk_enabled");
+
+    std::error_code ec;
+    if (newvalue.asBoolean())
+    {
+        std::filesystem::create_directories(marker_dir, ec);
+        if (ec)
+        {
+            LL_WARNS() << "Failed to create DXVK marker dir " << marker_dir << ": " << ec.message() << LL_ENDL;
+            return true;
+        }
+        std::ofstream marker(marker_path, std::ios::trunc);
+        if (!marker.is_open())
+        {
+            LL_WARNS() << "Failed to create DXVK marker file " << marker_path << LL_ENDL;
+        }
+    }
+    else
+    {
+        std::filesystem::remove(marker_path, ec);
+        if (ec)
+        {
+            LL_WARNS() << "Failed to remove DXVK marker file " << marker_path << ": " << ec.message() << LL_ENDL;
+        }
+    }
     return true;
 }
 
@@ -938,7 +978,8 @@ void settings_setup_listeners()
     setting_setup_signal_listener(gSavedSettings, "RenderDynamicLOD", handleRenderDynamicLODChanged);
     setting_setup_signal_listener(gSavedSettings, "RenderVSyncEnable", handleVSyncChanged);
     setting_setup_signal_listener(gSavedSettings, "RenderDeferredNoise", handleReleaseGLBufferChanged);
-    setting_setup_signal_listener(gSavedSettings, "RenderResolutionDivisor", handleRenderResolutionDivisorChanged);
+    setting_setup_signal_listener(gSavedSettings, "RenderScalePercent", handleRenderScalePercentChanged);
+    setting_setup_signal_listener(gSavedSettings, "RenderUseDXVK", handleRenderUseDXVKChanged);
     setting_setup_signal_listener(gSavedSettings, "RenderReflectionProbeLevel", handleReflectionProbeDetailChanged);
     setting_setup_signal_listener(gSavedSettings, "RenderReflectionProbeDetail", handleReflectionProbeDetailChanged);
     setting_setup_signal_listener(gSavedSettings, "RenderReflectionProbeCount", handleReflectionProbeCountChanged);

@@ -547,7 +547,18 @@ void LLVOWLSky::initStars()
         {
             LLVector3 anchor = def.anchor;
             anchor.normVec();
-            LLVector3 left = anchor % LLVector3(0.f, 0.f, 1.f);
+            // S24: worldUp % anchor, not anchor % worldUp - the latter (the
+            // original form here) hands back a left/up pair that's flipped on
+            // BOTH axes at once (a 180-degree rotation about the anchor), not
+            // just one. Confirmed by hand: for anchor facing due north
+            // (0,1,0), anchor % worldUp gives East (the viewer's right, not
+            // left, when facing north), and the resulting "up" (anchor %
+            // left) then comes out pointing at the ground, not the zenith -
+            // exactly the "Betelgeuse bottom-left should be top-right"
+            // symptom this was fixing. up's own formula (anchor % left) is
+            // correct as-is; it just inherits the wrong handedness from the
+            // old left.
+            LLVector3 left = LLVector3(0.f, 0.f, 1.f) % anchor;
             left.normVec();
             LLVector3 up = anchor % left;
 
@@ -588,7 +599,10 @@ void LLVOWLSky::initStars()
             const LLConstellationDef& orion = kConstellations[ORION_CONSTELLATION_INDEX];
             LLVector3 anchor = orion.anchor;
             anchor.normVec();
-            LLVector3 left = anchor % LLVector3(0.f, 0.f, 1.f);
+            // S24: same worldUp % anchor fix as the main placement loop above -
+            // must match it exactly, or the nebula anchor would land using the
+            // old (flipped) frame while Orion's own stars use the corrected one.
+            LLVector3 left = LLVector3(0.f, 0.f, 1.f) % anchor;
             left.normVec();
             LLVector3 up = anchor % left;
 

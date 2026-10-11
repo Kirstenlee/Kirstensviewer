@@ -168,6 +168,20 @@ public:
 	void gammaCorrect(LLRenderTarget* src, LLRenderTarget* dst);
 	void generateGlow(LLRenderTarget* src);
     void applyCAS(LLRenderTarget* src, LLRenderTarget* dst);
+    void applyFSR1Rcas(LLRenderTarget* src, LLRenderTarget* dst);
+    // Unlike applyCAS/applyFSR1Rcas, this has no dst LLRenderTarget - the
+    // caller (DXPipeline::presentFinal()) has already bound and viewport'd
+    // the real destination (the swap chain back buffer, or a stereo eye
+    // target) before calling this, matching how the gDeferredPostNoDoFNoiseProgram
+    // branch it sits alongside works. dest_width/height are that already-bound
+    // target's size, needed for FsrEasuCon()'s output-size constant.
+    bool applyFSR1Easu(LLRenderTarget* src, U32 dest_width, U32 dest_height);
+    // RCAS pass meant to chain directly after applyFSR1Easu() - AMD's FSR1
+    // pipeline is EASU followed by RCAS, not EASU alone (EASU's own spatial
+    // resample is visibly softer without it). Same "caller already bound the
+    // destination" convention as applyFSR1Easu() - unlike applyFSR1Rcas()
+    // above, which always binds its own dst.
+    bool applyFSR1RcasToBoundTarget(LLRenderTarget* src);
 	void applyFXAA(LLRenderTarget* src, LLRenderTarget* dst);
     void generateSMAABuffers(LLRenderTarget* src);
     void applySMAA(LLRenderTarget* src, LLRenderTarget* dst);
@@ -786,6 +800,16 @@ public:
     LLRenderTarget          mPostPingMap;
     LLRenderTarget          mPostPongMap;
 
+    // Holds applyFSR1Easu()'s output at full (window/world-view) resolution,
+    // so applyFSR1RcasToBoundTarget() can run as a second pass on it before
+    // the real backbuffer write - see DXPipeline::presentFinal(). Unlike
+    // mPostPingMap/mPostPongMap this is NOT sized off the (possibly
+    // RenderScalePercent-shrunk) allocateScreenBufferInternal() path - it's
+    // lazily allocated/resized in presentFinal() itself, directly off the
+    // real destination size, since it only exists when upscaling is active
+    // (RenderScalePercent < 100).
+    LLRenderTarget          mFSR1EasuBuffer;
+
     // Anaglyph 3D: each eye's fully composited post-fx result is captured here (via
     // DXPipeline::presentFinal()'s optional destination parameter) instead of relying on left/right
     // tint surviving as ambient GPU colormask state across the frame. DXPipeline::presentStereoComposite()
@@ -1103,7 +1127,6 @@ public:
 	static bool RenderDeferred;
 	static F32 RenderDeferredSunWash;
     static U32 RenderFSAAType;
-	static U32 RenderResolutionDivisor;
 	static bool RenderUIBuffer;
 	static S32 RenderShadowDetail;
     static S32 RenderShadowSplits;

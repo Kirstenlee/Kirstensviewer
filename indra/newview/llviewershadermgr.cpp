@@ -225,6 +225,9 @@ LLHLSLShader            gSMAABlendWeightsProgram[4];
 LLHLSLShader            gSMAANeighborhoodBlendProgram[4];
 LLHLSLShader            gCASProgram;
 LLHLSLShader            gCASLegacyGammaProgram;
+LLHLSLShader            gFSR1RcasProgram;
+LLHLSLShader            gFSR1RcasLegacyGammaProgram;
+LLHLSLShader            gFSR1EasuProgram;
 LLHLSLShader            gDeferredPostNoDoFProgram;
 LLHLSLShader            gKrlvCamDrawFogProgram; // KRLV_TOUCHPOINT: @camdrawmin/@camdrawmax/@camdrawalphamin/@camdrawalphamax/@camdrawcolor
 LLHLSLShader            gDeferredPostNoDoFNoiseProgram;
@@ -471,6 +474,7 @@ void LLViewerShaderMgr::finalizeShaderList()
     mShaderList.push_back(&gDeferredPostTonemapLegacyGammaCorrectProgram);
     mShaderList.push_back(&gNoPostTonemapLegacyGammaCorrectProgram);
     mShaderList.push_back(&gCASLegacyGammaProgram);
+    mShaderList.push_back(&gFSR1RcasLegacyGammaProgram);
     mShaderList.push_back(&gDeferredPostGammaCorrectProgram); // for gamma
     mShaderList.push_back(&gLegacyPostGammaCorrectProgram);
     mShaderList.push_back(&gDeferredDiffuseProgram);
@@ -885,7 +889,7 @@ std::string LLViewerShaderMgr::loadBasicShaders()
 
     bool mirrors = gSavedSettings.getBOOL("RenderMirrors");
 
-    bool has_reflection_probes = gSavedSettings.getBOOL("RenderReflectionsEnabled") && gGLManager.mGLVersion > 3.99f;
+    bool has_reflection_probes = gSavedSettings.getBOOL("RenderReflectionsEnabled");
 
     S32 probe_level = llclamp(gSavedSettings.getS32("RenderReflectionProbeLevel"), 0, 3);
 
@@ -1227,6 +1231,9 @@ bool LLViewerShaderMgr::loadShadersDeferred()
         }
         gCASProgram.unload();
         gCASLegacyGammaProgram.unload();
+        gFSR1RcasProgram.unload();
+        gFSR1RcasLegacyGammaProgram.unload();
+        gFSR1EasuProgram.unload();
         gEnvironmentMapProgram.unload();
         gDeferredWLSkyProgram.unload();
         gDeferredWLCloudProgram.unload();
@@ -2801,7 +2808,7 @@ bool LLViewerShaderMgr::loadShadersDeferred()
         llassert(success);
     }
 
-    if (success && gGLManager.mGLVersion > 3.9f)
+    if (success)
     {
         std::vector<std::pair<std::string, std::string>> quality_levels = { {"12", "Low"},
                                                                              {"23", "Medium"},
@@ -2821,14 +2828,7 @@ bool LLViewerShaderMgr::loadShadersDeferred()
 
                 gFXAAProgram[i].clearPermutations();
                 gFXAAProgram[i].addPermutation("FXAA_QUALITY__PRESET", quality_pair.first);
-                if (gGLManager.mGLVersion > 3.9)
-                {
-                    gFXAAProgram[i].addPermutation("FXAA_GLSL_400", "1");
-                }
-                else
-                {
-                    gFXAAProgram[i].addPermutation("FXAA_GLSL_130", "1");
-                }
+                gFXAAProgram[i].addPermutation("FXAA_GLSL_400", "1");
 
                 gFXAAProgram[i].mShaderLevel = mShaderLevel[SHADER_DEFERRED];
                 success = gFXAAProgram[i].createShader();
@@ -2854,7 +2854,7 @@ bool LLViewerShaderMgr::loadShadersDeferred()
         }
     }
 
-    if (gGLManager.mGLVersion > 3.15f && success)
+    if (success)
     {
         std::vector<std::pair<std::string, std::string>> quality_levels = { {"SMAA_PRESET_LOW", "Low"},
                                                                              {"SMAA_PRESET_MEDIUM", "Medium"},
@@ -2865,12 +2865,7 @@ bool LLViewerShaderMgr::loadShadersDeferred()
         for (const auto& smaa_pair : quality_levels)
         {
             std::map<std::string, std::string> defines;
-            if (gGLManager.mGLVersion >= 4.f)
-                defines.emplace("SMAA_GLSL_4", "1");
-            else if (gGLManager.mGLVersion >= 3.1f)
-                defines.emplace("SMAA_GLSL_3", "1");
-            else
-                defines.emplace("SMAA_GLSL_2", "1");
+            defines.emplace("SMAA_GLSL_4", "1");
             defines.emplace("SMAA_PREDICATION", "0");
             defines.emplace("SMAA_REPROJECTION", "0");
             defines.emplace(smaa_pair.first, "1");
@@ -2966,7 +2961,7 @@ bool LLViewerShaderMgr::loadShadersDeferred()
         }
     }
 
-    if (success && gGLManager.mGLVersion > 4.05f)
+    if (success)
     {
         gCASProgram.mName = "Contrast Adaptive Sharpening Shader";
         gCASProgram.mFeatures.hasSrgb = true;
@@ -2984,7 +2979,7 @@ bool LLViewerShaderMgr::loadShadersDeferred()
         }
     }
 
-    if (success && gGLManager.mGLVersion > 4.05f)
+    if (success)
     {
         gCASLegacyGammaProgram.mName = "Contrast Adaptive Sharpening Legacy Gamma Shader";
         gCASLegacyGammaProgram.mFeatures.hasSrgb = true;
@@ -3000,6 +2995,65 @@ bool LLViewerShaderMgr::loadShadersDeferred()
         if (!success)
         {
             LL_WARNS() << "Failed to create shader '" << gCASProgram.mName << "', disabling!" << LL_ENDL;
+            // continue as if this shader never happened
+            success = true;
+        }
+    }
+
+    if (success)
+    {
+        gFSR1RcasProgram.mName = "FSR1 RCAS Sharpening Shader";
+        gFSR1RcasProgram.mFeatures.hasSrgb = true;
+        gFSR1RcasProgram.mShaderFiles.clear();
+        gFSR1RcasProgram.mShaderFiles.push_back(make_pair("deferred/postDeferredNoTCV.glsl", GL_VERTEX_SHADER));
+        gFSR1RcasProgram.mShaderFiles.push_back(make_pair("deferred/RCASF.hlsl", GL_FRAGMENT_SHADER));
+        gFSR1RcasProgram.mShaderLevel = mShaderLevel[SHADER_DEFERRED];
+        success = gFSR1RcasProgram.createShader();
+        // llassert(success);
+        if (!success)
+        {
+            LL_WARNS() << "Failed to create shader '" << gFSR1RcasProgram.mName << "', disabling!" << LL_ENDL;
+            // continue as if this shader never happened
+            success = true;
+        }
+    }
+
+    if (success)
+    {
+        gFSR1RcasLegacyGammaProgram.mName = "FSR1 RCAS Sharpening Legacy Gamma Shader";
+        gFSR1RcasLegacyGammaProgram.mFeatures.hasSrgb = true;
+        gFSR1RcasLegacyGammaProgram.mShaderFiles.clear();
+        gFSR1RcasLegacyGammaProgram.mShaderFiles.push_back(make_pair("deferred/postDeferredNoTCV.glsl", GL_VERTEX_SHADER));
+        gFSR1RcasLegacyGammaProgram.mShaderFiles.push_back(make_pair("deferred/RCASF.hlsl", GL_FRAGMENT_SHADER));
+        gFSR1RcasLegacyGammaProgram.mShaderLevel = mShaderLevel[SHADER_DEFERRED];
+        gFSR1RcasLegacyGammaProgram.clearPermutations();
+        gFSR1RcasLegacyGammaProgram.addPermutation("GAMMA_CORRECT", "1");
+        gFSR1RcasLegacyGammaProgram.addPermutation("LEGACY_GAMMA", "1");
+        success = gFSR1RcasLegacyGammaProgram.createShader();
+        // llassert(success);
+        if (!success)
+        {
+            LL_WARNS() << "Failed to create shader '" << gFSR1RcasProgram.mName << "', disabling!" << LL_ENDL;
+            // continue as if this shader never happened
+            success = true;
+        }
+    }
+
+    if (success)
+    {
+        // Pure spatial resampler - no gamma/tonemap-adjacent logic at all,
+        // unlike CAS/FSR1 RCAS, so no legacy-gamma permutation variant.
+        gFSR1EasuProgram.mName = "FSR1 EASU Upscale Shader";
+        gFSR1EasuProgram.mFeatures.hasSrgb = true;
+        gFSR1EasuProgram.mShaderFiles.clear();
+        gFSR1EasuProgram.mShaderFiles.push_back(make_pair("deferred/postDeferredNoTCV.glsl", GL_VERTEX_SHADER));
+        gFSR1EasuProgram.mShaderFiles.push_back(make_pair("deferred/EASUF.hlsl", GL_FRAGMENT_SHADER));
+        gFSR1EasuProgram.mShaderLevel = mShaderLevel[SHADER_DEFERRED];
+        success = gFSR1EasuProgram.createShader();
+        // llassert(success);
+        if (!success)
+        {
+            LL_WARNS() << "Failed to create shader '" << gFSR1EasuProgram.mName << "', disabling!" << LL_ENDL;
             // continue as if this shader never happened
             success = true;
         }
@@ -3756,14 +3810,13 @@ bool LLViewerShaderMgr::loadShadersInterface()
 
     if (success)
     {
-        // S24: used to be gated on gSavedSettings.getBOOL("LocalTerrainPaintEnabled") - but that
-        // flag starts false every session and only gets set true by Develop > Terrain > Create
-        // Local Paintmap AFTER it already needs this shader to bake, with nothing anywhere
-        // forcing a shader reload once the flag flips - a permanent chicken-and-egg gap that left
-        // gPBRTerrainBakeProgram uncompiled forever (LLHLSLShader::bind() silently no-ops on an
-        // incomplete shader, and LLVertexBuffer::setupVertexBuffer()'s null sCurBoundShaderPtr
-        // deref right after has no guard - Access Violation). Always compile it, like every other
-        // interface shader in this function - it's a small utility shader, no reason to withhold it.
+        // S24: Always compile this, like every other interface shader in this function. Gating
+        // it on "LocalTerrainPaintEnabled" is unsafe: that setting starts false every session and
+        // is only set true by Develop > Terrain > Create Local Paintmap, after the bake already
+        // needs this shader, with nothing forcing a reload once it flips. An uncompiled shader
+        // here means LLHLSLShader::bind() silently no-ops and LLVertexBuffer::setupVertexBuffer()'s
+        // unguarded null sCurBoundShaderPtr deref right after crashes. It's a small utility shader,
+        // so there's no cost to always compiling it.
         LLHLSLShader* shader = &gPBRTerrainBakeProgram;
         U32 bit_depth = gSavedSettings.getU32("TerrainPaintBitDepth");
         // LLTerrainPaintMap currently uses an RGB8 texture internally

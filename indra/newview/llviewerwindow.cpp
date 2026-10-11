@@ -1684,9 +1684,9 @@ void LLViewerWindow::handleFocusLost(LLWindow* window)
 	// inferring anything from Win32 message parameters is unconditionally
 	// correct: while any floater is popped out, losing focus to it (or to
 	// anything else while it exists) must never wipe gFocusMgr's mouse
-	// capture out from under whatever the popped-out widget just took -
-	// confirmed live as text selection starting but never being able to
-	// extend/highlight while popped out (mid-drag capture silently lost).
+	// capture out from under whatever the popped-out widget just took,
+	// or text selection can start but never extend/highlight while
+	// popped out (mid-drag capture silently lost).
 	if (LLFloaterPopoutManager::isPoppedOut())
 	{
 		return;
@@ -3610,8 +3610,8 @@ void LLViewerWindow::updateUI()
 	// the popped-out floater just correctly captured (e.g. mid text
 	// drag-select or scrollbar-thumb drag), immediately corrupting the
 	// very state LLFloaterPopoutManager::idle() just set up moments
-	// earlier in the SAME frame - confirmed live as drag gestures that
-	// react to the initial click but never continue tracking while held
+	// earlier in the SAME frame: drag gestures would react to the
+	// initial click but never continue tracking while held
 	// (a plain click's simple, one-shot effect survives; sustained drag
 	// state does not). Treating capture as absent here whenever it
 	// belongs to the popped-out floater's own tree is the correct
@@ -5230,8 +5230,7 @@ bool LLViewerWindow::rawSnapshot(LLImageRaw* raw, S32 image_width, S32 image_hei
 	gDisplaySwapBuffers = false;
 
 	// S24: pre-render clear removed - fully overwritten by the display() call that follows
-	// shortly after anyway. GL branch removed - task #300 (full GL removal), never compiled in
-	// this DX_RENDER-only build.
+	// shortly after anyway. This build is DX_RENDER-only; no GL path compiles in.
 	setCursor(UI_CURSOR_WAIT);
 
 	// Hide all the UI widgets first and draw a frame
@@ -5296,8 +5295,22 @@ bool LLViewerWindow::rawSnapshot(LLImageRaw* raw, S32 image_width, S32 image_hei
 	// (LLGPUResize) that native capture to the requested size. Returns directly, bypassing the
 	// scratch_ready/allocateScreenBuffer()/reset_deferred path below (kept for GL and DX_RENDER's
 	// rarer show_ui/depth-type oversized cases).
+	// S24: compare against the CURRENTLY-ALLOCATED pipeline resolution, not
+	// window_width/window_height (the raw window size) - RenderScalePercent
+	// shrinks gPipeline.mRT->screen below the window size, and this snapshot
+	// path is called with image_width/height set to the full raw window size
+	// (see LLAppViewer::saveFinalSnapshot()'s "use full pixel dimensions of
+	// viewer window" call). With scaling active, image_width/height ==
+	// window_width/window_height (both raw), so the old comparison against
+	// window_width/window_height never caught this case and fell through
+	// into the exact "reallocates the entire deferred pipeline... driver
+	// TDR/device-removed reset" scenario this guard exists to prevent - the
+	// real root cause of a device-lost crash at quit traced back through
+	// several rounds of unrelated FSR1-focused fixes. At 100% scale,
+	// mRT->screen already equals window_width/window_height, so this is a
+	// strict generalization, not a behavior change for the native-res case.
 	if (!show_ui && type == LLSnapshotModel::SNAPSHOT_TYPE_COLOR &&
-		(image_width > window_width || image_height > window_height))
+		(image_width > (S32)gPipeline.mRT->screen.getWidth() || image_height > (S32)gPipeline.mRT->screen.getHeight()))
 	{
 		gDisplaySwapBuffers = false;
 		gDepthDirty = true;
@@ -5386,12 +5399,11 @@ bool LLViewerWindow::rawSnapshot(LLImageRaw* raw, S32 image_width, S32 image_hei
 		if ((image_width <= gGLManager.mGLMaxTextureSize && image_height <= gGLManager.mGLMaxTextureSize) &&
 			(image_width > window_width || image_height > window_height) && LLPipeline::sRenderDeferred && !show_ui)
 		{
-			// scratch_space (GL-only) used to assume binding a render target before display()
-			// redirects where the frame renders - D3D11 has no implicit "current FBO" concept, so
-			// nothing was ever written to it under DX_RENDER. The capture instead reads
+			// D3D11 has no implicit "current FBO" concept, so a scratch render target bound before
+			// display() would never get written to under DX_RENDER. The capture instead reads
 			// gLastCompositedPostTarget (set by DXPipeline::presentDeferredScreen()) after display()
-			// runs below; no scratch target needed under DX_RENDER. GL branch (scratch_space itself)
-			// removed - task #300 (full GL removal), never compiled in this DX_RENDER-only build.
+			// runs below; no scratch target needed under DX_RENDER. This build is DX_RENDER-only;
+			// no GL path compiles in.
 			bool scratch_ready = true;
 			if (scratch_ready)
 			{
@@ -5744,8 +5756,7 @@ bool LLViewerWindow::simpleSnapshot(LLImageRaw* raw, S32 image_width, S32 image_
 	gDisplaySwapBuffers = false;
 
 	// S24: pre-render clear removed - fully overwritten by the display() call that follows
-	// shortly after anyway. GL branch removed - task #300 (full GL removal), never compiled in
-	// this DX_RENDER-only build.
+	// shortly after anyway. This build is DX_RENDER-only; no GL path compiles in.
 	setCursor(UI_CURSOR_WAIT);
 
 	bool prev_draw_ui = gPipeline.hasRenderDebugFeatureMask(LLPipeline::RENDER_DEBUG_FEATURE_UI);
@@ -5934,8 +5945,7 @@ bool LLViewerWindow::cubeSnapshot(const LLVector3& origin, U32 resolution, S32 f
 	gPipeline.pushRenderTypeMask();
 
 	// S24: pre-render clear removed - fully overwritten by the display() call that follows
-	// shortly after anyway. GL branch removed - task #300 (full GL removal), never compiled in
-	// this DX_RENDER-only build.
+	// shortly after anyway. This build is DX_RENDER-only; no GL path compiles in.
 
 	U32 dynamic_render_types[] = {
 		LLPipeline::RENDER_TYPE_AVATAR,
@@ -6189,8 +6199,8 @@ void LLViewerWindow::setup3DViewport(S32 x_offset, S32 y_offset)
 	// SMAA.hlsl's API_V_COORD-fed passes) already applies its own matching `1.0 - y` compensation for
 	// D3D11's top-down vs. GL-derived bottom-up row order - matches the same underlying cause already
 	// fixed elsewhere (FXAA, SMAA, DoF), and also matches the 3 explicit viewport sites in
-	// llsphereprobes.cpp's radiance/irradiance generation loops. GL branch removed - task
-	// #300 (full GL removal), never compiled in this DX_RENDER-only build.
+	// llsphereprobes.cpp's radiance/irradiance generation loops. This build is DX_RENDER-only;
+	// no GL path compiles in.
 	gDXContext.setViewport(gDXViewport[0], gDXViewport[1], gDXViewport[2], gDXViewport[3], true);
 }
 

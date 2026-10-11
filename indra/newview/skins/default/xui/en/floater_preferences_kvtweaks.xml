@@ -272,7 +272,7 @@
         control_name="RunMultipleThreads"
         height="20"
         initial_value="true"
-        label="Keep Background Threads Active During Render"
+        label="Keep Background Threads Active"
         layout="topleft"
         name="run_multiple_threads"
         width="280"
@@ -1466,7 +1466,7 @@
       </panel>
 
       <panel
-        name="card_blank1"
+        name="card_fsr"
         follows="left|top"
         height="288"
         width="308"
@@ -1478,6 +1478,87 @@
         background_opaque="false"
         bg_alpha_image="Aurora_R2C2"
         >
+      <text
+        type="string"
+        follows="left|top"
+        height="18"
+        layout="topleft"
+        left="16"
+        top="12"
+        width="268"
+        font="SansSerifBold"
+        text_color="DrYellow">
+        AMD FidelityFX Super Resolution (FSR)
+      </text>
+
+      <text
+        type="string"
+        follows="left|top"
+        height="18"
+        layout="topleft"
+        left="20"
+        top_pad="8"
+        width="268"
+        font="SansSerif">
+        Render Scale (% of native):
+      </text>
+
+      <slider
+        left="20"
+        top_pad="2"
+        control_name="RenderScalePercent"
+        decimal_digits="0"
+        follows="left|top"
+        height="20"
+        increment="5"
+        initial_value="100"
+        layout="topleft"
+        min_val="25"
+        max_val="100"
+        name="render_scale"
+        show_text="true"
+        width="268" />
+
+      <text
+        type="string"
+        follows="left|top"
+        height="18"
+        layout="topleft"
+        left="20"
+        top_pad="10"
+        width="268"
+        font="SansSerif">
+        FSR Sharpening:
+      </text>
+
+      <slider
+        left="20"
+        top_pad="2"
+        control_name="RenderFSR1Sharpness"
+        decimal_digits="1"
+        follows="left|top"
+        height="20"
+        increment="0.1"
+        initial_value="0.4"
+        layout="topleft"
+        min_val="0.0"
+        max_val="1.0"
+        name="fsr_sharpness"
+        show_text="true"
+        width="268" />
+
+      <text
+        type="string"
+        follows="left|top"
+        height="54"
+        layout="topleft"
+        left="20"
+        top_pad="10"
+        width="268"
+        wrap="true"
+        font="SansSerif">
+        Below 100% scale, FSR EASU upscale engages automatically and FSR Sharpening (RCAS) applies after it. At 100% scale, FSR Sharpening still applies as a same-resolution pass (takes priority over the standard CAS slider in Advanced Graphics Preferences).
+      </text>
       </panel>
 
       <panel
@@ -3152,8 +3233,8 @@
 
     </panel>
 
-    <!-- ==================== TAB: NIGHT SKY (S24, task #279 stage 2) ==================== -->
-    <!-- ==================== TAB: SKY (S24, task #303) ==================== -->
+    <!-- ==================== TAB: NIGHT SKY (S24) ==================== -->
+    <!-- ==================== TAB: SKY (S24) ==================== -->
     <panel
       border="true"
       follows="all"
@@ -5206,6 +5287,46 @@
         text_color="LtGray">
         (0=Off)
       </text>
+
+      <text
+        type="string"
+        follows="left|top"
+        height="18"
+        layout="topleft"
+        left="20"
+        top_pad="10"
+        width="268"
+        font="SansSerif">
+        Max UI Plugin Instances:
+      </text>
+
+      <spinner
+        left="20"
+        top_pad="2"
+        control_name="PluginInstancesUIMax"
+        decimal_digits="0"
+        follows="left|top"
+        height="20"
+        increment="1"
+        initial_value="8"
+        layout="topleft"
+        max_val="64"
+        min_val="2"
+        name="plugin_ui_max"
+        tool_tip="S24: caps concurrent CEF/Dullahan instances used by viewer UI (profile panels, search, marketplace, web/help browser, popout floaters) - previously unbounded. The longest-idle hidden one is unloaded first when over this limit; anything visible or focused is never evicted."
+        width="65" />
+
+      <check_box
+        left="20"
+        top_pad="10"
+        control_name="PluginDisableGPU"
+        height="20"
+        initial_value="true"
+        label="Disable GPU Process for Web Content"
+        layout="topleft"
+        name="plugin_disable_gpu"
+        tool_tip="S24: skips CEF's GPU process for every CEF/Dullahan instance, dropping one subprocess per instance. Viewer web UI doesn't need hardware-accelerated compositing. Applies to newly-created media instances."
+        width="280" />
       </panel>
 
       <panel
@@ -6383,7 +6504,7 @@
       </panel>
 
       <panel
-        name="card_empty1"
+        name="card_dxvk"
         follows="left|top"
         height="288"
         width="308"
@@ -6395,6 +6516,71 @@
         background_opaque="false"
         bg_alpha_image="Aurora_R2C2"
         >
+      <text
+       type="string"
+       follows="left|top"
+       height="18"
+       layout="topleft"
+       left="16"
+       top="12"
+       width="268"
+       font="SansSerifBold"
+       text_color="DrYellow">
+       DXVK (Vulkan Backend)
+      </text>
+
+      <text
+       left="20"
+       top_pad="8"
+       name="dxvk_warning"
+       follows="left|top"
+       layout="topleft"
+       height="48"
+       width="268"
+       font="SansSerifSmall"
+       text_color="DrYellow"
+       word_wrap="true">
+       EXPERIMENTAL: routes Direct3D 11 through DXVK's Vulkan translation layer instead of the native driver.
+      </text>
+
+      <check_box
+       left="20"
+       top_pad="14"
+       control_name="RenderUseDXVK"
+       height="20"
+       initial_value="false"
+       label="Use DXVK (Vulkan)"
+       layout="topleft"
+       name="use_dxvk"
+       tool_tip="Swaps the D3D11/DXGI backend for DXVK's bundled Vulkan translation layer. Off by default."
+       width="280" />
+
+      <text
+       name="requires_restart_dxvk"
+       follows="left|top"
+       layout="topleft"
+       height="18"
+       left="20"
+       top_pad="2"
+       width="268"
+       font="SansSerifSmall"
+       text_color="White_25">
+       (Requires restart)
+      </text>
+
+      <text
+       name="dxvk_popout_warning"
+       left="20"
+       top_pad="10"
+       follows="left|top"
+       layout="topleft"
+       height="34"
+       width="268"
+       font="SansSerifSmall"
+       text_color="DrYellow"
+       word_wrap="true">
+       ⚠ DX context popout windows are incompatible in Vulkan mode!
+      </text>
       </panel>
 
       <panel

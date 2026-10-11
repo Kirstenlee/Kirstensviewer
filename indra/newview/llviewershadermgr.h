@@ -278,6 +278,9 @@ extern LLHLSLShader         gSMAABlendWeightsProgram[4];
 extern LLHLSLShader         gSMAANeighborhoodBlendProgram[4];
 extern LLHLSLShader         gCASProgram;
 extern LLHLSLShader         gCASLegacyGammaProgram;
+extern LLHLSLShader         gFSR1RcasProgram;
+extern LLHLSLShader         gFSR1RcasLegacyGammaProgram;
+extern LLHLSLShader         gFSR1EasuProgram;
 extern LLHLSLShader         gDeferredPostNoDoFProgram;
 extern LLHLSLShader         gDeferredPostNoDoFNoiseProgram;
 extern LLHLSLShader         gKrlvCamDrawFogProgram; // KRLV_TOUCHPOINT: @camdrawmin/@camdrawmax/@camdrawalphamin/@camdrawalphamax/@camdrawcolor

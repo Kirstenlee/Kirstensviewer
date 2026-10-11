@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8" standalone="yes" ?>
 <floater
-  height="452"
+  height="500"
   layout="topleft"
   name="prefs_graphics_advanced"
   help_topic="Preferences_Graphics_Advanced"
@@ -1049,7 +1049,9 @@
       value="1"/>
   </combo_box>
   <!-- End of mirror settings -->
-  <!-- Sharpening Settings -->
+  <!-- Sharpening Settings (CAS only - AMD FSR1 scale/sharpening lives in
+       the S24 Engine Tweaks "AMD FidelityFX Super Resolution (FSR)" card,
+       a clear split between standard and advanced/kvtweaks settings) -->
   <slider
     control_name="RenderCASSharpness"
     decimal_digits="1"
@@ -1063,7 +1065,7 @@
     left="420"
     min_val="0.0"
     max_val="1.0"
-    name="RenderSharpness"
+    name="RenderCASSharpnessSlider"
     show_text="true"
     top_delta="20"
     width="260">
@@ -1143,7 +1145,7 @@
       layout="topleft"
       left="13"
       name="horiz_border"
-      top="415"
+      top="460"
       top_delta="5"
       width="774"/>
   <button

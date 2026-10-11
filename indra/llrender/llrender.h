@@ -51,6 +51,17 @@
 
 #ifdef DX_RENDER
 #include "DXTexture.h"
+
+// S24: binds an SRV via PSSetShaderResources inside a __try/__except guard -
+// catches EXCEPTION_ACCESS_VIOLATION from a dangling SRV (its texture
+// destroyed while still referenced) instead of taking the whole process
+// down. PSSetShaderResources returns void, so this is the only way to fail
+// gracefully at this call site. Shared across llrender.cpp/llrendertarget.cpp
+// rather than duplicated - see llrender.cpp's definition for the full
+// rationale. Returns false if the bind was caught and skipped - callers must
+// not update their "currently bound" cache state on a false return, or the
+// next frame will wrongly believe the bind already succeeded and never retry.
+bool safeBindSRV(struct ID3D11DeviceContext* context, U32 slot, struct ID3D11ShaderResourceView* srv);
 #endif
 
 class LLVertexBuffer;

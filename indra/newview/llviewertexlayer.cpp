@@ -205,9 +205,31 @@ bool LLViewerTexLayerSetBuffer::requestUpdateImmediate()
 
     if (needsRender())
     {
+        // S24 : unlike LLViewerDynamicTexture::updateAllInstances()'s own bake
+        // loop (which explicitly binds gPipeline.mBakeMap before rendering
+        // any bake buffer), this out-of-band synchronous path previously
+        // rendered into - and read back from - whatever render target the
+        // CALLER happened to have bound. gAgentAvatarp->updateComposites()
+        // reaches here directly from LLVisualParamHint::preRender() (every
+        // Edit Shape slider hint update), where that's
+        // gPipeline.mAuxillaryRT.deferredScreen (1024x1024, sized off the
+        // reflection probe resolution) - far smaller than this buffer's own
+        // mFullWidth/mFullHeight (SCRATCH_TEX_WIDTH/HEIGHT, 2048x2048).
+        // LLTexLayerSet::render()'s own "clear buffer area" step painted a
+        // same-size black rect over whatever was bound (corrupting the
+        // in-flight preview icon), and the postRender() readback then
+        // rejected the oversized copy outright (DXTexture.cpp's
+        // copySubImageFromFrameBuffer "does not fit the currently bound
+        // render target" warning) - so the real baked texture never updated
+        // either. Bind the real scratch target explicitly rather than
+        // trusting ambient state.
+        gPipeline.mBakeMap.bindTarget();
+        setBoundTarget(&gPipeline.mBakeMap);
         preRender(false);
         result = render();
         postRender(result);
+        setBoundTarget(nullptr);
+        gPipeline.mBakeMap.flush();
     }
 
     return result;

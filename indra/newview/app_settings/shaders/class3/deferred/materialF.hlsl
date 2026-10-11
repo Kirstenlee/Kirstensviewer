@@ -200,7 +200,7 @@ float3 calcPointLightOrSpotLight(float3 light_col, float3 npos, float3 diffuse, 
             // specular branch (gt/(nh*da)) when spec.a>0. Left unclamped, da crosses through zero
             // right at the light/dark terminator, producing garbage specular output exactly there
             // - visible as wrong/bleeding light right at the boundary on materials-shaded (PBR)
-            // content specifically (task #328).
+            // content specifically.
             da = max(0.0, da);
 
             float lit = 0.0f;

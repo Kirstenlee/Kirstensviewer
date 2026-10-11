@@ -6922,6 +6922,30 @@
       <integer>8</integer>
     </map>
 
+    <key>PluginInstancesUIMax</key>
+    <map>
+      <key>Comment</key>
+      <string>S24 - hard limit on the number of CEF/Dullahan plugin instances used by viewer UI (profile panels, search, marketplace, web/help browser, popout floaters). Unlike PluginInstancesTotal, this group was previously unbounded. The longest-idle non-visible/non-focused one is unloaded first when over the limit.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>U32</string>
+      <key>Value</key>
+      <integer>8</integer>
+    </map>
+
+    <key>PluginDisableGPU</key>
+    <map>
+      <key>Comment</key>
+      <string>S24 - disables CEF's GPU process for every CEF/Dullahan browser instance, dropping one subprocess per instance. Viewer web UI (profile/search/marketplace/help, media-on-a-prim web pages) is not GPU-compositing-dependent. On by default - takes effect for newly-created media instances.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>1</integer>
+    </map>
+
     <key>PluginUseReadThread</key>
     <map>
       <key>Comment</key>
@@ -7912,7 +7936,7 @@
     <key>RenderCompressTextures</key>
     <map>
       <key>Comment</key>
-      <string>S24 task #318: real-time BC7 GPU texture compression (OpenCL-based) - uploads textures uncompressed as usual, then upgrades them to BC7 in the background a few frames later to cut VRAM usage (~4:1 vs uncompressed) with minimal frame-time impact. EXPERIMENTAL, no restart required (takes effect for newly-loaded/re-decoded textures).</string>
+      <string>S24: real-time BC7 GPU texture compression (OpenCL-based) - uploads textures uncompressed, then upgrades them to BC7 in the background to cut VRAM usage (~4:1 vs uncompressed) with minimal frame-time impact. EXPERIMENTAL, no restart required (applies to newly-loaded/re-decoded textures).</string>
       <key>Persist</key>
       <integer>1</integer>
       <key>Type</key>
@@ -7972,7 +7996,7 @@
     <key>RenderLocalLightHoldTime</key>
     <map>
       <key>Comment</key>
-      <string>S24 DX_RENDER (task #165) - minimum real-time (seconds) a local light holds its last visibility state before it's allowed to flip, once it has passed RenderLocalLightFrustumCulling's per-frame test at least once. This is the whole-light counterpart to the per-pixel N.L smoothing already applied in multiPointLightF.hlsl - both exist because the underlying mechanism is the same class of bug (a hard, zero-margin binary test recomputed fresh every frame from camera-relative geometry pops visibly under continuous camera micro-motion at high frame rates, and looks perfectly stable when sampled rarely - e.g. an unfocused/throttled background window). Only does real work when RenderLocalLightFrustumCulling is enabled (off by default in this fork) - a deliberate pairing for lower-end systems: cull aggressively for real performance headroom, hold briefly to pay for it with no visible flicker cost. 0 = instant, original hard-cutoff behavior. Replaces the previous RenderLocalLightSmartCulling/PriorityInnerRadius/PriorityMidRadius settings, which were UI-only and never read by any render code. 0.30 confirmed (2026-08-17) as a sane default for a default midnight scene.</string>
+      <string>S24 DX_RENDER - minimum real-time (seconds) a local light holds its last visibility state before it's allowed to flip, once it has passed RenderLocalLightFrustumCulling's per-frame test at least once. Whole-light counterpart to the per-pixel N.L smoothing already applied in multiPointLightF.hlsl: a hard, zero-margin binary visibility test recomputed fresh every frame from camera-relative geometry pops visibly under continuous camera micro-motion at high frame rates. Only does real work when RenderLocalLightFrustumCulling is enabled (off by default in this fork) - a deliberate pairing for lower-end systems: cull aggressively for real performance headroom, hold briefly to pay for it with no visible flicker cost. 0 = instant, original hard-cutoff behavior. Replaces the previous RenderLocalLightSmartCulling/PriorityInnerRadius/PriorityMidRadius settings, which were UI-only and never read by any render code. 0.30 is a sane default for a default midnight scene.</string>
       <key>Persist</key>
       <integer>1</integer>
       <key>Type</key>
@@ -7994,7 +8018,7 @@
     <key>RenderLocalLightFrustumMargin</key>
     <map>
       <key>Comment</key>
-      <string>S24 DX_RENDER - extra world-space slack (meters) added to a local light's box radius ONLY for the CPU-side view-frustum visibility test (AABBInFrustumNoFarClip), not the light's actual drawn size. AABBInFrustumNoFarClip itself is confirmed correct (verified via a live per-light diagnostic, 2026-08-15) - it's a hard, zero-margin cutoff, so small lights right at the edge of the view cone pop in/out on the slightest camera pan. This is a blunt, brute-force mitigation (not a smooth fade/hysteresis system). An earlier 3m default was empirically confirmed (via a live A/B diagnostic comparing padded vs unpadded results per-light) to NEVER make culling more aggressive, only ever neutral or helpful - but 3m is negligible next to lights that are tens of degrees off-axis, which is most of the reported "popping" cases. At 32m (confirmed 2026-08-17 as a sane default for a default midnight scene, alongside RenderLocalLightHoldTime/RenderLocalLightMinRadius) this setting mostly stops being "frustum edge forgiveness" and starts meaning "nearby local lights are gated by distance/light-count budget (RenderFarClip/RenderLocalLightCount, both independent of this) rather than view direction," which is a deliberate tradeoff, not an oversight. 0 = original hard-cutoff behavior.</string>
+      <string>S24 DX_RENDER - extra world-space slack (meters) added to a local light's box radius ONLY for the CPU-side view-frustum visibility test (AABBInFrustumNoFarClip), not the light's actual drawn size. AABBInFrustumNoFarClip is a hard, zero-margin cutoff, so small lights right at the edge of the view cone pop in/out on the slightest camera pan. This is a blunt, brute-force mitigation (not a smooth fade/hysteresis system). A small (3m) default never makes culling more aggressive, only ever neutral or helpful - but 3m is negligible next to lights that are tens of degrees off-axis, which is most of the reported "popping" cases. At 32m (a sane default for a default midnight scene, alongside RenderLocalLightHoldTime/RenderLocalLightMinRadius) this setting mostly stops being "frustum edge forgiveness" and starts meaning "nearby local lights are gated by distance/light-count budget (RenderFarClip/RenderLocalLightCount, both independent of this) rather than view direction," which is a deliberate tradeoff, not an oversight. 0 = original hard-cutoff behavior.</string>
       <key>Persist</key>
       <integer>1</integer>
       <key>Type</key>
@@ -8005,7 +8029,7 @@
     <key>RenderLocalLightMinRadius</key>
     <map>
       <key>Comment</key>
-      <string>S24 DX_RENDER (task #165) - floors the EFFECTIVE radius used for local-light distance falloff/culling math to at least this many meters, regardless of the light's own authored radius. Small decorative local lights (walkway lanterns etc.) are commonly built with a tiny real radius (1-3m), meaning the camera previously had to be almost standing inside one before it contributed any light at all - confirmed via live testing. Does not change light color/intensity, only how far away it starts fading in. A light's TRUE radius still gates whether it's considered "on" at all (radius=0 stays off) - this only extends the reach of lights that are actually emitting. 0 = original behavior, no floor.</string>
+      <string>S24 DX_RENDER - floors the EFFECTIVE radius used for local-light distance falloff/culling math to at least this many meters, regardless of the light's own authored radius. Small decorative local lights (walkway lanterns etc.) are commonly built with a tiny real radius (1-3m), meaning the camera has to be almost standing inside one before it contributes any light at all. Does not change light color/intensity, only how far away it starts fading in. A light's TRUE radius still gates whether it's considered "on" at all (radius=0 stays off) - this only extends the reach of lights that are actually emitting. 0 = original behavior, no floor.</string>
       <key>Persist</key>
       <integer>1</integer>
       <key>Type</key>
@@ -8409,7 +8433,7 @@
     <key>RenderVRAMSoftPressureFraction</key>
     <map>
       <key>Comment</key>
-      <string>S24 (eviction tuning): fraction of the VRAM allocator's hard budget used as the "soft" target. Once a cut is genuinely needed (usage exceeds the hard budget), the allocator cuts down to this softer line instead of the hard line, leaving real headroom so the next burst of texture demand doesn't immediately re-trigger another cut. Live-tested 2026-08-29 with 16 animated avatars: 0.75-0.80 kept usage clear of the shared-GPU-memory cliff (committed GPU memory exceeding dedicated VRAM causes WDDM to back the overflow with system RAM over PCIe - catastrophic, not just a quality drop); 0.90 did not leave enough margin and crossed it.</string>
+      <string>S24 (eviction tuning): fraction of the VRAM allocator's hard budget used as the "soft" target. Once a cut is genuinely needed (usage exceeds the hard budget), the allocator cuts down to this softer line instead of the hard line, leaving real headroom so the next burst of texture demand doesn't immediately re-trigger another cut. 0.75-0.80 keeps usage clear of the shared-GPU-memory cliff (committed GPU memory exceeding dedicated VRAM causes WDDM to back the overflow with system RAM over PCIe - catastrophic, not just a quality drop); 0.90 does not leave enough margin.</string>
       <key>Persist</key>
       <integer>1</integer>
       <key>Type</key>
@@ -10154,7 +10178,7 @@
     <key>RenderReflectionProbeAmbientMultiplier</key>
     <map>
       <key>Comment</key>
-      <string>Ambient probe contribution multiplier (S24 Runtime Tweak). Local lights are additive on top of ambient, so a lower ambient floor lets local light contribution actually read visually instead of being washed out - 0.2 confirmed (2026-08-17) as a sane default for a default midnight scene alongside the local-light tuning below.</string>
+      <string>Ambient probe contribution multiplier (S24 Runtime Tweak). Local lights are additive on top of ambient, so a lower ambient floor lets local light contribution actually read visually instead of being washed out. 0.2 is a sane default for a default midnight scene, alongside the local-light tuning below.</string>
       <key>Persist</key>
       <integer>1</integer>
       <key>Type</key>
@@ -10338,16 +10362,16 @@
       <key>Value</key>
       <integer>14</integer>
     </map>
-    <key>RenderResolutionDivisor</key>
+    <key>RenderScalePercent</key>
     <map>
       <key>Comment</key>
-      <string>Divisor for rendering 3D scene at reduced resolution.</string>
+      <string>Percentage of native resolution to render the 3D scene at (100 = native, no scaling). Below 100, FSR1 EASU upscale engages automatically.</string>
       <key>Persist</key>
       <integer>1</integer>
       <key>Type</key>
-      <string>U32</string>
+      <string>F32</string>
       <key>Value</key>
-      <integer>1</integer>
+      <real>100.0</real>
     </map>
     <key>RenderShaderLightingMaxLevel</key>
     <map>
@@ -10960,6 +10984,17 @@
       <key>Value</key>
       <integer>0</integer>
     </map>
+    <key>RenderUseDXVK</key>
+    <map>
+      <key>Comment</key>
+      <string>Route Direct3D 11/DXGI through DXVK's Vulkan translation layer instead of the native driver, via the dxvkproxy d3d11.dll/dxgi.dll shipped in the install root. Compatibility workaround, not a performance feature. Off by default; takes effect on next restart.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
     <key>RenderUseTriStrips</key>
     <map>
       <key>Comment</key>
@@ -11042,7 +11077,7 @@
   <key>CollectUIImageVertexBuffers</key>
   <map>
     <key>Comment</key>
-    <string>When enabled, images will cache vertex buffers and reuse them. When disabled, the general cache will be used with significant hash-lookup overhead, but vertices are regenerated each frame so they are always up to date. S24 (task #224): defaults off - this cache was traced to a persistent hover-highlight flicker under DX_RENDER that survived four separate correctness fixes; the fallback path costs some hash-lookup overhead but is proven correct.</string>
+    <string>When enabled, images will cache vertex buffers and reuse them. When disabled, the general cache will be used with significant hash-lookup overhead, but vertices are regenerated each frame so they are always up to date. S24: defaults off - this cache causes a persistent hover-highlight flicker under DX_RENDER; the fallback path costs some hash-lookup overhead but is correct.</string>
     <key>Persist</key>
     <integer>0</integer>
     <key>Type</key>
@@ -11364,7 +11399,7 @@
     <key>RenderDXShaderCacheEnabled</key>
     <map>
       <key>Comment</key>
-      <string>S24 (DX_RENDER): enable the DX11 shader bytecode disk cache - content-hash-keyed, covering every DX_RENDER shader (DXShader::isCacheEligible() has had blanket coverage since r3753, no allowlist). Uses the shader_cache folder and the KVTweaks "Purge Shader Cache" button clears it too.</string>
+      <string>S24 (DX_RENDER): enable the DX11 shader bytecode disk cache - content-hash-keyed, covering every DX_RENDER shader with no allowlist (DXShader::isCacheEligible()). Uses the shader_cache folder and the KVTweaks "Purge Shader Cache" button clears it too.</string>
       <key>Persist</key>
       <integer>1</integer>
       <key>Type</key>
@@ -11376,6 +11411,17 @@
     <map>
       <key>Comment</key>
       <string>Level of sharpening to apply via Contrast Adaptive Sharpening (0.0(off) - 1.0)</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>0.4</real>
+    </map>
+    <key>RenderFSR1Sharpness</key>
+    <map>
+      <key>Comment</key>
+      <string>Level of sharpening to apply via AMD FSR1 RCAS (0.0(off) - 1.0)</string>
       <key>Persist</key>
       <integer>1</integer>
       <key>Type</key>
@@ -12930,7 +12976,7 @@
     <key>SelectionBeamWidth</key>
     <map>
       <key>Comment</key>
-      <string>S24 (task #309): width in screen pixels of the selection beam's line core, drawn as a real DX11 billboard quad since D3D11 has no glLineWidth() equivalent. Part of selection beam enhancement feature.</string>
+      <string>S24: width in screen pixels of the selection beam's line core, drawn as a real DX11 billboard quad since D3D11 has no glLineWidth() equivalent. Part of selection beam enhancement feature.</string>
       <key>Persist</key>
       <integer>1</integer>
       <key>Type</key>
@@ -18980,7 +19026,7 @@
     <key>RenderStarGlow</key>
     <map>
       <key>Comment</key>
-      <string>S24 (task #279 stage 2) - Star field glow. 0.0-1.0 scales point brightness (normal at 1.0). Above 1.0 no longer brightens the point itself - instead fades in a soft colored haze halo that widens as you push it further, up to 3.0.</string>
+      <string>S24 - Star field glow. 0.0-1.0 scales point brightness (normal at 1.0). Above 1.0 no longer brightens the point itself - instead fades in a soft colored haze halo that widens as you push it further, up to 3.0.</string>
       <key>Persist</key>
       <integer>1</integer>
       <key>Type</key>
@@ -18991,7 +19037,7 @@
     <key>RenderStarDensity</key>
     <map>
       <key>Comment</key>
-      <string>S24 (task #279 stage 2) - Fraction of the baked star field to show (0.0=nearly empty sky, 1.0=full field). Pure shader-side visibility cull, no geometry cost.</string>
+      <string>S24 - Fraction of the baked star field to show (0.0=nearly empty sky, 1.0=full field). Pure shader-side visibility cull, no geometry cost.</string>
       <key>Persist</key>
       <integer>1</integer>
       <key>Type</key>
@@ -19002,7 +19048,7 @@
     <key>RenderStarDustIntensity</key>
     <map>
       <key>Comment</key>
-      <string>S24 (task #279 stage 2) - Strength of the Milky-Way-style galactic dust band. 0.0=off, 1.0=normal, 2.0=very pronounced.</string>
+      <string>S24 - Strength of the Milky-Way-style galactic dust band. 0.0=off, 1.0=normal, 2.0=very pronounced.</string>
       <key>Persist</key>
       <integer>1</integer>
       <key>Type</key>
@@ -19013,7 +19059,7 @@
     <key>RenderNebulaEnabled</key>
     <map>
       <key>Comment</key>
-      <string>S24 (task #279 stage 2) - Enable soft colored nebula patches in the night sky.</string>
+      <string>S24 - Enable soft colored nebula patches in the night sky.</string>
       <key>Persist</key>
       <integer>1</integer>
       <key>Type</key>
@@ -19024,7 +19070,7 @@
     <key>RenderNebulaIntensity</key>
     <map>
       <key>Comment</key>
-      <string>S24 (task #279 stage 2) - Nebula patch brightness/saturation multiplier. 0.0=invisible, 1.0=normal, 2.0=vivid.</string>
+      <string>S24 - Nebula patch brightness/saturation multiplier. 0.0=invisible, 1.0=normal, 2.0=vivid.</string>
       <key>Persist</key>
       <integer>1</integer>
       <key>Type</key>
@@ -19035,7 +19081,7 @@
     <key>RenderShootingStars</key>
     <map>
       <key>Comment</key>
-      <string>S24 (task #279 stage 2) - Enable occasional shooting stars/meteors streaking across the sky.</string>
+      <string>S24 - Enable occasional shooting stars/meteors streaking across the sky.</string>
       <key>Persist</key>
       <integer>1</integer>
       <key>Type</key>
@@ -19046,7 +19092,7 @@
     <key>RenderCloudLayers</key>
     <map>
       <key>Comment</key>
-      <string>S24 (task #303) - Enable extra 2.5D cloud decks (a fast thin high-cirrus layer + a slow big cumulus layer) on top of the normal EEP cloud layer, for a sense of depth without full volumetric raymarching.</string>
+      <string>S24 - Enable extra 2.5D cloud decks (a fast thin high-cirrus layer + a slow big cumulus layer) on top of the normal EEP cloud layer, for a sense of depth without full volumetric raymarching.</string>
       <key>Persist</key>
       <integer>1</integer>
       <key>Type</key>
@@ -19057,7 +19103,7 @@
     <key>RenderCloudLayerOpacity</key>
     <map>
       <key>Comment</key>
-      <string>S24 (task #303) - Opacity multiplier for the extra cirrus/cumulus cloud decks. 0.0=invisible, 1.0=normal, 2.0=very pronounced.</string>
+      <string>S24 - Opacity multiplier for the extra cirrus/cumulus cloud decks. 0.0=invisible, 1.0=normal, 2.0=very pronounced.</string>
       <key>Persist</key>
       <integer>1</integer>
       <key>Type</key>
@@ -19068,7 +19114,7 @@
     <key>RenderCloudCirrusScale</key>
     <map>
       <key>Comment</key>
-      <string>S24 (task #303) - Cirrus deck cell-size ratio, relative to the active WindLight preset's own cloud scale. Lower=finer/wispier cells.</string>
+      <string>S24 - Cirrus deck cell-size ratio, relative to the active WindLight preset's own cloud scale. Lower=finer/wispier cells.</string>
       <key>Persist</key>
       <integer>1</integer>
       <key>Type</key>
@@ -19079,7 +19125,7 @@
     <key>RenderCloudCumulusScale</key>
     <map>
       <key>Comment</key>
-      <string>S24 (task #303) - Cumulus deck cell-size ratio, relative to the active WindLight preset's own cloud scale. Higher=bigger/puffier cells.</string>
+      <string>S24 - Cumulus deck cell-size ratio, relative to the active WindLight preset's own cloud scale. Higher=bigger/puffier cells.</string>
       <key>Persist</key>
       <integer>1</integer>
       <key>Type</key>
@@ -19090,7 +19136,7 @@
     <key>RenderCloudCirrusScrollMult</key>
     <map>
       <key>Comment</key>
-      <string>S24 (task #303) - Cirrus deck wind-scroll speed, relative to the base cloud layer's own scroll rate.</string>
+      <string>S24 - Cirrus deck wind-scroll speed, relative to the base cloud layer's own scroll rate.</string>
       <key>Persist</key>
       <integer>1</integer>
       <key>Type</key>
@@ -19101,7 +19147,7 @@
     <key>RenderCloudCumulusScrollMult</key>
     <map>
       <key>Comment</key>
-      <string>S24 (task #303) - Cumulus deck wind-scroll speed, relative to the base cloud layer's own scroll rate.</string>
+      <string>S24 - Cumulus deck wind-scroll speed, relative to the base cloud layer's own scroll rate.</string>
       <key>Persist</key>
       <integer>1</integer>
       <key>Type</key>
@@ -19112,7 +19158,7 @@
     <key>RenderCloudLayerHeightSkew</key>
     <map>
       <key>Comment</key>
-      <string>S24 (task #303) - "Cloud base" height stratification strength (0=flat, same apparent height as the base layer; 1=cirrus reads notably higher/cumulus notably lower). A visual skew trick, not true altitude - the WindLight dome recenters on the camera every frame.</string>
+      <string>S24 - "Cloud base" height stratification strength (0=flat, same apparent height as the base layer; 1=cirrus reads notably higher/cumulus notably lower). A visual skew trick, not true altitude - the WindLight dome recenters on the camera every frame.</string>
       <key>Persist</key>
       <integer>1</integer>
       <key>Type</key>
@@ -19123,7 +19169,7 @@
     <key>RenderSkyStyle</key>
     <map>
       <key>Comment</key>
-      <string>S24 (tasks #301/#302) - Night sky style: 0=Default, 1=Real Constellations (stylized approximations of well-known constellation shapes, not precise astronomical data), 2=Starry Night (Van Gogh-inspired blue/gold swirl). Requires restart - star placement is baked once at startup.</string>
+      <string>S24 - Night sky style: 0=Default, 1=Real Constellations (stylized approximations of well-known constellation shapes, not precise astronomical data), 2=Starry Night (Van Gogh-inspired blue/gold swirl). Requires restart - star placement is baked once at startup.</string>
       <key>Persist</key>
       <integer>1</integer>
       <key>Type</key>
@@ -19145,7 +19191,7 @@
     <key>RenderShootingStarFrequency</key>
     <map>
       <key>Comment</key>
-      <string>S24 (task #279 stage 2) - Average shooting stars per minute. 0=effectively off, 4=occasional, 20=meteor shower.</string>
+      <string>S24 - Average shooting stars per minute. 0=effectively off, 4=occasional, 20=meteor shower.</string>
       <key>Persist</key>
       <integer>1</integer>
       <key>Type</key>

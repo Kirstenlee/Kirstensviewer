@@ -137,7 +137,7 @@ bool DXDevice::initialize(ID3D11Device* existing_device, ID3D11DeviceContext* ex
         AGSDX11ExtensionParams extension_params = buildAgsExtensionParams();
         AGSDX11ReturnedParams returned_params = {};
         AGSReturnCode ags_hr = agsDriverExtensionsDX11_CreateDevice(sAgsContext, &creation_params, &extension_params, &returned_params);
-        if (ags_hr == AGS_SUCCESS)
+        if (ags_hr == AGS_SUCCESS && returned_params.pDevice && returned_params.pImmediateContext)
         {
             mDevice = returned_params.pDevice;
             mContext = returned_params.pImmediateContext;
@@ -148,8 +148,22 @@ bool DXDevice::initialize(ID3D11Device* existing_device, ID3D11DeviceContext* ex
         }
         else
         {
-            LL_WARNS("DXRender") << "agsDriverExtensionsDX11_CreateDevice failed, code=" << (int)ags_hr
-                << " - falling back to plain D3D11CreateDevice" << LL_ENDL;
+            // S24: AGS_SUCCESS with a null pDevice/pImmediateContext would
+            // violate AGS's own documented contract and has never been
+            // observed, but costs nothing to guard against - without this,
+            // a contract violation here would null-deref at the
+            // QueryInterface/queryAdapterLuid calls below instead of
+            // falling back to the plain creation path like any other
+            // AGS failure already does.
+            if (ags_hr == AGS_SUCCESS)
+            {
+                LL_WARNS("DXRender") << "agsDriverExtensionsDX11_CreateDevice reported success with a null device/context - falling back to plain D3D11CreateDevice" << LL_ENDL;
+            }
+            else
+            {
+                LL_WARNS("DXRender") << "agsDriverExtensionsDX11_CreateDevice failed, code=" << (int)ags_hr
+                    << " - falling back to plain D3D11CreateDevice" << LL_ENDL;
+            }
         }
     }
 

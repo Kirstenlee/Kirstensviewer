@@ -142,7 +142,6 @@ bool LLPipeline::WindLightUseAtmosShaders;
 bool LLPipeline::RenderDeferred;
 F32 LLPipeline::RenderDeferredSunWash;
 U32 LLPipeline::RenderFSAAType;
-U32 LLPipeline::RenderResolutionDivisor;
 bool LLPipeline::RenderUIBuffer;
 S32 LLPipeline::RenderShadowDetail;
 S32 LLPipeline::RenderShadowSplits;
@@ -248,14 +247,12 @@ const F32 BACKLIGHT_NIGHT_MAGNITUDE_OBJECT = 0.08f;
 // tinted materials) needs this HIGH - real alpha gradients in that 0.1-0.4 range are common
 // there, and dropping below 0.4 makes them always survive the dither gate too, i.e. cast a
 // full solid shadow regardless of how see-through they actually look.
-// HISTORY: this WAS a single shared constant, lowered 0.598->0.1 on 2026-09-12 to fix wispy
-// rigged hair casting too little shadow. That single change broke shadow casting for EVERY
-// piece of translucent world geometry instead (confirmed live: a glass/lattice roof went from
-// a crisp lattice-shadow + light-through-glass look to one solid opaque blob covering the whole
-// area) - live-confirmed fixed 2026-09-18 by splitting into two constants. If you're tempted to
-// "simplify" this back to one shared value: don't - re-lowering this one to fix hair will
-// reintroduce the exact regression described above for every glass/window/translucent object
-// in the world. Tune ALPHA_BLEND_CUTOFF_RIGGED below instead for anything hair/attachment-related.
+// A single shared constant low enough to fix wispy rigged hair shadow breaks shadow casting for
+// every piece of translucent world geometry instead (a solid opaque blob instead of a crisp
+// lattice shadow with light showing through glass). If you're tempted to "simplify" this back to
+// one shared value: don't - re-lowering this one to fix hair reintroduces that regression for
+// every glass/window/translucent object in the world. Tune ALPHA_BLEND_CUTOFF_RIGGED below
+// instead for anything hair/attachment-related.
 const F32 ALPHA_BLEND_CUTOFF = 0.598f;
 // Rigged-attachment-only alpha-blend cutoff, deliberately lower than the general
 // ALPHA_BLEND_CUTOFF above - mostly-translucent rigged content (hair, "wispy/volume" textures)
@@ -572,7 +569,6 @@ void LLPipeline::init()
 	// DEPRECATED -- connectRefreshCachedSettingsSafe("RenderDeferred");
 	connectRefreshCachedSettingsSafe("RenderDeferredSunWash");
 	connectRefreshCachedSettingsSafe("RenderFSAAType");
-	connectRefreshCachedSettingsSafe("RenderResolutionDivisor");
 	connectRefreshCachedSettingsSafe("RenderUIBuffer");
 	connectRefreshCachedSettingsSafe("RenderShadowDetail");
 	connectRefreshCachedSettingsSafe("RenderShadowSplits");
@@ -910,12 +906,16 @@ bool LLPipeline::allocateScreenBufferInternal(U32 resX, U32 resY)
 	mRT->width = resX;
 	mRT->height = resY;
 
-	U32 res_mod = RenderResolutionDivisor;
+	// S24: percentage-of-native render scale, replacing the old integer
+	// RenderResolutionDivisor. Below 100, DXPipeline::presentFinal() auto-
+	// engages FSR1 EASU upscale.
+	static LLCachedControl<F32> render_scale_pct(gSavedSettings, "RenderScalePercent", 100.0f);
+	F32 scale = llclamp(render_scale_pct(), 25.0f, 100.0f) / 100.0f;
 
-	if (res_mod > 1 && res_mod < resX && res_mod < resY)
+	if (scale < 1.0f)
 	{
-		resX /= res_mod;
-		resY /= res_mod;
+		resX = (U32)(resX * scale);
+		resY = (U32)(resY * scale);
 	}
 
 	S32 shadow_detail = RenderShadowDetail;
@@ -1115,7 +1115,6 @@ void LLPipeline::refreshCachedSettings()
 	RenderDeferred = true; // DEPRECATED -- gSavedSettings.getBOOL("RenderDeferred");
 	RenderDeferredSunWash = gSavedSettings.getF32("RenderDeferredSunWash");
 	RenderFSAAType = gSavedSettings.getU32("RenderFSAAType");
-	RenderResolutionDivisor = gSavedSettings.getU32("RenderResolutionDivisor");
 	RenderUIBuffer = gSavedSettings.getBOOL("RenderUIBuffer");
 	RenderShadowDetail = gSavedSettings.getS32("RenderShadowDetail");
 	RenderShadowSplits = gSavedSettings.getS32("RenderShadowSplits");
@@ -1263,6 +1262,12 @@ void LLPipeline::releaseGLBuffers()
 	mStereoEyeR.release();
 	mSSAOHistory.release();
 
+	// Same reasoning as mPostPingMap/mPostPongMap above: releasing it only in
+	// releaseScreenBuffers() (resize path) and not here (full teardown) leaves it holding live
+	// GPU resource references through D3D11 device destruction at viewer shutdown, causing a
+	// "device removed" crash at quit.
+	mFSR1EasuBuffer.release();
+
 	mFXAAMap.release();
 
 	mUIScreen.release();
@@ -1318,6 +1323,17 @@ void LLPipeline::releaseScreenBuffers()
 	mHeroProbeRT.screen.release();
 	mHeroProbeRT.deferredScreen.release();
 	mHeroProbeRT.deferredLight.release();
+
+	// Unlike mPostPingMap/mPostPongMap/mStereoEyeL/R above (which don't need
+	// releasing here because allocateScreenBufferInternal() unconditionally
+	// reallocates them every call), mFSR1EasuBuffer is sized off the real
+	// destination resolution, not resX/resY, so it's lazily allocated/resized
+	// separately in DXPipeline::presentFinal() and never touched by that
+	// function - must be released explicitly here instead, both so a stale
+	// mismatched-size buffer doesn't survive a resize, and so its VRAM is
+	// freed before doAllocateScreenBuffer()'s retry-at-smaller-resolution
+	// loop (which this is called from) has to compete for memory.
+	mFSR1EasuBuffer.release();
 }
 
 void LLPipeline::releaseSunShadowTarget(U32 index)
@@ -2845,16 +2861,11 @@ void LLPipeline::rebuildPriorityGroups(F32 max_dtime)
 
 	mGroupQ1Locked = true;
 
-	// S24: this used to unconditionally rebuild every group in the queue then clear() the whole
-	// container - same "no time budget" bug as updateGeom() above (see its comment for the full
-	// symptom this caused). A naive early-break here would be WRONG though: the old code cleared
-	// IN_BUILD_Q1 only inside the loop but wiped the whole container unconditionally afterward, so
-	// simply stopping partway and still clearing everything would silently drop unprocessed groups
-	// - they'd keep IN_BUILD_Q1 set forever (markRebuild() refuses to re-queue anything already
-	// flagged) and never get rebuilt again. Erase-as-we-go instead, so a group is only ever removed
-	// from the queue (and un-flagged) once it's actually been rebuilt; anything left when the
-	// budget runs out simply stays queued - still flagged, safe to pick up on the very next
-	// postSort() call next frame.
+	// S24: erases each group from the queue only once it has actually been rebuilt, rather than
+	// looping then clearing the whole container unconditionally afterward. A group left queued
+	// when the time budget runs out stays flagged (markRebuild() refuses to re-queue anything
+	// already flagged) and is picked up next postSort(); clearing the container regardless of how
+	// far the loop got would drop unprocessed groups and leave them flagged forever, never rebuilt.
 	mGroupSaveQ1 = mGroupQ1; // preserve the original "save until safe to unref" snapshot semantics
 
 	for (LLSpatialGroup::sg_vector_t::iterator iter = mGroupQ1.begin(); iter != mGroupQ1.end();)
@@ -2888,17 +2899,13 @@ void LLPipeline::updateGeom(F32 max_dtime)
 	// Reset per-frame metrics (currently only LLVOVolume uses this).
 	LLVOVolume::preUpdateGeom();
 
-	// S24: max_dtime was accepted but never checked - this loop unconditionally drained the
-	// ENTIRE priority rebuild queue every frame, no matter how large it got. Standing still that
-	// queue stays small (only genuinely-changed objects get queued), but turning a corner and
-	// revealing a room's worth of previously-occluded/off-screen geometry queues many drawables
-	// for rebuild in the same frame - and this function used to force-build all of them in that
-	// one frame instead of spreading the cost, producing a single deep frame-time spike (matches
-	// the "recovery is great, it's just the lows are too deep" symptom exactly). Now budgeted the
-	// same way its sibling createObjects() (above) already correctly was. A drawable not reached
-	// this call simply stays in mBuildQ1 (still IN_REBUILD_Q) and is picked up next frame - safe,
-	// since anything actually visible-and-dirty this frame still gets force-built by postSort()'s
-	// own cull-time rebuild pass regardless of whether this queue got to it first.
+	// S24: budgets this queue by max_dtime, the same way its sibling createObjects() (above) does,
+	// rather than draining the entire priority rebuild queue every frame regardless of size.
+	// Turning a corner and revealing a room's worth of previously-occluded geometry can queue many
+	// drawables for rebuild in the same frame; forcing all of them through in one frame produces a
+	// deep single-frame time spike. A drawable not reached this call stays in mBuildQ1 (still
+	// IN_REBUILD_Q) and is picked up next frame - safe, since anything visible-and-dirty this frame
+	// still gets force-built by postSort()'s own cull-time rebuild pass regardless.
 	LLTimer update_timer;
 
 	for (auto iter = mBuildQ1.begin(); iter != mBuildQ1.end();)
@@ -4228,10 +4235,9 @@ void LLPipeline::renderPhysicsDisplay()
 
 	LLGLEnable polygon_offset_line(GL_POLYGON_OFFSET_LINE);
 	gDX.setPolygonOffset(3.f, 3.f);
-	// S24: raw glLineWidth()/glPolygonMode() were unguarded in this function - found in a
-	// tree-wide stray-GL sweep (task #311). LLUI::setLineWidth() is the usual cross-backend
-	// replacement; glPolygonMode(GL_LINE/GL_FILL) below is removed outright - confirmed dead,
-	// no D3D11 per-draw wireframe equivalent exists yet.
+	// S24: glLineWidth() has no DX11 equivalent; LLUI::setLineWidth() is the no-op stand-in under
+	// DX_RENDER. glPolygonMode(GL_LINE/GL_FILL) below is removed outright: no D3D11 per-draw
+	// wireframe equivalent exists.
 	LLUI::setLineWidth(3.f);
 	LLGLEnable blend(GL_BLEND);
 	gDX.setSceneBlendType(LLRender::BT_ALPHA);
@@ -4334,13 +4340,10 @@ void LLPipeline::renderDebug()
 
 					if (!pathfindingConsole->isRenderWorld())
 					{
-						// S24: raw glClearColor()/glClear() were unguarded here - found while
-						// finishing task #311's glLineWidth sweep, same file. Guarded rather than
-						// converted (unlike the glLineWidth/glPolygonMode sites above) since there's
-						// no established cross-backend equivalent for this specific "clear to a
-						// user-configurable color" case yet - a real, if minor, residual visual gap:
-						// under DX_RENDER the pathfinding console's "hide world, navmesh only" mode
-						// no longer clears to PathfindingNavMeshClear first.
+						// S24: no cross-backend equivalent for this user-configurable clear color yet,
+						// so it's guarded out rather than converted. Under DX_RENDER the pathfinding
+						// console's "hide world, navmesh only" mode does not clear to
+						// PathfindingNavMeshClear first.
 						const LLColor4 clearColor = gSavedSettings.getColor4("PathfindingNavMeshClear");
 						gDX.setColorWriteMask(true, true);
 #ifndef DX_RENDER
@@ -4354,11 +4357,9 @@ void LLPipeline::renderDebug()
 					if (pathfindingConsole->isRenderNavMesh())
 					{
 						gDX.flush();
-						// S24: raw glLineWidth()/glPolygonMode() were unguarded here and below -
-						// found in a tree-wide stray-GL sweep (task #311). LLUI::setLineWidth() is
-						// the usual cross-backend replacement; glPolygonMode(GL_LINE/GL_FILL) is
-						// removed outright - confirmed dead, no D3D11 per-draw wireframe
-						// equivalent exists yet.
+						// S24: glLineWidth() has no DX11 equivalent; LLUI::setLineWidth() is the no-op
+						// stand-in under DX_RENDER. glPolygonMode(GL_LINE/GL_FILL) is removed outright:
+						// no D3D11 per-draw wireframe equivalent exists.
 						LLUI::setLineWidth(2.0f);
 						LLGLEnable cull(GL_CULL_FACE);
 						LLGLDisable blend(GL_BLEND);
@@ -4488,12 +4489,9 @@ void LLPipeline::renderDebug()
 								}
 
 								{ //draw visible wireframe as brighter, thicker and more opaque
-									// S24: raw glLineWidth()/glPolygonMode() were unguarded through
-									// this whole pathfinding-console block - found in a tree-wide
-									// stray-GL sweep (task #311). LLUI::setLineWidth() is the usual
-									// cross-backend replacement; glPolygonMode(GL_LINE/GL_FILL) is
-									// removed outright - confirmed dead, no D3D11 per-draw
-									// wireframe equivalent exists yet.
+									// S24: glLineWidth() has no DX11 equivalent; LLUI::setLineWidth() is
+									// the no-op stand-in under DX_RENDER. glPolygonMode(GL_LINE/GL_FILL)
+									// is removed outright: no D3D11 per-draw wireframe equivalent exists.
 									gDX.setPolygonOffset(offset, offset);
 									gPathfindingProgram.uniform1f(sAmbiance, 1.f);
 									gPathfindingProgram.uniform1f(sTint, 1.f);
@@ -4572,10 +4570,8 @@ void LLPipeline::renderDebug()
 
 		gDX.getTexUnit(0)->bind(LLViewerFetchedTexture::sWhiteImagep, true);
 
-		// S24: raw glPointSize() was unguarded here - found in the same tree-wide stray-GL sweep
-		// as task #311's glLineWidth() sites. No cross-backend wrapper exists yet for point size
-		// (D3D11 has no per-draw point size either - points always render 1px, same class of gap
-		// as line width), so it's just guarded like other raw calls elsewhere that don't have one built.
+		// S24: no cross-backend wrapper exists for point size; D3D11 has no per-draw point size
+		// either (points always render 1px), so it's guarded raw like other unwrapped calls.
 #ifndef DX_RENDER
 		glPointSize(8.f);
 #endif
@@ -4804,11 +4800,9 @@ void LLPipeline::renderDebug()
 				{
 					//render visible point cloud
 					gDX.flush();
-					// S24: raw glPointSize() was unguarded here - found in the same tree-wide
-					// stray-GL sweep as task #311's glLineWidth() sites. No cross-backend
-					// wrapper exists yet for point size (D3D11 has no per-draw point size
-					// either - points always render 1px, same class of gap as line width), so
-					// it's just guarded like other raw calls elsewhere that don't have one built.
+					// S24: no cross-backend wrapper exists for point size; D3D11 has no per-draw
+					// point size either (points always render 1px), so it's guarded raw like
+					// other unwrapped calls.
 #ifndef DX_RENDER
 					glPointSize(8.f);
 #endif
@@ -4915,19 +4909,14 @@ void LLPipeline::renderDebug()
 	gDX.flush();
 	gUIProgram.unbind();
 
-	// S24: restores the alpha write mask this function disabled above (line
-	// ~4535, "remove blending artifacts" for the debug-blips/pathfinding
-	// draws) - real, sticky D3D11 blend state (OMSetBlendState) that nothing
-	// else resets before this function's caller returns. renderDebug() had
-	// zero callers anywhere until it was wired live (task #304/r3808), so
-	// this leak was latent and harmless until then: DXPipeline::
-	// presentDeferredScreen()'s gamma/tonemap draw into mPostPingMap runs
-	// later the same frame with no write-mask reset of its own, so alpha
-	// (which carries the glow-luminance signal generateGlow() extracts from)
-	// silently never got written - the whole bloom effect going dark with no
-	// error anywhere. Same leaked-D3D11-state class of bug already
-	// documented and fixed once in this file at DXPipeline::
-	// renderGeomPostDeferred()'s own restore before this exact call.
+	// S24: restores the alpha write mask this function disabled above (line ~4535, "remove
+	// blending artifacts" for the debug-blips/pathfinding draws). This is real, sticky D3D11
+	// blend state (OMSetBlendState) that nothing else resets before this function's caller
+	// returns: DXPipeline::presentDeferredScreen()'s gamma/tonemap draw into mPostPingMap runs
+	// later the same frame with no write-mask reset of its own, so alpha (which carries the
+	// glow-luminance signal generateGlow() extracts from) silently never gets written and the
+	// whole bloom effect goes dark with no error anywhere. Same leaked-D3D11-state class of bug
+	// as DXPipeline::renderGeomPostDeferred()'s own restore before this exact call.
 	gDX.setColorWriteMask(true, true);
 }
 
@@ -7482,6 +7471,186 @@ void LLPipeline::applyCAS(LLRenderTarget* src, LLRenderTarget* dst)
 	dst->flush();
 }
 
+bool LLPipeline::applyFSR1Easu(LLRenderTarget* src, U32 dest_width, U32 dest_height)
+{
+	if (!gFSR1EasuProgram.isComplete())
+	{
+		return false;
+	}
+
+	gFSR1EasuProgram.bind();
+
+	{
+		// Hand-rolled FsrEasuCon() (ffx_fsr1.h) - same "not worth vendoring a
+		// second AMD portability file" call as applyFSR1Rcas()'s FsrRcasCon().
+		// Viewport-in-pixels and size-in-pixels are the same here (this
+		// project doesn't support an input texture larger than the viewport
+		// being upscaled, unlike AMD's dynamic-resolution-scaling case).
+		F32 input_w = (F32)src->getWidth();
+		F32 input_h = (F32)src->getHeight();
+		F32 output_w = (F32)dest_width;
+		F32 output_h = (F32)dest_height;
+
+		U32 con0[4], con1[4], con2[4], con3[4];
+
+		auto bits = [](F32 f) -> U32 {
+			U32 u;
+			static_assert(sizeof(U32) == sizeof(F32), "FSR1 EASU bit-reinterpret assumes 32-bit float/uint");
+			memcpy(&u, &f, sizeof(U32));
+			return u;
+		};
+
+		con0[0] = bits(input_w / output_w);
+		con0[1] = bits(input_h / output_h);
+		con0[2] = bits(0.5f * input_w / output_w - 0.5f);
+		con0[3] = bits(0.5f * input_h / output_h - 0.5f);
+
+		con1[0] = bits(1.0f / input_w);
+		con1[1] = bits(1.0f / input_h);
+		con1[2] = bits(1.0f / input_w);
+		con1[3] = bits(-1.0f / input_h);
+
+		con2[0] = bits(-1.0f / input_w);
+		con2[1] = bits(2.0f / input_h);
+		con2[2] = bits(1.0f / input_w);
+		con2[3] = bits(2.0f / input_h);
+
+		con3[0] = bits(0.0f);
+		con3[1] = bits(4.0f / input_h);
+		con3[2] = 0;
+		con3[3] = 0;
+
+		static LLStaticHashedString easu_const0("easu_const0");
+		static LLStaticHashedString easu_const1("easu_const1");
+		static LLStaticHashedString easu_const2("easu_const2");
+		static LLStaticHashedString easu_const3("easu_const3");
+		static LLStaticHashedString out_screen_res("out_screen_res");
+		gFSR1EasuProgram.uniform4uiv(easu_const0, 1, con0);
+		gFSR1EasuProgram.uniform4uiv(easu_const1, 1, con1);
+		gFSR1EasuProgram.uniform4uiv(easu_const2, 1, con2);
+		gFSR1EasuProgram.uniform4uiv(easu_const3, 1, con3);
+		// Lets the shader recover a viewport-relative output pixel position
+		// from vary_fragcoord (0-1) instead of SV_Position, which is in
+		// absolute backbuffer coordinates and would be offset by however much
+		// window chrome setPresentViewport() excluded - see EASUF.hlsl's
+		// main() comment.
+		gFSR1EasuProgram.uniform2f(out_screen_res, output_w, output_h);
+	}
+
+	gFSR1EasuProgram.bindTexture(LLShaderMgr::DEFERRED_DIFFUSE, src, false, LLTexUnit::TFO_BILINEAR);
+
+	gPipeline.mScreenTriangleVB->setBuffer();
+	gPipeline.mScreenTriangleVB->drawArrays(LLRender::TRIANGLES, 0, 3);
+
+	gFSR1EasuProgram.unbind();
+
+	return true;
+}
+
+void LLPipeline::applyFSR1Rcas(LLRenderTarget* src, LLRenderTarget* dst)
+{
+	static LLCachedControl<F32> rcas_sharpness(gSavedSettings, "RenderFSR1Sharpness", 0.4f);
+	if (rcas_sharpness == 0.0f || !gFSR1RcasProgram.isComplete() || !gFSR1RcasLegacyGammaProgram.isComplete())
+	{
+		gPipeline.copyRenderTarget(src, dst);
+		return;
+	}
+
+	LLHLSLShader* sharpen_shader = &gFSR1RcasProgram;
+	static LLCachedControl<bool> should_auto_adjust(gSavedSettings, "RenderSkyAutoAdjustLegacy", false);
+
+	LLSettingsSky::ptr_t psky = LLEnvironment::instance().getCurrentSky();
+	bool legacy_gamma = psky->getReflectionProbeAmbiance(should_auto_adjust) == 0.f;
+	if (legacy_gamma)
+	{
+		sharpen_shader = &gFSR1RcasLegacyGammaProgram;
+	}
+
+	// Bind setup:
+	dst->bindTarget();
+
+	sharpen_shader->bind();
+
+	{
+		static LLStaticHashedString rcas_param("rcas_param");
+
+		// Hand-rolled FsrRcasCon() (ffx_fsr1.h) - not worth vendoring a whole
+		// second AMD portability file for two lines of real math. AMD's
+		// convention is "stops of reduction from max sharpness" (0.0 =
+		// sharpest, higher = less sharp); RenderFSR1Sharpness instead follows
+		// RenderCASSharpness's own 0(off)-1(max) convention for UI
+		// consistency, mapped onto a 0-2 stops range here so the slider's max
+		// reaches FsrRcasCon's sharpest setting.
+		F32 stops = (1.0f - rcas_sharpness()) * 2.0f;
+		F32 linear_sharpness = exp2f(-stops);
+		U32 const0 = 0;
+		static_assert(sizeof(U32) == sizeof(F32), "FSR1 RCAS bit-reinterpret assumes 32-bit float/uint");
+		memcpy(&const0, &linear_sharpness, sizeof(U32));
+
+		U32 const1[4] = { const0, 0, 0, 0 };
+		sharpen_shader->uniform4uiv(rcas_param, 1, const1);
+
+		static LLStaticHashedString out_screen_res("out_screen_res");
+		sharpen_shader->uniform2f(out_screen_res, (F32)src->getWidth(), (F32)src->getHeight());
+	}
+
+	sharpen_shader->bindTexture(LLShaderMgr::DEFERRED_DIFFUSE, src, false, LLTexUnit::TFO_POINT);
+
+	// Draw
+	gPipeline.mScreenTriangleVB->setBuffer();
+	gPipeline.mScreenTriangleVB->drawArrays(LLRender::TRIANGLES, 0, 3);
+
+	sharpen_shader->unbind();
+
+	dst->flush();
+}
+
+bool LLPipeline::applyFSR1RcasToBoundTarget(LLRenderTarget* src)
+{
+	static LLCachedControl<F32> rcas_sharpness(gSavedSettings, "RenderFSR1Sharpness", 0.4f);
+	if (rcas_sharpness() == 0.0f || !gFSR1RcasProgram.isComplete() || !gFSR1RcasLegacyGammaProgram.isComplete())
+	{
+		return false;
+	}
+
+	LLHLSLShader* sharpen_shader = &gFSR1RcasProgram;
+	static LLCachedControl<bool> should_auto_adjust(gSavedSettings, "RenderSkyAutoAdjustLegacy", false);
+
+	LLSettingsSky::ptr_t psky = LLEnvironment::instance().getCurrentSky();
+	bool legacy_gamma = psky->getReflectionProbeAmbiance(should_auto_adjust) == 0.f;
+	if (legacy_gamma)
+	{
+		sharpen_shader = &gFSR1RcasLegacyGammaProgram;
+	}
+
+	sharpen_shader->bind();
+
+	{
+		static LLStaticHashedString rcas_param("rcas_param");
+
+		// Same hand-rolled FsrRcasCon() as applyFSR1Rcas() above.
+		F32 stops = (1.0f - rcas_sharpness()) * 2.0f;
+		F32 linear_sharpness = exp2f(-stops);
+		U32 const0 = 0;
+		memcpy(&const0, &linear_sharpness, sizeof(U32));
+
+		U32 const1[4] = { const0, 0, 0, 0 };
+		sharpen_shader->uniform4uiv(rcas_param, 1, const1);
+
+		static LLStaticHashedString out_screen_res("out_screen_res");
+		sharpen_shader->uniform2f(out_screen_res, (F32)src->getWidth(), (F32)src->getHeight());
+	}
+
+	sharpen_shader->bindTexture(LLShaderMgr::DEFERRED_DIFFUSE, src, false, LLTexUnit::TFO_POINT);
+
+	gPipeline.mScreenTriangleVB->setBuffer();
+	gPipeline.mScreenTriangleVB->drawArrays(LLRender::TRIANGLES, 0, 3);
+
+	sharpen_shader->unbind();
+
+	return true;
+}
+
 void LLPipeline::applyFXAA(LLRenderTarget* src, LLRenderTarget* dst)
 {
 	{
@@ -8131,9 +8300,7 @@ void updateEffectMask()
 void LLPipeline::renderFinalize()
 {
 	// The real post-fx chain (screen-space reflections, tonemapping, CAS,
-	// glow, DoF, FXAA/SMAA) lives in DXPipeline::presentDeferredScreen() -
-	// see its own comment for what's implemented (all of it, as of tasks
-	// #136-141/#228; this comment used to say "isn't converted yet", stale).
+	// glow, DoF, FXAA/SMAA) lives in DXPipeline::presentDeferredScreen().
 	//
 	// This must stay the one true "last thing before UI" present step - moving it earlier (e.g. right
 	// after renderDeferredLighting()) breaks the frame to solid black, because it's the only
@@ -10432,8 +10599,8 @@ void LLPipeline::generateSunShadow(LLCamera& camera)
 				0.0f, 0.0f, -0.5f, 0.0f,
 				0.5f, 0.5f, 0.5f, 1.0f);
 
-			// S24: do NOT pre-multiply proj[i+4] by ndcToTexture before using it to render (this
-			// used to happen here) - proj[i+4] is what gets fed to set_current_projection()/
+			// S24: do NOT pre-multiply proj[i+4] by ndcToTexture before using it to render -
+			// proj[i+4] is what gets fed to set_current_projection()/
 			// renderShadow() below, and LLRender::syncMatrices()'s DX branch (llrender.cpp)
 			// unconditionally applies its own kGLtoDXDepthRemap to whatever the current projection
 			// is when the shadow geometry actually draws. Baking ndcToTexture in here meant the
@@ -10549,12 +10716,6 @@ void LLPipeline::renderRiggedGroups(LLRenderPass* pass, U32 type, bool texture)
 
 void LLPipeline::profileAvatar(LLVOAvatar* avatar, bool profile_attachments)
 {
-	if (gGLManager.mGLVersion < 3.25f)
-	{ // profiling requires GL 3.3 or later
-		return;
-	}
-
-
 	// don't continue to profile an avatar that is known to be too slow
 	llassert(!avatar->isTooSlow());
 

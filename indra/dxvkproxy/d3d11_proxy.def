@@ -1,0 +1,4 @@
+LIBRARY d3d11
+EXPORTS
+    D3D11CreateDevice=ProxyD3D11CreateDevice
+    D3D11CreateDeviceAndSwapChain=ProxyD3D11CreateDeviceAndSwapChain

@@ -81,6 +81,9 @@
 using namespace boost::placeholders;
 #include <boost/signals2.hpp>
 
+#include <aclapi.h>
+#include <sddl.h>
+
 extern bool gCubeSnapshot;
 
 // *TODO: Consider enabling mipmaps (they have been disabled for a long time). Likely has a significant performance impact for tiled/high texture repeat media. Mip generation in a shader may also be an option if necessary.
@@ -91,6 +94,102 @@ constexpr S32 MEDIA_INSTANCES_MIN_LIMIT = 6; // 4 'permanent' floaters plus rese
 void init_threaded_picker_load_dialog(LLPluginClassMedia* plugin, LLFilePicker::ELoadFilter filter, bool get_multiple)
 {
 	(new LLMediaFilePicker(plugin, filter, get_multiple))->getFile(); // will delete itself
+}
+
+// S24: CEF cache/cookie folder keys currently reserved by a live instance.
+// Keyed by hostname so the SAME site always reuses the SAME on-disk cookie jar across
+// restarts; this set only prevents two SIMULTANEOUSLY-running instances of the same
+// hostname from colliding (Dullahan requires a unique root_cache_path per running
+// instance) - reserved in initializePlugin(), released in destroyMediaSource().
+static std::set<std::string> sLiveCefCacheKeys;
+
+// S24: turn a hostname into a safe Windows folder name and resolve it
+// against any other currently-live instance of the same hostname. Lowercased
+// first - hostnames are themselves case-insensitive, and NTFS folder names are
+// case-insensitive/case-preserving, so "Example.com" and "example.com" must
+// collapse to one key or they'd collide on disk while looking distinct here.
+static std::string reserveCefCacheKey(const std::string& raw_hostname)
+{
+	std::string sanitized;
+	for (char c : raw_hostname)
+	{
+		c = (char)std::tolower((unsigned char)c);
+		sanitized += (std::isalnum((unsigned char)c) || c == '.' || c == '-') ? c : '_';
+	}
+	if (sanitized.empty())
+	{
+		return std::string();
+	}
+
+	// S24: DNS allows hostnames up to ~253 chars; combined with
+	// the cache root and CEF's own nested Default\Network\Cookies profile
+	// layout, an unbounded hostname can exceed Windows' MAX_PATH and make
+	// CEF's cache/cookie writes for that one site fail silently - the same
+	// symptom this whole fix exists to prevent, just triggered by length
+	// instead of the old purge bug. Truncate long hostnames and append a
+	// short hash so two different long hostnames sharing a truncated prefix
+	// still get distinct keys.
+	constexpr size_t kMaxKeyLen = 80;
+	if (sanitized.size() > kMaxKeyLen)
+	{
+		size_t hash = std::hash<std::string>{}(sanitized);
+		char hash_suffix[9];
+		snprintf(hash_suffix, sizeof(hash_suffix), "%08zx", hash & 0xFFFFFFFFu);
+		sanitized = sanitized.substr(0, kMaxKeyLen - 9) + "_" + hash_suffix;
+	}
+
+	std::string candidate = sanitized;
+	S32 suffix = 2;
+	while (sLiveCefCacheKeys.count(candidate))
+	{
+		candidate = sanitized + "_" + std::to_string(suffix++);
+	}
+	sLiveCefCacheKeys.insert(candidate);
+	return candidate;
+}
+
+// S24: CEF's actual disk cache/cookie writes happen in a sandboxed,
+// low-integrity child process (Chromium's network service). A folder created by
+// our own, normal-integrity process has no mandatory label, which Windows treats
+// as Medium - and under Mandatory Integrity Control, a Low-integrity process is
+// blocked from writing to a Medium-or-higher-labeled object, silently and with
+// no error anywhere. This is exactly the mechanism Chrome/IE use for their own
+// sandboxed folders (e.g. `icacls /setintegritylevel Low`) - labeling the folder
+// itself "Low" integrity via the official AddMandatoryAce/SetNamedSecurityInfo
+// APIs lets a Low-integrity process write to it, same as everything else can.
+static void setLowIntegrityLabel(const std::string& path)
+{
+	PSID low_sid = nullptr;
+	if (!ConvertStringSidToSidW(L"S-1-16-4096", &low_sid))
+	{
+		LL_WARNS("Media") << "ConvertStringSidToSidW failed for CEF cache integrity label: " << path << LL_ENDL;
+		return;
+	}
+
+	DWORD acl_size = sizeof(ACL) + sizeof(SYSTEM_MANDATORY_LABEL_ACE) + GetLengthSid(low_sid);
+	std::vector<BYTE> acl_buffer(acl_size);
+	PACL sacl = reinterpret_cast<PACL>(acl_buffer.data());
+
+	// Inheritable so CEF's own subfolders/files it creates underneath (Cache,
+	// Cookies, etc.) pick up the same "Low" label automatically.
+	DWORD inherit_flags = CONTAINER_INHERIT_ACE | OBJECT_INHERIT_ACE;
+	if (InitializeAcl(sacl, acl_size, ACL_REVISION)
+		&& AddMandatoryAce(sacl, ACL_REVISION, inherit_flags, SYSTEM_MANDATORY_LABEL_NO_WRITE_UP, low_sid))
+	{
+		std::wstring wide_path = ll_convert_string_to_wide(path);
+		DWORD result = SetNamedSecurityInfoW(const_cast<LPWSTR>(wide_path.c_str()), SE_FILE_OBJECT,
+			LABEL_SECURITY_INFORMATION, nullptr, nullptr, nullptr, sacl);
+		if (result != ERROR_SUCCESS)
+		{
+			LL_WARNS("Media") << "SetNamedSecurityInfoW failed (" << result << ") for CEF cache dir: " << path << LL_ENDL;
+		}
+	}
+	else
+	{
+		LL_WARNS("Media") << "Failed to build mandatory-label ACL for CEF cache dir: " << path << LL_ENDL;
+	}
+
+	FreeSid(low_sid);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -694,14 +793,25 @@ void LLViewerMedia::updateMedia(void* dummy_arg)
 	int impl_count_total = 0;
 	int impl_count_interest_low = 0;
 	int impl_count_interest_normal = 0;
+	int impl_count_ui = 0;
 
 	std::vector<LLViewerMediaImpl*> proximity_order;
+	std::vector<LLViewerMediaImpl*> ui_eviction_candidates;
 
 	static LLCachedControl<bool> inworld_media_enabled(gSavedSettings, "AudioStreamingMedia", true);
 	static LLCachedControl<bool> inworld_audio_enabled(gSavedSettings, "AudioStreamingMusic", true);
 	static LLCachedControl<U32> max_normal(gSavedSettings, "PluginInstancesNormal", 2);
 	static LLCachedControl<U32> max_low(gSavedSettings, "PluginInstancesLow", 4);
 	static LLCachedControl<F32> max_cpu(gSavedSettings, "PluginInstancesCPULimit", 0.9f);
+	// S24: PluginInstancesTotal/Normal/Low/CPULimit above only ever gate non-UI
+	// (getUsedInUI()==false) impls - every UI-triggered CEF/Dullahan instance
+	// (profile panels, search, marketplace, web/help browser floaters, popout
+	// floaters) is unconditionally exempt, so it was possible to accumulate an
+	// unbounded number of live SLPlugin.exe + CEF subprocess trees just by
+	// opening and hiding UI web content. PluginInstancesUIMax caps that
+	// separately, evicting (PRIORITY_UNLOADED, tears down the plugin process)
+	// the longest-idle non-visible/non-focused UI impls first.
+	static LLCachedControl<U32> max_ui_instances(gSavedSettings, "PluginInstancesUIMax", 8);
 	// Setting max_cpu to 0.0 disables CPU usage checking.
 	bool check_cpu_usage = (max_cpu != 0.0f);
 
@@ -853,6 +963,21 @@ void LLViewerMedia::updateMedia(void* dummy_arg)
 			{
 				// Any impls used in the UI should not be in the proximity list.
 				pimpl->mProximity = -1;
+
+				if (pimpl->hasFocus() || pimpl->getVisible())
+				{
+					pimpl->mUIIdleTimer.reset();
+				}
+
+				if (new_priority != LLPluginClassMedia::PRIORITY_UNLOADED)
+				{
+					impl_count_ui++;
+
+					if (!pimpl->hasFocus() && !pimpl->getVisible())
+					{
+						ui_eviction_candidates.push_back(pimpl);
+					}
+				}
 			}
 			else
 			{
@@ -887,6 +1012,27 @@ void LLViewerMedia::updateMedia(void* dummy_arg)
 			// NOTE: Don't use getMediaInterest() here.  We want the pixel area, not the total media interest,
 			//      so that we match up with the calculation done in LLMediaDataClient.
 			sLowestLoadableImplInterest = object->getPixelArea();
+		}
+	}
+
+	// S24: evict the longest-idle UI-used impls over PluginInstancesUIMax. Never
+	// touches a focused or currently-visible one - ui_eviction_candidates only
+	// ever contains impls that are neither, so this can't disrupt anything the
+	// user is actually looking at.
+	if (impl_count_ui > (int)max_ui_instances && !ui_eviction_candidates.empty())
+	{
+		int excess = impl_count_ui - (int)max_ui_instances;
+		std::partial_sort(ui_eviction_candidates.begin(),
+			ui_eviction_candidates.begin() + llmin((size_t)excess, ui_eviction_candidates.size()),
+			ui_eviction_candidates.end(),
+			[](const LLViewerMediaImpl* a, const LLViewerMediaImpl* b)
+			{
+				return a->mUIIdleTimer.getElapsedTimeF32() > b->mUIIdleTimer.getElapsedTimeF32();
+			});
+
+		for (int i = 0; i < excess && i < (int)ui_eviction_candidates.size(); ++i)
+		{
+			ui_eviction_candidates[i]->setPriority(LLPluginClassMedia::PRIORITY_UNLOADED);
 		}
 	}
 
@@ -1753,6 +1899,14 @@ void LLViewerMediaImpl::destroyMediaSource()
 			mMediaSource = NULL; // shared pointer
 		}
 	}
+
+	// S24: release this instance's reserved CEF cache/cookie key, if it had
+	// one, so a future instance of the same hostname can reuse it.
+	if (!mCefCacheKey.empty())
+	{
+		sLiveCefCacheKeys.erase(mCefCacheKey);
+		mCefCacheKey.clear();
+	}
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////
@@ -1763,7 +1917,7 @@ void LLViewerMediaImpl::setMediaType(const std::string& media_type)
 
 //////////////////////////////////////////////////////////////////////////////////////////
 /*static*/
-LLPluginClassMedia* LLViewerMediaImpl::newSourceFromMediaType(std::string media_type, LLPluginClassMediaOwner* owner /* may be NULL */, S32 default_width, S32 default_height, F64 zoom_factor, const std::string target, bool clean_browser)
+LLPluginClassMedia* LLViewerMediaImpl::newSourceFromMediaType(std::string media_type, LLPluginClassMediaOwner* owner /* may be NULL */, S32 default_width, S32 default_height, F64 zoom_factor, const std::string target, bool clean_browser, const std::string& cef_cache_key)
 {
 	if (gNonInteractive)
 	{
@@ -1801,6 +1955,45 @@ LLPluginClassMedia* LLViewerMediaImpl::newSourceFromMediaType(std::string media_
 
 		std::string user_data_path_cache = gDirUtilp->getCacheDir(false);
 		user_data_path_cache += gDirUtilp->getDirDelimiter();
+
+		if (plugin_basename == "media_plugin_cef")
+		{
+			// S24: each concurrently-running CEF instance needs its own cache
+			// directory (Dullahan's requirement, to avoid two instances
+			// fighting over the same on-disk cookie/cache SQLite files).
+			// initializePlugin() keys this by username+hostname when the
+			// target URL is already known, so the same site reliably reuses
+			// the same folder across restarts; falls back to a counter only
+			// when no hostname is known yet (the spare-browser pre-warm path).
+			static S32 next_cef_cache_fallback_slot = 0;
+			std::string key = !cef_cache_key.empty() ? cef_cache_key
+				: ("fallback_" + std::to_string(next_cef_cache_fallback_slot++));
+
+			user_data_path_cache += "cef_cache";
+			user_data_path_cache += gDirUtilp->getDirDelimiter();
+
+			// S24: create both directory levels explicitly rather than rely on
+			// CEF/Dullahan to create its own cache_path on init - mkdir()
+			// treats "already exists" as success, so this is safe every time.
+			if (LLFile::mkdir(user_data_path_cache) != 0 && !LLFile::isdir(user_data_path_cache))
+			{
+				LL_WARNS("Media") << "Failed to create CEF cache parent dir: " << user_data_path_cache << LL_ENDL;
+			}
+
+			user_data_path_cache += key;
+			user_data_path_cache += gDirUtilp->getDirDelimiter();
+			if (LLFile::mkdir(user_data_path_cache) != 0 && !LLFile::isdir(user_data_path_cache))
+			{
+				LL_WARNS("Media") << "Failed to create CEF cache slot dir: " << user_data_path_cache << LL_ENDL;
+			}
+
+			// S24: a plain mkdir() has no mandatory integrity label,
+			// which CEF's sandboxed network-service process can't write to (see
+			// setLowIntegrityLabel()'s comment). Label it "Low" so CEF's own
+			// cache/cookie writes - and everything it creates underneath - actually
+			// land on disk instead of silently going nowhere.
+			setLowIntegrityLabel(user_data_path_cache);
+		}
 
 		// See if the plugin executable exists
 		llstat s;
@@ -1841,6 +2034,10 @@ LLPluginClassMedia* LLViewerMediaImpl::newSourceFromMediaType(std::string media_
 
 			bool media_plugin_debugging_enabled = gSavedSettings.getBOOL("MediaPluginDebugging");
 			media_source->enableMediaPluginDebugging(media_plugin_debugging_enabled || clean_browser);
+
+			// S24: most viewer UI web content doesn't need CEF's GPU process -
+			// skipping it drops one subprocess per CEF/Dullahan instance.
+			media_source->setDisableGPU(gSavedSettings.getBOOL("PluginDisableGPU"));
 
 			// need to set agent string here before instance created
 			media_source->setBrowserUserAgent(LLViewerMedia::getInstance()->getCurrentUserAgent());
@@ -1909,7 +2106,22 @@ bool LLViewerMediaImpl::initializePlugin(const std::string& media_type)
 	// Save the MIME type that really caused the plugin to load
 	mCurrentMimeType = mMimeType;
 
-	LLPluginClassMedia* media_source = newSourceFromMediaType(mMimeType, this, mMediaWidth, mMediaHeight, mZoomFactor, mTarget, mCleanBrowser);
+	// S24: key this instance's CEF cache/cookie folder by username+hostname
+	// (when we already know the target URL) so the same
+	// site reliably reuses the same on-disk cookie jar across restarts, and
+	// different OS users on a shared install get separate cache contexts
+	// rather than silently sharing one (the simplified set_user_data_path
+	// handler in media_plugin_cef.cpp no longer does this itself). mMediaURL
+	// can be empty here (e.g. the mime-type-only init path) -
+	// reserveCefCacheKey() just isn't called then, and
+	// newSourceFromMediaType() falls back to its own per-launch counter.
+	mCefCacheKey.clear();
+	if (!mMediaURL.empty())
+	{
+		mCefCacheKey = reserveCefCacheKey(gDirUtilp->getUserName() + "_" + LLURI(mMediaURL).hostName());
+	}
+
+	LLPluginClassMedia* media_source = newSourceFromMediaType(mMimeType, this, mMediaWidth, mMediaHeight, mZoomFactor, mTarget, mCleanBrowser, mCefCacheKey);
 
 	if (media_source)
 	{

@@ -38,6 +38,7 @@
 #include "llrendertarget.h"
 #include "llhlslshader.h"
 #include "llviewercontrol.h"
+#include "llappviewer.h"
 #include "llviewertexture.h" // KRLV_TOUCHPOINT-adjacent: LLViewerTextureManager::getFetchedTexture(), @camtextures
 #include "llenvironment.h"
 #include "krlvcamera.h" // KRLV_TOUCHPOINT: @camdrawmin/@camdrawmax/@camdrawalphamin/@camdrawalphamax/@camdrawcolor
@@ -140,29 +141,27 @@ namespace
     // pools haven't had their own DX_RENDER branch written yet.
     //
     // POOL_GRASS/POOL_ALPHA_MASK (LLDrawPoolGrass/DXAlphaDrawPoolMask) got
-    // their DX_RENDER branch in stage 5 phase 5.1 (see dxdrawpoolsimple.cpp)
-    // and hook renderDeferred() same as POOL_SIMPLE, so they fit this
-    // existing loop as-is. The other 3 pools converted in that same phase
-    // (POOL_FULLBRIGHT_ALPHA_MASK/POOL_FULLBRIGHT/POOL_GLOW) hook
-    // renderPostDeferred() instead - deliberately NOT whitelisted here yet,
-    // since renderGeomPostDeferred()'s loop (with its atmospherics/water-
-    // haze/exclusion interleaving) doesn't have a DXPipeline equivalent
-    // yet - that's later stage-5 orchestration work, not this phase.
+    // a DX_RENDER branch (see dxdrawpoolsimple.cpp) and hook
+    // renderDeferred() same as POOL_SIMPLE, so they fit this existing loop
+    // as-is. The other 3 pools (POOL_FULLBRIGHT_ALPHA_MASK/POOL_FULLBRIGHT/
+    // POOL_GLOW) hook renderPostDeferred() instead - deliberately NOT
+    // whitelisted here, since renderGeomPostDeferred()'s loop (with its
+    // atmospherics/water-haze/exclusion interleaving) has no DXPipeline
+    // equivalent yet.
     //
-    // POOL_TREE (LLDrawPoolTree) needed zero code changes for phase 5.2 -
-    // its renderDeferred()/beginDeferredPass()/endDeferredPass() already
-    // route entirely through already-DX-safe primitives (see the stage 5
-    // hitlist memory). POOL_MATERIALS (LLDrawPoolMaterials) got a real
-    // DX_RENDER branch that phase too (see dxdrawpoolmaterials.cpp) - both
-    // hook renderDeferred(), so both fit this loop as-is.
+    // POOL_TREE (LLDrawPoolTree) needed zero code changes - its
+    // renderDeferred()/beginDeferredPass()/endDeferredPass() already route
+    // entirely through already-DX-safe primitives. POOL_MATERIALS
+    // (LLDrawPoolMaterials) got a real DX_RENDER branch too (see
+    // dxdrawpoolmaterials.cpp) - both hook renderDeferred(), so both fit
+    // this loop as-is.
     //
     // POOL_WATEREXCLUSION (LLDrawPoolWaterExclusion) also needed zero code
-    // changes that phase, but is deliberately NOT whitelisted here: its
-    // render() isn't called from this loop at all - it's invoked from
+    // changes, but is deliberately NOT whitelisted here: its render() isn't
+    // called from this loop at all - it's invoked from
     // LLPipeline::doWaterExclusionMask(), itself called from
     // renderGeomPostDeferred()'s loop, which has no DXPipeline equivalent
-    // yet (same "not wired up yet" situation as the 3 post-deferred pools
-    // above).
+    // yet (same situation as the 3 post-deferred pools above).
     //
     // POOL_GLTF_PBR/POOL_GLTF_PBR_ALPHA_MASK (LLDrawPoolGLTFPBR) has a real
     // DX_RENDER branch (see lldrawpoolpbropaque.cpp) -
@@ -173,56 +172,51 @@ namespace
     // DX-safe) but explicitly skips LL::GLTFSceneManager::instance().
     // render()/renderOpaque() - that's a SEPARATE mechanism, only used for
     // imported .glb/.gltf SCENE-FILE assets specifically, which calls
-    // glBindBufferBase() (a GLEW-style fn ptr null under DX_RENDER - see
-    // project_dxrender_open_issues memory, task "Fix GLTFSceneManager UBO
-    // binding", still open). Rigged variant skipped, same limitation as
-    // every other pool (DXVertexLayout has no skinned attributes yet).
+    // glBindBufferBase() (a GLEW-style fn ptr, null under DX_RENDER - calling
+    // it would crash). Rigged variant skipped, same limitation as every
+    // other pool (DXVertexLayout has no skinned attributes yet).
     // renderPostDeferred() (the glow pass) is NOT whitelisted here - same
-    // "no post-deferred orchestration loop yet" situation as the other
-    // post-deferred pools noted above.
+    // situation as the other post-deferred pools noted above.
     //
-    // POOL_BUMP (LLDrawPoolBump) got a real DX_RENDER branch in stage 5
-    // phase 5.3 (see dxdrawpoolbump.cpp, a staged full duplicate like
-    // dxdrawpoolalpha) - its renderDeferred() hooks the deferred pass, so
-    // it fits this loop as-is (beginDeferredPass()/endDeferredPass() are
-    // unoverridden no-ops from the LLDrawPool base). DXAlphaDrawPool and
-    // LLDrawPoolBump's own renderPostDeferred() are NOT whitelisted -
-    // same "no orchestration loop yet" situation as the other post-
-    // deferred pools above.
+    // POOL_BUMP (LLDrawPoolBump) got a real DX_RENDER branch (see
+    // dxdrawpoolbump.cpp, a staged full duplicate like dxdrawpoolalpha) -
+    // its renderDeferred() hooks the deferred pass, so it fits this loop
+    // as-is (beginDeferredPass()/endDeferredPass() are unoverridden no-ops
+    // from the LLDrawPool base). DXAlphaDrawPool and LLDrawPoolBump's own
+    // renderPostDeferred() are NOT whitelisted - same situation as the
+    // other post-deferred pools above.
     //
-    // POOL_WL_SKY (LLDrawPoolWLSky) got a real DX_RENDER branch in stage 5
-    // phase 5.4a (see dxdrawpoolwlsky.cpp, same staged-full-duplicate
-    // pattern) - it DOES override beginDeferredPass()/endDeferredPass()
-    // (unlike POOL_BUMP), both of which also got their own thin redirect,
-    // so it fits this loop as-is too. POOL_SKY (LLDrawPoolSky) needed no
-    // work at all - every method on that class is an empty, `// DEPRECATED`
-    // stub already, GL or DX - so it's not listed here (nothing to whitelist,
-    // it draws nothing regardless of backend).
+    // POOL_WL_SKY (LLDrawPoolWLSky) got a real DX_RENDER branch (see
+    // dxdrawpoolwlsky.cpp, same staged-full-duplicate pattern) - it DOES
+    // override beginDeferredPass()/endDeferredPass() (unlike POOL_BUMP),
+    // both of which also got their own thin redirect, so it fits this loop
+    // as-is too. POOL_SKY (LLDrawPoolSky) needed no work at all - every
+    // method on that class is an empty, `// DEPRECATED` stub already, GL or
+    // DX - so it's not listed here (nothing to whitelist, it draws nothing
+    // regardless of backend).
     //
-    // POOL_TERRAIN (LLDrawPoolTerrain) got a real DX_RENDER branch in stage
-    // 5 phase 5.4b (see dxdrawpoolterrain.cpp) - same shape as POOL_WL_SKY,
+    // POOL_TERRAIN (LLDrawPoolTerrain) got a real DX_RENDER branch (see
+    // dxdrawpoolterrain.cpp) - same shape as POOL_WL_SKY,
     // beginDeferredPass()/endDeferredPass()/renderDeferred() all redirected
     // together (endDeferredPass() unbinds a file-static shader pointer set
     // by renderDeferred(), so all three had to move together - see
     // dxdrawpoolterrain.h class comment). Fits this loop as-is.
     //
-    // POOL_AVATAR (LLDrawPoolAvatar) got surgical in-place guards in stage 5
-    // phase 5.10c, NOT a dedicated dx*.cpp full duplicate like the pools
-    // above - unlike Terrain/WLSky/Alpha/Bump (which synthesize their own
-    // geometry and own their render logic directly), LLDrawPoolAvatar is a
-    // thin dispatcher into a *different* class (LLVOAvatar's renderSkinned()/
-    // renderRigid()/renderImpostor()) whose actual GL calls were confirmed
-    // (not assumed) to already be safe by composition once the shared
-    // primitives (LLTexUnit::bind(), LLVertexBuffer, uniform4fv's
-    // AVATAR_MATRIX handling) were fixed in phases 5.5/5.10a/5.10b - nothing
-    // pool-side needed a fresh DX-native reimplementation. Also, its shader-
-    // hand-off statics (sRenderingSkinned etc.) are file-static, not class
-    // members, so a separate dxdrawpoolavatar.cpp couldn't reach them anyway.
-    // Scoped to pass 2 ("skinned", the avatar body mesh) only - passes 0
-    // (impostor) and 1 (rigid/eyeballs) are deliberately deferred, same
-    // umbrella as rigged mesh-attachment skinning (see the hitlist memory's
-    // phase 5.10 system-1-vs-system-2 note). Fits this loop as-is since
-    // begin/endDeferredPass() now no-op for the deferred passes.
+    // POOL_AVATAR (LLDrawPoolAvatar) got surgical in-place guards, not a
+    // dedicated dx*.cpp full duplicate like the pools above - unlike
+    // Terrain/WLSky/Alpha/Bump (which synthesize their own geometry and own
+    // their render logic directly), LLDrawPoolAvatar is a thin dispatcher
+    // into a *different* class (LLVOAvatar's renderSkinned()/
+    // renderRigid()/renderImpostor()) whose actual GL calls are safe by
+    // composition once the shared primitives (LLTexUnit::bind(),
+    // LLVertexBuffer, uniform4fv's AVATAR_MATRIX handling) are fixed -
+    // nothing pool-side needed a fresh DX-native reimplementation. Also,
+    // its shader-hand-off statics (sRenderingSkinned etc.) are file-static,
+    // not class members, so a separate dxdrawpoolavatar.cpp couldn't reach
+    // them anyway. Scoped to pass 2 ("skinned", the avatar body mesh) only -
+    // passes 0 (impostor) and 1 (rigid/eyeballs) are deliberately deferred,
+    // same umbrella as rigged mesh-attachment skinning. Fits this loop
+    // as-is since begin/endDeferredPass() now no-op for the deferred passes.
     // POOL_CONTROL_AV (Animesh) constructs the exact same LLDrawPoolAvatar
     // class (see LLDrawPool::createPool()'s shared
     // `case POOL_AVATAR: case POOL_CONTROL_AV:` branch) - the pass-keyed
@@ -428,16 +422,14 @@ void DXPipeline::renderGeomPostDeferred(LLPipeline& pipeline, LLCamera& camera)
     // Draws only isConvertedPostDeferredPool()'s whitelist; GL's grouped-by-
     // type begin/render/end structure is not ported (this loop does
     // begin/render/end once per pool instance instead - harmless).
-    // renderDebug() is now called at the tail below (Develop > Render
-    // Metadata's 22 checkboxes - see LLPipeline::renderDebug()'s own
-    // comment, task #304's consolidation pass) - it had ZERO callers
-    // anywhere in the engine (confirmed by grep, not assumed), so every one
-    // of those checkboxes toggled real state that nothing ever read.
+    // renderDebug() is called at the tail below (Develop > Render Metadata's
+    // 22 checkboxes - see LLPipeline::renderDebug()'s own comment); it has
+    // zero callers anywhere in the engine, so every one of those checkboxes
+    // toggles state that nothing reads.
     // renderHighlights() (build/edit-mode selection outline) is a separate,
-    // still-unwired gap noted here but NOT fixed by this pass - it isn't
-    // driven by any Render Metadata checkbox. Wireframe mode (gUseWireframe)
-    // IS now wired - see the matching bracket in renderGeomDeferred() above
-    // and the one at the tail of this function.
+    // still-unwired gap - it isn't driven by any Render Metadata checkbox.
+    // Wireframe mode (gUseWireframe) is wired - see the matching bracket in
+    // renderGeomDeferred() above and the one at the tail of this function.
     //
     // doAtmospherics()/doWaterHaze() contain no raw GL calls, so mirroring
     // GL's ordering was enough: atmospherics fires before POOL_WATER when
@@ -578,8 +570,7 @@ namespace
     // below - deliberately NOT registered with LLViewerShaderMgr (this
     // isn't part of the real ~150-shader set, just a one-off blit used
     // only by this stopgap). Draws a fullscreen triangle purely from
-    // SV_VertexID (no vertex buffer needed), matching the same technique
-    // proven in stage 3 milestone 2's vertical-slice verification.
+    // SV_VertexID (no vertex buffer needed).
     const char* const kPresentVS =
         "struct VSOut { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; };\n"
         "VSOut main(uint vid : SV_VertexID)\n"
@@ -747,6 +738,96 @@ namespace
         LLRenderTarget::sBoundTarget = nullptr;
         setPresentViewport();
 
+        // FSR1 EASU upscale - takes over this final blit entirely when
+        // active. AMD's own FSR1 pipeline is EASU followed by RCAS, not EASU
+        // alone (EASU's spatial resample alone is visibly softer) - so EASU
+        // writes into mFSR1EasuBuffer (full dest resolution) first, then
+        // RCAS reads that and writes the real backbuffer. No stereo
+        // (dest != nullptr) support yet - returned above before reaching here.
+        // S24: EASU upscale auto-engages purely off RenderScalePercent < 100,
+        // independent of the CAS/RenderFSR1Sharpness same-resolution sliders
+        // below. Also drops out of EASU (and
+        // the mFSR1EasuBuffer bind/flush/rebind sequence it uniquely does,
+        // including LLRenderTarget::flush()'s rarely-exercised no-previous-
+        // target fallback) for the last few frames before shutdown, once the
+        // user has actually confirmed quit (LLAppViewer::requestQuit(), which
+        // this reflects, runs right after the Ares shutdown console in the
+        // normal quit flow - exactly the window a real device-lost crash was
+        // once tied to here, though that crash's actual root cause turned
+        // out to be unrelated - see LLViewerWindow::rawSnapshot()'s oversized-
+        // snapshot guard). RenderScalePercent itself is untouched, so this is
+        // purely a runtime skip - EASU comes back automatically next launch.
+        // Falls through to the same safe path EASU's own shader-incomplete
+        // case already uses.
+        static LLCachedControl<F32> render_scale_pct(gSavedSettings, "RenderScalePercent", 100.0f);
+        bool upscaling_active = render_scale_pct() < 100.0f;
+        bool quitting = LLAppViewer::instance() && LLAppViewer::instance()->quitRequested();
+        if (upscaling_active && gViewerWindow && !quitting)
+        {
+            LLRect world_rect = gViewerWindow->getWorldViewRectRaw();
+            U32 dest_w = (U32)world_rect.getWidth();
+            U32 dest_h = (U32)world_rect.getHeight();
+            if (dest_w > 0 && dest_h > 0)
+            {
+                if (!pipeline.mFSR1EasuBuffer.isComplete() ||
+                    pipeline.mFSR1EasuBuffer.getWidth() != dest_w ||
+                    pipeline.mFSR1EasuBuffer.getHeight() != dest_h)
+                {
+                    pipeline.mFSR1EasuBuffer.allocate(dest_w, dest_h, GL_RGBA);
+                }
+
+                // S24: allocate() can fail (e.g. the device is already in
+                // trouble from a resize/teardown race at quit time, or
+                // genuinely out of memory) - LLRenderTarget::bindTarget() has
+                // no completeness check of its own and will unconditionally
+                // drive a bind call for whatever's there, invalid texture or
+                // not. Check isComplete() before touching it at all, same as
+                // "EASU itself failed" below falls through to the normal path
+                // rather than using a broken target.
+                bool easu_ok = false;
+                if (pipeline.mFSR1EasuBuffer.isComplete())
+                {
+                    pipeline.mFSR1EasuBuffer.bindTarget();
+                    easu_ok = pipeline.applyFSR1Easu(src, dest_w, dest_h);
+                    pipeline.mFSR1EasuBuffer.flush();
+                }
+
+                if (easu_ok)
+                {
+                    // Re-bind the real destination for the final write - EASU
+                    // wrote into mFSR1EasuBuffer above, not here.
+                    DXRenderTarget::bindSwapChainBackBuffer();
+                    LLRenderTarget::sBoundTarget = nullptr;
+                    setPresentViewport();
+
+                    if (!pipeline.applyFSR1RcasToBoundTarget(&pipeline.mFSR1EasuBuffer))
+                    {
+                        // RCAS off (RenderFSR1Sharpness==0) or unavailable -
+                        // EASU's result still needs to reach the screen.
+                        // Reuse the existing noise-dither blit, sourced from
+                        // mFSR1EasuBuffer instead of the original low-res src.
+                        if (gDeferredPostNoDoFNoiseProgram.isComplete())
+                        {
+                            gDeferredPostNoDoFNoiseProgram.bind();
+                            gDeferredPostNoDoFNoiseProgram.bindTexture(LLShaderMgr::DEFERRED_DIFFUSE, &pipeline.mFSR1EasuBuffer);
+                            gDeferredPostNoDoFNoiseProgram.bindTexture(LLShaderMgr::DEFERRED_DEPTH, &pipeline.mRT->deferredScreen, true);
+                            gDeferredPostNoDoFNoiseProgram.uniform2f(LLShaderMgr::DEFERRED_SCREEN_RES,
+                                (F32)dest_w, (F32)dest_h);
+
+                            LLGLDepthTest depth_test(GL_TRUE, GL_TRUE, GL_ALWAYS);
+                            pipeline.mScreenTriangleVB->setBuffer();
+                            pipeline.mScreenTriangleVB->drawArrays(LLRender::TRIANGLES, 0, 3);
+
+                            gDeferredPostNoDoFNoiseProgram.unbind();
+                        }
+                    }
+                    return;
+                }
+                // EASU itself failed (shader incomplete) - fall through to
+                // the normal path below.
+            }
+        }
+
         if (gDeferredPostNoDoFNoiseProgram.isComplete())
         {
             gDeferredPostNoDoFNoiseProgram.bind();
@@ -786,13 +867,24 @@ namespace
         UINT offset = 0;
         ctx->IASetVertexBuffers(0, 1, &null_vb, &stride, &offset);
 
-        ctx->PSSetShaderResources(0, 1, &srv);
-        ctx->PSSetSamplers(0, 1, &sampler);
+        // S24: this chokepoint was missed by the r4165 dangling-SRV safety-net
+        // sweep - wrap it like every other PSSetShaderResources call site.
+        // src's SRV is only guaranteed valid on the bound (non-fallback) path
+        // above; a device-lost/resize race hitting src at the exact moment
+        // this placeholder fallback fires is the scenario the net exists for.
+        // Still call unbind() below even on a caught exception - the raw
+        // VSSetShader/PSSetShader calls above already ran, so sCurBoundShaderPtr
+        // bookkeeping needs resetting regardless of whether the SRV bind itself
+        // landed.
+        bool srv_bind_ok = safeBindSRV(ctx, 0, srv);
+        if (srv_bind_ok)
+        {
+            ctx->PSSetSamplers(0, 1, &sampler);
+            ctx->Draw(3, 0);
 
-        ctx->Draw(3, 0);
-
-        ID3D11ShaderResourceView* null_srv = nullptr;
-        ctx->PSSetShaderResources(0, 1, &null_srv);
+            ID3D11ShaderResourceView* null_srv = nullptr;
+            ctx->PSSetShaderResources(0, 1, &null_srv);
+        }
 
         // This fallback binds its placeholder VS/PS via raw
         // ctx->VSSetShader()/PSSetShader() calls, bypassing
@@ -1080,14 +1172,35 @@ void DXPipeline::presentDeferredScreen(LLPipeline& pipeline)
                 }
             }
 
-            // Contrast Adaptive Sharpening (Advanced Graphics > Sharpening). Last
-            // pass before present; its input is the display-encoded output of the
-            // gamma step, so CASF.hlsl does not re-encode.
+            // Sharpening. Last pass before present; its input is the
+            // display-encoded output of the gamma step, so neither CASF.hlsl
+            // nor RCASF.hlsl re-encode. CAS (standard Advanced Graphics
+            // Preferences) and FSR1 RCAS (S24 Engine Tweaks > AMD FSR card)
+            // are two independent sliders now, not a shared method selector -
+            // FSR takes priority when both are non-zero (same guardrail
+            // intent as before: running both back-to-back would just
+            // double-sharpen). Skipped entirely whenever upscaling is active
+            // (RenderScalePercent < 100), since presentFinal()'s EASU+RCAS
+            // chain is already the complete final-polish stage for that case -
+            // letting this ALSO run first would sharpen the low-res source,
+            // then EASU would upscale that already-sharpened result, then
+            // RCAS would sharpen it again, compounding into an over-sharpened,
+            // not just redundant, result.
+            static LLCachedControl<F32> rcas_sharpness(gSavedSettings, "RenderFSR1Sharpness", 0.4f);
             static LLCachedControl<F32> cas_sharpness(gSavedSettings, "RenderCASSharpness", 0.4f);
-            if (cas_sharpness() > 0.f)
+            static LLCachedControl<F32> sharpen_render_scale_pct(gSavedSettings, "RenderScalePercent", 100.0f);
+            if (sharpen_render_scale_pct() >= 100.0f)
             {
-                pipeline.applyCAS(sourceBuffer, targetBuffer);
-                std::swap(sourceBuffer, targetBuffer);
+                if (rcas_sharpness() > 0.f)
+                {
+                    pipeline.applyFSR1Rcas(sourceBuffer, targetBuffer);
+                    std::swap(sourceBuffer, targetBuffer);
+                }
+                else if (cas_sharpness() > 0.f)
+                {
+                    pipeline.applyCAS(sourceBuffer, targetBuffer);
+                    std::swap(sourceBuffer, targetBuffer);
+                }
             }
 
             gLastCompositedPostTarget = sourceBuffer;
@@ -1737,9 +1850,8 @@ void DXPipeline::renderDeferredLighting(LLPipeline& pipeline)
                 static LLCachedControl<F32> min_light_radius(gSavedSettings, "RenderLocalLightMinRadius", 15.f);
                 F32 s = llmax(raw_radius, (F32)min_light_radius);
 
-                // RenderLocalLightFrustumCulling now also gates this
-                // render-loop's own AABB check (previously only gated
-                // calcNearbyLights()'s candidate-list prefilter);
+                // RenderLocalLightFrustumCulling gates both this render-loop's
+                // AABB check and calcNearbyLights()'s candidate-list prefilter;
                 // RenderLocalLightFrustumMargin adds a spatial margin to it.
                 // Both are real, working knobs.
                 static LLCachedControl<bool> frustum_culling_enabled(gSavedSettings, "RenderLocalLightFrustumCulling", true);

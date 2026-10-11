@@ -104,9 +104,8 @@ float4 main(PSInput IN) : SV_Target
         // S24: position-distance alone isn't enough to reject a back-face sample on thin
         // geometry - a point just behind a thin wall can land within pointplanedist_tolerance_pow2
         // of the front face's own position even though it's a different surface facing the
-        // opposite way, leaking that surface's shadow/AO value through (task #328's Proj 3
-        // edge-on bleed-through). Require the sample's normal to roughly face the same way as
-        // the center pixel's too.
+        // opposite way, leaking that surface's shadow/AO value through. Require the sample's
+        // normal to roughly face the same way as the center pixel's too.
         float3 sampnorm = getNorm(samptc).xyz;
         if (d * d <= pointplanedist_tolerance_pow2 && dot(norm.xyz, sampnorm) > 0.0)
         {

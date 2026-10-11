@@ -192,6 +192,47 @@ namespace
         return sWhiteDXTexture.getSRV();
     }
 }
+
+// S24: split out of safeBindSRV below - LL_WARNS_ONCE constructs a C++
+// stream object with a non-trivial destructor, and MSVC's C2712 forbids
+// __try in any function that also needs C++ object unwinding, even inside
+// the __except block. Keeping safeBindSRV itself free of anything but POD
+// locals sidesteps that entirely.
+static void logDanglingSRV(U32 slot)
+{
+    LL_WARNS_ONCE("DXRender") << "Caught access violation binding a shader resource view to slot "
+        << slot << " - its texture was likely destroyed while still referenced. Skipped this bind." << LL_ENDL;
+}
+
+// S24: PSSetShaderResources() returns void - unlike the rest of this
+// codebase's HRESULT-checked D3D11 calls, there's no error code to
+// inspect, and no GL-style glGetError() equivalent either. A dangling
+// SRV (its underlying texture destroyed while this code still held a
+// raw pointer to it - e.g. DXTexture::scaleDown() releasing the old SRV
+// mid-frame) crashes inside the D3D11 runtime's own internal hazard
+// validation rather than failing gracefully. Only swallows
+// EXCEPTION_ACCESS_VIOLATION specifically - anything else (stack
+// overflow, etc.) still propagates normally. This is a last-resort net
+// for a known failure shape, not a fix for the dangling-resource bug
+// itself. Declared in llrender.h - shared with llrendertarget.cpp, not
+// duplicated.
+bool safeBindSRV(ID3D11DeviceContext* context, U32 slot, ID3D11ShaderResourceView* srv)
+{
+    bool caught = false;
+    __try
+    {
+        context->PSSetShaderResources(slot, 1, &srv);
+    }
+    __except (GetExceptionCode() == EXCEPTION_ACCESS_VIOLATION ? EXCEPTION_EXECUTE_HANDLER : EXCEPTION_CONTINUE_SEARCH)
+    {
+        caught = true;
+    }
+    if (caught)
+    {
+        logDanglingSRV(slot);
+    }
+    return !caught;
+}
 #endif
 
 void LLTexUnit::enable(eTextureType type)
@@ -223,7 +264,11 @@ void LLTexUnit::bindFast(LLTexture* texture)
 	// shader doing `vertex_color * diffuseMap.Sample(...)` would render
 	// fully transparent instead of unaffected - fall back to
 	// getWhiteTextureSRV() rather than binding null.
-	LLImageDX* gl_tex = texture->getGLTexture();
+	//
+	// S24: texture itself can be null (a face/material lost its texture
+	// reference between batch-build and draw submission) - treat exactly
+	// like the gl_tex==nullptr case below rather than crashing here.
+	LLImageDX* gl_tex = texture ? texture->getGLTexture() : nullptr;
 	// S24: captured BEFORE mCurrBoundImageDX is overwritten below - needed
 	// in addition to the mCurrDXSRV comparison, see srv_changed below.
 	bool bound_image_changed = (mCurrBoundImageDX != gl_tex);
@@ -259,10 +304,7 @@ void LLTexUnit::bindFast(LLTexture* texture)
 		// Also flush gDXUIBatch's separate pending queue - same
 		// missing-flush hazard, different queue.
 		gDXUIBatch.flushPending();
-		mCurrDXSRV = (void*)srv;
 	}
-	mDXSRVGeneration = DXStateCache::getRTVGeneration();
-	mCurrBoundImageDX = gl_tex;
 	// gl_tex==nullptr has no address-mode/filter-option to read - TAM_WRAP/
 	// TFO_BILINEAR are this codebase's established default (matches
 	// LLViewerTexture's own default construction elsewhere).
@@ -270,9 +312,22 @@ void LLTexUnit::bindFast(LLTexture* texture)
 		? DXSampler::getOrCreate((int)gl_tex->getAddressMode(), (int)gl_tex->getFilteringOption())
 		: DXSampler::getOrCreate((int)LLTexUnit::TAM_WRAP, (int)LLTexUnit::TFO_BILINEAR);
 
+	bool bind_ok = true;
 	if (srv_changed || generation_stale)
 	{
-		gDXDevice.getContext()->PSSetShaderResources(mIndex, 1, &srv);
+		// S24: only commit the new SRV/generation/image-identity cache state
+		// if the bind actually succeeded - on a caught dangling-SRV
+		// exception, leave the old state in place so srv_changed/
+		// generation_stale stay true next frame and this retries, instead
+		// of silently believing a failed bind succeeded and never trying
+		// again.
+		bind_ok = safeBindSRV(gDXDevice.getContext(), mIndex, srv);
+	}
+	if (bind_ok)
+	{
+		if (srv_changed) mCurrDXSRV = (void*)srv;
+		mDXSRVGeneration = DXStateCache::getRTVGeneration();
+		mCurrBoundImageDX = gl_tex;
 	}
 	// S24: D3D11 caps pixel-shader sampler slots at 16 (s0-s15) but SRV/
 	// texture slots go up to 128 - skip the now-meaningless PSSetSamplers
@@ -328,15 +383,20 @@ bool LLTexUnit::bind(LLImageDX* texture, bool for_rendering, bool forceBind, S32
 		// with the NEW texture instead of the one they were queued under.
 		gDX.flush();
 		gDXUIBatch.flushPending();
-		mCurrDXSRV = (void*)srv;
 	}
-	mDXSRVGeneration = DXStateCache::getRTVGeneration();
-	mCurrBoundImageDX = texture;
 	ID3D11SamplerState* sampler = DXSampler::getOrCreate(
 		(int)texture->getAddressMode(), (int)texture->getFilteringOption());
+	bool bind_ok = true;
 	if (srv_changed || generation_stale)
 	{
-		gDXDevice.getContext()->PSSetShaderResources(mIndex, 1, &srv);
+		// S24: see bindFast()'s matching comment - only commit on success.
+		bind_ok = safeBindSRV(gDXDevice.getContext(), mIndex, srv);
+	}
+	if (bind_ok)
+	{
+		if (srv_changed) mCurrDXSRV = (void*)srv;
+		mDXSRVGeneration = DXStateCache::getRTVGeneration();
+		mCurrBoundImageDX = texture;
 	}
 	if (mIndex < 16 && mCurrDXSampler != (void*)sampler) // S24: sampler slots cap at 16, SRV slots don't - see bindFast()
 	{
@@ -363,15 +423,20 @@ bool LLTexUnit::bind(DXCubeMap* cubeMap)
 	{
 		gDX.flush();
 		gDXUIBatch.flushPending();
-		mCurrDXSRV = (void*)srv;
 	}
-	mDXSRVGeneration = DXStateCache::getRTVGeneration();
 	// CLAMP + TRILINEAR - avoids seams at face edges - and the full mip
 	// chain DXCubeTexture::create() always generates.
 	ID3D11SamplerState* sampler = DXSampler::getOrCreate(2, 2);
+	bool bind_ok = true;
 	if (srv_changed || generation_stale)
 	{
-		gDXDevice.getContext()->PSSetShaderResources(mIndex, 1, &srv);
+		// S24: see bindFast()'s matching comment - only commit on success.
+		bind_ok = safeBindSRV(gDXDevice.getContext(), mIndex, srv);
+	}
+	if (bind_ok)
+	{
+		if (srv_changed) mCurrDXSRV = (void*)srv;
+		mDXSRVGeneration = DXStateCache::getRTVGeneration();
 	}
 	if (mIndex < 16 && mCurrDXSampler != (void*)sampler) // S24: sampler slots cap at 16, SRV slots don't - see bindFast()
 	{
@@ -399,13 +464,18 @@ bool LLTexUnit::bind(DXCubeTexture* cubeTexture)
 	{
 		gDX.flush();
 		gDXUIBatch.flushPending();
-		mCurrDXSRV = (void*)srv;
 	}
-	mDXSRVGeneration = DXStateCache::getRTVGeneration();
 	ID3D11SamplerState* sampler = DXSampler::getOrCreate(2, 2);
+	bool bind_ok = true;
 	if (srv_changed || generation_stale)
 	{
-		gDXDevice.getContext()->PSSetShaderResources(mIndex, 1, &srv);
+		// S24: see bindFast()'s matching comment - only commit on success.
+		bind_ok = safeBindSRV(gDXDevice.getContext(), mIndex, srv);
+	}
+	if (bind_ok)
+	{
+		if (srv_changed) mCurrDXSRV = (void*)srv;
+		mDXSRVGeneration = DXStateCache::getRTVGeneration();
 	}
 	if (mIndex < 16 && mCurrDXSampler != (void*)sampler)
 	{
@@ -443,9 +513,7 @@ bool LLTexUnit::bindCubeArraySRV(void* srv_ptr)
 	{
 		gDX.flush();
 		gDXUIBatch.flushPending();
-		mCurrDXSRV = (void*)srv;
 	}
-	mDXSRVGeneration = DXStateCache::getRTVGeneration();
 	// CLAMP + TRILINEAR - same convention as bind(DXCubeMap*) above (avoids
 	// seams at face edges, full mip chain always generated).
 	ID3D11SamplerState* sampler = DXSampler::getOrCreate(2, 2);
@@ -454,7 +522,16 @@ bool LLTexUnit::bindCubeArraySRV(void* srv_ptr)
 	// reused by a new array view, so a skipped write could leave the slot empty or on an old layout.
 	(void)srv_changed;
 	(void)generation_stale;
-	gDXDevice.getContext()->PSSetShaderResources(mIndex, 1, &srv);
+	// S24: only commit mCurrDXSRV/mDXSRVGeneration on success - see
+	// bindFast()'s matching comment. This call is unconditional regardless,
+	// so a caught exception doesn't strand this specific function (it never
+	// skips), but a wrongly-committed value here could still make an
+	// unrelated bind() elsewhere wrongly think its own SRV hasn't changed.
+	if (safeBindSRV(gDXDevice.getContext(), mIndex, srv))
+	{
+		mCurrDXSRV = (void*)srv;
+		mDXSRVGeneration = DXStateCache::getRTVGeneration();
+	}
 	if (mIndex < 16 && mCurrDXSampler != (void*)sampler) // S24: sampler slots cap at 16, SRV slots don't - see bindFast()
 	{
 		gDXDevice.getContext()->PSSetSamplers(mIndex, 1, &sampler);
@@ -495,9 +572,7 @@ bool LLTexUnit::bind(LLRenderTarget* renderTarget, bool bindDepth, bool useCompa
 	{
 		gDX.flush();
 		gDXUIBatch.flushPending();
-		mCurrDXSRV = (void*)srv;
 	}
-	mDXSRVGeneration = DXStateCache::getRTVGeneration();
 	// CLAMP + BILINEAR: matches the common post-process/screen-space sampling
 	// convention (edge clamping avoids wrap-around artifacts on a
 	// screen-space texture; render targets aren't mipmapped here).
@@ -511,9 +586,16 @@ bool LLTexUnit::bind(LLRenderTarget* renderTarget, bool bindDepth, bool useCompa
 	ID3D11SamplerState* sampler = useComparisonSampler
 		? DXSampler::getOrCreateComparison(D3D11_COMPARISON_GREATER_EQUAL)
 		: DXSampler::getOrCreate(2, 1);
+	bool bind_ok = true;
 	if (srv_changed || generation_stale)
 	{
-		gDXDevice.getContext()->PSSetShaderResources(mIndex, 1, &srv);
+		// S24: see bindFast()'s matching comment - only commit on success.
+		bind_ok = safeBindSRV(gDXDevice.getContext(), mIndex, srv);
+	}
+	if (bind_ok)
+	{
+		if (srv_changed) mCurrDXSRV = (void*)srv;
+		mDXSRVGeneration = DXStateCache::getRTVGeneration();
 	}
 	if (mIndex < 16 && mCurrDXSampler != (void*)sampler) // S24: sampler slots cap at 16, SRV slots don't - see bindFast()
 	{
@@ -561,14 +643,19 @@ bool LLTexUnit::bind(DXTexture& tex, eTextureAddressMode address_mode, eTextureF
 	{
 		gDX.flush();
 		gDXUIBatch.flushPending();
-		mCurrDXSRV = (void*)srv;
 	}
-	mDXSRVGeneration = DXStateCache::getRTVGeneration();
 
 	ID3D11SamplerState* sampler = DXSampler::getOrCreate((int)address_mode, (int)filter_option);
+	bool bind_ok = true;
 	if (srv_changed || generation_stale)
 	{
-		gDXDevice.getContext()->PSSetShaderResources(mIndex, 1, &srv);
+		// S24: see bindFast()'s matching comment - only commit on success.
+		bind_ok = safeBindSRV(gDXDevice.getContext(), mIndex, srv);
+	}
+	if (bind_ok)
+	{
+		if (srv_changed) mCurrDXSRV = (void*)srv;
+		mDXSRVGeneration = DXStateCache::getRTVGeneration();
 	}
 	if (mIndex < 16 && mCurrDXSampler != (void*)sampler) // S24: sampler slots cap at 16, SRV slots don't - see bindFast()
 	{
@@ -598,16 +685,21 @@ void LLTexUnit::unbind(eTextureType type)
 	{
 		gDX.flush();
 		gDXUIBatch.flushPending();
-		mCurrDXSRV = (void*)srv;
 	}
-	mDXSRVGeneration = DXStateCache::getRTVGeneration();
-	// S24: unbind() means "no texture" - mCurrBoundImageDX must actually go
-	// to null here, not stay whatever the last real bind() set.
-	mCurrBoundImageDX = nullptr;
 	ID3D11SamplerState* sampler = DXSampler::getOrCreate(0, 0); // WRAP, POINT - matches a solid white texel regardless
+	bool bind_ok = true;
 	if (srv_changed || generation_stale)
 	{
-		gDXDevice.getContext()->PSSetShaderResources(mIndex, 1, &srv);
+		// S24: see bindFast()'s matching comment - only commit on success.
+		bind_ok = safeBindSRV(gDXDevice.getContext(), mIndex, srv);
+	}
+	if (bind_ok)
+	{
+		if (srv_changed) mCurrDXSRV = (void*)srv;
+		mDXSRVGeneration = DXStateCache::getRTVGeneration();
+		// S24: unbind() means "no texture" - mCurrBoundImageDX must actually
+		// go to null here, not stay whatever the last real bind() set.
+		mCurrBoundImageDX = nullptr;
 	}
 	if (mIndex < 16 && mCurrDXSampler != (void*)sampler) // S24: sampler slots cap at 16, SRV slots don't - see bindFast()
 	{
@@ -631,15 +723,20 @@ void LLTexUnit::unbindFast(eTextureType type)
 	{
 		gDX.flush();
 		gDXUIBatch.flushPending();
-		mCurrDXSRV = (void*)srv;
 	}
-	mDXSRVGeneration = DXStateCache::getRTVGeneration();
-	// S24: see unbind()'s matching fix - mCurrBoundImageDX must go to null too.
-	mCurrBoundImageDX = nullptr;
 	ID3D11SamplerState* sampler = DXSampler::getOrCreate(0, 0);
+	bool bind_ok = true;
 	if (srv_changed || generation_stale)
 	{
-		gDXDevice.getContext()->PSSetShaderResources(mIndex, 1, &srv);
+		// S24: see bindFast()'s matching comment - only commit on success.
+		bind_ok = safeBindSRV(gDXDevice.getContext(), mIndex, srv);
+	}
+	if (bind_ok)
+	{
+		if (srv_changed) mCurrDXSRV = (void*)srv;
+		mDXSRVGeneration = DXStateCache::getRTVGeneration();
+		// S24: see unbind()'s matching fix - mCurrBoundImageDX must go to null too.
+		mCurrBoundImageDX = nullptr;
 	}
 	if (mIndex < 16 && mCurrDXSampler != (void*)sampler) // S24: sampler slots cap at 16, SRV slots don't - see bindFast()
 	{

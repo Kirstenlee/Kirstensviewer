@@ -965,11 +965,9 @@ bool LLAppViewer::init()
 	writeSystemInfo();
 
 	// initWindow also initializes the Feature List, so now we can initialize this global.
-	// S24: previously ignored the user's own RenderCubeMap saved setting entirely -
-	// isFeatureAvailable() only consults the GPU-tier feature table (featuretable.txt
-	// hardcodes RenderCubeMap=1, always available), so the KVTweaks checkbox bound to
-	// gSavedSettings had zero effect. Set once at startup (not live-refreshed), matching
-	// this value's existing use as a plain static bool rather than an LLCachedControl.
+	// S24: featuretable.txt hardcodes RenderCubeMap=1, so isFeatureAvailable() alone would
+	// ignore the KVTweaks checkbox; AND it with the saved setting so the user's choice counts.
+	// Set once at startup as a plain static bool, not an LLCachedControl, so it's not live-refreshed.
 	DXCubeMap::sUseCubeMaps = gSavedSettings.getBOOL("RenderCubeMap") && LLFeatureManager::getInstance()->isFeatureAvailable("RenderCubeMap");
 
 	// call all self-registered classes
@@ -5113,7 +5111,17 @@ void LLAppViewer::loadKeyBindings()
 	LLUrlRegistry::instance().setKeybindingHandler(&gViewerInput);
 }
 
-// As per GHI #4498, remove old, stale CEF cache folders from previous sessions
+// S24: deliberately a no-op, not a selective clean. CEF manages a full
+// Chrome-profile layout (<hostname>\Default\Network\Cookies) under each
+// cache folder, not a flat one - a prior version of this function deleted
+// anything not named "Cookies"/"Cookies-journal"/"Local Storage" directly
+// inside each folder, which meant the whole "Default" directory (never
+// matching that allowlist) was wiped every startup. Hostname-keying already
+// bounds the folder count to the small, stable set of domains actually
+// visited, so purging contents isn't worth the risk of guessing CEF's
+// internal layout wrong again. Left as a named function, not removed, so a
+// future real need to reclaim disk space has an obvious place to add a
+// clean scoped to CEF's documented profile folder names.
 void LLAppViewer::purgeCefStaleCaches()
 {
 	// TODO: we really shouldn't use a hard coded name for the cache folder here...
@@ -5121,63 +5129,6 @@ void LLAppViewer::purgeCefStaleCaches()
 	if (!LLFile::isdir(browser_parent_cache))
 	{
 		return;
-	}
-	// We are using a fixed name to not leave stale folders
-	// around in case something goes wrong on startup.
-	const std::string holder_cache_name = browser_parent_cache + "_rename";
-
-	// Try to rename the entire directory first
-	if (LLFile::rename(browser_parent_cache, holder_cache_name) == 0)
-	{
-		LL_DEBUGS("AppInit") << "Successfully renamed CEF cache folder for deletion" << LL_ENDL;
-	}
-	else
-	{
-		// Rename failed (likely another instance has files open in the cache)
-		// Create holder folder and move individual subfolders instead
-		LL_DEBUGS("AppInit") << "Could not rename CEF cache folder (may be in use), moving individual folders" << LL_ENDL;
-
-		if (!LLFile::isdir(holder_cache_name) && LLFile::mkdir(holder_cache_name) != 0)
-		{
-			LL_WARNS() << "Failed to create holder folder: " << holder_cache_name << LL_ENDL;
-			// Attept normal cleanup
-			gDirUtilp->deleteDirAndContents(browser_parent_cache);
-			return;
-		}
-
-		// Iterate through subdirectories in the cache folder
-		LLDirIterator dir_iter(browser_parent_cache, "*");
-		std::string subfolder_name;
-		while (dir_iter.next(subfolder_name))
-		{
-			if (subfolder_name == "." || subfolder_name == "..")
-			{
-				continue;
-			}
-
-			std::string source_path = browser_parent_cache + gDirUtilp->getDirDelimiter() + subfolder_name;
-			std::string dest_path = holder_cache_name + gDirUtilp->getDirDelimiter() + subfolder_name;
-
-			// If folder is in use, move will fail, don't delete it.
-			LLFile::rename(source_path, dest_path);
-		}
-	}
-
-	// Post deletion task to the General work queue to avoid blocking the main thread
-	if (auto queue = LL::WorkQueue::getInstance("General"))
-	{
-		// Alternatively throw it at LLPurgeDiskCacheThread to clean
-		// it during periodic purges.
-		queue->post([holder_cache_name]()
-			{
-				// S24 no profiler
-				gDirUtilp->deleteDirAndContents(holder_cache_name);
-			});
-	}
-	else
-	{
-		LL_WARNS() << "Failed to get General work queue, deleting CEF cache synchronously" << LL_ENDL;
-		gDirUtilp->deleteDirAndContents(holder_cache_name);
 	}
 }
 

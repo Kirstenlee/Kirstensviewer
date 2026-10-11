@@ -122,6 +122,12 @@ public:
 	// enable/disable media plugin debugging messages and info spam
 	void enableMediaPluginDebugging( bool enable );
 
+	// S24: disables CEF's GPU process for this browser instance - most
+	// viewer UI web content (profile/search/marketplace/help) doesn't need
+	// hardware-accelerated compositing, and skipping it drops one subprocess
+	// per instance. Must be called before init().
+	void setDisableGPU( bool disable );
+
 	// Javascript <-> viewer events
 	void jsEnableObject( bool enable );
 	void jsAgentLocationEvent( double x, double y, double z );

@@ -292,14 +292,19 @@ void LLRenderTarget::bindTexture(U32 index, S32 channel, LLTexUnit::eTextureFilt
 	// material params) can be genuinely wrong if bilinear-interpolated
 	// across texel boundaries, not just softer-looking.
 	ID3D11SamplerState* sampler = DXSampler::getOrCreate(2, (int)filter_options);
-	gDXDevice.getContext()->PSSetShaderResources(channel, 1, &srv);
+	bool bind_ok = safeBindSRV(gDXDevice.getContext(), channel, srv);
 	if (channel < 16) // see LLTexUnit::bindFast()'s comment - sampler slots cap at 16, SRV slots don't
 	{
 		gDXDevice.getContext()->PSSetSamplers(channel, 1, &sampler);
 	}
 	// S24: tell this channel's LLTexUnit what's really bound now - see the
-	// comment above. Pure bookkeeping, changes no GPU state.
-	gDX.getTexUnit(channel)->syncDXBindState((void*)srv, (void*)sampler);
+	// comment above. Pure bookkeeping, changes no GPU state. Only on success -
+	// a caught dangling-SRV exception must not be recorded as if the bind
+	// had actually landed, or LLTexUnit's own cache never retries it.
+	if (bind_ok)
+	{
+		gDX.getTexUnit(channel)->syncDXBindState((void*)srv, (void*)sampler);
+	}
 }
 
 void LLRenderTarget::flush()
