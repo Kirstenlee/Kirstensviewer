@@ -4,8 +4,8 @@
 ---
 
 <p align="center">
-     <img src="https://img.shields.io/badge/build-4100-green.svg" alt="Build">
-     <img src="https://img.shields.io/badge/version-Alpha%201.31-blueviolet.svg" alt="Alpha 1.31">
+     <img src="https://img.shields.io/badge/build-4168-green.svg" alt="Build">
+     <img src="https://img.shields.io/badge/version-Beta%201.0-blueviolet.svg" alt="Beta 1.0">
      <img src="https://img.shields.io/badge/platform-Windows-blue.svg" alt="Platform">
      <img src="https://img.shields.io/badge/standard-C%2B%2B20-orange.svg" alt="C++20">
      <img src="https://img.shields.io/badge/renderer-DirectX%2011-9cf.svg" alt="DirectX 11">
@@ -23,8 +23,10 @@ Kirstens Viewer is a maintained fork of the official Second Life Viewer. It prio
 - **Unique build system**: modern vcpkg / PowerShell solution
 - **Functionality** aligns with official viewer for consistent user experience
 - **DirectX 11 renderer** (`DX_RENDER`): a from-scratch native D3D11 backend with its own HLSL shader set. It is the sole supported renderer; OpenGL is fully retired from the shipped build. See [DirectX 11 Renderer](#-directx-11-renderer).
-- **Floater pop-out framework** (Alpha 1.2): pop any registered floater into its own movable, resizable desktop window.
-- **KRLV — RLVa support** (Alpha 1.3, off by default): a clean-room implementation of the RLVa command API with a single control surface. See [KRLV](#-krlv--rlva-support).
+- **Floater pop-out framework**: pop any registered floater into its own movable, resizable desktop window.
+- **KRLV — RLVa support** (off by default): a clean-room implementation of the RLVa command API with a single control surface. See [KRLV](#-krlv--rlva-support).
+- **AMD/NVIDIA vendor-API parity**: AGS and NVAPI device creation, Depth Bounds Test, and NVIDIA Reflex on supported hardware.
+- **Optional upscaling**: a percentage Render Scale slider with automatic AMD FSR1 (EASU + RCAS) upscaling below 100%.
 
 ---
 
@@ -69,9 +71,7 @@ Kirstens Viewer respects user privacy and disables or limits the following compo
 | 3075  | VETR     | S24.5   |
 | 3322  | LYSI     | S24.6   |
 | 3500  | MAGN     | S24.7   |
-| 4015  | HRADR    | Alpha 1.2 |
-| **4100** | **—** | **Alpha 1.3** |
-| **4105** | **—** | **Alpha 1.31 (current)** |
+| **4168** | **HRADR** | **Beta 1.0 (current)** |
 
 **Forked from Viewer Develop / 2026.4**
 
@@ -85,8 +85,8 @@ all GLSL shader source and the OpenGL path were removed.
 
 Public releases so far: pre-alpha 0.1 (2026-08-23), 0.2, 0.3 and 0.4, then
 **Alpha 1.0** (2026-09-17, r3855), **Alpha 1.1** (2026-09-19, r3868),
-**Alpha 1.2** (2026-09-27, r4015) and **Alpha 1.3** (2026-10-03, r4100), the
-current release.
+**Alpha 1.2** (2026-09-27, r4015), **Alpha 1.3** (2026-10-03, r4100) and
+**Beta 1.0** (2026-10-11, r4168), the current release.
 
 **Architecture**: the D3D11 backend lives in `indra/dxrender/`: `core/`
 (device, context, state: `DXDevice`, `DXContext`, `DXSwapChain`,
@@ -98,16 +98,19 @@ Per-frame orchestration (`DXPipeline`, the `DXDrawPool*` family) lives in
 
 **Status**: the GLSL→HLSL shader port is complete (237/237 files). The full
 deferred renderer is working: opaque, alpha, materials, PBR, avatars,
-terrain, water and sky; shadows, local and spot lights, SSAO, glow and bloom;
-FXAA, SMAA and Contrast Adaptive Sharpening; real D3D11 occlusion culling;
-reflection probes; anisotropic filtering; real Screen-Space Reflections;
-hero-probe mirrors; BC7 GPU texture compression (58% VRAM reduction, opt-in);
-and a real Anaglyph 3D implementation.
+terrain, water and sky; shadows (with cascade/spot-shadow flicker fixed in
+Beta 1.0), local and spot lights, SSAO, glow and bloom; FXAA, SMAA and
+Contrast Adaptive Sharpening; optional AMD FSR1 upscaling; real D3D11
+occlusion culling; reflection probes, now with cube reflections properly
+separated from ambient and corrected orientation/gloss-metallic gating;
+anisotropic filtering; real Screen-Space Reflections; hero-probe mirrors;
+BC7 GPU texture compression (58% VRAM reduction, opt-in); AMD AGS and
+NVIDIA NVAPI device-creation parity; and a real Anaglyph 3D implementation.
 
-**Known gaps**: reflection orientation and quality are still being tuned.
-Avatar GPU-cost throttling (AutoFPS) is a no-op under `DX_RENDER`. The optional
-VFX motion blur reads the frame back to the CPU each frame, which costs
-performance; it is off by default.
+**Known gaps**: AutoFPS (avatar GPU-cost throttling) is a no-op under
+`DX_RENDER`. The optional VFX motion blur reads the frame back to the CPU
+each frame, which costs performance; it is off by default. SCULPT mesh
+objects can show internal faces in some cases (task #265, pending).
 
 ---
 
@@ -130,65 +133,57 @@ to Marine Kelley and Kitty Barnett. Full reference:
 
 ---
 
-## ✨ Change Log — Alpha 1.3 (current release, r4016 → r4100)
+## ✨ Change Log — Beta 1.0 (current release, r4100 → r4168)
 
 Grouped by area. The detailed commit history is in SVN.
 
-#### 🛡️ KRLV (new)
-
-- Full RLVa command framework and 163 commands, from the staging pass through to the V1.0.0 frontend.
-- KRLV Control floater: Control, Auto-reply, Restrictions, Objects, Communicate, Safeword and Security tabs.
-- Command log, owner notices, flood limiting, safeword in all three send paths.
-- Object whitelist/blacklist; protected debug settings; blacklist of command names (console-managed).
-- Release hardening: secrets refused by `@setdebug_` and `@getdebug_`; account state loaded after login; HMAC-only signing; exact command parsing; per-object exceptions and `@notify` subscriptions; single #RLV folder.
-- Persisted KRLV Control floater position.
-
 #### 🎨 Graphics & Rendering
 
-- Contrast Adaptive Sharpening wired into the post chain, on by default (sharpness 0.4).
-- SMAA anti-aliasing corrected: blend offset and vertical flip fixed, so it anti-aliases like FXAA.
-- Fixed a crash (`CTD in SetShaderResources`) on BC7-upgraded textures under VRAM pressure.
-- Shadow bias comments clarified.
-- Small hot-path cleanup: cached CAS sharpness, persistent effect buffers, unused CAS uniform removed.
-- Removed an unused LL motion blur shader that nothing loaded; the live motion blur is the S24 VFX path.
+- **Reflections reworked:** cube reflections are now separated from ambient lighting, fixing incorrect orientation and visible banding on box-probe reflections.
+- **Materials tab:** real gloss/metallic accept-reject gates, plus normal-map, specular-map and projector specular controls.
+- **AMD AGS + NVIDIA NVAPI parity:** vendor-specific device creation, Depth Bounds Test on both vendors, AGS breadcrumbs/async shader compile, and NVIDIA Reflex support.
+- **AMD FSR1 upscaling:** a percentage Render Scale slider; dropping below 100% automatically engages FSR1 EASU + RCAS upscaling.
+- **Shadows:** fixed a shadow cascade / projector light flicker under camera movement.
+- **Night sky:** fixed constellations rendering with incorrect orientation.
+- **Stability:** a dangling shader-resource-view crash class is now caught and safely skipped instead of crashing the viewer; one remaining unprotected bind site found during pre-release QA has also been fixed.
+
+#### 📸 360° Capture (rebuilt)
+
+- Replaced the old CEF/WebGL-based 360° snapshot system entirely with a native DirectX 11 cubemap capture and equirectangular-projection pipeline — no browser dependency, no JavaScript stitching step.
+- New floater: resolution choice, six-face and stitched preview, save to disk.
+
+#### 🌐 Web & Media
+
+- **Fixed:** web sessions (including MFA "remember this device" cookies on sites like the Destination Guide) no longer get forgotten on every restart. The embedded browser's cache was being silently wiped before the browser ever had a chance to use it; it now persists correctly per site.
+- **Web Plugin fine control:** a hard cap (default 8) on concurrent background web-browser instances, with least-recently-used eviction, plus a toggle to disable the embedded browser's GPU process for content that doesn't need it. Dullahan/CEF subprocess counts and thread counts are both substantially reduced.
+- Fixed harmless but noisy "dropping message: shutdown_plugin" warning spam on every media playback.
 
 #### 🖌️ UI, Floaters & Tools
 
-- **Mondy Cam:** the camera floater is redesigned with an accordion panel in place of three tabs, cutting its footprint by 43%.
-- **Media Player:** renamed from Music Player; volume and 10-band EQ persist across restarts; VLC equalizer hooks.
-- **GLTF Asset Editor:** copy and paste of position, scale and rotation now works.
-- **Marketplace Received Items:** fixed a stuck "Searching…" or empty list. Three separate gaps were closed together: a 26.4 regression, a build throttle, and a one-shot login race.
-- Gesture and emoji helper floaters are hardened against a failed build.
-- Test list-view floater removed.
+- **Media Player:** layout polish on the equalizer panel.
+- **Experimental: DXVK (Vulkan) backend toggle** — off by default, requires a restart. Lets users opt into running the DX11 renderer through DXVK's Vulkan translation layer without manually placing any files.
+- Preferences and tuning panels (KVTweaks) tidied up: clearer spacing and warnings on experimental features, fixed text overflow on the CPU/Memory scheduling card.
 
-#### 🔗 Upstream Backports
+#### 🔧 Internals & Quality
 
-Each backport was checked against three questions: is it relevant to S24, is it
-compatible with `DX_RENDER`, and is our existing behaviour already better.
-
-- UDP flood handling: high and low priority inbound queues, immediate ACKs, so fewer packets are dropped under flood.
-- HTTP thread: std::thread with a 60-second shutdown wait, replacing a 250 ms wait that leaked.
-- `boost::filesystem` removed from `llfilesystem`; `LLFile` RAII class added.
-- Script upload compile-target fix; Luau script icon and script-running constants added.
-- Lua and Luau extensions in the script-file picker filter.
-- Inventory script-runtime fix on deserialisation.
-- Alignment fix: `alignas(16)` across `llmath` and `llcharacter`.
-- WebRTC log-spam reduced; dead Darwin code removed from the file picker header.
-- Undefined shift in `LLVolumeImplFlexible::remapSections` fixed.
-
-#### 🏗️ Build System & Infrastructure
-
-- Dangling `llstatslistener` references removed, so CMake regenerates cleanly.
-- Version bumped for Alpha 1.3 (build 4100).
-- Fixed websocketpp `C4005` macro-redefinition warnings: the Boost config now defines `_WEBSOCKETPP_NOEXCEPT_TOKEN_` and `_WEBSOCKETPP_CONSTEXPR_TOKEN_` only if they are not already set (r4104).
-
-#### 🛠️ Post-Release Fixes (after build 4100)
-
-- **Startup freeze at "Compiling shader: Brdf Gen Shader":** the BRDF LUT loop in `genbrdflutF.hlsl` is marked `[loop]`, so the driver compiler does not unroll its 1024 iterations. This is a tentative fix for AMD GPUs and needs confirmation on affected hardware (r4102).
-- **KRLV settings:** `KRLVOwnersWereSet` is now declared in `settings.xml`. It was read by the tamper check but missing from the settings file, which logged a warning every minute (r4103).
-- **Version:** the About floater and this README now report Alpha 1.31 (r4105).
+- A comprehensive pre-release sanity pass (dead code, hot-path performance, comment clarity, correctness and crash-risk review) was run across everything changed since Alpha 1.3, catching and fixing several real bugs before release — including the dangling-SRV recovery gap above, a silent-failure path in the DXVK toggle, a cache-key case-sensitivity bug, and a per-user cache-separation regression.
+- Large comment-verbosity cleanup across the codebase: historical task numbers and narrative commentary stripped down to short, technical explanations.
 
 ---
+
+<details>
+<summary><b>Alpha 1.3 — KRLV hardening, DX_RENDER hot-path cleanup (r4016 → r4105)</b></summary>
+
+- Full RLVa command framework (KRLV) shipped: 163 commands, Control floater, safeword, signed state, object whitelist/blacklist.
+- Contrast Adaptive Sharpening wired into the post chain; SMAA blend/flip corrected.
+- Fixed a crash on BC7-upgraded textures under VRAM pressure.
+- Mondy Cam: camera floater redesigned with an accordion panel, 43% smaller.
+- Media Player renamed from Music Player; volume/EQ persistence added.
+- Marketplace Received Items stuck "Searching…" bug fixed (three separate causes).
+- Upstream Linden Lab backports: UDP flood handling, HTTP thread shutdown, script/Luau fixes, alignment fixes.
+- Startup freeze on AMD GPUs compiling the BRDF LUT shader fixed.
+
+</details>
 
 <details>
 <summary><b>Alpha 1.2 — floater pop-out, DX_RENDER hardening, LL backports (r3856 → r4015)</b></summary>
@@ -212,7 +207,7 @@ of the GL-vocabulary and dead-code retirement.
 
 </details>
 
-**Alpha 1.3 binaries signed:** Authenticode, verified and timestamped.
+**Beta 1.0 binaries signed:** Authenticode, verified and timestamped.
 
 - Signer: Lee Quick (Open Source Developer), Certum Code Signing 2021 CA
 - Certificate serial: `42A6B2AF506CF74D014E99C3C64B2E58`
