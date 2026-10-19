@@ -4,8 +4,8 @@
 ---
 
 <p align="center">
-     <img src="https://img.shields.io/badge/build-4168-green.svg" alt="Build">
-     <img src="https://img.shields.io/badge/version-Beta%201.0-blueviolet.svg" alt="Beta 1.0">
+     <img src="https://img.shields.io/badge/build-4255-green.svg" alt="Build">
+     <img src="https://img.shields.io/badge/version-Beta%201.1-blueviolet.svg" alt="Beta 1.1">
      <img src="https://img.shields.io/badge/platform-Windows-blue.svg" alt="Platform">
      <img src="https://img.shields.io/badge/standard-C%2B%2B20-orange.svg" alt="C++20">
      <img src="https://img.shields.io/badge/renderer-DirectX%2011-9cf.svg" alt="DirectX 11">
@@ -71,7 +71,8 @@ Kirstens Viewer respects user privacy and disables or limits the following compo
 | 3075  | VETR     | S24.5   |
 | 3322  | LYSI     | S24.6   |
 | 3500  | MAGN     | S24.7   |
-| **4168** | **HRADR** | **Beta 1.0 (current)** |
+| 4168  | HRADR    | Beta 1.0 |
+| **4255** | **HRADR** | **Beta 1.1 (current)** |
 
 **Forked from Viewer Develop / 2026.4**
 
@@ -85,8 +86,9 @@ all GLSL shader source and the OpenGL path were removed.
 
 Public releases so far: pre-alpha 0.1 (2026-08-23), 0.2, 0.3 and 0.4, then
 **Alpha 1.0** (2026-09-17, r3855), **Alpha 1.1** (2026-09-19, r3868),
-**Alpha 1.2** (2026-09-27, r4015), **Alpha 1.3** (2026-10-03, r4100) and
-**Beta 1.0** (2026-10-11, r4168), the current release.
+**Alpha 1.2** (2026-09-27, r4015), **Alpha 1.3** (2026-10-03, r4100),
+**Beta 1.0** (2026-10-11, r4168) and **Beta 1.1** (2026-10-19, r4255), the
+current release.
 
 **Architecture**: the D3D11 backend lives in `indra/dxrender/`: `core/`
 (device, context, state: `DXDevice`, `DXContext`, `DXSwapChain`,
@@ -101,16 +103,20 @@ deferred renderer is working: opaque, alpha, materials, PBR, avatars,
 terrain, water and sky; shadows (with cascade/spot-shadow flicker fixed in
 Beta 1.0), local and spot lights, SSAO, glow and bloom; FXAA, SMAA and
 Contrast Adaptive Sharpening; optional AMD FSR1 upscaling; real D3D11
-occlusion culling; reflection probes, now with cube reflections properly
-separated from ambient and corrected orientation/gloss-metallic gating;
-anisotropic filtering; real Screen-Space Reflections; hero-probe mirrors;
+occlusion culling; reflection probes, with temporal flicker fixed, a
+corrected ambient/tonemap balance across sky presets, and an optional
+avatar-centred "Master Reflection Cube" (on by default, tunable capture
+radius) alongside the existing per-location probe system; anisotropic
+filtering; real Screen-Space Reflections; hero-probe mirrors;
 BC7 GPU texture compression (58% VRAM reduction, opt-in); AMD AGS and
 NVIDIA NVAPI device-creation parity; and a real Anaglyph 3D implementation.
 
 **Known gaps**: AutoFPS (avatar GPU-cost throttling) is a no-op under
 `DX_RENDER`. The optional VFX motion blur reads the frame back to the CPU
 each frame, which costs performance; it is off by default. SCULPT mesh
-objects can show internal faces in some cases (task #265, pending).
+objects can show internal faces in some cases. A
+hard-edge/circular-boundary artifact can appear at reflection-probe
+coverage boundaries on some surfaces; a fix is in progress.
 
 ---
 
@@ -133,9 +139,33 @@ to Marine Kelley and Kitty Barnett. Full reference:
 
 ---
 
-## ✨ Change Log — Beta 1.0 (current release, r4100 → r4168)
+## ✨ Change Log — Beta 1.1 (current release, r4169 → r4255)
 
 Grouped by area. The detailed commit history is in SVN.
+
+#### 🎨 Graphics & Rendering — Reflections
+
+- **Temporal flicker fixed:** vertical reflective surfaces (shelf backs, pictures, TV-stand fronts) no longer flicker when the camera stops moving. Root cause was several compounding staleness/throttling gaps in the probe-capture scheduler, not a single bug.
+- **Night/day ambient and tonemap balance fixed:** indoor rooms and the stock Sunrise/Midday/Sunset/Midnight sky presets now respect the same tonemap curve and ambient settings consistently — a handful of presets were silently falling back to legacy, untonemapped behavior because of a missing data field, not a deliberate "dark at night" choice.
+- **New: Master Reflection Cube** (on by default) — an avatar-centred realtime reflection source that fills in where per-location probe selection can't be trusted yet. Capture radius is live-tunable (default 20m) to match the space you're in, with its own controls in the Experimental tab.
+- **Materials tab reflection gates** now default to a sensible 0.65 reject/accept cutoff approximating original hardcoded behavior, instead of a no-op 0/0.
+- **New-user-friendly defaults:** reflection probe count (128) and content level (manual + terrain/water), draw distance (128m), antialiasing (SMAA, High), and reflection ambient contribution (1.0, full) all retuned as a fairer out-of-box middle ground.
+
+#### 🖌️ UI & Preferences
+
+- S24 Engine (the tuning/preferences panel) QA pass: fixed a text-clipping layout bug on the Movement tab, and added dedicated "Reset to Defaults" buttons for the Alpha, Materials, Cubemap and Master Cube settings groups.
+
+#### 🔧 Internals & Quality
+
+- **LLPipeline → DXPipeline migration continues:** 59 more static members moved over (113 total now ordered by first use), the `LLGLDepthTest`/`LLGLSUIDefault`/`gGL*` matrix-global naming fully retired to `DXDepthTest`/`DXUIDefault`/`gDX*`, and `LLTexture` retired into `DXTextureBase`.
+- **Dead-dependency retirement:** the `glext`/`glh_extensions`/`glh_linear` tarball dependencies (a dead WGL loader and an unused VBO pool) removed entirely.
+- **Performance:** the hot per-draw matrix-multiply path (`syncMatrices()`) moved to DirectXMath (~16% faster, measured); avatar `updateCharacter()` parallelized; a render-path perf sweep fixed an avatar shader-rebind inefficiency.
+- Drawpool naming fully normalized (zero `ll*`-prefixed drawpool files remain); a `dxpipeline.cpp` code audit caught and fixed a real `&=!` vs `&=~` bitwise bug along with several uninitialized-variable issues.
+
+---
+
+<details>
+<summary><b>Beta 1.0 — reflections reworked, 360° capture rebuilt, DXVK toggle (r4100 → r4168)</b></summary>
 
 #### 🎨 Graphics & Rendering
 
@@ -162,14 +192,14 @@ Grouped by area. The detailed commit history is in SVN.
 
 - **Media Player:** layout polish on the equalizer panel.
 - **Experimental: DXVK (Vulkan) backend toggle** — off by default, requires a restart. Lets users opt into running the DX11 renderer through DXVK's Vulkan translation layer without manually placing any files.
-- Preferences and tuning panels (KVTweaks) tidied up: clearer spacing and warnings on experimental features, fixed text overflow on the CPU/Memory scheduling card.
+- Preferences and tuning panels (S24 Engine) tidied up: clearer spacing and warnings on experimental features, fixed text overflow on the CPU/Memory scheduling card.
 
 #### 🔧 Internals & Quality
 
 - A comprehensive pre-release sanity pass (dead code, hot-path performance, comment clarity, correctness and crash-risk review) was run across everything changed since Alpha 1.3, catching and fixing several real bugs before release — including the dangling-SRV recovery gap above, a silent-failure path in the DXVK toggle, a cache-key case-sensitivity bug, and a per-user cache-separation regression.
 - Large comment-verbosity cleanup across the codebase: historical task numbers and narrative commentary stripped down to short, technical explanations.
 
----
+</details>
 
 <details>
 <summary><b>Alpha 1.3 — KRLV hardening, DX_RENDER hot-path cleanup (r4016 → r4105)</b></summary>
