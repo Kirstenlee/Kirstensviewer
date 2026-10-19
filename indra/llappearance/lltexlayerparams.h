@@ -36,7 +36,7 @@ class LLImageRaw;
 class LLImageTGA;
 class LLTexLayer;
 class LLTexLayerInterface;
-class LLDXTexture;
+class DXTextureBase;
 class LLWearable;
 
 //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -97,7 +97,7 @@ public:
 private:
     LLTexLayerParamAlpha(const LLTexLayerParamAlpha& pOther);
 
-    LLPointer<LLDXTexture>  mCachedProcessedTexture;
+    LLPointer<DXTextureBase>  mCachedProcessedTexture;
     LLPointer<LLImageTGA>   mStaticImageTGA;
     LLPointer<LLImageRaw>   mStaticImageRaw;
     std::atomic<bool>       mNeedsCreateTexture;

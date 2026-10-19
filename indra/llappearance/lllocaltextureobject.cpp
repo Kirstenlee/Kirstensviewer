@@ -42,7 +42,7 @@ LLLocalTextureObject::LLLocalTextureObject() :
     mImage = NULL;
 }
 
-LLLocalTextureObject::LLLocalTextureObject(LLDXTexture* image, const LLUUID& id) :
+LLLocalTextureObject::LLLocalTextureObject(DXTextureBase* image, const LLUUID& id) :
     mIsBakedReady(false),
     mDiscard(MAX_DISCARD_LEVEL+1)
 {
@@ -79,7 +79,7 @@ LLLocalTextureObject::~LLLocalTextureObject()
     delete_and_clear(mTexLayers);
 }
 
-LLDXTexture* LLLocalTextureObject::getImage() const
+DXTextureBase* LLLocalTextureObject::getImage() const
 {
     return mImage;
 }
@@ -127,7 +127,7 @@ bool LLLocalTextureObject::getBakedReady() const
     return mIsBakedReady;
 }
 
-void LLLocalTextureObject::setImage(LLDXTexture* new_image)
+void LLLocalTextureObject::setImage(DXTextureBase* new_image)
 {
     mImage = new_image;
 }

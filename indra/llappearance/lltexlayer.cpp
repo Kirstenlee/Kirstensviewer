@@ -148,7 +148,7 @@ bool LLTexLayerSetBuffer::renderTexLayerSet(LLRenderTarget* bound_target)
     LLVertexBuffer::unbind();
 
     // Composite the color data
-    LLGLSUIDefault gls_ui;
+    DXUIDefault gls_ui;
     success &= mTexLayerSet->render( getCompositeOriginX(), getCompositeOriginY(),
                                      getCompositeWidth(), getCompositeHeight(), bound_target );
     gDX.flush();
@@ -369,8 +369,8 @@ bool LLTexLayerSet::render( S32 x, S32 y, S32 width, S32 height, LLRenderTarget*
         }
     }
 
-    LLGLSUIDefault gls_ui;
-    LLGLDepthTest gls_depth(GL_FALSE, GL_FALSE);
+    DXUIDefault gls_ui;
+    DXDepthTest gls_depth(false, false);
     gDX.setColorWriteMask(true, true);
 
     // clear buffer area to ensure we don't pick up UI elements
@@ -480,10 +480,10 @@ void LLTexLayerSet::renderAlphaMaskTextures(S32 x, S32 y, S32 width, S32 height,
     {
         gDX.flush();
         {
-            LLDXTexture* tex = LLTexLayerStaticImageList::getInstance()->getTexture(info->mStaticAlphaFileName, true);
+            DXTextureBase* tex = LLTexLayerStaticImageList::getInstance()->getTexture(info->mStaticAlphaFileName, true);
             if( tex )
             {
-                LLGLSUIDefault gls_ui;
+                DXUIDefault gls_ui;
                 gDX.getTexUnit(0)->bind(tex);
                 dx_rect_2d_simple_tex( width, height );
             }
@@ -1060,7 +1060,7 @@ bool LLTexLayer::render(S32 x, S32 y, S32 width, S32 height, LLRenderTarget* bou
     if ((getInfo()->mLocalTexture != -1) && !getInfo()->mUseLocalTextureAlphaOnly)
     {
         {
-            LLDXTexture* tex = NULL;
+            DXTextureBase* tex = NULL;
             if (mLocalTextureObject && mLocalTextureObject->getImage())
         {
                 tex = mLocalTextureObject->getImage();
@@ -1108,7 +1108,7 @@ bool LLTexLayer::render(S32 x, S32 y, S32 width, S32 height, LLRenderTarget* bou
     if( !getInfo()->mStaticImageFileName.empty() )
     {
         {
-            LLDXTexture* tex = LLTexLayerStaticImageList::getInstance()->getTexture(getInfo()->mStaticImageFileName, getInfo()->mStaticImageIsMask);
+            DXTextureBase* tex = LLTexLayerStaticImageList::getInstance()->getTexture(getInfo()->mStaticImageFileName, getInfo()->mStaticImageIsMask);
             if( tex )
             {
                 gDX.getTexUnit(0)->bind(tex, true);
@@ -1220,7 +1220,7 @@ bool LLTexLayer::blendAlphaTexture(S32 x, S32 y, S32 width, S32 height)
 
     if( !getInfo()->mStaticImageFileName.empty() )
     {
-        LLDXTexture* tex = LLTexLayerStaticImageList::getInstance()->getTexture( getInfo()->mStaticImageFileName, getInfo()->mStaticImageIsMask );
+        DXTextureBase* tex = LLTexLayerStaticImageList::getInstance()->getTexture( getInfo()->mStaticImageFileName, getInfo()->mStaticImageIsMask );
         if( tex )
         {
             gAlphaMaskProgram.setMinimumAlpha(0.f);
@@ -1238,7 +1238,7 @@ bool LLTexLayer::blendAlphaTexture(S32 x, S32 y, S32 width, S32 height)
     {
         if (getInfo()->mLocalTexture >=0 && getInfo()->mLocalTexture < TEX_NUM_INDICES)
         {
-            LLDXTexture* tex = mLocalTextureObject->getImage();
+            DXTextureBase* tex = mLocalTextureObject->getImage();
             if (tex)
             {
                 gAlphaMaskProgram.setMinimumAlpha(0.f);
@@ -1305,7 +1305,7 @@ void LLTexLayer::renderMorphMasks(S32 x, S32 y, S32 width, S32 height, const LLC
     // Accumulate the alpha component of the texture
     if( getInfo()->mLocalTexture != -1 )
     {
-        LLDXTexture* tex = mLocalTextureObject->getImage();
+        DXTextureBase* tex = mLocalTextureObject->getImage();
         if( tex && (tex->getComponents() == 4) )
         {
             LLTexUnit::eTextureAddressMode old_mode = tex->getAddressMode();
@@ -1322,7 +1322,7 @@ void LLTexLayer::renderMorphMasks(S32 x, S32 y, S32 width, S32 height, const LLC
 
     if( !getInfo()->mStaticImageFileName.empty() && getInfo()->mStaticImageIsMask )
     {
-        LLDXTexture* tex = LLTexLayerStaticImageList::getInstance()->getTexture(getInfo()->mStaticImageFileName, getInfo()->mStaticImageIsMask);
+        DXTextureBase* tex = LLTexLayerStaticImageList::getInstance()->getTexture(getInfo()->mStaticImageFileName, getInfo()->mStaticImageIsMask);
         if( tex )
         {
             if( (tex->getComponents() == 4) || (tex->getComponents() == 1) )
@@ -1350,7 +1350,7 @@ void LLTexLayer::renderMorphMasks(S32 x, S32 y, S32 width, S32 height, const LLC
 
     gAlphaMaskProgram.setMinimumAlpha(0.004f);
 
-    LLGLSUIDefault gls_ui;
+    DXUIDefault gls_ui;
 
     gDX.setColorWriteMask(true, true);
 
@@ -1534,7 +1534,7 @@ LLUUID LLTexLayer::getUUID() const
     LLUUID uuid;
     if( getInfo()->mLocalTexture != -1 )
     {
-            LLDXTexture* tex = mLocalTextureObject->getImage();
+            DXTextureBase* tex = mLocalTextureObject->getImage();
             if (tex)
             {
                 uuid = mLocalTextureObject->getID();
@@ -1542,7 +1542,7 @@ LLUUID LLTexLayer::getUUID() const
     }
     if( !getInfo()->mStaticImageFileName.empty() )
     {
-            LLDXTexture* tex = LLTexLayerStaticImageList::getInstance()->getTexture(getInfo()->mStaticImageFileName, getInfo()->mStaticImageIsMask);
+            DXTextureBase* tex = LLTexLayerStaticImageList::getInstance()->getTexture(getInfo()->mStaticImageFileName, getInfo()->mStaticImageIsMask);
             if( tex )
             {
                 uuid = tex->getID();
@@ -1855,9 +1855,9 @@ LLImageTGA* LLTexLayerStaticImageList::getImageTGA(const std::string& file_name)
 
 // Returns a GL Image (without a backing ImageRaw) that contains the decoded data from a tga file named file_name.
 // Caches the result to speed identical subsequent requests.
-LLDXTexture* LLTexLayerStaticImageList::getTexture(const std::string& file_name, bool is_mask)
+DXTextureBase* LLTexLayerStaticImageList::getTexture(const std::string& file_name, bool is_mask)
 {
-    LLPointer<LLDXTexture> tex;
+    LLPointer<DXTextureBase> tex;
     const char *namekey = mImageNames.addString(file_name);
 
     texture_map_t::const_iterator iter = mStaticImageList.find(namekey);
@@ -1884,7 +1884,7 @@ LLDXTexture* LLTexLayerStaticImageList::getTexture(const std::string& file_name,
 
                 image_raw->copyUnscaledAlphaMask(alpha_image_raw, LLColor4U::black);
             }
-            if (!tex->createGLTexture(0, image_raw, 0, true, LLDXTexture::LOCAL))
+            if (!tex->createGLTexture(0, image_raw, 0, true, DXTextureBase::LOCAL))
             {
                 LL_WARNS() << "Failed to create GL texture for image: " << file_name << LL_ENDL;
             }
