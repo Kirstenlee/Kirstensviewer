@@ -518,7 +518,7 @@ Each row is a point where code outside `indra/krlv/` refers to KRLV. The
 | `llagentcamera.cpp` | `calcCameraPositionTargetGlobal()` | Camera distance bounds |
 | `llagentcamera.cpp` | `setFocusOnAvatar()` | `@camunlock` |
 | `llvoavatar.cpp` | `isTooComplex()` | `@camavdist` |
-| `lldrawpool.cpp` | `pushBatch()` | `@camtextures` stencil tagging |
+| `dxdrawpool.cpp` | `pushBatch()` | `@camtextures` stencil tagging |
 | `dxdrawpoolalpha.cpp` | `renderAlpha()` | `@camtextures` stencil tagging |
 | `dxpipeline.cpp` | `renderGeomDeferred()` | `@camtextures` per-frame check |
 | `dxpipeline.cpp` | `presentDeferredScreen()` | Camera fog and texture pass |
