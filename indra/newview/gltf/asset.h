@@ -36,9 +36,7 @@
 #include "../llviewertexture.h"
 #include "llhlslshader.h"
 
-#ifdef DX_RENDER
 #include "DXBuffer.h"
-#endif
 
 extern F32SecondsImplicit       gFrameTimeSeconds;
 
@@ -242,11 +240,9 @@ namespace LL
             S32 mSkeleton = INVALID_INDEX;
 
             U32 mUBO = 0;
-#ifdef DX_RENDER
-            // S24 (task #79): real D3D11 constant buffer backing mUBO's
-            // data - see uploadMatrixPalette()/~Skin() in animation.cpp.
+            // Real D3D11 constant buffer backing mUBO — see
+            // uploadMatrixPalette()/~Skin() in animation.cpp.
             DXBuffer mDXUBO;
-#endif
             std::vector<S32> mJoints;
             std::string mName;
             std::vector<mat4> mInverseBindMatricesData;
@@ -404,15 +400,11 @@ namespace LL
 
             // UBO for storing material data
             U32 mMaterialsUBO = 0;
-#ifdef DX_RENDER
-            // S24 (task #79): real D3D11 constant buffers backing mNodesUBO/
-            // mMaterialsUBO's data - see uploadNodes()/uploadMaterials() in
-            // asset.cpp. mNodesUBO/mMaterialsUBO themselves stay 0 under
-            // DX_RENDER (nothing GL-side to allocate), matching the same
-            // pattern already used for LLReflectionMapManager::mDXUBO.
+            // Real D3D11 constant buffers backing mNodesUBO/mMaterialsUBO — see
+            // uploadNodes()/uploadMaterials() in asset.cpp. mNodesUBO/mMaterialsUBO
+            // stay 0, matching LLSphereProbes::mDXUBO's pattern.
             DXBuffer mDXNodesUBO;
             DXBuffer mDXMaterialsUBO;
-#endif
             bool mLoadIntoVRAM = false;
 
             std::vector<std::string> mUnsupportedExtensions;

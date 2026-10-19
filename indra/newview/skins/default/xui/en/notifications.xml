@@ -13232,6 +13232,30 @@ Continue?
   </notification>
 
   <notification
+   icon="alertmodal.tga"
+   name="S24BakeBrdfLutSuccess"
+   type="alertmodal">
+BRDF LUT baked and written to app_settings/luts/brdflut_512.bin.
+
+Re-ship this file alongside the build if you changed genbrdflutF.hlsl's math - every install loads this baked asset instead of running that shader.
+    <tag>confirm</tag>
+    <usetemplate
+     name="okbutton"
+     yestext="OK"/>
+  </notification>
+
+  <notification
+   icon="alertmodal.tga"
+   name="S24BakeBrdfLutFailure"
+   type="alertmodal">
+BRDF LUT bake failed - see the log (tag &quot;BrdfLut&quot;) for details. The existing baked asset, if any, was left untouched.
+    <tag>confirm</tag>
+    <usetemplate
+     name="okbutton"
+     yestext="OK"/>
+  </notification>
+
+  <notification
    icon="notify.tga"
    name="S24ShaderCachePurged"
    type="notify">

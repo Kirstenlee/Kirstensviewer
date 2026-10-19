@@ -54,7 +54,7 @@ struct VSInput
     // S24: every semantic-tagged VSInput field is required in the compiled input signature even
     // if main() never reads it. An unused COLOR0 field here would force every draw using this
     // shader to supply a COLOR0 vertex element, but LLDrawPoolTerrain::VERTEX_DATA_MASK
-    // (lldrawpoolterrain.h) never sets MAP_COLOR.
+    // (dxdrawpoolterrain.h) never sets MAP_COLOR.
 #if TERRAIN_PAINT_TYPE == TERRAIN_PAINT_TYPE_HEIGHTMAP_WITH_NOISE
     float2 texcoord1 : TEXCOORD1;
 #endif

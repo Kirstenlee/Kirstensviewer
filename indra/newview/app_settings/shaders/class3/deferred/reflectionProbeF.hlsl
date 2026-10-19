@@ -517,8 +517,13 @@ float3 tapBoxProbe(float3 pos, float3 dir, out float w, out float dw, float lod,
     float3 v = boxIntersect(pos, dir, boxRefBox[i], d);
 
     // Box-local distance to the nearest wall, normalized [0,1]: coverage ramps 0->1 across the
-    // outer ~17% of the box's own volume, on the same 0-1 scale as sphere coverage.
-    dw = saturate(d * 6.0);
+    // outer ~17% of the box's own volume, on the same 0-1 scale as sphere coverage. S24: now
+    // also damped by boxRefParams[i].z (fade-in), matching tapSphereProbe()'s refParams[i].z -
+    // this was previously missing, so a box probe mid-recapture (its mComplete flag doesn't
+    // distinguish "stable" from "currently being overwritten" - see llsphereprobes.cpp) competed
+    // and won at full strength the instant it was re-selected, with no grace period to mask a
+    // torn irradiance/radiance pair. Sphere probes never had this gap.
+    dw = saturate(d * 6.0) * boxRefParams[i].z;
     w = dw;
 
     return sampleRefCube(v - boxRefOrigin[i].xyz, boxRefIndex[i].x, lod, boxRefParams[i].y);
@@ -532,6 +537,18 @@ float3 sampleProbes(float3 pos, float3 dir, float lod)
         return float3(0, 0, 0);
     }
 
+    // S24: REVERTED to winner-take-all (2026-10-18) - the top-2 margin-band blend attempt
+    // triggered a D3D11 shader compile failure (X4019: "multiple variables found with the same
+    // user-specified location") on several Material Shader permutations specifically under
+    // RenderReflectionProbeLevel=0 ("Sky Only"), causing a CTD, and separately read as
+    // "multiple levels of reflection... blending together" even where it did compile - likely
+    // the margin-band logic itself misbehaving, not just a cosmetic side effect. A standalone
+    // fxc recompile of the exact failing dumped source did NOT reproduce the X4019 (suggesting
+    // something context/permutation-dependent rather than a flat syntax bug), so the real
+    // mechanism isn't pinned down yet. Reverting the whole mechanism rather than keep guessing
+    // at a live, user-facing crash. The hard-edge artifact this was meant to fix is still open -
+    // needs a safer redesign before retrying, not just a smaller band.
+    //
     // One probe per class, nothing averaged: the winner is the probe with the highest coverage at
     // this pixel, with the smaller radius winning ties. Class 0 is automatic, class 1 is manual
     // (spheres and boxes).
@@ -570,7 +587,9 @@ float3 sampleProbes(float3 pos, float3 dir, float lod)
         int i = boxIndex[bidx];
         float d = 0.0;
         boxIntersect(pos, dir, boxRefBox[i], d);
-        float cov = saturate(d * 6.0);
+        // S24: fade-in damping, matching the sphere competition loop's * refParams[i].z above -
+        // see tapBoxProbe()'s own comment for why this was missing and what it masks.
+        float cov = saturate(d * 6.0) * boxRefParams[i].z;
         float r = boxRefOrigin[i].w;
         if (cov > 0.0 && (cov > wCov[1] + 1e-4 || (abs(cov - wCov[1]) <= 1e-4 && r < wRad[1])))
         {
@@ -631,11 +650,79 @@ float3 sampleProbes(float3 pos, float3 dir, float lod)
     return result;
 }
 
-// Ambient light comes only from the default sky probe (cube slot 0). Local probes never
-// contribute to ambient, so a local capture cannot change the ambient level. The default
-// probe is list index 0 (see getReflectionMaps()) and is sampled by direction with no
-// parallax. Its irradiance scale (refParams.x) carries the reset fade, and the sky ambient
-// colour is the fallback while that scale is zero.
+// Tap a sphere probe's irradiance map - parallels tapSphereProbe() but samples
+// irradianceProbes (mip 0 always - irradiance is already a convolved, low-frequency signal,
+// no LOD concept) instead of reflectionProbes.
+float3 tapSphereIrradiance(float3 pos, float3 dir, out float w, out float dw, float3 c, int i, float3 amblit)
+{
+    float r = refSphere[i].w;
+    float rr = r * r;
+    bool no_parallax = (refIndex[i].w < 1) && (probe_auto_parallax < 0.5);
+    float3 v = sphereIntersect(pos, dir, c, no_parallax ? 4096.0 * 4096.0 : rr);
+
+    w = sphereWeight(pos, dir, c, r, refParams[i], dw);
+
+    v -= c;
+    v = mul(env_mat, v);
+
+    // S24: refParams[i].x ("ambiance scale") is llmax(minimum_ambiance, probe's own
+    // getAmbiance()) * ambscale - see llsphereprobes.cpp's updateUniforms(). minimum_ambiance is
+    // the CURRENT SKY's own ambiance-floor setting (psky->getReflectionProbeAmbiance()), which
+    // genuinely varies by time of day/windlight preset (many skies raise this floor at night to
+    // avoid pure black, lower it at midday since direct sun already provides light) - and via
+    // that max(), the sky's floor gets written into EVERY probe's .x, not just the sky/default
+    // probe's. For probe 0 (the default/sky probe) that's correct - .x genuinely IS that one
+    // probe's own live sky setting, so using it both as the irradiance multiplier and as how
+    // much to trust this capture vs falling back to amblit was the original, working behavior.
+    // For every OTHER (local/manual/box) probe, a room's own ambient trustworthiness has nothing
+    // to do with the sky's ambiance floor - using .x there made indoor brightness track the
+    // sky's setting inversely (a raised night-time floor made rooms read brighter, a lowered
+    // midday floor made them read darker, regardless of the room's own lighting). Local probes
+    // use their fade-in (refParams[i].z) instead - the same freshness signal already used for
+    // the specular IBL weight above (sphereWeight()'s own i.z) and for box probes' irradiance
+    // below - zero trust in a torn/just-reassigned capture, full trust once settled, nothing to
+    // do with the sky.
+    if (i == 0)
+    {
+        float3 col = irradianceProbes.SampleLevel(environmentMapSampler, float4(v, (float)refIndex[i].x), 0).rgb * refParams[i].x;
+        return lerp(amblit, col, saturate(refParams[i].x));
+    }
+
+    float3 col = irradianceProbes.SampleLevel(environmentMapSampler, float4(v, (float)refIndex[i].x), 0).rgb;
+    return lerp(amblit, col, saturate(refParams[i].z));
+}
+
+// Tap a box probe's irradiance map - parallels tapBoxProbe(). Box probes have no separate
+// irradiance-scale parameter (boxRefParams[i].x is unused - see the BoxProbes cbuffer
+// comment), so this reuses the fade-in (boxRefParams[i].z) as both the IBL weight damping
+// AND the blend-toward-amblit amount - same fade-in-driven trust signal tapSphereIrradiance()
+// now uses for every sphere probe except the default/sky one (see its own comment for why).
+float3 tapBoxIrradiance(float3 pos, float3 dir, out float w, out float dw, int i, float3 amblit)
+{
+    float d = 0.0;
+    float3 v = boxIntersect(pos, dir, boxRefBox[i], d, 3.0);
+    w = max(d, 0.001) * boxRefParams[i].z;
+    dw = 0.0;
+
+    v -= boxRefOrigin[i].xyz;
+    v = mul(env_mat, v);
+    float3 col = irradianceProbes.SampleLevel(environmentMapSampler, float4(v, (float)boxRefIndex[i].x), 0).rgb;
+    return lerp(amblit, col, saturate(boxRefParams[i].z));
+}
+
+// S24: restored local-probe ambient contribution. This USED to only ever sample the single
+// default sky probe (cube slot 0) - box, manual-sphere, and automatic-sphere probes never
+// contributed ambient at all, by design, per this function's own prior comment. That meant a
+// room lit mainly by its own local probe got only the outdoor sky's ambient term and never its
+// own bounced light - the likely cause of ambient reading as flat/wrong indoors. Restored to
+// upstream's real multi-probe weighted-accumulate model (reflectionProbeF.glsl's own
+// sampleProbeAmbient()), split across our existing sphere/box cbuffers same as sampleProbes().
+// Lower risk than the specular margin-band fix: irradiance is already a low-frequency,
+// heavily-convolved signal (no sharp image content to visibly tear), and every weight here is
+// damped by each probe's own fade-in, so a probe that's mid-recapture contributes
+// proportionally less rather than popping in/out. Still genuinely new exposure (local ambient
+// was never sampled before at all) - worth watching specifically during live testing, same as
+// any other newly-enabled blend in this file.
 float3 sampleProbeAmbient(float3 pos, float3 dir, float3 amblit)
 {
     if (probes_enabled == 0 || refIndex[0].x != 0)
@@ -643,8 +730,60 @@ float3 sampleProbeAmbient(float3 pos, float3 dir, float3 amblit)
         return amblit * probe_ambient_multiplier;
     }
 
-    float3 irr = irradianceProbes.SampleLevel(environmentMapSampler, float4(mul(env_mat, dir), 0.0), 0).rgb * refParams[0].x;
-    float3 result = lerp(amblit, irr, min(refParams[0].x, 1.0));
+    float wsum[2];
+    wsum[0] = 0.0; wsum[1] = 0.0;
+    float dwsum[2];
+    dwsum[0] = 0.0; dwsum[1] = 0.0;
+    float3 col[2];
+    col[0] = float3(0, 0, 0); col[1] = float3(0, 0, 0);
+
+    for (int idx = 0; idx < probeInfluences; ++idx)
+    {
+        int i = probeIndex[idx];
+        int p = clamp(abs(refIndex[i].w), 0, 1);
+
+        if (p == 0 && !sample_automatic)
+        {
+            continue;
+        }
+
+        float w = 0, dw = 0;
+        float3 refcol = tapSphereIrradiance(pos, dir, w, dw, refSphere[i].xyz, i, amblit);
+
+        col[p] += refcol * w;
+        wsum[p] += w;
+        dwsum[p] += dw;
+    }
+
+    for (int bidx = 0; bidx < boxInfluences; ++bidx)
+    {
+        int i = boxIndex[bidx];
+        float w = 0, dw = 0;
+        float3 refcol = tapBoxIrradiance(pos, dir, w, dw, i, amblit);
+
+        col[1] += refcol * w;
+        wsum[1] += w;
+        dwsum[1] += dw;
+    }
+
+    float3 result = amblit;
+
+    if (sample_automatic && wsum[0] > 0.0)
+    {
+        col[0] *= 1.0 / wsum[0];
+        if (wsum[1] > 0.0)
+        {
+            col[1] *= 1.0 / wsum[1];
+            col[1] = lerp(col[0], col[1], min(dwsum[1], 1.0));
+            col[0] = float3(0, 0, 0);
+        }
+        result = col[1] + col[0];
+    }
+    else if (wsum[1] > 0.0)
+    {
+        col[1] *= 1.0 / wsum[1];
+        result = col[1];
+    }
 
     return result * probe_ambient_multiplier;
 }
@@ -819,6 +958,11 @@ void sampleReflectionProbesWater(inout float3 ambenv, inout float3 glossenv,
         }
 #endif
         tapHeroProbe(glossenv, pos, norm, glossiness);
+        // S24: water never passed through materialReflectionGate() at all - the Materials-
+        // tab gloss/metallic reflection gate sliders had zero effect on water reflections,
+        // unlike every opaque/legacy path. Water has no metallic channel, same as legacy
+        // materials, so only the gloss gate applies here.
+        glossenv *= materialReflectionGate(glossiness, reflection_gate_gloss_reject, reflection_gate_gloss_accept);
         return;
     }
 
@@ -830,6 +974,7 @@ void sampleReflectionProbesWater(inout float3 ambenv, inout float3 glossenv,
     probeIndex[probeInfluences++] = 0;
 
     doProbeSample(ambenv, glossenv, tc, pos, norm, glossiness, false, amblit_linear);
+    glossenv *= materialReflectionGate(glossiness, reflection_gate_gloss_reject, reflection_gate_gloss_accept);
 }
 
 float4 sampleReflectionProbesDebug(float3 pos)

@@ -750,8 +750,7 @@
              function="Floater.Show"
              parameter="snapshot" />
         </menu_item_call>
-        
-<menu_item_call
+        <menu_item_call
          label="📷 360 snapshot"
          name="Capture 360">
             <menu_item_call.on_click
@@ -3928,6 +3927,13 @@ function="World.EnvPreset"
             name="Shader Cache Clear">
             <menu_item_call.on_click
              function="Advanced.ClearShaderCache" />
+          </menu_item_call>
+          <menu_item_call
+            enabled="true"
+            label="Bake BRDF LUT"
+            name="Bake BRDF LUT">
+            <menu_item_call.on_click
+             function="Advanced.BakeBrdfLut" />
           </menu_item_call>
           <menu_item_separator />
           <menu_item_call

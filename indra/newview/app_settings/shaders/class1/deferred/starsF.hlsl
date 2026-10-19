@@ -26,7 +26,7 @@
 
 Texture2D diffuseMap : register(t0);
 SamplerState diffuseMapSampler : register(s0);
-// Second sprite channel: lldrawpoolwlsky.cpp binds getBloomTex()/
+// Second sprite channel: dxdrawpoolwlsky.cpp binds getBloomTex()/
 // getBloomTexNext() to units 0/1 with a real blend_factor for windlight
 // sky-preset transitions. When only one texture is bound, unit 1 falls back
 // to the white texture but blend_factor is also forced to 0 in that case.

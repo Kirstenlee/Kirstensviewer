@@ -176,9 +176,7 @@ void Asset::uploadTransforms()
         mp[idx + 11] = m[14];
     }
 
-#ifdef DX_RENDER
-    // glGenBuffers/glBindBuffer/glBufferData are raw GL, null under DX_RENDER.
-    // Mirrors LLReflectionMapManager::updateUniforms()'s
+    // Mirrors LLSphereProbes::updateUniforms()'s
     // DXBuffer::createConstantBuffer()/upload() pattern.
     if (!mDXNodesUBO.getBuffer())
     {
@@ -188,16 +186,6 @@ void Asset::uploadTransforms()
     {
         mDXNodesUBO.upload(glmp.data(), glmp.size() * sizeof(F32));
     }
-#else
-    if (mNodesUBO == 0)
-    {
-        glGenBuffers(1, &mNodesUBO);
-    }
-
-    glBindBuffer(GL_UNIFORM_BUFFER, mNodesUBO);
-    glBufferData(GL_UNIFORM_BUFFER, glmp.size() * sizeof(F32), glmp.data(), GL_STREAM_DRAW);
-    glBindBuffer(GL_UNIFORM_BUFFER, 0);
-#endif
 }
 
 void Asset::uploadMaterials()
@@ -238,7 +226,6 @@ void Asset::uploadMaterials()
             min_alpha);
     }
 
-#ifdef DX_RENDER
     if (!mDXMaterialsUBO.getBuffer())
     {
         mDXMaterialsUBO.createConstantBuffer(md.size() * sizeof(vec4), md.data());
@@ -247,16 +234,6 @@ void Asset::uploadMaterials()
     {
         mDXMaterialsUBO.upload(md.data(), md.size() * sizeof(vec4));
     }
-#else
-    if (mMaterialsUBO == 0)
-    {
-        glGenBuffers(1, &mMaterialsUBO);
-    }
-
-    glBindBuffer(GL_UNIFORM_BUFFER, mMaterialsUBO);
-    glBufferData(GL_UNIFORM_BUFFER, md.size() * sizeof(vec4), md.data(), GL_STREAM_DRAW);
-    glBindBuffer(GL_UNIFORM_BUFFER, 0);
-#endif
 }
 
 S32 Asset::lineSegmentIntersect(const LLVector4a& start, const LLVector4a& end,

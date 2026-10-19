@@ -23,7 +23,7 @@
  */
 
 // row_major is required, not stylistic: the C++ side
-// (LLRenderPass::uploadMatrixPalette(), lldrawpool.cpp) uploads a compact
+// (LLRenderPass::uploadMatrixPalette(), dxdrawpool.cpp) uploads a compact
 // 12-float-per-matrix affine encoding (3 rows x 4 floats: rotation+scale in
 // columns 0-2, translation in column 3). column_major would pad each
 // column to a full float4 (16 floats/matrix), breaking that layout.

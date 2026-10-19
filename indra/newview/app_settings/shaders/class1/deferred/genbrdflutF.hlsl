@@ -50,6 +50,14 @@ SOFTWARE.
 
 #include "varying/genBrdfLutVarying.hlsli"
 
+// S24: matches canonical LL genbrdflut.glsl's sample count exactly. Safe to
+// keep high because this shader is no longer compiled/run at normal
+// startup (see LLPipeline::bakeBrdfLut() and
+// LLPipeline::createLUTBuffers() - the result is baked to a static asset
+// offline and just loaded, with a loop-free analytic fallback shader if
+// that asset is ever missing). If you change this shader's math, re-run
+// the "Bake BRDF LUT" dev command and re-ship the baked asset, or every
+// install will keep loading the OLD baked values.
 #define NUM_SAMPLES 1024u
 
 static const float PI = 3.1415926536;
@@ -112,7 +120,7 @@ float2 BRDF(float NoV, float roughness)
     float3 V = float3(sqrt(1.0 - NoV*NoV), 0.0, NoV);
 
     float2 LUT = float2(0.0, 0.0);
-    // Keep as a loop: unrolling 1024 iterations is too costly for driver compilers.
+    // Keep as a loop: unrolling NUM_SAMPLES iterations is too costly for driver compilers.
     [loop] for(uint i = 0u; i < NUM_SAMPLES; i++) {
         float2 Xi = hammersley2d(i, NUM_SAMPLES);
         float3 H = importanceSample_GGX(Xi, roughness, N);

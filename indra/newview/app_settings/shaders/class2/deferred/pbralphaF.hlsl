@@ -211,7 +211,12 @@ float4 main(PSInput IN) : SV_Target
     float gloss = 1.0 - perceptualRoughness;
     // S24: perspective-correct screen UV, separate from tc above (needed for SSR).
     float2 probe_tc = generateProjectedPosition(pos);
-    sampleReflectionProbes(irradiance, radiance, probe_tc, pos, norm, gloss, metallic, false, amblit);
+    // S24: transparent=true, not false - this IS the alpha-blended PBR forward path (the
+    // file's own name). softenLightF.hlsl's OPAQUE deferred PBR branch correctly passes
+    // false; class1/gltf/pbrmetallicroughnessF.hlsl's ALPHA_BLEND branch (semantically the
+    // same "PBR alpha-blended surface" case) correctly passes true. This call had been
+    // matching the opaque convention instead of its own file's.
+    sampleReflectionProbes(irradiance, radiance, probe_tc, pos, norm, gloss, metallic, true, amblit);
 
     float3 color = pbrBaseLight(diffuseColor, specularColor, metallic, v, norm, perceptualRoughness, light_dir, sunlit, scol, radiance, irradiance, colorEmissive, ao, additive, atten);
 

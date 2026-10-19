@@ -9041,7 +9041,7 @@
       <key>Type</key>
       <string>U32</string>
       <key>Value</key>
-      <integer>0</integer>
+      <integer>2</integer>
     </map>
     <key>RenderFSAAType</key>
     <map>
@@ -9052,7 +9052,7 @@
       <key>Type</key>
       <string>U32</string>
       <key>Value</key>
-      <integer>0</integer>
+      <integer>2</integer>
     </map>
     <key>RenderFarClip</key>
     <map>
@@ -9063,7 +9063,7 @@
       <key>Type</key>
       <string>F32</string>
       <key>Value</key>
-      <real>256.0</real>
+      <real>128.0</real>
     </map>
     <key>RenderAutoMaskAlphaNonDeferred</key>
     <map>
@@ -9660,13 +9660,13 @@
     <key>RenderReflectionProbeCount</key>
     <map>
       <key>Comment</key>
-      <string>Number of probes to render.  Maximum of 256.  Clamps to the nearest power of 2.</string>
+      <string>Number of probes to render.  Maximum of 256.  Clamps to the nearest power of 2.  Default 128 is a fair middle ground for new users (VRAM cost scales with this x resolution).</string>
       <key>Persist</key>
       <integer>1</integer>
       <key>Type</key>
       <string>U32</string>
       <key>Value</key>
-      <integer>256</integer>
+      <integer>128</integer>
     </map>
     <key>RenderReflectionProbeResolution</key>
     <map>
@@ -9716,13 +9716,24 @@
     <key>RenderReflectionMasterCube</key>
     <map>
       <key>Comment</key>
-      <string>Captures one realtime master cube centred on the avatar every frame, for testing shiny surfaces. Experimental.</string>
+      <string>Captures one realtime master cube centred on the avatar every frame, used as every glossy/shiny/mirror surface's reflection source. A single avatar-centred capture refreshed fast enough under Dynamic/Realtime detail to stay locally relevant as you move; not room-fitted, so very close reflections can look scaled/zoomed.</string>
       <key>Persist</key>
       <integer>1</integer>
       <key>Type</key>
       <string>Boolean</string>
       <key>Value</key>
-      <integer>0</integer>
+      <integer>1</integer>
+    </map>
+    <key>RenderReflectionMasterCubeRadius</key>
+    <map>
+      <key>Comment</key>
+      <string>Parallax-correction radius (metres) of the master reflection cube's capture sphere. Smaller values better match a tight indoor space and reduce close-up zoom/scale mismatch; larger values suit open/expansive regions. Default 20m is a comfortable general-purpose indoor value found by live testing; live-tunable, no restart needed.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>20</real>
     </map>
     <key>RenderReflectionCellGrid</key>
     <map>
@@ -9750,6 +9761,17 @@
     <map>
       <key>Comment</key>
       <string>When RenderReflectionProbeLevel is 0, amount of time in seconds to wait between updates to reflection map.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>2.0</real>
+    </map>
+    <key>RenderProbeMinRecaptureInterval</key>
+    <map>
+      <key>Comment</key>
+      <string>S24 DX_RENDER - minimum real-time (seconds) an already-complete sphere/box reflection probe (every probe except the default one, which has its own RenderDefaultProbeUpdatePeriod) must wait before it's eligible to be picked for its next refresh. A full refresh is spread across ~12 frames (irradiance commits roughly halfway through, radiance at the end), and mComplete stays true the whole time, so an already-complete probe re-selected purely by staleness re-enters that torn window immediately and indefinitely with no throttle. This doesn't make a refresh atomic - it reduces how often an already-stable probe re-enters the torn window at all. 0 = original no-throttle behavior.</string>
       <key>Persist</key>
       <integer>1</integer>
       <key>Type</key>
@@ -10178,13 +10200,13 @@
     <key>RenderReflectionProbeAmbientMultiplier</key>
     <map>
       <key>Comment</key>
-      <string>Ambient probe contribution multiplier (S24 Runtime Tweak). Local lights are additive on top of ambient, so a lower ambient floor lets local light contribution actually read visually instead of being washed out. 0.2 is a sane default for a default midnight scene, alongside the local-light tuning below.</string>
+      <string>Ambient probe contribution multiplier (S24 Runtime Tweak). Local lights are additive on top of ambient, so a lower ambient floor lets local light contribution actually read visually instead of being washed out. 1.0 (full, unscaled ambient) is the default; lower it if local lights are being washed out.</string>
       <key>Persist</key>
       <integer>1</integer>
       <key>Type</key>
       <string>F32</string>
       <key>Value</key>
-      <real>0.2</real>
+      <real>1.0</real>
     </map>
     <key>RenderReflectionProbeEqualize</key>
     <map>
@@ -10211,46 +10233,46 @@
     <key>RenderReflectionGateGlossReject</key>
     <map>
       <key>Comment</key>
-      <string>Material reflection gate: gloss (roughness inverted) at or below this gets no reflection. 0 disables the gate (S24 Runtime Tweak).</string>
+      <string>Material reflection gate: gloss (roughness inverted) at or below this gets no reflection. 0 disables the gate. Default 0.65 approximates original LL hardcoded glossy-reflection behavior; tune from there (S24 Runtime Tweak).</string>
       <key>Persist</key>
       <integer>1</integer>
       <key>Type</key>
       <string>F32</string>
       <key>Value</key>
-      <real>0.0</real>
+      <real>0.65</real>
     </map>
     <key>RenderReflectionGateGlossAccept</key>
     <map>
       <key>Comment</key>
-      <string>Material reflection gate: gloss (roughness inverted) at or above this gets full reflection, ramped from Reject below it. 0 disables the gate (S24 Runtime Tweak).</string>
+      <string>Material reflection gate: gloss (roughness inverted) at or above this gets full reflection, ramped from Reject below it. 0 disables the gate. Default 0.65, equal to Reject's default - a hard cutoff approximating original LL hardcoded behavior; separate the two for a smooth ramp instead (S24 Runtime Tweak).</string>
       <key>Persist</key>
       <integer>1</integer>
       <key>Type</key>
       <string>F32</string>
       <key>Value</key>
-      <real>0.0</real>
+      <real>0.65</real>
     </map>
     <key>RenderReflectionGateMetallicReject</key>
     <map>
       <key>Comment</key>
-      <string>Material reflection gate: metallic at or below this gets no reflection. PBR materials only. 0 disables the gate (S24 Runtime Tweak).</string>
+      <string>Material reflection gate: metallic at or below this gets no reflection. PBR materials only. 0 disables the gate. Default 0.65 approximates original LL hardcoded metallic-reflection behavior; tune from there (S24 Runtime Tweak).</string>
       <key>Persist</key>
       <integer>1</integer>
       <key>Type</key>
       <string>F32</string>
       <key>Value</key>
-      <real>0.0</real>
+      <real>0.65</real>
     </map>
     <key>RenderReflectionGateMetallicAccept</key>
     <map>
       <key>Comment</key>
-      <string>Material reflection gate: metallic at or above this gets full reflection, ramped from Reject below it. PBR materials only. 0 disables the gate (S24 Runtime Tweak).</string>
+      <string>Material reflection gate: metallic at or above this gets full reflection, ramped from Reject below it. PBR materials only. 0 disables the gate. Default 0.65, equal to Reject's default - a hard cutoff approximating original LL hardcoded behavior; separate the two for a smooth ramp instead (S24 Runtime Tweak).</string>
       <key>Persist</key>
       <integer>1</integer>
       <key>Type</key>
       <string>F32</string>
       <key>Value</key>
-      <real>0.0</real>
+      <real>0.65</real>
     </map>
     <key>SmoothKeyboardMovement</key>
     <map>
@@ -10343,13 +10365,13 @@
     <key>RenderReflectionProbeLevel</key>
     <map>
       <key>Comment</key>
-      <string>Reflection probes control.  0 - disable (one probe to rule them all), 1 - manual probes only, 2 - manual + terrain/water, 3 - Manual + Terrain/water + objects.</string>
+      <string>Reflection probes control.  0 - disable (one probe to rule them all), 1 - manual probes only, 2 - manual + terrain/water, 3 - Manual + Terrain/water + objects.  Default 2 (manual + terrain/water) is a fair middle ground for new users.</string>
       <key>Persist</key>
       <integer>1</integer>
       <key>Type</key>
       <string>S32</string>
       <key>Value</key>
-      <integer>3</integer>
+      <integer>2</integer>
     </map>
     <key>RenderReservedTextureIndices</key>
     <map>
@@ -11027,6 +11049,17 @@
       <string>Boolean</string>
       <key>Value</key>
       <real>0</real>
+    </map>
+    <key>RenderParallelAvatarCharacter</key>
+    <map>
+      <key>Comment</key>
+      <string>S24 (DX_RENDER): dispatch ordinary (non-self, non-control) avatars' updateCharacter() calls across the DXPool worker threads instead of the main thread, Task #283 Phase 2. Off by default - experimental.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
     </map>
     <key>RenderAvatarComplexityMode</key>
     <map>

@@ -509,7 +509,7 @@
       </panel>
 
       <panel
-        name="card_blank1"
+        name="card_threading"
         follows="left|top"
         height="288"
         width="308"
@@ -521,6 +521,30 @@
         background_opaque="false"
         bg_alpha_image="Aurora_R2C2"
         >
+      <text
+       type="string"
+       follows="left|top"
+       height="18"
+       layout="topleft"
+       left="16"
+       top="12"
+       width="268"
+       font="SansSerifBold"
+       text_color="DrYellow">
+       Threading
+      </text>
+
+      <check_box
+       left="20"
+       top_pad="16"
+       control_name="RenderParallelAvatarCharacter"
+       height="20"
+       initial_value="false"
+       label="Threaded Avatar Motion"
+       layout="topleft"
+       name="threaded_avatar_motion"
+       tool_tip="Dispatches ordinary (non-self, non-animesh) avatars' animation/motion blending across worker threads instead of the main thread. Off by default. No restart needed."
+       width="280" />
       </panel>
 
       <panel
@@ -6226,6 +6250,60 @@
         text_color="White_25">
         (Requires restart)
       </text>
+
+      <check_box
+        left="20"
+        top_pad="10"
+        control_name="RenderReflectionMasterCube"
+        height="20"
+        initial_value="true"
+        label="Master Reflection Cube (Debug)"
+        layout="topleft"
+        name="enable_master_cube"
+        tool_tip="Every glossy/shiny/mirror surface samples one avatar-centred capture instead of per-location probe selection. Recommended default - refreshes fast enough under Dynamic/Realtime detail to stay locally relevant as you move. Not room-fitted, so very close reflections can look scaled/zoomed. Turn off to fall back to per-location probe selection if this misbehaves."
+        width="280" />
+
+      <text
+        left="20"
+        top_pad="2"
+        name="master_cube_warning"
+        follows="left|top"
+        layout="topleft"
+        height="34"
+        width="268"
+        font="SansSerifSmall"
+        text_color="DrYellow"
+        word_wrap="true">
+        ⚠ Close-up reflections can look scaled/zoomed
+      </text>
+
+      <text
+        type="string"
+        follows="left|top"
+        height="18"
+        layout="topleft"
+        left="20"
+        top_pad="6"
+        width="268"
+        font="SansSerif">
+        Master Cube Radius (m):
+      </text>
+
+      <spinner
+        control_name="RenderReflectionMasterCubeRadius"
+        decimal_digits="0"
+        follows="left|top"
+        height="20"
+        increment="1"
+        initial_value="20"
+        layout="topleft"
+        left="20"
+        max_val="256"
+        min_val="1"
+        name="master_cube_radius_spinner"
+        top_pad="4"
+        tool_tip="Parallax-correction radius of the master cube's capture sphere. Default 20m is a comfortable general-purpose indoor value; shrink further for a tight room, raise for open/expansive regions. Takes effect immediately, no restart or toggle needed."
+        width="65" />
       </panel>
 
       <panel
@@ -6584,7 +6662,7 @@
       </panel>
 
       <panel
-        name="card_empty2"
+        name="card_master_cube"
         follows="left|top"
         height="288"
         width="308"
@@ -6596,6 +6674,41 @@
         background_opaque="false"
         bg_alpha_image="Aurora_R2C3"
         >
+      <text
+        type="string"
+        follows="left|top"
+        height="18"
+        layout="topleft"
+        left="16"
+        top="12"
+        width="268"
+        font="SansSerifBold"
+        text_color="DrYellow">
+        Master Cube
+      </text>
+
+      <text
+        left="20"
+        top_pad="8"
+        type="string"
+        follows="left|top"
+        height="48"
+        layout="topleft"
+        width="268"
+        font="SansSerifSmall"
+        text_color="LtGray"
+        word_wrap="true">
+        Resets just the Master Reflection Cube toggle and its capture radius (see the card above) - not the rest of this tab.
+      </text>
+
+      <button
+        left="20"
+        top_pad="10"
+        label="Reset Master Cube Defaults"
+        name="reset_master_cube_btn"
+        width="240"
+        height="25"
+        tool_tip="Reset RenderReflectionMasterCube and RenderReflectionMasterCubeRadius to defaults" />
       </panel>
 
     </panel>
@@ -7119,13 +7232,13 @@
         follows="left|top"
         height="20"
         increment="0.1"
-        initial_value="0.2"
+        initial_value="1.0"
         layout="topleft"
         left_delta="0"
         min_val="0.0"
         max_val="10.0"
         name="probe_ambient_slider"
-        tool_tip="Ambient: 0=dark, 1=normal, 10=bright glow"
+        tool_tip="Ambient: 0=dark, 1=normal (default), 10=bright glow"
         top_pad="2"
         width="200" />
 
@@ -7135,7 +7248,7 @@
         follows="left|top"
         height="20"
         increment="0.1"
-        initial_value="0.2"
+        initial_value="1.0"
         layout="topleft"
         left_pad="5"
         min_val="0.0"
@@ -7556,6 +7669,15 @@
         text_color="DrYellow">
         Tweaks not applying? Purge the shader cache on the RESETS tab, then restart.
       </text>
+
+      <button
+        left="16"
+        top_pad="10"
+        label="Reset Cubemap Defaults"
+        name="reset_cubemap_btn"
+        width="240"
+        height="25"
+        tool_tip="Reset all Cubemap tab settings (probe system, hero probes, SSAO irradiance) to defaults" />
       </panel>
 
     </panel>
@@ -7630,13 +7752,13 @@
         follows="left|top"
         height="20"
         increment="0.01"
-        initial_value="0.0"
+        initial_value="0.65"
         layout="topleft"
         left_delta="0"
         min_val="0.0"
         max_val="1.0"
         name="gate_gloss_reject_slider"
-        tool_tip="Gloss at or below this value gets no reflection. 0 disables the floor."
+        tool_tip="Gloss at or below this value gets no reflection. 0 disables the floor. Default 0.65 approximates original LL hardcoded behavior."
         top_pad="2"
         width="200" />
 
@@ -7646,7 +7768,7 @@
         follows="left|top"
         height="20"
         increment="0.01"
-        initial_value="0.0"
+        initial_value="0.65"
         layout="topleft"
         left_pad="5"
         min_val="0.0"
@@ -7673,13 +7795,13 @@
         follows="left|top"
         height="20"
         increment="0.01"
-        initial_value="0.0"
+        initial_value="0.65"
         layout="topleft"
         left_delta="0"
         min_val="0.0"
         max_val="1.0"
         name="gate_gloss_accept_slider"
-        tool_tip="Gloss at or above this value gets full reflection. 0 disables the ceiling (same as Reject, no ramp)."
+        tool_tip="Gloss at or above this value gets full reflection. Default 0.65, equal to Reject - a hard cutoff approximating original LL hardcoded behavior; separate the two for a smooth ramp."
         top_pad="2"
         width="200" />
 
@@ -7689,7 +7811,7 @@
         follows="left|top"
         height="20"
         increment="0.01"
-        initial_value="0.0"
+        initial_value="0.65"
         layout="topleft"
         left_pad="5"
         min_val="0.0"
@@ -7756,13 +7878,13 @@
         follows="left|top"
         height="20"
         increment="0.01"
-        initial_value="0.0"
+        initial_value="0.65"
         layout="topleft"
         left_delta="0"
         min_val="0.0"
         max_val="1.0"
         name="gate_metallic_reject_slider"
-        tool_tip="Metallic at or below this value gets no reflection (PBR only). 0 disables the floor."
+        tool_tip="Metallic at or below this value gets no reflection (PBR only). 0 disables the floor. Default 0.65 approximates original LL hardcoded behavior."
         top_pad="2"
         width="200" />
 
@@ -7772,7 +7894,7 @@
         follows="left|top"
         height="20"
         increment="0.01"
-        initial_value="0.0"
+        initial_value="0.65"
         layout="topleft"
         left_pad="5"
         min_val="0.0"
@@ -7799,13 +7921,13 @@
         follows="left|top"
         height="20"
         increment="0.01"
-        initial_value="0.0"
+        initial_value="0.65"
         layout="topleft"
         left_delta="0"
         min_val="0.0"
         max_val="1.0"
         name="gate_metallic_accept_slider"
-        tool_tip="Metallic at or above this value gets full reflection (PBR only). 0 disables the ceiling (same as Reject, no ramp)."
+        tool_tip="Metallic at or above this value gets full reflection (PBR only). Default 0.65, equal to Reject - a hard cutoff approximating original LL hardcoded behavior; separate the two for a smooth ramp."
         top_pad="2"
         width="200" />
 
@@ -7815,7 +7937,7 @@
         follows="left|top"
         height="20"
         increment="0.01"
-        initial_value="0.0"
+        initial_value="0.65"
         layout="topleft"
         left_pad="5"
         min_val="0.0"
@@ -7863,6 +7985,15 @@
         font="SansSerif">
         0/0 = no-op. Reject clamps to zero, Accept ramps to full, smooth blend between. Probes only - SSR has its own threshold on the SSR tab.
       </text>
+
+      <button
+        left="16"
+        top_pad="10"
+        label="Reset Materials Defaults"
+        name="reset_materials_btn"
+        width="240"
+        height="25"
+        tool_tip="Reset all materials settings (reflection gates, normal/specular maps, projector specular, legacy bump/shiny) to defaults" />
       </panel>
 
       <panel
@@ -8872,7 +9003,7 @@
         type="string"
         length="1"
         follows="left|top"
-        height="66"
+        height="90"
         layout="topleft"
         width="268"
         font="SansSerifSmall"
@@ -8885,7 +9016,7 @@ Lower values respond faster but can feel jerky. Higher values are smoother but s
 
       <button
         left="20"
-        top_pad="8"
+        top_pad="12"
         label="Reset Movement Defaults"
         name="reset_movement_btn"
         width="240"
@@ -9702,7 +9833,7 @@ Lower values respond faster but can feel jerky. Higher values are smoother but s
         width="268"
         font="SansSerifBold"
         text_color="DrYellow">
-        Sort Modes
+        About Alpha
       </text>
 
       <text
@@ -9757,6 +9888,14 @@ Lower values respond faster but can feel jerky. Higher values are smoother but s
         Sorted by distance, farthest first.
       </text>
 
+      <button
+        left="20"
+        top_pad="10"
+        label="Reset Alpha Defaults"
+        name="reset_alpha_btn"
+        width="240"
+        height="25"
+        tool_tip="Reset all alpha sorting/projector settings to defaults" />
       </panel>
 
       <panel

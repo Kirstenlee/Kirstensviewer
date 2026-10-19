@@ -68,7 +68,24 @@ PSOutput main(PSInput IN)
     }
     col *= IN.varying.vertex_color;
 
-    float3 norm = bumpMap.Sample(bumpMapSampler, IN.varying.vary_texcoord0.xy).rgb * 2.0 - 1.0;
+    float3 bump_sample = bumpMap.Sample(bumpMapSampler, IN.varying.vary_texcoord0.xy).rgb;
+    float3 norm = bump_sample * 2.0 - 1.0;
+
+    // S24: Bumpiness="Brightness"/"Darkness" never gets a real generated normal map on
+    // this DX11 backend - LLBumpImageList::onSourceUpdated() (dxdrawpoolbump.cpp) is a
+    // stub (its own comment says why), so bumpMap stays bound to a blank placeholder
+    // texture, which samples near-black - NOT the (0,0,1) "no perturbation" a real flat
+    // normal map region encodes. Feeding that through the per-pixel-varying tangent-space
+    // basis below produces a continuously wrong, rotating normal - most visible on curved
+    // geometry (a sphere) where the basis itself varies a lot, directly corrupting
+    // whatever reflection gets sampled off it. Until Brightness/Darkness has a real
+    // generated normal map, detect the blank case and substitute the neutral tangent-
+    // space normal (0,0,1) - fed through the exact same transform below, this reproduces
+    // the real, unperturbed geometric normal exactly, rather than garbage.
+    if (dot(bump_sample, bump_sample) < 0.001)
+    {
+        norm = float3(0.0, 0.0, 1.0);
+    }
 
     float3 tnorm = float3(dot(norm, IN.varying.vary_mat0),
             dot(norm, IN.varying.vary_mat1),

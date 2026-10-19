@@ -560,20 +560,6 @@
 	</package>
 
 	<package>
-		<type>tarball</type>
-		<name>glext</name>
-		<url>https://kirstensviewer.s3.eu-north-1.amazonaws.com/S24/glext.tar.gz</url>
-		<md5>954185e9f8af0ffcfacea29b3473ef45</md5>
-	</package>
-
-	<package>
-    <type>tarball</type>
-    <name>glh_linear</name>
-    <url>https://kirstensviewer.s3.eu-north-1.amazonaws.com/S24/glh_linear.tar.gz</url>
-    <md5>3b93662be383ed9f24d186119e06c077</md5>
-	</package>
-	
-	<package>
 		<type>vcpkg</type>
 		<name>glm</name>
 		<triplet>x64-windows-static-viewer</triplet>

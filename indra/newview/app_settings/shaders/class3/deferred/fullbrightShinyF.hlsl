@@ -31,7 +31,7 @@
 // never compiles) - moved to t5/s5 anyway, matching this shader's own indexed tex0/tex0Sampler
 // register (mutually exclusive #ifdef, safe to share), so it's correct if that ever changes.
 // The real bug this file's diffuse texture reads as white/grey for was in
-// LLRenderPass::pushBatch()'s single-texture path (lldrawpool.cpp) hardcoding texture unit 0
+// LLRenderPass::pushBatch()'s single-texture path (dxdrawpool.cpp) hardcoding texture unit 0
 // regardless of which register the bound shader's indexed lookup actually expects - see the
 // fix there.
 #ifndef HAS_DIFFUSE_LOOKUP
