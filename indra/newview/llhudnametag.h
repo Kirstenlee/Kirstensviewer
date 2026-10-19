@@ -200,14 +200,13 @@ private:
     LLPointer<LLUIImage> mRoundedRectImgp;
     LLPointer<LLUIImage> mRoundedRectTopImgp;
 
-    // mOcclusionFadeAlpha is read unconditionally in renderText() (defaults
-    // to 1.0, a no-op under GL); the query handle/pending flag are only
-    // meaningful under DX_RENDER.
+    // mOcclusionFadeAlpha is read unconditionally in renderText() (defaults to
+    // 1.0, fully visible, until an occlusion query resolves). mOcclusionQuery/
+    // mOcclusionQueryPending track that in-flight GPU occlusion query - see
+    // issueOcclusionQuery()/updateOcclusionFade() in llhudnametag.cpp.
     F32             mOcclusionFadeAlpha = 1.f;
-#ifdef DX_RENDER
     unsigned int    mOcclusionQuery = 0;
     bool            mOcclusionQueryPending = false;
-#endif
 
     static bool    sDisplayText ;
     static std::set<LLPointer<LLHUDNameTag> > sTextObjects;

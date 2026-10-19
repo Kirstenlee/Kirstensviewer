@@ -28,6 +28,7 @@
 #include "llagentcamera.h"
 
 #include "pipeline.h"
+#include "dxpipeline.h"
 
 #include "aoengine.h"           // ## S24 Animation Overrider
 #include "llagent.h"
@@ -1476,23 +1477,18 @@ void LLAgentCamera::updateCamera()
                     camera_pos_global = camera_pos_agent + agent_pos;
                 }
             }
-            // S24 : DO NOT add a third "mTrackFocusObject && mFocusObject.notNull()" branch here
-            // that smooths the camera RELATIVE to mFocusGlobal instead of in absolute space
-            // (this is LL's own upstream approach, backport r3949, "Smooth tracked cameras
-            // relative to their focus"). Tried twice in this engine (2026-10-09, see
-            // project_altcam_mesh_spiral_2026_10_09.md), both times live-tested as badly broken
-            // - rubberbands/overshoots on every new alt-click, sometimes violently. Root cause:
-            // mCameraSmoothingLastFocusGlobal is never invalidated when the focus TARGET
-            // switches (clicking a different object) - only a magnitude guard exists
-            // (MAX_CAMERA_SMOOTH_DISTANCE), which doesn't catch "same relative distance, totally
-            // different object," so the lerp blends between two geometrically unrelated
-            // camera-to-focus offsets. Upstream LL has this identical gap - not an S24 bug to
-            // chase, a real flaw in the feature itself. The benefit it buys (smooth tracking of
-            // a focus object that is physically moving, e.g. a driven vehicle) is narrow and not
-            // worth this fragility. If ever revisited, it needs setFocusGlobal() to explicitly
+            // S24: do not add a third "mTrackFocusObject && mFocusObject.notNull()" branch
+            // that smooths the camera relative to mFocusGlobal instead of in absolute space
+            // (LL's upstream approach). mCameraSmoothingLastFocusGlobal is never invalidated
+            // when the focus target switches (clicking a different object) - only a magnitude
+            // guard exists (MAX_CAMERA_SMOOTH_DISTANCE), which doesn't catch "same relative
+            // distance, different object," so the lerp blends between two unrelated
+            // camera-to-focus offsets, causing rubberbanding/overshoot on every new alt-click.
+            // Upstream LL has the same gap; this is a flaw in the feature, not an S24 bug. The
+            // benefit (smooth tracking of a moving focus object, e.g. a driven vehicle) is
+            // narrow and not worth the fragility. Revisiting this requires setFocusGlobal() to
             // invalidate mCameraSmoothingLastFocusValid on a genuine target switch (its own
-            // `if (old_focus != focus)` check is the natural hook) - untested, not a blind
-            // retry of the old branch.
+            // `if (old_focus != focus)` check is the natural hook).
             else
             {
                 LLVector3d delta = camera_pos_global - mCameraSmoothingLastPositionGlobal;
@@ -1591,7 +1587,7 @@ void LLAgentCamera::updateCamera()
                 {
                     // clear any existing "early" movements of attachment
                     attached_object->mDrawable->clearState(LLDrawable::EARLY_MOVE);
-                    gPipeline.updateMoveNormalAsync(attached_object->mDrawable);
+                    DXPipeline::updateMoveNormalAsync(gPipeline, attached_object->mDrawable);
                     attached_object->updateText();
                 }
             }
@@ -1675,16 +1671,14 @@ LLVector3d LLAgentCamera::calcFocusPositionTargetGlobal()
     {
         if (mFocusObject.notNull() && !mFocusObject->isDead() && mFocusObject->mDrawable.notNull())
         {
-            // S24: restored (r3965 backport removed this, diagnosed and reverted 2026-10-09 -
-            // see project_altcam_mesh_spiral_2026_10_09.md). For an actively-animating tracked
-            // object (rigged/animated mesh - drawablep->isActive()), force its pending transform
-            // update to run NOW via updateMoveNormalAsync()/updateMoveDampedAsync() rather than
-            // letting the normal per-frame batch pass process it later - otherwise
-            // getRenderPosition() below reads a one-frame-stale transform every single frame,
-            // which compounds with continuous orbit input into a growing divergence between the
-            // camera and its focus point (the confirmed cause of alt-cam spiraling outward on
-            // rigged/animated mesh focus). Static prims/non-active drawables are unaffected
-            // (isActive() false, falls to the plain updateFocusOffset() path unchanged).
+            // S24: for an actively-animating tracked object (rigged/animated mesh -
+            // drawablep->isActive()), force its pending transform update to run now via
+            // updateMoveNormalAsync()/updateMoveDampedAsync() instead of waiting for the
+            // per-frame batch pass. Otherwise getRenderPosition() below reads a
+            // one-frame-stale transform every frame, which compounds with continuous
+            // orbit input into camera/focus divergence (spiraling outward) on
+            // rigged/animated mesh focus. Static prims/non-active drawables are
+            // unaffected and fall through to the plain updateFocusOffset() path.
             LLDrawable* drawablep = mFocusObject->mDrawable;
 
             if (mTrackFocusObject &&
@@ -1695,17 +1689,17 @@ LLVector3d LLAgentCamera::calcFocusPositionTargetGlobal()
                 {
                     if (mFocusObject->isSelected())
                     {
-                        gPipeline.updateMoveNormalAsync(drawablep);
+                        DXPipeline::updateMoveNormalAsync(gPipeline, drawablep);
                     }
                     else
                     {
                         if (drawablep->isState(LLDrawable::MOVE_UNDAMPED))
                         {
-                            gPipeline.updateMoveNormalAsync(drawablep);
+                            DXPipeline::updateMoveNormalAsync(gPipeline, drawablep);
                         }
                         else
                         {
-                            gPipeline.updateMoveDampedAsync(drawablep);
+                            DXPipeline::updateMoveDampedAsync(gPipeline, drawablep);
                         }
                     }
                 }

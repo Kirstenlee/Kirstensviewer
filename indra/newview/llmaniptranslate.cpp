@@ -60,12 +60,11 @@
 #include "llworld.h"
 #include "llui.h"
 #include "pipeline.h"
+#include "dxpipeline.h"
 #include "llviewershadermgr.h"
 #include "lltrans.h"
 
-#ifdef DX_RENDER
 #include "DXTexture.h"
-#endif
 
 const S32 NUM_AXES = 3;
 const S32 MOUSE_DRAG_SLOP = 2;       // pixels
@@ -79,12 +78,10 @@ const F32 MANIPULATOR_SCALE_HALF_LIFE = 0.07f;
 const F32 SNAP_ARROW_SCALE = 0.7f;
 
 static LLPointer<LLViewerTexture> sGridTex = NULL ;
-#ifdef DX_RENDER
 // DX-native backing for sGridTex - the raw GLuint*+bindManual()+setManualImage() upload below has no
 // DX_RENDER translation (same ambient-GL-state issue as pipeline.cpp's procedural textures, e.g.
 // mDXNoiseMap).
 static DXTexture sDXGridTex;
-#endif
 
 const LLManip::EManipPart MANIPULATOR_IDS[9] =
 {
@@ -181,11 +178,6 @@ void LLManipTranslate::restoreGL()
 
     GLuint* d = new GLuint[rez*rez];
 
-#ifndef DX_RENDER
-    gDX.getTexUnit(0)->bindManual(LLTexUnit::TT_TEXTURE, sGridTex->getTexName(), true);
-    gDX.getTexUnit(0)->setTextureFilteringOption(LLTexUnit::TFO_TRILINEAR);
-#endif
-
     while (rez >= 1)
     {
         for (U32 i = 0; i < rez*rez; i++)
@@ -279,17 +271,14 @@ void LLManipTranslate::restoreGL()
                 }
             }
         }
-#ifdef DX_RENDER
         // Only the top mip is uploaded here - generate_mips=true lets D3D11 build the rest instead of
         // replicating this loop's per-mip anti-aliasing. A deliberate simplification, not a behavior
         // regression.
         sDXGridTex.create(reinterpret_cast<const uint8_t*>(d), rez, rez, 4, true);
+        // S24: this break means the loop below only ever runs once (rez=512, mip=0) - the
+        // rez/mip stepping past this point is dead. Left as-is for now; collapsing the loop
+        // is a separate cleanup pass.
         break;
-#else
-        LLImageDX::setManualImage(GL_TEXTURE_2D, mip, GL_RGBA, rez, rez, GL_RGBA, GL_UNSIGNED_BYTE, d);
-#endif
-        rez = rez >> 1;
-        mip++;
     }
     delete [] d;
 }
@@ -1090,7 +1079,7 @@ void LLManipTranslate::render()
         gDX.scalef(zoom, zoom, zoom);
     }
     {
-        LLGLDepthTest gls_depth(GL_TRUE, GL_FALSE);
+        DXDepthTest gls_depth(true, false);
         renderGuidelines();
     }
     {
@@ -1114,7 +1103,7 @@ void LLManipTranslate::renderSnapGuides()
     F32 line_alpha = gSavedSettings.getF32("GridOpacity");
 
     gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
-    LLGLDepthTest gls_depth(GL_TRUE);
+    DXDepthTest gls_depth(true);
     LLGLDisable gls_cull(GL_CULL_FACE);
     LLVector3 translate_axis;
 
@@ -1278,12 +1267,12 @@ void LLManipTranslate::renderSnapGuides()
         S32 sub_div_offset = ll_round(fmodf(dist_grid_axis - offset_nearest_grid_unit, getMinGridScale() / sGridMinSubdivisionLevel) / smallest_grid_unit_scale);
         S32 num_ticks_per_side = llmax(1, llfloor(0.5f * guide_size_meters / smallest_grid_unit_scale));
 
-        LLGLDepthTest gls_depth(GL_FALSE);
+        DXDepthTest gls_depth(false);
 
         for (S32 pass = 0; pass < 3; pass++)
         {
             LLColor4 line_color = setupSnapGuideRenderPass(pass);
-            LLGLDepthTest gls_depth(pass != 1);
+            DXDepthTest gls_depth(pass != 1);
 
             gDX.begin(LLRender::LINES);
             {
@@ -1557,18 +1546,14 @@ void LLManipTranslate::renderSnapGuides()
 
         {
             //draw grid behind objects
-            LLGLDepthTest gls_depth(GL_TRUE, GL_FALSE);
+            DXDepthTest gls_depth(true, false);
 
             {
                 //LLGLDisable stencil(GL_STENCIL_TEST);
                 {
-                    LLGLDepthTest gls_depth(GL_TRUE, GL_FALSE, GL_GREATER);
-#ifdef DX_RENDER
+                    DXDepthTest gls_depth(true, false, GL_GREATER);
                     getGridTexName(); // side effect only - ensures restoreGL() has run
                     gDX.getTexUnit(0)->bind(sDXGridTex, LLTexUnit::TAM_WRAP, LLTexUnit::TFO_TRILINEAR);
-#else
-                    gDX.getTexUnit(0)->bindManual(LLTexUnit::TT_TEXTURE, getGridTexName());
-#endif
                     gDX.flush();
                     gDX.blendFunc(LLRender::BF_ZERO, LLRender::BF_ONE_MINUS_SOURCE_ALPHA);
                     renderGrid(u,v,tiles,0.9f, 0.9f, 0.9f,a*0.15f);
@@ -1582,12 +1567,8 @@ void LLManipTranslate::renderSnapGuides()
                     renderGrid(u,v,tiles,0.0f, 0.0f, 0.0f,a*0.16f);
 
                     //draw grid top
-#ifdef DX_RENDER
                     getGridTexName(); // side effect only - ensures restoreGL() has run
                     gDX.getTexUnit(0)->bind(sDXGridTex, LLTexUnit::TAM_WRAP, LLTexUnit::TFO_TRILINEAR);
-#else
-                    gDX.getTexUnit(0)->bindManual(LLTexUnit::TT_TEXTURE, getGridTexName());
-#endif
                     renderGrid(u,v,tiles,1,1,1,a);
 
                     gDX.popMatrix();
@@ -1596,12 +1577,12 @@ void LLManipTranslate::renderSnapGuides()
                 }
 
                 {
-                    LLGLDepthTest gls_depth(GL_TRUE, GL_FALSE);
+                    DXDepthTest gls_depth(true, false);
                     renderGuidelines();
                 }
 
                 {
-                    LLGLDepthTest gls_depth(GL_TRUE, GL_FALSE, GL_GREATER);
+                    DXDepthTest gls_depth(true, false, GL_GREATER);
                     gDX.flush();
 
                     switch (mManipPart)
@@ -1696,7 +1677,7 @@ void LLManipTranslate::highlightIntersection(LLVector3 normal,
         //glClear(GL_STENCIL_BUFFER_BIT);
         LLGLEnable cull_face(GL_CULL_FACE);
         //LLGLEnable stencil(GL_STENCIL_TEST);
-        LLGLDepthTest depth (GL_TRUE, GL_FALSE, GL_ALWAYS);
+        DXDepthTest depth (true, false, GL_ALWAYS);
         //glStencilFunc(GL_ALWAYS, 0, stencil_mask);
         gDX.setColorWriteMask(false, false);
         gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
@@ -1717,16 +1698,16 @@ void LLManipTranslate::highlightIntersection(LLVector3 normal,
         static LLStaticHashedString sClipPlane("clip_plane");
         gClipProgram.uniform4fv(sClipPlane, 1, plane.v);
 
-        bool particles = gPipeline.hasRenderType(LLPipeline::RENDER_TYPE_PARTICLES);
-        bool clouds = gPipeline.hasRenderType(LLPipeline::RENDER_TYPE_CLOUDS);
+        bool particles = DXPipeline::hasRenderType(gPipeline, LLPipeline::RENDER_TYPE_PARTICLES);
+        bool clouds = DXPipeline::hasRenderType(gPipeline, LLPipeline::RENDER_TYPE_CLOUDS);
 
         if (particles)
         {
-            LLPipeline::toggleRenderType(LLPipeline::RENDER_TYPE_PARTICLES);
+            DXPipeline::toggleRenderType(gPipeline, LLPipeline::RENDER_TYPE_PARTICLES);
         }
         if (clouds)
         {
-            LLPipeline::toggleRenderType(LLPipeline::RENDER_TYPE_CLOUDS);
+            DXPipeline::toggleRenderType(gPipeline, LLPipeline::RENDER_TYPE_CLOUDS);
         }
 
         //stencil in volumes
@@ -1734,23 +1715,23 @@ void LLManipTranslate::highlightIntersection(LLVector3 normal,
         glCullFace(GL_FRONT);
         for (U32 i = 0; i < num_types; i++)
         {
-            gPipeline.renderObjects(types[i], LLVertexBuffer::MAP_VERTEX, false);
+            DXPipeline::renderObjects(gPipeline, types[i], LLVertexBuffer::MAP_VERTEX, false);
         }
 
         //glStencilOp(GL_DECR, GL_DECR, GL_DECR);
         glCullFace(GL_BACK);
         for (U32 i = 0; i < num_types; i++)
         {
-            gPipeline.renderObjects(types[i], LLVertexBuffer::MAP_VERTEX, false);
+            DXPipeline::renderObjects(gPipeline, types[i], LLVertexBuffer::MAP_VERTEX, false);
         }
 
         if (particles)
         {
-            LLPipeline::toggleRenderType(LLPipeline::RENDER_TYPE_PARTICLES);
+            DXPipeline::toggleRenderType(gPipeline, LLPipeline::RENDER_TYPE_PARTICLES);
         }
         if (clouds)
         {
-            LLPipeline::toggleRenderType(LLPipeline::RENDER_TYPE_CLOUDS);
+            DXPipeline::toggleRenderType(gPipeline, LLPipeline::RENDER_TYPE_CLOUDS);
         }
 
         gDX.setColorWriteMask(true, false);
@@ -1775,7 +1756,7 @@ void LLManipTranslate::highlightIntersection(LLVector3 normal,
     //draw volume/plane intersections
     {
         gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
-        LLGLDepthTest depth(GL_FALSE);
+        DXDepthTest depth(false);
         //LLGLEnable stencil(GL_STENCIL_TEST);
         glStencilOp(GL_KEEP, GL_KEEP, GL_KEEP);
         glStencilFunc(GL_EQUAL, 0, stencil_mask);
@@ -1813,7 +1794,7 @@ void LLManipTranslate::renderTranslationHandles()
     LLVector3 grid_origin;
     LLVector3 grid_scale;
     LLQuaternion grid_rotation;
-    LLGLDepthTest gls_depth(GL_FALSE);
+    DXDepthTest gls_depth(false);
 
     LLSelectMgr::getInstance()->getGrid(grid_origin, grid_rotation, grid_scale);
     LLVector3 at_axis;
@@ -2223,7 +2204,7 @@ void LLManipTranslate::renderArrow(S32 which_arrow, S32 selected_arrow, F32 box_
 
     for (S32 pass = 1; pass <= 2; pass++)
     {
-        LLGLDepthTest gls_depth(GL_TRUE, GL_FALSE, pass == 1 ? GL_LEQUAL : GL_GREATER);
+        DXDepthTest gls_depth(true, false, pass == 1 ? GL_LEQUAL : GL_GREATER);
         gDX.pushMatrix();
 
         S32 index = 0;

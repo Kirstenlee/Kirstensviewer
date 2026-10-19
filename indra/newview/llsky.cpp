@@ -46,7 +46,8 @@
 #include "llviewerobject.h"
 #include "llviewercamera.h"
 #include "pipeline.h"
-#include "lldrawpool.h"
+#include "dxpipeline.h"
+#include "dxdrawpool.h"
 
 #include "llvosky.h"
 #include "llviewercontrol.h"
@@ -114,14 +115,14 @@ void LLSky::resetVertexBuffers()
 {
     if (gSky.mVOSkyp.notNull())
     {
-        gPipeline.resetVertexBuffers(gSky.mVOSkyp->mDrawable);
-        gPipeline.markRebuild(gSky.mVOSkyp->mDrawable, LLDrawable::REBUILD_ALL);
+        DXPipeline::resetVertexBuffers(gPipeline, gSky.mVOSkyp->mDrawable);
+        DXPipeline::markRebuild(gPipeline, gSky.mVOSkyp->mDrawable, LLDrawable::REBUILD_ALL);
     }
     if (gSky.mVOWLSkyp.notNull())
     {
         gSky.mVOWLSkyp->resetVertexBuffers();
-        gPipeline.resetVertexBuffers(gSky.mVOWLSkyp->mDrawable);
-        gPipeline.markRebuild(gSky.mVOWLSkyp->mDrawable, LLDrawable::REBUILD_ALL);
+        DXPipeline::resetVertexBuffers(gPipeline, gSky.mVOWLSkyp->mDrawable);
+        DXPipeline::markRebuild(gPipeline, gSky.mVOWLSkyp->mDrawable, LLDrawable::REBUILD_ALL);
     }
 }
 
@@ -198,11 +199,11 @@ void LLSky::init()
 {
     mVOWLSkyp = static_cast<LLVOWLSky*>(gObjectList.createObjectViewer(LLViewerObject::LL_VO_WL_SKY, NULL));
     mVOWLSkyp->init();
-    gPipeline.createObject(mVOWLSkyp.get());
+    DXPipeline::createObject(gPipeline, mVOWLSkyp.get());
 
     mVOSkyp = (LLVOSky *)gObjectList.createObjectViewer(LLViewerObject::LL_VO_SKY, NULL);
     mVOSkyp->init();
-    gPipeline.createObject(mVOSkyp.get());
+    DXPipeline::createObject(gPipeline, mVOSkyp.get());
 
     gSky.setFogRatio(gSavedSettings.getF32("RenderFogRatio"));
 
@@ -274,7 +275,7 @@ void LLSky::updateCull()
 
 void LLSky::updateSky()
 {
-    if (!gPipeline.hasRenderType(LLPipeline::RENDER_TYPE_SKY))
+    if (!DXPipeline::hasRenderType(gPipeline, LLPipeline::RENDER_TYPE_SKY))
     {
         return;
     }

@@ -35,7 +35,7 @@
 #include "llrefcount.h"
 #include "llvertexbuffer.h"
 #include "llgltypes.h"
-#include "lldrawpool.h"
+#include "dxdrawpool.h"
 #include "llface.h"
 #include "llviewercamera.h"
 #include "llvector4a.h"

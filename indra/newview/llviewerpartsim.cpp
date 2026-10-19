@@ -39,6 +39,7 @@
 #include "llworld.h"
 #include "llmutelist.h"
 #include "pipeline.h"
+#include "dxpipeline.h"
 #include "llspatialpartition.h"
 #include "llvoavatarself.h"
 #include "llvovolume.h"
@@ -167,8 +168,8 @@ LLViewerPartGroup::LLViewerPartGroup(const LLVector3 &center_agent, const F32 bo
 
     mVOPartGroupp->setScale(LLVector3(scale,scale,scale));
 
-    //gPipeline.addObject(mVOPartGroupp);
-    gPipeline.createObject(mVOPartGroupp);
+    //DXPipeline::addObject(gPipeline, mVOPartGroupp);
+    DXPipeline::createObject(gPipeline, mVOPartGroupp);
 
     LLSpatialGroup* group = mVOPartGroupp->mDrawable->getSpatialGroup();
 
@@ -266,7 +267,7 @@ bool LLViewerPartGroup::addPart(LLViewerPart* part, F32 desired_size)
 
     // Optimize: Use REBUILD_GEOMETRY instead of REBUILD_ALL for particle additions
     // Particles don't change volume/LOD, only position/color, so avoid expensive full rebuilds
-    gPipeline.markRebuild(mVOPartGroupp->mDrawable, LLDrawable::REBUILD_GEOMETRY);
+    DXPipeline::markRebuild(gPipeline, mVOPartGroupp->mDrawable, LLDrawable::REBUILD_GEOMETRY);
 
     mParticles.push_back(part);
     part->mSkipOffset=mSkippedTime;
@@ -430,7 +431,7 @@ void LLViewerPartGroup::updateParticles(const F32 lastdt)
         // Particle removal only affects geometry data, not volume structure
         if (mVOPartGroupp.notNull())
         {
-            gPipeline.markRebuild(mVOPartGroupp->mDrawable, LLDrawable::REBUILD_GEOMETRY);
+            DXPipeline::markRebuild(gPipeline, mVOPartGroupp->mDrawable, LLDrawable::REBUILD_GEOMETRY);
         }
         LLViewerPartSim::decPartCount(removed);
     }
@@ -668,7 +669,7 @@ void LLViewerPartSim::updateSimulation()
 
     const F32 dt = llmin(update_timer.getElapsedTimeAndResetF32(), 0.1f);
 
-    if (!(gPipeline.hasRenderType(LLPipeline::RENDER_TYPE_PARTICLES)))
+    if (!(DXPipeline::hasRenderType(gPipeline, LLPipeline::RENDER_TYPE_PARTICLES)))
     {
         return;
     }
@@ -726,7 +727,7 @@ void LLViewerPartSim::updateSimulation()
                 }
 
                 LLVOVolume* vvo = (LLVOVolume *)vobj;
-                if (!LLPipeline::sRenderAttachedParticles && vvo && vvo->isAttachment())
+                if (!DXPipeline::sRenderAttachedParticles && vvo && vvo->isAttachment())
                 {
                     upd = false;
                 }
@@ -773,7 +774,7 @@ void LLViewerPartSim::updateSimulation()
                 // Optimize: Particles only update position/color data, not volume structure
                 // Use REBUILD_GEOMETRY instead of REBUILD_ALL to avoid expensive buffer reallocation
                 // This significantly reduces driver overhead, especially on NVIDIA
-                gPipeline.markRebuild(vobj->mDrawable, LLDrawable::REBUILD_GEOMETRY);
+                DXPipeline::markRebuild(gPipeline, vobj->mDrawable, LLDrawable::REBUILD_GEOMETRY);
             }
             mViewerPartGroups[i]->updateParticles(dt * visirate);
             mViewerPartGroups[i]->mSkippedTime=0.0f;

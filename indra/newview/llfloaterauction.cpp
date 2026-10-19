@@ -156,7 +156,7 @@ void LLFloaterAuction::draw()
                 rect.stretch(-1);
             }
             {
-                LLGLSUIDefault gls_ui;
+                DXUIDefault gls_ui;
                 gDX.color3f(1.f, 1.f, 1.f);
                 dx_draw_scaled_image(rect.mLeft,
                                      rect.mBottom,

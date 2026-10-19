@@ -42,6 +42,7 @@
 #include "llviewerpartsim.h"
 #include "llviewerregion.h"
 #include "pipeline.h"
+#include "dxpipeline.h"
 #include "llspatialpartition.h"
 
 extern U64MicrosecondsImplicit gFrameTime;
@@ -149,7 +150,7 @@ void LLVOPartGroup::updateTextures()
 
 LLDrawable* LLVOPartGroup::createDrawable(LLPipeline *pipeline)
 {
-    pipeline->allocDrawable(this);
+    DXPipeline::allocDrawable(*pipeline, this);
     mDrawable->setLit(false);
     mDrawable->setRenderType(LLPipeline::RENDER_TYPE_PARTICLES);
     return mDrawable;
@@ -239,11 +240,11 @@ bool LLVOPartGroup::updateGeometry(LLDrawable* drawable)
             group->setState(LLSpatialGroup::GEOM_DIRTY);
         }
         drawable->setNumFaces(0, NULL, getTEImage(0));
-        LLPipeline::sCompiles++;
+        DXPipeline::sCompiles++;
         return true;
     }
 
-    if (!(gPipeline.hasRenderType(LLPipeline::RENDER_TYPE_PARTICLES)))
+    if (!(DXPipeline::hasRenderType(gPipeline, LLPipeline::RENDER_TYPE_PARTICLES)))
     {
         return true;
     }
@@ -382,7 +383,7 @@ bool LLVOPartGroup::updateGeometry(LLDrawable* drawable)
     mScale.set(max_scale, max_scale, max_scale);
 
     mDrawable->movePartition();
-    LLPipeline::sCompiles++;
+    DXPipeline::sCompiles++;
     return true;
 }
 
@@ -909,7 +910,7 @@ U32 LLVOHUDPartGroup::getPartitionType() const
 
 LLDrawable* LLVOHUDPartGroup::createDrawable(LLPipeline *pipeline)
 {
-    pipeline->allocDrawable(this);
+    DXPipeline::allocDrawable(*pipeline, this);
     mDrawable->setLit(false);
     mDrawable->setRenderType(LLPipeline::RENDER_TYPE_HUD_PARTICLES);
     return mDrawable;

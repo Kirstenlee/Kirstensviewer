@@ -105,7 +105,7 @@ void LLHUDText::render()
 {
     if (!mOnHUDAttachment && sDisplayText)
     {
-        LLGLDepthTest gls_depth(GL_TRUE, GL_FALSE);
+        DXDepthTest gls_depth(true, false);
         //LLGLDisable gls_stencil(GL_STENCIL_TEST);
         renderText();
     }
@@ -615,7 +615,7 @@ void LLHUDText::renderAllHUD()
     DXState::checkStates();
 
     {
-        LLGLDepthTest depth(GL_FALSE, GL_FALSE);
+        DXDepthTest depth(false, false);
 
         VisibleTextObjectIterator text_it;
 

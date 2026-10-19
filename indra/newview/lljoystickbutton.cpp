@@ -574,7 +574,7 @@ void LLJoystickCameraRotate::setToggleState( bool left, bool top, bool right, bo
 
 void LLJoystickCameraRotate::draw()
 {
-    LLGLSUIDefault gls_ui;
+    DXUIDefault gls_ui;
 
     getImageUnselected()->draw( 0, 0 );
     LLPointer<LLUIImage> image = getImageSelected();
@@ -612,7 +612,7 @@ void LLJoystickCameraRotate::drawRotatedImage( LLPointer<LLUIImage> image, S32 r
 {
     S32 width = image->getWidth();
     S32 height = image->getHeight();
-    LLTexture* texture = image->getImage();
+    DXTextureBase* texture = image->getImage();
 
     /*
      * Scale  texture coordinate system
@@ -856,7 +856,7 @@ void LLJoystickQuaternion::onHeldDown()
 
 void LLJoystickQuaternion::draw()
 {
-    LLGLSUIDefault gls_ui;
+    DXUIDefault gls_ui;
 
     getImageUnselected()->draw(0, 0);
     LLPointer<LLUIImage> image = getImageSelected();
@@ -911,7 +911,7 @@ void LLJoystickQuaternion::drawRotatedImage(LLPointer<LLUIImage> image, S32 rota
 {
     S32 width = image->getWidth();
     S32 height = image->getHeight();
-    LLTexture* texture = image->getImage();
+    DXTextureBase* texture = image->getImage();
 
     /*
     * Scale  texture coordinate system

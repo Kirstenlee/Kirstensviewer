@@ -29,6 +29,7 @@
 #include "llagent.h" //  Get state values from here
 #include "llviewerobjectlist.h"
 #include "pipeline.h"
+#include "dxpipeline.h"
 #include "llanimationstates.h"
 #include "llviewercontrol.h"
 #include "llmeshrepository.h"
@@ -287,8 +288,8 @@ void LLControlAvatar::updateVolumeGeom()
         mRootVolp->mDrawable->makeStatic(false);
     }
     mRootVolp->mDrawable->makeActive();
-    gPipeline.markMoved(mRootVolp->mDrawable);
-    gPipeline.markTextured(mRootVolp->mDrawable); // face may need to change draw pool to/from POOL_HUD
+    DXPipeline::markMoved(gPipeline, mRootVolp->mDrawable);
+    DXPipeline::markTextured(gPipeline, mRootVolp->mDrawable); // face may need to change draw pool to/from POOL_HUD
 
     LLViewerObject::const_child_list_t& child_list = mRootVolp->getChildren();
     for (LLViewerObject::child_list_t::const_iterator iter = child_list.begin();
@@ -297,12 +298,12 @@ void LLControlAvatar::updateVolumeGeom()
         LLViewerObject* childp = *iter;
         if (childp && childp->mDrawable.notNull())
         {
-            gPipeline.markTextured(childp->mDrawable); // face may need to change draw pool to/from POOL_HUD
-            gPipeline.markMoved(childp->mDrawable);
+            DXPipeline::markTextured(gPipeline, childp->mDrawable); // face may need to change draw pool to/from POOL_HUD
+            DXPipeline::markMoved(gPipeline, childp->mDrawable);
         }
     }
 
-    gPipeline.markRebuild(mRootVolp->mDrawable, LLDrawable::REBUILD_ALL);
+    DXPipeline::markRebuild(gPipeline, mRootVolp->mDrawable, LLDrawable::REBUILD_ALL);
     mRootVolp->markForUpdate();
 
     // Note that attachment overrides aren't needed here, have already

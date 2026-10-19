@@ -126,22 +126,15 @@ namespace
         return raw;
     }
 
-    // S24 : DISABLED (2026-10-09) - call site below no longer invokes this.
-    // Was meant to prime real-camera visibility/geometry streaming (both
-    // skipped under gCubeSnapshot) before the capture loop runs. Suspected
-    // live cause of a serious regression: geometry permanently missing from
-    // the REAL game view after a capture, confirmed live. updateCull()/
-    // stateSort() below run with gCubeSnapshot genuinely false - stateSort()
-    // has a spatial-bridge LOD block gated on exactly that condition which
-    // writes PERSISTENT distance/LOD state (mLastUpdateDistance, changeLOD())
-    // into the real spatial partition. This function feeds that block an
-    // artificial camera (avatar-head origin, forced 90-degree square FOV) -
-    // a plausible mechanism for corrupting live LOD state that doesn't self-
-    // heal. An earlier live A/B test only ruled this out as a cause of the
-    // CAPTURE's own content being wrong, never checked whether it corrupts
-    // the live scene afterward - this is a materially different question.
-    // Left here, not deleted, pending a confirmed root cause - see
-    // project_360capture_v3_plan_2026_10_08.md (memory).
+    // S24 : DISABLED - call site below no longer invokes this.
+    // Primes real-camera visibility/geometry streaming (both skipped under gCubeSnapshot)
+    // before the capture loop runs. updateCull()/stateSort() below run with gCubeSnapshot
+    // false, and stateSort() has a spatial-bridge LOD block gated on exactly that condition
+    // which writes persistent distance/LOD state (mLastUpdateDistance, changeLOD()) into the
+    // real spatial partition. Feeding that block this function's artificial camera (avatar-
+    // head origin, forced 90-degree square FOV) can corrupt live LOD state that does not
+    // self-heal, leaving geometry missing from the real game view after a capture. Left in
+    // place, not deleted, pending a confirmed root cause.
     void warmUpVisibility(const LLVector3& origin)
     {
         LLViewerCamera* camera = LLViewerCamera::getInstance();
@@ -156,8 +149,8 @@ namespace
 
             LLViewerCamera::sCurCameraID = LLViewerCamera::CAMERA_WORLD;
             static LLCullResult result;
-            gPipeline.updateCull(*camera, result);
-            gPipeline.stateSort(*camera, result);
+            DXPipeline::updateCull(gPipeline, *camera, result);
+            DXPipeline::stateSort(gPipeline, *camera, result);
 
             *camera = saved_camera;
 
@@ -179,10 +172,10 @@ namespace
         const U32 origW = gPipeline.mRT->deferredScreen.getWidth();
         const U32 origH = gPipeline.mRT->deferredScreen.getHeight();
 
-        if (!gPipeline.allocateScreenBuffer(faceRes, faceRes))
+        if (!DXPipeline::allocateScreenBuffer(gPipeline, faceRes, faceRes))
         {
             LL_WARNS("EquirectCapture") << "allocateScreenBuffer(" << faceRes << ", " << faceRes << ") failed" << LL_ENDL;
-            gPipeline.allocateScreenBuffer(origW, origH);
+            DXPipeline::allocateScreenBuffer(gPipeline, origW, origH);
             return false;
         }
 
@@ -227,7 +220,7 @@ namespace
         }
 
         gEquirectCapture = false;
-        gPipeline.allocateScreenBuffer(origW, origH);
+        DXPipeline::allocateScreenBuffer(gPipeline, origW, origH);
         return all_ok;
     }
 }

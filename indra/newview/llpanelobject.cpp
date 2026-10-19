@@ -67,7 +67,7 @@
 #include "lluictrlfactory.h"
 //#include "llfirstuse.h"
 
-#include "lldrawpool.h"
+#include "dxdrawpool.h"
 
 //
 // Constants

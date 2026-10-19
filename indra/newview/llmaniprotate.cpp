@@ -114,9 +114,9 @@ void LLManipRotate::handleSelect()
 
 void LLManipRotate::render()
 {
-    LLGLSUIDefault gls_ui;
+    DXUIDefault gls_ui;
     gDX.getTexUnit(0)->bind(LLViewerFetchedTexture::sWhiteImagep);
-    LLGLDepthTest gls_depth(GL_TRUE);
+    DXDepthTest gls_depth(true);
     LLGLEnable gl_blend(GL_BLEND);
 
     // You can rotate if you can move
@@ -159,7 +159,7 @@ void LLManipRotate::render()
             gDebugProgram.bind();
 
             LLGLEnable cull_face(GL_CULL_FACE);
-            LLGLDepthTest gls_depth(GL_FALSE);
+            DXDepthTest gls_depth(false);
             gDX.pushMatrix();
             {
                 // Draw "sphere" (intersection of sphere with tangent cone that has apex at camera)
@@ -275,7 +275,7 @@ void LLManipRotate::render()
 
             LLGLEnable cull_face(GL_CULL_FACE);
             LLGLEnable clip_plane0(GL_CLIP_PLANE0);
-            LLGLDepthTest gls_depth(GL_FALSE);
+            DXDepthTest gls_depth(false);
             //LLGLDisable gls_stencil(GL_STENCIL_TEST);
 
             // First pass: centers. Second pass: sides.
@@ -774,7 +774,7 @@ void LLManipRotate::renderActiveRing( F32 radius, F32 width, const LLColor4& fro
         dx_ring(radius, width, back_color, back_color * 0.5f, CIRCLE_STEPS, true);
     }
     {
-        LLGLDepthTest gls_depth(GL_FALSE);
+        DXDepthTest gls_depth(false);
         dx_ring(radius, width, front_color, front_color * 0.5f, CIRCLE_STEPS, false);
         dx_ring(radius, width, front_color, front_color * 0.5f, CIRCLE_STEPS, true);
     }
@@ -870,7 +870,7 @@ void LLManipRotate::renderSnapGuides()
             }
         }
 
-        LLGLDepthTest gls_depth(GL_FALSE);
+        DXDepthTest gls_depth(false);
         for (S32 pass = 0; pass < 3; pass++)
         {
             // render snap guide ring
@@ -1119,7 +1119,7 @@ void LLManipRotate::renderSnapGuides()
                 gDX.end();
 
                 {
-                    LLGLDepthTest gls_depth(GL_TRUE);
+                    DXDepthTest gls_depth(true);
                     gDX.begin(LLRender::LINES);
                     {
                         gDX.vertex3fv(line_start.mV);

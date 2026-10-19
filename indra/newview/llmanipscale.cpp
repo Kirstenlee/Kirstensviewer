@@ -208,9 +208,9 @@ LLManipScale::~LLManipScale()
 
 void LLManipScale::render()
 {
-    LLGLSUIDefault gls_ui;
+    DXUIDefault gls_ui;
     gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
-    LLGLDepthTest gls_depth(GL_TRUE);
+    DXDepthTest gls_depth(true);
     LLGLEnable gl_blend(GL_BLEND);
     LLBBox bbox = LLSelectMgr::getInstance()->getBBoxOfSelection();
 
@@ -618,7 +618,7 @@ void LLManipScale::renderFaces( const LLBBox& bbox )
     if (mManipPart == LL_NO_PART)
     {
         gDX.color4fv( default_normal_color.mV );
-        LLGLDepthTest gls_depth(GL_FALSE);
+        DXDepthTest gls_depth(false);
         gDX.begin(LLRender::TRIANGLE_STRIP);
         {
             gDX.vertex3f(min.mV[VX], max.mV[VY], min.mV[VZ]);
@@ -664,7 +664,7 @@ void LLManipScale::renderFaces( const LLBBox& bbox )
     };
 
     {
-        LLGLDepthTest gls_depth(GL_FALSE);
+        DXDepthTest gls_depth(false);
 
         for (S32 i = 0; i < 6; i++)
         {
@@ -735,7 +735,7 @@ void LLManipScale::renderCorners( const LLBBox& bbox )
 void LLManipScale::renderBoxHandle( F32 x, F32 y, F32 z )
 {
     gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
-    LLGLDepthTest gls_depth(GL_FALSE);
+    DXDepthTest gls_depth(false);
     //LLGLDisable gls_stencil(GL_STENCIL_TEST);
 
     gDX.pushMatrix();
@@ -1295,11 +1295,11 @@ void LLManipScale::renderGuidelinesPart( const LLBBox& bbox )
     guideline_end += guideline_start;
 
     {
-        LLGLDepthTest gls_depth(GL_TRUE);
+        DXDepthTest gls_depth(true);
         dx_line_3d( guideline_start, guideline_end, LLColor4(1.f, 1.f, 1.f, 0.5f) );
     }
     {
-        LLGLDepthTest gls_depth(GL_FALSE);
+        DXDepthTest gls_depth(false);
         dx_line_3d( guideline_start, guideline_end, LLColor4(1.f, 1.f, 1.f, 0.25f) );
     }
 }
@@ -1583,7 +1583,7 @@ void LLManipScale::renderSnapGuides(const LLBBox& bbox)
     }
 
     {
-        LLGLDepthTest gls_depth(GL_FALSE);
+        DXDepthTest gls_depth(false);
 
         F32 dist_grid_axis = llmax(0.f, (drag_point - mScaleCenter) * mScaleDir);
 

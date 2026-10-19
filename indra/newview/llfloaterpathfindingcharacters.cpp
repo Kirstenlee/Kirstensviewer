@@ -49,6 +49,7 @@
 #include "llviewerobject.h"
 #include "llviewerobjectlist.h"
 #include "pipeline.h"
+#include "dxpipeline.h"
 #include "v3math.h"
 #include "v4color.h"
 
@@ -288,7 +289,7 @@ void LLFloaterPathfindingCharacters::showCapsule() const
             }
         }
 
-        gPipeline.hideObject(mSelectedCharacterId);
+        DXPipeline::hideObject(gPipeline, mSelectedCharacterId);
     }
 }
 
@@ -296,7 +297,7 @@ void LLFloaterPathfindingCharacters::hideCapsule() const
 {
     if (mSelectedCharacterId.notNull())
     {
-        gPipeline.restoreHiddenObject(mSelectedCharacterId);
+        DXPipeline::restoreHiddenObject(gPipeline, mSelectedCharacterId);
     }
     if (LLPathingLib::getInstance() != NULL)
     {

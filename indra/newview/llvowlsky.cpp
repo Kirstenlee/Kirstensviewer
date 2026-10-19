@@ -27,10 +27,11 @@
 #include "llviewerprecompiledheaders.h"
 
 #include "pipeline.h"
+#include "dxpipeline.h"
 
 #include "llvowlsky.h"
 #include "llsky.h"
-#include "lldrawpoolwlsky.h"
+#include "dxdrawpoolwlsky.h"
 #include "llface.h"
 #include "llviewercontrol.h"
 #include "llenvironment.h"
@@ -110,10 +111,10 @@ bool LLVOWLSky::isActive(void) const
 
 LLDrawable * LLVOWLSky::createDrawable(LLPipeline * pipeline)
 {
-    pipeline->allocDrawable(this);
+    DXPipeline::allocDrawable(*pipeline, this);
 
     //LLDrawPoolWLSky *poolp = static_cast<LLDrawPoolWLSky *>(
-        gPipeline.getPool(LLDrawPool::POOL_WL_SKY);
+        DXPipeline::getPool(gPipeline, LLDrawPool::POOL_WL_SKY);
 
     mDrawable->setRenderType(LLPipeline::RENDER_TYPE_WL_SKY);
 
@@ -146,7 +147,7 @@ void LLVOWLSky::resetVertexBuffers()
     mStarsVerts = nullptr;
     mFsSkyVerts = nullptr;
 
-    gPipeline.markRebuild(mDrawable, LLDrawable::REBUILD_ALL);
+    DXPipeline::markRebuild(gPipeline, mDrawable, LLDrawable::REBUILD_ALL);
 }
 
 void LLVOWLSky::cleanupGL()
@@ -161,7 +162,7 @@ void LLVOWLSky::cleanupGL()
 void LLVOWLSky::restoreGL()
 {
     LLDrawPoolWLSky::restoreGL();
-    gPipeline.markRebuild(mDrawable, LLDrawable::REBUILD_ALL);
+    DXPipeline::markRebuild(gPipeline, mDrawable, LLDrawable::REBUILD_ALL);
 }
 
 bool LLVOWLSky::updateGeometry(LLDrawable* drawable)
@@ -299,7 +300,7 @@ bool LLVOWLSky::updateGeometry(LLDrawable* drawable)
     updateStarColors();
     updateStarGeometry(drawable);
 
-    LLPipeline::sCompiles++;
+    DXPipeline::sCompiles++;
 
     return true;
 }
@@ -355,7 +356,7 @@ void LLVOWLSky::drawFsSky(void)
 
     mFsSkyVerts->setBuffer();
     mFsSkyVerts->drawRange(LLRender::TRIANGLES, 0, mFsSkyVerts->getNumVerts() - 1, mFsSkyVerts->getNumIndices(), 0);
-    gPipeline.addTrianglesDrawn(mFsSkyVerts->getNumIndices());
+    DXPipeline::addTrianglesDrawn(gPipeline, mFsSkyVerts->getNumIndices());
     LLVertexBuffer::unbind();
 }
 
@@ -368,7 +369,7 @@ void LLVOWLSky::drawGalacticBandQuad(void)
 
     mFsSkyVerts->setBuffer();
     mFsSkyVerts->drawRange(LLRender::TRIANGLES, 0, mFsSkyVerts->getNumVerts() - 1, mFsSkyVerts->getNumIndices(), 0);
-    gPipeline.addTrianglesDrawn(mFsSkyVerts->getNumIndices());
+    DXPipeline::addTrianglesDrawn(gPipeline, mFsSkyVerts->getNumIndices());
     LLVertexBuffer::unbind();
 }
 
@@ -379,7 +380,7 @@ void LLVOWLSky::drawDome(void)
         updateGeometry(mDrawable);
     }
 
-    LLGLDepthTest gls_depth(GL_TRUE, GL_FALSE);
+    DXDepthTest gls_depth(true, false);
 
     std::vector< LLPointer<LLVertexBuffer> >::const_iterator strips_vbo_iter, end_strips;
     end_strips = mStripsVerts.end();
@@ -393,7 +394,7 @@ void LLVOWLSky::drawDome(void)
             LLRender::TRIANGLE_STRIP,
             0, strips_segment->getNumVerts()-1, strips_segment->getNumIndices(),
             0);
-        gPipeline.addTrianglesDrawn(strips_segment->getNumIndices());
+        DXPipeline::addTrianglesDrawn(gPipeline, strips_segment->getNumIndices());
     }
 
     LLVertexBuffer::unbind();

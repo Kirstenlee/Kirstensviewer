@@ -51,6 +51,7 @@
 #include "llvoavatarself.h"
 #include "llworld.h"
 #include "pipeline.h"
+#include "dxpipeline.h"
 
 const F32 REFRESH_INTERVAL = 1.0f;
 const S32 BAR_LEFT_PAD = 2;
@@ -131,7 +132,7 @@ bool LLFloaterPerformance::postBuild()
 
     mNearbyPanel->getChild<LLButton>("exceptions_btn")->setCommitCallback(boost::bind(&LLFloaterPerformance::onClickExceptions, this));
     mNearbyPanel->getChild<LLCheckBoxCtrl>("hide_avatars")->setCommitCallback(boost::bind(&LLFloaterPerformance::onClickHideAvatars, this));
-    mNearbyPanel->getChild<LLCheckBoxCtrl>("hide_avatars")->set(!LLPipeline::hasRenderTypeControl(LLPipeline::RENDER_TYPE_AVATAR));
+    mNearbyPanel->getChild<LLCheckBoxCtrl>("hide_avatars")->set(!DXPipeline::hasRenderTypeControl(gPipeline, LLPipeline::RENDER_TYPE_AVATAR));
     mNearbyList = mNearbyPanel->getChild<LLNameListCtrl>("nearby_list");
     mNearbyList->setRightMouseDownCallback(boost::bind(&LLFloaterPerformance::onAvatarListRightClick, this, _1, _2, _3));
 
@@ -140,7 +141,7 @@ bool LLFloaterPerformance::postBuild()
 
     if(!LLPerfStats::tunables.userAutoTuneEnabled)
     {
-        gSavedSettings.setF32("AutoTuneRenderFarClipTarget", LLPipeline::RenderFarClip);
+        gSavedSettings.setF32("AutoTuneRenderFarClipTarget", DXPipeline::RenderFarClip);
     }
 
     LLStringExplicit fps_limit(llformat("%d", gViewerWindow->getWindow()->getRefreshRate()));
@@ -205,7 +206,7 @@ void LLFloaterPerformance::draw()
         else if (mNearbyPanel->getVisible())
         {
             populateNearbyList();
-            mNearbyPanel->getChild<LLCheckBoxCtrl>("hide_avatars")->set(!LLPipeline::hasRenderTypeControl(LLPipeline::RENDER_TYPE_AVATAR));
+            mNearbyPanel->getChild<LLCheckBoxCtrl>("hide_avatars")->set(!DXPipeline::hasRenderTypeControl(gPipeline, LLPipeline::RENDER_TYPE_AVATAR));
         }
         else if (mComplexityPanel->getVisible())
         {
@@ -252,7 +253,7 @@ void LLFloaterPerformance::populateHUDList()
 
     LLVOAvatar* avatar = gAgentAvatarp;
 
-    gPipeline.profileAvatar(avatar, true);
+    DXPipeline::profileAvatar(gPipeline, avatar, true);
 
     LLVOAvatar::attachment_map_t::iterator iter;
     LLVOAvatar::attachment_map_t::iterator begin = avatar->mAttachmentPoints.begin();
@@ -343,7 +344,7 @@ void LLFloaterPerformance::populateObjectList()
 
     LLVOAvatar* avatar = gAgentAvatarp;
 
-    gPipeline.profileAvatar(avatar, true);
+    DXPipeline::profileAvatar(gPipeline, avatar, true);
 
     LLVOAvatar::attachment_map_t::iterator iter;
     LLVOAvatar::attachment_map_t::iterator begin = avatar->mAttachmentPoints.begin();
@@ -566,7 +567,7 @@ void LLFloaterPerformance::onChangeQuality(const LLSD& data)
 
 void LLFloaterPerformance::onClickHideAvatars()
 {
-    LLPipeline::toggleRenderTypeControl(LLPipeline::RENDER_TYPE_AVATAR);
+    DXPipeline::toggleRenderTypeControl(gPipeline, LLPipeline::RENDER_TYPE_AVATAR);
 }
 
 void LLFloaterPerformance::onClickExceptions()

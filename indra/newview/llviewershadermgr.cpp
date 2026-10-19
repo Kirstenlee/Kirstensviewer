@@ -41,6 +41,7 @@
 #include "llsky.h"
 
 #include "pipeline.h"
+#include "dxpipeline.h"
 
 #include "lldir.h"
 #include "llfile.h"
@@ -50,12 +51,10 @@
 #include "lljoint.h"
 #include "llskinningutil.h"
 
-#ifdef DX_RENDER
 #include "DXShader.h"
 #include "workqueue.h"
 #include <condition_variable>
 #include <mutex>
-#endif
 
 static LLStaticHashedString sTexture0("texture0");
 static LLStaticHashedString sTexture1("texture1");
@@ -249,6 +248,7 @@ LLHLSLShader            gDeferredSkinnedFullbrightAlphaMaskProgram;
 LLHLSLShader            gDeferredSkinnedFullbrightAlphaMaskAlphaProgram;
 LLHLSLShader            gNormalMapGenProgram;
 LLHLSLShader            gDeferredGenBrdfLutProgram;
+LLHLSLShader            gDeferredGenBrdfLutFallbackProgram;
 LLHLSLShader            gDeferredBufferVisualProgram;
 
 // Deferred materials shaders
@@ -634,12 +634,12 @@ void LLViewerShaderMgr::setShaders()
     } splash_guard(splashWasAlreadyVisible);
 
     initAttribsAndUniforms();
-    gPipeline.releaseGLBuffers();
+    DXPipeline::releaseGLBuffers(gPipeline);
 
     unloadShaders();
 
-    LLPipeline::sRenderGlow = gSavedSettings.getBOOL("RenderGlow");
-    LLPipeline::RenderAvatarCloth = gSavedSettings.getBOOL("RenderAvatarCloth");
+    DXPipeline::sRenderGlow = gSavedSettings.getBOOL("RenderGlow");
+    DXPipeline::RenderAvatarCloth = gSavedSettings.getBOOL("RenderAvatarCloth");
 
     if (gViewerWindow)
     {
@@ -657,16 +657,6 @@ void LLViewerShaderMgr::setShaders()
     mMaxAvatarShaderLevel = 0;
 
     LLVertexBuffer::unbind();
-
-#ifndef DX_RENDER
-    // gGLManager.mGLSLVersionMajor/Minor are never populated under
-    // DX_RENDER (initGL() is never called - switchContext() replaces the
-    // whole GL setup with initDX11Context()), so this and the other
-    // gGLManager.mGLSLVersion* checks below would always evaluate false,
-    // not because of any real hardware limitation.
-    llassert((gGLManager.mGLSLVersionMajor > 1 || gGLManager.mGLSLVersionMinor >= 10));
-#endif
-
 
     S32 light_class = 3;
     S32 interface_class = 2;
@@ -793,7 +783,7 @@ void LLViewerShaderMgr::setShaders()
     {
         gViewerWindow->setCursor(UI_CURSOR_ARROW);
     }
-    gPipeline.createGLBuffers();
+    DXPipeline::createGLBuffers(gPipeline);
 
     finalizeShaderList();
 
@@ -857,21 +847,7 @@ std::string LLViewerShaderMgr::loadBasicShaders()
     shaders.push_back( make_pair( "avatar/avatarSkinV.glsl",                1 ) );
     shaders.push_back( make_pair( "avatar/objectSkinV.glsl",                1 ) );
     shaders.push_back( make_pair( "deferred/textureUtilV.glsl",             1 ) );
-#ifdef DX_RENDER
-    // See the comment on the analogous check in loadShadersInterface() -
-    // gGLManager.mGLSLVersionMajor/Minor are never populated under
-    // DX_RENDER, so this hardware-capability check would always
-    // (wrongly) evaluate false, leaving this file uncached even though
-    // attachShaderFeatures() may still try to attach it based on a
-    // shader's own mFeatures.mIndexedTextureChannels, unrelated to this
-    // GL-version gate.
     shaders.push_back( make_pair( "objects/indexedTextureV.glsl",           1 ) );
-#else
-    if (gGLManager.mGLSLVersionMajor >= 2 || gGLManager.mGLSLVersionMinor >= 30)
-    {
-        shaders.push_back( make_pair( "objects/indexedTextureV.glsl",           1 ) );
-    }
-#endif
     shaders.push_back( make_pair( "objects/nonindexedTextureV.glsl",        1 ) );
 
     std::map<std::string, std::string> attribs;
@@ -950,18 +926,7 @@ std::string LLViewerShaderMgr::loadBasicShaders()
     shaders.clear();
     S32 ch = 1;
 
-#ifdef DX_RENDER
-    // See the comment on the analogous vertex-shader-list check above -
-    // gGLManager.mGLSLVersionMajor/Minor are never populated under
-    // DX_RENDER, so this would always (wrongly) fall back to ch=1 instead
-    // of the real indexed-texture-channel count.
     ch = llmax(LLHLSLShader::sIndexedTextureChannels, 1);
-#else
-    if (gGLManager.mGLSLVersionMajor > 1 || gGLManager.mGLSLVersionMinor >= 30)
-    { //use indexed texture rendering for GLSL >= 1.30
-        ch = llmax(LLHLSLShader::sIndexedTextureChannels, 1);
-    }
-#endif
 
 
     std::vector<S32> index_channels;
@@ -1033,7 +998,7 @@ bool LLViewerShaderMgr::loadShadersWater()
         gWaterProgram.mShaderFiles.push_back(make_pair("environment/waterV.glsl", GL_VERTEX_SHADER));
         gWaterProgram.mShaderFiles.push_back(make_pair("environment/waterF.glsl", GL_FRAGMENT_SHADER));
         gWaterProgram.clearPermutations();
-        if (LLPipeline::sRenderTransparentWater)
+        if (DXPipeline::sRenderTransparentWater)
         {
             gWaterProgram.addPermutation("TRANSPARENT_WATER", "1");
         }
@@ -1061,7 +1026,7 @@ bool LLViewerShaderMgr::loadShadersWater()
         gUnderWaterProgram.mShaderLevel = mShaderLevel[SHADER_WATER];
         gUnderWaterProgram.mShaderGroup = LLHLSLShader::SG_WATER;
         gUnderWaterProgram.clearPermutations();
-        if (LLPipeline::sRenderTransparentWater)
+        if (DXPipeline::sRenderTransparentWater)
         {
             gUnderWaterProgram.addPermutation("TRANSPARENT_WATER", "1");
         }
@@ -1116,7 +1081,7 @@ bool LLViewerShaderMgr::loadShadersEffects()
         success = gGlowProgram.createShader();
         if (!success)
         {
-            LLPipeline::sRenderGlow = false;
+            DXPipeline::sRenderGlow = false;
         }
     }
 
@@ -1139,7 +1104,7 @@ bool LLViewerShaderMgr::loadShadersEffects()
         success = gGlowExtractProgram.createShader();
         if (!success)
         {
-            LLPipeline::sRenderGlow = false;
+            DXPipeline::sRenderGlow = false;
         }
     }
 
@@ -1254,6 +1219,7 @@ bool LLViewerShaderMgr::loadShadersDeferred()
 
         gNormalMapGenProgram.unload();
         gDeferredGenBrdfLutProgram.unload();
+        gDeferredGenBrdfLutFallbackProgram.unload();
         gDeferredBufferVisualProgram.unload();
 
         for (U32 i = 0; i < LLMaterial::SHADER_COUNT*2; ++i)
@@ -1362,7 +1328,6 @@ bool LLViewerShaderMgr::loadShadersDeferred()
     gDeferredMaterialProgram[9+LLMaterial::SHADER_COUNT].mFeatures.hasLighting = false;
     gDeferredMaterialProgram[13+LLMaterial::SHADER_COUNT].mFeatures.hasLighting = false;
 
-#ifdef DX_RENDER
     // Pending-count + mutex/cv wait for the background D3DCompile() prefetch below to finish
     // before the real sequential compile loop runs; guarded by material_prefetch_mutex per the
     // standard mutate-and-check-predicate-under-the-same-lock idiom, so a plain int suffices.
@@ -1370,7 +1335,6 @@ bool LLViewerShaderMgr::loadShadersDeferred()
     std::mutex material_prefetch_mutex;
     std::condition_variable material_prefetch_cv;
     auto material_prefetch_queue = DXShader::sShaderCacheEnabled ? LL::WorkQueue::getInstance("DXPool") : nullptr;
-#endif
 
     for (U32 i = 0; i < LLMaterial::SHADER_COUNT*2; ++i)
     {
@@ -1442,7 +1406,6 @@ bool LLViewerShaderMgr::loadShadersDeferred()
                 gDeferredMaterialProgram[i].mRiggedVariant = &gDeferredMaterialProgram[i + 0x10];
             }
 
-#ifdef DX_RENDER
             // Warms the D3DCompile() bytecode disk cache for this permutation on a DXPool worker
             // thread while setup continues on the main thread - purely a speed warm-up, the real
             // createShader() loop below is unchanged either way. buildDXSource() itself stays on
@@ -1500,17 +1463,14 @@ bool LLViewerShaderMgr::loadShadersDeferred()
                     }
                 }
             }
-#endif
         }
     }
 
-#ifdef DX_RENDER
     if (material_prefetch_queue)
     {
         std::unique_lock<std::mutex> lk(material_prefetch_mutex);
         material_prefetch_cv.wait(lk, [&material_prefetch_pending] { return material_prefetch_pending == 0; });
     }
-#endif
 
     for (U32 i = 0; i < LLMaterial::SHADER_COUNT*2; ++i)
     {
@@ -2576,7 +2536,7 @@ bool LLViewerShaderMgr::loadShadersDeferred()
 
         gDeferredAvatarProgram.clearPermutations();
         add_common_permutations(&gDeferredAvatarProgram);
-        gDeferredAvatarProgram.addPermutation("AVATAR_CLOTH", LLPipeline::RenderAvatarCloth ? "1" : "0");
+        gDeferredAvatarProgram.addPermutation("AVATAR_CLOTH", DXPipeline::RenderAvatarCloth ? "1" : "0");
 
         success = gDeferredAvatarProgram.createShader();
         llassert(success);
@@ -3339,13 +3299,25 @@ bool LLViewerShaderMgr::loadShadersDeferred()
 
     if (success)
     {
-        gDeferredGenBrdfLutProgram.mName = "Brdf Gen Shader";
-        gDeferredGenBrdfLutProgram.mShaderFiles.clear();
-        gDeferredGenBrdfLutProgram.mShaderFiles.push_back(make_pair("deferred/genbrdflutV.glsl", GL_VERTEX_SHADER));
-        gDeferredGenBrdfLutProgram.mShaderFiles.push_back(make_pair("deferred/genbrdflutF.glsl", GL_FRAGMENT_SHADER));
-        gDeferredGenBrdfLutProgram.mShaderLevel = mShaderLevel[SHADER_DEFERRED];
-        success = gDeferredGenBrdfLutProgram.createShader();
+        // Loop-free analytic fallback - see genbrdflutFallbackF.hlsl's comment. Cheap and safe
+        // to compile eagerly; the real (1024-sample) gDeferredGenBrdfLutProgram deliberately is
+        // NOT compiled here - see loadShaderGenBrdfLut()/bakeBrdfLut() and this same comment
+        // below for gPostScreenSpaceReflectionProgram/gDeferredBufferVisualProgram, the same
+        // "don't eagerly compile a shader every user pays for but almost none need" pattern.
+        gDeferredGenBrdfLutFallbackProgram.mName = "Brdf Gen Fallback Shader";
+        gDeferredGenBrdfLutFallbackProgram.mShaderFiles.clear();
+        gDeferredGenBrdfLutFallbackProgram.mShaderFiles.push_back(make_pair("deferred/genbrdflutV.glsl", GL_VERTEX_SHADER));
+        gDeferredGenBrdfLutFallbackProgram.mShaderFiles.push_back(make_pair("deferred/genbrdflutFallbackF.glsl", GL_FRAGMENT_SHADER));
+        gDeferredGenBrdfLutFallbackProgram.mShaderLevel = mShaderLevel[SHADER_DEFERRED];
+        success = gDeferredGenBrdfLutFallbackProgram.createShader();
     }
+
+    // gDeferredGenBrdfLutProgram's createShader() call moved out of this eager startup chain -
+    // its driver-side ISA compile (1024-sample Monte Carlo loop, sin/cos/sqrt/pow per iteration)
+    // stalled startup for every user on some NVIDIA drivers, even though the LUT it generates is
+    // a fixed, content-independent function baked to a static asset and loaded instead - see
+    // LLPipeline::createLUTBuffers(). Only compiled on demand now, by LLPipeline::bakeBrdfLut()
+    // (dev-only, Develop > Rendering > "Bake BRDF LUT") via loadShaderGenBrdfLut() below.
 
     // gPostScreenSpaceReflectionProgram is never bound/drawn anywhere on either backend (zero
     // .bind()/.isComplete() call sites, only its own creation) and caused a startup hang on its
@@ -3376,6 +3348,19 @@ bool LLViewerShaderMgr::loadShaderBufferVisualization()
     return gDeferredBufferVisualProgram.createShader();
 }
 
+// Compiles the real (1024-sample) BRDF LUT generator shader. Lazy - see this function's
+// declaration comment and bakeBrdfLut(), its only caller.
+bool LLViewerShaderMgr::loadShaderGenBrdfLut()
+{
+    gDeferredGenBrdfLutProgram.mName = "Brdf Gen Shader";
+    gDeferredGenBrdfLutProgram.mShaderFiles.clear();
+    gDeferredGenBrdfLutProgram.mShaderFiles.push_back(make_pair("deferred/genbrdflutV.glsl", GL_VERTEX_SHADER));
+    gDeferredGenBrdfLutProgram.mShaderFiles.push_back(make_pair("deferred/genbrdflutF.glsl", GL_FRAGMENT_SHADER));
+    gDeferredGenBrdfLutProgram.mShaderLevel = mShaderLevel[SHADER_DEFERRED];
+
+    return gDeferredGenBrdfLutProgram.createShader();
+}
+
 bool LLViewerShaderMgr::loadShadersObject()
 {
     bool success = true;
@@ -3390,7 +3375,7 @@ bool LLViewerShaderMgr::loadShadersObject()
         success = make_rigged_variant(gObjectBumpProgram, gSkinnedObjectBumpProgram);
         success = success && gObjectBumpProgram.createShader();
         if (success)
-        { //lldrawpoolbump assumes "texture0" has channel 0 and "texture1" has channel 1
+        { //dxdrawpoolbump assumes "texture0" has channel 0 and "texture1" has channel 1
             LLHLSLShader* shader[] = { &gObjectBumpProgram, &gSkinnedObjectBumpProgram };
             for (int i = 0; i < 2; ++i)
             {

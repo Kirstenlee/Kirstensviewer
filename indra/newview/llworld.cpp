@@ -35,7 +35,7 @@
 #include "llagent.h"
 #include "llagentcamera.h"
 #include "llviewercontrol.h"
-#include "lldrawpool.h"
+#include "dxdrawpool.h"
 #include "llglheaders.h"
 #include "llhttpnode.h"
 #include "llregionhandle.h"
@@ -56,6 +56,7 @@
 #include "llvowater.h"
 #include "message.h"
 #include "pipeline.h"
+#include "dxpipeline.h"
 #include "llappviewer.h"        // for do_disconnect()
 #include "llscenemonitor.h"
 #include <deque>
@@ -963,7 +964,7 @@ void LLWorld::updateWaterObjects()
                                                      y + rwidth/2,
                                                      256.f + water_height));
                 waterp->setScale(LLVector3((F32)rwidth, (F32)rwidth, 512.f));
-                gPipeline.createObject(waterp);
+                DXPipeline::createObject(gPipeline, waterp);
                 mHoleWaterObjects.push_back(waterp);
             }
         }
@@ -1013,7 +1014,7 @@ void LLWorld::updateWaterObjects()
                                                                                  gAgent.getRegion());
             waterp = mEdgeWaterObjects[dir];
             waterp->setIsEdgePatch(true);
-            gPipeline.createObject(waterp);
+            DXPipeline::createObject(gPipeline, waterp);
         }
 
         waterp->setRegion(gAgent.getRegion());
@@ -1371,7 +1372,7 @@ F32 LLWorld::getNearbyAvatarsAndMaxGPUTime(std::vector<LLVOAvatar*> &valid_nearb
             {
                 if (!avatar->isTooSlow())
                 {
-                    gPipeline.profileAvatar(avatar);
+                    DXPipeline::profileAvatar(gPipeline, avatar);
                 }
                 nearby_max_complexity = llmax(nearby_max_complexity, avatar->getGPURenderTime());
                 valid_nearby_avs.push_back(avatar);

@@ -37,6 +37,7 @@
 #include "v3colorutil.h"
 #include "llsettingssky.h"
 #include "lllegacyatmospherics.h"
+#include "llvertexbuffer.h"
 
 const F32 SKY_BOX_MULT          = 16.0f;
 const F32 HEAVENLY_BODY_DIST    = HORIZON_DIST - 20.f;
@@ -210,6 +211,15 @@ public:
         FACE_BLOOM, // was 8
         FACE_REFLECTION, // was 10
         FACE_COUNT
+    };
+
+    // S24: moved here from the now-retired LLDrawPoolSky (dxdrawpool.cpp's POOL_SKY no longer
+    // instantiates a pool class at all - see createDrawable()'s comment). Only this class' own
+    // vertex buffers ever used this vertex format.
+    enum
+    {
+        VERTEX_DATA_MASK = LLVertexBuffer::MAP_VERTEX |
+                            LLVertexBuffer::MAP_TEXCOORD0
     };
 
     LLVOSky(const LLUUID &id, const LLPCode pcode, LLViewerRegion *regionp);

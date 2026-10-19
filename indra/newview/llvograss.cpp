@@ -42,6 +42,7 @@
 #include "llviewertexturelist.h"
 #include "llviewerregion.h"
 #include "pipeline.h"
+#include "dxpipeline.h"
 #include "llspatialpartition.h"
 #include "llworld.h"
 #include "lldir.h"
@@ -99,7 +100,7 @@ void LLVOGrass::updateSpecies()
         SpeciesMap::const_iterator it = sSpeciesTable.begin();
         mSpecies = (*it).first;
     }
-    setTEImage(0, LLViewerTextureManager::getFetchedTexture(sSpeciesTable[mSpecies]->mTextureID, FTT_DEFAULT, true, LLDXTexture::BOOST_NONE, LLViewerTexture::LOD_TEXTURE));
+    setTEImage(0, LLViewerTextureManager::getFetchedTexture(sSpeciesTable[mSpecies]->mTextureID, FTT_DEFAULT, true, DXTextureBase::BOOST_NONE, LLViewerTexture::LOD_TEXTURE));
 }
 
 
@@ -264,7 +265,7 @@ U32 LLVOGrass::processUpdateMessage(LLMessageSystem *mesgsys,
 
     if (mDrawable)
     {
-        gPipeline.markRebuild(mDrawable, LLDrawable::REBUILD_VOLUME);
+        DXPipeline::markRebuild(gPipeline, mDrawable, LLDrawable::REBUILD_VOLUME);
     }
 
     return retval;
@@ -277,7 +278,7 @@ bool LLVOGrass::isActive() const
 
 void LLVOGrass::idleUpdate(LLAgent &agent, const F64 &time)
 {
-    if (mDead || !(gPipeline.hasRenderType(LLPipeline::RENDER_TYPE_GRASS)))
+    if (mDead || !(DXPipeline::hasRenderType(gPipeline, LLPipeline::RENDER_TYPE_GRASS)))
     {
         return;
     }
@@ -290,12 +291,12 @@ void LLVOGrass::idleUpdate(LLAgent &agent, const F64 &time)
     if (!LLVOTree::isTreeRenderingStopped() && !mNumBlades)//restart grass rendering
     {
         mNumBlades = GRASS_MAX_BLADES;
-        gPipeline.markRebuild(mDrawable, LLDrawable::REBUILD_ALL);
+        DXPipeline::markRebuild(gPipeline, mDrawable, LLDrawable::REBUILD_ALL);
         return;
     }
     if (mPatch && (mLastPatchUpdateTime != mPatch->getLastUpdateTime()))
     {
-        gPipeline.markRebuild(mDrawable, LLDrawable::REBUILD_VOLUME);
+        DXPipeline::markRebuild(gPipeline, mDrawable, LLDrawable::REBUILD_VOLUME);
     }
 
     return;
@@ -348,7 +349,7 @@ bool LLVOGrass::updateLOD()
         {
             mNumBlades = 0 ;
             face->setSize(0, 0);
-            gPipeline.markRebuild(mDrawable, LLDrawable::REBUILD_ALL);
+            DXPipeline::markRebuild(gPipeline, mDrawable, LLDrawable::REBUILD_ALL);
         }
         return true ;
     }
@@ -373,7 +374,7 @@ bool LLVOGrass::updateLOD()
         {
             face->setSize(mNumBlades*8, mNumBlades*12);
         }
-        gPipeline.markRebuild(mDrawable, LLDrawable::REBUILD_ALL);
+        DXPipeline::markRebuild(gPipeline, mDrawable, LLDrawable::REBUILD_ALL);
     }
     else if (num_blades <= (mNumBlades >> 1))
     {
@@ -386,7 +387,7 @@ bool LLVOGrass::updateLOD()
         {
             face->setSize(mNumBlades*8, mNumBlades*12);
         }
-        gPipeline.markRebuild(mDrawable, LLDrawable::REBUILD_ALL);
+        DXPipeline::markRebuild(gPipeline, mDrawable, LLDrawable::REBUILD_ALL);
         return true;
     }
 
@@ -395,7 +396,7 @@ bool LLVOGrass::updateLOD()
 
 LLDrawable* LLVOGrass::createDrawable(LLPipeline *pipeline)
 {
-    pipeline->allocDrawable(this);
+    DXPipeline::allocDrawable(*pipeline, this);
     mDrawable->setRenderType(LLPipeline::RENDER_TYPE_GRASS);
 
     return mDrawable;
@@ -458,7 +459,7 @@ void LLVOGrass::plantBlades()
     mDepth = (face->mCenterLocal - LLViewerCamera::getInstance()->getOrigin())*LLViewerCamera::getInstance()->getAtAxis();
     mDrawable->setPosition(face->mCenterLocal);
     mDrawable->movePartition();
-    LLPipeline::sCompiles++;
+    DXPipeline::sCompiles++;
 }
 
 void LLVOGrass::getGeometry(S32 idx,
@@ -586,7 +587,7 @@ void LLVOGrass::getGeometry(S32 idx,
         index_offset   += 8;
     }
 
-    LLPipeline::sCompiles++;
+    DXPipeline::sCompiles++;
 }
 
 U32 LLVOGrass::getPartitionType() const
@@ -737,7 +738,7 @@ void LLVOGrass::updateDrawable(bool force_damped)
     if (mDrawable.notNull() && mDrawable->getVObj())
     {
         mDrawable->updateXform(true);
-        gPipeline.markRebuild(mDrawable, LLDrawable::REBUILD_ALL);
+        DXPipeline::markRebuild(gPipeline, mDrawable, LLDrawable::REBUILD_ALL);
     }
     clearChanged(SHIFTED);
 }
@@ -750,7 +751,7 @@ bool LLVOGrass::lineSegmentIntersect(const LLVector4a& start, const LLVector4a& 
     bool ret = false;
     if (!mbCanSelect ||
         mDrawable->isDead() ||
-        !gPipeline.hasRenderType(mDrawable->getRenderType()))
+        !DXPipeline::hasRenderType(gPipeline, mDrawable->getRenderType()))
     {
         return false;
     }

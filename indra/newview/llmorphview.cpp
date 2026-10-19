@@ -33,7 +33,7 @@
 #include "llagent.h"
 #include "llagentcamera.h"
 #include "lldrawable.h"
-#include "lldrawpoolavatar.h"
+#include "dxdrawpoolavatar.h"
 #include "llface.h"
 //#include "llfirstuse.h"
 #include "llfloatertools.h"

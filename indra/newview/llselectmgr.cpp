@@ -38,9 +38,7 @@
 #include "llgl.h"
 #include "llmediaentry.h"
 #include "llrender.h"
-#ifdef DX_RENDER
 #include "DXDevice.h"
-#endif
 #include "llnotifications.h"
 #include "llpermissions.h"
 #include "llpermissionsflags.h"
@@ -96,6 +94,7 @@
 #include "llvoavatarself.h"
 #include "llvovolume.h"
 #include "pipeline.h"
+#include "dxpipeline.h"
 #include "llviewershadermgr.h"
 #include "llpanelface.h"
 #include "llglheaders.h"
@@ -265,7 +264,7 @@ void LLSelectMgr::clearSelections()
     mRectSelectedObjects.clear();
     mGridObjects.deleteAllNodes();
 
-    LLPipeline::setRenderHighlightTextureChannel(LLRender::DIFFUSE_MAP);
+    DXPipeline::setRenderHighlightTextureChannel(LLRender::DIFFUSE_MAP);
 }
 
 void LLSelectMgr::update()
@@ -283,7 +282,7 @@ void LLSelectMgr::updateEffects()
             LLDrawable* drawable = object->mDrawable;
             if (drawable)
             {
-                gPipeline.markMoved(drawable);
+                DXPipeline::markMoved(gPipeline, drawable);
             }
             return true;
         }
@@ -1894,7 +1893,7 @@ bool LLSelectMgr::selectionSetImage(const LLUUID& imageid)
                 // Texture picker defaults aren't inventory items
                 // * Don't need to worry about permissions for them
                 // * Can just apply the texture and be done with it.
-                objectp->setTEImage(te, LLViewerTextureManager::getFetchedTexture(mImageID, FTT_DEFAULT, true, LLDXTexture::BOOST_NONE, LLViewerTexture::LOD_TEXTURE));
+                objectp->setTEImage(te, LLViewerTextureManager::getFetchedTexture(mImageID, FTT_DEFAULT, true, DXTextureBase::BOOST_NONE, LLViewerTexture::LOD_TEXTURE));
             }
 
             return true;
@@ -2302,7 +2301,7 @@ bool LLSelectMgr::selectionRevertTextures()
                     }
                     else
                     {
-                        object->setTEImage(te, LLViewerTextureManager::getFetchedTexture(id, FTT_DEFAULT, true, LLDXTexture::BOOST_NONE, LLViewerTexture::LOD_TEXTURE));
+                        object->setTEImage(te, LLViewerTextureManager::getFetchedTexture(id, FTT_DEFAULT, true, DXTextureBase::BOOST_NONE, LLViewerTexture::LOD_TEXTURE));
 
                     }
                 }
@@ -6244,7 +6243,7 @@ void LLSelectMgr::processForceObjectSelect(LLMessageSystem* msg, void**)
     LLSelectMgr::getInstance()->highlightObjectAndFamily(objects);
 }
 
-extern F32  gGLModelView[16];
+extern F32  gDXModelView[16];
 
 void LLSelectMgr::updateSilhouettes()
 {
@@ -6255,7 +6254,7 @@ void LLSelectMgr::updateSilhouettes()
 
     if (!mSilhouetteImagep)
     {
-        mSilhouetteImagep = LLViewerTextureManager::getFetchedTextureFromFile("silhouette.j2c", FTT_LOCAL_FILE, true, LLDXTexture::BOOST_UI);
+        mSilhouetteImagep = LLViewerTextureManager::getFetchedTextureFromFile("silhouette.j2c", FTT_LOCAL_FILE, true, DXTextureBase::BOOST_UI);
     }
 
     mHighlightedObjects->cleanupNodes();
@@ -6529,7 +6528,7 @@ void LLSelectMgr::renderSilhouettes(bool for_hud)
     gDX.getTexUnit(0)->bind(mSilhouetteImagep);
     LLGLSPipelineSelection gls_select;
     LLGLEnable blend(GL_BLEND);
-    LLGLDepthTest gls_depth(GL_TRUE, GL_FALSE);
+    DXDepthTest gls_depth(true, false);
 
     if (isAgentAvatarValid() && for_hud)
     {
@@ -6579,7 +6578,7 @@ void LLSelectMgr::renderSilhouettes(bool for_hud)
         if (!is_hud_object)
         {
             gDX.loadIdentity();
-            gDX.multMatrix(gGLModelView);
+            gDX.multMatrix(gDXModelView);
         }
 
         if (objectp->mDrawable->isActive())
@@ -6608,10 +6607,6 @@ void LLSelectMgr::renderSilhouettes(bool for_hud)
             }
         }
 
-#ifndef DX_RENDER
-        glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-#endif
-
         S32 num_tes = llmin((S32)objectp->getNumTEs(), (S32)objectp->getNumFaces()); // avatars have TEs but no faces
         for (S32 te = 0; te < num_tes; ++te)
         {
@@ -6623,11 +6618,6 @@ void LLSelectMgr::renderSilhouettes(bool for_hud)
 
         gDX.popMatrix();
         gDX.popMatrix();
-
-#ifndef DX_RENDER
-        glLineWidth(1.f);
-        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-#endif
 
         if (shader)
         {
@@ -7252,7 +7242,7 @@ void LLSelectNode::renderOneSilhouette(const LLColor4 &color)
     if (!is_hud_object)
     {
         gDX.loadIdentity();
-        gDX.multMatrix(gGLModelView);
+        gDX.multMatrix(gDXModelView);
     }
 
 
@@ -7285,7 +7275,7 @@ void LLSelectNode::renderOneSilhouette(const LLColor4 &color)
             gDX.flush();
             gDX.blendFunc(LLRender::BF_SOURCE_COLOR, LLRender::BF_ONE);
 
-            LLGLDepthTest gls_depth(GL_TRUE, GL_FALSE, GL_GEQUAL);
+            DXDepthTest gls_depth(true, false, GL_GEQUAL);
             gDX.flush();
             gDX.begin(LLRender::LINES);
             {
@@ -8763,7 +8753,7 @@ bool LLSelectMgr::selectionMove(const LLVector3& displ,
 
         if (enable_pos && enable_rot && obj->mDrawable.notNull())
         {
-            gPipeline.markMoved(obj->mDrawable, true);
+            DXPipeline::markMoved(gPipeline, obj->mDrawable, true);
         }
     }
 

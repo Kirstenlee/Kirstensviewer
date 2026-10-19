@@ -32,6 +32,7 @@
 #include "llvosurfacepatch.h"
 #include "llsurface.h"
 #include "pipeline.h"
+#include "dxpipeline.h"
 #include "llagent.h"
 #include "llsky.h"
 #include "llviewercamera.h"
@@ -39,7 +40,7 @@
 // For getting composition values
 #include "llviewerregion.h"
 #include "llvlcomposition.h"
-#include "lldrawpool.h"
+#include "dxdrawpool.h"
 #include "noise.h"
 
 extern bool gShiftFrame;
@@ -123,7 +124,7 @@ void LLSurfacePatch::setSurface(LLSurface *surfacep)
         mVObjp = (LLVOSurfacePatch *)gObjectList.createObjectViewer(LLViewerObject::LL_VO_SURFACE_PATCH, mSurfacep->getRegion());
         mVObjp->setPatch(this);
         mVObjp->setPositionRegion(mCenterRegion);
-        gPipeline.createObject(mVObjp);
+        DXPipeline::createObject(gPipeline, mVObjp);
     }
 }
 
@@ -527,7 +528,7 @@ const LLVector3 &LLSurfacePatch::getNormal(const U32 x, const U32 y) const
 
 void LLSurfacePatch::updateCameraDistanceRegion(const LLVector3 &pos_region)
 {
-    if (LLPipeline::sDynamicLOD)
+    if (DXPipeline::sDynamicLOD)
     {
         if (!gShiftFrame)
         {
@@ -880,7 +881,7 @@ bool LLSurfacePatch::updateTexture()
                 if (mVObjp)
                 {
                     mVObjp->dirtyGeom();
-                    gPipeline.markGLRebuild(mVObjp);
+                    DXPipeline::markGLRebuild(gPipeline, mVObjp);
                     return !mSTexUpdate;
                 }
             }

@@ -45,6 +45,7 @@
 #include "llmutelist.h"
 
 #include "pipeline.h"
+#include "dxpipeline.h"
 
 #include <boost/tokenizer.hpp>
 #include <boost/bind/bind.hpp>
@@ -450,7 +451,7 @@ bool LLMuteList::add(const LLMute& mute, U32 flags)
                 LLVOAvatar *avatarp = find_avatar(localmute.mID);
                 if (avatarp)
                 {
-                    LLPipeline::removeMutedAVsLights(avatarp);
+                    DXPipeline::removeMutedAVsLights(avatarp);
                 }
                 //remove agent's notifications as well
                 if (localmute.mType == LLMute::AGENT)
@@ -523,9 +524,9 @@ void LLMuteList::updateAdd(const LLMute& mute)
                 }
                 drawable->makeActive();
 
-                gPipeline.markRebuild(drawable, LLDrawable::REBUILD_ALL);
+                DXPipeline::markRebuild(gPipeline, drawable, LLDrawable::REBUILD_ALL);
                 drawable->setState(LLDrawable::MOVE_UNDAMPED);
-                gPipeline.markMoved(drawable, true);
+                DXPipeline::markMoved(gPipeline, drawable, true);
 
                 // Also hide child prims for linked objects
                 LLViewerObject::const_child_list_t& child_list = obj->getChildren();
@@ -545,9 +546,9 @@ void LLMuteList::updateAdd(const LLMute& mute)
                         }
                         child_drawable->makeActive();
 
-                        gPipeline.markRebuild(child_drawable, LLDrawable::REBUILD_ALL);
+                        DXPipeline::markRebuild(gPipeline, child_drawable, LLDrawable::REBUILD_ALL);
                         child_drawable->setState(LLDrawable::MOVE_UNDAMPED);
-                        gPipeline.markMoved(child_drawable, true);
+                        DXPipeline::markMoved(gPipeline, child_drawable, true);
                     }
                 }
             }
@@ -662,10 +663,10 @@ void LLMuteList::updateRemove(const LLMute& mute)
                 }
                 drawable->makeActive();
 
-                gPipeline.markRebuild(drawable, LLDrawable::REBUILD_ALL);
+                DXPipeline::markRebuild(gPipeline, drawable, LLDrawable::REBUILD_ALL);
                 // Force immediate spatial update
                 drawable->setState(LLDrawable::MOVE_UNDAMPED);
-                gPipeline.markMoved(drawable, true);
+                DXPipeline::markMoved(gPipeline, drawable, true);
 
                 // Also restore child prims for linked objects
                 LLViewerObject::const_child_list_t& child_list = obj->getChildren();
@@ -685,9 +686,9 @@ void LLMuteList::updateRemove(const LLMute& mute)
                         }
                         child_drawable->makeActive();
 
-                        gPipeline.markRebuild(child_drawable, LLDrawable::REBUILD_ALL);
+                        DXPipeline::markRebuild(gPipeline, child_drawable, LLDrawable::REBUILD_ALL);
                         child_drawable->setState(LLDrawable::MOVE_UNDAMPED);
-                        gPipeline.markMoved(child_drawable, true);
+                        DXPipeline::markMoved(gPipeline, child_drawable, true);
                     }
                 }
             }
@@ -867,9 +868,9 @@ bool LLMuteList::loadFromFile(const std::string& filename, EMuteListSource sourc
                         }
                         drawable->makeActive();
 
-                        gPipeline.markRebuild(drawable, LLDrawable::REBUILD_ALL);
+                        DXPipeline::markRebuild(gPipeline, drawable, LLDrawable::REBUILD_ALL);
                         drawable->setState(LLDrawable::MOVE_UNDAMPED);
-                        gPipeline.markMoved(drawable, true);
+                        DXPipeline::markMoved(gPipeline, drawable, true);
 
                         LLViewerObject::const_child_list_t& child_list = obj->getChildren();
                         for (LLViewerObject::child_list_t::const_iterator iter = child_list.begin();
@@ -888,9 +889,9 @@ bool LLMuteList::loadFromFile(const std::string& filename, EMuteListSource sourc
                                 }
                                 child_drawable->makeActive();
 
-                                gPipeline.markRebuild(child_drawable, LLDrawable::REBUILD_ALL);
+                                DXPipeline::markRebuild(gPipeline, child_drawable, LLDrawable::REBUILD_ALL);
                                 child_drawable->setState(LLDrawable::MOVE_UNDAMPED);
-                                gPipeline.markMoved(child_drawable, true);
+                                DXPipeline::markMoved(gPipeline, child_drawable, true);
                             }
                         }
                     }
@@ -1437,9 +1438,9 @@ void LLMuteList::applyObjectDerender()
                     }
                     drawable->makeActive();
 
-                    gPipeline.markRebuild(drawable, LLDrawable::REBUILD_ALL);
+                    DXPipeline::markRebuild(gPipeline, drawable, LLDrawable::REBUILD_ALL);
                     drawable->setState(LLDrawable::MOVE_UNDAMPED);
-                    gPipeline.markMoved(drawable, true);
+                    DXPipeline::markMoved(gPipeline, drawable, true);
 
                     derendered_count++;
 
@@ -1461,9 +1462,9 @@ void LLMuteList::applyObjectDerender()
                             }
                             child_drawable->makeActive();
 
-                            gPipeline.markRebuild(child_drawable, LLDrawable::REBUILD_ALL);
+                            DXPipeline::markRebuild(gPipeline, child_drawable, LLDrawable::REBUILD_ALL);
                             child_drawable->setState(LLDrawable::MOVE_UNDAMPED);
-                            gPipeline.markMoved(child_drawable, true);
+                            DXPipeline::markMoved(gPipeline, child_drawable, true);
                         }
                     }
                 }
@@ -1513,9 +1514,9 @@ void LLMuteList::enforceRegionDerender(LLViewerRegion* region)
                     }
                     drawable->makeActive();
 
-                    gPipeline.markRebuild(drawable, LLDrawable::REBUILD_ALL);
+                    DXPipeline::markRebuild(gPipeline, drawable, LLDrawable::REBUILD_ALL);
                     drawable->setState(LLDrawable::MOVE_UNDAMPED);
-                    gPipeline.markMoved(drawable, true);
+                    DXPipeline::markMoved(gPipeline, drawable, true);
 
                     // Handle child objects (linksets)
                     LLViewerObject::const_child_list_t& child_list = obj->getChildren();
@@ -1535,9 +1536,9 @@ void LLMuteList::enforceRegionDerender(LLViewerRegion* region)
                             }
                             child_drawable->makeActive();
 
-                            gPipeline.markRebuild(child_drawable, LLDrawable::REBUILD_ALL);
+                            DXPipeline::markRebuild(gPipeline, child_drawable, LLDrawable::REBUILD_ALL);
                             child_drawable->setState(LLDrawable::MOVE_UNDAMPED);
-                            gPipeline.markMoved(child_drawable, true);
+                            DXPipeline::markMoved(gPipeline, child_drawable, true);
                         }
                     }
 

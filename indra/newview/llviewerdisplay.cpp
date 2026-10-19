@@ -37,12 +37,10 @@
 #include "llcriticaldamp.h"
 #include "lldir.h"
 #include "dxdrawpoolalpha.h"
-#include "lldrawpoolbump.h"
-#include "lldrawpoolwater.h"
-#ifdef DX_RENDER
+#include "dxdrawpoolbump.h"
+#include "dxdrawpoolwater.h"
 #include "dxpipeline.h"
 #include "DXUIBatch.h"
-#endif
 #include "lldynamictexture.h"
 #include "llenvironment.h"
 #include "llfasttimer.h"
@@ -168,7 +166,7 @@ void display_startup()
 		return;
 	}
 
-	gPipeline.updateGL();
+	DXPipeline::updateGL(gPipeline);
 
 	// Written as branch to appease GCC which doesn't like different
 	// pointer types across ternary ops
@@ -196,8 +194,8 @@ void display_startup()
 
 	DXState::checkStates();
 
-	LLGLSUIDefault gls_ui;
-	gPipeline.disableLights();
+	DXUIDefault gls_ui;
+	DXPipeline::disableLights(gPipeline);
 
 	if (gViewerWindow)
 		gViewerWindow->setup2DRender();
@@ -475,8 +473,8 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 		LL_DEBUGS("Window") << "Resizing window" << LL_ENDL;
 		gDX.flush();
 		gViewerWindow->getWindow()->swapBuffers();
-		LLPipeline::refreshCachedSettings();
-		gPipeline.resizeScreenTexture();
+		DXPipeline::refreshCachedSettings();
+		DXPipeline::resizeScreenTexture(gPipeline);
 		gResizeScreenTexture = false;
 		gWindowResized = false;
 		return;
@@ -484,25 +482,25 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 
 	if (gResizeShadowTexture)
 	{ //skip render on frames where window has been resized
-		gPipeline.resizeShadowTexture();
+		DXPipeline::resizeShadowTexture(gPipeline);
 		gResizeShadowTexture = false;
 	}
 
 	gSnapshot = for_snapshot;
 
-	if (LLPipeline::sRenderDeferred)
+	if (DXPipeline::sRenderDeferred)
 	{ //hack to make sky show up in deferred snapshots
 		for_snapshot = false;
 	}
 
 	LLGLSDefault gls_default;
-	LLGLDepthTest gls_depth(GL_TRUE, GL_TRUE, GL_LEQUAL);
+	DXDepthTest gls_depth(true, true, GL_LEQUAL);
 
 	LLVertexBuffer::unbind();
 
 	DXState::checkStates();
 
-	gPipeline.disableLights();
+	DXPipeline::disableLights(gPipeline);
 
 	// Don't draw if the window is hidden or minimized.
 	// In fact, must explicitly check the minimized state before drawing.
@@ -526,7 +524,7 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 		// PROVEN-safe call site is deep inside render_ui() (below, past
 		// this early return), after a large amount of matrix/GL-state
 		// preamble (gDX.pushMatrix() of the live camera, gPipeline.
-		// renderFinalize(), HUD rendering, LLGLSDefault/LLGLSUIDefault
+		// renderFinalize(), HUD rendering, LLGLSDefault/DXUIDefault
 		// guards...) that this branch has no way to safely replicate or
 		// skip past without risking touching the very backbuffer this
 		// early-exit exists to avoid. Net effect: a popped-out floater's
@@ -541,7 +539,7 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 		// Clean up memory the pools may have allocated
 		if (rebuild)
 		{
-			gPipeline.rebuildPools();
+			DXPipeline::rebuildPools(gPipeline);
 		}
 
 		gViewerWindow->returnEmptyPicks();
@@ -775,26 +773,26 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 
 	gViewerWindow->setup3DViewport();
 
-	gPipeline.resetFrameStats();    // Reset per-frame statistics.
+	DXPipeline::resetFrameStats(gPipeline);    // Reset per-frame statistics.
 
 	if (!gDisconnected && !LLApp::isExiting())
 	{
 		// Render mirrors and associated hero probes before we render the rest of the scene.
 		// This ensures the scene state in the hero probes are exactly the same as the rest of the scene before we render it.
-		if (gPipeline.RenderMirrors && !gSnapshot)
+		if (DXPipeline::RenderMirrors && !gSnapshot)
 		{
 			gPipeline.mMirrorProbes.update();
 			gPipeline.mMirrorProbes.renderProbes();
 		}
 
-		if (gPipeline.hasRenderType(LLPipeline::RENDER_TYPE_HUD))
+		if (DXPipeline::hasRenderType(gPipeline, LLPipeline::RENDER_TYPE_HUD))
 		{ //don't draw hud objects in this frame
-			gPipeline.toggleRenderType(LLPipeline::RENDER_TYPE_HUD);
+			DXPipeline::toggleRenderType(gPipeline, LLPipeline::RENDER_TYPE_HUD);
 		}
 
-		if (gPipeline.hasRenderType(LLPipeline::RENDER_TYPE_HUD_PARTICLES))
+		if (DXPipeline::hasRenderType(gPipeline, LLPipeline::RENDER_TYPE_HUD_PARTICLES))
 		{ //don't draw hud particles in this frame
-			gPipeline.toggleRenderType(LLPipeline::RENDER_TYPE_HUD_PARTICLES);
+			DXPipeline::toggleRenderType(gPipeline, LLPipeline::RENDER_TYPE_HUD_PARTICLES);
 		}
 
 		display_update_camera();
@@ -812,12 +810,12 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 
 		{
 			const F32 max_geom_update_time = 0.005f * 10.f * gFrameIntervalSeconds.value(); // 50 ms/second update time
-			gPipeline.createObjects(max_geom_update_time);
-			gPipeline.processPartitionQ();
-			gPipeline.updateGeom(max_geom_update_time);
+			DXPipeline::createObjects(gPipeline, max_geom_update_time);
+			DXPipeline::processPartitionQ(gPipeline);
+			DXPipeline::updateGeom(gPipeline, max_geom_update_time);
 		}
 
-		gPipeline.updateGL();
+		DXPipeline::updateGL(gPipeline);
 
 
 		//Increment drawable frame counter
@@ -826,10 +824,10 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 		LLSpatialGroup::sNoDelete = true;
 		LLTexUnit::sWhiteTexture = LLViewerFetchedTexture::sWhiteImagep->getTexName();
 
-		S32 occlusion = LLPipeline::sUseOcclusion;
+		S32 occlusion = DXPipeline::sUseOcclusion;
 		if (gDepthDirty)
 		{ //depth buffer is invalid, don't overwrite occlusion state
-			LLPipeline::sUseOcclusion = llmin(occlusion, 1);
+			DXPipeline::sUseOcclusion = llmin(occlusion, 1);
 		}
 		gDepthDirty = false;
 
@@ -837,15 +835,15 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 
 		static LLCullResult result;
 		LLViewerCamera::sCurCameraID = LLViewerCamera::CAMERA_WORLD;
-		LLPipeline::sUnderWaterRender = LLViewerCamera::getInstance()->cameraUnderWater();
-		gPipeline.updateCull(*LLViewerCamera::getInstance(), result);
+		DXPipeline::sUnderWaterRender = LLViewerCamera::getInstance()->cameraUnderWater();
+		DXPipeline::updateCull(gPipeline, *LLViewerCamera::getInstance(), result);
 
 		DXState::checkStates();
 
 		{
 				if (gResizeScreenTexture)
 				{
-					gPipeline.resizeScreenTexture();
+					DXPipeline::resizeScreenTexture(gPipeline);
 					gResizeScreenTexture = false;
 				}
 
@@ -860,7 +858,7 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 				if (gFrameCount > 1 && !for_snapshot)
 				{
 					// Shadow maps are shared between stereo eyes, generated once.
-						gPipeline.generateSunShadow(*LLViewerCamera::getInstance());
+						DXPipeline::generateSunShadow(gPipeline, *LLViewerCamera::getInstance());
 				}
 
 				LLVertexBuffer::unbind();
@@ -901,22 +899,22 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 		DXState::checkStates();
 
 		LLViewerCamera::sCurCameraID = LLViewerCamera::CAMERA_WORLD;
-		gPipeline.stateSort(*LLViewerCamera::getInstance(), result);
+		DXPipeline::stateSort(gPipeline, *LLViewerCamera::getInstance(), result);
 
 		if (rebuild)
 		{
-			gPipeline.rebuildPools();
+			DXPipeline::rebuildPools(gPipeline);
 		}
 
 		LLSceneMonitor::getInstance()->fetchQueryResult();
 
 		DXState::checkStates();
 
-		LLPipeline::sUseOcclusion = occlusion;
+		DXPipeline::sUseOcclusion = occlusion;
 
 		gSky.updateSky();
 
-		LLPipeline::sUnderWaterRender = LLViewerCamera::getInstance()->cameraUnderWater();
+		DXPipeline::sUnderWaterRender = LLViewerCamera::getInstance()->cameraUnderWater();
 
 		DXState::checkStates();
 
@@ -968,14 +966,14 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 				gOcclusionProgram.bind();
 				for (U32 i = 0; i < num_types; i++)
 				{
-					gPipeline.renderObjects(types[i], LLVertexBuffer::MAP_VERTEX, false);
+					DXPipeline::renderObjects(gPipeline, types[i], LLVertexBuffer::MAP_VERTEX, false);
 				}
 
 				gOcclusionProgram.unbind();
 			}
 
 			gDX.setColorWriteMask(true, true);
-			gPipeline.renderGeomDeferred(*LLViewerCamera::getInstance(), true);
+			DXPipeline::renderGeomDeferred(gPipeline, *LLViewerCamera::getInstance(), true);
 		}
 
 		{
@@ -989,15 +987,15 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 			}
 		}
 
-		LLRenderTarget& rt = (gPipeline.sRenderDeferred ? gPipeline.mRT->deferredScreen : gPipeline.mRT->screen);
+		LLRenderTarget& rt = (DXPipeline::sRenderDeferred ? gPipeline.mRT->deferredScreen : gPipeline.mRT->screen);
 		rt.flush();
 
-		if (LLPipeline::sRenderDeferred)
+		if (DXPipeline::sRenderDeferred)
 		{
-			gPipeline.renderDeferredLighting();
+			DXPipeline::renderDeferredLighting(gPipeline);
 		}
 
-		LLPipeline::sUnderWaterRender = false;
+		DXPipeline::sUnderWaterRender = false;
 
 		{
 			//capture the frame buffer.
@@ -1017,7 +1015,7 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 		}
 
 		LLSpatialGroup::sNoDelete = false;
-		gPipeline.clearReferences();
+		DXPipeline::clearReferences(gPipeline);
 	}
 
 	display_stats();
@@ -1126,24 +1124,24 @@ void display_cube_face()
 	bool rebuild = false;
 
 	LLGLSDefault gls_default;
-	LLGLDepthTest gls_depth(GL_TRUE, GL_TRUE, GL_LEQUAL);
+	DXDepthTest gls_depth(true, true, GL_LEQUAL);
 
 	LLVertexBuffer::unbind();
 
-	gPipeline.disableLights();
+	DXPipeline::disableLights(gPipeline);
 
 	gPipeline.mBackfaceCull = true;
 
 	gViewerWindow->setup3DViewport();
 
-	if (gPipeline.hasRenderType(LLPipeline::RENDER_TYPE_HUD))
+	if (DXPipeline::hasRenderType(gPipeline, LLPipeline::RENDER_TYPE_HUD))
 	{ //don't draw hud objects in this frame
-		gPipeline.toggleRenderType(LLPipeline::RENDER_TYPE_HUD);
+		DXPipeline::toggleRenderType(gPipeline, LLPipeline::RENDER_TYPE_HUD);
 	}
 
-	if (gPipeline.hasRenderType(LLPipeline::RENDER_TYPE_HUD_PARTICLES))
+	if (DXPipeline::hasRenderType(gPipeline, LLPipeline::RENDER_TYPE_HUD_PARTICLES))
 	{ //don't draw hud particles in this frame
-		gPipeline.toggleRenderType(LLPipeline::RENDER_TYPE_HUD_PARTICLES);
+		DXPipeline::toggleRenderType(gPipeline, LLPipeline::RENDER_TYPE_HUD_PARTICLES);
 	}
 
 	display_update_camera();
@@ -1155,23 +1153,23 @@ void display_cube_face()
 
 	LLSpatialGroup::sNoDelete = true;
 
-	S32 occlusion = LLPipeline::sUseOcclusion;
-	LLPipeline::sUseOcclusion = 0; // occlusion data is from main camera point of view, don't read or write it during cube snapshots
+	S32 occlusion = DXPipeline::sUseOcclusion;
+	DXPipeline::sUseOcclusion = 0; // occlusion data is from main camera point of view, don't read or write it during cube snapshots
 	//gDepthDirty = true; //let "real" render pipe know it can't trust the depth buffer for occlusion data
 
 	static LLCullResult result;
 	LLViewerCamera::sCurCameraID = LLViewerCamera::CAMERA_WORLD;
-	LLPipeline::sUnderWaterRender = LLViewerCamera::getInstance()->cameraUnderWater();
-	gPipeline.updateCull(*LLViewerCamera::getInstance(), result);
+	DXPipeline::sUnderWaterRender = LLViewerCamera::getInstance()->cameraUnderWater();
+	DXPipeline::updateCull(gPipeline, *LLViewerCamera::getInstance(), result);
 
 	// A reflection probe's captured cubemap is a single shared resource, not per-eye - always full color.
 	gDX.setColorWriteMask(true, true);
 
-	gPipeline.generateSunShadow(*LLViewerCamera::getInstance());
+	DXPipeline::generateSunShadow(gPipeline, *LLViewerCamera::getInstance());
 
 	{
 		LLViewerCamera::sCurCameraID = LLViewerCamera::CAMERA_WORLD;
-		gPipeline.stateSort(*LLViewerCamera::getInstance(), result);
+		DXPipeline::stateSort(gPipeline, *LLViewerCamera::getInstance(), result);
 
 		if (rebuild)
 		{
@@ -1180,13 +1178,13 @@ void display_cube_face()
 			// rebuildPools
 			//
 			//
-			gPipeline.rebuildPools();
+			DXPipeline::rebuildPools(gPipeline);
 		}
 	}
 
-	LLPipeline::sUseOcclusion = occlusion;
+	DXPipeline::sUseOcclusion = occlusion;
 
-	LLPipeline::sUnderWaterRender = LLViewerCamera::getInstance()->cameraUnderWater();
+	DXPipeline::sUnderWaterRender = LLViewerCamera::getInstance()->cameraUnderWater();
 
 	gDX.setColorWriteMask(true, true);
 
@@ -1207,9 +1205,8 @@ void display_cube_face()
 
 	LLViewerCamera::sCurCameraID = LLViewerCamera::CAMERA_WORLD;
 
-	gPipeline.renderGeomDeferred(*LLViewerCamera::getInstance());
+	DXPipeline::renderGeomDeferred(gPipeline, *LLViewerCamera::getInstance());
 
-#ifdef DX_RENDER
 	// LLPipeline::renderDeferredLighting() is a no-op stub under DX_RENDER, but its GL body is
 	// also the only call site for renderGeomPostDeferred() (main-camera alpha/glow pass), so it
 	// must be called explicitly here instead. Draws directly into deferredScreen (which still
@@ -1221,20 +1218,19 @@ void display_cube_face()
 	// with its 3-4 RTVs still bound, only data0 receives the write; data1-3 are left untouched.
 	// deferredScreen is still the actively-bound target here (flush() hasn't run yet), so do not
 	// rebind it - LLRenderTarget::bindTarget() asserts it isn't already bound.
-	gPipeline.renderGeomPostDeferred(*LLViewerCamera::getInstance());
-#endif
+	DXPipeline::renderGeomPostDeferred(gPipeline, *LLViewerCamera::getInstance());
 
 	gPipeline.mRT->deferredScreen.flush();
 
-	gPipeline.renderDeferredLighting();
+	DXPipeline::renderDeferredLighting(gPipeline);
 
-	LLPipeline::sUnderWaterRender = false;
+	DXPipeline::sUnderWaterRender = false;
 
 	// Finalize scene
-	//gPipeline.renderFinalize();
+	//DXPipeline::presentDeferredScreen(gPipeline);
 
 	LLSpatialGroup::sNoDelete = false;
-	gPipeline.clearReferences();
+	DXPipeline::clearReferences(gPipeline);
 }
 
 void render_hud_attachments()
@@ -1253,99 +1249,99 @@ void render_hud_attachments()
 	// smoothly interpolate current zoom level
 	gAgentCamera.mHUDCurZoom = lerp(gAgentCamera.mHUDCurZoom, gAgentCamera.getAgentHUDTargetZoom(), LLSmoothInterpolation::getInterpolant(0.03f));
 
-	if (LLPipeline::sShowHUDAttachments && !gDisconnected && setup_hud_matrices())
+	if (DXPipeline::sShowHUDAttachments && !gDisconnected && setup_hud_matrices())
 	{
-		LLPipeline::sRenderingHUDs = true;
+		DXPipeline::sRenderingHUDs = true;
 		LLCamera hud_cam = *LLViewerCamera::getInstance();
 		hud_cam.setOrigin(-1.f, 0.f, 0.f);
 		hud_cam.setAxes(LLVector3(1.f, 0.f, 0.f), LLVector3(0.f, 1.f, 0.f), LLVector3(0.f, 0.f, 1.f));
 		LLViewerCamera::updateFrustumPlanes(hud_cam, true);
 
 		static LLCachedControl<bool> render_hud_particles(gSavedSettings, "RenderHUDParticles", false);
-		bool render_particles = gPipeline.hasRenderType(LLPipeline::RENDER_TYPE_PARTICLES) && render_hud_particles;
+		bool render_particles = DXPipeline::hasRenderType(gPipeline, LLPipeline::RENDER_TYPE_PARTICLES) && render_hud_particles;
 
 		//only render hud objects
-		gPipeline.pushRenderTypeMask();
+		DXPipeline::pushRenderTypeMask(gPipeline);
 
 		// turn off everything
-		gPipeline.andRenderTypeMask(LLPipeline::END_RENDER_TYPES);
+		DXPipeline::andRenderTypeMask(gPipeline, LLPipeline::END_RENDER_TYPES);
 		// turn on HUD
-		gPipeline.toggleRenderType(LLPipeline::RENDER_TYPE_HUD);
+		DXPipeline::toggleRenderType(gPipeline, LLPipeline::RENDER_TYPE_HUD);
 		// turn on HUD particles
-		gPipeline.toggleRenderType(LLPipeline::RENDER_TYPE_HUD_PARTICLES);
+		DXPipeline::toggleRenderType(gPipeline, LLPipeline::RENDER_TYPE_HUD_PARTICLES);
 
 		// if particles are off, turn off hud-particles as well
 		if (!render_particles)
 		{
 			// turn back off HUD particles
-			gPipeline.toggleRenderType(LLPipeline::RENDER_TYPE_HUD_PARTICLES);
+			DXPipeline::toggleRenderType(gPipeline, LLPipeline::RENDER_TYPE_HUD_PARTICLES);
 		}
 
 		bool has_ui = gPipeline.hasRenderDebugFeatureMask(LLPipeline::RENDER_DEBUG_FEATURE_UI);
 		if (has_ui)
 		{
-			gPipeline.toggleRenderDebugFeature(LLPipeline::RENDER_DEBUG_FEATURE_UI);
+			DXPipeline::toggleRenderDebugFeature(gPipeline, LLPipeline::RENDER_DEBUG_FEATURE_UI);
 		}
 
-		S32 use_occlusion = LLPipeline::sUseOcclusion;
-		LLPipeline::sUseOcclusion = 0;
+		S32 use_occlusion = DXPipeline::sUseOcclusion;
+		DXPipeline::sUseOcclusion = 0;
 
 		//cull, sort, and render hud objects
 		static LLCullResult result;
 		LLSpatialGroup::sNoDelete = true;
 
 		LLViewerCamera::sCurCameraID = LLViewerCamera::CAMERA_WORLD;
-		gPipeline.updateCull(hud_cam, result);
+		DXPipeline::updateCull(gPipeline, hud_cam, result);
 
 		// Toggle render types
-		gPipeline.toggleRenderType(LLPipeline::RENDER_TYPE_BUMP);
-		gPipeline.toggleRenderType(LLPipeline::RENDER_TYPE_SIMPLE);
-		gPipeline.toggleRenderType(LLPipeline::RENDER_TYPE_VOLUME);
-		gPipeline.toggleRenderType(LLPipeline::RENDER_TYPE_ALPHA);
-		gPipeline.toggleRenderType(LLPipeline::RENDER_TYPE_ALPHA_PRE_WATER);
-		gPipeline.toggleRenderType(LLPipeline::RENDER_TYPE_ALPHA_MASK);
-		gPipeline.toggleRenderType(LLPipeline::RENDER_TYPE_FULLBRIGHT_ALPHA_MASK);
-		gPipeline.toggleRenderType(LLPipeline::RENDER_TYPE_FULLBRIGHT);
+		DXPipeline::toggleRenderType(gPipeline, LLPipeline::RENDER_TYPE_BUMP);
+		DXPipeline::toggleRenderType(gPipeline, LLPipeline::RENDER_TYPE_SIMPLE);
+		DXPipeline::toggleRenderType(gPipeline, LLPipeline::RENDER_TYPE_VOLUME);
+		DXPipeline::toggleRenderType(gPipeline, LLPipeline::RENDER_TYPE_ALPHA);
+		DXPipeline::toggleRenderType(gPipeline, LLPipeline::RENDER_TYPE_ALPHA_PRE_WATER);
+		DXPipeline::toggleRenderType(gPipeline, LLPipeline::RENDER_TYPE_ALPHA_MASK);
+		DXPipeline::toggleRenderType(gPipeline, LLPipeline::RENDER_TYPE_FULLBRIGHT_ALPHA_MASK);
+		DXPipeline::toggleRenderType(gPipeline, LLPipeline::RENDER_TYPE_FULLBRIGHT);
 		// S24: mark_dirty=false - RENDER_TYPE_GLTF_PBR's toggle normally calls
 		// markAllGeometryDirty() (full octree traversal, every region/partition) so a genuine
 		// user-facing PBR setting change re-sorts faces into correct pools. This call site is
 		// pure internal mask bookkeeping that runs every single frame while anything is
 		// HUD-attached, not a real setting change - the dirty-marking was flooring frametime.
-		gPipeline.toggleRenderType(LLPipeline::RENDER_TYPE_GLTF_PBR, false);
-		gPipeline.toggleRenderType(LLPipeline::RENDER_TYPE_GLTF_PBR_ALPHA_MASK);
+		DXPipeline::toggleRenderType(gPipeline, LLPipeline::RENDER_TYPE_GLTF_PBR, false);
+		DXPipeline::toggleRenderType(gPipeline, LLPipeline::RENDER_TYPE_GLTF_PBR_ALPHA_MASK);
 
 		// Toggle render passes
-		gPipeline.toggleRenderType(LLPipeline::RENDER_TYPE_PASS_ALPHA);
-		gPipeline.toggleRenderType(LLPipeline::RENDER_TYPE_PASS_ALPHA_MASK);
-		gPipeline.toggleRenderType(LLPipeline::RENDER_TYPE_PASS_BUMP);
-		gPipeline.toggleRenderType(LLPipeline::RENDER_TYPE_PASS_MATERIAL);
-		gPipeline.toggleRenderType(LLPipeline::RENDER_TYPE_PASS_FULLBRIGHT);
-		gPipeline.toggleRenderType(LLPipeline::RENDER_TYPE_PASS_FULLBRIGHT_ALPHA_MASK);
-		gPipeline.toggleRenderType(LLPipeline::RENDER_TYPE_PASS_FULLBRIGHT_SHINY);
-		gPipeline.toggleRenderType(LLPipeline::RENDER_TYPE_PASS_SHINY);
-		gPipeline.toggleRenderType(LLPipeline::RENDER_TYPE_PASS_INVISIBLE);
-		gPipeline.toggleRenderType(LLPipeline::RENDER_TYPE_PASS_INVISI_SHINY);
-		gPipeline.toggleRenderType(LLPipeline::RENDER_TYPE_PASS_GLTF_PBR);
-		gPipeline.toggleRenderType(LLPipeline::RENDER_TYPE_PASS_GLTF_PBR_ALPHA_MASK);
+		DXPipeline::toggleRenderType(gPipeline, LLPipeline::RENDER_TYPE_PASS_ALPHA);
+		DXPipeline::toggleRenderType(gPipeline, LLPipeline::RENDER_TYPE_PASS_ALPHA_MASK);
+		DXPipeline::toggleRenderType(gPipeline, LLPipeline::RENDER_TYPE_PASS_BUMP);
+		DXPipeline::toggleRenderType(gPipeline, LLPipeline::RENDER_TYPE_PASS_MATERIAL);
+		DXPipeline::toggleRenderType(gPipeline, LLPipeline::RENDER_TYPE_PASS_FULLBRIGHT);
+		DXPipeline::toggleRenderType(gPipeline, LLPipeline::RENDER_TYPE_PASS_FULLBRIGHT_ALPHA_MASK);
+		DXPipeline::toggleRenderType(gPipeline, LLPipeline::RENDER_TYPE_PASS_FULLBRIGHT_SHINY);
+		DXPipeline::toggleRenderType(gPipeline, LLPipeline::RENDER_TYPE_PASS_SHINY);
+		DXPipeline::toggleRenderType(gPipeline, LLPipeline::RENDER_TYPE_PASS_INVISIBLE);
+		DXPipeline::toggleRenderType(gPipeline, LLPipeline::RENDER_TYPE_PASS_INVISI_SHINY);
+		DXPipeline::toggleRenderType(gPipeline, LLPipeline::RENDER_TYPE_PASS_GLTF_PBR);
+		DXPipeline::toggleRenderType(gPipeline, LLPipeline::RENDER_TYPE_PASS_GLTF_PBR_ALPHA_MASK);
 
-		gPipeline.stateSort(hud_cam, result);
+		DXPipeline::stateSort(gPipeline, hud_cam, result);
 
-		gPipeline.renderGeomPostDeferred(hud_cam);
+		DXPipeline::renderGeomPostDeferred(gPipeline, hud_cam);
 
 		LLSpatialGroup::sNoDelete = false;
-		//gPipeline.clearReferences();
+		//DXPipeline::clearReferences(gPipeline);
 
 		render_hud_elements();
 
 		//restore type mask
-		gPipeline.popRenderTypeMask();
+		DXPipeline::popRenderTypeMask(gPipeline);
 
 		if (has_ui)
 		{
-			gPipeline.toggleRenderDebugFeature(LLPipeline::RENDER_DEBUG_FEATURE_UI);
+			DXPipeline::toggleRenderDebugFeature(gPipeline, LLPipeline::RENDER_DEBUG_FEATURE_UI);
 		}
-		LLPipeline::sUseOcclusion = use_occlusion;
-		LLPipeline::sRenderingHUDs = false;
+		DXPipeline::sUseOcclusion = use_occlusion;
+		DXPipeline::sRenderingHUDs = false;
 	}
 	gDX.matrixMode(LLRender::MM_PROJECTION);
 	gDX.popMatrix();
@@ -1451,19 +1447,17 @@ void render_ui(F32 zoom_factor, int subfield)
 	DXState::checkStates();
 
 	glm::mat4 saved_view = get_current_modelview();
-#ifdef DX_RENDER
 	glm::mat4 saved_proj = get_current_projection();
-#endif
 
 	if (!gSnapshot)
 	{
 		gDX.pushMatrix();
-		// Loads the LIVE camera's modelview/projection instead of gGLLastModelView, which is
+		// Loads the LIVE camera's modelview/projection instead of gDXLastModelView, which is
 		// only updated for SSR's frame-to-frame delta (not yet ported to DX_RENDER) and has no
 		// other DX_RENDER-reachable readers. LLHUDObject::renderAll() (selection beam, nametags,
 		// voice visualizer) runs in this scope and needs the current, not stale, camera matrices
 		// to avoid world-space "bounce". Pushed here, popped back to saved_view/saved_proj below;
-		// dxpipeline.cpp's own gGLLastModelView/gGLLastProjection capture is untouched.
+		// dxpipeline.cpp's own gDXLastModelView/gDXLastProjection capture is untouched.
 		const LLMatrix4& live_modelview = LLViewerCamera::getInstance()->getModelview();
 		gDX.loadMatrix((const F32*)live_modelview.mMatrix);
 		set_current_modelview(glm::make_mat4((const F32*)live_modelview.mMatrix));
@@ -1486,9 +1480,9 @@ void render_ui(F32 zoom_factor, int subfield)
 	}
 
 	// apply gamma correction and post effects
-	gPipeline.renderFinalize();
+	DXPipeline::presentDeferredScreen(gPipeline);
 
-	// renderFinalize() above triggers presentFinal(), which in stereo mode captures this eye's
+	// presentDeferredScreen() above triggers presentFinal(), which in stereo mode captures this eye's
 	// frame into its own offscreen target (mStereoEyeL/R) instead of the back buffer. The LEFT
 	// eye returns early here (nothing else should draw into whatever happens to be bound); the
 	// RIGHT eye composites both eyes into the real back buffer now, before HUD/2D UI draws.
@@ -1526,9 +1520,9 @@ void render_ui(F32 zoom_factor, int subfield)
 		DXState::checkStates();
 
 		LLGLSDefault gls_default;
-		LLGLSUIDefault gls_ui;
+		DXUIDefault gls_ui;
 		{
-			gPipeline.disableLights();
+			DXPipeline::disableLights(gPipeline);
 		}
 
 		bool render_ui = gPipeline.hasRenderDebugFeatureMask(LLPipeline::RENDER_DEBUG_FEATURE_UI);
@@ -1556,23 +1550,19 @@ void render_ui(F32 zoom_factor, int subfield)
 		{
 			LL_RECORD_BLOCK_TIME(FTM_RENDER_UI_2D);
 			LLHUDObject::renderAll();
-#ifdef DX_RENDER
 			// Hard pass boundary: renderAll() draws depth-tested world-space content via
 			// gDXUIBatch; render_ui_2d() draws non-depth-tested screen-space UI through the
 			// same batcher. Without this flush they could merge into one draw call sharing
 			// only one of their depth states. See DXUIBatch.h.
 			gDXUIBatch.flushPending();
-#endif
 			render_ui_2d();
 		}
 
 		gViewerWindow->setup2DRender();
 		gViewerWindow->updateDebugText();
 		gViewerWindow->drawDebugText();
-#ifdef DX_RENDER
 		// Anything still batched (debug text etc.) must draw before this scope ends / Present().
 		gDXUIBatch.flushPending();
-#endif
 
 		// Render-to-texture + DirectComposition floater popout framework
 		// (inherited-tickling-kurzweil plan) - no-op unless a floater is
@@ -1582,12 +1572,10 @@ void render_ui(F32 zoom_factor, int subfield)
 
 	if (!gSnapshot)
 	{
-#ifdef DX_RENDER
 		gDX.matrixMode(LLRender::MM_PROJECTION);
 		gDX.popMatrix();
 		set_current_projection(saved_proj);
 		gDX.matrixMode(LLRender::MM_MODELVIEW);
-#endif
 		set_current_modelview(saved_view);
 		gDX.popMatrix();
 	}
@@ -1656,7 +1644,7 @@ void renderCoordinateAxes()
 
 void draw_axes()
 {
-	LLGLSUIDefault gls_ui;
+	DXUIDefault gls_ui;
 	gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
 	// A vertical white line at origin
 	LLVector3 v = gAgent.getPositionAgent();
@@ -1721,7 +1709,7 @@ void render_ui_3d()
 
 void render_ui_2d()
 {
-	LLGLSUIDefault gls_ui;
+	DXUIDefault gls_ui;
 
 	/////////////////////////////////////////////////////////////
 	//
@@ -1824,7 +1812,7 @@ void render_disconnected_background()
 
 	if (gDisconnectedImagep)
 	{
-		LLGLSUIDefault gls_ui;
+		DXUIDefault gls_ui;
 		gViewerWindow->setup2DRender();
 		gDX.pushMatrix();
 		{

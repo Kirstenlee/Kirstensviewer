@@ -357,7 +357,7 @@ void LLToolCompTranslate::render()
 
     if( mCur != mManip )
     {
-        LLGLDepthTest gls_depth(GL_TRUE, GL_FALSE);
+        DXDepthTest gls_depth(true, false);
         mManip->renderGuidelines();
     }
 }
@@ -477,7 +477,7 @@ void LLToolCompScale::render()
 
     if( mCur != mManip )
     {
-        LLGLDepthTest gls_depth(GL_TRUE, GL_FALSE);
+        DXDepthTest gls_depth(true, false);
         mManip->renderGuidelines();
     }
 }
@@ -674,7 +674,7 @@ void LLToolCompRotate::render()
 
     if( mCur != mManip )
     {
-        LLGLDepthTest gls_depth(GL_TRUE, GL_FALSE);
+        DXDepthTest gls_depth(true, false);
         mManip->renderGuidelines();
     }
 }

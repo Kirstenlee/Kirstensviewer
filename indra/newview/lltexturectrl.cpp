@@ -709,7 +709,7 @@ void LLFloaterTexturePicker::draw()
                 }
                 if (mGLTFPreview)
                 {
-                    mGLTFPreview->setBoostLevel(LLDXTexture::BOOST_PREVIEW);
+                    mGLTFPreview->setBoostLevel(DXTextureBase::BOOST_PREVIEW);
                 }
             }
             else
@@ -735,7 +735,7 @@ void LLFloaterTexturePicker::draw()
                 }
 
                 mTexturep = texture;
-                mTexturep->setBoostLevel(LLDXTexture::BOOST_PREVIEW);
+                mTexturep->setBoostLevel(DXTextureBase::BOOST_PREVIEW);
             }
         }
 
@@ -2339,15 +2339,15 @@ void LLTextureCtrl::draw()
                 }
                 if (mGLTFPreview)
                 {
-                    mGLTFPreview->setBoostLevel(LLDXTexture::BOOST_PREVIEW);
+                    mGLTFPreview->setBoostLevel(DXTextureBase::BOOST_PREVIEW);
                 }
 
                 preview = mGLTFPreview;
             }
             else
             {
-                mTexturep = LLViewerTextureManager::getFetchedTexture(mImageAssetID, FTT_DEFAULT, true, LLDXTexture::BOOST_NONE, LLViewerTexture::LOD_TEXTURE);
-                mTexturep->setBoostLevel(LLDXTexture::BOOST_PREVIEW);
+                mTexturep = LLViewerTextureManager::getFetchedTexture(mImageAssetID, FTT_DEFAULT, true, DXTextureBase::BOOST_NONE, LLViewerTexture::LOD_TEXTURE);
+                mTexturep->setBoostLevel(DXTextureBase::BOOST_PREVIEW);
                 mTexturep->forceToSaveRawImage(0);
 
                 preview = mTexturep;

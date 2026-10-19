@@ -54,7 +54,7 @@
 #include "llphysicsmotion.h"
 #include "llviewercontrol.h"
 #include "llcallingcard.h"      // IDEVO for LLAvatarTracker
-#include "lldrawpoolavatar.h"
+#include "dxdrawpoolavatar.h"
 #include "lldriverparam.h"
 #include "llpolyskeletaldistortion.h"
 #include "lleditingmotion.h"
@@ -62,9 +62,7 @@
 #include "llfloatertools.h"
 #include "llui.h"
 
-#ifdef DX_RENDER
 #include "DXDevice.h"
-#endif
 #include "llheadrotmotion.h"
 #include "llhudeffecttrail.h"
 #include "llhudmanager.h"
@@ -104,6 +102,7 @@
 #include "llvovolume.h"
 #include "llworld.h"
 #include "pipeline.h"
+#include "dxpipeline.h"
 #include "llviewershadermgr.h"
 #include "llsky.h"
 #include "llanimstatelabels.h"
@@ -846,13 +845,11 @@ LLVOAvatar::~LLVOAvatar()
 {
     sInstances.remove(this);
 
-#ifdef DX_RENDER
     // S24: release this avatar's own GPU profile-query COM objects (see llvoavatar.h's
     // mDXProfileQueries comment) - mirrors LLHLSLShader::DXProfileQueries::reset().
     if (mDXProfileQueries.disjoint)       { mDXProfileQueries.disjoint->Release();       mDXProfileQueries.disjoint = nullptr; }
     if (mDXProfileQueries.timestampBegin) { mDXProfileQueries.timestampBegin->Release(); mDXProfileQueries.timestampBegin = nullptr; }
     if (mDXProfileQueries.timestampEnd)   { mDXProfileQueries.timestampEnd->Release();   mDXProfileQueries.timestampEnd = nullptr; }
-#endif
 
     if (!mFullyLoaded)
     {
@@ -1593,14 +1590,14 @@ void LLVOAvatar::calculateSpatialExtents(LLVector4a& newMin, LLVector4a& newMax)
     size.setSub(newMax,newMin);
     size.mul(0.5f);
 
-    F32 pixel_area = LLPipeline::calcPixelArea(center, size, *LLViewerCamera::getInstance());
+    F32 pixel_area = DXPipeline::calcPixelArea(center, size, *LLViewerCamera::getInstance());
     setCorrectedPixelArea(pixel_area);
 }
 
 void render_sphere_and_line(const LLVector3& begin_pos, const LLVector3& end_pos, F32 sphere_scale, const LLVector3& occ_color, const LLVector3& visible_color)
 {
     // Unoccluded bone portions
-    LLGLDepthTest normal_depth(GL_TRUE);
+    DXDepthTest normal_depth(true);
 
     // Draw line segment for unoccluded joint
     gDX.diffuseColor3f(visible_color[0], visible_color[1], visible_color[2]);
@@ -1617,7 +1614,7 @@ void render_sphere_and_line(const LLVector3& begin_pos, const LLVector3& end_pos
     gSphere.renderGGL();
     gDX.popMatrix();
 
-    LLGLDepthTest depth_under(GL_TRUE, GL_FALSE, GL_GREATER);
+    DXDepthTest depth_under(true, false, GL_GREATER);
 
     // Occluded bone portions
     gDX.diffuseColor3f(occ_color[0], occ_color[1], occ_color[2]);
@@ -1955,7 +1952,7 @@ bool LLVOAvatar::lineSegmentIntersect(const LLVector4a& start, const LLVector4a&
                                       LLVector4a* normal,
                                       LLVector4a* tangent)
 {
-    if ((isSelf() && !gAgent.needsRenderAvatar()) || !LLPipeline::sPickAvatar)
+    if ((isSelf() && !gAgent.needsRenderAvatar()) || !DXPipeline::sPickAvatar)
     {
         return false;
     }
@@ -2026,7 +2023,7 @@ bool LLVOAvatar::lineSegmentIntersect(const LLVector4a& start, const LLVector4a&
                         LLDrawable* drawable = attached_object->mDrawable;
                         if (drawable->isState(LLDrawable::RIGGED))
                         { //regenerate octree for rigged attachment
-                            gPipeline.markRebuild(mDrawable, LLDrawable::REBUILD_RIGGED);
+                            DXPipeline::markRebuild(gPipeline, mDrawable, LLDrawable::REBUILD_RIGGED);
                         }
                     }
                 }
@@ -2333,7 +2330,7 @@ void LLVOAvatar::resetSkeleton(bool reset_animations)
         // applyParsedAppearanceMessage, but with alternative default
         // (jellydoll) params
         setCompositeUpdatesEnabled( false );
-        gPipeline.markGLRebuild(this);
+        DXPipeline::markGLRebuild(gPipeline, this);
         applyDefaultParams();
         setCompositeUpdatesEnabled( true );
         updateMeshTextures();
@@ -2441,7 +2438,7 @@ void LLVOAvatar::restoreMeshData()
     }
 
     // force mesh update as LOD might not have changed to trigger this
-    gPipeline.markRebuild(mDrawable, LLDrawable::REBUILD_GEOMETRY);
+    DXPipeline::markRebuild(gPipeline, mDrawable, LLDrawable::REBUILD_GEOMETRY);
 }
 
 //-----------------------------------------------------------------------------
@@ -2652,7 +2649,7 @@ LLViewerFetchedTexture *LLVOAvatar::getBakedTextureImage(const U8 te, const LLUU
         }
         LL_DEBUGS("Avatar") << avString() << "get server-bake image from URL " << url << LL_ENDL;
         result = LLViewerTextureManager::getFetchedTextureFromUrl(
-            url, FTT_SERVER_BAKE, true, LLDXTexture::BOOST_NONE, LLViewerTexture::LOD_TEXTURE, 0, 0, uuid);
+            url, FTT_SERVER_BAKE, true, DXTextureBase::BOOST_NONE, LLViewerTexture::LOD_TEXTURE, 0, 0, uuid);
         if (result->isMissingAsset())
         {
             result->setIsMissingAsset(false);
@@ -2708,14 +2705,26 @@ void LLVOAvatar::dumpAnimationState()
 //------------------------------------------------------------------------
 void LLVOAvatar::idleUpdate(LLAgent &agent, const F64 &time)
 {
+    if (!idleUpdatePreamble(agent, time))
+    {
+        return;
+    }
+
+    bool detailed_update = updateCharacter(agent);
+
+    idleUpdateRest(agent, time, detailed_update);
+}
+
+bool LLVOAvatar::idleUpdatePreamble(LLAgent &agent, const F64 &time)
+{
 
     if (LLApp::isExiting())
-        return;
+        return false;
 
     if (isDead())
     {
         LL_INFOS() << "Warning!  Idle on dead avatar" << LL_ENDL;
-        return;
+        return false;
     }
 
     static LLCachedControl<bool> friends_only(gSavedSettings, "RenderAvatarFriendsOnly", false);
@@ -2735,21 +2744,21 @@ void LLVOAvatar::idleUpdate(LLAgent &agent, const F64 &time)
         deleteParticleSource();
         mVoiceVisualizer->setVoiceEnabled(false);
 
-        return;
+        return false;
     }
 
     // record time and refresh "tooSlow" status
     updateTooSlow();
 
     static LLCachedControl<bool> disable_all_render_types(gSavedSettings, "DisableAllRenderTypes");
-    if (!(gPipeline.hasRenderType(mIsControlAvatar ? LLPipeline::RENDER_TYPE_CONTROL_AV : LLPipeline::RENDER_TYPE_AVATAR))
+    if (!(DXPipeline::hasRenderType(gPipeline, mIsControlAvatar ? LLPipeline::RENDER_TYPE_CONTROL_AV : LLPipeline::RENDER_TYPE_AVATAR))
         && !disable_all_render_types && !isSelf())
     {
         if (!mIsControlAvatar)
         {
             idleUpdateNameTag(idleCalcNameTagPosition(mLastRootPos));
         }
-        return;
+        return false;
     }
 
     // Update should be happening max once per frame.
@@ -2805,17 +2814,17 @@ void LLVOAvatar::idleUpdate(LLAgent &agent, const F64 &time)
             {
                 if (root_object->isSelected())
                 {
-                    gPipeline.updateMoveNormalAsync(drawablep);
+                    DXPipeline::updateMoveNormalAsync(gPipeline, drawablep);
                 }
                 else
                 {
-                    gPipeline.updateMoveDampedAsync(drawablep);
+                    DXPipeline::updateMoveDampedAsync(gPipeline, drawablep);
                 }
             }
         }
         else
         {
-            gPipeline.updateMoveDampedAsync(mDrawable);
+            DXPipeline::updateMoveDampedAsync(gPipeline, mDrawable);
         }
     }
 
@@ -2850,8 +2859,12 @@ void LLVOAvatar::idleUpdate(LLAgent &agent, const F64 &time)
     // animate the character
     // store off last frame's root position to be consistent with camera position
     mLastRootPos = mRoot->getWorldPosition();
-    bool detailed_update = updateCharacter(agent);
 
+    return true;
+}
+
+void LLVOAvatar::idleUpdateRest(LLAgent &agent, const F64 &time, bool detailed_update)
+{
     static LLUICachedControl<bool> visualizers_in_calls("ShowVoiceVisualizersInCalls", false);
     bool voice_enabled = (visualizers_in_calls || LLVoiceClient::getInstance()->inProximalChannel()) &&
                          LLVoiceClient::getInstance()->getVoiceEnabled(mID);
@@ -2924,9 +2937,7 @@ void LLVOAvatar::idleUpdateVoiceVisualizer(bool voice_enabled, const LLVector3 &
     }
     else
     {
-        // S24: Hide voice dot for muted/blocked avatars
-        // This complements the derender + nametag hiding for muted avatars
-        // Perfect for movie making with invisible prop manipulators
+        // S24: hides the voice dot for muted avatars too, matching the derender/nametag hiding.
         if (isInMuteList())
         {
             render_visualizer = false;
@@ -3070,13 +3081,13 @@ void LLVOAvatar::idleUpdateMisc(bool detailed_update)
                     // if selecting any attachments, update all of them as non-damped
                     if (attachment_selected)
                     {
-                        gPipeline.updateMoveNormalAsync(attached_object->mDrawable);
+                        DXPipeline::updateMoveNormalAsync(gPipeline, attached_object->mDrawable);
                     }
                     else
                     {
                         // Note: SL-17415; While most objects follow joints,
                         // some objects get position updates from server
-                        gPipeline.updateMoveDampedAsync(attached_object->mDrawable);
+                        DXPipeline::updateMoveDampedAsync(gPipeline, attached_object->mDrawable);
                     }
 
                     // override_bbox calls movePartition() and getSpatialPartition(),
@@ -3087,7 +3098,7 @@ void LLVOAvatar::idleUpdateMisc(bool detailed_update)
                     {
                         if (!rigged)
                         {
-                            gPipeline.updateMoveNormalAsync(bridge);
+                            DXPipeline::updateMoveNormalAsync(gPipeline, bridge);
                         }
                         else
                         {
@@ -3177,7 +3188,7 @@ void LLVOAvatar::idleUpdateMisc(bool detailed_update)
         //force a move if sitting on an active object
         if (getParent() && ((LLViewerObject*) getParent())->mDrawable->isActive())
         {
-            gPipeline.markMoved(mDrawable, true);
+            DXPipeline::markMoved(gPipeline, mDrawable, true);
         }
     }
 }
@@ -3343,7 +3354,7 @@ void LLVOAvatar::idleUpdateLoadingEffect()
 void LLVOAvatar::idleUpdateWindEffect()
 {
     // update wind effect
-    if (LLPipeline::RenderAvatarCloth)
+    if (DXPipeline::RenderAvatarCloth)
     {
         F32 hover_strength = 0.f;
         F32 time_delta = mRippleTimer.getElapsedTimeF32() - mRippleTimeLast;
@@ -3582,7 +3593,7 @@ void LLVOAvatar::idleUpdateNameTagText(bool new_name)
                 line += LLTrans::getString("AvatarDoNotDisturb");
                 line += ", ";
             }
-			if (is_muted) // S24 do not render muted avatar name tags also useful in film production.
+			if (is_muted) // S24: muted avatars get no name tag.
             {
 			    clearNameTag();
                 return;
@@ -3927,7 +3938,7 @@ void LLVOAvatar::slamPosition()
     setChanged(TRANSLATED);
     if (mDrawable.notNull())
     {
-        gPipeline.updateMoveNormalAsync(mDrawable);
+        DXPipeline::updateMoveNormalAsync(gPipeline, mDrawable);
     }
     mRoot->updateWorldMatrixChildren();
 }
@@ -3935,7 +3946,7 @@ void LLVOAvatar::slamPosition()
 bool LLVOAvatar::isVisuallyMuted()
 {
     bool muted = false;
-    // S24 early out lets not waste time - muted and gone!
+    // S24: early out for muted avatars.
     if (!isSelf() && isInMuteList())
     {
         return true;
@@ -5246,7 +5257,7 @@ U32 LLVOAvatar::renderSkinned()
                 }
             }
 
-            if (!isSelf() || gAgent.needsRenderHead() || LLPipeline::sShadowRender)
+            if (!isSelf() || gAgent.needsRenderHead() || DXPipeline::sShadowRender)
             {
                 if(eyelash_mesh)
                 {
@@ -5331,7 +5342,7 @@ U32 LLVOAvatar::renderSkinned()
                 }
                 first_pass = false;
             }
-            if (!isSelf() || gAgent.needsRenderHead() || LLPipeline::sShadowRender)
+            if (!isSelf() || gAgent.needsRenderHead() || DXPipeline::sShadowRender)
             {
 
                 if (isTextureVisible(TEX_HEAD_BAKED) || (getOverallAppearance() == AOA_JELLYDOLL && !isControlAvatar()) || isUIAvatar())
@@ -5365,7 +5376,7 @@ U32 LLVOAvatar::renderSkinned()
             }
         }
 
-        if (!LLDrawPoolAvatar::sSkipTransparent || LLPipeline::sImpostorRender)
+        if (!LLDrawPoolAvatar::sSkipTransparent || DXPipeline::sImpostorRender)
         {
             DXState blend(GL_BLEND, !mIsDummy);
             num_indices += renderTransparent(first_pass);
@@ -5389,9 +5400,9 @@ U32 LLVOAvatar::renderTransparent(bool first_pass)
         gDX.flush();
     }
 
-    if (!isSelf() || gAgent.needsRenderHead() || LLPipeline::sShadowRender)
+    if (!isSelf() || gAgent.needsRenderHead() || DXPipeline::sShadowRender)
     {
-        if (LLPipeline::sImpostorRender)
+        if (DXPipeline::sImpostorRender)
         {
             gDX.flush();
         }
@@ -5414,7 +5425,7 @@ U32 LLVOAvatar::renderTransparent(bool first_pass)
             }
             first_pass = false;
         }
-        if (LLPipeline::sImpostorRender)
+        if (DXPipeline::sImpostorRender)
         {
             gDX.flush();
         }
@@ -5490,10 +5501,8 @@ U32 LLVOAvatar::renderImpostor(LLColor4U color, S32 diffuse_channel)
         gDX.begin(LLRender::LINES);
         gDX.color4f(1.f,1.f,1.f,1.f);
         F32 thickness = llmax(F32(5.0f-5.0f*(gFrameTimeSeconds-mLastImpostorUpdateFrameTime)),1.0f);
-        // S24: raw glLineWidth() was unguarded here - a real, live GL-landmine call under this
-        // DX-only build (found in a tree-wide stray-GL sweep). LLUI::setLineWidth() is the same
-        // no-op-under-DX_RENDER replacement already used everywhere else this pattern occurs
-        // (task #309's beacon fix, llmanip*.cpp, llviewerobject.cpp, llworldmapview.cpp).
+        // S24: glLineWidth() has no DX11 equivalent; LLUI::setLineWidth() is the no-op stand-in under DX_RENDER,
+        // same as llmanip*.cpp, llviewerobject.cpp and llworldmapview.cpp.
         LLUI::setLineWidth(thickness);
         gDX.vertex3fv((pos+left-up).mV);
         gDX.vertex3fv((pos-left-up).mV);
@@ -5517,11 +5526,7 @@ U32 LLVOAvatar::renderImpostor(LLColor4U color, S32 diffuse_channel)
         // This UV mapping hardcodes GL's convention (v=0 = bottom row = feet); under D3D11's top-down
         // addressing v=0 samples the top row (head) instead, putting head texture data at the feet end
         // of the billboard unless flipped here.
-#ifdef DX_RENDER
         const F32 v_bottom = 1.f, v_top = 0.f;
-#else
-        const F32 v_bottom = 0.f, v_top = 1.f;
-#endif
         gDX.texCoord2f(0.f, v_bottom);
         gDX.vertex3fv((pos + left - up).mV);
         gDX.texCoord2f(1.f, v_bottom);
@@ -5711,7 +5716,7 @@ void LLVOAvatar::releaseOldTextures()
             if (imagep)
             {
                 current_texture_mem += imagep->getTextureMemory();
-                if (imagep->getTextureState() == LLDXTexture::NO_DELETE)
+                if (imagep->getTextureState() == DXTextureBase::NO_DELETE)
                 {
                     // This will allow the texture to be deleted if not in use.
                     imagep->forceActive();
@@ -7359,7 +7364,7 @@ void LLVOAvatar::setPixelAreaAndAngle(LLAgent &agent)
     size.setSub(ext[1], ext[0]);
     size.mul(0.5f);
 
-    mImpostorPixelArea = LLPipeline::calcPixelArea(center, size, *LLViewerCamera::getInstance());
+    mImpostorPixelArea = DXPipeline::calcPixelArea(center, size, *LLViewerCamera::getInstance());
     setCorrectedPixelArea(mImpostorPixelArea);
 
     F32 range = mDrawable->mDistanceWRTCamera;
@@ -7429,10 +7434,10 @@ bool LLVOAvatar::updateJointLODs()
 //-----------------------------------------------------------------------------
 LLDrawable *LLVOAvatar::createDrawable(LLPipeline *pipeline)
 {
-    pipeline->allocDrawable(this);
+    DXPipeline::allocDrawable(*pipeline, this);
     mDrawable->setLit(false);
 
-    LLDrawPoolAvatar *poolp = (LLDrawPoolAvatar*)gPipeline.getPool(mIsControlAvatar ? LLDrawPool::POOL_CONTROL_AV : LLDrawPool::POOL_AVATAR);
+    LLDrawPoolAvatar *poolp = (LLDrawPoolAvatar*)DXPipeline::getPool(gPipeline, mIsControlAvatar ? LLDrawPool::POOL_CONTROL_AV : LLDrawPool::POOL_AVATAR);
 
     // Only a single face (one per avatar)
     //this face will be splitted into several if its vertex buffer is too long.
@@ -7461,7 +7466,7 @@ void LLVOAvatar::updateGL()
 //-----------------------------------------------------------------------------
 bool LLVOAvatar::updateGeometry(LLDrawable* drawable)
 {
-    if (!(gPipeline.hasRenderType(mIsControlAvatar ? LLPipeline::RENDER_TYPE_CONTROL_AV : LLPipeline::RENDER_TYPE_AVATAR)))
+    if (!(DXPipeline::hasRenderType(gPipeline, mIsControlAvatar ? LLPipeline::RENDER_TYPE_CONTROL_AV : LLPipeline::RENDER_TYPE_AVATAR)))
     {
         return true;
     }
@@ -7804,7 +7809,7 @@ void LLVOAvatar::resetHUDAttachments()
                 const LLViewerObject* attached_object = attachment_iter->get();
                 if (attached_object && attached_object->mDrawable.notNull())
                 {
-                    gPipeline.markMoved(attached_object->mDrawable);
+                    DXPipeline::markMoved(gPipeline, attached_object->mDrawable);
                 }
             }
         }
@@ -7824,7 +7829,7 @@ void LLVOAvatar::rebuildRiggedAttachments( void )
             const LLViewerObject* pAttachedObject =  *attachmentIter;
             if ( pAttachment && pAttachedObject->mDrawable.notNull() )
             {
-                gPipeline.markRebuild(pAttachedObject->mDrawable);
+                DXPipeline::markRebuild(gPipeline, pAttachedObject->mDrawable);
             }
         }
     }
@@ -8056,7 +8061,7 @@ void LLVOAvatar::sitOnObject(LLViewerObject *sit_object)
     mDrawable->mXform.setPosition(rel_pos);
     mDrawable->mXform.setRotation(mDrawable->getWorldRotation() * inv_obj_rot);
 
-    gPipeline.markMoved(mDrawable, true);
+    DXPipeline::markMoved(gPipeline, mDrawable, true);
     // Notice that removing sitDown() from here causes avatars sitting on
     // objects to be not rendered for new arrivals. See EXT-6835 and EXT-1655.
     sitDown(true);
@@ -8133,7 +8138,7 @@ void LLVOAvatar::getOffObject()
     mDrawable->mXform.setPosition(cur_position_world);
     mDrawable->mXform.setRotation(cur_rotation_world);
 
-    gPipeline.markMoved(mDrawable, true);
+    DXPipeline::markMoved(gPipeline, mDrawable, true);
 
     sitDown(false);
 
@@ -8656,9 +8661,8 @@ bool LLVOAvatar::processFullyLoadedChange(bool loading)
         debugAvatarRezTime("AvatarRezNotification", "fully loaded");
     }
 
-    // S24 experimental - alter to update lod every 60 frames KL
-    // FIXME why are we updating every 30 calls even if nothing has changed?
-    // This causes updateLOD() to run every 30 frames, among other things.
+    // S24: UPDATE_RATE forces a periodic "changed" signal (drives updateLOD(), among other
+    // things) even when fully-loaded state hasn't actually changed.
     bool fully_loaded_changed = (mFullyLoaded != mPreviousFullyLoaded);
     const S32 UPDATE_RATE = 30;
     bool changed =
@@ -9532,7 +9536,7 @@ void LLVOAvatar::onFirstTEMessageReceived()
         }
 
         mMeshTexturesDirty = true;
-        gPipeline.markGLRebuild(this);
+        DXPipeline::markGLRebuild(gPipeline, this);
 
         mFirstAppearanceMessageTimer.reset();
         mFullyLoadedTimer.reset();
@@ -9939,7 +9943,7 @@ void LLVOAvatar::applyParsedAppearanceMessage(LLAppearanceMessageContents& conte
         {
             LL_DEBUGS("Avatar") << avString() << " baked_index " << (S32) baked_index << " using mLastTextureID " << mBakedTextureDatas[baked_index].mLastTextureID << LL_ENDL;
             setTEImage(mBakedTextureDatas[baked_index].mTextureIndex,
-                LLViewerTextureManager::getFetchedTexture(mBakedTextureDatas[baked_index].mLastTextureID, FTT_DEFAULT, true, LLDXTexture::BOOST_NONE, LLViewerTexture::LOD_TEXTURE));
+                LLViewerTextureManager::getFetchedTexture(mBakedTextureDatas[baked_index].mLastTextureID, FTT_DEFAULT, true, DXTextureBase::BOOST_NONE, LLViewerTexture::LOD_TEXTURE));
         }
         else
         {
@@ -9961,7 +9965,7 @@ void LLVOAvatar::applyParsedAppearanceMessage(LLAppearanceMessageContents& conte
     }
 
     setCompositeUpdatesEnabled( false );
-    gPipeline.markGLRebuild(this);
+    DXPipeline::markGLRebuild(gPipeline, this);
 
     // Apply visual params
     if( num_params > 1)
@@ -10205,18 +10209,8 @@ void LLVOAvatar::onBakedTextureMasksLoaded( bool success, LLViewerFetchedTexture
 
             gDX.getTexUnit(0)->bindManual(LLTexUnit::TT_TEXTURE, gl_name);
 
-#ifndef DX_RENDER
-            // mMaskTexName is never bound/sampled - applyMorphMask() reads aux_src's raw pixel data
-            // directly, CPU-side, so this upload is dead weight on both backends. setManualImage() has
-            // no DX_RENDER branch and would call the real glTexImage2D (null function pointer, no GL
-            // context) - skipped entirely under DX_RENDER rather than given a DXTexture backing.
-            LLImageDX::setManualImage(
-                GL_TEXTURE_2D, 0, GL_ALPHA8,
-                aux_src->getWidth(), aux_src->getHeight(),
-                GL_ALPHA, GL_UNSIGNED_BYTE, aux_src->getData());
-
-            gDX.getTexUnit(0)->setTextureFilteringOption(LLTexUnit::TFO_BILINEAR);
-#endif
+            // mMaskTexName is never bound/sampled - applyMorphMask() reads aux_src's raw pixel
+            // data directly, CPU-side, so no upload is needed here.
 
             /* if( id == head_baked->getID() )
                  if (self->mBakedTextureDatas[BAKED_HEAD].mTexLayerSet)
@@ -10834,7 +10828,7 @@ bool LLVOAvatar::updateLOD()
         return false;
     }
 
-    if (!LLPipeline::sImpostorRender && isImpostor() && 0 != mDrawable->getNumFaces() && mDrawable->getFace(0)->hasGeometry())
+    if (!DXPipeline::sImpostorRender && isImpostor() && 0 != mDrawable->getNumFaces() && mDrawable->getFace(0)->hasGeometry())
     {
         return true;
     }
@@ -11014,7 +11008,7 @@ void LLVOAvatar::updateImpostors()
             && avatar->needsImpostorUpdate())
         {
             avatar->calcMutedAVColor();
-            gPipeline.generateImpostor(avatar);
+            DXPipeline::generateImpostor(gPipeline, avatar);
         }
     }
 
@@ -11659,7 +11653,7 @@ void LLVOAvatar::processComplexityCostChange(const hud_complexity_list_t &hud_co
                 && obj->mDrawable)
             {
                 LLVOAvatar* avatar = (LLVOAvatar*)obj;
-                gPipeline.profileAvatar(avatar);
+                DXPipeline::profileAvatar(gPipeline, avatar);
             }
         });
     }
@@ -12009,7 +12003,7 @@ void LLVOAvatar::calcMutedAVColor()
     }
     else if (isInMuteList()) // the user blocked them
     {
-        // S24 blocked avatars are NEVER seen also useful in film making!
+        // S24: blocked avatars render fully transparent.
         new_color = LLColor4::transparent;
         change_msg = " blocked: color is transparent";
     }
@@ -12155,19 +12149,13 @@ bool LLVOAvatar::isTextureVisible(LLAvatarAppearanceDefines::ETextureIndex type,
 
 void LLVOAvatar::placeProfileQuery()
 {
-    // S24: glGenQueries/glBeginQuery are unresolved function pointers under DX_RENDER (OpenGL
-    // isn't linked into a DX_RENDER=ON build) - LLPipeline::profileAvatar()'s
-    // `gGLManager.mGLVersion < 3.25f` guard doesn't catch this since mGLVersion is deliberately
-    // spoofed to 4.6 under DX_RENDER for unrelated "GL too old" checks. This used to just no-op
-    // under DX_RENDER, leaving mGPURenderTime permanently stale/0 - real avatar-complexity
-    // throttling logic (isTooSlow()) depends on it. Fixed with a real D3D11 disjoint+timestamp
-    // query pair, own instance per avatar (mDXProfileQueries, see llvoavatar.h) rather than
-    // reusing gDebugProgram's shared one - this profile can stay pending across several frames
-    // (see readProfileQuery()'s retry loop below), and gDebugProgram is also used by the separate,
-    // synchronous per-attachment profiling path (LLPipeline::profileAvatar()'s profile_attachments
-    // branch) - sharing query objects between an async multi-frame profile and an unrelated
-    // synchronous one on the same shader instance would corrupt whichever is still in flight.
-#ifdef DX_RENDER
+    // S24: uses a D3D11 disjoint+timestamp query pair. Each avatar owns its own instance
+    // (mDXProfileQueries, see llvoavatar.h) rather than sharing gDebugProgram's, because this
+    // profile can stay pending across several frames (see readProfileQuery()'s retry loop below)
+    // while gDebugProgram is also used by the synchronous per-attachment path
+    // (LLPipeline::profileAvatar()'s profile_attachments branch); sharing query objects between
+    // an async multi-frame profile and a synchronous one on the same shader instance would
+    // corrupt whichever is still in flight.
     ID3D11Device* device = gDXDevice.getDevice();
     ID3D11DeviceContext* context = gDXDevice.getContext();
     if (!device || !context)
@@ -12192,19 +12180,10 @@ void LLVOAvatar::placeProfileQuery()
 
     context->Begin(mDXProfileQueries.disjoint);
     context->End(mDXProfileQueries.timestampBegin);
-#else
-    if (mGPUTimerQuery == 0)
-    {
-        glGenQueries(1, &mGPUTimerQuery);
-    }
-
-    glBeginQuery(GL_TIME_ELAPSED, mGPUTimerQuery);
-#endif
 }
 
 void LLVOAvatar::readProfileQuery(S32 retries)
 {
-#ifdef DX_RENDER
     // S24: same disjoint+timestamp pattern as LLHLSLShader::readProfileQuery() (see its comment,
     // llrender/llhlslshader.cpp) - non-blocking poll (D3D11_ASYNC_GETDATA_DONOTFLUSH) since this
     // runs on the continuous background avatar-complexity-throttling path (llworld.cpp), which
@@ -12271,55 +12250,6 @@ void LLVOAvatar::readProfileQuery(S32 retries)
             }
         });
     }
-#else
-    if (!mGPUProfilePending)
-    {
-        glEndQuery(GL_TIME_ELAPSED);
-        mGPUProfilePending = true;
-    }
-
-    GLuint64 result = 0;
-    glGetQueryObjectui64v(mGPUTimerQuery, GL_QUERY_RESULT_AVAILABLE, &result);
-
-    if (result == GL_TRUE || --retries <= 0)
-    { // query available, readback result
-        GLuint64 time_elapsed = 0;
-        glGetQueryObjectui64v(mGPUTimerQuery, GL_QUERY_RESULT, &time_elapsed);
-        mGPURenderTime = time_elapsed / 1000000.f;
-        mGPUProfilePending = false;
-
-        // EMA-smooth the raw per-frame sample so updateTooSlow()'s isTooSlow() decision isn't reacting
-        // to single-frame GPU timer noise; alpha=0.25 damps jitter while still tracking a sustained
-        // cost increase within ~a dozen frames.
-        static const F32 S24_GPU_TIME_EMA_ALPHA = 0.25f;
-        mGPURenderTimeSmoothed = (mGPURenderTimeSmoothed <= 0.f)
-            ? mGPURenderTime
-            : lerp(mGPURenderTimeSmoothed, mGPURenderTime, S24_GPU_TIME_EMA_ALPHA);
-
-        setDebugText(llformat("%d", (S32)(mGPURenderTime * 1000.f)));
-
-    }
-    else
-    { // wait until next frame
-        // wait until next frame
-        const LLUUID id = getID();
-
-        LL::WorkQueue::getInstance("mainloop")->post([id, retries]
-        {
-            LLViewerObject* object = gObjectList.findObject(id);
-            if (object
-                && !object->isDead()
-                && object->isAvatar()) // probably excessive, pcode isn't supposed to change
-            {
-                LLVOAvatar* avatar = (LLVOAvatar*)object;
-            if(avatar)
-            {
-                avatar->readProfileQuery(retries);
-                }
-            }
-            });
-    }
-#endif
 }
 
 

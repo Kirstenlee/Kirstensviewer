@@ -31,6 +31,7 @@
 #include "llvoavatar.h"
 
 #include "pipeline.h"
+#include "dxpipeline.h"
 
 #include "llagent.h" //  Get state values from here
 #include "llattachmentsmgr.h"
@@ -1088,7 +1089,7 @@ void LLVOAvatarSelf::restoreMeshData()
     updateAttachmentVisibility(gAgentCamera.getCameraMode());
 
     // force mesh update as LOD might not have changed to trigger this
-    gPipeline.markRebuild(mDrawable, LLDrawable::REBUILD_GEOMETRY);
+    DXPipeline::markRebuild(gPipeline, mDrawable, LLDrawable::REBUILD_GEOMETRY);
 }
 
 

@@ -43,7 +43,7 @@ void LLBoxProbes::update(const std::vector<LLReflectionMap*>& maps, U32 max_coun
     }
 
     LLMatrix4a modelview;
-    modelview.loadu(gGLModelView);
+    modelview.loadu(gDXModelView);
     LLVector4a oa; // scratch space for transformed origin
 
     U32 count = 0;

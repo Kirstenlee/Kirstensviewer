@@ -29,19 +29,17 @@
 
 #include "llcamera.h"
 #include "llerror.h"
-#include "lldrawpool.h"
+#include "dxdrawpool.h"
 #include "llspatialpartition.h"
 #include "m4math.h"
 #include "llpointer.h"
 #include "dxdrawpoolalpha.h"
-#include "lldrawpoolmaterials.h"
+#include "dxdrawpoolmaterials.h"
 #include "llgl.h"
 #include "lldrawable.h"
 #include "llrendertarget.h"
 
-#ifdef DX_RENDER
 #include "DXTexture.h"
-#endif
 #include "llsphereprobes.h"
 #include "llmirrorprobes.h"
 
@@ -51,10 +49,10 @@
 
 // Staging list for pipeline-mutating calls made from a DXPool worker thread during
 // LLViewerObjectList::update()'s parallel idleUpdate() dispatch (llviewerobjectlist.cpp).
-// markMoved()/markRebuild()/etc push into shared, unlocked containers - not safe to call directly off
-// the main thread. Set via LLPipeline::setDeferredMarksForThisThread() before dispatching work to a
-// worker thread; each intercepted call defers itself into mActions for later serial replay on the main
-// thread.
+// DXPipeline::markMoved()/markRebuild()/etc push into shared, unlocked containers - not safe to
+// call directly off the main thread. Set via DXPipeline::setDeferredMarksForThisThread() before
+// dispatching work to a worker thread; each intercepted call defers itself into mActions for later
+// serial replay on the main thread.
 struct LLDeferredPipelineMarks
 {
     std::vector<std::function<void()> > mActions;
@@ -79,12 +77,14 @@ typedef enum e_avatar_skinning_method
 } EAvatarSkinningMethod;
 
 bool compute_min_max(LLMatrix4& box, LLVector2& min, LLVector2& max); // Shouldn't be defined here!
-bool LLRayAABB(const LLVector3 &center, const LLVector3 &size, const LLVector3& origin, const LLVector3& dir, LLVector3 &coord, F32 epsilon = 0);
+// S24: LLRayAABB() fully moved to dxpipeline.h/.cpp (free function, not DXPipeline::) - no stub,
+// every caller repointed directly.
 bool setup_hud_matrices(); // use whole screen to render hud
 bool setup_hud_matrices(const LLRect& screen_region); // specify portion of screen (in pixels) to render hud attachments from (for picking)
 
 
-extern LLTrace::BlockTimerStatHandle FTM_RENDER_GEOMETRY;
+// S24: FTM_RENDER_GEOMETRY deleted outright - confirmed genuinely zero-caller tree-wide (same for
+// FTM_RENDER_GEOMETRY_DEFERRED/POST_DEFERRED, which were never declared here to begin with).
 extern LLTrace::BlockTimerStatHandle FTM_RENDER_INVISIBLE;
 extern LLTrace::BlockTimerStatHandle FTM_RENDER_SHINY;
 extern LLTrace::BlockTimerStatHandle FTM_RENDER_TERRAIN;
@@ -105,340 +105,133 @@ public:
 	LLPipeline();
 	~LLPipeline();
 
-	void destroyGL();
-	void restoreGL();
-	void requestResizeScreenTexture(); // set flag only, no work, safer for callbacks...
-    void requestResizeShadowTexture(); // set flag only, no work, safer for callbacks...
+	// S24: destroyGL()/restoreGL() fully moved to DXPipeline:: - no stub, every caller repointed
+	// directly.
 
-	void resizeScreenTexture();
-    void resizeShadowTexture();
-
-	void releaseGLBuffers();
-	void releaseLUTBuffers();
-	void releaseScreenBuffers();
-    void releaseShadowBuffers();
-
-	void createGLBuffers();
-	void createLUTBuffers();
-
-	//allocate the largest screen buffer possible up to resX, resY
-	//returns true if full size buffer allocated, false if some other size is allocated
-	bool allocateScreenBuffer(U32 resX, U32 resY);
-
+	// S24: requestResizeScreenTexture()/requestResizeShadowTexture()/resizeScreenTexture()/
+	// resizeShadowTexture()/releaseGLBuffers()/releaseLUTBuffers()/releaseScreenBuffers()/
+	// releaseShadowBuffers()/createGLBuffers()/createLUTBuffers()/bakeBrdfLut()/
+	// allocateScreenBuffer()/doAllocateScreenBuffer()/allocateScreenBufferInternal()/
+	// allocateShadowBuffer()/getBrdfLutAssetPath() fully moved to DXPipeline:: - no stub, every
+	// caller repointed directly. The eFBOStatus enum itself stays here (a data type, not logic) -
+	// DXPipeline::doAllocateScreenBuffer()'s header declaration widens it to a plain int so
+	// dxpipeline.h never needs the complete LLPipeline type.
 	typedef enum {
 		FBO_SUCCESS_FULLRES = 0,
 		FBO_SUCCESS_LOWRES,
 		FBO_FAILURE
 	} eFBOStatus;
 
-private:
-	//implementation of above, wrapped for easy error handling
-	eFBOStatus doAllocateScreenBuffer(U32 resX, U32 resY);
-public:
+    // S24: rebuildDrawInfo()/rebuildTerrain() fully moved to DXPipeline:: - no stub, every
+    // caller repointed directly.
 
-	//attempt to allocate screen buffers at resX, resY
-	//returns true if allocation successful, false otherwise
-    bool allocateScreenBufferInternal(U32 resX, U32 resY);
-    bool allocateShadowBuffer(U32 resX, U32 resY);
+	// S24: profileAvatar()/generateImpostor() fully moved to DXPipeline:: - no stub, every
+	// caller repointed directly. resetVertexBuffers() fully moved too; bindScreenToTexture()
+	// deleted outright (empty body, zero callers).
 
-    // rebuild all LLVOVolume render batches
-    void rebuildDrawInfo();
-    // Rebuild all terrain
-    void rebuildTerrain();
+	// S24: renderFinalize() fully moved to DXPipeline::presentDeferredScreen() - no stub, every
+	// caller repointed directly.
+	// S24: copyScreenSpaceReflections()/generateLuminance()/generateExposure()/gammaCorrect()/
+	// generateGlow()/applyCAS()/applyFSR1Rcas()/applyFSR1Easu()/applyFSR1RcasToBoundTarget()/
+	// applyFXAA()/generateSMAABuffers()/applySMAA()/copyRenderTarget()/applyKrlvCamDrawFog()/
+	// combineGlow()/visualizeBuffers() fully moved to DXPipeline:: - no stub, every caller
+	// repointed directly.
+	// S24: renderDoF() fully moved to DXPipeline:: - no stub, every caller repointed directly.
+	// Deliberately excluded from every earlier batch pending a separate DoF investigation
+	// (project_dxrender_dof_alpha_mitigation_2026_08_31) - re-verified as of this move that the
+	// investigation's own uncommitted experimental code had already been fully reverted back to
+	// this exact baseline 46 days prior and nothing had touched it since.
 
-    // Clear LLFace mVertexBuffer pointers
-	void resetVertexBuffers(LLDrawable* drawable);
-
-    // perform a profile of the given avatar
-    // if profile_attachments is true, run a profile for each attachment
-    void profileAvatar(LLVOAvatar* avatar, bool profile_attachments = false);
-
-    // generate an impostor for the given avatar
-    //  preview_avatar - if true, a preview window render is being performed
-    //  for_profile - if true, a profile is being performed, do not update actual impostor
-    //  specific_attachment - specific attachment to profile, or nullptr to profile entire avatar
-	void generateImpostor(LLVOAvatar* avatar, bool preview_avatar = false, bool for_profile = false, LLViewerObject* specific_attachment = nullptr);
-
-	void bindScreenToTexture();
-	void renderFinalize();
-	void copyScreenSpaceReflections(LLRenderTarget* src, LLRenderTarget* dst);
-	void generateLuminance(LLRenderTarget* src, LLRenderTarget* dst);
-    void generateExposure(LLRenderTarget* src, LLRenderTarget* dst, bool use_history = true);
-    void tonemap(LLRenderTarget* src, LLRenderTarget* dst, bool gamma_correct);
-	void gammaCorrect(LLRenderTarget* src, LLRenderTarget* dst);
-	void generateGlow(LLRenderTarget* src);
-    void applyCAS(LLRenderTarget* src, LLRenderTarget* dst);
-    void applyFSR1Rcas(LLRenderTarget* src, LLRenderTarget* dst);
-    // Unlike applyCAS/applyFSR1Rcas, this has no dst LLRenderTarget - the
-    // caller (DXPipeline::presentFinal()) has already bound and viewport'd
-    // the real destination (the swap chain back buffer, or a stereo eye
-    // target) before calling this, matching how the gDeferredPostNoDoFNoiseProgram
-    // branch it sits alongside works. dest_width/height are that already-bound
-    // target's size, needed for FsrEasuCon()'s output-size constant.
-    bool applyFSR1Easu(LLRenderTarget* src, U32 dest_width, U32 dest_height);
-    // RCAS pass meant to chain directly after applyFSR1Easu() - AMD's FSR1
-    // pipeline is EASU followed by RCAS, not EASU alone (EASU's own spatial
-    // resample is visibly softer without it). Same "caller already bound the
-    // destination" convention as applyFSR1Easu() - unlike applyFSR1Rcas()
-    // above, which always binds its own dst.
-    bool applyFSR1RcasToBoundTarget(LLRenderTarget* src);
-	void applyFXAA(LLRenderTarget* src, LLRenderTarget* dst);
-    void generateSMAABuffers(LLRenderTarget* src);
-    void applySMAA(LLRenderTarget* src, LLRenderTarget* dst);
-	void renderDoF(LLRenderTarget* src, LLRenderTarget* dst);
-	void copyRenderTarget(LLRenderTarget* src, LLRenderTarget* dst);
-
-	// KRLV_TOUCHPOINT: @camdrawmin/@camdrawmax/@camdrawalphamin/
-	// @camdrawalphamax/@camdrawcolor - a distance-based fog blend toward
-	// fogColor, driven entirely by krlv/'s own restriction state (see
-	// KRlv::getCamDrawParams(), krlvcamera.h). See krlv/README.md's
-	// Camera section.
-	//
-	// KRLV_TOUCHPOINT: @camtextures/@setcam_textures share this SAME pass
-	// rather than a separate one - camTexturesActive/camTexturesSubstitute
-	// (see KRlv::isCamTexturesActive(), krlvcamera.h) gate an independent
-	// blank-toward-substitute-texture branch, stencil-masked so already-lit
-	// worn-attachment pixels (tagged by DXStateCache::tagAttachmentStencil()
-	// during the geometry pass) are skipped. camTexturesSubstitute may be
-	// null (falls back to LLViewerFetchedTexture::sDefaultImagep, the
-	// spec's own default grey).
-	void applyKrlvCamDrawFog(LLRenderTarget* src, LLRenderTarget* dst,
-		F32 minDist, F32 maxDist, F32 minAlpha, F32 maxAlpha,
-		F32 fogColorR, F32 fogColorG, F32 fogColorB,
-		bool camTexturesActive, LLViewerFetchedTexture* camTexturesSubstitute);
-
-	void combineGlow(LLRenderTarget* src, LLRenderTarget* dst);
-	void visualizeBuffers(LLRenderTarget* src, LLRenderTarget* dst, U32 bufferIndex, bool blend_vertical = false);
-
-	void init();
-	void cleanup();
+	// S24: init()/cleanup() fully moved to DXPipeline:: - no stub, every caller repointed
+	// directly.
 	bool isInit() { return mInitialized; };
+	// Public (not private, unlike assertInitializedDoError() it calls) - DXPipeline::renderObjects()
+	// and its siblings need this same init-guard precondition check as every other LLPipeline caller.
+	bool assertInitialized() { const bool is_init = isInit(); if (!is_init) assertInitializedDoError(); return is_init; };
+	// S24: skipRenderingShadows() fully moved to DXPipeline:: - no stub, every caller
+	// (generateSunShadow(), handleShadowDetailChanged()) repointed directly.
 
-	/// @brief Get a draw pool from pool type (POOL_SIMPLE, POOL_MEDIA) and texture.
-	/// @return Draw pool, or NULL if not found.
-	LLDrawPool *findPool(const U32 pool_type, LLViewerTexture *tex0 = NULL);
+	// S24: findPool()/getPool()/getPoolFromTE()/addPool()/removePool()/getPoolTypeFromTE() fully
+	// moved to DXPipeline:: - no stub, every caller repointed directly.
 
-	/// @brief Get a draw pool for faces of the appropriate type and texture.  Create if necessary.
-	/// @return Always returns a draw pool.
-	LLDrawPool *getPool(const U32 pool_type, LLViewerTexture *tex0 = NULL);
+	// S24: allocDrawable()/unlinkDrawable()/markShift()/markTextured()/removeMutedAVsLights()
+	// fully moved to DXPipeline:: - no stub, every caller repointed directly.
 
-	/// @brief Figures out draw pool type from texture entry. Creates pool if necessary.
-	static LLDrawPool* getPoolFromTE(const LLTextureEntry* te, LLViewerTexture* te_image);
-	static U32 getPoolTypeFromTE(const LLTextureEntry* te, LLViewerTexture* imagep);
+	// S24: markVisible()/markOccluder()/markNotCulled()/doOcclusion() fully moved to
+	// DXPipeline:: - no stub, every caller repointed directly.
 
-	void		 addPool(LLDrawPool *poolp);	// Only to be used by LLDrawPool classes for splitting pools!
-	void		 removePool( LLDrawPool* poolp );
+	// S24: markMoved()/markGLRebuild()/markRebuild()/markPartitionMove()/markMeshDirty()/
+	// setDeferredMarksForThisThread() fully moved to DXPipeline:: - no stub, every caller
+	// repointed directly. updateMoveDampedAsync()/updateMoveNormalAsync() (the other half of the
+	// TLS-deferred threading contract documented by LLDeferredPipelineMarks above) fully moved
+	// too.
 
-	void		 allocDrawable(LLViewerObject *obj);
+	// S24: lineSegmentIntersectInWorld()/lineSegmentIntersectParticle()/lineSegmentIntersectInHUD()
+	// fully moved to DXPipeline:: - no stub, every caller repointed directly.
 
-	void		 unlinkDrawable(LLDrawable*);
+	// S24: markAllGeometryDirty()/resetDrawOrders()/addObject() fully moved to DXPipeline:: -
+	// no stub, every caller repointed directly.
 
-	static void removeMutedAVsLights(LLVOAvatar*);
+	// S24: shadersLoaded()/canUseWindLightShaders()/canUseAntiAliasing()/resetFrameStats() fully
+	// moved to DXPipeline:: - no stub, every caller repointed directly.
 
-	// Object related methods
-	void        markVisible(LLDrawable *drawablep, LLCamera& camera);
-	void		markOccluder(LLSpatialGroup* group);
+	// S24: getVisibleExtents() fully moved to DXPipeline:: - no stub, every caller repointed
+	// directly.
+	// S24: getVisiblePointCloud()/updateMovedList()/updateMove() fully moved to DXPipeline:: -
+	// no stub, every caller repointed directly.
 
-	void		doOcclusion(LLCamera& camera);
-	void		markNotCulled(LLSpatialGroup* group, LLCamera &camera);
-	void        markMoved(LLDrawable *drawablep, bool damped_motion = false);
-	void        markShift(LLDrawable *drawablep);
-	void        markTextured(LLDrawable *drawablep);
-	void		markGLRebuild(LLGLUpdate* glu);
-	void		markRebuild(LLSpatialGroup* group);
-	void        markRebuild(LLDrawable *drawablep, LLDrawable::EDrawableFlags flag = LLDrawable::REBUILD_ALL);
-	void		markPartitionMove(LLDrawable* drawablep);
-	void		markMeshDirty(LLSpatialGroup* group);
+	// S24: updateCull() fully moved to DXPipeline:: - no stub, every caller repointed directly.
+	// S24: createObjects()/createObject()/processPartitionQ()/updateGeom()/updateGL()/
+	// rebuildPriorityGroups()/clearRebuildGroups()/clearRebuildDrawables() fully moved to
+	// DXPipeline:: - no stub, every caller repointed directly.
+	// S24: rebuildGroups() deleted outright - declared but never defined or called anywhere,
+	// nothing to migrate.
 
-	// See LLDeferredPipelineMarks above. Pass non-null before posting idleUpdate() work for a chunk of
-	// objects to a DXPool worker thread, and null again once that chunk is done - never leave it set on
-	// the main thread.
-	static void setDeferredMarksForThisThread(LLDeferredPipelineMarks* marks);
+	// S24: calcPixelArea() (both overloads) fully moved to DXPipeline:: - no stub, every
+	// caller repointed directly.
 
-	//get the object between start and end that's closest to start.
-	LLViewerObject* lineSegmentIntersectInWorld(const LLVector4a& start, const LLVector4a& end,
-												bool pick_transparent,
-												bool pick_rigged,
-                                                bool pick_unselectable,
-                                                bool pick_reflection_probe,
-												S32* face_hit,                          // return the face hit
-                                                S32* gltf_node_hit = nullptr,           // return the gltf node hit
-                                                S32* gltf_primitive_hit = nullptr,      // return the gltf primitive hit
-												LLVector4a* intersection = NULL,         // return the intersection point
-												LLVector2* tex_coord = NULL,            // return the texture coordinates of the intersection point
-												LLVector4a* normal = NULL,               // return the surface normal at the intersection point
-												LLVector4a* tangent = NULL             // return the surface tangent at the intersection point  
-		);
+	// S24: stateSort() (all 4 overloads)/postSort()/forAllVisibleDrawables() fully moved to
+	// DXPipeline:: - no stub, every caller repointed directly.
 
-	//get the closest particle to start between start and end, returns the LLVOPartGroup and particle index
-	LLVOPartGroup* lineSegmentIntersectParticle(const LLVector4a& start, const LLVector4a& end, LLVector4a* intersection,
-														S32* face_hit);
+	// S24: renderObjects()/renderGLTFObjects()/renderAlphaObjects()/renderMaskedObjects()/
+	// renderFullbrightMaskedObjects()/grabReferences()/clearReferences() fully moved to
+	// DXPipeline:: - no stub, every caller repointed directly.
 
-
-	LLViewerObject* lineSegmentIntersectInHUD(const LLVector4a& start, const LLVector4a& end,
-											  bool pick_transparent,
-											  S32* face_hit,                          // return the face hit
-											  LLVector4a* intersection = NULL,         // return the intersection point
-											  LLVector2* tex_coord = NULL,            // return the texture coordinates of the intersection point
-											  LLVector4a* normal = NULL,               // return the surface normal at the intersection point
-											  LLVector4a* tangent = NULL             // return the surface tangent at the intersection point
-		);
-
-	// Mark all spatial groups as needing geometry rebuild
-	void        markAllGeometryDirty();
-
-	void        resetDrawOrders();
-
-	U32         addObject(LLViewerObject *obj);
-
-	void		enableShadows(const bool enable_shadows);
-    void        releaseSpotShadowTargets();
-    void        releaseSunShadowTargets();
-    void        releaseSunShadowTarget(U32 index);
-
-	bool		shadersLoaded();
-	bool		canUseWindLightShaders() const;
-	bool		canUseAntiAliasing() const;
-
-	// phases
-	void resetFrameStats();
-
-	void updateMoveDampedAsync(LLDrawable* drawablep);
-	void updateMoveNormalAsync(LLDrawable* drawablep);
-	void updateMovedList(LLDrawable::drawable_vector_t& move_list);
-	void updateMove();
-	bool visibleObjectsInFrustum(LLCamera& camera);
-	bool getVisibleExtents(LLCamera& camera, LLVector3 &min, LLVector3& max);
-	bool getVisiblePointCloud(LLCamera& camera, LLVector3 &min, LLVector3& max, std::vector<LLVector3>& fp, LLVector3 light_dir = LLVector3(0,0,0));
-
-    // Populate given LLCullResult with results of a frustum cull of the entire scene against the given LLCamera
-	void updateCull(LLCamera& camera, LLCullResult& result);
-	void createObjects(F32 max_dtime);
-	void createObject(LLViewerObject* vobj);
-	void processPartitionQ();
-	void updateGeom(F32 max_dtime);
-	void updateGL();
-	void rebuildPriorityGroups(F32 max_dtime);
-	void rebuildGroups();
-	void clearRebuildGroups();
-	void clearRebuildDrawables();
-
-	//calculate pixel area of given box from vantage point of given camera
-	static F32 calcPixelArea(LLVector3 center, LLVector3 size, LLCamera& camera);
-	static F32 calcPixelArea(const LLVector4a& center, const LLVector4a& size, LLCamera &camera);
-
-	void stateSort(LLCamera& camera, LLCullResult& result);
-	void stateSort(LLSpatialGroup* group, LLCamera& camera);
-    void stateSort(LLSpatialBridge* bridge, LLCamera& camera, bool fov_changed = false);
-	void stateSort(LLDrawable* drawablep, LLCamera& camera);
-	void postSort(LLCamera& camera);
-    
-	void forAllVisibleDrawables(void (*func)(LLDrawable*));
-
-    void renderObjects(U32 type, bool texture = true, bool batch_texture = false, bool rigged = false);
-    void renderGLTFObjects(U32 type, bool texture = true, bool rigged = false);
-    
-    void renderAlphaObjects(bool rigged = false);
-	void renderMaskedObjects(U32 type, bool texture = true, bool batch_texture = false, bool rigged = false);
-    void renderFullbrightMaskedObjects(U32 type, bool texture = true, bool batch_texture = false, bool rigged = false);
-
-	void renderGroups(LLRenderPass* pass, U32 type, bool texture);
-    void renderRiggedGroups(LLRenderPass* pass, U32 type, bool texture);
-
-	void grabReferences(LLCullResult& result);
-	void clearReferences();
-
-	//check references will assert that there are no references in sCullResult to the provided data
-	void checkReferences(LLFace* face);
-	void checkReferences(LLDrawable* drawable);
-	void checkReferences(LLDrawInfo* draw_info);
-	void checkReferences(LLSpatialGroup* group);
+	// S24: checkReferences() (4 overloads) fully moved to DXPipeline:: - no stub, every real
+	// caller (LLDrawable/LLFace/LLSpatialGroup destructors) repointed directly. Bodies stay
+	// `#if 0`'d out to a no-op, same inert behavior as before - a pure relocation, not a fix.
 	
-	void renderGeomDeferred(LLCamera& camera, bool do_occlusion = false);
-	void renderGeomPostDeferred(LLCamera& camera);
-	void renderGeomShadow(LLCamera& camera);
-    void bindLightFunc(LLHLSLShader& shader);
+	// S24: renderGeomDeferred()/renderGeomPostDeferred()/renderGeomShadow() fully moved to
+	// DXPipeline:: - no stub, every caller repointed directly.
+	// S24: bindLightFunc()/bindShadowMaps()/bindDeferredShaderFast()/bindDeferredShader()/
+	// setupSpotLight()/unbindDeferredShader()/setEnvMat()/bindReflectionProbes()/
+	// unbindReflectionProbes()/bindSSRUniforms()/bindSSRBuffer()/renderSSRPass()/
+	// renderSSRResolve() fully moved to DXPipeline:: - no stub, every caller repointed directly.
 
-    // bind shadow maps
-    // if setup is true, wil lset texture compare mode function and filtering options
-    void bindShadowMaps(LLHLSLShader& shader);
-    void bindDeferredShaderFast(LLHLSLShader& shader);
-	void bindDeferredShader(LLHLSLShader& shader, LLRenderTarget* light_target = nullptr, LLRenderTarget* depth_target = nullptr);
-	void setupSpotLight(LLHLSLShader& shader, LLDrawable* drawablep);
+	// S24: renderDeferredLighting() fully moved to DXPipeline:: - no stub, every caller repointed
+	// directly.
 
-	void unbindDeferredShader(LLHLSLShader& shader);
+	// S24: doAtmospherics()/doWaterHaze()/doWaterExclusionMask() fully moved to DXPipeline:: -
+	// no stub, every caller repointed directly.
 
-    // set env_mat parameter in given shader
-    void setEnvMat(LLHLSLShader& shader);
+	// S24: generateSunShadow()/renderShadow()/getSunShadowTarget()/getSpotShadowTarget() fully
+	// moved to DXPipeline:: - no stub, every caller repointed directly.
 
-    void bindReflectionProbes(LLHLSLShader& shader);
-    void unbindReflectionProbes(LLHLSLShader& shader);
-    // scene map, scene depth and the screen-space reflection uniforms (SSR trace inputs)
-    void bindSSRUniforms(LLHLSLShader& shader);
-    // deferred lighting: binds the SSR buffer and sets ssr_from_buffer
-    void bindSSRBuffer(LLHLSLShader& shader);
-    // opaque deferred SSR pass: traces into mSSRBuffer before deferred lighting
-    void renderSSRPass();
-    void renderSSRResolve();
+	// S24: renderSelectedFaces()/renderHighlights()/renderDebug()/renderPhysicsDisplay() fully
+	// moved to DXPipeline:: - no stub, every caller repointed directly.
 
-	void renderDeferredLighting();
-
-    // apply atmospheric haze based on contents of color and depth buffer
-    // should be called just before rendering water when camera is under water 
-    // and just before rendering alpha when camera is above water
-    void doAtmospherics();
-
-    // apply water haze based on contents of color and depth buffer
-    // should be called just before rendering pre-water alpha objects
-    void doWaterHaze();
-
-    // Generate the water exclusion surface mask.
-    void doWaterExclusionMask();
-
-	void postDeferredGammaCorrect(LLRenderTarget* screen_target);
-
-	void generateSunShadow(LLCamera& camera);
-    LLRenderTarget* getSunShadowTarget(U32 i);
-    LLRenderTarget* getSpotShadowTarget(U32 i);
-
-	void renderShadow(const glm::mat4& view, const glm::mat4& proj, LLCamera& camera, LLCullResult& result, bool depth_clamp);
-    void renderSelectedFaces(const LLColor4& color);
-	void renderHighlights();
-	void renderDebug();
-	void renderPhysicsDisplay();
-
-	void rebuildPools(); // Rebuild pools
+	// S24: rebuildPools() fully moved to DXPipeline:: - no stub, every caller repointed directly.
 
 	void findReferences(LLDrawable *drawablep);	// Find the lists which have references to this object
-	bool verify();						// Verify that all data in the pipeline is "correct"
 
     S32  getLightCount() const { return static_cast<S32>(mLights.size()); }
 
-	void calcNearbyLights(LLCamera& camera);
-	void setupHWLights();
-	void setupAvatarLights(bool for_edit = false);
-	void enableLights(U32 mask);
-	void enableLightsDynamic();
-	void enableLightsAvatar();
-	void enableLightsPreview();
-	void enableLightsAvatarEdit(const LLColor4& color);
-	void enableLightsFullbright();
-	void disableLights();
-
-	void shiftObjects(const LLVector3 &offset);
-
-	void setLight(LLDrawable *drawablep, bool is_light);
-	
-	bool hasRenderBatches(const U32 type) const;
-	LLCullResult::drawinfo_iterator beginRenderMap(U32 type);
-	LLCullResult::drawinfo_iterator endRenderMap(U32 type);
-	LLCullResult::sg_iterator beginAlphaGroups();
-	LLCullResult::sg_iterator endAlphaGroups();
-    LLCullResult::sg_iterator beginRiggedAlphaGroups();
-    LLCullResult::sg_iterator endRiggedAlphaGroups();
-	
-	void addTrianglesDrawn(S32 index_count);
-    void recordTrianglesDrawn();
+	// S24: calcNearbyLights()/setupHWLights()/setupAvatarLights()/enableLights()/
+	// enableLightsDynamic()/enableLightsAvatar()/enableLightsPreview()/enableLightsAvatarEdit()/
+	// enableLightsFullbright()/disableLights()/setLight()/shiftObjects()/beginRenderMap()/
+	// endRenderMap()/beginAlphaGroups()/endAlphaGroups()/beginRiggedAlphaGroups()/
+	// endRiggedAlphaGroups()/addTrianglesDrawn()/recordTrianglesDrawn() fully moved to
+	// DXPipeline:: - no stub, every caller repointed directly.
 
 	bool hasRenderDebugFeatureMask(const U32 mask) const	{ return bool(mRenderDebugFeatureMask & mask); }
 	bool hasRenderDebugMask(const U64 mask) const			{ return bool(mRenderDebugMask & mask); }
@@ -447,96 +240,41 @@ public:
 	void setAllRenderDebugDisplays() { mRenderDebugMask = 0xffffffffffffffff; }
 	void clearAllRenderDebugDisplays() { mRenderDebugMask = 0x0; }
 
-	bool hasRenderType(const U32 type) const;
-	bool hasAnyRenderType(const U32 type, ...) const;
+	// S24: hasRenderType()/hasAnyRenderType()/setRenderTypeMask()/andRenderTypeMask()/
+	// clearRenderTypeMask()/setAllRenderTypes()/clearAllRenderTypes()/pushRenderTypeMask()/
+	// popRenderTypeMask() fully moved to DXPipeline:: (dxpipeline.h) - no forwarding stub kept,
+	// every caller repointed directly. C-variadic functions can't forward "..." through a stub
+	// anyway, and the goal is killing pipeline.cpp outright, not indefinitely maintaining stubs.
 
-	static bool isWaterClip();
+	// S24: isWaterClip()/toggleRenderType()/toggleRenderTypeControl()/hasRenderTypeControl()/
+	// toggleRenderTypeControlNegated()/toggleRenderDebug()/toggleRenderDebugControl()/
+	// toggleRenderDebugFeature()/toggleRenderDebugFeatureControl()/setRenderDebugFeatureControl()/
+	// pushRenderDebugFeatureMask()/popRenderDebugFeatureMask() and the whole beacon/highlight
+	// get/set/toggle family, plus addDebugBlip(), fully moved to DXPipeline:: - no stub, every
+	// caller repointed directly.
 
-	void setRenderTypeMask(U32 type, ...);
-	// This is equivalent to 'setRenderTypeMask'
-	//void orRenderTypeMask(U32 type, ...);
-	void andRenderTypeMask(U32 type, ...);
-	void clearRenderTypeMask(U32 type, ...);
-	void setAllRenderTypes();
-	void clearAllRenderTypes();
-	
-	void pushRenderTypeMask();
-	void popRenderTypeMask();
+	// S24: updateRenderTransparentWater()/refreshCachedSettings() fully moved to DXPipeline:: -
+	// no stub, every caller repointed directly. refreshCachedSettings() merged directly into the
+	// pre-existing DXPipeline::refreshCachedSettings() (same name, single implementation now).
 
-	void pushRenderDebugFeatureMask();
-	void popRenderDebugFeatureMask();
-
-	static void toggleRenderType(U32 type, bool mark_dirty = true);
-
-	// For UI control of render features
-	static bool hasRenderTypeControl(U32 data);
-	static void toggleRenderDebug(U64 data);
-	static void toggleRenderDebugFeature(U32 data);
-	static void toggleRenderTypeControl(U32 data);
-	static bool toggleRenderTypeControlNegated(S32 data);
-	static bool toggleRenderDebugControl(U64 data);
-	static bool toggleRenderDebugFeatureControl(U32 data);
-	static void setRenderDebugFeatureControl(U32 bit, bool value);
-
-	static void setRenderParticleBeacons(bool val);
-	static void toggleRenderParticleBeacons();
-	static bool getRenderParticleBeacons();
-
-	static void setRenderSoundBeacons(bool val);
-	static void toggleRenderSoundBeacons();
-	static bool getRenderSoundBeacons();
-
-	static void setRenderMOAPBeacons(bool val);
-	static void toggleRenderMOAPBeacons();
-	static bool getRenderMOAPBeacons();
-
-	static void setRenderPhysicalBeacons(bool val);
-	static void toggleRenderPhysicalBeacons();
-	static bool getRenderPhysicalBeacons();
-
-	static void setRenderScriptedBeacons(bool val);
-	static void toggleRenderScriptedBeacons();
-	static bool getRenderScriptedBeacons();
-
-	static void setRenderScriptedTouchBeacons(bool val);
-	static void toggleRenderScriptedTouchBeacons();
-	static bool getRenderScriptedTouchBeacons();
-
-	static void setRenderBeacons(bool val);
-	static void toggleRenderBeacons();
-	static bool getRenderBeacons();
-
-	static void setRenderHighlights(bool val);
-	static void toggleRenderHighlights();
-	static bool getRenderHighlights();
-	static void setRenderHighlightTextureChannel(LLRender::eTexIndex channel); // sets which UV setup to display in highlight overlay
-
-	static void updateRenderTransparentWater();
-	static void refreshCachedSettings();
-
-	void addDebugBlip(const LLVector3& position, const LLColor4& color);
-
-	void hidePermanentObjects( std::vector<U32>& restoreList );
-	void restorePermanentObjects( const std::vector<U32>& restoreList );
-	void skipRenderingOfTerrain( bool flag );
-	void hideObject( const LLUUID& id );
-	void restoreHiddenObject( const LLUUID& id );
+	// S24: hidePermanentObjects()/restorePermanentObjects()/skipRenderingOfTerrain()/hideObject()/
+	// restoreHiddenObject() fully moved to DXPipeline:: - no stub, every caller repointed directly.
+	// handleShadowDetailChanged() stays (see its own fate comment in pipeline.cpp - flagged dead,
+	// not fixed, not moved).
     void handleShadowDetailChanged();
 
     LLSphereProbes mSphereProbes;
     LLMirrorProbes mMirrorProbes;
 
 private:
-	void unloadShaders();
-	void addToQuickLookup( LLDrawPool* new_poolp );
-	void removeFromQuickLookup( LLDrawPool* poolp );
-	bool updateDrawableGeom(LLDrawable* drawable);
+	// S24: unloadShaders() fully moved to DXPipeline:: - no stub, every caller repointed directly.
+	// S24: addToQuickLookup()/removeFromQuickLookup()/updateDrawableGeom() fully moved to
+	// DXPipeline:: - no stub, every caller repointed directly.
 	void assertInitializedDoError();
-	bool assertInitialized() { const bool is_init = isInit(); if (!is_init) assertInitializedDoError(); return is_init; };
-	void connectRefreshCachedSettingsSafe(const std::string& name);
-	void hideDrawable( LLDrawable *pDrawable );
-	void unhideDrawable( LLDrawable *pDrawable );
-    void skipRenderingShadows();
+	// S24: connectRefreshCachedSettingsSafe() fully moved to DXPipeline:: - no stub, every
+	// caller repointed directly.
+	// S24: hideDrawable()/unhideDrawable() fully moved to DXPipeline:: - no stub, every caller
+	// repointed directly.
 public:
 	enum {GPU_CLASS_MAX = 3 };
 
@@ -685,11 +423,12 @@ public:
 	};
 
 public:
-	
-	LLSpatialPartition* getSpatialPartition(LLViewerObject* vobj);
+	// S24: getSpatialPartition() fully moved to DXPipeline:: - no stub, every caller repointed
+	// directly.
 
-	void updateCamera(bool reset = false);
-	
+	// S24: updateCamera() deleted outright - declared but never defined or called anywhere,
+	// nothing to migrate.
+
 	LLVector3				mFlyCamPosition;
 	LLQuaternion			mFlyCamRotation;
 
@@ -706,44 +445,10 @@ public:
 
 	S32						mPoissonOffset;
 
-	static S32				sCompiles;
-
-	static bool				sShowHUDAttachments;
-	static bool				sForceOldBakedUpload; // If true will not use capabilities to upload baked textures.
-	static S32				sUseOcclusion;  // 0 = no occlusion, 1 = read only, 2 = read/write
-	static bool				sAutoMaskAlphaDeferred;
-	static bool				sAutoMaskAlphaNonDeferred;
-	static bool				sRenderTransparentWater;
-	static bool				sBakeSunlight;
-	static bool				sNoAlpha;
-	static bool				sUseFarClip;
-	static bool				sShadowRender;
-	static bool				sDynamicLOD;
-	static bool				sPickAvatar;
-	static bool				sReflectionRender;
-    static bool				sDistortionRender;
-	static bool				sImpostorRender;
-	static bool				sImpostorRenderAlphaDepthPass;
-	// Object whose linked set is culled from the current reflection-probe capture (the probe's own object).
-	static LLViewerObject*	sCaptureExcludeObject;
-	static bool				sUnderWaterRender;
-	static bool				sRenderGlow;
-	static bool				sTextureBindTest;
-	static bool				sRenderAttachedLights;
-	static bool				sRenderAttachedParticles;
-	static bool				sRenderDeferred;
-    static bool				sReflectionProbesEnabled;
-    // sReflectionProbesEnabled (RenderReflectionsEnabled) gates whether the probe-capture pipeline runs
-    // at all, but reflectionProbeF.hlsl's legacy/environmentMap fallback decides per-pixel based on a
-    // SEPARATE setting, RenderReflectionProbesEnabled - it takes the legacy branch whenever EITHER is
-    // off. C++ producers (LLVOSky::updateSky(), bindDeferredShader()'s environmentMap bind) must key on
-    // this helper, not sReflectionProbesEnabled alone, to stay in sync with the shader's condition.
-    static bool				shouldUseLegacyEnvMap();
-	static S32				sVisibleLightCount;
-	static bool				sRenderingHUDs;
-    static F32              sDistortionWaterClipPlaneMargin;
-
-	static LLTrace::EventStatHandle<S64> sStatBatchSize;
+	// S24: sCompiles through sStatBatchSize (the rest of this former block) moved to DXPipeline::
+	// (dxpipeline.h) - no longer anything LLPipeline-specific about them, same as the cached
+	// settings above. sDistortionRender/sDistortionWaterClipPlaneMargin, which used to be noted
+	// here as deleted outright, stay deleted (genuinely zero-reader tree-wide).
 
     class RenderTargetPack
     {
@@ -876,8 +581,6 @@ public:
 	//water distortion texture (refraction)
 	LLRenderTarget				mWaterDis;
 
-    static const U32 MAX_PREVIEW_WIDTH;
-
 	//texture for making the glow
 	LLRenderTarget				mGlow[3];
 
@@ -891,7 +594,6 @@ public:
     U32                 mSMAASearchMap = 0;
     U32                 mSMAASampleMap = 0;
 
-#ifdef DX_RENDER
     // DX-native backing for the 6 procedural textures above. Those are plain raw-GLuint fields (no
     // LLImageDX wrapper) created/bound via an ambient-GL-state idiom (bindManual() then
     // setManualImage()) that has no DX_RENDER translation - there's no "currently bound for upload"
@@ -903,7 +605,6 @@ public:
     DXTexture mDXSMAAAreaMap;
     DXTexture mDXSMAASearchMap;
     DXTexture mDXSMAASampleMap;
-#endif
 
 	LLColor4			mSunDiffuse;
     LLColor4			mMoonDiffuse;
@@ -929,7 +630,9 @@ protected:
 
 	/////////////////////////////////////////////
 	//
-	//
+	// Public (was protected) - DXPipeline::markMoved()/markShift()/shiftObjects()/
+	// unlinkDrawable() read/write these drawable queues directly.
+public:
 	LLDrawable::drawable_vector_t	mMovedList;
 	LLDrawable::drawable_vector_t mMovedBridge;
 	LLDrawable::drawable_vector_t	mShiftList;
@@ -937,6 +640,9 @@ protected:
 	/////////////////////////////////////////////
 	//
 	//
+	// Public (was protected along with mLights/mNearbyLights below it) - DXPipeline::
+	// calcNearbyLights()/setupHWLights() need to name this type directly (light_set_t::iterator,
+	// Light(...) construction), unlike getPools()'s pool_set_t which only needs range-based-for/auto.
 	struct Light
 	{
 		Light(LLDrawable* ptr, F32 d, F32 f = 0.0f)
@@ -961,15 +667,17 @@ protected:
 		};
 	};
 	typedef std::set< Light, Light::compare > light_set_t;
-	
+protected:
 	LLDrawable::ordered_drawable_set_t	mLights;
 	light_set_t						mNearbyLights; // lights near camera
 	LLColor4						mHWLightColors[8];
-	
+
 	/////////////////////////////////////////////
 	//
 	// Different queues of drawables being processed.
-	//
+	// Public (was protected) - DXPipeline::markRebuild()/markMeshDirty()/markPartitionMove()/
+	// processPartitionQ()/addObject()/createObjects()/markTextured() read/write these directly.
+public:
 	LLDrawable::drawable_list_t 	mBuildQ1; // priority
 	LLSpatialGroup::sg_vector_t		mGroupQ1; //priority
 
@@ -978,15 +686,16 @@ protected:
 	LLSpatialGroup::sg_vector_t		mMeshDirtyGroup; //groups that need rebuildMesh called
 	U32 mMeshDirtyQueryObject;
 
-	LLDrawable::drawable_list_t		mPartitionQ; //drawables that need to update their spatial partition radius 
+	LLDrawable::drawable_list_t		mPartitionQ; //drawables that need to update their spatial partition radius
 
 	bool mGroupQ1Locked;
 
 	bool mResetVertexBuffers; //if true, clear vertex buffers on next update
 
 	LLViewerObject::vobj_list_t		mCreateQ;
-		
+
 	LLDrawable::drawable_set_t		mRetexturedList;
+protected:
 
 	class HighlightItem
 	{
@@ -1042,9 +751,14 @@ protected:
 		}
 	};
  	typedef std::set<LLDrawPool*, compare_pools > pool_set_t;
+public:
+	// S24: public (was protected along with the whole pool-pointer block below) - DXPipeline::
+	// addPool()/removePool()/rebuildPools()/addToQuickLookup()/removeFromQuickLookup() all
+	// insert/erase mPools directly and assign these individual pool pointers directly, not just
+	// read them (unlike getPools()'s read-only use case, which stayed a const-ref accessor).
 	pool_set_t mPools;
 	LLDrawPool*	mLastRebuildPool;
-	
+
 	// For quick-lookups into mPools (mapped by texture pointer)
 	std::map<uintptr_t, LLDrawPool*>	mTerrainPools;
 	std::map<uintptr_t, LLDrawPool*>	mTreePools;
@@ -1065,6 +779,7 @@ protected:
 	LLDrawPool*					mPBROpaquePool = nullptr;
     LLDrawPool*                 mPBRAlphaMaskPool = nullptr;
     LLDrawPool*                 mWaterExclusionPool      = nullptr;
+protected:
 
 	// Note: no need to keep an quick-lookup to avatar pools, since there's only one per avatar
 	
@@ -1077,15 +792,71 @@ public:
 	// require DXPipeline to name the protected pool_set_t/compare_pools
 	// types explicitly (range-based for + auto never need to spell them out).
 	const pool_set_t& getPools() const { return mPools; }
+	// Mutable counterpart to getPools() above - DXPipeline::cleanup() erases pools directly out of
+	// mPools as it deletes them.
+	pool_set_t& getPoolsMutable() { return mPools; }
 
 	// DX_RENDER: same reasoning as getPools() above - DXPipeline::
 	// renderDeferredLighting()'s local-lights pass needs read-only access
 	// to mNearbyLights (protected), the already-culled/distance-sorted
 	// "lights near camera" list GL's own local-lights loop iterates.
 	const light_set_t& getNearbyLights() const { return mNearbyLights; }
-protected:
-	std::vector<LLFace*>		mSelectedFaces;
 
+	// Mutable counterpart to getNearbyLights() above - DXPipeline::calcNearbyLights()/
+	// setupHWLights() both need to write mNearbyLights (rebuild it / mutate per-light fade), not
+	// just read it.
+	light_set_t& getNearbyLightsMutable() { return mNearbyLights; }
+
+	// DX_RENDER: read-only access to mLights (protected) - DXPipeline::calcNearbyLights()
+	// iterates the full attached-light drawable list to find new in-range lights.
+	const LLDrawable::ordered_drawable_set_t& getLights() const { return mLights; }
+
+	// Mutable counterpart to getLights() above - DXPipeline::setLight() inserts/erases
+	// drawables from mLights directly.
+	LLDrawable::ordered_drawable_set_t& getLightsMutable() { return mLights; }
+
+	// DX_RENDER: mutable access to mHWLightColors (protected) - DXPipeline::setupAvatarLights()/
+	// setupHWLights() write per-slot hardware light colors directly (mHWLightColors[i] = ...).
+	LLColor4* getHWLightColorsMutable() { return mHWLightColors; }
+
+	// DX_RENDER: mutable access to mLightMask/mLightMovingMask (protected, plain bitmasks) -
+	// DXPipeline::setupHWLights()/enableLights() read and write these directly.
+	U32& getLightMaskMutable() { return mLightMask; }
+	U32& getLightMovingMaskMutable() { return mLightMovingMask; }
+
+	// DX_RENDER: mutable access to mRenderTypeEnabled/mRenderTypeEnableStack (protected) -
+	// DXPipeline::setRenderTypeMask()/hasAnyRenderType()/andRenderTypeMask()/
+	// clearRenderTypeMask()/setAllRenderTypes()/clearAllRenderTypes()/pushRenderTypeMask()/
+	// popRenderTypeMask() all read/write these directly, several via raw memcpy/memset on the
+	// fixed-size array - returning a reference to the array itself (not a pointer) keeps
+	// sizeof(getRenderTypeEnabledMutable()) working exactly like the original bare member access.
+	bool (&getRenderTypeEnabledMutable())[NUM_RENDER_TYPES] { return mRenderTypeEnabled; }
+	// Const read-only counterpart - DXPipeline::hasRenderType()/hasAnyRenderType() are themselves
+	// const (mirroring the original LLPipeline:: member signatures), so they need a const-callable
+	// accessor rather than the mutable one above.
+	const bool (&getRenderTypeEnabled() const)[NUM_RENDER_TYPES] { return mRenderTypeEnabled; }
+	std::stack<std::string>& getRenderTypeEnableStackMutable() { return mRenderTypeEnableStack; }
+
+	// DX_RENDER: mutable access to mRenderDebugMask/mRenderDebugFeatureMask/
+	// mRenderDebugFeatureStack (protected) - DXPipeline::toggleRenderDebug()/
+	// toggleRenderDebugFeature()/setRenderDebugFeatureControl()/pushRenderDebugFeatureMask()/
+	// popRenderDebugFeatureMask() all read/write these directly.
+	U64& getRenderDebugMaskMutable() { return mRenderDebugMask; }
+	U32& getRenderDebugFeatureMaskMutable() { return mRenderDebugFeatureMask; }
+	std::stack<U32>& getRenderDebugFeatureStackMutable() { return mRenderDebugFeatureStack; }
+	// DX_RENDER: mutable access to mOldRenderDebugMask (protected) - DXPipeline::resetFrameStats()
+	// compares/assigns it against mRenderDebugMask directly.
+	U64& getOldRenderDebugMaskMutable() { return mOldRenderDebugMask; }
+
+	// DX_RENDER: same reasoning as getPools()/getNearbyLights() above -
+	// DXPipeline::renderObjects()/renderGLTFObjects()/renderAlphaObjects()/
+	// renderMaskedObjects()/renderFullbrightMaskedObjects() need these
+	// (protected) pool pointers.
+	LLRenderPass* getSimplePool() const { return mSimplePool; }
+	LLRenderPass* getAlphaMaskPool() const { return mAlphaMaskPool; }
+	LLRenderPass* getFullbrightAlphaMaskPool() const { return mFullbrightAlphaMaskPool; }
+
+	// Public (was protected) - DXPipeline::addDebugBlip() constructs/pushes these directly.
 	class DebugBlip
 	{
 	public:
@@ -1100,125 +871,29 @@ protected:
 
 	std::list<DebugBlip> mDebugBlips;
 
+	// Public (was protected) - DXPipeline::renderSelectedFaces() reads/writes these directly.
+	std::vector<LLFace*>		mSelectedFaces;
+
 	LLPointer<LLViewerFetchedTexture>	mFaceSelectImagep;
-	
+protected:
 	U32						mLightMask;
 	U32						mLightMovingMask;
-		
-	static bool				sRenderPhysicalBeacons;
-	static bool				sRenderMOAPBeacons;
-	static bool				sRenderScriptedTouchBeacons;
-	static bool				sRenderScriptedBeacons;
-	static bool				sRenderParticleBeacons;
-	static bool				sRenderSoundBeacons;
 public:
-	static bool				sRenderBeacons;
-	static bool				sRenderHighlight;
+	// S24: sCurRenderPoolType deleted outright - confirmed genuinely zero-reader tree-wide.
 
-	// Determines which set of UVs to use in highlight display
-	//
-	static LLRender::eTexIndex sRenderHighlightTextureChannel;
-
-	//debug use
-	static U32              sCurRenderPoolType ;
-
-	//cached settings
-	static bool WindLightUseAtmosShaders;
-	static bool RenderDeferred;
-	static F32 RenderDeferredSunWash;
-    static U32 RenderFSAAType;
-	static bool RenderUIBuffer;
-	static S32 RenderShadowDetail;
-    static S32 RenderShadowSplits;
-	static bool RenderDeferredSSAO;
-	static F32 RenderShadowResolutionScale;
-	static bool RenderDelayCreation;
-	static bool RenderAnimateRes;
-	static bool FreezeTime;
-	static S32 DebugBeaconLineWidth;
-	static bool RenderSpotLightsInNondeferred;
-	static LLColor4 PreviewAmbientColor;
-	static LLColor4 PreviewDiffuse0;
-	static LLColor4 PreviewSpecular0;
-	static LLColor4 PreviewDiffuse1;
-	static LLColor4 PreviewSpecular1;
-	static LLColor4 PreviewDiffuse2;
-	static LLColor4 PreviewSpecular2;
-	static LLVector3 PreviewDirection0;
-	static LLVector3 PreviewDirection1;
-	static LLVector3 PreviewDirection2;
-	static F32 RenderGlowMinLuminance;
-	static F32 RenderGlowMaxExtractAlpha;
-	static F32 RenderGlowWarmthAmount;
-	static LLVector3 RenderGlowLumWeights;
-	static LLVector3 RenderGlowWarmthWeights;
-	static S32 RenderGlowResolutionPow;
-	static S32 RenderGlowIterations;
-	static F32 RenderGlowWidth;
-	static F32 RenderGlowStrength;
-	static bool RenderGlowNoise;
-	static bool RenderDepthOfField;
-	static bool RenderDepthOfFieldInEditMode;
-	static F32 CameraFocusTransitionTime;
-	static F32 CameraFNumber;
-	static F32 CameraFocalLength;
-	/* S24 Features */
-	static F32 CameraAspectRatio;
-	static bool UseDesaturation;
-	static bool UseInvert;
-	static bool UseCelShading;
-	static bool applyVignette;
-	static bool applyNightVision;
-	static bool applyEdgeGlow;
-	static bool applyRGBControl;
-	static bool applyAmbience;
-	static bool applyMotionBlur;
-	/* S24 End */
-	static F32 CameraFieldOfView;
-	static F32 RenderShadowNoise;
-	static F32 RenderShadowBlurSize;
-	static F32 RenderSSAOScale;
-	static U32 RenderSSAOMaxScale;
-	static F32 RenderSSAOFactor;
-	static LLVector3 RenderSSAOEffect;
-	static F32 RenderShadowOffsetError;
-	static F32 RenderShadowBiasError;
-	static F32 RenderShadowOffset;
-	static F32 RenderShadowBias;
-	static F32 RenderSpotShadowOffset;
-	static F32 RenderSpotShadowBias;
-    static LLDrawable* RenderSpotLight;
-	static F32 RenderEdgeDepthCutoff;
-	static F32 RenderEdgeNormCutoff;
-	static LLVector3 RenderShadowGaussian;
-	static F32 RenderShadowBlurDistFactor;
-	static bool RenderDeferredAtmospheric;
-	static F32 RenderFarClip;
-	static LLVector3 RenderShadowSplitExponent;
-	static F32 RenderShadowErrorCutoff;
-	static F32 RenderShadowFOVCutoff;
-	static bool CameraOffset;
-	static F32 CameraMaxCoF;
-	static F32 CameraDoFResScale;
-	static F32 RenderAutoHideSurfaceAreaLimit;
-	static bool RenderScreenSpaceReflections;
-	static S32 RenderScreenSpaceReflectionIterations;
-	static F32 RenderScreenSpaceReflectionRayStep;
-	static F32 RenderScreenSpaceReflectionDistanceBias;
-	static F32 RenderScreenSpaceReflectionDepthRejectBias;
-	static F32 RenderScreenSpaceReflectionAdaptiveStepMultiplier;
-	static S32 RenderScreenSpaceReflectionGlossySamples;
-	static F32 RenderScreenSpaceReflectionGlossThreshold;
-	static S32 RenderWaterSSRIterations;
-	static F32 RenderWaterSSRRayStep;
-	static S32 RenderBufferVisualization;
-    static bool RenderMirrors;
-    static S32 RenderHeroProbeUpdateRate;
-    static bool RenderAvatarCloth;
+	// S24: the ~76 cached-settings statics that used to live in this block (RenderGlow*, Preview*,
+	// shadow/SSAO/SSR tuning, RenderFSAAType/RenderUIBuffer/RenderShadowDetail/Camera*/
+	// RenderDeferredSunWash/RenderDelayCreation/RenderAnimateRes/RenderSpotLightsInNondeferred/
+	// RenderDeferredAtmospheric/RenderFarClip/RenderAvatarCloth/etc.) are used only by DXPipeline::
+	// now - relocated to DXPipeline:: static members (dxpipeline.h), populated by
+	// DXPipeline::refreshCachedSettings() (called from this class's own refreshCachedSettings()).
+	// pipeline.cpp, which used to read some of these directly, no longer exists.
 };
 
-void render_bbox(const LLVector3 &min, const LLVector3 &max);
-void render_hud_elements();
+// S24: render_bbox() deleted outright - declared but never defined or called anywhere, nothing
+// to migrate.
+// S24: render_hud_elements() fully moved to dxpipeline.h/.cpp (free function, not DXPipeline::) -
+// no stub, every caller repointed directly.
 // Not `static`: DXPipeline::presentDeferredScreen() (dxpipeline.cpp) calls this directly, since
 // DX_RENDER's renderFinalize() early-returns before GL's own body (which normally calls this) ever
 // runs. `static` would give every other TU an internally-linked, undefined copy.
@@ -1226,6 +901,6 @@ void updateEffectMask();
 
 
 extern LLPipeline gPipeline;
-extern const LLMatrix4* gGLLastMatrix;
+extern const LLMatrix4* gDXLastMatrix;
 
 #endif

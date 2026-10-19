@@ -768,7 +768,7 @@ void LLFloaterChangeItemThumbnail::assignAndValidateTexture(const LLUUID& asset_
             data->mSilent = false;
             data->mTexturep = texturep;
 
-            texturep->setBoostLevel(LLDXTexture::BOOST_PREVIEW);
+            texturep->setBoostLevel(DXTextureBase::BOOST_PREVIEW);
             texturep->setMinDiscardLevel(0);
             texturep->setLoadedCallback(onFullImageLoaded,
                 0, // Need best quality

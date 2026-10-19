@@ -131,7 +131,7 @@ LLVoiceVisualizer::LLVoiceVisualizer( const U8 type )
     for (int i=0; i<NUM_VOICE_SYMBOL_WAVES; i++)
     {
         mSoundSymbol.mWaveFadeOutStartTime  [i] = mCurrentTime;
-        mSoundSymbol.mTexture               [i] = LLViewerTextureManager::getFetchedTextureFromFile(sound_level_img[i], FTT_LOCAL_FILE, false, LLDXTexture::BOOST_UI);
+        mSoundSymbol.mTexture               [i] = LLViewerTextureManager::getFetchedTextureFromFile(sound_level_img[i], FTT_LOCAL_FILE, false, DXTextureBase::BOOST_UI);
         mSoundSymbol.mWaveActive            [i] = false;
         mSoundSymbol.mWaveOpacity           [i] = 1.0f;
         mSoundSymbol.mWaveExpansion         [i] = 1.0f;
@@ -362,9 +362,9 @@ void LLVoiceVisualizer::render()
         // runs, the real 3D scene's depth buffer is gone - only the swap chain's own depth buffer
         // remains (built for ordering among this pass's own 3D-in-UI-space content, not world
         // occlusion; see DXSwapChain.h). Match renderAll()'s own outer-loop default
-        // (LLGLDepthTest(GL_FALSE, GL_FALSE)) like every other HUD-space element (nametags, selection
+        // (DXDepthTest(false, false)) like every other HUD-space element (nametags, selection
         // beam) instead of overriding it.
-        LLGLDepthTest depth(GL_FALSE, GL_FALSE);
+        DXDepthTest depth(false, false);
         //LLGLDisable gls_stencil(GL_STENCIL_TEST);
 
         // render_hud_attachments()'s (llviewerdisplay.cpp) second-per-frame renderGeomPostDeferred()
@@ -544,7 +544,6 @@ void LLVoiceVisualizer::render()
 // LLHUDNameTag::issueOcclusionQuery() (llhudnametag.cpp).
 void LLVoiceVisualizer::issueOcclusionQuery()
 {
-#ifdef DX_RENDER
     static LLCachedControl<bool> show_visualizer(gSavedSettings, "VoiceVisualizerEnabled", true);
     if (!mVoiceEnabled || !show_visualizer || !mSoundSymbol.mActive)
     {
@@ -592,12 +591,10 @@ void LLVoiceVisualizer::issueOcclusionQuery()
     DXOcclusionQuery::endQuery(mOcclusionQuery);
 
     mOcclusionQueryPending = true;
-#endif
 }
 
 void LLVoiceVisualizer::updateOcclusionFade()
 {
-#ifdef DX_RENDER
     // Matches LLHUDNameTag's own fade time constant.
     static const F32 OCCLUSION_FADE_TC = 0.2f;
 
@@ -608,7 +605,6 @@ void LLVoiceVisualizer::updateOcclusionFade()
         mOcclusionFadeAlpha = lerp(mOcclusionFadeAlpha, target, LLSmoothInterpolation::getInterpolant(OCCLUSION_FADE_TC));
         mOcclusionQueryPending = false;
     }
-#endif
 }
 
 //---------------------------------------------------
@@ -644,14 +640,12 @@ VoiceGesticulationLevel LLVoiceVisualizer::getCurrentGesticulationLevel()
 //------------------------------------
 LLVoiceVisualizer::~LLVoiceVisualizer()
 {
-#ifdef DX_RENDER
     // Return the query name to the shared pool - matches LLHUDNameTag's own destructor
     // (llhudnametag.cpp) using the same LLOcclusionCullingGroup pool.
     if (mOcclusionQuery)
     {
         LLOcclusionCullingGroup::releaseOcclusionQueryObjectName(mOcclusionQuery);
     }
-#endif
 }//----------------------------------------------
 
 

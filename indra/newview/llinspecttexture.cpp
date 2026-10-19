@@ -155,7 +155,7 @@ void LLTexturePreviewView::draw()
 
 void LLTexturePreviewView::setImageFromAssetId(const LLUUID& idAsset)
 {
-    m_Image = LLViewerTextureManager::getFetchedTexture(idAsset, FTT_DEFAULT, MIPMAP_TRUE, LLDXTexture::BOOST_THUMBNAIL);
+    m_Image = LLViewerTextureManager::getFetchedTexture(idAsset, FTT_DEFAULT, MIPMAP_TRUE, DXTextureBase::BOOST_THUMBNAIL);
     if (m_Image)
     {
         m_Image->forceToSaveRawImage(0);

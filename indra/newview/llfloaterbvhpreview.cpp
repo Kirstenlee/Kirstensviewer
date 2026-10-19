@@ -44,7 +44,7 @@
 #include "llcheckboxctrl.h"
 #include "llcombobox.h"
 #include "lldrawable.h"
-#include "lldrawpoolavatar.h"
+#include "dxdrawpoolavatar.h"
 #include "llrender.h"
 #include "llface.h"
 #include "llfocusmgr.h"
@@ -62,6 +62,7 @@
 #include "llviewermenufile.h"   // upload_new_resource()
 #include "llvoavatar.h"
 #include "pipeline.h"
+#include "dxpipeline.h"
 #include "lluictrlfactory.h"
 #include "lltrans.h"
 
@@ -1110,7 +1111,7 @@ bool    LLPreviewAnimation::render()
 
     gUIProgram.bind();
 
-    LLGLSUIDefault def;
+    DXUIDefault def;
     gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
     gDX.color4f(0.15f, 0.2f, 0.3f, 1.f);
 
@@ -1148,14 +1149,14 @@ bool    LLPreviewAnimation::render()
         avatarp->updateLOD();
 
         LLVertexBuffer::unbind();
-        LLGLDepthTest gls_depth(GL_TRUE);
+        DXDepthTest gls_depth(true);
 
         LLFace* face = avatarp->mDrawable->getFace(0);
         if (face)
         {
             LLDrawPoolAvatar *avatarPoolp = (LLDrawPoolAvatar *)face->getPool();
             avatarp->dirtyMesh();
-            gPipeline.enableLightsPreview();
+            DXPipeline::enableLightsPreview(gPipeline);
             avatarPoolp->renderAvatars(avatarp);  // renders only one avatar
         }
     }

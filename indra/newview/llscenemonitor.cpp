@@ -39,6 +39,7 @@
 #include "llspatialpartition.h"
 #include "llagent.h"
 #include "pipeline.h"
+#include "dxpipeline.h"
 #include "llviewerpartsim.h"
 
 //
@@ -232,7 +233,7 @@ void LLSceneMonitor::freezeScene()
     gSavedSettings.setBOOL("FreezeTime", true);
 
     //disable sky, water and clouds
-    gPipeline.clearRenderTypeMask(LLPipeline::RENDER_TYPE_SKY, LLPipeline::RENDER_TYPE_WL_SKY,
+    DXPipeline::clearRenderTypeMask(gPipeline, LLPipeline::RENDER_TYPE_SKY, LLPipeline::RENDER_TYPE_WL_SKY,
         LLPipeline::RENDER_TYPE_WATER, LLPipeline::RENDER_TYPE_CLOUDS, LLPipeline::END_RENDER_TYPES);
 
     //disable particle system
@@ -253,7 +254,7 @@ void LLSceneMonitor::unfreezeScene()
     gSavedSettings.setBOOL("FreezeTime", false);
 
     //enable sky, water and clouds
-    gPipeline.setRenderTypeMask(LLPipeline::RENDER_TYPE_SKY, LLPipeline::RENDER_TYPE_WL_SKY,
+    DXPipeline::setRenderTypeMask(gPipeline, LLPipeline::RENDER_TYPE_SKY, LLPipeline::RENDER_TYPE_WL_SKY,
         LLPipeline::RENDER_TYPE_WATER, LLPipeline::RENDER_TYPE_CLOUDS, LLPipeline::END_RENDER_TYPES);
 
     //enable particle system
@@ -308,16 +309,13 @@ void LLSceneMonitor::capture()
 
         LLRenderTarget& cur_target = getCaptureTarget();
 
-        U32 old_FBO = LLRenderTarget::sCurFBO;
-
         gDX.getTexUnit(0)->bind(&cur_target);
-        glBindFramebuffer(GL_READ_FRAMEBUFFER, 0); //point to the main frame buffer.
 
-        glCopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 0, 0, cur_target.getWidth(), cur_target.getHeight()); //copy the content
-
-        glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
-        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
-        glBindFramebuffer(GL_FRAMEBUFFER, old_FBO);
+        // S24: glBindFramebuffer()/glCopyTexSubImage2D() stubbed out - no
+        // real GL context exists under DX_RENDER (dev-only feature,
+        // SceneLoadingMonitorEnabled defaults off; see the glext removal in
+        // llrender). Needs a real DXTexture-native frame-capture path to
+        // actually work, not a port of these calls.
 
         mDiffState = NEED_DIFF;
     }
@@ -427,7 +425,7 @@ void LLSceneMonitor::calcDiffAggregate()
         mQueryObject = LLOcclusionCullingGroup::getNewOcclusionQueryObjectName();
     }
 
-    LLGLDepthTest depth(true, false, GL_ALWAYS);
+    DXDepthTest depth(true, false, GL_ALWAYS);
     if(!mDebugViewerVisible)
     {
         glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
@@ -439,16 +437,15 @@ void LLSceneMonitor::calcDiffAggregate()
     gOneTextureFilterProgram.bind();
     gOneTextureFilterProgram.uniform1f(sTolerance, mDiffTolerance);
 
-    if(mDiffState == EXECUTE_DIFF)
-    {
-        glBeginQuery(GL_SAMPLES_PASSED, mQueryObject);
-    }
+    // S24: glBeginQuery()/glEndQuery() stubbed out - no real GL context
+    // exists under DX_RENDER (dev-only feature, see capture()'s comment).
+    // mDiffState still advances the same way so fetchQueryResult()'s state
+    // machine isn't left stuck, it just never finds a real result available.
 
     dx_draw_scaled_target(0, 0, S32(mDiff->getWidth() * mDiffPixelRatio), S32(mDiff->getHeight() * mDiffPixelRatio), mDiff);
 
     if(mDiffState == EXECUTE_DIFF)
     {
-        glEndQuery(GL_SAMPLES_PASSED);
         mDiffState = WAIT_ON_RESULT;
     }
 
@@ -478,12 +475,14 @@ void LLSceneMonitor::fetchQueryResult()
     {
         mDiffState = WAITING_FOR_NEXT_DIFF;
 
+        // S24: glGetQueryObjectuiv() stubbed out - no real GL context exists
+        // under DX_RENDER (dev-only feature, see capture()'s comment);
+        // `available` stays false since no query ever really ran.
         GLuint available = 0;
-        glGetQueryObjectuiv(mQueryObject, GL_QUERY_RESULT_AVAILABLE, &available);
         if(available)
         {
             GLuint count = 0;
-            glGetQueryObjectuiv(mQueryObject, GL_QUERY_RESULT, &count);
+            // S24: stubbed along with the GL_QUERY_RESULT_AVAILABLE check above.
 
             mDiffResult = sqrtf(count * 0.5f / (mDiff->getWidth() * mDiff->getHeight() * mDiffPixelRatio * mDiffPixelRatio)); //0.5 -> (front face + back face)
 

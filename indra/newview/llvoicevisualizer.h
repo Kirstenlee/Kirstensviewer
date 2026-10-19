@@ -89,14 +89,10 @@ class LLVoiceVisualizer : public LLHUDEffect
         void                    unpackData(LLMessageSystem *mesgsys, S32 blocknum);     // inherited from HUD Effect
         void                    markDead();                                         // inherited from HUD Effect
 
-        // S24 (2026-08-28, task #193 follow-up): occlusion-fade for the
-        // voice-speaking indicator ("voice dots"/rings), same mechanism and
-        // reasoning as LLHUDNameTag's own (see llhudnametag.h) - a soft
-        // fade via real GPU occlusion queries rather than a real depth
-        // test, which task #193's history shows regresses HUD-space alpha
-        // content here. No-op under GL. Driven by LLHUDObject::
-        // issueOcclusionQueries()/updateAll() (llhudobject.h/.cpp), called
-        // from LLPipeline::doOcclusion() (pipeline.cpp).
+        // Occlusion-fade for the voice-speaking indicator ("voice dots"/rings), same mechanism as
+        // LLHUDNameTag's own (see llhudnametag.h): a soft fade via real GPU occlusion queries rather
+        // than a real depth test (which regresses HUD-space alpha content). No-op under GL. Driven by
+        // LLHUDObject::issueOcclusionQueries()/updateAll(), called from LLPipeline::doOcclusion().
         void                    issueOcclusionQuery();                                 // inherited from LLHUDObject
         void                    updateOcclusionFade();                                 // inherited from LLHUDObject
 
@@ -144,15 +140,11 @@ class LLVoiceVisualizer : public LLHUDEffect
         F32                     mMaxGesticulationAmplitude;     // this is the upper-limit of the envelope of detectable gesticulation leves
         F32                     mMinGesticulationAmplitude;     // this is the lower-limit of the envelope of detectable gesticulation leves
 
-        // S24 (2026-08-28, task #193 follow-up): occlusion-fade state - see
-        // issueOcclusionQuery()/updateOcclusionFade() above. Defaults to
-        // 1.0 (fully visible) so render() is a true no-op under GL / before
-        // any query has resolved without needing to guard the read site.
+        // Occlusion-fade state - see issueOcclusionQuery()/updateOcclusionFade() above. Defaults
+        // to 1.0 (fully visible) until an occlusion query resolves.
         F32                     mOcclusionFadeAlpha = 1.f;
-#ifdef DX_RENDER
         unsigned int            mOcclusionQuery = 0;
         bool                    mOcclusionQueryPending = false;
-#endif
 
     //---------------------------------------------------
     // private static members

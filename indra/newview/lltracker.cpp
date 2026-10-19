@@ -638,7 +638,7 @@ void LLTracker::renderBeacon(LLVector3d pos_global,
     LLGLSTracker gls_tracker;
     gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
     LLGLDisable cull_face(GL_CULL_FACE);
-    LLGLDepthTest gls_depth(GL_TRUE, GL_FALSE);
+    DXDepthTest gls_depth(true, false);
 
     LLTracker::drawBeacon(pos_agent, "DOWN", fogged_color, dist);
     LLTracker::drawBeacon(pos_agent, "UP", fogged_color_under, dist);

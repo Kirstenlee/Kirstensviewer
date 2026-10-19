@@ -41,11 +41,10 @@
 #include "llviewerdisplay.h"
 #include "llrender.h"
 #include "pipeline.h"
+#include "dxpipeline.h"
 #include "llhlslshader.h"
 
-#ifdef DX_RENDER
 #include "DXContext.h"
-#endif
 
 // static
 LLViewerDynamicTexture::instance_list_t LLViewerDynamicTexture::sInstances[ LLViewerDynamicTexture::ORDER_COUNT ];
@@ -104,7 +103,7 @@ void LLViewerDynamicTexture::generateGLTexture(LLGLint internal_format, LLGLenum
     {
         setExplicitFormat(internal_format, primary_format, type_format, swap_bytes);
     }
-    createGLTexture(0, raw_image, 0, true, LLDXTexture::DYNAMIC_TEX);
+    createGLTexture(0, raw_image, 0, true, DXTextureBase::DYNAMIC_TEX);
     setAddressMode((mClamp) ? LLTexUnit::TAM_CLAMP : LLTexUnit::TAM_WRAP);
     mGLTexturep->setGLTextureCreated(false);
 }
@@ -135,28 +134,18 @@ void LLViewerDynamicTexture::preRender(bool clear_depth)
     mCamera.setView(camera->getView());
     mCamera.setNear(camera->getNear());
 
-    // glViewport() has zero effect under DX_RENDER (no GL context backs the
-    // D3D11 device) - routed through gDXContext.setViewport() instead.
-    // mOrigin is always (0,0) here, so no cube-face-style Y-flip is needed.
-#ifdef DX_RENDER
+    // Routed through gDXContext.setViewport() rather than raw glViewport(). mOrigin is always
+    // (0,0) here, so no cube-face-style Y-flip is needed.
     gDXContext.setViewport(mOrigin.mX, mOrigin.mY, mFullWidth, mFullHeight);
-#else
-    glViewport(mOrigin.mX, mOrigin.mY, mFullWidth, mFullHeight);
-#endif
     if (clear_depth)
     {
-        // Same reasoning - raw glClear() is inert under DX_RENDER. Route
-        // through the currently-bound LLRenderTarget's own clear() (set by
-        // updateAllInstances() via setBoundTarget() just before preRender()
-        // is called), which correctly dispatches to ClearDepthStencilView.
-#ifdef DX_RENDER
+        // Routed through the currently-bound LLRenderTarget's own clear() (set by
+        // updateAllInstances() via setBoundTarget() just before preRender() is called), which
+        // correctly dispatches to ClearDepthStencilView.
         if (mBoundTarget)
         {
             mBoundTarget->clear(GL_DEPTH_BUFFER_BIT);
         }
-#else
-        glClear(GL_DEPTH_BUFFER_BIT);
-#endif
     }
 }
 
@@ -218,8 +207,8 @@ bool LLViewerDynamicTexture::updateAllInstances()
         llassert(false);
         return false;
     }
-    llassert(preview_target.getWidth() >= LLPipeline::MAX_PREVIEW_WIDTH);
-    llassert(preview_target.getHeight() >= LLPipeline::MAX_PREVIEW_WIDTH);
+    llassert(preview_target.getWidth() >= DXPipeline::MAX_PREVIEW_WIDTH);
+    llassert(preview_target.getHeight() >= DXPipeline::MAX_PREVIEW_WIDTH);
     llassert(bake_target.getWidth() >= (U32) LLAvatarAppearanceDefines::SCRATCH_TEX_WIDTH);
     llassert(bake_target.getHeight() >= (U32) LLAvatarAppearanceDefines::SCRATCH_TEX_HEIGHT);
 
@@ -248,13 +237,8 @@ bool LLViewerDynamicTexture::updateAllInstances()
                 llassert(dynamicTexture->getFullWidth() <= width);
                 llassert(dynamicTexture->getFullHeight() <= height);
 
-                // Raw glClear() is inert under DX_RENDER - route through the
-                // already-bound LLRenderTarget instead.
-#ifdef DX_RENDER
+                // Routed through the already-bound LLRenderTarget instead of raw glClear().
                 renderTarget.clear(GL_DEPTH_BUFFER_BIT);
-#else
-                glClear(GL_DEPTH_BUFFER_BIT);
-#endif
 
                 gDX.color4f(1.f, 1.f, 1.f, 1.f);
                 dynamicTexture->setBoundTarget(&renderTarget);
@@ -278,7 +262,7 @@ bool LLViewerDynamicTexture::updateAllInstances()
     {
         for (LLViewerDynamicTexture* dynamicTexture : LLViewerDynamicTexture::sInstances[order])
         {
-            update_func(dynamicTexture, preview_target, LLPipeline::MAX_PREVIEW_WIDTH, LLPipeline::MAX_PREVIEW_WIDTH);
+            update_func(dynamicTexture, preview_target, DXPipeline::MAX_PREVIEW_WIDTH, DXPipeline::MAX_PREVIEW_WIDTH);
         }
     }
     preview_target.flush();

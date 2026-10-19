@@ -39,9 +39,7 @@
 #include "llhudeffectresetskeleton.h"
 #include "llhudnametag.h"
 #include "llvoicevisualizer.h"
-#ifdef DX_RENDER
 #include "DXUIBatch.h"
-#endif
 
 #include "llagent.h"
 
@@ -270,11 +268,9 @@ void LLHUDObject::updateAll()
     LLHUDNameTag::updateAll();
     sortObjects();
 
-    // S24 (2026-08-28, task #193 follow-up): poll last frame's occlusion-
-    // fade query result for any opted-in HUD object (see
-    // issueOcclusionQuery()/updateOcclusionFade() in llhudobject.h) before
-    // this frame's issueOcclusionQueries() (called from doOcclusion(),
-    // pipeline.cpp) issues the next one. No-op for every type that hasn't
+    // Polls last frame's occlusion-fade query result for any opted-in HUD
+    // object before this frame's issueOcclusionQueries() (doOcclusion(),
+    // pipeline.cpp) issues the next one. No-op for types that haven't
     // overridden updateOcclusionFade().
     for (hud_object_list_t::iterator object_it = sHUDObjects.begin(); object_it != sHUDObjects.end(); ++object_it)
     {
@@ -299,12 +295,12 @@ void LLHUDObject::issueOcclusionQueries()
 // static
 void LLHUDObject::renderAll()
 {
-    LLGLSUIDefault gls_ui;
+    DXUIDefault gls_ui;
 
     gUIProgram.bind();
     gDX.color4f(1, 1, 1, 1);
 
-    LLGLDepthTest depth(GL_FALSE, GL_FALSE);
+    DXDepthTest depth(false, false);
 
     LLHUDObject *hud_objp;
 
@@ -320,15 +316,11 @@ void LLHUDObject::renderAll()
         else if (hud_objp->isVisible())
         {
             hud_objp->render();
-#ifdef DX_RENDER
-            // S24 (2026-08-16): different HUD object types (nametag/icon/
-            // text) can carry different depth-test params - LLGLDepthTest's
-            // own ctor/dtor hooks already catch most of these transitions,
-            // but flush explicitly here too as a safety net that doesn't
-            // depend on every HUD subtype using it correctly. Cheap no-op
-            // when nothing's pending. See DXUIBatch.h's top comment.
+            // Safety-net flush: different HUD object types can carry
+            // different depth-test params, and this doesn't depend on every
+            // subtype's DXDepthTest ctor/dtor catching the transition.
+            // Cheap no-op when nothing's pending. See DXUIBatch.h's top comment.
             gDXUIBatch.flushPending();
-#endif
         }
     }
 

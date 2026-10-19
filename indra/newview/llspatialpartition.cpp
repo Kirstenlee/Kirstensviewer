@@ -45,9 +45,10 @@
 #include "llviewerregion.h"
 #include "llcamera.h"
 #include "pipeline.h"
+#include "dxpipeline.h"
 #include "llmeshrepository.h"
 #include "llrender.h"
-#include "lldrawpool.h"
+#include "dxdrawpool.h"
 #include "lloctree.h"
 #include "llphysicsshapebuilderutil.h"
 #include "llvoavatar.h"
@@ -118,7 +119,7 @@ LLSpatialGroup::~LLSpatialGroup()
 
     if (gDebugGL)
     {
-        gPipeline.checkReferences(this);
+        DXPipeline::checkReferences(gPipeline, this);
     }
 
     if (hasState(DEAD))
@@ -306,7 +307,7 @@ bool LLSpatialGroup::addObject(LLDrawable *drawablep)
         drawablep->setGroup(this);
         setState(static_cast<U32>(OBJECT_DIRTY) | static_cast<U32>(GEOM_DIRTY));
         setOcclusionState(LLSpatialGroup::DISCARD_QUERY, LLSpatialGroup::STATE_MODE_ALL_CAMERAS);
-        gPipeline.markRebuild(this);
+        DXPipeline::markRebuild(gPipeline, this);
         if (drawablep->isSpatialBridge())
         {
             mBridgeList.push_back((LLSpatialBridge*) drawablep);
@@ -328,7 +329,7 @@ void LLSpatialGroup::rebuildGeom()
 
         if (hasState(LLSpatialGroup::MESH_DIRTY))
         {
-            gPipeline.markMeshDirty(this);
+            DXPipeline::markMeshDirty(gPipeline, this);
         }
     }
 }
@@ -426,7 +427,7 @@ bool LLSpatialGroup::removeObject(LLDrawable *drawablep, bool from_octree)
     {
         drawablep->setGroup(NULL);
         setState(GEOM_DIRTY);
-        gPipeline.markRebuild(this);
+        DXPipeline::markRebuild(gPipeline, this);
 
         if (drawablep->isSpatialBridge())
         {
@@ -469,7 +470,7 @@ void LLSpatialGroup::shift(const LLVector4a &offset)
         getSpatialPartition()->mPartitionType != LLViewerRegion::PARTITION_CONTROL_AV)
     {
         setState(GEOM_DIRTY);
-        gPipeline.markRebuild(this);
+        DXPipeline::markRebuild(gPipeline, this);
     }
 }
 
@@ -593,7 +594,7 @@ LLSpatialGroup::LLSpatialGroup(OctreeNode* node, LLSpatialPartition* part) : LLO
 
     sg_assert(mOctreeNode->getListenerCount() == 0);
     setState(SG_INITIAL_STATE_MASK);
-    gPipeline.markRebuild(this);
+    DXPipeline::markRebuild(gPipeline, this);
 
     // let the reflection map manager know about this spatial group
     mReflectionProbe = gPipeline.mSphereProbes.registerSpatialGroup(this);
@@ -669,7 +670,7 @@ F32 LLSpatialPartition::calcDistance(LLSpatialGroup* group, LLCamera& camera)
                     //NOTE: If there is a trivial way to detect that alpha sorting here would not change the render order,
                     //not setting this node to dirty would be a very good thing
                     group->setState(LLSpatialGroup::ALPHA_DIRTY);
-                    gPipeline.markRebuild(group);
+                    DXPipeline::markRebuild(gPipeline, group);
                 }
             }
         }
@@ -712,7 +713,7 @@ F32 LLSpatialPartition::calcDistance(LLSpatialGroup* group, LLCamera& camera)
 
 F32 LLSpatialPartition::calcPixelArea(LLSpatialGroup* group, LLCamera& camera)
 {
-    return LLPipeline::calcPixelArea(group->mObjectBounds[0], group->mObjectBounds[1], camera);
+    return DXPipeline::calcPixelArea(group->mObjectBounds[0], group->mObjectBounds[1], camera);
 }
 
 F32 LLSpatialGroup::getUpdateUrgency() const
@@ -867,7 +868,7 @@ void LLSpatialGroup::destroyGLState(bool keep_occlusion)
 
     if (!keep_occlusion)
     { //going to need a rebuild
-        gPipeline.markRebuild(this);
+        DXPipeline::markRebuild(gPipeline, this);
     }
 
     mLastUpdateTime = gFrameTimeSeconds;
@@ -1031,7 +1032,7 @@ public:
 
     virtual bool earlyFail(LLViewerOctreeGroup* base_group)
     {
-        if (LLPipeline::sReflectionRender)
+        if (DXPipeline::sReflectionRender)
         {
             return false;
         }
@@ -1041,10 +1042,10 @@ public:
 
         if (group->getOctreeNode() &&
             group->getOctreeNode()->getParent() &&  //never occlusion cull the root node
-            LLPipeline::sUseOcclusion &&            //ignore occlusion if disabled
+            DXPipeline::sUseOcclusion &&            //ignore occlusion if disabled
             group->isOcclusionState(LLSpatialGroup::OCCLUDED))
         {
-            gPipeline.markOccluder(group);
+            DXPipeline::markOccluder(gPipeline, group);
             return true;
         }
 
@@ -1079,7 +1080,7 @@ public:
         {
             group->doOcclusion(mCamera);
         }*/
-        gPipeline.markNotCulled(group, *mCamera);
+        DXPipeline::markNotCulled(gPipeline, group, *mCamera);
     }
 };
 
@@ -1129,7 +1130,7 @@ public:
         LLSpatialGroup* group = (LLSpatialGroup*)base_group;
 
         if (group->getOctreeNode()->getParent() &&  //never occlusion cull the root node
-            LLPipeline::sUseOcclusion &&            //ignore occlusion if disabled
+            DXPipeline::sUseOcclusion &&            //ignore occlusion if disabled
             group->isOcclusionState(LLSpatialGroup::OCCLUDED))
         {
             return true;
@@ -1207,7 +1208,7 @@ public:
 
         if (mResult || //already found a node, don't check any more
             (group->getOctreeNode()->getParent() && //never occlusion cull the root node
-             LLPipeline::sUseOcclusion &&           //ignore occlusion if disabled
+             DXPipeline::sUseOcclusion &&           //ignore occlusion if disabled
              group->isOcclusionState(LLSpatialGroup::OCCLUDED)))
         {
             return true;
@@ -1428,12 +1429,12 @@ S32 LLSpatialPartition::cull(LLCamera &camera, bool do_occlusion)
     ((LLSpatialGroup*)mOctree->getListener(0))->validate();
 #endif
 
-    if (LLPipeline::sShadowRender)
+    if (DXPipeline::sShadowRender)
     {
         LLOctreeCullShadow culler(&camera);
         culler.traverse(mOctree);
     }
-    else if (mInfiniteFarClip || (!LLPipeline::sUseFarClip && !gCubeSnapshot))
+    else if (mInfiniteFarClip || (!DXPipeline::sUseFarClip && !gCubeSnapshot))
     {
         LLOctreeCullNoFarClip culler(&camera);
         culler.traverse(mOctree);
@@ -1648,7 +1649,7 @@ void renderOctree(LLSpatialGroup* group)
         col.setVec(0.1f,0.1f,1,0.1f);
 
         {
-            LLGLDepthTest gl_depth(false, false);
+            DXDepthTest gl_depth(false, false);
             // S24: glPolygonMode(GL_LINE) removed - confirmed dead (no D3D11 per-draw wireframe
             // wrapper exists, see DXStateCache::getRasterizerState()'s wireframe_enabled comment;
             // live-tested via Develop>Render Info>Octree with no crash, just no wireframe effect).
@@ -1694,7 +1695,7 @@ void renderOctree(LLSpatialGroup* group)
                 if (rigged)
                 {
                     gDX.pushMatrix();
-                    gDX.loadMatrix(gGLModelView);
+                    gDX.loadMatrix(gDXModelView);
                     if (!LLRenderPass::uploadMatrixPalette(face->mAvatar, face->mSkinInfo, lastAvatar, lastMeshId, skipLastSkin))
                         {
                             continue;
@@ -1775,7 +1776,7 @@ std::set<LLSpatialGroup*> visible_selected_groups;
 
 void renderXRay(LLSpatialGroup* group, LLCamera* camera)
 {
-    bool render_objects = (!LLPipeline::sUseOcclusion || !group->isOcclusionState(LLSpatialGroup::OCCLUDED)) && group->isVisible() &&
+    bool render_objects = (!DXPipeline::sUseOcclusion || !group->isOcclusionState(LLSpatialGroup::OCCLUDED)) && group->isVisible() &&
                             !group->isEmpty();
 
     if (render_objects)
@@ -2002,7 +2003,7 @@ void renderNormals(LLDrawable *drawablep)
     if (obj)
     {
         LLGLEnable blend(GL_BLEND);
-        LLGLDepthTest gl_depth(GL_TRUE, GL_FALSE);
+        DXDepthTest gl_depth(true, false);
 
         // Drawable's normals & tangents are stored in model space, i.e. before any scaling is applied.
         //
@@ -2660,9 +2661,9 @@ void renderTexturePriority(LLDrawable* drawable)
         drawBox(center, size);
 
         /*S32 boost = imagep->getBoostLevel();
-        if (boost>LLDXTexture::BOOST_NONE)
+        if (boost>DXTextureBase::BOOST_NONE)
         {
-            F32 t = (F32) boost / (F32) (LLDXTexture::BOOST_MAX_LEVEL-1);
+            F32 t = (F32) boost / (F32) (DXTextureBase::BOOST_MAX_LEVEL-1);
             LLVector4 col = lerp(boost_cold, boost_hot, t);
             LLGLEnable blend_on(GL_BLEND);
             gDX.blendFunc(GL_SRC_ALPHA, GL_ONE);
@@ -2675,7 +2676,7 @@ void renderTexturePriority(LLDrawable* drawable)
 
 void renderPoints(LLDrawable* drawablep)
 {
-    LLGLDepthTest depth(GL_FALSE, GL_FALSE);
+    DXDepthTest depth(false, false);
     if (drawablep->getNumFaces())
     {
         gDX.begin(LLRender::POINTS);
@@ -2714,7 +2715,7 @@ void renderBatchSize(LLDrawInfo* params)
     if (params->mAvatar)
     {
         gDX.pushMatrix();
-        gDX.loadMatrix(gGLModelView);
+        gDX.loadMatrix(gDXModelView);
         bind = true;
         old_shader->mRiggedVariant->bind();
         LLRenderPass::uploadMatrixPalette(*params);
@@ -2866,7 +2867,7 @@ void renderLights(LLDrawable* drawablep)
         size.mul(0.5f);
 
         {
-            LLGLDepthTest depth(GL_FALSE, GL_TRUE);
+            DXDepthTest depth(false, true);
             gDX.diffuseColor4f(1,1,1,1);
             drawBoxOutline(pos, size);
         }
@@ -2909,7 +2910,7 @@ public:
 
         for (U32 i = 0; i < 2; i++)
         {
-            LLGLDepthTest depth(GL_TRUE, GL_FALSE, i == 1 ? GL_LEQUAL : GL_GREATER);
+            DXDepthTest depth(true, false, i == 1 ? GL_LEQUAL : GL_GREATER);
 
             if (i == 1)
             {
@@ -3041,7 +3042,7 @@ void renderRaycast(LLDrawable* drawablep)
         {
             if (drawablep->getVObj() == gDebugRaycastObject)
             {
-                LLGLDepthTest depth(GL_FALSE);
+                DXDepthTest depth(false);
                 LLVOAvatar* av = (LLVOAvatar*) drawablep->getVObj().get();
                 av->renderCollisionVolumes();
             }
@@ -3051,7 +3052,7 @@ void renderRaycast(LLDrawable* drawablep)
         {
             // draw intersection point
             gDX.pushMatrix();
-            gDX.loadMatrix(gGLModelView);
+            gDX.loadMatrix(gDXModelView);
             LLVector3 translate(gDebugRaycastIntersection.getF32ptr());
             gDX.translatef(translate.mV[0], translate.mV[1], translate.mV[2]);
             LLCoordFrame orient;
@@ -3086,7 +3087,7 @@ void renderRaycast(LLDrawable* drawablep)
             size.setSub(ext[1], ext[0]);
             size.mul(0.5f);
 
-            LLGLDepthTest depth(GL_FALSE, GL_TRUE);
+            DXDepthTest depth(false, true);
             gDX.diffuseColor4f(0,0.5f,0.5f,1);
             drawBoxOutline(pos, size);
         }
@@ -3368,10 +3369,10 @@ public:
 
                 gDX.flush();
                 gDX.pushMatrix();
-                gGLLastMatrix = NULL;
-                gDX.loadMatrix(gGLModelView);
+                gDXLastMatrix = NULL;
+                gDX.loadMatrix(gDXModelView);
                 renderXRay(group, mCamera);
-                gGLLastMatrix = NULL;
+                gDXLastMatrix = NULL;
                 gDX.popMatrix();
             }
         }
@@ -3591,7 +3592,7 @@ void LLSpatialPartition::renderDebug()
     LLGLEnable blend(GL_BLEND);
     gDX.setSceneBlendType(LLRender::BT_ALPHA);
     gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
-    gPipeline.disableLights();
+    DXPipeline::disableLights(gPipeline);
 
     LLSpatialBridge* bridge = asBridge();
     LLCamera* camera = LLViewerCamera::getInstance();
@@ -3613,7 +3614,7 @@ void LLSpatialPartition::renderDebug()
             LLGLEnable cull(GL_CULL_FACE);
 
             LLGLEnable blend(GL_BLEND);
-            LLGLDepthTest depth_under(GL_TRUE, GL_FALSE, GL_GREATER);
+            DXDepthTest depth_under(true, false, GL_GREATER);
             gDX.diffuseColor4f(0.5f, 0.0f, 0, 0.25f);
 
             LLGLEnable offset(GL_POLYGON_OFFSET_LINE);
@@ -3758,7 +3759,7 @@ public:
         // frustum history - no single camera position has all of a room's walls in frustum at once.
         // mIgnoreVisibility (default false) lets that one caller skip just this check, keeping the
         // hasRenderType() filter (a deliberate render-type mask, not transient staleness).
-        if (!drawable || !gPipeline.hasRenderType(drawable->getRenderType()) || (!mIgnoreVisibility && !drawable->isVisible()))
+        if (!drawable || !DXPipeline::hasRenderType(gPipeline, drawable->getRenderType()) || (!mIgnoreVisibility && !drawable->isVisible()))
         {
             return false;
         }
@@ -3767,7 +3768,7 @@ public:
         {
             LLSpatialPartition *part = drawable->asPartition();
             LLSpatialBridge* bridge = part->asBridge();
-            if (bridge && gPipeline.hasRenderType(bridge->mDrawableType))
+            if (bridge && DXPipeline::hasRenderType(gPipeline, bridge->mDrawableType))
             {
                 check(part->mOctree);
             }
@@ -3890,7 +3891,7 @@ LLDrawInfo::~LLDrawInfo()
 {
     if (gDebugGL)
     {
-        gPipeline.checkReferences(this);
+        DXPipeline::checkReferences(gPipeline, this);
     }
 }
 

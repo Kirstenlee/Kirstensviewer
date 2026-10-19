@@ -30,6 +30,7 @@
 #include "llagent.h"
 
 #include "pipeline.h"
+#include "dxpipeline.h"
 
 #include "llagentaccess.h"
 #include "llagentbenefits.h"
@@ -2299,7 +2300,7 @@ bool LLAgent::needsRenderAvatar()
 // true if we need to render your own avatar's head.
 bool LLAgent::needsRenderHead()
 {
-    return (LLVOAvatar::sVisibleInFirstPerson && LLPipeline::sReflectionRender) || (mShowAvatar && !gAgentCamera.cameraMouselook());
+    return (LLVOAvatar::sVisibleInFirstPerson && DXPipeline::sReflectionRender) || (mShowAvatar && !gAgentCamera.cameraMouselook());
 }
 
 //-----------------------------------------------------------------------------

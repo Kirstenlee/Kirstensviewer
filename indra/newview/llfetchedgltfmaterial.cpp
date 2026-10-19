@@ -33,6 +33,7 @@
 #include "llselectmgr.h"
 #include "llshadermgr.h"
 #include "pipeline.h"
+#include "dxpipeline.h"
 
 //static
 LLFetchedGLTFMaterial LLFetchedGLTFMaterial::sDefault;
@@ -73,7 +74,7 @@ void LLFetchedGLTFMaterial::bind(LLViewerTexture* media_tex)
     LLViewerTexture* baseColorTex = media_tex ? media_tex : mBaseColorTexture;
     LLViewerTexture* emissiveTex = media_tex ? media_tex : mEmissiveTexture;
 
-    if (!LLPipeline::sShadowRender || (mAlphaMode == LLGLTFMaterial::ALPHA_MODE_MASK))
+    if (!DXPipeline::sShadowRender || (mAlphaMode == LLGLTFMaterial::ALPHA_MODE_MASK))
     {
         if (mAlphaMode == LLGLTFMaterial::ALPHA_MODE_MASK)
         {
@@ -95,7 +96,7 @@ void LLFetchedGLTFMaterial::bind(LLViewerTexture* media_tex)
     mTextureTransform[GLTF_TEXTURE_INFO_BASE_COLOR].getPacked(base_color_packed);
     shader->uniform4fv(LLShaderMgr::TEXTURE_BASE_COLOR_TRANSFORM, 2, (F32*)base_color_packed);
 
-    if (!LLPipeline::sShadowRender)
+    if (!DXPipeline::sShadowRender)
     {
         if (mNormalTexture.notNull() && mNormalTexture->getDiscardLevel() <= 4)
         {
@@ -149,7 +150,7 @@ LLViewerFetchedTexture* fetch_texture(const LLUUID& id)
     LLViewerFetchedTexture* img = nullptr;
     if (id.notNull())
     {
-        img = LLViewerTextureManager::getFetchedTexture(id, FTT_DEFAULT, true, LLDXTexture::BOOST_NONE, LLViewerTexture::LOD_TEXTURE);
+        img = LLViewerTextureManager::getFetchedTexture(id, FTT_DEFAULT, true, DXTextureBase::BOOST_NONE, LLViewerTexture::LOD_TEXTURE);
         img->addTextureStats(64.f * 64.f, true);
     }
     return img;

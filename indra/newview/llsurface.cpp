@@ -42,8 +42,9 @@
 #include "llsurfacepatch.h"
 #include "llvowater.h"
 #include "pipeline.h"
+#include "dxpipeline.h"
 #include "llviewerregion.h"
-#include "lldrawpoolterrain.h"
+#include "dxdrawpoolterrain.h"
 #include "llworldmipmap.h"
 
 extern LLPipeline gPipeline;
@@ -114,14 +115,14 @@ LLSurface::~LLSurface()
     mNumberOfPatches = 0;
     destroyPatchData();
 
-    LLDrawPoolTerrain *poolp = (LLDrawPoolTerrain*) gPipeline.findPool(LLDrawPool::POOL_TERRAIN, mSTexturep);
+    LLDrawPoolTerrain *poolp = (LLDrawPoolTerrain*) DXPipeline::findPool(gPipeline, LLDrawPool::POOL_TERRAIN, mSTexturep);
     if (!poolp)
     {
         LL_WARNS() << "No pool for terrain on destruction!" << LL_ENDL;
     }
     else if (poolp->mReferences.empty())
     {
-        gPipeline.removePool(poolp);
+        DXPipeline::removePool(gPipeline, poolp);
         // Don't enable this until we blitz the draw pool for it as well.  -- djs
         mSTexturep = nullptr;
     }
@@ -245,7 +246,7 @@ void LLSurface::initTextures()
     if (gSavedSettings.getBOOL("RenderWater") )
     {
         mWaterObjp = (LLVOWater *)gObjectList.createObjectViewer(LLViewerObject::LL_VO_WATER, mRegionp);
-        gPipeline.createObject(mWaterObjp);
+        DXPipeline::createObject(gPipeline, mWaterObjp);
         LLVector3d water_pos_global = from_region_handle(mRegionp->getHandle());
         water_pos_global += LLVector3d(128.0, 128.0, DEFAULT_WATER_HEIGHT);     // region doesn't have a valid water height yet
         mWaterObjp->setPositionGlobal(water_pos_global);
@@ -600,7 +601,7 @@ void LLSurface::updatePatchVisibilities(LLAgent &agent)
 template<bool PBR>
 bool LLSurface::idleUpdate(F32 max_update_time)
 {
-    if (!gPipeline.hasRenderType(LLPipeline::RENDER_TYPE_TERRAIN))
+    if (!DXPipeline::hasRenderType(gPipeline, LLPipeline::RENDER_TYPE_TERRAIN))
     {
         return false;
     }

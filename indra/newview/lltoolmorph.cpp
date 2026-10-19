@@ -42,7 +42,7 @@
 // Viewer includes
 #include "llagent.h"
 #include "lldrawable.h"
-#include "lldrawpoolavatar.h"
+#include "dxdrawpoolavatar.h"
 #include "llface.h"
 #include "llmorphview.h"
 #include "llresmgr.h"
@@ -58,6 +58,7 @@
 #include "llviewerwindow.h"
 #include "llvoavatarself.h"
 #include "pipeline.h"
+#include "dxpipeline.h"
 
 
 //static
@@ -235,7 +236,7 @@ bool LLVisualParamHint::render()
 
     gUIProgram.bind();
 
-    LLGLSUIDefault gls_ui;
+    DXUIDefault gls_ui;
     //DXState::verify(true);
     mBackgroundp->draw(0, 0, mFullWidth, mFullHeight);
 
@@ -284,8 +285,8 @@ bool LLVisualParamHint::render()
 
     LLViewerCamera::getInstance()->setPerspective(false, mOrigin.mX, mOrigin.mY, mFullWidth, mFullHeight, false);
 
-    llassert(!LLPipeline::sImpostorRender); // We are rendering this from UI, shouldn't be set
-    if (gAgentAvatarp->mDrawable.notNull() && !LLPipeline::sImpostorRender)
+    llassert(!DXPipeline::sImpostorRender); // We are rendering this from UI, shouldn't be set
+    if (gAgentAvatarp->mDrawable.notNull() && !DXPipeline::sImpostorRender)
     {
         LL_DEBUGS("ParamHint") << "render: generating impostor"
             << " param=" << mVisualParam->getName()
@@ -293,10 +294,10 @@ bool LLVisualParamHint::render()
             << " dirtyMesh=" << gAgentAvatarp->mDirtyMesh
             << " mMeshValid=" << gAgentAvatarp->mMeshValid
             << LL_ENDL;
-        LLGLDepthTest gls_depth(GL_TRUE, GL_TRUE);
+        DXDepthTest gls_depth(true, true);
         gDX.flush();
         gDX.setSceneBlendType(LLRender::BT_REPLACE);
-        gPipeline.generateImpostor(gAgentAvatarp, true);
+        DXPipeline::generateImpostor(gPipeline, gAgentAvatarp, true);
         gDX.setSceneBlendType(LLRender::BT_ALPHA);
         gDX.flush();
     }
@@ -329,7 +330,7 @@ void LLVisualParamHint::draw(F32 alpha)
 
     gDX.color4f(1.f, 1.f, 1.f, alpha);
 
-    LLGLSUIDefault gls_ui;
+    DXUIDefault gls_ui;
     gDX.begin(LLRender::TRIANGLES);
     {
         gDX.texCoord2i(0, 1);

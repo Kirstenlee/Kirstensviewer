@@ -37,6 +37,7 @@
 #include "llviewercontrol.h"
 #include "llviewergenericmessage.h"
 #include "llviewerobjectlist.h"
+#include "dxpipeline.h"
 #include "llviewerregion.h"
 #include "llviewerstats.h"
 #include "llcorehttputil.h"
@@ -193,7 +194,7 @@ void LLGLTFMaterialList::applyOverrideMessage(LLMessageSystem* msg, const std::s
         if (obj && gShowObjectUpdates)
         { // display a cyan blip for override updates when "Show Updates to Objects" enabled
             LLColor4 color(0.f, 1.f, 1.f, 1.f);
-            gPipeline.addDebugBlip(obj->getPositionAgent(), color);
+            DXPipeline::addDebugBlip(gPipeline, obj->getPositionAgent(), color);
         }
 
         const LLSD& tes = data["te"];

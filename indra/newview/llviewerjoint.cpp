@@ -37,6 +37,7 @@
 #include "llglheaders.h"
 #include "llvoavatar.h"
 #include "pipeline.h"
+#include "dxpipeline.h"
 
 static constexpr S32 MIN_PIXEL_AREA_3PASS_HAIR = 64*64;
 
@@ -87,11 +88,11 @@ U32 LLViewerJoint::render( F32 pixelArea, bool first_pass, bool is_dummy )
         {
             triangle_count += drawShape( pixelArea, first_pass, is_dummy );
         }
-        else if (LLPipeline::sShadowRender)
+        else if (DXPipeline::sShadowRender)
         {
             triangle_count += drawShape(pixelArea, first_pass, is_dummy );
         }
-        else if ( isTransparent() && !LLPipeline::sReflectionRender)
+        else if ( isTransparent() && !DXPipeline::sReflectionRender)
         {
             // Hair and Skirt
             if ((pixelArea > MIN_PIXEL_AREA_3PASS_HAIR))
@@ -100,7 +101,7 @@ U32 LLViewerJoint::render( F32 pixelArea, bool first_pass, bool is_dummy )
                 LLGLDisable cull(GL_CULL_FACE);
                 // first pass renders without writing to the z buffer
                 {
-                    LLGLDepthTest gls_depth(GL_TRUE, GL_FALSE);
+                    DXDepthTest gls_depth(true, false);
                     triangle_count += drawShape( pixelArea, first_pass, is_dummy );
                 }
                 // second pass writes to z buffer only
@@ -111,7 +112,7 @@ U32 LLViewerJoint::render( F32 pixelArea, bool first_pass, bool is_dummy )
                 // third past respects z buffer and writes color
                 gDX.setColorWriteMask(true, false);
                 {
-                    LLGLDepthTest gls_depth(GL_TRUE, GL_FALSE);
+                    DXDepthTest gls_depth(true, false);
                     triangle_count += drawShape( pixelArea, false, is_dummy  );
                 }
             }
@@ -119,7 +120,7 @@ U32 LLViewerJoint::render( F32 pixelArea, bool first_pass, bool is_dummy )
             {
                 // Render Inside (no Z buffer write)
                 // S24: LLGLCullFace RAII-guards the front-face cull direction so it always
-                // restores on scope exit (matching this file's own LLGLDepthTest pattern right
+                // restores on scope exit (matching this file's own DXDepthTest pattern right
                 // below it), even on an early return/exception - a raw paired
                 // cullFace(GL_FRONT)/cullFace(GL_BACK) call left DXState::sCullFace genuinely
                 // global and un-scoped, and any interruption between the two calls silently
@@ -128,7 +129,7 @@ U32 LLViewerJoint::render( F32 pixelArea, bool first_pass, bool is_dummy )
                 // LLRender::setPolygonOffset()).
                 {
                     LLGLCullFace cull_inside(GL_FRONT);
-                    LLGLDepthTest gls_depth(GL_TRUE, GL_FALSE);
+                    DXDepthTest gls_depth(true, false);
                     triangle_count += drawShape( pixelArea, first_pass, is_dummy  );
                 }
                 // Render Outside (write to the Z buffer) - cull direction already restored above
@@ -151,6 +152,7 @@ U32 LLViewerJoint::render( F32 pixelArea, bool first_pass, bool is_dummy )
     {
         // LLViewerJoint is derived from LLAvatarJoint,
         // all children of LLAvatarJoint are assumed to be LLAvatarJoint
+        // LLJoint is not used directly and is always LLAvatarJoint
         LLAvatarJoint* joint = static_cast<LLAvatarJoint*>(j);
         F32 jointLOD = joint->getLOD();
         if (pixelArea >= jointLOD || sDisableLOD)

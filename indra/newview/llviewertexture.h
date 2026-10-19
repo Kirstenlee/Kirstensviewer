@@ -90,7 +90,7 @@ public:
 
 class LLTextureBar;
 
-class LLViewerTexture : public LLDXTexture
+class LLViewerTexture : public DXTextureBase
 {
 public:
     enum
@@ -683,7 +683,7 @@ public:
     static LLTexturePipelineTester* sTesterp ;
 
     //returns NULL if tex is not a LLViewerFetchedTexture nor derived from LLViewerFetchedTexture.
-    static LLViewerFetchedTexture*    staticCastToFetchedTexture(LLTexture* tex, bool report_error = false) ;
+    static LLViewerFetchedTexture*    staticCastToFetchedTexture(DXTextureBase* tex, bool report_error = false) ;
 
     //
     //"find-texture" just check if the texture exists, if yes, return it, otherwise return null.
@@ -710,7 +710,7 @@ public:
     static LLViewerFetchedTexture* getFetchedTexture(const LLUUID &image_id,
                                      FTType f_type = FTT_DEFAULT,
                                      bool usemipmap = true,
-                                     LLViewerTexture::EBoostLevel boost_priority = LLDXTexture::BOOST_NONE,     // Get the requested level immediately upon creation.
+                                     LLViewerTexture::EBoostLevel boost_priority = DXTextureBase::BOOST_NONE,     // Get the requested level immediately upon creation.
                                      S8 texture_type = LLViewerTexture::FETCHED_TEXTURE,
                                      LLGLint internal_format = 0,
                                      LLGLenum primary_format = 0,
@@ -720,7 +720,7 @@ public:
     static LLViewerFetchedTexture* getFetchedTextureFromFile(const std::string& filename,
                                      FTType f_type = FTT_LOCAL_FILE,
                                      bool usemipmap = true,
-                                     LLViewerTexture::EBoostLevel boost_priority = LLDXTexture::BOOST_NONE,
+                                     LLViewerTexture::EBoostLevel boost_priority = DXTextureBase::BOOST_NONE,
                                      S8 texture_type = LLViewerTexture::FETCHED_TEXTURE,
                                      LLGLint internal_format = 0,
                                      LLGLenum primary_format = 0,
@@ -730,7 +730,7 @@ public:
     static LLViewerFetchedTexture* getFetchedTextureFromUrl(const std::string& url,
                                      FTType f_type,
                                      bool usemipmap = true,
-                                     LLViewerTexture::EBoostLevel boost_priority = LLDXTexture::BOOST_NONE,
+                                     LLViewerTexture::EBoostLevel boost_priority = DXTextureBase::BOOST_NONE,
                                      S8 texture_type = LLViewerTexture::FETCHED_TEXTURE,
                                      LLGLint internal_format = 0,
                                      LLGLenum primary_format = 0,

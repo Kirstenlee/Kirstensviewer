@@ -32,6 +32,7 @@
 #include "llspatialpartition.h"
 #include "llviewerregion.h"
 #include "pipeline.h"
+#include "dxpipeline.h"
 #include "llviewershadermgr.h"
 #include "llviewercontrol.h"
 #include "llenvironment.h"
@@ -78,7 +79,7 @@ LLMirrorProbes::~LLMirrorProbes()
 // helper class to seed octree with probes
 void LLMirrorProbes::update()
 {
-    if (!LLPipeline::RenderMirrors || !LLPipeline::sReflectionProbesEnabled || gTeleportDisplay || LLStartUp::getStartupState() < STATE_PRECACHE)
+    if (!DXPipeline::RenderMirrors || !DXPipeline::sReflectionProbesEnabled || gTeleportDisplay || LLStartUp::getStartupState() < STATE_PRECACHE)
     {
         return;
     }
@@ -233,7 +234,7 @@ void LLMirrorProbes::update()
 
 void LLMirrorProbes::renderProbes()
 {
-    if (!LLPipeline::RenderMirrors || !LLPipeline::sReflectionProbesEnabled || gTeleportDisplay ||
+    if (!DXPipeline::RenderMirrors || !DXPipeline::sReflectionProbesEnabled || gTeleportDisplay ||
         LLStartUp::getStartupState() < STATE_PRECACHE)
     {
         return;
@@ -319,7 +320,7 @@ void LLMirrorProbes::updateProbeFace(LLReflectionMap* probe, U32 face, bool is_d
     sourceIdx += 1;
 
     gDX.setColorWriteMask(true, true);
-    LLGLDepthTest depth(GL_FALSE, GL_FALSE);
+    DXDepthTest depth(false, false);
     LLGLDisable cull(GL_CULL_FACE);
     LLGLDisable blend(GL_BLEND);
 
@@ -381,20 +382,14 @@ void LLMirrorProbes::generateRadiance(LLReflectionMap* probe)
                     // mCapture.getMips()[0] is bound as render target once before this
                     // whole face/mip loop - no SRV bind of the radiance array needed
                     // for the copy, see DXCubeArrayTexture's header comment.
-#ifdef DX_RENDER
                     mCubes.radiance().copySliceFromBoundRenderTarget(i, probe->mCubeIndex * 6 + cf, res, res);
-#else
-                    glCopyTexSubImage3D(GL_TEXTURE_CUBE_MAP_ARRAY, i, 0, 0, probe->mCubeIndex * 6 + cf, 0, 0, res, res);
-#endif
                 }
 
                 if (i != (int)mCapture.getMips().size() - 1)
                 {
                     res /= 2;
-#ifdef DX_RENDER
-                    // Negative height is required here - matches
-                    // llsphereprobes.cpp's sibling viewport setup.
-                    // Do not "normalize" to a positive height; that breaks
+                    // Negative height is required here - matches llsphereprobes.cpp's sibling
+                    // viewport setup. Do not "normalize" to a positive height; that breaks
                     // hero-probe mirror orientation.
                     {
                         D3D11_VIEWPORT vp = {};
@@ -406,9 +401,6 @@ void LLMirrorProbes::generateRadiance(LLReflectionMap* probe)
                         vp.MaxDepth = 1.0f;
                         gDXDevice.getContext()->RSSetViewports(1, &vp);
                     }
-#else
-                    glViewport(0, 0, res, res);
-#endif
                 }
             }
 
@@ -421,14 +413,14 @@ void LLMirrorProbes::generateRadiance(LLReflectionMap* probe)
 
 void LLMirrorProbes::updateUniforms()
 {
-    if (!gPipeline.RenderMirrors)
+    if (!DXPipeline::RenderMirrors)
     {
         return;
     }
 
 
     LLMatrix4a modelview;
-    modelview.loadu(gGLModelView);
+    modelview.loadu(gDXModelView);
     LLVector4a oa; // scratch space for transformed origin
     oa.set(0, 0, 0, 0);
     mHeroData.heroProbeCount = 1;
@@ -486,7 +478,7 @@ void LLMirrorProbes::initReflectionMaps()
 {
     U32 count = LL_MAX_HERO_PROBE_COUNT;
 
-    if ((!mCubes.isAllocated() || mReflectionProbeCount != count || mReset) && LLPipeline::RenderMirrors)
+    if ((!mCubes.isAllocated() || mReflectionProbeCount != count || mReset) && DXPipeline::RenderMirrors)
     {
         if (mReset)
         {

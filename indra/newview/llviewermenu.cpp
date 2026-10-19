@@ -137,6 +137,7 @@
 #include "llworld.h"
 #include "llworldmap.h"
 #include "pipeline.h"
+#include "dxpipeline.h"
 #include "llviewerjoystick.h"
 #include "llfloatercamera.h"
 #include "lluilistener.h"
@@ -871,7 +872,7 @@ class LLAdvancedToggleRenderType : public view_listener_t
         U32 render_type = render_type_from_string( userdata.asString() );
         if ( render_type != 0 )
         {
-            LLPipeline::toggleRenderTypeControl( render_type );
+            DXPipeline::toggleRenderTypeControl(gPipeline,  render_type );
         }
         return true;
     }
@@ -887,7 +888,7 @@ class LLAdvancedCheckRenderType : public view_listener_t
 
         if ( render_type != 0 )
         {
-            new_value = LLPipeline::hasRenderTypeControl( render_type );
+            new_value = DXPipeline::hasRenderTypeControl(gPipeline,  render_type );
         }
 
         return new_value;
@@ -920,7 +921,7 @@ class LLAdvancedToggleFeature : public view_listener_t
         U32 feature = feature_from_string( userdata.asString() );
         if ( feature != 0 )
         {
-            LLPipeline::toggleRenderDebugFeature( feature );
+            DXPipeline::toggleRenderDebugFeature(gPipeline,  feature );
         }
         return true;
     }
@@ -935,7 +936,7 @@ class LLAdvancedCheckFeature : public view_listener_t
 
     if ( feature != 0 )
     {
-        new_value = LLPipeline::toggleRenderDebugFeatureControl( feature );
+        new_value = DXPipeline::toggleRenderDebugFeatureControl(gPipeline,  feature );
     }
 
     return new_value;
@@ -976,7 +977,7 @@ class LLAdvancedSetDisplayTextureDensity : public view_listener_t
         {
             if (gPipeline.hasRenderDebugMask(LLPipeline::RENDER_DEBUG_TEXEL_DENSITY))
             {
-                gPipeline.toggleRenderDebug(LLPipeline::RENDER_DEBUG_TEXEL_DENSITY);
+                DXPipeline::toggleRenderDebug(gPipeline, LLPipeline::RENDER_DEBUG_TEXEL_DENSITY);
             }
             LLViewerTexture::sDebugTexelsMode = LLViewerTexture::DEBUG_TEXELS_OFF;
         }
@@ -984,7 +985,7 @@ class LLAdvancedSetDisplayTextureDensity : public view_listener_t
         {
             if (!gPipeline.hasRenderDebugMask(LLPipeline::RENDER_DEBUG_TEXEL_DENSITY))
             {
-                gPipeline.toggleRenderDebug(LLPipeline::RENDER_DEBUG_TEXEL_DENSITY);
+                DXPipeline::toggleRenderDebug(gPipeline, LLPipeline::RENDER_DEBUG_TEXEL_DENSITY);
             }
             LLViewerTexture::sDebugTexelsMode = LLViewerTexture::DEBUG_TEXELS_CURRENT;
         }
@@ -992,16 +993,16 @@ class LLAdvancedSetDisplayTextureDensity : public view_listener_t
         {
             if (!gPipeline.hasRenderDebugMask(LLPipeline::RENDER_DEBUG_TEXEL_DENSITY))
             {
-                gPipeline.toggleRenderDebug(LLPipeline::RENDER_DEBUG_TEXEL_DENSITY);
+                DXPipeline::toggleRenderDebug(gPipeline, LLPipeline::RENDER_DEBUG_TEXEL_DENSITY);
             }
-            gPipeline.setRenderDebugFeatureControl(LLPipeline::RENDER_DEBUG_TEXEL_DENSITY, true);
+            DXPipeline::setRenderDebugFeatureControl(gPipeline, LLPipeline::RENDER_DEBUG_TEXEL_DENSITY, true);
             LLViewerTexture::sDebugTexelsMode = LLViewerTexture::DEBUG_TEXELS_DESIRED;
         }
         else if (mode == "full")
         {
             if (!gPipeline.hasRenderDebugMask(LLPipeline::RENDER_DEBUG_TEXEL_DENSITY))
             {
-                gPipeline.toggleRenderDebug(LLPipeline::RENDER_DEBUG_TEXEL_DENSITY);
+                DXPipeline::toggleRenderDebug(gPipeline, LLPipeline::RENDER_DEBUG_TEXEL_DENSITY);
             }
             LLViewerTexture::sDebugTexelsMode = LLViewerTexture::DEBUG_TEXELS_FULL;
         }
@@ -1071,7 +1072,7 @@ class LLAdvancedToggleInfoDisplay : public view_listener_t
         
         if ( info_display != 0 )
         {
-            LLPipeline::toggleRenderDebug( info_display );
+            DXPipeline::toggleRenderDebug(gPipeline,  info_display );
         }
 
         return true;
@@ -1084,7 +1085,7 @@ class LLAdvancedCheckInfoDisplay : public view_listener_t
     bool handleEvent(const LLSD& userdata)
     {
         const U64 info_display = info_display_from_string(userdata.asString());
-        return (info_display != 0) && LLPipeline::toggleRenderDebugControl(info_display);
+        return (info_display != 0) && DXPipeline::toggleRenderDebugControl(gPipeline, info_display);
     }
 };
 
@@ -1223,7 +1224,7 @@ class LLAdvancedRebuildTerrain : public view_listener_t
 {
     bool handleEvent(const LLSD& userdata)
     {
-        gPipeline.rebuildTerrain();
+        DXPipeline::rebuildTerrain(gPipeline);
         return true;
     }
 };
@@ -2123,6 +2124,29 @@ class LLAdvancedPurgeShaderCache : public view_listener_t
         LLViewerShaderMgr::instance()->clearShaderCache();
         LLShaderMgr::instance()->clearRawShaderFileCache();
         LLViewerShaderMgr::instance()->setShaders();
+        return true;
+    }
+};
+
+//////////////////////
+// BAKE BRDF LUT    //
+//////////////////////
+
+// S24: dev-only - see LLPipeline::bakeBrdfLut()'s comment. Runs the real, expensive BRDF LUT
+// generator shader once and writes its output to the baked asset file that normal startup
+// loads instead of ever running that shader itself.
+class LLAdvancedBakeBrdfLut : public view_listener_t
+{
+    bool handleEvent(const LLSD& userdata)
+    {
+        if (DXPipeline::bakeBrdfLut(gPipeline))
+        {
+            LLNotificationsUtil::add("S24BakeBrdfLutSuccess");
+        }
+        else
+        {
+            LLNotificationsUtil::add("S24BakeBrdfLutFailure");
+        }
         return true;
     }
 };
@@ -8226,12 +8250,12 @@ class LLAdvancedClickResizeWindow : public view_listener_t
 
 void menu_toggle_attached_lights()
 {
-    LLPipeline::sRenderAttachedLights = gSavedSettings.getBOOL("RenderAttachedLights");
+    DXPipeline::sRenderAttachedLights = gSavedSettings.getBOOL("RenderAttachedLights");
 }
 
 void menu_toggle_attached_particles()
 {
-    LLPipeline::sRenderAttachedParticles = gSavedSettings.getBOOL("RenderAttachedParticles");
+    DXPipeline::sRenderAttachedParticles = gSavedSettings.getBOOL("RenderAttachedParticles");
 }
 
 class LLAdvancedHandleAttachedLightParticles: public view_listener_t
@@ -9032,7 +9056,7 @@ class LLViewHighlightTransparent : public view_listener_t
         DXDrawPoolAlpha::sShowDebugAlpha = !DXDrawPoolAlpha::sShowDebugAlpha;
 
         // invisible objects skip building their render batches unless sShowDebugAlpha is true, so rebuild batches whenever toggling this flag
-        gPipeline.rebuildDrawInfo();
+        DXPipeline::rebuildDrawInfo(gPipeline);
         return true;
     }
 };
@@ -9043,7 +9067,7 @@ class LLViewHighlightTransparentProbe : public view_listener_t
     {
         gSavedSettings.setBOOL("RenderReflectionProbeShowTransparent", !gSavedSettings.getBOOL("RenderReflectionProbeShowTransparent"));
         // invisible objects skip building their render batches unless sShowDebugAlpha is true, so rebuild batches whenever toggling this flag
-        gPipeline.rebuildDrawInfo();
+        DXPipeline::rebuildDrawInfo(gPipeline);
         return true;
     }
 };
@@ -9091,44 +9115,44 @@ class LLViewToggleBeacon : public view_listener_t
         std::string beacon = userdata.asString();
         if (beacon == "scriptsbeacon")
         {
-            LLPipeline::toggleRenderScriptedBeacons();
-            gSavedSettings.setBOOL( "scriptsbeacon", LLPipeline::getRenderScriptedBeacons() );
+            DXPipeline::toggleRenderScriptedBeacons();
+            gSavedSettings.setBOOL( "scriptsbeacon", DXPipeline::getRenderScriptedBeacons() );
             // toggle the other one off if it's on
-            if (LLPipeline::getRenderScriptedBeacons() && LLPipeline::getRenderScriptedTouchBeacons())
+            if (DXPipeline::getRenderScriptedBeacons() && DXPipeline::getRenderScriptedTouchBeacons())
             {
-                LLPipeline::toggleRenderScriptedTouchBeacons();
-                gSavedSettings.setBOOL( "scripttouchbeacon", LLPipeline::getRenderScriptedTouchBeacons() );
+                DXPipeline::toggleRenderScriptedTouchBeacons();
+                gSavedSettings.setBOOL( "scripttouchbeacon", DXPipeline::getRenderScriptedTouchBeacons() );
             }
         }
         else if (beacon == "physicalbeacon")
         {
-            LLPipeline::toggleRenderPhysicalBeacons();
-            gSavedSettings.setBOOL( "physicalbeacon", LLPipeline::getRenderPhysicalBeacons() );
+            DXPipeline::toggleRenderPhysicalBeacons();
+            gSavedSettings.setBOOL( "physicalbeacon", DXPipeline::getRenderPhysicalBeacons() );
         }
         else if (beacon == "moapbeacon")
         {
-            LLPipeline::toggleRenderMOAPBeacons();
-            gSavedSettings.setBOOL( "moapbeacon", LLPipeline::getRenderMOAPBeacons() );
+            DXPipeline::toggleRenderMOAPBeacons();
+            gSavedSettings.setBOOL( "moapbeacon", DXPipeline::getRenderMOAPBeacons() );
         }
         else if (beacon == "soundsbeacon")
         {
-            LLPipeline::toggleRenderSoundBeacons();
-            gSavedSettings.setBOOL( "soundsbeacon", LLPipeline::getRenderSoundBeacons() );
+            DXPipeline::toggleRenderSoundBeacons();
+            gSavedSettings.setBOOL( "soundsbeacon", DXPipeline::getRenderSoundBeacons() );
         }
         else if (beacon == "particlesbeacon")
         {
-            LLPipeline::toggleRenderParticleBeacons();
-            gSavedSettings.setBOOL( "particlesbeacon", LLPipeline::getRenderParticleBeacons() );
+            DXPipeline::toggleRenderParticleBeacons();
+            gSavedSettings.setBOOL( "particlesbeacon", DXPipeline::getRenderParticleBeacons() );
         }
         else if (beacon == "scripttouchbeacon")
         {
-            LLPipeline::toggleRenderScriptedTouchBeacons();
-            gSavedSettings.setBOOL( "scripttouchbeacon", LLPipeline::getRenderScriptedTouchBeacons() );
+            DXPipeline::toggleRenderScriptedTouchBeacons();
+            gSavedSettings.setBOOL( "scripttouchbeacon", DXPipeline::getRenderScriptedTouchBeacons() );
             // toggle the other one off if it's on
-            if (LLPipeline::getRenderScriptedBeacons() && LLPipeline::getRenderScriptedTouchBeacons())
+            if (DXPipeline::getRenderScriptedBeacons() && DXPipeline::getRenderScriptedTouchBeacons())
             {
-                LLPipeline::toggleRenderScriptedBeacons();
-                gSavedSettings.setBOOL( "scriptsbeacon", LLPipeline::getRenderScriptedBeacons() );
+                DXPipeline::toggleRenderScriptedBeacons();
+                gSavedSettings.setBOOL( "scriptsbeacon", DXPipeline::getRenderScriptedBeacons() );
             }
         }
         else if (beacon == "sunbeacon")
@@ -9141,24 +9165,24 @@ class LLViewToggleBeacon : public view_listener_t
         }
         else if (beacon == "renderbeacons")
         {
-            LLPipeline::toggleRenderBeacons();
-            gSavedSettings.setBOOL( "renderbeacons", LLPipeline::getRenderBeacons() );
+            DXPipeline::toggleRenderBeacons();
+            gSavedSettings.setBOOL( "renderbeacons", DXPipeline::getRenderBeacons() );
             // toggle the other one on if it's not
-            if (!LLPipeline::getRenderBeacons() && !LLPipeline::getRenderHighlights())
+            if (!DXPipeline::getRenderBeacons() && !DXPipeline::getRenderHighlights())
             {
-                LLPipeline::toggleRenderHighlights();
-                gSavedSettings.setBOOL( "renderhighlights", LLPipeline::getRenderHighlights() );
+                DXPipeline::toggleRenderHighlights();
+                gSavedSettings.setBOOL( "renderhighlights", DXPipeline::getRenderHighlights() );
             }
         }
         else if (beacon == "renderhighlights")
         {
-            LLPipeline::toggleRenderHighlights();
-            gSavedSettings.setBOOL( "renderhighlights", LLPipeline::getRenderHighlights() );
+            DXPipeline::toggleRenderHighlights();
+            gSavedSettings.setBOOL( "renderhighlights", DXPipeline::getRenderHighlights() );
             // toggle the other one on if it's not
-            if (!LLPipeline::getRenderBeacons() && !LLPipeline::getRenderHighlights())
+            if (!DXPipeline::getRenderBeacons() && !DXPipeline::getRenderHighlights())
             {
-                LLPipeline::toggleRenderBeacons();
-                gSavedSettings.setBOOL( "renderbeacons", LLPipeline::getRenderBeacons() );
+                DXPipeline::toggleRenderBeacons();
+                gSavedSettings.setBOOL( "renderbeacons", DXPipeline::getRenderBeacons() );
             }
         }
 
@@ -9175,42 +9199,42 @@ class LLViewCheckBeaconEnabled : public view_listener_t
         if (beacon == "scriptsbeacon")
         {
             new_value = gSavedSettings.getBOOL( "scriptsbeacon");
-            LLPipeline::setRenderScriptedBeacons(new_value);
+            DXPipeline::setRenderScriptedBeacons(new_value);
         }
         else if (beacon == "moapbeacon")
         {
             new_value = gSavedSettings.getBOOL( "moapbeacon");
-            LLPipeline::setRenderMOAPBeacons(new_value);
+            DXPipeline::setRenderMOAPBeacons(new_value);
         }
         else if (beacon == "physicalbeacon")
         {
             new_value = gSavedSettings.getBOOL( "physicalbeacon");
-            LLPipeline::setRenderPhysicalBeacons(new_value);
+            DXPipeline::setRenderPhysicalBeacons(new_value);
         }
         else if (beacon == "soundsbeacon")
         {
             new_value = gSavedSettings.getBOOL( "soundsbeacon");
-            LLPipeline::setRenderSoundBeacons(new_value);
+            DXPipeline::setRenderSoundBeacons(new_value);
         }
         else if (beacon == "particlesbeacon")
         {
             new_value = gSavedSettings.getBOOL( "particlesbeacon");
-            LLPipeline::setRenderParticleBeacons(new_value);
+            DXPipeline::setRenderParticleBeacons(new_value);
         }
         else if (beacon == "scripttouchbeacon")
         {
             new_value = gSavedSettings.getBOOL( "scripttouchbeacon");
-            LLPipeline::setRenderScriptedTouchBeacons(new_value);
+            DXPipeline::setRenderScriptedTouchBeacons(new_value);
         }
         else if (beacon == "renderbeacons")
         {
             new_value = gSavedSettings.getBOOL( "renderbeacons");
-            LLPipeline::setRenderBeacons(new_value);
+            DXPipeline::setRenderBeacons(new_value);
         }
         else if (beacon == "renderhighlights")
         {
             new_value = gSavedSettings.getBOOL( "renderhighlights");
-            LLPipeline::setRenderHighlights(new_value);
+            DXPipeline::setRenderHighlights(new_value);
         }
         return new_value;
     }
@@ -9223,7 +9247,7 @@ class LLViewToggleRenderType : public view_listener_t
         std::string type = userdata.asString();
         if (type == "hideparticles")
         {
-            LLPipeline::toggleRenderType(LLPipeline::RENDER_TYPE_PARTICLES);
+            DXPipeline::toggleRenderType(gPipeline, LLPipeline::RENDER_TYPE_PARTICLES);
         }
         return true;
     }
@@ -9237,7 +9261,7 @@ class LLViewCheckRenderType : public view_listener_t
         bool new_value = false;
         if (type == "hideparticles")
         {
-            new_value = LLPipeline::toggleRenderTypeControlNegated(LLPipeline::RENDER_TYPE_PARTICLES);
+            new_value = DXPipeline::toggleRenderTypeControlNegated(gPipeline, LLPipeline::RENDER_TYPE_PARTICLES);
         }
         return new_value;
     }
@@ -9263,7 +9287,7 @@ class LLViewShowHUDAttachments : public view_listener_t
 {
     bool handleEvent(const LLSD& userdata)
     {
-        LLPipeline::sShowHUDAttachments = !LLPipeline::sShowHUDAttachments;
+        DXPipeline::sShowHUDAttachments = !DXPipeline::sShowHUDAttachments;
         return true;
     }
 };
@@ -9272,7 +9296,7 @@ class LLViewCheckHUDAttachments : public view_listener_t
 {
     bool handleEvent(const LLSD& userdata)
     {
-        bool new_value = LLPipeline::sShowHUDAttachments;
+        bool new_value = DXPipeline::sShowHUDAttachments;
         return new_value;
     }
 };
@@ -9953,6 +9977,7 @@ void initialize_menus()
     view_listener_t::addMenu(new LLAdvancedClickGLTFEdit(), "Advanced.ClickGLTFEdit");
     view_listener_t::addMenu(new LLAdvancedClickResizeWindow(), "Advanced.ClickResizeWindow");
     view_listener_t::addMenu(new LLAdvancedPurgeShaderCache(), "Advanced.ClearShaderCache");
+    view_listener_t::addMenu(new LLAdvancedBakeBrdfLut(), "Advanced.BakeBrdfLut");
 
     #ifdef TOGGLE_HACKED_GODLIKE_VIEWER
     view_listener_t::addMenu(new LLAdvancedHandleToggleHackedGodmode(), "Advanced.HandleToggleHackedGodmode");

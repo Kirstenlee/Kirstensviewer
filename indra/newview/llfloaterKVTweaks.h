@@ -69,6 +69,18 @@ protected:
 	// S24 - Movement tab handlers
 	void onClickResetMovement();
 
+	// S24 - Alpha tab handler
+	void onClickResetAlpha();
+
+	// S24 - Materials tab handler
+	void onClickResetMaterials();
+
+	// S24 - Cubemap tab handler
+	void onClickResetCubemap();
+
+	// S24 - Experimental tab: Master Cube handler
+	void onClickResetMasterCube();
+
 	// S24 - UI Hue Shift tab handler
 	void onClickResetUIHue();
 

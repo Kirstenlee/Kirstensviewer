@@ -50,6 +50,7 @@
 #include "llfloatertools.h"
 #include "llglheaders.h"
 #include "pipeline.h"
+#include "dxpipeline.h"
 
 
 static constexpr U8  OVERLAY_IMG_COMPONENTS = 4;
@@ -109,7 +110,7 @@ LLViewerParcelOverlay::LLViewerParcelOverlay(LLViewerRegion* region, F32 region_
         mOwnership[i] = PARCEL_PUBLIC;
     }
 
-    gPipeline.markGLRebuild(this);
+    DXPipeline::markGLRebuild(gPipeline, this);
 }
 
 
@@ -644,7 +645,7 @@ void LLViewerParcelOverlay::idleUpdate(bool force_update)
     if (mOverlayTextureIdx >= 0 && (!(mDirty && force_update)))
     {
         // We are in the middle of updating the overlay texture
-        gPipeline.markGLRebuild(this);
+        DXPipeline::markGLRebuild(gPipeline, this);
         return;
     }
     // Only if we're dirty and it's been a while since the last update.
@@ -668,12 +669,12 @@ void LLViewerParcelOverlay::renderPropertyLines()
 
     LLSurface& land = mRegion->getLand();
 
-    bool render_water = gPipeline.hasRenderType(LLPipeline::RENDER_TYPE_WATER);
+    bool render_water = DXPipeline::hasRenderType(gPipeline, LLPipeline::RENDER_TYPE_WATER);
     F32 water_z = render_water ? land.getWaterHeight() + 0.01f : 0;
 
-    LLGLSUIDefault gls_ui; // called from pipeline
+    DXUIDefault gls_ui; // called from pipeline
     gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
-    LLGLDepthTest mDepthTest(GL_TRUE);
+    DXDepthTest mDepthTest(true);
 
     // Find camera height off the ground (not from zero)
     F32 ground_height_at_camera = land.resolveHeightGlobal( gAgentCamera.getCameraPositionGlobal() );
@@ -754,7 +755,7 @@ void LLViewerParcelOverlay::renderPropertyLines()
 
             if (render_hidden)
             {
-                LLGLDepthTest depth(GL_TRUE, GL_FALSE, GL_GREATER);
+                DXDepthTest depth(true, false, GL_GREATER);
 
             gDX.begin(LLRender::TRIANGLE_STRIP);
 
@@ -810,8 +811,7 @@ void LLViewerParcelOverlay::renderPropertyLinesOnMinimap(F32 scale_pixels_per_me
     const S32 GRIDS_PER_EDGE   = mParcelGridsPerEdge;
 
     gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
-    // S24: raw glLineWidth() was unguarded here - found in a tree-wide stray-GL sweep (task #311).
-    // LLUI::setLineWidth() is the same no-op-under-DX_RENDER replacement used tree-wide.
+    // S24: glLineWidth() has no DX11 equivalent; LLUI::setLineWidth() is the no-op stand-in under DX_RENDER.
     LLUI::setLineWidth(1.0f);
     gDX.color4fv(parcel_outline_color);
     for (S32 i = 0; i <= GRIDS_PER_EDGE; i++)

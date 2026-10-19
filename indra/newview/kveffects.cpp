@@ -37,12 +37,9 @@
 #include <algorithm>
 #include <cmath>
 
-// DX_RENDER read/write bookend for the effect functions below — the OpenCL
-// pipeline itself is backend-agnostic; only the GL texture read/write steps
-// (glGetTexImage()/glTexSubImage2D()) needed a DX equivalent.
-#ifdef DX_RENDER
+// Read/write bookend for the effect functions below - the OpenCL pipeline
+// itself is backend-agnostic; only the texture read/write steps needed this.
 #include "DXReadback.h"
-#endif
 
 // ============================================================
 //  Global OpenCL Instance

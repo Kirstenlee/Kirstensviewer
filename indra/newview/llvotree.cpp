@@ -28,7 +28,7 @@
 
 #include "llvotree.h"
 
-#include "lldrawpooltree.h"
+#include "dxdrawpooltree.h"
 
 #include "llviewercontrol.h"
 #include "lldir.h"
@@ -50,6 +50,7 @@
 #include "llworld.h"
 #include "noise.h"
 #include "pipeline.h"
+#include "dxpipeline.h"
 #include "llspatialpartition.h"
 #include "llnotificationsutil.h"
 #include "raytrace.h"
@@ -320,7 +321,7 @@ U32 LLVOTree::processUpdateMessage(LLMessageSystem* mesgsys,
 	//  Load Species-Specific data
 	//
 	static const S32 MAX_TREE_TEXTURE_VIRTURE_SIZE_RESET_INTERVAL = 32; //frames.
-	mTreeImagep = LLViewerTextureManager::getFetchedTexture(sSpeciesTable[mSpecies]->mTextureID, FTT_DEFAULT, true, LLDXTexture::BOOST_NONE, LLViewerTexture::LOD_TEXTURE);
+	mTreeImagep = LLViewerTextureManager::getFetchedTexture(sSpeciesTable[mSpecies]->mTextureID, FTT_DEFAULT, true, DXTextureBase::BOOST_NONE, LLViewerTexture::LOD_TEXTURE);
 	mTreeImagep->setMaxVirtualSizeResetInterval(MAX_TREE_TEXTURE_VIRTURE_SIZE_RESET_INTERVAL); //allow to wait for at most 16 frames to reset virtual size.
 
 	mBranchLength = sSpeciesTable[mSpecies]->mBranchLength;
@@ -338,14 +339,14 @@ U32 LLVOTree::processUpdateMessage(LLMessageSystem* mesgsys,
 	mBranchAspect = sSpeciesTable[mSpecies]->mBranchAspect;
 
 	// position change not caused by us, etc.  make sure to rebuild.
-	gPipeline.markRebuild(mDrawable, LLDrawable::REBUILD_ALL);
+	DXPipeline::markRebuild(gPipeline, mDrawable, LLDrawable::REBUILD_ALL);
 
 	return retval;
 }
 
 void LLVOTree::idleUpdate(LLAgent& agent, const F64& time)
 {
-	if (mDead || !(gPipeline.hasRenderType(LLPipeline::RENDER_TYPE_TREE)))
+	if (mDead || !(DXPipeline::hasRenderType(gPipeline, LLPipeline::RENDER_TYPE_TREE)))
 	{
 		return;
 	}
@@ -374,11 +375,11 @@ void LLVOTree::idleUpdate(LLAgent& agent, const F64& time)
 
 	if (mReferenceBuffer.isNull())
 	{
-		gPipeline.markRebuild(mDrawable, LLDrawable::REBUILD_ALL);
+		DXPipeline::markRebuild(gPipeline, mDrawable, LLDrawable::REBUILD_ALL);
 	}
 	else if (trunk_LOD != mTrunkLOD)
 	{
-		gPipeline.markRebuild(mDrawable, LLDrawable::REBUILD_ALL);
+		DXPipeline::markRebuild(gPipeline, mDrawable, LLDrawable::REBUILD_ALL);
 	}
 	else
 	{
@@ -391,7 +392,7 @@ void LLVOTree::idleUpdate(LLAgent& agent, const F64& time)
 		const LLVector3& this_position = getPositionRegion();
 		if (this_position != mLastPosition)
 		{
-			gPipeline.markRebuild(mDrawable, LLDrawable::REBUILD_POSITION);
+			DXPipeline::markRebuild(gPipeline, mDrawable, LLDrawable::REBUILD_POSITION);
 			mLastPosition = this_position;
 		}
 		else
@@ -400,7 +401,7 @@ void LLVOTree::idleUpdate(LLAgent& agent, const F64& time)
 
 			if (this_rotation != mLastRotation)
 			{
-				gPipeline.markRebuild(mDrawable, LLDrawable::REBUILD_POSITION);
+				DXPipeline::markRebuild(gPipeline, mDrawable, LLDrawable::REBUILD_POSITION);
 				mLastRotation = this_rotation;
 			}
 		}
@@ -467,12 +468,12 @@ void LLVOTree::updateTextures()
 
 LLDrawable* LLVOTree::createDrawable(LLPipeline* pipeline)
 {
-	pipeline->allocDrawable(this);
+	DXPipeline::allocDrawable(*pipeline, this);
 	mDrawable->setLit(false);
 
 	mDrawable->setRenderType(LLPipeline::RENDER_TYPE_TREE);
 
-	LLDrawPoolTree* poolp = (LLDrawPoolTree*)gPipeline.getPool(LLDrawPool::POOL_TREE, mTreeImagep);
+	LLDrawPoolTree* poolp = (LLDrawPoolTree*)DXPipeline::getPool(gPipeline, LLDrawPool::POOL_TREE, mTreeImagep);
 
 	// Just a placeholder for an actual object...
 	LLFace* facep = mDrawable->addFace(poolp, mTreeImagep);

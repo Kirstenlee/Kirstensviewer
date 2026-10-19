@@ -28,7 +28,7 @@
 
 #include "llvosurfacepatch.h"
 
-#include "lldrawpoolterrain.h"
+#include "dxdrawpoolterrain.h"
 
 #include "lldrawable.h"
 #include "llface.h"
@@ -42,6 +42,7 @@
 #include "llvolume.h"
 #include "llvovolume.h"
 #include "pipeline.h"
+#include "dxpipeline.h"
 #include "llspatialpartition.h"
 
 F32 LLVOSurfacePatch::sLODFactor = 1.f;
@@ -102,7 +103,7 @@ void LLVOSurfacePatch::updateTextures()
 
 LLFacePool *LLVOSurfacePatch::getPool()
 {
-    mPool = (LLDrawPoolTerrain*) gPipeline.getPool(LLDrawPool::POOL_TERRAIN, mPatchp->getSurface()->getSTexture());
+    mPool = (LLDrawPoolTerrain*) DXPipeline::getPool(gPipeline, LLDrawPool::POOL_TERRAIN, mPatchp->getSurface()->getSTexture());
 
     return mPool;
 }
@@ -110,7 +111,7 @@ LLFacePool *LLVOSurfacePatch::getPool()
 
 LLDrawable *LLVOSurfacePatch::createDrawable(LLPipeline *pipeline)
 {
-    pipeline->allocDrawable(this);
+    DXPipeline::allocDrawable(*pipeline, this);
 
     mDrawable->setRenderType(LLPipeline::RENDER_TYPE_TERRAIN);
 
@@ -779,7 +780,7 @@ void LLVOSurfacePatch::dirtyGeom()
 {
     if (mDrawable)
     {
-        gPipeline.markRebuild(mDrawable, LLDrawable::REBUILD_ALL);
+        DXPipeline::markRebuild(gPipeline, mDrawable, LLDrawable::REBUILD_ALL);
         LLFace* facep = mDrawable->getFace(0);
         if (facep)
         {

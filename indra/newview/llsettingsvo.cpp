@@ -31,6 +31,7 @@
 #include "llsettingsvo.h"
 
 #include "pipeline.h"
+#include "dxpipeline.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -58,7 +59,7 @@
 #include "llinventorymodel.h"
 #include "llassetstorage.h"
 #include "llfilesystem.h"
-#include "lldrawpoolwater.h"
+#include "dxdrawpoolwater.h"
 
 #include <boost/algorithm/string/replace.hpp>
 #include "llinventoryobserver.h"
@@ -833,7 +834,7 @@ void LLSettingsVOSky::applySpecial(void *ptarget, bool force)
             shader->uniform1f(LLShaderMgr::SKY_HDR_SCALE, sqrtf(g)*2.0f); // use a modifier here so 1.0 maps to the "most desirable" default and the maximum value doesn't go off the rails
 
             // Low quality setting
-            if (!LLPipeline::sReflectionProbesEnabled)
+            if (!DXPipeline::sReflectionProbesEnabled)
                 probe_ambiance = DEFAULT_AUTO_ADJUST_PROBE_AMBIANCE;
         }
         else if (psky->canAutoAdjust() && should_auto_adjust)
@@ -1146,7 +1147,7 @@ void LLSettingsVOWater::updateSettings()
     // base class clears dirty flag so as to not trigger recursive update
     LLSettingsBase::updateSettings();
 
-    LLDrawPoolWater* pwaterpool = (LLDrawPoolWater*)gPipeline.getPool(LLDrawPool::POOL_WATER);
+    LLDrawPoolWater* pwaterpool = (LLDrawPoolWater*)DXPipeline::getPool(gPipeline, LLDrawPool::POOL_WATER);
     if (pwaterpool)
     {
         pwaterpool->setTransparentTextures(getTransparentTextureID(), getNextTransparentTextureID());

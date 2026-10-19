@@ -51,6 +51,7 @@
 #include "llviewercontrol.h"
 #include "llviewerparcelmgr.h"
 #include "pipeline.h"
+#include "dxpipeline.h"
 
 #define XUI_RENDER_HEATMAP_NONE 0
 #define XUI_RENDER_HEATMAP_A 1
@@ -681,7 +682,7 @@ void LLFloaterPathfindingConsole::updateRenderablesObjects()
 {
     if ( isRenderWorldMovablesOnly() )
     {
-        gPipeline.hidePermanentObjects( mRenderableRestoreList );
+        DXPipeline::hidePermanentObjects(gPipeline,  mRenderableRestoreList );
     }
     else
     {
@@ -931,12 +932,12 @@ void LLFloaterPathfindingConsole::cleanupRenderableRestoreItems()
 {
     if ( !mRenderableRestoreList.empty() )
     {
-        gPipeline.restorePermanentObjects( mRenderableRestoreList );
+        DXPipeline::restorePermanentObjects(gPipeline,  mRenderableRestoreList );
         mRenderableRestoreList.clear();
     }
     else
     {
-        gPipeline.skipRenderingOfTerrain( false );
+        DXPipeline::skipRenderingOfTerrain(gPipeline,  false );
     }
 }
 

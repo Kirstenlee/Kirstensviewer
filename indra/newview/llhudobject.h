@@ -36,7 +36,11 @@
 #include "v4color.h"
 #include "v3math.h"
 #include "v3dmath.h"
-#include "lldrawpool.h"     // TODO: eliminate, unused below
+// S24: looks unused by any symbol in this header, but removing it broke an
+// unrelated TU (llvoicevisualizer.cpp's LLTexUnit::bind() overload
+// resolution needs a type-completeness chain this include's own includes
+// happen to provide) - confirmed by a real build failure, 2026-10-13. Keep.
+#include "dxdrawpool.h"
 #include <list>
 
 class LLViewerCamera;

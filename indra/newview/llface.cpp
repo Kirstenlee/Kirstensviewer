@@ -38,8 +38,8 @@
 
 #include "lldefs.h"
 
-#include "lldrawpoolavatar.h"
-#include "lldrawpoolbump.h"
+#include "dxdrawpoolavatar.h"
+#include "dxdrawpoolbump.h"
 #include "llgl.h"
 #include "llrender.h"
 #include "lllightconstants.h"
@@ -49,6 +49,7 @@
 #include "llvopartgroup.h"
 #include "llvovolume.h"
 #include "pipeline.h"
+#include "dxpipeline.h"
 #include "llviewerregion.h"
 #include "llviewerwindow.h"
 #include "llviewershadermgr.h"
@@ -58,10 +59,8 @@
 #include "llmeshrepository.h"
 #include "llskinningutil.h"
 
-#ifdef DX_RENDER
 #include "DXDevice.h"
 #include "DXStateCache.h"
-#endif
 
 
 #define LL_MAX_INDICES_COUNT 1000000
@@ -179,7 +178,7 @@ void LLFace::destroy()
 {
     if (gDebugGL)
     {
-        gPipeline.checkReferences(this);
+        DXPipeline::checkReferences(gPipeline, this);
     }
 
     for (U32 i = 0; i < LLRender::NUM_TEXTURE_CHANNELS; ++i)
@@ -213,7 +212,7 @@ void LLFace::destroy()
             if (group)
             {
                 group->dirtyGeom();
-                gPipeline.markRebuild(group);
+                DXPipeline::markRebuild(gPipeline, group);
             }
         }
     }
@@ -251,7 +250,7 @@ void LLFace::setPool(LLFacePool* new_pool, LLViewerTexture *texturep)
 
             if (mDrawablep)
             {
-                gPipeline.markRebuild(mDrawablep, LLDrawable::REBUILD_ALL);
+                DXPipeline::markRebuild(gPipeline, mDrawablep, LLDrawable::REBUILD_ALL);
             }
         }
         mGeomIndex = 0;
@@ -332,12 +331,12 @@ void LLFace::dirtyTexture()
 
                     vobj->updateVisualComplexity();
                 }
-                gPipeline.markRebuild(drawablep, LLDrawable::REBUILD_VOLUME);
+                DXPipeline::markRebuild(gPipeline, drawablep, LLDrawable::REBUILD_VOLUME);
             }
         }
     }
 
-    gPipeline.markTextured(drawablep);
+    DXPipeline::markTextured(gPipeline, drawablep);
 }
 
 void LLFace::switchTexture(U32 ch, LLViewerTexture* new_texture)
@@ -532,31 +531,10 @@ void LLFace::renderSelected(LLViewerTexture *imagep, const LLColor4& color)
 
         if (mDrawablep->isState(LLDrawable::RIGGED))
         {
-#if 0 // TODO --  there is no way this won't destroy our GL machine as implemented, rewrite it to not rely on software skinning
-            LLVOVolume* volume = mDrawablep->getVOVolume();
-            if (volume)
-            {
-                LLRiggedVolume* rigged = volume->getRiggedVolume();
-                if (rigged)
-                {
-                    // called when selecting a face during edit of a mesh object
-                    LLGLEnable offset(GL_POLYGON_OFFSET_FILL);
-                    glPolygonOffset(-1.f, -1.f);
-                    gDX.multMatrix((F32*) volume->getRelativeXform().mMatrix);
-                    const LLVolumeFace& vol_face = rigged->getVolumeFace(getTEOffset());
-                    LLVertexBuffer::unbind();
-                    glVertexPointer(3, GL_FLOAT, 16, vol_face.mPositions);
-                    if (vol_face.mTexCoords)
-                    {
-                        glEnableClientState(GL_TEXTURE_COORD_ARRAY);
-                        glTexCoordPointer(2, GL_FLOAT, 8, vol_face.mTexCoords);
-                    }
-                    gDX.syncMatrices();
-                    glDrawElements(GL_TRIANGLES, vol_face.mNumIndices, GL_UNSIGNED_SHORT, vol_face.mIndices);
-                    glDisableClientState(GL_TEXTURE_COORD_ARRAY);
-                }
-            }
-#endif
+            // S24: rigged-face selection highlight intentionally no-ops - the old
+            // implementation relied on software skinning via immediate-mode GL
+            // (glVertexPointer/glDrawElements) and was never safe to enable, GL or
+            // DX_RENDER. Was already #if 0'd out (dead code, never compiled); removed.
         }
         else
         {
@@ -615,7 +593,7 @@ void LLFace::renderOneWireframe(const LLColor4 &color, F32 fogCfx, bool wirefram
     if (bRenderHiddenSelections)
     {
         gDX.blendFunc(LLRender::BF_SOURCE_COLOR, LLRender::BF_ONE);
-        LLGLDepthTest gls_depth(GL_TRUE, GL_FALSE, GL_GEQUAL);
+        DXDepthTest gls_depth(true, false, GL_GEQUAL);
         if (shader)
         {
             gDX.diffuseColor4f(color.mV[VRED], color.mV[VGREEN], color.mV[VBLUE], 0.4f);
@@ -640,19 +618,11 @@ void LLFace::renderOneWireframe(const LLColor4 &color, F32 fogCfx, bool wirefram
         LLGLDisable depth(wireframe_selection ? 0 : GL_BLEND);
 
         LLGLEnable offset(GL_POLYGON_OFFSET_LINE);
-#ifndef DX_RENDER
-        glPolygonOffset(3.f, 3.f);
-        glLineWidth(5.f);
-        glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-        renderFace(mDrawablep, this);
-#else
-        // D3D11 fill mode (wireframe vs solid) is a rasterizer-state
-        // CREATION-time field, not per-draw like glPolygonMode() - handled
-        // via DXStateCache::getRasterizerState()'s wireframe_enabled param.
-        // No D3D11 line-width equivalent for wireframe edges (always 1px,
-        // unlike GL's 5px here) - a real, smaller residual gap.
-        // Depth-bias (3, 3), matching GL's GL_POLYGON_OFFSET_LINE here, is
-        // also passed through getRasterizerState() rather than hardcoded.
+        // D3D11 fill mode (wireframe vs solid) is a rasterizer-state CREATION-time field, not
+        // per-draw like GL's glPolygonMode() - handled via DXStateCache::getRasterizerState()'s
+        // wireframe_enabled param. No D3D11 line-width equivalent for wireframe edges (always
+        // 1px, unlike GL's 5px) - a real, smaller residual gap. Depth-bias (3, 3) is also passed
+        // through getRasterizerState() rather than hardcoded.
         ID3D11DeviceContext* ctx = gDXDevice.getContext();
         ID3D11RasterizerState* wire_rs = DXStateCache::getRasterizerState(
             DXState::isEnabled(GL_CULL_FACE), DXState::isEnabled(GL_SCISSOR_TEST),
@@ -665,7 +635,6 @@ void LLFace::renderOneWireframe(const LLColor4 &color, F32 fogCfx, bool wirefram
             DXState::isEnabled(GL_CULL_FACE), DXState::isEnabled(GL_SCISSOR_TEST),
             DXState::isEnabled(GL_DEPTH_CLAMP), 0.f, 0.f, false);
         ctx->RSSetState(normal_rs);
-#endif
     }
 }
 
@@ -1171,7 +1140,7 @@ bool LLFace::canRenderAsMask()
         return false;
     }
 
-    if (LLPipeline::sNoAlpha)
+    if (DXPipeline::sNoAlpha)
     {
         return true;
     }
@@ -1194,11 +1163,11 @@ bool LLFace::canRenderAsMask()
     {
         if (getViewerObject()->isHUDAttachment() || te->getFullbright())
         { //hud attachments and fullbright objects are NOT subject to the deferred rendering pipe
-            return LLPipeline::sAutoMaskAlphaNonDeferred;
+            return DXPipeline::sAutoMaskAlphaNonDeferred;
         }
         else
         {
-            return LLPipeline::sAutoMaskAlphaDeferred;
+            return DXPipeline::sAutoMaskAlphaDeferred;
         }
     }
 
@@ -1322,7 +1291,7 @@ bool LLFace::getGeometryVolume(const LLVolume& volume,
     LLGLTFMaterial::TextureInfo gltf_info_index = (LLGLTFMaterial::TextureInfo)0;
     if (gltf_mat && rebuild_for_gltf)
     {
-        switch (LLPipeline::sRenderHighlightTextureChannel)
+        switch (DXPipeline::sRenderHighlightTextureChannel)
         {
         case LLRender::BASECOLOR_MAP:
             gltf_info_index = LLGLTFMaterial::GLTF_TEXTURE_INFO_BASE_COLOR;

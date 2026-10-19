@@ -43,12 +43,16 @@
 #include "llviewercontrol.h"
 #include "llface.h"
 #include "llvoavatar.h"
+#include "llcontrolavatar.h"
+#include "llaudioengine.h"
+#include "llmotioncontroller.h"
 #include "llviewerobject.h"
 #include "llviewerwindow.h"
 #include "llnetmap.h"
 #include "llagent.h"
 #include "llagentcamera.h"
 #include "pipeline.h"
+#include "dxpipeline.h"
 #include "llspatialpartition.h"
 #include "lltooltip.h"
 #include "llworld.h"
@@ -257,7 +261,7 @@ void LLViewerObjectList::processUpdateCore(LLViewerObject* objectp,
 
 	if (just_created)
 	{
-		gPipeline.addObject(objectp);
+		DXPipeline::addObject(gPipeline, objectp);
 	}
 
     // Also sets the approx. pixel area
@@ -924,16 +928,27 @@ void LLViewerObjectList::update(LLAgent& agent)
 	}
 	else
 	{
-		// Serial avatar pass (main thread) + parallel non-avatar pass on DXPool. Avatars are excluded
-		// from the parallel pass because LLVOAvatar::updateCharacter() hasn't been audited for
-		// shared/static state beyond markMoved()/markRebuild(). Ordinary LLViewerObject/LLVOVolume
-		// idleUpdate() only reaches gPipeline.markMoved()/markRebuild() via updateDrawable(), which
-		// detects it's off the main thread and stages into the chunk's LLDeferredPipelineMarks
-		// (pipeline.h) instead of touching pipeline state directly, replayed serially once every
-		// chunk finishes.
+		// Serial avatar pass (main thread) + parallel non-avatar pass on DXPool. Non-avatar
+		// LLViewerObject/LLVOVolume idleUpdate() only reaches DXPipeline::markMoved()/markRebuild()
+		// via updateDrawable(), which detects it's off the main thread and stages into the
+		// chunk's LLDeferredPipelineMarks (pipeline.h) instead of touching pipeline state
+		// directly, replayed serially once every chunk finishes.
+		//
+		// Avatars are handled separately below, gated on avatar count independently of
+		// whatever happens to the non-avatar object count this frame (Task #283 Phase 2) -
+		// see idleUpdatePreamble()'s comment in llvoavatar.h for the full picture.
 
 		LL::WorkQueue::ptr_t dxpool_queue = LL::WorkQueue::getInstance("DXPool");
 		const U32 dxpool_width = dxpool_queue ? (U32)LL::ThreadPoolBase::getWidth("DXPool", 3) : 0;
+
+		// Self/control avatars are permanently excluded from Task #283 Phase 2 dispatch (gAgent
+		// coupling, cross-object hazards - see idleUpdatePreamble()'s comment) and always run
+		// their full idleUpdate() serially, unchanged. Ordinary avatars only run
+		// idleUpdatePreamble() here (it has its own unsynchronized shared-counter hazard,
+		// LLPerfStats::tunedAvatars++/-- inside updateTooSlow(), so it must stay serial) -
+		// survivors are collected for the separate parallel updateCharacter() dispatch below.
+		static std::vector<LLVOAvatar*> avatar_dispatch_list;
+		avatar_dispatch_list.clear();
 
 		if (dxpool_queue && dxpool_width > 0 && nonavatar_idle_list.size() > dxpool_width)
 		{
@@ -962,13 +977,13 @@ void LLViewerObjectList::update(LLAgent& agent)
 
 				dxpool_queue->post([marks, chunk_begin, chunk_end, &agent, frame_time, &remaining, &join_mutex, &join_cv]()
 					{
-						LLPipeline::setDeferredMarksForThisThread(marks);
+						DXPipeline::setDeferredMarksForThisThread(marks);
 						for (LLViewerObject** it = chunk_begin; it != chunk_end; ++it)
 						{
 							llassert((*it)->isActive());
 							(*it)->idleUpdate(agent, frame_time);
 						}
-						LLPipeline::setDeferredMarksForThisThread(nullptr);
+						DXPipeline::setDeferredMarksForThisThread(nullptr);
 
 						// S24: crash fix - WER-confirmed access violation inside
 						// ntdll!RtlWakeConditionVariable (use-after-free on join_cv/join_mutex, both
@@ -997,7 +1012,7 @@ void LLViewerObjectList::update(LLAgent& agent)
 				start = end;
 			}
 
-			// While the workers run, do the avatar pass on the main thread - real
+			// While the workers run, do the avatar preamble pass on the main thread - real
 			// concurrency, not idle waiting.
 			for (std::vector<LLViewerObject*>::iterator idle_iter = idle_list.begin();
 				idle_iter != idle_end; idle_iter++)
@@ -1006,7 +1021,15 @@ void LLViewerObjectList::update(LLAgent& agent)
 				if (objectp->isAvatar())
 				{
 					llassert(objectp->isActive());
-					objectp->idleUpdate(agent, frame_time);
+					LLVOAvatar* avatarp = (LLVOAvatar*)objectp;
+					if (avatarp->isSelf() || avatarp->isControlAvatar())
+					{
+						avatarp->idleUpdate(agent, frame_time);
+					}
+					else if (avatarp->idleUpdatePreamble(agent, frame_time))
+					{
+						avatar_dispatch_list.push_back(avatarp);
+					}
 				}
 			}
 
@@ -1028,15 +1051,138 @@ void LLViewerObjectList::update(LLAgent& agent)
 		}
 		else
 		{
-			// No DXPool (GL build, or too few objects to bother chunking) - original
-			// fully-serial path, unchanged.
+			// No DXPool, or too few non-avatar objects to bother chunking - serial non-avatar
+			// fallback, original behavior unchanged. Avatars still get the same
+			// preamble/self-control split as the dispatch branch above, just with no workers
+			// running to overlap it with - this must stay independent of the non-avatar
+			// object count, or a scene with many avatars but few scripted objects would
+			// silently never engage Phase 2 at all.
 			for (std::vector<LLViewerObject*>::iterator idle_iter = idle_list.begin();
 				idle_iter != idle_end; idle_iter++)
 			{
 				objectp = *idle_iter;
 				llassert(objectp->isActive());
-				objectp->idleUpdate(agent, frame_time);
+				if (objectp->isAvatar())
+				{
+					LLVOAvatar* avatarp = (LLVOAvatar*)objectp;
+					if (avatarp->isSelf() || avatarp->isControlAvatar())
+					{
+						avatarp->idleUpdate(agent, frame_time);
+					}
+					else if (avatarp->idleUpdatePreamble(agent, frame_time))
+					{
+						avatar_dispatch_list.push_back(avatarp);
+					}
+				}
+				else
+				{
+					objectp->idleUpdate(agent, frame_time);
+				}
 			}
+		}
+
+		// Task #283 Phase 2: parallel updateCharacter() dispatch for ordinary avatars
+		// collected above - gated purely on avatar_dispatch_list's own size, independent of
+		// whichever branch above handled non-avatar objects. Separate DXPool wave (not folded
+		// into the non-avatar one above) - simpler to get the 3-way staging/join right; can be
+		// merged into one wave later once proven safe in real play. Only the bare
+		// updateCharacter() call runs on a worker - idleUpdatePreamble()/idleUpdateRest() both
+		// stay serial, on the main thread, exactly as scoped in llvoavatar.h's comment.
+		static LLCachedControl<bool> parallel_avatar_character(gSavedSettings, "RenderParallelAvatarCharacter", false);
+		// U8, not bool - std::vector<bool> is bit-packed and has no .data()/contiguous
+		// bool* storage, which the chunked worker writes below need.
+		static std::vector<U8> avatar_detailed_update;
+		avatar_detailed_update.assign(avatar_dispatch_list.size(), 0);
+
+		const U32 avatar_dxpool_width = (parallel_avatar_character && dxpool_queue) ? dxpool_width : 0;
+		if (avatar_dxpool_width > 0 && avatar_dispatch_list.size() > avatar_dxpool_width)
+		{
+			const U32 avatar_chunk_count = avatar_dxpool_width;
+			std::vector<LLDeferredPipelineMarks> avatar_pipeline_marks(avatar_chunk_count);
+			std::vector<LLDeferredAudioActions> avatar_audio_actions(avatar_chunk_count);
+			std::vector<LLDeferredMotionActions> avatar_motion_actions(avatar_chunk_count);
+
+			U32 avatar_remaining = avatar_chunk_count;
+			std::mutex avatar_join_mutex;
+			std::condition_variable avatar_join_cv;
+
+			const size_t avatar_total = avatar_dispatch_list.size();
+			const size_t avatar_base_chunk = avatar_total / avatar_chunk_count;
+			const size_t avatar_extra = avatar_total % avatar_chunk_count;
+
+			size_t avatar_start = 0;
+			for (U32 c = 0; c < avatar_chunk_count; ++c)
+			{
+				const size_t count = avatar_base_chunk + (c < avatar_extra ? 1 : 0);
+				const size_t end = avatar_start + count;
+
+				LLDeferredPipelineMarks* pipeline_marks = &avatar_pipeline_marks[c];
+				LLDeferredAudioActions* audio_actions = &avatar_audio_actions[c];
+				LLDeferredMotionActions* motion_actions = &avatar_motion_actions[c];
+				LLVOAvatar** chunk_begin = avatar_dispatch_list.data() + avatar_start;
+				LLVOAvatar** chunk_end = avatar_dispatch_list.data() + end;
+				U8* result_begin = avatar_detailed_update.data() + avatar_start;
+
+				dxpool_queue->post([pipeline_marks, audio_actions, motion_actions, chunk_begin, chunk_end,
+					result_begin, &agent, frame_time, &avatar_remaining, &avatar_join_mutex, &avatar_join_cv]()
+					{
+						DXPipeline::setDeferredMarksForThisThread(pipeline_marks);
+						LLAudioEngine::setDeferredActionsForThisThread(audio_actions);
+						LLMotionRegistry::setDeferredActionsForThisThread(motion_actions);
+
+						size_t i = 0;
+						for (LLVOAvatar** it = chunk_begin; it != chunk_end; ++it, ++i)
+						{
+							result_begin[i] = (*it)->updateCharacter(agent);
+						}
+
+						LLMotionRegistry::setDeferredActionsForThisThread(nullptr);
+						LLAudioEngine::setDeferredActionsForThisThread(nullptr);
+						DXPipeline::setDeferredMarksForThisThread(nullptr);
+
+						// Same join shape as the non-avatar dispatch above (r3827 crash fix) -
+						// decrement INSIDE the same critical section as the notify.
+						std::lock_guard<std::mutex> lock(avatar_join_mutex);
+						if (--avatar_remaining == 0)
+						{
+							avatar_join_cv.notify_one();
+						}
+					});
+
+				avatar_start = end;
+			}
+
+			{
+				std::unique_lock<std::mutex> lock(avatar_join_mutex);
+				avatar_join_cv.wait(lock, [&avatar_remaining] { return avatar_remaining == 0; });
+			}
+
+			for (LLDeferredPipelineMarks& marks : avatar_pipeline_marks)
+			{
+				for (auto& action : marks.mActions) { action(); }
+			}
+			for (LLDeferredAudioActions& actions : avatar_audio_actions)
+			{
+				for (auto& action : actions.mActions) { action(); }
+			}
+			for (LLDeferredMotionActions& actions : avatar_motion_actions)
+			{
+				for (auto& action : actions.mActions) { action(); }
+			}
+		}
+		else
+		{
+			// Feature off, no DXPool, or too few avatars to bother chunking - serial,
+			// exactly as if updateCharacter() had been called inline as before this split.
+			for (size_t i = 0; i < avatar_dispatch_list.size(); ++i)
+			{
+				avatar_detailed_update[i] = avatar_dispatch_list[i]->updateCharacter(agent);
+			}
+		}
+
+		for (size_t i = 0; i < avatar_dispatch_list.size(); ++i)
+		{
+			avatar_dispatch_list[i]->idleUpdateRest(agent, frame_time, avatar_detailed_update[i]);
 		}
 
 		//update flexible objects
@@ -1722,12 +1868,12 @@ void LLViewerObjectList::shiftObjects(const LLVector3& offset)
 
 			if (objectp->mDrawable.notNull() && !objectp->mDrawable->isDead())
 			{
-				gPipeline.markShift(objectp->mDrawable);
+				DXPipeline::markShift(gPipeline, objectp->mDrawable);
 			}
 		}
 	}
 
-	gPipeline.shiftObjects(offset);
+	DXPipeline::shiftObjects(gPipeline, offset);
 
 	LLWorld::getInstance()->shiftRegions(offset);
 }
@@ -2131,7 +2277,7 @@ void LLViewerObjectList::findOrphans(LLViewerObject* objectp, U32 ip, U32 port)
 #ifdef ORPHAN_SPAM
             addDebugBeacon(objectp->getPositionAgent(),"");
 #endif
-			gPipeline.markMoved(objectp->mDrawable);
+			DXPipeline::markMoved(gPipeline, objectp->mDrawable);
             objectp->setChanged(LLXform::MOVED | LLXform::SILHOUETTE);
 
             // Flag the object as no longer orphaned
@@ -2141,7 +2287,7 @@ void LLViewerObjectList::findOrphans(LLViewerObject* objectp, U32 ip, U32 port)
                 // Make the drawable visible again and set the drawable parent
                 childp->mDrawable->clearState(LLDrawable::FORCE_INVISIBLE);
                 childp->setDrawableParent(objectp->mDrawable); // LLViewerObjectList::findOrphans()
-                gPipeline.markRebuild( childp->mDrawable, LLDrawable::REBUILD_ALL);
+                DXPipeline::markRebuild(gPipeline,  childp->mDrawable, LLDrawable::REBUILD_ALL);
             }
 
             // Make certain particles, icon and HUD aren't hidden

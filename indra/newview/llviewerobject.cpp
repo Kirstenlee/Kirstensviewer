@@ -94,6 +94,7 @@
 #include "llworld.h"
 #include "llui.h"
 #include "pipeline.h"
+#include "dxpipeline.h"
 #include "llviewernetwork.h"
 #include "llvowlsky.h"
 #include "llmanip.h"
@@ -928,7 +929,7 @@ void LLViewerObject::removeChild(LLViewerObject *childp)
         {
             if (!childp->isAvatar() && mDrawable.notNull() && mDrawable->isActive() && childp->mDrawable.notNull() && !isAvatar())
             {
-                gPipeline.markRebuild(childp->mDrawable, LLDrawable::REBUILD_VOLUME);
+                DXPipeline::markRebuild(gPipeline, childp->mDrawable, LLDrawable::REBUILD_VOLUME);
             }
 
             mChildList.erase(i);
@@ -1026,12 +1027,12 @@ bool LLViewerObject::setDrawableParent(LLDrawable* parentp)
         parentp->setState(LLDrawable::ACTIVE_CHILD);
     }
 
-    gPipeline.markRebuild(mDrawable, LLDrawable::REBUILD_VOLUME);
+    DXPipeline::markRebuild(gPipeline, mDrawable, LLDrawable::REBUILD_VOLUME);
     if( (old_parent != parentp && old_parent)
         || (parentp && parentp->isActive()))
     {
         // *TODO we should not be relying on setDrawable parent to call markMoved
-        gPipeline.markMoved(mDrawable, false);
+        DXPipeline::markMoved(gPipeline, mDrawable, false);
     }
     else if (!mDrawable->isAvatar())
     {
@@ -1297,7 +1298,7 @@ U32 LLViewerObject::processUpdateMessage(LLMessageSystem *mesgsys,
                     setMaterial(material);
                     if (mDrawable.notNull())
                     {
-                        gPipeline.markMoved(mDrawable, false); // undamped
+                        DXPipeline::markMoved(gPipeline, mDrawable, false); // undamped
                     }
                 }
                 setClickAction(click_action);
@@ -1711,7 +1712,7 @@ U32 LLViewerObject::processUpdateMessage(LLMessageSystem *mesgsys,
                     setMaterial(material);
                     if (mDrawable.notNull())
                     {
-                        gPipeline.markMoved(mDrawable, false); // undamped
+                        DXPipeline::markMoved(gPipeline, mDrawable, false); // undamped
                     }
                 }
                 dp->unpackU8(click_action, "ClickAction");
@@ -1981,7 +1982,7 @@ U32 LLViewerObject::processUpdateMessage(LLMessageSystem *mesgsys,
                             // make sure this object gets a non-damped update
                             if (sent_parentp->mDrawable.notNull())
                             {
-                                gPipeline.markMoved(sent_parentp->mDrawable, false); // undamped
+                                DXPipeline::markMoved(gPipeline, sent_parentp->mDrawable, false); // undamped
                             }
                         }
                     }
@@ -2136,7 +2137,7 @@ U32 LLViewerObject::processUpdateMessage(LLMessageSystem *mesgsys,
                     sent_parentp->setChanged(MOVED | SILHOUETTE);
                     if (sent_parentp->mDrawable.notNull())
                     {
-                        gPipeline.markMoved(sent_parentp->mDrawable, false); // undamped
+                        DXPipeline::markMoved(gPipeline, sent_parentp->mDrawable, false); // undamped
                     }
                 }
                 else if (!sent_parentp)
@@ -2172,7 +2173,7 @@ U32 LLViewerObject::processUpdateMessage(LLMessageSystem *mesgsys,
                         if (mDrawable.notNull())
                         {
                             // make sure this object gets a non-damped update
-                            gPipeline.markMoved(mDrawable, false); // undamped
+                            DXPipeline::markMoved(gPipeline, mDrawable, false); // undamped
                         }
                     }
                 }
@@ -2313,7 +2314,7 @@ U32 LLViewerObject::processUpdateMessage(LLMessageSystem *mesgsys,
         {
             color.setVec(1.f, 0.f, 0.f, 1.f);
         }
-        gPipeline.addDebugBlip(getPositionAgent(), color);
+        DXPipeline::addDebugBlip(gPipeline, getPositionAgent(), color);
         LL_DEBUGS("MessageBlip") << "Update type " << (S32)update_type << " blip for local " << mLocalID << " at " << getPositionAgent() << LL_ENDL;
     }
 
@@ -2383,7 +2384,7 @@ U32 LLViewerObject::processUpdateMessage(LLMessageSystem *mesgsys,
         {
 //          LL_DEBUGS() << "Clearing force invisible: " << mID << ":" << getPCodeString() << ":" << getPositionAgent() << LL_ENDL;
             mDrawable->clearState(LLDrawable::FORCE_INVISIBLE);
-            gPipeline.markRebuild( mDrawable, LLDrawable::REBUILD_ALL);
+            DXPipeline::markRebuild(gPipeline,  mDrawable, LLDrawable::REBUILD_ALL);
         }
     }
 
@@ -4274,7 +4275,7 @@ void LLViewerObject::boostTexturePriority(bool boost_children /* = true */)
     S32 tex_count = getNumTEs();
     for (i = 0; i < tex_count; i++)
     {
-        getTEImage(i)->setBoostLevel(LLDXTexture::BOOST_SELECTED);
+        getTEImage(i)->setBoostLevel(DXTextureBase::BOOST_SELECTED);
     }
 
     if (isSculpted() && !isMesh())
@@ -4283,7 +4284,7 @@ void LLViewerObject::boostTexturePriority(bool boost_children /* = true */)
         if (sculpt_params)
         {
             LLUUID sculpt_id = sculpt_params->getSculptTexture();
-            LLViewerTextureManager::getFetchedTexture(sculpt_id, FTT_DEFAULT, true, LLDXTexture::BOOST_NONE, LLViewerTexture::LOD_TEXTURE)->setBoostLevel(LLDXTexture::BOOST_SELECTED);
+            LLViewerTextureManager::getFetchedTexture(sculpt_id, FTT_DEFAULT, true, DXTextureBase::BOOST_NONE, LLViewerTexture::LOD_TEXTURE)->setBoostLevel(DXTextureBase::BOOST_SELECTED);
         }
     }
 
@@ -4721,13 +4722,12 @@ const LLVector3 LLViewerObject::getRenderPosition() const
         }
     }
 
-    // S24: restored generation check (r3965 backport dropped it, diagnosed and reverted
-    // 2026-10-09 - see project_altcam_mesh_spiral_2026_10_09.md). mGeneration starts at -1
-    // (lldrawable.cpp) and only becomes valid once updateMove() has actually run for this
-    // drawable at least once (mGeneration++ happens inside updateMoveUndamped()/
-    // updateMoveDamped()) - without this check, a drawable whose transform has never been
-    // computed yet falls through to the stale/uninitialized mDrawable->getPositionAgent()
-    // instead of the always-valid object-level fallback.
+    // S24: mGeneration starts at -1 (lldrawable.cpp) and only becomes valid once
+    // updateMove() has run for this drawable at least once (mGeneration++ happens
+    // inside updateMoveUndamped()/updateMoveDamped()). Without this check, a
+    // drawable whose transform has never been computed falls through to
+    // uninitialized mDrawable->getPositionAgent() instead of the always-valid
+    // object-level fallback.
     if (mDrawable.isNull() || mDrawable->getGeneration() < 0)
     {
         return getPositionAgent();
@@ -4834,7 +4834,7 @@ void LLViewerObject::setPositionAbsoluteGlobal( const LLVector3d &pos_global, bo
             // the relative position with the parent is not constant
             LLViewerObject* parent = (LLViewerObject *)getParent();
             //RN: this assumes we are only calling this function from the edit tools
-            gPipeline.updateMoveNormalAsync(parent->mDrawable);
+            DXPipeline::updateMoveNormalAsync(gPipeline, parent->mDrawable);
 
             LLVector3 pos_local = mRegionp->getPosRegionFromGlobal(pos_global) - parent->getPositionRegion();
             pos_local = pos_local * ~parent->getRotationRegion();
@@ -4842,7 +4842,7 @@ void LLViewerObject::setPositionAbsoluteGlobal( const LLVector3d &pos_global, bo
         }
     }
     //RN: assumes we always want to snap the object when calling this function
-    gPipeline.updateMoveNormalAsync(mDrawable);
+    DXPipeline::updateMoveNormalAsync(gPipeline, mDrawable);
 }
 
 void LLViewerObject::setPosition(const LLVector3 &pos, bool damped)
@@ -4940,7 +4940,7 @@ void LLViewerObject::setPositionParent(const LLVector3 &pos_parent, bool damped)
             {
                 if (LLDrawable* drawablep = child->mDrawable)
                 {
-                    gPipeline.markMoved(drawablep);
+                    DXPipeline::markMoved(gPipeline, drawablep);
                 }
             }
         }
@@ -5204,7 +5204,7 @@ void LLViewerObject::setNumTEs(const U8 num_tes)
 
         if (mDrawable.notNull())
         {
-            gPipeline.markTextured(mDrawable);
+            DXPipeline::markTextured(gPipeline, mDrawable);
         }
     }
 }
@@ -5279,7 +5279,7 @@ LLViewerTexture* LLViewerObject::getBakedTextureForMagicId(const LLUUID& id)
     LLViewerObject *root = getRootEdit();
     if (root && root->isAnimatedObject())
     {
-        return LLViewerTextureManager::getFetchedTexture(id, FTT_DEFAULT, true, LLDXTexture::BOOST_NONE, LLViewerTexture::LOD_TEXTURE);
+        return LLViewerTextureManager::getFetchedTexture(id, FTT_DEFAULT, true, DXTextureBase::BOOST_NONE, LLViewerTexture::LOD_TEXTURE);
     }
 
     LLVOAvatar* avatar = getAvatar();
@@ -5289,7 +5289,7 @@ LLViewerTexture* LLViewerObject::getBakedTextureForMagicId(const LLUUID& id)
         LLViewerTexture* bakedTexture = avatar->getBakedTexture(texIndex);
         if (bakedTexture == NULL || bakedTexture->isMissingAsset())
         {
-            return LLViewerTextureManager::getFetchedTexture(IMG_DEFAULT, FTT_DEFAULT, true, LLDXTexture::BOOST_NONE, LLViewerTexture::LOD_TEXTURE);
+            return LLViewerTextureManager::getFetchedTexture(IMG_DEFAULT, FTT_DEFAULT, true, DXTextureBase::BOOST_NONE, LLViewerTexture::LOD_TEXTURE);
         }
         else
         {
@@ -5298,7 +5298,7 @@ LLViewerTexture* LLViewerObject::getBakedTextureForMagicId(const LLUUID& id)
     }
     else
     {
-        return LLViewerTextureManager::getFetchedTexture(id, FTT_DEFAULT, true, LLDXTexture::BOOST_NONE, LLViewerTexture::LOD_TEXTURE);
+        return LLViewerTextureManager::getFetchedTexture(id, FTT_DEFAULT, true, DXTextureBase::BOOST_NONE, LLViewerTexture::LOD_TEXTURE);
     }
 
 }
@@ -5335,7 +5335,7 @@ void LLViewerObject::setTE(const U8 te, const LLTextureEntry& texture_entry)
 
     const LLUUID& image_id = getTE(te)->getID();
     LLViewerTexture* bakedTexture = getBakedTextureForMagicId(image_id);
-    mTEImages[te] = bakedTexture ? bakedTexture : LLViewerTextureManager::getFetchedTexture(image_id, FTT_DEFAULT, true, LLDXTexture::BOOST_NONE, LLViewerTexture::LOD_TEXTURE);
+    mTEImages[te] = bakedTexture ? bakedTexture : LLViewerTextureManager::getFetchedTexture(image_id, FTT_DEFAULT, true, DXTextureBase::BOOST_NONE, LLViewerTexture::LOD_TEXTURE);
 
     updateAvatarMeshVisibility(image_id, old_image_id);
 
@@ -5347,10 +5347,10 @@ void LLViewerObject::updateTEMaterialTextures(U8 te)
     if (getTE(te)->getMaterialParams().notNull())
     {
         const LLUUID& norm_id = getTE(te)->getMaterialParams()->getNormalID();
-        mTENormalMaps[te] = LLViewerTextureManager::getFetchedTexture(norm_id, FTT_DEFAULT, true, LLDXTexture::BOOST_NONE, LLViewerTexture::LOD_TEXTURE);
+        mTENormalMaps[te] = LLViewerTextureManager::getFetchedTexture(norm_id, FTT_DEFAULT, true, DXTextureBase::BOOST_NONE, LLViewerTexture::LOD_TEXTURE);
 
         const LLUUID& spec_id = getTE(te)->getMaterialParams()->getSpecularID();
-        mTESpecularMaps[te] = LLViewerTextureManager::getFetchedTexture(spec_id, FTT_DEFAULT, true, LLDXTexture::BOOST_NONE, LLViewerTexture::LOD_TEXTURE);
+        mTESpecularMaps[te] = LLViewerTextureManager::getFetchedTexture(spec_id, FTT_DEFAULT, true, DXTextureBase::BOOST_NONE, LLViewerTexture::LOD_TEXTURE);
     }
 
     LLFetchedGLTFMaterial* mat = (LLFetchedGLTFMaterial*) getTE(te)->getGLTFRenderMaterial();
@@ -5395,7 +5395,7 @@ void LLViewerObject::updateTEMaterialTextures(U8 te)
             }
             else
             {
-                img = LLViewerTextureManager::getFetchedTexture(id, FTT_DEFAULT, true, LLDXTexture::BOOST_NONE, LLViewerTexture::LOD_TEXTURE);
+                img = LLViewerTextureManager::getFetchedTexture(id, FTT_DEFAULT, true, DXTextureBase::BOOST_NONE, LLViewerTexture::LOD_TEXTURE);
                 img->addTextureStats(64.f * 64.f, true);
             }
         }
@@ -5440,7 +5440,7 @@ void LLViewerObject::setTEImage(const U8 te, LLViewerTexture *imagep)
         setChanged(TEXTURE);
         if (mDrawable.notNull())
         {
-            gPipeline.markTextured(mDrawable);
+            DXPipeline::markTextured(gPipeline, mDrawable);
         }
     }
 }
@@ -5460,7 +5460,7 @@ S32 LLViewerObject::setTETextureCore(const U8 te, LLViewerTexture *image)
         setChanged(TEXTURE);
         if (mDrawable.notNull())
         {
-            gPipeline.markTextured(mDrawable);
+            DXPipeline::markTextured(gPipeline, mDrawable);
         }
     }
     return retval;
@@ -5546,21 +5546,21 @@ S32 LLViewerObject::setTETexture(const U8 te, const LLUUID& uuid)
 {
     // Invalid host == get from the agent's sim
     LLViewerFetchedTexture *image = LLViewerTextureManager::getFetchedTexture(
-        uuid, FTT_DEFAULT, true, LLDXTexture::BOOST_NONE, LLViewerTexture::LOD_TEXTURE, 0, 0, LLHost());
+        uuid, FTT_DEFAULT, true, DXTextureBase::BOOST_NONE, LLViewerTexture::LOD_TEXTURE, 0, 0, LLHost());
         return setTETextureCore(te, image);
 }
 
 S32 LLViewerObject::setTENormalMap(const U8 te, const LLUUID& uuid)
 {
     LLViewerFetchedTexture *image = (uuid == LLUUID::null) ? NULL : LLViewerTextureManager::getFetchedTexture(
-        uuid, FTT_DEFAULT, true, LLDXTexture::BOOST_NONE, LLViewerTexture::LOD_TEXTURE, 0, 0, LLHost());
+        uuid, FTT_DEFAULT, true, DXTextureBase::BOOST_NONE, LLViewerTexture::LOD_TEXTURE, 0, 0, LLHost());
     return setTENormalMapCore(te, image);
 }
 
 S32 LLViewerObject::setTESpecularMap(const U8 te, const LLUUID& uuid)
 {
     LLViewerFetchedTexture *image = (uuid == LLUUID::null) ? NULL : LLViewerTextureManager::getFetchedTexture(
-        uuid, FTT_DEFAULT, true, LLDXTexture::BOOST_NONE, LLViewerTexture::LOD_TEXTURE, 0, 0, LLHost());
+        uuid, FTT_DEFAULT, true, DXTextureBase::BOOST_NONE, LLViewerTexture::LOD_TEXTURE, 0, 0, LLHost());
     return setTESpecularMapCore(te, image);
 }
 
@@ -5603,8 +5603,8 @@ S32 LLViewerObject::setTEBumpmap(const U8 te, const U8 bump)
         setChanged(TEXTURE);
         if (mDrawable.notNull() && retval)
         {
-            gPipeline.markTextured(mDrawable);
-            gPipeline.markRebuild(mDrawable, LLDrawable::REBUILD_GEOMETRY);
+            DXPipeline::markTextured(gPipeline, mDrawable);
+            DXPipeline::markRebuild(gPipeline, mDrawable, LLDrawable::REBUILD_GEOMETRY);
         }
     }
     return retval;
@@ -5672,7 +5672,7 @@ S32 LLViewerObject::setTEFullbright(const U8 te, const U8 fullbright)
         setChanged(TEXTURE);
         if (mDrawable.notNull() && retval)
         {
-            gPipeline.markTextured(mDrawable);
+            DXPipeline::markTextured(gPipeline, mDrawable);
         }
     }
     return retval;
@@ -5693,8 +5693,8 @@ S32 LLViewerObject::setTEMediaFlags(const U8 te, const U8 media_flags)
         setChanged(TEXTURE);
         if (mDrawable.notNull() && retval)
         {
-            gPipeline.markRebuild(mDrawable, LLDrawable::REBUILD_TCOORD);
-            gPipeline.markTextured(mDrawable);
+            DXPipeline::markRebuild(gPipeline, mDrawable, LLDrawable::REBUILD_TCOORD);
+            DXPipeline::markTextured(gPipeline, mDrawable);
         }
     }
     return retval;
@@ -5714,7 +5714,7 @@ S32 LLViewerObject::setTEGlow(const U8 te, const F32 glow)
         setChanged(TEXTURE);
         if (mDrawable.notNull() && retval)
         {
-            gPipeline.markTextured(mDrawable);
+            DXPipeline::markTextured(gPipeline, mDrawable);
         }
     }
     return retval;
@@ -5849,7 +5849,7 @@ void LLViewerObject::refreshMaterials()
     setChanged(TEXTURE);
     if (mDrawable.notNull())
     {
-        gPipeline.markTextured(mDrawable);
+        DXPipeline::markTextured(gPipeline, mDrawable);
     }
 }
 
@@ -5860,7 +5860,7 @@ S32 LLViewerObject::setTEScale(const U8 te, const F32 s, const F32 t)
     setChanged(TEXTURE);
     if (mDrawable.notNull() && retval)
     {
-        gPipeline.markRebuild(mDrawable, LLDrawable::REBUILD_TCOORD);
+        DXPipeline::markRebuild(gPipeline, mDrawable, LLDrawable::REBUILD_TCOORD);
     }
     return retval;
 }
@@ -5870,7 +5870,7 @@ S32 LLViewerObject::setTEScaleS(const U8 te, const F32 s)
     S32 retval = LLPrimitive::setTEScaleS(te, s);
     if (mDrawable.notNull() && retval)
     {
-        gPipeline.markRebuild(mDrawable, LLDrawable::REBUILD_TCOORD);
+        DXPipeline::markRebuild(gPipeline, mDrawable, LLDrawable::REBUILD_TCOORD);
     }
 
     return retval;
@@ -5881,7 +5881,7 @@ S32 LLViewerObject::setTEScaleT(const U8 te, const F32 t)
     S32 retval = LLPrimitive::setTEScaleT(te, t);
     if (mDrawable.notNull() && retval)
     {
-        gPipeline.markRebuild(mDrawable, LLDrawable::REBUILD_TCOORD);
+        DXPipeline::markRebuild(gPipeline, mDrawable, LLDrawable::REBUILD_TCOORD);
     }
 
     return retval;
@@ -5892,7 +5892,7 @@ S32 LLViewerObject::setTEOffset(const U8 te, const F32 s, const F32 t)
     S32 retval = LLPrimitive::setTEOffset(te, s, t);
     if (mDrawable.notNull() && retval)
     {
-        gPipeline.markRebuild(mDrawable, LLDrawable::REBUILD_TCOORD);
+        DXPipeline::markRebuild(gPipeline, mDrawable, LLDrawable::REBUILD_TCOORD);
     }
     return retval;
 }
@@ -5902,7 +5902,7 @@ S32 LLViewerObject::setTEOffsetS(const U8 te, const F32 s)
     S32 retval = LLPrimitive::setTEOffsetS(te, s);
     if (mDrawable.notNull() && retval)
     {
-        gPipeline.markRebuild(mDrawable, LLDrawable::REBUILD_TCOORD);
+        DXPipeline::markRebuild(gPipeline, mDrawable, LLDrawable::REBUILD_TCOORD);
     }
 
     return retval;
@@ -5913,7 +5913,7 @@ S32 LLViewerObject::setTEOffsetT(const U8 te, const F32 t)
     S32 retval = LLPrimitive::setTEOffsetT(te, t);
     if (mDrawable.notNull() && retval)
     {
-        gPipeline.markRebuild(mDrawable, LLDrawable::REBUILD_TCOORD);
+        DXPipeline::markRebuild(gPipeline, mDrawable, LLDrawable::REBUILD_TCOORD);
     }
 
     return retval;
@@ -5924,7 +5924,7 @@ S32 LLViewerObject::setTERotation(const U8 te, const F32 r)
     S32 retval = LLPrimitive::setTERotation(te, r);
     if (mDrawable.notNull() && retval)
     {
-        gPipeline.markRebuild(mDrawable, LLDrawable::REBUILD_TCOORD);
+        DXPipeline::markRebuild(gPipeline, mDrawable, LLDrawable::REBUILD_TCOORD);
         shrinkWrap();
     }
     return retval;
@@ -6462,7 +6462,7 @@ void LLViewerObject::updateDrawable(bool force_damped)
                     mDrawable->getGeneration() != -1                    // ...was not created this frame.
                 )
             );
-        gPipeline.markMoved(mDrawable, damped_motion);
+        DXPipeline::markMoved(gPipeline, mDrawable, damped_motion);
     }
     clearChanged(SHIFTED);
 }
@@ -7043,8 +7043,8 @@ void LLViewerObject::markForUpdate()
 {
     if (mDrawable.notNull())
     {
-        gPipeline.markTextured(mDrawable);
-        gPipeline.markRebuild(mDrawable, LLDrawable::REBUILD_GEOMETRY);
+        DXPipeline::markTextured(gPipeline, mDrawable);
+        DXPipeline::markRebuild(gPipeline, mDrawable, LLDrawable::REBUILD_GEOMETRY);
     }
 }
 
@@ -7102,7 +7102,7 @@ void LLViewerObject::setRegion(LLViewerRegion *regionp)
 // virtual
 void    LLViewerObject::updateRegion(LLViewerRegion *regionp)
 {
- // S24 nothing?
+ // S24: intentionally empty override
 }
 
 
@@ -7129,7 +7129,7 @@ void LLViewerObject::updateFlags(bool physics_changed)
     // stinson 02/28/2012 : This CastsShadows bool is no longer used in either the viewer or the simulator
     // The simulator code does not even unpack this value when the message is received.
     // This could be potentially hijacked in the future for another use should the urgent need arise.
-    gMessageSystem->addBOOL("CastsShadows", false ); // S24 I have seen failures with THIS named when setting properties on object in build mode! ???
+    gMessageSystem->addBOOL("CastsShadows", false ); // S24: do not rename this field - build-mode property edits fail if it changes
 
     if (physics_changed)
     {
@@ -7271,7 +7271,7 @@ void LLViewerObject::dirtySpatialGroup() const
         if (group)
         {
             group->dirtyGeom();
-            gPipeline.markRebuild(group);
+            DXPipeline::markRebuild(gPipeline, group);
         }
     }
 }
@@ -7280,7 +7280,7 @@ void LLViewerObject::dirtyMesh()
 {
     if (mDrawable)
     {
-        gPipeline.markRebuild(mDrawable, LLDrawable::REBUILD_ALL);
+        DXPipeline::markRebuild(gPipeline, mDrawable, LLDrawable::REBUILD_ALL);
     }
 }
 
@@ -7301,7 +7301,7 @@ void LLStaticViewerObject::updateDrawable(bool force_damped)
     if (mDrawable.notNull() && mDrawable->getVObj())
     {
         mDrawable->updateXform(true);
-        gPipeline.markRebuild(mDrawable, LLDrawable::REBUILD_ALL);
+        DXPipeline::markRebuild(gPipeline, mDrawable, LLDrawable::REBUILD_ALL);
     }
     clearChanged(SHIFTED);
 }
@@ -7454,18 +7454,18 @@ bool    LLViewerObject::isTempAttachment() const
 
 bool LLViewerObject::isHiglightedOrBeacon() const
 {
-    if (LLFloaterReg::instanceVisible("beacons") && (gPipeline.getRenderBeacons() || gPipeline.getRenderHighlights()))
+    if (LLFloaterReg::instanceVisible("beacons") && (DXPipeline::getRenderBeacons() || DXPipeline::getRenderHighlights()))
     {
         bool has_media = (getMediaType() == LLViewerObject::MEDIA_SET);
         bool is_scripted = !isAvatar() && !getParent() && flagScripted();
         bool is_physical = !isAvatar() && flagUsePhysics();
 
-        return (isParticleSource() && gPipeline.getRenderParticleBeacons())
-                || (isAudioSource() && gPipeline.getRenderSoundBeacons())
-                || (has_media && gPipeline.getRenderMOAPBeacons())
-                || (is_scripted && gPipeline.getRenderScriptedBeacons())
-                || (is_scripted && flagHandleTouch() && gPipeline.getRenderScriptedTouchBeacons())
-                || (is_physical && gPipeline.getRenderPhysicalBeacons());
+        return (isParticleSource() && DXPipeline::getRenderParticleBeacons())
+                || (isAudioSource() && DXPipeline::getRenderSoundBeacons())
+                || (has_media && DXPipeline::getRenderMOAPBeacons())
+                || (is_scripted && DXPipeline::getRenderScriptedBeacons())
+                || (is_scripted && flagHandleTouch() && DXPipeline::getRenderScriptedTouchBeacons())
+                || (is_physical && DXPipeline::getRenderPhysicalBeacons());
     }
     return false;
 }
@@ -7589,7 +7589,7 @@ void LLViewerObject::rebuildMaterial()
     llassert(!isDead());
 
     faceMappingChanged();
-    gPipeline.markTextured(mDrawable);
+    DXPipeline::markTextured(gPipeline, mDrawable);
 }
 
 void LLViewerObject::setRenderMaterialID(S32 te_in, const LLUUID& id, bool update_server, bool local_origin)
@@ -7752,7 +7752,7 @@ void LLViewerObject::shrinkWrap()
         mShouldShrinkWrap = true;
         if (mDrawable)
         { // we weren't shrink wrapped before but we are now, update the spatial partition
-            gPipeline.markPartitionMove(mDrawable);
+            DXPipeline::markPartitionMove(gPipeline, mDrawable);
         }
     }
 }
@@ -7781,7 +7781,7 @@ void LLViewerObject::clearTEWaterExclusion(const U8 te)
         if (image && (IMG_ALPHA_GRAD == image->getID()))
         {
             // reset texture to default plywood
-            setTEImage(te, LLViewerTextureManager::getFetchedTexture(DEFAULT_OBJECT_TEXTURE, FTT_DEFAULT, true, LLDXTexture::BOOST_NONE, LLViewerTexture::LOD_TEXTURE));
+            setTEImage(te, LLViewerTextureManager::getFetchedTexture(DEFAULT_OBJECT_TEXTURE, FTT_DEFAULT, true, DXTextureBase::BOOST_NONE, LLViewerTexture::LOD_TEXTURE));
 
             // reset texture repeats, that might be altered by invisiprim script from wiki
             U32 s_axis, t_axis;

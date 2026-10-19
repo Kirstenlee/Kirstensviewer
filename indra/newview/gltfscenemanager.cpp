@@ -38,6 +38,7 @@
 #include "llvolumeoctree.h"
 #include "gltf/asset.h"
 #include "pipeline.h"
+#include "dxpipeline.h"
 #include "llviewershadermgr.h"
 #include "llviewertexturelist.h"
 #include "llimagej2c.h"
@@ -46,9 +47,7 @@
 #include "llagentbenefits.h"
 #include "llfilesystem.h"
 
-#ifdef DX_RENDER
 #include "DXDevice.h"
-#endif
 #include "llviewercontrol.h"
 #include "boost/json.hpp"
 
@@ -645,7 +644,7 @@ void GLTFSceneManager::render(U8 variant)
 
         // provide a modelview matrix that goes from asset to camera space
         // (matrix palettes are in asset space)
-        gDX.loadMatrix(gGLModelView);
+        gDX.loadMatrix(gDXModelView);
         gDX.multMatrix(mat.getF32ptr());
 
         render(*asset, variant);
@@ -704,10 +703,9 @@ void GLTFSceneManager::render(Asset& asset, U8 variant)
                 }
                 else
                 { // alpha shaders need all the shadow map setup etc
-                    gPipeline.bindDeferredShader(gGLTFPBRMetallicRoughnessProgram.mGLTFVariants[variant]);
+                    DXPipeline::bindDeferredShader(gPipeline, gGLTFPBRMetallicRoughnessProgram.mGLTFVariants[variant]);
                 }
 
-#ifdef DX_RENDER
                 // GLTFMaterials cbuffer bound at b0 (both stages), which pushes
                 // this shader's implicit $Globals to b1 — see
                 // LLRender::syncMatrices()'s reflected-slot bind in llrender.cpp,
@@ -729,14 +727,6 @@ void GLTFSceneManager::render(Asset& asset, U8 variant)
                     gDXDevice.getContext()->VSSetConstantBuffers(0, 1, &materials_cb);
                     gDXDevice.getContext()->PSSetConstantBuffers(0, 1, &materials_cb);
                 }
-#else
-                if (!rigged)
-                {
-                    glBindBufferBase(GL_UNIFORM_BUFFER, LLHLSLShader::UB_GLTF_NODES, asset.mNodesUBO);
-                }
-
-                glBindBufferBase(GL_UNIFORM_BUFFER, LLHLSLShader::UB_GLTF_MATERIALS, asset.mMaterialsUBO);
-#endif
 
                 for (U32 i = 0; i < TEXTURE_TYPE_COUNT; ++i)
                 {
@@ -773,19 +763,15 @@ void GLTFSceneManager::render(Asset& asset, U8 variant)
                 {
                     llassert(node.mSkin != INVALID_INDEX);
                     Skin& skin = asset.mSkins[node.mSkin];
-#ifdef DX_RENDER
-                    // This `rigged` branch is currently unreachable under DX_RENDER —
-                    // skinned vertex layouts aren't supported yet (DXVertexLayout has
-                    // no HAS_SKIN path). Guarded anyway since Skin::uploadMatrixPalette()
-                    // can still run independently of whether this draw path executes.
+                    // This `rigged` branch is currently unreachable — skinned vertex
+                    // layouts aren't supported yet (DXVertexLayout has no HAS_SKIN
+                    // path). Guarded anyway since Skin::uploadMatrixPalette() can
+                    // still run independently of whether this draw path executes.
                     ID3D11Buffer* joints_cb = skin.mDXUBO.getBuffer();
                     if (joints_cb)
                     {
                         gDXDevice.getContext()->VSSetConstantBuffers(3, 1, &joints_cb);
                     }
-#else
-                    glBindBufferBase(GL_UNIFORM_BUFFER, LLHLSLShader::UB_GLTF_JOINTS, skin.mUBO);
-#endif
                 }
                 else
                 {
@@ -871,7 +857,7 @@ void GLTFSceneManager::bind(Asset& asset, Material& material)
 
     bindTexture(asset, TextureType::BASE_COLOR, material.mPbrMetallicRoughness.mBaseColorTexture, LLViewerFetchedTexture::sWhiteImagep);
 
-    if (!LLPipeline::sShadowRender)
+    if (!DXPipeline::sShadowRender)
     {
         bindTexture(asset, TextureType::NORMAL, material.mNormalTexture, LLViewerFetchedTexture::sFlatNormalImagep);
         bindTexture(asset, TextureType::METALLIC_ROUGHNESS, material.mPbrMetallicRoughness.mMetallicRoughnessTexture, LLViewerFetchedTexture::sWhiteImagep);
@@ -1125,13 +1111,13 @@ void GLTFSceneManager::renderDebug()
     gDebugProgram.bind();
 
     gDX.pushMatrix();
-    gDX.loadMatrix(gGLModelView);
+    gDX.loadMatrix(gDXModelView);
 
     LLGLDisable cullface(GL_CULL_FACE);
     LLGLEnable blend(GL_BLEND);
     gDX.setSceneBlendType(LLRender::BT_ALPHA);
     gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
-    gPipeline.disableLights();
+    DXPipeline::disableLights(gPipeline);
 
     for (auto& obj : mObjects)
     {
@@ -1150,7 +1136,7 @@ void GLTFSceneManager::renderDebug()
 
         for (U32 i = 0; i < 2; ++i)
         {
-            LLGLDepthTest depth(GL_TRUE, i == 0 ? GL_FALSE : GL_TRUE, i == 0 ? GL_GREATER : GL_LEQUAL);
+            DXDepthTest depth(true, i != 0, i == 0 ? GL_GREATER : GL_LEQUAL);
             DXState blend(GL_BLEND, i == 0 ? GL_TRUE : GL_FALSE);
 
             for (auto& obj : mObjects)

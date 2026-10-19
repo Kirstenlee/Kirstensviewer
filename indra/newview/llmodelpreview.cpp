@@ -61,6 +61,7 @@
 #include "llviewertexturelist.h"
 #include "llvoavatar.h"
 #include "pipeline.h"
+#include "dxpipeline.h"
 
 // ui controls (from floater)
 #include "llbutton.h"
@@ -96,7 +97,7 @@ const F32 SKIN_WEIGHT_CAMERA_DISTANCE = 16.f;
 
 LLViewerFetchedTexture* bindMaterialDiffuseTexture(const LLImportMaterial& material)
 {
-    LLViewerFetchedTexture *texture = LLViewerTextureManager::getFetchedTexture(material.getDiffuseMap(), FTT_DEFAULT, true, LLDXTexture::BOOST_PREVIEW);
+    LLViewerFetchedTexture *texture = LLViewerTextureManager::getFetchedTexture(material.getDiffuseMap(), FTT_DEFAULT, true, DXTextureBase::BOOST_PREVIEW);
 
     if (texture)
     {
@@ -3215,7 +3216,7 @@ U32 LLModelPreview::loadTextures(LLImportMaterial& material, LLHandle<LLModelPre
         material.mOpaqueData = new LLPointer< LLViewerFetchedTexture >;
         LLPointer< LLViewerFetchedTexture >& tex = (*reinterpret_cast< LLPointer< LLViewerFetchedTexture > * >(material.mOpaqueData));
 
-        tex = LLViewerTextureManager::getFetchedTextureFromUrl("file://" + LLURI::unescape(material.mDiffuseMapFilename), FTT_LOCAL_FILE, true, LLDXTexture::BOOST_PREVIEW);
+        tex = LLViewerTextureManager::getFetchedTextureFromUrl("file://" + LLURI::unescape(material.mDiffuseMapFilename), FTT_LOCAL_FILE, true, DXTextureBase::BOOST_PREVIEW);
         if (tex->getDiscardLevel() < tex->getMaxDiscardLevel())
         {
             // file was loaded previosly, reload image to get potential changes
@@ -3292,10 +3293,10 @@ bool LLModelPreview::render()
     S32 width = getWidth();
     S32 height = getHeight();
 
-    LLGLSUIDefault def;
+    DXUIDefault def;
     LLGLDisable no_blend(GL_BLEND);
     LLGLEnable cull(GL_CULL_FACE);
-    LLGLDepthTest depth(GL_FALSE); // SL-12781 disable z-buffer to render background color
+    DXDepthTest depth(false); // SL-12781 disable z-buffer to render background color
 
     {
         gUIProgram.bind();
@@ -3445,7 +3446,7 @@ bool LLModelPreview::render()
 
     F32 physics_explode = (F32)mFMP->childGetValue("physics_explode").asReal();
 
-    LLGLDepthTest gls_depth(GL_TRUE); // SL-12781 re-enable z-buffer for 3D model preview
+    DXDepthTest gls_depth(true); // SL-12781 re-enable z-buffer for 3D model preview
 
     LLRect preview_rect;
 
@@ -3476,7 +3477,7 @@ bool LLModelPreview::render()
     gObjectPreviewProgram.bind(show_skin_weight);
 
     gDX.loadIdentity();
-    gPipeline.enableLightsPreview();
+    DXPipeline::enableLightsPreview(gPipeline);
 
     LLQuaternion camera_rot = LLQuaternion(mCameraPitch, LLVector3::y_axis) *
         LLQuaternion(mCameraYaw, LLVector3::z_axis);
@@ -3590,12 +3591,10 @@ bool LLModelPreview::render()
                     gDX.diffuseColor4fv(PREVIEW_EDGE_COL.mV);
                     if (show_edges)
                     {
-                        // S24: raw glLineWidth()/glPolygonMode() were unguarded here - found in a
-                        // tree-wide stray-GL sweep (task #311). LLUI::setLineWidth() is the same
-                        // no-op-under-DX_RENDER replacement used tree-wide; glPolygonMode(GL_LINE/
-                        // GL_FILL) removed outright - confirmed dead, no D3D11 per-draw wireframe
-                        // equivalent exists (see DXStateCache::getRasterizerState()'s wireframe_enabled
-                        // comment).
+                        // S24: glLineWidth() has no DX11 equivalent; LLUI::setLineWidth() is the no-op
+                        // stand-in under DX_RENDER. glPolygonMode(GL_LINE/GL_FILL) is removed outright:
+                        // no D3D11 per-draw wireframe equivalent exists (see
+                        // DXStateCache::getRasterizerState()'s wireframe_enabled comment).
                         LLUI::setLineWidth(PREVIEW_EDGE_WIDTH);
                         buffer->drawRange(LLRender::TRIANGLES, 0, buffer->getNumVerts() - 1, buffer->getNumIndices(), 0);
                         LLUI::setLineWidth(1.f);
@@ -3721,8 +3720,8 @@ bool LLModelPreview::render()
                                     buffer->drawRange(LLRender::TRIANGLES, 0, buffer->getNumVerts() - 1, buffer->getNumIndices(), 0);
 
                                     gDX.diffuseColor4fv(PREVIEW_PSYH_EDGE_COL.mV);
-                                    // S24: raw glLineWidth()/glPolygonMode() were unguarded here -
-                                    // see the show_edges block above for the full rationale (task #311).
+                                    // S24: see the show_edges block above for the glLineWidth()/
+                                    // glPolygonMode() rationale.
                                     LLUI::setLineWidth(PREVIEW_PSYH_EDGE_WIDTH);
                                     buffer->drawRange(LLRender::TRIANGLES, 0, buffer->getNumVerts() - 1, buffer->getNumIndices(), 0);
 
@@ -3738,19 +3737,12 @@ bool LLModelPreview::render()
                     // only do this if mDegenerate was set in the preceding mesh checks [Check this if the ordering ever breaks]
                     if (mHasDegenerate)
                     {
-                        // S24: raw glLineWidth()/glPointSize() were unguarded here - found in a
-                        // tree-wide stray-GL sweep (task #311). LLUI::setLineWidth() is the usual
-                        // cross-backend replacement; glPointSize() has no equivalent wrapper yet
-                        // (D3D11 has no per-draw point size either - points always render 1px,
-                        // same class of gap as line width), so it's just guarded like the raw
-                        // calls elsewhere in this codebase that don't have one built yet.
+                        // S24: glLineWidth() has no DX11 equivalent; LLUI::setLineWidth() is the
+                        // no-op stand-in. D3D11 also has no per-draw point size equivalent.
                         LLUI::setLineWidth(PREVIEW_DEG_EDGE_WIDTH);
-#ifndef DX_RENDER
-                        glPointSize(PREVIEW_DEG_POINT_SIZE);
-#endif
-                        gPipeline.enableLightsFullbright();
+                        DXPipeline::enableLightsFullbright(gPipeline);
                         //show degenerate triangles
-                        LLGLDepthTest depth(GL_TRUE, GL_TRUE, GL_ALWAYS);
+                        DXDepthTest depth(true, true, GL_ALWAYS);
                         LLGLDisable cull(GL_CULL_FACE);
                         gDX.diffuseColor4f(1.f, 0.f, 0.f, 1.f);
                         const LLVector4a scale(0.5f);
@@ -3831,10 +3823,7 @@ bool LLModelPreview::render()
                             gDX.popMatrix();
                         }
                         LLUI::setLineWidth(1.f);
-#ifndef DX_RENDER
-                        glPointSize(1.f);
-#endif
-                        gPipeline.enableLightsPreview();
+                        DXPipeline::enableLightsPreview(gPipeline);
                         gDX.setSceneBlendType(LLRender::BT_ALPHA);
                     }
                 }
@@ -3952,8 +3941,8 @@ bool LLModelPreview::render()
 
                             if (show_edges)
                             {
-                                // S24: raw glLineWidth()/glPolygonMode() were unguarded here - see
-                                // the earlier show_edges block above for the full rationale (task #311).
+                                // S24: see the show_edges block above for the glLineWidth()/
+                                // glPolygonMode() rationale.
                                 gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
                                 gDX.diffuseColor4fv(PREVIEW_EDGE_COL.mV);
                                 LLUI::setLineWidth(PREVIEW_EDGE_WIDTH);

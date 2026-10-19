@@ -27,7 +27,8 @@
 #include "llviewerprecompiledheaders.h"
 
 #include "pipeline.h"
-#include "lldrawpoolbump.h"
+#include "dxpipeline.h"
+#include "dxdrawpoolbump.h"
 #include "llface.h"
 #include "llflexibleobject.h"
 #include "llglheaders.h"
@@ -347,7 +348,7 @@ void LLVolumeImplFlexible::doIdleUpdate()
             if (mRenderRes == -1)
             {
                 updateRenderRes();
-                gPipeline.markRebuild(drawablep, LLDrawable::REBUILD_POSITION);
+                DXPipeline::markRebuild(gPipeline, drawablep, LLDrawable::REBUILD_POSITION);
             }
             else
             {
@@ -399,7 +400,7 @@ void LLVolumeImplFlexible::doIdleUpdate()
                             updateRenderRes();
 
                             mVO->shrinkWrap();
-                            gPipeline.markRebuild(drawablep, LLDrawable::REBUILD_POSITION);
+                            DXPipeline::markRebuild(gPipeline, drawablep, LLDrawable::REBUILD_POSITION);
                         }
                     }
                 }

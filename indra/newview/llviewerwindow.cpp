@@ -28,12 +28,10 @@
 #include "dxdrawpoolalpha.h"
 #include "llviewerwindow.h"
 
-#ifdef DX_RENDER
 #include "DXContext.h"
 #include "DXSwapChain.h"
 #include "DXReadback.h"
 #include "DXCubeMapFaces.h"
-#endif
 
 
  // system library includes
@@ -105,8 +103,8 @@
 #include "lldir.h"
 #include "lldrawable.h"
 #include "dxdrawpoolalpha.h"
-#include "lldrawpoolbump.h"
-#include "lldrawpoolwater.h"
+#include "dxdrawpoolbump.h"
+#include "dxdrawpoolwater.h"
 #include "llmaniptranslate.h"
 #include "llface.h"
 #include "llfeaturemanager.h"
@@ -195,6 +193,7 @@
 #include "llworld.h"
 #include "llworldmapview.h"
 #include "pipeline.h"
+#include "dxpipeline.h"
 #include "llappviewer.h"
 #include "llviewerdisplay.h"
 #include "llspatialpartition.h"
@@ -737,7 +736,7 @@ public:
 			addText(xpos, ypos, llformat("%d Unique Textures", LLImageDX::sUniqueCount));
 			ypos += y_inc;
 
-			addText(xpos, ypos, llformat("%d Render Calls", (U32)last_frame_recording.getSampleCount(LLPipeline::sStatBatchSize)));
+			addText(xpos, ypos, llformat("%d Render Calls", (U32)last_frame_recording.getSampleCount(DXPipeline::sStatBatchSize)));
 			ypos += y_inc;
 
 			addText(xpos, ypos, llformat("%d/%d Objects Active", gObjectList.getNumActiveObjects(), gObjectList.getNumObjects()));
@@ -752,9 +751,9 @@ public:
 			gPipeline.mTextureMatrixOps = 0;
 			gPipeline.mMatrixOpCount = 0;
 
-			if (last_frame_recording.getSampleCount(LLPipeline::sStatBatchSize) > 0)
+			if (last_frame_recording.getSampleCount(DXPipeline::sStatBatchSize) > 0)
 			{
-				addText(xpos, ypos, llformat("Batch min/max/mean: %d/%d/%d", (U32)last_frame_recording.getMin(LLPipeline::sStatBatchSize), (U32)last_frame_recording.getMax(LLPipeline::sStatBatchSize), (U32)last_frame_recording.getMean(LLPipeline::sStatBatchSize)));
+				addText(xpos, ypos, llformat("Batch min/max/mean: %d/%d/%d", (U32)last_frame_recording.getMin(DXPipeline::sStatBatchSize), (U32)last_frame_recording.getMax(DXPipeline::sStatBatchSize), (U32)last_frame_recording.getMean(DXPipeline::sStatBatchSize)));
 			}
 			ypos += y_inc;
 
@@ -776,7 +775,7 @@ public:
 
 			ypos += y_inc;
 
-			addText(xpos, ypos, llformat("%d Lights visible", LLPipeline::sVisibleLightCount));
+			addText(xpos, ypos, llformat("%d Lights visible", DXPipeline::sVisibleLightCount));
 
 			ypos += y_inc;
 
@@ -804,7 +803,7 @@ public:
 				ypos += y_inc;
 			}
 
-			gPipeline.mNumVisibleNodes = LLPipeline::sVisibleLightCount = 0;
+			gPipeline.mNumVisibleNodes = DXPipeline::sVisibleLightCount = 0;
 		}
 		static LLCachedControl<bool> debug_show_avatar_render_info(gSavedSettings, "DebugShowAvatarRenderInfo", false);
 		if (debug_show_avatar_render_info())
@@ -849,19 +848,19 @@ public:
 			// Projection last column is always <0,0,-1.0001,0>
 			// Projection last row is always <0,0,-0.2>
 			mBackRectCamera1.mBottom = ypos - y_inc + 2;
-			MATRIX_ROW_N32_TO_STR(gGLProjection, 12, camera_lines[7]); addText(xpos, ypos, std::string(camera_lines[7])); ypos += y_inc;
-			MATRIX_ROW_N32_TO_STR(gGLProjection, 8, camera_lines[6]); addText(xpos, ypos, std::string(camera_lines[6])); ypos += y_inc;
-			MATRIX_ROW_N32_TO_STR(gGLProjection, 4, camera_lines[5]); addText(xpos, ypos, std::string(camera_lines[5])); ypos += y_inc; mBackRectCamera1.mTop = ypos + 2;
-			MATRIX_ROW_N32_TO_STR(gGLProjection, 0, camera_lines[4]); addText(xpos, ypos, std::string(camera_lines[4])); ypos += y_inc; mBackRectCamera2.mBottom = ypos + 2;
+			MATRIX_ROW_N32_TO_STR(gDXProjection, 12, camera_lines[7]); addText(xpos, ypos, std::string(camera_lines[7])); ypos += y_inc;
+			MATRIX_ROW_N32_TO_STR(gDXProjection, 8, camera_lines[6]); addText(xpos, ypos, std::string(camera_lines[6])); ypos += y_inc;
+			MATRIX_ROW_N32_TO_STR(gDXProjection, 4, camera_lines[5]); addText(xpos, ypos, std::string(camera_lines[5])); ypos += y_inc; mBackRectCamera1.mTop = ypos + 2;
+			MATRIX_ROW_N32_TO_STR(gDXProjection, 0, camera_lines[4]); addText(xpos, ypos, std::string(camera_lines[4])); ypos += y_inc; mBackRectCamera2.mBottom = ypos + 2;
 
 			addText(xpos, ypos, "Projection Matrix");
 			ypos += y_inc;
 
 			// View last column is always <0,0,0,1>
-			MATRIX_ROW_F32_TO_STR(gGLModelView, 12, camera_lines[3]); addText(xpos, ypos, std::string(camera_lines[3])); ypos += y_inc;
-			MATRIX_ROW_N32_TO_STR(gGLModelView, 8, camera_lines[2]); addText(xpos, ypos, std::string(camera_lines[2])); ypos += y_inc;
-			MATRIX_ROW_N32_TO_STR(gGLModelView, 4, camera_lines[1]); addText(xpos, ypos, std::string(camera_lines[1])); ypos += y_inc; mBackRectCamera2.mTop = ypos + 2;
-			MATRIX_ROW_N32_TO_STR(gGLModelView, 0, camera_lines[0]); addText(xpos, ypos, std::string(camera_lines[0])); ypos += y_inc;
+			MATRIX_ROW_F32_TO_STR(gDXModelView, 12, camera_lines[3]); addText(xpos, ypos, std::string(camera_lines[3])); ypos += y_inc;
+			MATRIX_ROW_N32_TO_STR(gDXModelView, 8, camera_lines[2]); addText(xpos, ypos, std::string(camera_lines[2])); ypos += y_inc;
+			MATRIX_ROW_N32_TO_STR(gDXModelView, 4, camera_lines[1]); addText(xpos, ypos, std::string(camera_lines[1])); ypos += y_inc; mBackRectCamera2.mTop = ypos + 2;
+			MATRIX_ROW_N32_TO_STR(gDXModelView, 0, camera_lines[0]); addText(xpos, ypos, std::string(camera_lines[0])); ypos += y_inc;
 
 			addText(xpos, ypos, "View Matrix");
 			ypos += y_inc;
@@ -891,45 +890,45 @@ public:
 		}
 
 		// only display these messages if we are actually rendering beacons at this moment
-		if (LLPipeline::getRenderBeacons() && LLFloaterReg::instanceVisible("beacons"))
+		if (DXPipeline::getRenderBeacons() && LLFloaterReg::instanceVisible("beacons"))
 		{
-			if (LLPipeline::getRenderMOAPBeacons())
+			if (DXPipeline::getRenderMOAPBeacons())
 			{
 				addText(xpos, ypos, "Viewing media beacons (white)");
 				ypos += y_inc;
 			}
 
-			if (LLPipeline::toggleRenderTypeControlNegated(LLPipeline::RENDER_TYPE_PARTICLES))
+			if (DXPipeline::toggleRenderTypeControlNegated(gPipeline, LLPipeline::RENDER_TYPE_PARTICLES))
 			{
 				addText(xpos, ypos, particle_hiding);
 				ypos += y_inc;
 			}
 
-			if (LLPipeline::getRenderParticleBeacons())
+			if (DXPipeline::getRenderParticleBeacons())
 			{
 				addText(xpos, ypos, "Viewing particle beacons (blue)");
 				ypos += y_inc;
 			}
 
-			if (LLPipeline::getRenderSoundBeacons())
+			if (DXPipeline::getRenderSoundBeacons())
 			{
 				addText(xpos, ypos, "Viewing sound beacons (yellow)");
 				ypos += y_inc;
 			}
 
-			if (LLPipeline::getRenderScriptedBeacons())
+			if (DXPipeline::getRenderScriptedBeacons())
 			{
 				addText(xpos, ypos, beacon_scripted);
 				ypos += y_inc;
 			}
 			else
-				if (LLPipeline::getRenderScriptedTouchBeacons())
+				if (DXPipeline::getRenderScriptedTouchBeacons())
 				{
 					addText(xpos, ypos, beacon_scripted_touch);
 					ypos += y_inc;
 				}
 
-			if (LLPipeline::getRenderPhysicalBeacons())
+			if (DXPipeline::getRenderPhysicalBeacons())
 			{
 				addText(xpos, ypos, "Viewing physical object beacons (green)");
 				ypos += y_inc;
@@ -2551,7 +2550,7 @@ void LLViewerWindow::shutdownGL()
 	gSky.cleanup();
 
 	LL_INFOS() << "Cleaning up pipeline" << LL_ENDL;
-	gPipeline.cleanup();
+	DXPipeline::cleanup(gPipeline);
 
 	//MUST clean up pipeline before cleaning up wearables
 	LL_INFOS() << "Cleaning up wearables" << LL_ENDL;
@@ -2653,18 +2652,15 @@ void LLViewerWindow::reshape(S32 width, S32 height)
 		mWindowRectRaw.mTop = mWindowRectRaw.mBottom + height;
 
 		//glViewport(0, 0, width, height );
-#ifdef DX_RENDER
-		// GL has no equivalent of this step - the OS window's default framebuffer just is whatever
-		// size the window currently is. D3D11's IDXGISwapChain is a separately-sized GPU resource that
-		// must be told about every resize (ResizeBuffers) via DXSwapChain::resize(), or it stays
-		// locked at its create()-time size and DXGI's Present() stretches/squashes to fit, distorting
-		// everything on screen. DXContext::beginFrame() already sets its viewport from
+		// D3D11's IDXGISwapChain is a separately-sized GPU resource that must be told about every
+		// resize (ResizeBuffers) via DXSwapChain::resize(), or it stays locked at its create()-time
+		// size and DXGI's Present() stretches/squashes to fit, distorting everything on screen.
+		// DXContext::beginFrame() already sets its viewport from
 		// gDXSwapChain.getWidth()/getHeight() every frame, so this is the only piece needed.
 		if (width > 0 && height > 0)
 		{
 			gDXSwapChain.resize(width, height);
 		}
-#endif
 
 		LLViewerCamera* camera = LLViewerCamera::getInstance(); // simpleton, might not exist
 		if (height > 0 && camera)
@@ -2857,7 +2853,7 @@ void LLViewerWindow::draw()
 
 	//S32 screen_x, screen_y;
 
-	if (!LLPipeline::RenderUIBuffer)
+	if (!DXPipeline::RenderUIBuffer)
 	{
 		LLView::sDirtyRect = getWindowRectScaled();
 	}
@@ -3586,7 +3582,7 @@ void LLViewerWindow::updateUI()
 			&gDebugRaycastStart,
 			&gDebugRaycastEnd);
 
-		gDebugRaycastParticle = gPipeline.lineSegmentIntersectParticle(gDebugRaycastStart, gDebugRaycastEnd, &gDebugRaycastParticleIntersection, NULL);
+		gDebugRaycastParticle = DXPipeline::lineSegmentIntersectParticle(gPipeline, gDebugRaycastStart, gDebugRaycastEnd, &gDebugRaycastParticleIntersection, NULL);
 	}
 
 	updateMouseDelta();
@@ -4358,7 +4354,7 @@ void LLViewerWindow::renderSelections(bool for_gl_pick, bool pick_parcel_walls, 
 			gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
 			LLGLEnable gls_blend(GL_BLEND);
 			LLGLEnable gls_cull(GL_CULL_FACE);
-			LLGLDepthTest gls_depth(GL_TRUE, GL_FALSE);
+			DXDepthTest gls_depth(true, false);
 			gDX.matrixMode(LLRender::MM_MODELVIEW);
 			gDX.pushMatrix();
 			if (selection->getSelectType() == SELECT_TYPE_HUD)
@@ -4721,12 +4717,12 @@ LLViewerObject* LLViewerWindow::cursorIntersect(S32 mouse_x, S32 mouse_y, F32 de
 	}
 	else // check ALL objects
 	{
-		found = gPipeline.lineSegmentIntersectInHUD(mh_start, mh_end, pick_transparent,
+		found = DXPipeline::lineSegmentIntersectInHUD(gPipeline, mh_start, mh_end, pick_transparent,
 			face_hit, intersection, uv, normal, tangent);
 
 		if (!found) // if not found in HUD, look in world:
 		{
-			found = gPipeline.lineSegmentIntersectInWorld(mw_start, mw_end, pick_transparent, pick_rigged, pick_unselectable, pick_reflection_probe,
+			found = DXPipeline::lineSegmentIntersectInWorld(gPipeline, mw_start, mw_end, pick_transparent, pick_rigged, pick_unselectable, pick_reflection_probe,
 				face_hit, gltf_node_hit, gltf_primitive_hit, intersection, uv, normal, tangent);
 			if (found && !pick_transparent)
 			{
@@ -5238,13 +5234,13 @@ bool LLViewerWindow::rawSnapshot(LLImageRaw* raw, S32 image_width, S32 image_hei
 
 	if (prev_draw_ui != show_ui)
 	{
-		LLPipeline::toggleRenderDebugFeature(LLPipeline::RENDER_DEBUG_FEATURE_UI);
+		DXPipeline::toggleRenderDebugFeature(gPipeline, LLPipeline::RENDER_DEBUG_FEATURE_UI);
 	}
 
-	bool hide_hud = !show_hud && LLPipeline::sShowHUDAttachments;
+	bool hide_hud = !show_hud && DXPipeline::sShowHUDAttachments;
 	if (hide_hud)
 	{
-		LLPipeline::sShowHUDAttachments = false;
+		DXPipeline::sShowHUDAttachments = false;
 	}
 
 	// if not showing ui, use full window to render world view
@@ -5275,7 +5271,6 @@ bool LLViewerWindow::rawSnapshot(LLImageRaw* raw, S32 image_width, S32 image_hei
 	S32 original_height = 0;
 	bool reset_deferred = false;
 
-#ifdef DX_RENDER
 	// An oversized snapshot request reallocates the entire deferred pipeline (G-buffer, shadow maps,
 	// SSAO, reflection probes, post-fx targets) to that size and renders one frame through it - too
 	// much single-frame GPU work, causing a driver TDR/device-removed reset. Cap the native render
@@ -5285,16 +5280,14 @@ bool LLViewerWindow::rawSnapshot(LLImageRaw* raw, S32 image_width, S32 image_hei
 	S32 render_width = image_width;
 	S32 render_height = image_height;
 	LLRenderTarget upscale_target;
-#endif
 
-#ifdef DX_RENDER
 	// The TDR risk isn't render size, it's allocateScreenBuffer() tearing down/rebuilding the entire
 	// deferred pipeline to a size different from what's already running - regardless of bigger or
 	// smaller. For an oversized color/no-UI capture, skip allocateScreenBuffer() entirely: render one
 	// frame at the pipeline's current resolution (identical to a normal frame) and GPU-upscale
 	// (LLGPUResize) that native capture to the requested size. Returns directly, bypassing the
-	// scratch_ready/allocateScreenBuffer()/reset_deferred path below (kept for GL and DX_RENDER's
-	// rarer show_ui/depth-type oversized cases).
+	// scratch_ready/allocateScreenBuffer()/reset_deferred path below (kept for the rarer
+	// show_ui/depth-type oversized cases).
 	// S24: compare against the CURRENTLY-ALLOCATED pipeline resolution, not
 	// window_width/window_height (the raw window size) - RenderScalePercent
 	// shrinks gPipeline.mRT->screen below the window size, and this snapshot
@@ -5320,10 +5313,10 @@ bool LLViewerWindow::rawSnapshot(LLImageRaw* raw, S32 image_width, S32 image_hei
 		// can't invent sub-pixel edge precision that was never captured. SMAA has no cross-frame state
 		// (mSMAABlendBuffer/mFXAAMap are cleared and rewritten every call, pipeline.cpp), so it's safe
 		// to force here. Saved/restored around the one display() call only.
-		U32 saved_fsaa_type = LLPipeline::RenderFSAAType;
-		LLPipeline::RenderFSAAType = 2;
+		U32 saved_fsaa_type = DXPipeline::RenderFSAAType;
+		DXPipeline::RenderFSAAType = 2;
 		display(do_rebuild, 1.f, 0, true);
-		LLPipeline::RenderFSAAType = saved_fsaa_type;
+		DXPipeline::RenderFSAAType = saved_fsaa_type;
 
 		bool ok = false;
 		if (gLastCompositedPostTarget)
@@ -5376,28 +5369,27 @@ bool LLViewerWindow::rawSnapshot(LLImageRaw* raw, S32 image_width, S32 image_hei
 
 		if (!gPipeline.hasRenderDebugFeatureMask(LLPipeline::RENDER_DEBUG_FEATURE_UI))
 		{
-			LLPipeline::toggleRenderDebugFeature(LLPipeline::RENDER_DEBUG_FEATURE_UI);
+			DXPipeline::toggleRenderDebugFeature(gPipeline, LLPipeline::RENDER_DEBUG_FEATURE_UI);
 		}
 		if (hide_hud)
 		{
-			LLPipeline::sShowHUDAttachments = true;
+			DXPipeline::sShowHUDAttachments = true;
 		}
 		setCursor(UI_CURSOR_ARROW);
 		if (do_rebuild)
 		{
-			gPipeline.resetDrawOrders();
+			DXPipeline::resetDrawOrders(gPipeline);
 		}
 		setBalanceVisible(true);
 
 		return ok;
 	}
-#endif
 
 	F32 scale_factor = 1.0f;
 	if (!keep_window_aspect || (image_width > window_width) || (image_height > window_height))
 	{
 		if ((image_width <= gGLManager.mGLMaxTextureSize && image_height <= gGLManager.mGLMaxTextureSize) &&
-			(image_width > window_width || image_height > window_height) && LLPipeline::sRenderDeferred && !show_ui)
+			(image_width > window_width || image_height > window_height) && DXPipeline::sRenderDeferred && !show_ui)
 		{
 			// D3D11 has no implicit "current FBO" concept, so a scratch render target bound before
 			// display() would never get written to under DX_RENDER. The capture instead reads
@@ -5410,7 +5402,6 @@ bool LLViewerWindow::rawSnapshot(LLImageRaw* raw, S32 image_width, S32 image_hei
 				original_width = gPipeline.mRT->deferredScreen.getWidth();
 				original_height = gPipeline.mRT->deferredScreen.getHeight();
 
-#ifdef DX_RENDER
 				// Window-native size (multiplier 1.0) is the only resolution confirmed safe against
 				// the TDR above; anything beyond the limit always goes through the GPU upscale path.
 				static LLCachedControl<F32> native_render_limit(gSavedSettings, "RenderSnapshotNativeSizeLimit", 1.0f);
@@ -5423,9 +5414,8 @@ bool LLViewerWindow::rawSnapshot(LLImageRaw* raw, S32 image_width, S32 image_hei
 					render_height = llmax(1, (S32)(image_height * fit));
 					need_gpu_upscale = true;
 				}
-#endif
 
-				if (gPipeline.allocateScreenBuffer(render_width, render_height))
+				if (DXPipeline::allocateScreenBuffer(gPipeline, render_width, render_height))
 				{
 					window_width = image_width;
 					window_height = image_height;
@@ -5438,7 +5428,7 @@ bool LLViewerWindow::rawSnapshot(LLImageRaw* raw, S32 image_width, S32 image_hei
 				}
 				else
 				{
-					gPipeline.allocateScreenBuffer(original_width, original_height);
+					DXPipeline::allocateScreenBuffer(gPipeline, original_width, original_height);
 				}
 			}
 		}
@@ -5532,7 +5522,7 @@ bool LLViewerWindow::rawSnapshot(LLImageRaw* raw, S32 image_width, S32 image_hei
 				const U32 subfield = subimage_x + (subimage_y * llceil(scale_factor));
 				display(do_rebuild, scale_factor, subfield, true);
 
-				if (!LLPipeline::sRenderDeferred)
+				if (!DXPipeline::sRenderDeferred)
 				{
 					// Required for showing the GUI in snapshots and performing bloom composite overlay
 					// Call even if show_ui is false
@@ -5540,7 +5530,6 @@ bool LLViewerWindow::rawSnapshot(LLImageRaw* raw, S32 image_width, S32 image_hei
 					swap();
 				}
 
-#ifdef DX_RENDER
 				// The frame above rendered at the capped render_width x render_height (see
 				// need_gpu_upscale above) - GPU-upscale it to the true requested image_width x
 				// image_height once, before the readback loop. upscale_target stays unallocated when
@@ -5561,9 +5550,7 @@ bool LLViewerWindow::rawSnapshot(LLImageRaw* raw, S32 image_width, S32 image_hei
 						LL_WARNS() << "LLViewerWindow::rawSnapshot: failed to allocate upscale_target at " << image_width << "x" << image_height << LL_ENDL;
 					}
 				}
-#endif
 
-#ifdef DX_RENDER
 				// Read from gLastCompositedPostTarget (set by DXPipeline::presentDeferredScreen())
 				// rather than the window-locked swap chain, which is never resized for snapshots.
 				// getDXColorTexture() returns a cached, non-AddRef'd pointer; getBackBufferTexture()
@@ -5610,7 +5597,7 @@ bool LLViewerWindow::rawSnapshot(LLImageRaw* raw, S32 image_width, S32 image_hei
 					S32 region_y_start = dx_source_height - (S32)read_height - subimage_y_offset;
 					region_read_ok = DXReadback::readPixels(dx_color_source, subimage_x_offset, region_y_start, read_width, read_height, 4, region_scratch.data());
 				}
-#endif
+
 				for (U32 out_y = 0; out_y < read_height; out_y++)
 				{
 					S32 output_buffer_offset = (
@@ -5674,12 +5661,10 @@ bool LLViewerWindow::rawSnapshot(LLImageRaw* raw, S32 image_width, S32 image_hei
 						}
 					}
 				}
-#ifdef DX_RENDER
 				if (dx_color_source && dx_color_source_owned)
 				{
 					dx_color_source->Release();
 				}
-#endif
 			}
 			output_buffer_offset_x += subimage_x_offset;
 		}
@@ -5693,12 +5678,12 @@ bool LLViewerWindow::rawSnapshot(LLImageRaw* raw, S32 image_width, S32 image_hei
 	// POST SNAPSHOT
 	if (!gPipeline.hasRenderDebugFeatureMask(LLPipeline::RENDER_DEBUG_FEATURE_UI))
 	{
-		LLPipeline::toggleRenderDebugFeature(LLPipeline::RENDER_DEBUG_FEATURE_UI);
+		DXPipeline::toggleRenderDebugFeature(gPipeline, LLPipeline::RENDER_DEBUG_FEATURE_UI);
 	}
 
 	if (hide_hud)
 	{
-		LLPipeline::sShowHUDAttachments = true;
+		DXPipeline::sShowHUDAttachments = true;
 	}
 
 	/*if (high_res)
@@ -5731,7 +5716,7 @@ bool LLViewerWindow::rawSnapshot(LLImageRaw* raw, S32 image_width, S32 image_hei
 		// Need to reset these, otherwise we call state sort on it again when render gets called the next time
 		// and we stand a good chance of crashing on rebuild because the render drawable arrays have multiple copies of
 		// objects on them.
-		gPipeline.resetDrawOrders();
+		DXPipeline::resetDrawOrders(gPipeline);
 	}
 
 	if (reset_deferred)
@@ -5739,7 +5724,7 @@ bool LLViewerWindow::rawSnapshot(LLImageRaw* raw, S32 image_width, S32 image_hei
 		mWorldViewRectRaw = window_rect;
 		LLViewerCamera::getInstance()->setViewHeightInPixels(mWorldViewRectRaw.getHeight());
 		LLViewerCamera::getInstance()->setAspect(getWorldViewAspectRatio());
-		gPipeline.allocateScreenBuffer(original_width, original_height);
+		DXPipeline::allocateScreenBuffer(gPipeline, original_width, original_height);
 	}
 
 	if (high_res)
@@ -5762,25 +5747,25 @@ bool LLViewerWindow::simpleSnapshot(LLImageRaw* raw, S32 image_width, S32 image_
 	bool prev_draw_ui = gPipeline.hasRenderDebugFeatureMask(LLPipeline::RENDER_DEBUG_FEATURE_UI);
 	if (prev_draw_ui)
 	{
-		LLPipeline::toggleRenderDebugFeature(LLPipeline::RENDER_DEBUG_FEATURE_UI);
+		DXPipeline::toggleRenderDebugFeature(gPipeline, LLPipeline::RENDER_DEBUG_FEATURE_UI);
 	}
 
-	bool hide_hud = LLPipeline::sShowHUDAttachments;
+	bool hide_hud = DXPipeline::sShowHUDAttachments;
 	if (hide_hud)
 	{
-		LLPipeline::sShowHUDAttachments = false;
+		DXPipeline::sShowHUDAttachments = false;
 	}
 
 	LLRect window_rect = getWorldViewRectRaw();
 
-	S32 original_width = LLPipeline::sRenderDeferred ? gPipeline.mRT->deferredScreen.getWidth() : gViewerWindow->getWorldViewWidthRaw();
-	S32 original_height = LLPipeline::sRenderDeferred ? gPipeline.mRT->deferredScreen.getHeight() : gViewerWindow->getWorldViewHeightRaw();
+	S32 original_width = DXPipeline::sRenderDeferred ? gPipeline.mRT->deferredScreen.getWidth() : gViewerWindow->getWorldViewWidthRaw();
+	S32 original_height = DXPipeline::sRenderDeferred ? gPipeline.mRT->deferredScreen.getHeight() : gViewerWindow->getWorldViewHeightRaw();
 
 	LLRenderTarget scratch_space;
 	U32 color_fmt = GL_RGBA;
 	if (scratch_space.allocate(image_width, image_height, color_fmt, true))
 	{
-		if (gPipeline.allocateScreenBuffer(image_width, image_height))
+		if (DXPipeline::allocateScreenBuffer(gPipeline, image_width, image_height))
 		{
 			mWorldViewRectRaw.set(0, image_height, image_width, 0);
 
@@ -5789,7 +5774,7 @@ bool LLViewerWindow::simpleSnapshot(LLImageRaw* raw, S32 image_width, S32 image_
 		else
 		{
 			scratch_space.release();
-			gPipeline.allocateScreenBuffer(original_width, original_height);
+			DXPipeline::allocateScreenBuffer(gPipeline, original_width, original_height);
 		}
 	}
 
@@ -5882,22 +5867,22 @@ bool LLViewerWindow::simpleSnapshot(LLImageRaw* raw, S32 image_width, S32 image_
 	{
 		if (prev_draw_ui)
 		{
-			LLPipeline::toggleRenderDebugFeature(LLPipeline::RENDER_DEBUG_FEATURE_UI);
+			DXPipeline::toggleRenderDebugFeature(gPipeline, LLPipeline::RENDER_DEBUG_FEATURE_UI);
 		}
 	}
 
 	if (hide_hud)
 	{
-		LLPipeline::sShowHUDAttachments = true;
+		DXPipeline::sShowHUDAttachments = true;
 	}
 
 	setCursor(UI_CURSOR_ARROW);
 
-	gPipeline.resetDrawOrders();
+	DXPipeline::resetDrawOrders(gPipeline);
 	mWorldViewRectRaw = window_rect;
 	scratch_space.flush();
 	scratch_space.release();
-	gPipeline.allocateScreenBuffer(original_width, original_height);
+	DXPipeline::allocateScreenBuffer(gPipeline, original_width, original_height);
 
 	return true;
 }
@@ -5907,7 +5892,7 @@ void display_cube_face();
 bool LLViewerWindow::cubeSnapshot(const LLVector3& origin, U32 resolution, S32 face, F32 near_clip, bool dynamic_render, bool useCustomClipPlane, LLPlane clipPlane)
 {
 	// NOTE: implementation derived from simpleSnapshot
-	llassert(LLPipeline::sRenderDeferred);
+	llassert(DXPipeline::sRenderDeferred);
 	llassert(!gCubeSnapshot); //assert a snapshot isn't already in progress
 
 	// The capture size comes from the caller (the probe's super-sampled resolution), clamped to the target.
@@ -5917,10 +5902,10 @@ bool LLViewerWindow::cubeSnapshot(const LLVector3& origin, U32 resolution, S32 f
     //llassert(res <= gPipeline.mRT->deferredScreen.getHeight());
 
 	// save current view/camera settings so we can restore them afterwards
-	S32 old_occlusion = LLPipeline::sUseOcclusion;
+	S32 old_occlusion = DXPipeline::sUseOcclusion;
 
 	// set new parameters specific to the 360 requirements
-	LLPipeline::sUseOcclusion = 0;
+	DXPipeline::sUseOcclusion = 0;
 	LLViewerCamera* camera = LLViewerCamera::getInstance();
 
 	LLViewerCamera saved_camera = LLViewerCamera::instance();
@@ -5942,7 +5927,7 @@ bool LLViewerWindow::cubeSnapshot(const LLVector3& origin, U32 resolution, S32 f
 		camera->setUserClipPlane(clipPlane);
 	}
 
-	gPipeline.pushRenderTypeMask();
+	DXPipeline::pushRenderTypeMask(gPipeline);
 
 	// S24: pre-render clear removed - fully overwritten by the display() call that follows
 	// shortly after anyway. This build is DX_RENDER-only; no GL path compiles in.
@@ -5960,10 +5945,10 @@ bool LLViewerWindow::cubeSnapshot(const LLVector3& origin, U32 resolution, S32 f
 	{
 		for (int i = 0; i < dynamic_render_type_count; ++i)
 		{
-			prev_dynamic_render_type[i] = gPipeline.hasRenderType(dynamic_render_types[i]);
+			prev_dynamic_render_type[i] = DXPipeline::hasRenderType(gPipeline, dynamic_render_types[i]);
 			if (prev_dynamic_render_type[i])
 			{
-				gPipeline.toggleRenderType(dynamic_render_types[i]);
+				DXPipeline::toggleRenderType(gPipeline, dynamic_render_types[i]);
 			}
 		}
 	}
@@ -5971,13 +5956,13 @@ bool LLViewerWindow::cubeSnapshot(const LLVector3& origin, U32 resolution, S32 f
 	bool prev_draw_ui = gPipeline.hasRenderDebugFeatureMask(LLPipeline::RENDER_DEBUG_FEATURE_UI);
 	if (prev_draw_ui)
 	{
-		LLPipeline::toggleRenderDebugFeature(LLPipeline::RENDER_DEBUG_FEATURE_UI);
+		DXPipeline::toggleRenderDebugFeature(gPipeline, LLPipeline::RENDER_DEBUG_FEATURE_UI);
 	}
 
-	bool hide_hud = LLPipeline::sShowHUDAttachments;
+	bool hide_hud = DXPipeline::sShowHUDAttachments;
 	if (hide_hud)
 	{
-		LLPipeline::sShowHUDAttachments = false;
+		DXPipeline::sShowHUDAttachments = false;
 	}
 	LLRect window_rect = getWorldViewRectRaw();
 
@@ -6030,18 +6015,18 @@ bool LLViewerWindow::cubeSnapshot(const LLVector3& origin, U32 resolution, S32 f
 	{
 		if (prev_draw_ui)
 		{
-			LLPipeline::toggleRenderDebugFeature(LLPipeline::RENDER_DEBUG_FEATURE_UI);
+			DXPipeline::toggleRenderDebugFeature(gPipeline, LLPipeline::RENDER_DEBUG_FEATURE_UI);
 		}
 	}
 
-	gPipeline.popRenderTypeMask();
+	DXPipeline::popRenderTypeMask(gPipeline);
 
 	if (hide_hud)
 	{
-		LLPipeline::sShowHUDAttachments = true;
+		DXPipeline::sShowHUDAttachments = true;
 	}
 
-	gPipeline.resetDrawOrders();
+	DXPipeline::resetDrawOrders(gPipeline);
 	mWorldViewRectRaw = window_rect;
 
 	if (useCustomClipPlane)
@@ -6055,7 +6040,7 @@ bool LLViewerWindow::cubeSnapshot(const LLVector3& origin, U32 resolution, S32 f
 	set_current_projection(saved_proj);
 
 	// Also restore gDX's own matrix stack (mMatrix[MM_MODELVIEW]/[MM_PROJECTION]), not just the
-	// separate gGLModelView/gGLProjection globals set_current_modelview/projection() above already
+	// separate gDXModelView/gDXProjection globals set_current_modelview/projection() above already
 	// fix. display_cube_face() calls gDX.loadMatrix() unconditionally for every capture face,
 	// overwriting gDX's stack with that face's camera; DX_RENDER's env_mat (LLPipeline::setEnvMat())
 	// reads that stack, so without this restore it stays stuck on the most-recently-captured cube
@@ -6067,7 +6052,7 @@ bool LLViewerWindow::cubeSnapshot(const LLVector3& origin, U32 resolution, S32 f
 	gDX.matrixMode(LLRender::MM_MODELVIEW);
 
 	setup3DViewport();
-	LLPipeline::sUseOcclusion = old_occlusion;
+	DXPipeline::sUseOcclusion = old_occlusion;
 
 	// ====================================================
 	return true;
@@ -6332,7 +6317,7 @@ void LLViewerWindow::stopGL()
 
 		if (gPipeline.isInit())
 		{
-			gPipeline.destroyGL();
+			DXPipeline::destroyGL(gPipeline);
 		}
 
 		gBox.cleanupGL();
@@ -6377,7 +6362,7 @@ void LLViewerWindow::restoreGL(const std::string& progress_message)
 		initFonts();
 
 		gSky.restoreGL();
-		gPipeline.restoreGL();
+		DXPipeline::restoreGL(gPipeline);
 		LLManipTranslate::restoreGL();
 
 		gBumpImageList.restoreGL();
@@ -6756,7 +6741,7 @@ void LLPickInfo::fetchResults()
 	{ //search for closest particle to click origin out to intersection point
 		S32 part_face = -1;
 
-		LLVOPartGroup* group = gPipeline.lineSegmentIntersectParticle(start, particle_end, NULL, &part_face);
+		LLVOPartGroup* group = DXPipeline::lineSegmentIntersectParticle(gPipeline, start, particle_end, NULL, &part_face);
 		if (group)
 		{
 			mParticleOwnerID = group->getPartOwner(part_face);

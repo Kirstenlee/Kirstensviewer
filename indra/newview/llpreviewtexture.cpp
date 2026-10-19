@@ -78,7 +78,7 @@ LLPreviewTexture::LLPreviewTexture(const LLSD& key)
       mAspectRatio(0.f),
       mPreviewToSave(false),
       mImage(NULL),
-      mImageOldBoostLevel(LLDXTexture::BOOST_NONE)
+      mImageOldBoostLevel(DXTextureBase::BOOST_NONE)
 {
     updateImageID();
     if (key.has("save_as"))
@@ -196,7 +196,7 @@ void LLPreviewTexture::draw()
 
     if (!isMinimized())
     {
-        LLGLSUIDefault gls_ui;
+        DXUIDefault gls_ui;
         gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
 
         const LLRect& border = mClientRect;
@@ -627,9 +627,9 @@ void LLPreviewTexture::onAspectRatioCommit(LLUICtrl* ctrl, void* userdata)
 
 void LLPreviewTexture::loadAsset()
 {
-    mImage = LLViewerTextureManager::getFetchedTexture(mImageID, FTT_DEFAULT, MIPMAP_TRUE, LLDXTexture::BOOST_NONE, LLViewerTexture::LOD_TEXTURE);
+    mImage = LLViewerTextureManager::getFetchedTexture(mImageID, FTT_DEFAULT, MIPMAP_TRUE, DXTextureBase::BOOST_NONE, LLViewerTexture::LOD_TEXTURE);
     mImageOldBoostLevel = mImage->getBoostLevel();
-    mImage->setBoostLevel(LLDXTexture::BOOST_PREVIEW);
+    mImage->setBoostLevel(DXTextureBase::BOOST_PREVIEW);
     mImage->forceToSaveRawImage(0) ;
     mAssetStatus = PREVIEW_ASSET_LOADING;
     mUpdateDimensions = true;

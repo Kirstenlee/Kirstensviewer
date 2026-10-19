@@ -43,7 +43,7 @@
 #include "llcheckboxctrl.h"
 #include "llcolorswatch.h"
 #include "llcombobox.h"
-#include "lldrawpoolbump.h"
+#include "dxdrawpoolbump.h"
 #include "llface.h"
 #include "llgltfmateriallist.h"
 #include "llinventoryfunctions.h"
@@ -4704,7 +4704,7 @@ void LLPanelFace::onPasteTexture(LLViewerObject* objectp, S32 te)
                 else if (img_full_perm)
                 {
                     // Either library, local or existed as fullperm when user made a copy
-                    LLViewerTexture* image = LLViewerTextureManager::getFetchedTexture(imageid, FTT_DEFAULT, true, LLDXTexture::BOOST_NONE, LLViewerTexture::LOD_TEXTURE);
+                    LLViewerTexture* image = LLViewerTextureManager::getFetchedTexture(imageid, FTT_DEFAULT, true, DXTextureBase::BOOST_NONE, LLViewerTexture::LOD_TEXTURE);
                     objectp->setTEImage(U8(te), image);
                 }
             }

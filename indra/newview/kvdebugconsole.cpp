@@ -59,6 +59,7 @@
 #include "llselectmgr.h"
 #include "llteleporthistory.h"
 #include "pipeline.h"
+#include "dxpipeline.h"
 #include "llfloaterreg.h"
 #include "llappviewer.h"
 #include "llversioninfo.h"
@@ -390,9 +391,9 @@ void KVDebugConsole::updateBeacon()
     }
 
     // Ensure beacons are enabled
-    if (!LLPipeline::getRenderBeacons())
+    if (!DXPipeline::getRenderBeacons())
     {
-        LLPipeline::setRenderBeacons(true);
+        DXPipeline::setRenderBeacons(true);
     }
 
     // Convert global position to agent-relative position
@@ -421,7 +422,7 @@ void KVDebugConsole::updateBeacon()
         label,  // Label text
         LLColor4(1.f, 0.f, 1.f, 0.9f),  // Bright magenta line
         LLColor4(1.f, 1.f, 1.f, 1.f),   // White text label
-        LLPipeline::DebugBeaconLineWidth
+        DXPipeline::DebugBeaconLineWidth
     );
 }
 
@@ -1781,7 +1782,7 @@ void KVDebugConsole::processUuidCommand(const std::string& uuid_str)
         // If not found, try to get/fetch it (this will trigger a fetch if valid UUID)
         if (!texture)
         {
-            texture = LLViewerTextureManager::getFetchedTexture(id, FTT_DEFAULT, TRUE, LLDXTexture::BOOST_NONE, LLViewerTexture::LOD_TEXTURE);
+            texture = LLViewerTextureManager::getFetchedTexture(id, FTT_DEFAULT, TRUE, DXTextureBase::BOOST_NONE, LLViewerTexture::LOD_TEXTURE);
         }
 
         if (texture)

@@ -40,7 +40,7 @@
 #include "llcheckboxctrl.h"
 #include "llcombobox.h"
 #include "lldrawable.h"
-#include "lldrawpoolavatar.h"
+#include "dxdrawpoolavatar.h"
 #include "llrender.h"
 #include "llface.h"
 #include "llfocusmgr.h"
@@ -56,6 +56,7 @@
 #include "llviewerobjectlist.h"
 #include "llvoavatar.h"
 #include "pipeline.h"
+#include "dxpipeline.h"
 #include "lluictrlfactory.h"
 #include "llviewermenufile.h"   // upload_new_resource()
 #include "llviewershadermgr.h"
@@ -334,25 +335,17 @@ void LLFloaterImagePreview::draw()
 
             if(mImagep.notNull())
             {
-#ifdef DX_RENDER
                 // mImagep is a real LLViewerTexture (has an LLImageDX/
-                // DXTexture behind it) - use the DX-aware bind(LLTexture*)
+                // DXTexture behind it) - use the DX-aware bind(DXTextureBase*)
                 // chokepoint instead of bindManual().
                 gDX.getTexUnit(0)->bind(mImagep);
-#else
-                gDX.getTexUnit(0)->bindManual(LLTexUnit::TT_TEXTURE, mImagep->getTexName());
-#endif
             }
             else
             {
                 mImagep = LLViewerTextureManager::getLocalTexture(mRawImagep.get(), false) ;
 
                 gDX.getTexUnit(0)->unbind(mImagep->getTarget()) ;
-#ifdef DX_RENDER
                 gDX.getTexUnit(0)->bind(mImagep);
-#else
-                gDX.getTexUnit(0)->bindManual(LLTexUnit::TT_TEXTURE, mImagep->getTexName());
-#endif
 
                 gDX.getTexUnit(0)->setTextureFilteringOption(LLTexUnit::TFO_BILINEAR);
 
@@ -806,7 +799,7 @@ bool LLImagePreviewAvatar::render()
     gDX.loadIdentity();
 
 
-    LLGLSUIDefault def;
+    DXUIDefault def;
     gDX.color4f(0.15f, 0.2f, 0.3f, 1.f);
 
     gUIProgram.bind();
@@ -841,7 +834,7 @@ bool LLImagePreviewAvatar::render()
 
     if (avatarp->mDrawable.notNull())
     {
-        LLGLDepthTest gls_depth(GL_TRUE, GL_TRUE);
+        DXDepthTest gls_depth(true, true);
         // make sure alpha=0 shows avatar material color
         LLGLDisable no_blend(GL_BLEND);
 
@@ -849,7 +842,7 @@ bool LLImagePreviewAvatar::render()
         if (face)
         {
             LLDrawPoolAvatar *avatarPoolp = (LLDrawPoolAvatar *)face->getPool();
-            gPipeline.enableLightsPreview();
+            DXPipeline::enableLightsPreview(gPipeline);
             avatarPoolp->renderAvatars(avatarp);  // renders only one avatar
         }
     }
@@ -994,10 +987,10 @@ void LLImagePreviewSculpted::setPreviewTarget(LLImageRaw* imagep, F32 distance)
 bool LLImagePreviewSculpted::render()
 {
     mNeedsUpdate = false;
-    LLGLSUIDefault def;
+    DXUIDefault def;
     LLGLDisable no_blend(GL_BLEND);
     LLGLEnable cull(GL_CULL_FACE);
-    LLGLDepthTest depth(GL_TRUE);
+    DXDepthTest depth(true);
 
     gDX.matrixMode(LLRender::MM_PROJECTION);
     gDX.pushMatrix();
@@ -1041,10 +1034,10 @@ bool LLImagePreviewSculpted::render()
     const LLVolumeFace &vf = mVolume->getVolumeFace(0);
     U32 num_indices = vf.mNumIndices;
 
-    gPipeline.enableLightsAvatar();
+    DXPipeline::enableLightsAvatar(gPipeline);
 
     gObjectPreviewProgram.bind();
-    gPipeline.enableLightsPreview();
+    DXPipeline::enableLightsPreview(gPipeline);
 
     gDX.pushMatrix();
     const F32 SCALE = 1.25f;

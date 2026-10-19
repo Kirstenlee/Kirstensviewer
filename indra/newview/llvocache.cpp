@@ -34,6 +34,7 @@
 #include "llagentcamera.h"
 #include "llsdserialize.h"
 #include "pipeline.h"
+#include "dxpipeline.h"
 #include "llworld.h" // For LLWorld::getInstance()
 //static variables
 U32 LLVOCacheEntry::sMinFrameRange = 0;
@@ -514,14 +515,11 @@ void LLVOCacheEntry::updateDebugSettings()
     static LLCachedControl<U32> inv_obj_time(gSavedSettings,"NonvisibleObjectsInMemoryTime");
     static const U32 MIN_FRAMES = 10;
     static const U32 MAX_FRAMES = 64;
-    // S24: 0 = genuinely unlimited (never evicted) - previously silently
-    // clamped to MAX_FRAMES instead, contradicting the setting's own "0 = No
-    // Limit" UI label. Bypasses the memory-adaptive scaling below entirely -
-    // scaling "unlimited" back down under memory pressure would defeat the
-    // point. Sentinel is a plain frame count (not a special-cased flag) so
-    // the three sMinFrameRange consumers (llvocache.cpp) need no changes -
-    // 100M frames is far beyond any realistic session length but leaves
-    // ample headroom below S32_MAX for their +64/-1 arithmetic.
+    // S24: 0 means genuinely unlimited (never evicted), matching the setting's "0 = No Limit"
+    // UI label; it bypasses the memory-adaptive scaling below, since scaling "unlimited" back
+    // down under memory pressure would defeat the point. The sentinel is a plain frame count,
+    // not a special-cased flag, so sMinFrameRange's consumers need no changes; 100M frames is
+    // far beyond any realistic session length but stays well below S32_MAX for their +64/-1 arithmetic.
     static const U32 UNLIMITED_FRAMES = 100000000U;
     if (inv_obj_time == 0)
     {
@@ -1038,7 +1036,7 @@ S32 LLVOCachePartition::cull(LLCamera &camera, bool do_occlusion)
     // world-camera identity, redundantly re-culling or corrupting the world camera's once-per-frame
     // cull tracking (mCulledTime[sCurCameraID] keyed on the same spoofed ID). VO cache is a
     // world-streaming structure - meaningless for the HUD's own narrowed pass, bail out explicitly.
-    if (LLPipeline::sRenderingHUDs)
+    if (DXPipeline::sRenderingHUDs)
     {
         return 0;
     }

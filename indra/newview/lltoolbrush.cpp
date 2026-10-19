@@ -525,7 +525,7 @@ void LLToolBrushLand::renderOverlay(LLSurface& land, const LLVector3& pos_region
 {
     gDX.matrixMode(LLRender::MM_MODELVIEW);
     gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
-    LLGLDepthTest mDepthTest(GL_TRUE);
+    DXDepthTest mDepthTest(true);
     gDX.pushMatrix();
     gDX.color4fv(OVERLAY_COLOR.mV);
     gDX.translatef(0.0f, 0.0f, 1.0f);

@@ -750,7 +750,7 @@ bool LLWorldMapView::drawMipmapLevel(S32 width, S32 height, S32 level, bool load
                     F32 top    = pos_screen[VY];
 
                     // Draw the tile
-                    LLGLSUIDefault gls_ui;
+                    DXUIDefault gls_ui;
                     gDX.getTexUnit(0)->bind(simimage.get());
                     simimage->setAddressMode(LLTexUnit::TAM_CLAMP);
 

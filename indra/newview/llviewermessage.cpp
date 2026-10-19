@@ -115,6 +115,7 @@
 #include "llvovolume.h"
 #include "llworld.h"
 #include "pipeline.h"
+#include "dxpipeline.h"
 #include "llfloaterworldmap.h"
 #include "llviewerdisplay.h"
 #include "llkeythrottle.h"
@@ -3738,7 +3739,7 @@ void process_kill_object(LLMessageSystem *mesgsys, void **user_data)
             if ( gShowObjectUpdates )
             {
                 LLColor4 color(0.f,1.f,0.f,1.f);
-                gPipeline.addDebugBlip(objectp->getPositionAgent(), color);
+                DXPipeline::addDebugBlip(gPipeline, objectp->getPositionAgent(), color);
                 LL_DEBUGS("MessageBlip") << "Kill blip for local " << local_id << " at " << objectp->getPositionAgent() << LL_ENDL;
             }
 

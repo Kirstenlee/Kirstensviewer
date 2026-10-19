@@ -38,11 +38,12 @@
 #include "llgl.h"
 
 #include "llappviewer.h"
+#include "dxpipeline.h"
 #include "llbufferstream.h"
 #include "llnotificationsutil.h"
 #include "llviewercontrol.h"
 #include "llworld.h"
-#include "lldrawpoolterrain.h"
+#include "dxdrawpoolterrain.h"
 #include "llviewertexturelist.h"
 #include "llversioninfo.h"
 #include "llwindow.h"
@@ -427,7 +428,6 @@ bool checkRDNA35()
 
 bool LLFeatureManager::loadGPUClass()
 {
-#ifdef DX_RENDER
     // gpu_benchmark() (llglsandbox.cpp) is GL-only and never audited for
     // DX_RENDER, so never call it here. Classify directly from the real
     // DXGI VRAM figure LLGLManager::initGLDX() (llgl.cpp) populates instead
@@ -443,104 +443,10 @@ bool LLFeatureManager::loadGPUClass()
     LL_INFOS("RenderInit") << "DX_RENDER GPU class from VRAM (" << vram
         << "MB): " << (S32)mGPUClass << LL_ENDL;
 
-    // mGPUSupported must be set here (this function returns before the
-    // non-DX_RENDER tail below) - llappviewer.cpp's unsupported-GPU check
-    // depends on it, otherwise it fires unconditionally on every launch.
     mGPUString = gGLManager.getRawGLString();
     mGPUSupported = true;
 
     return true;
-#endif
-
-    // This is a hack for certain AMD GPUs in newer driver versions on certain APUs.
-    // These GPUs will show inconsistent freezes when attempting to run shader profiles against them.
-    // This is extremely problematic as it can lead to:
-    // - Login freezes
-    // - Inability to start the client
-    // - Completely random avatars triggering a freeze
-    // As a result, we filter out these GPUs for shader profiling.
-    // - Geenz 11/11/2025
-
-    if (gGLManager.getRawGLString().find("Radeon") != std::string::npos && checkRDNA35() && gGLManager.mDriverVersionVendorString.find("25.") != std::string::npos)
-    {
-        LL_WARNS("RenderInit") << "Detected AMD RDNA3.5 GPU on a known bad driver; disabling benchmark and occlusion culling to prevent freezes." << LL_ENDL;
-        gSavedSettings.setBOOL("SkipBenchmark", true);
-        gSavedSettings.setBOOL("UseOcclusion", false);
-    }
-
-	if (!gSavedSettings.getBOOL("SkipBenchmark"))
-	{
-		F32 class1_gbps = gSavedSettings.getF32("RenderClass1MemoryBandwidth");
-		//get memory bandwidth from benchmark
-		F32 gbps;
-		try
-		{
-			gbps = logExceptionBenchmark();
-		}
-		catch (const std::exception& e)
-		{
-			gbps = -1.f;
-			LL_WARNS("RenderInit") << "GPU benchmark failed: " << e.what() << LL_ENDL;
-		}
-
-		mGPUMemoryBandwidth = gbps;
-
-        // bias by CPU speed
-		// Scales raw GPU bandwidth by cpu_mhz/RenderCPUBasis (clamped to
-		// 0.5-1.0) so a high-end GPU isn't over-classified on a weak CPU.
-		static LLCachedControl<F32> cpu_basis_mhz(gSavedSettings, "RenderCPUBasis");
-		F32 cpu_mhz = (F32)gSysCPU.getMHz();
-		F32 cpu_bias = llclamp(cpu_mhz / cpu_basis_mhz, 0.5f, 1.f);
-		gbps *= cpu_bias;
-
-		if (gbps < 0.f)
-		{ //couldn't bench, default to Low
-			mGPUClass = GPU_CLASS_0;
-		}
-		else if (gbps <= class1_gbps)
-		{
-			mGPUClass = GPU_CLASS_1;
-		}
-		else if (gbps <= class1_gbps * 2.f)
-		{
-			mGPUClass = GPU_CLASS_2;
-		}
-		else if (gbps <= class1_gbps * 4.f)
-		{
-			mGPUClass = GPU_CLASS_3;
-		}
-		else if (gbps <= class1_gbps * 8.f)
-		{
-			mGPUClass = GPU_CLASS_4;
-		}
-		else
-		{
-			mGPUClass = GPU_CLASS_5;
-		}
-
-        const F32Gigabytes MIN_PHYSICAL_MEMORY(8);
-
-		LLMemory::updateMemoryInfo();
-		F32Gigabytes physical_mem = LLMemory::getMaxMemKB();
-		if (MIN_PHYSICAL_MEMORY > physical_mem && mGPUClass > GPU_CLASS_1)
-		{
-			// reduce quality on systems that don't have enough memory
-			mGPUClass = (EGPUClass)(mGPUClass - 1);
-		}
-	} //end if benchmark
-	else
-	{
-		//setting says don't benchmark MAINT-7558
-		LL_WARNS("RenderInit") << "Setting 'SkipBenchmark' is true; defaulting to class 1 (may be required for some GPUs)" << LL_ENDL;
-
-		mGPUClass = GPU_CLASS_1;
-	}
-
-	// defaults
-	mGPUString = gGLManager.getRawGLString();
-	mGPUSupported = true;
-
-	return true; // indicates that a gpu value was established
 }
 
 void LLFeatureManager::cleanupFeatureTables()
@@ -655,7 +561,7 @@ void LLFeatureManager::setGraphicsLevel(U32 level, bool skipFeatures)
 
 	LLViewerShaderMgr::sSkipReload = false;
 	LLViewerShaderMgr::instance()->setShaders();
-	gPipeline.refreshCachedSettings();
+	DXPipeline::refreshCachedSettings();
 }
 
 void LLFeatureManager::applyBaseMasks()

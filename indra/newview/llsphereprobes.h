@@ -35,9 +35,7 @@
 #include <array>
 #include <map>
 
-#ifdef DX_RENDER
 #include "DXBuffer.h"
-#endif
 
 class LLSpatialGroup;
 class LLViewerObject;
@@ -57,8 +55,21 @@ public:
     // DX_RENDER. Scoped getter/forwarder is a smaller surface than a second full friend class.
     F32 getLightScale() const { return mLightScale; }
 
+    // Same rationale as getLightScale() above - DXPipeline::bindDeferredShader() (dxpipeline.cpp)
+    // needs this to upload REFLECTION_PROBE_MAX_LOD.
+    F32 getMaxProbeLOD() const { return mMaxProbeLOD; }
+
+    // Same rationale again - DXPipeline::allocateScreenBufferInternal() needs this to size the
+    // auxiliary/probe render target.
+    U32 getProbeResolution() const { return mProbeResolution; }
+
 
     void updateUniformsPerFrame() { updateUniforms(); }
+
+    // Same rationale as getLightScale()/getMaxProbeLOD() above -
+    // DXPipeline::bindReflectionProbes() (dxpipeline.cpp) needs to bind
+    // this UBO right after a successful probe-texture bind.
+    void bindUniforms() { setUniforms(); }
 
     enum class DetailLevel
     {
@@ -252,12 +263,9 @@ private:
 
     // handle to UBO
     U32 mUBO = 0;
-#ifdef DX_RENDER
     // Real D3D11 constant buffer backing mUBO's data (mProbeData/ReflectionProbeData) - see
-    // updateUniforms()/setUniforms() in llsphereprobes.cpp. mUBO itself stays 0 under
-    // DX_RENDER.
+    // updateUniforms()/setUniforms() in llsphereprobes.cpp.
     DXBuffer mDXUBO;
-#endif
 
     // list of maps being used for rendering
     std::vector<LLReflectionMap*> mReflectionMaps;

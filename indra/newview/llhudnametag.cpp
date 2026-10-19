@@ -48,6 +48,7 @@
 #include "llstatusbar.h"
 #include "llmenugl.h"
 #include "pipeline.h"
+#include "dxpipeline.h"
 #include "llvieweroctree.h"
 #include "llhlslshader.h"
 #include "llshadermgr.h"
@@ -117,7 +118,6 @@ LLHUDNameTag::LLHUDNameTag(const U8 type)
 
 LLHUDNameTag::~LLHUDNameTag()
 {
-#ifdef DX_RENDER
     // Returns the query name to the pool shared with LLOcclusionCullingGroup
     // (getNewOcclusionQueryObjectName()/releaseOcclusionQueryObjectName()).
     // Safe even if mOcclusionQueryPending is still true - release only
@@ -126,7 +126,6 @@ LLHUDNameTag::~LLHUDNameTag()
     {
         LLOcclusionCullingGroup::releaseOcclusionQueryObjectName(mOcclusionQuery);
     }
-#endif
 }
 
 
@@ -241,7 +240,7 @@ void LLHUDNameTag::render()
 {
     if (sDisplayText)
     {
-        LLGLDepthTest gls_depth(GL_TRUE, GL_FALSE);
+        DXDepthTest gls_depth(true, false);
         renderText();
     }
 }
@@ -312,7 +311,7 @@ void LLHUDNameTag::renderText()
     if (nametag_over_water &&
         mSourceObject &&
         mSourceObject->getRegion() &&
-        LLPipeline::sRenderTransparentWater &&
+        DXPipeline::sRenderTransparentWater &&
         !LLViewerCamera::getInstance()->cameraUnderWater())
     {
         if (mSourceObject->getPositionAgent().mV[VZ] < mSourceObject->getRegion()->getWaterHeight())
@@ -320,7 +319,7 @@ void LLHUDNameTag::renderText()
             render_over_water = true;
         }
     }
-    LLGLDepthTest gls_depth(GL_TRUE, GL_FALSE, render_over_water ? GL_ALWAYS : GL_LEQUAL);
+    DXDepthTest gls_depth(true, false, render_over_water ? GL_ALWAYS : GL_LEQUAL);
 
     // LLUIImage::draw3D() (the background box below) draws against whatever
     // D3D11 viewport is currently bound with no reset of its own. HUD-attached
@@ -423,17 +422,14 @@ void LLHUDNameTag::renderText()
 // occlusion culling - reuses that bind rather than its own shader/buffer setup.
 void LLHUDNameTag::issueOcclusionQueries()
 {
-#ifdef DX_RENDER
     for (VisibleTextObjectIterator it = sVisibleTextObjects.begin(); it != sVisibleTextObjects.end(); ++it)
     {
         (*it)->issueOcclusionQuery();
     }
-#endif
 }
 
 void LLHUDNameTag::issueOcclusionQuery()
 {
-#ifdef DX_RENDER
     if (mOcclusionQueryPending)
     {
         // Previous query never resolved (e.g. a dropped frame under load) -
@@ -470,12 +466,10 @@ void LLHUDNameTag::issueOcclusionQuery()
     DXOcclusionQuery::endQuery(mOcclusionQuery);
 
     mOcclusionQueryPending = true;
-#endif
 }
 
 void LLHUDNameTag::updateOcclusionFade()
 {
-#ifdef DX_RENDER
     // Matches POSITION_DAMPING_TC's shape - smooths the fade rather than
     // snapping, so a query flickering pending/resolved near an occluder edge
     // doesn't pop the nametag's alpha instantly.
@@ -488,7 +482,6 @@ void LLHUDNameTag::updateOcclusionFade()
         mOcclusionFadeAlpha = lerp(mOcclusionFadeAlpha, target, LLSmoothInterpolation::getInterpolant(OCCLUSION_FADE_TC));
         mOcclusionQueryPending = false;
     }
-#endif
 }
 
 void LLHUDNameTag::setString(const std::string &text_utf8)

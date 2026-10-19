@@ -239,14 +239,14 @@ void LLThumbnailCtrl::initImage()
         if (mImageAssetID.notNull())
         {
             // Should it support baked textures?
-            mTexturep = LLViewerTextureManager::getFetchedTexture(mImageAssetID, FTT_DEFAULT, MIPMAP_YES, LLDXTexture::BOOST_THUMBNAIL);
+            mTexturep = LLViewerTextureManager::getFetchedTexture(mImageAssetID, FTT_DEFAULT, MIPMAP_YES, DXTextureBase::BOOST_THUMBNAIL);
             mTexturep->forceToSaveRawImage(0);
             mTexturep->setKnownDrawSize(MAX_IMAGE_SIZE, MAX_IMAGE_SIZE);
         }
     }
     else if (tvalue.isString())
     {
-        mImagep = LLUI::getUIImage(tvalue.asString(), LLDXTexture::BOOST_UI);
+        mImagep = LLUI::getUIImage(tvalue.asString(), DXTextureBase::BOOST_UI);
         if (mImagep)
         {
             LLViewerFetchedTexture* texture = dynamic_cast<LLViewerFetchedTexture*>(mImagep->getImage().get());

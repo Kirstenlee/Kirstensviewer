@@ -628,12 +628,24 @@ void audio_update_equalizer()
 		static LLCachedControl<bool> vlc_eq_enabled(gSavedSettings, "VLCAudioEQEnabled", false);
 		static LLCachedControl<F32> vlc_preamp(gSavedSettings, "VLCAudioEQPreamp", 0.0f);
 
-		F32 bands[10];
-		for (int i = 0; i < 10; ++i)
-		{
-			std::string setting_name = llformat("VLCAudioEQBand%d", i);
-			bands[i] = gSavedSettings.getF32(setting_name);
-		}
+		// S24: was llformat()-ing a setting name + a string-keyed
+		// gSavedSettings.getF32() lookup for all 10 bands, every frame,
+		// whenever VLC streaming audio is in use - same dead-lookup class as
+		// tonight's other fixes, just cached like every other setting here
+		// instead of re-resolved by name every call.
+		static LLCachedControl<F32> vlc_band0(gSavedSettings, "VLCAudioEQBand0", 0.0f);
+		static LLCachedControl<F32> vlc_band1(gSavedSettings, "VLCAudioEQBand1", 0.0f);
+		static LLCachedControl<F32> vlc_band2(gSavedSettings, "VLCAudioEQBand2", 0.0f);
+		static LLCachedControl<F32> vlc_band3(gSavedSettings, "VLCAudioEQBand3", 0.0f);
+		static LLCachedControl<F32> vlc_band4(gSavedSettings, "VLCAudioEQBand4", 0.0f);
+		static LLCachedControl<F32> vlc_band5(gSavedSettings, "VLCAudioEQBand5", 0.0f);
+		static LLCachedControl<F32> vlc_band6(gSavedSettings, "VLCAudioEQBand6", 0.0f);
+		static LLCachedControl<F32> vlc_band7(gSavedSettings, "VLCAudioEQBand7", 0.0f);
+		static LLCachedControl<F32> vlc_band8(gSavedSettings, "VLCAudioEQBand8", 0.0f);
+		static LLCachedControl<F32> vlc_band9(gSavedSettings, "VLCAudioEQBand9", 0.0f);
+
+		F32 bands[10] = { vlc_band0, vlc_band1, vlc_band2, vlc_band3, vlc_band4,
+		                  vlc_band5, vlc_band6, vlc_band7, vlc_band8, vlc_band9 };
 
 		vlc_stream->updateEqualizer(vlc_eq_enabled, vlc_preamp, bands);
 	}

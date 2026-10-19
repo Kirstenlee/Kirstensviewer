@@ -62,6 +62,7 @@
 #include "llpreviewtexture.h"
 #include "llresmgr.h"
 #include "pipeline.h"
+#include "dxpipeline.h"
 #include "llspatialpartition.h"
 #include "llviewershadermgr.h"
 #include "lldxlinewidth.h"
@@ -290,9 +291,9 @@ void LLWind::renderVectors()
 void LLViewerParcelMgr::renderRect(const LLVector3d &west_south_bottom_global,
                                    const LLVector3d &east_north_top_global )
 {
-    LLGLSUIDefault gls_ui;
+    DXUIDefault gls_ui;
     gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
-    LLGLDepthTest gls_depth(GL_TRUE);
+    DXDepthTest gls_depth(true);
 
     LLVector3 west_south_bottom_agent = gAgent.getPosAgentFromGlobal(west_south_bottom_global);
     F32 west    = west_south_bottom_agent.mV[VX];
@@ -456,9 +457,9 @@ void LLViewerParcelMgr::renderHighlightSegments(const U8* segments, LLViewerRegi
     F32 x2, y2; // end point
     bool has_segments = false;
 
-    LLGLSUIDefault gls_ui;
+    DXUIDefault gls_ui;
     gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
-    LLGLDepthTest gls_depth(GL_TRUE);
+    DXDepthTest gls_depth(true);
 
     gDX.color4f(1.f, 1.f, 0.f, 0.2f);
 
@@ -532,8 +533,8 @@ void LLViewerParcelMgr::renderCollisionSegments(U8* segments, bool use_pass, LLV
     F32 pos_x = pos.mV[VX];
     F32 pos_y = pos.mV[VY];
 
-    LLGLSUIDefault gls_ui;
-    LLGLDepthTest gls_depth(GL_TRUE, GL_FALSE);
+    DXUIDefault gls_ui;
+    DXDepthTest gls_depth(true, false);
     LLGLDisable cull(GL_CULL_FACE);
 
     if (mCollisionBanned == BA_BANNED ||
@@ -745,7 +746,7 @@ void LLViewerObjectList::renderObjectBeacons()
         return;
     }
 
-    LLGLSUIDefault gls_ui;
+    DXUIDefault gls_ui;
 
     gUIProgram.bind();
 
@@ -791,7 +792,7 @@ void LLViewerObjectList::renderObjectBeacons()
 
     {
         gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
-        LLGLDepthTest gls_depth(GL_TRUE);
+        DXDepthTest gls_depth(true);
 
         gDX.begin(LLRender::TRIANGLES);
         for (std::vector<LLDebugBeacon>::iterator iter = mDebugBeacons.begin(); iter != mDebugBeacons.end(); ++iter)
@@ -834,7 +835,7 @@ void LLViewerObjectList::renderObjectBeacons()
 
 void LLSky::renderSunMoonBeacons(const LLVector3& pos_agent, const LLVector3& direction, LLColor4 color)
 {
-    LLGLSUIDefault gls_ui;
+    DXUIDefault gls_ui;
     gUIProgram.bind();
     gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
 
@@ -849,7 +850,7 @@ void LLSky::renderSunMoonBeacons(const LLVector3& pos_agent, const LLVector3& di
     color.mV[3] *= 0.5f;
     gDX.setSceneBlendType(LLRender::BT_ADD_WITH_ALPHA);
     gDX.begin(LLRender::TRIANGLES);
-    draw_beacon_pillar(pos_agent, pos_end, (F32)LLPipeline::DebugBeaconLineWidth * 1.25f, color);
+    draw_beacon_pillar(pos_agent, pos_end, (F32)DXPipeline::DebugBeaconLineWidth * 1.25f, color);
     gDX.end();
     gDX.setSceneBlendType(LLRender::BT_ALPHA);
 
@@ -990,12 +991,6 @@ F32 shader_timer_benchmark(std::vector<LLRenderTarget> & dest, TextureHolder & t
 //-----------------------------------------------------------------------------
 F32 gpu_benchmark()
 {
-#ifndef DX_RENDER
-    if (gGLManager.mGLVersion < 3.3f)
-    { // don't bother benchmarking venerable drivers which don't support accurate timing anyway
-        return -1.f;
-    }
-#endif
 
     if (!gBenchmarkProgram.isComplete())
     {
@@ -1043,7 +1038,7 @@ F32 gpu_benchmark()
     }
 
     gDX.setColorWriteMask(true, true);
-    LLGLDepthTest depth(GL_FALSE);
+    DXDepthTest depth(false);
 
     LLTimer alloc_timer;
     alloc_timer.start();

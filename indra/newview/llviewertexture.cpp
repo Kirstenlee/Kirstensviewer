@@ -50,11 +50,12 @@
 
 // viewer includes
 #include "llimagedx.h"
-#include "lldrawpool.h"
+#include "dxdrawpool.h"
 #include "lltexturefetch.h"
 #include "llviewertexturelist.h"
 #include "llviewercontrol.h"
 #include "pipeline.h"
+#include "dxpipeline.h"
 #include "llappviewer.h"
 #include "llface.h"
 #include "llviewercamera.h"
@@ -234,7 +235,7 @@ LLViewerMediaTexture*  LLViewerTextureManager::getMediaTexture(const LLUUID& id,
     return tex;
 }
 
-LLViewerFetchedTexture* LLViewerTextureManager::staticCastToFetchedTexture(LLTexture* tex, bool report_error)
+LLViewerFetchedTexture* LLViewerTextureManager::staticCastToFetchedTexture(DXTextureBase* tex, bool report_error)
 {
     if(!tex)
     {
@@ -261,7 +262,7 @@ LLPointer<LLViewerTexture> LLViewerTextureManager::getLocalTexture(bool usemipma
     if(generate_gl_tex)
     {
         tex->generateGLTexture();
-        tex->setCategory(LLDXTexture::LOCAL);
+        tex->setCategory(DXTextureBase::LOCAL);
     }
     return tex;
 }
@@ -271,14 +272,14 @@ LLPointer<LLViewerTexture> LLViewerTextureManager::getLocalTexture(const LLUUID&
     if(generate_gl_tex)
     {
         tex->generateGLTexture();
-        tex->setCategory(LLDXTexture::LOCAL);
+        tex->setCategory(DXTextureBase::LOCAL);
     }
     return tex;
 }
 LLPointer<LLViewerTexture> LLViewerTextureManager::getLocalTexture(const LLImageRaw* raw, bool usemipmaps)
 {
     LLPointer<LLViewerTexture> tex = new LLViewerTexture(raw, usemipmaps);
-    tex->setCategory(LLDXTexture::LOCAL);
+    tex->setCategory(DXTextureBase::LOCAL);
     return tex;
 }
 LLPointer<LLViewerTexture> LLViewerTextureManager::getLocalTexture(const U32 width, const U32 height, const U8 components, bool usemipmaps, bool generate_gl_tex)
@@ -287,7 +288,7 @@ LLPointer<LLViewerTexture> LLViewerTextureManager::getLocalTexture(const U32 wid
     if(generate_gl_tex)
     {
         tex->generateGLTexture();
-        tex->setCategory(LLDXTexture::LOCAL);
+        tex->setCategory(DXTextureBase::LOCAL);
     }
     return tex;
 }
@@ -360,17 +361,17 @@ LLViewerFetchedTexture* LLViewerTextureManager::getFetchedTextureFromHost(const 
 // Create a bridge to the viewer texture manager.
 class LLViewerTextureManagerBridge : public LLTextureManagerBridge
 {
-    /*virtual*/ LLPointer<LLDXTexture> getLocalTexture(bool usemipmaps = true, bool generate_gl_tex = true)
+    /*virtual*/ LLPointer<DXTextureBase> getLocalTexture(bool usemipmaps = true, bool generate_gl_tex = true)
     {
         return LLViewerTextureManager::getLocalTexture(usemipmaps, generate_gl_tex);
     }
 
-    /*virtual*/ LLPointer<LLDXTexture> getLocalTexture(const U32 width, const U32 height, const U8 components, bool usemipmaps, bool generate_gl_tex = true)
+    /*virtual*/ LLPointer<DXTextureBase> getLocalTexture(const U32 width, const U32 height, const U8 components, bool usemipmaps, bool generate_gl_tex = true)
     {
         return LLViewerTextureManager::getLocalTexture(width, height, components, usemipmaps, generate_gl_tex);
     }
 
-    /*virtual*/ LLDXTexture* getFetchedTexture(const LLUUID &image_id)
+    /*virtual*/ DXTextureBase* getFetchedTexture(const LLUUID &image_id)
     {
         return LLViewerTextureManager::getFetchedTexture(image_id);
     }
@@ -423,10 +424,10 @@ void LLViewerTextureManager::init()
     }
     image_raw = NULL;
 #else
-    LLViewerFetchedTexture::sDefaultImagep = LLViewerTextureManager::getFetchedTexture(IMG_DEFAULT, true, LLDXTexture::BOOST_UI);
+    LLViewerFetchedTexture::sDefaultImagep = LLViewerTextureManager::getFetchedTexture(IMG_DEFAULT, true, DXTextureBase::BOOST_UI);
 #endif
     LLViewerFetchedTexture::sDefaultImagep->dontDiscard();
-    LLViewerFetchedTexture::sDefaultImagep->setCategory(LLDXTexture::OTHER);
+    LLViewerFetchedTexture::sDefaultImagep->setCategory(DXTextureBase::OTHER);
 
     image_raw = new LLImageRaw(32,32,3);
     data = image_raw->getData();
@@ -597,10 +598,10 @@ void LLViewerTexture::updateClass()
                 // Preserve UI, icon, and sculpty textures (need raw for
                 // correct rendering or are too small to matter)
                 S32 boost = fetched->getBoostLevel();
-                if (boost == LLDXTexture::BOOST_UI ||
-                    boost == LLDXTexture::BOOST_ICON ||
-                    boost == LLDXTexture::BOOST_SCULPTED ||
-                    boost == LLDXTexture::BOOST_THUMBNAIL)
+                if (boost == DXTextureBase::BOOST_UI ||
+                    boost == DXTextureBase::BOOST_ICON ||
+                    boost == DXTextureBase::BOOST_SCULPTED ||
+                    boost == DXTextureBase::BOOST_THUMBNAIL)
                 {
                     continue;
                 }
@@ -756,7 +757,7 @@ F32 LLViewerTexture::getSystemMemoryBudgetFactor()
 const U32 LLViewerTexture::sCurrentFileVersion = 1;
 
 LLViewerTexture::LLViewerTexture(bool usemipmaps) :
-    LLDXTexture(usemipmaps)
+    DXTextureBase(usemipmaps)
 {
     init(true);
 
@@ -765,7 +766,7 @@ LLViewerTexture::LLViewerTexture(bool usemipmaps) :
 }
 
 LLViewerTexture::LLViewerTexture(const LLUUID& id, bool usemipmaps) :
-    LLDXTexture(usemipmaps),
+    DXTextureBase(usemipmaps),
     mID(id)
 {
     init(true);
@@ -774,7 +775,7 @@ LLViewerTexture::LLViewerTexture(const LLUUID& id, bool usemipmaps) :
 }
 
 LLViewerTexture::LLViewerTexture(const U32 width, const U32 height, const U8 components, bool usemipmaps)  :
-    LLDXTexture(width, height, components, usemipmaps)
+    DXTextureBase(width, height, components, usemipmaps)
 {
     init(true);
 
@@ -783,7 +784,7 @@ LLViewerTexture::LLViewerTexture(const U32 width, const U32 height, const U8 com
 }
 
 LLViewerTexture::LLViewerTexture(const LLImageRaw* raw, bool usemipmaps) :
-    LLDXTexture(raw, usemipmaps)
+    DXTextureBase(raw, usemipmaps)
 {
     init(true);
 
@@ -846,7 +847,7 @@ void LLViewerTexture::cleanup()
 // virtual
 void LLViewerTexture::dump()
 {
-    LLDXTexture::dump();
+    DXTextureBase::dump();
 
     LL_INFOS() << "LLViewerTexture"
             << " mID " << mID
@@ -1337,7 +1338,7 @@ void LLViewerFetchedTexture::loadFromFastCache()
         }
         else
         {
-            if (mBoostLevel == LLDXTexture::BOOST_ICON)
+            if (mBoostLevel == DXTextureBase::BOOST_ICON)
             {
                 // Shouldn't do anything usefull since texures in fast cache are 16x16,
                 // it is here in case fast cache changes.
@@ -1350,7 +1351,7 @@ void LLViewerFetchedTexture::loadFromFastCache()
                 }
             }
 
-            if (mBoostLevel == LLDXTexture::BOOST_THUMBNAIL)
+            if (mBoostLevel == DXTextureBase::BOOST_THUMBNAIL)
             {
                 if (mRawImage && (mRawImage->getWidth() > DEFAULT_THUMBNAIL_DIMENSIONS || mRawImage->getHeight() > DEFAULT_THUMBNAIL_DIMENSIONS))
                 {
@@ -1378,7 +1379,7 @@ void LLViewerFetchedTexture::setForSculpt()
     forceToSaveRawImage(0, F32_MAX);
 
     setBoostLevel(llmax((S32)getBoostLevel(),
-        (S32)LLDXTexture::BOOST_SCULPTED));
+        (S32)DXTextureBase::BOOST_SCULPTED));
 
     mForSculpt = true;
     if(isForSculptOnly() && hasGLTexture() && !getBoundRecently())
@@ -1642,7 +1643,7 @@ void LLViewerFetchedTexture::postCreateTexture()
         if (volume)
         {
             volume->mSculptChanged = true;
-            gPipeline.markRebuild(volume->mDrawable);
+            DXPipeline::markRebuild(gPipeline, volume->mDrawable);
         }
     }
 
@@ -1781,7 +1782,7 @@ extern bool gCubeSnapshot;
 void LLViewerFetchedTexture::processTextureStats()
 {
     llassert(!gCubeSnapshot);  // should only be called when the main camera is active
-    llassert(!LLPipeline::sShadowRender);
+    llassert(!DXPipeline::sShadowRender);
 
     if(mFullyLoaded)
     {
@@ -1800,7 +1801,7 @@ void LLViewerFetchedTexture::processTextureStats()
         static LLCachedControl<bool> textures_fullres(gSavedSettings,"TextureLoadFullRes", false);
 
         U32 max_tex_res = MAX_IMAGE_SIZE_DEFAULT;
-        if (mBoostLevel < LLDXTexture::BOOST_HIGH)
+        if (mBoostLevel < DXTextureBase::BOOST_HIGH)
         {
             // restrict texture resolution to download based on RenderMaxTextureResolution
             static LLCachedControl<U32> max_texture_resolution(gSavedSettings, "RenderMaxTextureResolution", 2048);
@@ -1813,7 +1814,7 @@ void LLViewerFetchedTexture::processTextureStats()
         {
             mDesiredDiscardLevel = 0;
         }
-        else if (mDontDiscard && (mBoostLevel == LLDXTexture::BOOST_ICON || mBoostLevel == LLDXTexture::BOOST_THUMBNAIL))
+        else if (mDontDiscard && (mBoostLevel == DXTextureBase::BOOST_ICON || mBoostLevel == DXTextureBase::BOOST_THUMBNAIL))
         {
             if (mFullWidth > MAX_IMAGE_SIZE_DEFAULT || mFullHeight > MAX_IMAGE_SIZE_DEFAULT)
             {
@@ -1947,7 +1948,7 @@ bool LLViewerFetchedTexture::processFetchResults(S32& desired_discard, S32 curre
 
                 mIsRawImageValid = true;
 
-            if (mBoostLevel == LLDXTexture::BOOST_ICON)
+            if (mBoostLevel == DXTextureBase::BOOST_ICON)
             {
                 S32 expected_width = mKnownDrawWidth > 0 ? mKnownDrawWidth : DEFAULT_ICON_DIMENSIONS;
                 S32 expected_height = mKnownDrawHeight > 0 ? mKnownDrawHeight : DEFAULT_ICON_DIMENSIONS;
@@ -1966,7 +1967,7 @@ bool LLViewerFetchedTexture::processFetchResults(S32& desired_discard, S32 curre
                 }
             }
 
-            if (mBoostLevel == LLDXTexture::BOOST_THUMBNAIL)
+            if (mBoostLevel == DXTextureBase::BOOST_THUMBNAIL)
             {
                 S32 expected_width = mKnownDrawWidth > 0 ? mKnownDrawWidth : DEFAULT_THUMBNAIL_DIMENSIONS;
                 S32 expected_height = mKnownDrawHeight > 0 ? mKnownDrawHeight : DEFAULT_THUMBNAIL_DIMENSIONS;
@@ -2464,7 +2465,7 @@ void LLViewerFetchedTexture::deleteCallbackEntry(const LLLoadedCallbackEntry::so
             destroySavedRawImage();
         }
     }
-    else if(needsToSaveRawImage() && mBoostLevel != LLDXTexture::BOOST_PREVIEW)
+    else if(needsToSaveRawImage() && mBoostLevel != DXTextureBase::BOOST_PREVIEW)
     {
         if(desired_raw_discard != INVALID_DISCARD_LEVEL)
         {
@@ -2856,7 +2857,7 @@ void LLViewerFetchedTexture::saveRawImage()
     LLImageDataSharedLock lock(mRawImage);
 
     mSavedRawDiscardLevel = mRawDiscardLevel;
-    if (mBoostLevel == LLDXTexture::BOOST_ICON)
+    if (mBoostLevel == DXTextureBase::BOOST_ICON)
     {
         S32 expected_width = mKnownDrawWidth > 0 ? mKnownDrawWidth : DEFAULT_ICON_DIMENSIONS;
         S32 expected_height = mKnownDrawHeight > 0 ? mKnownDrawHeight : DEFAULT_ICON_DIMENSIONS;
@@ -2870,7 +2871,7 @@ void LLViewerFetchedTexture::saveRawImage()
             mSavedRawImage = new LLImageRaw(mRawImage->getData(), mRawImage->getWidth(), mRawImage->getHeight(), mRawImage->getComponents());
         }
     }
-    else if (mBoostLevel == LLDXTexture::BOOST_THUMBNAIL)
+    else if (mBoostLevel == DXTextureBase::BOOST_THUMBNAIL)
     {
         if (mRawImage->getWidth() > DEFAULT_THUMBNAIL_DIMENSIONS || mRawImage->getHeight() > DEFAULT_THUMBNAIL_DIMENSIONS)
         {
@@ -2882,7 +2883,7 @@ void LLViewerFetchedTexture::saveRawImage()
             mSavedRawImage = new LLImageRaw(mRawImage->getData(), mRawImage->getWidth(), mRawImage->getHeight(), mRawImage->getComponents());
         }
     }
-    else if (mBoostLevel == LLDXTexture::BOOST_SCULPTED)
+    else if (mBoostLevel == DXTextureBase::BOOST_SCULPTED)
     {
         S32 expected_width = mKnownDrawWidth > 0 ? mKnownDrawWidth : sMaxSculptRez;
         S32 expected_height = mKnownDrawHeight > 0 ? mKnownDrawHeight : sMaxSculptRez;
@@ -3066,7 +3067,7 @@ void LLViewerLODTexture::processTextureStats()
     static LLCachedControl<bool> textures_fullres(gSavedSettings,"TextureLoadFullRes", false);
 
     F32 max_tex_res = MAX_IMAGE_SIZE_DEFAULT;
-    if (mBoostLevel < LLDXTexture::BOOST_HIGH)
+    if (mBoostLevel < DXTextureBase::BOOST_HIGH)
     {
         // restrict texture resolution to download based on RenderMaxTextureResolution
         static LLCachedControl<U32> max_texture_resolution(gSavedSettings, "RenderMaxTextureResolution", 2048);
@@ -3086,7 +3087,7 @@ void LLViewerLODTexture::processTextureStats()
         if (mFullWidth > MAX_IMAGE_SIZE_DEFAULT || mFullHeight > MAX_IMAGE_SIZE_DEFAULT)
             mDesiredDiscardLevel = 1; // MAX_IMAGE_SIZE_DEFAULT = 2048 and max size ever is 4096
     }
-    else if (mBoostLevel < LLDXTexture::BOOST_HIGH && mMaxVirtualSize <= 10.f)
+    else if (mBoostLevel < DXTextureBase::BOOST_HIGH && mMaxVirtualSize <= 10.f)
     {
         // S24: Reduced threshold from 10.f to 0.1f - 10.f was too aggressive and culled visible vendor signs/large textures
         mDesiredDiscardLevel = llmin(mMinDesiredDiscardLevel, (S8)(MAX_DISCARD_LEVEL + 1));
@@ -3146,7 +3147,7 @@ void LLViewerLODTexture::processTextureStats()
         // BOOST_AVATAR_BAKED was briefly relaxed here to support an emergency VRAM-eviction tier -
         // reverted after it could burst a crowd's avatar textures into gTextureList.mDownScaleQueue at
         // once, overwhelming its severe-pressure drain. Back to upstream: avatar bakes never scale down.
-        if (mBoostLevel < LLDXTexture::BOOST_AVATAR_BAKED)
+        if (mBoostLevel < DXTextureBase::BOOST_AVATAR_BAKED)
         {
             if (current_discard < mDesiredDiscardLevel && !mForceToSaveRawImage)
             { // should scale down
@@ -3155,7 +3156,7 @@ void LLViewerLODTexture::processTextureStats()
         }
 
         if (isUpdateFrozen() // we are out of memory and nearing max allowed bias
-            && mBoostLevel < LLDXTexture::BOOST_SCULPTED
+            && mBoostLevel < DXTextureBase::BOOST_SCULPTED
             && mDesiredDiscardLevel < current_discard)
         {
             // stop requesting more
@@ -3200,7 +3201,7 @@ S32 LLViewerLODTexture::computeNaturalDiscardLevel() const
 
     F32 max_tex_res = MAX_IMAGE_SIZE_DEFAULT;
     F32 max_virtual_size = mMaxVirtualSize;
-    if (mBoostLevel < LLDXTexture::BOOST_HIGH)
+    if (mBoostLevel < DXTextureBase::BOOST_HIGH)
     {
         static LLCachedControl<U32> max_texture_resolution(gSavedSettings, "RenderMaxTextureResolution", 2048);
         max_tex_res = (F32)llclamp((S32)max_texture_resolution, 512, MAX_IMAGE_SIZE_DEFAULT);
@@ -3215,7 +3216,7 @@ S32 LLViewerLODTexture::computeNaturalDiscardLevel() const
     {
         return (mFullWidth > MAX_IMAGE_SIZE_DEFAULT || mFullHeight > MAX_IMAGE_SIZE_DEFAULT) ? 1 : 0;
     }
-    if (mBoostLevel < LLDXTexture::BOOST_HIGH && max_virtual_size <= 10.f)
+    if (mBoostLevel < DXTextureBase::BOOST_HIGH && max_virtual_size <= 10.f)
     {
         S32 level = llmin((S32)mMinDesiredDiscardLevel, MAX_DISCARD_LEVEL + 1);
         return llmin(level, (S32)mLoadedCallbackDesiredDiscardLevel);
@@ -3355,7 +3356,7 @@ LLViewerMediaTexture::LLViewerMediaTexture(const LLUUID& id, bool usemipmaps, LL
 
     setMediaImpl();
 
-    setCategory(LLDXTexture::MEDIA);
+    setCategory(DXTextureBase::MEDIA);
 
     LLViewerTexture* tex = gTextureList.findImage(mID, TEX_LIST_STANDARD);
     if(tex) //this media is a parcel media for tex.

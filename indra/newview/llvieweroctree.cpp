@@ -28,11 +28,12 @@
 #include "llvieweroctree.h"
 #include "llviewerregion.h"
 #include "pipeline.h"
+#include "dxpipeline.h"
 #include "llviewercontrol.h"
 #include "llappviewer.h"
 #include "llhlslshader.h"
 #include "llviewershadermgr.h"
-#include "lldrawpoolwater.h"
+#include "dxdrawpoolwater.h"
 
 #include "DXOcclusionQuery.h"
 
@@ -1164,7 +1165,7 @@ U32 LLOcclusionCullingGroup::getLastOcclusionIssuedTime()
 
 void LLOcclusionCullingGroup::checkOcclusion()
 {
-    if (LLPipeline::sUseOcclusion < 2) return;  // 0 - NoOcclusion, 1 = ReadOnly, 2 = ModifyOcclusionState  TODO: DJH 11-2021 ENUM this
+    if (DXPipeline::sUseOcclusion < 2) return;  // 0 - NoOcclusion, 1 = ReadOnly, 2 = ModifyOcclusionState  TODO: DJH 11-2021 ENUM this
 
     LLOcclusionCullingGroup* parent = (LLOcclusionCullingGroup*)getParent();
     if (parent && parent->isOcclusionState(LLOcclusionCullingGroup::OCCLUDED))
@@ -1233,7 +1234,7 @@ void LLOcclusionCullingGroup::checkOcclusion()
 
 void LLOcclusionCullingGroup::doOcclusion(LLCamera* camera, const LLVector4a* shift)
 {
-    if (mSpatialPartition->isOcclusionEnabled() && LLPipeline::sUseOcclusion > 1)
+    if (mSpatialPartition->isOcclusionEnabled() && DXPipeline::sUseOcclusion > 1)
     {
         //move mBounds to the agent space if necessary
         LLVector4a bounds[2];
@@ -1378,7 +1379,7 @@ void LLViewerOctreePartition::cleanup()
 
 bool LLViewerOctreePartition::isOcclusionEnabled()
 {
-    return mOcclusionEnabled || LLPipeline::sUseOcclusion > 2;
+    return mOcclusionEnabled || DXPipeline::sUseOcclusion > 2;
 }
 
 

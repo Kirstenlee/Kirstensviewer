@@ -235,7 +235,7 @@ void LLProgressView::drawStartTexture(F32 alpha)
     gDX.pushMatrix();
     if (gStartTexture)
     {
-        LLGLSUIDefault gls_ui;
+        DXUIDefault gls_ui;
         gDX.getTexUnit(0)->bind(gStartTexture.get());
         gDX.color4f(1.f, 1.f, 1.f, alpha);
         F32 image_aspect = (F32)gStartImageWidth / (F32)gStartImageHeight;

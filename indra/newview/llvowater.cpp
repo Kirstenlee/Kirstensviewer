@@ -31,7 +31,7 @@
 #include "llviewercontrol.h"
 
 #include "lldrawable.h"
-#include "lldrawpoolwater.h"
+#include "dxdrawpoolwater.h"
 #include "llface.h"
 #include "llsky.h"
 #include "llsurface.h"
@@ -40,6 +40,7 @@
 #include "llviewerregion.h"
 #include "llworld.h"
 #include "pipeline.h"
+#include "dxpipeline.h"
 #include "llspatialpartition.h"
 
 ///////////////////////////////////
@@ -94,11 +95,11 @@ void  LLVOWater::idleUpdate(LLAgent &agent, const F64 &time)
 
 LLDrawable *LLVOWater::createDrawable(LLPipeline *pipeline)
 {
-    pipeline->allocDrawable(this);
+    DXPipeline::allocDrawable(*pipeline, this);
     mDrawable->setLit(false);
     mDrawable->setRenderType(mRenderType);
 
-    LLDrawPoolWater *pool = (LLDrawPoolWater*) gPipeline.getPool(LLDrawPool::POOL_WATER);
+    LLDrawPoolWater *pool = (LLDrawPoolWater*) DXPipeline::getPool(gPipeline, LLDrawPool::POOL_WATER);
 
     mDrawable->setNumFaces(1, pool, LLWorld::getInstance()->getDefaultWaterTexture());
 
@@ -112,7 +113,7 @@ bool LLVOWater::updateGeometry(LLDrawable* drawable)
     // Ensure at least one face exists
     if (drawable->getNumFaces() < 1)
     {
-        LLDrawPoolWater *poolp = (LLDrawPoolWater*) gPipeline.getPool(LLDrawPool::POOL_WATER);
+        LLDrawPoolWater *poolp = (LLDrawPoolWater*) DXPipeline::getPool(gPipeline, LLDrawPool::POOL_WATER);
         drawable->addFace(poolp, NULL);
     }
 	// Early out if face 0 still doesn't exist
@@ -134,8 +135,8 @@ bool LLVOWater::updateGeometry(LLDrawable* drawable)
     static const unsigned int vertices_per_quad = 4;
     static const unsigned int indices_per_quad = 6;
 
-    S32 size_x = LLPipeline::sRenderTransparentWater ? 8 : 1;
-    S32 size_y = LLPipeline::sRenderTransparentWater ? 8 : 1;
+    S32 size_x = DXPipeline::sRenderTransparentWater ? 8 : 1;
+    S32 size_y = DXPipeline::sRenderTransparentWater ? 8 : 1;
 
     const LLVector3& scale = getScale();
     size_x *= (S32)llmin(llround(scale.mV[0] / 256.f), 8);
@@ -222,7 +223,7 @@ bool LLVOWater::updateGeometry(LLDrawable* drawable)
     buff->unmapBuffer();
 
     mDrawable->movePartition();
-    LLPipeline::sCompiles++;
+    DXPipeline::sCompiles++;
     return true;
 }
 

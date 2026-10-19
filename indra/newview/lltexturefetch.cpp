@@ -1034,7 +1034,7 @@ F32 LLTextureFetchWorker::getImagePriority() const
 // this file already uses to decide when a fetch is no longer worth pursuing.
 static KVRAMCache::AssetPriority classify_kvram_priority(const LLUUID& id, F32 image_priority)
 {
-	S32 boost = LLDXTexture::BOOST_NONE;
+	S32 boost = DXTextureBase::BOOST_NONE;
 	std::vector<LLViewerTexture*> textures;
 	LLViewerTextureManager::findTextures(id, textures);
 	for (LLViewerTexture* tex : textures)
@@ -1047,21 +1047,21 @@ static KVRAMCache::AssetPriority classify_kvram_priority(const LLUUID& id, F32 i
 
 	switch (boost)
 	{
-		case LLDXTexture::BOOST_UI:
-		case LLDXTexture::BOOST_HUD:
-		case LLDXTexture::BOOST_SELECTED:
-		case LLDXTexture::BOOST_AVATAR_SELF:
-		case LLDXTexture::BOOST_AVATAR_BAKED_SELF:
-		case LLDXTexture::BOOST_ICON:
-		case LLDXTexture::BOOST_THUMBNAIL:
+		case DXTextureBase::BOOST_UI:
+		case DXTextureBase::BOOST_HUD:
+		case DXTextureBase::BOOST_SELECTED:
+		case DXTextureBase::BOOST_AVATAR_SELF:
+		case DXTextureBase::BOOST_AVATAR_BAKED_SELF:
+		case DXTextureBase::BOOST_ICON:
+		case DXTextureBase::BOOST_THUMBNAIL:
 			return KVRAMCache::AssetPriority::CRITICAL;
 
-		case LLDXTexture::BOOST_AVATAR:
-		case LLDXTexture::BOOST_AVATAR_BAKED:
-		case LLDXTexture::BOOST_SCULPTED:
-		case LLDXTexture::BOOST_BUMP:
-		case LLDXTexture::BOOST_SUPER_HIGH:
-		case LLDXTexture::BOOST_TERRAIN:
+		case DXTextureBase::BOOST_AVATAR:
+		case DXTextureBase::BOOST_AVATAR_BAKED:
+		case DXTextureBase::BOOST_SCULPTED:
+		case DXTextureBase::BOOST_BUMP:
+		case DXTextureBase::BOOST_SUPER_HIGH:
+		case DXTextureBase::BOOST_TERRAIN:
 			return KVRAMCache::AssetPriority::HIGH;
 
 		default:

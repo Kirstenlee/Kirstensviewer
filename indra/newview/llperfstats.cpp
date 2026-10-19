@@ -28,6 +28,7 @@
 #include "llperfstats.h"
 #include "llcontrol.h"
 #include "pipeline.h"
+#include "dxpipeline.h"
 #include "llagentcamera.h"
 #include "llviewerwindow.h"
 #include "llvoavatar.h"
@@ -363,11 +364,11 @@ namespace LLPerfStats
         {
             // if we have less than the user's "max Non-Impostors" avatars within the desired range then adjust the limit.
             // also adjusts back up again for nearby crowds.
-            auto count = countNearbyAvatars((S32)std::min(LLPipeline::RenderFarClip, tunables.userImpostorDistance));
+            auto count = countNearbyAvatars((S32)std::min(DXPipeline::RenderFarClip, tunables.userImpostorDistance));
             if( count != tunables.nonImpostors )
             {
                 tunables.updateNonImposters(((U32)count < LLVOAvatar::NON_IMPOSTORS_MAX_SLIDER) ? count : 0);
-                LL_DEBUGS("AutoTune") << "There are " << count << "avatars within " << std::min(LLPipeline::RenderFarClip, tunables.userImpostorDistance) << "m of the camera" << LL_ENDL;
+                LL_DEBUGS("AutoTune") << "There are " << count << "avatars within " << std::min(DXPipeline::RenderFarClip, tunables.userImpostorDistance) << "m of the camera" << LL_ENDL;
             }
         }
 
@@ -419,8 +420,8 @@ namespace LLPerfStats
                         // the other reflection options make comparatively little change and if this overshoots we'll be stepping back up later
                         {
                             // step down the DD by 10m per update
-                            auto new_dd = (LLPipeline::RenderFarClip - DD_STEP > tunables.userMinDrawDistance)?(LLPipeline::RenderFarClip - DD_STEP) : tunables.userMinDrawDistance;
-                            if(new_dd != LLPipeline::RenderFarClip)
+                            auto new_dd = (DXPipeline::RenderFarClip - DD_STEP > tunables.userMinDrawDistance)?(DXPipeline::RenderFarClip - DD_STEP) : tunables.userMinDrawDistance;
+                            if(new_dd != DXPipeline::RenderFarClip)
                             {
                                 LLPerfStats::tunables.updateFarClip( new_dd );
                                 LLPerfStats::lastGlobalPrefChange = gFrameCount;
@@ -503,9 +504,9 @@ namespace LLPerfStats
                 }
                 if (tunables.userFPSTuningStrategy != TUNE_AVATARS_ONLY)
                 {
-                    if (LLPipeline::RenderFarClip < tunables.userTargetDrawDistance)
+                    if (DXPipeline::RenderFarClip < tunables.userTargetDrawDistance)
                     {
-                        LLPerfStats::tunables.updateFarClip( std::min(LLPipeline::RenderFarClip + DD_STEP, tunables.userTargetDrawDistance) );
+                        LLPerfStats::tunables.updateFarClip( std::min(DXPipeline::RenderFarClip + DD_STEP, tunables.userTargetDrawDistance) );
                         LLPerfStats::lastGlobalPrefChange = gFrameCount;
                         return;
                     }

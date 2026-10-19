@@ -38,8 +38,8 @@
 #include "llagent.h"
 #include "llagentcamera.h"
 #include "llconsole.h"
-#include "lldrawpoolbump.h"
-#include "lldrawpoolterrain.h"
+#include "dxdrawpoolbump.h"
+#include "dxdrawpoolterrain.h"
 #include "llflexibleobject.h"
 #include "llfeaturemanager.h"
 #include "llviewershadermgr.h"
@@ -57,6 +57,7 @@
 #include "llworld.h"
 #include "llvlcomposition.h"
 #include "pipeline.h"
+#include "dxpipeline.h"
 #include "llviewerjoystick.h"
 #include "llviewerobjectlist.h"
 #include "llviewerparcelmgr.h"
@@ -187,7 +188,7 @@ static bool handleSetShaderChanged(const LLSD& newvalue)
     if (gPipeline.isInit())
     {
         // ALM depends onto atmospheric shaders, state might have changed
-        LLPipeline::refreshCachedSettings();
+        DXPipeline::refreshCachedSettings();
     }
 
     // Defer shader reload to next frame to avoid blocking main thread during settings change
@@ -204,17 +205,17 @@ static bool handleRenderPerfTestChanged(const LLSD& newvalue)
        if (perfTestEnabled)
        {
                // Performance test mode: disable UI/HUD/sky/water, KEEP world geometry
-               gPipeline.clearRenderTypeMask(LLPipeline::RENDER_TYPE_WL_SKY,
+               DXPipeline::clearRenderTypeMask(gPipeline, LLPipeline::RENDER_TYPE_WL_SKY,
                                                                          LLPipeline::RENDER_TYPE_HUD,
                                                                          LLPipeline::RENDER_TYPE_CLOUDS,
                                                                          LLPipeline::RENDER_TYPE_HUD_PARTICLES,
                                                                          LLPipeline::END_RENDER_TYPES);
-               gPipeline.setRenderDebugFeatureControl(LLPipeline::RENDER_DEBUG_FEATURE_UI, false);
+               DXPipeline::setRenderDebugFeatureControl(gPipeline, LLPipeline::RENDER_DEBUG_FEATURE_UI, false);
        }
        else
        {
                // Normal operation: enable all render types
-               gPipeline.setRenderTypeMask(LLPipeline::RENDER_TYPE_WL_SKY,
+               DXPipeline::setRenderTypeMask(gPipeline, LLPipeline::RENDER_TYPE_WL_SKY,
                                                                          LLPipeline::RENDER_TYPE_TERRAIN,
                                                                          LLPipeline::RENDER_TYPE_GRASS,
                                                                          LLPipeline::RENDER_TYPE_TREE,
@@ -224,7 +225,7 @@ static bool handleRenderPerfTestChanged(const LLSD& newvalue)
                                                                          LLPipeline::RENDER_TYPE_CLOUDS,
                                                                          LLPipeline::RENDER_TYPE_HUD_PARTICLES,
                                                                          LLPipeline::END_RENDER_TYPES);
-               gPipeline.setRenderDebugFeatureControl(LLPipeline::RENDER_DEBUG_FEATURE_UI, true);
+               DXPipeline::setRenderDebugFeatureControl(gPipeline, LLPipeline::RENDER_DEBUG_FEATURE_UI, true);
         }
 
         return true;
@@ -234,7 +235,7 @@ bool handleRenderTransparentWaterChanged(const LLSD& newvalue)
 {
     if (gPipeline.isInit())
     {
-        gPipeline.updateRenderTransparentWater();
+        DXPipeline::updateRenderTransparentWater();
         // S24: no releaseGLBuffers()/createGLBuffers() here - same redundancy as
         // handleReflectionProbeDetailChanged() above, setShaders() already does this exact
         // pair itself as part of the deferred reload requested below.
@@ -248,13 +249,13 @@ bool handleRenderTransparentWaterChanged(const LLSD& newvalue)
 
 static bool handleShadowsResized(const LLSD& newvalue)
 {
-    gPipeline.requestResizeShadowTexture();
+    DXPipeline::requestResizeShadowTexture(gPipeline);
     return true;
 }
 
 static bool handleWindowResized(const LLSD& newvalue)
 {
-    gPipeline.requestResizeScreenTexture();
+    DXPipeline::requestResizeScreenTexture(gPipeline);
     return true;
 }
 
@@ -262,8 +263,8 @@ static bool handleReleaseGLBufferChanged(const LLSD& newvalue)
 {
     if (gPipeline.isInit())
     {
-        gPipeline.releaseGLBuffers();
-        gPipeline.createGLBuffers();
+        DXPipeline::releaseGLBuffers(gPipeline);
+        DXPipeline::createGLBuffers(gPipeline);
     }
     return true;
 }
@@ -310,8 +311,8 @@ static bool handleLUTBufferChanged(const LLSD& newvalue)
 {
     if (gPipeline.isInit())
     {
-        gPipeline.releaseLUTBuffers();
-        gPipeline.createLUTBuffers();
+        DXPipeline::releaseLUTBuffers(gPipeline);
+        DXPipeline::createLUTBuffers(gPipeline);
     }
     return true;
 }
@@ -446,14 +447,14 @@ static bool handleJoystickChanged(const LLSD& newvalue)
 
 static bool handleUseOcclusionChanged(const LLSD& newvalue)
 {
-    LLPipeline::sUseOcclusion = (newvalue.asBoolean()
+    DXPipeline::sUseOcclusion = (newvalue.asBoolean()
         && LLFeatureManager::getInstance()->isFeatureAvailable("UseOcclusion") && !gUseWireframe) ? 2 : 0;
     return true;
 }
 
 static bool handleUploadBakedTexOldChanged(const LLSD& newvalue)
 {
-    LLPipeline::sForceOldBakedUpload = newvalue.asBoolean();
+    DXPipeline::sForceOldBakedUpload = newvalue.asBoolean();
     return true;
 }
 
@@ -480,7 +481,7 @@ static bool handleRepartition(const LLSD&)
 
 static bool handleRenderDynamicLODChanged(const LLSD& newvalue)
 {
-    LLPipeline::sDynamicLOD = newvalue.asBoolean();
+    DXPipeline::sDynamicLOD = newvalue.asBoolean();
     return true;
 }
 
@@ -489,7 +490,7 @@ static bool handleReflectionProbeDetailChanged(const LLSD& newvalue)
     gPipeline.mSphereProbes.refreshSettings();
     if (gPipeline.isInit())
     {
-        LLPipeline::refreshCachedSettings();
+        DXPipeline::refreshCachedSettings();
         gPipeline.mSphereProbes.reset();
         gPipeline.mMirrorProbes.reset();
 
@@ -549,12 +550,12 @@ static bool handleHeroProbeResolutionChanged(const LLSD &newvalue)
         // vertex buffer and probe list) with no dependency on the main pipeline's screen buffers - this
         // setting only affects the hero-probe/mirror subsystem, unlike handleReflectionProbeCountChanged
         // above which is pipeline-wide.
-        LLPipeline::refreshCachedSettings();
+        DXPipeline::refreshCachedSettings();
         gPipeline.mMirrorProbes.reset();
 
         // A resolution change replaces the hero-probe texture itself, so shader/texture-unit bindings
         // to the old texture must be rebound - same as a genuine off->on activation.
-        if (LLPipeline::RenderMirrors)
+        if (DXPipeline::RenderMirrors)
         {
             gPipeline.mMirrorProbes.requireShaderReinit();
         }

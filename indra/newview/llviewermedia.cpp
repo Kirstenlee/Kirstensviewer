@@ -3201,7 +3201,7 @@ void LLViewerMediaImpl::update()
 #if LL_IMAGEDX_THREAD_CHECK
 					media_tex->getGLTexture()->mActiveThread = LLThread::currentID();
 #endif
-					doMediaTexUpdate(media_tex, data, data_width, data_height, x_pos, y_pos, width, height, true);
+					doMediaTexUpdate(media_tex, data, data_width, data_height, true);
 				},
 				[=, this]() // callback to main thread
 				{
@@ -3217,7 +3217,7 @@ void LLViewerMediaImpl::update()
 		}
 		else
 		{
-			doMediaTexUpdate(media_tex, data, data_width, data_height, x_pos, y_pos, width, height, false); // otherwise, update on main thread
+			doMediaTexUpdate(media_tex, data, data_width, data_height, false); // otherwise, update on main thread
 		}
 	}
 }
@@ -3271,27 +3271,28 @@ bool LLViewerMediaImpl::preMediaTexUpdate(LLViewerMediaTexture*& media_tex, U8*&
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////
-void LLViewerMediaImpl::doMediaTexUpdate(LLViewerMediaTexture* media_tex, U8* data, S32 data_width, S32 data_height, S32 x_pos, S32 y_pos, S32 width, S32 height, bool sync)
+void LLViewerMediaImpl::doMediaTexUpdate(LLViewerMediaTexture* media_tex, U8* data, S32 data_width, S32 data_height, bool sync)
 {
 	LLCoros::LockType lock(mLock); // don't allow media source tear-down during update
 
-	// wrap "data" in an LLImageRaw but do NOT make a copy
-	LLPointer<LLImageRaw> raw = new LLImageRaw(data, media_tex->getWidth(), media_tex->getHeight(), media_tex->getComponents(), true);
-
-	// *NOTE: Recreating the GL texture each media update may seem wasteful
-	// (note the texture creation in preMediaTexUpdate), however, it apparently
-	// prevents GL calls from blocking, due to poor bookkeeping of state of
-	// updated textures by the OpenGL implementation. (Windows 10/Nvidia)
-	// -Cosmic,2023-04-04
-	// Allocate GL texture based on LLImageRaw but do NOT copy to GL
-	LLGLuint tex_name = 0;
-    if (!media_tex->createGLTexture(0, raw, 0, true, LLDXTexture::OTHER, true, &tex_name))
-    {
-        LL_WARNS("Media") << "Failed to create media texture" << LL_ENDL;
-    }
-
-	// copy just the subimage covered by the image raw to GL
-	media_tex->setSubImage(data, data_width, data_height, x_pos, y_pos, width, height, tex_name);
+	// S24: media textures are created D3D11_USAGE_DYNAMIC (see
+	// updateMediaImage()'s createDynamicGLTexture() call) specifically so
+	// this per-update path can rewrite the whole resource via
+	// Map(D3D11_MAP_WRITE_DISCARD) instead of either (a) destroying and
+	// recreating the GPU resource every call - the original GL-era
+	// behavior here, measured as the dominant cost of "Update Media > Do
+	// Update" in Fast Timers - or (b) writing into the same DEFAULT-usage
+	// resource that's still bound/sampled by in-flight rendering, a real
+	// D3D11 write-after-read GPU sync stall that caused a severe (not
+	// minor) regression when tried - see svn history, r4176/r4187. `data`
+	// is already the full current frame buffer, not just the dirty
+	// sub-rect (see preMediaTexUpdate()) - exactly what Map(DISCARD) needs
+	// anyway, since it invalidates the whole resource.
+	LLGLuint tex_name = media_tex->getGLTexture()->getTexName();
+	if (!media_tex->updateDynamic(data, data_width, data_height))
+	{
+		LL_WARNS("Media") << "Failed to update media texture" << LL_ENDL;
+	}
 
 	if (sync)
 	{
@@ -3301,10 +3302,6 @@ void LLViewerMediaImpl::doMediaTexUpdate(LLViewerMediaTexture* media_tex, U8* da
 	{
 		media_tex->getGLTexture()->syncTexName(tex_name);
 	}
-
-	// release the data pointer before freeing raw so LLImageRaw destructor doesn't
-	// free memory at data pointer
-	raw->releaseData();
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////
@@ -3355,8 +3352,12 @@ LLViewerMediaTexture* LLViewerMediaImpl::updateMediaImage()
 			mMediaSource->getTextureFormatType(),
 			mMediaSource->getTextureFormatSwapBytes());
 
-		int discard_level = 0;
-        if (!media_tex->createGLTexture(discard_level, raw))
+		// S24: created D3D11_USAGE_DYNAMIC, not the ordinary DEFAULT usage
+		// createGLTexture() would use - see doMediaTexUpdate()'s comment
+		// for why. Media never uses discard-level streaming (always
+		// level 0), so this skips createGLTexture()'s discard_level param
+		// entirely.
+        if (!media_tex->createDynamicGLTexture(raw))
         {
             LL_WARNS("Media") << "Failed to create media texture" << LL_ENDL;
         }

@@ -1208,7 +1208,7 @@ bool LLOutfitGalleryItem::openOutfitsContent()
 
 bool LLOutfitGalleryItem::setImageAssetId(LLUUID image_asset_id)
 {
-    LLPointer<LLViewerFetchedTexture> texture = LLViewerTextureManager::getFetchedTexture(image_asset_id, FTT_DEFAULT, MIPMAP_YES, LLDXTexture::BOOST_NONE, LLViewerTexture::FETCHED_TEXTURE);
+    LLPointer<LLViewerFetchedTexture> texture = LLViewerTextureManager::getFetchedTexture(image_asset_id, FTT_DEFAULT, MIPMAP_YES, DXTextureBase::BOOST_NONE, LLViewerTexture::FETCHED_TEXTURE);
     if (texture)
     {
         mImageAssetId = image_asset_id;

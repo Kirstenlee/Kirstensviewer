@@ -25,11 +25,11 @@
 
 #pragma once
 
-#include "lldrawpool.h"
+#include "dxdrawpool.h"
 #include "lldynamictexture.h"
 #include "llfetchedgltfmaterial.h"
 #include "llsingleton.h"
-#include "lltexture.h"
+#include "lldxtexture.h"
 
 class LLGLTFPreviewTexture : public LLViewerDynamicTexture
 {

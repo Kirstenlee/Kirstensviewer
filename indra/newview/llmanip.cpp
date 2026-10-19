@@ -33,9 +33,7 @@
 #include "llgl.h"
 #include "llrender.h"
 #include "llprimitive.h"
-#ifdef DX_RENDER
 #include "DXUIBatch.h"
-#endif
 #include "llview.h"
 #include "llviewertexturelist.h"
 
@@ -55,6 +53,7 @@
 #include "llworld.h"        // for LLWorld::getInstance()
 #include "llresmgr.h"
 #include "pipeline.h"
+#include "dxpipeline.h"
 #include "llglheaders.h"
 #include "lluiimage.h"
 // Local constants...
@@ -75,14 +74,14 @@ void LLManip::rebuild(LLViewerObject* vobj)
     LLDrawable* drawablep = vobj->mDrawable;
     if (drawablep && drawablep->getVOVolume())
     {
-        gPipeline.markRebuild(drawablep,LLDrawable::REBUILD_VOLUME);
+        DXPipeline::markRebuild(gPipeline, drawablep,LLDrawable::REBUILD_VOLUME);
         drawablep->setState(LLDrawable::MOVE_UNDAMPED); // force to UNDAMPED
         drawablep->updateMove();
         LLSpatialGroup* group = drawablep->getSpatialGroup();
         if (group)
         {
             group->dirtyGeom();
-            gPipeline.markRebuild(group);
+            DXPipeline::markRebuild(gPipeline, group);
         }
 
         LLViewerObject::const_child_list_t& child_list = vobj->getChildren();
@@ -456,13 +455,11 @@ void LLManip::renderXYZ(const LLVector3 &vec)
     gDX.pushMatrix();
     gDX.matrixMode(LLRender::MM_MODELVIEW);
     gDX.pushMatrix();
-#ifdef DX_RENDER
     // DXUIBatch's batch key (shader/topology/blend/depth) excludes the transform (see DXUIBatch.h) -
     // draws sharing a key merge into one Draw() call using whatever matrix was current at Draw() time,
     // not push() time. Flush any pending 3D-space batch before this function's 2D-space draws reuse the
     // same key, or world-space and screen-space geometry get merged under one matrix.
     gDXUIBatch.flushPending();
-#endif
     {
         LLUIImagePtr imagep = LLUI::getUIImage("Rounded_Square");
 
@@ -498,14 +495,12 @@ void LLManip::renderXYZ(const LLVector3 &vec)
         // quadratically the moment scale differs from 1.0 at all, which is exactly the "perfect at
         // 100%, broken at 101%" symptom reported live: the numbers visibly outgrow their background
         // box and drift, since only the box (this image draw) was still being scaled once.
-#ifdef DX_RENDER
         gDXUIBatch.flushPending();
-#endif
         gDX.popMatrix();
 
         LLFontDX* font = LLFontDX::getFontSansSerif();
         LLLocale locale(LLLocale::USER_LOCALE);
-        LLGLDepthTest gls_depth(GL_FALSE);
+        DXDepthTest gls_depth(false);
 
         // render drop shadowed text (manually because of bigger 'distance')
         F32 right_x;
@@ -540,12 +535,10 @@ void LLManip::renderXYZ(const LLVector3 &vec)
             LLFontDX::LEFT, LLFontDX::BASELINE,
             LLFontDX::NORMAL, LLFontDX::NO_SHADOW, S32_MAX, 1000, &right_x);
 
-#ifdef DX_RENDER
         // Flush the 2D-space batch (image + all 6 text draws) now, while the 2D ortho matrix is still
         // current. Flushing after the matrix pops below would draw this content through whatever
         // matrix comes next instead.
         gDXUIBatch.flushPending();
-#endif
     }
     gDX.matrixMode(LLRender::MM_MODELVIEW);
     gDX.popMatrix();
@@ -554,7 +547,7 @@ void LLManip::renderXYZ(const LLVector3 &vec)
     gDX.matrixMode(LLRender::MM_MODELVIEW);
 
     // hud_render_text() (llhudrender.cpp) computes screen position via glm::project() against the
-    // separate CPU-side gGLModelView/gGLProjection cache (set_current_modelview/projection()), not
+    // separate CPU-side gDXModelView/gDXProjection cache (set_current_modelview/projection()), not
     // gDX's own matrix stack - that cache is only updated by explicit set_current_*() calls, so it must
     // be re-synced from the just-restored matrices here or it goes stale relative to the real stack.
     set_current_modelview(gDX.getModelviewMatrix());

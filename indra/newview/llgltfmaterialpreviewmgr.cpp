@@ -41,6 +41,7 @@
 #include "llviewerwindow.h"
 #include "llvolumemgr.h"
 #include "pipeline.h"
+#include "dxpipeline.h"
 
 LLGLTFMaterialPreviewMgr gGLTFMaterialPreviewMgr;
 
@@ -118,12 +119,12 @@ namespace
             }
             else
             {
-                img = LLViewerTextureManager::getFetchedTexture(id, FTT_DEFAULT, true, LLDXTexture::BOOST_NONE, LLViewerTexture::LOD_TEXTURE);
+                img = LLViewerTextureManager::getFetchedTexture(id, FTT_DEFAULT, true, DXTextureBase::BOOST_NONE, LLViewerTexture::LOD_TEXTURE);
             }
         }
         if (img)
         {
-            img->setBoostLevel(LLDXTexture::BOOST_PREVIEW);
+            img->setBoostLevel(DXTextureBase::BOOST_PREVIEW);
             img->forceToSaveRawImage(0);
         }
     };
@@ -193,7 +194,7 @@ LLGLTFPreviewTexture::LLGLTFPreviewTexture(LLPointer<LLFetchedGLTFMaterial> mate
 // static
 LLPointer<LLGLTFPreviewTexture> LLGLTFPreviewTexture::create(LLPointer<LLFetchedGLTFMaterial> material)
 {
-    return new LLGLTFPreviewTexture(material, LLPipeline::MAX_PREVIEW_WIDTH);
+    return new LLGLTFPreviewTexture(material, DXPipeline::MAX_PREVIEW_WIDTH);
 }
 
 bool LLGLTFPreviewTexture::needsRender()
@@ -234,8 +235,8 @@ struct GLTFPreviewModel
     ~GLTFPreviewModel()
     {
         // No model matrix necromancy
-        llassert(gGLLastMatrix != &mModelMatrix);
-        gGLLastMatrix = nullptr;
+        llassert(gDXLastMatrix != &mModelMatrix);
+        gDXLastMatrix = nullptr;
     }
     LLPointer<LLDrawInfo> mDrawInfo;
     LLMatrix4 mModelMatrix; // Referenced by mDrawInfo
@@ -424,13 +425,13 @@ bool LLGLTFPreviewTexture::render()
     glClearColor(0, 0, 0, 0);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-    LLGLDepthTest(GL_FALSE);
+    DXDepthTest(false);
     LLGLDisable stencil(GL_STENCIL_TEST);
     LLGLDisable scissor(GL_SCISSOR_TEST);
-    SetTemporarily<bool> no_dof(&LLPipeline::RenderDepthOfField, false);
-    SetTemporarily<bool> no_glow(&LLPipeline::sRenderGlow, false);
-    SetTemporarily<bool> no_ssr(&LLPipeline::RenderScreenSpaceReflections, false);
-    SetTemporarily<U32> no_aa(&LLPipeline::RenderFSAAType, U32(0));
+    SetTemporarily<bool> no_dof(&DXPipeline::RenderDepthOfField, false);
+    SetTemporarily<bool> no_glow(&DXPipeline::sRenderGlow, false);
+    SetTemporarily<bool> no_ssr(&DXPipeline::RenderScreenSpaceReflections, false);
+    SetTemporarily<U32> no_aa(&DXPipeline::RenderFSAAType, U32(0));
     SetTemporarily<LLPipeline::RenderTargetPack*> use_auxiliary_render_target(&gPipeline.mRT, &gPipeline.mAuxillaryRT);
 
     LLVector3 light_dir3(1.0f, 1.0f, 1.0f);
@@ -466,7 +467,7 @@ bool LLGLTFPreviewTexture::render()
     // discarded, but the sphere should be cached in LLVolumeMgr.)
     PreviewSphere& preview_sphere = get_preview_sphere(mGLTFMaterial, object_transform);
 
-    gPipeline.setupHWLights();
+    DXPipeline::setupHWLights(gPipeline);
     glm::mat4 mat = get_current_modelview();
     glm::vec4 transformed_light_dir(light_dir);
     transformed_light_dir = mat * transformed_light_dir;
@@ -483,7 +484,7 @@ bool LLGLTFPreviewTexture::render()
     LLRenderTarget& screen = gPipeline.mAuxillaryRT.screen;
 
     // *HACK: Force reset of the model matrix
-    gGLLastMatrix = nullptr;
+    gDXLastMatrix = nullptr;
 
 #if 0
     if (mGLTFMaterial->mAlphaMode == LLGLTFMaterial::ALPHA_MODE_OPAQUE || mGLTFMaterial->mAlphaMode == LLGLTFMaterial::ALPHA_MODE_MASK)
@@ -500,7 +501,7 @@ bool LLGLTFPreviewTexture::render()
 
         LLHLSLShader& shader = gDeferredPBRAlphaProgram;
 
-        gPipeline.bindDeferredShader(shader);
+        DXPipeline::bindDeferredShader(gPipeline, shader);
         fixup_shader_constants(shader);
 
         for (PreviewSpherePart& part : preview_sphere)
@@ -508,7 +509,7 @@ bool LLGLTFPreviewTexture::render()
             LLRenderPass::pushGLTFBatch(*part->mDrawInfo);
         }
 
-        gPipeline.unbindDeferredShader(shader);
+        DXPipeline::unbindDeferredShader(gPipeline, shader);
 
         screen.flush();
     }
@@ -516,26 +517,26 @@ bool LLGLTFPreviewTexture::render()
     // *HACK: Hide mExposureMap from generateExposure
     gPipeline.mExposureMap.swapFBORefs(gPipeline.mLastExposure);
 
-    gPipeline.copyScreenSpaceReflections(&screen, &gPipeline.mSceneMap);
-    gPipeline.generateLuminance(&screen, &gPipeline.mLuminanceMap);
-    gPipeline.generateExposure(&gPipeline.mLuminanceMap, &gPipeline.mExposureMap, /*use_history = */ false);
-    gPipeline.gammaCorrect(&screen, &gPipeline.mPostPingMap);
+    DXPipeline::copyScreenSpaceReflections(gPipeline, &screen, &gPipeline.mSceneMap);
+    DXPipeline::generateLuminance(gPipeline, &screen, &gPipeline.mLuminanceMap);
+    DXPipeline::generateExposure(gPipeline, &gPipeline.mLuminanceMap, &gPipeline.mExposureMap, /*use_history = */ false);
+    DXPipeline::gammaCorrect(gPipeline, &screen, &gPipeline.mPostPingMap);
     LLVertexBuffer::unbind();
-    gPipeline.generateGlow(&gPipeline.mPostPingMap);
-    gPipeline.combineGlow(&gPipeline.mPostPingMap, &screen);
-    gPipeline.renderDoF(&screen, &gPipeline.mPostPingMap);
+    DXPipeline::generateGlow(gPipeline, &gPipeline.mPostPingMap);
+    DXPipeline::combineGlow(gPipeline, &gPipeline.mPostPingMap, &screen);
+    DXPipeline::renderDoF(gPipeline, &screen, &gPipeline.mPostPingMap);
 
     // Branches on RenderFSAAType like the main scene chain (dxpipeline.cpp's
     // renderFinalize()) rather than calling applyFXAA() unconditionally -
     // otherwise SMAA users get zero AA on this preview thumbnail.
-    if (LLPipeline::RenderFSAAType == 1)
+    if (DXPipeline::RenderFSAAType == 1)
     {
-        gPipeline.applyFXAA(&gPipeline.mPostPingMap, &screen);
+        DXPipeline::applyFXAA(gPipeline, &gPipeline.mPostPingMap, &screen);
     }
-    else if (LLPipeline::RenderFSAAType == 2)
+    else if (DXPipeline::RenderFSAAType == 2)
     {
-        gPipeline.generateSMAABuffers(&gPipeline.mPostPingMap);
-        gPipeline.applySMAA(&gPipeline.mPostPingMap, &screen);
+        DXPipeline::generateSMAABuffers(gPipeline, &gPipeline.mPostPingMap);
+        DXPipeline::applySMAA(gPipeline, &gPipeline.mPostPingMap, &screen);
     }
     else
     {
@@ -561,7 +562,7 @@ bool LLGLTFPreviewTexture::render()
     gDeferredPostNoDoFProgram.bindTexture(LLShaderMgr::DEFERRED_DEPTH, mBoundTarget, true);
 
     {
-        LLGLDepthTest depth_test(GL_TRUE, GL_TRUE, GL_ALWAYS);
+        DXDepthTest depth_test(true, true, GL_ALWAYS);
         gPipeline.mScreenTriangleVB->setBuffer();
         gPipeline.mScreenTriangleVB->drawArrays(LLRender::TRIANGLES, 0, 3);
     }
@@ -569,7 +570,7 @@ bool LLGLTFPreviewTexture::render()
     gDeferredPostNoDoFProgram.unbind();
 
     // Clean up
-    gPipeline.setupHWLights();
+    DXPipeline::setupHWLights(gPipeline);
     gPipeline.mSphereProbes.setDefaultProbeOnly(false);
     gSavedSettings.set<S32>("RenderLocalLightCount", old_local_light_count);
 

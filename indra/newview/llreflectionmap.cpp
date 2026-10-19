@@ -28,27 +28,24 @@
 
 #include "llreflectionmap.h"
 #include "pipeline.h"
+#include "dxpipeline.h"
 #include "llviewerwindow.h"
 #include "llviewerregion.h"
 #include "llworld.h"
 #include "llshadermgr.h"
 
-#ifdef DX_RENDER
 #include "DXOcclusionQuery.h"
-#endif
 
 extern F32SecondsImplicit gFrameTimeSeconds;
 
 extern U32 get_box_fan_indices(LLCamera* camera, const LLVector4a& center);
 
-#ifdef DX_RENDER
 // D3D11 has no TRIANGLE_FAN topology (see llvieweroctree.cpp's dx_get_occlusion_box_vb()), so this
 // probe's occlusion proxy-box draw uses the same triangle-list VB LLOcclusionCullingGroup uses, not
 // gPipeline.mCubeVB directly.
 class LLVertexBuffer;
 extern LLVertexBuffer* dx_get_occlusion_box_vb();
 extern U32 get_box_triangle_offset(LLCamera* camera, const LLVector4a& center);
-#endif
 
 LLReflectionMap::LLReflectionMap()
 {
@@ -71,16 +68,16 @@ void LLReflectionMap::update(U32 resolution, U32 face, bool force_dynamic, F32 n
         return;
 
     mLastUpdateTime = gFrameTimeSeconds;
-    //llassert(LLPipeline::sRenderDeferred);
+    //llassert(DXPipeline::sRenderDeferred);
 
 
     F32 clip = (near_clip > 0) ? near_clip : getNearClip();
     bool dynamic = force_dynamic || getIsDynamic();
 
     // Exclude the whole linkset: markVisible compares root objects, and a child's root is the linkset root.
-    LLPipeline::sCaptureExcludeObject = mViewerObject ? mViewerObject->getRootEdit() : nullptr;
+    DXPipeline::sCaptureExcludeObject = mViewerObject ? mViewerObject->getRootEdit() : nullptr;
     gViewerWindow->cubeSnapshot(LLVector3(mOrigin), resolution, face, clip, dynamic, useClipPlane, clipPlane);
-    LLPipeline::sCaptureExcludeObject = nullptr;
+    DXPipeline::sCaptureExcludeObject = nullptr;
 }
 
 void LLReflectionMap::autoAdjustOrigin()

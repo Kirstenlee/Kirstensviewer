@@ -35,8 +35,8 @@
 #include "llapr.h"
 #include "llbox.h"
 #include "lldrawable.h"
-#include "lldrawpoolavatar.h"
-#include "lldrawpoolbump.h"
+#include "dxdrawpoolavatar.h"
+#include "dxdrawpoolbump.h"
 #include "lldynamictexture.h"
 #include "llface.h"
 #include "llglheaders.h"
@@ -48,6 +48,7 @@
 #include "llvoavatar.h"
 #include "llsky.h"
 #include "pipeline.h"
+#include "dxpipeline.h"
 #include "llviewershadermgr.h"
 #include "llmath.h"
 #include "v4math.h"
@@ -55,10 +56,6 @@
 #include "m4math.h"
 #include "llmatrix4a.h"
 #include "llperfstats.h"
-
-extern PFNGLWEIGHTPOINTERARBPROC glWeightPointerARB;
-extern PFNGLWEIGHTFVARBPROC glWeightfvARB;
-extern PFNGLVERTEXBLENDARBPROC glVertexBlendARB;
 
 //-----------------------------------------------------------------------------
 //-----------------------------------------------------------------------------
@@ -296,7 +293,7 @@ U32 LLViewerJointMesh::drawShape( F32 pixelArea, bool first_pass, bool is_dummy)
         buff->drawRange(LLRender::TRIANGLES, start, end, count, offset);
         gDX.popMatrix();
     }
-    gPipeline.addTrianglesDrawn(count);
+    DXPipeline::addTrianglesDrawn(gPipeline, count);
 
     triangle_count += count;
 

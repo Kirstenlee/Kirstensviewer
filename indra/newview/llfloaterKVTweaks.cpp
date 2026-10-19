@@ -148,6 +148,18 @@ bool LLFloaterKVTweaks::postBuild()
     // S24 - Hook up Movement tab controls
     childSetAction("reset_movement_btn", boost::bind(&LLFloaterKVTweaks::onClickResetMovement, this));
 
+    // S24 - Hook up Alpha tab controls
+    childSetAction("reset_alpha_btn", boost::bind(&LLFloaterKVTweaks::onClickResetAlpha, this));
+
+    // S24 - Hook up Materials tab controls
+    childSetAction("reset_materials_btn", boost::bind(&LLFloaterKVTweaks::onClickResetMaterials, this));
+
+    // S24 - Hook up Cubemap tab controls
+    childSetAction("reset_cubemap_btn", boost::bind(&LLFloaterKVTweaks::onClickResetCubemap, this));
+
+    // S24 - Hook up Experimental tab: Master Cube controls
+    childSetAction("reset_master_cube_btn", boost::bind(&LLFloaterKVTweaks::onClickResetMasterCube, this));
+
     // S24 - Hook up UI Hue Shift tab controls
     childSetAction("reset_ui_hue_btn", boost::bind(&LLFloaterKVTweaks::onClickResetUIHue, this));
 
@@ -1030,6 +1042,127 @@ void LLFloaterKVTweaks::onClickResetMovement()
     for (size_t i = 0; i < sizeof(movement_control_names) / sizeof(movement_control_names[0]); ++i)
     {
         LLControlVariable* control = gSavedSettings.getControl(movement_control_names[i]);
+        if (control)
+        {
+            control->resetToDefault(true);
+        }
+    }
+
+    // Refresh UI
+    refresh();
+}
+
+void LLFloaterKVTweaks::onClickResetAlpha()
+{
+    // S24 - Reset all alpha sorting/projector controls to defaults
+    const char* alpha_control_names[] = {
+        "RenderAlphaSortMode",
+        "RenderAlphaFaceSortDistance",
+        "RenderAlphaSortExtentFactor",
+        "RenderAlphaDepthWriteThreshold",
+        "RenderAlphaProjectorCount",
+        "RenderAlphaProjectors"
+    };
+
+    for (size_t i = 0; i < sizeof(alpha_control_names) / sizeof(alpha_control_names[0]); ++i)
+    {
+        LLControlVariable* control = gSavedSettings.getControl(alpha_control_names[i]);
+        if (control)
+        {
+            control->resetToDefault(true);
+        }
+    }
+
+    // Refresh UI
+    refresh();
+}
+
+void LLFloaterKVTweaks::onClickResetMaterials()
+{
+    // S24 - Reset all materials controls (reflection gates, normal/specular maps, projector
+    // specular, legacy bump/shiny) to defaults
+    const char* materials_control_names[] = {
+        "RenderReflectionGateGlossReject",
+        "RenderReflectionGateGlossAccept",
+        "RenderReflectionGateMetallicReject",
+        "RenderReflectionGateMetallicAccept",
+        "RenderNormalMapScale",
+        "RenderSpecularExponent",
+        "RenderProjectorSpecularReliable",
+        "RenderProjectorSpecularExponent",
+        "RenderProjectorSpecularLODCap",
+        "RenderProjectorPBRLegacySpecular",
+        "RenderObjectBump"
+    };
+
+    for (size_t i = 0; i < sizeof(materials_control_names) / sizeof(materials_control_names[0]); ++i)
+    {
+        LLControlVariable* control = gSavedSettings.getControl(materials_control_names[i]);
+        if (control)
+        {
+            control->resetToDefault(true);
+        }
+    }
+
+    // Refresh UI
+    refresh();
+}
+
+void LLFloaterKVTweaks::onClickResetCubemap()
+{
+    // S24 - Reset all Cubemap tab controls (probe system, hero probes, SSAO irradiance) to defaults
+    const char* cubemap_control_names[] = {
+        "RenderReflectionProbesEnabled",
+        "RenderReflectionProbeLevel",
+        "RenderReflectionProbeDetail",
+        "RenderReflectionProbeCount",
+        "RenderReflectionProbeResolution",
+        "RenderReflectionProbeDrawDistance",
+        "RenderReflectionProbeIntensity",
+        "RenderReflectionProbeSaturation",
+        "RenderReflectionProbeContrast",
+        "RenderReflectionProbeBlurLODBias",
+        "RenderReflectionProbeAmbientMultiplier",
+        "RenderReflectionProbeEqualize",
+        "RenderReflectionProbeOpacity",
+        "RenderReflectionAutoParallax",
+        "RenderReflectionBoxProbesEnabled",
+        "RenderReflectionExcludeAvatarDynamic",
+        "RenderReflectionExcludeAvatarRealtime",
+        "RenderDefaultProbeUpdatePeriod",
+        "RenderReflectionProbeMaxLocalLightAmbiance",
+        "RenderHeroProbeDistance",
+        "RenderCubeConvFlipX",
+        "RenderCubeConvFlipY",
+        "RenderCubeConvSwapXY",
+        "RenderSSAOIrradianceScale",
+        "RenderSSAOIrradianceMax"
+    };
+
+    for (size_t i = 0; i < sizeof(cubemap_control_names) / sizeof(cubemap_control_names[0]); ++i)
+    {
+        LLControlVariable* control = gSavedSettings.getControl(cubemap_control_names[i]);
+        if (control)
+        {
+            control->resetToDefault(true);
+        }
+    }
+
+    // Refresh UI
+    refresh();
+}
+
+void LLFloaterKVTweaks::onClickResetMasterCube()
+{
+    // S24 - Reset the master reflection cube's own settings to defaults
+    const char* master_cube_control_names[] = {
+        "RenderReflectionMasterCube",
+        "RenderReflectionMasterCubeRadius"
+    };
+
+    for (size_t i = 0; i < sizeof(master_cube_control_names) / sizeof(master_cube_control_names[0]); ++i)
+    {
+        LLControlVariable* control = gSavedSettings.getControl(master_cube_control_names[i]);
         if (control)
         {
             control->resetToDefault(true);

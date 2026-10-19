@@ -238,6 +238,7 @@ using namespace boost::placeholders;
 #include "llcallbacklist.h"
 #include "lldeferredsounds.h"
 #include "pipeline.h"
+#include "dxpipeline.h"
 #include "llgesturemgr.h"
 #include "llinventorymodel.h"
 #include "llinventoryfunctions.h" // KRLV_TOUCHPOINT: get_is_item_worn() for the shared-folder list-folder hook
@@ -245,7 +246,7 @@ using namespace boost::placeholders;
 #include "llvlcomposition.h"
 #include "llvlmanager.h"
 #include "llviewercamera.h"
-#include "lldrawpoolbump.h"
+#include "dxdrawpoolbump.h"
 #include "llvieweraudio.h"
 #include "llimview.h"
 #include "llviewerthrottle.h"
@@ -557,7 +558,7 @@ static void settings_to_globals()
 	DXDevice::sDebugLayerEnabled = gSavedSettings.getBOOL("S24DXDebugLayerEnabled");
 	// S24: DX-native shader bytecode disk cache master switch - see
 	// RenderDXShaderCacheEnabled's comment (settings.xml) and DXShader.h's
-	// sShaderCacheEnabled comment. Must run before gPipeline.init()'s shader
+	// sShaderCacheEnabled comment. Must run before DXPipeline::init(gPipeline)'s shader
 	// compilation, same timing requirement as sDebugLayerEnabled above.
 	DXShader::sShaderCacheEnabled = gSavedSettings.getBOOL("RenderDXShaderCacheEnabled");
 	DXSampler::setMaxAnisotropy(gSavedSettings.getS32("RenderAnisotropicLevel"));
@@ -605,9 +606,9 @@ static void settings_to_globals()
 
 static void settings_modify()
 {
-	LLPipeline::sRenderTransparentWater = gSavedSettings.getBOOL("RenderTransparentWater");
-	LLPipeline::sRenderDeferred = true; // false is deprecated
-	LLRenderTarget::sUseFBO = LLPipeline::sRenderDeferred;
+	DXPipeline::sRenderTransparentWater = gSavedSettings.getBOOL("RenderTransparentWater");
+	DXPipeline::sRenderDeferred = true; // false is deprecated
+	LLRenderTarget::sUseFBO = DXPipeline::sRenderDeferred;
 	LLVOSurfacePatch::sLODFactor = gSavedSettings.getF32("RenderTerrainLODFactor");
 	LLVOSurfacePatch::sLODFactor *= LLVOSurfacePatch::sLODFactor;  // square lod factor to get exponential range of [1,4]
 	gDebugGL = gDebugSession;
@@ -702,14 +703,9 @@ LLAppViewer::LLAppViewer()
 
 	// Need to do this initialization before we do anything else, since anything
 	// that touches files should really go through the lldir API
-	// S24: DX build uses a separate Roaming settings/logs dir from GL (cache
-	// dir was already split, see lldir.cpp) so DX alpha testing doesn't
-	// clobber an existing GL install's settings.xml.
-#ifdef DX_RENDER
+	// S24: "Kirstens S24 DX" settings/logs dir - matches the cache dir name
+	// split in lldir.cpp.
 	gDirUtilp->initAppDirs("Kirstens S24 DX");
-#else
-	gDirUtilp->initAppDirs("Kirstens S24");
-#endif
 	//
 	// IMPORTANT! Do NOT put anything that will write
 	// into the log files during normal startup until AFTER
@@ -2082,8 +2078,9 @@ void LLAppViewer::initGeneralThread()
 // (LL::WorkQueue::getInstance("DXPool")->post(...), the same idiom used for
 // "General"/"mainloop" elsewhere in this codebase) must be pure CPU
 // computation only. NEVER call into D3D11/GL directly from work running
-// here - gPipeline.markMoved()/markRebuild() and friends are confirmed NOT
-// thread-safe (raw, unlocked container pushes, pipeline.cpp:3166 onward).
+// here - DXPipeline::markMoved()/markRebuild() and friends are confirmed NOT
+// thread-safe (raw, unlocked container pushes) without going through the
+// sTLSDeferredPipelineMarks staging guard (see LLDeferredPipelineMarks in pipeline.h).
 // Stage results into task-local data and hand them back to the main thread
 // (e.g. via LL::WorkQueue::getInstance("mainloop")) for serial application.
 //
@@ -2091,7 +2088,6 @@ void LLAppViewer::initGeneralThread()
 // until the idleUpdate() parallelization design itself is built.
 void LLAppViewer::initDXPool()
 {
-#ifdef DX_RENDER
 	if (mDXPool)
 	{
 		return;
@@ -2099,7 +2095,6 @@ void LLAppViewer::initDXPool()
 
 	mDXPool = new LL::ThreadPool("DXPool", 3);
 	mDXPool->start();
-#endif
 }
 
 namespace
@@ -3840,7 +3835,7 @@ bool LLAppViewer::initWindow()
 
 	LLNotificationsUI::LLNotificationManager::getInstance();
 
-	// S24: don't maximize() here (before gPipeline.init()) - it snaps the
+	// S24: don't maximize() here (before DXPipeline::init(gPipeline)) - it snaps the
 	// window to full-screen well before there's anything to present, which
 	// occludes LLSplashScreenWin32's loading dialog behind an unpainted white
 	// DWM surface for the whole init block. Maximizing is deferred to the
@@ -3860,7 +3855,7 @@ bool LLAppViewer::initWindow()
 	gSavedSettings.setBOOL("RenderInitError", true);
 	gSavedSettings.saveToFile(gSavedSettings.getString("ClientSettingsFile"), true);
 
-	gPipeline.init();
+	DXPipeline::init(gPipeline);
 	LL_INFOS("AppInit") << "gPipeline Initialized" << LL_ENDL;
 
 	gViewerWindow->initGLDefaults();
@@ -5848,7 +5843,7 @@ void LLAppViewer::idle()
 
 	{
 		LL_RECORD_BLOCK_TIME(FTM_WORLD_UPDATE);
-		gPipeline.updateMove();
+		DXPipeline::updateMove(gPipeline);
 	}
 
 	LLWorld::getInstance()->updateParticles();

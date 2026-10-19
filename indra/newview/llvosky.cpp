@@ -37,8 +37,7 @@
 #include "lldrawable.h"
 #include "llface.h"
 #include "DXCubeMap.h"
-#include "lldrawpoolsky.h"
-#include "lldrawpoolwater.h"
+#include "dxdrawpoolwater.h"
 #include "llglheaders.h"
 #include "llsky.h"
 #include "llviewercamera.h"
@@ -47,7 +46,8 @@
 #include "llviewerregion.h"
 #include "llworld.h"
 #include "pipeline.h"
-#include "lldrawpoolwlsky.h"
+#include "dxpipeline.h"
+#include "dxdrawpoolwlsky.h"
 #include "v3colorutil.h"
 
 #include "llsettingssky.h"
@@ -215,7 +215,7 @@ void LLSkyTex::create()
 void LLSkyTex::createGLImage(S32 which)
 {
     mTexture[which]->setExplicitFormat(GL_RGBA8, GL_RGBA);
-    mTexture[which]->createGLTexture(0, mImageRaw[which], 0, true, LLDXTexture::LOCAL);
+    mTexture[which]->createGLTexture(0, mImageRaw[which], 0, true, DXTextureBase::LOCAL);
     mTexture[which]->setAddressMode(LLTexUnit::TAM_CLAMP);
 }
 
@@ -489,8 +489,8 @@ void LLVOSky::init()
 
     mHeavenlyBodyUpdated = false ;
 
-    mRainbowMap = LLViewerTextureManager::getFetchedTexture(psky->getRainbowTextureId(), FTT_DEFAULT, true, LLDXTexture::BOOST_UI);
-    mHaloMap    = LLViewerTextureManager::getFetchedTexture(psky->getHaloTextureId(),  FTT_DEFAULT, true, LLDXTexture::BOOST_UI);
+    mRainbowMap = LLViewerTextureManager::getFetchedTexture(psky->getRainbowTextureId(), FTT_DEFAULT, true, DXTextureBase::BOOST_UI);
+    mHaloMap    = LLViewerTextureManager::getFetchedTexture(psky->getHaloTextureId(),  FTT_DEFAULT, true, DXTextureBase::BOOST_UI);
 }
 
 
@@ -594,7 +594,7 @@ void LLVOSky::restoreGL()
 
     if (mDrawable)
     {
-        gPipeline.markRebuild(mDrawable, LLDrawable::REBUILD_VOLUME);
+        DXPipeline::markRebuild(gPipeline, mDrawable, LLDrawable::REBUILD_VOLUME);
     }
 
 }
@@ -633,7 +633,7 @@ void LLVOSky::initSkyTextureDirs(const S32 side, const S32 tile)
 
 void LLVOSky::createSkyTexture(const LLSettingsSky::ptr_t &psky, AtmosphericsVars& vars, const S32 side, const S32 tile)
 {
-    const bool low_end = !gPipeline.canUseWindLightShaders();
+    const bool low_end = !DXPipeline::canUseWindLightShaders(gPipeline);
 
     S32 tile_x = tile % NUM_TILES_X;
     S32 tile_y = tile / NUM_TILES_X;
@@ -677,7 +677,7 @@ bool LLVOSky::updateSky()
 {
     LLSettingsSky::ptr_t psky = LLEnvironment::instance().getCurrentSky();
 
-    if (mDead || !(gPipeline.hasRenderType(LLPipeline::RENDER_TYPE_SKY)))
+    if (mDead || !(DXPipeline::hasRenderType(gPipeline, LLPipeline::RENDER_TYPE_SKY)))
     {
         // It's dead.  Don't update it.
         return true;
@@ -701,9 +701,9 @@ bool LLVOSky::updateSky()
     updateDirections(psky);
 
     // This cubemap is only ever sampled by the shader's legacy fallback branch, so its update
-    // machinery must run whenever that branch might be taken (LLPipeline::shouldUseLegacyEnvMap(),
+    // machinery must run whenever that branch might be taken (DXPipeline::shouldUseLegacyEnvMap(),
     // pipeline.h) - not just when the master probe-capture toggle is on.
-    if (!mCubeMap || !LLPipeline::shouldUseLegacyEnvMap())
+    if (!mCubeMap || !DXPipeline::shouldUseLegacyEnvMap())
     {
         mCubeMapUpdateStage = NUM_CUBEMAP_FACES;
         mForceUpdate = false;
@@ -726,11 +726,11 @@ bool LLVOSky::updateSky()
             mForceUpdate = false;
         }
     }
-    else if (mCubeMapUpdateStage == NUM_CUBEMAP_FACES && LLPipeline::shouldUseLegacyEnvMap()) // see comment above
+    else if (mCubeMapUpdateStage == NUM_CUBEMAP_FACES && DXPipeline::shouldUseLegacyEnvMap()) // see comment above
     {
         LLSkyTex::stepCurrent();
 
-        bool is_alm_wl_sky = gPipeline.canUseWindLightShaders();
+        bool is_alm_wl_sky = DXPipeline::canUseWindLightShaders(gPipeline);
 
         int tex = mSkyTex[0].getWhich(true);
 
@@ -780,12 +780,12 @@ bool LLVOSky::updateSky()
 
         if (mDrawable.notNull() && mDrawable->getFace(0) && !mDrawable->getFace(0)->getVertexBuffer())
         {
-            gPipeline.markRebuild(mDrawable, LLDrawable::REBUILD_VOLUME);
+            DXPipeline::markRebuild(gPipeline, mDrawable, LLDrawable::REBUILD_VOLUME);
         }
         mCubeMapUpdateStage = -1;
     }
     // run 0 to 5 faces, each face in own frame
-    else if (mCubeMapUpdateStage >= 0 && mCubeMapUpdateStage < NUM_CUBEMAP_FACES && LLPipeline::shouldUseLegacyEnvMap()) // see comment above
+    else if (mCubeMapUpdateStage >= 0 && mCubeMapUpdateStage < NUM_CUBEMAP_FACES && DXPipeline::shouldUseLegacyEnvMap()) // see comment above
     {
         S32 side = mCubeMapUpdateStage;
         // CPU hungry part, createSkyTexture() is math heavy
@@ -838,21 +838,24 @@ void LLVOSky::updateTextures()
 
 LLDrawable *LLVOSky::createDrawable(LLPipeline *pipeline)
 {
-    pipeline->allocDrawable(this);
+    DXPipeline::allocDrawable(*pipeline, this);
     mDrawable->setLit(false);
 
-    LLDrawPoolSky *poolp = (LLDrawPoolSky*) gPipeline.getPool(LLDrawPool::POOL_SKY);
-    poolp->setSkyTex(mSkyTex);
+    // S24: LLDrawPoolSky is retired (was a GL/DX-irrelevant `// DEPRECATED` stub - every method
+    // was already an empty no-op on both backends; the real sun/moon rendering has always
+    // happened directly in DXDrawPoolWLSky, reaching into mFace[FACE_SUN]/[FACE_MOON] itself,
+    // bypassing pool dispatch entirely). These faces never needed a real pool object -
+    // LLDrawable::addFace() tolerates a null pool (just skips face->setPool()).
     mDrawable->setRenderType(LLPipeline::RENDER_TYPE_SKY);
 
     for (S32 i = 0; i < NUM_CUBEMAP_FACES; ++i)
     {
-        mFace[FACE_SIDE0 + i] = mDrawable->addFace(poolp, NULL);
+        mFace[FACE_SIDE0 + i] = mDrawable->addFace((LLFacePool*)NULL, NULL);
     }
 
-    mFace[FACE_SUN]   = mDrawable->addFace(poolp, nullptr);
-    mFace[FACE_MOON]  = mDrawable->addFace(poolp, nullptr);
-    mFace[FACE_BLOOM] = mDrawable->addFace(poolp, nullptr);
+    mFace[FACE_SUN]   = mDrawable->addFace((LLFacePool*)nullptr, nullptr);
+    mFace[FACE_MOON]  = mDrawable->addFace((LLFacePool*)nullptr, nullptr);
+    mFace[FACE_BLOOM] = mDrawable->addFace((LLFacePool*)nullptr, nullptr);
 
     mFace[FACE_SUN]->setMediaAllowed(false);
     mFace[FACE_MOON]->setMediaAllowed(false);
@@ -874,10 +877,10 @@ void LLVOSky::setMoonScale(F32 moon_scale)
 void LLVOSky::setSunTextures(const LLUUID& sun_texture, const LLUUID& sun_texture_next)
 {
     // We test the UUIDs here because we explicitly do not want the default image returned by getFetchedTexture in that case...
-    mSunTexturep[0] = sun_texture.isNull() ? nullptr : LLViewerTextureManager::getFetchedTexture(sun_texture, FTT_DEFAULT, true, LLDXTexture::BOOST_UI);
-    mSunTexturep[1] = sun_texture_next.isNull() ? nullptr : LLViewerTextureManager::getFetchedTexture(sun_texture_next, FTT_DEFAULT, true, LLDXTexture::BOOST_UI);
+    mSunTexturep[0] = sun_texture.isNull() ? nullptr : LLViewerTextureManager::getFetchedTexture(sun_texture, FTT_DEFAULT, true, DXTextureBase::BOOST_UI);
+    mSunTexturep[1] = sun_texture_next.isNull() ? nullptr : LLViewerTextureManager::getFetchedTexture(sun_texture_next, FTT_DEFAULT, true, DXTextureBase::BOOST_UI);
 
-    bool can_use_wl = gPipeline.canUseWindLightShaders();
+    bool can_use_wl = DXPipeline::canUseWindLightShaders(gPipeline);
 
     if (mFace[FACE_SUN])
     {
@@ -916,10 +919,10 @@ void LLVOSky::setMoonTextures(const LLUUID& moon_texture, const LLUUID& moon_tex
 {
     LLSettingsSky::ptr_t psky = LLEnvironment::instance().getCurrentSky();
 
-    bool can_use_wl = gPipeline.canUseWindLightShaders();
+    bool can_use_wl = DXPipeline::canUseWindLightShaders(gPipeline);
 
-    mMoonTexturep[0] = moon_texture.isNull()      ? nullptr : LLViewerTextureManager::getFetchedTexture(moon_texture, FTT_DEFAULT, true, LLDXTexture::BOOST_UI);
-    mMoonTexturep[1] = moon_texture_next.isNull() ? nullptr : LLViewerTextureManager::getFetchedTexture(moon_texture_next, FTT_DEFAULT, true, LLDXTexture::BOOST_UI);
+    mMoonTexturep[0] = moon_texture.isNull()      ? nullptr : LLViewerTextureManager::getFetchedTexture(moon_texture, FTT_DEFAULT, true, DXTextureBase::BOOST_UI);
+    mMoonTexturep[1] = moon_texture_next.isNull() ? nullptr : LLViewerTextureManager::getFetchedTexture(moon_texture_next, FTT_DEFAULT, true, DXTextureBase::BOOST_UI);
 
     if (mFace[FACE_MOON])
     {
@@ -941,8 +944,8 @@ void LLVOSky::setCloudNoiseTextures(const LLUUID& cloud_noise_texture, const LLU
 {
     LLSettingsSky::ptr_t psky = LLEnvironment::instance().getCurrentSky();
 
-    mCloudNoiseTexturep[0] = cloud_noise_texture.isNull() ? nullptr : LLViewerTextureManager::getFetchedTexture(cloud_noise_texture, FTT_DEFAULT, true, LLDXTexture::BOOST_UI);
-    mCloudNoiseTexturep[1] = cloud_noise_texture_next.isNull() ? nullptr : LLViewerTextureManager::getFetchedTexture(cloud_noise_texture_next, FTT_DEFAULT, true, LLDXTexture::BOOST_UI);
+    mCloudNoiseTexturep[0] = cloud_noise_texture.isNull() ? nullptr : LLViewerTextureManager::getFetchedTexture(cloud_noise_texture, FTT_DEFAULT, true, DXTextureBase::BOOST_UI);
+    mCloudNoiseTexturep[1] = cloud_noise_texture_next.isNull() ? nullptr : LLViewerTextureManager::getFetchedTexture(cloud_noise_texture_next, FTT_DEFAULT, true, DXTextureBase::BOOST_UI);
 
     if (mCloudNoiseTexturep[0])
     {
@@ -962,8 +965,8 @@ void LLVOSky::setBloomTextures(const LLUUID& bloom_texture, const LLUUID& bloom_
     LLUUID bloom_tex = bloom_texture.isNull() ? psky->GetDefaultBloomTextureId() : bloom_texture;
     LLUUID bloom_tex_next = bloom_texture_next.isNull() ? (bloom_texture.isNull() ? psky->GetDefaultBloomTextureId() : bloom_texture) : bloom_texture_next;
 
-    mBloomTexturep[0] = bloom_tex.isNull() ? nullptr : LLViewerTextureManager::getFetchedTexture(bloom_tex, FTT_DEFAULT, true, LLDXTexture::BOOST_UI);
-    mBloomTexturep[1] = bloom_tex_next.isNull() ? nullptr : LLViewerTextureManager::getFetchedTexture(bloom_tex_next, FTT_DEFAULT, true, LLDXTexture::BOOST_UI);
+    mBloomTexturep[0] = bloom_tex.isNull() ? nullptr : LLViewerTextureManager::getFetchedTexture(bloom_tex, FTT_DEFAULT, true, DXTextureBase::BOOST_UI);
+    mBloomTexturep[1] = bloom_tex_next.isNull() ? nullptr : LLViewerTextureManager::getFetchedTexture(bloom_tex_next, FTT_DEFAULT, true, DXTextureBase::BOOST_UI);
 
     if (mBloomTexturep[0])
     {
@@ -980,8 +983,8 @@ bool LLVOSky::updateGeometry(LLDrawable *drawable)
 {
     if (mFace[FACE_REFLECTION] == NULL)
     {
-        LLDrawPoolWater *poolp = (LLDrawPoolWater*) gPipeline.getPool(LLDrawPool::POOL_WATER);
-        if (gPipeline.getPool(LLDrawPool::POOL_WATER)->getShaderLevel() != 0)
+        LLDrawPoolWater *poolp = (LLDrawPoolWater*) DXPipeline::getPool(gPipeline, LLDrawPool::POOL_WATER);
+        if (DXPipeline::getPool(gPipeline, LLDrawPool::POOL_WATER)->getShaderLevel() != 0)
         {
             mFace[FACE_REFLECTION] = drawable->addFace(poolp, NULL);
         }
@@ -1017,7 +1020,7 @@ bool LLVOSky::updateGeometry(LLDrawable *drawable)
             face->setSize(4, 6);
             face->setGeomIndex(0);
             face->setIndicesIndex(0);
-            LLVertexBuffer* buff = new LLVertexBuffer(LLDrawPoolSky::VERTEX_DATA_MASK);
+            LLVertexBuffer* buff = new LLVertexBuffer(LLVOSky::VERTEX_DATA_MASK);
             buff->allocateBuffer(4, 6);
             face->setVertexBuffer(buff);
 
@@ -1084,14 +1087,14 @@ bool LLVOSky::updateGeometry(LLDrawable *drawable)
         }
 
     bool above_water = (height_above_water > 0);
-    bool render_ref  = above_water && gPipeline.getPool(LLDrawPool::POOL_WATER)->getShaderLevel() == 0;
+    bool render_ref  = above_water && DXPipeline::getPool(gPipeline, LLDrawPool::POOL_WATER)->getShaderLevel() == 0;
     setDrawRefl(above_water ? (sun_flag ? 0 : 1) : -1);
             if (render_ref)
             {
                 updateReflectionGeometry(drawable, height_above_water, mSun);
             }
 
-    LLPipeline::sCompiles++;
+    DXPipeline::sCompiles++;
     return true;
 }
 
@@ -1146,7 +1149,7 @@ bool LLVOSky::updateHeavenlyBodyGeometry(LLDrawable *drawable, F32 scale, const 
     if (!facep->getVertexBuffer())
     {
         facep->setSize(4, 6);
-        LLVertexBuffer* buff = new LLVertexBuffer(LLDrawPoolSky::VERTEX_DATA_MASK);
+        LLVertexBuffer* buff = new LLVertexBuffer(LLVOSky::VERTEX_DATA_MASK);
         if (!buff->allocateBuffer(facep->getGeomCount(), facep->getIndicesCount()))
         {
             LL_WARNS() << "Failed to allocate Vertex Buffer for vosky to "

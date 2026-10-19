@@ -32,6 +32,7 @@
 #include "llpipelinelistener.h"
 
 #include "pipeline.h"
+#include "dxpipeline.h"
 #include "stringize.h"
 #include <sstream>
 #include "llviewermenu.h"
@@ -48,7 +49,7 @@ namespace {
 			U32 render_type = render_type_from_string( iter->asString() );
 			if ( render_type != 0 )
 			{
-				LLPipeline::toggleRenderTypeControl( render_type );
+				DXPipeline::toggleRenderTypeControl(gPipeline,  render_type );
 			}
 		}
 	}
@@ -59,7 +60,7 @@ namespace {
 		U32 render_type = render_type_from_string( request["type"].asString() );
 		if ( render_type != 0 )
 		{
-			response["value"] = LLPipeline::hasRenderTypeControl( render_type );
+			response["value"] = DXPipeline::hasRenderTypeControl(gPipeline,  render_type );
 		}
 		else
 		{
@@ -69,12 +70,12 @@ namespace {
 
 	void disable_all_render_types_wrapper(LLSD const& request)
 	{
-		gPipeline.clearAllRenderTypes();
+		DXPipeline::clearAllRenderTypes(gPipeline);
 	}
 
 	void enable_all_render_types_wrapper(LLSD const& request)
 	{
-		gPipeline.setAllRenderTypes();
+		DXPipeline::setAllRenderTypes(gPipeline);
 	}
 
 	// Render Features
@@ -87,7 +88,7 @@ namespace {
 			U32 render_feature = feature_from_string( iter->asString() );
 			if ( render_feature != 0 )
 			{
-				LLPipeline::toggleRenderDebugFeatureControl( render_feature );
+				DXPipeline::toggleRenderDebugFeatureControl(gPipeline,  render_feature );
 			}
 		}
 	}
@@ -126,7 +127,7 @@ namespace {
 			U64 info_display = info_display_from_string( iter->asString() );
 			if ( info_display != 0 )
 			{
-				LLPipeline::toggleRenderDebug( info_display );
+				DXPipeline::toggleRenderDebug(gPipeline,  info_display );
 			}
 		}
 	}

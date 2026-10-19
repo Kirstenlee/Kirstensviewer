@@ -71,6 +71,10 @@ public:
 	// Not called from loadShadersDeferred()'s eager startup chain; called lazily instead from
 	// LLPipeline::visualizeBuffers() on first use of the debug view (see llviewershadermgr.cpp).
 	bool loadShaderBufferVisualization();
+	// Same reasoning, different trigger: compiles the real (1024-sample) BRDF LUT generator
+	// shader. Not called from loadShadersDeferred() at all - only from bakeBrdfLut() (dev-only,
+	// Develop > Rendering > "Bake BRDF LUT"). Normal startup never needs this shader to exist.
+	bool loadShaderGenBrdfLut();
 	bool loadShadersObject();
 	bool loadShadersAvatar();
 	bool loadShadersWater();
@@ -336,6 +340,11 @@ extern LLHLSLShader         gDeferredFullbrightShinyProgram;
 extern LLHLSLShader         gHUDFullbrightShinyProgram;
 extern LLHLSLShader         gNormalMapGenProgram;
 extern LLHLSLShader         gDeferredGenBrdfLutProgram;
+// S24: loop-free analytic fallback for gDeferredGenBrdfLutProgram - see
+// LLPipeline::createLUTBuffers()'s comment. Compiled eagerly (cheap, no
+// driver-compile pathology); gDeferredGenBrdfLutProgram itself is NOT -
+// see LLPipeline::bakeBrdfLut().
+extern LLHLSLShader         gDeferredGenBrdfLutFallbackProgram;
 extern LLHLSLShader         gDeferredBufferVisualProgram;
 
 // Deferred materials shaders

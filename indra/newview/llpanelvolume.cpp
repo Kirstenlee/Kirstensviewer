@@ -70,10 +70,11 @@
 #include "llvovolume.h"
 #include "llworld.h"
 #include "pipeline.h"
+#include "dxpipeline.h"
 #include "llviewershadermgr.h"
 #include "llnotificationsutil.h"
 
-#include "lldrawpool.h"
+#include "dxdrawpool.h"
 #include "lluictrlfactory.h"
 
 // For mesh physics
@@ -396,7 +397,7 @@ void LLPanelVolume::getState( )
 
     bool probe_enabled = is_probe && editable && single_volume;
 
-    bool mirrors_enabled = LLPipeline::RenderMirrors;
+    bool mirrors_enabled = DXPipeline::RenderMirrors;
 
     getChildView("Probe Update Type")->setVisible(mirrors_enabled);
     getChildView("Probe Update Label")->setVisible(mirrors_enabled);
@@ -1443,7 +1444,7 @@ void LLPanelVolume::onCommitProbe(LLUICtrl* ctrl, void* userdata)
     volobjp->setReflectionProbeAmbiance((F32)self->getChild<LLUICtrl>("Probe Ambiance")->getValue().asReal());
     volobjp->setReflectionProbeNearClip((F32)self->getChild<LLUICtrl>("Probe Near Clip")->getValue().asReal());
 
-    bool mirrors_enabled = LLPipeline::RenderMirrors;
+    bool mirrors_enabled = DXPipeline::RenderMirrors;
     bool is_mirror = false;
 
     if (mirrors_enabled)

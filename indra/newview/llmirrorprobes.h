@@ -101,6 +101,11 @@ public:
     void bindRadiance(S32 stage);
     void unbindProbeCubes(S32 stage);
 
+    // Same "scoped getter, not a friend class" rationale as LLSphereProbes::getProbeResolution()
+    // - DXPipeline::allocateScreenBufferInternal() needs this to size the hero-probe render
+    // target.
+    U32 getProbeResolution() const { return mProbeResolution; }
+
     LLVector3 mMirrorPosition;
     LLVector3     mMirrorNormal;
     HeroProbeData mHeroData;

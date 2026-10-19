@@ -49,12 +49,13 @@
 #include "llvosurfacepatch.h" // for debugging
 #include "llworld.h"
 #include "pipeline.h"
+#include "dxpipeline.h"
 #include "llspatialpartition.h"
 #include "llviewerobjectlist.h"
 #include "llviewerwindow.h"
 #include "llvocache.h"
 #include "llcontrolavatar.h"
-#include "lldrawpoolavatar.h"
+#include "dxdrawpoolavatar.h"
 
 const F32 MIN_INTERPOLATE_DISTANCE_SQUARED = 0.001f * 0.001f;
 const F32 MAX_INTERPOLATE_DISTANCE_SQUARED = 10.f * 10.f;
@@ -166,7 +167,7 @@ void LLDrawable::destroy()
 {
 	if (gDebugGL)
 	{
-		gPipeline.checkReferences(this);
+		DXPipeline::checkReferences(gPipeline, this);
 	}
 
 	if (isDead())
@@ -256,7 +257,7 @@ void LLDrawable::cleanupReferences()
 	}
 	mFaces.clear();
 
-	gPipeline.unlinkDrawable(this);
+	DXPipeline::unlinkDrawable(gPipeline, this);
 
 	removeFromOctree();
 
@@ -332,7 +333,7 @@ LLFace* LLDrawable::addFace(const LLTextureEntry* te, LLViewerTexture* texturep)
 
 	face->setTEOffset(static_cast<S32>(mFaces.size()));
 	face->setTexture(texturep);
-	face->setPoolType(gPipeline.getPoolTypeFromTE(te, texturep));
+	face->setPoolType(DXPipeline::getPoolTypeFromTE(te, texturep));
 
 	mFaces.push_back(face);
 
@@ -353,7 +354,7 @@ LLFace* LLDrawable::addFace(const LLTextureEntry* te, LLViewerTexture* texturep,
 	face->setTEOffset(static_cast<S32>(mFaces.size()));
 	face->setTexture(texturep);
 	face->setNormalMap(normalp);
-	face->setPoolType(gPipeline.getPoolTypeFromTE(te, texturep));
+	face->setPoolType(DXPipeline::getPoolTypeFromTE(te, texturep));
 
 	mFaces.push_back(face);
 
@@ -375,7 +376,7 @@ LLFace* LLDrawable::addFace(const LLTextureEntry* te, LLViewerTexture* texturep,
 	face->setTexture(texturep);
 	face->setNormalMap(normalp);
 	face->setSpecularMap(specularp);
-	face->setPoolType(gPipeline.getPoolTypeFromTE(te, texturep));
+	face->setPoolType(DXPipeline::getPoolTypeFromTE(te, texturep));
 
 	mFaces.push_back(face);
 
@@ -527,7 +528,7 @@ void LLDrawable::makeActive()
 
 		if (mVObjp->getPCode() == LL_PCODE_VOLUME)
 		{
-			gPipeline.markRebuild(this, LLDrawable::REBUILD_VOLUME);
+			DXPipeline::markRebuild(gPipeline, this, LLDrawable::REBUILD_VOLUME);
 		}
 		updatePartition();
 	}
@@ -574,7 +575,7 @@ void LLDrawable::makeStatic(bool warning_enabled)
 
 		if (mVObjp->getPCode() == LL_PCODE_VOLUME)
 		{
-			gPipeline.markRebuild(this, LLDrawable::REBUILD_VOLUME);
+			DXPipeline::markRebuild(gPipeline, this, LLDrawable::REBUILD_VOLUME);
 		}
 
 		if (mSpatialBridge)
@@ -654,12 +655,12 @@ F32 LLDrawable::updateXform(bool undamped)
             {
                 mCurrentScale = target_scale;
                 // Final scale change needs a rebuild
-                gPipeline.markRebuild(this, LLDrawable::REBUILD_POSITION);
+                DXPipeline::markRebuild(gPipeline, this, LLDrawable::REBUILD_POSITION);
             }
             else if (getVOVolume() && !isRoot())
             {
                 //child prim snapping to some position, needs a rebuild
-                gPipeline.markRebuild(this, LLDrawable::REBUILD_POSITION);
+                DXPipeline::markRebuild(gPipeline, this, LLDrawable::REBUILD_POSITION);
             }
         }
     }
@@ -683,7 +684,7 @@ F32 LLDrawable::updateXform(bool undamped)
 
 	if (vec * vec > MIN_INTERPOLATE_DISTANCE_SQUARED)
 	{ //scale change requires immediate rebuild
-		gPipeline.markRebuild(this, LLDrawable::REBUILD_POSITION);
+		DXPipeline::markRebuild(gPipeline, this, LLDrawable::REBUILD_POSITION);
 	}
 	else if (!isRoot() &&
 		(!mVObjp->getAngularVelocity().isExactlyZero() ||
@@ -693,7 +694,7 @@ F32 LLDrawable::updateXform(bool undamped)
 		if (!isState(LLDrawable::ANIMATED_CHILD))
 		{
 			setState(LLDrawable::ANIMATED_CHILD);
-			gPipeline.markRebuild(this, LLDrawable::REBUILD_ALL);
+			DXPipeline::markRebuild(gPipeline, this, LLDrawable::REBUILD_ALL);
 			mVObjp->dirtySpatialGroup();
 		}
 	}
@@ -702,7 +703,7 @@ F32 LLDrawable::updateXform(bool undamped)
 			|| (1.f - dot(old_rot, target_rot)) > 0.f))
 	{ //fix for BUG-840, MAINT-2275, MAINT-1742, MAINT-2247
 		mVObjp->shrinkWrap();
-		gPipeline.markRebuild(this, LLDrawable::REBUILD_POSITION);
+		DXPipeline::markRebuild(gPipeline, this, LLDrawable::REBUILD_POSITION);
 	}
 	else if (!getVOVolume() && !isAvatar())
 	{
@@ -725,7 +726,7 @@ F32 LLDrawable::updateXform(bool undamped)
 
 	if (mSpatialBridge)
 	{
-		gPipeline.markMoved(mSpatialBridge, false);
+		DXPipeline::markMoved(gPipeline, mSpatialBridge, false);
 	}
 	return dist_squared;
 }
@@ -818,12 +819,12 @@ void LLDrawable::updatePartition()
 	}
 	else if (mSpatialBridge)
 	{
-		gPipeline.markMoved(mSpatialBridge, false);
+		DXPipeline::markMoved(gPipeline, mSpatialBridge, false);
 	}
 	else
 	{
 		//a child prim moved and needs its verts regenerated
-		gPipeline.markRebuild(this, LLDrawable::REBUILD_POSITION);
+		DXPipeline::markRebuild(gPipeline, this, LLDrawable::REBUILD_POSITION);
 	}
 }
 
@@ -964,7 +965,7 @@ void LLDrawable::updateTexture()
 
 	if (LLVOVolume* volume = getVOVolume())
 	{
-		gPipeline.markRebuild(this, LLDrawable::REBUILD_MATERIAL);
+		DXPipeline::markRebuild(gPipeline, this, LLDrawable::REBUILD_MATERIAL);
 	}
 }
 
@@ -1006,7 +1007,7 @@ void LLDrawable::shiftPos(const LLVector4a& shift_vector)
 
 		if (rebuild)
 		{
-			gPipeline.markRebuild(this, LLDrawable::REBUILD_ALL);
+			DXPipeline::markRebuild(gPipeline, this, LLDrawable::REBUILD_ALL);
 		}
 
 		for (S32 i = 0; i < getNumFaces(); i++)
@@ -1189,7 +1190,7 @@ LLSpatialPartition* LLDrawable::getSpatialPartition()
 		!getVOVolume() ||
 		isStatic())
 	{
-		retval = gPipeline.getSpatialPartition(mVObjp);
+		retval = DXPipeline::getSpatialPartition(gPipeline, mVObjp);
 	}
 	else if (isRoot())
 	{
@@ -1481,14 +1482,14 @@ public:
 
 	void visit(const OctreeNode* branch)
 	{
-		gPipeline.markNotCulled((LLSpatialGroup*)branch->getListener(0), *mCamera);
+		DXPipeline::markNotCulled(gPipeline, (LLSpatialGroup*)branch->getListener(0), *mCamera);
 	}
 };
 
 void LLSpatialBridge::setVisible(LLCamera& camera_in, std::vector<LLDrawable*>* results, bool for_select)
 {
 
-	if (!gPipeline.hasRenderType(mDrawableType))
+	if (!DXPipeline::hasRenderType(gPipeline, mDrawableType))
 	{
 		return;
 	}
@@ -1514,7 +1515,7 @@ void LLSpatialBridge::setVisible(LLCamera& camera_in, std::vector<LLDrawable*>* 
 				LLVOAvatar* avatarp = (LLVOAvatar*)objparent;
 				if (avatarp->isVisible())
 				{
-					impostor = objparent->isAvatar() && !LLPipeline::sImpostorRender && ((LLVOAvatar*)objparent)->isImpostor();
+					impostor = objparent->isAvatar() && !DXPipeline::sImpostorRender && ((LLVOAvatar*)objparent)->isImpostor();
 					loaded = objparent->isAvatar() && ((LLVOAvatar*)objparent)->isFullyLoaded();
 				}
 				else
@@ -1545,14 +1546,14 @@ void LLSpatialBridge::setVisible(LLCamera& camera_in, std::vector<LLDrawable*>* 
 	size.setSub(exts[1], exts[0]);
 	size.mul(0.5f);
 
-	if ((LLPipeline::sShadowRender && camera_in.AABBInFrustum(center, size)) ||
-		LLPipeline::sImpostorRender ||
+	if ((DXPipeline::sShadowRender && camera_in.AABBInFrustum(center, size)) ||
+		DXPipeline::sImpostorRender ||
 		(camera_in.AABBInFrustumNoFarClip(center, size) &&
 			AABBSphereIntersect(exts[0], exts[1], camera_in.getOrigin(), camera_in.mFrustumCornerDist)))
 	{
-		if (!LLPipeline::sImpostorRender &&
-			!LLPipeline::sShadowRender &&
-			LLPipeline::calcPixelArea(center, size, camera_in) < FORCE_INVISIBLE_AREA)
+		if (!DXPipeline::sImpostorRender &&
+			!DXPipeline::sShadowRender &&
+			DXPipeline::calcPixelArea(center, size, camera_in) < FORCE_INVISIBLE_AREA)
 		{
 			return;
 		}
@@ -1600,7 +1601,7 @@ void LLSpatialBridge::updateDistance(LLCamera& camera_in, bool force_update)
 	if (mDrawable->getVObj())
 	{
 		// Don't update if we are part of impostor, unles it's an impostor pass
-		if (!LLPipeline::sImpostorRender && mDrawable->getVObj()->isAttachment())
+		if (!DXPipeline::sImpostorRender && mDrawable->getVObj()->isAttachment())
 		{
 			LLDrawable* parent = mDrawable->getParent();
 			if (parent && parent->getVObj())
@@ -1636,7 +1637,7 @@ void LLSpatialBridge::makeActive()
 void LLSpatialBridge::move(LLDrawable* drawablep, LLSpatialGroup* curp, bool immediate)
 {
 	LLSpatialPartition::move(drawablep, curp, immediate);
-	gPipeline.markMoved(this, false);
+	DXPipeline::markMoved(gPipeline, this, false);
 }
 
 bool LLSpatialBridge::updateMove()

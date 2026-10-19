@@ -35,10 +35,8 @@
 
 #include <boost/signals2/trackable.hpp>
 
-#ifdef DX_RENDER
 struct ID3D11Query; // S24: opaque forward-decl, see mDXProfileQueries below - avoids pulling
                      // <d3d11.h> into this widely-included header just for a pointer type.
-#endif
 
 #include "llavatarappearance.h"
 #include "llchat.h"
@@ -138,6 +136,22 @@ public:
                                                      const EObjectUpdateType update_type,
                                                      LLDataPacker *dp);
     virtual void            idleUpdate(LLAgent &agent, const F64 &time);
+
+    // S24: idleUpdate() split for Task #283 Phase 2 (avatar parallelization) - see
+    // LLViewerObjectList::update()'s avatar dispatch (llviewerobjectlist.cpp). Only the bare
+    // updateCharacter() call between these two is safe to run on a worker thread - the
+    // preamble has a confirmed unsynchronized shared-counter race (LLPerfStats::tunedAvatars++/--
+    // inside updateTooSlow()), and idleUpdateRest() reaches idleUpdateMisc()'s
+    // updateRiggingInfo(), a confirmed cross-object race with attachment volumes (the crash
+    // that reverted the original whole-idleUpdate() dispatch attempt). Neither hazard is fixed
+    // here - both are simply kept serial, same as every other avatar's idleUpdate() call, by
+    // never being invoked from a worker thread. Not virtual - LLVOAvatarSelf/LLControlAvatar
+    // are permanently excluded from any dispatch (see task #283), so only the base
+    // LLVOAvatar::idleUpdate() ever needs this split.
+    // Returns false if idleUpdate() should stop here (the original function's 3 early-return
+    // cases) - callers must not call updateCharacter()/idleUpdateRest() in that case.
+    bool                    idleUpdatePreamble(LLAgent &agent, const F64 &time);
+    void                    idleUpdateRest(LLAgent &agent, const F64 &time, bool detailed_update);
     /*virtual*/ bool            updateLOD();
     bool                    updateJointLODs();
     void                    updateLODRiggedAttachments( void );
@@ -340,6 +354,9 @@ public:
     // get the CPU time in ms of rendering this avatar including all attachments
     // return 0.f if this avatar has not been profiled using gPipeline.mProfileAvatar
     F32             getCPURenderTime() { return mCPURenderTime; }
+    // DX_RENDER: ordinary accessor (not a friend declaration) for DXPipeline::profileAvatar()
+    // (dxpipeline.cpp) - mCPURenderTime is otherwise private, friended to LLPipeline only.
+    void            setCPURenderTime(F32 t) { mCPURenderTime = t; }
 
 
     // avatar render cost
@@ -584,16 +601,15 @@ private:
     // profile handle
     U32 mGPUTimerQuery = 0;
 
-#ifdef DX_RENDER
-    // S24: D3D11 has no single "elapsed time" query like GL's GL_TIME_ELAPSED - a disjoint query
-    // (frequency + validity) brackets a pair of plain timestamp queries instead (timestamps only
-    // support End(), never Begin()). Mirrors LLHLSLShader's own mDXProfileQueries
-    // (llrender/llhlslshader.h/.cpp) exactly, but as this avatar's OWN instance rather than
-    // reusing gDebugProgram's shared one: this profile can stay pending across several frames
-    // (see readProfileQuery()'s retry loop), and gDebugProgram is also used for the separate,
-    // synchronous per-attachment profiling path (LLPipeline::profileAvatar()) - sharing one set
-    // of query objects between an async multi-frame profile and an unrelated synchronous one
-    // would corrupt whichever is still in flight.
+    // S24: D3D11 has no single "elapsed time" query - a disjoint query (frequency + validity)
+    // brackets a pair of plain timestamp queries instead (timestamps only support End(), never
+    // Begin()). Mirrors LLHLSLShader's own mDXProfileQueries (llrender/llhlslshader.h/.cpp)
+    // exactly, but as this avatar's OWN instance rather than reusing gDebugProgram's shared one:
+    // this profile can stay pending across several frames (see readProfileQuery()'s retry loop),
+    // and gDebugProgram is also used for the separate, synchronous per-attachment profiling path
+    // (LLPipeline::profileAvatar()) - sharing one set of query objects between an async
+    // multi-frame profile and an unrelated synchronous one would corrupt whichever is still in
+    // flight.
     struct DXAvatarProfileQueries
     {
         ID3D11Query* disjoint = nullptr;
@@ -601,7 +617,6 @@ private:
         ID3D11Query* timestampEnd = nullptr;
     };
     DXAvatarProfileQueries mDXProfileQueries;
-#endif
 
     // profile results
 
@@ -806,8 +821,8 @@ private:
     // Constants
     //--------------------------------------------------------------------
 public:
-    virtual LLViewerTexture::EBoostLevel    getAvatarBoostLevel() const { return LLDXTexture::BOOST_AVATAR; }
-    virtual LLViewerTexture::EBoostLevel    getAvatarBakedBoostLevel() const { return LLDXTexture::BOOST_AVATAR_BAKED; }
+    virtual LLViewerTexture::EBoostLevel    getAvatarBoostLevel() const { return DXTextureBase::BOOST_AVATAR; }
+    virtual LLViewerTexture::EBoostLevel    getAvatarBakedBoostLevel() const { return DXTextureBase::BOOST_AVATAR_BAKED; }
     virtual S32                         getTexImageSize() const;
     /*virtual*/ S32                     getTexImageArea() const { return getTexImageSize()*getTexImageSize(); }
 

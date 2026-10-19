@@ -36,6 +36,7 @@
 #include "llvoavatarself.h"
 #include "llvolume.h"
 #include "pipeline.h"
+#include "dxpipeline.h"
 #include "llspatialpartition.h"
 #include "llinventorymodel.h"
 #include "llviewerobjectlist.h"
@@ -123,8 +124,8 @@ void LLViewerJointAttachment::setupDrawable(LLViewerObject *object)
 
     object->mDrawable->mXform.setPosition(current_pos);
     object->mDrawable->mXform.setRotation(current_rot);
-    gPipeline.markMoved(object->mDrawable);
-    gPipeline.markTextured(object->mDrawable); // face may need to change draw pool to/from POOL_HUD
+    DXPipeline::markMoved(gPipeline, object->mDrawable);
+    DXPipeline::markTextured(gPipeline, object->mDrawable); // face may need to change draw pool to/from POOL_HUD
 
     if(mIsHUDAttachment)
     {
@@ -145,8 +146,8 @@ void LLViewerJointAttachment::setupDrawable(LLViewerObject *object)
         LLViewerObject* childp = *iter;
         if (childp && childp->mDrawable.notNull())
         {
-            gPipeline.markTextured(childp->mDrawable); // face may need to change draw pool to/from POOL_HUD
-            gPipeline.markMoved(childp->mDrawable);
+            DXPipeline::markTextured(gPipeline, childp->mDrawable); // face may need to change draw pool to/from POOL_HUD
+            DXPipeline::markMoved(gPipeline, childp->mDrawable);
 
             if(mIsHUDAttachment)
             {
@@ -257,8 +258,8 @@ void LLViewerJointAttachment::removeObject(LLViewerObject *object)
 
         object->mDrawable->mXform.setPosition(cur_position);
         object->mDrawable->mXform.setRotation(cur_rotation);
-        gPipeline.markMoved(object->mDrawable, true);
-        gPipeline.markTextured(object->mDrawable); // face may need to change draw pool to/from POOL_HUD
+        DXPipeline::markMoved(gPipeline, object->mDrawable, true);
+        DXPipeline::markTextured(gPipeline, object->mDrawable); // face may need to change draw pool to/from POOL_HUD
 
         if (mIsHUDAttachment)
         {
@@ -280,7 +281,7 @@ void LLViewerJointAttachment::removeObject(LLViewerObject *object)
         LLViewerObject* childp = *iter;
         if (childp && childp->mDrawable.notNull())
         {
-            gPipeline.markTextured(childp->mDrawable); // face may need to change draw pool to/from POOL_HUD
+            DXPipeline::markTextured(gPipeline, childp->mDrawable); // face may need to change draw pool to/from POOL_HUD
             if (mIsHUDAttachment)
             {
                 for (S32 face_num = 0; face_num < childp->mDrawable->getNumFaces(); face_num++)
