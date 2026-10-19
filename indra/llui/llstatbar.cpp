@@ -425,7 +425,7 @@ void LLStatBar::draw()
     if (mDisplayBar && mStat.valid)
     {
         // Draw the tick marks.
-        LLGLSUIDefault gls_ui;
+        DXUIDefault gls_ui;
         gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
 
         F32 value_scale;

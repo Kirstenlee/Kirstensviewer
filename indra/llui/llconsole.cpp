@@ -145,7 +145,7 @@ void LLConsole::draw()
 	// Units in pixels
 	static const F32 padding_horizontal = 10;
 	static const F32 padding_vertical = 3;
-	LLGLSUIDefault gls_ui;
+	DXUIDefault gls_ui;
 
 	// skip lines added more than mLinePersistTime ago
 	F32 cur_time = mTimer.getElapsedTimeF32();

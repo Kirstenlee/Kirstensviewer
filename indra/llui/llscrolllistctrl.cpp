@@ -39,7 +39,7 @@
 #include "llcheckboxctrl.h"
 #include "llclipboard.h"
 #include "llfocusmgr.h"
-#include "llgl.h"               // LLGLSUIDefault()
+#include "llgl.h"               // DXUIDefault()
 #include "lllocalcliprect.h"
 //#include "llrender.h"
 #include "llresmgr.h"
@@ -1607,7 +1607,7 @@ void LLScrollListCtrl::drawItems()
 
     LLRect item_rect;
 
-    LLGLSUIDefault gls_ui;
+    DXUIDefault gls_ui;
 
     F32 alpha = getDrawContext().mAlpha;
 

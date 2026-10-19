@@ -29,10 +29,8 @@
 #include "llfontdx.h"
 #include "llui.h"
 
-#ifdef DX_RENDER
 #include "DXDevice.h"
 #include "DXUIBatch.h"
-#endif
 
 /*static*/ std::stack<LLRect> LLScreenClipRect::sClipRectStack;
 
@@ -89,11 +87,9 @@ void LLScreenClipRect::updateScissorRegion()
 
     // finish any deferred calls in the old clipping region
     gDX.flush();
-#ifdef DX_RENDER
     // S24: also flush gDXUIBatch's separate pending queue, not just LLRender's -
     // see DXUIBatch.h's top comment.
     gDXUIBatch.flushPending();
-#endif
 
     LLRect rect = sClipRectStack.top();
     S32 x,y,w,h;
@@ -101,9 +97,6 @@ void LLScreenClipRect::updateScissorRegion()
     y = llfloor(rect.mBottom * LLUI::getScaleFactor().mV[VY]);
     w = llmax(0, llceil(rect.getWidth() * LLUI::getScaleFactor().mV[VX])) + 1;
     h = llmax(0, llceil(rect.getHeight() * LLUI::getScaleFactor().mV[VY])) + 1;
-#ifndef DX_RENDER
-    glScissor( x,y,w,h );
-#else
     // S24: GL's glScissor(x,y,w,h) is bottom-left-origin; D3D11_RECT is
     // top-left-origin, so y needs flipping - same convention mismatch as
     // DXPipeline::setPresentViewport() (dxpipeline.cpp). Window height is read
@@ -125,7 +118,6 @@ void LLScreenClipRect::updateScissorRegion()
             ctx->RSSetScissorRects(1, &scissor);
         }
     }
-#endif
 }
 
 //---------------------------------------------------------------------------
