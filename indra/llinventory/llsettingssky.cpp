@@ -42,6 +42,31 @@ namespace
 	const LLUUID IMG_BLOOM1("3c59f7fe-9dc8-47f9-8aaf-a9dd1fbc3bef");
 	const LLUUID IMG_RAINBOW("11b4c57c-56b3-04ed-1f82-2004363882e4");
 	const LLUUID IMG_HALO("12149143-f599-91a7-77ac-b52a3c0f59cd");
+
+	// S24: grid-wide "known library sky" asset ids (World > Environment's
+	// Sunrise/Midday/Sunset/Midnight quick-pick menu - see
+	// LLEnvironment::KNOWN_SKY_* in newview/llenvironment.cpp, duplicated
+	// here since llinventory can't depend on newview). Some of these ship
+	// without a reflection_probe_ambiance key, which flags mCanAutoAdjust
+	// below and forces every auto_adjust-gated getter (ambiance, tonemap
+	// mix, HDR min/max/offset) to its legacy-safe fallback - 0 ambient, a
+	// fully bypassed tonemap curve - unless the viewer's global
+	// RenderSkyAutoAdjustLegacy setting is on. These 4 are meant to look
+	// and behave like modern EEP skies regardless of that per-viewer
+	// setting or which one happens to be missing the key; "Midday
+	// (Legacy)" is deliberately legacy and stays out of this list.
+	const LLUUID KNOWN_GOOD_SKY_SUNRISE ("01e41537-ff51-2f1f-8ef7-17e4df760bfb");
+	const LLUUID KNOWN_GOOD_SKY_MIDDAY  ("c46226b4-0e43-5a56-9708-d27ca1df3292");
+	const LLUUID KNOWN_GOOD_SKY_SUNSET  ("084e26cd-a900-28e8-08d0-64a9de5c15e2");
+	const LLUUID KNOWN_GOOD_SKY_MIDNIGHT("8a01b97a-cb20-c1ea-ac63-f7ea84ad0090");
+
+	bool is_known_good_stock_sky(const LLUUID& id)
+	{
+		return id == KNOWN_GOOD_SKY_SUNRISE
+			|| id == KNOWN_GOOD_SKY_MIDDAY
+			|| id == KNOWN_GOOD_SKY_SUNSET
+			|| id == KNOWN_GOOD_SKY_MIDNIGHT;
+	}
 }
 
 namespace {
@@ -1901,6 +1926,7 @@ F32 LLSettingsSky::getSkyIceLevel() const
 
 F32 LLSettingsSky::getReflectionProbeAmbiance(bool auto_adjust) const
 {
+	auto_adjust = auto_adjust || is_known_good_stock_sky(getAssetId());
 	if (auto_adjust && canAutoAdjust())
 	{
 		return sAutoAdjustProbeAmbiance;
@@ -2120,6 +2146,7 @@ F32 LLSettingsSky::getGamma() const
 
 F32 LLSettingsSky::getHDRMin(bool auto_adjust) const
 {
+	auto_adjust = auto_adjust || is_known_good_stock_sky(getAssetId());
 	if (mCanAutoAdjust && !auto_adjust)
 		return 0.f;
 
@@ -2128,6 +2155,7 @@ F32 LLSettingsSky::getHDRMin(bool auto_adjust) const
 
 F32 LLSettingsSky::getHDRMax(bool auto_adjust) const
 {
+	auto_adjust = auto_adjust || is_known_good_stock_sky(getAssetId());
 	if (mCanAutoAdjust && !auto_adjust)
 		return 0.f;
 
@@ -2136,6 +2164,7 @@ F32 LLSettingsSky::getHDRMax(bool auto_adjust) const
 
 F32 LLSettingsSky::getHDROffset(bool auto_adjust) const
 {
+	auto_adjust = auto_adjust || is_known_good_stock_sky(getAssetId());
 	if (mCanAutoAdjust && !auto_adjust)
 		return 1.0f;
 
@@ -2144,6 +2173,7 @@ F32 LLSettingsSky::getHDROffset(bool auto_adjust) const
 
 F32 LLSettingsSky::getTonemapMix(bool auto_adjust) const
 {
+	auto_adjust = auto_adjust || is_known_good_stock_sky(getAssetId());
 	if (mCanAutoAdjust && !auto_adjust)
 	{
 		// legacy settings do not support tonemaping
