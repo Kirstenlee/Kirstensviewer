@@ -1,10 +1,8 @@
 include_guard()
 
 include(Variables)
-include(GlExt)
 
 set(LLWINDOW_INCLUDE_DIRS
-    ${GLEXT_INCLUDE_DIR}
     ${LIBS_OPEN_DIR}/llwindow
 )
 

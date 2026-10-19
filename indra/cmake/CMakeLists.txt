@@ -21,8 +21,6 @@ set(cmake_SOURCE_FILES
     FindOpenJPEG.cmake
     FindSCP.cmake
         FreeType.cmake
-        GlExt.cmake
-        Glh.cmake
         Glm.cmake
 
     Hunspell.cmake
