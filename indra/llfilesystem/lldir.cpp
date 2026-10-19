@@ -393,11 +393,7 @@ std::string LLDir::buildSLOSCacheDir() const
 		// formats, so each gets its own cache folder to avoid one build's stale
 		// cache entries confusing the other. Roaming data (LLDir_Win32::initAppDirs)
 		// is split the same way, same reason.
-#ifdef DX_RENDER
 		res = add(getOSCacheDir(), "Kirstens S24 DX");
-#else
-		res = add(getOSCacheDir(), "Kirstens S24");
-#endif
 	}
 	return res;
 }
