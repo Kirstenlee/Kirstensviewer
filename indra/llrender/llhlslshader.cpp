@@ -789,7 +789,7 @@ void LLHLSLShader::unbind(void)
 	sCurBoundShaderPtr = nullptr;
 }
 
-S32 LLHLSLShader::bindTexture(S32 uniform, LLTexture* texture, LLTexUnit::eTextureType mode)
+S32 LLHLSLShader::bindTexture(S32 uniform, DXTextureBase* texture, LLTexUnit::eTextureType mode)
 {
 
 	// S24: mTexture[] is populated by createShaderDX()'s post-compile
@@ -840,7 +840,7 @@ S32 LLHLSLShader::bindTexture(S32 uniform, DXCubeTexture* cubeTexture)
 S32 LLHLSLShader::unbindTexture(S32 uniform, LLTexUnit::eTextureType mode)
 {
 
-	// S24: see bindTexture(S32, LLTexture*, ...) above.
+	// S24: see bindTexture(S32, DXTextureBase*, ...) above.
 	if (uniform < 0 || uniform >= (S32)mTexture.size())
 	{
 		return -1;
@@ -858,7 +858,7 @@ S32 LLHLSLShader::unbindTexture(S32 uniform, LLTexUnit::eTextureType mode)
 
 S32 LLHLSLShader::getTextureChannel(S32 uniform) const
 {
-	// S24: see bindTexture(S32, LLTexture*, ...) above.
+	// S24: see bindTexture(S32, DXTextureBase*, ...) above.
 	if (uniform < 0 || uniform >= (S32)mTexture.size())
 	{
 		return -1;
@@ -869,7 +869,7 @@ S32 LLHLSLShader::getTextureChannel(S32 uniform) const
 S32 LLHLSLShader::enableTexture(S32 uniform, LLTexUnit::eTextureType mode)
 {
 
-	// S24: see bindTexture(S32, LLTexture*, ...) above. activate()/enable() are already
+	// S24: see bindTexture(S32, DXTextureBase*, ...) above. activate()/enable() are already
 	// documented no-ops under DX_RENDER (texture binding goes through
 	// bindFast() instead), so this just returns the resolved channel index.
 	if (uniform < 0 || uniform >= (S32)mTexture.size())

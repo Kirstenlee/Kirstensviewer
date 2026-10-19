@@ -28,17 +28,23 @@
 #ifndef LL_DX_TEXTURE_H
 #define LL_DX_TEXTURE_H
 
-#include "lltexture.h"
+#include "llrefcount.h"
 #include "llgl.h"
 
 class LLImageRaw;
+class LLImageDX;
+class LLTexUnit;
+class LLFontDX;
 
 //
 //this the parent for the class LLViewerTexture
 //through the following virtual functions, the class LLViewerTexture can be reached from /llrender.
 //
-class LLDXTexture : public LLTexture
+class DXTextureBase : public virtual LLRefCount
 {
+	friend class LLTexUnit;
+	friend class LLFontDX;
+
 public:
 	enum
 	{
@@ -84,20 +90,31 @@ public:
 		DELETED = 0,         //removed from memory
 		ACTIVE,              //just being used, can become inactive if not being used for a certain time (10 seconds).
 		NO_DELETE = 99       //stay in memory, can not be removed.
-	} LLDXTextureState;
+	} DXTextureState;
 
 protected:
-	virtual ~LLDXTexture();
-	LOG_CLASS(LLDXTexture);
+	virtual ~DXTextureBase();
+	LOG_CLASS(DXTextureBase);
 
 public:
-    LLDXTexture(bool usemipmaps = true);
-    LLDXTexture(const LLImageRaw* raw, bool usemipmaps) ;
-    LLDXTexture(const U32 width, const U32 height, const U8 components, bool usemipmaps) ;
+    DXTextureBase(bool usemipmaps = true);
+    DXTextureBase(const LLImageRaw* raw, bool usemipmaps) ;
+    DXTextureBase(const U32 width, const U32 height, const U8 components, bool usemipmaps) ;
 
 	virtual void dump();	// debug info to INFOS()
 
 	virtual const LLUUID& getID() const;
+
+	// S24: merged up from the retired LLTexture interface (lltexture.h) -
+	// DXTextureBase was its only real implementation. Not overridden here
+	// (stub bodies in lldxtexture.cpp) - the fetching/caching logic these
+	// need lives in LLViewerTexture (newview), which derives from this class.
+	virtual S8         getType() const;
+	virtual void       setKnownDrawSize(S32 width, S32 height);
+	virtual bool       bindDefaultImage(const S32 stage = 0);
+	virtual bool       bindDebugImage(const S32 stage = 0);
+	virtual void       forceImmediateUpdate();
+	virtual bool       isActiveFetching();
 
 	void setBoostLevel(S32 level);
 	S32  getBoostLevel() { return mBoostLevel; }
@@ -123,16 +140,25 @@ public:
     // imageraw - the image to copy from
     // usename - explicit GL name override
     // to_create - set to FALSE to force gl texture to not be created
-    // category - LLDXTexture category for this LLDXTexture
+    // category - DXTextureBase category for this DXTextureBase
     // defer_copy - set to true to allocate GL texture but NOT initialize with imageraw data
     // tex_name - if not null, will be set to the GL name of the texture created
-    bool       createGLTexture(S32 discard_level, const LLImageRaw* imageraw, S32 usename = 0, bool to_create = true, S32 category = LLDXTexture::OTHER, bool defer_copy = false, LLGLuint* tex_name = nullptr);
+    bool       createGLTexture(S32 discard_level, const LLImageRaw* imageraw, S32 usename = 0, bool to_create = true, S32 category = DXTextureBase::OTHER, bool defer_copy = false, LLGLuint* tex_name = nullptr);
 
 	void       setFilteringOption(LLTexUnit::eTextureFilterOptions option);
     void       setExplicitFormat(LLGLint internal_format, LLGLenum primary_format, LLGLenum type_format = 0, bool swap_bytes = false);
 	void       setAddressMode(LLTexUnit::eTextureAddressMode mode);
     bool       setSubImage(const LLImageRaw* imageraw, S32 x_pos, S32 y_pos, S32 width, S32 height, LLGLuint use_name = 0);
     bool       setSubImage(const U8* datap, S32 data_width, S32 data_height, S32 x_pos, S32 y_pos, S32 width, S32 height, LLGLuint use_name = 0);
+
+    // Streaming pair for a texture rewritten wholesale every frame while
+    // still sampled by in-flight rendering (e.g. CEF media/web content) -
+    // see LLImageDX::createDynamicGLTexture()/updateDynamic()'s own
+    // comments. updateDynamic() must only be called on a texture created
+    // via createDynamicGLTexture(), and always rewrites the whole resource.
+    bool       createDynamicGLTexture(const LLImageRaw* imageraw);
+    bool       updateDynamic(const U8* datap, S32 data_width, S32 data_height);
+
 	void       setGLTextureCreated (bool initialized);
 	void       setCategory(S32 category) ;
     void       setTexName(LLGLuint); // for forcing w/ externally created textures only
@@ -153,7 +179,7 @@ public:
     void       forceUpdateBindStats(void) const;
 
     bool       isGLTextureCreated() const ;
-    LLDXTextureState getTextureState() const { return mTextureState; }
+    DXTextureState getTextureState() const { return mTextureState; }
 
     //---------------------------------------------------------------------------------------------
     //end of functions to access LLImageDX
@@ -169,6 +195,7 @@ public:
 private:
 	void cleanup();
 	void init();
+	virtual void updateBindStatsForTester();
 
 protected:
 	void setTexelsPerImage();
@@ -190,7 +217,7 @@ protected:
 	S8 mDontDiscard;			// Keep full res version of this image (for UI, etc)
 
 protected:
-	LLDXTextureState  mTextureState ;
+	DXTextureState  mTextureState ;
 
 
 };

@@ -32,9 +32,7 @@
 #include "llgl.h"
 #include "llrender.h"
 
-#ifdef DX_RENDER
 #include "DXRenderTarget.h"
-#endif
 
 /*
  Wrapper around OpenGL framebuffer objects for use in render-to-texture
@@ -166,7 +164,6 @@ public:
 
     void bindTexture(U32 index, S32 channel, LLTexUnit::eTextureFilterOptions filter_options = LLTexUnit::TFO_BILINEAR);
 
-#ifdef DX_RENDER
     // Narrow read-side accessor for DXPipeline's minimal present blit
     // (stage 5 phase 5.5) - see DXRenderTarget's class comment for the
     // larger "sampling a render target as input texture" gap this doesn't
@@ -203,7 +200,6 @@ public:
     // written scene depth while ALSO sampling that same depth as an SRV for
     // world-position reconstruction - see DXRenderTarget::bindTarget().
     void rebindWithDepth(bool bind_depth, bool read_only_depth = false) { mDXRenderTarget.bindTarget(bind_depth, read_only_depth); }
-#endif
 
     //flush rendering operations
     //must be called when rendering is complete
@@ -235,13 +231,11 @@ protected:
     std::vector<U32> mInternalFormat;
     U32 mFBO;
     LLRenderTarget* mPreviousRT = nullptr;
-#ifdef DX_RENDER
     // DX_RENDER's equivalent of mFBO/mTex/mDepth - see DXRenderTarget.h.
     // Only the write side (allocate/bind/clear/flush) is wired; sampling a
     // render target as an input texture (bindTexture()/getTexture(), used
     // by later lighting/post-process passes) is a documented future gap.
     DXRenderTarget mDXRenderTarget;
-#endif
 
     U32 mDepth;
     bool mUseDepth;

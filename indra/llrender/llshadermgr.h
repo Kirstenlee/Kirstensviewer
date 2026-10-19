@@ -419,7 +419,6 @@ public:
     // Cache).
     std::map<std::string, std::string> mRawShaderFileTextCache;
 
-#ifdef DX_RENDER
     // DX_RENDER has no separately-compiled/linkable shader objects (unlike
     // GL, HLSL is one source blob per stage) - loadShaderFile() caches raw,
     // extension-swapped HLSL source text here instead, keyed the same way
@@ -427,7 +426,6 @@ public:
     // attachFragmentObject() (llhlslshader.cpp) can look it up unchanged.
     std::map<std::string, std::string> mVertexShaderSourceText;
     std::map<std::string, std::string> mFragmentShaderSourceText;
-#endif
 
     //global (reserved slot) shader parameters
     std::vector<std::string> mReservedAttribs;

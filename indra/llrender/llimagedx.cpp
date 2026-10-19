@@ -866,7 +866,7 @@ bool LLImageDX::setSubImageFromFrameBuffer(S32 fb_x, S32 fb_y, S32 x_pos, S32 y_
 void LLImageDX::generateTextures(S32 numTextures, U32 *textures)
 {
     // S24: real callers under DX_RENDER only need a unique, non-zero,
-    // stable U32 "name" to use as an opaque key (DXTexture/LLDXTexture
+    // stable U32 "name" to use as an opaque key (DXTexture/DXTextureBase
     // lookups don't go through the GL name at all) - hand out an
     // incrementing counter rather than a repeated sentinel, which would
     // risk aliasing distinct textures onto the same key downstream.
@@ -971,38 +971,7 @@ bool LLImageDX::createGLTexture(S32 discard_level, const LLImageRaw* imageraw, S
         mHasExplicitFormat = false;
     }
 
-    if( !mHasExplicitFormat )
-    {
-        switch (mComponents)
-        {
-        case 1:
-            // Use luminance alpha (for fonts)
-            mFormatInternal = GL_LUMINANCE8;
-            mFormatPrimary = GL_LUMINANCE;
-            mFormatType = GL_UNSIGNED_BYTE;
-            break;
-        case 2:
-            // Use luminance alpha (for fonts)
-            mFormatInternal = GL_LUMINANCE8_ALPHA8;
-            mFormatPrimary = GL_LUMINANCE_ALPHA;
-            mFormatType = GL_UNSIGNED_BYTE;
-            break;
-        case 3:
-            mFormatInternal = GL_RGB8;
-            mFormatPrimary = GL_RGB;
-            mFormatType = GL_UNSIGNED_BYTE;
-            break;
-        case 4:
-            mFormatInternal = GL_RGBA8;
-            mFormatPrimary = GL_RGBA;
-            mFormatType = GL_UNSIGNED_BYTE;
-            break;
-        default:
-            LL_ERRS() << "Bad number of components for texture: " << (U32)getComponents() << LL_ENDL;
-        }
-
-        calcAlphaChannelOffsetAndStride() ;
-    }
+    setImplicitFormatFromComponents();
 
     if(!to_create) //not create a gl texture
     {
@@ -1064,6 +1033,106 @@ bool LLImageDX::createGLTexture(S32 discard_level, const U8* data_in, bool data_
         *tex_name = mTexName;
     }
     return success;
+}
+
+void LLImageDX::setImplicitFormatFromComponents()
+{
+    if (mHasExplicitFormat)
+    {
+        return;
+    }
+
+    switch (mComponents)
+    {
+    case 1:
+        // Use luminance alpha (for fonts)
+        mFormatInternal = GL_LUMINANCE8;
+        mFormatPrimary = GL_LUMINANCE;
+        mFormatType = GL_UNSIGNED_BYTE;
+        break;
+    case 2:
+        // Use luminance alpha (for fonts)
+        mFormatInternal = GL_LUMINANCE8_ALPHA8;
+        mFormatPrimary = GL_LUMINANCE_ALPHA;
+        mFormatType = GL_UNSIGNED_BYTE;
+        break;
+    case 3:
+        mFormatInternal = GL_RGB8;
+        mFormatPrimary = GL_RGB;
+        mFormatType = GL_UNSIGNED_BYTE;
+        break;
+    case 4:
+        mFormatInternal = GL_RGBA8;
+        mFormatPrimary = GL_RGBA;
+        mFormatType = GL_UNSIGNED_BYTE;
+        break;
+    default:
+        LL_ERRS() << "Bad number of components for texture: " << (U32)getComponents() << LL_ENDL;
+    }
+
+    calcAlphaChannelOffsetAndStride();
+}
+
+bool LLImageDX::createDynamicGLTexture(const LLImageRaw* imageraw)
+{
+    checkActiveThread();
+
+    if (!imageraw || imageraw->isBufferInvalid())
+    {
+        LL_WARNS() << "Trying to create a dynamic texture from invalid image data" << LL_ENDL;
+        mGLTextureCreated = false;
+        return false;
+    }
+
+    S32 w = imageraw->getWidth();
+    S32 h = imageraw->getHeight();
+
+    // Dynamic media textures never use discard-level streaming - always
+    // created/resized at discard level 0.
+    if (!setSize(w, h, imageraw->getComponents(), 0))
+    {
+        LL_WARNS() << "Trying to create a dynamic texture with incorrect dimensions!" << LL_ENDL;
+        mGLTextureCreated = false;
+        return false;
+    }
+
+    if (mHasExplicitFormat && isExplicitFormatMismatched())
+    {
+        LL_WARNS() << "Incorrect format: " << std::hex << mFormatPrimary << " components: " << (U32)mComponents << LL_ENDL;
+        mHasExplicitFormat = false;
+    }
+
+    setImplicitFormatFromComponents();
+
+    mCurrentDiscardLevel = 0;
+
+    bool success = mDXTexture.createDynamic(imageraw->getData(), w, h, mComponents, isAlphaOnlyFormat(), isBGRAFormat());
+    mGLTextureCreated = success;
+    mTexName = success ? 1 : 0;
+
+    if (success)
+    {
+        mTextureMemory = (S64Bytes)getMipBytes(mCurrentDiscardLevel);
+        LLImageDXMemory::allocDXTextureBytes(this, mTextureMemory.value());
+    }
+
+    return success;
+}
+
+bool LLImageDX::updateDynamic(const U8* datap, S32 data_width, S32 data_height)
+{
+    if (!datap || data_width <= 0 || data_height <= 0)
+    {
+        return false;
+    }
+
+    if (!mDXTexture.updateDynamic(datap, data_width, data_height, mComponents, isAlphaOnlyFormat(), isBGRAFormat()))
+    {
+        LL_WARNS("Texture") << "LLImageDX::updateDynamic: DXTexture::updateDynamic failed" << LL_ENDL;
+        return false;
+    }
+    mGLTextureCreated = true;
+    return true;
 }
 
 void LLImageDX::syncToMainThread(LLGLuint new_tex_name)

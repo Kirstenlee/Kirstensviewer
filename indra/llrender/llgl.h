@@ -75,8 +75,6 @@ public:
     // zero/empty defaults, which starves LLFeatureManager of real GPU data.
     bool initGLDX();
 
-    void initWGL(); // Initializes stupid WGL extensions
-
     std::string getRawGLString(); // For sending to simulator
 
     bool mInited;
@@ -106,10 +104,6 @@ public:
     bool mHasCubeMapArray = false;
     bool mHasDebugOutput = false;
     bool mHasTransformFeedback = false;
-
-    // Vendor-specific extensions
-    bool mHasAMDAssociations = false;
-    bool mHasNVXGpuMemoryInfo = false;
 
     bool mIsAMD;
     bool mIsNVIDIA;
@@ -354,7 +348,7 @@ private:
   GL_MODELVIEW_MATRIX is active whenever program execution
   leaves this class.
   Does not stack.
-  Caches inverse of projection matrix used in gGLObliqueProjectionInverse
+  Caches inverse of projection matrix used in gDXObliqueProjectionInverse
 */
 class LLGLUserClipPlane
 {
@@ -424,7 +418,7 @@ public:
 // S24: LLGLFence/LLGLSyncFence (GL-only fence sync) removed; DX_RENDER's
 // equivalent is DXQuery (see llviewerstats.cpp's checkGPUFrameCompletion()).
 
-extern LLMatrix4 gGLObliqueProjectionInverse;
+extern LLMatrix4 gDXObliqueProjectionInverse;
 
 #include "llglstates.h"
 

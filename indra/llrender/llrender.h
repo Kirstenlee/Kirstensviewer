@@ -49,7 +49,6 @@
 #include <array>
 #include <list>
 
-#ifdef DX_RENDER
 #include "DXTexture.h"
 
 // S24: binds an SRV via PSSetShaderResources inside a __try/__except guard -
@@ -62,7 +61,6 @@
 // not update their "currently bound" cache state on a false return, or the
 // next frame will wrongly believe the bind already succeeded and never retry.
 bool safeBindSRV(struct ID3D11DeviceContext* context, U32 slot, struct ID3D11ShaderResourceView* srv);
-#endif
 
 class LLVertexBuffer;
 class DXCubeMap;
@@ -70,7 +68,7 @@ class DXCubeMapArray;
 class DXCubeTexture;
 class LLImageDX;
 class LLRenderTarget;
-class LLTexture;
+class DXTextureBase;
 class LLVertexBufferData;
 
 #define LL_MATRIX_STACK_DEPTH 32
@@ -190,7 +188,7 @@ public:
     // Binds the LLImageDX to this texture unit
     // (automatically enables the unit for the LLImageDX's texture type)
     bool bind(LLImageDX* texture, bool for_rendering = false, bool forceBind = false, S32 usename = 0);
-    bool bind(LLTexture* texture, bool for_rendering = false, bool forceBind = false);
+    bool bind(DXTextureBase* texture, bool for_rendering = false, bool forceBind = false);
 
     // bind implementation for inner loops
     // makes the following assumptions:
@@ -200,7 +198,7 @@ public:
     //  - This texture is not being bound redundantly
     //  - USE_SRGB_DECODE is disabled
     //  -
-    void bindFast(LLTexture* texture);
+    void bindFast(DXTextureBase* texture);
 
     // Binds a cubemap to this texture unit
     // (automatically enables the texture unit for cubemaps)
@@ -238,13 +236,11 @@ public:
     // (automatically enables the tex unit for the given texture type)
     bool bindManual(eTextureType type, U32 texture, bool hasMips = false);
 
-#ifdef DX_RENDER
     // S24: DX-native equivalent of bindManual() for callers that build/own a
     // DXTexture directly (procedural textures with no LLImageDX wrapper) -
     // bindManual()'s raw-GLuint overload can't be translated generically
     // under DX_RENDER, so this mirrors bindFast()'s SRV+sampler bind logic.
     bool bind(DXTexture& tex, eTextureAddressMode address_mode, eTextureFilterOptions filter_option);
-#endif
 
     // Unbinds the currently bound texture of the given type
     // (only if there's a texture of the given type currently bound)
@@ -275,14 +271,12 @@ public:
 
     void setHasMipMaps(bool hasMips) { mHasMipMaps = hasMips; }
 
-#ifdef DX_RENDER
     // S24: lets a caller that just issued its own raw
     // PSSetShaderResources/PSSetSamplers call (bypassing bind()/bindFast())
     // tell this unit's cache what's really bound now, so a later
     // bind()/bindFast() for the same channel isn't fooled into skipping a
     // real rebind. Pure bookkeeping - see LLRenderTarget::bindTexture().
     void syncDXBindState(void* srv, void* sampler);
-#endif
 
 protected:
     friend class LLRender;
@@ -291,7 +285,6 @@ protected:
     U32                 mCurrTexture;
     eTextureType        mCurrTexType;
     bool                mHasMipMaps;
-#ifdef DX_RENDER
     // Mirrors mCurrTexture's role for the GL path: lets bind()/bindFast()/
     // unbind()/unbindFast() detect an actual texture change and flush
     // pending batched vertices (drawn with whatever was bound previously)
@@ -323,7 +316,6 @@ protected:
     // explicitly unbinds before submitting, and a stale pointer here would
     // get captured/replayed as the wrong texture instead of "no texture".
     LLImageDX* mCurrBoundImageDX = nullptr;
-#endif
 
     void debugTextureUnit(void);
     GLint getTextureSource(eTextureBlendSrc src);
@@ -568,7 +560,6 @@ public:
     void blendFunc(eBlendFactor color_sfactor, eBlendFactor color_dfactor,
                eBlendFactor alpha_sfactor, eBlendFactor alpha_dfactor);
 
-#ifdef DX_RENDER
     // Gathers the *current* combination of blend-enabled (DXState's
     // sStateMap, via the small public accessor), blend factors
     // (mCurrBlendColorSFactor/DFactor), and color write mask
@@ -588,7 +579,6 @@ public:
     // see that flag's own comment for why this chokepoint, not gUseWireframe
     // directly, is what decides wireframe here.
     void applyDXRasterizerState();
-#endif
 
     // S24: cross-backend replacement for the raw glPolygonOffset() call -
     // that's a statically-linked core-GL symbol with no DX11 dispatch-table
@@ -681,24 +671,22 @@ private:
     eBlendFactor mCurrBlendAlphaSFactor;
     eBlendFactor mCurrBlendAlphaDFactor;
 
-#ifdef DX_RENDER
     // S24: see setPolygonOffset()/applyDXRasterizerState() above. GL doesn't
     // need this - the real glPolygonOffset() call carries its own state.
     F32 mCurrPolygonOffsetFactor = 0.f;
     F32 mCurrPolygonOffsetUnits = 0.f;
-#endif
 
     std::vector<LLVector4a, boost::alignment::aligned_allocator<LLVector4a, 16> > mUIOffset;
     std::vector<LLVector4a, boost::alignment::aligned_allocator<LLVector4a, 16> > mUIScale;
 };
 
-extern F32 gGLModelView[16];
-extern F32 gGLLastModelView[16];
-extern F32 gGLLastProjection[16];
-extern F32 gGLProjection[16];
+extern F32 gDXModelView[16];
+extern F32 gDXLastModelView[16];
+extern F32 gDXLastProjection[16];
+extern F32 gDXProjection[16];
 extern S32 gDXViewport[4];
-extern glm::mat4 gGLDeltaModelView;
-extern glm::mat4 gGLInverseDeltaModelView;
+extern glm::mat4 gDXDeltaModelView;
+extern glm::mat4 gDXInverseDeltaModelView;
 
 extern thread_local LLRender gDX;
 

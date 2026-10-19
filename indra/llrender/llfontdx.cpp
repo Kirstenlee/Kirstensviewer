@@ -40,7 +40,7 @@
 #include "llstl.h"
 #include "v4color.h"
 #include "glm/gtc/type_ptr.hpp"
-#include "lltexture.h"
+#include "lldxtexture.h"
 #include "lldir.h"
 #include "llstring.h"
 

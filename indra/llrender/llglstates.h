@@ -32,25 +32,25 @@
 
 //----------------------------------------------------------------------------
 
-class LLGLDepthTest
+class DXDepthTest
 {
 	// Enabled by default
 public:
 	// S24: depth_func never reaches a real GL call under DX_RENDER -
 	// glDepthFuncToDX() translates it to a D3D11 comparison enum instead.
-	LLGLDepthTest(GLboolean depth_enabled, GLboolean write_enabled = GL_TRUE, DXenum depth_func = GL_LEQUAL);
+	DXDepthTest(bool depth_enabled, bool write_enabled = true, DXenum depth_func = GL_LEQUAL);
 
-	~LLGLDepthTest();
+	~DXDepthTest();
 
 	void checkState();
 
-	GLboolean mPrevDepthEnabled;
+	bool mPrevDepthEnabled;
 	DXenum mPrevDepthFunc;
-	GLboolean mPrevWriteEnabled;
+	bool mPrevWriteEnabled;
 private:
-	static GLboolean sDepthEnabled; // defaults to GL_FALSE
+	static bool sDepthEnabled; // defaults to false
 	static DXenum sDepthFunc; // defaults to GL_LESS
-	static GLboolean sWriteEnabled; // defaults to GL_TRUE
+	static bool sWriteEnabled; // defaults to true
 };
 
 //----------------------------------------------------------------------------
@@ -82,17 +82,19 @@ public:
 
 //----------------------------------------------------------------------------
 
-class LLGLSUIDefault
-{ 
+class DXUIDefault
+{
 protected:
-	LLGLEnable mBlend;
-	LLGLDisable mCullFace;
-	LLGLDepthTest mDepthTest;
+	// S24: DXState directly, not the deprecated LLGLEnable/LLGLDisable wrappers -
+	// both are just DXState(state, ENABLED_STATE/DISABLED_STATE) under the hood.
+	DXState mBlend;
+	DXState mCullFace;
+	DXDepthTest mDepthTest;
 public:
-	LLGLSUIDefault() 
-		: mBlend(GL_BLEND),
-		  mCullFace(GL_CULL_FACE),
-		  mDepthTest(GL_FALSE, GL_TRUE, GL_LEQUAL)
+	DXUIDefault()
+		: mBlend(GL_BLEND, DXState::ENABLED_STATE),
+		  mCullFace(GL_CULL_FACE, DXState::DISABLED_STATE),
+		  mDepthTest(false, true, GL_LEQUAL)
 	{}
 };
 
@@ -102,11 +104,11 @@ class LLGLSPipeline
 { 
 protected:
 	LLGLEnable mCullFace;
-	LLGLDepthTest mDepthTest;
+	DXDepthTest mDepthTest;
 public:
 	LLGLSPipeline()
 		: mCullFace(GL_CULL_FACE),
-		  mDepthTest(GL_TRUE, GL_TRUE, GL_LEQUAL)
+		  mDepthTest(true, true, GL_LEQUAL)
 	{ }		
 };
 
@@ -145,7 +147,7 @@ class LLGLSPipelineDepthTestSkyBox : public LLGLSPipelineSkyBox
 public:
 	LLGLSPipelineDepthTestSkyBox(bool depth_test, bool depth_write);
 
-    LLGLDepthTest mDepth;
+    DXDepthTest mDepth;
 };
 
 class LLGLSPipelineBlendSkyBox : public LLGLSPipelineDepthTestSkyBox 
@@ -175,27 +177,9 @@ public:
 	LLGLSSpecular(const LLColor4& color, F32 shininess)
 	{
 		mShininess = shininess;
-#ifndef DX_RENDER
-		// S24: GL-only, guarded explicitly rather than relying on the sole
-		// caller (llviewerjointmesh.cpp) always passing shininess=0.f.
-		if (mShininess > 0.0f)
-		{
-			glMaterialfv(GL_FRONT_AND_BACK, GL_SPECULAR, color.mV);
-			S32 shiny = (S32)(shininess*128.f);
-			shiny = llclamp(shiny,0,128);
-			glMateriali(GL_FRONT_AND_BACK, GL_SHININESS, shiny);
-		}
-#endif
 	}
 	~LLGLSSpecular()
 	{
-#ifndef DX_RENDER
-		if (mShininess > 0.f)
-		{
-			glMaterialfv(GL_FRONT_AND_BACK, GL_SPECULAR, LLColor4(0.f,0.f,0.f,0.f).mV);
-			glMateriali(GL_FRONT_AND_BACK, GL_SHININESS, 0);
-		}
-#endif
 	}
 };
 

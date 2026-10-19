@@ -40,9 +40,7 @@
 #include <list>
 #include <glm/gtc/matrix_transform.hpp>
 
-#ifdef DX_RENDER
 #include "DXBuffer.h"
-#endif
 
 #define LL_MAX_VERTEX_ATTRIB_LOCATION 64
 
@@ -59,9 +57,7 @@
 // base class
 class LLPrivateMemoryPool;
 class LLVertexBuffer;
-#ifdef DX_RENDER
 class LLHLSLShader;
-#endif
 
 class LLVertexBufferData
 {
@@ -93,7 +89,6 @@ public:
     glm::mat4 mProjection;
     glm::mat4 mModelView;
     glm::mat4 mTexture0;
-#ifdef DX_RENDER
     // S24: DX-native counterpart to mTexName, captured by LLRender::flush()
     // from LLTexUnit::mCurrBoundImageDX when recording a display list. A
     // strong ref keeps the texture alive; draw()/drawWithMatrix() replay via
@@ -107,7 +102,6 @@ public:
     // how sCurBoundShaderPtr itself is held (LLHLSLShader instances are
     // process-lifetime singletons).
     LLHLSLShader* mDXShader = nullptr;
-#endif
 };
 typedef std::list<LLVertexBufferData> buffer_data_list_t;
 
@@ -302,7 +296,6 @@ public:
 protected:
     U32     mGLBuffer = 0;      // GL VBO handle
     U32     mGLIndices = 0;     // GL IBO handle
-#ifdef DX_RENDER
     // DX_RENDER's GPU-side resources - mMappedData/mMappedIndexData (below)
     // stay a plain heap-allocated CPU shadow copy under DX_RENDER too (see
     // genBuffer()/genIndices()), separate from these. The matching
@@ -310,7 +303,6 @@ protected:
     // already caches process-wide by (data_mask, vs_bytecode).
     DXBuffer mDXBuffer;
     DXBuffer mDXIndices;
-#endif
     U32     mNumVerts = 0;      // Number of vertices allocated
     U32     mNumIndices = 0;    // Number of indices allocated
     U32     mIndicesType = GL_UNSIGNED_SHORT; // type of indices in index buffer
@@ -362,7 +354,6 @@ public:
     // thread binds a buffer on its own shared context.
     static thread_local U32 sGLRenderBuffer;
     static thread_local U32 sGLRenderIndices;
-#ifdef DX_RENDER
     // DX_RENDER's equivalent of sGLRenderBuffer/sGLRenderIndices - GL buffer
     // names aren't meaningful identifiers for D3D11 resources, so this caches
     // the actual bound ID3D11Buffer* instead, same elide-redundant-bind role.
@@ -373,7 +364,6 @@ public:
     // locations); DX_RENDER's equivalent trigger is "the bound VS changed",
     // since the input layout is keyed on (mTypeMask, vs_bytecode).
     static thread_local LLHLSLShader* sDXLastShader;
-#endif
     static U32 sLastMask;
     static U32 sVertexCount;
 };

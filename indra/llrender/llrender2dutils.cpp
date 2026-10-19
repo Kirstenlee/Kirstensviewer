@@ -34,14 +34,13 @@
 #include "llrender.h"
 #include "llrect.h"
 #include "llgl.h"
-#include "lltexture.h"
+#include "lldxtexture.h"
 #include "llfasttimer.h"
 
 // Project includes
 #include "llrender2dutils.h"
 #include "lluiimage.h"
 
-#ifdef DX_RENDER
 #include "DXUIBatch.h"
 #include "DXRender2DUtils.h"
 // S24: every DX_RENDER function below that pushes into gDXUIBatch calls
@@ -53,7 +52,6 @@
 // transform. Draining any stale pending batch immediately before each
 // shape's own push() guarantees it always draws with its own correct,
 // freshly-synced matrix.
-#endif
 
 //
 // Globals
@@ -260,7 +258,7 @@ void dx_corners_2d(S32 left, S32 top, S32 right, S32 bottom, S32 length, F32 max
 	return;
 }
 
-void dx_draw_image(S32 x, S32 y, LLTexture* image, const LLColor4& color, const LLRectf& uv_rect)
+void dx_draw_image(S32 x, S32 y, DXTextureBase* image, const LLColor4& color, const LLRectf& uv_rect)
 {
 	if (NULL == image)
 	{
@@ -275,7 +273,7 @@ void dx_draw_scaled_target(S32 x, S32 y, S32 width, S32 height, LLRenderTarget* 
 	dx_draw_scaled_rotated_image(x, y, width, height, 0.f, NULL, color, uv_rect, target);
 }
 
-void dx_draw_scaled_image(S32 x, S32 y, S32 width, S32 height, LLTexture* image, const LLColor4& color, const LLRectf& uv_rect)
+void dx_draw_scaled_image(S32 x, S32 y, S32 width, S32 height, DXTextureBase* image, const LLColor4& color, const LLRectf& uv_rect)
 {
 	if (NULL == image)
 	{
@@ -285,7 +283,7 @@ void dx_draw_scaled_image(S32 x, S32 y, S32 width, S32 height, LLTexture* image,
 	dx_draw_scaled_rotated_image(x, y, width, height, 0.f, image, color, uv_rect);
 }
 
-void dx_draw_scaled_image_with_border(S32 x, S32 y, S32 border_width, S32 border_height, S32 width, S32 height, LLTexture* image, const LLColor4& color, bool solid_color, const LLRectf& uv_rect, bool scale_inner)
+void dx_draw_scaled_image_with_border(S32 x, S32 y, S32 border_width, S32 border_height, S32 width, S32 height, DXTextureBase* image, const LLColor4& color, bool solid_color, const LLRectf& uv_rect, bool scale_inner)
 {
 	if (NULL == image)
 	{
@@ -301,7 +299,7 @@ void dx_draw_scaled_image_with_border(S32 x, S32 y, S32 border_width, S32 border
 	dx_draw_scaled_image_with_border(x, y, width, height, image, color, solid_color, uv_rect, scale_rect, scale_inner);
 }
 
-void dx_draw_scaled_image_with_border(S32 x, S32 y, S32 width, S32 height, LLTexture* image, const LLColor4& color, bool solid_color, const LLRectf& uv_outer_rect, const LLRectf& center_rect, bool scale_inner)
+void dx_draw_scaled_image_with_border(S32 x, S32 y, S32 width, S32 height, DXTextureBase* image, const LLColor4& color, bool solid_color, const LLRectf& uv_outer_rect, const LLRectf& center_rect, bool scale_inner)
 {
 
 	if (NULL == image)
@@ -670,12 +668,12 @@ void dx_draw_scaled_image_with_border(S32 x, S32 y, S32 width, S32 height, LLTex
 	}
 }
 
-void dx_draw_rotated_image(S32 x, S32 y, F32 degrees, LLTexture* image, const LLColor4& color, const LLRectf& uv_rect)
+void dx_draw_rotated_image(S32 x, S32 y, F32 degrees, DXTextureBase* image, const LLColor4& color, const LLRectf& uv_rect)
 {
 	dx_draw_scaled_rotated_image(x, y, image->getWidth(0), image->getHeight(0), degrees, image, color, uv_rect);
 }
 
-void dx_draw_scaled_rotated_image(S32 x, S32 y, S32 width, S32 height, F32 degrees, LLTexture* image, const LLColor4& color, const LLRectf& uv_rect, LLRenderTarget* target)
+void dx_draw_scaled_rotated_image(S32 x, S32 y, S32 width, S32 height, F32 degrees, DXTextureBase* image, const LLColor4& color, const LLRectf& uv_rect, LLRenderTarget* target)
 {
 	if (!image && !target)
 	{
@@ -1084,7 +1082,7 @@ void dx_segmented_rect_3d_tex(const LLRectf& clip_rect, const LLRectf& center_uv
 			// S24: this is the one dx_segmented_rect_* caller that draws
 			// genuine 3D world-space content (LLHUDNameTag's nametag panel)
 			// rather than 2D screen-space UI - its caller wraps it in
-			// LLGLDepthTest(GL_TRUE, GL_FALSE), wanting real depth-test
+			// DXDepthTest(true, false), wanting real depth-test
 			// occlusion. depth_test is deliberately left false here anyway -
 			// real nametag occlusion is already solved via occlusion
 			// queries, and passing real depth-testing through to

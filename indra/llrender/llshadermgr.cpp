@@ -404,7 +404,6 @@ bool LLShaderMgr::loadShaderFile(const std::string& filename, S32& shader_level,
 		}
 	}
 
-#ifdef DX_RENDER
 	// filename arrives with ".glsl" already baked in by ~150 call sites in
 	// llviewershadermgr.cpp - swap it to the equivalent ".hlsl" sibling on a
 	// local copy only. The original (still-".glsl") filename remains the
@@ -418,7 +417,6 @@ bool LLShaderMgr::loadShaderFile(const std::string& filename, S32& shader_level,
 	{
 		dx_filename.replace(dx_filename.size() - glsl_ext.size(), glsl_ext.size(), ".hlsl");
 	}
-#endif
 
 	if (!have_source)
 	{
@@ -427,11 +425,7 @@ bool LLShaderMgr::loadShaderFile(const std::string& filename, S32& shader_level,
 		{   //search from the current gpu class down to class 1 to find the most relevant shader
 			std::stringstream fname;
 			fname << getShaderDirPrefix();
-#ifdef DX_RENDER
             fname << gpu_class << gDirUtilp->getDirDelimiter() << dx_filename;
-#else
-            fname << gpu_class << gDirUtilp->getDirDelimiter() << filename;
-#endif
 
 			open_file_name = fname.str();
 

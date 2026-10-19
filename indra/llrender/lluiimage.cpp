@@ -33,11 +33,9 @@
 #include "lluiimage.h"
 #include <algorithm>
 
-#ifdef DX_RENDER
 // S24: LLVertexBufferData::mDXImage is an LLPointer<LLImageDX>; ~LLUIImage()
 // needs LLImageDX's complete type to destroy cached display-list entries.
 #include "llimagedx.h"
-#endif
 
 // Static member initialization
 std::vector<LLPointer<LLUIImage> > LLUIImage::sImageList;
@@ -48,7 +46,7 @@ size_t LLUIImage::sCleanupIndex = 0;
 // didn't fully resolve. Disabled rather than further root-caused.
 bool LLUIImage::sEnableDisplayListsCollection = false;
 
-LLUIImage::LLUIImage(const std::string& name, LLPointer<LLTexture> image)
+LLUIImage::LLUIImage(const std::string& name, LLPointer<DXTextureBase> image)
 :   mName(name),
     mImage(image),
     mScaleRegion(0.f, 1.f, 1.f, 0.f),

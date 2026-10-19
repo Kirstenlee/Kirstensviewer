@@ -294,7 +294,7 @@ void DXCubeMap::setMatrix(S32 stage)
 
     gDX.getTexUnit(stage)->activate();
 
-    const F32* mv = gGLModelView;
+    const F32* mv = gDXModelView;
 
     LLVector3 x(mv[0], mv[1], mv[2]);
     LLVector3 y(mv[4], mv[5], mv[6]);

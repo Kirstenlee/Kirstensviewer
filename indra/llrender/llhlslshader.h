@@ -265,7 +265,7 @@ public:
 
     // bindTexture returns the texture unit we've bound the texture to.
     // You can reuse the return value to unbind a texture when required.
-    S32 bindTexture(S32 uniform, LLTexture* texture, LLTexUnit::eTextureType mode = LLTexUnit::TT_TEXTURE);
+    S32 bindTexture(S32 uniform, DXTextureBase* texture, LLTexUnit::eTextureType mode = LLTexUnit::TT_TEXTURE);
     // KRLV_TOUCHPOINT-adjacent: stencil selects the target's stencil-plane
     // SRV instead of depth/color - see LLTexUnit::bind(LLRenderTarget*, ...)
     // in llrender.h/.cpp, the actual chokepoint this delegates to.

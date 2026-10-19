@@ -32,15 +32,13 @@
 #include "llrefcount.h"
 #include "llrect.h"
 #include "llinitparam.h"
-#include "lltexture.h"
+#include "lldxtexture.h"
 #include "llrender2dutils.h"
 #include "llvertexbuffer.h"
 
-#ifdef DX_RENDER
 // S24: lluiimage.inl's cached-display-list replay path needs gDXUIBatch's
 // flushPending().
 #include "DXUIBatch.h"
-#endif
 
 #include <boost/signals2.hpp>
 
@@ -63,7 +61,7 @@ public:
 
     typedef boost::signals2::signal<void (void)> image_loaded_signal_t;
 
-    LLUIImage(const std::string& name, LLPointer<LLTexture> image);
+    LLUIImage(const std::string& name, LLPointer<DXTextureBase> image);
     virtual ~LLUIImage();
 
     LL_FORCE_INLINE void setClipRegion(const LLRectf& region)
@@ -87,8 +85,8 @@ public:
         invalidateDisplayLists();
     }
 
-    LL_FORCE_INLINE LLPointer<LLTexture> getImage() { return mImage; }
-    LL_FORCE_INLINE const LLPointer<LLTexture>& getImage() const { return mImage; }
+    LL_FORCE_INLINE LLPointer<DXTextureBase> getImage() { return mImage; }
+    LL_FORCE_INLINE const LLPointer<DXTextureBase>& getImage() const { return mImage; }
 
     LL_FORCE_INLINE void draw(S32 x, S32 y, S32 width, S32 height, const LLColor4& color, bool solid_color) const;
     LL_FORCE_INLINE void draw(S32 x, S32 y, S32 width, S32 height, const LLColor4& color = UI_VERTEX_COLOR) const;
@@ -230,7 +228,7 @@ protected:
     std::string             mName;
     LLRectf                 mScaleRegion;
     LLRectf                 mClipRegion;
-    LLPointer<LLTexture>    mImage;
+    LLPointer<DXTextureBase>    mImage;
     EScaleStyle             mScaleStyle;
     mutable S32             mCachedW;
     mutable S32             mCachedH;

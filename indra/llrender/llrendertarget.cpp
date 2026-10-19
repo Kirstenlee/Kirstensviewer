@@ -30,14 +30,11 @@
 #include "llrender.h"
 #include "llgl.h"
 
-#ifdef DX_RENDER
 #include "DXSampler.h"
 #include "DXDevice.h"
 #include "DXSwapChain.h"
 #include "DXUIBatch.h"
-#endif
 
-#ifdef DX_RENDER
 namespace
 {
     // Covers every color_fmt this codebase actually passes to allocate()/
@@ -84,7 +81,6 @@ namespace
         }
     }
 }
-#endif
 
 LLRenderTarget* LLRenderTarget::sBoundTarget = NULL;
 U32 LLRenderTarget::sBytesAllocated = 0;

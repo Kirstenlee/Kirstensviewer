@@ -126,6 +126,12 @@ protected:
     void analyzeAlpha(const void* data_in, U32 w, U32 h);
     void calcAlphaChannelOffsetAndStride();
 
+    // Shared by createGLTexture(S32, const LLImageRaw*, ...) and
+    // createDynamicGLTexture() - both need the same "derive GL format
+    // enums from mComponents when none was explicitly set" logic, see
+    // either call site's own comment for why it's not just inlined once.
+    void setImplicitFormatFromComponents();
+
 public:
     virtual void dump();    // debugging info to INFOS()
 
@@ -145,6 +151,19 @@ public:
     bool setSubImage(const LLImageRaw* imageraw, S32 x_pos, S32 y_pos, S32 width, S32 height, bool force_fast_update = false, LLGLuint use_name = 0);
     bool setSubImage(const U8* datap, S32 data_width, S32 data_height, S32 x_pos, S32 y_pos, S32 width, S32 height, bool force_fast_update = false, LLGLuint use_name = 0);
     bool setSubImageFromFrameBuffer(S32 fb_x, S32 fb_y, S32 x_pos, S32 y_pos, S32 width, S32 height);
+
+    // Streaming pair for a texture rewritten wholesale every frame while
+    // still sampled by in-flight rendering (e.g. CEF media/web content) -
+    // see DXTexture::createDynamic()/updateDynamic()'s own comments for why
+    // this avoids both the recreate-every-frame cost and the GPU sync stall
+    // the ordinary create()/setSubImage() pair risks for this access
+    // pattern. createDynamicGLTexture() mirrors createGLTexture(S32, const
+    // LLImageRaw*, ...)'s real-data-upload shape but always creates a
+    // DYNAMIC-usage resource; updateDynamic() must only be called on a
+    // texture created this way, and always rewrites the whole resource
+    // (no sub-rect - see DXTexture::updateDynamic()'s comment).
+    bool createDynamicGLTexture(const LLImageRaw* imageraw);
+    bool updateDynamic(const U8* datap, S32 data_width, S32 data_height);
 
     // wait for gl commands to finish on current thread and push
     // a lambda to main thread to swap mNewTexName and mTexName

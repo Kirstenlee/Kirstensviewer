@@ -32,13 +32,22 @@
 #include "llhlslshader.h"
 #include "llimagedx.h"
 #include "llrendertarget.h"
-#include "lltexture.h"
+#include "lldxtexture.h"
 #include "llshadermgr.h"
 #include "hbxxh.h"
 #include "llformat.h"
 #include "glm/gtc/type_ptr.hpp"
 
-#ifdef DX_RENDER
+// S24: DirectXMath for syncMatrices()'s two hot matrix multiplies - measured
+// ~2.7x faster than this vendored GLM's unconditional plain-SSE2 glm_mat4_mul
+// (no AVX2/FMA codepath for float mat4 in any GLM release) under this
+// project's existing /arch:AVX2. glm::inverse() stays - it's faster than
+// XMMatrixInverse for this shape, so a full-chain swap nets only ~6% vs this
+// hybrid's measured ~16%. Same library/convention already used by
+// llmath/v3math.cpp's LLVector3 SIMD ops.
+#include <DirectXMath.h>
+using namespace DirectX;
+
 #include "DXSampler.h"
 #include "DXStateCache.h"
 #include "DXTexture.h"
@@ -48,7 +57,6 @@
 #include "DXCubeMap.h"
 #include "DXCubeMapArray.h"
 #include "DXCubeTexture.h"
-#endif
 
 //#include <algorithm>
 // S24: gl_debug_callback() extern decl removed along with its definition
@@ -57,14 +65,14 @@
 thread_local LLRender gDX;
 
 // Handy copies of last good GL matrices
-F32 gGLModelView[16];
-F32 gGLLastModelView[16];
-F32 gGLLastProjection[16];
-F32 gGLProjection[16];
+F32 gDXModelView[16];
+F32 gDXLastModelView[16];
+F32 gDXLastProjection[16];
+F32 gDXProjection[16];
 
 // transform from last frame's camera space to this frame's camera space (and inverse)
-glm::mat4 gGLDeltaModelView;
-glm::mat4 gGLInverseDeltaModelView;
+glm::mat4 gDXDeltaModelView;
+glm::mat4 gDXInverseDeltaModelView;
 
 S32 gDXViewport[4];
 
@@ -110,7 +118,6 @@ const U32 immediate_mask = LLVertexBuffer::MAP_VERTEX | LLVertexBuffer::MAP_COLO
 // S24: sGLBlendFactor[] removed - every reader was already inside a dead
 // #else (GL) branch of LLRender::blendFunc(), unlike sGLTextureType[] above.
 
-#ifdef DX_RENDER
 // Same order/indexing as sGLBlendFactor above - LLRender::eBlendFactor maps
 // onto D3D11_BLEND 1:1 (see DXStateCache.h).
 static const D3D11_BLEND sDXBlendFactor[] =
@@ -128,7 +135,6 @@ static const D3D11_BLEND sDXBlendFactor[] =
 
 	D3D11_BLEND_ZERO // 'BF_UNDEF'
 };
-#endif
 
 LLTexUnit::LLTexUnit(S32 index)
 	: mCurrTexType(TT_NONE),
@@ -164,7 +170,6 @@ void LLTexUnit::activate(void)
 	// removal), never compiled in this DX_RENDER-only build.
 }
 
-#ifdef DX_RENDER
 namespace
 {
     // GL's LLTexUnit::unbind()/unbindFast() don't bind "nothing" - they bind
@@ -233,7 +238,6 @@ bool safeBindSRV(ID3D11DeviceContext* context, U32 slot, ID3D11ShaderResourceVie
     }
     return !caught;
 }
-#endif
 
 void LLTexUnit::enable(eTextureType type)
 {
@@ -255,7 +259,7 @@ void LLTexUnit::disable(void)
 	unbind(LLTexUnit::TT_TEXTURE);
 }
 
-void LLTexUnit::bindFast(LLTexture* texture)
+void LLTexUnit::bindFast(DXTextureBase* texture)
 {
 	// Binds this LLImageDX's DXTexture (if uploaded) plus a sampler matching
 	// its address-mode/filter settings, to pixel-shader slot mIndex.
@@ -340,7 +344,7 @@ void LLTexUnit::bindFast(LLTexture* texture)
 	mCurrDXSampler = (void*)sampler;
 }
 
-bool LLTexUnit::bind(LLTexture* texture, bool for_rendering, bool forceBind)
+bool LLTexUnit::bind(DXTextureBase* texture, bool for_rendering, bool forceBind)
 {
 	// Same chokepoint shape as several stage-5 pool conversions found:
 	// enableTexture()-derived channels are already safe here (they come
@@ -359,8 +363,8 @@ bool LLTexUnit::bind(LLTexture* texture, bool for_rendering, bool forceBind)
 bool LLTexUnit::bind(LLImageDX* texture, bool for_rendering, bool forceBind, S32 usename)
 {
 	// Mirrors bindFast()'s DX_RENDER body (see its comment) - same
-	// chokepoint as the LLTexture* overload above, just operating directly
-	// on an LLImageDX instead of going through LLTexture::getGLTexture().
+	// chokepoint as the DXTextureBase* overload above, just operating directly
+	// on an LLImageDX instead of going through DXTextureBase::getGLTexture().
 	if (mIndex < 0 || !texture) return false;
 	// S24: see bindFast()'s matching comments - bound_image_changed catches
 	// SRV-address reuse from DXTexture::scaleDown() that mCurrDXSRV alone
@@ -610,8 +614,8 @@ bool LLTexUnit::bindManual(eTextureType type, U32 texture, bool hasMips)
 	// Early exit if mIndex is invalid
 	if (mIndex < 0) return false;
 
-	// Unlike bind(LLTexture*)/bind(LLImageDX*), this overload is handed a
-	// raw GLuint object name with no LLImageDX/LLTexture to look a DX11
+	// Unlike bind(DXTextureBase*)/bind(LLImageDX*), this overload is handed a
+	// raw GLuint object name with no LLImageDX/DXTextureBase to look a DX11
 	// resource up from - there's nothing to translate. Callers that derive
 	// their channel from getTextureChannel()/enableTexture() already return
 	// above via the mIndex<0 check; this only guards the hardcoded-unit
@@ -622,9 +626,8 @@ bool LLTexUnit::bindManual(eTextureType type, U32 texture, bool hasMips)
 	return false;
 }
 
-#ifdef DX_RENDER
 // S24: DX-native equivalent of bindManual() for callers holding a real
-// DXTexture reference directly. Mirrors bindFast(LLTexture*)'s SRV+white-
+// DXTexture reference directly. Mirrors bindFast(DXTextureBase*)'s SRV+white-
 // fallback+flush-on-change logic exactly, just sourcing the SRV from the
 // caller's own DXTexture instead of an LLImageDX's.
 bool LLTexUnit::bind(DXTexture& tex, eTextureAddressMode address_mode, eTextureFilterOptions filter_option)
@@ -664,7 +667,6 @@ bool LLTexUnit::bind(DXTexture& tex, eTextureAddressMode address_mode, eTextureF
 	mCurrDXSampler = (void*)sampler;
 	return true;
 }
-#endif
 
 void LLTexUnit::unbind(eTextureType type)
 {
@@ -745,7 +747,6 @@ void LLTexUnit::unbindFast(eTextureType type)
 	mCurrDXSampler = (void*)sampler;
 }
 
-#ifdef DX_RENDER
 // S24: see this method's declaration comment in llrender.h - pure
 // bookkeeping, no GPU call. Mirrors the mCurrDXSRV/mDXSRVGeneration/
 // mCurrDXSampler update every bind()/bindFast() overload above already does.
@@ -755,14 +756,13 @@ void LLTexUnit::syncDXBindState(void* srv, void* sampler)
 	mCurrDXSampler = sampler;
 	mDXSRVGeneration = DXStateCache::getRTVGeneration();
 }
-#endif // DX_RENDER
 
 void LLTexUnit::setTextureAddressMode(eTextureAddressMode mode)
 {
 	// Real no-op, not an accidental one: under DX_RENDER, sampler state
 	// (address mode + filter option together) is built fresh at bind time
 	// by DXSampler::getOrCreate() (see bindFast()'s comment), reading
-	// mAddressMode/mFilterOption directly off the LLImageDX/LLTexture being
+	// mAddressMode/mFilterOption directly off the LLImageDX/DXTextureBase being
 	// bound - this immediate-state-setting GL idiom has no role to play.
 	// Before this was made explicit, the only thing stopping this function
 	// from reaching the raw glTexParameteri() calls below under DX_RENDER
@@ -1190,7 +1190,6 @@ void LLRender::syncLightState()
 	}
 }
 
-#ifdef DX_RENDER
 namespace
 {
 	// Extracts the upper-left 3x3 (as 3 columns of 3 floats each) from a
@@ -1204,7 +1203,6 @@ namespace
 		out3x3[6] = m[8]; out3x3[7] = m[9]; out3x3[8] = m[10];
 	}
 }
-#endif
 
 void LLRender::syncMatrices()
 {
@@ -1268,8 +1266,25 @@ void LLRender::syncMatrices()
 			return m;
 		}();
 		const glm::mat4& raw_proj = mMatrix[MM_PROJECTION][mMatIdx[MM_PROJECTION]];
-		const glm::mat4 proj = kGLtoDXDepthRemap * raw_proj;
-		glm::mat4 mvp = proj * mdv;
+		// S24: both multiplies below done in DirectXMath - see the include
+		// comment at the top of this file for why. glm::mat4 is column-major
+		// storage (GLSL convention) but XMFLOAT4X4 is row-major storage, so a
+		// raw value_ptr reinterpret load/store of the SAME bytes represents
+		// the TRANSPOSE on each side - empirically verified (see
+		// correctness.cpp in this session's scratch history) that reproducing
+		// glm's `P * Q` this way requires calling XMMatrixMultiply(Load(Q),
+		// Load(P)) - arguments REVERSED relative to the glm expression.
+		glm::mat4 proj;
+		XMStoreFloat4x4(reinterpret_cast<XMFLOAT4X4*>(glm::value_ptr(proj)),
+			XMMatrixMultiply(
+				XMLoadFloat4x4(reinterpret_cast<const XMFLOAT4X4*>(glm::value_ptr(raw_proj))),
+				XMLoadFloat4x4(reinterpret_cast<const XMFLOAT4X4*>(glm::value_ptr(kGLtoDXDepthRemap)))));
+
+		glm::mat4 mvp;
+		XMStoreFloat4x4(reinterpret_cast<XMFLOAT4X4*>(glm::value_ptr(mvp)),
+			XMMatrixMultiply(
+				XMLoadFloat4x4(reinterpret_cast<const XMFLOAT4X4*>(glm::value_ptr(mdv))),
+				XMLoadFloat4x4(reinterpret_cast<const XMFLOAT4X4*>(glm::value_ptr(proj)))));
 		float normal3x3[9];
 		extractMat3(glm::transpose(glm::inverse(mdv)), normal3x3);
 
@@ -1673,7 +1688,6 @@ void LLRender::blendFunc(eBlendFactor color_sfactor, eBlendFactor color_dfactor,
 	}
 }
 
-#ifdef DX_RENDER
 void LLRender::applyDXBlendState()
 {
 	uint8_t write_mask = 0;
@@ -1709,7 +1723,6 @@ void LLRender::applyDXRasterizerState()
 		DXState::getCullFace() == GL_FRONT);
 	gDXDevice.getContext()->RSSetState(rs);
 }
-#endif
 
 void LLRender::cullFace(LLGLenum face)
 {
@@ -1896,7 +1909,6 @@ void LLRender::flush()
 	}
 
 	U32 draw_mode = mMode;
-#ifdef DX_RENDER
 	// S24: D3D11 has no LINE_LOOP topology (mapped to
 	// D3D11_PRIMITIVE_TOPOLOGY_UNDEFINED in llvertexbuffer.cpp's sDXMode[]
 	// table). A closed line loop is just a line strip with the first vertex
@@ -1960,7 +1972,6 @@ void LLRender::flush()
 			return;
 		}
 	}
-#endif
 
 	mCount = 0;
 
@@ -1986,25 +1997,21 @@ void LLRender::flush()
 			mMatrix[MM_PROJECTION][mMatIdx[MM_PROJECTION]],
 			mMatrix[MM_TEXTURE0][mMatIdx[MM_TEXTURE0]]
 		);
-#ifdef DX_RENDER
 		// S24: see LLVertexBufferData::mDXImage's comment.
 		buffer_data.mDXImage = gDX.getTexUnit(0)->mCurrBoundImageDX;
 		// S24: see LLVertexBufferData::mDXShader's comment.
 		buffer_data.mDXShader = shader;
-#endif
 	}
 	else
 	{
 		vb = bufferfromCache(attribute_mask, count);
 	}
 
-#ifdef DX_RENDER
 	// S24: the reverse-direction link - gDXUIBatch's call sites already
 	// flush THIS queue before submitting to it, but nothing previously
 	// flushed gDXUIBatch's pending queue before THIS draw, which could
 	// corrupt paint order.
 	gDXUIBatch.flushPending();
-#endif
 	drawBuffer(vb, draw_mode, count);
 	resetStriders(count);
 }
@@ -2443,22 +2450,22 @@ void LLRender::debugTexUnits(void)
 
 glm::mat4 get_current_modelview()
 {
-	return glm::make_mat4(gGLModelView);
+	return glm::make_mat4(gDXModelView);
 }
 
 glm::mat4 get_current_projection()
 {
-	return glm::make_mat4(gGLProjection);
+	return glm::make_mat4(gDXProjection);
 }
 
 glm::mat4 get_last_modelview()
 {
-	return glm::make_mat4(gGLLastModelView);
+	return glm::make_mat4(gDXLastModelView);
 }
 
 glm::mat4 get_last_projection()
 {
-	return glm::make_mat4(gGLLastProjection);
+	return glm::make_mat4(gDXLastProjection);
 }
 
 void copy_matrix(const glm::mat4& src, F32* dst)
@@ -2472,22 +2479,22 @@ void copy_matrix(const glm::mat4& src, F32* dst)
 
 void set_current_modelview(const glm::mat4& mat)
 {
-	copy_matrix(mat, gGLModelView);
+	copy_matrix(mat, gDXModelView);
 }
 
 void set_current_projection(const glm::mat4& mat)
 {
-	copy_matrix(mat, gGLProjection);
+	copy_matrix(mat, gDXProjection);
 }
 
 void set_last_modelview(const glm::mat4& mat)
 {
-	copy_matrix(mat, gGLLastModelView);
+	copy_matrix(mat, gDXLastModelView);
 }
 
 void set_last_projection(const glm::mat4& mat)
 {
-	copy_matrix(mat, gGLLastProjection);
+	copy_matrix(mat, gDXLastProjection);
 }
 
 // S24: be careful changing this - it indirectly affects projected lights
