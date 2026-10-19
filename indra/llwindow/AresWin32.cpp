@@ -599,18 +599,11 @@ namespace AresWin32
             // Build paths - must match LLDir_Win32::initAppDirs()'s app_name
             // (llappviewer.cpp) and getOSCacheDir()'s app_name (lldir.cpp),
             // both of which split "Kirstens S24" -> "Kirstens S24 DX" for
-            // the DX_RENDER build (2026-08-18/2026-07-29). This was still
-            // hardcoded to the old GL-only name, so Factory Reset was
-            // deleting a folder that doesn't exist under DX_RENDER while
-            // the real, live "Kirstens S24 DX" cache/settings folders were
-            // never touched.
-#ifdef DX_RENDER
+            // the DX_RENDER build. Using the old GL-only name here would
+            // make Factory Reset delete a nonexistent folder while leaving
+            // the real, live "Kirstens S24 DX" cache/settings untouched.
             std::wstring localPath = std::wstring(localAppData) + L"\\Kirstens S24 DX";
             std::wstring roamingPath = std::wstring(roamingAppData) + L"\\Kirstens S24 DX";
-#else
-            std::wstring localPath = std::wstring(localAppData) + L"\\Kirstens S24";
-            std::wstring roamingPath = std::wstring(roamingAppData) + L"\\Kirstens S24";
-#endif
 
             LL_WARNS() << "ARES_FACTORY_RESET: Target LOCAL: " << narrow_for_logging(localPath) << LL_ENDL;
             LL_WARNS() << "ARES_FACTORY_RESET: Target ROAMING: " << narrow_for_logging(roamingPath) << LL_ENDL;

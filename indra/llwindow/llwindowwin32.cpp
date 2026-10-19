@@ -74,11 +74,9 @@
 
 #include <dxgi1_4.h>  // DXGI VRAM query (checkDXMem)
 #include <d3d11.h>    // D3D11 for discrete GPU selection (#5611)
-#ifdef DX_RENDER
 #include "DXDevice.h"
 #include "DXSwapChain.h"
 #include "DXContext.h"
-#endif
 #include <timeapi.h>
 #include <avrt.h>       // MMCSS (Multimedia Class Scheduler Service)
 
@@ -1283,11 +1281,9 @@ void LLWindowWin32::close()
 		gKeyboard->resetKeys();
 	}
 
-#ifdef DX_RENDER
 	LL_DEBUGS("Window") << "Releasing DX11 device/swapchain" << LL_ENDL;
 	gDXSwapChain.destroy();
 	gDXDevice.shutdown();
-#endif
 
 	// Clean up remaining GL state
 	if (gGLManager.mInited)
@@ -1480,8 +1476,6 @@ bool LLWindowWin32::setSizeImpl(const LLCoordWindow size)
 	return setSizeImpl(LLCoordScreen(window_rect.right - window_rect.left, window_rect.bottom - window_rect.top));
 }
 
-#ifdef DX_RENDER
-// DX_RENDER: replaces switchContext()'s GL pixel-format/wgl-context setup.
 // Called after recreateWindow() has already given us a valid mWindowHandle -
 // this function's only job is to stand up a DX11 device + swap chain for it.
 bool LLWindowWin32::initDX11Context(const LLCoordScreen& size, bool enable_vsync)
@@ -1507,7 +1501,6 @@ bool LLWindowWin32::initDX11Context(const LLCoordScreen& size, bool enable_vsync
 
 	return true;
 }
-#endif
 
 // changing fullscreen resolution
 bool LLWindowWin32::switchContext(bool fullscreen, const LLCoordScreen& size, bool enable_vsync, const LLCoordScreen* const posp)
@@ -1681,425 +1674,16 @@ bool LLWindowWin32::switchContext(bool fullscreen, const LLCoordScreen& size, bo
 		LL_WARNS("Window") << "Window creation failed, code: " << GetLastError() << LL_ENDL;
 	}
 
-#ifdef DX_RENDER
 	if (!initDX11Context(size, enable_vsync))
 	{
 		close();
 		return false;
 	}
 
-	// S24: real DXGI-based GPU detection, mirroring the GL branch's
-	// gGLManager.initGL() call below - see LLGLManager::initGLDX()'s comment
-	// (llgl.h/.cpp): without this, LLFeatureManager silently masks real
-	// features off with no real GPU data to work from.
+	// S24: real DXGI-based GPU detection - see LLGLManager::initGLDX()'s
+	// comment (llgl.h/.cpp): without this, LLFeatureManager silently masks
+	// real features off with no real GPU data to work from.
 	gGLManager.initGLDX();
-#else
-	// S24: only used in this GL-only branch (DX_RENDER never touches it).
-	GLuint  pixel_format;
-
-	//-----------------------------------------------------------------------
-	// Create GL drawing context with modern attributes while retaining 'pfd'
-	//-----------------------------------------------------------------------
-	static PIXELFORMATDESCRIPTOR pfd =
-	{
-	sizeof(PIXELFORMATDESCRIPTOR),
-	1,
-	PFD_DRAW_TO_WINDOW | PFD_SUPPORT_OPENGL | PFD_DOUBLEBUFFER,
-	PFD_TYPE_RGBA,  // Ensure RGBA format
-            BITS_PER_PIXEL,
-	0, 0, 0, 0, 0, 0, // Unused RGB bits
-	8,              // Alpha bits
-	0,              // Alpha shift
-	0,              // Accumulation buffer bits
-	0, 0, 0, 0,     // Accumulation RGBA
-	24,             // Depth bits
-	8,              // Stencil bits (explicitly retained)
-	0,
-	PFD_MAIN_PLANE, // No layering needed
-	0,              // Reserved
-	0, 0, 0         // Unused layer masks
-	};
-
-	if (!mhDC)
-	{
-		close();
-		OSMessageBox(mCallbacks->translateString("MBDevContextErr"),
-			mCallbacks->translateString("MBError"), OSMB_OK);
-		return false;
-	}
-
-	LL_INFOS("Window") << "Device context retrieved." << LL_ENDL;
-
-	try
-	{
-		// Looks like ChoosePixelFormat can crash in case of faulty driver
-		if (!(pixel_format = SafeChoosePixelFormat(mhDC, &pfd)))
-		{
-			LL_WARNS("Window") << "ChoosePixelFormat failed, code: " << GetLastError() << LL_ENDL;
-			OSMessageBox(mCallbacks->translateString("MBPixelFmtErr"),
-				mCallbacks->translateString("MBError"), OSMB_OK);
-			close();
-			return false;
-		}
-	}
-	catch (...)
-	{
-		LOG_UNHANDLED_EXCEPTION("ChoosePixelFormat");
-		LLError::LLUserWarningMsg::show(mCallbacks->translateString("MBPixelFmtErr"), 8/*LAST_EXEC_GRAPHICS_INIT*/);
-		close();
-		return false;
-	}
-
-	LL_INFOS("Window") << "Pixel format chosen." << LL_ENDL;
-
-	// Verify what pixel format we actually received.
-	if (!DescribePixelFormat(mhDC, pixel_format, sizeof(PIXELFORMATDESCRIPTOR),
-		&pfd))
-	{
-		LLError::LLUserWarningMsg::show(mCallbacks->translateString("MBPixelFmtDescErr"), 8/*LAST_EXEC_GRAPHICS_INIT*/);
-		close();
-		return false;
-	}
-
-    // (EXP-1765) dump pixel data to see if there is a pattern that leads to unreproducible crash
-    LL_INFOS("Window") << "--- begin pixel format dump ---" << LL_ENDL ;
-    LL_INFOS("Window") << "pixel_format is " << pixel_format << LL_ENDL ;
-    LL_INFOS("Window") << "pfd.nSize:            " << pfd.nSize << LL_ENDL ;
-    LL_INFOS("Window") << "pfd.nVersion:         " << pfd.nVersion << LL_ENDL ;
-    LL_INFOS("Window") << "pfd.dwFlags:          0x" << std::hex << pfd.dwFlags << std::dec << LL_ENDL ;
-    LL_INFOS("Window") << "pfd.iPixelType:       " << (int)pfd.iPixelType << LL_ENDL ;
-    LL_INFOS("Window") << "pfd.cColorBits:       " << (int)pfd.cColorBits << LL_ENDL ;
-    LL_INFOS("Window") << "pfd.cRedBits:         " << (int)pfd.cRedBits << LL_ENDL ;
-    LL_INFOS("Window") << "pfd.cRedShift:        " << (int)pfd.cRedShift << LL_ENDL ;
-    LL_INFOS("Window") << "pfd.cGreenBits:       " << (int)pfd.cGreenBits << LL_ENDL ;
-    LL_INFOS("Window") << "pfd.cGreenShift:      " << (int)pfd.cGreenShift << LL_ENDL ;
-    LL_INFOS("Window") << "pfd.cBlueBits:        " << (int)pfd.cBlueBits << LL_ENDL ;
-    LL_INFOS("Window") << "pfd.cBlueShift:       " << (int)pfd.cBlueShift << LL_ENDL ;
-    LL_INFOS("Window") << "pfd.cAlphaBits:       " << (int)pfd.cAlphaBits << LL_ENDL ;
-    LL_INFOS("Window") << "pfd.cAlphaShift:      " << (int)pfd.cAlphaShift << LL_ENDL ;
-    LL_INFOS("Window") << "pfd.cAccumBits:       " << (int)pfd.cAccumBits << LL_ENDL ;
-    LL_INFOS("Window") << "pfd.cAccumRedBits:    " << (int)pfd.cAccumRedBits << LL_ENDL ;
-    LL_INFOS("Window") << "pfd.cAccumGreenBits:  " << (int)pfd.cAccumGreenBits << LL_ENDL ;
-    LL_INFOS("Window") << "pfd.cAccumBlueBits:   " << (int)pfd.cAccumBlueBits << LL_ENDL ;
-    LL_INFOS("Window") << "pfd.cAccumAlphaBits:  " << (int)pfd.cAccumAlphaBits << LL_ENDL ;
-    LL_INFOS("Window") << "pfd.cDepthBits:       " << (int)pfd.cDepthBits << LL_ENDL ;
-    LL_INFOS("Window") << "pfd.cStencilBits:     " << (int)pfd.cStencilBits << LL_ENDL ;
-    LL_INFOS("Window") << "pfd.cAuxBuffers:      " << (int)pfd.cAuxBuffers << LL_ENDL ;
-    LL_INFOS("Window") << "pfd.iLayerType:       " << (int)pfd.iLayerType << LL_ENDL ;
-    LL_INFOS("Window") << "pfd.bReserved:        " << (int)pfd.bReserved << LL_ENDL ;
-    LL_INFOS("Window") << "pfd.dwLayerMask:      " << pfd.dwLayerMask << LL_ENDL ;
-    LL_INFOS("Window") << "pfd.dwVisibleMask:    " << pfd.dwVisibleMask << LL_ENDL ;
-    LL_INFOS("Window") << "pfd.dwDamageMask:     " << pfd.dwDamageMask << LL_ENDL ;
-    LL_INFOS("Window") << "--- end pixel format dump ---" << LL_ENDL ;
-
-    if (!SetPixelFormat(mhDC, pixel_format, &pfd))
-    {
-        LLError::LLUserWarningMsg::show(mCallbacks->translateString("MBPixelFmtSetErr"), 8/*LAST_EXEC_GRAPHICS_INIT*/);
-        close();
-        return false;
-    }
-
-
-    if (!(mhRC = SafeCreateContext(mhDC)))
-	{
-        LLError::LLUserWarningMsg::show(mCallbacks->translateString("MBGLContextErr"), 8/*LAST_EXEC_GRAPHICS_INIT*/);
-        close();
-        return false;
-    }
-
-    if (!wglMakeCurrent(mhDC, mhRC))
-    {
-        LLError::LLUserWarningMsg::show(mCallbacks->translateString("MBGLContextActErr"), 8/*LAST_EXEC_GRAPHICS_INIT*/);
-		close();
-		return false;
-	}
-
-	LL_INFOS("Window") << "Drawing context is created." << LL_ENDL;
-
-	gGLManager.initWGL();
-
-	if (wglChoosePixelFormatARB && wglGetPixelFormatAttribivARB)
-	{
-		// Dynamically determine the number of attributes needed
-        // can get exactly what we want.
-        GLint attrib_list[256];
-        S32 cur_attrib = 0;
-
-        attrib_list[cur_attrib++] = WGL_DEPTH_BITS_ARB;
-        attrib_list[cur_attrib++] = 24;
-
-        //attrib_list[cur_attrib++] = WGL_STENCIL_BITS_ARB; //stencil buffer is deprecated (performance penalty)
-        //attrib_list[cur_attrib++] = 8;
-
-        attrib_list[cur_attrib++] = WGL_DRAW_TO_WINDOW_ARB;
-        attrib_list[cur_attrib++] = GL_TRUE;
-
-        attrib_list[cur_attrib++] = WGL_ACCELERATION_ARB;
-        attrib_list[cur_attrib++] = WGL_FULL_ACCELERATION_ARB;
-
-        attrib_list[cur_attrib++] = WGL_SUPPORT_OPENGL_ARB;
-        attrib_list[cur_attrib++] = GL_TRUE;
-
-        attrib_list[cur_attrib++] = WGL_DOUBLE_BUFFER_ARB;
-        attrib_list[cur_attrib++] = GL_TRUE;
-
-        attrib_list[cur_attrib++] = WGL_COLOR_BITS_ARB;
-        attrib_list[cur_attrib++] = 24;
-
-        attrib_list[cur_attrib++] = WGL_ALPHA_BITS_ARB;
-        attrib_list[cur_attrib++] = 0;
-
-        U32 end_attrib = 0;
-		if (mFSAASamples > 0)
-		{
-            end_attrib = cur_attrib;
-            attrib_list[cur_attrib++] = WGL_SAMPLE_BUFFERS_ARB;
-            attrib_list[cur_attrib++] = GL_TRUE;
-
-            attrib_list[cur_attrib++] = WGL_SAMPLES_ARB;
-            attrib_list[cur_attrib++] = mFSAASamples;
-		}
-
-		// End list marker
-        attrib_list[cur_attrib++] = 0;
-
-		GLint pixel_formats[256];
-		U32 num_formats = 0;
-
-		// Choose best pixel format using updated list
-        BOOL result = wglChoosePixelFormatARB(mhDC, attrib_list, NULL, 256, pixel_formats, &num_formats);
-
-		while (!result && mFSAASamples > 0)
-		{
-			LL_WARNS() << "FSAASamples: " << mFSAASamples << " not supported." << LL_ENDL;
-
-			mFSAASamples /= 2;
-			if (mFSAASamples < 2)
-			{
-				mFSAASamples = 0;
-			}
-
-            if (mFSAASamples > 0)
-			{
-                attrib_list[end_attrib + 3] = mFSAASamples;
-			}
-			else
-			{
-                cur_attrib = end_attrib ;
-                end_attrib = 0 ;
-                attrib_list[cur_attrib++] = 0 ; //end
-			}
-            result = wglChoosePixelFormatARB(mhDC, attrib_list, NULL, 256, pixel_formats, &num_formats);
-
-			if (result)
-			{
-				LL_WARNS() << "Only support FSAASamples: " << mFSAASamples << LL_ENDL;
-			}
-		}
-
-		if (!result)
-		{
-            LL_WARNS() << "mFSAASamples: " << mFSAASamples << LL_ENDL ;
-			
-			close(); // Safely close context-related resources
-            show_window_creation_error("Error after wglChoosePixelFormatARB 32-bit");
-			return false; // Ensure graceful failure
-		}
-
-		if (!num_formats)
-		{
-            if (end_attrib > 0)
-			{
-                LL_INFOS("Window") << "No valid pixel format for " << mFSAASamples << "x anti-aliasing." << LL_ENDL;
-                attrib_list[end_attrib] = 0;
-
-                BOOL result = wglChoosePixelFormatARB(mhDC, attrib_list, NULL, 256, pixel_formats, &num_formats);
-				if (!result)
-				{
-					close();
-                    show_window_creation_error("Error after wglChoosePixelFormatARB 32-bit no AA");
-					return false;
-				}
-			}
-
-			if (!num_formats)
-			{
-                LL_INFOS("Window") << "No 32 bit z-buffer, trying 24 bits instead" << LL_ENDL;
-                // Try 24-bit format
-                attrib_list[1] = 24;
-                BOOL result = wglChoosePixelFormatARB(mhDC, attrib_list, NULL, 256, pixel_formats, &num_formats);
-				if (!result)
-				{
-					close();
-                    show_window_creation_error("Error after wglChoosePixelFormatARB 24-bit");
-					return false;
-				}
-
-				if (!num_formats)
-				{
-                    LL_WARNS("Window") << "Couldn't get 24 bit z-buffer,trying 16 bits instead!" << LL_ENDL;
-                    attrib_list[1] = 16;
-                    BOOL result = wglChoosePixelFormatARB(mhDC, attrib_list, NULL, 256, pixel_formats, &num_formats);
-					if (!result || !num_formats)
-					{
-						close();
-                        show_window_creation_error("Error after wglChoosePixelFormatARB 16-bit");
-						return false;
-					}
-				}
-			}
-
-            LL_INFOS("Window") << "Choosing pixel formats: " << num_formats << " pixel formats returned" << LL_ENDL;
-		}
-
-        LL_INFOS("Window") << "pixel formats done." << LL_ENDL ;
-
-		S32 swap_method = 0;
-		S32 cur_format = 0;
-const   S32   max_format  = (S32)num_formats - 1;
-		GLint swap_query = WGL_SWAP_METHOD_ARB;
-
-        // SL-14705 Fix name tags showing in front of objects with AMD GPUs.
-		// Iterate through available pixel formats to find a valid swap method
-        // Spec:
-        //     https://www.khronos.org/registry/OpenGL/extensions/ARB/WGL_ARB_pixel_format.txt
-		while (wglGetPixelFormatAttribivARB(mhDC, pixel_formats[cur_format], 0, 1, &swap_query, &swap_method))
-		{
-			if (swap_method == WGL_SWAP_UNDEFINED_ARB)
-			{
-				break;
-			}
-            else if (cur_format >= max_format)
-			{
-				cur_format = 0;
-				break;
-			}
-
-			++cur_format;
-		}
-
-		pixel_format = pixel_formats[cur_format];
-
-        if (mhDC != 0)                                          // Does The Window Have A Device Context?
-		{
-            wglMakeCurrent(mhDC, 0);                            // Set The Current Active Rendering Context To Zero
-            if (mhRC != 0)                                      // Does The Window Have A Rendering Context?
-			{
-				wglDeleteContext(mhRC); // Properly release the rendering context
-                mhRC = 0;                                       // Zero The Rendering Context
-			}
-		}
-
-		// Apply selected pixel format and recreate the window
-		recreateWindow(window_rect, dw_ex_style, dw_style);
-
-		RECT rect;
-		RECT client_rect;
-		//initialize immediately on main thread
-		if (GetWindowRect(mWindowHandle, &rect) &&
-			GetClientRect(mWindowHandle, &client_rect))
-		{
-			mRect = rect;
-			mClientRect = client_rect;
-		};
-
-        if (mWindowHandle)
-        {
-            LL_INFOS("Window") << "recreate window done." << LL_ENDL ;
-        }
-        else
-        {
-            // Note: if value is NULL GetDC retrieves the DC for the entire screen.
-            LL_WARNS("Window") << "Window recreation failed, code: " << GetLastError() << LL_ENDL;
-        }
-		
-		if (!mhDC)
-		{
-			LLError::LLUserWarningMsg::show(mCallbacks->translateString("MBDevContextErr"), 8/*LAST_EXEC_GRAPHICS_INIT*/);
-			close();
-			return false;
-		}
-
-		if (!SetPixelFormat(mhDC, pixel_format, &pfd))
-		{
-			LLError::LLUserWarningMsg::show(mCallbacks->translateString("MBPixelFmtSetErr"), 8/*LAST_EXEC_GRAPHICS_INIT*/);
-			close();
-			return false;
-		}
-
-		if (wglGetPixelFormatAttribivARB(mhDC, pixel_format, 0, 1, &swap_query, &swap_method))
-		{
-			switch (swap_method)
-			{
-			case WGL_SWAP_EXCHANGE_ARB:
-				mSwapMethod = SWAP_METHOD_EXCHANGE;
-                LL_DEBUGS("Window") << "Swap Method: Exchange" << LL_ENDL;
-				break;
-			case WGL_SWAP_COPY_ARB:
-				mSwapMethod = SWAP_METHOD_COPY;
-                LL_DEBUGS("Window") << "Swap Method: Copy" << LL_ENDL;
-				break;
-			case WGL_SWAP_UNDEFINED_ARB:
-                mSwapMethod = SWAP_METHOD_UNDEFINED;
-                LL_DEBUGS("Window") << "Swap Method: Undefined" << LL_ENDL;
-                break;
-			default:
-				mSwapMethod = SWAP_METHOD_UNDEFINED;
-                LL_DEBUGS("Window") << "Swap Method: Unknown" << LL_ENDL;
-				break;
-			}
-		}
-	}
-	else
-	{
-		LL_WARNS("Window") << "No wgl_ARB_pixel_format extension!" << LL_ENDL;
-		// cannot proceed without wgl_ARB_pixel_format extension, shutdown same as any other gGLManager.initGL() failure
-		LLError::LLUserWarningMsg::show(mCallbacks->translateString("MBVideoDrvErr"), 8/*LAST_EXEC_GRAPHICS_INIT*/);
-		close();
-		return false;
-	}
-
-	// Verify what pixel format we actually received.
-	if (!DescribePixelFormat(mhDC, pixel_format, sizeof(PIXELFORMATDESCRIPTOR),
-		&pfd))
-	{
-		LLError::LLUserWarningMsg::show(mCallbacks->translateString("MBPixelFmtDescErr"), 8/*LAST_EXEC_GRAPHICS_INIT*/);
-		close();
-		return false;
-	}
-
-    LL_INFOS("Window") << "GL buffer: Color Bits " << S32(pfd.cColorBits)
-        << " Alpha Bits " << S32(pfd.cAlphaBits)
-        << " Depth Bits " << S32(pfd.cDepthBits)
-        << LL_ENDL;
-
-	mhRC = 0;
-	if (wglCreateContextAttribsARB)
-	{ //attempt to create a specific versioned context
-		mhRC = (HGLRC)createSharedContext();
-		if (!mhRC)
-		{
-			return false;
-		}
-	}
-
-	if (!wglMakeCurrent(mhDC, mhRC))
-	{
-		LLError::LLUserWarningMsg::show(mCallbacks->translateString("MBGLContextActErr"), 8/*LAST_EXEC_GRAPHICS_INIT*/);
-		close();
-		return false;
-	}
-
-    if (!gGLManager.initGL())
-    {
-        LLError::LLUserWarningMsg::show(mCallbacks->translateString("MBVideoDrvErr"), 8/*LAST_EXEC_GRAPHICS_INIT*/);
-        close();
-        return false;
-    }
-
-	// Disable vertical sync for swap
-	toggleVSync(enable_vsync);
-#endif // DX_RENDER
 
 	SetWindowLongPtr(mWindowHandle, GWLP_USERDATA, (LONG_PTR)this);
 
@@ -2280,57 +1864,11 @@ void LLWindowWin32::destroySharedContext(void* contextPtr)
 
 void LLWindowWin32::toggleVSync(bool enable_vsync)
 {
-#ifdef DX_RENDER
-	// S24: mhDC/mhRC are never populated under DX_RENDER, so the GL-only path
-	// below always hit its "no active GL context" early return and
-	// RenderVSyncEnable had zero live effect. gDXSwapChain.setVSync() takes
-	// effect on the next Present() call.
+	// S24: mhDC/mhRC are never populated under DX_RENDER (this build is
+	// DX_RENDER-only). gDXSwapChain.setVSync() takes effect on the next
+	// Present() call.
 	gDXSwapChain.setVSync(enable_vsync);
 	LL_INFOS("Window") << "VSync " << (enable_vsync ? "enabled" : "disabled") << " (DXGI present interval = " << (enable_vsync ? 1 : 0) << ")" << LL_ENDL;
-	return;
-#endif
-
-	// Must have a current context for wglSwapIntervalEXT to work.
-	if (!mhDC || !mhRC)
-	{
-		LL_WARNS("Window") << "toggleVSync(): no active GL context" << LL_ENDL;
-		return;
-	}
-
-	using PFNWGLSWAPINTERVALEXTPROC = BOOL(WINAPI*)(int);
-
-	static PFNWGLSWAPINTERVALEXTPROC pSwapInterval = nullptr;
-	static bool probed = false;
-
-	if (!probed)
-	{
-		// Try to get function pointer (prefer wglGetProcAddress)
-		pSwapInterval = (PFNWGLSWAPINTERVALEXTPROC)LLWindowWin32::getProcAddress("wglSwapIntervalEXT");
-
-		probed = true;
-		LL_INFOS("Window") << "VSync probe: wglSwapIntervalEXT " << (pSwapInterval ? "present" : "missing") << LL_ENDL;
-	}
-
-	if (!pSwapInterval)
-	{
-		LL_INFOS("Window") << "VSync: wglSwapIntervalEXT not available, cannot change vsync" << LL_ENDL;
-		return;
-	}
-
-	int interval = enable_vsync ? 1 : 0;
-
-	// Call on the current context; don't change context here.
-	if (!pSwapInterval(interval))
-	{
-		LL_WARNS("Window") << "wglSwapIntervalEXT(" << interval << ") failed" << LL_ENDL;
-	}
-	else
-	{
-		if (interval == 1)
-			LL_INFOS("Window") << "VSync enabled (swap interval = 1)" << LL_ENDL;
-		else
-			LL_INFOS("Window") << "VSync disabled (swap interval = 0)" << LL_ENDL;
-	}
 }
 
 void LLWindowWin32::moveWindow(const LLCoordScreen& position, const LLCoordScreen& size)
@@ -4110,7 +3648,6 @@ bool LLWindowWin32::resetDisplayResolution()
 void LLWindowWin32::swapBuffers()
 {
 	{
-#ifdef DX_RENDER
 		// S24: present() must come before beginFrame() - beginFrame() clears/rebinds
 		// the back buffer for the *next* frame, so doing it first would wipe out
 		// this frame's render before it's presented.
@@ -4129,9 +3666,6 @@ void LLWindowWin32::swapBuffers()
 		}
 
 		gDXContext.beginFrame();
-#else
-		SwapBuffers(mhDC);
-#endif
 	}
 
 	{
