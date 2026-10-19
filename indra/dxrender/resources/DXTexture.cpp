@@ -3,6 +3,7 @@
 #include "llerror.h"
 #include <vector>
 #include <algorithm>
+#include <cstring>
 
 namespace
 {
@@ -112,6 +113,7 @@ bool DXTexture::create(const uint8_t* data, int width, int height, int component
 
     mGenerateMips = generate_mips;
     mIsCompressed = false;
+    mIsDynamic = false;
 
     const uint8_t* upload_data = data;
     std::vector<uint8_t> rgba;
@@ -207,6 +209,7 @@ bool DXTexture::createCompressed(const uint8_t* data, int width, int height, DXG
     destroyLocked();
     mGenerateMips = false;
     mIsCompressed = true;
+    mIsDynamic = false;
 
     D3D11_TEXTURE2D_DESC desc = {};
     desc.Width = width;
@@ -261,6 +264,7 @@ bool DXTexture::createCompressedMips(const std::vector<DXCompressedMipData>& mip
     destroyLocked();
     mGenerateMips = false;
     mIsCompressed = true;
+    mIsDynamic = false;
 
     D3D11_TEXTURE2D_DESC desc = {};
     desc.Width = mips[0].width;
@@ -320,6 +324,7 @@ bool DXTexture::createFloat(const float* data, int width, int height, int compon
     destroyLocked();
     mGenerateMips = false;
     mIsCompressed = false;
+    mIsDynamic = false;
 
     std::vector<float> rgba;
     const float* upload_data = data;
@@ -440,6 +445,150 @@ bool DXTexture::updateSubImage(const uint8_t* data, int data_width, int x_pos, i
         gDXDevice.getContext()->GenerateMips(mSRV);
     }
 
+    return true;
+}
+
+bool DXTexture::createDynamic(const uint8_t* data, int width, int height, int components, bool alpha_only, bool bgra, bool raw_channels)
+{
+    if (width <= 0 || height <= 0)
+    {
+        return false;
+    }
+
+    destroyLocked();
+
+    mGenerateMips = false;
+    mIsCompressed = false;
+    mIsDynamic = true;
+
+    // Repacking every pixel on the CPU each createDynamic()/updateDynamic()
+    // call (to swap B/R for CEF's native BGRA buffer) was the real "Do
+    // Update" cost all along - removing the old recreate-every-frame
+    // overhead just exposed it. For the common 4-component, non-alpha-only
+    // case, create the GPU resource in whichever native format already
+    // matches the source byte order (B8G8R8A8_UNORM for BGRA,
+    // R8G8B8A8_UNORM for RGBA) instead - the hardware does the B/R swizzle
+    // for free at sample time, so updateDynamic() can just memcpy whole
+    // rows instead of looping repackPixel() per pixel. See its own comment.
+    const bool direct_copy = (components == 4 && !alpha_only);
+    const DXGI_FORMAT format = (direct_copy && bgra) ? DXGI_FORMAT_B8G8R8A8_UNORM : DXGI_FORMAT_R8G8B8A8_UNORM;
+
+    const uint8_t* upload_data = data;
+    std::vector<uint8_t> rgba;
+
+    if (data && !direct_copy)
+    {
+        rgba.resize((size_t)width * height * 4);
+        for (int i = 0; i < width * height; ++i)
+        {
+            if (!repackPixel(data + (size_t)i * components, components, &rgba[(size_t)i * 4], alpha_only, bgra, raw_channels))
+            {
+                LL_WARNS("Texture") << "DXTexture::createDynamic: unsupported component count " << components << LL_ENDL;
+                return false;
+            }
+        }
+        upload_data = rgba.data();
+    }
+
+    D3D11_TEXTURE2D_DESC desc = {};
+    desc.Width = width;
+    desc.Height = height;
+    desc.ArraySize = 1;
+    desc.MipLevels = 1;
+    desc.Format = format;
+    desc.SampleDesc.Count = 1;
+    desc.Usage = D3D11_USAGE_DYNAMIC;
+    desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+    desc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+
+    D3D11_SUBRESOURCE_DATA init_data = {};
+    init_data.pSysMem = upload_data;
+    init_data.SysMemPitch = width * 4;
+
+    HRESULT hr = gDXDevice.getDevice()->CreateTexture2D(&desc, upload_data ? &init_data : nullptr, &mTexture);
+    // S24: surfaces any D3D11 validation layer complaint about this specific
+    // call immediately, with a precise context tag - see
+    // DXDevice::logPendingDebugMessages()'s own comment. The DYNAMIC-texture
+    // path's first live attempt broke media rendering with no diagnostic
+    // trail at all; this and the matching call in updateDynamic() below are
+    // here specifically so a second failure doesn't repeat that.
+    gDXDevice.logPendingDebugMessages("DXTexture::createDynamic:CreateTexture2D");
+    if (FAILED(hr))
+    {
+        LL_WARNS("Texture") << "DXTexture::createDynamic: CreateTexture2D failed, hr=0x" << std::hex << (unsigned long)hr << std::dec << LL_ENDL;
+        return false;
+    }
+
+    hr = gDXDevice.getDevice()->CreateShaderResourceView(mTexture, nullptr, &mSRV);
+    gDXDevice.logPendingDebugMessages("DXTexture::createDynamic:CreateSRV");
+    if (FAILED(hr))
+    {
+        LL_WARNS("Texture") << "DXTexture::createDynamic: CreateShaderResourceView failed, hr=0x" << std::hex << (unsigned long)hr << std::dec << LL_ENDL;
+        mTexture->Release();
+        mTexture = nullptr;
+        return false;
+    }
+
+    return true;
+}
+
+bool DXTexture::updateDynamic(const uint8_t* data, int data_width, int data_height, int components, bool alpha_only, bool bgra)
+{
+    if (!mTexture || !data || data_width <= 0 || data_height <= 0)
+    {
+        return false;
+    }
+
+    D3D11_TEXTURE2D_DESC desc = {};
+    mTexture->GetDesc(&desc);
+
+    // DISCARD invalidates the whole resource - clamp to this texture's real
+    // size rather than writing out of bounds if the caller's buffer disagrees.
+    const int write_width = std::min(data_width, (int)desc.Width);
+    const int write_height = std::min(data_height, (int)desc.Height);
+
+    D3D11_MAPPED_SUBRESOURCE mapped = {};
+    HRESULT hr = gDXDevice.getContext()->Map(mTexture, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped);
+    gDXDevice.logPendingDebugMessages("DXTexture::updateDynamic:Map");
+    if (FAILED(hr))
+    {
+        LL_WARNS("Texture") << "DXTexture::updateDynamic: Map failed, hr=0x" << std::hex << (unsigned long)hr << std::dec << LL_ENDL;
+        return false;
+    }
+
+    // See createDynamic()'s comment - 4-component, non-alpha-only data is
+    // already byte-order-correct for whichever native format
+    // (B8G8R8A8_UNORM/R8G8B8A8_UNORM) this resource was created with, so
+    // skip repackPixel() entirely and memcpy whole rows. This is the actual
+    // fix for the heavy per-frame "Do Update" cost - a 1024x1024 media
+    // texture was otherwise making ~1M branchy repackPixel() calls every
+    // single update.
+    const bool direct_copy = (components == 4 && !alpha_only);
+    const size_t row_bytes = (size_t)write_width * 4;
+    for (int y = 0; y < write_height; ++y)
+    {
+        const uint8_t* src_row = data + (size_t)y * data_width * components;
+        uint8_t* dst_row = (uint8_t*)mapped.pData + (size_t)y * mapped.RowPitch;
+
+        if (direct_copy)
+        {
+            memcpy(dst_row, src_row, row_bytes);
+            continue;
+        }
+
+        for (int x = 0; x < write_width; ++x)
+        {
+            if (!repackPixel(src_row + (size_t)x * components, components, dst_row + (size_t)x * 4, alpha_only, bgra))
+            {
+                LL_WARNS("Texture") << "DXTexture::updateDynamic: unsupported component count " << components << LL_ENDL;
+                gDXDevice.getContext()->Unmap(mTexture, 0);
+                return false;
+            }
+        }
+    }
+
+    gDXDevice.getContext()->Unmap(mTexture, 0);
+    gDXDevice.logPendingDebugMessages("DXTexture::updateDynamic:Unmap");
     return true;
 }
 

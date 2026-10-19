@@ -16,13 +16,10 @@ public:
 
     bool createVertexBuffer(size_t size, const void* data);
     bool createIndexBuffer(size_t size, const void* data);
-    // S24 (2026-08-09, task #147b): real D3D11 constant buffer support -
-    // create()'s D3D11_USAGE_DYNAMIC/D3D11_CPU_ACCESS_WRITE body was already
-    // generic (bind_flags is a parameter), this just exposes a
-    // D3D11_BIND_CONSTANT_BUFFER factory alongside the existing two. Used
-    // for LLReflectionMapManager's ReflectionProbeData UBO equivalent -
-    // upload() (below) is reused as-is for the per-frame re-upload, same
-    // Map(WRITE_DISCARD) shape GL's glBufferData(..., GL_STREAM_DRAW) has.
+    // D3D11_BIND_CONSTANT_BUFFER factory alongside the vertex/index ones
+    // above, reusing create()'s already-generic body. Used for
+    // LLSphereProbes's ReflectionProbeData UBO equivalent; upload()
+    // below is reused as-is for the per-frame re-upload.
     bool createConstantBuffer(size_t size, const void* data);
     void destroy();
 
@@ -36,4 +33,8 @@ private:
     bool create(size_t size, const void* data, UINT bind_flags);
 
     ID3D11Buffer* mBuffer = nullptr;
+    // Needed by destroy() to return this buffer to the right pool bucket -
+    // see DXBufferPool's comment in the .cpp for why pooling exists at all.
+    size_t mSize = 0;
+    UINT mBindFlags = 0;
 };
