@@ -39,9 +39,10 @@
 #include <unordered_set>
 #include <utility>
 #include "pipeline.h"
+#include "dxpipeline.h"
 #include "llviewershadermgr.h"
 #include "llviewerregion.h"
-#include "lldrawpoolwater.h"
+#include "dxdrawpoolwater.h"
 #include "llspatialpartition.h"
 #include "llenvironment.h"
 #include "llviewertexture.h"
@@ -97,7 +98,7 @@ namespace
         shader->bind();
         shader->uniform1f(LLShaderMgr::DISPLAY_GAMMA, (gamma > 0.1f) ? 1.0f / gamma : (1.0f / 2.2f));
 
-        if (LLPipeline::sRenderingHUDs)
+        if (DXPipeline::sRenderingHUDs)
         {
             LLVector4 near_clip(0, 0, -1, 0);
             shader->uniform1f(waterSign, 1.f);
@@ -109,7 +110,7 @@ namespace
             shader->uniform4fv(LLShaderMgr::WATER_WATERPLANE, 1, DXDrawPoolAlpha::sWaterPlane.mV);
         }
 
-        if (LLPipeline::sImpostorRender)
+        if (DXPipeline::sImpostorRender)
         {
             shader->setMinimumAlpha(MINIMUM_IMPOSTOR_ALPHA);
         }
@@ -153,7 +154,7 @@ namespace
         {
             LLHLSLShader* current_shader = LLHLSLShader::sCurBoundShaderPtr;
 
-            if (!LLPipeline::sRenderingHUDs && use_material && current_shader)
+            if (!DXPipeline::sRenderingHUDs && use_material && current_shader)
             {
                 if (draw->mNormalMap)
                 {
@@ -269,7 +270,7 @@ namespace
 
     void renderRiggedEmissives(std::vector<LLDrawInfo*>& emissives)
     {
-        LLGLDepthTest depth(GL_TRUE, GL_FALSE); // disable depth writes since "emissive" is additive so sorting doesn't matter
+        DXDepthTest depth(true, false); // disable depth writes since "emissive" is additive so sorting doesn't matter
         LLHLSLShader* shader = emissive_shader->mRiggedVariant;
         shader->bind();
         shader->uniform1f(LLShaderMgr::EMISSIVE_BRIGHTNESS, 1.f);
@@ -291,7 +292,7 @@ namespace
 
     void renderRiggedPbrEmissives(std::vector<LLDrawInfo*>& emissives)
     {
-        LLGLDepthTest depth(GL_TRUE, GL_FALSE); // disable depth writes since "emissive" is additive so sorting doesn't matter
+        DXDepthTest depth(true, false); // disable depth writes since "emissive" is additive so sorting doesn't matter
         pbr_emissive_shader->bind(true);
 
         const LLVOAvatar* lastAvatar = nullptr;
@@ -320,8 +321,8 @@ namespace
             U64 lastMeshId = 0;
             bool skipLastSkin = false;
 
-            LLCullResult::sg_iterator begin = pass == 0 ? gPipeline.beginAlphaGroups() : gPipeline.beginRiggedAlphaGroups();
-            LLCullResult::sg_iterator end = pass == 0 ? gPipeline.endAlphaGroups() : gPipeline.endRiggedAlphaGroups();
+            LLCullResult::sg_iterator begin = pass == 0 ? DXPipeline::beginAlphaGroups(gPipeline) : DXPipeline::beginRiggedAlphaGroups(gPipeline);
+            LLCullResult::sg_iterator end = pass == 0 ? DXPipeline::endAlphaGroups(gPipeline) : DXPipeline::endRiggedAlphaGroups(gPipeline);
 
             for (LLCullResult::sg_iterator i = begin; i != end; ++i)
             {
@@ -360,7 +361,7 @@ namespace
 
     void renderDebugAlpha(DXAlphaDrawPool& pool)
     {
-        if (DXDrawPoolAlpha::sShowDebugAlpha && !gCubeSnapshot && !LLPipeline::sReflectionRender)
+        if (DXDrawPoolAlpha::sShowDebugAlpha && !gCubeSnapshot && !DXPipeline::sReflectionRender)
         {
             gHighlightProgram.bind();
             gDX.diffuseColor4f(1, 0, 0, 1);
@@ -567,14 +568,14 @@ struct AlphaDrawCarry
 
             if (LLHLSLShader::sCurBoundShaderPtr != target_shader)
             {
-                gPipeline.bindDeferredShaderFast(*target_shader);
+                DXPipeline::bindDeferredShaderFast(gPipeline, *target_shader);
             }
 
             params.mGLTFMaterial->bind(params.mTexture);
         }
         else
         {
-            mat = LLPipeline::sRenderingHUDs ? nullptr : params.mMaterial;
+            mat = DXPipeline::sRenderingHUDs ? nullptr : params.mMaterial;
 
             if (params.mFullbright)
             {
@@ -592,7 +593,7 @@ struct AlphaDrawCarry
                 c.light_enabled = true;
             }
 
-            if (LLPipeline::sRenderingHUDs)
+            if (DXPipeline::sRenderingHUDs)
             {
                 target_shader = fullbright_shader;
             }
@@ -619,7 +620,7 @@ struct AlphaDrawCarry
 
             if (LLHLSLShader::sCurBoundShaderPtr != target_shader)
             {
-                gPipeline.bindDeferredShaderFast(*target_shader);
+                DXPipeline::bindDeferredShaderFast(gPipeline, *target_shader);
 
                 if (params.mFullbright)
                 {
@@ -689,7 +690,7 @@ struct AlphaDrawCarry
         gDX.blendFunc((LLRender::eBlendFactor)params.mBlendFuncSrc, (LLRender::eBlendFactor)params.mBlendFuncDst, mAlphaSFactor, mAlphaDFactor);
 
         bool reset_minimum_alpha = false;
-        if (!LLPipeline::sImpostorRender &&
+        if (!DXPipeline::sImpostorRender &&
             params.mBlendFuncDst != LLRender::BF_SOURCE_ALPHA &&
             params.mBlendFuncSrc != LLRender::BF_SOURCE_ALPHA)
         {
@@ -717,7 +718,7 @@ struct AlphaDrawCarry
         };
         if (e.depth_write)
         {
-            LLGLDepthTest depth_test(GL_TRUE, GL_TRUE);
+            DXDepthTest depth_test(true, true);
             drawGeometry();
         }
         else
@@ -864,15 +865,15 @@ struct AlphaDrawCarry
             F32 view_center[3] = { v.x, v.y, v.z };
             F32 size = volume->getLightRadius() * 1.5f;
 
-            gPipeline.bindDeferredShaderFast(shader);
-            gPipeline.setupSpotLight(shader, drawablep);
+            DXPipeline::bindDeferredShaderFast(gPipeline, shader);
+            DXPipeline::setupSpotLight(gPipeline, shader, drawablep);
             shader.uniform3fv(LLShaderMgr::LIGHT_CENTER, 1, view_center);
             shader.uniform1f(LLShaderMgr::LIGHT_SIZE, size);
             shader.uniform3fv(LLShaderMgr::DIFFUSE_COLOR, 1, col.mV);
             shader.uniform1f(LLShaderMgr::LIGHT_FALLOFF, volume->getLightFalloff(deferred_light_falloff));
 
             shader.enableTexture(LLShaderMgr::DIFFUSE_MAP);
-            LLGLDepthTest depth(GL_TRUE, GL_FALSE);
+            DXDepthTest depth(true, false);
             LLGLEnable blend(GL_BLEND);
             gDX.blendFunc(LLRender::BF_ONE, LLRender::BF_ONE, LLRender::BF_ONE, LLRender::BF_ONE);
 
@@ -917,7 +918,7 @@ struct AlphaDrawCarry
             }
 
             shader.disableTexture(LLShaderMgr::DIFFUSE_MAP);
-            gPipeline.unbindDeferredShader(shader);
+            DXPipeline::unbindDeferredShader(gPipeline, shader);
         }
 
         gDX.setSceneBlendType(LLRender::BT_ALPHA);
@@ -933,20 +934,20 @@ struct AlphaDrawCarry
 
         if (rigged)
         {
-            begin = gPipeline.beginRiggedAlphaGroups();
-            end = gPipeline.endRiggedAlphaGroups();
+            begin = DXPipeline::beginRiggedAlphaGroups(gPipeline);
+            end = DXPipeline::endRiggedAlphaGroups(gPipeline);
         }
         else
         {
-            begin = gPipeline.beginAlphaGroups();
-            end = gPipeline.endAlphaGroups();
+            begin = DXPipeline::beginAlphaGroups(gPipeline);
+            end = DXPipeline::endAlphaGroups(gPipeline);
         }
 
         LLEnvironment& env = LLEnvironment::instance();
         F32 water_height = env.getWaterHeight();
 
         bool above_water = pool.getType() == LLDrawPool::POOL_ALPHA_POST_WATER;
-        if (LLPipeline::sUnderWaterRender)
+        if (DXPipeline::sUnderWaterRender)
         {
             above_water = !above_water;
         }
@@ -977,7 +978,7 @@ struct AlphaDrawCarry
                 LLSpatialBridge* bridge = group->getSpatialPartition()->asBridge();
                 const LLVector4a* ext = bridge ? bridge->getSpatialExtents() : group->getExtents();
 
-                if (!LLPipeline::sRenderingHUDs)
+                if (!DXPipeline::sRenderingHUDs)
                 {
                     if (above_water)
                     {
@@ -1060,7 +1061,7 @@ struct AlphaDrawCarry
 
         if (!depth_only)
         {
-            gPipeline.enableLightsDynamic();
+            DXPipeline::enableLightsDynamic(gPipeline);
 
             // install glow-accumulating blend mode - see dxdrawpoolalpha.h class comment for the
             // separate-alpha-factor documented gap this call runs into.
@@ -1107,23 +1108,23 @@ struct AlphaDrawCarry
 
         if (!c.light_enabled)
         {
-            gPipeline.enableLightsDynamic();
+            DXPipeline::enableLightsDynamic(gPipeline);
         }
     }
 
     void forwardRender(DXAlphaDrawPool& pool, bool rigged, AlphaAttachmentFilter filter = ATTACHMENT_ALL)
     {
-        gPipeline.enableLightsDynamic();
+        DXPipeline::enableLightsDynamic(gPipeline);
 
         LLGLSPipelineAlpha gls_pipeline_alpha;
         gDX.setColorWriteMask(true, true);
 
         bool write_depth = rigged
             || LLDrawPoolWater::sSkipScreenCopy
-            || LLPipeline::sImpostorRenderAlphaDepthPass
+            || DXPipeline::sImpostorRenderAlphaDepthPass
             || pool.getType() == LLDrawPool::POOL_ALPHA_PRE_WATER;
 
-        LLGLDepthTest depth(GL_TRUE, write_depth ? GL_TRUE : GL_FALSE);
+        DXDepthTest depth(true, write_depth);
 
         mColorSFactor = LLRender::BF_SOURCE_ALPHA;
         mColorDFactor = LLRender::BF_ONE_MINUS_SOURCE_ALPHA;
@@ -1143,7 +1144,7 @@ struct AlphaDrawCarry
 
         gDX.setColorWriteMask(true, false);
 
-        if (!rigged && (LLPipeline::sRenderingHUDs || pool.getType() == LLDrawPool::POOL_ALPHA_POST_WATER))
+        if (!rigged && (DXPipeline::sRenderingHUDs || pool.getType() == LLDrawPool::POOL_ALPHA_POST_WATER))
         {
             renderDebugAlpha(pool);
         }
@@ -1157,7 +1158,7 @@ LLVector4 DXDrawPoolAlpha::sWaterPlane;
 void DXDrawPoolAlpha::renderPostDeferred(DXAlphaDrawPool& pool, S32 pass)
 {
 
-    if (LLPipeline::isWaterClip() && pool.getType() == LLDrawPool::POOL_ALPHA_PRE_WATER)
+    if (DXPipeline::isWaterClip() && pool.getType() == LLDrawPool::POOL_ALPHA_PRE_WATER)
     {
         return;
     }
@@ -1169,12 +1170,12 @@ void DXDrawPoolAlpha::renderPostDeferred(DXAlphaDrawPool& pool, S32 pass)
         water_sign = -1.f;
     }
 
-    if (LLPipeline::sUnderWaterRender)
+    if (DXPipeline::sUnderWaterRender)
     {
         water_sign *= -1.f;
     }
 
-    llassert(LLPipeline::sRenderDeferred);
+    llassert(DXPipeline::sRenderDeferred);
 
     emissive_shader = &gDeferredEmissiveProgram;
     prepare_alpha_shader(emissive_shader, false, water_sign);
@@ -1183,14 +1184,14 @@ void DXDrawPoolAlpha::renderPostDeferred(DXAlphaDrawPool& pool, S32 pass)
     prepare_alpha_shader(pbr_emissive_shader, false, water_sign);
 
     fullbright_shader =
-        (LLPipeline::sImpostorRender) ? &gDeferredFullbrightAlphaMaskProgram :
-        (LLPipeline::sRenderingHUDs) ? &gHUDFullbrightAlphaMaskAlphaProgram :
+        (DXPipeline::sImpostorRender) ? &gDeferredFullbrightAlphaMaskProgram :
+        (DXPipeline::sRenderingHUDs) ? &gHUDFullbrightAlphaMaskAlphaProgram :
         &gDeferredFullbrightAlphaMaskAlphaProgram;
     prepare_alpha_shader(fullbright_shader, true, water_sign);
 
     simple_shader =
-        (LLPipeline::sImpostorRender) ? &gDeferredAlphaImpostorProgram :
-        (LLPipeline::sRenderingHUDs) ? &gHUDAlphaProgram :
+        (DXPipeline::sImpostorRender) ? &gDeferredAlphaImpostorProgram :
+        (DXPipeline::sRenderingHUDs) ? &gHUDAlphaProgram :
         &gDeferredAlphaProgram;
 
     prepare_alpha_shader(simple_shader, true, water_sign);
@@ -1202,7 +1203,7 @@ void DXDrawPoolAlpha::renderPostDeferred(DXAlphaDrawPool& pool, S32 pass)
     }
 
     pbr_shader =
-        (LLPipeline::sRenderingHUDs) ? &gHUDPBRAlphaProgram :
+        (DXPipeline::sRenderingHUDs) ? &gHUDPBRAlphaProgram :
         &gDeferredPBRAlphaProgram;
 
     prepare_alpha_shader(pbr_shader, true, water_sign);
@@ -1218,14 +1219,14 @@ void DXDrawPoolAlpha::renderPostDeferred(DXAlphaDrawPool& pool, S32 pass)
     // reason dxdrawpoolbump.cpp's beginFullbrightShiny() needs this call for
     // bump/shiny). Skipped for HUDs: HUD PBR alpha has no
     // reflectionProbeF.hlsl attachment.
-    if (!LLPipeline::sRenderingHUDs)
+    if (!DXPipeline::sRenderingHUDs)
     {
-        gPipeline.bindReflectionProbes(*pbr_shader);
+        DXPipeline::bindReflectionProbes(gPipeline, *pbr_shader);
     }
 
     LLHLSLShader::unbind();
 
-    if (LLPipeline::sRenderingHUDs)
+    if (DXPipeline::sRenderingHUDs)
     {
         // unchanged - HUDs never ran a rigged pass here anyway
         forwardRender(pool, false);
@@ -1250,7 +1251,7 @@ void DXDrawPoolAlpha::renderPostDeferred(DXAlphaDrawPool& pool, S32 pass)
         forwardRender(pool, false);
     }
 
-    if (!LLPipeline::sImpostorRender && LLPipeline::RenderDepthOfField && !gCubeSnapshot && !LLPipeline::sRenderingHUDs && pool.getType() == LLDrawPool::POOL_ALPHA_POST_WATER)
+    if (!DXPipeline::sImpostorRender && DXPipeline::RenderDepthOfField && !gCubeSnapshot && !DXPipeline::sRenderingHUDs && pool.getType() == LLDrawPool::POOL_ALPHA_POST_WATER)
     {
         simple_shader = fullbright_shader = &gDeferredFullbrightAlphaMaskProgram;
 

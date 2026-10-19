@@ -1,7 +1,7 @@
 /**
  * @file dxdrawpoolwlsky.cpp
- * @brief Fresh DX11-native implementation of LLDrawPoolWLSky's windlight
- * sky dome/clouds/stars/sun/moon render path.
+ * @brief LLDrawPoolWLSky class implementation plus its DX11-native
+ * windlight sky dome/clouds/stars/sun/moon render path.
  *
  * Copyright (c) 2025 Kirstenlee Cinquetti (Lee Quick)
  *
@@ -28,7 +28,6 @@
 
 #include "dxdrawpoolwlsky.h"
 
-#include "lldrawpoolwlsky.h"
 #include "llface.h"
 #include "llrender.h"
 #include "llenvironment.h"
@@ -37,6 +36,7 @@
 #include "llviewershadermgr.h"
 #include "llviewercamera.h"
 #include "pipeline.h"
+#include "dxpipeline.h"
 #include "llsky.h"
 #include "llvowlsky.h"
 #include "llsettingsvo.h"
@@ -46,6 +46,54 @@
 extern bool gCubeSnapshot;
 extern bool gEquirectCapture;
 extern LLPointer<LLImageDX> gEXRImage;
+
+LLDrawPoolWLSky::LLDrawPoolWLSky(void) :
+    LLDrawPool(POOL_WL_SKY)
+{
+}
+
+LLDrawPoolWLSky::~LLDrawPoolWLSky()
+{
+}
+
+LLViewerTexture *LLDrawPoolWLSky::getDebugTexture()
+{
+    return NULL;
+}
+
+void LLDrawPoolWLSky::beginDeferredPass(S32 pass)
+{
+    DXDrawPoolWLSky::beginDeferredPass(*this, pass);
+}
+
+void LLDrawPoolWLSky::endDeferredPass(S32 pass)
+{
+    DXDrawPoolWLSky::endDeferredPass(*this, pass);
+}
+
+void LLDrawPoolWLSky::renderDeferred(S32 pass)
+{
+    DXDrawPoolWLSky::renderDeferred(*this, pass);
+}
+
+LLViewerTexture* LLDrawPoolWLSky::getTexture()
+{
+    return NULL;
+}
+
+void LLDrawPoolWLSky::resetDrawOrders()
+{
+}
+
+//static
+void LLDrawPoolWLSky::cleanupGL()
+{
+}
+
+//static
+void LLDrawPoolWLSky::restoreGL()
+{
+}
 
 namespace
 {
@@ -113,7 +161,7 @@ namespace
         gDX.matrixMode(LLRender::MM_MODELVIEW);
         gDX.pushMatrix();
 
-        if (LLPipeline::sReflectionRender && camPosLocal.mV[2] > 256.f)
+        if (DXPipeline::sReflectionRender && camPosLocal.mV[2] > 256.f)
         {
             gDX.translatef(camPosLocal.mV[0], camPosLocal.mV[1], 256.f - camPosLocal.mV[2] * 0.5f);
         }
@@ -152,7 +200,7 @@ namespace
 
         LLVector3 const& origin = LLViewerCamera::getInstance()->getOrigin();
 
-        if (gPipeline.canUseWindLightShaders() && gPipeline.hasRenderType(LLPipeline::RENDER_TYPE_SKY))
+        if (DXPipeline::canUseWindLightShaders(gPipeline) && DXPipeline::hasRenderType(gPipeline, LLPipeline::RENDER_TYPE_SKY))
         {
             if (use_hdri_sky())
             {
@@ -247,7 +295,7 @@ namespace
         }
 
         F32 sun_elevation = LLEnvironment::instance().getCurrentSky()->getSunDirection().mV[2];
-        if (LLPipeline::sReflectionRender)
+        if (DXPipeline::sReflectionRender)
         {
             sun_elevation = -1.0f;
         }
@@ -266,7 +314,7 @@ namespace
         LLVector3 band_v = galactic_normal % band_u;
 
         LLMatrix4a modelview;
-        modelview.loadu(gGLModelView);
+        modelview.loadu(gDXModelView);
 
         LLVector4a gn_v, bu_v, bv_v;
         modelview.rotate(LLVector4a(galactic_normal.mV[0], galactic_normal.mV[1], galactic_normal.mV[2]), gn_v);
@@ -281,7 +329,7 @@ namespace
         // at bind time - squashed would silently reconstruct the wrong rays).
         LLGLEnable blend(GL_BLEND);
         LLGLDisable cull(GL_CULL_FACE);
-        LLGLDepthTest depth(GL_TRUE, GL_FALSE, GL_LEQUAL);
+        DXDepthTest depth(true, false, GL_LEQUAL);
         gDX.setSceneBlendType(LLRender::BT_ADD_WITH_ALPHA);
 
         gDeferredGalacticBandProgram.bind();
@@ -314,7 +362,7 @@ namespace
         // sun_elevation_factor) - see sSunElevation's comment above.
         F32 sun_elevation = LLEnvironment::instance().getCurrentSky()->getSunDirection().mV[2];
 
-        if (LLPipeline::sReflectionRender)
+        if (DXPipeline::sReflectionRender)
         {
             star_alpha = 1.0f;
             sun_elevation = -1.0f; // always show for reflection-probe captures
@@ -441,7 +489,7 @@ namespace
         // unconditional) - see sSunElevation's comment.
         F32 sun_elevation = LLEnvironment::instance().getCurrentSky()->getSunDirection().mV[2];
 
-        if (LLPipeline::sReflectionRender)
+        if (DXPipeline::sReflectionRender)
         {
             sun_elevation = -1.0f; // always show for reflection-probe captures
         }
@@ -476,7 +524,7 @@ namespace
             return;
         }
 
-        if (gPipeline.canUseWindLightShaders() && gPipeline.hasRenderType(LLPipeline::RENDER_TYPE_CLOUDS) && gSky.mVOSkyp && gSky.mVOSkyp->getCloudNoiseTex())
+        if (DXPipeline::canUseWindLightShaders(gPipeline) && DXPipeline::hasRenderType(gPipeline, LLPipeline::RENDER_TYPE_CLOUDS) && gSky.mVOSkyp && gSky.mVOSkyp->getCloudNoiseTex())
         {
             LLSettingsSky::ptr_t psky = LLEnvironment::instance().getCurrentSky();
 
@@ -618,8 +666,8 @@ namespace
         LLFace* face = gSky.mVOSkyp->mFace[LLVOSky::FACE_SUN];
 
         F32 blend_factor = (F32)LLEnvironment::instance().getCurrentSky()->getBlendFactor();
-        bool can_use_vertex_shaders = gPipeline.shadersLoaded();
-        bool can_use_windlight_shaders = gPipeline.canUseWindLightShaders();
+        bool can_use_vertex_shaders = DXPipeline::shadersLoaded(gPipeline);
+        bool can_use_windlight_shaders = DXPipeline::canUseWindLightShaders(gPipeline);
 
         if (gSky.mVOSkyp->getSun().getDraw() && face && face->getGeomCount())
         {
@@ -751,7 +799,7 @@ void DXDrawPoolWLSky::renderDeferred(LLDrawPoolWLSky& pool, S32 pass)
     (void)pass;
 
     LL_RECORD_BLOCK_TIME(FTM_RENDER_WL_SKY);
-    if (!gPipeline.hasRenderType(LLPipeline::RENDER_TYPE_SKY) || gSky.mVOSkyp.isNull())
+    if (!DXPipeline::hasRenderType(gPipeline, LLPipeline::RENDER_TYPE_SKY) || gSky.mVOSkyp.isNull())
     {
         return;
     }
@@ -763,7 +811,7 @@ void DXDrawPoolWLSky::renderDeferred(LLDrawPoolWLSky& pool, S32 pass)
 
     LLVector3 const& origin = LLViewerCamera::getInstance()->getOrigin();
 
-    if (gPipeline.canUseWindLightShaders())
+    if (DXPipeline::canUseWindLightShaders(gPipeline))
     {
         renderSkyHazeDeferred(origin, camHeightLocal);
         renderHeavenlyBodies();

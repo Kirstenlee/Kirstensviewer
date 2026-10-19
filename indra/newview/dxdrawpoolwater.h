@@ -1,7 +1,8 @@
 /**
  * @file dxdrawpoolwater.h
- * @brief Fresh DX11-native implementation of LLDrawPoolWater's post-deferred
- * water surface render path.
+ * @brief LLDrawPoolWater class definition plus its DX11-native post-deferred
+ * water surface render path - lldrawpoolwater.h/.cpp retired entirely,
+ * 2026-10-13.
  *
  * Copyright (c) 2025 Kirstenlee Cinquetti (Lee Quick)
  *
@@ -26,36 +27,68 @@
 
 #pragma once
 
-class LLDrawPoolWater;
+#include "dxdrawpool.h"
 
-// S24 (2026-08-04, task #109): staged full duplicate, same pattern as
-// DXDrawPoolBump/DXDrawPoolAlpha - chosen over in-place edits per the same
-// established preference (API separation between pools pays off once GL
-// is retired).
+class LLFace;
+class LLHeavenBody;
+class LLWaterSurface;
+class LLHLSLShader;
+
+class LLDrawPoolWater final: public LLFacePool
+{
+    // DXDrawPoolWater duplicates renderPostDeferred()'s DX_RENDER path (same
+    // pattern as DXDrawPoolBump/DXDrawPoolAlpha) and needs mWaterNormp for
+    // the wave normal-map blend - stays protected, nothing else needs it public.
+    friend class DXDrawPoolWater;
+protected:
+    LLPointer<LLViewerTexture> mWaterImagep[2];
+    LLPointer<LLViewerTexture> mWaterNormp[2];
+
+    LLPointer<LLViewerTexture> mOpaqueWaterImagep;
+
+public:
+    static bool sSkipScreenCopy;
+    static bool sNeedsReflectionUpdate;
+    static bool sNeedsDistortionUpdate;
+    static F32 sWaterFogEnd;
+
+    enum
+    {
+        VERTEX_DATA_MASK =  LLVertexBuffer::MAP_VERTEX |
+                            LLVertexBuffer::MAP_NORMAL |
+                            LLVertexBuffer::MAP_TEXCOORD0
+    };
+
+    virtual U32 getVertexDataMask() override { return VERTEX_DATA_MASK; }
+
+    LLDrawPoolWater();
+    /*virtual*/ ~LLDrawPoolWater();
+
+    S32 getNumPostDeferredPasses() override;
+    void beginPostDeferredPass(S32 pass) override;
+    void renderPostDeferred(S32 pass) override;
+
+    void prerender() override;
+
+    LLViewerTexture *getDebugTexture() override;
+    LLColor3 getDebugColor() const; // For AGP debug display
+
+    void setTransparentTextures(const LLUUID& transparentTextureId, const LLUUID& nextTransparentTextureId);
+    void setOpaqueTexture(const LLUUID& opaqueTextureId);
+    void setNormalMaps(const LLUUID& normalMapId, const LLUUID& nextNormalMapId);
+
+    void pushWaterPlanes(int pass);
+};
+
+// Mirrors the DXDrawPoolBump/DXDrawPoolAlpha pattern: a dedicated DX-native
+// pool class rather than #ifdef blocks in LLDrawPoolWater.
 //
-// Unlike bump/alpha when they were first converted, almost nothing here
-// needed a genuine behavior change - this water code (rewritten fairly
-// recently, see the "Geenz 2025-02-11" comments in the GL source) already
-// routes everything through already-DX-safe wrappers: bindDeferredShader()/
-// unbindDeferredShader(), LLGLSLShader::bindTexture()/uniform*(),
-// LLGLDepthTest/LLGLDisable, LLRender::setColorMask(), LLFace::renderIndexed()
-// (via pushWaterPlanes(), unchanged - reused directly, not duplicated).
+// WATER_SCREENTEX/WATER_EXCLUSIONTEX go through the LLHLSLShader::bindTexture
+// (S32, LLRenderTarget*, ...) overload - see llhlslshader.cpp.
 //
-// One real, necessary gap found and fixed while converting this (not
-// water-specific, a shared chokepoint): LLGLSLShader::bindTexture(S32,
-// LLRenderTarget*, ...) - which this pool uses for WATER_SCREENTEX
-// (mWaterDis, the screen-space reflection/refraction grab) and
-// WATER_EXCLUSIONTEX (mWaterExclusionMask) - was a hardcoded DX_RENDER
-// no-op (llglslshader.cpp). Fixed there, mirroring the already-fixed
-// bindTexture(S32, LLTexture*, ...) overload.
-//
-// LLDrawPoolWaterExclusion (the invisiprim exclusion-mask pass) got wired
-// in separately, task #116 (2026-08-09, see DXPipeline::renderGeomPostDeferred()'s
-// own comment) - its render() needed zero changes (already composed
-// entirely of DX-safe primitives), just a real call site plus a
-// DX_RENDER-aware clear color fix in LLPipeline::doWaterExclusionMask()
-// itself. mWaterExclusionMask is now filled every frame before this pool's
-// WATER_EXCLUSIONTEX bind reads it.
+// mWaterExclusionMask (filled by LLDrawPoolWaterExclusion) must be rendered
+// every frame before this pool's WATER_EXCLUSIONTEX bind reads it - see
+// DXPipeline::doWaterExclusionMask() and DXPipeline::renderGeomPostDeferred().
 class DXDrawPoolWater
 {
 public:

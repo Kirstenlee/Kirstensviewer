@@ -1,10 +1,10 @@
 /**
  * @file dxdrawpoolsimple.h
- * @brief Fresh DX11-native implementations of lldrawpoolsimple.h's 5 pool
- * classes that don't have their own in-place DX_RENDER branch yet
- * (LLDrawPoolSimple itself was converted before the 2026-07-17 architecture
- * pivot and is grandfathered as an in-place #ifdef branch - see
- * lldrawpoolsimple.cpp).
+ * @brief The 6 "simple" draw pool classes (ordinary diffuse/fullbright/
+ * alpha-mask/grass/glow geometry) and their DX11-native render
+ * implementations. Previously split across lldrawpoolsimple.h (class
+ * declarations + thin per-pool redirects) and this file (the real render
+ * bodies) - merged here 2026-10-13, lldrawpoolsimple.h/.cpp retired.
  *
  * Copyright (c) 2025 Kirstenlee Cinquetti (Lee Quick)
  *
@@ -29,21 +29,120 @@
 
 #pragma once
 
-class LLDrawPoolGrass;
-class LLDrawPoolAlphaMask;
-class LLDrawPoolFullbrightAlphaMask;
-class LLDrawPoolFullbright;
-class LLDrawPoolGlow;
+#include "dxdrawpool.h"
 
-// One consolidated file for all 5 pools per the "small pools may share one
+class LLDrawPoolSimple final : public LLRenderPass
+{
+public:
+	enum
+	{
+		VERTEX_DATA_MASK =	LLVertexBuffer::MAP_VERTEX |
+							LLVertexBuffer::MAP_NORMAL |
+							LLVertexBuffer::MAP_TEXCOORD0 |
+							LLVertexBuffer::MAP_COLOR
+	};
+	U32 getVertexDataMask() override { return VERTEX_DATA_MASK; }
+
+	LLDrawPoolSimple();
+
+    S32 getNumDeferredPasses() override;
+	void renderDeferred(S32 pass) override;
+};
+
+class LLDrawPoolGrass final : public LLRenderPass
+{
+public:
+	enum
+	{
+		VERTEX_DATA_MASK =	LLVertexBuffer::MAP_VERTEX |
+							LLVertexBuffer::MAP_NORMAL |
+							LLVertexBuffer::MAP_TEXCOORD0 |
+							LLVertexBuffer::MAP_COLOR
+	};
+	U32 getVertexDataMask() override { return VERTEX_DATA_MASK; }
+
+	LLDrawPoolGrass();
+
+	S32 getNumDeferredPasses() override { return 1; }
+	void renderDeferred(S32 pass) override;
+};
+
+class LLDrawPoolAlphaMask final : public LLRenderPass
+{
+public:
+	enum
+	{
+		VERTEX_DATA_MASK =	LLVertexBuffer::MAP_VERTEX |
+							LLVertexBuffer::MAP_NORMAL |
+							LLVertexBuffer::MAP_TEXCOORD0 |
+							LLVertexBuffer::MAP_COLOR
+	};
+	U32 getVertexDataMask() override { return VERTEX_DATA_MASK; }
+
+	LLDrawPoolAlphaMask();
+
+    S32 getNumDeferredPasses() override { return 1; }
+	void renderDeferred(S32 pass) override;
+};
+
+class LLDrawPoolFullbrightAlphaMask final : public LLRenderPass
+{
+public:
+	enum
+	{
+		VERTEX_DATA_MASK =	LLVertexBuffer::MAP_VERTEX |
+							LLVertexBuffer::MAP_TEXCOORD0 |
+							LLVertexBuffer::MAP_COLOR
+	};
+	U32 getVertexDataMask() override { return VERTEX_DATA_MASK; }
+
+	LLDrawPoolFullbrightAlphaMask();
+
+	S32 getNumPostDeferredPasses() override { return 1; }
+	void renderPostDeferred(S32 pass) override;
+};
+
+
+class LLDrawPoolFullbright final : public LLRenderPass
+{
+public:
+	enum
+	{
+		VERTEX_DATA_MASK =	LLVertexBuffer::MAP_VERTEX |
+							LLVertexBuffer::MAP_TEXCOORD0 |
+							LLVertexBuffer::MAP_COLOR
+	};
+	U32 getVertexDataMask() override { return VERTEX_DATA_MASK; }
+
+	LLDrawPoolFullbright();
+
+	S32 getNumPostDeferredPasses() override { return 1; }
+	void renderPostDeferred(S32 pass) override;
+};
+
+class LLDrawPoolGlow final : public LLRenderPass
+{
+public:
+	LLDrawPoolGlow(): LLRenderPass(LLDrawPool::POOL_GLOW) { }
+
+	enum
+	{
+		VERTEX_DATA_MASK =	LLVertexBuffer::MAP_VERTEX |
+							LLVertexBuffer::MAP_TEXCOORD0 |
+							LLVertexBuffer::MAP_EMISSIVE
+	};
+
+	U32 getVertexDataMask() override { return VERTEX_DATA_MASK; }
+
+	S32 getNumPostDeferredPasses() override { return 1; }
+	void renderPostDeferred(S32 pass) override;
+};
+
+// One consolidated file for all 6 pools per the "small pools may share one
 // dx file rather than one-file-per-pool" principle (stage 5 hitlist memory,
-// Phase 5.1). Each method mirrors its GL sibling's behavior in
-// lldrawpoolsimple.cpp, called via a thin #ifdef DX_RENDER redirect there.
-//
-// S24 (2026-08-09, task #170): rigged (skinned) batches are no longer
-// skipped - DXVertexLayout's MAP_WEIGHT4 rejection was fixed by task #168,
-// so every pool here now renders both its static and rigged pass, mirroring
-// lldrawpoolsimple.cpp's GL bodies exactly.
+// Phase 5.1). Each pool class's override method above is a thin redirect to
+// its DXDrawPoolSimple:: static counterpart below. Every pool renders both
+// its static and rigged pass except Grass (not skinned geometry).
 //
 // One standing gap, unrelated to skinning:
 // - LL::GLTFSceneManager calls (LLDrawPoolFullbrightAlphaMask only) are
@@ -52,6 +151,7 @@ class LLDrawPoolGlow;
 class DXDrawPoolSimple
 {
 public:
+    static void renderSimpleDeferred(LLDrawPoolSimple& pool, S32 pass);
     static void renderGrassDeferred(LLDrawPoolGrass& pool, S32 pass);
     static void renderAlphaMaskDeferred(LLDrawPoolAlphaMask& pool, S32 pass);
     static void renderFullbrightAlphaMaskPostDeferred(LLDrawPoolFullbrightAlphaMask& pool, S32 pass);

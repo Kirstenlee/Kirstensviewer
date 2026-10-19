@@ -1,7 +1,9 @@
 /**
  * @file dxdrawpoolbump.h
- * @brief Fresh DX11-native implementation of LLDrawPoolBump's deferred bump
- * and fullbright-shiny/emboss-bump render paths.
+ * @brief LLDrawPoolBump/LLStandardBumpmap/LLBumpImageList class definitions
+ * plus LLDrawPoolBump's DX11-native deferred bump and fullbright-shiny/
+ * emboss-bump render paths - lldrawpoolbump.h/.cpp retired entirely,
+ * 2026-10-13.
  *
  * Copyright (c) 2025 Kirstenlee Cinquetti (Lee Quick)
  *
@@ -26,63 +28,148 @@
 
 #pragma once
 
-class LLDrawPoolBump;
+#include "dxdrawpool.h"
+#include "llstring.h"
+#include "lltextureentry.h"
+#include "lluuid.h"
 
-// Staged full duplicate, same pattern as dxdrawpoolalpha.{h,cpp} (stage 5
-// phase 5.3) - chosen deliberately over a thin redirect even though most of
-// the GL body is already DX-safe by composition (LLCubeMap's
-// enable/disable/bind all route through LLTexUnit and already guard on
-// stage>=0; LLGLSLShader::bind()/enableTexture()/uniform*() are all
-// DX-safe; LLPipeline::bindReflectionProbes()/setEnvMat() are safe). Kept
-// as a full copy rather than in-place edits per the user's explicit
-// preference (2026-07-18): API separation between pools pays off later
-// when GL is retired, even where the GL body needs little/no change today.
+#include <unordered_map>
+
+class LLImageRaw;
+class LLHLSLShader;
+
+class LLDrawPoolBump : public LLRenderPass
+{
+protected :
+    LLDrawPoolBump(const U32 type):LLRenderPass(type) { mShiny = false; }
+public:
+    static U32 sVertexMask;
+    bool mShiny;
+
+    virtual U32 getVertexDataMask() override { return sVertexMask; }
+
+    LLDrawPoolBump();
+
+    /*virtual*/ void prerender() override;
+
+    void pushBumpBatches(U32 type);
+    void renderGroup(LLSpatialGroup* group, U32 type, bool texture) override;
+
+    virtual S32 getNumDeferredPasses() override;
+    /*virtual*/ void renderDeferred(S32 pass) override;
+
+    virtual S32 getNumPostDeferredPasses() override { return 1; }
+    /*virtual*/ void renderPostDeferred(S32 pass) override;
+
+    static bool bindBumpMap(LLDrawInfo& params, S32 channel = -2);
+    static bool bindBumpMap(LLFace* face, S32 channel = -2);
+
+private:
+    static bool bindBumpMap(U8 bump_code, LLViewerTexture* tex, S32 channel);
+    bool mRigged = false; // if true, doing a rigged pass
+
+};
+
+enum EBumpEffect
+{
+    BE_NO_BUMP = 0,
+    BE_BRIGHTNESS = 1,
+    BE_DARKNESS = 2,
+    BE_STANDARD_0 = 3,  // Standard must always be the last one
+    BE_COUNT = 4
+};
+
+////////////////////////////////////////////////////////////////
+// List of standard bumpmaps that are specificed by LLTextureEntry::mBump's lower bits
+
+class LLStandardBumpmap
+{
+public:
+    LLStandardBumpmap() : mLabel() {}
+    LLStandardBumpmap( const std::string& label ) : mLabel(label) {}
+
+    std::string mLabel;
+    LLPointer<LLViewerFetchedTexture> mImage;
+
+    static  U32 sStandardBumpmapCount;  // Number of valid values in gStandardBumpmapList[]
+
+    static void clear();
+    static void addstandard();
+
+    static void shutdown();
+    static void restoreGL();
+    static void destroyGL();
+};
+
+extern LLStandardBumpmap gStandardBumpmapList[TEM_BUMPMAP_COUNT];
+
+////////////////////////////////////////////////////////////////
+// List of one-component bump-maps created from other texures.
+
+struct LLBumpImageEntry;
+
+class LLBumpImageList
+{
+public:
+    LLBumpImageList() {}
+    ~LLBumpImageList();
+
+    void        init();
+    void        shutdown();
+    void            clear();
+    void        destroyGL();
+    void        restoreGL();
+    void        updateImages();
+
+
+    LLViewerTexture*    getBrightnessDarknessImage(LLViewerFetchedTexture* src_image, U8 bump_code);
+    void        addTextureStats(U8 bump, const LLUUID& base_image_id, F32 virtual_size);
+
+    static void onSourceStandardLoaded( bool success, LLViewerFetchedTexture *src_vi, LLImageRaw* src, LLImageRaw* aux_src, S32 discard_level, bool final, void* userdata );
+    static void generateNormalMapFromAlpha(LLImageRaw* src, LLImageRaw* nrm_image);
+
+
+private:
+    // should be called whenever resolution of src_vi changes compared to the current entry
+    static void onSourceUpdated( LLViewerTexture *src_vi, EBumpEffect bump );
+
+private:
+    typedef std::unordered_map<LLUUID, LLPointer<LLViewerTexture> > bump_image_map_t;
+    bump_image_map_t mBrightnessEntries;
+    bump_image_map_t mDarknessEntries;
+    static LLRenderTarget sRenderTarget;
+};
+
+extern LLBumpImageList gBumpImageList;
+
+// Staged full duplicate, same pattern as dxdrawpoolalpha.{h,cpp} - chosen
+// deliberately over a thin redirect: API separation between pools pays off
+// once GL is fully retired, even where the GL body needs little change.
 //
-// Real, non-cosmetic differences from the GL source, found by reading:
-// - LLDrawPoolBump::renderDeferred() has a genuine unguarded chokepoint:
-//   diffuse_channel/bump_channel come from LLGLSLShader::enableTexture(),
-//   which now safely returns -1 under DX_RENDER (see llglslshader.cpp) -
-//   but the GL source then does gGL.getTexUnit(diffuse_channel)->unbind(...)
-//   with NO `channel > -1` guard (unlike LLPipeline::bindDeferredShader()'s
-//   defensive style). Never crashes on the GL path only because GL's
-//   enableTexture() never legitimately returns -1 there. This DX version
-//   sidesteps the whole question: no per-material texture-channel
-//   registration exists yet under DX_RENDER (same standing gap as
-//   LLDrawPoolMaterials, phase 5.2), so only the primary diffuse texture is
-//   bound, to the same hardcoded unit every other converted pool uses;
-//   the bump/normal-map texture is skipped entirely (documented visual
-//   gap - deferred bump/normal geometry renders flat until real per-
-//   material channel binding exists).
-// - S24 (2026-08-19, degenerate-triangle foliage investigation): FIXED -
-//   the emboss-bump pass's raw glPolygonOffset(-1.0f, -1.0f) call
-//   (LLDrawPoolBump::renderBump()) really did nothing under DX_RENDER (not
-//   a "no equivalent exists" gap - D3D11's rasterizer-state DepthBias/
-//   SlopeScaledDepthBias fields ARE the real equivalent, they just needed
-//   wiring up, see DXStateCache::getRasterizerState()'s depth_bias_enabled
-//   param). This was real, visible z-fighting between the bump pass and
-//   the base surface, most visible on curved/thin mesh geometry (reported:
-//   blotchy, triangulated darkening on mesh foliage leaves). renderBump()/
-//   renderBumpRigged() (the .cpp) now apply and restore the biased state
-//   directly around their draw calls. LLDrawPoolGlow's OWN separate
-//   polygon-offset call site is a different, still-unconverted case - not
-//   fixed by this change.
-// - S24 (2026-08-09, task #170): rigged batches are no longer skipped -
-//   DXVertexLayout's MAP_WEIGHT4 rejection was fixed by task #168.
-//   renderDeferred()/renderPostDeferred() now run both a static and a
-//   rigged pass, matching lldrawpoolbump.cpp exactly. Since
-//   LLDrawPoolBump::mRigged is private (this DX pool can't set it),
-//   renderBump()'s rigged counterpart (renderBumpRigged(), in the .cpp)
-//   reimplements pushBumpBatches()'s rigged branch directly using only
-//   public members (bindBumpMap()/uploadMatrixPalette()/pushBumpBatch())
-//   rather than calling the real member function a second time.
+// Real differences from the GL source:
+// - Only the primary diffuse texture is bound (same hardcoded unit every
+//   converted pool uses); the bump/normal-map texture is skipped entirely
+//   since no per-material texture-channel registration exists yet under
+//   DX_RENDER (deferred bump/normal geometry renders flat until that lands).
+// - The emboss-bump pass applies real D3D11 rasterizer-state DepthBias/
+//   SlopeScaledDepthBias (DXStateCache::getRasterizerState()) around its
+//   draw calls, since GL's raw glPolygonOffset() has no DX_RENDER
+//   equivalent - without it the bump pass z-fights against the base
+//   surface. LLDrawPoolGlow has its own separate, still-unconverted
+//   polygon-offset call site, unaffected by this.
+// - renderDeferred()/renderPostDeferred() run both a static and a rigged
+//   pass. Since LLDrawPoolBump::mRigged is private, renderBumpRigged()
+//   (the .cpp) reimplements pushBumpBatches()'s rigged branch directly via
+//   public members instead of calling the real member function.
 //
 // LLDrawPoolBump::bindBumpMap()/pushBumpBatches()/LLRenderPass::
-// pushBumpBatch() and LLDrawPoolBump::bindCubeMap()/unbindCubeMap() are
-// NOT duplicated here - the first three are called only via the always-
-// safe channel==-2 sentinel path in this pool's own use (see class comment
-// in the .cpp), and bindCubeMap()/unbindCubeMap() have no callers anywhere
-// in the codebase (dead code) - so they're called/left as-is rather than
-// copied.
+// pushBumpBatch() are NOT duplicated here - reached directly (the first via
+// the always-safe channel==-2 sentinel path) since they're real shared
+// code, not the dead GL-only body redirected around. The old GL-only
+// numBumpPasses()/bindCubeMap()/unbindCubeMap()/begin-render-endBump()/
+// begin-render-endFullbrightShiny() had zero callers once that redirect
+// went unconditional and were deleted outright, not kept dead - see task
+// #294's consolidation pass.
 class DXDrawPoolBump
 {
 public:

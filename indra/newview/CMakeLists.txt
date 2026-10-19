@@ -194,18 +194,6 @@ set(viewer_SOURCE_FILES
     lldonotdisturbnotificationstorage.cpp
     lldndbutton.cpp
     lldrawable.cpp
-    lldrawpool.cpp
-    lldrawpoolavatar.cpp
-    lldrawpoolbump.cpp
-    lldrawpoolmaterials.cpp
-    lldrawpoolpbropaque.cpp
-    lldrawpoolsimple.cpp
-    lldrawpoolsky.cpp
-    lldrawpoolterrain.cpp
-    lldrawpooltree.cpp
-    lldrawpoolwater.cpp
-    lldrawpoolwlsky.cpp
-    lldrawpoolwaterexclusion.cpp
     lldxlinewidth.cpp
     lldynamictexture.cpp
     llemote.cpp
@@ -804,7 +792,10 @@ set(viewer_SOURCE_FILES
     llxmlrpclistener.cpp
     llxmlrpctransaction.cpp
     noise.cpp
-    pipeline.cpp
+    # S24: pipeline.cpp deleted outright 2026-10-16 (task #290 strangler-fig migration complete -
+    # every real LLPipeline:: body/static/global fully moved to DXPipeline::/dxpipeline.cpp, the
+    # file compiled to nothing; verified-removable via a real build before deletion). See
+    # project_pipeline_dxpipeline_consolidation_2026_08_31.
     )
 
 set(VIEWER_BINARY_NAME "Kirstens-S24" CACHE STRING
@@ -899,18 +890,6 @@ set(viewer_HEADER_FILES
     lldonotdisturbnotificationstorage.h
     lldndbutton.h
     lldrawable.h
-    lldrawpool.h
-    lldrawpoolavatar.h
-    lldrawpoolbump.h
-    lldrawpoolmaterials.h
-    lldrawpoolpbropaque.h
-    lldrawpoolsimple.h
-    lldrawpoolsky.h
-    lldrawpoolterrain.h
-    lldrawpooltree.h
-    lldrawpoolwater.h
-    lldrawpoolwlsky.h
-    lldrawpoolwaterexclusion.h
     lldxlinewidth.h
     lldynamictexture.h
     llemote.h
@@ -1747,14 +1726,21 @@ set_source_files_properties(llstartup.cpp PROPERTIES COMPILE_FLAGS "${LLSTARTUP_
 if(DX_RENDER)
   list(APPEND viewer_SOURCE_FILES dxpipeline.cpp)
   list(APPEND viewer_HEADER_FILES dxpipeline.h)
-  # DX_RENDER: dxdrawpoolsimple.{cpp,h} holds the DX11-native render logic
-  # for lldrawpoolsimple.h's 5 pool classes that use a thin redirect rather
-  # than an in-place #ifdef branch (LLDrawPoolSimple itself is the one
-  # grandfathered exception - see lldrawpoolsimple.cpp).
+  # DX_RENDER: dxdrawpool.{cpp,h} - pure rename from lldrawpool.{cpp,h},
+  # 2026-10-13 (LLDrawPool/LLFacePool/LLRenderPass base-class machinery;
+  # no GL/DX split ever existed here to merge; part of the drawpool-wide
+  # ll->dx file rename - every other dxdrawpool*.{cpp,h} file depends on
+  # this one).
+  list(APPEND viewer_SOURCE_FILES dxdrawpool.cpp)
+  list(APPEND viewer_HEADER_FILES dxdrawpool.h)
+  # DX_RENDER: dxdrawpoolsimple.{cpp,h} holds the 6 "simple" draw pool
+  # classes (diffuse/fullbright/alpha-mask/grass/glow) and their DX11-native
+  # render logic - lldrawpoolsimple.h/.cpp retired entirely, 2026-10-13.
   list(APPEND viewer_SOURCE_FILES dxdrawpoolsimple.cpp)
   list(APPEND viewer_HEADER_FILES dxdrawpoolsimple.h)
-  # DX_RENDER: dxdrawpoolmaterials.{cpp,h} holds the DX11-native render
-  # logic for LLDrawPoolMaterials::renderDeferred() (stage 5 phase 5.2).
+  # DX_RENDER: dxdrawpoolmaterials.{cpp,h} holds the LLDrawPoolMaterials
+  # class and its DX11-native renderDeferred() logic (stage 5 phase 5.2) -
+  # lldrawpoolmaterials.h/.cpp retired entirely, 2026-10-13.
   list(APPEND viewer_SOURCE_FILES dxdrawpoolmaterials.cpp)
   list(APPEND viewer_HEADER_FILES dxdrawpoolmaterials.h)
   # DX_RENDER: dxdrawpoolalpha.{cpp,h} is a staged, purpose-built duplicate
@@ -1764,26 +1750,47 @@ if(DX_RENDER)
   # was chosen here instead.
   list(APPEND viewer_SOURCE_FILES dxdrawpoolalpha.cpp)
   list(APPEND viewer_HEADER_FILES dxdrawpoolalpha.h)
-  # DX_RENDER: dxdrawpoolbump.{cpp,h} is a staged, purpose-built duplicate
-  # of LLDrawPoolBump's deferred bump and fullbright-shiny/emboss-bump
-  # render paths (stage 5 phase 5.3), same pattern as dxdrawpoolalpha.
+  # DX_RENDER: dxdrawpoolbump.{cpp,h} holds the LLDrawPoolBump/
+  # LLStandardBumpmap/LLBumpImageList classes and LLDrawPoolBump's DX11-
+  # native deferred bump and fullbright-shiny/emboss-bump render paths
+  # (stage 5 phase 5.3) - lldrawpoolbump.h/.cpp retired entirely, 2026-10-13.
   list(APPEND viewer_SOURCE_FILES dxdrawpoolbump.cpp)
   list(APPEND viewer_HEADER_FILES dxdrawpoolbump.h)
-  # DX_RENDER: dxdrawpoolwlsky.{cpp,h} is a staged, purpose-built duplicate
-  # of LLDrawPoolWLSky's windlight sky/cloud/star/sun/moon render path
-  # (stage 5 phase 5.4), same pattern as dxdrawpoolalpha/dxdrawpoolbump.
+  # DX_RENDER: dxdrawpoolwlsky.{cpp,h} holds the LLDrawPoolWLSky class and
+  # its DX11-native windlight sky/cloud/star/sun/moon render path (stage 5
+  # phase 5.4) - lldrawpoolwlsky.h/.cpp retired entirely, 2026-10-13.
   list(APPEND viewer_SOURCE_FILES dxdrawpoolwlsky.cpp)
   list(APPEND viewer_HEADER_FILES dxdrawpoolwlsky.h)
-  # DX_RENDER: dxdrawpoolterrain.{cpp,h} is a staged, purpose-built
-  # duplicate of LLDrawPoolTerrain's deferred render path (stage 5 phase
-  # 5.4b), same pattern as the other dxdrawpool* files.
+  # DX_RENDER: dxdrawpoolterrain.{cpp,h} holds the LLDrawPoolTerrain class
+  # and its DX11-native deferred render path (stage 5 phase 5.4b) -
+  # lldrawpoolterrain.h/.cpp retired entirely, 2026-10-13.
   list(APPEND viewer_SOURCE_FILES dxdrawpoolterrain.cpp)
   list(APPEND viewer_HEADER_FILES dxdrawpoolterrain.h)
-  # DX_RENDER: dxdrawpoolwater.{cpp,h} is a staged, purpose-built duplicate
-  # of LLDrawPoolWater's post-deferred water surface render path (task
-  # #109), same pattern as the other dxdrawpool* files.
+  # DX_RENDER: dxdrawpoolwater.{cpp,h} holds the LLDrawPoolWater class and
+  # its DX11-native post-deferred water surface render path (task #109) -
+  # lldrawpoolwater.h/.cpp retired entirely, 2026-10-13.
   list(APPEND viewer_SOURCE_FILES dxdrawpoolwater.cpp)
   list(APPEND viewer_HEADER_FILES dxdrawpoolwater.h)
+  # DX_RENDER: dxdrawpoolwaterexclusion.{cpp,h} - pure rename from
+  # lldrawpoolwaterexclusion.{cpp,h}, 2026-10-13 (no GL/DX split ever
+  # existed here to merge; part of the drawpool-wide ll->dx file rename).
+  list(APPEND viewer_SOURCE_FILES dxdrawpoolwaterexclusion.cpp)
+  list(APPEND viewer_HEADER_FILES dxdrawpoolwaterexclusion.h)
+  # DX_RENDER: dxdrawpoolpbropaque.{cpp,h} - pure rename from
+  # lldrawpoolpbropaque.{cpp,h}, 2026-10-13 (no GL/DX split ever existed
+  # here to merge; part of the drawpool-wide ll->dx file rename).
+  list(APPEND viewer_SOURCE_FILES dxdrawpoolpbropaque.cpp)
+  list(APPEND viewer_HEADER_FILES dxdrawpoolpbropaque.h)
+  # DX_RENDER: dxdrawpooltree.{cpp,h} - pure rename from
+  # lldrawpooltree.{cpp,h}, 2026-10-13 (no GL/DX split ever existed here
+  # to merge; part of the drawpool-wide ll->dx file rename).
+  list(APPEND viewer_SOURCE_FILES dxdrawpooltree.cpp)
+  list(APPEND viewer_HEADER_FILES dxdrawpooltree.h)
+  # DX_RENDER: dxdrawpoolavatar.{cpp,h} - pure rename from
+  # lldrawpoolavatar.{cpp,h}, 2026-10-13 (no GL/DX split ever existed here
+  # to merge; part of the drawpool-wide ll->dx file rename).
+  list(APPEND viewer_SOURCE_FILES dxdrawpoolavatar.cpp)
+  list(APPEND viewer_HEADER_FILES dxdrawpoolavatar.h)
   # DX_RENDER: dxbc7compressor.{cpp,h} is the BC7 texture-compression
   # pipeline's compute layer (task #318) - DXGI/DXTexture-specific, so it
   # belongs in this DX_RENDER-only list rather than the unconditional

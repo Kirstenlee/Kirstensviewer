@@ -1,7 +1,7 @@
 /**
  * @file dxdrawpoolterrain.cpp
- * @brief Fresh DX11-native implementation of LLDrawPoolTerrain's deferred
- * render path.
+ * @brief LLDrawPoolTerrain class implementation plus its DX11-native
+ * deferred render path.
  *
  * Copyright (c) 2025 Kirstenlee Cinquetti (Lee Quick)
  *
@@ -28,24 +28,174 @@
 
 #include "dxdrawpoolterrain.h"
 
-#include "lldrawpoolterrain.h"
 #include "llfasttimer.h"
 #include "llagent.h"
 #include "llviewercontrol.h"
 #include "lldrawable.h"
 #include "llface.h"
+#include "llsky.h"
 #include "llsurface.h"
 #include "llsurfacepatch.h"
 #include "llviewerregion.h"
 #include "llvlcomposition.h"
-#include "llviewerparcelmgr.h"
+#include "llviewerparcelmgr.h"      // for gRenderParcelOwnership
 #include "llviewerparceloverlay.h"
 #include "llvosurfacepatch.h"
+#include "llviewercamera.h"
+#include "llviewertexturelist.h" // To get alpha gradients
+#include "llworld.h"
 #include "pipeline.h"
+#include "dxpipeline.h"
 #include "llviewershadermgr.h"
 #include "llrender.h"
 #include "llenvironment.h"
 #include "llsettingsvo.h"
+
+const F32 DETAIL_SCALE = 1.f/16.f;
+int DebugDetailMap = 0;
+
+S32 LLDrawPoolTerrain::sPBRDetailMode = 0;
+F32 LLDrawPoolTerrain::sDetailScale = DETAIL_SCALE;
+F32 LLDrawPoolTerrain::sPBRDetailScale = DETAIL_SCALE;
+static LLTrace::BlockTimerStatHandle FTM_SHADOW_TERRAIN("Terrain Shadow");
+
+LLDrawPoolTerrain::LLDrawPoolTerrain(LLViewerTexture *texturep) :
+    LLFacePool(POOL_TERRAIN),
+    mTexturep(texturep)
+{
+    // Hack!
+    sDetailScale = 1.f/gSavedSettings.getF32("RenderTerrainScale");
+    sPBRDetailScale = 1.f/gSavedSettings.getF32("RenderTerrainPBRScale");
+    sPBRDetailMode = gSavedSettings.getS32("RenderTerrainPBRDetail");
+    mAlphaRampImagep = LLViewerTextureManager::getFetchedTexture(IMG_ALPHA_GRAD);
+
+    mAlphaRampImagep->setAddressMode(LLTexUnit::TAM_CLAMP);
+
+    m2DAlphaRampImagep = LLViewerTextureManager::getFetchedTexture(IMG_ALPHA_GRAD_2D);
+
+    m2DAlphaRampImagep->setAddressMode(LLTexUnit::TAM_CLAMP);
+
+    mTexturep->setBoostLevel(DXTextureBase::BOOST_TERRAIN);
+}
+
+LLDrawPoolTerrain::~LLDrawPoolTerrain()
+{
+    llassert( DXPipeline::findPool(gPipeline,  getType(), getTexture() ) == NULL );
+}
+
+U32 LLDrawPoolTerrain::getVertexDataMask()
+{
+    if (DXPipeline::sShadowRender)
+    {
+        return LLVertexBuffer::MAP_VERTEX;
+    }
+    else if (LLHLSLShader::sCurBoundShaderPtr)
+    {
+        return VERTEX_DATA_MASK & ~(LLVertexBuffer::MAP_TEXCOORD2 | LLVertexBuffer::MAP_TEXCOORD3);
+    }
+    else
+    {
+        return VERTEX_DATA_MASK;
+    }
+}
+
+void LLDrawPoolTerrain::prerender()
+{
+    static LLCachedControl<S32> render_terrain_pbr_detail(gSavedSettings, "RenderTerrainPBRDetail");
+    sPBRDetailMode = render_terrain_pbr_detail;
+}
+
+void LLDrawPoolTerrain::beginDeferredPass(S32 pass)
+{
+    LL_RECORD_BLOCK_TIME(FTM_RENDER_TERRAIN);
+    DXDrawPoolTerrain::beginDeferredPass(*this, pass);
+}
+
+void LLDrawPoolTerrain::endDeferredPass(S32 pass)
+{
+    LL_RECORD_BLOCK_TIME(FTM_RENDER_TERRAIN);
+    DXDrawPoolTerrain::endDeferredPass(*this, pass);
+}
+
+void LLDrawPoolTerrain::renderDeferred(S32 pass)
+{
+    LL_RECORD_BLOCK_TIME(FTM_RENDER_TERRAIN);
+    DXDrawPoolTerrain::renderDeferred(*this, pass);
+}
+
+void LLDrawPoolTerrain::beginShadowPass(S32 pass)
+{
+    LL_RECORD_BLOCK_TIME(FTM_SHADOW_TERRAIN);
+    LLFacePool::beginRenderPass(pass);
+    gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+    gDeferredShadowProgram.bind();
+
+    LLEnvironment& environment = LLEnvironment::instance();
+    gDeferredShadowProgram.uniform1i(LLShaderMgr::SUN_UP_FACTOR, environment.getIsSunUp() ? 1 : 0);
+}
+
+void LLDrawPoolTerrain::endShadowPass(S32 pass)
+{
+    LL_RECORD_BLOCK_TIME(FTM_SHADOW_TERRAIN);
+    LLFacePool::endRenderPass(pass);
+    gDeferredShadowProgram.unbind();
+}
+
+void LLDrawPoolTerrain::renderShadow(S32 pass)
+{
+    LL_RECORD_BLOCK_TIME(FTM_SHADOW_TERRAIN);
+    if (mDrawFace.empty())
+    {
+        return;
+    }
+    drawLoop();
+}
+
+void LLDrawPoolTerrain::drawLoop()
+{
+    if (!mDrawFace.empty())
+    {
+        for (std::vector<LLFace*>::iterator iter = mDrawFace.begin();
+             iter != mDrawFace.end(); iter++)
+        {
+            LLFace *facep = *iter;
+
+            llassert(gDX.getMatrixMode() == LLRender::MM_MODELVIEW);
+            LLRenderPass::applyModelMatrix(&facep->getDrawable()->getRegion()->mRenderMatrix);
+
+            facep->renderIndexed();
+        }
+    }
+}
+
+void LLDrawPoolTerrain::dirtyTextures(const std::set<LLViewerFetchedTexture*>& textures)
+{
+    LLViewerFetchedTexture* tex = LLViewerTextureManager::staticCastToFetchedTexture(mTexturep) ;
+    if (tex && textures.find(tex) != textures.end())
+    {
+        for (std::vector<LLFace*>::iterator iter = mReferences.begin();
+             iter != mReferences.end(); iter++)
+        {
+            LLFace *facep = *iter;
+            DXPipeline::markTextured(gPipeline, facep->getDrawable());
+        }
+    }
+}
+
+LLViewerTexture *LLDrawPoolTerrain::getTexture()
+{
+    return mTexturep;
+}
+
+LLViewerTexture *LLDrawPoolTerrain::getDebugTexture()
+{
+    return mTexturep;
+}
+
+LLColor3 LLDrawPoolTerrain::getDebugColor() const
+{
+    return LLColor3(0.f, 0.f, 1.f);
+}
 
 namespace
 {

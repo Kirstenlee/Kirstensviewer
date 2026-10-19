@@ -1,6 +1,7 @@
 /**
  * @file dxdrawpoolmaterials.cpp
- * @brief Fresh DX11-native implementation of LLDrawPoolMaterials::renderDeferred()
+ * @brief LLDrawPoolMaterials class implementation plus its DX11-native
+ * renderDeferred() implementation.
  *
  * Copyright (c) 2025 Kirstenlee Cinquetti (Lee Quick)
  *
@@ -27,19 +28,91 @@
 
 #include "dxdrawpoolmaterials.h"
 
-#include "lldrawpoolmaterials.h"
+#include "llviewershadermgr.h"
 #include "pipeline.h"
+#include "dxpipeline.h"
 #include "llrender.h"
 #include "llspatialpartition.h"
 #include "llhlslshader.h"
 #include "llshadermgr.h"
+
+LLDrawPoolMaterials::LLDrawPoolMaterials()
+:  LLRenderPass(LLDrawPool::POOL_MATERIALS)
+{
+}
+
+void LLDrawPoolMaterials::prerender()
+{
+    mShaderLevel = LLViewerShaderMgr::instance()->getShaderLevel(LLViewerShaderMgr::SHADER_OBJECT);
+}
+
+S32 LLDrawPoolMaterials::getNumDeferredPasses()
+{
+    // 12 render passes times 2 (one for each rigged and non rigged)
+    return 12*2;
+}
+
+void LLDrawPoolMaterials::beginDeferredPass(S32 pass)
+{
+
+    bool rigged = false;
+    if (pass >= 12)
+    {
+        rigged = true;
+        pass -= 12;
+    }
+    U32 shader_idx[] =
+    {
+        0, //LLRenderPass::PASS_MATERIAL,
+        //1, //LLRenderPass::PASS_MATERIAL_ALPHA,
+        2, //LLRenderPass::PASS_MATERIAL_ALPHA_MASK,
+        3, //LLRenderPass::PASS_MATERIAL_ALPHA_GLOW,
+        4, //LLRenderPass::PASS_SPECMAP,
+        //5, //LLRenderPass::PASS_SPECMAP_BLEND,
+        6, //LLRenderPass::PASS_SPECMAP_MASK,
+        7, //LLRenderPass::PASS_SPECMAP_GLOW,
+        8, //LLRenderPass::PASS_NORMMAP,
+        //9, //LLRenderPass::PASS_NORMMAP_BLEND,
+        10, //LLRenderPass::PASS_NORMMAP_MASK,
+        11, //LLRenderPass::PASS_NORMMAP_GLOW,
+        12, //LLRenderPass::PASS_NORMSPEC,
+        //13, //LLRenderPass::PASS_NORMSPEC_BLEND,
+        14, //LLRenderPass::PASS_NORMSPEC_MASK,
+        15, //LLRenderPass::PASS_NORMSPEC_GLOW,
+    };
+
+    U32 idx = shader_idx[pass];
+
+    mShader = &(gDeferredMaterialProgram[idx]);
+
+    if (rigged)
+    {
+        llassert(mShader->mRiggedVariant != nullptr);
+        mShader = mShader->mRiggedVariant;
+    }
+
+    DXPipeline::bindDeferredShader(gPipeline, *mShader);
+}
+
+void LLDrawPoolMaterials::endDeferredPass(S32 pass)
+{
+
+    mShader->unbind();
+
+    LLRenderPass::endRenderPass(pass);
+}
+
+void LLDrawPoolMaterials::renderDeferred(S32 pass)
+{
+    DXDrawPoolMaterials::renderDeferred(*this, pass);
+}
 
 // static
 void DXDrawPoolMaterials::renderDeferred(LLDrawPoolMaterials& pool, S32 pass)
 {
     (void)pool; // unused - mShader is private to LLDrawPoolMaterials; the shader is reached via
                 // LLHLSLShader::sCurBoundShaderPtr instead (already bound by beginDeferredPass()'s
-                // gPipeline.bindDeferredShader() call, which calls shader.bind() at its own top -
+                // DXPipeline::bindDeferredShader() call, which calls shader.bind() at its own top -
                 // same "use whatever's currently bound" pattern already established for DXUIBatch/
                 // LLSelectNode::renderOneSilhouette()).
 
@@ -59,14 +132,10 @@ void DXDrawPoolMaterials::renderDeferred(LLDrawPoolMaterials& pool, S32 pass)
         LLRenderPass::PASS_NORMSPEC_EMISSIVE,
     };
 
-    // S24 (2026-08-09, task #170): rigged materials batches were skipped
-    // entirely until task #168 fixed DXVertexLayout's MAP_WEIGHT4 rejection.
-    // beginDeferredPass() (lldrawpoolmaterials.cpp) is already shared,
-    // backend-agnostic code - it unconditionally selects mShader's rigged
-    // variant and calls bindDeferredShader() before this function ever
-    // runs, for pass>=12, on both backends already - so
-    // LLHLSLShader::sCurBoundShaderPtr (used as `shader` below) is already
-    // correctly the rigged variant here, no extra shader lookup needed.
+    // beginDeferredPass() (lldrawpoolmaterials.cpp) unconditionally selects
+    // mShader's rigged variant and binds it before this runs (pass>=12 on both
+    // backends), so LLHLSLShader::sCurBoundShaderPtr is already the correct
+    // rigged variant here - no extra shader lookup needed.
     bool rigged = false;
     if (pass >= 12)
     {
@@ -81,26 +150,16 @@ void DXDrawPoolMaterials::renderDeferred(LLDrawPoolMaterials& pool, S32 pass)
         type += 1; // PASS_X_RIGGED is always PASS_X's next enum value
     }
 
-    LLCullResult::drawinfo_iterator begin = gPipeline.beginRenderMap(type);
-    LLCullResult::drawinfo_iterator end = gPipeline.endRenderMap(type);
+    LLCullResult::drawinfo_iterator begin = DXPipeline::beginRenderMap(gPipeline, type);
+    LLCullResult::drawinfo_iterator end = DXPipeline::endRenderMap(gPipeline, type);
 
-    // S24 (2026-08-09, task #134): real fix - was diffuse-only (see the removed
-    // class-comment gap notice in dxdrawpoolmaterials.h). enableTexture()/
-    // uniform1f(U32,...)/uniform4fv(U32,...) are all already confirmed DX-safe
-    // (enableTexture(): resolves mTexture[] regardless of mProgramObject, task
-    // #62-era work; uniform1f/4fv(U32,...): resolve LLShaderMgr::mReservedUniforms[index]
-    // by name and push through DXShader::setUniformFloatArray(), task #107) -
-    // this pool just never called them. Mirrors LLDrawPoolMaterials::renderDeferred()'s
-    // GL body exactly, except: (1) skips the GL-only getUniformLocation()+raw
-    // glUniform1f()/glUniform4fv() calls entirely - raw glUniform*() are
-    // unguarded null function pointers under DX_RENDER, and getUniformLocation()
-    // gates on mProgramObject (always 0 here, same class of bug as task #60's
-    // isComplete() fix) - the uniformNf(U32,...) member overloads used here
-    // don't need a location precheck at all, they no-op safely by name if a
-    // given shader variant doesn't declare that uniform; (2) no mValue-based
-    // redundant-set avoidance (DX_RENDER's uniformNf() doesn't consult that
-    // cache), so the per-batch change-tracking below exists for the same
-    // "avoid redundant driver calls" reason GL has it, not for correctness.
+    // Mirrors LLDrawPoolMaterials::renderDeferred()'s GL body, except: (1) skips
+    // GL's getUniformLocation()+raw glUniform*() calls - unguarded null function
+    // pointers under DX_RENDER; the uniformNf(U32,...) overloads used here resolve
+    // by name and no-op safely if the bound variant doesn't declare that uniform;
+    // (2) DX_RENDER's uniformNf() doesn't cache last-set values, so the per-batch
+    // change-tracking below exists only to avoid redundant driver calls, not for
+    // correctness.
     LLHLSLShader* shader = LLHLSLShader::sCurBoundShaderPtr;
     if (!shader)
     {
@@ -112,9 +171,9 @@ void DXDrawPoolMaterials::renderDeferred(LLDrawPoolMaterials& pool, S32 pass)
     S32 specChannel = shader->enableTexture(LLShaderMgr::SPECULAR_MAP);
     S32 normChannel = shader->enableTexture(LLShaderMgr::BUMP_MAP);
 
-    LLTexture* lastDiffuse = nullptr;
-    LLTexture* lastSpecMap = nullptr;
-    LLTexture* lastNormalMap = nullptr;
+    DXTextureBase* lastDiffuse = nullptr;
+    DXTextureBase* lastSpecMap = nullptr;
+    DXTextureBase* lastNormalMap = nullptr;
     // Sentinels outside each field's real range - forces a real uniform set
     // on the very first draw item regardless of its actual value.
     F32 lastIntensity = -1.f;
@@ -183,9 +242,6 @@ void DXDrawPoolMaterials::renderDeferred(LLDrawPoolMaterials& pool, S32 pass)
             }
         }
 
-        // S24 (2026-08-09, task #170): upload matrix palette to shader -
-        // was never reached (rigged batches were skipped entirely before
-        // task #168).
         if (rigged)
         {
             if (!LLRenderPass::uploadMatrixPalette(params.mAvatar, params.mSkinInfo, lastAvatar, lastMeshId, skipLastSkin))

@@ -1,6 +1,8 @@
 /**
  * @file dxdrawpoolmaterials.h
- * @brief Fresh DX11-native implementation of LLDrawPoolMaterials::renderDeferred()
+ * @brief LLDrawPoolMaterials class definition plus its DX11-native
+ * renderDeferred() implementation - lldrawpoolmaterials.h/.cpp retired
+ * entirely, 2026-10-13.
  *
  * Copyright (c) 2025 Kirstenlee Cinquetti (Lee Quick)
  *
@@ -25,38 +27,61 @@
 
 #pragma once
 
-class LLDrawPoolMaterials;
+#include "v4coloru.h"
+#include "v2math.h"
+#include "v3math.h"
+#include "llvertexbuffer.h"
+#include "dxdrawpool.h"
+
+class LLViewerTexture;
+class LLDrawInfo;
+class LLHLSLShader;
+
+class LLDrawPoolMaterials : public LLRenderPass
+{
+	LLHLSLShader *mShader;
+public:
+	LLDrawPoolMaterials();
+
+	enum
+	{
+		VERTEX_DATA_MASK =	LLVertexBuffer::MAP_VERTEX |
+		LLVertexBuffer::MAP_NORMAL |
+		LLVertexBuffer::MAP_TEXCOORD0 |
+		LLVertexBuffer::MAP_TEXCOORD1 |
+		LLVertexBuffer::MAP_TEXCOORD2 |
+		LLVertexBuffer::MAP_COLOR |
+		LLVertexBuffer::MAP_TANGENT
+	};
+
+	U32 getVertexDataMask() override { return VERTEX_DATA_MASK; }
+
+	void render(S32 pass = 0) override { }
+	S32	 getNumPasses() override {return 0;}
+	void prerender() override;
+
+	S32 getNumDeferredPasses() override;
+	void beginDeferredPass(S32 pass) override;
+	void endDeferredPass(S32 pass) override;
+	void renderDeferred(S32 pass) override;
+};
 
 // Only LLDrawPoolMaterials::renderDeferred() needs real replacement logic
-// (see lldrawpoolmaterials.cpp's thin redirect) - beginDeferredPass()/
-// endDeferredPass() are left completely untouched there because they're
-// already DX-safe by composition: LLPipeline::bindDeferredShader() (which
-// they call) is entirely gated behind LLGLSLShader::enableTexture()'s
+// below - beginDeferredPass()/endDeferredPass() (above) are left completely
+// untouched because they're already DX-safe by composition:
+// LLPipeline::bindDeferredShader() (which
+// they call) is entirely gated behind LLHLSLShader::enableTexture()'s
 // `channel > -1` checks and the already-DX-safe uniform setters, so it
 // degrades to a real (if inert) shader bind under DX_RENDER with no changes
 // needed. Phase 5.2's other 2 real pools in this group
 // (LLDrawPoolWaterExclusion, LLDrawPoolTree) turned out to need zero code
 // changes at all for the same reason - see the stage 5 hitlist memory.
 //
-// S24 (2026-08-09, task #134): the "diffuse only" gap noted here previously
-// is fixed - normal/specular maps and the per-material shading uniforms
-// (environment intensity, emissive brightness, alpha cutoff, specular
-// color) are now bound for real, via LLGLSLShader::sCurBoundShaderPtr (mShader
-// is private to LLDrawPoolMaterials, same "read whatever's currently bound"
-// pattern already used by DXUIBatch/LLSelectNode::renderOneSilhouette())
-// and the already-DX-safe enableTexture()/uniform1f(U32,...)/uniform4fv(U32,...)
-// member overloads - mirrors LLDrawPoolMaterials::renderDeferred()'s GL body,
-// see dxdrawpoolmaterials.cpp's own comment for the two real deviations
-// (skips GL's getUniformLocation()+raw glUniform*() calls entirely - both
-// broken under DX_RENDER for reasons unrelated to this pool specifically).
-// S24 (2026-08-09, task #170): rigged batches (pass>=12) are no longer
-// skipped - DXVertexLayout's MAP_WEIGHT4 rejection was fixed by task #168.
-// beginDeferredPass() already unconditionally selected the rigged shader
-// variant for pass>=12 on both backends (no DX_RENDER gate there at all),
-// so LLGLSLShader::sCurBoundShaderPtr was already correct going into this
-// function - the only missing piece was renderDeferred() itself using the
-// rigged pass-type constant and calling uploadMatrixPalette() per batch,
-// both now ported directly from lldrawpoolmaterials.cpp.
+// Normal/specular maps and the per-material shading uniforms (environment
+// intensity, emissive brightness, alpha cutoff, specular color) are bound via
+// LLHLSLShader::sCurBoundShaderPtr (mShader is private to LLDrawPoolMaterials) -
+// see dxdrawpoolmaterials.cpp's renderDeferred() for the GL-body deviations and
+// the rigged (pass>=12) matrix-palette upload.
 class DXDrawPoolMaterials
 {
 public:

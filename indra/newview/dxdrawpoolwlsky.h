@@ -1,7 +1,8 @@
 /**
  * @file dxdrawpoolwlsky.h
- * @brief Fresh DX11-native implementation of LLDrawPoolWLSky's windlight
- * sky dome/clouds/stars/sun/moon render path.
+ * @brief LLDrawPoolWLSky class definition plus its DX11-native windlight
+ * sky dome/clouds/stars/sun/moon render path - lldrawpoolwlsky.h/.cpp
+ * retired entirely, 2026-10-13.
  *
  * Copyright (c) 2025 Kirstenlee Cinquetti (Lee Quick)
  *
@@ -26,33 +27,63 @@
 
 #pragma once
 
-class LLDrawPoolWLSky;
+#include "dxdrawpool.h"
 
-// Staged full duplicate, same pattern as dxdrawpoolalpha/dxdrawpoolbump
-// (stage 5 phase 5.3/5.4) - chosen per the user's standing preference
-// (2026-07-18) to keep pools API-distinct even where the GL body needs
-// little change.
+// The real sky/sun/moon/star/cloud rendering (renderDome/
+// renderSkyHazeDeferred/renderSkyCloudsDeferred/renderStarsDeferred/
+// renderHeavenlyBodies, and the shader-pointer statics supporting them)
+// lives entirely below in DXDrawPoolWLSky. This class is just the
+// LLDrawPool-required scaffolding plus the bridging redirects.
+class LLDrawPoolWLSky : public LLDrawPool {
+public:
+
+    static const U32 SKY_VERTEX_DATA_MASK = LLVertexBuffer::MAP_VERTEX |
+                            LLVertexBuffer::MAP_TEXCOORD0;
+    static const U32 STAR_VERTEX_DATA_MASK =    LLVertexBuffer::MAP_VERTEX |
+        LLVertexBuffer::MAP_COLOR | LLVertexBuffer::MAP_TEXCOORD0;
+    static const U32 ADV_ATMO_SKY_VERTEX_DATA_MASK = LLVertexBuffer::MAP_VERTEX
+                                                   | LLVertexBuffer::MAP_TEXCOORD0;
+    LLDrawPoolWLSky(void);
+    /*virtual*/ ~LLDrawPoolWLSky();
+
+    /*virtual*/ bool isDead() { return false; }
+
+    /*virtual*/ S32 getNumDeferredPasses() { return 1; }
+    /*virtual*/ void beginDeferredPass(S32 pass);
+    /*virtual*/ void endDeferredPass(S32 pass);
+    /*virtual*/ void renderDeferred(S32 pass);
+
+    /*virtual*/ LLViewerTexture *getDebugTexture();
+    /*virtual*/ U32 getVertexDataMask() { return SKY_VERTEX_DATA_MASK; }
+    /*virtual*/ bool verify() const { return true; }        // Verify that all data in the draw pool is correct!
+    /*virtual*/ S32 getShaderLevel() const { return mShaderLevel; }
+
+    //static LLDrawPool* createPool(const U32 type, LLViewerTexture *tex0 = NULL);
+
+    /*virtual*/ LLViewerTexture* getTexture();
+    /*virtual*/ bool isFacePool() { return false; }
+    /*virtual*/ void resetDrawOrders();
+
+    static void cleanupGL();
+    static void restoreGL();
+};
+
+// Staged full duplicate, same pattern as dxdrawpoolalpha/dxdrawpoolbump -
+// keeps pools API-distinct even where the GL body needs little change.
 //
-// Unlike LLDrawPoolAlpha/LLDrawPoolBump, this pool has no rigged-vs-static
-// distinction at all (sky/cloud/star/sun/moon geometry isn't per-object),
-// so there's no rigged-skip gap here. Real reading found the whole render
-// path (renderDome()/renderSkyHazeDeferred()/renderSkyCloudsDeferred()/
-// renderStarsDeferred()/renderHeavenlyBodies()) is already DX-safe by
-// composition: every matrix op goes through LLRender's CPU-side matrix
-// stack (translatef/rotatef/scalef/push/popMatrix, LLGLSquashToFarClip -
-// none of it touches GL directly), every draw goes through
-// LLVOWLSky::drawDome()/drawStars() which are plain LLVertexBuffer calls,
-// and every shader/texture call is through the already-DX-safe
-// LLGLSLShader/LLTexUnit wrappers.
+// Unlike DXAlphaDrawPool/LLDrawPoolBump, this pool has no rigged-vs-static
+// distinction (sky/cloud/star/sun/moon geometry isn't per-object). The
+// whole render path is DX-safe by composition: matrix ops go through
+// LLRender's CPU-side matrix stack, draws go through LLVOWLSky's plain
+// LLVertexBuffer calls, and shader/texture calls go through the DX-safe
+// LLHLSLShader/LLTexUnit wrappers.
 //
-// One real chokepoint found: LLDrawPoolWLSky::endDeferredPass() has a raw,
-// unconditional glClear(GL_DEPTH_BUFFER_BIT) call ("clear the depth buffer
-// so haze shaders can use unwritten depth as a mask"). Replaced here with
-// gPipeline.mRT->deferredScreen.clear(GL_DEPTH_BUFFER_BIT) - the deferred
-// G-buffer target is what's bound throughout this pass, and
-// LLRenderTarget::clear() already has a DX_RENDER branch
-// (mDXRenderTarget.clear(), stage 3) that does the equivalent depth-only
-// clear correctly.
+// One real difference: LLDrawPoolWLSky::endDeferredPass()'s raw
+// glClear(GL_DEPTH_BUFFER_BIT) (clearing the depth buffer so haze shaders
+// can use unwritten depth as a mask) is replaced here with
+// gPipeline.mRT->deferredScreen.clear(GL_DEPTH_BUFFER_BIT), using
+// LLRenderTarget::clear()'s DX_RENDER branch for the equivalent
+// depth-only clear.
 class DXDrawPoolWLSky
 {
 public:

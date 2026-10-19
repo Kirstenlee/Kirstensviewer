@@ -1,7 +1,7 @@
 /**
  * @file dxdrawpoolsimple.cpp
- * @brief Fresh DX11-native implementations of lldrawpoolsimple.h's 5 pool
- * classes that don't have their own in-place DX_RENDER branch yet.
+ * @brief The 6 "simple" draw pool classes' constructors and render methods -
+ * see dxdrawpoolsimple.h.
  *
  * Copyright (c) 2025 Kirstenlee Cinquetti (Lee Quick)
  *
@@ -28,10 +28,53 @@
 
 #include "dxdrawpoolsimple.h"
 
-#include "lldrawpoolsimple.h"
 #include "llrender.h"
 #include "llviewershadermgr.h"
 #include "pipeline.h"
+#include "dxpipeline.h"
+
+static LLTrace::BlockTimerStatHandle FTM_RENDER_SIMPLE_DEFERRED("Deferred Simple");
+
+LLDrawPoolSimple::LLDrawPoolSimple() :
+    LLRenderPass(POOL_SIMPLE)
+{
+}
+
+S32 LLDrawPoolSimple::getNumDeferredPasses()
+{
+    return 1;
+}
+
+void LLDrawPoolSimple::renderDeferred(S32 pass)
+{
+    LL_RECORD_BLOCK_TIME(FTM_RENDER_SIMPLE_DEFERRED);
+    DXDrawPoolSimple::renderSimpleDeferred(*this, pass);
+}
+
+// static
+void DXDrawPoolSimple::renderSimpleDeferred(LLDrawPoolSimple& pool, S32 pass)
+{
+    LLGLDisable blend(GL_BLEND);
+
+    // Rigged (skinned) geometry needs WEIGHT/WEIGHT4/JOINT vertex
+    // attributes, supported via DXVertexLayout's MAP_WEIGHT4. Renders both
+    // passes.
+    gDeferredDiffuseProgram.bind();
+    pool.pushBatches(LLRenderPass::PASS_SIMPLE, true, true);
+
+    gDeferredDiffuseProgram.bind(true);
+    pool.pushRiggedBatches(LLRenderPass::PASS_SIMPLE_RIGGED, true, true);
+}
+
+LLDrawPoolGrass::LLDrawPoolGrass() :
+    LLRenderPass(POOL_GRASS)
+{
+}
+
+void LLDrawPoolGrass::renderDeferred(S32 pass)
+{
+    DXDrawPoolSimple::renderGrassDeferred(*this, pass);
+}
 
 // static
 void DXDrawPoolSimple::renderGrassDeferred(LLDrawPoolGrass& pool, S32 pass)
@@ -43,6 +86,19 @@ void DXDrawPoolSimple::renderGrassDeferred(LLDrawPoolGrass& pool, S32 pass)
     // skinned geometry), so unlike the other 4 pools this one has nothing
     // to skip.
     pool.pushBatches(LLRenderPass::PASS_GRASS, pool.getVertexDataMask());
+}
+
+static LLTrace::BlockTimerStatHandle FTM_RENDER_ALPHA_MASK_DEFERRED("Deferred Alpha Mask");
+
+LLDrawPoolAlphaMask::LLDrawPoolAlphaMask() :
+    LLRenderPass(POOL_ALPHA_MASK)
+{
+}
+
+void LLDrawPoolAlphaMask::renderDeferred(S32 pass)
+{
+    LL_RECORD_BLOCK_TIME(FTM_RENDER_ALPHA_MASK_DEFERRED);
+    DXDrawPoolSimple::renderAlphaMaskDeferred(*this, pass);
 }
 
 // static
@@ -58,6 +114,17 @@ void DXDrawPoolSimple::renderAlphaMaskDeferred(LLDrawPoolAlphaMask& pool, S32 pa
     pool.pushRiggedMaskBatches(LLRenderPass::PASS_ALPHA_MASK_RIGGED, true, true);
 }
 
+LLDrawPoolFullbrightAlphaMask::LLDrawPoolFullbrightAlphaMask() :
+    LLRenderPass(POOL_FULLBRIGHT_ALPHA_MASK)
+{
+}
+
+void LLDrawPoolFullbrightAlphaMask::renderPostDeferred(S32 pass)
+{
+    LL_RECORD_BLOCK_TIME(FTM_RENDER_FULLBRIGHT);
+    DXDrawPoolSimple::renderFullbrightAlphaMaskPostDeferred(*this, pass);
+}
+
 // static
 void DXDrawPoolSimple::renderFullbrightAlphaMaskPostDeferred(LLDrawPoolFullbrightAlphaMask& pool, S32 pass)
 {
@@ -65,7 +132,7 @@ void DXDrawPoolSimple::renderFullbrightAlphaMaskPostDeferred(LLDrawPoolFullbrigh
     // subsystem, explicitly deferred (see dxdrawpoolsimple.h class comment).
 
     LLHLSLShader* shader = nullptr;
-    if (LLPipeline::sRenderingHUDs)
+    if (DXPipeline::sRenderingHUDs)
     {
         shader = &gHUDFullbrightAlphaMaskProgram;
     }
@@ -80,18 +147,29 @@ void DXDrawPoolSimple::renderFullbrightAlphaMaskPostDeferred(LLDrawPoolFullbrigh
     shader->bind();
     pool.pushMaskBatches(LLRenderPass::PASS_FULLBRIGHT_ALPHA_MASK, true, true);
 
-    if (!LLPipeline::sRenderingHUDs)
+    if (!DXPipeline::sRenderingHUDs)
     {
         shader->bind(true);
         pool.pushRiggedMaskBatches(LLRenderPass::PASS_FULLBRIGHT_ALPHA_MASK_RIGGED, true, true);
     }
 }
 
+LLDrawPoolFullbright::LLDrawPoolFullbright() :
+    LLRenderPass(POOL_FULLBRIGHT)
+{
+}
+
+void LLDrawPoolFullbright::renderPostDeferred(S32 pass)
+{
+    LL_RECORD_BLOCK_TIME(FTM_RENDER_FULLBRIGHT);
+    DXDrawPoolSimple::renderFullbrightPostDeferred(*this, pass);
+}
+
 // static
 void DXDrawPoolSimple::renderFullbrightPostDeferred(LLDrawPoolFullbright& pool, S32 pass)
 {
     LLHLSLShader* shader = nullptr;
-    if (LLPipeline::sRenderingHUDs)
+    if (DXPipeline::sRenderingHUDs)
     {
         shader = &gHUDFullbrightProgram;
     }
@@ -106,11 +184,16 @@ void DXDrawPoolSimple::renderFullbrightPostDeferred(LLDrawPoolFullbright& pool, 
     shader->bind();
     pool.pushBatches(LLRenderPass::PASS_FULLBRIGHT, true, true);
 
-    if (!LLPipeline::sRenderingHUDs)
+    if (!DXPipeline::sRenderingHUDs)
     {
         shader->bind(true);
         pool.pushRiggedBatches(LLRenderPass::PASS_FULLBRIGHT_RIGGED, true, true);
     }
+}
+
+void LLDrawPoolGlow::renderPostDeferred(S32 pass)
+{
+    DXDrawPoolSimple::renderGlowPostDeferred(*this, pass);
 }
 
 // static
@@ -126,7 +209,7 @@ void DXDrawPoolSimple::renderGlowPostDeferred(LLDrawPoolGlow& pool, S32 pass)
     gDX.setPolygonOffset(-1.0f, -1.0f);
     gDX.setSceneBlendType(LLRender::BT_ADD);
 
-    LLGLDepthTest depth(GL_TRUE, GL_FALSE);
+    DXDepthTest depth(true, false);
     gDX.setColorWriteMask(false, true);
 
     // render static

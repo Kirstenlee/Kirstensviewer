@@ -1,7 +1,7 @@
 /**
  * @file dxdrawpoolwater.cpp
- * @brief Fresh DX11-native implementation of LLDrawPoolWater's post-deferred
- * water surface render path.
+ * @brief LLDrawPoolWater class implementation plus its DX11-native
+ * post-deferred water surface render path.
  *
  * Copyright (c) 2025 Kirstenlee Cinquetti (Lee Quick)
  *
@@ -29,16 +29,126 @@ extern bool gCubeSnapshot;
 
 #include "dxdrawpoolwater.h"
 
-#include "lldrawpoolwater.h"
+#include "DXCubeMap.h"
+#include "llface.h"
+#include "llviewertexturelist.h"
+#include "llvowater.h"
+#include "llviewershadermgr.h"
+#include "llenvironment.h"
+#include "llsettingswater.h"
 #include "llrender.h"
 #include "pipeline.h"
-#include "llviewershadermgr.h"
+#include "dxpipeline.h"
 #include "llviewercamera.h"
 #include "llviewercontrol.h"
-#include "llenvironment.h"
 #include "llsettingssky.h"
-#include "llsettingswater.h"
 #include "llappviewer.h"
+
+LLTrace::BlockTimerStatHandle FTM_RENDER_WATER_OPAQUE("Water Opaque");
+
+bool LLDrawPoolWater::sSkipScreenCopy = false;
+bool LLDrawPoolWater::sNeedsReflectionUpdate = true;
+bool LLDrawPoolWater::sNeedsDistortionUpdate = true;
+F32 LLDrawPoolWater::sWaterFogEnd = 0.f;
+
+LLDrawPoolWater::LLDrawPoolWater() : LLFacePool(POOL_WATER)
+{
+}
+
+LLDrawPoolWater::~LLDrawPoolWater()
+{
+}
+
+void LLDrawPoolWater::setTransparentTextures(const LLUUID& transparentTextureId, const LLUUID& nextTransparentTextureId)
+{
+    LLSettingsWater::ptr_t pwater = LLEnvironment::instance().getCurrentWater();
+    mWaterImagep[0] = LLViewerTextureManager::getFetchedTexture(!transparentTextureId.isNull() ? transparentTextureId : pwater->GetDefaultTransparentTextureAssetId());
+    mWaterImagep[1] = LLViewerTextureManager::getFetchedTexture(!nextTransparentTextureId.isNull() ? nextTransparentTextureId : (!transparentTextureId.isNull() ? transparentTextureId : pwater->GetDefaultTransparentTextureAssetId()));
+    // S24 BUG FIX: Water textures must have high priority - they're always visible and critical
+    // Without boost, water gets stuck in queue after heavy texture load (e.g., post-TP)
+    mWaterImagep[0]->setBoostLevel(DXTextureBase::BOOST_HIGH);
+    mWaterImagep[1]->setBoostLevel(DXTextureBase::BOOST_HIGH);
+    mWaterImagep[0]->addTextureStats(2048.f*2048.f);  // Increased from 1024x1024
+    mWaterImagep[1]->addTextureStats(2048.f*2048.f);
+}
+
+void LLDrawPoolWater::setOpaqueTexture(const LLUUID& opaqueTextureId)
+{
+    LLSettingsWater::ptr_t pwater = LLEnvironment::instance().getCurrentWater();
+    mOpaqueWaterImagep = LLViewerTextureManager::getFetchedTexture(opaqueTextureId);
+    // S24 BUG FIX: Opaque water texture also needs high priority
+    mOpaqueWaterImagep->setBoostLevel(DXTextureBase::BOOST_HIGH);
+    mOpaqueWaterImagep->addTextureStats(2048.f*2048.f);  // Increased from 1024x1024
+}
+
+void LLDrawPoolWater::setNormalMaps(const LLUUID& normalMapId, const LLUUID& nextNormalMapId)
+{
+    LLSettingsWater::ptr_t pwater = LLEnvironment::instance().getCurrentWater();
+    mWaterNormp[0] = LLViewerTextureManager::getFetchedTexture(!normalMapId.isNull() ? normalMapId : pwater->GetDefaultWaterNormalAssetId());
+    mWaterNormp[1] = LLViewerTextureManager::getFetchedTexture(!nextNormalMapId.isNull() ? nextNormalMapId : (!normalMapId.isNull() ? normalMapId : pwater->GetDefaultWaterNormalAssetId()));
+    // S24 BUG FIX: Water normal maps CRITICAL - without them water appears flat/wrong
+    // This was causing "stuck water texture" after TP - normals were deprioritized
+    mWaterNormp[0]->setBoostLevel(DXTextureBase::BOOST_SUPER_HIGH);  // Super high - always needed
+    mWaterNormp[1]->setBoostLevel(DXTextureBase::BOOST_SUPER_HIGH);
+    mWaterNormp[0]->addTextureStats(2048.f*2048.f);  // Increased from 1024x1024
+    mWaterNormp[1]->addTextureStats(2048.f*2048.f);
+}
+
+void LLDrawPoolWater::prerender()
+{
+    mShaderLevel = DXCubeMap::sUseCubeMaps ? LLViewerShaderMgr::instance()->getShaderLevel(LLViewerShaderMgr::SHADER_WATER) : 0;
+}
+
+S32 LLDrawPoolWater::getNumPostDeferredPasses()
+{
+    if (LLViewerCamera::getInstance()->getOrigin().mV[2] < 1024.f)
+    {
+        return 1;
+    }
+
+    return 0;
+}
+
+void LLDrawPoolWater::beginPostDeferredPass(S32 pass)
+{
+    DXDrawPoolWater::beginPostDeferredPass(*this, pass);
+}
+
+void LLDrawPoolWater::renderPostDeferred(S32 pass)
+{
+    DXDrawPoolWater::renderPostDeferred(*this, pass);
+}
+
+void LLDrawPoolWater::pushWaterPlanes(int pass)
+{
+    LLVOWater* water = nullptr;
+    for (LLFace* const& face : mDrawFace)
+    {
+        water = static_cast<LLVOWater*>(face->getViewerObject());
+
+        face->renderIndexed();
+
+        // Note non-void water being drawn, updates required
+        // Previously we had some logic to determine if this pass was also our water edge pass.
+        // Now we only have one pass.  Check if we're doing a region water plane or void water plane.
+        // - Geenz 2025-02-11
+        if (!water->getIsEdgePatch())
+        {
+            sNeedsReflectionUpdate = true;
+            sNeedsDistortionUpdate = true;
+        }
+    }
+}
+
+LLViewerTexture *LLDrawPoolWater::getDebugTexture()
+{
+    return LLViewerTextureManager::getFetchedTexture(IMG_SMOKE);
+}
+
+LLColor3 LLDrawPoolWater::getDebugColor() const
+{
+    return LLColor3(0.f, 1.f, 1.f);
+}
 
 // static
 void DXDrawPoolWater::beginPostDeferredPass(LLDrawPoolWater& pool, S32 pass)
@@ -46,11 +156,11 @@ void DXDrawPoolWater::beginPostDeferredPass(LLDrawPoolWater& pool, S32 pass)
     (void)pass;
     gDX.setColorWriteMask(true, true);
 
-    if (LLPipeline::sRenderTransparentWater)
+    if (DXPipeline::sRenderTransparentWater)
     {
         // copy framebuffer contents so far to a texture to be used for
         // reflections and refractions
-        LLGLDepthTest depth(GL_TRUE, GL_TRUE, GL_ALWAYS);
+        DXDepthTest depth(true, true, GL_ALWAYS);
 
         LLRenderTarget& src = gPipeline.mRT->screen;
         LLRenderTarget& depth_src = gPipeline.mRT->deferredScreen;
@@ -71,12 +181,6 @@ void DXDrawPoolWater::beginPostDeferredPass(LLDrawPoolWater& pool, S32 pass)
         dst.flush();
     }
 }
-
-// Real handle defined in lldrawpoolwater.cpp - shared, not a separate instance
-// (LLTrace::BlockTimerStatHandle registers itself in a global name-keyed
-// registry; two independently-constructed handles with the same display
-// name collide and crash during static initialization).
-extern LLTrace::BlockTimerStatHandle FTM_RENDER_WATER_OPAQUE;
 
 // static
 void DXDrawPoolWater::renderPostDeferred(LLDrawPoolWater& pool, S32 pass)
@@ -193,8 +297,8 @@ void DXDrawPoolWater::renderPostDeferred(LLDrawPoolWater& pool, S32 pass)
     F32           phase_time = (F32) LLFrameTimer::getElapsedSeconds() * 0.5f * llmax(0.0f, (F32)water_wave_speed) * wind_speed_scale;
     LLHLSLShader *shader     = nullptr;
 
-    // select shader - see lldrawpoolwater.cpp's comment (Geenz 2025-02-11):
-    // one pass now, void/region water share the same shader.
+    // select shader (Geenz 2025-02-11): one pass now, void/region water
+    // share the same shader.
     if (underwater)
     {
         shader = &gUnderWaterProgram;
@@ -204,10 +308,10 @@ void DXDrawPoolWater::renderPostDeferred(LLDrawPoolWater& pool, S32 pass)
         shader = &gWaterProgram;
     }
 
-    gPipeline.bindDeferredShader(*shader, nullptr, &gPipeline.mWaterDis);
+    DXPipeline::bindDeferredShader(gPipeline, *shader, nullptr, &gPipeline.mWaterDis);
 
     // mWaterNormp is protected on LLDrawPoolWater; accessible here via a
-    // friend declaration in lldrawpoolwater.h.
+    // friend declaration (dxdrawpoolwater.h).
     LLViewerTexture* tex_a = pool.mWaterNormp[0];
     LLViewerTexture* tex_b = pool.mWaterNormp[1];
 
@@ -356,12 +460,12 @@ void DXDrawPoolWater::renderPostDeferred(LLDrawPoolWater& pool, S32 pass)
     // DXPipeline::renderGeomPostDeferred() - or water inherits whatever
     // matrix the last-drawn alpha object left behind.
 
-    // Only push the water planes once - see lldrawpoolwater.cpp's comment
-    // (Geenz 2025-02-11) for why there's no separate void-water pass.
+    // Only push the water planes once (Geenz 2025-02-11) - no separate
+    // void-water pass.
     pool.pushWaterPlanes(0);
 
     // clean up
-    gPipeline.unbindDeferredShader(*shader);
+    DXPipeline::unbindDeferredShader(gPipeline, *shader);
 
     gDX.setColorWriteMask(true, false);
 }

@@ -1,7 +1,7 @@
 /**
  * @file dxdrawpoolterrain.h
- * @brief Fresh DX11-native implementation of LLDrawPoolTerrain's deferred
- * render path.
+ * @brief LLDrawPoolTerrain class definition plus its DX11-native deferred
+ * render path - lldrawpoolterrain.h/.cpp retired entirely, 2026-10-13.
  *
  * Copyright (c) 2025 Kirstenlee Cinquetti (Lee Quick)
  *
@@ -26,10 +26,60 @@
 
 #pragma once
 
-class LLDrawPoolTerrain;
+#include "dxdrawpool.h"
+
+class LLDrawPoolTerrain : public LLFacePool
+{
+    LLPointer<LLViewerTexture> mTexturep;
+public:
+    enum
+    {
+        VERTEX_DATA_MASK = LLVertexBuffer::MAP_VERTEX |
+                    LLVertexBuffer::MAP_NORMAL |
+                    LLVertexBuffer::MAP_TANGENT | // Only PBR terrain uses this currently
+                    LLVertexBuffer::MAP_TEXCOORD0 | // Ownership overlay
+                    LLVertexBuffer::MAP_TEXCOORD1
+    };
+
+    virtual U32 getVertexDataMask();
+    LLDrawPoolTerrain(LLViewerTexture *texturep);
+    virtual ~LLDrawPoolTerrain();
+
+    /*virtual*/ S32 getNumDeferredPasses() { return 1; }
+    /*virtual*/ void beginDeferredPass(S32 pass);
+    /*virtual*/ void endDeferredPass(S32 pass);
+    /*virtual*/ void renderDeferred(S32 pass);
+
+    /*virtual*/ S32 getNumShadowPasses() { return 1; }
+    /*virtual*/ void beginShadowPass(S32 pass);
+    /*virtual*/ void endShadowPass(S32 pass);
+    /*virtual*/ void renderShadow(S32 pass);
+
+    /*virtual*/ void prerender();
+    /*virtual*/ void dirtyTextures(const std::set<LLViewerFetchedTexture*>& textures);
+    /*virtual*/ LLViewerTexture *getTexture();
+    /*virtual*/ LLViewerTexture *getDebugTexture();
+    /*virtual*/ LLColor3 getDebugColor() const; // For AGP debug display
+
+    LLPointer<LLViewerTexture> mAlphaRampImagep;
+    LLPointer<LLViewerTexture> m2DAlphaRampImagep;
+    LLPointer<LLViewerTexture> mAlphaNoiseImagep;
+
+    static S32 sPBRDetailMode;
+    static F32 sDetailScale; // textures per meter
+    static F32 sPBRDetailScale; // textures per meter
+
+protected:
+    // Still real - LLDrawPoolTerrain::renderShadow() (no DX_RENDER redirect, genuinely shared)
+    // calls this directly. Every other GL-only render helper that used to live here
+    // (renderFullShader()/renderFullShaderTextures()/renderFullShaderPBR()/hilightParcelOwners()/
+    // renderOwnership()/boostTerrainDetailTextures() and the already-dead-in-both-builds
+    // renderFull2TU()/renderFull4TU()/renderSimple()) was removed - see dxdrawpoolterrain.cpp.
+    void drawLoop();
+};
 
 // Staged full duplicate, same pattern as dxdrawpoolalpha/dxdrawpoolbump/
-// dxdrawpoolwlsky (stage 5 phase 5.4b). beginDeferredPass()/
+// dxdrawpoolwlsky. beginDeferredPass()/
 // endDeferredPass() are duplicated too (not left zero-touch like
 // LLDrawPoolTree/LLDrawPoolWLSky's begin/end in earlier phases) because
 // endDeferredPass() calls `sShader->unbind()` on a file-static shader
@@ -40,41 +90,25 @@ class LLDrawPoolTerrain;
 // a real null-pointer risk. Duplicating all three keeps the shader
 // hand-off self-contained.
 //
-// renderFull2TU()/renderFull4TU()/renderSimple() are NOT duplicated -
-// confirmed by grep they have zero callers anywhere in the codebase
-// (dead legacy fixed-function multitexture paths, predating the
+// renderFull2TU()/renderFull4TU()/renderSimple() (legacy fixed-function
+// multitexture, glEnable(GL_TEXTURE_GEN_S)/glTexGeni()/glTexGenfv() with no
+// DX11 equivalent) had zero callers anywhere in the codebase, predating the
 // always-shader-based rendering this pool actually uses via
-// renderFullShader() -> renderFullShaderTextures()/renderFullShaderPBR()).
-// They also rely heavily on glEnable(GL_TEXTURE_GEN_S)/glTexGeni()/
-// glTexGenfv() (fixed-function texture coordinate generation) which has
-// no DX11 equivalent at all - moot since nothing calls them.
+// renderFullShader() -> renderFullShaderTextures()/renderFullShaderPBR() -
+// deleted outright in lldrawpoolterrain.cpp rather than kept dead, along
+// with the redirect's now-unreachable GL bodies.
 //
-// S24 (2026-08-06): renderFullShaderTextures() used to only ever bind
-// detail_0, to hardcoded unit 0 - a phase-5.2-era workaround for
-// LLGLSLShader::enableTexture() being a hardcoded -1 no-op at the time
-// this file was written. Task #103 (same session, well before this fix)
-// gave enableTexture() a real D3D-reflection-based channel mapping - this
-// function now uses it for real, binding all 4 detail textures + the
-// alpha-ramp blend-weight texture, matching lldrawpoolterrain.cpp's GL
-// implementation exactly. The stale "only unit 0" state left detail_1-3/
-// alpha_ramp permanently unbound, so those slots held whatever an
-// unrelated, previously-drawn object last left there - the actual root
-// cause of a real, reported bug (terrain visibly showing other scene
-// objects' textures, changing live with camera rotation/freecam, solid
-// red on an empty test sim). renderFullShaderPBR() still only binds the
-// first material's base color texture (documented visual gap: PBR terrain
-// renders flat, no multi-layer/normal/roughness/emissive) - not fixed
-// here, same shape of gap, lower priority since legacy TEXTURE-type
-// terrain (not PBR paint materials) was the one actually reported broken.
-// renderOwnership() (used by the "ShowParcelOwners" debug overlay) needed
-// no such fix - it only ever binds to hardcoded unit 0 already, by design.
+// renderFullShaderTextures() binds all 5 textures (detail_0-3 + alpha_ramp) via
+// enableTexture()'s real channel mapping; binding only unit 0 would leave the
+// other slots holding whatever a previously-drawn, unrelated object left bound.
+// renderFullShaderPBR() still only binds the first material's base color texture
+// (PBR terrain renders flat - no multi-layer/normal/roughness/emissive).
+// renderOwnership() needs no such handling - it only ever binds unit 0, by design.
 //
-// hilightParcelOwners()'s glPolygonOffset(-1.0f, -1.0f) call is real again
-// (2026-08-28, task #242) via LLRender::setPolygonOffset() - was skipped
-// entirely before ("no DX11 runtime equivalent").
+// hilightParcelOwners()'s polygon offset is real via LLRender::setPolygonOffset(),
+// no #ifdef needed.
 //
-// beginShadowPass()/endShadowPass()/renderShadow() are out of scope here -
-// shadow pass is phase 5.7.
+// beginShadowPass()/endShadowPass()/renderShadow() are out of scope here.
 class DXDrawPoolTerrain
 {
 public:
