@@ -4,8 +4,8 @@
 ---
 
 <p align="center">
-     <img src="https://img.shields.io/badge/build-4255-green.svg" alt="Build">
-     <img src="https://img.shields.io/badge/version-Beta%201.1-blueviolet.svg" alt="Beta 1.1">
+     <img src="https://img.shields.io/badge/build-4310-green.svg" alt="Build">
+     <img src="https://img.shields.io/badge/version-Beta%201.2-blueviolet.svg" alt="Beta 1.2">
      <img src="https://img.shields.io/badge/platform-Windows-blue.svg" alt="Platform">
      <img src="https://img.shields.io/badge/standard-C%2B%2B20-orange.svg" alt="C++20">
      <img src="https://img.shields.io/badge/renderer-DirectX%2011-9cf.svg" alt="DirectX 11">
@@ -72,7 +72,8 @@ Kirstens Viewer respects user privacy and disables or limits the following compo
 | 3322  | LYSI     | S24.6   |
 | 3500  | MAGN     | S24.7   |
 | 4168  | HRADR    | Beta 1.0 |
-| **4255** | **HRADR** | **Beta 1.1 (current)** |
+| 4255  | HRADR    | Beta 1.1 |
+| **4310** | **HRADR** | **Beta 1.2 (current)** |
 
 **Forked from Viewer Develop / 2026.4**
 
@@ -87,8 +88,8 @@ all GLSL shader source and the OpenGL path were removed.
 Public releases so far: pre-alpha 0.1 (2026-08-23), 0.2, 0.3 and 0.4, then
 **Alpha 1.0** (2026-09-17, r3855), **Alpha 1.1** (2026-09-19, r3868),
 **Alpha 1.2** (2026-09-27, r4015), **Alpha 1.3** (2026-10-03, r4100),
-**Beta 1.0** (2026-10-11, r4168) and **Beta 1.1** (2026-10-19, r4255), the
-current release.
+**Beta 1.0** (2026-10-11, r4168), **Beta 1.1** (2026-10-19, r4255) and
+**Beta 1.2** (2026-10-30, r4310), the current release.
 
 **Architecture**: the D3D11 backend lives in `indra/dxrender/`: `core/`
 (device, context, state: `DXDevice`, `DXContext`, `DXSwapChain`,
@@ -100,23 +101,27 @@ Per-frame orchestration (`DXPipeline`, the `DXDrawPool*` family) lives in
 
 **Status**: the GLSL→HLSL shader port is complete (237/237 files). The full
 deferred renderer is working: opaque, alpha, materials, PBR, avatars,
-terrain, water and sky; shadows (with cascade/spot-shadow flicker fixed in
-Beta 1.0), local and spot lights, SSAO, glow and bloom; FXAA, SMAA and
+terrain, water and sky; shadows (sun cascades and spotlights, plus
+real-time shadows for local point/omni lights (experimental), off by
+default), local and spot lights, SSAO, glow and bloom; FXAA, SMAA and
 Contrast Adaptive Sharpening; optional AMD FSR1 upscaling; real D3D11
-occlusion culling; reflection probes, with temporal flicker fixed, a
-corrected ambient/tonemap balance across sky presets, and an optional
-avatar-centred "Master Reflection Cube" (on by default, tunable capture
-radius) alongside the existing per-location probe system; anisotropic
-filtering; real Screen-Space Reflections; hero-probe mirrors;
-BC7 GPU texture compression (58% VRAM reduction, opt-in); AMD AGS and
-NVIDIA NVAPI device-creation parity; and a real Anaglyph 3D implementation.
+occlusion culling; reflection probes — with temporal flicker fixed, a
+corrected ambient/tonemap balance across sky presets, a same-class
+champion/runner-up blend that removes hard cutoffs at probe boundaries,
+atomic (tear-free) capture, and a firefly/overbright clamp — alongside the
+existing per-location probe system and an optional avatar-centred "Master
+Reflection Cube" (on by default, tunable capture radius); anisotropic
+filtering; real Screen-Space Reflections; hero-probe mirrors; a real
+raymarched volumetric-light effect for the sun; BC7 GPU texture compression
+(58% VRAM reduction, opt-in); AMD AGS and NVIDIA NVAPI device-creation
+parity; and a real Anaglyph 3D implementation.
 
 **Known gaps**: AutoFPS (avatar GPU-cost throttling) is a no-op under
 `DX_RENDER`. The optional VFX motion blur reads the frame back to the CPU
-each frame, which costs performance; it is off by default. SCULPT mesh
-objects can show internal faces in some cases. A
-hard-edge/circular-boundary artifact can appear at reflection-probe
-coverage boundaries on some surfaces; a fix is in progress.
+each frame, which costs performance; it is off by default. A hard-edge
+artifact can still appear at reflection-probe coverage boundaries on some
+surfaces under certain lighting — under active investigation, not yet
+resolved.
 
 ---
 
@@ -139,9 +144,49 @@ to Marine Kelley and Kitty Barnett. Full reference:
 
 ---
 
-## ✨ Change Log — Beta 1.1 (current release, r4169 → r4255)
+## ✨ Change Log — Beta 1.2 (current release, r4256 → r4310)
 
 Grouped by area. The detailed commit history is in SVN.
+
+#### 🎨 Graphics & Rendering
+
+- **New, experimental: real-time point/omni light shadows.** Ordinary local lights (prims with "Light" checked, not projectors) can now actually cast shadows instead of shining straight through walls — off by default, with its own toggle under the Lighting tab of the Engine tuning panel. Uses the same proven shadow architecture as sun and spotlight shadows, extended to a 6-face cube capture per light.
+- **Volumetric light rewritten.** What used to be a cheap fake "godray" streak is now a real raymarched volumetric-light effect for the sun. Renamed from "Godray Intensity" to just "Intensity" and moved to its own "Volumetric Light" card.
+- **Reflection probes refined further:** a same-class champion/runner-up blend removes hard cutoffs where two probes of the same type meet; probe capture is now atomic, removing a source of same-frame tearing; a firefly/overbright clamp was added; and a deep investigation into probe mottling at the lowest detail level confirmed it's an inherent property of that detail tier (not a bug) while catching and fixing two real, separate gaps along the way.
+- **Default reflection cube (always-on ambient fallback) overbright fixed** at both high detail tiers and at the lowest detail level.
+- **Sculpt prims:** fixed distorted normal-mapped reflections at UV poles.
+- **Water:** added dithering, anisotropic filtering and a reflection crossfade/blur pass; a Fresnel floor so grazing-angle reflections never fully vanish; and a horizon haze fade.
+- **Profile floater:** Account Type now shows Standard/Special/Internal trust-tier colors.
+
+#### 🛡️ KRLV
+
+- Camera, Clothing/Attachments, Chat/Emotes/IM and the remaining Inventory categories fully closed out: Mouselook-forcing reliability fixed, `@remattach`/`@attachthis`/`@detachthis` reimplemented as real occupancy-aware locks, a cross-cutting fix for every `_sec` command, and a thorough audit that closed several small gaps where a restriction could be silently bypassed.
+- KRLV Control floater: a prefix-aware override registry for commands that share a common prefix.
+- Fixed a restriction-conflict case where two opposing camera-distance restrictions from different sources could fight each other every frame.
+
+#### 💬 Chat, Messaging & Sign-Up
+
+- **Persistent chat history:** IM and nearby-chat transcripts now survive a restart via a dedicated chat history service, instead of being rebuilt from scratch each session.
+- **New in-viewer Join/Sign-Up flow**, plus general-purpose web-modal floaters for showing web content without leaving the viewer.
+- "Delete Transcripts" now tells you if it couldn't start (for example, a cleanup already in progress) instead of silently doing nothing.
+
+#### 🖌️ UI & Preferences
+
+- The Colors tab no longer silently resets itself on every login.
+- A proper "Reset to Defaults" button was added for the Rendering Advanced tab.
+
+#### 🔧 Internals, Quality & Security
+
+- **A full multi-agent QA pass** was run across every change in this release, finding and fixing real issues before shipping: an inventory cache-loading regression that could leave a broken item visible, a double-counted cache diagnostic, the camera-restriction conflict above, and a reflection-probe setting that was quietly paying a real performance cost for no visible benefit at its default value.
+- **Security hardening** around sign-in/credential handling in the Join flow.
+- Linden Lab upstream backport program closed out again, including an async inventory-cache improvement.
+- Large comment-verbosity cleanup across both C++ and shader code: historical narrative and debugging-diary comments trimmed down to short, technical explanations.
+- `LLCoordGL` renamed to `LLCoordYUp` tree-wide (~60 files) for clarity — internal only, no user-facing change.
+
+---
+
+<details>
+<summary><b>Beta 1.1 — reflection probe fixes, Master Reflection Cube, new-user defaults (r4169 → r4255)</b></summary>
 
 #### 🎨 Graphics & Rendering — Reflections
 
@@ -162,7 +207,7 @@ Grouped by area. The detailed commit history is in SVN.
 - **Performance:** the hot per-draw matrix-multiply path (`syncMatrices()`) moved to DirectXMath (~16% faster, measured); avatar `updateCharacter()` parallelized; a render-path perf sweep fixed an avatar shader-rebind inefficiency.
 - Drawpool naming fully normalized (zero `ll*`-prefixed drawpool files remain); a `dxpipeline.cpp` code audit caught and fixed a real `&=!` vs `&=~` bitwise bug along with several uninitialized-variable issues.
 
----
+</details>
 
 <details>
 <summary><b>Beta 1.0 — reflections reworked, 360° capture rebuilt, DXVK toggle (r4100 → r4168)</b></summary>
@@ -237,7 +282,7 @@ of the GL-vocabulary and dead-code retirement.
 
 </details>
 
-**Beta 1.0 binaries signed:** Authenticode, verified and timestamped.
+**Beta 1.2 binaries signed:** Authenticode, verified and timestamped.
 
 - Signer: Lee Quick (Open Source Developer), Certum Code Signing 2021 CA
 - Certificate serial: `42A6B2AF506CF74D014E99C3C64B2E58`
