@@ -518,9 +518,18 @@ bool LLTexUnit::bindCubeArraySRV(void* srv_ptr)
 		gDX.flush();
 		gDXUIBatch.flushPending();
 	}
-	// CLAMP + TRILINEAR - same convention as bind(DXCubeMap*) above (avoids
-	// seams at face edges, full mip chain always generated).
-	ID3D11SamplerState* sampler = DXSampler::getOrCreate(2, 2);
+	// CLAMP + ANISOTROPIC (was TRILINEAR) - trilinear only resolves a
+	// circular sample footprint; a reflection ray grazing toward the
+	// horizon (e.g. calm water) projects a hugely elongated footprint onto
+	// the cube face, which trilinear mip-selects as a blur in one axis and
+	// leaves full-res aliasing in the other - the vertical "comb" striping
+	// seen in reflections toward the horizon, unchanged by probe
+	// resolution since it's a footprint-shape problem, not a texel-count
+	// one. DXSampler::getOrCreate() already falls back to trilinear if
+	// RenderAnisotropicLevel/sMaxAnisotropy is 0, so this is a strict
+	// upgrade, never a regression, for every cube-array consumer (sphere
+	// probe radiance/irradiance, mirror/hero probes).
+	ID3D11SamplerState* sampler = DXSampler::getOrCreate(2, 3);
 	// Always write the view. The cached pointer alone can be stale: other paths (render-target binds,
 	// texture unbinds) write this slot without updating mCurrDXSRV, and a released view's address can be
 	// reused by a new array view, so a skipped write could leave the slot empty or on an old layout.

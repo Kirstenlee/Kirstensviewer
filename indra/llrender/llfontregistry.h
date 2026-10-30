@@ -134,7 +134,7 @@ public:
     void clear();
 
     // GL cleanup
-    void destroyGL();
+    void destroyDX();
 
     LLFontDX *getFont(const LLFontDescriptor& desc);
     const LLFontDescriptor *getMatchingFontDesc(const LLFontDescriptor& desc);

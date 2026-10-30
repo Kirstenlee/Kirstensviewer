@@ -69,9 +69,9 @@ std::string LLFontDX::sAppDir;
 LLColor4 LLFontDX::sShadowColor(0.f, 0.f, 0.f, 1.f);
 LLFontRegistry* LLFontDX::sFontRegistry = NULL;
 
-LLCoordGL LLFontDX::sCurOrigin;
+LLCoordYUp LLFontDX::sCurOrigin;
 F32 LLFontDX::sCurDepth;
-std::vector<std::pair<LLCoordGL, F32> > LLFontDX::sOriginStack;
+std::vector<std::pair<LLCoordYUp, F32> > LLFontDX::sOriginStack;
 
 const F32 PAD_UVY = 0.5f; // half of vertical padding between glyphs in the glyph texture
 const F32 DROP_SHADOW_SOFT_STRENGTH = 0.3f;
@@ -89,9 +89,9 @@ void LLFontDX::reset()
     mFontFreetype->reset(sVertDPI, sHorizDPI);
 }
 
-void LLFontDX::destroyGL()
+void LLFontDX::destroyDX()
 {
-    mFontFreetype->destroyGL();
+    mFontFreetype->destroyDX();
 }
 
 bool LLFontDX::loadFace(const std::string& filename, F32 point_size, const F32 vert_dpi, const F32 horz_dpi, S32 weight, bool is_fallback, S32 face_n, EFontHinting hinting, S32 flags)
@@ -1071,7 +1071,7 @@ void LLFontDX::destroyAllGL()
 {
     if (sFontRegistry)
     {
-        sFontRegistry->destroyGL();
+        sFontRegistry->destroyDX();
     }
 }
 

@@ -458,7 +458,7 @@ void LLToolTipMgr::createToolTip(const LLToolTip::Params& params)
 
     if (params.pos.isProvided())
     {
-        LLCoordGL pos = params.pos;
+        LLCoordYUp pos = params.pos;
         // try to spawn at requested position
         LLUI::getInstance()->positionViewNearMouse(mToolTip, pos.mX, pos.mY);
     }

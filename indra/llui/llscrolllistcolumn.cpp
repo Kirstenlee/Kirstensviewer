@@ -118,7 +118,7 @@ void LLScrollColumnHeader::onClick(const LLSD& data)
     }
 }
 
-LLView* LLScrollColumnHeader::findSnapEdge(S32& new_edge_val, const LLCoordGL& mouse_dir, ESnapEdge snap_edge, ESnapType snap_type, S32 threshold, S32 padding)
+LLView* LLScrollColumnHeader::findSnapEdge(S32& new_edge_val, const LLCoordYUp& mouse_dir, ESnapEdge snap_edge, ESnapType snap_type, S32 threshold, S32 padding)
 {
     // this logic assumes dragging on right
     llassert(snap_edge == SNAP_RIGHT);

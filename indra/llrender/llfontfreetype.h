@@ -156,7 +156,7 @@ public:
 
     void reset(F32 vert_dpi, F32 horz_dpi);
 
-    void destroyGL();
+    void destroyDX();
 
     const std::string& getName() const;
 

@@ -272,7 +272,7 @@ protected:
     virtual void    markAsPreedit(S32 position, S32 length);
     virtual void    getPreeditRange(S32 *position, S32 *length) const;
     virtual void    getSelectionRange(S32 *position, S32 *length) const;
-    virtual bool    getPreeditLocation(S32 query_offset, LLCoordGL *coord, LLRect *bounds, LLRect *control) const;
+    virtual bool    getPreeditLocation(S32 query_offset, LLCoordYUp *coord, LLRect *bounds, LLRect *control) const;
     virtual S32     getPreeditFontSize() const;
     virtual LLWString getPreeditString() const { return getWText(); }
 
@@ -343,7 +343,7 @@ private:
 
     LLUUID          mSourceID;
 
-    LLCoordGL       mLastIMEPosition;       // Last position of the IME editor
+    LLCoordYUp       mLastIMEPosition;       // Last position of the IME editor
 
     keystroke_signal_t mKeystrokeSignal;
     LLTextValidate::Validator mPrevalidator;

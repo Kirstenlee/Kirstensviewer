@@ -101,7 +101,7 @@ public:
     static void updateStats(F32 current_time);
 
     // cleanup GL state
-    static void destroyGL();
+    static void destroyDX();
 
     static bool checkSize(S32 width, S32 height);
 
@@ -354,7 +354,7 @@ private:
                (mFormatPrimary == GL_RGB && mComponents < 3);
     }
 
-    LLPointer<LLImageRaw> mSaveData; // used for destroyGL/restoreGL
+    LLPointer<LLImageRaw> mSaveData; // used for destroyDX/restoreDX
     LL::WorkQueue::weak_t mMainQueue;
     U8* mPickMask;  //downsampled bitmap approximation of alpha channel.  NULL if no alpha channel
     U16 mPickMaskWidth;

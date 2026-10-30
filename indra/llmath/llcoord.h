@@ -27,11 +27,11 @@
 #define LL_LLCOORD_H
 
 template<typename> class LLCoord;
-struct LL_COORD_TYPE_GL;
+struct LL_COORD_TYPE_YUP;
 struct LL_COORD_TYPE_WINDOW;
 struct LL_COORD_TYPE_SCREEN;
 
-typedef LLCoord<LL_COORD_TYPE_GL> LLCoordGL;
+typedef LLCoord<LL_COORD_TYPE_YUP> LLCoordYUp;
 typedef LLCoord<LL_COORD_TYPE_WINDOW> LLCoordWindow;
 typedef LLCoord<LL_COORD_TYPE_SCREEN> LLCoordScreen;
 
@@ -75,19 +75,19 @@ public:
 	static self_t& getTypedCoords(COORD_FRAME& self) { return static_cast<self_t&>(self); }
 };
 
-struct LL_COORD_TYPE_GL 
+struct LL_COORD_TYPE_YUP 
 {
 	typedef S32 value_t;
 
 	LLCoordCommon convertToCommon() const
 	{
-		const LLCoordGL& self = LLCoordGL::getTypedCoords(*this);
+		const LLCoordYUp& self = LLCoordYUp::getTypedCoords(*this);
 		return LLCoordCommon(self.mX, self.mY);
 	}
 
 	void convertFromCommon(const LLCoordCommon& from)
 	{
-		LLCoordGL& self = LLCoordGL::getTypedCoords(*this);
+		LLCoordYUp& self = LLCoordYUp::getTypedCoords(*this);
 		self.mX = from.mX;
 		self.mY = from.mY;
 	}

@@ -32,7 +32,7 @@
 
 #include "llfontfreetype.h" // for LLFontFreetype::FIRST_CHAR
 #include "llfontdx.h"
-#include "llgl.h"           // LLGLSUIDefault()
+#include "llgl.h"           // DXUIDefault()
 #include "lllocalcliprect.h"
 #include "llrender.h"
 #include "llui.h"
@@ -2965,7 +2965,7 @@ void LLTextEditor::updatePreedit(const LLWString &preedit_string,
     onKeyStroke();
 }
 
-bool LLTextEditor::getPreeditLocation(S32 query_offset, LLCoordGL *coord, LLRect *bounds, LLRect *control) const
+bool LLTextEditor::getPreeditLocation(S32 query_offset, LLCoordYUp *coord, LLRect *bounds, LLRect *control) const
 {
     if (control)
     {

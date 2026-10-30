@@ -56,6 +56,8 @@ using LLW32MsgCallback = void(*)(const MSG&);
 // S24 Function prototype for handling window messages
 void processWindowMessage(const MSG& msg, LLW32MsgCallback callback);
 
+struct LLImeCompositionSnapshot;
+
 class LLWindowWin32 : public LLWindow
 {
 public:
@@ -113,10 +115,10 @@ public:
 	// handy coordinate space conversion routines
     bool convertCoords(LLCoordScreen from, LLCoordWindow *to) override;
     bool convertCoords(LLCoordWindow from, LLCoordScreen *to) override;
-    bool convertCoords(LLCoordWindow from, LLCoordGL *to) override;
-    bool convertCoords(LLCoordGL from, LLCoordWindow *to) override;
-    bool convertCoords(LLCoordScreen from, LLCoordGL *to) override;
-    bool convertCoords(LLCoordGL from, LLCoordScreen *to) override;
+    bool convertCoords(LLCoordWindow from, LLCoordYUp *to) override;
+    bool convertCoords(LLCoordYUp from, LLCoordWindow *to) override;
+    bool convertCoords(LLCoordScreen from, LLCoordYUp *to) override;
+    bool convertCoords(LLCoordYUp from, LLCoordScreen *to) override;
 
     LLWindowResolution* getSupportedResolutions(S32 &num_resolutions) override;
     F32 getNativeAspectRatio() override;
@@ -130,14 +132,14 @@ public:
 	void focusClient() override;
 
 	void allowLanguageTextInput(LLPreeditor *preeditor, bool b) override;
-    void setLanguageTextInput( const LLCoordGL & pos ) override;
+    void setLanguageTextInput( const LLCoordYUp & pos ) override;
     void updateLanguageTextInputArea() override;
     void interruptLanguageTextInput() override;
     void spawnWebBrowser(const std::string& escaped_url, bool async) override;
 
     F32 getSystemUISize() override;
 
-	LLWindowCallbacks::DragNDropResult completeDragNDropRequest(const LLCoordGL gl_coord, const MASK mask, LLWindowCallbacks::DragNDropAction action, const std::string url);
+	LLWindowCallbacks::DragNDropResult completeDragNDropRequest(const LLCoordYUp gl_coord, const MASK mask, LLWindowCallbacks::DragNDropAction action, const std::string url);
 
     static PROC WINAPI getProcAddress(const char* func);
     static std::vector<std::string> getDisplaysResolutionList();
@@ -179,12 +181,12 @@ protected:
 
 	bool    shouldPostQuit() { return mPostQuit; }
 
-	void    fillCandidateForm(const LLCoordGL& caret, const LLRect& bounds, CANDIDATEFORM* form);
-	void    fillCharPosition(const LLCoordGL& caret, const LLRect& bounds, const LLRect& control, IMECHARPOSITION* char_position);
+	void    fillCandidateForm(const LLCoordYUp& caret, const LLRect& bounds, CANDIDATEFORM* form);
+	void    fillCharPosition(const LLCoordYUp& caret, const LLRect& bounds, const LLRect& control, IMECHARPOSITION* char_position);
 	void    fillCompositionLogfont(LOGFONT* logfont);
 	U32     fillReconvertString(const LLWString& text, S32 focus, S32 focus_length, RECONVERTSTRING* reconvert_string);
 	void    handleStartCompositionMessage();
-	void    handleCompositionMessage(U32 indexes);
+	void    handleCompositionMessage(const LLImeCompositionSnapshot& snapshot);
 	bool    handleImeRequests(WPARAM request, LPARAM param, LRESULT* result);
 
 	// #5611: Discrete GPU selection for hybrid graphics systems
@@ -249,8 +251,8 @@ protected:
 	static DWORD    sWinIMEConversionMode;
 	static DWORD    sWinIMESentenceMode;
 	static LLCoordWindow sWinIMEWindowPosition;
-	LLCoordGL       mLanguageTextInputPointGL;
-	LLRect          mLanguageTextInputAreaGL;
+	LLCoordYUp       mLanguageTextInputPoint;
+	LLRect          mLanguageTextInputArea;
 
 	LLPreeditor* mPreeditor;
 

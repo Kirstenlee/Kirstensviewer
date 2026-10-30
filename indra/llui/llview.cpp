@@ -1778,9 +1778,9 @@ LLView* LLView::findNextSibling(LLView* child)
 }
 
 
-LLCoordGL getNeededTranslation(const LLRect& input, const LLRect& constraint, S32 min_overlap_pixels)
+LLCoordYUp getNeededTranslation(const LLRect& input, const LLRect& constraint, S32 min_overlap_pixels)
 {
-	LLCoordGL delta;
+	LLCoordYUp delta;
 
 	const S32 KEEP_ONSCREEN_PIXELS_WIDTH = llmin(min_overlap_pixels, input.getWidth());
 	const S32 KEEP_ONSCREEN_PIXELS_HEIGHT = llmin(min_overlap_pixels, input.getHeight());
@@ -1820,7 +1820,7 @@ bool LLView::translateIntoRect(const LLRect& constraint, S32 min_overlap_pixels)
 
 bool LLView::translateRectIntoRect(const LLRect& rect, const LLRect& constraint, S32 min_overlap_pixels)
 {
-	LLCoordGL translation = getNeededTranslation(rect, constraint, min_overlap_pixels);
+	LLCoordYUp translation = getNeededTranslation(rect, constraint, min_overlap_pixels);
 
 	if (translation.mX != 0 || translation.mY != 0)
 	{
@@ -1835,7 +1835,7 @@ bool LLView::translateRectIntoRect(const LLRect& rect, const LLRect& constraint,
 // NOTE: if this view is already contained in "inside", we ignore the "exclude" rect
 bool LLView::translateIntoRectWithExclusion( const LLRect& inside, const LLRect& exclude, S32 min_overlap_pixels)
 {
-	LLCoordGL translation = getNeededTranslation(getRect(), inside, min_overlap_pixels);
+	LLCoordYUp translation = getNeededTranslation(getRect(), inside, min_overlap_pixels);
 	
 	if (translation.mX != 0 || translation.mY != 0)
 	{
@@ -2065,7 +2065,7 @@ void LLView::handleReshape(const LLRect& new_rect, bool by_user)
 	translate(new_rect.mLeft - getRect().mLeft, new_rect.mBottom - getRect().mBottom);
 }
 
-LLView* LLView::findSnapRect(LLRect& new_rect, const LLCoordGL& mouse_dir,
+LLView* LLView::findSnapRect(LLRect& new_rect, const LLCoordYUp& mouse_dir,
 							 LLView::ESnapType snap_type, S32 threshold, S32 padding)
 {
 	new_rect = mRect;
@@ -2114,7 +2114,7 @@ LLView* LLView::findSnapRect(LLRect& new_rect, const LLCoordGL& mouse_dir,
 	return snap_view;
 }
 
-LLView*	LLView::findSnapEdge(S32& new_edge_val, const LLCoordGL& mouse_dir, ESnapEdge snap_edge, ESnapType snap_type, S32 threshold, S32 padding)
+LLView*	LLView::findSnapEdge(S32& new_edge_val, const LLCoordYUp& mouse_dir, ESnapEdge snap_edge, ESnapType snap_type, S32 threshold, S32 padding)
 {
 	LLRect snap_rect = getSnapRect();
 	S32 snap_pos = 0;

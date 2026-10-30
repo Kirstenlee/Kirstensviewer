@@ -378,7 +378,7 @@ void LLImageDX::updateStats(F32 current_time)
 //----------------------------------------------------------------------------
 
 //static
-void LLImageDX::destroyGL()
+void LLImageDX::destroyDX()
 {
     for (S32 stage = 0; stage < gGLManager.mNumTextureImageUnits; stage++)
     {

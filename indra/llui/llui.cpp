@@ -215,14 +215,14 @@ void LLUI::setMousePositionScreen(S32 x, S32 y)
 	S32 screen_x = ll_round((F32)x * getScaleFactor().mV[VX]);
 	S32 screen_y = ll_round((F32)y * getScaleFactor().mV[VY]);
 
-	LLView::getWindow()->setCursorPosition(LLCoordGL(screen_x, screen_y).convert());
+	LLView::getWindow()->setCursorPosition(LLCoordYUp(screen_x, screen_y).convert());
 }
 
 void LLUI::getMousePositionScreen(S32* x, S32* y)
 {
 	LLCoordWindow cursor_pos_window;
 	getWindow()->getCursorPosition(&cursor_pos_window);
-	LLCoordGL cursor_pos_gl(cursor_pos_window.convert());
+	LLCoordYUp cursor_pos_gl(cursor_pos_window.convert());
 	*x = ll_round((F32)cursor_pos_gl.mX / getScaleFactor().mV[VX]);
 	*y = ll_round((F32)cursor_pos_gl.mY / getScaleFactor().mV[VY]);
 }
@@ -412,7 +412,7 @@ void LLUI::reportBadKeystroke()
 	make_ui_sound("UISndBadKeystroke");
 }
 
-// spawn_x and spawn_y are top left corner of view in screen GL coordinates
+// spawn_x and spawn_y are top left corner of view in screen Y-up coordinates
 void LLUI::positionViewNearMouse(LLView* view, S32 spawn_x, S32 spawn_y)
 {
 	const S32 CURSOR_HEIGHT = 16;		// Approximate "normal" cursor size
@@ -726,7 +726,7 @@ namespace LLInitParam
 		height.set(value.getHeight(), make_block_authoritative);
 	}
 
-	ParamValue<LLCoordGL>::ParamValue(const LLCoordGL& coord)
+	ParamValue<LLCoordYUp>::ParamValue(const LLCoordYUp& coord)
 		: super_t(coord),
 		x("x"),
 		y("y")
@@ -734,12 +734,12 @@ namespace LLInitParam
 		updateBlockFromValue(false);
 	}
 
-	void ParamValue<LLCoordGL>::updateValueFromBlock()
+	void ParamValue<LLCoordYUp>::updateValueFromBlock()
 	{
-		updateValue(LLCoordGL(x, y));
+		updateValue(LLCoordYUp(x, y));
 	}
 
-	void ParamValue<LLCoordGL>::updateBlockFromValue(bool make_block_authoritative)
+	void ParamValue<LLCoordYUp>::updateBlockFromValue(bool make_block_authoritative)
 	{
 		x.set(getValue().mX, make_block_authoritative);
 		y.set(getValue().mY, make_block_authoritative);

@@ -925,7 +925,7 @@ bool LLFloater::applyRectControl()
     bool saved_rect = false;
 
     LLRect screen_rect = calcScreenRect();
-    mPosition = LLCoordGL(screen_rect.getCenterX(), screen_rect.getCenterY()).convert();
+    mPosition = LLCoordYUp(screen_rect.getCenterX(), screen_rect.getCenterY()).convert();
 
     LLFloater* last_in_group = LLFloaterReg::getLastFloaterInGroup(mInstanceName);
     if (last_in_group && last_in_group != this)
@@ -955,7 +955,7 @@ bool LLFloater::applyRectControl()
                 }
                 mPositioning = LLFloaterEnums::POSITIONING_RELATIVE;
                 LLRect screen_rect = calcScreenRect();
-                mPosition = LLCoordGL(screen_rect.getCenterX(), screen_rect.getCenterY()).convert();
+                mPosition = LLCoordYUp(screen_rect.getCenterX(), screen_rect.getCenterY()).convert();
                 rect_specified = true;
             }
         }
@@ -1198,7 +1198,7 @@ void LLFloater::handleReshape(const LLRect& new_rect, bool by_user)
             }
         mPositioning = LLFloaterEnums::POSITIONING_RELATIVE;
         LLRect screen_rect = calcScreenRect();
-        mPosition = LLCoordGL(screen_rect.getCenterX(), screen_rect.getCenterY()).convert();
+        mPosition = LLCoordYUp(screen_rect.getCenterX(), screen_rect.getCenterY()).convert();
         }
         storeRectControl();
 
@@ -1896,7 +1896,7 @@ void LLFloater::onClickTearOff(LLFloater* self)
             if (self->mSaveRect)
             {
                 LLRect screen_rect = self->calcScreenRect();
-                self->mPosition = LLCoordGL(screen_rect.getCenterX(), screen_rect.getCenterY()).convert();
+                self->mPosition = LLCoordYUp(screen_rect.getCenterX(), screen_rect.getCenterY()).convert();
                 self->storeRectControl();
             }
             self->setMinimized(false); // to reenable minimize button if it was minimized
@@ -3679,8 +3679,8 @@ void LLFloater::applyRelativePosition()
     snap_rect.translate(floater_view_screen_rect.mLeft, floater_view_screen_rect.mBottom);
     LLRect floater_screen_rect = calcScreenRect();
 
-    LLCoordGL new_center = mPosition.convert();
-    LLCoordGL cur_center(floater_screen_rect.getCenterX(), floater_screen_rect.getCenterY());
+    LLCoordYUp new_center = mPosition.convert();
+    LLCoordYUp cur_center(floater_screen_rect.getCenterX(), floater_screen_rect.getCenterY());
     translate(new_center.mX - cur_center.mX, new_center.mY - cur_center.mY);
 }
 

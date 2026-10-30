@@ -137,7 +137,7 @@ bool LLResizeBar::handleHover(S32 x, S32 y, MASK mask)
 		S32 delta_x = screen_x - mDragLastScreenX;
 		S32 delta_y = screen_y - mDragLastScreenY;
 				
-		LLCoordGL mouse_dir;
+		LLCoordYUp mouse_dir;
 		// use hysteresis on mouse motion to preserve user intent when mouse stops moving
 		mouse_dir.mX = (screen_x == mLastMouseScreenX) ? mLastMouseDir.mX : screen_x - mLastMouseScreenX;
 		mouse_dir.mY = (screen_y == mLastMouseScreenY) ? mLastMouseDir.mY : screen_y - mLastMouseScreenY;
@@ -330,19 +330,19 @@ bool LLResizeBar::handleDoubleClick(S32 x, S32 y, MASK mask)
 		switch( mSide )
 		{
 		case LEFT:
-			mResizingView->findSnapEdge(scaled_rect.mLeft, LLCoordGL(0, 0), SNAP_LEFT, SNAP_PARENT_AND_SIBLINGS, S32_MAX);
+			mResizingView->findSnapEdge(scaled_rect.mLeft, LLCoordYUp(0, 0), SNAP_LEFT, SNAP_PARENT_AND_SIBLINGS, S32_MAX);
 			scaled_rect.mLeft = scaled_rect.mRight - llclamp(scaled_rect.getWidth(), mMinSize, mMaxSize);
 			break;
 		case TOP:
-			mResizingView->findSnapEdge(scaled_rect.mTop, LLCoordGL(0, 0), SNAP_TOP, SNAP_PARENT_AND_SIBLINGS, S32_MAX);
+			mResizingView->findSnapEdge(scaled_rect.mTop, LLCoordYUp(0, 0), SNAP_TOP, SNAP_PARENT_AND_SIBLINGS, S32_MAX);
 			scaled_rect.mTop = scaled_rect.mBottom + llclamp(scaled_rect.getHeight(), mMinSize, mMaxSize);
 			break;
 		case RIGHT:
-			mResizingView->findSnapEdge(scaled_rect.mRight, LLCoordGL(0, 0), SNAP_RIGHT, SNAP_PARENT_AND_SIBLINGS, S32_MAX);
+			mResizingView->findSnapEdge(scaled_rect.mRight, LLCoordYUp(0, 0), SNAP_RIGHT, SNAP_PARENT_AND_SIBLINGS, S32_MAX);
 			scaled_rect.mRight = scaled_rect.mLeft + llclamp(scaled_rect.getWidth(), mMinSize, mMaxSize);
 			break;
 		case BOTTOM:
-			mResizingView->findSnapEdge(scaled_rect.mBottom, LLCoordGL(0, 0), SNAP_BOTTOM, SNAP_PARENT_AND_SIBLINGS, S32_MAX);
+			mResizingView->findSnapEdge(scaled_rect.mBottom, LLCoordYUp(0, 0), SNAP_BOTTOM, SNAP_PARENT_AND_SIBLINGS, S32_MAX);
 			scaled_rect.mBottom = scaled_rect.mTop - llclamp(scaled_rect.getHeight(), mMinSize, mMaxSize);
 			break;
 		}

@@ -648,7 +648,7 @@ void LLFontRegistry::clear()
 	mFontMap.clear();
 }
 
-void LLFontRegistry::destroyGL()
+void LLFontRegistry::destroyDX()
 {
 	for (font_reg_map_t::iterator it = mFontMap.begin();
 		it != mFontMap.end();
@@ -656,7 +656,7 @@ void LLFontRegistry::destroyGL()
 	{
 		// Reset the corresponding font but preserve the entry.
 		if (it->second)
-			it->second->destroyGL();
+			it->second->destroyDX();
 	}
 }
 

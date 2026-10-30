@@ -2137,7 +2137,7 @@ void LLLineEditor::draw()
                 // Make sure the IME is in the right place
                 S32 pixels_after_scroll = findPixelNearestPos();    // RCalculcate for IME position
                 LLRect screen_pos = calcScreenRect();
-                LLCoordGL ime_pos( screen_pos.mLeft + pixels_after_scroll, screen_pos.mTop - lineeditor_v_pad );
+                LLCoordYUp ime_pos( screen_pos.mLeft + pixels_after_scroll, screen_pos.mTop - lineeditor_v_pad );
 
                 ime_pos.mX = (S32) (ime_pos.mX * LLUI::getScaleFactor().mV[VX]);
                 ime_pos.mY = (S32) (ime_pos.mY * LLUI::getScaleFactor().mV[VY]);
@@ -2590,7 +2590,7 @@ void LLLineEditor::updatePreedit(const LLWString &preedit_string,
     mSpellCheckTimer.setTimerExpirySec(SPELLCHECK_DELAY);
 }
 
-bool LLLineEditor::getPreeditLocation(S32 query_offset, LLCoordGL *coord, LLRect *bounds, LLRect *control) const
+bool LLLineEditor::getPreeditLocation(S32 query_offset, LLCoordYUp *coord, LLRect *bounds, LLRect *control) const
 {
     if (control)
     {

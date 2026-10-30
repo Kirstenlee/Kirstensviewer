@@ -681,6 +681,10 @@ void LLShaderMgr::initAttribsAndUniforms()
 
 	llassert(mReservedUniforms.size() == LLShaderMgr::MULTI_LIGHT_FAR_Z + 1);
 
+	// S24: real-time point/omni light shadows - which batched fullscreen-pass
+	// light (if any) is the 1 real-time point-shadow slot's current occupant.
+	mReservedUniforms.push_back("light_shadow_idx");
+
 	//NOTE: MUST match order in eGLSLReservedUniforms
 	mReservedUniforms.push_back("proj_mat");
 	mReservedUniforms.push_back("proj_near");
@@ -691,6 +695,12 @@ void LLShaderMgr::initAttribsAndUniforms()
 	mReservedUniforms.push_back("proj_ambiance");
 	mReservedUniforms.push_back("proj_shadow_idx");
 	mReservedUniforms.push_back("shadow_fade");
+	mReservedUniforms.push_back("point_shadow_idx");
+	mReservedUniforms.push_back("point_shadow_fade");
+	mReservedUniforms.push_back("point_shadow_matrix");
+	mReservedUniforms.push_back("point_shadow_bias");
+	mReservedUniforms.push_back("point_shadow_res");
+	mReservedUniforms.push_back("point_shadow_inv_view_rot");
 	mReservedUniforms.push_back("proj_focus");
 	mReservedUniforms.push_back("proj_lod");
 	mReservedUniforms.push_back("proj_ambient_lod");
@@ -833,8 +843,14 @@ void LLShaderMgr::initAttribsAndUniforms()
 	mReservedUniforms.push_back("shadowMap3");
 	mReservedUniforms.push_back("shadowMap4");
 	mReservedUniforms.push_back("shadowMap5");
+	mReservedUniforms.push_back("pointShadowFace0");
+	mReservedUniforms.push_back("pointShadowFace1");
+	mReservedUniforms.push_back("pointShadowFace2");
+	mReservedUniforms.push_back("pointShadowFace3");
+	mReservedUniforms.push_back("pointShadowFace4");
+	mReservedUniforms.push_back("pointShadowFace5");
 
-	llassert(mReservedUniforms.size() == LLShaderMgr::DEFERRED_SHADOW5 + 1);
+	llassert(mReservedUniforms.size() == LLShaderMgr::POINT_SHADOW_FACE5 + 1);
 
 	mReservedUniforms.push_back("positionMap");
 	mReservedUniforms.push_back("diffuseRect");

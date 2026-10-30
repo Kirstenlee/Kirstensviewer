@@ -96,7 +96,13 @@ public:
                                            msg);
                     break;
                 case webrtc::LS_ERROR:
-                    mCallback->LogMessage(LLWebRTCLogCallback::LOG_LEVEL_ERROR, msg);
+                    // S24: same file-origin check as LS_INFO/LS_WARNING above - libwebrtc's own
+                    // internals log routine NAT/ICE and AEC-reinit noise at LS_ERROR; demote
+                    // unless it originates from our own wrapper (llwebrtc.cpp).
+                    mCallback->LogMessage(msg.rfind(file_prefix, 0) == 0
+                                               ? LLWebRTCLogCallback::LOG_LEVEL_ERROR
+                                               : LLWebRTCLogCallback::LOG_LEVEL_VERBOSE,
+                                           msg);
                     break;
                 default:
                     break;
@@ -116,14 +122,8 @@ private:
     LLWebRTCLogCallback* mCallback;
 };
 
-// -----------------------------------------------------------------------------
-// A proxy transport that forwards capture data to two AudioTransport sinks:
-//  - the "engine" (libwebrtc's VoiceEngine)
-//  - the "user" (your app's listener)
-//
-// Playout (NeedMorePlayData) goes only to the engine by default to avoid
-// double-writing into the output buffer. See notes below if you want a tap.
-// -----------------------------------------------------------------------------
+// Forwards capture data to both the engine (VoiceEngine) and app listener;
+// playout goes only to the engine, to avoid double-writing the output buffer.
 class LLWebRTCAudioTransport : public webrtc::AudioTransport
 {
 public:

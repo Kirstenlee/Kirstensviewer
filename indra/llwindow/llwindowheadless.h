@@ -92,10 +92,10 @@ public:
     // handy coordinate space conversion routines
     /*virtual*/ bool convertCoords(LLCoordScreen from, LLCoordWindow *to) override { return false; }
     /*virtual*/ bool convertCoords(LLCoordWindow from, LLCoordScreen *to) override { return false; }
-    /*virtual*/ bool convertCoords(LLCoordWindow from, LLCoordGL *to) override { return false; }
-    /*virtual*/ bool convertCoords(LLCoordGL from, LLCoordWindow *to) override { return false; }
-    /*virtual*/ bool convertCoords(LLCoordScreen from, LLCoordGL *to) override { return false; }
-    /*virtual*/ bool convertCoords(LLCoordGL from, LLCoordScreen *to) override { return false; }
+    /*virtual*/ bool convertCoords(LLCoordWindow from, LLCoordYUp *to) override { return false; }
+    /*virtual*/ bool convertCoords(LLCoordYUp from, LLCoordWindow *to) override { return false; }
+    /*virtual*/ bool convertCoords(LLCoordScreen from, LLCoordYUp *to) override { return false; }
+    /*virtual*/ bool convertCoords(LLCoordYUp from, LLCoordScreen *to) override { return false; }
 
 	/*virtual*/ LLWindowResolution* getSupportedResolutions(S32 &num_resolutions) override { return NULL; }
 	/*virtual*/ F32	getNativeAspectRatio() override { return 1.0f; }

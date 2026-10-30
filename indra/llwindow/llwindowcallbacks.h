@@ -38,24 +38,24 @@ public:
     virtual void handleScanKey(KEY key, bool key_down, bool key_up, bool key_level);
     virtual bool handleUnicodeChar(llwchar uni_char, MASK mask);
 
-    virtual bool handleMouseDown(LLWindow *window,  LLCoordGL pos, MASK mask);
-    virtual bool handleMouseUp(LLWindow *window,  LLCoordGL pos, MASK mask);
+    virtual bool handleMouseDown(LLWindow *window,  LLCoordYUp pos, MASK mask);
+    virtual bool handleMouseUp(LLWindow *window,  LLCoordYUp pos, MASK mask);
 	virtual void handleMouseLeave(LLWindow *window);
 	// return TRUE to allow window to close, which will then cause handleQuit to be called
     virtual bool handleCloseRequest(LLWindow *window, bool from_user);
     virtual bool handleSessionExit(LLWindow* window);
 	// window is about to be destroyed, clean up your business
 	virtual void handleQuit(LLWindow *window);
-    virtual bool handleRightMouseDown(LLWindow *window,  LLCoordGL pos, MASK mask);
-    virtual bool handleRightMouseUp(LLWindow *window,  LLCoordGL pos, MASK mask);
-    virtual bool handleMiddleMouseDown(LLWindow *window,  LLCoordGL pos, MASK mask);
-    virtual bool handleMiddleMouseUp(LLWindow *window,  LLCoordGL pos, MASK mask);
-    virtual bool handleOtherMouseDown(LLWindow *window,  LLCoordGL pos, MASK mask, S32 button);
-    virtual bool handleOtherMouseUp(LLWindow *window,  LLCoordGL pos, MASK mask, S32 button);
+    virtual bool handleRightMouseDown(LLWindow *window,  LLCoordYUp pos, MASK mask);
+    virtual bool handleRightMouseUp(LLWindow *window,  LLCoordYUp pos, MASK mask);
+    virtual bool handleMiddleMouseDown(LLWindow *window,  LLCoordYUp pos, MASK mask);
+    virtual bool handleMiddleMouseUp(LLWindow *window,  LLCoordYUp pos, MASK mask);
+    virtual bool handleOtherMouseDown(LLWindow *window,  LLCoordYUp pos, MASK mask, S32 button);
+    virtual bool handleOtherMouseUp(LLWindow *window,  LLCoordYUp pos, MASK mask, S32 button);
     virtual bool handleActivate(LLWindow *window, bool activated);
     virtual bool handleActivateApp(LLWindow *window, bool activating);
-	virtual void handleMouseMove(LLWindow *window,  LLCoordGL pos, MASK mask);
-    virtual void handleMouseDragged(LLWindow *window,  LLCoordGL pos, MASK mask);
+	virtual void handleMouseMove(LLWindow *window,  LLCoordYUp pos, MASK mask);
+    virtual void handleMouseDragged(LLWindow *window,  LLCoordYUp pos, MASK mask);
 	virtual void handleScrollWheel(LLWindow *window,  S32 clicks);
 	virtual void handleScrollHWheel(LLWindow *window,  S32 clicks);
 	virtual void handleResize(LLWindow *window,  S32 width,  S32 height);
@@ -63,9 +63,9 @@ public:
 	virtual void handleFocusLost(LLWindow *window);
 	virtual void handleMenuSelect(LLWindow *window,  S32 menu_item);
     virtual bool handlePaint(LLWindow *window,  S32 x,  S32 y,  S32 width,  S32 height);
-    virtual bool handleLeftMouseDoubleClick(LLWindow *window,  LLCoordGL pos, MASK mask);
-    virtual bool handleRightMouseDoubleClick(LLWindow* window, LLCoordGL pos, MASK mask);
-    virtual bool handleMiddleMouseDoubleClick(LLWindow* window, LLCoordGL pos, MASK mask);
+    virtual bool handleLeftMouseDoubleClick(LLWindow *window,  LLCoordYUp pos, MASK mask);
+    virtual bool handleRightMouseDoubleClick(LLWindow* window, LLCoordYUp pos, MASK mask);
+    virtual bool handleMiddleMouseDoubleClick(LLWindow* window, LLCoordYUp pos, MASK mask);
 	virtual void handleWindowBlock(LLWindow *window);							// window is taking over CPU for a while
 	virtual void handleWindowUnblock(LLWindow *window);							// window coming back after taking over CPU for a while
 	virtual void handleDataCopy(LLWindow *window, S32 data_type, void *data);
@@ -88,7 +88,7 @@ public:
 		DND_COPY,		// Drop accepted would result in a "copy" operation
 		DND_LINK		// Drop accepted would result in a "link" operation
 	};
-	virtual DragNDropResult handleDragNDrop(LLWindow *window, LLCoordGL pos, MASK mask, DragNDropAction action, std::string data);
+	virtual DragNDropResult handleDragNDrop(LLWindow *window, LLCoordYUp pos, MASK mask, DragNDropAction action, std::string data);
 	
 	virtual void handlePingWatchdog(LLWindow *window, const char * msg);
 	virtual void handlePauseWatchdog(LLWindow *window);

@@ -821,9 +821,9 @@ void LLFontFreetype::resetBitmapCache()
     }
 }
 
-void LLFontFreetype::destroyGL()
+void LLFontFreetype::destroyDX()
 {
-    mFontBitmapCachep->destroyGL();
+    mFontBitmapCachep->destroyDX();
 }
 
 const std::string &LLFontFreetype::getName() const

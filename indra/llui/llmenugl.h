@@ -860,7 +860,7 @@ public:
 
     // Need to detect if mouse-up after context menu spawn has moved.
     // If not, need to keep the menu up.
-    static LLCoordGL sContextMenuSpawnPos;
+    static LLCoordYUp sContextMenuSpawnPos;
 
 private:
     static LLHandle<LLView> sItemLastSelectedHandle;

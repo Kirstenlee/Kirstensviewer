@@ -3736,7 +3736,7 @@ bool LLMenuBarGL::handleHover( S32 x, S32 y, MASK mask )
 ///============================================================================
 /// Class LLMenuHolderGL
 ///============================================================================
-LLCoordGL LLMenuHolderGL::sContextMenuSpawnPos(S32_MAX, S32_MAX);
+LLCoordYUp LLMenuHolderGL::sContextMenuSpawnPos(S32_MAX, S32_MAX);
 
 LLMenuHolderGL::LLMenuHolderGL(const LLMenuHolderGL::Params& p)
     : LLPanel(p)

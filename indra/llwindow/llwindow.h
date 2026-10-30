@@ -160,10 +160,10 @@ public:
 	// as the conversion must take into account left AND right border widths, etc.
     virtual bool convertCoords( LLCoordScreen from, LLCoordWindow *to) = 0;
     virtual bool convertCoords( LLCoordWindow from, LLCoordScreen *to) = 0;
-    virtual bool convertCoords( LLCoordWindow from, LLCoordGL *to) = 0;
-    virtual bool convertCoords( LLCoordGL from, LLCoordWindow *to) = 0;
-    virtual bool convertCoords( LLCoordScreen from, LLCoordGL *to) = 0;
-    virtual bool convertCoords( LLCoordGL from, LLCoordScreen *to) = 0;
+    virtual bool convertCoords( LLCoordWindow from, LLCoordYUp *to) = 0;
+    virtual bool convertCoords( LLCoordYUp from, LLCoordWindow *to) = 0;
+    virtual bool convertCoords( LLCoordScreen from, LLCoordYUp *to) = 0;
+    virtual bool convertCoords( LLCoordYUp from, LLCoordScreen *to) = 0;
 
 	// query supported resolutions
 	virtual LLWindowResolution* getSupportedResolutions(S32 &num_resolutions) = 0;
@@ -186,7 +186,7 @@ public:
 	
 	// control platform's Language Text Input mechanisms.
     virtual void allowLanguageTextInput(LLPreeditor *preeditor, bool b) {}
-	virtual void setLanguageTextInput( const LLCoordGL & pos ) {};
+	virtual void setLanguageTextInput( const LLCoordYUp & pos ) {};
 	virtual void updateLanguageTextInputArea() {}
 	virtual void interruptLanguageTextInput() {}
 	virtual void spawnWebBrowser(const std::string& escaped_url, bool async) {};

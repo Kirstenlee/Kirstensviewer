@@ -95,7 +95,7 @@ private:
 	S32				mDragLastScreenY;
 	S32				mLastMouseScreenX;
 	S32				mLastMouseScreenY;
-	LLCoordGL		mLastMouseDir;
+	LLCoordYUp		mLastMouseDir;
 	LLUIColor		mDragHighlightColor;
 	LLUIColor		mDragShadowColor;
 	S32				mMaxTitleWidth;

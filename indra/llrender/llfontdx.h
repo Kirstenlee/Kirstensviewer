@@ -85,7 +85,7 @@ public:
 
     void reset(); // Reset a font after GL cleanup.  ONLY works on an already loaded font.
 
-    void destroyGL();
+    void destroyDX();
 
     bool loadFace(const std::string& filename, F32 point_size, const F32 vert_dpi, const F32 horz_dpi, S32 weight, bool is_fallback, S32 face_n, EFontHinting hinting, S32 flags);
 
@@ -215,9 +215,9 @@ public:
     static std::string getFontPathLocal();
     static std::string getFontPathSystem();
 
-    static LLCoordGL sCurOrigin;
+    static LLCoordYUp sCurOrigin;
     static F32          sCurDepth;
-    static std::vector<std::pair<LLCoordGL, F32> > sOriginStack;
+    static std::vector<std::pair<LLCoordYUp, F32> > sOriginStack;
 
     static LLColor4 sShadowColor;
 

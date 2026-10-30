@@ -7395,8 +7395,16 @@ void LLCalculateTangentArray(U32 vertexCount, const LLVector4a* vertex, const LL
 
 		F32 rd = s1 * t2 - s2 * t1;
 
-		float r = ((rd * rd) > FLT_EPSILON) ? (1.0f / rd)
-			: ((rd > 0.0f) ? 1024.f : -1024.f); //some made up large ratio for division by zero
+		if ((rd * rd) <= FLT_EPSILON)
+		{
+			// S24: near-zero UV area has no reliable tangent-space info - skip this triangle's
+			// contribution (old +-1024 fallback distorted shading at sculpt poles, where many
+			// vertices pinch to one UV point). Per-vertex finalization below handles the
+			// no-non-degenerate-neighbor case via its own tangent[a].set(0,0,1,1) fallback.
+			continue;
+		}
+
+		float r = 1.0f / rd;
 
 		llassert(llfinite(r));
 		llassert(!llisnan(r));

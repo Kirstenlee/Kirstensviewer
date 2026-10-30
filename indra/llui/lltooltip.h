@@ -73,7 +73,7 @@ public:
 		Optional<std::string>		message;
 		Multiple<StyledText>		styled_message;
 
-		Optional<LLCoordGL>			pos;
+		Optional<LLCoordYUp>			pos;
 		Optional<F32>				delay_time,
 									visible_time_over,  // time for which tooltip is visible while mouse on it
 									visible_time_near,	// time for which tooltip is visible while mouse near it

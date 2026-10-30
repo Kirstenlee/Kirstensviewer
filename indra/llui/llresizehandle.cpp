@@ -146,7 +146,7 @@ bool LLResizeHandle::handleHover(S32 x, S32 y, MASK mask)
 			LLRect scaled_rect = orig_rect;
 			S32 delta_x = screen_x - mDragLastScreenX;
 			S32 delta_y = screen_y - mDragLastScreenY;
-			LLCoordGL mouse_dir;
+			LLCoordYUp mouse_dir;
 			// use hysteresis on mouse motion to preserve user intent when mouse stops moving
 			mouse_dir.mX = (screen_x == mLastMouseScreenX) ? mLastMouseDir.mX : screen_x - mLastMouseScreenX;
 			mouse_dir.mY = (screen_y == mLastMouseScreenY) ? mLastMouseDir.mY : screen_y - mLastMouseScreenY;

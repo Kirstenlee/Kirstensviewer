@@ -439,7 +439,7 @@ void DXState::initClass()
 }
 
 //static
-void DXState::restoreGL()
+void DXState::restoreDX()
 {
     sStateMap.clear();
     initClass();

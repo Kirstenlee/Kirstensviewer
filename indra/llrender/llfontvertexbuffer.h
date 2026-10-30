@@ -118,7 +118,7 @@ private:
     F32 mLastVertDPI = 0.f;
     F32 mLastHorizDPI = 0.f;
     S32 mLastResGeneration = 0;
-    LLCoordGL mLastOrigin;
+    LLCoordYUp mLastOrigin;
 
     // Adding new characters to bitmap cache can alter value from getBitmapWidth();
     // which alters whole string. So rerender when new characters were added to cache.

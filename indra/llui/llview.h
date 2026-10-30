@@ -375,8 +375,8 @@ public:
 	void			centerWithin(const LLRect& bounds);
 
 	void	setShape(const LLRect& new_rect, bool by_user = false);
-	virtual LLView*	findSnapRect(LLRect& new_rect, const LLCoordGL& mouse_dir, LLView::ESnapType snap_type, S32 threshold, S32 padding = 0);
-	virtual LLView*	findSnapEdge(S32& new_edge_val, const LLCoordGL& mouse_dir, ESnapEdge snap_edge, ESnapType snap_type, S32 threshold, S32 padding = 0);
+	virtual LLView*	findSnapRect(LLRect& new_rect, const LLCoordYUp& mouse_dir, LLView::ESnapType snap_type, S32 threshold, S32 padding = 0);
+	virtual LLView*	findSnapEdge(S32& new_edge_val, const LLCoordYUp& mouse_dir, ESnapEdge snap_edge, ESnapType snap_type, S32 threshold, S32 padding = 0);
     virtual bool    canSnapTo(const LLView* other_view);
 	virtual void	setSnappedTo(const LLView* snap_view);
 

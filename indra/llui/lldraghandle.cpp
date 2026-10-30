@@ -343,7 +343,7 @@ bool LLDragHandle::handleHover(S32 x, S32 y, MASK mask)
 		mDragLastScreenY = screen_y;
 
 		LLRect new_rect;
-		LLCoordGL mouse_dir;
+		LLCoordYUp mouse_dir;
 		// use hysteresis on mouse motion to preserve user intent when mouse stops moving
 		mouse_dir.mX = (screen_x == mLastMouseScreenX) ? mLastMouseDir.mX : screen_x - mLastMouseScreenX;
 		mouse_dir.mY = (screen_y == mLastMouseScreenY) ? mLastMouseDir.mY : screen_y - mLastMouseScreenY;

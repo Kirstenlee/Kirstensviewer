@@ -458,15 +458,15 @@ namespace LLInitParam
 
 
 	template<>
-	class ParamValue<LLCoordGL>
-	:	public CustomParamValue<LLCoordGL>
+	class ParamValue<LLCoordYUp>
+	:	public CustomParamValue<LLCoordYUp>
 	{
-		typedef CustomParamValue<LLCoordGL> super_t;
+		typedef CustomParamValue<LLCoordYUp> super_t;
 	public:
 		Optional<S32>	x,
 						y;
 
-		ParamValue(const LLCoordGL& val);
+		ParamValue(const LLCoordYUp& val);
 		void updateValueFromBlock();
 		void updateBlockFromValue(bool make_block_authoritative);
 	};

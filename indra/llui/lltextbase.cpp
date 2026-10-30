@@ -729,7 +729,7 @@ void LLTextBase::drawCursor()
 
             // Make sure the IME is in the right place
             LLRect screen_pos = calcScreenRect();
-            LLCoordGL ime_pos( screen_pos.mLeft + cursor_rect.mLeft, screen_pos.mBottom + cursor_rect.mTop );
+            LLCoordYUp ime_pos( screen_pos.mLeft + cursor_rect.mLeft, screen_pos.mBottom + cursor_rect.mTop );
 
             ime_pos.mX = (S32) (ime_pos.mX * LLUI::getScaleFactor().mV[VX]);
             ime_pos.mY = (S32) (ime_pos.mY * LLUI::getScaleFactor().mV[VY]);

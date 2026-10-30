@@ -146,7 +146,7 @@ bool LLFontBitmapCache::nextOpenPos(S32 width, S32& pos_x, S32& pos_y, EFontGlyp
     return true;
 }
 
-void LLFontBitmapCache::destroyGL()
+void LLFontBitmapCache::destroyDX()
 {
     for (U32 idx = 0, cnt = static_cast<U32>(EFontGlyphType::Count); idx < cnt; idx++)
     {

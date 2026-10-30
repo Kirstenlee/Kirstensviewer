@@ -76,10 +76,10 @@ public:
 	virtual void getSelectionRange(S32 *position, S32 *length) const = 0;
 
 	// Get the locations where the preedit and related UI elements are displayed.
-	// Locations are relative to the app window and measured in GL coordinate space (before scaling.)
+	// Locations are relative to the app window and measured in Y-up coordinate space (before scaling.)
 	// query_position is IN argument, and other three are OUT.
 
-    virtual bool getPreeditLocation(S32 query_position, LLCoordGL *coord, LLRect *bounds, LLRect *control) const = 0;
+    virtual bool getPreeditLocation(S32 query_position, LLCoordYUp *coord, LLRect *bounds, LLRect *control) const = 0;
 
 	// Get the size (height) of the current font used in this preeditor.
 

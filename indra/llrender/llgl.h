@@ -237,7 +237,7 @@ class DXState
 {
 public:
     static void initClass();
-    static void restoreGL();
+    static void restoreDX();
 
     // make sure GL blend function, GL states, and GL color mask match
     // what we expect

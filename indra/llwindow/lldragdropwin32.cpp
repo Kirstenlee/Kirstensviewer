@@ -116,7 +116,7 @@ class LLDragDropWin32Target:
 					LLWindowWin32 *window_imp = (LLWindowWin32 *)GetWindowLongPtr( mAppWindowHandle, GWLP_USERDATA );
 					if (NULL != window_imp)
 					{
-						LLCoordGL gl_coord( 0, 0 );
+						LLCoordYUp gl_coord( 0, 0 );
 
 						POINT pt2;
 						pt2.x = pt.x;
@@ -171,7 +171,7 @@ class LLDragDropWin32Target:
 				LLWindowWin32 *window_imp = (LLWindowWin32 *)GetWindowLongPtr( mAppWindowHandle, GWLP_USERDATA );
 				if (NULL != window_imp)
 				{
-					LLCoordGL gl_coord( 0, 0 );
+					LLCoordYUp gl_coord( 0, 0 );
 
 					POINT pt2;
 					pt2.x = pt.x;
@@ -218,7 +218,7 @@ class LLDragDropWin32Target:
 			LLWindowWin32 *window_imp = (LLWindowWin32 *)GetWindowLongPtr( mAppWindowHandle, GWLP_USERDATA );
 			if (NULL != window_imp)
 			{
-				LLCoordGL gl_coord( 0, 0 );
+				LLCoordYUp gl_coord( 0, 0 );
                 MASK mask = gKeyboard->currentMask(true);
 				window_imp->completeDragNDropRequest( gl_coord, mask, LLWindowCallbacks::DNDA_STOP_TRACKING, mDropUrl );
 			};
@@ -241,7 +241,7 @@ class LLDragDropWin32Target:
 					ScreenToClient( mAppWindowHandle, &pt_client );
 
 					LLCoordWindow cursor_coord_window( pt_client.x, pt_client.y );
-					LLCoordGL gl_coord(cursor_coord_window.convert());
+					LLCoordYUp gl_coord(cursor_coord_window.convert());
 					LL_INFOS() << "### (Drop) URL is: " << mDropUrl << LL_ENDL;
 					LL_INFOS() << "###        raw coords are: " << pt.x << " x " << pt.y << LL_ENDL;
                     LL_INFOS() << "###      client coords are: " << pt_client.x << " x " << pt_client.y << LL_ENDL;
