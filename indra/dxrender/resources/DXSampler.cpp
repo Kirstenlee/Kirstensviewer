@@ -95,18 +95,34 @@ ID3D11SamplerState* DXSampler::getOrCreateComparison(D3D11_COMPARISON_FUNC func)
     // filter would still be valid HLSL/D3D11, just harder-edged shadows,
     // not the softer PCF look this codebase's shaders already assume).
     desc.Filter = D3D11_FILTER_COMPARISON_MIN_MAG_LINEAR_MIP_POINT;
-    // BORDER (not CLAMP) with a white border: matches GL's own shadow-map
-    // edge convention (samples outside the shadow map's [0,1] UV range read
-    // as depth=1.0, i.e. "as far as possible" - always passes a LESS_EQUAL
-    // comparison against real scene depth, so geometry outside any shadow
-    // map's coverage never gets incorrectly shadowed at the edges).
+    // BORDER (not CLAMP): a sample whose UV falls outside the shadow map's
+    // [0,1] range must read back as "no occluder" - as far from the light as
+    // the comparison's convention represents, so it always passes and never
+    // falsely shadows geometry outside that map's coverage. S24: this
+    // codebase is reversed-Z (near=1.0/far=0.0, GREATER_EQUAL comparison -
+    // see llrender.cpp's LLTexUnit::bind() comment) for every comparison
+    // sampler currently created here (sun/spot/point shadows all pass
+    // GREATER_EQUAL) - "far" is 0.0, not 1.0. The border color here was
+    // previously hardcoded to white (1.0), correct only for a LESS_EQUAL/
+    // standard-Z convention this codebase no longer uses anywhere - a stale
+    // leftover from before the project's reversed-Z conversion. Sun/spot
+    // shadows never visibly exposed this (huge cascade margins / a cone
+    // frustum already shaped to the light), but point-light shadows' tight
+    // 6-face cube pushes samples outside [0,1] constantly right at every
+    // face boundary, where the wrong border (1.0) made GREATER_EQUAL fail
+    // and falsely shadow fully-unoccluded geometry - producing a hard,
+    // cube-shaped light cutoff instead of the light's natural radius/falloff
+    // shape. Picking the border from func keeps LESS_EQUAL callers (none
+    // currently) correct too, rather than hardcoding either convention.
+    bool reversed_z = (func == D3D11_COMPARISON_GREATER_EQUAL || func == D3D11_COMPARISON_GREATER);
+    float border_far = reversed_z ? 0.0f : 1.0f;
     desc.AddressU = D3D11_TEXTURE_ADDRESS_BORDER;
     desc.AddressV = D3D11_TEXTURE_ADDRESS_BORDER;
     desc.AddressW = D3D11_TEXTURE_ADDRESS_BORDER;
-    desc.BorderColor[0] = 1.0f;
-    desc.BorderColor[1] = 1.0f;
-    desc.BorderColor[2] = 1.0f;
-    desc.BorderColor[3] = 1.0f;
+    desc.BorderColor[0] = border_far;
+    desc.BorderColor[1] = border_far;
+    desc.BorderColor[2] = border_far;
+    desc.BorderColor[3] = border_far;
     desc.ComparisonFunc = func;
     desc.MinLOD = 0;
     desc.MaxLOD = D3D11_FLOAT32_MAX;

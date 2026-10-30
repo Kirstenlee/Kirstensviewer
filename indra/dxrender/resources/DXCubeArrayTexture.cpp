@@ -167,6 +167,36 @@ bool DXCubeArrayTexture::copySliceFromBoundRenderTarget(int mip, int arraySlice,
     return true;
 }
 
+bool DXCubeArrayTexture::copyCubeSlice(int srcCube, int dstCube)
+{
+    if (!mTexture || srcCube < 0 || dstCube < 0 ||
+        (UINT)srcCube * 6 + 5 >= mArraySize || (UINT)dstCube * 6 + 5 >= mArraySize)
+    {
+        LL_WARNS("Texture") << "DXCubeArrayTexture::copyCubeSlice: bad index, src " << srcCube
+            << " dst " << dstCube << " arraySize " << mArraySize << LL_ENDL;
+        return false;
+    }
+
+    ID3D11DeviceContext* ctx = gDXDevice.getContext();
+
+    // Same resource, different subresources - a pure copy-engine op, not hazard-checked against
+    // whatever's currently bound as SRV/RTV elsewhere (see this method's header comment). Source
+    // and destination subresources are at the same mip level of the same resource, so their
+    // dimensions are identical by construction - no size/format validation needed here, unlike
+    // copySliceFromBoundRenderTarget()'s RTV-bound-source case above.
+    for (UINT mip = 0; mip < mMipLevels; ++mip)
+    {
+        for (UINT face = 0; face < 6; ++face)
+        {
+            UINT srcSub = D3D11CalcSubresource(mip, (UINT)srcCube * 6 + face, mMipLevels);
+            UINT dstSub = D3D11CalcSubresource(mip, (UINT)dstCube * 6 + face, mMipLevels);
+            ctx->CopySubresourceRegion(mTexture, dstSub, 0, 0, 0, mTexture, srcSub, nullptr);
+        }
+    }
+
+    return true;
+}
+
 void DXCubeArrayTexture::generateMipMaps()
 {
     if (mSRV && mGenerateMips)

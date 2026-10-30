@@ -22,13 +22,8 @@ namespace
 #if defined(_DEBUG)
         flags |= D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION;
 #else
-        // S24 (2026-08-29, task #278): explicit max optimization for every
-        // Release shader compile (this project always builds Release per
-        // standing convention - see feedback_s24_build_system memory) -
         // D3DCompile's default (no D3DCOMPILE_OPTIMIZATION_LEVEL* flag) is
-        // NOT level 3, so this was leaving real GPU-side shader codegen
-        // quality on the table this whole time. Free win, zero behavior
-        // change beyond faster-running shader bytecode.
+        // NOT level 3 - set explicitly for every Release compile.
         flags |= D3DCOMPILE_OPTIMIZATION_LEVEL3;
 #endif
 
@@ -75,45 +70,61 @@ namespace
 
         if (error_blob)
         {
-            // Non-fatal warnings only - compile still succeeded. S24
-            // (2026-07-23): was LL_INFOS("ShaderLoading") - "ShaderLoading"
-            // is suppressed to ERROR-only in logcontrol.xml AND LL_INFOS is
-            // separately gated project-wide (see feedback_s24_coding_
-            // conventions memory) - stacking both meant compiler warnings
-            // for a shader that compiled "successfully" have been
-            // completely invisible all session. Untagged LL_WARNS so they
-            // actually surface - "no text" investigation, round 8.
-            LL_WARNS() << "D3DCompile warnings for " << debugName << ": "
-                << (const char*)error_blob->GetBufferPointer() << LL_ENDL;
+            // S24: X3557 ("loop only executes for N iteration(s), forcing loop to
+            // unroll") is confirmed benign - FXC already correctly unrolls these
+            // cheaply on its own, the warning is purely informational. Filtered out
+            // here, not via [unroll] in shader source - adding that attribute to
+            // "fix" the warning instead forces a FULL unroll attempt on every
+            // permutation reaching that code, which blew bump/GLTF compile time out
+            // to minutes (2026-10-30 regression). Filtering the log text has zero
+            // effect on compilation itself.
+            std::string warnings = (const char*)error_blob->GetBufferPointer();
             error_blob->Release();
 
-            // S24 (2026-09-02): warnings-only compiles previously never got
-            // a source dump (only the FAILED-compile path below did) - the
-            // warning's line/column refers to this generated, fully
-            // concatenated text same as a failure would, so without this
-            // there was no way to actually locate what a warning like
-            // "implicit truncation of vector type" was pointing at beyond
-            // guessing from shared-file reads. Same dump mechanism as the
-            // failure path, just without the `return false`.
-            std::string sanitized_name = debugName;
-            for (auto& c : sanitized_name)
+            std::string filtered;
+            size_t line_start = 0;
+            while (line_start < warnings.size())
             {
-                if (!isalnum((unsigned char)c)) c = '_';
+                size_t line_end = warnings.find('\n', line_start);
+                if (line_end == std::string::npos) line_end = warnings.size();
+                std::string line = warnings.substr(line_start, line_end - line_start);
+                if (line.find("X3557") == std::string::npos && !line.empty())
+                {
+                    filtered += line + "\n";
+                }
+                line_start = line_end + 1;
             }
-            std::string dump_path = gDirUtilp->getExpandedFilename(LL_PATH_LOGS, sanitized_name + "_" + target + "_warnings.hlsl");
-            std::ofstream dump_file(dump_path.c_str());
-            if (dump_file)
+
+            if (!filtered.empty())
             {
-                dump_file << source;
+                // Non-fatal warnings only - compile still succeeded. Untagged
+                // LL_WARNS rather than LL_INFOS("ShaderLoading"): that tag is
+                // suppressed to ERROR-only in logcontrol.xml, which would
+                // otherwise make compile warnings invisible.
+                LL_WARNS() << "D3DCompile warnings for " << debugName << ": " << filtered << LL_ENDL;
+
+                // Same source dump as the failure path below (minus `return
+                // false`) - a warning's line/column refers to this generated,
+                // fully concatenated text, not any single .hlsl file on disk.
+                std::string sanitized_name = debugName;
+                for (auto& c : sanitized_name)
+                {
+                    if (!isalnum((unsigned char)c)) c = '_';
+                }
+                std::string dump_path = gDirUtilp->getExpandedFilename(LL_PATH_LOGS, sanitized_name + "_" + target + "_warnings.hlsl");
+                std::ofstream dump_file(dump_path.c_str());
+                if (dump_file)
+                {
+                    dump_file << source;
+                }
             }
         }
 
         return true;
     }
 
-    // S24 (2026-08-29): see DXShader.h's sShaderCacheEnabled comment for the
-    // full rationale. Reuses GL's shader_cache directory (llshadermgr.cpp)
-    // so the existing purge/reset mechanisms (KVTweaks "Purge Shader Cache",
+    // Reuses GL's shader_cache directory (llshadermgr.cpp) so the existing
+    // purge/reset mechanisms (KVTweaks "Purge Shader Cache",
     // RenderPurgeShaderCacheOnExit) clear this too, with no changes needed.
     std::string getDXShaderCacheDir()
     {
@@ -127,7 +138,8 @@ namespace
     // buildDXShaderHeader() before this text ever reaches DXShader) plus the
     // compile target - any permutation/feature/shader-level difference
     // naturally produces a different key, so no separate cache-version
-    // tagging is needed the way GL's mShaderCacheVersion needs one.
+    // tagging is needed the way GL's own (now-removed) version-hash
+    // metadata scheme needed.
     std::string dxShaderCachePath(const std::string& source, const char* target)
     {
         HBXXH128 hash_obj;
@@ -210,41 +222,22 @@ bool DXShader::isCacheEligible(const std::string& debugName)
         return false;
     }
 
-    // S24 (2026-09-05, task #277): was a staged per-shader allowlist,
-    // grown pilot -> pass 2 -> ... -> pass 6 (r3689 onward) so each addition
-    // could get its own live playtest before trusting the next. That staging
-    // was about proving the CACHE MECHANISM, not about any real per-shader
-    // caching risk - flipped to blanket eligibility now that the mechanism
-    // is proven and shader iteration has a real, fast reload path (Develop >
-    // Rendering > Reload Vertex Shader, wired to setShaders() this same
-    // session - previously an inert stub). Reasoning for why blanket
-    // coverage is safe, not just convenient:
+    // Blanket eligibility is safe, not just convenient:
     // - The cache only ever persists the exact D3DCompile() bytecode a
-    //   shader would have produced anyway, keyed on that shader's own fully-
-    //   resolved HLSL text (dxShaderCachePath()) - identical text always
-    //   produces identical output, cached or not, so caching cannot change a
-    //   shader's own rendering behavior or correctness, only whether the
-    //   compile step is skipped on a repeat launch.
-    // - It's fully self-healing: if CreateVertexShader()/CreatePixelShader()
-    //   ever rejects a cached blob (e.g. a truncated file from a crash
-    //   mid-write), compileVertexShader()/compilePixelShader() fall back to
-    //   a real compile and re-cache automatically.
-    // - Editing a live shader's source changes its content hash, which is a
-    //   guaranteed cache miss - a Reload Vertex Shader always recompiles
-    //   whatever actually changed and never serves stale bytecode for it.
-    // - The previously-named exclusions (reflection-probe/SSR's still-open
-    //   task #156 umbrella, the real avatar body-skinning shaders) are
-    //   rendering-QUALITY concerns, unrelated to whether their bytecode is
-    //   cached - they render identically either way.
-    // - task #261's Buffer Visualization / task #313's Brdf Gen Shader
-    //   startup-hang family is diagnosed at CreatePixelShader() (DXBC ->
-    //   native GPU ISA, the GPU driver's own backend compiler) - a step this
-    //   cache never touches at all (it only ever caches the upstream
-    //   D3DCompile() bytecode). Caching those shaders is harmless and still
-    //   speeds up the step ahead of the hang, but does not fix or worsen it
-    //   - a real fix there is still task #261's lazy-compile-relocation
-    //   pattern, unrelated to this cache. See task #277's own notes for the
-    //   full history if that family ever needs revisiting.
+    //   shader would have produced anyway, keyed on that shader's own
+    //   fully-resolved HLSL text (dxShaderCachePath()) - identical text
+    //   always produces identical output, cached or not, so caching cannot
+    //   change rendering behavior or correctness, only whether the compile
+    //   step is skipped on a repeat launch.
+    // - Fully self-healing: if CreateVertexShader()/CreatePixelShader() ever
+    //   rejects a cached blob, compileVertexShader()/compilePixelShader()
+    //   fall back to a real compile and re-cache automatically.
+    // - Editing a live shader's source changes its content hash (guaranteed
+    //   cache miss), so Reload Vertex Shader never serves stale bytecode.
+    // - A separate startup-hang family is diagnosed at CreatePixelShader()
+    //   (DXBC -> native GPU ISA, the driver's own backend compiler) - a step
+    //   this cache never touches (it only caches the upstream D3DCompile()
+    //   bytecode), so caching those shaders is harmless either way.
     return true;
 }
 
@@ -261,7 +254,7 @@ bool DXShader::compileVertexShader(const std::string& source, const std::string&
     HRESULT hr = gDXDevice.getDevice()->CreateVertexShader(blob->GetBufferPointer(), blob->GetBufferSize(), nullptr, &mVS);
     if (FAILED(hr) && used_cache)
     {
-        // S24: cached bytecode rejected (e.g. a truncated file from a crash
+        // Cached bytecode rejected (e.g. a truncated file from a crash
         // mid-write) - fall back to a real compile rather than failing the
         // shader outright. Re-cache the fresh result so this self-heals.
         LL_WARNS("ShaderCache") << "S24: CreateVertexShader rejected cached bytecode for " << debugName << ", recompiling" << LL_ENDL;
@@ -303,7 +296,7 @@ bool DXShader::compilePixelShader(const std::string& source, const std::string& 
     HRESULT hr = gDXDevice.getDevice()->CreatePixelShader(blob->GetBufferPointer(), blob->GetBufferSize(), nullptr, &mPS);
     if (FAILED(hr) && used_cache)
     {
-        // S24: see compileVertexShader()'s matching comment.
+        // See compileVertexShader()'s matching comment.
         LL_WARNS("ShaderCache") << "S24: CreatePixelShader rejected cached bytecode for " << debugName << ", recompiling" << LL_ENDL;
         blob->Release();
         blob = nullptr;
@@ -368,12 +361,12 @@ void DXShader::reflectConstants(const void* bytecode, size_t size)
     D3D11_SHADER_BUFFER_DESC cb_desc = {};
     if (cb && SUCCEEDED(cb->GetDesc(&cb_desc)))
     {
-        // S24 (task #79 follow-on): don't assume $Globals lands at b0 -
-        // if some other cbuffer in this same file explicitly claims b0
-        // (e.g. GLTFMaterials in the gltf shaders), the compiler's implicit
-        // allocator moves $Globals to the next free slot instead. Look up
-        // the real bind point so LLRender::syncMatrices() can bind to it
-        // correctly rather than hardcoding 0.
+        // Don't assume $Globals lands at b0 - if some other cbuffer in this
+        // same file explicitly claims b0 (e.g. GLTFMaterials in the gltf
+        // shaders), the compiler's implicit allocator moves $Globals to the
+        // next free slot instead. Look up the real bind point so
+        // LLRender::syncMatrices() can bind to it correctly rather than
+        // hardcoding 0.
         D3D11_SHADER_INPUT_BIND_DESC globals_bind_desc = {};
         if (SUCCEEDED(reflector->GetResourceBindingDescByName("$Globals", &globals_bind_desc)))
         {
@@ -404,9 +397,9 @@ void DXShader::reflectConstants(const void* bytecode, size_t size)
         }
     }
 
-    // S24 (2026-08-03): reflect Texture2D resource bind points (register(tN))
-    // by name - see getTextureBindPoint()'s header comment for why this is
-    // needed. D3D_SIT_TEXTURE only (not D3D_SIT_SAMPLER) - LLHLSLShader's
+    // Reflect Texture2D resource bind points (register(tN)) by name - see
+    // getTextureBindPoint()'s header comment for why this is needed.
+    // D3D_SIT_TEXTURE only (not D3D_SIT_SAMPLER) - LLHLSLShader's
     // mTexture[] mapping is keyed by the texture's own uniform name, and
     // this codebase's convention always pairs a Texture2D/SamplerState at
     // the same register index (e.g. diffuseMap:t0/diffuseMapSampler:s0), so
@@ -454,14 +447,6 @@ uint32_t DXShader::reflectVertexAttributeMask() const
 
     D3D11_SHADER_DESC shader_desc = {};
     reflector->GetDesc(&shader_desc);
-
-    // S24 (2026-07-23): a diagnostic here (part of the "no text"
-    // investigation, stage 6 discovery) confirmed the real, compiled input
-    // signature reflected from bytecode exactly matches what
-    // DXVertexLayout.cpp's kAttribs table assumes (including for "UI
-    // Shader"'s POSITION+COLOR0+TEXCOORD0) - no anomaly here either. See
-    // the project's open-issues ledger for the full history and where the
-    // investigation concluded.
 
     uint32_t mask = 0;
     for (UINT i = 0; i < shader_desc.InputParameters; ++i)
@@ -559,24 +544,11 @@ bool DXShader::setUniformPaddedArray(const std::string& name, const float* data,
         return false;
     }
 
-    // S24 (2026-08-23, REVERTED): briefly added a stricter check here
-    // comparing `needed` (element_count*16, assuming full 16-byte padding
-    // per element) against iter->second.size (D3D11 shader reflection's
-    // reported size for this constant). Live-tested and WRONG - it broke
-    // ~90% of scene rendering (avatars, most objects) immediately, meaning
-    // reflection's `size` is NOT measured in the same fully-padded-per-
-    // element convention `needed` assumes here (most likely the tight/
-    // logical size, e.g. element_count*component_count*4 - which is
-    // naturally smaller than the padded write size for any array with
-    // more than one element), so this check was rejecting essentially
-    // every legitimate array upload project-wide, not just malformed ones.
-    // Reverted to the original whole-buffer-only check below. The
-    // underlying question this was trying to answer (does `kern`
-    // specifically ever overrun into `kern_scale`) is still open - the
-    // diagnostic log that was here went with it; if revisited, log offset/
-    // size WITHOUT rejecting anything, and derive the real per-element
-    // padding convention from actual reflected size numbers first instead
-    // of assuming one.
+    // Do NOT add a stricter check here comparing `needed` (element_count*16,
+    // assuming full 16-byte padding per element) against
+    // iter->second.size (D3D11 shader reflection's reported size) - that
+    // size is NOT measured in the same fully-padded-per-element convention,
+    // so such a check rejects essentially every legitimate array upload.
     const size_t needed = element_count * 16;
     if (iter->second.offset + needed > mConstantStaging.size())
     {
@@ -716,21 +688,15 @@ void DXShader::injectSkinningInputs(std::string& vertex_source)
 // static
 void DXShader::resolveIncludes(std::string& source)
 {
-    // S24 (2026-07-30): custom raw-string delimiter (RX) required here -
-    // the pattern's own "]+)" sequence contains a literal )" which would
-    // otherwise prematurely terminate a default R"(...)" raw string right
-    // in the middle of the regex, turning the remainder into malformed C++
-    // (the exact cause of a real compile error caught on this line).
-    // S24 (2026-08-01): anchored to the start of a line (^, with multiline
-    // so it matches after every \n, not just string start) - without this,
-    // the pattern matched `#include "..."` anywhere in the text, including
-    // inside a `//` comment merely talking about a stray include (e.g.
-    // pointLightF.hlsl's own comment documenting one that was removed).
-    // That phantom match tried to open a file that was never a real
-    // directive, failed, and broke the whole loop - leaving every
-    // subsequent *real* #include (e.g. the varying/*.hlsli one a few lines
-    // later in the same file) unresolved, which is what actually produced
-    // the downstream "X1505: no include handler" failure.
+    // Custom raw-string delimiter (RX) required here - the pattern's own
+    // "]+)" sequence contains a literal )" which would otherwise
+    // prematurely terminate a default R"(...)" raw string.
+    //
+    // Anchored to the start of a line (^, with multiline so it matches
+    // after every \n) - otherwise the pattern matches `#include "..."`
+    // anywhere in the text, including inside a `//` comment merely talking
+    // about one, and a failed phantom match breaks the whole loop, leaving
+    // every subsequent real #include unresolved.
     static const std::regex include_pattern(R"RX(^[ \t]*#include\s*"([^"]+)"[^\n]*\n?)RX",
         std::regex::ECMAScript | std::regex::multiline);
 
@@ -749,14 +715,10 @@ void DXShader::resolveIncludes(std::string& source)
         std::ifstream include_file(full_path.c_str());
         if (!include_file)
         {
-            // S24 (2026-08-01): untagged, not "ShaderLoading" - that tag is
-            // suppressed to ERROR-only in logcontrol.xml (same reasoning as
-            // compileHLSL()'s own warnings), which would otherwise silently
-            // swallow the one message explaining why a real "X1505: no
-            // include handler" compile failure just happened (a stale
-            // packaged tree missing this include file entirely still
-            // produces that exact downstream error, with this warning as
-            // the only clue why).
+            // Untagged, not "ShaderLoading" - that tag is suppressed to
+            // ERROR-only in logcontrol.xml, which would otherwise swallow
+            // the one message explaining a downstream "X1505: no include
+            // handler" compile failure.
             LL_WARNS() << "DXShader::resolveIncludes: could not open '" << full_path
                 << "' (referenced via #include \"" << included_path << "\")" << LL_ENDL;
             // Leave the #include line in place - D3DCompile will fail on it

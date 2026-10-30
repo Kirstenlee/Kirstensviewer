@@ -51,6 +51,15 @@ public:
     // fit the destination mip). An invalid copy is never issued to the GPU.
     bool copySliceFromBoundRenderTarget(int mip, int arraySlice, UINT src_width = 0, UINT src_height = 0);
 
+    // Copies one cube's full content (all 6 faces, every allocated mip) to another cube index of
+    // this SAME array, entirely GPU-side via CopySubresourceRegion - source and destination are
+    // both this texture, at different subresource indices, never touching render-target or SRV
+    // bind state (a same-resource copy-engine op isn't hazard-checked against bound SRV slots the
+    // way a Draw/Dispatch call would be). Used for the reflection-probe system's atomic pending-
+    // ->live commit - see LLProbeCubeStore's slot-layout comment. Returns false, logged, if
+    // either index is out of range; no copy is issued in that case.
+    bool copyCubeSlice(int srcCube, int dstCube);
+
     // Fills in the rest of the mip chain via the GPU's native mip
     // generation - see DXCubeTexture::generateMipMaps()'s identical
     // pattern. No-op if this array wasn't created with generate_mips=true.
