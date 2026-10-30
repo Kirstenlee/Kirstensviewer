@@ -93,9 +93,9 @@ protected:
 
 protected:
     EJoystickQuadrant   mInitialQuadrant;           // mousedown = click in this quadrant
-    LLCoordGL           mInitialOffset;             // pretend mouse started here
-    LLCoordGL           mLastMouse;                 // where was mouse on last hover event
-    LLCoordGL           mFirstMouse;                // when mouse clicked, where was it
+    LLCoordYUp           mInitialOffset;             // pretend mouse started here
+    LLCoordYUp           mLastMouse;                 // where was mouse on last hover event
+    LLCoordYUp           mFirstMouse;                // when mouse clicked, where was it
     S32                 mVertSlopNear;              // where the slop regions end
     S32                 mVertSlopFar;               // where the slop regions end
     S32                 mHorizSlopNear;             // where the slop regions end

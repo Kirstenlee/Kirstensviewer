@@ -47,6 +47,98 @@
 #include "llcombobox.h"
 #include "llfloaterkrlvcatalog.h"
 #include <algorithm>
+#include <unordered_map>
+#include <vector>
+
+namespace
+{
+    // KRLV_TOUCHPOINT: committedCommandState() below. Lists commands whose
+    // restriction is NOT stored under their own literal name (confirmed from
+    // each real addRestriction() call site, not inferred) - each entry
+    // replaces the plain isRestricted(behaviour) check; some commands write
+    // under both their own name and an alternate key, so both are listed.
+    // Exception-only keys ("sendim_except:<uuid>", ...) are deliberately not
+    // probed - their existence doesn't mean the wearer is currently restricted.
+    struct KRlvUiKeyProbe
+    {
+        bool isPrefix;
+        const char* value;
+    };
+
+    const std::unordered_map<std::string, std::vector<KRlvUiKeyProbe>>& krlvUiKeyOverrides()
+    {
+        static const std::unordered_map<std::string, std::vector<KRlvUiKeyProbe>> overrides = {
+            { "detach",           { {false, "detach"}, {true, "detach_point:"}, {false, "detach_point_all"} } },
+            { "addattach",        { {true, "attach_point:"}, {false, "attach_point_all"} } },
+            { "remattach",        { {true, "remattach_point:"}, {false, "remattach_point_all"} } },
+            { "defaultwear",      { {false, "defaultwear_bypass"} } },
+            { "addoutfit",        { {true, "addoutfit:"}, {false, "addoutfit_all"} } },
+            { "remoutfit",        { {true, "remoutfit:"}, {false, "remoutfit_all"} } },
+            { "notify",           { {true, "notify:"} } },
+            { "recvchat_sec",     { {false, "recvchat"} } },
+            { "recvemote_sec",    { {false, "recvemote"} } },
+            { "sendchannel_sec",  { {false, "sendchannel"} } },
+            { "sendim_sec",       { {false, "sendim"} } },
+            { "recvim_sec",       { {false, "recvim"} } },
+            { "share_sec",        { {false, "share"} } },
+            { "shownames_sec",    { {false, "shownames"} } },
+            { "touchfar",         { {false, "fartouch"} } },
+            { "setcam_avdistmax", { {false, "camdistmax"} } },
+            { "setcam_avdistmin", { {false, "camdistmin"} } },
+            { "setcam_unlock",    { {false, "camunlock"} } },
+            { "setcam_textures",  { {false, "camtextures"} } },
+            { "tplure_sec",       { {false, "tplure"} } },
+            { "tprequest_sec",    { {false, "tprequest"} } },
+            { "accepttp",         { {false, "accepttp_all"}, {true, "accepttp_from:"} } },
+            { "accepttprequest",  { {false, "accepttprequest_all"}, {true, "accepttprequest_from:"} } },
+        };
+        return overrides;
+    }
+
+    bool isKRlvCommandCurrentlyRestricted(const std::string& behaviour)
+    {
+        const auto& overrides = krlvUiKeyOverrides();
+        const auto it = overrides.find(behaviour);
+        if (it == overrides.end())
+        {
+            return KRlvHandler::instance().isRestricted(behaviour);
+        }
+        for (const KRlvUiKeyProbe& probe : it->second)
+        {
+            if (probe.isPrefix ? KRlvHandler::instance().hasAnyRestrictionWithPrefix(probe.value)
+                                : KRlvHandler::instance().isRestricted(probe.value))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // Same override-key gap as isKRlvCommandCurrentlyRestricted() above, but for
+    // clearing: clearScriptRestrictions() only erases one exact key, so it silently
+    // misses a command whose real storage key isn't its own literal name.
+    void clearKRlvCommandRestriction(const std::string& behaviour)
+    {
+        const auto& overrides = krlvUiKeyOverrides();
+        const auto it = overrides.find(behaviour);
+        if (it == overrides.end())
+        {
+            KRlvHandler::instance().clearScriptRestrictions(behaviour);
+            return;
+        }
+        for (const KRlvUiKeyProbe& probe : it->second)
+        {
+            if (probe.isPrefix)
+            {
+                KRlvHandler::instance().clearRestrictionsWithPrefix(probe.value);
+            }
+            else
+            {
+                KRlvHandler::instance().clearScriptRestrictions(probe.value);
+            }
+        }
+    }
+}
 
 namespace
 {
@@ -705,11 +797,14 @@ void LLFloaterKRLVControl::onOwnerTest()
 int LLFloaterKRLVControl::committedCommandState(const std::string& behaviour) const
 {
 	// 0 = red (available), 1 = green (off, ignored by KRLV), 2 = yellow (set by a script).
+	// isKRlvCommandCurrentlyRestricted() replaces the plain isRestricted() check - see its
+	// own comment. @editobj/@touchthis need no override: they store the TARGET as the
+	// restriction's source field, key stays the literal behaviour name.
 	if (KRlvHandler::instance().isBlacklisted(behaviour))
 	{
 		return 1;
 	}
-	if (KRlvHandler::instance().isRestricted(behaviour))
+	if (isKRlvCommandCurrentlyRestricted(behaviour))
 	{
 		return 2;
 	}
@@ -836,9 +931,9 @@ void LLFloaterKRLVControl::onCommandsApply()
 			{
 				KRlvHandler::instance().removeFromBlacklist(behaviour);
 			}
-			if (KRlvHandler::instance().isRestricted(behaviour))
+			if (isKRlvCommandCurrentlyRestricted(behaviour))
 			{
-				KRlvHandler::instance().clearScriptRestrictions(behaviour);
+				clearKRlvCommandRestriction(behaviour);
 			}
 		}
 		changed += behaviour + (wanted == 1 ? " (DISABLED)" : " (ACTIVE)") + "; ";

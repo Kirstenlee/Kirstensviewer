@@ -580,8 +580,8 @@ public:
     void        renderBones(const std::string &selected_joint = std::string());
     virtual void renderJoints();
     static void deleteCachedImages(bool clearAll=true);
-    static void destroyGL();
-    static void restoreGL();
+    static void destroyDX();
+    static void restoreDX();
     S32         mSpecialRenderMode; // special lighting
 
 private:

@@ -258,6 +258,21 @@ public:
     // lightmap pass to sample later.
     static void generateSunShadow(LLPipeline& pipeline, LLCamera& camera);
 
+    // S24: real-time point/omni light shadows. Runs the same tournament/fade/
+    // reassign shape as generateSunShadow()'s spotlight section, but captures
+    // 6 axis-aligned 90-degree frustums (one per cube face) per slot instead
+    // of 1, via the same renderShadow(). Called FROM WITHIN generateSunShadow()
+    // (not a separate top-level per-frame entry point), right after the
+    // spotlight section, so it shares that function's existing
+    // saved_view/saved_proj/pushRenderTypeMask lifecycle rather than
+    // duplicating it. 1 slot for v1 - see mPointShadow[1][6]/
+    // mShadowPointLight[1]/mPointLightFade[1]/mTargetShadowPointLight[1] (pipeline.h).
+    // inv_view is generateSunShadow()'s own saved_view/inv_view (camera-view-space ->
+    // agent-space), passed through since by the point this is called the function's
+    // "current" modelview has already been repeatedly overwritten by per-cascade/
+    // per-spot captures.
+    static void generatePointShadow(LLPipeline& pipeline, LLCamera& camera, const glm::mat4& inv_view);
+
     // ================================================================================
     // Lighting setup
     // ================================================================================
@@ -291,6 +306,18 @@ public:
     // focus/LOD), and runs the per-frame shadow-slot priority tournament
     // (mTargetShadowSpotLight[]) that generateSunShadow() reads back next.
     static void setupSpotLight(LLPipeline& pipeline, LLHLSLShader& shader, LLDrawable* drawablep);
+
+    // S24: point-light analog of setupSpotLight() - uploads POINT_SHADOW_INDEX/
+    // POINT_SHADOW_FADE and runs the 1-slot point-light shadow tournament
+    // (mTargetShadowPointLight[]) that generatePointShadow() reads back next.
+    // No projector-style screen-to-light matrix here - sampleCubeShadow()
+    // (shadowUtil.hlsl) picks its own face/matrix per-pixel from point_shadow_matrix[6].
+    static void setupPointLightShadow(LLPipeline& pipeline, LLHLSLShader& shader, LLDrawable* drawablep, LLVOVolume* volume);
+
+    // S24: the tournament half of setupPointLightShadow(), factored out so the
+    // fullscreen multi-light batch path (no per-light shader to upload to) can
+    // also compete for the point-light shadow slot - see that function's comment.
+    static void runPointLightShadowTournament(LLPipeline& pipeline, LLDrawable* drawablep, LLVOVolume* volume);
 
     // ================================================================================
     // Avatar impostor baking
@@ -717,14 +744,15 @@ public:
     static int doAllocateScreenBuffer(LLPipeline& pipeline, U32 resX, U32 resY);
     static bool allocateScreenBufferInternal(LLPipeline& pipeline, U32 resX, U32 resY);
     static bool allocateShadowBuffer(LLPipeline& pipeline, U32 resX, U32 resY);
-    static void releaseGLBuffers(LLPipeline& pipeline);
+    static void releaseDXBuffers(LLPipeline& pipeline);
     static void releaseLUTBuffers(LLPipeline& pipeline);
     static void releaseShadowBuffers(LLPipeline& pipeline);
     static void releaseScreenBuffers(LLPipeline& pipeline);
     static void releaseSunShadowTarget(LLPipeline& pipeline, U32 index);
     static void releaseSunShadowTargets(LLPipeline& pipeline);
     static void releaseSpotShadowTargets(LLPipeline& pipeline);
-    static void createGLBuffers(LLPipeline& pipeline);
+    static void releasePointShadowTargets(LLPipeline& pipeline);
+    static void createDXBuffers(LLPipeline& pipeline);
     static void createLUTBuffers(LLPipeline& pipeline);
     static bool bakeBrdfLut(LLPipeline& pipeline);
 
@@ -741,8 +769,8 @@ public:
     static void init(LLPipeline& pipeline);
     static void cleanup(LLPipeline& pipeline);
     static void connectRefreshCachedSettingsSafe(LLPipeline& pipeline, const std::string& name);
-    static void destroyGL(LLPipeline& pipeline);
-    static void restoreGL(LLPipeline& pipeline);
+    static void destroyDX(LLPipeline& pipeline);
+    static void restoreDX(LLPipeline& pipeline);
 
     // ================================================================================
     // Depth of field, reference-tracking debug checks, and the last odds and ends

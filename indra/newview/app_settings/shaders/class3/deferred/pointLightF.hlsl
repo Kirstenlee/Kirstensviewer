@@ -44,6 +44,15 @@ uniform float size;
 #endif
 uniform float falloff;
 
+// S24: real-time point/omni light shadow - uploaded by
+// DXPipeline::setupPointLightShadow() per-light (idx>=0 only when this
+// specific light currently holds the 1 shadow slot). sampleCubeShadow() is
+// defined in shadowUtil.hlsl (POINT_SHADOW-guarded - compiles to an always-1.0
+// stub when RenderPointLightShadows is off, see llviewershadermgr.cpp).
+uniform int point_shadow_idx;
+uniform float point_shadow_fade;
+float sampleCubeShadow(float3 pos, float3 light_center, float2 pos_screen);
+
 // screen_res/inv_proj are also declared by deferredUtil.hlsl, grouped
 // together there under the same guard - reuse it here.
 #ifndef LL_INV_PROJ_DECLARED
@@ -78,13 +87,8 @@ void pbrPunctual(float3 diffuseColor, float3 specularColor,
                     out float3 spec);
 
 // GBufferInfo is defined for real in gbufferUtil.hlsl (attached AFTER this
-// entry file's own text, per the fixed concatenation order), but this
-// file's own forward declaration below needs the type visible already -
-// same "entry file needs its own guarded copy" shape as PBRMix/TerrainMix.
-// A stray raw `#include "deferredUtil.hlsl"` used to sit here as a
-// (broken - D3DCompile has no include handler, and it named the wrong
-// file besides) attempt to solve exactly this; removed, this is the real
-// fix.
+// file, per the fixed concatenation order) - this forward declaration
+// needs the type visible already, same shape as PBRMix/TerrainMix.
 #ifndef LL_GBUFFERINFO_DECLARED
 #define LL_GBUFFERINFO_DECLARED
 struct GBufferInfo
@@ -126,6 +130,16 @@ float4 main(PSInput IN) : SV_Target
     if (lightDist >= size) discard;
     float dist = lightDist / size;
     float dist_atten = calcLegacyDistanceAttenuation(dist, falloff);
+
+    // S24: real-time point/omni light shadow - same "shadow += fade, clamp"
+    // convention as spotLightF.hlsl's "shadow" term (crossfades toward fully-lit
+    // as this light's slot fades out/in rather than popping).
+    if (point_shadow_idx >= 0)
+    {
+        float shadow = sampleCubeShadow(pos, IN.varying.trans_center.xyz, tc);
+        shadow = clamp(shadow + point_shadow_fade, 0.0, 1.0);
+        dist_atten *= shadow;
+    }
 
     if (GET_GBUFFER_FLAG(gb.gbufferFlag, GBUFFER_FLAG_HAS_PBR))
     {

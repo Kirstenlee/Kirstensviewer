@@ -35,17 +35,20 @@ uniform int light_count;
 uniform float4 light[LIGHT_COUNT];
 uniform float4 light_col[LIGHT_COUNT];
 
+// S24: real-time point/omni light shadow - parallel to light[]/light_col[]
+// above. 1.0 if this batch slot is the 1 point-shadow slot's current
+// occupant, else -1.0 (see DXPipeline::renderDeferredLighting()'s
+// fullscreen-batch loop, shadow_idx_arr). sampleCubeShadow() is defined in
+// shadowUtil.hlsl (POINT_SHADOW-guarded - compiles to an always-1.0 stub
+// when RenderPointLightShadows is off).
+uniform float light_shadow_idx[LIGHT_COUNT];
+float sampleCubeShadow(float3 pos, float3 light_center, float2 pos_screen);
+
 uniform float far_z;
 
-// screen_res/inv_proj are also declared by deferredUtil.hlsl (grouped
-// together there under one guard) - reuse it here, same reasoning as
-// pointLightF.hlsl's fix. Kept adjacent under ONE #ifndef block (unlike
-// an earlier version of this fix, which split them into two separate
-// blocks checking the same macro - the first block's #define caused the
-// second to see the guard already set and wrongly skip its own
-// declaration, leaving inv_proj undeclared entirely. Same documented
-// "guard grouping" lesson as earlier this session, re-learned the hard
-// way here.)
+// screen_res/inv_proj also declared by deferredUtil.hlsl, under one guard -
+// keep both under the SAME #ifndef block, not split across two (splitting
+// makes the first block's #define hide the second's declaration).
 #ifndef LL_INV_PROJ_DECLARED
 #define LL_INV_PROJ_DECLARED
 uniform float2 screen_res;
@@ -142,6 +145,13 @@ float4 main(PSInput IN) : SV_Target
             {
                 lv /= lightDist;
                 float dist_atten = calcLegacyDistanceAttenuation(dist, falloff_val);
+
+                // S24: real-time point/omni light shadow - see light_shadow_idx[] above.
+                if (light_shadow_idx[light_idx] >= 0.0)
+                {
+                    dist_atten *= sampleCubeShadow(pos, light[light_idx].xyz, tc);
+                }
+
                 float3 intensity = dist_atten * lightColor * 3.25;
                 float nl2 = 0; float3 diffPunc, specPunc;
                 pbrPunctual(diffuseColor, specularColor, perceptualRoughness, metallic, n.xyz, v, lv, nl2, diffPunc, specPunc);
@@ -177,6 +187,13 @@ float4 main(PSInput IN) : SV_Target
                     calcHalfVectors(lv, n, v, h, l, nh, nl2, nv, vh, _lightDist);
                     float fa = light_col[i].a;
                     float dist_atten = calcLegacyDistanceAttenuation(dist, fa);
+
+                    // S24: real-time point/omni light shadow - see light_shadow_idx[] above.
+                    if (light_shadow_idx[i] >= 0.0)
+                    {
+                        dist_atten *= sampleCubeShadow(pos, light[i].xyz, tc);
+                    }
+
                     float lit = nl2 * dist_atten;
                     float3 col = light_col[i].rgb * lit * diffuse;
                     if (spec.a > 0.0)

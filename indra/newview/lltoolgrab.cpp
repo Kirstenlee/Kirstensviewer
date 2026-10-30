@@ -665,7 +665,7 @@ void LLToolGrabBase::handleHoverActive(S32 x, S32 y, MASK mask)
             // Handle auto-rotation at screen edge.
             LLVector3 grab_pos_agent = gAgent.getPosAgentFromGlobal( grab_point_global );
 
-            LLCoordGL grab_center_gl( gViewerWindow->getWorldViewWidthScaled() / 2, gViewerWindow->getWorldViewHeightScaled() / 2);
+            LLCoordYUp grab_center_gl( gViewerWindow->getWorldViewWidthScaled() / 2, gViewerWindow->getWorldViewHeightScaled() / 2);
             LLViewerCamera::getInstance()->projectPosAgentToScreen(grab_pos_agent, grab_center_gl);
 
             const S32 ROTATE_H_MARGIN = gViewerWindow->getWorldViewWidthScaled() / 20;
@@ -771,7 +771,7 @@ void LLToolGrabBase::handleHoverNonPhysical(S32 x, S32 y, MASK mask)
     }
 
     LLPickInfo pick = mGrabPick;
-    pick.mMousePt = LLCoordGL(x, y);
+    pick.mMousePt = LLCoordYUp(x, y);
     pick.getSurfaceInfo();
 
     // compute elapsed time
@@ -1038,7 +1038,7 @@ void LLToolGrabBase::onMouseCaptureLost()
             // ...move cursor back to the center of the object
             LLVector3 grab_point_agent = objectp->getRenderPosition();
 
-            LLCoordGL gl_point;
+            LLCoordYUp gl_point;
             if (LLViewerCamera::getInstance()->projectPosAgentToScreen(grab_point_agent, gl_point))
             {
                 LLUI::getInstance()->setMousePositionScreen(gl_point.mX, gl_point.mY);
@@ -1087,7 +1087,7 @@ void LLToolGrabBase::stopGrab()
         // gather surface info for this degrab (mouse-up)
         S32 x = gViewerWindow->getCurrentMouseX();
         S32 y = gViewerWindow->getCurrentMouseY();
-        pick.mMousePt = LLCoordGL(x, y);
+        pick.mMousePt = LLCoordYUp(x, y);
         pick.getSurfaceInfo();
     }
 

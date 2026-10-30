@@ -77,8 +77,8 @@ public:
     F32 getFogRatio() const;
     LLColor4U getFadeColor() const;
 
-    void destroyGL();
-    void restoreGL();
+    void destroyDX();
+    void restoreDX();
     void resetVertexBuffers();
 
     void addSunMoonBeacons();

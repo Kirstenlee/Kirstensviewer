@@ -423,7 +423,7 @@ public:
     void renderPhysicsShapes(bool depth_only);
     void renderDebug();
     void renderIntersectingBBoxes(LLCamera* camera);
-    void restoreGL();
+    void restoreDX();
 
     bool getVisibleExtents(LLCamera& camera, LLVector3& visMin, LLVector3& visMax);
 

@@ -67,6 +67,7 @@ public:
      * updates last interaction time
      */
     void updateTimestamp();
+    void updateTimestamp(const U64Seconds& utc_time);
 
     void updateHistoryFileName(const std::string &new_name) { mHistoryFileName = new_name; }
 
@@ -126,6 +127,14 @@ public:
 
     // LLIMSessionObserver triggers
     virtual void sessionAdded(const LLUUID& session_id, const std::string& name, const LLUUID& other_participant_id, bool has_offline_msg) override;
+
+    // Publish or advance metadata for durable service history that has no live IM session.
+    void addServiceConversation(const LLUUID& session_id,
+                                const std::string& conversation_name,
+                                const std::string& history_filename,
+                                const LLUUID& participant_id,
+                                const U64Seconds& archived_time);
+
     virtual void sessionActivated(const LLUUID& session_id, const std::string& name, const LLUUID& other_participant_id) override {}; // Stub
     virtual void sessionRemoved(const LLUUID& session_id) override{}                                            // Stub
     virtual void sessionVoiceOrIMStarted(const LLUUID& session_id) override{};                              // Stub

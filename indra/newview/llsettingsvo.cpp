@@ -825,6 +825,12 @@ void LLSettingsVOSky::applySpecial(void *ptarget, bool force)
     if (irradiance_pass)
     { // during an irradiance map update, disable ambient lighting (direct lighting only) and desaturate sky color (avoid tinting the world blue)
         shader->uniform3fv(LLShaderMgr::AMBIENT, LLVector3::zero.mV);
+        // S24: every other branch below explicitly sets SKY_HDR_SCALE - this one didn't, so the
+        // sky/haze/atmospherics additive term (atmosphericsF.hlsl/hazeF.hlsl/softenLightF.hlsl)
+        // silently kept whatever a prior MAIN-VIEW frame last uploaded to this shared uniform,
+        // instead of a value consistent with this pass's own "neutral, direct-lighting-only"
+        // intent. 1.f matches the same neutral baseline the final else branch below already uses.
+        shader->uniform1f(LLShaderMgr::SKY_HDR_SCALE, 1.f);
     }
     else
     {

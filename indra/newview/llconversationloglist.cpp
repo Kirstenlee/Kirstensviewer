@@ -27,6 +27,7 @@
 
 #include "llavataractions.h"
 #include "llagent.h"
+#include "llchatservicehistory.h"
 #include "llfloaterreg.h"
 #include "llfloaterconversationpreview.h"
 #include "llgroupactions.h"
@@ -364,7 +365,10 @@ void LLConversationLogList::onCustomAction(const LLSD& userdata)
     }
     else if ("chat_history" == command_name)
     {
-        LLFloaterReg::showInstance("preview_conversation", selected_conversation_session_id, true);
+        if (!LLChatServiceHistory::historySuppressed())
+        {
+            LLFloaterReg::showInstance("preview_conversation", selected_conversation_session_id, true);
+        }
     }
     else if ("offer_teleport" == command_name)
     {
@@ -438,7 +442,7 @@ bool LLConversationLogList::isActionEnabled(const LLSD& userdata)
     }
     else if ("can_view_chat_history" == command_name)
     {
-        return true;
+        return !LLChatServiceHistory::historySuppressed();
     }
     else if ("can_call" == command_name)
     {

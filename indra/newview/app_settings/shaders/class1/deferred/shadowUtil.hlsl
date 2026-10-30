@@ -40,6 +40,31 @@ Texture2D shadowMap5 : register(t15);
 SamplerComparisonState shadowMap5Sampler : register(s15);
 #endif
 
+// S24: point-light shadow faces at t24-t29 - t16-t22 are live registers
+// belonging to reflectionProbeF.hlsl/ssrResolveF.hlsl; no compile-time
+// collision (different programs) but D3D11 texture bindings persist across
+// draw calls, so a wrong register here would silently alias the master
+// cubemap. Comparison sampler at s8, bound via a decoupled raw
+// PSSetSamplers() call (DXPipeline::bindDeferredShader()) since this is
+// outside the normal 0-15 coupled SRV+sampler range.
+#if defined(POINT_SHADOW)
+Texture2D pointShadowFace0 : register(t24);
+Texture2D pointShadowFace1 : register(t25);
+Texture2D pointShadowFace2 : register(t26);
+Texture2D pointShadowFace3 : register(t27);
+Texture2D pointShadowFace4 : register(t28);
+Texture2D pointShadowFace5 : register(t29);
+SamplerComparisonState pointShadowSampler : register(s8);
+uniform float4x4 point_shadow_matrix[6];
+uniform float point_shadow_bias;
+uniform float2 point_shadow_res;
+// S24: view->world rotation (DXPipeline::bindDeferredShader(), transpose of
+// the camera's view-matrix rotation part) - rotates sampleCubeShadow()'s
+// view-space dir into world/agent space before the dominant-axis face pick,
+// since the 6 faces are fixed to world-space axes, not camera-relative ones.
+uniform float3x3 point_shadow_inv_view_rot;
+#endif
+
 // sun_dir/moon_dir are also declared (and actually used) by
 // softenLightF.hlsl - genuinely dual-use, same reasoning as color/size -
 // include-guarded rather than left bare.
@@ -122,6 +147,81 @@ float pcfSpotShadow(Texture2D shadowMap, SamplerComparisonState shadowSampler, f
     shadow_val += shadowMap.SampleCmpLevelZero(shadowSampler, stc.xy + float2(-off.x, off.y), stc.z);
     shadow_val += shadowMap.SampleCmpLevelZero(shadowSampler, stc.xy + float2(-off.x * 2.0, -off.y), stc.z);
     return shadow_val * 0.2;
+#else
+    return 1.0;
+#endif
+}
+
+// S24: same 5-tap unweighted PCF kernel/bias/dither convention as pcfSpotShadow()
+// above, copied rather than called directly - pcfSpotShadow()'s own body is gated
+// on #if defined(SPOT_SHADOW), which pointLightF.hlsl/multiPointLightF.hlsl never
+// define (point lights have no spotlight-style projector setup), so calling it
+// unmodified under POINT_SHADOW-only compilation would silently always return 1.0
+// via its #else branch. point_shadow_res (not proj_shadow_res) since the point-
+// shadow faces have their own, separately-tunable resolution.
+float pcfPointShadow(Texture2D shadowMap, float4 stc, float2 pos_screen)
+{
+#if defined(POINT_SHADOW)
+    stc.xyz /= stc.w;
+    stc.y = 1.0 - stc.y;
+    stc.z -= point_shadow_bias;
+    stc.x = floor(point_shadow_res.x * stc.x + frac(pos_screen.y * 0.666666666)) / point_shadow_res.x;
+
+    float cs = shadowMap.SampleCmpLevelZero(pointShadowSampler, stc.xy, stc.z);
+    float shadow_val = cs;
+
+    float2 off = 1.0 / point_shadow_res;
+    off.y *= 1.5;
+
+    shadow_val += shadowMap.SampleCmpLevelZero(pointShadowSampler, stc.xy + float2(off.x * 2.0, off.y), stc.z);
+    shadow_val += shadowMap.SampleCmpLevelZero(pointShadowSampler, stc.xy + float2(off.x, -off.y), stc.z);
+    shadow_val += shadowMap.SampleCmpLevelZero(pointShadowSampler, stc.xy + float2(-off.x, off.y), stc.z);
+    shadow_val += shadowMap.SampleCmpLevelZero(pointShadowSampler, stc.xy + float2(-off.x * 2.0, -off.y), stc.z);
+    return shadow_val * 0.2;
+#else
+    return 1.0;
+#endif
+}
+
+// S24: picks 1 of 6 depth faces by dominant axis (these are separate
+// Texture2Ds, not a real TextureCube). pos is VIEW space; the face pick
+// needs WORLD space (faces are world-axis-aligned), hence the
+// point_shadow_inv_view_rot rotate before testing.
+//
+// Single-sample, no blend - deliberately. Two blending attempts were tried
+// and reverted: a nested-branch 2-way blend hit an FXC X4000 uninitialized-
+// variable bug (undefined output, made banding worse); a branchless 3-way
+// blend was FXC-safe but blew compile time out across all 16
+// multiPointLightF.hlsl permutations. Don't retry blending here - mitigate
+// face-boundary seams via FOV overshoot in generatePointShadow() (C++,
+// zero shader cost) instead. A real fix needs hardware TextureCube support.
+float sampleCubeShadow(float3 pos, float3 light_center, float2 pos_screen)
+{
+#if defined(POINT_SHADOW)
+    float3 dir_view = pos - light_center;
+    float3 dir = mul(point_shadow_inv_view_rot, dir_view);
+    float3 adir = abs(dir);
+    int face;
+    if (adir.x >= adir.y && adir.x >= adir.z)
+    {
+        face = (dir.x > 0) ? 0 : 1;
+    }
+    else if (adir.y >= adir.z)
+    {
+        face = (dir.y > 0) ? 2 : 3;
+    }
+    else
+    {
+        face = (dir.z > 0) ? 4 : 5;
+    }
+
+    float4 spos = float4(pos, 1.0);
+    if (face == 0) return pcfPointShadow(pointShadowFace0, mul(point_shadow_matrix[0], spos), pos_screen);
+    if (face == 1) return pcfPointShadow(pointShadowFace1, mul(point_shadow_matrix[1], spos), pos_screen);
+    if (face == 2) return pcfPointShadow(pointShadowFace2, mul(point_shadow_matrix[2], spos), pos_screen);
+    if (face == 3) return pcfPointShadow(pointShadowFace3, mul(point_shadow_matrix[3], spos), pos_screen);
+    if (face == 4) return pcfPointShadow(pointShadowFace4, mul(point_shadow_matrix[4], spos), pos_screen);
+    return pcfPointShadow(pointShadowFace5, mul(point_shadow_matrix[5], spos), pos_screen);
 #else
     return 1.0;
 #endif
@@ -211,32 +311,38 @@ float sampleSpotShadow(float3 pos, float3 norm, int index, float2 pos_screen)
     pos += norm * spot_shadow_offset;
 
     float4 spos = float4(pos, 1.0);
+
+    // S24: this used to run a 4-cascade-style transition-weight blend (near_split/far_split/
+    // transition_domain, all derived from shadow_clip - which is the SUN's own cascade clip
+    // planes, mSunClipPlanes in pipeline.cpp, not anything spot-light-specific) around a
+    // single pcfSpotShadow() sample, plus an extra unexplained "shadow += max(...)" term also
+    // built from the sun's clip-plane distances. A spot light has exactly one shadow sample,
+    // not cascades to blend between - there was nothing to weight-blend. The weight
+    // multiply-then-divide-by-itself was algebraically a no-op in the normal case (real risk:
+    // a genuine divide-by-zero/NaN if that weight ever landed on exactly 0), and the extra
+    // term added an unrelated, sun-cascade-distance-derived contribution to a spot light's
+    // own occlusion test. Removed - this is a direct single-sample lookup now, matching what
+    // a spot light with one shadow map actually needs.
+    //
+    // S24: single return point, not three early returns - FXC's uninitialized-variable
+    // check misfires on functions with several return paths (same bug class fixed in
+    // tapSphereIrradiance() in reflectionProbeF.hlsl).
+    float shadow = 1.0f;
     if (spos.z > -shadow_clip.w)
     {
-        // S24: this used to run a 4-cascade-style transition-weight blend (near_split/far_split/
-        // transition_domain, all derived from shadow_clip - which is the SUN's own cascade clip
-        // planes, mSunClipPlanes in pipeline.cpp, not anything spot-light-specific) around a
-        // single pcfSpotShadow() sample, plus an extra unexplained "shadow += max(...)" term also
-        // built from the sun's clip-plane distances. A spot light has exactly one shadow sample,
-        // not cascades to blend between - there was nothing to weight-blend. The weight
-        // multiply-then-divide-by-itself was algebraically a no-op in the normal case (real risk:
-        // a genuine divide-by-zero/NaN if that weight ever landed on exactly 0), and the extra
-        // term added an unrelated, sun-cascade-distance-derived contribution to a spot light's
-        // own occlusion test. Removed - this is a direct single-sample lookup now, matching what
-        // a spot light with one shadow map actually needs.
         float4 lpos;
         if (index == 0)
         {
             lpos = mul(shadow_matrix[4], spos);
-            return pcfSpotShadow(shadowMap4, shadowMap4Sampler, lpos, 0.8, spos.xy);
+            shadow = pcfSpotShadow(shadowMap4, shadowMap4Sampler, lpos, 0.8, spos.xy);
         }
         else
         {
             lpos = mul(shadow_matrix[5], spos);
-            return pcfSpotShadow(shadowMap5, shadowMap5Sampler, lpos, 0.8, spos.xy);
+            shadow = pcfSpotShadow(shadowMap5, shadowMap5Sampler, lpos, 0.8, spos.xy);
         }
     }
-    return 1.0f;
+    return shadow;
 #else
     return 1.0;
 #endif

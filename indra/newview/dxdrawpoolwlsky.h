@@ -65,7 +65,7 @@ public:
     /*virtual*/ void resetDrawOrders();
 
     static void cleanupGL();
-    static void restoreGL();
+    static void restoreDX();
 };
 
 // Staged full duplicate, same pattern as dxdrawpoolalpha/dxdrawpoolbump -

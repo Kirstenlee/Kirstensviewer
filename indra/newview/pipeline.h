@@ -105,12 +105,12 @@ public:
 	LLPipeline();
 	~LLPipeline();
 
-	// S24: destroyGL()/restoreGL() fully moved to DXPipeline:: - no stub, every caller repointed
+	// S24: destroyDX()/restoreDX() fully moved to DXPipeline:: - no stub, every caller repointed
 	// directly.
 
 	// S24: requestResizeScreenTexture()/requestResizeShadowTexture()/resizeScreenTexture()/
-	// resizeShadowTexture()/releaseGLBuffers()/releaseLUTBuffers()/releaseScreenBuffers()/
-	// releaseShadowBuffers()/createGLBuffers()/createLUTBuffers()/bakeBrdfLut()/
+	// resizeShadowTexture()/releaseDXBuffers()/releaseLUTBuffers()/releaseScreenBuffers()/
+	// releaseShadowBuffers()/createDXBuffers()/createLUTBuffers()/bakeBrdfLut()/
 	// allocateScreenBuffer()/doAllocateScreenBuffer()/allocateScreenBufferInternal()/
 	// allocateShadowBuffer()/getBrdfLutAssetPath() fully moved to DXPipeline:: - no stub, every
 	// caller repointed directly. The eFBOStatus enum itself stays here (a data type, not logic) -
@@ -573,6 +573,17 @@ public:
 	LLPointer<LLDrawable>	mShadowSpotLight[2];
 	F32						mSpotLightFade[2];
 	LLPointer<LLDrawable>	mTargetShadowSpotLight[2];
+
+    // S24: real-time point/omni light shadows - 1 slot x 6 cube faces, same
+    // depth-only format as mSpotShadow[2]. Separate matrix array from
+    // mSunShadowMatrix[6] (already fully committed to 4 sun cascades + 2
+    // spot slots). Same tournament/fade/target shape as the spotlight
+    // arrays above, sized 1 for v1 - see DXPipeline::generatePointShadow().
+    LLRenderTarget          mPointShadow[1][6];
+    glm::mat4               mPointShadowMatrix[1][6];
+    LLPointer<LLDrawable>   mShadowPointLight[1];
+    F32                     mPointLightFade[1];
+    LLPointer<LLDrawable>   mTargetShadowPointLight[1];
 
 	LLVector4				mSunClipPlanes;
 	LLVector4				mSunOrthoClipPlanes;

@@ -88,6 +88,9 @@ public:
         const std::string& nav_type)
     { return true; }
 
+    // params/query_map may contain data (passwords, tokens) that must not reach the log
+    virtual bool isSensitive() const { return false; }
+
 	virtual bool handle(const LLSD& params,
 						const LLSD& query_map,
 						const std::string& grid,
@@ -117,6 +120,11 @@ public:
 	/// Return an LLSD::Map of registered LLCommandHandlers and associated
 	/// info (e.g. EUntrustedAccess).
 	static LLSD enumerate();
+
+    // S24 : true if cmd's registered handler marked itself sensitive (see
+    // LLCommandHandler::isSensitive()) - callers logging an SLURL before
+    // dispatch must check this first. False for an unregistered cmd.
+    static bool isSensitive(const std::string& cmd);
 };
 
 #endif

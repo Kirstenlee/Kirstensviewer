@@ -539,8 +539,10 @@ void LLIMProcessing::processNewMessage(LLUUID from_id,
             // drops the incoming IM. The spec's "sender is notified they
             // cannot be read" half is not implemented - see
             // krlv/README.md. Checked before DND/prelude handling so it
-            // applies uniformly.
-            if ((gKRlv.isRestricted("recvim") && !gKRlv.hasRestrictionFrom("recvim_except", from_id))
+            // applies uniformly. isRestrictedWithException() implements
+            // @recvim_sec's real object-scoping nuance - see
+            // krlvinventory.cpp's file header.
+            if (gKRlv.isRestrictedWithException("recvim", "recvim_except", from_id)
                 || gKRlv.hasRestrictionFrom("recvimfrom", from_id))
             {
                 // KRLV auto-response: tell the sender once, like Do Not Disturb does.
@@ -650,6 +652,9 @@ void LLIMProcessing::processNewMessage(LLUUID from_id,
                         real_name = SYSTEM_FROM;
                     }
 
+                    // S24: original_text preserves the undecorated incoming body for
+                    // ChatService reconciliation - omitted when the simulator injected a
+                    // notice into buffer, matching upstream.
                     gIMMgr->addMessage(session_id,
                         from_id,
                         name,
@@ -663,7 +668,8 @@ void LLIMProcessing::processNewMessage(LLUUID from_id,
                         region_message,
                         timestamp,
                         LLUUID::null,
-                        real_name);
+                        real_name,
+                        notice_name.empty() ? LLSD(message) : LLSD());
                 }
                 else
                 {
@@ -1251,18 +1257,19 @@ void LLIMProcessing::processNewMessage(LLUUID from_id,
 
                 // KRLV_TOUCHPOINT: @tplure/@tplure_sec (offers) and
                 // @tprequest/@tprequest_sec (requests) - auto-decline,
-                // unless the sender is a tracked exception. The "_sec"
-                // object-scoping nuance is not implemented - any
-                // exception UUID is honoured regardless of which object
-                // added it. See krlv/README.md.
-                if (IM_LURE_USER == dialog && gKRlv.isRestricted("tplure") &&
-                    !gKRlv.hasRestrictionFrom("tplure_except", from_id))
+                // unless the sender is a tracked exception.
+                // isRestrictedWithException() implements the "_sec"
+                // object-scoping nuance (exceptions only honoured from
+                // the SAME object that imposed the restriction) - see
+                // krlvinventory.cpp's file header. See krlv/README.md.
+                if (IM_LURE_USER == dialog &&
+                    gKRlv.isRestrictedWithException("tplure", "tplure_except", from_id))
                 {
                     send_simple_im(from_id, LLStringUtil::null, IM_LURE_DECLINED, session_id);
                     return;
                 }
-                if (IM_TELEPORT_REQUEST == dialog && gKRlv.isRestricted("tprequest") &&
-                    !gKRlv.hasRestrictionFrom("tprequest_except", from_id))
+                if (IM_TELEPORT_REQUEST == dialog &&
+                    gKRlv.isRestrictedWithException("tprequest", "tprequest_except", from_id))
                 {
                     // Spec: "that other user receives a message if they
                     // try" - no existing decline-a-request IM was found

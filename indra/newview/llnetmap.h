@@ -132,7 +132,7 @@ private:
     LLVector2       mCurPan;
     LLVector2       mStartPan; // pan offset at start of drag
     LLVector3d      mPopupWorldPos; // world position picked under mouse when context menu is opened
-    LLCoordGL       mMouseDown; // pointer position at start of drag
+    LLCoordYUp       mMouseDown; // pointer position at start of drag
 
     LLVector3d      mObjectImageCenterGlobal;
     LLPointer<LLImageRaw> mObjectRawImagep;

@@ -112,6 +112,15 @@ void LLAvatarRenderNotifier::displayNotification(bool show_over_limit)
 {
     mAgentComplexity = mLatestAgentComplexity;
     mShowOverLimitAgents = show_over_limit;
+
+    // S24: hard floor below which self-complexity notices never show - stock LL fires
+    // on any post-outfit-load delta regardless of magnitude, nagging constantly.
+    static LLCachedControl<U32> self_complexity_warn_threshold(gSavedSettings, "RenderSelfComplexityWarnThreshold", 80000);
+    if (mLatestAgentComplexity < self_complexity_warn_threshold)
+    {
+        return;
+    }
+
     static LLCachedControl<U32> expire_delay(gSavedSettings, "ShowMyComplexityChanges", 20);
 
     LLDate expire_date(LLDate::now().secondsSinceEpoch() + expire_delay);

@@ -407,6 +407,7 @@ void DXDrawPoolWater::renderPostDeferred(LLDrawPoolWater& pool, S32 pass)
     static LLCachedControl<F32> water_shore_fade_distance(gSavedSettings, "RenderWaterShoreFadeDistance", 60.0f);
     static LLCachedControl<F32> water_reflection_warmth(gSavedSettings, "RenderWaterReflectionWarmth", 1.0f);
     static LLCachedControl<F32> water_color_absorption_rate(gSavedSettings, "RenderWaterColorAbsorptionRate", 0.15f);
+    static LLCachedControl<F32> water_horizon_fade_intensity(gSavedSettings, "RenderWaterHorizonFadeIntensity", 4.0f);
 
     LLVector3 water_color_tint(
         llclamp((F32)water_color_tint_r, 0.0f, 2.0f),
@@ -420,6 +421,9 @@ void DXDrawPoolWater::renderPostDeferred(LLDrawPoolWater& pool, S32 pass)
     shader->uniform1f(LLShaderMgr::WATER_SHORE_FADE_DISTANCE, llmax(1.0f, (F32)water_shore_fade_distance));
     shader->uniform1f(LLShaderMgr::WATER_REFLECTION_WARMTH, llclamp((F32)water_reflection_warmth, 0.5f, 2.0f));
     shader->uniform1f(LLShaderMgr::WATER_COLOR_ABSORPTION_RATE, llclamp((F32)water_color_absorption_rate, 0.01f, 1.0f));
+
+    static LLStaticHashedString sWaterHorizonFadeIntensity("waterHorizonFadeIntensity");
+    shader->uniform1f(sWaterHorizonFadeIntensity, llclamp((F32)water_horizon_fade_intensity, 0.0f, 10.0f));
 
     static LLStaticHashedString s_exposure("exposure");
     static LLStaticHashedString tonemap_mix("tonemap_mix");

@@ -182,8 +182,8 @@ static bool handleAvatarHoverOffsetChanged(const LLSD& newvalue)
 static bool handleSetShaderChanged(const LLSD& newvalue)
 {
     // changing shader level may invalidate existing cached bump maps, as the shader type determines the format of the bump map it expects - clear and repopulate the bump cache
-    gBumpImageList.destroyGL();
-    gBumpImageList.restoreGL();
+    gBumpImageList.destroyDX();
+    gBumpImageList.restoreDX();
 
     if (gPipeline.isInit())
     {
@@ -236,7 +236,7 @@ bool handleRenderTransparentWaterChanged(const LLSD& newvalue)
     if (gPipeline.isInit())
     {
         DXPipeline::updateRenderTransparentWater();
-        // S24: no releaseGLBuffers()/createGLBuffers() here - same redundancy as
+        // S24: no releaseDXBuffers()/createDXBuffers() here - same redundancy as
         // handleReflectionProbeDetailChanged() above, setShaders() already does this exact
         // pair itself as part of the deferred reload requested below.
         // Defer shader reload to avoid blocking main thread
@@ -263,8 +263,8 @@ static bool handleReleaseGLBufferChanged(const LLSD& newvalue)
 {
     if (gPipeline.isInit())
     {
-        DXPipeline::releaseGLBuffers(gPipeline);
-        DXPipeline::createGLBuffers(gPipeline);
+        DXPipeline::releaseDXBuffers(gPipeline);
+        DXPipeline::createDXBuffers(gPipeline);
     }
     return true;
 }
@@ -508,7 +508,7 @@ static bool handleReflectionProbeDetailChanged(const LLSD& newvalue)
         }
         s_wasMirrorsOn = nowMirrorsOn;
 
-        // S24: no releaseGLBuffers()/createGLBuffers() here - setShaders() (llviewershadermgr.cpp)
+        // S24: no releaseDXBuffers()/createDXBuffers() here - setShaders() (llviewershadermgr.cpp)
         // already does that exact pair itself, unconditionally, as part of the deferred reload
         // requested below. Doing it here too just tears the whole G-buffer set down and rebuilds
         // it a second time one frame later with the same final settings state - pure waste on
@@ -1000,6 +1000,15 @@ void settings_setup_listeners()
     // on top of the shader reload, same combined shape as handleEnableEmissiveChanged above.
     setting_setup_signal_listener(gSavedSettings, "RenderShadowDetail", handleShaderAndBufferChanged);
     setting_setup_signal_listener(gSavedSettings, "RenderDeferredSSAO", handleShaderAndBufferChanged);
+    // S24: same combined reasoning as RenderShadowDetail just above - this gates both the
+    // POINT_SHADOW shader permutation (llviewershadermgr.cpp) AND whether
+    // doAllocateScreenBuffer() actually allocates mPointShadow[0][6] at all
+    // (dxpipeline.cpp). Without this listener, toggling the setting live (no relaunch)
+    // does nothing at all - the running shaders/targets stay exactly as they were
+    // compiled/allocated at login, since nothing else re-evaluates this setting until
+    // the next real shader reload or screen-buffer resize.
+    setting_setup_signal_listener(gSavedSettings, "RenderPointLightShadows", handleShaderAndBufferChanged);
+    setting_setup_signal_listener(gSavedSettings, "RenderPointShadowResolution", handleReleaseGLBufferChanged);
     setting_setup_signal_listener(gSavedSettings, "RenderPerformanceTest", handleRenderPerfTestChanged);
     setting_setup_signal_listener(gSavedSettings, "RenderAvatarCloth", handleSetShaderChanged);
     setting_setup_signal_listener(gSavedSettings, "ChatFontSize", handleChatFontSizeChanged);

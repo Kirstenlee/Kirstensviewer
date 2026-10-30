@@ -91,7 +91,7 @@ void LLDrawPoolWLSky::cleanupGL()
 }
 
 //static
-void LLDrawPoolWLSky::restoreGL()
+void LLDrawPoolWLSky::restoreDX()
 {
 }
 

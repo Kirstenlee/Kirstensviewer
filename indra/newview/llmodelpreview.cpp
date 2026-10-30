@@ -379,7 +379,6 @@ void LLModelPreview::rebuildUploadData()
                             out << "Search of" << name_to_match;
                             out << " in LOD" << i;
                             out << " list failed. Searching for alternative among LOD lists.";
-                            LL_INFOS() << out.str() << LL_ENDL;
 
                             LLFloaterModelPreview::addStringToLog(out, false);
                         }
@@ -419,7 +418,6 @@ void LLModelPreview::rebuildUploadData()
                                 out << "Attempting to use model index " << idx;
                                 out << " for LOD" << i;
                                 out << " of " << instance.mLabel;
-                                LL_INFOS() << out.str() << LL_ENDL;
                                 LLFloaterModelPreview::addStringToLog(out, false);
                             }
                             break;
@@ -437,7 +435,6 @@ void LLModelPreview::rebuildUploadData()
                         {
                             std::ostringstream out;
                             out << "Indexed match of model index " << idx << " at LOD " << i << " to model named " << lod_model->mLabel;
-                            LL_INFOS() << out.str() << LL_ENDL;
                             LLFloaterModelPreview::addStringToLog(out, false);
                         }
                     }
@@ -445,7 +442,6 @@ void LLModelPreview::rebuildUploadData()
                     {
                         std::ostringstream out;
                         out << "List of models does not include index " << idx;
-                        LL_INFOS() << out.str() << LL_ENDL;
                         LLFloaterModelPreview::addStringToLog(out, false);
                     }
                 }
@@ -460,7 +456,6 @@ void LLModelPreview::rebuildUploadData()
                         out << " - using: " << DEFAULT_PHYSICS_MESH_NAME;
                         lod_model = mDefaultPhysicsShapeP;
                     }
-                    LL_WARNS() << out.str() << LL_ENDL;
                     LLFloaterModelPreview::addStringToLog(out, mDefaultPhysicsShapeP.isNull()); // Flash log tab if no default.
                 }
 
@@ -477,7 +472,6 @@ void LLModelPreview::rebuildUploadData()
                         {
                             out << "Assigning LOD" << i << " for " << instance.mLabel << " to found match " << lod_model->mLabel;
                         }
-                        LL_INFOS() << out.str() << LL_ENDL;
                         LLFloaterModelPreview::addStringToLog(out, false);
                     }
                     instance.mLOD[i] = lod_model;
@@ -494,7 +488,6 @@ void LLModelPreview::rebuildUploadData()
                     {
                         std::ostringstream out;
                         out << "List of models does not include " << instance.mLabel;
-                        LL_INFOS() << out.str() << LL_ENDL;
                         LLFloaterModelPreview::addStringToLog(out, false);
                     }
                 }
@@ -536,7 +529,6 @@ void LLModelPreview::rebuildUploadData()
                         out << high_lod_model->mSkinInfo.mBindShapeMatrix;
                         out << " bind_rot ";
                         out << bind_rot;
-                        LL_WARNS() << out.str() << LL_ENDL;
 
                         LLFloaterModelPreview::addStringToLog(out, getLoadState() != LLModelLoader::WARNING_BIND_SHAPE_ORIENTATION);
                         load_state = LLModelLoader::WARNING_BIND_SHAPE_ORIENTATION;
@@ -593,7 +585,6 @@ void LLModelPreview::rebuildUploadData()
                 {
                     std::ostringstream out;
                     out << "Model " << mModel[lod][model_ind]->mLabel << " was not used - mismatching lod models.";
-                    LL_INFOS() << out.str() << LL_ENDL;
                     LLFloaterModelPreview::addStringToLog(out, true);
                 }
                 load_state = LLModelLoader::ERROR_MATERIALS;
@@ -753,7 +744,6 @@ void LLModelPreview::loadModel(std::string filename, S32 lod, bool force_disable
         std::ostringstream out;
         out << "Invalid level of detail: ";
         out << lod;
-        LL_WARNS() << out.str() << LL_ENDL;
         LLFloaterModelPreview::addStringToLog(out, true);
         assert(lod >= LLModel::LOD_IMPOSTOR && lod < LLModel::NUM_LODS);
         if (mModelLoader == nullptr)
@@ -1175,7 +1165,6 @@ void LLModelPreview::loadModelCallback(S32 loaded_lod)
                             {
                                 std::ostringstream out;
                                 out << "High LOD has submodels";
-                                LL_INFOS() << out.str() << LL_ENDL;
                                 LLFloaterModelPreview::addStringToLog(out, false);
                             }
                             break;
@@ -1203,7 +1192,6 @@ void LLModelPreview::loadModelCallback(S32 loaded_lod)
                     {
                         std::ostringstream out;
                         out << "Loaded LOD " << loaded_lod << ": correct names" << (name_based ? "" : "NOT ") << "found; submodels " << (has_submodels ? "" : "NOT ") << "found";
-                        LL_INFOS() << out.str() << LL_ENDL;
                         LLFloaterModelPreview::addStringToLog(out, false);
                     }
 
@@ -1225,7 +1213,6 @@ void LLModelPreview::loadModelCallback(S32 loaded_lod)
                                     out << "Loded model name " << mModel[loaded_lod][idx]->mLabel;
                                     out << " for LOD " << loaded_lod;
                                     out << " doesn't match the base model. Renaming to " << name;
-                                    LL_WARNS() << out.str() << LL_ENDL;
                                     LLFloaterModelPreview::addStringToLog(out, false);
                                 }
                                 mModel[loaded_lod][idx]->mLabel = name;
@@ -1828,7 +1815,6 @@ void LLModelPreview::genMeshOptimizerLODs(S32 which_lod, S32 meshopt_mode, U32 d
     {
         std::ostringstream out;
         out << "Invalid level of detail: " << which_lod;
-        LL_WARNS() << out.str() << LL_ENDL;
         LLFloaterModelPreview::addStringToLog(out, false);
         llassert(which_lod >= -1 && which_lod < LLModel::NUM_LODS);
         return;
@@ -2254,17 +2240,14 @@ void LLModelPreview::updateStatusMessages()
                     //
                     std::ostringstream out;
                     out << "Instance " << lod_model->mLabel << " LOD " << i << " Verts: " << cur_verts;
-                    LL_INFOS() << out.str() << LL_ENDL;
                     LLFloaterModelPreview::addStringToLog(out, false);
 
                     out.str("");
                     out << "Instance " << lod_model->mLabel << " LOD " << i << " Tris:  " << cur_tris;
-                    LL_INFOS() << out.str() << LL_ENDL;
                     LLFloaterModelPreview::addStringToLog(out, false);
 
                     out.str("");
                     out << "Instance " << lod_model->mLabel << " LOD " << i << " Faces: " << cur_submeshes;
-                    LL_INFOS() << out.str() << LL_ENDL;
                     LLFloaterModelPreview::addStringToLog(out, false);
 
                     out.str("");
@@ -2272,7 +2255,6 @@ void LLModelPreview::updateStatusMessages()
                     while (mat_iter != lod_model->mMaterialList.end())
                     {
                         out << "Instance " << lod_model->mLabel << " LOD " << i << " Material " << *(mat_iter);
-                        LL_INFOS() << out.str() << LL_ENDL;
                         LLFloaterModelPreview::addStringToLog(out, false);
                         out.str("");
                         mat_iter++;
@@ -2716,7 +2698,6 @@ void LLModelPreview::updateLodControls(S32 lod)
     {
         std::ostringstream out;
         out << "Invalid level of detail: " << lod;
-        LL_WARNS() << out.str() << LL_ENDL;
         LLFloaterModelPreview::addStringToLog(out, false);
         assert(lod >= LLModel::LOD_IMPOSTOR && lod <= LLModel::LOD_HIGH);
         return;
@@ -2921,7 +2902,6 @@ void LLModelPreview::genBuffers(S32 lod, bool include_skin_weights)
                 out << "Failed to allocate Vertex Buffer for model preview ";
                 out << num_vertices << " vertices and ";
                 out << num_indices << " indices";
-                LL_WARNS() << out.str() << LL_ENDL;
                 LLFloaterModelPreview::addStringToLog(out, true);
             }
 

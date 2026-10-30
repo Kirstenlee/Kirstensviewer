@@ -424,7 +424,7 @@ void LLWindowListener::keyUp(LLSD const & evt)
 }
 
 // for WhichButton
-typedef bool (LLWindowCallbacks::*MouseMethod)(LLWindow *, LLCoordGL, MASK);
+typedef bool (LLWindowCallbacks::*MouseMethod)(LLWindow *, LLCoordYUp, MASK);
 struct Actions
 {
     Actions(const MouseMethod& d, const MouseMethod& u): down(d), up(u), valid(true) {}
@@ -447,7 +447,7 @@ struct WhichButton: public StringLookup<Actions>
 };
 static WhichButton buttons;
 
-typedef std::function<bool(LLCoordGL, MASK)> MouseFunc;
+typedef std::function<bool(LLCoordYUp, MASK)> MouseFunc;
 
 // Wrap a function returning 'void' to return 'true' instead. I'm sure there's
 // a more generic way to accomplish this, but generically handling the
@@ -458,7 +458,7 @@ typedef std::function<bool(LLCoordGL, MASK)> MouseFunc;
 // seem to overload comma the same way; or at least not with bind().)
 class MouseFuncTrue
 {
-    typedef std::function<void(LLCoordGL, MASK)> MouseFuncVoid;
+    typedef std::function<void(LLCoordYUp, MASK)> MouseFuncVoid;
     MouseFuncVoid mFunc;
 
 public:
@@ -466,7 +466,7 @@ public:
         mFunc(func)
     {}
 
-    bool operator()(LLCoordGL coords, MASK mask) const
+    bool operator()(LLCoordYUp coords, MASK mask) const
     {
         mFunc(coords, mask);
         return true;
@@ -479,7 +479,7 @@ static void mouseEvent(const MouseFunc& func, const LLSD& request)
     LLEventAPI::Response response(LLSD(), request);
     // We haven't yet established whether the incoming request has "x" and "y",
     // but capture this anyway, with 0 for omitted values.
-    LLCoordGL pos(request["x"].asInteger(), request["y"].asInteger());
+    LLCoordYUp pos(request["x"].asInteger(), request["y"].asInteger());
     bool has_pos(request.has("x") && request.has("y"));
 
     std::unique_ptr<LLView::TemporaryDrilldownFunc> tempfunc;

@@ -634,7 +634,7 @@ void LLViewerShaderMgr::setShaders()
     } splash_guard(splashWasAlreadyVisible);
 
     initAttribsAndUniforms();
-    DXPipeline::releaseGLBuffers(gPipeline);
+    DXPipeline::releaseDXBuffers(gPipeline);
 
     unloadShaders();
 
@@ -783,7 +783,7 @@ void LLViewerShaderMgr::setShaders()
     {
         gViewerWindow->setCursor(UI_CURSOR_ARROW);
     }
-    DXPipeline::createGLBuffers(gPipeline);
+    DXPipeline::createDXBuffers(gPipeline);
 
     finalizeShaderList();
 
@@ -878,6 +878,15 @@ std::string LLViewerShaderMgr::loadBasicShaders()
         if (shadow_detail >= 2)
         {
             attribs["SPOT_SHADOW"] = "1";
+
+            // S24: real-time point/omni light shadows - separate opt-in on top of
+            // the existing shadow_detail>=2 spotlight gate (not folded in
+            // unconditionally - see RenderPointLightShadows' settings.xml comment).
+            static LLCachedControl<bool> point_shadows_enabled(gSavedSettings, "RenderPointLightShadows", false);
+            if (point_shadows_enabled)
+            {
+                attribs["POINT_SHADOW"] = "1";
+            }
         }
     }
 
@@ -2737,7 +2746,12 @@ bool LLViewerShaderMgr::loadShadersDeferred()
     {
         gDeferredPostTonemapLegacyGammaCorrectProgram.mName = "Deferred Tonemap Legacy Gamma Post Process";
         gDeferredPostTonemapLegacyGammaCorrectProgram.mFeatures.hasSrgb = true;
-        gDeferredPostTonemapProgram.mFeatures.isDeferred = true;
+        // S24: was gDeferredPostTonemapProgram (copy-paste typo) - that program already sets its
+        // own isDeferred at its own registration above; this line meant to set it on THIS program,
+        // leaving it unset here (deferredUtil.hlsl, and therefore depthMap/getDepth(), never
+        // attached to this permutation even though it's reachable at runtime via the legacy_gamma
+        // branch in DXPipeline::presentDeferredScreen()).
+        gDeferredPostTonemapLegacyGammaCorrectProgram.mFeatures.isDeferred = true;
         gDeferredPostTonemapLegacyGammaCorrectProgram.mFeatures.hasTonemap = true;
         gDeferredPostTonemapLegacyGammaCorrectProgram.mShaderFiles.clear();
         gDeferredPostTonemapLegacyGammaCorrectProgram.clearPermutations();
@@ -3899,7 +3913,7 @@ bool LLViewerShaderMgr::loadShadersInterface()
         gRadianceGenProgram.mShaderFiles.push_back(make_pair("interface/radianceGenV.glsl", GL_VERTEX_SHADER));
         gRadianceGenProgram.mShaderFiles.push_back(make_pair("interface/radianceGenF.glsl", GL_FRAGMENT_SHADER));
         gRadianceGenProgram.mShaderLevel = mShaderLevel[SHADER_INTERFACE];
-        gRadianceGenProgram.addPermutation("PROBE_FILTER_SAMPLES", "32");
+        gRadianceGenProgram.addPermutation("PROBE_FILTER_SAMPLES", "64");
         success = gRadianceGenProgram.createShader();
     }
 

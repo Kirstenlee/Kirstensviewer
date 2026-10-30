@@ -732,7 +732,7 @@ void LLTracker::drawMarker(const LLVector3d& pos_global, const LLColor4& color)
     LLVector3 pos_local = gAgent.getPosAgentFromGlobal(pos_global);
 
     // check in frustum
-    LLCoordGL screen;
+    LLCoordYUp screen;
     S32 x = 0;
     S32 y = 0;
     const bool CLAMP = true;

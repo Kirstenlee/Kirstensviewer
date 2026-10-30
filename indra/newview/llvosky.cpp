@@ -127,7 +127,7 @@ void LLSkyTex::cleanupGL()
     mTexture[1] = NULL;
 }
 
-void LLSkyTex::restoreGL()
+void LLSkyTex::restoreDX()
 {
     for (S32 i = 0; i < 2; i++)
     {
@@ -567,12 +567,12 @@ void LLVOSky::cleanupGL()
     }
 }
 
-void LLVOSky::restoreGL()
+void LLVOSky::restoreDX()
 {
     S32 i;
     for (i = 0; i < NUM_CUBEMAP_FACES; i++)
     {
-        mSkyTex[i].restoreGL();
+        mSkyTex[i].restoreDX();
     }
 
     LLSettingsSky::ptr_t psky = LLEnvironment::instance().getCurrentSky();

@@ -73,6 +73,7 @@
 #include "llurlfloaterdispatchhandler.h"
 #include "llviewerjoystick.h"
 #include "llcalc.h"
+#include "llchatservicehistory.h"
 #include "llconversationlog.h"
 #include "lldxhardware.h"
 #include "lltexturestats.h"
@@ -2520,6 +2521,27 @@ bool LLAppViewer::initThreads()
 		return LLViewerCamera::getInstance()->getDefaultFOV();
 	});
 
+	// KRLV_TOUCHPOINT: lets @camdistmax=0/@camdistmin>0's Mouselook-forcing
+	// side effects (krlvcamera.cpp's pollCamDist()) actually change/read the
+	// camera mode without krlv/ itself linking llagentcamera.h - see
+	// krlv/README.md and KRlvForceMouselookRequest/
+	// KRlvGetMouselookStateRequest in krlvhandler.h.
+	KRlvHandler::instance().setForceMouselookHook([](bool enterMouselook)
+	{
+		if (enterMouselook)
+		{
+			gAgentCamera.changeCameraToMouselook();
+		}
+		else
+		{
+			gAgentCamera.changeCameraToDefault();
+		}
+	});
+	KRlvHandler::instance().setGetMouselookStateHook([]() -> bool
+	{
+		return gAgentCamera.cameraMouselook();
+	});
+
 	// KRLV_TOUCHPOINT: lets @tpto=force (global-coordinate syntax only)
 	// command a teleport without krlv/ itself linking llagent.h - see
 	// krlv/README.md and KRlvForceTeleportRequest in krlvhandler.h.
@@ -2670,15 +2692,52 @@ bool LLAppViewer::initThreads()
 		}
 	});
 
-	// KRLV_TOUCHPOINT: lets @getoutfit[:part] / @getattach[:attachpt] read
-	// current worn-clothing/attachment-point occupancy live, without
-	// krlv/ itself linking llagentwearables.h/llvoavatarself.h - see
-	// krlv/README.md and KRlvGetOutfitLayersRequest/
-	// KRlvGetAttachPointsRequest in krlvhandler.h. Digit order for the
-	// no-part/no-point ("every layer"/"every point") form follows
-	// LLWearableType's/mAttachmentPoints' own enumeration order, not
-	// RLVa's own documented fixed order - a known, deliberate
-	// simplification (see krlv/README.md).
+	// KRLV_TOUCHPOINT: bare "@remoutfit=force" (no part) - "removes
+	// everything" per the real spec, except body parts (shape/skin/hair/
+	// eyes - would leave an unrezzed avatar). Enumerates every worn
+	// wearable directly rather than looping the attach-point/wearable-
+	// type force-detach hook per type name, both to avoid its folder-name
+	// fallback misfiring on any not-currently-worn type and because this
+	// needs no attach-point-name string at all. Reuses
+	// LLAppearanceMgr::removeItemsFromAvatar() - the same chokepoint
+	// already gated per-item for @remoutfit[:part]=n and
+	// @unsharedunwear/@sharedunwear, so those restrictions still apply
+	// normally even under the bare "strip everything" form.
+	KRlvHandler::instance().setForceStripHook([]()
+	{
+		if (!isAgentAvatarValid())
+		{
+			return;
+		}
+		uuid_vec_t idsToRemove;
+		for (S32 i = 0; i < LLWearableType::WT_COUNT; ++i)
+		{
+			const LLWearableType::EType type = static_cast<LLWearableType::EType>(i);
+			if (type == LLWearableType::WT_SHAPE || type == LLWearableType::WT_SKIN
+				|| type == LLWearableType::WT_HAIR || type == LLWearableType::WT_EYES)
+			{
+				continue;
+			}
+			const U32 count = gAgentWearables.getWearableCount(type);
+			for (U32 idx = 0; idx < count; ++idx)
+			{
+				const LLUUID itemId = gAgentWearables.getWearableItemID(type, idx);
+				if (itemId.notNull())
+				{
+					idsToRemove.push_back(itemId);
+				}
+			}
+		}
+		if (!idsToRemove.empty())
+		{
+			LLAppearanceMgr::instance().removeItemsFromAvatar(idsToRemove);
+		}
+	});
+
+	// KRLV_TOUCHPOINT: lets @getoutfit[:part]/@getattach[:attachpt] read
+	// worn-clothing/attachment occupancy without krlv/ linking
+	// llagentwearables.h/llvoavatarself.h - see krlvhandler.h's
+	// KRlvGetOutfitLayersRequest/KRlvGetAttachPointsRequest.
 	KRlvHandler::instance().setGetOutfitLayersHook([](const std::string& partName) -> std::string
 	{
 		if (!partName.empty())
@@ -2691,10 +2750,21 @@ bool LLAppViewer::initThreads()
 			return LLAgentWearables::selfHasWearable(type) ? "1" : "0";
 		}
 
+		// KRLV: RLVa's documented fixed reply order (not LLWearableType's
+		// own enum order) - universal has no spec position, appended past
+		// the original 16 entries as an S24 extension.
+		static const LLWearableType::EType kGetOutfitOrder[] = {
+			LLWearableType::WT_GLOVES, LLWearableType::WT_JACKET, LLWearableType::WT_PANTS,
+			LLWearableType::WT_SHIRT, LLWearableType::WT_SHOES, LLWearableType::WT_SKIRT,
+			LLWearableType::WT_SOCKS, LLWearableType::WT_UNDERPANTS, LLWearableType::WT_UNDERSHIRT,
+			LLWearableType::WT_SKIN, LLWearableType::WT_EYES, LLWearableType::WT_HAIR,
+			LLWearableType::WT_SHAPE, LLWearableType::WT_ALPHA, LLWearableType::WT_TATTOO,
+			LLWearableType::WT_PHYSICS, LLWearableType::WT_UNIVERSAL
+		};
 		std::string reply;
-		for (S32 i = 0; i < LLWearableType::WT_COUNT; ++i)
+		for (LLWearableType::EType type : kGetOutfitOrder)
 		{
-			reply += LLAgentWearables::selfHasWearable(static_cast<LLWearableType::EType>(i)) ? "1" : "0";
+			reply += LLAgentWearables::selfHasWearable(type) ? "1" : "0";
 		}
 		return reply;
 	});
@@ -2718,7 +2788,17 @@ bool LLAppViewer::initThreads()
 			return std::string();
 		}
 
-		std::string reply;
+		// KRLV: RLVa's documented reply format for the no-point form
+		// starts with a literal '0' for point index 0 ("none", not a
+		// real attachable point), THEN one digit per real attachment
+		// point in order by its ATTACH_* macro value counting from 1.
+		// mAttachmentPoints is a std::map<S32,...> keyed by that same
+		// numeric point id (avatar_lad.xml's id= attribute), so its own
+		// ascending iteration already matches - the only thing missing
+		// was the leading placeholder digit, which shifted every real
+		// point's digit left by one position relative to what
+		// RLVa-aware scripts expect.
+		std::string reply = "0";
 		for (const auto& entry : gAgentAvatarp->mAttachmentPoints)
 		{
 			LLViewerJointAttachment* attachment = entry.second;
@@ -2935,6 +3015,59 @@ bool LLAppViewer::initThreads()
 		}
 
 		return LLUUID::null;
+	});
+
+	// KRLV_TOUCHPOINT: @getpathnew - same resolution as the hook above,
+	// but ALL matches instead of just the first, since RLVa v2.1 lets
+	// several objects share one attachment point (or clothing layer
+	// index >0).
+	KRlvHandler::instance().setResolveWornAllHook([](const std::string& pointOrLayerOrUuid) -> std::vector<LLUUID>
+	{
+		std::vector<LLUUID> result;
+		if (pointOrLayerOrUuid.empty() || !isAgentAvatarValid())
+		{
+			return result;
+		}
+
+		for (const auto& entry : gAgentAvatarp->mAttachmentPoints)
+		{
+			LLViewerJointAttachment* attachment = entry.second;
+			if (attachment && attachment->getName() == pointOrLayerOrUuid && attachment->getNumObjects() > 0)
+			{
+				for (const auto& obj : attachment->mAttachedObjects)
+				{
+					if (obj)
+					{
+						result.push_back(obj->getAttachmentItemID());
+					}
+				}
+				return result;
+			}
+		}
+
+		const LLWearableType::EType type = LLWearableType::getInstance()->typeNameToType(pointOrLayerOrUuid);
+		if (type != LLWearableType::WT_INVALID && type != LLWearableType::WT_NONE)
+		{
+			const U32 count = gAgentWearables.getWearableCount(type);
+			for (U32 idx = 0; idx < count; ++idx)
+			{
+				const LLUUID itemId = gAgentWearables.getWearableItemID(type, idx);
+				if (itemId.notNull())
+				{
+					result.push_back(itemId);
+				}
+			}
+			return result;
+		}
+
+		LLUUID asUuid;
+		if (asUuid.set(pointOrLayerOrUuid, false) && asUuid.notNull())
+		{
+			LLViewerObject* object = gObjectList.findObject(asUuid);
+			result.push_back(object ? object->getAttachmentItemID() : asUuid);
+		}
+
+		return result;
 	});
 
 	// True if `itemId` currently lives anywhere under "#RLV".
@@ -5690,7 +5823,7 @@ void LLAppViewer::idle()
 	///////////////////////////////////////
 	// Agent and camera movement
 	//
-	LLCoordGL current_mouse = gViewerWindow->getCurrentMouse();
+	LLCoordYUp current_mouse = gViewerWindow->getCurrentMouse();
 
 	{
 		// After agent and camera moved, figure out if we need to
@@ -6005,6 +6138,9 @@ void LLAppViewer::idleShutdown()
 	// All floaters are closed.  Tell server we want to quit.
 	if (!logoutRequestSent())
 	{
+		// Fence outstanding history work before logout tears down its account and capability context.
+		LLChatServiceHistory::stop();
+
 		// S24: if disconnected during shutdown (e.g. from a failed TP), don't
 		// try to send logout - just force quit immediately.
 		if (gDisconnected)
@@ -6353,6 +6489,9 @@ void LLAppViewer::idleNetwork()
 
 void LLAppViewer::disconnectViewer()
 {
+	// This is idempotent and also covers disconnect paths that bypass the normal logout request.
+	LLChatServiceHistory::stop();
+
 	if (gDisconnected)
 	{
 		return;
@@ -6617,6 +6756,8 @@ void LLAppViewer::handleLoginComplete()
 		gDebugInfo["CurrentRegion"] = gAgent.getRegion()->getName();
 	}
 
+	// Start only after login has established the per-account storage and region capability context.
+	LLChatServiceHistory::start();
 	mOnLoginCompleted();
 
 	writeDebugInfo();

@@ -597,7 +597,7 @@ void LLFloaterTools::resetToolState()
     gGrabBtnVertical = false;
 }
 
-void LLFloaterTools::updatePopup(LLCoordGL center, MASK mask)
+void LLFloaterTools::updatePopup(LLCoordYUp center, MASK mask)
 {
     LLTool *tool = LLToolMgr::getInstance()->getCurrentTool();
 
@@ -882,7 +882,7 @@ void LLFloaterTools::onOpen(const LLSD& key)
         // Something called floater up while it was supressed (during drag n drop, inspect),
         // so it won't be getting any layout or visibility updates, update once
         // further updates will come from updateLayout()
-        LLCoordGL select_center_screen;
+        LLCoordYUp select_center_screen;
         MASK    mask = gKeyboard->currentMask(true);
         updatePopup(select_center_screen, mask);
     }

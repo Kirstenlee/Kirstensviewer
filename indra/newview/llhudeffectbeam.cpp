@@ -227,12 +227,6 @@ void LLHUDEffectBeam::render()
 {
     // S24: BEAM SUBSYSTEM - Modern billboard-based rendering with hybrid particle/line support
 
-    static S32 render_counter = 0;
-    if (render_counter++ % 60 == 0)
-    {
-        LL_WARNS() << "S24 BEAM: render() CALLED - frame " << render_counter << LL_ENDL;
-    }
-
     // Early exit checks
     if (!mSourceObject)
     {
@@ -241,7 +235,6 @@ void LLHUDEffectBeam::render()
     }
     if (mSourceObject->isDead())
     {
-        LL_WARNS() << "S24 BEAM: Source object is dead, marking dead" << LL_ENDL;
         markDead();
         return;
     }
@@ -285,15 +278,6 @@ void LLHUDEffectBeam::render()
     // S24: Update color from UIColorTable directly (source of truth for both Prefs and KVtweaks)
     LLColor4 current_effect_color = LLUIColorTable::instance().getColor("EffectColor");
 
-    static S32 color_log_counter = 0;
-    if (color_log_counter++ % 60 == 0)
-    {
-        LL_WARNS() << "S24 BEAM COLOR: Reading from UIColorTable - R=" << current_effect_color.mV[0] 
-                   << " G=" << current_effect_color.mV[1] 
-                   << " B=" << current_effect_color.mV[2] 
-                   << " A=" << current_effect_color.mV[3] << LL_ENDL;
-    }
-
     current_effect_color.mV[VALPHA] = 1.0f; // Force full opacity
     mColor = LLColor4U(current_effect_color); // Update beam's stored color
 
@@ -303,7 +287,6 @@ void LLHUDEffectBeam::render()
     if (global_alpha < 0.01f)
     {
         global_alpha = 1.0f;
-        LL_WARNS() << "S24 BEAM: Alpha was too low (" << (mColor.mV[3] / 255.0f) << "), forcing to 1.0" << LL_ENDL;
     }
 
     // Get start and end positions for both rendering paths
@@ -326,11 +309,7 @@ void LLHUDEffectBeam::render()
         LLVector3 line_vec = target_pos - source_pos;
         F32 line_length = line_vec.length();
 
-        if (line_length < 0.01f)
-        {
-            LL_WARNS() << "S24 BEAM: Line too short to render (" << line_length << "m)" << LL_ENDL;
-        }
-        else
+        if (line_length >= 0.01f)
         {
             line_vec.normalize();
 
@@ -346,7 +325,6 @@ void LLHUDEffectBeam::render()
             if (width_len < 0.001f)
             {
                 // Line is pointing directly at camera, use camera up vector instead
-                LL_WARNS() << "S24 BEAM: Line pointing at camera, using fallback width vector" << LL_ENDL;
                 width_vec = line_vec % LLViewerCamera::getInstance()->getUpAxis();
                 width_vec.normalize();
             }
@@ -387,8 +365,6 @@ void LLHUDEffectBeam::render()
         // Init the color of the particles
         LLColor4U coloru = mColor;
 
-        S32 particles_rendered = 0;
-
         // Draw the particles
         for (S32 i = 0; i < NUM_POINTS; i++)
         {
@@ -426,11 +402,7 @@ void LLHUDEffectBeam::render()
             gDX.scalef(scale, scale, scale);
             gSphere.render();
             gDX.popMatrix();
-
-            particles_rendered++;
         }
-
-        LL_WARNS() << "S24 BEAM: Rendered " << particles_rendered << " particles" << LL_ENDL;
     }
 }
 

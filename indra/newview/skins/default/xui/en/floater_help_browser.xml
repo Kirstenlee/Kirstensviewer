@@ -493,10 +493,20 @@ Reflection Intensity / Saturation / Contrast
   Notes: RenderReflectionProbeIntensity/Saturation/Contrast - brightness, color, and
          punch of what the probes capture
 
-Reflection Blur (RenderReflectionProbeBlurLODBias)
-  Default: 0.0
-  Range: -10.0 to 10.0
-  Notes: Negative = sharper, positive = softer
+Reflection Blur (RenderReflectionProbeBlurSpread)
+  Default: 0.01 - just enough to eradicate mip-level banding
+  Range: 0.0 to 0.1
+  Notes: Direction-space smudge independent of probe mip resolution.
+         0 = sharp, higher = softer reflections. Deliberately a small
+         range - past ~0.06-0.08 the 16-tap kernel's sample gaps show
+         up as separated ghosts again rather than a smooth smear.
+
+Probe Fade Weight (RenderDefaultProbeFadeWeight)
+  Default: 0.35
+  Range: 0.05 to 1.0
+  Notes: How much of each sky/default probe refresh applies at once.
+         1.0 snaps instantly (old behaviour), lower smooths out the
+         pop in water/mirror reflections as sky/clouds change.
 
 Ambient Contribution (RenderReflectionProbeAmbientMultiplier)
   Default: 0.2

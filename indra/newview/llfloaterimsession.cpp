@@ -37,6 +37,7 @@
 #include "llavatarnamecache.h"
 #include "llbutton.h"
 #include "llchannelmanager.h"
+#include "llchatservicehistory.h"
 #include "llchiclet.h"
 #include "llchicletbar.h"
 #include "lldonotdisturbnotificationstorage.h"
@@ -352,6 +353,9 @@ void LLFloaterIMSession::initIMFloater()
 bool LLFloaterIMSession::postBuild()
 {
     bool result = LLFloaterIMSessionTab::postBuild();
+
+    // S24: ChatService loading-spinner panel - see draw().
+    mChatServiceLoadingPanel = getChildView("chat_service_loading");
 
     mInputEditor->setMaxTextLength(1023);
     mInputEditor->setAutoreplaceCallback(boost::bind(&LLAutoReplace::autoreplaceCallback, LLAutoReplace::getInstance(), _1, _2, _3, _4, _5));
@@ -1118,6 +1122,23 @@ void LLFloaterIMSession::processSessionUpdate(const LLSD& session_update)
 // virtual
 void LLFloaterIMSession::draw()
 {
+    // S24: ChatService loading spinner. The cache follows preference changes without
+    // looking up the setting each frame. The floater presents both model-owned local
+    // reads and account-scoped service work without scheduling either source from draw().
+    static LLCachedControl<bool> show_history(gSavedPerAccountSettings, "LogShowHistory");
+    const bool chat_service_loading =
+        mSession &&
+        mIsP2PChat &&
+        show_history &&
+        (mSession->isChatHistoryLoading() ||
+         LLChatServiceHistory::getSnapshot(mSession->mOtherParticipantID).service_work_active);
+
+    // The widget animates in draw(); hiding its panel suspends that work.
+    if (mChatServiceLoadingPanel->getVisible() != chat_service_loading)
+    {
+        mChatServiceLoadingPanel->setVisible(chat_service_loading);
+    }
+
     // add people who were added via dropPerson()
     if (!mPendingParticipants.empty())
     {

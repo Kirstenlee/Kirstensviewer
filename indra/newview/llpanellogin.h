@@ -57,6 +57,8 @@ public:
         void* callback_data);
     static void reshapePanel();
 
+    static void setCredentialFields(const std::string& username, const std::string& password);
+
     static void populateFields(LLPointer<LLCredential> credential, bool remember_user, bool remember_psswrd);
     static void resetFields();
     static void getFields(LLPointer<LLCredential>& credential, bool& remember_user, bool& remember_psswrd);

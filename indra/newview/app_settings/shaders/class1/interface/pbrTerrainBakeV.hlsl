@@ -44,7 +44,10 @@ VSOutput main(VSInput IN)
 
     OUT.position = mul(modelview_projection_matrix, float4(IN.position.xyz, 1.0));
     float2 tc = IN.texcoord1.xy;
-    OUT.varying.vary_texcoord0.zw = tc.xy;
+    // S24: .xy was never written - only .zw is read in the pixel shader, but an
+    // uninitialized interpolator component is a real X3578 (output not completely
+    // initialized), not just a benign unused-value warning. Mirror .zw into .xy.
+    OUT.varying.vary_texcoord0 = tc.xyxy;
     OUT.varying.vary_texcoord1.xy = tc.xy-float2(2.0, 0.0);
     OUT.varying.vary_texcoord1.zw = tc.xy-float2(1.0, 0.0);
 

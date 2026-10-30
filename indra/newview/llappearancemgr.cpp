@@ -1730,6 +1730,14 @@ void LLAppearanceMgr::addCategoryToCurrentOutfit(const LLUUID& cat_id)
 
 void LLAppearanceMgr::takeOffOutfit(const LLUUID& cat_id)
 {
+    // KRLV_TOUCHPOINT: @detachthis/@detachallthis[...]=n - see
+    // wearInventoryCategory()'s identical comment, the "remove this
+    // folder" side of the same universal chokepoint.
+    if (KRlv::isSharedFolderDetachLocked(cat_id))
+    {
+        return;
+    }
+
     LLInventoryModel::cat_array_t cats;
     LLInventoryModel::item_array_t items;
     LLFindWearablesEx collector(/*is_worn=*/ true, /*include_body_parts=*/ false);
@@ -2835,6 +2843,17 @@ void LLAppearanceMgr::getUserDescendents(const LLUUID& category,
 void LLAppearanceMgr::wearInventoryCategory(LLInventoryCategory* category, bool copy, bool append)
 {
     if(!category) return;
+
+    // KRLV_TOUCHPOINT: @attachthis/@attachallthis[...]=n - the universal
+    // chokepoint every "wear this folder" UI path funnels through
+    // (inventory context menu's Add/Replace Outfit, the Outfits panel,
+    // drag-and-drop, the gallery view, ...), so gating here covers all of
+    // them at once rather than chasing each caller. See
+    // krlvsharedfolders.cpp's file header.
+    if (KRlv::isSharedFolderAttachLocked(category->getUUID()))
+    {
+        return;
+    }
 
     selfClearPhases();
     selfStartPhase("wear_inventory_category");

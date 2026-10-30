@@ -29,6 +29,8 @@ SamplerState reflectionProbesSampler : register(s0);
 uniform int sourceIdx;
 
 uniform float max_probe_lod;
+uniform int destIdx;
+uniform float fadeWeight;
 
 // S24: see radianceGenF.hlsl's identical cleanup - fixHandedness is gone,
 // irradianceGenV.hlsl now computes vary_dir from Direct3D's documented
@@ -220,6 +222,15 @@ float4 main(PSInput IN) : SV_Target
     // per-face formula - see radianceGenF.hlsl's identical cleanup.
     float3 N = normalize(IN.vary_dir);
     color = filterColor(N);
+    color = max(color, float4(0, 0, 0, 0));
 
-    return max(color, float4(0, 0, 0, 0));
+    // S24: same cross-fade as radianceGenF.hlsl - see its comment. Irradiance only ever
+    // writes its single mip level, so the old value is sampled at lod 0.
+    if (fadeWeight < 1.0)
+    {
+        float4 old_color = reflectionProbes.SampleLevel(reflectionProbesSampler, float4(N, (float)destIdx), 0.0);
+        color = lerp(old_color, color, saturate(fadeWeight));
+    }
+
+    return color;
 }

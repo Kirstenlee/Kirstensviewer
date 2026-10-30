@@ -291,6 +291,12 @@ public:
     void    updateSpotLightPriority();
     F32     getSpotLightPriority() const;
 
+    // S24: same screen-space-apparent-size priority metric as the spotlight
+    // shadow tournament above, generalized to an omnidirectional point
+    // light (no cone-direction offset) - see DXPipeline::setupPointLightShadow().
+    void    updatePointLightPriority();
+    F32     getPointLightPriority() const;
+
     LLViewerTexture* getLightTexture();
     F32 getLightIntensity() const;
     F32 getLightRadius() const;
@@ -462,6 +468,7 @@ private:
     bool        mSculptChanged;
     bool        mColorChanged;
     F32         mSpotLightPriority;
+    F32         mPointLightPriority = 0.f;
     LLMatrix4   mRelativeXform;
     LLMatrix3   mRelativeXformInvTrans;
     bool        mVolumeChanged;

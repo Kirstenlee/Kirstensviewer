@@ -156,7 +156,7 @@ void LLToastIMPanel::spawnNameToolTip()
     LLRect sticky_rect = mAvatarName->calcScreenRect();
     S32 icon_x =
         llmin(sticky_rect.mLeft + mAvatarName->getTextPixelWidth() + 3, sticky_rect.mRight);
-    LLCoordGL pos(icon_x, sticky_rect.mTop);
+    LLCoordYUp pos(icon_x, sticky_rect.mTop);
 
     LLToolTip::Params params;
     params.background_visible(false);
@@ -182,7 +182,7 @@ void LLToastIMPanel::spawnGroupIconToolTip()
 {
     // Spawn at right bottom side of group icon.
     LLRect sticky_rect = mGroupIcon->calcScreenRect();
-    LLCoordGL pos(sticky_rect.mRight, sticky_rect.mBottom);
+    LLCoordYUp pos(sticky_rect.mRight, sticky_rect.mBottom);
 
     LLGroupData g_data;
     if(!gAgent.getGroupData(mSessionID, g_data))

@@ -870,7 +870,7 @@ public:
 		if (debug_show_color() && !LLRender::sNsightDebugSupport)
 		{
 			U8 color[4];
-			LLCoordGL coord = gViewerWindow->getCurrentMouse();
+			LLCoordYUp coord = gViewerWindow->getCurrentMouse();
 
 			// Convert x,y to raw pixel coords
 			S32 x_raw = (S32)llround(coord.mX * gViewerWindow->getWindowWidthRaw() / (F32)gViewerWindow->getWindowWidthScaled());
@@ -1074,7 +1074,7 @@ void LLViewerWindow::handlePieMenu(S32 x, S32 y, MASK mask)
 	}
 }
 
-bool LLViewerWindow::handleAnyMouseClick(LLWindow* window, LLCoordGL pos, MASK mask, EMouseClickType clicktype, bool down, bool& is_toolmgr_action)
+bool LLViewerWindow::handleAnyMouseClick(LLWindow* window, LLCoordYUp pos, MASK mask, EMouseClickType clicktype, bool down, bool& is_toolmgr_action)
 {
 	const char* buttonname = "";
 	const char* buttonstatestr = "";
@@ -1257,7 +1257,7 @@ bool LLViewerWindow::handleAnyMouseClick(LLWindow* window, LLCoordGL pos, MASK m
 	return default_rtn;
 }
 
-bool LLViewerWindow::handleMouseDown(LLWindow* window, LLCoordGL pos, MASK mask)
+bool LLViewerWindow::handleMouseDown(LLWindow* window, LLCoordYUp pos, MASK mask)
 {
 	mAllowMouseDragging = false;
 	if (!mMouseDownTimer.getStarted())
@@ -1273,7 +1273,7 @@ bool LLViewerWindow::handleMouseDown(LLWindow* window, LLCoordGL pos, MASK mask)
 	return gViewerInput.handleMouse(window, pos, mask, CLICK_LEFT, down);
 }
 
-bool LLViewerWindow::handleLeftMouseDoubleClick(LLWindow* window, LLCoordGL pos, MASK mask)
+bool LLViewerWindow::handleLeftMouseDoubleClick(LLWindow* window, LLCoordYUp pos, MASK mask)
 {
 	// try handling as a double-click first, then a single-click if that
 	// wasn't handled.
@@ -1285,7 +1285,7 @@ bool LLViewerWindow::handleLeftMouseDoubleClick(LLWindow* window, LLCoordGL pos,
 	return handleMouseDown(window, pos, mask);
 }
 
-bool LLViewerWindow::handleRightMouseDoubleClick(LLWindow* window, LLCoordGL pos, MASK mask)
+bool LLViewerWindow::handleRightMouseDoubleClick(LLWindow* window, LLCoordYUp pos, MASK mask)
 {
 	// try handling as a double-click first, then a single-click if that
 	// wasn't handled.
@@ -1307,7 +1307,7 @@ bool LLViewerWindow::handleRightMouseDoubleClick(LLWindow* window, LLCoordGL pos
 	return handleRightMouseDown(window, pos, mask);
 }
 
-bool LLViewerWindow::handleMiddleMouseDoubleClick(LLWindow* window, LLCoordGL pos, MASK mask)
+bool LLViewerWindow::handleMiddleMouseDoubleClick(LLWindow* window, LLCoordYUp pos, MASK mask)
 {
 	// try handling as a double-click first, then a single-click if that
 	// wasn't handled.
@@ -1319,7 +1319,7 @@ bool LLViewerWindow::handleMiddleMouseDoubleClick(LLWindow* window, LLCoordGL po
 	return handleMiddleMouseDown(window, pos, mask);
 }
 
-bool LLViewerWindow::handleMouseUp(LLWindow* window, LLCoordGL pos, MASK mask)
+bool LLViewerWindow::handleMouseUp(LLWindow* window, LLCoordYUp pos, MASK mask)
 {
 	if (mMouseDownTimer.getStarted())
 	{
@@ -1328,19 +1328,19 @@ bool LLViewerWindow::handleMouseUp(LLWindow* window, LLCoordGL pos, MASK mask)
 	bool down = false;
 	return gViewerInput.handleMouse(window, pos, mask, CLICK_LEFT, down);
 }
-bool LLViewerWindow::handleRightMouseDown(LLWindow* window, LLCoordGL pos, MASK mask)
+bool LLViewerWindow::handleRightMouseDown(LLWindow* window, LLCoordYUp pos, MASK mask)
 {
 	bool down = true;
 	return gViewerInput.handleMouse(window, pos, mask, CLICK_RIGHT, down);
 }
 
-bool LLViewerWindow::handleRightMouseUp(LLWindow* window, LLCoordGL pos, MASK mask)
+bool LLViewerWindow::handleRightMouseUp(LLWindow* window, LLCoordYUp pos, MASK mask)
 {
 	bool down = false;
 	return gViewerInput.handleMouse(window, pos, mask, CLICK_RIGHT, down);
 }
 
-bool LLViewerWindow::handleMiddleMouseDown(LLWindow* window, LLCoordGL pos, MASK mask)
+bool LLViewerWindow::handleMiddleMouseDown(LLWindow* window, LLCoordYUp pos, MASK mask)
 {
 	bool down = true;
 	gViewerInput.handleMouse(window, pos, mask, CLICK_MIDDLE, down);
@@ -1349,7 +1349,7 @@ bool LLViewerWindow::handleMiddleMouseDown(LLWindow* window, LLCoordGL pos, MASK
 	return true;
 }
 
-LLWindowCallbacks::DragNDropResult LLViewerWindow::handleDragNDrop(LLWindow* window, LLCoordGL pos, MASK mask, LLWindowCallbacks::DragNDropAction action, std::string data)
+LLWindowCallbacks::DragNDropResult LLViewerWindow::handleDragNDrop(LLWindow* window, LLCoordYUp pos, MASK mask, LLWindowCallbacks::DragNDropAction action, std::string data)
 {
 	LLWindowCallbacks::DragNDropResult result = LLWindowCallbacks::DND_NONE;
 
@@ -1494,7 +1494,7 @@ LLWindowCallbacks::DragNDropResult LLViewerWindow::handleDragNDrop(LLWindow* win
 	return result;
 }
 
-bool LLViewerWindow::handleMiddleMouseUp(LLWindow* window, LLCoordGL pos, MASK mask)
+bool LLViewerWindow::handleMiddleMouseUp(LLWindow* window, LLCoordYUp pos, MASK mask)
 {
 	bool down = false;
 	gViewerInput.handleMouse(window, pos, mask, CLICK_MIDDLE, down);
@@ -1503,7 +1503,7 @@ bool LLViewerWindow::handleMiddleMouseUp(LLWindow* window, LLCoordGL pos, MASK m
 	return true;
 }
 
-bool LLViewerWindow::handleOtherMouse(LLWindow* window, LLCoordGL pos, MASK mask, S32 button, bool down)
+bool LLViewerWindow::handleOtherMouse(LLWindow* window, LLCoordYUp pos, MASK mask, S32 button, bool down)
 {
 	switch (button)
 	{
@@ -1521,18 +1521,18 @@ bool LLViewerWindow::handleOtherMouse(LLWindow* window, LLCoordGL pos, MASK mask
 	return true;
 }
 
-bool LLViewerWindow::handleOtherMouseDown(LLWindow* window, LLCoordGL pos, MASK mask, S32 button)
+bool LLViewerWindow::handleOtherMouseDown(LLWindow* window, LLCoordYUp pos, MASK mask, S32 button)
 {
 	return handleOtherMouse(window, pos, mask, button, true);
 }
 
-bool LLViewerWindow::handleOtherMouseUp(LLWindow* window, LLCoordGL pos, MASK mask, S32 button)
+bool LLViewerWindow::handleOtherMouseUp(LLWindow* window, LLCoordYUp pos, MASK mask, S32 button)
 {
 	return handleOtherMouse(window, pos, mask, button, false);
 }
 
 //  WARNING: This is potentially called multiple times per frame
-void LLViewerWindow::handleMouseMove(LLWindow* window, LLCoordGL pos, MASK mask)
+void LLViewerWindow::handleMouseMove(LLWindow* window, LLCoordYUp pos, MASK mask)
 {
 	// Scale the input mouse position
 	S32 x = ll_round((F32)pos.mX / mDisplayScale.mV[VX]);
@@ -1542,7 +1542,7 @@ void LLViewerWindow::handleMouseMove(LLWindow* window, LLCoordGL pos, MASK mask)
 
 	// Create the new mouse point and compare it with the current one
 
-	LLCoordGL mouse_point(x, y);
+	LLCoordYUp mouse_point(x, y);
 
 	if (mouse_point != mCurrentMousePoint)
 	{
@@ -1566,7 +1566,7 @@ void LLViewerWindow::handleMouseMove(LLWindow* window, LLCoordGL pos, MASK mask)
 	}
 }
 
-void LLViewerWindow::handleMouseDragged(LLWindow* window, LLCoordGL pos, MASK mask)
+void LLViewerWindow::handleMouseDragged(LLWindow* window, LLCoordYUp pos, MASK mask)
 {
 	if (mMouseDownTimer.getStarted())
 	{
@@ -4038,7 +4038,7 @@ void LLViewerWindow::updateLayout()
 				gFloaterTools->openFloater();
 			}
 			// Update the location of the blue box tool popup
-			LLCoordGL select_center_screen;
+			LLCoordYUp select_center_screen;
 			MASK    mask = gKeyboard->currentMask(true);
 			gFloaterTools->updatePopup(select_center_screen, mask);
 		}
@@ -4268,7 +4268,7 @@ void LLViewerWindow::updateWorldViewRect(bool use_full_window)
 	}
 }
 
-void LLViewerWindow::saveLastMouse(const LLCoordGL& point)
+void LLViewerWindow::saveLastMouse(const LLCoordYUp& point)
 {
 	// Store last mouse location.
 	// If mouse leaves window, pretend last point was on edge of window
@@ -4520,7 +4520,7 @@ void LLViewerWindow::pickAsync(S32 x,
 		pick_transparent = true;
 	}
 
-    LLPickInfo pick_info(LLCoordGL(x, y_from_bot), mask, pick_transparent, pick_rigged, false, pick_reflection_probes, true, pick_unselectable, callback);
+    LLPickInfo pick_info(LLCoordYUp(x, y_from_bot), mask, pick_transparent, pick_rigged, false, pick_reflection_probes, true, pick_unselectable, callback);
 	schedulePick(pick_info);
 }
 
@@ -4588,7 +4588,7 @@ LLPickInfo LLViewerWindow::pickImmediate(S32 x, S32 y_from_bot, bool pick_transp
 
 	// shortcut queueing in mPicks and just update mLastPick in place
 	MASK    key_mask = gKeyboard->currentMask(true);
-	mLastPick = LLPickInfo(LLCoordGL(x, y_from_bot), key_mask, pick_transparent, pick_rigged, pick_particle, pick_reflection_probe, true, false, NULL);
+	mLastPick = LLPickInfo(LLCoordYUp(x, y_from_bot), key_mask, pick_transparent, pick_rigged, pick_particle, pick_reflection_probe, true, false, NULL);
 	mLastPick.fetchResults();
 
 	return mLastPick;
@@ -6292,7 +6292,7 @@ void LLViewerWindow::stopGL()
 	//Note: --bao
 	//if not necessary, do not change the order of the function calls in this function.
 	//if change something, make sure it will not break anything.
-	//especially be careful to put anything behind gTextureList.destroyGL(save_state);
+	//especially be careful to put anything behind gTextureList.destroyDX(save_state);
 	if (!gGLManager.mIsDisabled)
 	{
 		LL_INFOS() << "Shutting down GL..." << LL_ENDL;
@@ -6301,28 +6301,28 @@ void LLViewerWindow::stopGL()
 		LLAppViewer::getTextureCache()->pause();
 		LLAppViewer::getTextureFetch()->pause();
 
-		gSky.destroyGL();
+		gSky.destroyDX();
 
-		LLManipTranslate::destroyGL();
+		LLManipTranslate::destroyDX();
 
-		gBumpImageList.destroyGL();
+		gBumpImageList.destroyDX();
 
 		LLFontDX::destroyAllGL();
 
-		LLVOAvatar::destroyGL();
+		LLVOAvatar::destroyDX();
 
-		LLVOPartGroup::destroyGL();
+		LLVOPartGroup::destroyDX();
 
-		LLViewerDynamicTexture::destroyGL();
+		LLViewerDynamicTexture::destroyDX();
 
 		if (gPipeline.isInit())
 		{
-			DXPipeline::destroyGL(gPipeline);
+			DXPipeline::destroyDX(gPipeline);
 		}
 
 		gBox.cleanupGL();
 
-		gTextureList.destroyGL();
+		gTextureList.destroyDX();
 
 		gGLManager.mIsDisabled = true;
 
@@ -6335,7 +6335,7 @@ void LLViewerWindow::stopGL()
 	}
 }
 
-void LLViewerWindow::restoreGL(const std::string& progress_message)
+void LLViewerWindow::restoreDX(const std::string& progress_message)
 {
 	llassert(false);
 	// DEPRECATED -- this is left over from when we would completely destroy and restore a GL context
@@ -6348,27 +6348,27 @@ void LLViewerWindow::restoreGL(const std::string& progress_message)
 	//Note: --bao
 	//if not necessary, do not change the order of the function calls in this function.
 	//if change something, make sure it will not break anything.
-	//especially, be careful to put something before gTextureList.restoreGL();
+	//especially, be careful to put something before gTextureList.restoreDX();
 	if (gGLManager.mIsDisabled)
 	{
 		LL_INFOS() << "Restoring GL..." << LL_ENDL;
 		gGLManager.mIsDisabled = false;
 
 		initGLDefaults();
-		DXState::restoreGL();
+		DXState::restoreDX();
 
 		// for future support of non-square pixels, and fonts that are properly stretched
 		LLFontDX::destroyDefaultFonts(); // KL I have noted a few instances of font corruption on toggling reflections...
 		initFonts();
 
-		gSky.restoreGL();
-		DXPipeline::restoreGL(gPipeline);
-		LLManipTranslate::restoreGL();
+		gSky.restoreDX();
+		DXPipeline::restoreDX(gPipeline);
+		LLManipTranslate::restoreDX();
 
-		gBumpImageList.restoreGL();
-		LLViewerDynamicTexture::restoreGL();
-		LLVOAvatar::restoreGL();
-		LLVOPartGroup::restoreGL();
+		gBumpImageList.restoreDX();
+		LLViewerDynamicTexture::restoreDX();
+		LLVOAvatar::restoreDX();
+		LLVOPartGroup::restoreDX();
 
 		gResizeScreenTexture = true;
 		gWindowResized = true;
@@ -6388,7 +6388,7 @@ void LLViewerWindow::restoreGL(const std::string& progress_message)
 		LL_INFOS() << "...Restoring GL done" << LL_ENDL;
 		if (!LLAppViewer::instance()->restoreErrorTrap())
 		{
-			LL_WARNS() << " Someone took over my signal/exception handler (post restoreGL)!" << LL_ENDL;
+			LL_WARNS() << " Someone took over my signal/exception handler (post restoreDX)!" << LL_ENDL;
 		}
 
 	}
@@ -6598,7 +6598,7 @@ LLPickInfo::LLPickInfo()
 {
 }
 
-LLPickInfo::LLPickInfo(const LLCoordGL& mouse_pos,
+LLPickInfo::LLPickInfo(const LLCoordYUp& mouse_pos,
     MASK keyboard_mask,
     bool pick_transparent,
     bool pick_rigged,

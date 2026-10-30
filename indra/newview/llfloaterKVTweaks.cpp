@@ -154,6 +154,9 @@ bool LLFloaterKVTweaks::postBuild()
     // S24 - Hook up Materials tab controls
     childSetAction("reset_materials_btn", boost::bind(&LLFloaterKVTweaks::onClickResetMaterials, this));
 
+    // S24 - Hook up Rendering Advanced tab controls
+    childSetAction("reset_rendering_advanced_btn", boost::bind(&LLFloaterKVTweaks::onClickResetRenderingAdvanced, this));
+
     // S24 - Hook up Cubemap tab controls
     childSetAction("reset_cubemap_btn", boost::bind(&LLFloaterKVTweaks::onClickResetCubemap, this));
 
@@ -445,6 +448,7 @@ void LLFloaterKVTweaks::onClickResetToDefaults()
         "RenderWaterUnderwaterFogMult",
         "RenderWaterReflectionWarmth",
         "RenderWaterColorAbsorptionRate",
+        "RenderWaterHorizonFadeIntensity",
         "RenderWaterWindInfluence",
         "RenderWaterWindMagnitudeCap",
 
@@ -501,6 +505,7 @@ void LLFloaterKVTweaks::onClickResetToDefaults()
         "RenderObjectBump",
         "RenderGlow",
         "RenderGlowResolutionPow",
+        "RenderGodrayIntensity",
         "TextureFetchConcurrency",
         "TextureNewByteRange",
         "TextureReverseByteRange",
@@ -552,7 +557,8 @@ void LLFloaterKVTweaks::onClickResetToDefaults()
         "RenderReflectionProbeIntensity",
         "RenderReflectionProbeSaturation",
         "RenderReflectionProbeContrast",
-        "RenderReflectionProbeBlurLODBias",
+        "RenderReflectionProbeBlurSpread",
+        "RenderDefaultProbeFadeWeight",
         "RenderReflectionProbeAmbientMultiplier",
         "RenderReflectionProbeEqualize",
         "RenderReflectionProbeOpacity",
@@ -644,6 +650,7 @@ void LLFloaterKVTweaks::onClickResetWater()
         "RenderWaterUnderwaterFogMult",
         "RenderWaterReflectionWarmth",
         "RenderWaterColorAbsorptionRate",
+        "RenderWaterHorizonFadeIntensity",
         "RenderWaterWindInfluence",
         "RenderWaterWindMagnitudeCap",
         // SSR duplicates (already in main reset, but include for completeness)
@@ -939,6 +946,7 @@ void LLFloaterKVTweaks::refreshWaterControls()
         "RenderWaterUnderwaterFogMult",
         "RenderWaterReflectionWarmth",
         "RenderWaterColorAbsorptionRate",
+        "RenderWaterHorizonFadeIntensity",
         "RenderWaterWindInfluence",
         "RenderWaterWindMagnitudeCap",
         "RenderWaterSSRIterations",
@@ -1108,6 +1116,36 @@ void LLFloaterKVTweaks::onClickResetMaterials()
     refresh();
 }
 
+void LLFloaterKVTweaks::onClickResetRenderingAdvanced()
+{
+    // S24 - Reset all Rendering Advanced tab controls (SSAO, Volumetric Light, D3D11 Engine,
+    // Jelly Doll Ghost) to defaults
+    const char* rendering_advanced_control_names[] = {
+        "RenderSSAOScale",
+        "RenderSSAOMaxScale",
+        "RenderSSAOFactor",
+        "RenderSSAOEffect",
+        "RenderGodrayIntensity",
+        "S24DXDebugLayerEnabled",
+        "RenderDXShaderCacheEnabled",
+        "RenderJellyGhostBaseAlpha",
+        "RenderJellyGhostRimIntensity",
+        "RenderJellyGhostRimWidth"
+    };
+
+    for (size_t i = 0; i < sizeof(rendering_advanced_control_names) / sizeof(rendering_advanced_control_names[0]); ++i)
+    {
+        LLControlVariable* control = gSavedSettings.getControl(rendering_advanced_control_names[i]);
+        if (control)
+        {
+            control->resetToDefault(true);
+        }
+    }
+
+    // Refresh UI
+    refresh();
+}
+
 void LLFloaterKVTweaks::onClickResetCubemap()
 {
     // S24 - Reset all Cubemap tab controls (probe system, hero probes, SSAO irradiance) to defaults
@@ -1121,7 +1159,8 @@ void LLFloaterKVTweaks::onClickResetCubemap()
         "RenderReflectionProbeIntensity",
         "RenderReflectionProbeSaturation",
         "RenderReflectionProbeContrast",
-        "RenderReflectionProbeBlurLODBias",
+        "RenderReflectionProbeBlurSpread",
+        "RenderDefaultProbeFadeWeight",
         "RenderReflectionProbeAmbientMultiplier",
         "RenderReflectionProbeEqualize",
         "RenderReflectionProbeOpacity",

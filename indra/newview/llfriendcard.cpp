@@ -29,7 +29,6 @@
 #include "llfriendcard.h"
 
 #include "llagent.h"
-#include "llavatarnamecache.h"
 #include "llinventory.h"
 #include "llinventoryfunctions.h"
 #include "llinventoryobserver.h"
@@ -581,13 +580,11 @@ void LLFriendCardsManager::addFriendCardToInventory(const LLUUID& avatarID)
 {
 
     bool shouldBeAdded = true;
-    LLAvatarName av_name;
-    LLAvatarNameCache::get(avatarID, &av_name);
-    const std::string& name = av_name.getAccountName();
 
-    LL_DEBUGS() << "Processing buddy name: " << name
-        << ", id: " << avatarID
-        << LL_ENDL;
+    // S24: was an unconditional LLAvatarNameCache::get() paid on every call just to feed these
+    // LL_DEBUGS traces - avatarID alone identifies the event for free, same as every other
+    // LL_DEBUGS/LL_WARNS in this codebase that traces by UUID.
+    LL_DEBUGS() << "Processing buddy id: " << avatarID << LL_ENDL;
 
     if (shouldBeAdded && !isManagerReady())
     {
@@ -598,19 +595,19 @@ void LLFriendCardsManager::addFriendCardToInventory(const LLUUID& avatarID)
     if (shouldBeAdded && findFriendCardInventoryUUIDImpl(avatarID).notNull())
     {
         shouldBeAdded = false;
-        LL_DEBUGS() << "is found in Inventory: " << name << LL_ENDL;
+        LL_DEBUGS() << "is found in Inventory: " << avatarID << LL_ENDL;
     }
 
     if (shouldBeAdded && isAvatarDataStored(avatarID))
     {
         shouldBeAdded = false;
-        LL_DEBUGS() << "is found in sentRequests: " << name << LL_ENDL;
+        LL_DEBUGS() << "is found in sentRequests: " << avatarID << LL_ENDL;
     }
 
     if (shouldBeAdded)
     {
         putAvatarData(avatarID);
-        LL_DEBUGS() << "Sent create_inventory_item for " << avatarID << ", " << name << LL_ENDL;
+        LL_DEBUGS() << "Sent create_inventory_item for " << avatarID << LL_ENDL;
 
         // TODO: mantipov: Is CreateFriendCardCallback really needed? Probably not
         LLPointer<LLInventoryCallback> cb = new CreateFriendCardCallback;

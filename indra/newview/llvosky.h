@@ -67,7 +67,7 @@ protected:
     LLSkyTex();
     void init(bool isShiny);
     void cleanupGL();
-    void restoreGL();
+    void restoreDX();
 
     ~LLSkyTex();
 
@@ -229,7 +229,7 @@ public:
     void initCubeMap();
 
     void cleanupGL();
-    void restoreGL();
+    void restoreDX();
 
     void calc();
     void cacheEnvironment(LLSettingsSky::ptr_t psky, AtmosphericsVars& atmosphericsVars);

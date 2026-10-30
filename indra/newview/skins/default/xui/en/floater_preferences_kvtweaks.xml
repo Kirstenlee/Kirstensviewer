@@ -2073,7 +2073,7 @@
       </panel>
 
       <panel
-        name="card_empty1"
+        name="card_volumetric_light"
         follows="left|top"
         height="288"
         width="308"
@@ -2085,10 +2085,65 @@
         background_opaque="false"
         bg_alpha_image="Aurora_R2C2"
         >
+      <text
+        type="string"
+        follows="left|top"
+        height="18"
+        layout="topleft"
+        left="16"
+        top="12"
+        width="268"
+        font="SansSerifBold"
+        text_color="DrYellow">
+        Volumetric Light
+      </text>
+
+      <text
+        type="string"
+        follows="left|top"
+        height="18"
+        layout="topleft"
+        left="20"
+        top_pad="8"
+        width="268"
+        font="SansSerif">
+        Intensity:
+      </text>
+
+      <slider
+        control_name="RenderGodrayIntensity"
+        decimal_digits="2"
+        follows="left|top"
+        height="20"
+        increment="0.05"
+        initial_value="0.15"
+        layout="topleft"
+        left="20"
+        min_val="0.0"
+        max_val="3.0"
+        name="godray_intensity_slider"
+        tool_tip="Strength of the sun's volumetric light shafts - a real raymarched effect, not a cheap screen-space streak (grown well past the original 'godrays' it started as). 0=off."
+        top_pad="2"
+        width="200" />
+
+      <spinner
+        control_name="RenderGodrayIntensity"
+        decimal_digits="2"
+        follows="left|top"
+        height="20"
+        increment="0.05"
+        initial_value="0.15"
+        layout="topleft"
+        left_pad="5"
+        min_val="0.0"
+        max_val="3.0"
+        name="godray_intensity_spinner"
+        top_delta="0"
+        width="65" />
       </panel>
 
       <panel
-        name="card_empty2"
+        name="card_rendering_advanced_reset"
         follows="left|top"
         height="288"
         width="308"
@@ -2100,6 +2155,40 @@
         background_opaque="false"
         bg_alpha_image="Aurora_R2C3"
         >
+      <text
+        type="string"
+        follows="left|top"
+        height="18"
+        layout="topleft"
+        left="16"
+        top="12"
+        width="268"
+        font="SansSerifBold"
+        text_color="DrYellow">
+        Reset
+      </text>
+
+      <text
+        type="string"
+        follows="left|top"
+        height="54"
+        layout="topleft"
+        left="16"
+        top_pad="10"
+        width="276"
+        wrap="true"
+        font="SansSerif">
+        Resets every setting on this tab (SSAO, Volumetric Light, D3D11 Engine, Jelly Doll Ghost) to its default.
+      </text>
+
+      <button
+        left="16"
+        top_pad="10"
+        label="Reset Rendering Advanced Defaults"
+        name="reset_rendering_advanced_btn"
+        width="240"
+        height="25"
+        tool_tip="Reset all Rendering Advanced tab settings to defaults" />
       </panel>
 
     </panel>
@@ -2833,6 +2922,62 @@
         name="water_reflection_warmth"
         tool_tip="&lt;1.0=cool/cold moonlight, 1.0=neutral, &gt;1.0=warm golden hour. Artistic color grading."
         width="200" />
+
+      <text
+        type="string"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="20"
+        top_pad="6"
+        width="268"
+        font="SansSerifSmall">
+        Gloss Gate Reject below (0=off):
+      </text>
+
+      <slider
+        left="20"
+        top_pad="2"
+        control_name="RenderWaterReflectionGateGlossReject"
+        decimal_digits="2"
+        follows="left|top"
+        height="20"
+        increment="0.01"
+        initial_value="0.0"
+        layout="topleft"
+        min_val="0.0"
+        max_val="1.0"
+        name="water_gate_gloss_reject"
+        tool_tip="Water's OWN gloss reflection gate - independent of the Materials tab's shared one. 0 (default) disables it, the canonical original LL behavior - water has never been gloss-gated upstream. Water's gloss tracks the active water preset's Blur Multiplier, not a fixed near-1.0 constant, so a gate tuned for everything else can legitimately clip it."
+        width="268" />
+
+      <text
+        type="string"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="20"
+        top_pad="6"
+        width="268"
+        font="SansSerifSmall">
+        Gloss Gate Accept above (0=off):
+      </text>
+
+      <slider
+        left="20"
+        top_pad="2"
+        control_name="RenderWaterReflectionGateGlossAccept"
+        decimal_digits="2"
+        follows="left|top"
+        height="20"
+        increment="0.01"
+        initial_value="0.0"
+        layout="topleft"
+        min_val="0.0"
+        max_val="1.0"
+        name="water_gate_gloss_accept"
+        tool_tip="Water's OWN gloss reflection gate - independent of the Materials tab's shared one. 0 (default) disables it, the canonical original LL behavior. Separate from Reject for a smooth ramp instead of a hard cutoff."
+        width="268" />
       </panel>
 
       <panel
@@ -3193,6 +3338,34 @@
         max_val="5.0"
         name="water_underwater_fog_mult"
         tool_tip="Controls underwater visibility. 0.3=crystal clear, 1.0=normal, 3.0=very murky. Doesn't affect above-water fog."
+        width="200" />
+
+      <text
+        type="string"
+        follows="left|top"
+        height="18"
+        layout="topleft"
+        left="20"
+        top_pad="8"
+        width="268"
+        font="SansSerif">
+        Horizon Fade Intensity:
+      </text>
+
+      <slider
+        left="20"
+        top_pad="2"
+        control_name="RenderWaterHorizonFadeIntensity"
+        decimal_digits="2"
+        follows="left|top"
+        height="20"
+        increment="0.01"
+        initial_value="4.0"
+        layout="topleft"
+        min_val="0.0"
+        max_val="10.0"
+        name="water_horizon_fade_intensity"
+        tool_tip="Softens the hard water/sky horizon line with atmospheric haze. 0=off (stock crisp line). Below ~3.0 reads dark, above ~6.0 overexposes - ~4.0 is the sweet spot. Fades by view angle so it only affects the far horizon, not water up close."
         width="200" />
       </panel>
 
@@ -4715,7 +4888,7 @@
       </panel>
 
       <panel
-        name="card_blank1"
+        name="card_point_shadow"
         follows="left|top"
         height="288"
         width="308"
@@ -4727,6 +4900,30 @@
         background_opaque="false"
         bg_alpha_image="Aurora_R2C1"
         >
+      <text
+        type="string"
+        follows="left|top"
+        height="18"
+        layout="topleft"
+        left="16"
+        top="12"
+        width="268"
+        font="SansSerifBold"
+        text_color="DrYellow">
+        K-Light (Experimental)
+      </text>
+
+      <check_box
+        left="20"
+        top_pad="8"
+        control_name="RenderPointLightShadows"
+        height="20"
+        initial_value="false"
+        label="Pointlight Shadows for Non-Projected Lights"
+        layout="topleft"
+        name="s24_point_light_shadows"
+        tool_tip="S24 - Real-time shadow casting for ordinary local point/omni lights (non-projector), via a 6-face cubemap capture. VERY EXPERIMENTAL: significant GPU cost while active, and manual-cubemap face-boundary seams are a known, not-fully-solved limitation. Off by default."
+        width="280" />
       </panel>
 
       <panel
@@ -7184,32 +7381,32 @@
       </text>
 
       <slider
-        control_name="RenderReflectionProbeBlurLODBias"
-        decimal_digits="1"
+        control_name="RenderReflectionProbeBlurSpread"
+        decimal_digits="3"
         follows="left|top"
         height="20"
-        increment="0.5"
+        increment="0.005"
         initial_value="0.0"
         layout="topleft"
         left_delta="0"
-        min_val="-10.0"
-        max_val="10.0"
+        min_val="0.0"
+        max_val="0.1"
         name="probe_blur_slider"
-        tool_tip="Blur: negative=sharp, 0=normal, positive=soft"
+        tool_tip="Smudge: 0=sharp (default, no cost), higher=softer reflections but a real per-pixel 16-tap cost even at small values (useful range is small - past ~0.06-0.08 the blur starts separating into ghosts again)"
         top_pad="2"
         width="200" />
 
       <spinner
-        control_name="RenderReflectionProbeBlurLODBias"
-        decimal_digits="1"
+        control_name="RenderReflectionProbeBlurSpread"
+        decimal_digits="3"
         follows="left|top"
         height="20"
-        increment="0.5"
+        increment="0.005"
         initial_value="0.0"
         layout="topleft"
         left_pad="5"
-        min_val="-10.0"
-        max_val="10.0"
+        min_val="0.0"
+        max_val="0.1"
         name="probe_blur_spinner"
         top_delta="0"
         width="65" />
@@ -7496,6 +7693,49 @@
         min_val="0.5"
         max_val="30"
         name="default_probe_period_spinner"
+        top_delta="0"
+        width="65" />
+
+      <text
+        type="string"
+        follows="left|top"
+        height="18"
+        layout="topleft"
+        left="20"
+        top_pad="10"
+        width="270"
+        font="SansSerif">
+        Probe Fade Weight:
+      </text>
+
+      <slider
+        control_name="RenderDefaultProbeFadeWeight"
+        decimal_digits="2"
+        follows="left|top"
+        height="20"
+        increment="0.05"
+        initial_value="0.35"
+        layout="topleft"
+        left_delta="0"
+        min_val="0.05"
+        max_val="1.0"
+        name="default_probe_fade_slider"
+        tool_tip="How much of each sky/default probe refresh applies at once. 1.0=snap instantly (old behaviour), lower smooths out the pop as sky/clouds change."
+        top_pad="2"
+        width="200" />
+
+      <spinner
+        control_name="RenderDefaultProbeFadeWeight"
+        decimal_digits="2"
+        follows="left|top"
+        height="20"
+        increment="0.05"
+        initial_value="0.35"
+        layout="topleft"
+        left_pad="5"
+        min_val="0.05"
+        max_val="1.0"
+        name="default_probe_fade_spinner"
         top_delta="0"
         width="65" />
 

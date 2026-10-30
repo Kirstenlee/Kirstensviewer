@@ -247,7 +247,7 @@ bool LLNameListCtrl::handleToolTip(S32 x, S32 y, MASK mask)
                 LLPointer<LLUIImage> icon = LLUI::getUIImage(mHoverIconName);
                 S32 screenX = sticky_rect.mRight - info_icon_size;
                 S32 screenY = sticky_rect.mTop - (sticky_rect.getHeight() - icon->getHeight()) / 2;
-                LLCoordGL pos(screenX, screenY);
+                LLCoordYUp pos(screenX, screenY);
 
                 LLFloater* snapshot_floatr = gSnapshotFloaterView->getFrontmostClosableFloater();
                 if (!snapshot_floatr || !snapshot_floatr->getRect().pointInRect(screenX + icon->getWidth(), screenY))

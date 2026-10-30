@@ -693,12 +693,14 @@ U32 LLSphereProbes::probeCount()
 
 U32 LLSphereProbes::probeMemory()
 {
-    // Matches the allocations in initReflectionMaps(): radiance has a full mip chain and two scratch
-    // cubes, irradiance has no mips. HDR is R16G16B16A16_FLOAT (8 bytes/texel), otherwise 4.
+    // Matches the allocations in initReflectionMaps(): radiance has a full mip chain, two scratch
+    // cubes, and one pending-commit cube; irradiance has no mips but does have the one
+    // pending-commit cube (see LLProbeCubeStore's slot-layout comment). HDR is
+    // R16G16B16A16_FLOAT (8 bytes/texel), otherwise 4.
     static LLCachedControl<bool> render_hdr(gSavedSettings, "RenderHDREnabled", true);
     U64 bytes_per_texel = render_hdr ? 8 : 4;
-    U64 radiance_texels = U64(mReflectionProbeCount + 2) * 6 * mProbeResolution * mProbeResolution * 4 / 3;
-    U64 irradiance_texels = U64(mReflectionProbeCount) * 6 * LL_IRRADIANCE_MAP_RESOLUTION * LL_IRRADIANCE_MAP_RESOLUTION;
+    U64 radiance_texels = U64(mReflectionProbeCount + 3) * 6 * mProbeResolution * mProbeResolution * 4 / 3;
+    U64 irradiance_texels = U64(mReflectionProbeCount + 1) * 6 * LL_IRRADIANCE_MAP_RESOLUTION * LL_IRRADIANCE_MAP_RESOLUTION;
     return (U32)((radiance_texels + irradiance_texels) * bytes_per_texel / (1024 * 1024));
 }
 
@@ -920,6 +922,18 @@ void LLSphereProbes::doProbeUpdate()
         mUpdatingFace = 0;
         if (isRadiancePass())
         {
+            // S24: atomic commit - both passes of this 12-frame cycle have now written their
+            // results into the shared pending slots (updateProbeFace(), gated !mRealtimeUpdate)
+            // rather than the probe's live mCubeIndex slice. Bulk-copy them into the live slice
+            // here, in one shot, now that both halves are genuinely complete and consistent with
+            // each other - this is the one place the live slice ever changes for this probe, so a
+            // sampler reading it at any other point during the cycle sees the complete, consistent
+            // PREVIOUS capture, never a torn mix of fresh/stale irradiance+radiance. Runs after
+            // updateProbeFace()'s own shader unbind/render-target restore, so nothing is bound
+            // that could conflict with a same-resource CopySubresourceRegion.
+            mCubes.radiance().copyCubeSlice(mCubes.radiancePendingIndex(), mUpdatingProbe->mCubeIndex);
+            mCubes.irradiance().copyCubeSlice(mCubes.irradiancePendingIndex(), mUpdatingProbe->mCubeIndex);
+
             mUpdatingProbe->commitCapture();
             mUpdatingProbe->mComplete = true;
             mUpdatingProbe = nullptr;
@@ -957,10 +971,16 @@ void LLSphereProbes::updateProbeFace(LLReflectionMap* probe, U32 face)
         mLightScale = max_local_light_ambiance / probe->getAmbiance();
     }
 
-    // Content tier (RenderReflectionProbeLevel), applied to every probe the same way:
-    //   0: sky and clouds. 1: adds terrain. 2: adds water. 3: everything, no mask.
-    // Water is only drawn in its own tier. Its surface samples the screen copy during a capture, so the
-    // refraction branch is skipped there (probe_capture in waterF.hlsl).
+    // Content tier (RenderReflectionProbeLevel), applied to every probe the same way. Used to be a strict
+    // allow-list (0: sky+clouds only, 1: +terrain, 2: +water, 3: everything) - meaning ordinary room/building
+    // geometry (anything that isn't literally sky/terrain/water) never drew at all below level 3. Indoors, with
+    // nothing left to occlude it, that let the sky dome render straight through where walls should be,
+    // badly overbrightening the capture (the whole point of a cheap low tier is to still look plausible on
+    // low-end systems, not to flood the room with phantom unoccluded sky). Now: ordinary opaque/cutout
+    // architecture always draws at every level; only the genuinely expensive extras are tiered - see the
+    // exclude lists below. Avatars/animesh stay governed entirely by force_dynamic below, same as before -
+    // their render type is unconditionally excluded from this mask regardless of level, exactly as the old
+    // allow-list never included them either.
     const bool tiered = mRenderReflectionProbeLevel < 3;
     if (probe == mDefaultProbe)
     {
@@ -983,23 +1003,36 @@ void LLSphereProbes::updateProbeFace(LLReflectionMap* probe, U32 face)
     if (tiered)
     {
         DXPipeline::pushRenderTypeMask(gPipeline);
+        DXPipeline::setAllRenderTypes(gPipeline);
 
-        if (mRenderReflectionProbeLevel >= 2)
+        // Avatars/animesh: force_dynamic (above) is the real, already-tested gate for these - unconditionally
+        // excluded here at every tiered level, same as the old allow-list never including them either.
+        DXPipeline::clearRenderTypeMask(gPipeline, LLPipeline::RENDER_TYPE_AVATAR, LLPipeline::RENDER_TYPE_CONTROL_AV,
+            LLPipeline::END_RENDER_TYPES);
+
+        if (mRenderReflectionProbeLevel == 0)
         {
-            DXPipeline::andRenderTypeMask(gPipeline, LLPipeline::RENDER_TYPE_SKY, LLPipeline::RENDER_TYPE_WL_SKY,
-                LLPipeline::RENDER_TYPE_CLOUDS, LLPipeline::RENDER_TYPE_TERRAIN,
-                LLPipeline::RENDER_TYPE_WATER, LLPipeline::RENDER_TYPE_VOIDWATER, LLPipeline::END_RENDER_TYPES);
+            // Cheapest tier: also exclude particles and every blended/glow pass (sorting- and
+            // overdraw-heavy, the genuinely expensive extras) - alpha-MASKED/cutout content stays in,
+            // since it's cheap and visually important (hair, foliage cutouts, signage).
+            DXPipeline::clearRenderTypeMask(gPipeline, LLPipeline::RENDER_TYPE_PARTICLES, LLPipeline::RENDER_TYPE_HUD_PARTICLES,
+                LLPipeline::RENDER_TYPE_ALPHA, LLPipeline::RENDER_TYPE_ALPHA_PRE_WATER, LLPipeline::RENDER_TYPE_ALPHA_POST_WATER,
+                LLPipeline::RENDER_TYPE_PASS_ALPHA,
+                LLPipeline::RENDER_TYPE_PASS_MATERIAL_ALPHA, LLPipeline::RENDER_TYPE_PASS_MATERIAL_ALPHA_RIGGED,
+                LLPipeline::RENDER_TYPE_PASS_MATERIAL_ALPHA_EMISSIVE, LLPipeline::RENDER_TYPE_PASS_MATERIAL_ALPHA_EMISSIVE_RIGGED,
+                LLPipeline::RENDER_TYPE_PASS_SPECMAP_BLEND, LLPipeline::RENDER_TYPE_PASS_SPECMAP_BLEND_RIGGED,
+                LLPipeline::RENDER_TYPE_PASS_NORMSPEC_BLEND, LLPipeline::RENDER_TYPE_PASS_NORMSPEC_BLEND_RIGGED,
+                LLPipeline::RENDER_TYPE_GLOW, LLPipeline::RENDER_TYPE_PASS_GLOW, LLPipeline::RENDER_TYPE_PASS_GLOW_RIGGED,
+                LLPipeline::RENDER_TYPE_PASS_GLTF_GLOW, LLPipeline::RENDER_TYPE_PASS_GLTF_GLOW_RIGGED,
+                LLPipeline::END_RENDER_TYPES);
         }
         else if (mRenderReflectionProbeLevel == 1)
         {
-            DXPipeline::andRenderTypeMask(gPipeline, LLPipeline::RENDER_TYPE_SKY, LLPipeline::RENDER_TYPE_WL_SKY,
-                LLPipeline::RENDER_TYPE_CLOUDS, LLPipeline::RENDER_TYPE_TERRAIN, LLPipeline::END_RENDER_TYPES);
+            // Middle tier: blended/transparent/glow content now included; particles still excluded.
+            DXPipeline::clearRenderTypeMask(gPipeline, LLPipeline::RENDER_TYPE_PARTICLES, LLPipeline::RENDER_TYPE_HUD_PARTICLES,
+                LLPipeline::END_RENDER_TYPES);
         }
-        else
-        {
-            DXPipeline::andRenderTypeMask(gPipeline, LLPipeline::RENDER_TYPE_SKY, LLPipeline::RENDER_TYPE_WL_SKY,
-                LLPipeline::RENDER_TYPE_CLOUDS, LLPipeline::END_RENDER_TYPES);
-        }
+        // Level 2: everything except avatars/animesh (force_dynamic still governs those).
 
         probe->update(mCapture.getSuperSampleResolution(), face, force_dynamic);
 
@@ -1044,6 +1077,25 @@ void LLSphereProbes::updateProbeFace(LLReflectionMap* probe, U32 face)
             gDXDevice.getContext()->RSSetViewports(1, &vp);
         }
         static LLStaticHashedString sSourceIdx("sourceIdx");
+        static LLStaticHashedString sDestIdx("destIdx");
+        static LLStaticHashedString sFadeWeight("fadeWeight");
+
+        // S24: cross-fade the default/master probe's periodic re-capture into its live slice
+        // instead of a hard replace - see radianceGenF.hlsl/irradianceGenF.hlsl. Every other
+        // probe keeps the old instant-replace behaviour (fadeWeight 1.0).
+        static LLCachedControl<F32> default_probe_fade_weight(gSavedSettings, "RenderDefaultProbeFadeWeight", 0.35f);
+        const F32 fade_weight = (probe == mDefaultProbe) ? llclamp((F32)default_probe_fade_weight, 0.f, 1.f) : 1.f;
+
+        // S24: the generic (non-realtime) path writes its generated result to the PENDING slot,
+        // not the probe's live slot - doProbeUpdate() bulk-copies pending->live atomically once
+        // both this pass and the matching irradiance/radiance pass have fully finished, so a
+        // sampler never sees a torn mix mid-capture (see LLProbeCubeStore's slot-layout comment).
+        // sDestIdx (below) stays probe->mCubeIndex unchanged either way - the generator shader's
+        // cross-fade still needs to read the real live content, only the C++-side copy
+        // DESTINATION moves. The realtime/master paths keep writing straight to the live slot,
+        // unchanged - their own capture is already atomic or tracked separately.
+        const U32 radiance_dest = mRealtimeUpdate ? (U32)probe->mCubeIndex : mCubes.radiancePendingIndex();
+        const U32 irradiance_dest = mRealtimeUpdate ? (U32)probe->mCubeIndex : mCubes.irradiancePendingIndex();
 
         if (isRadiancePass())
         {
@@ -1055,6 +1107,8 @@ void LLSphereProbes::updateProbeFace(LLReflectionMap* probe, U32 face)
             S32 channel = gRadianceGenProgram.enableTexture(LLShaderMgr::REFLECTION_PROBES, LLTexUnit::TT_CUBE_MAP_ARRAY);
             bindRadiance(channel);
             gRadianceGenProgram.uniform1i(sSourceIdx, sourceIdx);
+            gRadianceGenProgram.uniform1i(sDestIdx, probe->mCubeIndex);
+            gRadianceGenProgram.uniform1f(sFadeWeight, fade_weight);
             gRadianceGenProgram.uniform1f(LLShaderMgr::REFLECTION_PROBE_MAX_LOD, mMaxProbeLOD);
             gRadianceGenProgram.uniform1f(LLShaderMgr::REFLECTION_PROBE_STRENGTH, 1.f);
 
@@ -1083,7 +1137,7 @@ void LLSphereProbes::updateProbeFace(LLReflectionMap* probe, U32 face)
                     // 0 (whole-subresource) copies mCapture.getMips()[0]'s full unshrunk size regardless of i,
                     // which D3D11's debug layer rejects as "pSrcBox does not fit on the destination
                     // subresource".
-                    mCubes.radiance().copySliceFromBoundRenderTarget(i, probe->mCubeIndex * 6 + cf, res, res);
+                    mCubes.radiance().copySliceFromBoundRenderTarget(i, radiance_dest * 6 + cf, res, res);
                 }
 
                 if (i != mCapture.getMips().size() - 1)
@@ -1115,6 +1169,8 @@ void LLSphereProbes::updateProbeFace(LLReflectionMap* probe, U32 face)
             bindRadiance(channel);
 
             gIrradianceGenProgram.uniform1i(sSourceIdx, sourceIdx);
+            gIrradianceGenProgram.uniform1i(sDestIdx, probe->mCubeIndex);
+            gIrradianceGenProgram.uniform1f(sFadeWeight, fade_weight);
             gIrradianceGenProgram.uniform1f(LLShaderMgr::REFLECTION_PROBE_MAX_LOD, mMaxProbeLOD);
             // Source face width for the sample LOD. Must match the scratch cube, not a fixed size.
             static LLStaticHashedString sIrrWidth("u_width");
@@ -1162,7 +1218,7 @@ void LLSphereProbes::updateProbeFace(LLReflectionMap* probe, U32 face)
                     // the radiance-gen loop, never rebound to mCapture.getMips()[start_mip]) - must pass the
                     // real mCapture.getMips()[i] width/height here, not 0 (whole-subresource), since the
                     // irradiance-map resolution is smaller than mCapture.getMips()[0]'s full size.
-                    mCubes.irradiance().copySliceFromBoundRenderTarget(i - start_mip, probe->mCubeIndex * 6 + cf, (UINT)mCapture.getMips()[i].getWidth(), (UINT)mCapture.getMips()[i].getHeight());
+                    mCubes.irradiance().copySliceFromBoundRenderTarget(i - start_mip, irradiance_dest * 6 + cf, (UINT)mCapture.getMips()[i].getWidth(), (UINT)mCapture.getMips()[i].getHeight());
                 }
             }
 
@@ -1349,8 +1405,29 @@ void LLSphereProbes::updateUniforms()
         mProbeData.refIndex[count][1] = nc / 4;
         mProbeData.refIndex[count][3] = refmap->mPriority;
 
+        F32 ambiance = llmax(minimum_ambiance, refmap->getAmbiance());
+
+        // S24: reflectionProbeF.hlsl's tapSphereIrradiance() uses this value TWICE for probe slot
+        // 0 (the default/master probe) - once as a blend-toward-amblit trust weight (already
+        // saturate()'d to [0,1] in the shader, so always safe) and once as a raw, UNCLAMPED
+        // multiplier on the captured irradiance colour itself. minimum_ambiance is the current
+        // sky's own ambiance floor, which many presets raise at dusk/night to avoid pure black -
+        // genuinely >1.0 on some skies. Normally that's fine: other sampled probes (room-local
+        // box/sphere probes) dilute/moderate the result. At RenderReflectionProbeLevel==0,
+        // reflectionProbeF.hlsl's REFMAP_LEVEL>0 compile-time gate removes ALL local probe
+        // sampling scene-wide, so probe slot 0 becomes the sole ambient source for every surface -
+        // an inflated floor then multiplies straight through unmoderated, badly overbrightening
+        // any enclosed space the probe happens to see a lot of sky from (e.g. through a doorway).
+        // Clamp just this one case to match the multiplier's own implicit 0-1 intent (the same
+        // range the trust side is already saturate()'d to) rather than touch the REFMAP_LEVEL gate
+        // itself - a scene-wide shader path every reflective surface at every tier depends on.
+        if (count == 0 && mRenderReflectionProbeLevel == 0)
+        {
+            ambiance = llmin(ambiance, 1.f);
+        }
+
         mProbeData.refParams[count].set(
-            llmax(minimum_ambiance, refmap->getAmbiance())*ambscale, // ambiance scale
+            ambiance*ambscale, // ambiance scale
             radscale, // radiance scale
             refmap->mFadeIn, // fade in weight
             oa.getF32ptr()[2] - refmap->mCaptureRadius); // z near
@@ -1479,7 +1556,7 @@ void LLSphereProbes::setUniforms()
     static LLCachedControl<F32> probe_intensity(gSavedSettings, "RenderReflectionProbeIntensity", 1.0f);
     static LLCachedControl<F32> probe_saturation(gSavedSettings, "RenderReflectionProbeSaturation", 1.0f);
     static LLCachedControl<F32> probe_contrast(gSavedSettings, "RenderReflectionProbeContrast", 1.0f);
-    static LLCachedControl<F32> probe_blur_lod_bias(gSavedSettings, "RenderReflectionProbeBlurLODBias", 0.0f);
+    static LLCachedControl<F32> probe_blur_spread(gSavedSettings, "RenderReflectionProbeBlurSpread", 0.0f);
     static LLCachedControl<bool> probe_auto_parallax(gSavedSettings, "RenderReflectionAutoParallax", true);
     static LLCachedControl<F32> probe_ambient_mult(gSavedSettings, "RenderReflectionProbeAmbientMultiplier", 1.0f);
     // Blends this probe's detail-mip sample toward its own top mip (max_probe_lod, the fully
@@ -1498,12 +1575,19 @@ void LLSphereProbes::setUniforms()
     static LLCachedControl<F32> gate_gloss_accept(gSavedSettings, "RenderReflectionGateGlossAccept", 0.65f);
     static LLCachedControl<F32> gate_metallic_reject(gSavedSettings, "RenderReflectionGateMetallicReject", 0.65f);
     static LLCachedControl<F32> gate_metallic_accept(gSavedSettings, "RenderReflectionGateMetallicAccept", 0.65f);
+    // S24: water's own gloss gate, independent of the shared one above - defaults to 0/0 (no-op),
+    // the canonical original LL behavior (water has never been gloss-gated upstream). Water's
+    // gloss is driven by the active water preset's Blur Multiplier, not a fixed near-1.0 constant
+    // like most surfaces, so a gate tuned for everything else can legitimately clip it. See
+    // sampleReflectionProbesWater() in reflectionProbeF.hlsl.
+    static LLCachedControl<F32> water_gate_gloss_reject(gSavedSettings, "RenderWaterReflectionGateGlossReject", 0.0f);
+    static LLCachedControl<F32> water_gate_gloss_accept(gSavedSettings, "RenderWaterReflectionGateGlossAccept", 0.0f);
 
     static LLStaticHashedString sProbesEnabled("probes_enabled");
     static LLStaticHashedString sProbeIntensity("probe_intensity");
     static LLStaticHashedString sProbeSaturation("probe_saturation");
     static LLStaticHashedString sProbeContrast("probe_contrast");
-    static LLStaticHashedString sProbeBlurLODBias("probe_blur_lod_bias");
+    static LLStaticHashedString sProbeBlurSpread("probe_blur_spread");
     static LLStaticHashedString sProbeAutoParallax("probe_auto_parallax");
     static LLStaticHashedString sProbeAmbientMultiplier("probe_ambient_multiplier");
     static LLStaticHashedString sProbeEqualize("probe_equalize");
@@ -1512,12 +1596,14 @@ void LLSphereProbes::setUniforms()
     static LLStaticHashedString sGateGlossAccept("reflection_gate_gloss_accept");
     static LLStaticHashedString sGateMetallicReject("reflection_gate_metallic_reject");
     static LLStaticHashedString sGateMetallicAccept("reflection_gate_metallic_accept");
+    static LLStaticHashedString sWaterGateGlossReject("water_reflection_gate_gloss_reject");
+    static LLStaticHashedString sWaterGateGlossAccept("water_reflection_gate_gloss_accept");
 
     LLHLSLShader::sCurBoundShaderPtr->uniform1i(sProbesEnabled, probes_enabled ? 1 : 0);
     LLHLSLShader::sCurBoundShaderPtr->uniform1f(sProbeIntensity, probe_intensity);
     LLHLSLShader::sCurBoundShaderPtr->uniform1f(sProbeSaturation, probe_saturation);
     LLHLSLShader::sCurBoundShaderPtr->uniform1f(sProbeContrast, probe_contrast);
-    LLHLSLShader::sCurBoundShaderPtr->uniform1f(sProbeBlurLODBias, probe_blur_lod_bias);
+    LLHLSLShader::sCurBoundShaderPtr->uniform1f(sProbeBlurSpread, probe_blur_spread);
     LLHLSLShader::sCurBoundShaderPtr->uniform1f(sProbeAutoParallax, probe_auto_parallax ? 1.f : 0.f);
     LLHLSLShader::sCurBoundShaderPtr->uniform1f(sProbeAmbientMultiplier, probe_ambient_mult);
     LLHLSLShader::sCurBoundShaderPtr->uniform1f(sProbeEqualize, probe_equalize);
@@ -1526,6 +1612,8 @@ void LLSphereProbes::setUniforms()
     LLHLSLShader::sCurBoundShaderPtr->uniform1f(sGateGlossAccept, gate_gloss_accept);
     LLHLSLShader::sCurBoundShaderPtr->uniform1f(sGateMetallicReject, gate_metallic_reject);
     LLHLSLShader::sCurBoundShaderPtr->uniform1f(sGateMetallicAccept, gate_metallic_accept);
+    LLHLSLShader::sCurBoundShaderPtr->uniform1f(sWaterGateGlossReject, water_gate_gloss_reject);
+    LLHLSLShader::sCurBoundShaderPtr->uniform1f(sWaterGateGlossAccept, water_gate_gloss_accept);
 
     // Upload max_probe_lod here too, not only from LLPipeline::bindDeferredShader() - any shader that
     // reaches sampleProbes()/tapRefMap() via this function alone (e.g. gDeferredPBRAlphaProgram) would
@@ -1632,17 +1720,25 @@ void LLSphereProbes::initReflectionMaps()
         mRequestedResolution = probe_resolution;
         mProbeResolution = probe_resolution;
 
-        // Reallocates radiance (count + 2 scratch cubes) and irradiance (count cubes) together.
+        // Reallocates radiance (count + 2 scratch cubes + 1 pending-commit cube) and irradiance
+        // (count cubes + 1 pending-commit cube) together. The pending-commit slot is this
+        // manager's own (reservePendingSlot=true) - LLMirrorProbes' separate LLProbeCubeStore
+        // instance never needs one, since it never goes through doProbeUpdate()'s generic cycle.
         if (!mCubes.isAllocated() ||
             mCubes.getResolution() != mProbeResolution ||
             mCubes.getCount() != mReflectionProbeCount)
         {
             // The GPU refuses some cube arrays (E_OUTOFMEMORY at 512 px with 256 slots). Step down until one fits,
             // so probes keep sampling at a smaller size instead of going black.
-            while (!mCubes.allocate(mProbeResolution, mReflectionProbeCount, render_hdr) && mProbeResolution > 64)
+            while (!mCubes.allocate(mProbeResolution, mReflectionProbeCount, render_hdr, true) && mProbeResolution > 64)
             {
-                LL_WARNS("Probes") << "reflection cube array " << mReflectionProbeCount << " slots at " << mProbeResolution
-                                   << " px did not fit, trying " << mProbeResolution / 2 << " px" << LL_ENDL;
+                // S24: "requested" here is RenderReflectionProbeResolution/Count as of THIS (re)allocation
+                // (e.g. at login, or whatever was on disk before a live settings change this session took
+                // effect) - not necessarily whatever the settings currently show if they've been changed
+                // since. This step-down is the normal, self-correcting path, not a standing problem.
+                LL_WARNS("Probes") << "reflection cube array: requested " << mReflectionProbeCount << " slots at "
+                                   << mProbeResolution << " px exceeded available VRAM, stepping down to "
+                                   << mProbeResolution / 2 << " px" << LL_ENDL;
                 mProbeResolution /= 2;
             }
 

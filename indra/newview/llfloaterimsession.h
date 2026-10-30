@@ -202,6 +202,9 @@ private:
     boost::signals2::connection mVoiceChannelStateChangeConnection;
 
     LLUUID mImFromId;
+
+    // S24: ChatService loading-spinner panel - see postBuild()/draw().
+    LLView* mChatServiceLoadingPanel = nullptr;
 };
 
 #endif  // LL_FLOATERIMSESSION_H

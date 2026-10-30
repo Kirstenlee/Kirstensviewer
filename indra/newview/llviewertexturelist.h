@@ -116,7 +116,7 @@ public:
     void init();
     void shutdown();
     void dump();
-    void destroyGL();
+    void destroyDX();
     bool isInitialized() const {return mInitialized;}
 
     void findTexturesByID(const LLUUID &image_id, std::vector<LLViewerFetchedTexture*> &output);

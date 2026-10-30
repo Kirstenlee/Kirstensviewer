@@ -72,11 +72,11 @@ U32 LLDrawPoolBump::sVertexMask = VERTEX_MASK_SHINY;
 // static
 void LLStandardBumpmap::shutdown()
 {
-    LLStandardBumpmap::destroyGL();
+    LLStandardBumpmap::destroyDX();
 }
 
 // static
-void LLStandardBumpmap::restoreGL()
+void LLStandardBumpmap::restoreDX()
 {
     addstandard();
 }
@@ -97,10 +97,12 @@ void LLStandardBumpmap::addstandard()
         return;
     }
 
-    // can't assert; we destroyGL and restoreGL a lot during *first* startup, which populates this list already, THEN we explicitly init the list as part of *normal* startup.  Sigh.  So clear the list every time before we (re-)add the standard bumpmaps.
+    // can't assert; we destroyDX and restoreDX a lot during *first* startup, which populates this list already, THEN we explicitly init the list as part of *normal* startup.  Sigh.  So clear the list every time before we (re-)add the standard bumpmaps.
 
     clear();
-    LL_WARNS() << "Adding standard bumpmaps." << LL_ENDL;
+    // S24: routine, expected, by-design idempotency re-clear (see comment above) - not
+    // warning-worthy. Was LL_WARNS unconditional, spammed the log on every shader reload.
+    LL_DEBUGS() << "Adding standard bumpmaps." << LL_ENDL;
     gStandardBumpmapList[LLStandardBumpmap::sStandardBumpmapCount++] = LLStandardBumpmap("None");       // BE_NO_BUMP
     gStandardBumpmapList[LLStandardBumpmap::sStandardBumpmapCount++] = LLStandardBumpmap("Brightness"); // BE_BRIGHTNESS
     gStandardBumpmapList[LLStandardBumpmap::sStandardBumpmapCount++] = LLStandardBumpmap("Darkness");   // BE_DARKNESS
@@ -171,7 +173,9 @@ void LLStandardBumpmap::addstandard()
 // static
 void LLStandardBumpmap::clear()
 {
-    LL_WARNS() << "Clearing standard bumpmaps." << LL_ENDL;
+    // S24: routine lifecycle call (shader reload, startup), not warning-worthy. Was
+    // LL_WARNS unconditional, spammed the log on every shader reload.
+    LL_DEBUGS() << "Clearing standard bumpmaps." << LL_ENDL;
     for( U32 i = 0; i < LLStandardBumpmap::sStandardBumpmapCount; i++ )
     {
         gStandardBumpmapList[i].mLabel.assign("");
@@ -181,7 +185,7 @@ void LLStandardBumpmap::clear()
 }
 
 // static
-void LLStandardBumpmap::destroyGL()
+void LLStandardBumpmap::destroyDX()
 {
     clear();
 }
@@ -308,12 +312,14 @@ void LLBumpImageList::init()
     llassert( mBrightnessEntries.size() == 0 );
     llassert( mDarknessEntries.size() == 0 );
 
-    LLStandardBumpmap::restoreGL();
+    LLStandardBumpmap::restoreDX();
 }
 
 void LLBumpImageList::clear()
 {
-    LL_WARNS() << "Clearing dynamic bumpmaps." << LL_ENDL;
+    // S24: routine lifecycle call (shader reload, GL context teardown), not
+    // warning-worthy. Was LL_WARNS unconditional, spammed the log on every shader reload.
+    LL_DEBUGS() << "Clearing dynamic bumpmaps." << LL_ENDL;
     // these will be re-populated on-demand
     mBrightnessEntries.clear();
     mDarknessEntries.clear();
@@ -329,13 +335,13 @@ void LLBumpImageList::shutdown()
     LLStandardBumpmap::shutdown();
 }
 
-void LLBumpImageList::destroyGL()
+void LLBumpImageList::destroyDX()
 {
     clear();
-    LLStandardBumpmap::destroyGL();
+    LLStandardBumpmap::destroyDX();
 }
 
-void LLBumpImageList::restoreGL()
+void LLBumpImageList::restoreDX()
 {
     if(!gTextureList.isInitialized())
     {
@@ -343,7 +349,7 @@ void LLBumpImageList::restoreGL()
         return ;
     }
 
-    LLStandardBumpmap::restoreGL();
+    LLStandardBumpmap::restoreDX();
     // Images will be recreated as they are needed.
 }
 

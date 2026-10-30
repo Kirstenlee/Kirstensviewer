@@ -69,7 +69,7 @@ public:
     void resetVertexBuffers(void);
 
     void cleanupGL();
-    void restoreGL();
+    void restoreDX();
 
     // Per-frame shooting-star spawn/age/expire logic, called from the DX_RENDER draw path
     // (dxdrawpoolwlsky.cpp), not idleUpdate(). Cheap - fixed-size pool, no allocation on the

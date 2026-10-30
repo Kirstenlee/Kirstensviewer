@@ -32,6 +32,7 @@ float sampleDirectionalShadow(float3 pos, float3 norm, float2 pos_screen);
 #endif
 
 void calcAtmosphericVarsLinear(float3 inPositionEye, float3 norm, float3 light_dir, out float3 sunlit, out float3 amblit, out float3 atten, out float3 additive);
+float3 atmosFragLighting(float3 light, float3 additive, float3 atten);
 float4 applyWaterFogViewLinear(float3 pos, float4 color);
 
 void mirrorClip(float3 pos);
@@ -96,6 +97,7 @@ uniform float waterShoreFadeDistance;
 uniform float waterUnderwaterFogMult;   // Applied in C++ to fog_density
 uniform float waterReflectionWarmth;
 uniform float waterColorAbsorptionRate;
+uniform float waterHorizonFadeIntensity; // 0-10, 0=off - see the horizon-fade blend below
 
 struct PSInput
 {
@@ -174,7 +176,13 @@ void calculateFresnelFactors(out float3 df3, out float2 df2, float3 viewVec, flo
 
     df3 = pow(df3, float3(waterFresnelPower, waterFresnelPower, waterFresnelPower)); // Was: df3 *= df3 (hardcoded power of 2)
 
-    df2 = max(float2(0, 0), float2(
+    // S24: physical Fresnel floor - df2 used to be a raw preset-driven curve (scale*dot+offset)^power
+    // with no minimum, so a preset with a low Fresnel Scale/Offset could legitimately push
+    // reflectivity to ~0 across most of the visible surface, collapsing the whole water plane to a
+    // flat, un-varying tinted color (reads as "plastic"). Real dielectric Fresnel never drops below
+    // ~2% reflectivity even dead-on - this floor guarantees the same regardless of preset authoring.
+    static const float kWaterFresnelFloor = 0.02;
+    df2 = max(float2(kWaterFresnelFloor, kWaterFresnelFloor), float2(
         df3.x + df3.y + df3.z,
         dot(viewVec, wavef) * fresnelScale + fresnelOffset
     ));
@@ -380,6 +388,26 @@ float4 main(PSInput IN) : SV_Target
     fade *= waterShoreFadeDistance;
     fade = min(1, fade);
     color = lerp(fb.rgb, color, fade);
+
+    // S24: additive/atten above were computed but never applied - every other distant surface
+    // fades toward the sky through this same atmospheric-haze blend (atmosFragLighting(),
+    // atmosphericsF.hlsl), but water's own composite skipped it, leaving a crisp, un-hazed line
+    // exactly at the water/sky horizon on a clear day. atten/additive are already distance-driven,
+    // so this is a no-op up close and only softens the horizon - no new tuning needed, reuses
+    // values already computed above.
+    // S24: additive grows essentially unbounded as the view ray approaches parallel to the water
+    // plane (the true horizon) - a flat plane's eye-space distance to camera is asymptotic right at
+    // the horizon under perspective, so clamping the magnitude alone just traded a flickering
+    // bright spike for literally nothing (confirmed live both ways) - the real problem is that
+    // raw distance compresses almost its whole range into the last few horizon pixels on screen,
+    // not a tuning/magnitude issue. Fade by view angle instead: vdu (already computed above,
+    // 1=looking straight down, 0=looking exactly at the horizon) varies smoothly and predictably
+    // across the whole visible surface, giving an actual controllable gradient.
+    static const float kWaterHorizonFadeAngle = 0.45;
+    float3 clamped_additive = min(additive, float3(0.6, 0.6, 0.6)) * waterHorizonFadeIntensity;
+    float3 hazed = atmosFragLighting(color.rgb, clamped_additive, atten);
+    float horizonFade = saturate(1.0 - vdu / kWaterHorizonFadeAngle);
+    color.rgb = lerp(color.rgb, hazed, horizonFade);
 
     // S24: was min(..., 0) - punctual is clamped non-negative above (line 356), so max(...) was
     // always >=0 and min(that, 0) always collapsed to exactly 0, permanently zeroing this alpha

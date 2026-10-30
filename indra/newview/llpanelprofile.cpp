@@ -1092,7 +1092,9 @@ void LLPanelProfileSecondLife::fillAccountStatus(const LLAvatarData* avatar_data
     args["[PAYMENTINFO]"] = LLAvatarPropertiesProcessor::paymentInfo(avatar_data);
 
     std::string caption_text = getString("CaptionTextAcctInfo", args);
-    getChild<LLUICtrl>("account_info")->setValue(caption_text);
+    LLTextBox* account_info_ctrl = getChild<LLTextBox>("account_info");
+    account_info_ctrl->setValue(caption_text);
+    account_info_ctrl->setColor(getAccountTrustColor(avatar_data));
 
     constexpr S32 LINDEN_EMPLOYEE_INDEX = 3;
     LLDate sl_release;
@@ -1146,6 +1148,32 @@ void LLPanelProfileSecondLife::fillAccountStatus(const LLAvatarData* avatar_data
         childSetVisible("badge_layout", false);
         childSetVisible("partner_spacer_layout", true);
     }
+}
+
+LLColor4 LLPanelProfileSecondLife::getAccountTrustColor(const LLAvatarData* avatar_data)
+{
+    // S24: classifies account into 3 trust tiers via keyword match on the raw
+    // customer_type string (case-insensitive, billing-period suffix varies) -
+    // the exact-match badge logic above misses newer values like "Internal".
+    std::string customer_lower = avatar_data->customer_type;
+    LLStringUtil::toLower(customer_lower);
+
+    // INTERNAL (yellow/green): contractors/testers/employees of the company.
+    if (customer_lower.find("internal") != std::string::npos)
+    {
+        return LLColor4(0.6f, 0.9f, 0.2f, 1.0f);
+    }
+
+    // SPECIAL (cyan): beta/alpha testers, gifted/complimentary accounts, trial accounts.
+    if (customer_lower.find("beta") != std::string::npos ||
+        customer_lower.find("complimentary") != std::string::npos ||
+        customer_lower.find("trial") != std::string::npos)
+    {
+        return LLColor4::cyan;
+    }
+
+    // STANDARD (white): Base, Premium, Premium Plus (any billing period), plain Resident.
+    return LLColor4::white;
 }
 
 void LLPanelProfileSecondLife::fillRightsData()

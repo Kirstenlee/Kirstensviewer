@@ -88,7 +88,7 @@ private:
 
 private:
     LLVector3d          mRotationCenter;
-    LLCoordGL           mCenterScreen;
+    LLCoordYUp           mCenterScreen;
 //  S32                 mLastHoverMouseX;       // used to suppress hover if mouse doesn't move
 //  S32                 mLastHoverMouseY;
     LLQuaternion        mRotation;

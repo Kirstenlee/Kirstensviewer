@@ -166,6 +166,8 @@ set(viewer_SOURCE_FILES
     llchathistory.cpp
     llchatitemscontainerctrl.cpp
     llchatmsgbox.cpp
+    llchatservicehistory.cpp
+    llchatservicehistorycore.cpp
     llchiclet.cpp
     llchicletbar.cpp
     llclassifiedinfo.cpp
@@ -279,6 +281,7 @@ set(viewer_SOURCE_FILES
     llfloaterinspect.cpp
     llfloaterinventorysettings.cpp
     llfloaterinventorythumbnailshelper.cpp
+    llfloaterjoin.cpp
     llfloaterjoystick.cpp
     llfloaterlagmeter.cpp
     llfloaterland.cpp
@@ -352,6 +355,7 @@ set(viewer_SOURCE_FILES
     llfloaterurlentry.cpp
     llfloatervoicevolume.cpp
     llfloaterwebcontent.cpp
+    llfloaterwebmodal.cpp
     llfloaterwhitelistentry.cpp
     llfloaterwindowsize.cpp
     llfloaterworldmap.cpp
@@ -862,6 +866,8 @@ set(viewer_HEADER_FILES
     llchathistory.h
     llchatitemscontainerctrl.h
     llchatmsgbox.h
+    llchatservicehistory.h
+    llchatservicehistorycore.h
     llchiclet.h
     llchicletbar.h
     llclassifiedinfo.h
@@ -978,6 +984,7 @@ set(viewer_HEADER_FILES
     llfloaterinspect.h
     llfloaterinventorysettings.h
     llfloaterinventorythumbnailshelper.h
+    llfloaterjoin.h
     llfloaterjoystick.h
     llfloaterlagmeter.h
     llfloaterland.h
@@ -1053,6 +1060,7 @@ set(viewer_HEADER_FILES
     llfloaterurlentry.h
     llfloatervoicevolume.h
     llfloaterwebcontent.h
+    llfloaterwebmodal.h
     llfloaterwhitelistentry.h
     llfloaterwindowsize.h
     llfloaterworldmap.h
@@ -1108,6 +1116,7 @@ set(viewer_HEADER_FILES
     llinventoryitemslist.h
     llinventorylistener.h
     llinventorylistitem.h
+    llinventorycache.h
     llinventorymodel.h
     llinventorymodelbackgroundfetch.h
     llinventoryobserver.h

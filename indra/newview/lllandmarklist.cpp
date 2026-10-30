@@ -233,7 +233,9 @@ void LLLandmarkList::onRegionHandle(const LLUUID& landmark_id)
     LLLandmark* landmark = getAsset(landmark_id);
     if (!landmark)
     {
-        LL_WARNS() << "Got region handle but the landmark " << landmark_id << " not found." << LL_ENDL;
+        // This can spam a lot, so make details debug only, while warning is 'once'.
+        LL_WARNS_ONCE("Landmarks") << "Encountered missing landmarks." << LL_ENDL;
+        LL_DEBUGS("Landmarks") << "Got region handle but the landmark " << landmark_id << " not found." << LL_ENDL;
         eraseCallbacks(landmark_id);
         return;
     }
@@ -243,7 +245,9 @@ void LLLandmarkList::onRegionHandle(const LLUUID& landmark_id)
     LLVector3d pos;
     if (!landmark->getGlobalPos(pos))
     {
-        LL_WARNS() << "Got region handle but the landmark " << landmark_id << " global position is still unknown." << LL_ENDL;
+        // This can spam a lot, so make details debug only, while warning is 'once'.
+        LL_WARNS_ONCE("Landmarks") << "Encountered landmarks with unknown position." << LL_ENDL;
+        LL_DEBUGS("Landmarks") << "Got region handle but the landmark " << landmark_id << " global position is still unknown." << LL_ENDL;
         eraseCallbacks(landmark_id);
         return;
     }
@@ -263,7 +267,7 @@ void LLLandmarkList::makeCallbacks(const LLUUID& landmark_id)
 
     if (!landmark)
     {
-        LL_WARNS() << "Landmark " << landmark_id << " to make callbacks for not found." << LL_ENDL;
+        LL_WARNS("Landmarks") << "Landmark " << landmark_id << " to make callbacks for not found." << LL_ENDL;
     }
 
     // make all the callbacks here.

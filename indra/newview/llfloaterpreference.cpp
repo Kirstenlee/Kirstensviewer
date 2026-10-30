@@ -39,6 +39,7 @@
 #include "llfloaterautoreplacesettings.h"
 #include "llagent.h"
 #include "llagentcamera.h"
+#include "llchatservicehistory.h"
 #include "llcheckboxctrl.h"
 #include "llcolorswatch.h"
 #include "llcombobox.h"
@@ -548,7 +549,10 @@ bool LLFloaterPreference::postBuild()
 
 void LLFloaterPreference::updateDeleteTranscriptsButton()
 {
-    mDeleteTranscriptsBtn->setEnabled(LLLogChat::transcriptFilesExist());
+    // S24: a ChatService-synced resident may have no local transcript file at all.
+    const bool history_exists =
+        LLLogChat::transcriptFilesExist() || LLChatServiceHistory::localHistoryExists();
+    mDeleteTranscriptsBtn->setEnabled(!mDeleteTranscriptsPending && history_exists);
 }
 
 void LLFloaterPreference::onDoNotDisturbResponseChanged()
@@ -1982,17 +1986,34 @@ void LLFloaterPreference::onDeleteTranscriptsResponse(const LLSD& notification, 
 {
     if (0 == LLNotificationsUtil::getSelectedOption(notification, response))
     {
-        LLLogChat::deleteTranscripts();
+        // S24: async sweep (archives + legacy files + privacy state) - disable repeated
+        // requests now; the weak handle guards completion if Preferences closes mid-sweep.
+        LLHandle<LLFloaterPreference> handle = getDerivedHandle<LLFloaterPreference>();
+        mDeleteTranscriptsPending = true;
         updateDeleteTranscriptsButton();
+
+        if (!LLChatServiceHistory::deleteTranscriptsAsync(
+                [handle](bool)
+                {
+                    if (LLFloaterPreference* floater = handle.get())
+                    {
+                        floater->mDeleteTranscriptsPending = false;
+                        floater->updateDeleteTranscriptsButton();
+                    }
+                }))
+        {
+            // S24: deleteTranscriptsAsync() can refuse to start (another delete already
+            // active, runtime not up yet) - tell the user instead of silently doing nothing.
+            mDeleteTranscriptsPending = false;
+            updateDeleteTranscriptsButton();
+            LLNotificationsUtil::add("PreferenceChatDeleteTranscriptsBusy");
+        }
     }
 }
 
 void LLFloaterPreference::onLogChatHistorySaved()
 {
-    if (!mDeleteTranscriptsBtn->getEnabled())
-    {
-        mDeleteTranscriptsBtn->setEnabled(true);
-    }
+    updateDeleteTranscriptsButton();
 }
 
 void LLFloaterPreference::updateClickActionControls()

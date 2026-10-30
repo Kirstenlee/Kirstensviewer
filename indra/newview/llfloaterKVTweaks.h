@@ -75,6 +75,9 @@ protected:
 	// S24 - Materials tab handler
 	void onClickResetMaterials();
 
+	// S24 - Rendering Advanced tab handler
+	void onClickResetRenderingAdvanced();
+
 	// S24 - Cubemap tab handler
 	void onClickResetCubemap();
 

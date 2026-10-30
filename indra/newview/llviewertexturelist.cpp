@@ -384,9 +384,9 @@ void LLViewerTextureList::dump()
     }
 }
 
-void LLViewerTextureList::destroyGL()
+void LLViewerTextureList::destroyDX()
 {
-    LLImageDX::destroyGL();
+    LLImageDX::destroyDX();
 }
 
 /* Vertical tab container button image IDs

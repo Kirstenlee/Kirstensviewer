@@ -860,6 +860,21 @@ void LLRenderPass::pushGLTFBatch(LLDrawInfo& params)
 
     applyModelMatrix(params);
 
+    // KRLV_TOUCHPOINT: @camtextures/@setcam_textures - same tag as the
+    // generic pushBatch()/dxdrawpoolalpha.cpp call sites (see their own
+    // comments). Without this, a worn PBR-materialed attachment/skin/
+    // clothing layer was left at the stencil buffer's per-frame clear
+    // value (0, "not an attachment") and so was WRONGLY blanked right
+    // alongside world geometry instead of being exempted - the opposite
+    // of what the spec and krlvCamDrawFogF.hlsl's own header comment
+    // claimed. PBR terrain/water/world-placed PBR prims are never
+    // attachments either way, so they correctly stay blanked with no
+    // change needed here.
+    if (DXStateCache::sTagAttachmentStencilActive)
+    {
+        DXStateCache::tagAttachmentStencil(params.mAttachedToAvatar.notNull());
+    }
+
     params.mVertexBuffer->setBuffer();
     params.mVertexBuffer->drawRange(LLRender::TRIANGLES, params.mStart, params.mEnd, params.mCount, params.mOffset);
 
@@ -874,6 +889,13 @@ void LLRenderPass::pushUntexturedGLTFBatch(LLDrawInfo& params)
     LLGLDisable cull_face(mat->mDoubleSided ? GL_CULL_FACE : 0);
 
     applyModelMatrix(params);
+
+    // KRLV_TOUCHPOINT: @camtextures/@setcam_textures - see pushGLTFBatch()'s
+    // own comment just above (the glow/untextured pass needs the same tag).
+    if (DXStateCache::sTagAttachmentStencilActive)
+    {
+        DXStateCache::tagAttachmentStencil(params.mAttachedToAvatar.notNull());
+    }
 
     params.mVertexBuffer->setBuffer();
     params.mVertexBuffer->drawRange(LLRender::TRIANGLES, params.mStart, params.mEnd, params.mCount, params.mOffset);

@@ -28,7 +28,7 @@
 #include "llhlslshader.h"
 #include "llviewercontrol.h"
 
-bool LLProbeCubeStore::allocate(U32 resolution, U32 count, bool hdr)
+bool LLProbeCubeStore::allocate(U32 resolution, U32 count, bool hdr, bool reservePendingSlot)
 {
     release();
 
@@ -37,14 +37,17 @@ bool LLProbeCubeStore::allocate(U32 resolution, U32 count, bool hdr)
         return false;
     }
 
-    // Radiance: count + 2 cubes with the full mip chain. Irradiance: count cubes, no mips.
-    if (!mRadiance.create(resolution, resolution, count + 2, hdr, true))
+    const U32 pending = reservePendingSlot ? 1 : 0;
+
+    // Radiance: count + 2 cubes with the full mip chain, +1 more if reserving the pending-commit
+    // slot. Irradiance: count cubes, no mips, +1 more under the same condition.
+    if (!mRadiance.create(resolution, resolution, count + 2 + pending, hdr, true))
     {
         release();
         return false;
     }
 
-    if (!mIrradiance.create(IRRADIANCE_RESOLUTION, IRRADIANCE_RESOLUTION, count, hdr, false))
+    if (!mIrradiance.create(IRRADIANCE_RESOLUTION, IRRADIANCE_RESOLUTION, count + pending, hdr, false))
     {
         release();
         return false;
@@ -53,6 +56,7 @@ bool LLProbeCubeStore::allocate(U32 resolution, U32 count, bool hdr)
     mResolution = resolution;
     mCount = count;
     mHDR = hdr;
+    mHasPendingSlot = reservePendingSlot;
     return true;
 }
 
@@ -63,6 +67,7 @@ void LLProbeCubeStore::release()
     mResolution = 0;
     mCount = 0;
     mHDR = false;
+    mHasPendingSlot = false;
 }
 
 U64 LLProbeCubeStore::memoryBytes() const
@@ -73,10 +78,12 @@ U64 LLProbeCubeStore::memoryBytes() const
     }
 
     U64 bytes_per_texel = mHDR ? 8 : 4;
-    // Radiance: count + 2 cubes, each with its mip chain (about 4/3 of the base level).
-    U64 radiance = U64(mCount + 2) * 6 * mResolution * mResolution * 4 / 3 * bytes_per_texel;
-    // Irradiance: count cubes, no mips.
-    U64 irradiance = U64(mCount) * 6 * IRRADIANCE_RESOLUTION * IRRADIANCE_RESOLUTION * bytes_per_texel;
+    const U64 pending = mHasPendingSlot ? 1 : 0;
+    // Radiance: count + 2 cubes (+1 if a pending slot is reserved), each with its mip chain
+    // (about 4/3 of the base level).
+    U64 radiance = (U64(mCount) + 2 + pending) * 6 * mResolution * mResolution * 4 / 3 * bytes_per_texel;
+    // Irradiance: count cubes (+1 if a pending slot is reserved), no mips.
+    U64 irradiance = (U64(mCount) + pending) * 6 * IRRADIANCE_RESOLUTION * IRRADIANCE_RESOLUTION * bytes_per_texel;
     return radiance + irradiance;
 }
 

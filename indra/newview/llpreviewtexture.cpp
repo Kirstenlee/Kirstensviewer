@@ -662,54 +662,21 @@ LLPreview::EAssetStatus LLPreviewTexture::getAssetStatus()
 
 void LLPreviewTexture::adjustAspectRatio()
 {
-    S32 w = mImage->getFullWidth();
-    S32 h = mImage->getFullHeight();
-
-    // Determine aspect ratio of the image
-    S32 tmp;
-    while (h != 0)
+    // S24 QOL: always default to Unconstrained rather than auto-locking to
+    // the loaded texture's own native ratio. This used to compute the
+    // texture's exact aspect (GCD-reduced width:height) and silently
+    // pre-select - or add and select - the matching combo entry the moment
+    // full dimensions became known, which happens for virtually every
+    // texture, so the preview never actually stayed on Unconstrained in
+    // practice even though postBuild() sets it there initially. The combo
+    // is still there for the user to pick a specific ratio manually - it's
+    // just never auto-selected for them.
+    LLComboBox* combo = getChild<LLComboBox>("combo_aspect_ratio");
+    if (combo)
     {
-        tmp = w % h;
-        w = h;
-        h = tmp;
+        combo->setCurrentByIndex(0); //unconstrained
     }
-    S32 divisor = w;
-    S32 num = mImage->getFullWidth() / divisor;
-    S32 denom = mImage->getFullHeight() / divisor;
-
-    if (setAspectRatio((F32)num, (F32)denom))
-    {
-        // Select corresponding ratio entry in the combo list
-        LLComboBox* combo = getChild<LLComboBox>("combo_aspect_ratio");
-        if (combo)
-        {
-            std::ostringstream ratio;
-            ratio << num << ":" << denom;
-            std::vector<std::string>::const_iterator found = std::find(mRatiosList.begin(), mRatiosList.end(), ratio.str());
-            if (found == mRatiosList.end())
-            {
-                // No existing ratio found, create an element that will show image at original ratio
-                populateRatioList(); // makes sure previous custom ratio is cleared
-                std::string ratio = std::to_string(num)+":" + std::to_string(denom);
-                mRatiosList.push_back(ratio);
-                combo->add(ratio);
-                combo->setCurrentByIndex(static_cast<S32>(mRatiosList.size()) - 1);
-            }
-            else
-            {
-                combo->setCurrentByIndex((S32)(found - mRatiosList.begin()));
-            }
-        }
-    }
-    else
-    {
-        // Aspect ratio was set to unconstrained or was clamped
-        LLComboBox* combo = getChild<LLComboBox>("combo_aspect_ratio");
-        if (combo)
-        {
-            combo->setCurrentByIndex(0); //unconstrained
-        }
-    }
+    setAspectRatio(0.f, 0.f);
 
     mUpdateDimensions = true;
 }

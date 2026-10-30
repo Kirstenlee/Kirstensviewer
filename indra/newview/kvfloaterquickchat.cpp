@@ -339,7 +339,8 @@ void KVFloaterQuickChat::sendChat(EChatType type)
                     }
                 }
             }
-            else if (gKRlv.isRestricted("sendchannel") || KRlv::isChannelSendBlocked(channel))
+            else if (gKRlv.isRestrictedWithException("sendchannel", "sendchannel_exception", std::to_string(channel))
+                     || KRlv::isChannelSendBlocked(channel))
             {
                 krlvBlocked = true;
             }

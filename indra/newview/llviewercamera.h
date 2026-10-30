@@ -53,6 +53,13 @@ public:
 		CAMERA_SUN_SHADOW3,
 		CAMERA_SPOT_SHADOW0,
 		CAMERA_SPOT_SHADOW1,
+		// S24: real-time point/omni light shadow faces - 6 per slot, 1 slot for v1.
+		CAMERA_POINT_SHADOW0_FACE0,
+		CAMERA_POINT_SHADOW0_FACE1,
+		CAMERA_POINT_SHADOW0_FACE2,
+		CAMERA_POINT_SHADOW0_FACE3,
+		CAMERA_POINT_SHADOW0_FACE4,
+		CAMERA_POINT_SHADOW0_FACE5,
 		CAMERA_WATER0,
 		CAMERA_WATER1,
 		NUM_CAMERAS
@@ -72,8 +79,8 @@ public:
 
 	// Warning!  These assume the current global matrices are correct
 	void projectScreenToPosAgent(const S32 screen_x, const S32 screen_y, LLVector3* pos_agent) const;
-	bool projectPosAgentToScreen(const LLVector3& pos_agent, LLCoordGL& out_point, const bool clamp = true) const;
-	bool projectPosAgentToScreenEdge(const LLVector3& pos_agent, LLCoordGL& out_point) const;
+	bool projectPosAgentToScreen(const LLVector3& pos_agent, LLCoordYUp& out_point, const bool clamp = true) const;
+	bool projectPosAgentToScreenEdge(const LLVector3& pos_agent, LLCoordYUp& out_point) const;
 
 	F32     getCosHalfFov() const { return mCosHalfCameraFOV; }
 	F32     getAverageSpeed() const { return mAverageSpeed; }

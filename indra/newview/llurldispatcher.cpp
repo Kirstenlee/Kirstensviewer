@@ -159,7 +159,17 @@ bool LLURLDispatcherImpl::dispatchApp(const LLSLURL& slurl,
                                       LLMediaCtrl* web,
                                       bool trusted_browser)
 {
-    LL_INFOS() << "cmd: " << slurl.getAppCmd() << " path: " << slurl.getAppPath() << " query: " << slurl.getAppQuery() << LL_ENDL;
+    // S24 : path/query can carry a password (e.g. app/floaterjoin/join/user/pass) - never log
+    // it unredacted. isSensitive() is looked up before dispatch, not read from the handler's
+    // own log line, since the handler never gets a chance to redact what's already logged.
+    if (LLCommandDispatcher::isSensitive(slurl.getAppCmd()))
+    {
+        LL_INFOS() << "cmd: " << slurl.getAppCmd() << " path: [redacted] query: [redacted]" << LL_ENDL;
+    }
+    else
+    {
+        LL_INFOS() << "cmd: " << slurl.getAppCmd() << " path: " << slurl.getAppPath() << " query: " << slurl.getAppQuery() << LL_ENDL;
+    }
     const LLSD& query_map = LLURI::queryMap(slurl.getAppQuery());
     bool handled = LLCommandDispatcher::dispatch(
             slurl.getAppCmd(), slurl.getAppPath(), query_map, slurl.getGrid(), web, nav_type, trusted_browser);

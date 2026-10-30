@@ -299,7 +299,7 @@ bool LLToolCamera::handleMouseUp(S32 x, S32 y, MASK mask)
             {
                 if (CAMERA_MODE_CUSTOMIZE_AVATAR == gAgentCamera.getCameraMode())
                 {
-                    LLCoordGL mouse_pos;
+                    LLCoordYUp mouse_pos;
                     LLVector3 focus_pos = gAgent.getPosAgentFromGlobal(gAgentCamera.getFocusGlobal());
                     bool success = LLViewerCamera::getInstance()->projectPosAgentToScreen(focus_pos, mouse_pos);
                     if (success)

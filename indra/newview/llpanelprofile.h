@@ -137,6 +137,13 @@ protected:
     void fillAccountStatus(const LLAvatarData* avatar_data);
 
     /**
+     * S24: classifies the account into 3 broad trust tiers (Standard/Special/Internal)
+     * from what the protocol actually exposes, and returns the color the account_info
+     * line should be shown in.
+     */
+    LLColor4 getAccountTrustColor(const LLAvatarData* avatar_data);
+
+    /**
      * Sets permissions specific icon
      */
     void fillRightsData();

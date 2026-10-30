@@ -23,9 +23,11 @@
  * pass has no access to per-object UV coordinates, so the substitute
  * texture's pattern is visible but not correctly mapped onto individual
  * world-object geometry - a documented, honest approximation, not a
- * bug. GLTF/PBR base-colour materials and PBR terrain are NOT tagged
- * (v1 scope cut - see krlv/README.md) and so are never blanked, even
- * when this restriction is active.
+ * bug. GLTF/PBR-materialed geometry is tagged the same way (see
+ * LLRenderPass::pushGLTFBatch()), so worn PBR attachments/skins/clothes
+ * are correctly exempted alongside every other worn item; PBR terrain,
+ * water and world-placed PBR prims are never attachments either way and
+ * so correctly stay blanked.
  *
  * Copyright (c) 2026 Kirstenlee Cinquetti (Lee Quick)
  *

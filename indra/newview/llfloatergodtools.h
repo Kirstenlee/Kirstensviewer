@@ -81,7 +81,7 @@ public:
 
     // call this once per frame to handle visibility, rect location,
     // button highlights, etc.
-    void updatePopup(LLCoordGL center, MASK mask);
+    void updatePopup(LLCoordYUp center, MASK mask);
 
     // Get data to populate UI.
     void sendRegionInfoRequest();

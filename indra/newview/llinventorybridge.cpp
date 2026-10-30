@@ -77,6 +77,7 @@
 #include "llviewerwindow.h"
 #include "llvoavatarself.h"
 #include "krlvattachment.h" // KRLV_TOUCHPOINT: @addattach / @detach:<point> gate
+#include "krlvsharedfolders.h" // KRLV_TOUCHPOINT: @attachthis / @detachthis folder-structure locks
 #include "llwearablelist.h"
 #include "llwearableitemslist.h"
 #include "lllandmarkactions.h"
@@ -2374,6 +2375,11 @@ bool LLFolderBridge::isItemMovable() const
         // If it's a protected type folder, we can't move it
         if (LLFolderType::lookupIsProtectedType(((LLInventoryCategory*)obj)->getPreferredType()))
             return false;
+        // KRLV_TOUCHPOINT: @attachthis/@detachthis[...]=n - "this folder
+        // ...cannot be renamed, moved, deleted or modified" (see
+        // krlvsharedfolders.cpp's file header).
+        if (KRlv::isSharedFolderStructureLocked(mUUID))
+            return false;
         return true;
     }
     return false;
@@ -2507,6 +2513,13 @@ void LLFolderBridge::update()
 // Can be destroyed (or moved to trash)
 bool LLFolderBridge::isItemRemovable(bool check_worn) const
 {
+    // KRLV_TOUCHPOINT: @attachthis/@detachthis[...]=n - see
+    // isItemMovable()'s identical comment.
+    if (KRlv::isSharedFolderStructureLocked(mUUID))
+    {
+        return false;
+    }
+
     if (!get_is_category_and_children_removable(getInventoryModel(), mUUID, check_worn))
     {
         return false;
@@ -3882,6 +3895,12 @@ void LLFolderBridge::determineFolderType()
 
 bool LLFolderBridge::isItemRenameable() const
 {
+    // KRLV_TOUCHPOINT: @attachthis/@detachthis[...]=n - see
+    // isItemMovable()'s identical comment.
+    if (KRlv::isSharedFolderStructureLocked(mUUID))
+    {
+        return false;
+    }
     return get_is_category_renameable(getInventoryModel(), mUUID);
 }
 
@@ -7293,22 +7312,27 @@ void rez_attachment(LLViewerInventoryItem* item, LLViewerJointAttachment* attach
 {
     const LLUUID& item_id = item->getLinkedUUID();
 
-    // KRLV_TOUCHPOINT: @addattach[:<point>]=n / @detach:<point>=n - see
+    // KRLV_TOUCHPOINT: @addattach[:<point>]=n / @detach:<point>=n /
+    // @remattach[:<point>]=n (the last one only once the point is
+    // CURRENTLY occupied - see krlvattachment.cpp's file header) - see
     // krlv/README.md's Attachments section. `attachment` is NULL when
     // called via wearItemsOnAvatar()'s generic batch-wear path (the
-    // server picks the attach point) - the specific point can't be
-    // checked in that case, so fail safe: block outright if ANY specific
-    // point is locked, not just the "lock everything" catch-all.
+    // server picks the attach point) - the specific point AND its
+    // occupied state can't be checked in that case, so fail safe: pass
+    // pointOccupied=true (not false - a bare "@remattach=n" locks every
+    // CURRENTLY occupied point, and the server-picked point might be one
+    // of them) to make isAttachPointLocked() check remattach_point_all
+    // too, alongside blocking outright if any specific point is locked.
     if (!KRlv::isDefaultWearAllowed())
     {
         if (attachment)
         {
-            if (KRlv::isAttachPointLocked(attachment->getName()))
+            if (KRlv::isAttachPointLocked(attachment->getName(), attachment->getNumObjects() > 0))
             {
                 return;
             }
         }
-        else if (KRlv::isAttachPointLocked(std::string()) || KRlv::isAnySpecificAttachPointLocked())
+        else if (KRlv::isAttachPointLocked(std::string(), true) || KRlv::isAnySpecificAttachPointLocked())
         {
             return;
         }

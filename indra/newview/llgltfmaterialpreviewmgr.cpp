@@ -415,6 +415,24 @@ struct SetTemporarily
     }
 };
 
+// Same idea as SetTemporarily, for a gSavedSettings control rather than a raw
+// variable - there's no pointer to go through a get<S32>()/set<S32>() control.
+struct SetTemporarilySetting
+{
+    std::string mName;
+    S32 mOldVal;
+    SetTemporarilySetting(const std::string& name, S32 temp_val)
+        : mName(name)
+        , mOldVal(gSavedSettings.get<S32>(name))
+    {
+        gSavedSettings.set<S32>(mName, temp_val);
+    }
+    ~SetTemporarilySetting()
+    {
+        gSavedSettings.set<S32>(mName, mOldVal);
+    }
+};
+
 }; // namespace
 
 bool LLGLTFPreviewTexture::render()
@@ -433,12 +451,11 @@ bool LLGLTFPreviewTexture::render()
     SetTemporarily<bool> no_ssr(&DXPipeline::RenderScreenSpaceReflections, false);
     SetTemporarily<U32> no_aa(&DXPipeline::RenderFSAAType, U32(0));
     SetTemporarily<LLPipeline::RenderTargetPack*> use_auxiliary_render_target(&gPipeline.mRT, &gPipeline.mAuxillaryRT);
+    SetTemporarilySetting no_local_lights("RenderLocalLightCount", 0);
 
     LLVector3 light_dir3(1.0f, 1.0f, 1.0f);
     light_dir3.normalize();
     const LLVector4 light_dir = LLVector4(light_dir3, 0);
-    const S32 old_local_light_count = gSavedSettings.get<S32>("RenderLocalLightCount");
-    gSavedSettings.set<S32>("RenderLocalLightCount", 0);
 
     gPipeline.mSphereProbes.setDefaultProbeOnly(true);
 
@@ -569,10 +586,9 @@ bool LLGLTFPreviewTexture::render()
 
     gDeferredPostNoDoFProgram.unbind();
 
-    // Clean up
+    // Clean up (RenderLocalLightCount is restored by no_local_lights' destructor)
     DXPipeline::setupHWLights(gPipeline);
     gPipeline.mSphereProbes.setDefaultProbeOnly(false);
-    gSavedSettings.set<S32>("RenderLocalLightCount", old_local_light_count);
 
     return true;
 }

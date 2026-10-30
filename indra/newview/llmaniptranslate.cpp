@@ -137,7 +137,7 @@ LLManipTranslate::LLManipTranslate( LLToolComposite* composite )
 {
     if (sGridTex.isNull())
     {
-        restoreGL();
+        restoreDX();
     }
 }
 
@@ -146,14 +146,14 @@ U32 LLManipTranslate::getGridTexName()
 {
     if(sGridTex.isNull())
     {
-        restoreGL() ;
+        restoreDX() ;
     }
 
     return sGridTex.isNull() ? 0 : sGridTex->getTexName() ;
 }
 
 //static
-void LLManipTranslate::destroyGL()
+void LLManipTranslate::destroyDX()
 {
     if (sGridTex)
     {
@@ -162,13 +162,13 @@ void LLManipTranslate::destroyGL()
 }
 
 //static
-void LLManipTranslate::restoreGL()
+void LLManipTranslate::restoreDX()
 {
     //generate grid texture
     U32 rez = 512;
     U32 mip = 0;
 
-    destroyGL() ;
+    destroyDX() ;
     sGridTex = LLViewerTextureManager::getLocalTexture() ;
     if(!sGridTex->createGLTexture())
     {
@@ -386,7 +386,7 @@ bool LLManipTranslate::handleMouseDownOnPart( S32 x, S32 y, MASK mask )
     // if we clicked on a planar manipulator, recenter mouse cursor
     if (mManipPart >= LL_YZ_PLANE && mManipPart <= LL_XY_PLANE)
     {
-        LLCoordGL mouse_pos;
+        LLCoordYUp mouse_pos;
         if (!LLViewerCamera::getInstance()->projectPosAgentToScreen(select_center_agent, mouse_pos))
         {
             // mouse_pos may be nonsense
@@ -1552,7 +1552,7 @@ void LLManipTranslate::renderSnapGuides()
                 //LLGLDisable stencil(GL_STENCIL_TEST);
                 {
                     DXDepthTest gls_depth(true, false, GL_GREATER);
-                    getGridTexName(); // side effect only - ensures restoreGL() has run
+                    getGridTexName(); // side effect only - ensures restoreDX() has run
                     gDX.getTexUnit(0)->bind(sDXGridTex, LLTexUnit::TAM_WRAP, LLTexUnit::TFO_TRILINEAR);
                     gDX.flush();
                     gDX.blendFunc(LLRender::BF_ZERO, LLRender::BF_ONE_MINUS_SOURCE_ALPHA);
@@ -1567,7 +1567,7 @@ void LLManipTranslate::renderSnapGuides()
                     renderGrid(u,v,tiles,0.0f, 0.0f, 0.0f,a*0.16f);
 
                     //draw grid top
-                    getGridTexName(); // side effect only - ensures restoreGL() has run
+                    getGridTexName(); // side effect only - ensures restoreDX() has run
                     gDX.getTexUnit(0)->bind(sDXGridTex, LLTexUnit::TAM_WRAP, LLTexUnit::TFO_TRILINEAR);
                     renderGrid(u,v,tiles,1,1,1,a);
 

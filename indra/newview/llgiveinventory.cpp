@@ -187,8 +187,10 @@ bool LLGiveInventory::doGiveInventoryItem(const LLUUID& to_agent,
                                       const LLUUID& im_session_id/* = LLUUID::null*/)
 
 {
-    // KRLV_TOUCHPOINT: @share/@share_sec - see krlv/README.md.
-    if (gKRlv.isRestricted("share") && !gKRlv.hasRestrictionFrom("share_except", to_agent))
+    // KRLV_TOUCHPOINT: @share/@share_sec - see krlv/README.md and
+    // krlvinventory.cpp's file header for the real "_sec" object-scoping
+    // semantics isRestrictedWithException() now implements.
+    if (gKRlv.isRestrictedWithException("share", "share_except", to_agent))
     {
         return false;
     }
@@ -228,8 +230,10 @@ bool LLGiveInventory::doGiveInventoryCategory(const LLUUID& to_agent,
                                               const std::string& notification_name)
 
 {
-    // KRLV_TOUCHPOINT: @share/@share_sec - see krlv/README.md.
-    if (gKRlv.isRestricted("share") && !gKRlv.hasRestrictionFrom("share_except", to_agent))
+    // KRLV_TOUCHPOINT: @share/@share_sec - see krlv/README.md and
+    // krlvinventory.cpp's file header for the real "_sec" object-scoping
+    // semantics isRestrictedWithException() now implements.
+    if (gKRlv.isRestrictedWithException("share", "share_except", to_agent))
     {
         return false;
     }

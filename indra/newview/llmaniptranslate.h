@@ -51,8 +51,8 @@ public:
     virtual ~LLManipTranslate();
 
     static  U32     getGridTexName() ;
-    static  void    destroyGL();
-    static  void    restoreGL();
+    static  void    destroyDX();
+    static  void    restoreDX();
     virtual bool    handleMouseDown(S32 x, S32 y, MASK mask);
     virtual bool    handleMouseUp(S32 x, S32 y, MASK mask);
     virtual bool    handleHover(S32 x, S32 y, MASK mask);

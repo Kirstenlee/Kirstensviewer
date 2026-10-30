@@ -1365,7 +1365,7 @@ void drawBoxOutline(const LLVector4a& pos, const LLVector4a& size)
 }
 
 
-void LLSpatialPartition::restoreGL()
+void LLSpatialPartition::restoreDX()
 {
 }
 

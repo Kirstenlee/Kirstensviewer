@@ -877,7 +877,8 @@ void LLFloaterIMNearbyChat::sendChatFromViewer(const LLWString &wtext, EChatType
             // actually goes out over the wire is filtered.
         }
     }
-    else if (gKRlv.isRestricted("sendchannel") || KRlv::isChannelSendBlocked(channel))
+    else if (gKRlv.isRestrictedWithException("sendchannel", "sendchannel_exception", std::to_string(channel))
+             || KRlv::isChannelSendBlocked(channel))
     {
         return;
     }

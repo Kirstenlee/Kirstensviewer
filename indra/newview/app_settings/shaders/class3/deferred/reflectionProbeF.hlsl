@@ -106,7 +106,7 @@ uniform int probes_enabled; // S24: Toggle to disable probe reflections entirely
 uniform float probe_intensity;          // Overall reflection strength (0.0-2.0, default 1.0)
 uniform float probe_saturation;         // Color saturation (0.0-2.0, default 1.0)
 uniform float probe_contrast;           // Contrast adjustment (0.0-2.0, default 1.0)
-uniform float probe_blur_lod_bias;      // Blur via LOD bias (-3.0 to 3.0, default 0.0)
+uniform float probe_blur_spread;        // Direction-space blur/smudge radius (0.0-1.0, default 0.12) - see sampleRefCube()
 uniform float probe_auto_parallax;      // 1 = automatic probes use their own radius for parallax, 0 = direction only
 uniform float probe_ambient_multiplier; // Ambient contribution (0.0-2.0, default 1.0)
 uniform float probe_equalize;           // Blend toward this probe's own fully-averaged top mip (0.0-1.0, default 0.0) - see sampleRefCube()
@@ -118,6 +118,15 @@ uniform float reflection_gate_gloss_reject;     // roughness/gloss is one value 
 uniform float reflection_gate_gloss_accept;
 uniform float reflection_gate_metallic_reject;  // PBR materials only - legacy materials have no metallic channel
 uniform float reflection_gate_metallic_accept;
+
+// S24: water's own gloss gate, independent of the shared one above - water has no metallic
+// channel (same as legacy materials) so only needs a gloss pair. Separate from the shared gate
+// because water's gloss is driven by the active water preset's Blur Multiplier (waterF.hlsl),
+// not a fixed near-1.0 constant like most other surfaces - a choppy preset can legitimately push
+// it below a gate tuned for everything else, killing the reflection outright since reject==accept
+// collapses materialReflectionGate() to a hard step(), not a ramp. See sampleReflectionProbesWater().
+uniform float water_reflection_gate_gloss_reject;
+uniform float water_reflection_gate_gloss_accept;
 
 // Accept/reject window for one material property. reject > accept collapses to a hard cutoff at reject
 // instead of an inverted or undefined smoothstep.
@@ -447,6 +456,10 @@ float sphereWeight(float3 pos, float3 dir, float3 origin, float r, float4 i, out
     return w;
 }
 
+// S24: golden-angle step for sampleRefCube()'s direction-space smudge - see there.
+static const float kProbeBlurGoldenAngle = 2.39996323;
+static const int kProbeBlurTapCount = 16;
+
 // Sample a probe's radiance cube at view-space direction v, relative to the probe origin.
 // cube - slot in the radiance array
 // radscale - radiance scale (capture scale and fade)
@@ -457,8 +470,42 @@ float3 sampleRefCube(float3 v, int cube, float lod, float radscale)
     // S24: lod must be clamped before SampleLevel()'s EXPLICIT LOD param - unlike Sample()'s
     // automatic LOD, SampleLevel() does not clamp an out-of-range level to the texture's
     // real mip count, so an unclamped bias reads past max_probe_lod and comes back black.
-    float adjusted_lod = clamp(lod + probe_blur_lod_bias, 0.0, max_probe_lod);
-    float4 ret = reflectionProbes.SampleLevel(environmentMapSampler, float4(v.xyz, (float)cube), adjusted_lod) * radscale;
+    float adjusted_lod = clamp(lod, 0.0, max_probe_lod);
+
+    float4 ret;
+    if (probe_blur_spread <= 0.0)
+    {
+        ret = reflectionProbes.SampleLevel(environmentMapSampler, float4(v.xyz, (float)cube), adjusted_lod) * radscale;
+    }
+    else
+    {
+        // S24: direction-space smudge, NOT a higher GGX-prefiltered mip bias (the old
+        // RenderReflectionProbeBlurLODBias) - that mip chain has a known sparse-sample
+        // correctness bug at high roughness. Averages jittered taps at the same lod instead.
+        // v is not unit length (position-relative-to-probe-origin), so tap offsets must build
+        // from a normalized direction or the blur radius would warp with distance/parallax.
+        float3 n = normalize(v.xyz);
+        float3 up = abs(n.z) < 0.999 ? float3(0.0, 0.0, 1.0) : float3(1.0, 0.0, 0.0);
+        float3 tangentX = normalize(cross(up, n));
+        float3 tangentY = cross(n, tangentX);
+
+        float4 sum = reflectionProbes.SampleLevel(environmentMapSampler, float4(v.xyz, (float)cube), adjusted_lod);
+        float wsum = 1.0;
+        for (int t = 0; t < kProbeBlurTapCount; ++t)
+        {
+            // S24: Vogel/golden-angle disc, not fixed cardinal taps (which ghost sharp features
+            // like a sun disc) - sqrt(i) radius keeps samples evenly spaced by area.
+            float r = sqrt(((float)t + 0.5) / (float)kProbeBlurTapCount) * probe_blur_spread;
+            float a = (float)t * kProbeBlurGoldenAngle;
+            float s, c;
+            sincos(a, s, c);
+
+            float3 dir = normalize(n + (tangentX * c + tangentY * s) * r);
+            sum += reflectionProbes.SampleLevel(environmentMapSampler, float4(dir, (float)cube), adjusted_lod);
+            wsum += 1.0;
+        }
+        ret = (sum / wsum) * radscale;
+    }
 
     // S24: probe_equalize blends toward a second sample at this same probe's own top mip
     // (max_probe_lod) - the fully GGX-convolved, whole-hemisphere average (see
@@ -549,9 +596,17 @@ float3 sampleProbes(float3 pos, float3 dir, float lod)
     // at a live, user-facing crash. The hard-edge artifact this was meant to fix is still open -
     // needs a safer redesign before retrying, not just a smaller band.
     //
-    // One probe per class, nothing averaged: the winner is the probe with the highest coverage at
-    // this pixel, with the smaller radius winning ties. Class 0 is automatic, class 1 is manual
-    // (spheres and boxes).
+    // Top-2 per class, nothing more: the champion is the probe with the highest coverage at this
+    // pixel, with the smaller radius winning ties; the runner-up (if any) is kept too, purely so
+    // a same-class boundary (two manual probes, or two automatic probes) can fade between them
+    // instead of hard-cutting - see the result-resolution block below. Class 0 is automatic,
+    // class 1 is manual (spheres and boxes). All of wType/wIdx/wCov/wRad/wType2/wIdx2/wCov2 are
+    // plain function-locals, never a cbuffer member or register()-bound resource - deliberate,
+    // see this function's own header comment on why the prior "margin-band" attempt's X4019 CTD
+    // is believed to trace to a NEW uniform, not to tracking extra candidate state as such. The
+    // runner-up needs no radius tiebreak (unlike the champion): it never wins outright, only
+    // contributes a fractional blend weight, so there's no "smaller probe is more authoritative"
+    // case to resolve for it.
     int wType[2];
     int wIdx[2];
     float wCov[2];
@@ -560,6 +615,13 @@ float3 sampleProbes(float3 pos, float3 dir, float lod)
     wIdx[0] = -1;  wIdx[1] = -1;
     wCov[0] = 0.0; wCov[1] = 0.0;
     wRad[0] = 1e30; wRad[1] = 1e30;
+
+    int wType2[2];
+    int wIdx2[2];
+    float wCov2[2];
+    wType2[0] = -1; wType2[1] = -1;
+    wIdx2[0] = -1;  wIdx2[1] = -1;
+    wCov2[0] = 0.0; wCov2[1] = 0.0;
 
     for (int idx = 0; idx < probeInfluences; ++idx)
     {
@@ -573,12 +635,28 @@ float3 sampleProbes(float3 pos, float3 dir, float lod)
 
         float r = refSphere[i].w;
         float cov = probeCoverage(length(pos - refSphere[i].xyz), r) * refParams[i].z;
-        if (cov > 0.0 && (cov > wCov[p] + 1e-4 || (abs(cov - wCov[p]) <= 1e-4 && r < wRad[p])))
+        if (cov > 0.0)
         {
-            wType[p] = 0;
-            wIdx[p] = i;
-            wCov[p] = cov;
-            wRad[p] = r;
+            if (cov > wCov[p] + 1e-4 || (abs(cov - wCov[p]) <= 1e-4 && r < wRad[p]))
+            {
+                // Displacing the champion - demote it to runner-up rather than discard it.
+                if (wIdx[p] >= 0)
+                {
+                    wType2[p] = wType[p];
+                    wIdx2[p] = wIdx[p];
+                    wCov2[p] = wCov[p];
+                }
+                wType[p] = 0;
+                wIdx[p] = i;
+                wCov[p] = cov;
+                wRad[p] = r;
+            }
+            else if (cov > wCov2[p])
+            {
+                wType2[p] = 0;
+                wIdx2[p] = i;
+                wCov2[p] = cov;
+            }
         }
     }
 
@@ -591,16 +669,52 @@ float3 sampleProbes(float3 pos, float3 dir, float lod)
         // see tapBoxProbe()'s own comment for why this was missing and what it masks.
         float cov = saturate(d * 6.0) * boxRefParams[i].z;
         float r = boxRefOrigin[i].w;
-        if (cov > 0.0 && (cov > wCov[1] + 1e-4 || (abs(cov - wCov[1]) <= 1e-4 && r < wRad[1])))
+        if (cov > 0.0)
         {
-            wType[1] = 1;
-            wIdx[1] = i;
-            wCov[1] = cov;
-            wRad[1] = r;
+            if (cov > wCov[1] + 1e-4 || (abs(cov - wCov[1]) <= 1e-4 && r < wRad[1]))
+            {
+                if (wIdx[1] >= 0)
+                {
+                    wType2[1] = wType[1];
+                    wIdx2[1] = wIdx[1];
+                    wCov2[1] = wCov[1];
+                }
+                wType[1] = 1;
+                wIdx[1] = i;
+                wCov[1] = cov;
+                wRad[1] = r;
+            }
+            else if (cov > wCov2[1])
+            {
+                wType2[1] = 1;
+                wIdx2[1] = i;
+                wCov2[1] = cov;
+            }
         }
     }
 
     float3 result = float3(0, 0, 0);
+
+    // Automatic-class result: champion, faded toward its own runner-up if a second automatic
+    // probe is also competing here. Automatic candidates are always spheres (the box loop above
+    // only ever writes class 1), so no wType2[0] branch is needed on the tap call itself.
+    float3 auto_result = float3(0, 0, 0);
+    bool have_auto = (wType[0] >= 0);
+    if (have_auto)
+    {
+        float w = 0;
+        float dw = 0;
+        auto_result = tapSphereProbe(pos, dir, w, dw, lod, refSphere[wIdx[0]].xyz, wIdx[0]);
+
+        if (wIdx2[0] >= 0 && wCov[0] < 1.0)
+        {
+            float w2 = 0;
+            float dw2 = 0;
+            float3 auto_runner_col = tapSphereProbe(pos, dir, w2, dw2, lod, refSphere[wIdx2[0]].xyz, wIdx2[0]);
+            auto_result = lerp(auto_runner_col, auto_result, wCov[0] / max(wCov[0] + wCov2[0], 0.001));
+        }
+    }
+
     if (wType[1] >= 0)
     {
         float w = 0;
@@ -609,20 +723,33 @@ float3 sampleProbes(float3 pos, float3 dir, float lod)
             ? tapBoxProbe(pos, dir, w, dw, lod, wIdx[1])
             : tapSphereProbe(pos, dir, w, dw, lod, refSphere[wIdx[1]].xyz, wIdx[1]);
 
-        result = manual_col;
-
-        // Fade from the automatic winner at the manual probe's edge, so there is no hard cut.
-        if (wType[0] >= 0 && wCov[1] < 1.0)
+        // Manual-class result: champion, faded toward its own runner-up (sphere or box, same
+        // same-class-boundary fade as the automatic case above) if a second manual probe is also
+        // competing here.
+        float3 manual_result = manual_col;
+        if (wIdx2[1] >= 0 && wCov[1] < 1.0)
         {
-            float3 auto_col = tapSphereProbe(pos, dir, w, dw, lod, refSphere[wIdx[0]].xyz, wIdx[0]);
-            result = lerp(auto_col, manual_col, wCov[1]);
+            float w2 = 0;
+            float dw2 = 0;
+            float3 manual_runner_col = (wType2[1] == 1)
+                ? tapBoxProbe(pos, dir, w2, dw2, lod, wIdx2[1])
+                : tapSphereProbe(pos, dir, w2, dw2, lod, refSphere[wIdx2[1]].xyz, wIdx2[1]);
+            manual_result = lerp(manual_runner_col, manual_col, wCov[1] / max(wCov[1] + wCov2[1], 0.001));
+        }
+
+        result = manual_result;
+
+        // Fade from the automatic result at the manual probe's edge, so there is no hard cut -
+        // same shape as before, now fading between the two classes' already-resolved results
+        // instead of two freshly-tapped colors.
+        if (have_auto && wCov[1] < 1.0)
+        {
+            result = lerp(auto_result, manual_result, wCov[1]);
         }
     }
-    else if (wType[0] >= 0)
+    else if (have_auto)
     {
-        float w = 0;
-        float dw = 0;
-        result = tapSphereProbe(pos, dir, w, dw, lod, refSphere[wIdx[0]].xyz, wIdx[0]);
+        result = auto_result;
     }
 
     // S24: Apply reflection probe tweaks
@@ -682,14 +809,23 @@ float3 tapSphereIrradiance(float3 pos, float3 dir, out float w, out float dw, fl
     // the specular IBL weight above (sphereWeight()'s own i.z) and for box probes' irradiance
     // below - zero trust in a torn/just-reassigned capture, full trust once settled, nothing to
     // do with the sky.
+    // S24: single return point, not two early returns - the real cause of the X4000
+    // "potentially uninitialized" warning turned out to be FXC's inliner mishandling
+    // functions with out-parameters that have multiple return paths (tapBoxIrradiance
+    // below has the same out-params but only one return and never warns). Renaming the
+    // locals alone didn't fix it; collapsing to one return does.
+    float3 col = irradianceProbes.SampleLevel(environmentMapSampler, float4(v, (float)refIndex[i].x), 0).rgb;
+    float trust;
     if (i == 0)
     {
-        float3 col = irradianceProbes.SampleLevel(environmentMapSampler, float4(v, (float)refIndex[i].x), 0).rgb * refParams[i].x;
-        return lerp(amblit, col, saturate(refParams[i].x));
+        col *= refParams[i].x;
+        trust = refParams[i].x;
     }
-
-    float3 col = irradianceProbes.SampleLevel(environmentMapSampler, float4(v, (float)refIndex[i].x), 0).rgb;
-    return lerp(amblit, col, saturate(refParams[i].z));
+    else
+    {
+        trust = refParams[i].z;
+    }
+    return lerp(amblit, col, saturate(trust));
 }
 
 // Tap a box probe's irradiance map - parallels tapBoxProbe(). Box probes have no separate
@@ -958,11 +1094,9 @@ void sampleReflectionProbesWater(inout float3 ambenv, inout float3 glossenv,
         }
 #endif
         tapHeroProbe(glossenv, pos, norm, glossiness);
-        // S24: water never passed through materialReflectionGate() at all - the Materials-
-        // tab gloss/metallic reflection gate sliders had zero effect on water reflections,
-        // unlike every opaque/legacy path. Water has no metallic channel, same as legacy
-        // materials, so only the gloss gate applies here.
-        glossenv *= materialReflectionGate(glossiness, reflection_gate_gloss_reject, reflection_gate_gloss_accept);
+        // S24: water has its OWN gloss gate (water_reflection_gate_gloss_*), independent of the
+        // shared Materials-tab one - see the uniform declarations above for why.
+        glossenv *= materialReflectionGate(glossiness, water_reflection_gate_gloss_reject, water_reflection_gate_gloss_accept);
         return;
     }
 
@@ -974,7 +1108,7 @@ void sampleReflectionProbesWater(inout float3 ambenv, inout float3 glossenv,
     probeIndex[probeInfluences++] = 0;
 
     doProbeSample(ambenv, glossenv, tc, pos, norm, glossiness, false, amblit_linear);
-    glossenv *= materialReflectionGate(glossiness, reflection_gate_gloss_reject, reflection_gate_gloss_accept);
+    glossenv *= materialReflectionGate(glossiness, water_reflection_gate_gloss_reject, water_reflection_gate_gloss_accept);
 }
 
 float4 sampleReflectionProbesDebug(float3 pos)

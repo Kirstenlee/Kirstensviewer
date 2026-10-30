@@ -34,7 +34,21 @@ class LLHLSLShader;
 //   radiance:   [0, count)  probe radiance cubes
 //               [count]     scratch cube for sphere probe capture
 //               [count+1]   scratch cube for the realtime probe
+//               [count+2]   pending-result cube for the generic (non-realtime) capture cycle,
+//                            only present when reservePendingSlot was true at allocate()
 //   irradiance: [0, count)  probe irradiance cubes
+//               [count]     pending-result cube, same condition as above (irradiance otherwise
+//                            has NO scratch capacity at all)
+//
+// The pending-result slots exist to make a generic LLSphereProbes::doProbeUpdate() capture
+// atomic: updateProbeFace() writes the generator's result there instead of straight into the
+// probe's live mCubeIndex slice, and doProbeUpdate() bulk-copies pending->live in one shot only
+// once BOTH the irradiance and radiance passes of a 12-frame cycle have fully finished - so a
+// sampler never sees a torn mix of fresh-irradiance/stale-radiance (or vice versa) mid-capture.
+// One shared pending slot pair is enough because that path is already serialized to exactly one
+// in-flight capture at a time (LLSphereProbes::mUpdatingProbe is a single pointer). The realtime/
+// master-cube paths are untouched by this and keep writing straight to their live slot, since
+// their own capture is already atomic (master cube) or tracked separately (closestDynamic).
 //
 // Face slice = cube * 6 + face, with D3D11 face order (see cubeFaceConvention.hlsli).
 class LLProbeCubeStore
@@ -45,9 +59,10 @@ public:
     LLProbeCubeStore() = default;
     ~LLProbeCubeStore() { release(); }
 
-    // Allocates radiance (count + 2 cubes, full mip chain) and irradiance (count cubes, no mips).
+    // Allocates radiance (count + 2 cubes, full mip chain, +1 more if reservePendingSlot) and
+    // irradiance (count cubes, no mips, +1 more if reservePendingSlot).
     // Existing storage is released first. Returns false if either allocation fails.
-    bool allocate(U32 resolution, U32 count, bool hdr);
+    bool allocate(U32 resolution, U32 count, bool hdr, bool reservePendingSlot = false);
 
     void release();
 
@@ -62,6 +77,11 @@ public:
     // Index of the sphere-probe scratch cube and the realtime-probe scratch cube.
     U32 sphereScratchIndex() const { return mCount; }
     U32 realtimeScratchIndex() const { return mCount + 1; }
+
+    // Pending-result slots for the generic (non-realtime) capture commit - see the slot-layout
+    // comment above. Only valid when allocate() was called with reservePendingSlot=true.
+    U32 radiancePendingIndex() const { llassert(mHasPendingSlot); return mCount + 2; }
+    U32 irradiancePendingIndex() const { llassert(mHasPendingSlot); return mCount; }
 
     DXCubeArrayTexture& radiance() { return mRadiance; }
     DXCubeArrayTexture& irradiance() { return mIrradiance; }
@@ -82,4 +102,5 @@ private:
     U32 mResolution = 0;
     U32 mCount = 0;
     bool mHDR = false;
+    bool mHasPendingSlot = false;
 };

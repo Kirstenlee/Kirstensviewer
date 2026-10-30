@@ -3350,6 +3350,30 @@ void LLVOVolume::updateSpotLightPriority()
 	}
 }
 
+F32 LLVOVolume::getPointLightPriority() const
+{
+	return mPointLightPriority;
+}
+
+// S24: same screen-space-apparent-size metric as updateSpotLightPriority()
+// above, minus the cone-direction offset (a point light has no facing) -
+// see DXPipeline::setupPointLightShadow().
+void LLVOVolume::updatePointLightPriority()
+{
+	if (gCubeSnapshot)
+	{
+		return;
+	}
+
+	F32 r = getLightRadius();
+	LLVector3 pos = mDrawable->getPositionAgent();
+
+	LLVector3 at = LLViewerCamera::getInstance()->getAtAxis();
+	pos -= at * r;
+
+	mPointLightPriority = DXPipeline::calcPixelArea(pos, LLVector3(r, r, r), *LLViewerCamera::getInstance());
+}
+
 
 bool LLVOVolume::isLightSpotlight() const
 {

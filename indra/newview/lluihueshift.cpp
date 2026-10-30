@@ -300,7 +300,18 @@ void init()
         }
     }
 
-    applyAll();
+    // S24: skip applyAll() here - a 0-degree shift is a math no-op, but applyCategory() still
+    // overwrites any hand-picked Preferences > Colors value with the skin default. Only reapply
+    // categories actually dialed away from zero; the live slider signal above still calls the
+    // real applyAll() unconditionally, so dragging back to 0 mid-session still restores correctly.
+    for (const auto& cs : kCategorySettings)
+    {
+        F32 degrees = gSavedSettings.getF32(cs.setting_name);
+        if (degrees != 0.0f)
+        {
+            applyCategory(cs.cat, degrees / 360.0f);
+        }
+    }
 
     seedDefaultProfilesIfMissing();
 }

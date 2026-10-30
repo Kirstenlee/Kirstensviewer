@@ -159,9 +159,9 @@ void LLVOWLSky::cleanupGL()
     LLDrawPoolWLSky::cleanupGL();
 }
 
-void LLVOWLSky::restoreGL()
+void LLVOWLSky::restoreDX()
 {
-    LLDrawPoolWLSky::restoreGL();
+    LLDrawPoolWLSky::restoreDX();
     DXPipeline::markRebuild(gPipeline, mDrawable, LLDrawable::REBUILD_ALL);
 }
 

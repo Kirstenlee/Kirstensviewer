@@ -478,7 +478,7 @@ void LLHUDText::updateVisibility()
 
 LLVector2 LLHUDText::updateScreenPos(LLVector2 &offset)
 {
-    LLCoordGL screen_pos;
+    LLCoordYUp screen_pos;
     LLVector2 screen_pos_vec;
     LLVector3 x_pixel_vec;
     LLVector3 y_pixel_vec;

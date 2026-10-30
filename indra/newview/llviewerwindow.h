@@ -96,7 +96,7 @@ public:
 
 public:
     LLPickInfo();
-    LLPickInfo(const LLCoordGL& mouse_pos,
+    LLPickInfo(const LLCoordYUp& mouse_pos,
         MASK keyboard_mask,
         bool pick_transparent,
         bool pick_rigged,
@@ -114,12 +114,12 @@ public:
     static bool isFlora(LLViewerObject* object);
 
 public:
-    LLCoordGL       mMousePt;
+    LLCoordYUp       mMousePt;
     MASK            mKeyMask;
     void            (*mPickCallback)(const LLPickInfo& pick_info);
 
     EPickType       mPickType;
-    LLCoordGL       mPickPt;
+    LLCoordYUp       mPickPt;
     LLVector3d      mPosGlobal;
     LLVector3       mObjectOffset;
     LLUUID          mObjectID;
@@ -198,7 +198,7 @@ public:
     void            reshapeStatusBarContainer();
     void            resetStatusBarContainer(); // undo changes done by resetStatusBarContainer on initWorldUI()
 
-    bool handleAnyMouseClick(LLWindow *window, LLCoordGL pos, MASK mask, EMouseClickType clicktype, bool down, bool &is_toolmgr_action);
+    bool handleAnyMouseClick(LLWindow *window, LLCoordYUp pos, MASK mask, EMouseClickType clicktype, bool down, bool &is_toolmgr_action);
 
     //
     // LLWindowCallback interface implementation
@@ -207,21 +207,21 @@ public:
     /*virtual*/ bool handleTranslatedKeyUp(KEY key,  MASK mask);
     /*virtual*/ void handleScanKey(KEY key, bool key_down, bool key_up, bool key_level);
     /*virtual*/ bool handleUnicodeChar(llwchar uni_char, MASK mask);    // NOT going to handle extended
-    /*virtual*/ bool handleMouseDown(LLWindow *window,  LLCoordGL pos, MASK mask);
-    /*virtual*/ bool handleMouseUp(LLWindow *window,  LLCoordGL pos, MASK mask);
+    /*virtual*/ bool handleMouseDown(LLWindow *window,  LLCoordYUp pos, MASK mask);
+    /*virtual*/ bool handleMouseUp(LLWindow *window,  LLCoordYUp pos, MASK mask);
     /*virtual*/ bool handleCloseRequest(LLWindow *window, bool from_user);
     /*virtual*/ bool handleSessionExit(LLWindow* window);
     /*virtual*/ void handleQuit(LLWindow *window);
-    /*virtual*/ bool handleRightMouseDown(LLWindow *window,  LLCoordGL pos, MASK mask);
-    /*virtual*/ bool handleRightMouseUp(LLWindow *window,  LLCoordGL pos, MASK mask);
-    /*virtual*/ bool handleMiddleMouseDown(LLWindow *window,  LLCoordGL pos, MASK mask);
-    /*virtual*/ bool handleMiddleMouseUp(LLWindow *window, LLCoordGL pos, MASK mask);
-    /*virtual*/ bool handleOtherMouseDown(LLWindow *window, LLCoordGL pos, MASK mask, S32 button);
-    /*virtual*/ bool handleOtherMouseUp(LLWindow *window, LLCoordGL pos, MASK mask, S32 button);
-    bool handleOtherMouse(LLWindow *window, LLCoordGL pos, MASK mask, S32 button, bool down);
-    /*virtual*/ LLWindowCallbacks::DragNDropResult handleDragNDrop(LLWindow *window, LLCoordGL pos, MASK mask, LLWindowCallbacks::DragNDropAction action, std::string data);
-                void handleMouseMove(LLWindow *window,  LLCoordGL pos, MASK mask);
-                void handleMouseDragged(LLWindow *window,  LLCoordGL pos, MASK mask);
+    /*virtual*/ bool handleRightMouseDown(LLWindow *window,  LLCoordYUp pos, MASK mask);
+    /*virtual*/ bool handleRightMouseUp(LLWindow *window,  LLCoordYUp pos, MASK mask);
+    /*virtual*/ bool handleMiddleMouseDown(LLWindow *window,  LLCoordYUp pos, MASK mask);
+    /*virtual*/ bool handleMiddleMouseUp(LLWindow *window, LLCoordYUp pos, MASK mask);
+    /*virtual*/ bool handleOtherMouseDown(LLWindow *window, LLCoordYUp pos, MASK mask, S32 button);
+    /*virtual*/ bool handleOtherMouseUp(LLWindow *window, LLCoordYUp pos, MASK mask, S32 button);
+    bool handleOtherMouse(LLWindow *window, LLCoordYUp pos, MASK mask, S32 button, bool down);
+    /*virtual*/ LLWindowCallbacks::DragNDropResult handleDragNDrop(LLWindow *window, LLCoordYUp pos, MASK mask, LLWindowCallbacks::DragNDropAction action, std::string data);
+                void handleMouseMove(LLWindow *window,  LLCoordYUp pos, MASK mask);
+                void handleMouseDragged(LLWindow *window,  LLCoordYUp pos, MASK mask);
     /*virtual*/ void handleMouseLeave(LLWindow *window);
     /*virtual*/ void handleResize(LLWindow *window,  S32 x,  S32 y);
     /*virtual*/ void handleFocus(LLWindow *window);
@@ -232,9 +232,9 @@ public:
     /*virtual*/ bool handlePaint(LLWindow *window,  S32 x,  S32 y,  S32 width,  S32 height);
     /*virtual*/ void handleScrollWheel(LLWindow *window,  S32 clicks);
     /*virtual*/ void handleScrollHWheel(LLWindow *window,  S32 clicks);
-    /*virtual*/ bool handleLeftMouseDoubleClick(LLWindow *window,  LLCoordGL pos, MASK mask);
-    /*virtual*/ bool handleRightMouseDoubleClick(LLWindow* window, LLCoordGL pos, MASK mask);
-    /*virtual*/ bool handleMiddleMouseDoubleClick(LLWindow* window, LLCoordGL pos, MASK mask);
+    /*virtual*/ bool handleLeftMouseDoubleClick(LLWindow *window,  LLCoordYUp pos, MASK mask);
+    /*virtual*/ bool handleRightMouseDoubleClick(LLWindow* window, LLCoordYUp pos, MASK mask);
+    /*virtual*/ bool handleMiddleMouseDoubleClick(LLWindow* window, LLCoordYUp pos, MASK mask);
     /*virtual*/ void handleWindowBlock(LLWindow *window);
     /*virtual*/ void handleWindowUnblock(LLWindow *window);
     /*virtual*/ void handleDataCopy(LLWindow *window, S32 data_type, void *data);
@@ -288,15 +288,15 @@ public:
     void*           getMediaWindow()    const;
     void            focusClient()       const;
 
-    LLCoordGL       getLastMouse()      const   { return mLastMousePoint; }
+    LLCoordYUp       getLastMouse()      const   { return mLastMousePoint; }
     S32             getLastMouseX()     const   { return mLastMousePoint.mX; }
     S32             getLastMouseY()     const   { return mLastMousePoint.mY; }
-    LLCoordGL       getCurrentMouse()       const   { return mCurrentMousePoint; }
+    LLCoordYUp       getCurrentMouse()       const   { return mCurrentMousePoint; }
     S32             getCurrentMouseX()      const   { return mCurrentMousePoint.mX; }
     S32             getCurrentMouseY()      const   { return mCurrentMousePoint.mY; }
     S32             getCurrentMouseDX()     const   { return mCurrentMouseDelta.mX; }
     S32             getCurrentMouseDY()     const   { return mCurrentMouseDelta.mY; }
-    LLCoordGL       getCurrentMouseDelta()  const   { return mCurrentMouseDelta; }
+    LLCoordYUp       getCurrentMouseDelta()  const   { return mCurrentMouseDelta; }
     static LLTrace::SampleStatHandle<>* getMouseVelocityStat()      { return &sMouseVelocityStat; }
     bool            getLeftMouseDown()  const   { return mLeftMouseDown; }
     bool            getMiddleMouseDown()    const   { return mMiddleMouseDown; }
@@ -322,7 +322,7 @@ public:
     //
     // MANIPULATORS
     //
-    void            saveLastMouse(const LLCoordGL &point);
+    void            saveLastMouse(const LLCoordYUp &point);
 
     void            setCursor( ECursorType c );
     void            showCursor();
@@ -496,7 +496,7 @@ private:
     void            destroyWindow();
     void            drawMouselookInstructions();
     void            stopGL();
-    void            restoreGL(const std::string& progress_message = LLStringUtil::null);
+    void            restoreDX(const std::string& progress_message = LLStringUtil::null);
     void            initFonts(F32 zoom_factor = 1.f);
     void            schedulePick(LLPickInfo& pick_info);
     S32             getChatConsoleBottomPad(); // Vertical padding for child console rect, varied by bottom clutter
@@ -527,9 +527,9 @@ private:
     LLPanel*        mTopInfoContainer = nullptr;
     LLVector2       mDisplayScale;
 
-    LLCoordGL       mCurrentMousePoint;         // last mouse position in GL coords
-    LLCoordGL       mLastMousePoint;        // Mouse point at last frame.
-    LLCoordGL       mCurrentMouseDelta;     //amount mouse moved this frame
+    LLCoordYUp       mCurrentMousePoint;         // last mouse position in GL coords
+    LLCoordYUp       mLastMousePoint;        // Mouse point at last frame.
+    LLCoordYUp       mCurrentMouseDelta;     //amount mouse moved this frame
     bool            mLeftMouseDown;
     bool            mMiddleMouseDown;
     bool            mRightMouseDown;

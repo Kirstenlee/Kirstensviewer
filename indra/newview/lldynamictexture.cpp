@@ -291,9 +291,9 @@ bool LLViewerDynamicTexture::updateAllInstances()
 
 //-----------------------------------------------------------------------------
 // static
-// destroyGL()
+// destroyDX()
 //-----------------------------------------------------------------------------
-void LLViewerDynamicTexture::destroyGL()
+void LLViewerDynamicTexture::destroyDX()
 {
     for( S32 order = 0; order < ORDER_COUNT; order++ )
     {
@@ -308,9 +308,9 @@ void LLViewerDynamicTexture::destroyGL()
 
 //-----------------------------------------------------------------------------
 // static
-// restoreGL()
+// restoreDX()
 //-----------------------------------------------------------------------------
-void LLViewerDynamicTexture::restoreGL()
+void LLViewerDynamicTexture::restoreDX()
 {
     if (gGLManager.mIsDisabled)
     {

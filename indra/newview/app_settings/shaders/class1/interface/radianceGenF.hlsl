@@ -48,6 +48,8 @@ uniform float mipLevel;
 uniform int u_width;
 uniform float max_probe_lod;
 uniform float probe_strength;
+uniform int destIdx;
+uniform float fadeWeight;
 
 
 // =============================================================================================================
@@ -131,6 +133,23 @@ float D_GGX(float dotNH, float roughness)
     return (alpha2)/(PI * denom*denom);
 }
 
+// Rec. 709 luminance weights, matching class1/deferred/luminanceF.hlsl's lum()
+// convention. Not shared via #include - each shader permutation here is
+// self-contained, so this is a local copy, not a new dependency.
+float lum(float3 col)
+{
+    return dot(col, float3(0.2126, 0.7152, 0.0722));
+}
+
+// S24: firefly/outlier clamp headroom. Multiplies this fragment's own
+// coarse-mip (whole-hemisphere-average) brightness - see the ceiling
+// computed in prefilterEnvMap() below, and reflectionProbeF.hlsl's
+// probe_equalize comment for the same "max_probe_lod == whole-hemisphere
+// average" convention already used elsewhere in this probe subsystem.
+// Kept generous and isolated in one named constant so it can be retuned
+// without touching the math below.
+static const float FIREFLY_CLAMP_MULTIPLIER = 8.0;
+
 float4 prefilterEnvMap(float3 R)
 {
     float3 N = R;
@@ -142,6 +161,15 @@ float4 prefilterEnvMap(float3 R)
     float envMapDim = float(envMapDimU);
     float roughness = mipLevel/max_probe_lod;
     uint numSamples = uint(max(PROBE_FILTER_SAMPLES*roughness, 1));
+
+    // S24: firefly clamp ceiling - this direction's own coarsest-mip
+    // (whole-hemisphere-average) source brightness, scaled by a generous
+    // headroom multiplier. One extra fetch per fragment (not per sample),
+    // so it costs nothing measurable. Adaptive per-direction: a bright sky
+    // direction gets a correspondingly high ceiling automatically, a dim
+    // interior direction gets a low one - no fixed global HDR constant.
+    float4 avgProbe = reflectionProbes.SampleLevel(reflectionProbesSampler, float4(N, sourceIdx), max_probe_lod);
+    float fireflyClamp = max(lum(avgProbe.rgb), 1e-4) * FIREFLY_CLAMP_MULTIPLIER;
 
     float numMips = max_probe_lod+1;
 
@@ -164,7 +192,22 @@ float4 prefilterEnvMap(float3 R)
             float omegaP = 4.0 * PI / (6.0 * envMapDim * envMapDim);
             // Biased (+1.0) mip level for better result
             float mipLevel = roughness == 0.0 ? 0.0 : clamp(0.5 * log2(omegaS / omegaP) + 1.0, 0.0f, max_probe_lod);
-            color += reflectionProbes.SampleLevel(reflectionProbesSampler, float4(L, sourceIdx), mipLevel) * dotNL;
+            float4 sampleColor = reflectionProbes.SampleLevel(reflectionProbesSampler, float4(L, sourceIdx), mipLevel);
+
+            // S24: firefly/outlier clamp - tames the rare single-sample hit on
+            // a small, very bright region (e.g. sky seen through a window)
+            // that a sparse (<=32 sample) GGX draw can land on, without
+            // touching samples that are merely legitimately bright (see the
+            // generous headroom on fireflyClamp above). Scales energy only;
+            // hue/chrominance is preserved. Alpha is left untouched - it
+            // carries probe_strength/blend-weight data, not HDR radiance.
+            float sampleLum = lum(sampleColor.rgb);
+            if (sampleLum > fireflyClamp)
+            {
+                sampleColor.rgb *= fireflyClamp / sampleLum;
+            }
+
+            color += sampleColor * dotNL;
             totalWeight += dotNL;
         }
     }
@@ -179,6 +222,19 @@ float4 main(PSInput IN) : SV_Target
 
     float4 frag_color = max(prefilterEnvMap(N), float4(0, 0, 0, 0));
     frag_color.a *= probe_strength;
+
+    // S24: cross-fade into the live slice instead of a hard replace, so water/mirror
+    // reflections don't snap from fully-old to fully-new content in one frame every
+    // RenderDefaultProbeUpdatePeriod. Reads the OLD value straight from the same bound cube
+    // array at the destination slice - safe because this pass's real render target is the
+    // separate mCapture scratch RT (see updateProbeFace()), with the cube array only written
+    // afterward via CopySubresourceRegion, so no extra VRAM is needed to hold "old".
+    if (fadeWeight < 1.0)
+    {
+        float4 old_color = reflectionProbes.SampleLevel(reflectionProbesSampler, float4(N, (float)destIdx), mipLevel);
+        frag_color = lerp(old_color, frag_color, saturate(fadeWeight));
+    }
+
     return frag_color;
 }
 // =============================================================================================================

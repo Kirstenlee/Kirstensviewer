@@ -38,6 +38,8 @@
 #include "llstatusbar.h"
 #include "lltoolcomp.h"
 #include "lltoolmgr.h"
+#include "krlvhandler.h" // KRLV_TOUCHPOINT: @rez gate, see krlv/README.md
+#include "krlvtouch.h" // KRLV_TOUCHPOINT: @interact (rez cross-cutting check)
 #include "llviewerobject.h"
 #include "llviewerregion.h"
 #include "llviewerwindow.h"
@@ -158,6 +160,16 @@ bool LLToolPlacer::raycastForNewObjPos( S32 x, S32 y, LLViewerObject** hit_obj, 
 
 bool LLToolPlacer::addObject( LLPCode pcode, S32 x, S32 y, U8 use_physics )
 {
+    // KRLV_TOUCHPOINT: @rez / @interact - the real spec explicitly covers
+    // "creating...objects" (the build-tool palette's "new prim" action),
+    // not just rezzing an existing item from inventory. See
+    // lltooldraganddrop.cpp's dropObject() for the sibling checks this
+    // mirrors.
+    if (gKRlv.isRestricted("rez") || KRlv::isInteractBlocked())
+    {
+        return false;
+    }
+
     LLVector3 ray_start_region;
     LLVector3 ray_end_region;
     LLViewerRegion* regionp = NULL;

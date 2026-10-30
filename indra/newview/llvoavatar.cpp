@@ -1153,7 +1153,7 @@ void LLVOAvatar::dumpBakedStatus()
 }
 
 //static
-void LLVOAvatar::restoreGL()
+void LLVOAvatar::restoreDX()
 {
     if (!isAgentAvatarValid()) return;
 
@@ -1166,7 +1166,7 @@ void LLVOAvatar::restoreGL()
 }
 
 //static
-void LLVOAvatar::destroyGL()
+void LLVOAvatar::destroyDX()
 {
     deleteCachedImages();
 

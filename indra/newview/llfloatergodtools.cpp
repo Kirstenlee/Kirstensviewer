@@ -173,7 +173,7 @@ U64 LLFloaterGodTools::computeRegionFlags() const
 }
 
 
-void LLFloaterGodTools::updatePopup(LLCoordGL center, MASK mask)
+void LLFloaterGodTools::updatePopup(LLCoordYUp center, MASK mask)
 {
 }
 

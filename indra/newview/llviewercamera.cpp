@@ -471,7 +471,7 @@ void LLViewerCamera::projectScreenToPosAgent(const S32 screen_x, const S32 scree
 // Uses the last GL matrices set in set_perspective to project a point from
 // the agent's region space to screen coordinates.  Returns true if point in within
 // the current window.
-bool LLViewerCamera::projectPosAgentToScreen(const LLVector3& pos_agent, LLCoordGL& out_point, const bool clamp) const
+bool LLViewerCamera::projectPosAgentToScreen(const LLVector3& pos_agent, LLCoordYUp& out_point, const bool clamp) const
 {
 	bool in_front = true;
 
@@ -572,7 +572,7 @@ bool LLViewerCamera::projectPosAgentToScreen(const LLVector3& pos_agent, LLCoord
 // the agent's region space to the nearest edge in screen coordinates.
 // Returns true if projection succeeds.
 bool LLViewerCamera::projectPosAgentToScreenEdge(const LLVector3& pos_agent,
-	LLCoordGL& out_point) const
+	LLCoordYUp& out_point) const
 {
 	LLVector3 dir_to_point = pos_agent - getOrigin();
 	dir_to_point /= dir_to_point.magVec();
@@ -726,7 +726,7 @@ LLVector3 LLViewerCamera::roundToPixel(const LLVector3& pos_agent)
 {
 	F32 dist = (pos_agent - getOrigin()).magVec();
 	// Convert to screen space and back, preserving the depth.
-	LLCoordGL screen_point;
+	LLCoordYUp screen_point;
 	if (!projectPosAgentToScreen(pos_agent, screen_point, false))
 	{
 		// Off the screen, just return the original position.

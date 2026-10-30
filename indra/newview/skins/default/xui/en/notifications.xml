@@ -12580,6 +12580,23 @@ Cannot create large prims that intersect other residents.  Please re-try when ot
   </notification>
 
   <notification
+   icon="alertmodal.tga"
+   name="PreferenceChatDeleteTranscriptsBusy"
+   type="alertmodal">
+    Transcripts could not be deleted right now - a delete may already be in progress. Try again in a moment.
+    <usetemplate
+     name="okbutton"
+     yestext="OK"/>
+  </notification>
+
+  <notification
+   icon="alert.tga"
+   name="ChatServiceHistoryDeleteFailed"
+   type="alert">
+    Some local history could not be deleted safely. History remains hidden until Delete Transcripts succeeds.
+  </notification>
+
+  <notification
    icon="alert.tga"
    name="PreferenceChatPathChanged"
    type="alert">

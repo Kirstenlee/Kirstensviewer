@@ -87,7 +87,7 @@ void LLSky::cleanup()
     mVOWLSkyp = NULL;
 }
 
-void LLSky::destroyGL()
+void LLSky::destroyDX()
 {
     if (!mVOSkyp.isNull() && mVOSkyp->getCubeMap())
     {
@@ -99,15 +99,15 @@ void LLSky::destroyGL()
     }
 }
 
-void LLSky::restoreGL()
+void LLSky::restoreDX()
 {
     if (mVOSkyp)
     {
-        mVOSkyp->restoreGL();
+        mVOSkyp->restoreDX();
     }
     if (mVOWLSkyp)
     {
-        mVOWLSkyp->restoreGL();
+        mVOWLSkyp->restoreDX();
     }
 }
 

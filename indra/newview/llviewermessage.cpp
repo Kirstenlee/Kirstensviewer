@@ -2492,10 +2492,12 @@ void process_chat_from_simulator(LLMessageSystem *msg, void **user_data)
 
         // KRLV_TOUCHPOINT: @recvchat/@recvchat_sec/@recvchatfrom (plain
         // chat) and @recvemote/@recvemote_sec/@recvemotefrom (ircstyle
-        // "/me" emotes) - see krlv/README.md.
+        // "/me" emotes) - isRestrictedWithException() implements the
+        // "_sec" variants' real object-scoping nuance, see
+        // krlvinventory.cpp's file header. See krlv/README.md.
         if (ircstyle)
         {
-            if ((gKRlv.isRestricted("recvemote") && !gKRlv.hasRestrictionFrom("recvemote_except", from_id))
+            if (gKRlv.isRestrictedWithException("recvemote", "recvemote_except", from_id)
                 || gKRlv.hasRestrictionFrom("recvemotefrom", from_id))
             {
                 return;
@@ -2503,7 +2505,7 @@ void process_chat_from_simulator(LLMessageSystem *msg, void **user_data)
         }
         else
         {
-            if ((gKRlv.isRestricted("recvchat") && !gKRlv.hasRestrictionFrom("recvchat_except", from_id))
+            if (gKRlv.isRestrictedWithException("recvchat", "recvchat_except", from_id)
                 || gKRlv.hasRestrictionFrom("recvchatfrom", from_id))
             {
                 // KRLV auto-response: avatars only, never objects.

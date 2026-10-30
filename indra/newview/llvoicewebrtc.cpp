@@ -411,9 +411,10 @@ void LLWebRTCVoiceClient::LogMessage(llwebrtc::LLWebRTCLogCallback::LogLevel lev
         LL_DEBUGS("Voice") << message << LL_ENDL;
         break;
     case llwebrtc::LLWebRTCLogCallback::LOG_LEVEL_ERROR:
-        // use WARN so that we don't crash on a webrtc error.
-        // webrtc will force a crash on a fatal error.
-        LL_WARNS("Voice") << message << LL_ENDL; // [voice.logwrap]
+        // S24: not user-actionable - nothing reads this and changes behavior
+        // because of it, fatal webrtc errors force their own crash regardless
+        // of whether this logged anything. Dropped outright: no string search,
+        // no stream construction, no log call.
         break;
     default:
         break;

@@ -7408,6 +7408,27 @@ void callback_attachment_drop(const LLSD& notification, const LLSD& response)
         return;
     }
 
+    // KRLV_TOUCHPOINT: @detach=n / @detach:<point>=n - Drop rezzes the
+    // attachment into the world like Detach does, so it needs the same lock
+    // check (see krlv/README.md's Attachments section).
+    std::string pointName;
+    if (isAgentAvatarValid())
+    {
+        gAgentAvatarp->getAttachedPointName(object->getAttachmentItemID(), pointName);
+    }
+    if (KRlv::isObjectDetachLocked(object->getID()) || KRlv::isDetachPointLocked(pointName))
+    {
+        return;
+    }
+
+    // KRLV_TOUCHPOINT: @rez / @interact - spec lists dropping attachments as
+    // its own case alongside rezzing/creating objects (sibling checks in
+    // lltoolplacer.cpp's addObject() / lltooldraganddrop.cpp's dropObject()).
+    if (gKRlv.isRestricted("rez") || KRlv::isInteractBlocked())
+    {
+        return;
+    }
+
     // reselect the object
     LLSelectMgr::getInstance()->selectObjectAndFamily(object);
 
@@ -7660,7 +7681,13 @@ class LLAttachmentEnableDrop : public view_listener_t
         }
 
         //now check to make sure that the item is actually in the inventory before we enable dropping it
-        bool new_value = enable_detach() && can_build && item;
+        // KRLV_TOUCHPOINT: @rez / @interact - Drop-specific (not folded
+        // into enable_detach(), which "Detach" also shares - plain
+        // Detach returns the item to inventory, it doesn't rez anything,
+        // so @rez=n must not grey it out too). See
+        // callback_attachment_drop()'s identical real-enforcement check.
+        bool new_value = enable_detach() && can_build && item
+            && !gKRlv.isRestricted("rez") && !KRlv::isInteractBlocked();
 
         return new_value;
     }
@@ -7685,6 +7712,26 @@ bool enable_detach(const LLSD&)
         // ...if it's you, good to detach
         if (avatar->getID() == gAgent.getID())
         {
+            // KRLV_TOUCHPOINT: @detach=n / @detach:<point>=n - shared by
+            // Detach and Drop enable checks. Resolve to the root prim first
+            // (attachment item id is only set there), same walk
+            // LLAttachmentDetach/callback_attachment_drop() use.
+            LLViewerObject* root = object;
+            LLViewerObject* rootParent = (LLViewerObject*)root->getParent();
+            while (rootParent && !rootParent->isAvatar())
+            {
+                root = rootParent;
+                rootParent = (LLViewerObject*)rootParent->getParent();
+            }
+            std::string pointName;
+            if (isAgentAvatarValid())
+            {
+                gAgentAvatarp->getAttachedPointName(root->getAttachmentItemID(), pointName);
+            }
+            if (KRlv::isObjectDetachLocked(root->getID()) || KRlv::isDetachPointLocked(pointName))
+            {
+                return false;
+            }
             return true;
         }
 

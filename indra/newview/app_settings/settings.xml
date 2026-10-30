@@ -1891,6 +1891,17 @@
       <key>Value</key>
       <integer>1</integer>
     </map>
+    <key>ChatServiceEnabled</key>
+    <map>
+      <key>Comment</key>
+      <string>Enable accumulated direct-message history from Chat Service for this login.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>1</integer>
+    </map>
     <key>CheesyBeacon</key>
     <map>
       <key>Comment</key>
@@ -3924,6 +3935,61 @@
       <string>F32</string>
       <key>Value</key>
       <real>0.0</real>
+    </map>
+    <key>JoinURL</key>
+    <map>
+      <key>Comment</key>
+      <string>URL opened in the Join floater on the login screen</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>String</string>
+      <key>Value</key>
+      <string>https://join.secondlife.com/</string>
+    </map>
+    <key>JoinFloaterOverlayOpacity</key>
+    <map>
+      <key>Comment</key>
+      <string>Opacity of the screen darkening overlay behind the Join floater</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>0.8</real>
+    </map>
+    <key>TermsAndConditionsURL</key>
+    <map>
+      <key>Comment</key>
+      <string>URL pointing to Terms and Conditions page</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>String</string>
+      <key>Value</key>
+      <string>https://lindenlab.com/legal/second-life-terms-and-conditions</string>
+    </map>
+    <key>TermsOfServiceURL</key>
+    <map>
+      <key>Comment</key>
+      <string>URL pointing to Terms of Service page</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>String</string>
+      <key>Value</key>
+      <string>https://lindenlab.com/tos</string>
+    </map>
+    <key>PrivacyPolicyURL</key>
+    <map>
+      <key>Comment</key>
+      <string>URL pointing to Privacy Policy page</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>String</string>
+      <key>Value</key>
+      <string>https://lindenlab.com/privacy</string>
     </map>
     <key>InstallLanguage</key>
     <map>
@@ -8796,6 +8862,51 @@
       <real>0.04</real>
     </map>
 
+    <key>RenderPointLightShadows</key>
+    <map>
+      <key>Comment</key>
+      <string>S24 DX_RENDER - real-time shadow casting for ordinary local point/omni lights (prims with "Light" checked, non-projector), which otherwise have zero occlusion at all and shine straight through walls. Separate opt-in on top of RenderShadowDetail>1 (the existing projector-shadow gate) rather than folded into it unconditionally, since this is a genuinely significant extra GPU cost (1 shadow-casting light slot, 6 cube-face depth captures per frame it's occupied) that shouldn't silently 6x anyone's existing spotlight-shadow cost just by upgrading.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>0</integer>
+    </map>
+    <key>RenderPointShadowResolution</key>
+    <map>
+      <key>Comment</key>
+      <string>S24 DX_RENDER - per-face texel resolution of the point-light shadow cube (6 faces, 1 slot). Absolute, not screen-relative like RenderShadowResolutionScale - a screen-relative scale across 6 faces would blow up resolution/cost far faster than a single spotlight map.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>U32</string>
+      <key>Value</key>
+      <integer>512</integer>
+    </map>
+    <key>RenderPointShadowThrottle</key>
+    <map>
+      <key>Comment</key>
+      <string>S24 DX_RENDER - minimum frames between point-light shadow recaptures (6 faces each). Point-light shadows are a better throttling candidate than spotlight shadows (RenderSpotShadowThrottle) - an omnidirectional contact shadow being a frame or two stale is far less noticeable than a tightly-aimed spotlight cone being stale. 1 = recapture every frame (no throttling).</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>U32</string>
+      <key>Value</key>
+      <integer>2</integer>
+    </map>
+    <key>RenderPointShadowBias</key>
+    <map>
+      <key>Comment</key>
+      <string>S24 DX_RENDER - bias value for point-light shadows (prevent shadow acne). Tuned separately from RenderSpotShadowBias since the point-light capture frustum (90-degree cube face) differs from a spotlight's cone-derived frustum.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>-0.0002</real>
+    </map>
+
     <key>RenderShadowResolutionScale</key>
     <map>
       <key>Comment</key>
@@ -9174,6 +9285,17 @@
       <string>Boolean</string>
       <key>Value</key>
       <integer>1</integer>
+    </map>
+    <key>RenderGodrayIntensity</key>
+    <map>
+      <key>Comment</key>
+      <string>S24 Advanced - Strength of the sun's volumetric light (KVTweaks: Rendering Advanced > Volumetric Light > Intensity). Real raymarched volumetric light, not a cheap screen-space streak - grown well past the original "godrays" effect this started as. 0=off.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>0.15</real>
     </map>
     <key>RenderGlowIterations</key>
     <map>
@@ -10175,16 +10297,27 @@
       <key>Value</key>
       <string></string>
     </map>
-    <key>RenderReflectionProbeBlurLODBias</key>
+    <key>RenderReflectionProbeBlurSpread</key>
     <map>
       <key>Comment</key>
-      <string>LOD bias for probe blur/sharpness. Negative=sharper, Positive=blurrier (S24 Runtime Tweak)</string>
+      <string>Direction-space blur/smudge radius for probe reflections, 0=sharp (no cost beyond one branch) - the 16-tap kernel only holds up to about 0.06-0.08 before sample gaps show as separated ghosts again, so the useful range is small on purpose (S24 Runtime Tweak). Off by default - even a small non-zero value pays the full 16-tap cost on every probe sample for a barely-visible smudge; opt in deliberately.</string>
       <key>Persist</key>
       <integer>1</integer>
       <key>Type</key>
       <string>F32</string>
       <key>Value</key>
       <real>0.0</real>
+    </map>
+    <key>RenderDefaultProbeFadeWeight</key>
+    <map>
+      <key>Comment</key>
+      <string>Fraction of the way the default/sky probe moves toward each new capture per update cycle - 1.0 snaps instantly, lower smooths out the pop as sky/clouds change (S24 Runtime Tweak)</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>0.35</real>
     </map>
     <key>RenderReflectionAutoParallax</key>
     <map>
@@ -10273,6 +10406,28 @@
       <string>F32</string>
       <key>Value</key>
       <real>0.65</real>
+    </map>
+    <key>RenderWaterReflectionGateGlossReject</key>
+    <map>
+      <key>Comment</key>
+      <string>Water's own gloss reflection gate, independent of the Materials-tab one. 0 disables the gate (the canonical original LL default - water has never been gloss-gated upstream). Water's gloss tracks the active water preset's Blur Multiplier, not a fixed near-1.0 constant like most surfaces, so a gate tuned for everything else can legitimately clip it (S24 Runtime Tweak).</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>0.0</real>
+    </map>
+    <key>RenderWaterReflectionGateGlossAccept</key>
+    <map>
+      <key>Comment</key>
+      <string>Water's own gloss reflection gate, independent of the Materials-tab one. 0 disables the gate (the canonical original LL default - water has never been gloss-gated upstream). Separate from Reject for a smooth ramp instead of a hard cutoff (S24 Runtime Tweak).</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>0.0</real>
     </map>
     <key>SmoothKeyboardMovement</key>
     <map>
@@ -11128,6 +11283,17 @@
       <string>U32</string>
       <key>Value</key>
       <integer>10</integer>
+    </map>
+    <key>RenderSelfComplexityWarnThreshold</key>
+    <map>
+      <key>Comment</key>
+      <string>S24: self-complexity notices are suppressed entirely below this value. Stock LL has no absolute floor here - it re-nags on every outfit-driven complexity change no matter how low the number is. Set to zero to restore stock behaviour.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>U32</string>
+      <key>Value</key>
+      <integer>80000</integer>
     </map>
     <key>MaxAttachmentComplexity</key>
     <map>
@@ -18912,6 +19078,17 @@
       <string>F32</string>
       <key>Value</key>
       <real>0.15</real>
+    </map>
+    <key>RenderWaterHorizonFadeIntensity</key>
+    <map>
+      <key>Comment</key>
+      <string>S24 Advanced - Strength of the horizon atmospheric-haze blend on water (0=off, matches stock crisp horizon). Fades by view angle, not distance, so it only affects water near the horizon, not up close. Below ~3.0 the horizon reads dark (atten dimming dominates over the additive glow); above ~6.0 it overexposes to white. ~4.0 is the sweet spot.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>F32</string>
+      <key>Value</key>
+      <real>4.0</real>
     </map>
     <key>RenderWaterWindInfluence</key>
     <map>

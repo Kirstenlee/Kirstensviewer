@@ -669,11 +669,11 @@ void LLPanelPrimMediaControls::updateShape()
 
         // convert screenspace bbox to pixels (in screen coords)
         LLRect window_rect = gViewerWindow->getWorldViewRectScaled();
-        LLCoordGL screen_min;
+        LLCoordYUp screen_min;
         screen_min.mX = ll_round((F32)window_rect.mLeft + (F32)window_rect.getWidth() * (min.mV[VX] + 1.f) * 0.5f);
         screen_min.mY = ll_round((F32)window_rect.mBottom + (F32)window_rect.getHeight() * (min.mV[VY] + 1.f) * 0.5f);
 
-        LLCoordGL screen_max;
+        LLCoordYUp screen_max;
         screen_max.mX = ll_round((F32)window_rect.mLeft + (F32)window_rect.getWidth() * (max.mV[VX] + 1.f) * 0.5f);
         screen_max.mY = ll_round((F32)window_rect.mBottom + (F32)window_rect.getHeight() * (max.mV[VY] + 1.f) * 0.5f);
 
@@ -889,7 +889,7 @@ bool LLPanelPrimMediaControls::isMouseOver()
     {
         LLCoordWindow cursor_pos_window;
         LLCoordScreen cursor_pos_screen;
-        LLCoordGL cursor_pos_gl;
+        LLCoordYUp cursor_pos_gl;
         S32 x, y;
         getWindow()->getCursorPosition(&cursor_pos_window);
         cursor_pos_gl = cursor_pos_window.convert();

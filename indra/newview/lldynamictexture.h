@@ -78,8 +78,8 @@ public:
     virtual void destroyGLTexture() {}
 
     static bool updateAllInstances();
-    static void destroyGL() ;
-    static void restoreGL() ;
+    static void destroyDX() ;
+    static void restoreDX() ;
 
     void setBoundTarget(LLRenderTarget* target) { mBoundTarget = target; }
 
@@ -89,7 +89,7 @@ protected:
 
 protected:
     bool mClamp;
-    LLCoordGL mOrigin;
+    LLCoordYUp mOrigin;
     LL_ALIGN_16(LLCamera mCamera);
 
     LLRenderTarget* mBoundTarget;
