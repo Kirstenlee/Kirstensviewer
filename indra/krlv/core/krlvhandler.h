@@ -110,6 +110,13 @@ using KRlvForceAdjustHeightRequest = std::function<void(F32 targetPelvisToFoot, 
 using KRlvForceFovRequest = std::function<void(F32 fovRadians)>;
 using KRlvGetFovRequest = std::function<F32()>;
 
+// KRLV: same indirection, for @camdistmax=0/@camdistmin>0's "force into/
+// out of Mouselook" side effects (krlvcamera.cpp's pollCamDist()) -
+// krlv/ cannot reach LLAgentCamera directly (llagentcamera.h is
+// newview-only, not a library krlv links).
+using KRlvForceMouselookRequest = std::function<void(bool enterMouselook)>;
+using KRlvGetMouselookStateRequest = std::function<bool()>;
+
 // KRLV: same indirection, for @tpto=force's global-coordinate syntax.
 // The region-name+local-coordinates syntax reuses this SAME hook once
 // resolved to a global position - see KRlvResolveRegionPositionRequest
@@ -161,6 +168,14 @@ using KRlvGetAgentStateRequest = std::function<bool(LLVector3d& outPositionGloba
 // a non-empty one means "detach everything currently worn at this named
 // point".
 using KRlvForceDetachRequest = std::function<void(const LLUUID& sourceId, const std::string& attachPointName)>;
+
+// KRLV: for bare "@remoutfit=force" (no part) - "removes everything"
+// except body parts (shape/skin/hair/eyes - the spec's own carve-out,
+// matching this codebase's existing isWearableType() == body-part skip
+// in LLAppearanceMgr::removeItemsFromAvatar()). No attach-point-name
+// string needed, unlike KRlvForceDetachRequest - the hook itself
+// enumerates every worn non-body-part wearable.
+using KRlvForceStripRequest = std::function<void()>;
 
 // KRLV: same indirection, for @getoutfit[:part] / @getattach[:attachpt] -
 // both need a LIVE enumeration of LLWearableType/LLViewerJointAttachment
@@ -277,6 +292,13 @@ using KRlvGetParentRequest = std::function<bool(const LLUUID& id, std::string& o
 // "this" shortcut family.
 using KRlvResolveWornRequest = std::function<LLUUID(const std::string& pointOrLayerOrUuid)>;
 
+// Same resolution as KRlvResolveWornRequest, but ALL matches instead of
+// just the first - @getpathnew's whole reason to exist over @getpath is
+// that since RLVa v2.1 several objects can share one attachment point
+// (or clothing layer index >0), each possibly linked from a DIFFERENT
+// "#RLV" folder, so a single-UUID answer can't represent all of them.
+using KRlvResolveWornAllRequest = std::function<std::vector<LLUUID>(const std::string& pointOrLayerOrUuid)>;
+
 // True if `itemId` currently lives anywhere under the "#RLV" folder.
 using KRlvIsSharedItemRequest = std::function<bool(const LLUUID& itemId)>;
 
@@ -320,6 +342,16 @@ public:
 
     // Commands tab: drops every restriction on one behaviour (set by scripts), saved.
     void clearScriptRestrictions(const std::string& behaviour);
+
+    // Commands tab: the prefix-aware sibling of clearScriptRestrictions() -
+    // drops every entry whose KEY starts with `prefix`, however many
+    // distinct dynamically-suffixed keys currently exist under it (e.g.
+    // "remattach_point:" clears "remattach_point:spine",
+    // "remattach_point:chest", ... all at once). Needed for the same
+    // commands hasAnyRestrictionWithPrefix() detects but
+    // clearScriptRestrictions()'s single exact-key erase can't reach -
+    // see llfloaterkrlvcontrol.cpp's krlvUiKeyOverrides().
+    void clearRestrictionsWithPrefix(const std::string& prefix);
 
     // Command log for the Auto-reply tab: the most recent commands KRLV received, newest
     // last. In memory only, capped, never saved.
@@ -431,8 +463,28 @@ public:
     // mutation. `option` is whatever followed ":" on the command that
     // imposed it, if any (most behaviours don't use it).
     bool isRestricted(const std::string& behaviour) const;
-    void addRestriction(const std::string& behaviour, const LLUUID& sourceId, const std::string& option = std::string());
+    void addRestriction(const std::string& behaviour, const LLUUID& sourceId, const std::string& option = std::string(), bool isSecure = false);
     void removeRestriction(const std::string& behaviour, const LLUUID& sourceId);
+
+    // KRLV: the real "_sec" ("secure") exception semantics, for any
+    // behaviour whose plain and "_sec" command variants share one
+    // restriction key (recvchat/recvchat_sec, share/share_sec, ...) - see
+    // KRlvRestrictionEntry::isSecure. Replaces the simpler
+    // `isRestricted(behaviour) && !hasRestrictionFrom(exceptionBehaviour,
+    // exceptedId)` pattern every one of these gates used before this
+    // existed (which only ever implemented the plain form's "any
+    // object's exception counts" rule). Returns true (blocked) if ANY
+    // active entry under `behaviour` is not properly excepted: a
+    // non-secure entry needs an exception from ANY source; a secure
+    // entry needs one from THAT SAME source specifically. Also honours
+    // @permissive=n ("denied"), which forces EVERY restriction to behave
+    // as its secure counterpart regardless of each entry's own
+    // isSecure - the spec's own stated primary purpose for that command.
+    // `exceptedId` need not be an avatar - the string overload covers
+    // non-UUID targets (e.g. @sendchannel's per-channel exception, keyed
+    // by the channel number as plain text - see krlvchat.cpp).
+    bool isRestrictedWithException(const std::string& behaviour, const std::string& exceptionBehaviour, const std::string& exceptedId) const;
+    bool isRestrictedWithException(const std::string& behaviour, const std::string& exceptionBehaviour, const LLUUID& exceptedId) const;
 
     // KRLV: every active entry's option string for `behaviour`, in no
     // particular order - empty if none active. For a numeric-parameter
@@ -450,12 +502,18 @@ public:
     // See krlv/behaviours/krlvteleport.cpp for the first real user.
     bool hasRestrictionFrom(const std::string& behaviour, const LLUUID& sourceId) const;
 
-    // KRLV: key for a per-avatar exception, "<behaviour>:<avatar-uuid>". The imposing object is
-    // the entry's source, so two objects exempting the same avatar do not collide. For such keys,
-    // hasRestrictionFrom(behaviour, avatar) answers true when any imposing object holds the exception.
+    // KRLV: key for a per-target exception, "<behaviour>:<target>" - the canonical string form.
+    // The imposing object is the entry's source, so two objects exempting the same target do not
+    // collide. For such keys, hasRestrictionFrom(behaviour, avatar) answers true when any imposing
+    // object holds the exception. `target` need not be an avatar - @sendchannel's per-channel
+    // exception (krlvchat.cpp) uses the channel number as plain text.
+    static std::string exceptionKey(const std::string& behaviour, const std::string& target)
+    {
+        return behaviour + ":" + target;
+    }
     static std::string exceptionKey(const std::string& behaviour, const LLUUID& avatar)
     {
-        return behaviour + ":" + avatar.asString();
+        return exceptionKey(behaviour, avatar.asString());
     }
 
     // KRLV: every active (behaviour, option) pair currently held by
@@ -572,6 +630,14 @@ public:
 
     // KRLV_TOUCHPOINT candidate: called once from llappviewer.cpp's
     // startup sequence, right next to setForceFovHook(). See
+    // KRlvForceMouselookRequest/KRlvGetMouselookStateRequest above.
+    void setForceMouselookHook(KRlvForceMouselookRequest hook);
+    void requestForceMouselook(bool enterMouselook) const;
+    void setGetMouselookStateHook(KRlvGetMouselookStateRequest hook);
+    bool requestGetMouselookState() const;
+
+    // KRLV_TOUCHPOINT candidate: called once from llappviewer.cpp's
+    // startup sequence, right next to setForceFovHook(). See
     // KRlvForceTeleportRequest above.
     void setForceTeleportHook(KRlvForceTeleportRequest hook);
     void requestForceTeleport(const LLVector3d& posGlobal) const;
@@ -621,6 +687,12 @@ public:
 
     // KRLV_TOUCHPOINT candidate: called once from llappviewer.cpp's
     // startup sequence, right next to setForceDetachHook(). See
+    // KRlvForceStripRequest above.
+    void setForceStripHook(KRlvForceStripRequest hook);
+    void requestForceStrip() const;
+
+    // KRLV_TOUCHPOINT candidate: called once from llappviewer.cpp's
+    // startup sequence, right next to setForceDetachHook(). See
     // KRlvGetOutfitLayersRequest/KRlvGetAttachPointsRequest above.
     void setGetOutfitLayersHook(KRlvGetOutfitLayersRequest hook);
     std::string requestGetOutfitLayers(const std::string& partName) const;
@@ -646,6 +718,8 @@ public:
     bool requestGetParent(const LLUUID& id, std::string& outSelfName, LLUUID& outParentId) const;
     void setResolveWornHook(KRlvResolveWornRequest hook);
     LLUUID requestResolveWorn(const std::string& pointOrLayerOrUuid) const;
+    void setResolveWornAllHook(KRlvResolveWornAllRequest hook);
+    std::vector<LLUUID> requestResolveWornAll(const std::string& pointOrLayerOrUuid) const;
     void setIsSharedItemHook(KRlvIsSharedItemRequest hook);
     bool requestIsSharedItem(const LLUUID& itemId) const;
     void setForceWearBatchHook(KRlvForceWearBatchRequest hook);
@@ -716,6 +790,8 @@ private:
     KRlvForceAdjustHeightRequest mForceAdjustHeightHook;
     KRlvForceFovRequest mForceFovHook;
     KRlvGetFovRequest mGetFovHook;
+    KRlvForceMouselookRequest mForceMouselookHook;
+    KRlvGetMouselookStateRequest mGetMouselookStateHook;
     KRlvForceTeleportRequest mForceTeleportHook;
     KRlvResolveRegionPositionRequest mResolveRegionPositionHook;
     KRlvForceSitRequest mForceSitHook;
@@ -725,6 +801,7 @@ private:
     KRlvGetAgentStateRequest mGetAgentStateHook;
     std::vector<std::function<void()>> mIdleTickCallbacks;
     KRlvForceDetachRequest mForceDetachHook;
+    KRlvForceStripRequest mForceStripHook;
     KRlvGetOutfitLayersRequest mGetOutfitLayersHook;
     KRlvGetAttachPointsRequest mGetAttachPointsHook;
     KRlvForceSetGroupRequest mForceSetGroupHook;
@@ -733,6 +810,7 @@ private:
     KRlvListFolderRequest mListFolderHook;
     KRlvGetParentRequest mGetParentHook;
     KRlvResolveWornRequest mResolveWornHook;
+    KRlvResolveWornAllRequest mResolveWornAllHook;
     KRlvIsSharedItemRequest mIsSharedItemHook;
     KRlvForceWearBatchRequest mForceWearBatchHook;
     KRlvForceDetachBatchRequest mForceDetachBatchHook;

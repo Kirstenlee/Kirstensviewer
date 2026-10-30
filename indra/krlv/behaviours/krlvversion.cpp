@@ -54,7 +54,7 @@ void send_chat_from_viewer(const std::string& utf8_out_text, EChatType type, S32
 namespace
 {
     constexpr int KRLV_VERSION_MAJOR = 1;
-    constexpr int KRLV_VERSION_MINOR = 0;
+    constexpr int KRLV_VERSION_MINOR = 1;
     constexpr int KRLV_VERSION_PATCH = 0;
 
     std::string krlvVersionString()

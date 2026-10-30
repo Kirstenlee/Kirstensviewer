@@ -35,9 +35,29 @@
  * - both already take the recipient's UUID as their first parameter, so
  * the `@share:<UUID>` exception needs no extra plumbing to find it.
  *
- * `_sec` follows the same precedent as every prior category with it:
- * shares its plain command's restriction key, the object-scoping nuance
- * is not implemented.
+ * @share_sec (and every other "_sec" command across this session -
+ * @recvchat_sec/@recvemote_sec/@sendim_sec/@recvim_sec in krlvchat.cpp,
+ * @tplure_sec/@tprequest_sec in krlvteleport.cpp) now implements the
+ * spec's real object-scoping nuance: an exception only clears a "_sec"
+ * restriction when it comes from the SAME object that imposed it, not
+ * any object (the plain, non-secure command's rule, unchanged). This
+ * needed a core data-model addition rather than a per-category fix,
+ * since the secure and non-secure variants share one restriction key
+ * (so the behaviour as a whole is satisfied by EITHER variant) but need
+ * DIFFERENT exception rules - KRlvRestrictionEntry gained an `isSecure`
+ * flag (krlvrestriction.h), set by addRestriction()'s new optional
+ * parameter, and KRlvHandler::isRestrictedWithException() (krlvhandler.h)
+ * replaces the old `isRestricted(behaviour) &&
+ * !hasRestrictionFrom(exceptionBehaviour, exceptedId)` pattern every one
+ * of these gates used - it walks every active entry and applies each
+ * one's OWN rule (any-source exception for non-secure, same-source-only
+ * for secure) rather than one blanket rule for the whole behaviour.
+ * @sendchannel_sec and @shownames_sec are NOT part of this - the former
+ * has no exception mechanism built yet at all (a separate, bigger gap,
+ * see krlvchat.cpp), the latter bundles its exception into the
+ * restriction's own option string rather than a separate exception key
+ * (a structurally different mechanism, already marked COMPLETE
+ * elsewhere - left alone to avoid scope creep).
  *
  * Copyright (c) 2026 Kirstenlee Cinquetti (Lee Quick)
  *
@@ -76,11 +96,11 @@
 
 namespace
 {
-    void applyToggle(const std::string& key, const KRlvCommand& cmd, const LLUUID& sourceId)
+    void applyToggle(const std::string& key, const KRlvCommand& cmd, const LLUUID& sourceId, bool isSecure = false)
     {
         if (cmd.param == "n")
         {
-            gKRlv.addRestriction(key, sourceId, cmd.option);
+            gKRlv.addRestriction(key, sourceId, cmd.option, isSecure);
         }
         else if (cmd.param == "y")
         {
@@ -178,5 +198,5 @@ void krlv_register_inventory_commands(KRlvHandler& handler)
         { applyToggleOrException("share", "share_except", cmd, sourceId); return true; });
     handler.registerBehaviour("share_sec",
         [](const KRlvCommand& cmd, const LLUUID& sourceId, const LLUUID&) -> bool
-        { applyToggle("share", cmd, sourceId); return true; }); // shares "share" key
+        { applyToggle("share", cmd, sourceId, true); return true; }); // shares "share" key, secure
 }

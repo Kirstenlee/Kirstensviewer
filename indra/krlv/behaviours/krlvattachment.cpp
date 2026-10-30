@@ -21,31 +21,43 @@
  * krlv/README.md's Attachments section.
  *
  * "@detach:<point>=<y/n>" locks BOTH attaching to and detaching from that
- * point (writes both the detach_point and attach_point keys) - the spec's
- * own text for this one command already describes exactly that ("locked
- * either full or empty... no item will be able to be attached or detached
- * there"), unlike @addattach/@remattach which are one-directional by
- * design. @remattach[:<point>]=<y/n> is read as "point locked full" in the
- * detach-blocking sense only (whatever occupies the point, present or
- * future, becomes undetachable) - it does NOT also block new attachment,
- * since the spec's own wording for it is internally inconsistent (a known
- * gap in the scraped dataset this project draws from - see
- * krlv/README.md), and the safer, name-matching reading was chosen instead
- * of guessing at the missing half.
+ * point UNCONDITIONALLY (writes both the detach_point and attach_point
+ * keys) - the spec's own text for this one command already describes
+ * exactly that ("locked either full or empty... no item will be able to
+ * be attached or detached there").
+ *
+ * "@remattach[:<point>]=<y/n>" is DIFFERENT, not just a weaker synonym -
+ * full spec text (wiki.secondlife.com's RestrainedLoveAPI page, header
+ * "Unlock/Lock an attachment point full"): an occupied point's current
+ * occupant becomes undetachable immediately; an EMPTY point still allows
+ * exactly ONE attach, but "that object will become undetachable too, no
+ * item will be able to replace it" afterwards. So detach is blocked
+ * unconditionally (same as @detach, once something occupies the point -
+ * which is always true for an actual detach attempt), but attach is
+ * blocked only once the point is CURRENTLY OCCUPIED - an empty point
+ * under @remattach=n may still receive its first item. This needs its own
+ * "remattach_point"/"remattach_point_all" key, separate from
+ * @detach:<point>=n's "detach_point"/"attach_point" keys - sharing a key
+ * between two different commands (an earlier version of this file did,
+ * before the real spec text was available) would let one command's =y
+ * silently clear the other's restriction if ever issued by the same
+ * source. isDetachPointLocked() checks both detach_point and
+ * remattach_point (either blocks detach unconditionally);
+ * isAttachPointLocked() checks attach_point unconditionally and
+ * remattach_point only when the caller reports the point as currently
+ * occupied - see krlvattachment.h.
  *
  * @detach[:attachpt]=force / @remattach[...]=force (an alias) /
  * @detachme=force all share ONE force-detach hook (KRlvForceDetachRequest):
  * an empty point name means "detach the sending object itself", a
  * non-empty one is tried first against a real attachment-point name, then
  * against a wearable-type name (so "@remoutfit:shirt=force" can reuse the
- * exact same hook) - see llappviewer.cpp's KRLV_TOUCHPOINT block.
- * "@detach:<folder_name>=force" (Shared-Folders-addressed detach) and bare
- * "@remoutfit=force" with no part (strip every clothing layer at once) are
- * both NOT implemented - the former needs the #RLV inventory structure
- * this project's Shared Folders category (not yet started) owns, the
- * latter's blast radius (every worn clothing item at once) was judged not
- * worth the risk of a mis-scoped first implementation; both fail safe by
- * simply doing nothing.
+ * exact same hook), then (Shared Folders' @detach:<folder_name>=force
+ * meaning) against a #RLV folder name - see llappviewer.cpp's
+ * KRLV_TOUCHPOINT block and krlvsharedfolders.cpp's file header.
+ * Bare "@remoutfit=force" with no part (strip every non-body-part layer
+ * at once) routes through its own KRlvForceStripRequest hook instead -
+ * see this file's "remoutfit" registration.
  *
  * @defaultwear=<y/n> is the one command in this file whose y/n polarity is
  * INVERTED from every other KRLV toggle: "y" is the opt-in permissive
@@ -203,17 +215,22 @@ namespace KRlv
 
     bool isDetachPointLocked(const std::string& pointName)
     {
-        return checkPointLock("detach_point", pointName);
+        return checkPointLock("detach_point", pointName) || checkPointLock("remattach_point", pointName);
     }
 
-    bool isAttachPointLocked(const std::string& pointName)
+    bool isAttachPointLocked(const std::string& pointName, bool pointOccupied)
     {
-        return checkPointLock("attach_point", pointName);
+        if (checkPointLock("attach_point", pointName))
+        {
+            return true;
+        }
+        return pointOccupied && checkPointLock("remattach_point", pointName);
     }
 
     bool isAnySpecificAttachPointLocked()
     {
-        return gKRlv.hasAnyRestrictionWithPrefix("attach_point:");
+        return gKRlv.hasAnyRestrictionWithPrefix("attach_point:")
+            || gKRlv.hasAnyRestrictionWithPrefix("remattach_point:");
     }
 
     bool isOutfitPartAttachLocked(const std::string& partName)
@@ -287,7 +304,9 @@ void krlv_register_attachment_commands(KRlvHandler& handler)
             }
             else
             {
-                applyPointToggle("detach_point", cmd, sourceId);
+                // S24: own key, not shared with @detach:<point>=n's
+                // detach_point key - see file header.
+                applyPointToggle("remattach_point", cmd, sourceId);
             }
             return true;
         });
@@ -319,11 +338,22 @@ void krlv_register_attachment_commands(KRlvHandler& handler)
         {
             if (cmd.param == "force")
             {
-                // Bare "@remoutfit=force" (no part) is deferred - see
-                // file header.
+                // S24: bare "@remoutfit=force" (no part) - real spec
+                // confirmed via wiki.secondlife.com: "removes everything"
+                // except body parts (shape/skin/hair/eyes, which would
+                // leave an unrezzed avatar). Routed through its own
+                // KRlvForceStripRequest hook rather than looping
+                // requestForceDetach() per wearable-type name, which
+                // would risk misfiring its folder-name fallback branch
+                // for any not-currently-worn type - see
+                // krlvsharedfolders.cpp's resolveDetachFolderContents().
                 if (cmd.hasOption())
                 {
                     gKRlv.requestForceDetach(sourceId, cmd.option);
+                }
+                else
+                {
+                    gKRlv.requestForceStrip();
                 }
             }
             else

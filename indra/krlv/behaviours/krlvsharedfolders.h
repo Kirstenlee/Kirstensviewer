@@ -75,6 +75,23 @@ namespace KRlv
     // directly inside a folder of that name under "#RLV", empty if none
     // found.
     std::vector<LLUUID> resolveDetachFolderContents(const std::string& folderName);
+
+    // @detachthis/@detachallthis[...]=n - true if removing/detaching
+    // folderId (manually, via the inventory's "Remove From Outfit", or
+    // force commands targeting it) should be blocked right now. Walks
+    // the folder's ancestor chain toward "#RLV" per the spec's
+    // "closest parent" rule - the nearest restriction or exception wins,
+    // not a blanket "any ancestor" check.
+    bool isSharedFolderDetachLocked(const LLUUID& folderId);
+
+    // @attachthis/@attachallthis[...]=n - same idea for wearing/
+    // attaching folderId.
+    bool isSharedFolderAttachLocked(const LLUUID& folderId);
+
+    // Either restriction also locks the folder's own inventory-structure
+    // operations - the spec's own text: "this folder...cannot be
+    // renamed, moved, deleted or modified."
+    bool isSharedFolderStructureLocked(const LLUUID& folderId);
 }
 
 #endif // KRLV_KRLVSHAREDFOLDERS_H

@@ -55,15 +55,27 @@ namespace KRlv
     bool isObjectDetachLocked(const LLUUID& objectId);
 
     // True if detaching FROM the named attachment point should be
-    // blocked right now - covers @detach:<point>=n (see file header
-    // comment in krlvattachment.cpp for why it locks both directions)
-    // and @remattach[:<point>]=n. An empty pointName checks only the
-    // no-point ("all points") form of those two commands.
+    // blocked right now - covers @detach:<point>=n (unconditional - see
+    // file header comment in krlvattachment.cpp) and @remattach[:<point>]=n
+    // (also unconditional once issued - whatever currently occupies the
+    // point, present or future, becomes undetachable). An empty
+    // pointName checks only the no-point ("all points") form of those
+    // two commands.
     bool isDetachPointLocked(const std::string& pointName);
 
     // True if attaching TO the named attachment point should be blocked
-    // right now - covers @detach:<point>=n and @addattach[:<point>]=n.
-    bool isAttachPointLocked(const std::string& pointName);
+    // right now - covers @detach:<point>=n (unconditional) and
+    // @addattach[:<point>]=n, PLUS @remattach[:<point>]=n but only when
+    // `pointOccupied` is true (the real spec: an empty point under
+    // @remattach=n still allows its first attach, but "no item will be
+    // able to replace it" once occupied - see file header comment in
+    // krlvattachment.cpp). Callers that know the specific
+    // LLViewerJointAttachment pass `attachment->getNumObjects() > 0`;
+    // callers that can't determine the point in advance (the server
+    // picks it) should pass false here and additionally consult
+    // isAnySpecificAttachPointLocked(), which conservatively ignores
+    // occupancy.
+    bool isAttachPointLocked(const std::string& pointName, bool pointOccupied);
 
     // True if ANY specific (non-wildcard) attach point currently has an
     // active lock - used as a conservative fallback when the caller
@@ -71,7 +83,10 @@ namespace KRlv
     // before it happens (rez_attachment()'s NULL-LLViewerJointAttachment*
     // path, taken when wearItemsOnAvatar() lets the server pick the
     // point) - see krlv/README.md's Attachments section for why blocking
-    // outright in that case is the safe choice, not a bug.
+    // outright in that case is the safe choice, not a bug. Covers
+    // @remattach[:<point>]=n regardless of occupancy here specifically,
+    // since the target point - and therefore its occupancy - isn't known
+    // yet.
     bool isAnySpecificAttachPointLocked();
 
     // True if wearing a clothing/bodypart item of this wearable-type

@@ -169,6 +169,27 @@ void KRlvHandler::clearScriptRestrictions(const std::string& behaviour)
     }
 }
 
+void KRlvHandler::clearRestrictionsWithPrefix(const std::string& prefix)
+{
+    bool anyErased = false;
+    for (auto it = mRestrictions.begin(); it != mRestrictions.end(); )
+    {
+        if (it->first.rfind(prefix, 0) == 0)
+        {
+            it = mRestrictions.erase(it);
+            anyErased = true;
+        }
+        else
+        {
+            ++it;
+        }
+    }
+    if (anyErased)
+    {
+        KRlv::saveRestrictions(mRestrictions);
+    }
+}
+
 void KRlvHandler::clearAllRestrictions()
 {
     mRestrictions.clear();
@@ -488,6 +509,67 @@ bool KRlvHandler::hasRestrictionFrom(const std::string& behaviour, const LLUUID&
     return false;
 }
 
+bool KRlvHandler::isRestrictedWithException(const std::string& behaviour, const std::string& exceptionBehaviour, const LLUUID& exceptedId) const
+{
+    return isRestrictedWithException(behaviour, exceptionBehaviour, exceptedId.asString());
+}
+
+bool KRlvHandler::isRestrictedWithException(const std::string& behaviour, const std::string& exceptionBehaviour, const std::string& exceptedId) const
+{
+    if (!isEnabled())
+    {
+        return false;
+    }
+    auto it = mRestrictions.find(behaviour);
+    if (it == mRestrictions.end() || it->second.empty())
+    {
+        return false;
+    }
+
+    // @permissive=n ("denied") forces EVERY restriction to behave as its
+    // secure counterpart, regardless of whether THIS entry was itself
+    // imposed via the plain or "_sec" command form - the spec's own
+    // stated primary purpose for @permissive (krlvmisc.cpp's registration
+    // already stores it as a plain "permissive" toggle, "n" = denied).
+    const bool forceSecure = isRestricted("permissive");
+
+    // Secure entries need a per-source match; non-secure entries just
+    // need ANY exception entry to exist at all - look up the raw
+    // exception list once and use it for both.
+    const auto exceptIt = mRestrictions.find(exceptionKey(exceptionBehaviour, exceptedId));
+    const bool anyNonSecureException = exceptIt != mRestrictions.end() && !exceptIt->second.empty();
+
+    for (const KRlvRestrictionEntry& entry : it->second)
+    {
+        if (!entry.isSecure && !forceSecure)
+        {
+            if (!anyNonSecureException)
+            {
+                return true;
+            }
+            continue;
+        }
+
+        bool exceptedBySameSource = false;
+        if (exceptIt != mRestrictions.end())
+        {
+            for (const KRlvRestrictionEntry& exceptEntry : exceptIt->second)
+            {
+                if (exceptEntry.sourceObjectId == entry.sourceObjectId)
+                {
+                    exceptedBySameSource = true;
+                    break;
+                }
+            }
+        }
+        if (!exceptedBySameSource)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
 bool KRlvHandler::hasAnyRestrictionWithPrefix(const std::string& prefix) const
 {
     if (!isEnabled())
@@ -619,21 +701,30 @@ std::vector<std::string> KRlvHandler::getProtectedDebugSettings() const
     return result;
 }
 
-void KRlvHandler::addRestriction(const std::string& behaviour, const LLUUID& sourceId, const std::string& option)
+void KRlvHandler::addRestriction(const std::string& behaviour, const LLUUID& sourceId, const std::string& option, bool isSecure)
 {
     auto& entries = mRestrictions[behaviour];
-    for (const KRlvRestrictionEntry& entry : entries)
+    for (KRlvRestrictionEntry& entry : entries)
     {
         if (entry.sourceObjectId == sourceId)
         {
             // Same source re-asserting a restriction it already holds
             // (e.g. re-attached, or a script re-sending on region
             // change) - not a second, independent hold, so @notify
-            // isn't fired again either.
+            // isn't fired again either. Still pick up a changed
+            // isSecure (e.g. the source switched from the plain to the
+            // "_sec" form, or vice versa, without first issuing =y) -
+            // silently keeping the OLD value here would leave the wrong
+            // exception rule in effect for this source.
+            if (entry.isSecure != isSecure)
+            {
+                entry.isSecure = isSecure;
+                KRlv::saveRestrictions(mRestrictions);
+            }
             return;
         }
     }
-    entries.push_back({ sourceId, option });
+    entries.push_back({ sourceId, option, isSecure });
     KRlv::saveRestrictions(mRestrictions);
     notifyRestrictionChange(behaviour, option, NotifyKind::Added);
 }
@@ -861,6 +952,29 @@ F32 KRlvHandler::requestGetFov() const
     return mGetFovHook ? mGetFovHook() : 0.f;
 }
 
+void KRlvHandler::setForceMouselookHook(KRlvForceMouselookRequest hook)
+{
+    mForceMouselookHook = std::move(hook);
+}
+
+void KRlvHandler::requestForceMouselook(bool enterMouselook) const
+{
+    if (mForceMouselookHook)
+    {
+        mForceMouselookHook(enterMouselook);
+    }
+}
+
+void KRlvHandler::setGetMouselookStateHook(KRlvGetMouselookStateRequest hook)
+{
+    mGetMouselookStateHook = std::move(hook);
+}
+
+bool KRlvHandler::requestGetMouselookState() const
+{
+    return mGetMouselookStateHook ? mGetMouselookStateHook() : false;
+}
+
 void KRlvHandler::setForceTeleportHook(KRlvForceTeleportRequest hook)
 {
     mForceTeleportHook = std::move(hook);
@@ -961,6 +1075,19 @@ void KRlvHandler::requestForceDetach(const LLUUID& sourceId, const std::string& 
     }
 }
 
+void KRlvHandler::setForceStripHook(KRlvForceStripRequest hook)
+{
+    mForceStripHook = std::move(hook);
+}
+
+void KRlvHandler::requestForceStrip() const
+{
+    if (mForceStripHook)
+    {
+        mForceStripHook();
+    }
+}
+
 void KRlvHandler::setGetOutfitLayersHook(KRlvGetOutfitLayersRequest hook)
 {
     mGetOutfitLayersHook = std::move(hook);
@@ -1042,6 +1169,16 @@ void KRlvHandler::setResolveWornHook(KRlvResolveWornRequest hook)
 LLUUID KRlvHandler::requestResolveWorn(const std::string& pointOrLayerOrUuid) const
 {
     return mResolveWornHook ? mResolveWornHook(pointOrLayerOrUuid) : LLUUID::null;
+}
+
+void KRlvHandler::setResolveWornAllHook(KRlvResolveWornAllRequest hook)
+{
+    mResolveWornAllHook = std::move(hook);
+}
+
+std::vector<LLUUID> KRlvHandler::requestResolveWornAll(const std::string& pointOrLayerOrUuid) const
+{
+    return mResolveWornAllHook ? mResolveWornAllHook(pointOrLayerOrUuid) : std::vector<LLUUID>();
 }
 
 void KRlvHandler::setIsSharedItemHook(KRlvIsSharedItemRequest hook)

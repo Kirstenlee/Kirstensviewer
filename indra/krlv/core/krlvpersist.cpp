@@ -78,6 +78,10 @@ namespace
                 row["behaviour"] = behaviour;
                 row["source"] = entry.sourceObjectId;
                 row["option"] = entry.option;
+                if (entry.isSecure)
+                {
+                    row["secure"] = true;
+                }
                 entries.append(row);
             }
         }
@@ -244,6 +248,7 @@ namespace KRlv
             KRlvRestrictionEntry entry;
             entry.sourceObjectId = row["source"].asUUID();
             entry.option = row["option"].asString();
+            entry.isSecure = row["secure"].asBoolean(); // undefined -> false
             table[row["behaviour"].asString()].push_back(entry);
         }
 

@@ -1,6 +1,6 @@
 # KRLV
 
-**Version 1.0.0** · RLVa API conformance target **2.9.29**
+**Version 1.1.0** · RLVa API conformance target **2.9.29**
 
 KRLV is the RLVa (Restrained Love Viewer – Advanced) command implementation
 for Kirstens S24. It parses `@`-commands from scripted objects, enforces the
@@ -206,7 +206,13 @@ A restriction is identified by a **behaviour key** and a **source object**.
 - Targeted restrictions such as `@editobj:<UUID>=n` or per-attachment-point
   locks use a dynamic key (for example `attach_point:torso`), so one object can
   lock several targets independently.
-- The `_sec` variants of a command share their plain command's key.
+- The `_sec` variants of a command share their plain command's key, but each
+  entry also carries an `isSecure` flag. A non-secure entry is cleared by an
+  exception from ANY object; a secure one only by an exception from the SAME
+  object that imposed it - `KRlvHandler::isRestrictedWithException()` is the
+  one place that distinction is evaluated, replacing a plain
+  `isRestricted(behaviour) && !hasRestrictionFrom(exceptionBehaviour, id)`
+  check at every gate that needs it.
 - Options such as `@camzoommax:0.5=n` are stored with the entry and read back
   through `getRestrictionOptions()`.
 
@@ -566,11 +572,18 @@ unnoticed defect.
   object that imposed them. Per-target restrictions such as `@editobj:<UUID>`
   are keyed by the target, so `@clear` from the imposing object does not clear
   them.
-- `@permissive=<y/n>` is stored and reported, but has no effect. The `_sec`
-  variants do not yet distinguish same-object exceptions.
+- `@permissive=<y/n>` is a real, functional toggle: when denied ("n"), it
+  forces EVERY restriction to behave as its secure counterpart, regardless of
+  whether that entry was itself imposed via the plain or `_sec` form.
 - `_sec` variants (`@recvchat_sec`, `@recvemote_sec`, `@sendim_sec`,
-  `@recvim_sec`, `@tplure_sec`, `@tprequest_sec`) share their plain command's
-  key, so the same-object-only rule for their exceptions is not enforced.
+  `@recvim_sec`, `@tplure_sec`, `@tprequest_sec`, `@share_sec`) share their
+  plain command's restriction key but each entry also carries an `isSecure`
+  flag, so the same-object-only exception rule is enforced per entry via
+  `KRlvHandler::isRestrictedWithException()`. `@sendchannel_sec` is NOT
+  covered yet (no exception mechanism exists for `@sendchannel` at all -
+  see its own entry below). `@shownames_sec` is NOT covered either - its
+  exception is bundled into the restriction's own option string rather than
+  a separate exception key, a structurally different mechanism.
   Exceptions for the plain commands are stored per imposing object.
 - `@sendchannel` implements the blanket block only. The per-channel exception
   form is parsed and ignored.

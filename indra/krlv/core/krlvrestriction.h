@@ -54,6 +54,18 @@ struct KRlvRestrictionEntry
 {
     LLUUID sourceObjectId;
     std::string option;   // the ":option" part at the time this was added, if any
+
+    // KRLV: true when this entry was added by a "_sec" ("secure") command
+    // variant (@recvchat_sec, @share_sec, ...) rather than its plain
+    // counterpart. The two share one restriction key (so one behaviour
+    // can be satisfied or not as a whole), but the spec gives them
+    // DIFFERENT exception rules: a plain entry is cleared by an exception
+    // from ANY object, a secure entry only by one from the SAME object
+    // that imposed it - see KRlvHandler::isRestrictedWithException() in
+    // krlvhandler.h. Defaults false so every existing addRestriction()
+    // call site (the overwhelming majority, which have no "_sec" variant
+    // at all) is unaffected.
+    bool isSecure = false;
 };
 
 // KRLV: the whole active-restriction table. Keyed by behaviour name

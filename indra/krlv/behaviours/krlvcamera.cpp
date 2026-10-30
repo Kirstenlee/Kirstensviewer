@@ -17,21 +17,21 @@
  * complex" ghost render - see KRlv::getCamAvDistLimit() below; the
  * jellydoll visual (translucent black + rim glow) already matches the
  * spec's own "visually muted... pitch black" wording, so this reuses
- * LLVOAvatar::isTooComplex() rather than building a new render mode).
- *
- * PARTIAL: @camdistmax/@setcam_avdistmax/@camdistmin/@setcam_avdistmin
- * clamp the camera's distance from the avatar, but do NOT implement the
- * spec's "distance=0 forces Mouselook" / "distance>0 forces OUT of
- * Mouselook and prevents going back" side effects - just the distance
- * clamp itself. @getcam_avdistmin/@getcam_avdistmax are complete queries
- * for the clamp values that ARE tracked.
- *
- * NOT IMPLEMENTED (Stage 2 stub still): @camtextures/@setcam_textures
- * (blanks every in-world texture except worn ones) is genuinely new
- * rendering-pipeline work, not a gate on something that already exists -
- * confirmed via investigation, not assumed: no existing texture-blanking/
- * override mode was found anywhere in dxrender/ or newview/. Left as a
- * stub rather than a shallow, likely-wrong approximation.
+ * LLVOAvatar::isTooComplex() rather than building a new render mode),
+ * @camdistmax/@setcam_avdistmax/@camdistmin/@setcam_avdistmin (clamp the
+ * camera's distance from the avatar AND enforce the spec's "distance=0
+ * forces Mouselook"/"distance>0 forces OUT of Mouselook and prevents
+ * going back" side effects via a self-correcting idle-tick poller - see
+ * pollCamDist() below, same pattern as krlvteleport.cpp's pollStandTp()),
+ * @getcam_avdistmin/@getcam_avdistmax (always answer the current
+ * effective bound, restricted or not - the spec's own wording has no
+ * "only if restricted" qualifier, unlike the other getcam_* queries
+ * above), @camtextures/@setcam_textures (blanks every in-world texture
+ * except worn ones - a stencil-gated extension of the @camdraw* fog-
+ * blind pass above; worn PBR-materialed attachments/skins/clothes are
+ * correctly exempted via LLRenderPass::pushGLTFBatch()'s own stencil
+ * tag - see krlvCamDrawFogF.hlsl's header comment and krlv/README.md's
+ * Camera section for the full design note).
  *
  * Synonyms share one internal restriction key each (not the command name
  * used to impose/release them), matching the spec's "exact synonym"
@@ -336,6 +336,44 @@ namespace KRlv
     }
 }
 
+// Polled every idle tick (registerIdleTick()) - self-correcting regardless
+// of how the avatar's camera mode actually changed (UI button, keybind,
+// double-click-to-mouselook, a script call, ...), same pattern as
+// krlvteleport.cpp's pollStandTp(). Spec's own wording for @camdistmax/
+// @camdistmin: distance=0 "forces the avatar to stay in Mouselook",
+// distance>0 "forces the avatar to go out of Mouselook, and prevents from
+// going back to it." Reaches the real camera mode only through
+// KRlvForceMouselookRequest/KRlvGetMouselookStateRequest (krlv/ cannot
+// link llagentcamera.h directly - see krlvhandler.h).
+static void pollCamDist()
+{
+    F32 floorDist, ceilDist;
+    if (!KRlv::getCamDistanceBounds(floorDist, ceilDist))
+    {
+        return;
+    }
+
+    // S24: a ceiling of 0 (force Mouselook) and a floor > 0 (force OUT of
+    // Mouselook) from two different sources directly contradict each other -
+    // enforcing either one flips inMouselook for the next tick, which then
+    // satisfies the OTHER branch below, flipping back forever. Treat a
+    // conflict as unenforceable rather than thrash every idle tick.
+    if (ceilDist <= 0.f && floorDist > 0.f)
+    {
+        return;
+    }
+
+    const bool inMouselook = gKRlv.requestGetMouselookState();
+    if (ceilDist <= 0.f && !inMouselook)
+    {
+        gKRlv.requestForceMouselook(true);
+    }
+    else if (floorDist > 0.f && inMouselook)
+    {
+        gKRlv.requestForceMouselook(false);
+    }
+}
+
 void krlv_register_camera_commands(KRlvHandler& handler)
 {
     handler.registerBehaviour("camzoommax",
@@ -385,12 +423,31 @@ void krlv_register_camera_commands(KRlvHandler& handler)
         [](const KRlvCommand& cmd, const LLUUID& sourceId, const LLUUID&) -> bool
         { applyToggle("camunlock", cmd, sourceId); return true; }); // exact synonym
 
+    // Unlike the other getcam_* queries below, the spec's own wording for
+    // these two is "makes the viewer automatically answer the minimum/
+    // maximum distance" - no "only if restricted" qualifier - so these
+    // always reply, using the exact same floor/ceil KRlv::getCamDistanceBounds()
+    // already computes for the real clamp/Mouselook-forcing enforcement
+    // (0.f/F32::max() when nobody has restricted it), rather than the
+    // reduceMin/reduceMax-only "no reply if unrestricted" convention
+    // replyReducedMax()/replyReducedMin() use for the other getcam_*
+    // commands below.
     handler.registerBehaviour("getcam_avdistmin",
         [](const KRlvCommand& cmd, const LLUUID&, const LLUUID&) -> bool
-        { replyReducedMax("camdistmin", cmd.param); return true; });
+        {
+            F32 floorDist, ceilDist;
+            KRlv::getCamDistanceBounds(floorDist, ceilDist);
+            replyOnChannel(std::to_string(floorDist), cmd.param);
+            return true;
+        });
     handler.registerBehaviour("getcam_avdistmax",
         [](const KRlvCommand& cmd, const LLUUID&, const LLUUID&) -> bool
-        { replyReducedMin("camdistmax", cmd.param); return true; });
+        {
+            F32 floorDist, ceilDist;
+            KRlv::getCamDistanceBounds(floorDist, ceilDist);
+            replyOnChannel(std::to_string(ceilDist), cmd.param);
+            return true;
+        });
     handler.registerBehaviour("getcam_fovmin",
         [](const KRlvCommand& cmd, const LLUUID&, const LLUUID&) -> bool
         { replyReducedMax("setcam_fovmin", cmd.param); return true; });
@@ -448,4 +505,8 @@ void krlv_register_camera_commands(KRlvHandler& handler)
     handler.registerBehaviour("setcam_textures",
         [](const KRlvCommand& cmd, const LLUUID& sourceId, const LLUUID&) -> bool
         { applyToggle("camtextures", cmd, sourceId); return true; }); // exact synonym
+
+    // KRLV_TOUCHPOINT: @camdistmax=0/@camdistmin>0's Mouselook-forcing side
+    // effects - see pollCamDist() above.
+    handler.registerIdleTick(pollCamDist);
 }

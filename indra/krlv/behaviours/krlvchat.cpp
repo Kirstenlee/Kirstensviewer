@@ -43,17 +43,23 @@
  *   objects redirecting simultaneously falls out for free.
  *
  * SIMPLIFIED, documented scope cuts (not fabricated behaviour):
- * - @sendchannel/@sendchannel_sec implement only the BLANKET y/n form;
- *   the spec's own "specify a channel to except IT from the block"
- *   nuance (same command name, `:channel` option, `rem`/`add` instead
- *   of `y`/`n`) is not implemented - such a command is parsed but
- *   silently ignored (its param won't match "y"/"n"), same as any other
- *   unsupported variant elsewhere in this module. `_sec`'s object-
- *   scoping nuance (consistent with every prior category that has it)
- *   is also not implemented - it shares the plain command's key.
- * - Every `_sec` variant across this whole file follows that same
- *   precedent: shares its plain command's restriction key, no separate
- *   object-scoping logic.
+ * - @sendchannel[:<channel>]=<y/n> now implements the spec's real
+ *   per-channel exception form too (applySendChannel()): the channel
+ *   option is an EXCEPTION to the blanket block, with the spec's own
+ *   INVERTED polarity ("@sendchannel:1=n" PERMITS channel 1 -
+ *   "n"/"add" = except, "y"/"rem" = un-except), stored under its own
+ *   "sendchannel_exception" key - distinct from the separate
+ *   @sendchannel_except COMMAND (a standalone per-channel block,
+ *   krlvchat.h's isChannelSendBlocked(), unrelated mechanism despite the
+ *   similar name). @sendchannel_sec shares the same exception list, with
+ *   only the blanket-toggle entry itself marked isSecure.
+ * - @recvchat_sec/@recvemote_sec/@sendim_sec/@recvim_sec/@sendchannel_sec
+ *   now implement the spec's real "_sec" object-scoping nuance (an
+ *   exception only clears the restriction when it comes from the SAME
+ *   object that imposed it) via KRlvHandler::isRestrictedWithException()
+ *   - see krlvinventory.cpp's file header for the full cross-category
+ *   mechanism (it needed a core data-model addition, not a per-command
+ *   fix).
  * - Blocked incoming IMs (`@recvim`) are silently dropped - the spec's
  *   "the sender is notified they cannot be read" half is not
  *   implemented, matching the same gap already accepted for
@@ -106,15 +112,43 @@
 
 namespace
 {
-    void applyToggle(const std::string& key, const KRlvCommand& cmd, const LLUUID& sourceId)
+    void applyToggle(const std::string& key, const KRlvCommand& cmd, const LLUUID& sourceId, bool isSecure = false)
     {
         if (cmd.param == "n")
         {
-            gKRlv.addRestriction(key, sourceId, cmd.option);
+            gKRlv.addRestriction(key, sourceId, cmd.option, isSecure);
         }
         else if (cmd.param == "y")
         {
             gKRlv.removeRestriction(key, sourceId);
+        }
+    }
+
+    // "@sendchannel[:<channel>]=<y/n>" / "@sendchannel_sec[:<channel>]=<y/n>"
+    // - no option is the ordinary blanket toggle; WITH a channel number
+    // it's an EXCEPTION to the blanket block, and (real spec, confirmed
+    // via WebFetch - the scraped dataset's own wording matches this too)
+    // its polarity is INVERTED from every other toggle in this codebase:
+    // "@sendchannel:1=n" PERMITS channel 1 ("n"/"add" = except/allow),
+    // "=y"/"rem" removes the exception. Distinct key ("sendchannel_exception")
+    // from the separate @sendchannel_except COMMAND (krlvchat.cpp's
+    // isChannelSendBlocked() - a standalone per-channel block, unrelated
+    // mechanism, spec's own "complimentary command" wording).
+    void applySendChannel(const KRlvCommand& cmd, const LLUUID& sourceId, bool isSecure)
+    {
+        if (!cmd.hasOption())
+        {
+            applyToggle("sendchannel", cmd, sourceId, isSecure);
+            return;
+        }
+        const std::string exceptKey = KRlvHandler::exceptionKey("sendchannel_exception", cmd.option);
+        if (cmd.param == "n" || cmd.param == "add")
+        {
+            gKRlv.addRestriction(exceptKey, sourceId);
+        }
+        else if (cmd.param == "y" || cmd.param == "rem")
+        {
+            gKRlv.removeRestriction(exceptKey, sourceId);
         }
     }
 
@@ -303,7 +337,7 @@ void krlv_register_chat_commands(KRlvHandler& handler)
         { applyToggleOrException("recvchat", "recvchat_except", cmd, sourceId); return true; });
     handler.registerBehaviour("recvchat_sec",
         [](const KRlvCommand& cmd, const LLUUID& sourceId, const LLUUID&) -> bool
-        { applyToggle("recvchat", cmd, sourceId); return true; }); // shares "recvchat" key
+        { applyToggle("recvchat", cmd, sourceId, true); return true; }); // shares "recvchat" key, secure
     handler.registerBehaviour("recvchatfrom",
         [](const KRlvCommand& cmd, const LLUUID&, const LLUUID&) -> bool
         { applyPerTargetToggle("recvchatfrom", cmd); return true; });
@@ -317,17 +351,17 @@ void krlv_register_chat_commands(KRlvHandler& handler)
         { applyToggleOrException("recvemote", "recvemote_except", cmd, sourceId); return true; });
     handler.registerBehaviour("recvemote_sec",
         [](const KRlvCommand& cmd, const LLUUID& sourceId, const LLUUID&) -> bool
-        { applyToggle("recvemote", cmd, sourceId); return true; }); // shares "recvemote" key
+        { applyToggle("recvemote", cmd, sourceId, true); return true; }); // shares "recvemote" key, secure
     handler.registerBehaviour("recvemotefrom",
         [](const KRlvCommand& cmd, const LLUUID&, const LLUUID&) -> bool
         { applyPerTargetToggle("recvemotefrom", cmd); return true; });
 
     handler.registerBehaviour("sendchannel",
         [](const KRlvCommand& cmd, const LLUUID& sourceId, const LLUUID&) -> bool
-        { applyToggle("sendchannel", cmd, sourceId); return true; }); // blanket form only - see file header
+        { applySendChannel(cmd, sourceId, false); return true; });
     handler.registerBehaviour("sendchannel_sec",
         [](const KRlvCommand& cmd, const LLUUID& sourceId, const LLUUID&) -> bool
-        { applyToggle("sendchannel", cmd, sourceId); return true; }); // shares "sendchannel" key
+        { applySendChannel(cmd, sourceId, true); return true; }); // shares "sendchannel" key, secure
     handler.registerBehaviour("sendchannel_except",
         [](const KRlvCommand& cmd, const LLUUID& sourceId, const LLUUID&) -> bool
         { applyToggle("sendchannel_except", cmd, sourceId); return true; }); // option = blocked channel number
@@ -337,7 +371,7 @@ void krlv_register_chat_commands(KRlvHandler& handler)
         { applyToggleOrException("sendim", "sendim_except", cmd, sourceId); return true; });
     handler.registerBehaviour("sendim_sec",
         [](const KRlvCommand& cmd, const LLUUID& sourceId, const LLUUID&) -> bool
-        { applyToggle("sendim", cmd, sourceId); return true; }); // shares "sendim" key
+        { applyToggle("sendim", cmd, sourceId, true); return true; }); // shares "sendim" key, secure
     handler.registerBehaviour("sendimto",
         [](const KRlvCommand& cmd, const LLUUID&, const LLUUID&) -> bool
         { applyPerTargetToggle("sendimto", cmd); return true; });
@@ -354,7 +388,7 @@ void krlv_register_chat_commands(KRlvHandler& handler)
         { applyToggleOrException("recvim", "recvim_except", cmd, sourceId); return true; });
     handler.registerBehaviour("recvim_sec",
         [](const KRlvCommand& cmd, const LLUUID& sourceId, const LLUUID&) -> bool
-        { applyToggle("recvim", cmd, sourceId); return true; }); // shares "recvim" key
+        { applyToggle("recvim", cmd, sourceId, true); return true; }); // shares "recvim" key, secure
     handler.registerBehaviour("recvimfrom",
         [](const KRlvCommand& cmd, const LLUUID&, const LLUUID&) -> bool
         { applyPerTargetToggle("recvimfrom", cmd); return true; });

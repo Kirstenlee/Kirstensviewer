@@ -11,13 +11,14 @@
  *
  * PARTIAL: @tplocal (the distance clamp works; does not implement the
  * spec's "prevents by double-clicking" scoping any more precisely than
- * "any same-region teleport request" - see krlv/README.md). @tplure_sec/
- * @tprequest_sec share their plain command's restriction key - the
- * spec's "_sec" nuance (exceptions only honoured from the SAME object
- * that imposed the restriction) is NOT implemented; any exception UUID
- * is honoured regardless of which object added it. @tprequest's decline
- * half is silent (no "that other user receives a message" reply was
- * found to safely reuse). @tpto=force's region-name form (below) and its
+ * "any same-region teleport request" - see krlv/README.md). @tprequest's
+ * decline half is silent (no "that other user receives a message" reply
+ * was found to safely reuse). @tplure_sec/@tprequest_sec now implement
+ * the real "_sec" nuance (exceptions only honoured from the SAME object
+ * that imposed the restriction) via KRlvHandler::isRestrictedWithException()
+ * - see krlvinventory.cpp's file header for the full mechanism, shared
+ * across every "_sec" command this session. @tpto=force's region-name
+ * form (below) and its
  * ";lookat" suffix are also partial.
  *
  * @tpto=force is COMPLETE for the GLOBAL-coordinate syntax
@@ -97,11 +98,11 @@ namespace
 {
     // Same "=n" adds / "=y" releases (per-source) semantics as every
     // other real category so far.
-    void applyToggle(const std::string& restrictionKey, const KRlvCommand& cmd, const LLUUID& sourceId)
+    void applyToggle(const std::string& restrictionKey, const KRlvCommand& cmd, const LLUUID& sourceId, bool isSecure = false)
     {
         if (cmd.param == "n")
         {
-            gKRlv.addRestriction(restrictionKey, sourceId, cmd.option);
+            gKRlv.addRestriction(restrictionKey, sourceId, cmd.option, isSecure);
         }
         else if (cmd.param == "y")
         {
@@ -345,7 +346,7 @@ void krlv_register_teleport_commands(KRlvHandler& handler)
         });
     handler.registerBehaviour("tplure_sec",
         [](const KRlvCommand& cmd, const LLUUID& sourceId, const LLUUID&) -> bool
-        { applyToggle("tplure", cmd, sourceId); return true; }); // shares "tplure" key - _sec nuance not implemented
+        { applyToggle("tplure", cmd, sourceId, true); return true; }); // shares "tplure" key, secure
 
     handler.registerBehaviour("tprequest",
         [](const KRlvCommand& cmd, const LLUUID& sourceId, const LLUUID&) -> bool
@@ -367,7 +368,7 @@ void krlv_register_teleport_commands(KRlvHandler& handler)
         });
     handler.registerBehaviour("tprequest_sec",
         [](const KRlvCommand& cmd, const LLUUID& sourceId, const LLUUID&) -> bool
-        { applyToggle("tprequest", cmd, sourceId); return true; }); // shares "tprequest" key - _sec nuance not implemented
+        { applyToggle("tprequest", cmd, sourceId, true); return true; }); // shares "tprequest" key, secure
 
     handler.registerBehaviour("accepttp",
         [](const KRlvCommand& cmd, const LLUUID& sourceId, const LLUUID&) -> bool

@@ -43,36 +43,64 @@
  * real architecture finding, not a shortcut taken for convenience.
  *
  * The "this" y/n restriction family (@detachthis/@detachallthis/
- * @attachthis/@attachallthis, and their @..._except exception lists) is
- * a genuinely uncertain corner of the spec - the source dataset's own
- * description text for the restriction forms of these four commands is
+ * @attachthis/@attachallthis, and their @..._except exception lists):
+ * the source dataset's own description text for these four commands was
  * truncated ("...if either of these conditions is filled:", with the
- * conditions themselves lost to the scrape). Implemented by analogy with
- * Attachments' already-shipped @detach:<point>=n convention (a folder
- * lock blocks FORCE actions that would affect its contents, not a
- * continuous "can't even browse" restriction), keyed the same way
- * @editobj:<UUID>=n/@showhovertext:<UUID>=n already key per-target
- * restrictions - by the resolved folder's own UUID as the restriction
- * entry's "source". A recursive ("allthis") lock on an ancestor folder
- * is honoured by walking up the parent chain; a folder's own
- * "..._except" entry (non-recursive) or an ancestor's "allthis_except"
- * entry (recursive) exempts it. This is KRLV's own documented engineering
- * choice for filling a real spec gap, not a guessed-at RLVa behaviour.
+ * conditions themselves lost to the scrape) - fixed by reading the real
+ * spec directly (wiki.secondlife.com's RestrainedLoveAPI page). The real
+ * behaviour is NOT just a force-action gate (an earlier version of this
+ * file implemented it that way, by analogy with @detach:<point>=n, before
+ * the real text was available) - it's TWO things at once: (1) the user is
+ * unable to manually wear/remove the resolved folder's contents via the
+ * inventory's own "Add To Outfit"/"Replace Outfit"/"Remove From Outfit"
+ * actions (gated in llappearancemgr.cpp's wearInventoryCategory()/
+ * takeOffOutfit(), the two universal chokepoints every such UI path
+ * already funnels through - see those functions' own KRLV_TOUCHPOINT
+ * comments), AND (2) the folder itself "cannot be renamed, moved, deleted
+ * or modified" - an inventory-structure lock (gated in
+ * llinventorybridge.cpp's LLFolderBridge::isItemRenameable()/
+ * isItemMovable()/isItemRemovable()). Force actions on the folder's
+ * contents (@detach:<folder>=force etc.) are STILL blocked too, via the
+ * same isFolderDetachLocked()/isFolderAttachLocked() queries this file
+ * already used for that - the wrong part was only "ONLY a force-action
+ * gate", not "force actions are also gated".
  *
- * @getinvworn's description in the source dataset is IDENTICAL, word for
- * word, to @getinv's - almost certainly a scraping duplication rather
- * than the real spec text (the two commands' names strongly imply
- * different reply content - a worn-status breakdown, not just a folder
- * listing). Rather than fabricate a worn-status wire format from
- * assumption, @getinvworn currently replies with the exact same
- * subfolder-name listing @getinv does - a documented, honest limitation,
- * not a silent guess.
+ * Target folder resolution (resolveThisFolderIdForRestriction()) follows
+ * the spec's four conditions for @detachthis (three for @attachthis, no
+ * "no option" case since attaching needs a target): no option -> the
+ * folder containing the ISSUING OBJECT's own worn attachment; a clothing-
+ * layer or attachment-point name -> the folder containing whatever item
+ * is CURRENTLY WORN at that layer/point; a folder path -> that folder
+ * directly. "Modified" (arbitrary content mutation beyond the four named
+ * operations - e.g. dragging a new item INTO a locked folder) is NOT
+ * separately gated - a real, documented residual gap, not silently
+ * guessed at.
  *
- * @getpathnew is implemented identically to @getpath (a single path) -
- * the spec's "paths" (plural) wording most plausibly refers to an item
- * linked into multiple "#RLV" folders at once, which would need genuine
- * link-identity matching this pass does not implement; documented rather
- * than half-built.
+ * A recursive ("allthis") lock on an ancestor folder is honoured by
+ * walking up the parent chain toward "#RLV" - the spec's own "closest
+ * parent" rule: the NEAREST restriction or exception in the chain decides,
+ * not a blanket "any ancestor" check. A folder's own "..._except" entry
+ * (non-recursive) or an ancestor's "allthis_except" entry (recursive)
+ * exempts it, per the spec's "nearest exception or restriction" wording -
+ * exceptions are same-object-only, matching this project's established
+ * _sec/_except convention elsewhere.
+ *
+ * @getinvworn's description in the source dataset was IDENTICAL, word for
+ * word, to @getinv's - a scraping duplication, not the real spec text.
+ * Fixed by looking the real wire format up directly (wiki.secondlife.com's
+ * RestrainedLoveAPI page): comma-separated "name|XY" entries, current
+ * folder first with no name, X/Y a 0-3 "proportion worn" code for items
+ * directly in the folder / in all folders contained inside it
+ * respectively - see wornStatusSuffix()'s comment for the exact scale.
+ *
+ * @getpathnew returns one comma-separated path per worn item matching
+ * the given attach point/layer (real spec confirmed via
+ * wiki.secondlife.com: added because RLVa v2.1 lets several objects
+ * share one attachment point, which @getpath's single-folder answer
+ * can't represent) - routes through its own KRlvResolveWornAllRequest
+ * hook (krlvhandler.h/llappviewer.cpp) rather than @getpath's
+ * single-match KRlvResolveWornRequest. Distinct paths only (two items in
+ * the same folder reply with that path once, not twice).
  *
  * The bare "~" no-strip folder-name marker described in @attach's own
  * text is NOT implemented - its interaction with the already-explicit
@@ -293,6 +321,68 @@ namespace
         return names;
     }
 
+    // @getinvworn's real wire format (confirmed via the published spec,
+    // wiki.secondlife.com/wiki/LSL_Protocol/RestrainedLoveAPI - the
+    // dataset this project draws from had this command's description
+    // scraped as a duplicate of @getinv's, see file header): each digit
+    // is a 0-3 "proportion worn" code, 0 = no items present, 1 = items
+    // present but none worn, 2 = items present and some worn, 3 = items
+    // present and all worn (no-mod items count the same as any other).
+    int wornProportionDigit(S32 total, S32 worn)
+    {
+        if (total == 0) return 0;
+        if (worn == 0) return 1;
+        if (worn == total) return 3;
+        return 2;
+    }
+
+    // Items (not folders) directly inside `folderId` - the first digit's
+    // source.
+    void countDirectItems(const LLUUID& folderId, S32& total, S32& worn)
+    {
+        for (const KRlvInvEntry& entry : gKRlv.requestListFolder(folderId))
+        {
+            if (!entry.isCategory)
+            {
+                ++total;
+                if (entry.isWorn)
+                {
+                    ++worn;
+                }
+            }
+        }
+    }
+
+    // Items in every VISIBLE subfolder of `folderId`, recursively - NOT
+    // folderId's own direct items. The spec's own wording for the second
+    // digit: "proportion of items globally worn in all the folders
+    // contained inside the corresponding folder".
+    void countItemsInSubfoldersRecursive(const LLUUID& folderId, S32& total, S32& worn)
+    {
+        for (const KRlvInvEntry& entry : gKRlv.requestListFolder(folderId))
+        {
+            if (!entry.isCategory || isHiddenFolderName(entry.name))
+            {
+                continue;
+            }
+            countDirectItems(entry.id, total, worn);
+            countItemsInSubfoldersRecursive(entry.id, total, worn);
+        }
+    }
+
+    // The "|XY" suffix @getinvworn appends to a folder name (or stands
+    // alone for the current folder, which the spec says is unnamed and
+    // listed first).
+    std::string wornStatusSuffix(const LLUUID& folderId)
+    {
+        S32 directTotal = 0, directWorn = 0;
+        countDirectItems(folderId, directTotal, directWorn);
+        S32 subTotal = 0, subWorn = 0;
+        countItemsInSubfoldersRecursive(folderId, subTotal, subWorn);
+        return std::to_string(wornProportionDigit(directTotal, directWorn))
+             + std::to_string(wornProportionDigit(subTotal, subWorn));
+    }
+
     // Depth-first walk collecting every VISIBLE ("."-filtered) folder
     // under `folderId`, as (path, id) pairs.
     void collectAllFolders(const LLUUID& folderId, const std::string& pathSoFar,
@@ -376,13 +466,14 @@ namespace
         return buildFolderPath(parentId, outPath);
     }
 
-    // "@...this[:<attachpt>|<clothing_layer>]=force" - resolves the
-    // CONTAINING folder of the worn item named by `cmd.option`, or of
-    // the issuing object's OWN attachment when no option is given.
-    LLUUID resolveThisFolderIdForForce(const KRlvCommand& cmd, const LLUUID& sourceId)
+    // Resolves the CONTAINING folder of the worn item named by `option`
+    // (a layer or attachment-point name), or of the issuing object's OWN
+    // attachment when `option` is empty - shared by both the force and
+    // restriction forms of "@...this[...]".
+    LLUUID resolveWornItemParentFolder(const std::string& option, const LLUUID& sourceId)
     {
-        const LLUUID itemId = cmd.hasOption()
-            ? gKRlv.requestResolveWorn(cmd.option)
+        const LLUUID itemId = !option.empty()
+            ? gKRlv.requestResolveWorn(option)
             : gKRlv.requestResolveWorn(sourceId.asString());
         if (itemId.isNull())
         {
@@ -397,14 +488,32 @@ namespace
         return parentId;
     }
 
+    // "@...this[:<attachpt>|<clothing_layer>]=force" - see
+    // resolveWornItemParentFolder().
+    LLUUID resolveThisFolderIdForForce(const KRlvCommand& cmd, const LLUUID& sourceId)
+    {
+        return resolveWornItemParentFolder(cmd.option, sourceId);
+    }
+
     // "@...this[:<layer>|<attachpt>|<path_to_folder>]=<y/n>" - the
     // restriction forms additionally accept a direct folder path (tried
     // first), falling back to worn-item resolution like the force forms.
-    LLUUID resolveThisFolderIdForRestriction(const std::string& option)
+    // S24: bare "@detachthis=n"/"@detachallthis=n" (no option) is its own
+    // documented condition - "no option is specified and the folder
+    // contains the object that issues this restriction" - so an empty
+    // option falls back to the same issuing-object resolution the force
+    // forms already use, instead of being a silent no-op. The attach
+    // commands (attachthis/attachallthis and their _except forms) have no
+    // such no-option condition per the spec (attaching needs a target) -
+    // their call sites below must check cmd.option is non-empty BEFORE
+    // calling this function, since its empty-option branch is only valid
+    // for detachthis's documented case; calling it unconditionally for an
+    // attach command silently locks the issuing object's own folder.
+    LLUUID resolveThisFolderIdForRestriction(const std::string& option, const LLUUID& sourceId)
     {
         if (option.empty())
         {
-            return LLUUID::null;
+            return resolveWornItemParentFolder(option, sourceId);
         }
         const LLUUID direct = resolveSharedPath(option);
         if (direct.notNull())
@@ -560,6 +669,21 @@ namespace KRlv
         }
         return items;
     }
+
+    bool isSharedFolderDetachLocked(const LLUUID& folderId)
+    {
+        return isFolderDetachLocked(folderId);
+    }
+
+    bool isSharedFolderAttachLocked(const LLUUID& folderId)
+    {
+        return isFolderAttachLocked(folderId);
+    }
+
+    bool isSharedFolderStructureLocked(const LLUUID& folderId)
+    {
+        return isFolderDetachLocked(folderId) || isFolderAttachLocked(folderId);
+    }
 }
 
 void krlv_register_shared_folder_commands(KRlvHandler& handler)
@@ -591,13 +715,25 @@ void krlv_register_shared_folder_commands(KRlvHandler& handler)
     handler.registerBehaviour("getinvworn",
         [](const KRlvCommand& cmd, const LLUUID&, const LLUUID&) -> bool
         {
-            // See file header - the dataset's own description for this
-            // command duplicates @getinv's; this deliberately mirrors
-            // @getinv rather than fabricate a worn-status format.
+            // S24: real wire format confirmed against the published spec
+            // (see wornStatusSuffix's comment) - comma-separated
+            // "name|XY" entries. The current folder comes first with NO
+            // name (just "|XY" - the spec's own example:
+            // "@getinvworn:Restraints/Leather cuffs=2222" ->
+            // "|02,Arms|30,Legs|10").
             const LLUUID folderId = resolveSharedPath(cmd.option);
             if (folderId.notNull())
             {
-                replyOnChannel(joinStrings(listVisibleSubfolderNames(folderId), ","), cmd.param);
+                std::vector<std::string> entries;
+                entries.push_back("|" + wornStatusSuffix(folderId));
+                for (const KRlvInvEntry& entry : gKRlv.requestListFolder(folderId))
+                {
+                    if (entry.isCategory && !isHiddenFolderName(entry.name))
+                    {
+                        entries.push_back(entry.name + "|" + wornStatusSuffix(entry.id));
+                    }
+                }
+                replyOnChannel(joinStrings(entries, ","), cmd.param);
             }
             return true;
         });
@@ -690,15 +826,27 @@ void krlv_register_shared_folder_commands(KRlvHandler& handler)
     handler.registerBehaviour("getpathnew",
         [](const KRlvCommand& cmd, const LLUUID&, const LLUUID&) -> bool
         {
-            // See file header - implemented identically to @getpath.
-            const LLUUID itemId = gKRlv.requestResolveWorn(cmd.option);
-            if (itemId.notNull())
+            // S24: real multi-path support - the spec's own reason for
+            // this command to exist over @getpath (several objects can
+            // share one attachment point since RLVa v2.1, each possibly
+            // linked from a different "#RLV" folder). Resolve every
+            // matching worn item, build each one's containing-folder
+            // path, and reply with the distinct paths comma-separated -
+            // matches the spec's own worked example,
+            // "Restraints/Collar,Jewelry/Cute necklace".
+            std::vector<std::string> paths;
+            for (const LLUUID& itemId : gKRlv.requestResolveWornAll(cmd.option))
             {
                 std::string path;
-                if (buildContainingFolderPath(itemId, path))
+                if (buildContainingFolderPath(itemId, path)
+                    && std::find(paths.begin(), paths.end(), path) == paths.end())
                 {
-                    replyOnChannel(path, cmd.param);
+                    paths.push_back(path);
                 }
+            }
+            if (!paths.empty())
+            {
+                replyOnChannel(joinStrings(paths, ","), cmd.param);
             }
             return true;
         });
@@ -710,9 +858,11 @@ void krlv_register_shared_folder_commands(KRlvHandler& handler)
             {
                 doForceAttachFolder(resolveThisFolderIdForForce(cmd, sourceId), false, true);
             }
-            else
+            else if (!cmd.option.empty())
             {
-                const LLUUID folderId = resolveThisFolderIdForRestriction(cmd.option);
+                // S24: no bare no-option case for attachthis - see
+                // resolveThisFolderIdForRestriction()'s comment.
+                const LLUUID folderId = resolveThisFolderIdForRestriction(cmd.option, sourceId);
                 if (folderId.notNull())
                 {
                     applyFolderToggle("attachthis", cmd, folderId);
@@ -734,9 +884,11 @@ void krlv_register_shared_folder_commands(KRlvHandler& handler)
             {
                 doForceAttachFolder(resolveThisFolderIdForForce(cmd, sourceId), true, true);
             }
-            else
+            else if (!cmd.option.empty())
             {
-                const LLUUID folderId = resolveThisFolderIdForRestriction(cmd.option);
+                // S24: no bare no-option case for attachallthis - see
+                // resolveThisFolderIdForRestriction()'s comment.
+                const LLUUID folderId = resolveThisFolderIdForRestriction(cmd.option, sourceId);
                 if (folderId.notNull())
                 {
                     applyFolderToggle("attachallthis", cmd, folderId);
@@ -760,7 +912,7 @@ void krlv_register_shared_folder_commands(KRlvHandler& handler)
             }
             else
             {
-                const LLUUID folderId = resolveThisFolderIdForRestriction(cmd.option);
+                const LLUUID folderId = resolveThisFolderIdForRestriction(cmd.option, sourceId);
                 if (folderId.notNull())
                 {
                     applyFolderToggle("detachthis", cmd, folderId);
@@ -778,7 +930,7 @@ void krlv_register_shared_folder_commands(KRlvHandler& handler)
             }
             else
             {
-                const LLUUID folderId = resolveThisFolderIdForRestriction(cmd.option);
+                const LLUUID folderId = resolveThisFolderIdForRestriction(cmd.option, sourceId);
                 if (folderId.notNull())
                 {
                     applyFolderToggle("detachallthis", cmd, folderId);
@@ -788,9 +940,9 @@ void krlv_register_shared_folder_commands(KRlvHandler& handler)
         });
 
     handler.registerBehaviour("detachthis_except",
-        [](const KRlvCommand& cmd, const LLUUID&, const LLUUID&) -> bool
+        [](const KRlvCommand& cmd, const LLUUID& sourceId, const LLUUID&) -> bool
         {
-            const LLUUID folderId = resolveThisFolderIdForRestriction(cmd.option);
+            const LLUUID folderId = resolveThisFolderIdForRestriction(cmd.option, sourceId);
             if (folderId.notNull())
             {
                 applyFolderException("detachthis_except", cmd, folderId);
@@ -798,9 +950,9 @@ void krlv_register_shared_folder_commands(KRlvHandler& handler)
             return true;
         });
     handler.registerBehaviour("detachallthis_except",
-        [](const KRlvCommand& cmd, const LLUUID&, const LLUUID&) -> bool
+        [](const KRlvCommand& cmd, const LLUUID& sourceId, const LLUUID&) -> bool
         {
-            const LLUUID folderId = resolveThisFolderIdForRestriction(cmd.option);
+            const LLUUID folderId = resolveThisFolderIdForRestriction(cmd.option, sourceId);
             if (folderId.notNull())
             {
                 applyFolderException("detachallthis_except", cmd, folderId);
@@ -808,9 +960,15 @@ void krlv_register_shared_folder_commands(KRlvHandler& handler)
             return true;
         });
     handler.registerBehaviour("attachthis_except",
-        [](const KRlvCommand& cmd, const LLUUID&, const LLUUID&) -> bool
+        [](const KRlvCommand& cmd, const LLUUID& sourceId, const LLUUID&) -> bool
         {
-            const LLUUID folderId = resolveThisFolderIdForRestriction(cmd.option);
+            // S24: no bare no-option case for attachthis_except - see
+            // resolveThisFolderIdForRestriction()'s comment.
+            if (cmd.option.empty())
+            {
+                return true;
+            }
+            const LLUUID folderId = resolveThisFolderIdForRestriction(cmd.option, sourceId);
             if (folderId.notNull())
             {
                 applyFolderException("attachthis_except", cmd, folderId);
@@ -818,9 +976,15 @@ void krlv_register_shared_folder_commands(KRlvHandler& handler)
             return true;
         });
     handler.registerBehaviour("attachallthis_except",
-        [](const KRlvCommand& cmd, const LLUUID&, const LLUUID&) -> bool
+        [](const KRlvCommand& cmd, const LLUUID& sourceId, const LLUUID&) -> bool
         {
-            const LLUUID folderId = resolveThisFolderIdForRestriction(cmd.option);
+            // S24: no bare no-option case for attachallthis_except - see
+            // resolveThisFolderIdForRestriction()'s comment.
+            if (cmd.option.empty())
+            {
+                return true;
+            }
+            const LLUUID folderId = resolveThisFolderIdForRestriction(cmd.option, sourceId);
             if (folderId.notNull())
             {
                 applyFolderException("attachallthis_except", cmd, folderId);
