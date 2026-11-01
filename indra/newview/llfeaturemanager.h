@@ -112,6 +112,10 @@ public:
     EGPUClass getGPUClass()             { return mGPUClass; }
     std::string& getGPUString()         { return mGPUString; }
 
+    // Resolves RenderHardwareShaderTier: -1 (Auto) follows mGPUClass live,
+    // otherwise returns the user's pinned 0-5 override. Never caches.
+    S32 getEffectiveShaderTier() const;
+
     // get the measured GPU memory bandwidth in GB/sec
     // may return 0 of benchmark has not been run or failed to run
     F32 getGPUMemoryBandwidth() { return mGPUMemoryBandwidth; }

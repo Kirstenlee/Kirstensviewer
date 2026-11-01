@@ -46,6 +46,8 @@
 #include <openssl/asn1.h>
 #include <openssl/rand.h>
 #include <openssl/err.h>
+#include <openssl/evp.h>
+#include <openssl/kdf.h>
 #include <iostream>
 #include <iomanip>
 #include <time.h>
@@ -57,6 +59,44 @@ static const std::string DEFAULT_CREDENTIAL_STORAGE = "credential";
 // 128 bits of salt data...
 #define STORE_SALT_SIZE 16
 #define BUFFER_READ_SIZE 256
+
+// S24: AES-256-GCM protected-data-store format, replacing the legacy RC4
+// stream cipher (RC4 lives in OpenSSL 3.0's legacy provider, off by default).
+// Header lets _readProtectedData() tell new-format files from pre-upgrade
+// RC4 ones so existing saved logins keep loading.
+static const U8 PROTECTED_DATA_MAGIC[2] = { 'S', '2' };
+static const U8 PROTECTED_DATA_VERSION = 1;
+#define GCM_NONCE_SIZE 12
+#define GCM_TAG_SIZE 16
+#define AES_KEY_SIZE 32
+
+// Derives the AES-256 key from the machine id (secret-ish, binds the store
+// to this machine) and the per-file random salt (public, stored alongside
+// the ciphertext) via HKDF-SHA256 - replaces the old design's use of raw
+// random bytes as the RC4 key directly.
+static bool s24_deriveProtectedDataKey(const U8* salt, int salt_len,
+                                        const unsigned char* machine_id, int machine_id_len,
+                                        unsigned char* key_out, int key_out_len)
+{
+    EVP_PKEY_CTX* pctx = EVP_PKEY_CTX_new_id(EVP_PKEY_HKDF, NULL);
+    if (!pctx)
+    {
+        return false;
+    }
+    bool ok = EVP_PKEY_derive_init(pctx) > 0
+        && EVP_PKEY_CTX_set_hkdf_md(pctx, EVP_sha256()) > 0
+        && EVP_PKEY_CTX_set1_hkdf_salt(pctx, salt, salt_len) > 0
+        && EVP_PKEY_CTX_set1_hkdf_key(pctx, machine_id, machine_id_len) > 0
+        && EVP_PKEY_CTX_add1_hkdf_info(pctx, PROTECTED_DATA_MAGIC, sizeof(PROTECTED_DATA_MAGIC)) > 0;
+    if (ok)
+    {
+        size_t outlen = (size_t)key_out_len;
+        ok = EVP_PKEY_derive(pctx, key_out, &outlen) > 0 && outlen == (size_t)key_out_len;
+    }
+    EVP_PKEY_CTX_free(pctx);
+    return ok;
+}
+
 std::string cert_string_from_asn1_string(ASN1_STRING* value);
 std::string cert_string_from_octet_string(ASN1_OCTET_STRING* value);
 
@@ -1318,50 +1358,96 @@ void LLSecAPIBasicHandler::_readProtectedData(unsigned char *unique_id, U32 id_l
                                     llifstream::binary);
 
     if (!protected_data_stream.fail()) {
-        U8 salt[STORE_SALT_SIZE];
-        U8 buffer[BUFFER_READ_SIZE];
-        U8 decrypted_buffer[BUFFER_READ_SIZE];
-        int decrypted_length;
-        LLXORCipher cipher(unique_id, id_len);
+        // S24: read the whole file - these credential stores are tiny (a few
+        // KB of LLSD XML at most), and the AES-256-GCM format needs its
+        // trailing auth tag available before decryption can be verified.
+        std::ostringstream raw_stream;
+        raw_stream << protected_data_stream.rdbuf();
+        std::string raw = raw_stream.str();
 
-        // read in the salt and key
-        protected_data_stream.read((char *)salt, STORE_SALT_SIZE);
-        if (protected_data_stream.gcount() < STORE_SALT_SIZE)
+        const size_t header_size = sizeof(PROTECTED_DATA_MAGIC) + 1;
+        if (raw.size() >= header_size
+            && memcmp(raw.data(), PROTECTED_DATA_MAGIC, sizeof(PROTECTED_DATA_MAGIC)) == 0
+            && (U8)raw[sizeof(PROTECTED_DATA_MAGIC)] == PROTECTED_DATA_VERSION)
+        {
+            const size_t min_size = header_size + STORE_SALT_SIZE + GCM_NONCE_SIZE + GCM_TAG_SIZE;
+            if (raw.size() < min_size)
+            {
+                LLTHROW(LLProtectedDataException("Config file too short."));
+            }
+
+            const U8* salt = (const U8*)raw.data() + header_size;
+            const U8* nonce = (const U8*)raw.data() + header_size + STORE_SALT_SIZE;
+            const U8* ciphertext = (const U8*)raw.data() + header_size + STORE_SALT_SIZE + GCM_NONCE_SIZE;
+            const size_t ciphertext_len = raw.size() - min_size;
+            const U8* tag = (const U8*)raw.data() + raw.size() - GCM_TAG_SIZE;
+
+            unsigned char key[AES_KEY_SIZE];
+            if (!s24_deriveProtectedDataKey(salt, STORE_SALT_SIZE, unique_id, id_len, key, AES_KEY_SIZE))
+            {
+                LLTHROW(LLProtectedDataException("Could not derive protected data store key."));
+            }
+
+            EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
+            std::vector<U8> decrypted(ciphertext_len);
+            int decrypted_length = 0;
+            bool ok = ctx != NULL
+                && EVP_DecryptInit_ex(ctx, EVP_aes_256_gcm(), NULL, NULL, NULL) == 1
+                && EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_IVLEN, GCM_NONCE_SIZE, NULL) == 1
+                && EVP_DecryptInit_ex(ctx, NULL, NULL, key, nonce) == 1
+                && (ciphertext_len == 0 || EVP_DecryptUpdate(ctx, decrypted.data(), &decrypted_length,
+                                                              ciphertext, (int)ciphertext_len) == 1)
+                && EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_TAG, GCM_TAG_SIZE, (void*)tag) == 1;
+
+            int final_length = 0;
+            U8 final_buf[16];
+            ok = ok && EVP_DecryptFinal_ex(ctx, final_buf, &final_length) == 1;
+
+            if (ctx)
+            {
+                EVP_CIPHER_CTX_free(ctx);
+            }
+
+            if (!ok)
+            {
+                LLTHROW(LLProtectedDataException("Config file cannot be decrypted."));
+            }
+
+            std::string decrypted_data((const char*)decrypted.data(), decrypted_length);
+            std::istringstream parse_stream(decrypted_data);
+            if (parser->parse(parse_stream, mProtectedDataMap,
+                              LLSDSerialize::SIZE_UNLIMITED) == LLSDParser::PARSE_FAILURE)
+            {
+                LLTHROW(LLProtectedDataException("Config file cannot be decrypted."));
+            }
+            return;
+        }
+
+        // S24: no (or unrecognized) magic header - fall back to the legacy
+        // RC4 format unchanged, so pre-upgrade bin_conf.dat files still load.
+        if (raw.size() < STORE_SALT_SIZE)
         {
             LLTHROW(LLProtectedDataException("Config file too short."));
         }
 
+        U8 salt[STORE_SALT_SIZE];
+        memcpy(salt, raw.data(), STORE_SALT_SIZE);
+        LLXORCipher cipher(unique_id, id_len);
         cipher.decrypt(salt, STORE_SALT_SIZE);
 
-        // totally lame.  As we're not using the OS level protected data, we need to
-        // at least obfuscate the data.  We do this by using a salt stored at the head of the file
-        // to encrypt the data, therefore obfuscating it from someone using simple existing tools.
-        // We do include the MAC address as part of the obfuscation, which would require an
-        // attacker to get the MAC address as well as the protected store, which improves things
-        // somewhat.  It would be better to use the password, but as this store
-        // will be used to store the SL password when the user decides to have SL remember it,
-        // so we can't use that.  OS-dependent store implementations will use the OS password/storage
-        // mechanisms and are considered to be more secure.
-        // We've a strong intent to move to OS dependent protected data stores.
-
-
-        // read in the rest of the file.
         EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
-        // todo: ctx error handling
-
         EVP_DecryptInit(ctx, EVP_rc4(), salt, NULL);
-        // allocate memory:
+
+        const size_t legacy_len = raw.size() - STORE_SALT_SIZE;
         std::string decrypted_data;
-
-        while(protected_data_stream.good()) {
-            // read data as a block:
-            protected_data_stream.read((char *)buffer, BUFFER_READ_SIZE);
-
-            EVP_DecryptUpdate(ctx, decrypted_buffer, &decrypted_length,
-                              buffer, (int)protected_data_stream.gcount());
-            decrypted_data.append((const char *)decrypted_buffer, (int)protected_data_stream.gcount());
+        decrypted_data.resize(legacy_len);
+        int decrypted_length = 0;
+        if (legacy_len > 0)
+        {
+            EVP_DecryptUpdate(ctx, (U8*)decrypted_data.data(), &decrypted_length,
+                              (const U8*)raw.data() + STORE_SALT_SIZE, (int)legacy_len);
         }
-
+        decrypted_data.resize(decrypted_length);
         // RC4 is a stream cipher, so we don't bother to EVP_DecryptFinal, as there is
         // no block padding.
         EVP_CIPHER_CTX_free(ctx);
@@ -1402,6 +1488,7 @@ void LLSecAPIBasicHandler::_writeProtectedData()
 {
     std::ostringstream formatted_data_ostream;
     U8 salt[STORE_SALT_SIZE];
+    U8 nonce[GCM_NONCE_SIZE];
     U8 buffer[BUFFER_READ_SIZE];
     U8 encrypted_buffer[BUFFER_READ_SIZE];
 
@@ -1414,8 +1501,9 @@ void LLSecAPIBasicHandler::_writeProtectedData()
     // create a string with the formatted data.
     LLSDSerialize::toXML(mProtectedDataMap, formatted_data_ostream);
     std::istringstream formatted_data_istream(formatted_data_ostream.str());
-    // generate the seed
+    // generate the per-file salt and nonce
     RAND_bytes(salt, STORE_SALT_SIZE);
+    RAND_bytes(nonce, GCM_NONCE_SIZE);
 
 
     // write to a temp file so we don't clobber the initial file if there is
@@ -1427,16 +1515,28 @@ void LLSecAPIBasicHandler::_writeProtectedData()
     EVP_CIPHER_CTX *ctx = NULL;
     try
     {
-
-        ctx = EVP_CIPHER_CTX_new();
-        // todo: ctx error handling
-
-        EVP_EncryptInit(ctx, EVP_rc4(), salt, NULL);
         unsigned char unique_id[MAC_ADDRESS_BYTES];
         LLMachineID::getUniqueID(unique_id, sizeof(unique_id));
-        LLXORCipher cipher(unique_id, sizeof(unique_id));
-        cipher.encrypt(salt, STORE_SALT_SIZE);
+
+        unsigned char key[AES_KEY_SIZE];
+        if (!s24_deriveProtectedDataKey(salt, STORE_SALT_SIZE, unique_id, sizeof(unique_id), key, AES_KEY_SIZE))
+        {
+            LLTHROW(LLProtectedDataException("Could not derive protected data store key."));
+        }
+
+        ctx = EVP_CIPHER_CTX_new();
+        if (!ctx
+            || EVP_EncryptInit_ex(ctx, EVP_aes_256_gcm(), NULL, NULL, NULL) != 1
+            || EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_IVLEN, GCM_NONCE_SIZE, NULL) != 1
+            || EVP_EncryptInit_ex(ctx, NULL, NULL, key, nonce) != 1)
+        {
+            LLTHROW(LLProtectedDataException("Could not initialize protected data store cipher."));
+        }
+
+        protected_data_stream.write((const char *)PROTECTED_DATA_MAGIC, sizeof(PROTECTED_DATA_MAGIC));
+        protected_data_stream.put((char)PROTECTED_DATA_VERSION);
         protected_data_stream.write((const char *)salt, STORE_SALT_SIZE);
+        protected_data_stream.write((const char *)nonce, GCM_NONCE_SIZE);
 
         while (formatted_data_istream.good())
         {
@@ -1446,13 +1546,30 @@ void LLSecAPIBasicHandler::_writeProtectedData()
                 break;
             }
             int encrypted_length;
-            EVP_EncryptUpdate(ctx, encrypted_buffer, &encrypted_length,
-                          buffer, (int)formatted_data_istream.gcount());
+            if (EVP_EncryptUpdate(ctx, encrypted_buffer, &encrypted_length,
+                          buffer, (int)formatted_data_istream.gcount()) != 1)
+            {
+                LLTHROW(LLProtectedDataException("Error encrypting protected data store."));
+            }
             protected_data_stream.write((const char *)encrypted_buffer, encrypted_length);
         }
 
-        // no EVP_EncrypteFinal, as this is a stream cipher
+        int final_length = 0;
+        if (EVP_EncryptFinal_ex(ctx, encrypted_buffer, &final_length) != 1)
+        {
+            LLTHROW(LLProtectedDataException("Error finalizing protected data store."));
+        }
+        protected_data_stream.write((const char *)encrypted_buffer, final_length);
+
+        U8 tag[GCM_TAG_SIZE];
+        if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_GET_TAG, GCM_TAG_SIZE, tag) != 1)
+        {
+            LLTHROW(LLProtectedDataException("Error retrieving protected data store auth tag."));
+        }
+        protected_data_stream.write((const char *)tag, GCM_TAG_SIZE);
+
         EVP_CIPHER_CTX_free(ctx);
+        ctx = NULL;
 
         protected_data_stream.close();
     }

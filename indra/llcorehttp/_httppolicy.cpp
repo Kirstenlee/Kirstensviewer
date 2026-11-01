@@ -59,10 +59,9 @@ public:
 	ClassState()
 		: mThrottleEnd(0),
 		  mThrottleLeft(0L),
-		  mRequestCount(0L),
-		  mStallStaging(false)
+		  mRequestCount(0L)
 		{}
-	
+
 	HttpReadyQueue		mReadyQueue;
 	HttpRetryQueue		mRetryQueue;
 
@@ -70,7 +69,6 @@ public:
 	HttpTime			mThrottleEnd;
 	long				mThrottleLeft;
 	long				mRequestCount;
-	bool				mStallStaging;
 };
 
 
@@ -214,15 +212,6 @@ HttpService::ELoopSpeed HttpPolicy::processReadyQueue()
 		HttpRetryQueue & retryq(state.mRetryQueue);
 		HttpReadyQueue & readyq(state.mReadyQueue);
 
-		if (state.mStallStaging)
-		{
-			// Stalling but don't sleep.  Need to complete operations
-			// and get back to servicing queues.  Do this test before
-			// the retryq/readyq test or you'll get stalls until you
-			// click a setting or an asset request comes in.
-			result = HttpService::NORMAL;
-			continue;
-		}
 		if (retryq.empty() && readyq.empty())
 		{
 			continue;
@@ -434,19 +423,6 @@ int HttpPolicy::getReadyCount(HttpRequest::policy_t policy_class) const
             + mClasses[policy_class]->mRetryQueue.size()));
 	}
 	return 0;
-}
-
-
-bool HttpPolicy::stallPolicy(HttpRequest::policy_t policy_class, bool stall)
-{
-	bool ret(false);
-	
-	if (policy_class < mClasses.size())
-	{
-		ret = mClasses[policy_class]->mStallStaging;
-		mClasses[policy_class]->mStallStaging = stall;
-	}
-	return ret;
 }
 
 

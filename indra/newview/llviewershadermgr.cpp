@@ -624,14 +624,30 @@ void LLViewerShaderMgr::setShaders()
     // actual startup (the splash is already up from llappviewer.cpp), this only updates its
     // message; splashWasAlreadyVisible then makes sure this function's own hide() below
     // doesn't tear down a dialog it didn't show, leaving that to the normal startup flow.
+    //
+    // S24: the FIRST call (true startup, not a settings-triggered reload) gets its own
+    // message - this is the pass where every shader's driver-side DXBC->ISA backend compile
+    // happens for the first time this session, which can genuinely stall for a while on a
+    // cold GPU vendor shader cache (first run after install/update) with no way for us to
+    // speed it up - see memory "BRDF first-run compile hang" 2026-10-31. Telling the user
+    // this up front, instead of the generic "Updating graphics settings" wording, is meant
+    // to stop them from assuming it crashed and force-quitting mid-compile.
+    static bool sFirstSetShadersCall = true;
+    bool is_first_call = sFirstSetShadersCall;
+    sFirstSetShadersCall = false;
+
     bool splashWasAlreadyVisible = LLSplashScreen::isVisible();
-    LLSplashScreen::update("Updating graphics settings, please wait...");
+    LLSplashScreen::update(is_first_call
+        ? "Compiling shaders for your graphics hardware - first launch after install or a driver update can take a minute, please wait..."
+        : "Updating graphics settings, please wait...");
     struct SplashGuard
     {
         bool mSkipHide;
         explicit SplashGuard(bool skip_hide) : mSkipHide(skip_hide) {}
         ~SplashGuard() { if (!mSkipHide) { LLSplashScreen::hide(); } }
     } splash_guard(splashWasAlreadyVisible);
+
+    LLTimer setShadersTimer;
 
     initAttribsAndUniforms();
     DXPipeline::releaseDXBuffers(gPipeline);
@@ -705,11 +721,21 @@ void LLViewerShaderMgr::setShaders()
 
     gPipeline.mShadersLoaded = true;
 
+    // S24: per-stage timing - this is the diagnostic for the "BRDF compile hang" reports
+    // (see memory "BRDF first-run compile hang" 2026-10-31). Each loadShaders*() stage
+    // below drives a batch of synchronous, main-thread CreateVertexShader/CreatePixelShader
+    // driver calls with zero caching we control (our own disk cache only covers the
+    // D3DCompile front-end, not the GPU vendor's backend DXBC->ISA compile - see
+    // DXShader::isCacheEligible()'s comment). If a stall is real, these numbers will show
+    // whether it's spread across every stage (cold vendor driver cache, expected on a first
+    // launch/after a driver update) or concentrated in one, which is the question that
+    // actually matters before changing any code here again.
+    LLTimer stageTimer;
     bool loaded = loadShadersWater();
 
     if (loaded)
     {
-        LL_INFOS() << "Loaded water shaders." << LL_ENDL;
+        LL_WARNS("ShaderLoading") << "Loaded water shaders. (" << stageTimer.getElapsedTimeF32() << "s)" << LL_ENDL;
     }
     else
     {
@@ -719,10 +745,11 @@ void LLViewerShaderMgr::setShaders()
 
     if (loaded)
     {
+        stageTimer.reset();
         loaded = loadShadersEffects();
         if (loaded)
         {
-            LL_INFOS() << "Loaded effects shaders." << LL_ENDL;
+            LL_WARNS("ShaderLoading") << "Loaded effects shaders. (" << stageTimer.getElapsedTimeF32() << "s)" << LL_ENDL;
         }
         else
         {
@@ -733,10 +760,11 @@ void LLViewerShaderMgr::setShaders()
 
     if (loaded)
     {
+        stageTimer.reset();
         loaded = loadShadersInterface();
         if (loaded)
         {
-            LL_INFOS() << "Loaded interface shaders." << LL_ENDL;
+            LL_WARNS("ShaderLoading") << "Loaded interface shaders. (" << stageTimer.getElapsedTimeF32() << "s)" << LL_ENDL;
         }
         else
         {
@@ -751,6 +779,7 @@ void LLViewerShaderMgr::setShaders()
         mShaderLevel[SHADER_AVATAR] = 3;
         mMaxAvatarShaderLevel = 3;
 
+        stageTimer.reset();
         if (loadShadersObject())
         { //hardware skinning is enabled and rigged attachment shaders loaded correctly
             // cloth is a class3 shader
@@ -759,8 +788,15 @@ void LLViewerShaderMgr::setShaders()
             // Set the actual level
             mShaderLevel[SHADER_AVATAR] = avatar_class;
 
+            LL_WARNS("ShaderLoading") << "Loaded object shaders. (" << stageTimer.getElapsedTimeF32() << "s)" << LL_ENDL;
+
+            stageTimer.reset();
             loaded = loadShadersAvatar();
             llassert(loaded);
+            if (loaded)
+            {
+                LL_WARNS("ShaderLoading") << "Loaded avatar shaders. (" << stageTimer.getElapsedTimeF32() << "s)" << LL_ENDL;
+            }
         }
         else
         {
@@ -776,16 +812,25 @@ void LLViewerShaderMgr::setShaders()
     }
 
     llassert(loaded);
+    stageTimer.reset();
     loaded = loaded && loadShadersDeferred();
     llassert(loaded);
+    if (loaded)
+    {
+        LL_WARNS("ShaderLoading") << "Loaded deferred shaders. (" << stageTimer.getElapsedTimeF32() << "s)" << LL_ENDL;
+    }
 
     if (gViewerWindow)
     {
         gViewerWindow->setCursor(UI_CURSOR_ARROW);
     }
+    stageTimer.reset();
     DXPipeline::createDXBuffers(gPipeline);
+    LL_WARNS("ShaderLoading") << "DXPipeline::createDXBuffers (incl. BRDF LUT bake/load) done. (" << stageTimer.getElapsedTimeF32() << "s)" << LL_ENDL;
 
     finalizeShaderList();
+
+    LL_WARNS("ShaderLoading") << "setShaders() total: " << setShadersTimer.getElapsedTimeF32() << "s" << (is_first_call ? " [first call this session]" : "") << LL_ENDL;
 
     reentrance = false;
 }
@@ -825,9 +870,17 @@ std::string LLViewerShaderMgr::loadBasicShaders()
         sum_lights_class = 3;
 #endif
 
-    // Use the feature table to mask out the max light level to use.  Also make sure it's at least 1.
+    S32 hw_tier = LLFeatureManager::getInstance()->getEffectiveShaderTier();
+    S32 tier_light_ceiling = (hw_tier <= 1) ? 2 : 3;
+
+    // RenderShaderLightingMaxLevel is still an independent, user-settable escape
+    // valve for shader-compiler-bug workarounds; the hardware tier is an
+    // additional ceiling on top of it, not a replacement for it.
     S32 max_light_class = gSavedSettings.getS32("RenderShaderLightingMaxLevel");
-    sum_lights_class = llclamp(sum_lights_class, 1, max_light_class);
+    sum_lights_class = llclamp(sum_lights_class, 1, llmin(max_light_class, tier_light_ceiling));
+    LL_WARNS("ShaderLoading") << "Hardware shader tier " << hw_tier
+        << ", lighting ceiling " << tier_light_ceiling
+        << ", sum_lights_class " << sum_lights_class << LL_ENDL;
 
     // Load the Basic Vertex Shaders at the appropriate level.
     // (in order of shader function call depth for reference purposes, deepest level first)
@@ -899,7 +952,8 @@ std::string LLViewerShaderMgr::loadBasicShaders()
     // has_reflection_probes is true: reflectionProbeF.hlsl uses REF_SAMPLE_COUNT as a fixed
     // HLSL array size regardless of that flag, so leaving it undefined is a compile-time gap.
     attribs["REFMAP_LEVEL"] = std::to_string(probe_level);
-    attribs["REF_SAMPLE_COUNT"] = "32";
+    S32 ref_sample_count = (hw_tier <= 1) ? 8 : (hw_tier == 2) ? 16 : 32;
+    attribs["REF_SAMPLE_COUNT"] = std::to_string(ref_sample_count);
 
     if (mirrors)
     {
@@ -3882,7 +3936,7 @@ bool LLViewerShaderMgr::loadShadersInterface()
 
     if (success)
     {
-        // Screen-space reflection pass for opaque deferred surfaces (class3/deferred/ssrF.hlsl).
+        // Screen-space reflection pass for opaque deferred surfaces (deferred/ssrF.hlsl).
         // Runs before deferred lighting and writes the SSR buffer that softenLight reads.
         gSSRProgram.mName = "Screen Space Reflection Shader";
         gSSRProgram.mFeatures.isDeferred = true;
@@ -3896,7 +3950,7 @@ bool LLViewerShaderMgr::loadShadersInterface()
         // inline trace (see LLPipeline::bindSSRBuffer) and the remaining programs still load.
         gSSRProgram.createShader();
 
-        // Temporal resolve of the SSR buffer (class3/deferred/ssrResolveF.hlsl). Also outside the chain.
+        // Temporal resolve of the SSR buffer (deferred/ssrResolveF.hlsl). Also outside the chain.
         gSSRResolveProgram.mName = "Screen Space Reflection Resolve Shader";
         gSSRResolveProgram.mFeatures.isDeferred = true;
         gSSRResolveProgram.mShaderFiles.clear();
@@ -3975,7 +4029,10 @@ bool LLViewerShaderMgr::loadShadersInterface()
 
 std::string LLViewerShaderMgr::getShaderDirPrefix(void)
 {
-    return gDirUtilp->getExpandedFilename(LL_PATH_APP_SETTINGS, "shaders", "class");
+    // S24: no more class1/class2/class3 directory tiers (2026-10-31 flattening) -
+    // this is just the shaders root now; loadShaderFile() appends the category
+    // subfolder + filename directly.
+    return gDirUtilp->getExpandedFilename(LL_PATH_APP_SETTINGS, "shaders", "");
 }
 
 void LLViewerShaderMgr::updateShaderUniforms(LLHLSLShader * shader)

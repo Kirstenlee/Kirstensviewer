@@ -665,7 +665,7 @@
 	<package>
 		<type>vcpkg</type>
 		<name>openssl</name>
-		<version>1.1.1n#1</version>
+		<version>3.6.5#2</version>
 		<triplet>x64-windows-static-extreme</triplet>
 		<args>--overlay-triplets=triplets</args>
 	</package>
@@ -678,10 +678,21 @@
 	</package>
 
 	<package>
-		<type>tarball</type>
+		<type>vcpkg</type>
 		<name>curl</name>
-		<url>https://kirstensviewer.s3.eu-north-1.amazonaws.com/S24/curl.tar.gz</url>
-		<md5>f0bd38381b9d199431e710758136537a</md5>
+		<version>8.23.0</version>
+		<!-- S24: curl's default "ssl" feature pulls in sspi/Schannel on Windows
+		     alongside the explicitly-requested "openssl" feature (MultiSSL - both
+		     backends compiled in). CURL_DEFAULT_SSL_BACKEND=openssl in the overlay
+		     triplet forces OpenSSL as the active backend, so the cert-validation
+		     code's CURLOPT_SSL_CTX_FUNCTION hook gets a real SSL_CTX*.
+		     brotli/zstd: CURLOPT_ENCODING("") auto-negotiates/decodes whatever the
+		     CDN sends - without decoder support compiled in, a server response
+		     compressed with an encoding curl can't decode fails outright
+		     (CURLE_BAD_CONTENT_ENCODING). -->
+		<features>openssl,http2,brotli,zstd</features>
+		<triplet>x64-windows-static-extreme</triplet>
+		<args>--overlay-triplets=triplets</args>
 	</package>
 
 	<package>

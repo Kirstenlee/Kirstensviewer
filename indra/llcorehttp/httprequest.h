@@ -226,11 +226,22 @@ public:
 		/// Per-class only
 		PO_THROTTLE_RATE,
 		
-		/// Controls the callback function used to control SSL CTX 
+		/// Controls the callback function used to control SSL CTX
 		/// certificate verification.
 		///
 		/// Global only
 		PO_SSL_VERIFY_CALLBACK,
+
+		/// Long value, non-zero (default) requests automatic response
+		/// compression (CURLOPT_ENCODING) on this class' requests, zero
+		/// disables it entirely. S24: some asset-CDN hosts return a
+		/// Content/Transfer-Encoding libcurl can't parse when compression
+		/// is requested - binary asset payloads (textures, mesh, and the
+		/// generic asset types fetched via LLViewerAssetStorage) gain
+		/// little from HTTP-level compression anyway.
+		///
+		/// Per-class only
+		PO_COMPRESS_RESPONSE,
 
 		PO_LAST  // Always at end
 	};

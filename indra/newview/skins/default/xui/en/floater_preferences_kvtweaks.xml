@@ -1598,6 +1598,73 @@
         background_opaque="false"
         bg_alpha_image="Aurora_R2C3"
         >
+      <text
+        type="string"
+        follows="left|top"
+        height="18"
+        layout="topleft"
+        left="16"
+        top="12"
+        width="268"
+        font="SansSerifBold"
+        text_color="DrYellow">
+        Shader Hardware Tier
+      </text>
+
+      <text
+        type="string"
+        follows="left|top"
+        height="18"
+        layout="topleft"
+        left="20"
+        top_pad="8"
+        width="268"
+        font="SansSerif">
+        Tier:
+      </text>
+
+      <combo_box
+       control_name="RenderHardwareShaderTier"
+       height="23"
+       layout="topleft"
+       left="20"
+       top_pad="2"
+       name="ShaderHardwareTier"
+       width="268">
+          <combo_box.item label="Auto (detected)" name="-1" value="-1"/>
+          <combo_box.item label="0 - Lowest"       name="0"  value="0"/>
+          <combo_box.item label="1 - Low"          name="1"  value="1"/>
+          <combo_box.item label="2 - Medium"       name="2"  value="2"/>
+          <combo_box.item label="3 - High"         name="3"  value="3"/>
+          <combo_box.item label="4 - Very High"    name="4"  value="4"/>
+          <combo_box.item label="5 - Ultra"        name="5"  value="5"/>
+      </combo_box>
+
+      <text
+        type="string"
+        follows="left|top"
+        height="16"
+        layout="topleft"
+        left="20"
+        top_pad="6"
+        width="268"
+        font="SansSerif"
+        name="shader_tier_detected_text">
+        (detected: Class ?)
+      </text>
+
+      <text
+        type="string"
+        follows="left|top"
+        height="72"
+        layout="topleft"
+        left="20"
+        top_pad="10"
+        width="268"
+        wrap="true"
+        font="SansSerif">
+        Auto follows your detected GPU class and picks a cost ceiling for lighting, reflection probes, and screen-space reflections. Pinning a specific tier overrides that ceiling permanently (up or down) until you change it again or click "Reset to recommended settings" in Preferences.
+      </text>
       </panel>
 
     </panel>

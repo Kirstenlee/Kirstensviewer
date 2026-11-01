@@ -69,7 +69,7 @@ static const struct
 		"other"
 	},
 	{ // AP_TEXTURE
-		16,		1,		64,		0,		true,  // S24: Raised default 8→16, max 12→64 for modern multi-core systems
+		64,		1,		128,	0,		false,  // S24: default 16->64, max 64->128 - also carries all LLViewerAssetStorage fetches now, not just textures. mPipelined=false: libcurl 7.62.0+ dropped HTTP/1.1 pipelining.
 		"TextureFetchConcurrency",
 		"texture fetch"
 	},
@@ -79,7 +79,7 @@ static const struct
 		"mesh fetch"
 	},
 	{ // AP_MESH2
-		8,		1,		32,		0,		true,
+		8,		1,		32,		0,		false,  // S24: libcurl 7.62.0+ dropped HTTP/1.1 pipelining, see AP_TEXTURE.
 		"Mesh2MaxConcurrentRequests",
 		"mesh2 fetch"
 	},
@@ -259,6 +259,30 @@ void LLAppCoreHttp::init()
 		}
 	}
 
+	// S24: some asset-CDN hosts return a Content/Transfer-Encoding libcurl
+	// can't parse when compression is requested (CURLE_BAD_CONTENT_ENCODING) -
+	// disable response compression negotiation for the binary asset-fetch
+	// classes. These payloads (JPEG2000 textures, mesh, and the generic
+	// asset types LLViewerAssetStorage fetches - gestures, landmarks,
+	// animations, sounds, wearables, etc, all under AP_TEXTURE) gain little
+	// from HTTP-level compression anyway.
+	{
+		const EAppPolicy no_compress_classes[] = { AP_TEXTURE, AP_MESH1, AP_MESH2, AP_LARGE_MESH };
+		for (EAppPolicy app_policy : no_compress_classes)
+		{
+			LLCore::HttpStatus cstatus = LLCore::HttpRequest::setStaticPolicyOption(
+				LLCore::HttpRequest::PO_COMPRESS_RESPONSE,
+				mHttpClasses[app_policy].mPolicy,
+				0L, NULL);
+			if (!cstatus)
+			{
+				LL_WARNS("Init") << "Unable to disable response compression for "
+					<< init_data[app_policy].mUsage << ".  Reason:  " << cstatus.toString()
+					<< LL_ENDL;
+			}
+		}
+	}
+
 	// Need a request object to handle dynamic options before setting them
 	mRequest = new LLCore::HttpRequest;
 
@@ -279,7 +303,7 @@ void LLAppCoreHttp::init()
 	{
 		// Defaults to true (in ctor) if absent.
 		mPipelined = gSavedSettings.getBOOL(http_pipelining);
-		LL_INFOS("Init") << "HTTP Pipelining " << (mPipelined ? "enabled" : "disabled") << "!" << LL_ENDL;
+		LL_WARNS("Init") << "HTTP Pipelining " << (mPipelined ? "enabled" : "disabled") << "!" << LL_ENDL;
 	}
 
 	// Register signals for settings and state changes

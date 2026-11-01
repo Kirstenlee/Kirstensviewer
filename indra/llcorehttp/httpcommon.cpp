@@ -278,7 +278,14 @@ namespace LLCore
 							{ CURLOPT_FOLLOWLOCATION, 1L },
 							{ CURLOPT_SSL_VERIFYPEER, 1L },
 							{ CURLOPT_SSL_VERIFYHOST, 0L },
-							{ CURLOPT_DNS_CACHE_TIMEOUT, 15L }
+							{ CURLOPT_DNS_CACHE_TIMEOUT, 15L },
+							// S24: pin HTTP/1.1 explicitly - curl's own default (opportunistic
+							// HTTP/2 via ALPN when nghttp2 is compiled in) is a behavior change
+							// vs. the old curl build this project shipped with. The one existing
+							// HTTP/2 opt-in path (_httpoprequest.cpp, VIEWERASSET env var) sets
+							// CURLOPT_HTTP_VERSION explicitly per-request, which still overrides
+							// this template default.
+							{ CURLOPT_HTTP_VERSION, (long)CURL_HTTP_VERSION_1_1 }
 						};
 
 						for (const auto& [opt, val] : options)

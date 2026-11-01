@@ -880,6 +880,11 @@ void LLFloaterPreference::setRecommendedSettings()
     resetAutotuneSettings();
     gSavedSettings.getControl("RenderVSyncEnable")->resetToDefault(true);
 
+    // RenderHardwareShaderTier lives outside LLFeatureManager's masked-feature
+    // system by design (see getEffectiveShaderTier()) - only this deliberate
+    // "Reset to recommended settings" action may put it back to Auto.
+    gSavedSettings.setS32("RenderHardwareShaderTier", -1);
+
     LLFeatureManager::getInstance()->applyRecommendedSettings();
 
     // reset indirects before refresh because we may have changed what they control

@@ -440,13 +440,23 @@ bool LLFeatureManager::loadGPUClass()
     else if (vram > 0)     mGPUClass = GPU_CLASS_1;
     else                   mGPUClass = GPU_CLASS_0;
 
-    LL_INFOS("RenderInit") << "DX_RENDER GPU class from VRAM (" << vram
+    LL_WARNS("RenderInit") << "DX_RENDER GPU class from VRAM (" << vram
         << "MB): " << (S32)mGPUClass << LL_ENDL;
 
     mGPUString = gGLManager.getRawGLString();
     mGPUSupported = true;
 
     return true;
+}
+
+S32 LLFeatureManager::getEffectiveShaderTier() const
+{
+    S32 tier = gSavedSettings.getS32("RenderHardwareShaderTier");
+    if (tier < 0)
+    {
+        tier = llclamp((S32)mGPUClass, 0, 5);
+    }
+    return llclamp(tier, 0, 5);
 }
 
 void LLFeatureManager::cleanupFeatureTables()

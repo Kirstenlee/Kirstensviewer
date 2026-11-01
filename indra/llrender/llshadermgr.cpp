@@ -382,16 +382,18 @@ bool LLShaderMgr::loadShaderFile(const std::string& filename, S32& shader_level,
 	LLFILE* file = NULL;
 
 	S32 try_gpu_class = shader_level;
-	S32 gpu_class;
 
 	std::string open_file_name;
 
 	// See mRawShaderFileTextCache's own comment (llshadermgr.h) - the resolved file (and its
-	// content) for a given (filename, try_gpu_class) pair can't change mid-session outside of a
-	// deliberate Develop > Rebuild Shaders / Purge Shader Cache, both of which call
+	// content) for a given (filename, shader_level) pair can't change mid-session outside of
+	// a deliberate Develop > Rebuild Shaders / Purge Shader Cache, both of which call
 	// clearRawShaderFileCache() first - so a hit here skips the real disk probe/read below
 	// entirely. Keyed by the ORIGINAL (pre extension-swap) filename, same as
-	// mVertexShaderSourceText/mFragmentShaderSourceText below.
+	// mVertexShaderSourceText/mFragmentShaderSourceText below. shader_level is kept in the
+	// key even though the flattened shader tree (2026-10-31) makes it a no-op for nearly
+	// every file, because one file (lighting/sumLightsSpecularV.glsl) genuinely still reads
+	// different disk content per level - see loadShaderFile()'s dx_filename override below.
 	const std::string raw_cache_key = filename + "@" + std::to_string(try_gpu_class);
 	std::string source_text;
 	bool have_source = false;
@@ -418,38 +420,34 @@ bool LLShaderMgr::loadShaderFile(const std::string& filename, S32& shader_level,
 		dx_filename.replace(dx_filename.size() - glsl_ext.size(), glsl_ext.size(), ".hlsl");
 	}
 
+	// S24: lighting/sumLightsSpecularV.glsl is the one file in the whole tree with a
+	// genuinely different lower-tier body (RenderShaderLightingMaxLevel<3, a rare
+	// "workaround shader compiler bugs on certain platforms" escape valve - see
+	// settings.xml) rather than a dead classN stub (see the 2026-10-31 shader-tree
+	// flattening). Redirect the DISK read only - filename/raw_cache_key above stay the
+	// canonical name, matching attachShaderFeatures()'s unconditional
+	// attachVertexObject("lighting/sumLightsSpecularV.glsl") lookup.
+	if (try_gpu_class < 3 && dx_filename == "lighting/sumLightsSpecularV.hlsl")
+	{
+		dx_filename = "lighting/sumLightsSpecularV_lowSpec.hlsl";
+	}
+
 	if (!have_source)
 	{
-		//find the most relevant file
-		for (gpu_class = try_gpu_class; gpu_class > 0; gpu_class--)
-		{   //search from the current gpu class down to class 1 to find the most relevant shader
-			std::stringstream fname;
-			fname << getShaderDirPrefix();
-            fname << gpu_class << gDirUtilp->getDirDelimiter() << dx_filename;
+		// S24: shaders live in one flat per-category tree now (no more
+		// class1/class2/class3 directory tiers to search downward through -
+		// each filename has exactly one copy; see the 2026-10-31 shader-tree
+		// flattening). shader_level is kept as an input/output param (still
+		// restored below) for existing callers/cache-key hashing, but no
+		// longer selects which directory a file is read from.
+		// getShaderDirPrefix() already ends in a directory delimiter (its
+		// getExpandedFilename() call passes an empty filename, which is
+		// documented to leave a trailing separator for direct concatenation) -
+		// don't add a second one here.
+		open_file_name = getShaderDirPrefix() + dx_filename;
 
-			open_file_name = fname.str();
-
-			/*
-			Would be awesome, if we didn't have shaders that re-use files
-			with different environments to say, add skinning, etc
-			can't depend on cached version to have evaluate ifdefs identically...
-			if we can define a deterministic hash for the shader based on
-			all the inputs, maybe we can save some time here.
-			if (mShaderObjects.count(filename) > 0)
-			{
-				return mShaderObjects[filename];
-			}
-
-			*/
-
-			LL_DEBUGS("ShaderLoading") << "Looking in " << open_file_name << LL_ENDL;
-			file = LLFile::fopen(open_file_name, "r");      /* Flawfinder: ignore */
-			if (file)
-			{
-				LL_DEBUGS("ShaderLoading") << "Loading file: " << open_file_name << " (Want class " << gpu_class << ")" << LL_ENDL;
-				break; // done
-			}
-		}
+		LL_DEBUGS("ShaderLoading") << "Looking in " << open_file_name << LL_ENDL;
+		file = LLFile::fopen(open_file_name, "r");      /* Flawfinder: ignore */
 	if (file == NULL)
 	{
         if (gDirUtilp->fileExists(open_file_name))

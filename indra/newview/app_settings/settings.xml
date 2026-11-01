@@ -10561,6 +10561,17 @@
       <key>Value</key>
       <integer>3</integer>
     </map>
+    <key>RenderHardwareShaderTier</key>
+    <map>
+      <key>Comment</key>
+      <string>Shader-side hardware cost tier, 0 (weakest) to 5 (strongest), mirrors EGPUClass. -1 means Auto: follow the detected GPU class live. Once set to a concrete number it is never changed automatically by anything except the Preferences "Reset to recommended settings" button.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>S32</string>
+      <key>Value</key>
+      <integer>-1</integer>
+    </map>
     <key>RenderSkyAutoAdjustLegacy</key>
     <map>
       <key>Comment</key>

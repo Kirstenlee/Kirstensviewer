@@ -1591,17 +1591,22 @@ F32 LLViewerTextureList::updateImagesFetchTextures(F32 max_time)
     // (see the "don't modify image while fetcher is working" comments in
     // lltexturefetch.cpp and llviewertexture.cpp). A real fix means locking that
     // whole handoff; this is a much smaller, low-risk mitigation - a heavy burst of
-    // fetches/updates (teleport + map-tile load, etc) is exactly what widens the
-    // unprotected race window, so briefly slowing this loop's own request rate
-    // during a detected burst reduces how often it gets hit, without touching the
-    // handoff itself.
+    // fetches/updates (teleport + map-tile load, region crossing, etc) is exactly
+    // what widens the unprotected race window, so briefly slowing this loop's own
+    // request rate during a detected burst reduces how often it gets hit, without
+    // touching the handoff itself. Scales with burst size rather than a flat sleep -
+    // a high-bandwidth connection against a CDN can produce bursts well beyond what
+    // a token 2ms/5-failure threshold was ever going to absorb, and re-triggers every
+    // frame the burst keeps going, so sustained bursts get sustained backpressure.
     {
-        static const S32 FLOOD_THRESHOLD = 5;
-        static const U32 EASE_IN_MS = 2;
+        static const S32 FLOOD_THRESHOLD = 3;
+        static const U32 EASE_IN_MS_PER_FAILURE = 2;
+        static const U32 EASE_IN_MS_MAX = 60;
         S32 recent_failures = LLAppViewer::getTextureCache()->consumeRecentWriteInitFailures();
         if (recent_failures >= FLOOD_THRESHOLD)
         {
-            ms_sleep(EASE_IN_MS);
+            U32 sleep_ms = llmin((U32)recent_failures * EASE_IN_MS_PER_FAILURE, EASE_IN_MS_MAX);
+            ms_sleep(sleep_ms);
         }
     }
 

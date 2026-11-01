@@ -2,7 +2,7 @@
 include_guard()
 include(Prebuilt)
 include(Linking)
-include(ZLib)
+include(ZLIB)
 
 add_library(ll::libcurl INTERFACE IMPORTED)
 
@@ -15,11 +15,17 @@ add_definitions(-DCURL_STATICLIB)
 
 # Static curl with OpenSSL/Schannel requires additional Windows libraries
 # Static curl with zlib requires linking zlib explicitly
-set(CURL_LIBRARIES 
+set(CURL_LIBRARIES
     debug libcurl-d.lib
     optimized libcurl.lib
     secur32.lib      # Windows SSPI support
     crypt32.lib      # Windows certificate store
+    ws2_32.lib       # S24: curl 8.x local-address-binding (peer.c), unused by the old 7.54.1 build
+    iphlpapi.lib     # S24: if_nametoindex()/if_indextoname() live here, confirmed via dumpbin /exports
+    brotlicommon.lib # S24: brotli content-decoding (CURLOPT_ENCODING "")
+    brotlidec.lib
+    brotlienc.lib
+    zstd.lib         # S24: zstd content-decoding (CURLOPT_ENCODING "")
 )
 
 set(CURL_INCLUDE_DIRS ${LIBS_PREBUILT_DIR}/include)

@@ -214,8 +214,7 @@ protected:
     unsigned int        mPolicyCount;
 	CURLM **			mMultiHandles;		// One handle per policy class
 	int *				mActiveHandles;		// Active count per policy class
-	bool *				mDirtyPolicy;		// Dirty policy update waiting for stall (per pc)
-	
+
 }; // end class HttpLibcurl
 
 }  // end namespace LLCore

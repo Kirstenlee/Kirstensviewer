@@ -64,7 +64,8 @@ const HttpService::OptionDescriptor HttpService::sOptionDesc[] =
 	{	true,		true,		true,		false,		false	},		// PO_TRACE
 	{	true,		true,		false,		true,		false	},		// PO_ENABLE_PIPELINING
 	{	true,		true,		false,		true,		false	},		// PO_THROTTLE_RATE
-	{   false,		false,		true,		false,		true	}		// PO_SSL_VERIFY_CALLBACK
+	{   false,		false,		true,		false,		true	},		// PO_SSL_VERIFY_CALLBACK
+	{	true,		true,		false,		true,		false	}		// PO_COMPRESS_RESPONSE
 };
 HttpService * HttpService::sInstance(NULL);
 volatile HttpService::EState HttpService::sState(NOT_INITIALIZED);

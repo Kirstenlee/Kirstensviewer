@@ -54,6 +54,8 @@
 #include "llappviewer.h"
 #include "lltexturecache.h"
 #include "llviewershadermgr.h"
+#include "llfeaturemanager.h"
+#include "dxpipeline.h"
 #include "llagent.h"
 #include "kvramcache.h"
 
@@ -91,6 +93,15 @@ bool LLFloaterKVTweaks::postBuild()
     {
         vlc_eq_preset->setCommitCallback(boost::bind(&LLFloaterKVTweaks::onVLCEQPresetChanged, this));
     }
+
+    // S24 - Hook up RenderHardwareShaderTier combo box (card_blank2, Rendering Core tab)
+    LLComboBox* shader_tier_combo = getChild<LLComboBox>("ShaderHardwareTier");
+    if (shader_tier_combo)
+    {
+        shader_tier_combo->setCommitCallback(boost::bind(&LLFloaterKVTweaks::onShaderHardwareTierChanged, this));
+    }
+    getChild<LLTextBox>("shader_tier_detected_text")->setText(
+        llformat("(detected: Class %d)", (S32)LLFeatureManager::getInstance()->getGPUClass()));
 
     // S24 - Hook up Resets tab buttons
     childSetAction("reset_kvtweaks_btn", boost::bind(&LLFloaterKVTweaks::onClickResetToDefaults, this));
@@ -388,6 +399,14 @@ void LLFloaterKVTweaks::onVLCEQPresetChanged()
     }
 
     // Visual feedback via slider updates is sufficient - no popup needed
+}
+
+void LLFloaterKVTweaks::onShaderHardwareTierChanged()
+{
+    // RenderHardwareShaderTier is already written by the combo box's own
+    // control_name binding; this only drives the live side effects.
+    LLViewerShaderMgr::instance()->setShaders();
+    DXPipeline::refreshCachedSettings();
 }
 
 

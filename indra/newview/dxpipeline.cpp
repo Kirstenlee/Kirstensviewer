@@ -114,7 +114,7 @@
 namespace
 {
 #define A_CPU 1
-#include "app_settings/shaders/class1/deferred/CASF.glsl" // This is also C++
+#include "app_settings/shaders/deferred/CASF.glsl" // This is also C++
 }
 
 LLTrace::BlockTimerStatHandle FTM_DEFERRED_POOLRENDER("RenderPool (Deferred)");
@@ -9552,12 +9552,17 @@ void DXPipeline::refreshCachedSettings()
     RenderShadowErrorCutoff = gSavedSettings.getF32("RenderShadowErrorCutoff");
     RenderShadowFOVCutoff = gSavedSettings.getF32("RenderShadowFOVCutoff");
     CameraOffset = gSavedSettings.getBOOL("CameraOffset");
-    RenderScreenSpaceReflectionIterations = gSavedSettings.getS32("RenderScreenSpaceReflectionIterations");
+    {
+        S32 hw_tier = LLFeatureManager::getInstance()->getEffectiveShaderTier();
+        S32 ssr_iter_ceiling = (hw_tier <= 1) ? 10 : (hw_tier == 2) ? 16 : 25;
+        S32 ssr_glossy_ceiling = (hw_tier <= 1) ? 1 : (hw_tier == 2) ? 2 : 4;
+        RenderScreenSpaceReflectionIterations = llmin(gSavedSettings.getS32("RenderScreenSpaceReflectionIterations"), ssr_iter_ceiling);
+        RenderScreenSpaceReflectionGlossySamples = llmin(gSavedSettings.getS32("RenderScreenSpaceReflectionGlossySamples"), ssr_glossy_ceiling);
+    }
     RenderScreenSpaceReflectionRayStep = gSavedSettings.getF32("RenderScreenSpaceReflectionRayStep");
     RenderScreenSpaceReflectionDistanceBias = gSavedSettings.getF32("RenderScreenSpaceReflectionDistanceBias");
     RenderScreenSpaceReflectionDepthRejectBias = gSavedSettings.getF32("RenderScreenSpaceReflectionDepthRejectBias");
     RenderScreenSpaceReflectionAdaptiveStepMultiplier = gSavedSettings.getF32("RenderScreenSpaceReflectionAdaptiveStepMultiplier");
-    RenderScreenSpaceReflectionGlossySamples = gSavedSettings.getS32("RenderScreenSpaceReflectionGlossySamples");
     RenderScreenSpaceReflectionGlossThreshold = gSavedSettings.getF32("RenderScreenSpaceReflectionGlossThreshold");
     RenderWaterSSRIterations = gSavedSettings.getS32("RenderWaterSSRIterations");
     RenderWaterSSRRayStep = gSavedSettings.getF32("RenderWaterSSRRayStep");
@@ -13128,6 +13133,7 @@ void DXPipeline::createLUTBuffers(LLPipeline& pipeline)
     // we fall back to drawing the cheap, loop-free analytic approximation shader. The real
     // shader now only ever runs from bakeBrdfLut() (dev-only, Develop > Rendering).
     bool loaded_baked = false;
+    const char* brdf_fail_reason = "file missing or unreadable";
     {
         std::string asset_path = DXPipeline::getBrdfLutAssetPath();
         constexpr S32 kExpectedBytes = 512 * 512 * 4; // RG16F: 2 channels x 2 bytes, no padding
@@ -13140,17 +13146,27 @@ void DXPipeline::createLUTBuffers(LLPipeline& pipeline)
             if (read == buf.size())
             {
                 loaded_baked = DXReadback::writePixels(pipeline.mPbrBrdfLut.getDXColorTexture(0), 0, 0, 512, 512, 4, buf.data());
+                if (!loaded_baked)
+                {
+                    brdf_fail_reason = "GPU upload (DXReadback::writePixels) failed";
+                }
             }
             else
             {
                 LL_WARNS("BrdfLut") << "Baked BRDF LUT asset " << asset_path << " is the wrong size (" << read << " of " << buf.size() << " bytes) - ignoring" << LL_ENDL;
+                brdf_fail_reason = "wrong file size, likely corrupted in transit/packaging";
             }
         }
     }
 
     if (!loaded_baked)
     {
-        LL_WARNS("BrdfLut") << "Baked BRDF LUT asset missing or failed to load - falling back to the analytic approximation shader. Run Develop > Rendering > \"Bake BRDF LUT\" and re-ship the asset." << LL_ENDL;
+        // S24: this reason string is the quickest triage signal for "BRDF compile hang"
+        // reports - it tells you in one line whether the fallback shader (compiled
+        // unconditionally every launch regardless of this asset, see loadShadersDeferred())
+        // is drawing correct-but-approximate output or genuinely missing data, without
+        // implying the fallback shader's own eager compile is new or BRDF-specific.
+        LL_WARNS("BrdfLut") << "Baked BRDF LUT asset not used (" << brdf_fail_reason << ") - falling back to the analytic approximation shader. Run Develop > Rendering > \"Bake BRDF LUT\" and re-ship the asset." << LL_ENDL;
 
         pipeline.mPbrBrdfLut.bindTarget();
         if (gDeferredGenBrdfLutFallbackProgram.isComplete())

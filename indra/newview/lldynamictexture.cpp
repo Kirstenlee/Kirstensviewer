@@ -50,6 +50,24 @@
 LLViewerDynamicTexture::instance_list_t LLViewerDynamicTexture::sInstances[ LLViewerDynamicTexture::ORDER_COUNT ];
 S32 LLViewerDynamicTexture::sNumRenders = 0;
 
+namespace
+{
+    // S24: RAII guard for gPipeline.mRT, so a return/throw anywhere inside the
+    // per-texture render loop below still restores it. A plain save/assign-back
+    // pair left gPipeline.mRT stuck on mAuxillaryRT if a preview render (e.g.
+    // LLGLTFPreviewTexture, used for in-world PBR material swatches/thumbnails)
+    // didn't make it cleanly back to the restore line - the main scene then kept
+    // rendering correctly, just into the small preview-sized aux target instead
+    // of the real screen target, leaving the rest of the back buffer untouched
+    // until an actual window resize forced pipeline.mRT back to mMainRT.
+    struct ScopedMainRT
+    {
+        LLPipeline::RenderTargetPack* mSaved;
+        ScopedMainRT(LLPipeline::RenderTargetPack* temp) : mSaved(gPipeline.mRT) { gPipeline.mRT = temp; }
+        ~ScopedMainRT() { gPipeline.mRT = mSaved; }
+    };
+}
+
 //-----------------------------------------------------------------------------
 // LLViewerDynamicTexture()
 //-----------------------------------------------------------------------------
@@ -222,8 +240,6 @@ bool LLViewerDynamicTexture::updateAllInstances()
     // swap mRT to mAuxillaryRT too, same pattern as
     // llgltfmaterialpreviewmgr.cpp. Scoped to this loop only - bake_target's
     // baked-texture compositing doesn't go through the deferred pipeline.
-    LLPipeline::RenderTargetPack* saved_rt = gPipeline.mRT;
-    gPipeline.mRT = &gPipeline.mAuxillaryRT;
 
     LLHLSLShader::unbind();
     LLVertexBuffer::unbind();
@@ -257,17 +273,23 @@ bool LLViewerDynamicTexture::updateAllInstances()
             }
         };
 
-    // ORDER_FIRST is unused, ORDER_MIDDLE is various ui preview
-    for(S32 order = 0; order < ORDER_LAST; ++order)
     {
-        for (LLViewerDynamicTexture* dynamicTexture : LLViewerDynamicTexture::sInstances[order])
-        {
-            update_func(dynamicTexture, preview_target, DXPipeline::MAX_PREVIEW_WIDTH, DXPipeline::MAX_PREVIEW_WIDTH);
-        }
-    }
-    preview_target.flush();
+        // RAII (ScopedMainRT, see top of file) rather than a plain save/restore -
+        // guarantees gPipeline.mRT is back on mMainRT before the bake_target loop
+        // below even if a preview render (e.g. LLGLTFPreviewTexture) doesn't
+        // return cleanly.
+        ScopedMainRT use_auxiliary_render_target(&gPipeline.mAuxillaryRT);
 
-    gPipeline.mRT = saved_rt;
+        // ORDER_FIRST is unused, ORDER_MIDDLE is various ui preview
+        for(S32 order = 0; order < ORDER_LAST; ++order)
+        {
+            for (LLViewerDynamicTexture* dynamicTexture : LLViewerDynamicTexture::sInstances[order])
+            {
+                update_func(dynamicTexture, preview_target, DXPipeline::MAX_PREVIEW_WIDTH, DXPipeline::MAX_PREVIEW_WIDTH);
+            }
+        }
+        preview_target.flush();
+    }
 
     // ORDER_LAST is baked skin preview, ORDER_RESET resets appearance parameters and does not render.
     bake_target.bindTarget();

@@ -45,33 +45,37 @@ LLCone		gCone;
 
 void LLCone::render(S32 sides)
 {
-    // Precompute constants
-    const float radius = 0.5f; // Radius of the base
-    const glm::vec3 tip(0.0f, 0.0f, 0.5f); // Tip of the cone
-    const glm::vec3 base_center(0.0f, 0.0f, -0.5f); // Center of the base
-
-    // Base of the cone
+    // S24: restored to match canonical LL's exact vertex sequence (verified against
+    // S:\Dev\XREF Other Source\viewer\indra\newview\llcylinder.cpp) after a GLM-based
+    // rewrite here diverged from it and broke the arrowhead shape under DX_RENDER's
+    // backface culling. Note the first fan's hub is the origin (0,0,0), not the base
+    // center - not a true flat cap, this is upstream's actual (slightly unusual but
+    // proven-correct) geometry, not a cleaned-up equivalent.
     gDX.begin(LLRender::TRIANGLE_FAN);
-    gDX.vertex3f(base_center.x, base_center.y, base_center.z); // Center vertex
+    gDX.vertex3f(0, 0, 0);
 
-    for (S32 i = 0; i <= sides; ++i) { // Include the closing point
-        float angle = (float)i / sides * glm::two_pi<float>(); // Full circle
-        float x = cos(angle) * radius; // X-coordinate
-        float y = sin(angle) * radius; // Y-coordinate
-        gDX.vertex3f(x, y, base_center.z); // Add vertex on the base perimeter
+    for (S32 i = 0; i < sides; i++)
+    {
+        F32 a = (F32)i / sides * F_PI * 2.f;
+        F32 x = cosf(a) * 0.5f;
+        F32 y = sinf(a) * 0.5f;
+        gDX.vertex3f(x, y, -.5f);
     }
+    gDX.vertex3f(cosf(0.f) * 0.5f, sinf(0.f) * 0.5f, -0.5f);
+
     gDX.end();
 
-    // Sides of the cone
     gDX.begin(LLRender::TRIANGLE_FAN);
-    gDX.vertex3f(tip.x, tip.y, tip.z); // Tip vertex
-
-    for (S32 i = 0; i <= sides; ++i) { // Match the base perimeter vertices
-        float angle = (float)i / sides * glm::two_pi<float>();
-        float x = cos(angle) * radius;
-        float y = sin(angle) * radius;
-        gDX.vertex3f(x, y, base_center.z); // Add vertex on the base perimeter
+    gDX.vertex3f(0.f, 0.f, 0.5f);
+    for (S32 i = 0; i < sides; i++)
+    {
+        F32 a = (F32)i / sides * F_PI * 2.f;
+        F32 x = cosf(a) * 0.5f;
+        F32 y = sinf(a) * 0.5f;
+        gDX.vertex3f(x, y, -0.5f);
     }
+    gDX.vertex3f(cosf(0.f) * 0.5f, sinf(0.f) * 0.5f, -0.5f);
+
     gDX.end();
 }
 

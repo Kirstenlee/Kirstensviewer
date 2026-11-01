@@ -63,8 +63,7 @@ HttpLibcurl::HttpLibcurl(HttpService * service)
 	  mHandleCache(),
 	  mPolicyCount(0),
 	  mMultiHandles(NULL),
-	  mActiveHandles(NULL),
-	  mDirtyPolicy(NULL)
+	  mActiveHandles(NULL)
 {}
 
 
@@ -102,9 +101,6 @@ void HttpLibcurl::shutdown()
 
 		delete [] mActiveHandles;
 		mActiveHandles = NULL;
-
-		delete [] mDirtyPolicy;
-		mDirtyPolicy = NULL;
 	}
 
 	mPolicyCount = 0;
@@ -119,7 +115,6 @@ void HttpLibcurl::start(int policy_count)
 	mPolicyCount = policy_count;
 	mMultiHandles = new CURLM * [mPolicyCount];
 	mActiveHandles = new int [mPolicyCount];
-	mDirtyPolicy = new bool [mPolicyCount];
 	
     for (unsigned int policy_class(0); policy_class < mPolicyCount; ++policy_class)
 	{
@@ -129,7 +124,6 @@ void HttpLibcurl::start(int policy_count)
 							  << LL_ENDL;
 		}
 		mActiveHandles[policy_class] = 0;
-		mDirtyPolicy[policy_class] = false;
 		policyUpdated(policy_class);
 	}
 }
@@ -155,12 +149,6 @@ HttpService::ELoopSpeed HttpLibcurl::processTransport()
 		}
 		if (! mActiveHandles[policy_class])
 		{
-			// If we've gone quiet and there's a dirty update, apply it,
-			// otherwise we're done.
-			if (mDirtyPolicy[policy_class])
-			{
-				policyUpdated(policy_class);
-			}
 			continue;
 		}
 		
@@ -401,71 +389,41 @@ void HttpLibcurl::policyUpdated(unsigned int policy_class)
 	{
 		return;
 	}
-	
+
+	// S24: libcurl 7.62.0+ removed HTTP/1.1 pipelining - CURLMOPT_PIPELINING/
+	// MAX_PIPELINE_LENGTH are silent no-ops now, so the live-handle memory
+	// corruption this used to stall/drain around (curl <=7.37.0, pipelined-to-
+	// non-pipelined transitions) can no longer happen. Apply directly.
 	HttpPolicy & policy(mService->getPolicy());
-	
-	if (! mActiveHandles[policy_class])
+	HttpPolicyClass & options(policy.getClassOptions(policy_class));
+	CURLM * multi_handle(mMultiHandles[policy_class]);
+
+	if (options.mPipelining > 1)
 	{
-		// Clear to set options.  As of libcurl 7.37.0, if a pipelining
-		// multi handle has active requests and you try to set the
-		// multi handle to non-pipelining, the library gets very angry
-		// and goes off the rails corrupting memory.  A clue that you're
-		// about to crash is that you'll get a missing server response
-		// error (curl code 9).  So, if options are to be set, we let
-		// the multi handle run out of requests, then set options, and
-		// re-enable request processing.
-		//
-		// All of this stall mechanism exists for this reason.  If
-		// libcurl becomes more resilient later, it should be possible
-		// to remove all of this.  The connection limit settings are fine,
-		// it's just that pipelined-to-non-pipelined transition that
-		// is fatal at the moment.
-		
-		HttpPolicyClass & options(policy.getClassOptions(policy_class));
-		CURLM * multi_handle(mMultiHandles[policy_class]);
-
-		// Enable policy if stalled
-		policy.stallPolicy(policy_class, false);
-		mDirtyPolicy[policy_class] = false;
-
-		if (options.mPipelining > 1)
-		{
-			// We'll try to do pipelining on this multihandle
-			check_curl_multi_setopt(multi_handle,
-									 CURLMOPT_PIPELINING,
-									 1L);
-			check_curl_multi_setopt(multi_handle,
-									 CURLMOPT_MAX_PIPELINE_LENGTH,
-									 long(options.mPipelining));
-			check_curl_multi_setopt(multi_handle,
-									 CURLMOPT_MAX_HOST_CONNECTIONS,
-									 long(options.mPerHostConnectionLimit));
-			check_curl_multi_setopt(multi_handle,
-									 CURLMOPT_MAX_TOTAL_CONNECTIONS,
-									 long(options.mConnectionLimit));
-		}
-		else
-		{
-			check_curl_multi_setopt(multi_handle,
-									 CURLMOPT_PIPELINING,
-									 0L);
-			check_curl_multi_setopt(multi_handle,
-									 CURLMOPT_MAX_HOST_CONNECTIONS,
-									 0L);
-			check_curl_multi_setopt(multi_handle,
-									 CURLMOPT_MAX_TOTAL_CONNECTIONS,
-									 long(options.mConnectionLimit));
-		}
+		check_curl_multi_setopt(multi_handle,
+								 CURLMOPT_PIPELINING,
+								 1L);
+		check_curl_multi_setopt(multi_handle,
+								 CURLMOPT_MAX_PIPELINE_LENGTH,
+								 long(options.mPipelining));
+		check_curl_multi_setopt(multi_handle,
+								 CURLMOPT_MAX_HOST_CONNECTIONS,
+								 long(options.mPerHostConnectionLimit));
+		check_curl_multi_setopt(multi_handle,
+								 CURLMOPT_MAX_TOTAL_CONNECTIONS,
+								 long(options.mConnectionLimit));
 	}
-	else if (! mDirtyPolicy[policy_class])
+	else
 	{
-		// Mark policy dirty and request a stall in the policy.
-		// When policy goes idle, we'll re-invoke this method
-		// and perform the change.  Don't allow this thread to
-		// sleep while we're waiting for quiescence, we'll just
-		// stop processing.
-		mDirtyPolicy[policy_class] = true;
-		policy.stallPolicy(policy_class, true);
+		check_curl_multi_setopt(multi_handle,
+								 CURLMOPT_PIPELINING,
+								 0L);
+		check_curl_multi_setopt(multi_handle,
+								 CURLMOPT_MAX_HOST_CONNECTIONS,
+								 0L);
+		check_curl_multi_setopt(multi_handle,
+								 CURLMOPT_MAX_TOTAL_CONNECTIONS,
+								 long(options.mConnectionLimit));
 	}
 }
 

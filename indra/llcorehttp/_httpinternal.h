@@ -156,6 +156,7 @@ constexpr long HTTP_PIPELINING_MAX = 20L;
 // Miscellaneous defaults
 constexpr bool HTTP_USE_RETRY_AFTER_DEFAULT = true;
 constexpr long HTTP_THROTTLE_RATE_DEFAULT = 0L;
+constexpr long HTTP_COMPRESS_RESPONSE_DEFAULT = 1L;
 
 // Tuning parameters
 

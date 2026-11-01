@@ -684,7 +684,20 @@ foreach ($pkg in $vcpkgPackages) {
             # Build the dependency entry (include features if present)
             $dep = [ordered]@{ name = $portName }
             if ($features) {
-                $dep["features"] = @($features -split ',\s*')
+                $featureList = @($features -split ',\s*')
+                # S24: "core" (matching vcpkg's own classic-mode CLI syntax,
+                # port[core,feat1,feat2]) suppresses the port's default-features.
+                # vcpkg's manifest JSON schema rejects "core" as a literal feature
+                # name ("the feature \"core\" cannot be in a dependency's feature
+                # list") - translate it to the manifest's own default-features
+                # field instead.
+                if ($featureList -contains "core") {
+                    $dep["default-features"] = $false
+                    $featureList = @($featureList | Where-Object { $_ -ne "core" })
+                }
+                if ($featureList.Count -gt 0) {
+                    $dep["features"] = @($featureList)
+                }
             }
 
             # Build the version override

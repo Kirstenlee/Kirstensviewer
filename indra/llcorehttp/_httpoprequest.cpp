@@ -483,7 +483,20 @@ namespace LLCore
 		check_curl_easy_setopt(mCurlHandle, CURLOPT_NOPROGRESS, 1);
 		check_curl_easy_setopt(mCurlHandle, CURLOPT_URL, mReqURL.c_str());
 		check_curl_easy_setopt(mCurlHandle, CURLOPT_PRIVATE, getHandle());
-		check_curl_easy_setopt(mCurlHandle, CURLOPT_ENCODING, "");
+		// S24: some asset-CDN hosts return a Content/Transfer-Encoding libcurl
+		// can't parse when compression is requested - per-class opt-out via
+		// PO_COMPRESS_RESPONSE (see llappcorehttp.cpp for which classes
+		// disable it). Passing NULL (not "") means no Accept-Encoding header
+		// is sent at all, matching Aurora Viewer's working approach against
+		// this same grid.
+		if (cpolicy.mCompressResponse)
+		{
+			check_curl_easy_setopt(mCurlHandle, CURLOPT_ENCODING, "");
+		}
+		else
+		{
+			check_curl_easy_setopt(mCurlHandle, CURLOPT_ENCODING, static_cast<char*>(NULL));
+		}
 
 		check_curl_easy_setopt(mCurlHandle, CURLOPT_AUTOREFERER, 1);
 		check_curl_easy_setopt(mCurlHandle, CURLOPT_MAXREDIRS, HTTP_REDIRECTS_DEFAULT);
@@ -586,7 +599,15 @@ namespace LLCore
 		case HOR_POST:
 		{
 			check_curl_easy_setopt(mCurlHandle, CURLOPT_POST, 1);
-			check_curl_easy_setopt(mCurlHandle, CURLOPT_ENCODING, "");
+			// S24: same PO_COMPRESS_RESPONSE opt-out as the GET path above.
+			if (cpolicy.mCompressResponse)
+			{
+				check_curl_easy_setopt(mCurlHandle, CURLOPT_ENCODING, "");
+			}
+			else
+			{
+				check_curl_easy_setopt(mCurlHandle, CURLOPT_ENCODING, static_cast<char*>(NULL));
+			}
 			long data_size(0);
 			if (mReqBody)
 			{

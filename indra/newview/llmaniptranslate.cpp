@@ -122,7 +122,13 @@ LLManipTranslate::LLManipTranslate( LLToolComposite* composite )
     mCopyMadeThisDrag(false),
     mMouseDownX(-1),
     mMouseDownY(-1),
-    mAxisArrowLength(50),
+    // S24: upstream default is 50px, which puts the cone's own geometry inside a
+    // typical small/close-edited object's volume (occluded by the object's own
+    // surface - looks like a disconnected gap between shaft and arrowhead rather
+    // than a seamless handle). Upstream's own dead increaseArrowLength() stub
+    // (llviewerobject.cpp, never wired up) treats 100 as its first bump tier -
+    // using that as a non-arbitrary baseline instead of 50.
+    mAxisArrowLength(100),
     mConeSize(0),
     mArrowLengthMeters(0.f),
     mGridSizeMeters(1.f),
