@@ -22,7 +22,7 @@
  * SOFTWARE.
  */
 
-// Shared vertex-to-pixel varying struct for class1/deferred/skyLineV.hlsl/
+// Shared vertex-to-pixel varying struct for /deferred/skyLineV.hlsl/
 // skyLineF.hlsl - a minimal flat-vertex-color line shader for sky-dome-distance
 // immediate-mode geometry (constellation connector lines, dxLineWidth()-based).
 // Deliberately just vertex_color - no texture, no per-star data like

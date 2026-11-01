@@ -1,0 +1,305 @@
+﻿/**
+ * @file /gltf/pbrmetallicroughnessF.hlsl
+ *
+ * Copyright (c) 2025 Kirstenlee Cinquetti (Lee Quick)
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+/*[EXTRA_CODE_HERE]*/
+
+// GLTF pbrMetallicRoughness implementation
+
+uniform int gltf_material_id;
+
+// HLSL globals are implicitly const unless declared static - GLSL has no
+// such rule, these are written to below in unpackMaterial().
+static float3 emissiveColor = float3(0,0,0);
+static float metallicFactor = 1.0;
+static float roughnessFactor = 1.0;
+static float minimum_alpha = -1.0;
+
+cbuffer GLTFMaterials : register(b0)
+{
+    float4 gltf_material_data[MAX_UBO_VEC4S];
+};
+
+void unpackMaterial()
+{
+    if (gltf_material_id > -1)
+    {
+        int idx = gltf_material_id * 12;
+        emissiveColor = gltf_material_data[idx + 10].rgb;
+        roughnessFactor = gltf_material_data[idx + 11].g;
+        metallicFactor = gltf_material_data[idx + 11].b;
+        minimum_alpha -= gltf_material_data[idx + 11].a;
+    }
+}
+
+// t0-t3/s0-s3 are reserved by deferredUtil.hlsl's normalMap/depthMap/
+// projectionMap/brdfLut (attached here via isDeferred on the alpha-blend
+// variant) - this file's own textures live at t5-t9/s5-s9 to avoid
+// collision, same pattern as materialF.hlsl/pbralphaF.hlsl. "normalMap" is
+// renamed "gltfNormalMap" to avoid a name collision with deferredUtil.hlsl's
+// normalMap (two different resources, same name). occlusionMap is at
+// t4/s4, not t9/s9, which is reflectionProbeF.hlsl's environmentMap.
+Texture2D diffuseMap : register(t5);
+SamplerState diffuseMapSampler : register(s5);
+Texture2D emissiveMap : register(t6);
+SamplerState emissiveMapSampler : register(s6);
+
+void mirrorClip(float3 pos);
+float4 encodeNormal(float3 n, float env, float gbuffer_flag);
+float3 linear_to_srgb(float3 c);
+float3 srgb_to_linear(float3 c);
+
+#ifndef UNLIT
+Texture2D gltfNormalMap : register(t7);
+SamplerState gltfNormalMapSampler : register(s7);
+Texture2D metallicRoughnessMap : register(t8);
+SamplerState metallicRoughnessMapSampler : register(s8);
+Texture2D occlusionMap : register(t4);
+SamplerState occlusionMapSampler : register(s4);
+#endif
+
+// ALPHA_BLEND: lit forward-shading branch (punctual+IBL PBR lighting,
+// shadow sampling, sky/water fog), mirroring /deferred/pbralphaF.hlsl's
+// equivalent, writing a single forward-blended SV_Target rather than
+// SV_Target0-3.
+#ifdef ALPHA_BLEND
+void waterClip(float3 pos);
+void calcAtmosphericVarsLinear(float3 inPositionEye, float3 norm, float3 light_dir, out float3 sunlit, out float3 amblit, out float3 atten, out float3 additive);
+float4 applySkyAndWaterFog(float3 pos, float3 additive, float3 atten, float4 color);
+
+#ifndef UNLIT
+#ifdef HAS_SUN_SHADOW
+Texture2D lightMap : register(t10);
+SamplerState lightMapSampler : register(s10);
+// inv_proj/screen_res declared as a pair under this guard (matching
+// deferredUtil.hlsl's pair) - a lone screen_res-only declaration here would
+// claim the guard and skip the later block's inv_proj declaration.
+#ifndef LL_INV_PROJ_DECLARED
+#define LL_INV_PROJ_DECLARED
+uniform float4x4 inv_proj;
+uniform float2 screen_res;
+#endif
+#endif
+
+uniform float4 light_position[8];
+uniform float3 light_direction[8];
+uniform float4 light_attenuation[8];
+uniform float3 light_diffuse[8];
+uniform float2 light_deferred_attenuation[8];
+
+#ifndef LL_SUN_UP_FACTOR_DECLARED
+#define LL_SUN_UP_FACTOR_DECLARED
+uniform int sun_up_factor;
+#endif
+#ifndef LL_SUN_MOON_DIR_DECLARED
+#define LL_SUN_MOON_DIR_DECLARED
+uniform float3 sun_dir;
+uniform float3 moon_dir;
+#endif
+
+#ifdef HAS_SUN_SHADOW
+float sampleDirectionalShadow(float3 pos, float3 norm, float2 pos_screen);
+#endif
+void sampleReflectionProbes(inout float3 ambenv, inout float3 glossenv,
+    float2 tc, float3 pos, float3 norm, float glossiness, float metallic, bool transparent, float3 amblit_linear);
+void calcDiffuseSpecular(float3 baseColor, float metallic, inout float3 diffuseColor, inout float3 specularColor);
+float3 pbrBaseLight(float3 diffuseColor, float3 specularColor, float metallic, float3 v, float3 norm, float perceptualRoughness, float3 light_dir, float3 sunlit, float scol, float3 radiance, float3 irradiance, float3 colorEmissive, float ao, float3 additive, float3 atten);
+float3 pbrCalcPointLightOrSpotLight(float3 diffuseColor, float3 specularColor,
+                    float perceptualRoughness,
+                    float metallic,
+                    float3 n,
+                    float3 p,
+                    float3 v,
+                    float3 lp,
+                    float3 ld,
+                    float3 lightColor,
+                    float lightSize, float falloff, float is_pointlight, float ambiance);
+#endif // !UNLIT
+#endif // ALPHA_BLEND
+
+#include "varying/pbrMetallicRoughnessVarying.hlsli"
+
+// SV_Position required on bare-Varying PS inputs - see uiF.hlsl's comment.
+// Shared by both main() variants below (UNLIT and the full G-buffer path).
+struct PSInput
+{
+    float4 position : SV_Position;
+    PBRMetallicRoughnessVarying varying;
+    bool isFrontFace : SV_IsFrontFace;
+};
+
+#ifdef UNLIT
+float4 main(PSInput IN) : SV_Target
+{
+    unpackMaterial();
+
+    float4 baseColor = diffuseMap.Sample(diffuseMapSampler, IN.varying.base_color_uv);
+    baseColor.rgb = srgb_to_linear(baseColor.rgb);
+    baseColor *= IN.varying.vertex_color;
+
+    if (baseColor.a < minimum_alpha)
+    {
+        discard;
+    }
+
+    float4 color = baseColor;
+    color.rgb += emissiveColor * srgb_to_linear(emissiveMap.Sample(emissiveMapSampler, IN.varying.emissive_uv).rgb);
+
+    float4 frag_color = max(color, float4(0, 0, 0, 0));
+    return frag_color;
+}
+#elif defined(ALPHA_BLEND)
+// Mirrors /deferred/pbralphaF.hlsl function-for-function. The final
+// `a = baseColor.a * IN.varying.vertex_color.a` intentionally re-multiplies
+// by vertex_color.a a second time (baseColor.a already includes it from the
+// `baseColor *= IN.varying.vertex_color` line above) - matches
+// pbrmetallicroughnessF.glsl's own arithmetic exactly.
+float4 main(PSInput IN) : SV_Target
+{
+    unpackMaterial();
+    float3 pos = IN.varying.vary_position;
+    mirrorClip(pos);
+
+    float4 baseColor = diffuseMap.Sample(diffuseMapSampler, IN.varying.base_color_uv);
+    baseColor.rgb = srgb_to_linear(baseColor.rgb);
+    baseColor *= IN.varying.vertex_color;
+
+    if (baseColor.a < minimum_alpha)
+    {
+        discard;
+    }
+
+    float3 emissive = emissiveColor;
+    emissive *= srgb_to_linear(emissiveMap.Sample(emissiveMapSampler, IN.varying.emissive_uv).rgb);
+
+    float3 vNt = gltfNormalMap.Sample(gltfNormalMapSampler, IN.varying.normal_uv).xyz * 2.0 - 1.0;
+    float sign = IN.varying.vary_sign;
+    float3 vN = normalize(IN.varying.vary_normal);
+    float3 vT = IN.varying.vary_tangent;
+    float3 vB = sign * cross(vN, vT);
+    float3 norm = normalize(vNt.x * vT + vNt.y * vB + vNt.z * vN);
+    // Flip the normal for back-facing polygons, same idiom as pbralphaF.hlsl/pbrterrainF.hlsl.
+    norm *= IN.isFrontFace ? 1.0 : -1.0;
+
+    float3 orm = metallicRoughnessMap.Sample(metallicRoughnessMapSampler, IN.varying.metallic_roughness_uv).rgb;
+    orm.r = occlusionMap.Sample(occlusionMapSampler, IN.varying.occlusion_uv).r;
+    orm.g *= roughnessFactor;
+    orm.b *= metallicFactor;
+
+    float scol = 1.0;
+    float3 light_dir = (sun_up_factor == 1) ? sun_dir : moon_dir;
+
+    float3 sunlit, amblit, additive, atten;
+    calcAtmosphericVarsLinear(pos, norm, light_dir, sunlit, amblit, additive, atten);
+    float3 sunlit_linear = srgb_to_linear(sunlit);
+
+    float2 frag = IN.varying.vary_fragcoord.xy / IN.varying.vary_fragcoord.z * 0.5 + 0.5;
+
+#ifdef HAS_SUN_SHADOW
+    scol = sampleDirectionalShadow(pos, norm, frag);
+#endif
+
+    float perceptualRoughness = orm.g;
+    float metallic = orm.b;
+
+    float gloss = 1.0 - perceptualRoughness;
+    float3 irradiance = float3(0, 0, 0);
+    float3 radiance = float3(0, 0, 0);
+    sampleReflectionProbes(irradiance, radiance, IN.varying.vary_position.xy * 0.5 + 0.5, pos, norm, gloss, metallic, true, amblit);
+
+    float3 diffuseColor, specularColor;
+    calcDiffuseSpecular(baseColor.rgb, metallic, diffuseColor, specularColor);
+
+    float3 v = -normalize(pos);
+
+    float3 color = pbrBaseLight(diffuseColor, specularColor, metallic, v, norm, perceptualRoughness, light_dir, sunlit_linear, scol, radiance, irradiance, emissive, orm.r, additive, atten);
+
+    float3 light = float3(0, 0, 0);
+    light += pbrCalcPointLightOrSpotLight(diffuseColor, specularColor, perceptualRoughness, metallic, norm, pos, v, light_position[1].xyz, light_direction[1].xyz, light_diffuse[1].rgb, light_deferred_attenuation[1].x, light_deferred_attenuation[1].y, light_attenuation[1].z, light_attenuation[1].w);
+    light += pbrCalcPointLightOrSpotLight(diffuseColor, specularColor, perceptualRoughness, metallic, norm, pos, v, light_position[2].xyz, light_direction[2].xyz, light_diffuse[2].rgb, light_deferred_attenuation[2].x, light_deferred_attenuation[2].y, light_attenuation[2].z, light_attenuation[2].w);
+    light += pbrCalcPointLightOrSpotLight(diffuseColor, specularColor, perceptualRoughness, metallic, norm, pos, v, light_position[3].xyz, light_direction[3].xyz, light_diffuse[3].rgb, light_deferred_attenuation[3].x, light_deferred_attenuation[3].y, light_attenuation[3].z, light_attenuation[3].w);
+    light += pbrCalcPointLightOrSpotLight(diffuseColor, specularColor, perceptualRoughness, metallic, norm, pos, v, light_position[4].xyz, light_direction[4].xyz, light_diffuse[4].rgb, light_deferred_attenuation[4].x, light_deferred_attenuation[4].y, light_attenuation[4].z, light_attenuation[4].w);
+    light += pbrCalcPointLightOrSpotLight(diffuseColor, specularColor, perceptualRoughness, metallic, norm, pos, v, light_position[5].xyz, light_direction[5].xyz, light_diffuse[5].rgb, light_deferred_attenuation[5].x, light_deferred_attenuation[5].y, light_attenuation[5].z, light_attenuation[5].w);
+    light += pbrCalcPointLightOrSpotLight(diffuseColor, specularColor, perceptualRoughness, metallic, norm, pos, v, light_position[6].xyz, light_direction[6].xyz, light_diffuse[6].rgb, light_deferred_attenuation[6].x, light_deferred_attenuation[6].y, light_attenuation[6].z, light_attenuation[6].w);
+    light += pbrCalcPointLightOrSpotLight(diffuseColor, specularColor, perceptualRoughness, metallic, norm, pos, v, light_position[7].xyz, light_direction[7].xyz, light_diffuse[7].rgb, light_deferred_attenuation[7].x, light_deferred_attenuation[7].y, light_attenuation[7].z, light_attenuation[7].w);
+
+    color += light;
+    color = applySkyAndWaterFog(pos, additive, atten, float4(color, 1.0)).rgb;
+
+    float a = baseColor.a * IN.varying.vertex_color.a;
+
+    return max(float4(color, a), float4(0, 0, 0, 0));
+}
+#else
+struct PSOutput
+{
+    float4 data0 : SV_Target0;
+    float4 data1 : SV_Target1;
+    float4 data2 : SV_Target2;
+#if defined(HAS_EMISSIVE)
+    float4 data3 : SV_Target3;
+#endif
+};
+
+PSOutput main(PSInput IN)
+{
+    PSOutput OUT;
+    unpackMaterial();
+    mirrorClip(IN.varying.vary_position);
+
+    float4 baseColor = diffuseMap.Sample(diffuseMapSampler, IN.varying.base_color_uv);
+    baseColor.rgb = srgb_to_linear(baseColor.rgb);
+    baseColor *= IN.varying.vertex_color;
+
+    if (baseColor.a < minimum_alpha)
+    {
+        discard;
+    }
+
+    float3 n = normalize(IN.varying.vary_normal);
+    float3 t = normalize(IN.varying.vary_tangent);
+    float3 b = IN.varying.vary_sign * cross(n, t);
+    float3 tnorm = normalize(gltfNormalMap.Sample(gltfNormalMapSampler, IN.varying.normal_uv).xyz * 2.0 - 1.0);
+    tnorm = normalize(tnorm.x * t + tnorm.y * b + tnorm.z * n);
+    // Flip the normal for back-facing polygons, same idiom as pbralphaF.hlsl/pbrterrainF.hlsl.
+    tnorm *= IN.isFrontFace ? 1.0 : -1.0;
+
+    float3 orm = metallicRoughnessMap.Sample(metallicRoughnessMapSampler, IN.varying.metallic_roughness_uv).rgb;
+    float occlusion = occlusionMap.Sample(occlusionMapSampler, IN.varying.occlusion_uv).r;
+    float perceptualRoughness = orm.g * roughnessFactor;
+    float metallic = orm.b * metallicFactor;
+
+    float3 emissive = emissiveColor * srgb_to_linear(emissiveMap.Sample(emissiveMapSampler, IN.varying.emissive_uv).rgb);
+
+    float3 col = baseColor.rgb;
+
+    OUT.data0 = max(float4(col, 0.0), float4(0, 0, 0, 0));
+    OUT.data1 = max(float4(occlusion, perceptualRoughness, metallic, 0.0), float4(0, 0, 0, 0));
+    OUT.data2 = encodeNormal(tnorm, 0, GBUFFER_FLAG_HAS_PBR);
+
+#if defined(HAS_EMISSIVE)
+    OUT.data3 = max(float4(emissive, 0), float4(0, 0, 0, 0));
+#endif
+    return OUT;
+}
+#endif

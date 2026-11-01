@@ -22,7 +22,7 @@
  * SOFTWARE.
  */
 
-// Shared vertex-to-pixel varying struct for class1/deferred/starsShootingV.hlsl/
+// Shared vertex-to-pixel varying struct for /deferred/starsShootingV.hlsl/
 // starsShootingF.hlsl (task #279 stage 2, "RENDER WOW").
 //
 // vary_texcoord0.x: streak-local position, 0 at the tail (transparent) to 1

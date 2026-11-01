@@ -22,7 +22,7 @@
  * SOFTWARE.
  */
 
-// Shared vertex-to-pixel varying struct for class1/deferred/starsV.hlsl/
+// Shared vertex-to-pixel varying struct for /deferred/starsV.hlsl/
 // starsF.hlsl (the ALM-on variant) - see varying/uiVarying.hlsli's comment
 // for why this exists.
 //

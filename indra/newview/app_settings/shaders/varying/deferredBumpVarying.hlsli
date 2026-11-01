@@ -22,9 +22,9 @@
  * SOFTWARE.
  */
 
-// Shared vertex-to-pixel varying struct for class1/deferred/bumpV.hlsl/
+// Shared vertex-to-pixel varying struct for /deferred/bumpV.hlsl/
 // bumpF.hlsl - see varying/uiVarying.hlsli's comment for why this exists.
-// (Not to be confused with class1/objects/bumpV.hlsl/F.hlsl - a different,
+// (Not to be confused with /objects/bumpV.hlsl/F.hlsl - a different,
 // smaller shader pair with its own header, BumpVarying.)
 struct DeferredBumpVarying
 {

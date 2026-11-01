@@ -1,0 +1,332 @@
+﻿/**
+ * @file /deferred/tonemapUtilF.hlsl
+ *
+ * Copyright (c) 2025 Kirstenlee Cinquetti (Lee Quick)
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+/*[EXTRA_CODE_HERE]*/
+
+// t8/s8 is the one slot free across every consumer of this shared utility
+// file: water (waterF.hlsl uses t4-t7, t9/s9 for environmentMap) and the
+// post-process tonemap family (postDeferredTonemap.hlsl, t0-t3/s0-s3
+// reserved by deferredUtil.hlsl, diffuseRect at t7/s7).
+Texture2D exposureMap : register(t8);
+SamplerState exposureMapSampler : register(s8);
+
+uniform float exposure;
+uniform float tonemap_mix;
+uniform int tonemap_type;
+
+//===============================================================
+// tone mapping taken from Khronos sample implementation
+//===============================================================
+
+// sRGB => XYZ => D65_2_D60 => AP1 => RRT_SAT
+static const float3x3 ACESInputMat = float3x3
+(
+    0.59719, 0.07600, 0.02840,
+    0.35458, 0.90834, 0.13383,
+    0.04823, 0.01566, 0.83777
+);
+
+
+// ODT_SAT => XYZ => D60_2_D65 => sRGB
+static const float3x3 ACESOutputMat = float3x3
+(
+    1.60475, -0.10208, -0.00327,
+    -0.53108,  1.10813, -0.07276,
+    -0.07367, -0.00605,  1.07602
+);
+
+// ACES tone map (faster approximation)
+// see: https://knarkowicz.wordpress.com/2016/01/06/aces-filmic-tone-mapping-curve/
+//
+// A single fitted curve, no matrix multiply involved (unlike toneMapACES_Hill
+// above), so no per-channel color-shift risk. Wired up as tonemap_type 4
+// ("ACES (Fast)") - a cheaper alternative to toneMapACES_Hill's fuller RRT/ODT fit.
+float3 toneMapACES_Narkowicz(float3 color)
+{
+    const float A = 2.51;
+    const float B = 0.03;
+    const float C = 2.43;
+    const float D = 0.59;
+    const float E = 0.14;
+    return clamp((color * (A * color + B)) / (color * (C * color + D) + E), 0.0, 1.0);
+}
+
+// AgX tone map (Troy Sobotka's AgX, minimal fitted approximation)
+// see: https://iolite-engine.com/blog_posts/minimal_agx_implementation
+// (Benjamin Wrensch's widely-used "Minimal AgX implementation", MIT license -
+// the same fit reused verbatim across many open-source engines)
+//
+// Matrix literals typed identically to the published reference's mat3(...)
+// (GLSL fills column-major; HLSL's float3x3(...) fills the same literal
+// list row-major), so mul(color, M) rather than mul(M, color) is used for
+// both matrices to get the reference's intended M*color without
+// hand-transposing the literals.
+static const float3x3 AgXInputMat = float3x3
+(
+    0.842479062253094, 0.0423282422610123, 0.0423756549057051,
+    0.0784335999999992, 0.878468636469772, 0.0784336,
+    0.0792237451477643, 0.0791661274605434, 0.879142973793104
+);
+
+static const float3x3 AgXOutputMat = float3x3
+(
+    1.19687900512017, -0.0980208811401368, -0.0990297440797205,
+    -0.0528968517574562, 1.15190312990417, -0.0989611768448433,
+    -0.0529716355144438, -0.0980434501171241, 1.15107367264116
+);
+
+// Fitted approximation of AgX's sigmoid contrast curve (mean err^2 ~3.67e-6
+// against the full AgX 1D LUT, per the reference above).
+float3 agxDefaultContrastApprox(float3 x)
+{
+    float3 x2 = x * x;
+    float3 x4 = x2 * x2;
+
+    return 15.5     * x4 * x2
+         - 40.14     * x4 * x
+         + 31.96     * x4
+         - 6.868     * x2 * x
+         + 0.4298    * x2
+         + 0.1191    * x
+         - 0.00232;
+}
+
+// The published reference's final step ("agxEotf") also applies pow(color,
+// 2.2) as a combined tonemap+display-gamma step. This engine's toneMap()
+// contract instead has every operator return a still-linear [0,1] result,
+// with a single shared linear_to_srgb() pass (postDeferredTonemap.hlsl)
+// doing display gamma encode afterward - so pow(2.2) is deliberately
+// omitted here to avoid double-encoding gamma.
+float3 toneMapAgX(float3 color)
+{
+    const float min_ev = -12.47393;
+    const float max_ev = 4.026069;
+
+    // log2() of a zero/negative input is -infinity/NaN, which would poison
+    // this whole pixel - same guard as toneMapUchimura() below.
+    color = max(color, 0.000001);
+    color = mul(color, AgXInputMat);
+    color = clamp(log2(color), min_ev, max_ev);
+    color = (color - min_ev) / (max_ev - min_ev);
+
+    color = agxDefaultContrastApprox(color);
+
+    color = mul(color, AgXOutputMat);
+
+    return clamp(color, 0.0, 1.0);
+}
+
+
+// ACES filmic tone map approximation
+// see https://github.com/TheRealMJP/BakingLab/blob/master/BakingLab/ACES.hlsl
+float3 RRTAndODTFit(float3 color)
+{
+    float3 a = color * (color + 0.0245786) - 0.000090537;
+    float3 b = color * (0.983729 * color + 0.4329510) + 0.238081;
+    return a / b;
+}
+
+
+// tone mapping
+//
+// ACESInputMat/ACESOutputMat's literals are copy-pasted verbatim from the
+// GLSL reference's mat3(...), which fills column-major, while HLSL's
+// float3x3(...) fills the same literal list row-major - the identical
+// values produce transposed matrices between the two languages. Use
+// mul(color, M) rather than mul(M, color) to get the GLSL-intended M*color
+// under HLSL's vector-times-matrix convention, with literals left untouched.
+float3 toneMapACES_Hill(float3 color)
+{
+    color = mul(color, ACESInputMat);
+
+    // Apply RRT and ODT
+    color = RRTAndODTFit(color);
+
+    color = mul(color, ACESOutputMat);
+
+    // Clamp to [0, 1]
+    color = clamp(color, 0.0, 1.0);
+
+    return color;
+}
+
+// Khronos Neutral tonemapping
+// https://github.com/KhronosGroup/ToneMapping/tree/main
+// Input color is non-negative and resides in the Linear Rec. 709 color space.
+// Output color is also Linear Rec. 709, but in the [0, 1] range.
+//
+float3 PBRNeutralToneMapping(float3 color)
+{
+    const float startCompression = 0.8 - 0.04;
+    const float desaturation = 0.15;
+
+    float x = min(color.r, min(color.g, color.b));
+    float offset = x < 0.08 ? x - 6.25 * x * x : 0.04;
+    color -= offset;
+
+    float peak = max(color.r, max(color.g, color.b));
+    if (peak < startCompression) return color;
+
+    const float d = 1.0 - startCompression;
+    float newPeak = 1.0 - d * d / (peak + d - startCompression);
+    color *= newPeak / peak;
+
+    float g = 1.0 - 1.0 / (desaturation * (peak - newPeak) + 1.0);
+    return lerp(color, newPeak * float3(1.0, 1.0, 1.0), g);
+}
+
+// Hable (Uncharted 2) tonemap operator
+// see: http://filmicworlds.com/blog/filmic-tonemapping-operators/
+float3 toneMapHable_Partial(float3 x)
+{
+    const float A = 0.15;
+    const float B = 0.50;
+    const float C = 0.10;
+    const float D = 0.20;
+    const float E = 0.02;
+    const float F = 0.30;
+    return ((x*(A*x+C*B)+D*E)/(x*(A*x+B)+D*F))-E/F;
+}
+
+float3 toneMapHable(float3 color)
+{
+    const float exposureBias = 2.0;
+    float3 curr = toneMapHable_Partial(color * exposureBias);
+    float3 whiteScale = 1.0 / toneMapHable_Partial(float3(11.2, 11.2, 11.2));
+    return curr * whiteScale;
+}
+
+// Uchimura tonemap operator
+// see: https://www.desmos.com/calculator/gslcdxvipg
+float3 toneMapUchimura(float3 x)
+{
+    const float P = 1.0;  // max display brightness
+    const float a = 1.0;  // contrast
+    const float m = 0.22; // linear section start
+    const float l = 0.4;  // linear section length
+    const float c = 1.33; // black
+    const float b = 0.0;  // pedestal
+
+    float l0 = ((P - m) * l) / a;
+    float S0 = m + l0;
+    float S1 = m + a * l0;
+    float C2 = (a * P) / (P - S1);
+    float CP = -C2 / P;
+
+    float3 w0 = 1.0 - smoothstep(0.0, m, x);
+    float3 w2 = step(S0, x);
+    float3 w1 = 1.0 - w0 - w2;
+
+    // x (input HDR color) isn't guaranteed non-negative under floating-point
+    // drift; pow() with a negative base and non-integer exponent is
+    // undefined and D3D11 tends to return NaN, poisoning the pixel - guard
+    // with abs(), same as atmosphericsFuncs.hlsl's calcAtmosphericVars().
+    float3 T = m * pow(abs(x / m), float3(c, c, c)) + b;
+    float3 S = P - (P - S1) * exp(CP * (x - S0));
+    float3 L = m + a * (x - m);
+
+    return T * w0 + L * w1 + S * w2;
+}
+
+float3 toneMap(float3 color)
+{
+#ifndef NO_POST
+    float3 linear_input_color = color;
+
+    float exp_scale = exposureMap.SampleLevel(exposureMapSampler, float2(0.5, 0.5), 0).r;
+    float final_exposure = exposure * exp_scale;
+    float3 exposed_color = color * final_exposure;
+
+    float3 tonemapped_color = exposed_color;
+    switch (tonemap_type)
+    {
+    case 0:
+        tonemapped_color = PBRNeutralToneMapping(exposed_color);
+        break;
+    case 1:
+        tonemapped_color = toneMapACES_Hill(exposed_color);
+        break;
+    case 2:
+        tonemapped_color = toneMapHable(exposed_color);
+        break;
+    case 3:
+        tonemapped_color = toneMapUchimura(exposed_color);
+        break;
+    case 4:
+        tonemapped_color = toneMapACES_Narkowicz(exposed_color);
+        break;
+    case 5:
+        tonemapped_color = toneMapAgX(exposed_color);
+        break;
+    }
+
+    float3 exposed_linear_input = linear_input_color * final_exposure;
+    color = lerp(exposed_linear_input, tonemapped_color, tonemap_mix);
+
+    color = clamp(color, 0.0, 1.0);
+#else
+    color *= exposure * exposureMap.SampleLevel(exposureMapSampler, float2(0.5, 0.5), 0).r;
+    color = clamp(color, 0.0, 1.0);
+#endif
+
+    return color;
+}
+
+float3 toneMapNoExposure(float3 color)
+{
+#ifndef NO_POST
+    float3 linear_input_color = color;
+
+    float3 tonemapped_color = color;
+    switch (tonemap_type)
+    {
+    case 0:
+        tonemapped_color = PBRNeutralToneMapping(color);
+        break;
+    case 1:
+        tonemapped_color = toneMapACES_Hill(color);
+        break;
+    case 2:
+        tonemapped_color = toneMapHable(color);
+        break;
+    case 3:
+        tonemapped_color = toneMapUchimura(color);
+        break;
+    case 4:
+        tonemapped_color = toneMapACES_Narkowicz(color);
+        break;
+    case 5:
+        tonemapped_color = toneMapAgX(color);
+        break;
+    }
+
+    color = lerp(linear_input_color, tonemapped_color, tonemap_mix);
+
+    color = clamp(color, 0.0, 1.0);
+#else
+    color = clamp(color, 0.0, 1.0);
+#endif
+
+    return color;
+}

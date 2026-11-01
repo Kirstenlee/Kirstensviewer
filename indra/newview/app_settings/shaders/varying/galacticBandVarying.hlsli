@@ -22,7 +22,7 @@
  * SOFTWARE.
  */
 
-// Shared vertex-to-pixel varying struct for class1/deferred/galacticBandV.hlsl/galacticBandF.hlsl.
+// Shared vertex-to-pixel varying struct for /deferred/galacticBandV.hlsl/galacticBandF.hlsl.
 // This is a full-screen pass (not drawn on the sky-dome mesh - see galacticBandV.hlsl's comment
 // for why), so all the fragment shader needs is the clip-space XY to reconstruct a real
 // world-space camera-ray direction via inv_proj/inv_modelview.
