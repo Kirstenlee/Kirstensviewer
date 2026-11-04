@@ -4352,8 +4352,8 @@ void LLViewerWindow::renderSelections(bool for_gl_pick, bool pick_parcel_walls, 
 		if (LLSelectMgr::sRenderLightRadius && LLToolMgr::getInstance()->inEdit())
 		{
 			gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
-			LLGLEnable gls_blend(GL_BLEND);
-			LLGLEnable gls_cull(GL_CULL_FACE);
+			LLGLEnable gls_blend(DX_BLEND);
+			LLGLEnable gls_cull(DX_CULL_FACE);
 			DXDepthTest gls_depth(true, false);
 			gDX.matrixMode(LLRender::MM_MODELVIEW);
 			gDX.pushMatrix();
@@ -5200,6 +5200,43 @@ bool LLViewerWindow::thumbnailSnapshot(LLImageRaw* raw, S32 preview_width, S32 p
 	return rawSnapshot(raw, preview_width, preview_height, false, false, show_ui, show_hud, do_rebuild, no_post, gSavedSettings.getBOOL("RenderBalanceInSnapshot"), type);
 }
 
+// S24: RAII guard - forces RenderScalePercent to 100 for the lifetime of a snapshot capture,
+// restoring the user's real scale on destruction regardless of which return point in
+// rawSnapshot() fires. Every snapshot/preview request is sized to the full raw window (or a
+// custom size), but a RenderScalePercent-scaled render buffer is smaller than that - the
+// resulting size mismatch routes oversized, no-UI color captures through LLGPUResize::resize()
+// (newview/llgpuresize.cpp), a rarely-exercised GPU upscale pass confirmed to trigger a driver
+// device-removed crash on snapshot/preview. Skipping scaling entirely for the capture (same
+// effect as manually setting RenderScalePercent to 100 before taking a snapshot, confirmed safe)
+// is simpler and safer than fixing that upscale path itself.
+class LLSnapshotNoRenderScale
+{
+public:
+	LLSnapshotNoRenderScale()
+	{
+		mSavedScale = gSavedSettings.getF32("RenderScalePercent");
+		if (mSavedScale < 100.f)
+		{
+			mActive = true;
+			gSavedSettings.setF32("RenderScalePercent", 100.f);
+			DXPipeline::allocateScreenBuffer(gPipeline, gViewerWindow->getWorldViewWidthRaw(), gViewerWindow->getWorldViewHeightRaw());
+		}
+	}
+
+	~LLSnapshotNoRenderScale()
+	{
+		if (mActive)
+		{
+			gSavedSettings.setF32("RenderScalePercent", mSavedScale);
+			DXPipeline::allocateScreenBuffer(gPipeline, gViewerWindow->getWorldViewWidthRaw(), gViewerWindow->getWorldViewHeightRaw());
+		}
+	}
+
+private:
+	F32 mSavedScale = 100.f;
+	bool mActive = false;
+};
+
 // Saves the image from the screen to a raw image
 // Since the required size might be bigger than the available screen, this method rerenders the scene in parts (called subimages) and copy
 // the results over to the final raw image.
@@ -5210,6 +5247,9 @@ bool LLViewerWindow::rawSnapshot(LLImageRaw* raw, S32 image_width, S32 image_hei
 	{
 		return false;
 	}
+
+	// See LLSnapshotNoRenderScale's comment above - guards every return path below.
+	LLSnapshotNoRenderScale no_render_scale;
 
 	//check if there is enough memory for the snapshot image
 	if (image_width * image_height > (1 << 22)) //if snapshot image is larger than 2K by 2K
@@ -5388,7 +5428,7 @@ bool LLViewerWindow::rawSnapshot(LLImageRaw* raw, S32 image_width, S32 image_hei
 	F32 scale_factor = 1.0f;
 	if (!keep_window_aspect || (image_width > window_width) || (image_height > window_height))
 	{
-		if ((image_width <= gGLManager.mGLMaxTextureSize && image_height <= gGLManager.mGLMaxTextureSize) &&
+		if ((image_width <= gDXDeviceInfo.mGLMaxTextureSize && image_height <= gDXDeviceInfo.mGLMaxTextureSize) &&
 			(image_width > window_width || image_height > window_height) && DXPipeline::sRenderDeferred && !show_ui)
 		{
 			// D3D11 has no implicit "current FBO" concept, so a scratch render target bound before
@@ -6293,7 +6333,7 @@ void LLViewerWindow::stopGL()
 	//if not necessary, do not change the order of the function calls in this function.
 	//if change something, make sure it will not break anything.
 	//especially be careful to put anything behind gTextureList.destroyDX(save_state);
-	if (!gGLManager.mIsDisabled)
+	if (!gDXDeviceInfo.mIsDisabled)
 	{
 		LL_INFOS() << "Shutting down GL..." << LL_ENDL;
 
@@ -6324,7 +6364,7 @@ void LLViewerWindow::stopGL()
 
 		gTextureList.destroyDX();
 
-		gGLManager.mIsDisabled = true;
+		gDXDeviceInfo.mIsDisabled = true;
 
 		//unload shader's
 		while (LLHLSLShader::sInstances.size())
@@ -6349,10 +6389,10 @@ void LLViewerWindow::restoreDX(const std::string& progress_message)
 	//if not necessary, do not change the order of the function calls in this function.
 	//if change something, make sure it will not break anything.
 	//especially, be careful to put something before gTextureList.restoreDX();
-	if (gGLManager.mIsDisabled)
+	if (gDXDeviceInfo.mIsDisabled)
 	{
 		LL_INFOS() << "Restoring GL..." << LL_ENDL;
-		gGLManager.mIsDisabled = false;
+		gDXDeviceInfo.mIsDisabled = false;
 
 		initGLDefaults();
 		DXState::restoreDX();

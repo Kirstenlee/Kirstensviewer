@@ -10,14 +10,10 @@ include(LLInventory)
 include(LLMath)
 include(LLMessage)
 include(LLCoreHttp)
-include(LLRender)
 include(LLWindow)
-include(LLCoreHttp)
 include(LLFileSystem)
 include(LLXML)
-if(DX_RENDER)
-    include(DXRender)
-endif()
+include(DXRender)
 
 include_directories(
     ${LLCOMMON_INCLUDE_DIRS}
@@ -26,14 +22,11 @@ include_directories(
     ${LLINVENTORY_INCLUDE_DIRS}
     ${LLMATH_INCLUDE_DIRS}
     ${LLMESSAGE_INCLUDE_DIRS}
-    ${LLRENDER_INCLUDE_DIRS}
+    ${DXRENDER_INCLUDE_DIRS}
     ${LLWINDOW_INCLUDE_DIRS}
     ${LLFILESYSTEM_INCLUDE_DIRS}
     ${LLXML_INCLUDE_DIRS}
     )
-if(DX_RENDER)
-    include_directories(${DXRENDER_INCLUDE_DIRS})
-endif()
 include_directories(SYSTEM
     ${LLCOMMON_SYSTEM_INCLUDE_DIRS}
     ${LLXML_SYSTEM_INCLUDE_DIRS}
@@ -282,7 +275,7 @@ add_library (llui ${llui_SOURCE_FILES})
 # Libraries on which this library depends,
 # Sort by high-level to low-level
 target_link_libraries(llui
-    ${LLRENDER_LIBRARIES}
+    ${DXRENDER_LIBRARIES}
     ${LLWINDOW_LIBRARIES}
     ${LLIMAGE_LIBRARIES}
     ${LLINVENTORY_LIBRARIES}
@@ -294,7 +287,4 @@ target_link_libraries(llui
         ll::hunspell
     ${LLCOMMON_LIBRARIES}
     )
-if(DX_RENDER)
-    target_link_libraries(llui ${DXRENDER_LIBRARIES})
-endif()
 

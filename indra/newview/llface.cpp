@@ -593,7 +593,7 @@ void LLFace::renderOneWireframe(const LLColor4 &color, F32 fogCfx, bool wirefram
     if (bRenderHiddenSelections)
     {
         gDX.blendFunc(LLRender::BF_SOURCE_COLOR, LLRender::BF_ONE);
-        DXDepthTest gls_depth(true, false, GL_GEQUAL);
+        DXDepthTest gls_depth(true, false, DX_GEQUAL);
         if (shader)
         {
             gDX.diffuseColor4f(color.mV[VRED], color.mV[VGREEN], color.mV[VBLUE], 0.4f);
@@ -615,7 +615,7 @@ void LLFace::renderOneWireframe(const LLColor4 &color, F32 fogCfx, bool wirefram
     gDX.diffuseColor4f(color.mV[VRED] * 2, color.mV[VGREEN] * 2, color.mV[VBLUE] * 2, color.mV[VALPHA]);
 
     {
-        LLGLDisable depth(wireframe_selection ? 0 : GL_BLEND);
+        LLGLDisable depth(wireframe_selection ? 0 : DX_BLEND);
 
         LLGLEnable offset(GL_POLYGON_OFFSET_LINE);
         // D3D11 fill mode (wireframe vs solid) is a rasterizer-state CREATION-time field, not
@@ -625,15 +625,15 @@ void LLFace::renderOneWireframe(const LLColor4 &color, F32 fogCfx, bool wirefram
         // through getRasterizerState() rather than hardcoded.
         ID3D11DeviceContext* ctx = gDXDevice.getContext();
         ID3D11RasterizerState* wire_rs = DXStateCache::getRasterizerState(
-            DXState::isEnabled(GL_CULL_FACE), DXState::isEnabled(GL_SCISSOR_TEST),
-            DXState::isEnabled(GL_DEPTH_CLAMP), 3.0f, 3.0f, true);
+            DXState::isEnabled(DX_CULL_FACE), DXState::isEnabled(DX_SCISSOR_TEST),
+            DXState::isEnabled(DX_DEPTH_CLAMP), 3.0f, 3.0f, true);
         ctx->RSSetState(wire_rs);
 
         renderFace(mDrawablep, this);
 
         ID3D11RasterizerState* normal_rs = DXStateCache::getRasterizerState(
-            DXState::isEnabled(GL_CULL_FACE), DXState::isEnabled(GL_SCISSOR_TEST),
-            DXState::isEnabled(GL_DEPTH_CLAMP), 0.f, 0.f, false);
+            DXState::isEnabled(DX_CULL_FACE), DXState::isEnabled(DX_SCISSOR_TEST),
+            DXState::isEnabled(DX_DEPTH_CLAMP), 0.f, 0.f, false);
         ctx->RSSetState(normal_rs);
     }
 }

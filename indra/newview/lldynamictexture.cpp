@@ -213,7 +213,7 @@ bool LLViewerDynamicTexture::updateAllInstances()
 {
 
     sNumRenders = 0;
-    if (gGLManager.mIsDisabled)
+    if (gDXDeviceInfo.mIsDisabled)
     {
         return true;
     }
@@ -334,7 +334,7 @@ void LLViewerDynamicTexture::destroyDX()
 //-----------------------------------------------------------------------------
 void LLViewerDynamicTexture::restoreDX()
 {
-    if (gGLManager.mIsDisabled)
+    if (gDXDeviceInfo.mIsDisabled)
     {
         return ;
     }

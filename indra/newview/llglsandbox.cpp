@@ -535,7 +535,7 @@ void LLViewerParcelMgr::renderCollisionSegments(U8* segments, bool use_pass, LLV
 
     DXUIDefault gls_ui;
     DXDepthTest gls_depth(true, false);
-    LLGLDisable cull(GL_CULL_FACE);
+    LLGLDisable cull(DX_CULL_FACE);
 
     if (mCollisionBanned == BA_BANNED ||
         regionp->getRegionFlag(REGION_FLAGS_BLOCK_FLYOVER))
@@ -1008,7 +1008,7 @@ F32 gpu_benchmark()
         }
     }
 
-    LLGLDisable blend(GL_BLEND);
+    LLGLDisable blend(DX_BLEND);
 
     //measure memory bandwidth by:
     // - allocating a batch of textures and render targets

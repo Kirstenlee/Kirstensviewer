@@ -21,7 +21,7 @@ namespace
 
     // Mirrors LLRender::transform(LLVector3&)'s exact formula - see
     // DXRender2DUtils.h's header comment for why this has to be replicated
-    // by hand here instead of relying on gGL.vertex2i()'s automatic
+    // by hand here instead of relying on gDX.vertex2i()'s automatic
     // application of it.
     inline void applyUI(F32& x, F32& y, F32& z, const LLVector3& offset, const LLVector3& scale)
     {
@@ -48,7 +48,7 @@ namespace
 
 namespace DXRender2DUtils
 {
-    void glRectTwoD(S32 left, S32 top, S32 right, S32 bottom, const LLColor4U& color, bool filled, const LLVector3& ui_offset, const LLVector3& ui_scale)
+    void rectTwoD(S32 left, S32 top, S32 right, S32 bottom, const LLColor4U& color, bool filled, const LLVector3& ui_offset, const LLVector3& ui_scale)
     {
         if (filled)
         {
@@ -79,7 +79,7 @@ namespace DXRender2DUtils
         }
     }
 
-    void glDrawX(const LLRect& rect, const LLColor4& color, const LLVector3& ui_offset, const LLVector3& ui_scale)
+    void drawX(const LLRect& rect, const LLColor4& color, const LLVector3& ui_offset, const LLVector3& ui_scale)
     {
         LLColor4U c(color);
         DXUIVertex verts[4] = {
@@ -91,7 +91,7 @@ namespace DXRender2DUtils
         gDXUIBatch.push(verts, 4);
     }
 
-    void glDropShadow(S32 left, S32 top, S32 right, S32 bottom, const LLColor4& start_color, S32 lines, const LLVector3& ui_offset, const LLVector3& ui_scale)
+    void dropShadow(S32 left, S32 top, S32 right, S32 bottom, const LLColor4& start_color, S32 lines, const LLVector3& ui_offset, const LLVector3& ui_scale)
     {
         right--; bottom++; lines++;
 
@@ -150,7 +150,7 @@ namespace DXRender2DUtils
         gDXUIBatch.push(v.data(), v.size());
     }
 
-    void glLineTwoD(S32 x1, S32 y1, S32 x2, S32 y2, const LLColor4U& color, const LLVector3& ui_offset, const LLVector3& ui_scale)
+    void lineTwoD(S32 x1, S32 y1, S32 x2, S32 y2, const LLColor4U& color, const LLVector3& ui_offset, const LLVector3& ui_scale)
     {
         DXUIVertex verts[2] = {
             makeUIVertex((F32)x1, (F32)y1, 0.f, color, 0.f, 0.f, ui_offset, ui_scale),
@@ -159,7 +159,7 @@ namespace DXRender2DUtils
         gDXUIBatch.push(verts, 2);
     }
 
-    void glLineThreeD(const LLVector3& start, const LLVector3& end, const LLColor4& color, const LLVector3& ui_offset, const LLVector3& ui_scale)
+    void lineThreeD(const LLVector3& start, const LLVector3& end, const LLColor4& color, const LLVector3& ui_offset, const LLVector3& ui_scale)
     {
         LLColor4U c(color);
         DXUIVertex verts[2] = {
@@ -169,7 +169,7 @@ namespace DXRender2DUtils
         gDXUIBatch.push(verts, 2);
     }
 
-    void glTriangleTwoD(S32 x1, S32 y1, S32 x2, S32 y2, S32 x3, S32 y3, const LLColor4& color, bool filled, const LLVector3& ui_offset, const LLVector3& ui_scale)
+    void triangleTwoD(S32 x1, S32 y1, S32 x2, S32 y2, S32 x3, S32 y3, const LLColor4& color, bool filled, const LLVector3& ui_offset, const LLVector3& ui_scale)
     {
         LLColor4U c(color);
         if (filled)
@@ -194,7 +194,7 @@ namespace DXRender2DUtils
         }
     }
 
-    void glCornersTwoD(S32 left, S32 top, S32 right, S32 bottom, S32 length, F32 max_frac, const LLColor4U& color, const LLVector3& ui_offset, const LLVector3& ui_scale)
+    void cornersTwoD(S32 left, S32 top, S32 right, S32 bottom, S32 length, F32 max_frac, const LLColor4U& color, const LLVector3& ui_offset, const LLVector3& ui_scale)
     {
         S32 max1 = (S32)(max_frac * (right - left));
         S32 max2 = (S32)(max_frac * (top - bottom));
@@ -220,7 +220,7 @@ namespace DXRender2DUtils
         gDXUIBatch.push(v.data(), v.size());
     }
 
-    void glRectTwoDSimple(S32 width, S32 height, const LLColor4U& color, const LLVector3& ui_offset, const LLVector3& ui_scale)
+    void rectTwoDSimple(S32 width, S32 height, const LLColor4U& color, const LLVector3& ui_offset, const LLVector3& ui_scale)
     {
         DXUIVertex verts[6] = {
             makeUIVertex((F32)width, (F32)height, 0.f, color, 0.f, 0.f, ui_offset, ui_scale),
@@ -233,7 +233,7 @@ namespace DXRender2DUtils
         gDXUIBatch.push(verts, 6);
     }
 
-    void glRectTwoDSimpleTex(S32 width, S32 height, const LLColor4U& color, const LLVector3& ui_offset, const LLVector3& ui_scale)
+    void rectTwoDSimpleTex(S32 width, S32 height, const LLColor4U& color, const LLVector3& ui_offset, const LLVector3& ui_scale)
     {
         DXUIVertex verts[6] = {
             makeUIVertex((F32)width, (F32)height, 0.f, color, 1.f, 1.f, ui_offset, ui_scale),
@@ -246,7 +246,7 @@ namespace DXRender2DUtils
         gDXUIBatch.push(verts, 6);
     }
 
-    void glArcTwoD(F32 center_x, F32 center_y, F32 radius, S32 steps, bool filled, F32 start_angle, F32 end_angle, const LLColor4U& color, const LLVector3& ui_offset, const LLVector3& ui_scale)
+    void arcTwoD(F32 center_x, F32 center_y, F32 radius, S32 steps, bool filled, F32 start_angle, F32 end_angle, const LLColor4U& color, const LLVector3& ui_offset, const LLVector3& ui_scale)
     {
         if (end_angle < start_angle)
         {
@@ -297,7 +297,7 @@ namespace DXRender2DUtils
         gDXUIBatch.push(v.data(), v.size());
     }
 
-    void glCircleTwoD(F32 center_x, F32 center_y, F32 radius, S32 steps, bool filled, const LLColor4U& color, const LLVector3& ui_offset, const LLVector3& ui_scale)
+    void circleTwoD(F32 center_x, F32 center_y, F32 radius, S32 steps, bool filled, const LLColor4U& color, const LLVector3& ui_offset, const LLVector3& ui_scale)
     {
         F32 delta = kTwoPi / steps;
         F32 sin_delta = sinf(delta);
@@ -346,7 +346,7 @@ namespace DXRender2DUtils
         gDXUIBatch.push(v.data(), v.size());
     }
 
-    void glDeepCircle(F32 radius, F32 depth, S32 steps, const LLColor4U& color, const LLVector3& ui_offset, const LLVector3& ui_scale)
+    void deepCircle(F32 radius, F32 depth, S32 steps, const LLColor4U& color, const LLVector3& ui_offset, const LLVector3& ui_scale)
     {
         F32 x = radius;
         F32 y = 0.f;
@@ -367,7 +367,7 @@ namespace DXRender2DUtils
         gDXUIBatch.push(v.data(), v.size());
     }
 
-    void glWasherTwoD(F32 outer_radius, F32 inner_radius, S32 steps, const LLColor4& inner_color, const LLColor4& outer_color, const LLVector3& ui_offset, const LLVector3& ui_scale)
+    void washerTwoD(F32 outer_radius, F32 inner_radius, S32 steps, const LLColor4& inner_color, const LLColor4& outer_color, const LLVector3& ui_offset, const LLVector3& ui_scale)
     {
         LLColor4U ic(inner_color), oc(outer_color);
         F32 delta = kTwoPi / steps;
@@ -395,7 +395,7 @@ namespace DXRender2DUtils
         gDXUIBatch.push(v.data(), v.size());
     }
 
-    void glWasherSegmentTwoD(F32 outer_radius, F32 inner_radius, F32 start_radians, F32 end_radians, S32 steps, const LLColor4& inner_color, const LLColor4& outer_color, const LLVector3& ui_offset, const LLVector3& ui_scale)
+    void washerSegmentTwoD(F32 outer_radius, F32 inner_radius, F32 start_radians, F32 end_radians, S32 steps, const LLColor4& inner_color, const LLColor4& outer_color, const LLVector3& ui_offset, const LLVector3& ui_scale)
     {
         LLColor4U ic(inner_color), oc(outer_color);
         F32 delta = (end_radians - start_radians) / steps;
@@ -423,7 +423,7 @@ namespace DXRender2DUtils
         gDXUIBatch.push(v.data(), v.size());
     }
 
-    void glDrawScaledImage(const ScaledImageGeometry& geom, const LLColor4& color)
+    void drawScaledImage(const ScaledImageGeometry& geom, const LLColor4& color)
     {
         LLColor4U c(color);
         DXUIVertex verts[6];
@@ -434,7 +434,7 @@ namespace DXRender2DUtils
         gDXUIBatch.push(verts, 6);
     }
 
-    void glDrawScaledImageWithBorderNineSlice(const NineSliceGeometry& geom, const LLColor4& color)
+    void drawScaledImageWithBorderNineSlice(const NineSliceGeometry& geom, const LLColor4& color)
     {
         LLColor4U c(color);
         DXUIVertex verts[NineSliceGeometry::NUM_VERTICES];
@@ -445,7 +445,7 @@ namespace DXRender2DUtils
         gDXUIBatch.push(verts, NineSliceGeometry::NUM_VERTICES);
     }
 
-    void glSegmentedRectTwoDFragmentTex(const LLRect& rect, S32 texture_width, S32 texture_height, S32 border_size,
+    void segmentedRectTwoDFragmentTex(const LLRect& rect, S32 texture_width, S32 texture_height, S32 border_size,
         F32 start_fragment, F32 end_fragment, U32 edges, const LLColor4U& color, const LLVector3& ui_offset, const LLVector3& ui_scale)
     {
         const S32 left = rect.mLeft;
@@ -455,7 +455,7 @@ namespace DXRender2DUtils
         S32 width = llabs(right - left);
         S32 height = llabs(top - bottom);
 
-        // GL body does gGL.pushUIMatrix()/translateUI((F32)left,(F32)bottom,0.f)
+        // GL body does gDX.pushUIMatrix()/translateUI((F32)left,(F32)bottom,0.f)
         // before emitting any vertices - replicated here as a local origin
         // added to every position before applying ui_offset/ui_scale (same
         // net transform, no nested push/pop needed).
@@ -581,7 +581,7 @@ namespace DXRender2DUtils
         gDXUIBatch.push(v.data(), v.size());
     }
 
-    void glSegmentedRectThreeDTex(const LLRectf& clip_rect, const LLRectf& center_uv_rect, const LLRectf& center_draw_rect,
+    void segmentedRectThreeDTex(const LLRectf& clip_rect, const LLRectf& center_uv_rect, const LLRectf& center_draw_rect,
         const LLVector3& width_vec, const LLVector3& height_vec, const LLColor4U& color, const LLVector3& ui_offset, const LLVector3& ui_scale)
     {
         std::vector<DXUIVertex> v;

@@ -645,7 +645,7 @@ struct LLWindowWin32::LLWindowWin32Thread : public LL::ThreadPool
 	// Use DXGI to check memory (because WMI doesn't report more than 4Gb)
 	void checkDXMem();
 
-	// Live VRAM budget notification. Refreshes gGLManager.mVRAMBudget/mVRAMCurrentUsage
+	// Live VRAM budget notification. Refreshes gDXDeviceInfo.mVRAMBudget/mVRAMCurrentUsage
 	// from the cached adapter.
 	void updateVRAMInfo(IDXGIAdapter3* adapter);
 	// One-time: cache the adapter and register for budget-change notifications.
@@ -1441,10 +1441,10 @@ void LLWindowWin32::close()
 	gDXDevice.shutdown();
 
 	// Clean up remaining GL state
-	if (gGLManager.mInited)
+	if (gDXDeviceInfo.mInited)
 	{
 		LL_INFOS("Window") << "Cleaning up GL" << LL_ENDL;
-		gGLManager.shutdownGL();
+		gDXDeviceInfo.shutdownGL();
 	}
 
 	LL_DEBUGS("Window") << "Releasing Context" << LL_ENDL;
@@ -1710,7 +1710,7 @@ bool LLWindowWin32::switchContext(bool fullscreen, const LLCoordScreen& size, bo
 	}
 	mRefreshRate = current_refresh;
 
-	gGLManager.shutdownGL();
+	gDXDeviceInfo.shutdownGL();
 	//destroy gl context
 	if (mhRC)
 	{
@@ -1857,10 +1857,10 @@ bool LLWindowWin32::switchContext(bool fullscreen, const LLCoordScreen& size, bo
 		return false;
 	}
 
-	// S24: real DXGI-based GPU detection - see LLGLManager::initGLDX()'s
+	// S24: real DXGI-based GPU detection - see DXDeviceInfo::initGLDX()'s
 	// comment (llgl.h/.cpp): without this, LLFeatureManager silently masks
 	// real features off with no real GPU data to work from.
-	gGLManager.initGLDX();
+	gDXDeviceInfo.initGLDX();
 
 	SetWindowLongPtr(mWindowHandle, GWLP_USERDATA, (LONG_PTR)this);
 
@@ -3635,7 +3635,7 @@ bool LLWindowWin32::setGamma(const F32 gamma)
 	//Get the previous gamma ramp to restore later.
 	if (!mCustomGammaSet)
 	{
-		if (!gGLManager.mIsIntel) // skip for Intel GPUs (see SL-11341)
+		if (!gDXDeviceInfo.mIsIntel) // skip for Intel GPUs (see SL-11341)
 		{
 			LL_DEBUGS("Window") << "Getting the previous gamma ramp to restore later" << LL_ENDL;
 			if (!GetDeviceGammaRamp(mhDC, mPrevGammaRamp))
@@ -5243,7 +5243,7 @@ void LLWindowWin32::LLWindowWin32Thread::updateVRAMInfo(IDXGIAdapter3* adapter)
     // Alternatively use GetDesc from below to get adapter's memory
     UINT64 budget_mb = info.Budget / (1024 * 1024);
     UINT64 usage_mb = info.CurrentUsage / (1024 * 1024);
-    if (gGLManager.mIsIntel)
+    if (gDXDeviceInfo.mIsIntel)
     {
         // Intel iGPUs share VRAM with system RAM; cap budget to 25% of
         // physical memory to avoid over-reporting shared memory as VRAM.
@@ -5260,18 +5260,18 @@ void LLWindowWin32::LLWindowWin32Thread::updateVRAMInfo(IDXGIAdapter3* adapter)
         }
     }
 
-    gGLManager.mVRAMBudget = (U32)budget_mb;
-    gGLManager.mVRAMCurrentUsage = (U32)usage_mb;
+    gDXDeviceInfo.mVRAMBudget = (U32)budget_mb;
+    gDXDeviceInfo.mVRAMCurrentUsage = (U32)usage_mb;
 
-    if (gGLManager.mVRAM < (S32)budget_mb)
+    if (gDXDeviceInfo.mVRAM < (S32)budget_mb)
     {
-        gGLManager.mVRAM = (S32)budget_mb;
-        LL_INFOS("RenderInit") << "New VRAM Budget (DXGI): " << gGLManager.mVRAM << " MB" << LL_ENDL;
+        gDXDeviceInfo.mVRAM = (S32)budget_mb;
+        LL_INFOS("RenderInit") << "New VRAM Budget (DXGI): " << gDXDeviceInfo.mVRAM << " MB" << LL_ENDL;
     }
     else
     {
         LL_INFOS("RenderInit") << "VRAM Budget (DXGI): " << budget_mb
-            << " MB, current (OpenGL/WMI): " << gGLManager.mVRAM << " MB" << LL_ENDL;
+            << " MB, current (OpenGL/WMI): " << gDXDeviceInfo.mVRAM << " MB" << LL_ENDL;
     }
 }
 
@@ -5344,7 +5344,7 @@ void LLWindowWin32::LLWindowWin32Thread::checkDXMem()
     if (!mGLReady || mGotGLBuffer) { return; }
 
     // NOTE: previously this early-returned here when AMD/NVX vendor extensions had
-    // already reported a nonzero gGLManager.mVRAM, skipping DXGI entirely on most
+    // already reported a nonzero gDXDeviceInfo.mVRAM, skipping DXGI entirely on most
     // NVIDIA/AMD systems. We still don't need DXGI's number to *set* mVRAM in that
     // case (see the < comparison in updateVRAMInfo, unchanged), but we now always
     // proceed to set up the adapter + live budget-change event below, so the live VRAM
@@ -5352,7 +5352,7 @@ void LLWindowWin32::LLWindowWin32Thread::checkDXMem()
 
     // S24: resolve the live-VRAM-query adapter by walking UP from the actual rendering
     // device (gD3D11Device) via IDXGIDevice::GetAdapter() - same technique as
-    // detectGPUChange() above and LLGLManager::initGLDX() (llrender/llgl.cpp) - rather
+    // detectGPUChange() above and DXDeviceInfo::initGLDX() (llrender/llgl.cpp) - rather
     // than re-enumerating adapters and guessing index 0. selectHighPerformanceAdapter()
     // picks the rendering adapter by most VRAM, not by enumeration index, so a blind
     // index-0 query can silently report a different physical GPU's budget/usage on a

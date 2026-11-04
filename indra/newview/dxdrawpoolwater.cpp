@@ -160,7 +160,7 @@ void DXDrawPoolWater::beginPostDeferredPass(LLDrawPoolWater& pool, S32 pass)
     {
         // copy framebuffer contents so far to a texture to be used for
         // reflections and refractions
-        DXDepthTest depth(true, true, GL_ALWAYS);
+        DXDepthTest depth(true, true, DX_ALWAYS);
 
         LLRenderTarget& src = gPipeline.mRT->screen;
         LLRenderTarget& depth_src = gPipeline.mRT->deferredScreen;
@@ -188,7 +188,7 @@ void DXDrawPoolWater::renderPostDeferred(LLDrawPoolWater& pool, S32 pass)
     (void)pass;
     LL_RECORD_BLOCK_TIME(FTM_RENDER_WATER_OPAQUE);
 
-    LLGLDisable blend(GL_BLEND);
+    LLGLDisable blend(DX_BLEND);
 
     gDX.setColorWriteMask(true, true);
 
@@ -458,7 +458,7 @@ void DXDrawPoolWater::renderPostDeferred(LLDrawPoolWater& pool, S32 pass)
         shader->uniform1f(LLShaderMgr::WATER_REFSCALE, pwater->getScaleAbove());
     }
 
-    LLGLDisable cullface(GL_CULL_FACE);
+    LLGLDisable cullface(DX_CULL_FACE);
 
     // NOTE: the model matrix must be reset before this pool runs - see
     // DXPipeline::renderGeomPostDeferred() - or water inherits whatever

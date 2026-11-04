@@ -8,29 +8,6 @@
 
 DXDevice gDXDevice;
 
-// Shared by both initialize() branches: QI's mDevice for IDXGIDevice to find
-// which physical adapter it landed on, whether adopted or created here.
-static LUID queryAdapterLuid(ID3D11Device* device)
-{
-    LUID luid = { 0, 0 };
-    IDXGIDevice* dxgi_device = nullptr;
-    if (SUCCEEDED(device->QueryInterface(__uuidof(IDXGIDevice), (void**)&dxgi_device)) && dxgi_device)
-    {
-        IDXGIAdapter* adapter = nullptr;
-        if (SUCCEEDED(dxgi_device->GetAdapter(&adapter)) && adapter)
-        {
-            DXGI_ADAPTER_DESC desc;
-            if (SUCCEEDED(adapter->GetDesc(&desc)))
-            {
-                luid = desc.AdapterLuid;
-            }
-            adapter->Release();
-        }
-        dxgi_device->Release();
-    }
-    return luid;
-}
-
 // Default true to match the previously-hardcoded always-on behavior.
 bool DXDevice::sDebugLayerEnabled = true;
 
@@ -98,7 +75,6 @@ bool DXDevice::initialize(ID3D11Device* existing_device, ID3D11DeviceContext* ex
         mContext->AddRef();
         mFeatureLevel = mDevice->GetFeatureLevel();
         mDevice->QueryInterface(__uuidof(ID3D11InfoQueue), (void**)&mInfoQueue);
-        mAdapterLuid = queryAdapterLuid(mDevice);
         mCreatedViaAgs = sAdoptedDeviceViaAgs;
         return true;
     }
@@ -192,7 +168,6 @@ bool DXDevice::initialize(ID3D11Device* existing_device, ID3D11DeviceContext* ex
     }
 
     mDevice->QueryInterface(__uuidof(ID3D11InfoQueue), (void**)&mInfoQueue);
-    mAdapterLuid = queryAdapterLuid(mDevice);
 
     return true;
 }

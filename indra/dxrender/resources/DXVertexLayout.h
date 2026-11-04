@@ -48,9 +48,8 @@
 // exactly like GL does, so R32_FLOAT here reproduces that without needing a
 // 4-component element). Bit 11 (CLOTHWEIGHT) is the avatar cloth-simulation
 // wind-offset input, always requested alongside WEIGHT for
-// LLDrawPoolAvatar's body mesh (see LLDrawPoolAvatar::VERTEX_DATA_MASK) -
-// phase 5.10a, 2026-07-19. Bit 13 (TEXTURE_INDEX, stage 6 phase 1,
-// 2026-07-21) has no separate storage at all - per LLVertexBuffer's own
+// LLDrawPoolAvatar's body mesh (see LLDrawPoolAvatar::VERTEX_DATA_MASK).
+// Bit 13 (TEXTURE_INDEX) has no separate storage at all - per LLVertexBuffer's own
 // sTypeSize comment ("actually exists as position.w"), it's packed into
 // POSITION's otherwise-unused W component (position is stored as a full
 // 16-byte LLVector4 even though only XYZ is geometric data). GL reads it via
@@ -73,7 +72,7 @@ class DXVertexLayout
 {
 public:
     // debug_name is purely diagnostic (logged on CreateInputLayout failure,
-    // see .cpp) - pass the bound LLGLSLShader's mName so a failure log
+    // see .cpp) - pass the bound LLHLSLShader's mName so a failure log
     // identifies which shader/mask combo actually failed, rather than just
     // the raw HRESULT.
     static ID3D11InputLayout* getOrCreate(uint32_t data_mask, const void* vs_bytecode, size_t vs_bytecode_size, const char* debug_name = nullptr);

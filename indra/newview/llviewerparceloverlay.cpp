@@ -638,7 +638,7 @@ void LLViewerParcelOverlay::updateGL()
 
 void LLViewerParcelOverlay::idleUpdate(bool force_update)
 {
-    if (gGLManager.mIsDisabled)
+    if (gDXDeviceInfo.mIsDisabled)
     {
         return;
     }
@@ -674,7 +674,16 @@ void LLViewerParcelOverlay::renderPropertyLines()
 
     DXUIDefault gls_ui; // called from pipeline
     gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
-    DXDepthTest mDepthTest(true);
+    // S24: write_enabled explicitly false - this geometry is translucent (DXUIDefault
+    // enables DX_BLEND; PropertyColor* in colors.xml are all alpha 0.4), but the
+    // inherited default here left depth WRITE on. Adjacent parcel-edge triangle strips
+    // overlap at every grid corner; whichever strip rasterizes first was writing its own
+    // depth and causing the next overlapping translucent strip to fail the depth test
+    // against it - self-occlusion between strips that are meant to blend, not occlude,
+    // showing as lines "cut off" on flat ground and angle-dependent (draw/rasterization
+    // order shifts with viewpoint). Confirmed present in canonical LL too (XREF diff) -
+    // a latent upstream bug, not a reversed-Z regression.
+    DXDepthTest mDepthTest(true, false);
 
     // Find camera height off the ground (not from zero)
     F32 ground_height_at_camera = land.resolveHeightGlobal( gAgentCamera.getCameraPositionGlobal() );
@@ -690,6 +699,12 @@ void LLViewerParcelOverlay::renderPropertyLines()
     pull_toward_camera *= -pull_toward_camera_scale;
 
     // Always fudge a little vertically.
+    // S24: this unconditional canonical-LL line was lost somewhere across this session's
+    // earlier diagnostic edits (5cm bump -> 1m TEMPORARY diagnostic -> removed without
+    // restoring it) - without it the ribbon has zero guaranteed vertical clearance from the
+    // terrain surface it's meant to sit just above, which is the real regression behind
+    // "visible below ground, needs a grazing angle to see above ground": pure coincident-
+    // surface z-fighting, not a reversed-Z or precision problem.
     pull_toward_camera.mV[VZ] += 0.01f;
 
     gDX.matrixMode(LLRender::MM_MODELVIEW);
@@ -755,7 +770,7 @@ void LLViewerParcelOverlay::renderPropertyLines()
 
             if (render_hidden)
             {
-                DXDepthTest depth(true, false, GL_GREATER);
+                DXDepthTest depth(true, false, DX_GREATER);
 
             gDX.begin(LLRender::TRIANGLE_STRIP);
 

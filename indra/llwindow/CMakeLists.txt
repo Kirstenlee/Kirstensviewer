@@ -15,20 +15,17 @@ include(DragDrop)
 include(LLCommon)
 include(LLImage)
 include(LLMath)
-include(LLRender)
 include(LLFileSystem)
 include(LLWindow)
 include(LLXML)
 include(UI)
-if(DX_RENDER)
-    include(DXRender)
-endif()
+include(DXRender)
 
 include_directories(
     ${LLCOMMON_INCLUDE_DIRS}
     ${LLIMAGE_INCLUDE_DIRS}
     ${LLMATH_INCLUDE_DIRS}
-    ${LLRENDER_INCLUDE_DIRS}
+    ${DXRENDER_INCLUDE_DIRS}
     ${LLFILESYSTEM_INCLUDE_DIRS}
     ${LLWINDOW_INCLUDE_DIRS}
     ${LLXML_INCLUDE_DIRS}
@@ -37,10 +34,6 @@ include_directories(SYSTEM
     ${LLCOMMON_SYSTEM_INCLUDE_DIRS}
     ${LLXML_SYSTEM_INCLUDE_DIRS}
     )
-
-if(DX_RENDER)
-  include_directories(${DXRENDER_INCLUDE_DIRS})
-endif()
 
 set(llwindow_SOURCE_FILES
     llcursortypes.cpp

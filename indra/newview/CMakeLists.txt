@@ -34,10 +34,7 @@ include(LLMeshOptimizer)
 include(LLMessage)
 include(LLPlugin)
 include(LLPrimitive)
-include(LLRender)
-if(DX_RENDER)
-    include(DXRender)
-endif()
+include(DXRender)
 include(KRLV)
 include(LLUI)
 include(LLFileSystem)
@@ -83,7 +80,7 @@ include_directories(
     ${LLMESSAGE_INCLUDE_DIRS}
     ${LLPLUGIN_INCLUDE_DIRS}
     ${LLPRIMITIVE_INCLUDE_DIRS}
-    ${LLRENDER_INCLUDE_DIRS}
+    ${DXRENDER_INCLUDE_DIRS}
     ${LLUI_INCLUDE_DIRS}
     ${LLFILESYSTEM_INCLUDE_DIRS}
     ${LLWINDOW_INCLUDE_DIRS}
@@ -99,9 +96,6 @@ include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}
     )
 
-if(DX_RENDER)
-  include_directories(${DXRENDER_INCLUDE_DIRS})
-endif()
 include_directories(${KRLV_INCLUDE_DIRS})
 
 include_directories(SYSTEM
@@ -1945,7 +1939,7 @@ target_link_libraries(${VIEWER_BINARY_NAME}
     ${LLMESSAGE_LIBRARIES}
     ${LLPLUGIN_LIBRARIES}
     ${LLPRIMITIVE_LIBRARIES}
-    ${LLRENDER_LIBRARIES}
+    ${DXRENDER_LIBRARIES}
     ${FREETYPE_LIBRARIES}
     ${LLUI_LIBRARIES}
     ${LLFILESYSTEM_LIBRARIES}
@@ -1985,12 +1979,10 @@ target_link_libraries(${VIEWER_BINARY_NAME}
     ${WINDOWS_LIBRARIES}
     )
 
-if(DX_RENDER)
-  target_link_libraries(${VIEWER_BINARY_NAME} ${DXRENDER_LIBRARIES})
-else()
+if(NOT DX_RENDER)
   # S24 (DX_RENDER, 2026-07-24): OpenGL is deliberately NOT linked into a
   # DX_RENDER=ON viewer executable at all. This is the enforcement point -
-  # llrender.lib/llwindow.lib etc. are static libs and archive fine even
+  # dxrender.lib/llwindow.lib etc. are static libs and archive fine even
   # with unresolved gl*() symbols inside them, but THIS final link is where
   # every one of those symbols must actually resolve. Any raw, unconverted
   # GL call left reachable anywhere in the tree under DX_RENDER now surfaces

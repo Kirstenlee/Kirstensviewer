@@ -7,15 +7,12 @@ include(LLCommon)
 include(LLImage)
 include(LLPlugin)
 include(LLMath)
-include(LLRender)
 include(LLWindow)
 include(Linking)
 include(PluginAPI)
 include(MediaPluginBase)
 include(OpenGL)
-if(DX_RENDER)
-    include(DXRender)
-endif()
+include(DXRender)
 
 include(GStreamer010Plugin)
 
@@ -25,14 +22,11 @@ include_directories(
     ${LLCOMMON_INCLUDE_DIRS}
     ${LLMATH_INCLUDE_DIRS}
     ${LLIMAGE_INCLUDE_DIRS}
-    ${LLRENDER_INCLUDE_DIRS}
+    ${DXRENDER_INCLUDE_DIRS}
     ${LLWINDOW_INCLUDE_DIRS}
     ${GSTREAMER010_INCLUDE_DIRS}
     ${GSTREAMER010_PLUGINS_BASE_INCLUDE_DIRS}
 )
-if(DX_RENDER)
-    include_directories(${DXRENDER_INCLUDE_DIRS})
-endif()
 include_directories(SYSTEM
     ${LLCOMMON_SYSTEM_INCLUDE_DIRS}
     )
@@ -70,10 +64,8 @@ target_link_libraries(media_plugin_gstreamer010
   ${LLCOMMON_LIBRARIES}
   ${PLUGIN_API_WINDOWS_LIBRARIES}
   ${GSTREAMER010_LIBRARIES}
+  ${DXRENDER_LIBRARIES}
 )
-if(DX_RENDER)
-    target_link_libraries(media_plugin_gstreamer010 ${DXRENDER_LIBRARIES})
-endif()
 
 add_dependencies(media_plugin_gstreamer010
   ${LLPLUGIN_LIBRARIES}

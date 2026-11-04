@@ -343,7 +343,7 @@ void LLDrawPoolAvatar::renderJellyDollGhosts()
         // walls/other opaque geometry) but not depth-WRITTEN, the standard
         // convention for alpha-blended content in this engine (matches
         // dxdrawpoolalpha.cpp's own emissive passes).
-        LLGLEnable blend(GL_BLEND);
+        LLGLEnable blend(DX_BLEND);
         gDX.setSceneBlendType(LLRender::BT_ALPHA);
         DXDepthTest depth(true, false);
 
@@ -797,7 +797,7 @@ void LLDrawPoolAvatar::renderAvatars(LLVOAvatar* single_avatar, S32 pass)
                             (F32)(pos.mV[VZ]));
              gDX.scalef(0.15f, 0.15f, 0.3f);
 
-             gSphere.renderGGL();
+             gSphere.renderDX();
 
              gDX.popMatrix();
              gDX.setColorWriteMask(true, false);

@@ -26,31 +26,19 @@
 
 #pragma once
 
-// S24 (2026-08-19, occlusion-culling investigation): LLOcclusionCullingGroup
-// (llvieweroctree.cpp) issues real GPU occlusion queries via raw
-// glGenQueries()/glBeginQuery()/glEndQuery()/glGetQueryObjectuiv() calls -
-// zero #ifdef DX_RENDER anywhere in that file. Under DX_RENDER those are
-// silent no-ops (no live GL context, same statically-linked-core-GL-symbol
-// behavior already confirmed for glPolygonOffset - see DXStateCache.h's
-// depth_bias_enabled comment), which left every "GLuint available"/
-// "GLuint query_result" local UNINITIALIZED - reading garbage stack memory
-// and driving real, silent, random OCCLUDED decisions on whole spatial
-// groups. Gated behind LLFeatureManager::isFeatureAvailable("UseOcclusion"),
-// this was almost certainly dormant for the whole DX_RENDER port until the
-// GPU-detection fix (2026-08-05/06) started reporting a real GPU/feature
-// set instead of the always-blank fallback - same "unmasked a chain of
-// dormant bugs" pattern as that fix's own history.
+// LLOcclusionCullingGroup (llvieweroctree.cpp) calls this class's
+// genQueries()/beginQuery()/endQuery()/isResultAvailable()/getResult()
+// directly and unconditionally - a D3D11_QUERY_OCCLUSION-backed
+// implementation of the GL occlusion-query API shape
+// (glGenQueries/glBeginQuery/glEndQuery/glGetQueryObjectuiv) that
+// llvieweroctree.cpp's own pooling/recycling/state-machine logic was
+// originally written against, so that logic needed zero changes when its
+// raw GL calls were swapped for calls into here.
 //
-// This class is the minimal real fix: a D3D11_QUERY_OCCLUSION-backed
-// implementation of the exact 4 GL entry points llvieweroctree.cpp already
-// calls, so that file's existing pooling/recycling/state-machine logic
-// (LLOcclusionCullingGroup::sFreeQueries, QUERY_PENDING/DISCARD_QUERY,
-// mOcclusionCheckCount timeout) needed zero changes - only the raw GL calls
-// underneath it were swapped for calls into here, behind #ifdef DX_RENDER.
 // Deliberately NOT D3D11_QUERY_OCCLUSION_PREDICATE - that's GPU-side
 // SetPredication() conditional rendering, a different usage model than the
-// CPU-readback-then-branch architecture this whole codebase (both backends)
-// already uses for occlusion results.
+// CPU-readback-then-branch architecture this codebase uses for occlusion
+// results.
 class DXOcclusionQuery
 {
 public:

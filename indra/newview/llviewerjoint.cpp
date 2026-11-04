@@ -98,7 +98,7 @@ U32 LLViewerJoint::render( F32 pixelArea, bool first_pass, bool is_dummy )
             if ((pixelArea > MIN_PIXEL_AREA_3PASS_HAIR))
             {
                 // render all three passes
-                LLGLDisable cull(GL_CULL_FACE);
+                LLGLDisable cull(DX_CULL_FACE);
                 // first pass renders without writing to the z buffer
                 {
                     DXDepthTest gls_depth(true, false);

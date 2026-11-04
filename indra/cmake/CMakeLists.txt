@@ -41,7 +41,6 @@ set(cmake_SOURCE_FILES
     LLConvexdecomposition.cmake
     LLPlugin.cmake
         LLPrimitive.cmake
-    LLRender.cmake
     LLUI.cmake
     LLFileSystem.cmake
         LLWindow.cmake

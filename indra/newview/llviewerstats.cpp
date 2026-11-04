@@ -751,17 +751,17 @@ void send_viewer_stats(bool include_preferences)
     system["serial_number"] = LLAppViewer::instance()->getSerialNumber();
     std::string gpu_desc = llformat(
         "%-6s Class %d ",
-        gGLManager.mGLVendorShort.substr(0,6).c_str(),
+        gDXDeviceInfo.mGLVendorShort.substr(0,6).c_str(),
         (S32)LLFeatureManager::getInstance()->getGPUClass())
-        + gGLManager.getRawGLString();
+        + gDXDeviceInfo.getRawGLString();
 
     system["gpu"] = gpu_desc;
     system["gpu_class"] = (S32)LLFeatureManager::getInstance()->getGPUClass();
     system["gpu_memory_bandwidth"] = LLFeatureManager::getInstance()->getGPUMemoryBandwidth();
-    system["gpu_vendor"] = gGLManager.mGLVendorShort;
-    system["gpu_version"] = gGLManager.mDriverVersionVendorString;
-    system["opengl_version"] = gGLManager.mGLVersionString;
-    system["gpu_vram_mb"] = (S32)gGLManager.mVRAM;
+    system["gpu_vendor"] = gDXDeviceInfo.mGLVendorShort;
+    system["gpu_version"] = gDXDeviceInfo.mDriverVersionVendorString;
+    system["opengl_version"] = gDXDeviceInfo.mGLVersionString;
+    system["gpu_vram_mb"] = (S32)gDXDeviceInfo.mVRAM;
 
     // Resource usage
     // getAvailableMemKB might be a bit stale, but that's fine, this is statistics,
@@ -773,7 +773,7 @@ void send_viewer_stats(bool include_preferences)
     F64 vertex_bytes_alloc = LLVertexBuffer::getBytesAllocated() / BYTES_TO_MB;
     system["gpu_vram_tracked_mb"] = (F32)(texture_bytes_alloc + vertex_bytes_alloc);
 
-    gGLManager.asLLSD(system["gl"]);
+    gDXDeviceInfo.asLLSD(system["gl"]);
 
 
     S32 shader_level = 0;

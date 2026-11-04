@@ -683,7 +683,7 @@ bool LLVOSky::updateSky()
         return true;
     }
 
-    if (gGLManager.mIsDisabled)
+    if (gDXDeviceInfo.mIsDisabled)
     {
         return true;
     }

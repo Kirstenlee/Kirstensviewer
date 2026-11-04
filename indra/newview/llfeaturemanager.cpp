@@ -416,7 +416,7 @@ bool checkRDNA35()
 
     for (const auto& gpu_name : rdna35GPUs)
     {
-        if (gGLManager.getRawGLString().find(gpu_name) != std::string::npos)
+        if (gDXDeviceInfo.getRawGLString().find(gpu_name) != std::string::npos)
         {
             LL_WARNS("RenderInit") << "Detected AMD RDNA3.5 GPU (" << gpu_name << ")." << LL_ENDL;
             return true;
@@ -430,9 +430,9 @@ bool LLFeatureManager::loadGPUClass()
 {
     // gpu_benchmark() (llglsandbox.cpp) is GL-only and never audited for
     // DX_RENDER, so never call it here. Classify directly from the real
-    // DXGI VRAM figure LLGLManager::initGLDX() (llgl.cpp) populates instead
+    // DXGI VRAM figure DXDeviceInfo::initGLDX() (llgl.cpp) populates instead
     // of a memory-bandwidth benchmark - coarser, but safe to run.
-    U32 vram = gGLManager.mVRAM;
+    U32 vram = gDXDeviceInfo.mVRAM;
     if (vram >= 8192)      mGPUClass = GPU_CLASS_5;
     else if (vram >= 6144) mGPUClass = GPU_CLASS_4;
     else if (vram >= 4096) mGPUClass = GPU_CLASS_3;
@@ -443,7 +443,7 @@ bool LLFeatureManager::loadGPUClass()
     LL_WARNS("RenderInit") << "DX_RENDER GPU class from VRAM (" << vram
         << "MB): " << (S32)mGPUClass << LL_ENDL;
 
-    mGPUString = gGLManager.getRawGLString();
+    mGPUString = gDXDeviceInfo.getRawGLString();
     mGPUSupported = true;
 
     return true;
@@ -611,19 +611,19 @@ void LLFeatureManager::applyBaseMasks()
 	}
 
 	// now all those wacky ones
-	if (gGLManager.mIsNVIDIA)
+	if (gDXDeviceInfo.mIsNVIDIA)
 	{
 		maskFeatures("NVIDIA");
 	}
-	if (gGLManager.mIsAMD)
+	if (gDXDeviceInfo.mIsAMD)
 	{
 		maskFeatures("AMD");
 	}
-	if (gGLManager.mIsIntel)
+	if (gDXDeviceInfo.mIsIntel)
 	{
 		maskFeatures("Intel");
 	}
-	if (gGLManager.mIsApple)
+	if (gDXDeviceInfo.mIsApple)
 	{
 		maskFeatures("AppleGPU");
 	}
@@ -631,23 +631,23 @@ void LLFeatureManager::applyBaseMasks()
 	{
 		maskFeatures("NonAppleGPU");
 	}
-	if (gGLManager.mNumTextureImageUnits <= 8)
+	if (gDXDeviceInfo.mNumTextureImageUnits <= 8)
 	{
 		maskFeatures("TexUnit8orLess");
 	}
-	if (gGLManager.mNumTextureImageUnits <= 16)
+	if (gDXDeviceInfo.mNumTextureImageUnits <= 16)
 	{
 		maskFeatures("TexUnit16orLess");
 	}
-	if (gGLManager.mVRAM > 512)
+	if (gDXDeviceInfo.mVRAM > 512)
 	{
 		maskFeatures("VRAMGT512");
 	}
-	if (gGLManager.mVRAM < 2048)
+	if (gDXDeviceInfo.mVRAM < 2048)
 	{
 		maskFeatures("VRAMLT2GB");
 	}
-	if (gGLManager.mMaxVaryingVectors <= 16)
+	if (gDXDeviceInfo.mMaxVaryingVectors <= 16)
 	{
 		maskFeatures("VaryingVectors16orLess");
 	}

@@ -266,7 +266,7 @@ bool LLEquirectCapture::captureEquirect(U32 faceRes, U32 outputWidth, U32 output
     bool ran = runCaptureLoop(faceRes, [&](S32 face, ID3D11Texture2D* /*dx_texture*/)
     {
         // Un-mirror this face before storing it in the cube.
-        LLGLDisable blend(GL_BLEND);
+        LLGLDisable blend(DX_BLEND);
         flipScratch.bindTarget();
         gFlipXProgram.bind();
         gDX.getTexUnit(0)->bind(gLastCompositedPostTarget);
@@ -297,7 +297,7 @@ bool LLEquirectCapture::captureEquirect(U32 faceRes, U32 outputWidth, U32 output
     }
 
     {
-        LLGLDisable blend(GL_BLEND);
+        LLGLDisable blend(DX_BLEND);
         equirectTarget.bindTarget();
         gEquirectProjectProgram.bind();
         gDX.getTexUnit(0)->bind(&cubeTex);

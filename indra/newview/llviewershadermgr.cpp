@@ -305,16 +305,16 @@ static bool make_gltf_variant(LLHLSLShader& shader, LLHLSLShader& variant, bool 
     variant.mDefines = shader.mDefines;    // NOTE: Must come before addPermutation
 
     U32 node_size = 16 * 3;
-    U32 max_nodes = gGLManager.mMaxUniformBlockSize / node_size;
+    U32 max_nodes = gDXDeviceInfo.mMaxUniformBlockSize / node_size;
     variant.addPermutation("MAX_NODES_PER_GLTF_OBJECT", std::to_string(max_nodes));
 
     U32 material_size = 16 * 12;
-    U32 max_materials = gGLManager.mMaxUniformBlockSize / material_size;
+    U32 max_materials = gDXDeviceInfo.mMaxUniformBlockSize / material_size;
     LLHLSLShader::sMaxGLTFMaterials = max_materials;
 
     variant.addPermutation("MAX_MATERIALS_PER_GLTF_OBJECT", std::to_string(max_materials));
 
-    U32 max_vec4s = gGLManager.mMaxUniformBlockSize / 16;
+    U32 max_vec4s = gDXDeviceInfo.mMaxUniformBlockSize / 16;
     variant.addPermutation("MAX_UBO_VEC4S", std::to_string(max_vec4s));
 
     if (rigged)
@@ -596,7 +596,7 @@ void LLViewerShaderMgr::setShaders()
 
     mShaderList.clear();
 
-    if (!gGLManager.mHasRequirements)
+    if (!gDXDeviceInfo.mHasRequirements)
     {
         // Viewer will show 'hardware requirements' warning later
         LL_INFOS("ShaderLoading") << "Not supported hardware/software" << LL_ENDL;
@@ -609,7 +609,7 @@ void LLViewerShaderMgr::setShaders()
     static LLCachedControl<S32> reserved_texture_units(gSavedSettings, "RenderReservedTextureIndices", 14);
 
     LLHLSLShader::sIndexedTextureChannels = 4;
-        //llclamp<S32>(max_texture_index, 1, gGLManager.mNumTextureImageUnits-reserved_texture_units);
+        //llclamp<S32>(max_texture_index, 1, gDXDeviceInfo.mNumTextureImageUnits-reserved_texture_units);
 
     reentrance = true;
 
@@ -664,7 +664,7 @@ void LLViewerShaderMgr::setShaders()
 
     // Shaders
     LL_INFOS("ShaderLoading") << "\n~~~~~~~~~~~~~~~~~~\n Loading Shaders:\n~~~~~~~~~~~~~~~~~~" << LL_ENDL;
-    LL_INFOS("ShaderLoading") << llformat("Using GLSL %d.%d", gGLManager.mGLSLVersionMajor, gGLManager.mGLSLVersionMinor) << LL_ENDL;
+    LL_INFOS("ShaderLoading") << llformat("Using GLSL %d.%d", gDXDeviceInfo.mGLSLVersionMajor, gDXDeviceInfo.mGLSLVersionMinor) << LL_ENDL;
 
     for (S32 i = 0; i < SHADER_COUNT; i++)
     {
@@ -713,7 +713,7 @@ void LLViewerShaderMgr::setShaders()
         LLError::setDefaultLevel(LLError::LEVEL_DEBUG);
         loadBasicShaders();
         LLError::setDefaultLevel(lvl);
-        gGLManager.printGLInfoString();
+        gDXDeviceInfo.printGLInfoString();
         LL_ERRS() << "Unable to load basic shader " << shader_name << ", verify graphics driver installed and current." << LL_ENDL;
         reentrance = false; // For hygiene only, re-try probably helps nothing
         return;
@@ -866,7 +866,7 @@ std::string LLViewerShaderMgr::loadBasicShaders()
     // Work around driver crashes on older Macs when using deferred rendering
     // NORSPEC-59
     //
-    if (gGLManager.mIsMobileGF)
+    if (gDXDeviceInfo.mIsMobileGF)
         sum_lights_class = 3;
 #endif
 
@@ -3960,7 +3960,7 @@ bool LLViewerShaderMgr::loadShadersInterface()
         gSSRResolveProgram.createShader();
     }
 
-    if (success && gGLManager.mHasCubeMapArray)
+    if (success && gDXDeviceInfo.mHasCubeMapArray)
     {
         gRadianceGenProgram.mName = "Radiance Gen Shader";
         gRadianceGenProgram.mShaderFiles.clear();
@@ -3971,7 +3971,7 @@ bool LLViewerShaderMgr::loadShadersInterface()
         success = gRadianceGenProgram.createShader();
     }
 
-    if (success && gGLManager.mHasCubeMapArray)
+    if (success && gDXDeviceInfo.mHasCubeMapArray)
     {
         gHeroRadianceGenProgram.mName = "Hero Radiance Gen Shader";
         gHeroRadianceGenProgram.mShaderFiles.clear();
@@ -3983,7 +3983,7 @@ bool LLViewerShaderMgr::loadShadersInterface()
         success                              = gHeroRadianceGenProgram.createShader();
     }
 
-    if (success && gGLManager.mHasCubeMapArray)
+    if (success && gDXDeviceInfo.mHasCubeMapArray)
     {
         gIrradianceGenProgram.mName = "Irradiance Gen Shader";
         gIrradianceGenProgram.mShaderFiles.clear();

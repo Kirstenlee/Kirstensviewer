@@ -5523,8 +5523,8 @@ void LLVolumeGeometryManager::registerFace(LLSpatialGroup* group, LLFace* facep,
 		info->mEnd == facep->getGeomIndex() - 1 &&
 		(DXPipeline::sTextureBindTest || draw_vec[idx]->mTexture == tex || batchable) &&
 #if LL_DARWIN
-		info->mEnd - draw_vec[idx]->mStart + facep->getGeomCount() <= (U32)gGLManager.mGLMaxVertexRange &&
-		info->mCount + facep->getIndicesCount() <= (U32)gGLManager.mGLMaxIndexRange &&
+		info->mEnd - draw_vec[idx]->mStart + facep->getGeomCount() <= (U32)gDXDeviceInfo.mGLMaxVertexRange &&
+		info->mCount + facep->getIndicesCount() <= (U32)gDXDeviceInfo.mGLMaxIndexRange &&
 #endif
 		info->mMaterialID == mat_id &&
 		info->mFullbright == fullbright &&

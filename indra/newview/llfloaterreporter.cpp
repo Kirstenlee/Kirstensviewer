@@ -804,8 +804,8 @@ LLSD LLFloaterReporter::gatherReport()
             LLVersionInfo::instance().getShortVersion().c_str(),
             platform,
             gSysCPU.getFamily().c_str(),
-            gGLManager.mGLRenderer.c_str(),
-            gGLManager.mDriverVersionVendorString.c_str());
+            gDXDeviceInfo.mGLRenderer.c_str(),
+            gDXDeviceInfo.mDriverVersionVendorString.c_str());
 
     // only send a screenshot ID if we're asked to and the email is
     // going to LL - Estate Owners cannot see the screenshot asset

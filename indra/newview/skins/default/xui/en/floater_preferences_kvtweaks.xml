@@ -7963,6 +7963,18 @@
         top_delta="0"
         width="65" />
 
+      <check_box
+        control_name="RenderReflectionProbeCaptureShadows"
+        height="20"
+        initial_value="true"
+        label="Shadows in Captures"
+        layout="topleft"
+        left="20"
+        top_pad="14"
+        name="probe_capture_shadows_checkbox"
+        width="280"
+        tool_tip="Computes real sun shadows inside reflection/mirror probe captures and 360 captures. Turn off to skip that per-face cost during probe-heavy moments (e.g. right after login) - reflections and 360 captures lose shadow detail, the main view's own shadows are unaffected." />
+
       <text
         type="string"
         follows="left|top"

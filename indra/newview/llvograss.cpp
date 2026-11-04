@@ -704,8 +704,8 @@ void LLGrassPartition::getGeometry(LLSpatialGroup* group)
 
         if (idx >= 0 && draw_vec[idx]->mEnd == facep->getGeomIndex()-1 &&
             draw_vec[idx]->mTexture == facep->getTexture() &&
-            (U16) (draw_vec[idx]->mEnd - draw_vec[idx]->mStart + facep->getGeomCount()) <= (U32) gGLManager.mGLMaxVertexRange &&
-            //draw_vec[idx]->mCount + facep->getIndicesCount() <= (U32) gGLManager.mGLMaxIndexRange &&
+            (U16) (draw_vec[idx]->mEnd - draw_vec[idx]->mStart + facep->getGeomCount()) <= (U32) gDXDeviceInfo.mGLMaxVertexRange &&
+            //draw_vec[idx]->mCount + facep->getIndicesCount() <= (U32) gDXDeviceInfo.mGLMaxIndexRange &&
             draw_vec[idx]->mEnd - draw_vec[idx]->mStart + facep->getGeomCount() < 4096 &&
             draw_vec[idx]->mFullbright == fullbright)
         {

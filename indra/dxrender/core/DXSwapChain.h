@@ -20,7 +20,7 @@ public:
     // (manipulator gizmos, selection highlight, coordinate axes, tracking
     // beacons - drawn after DXPipeline::presentDeferredScreen() rebinds the
     // back buffer) has a real DSV to depth-test against; without one,
-    // DepthEnable=TRUE via LLGLDepthTest with no DSV bound makes D3D11
+    // DepthEnable=TRUE via DXDepthTest with no DSV bound makes D3D11
     // silently drop those draw calls. Cleared once per frame in
     // DXContext::beginFrame(). Does not yet test against real world/avatar
     // depth (would need a depth copy from the deferred G-buffer).

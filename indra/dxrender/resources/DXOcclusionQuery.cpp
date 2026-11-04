@@ -91,21 +91,13 @@ unsigned long long DXOcclusionQuery::getResult(unsigned int name)
         return 0;
     }
 
-    // S24 (2026-08-22, task #156 follow-up): bounded retry - this used to
-    // be `while (hr != S_OK) { hr = GetData(...); }` with no escape at all.
-    // GL's own glGetQueryObjectuiv(..., GL_QUERY_RESULT, ...) is likewise a
-    // blocking call by spec, but only ever blocks on a query that was
-    // genuinely Begin()/End()'d - a real, confirmed root cause candidate for
-    // "world loading hangs at ~11-12s for an eternity" (user-reported, tied
-    // to SSR/mirror startup): if any query's Begin() is ever skipped (a real
-    // risk during the chaotic startup burst where hundreds of spatial-group
-    // AND reflection/hero-probe queries all fire for the first time at
-    // once), GetData() never returns S_OK and this spun the main thread
-    // forever, with no way out. 100000 iterations is a generous margin
-    // (GetData() is a cheap poll, not a blocking driver call by itself) -
-    // treating "still not ready after that many tries" as 0 samples passed
-    // (conservative: reads as occluded) rather than hanging is a strictly
-    // safer failure mode.
+    // Bounded retry, not an infinite `while (hr != S_OK)` spin: if a query's
+    // Begin() is ever skipped (possible during a startup burst of many
+    // spatial-group/probe queries firing at once), GetData() never returns
+    // S_OK and an unbounded loop hangs the main thread forever. 100000
+    // iterations is a generous margin (GetData() is a cheap poll); treating
+    // "still not ready" past that as 0 samples passed (reads as occluded)
+    // is a strictly safer failure mode than hanging.
     UINT64 result = 0;
     HRESULT hr = S_FALSE;
     for (int attempt = 0; attempt < 100000 && hr != S_OK; ++attempt)

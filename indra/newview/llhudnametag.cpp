@@ -319,7 +319,7 @@ void LLHUDNameTag::renderText()
             render_over_water = true;
         }
     }
-    DXDepthTest gls_depth(true, false, render_over_water ? GL_ALWAYS : GL_LEQUAL);
+    DXDepthTest gls_depth(true, false, render_over_water ? DX_ALWAYS : DX_LEQUAL);
 
     // LLUIImage::draw3D() (the background box below) draws against whatever
     // D3D11 viewport is currently bound with no reset of its own. HUD-attached

@@ -634,7 +634,7 @@ void LLWorldMapView::draw()
 
 
     // turn off the scissor
-    LLGLDisable no_scissor(GL_SCISSOR_TEST);
+    LLGLDisable no_scissor(DX_SCISSOR_TEST);
 
     updateDirections();
 

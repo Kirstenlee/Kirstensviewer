@@ -8,7 +8,7 @@
 // release on a raw opaque handle) rather than RAII, since callers already
 // track fence lifetime themselves in a queue (see LLViewerStats::
 // notifyFrameSubmitted()/checkGPUFrameCompletion() - real GPU-completion-
-// based FPS/frametime telemetry, task #98).
+// based FPS/frametime telemetry).
 class DXQuery
 {
 public:

@@ -36,7 +36,7 @@
 
 
 LLScreenClipRect::LLScreenClipRect(const LLRect& rect, bool enabled)
-:   mScissorState(GL_SCISSOR_TEST),
+:   mScissorState(DX_SCISSOR_TEST),
     mEnabled(enabled)
 {
     if (mEnabled)

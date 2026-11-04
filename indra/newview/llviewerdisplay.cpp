@@ -494,7 +494,7 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 	}
 
 	LLGLSDefault gls_default;
-	DXDepthTest gls_depth(true, true, GL_LEQUAL);
+	DXDepthTest gls_depth(true, true, DX_LEQUAL);
 
 	LLVertexBuffer::unbind();
 
@@ -977,7 +977,7 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 		}
 
 		{
-			for (S32 i = 0; i < gGLManager.mNumTextureImageUnits; i++)
+			for (S32 i = 0; i < gDXDeviceInfo.mNumTextureImageUnits; i++)
 			{ //dummy cleanup of any currently bound textures
 				// mCurrTexType never leaves TT_NONE under DX_RENDER (see
 				// LLHLSLShader::disableTexture()), so the getCurrType() gate below
@@ -1124,7 +1124,7 @@ void display_cube_face()
 	bool rebuild = false;
 
 	LLGLSDefault gls_default;
-	DXDepthTest gls_depth(true, true, GL_LEQUAL);
+	DXDepthTest gls_depth(true, true, DX_LEQUAL);
 
 	LLVertexBuffer::unbind();
 

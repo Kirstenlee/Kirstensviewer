@@ -260,9 +260,9 @@ bool LLTerrainPaintMap::bakeHeightNoiseIntoPBRPaintMapRGB(const LLViewerRegion& 
         }
 
         LLGLDisable stencil(GL_STENCIL_TEST);
-        LLGLDisable scissor(GL_SCISSOR_TEST);
-        LLGLEnable cull_face(GL_CULL_FACE);
-        DXDepthTest depth_test(false, false, GL_ALWAYS);
+        LLGLDisable scissor(DX_SCISSOR_TEST);
+        LLGLEnable cull_face(DX_CULL_FACE);
+        DXDepthTest depth_test(false, false, DX_ALWAYS);
 
         S32 alpha_ramp = shader.enableTexture(LLViewerShaderMgr::TERRAIN_ALPHARAMP);
         LLPointer<LLViewerTexture> alpha_ramp_texture = LLViewerTextureManager::getFetchedTexture(IMG_ALPHA_GRAD_2D);

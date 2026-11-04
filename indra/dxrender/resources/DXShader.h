@@ -19,47 +19,32 @@ public:
     bool compilePixelShader(const std::string& source, const std::string& debugName);
     void reset();
 
-    // S24 (2026-09-05, task #277): device-independent D3DCompile()-only
-    // warm-up. Compiles (or loads from the disk cache) source into a
-    // throwaway blob and immediately releases it - the point is purely to
-    // populate the disk cache ahead of a later real compileVertexShader()/
-    // compilePixelShader() call, so that call finds a warm cache and skips
-    // straight to the (necessarily main-thread-only) CreateVertexShader()/
-    // CreatePixelShader() step. Safe to call from any thread, unlike
-    // compileVertexShader()/compilePixelShader() themselves: D3DCompile() has
-    // no ID3D11Device dependency at all (see compileHLSL() in the .cpp), and
-    // the disk-cache read/write touches only its own content-hashed file, so
-    // there's no shared state to race on across concurrent calls for
-    // different shaders. This project's device is created with
-    // D3D11_CREATE_DEVICE_SINGLETHREADED (DXDevice.cpp, task #278) precisely
-    // because nothing else here calls the device off the main thread -
-    // CreateVertexShader()/CreatePixelShader() must stay that way.
+    // Device-independent D3DCompile()-only warm-up: compiles (or loads from
+    // the disk cache) source into a throwaway blob and immediately releases
+    // it, purely to populate the disk cache ahead of a later real
+    // compileVertexShader()/compilePixelShader() call. Safe to call from any
+    // thread, unlike compileVertexShader()/compilePixelShader() themselves:
+    // D3DCompile() has no ID3D11Device dependency, and the disk-cache
+    // read/write touches only its own content-hashed file. This project's
+    // device is created with D3D11_CREATE_DEVICE_SINGLETHREADED
+    // (DXDevice.cpp) precisely because nothing else here calls the device
+    // off the main thread - CreateVertexShader()/CreatePixelShader() must
+    // stay that way.
     static void prefetchVertexShader(const std::string& source, const std::string& debugName);
     static void prefetchPixelShader(const std::string& source, const std::string& debugName);
 
-    // S24 (2026-08-29): DX-native shader bytecode disk cache master switch -
-    // set once from RenderDXShaderCacheEnabled via settings_to_globals()
-    // (llappviewer.cpp) before gPipeline.init() runs, same "push a saved
-    // setting into a static the lower layer can't read gSavedSettings for"
-    // pattern as DXDevice::sDebugLayerEnabled (DXDevice.h) - dxrender has no
-    // link to newview's gSavedSettings. GL's equivalent (LLShaderMgr's
-    // mShaderCacheEnabled/loadCachedProgramBinary()/saveCachedProgramBinary(),
-    // llrender/llshadermgr.cpp) is glProgramBinary()-based and has zero
-    // DX_RENDER equivalent - LLHLSLShader::createShader() returns via
-    // createShaderDX() before ever reaching it, so DX_RENDER has recompiled
-    // every shader from HLSL source on every single launch since day one.
+    // DX-native shader bytecode disk cache master switch - set once from
+    // RenderDXShaderCacheEnabled via settings_to_globals() (llappviewer.cpp)
+    // before gPipeline.init() runs, since dxrender has no link to newview's
+    // gSavedSettings. GL's own equivalent (glProgramBinary()-based) has no
+    // DX_RENDER equivalent and was removed as dead code (llshadermgr.cpp).
     // Caches the raw D3DCompile() bytecode blob to the same shader_cache
-    // folder GL's cache already uses (same purge/reset mechanisms - KVTweaks'
-    // "Purge Shader Cache" button, RenderPurgeShaderCacheOnExit - work on it
-    // unmodified), keyed by a hash of the exact final concatenated HLSL text
-    // (already fully resolved - #include expanded, feature #defines baked
-    // in - so any permutation/feature/shader-level change naturally produces
-    // a different key, no separate version-tagging needed). Was gated
-    // per-shader by isCacheEligible()'s allowlist below, grown in staged
-    // passes as confidence grew - flipped to blanket coverage 2026-09-05
-    // once the mechanism was fully proven and a real live shader-reload path
-    // existed (see isCacheEligible()'s own comment in the .cpp for the full
-    // reasoning on why blanket coverage is safe, not just convenient).
+    // folder GL's cache used (same purge/reset mechanisms work on it
+    // unmodified - see LLShaderMgr::clearShaderCache()), keyed by a
+    // hash of the exact final concatenated HLSL text - any permutation/
+    // feature/shader-level change naturally produces a different key. See
+    // isCacheEligible()'s comment in the .cpp for why blanket coverage is
+    // safe.
     static bool sShaderCacheEnabled;
 
     // Returns sShaderCacheEnabled - kept as its own function (rather than a
@@ -71,7 +56,7 @@ public:
     static bool isCacheEligible(const std::string& debugName);
 
     // GLSL lets an attached utility file declare a free-standing
-    // "in vec4 weight;" attribute (e.g. class1/avatar/avatarSkinV.glsl's
+    // "in vec4 weight;" attribute (e.g. avatar/avatarSkinV.glsl's
     // getSkinnedTransform()) that main()'s own entry file never touches -
     // legal there since GL links multiple compiled objects into one program.
     // HLSL has no equivalent: every vertex input must flow through the entry
@@ -95,7 +80,7 @@ public:
     // use for this compile.
     static void injectTextureIndexInputs(std::string& vertex_source);
 
-    // S24 (DX_RENDER, 2026-07-30): D3DCompile() is called with a null
+    // D3DCompile() is called with a null
     // ID3DInclude (see compileHLSL() in the .cpp), so `#include "x.hlsli"`
     // directives are not natively resolved by the compiler. This does the
     // resolution ourselves, in plain text, the same way
@@ -154,7 +139,7 @@ public:
     // caller passing more elements than the shader declares).
     bool setUniformFloatArray(const std::string& name, const float* data, size_t float_count);
 
-    // S24 (2026-08-03): general form of setUniformMatrix3()'s per-column
+    // General form of setUniformMatrix3()'s per-column
     // padding trick - HLSL's cbuffer packing rule stores EVERY array
     // element (regardless of whether the underlying type is scalar,
     // float2, or float3 - float4 is the only size that doesn't need this)
@@ -173,12 +158,10 @@ public:
 
     ID3D11Buffer* getConstantBuffer() const { return mConstantBuffer; }
 
-    // S24 (task #79 follow-on): the register(bN) slot the compiler actually
-    // assigned to $Globals for THIS shader. Almost always 0 (every shader
-    // examined so far declares no other explicit register(bN) cbuffer, so
-    // the compiler's implicit-cbuffer allocator picks the lowest free slot,
-    // which is always b0 when nothing else claims it) - but not guaranteed:
-    // e.g. class1/gltf/pbrmetallicroughnessV/F.hlsl explicitly declare
+    // The register(bN) slot the compiler actually assigned to $Globals for
+    // THIS shader. Almost always 0 (the implicit-cbuffer allocator picks
+    // the lowest free slot) but not guaranteed: e.g.
+    // gltf/pbrmetallicroughnessV/F.hlsl explicitly declare
     // `cbuffer GLTFMaterials : register(b0)`, which pushes $Globals to b1
     // for those two files specifically. Reflected via
     // GetResourceBindingDescByName() in reflectConstants() rather than
@@ -186,18 +169,13 @@ public:
     // instead of a hardcoded 0.
     UINT getConstantBufferBindPoint() const { return mConstantBufferBindPoint; }
 
-    // S24 (2026-08-03): named Texture2D resource -> its register(tN) bind
-    // point (D3D11_SHADER_INPUT_BIND_DESC::BindPoint), reflected the same
-    // way reflectConstants() reflects $Globals variables. This is the
-    // DX-native equivalent of GL's glGetUniformLocation()-based texture-
-    // channel mapping (LLHLSLShader::mTexture[], populated via
-    // mapUniformTextureChannel()) - without it, LLHLSLShader::bindTexture()
+    // Named Texture2D resource -> its register(tN) bind point
+    // (D3D11_SHADER_INPUT_BIND_DESC::BindPoint), reflected the same way
+    // reflectConstants() reflects $Globals variables. DX-native equivalent
+    // of GL's glGetUniformLocation()-based texture-channel mapping
+    // (LLHLSLShader::mTexture[]) - without it, LLHLSLShader::bindTexture()
     // has no way to know which register a named uniform like "diffuseMap"
-    // corresponds to, and was a hardcoded DX_RENDER no-op as a result (see
-    // llhlslshader.cpp's bindTexture(S32, LLTexture*, ...) - real root
-    // cause of PBR materials showing an unrelated, leftover-bound texture
-    // depending on draw order/camera angle, since every bind() call for
-    // t0-t3 was silently skipped).
+    // corresponds to.
     bool getTextureBindPoint(const std::string& name, UINT& out_bind_point) const;
 
 private:

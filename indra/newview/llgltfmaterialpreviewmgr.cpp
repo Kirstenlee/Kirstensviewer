@@ -445,7 +445,7 @@ bool LLGLTFPreviewTexture::render()
 
     DXDepthTest(false);
     LLGLDisable stencil(GL_STENCIL_TEST);
-    LLGLDisable scissor(GL_SCISSOR_TEST);
+    LLGLDisable scissor(DX_SCISSOR_TEST);
     SetTemporarily<bool> no_dof(&DXPipeline::RenderDepthOfField, false);
     SetTemporarily<bool> no_glow(&DXPipeline::sRenderGlow, false);
     SetTemporarily<bool> no_ssr(&DXPipeline::RenderScreenSpaceReflections, false);
@@ -579,7 +579,7 @@ bool LLGLTFPreviewTexture::render()
     gDeferredPostNoDoFProgram.bindTexture(LLShaderMgr::DEFERRED_DEPTH, mBoundTarget, true);
 
     {
-        DXDepthTest depth_test(true, true, GL_ALWAYS);
+        DXDepthTest depth_test(true, true, DX_ALWAYS);
         gPipeline.mScreenTriangleVB->setBuffer();
         gPipeline.mScreenTriangleVB->drawArrays(LLRender::TRIANGLES, 0, 3);
     }

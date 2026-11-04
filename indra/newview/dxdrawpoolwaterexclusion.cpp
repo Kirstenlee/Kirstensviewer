@@ -31,7 +31,6 @@
 #include "llviewershadermgr.h"
 #include "pipeline.h"
 #include "dxpipeline.h"
-#include "llglcommonfunc.h"
 #include "llvoavatar.h"
 #include "dxdrawpoolwater.h"
 
@@ -57,7 +56,7 @@ void LLDrawPoolWaterExclusion::render(S32 pass)
     if (pwaterpool)
     {
         // Just treat our water planes as double sided for the purposes of generating the exclusion mask.
-        LLGLDisable cullface(GL_CULL_FACE);
+        LLGLDisable cullface(DX_CULL_FACE);
         pwaterpool->pushWaterPlanes(0);
 
         // Take care of the edge water tiles.

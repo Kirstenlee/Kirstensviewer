@@ -211,7 +211,7 @@ void LLManipScale::render()
     DXUIDefault gls_ui;
     gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
     DXDepthTest gls_depth(true);
-    LLGLEnable gl_blend(GL_BLEND);
+    LLGLEnable gl_blend(DX_BLEND);
     LLBBox bbox = LLSelectMgr::getInstance()->getBBoxOfSelection();
 
     if( canAffectSelection() )

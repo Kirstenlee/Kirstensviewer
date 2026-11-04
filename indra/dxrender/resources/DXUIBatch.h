@@ -23,8 +23,8 @@ struct DXUIVertex
 
 // Accepts flat triangle-list geometry - the same shape the existing,
 // already-correct GL-era geometry construction code already produces
-// (LLFontGL::drawGlyph()/renderTriangle(), llrender2dutils.cpp's
-// gl_draw_scaled_rotated_image()/gl_draw_scaled_image_with_border()), so
+// (LLFontDX::drawGlyph()/renderTriangle(), llrender2dutils.cpp's
+// dx_draw_scaled_rotated_image()/dx_draw_scaled_image_with_border()), so
 // callers translate their existing pos/uv/color arrays into DXUIVertex
 // directly rather than this class re-deriving a dedup'd vertex+index
 // representation from code that's already correct as flat triangles.
@@ -44,37 +44,26 @@ enum class DXUITopology
     LineStrip,
 };
 
-// S24 (2026-08-16): real cross-primitive batching, replacing the previous
-// "draw immediately every single flush() call" design that made 2D UI cost
-// scale linearly with widget count (a floater with hundreds of rects/icons/
-// text labels meant hundreds of full D3D11 state-replay Draw() calls per
-// frame - confirmed root cause of the UI-floater framerate floor). Every
-// existing push()+flush(...) call site (21 across llrender2dutils.cpp/
-// llfontgl.cpp) is UNCHANGED - flush()'s signature and call pattern stay
-// exactly the same; what changed is what it does internally:
+// Real cross-primitive batching: every existing push()+flush(...) call site
+// is UNCHANGED (signature and call pattern stay the same); what changed is
+// what flush() does internally.
 //
-// flush() now compares the (shader, topology, alpha_blend, depth) state it
-// was called with against whatever's currently pending. If it matches (or
+// flush() compares the (shader, topology, alpha_blend, depth) state it was
+// called with against whatever's currently pending. If it matches (or
 // nothing's pending yet), the just-pushed vertices simply extend the
 // pending batch - no draw happens. If it differs, the OLD pending batch is
 // drawn first (using ITS OWN remembered state), then a new pending batch
 // starts with the vertices just pushed for the new state. This turns
 // "hundreds of draws, one per primitive" into "a handful of draws, one per
-// actual state change" - state changes are rare in practice (per-file
-// investigation: alpha_blend is true and depth params are default at every
-// one of the 21 existing call sites bar one HUD case, so real-world batches
-// are usually keyed on shader+topology alone, i.e. one whole floater's
-// worth of same-shader rects/text often merges into ONE draw call).
+// actual state change".
 //
-// flushPending() is new: unconditionally draws whatever's pending (if
-// anything) right now. This is what every interleaving-hazard hook (scissor
-// rect changes, depth-state changes, blend/cull changes, the separate
+// flushPending() unconditionally draws whatever's pending (if anything)
+// right now. This is what every interleaving-hazard hook (scissor rect
+// changes, depth-state changes, blend/cull changes, the separate
 // LLRender/gDX immediate-mode queue's own flush, texture changes, shader
 // bind/unbind, HUD-vs-screen-space pass boundaries) calls BEFORE actually
 // changing D3D11 state out from under a still-pending batch - without these
-// hooks, deferring flush() would risk silent draw-order corruption. See the
-// DXUIBatch batching plan (2026-08-16 session) for the full hazard audit
-// and the complete list of hook sites.
+// hooks, deferring flush() would risk silent draw-order corruption.
 class DXUIBatch
 {
 public:
@@ -92,21 +81,10 @@ public:
     // explicit, required arguments rather than trusted ambient state) -
     // internally now defers the actual Draw() until the batch state
     // changes. See this class's top comment.
-    // S24 (2026-08-31, task #193 follow-up): depth_func default was
-    // D3D11_COMPARISON_LESS_EQUAL, dating from task #191 (2026-08-11) -
-    // correct under the depth convention at the time (near=0.0/far=1.0,
-    // "nearer" = smaller stored value, so "this fragment is nearer-or-equal"
-    // = LESS_EQUAL). The reversed-Z conversion (task #289, 2026-08-30,
-    // near=1.0/far=0.0) flipped that everywhere else in the codebase
-    // (glDepthFuncToDX(), the shadow-comparison sampler, etc.) but this
-    // class's own hardcoded default was never revisited - "nearer" is now
-    // the LARGER stored value, so the correct "this fragment is nearer-or-
-    // equal" comparison is GREATER_EQUAL. No live caller currently passes
-    // depth_test=true (confirmed via grep across every gDXUIBatch.flush()
-    // call site), so this was a genuinely stale, currently-inert bug -
-    // fixed now so the capability is actually correct whenever a future
-    // caller (e.g. LLHUDNameTag's world-space panel, llrender2dutils.cpp)
-    // turns it on, rather than leaving it silently backwards.
+    // depth_func default is GREATER_EQUAL, matching the reversed-Z
+    // convention (near=1.0/far=0.0, "nearer" = larger stored value) used
+    // everywhere else in the codebase (glDepthFuncToDX(), the
+    // shadow-comparison sampler) - do not revert to LESS_EQUAL.
     void flush(const void* vs_bytecode, size_t vs_bytecode_size, ID3D11VertexShader* vs, ID3D11PixelShader* ps, bool alpha_blend, const char* debug_name = nullptr, DXUITopology topology = DXUITopology::TriangleList,
         bool depth_test = false, bool depth_write = false, D3D11_COMPARISON_FUNC depth_func = D3D11_COMPARISON_GREATER_EQUAL);
 
@@ -116,11 +94,6 @@ public:
     // batch depends on (shader, textures, blend/depth/scissor state,
     // topology) - see this class's top comment for the full hazard list.
     void flushPending();
-
-    // S24 (task #224, diagnostics removed 2026-08-25): batching/deferral was
-    // ruled out as the flicker's cause via a live bypass-toggle test - the
-    // real bug was LLUIImage's display-list cache (see lluiimage.cpp), now
-    // off by default.
 
 private:
     struct BatchState
@@ -134,7 +107,7 @@ private:
         bool alphaBlend = true;
         bool depthTest = false;
         bool depthWrite = true;
-        // S24 (2026-08-31): matches flush()'s own default - see its comment.
+        // Matches flush()'s own default - see its comment.
         D3D11_COMPARISON_FUNC depthFunc = D3D11_COMPARISON_GREATER_EQUAL;
 
         bool sameDrawState(const BatchState& other) const

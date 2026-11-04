@@ -3274,8 +3274,8 @@ bool LLModelPreview::render()
     S32 height = getHeight();
 
     DXUIDefault def;
-    LLGLDisable no_blend(GL_BLEND);
-    LLGLEnable cull(GL_CULL_FACE);
+    LLGLDisable no_blend(DX_BLEND);
+    LLGLEnable cull(DX_CULL_FACE);
     DXDepthTest depth(false); // SL-12781 disable z-buffer to render background color
 
     {
@@ -3560,9 +3560,6 @@ bool LLModelPreview::render()
                         gDX.diffuseColor4fv(PREVIEW_BASE_COL.mV);
                     }
 
-                    // Zero this variable for an obligatory buffer initialization
-                    // See https://github.com/secondlife/viewer/issues/912
-                    LLVertexBuffer::sGLRenderBuffer = 0;
                     LLVertexBuffer* buffer = mVertexBuffer[mPreviewLOD][model][i];
                     buffer->setBuffer();
                     buffer->drawRange(LLRender::TRIANGLES, 0, buffer->getNumVerts() - 1, buffer->getNumIndices(), 0);
@@ -3600,7 +3597,7 @@ bool LLModelPreview::render()
                     }
 
                     //enable alpha blending on second pass but not first pass
-                    DXState blend(GL_BLEND, pass);
+                    DXState blend(DX_BLEND, pass);
 
                     gDX.blendFunc(LLRender::BF_SOURCE_ALPHA, LLRender::BF_ONE_MINUS_SOURCE_ALPHA);
 
@@ -3692,9 +3689,6 @@ bool LLModelPreview::render()
                                     gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
                                     gDX.diffuseColor4fv(PREVIEW_PSYH_FILL_COL.mV);
 
-                                    // Zero this variable for an obligatory buffer initialization
-                                    // See https://github.com/secondlife/viewer/issues/912
-                                    LLVertexBuffer::sGLRenderBuffer = 0;
                                     LLVertexBuffer* buffer = mVertexBuffer[LLModel::LOD_PHYSICS][model][i];
                                     buffer->setBuffer();
                                     buffer->drawRange(LLRender::TRIANGLES, 0, buffer->getNumVerts() - 1, buffer->getNumIndices(), 0);
@@ -3722,8 +3716,8 @@ bool LLModelPreview::render()
                         LLUI::setLineWidth(PREVIEW_DEG_EDGE_WIDTH);
                         DXPipeline::enableLightsFullbright(gPipeline);
                         //show degenerate triangles
-                        DXDepthTest depth(true, true, GL_ALWAYS);
-                        LLGLDisable cull(GL_CULL_FACE);
+                        DXDepthTest depth(true, true, DX_ALWAYS);
+                        LLGLDisable cull(DX_CULL_FACE);
                         gDX.diffuseColor4f(1.f, 0.f, 0.f, 1.f);
                         const LLVector4a scale(0.5f);
 
@@ -3756,9 +3750,6 @@ bool LLModelPreview::render()
                                     auto num_models = mVertexBuffer[LLModel::LOD_PHYSICS][model].size();
                                     for (size_t v = 0; v < num_models; ++v)
                                     {
-                                        // Zero this variable for an obligatory buffer initialization
-                                        // See https://github.com/secondlife/viewer/issues/912
-                                        LLVertexBuffer::sGLRenderBuffer = 0;
                                         LLVertexBuffer* buffer = mVertexBuffer[LLModel::LOD_PHYSICS][model][v];
                                         buffer->setBuffer();
                                         LLStrider<LLVector3> pos_strider;
@@ -3912,9 +3903,6 @@ bool LLModelPreview::render()
                                 gDX.diffuseColor4fv(PREVIEW_BASE_COL.mV);
                             }
 
-                            // Zero this variable for an obligatory buffer initialization
-                            // See https://github.com/secondlife/viewer/issues/912
-                            LLVertexBuffer::sGLRenderBuffer = 0;
                             LLVertexBuffer* buffer = mVertexBuffer[mPreviewLOD][model][i];
                             buffer->setBuffer();
                             buffer->draw(LLRender::TRIANGLES, buffer->getNumIndices(), 0);

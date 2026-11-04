@@ -221,7 +221,7 @@ namespace
                 rot.setRot(0.f, hdri_rotation * DEG_TO_RAD, 0.f);
 
                 sky_shader->uniform1f(LLShaderMgr::SKY_HDR_SCALE, powf(2.f, hdri_exposure));
-                sky_shader->uniformMatrix3fv(LLShaderMgr::DEFERRED_ENV_MAT, 1, GL_FALSE, (F32*)rot.mMatrix);
+                sky_shader->uniformMatrix3fv(LLShaderMgr::DEFERRED_ENV_MAT, 1, false, (F32*)rot.mMatrix);
                 sky_shader->uniform1f(hdri_split_screen, gCubeSnapshot ? 1.f : hdri_split);
             }
             else
@@ -327,9 +327,9 @@ namespace
         // involved) and which would corrupt the "inv_proj" this pass's pixel shader relies on for
         // camera-ray reconstruction (auto-synced from whatever the CURRENT projection matrix is
         // at bind time - squashed would silently reconstruct the wrong rays).
-        LLGLEnable blend(GL_BLEND);
-        LLGLDisable cull(GL_CULL_FACE);
-        DXDepthTest depth(true, false, GL_LEQUAL);
+        LLGLEnable blend(DX_BLEND);
+        LLGLDisable cull(DX_CULL_FACE);
+        DXDepthTest depth(true, false, DX_LEQUAL);
         gDX.setSceneBlendType(LLRender::BT_ADD_WITH_ALPHA);
 
         gDeferredGalacticBandProgram.bind();

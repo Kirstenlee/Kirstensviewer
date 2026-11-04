@@ -11,7 +11,7 @@ namespace
 {
     // S24: every LLSpatialGroup rebuild destroys its old vertex/index
     // buffers and creates brand-new ones (see LLVertexBuffer::genBuffer()/
-    // genIndices(), destroyGLBuffer()/destroyGLIndices()) - there was no
+    // genIndices(), destroyBuffer()/destroyIndices()) - there was no
     // reuse at all under DX_RENDER (the legacy GL LLVBOPool is explicitly
     // bypassed, see LLVertexBuffer::initClass()'s comment - it's GL-driver-
     // quirk-shaped, not reusable for a raw ID3D11Buffer*). Entering a region

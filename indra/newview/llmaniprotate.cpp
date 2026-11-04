@@ -117,7 +117,7 @@ void LLManipRotate::render()
     DXUIDefault gls_ui;
     gDX.getTexUnit(0)->bind(LLViewerFetchedTexture::sWhiteImagep);
     DXDepthTest gls_depth(true);
-    LLGLEnable gl_blend(GL_BLEND);
+    LLGLEnable gl_blend(DX_BLEND);
 
     // You can rotate if you can move
     LLViewerObject* first_object = mObjectSelection->getFirstMoveableObject(true);
@@ -158,7 +158,7 @@ void LLManipRotate::render()
         {
             gDebugProgram.bind();
 
-            LLGLEnable cull_face(GL_CULL_FACE);
+            LLGLEnable cull_face(DX_CULL_FACE);
             DXDepthTest gls_depth(false);
             gDX.pushMatrix();
             {
@@ -273,7 +273,7 @@ void LLManipRotate::render()
                 mManipulatorScales = lerp(mManipulatorScales, LLVector4(1.f, 1.f, 1.f, 1.f), LLSmoothInterpolation::getInterpolant(MANIPULATOR_SCALE_HALF_LIFE));
             }
 
-            LLGLEnable cull_face(GL_CULL_FACE);
+            LLGLEnable cull_face(DX_CULL_FACE);
             LLGLEnable clip_plane0(GL_CLIP_PLANE0);
             DXDepthTest gls_depth(false);
             //LLGLDisable gls_stencil(GL_STENCIL_TEST);
@@ -768,7 +768,7 @@ void LLManipRotate::drag( S32 x, S32 y )
 
 void LLManipRotate::renderActiveRing( F32 radius, F32 width, const LLColor4& front_color, const LLColor4& back_color)
 {
-    LLGLEnable cull_face(GL_CULL_FACE);
+    LLGLEnable cull_face(DX_CULL_FACE);
     {
         dx_ring(radius, width, back_color, back_color * 0.5f, CIRCLE_STEPS, false);
         dx_ring(radius, width, back_color, back_color * 0.5f, CIRCLE_STEPS, true);

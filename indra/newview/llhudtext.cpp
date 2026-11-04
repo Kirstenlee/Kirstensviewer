@@ -132,7 +132,7 @@ void LLHUDText::renderText()
 
     gDX.getTexUnit(0)->enable(LLTexUnit::TT_TEXTURE);
 
-    DXState gls_blend(GL_BLEND, true);
+    DXState gls_blend(DX_BLEND, true);
 
     LLColor4 shadow_color(0.f, 0.f, 0.f, 1.f);
     F32 alpha_factor = 1.f;

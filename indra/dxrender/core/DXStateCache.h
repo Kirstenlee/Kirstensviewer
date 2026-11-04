@@ -32,10 +32,10 @@ public:
     // commonly, so front-face culling is a documented gap, not handled).
     // enabled=false: D3D11_CULL_NONE.
     //
-    // scissor_enabled matches GL_SCISSOR_TEST; D3D11 bundles ScissorEnable
+    // scissor_enabled matches DX_SCISSOR_TEST; D3D11 bundles ScissorEnable
     // into the rasterizer state object the same way it bundles cull mode.
     //
-    // depth_clamp_enabled matches GL_DEPTH_CLAMP (used by
+    // depth_clamp_enabled matches DX_DEPTH_CLAMP (used by
     // LLPipeline::renderShadow()'s shadow-map pass). D3D11's DepthClipEnable
     // is the inverse-sense equivalent: TRUE (GL depth-clamp off, the
     // default) clips as usual; FALSE (GL depth-clamp on) clamps depth
@@ -67,8 +67,8 @@ public:
 
     // True only while Develop > Rendering > Wireframe's real DX11 render span is active
     // (LLPipeline::renderGeomDeferred()/renderGeomPostDeferred()'s DX_RENDER brackets in
-    // dxpipeline.cpp) - NOT the same as gUseWireframe itself. GL_CULL_FACE/SCISSOR_TEST/
-    // DEPTH_CLAMP/POLYGON_OFFSET_* toggle constantly during normal rendering (every
+    // dxpipeline.cpp) - NOT the same as gUseWireframe itself. DX_CULL_FACE/DX_SCISSOR_TEST/
+    // DX_DEPTH_CLAMP/POLYGON_OFFSET_* toggle constantly during normal rendering (every
     // LLGLEnable/LLGLDisable), each one forcing a full rasterizer-state rebuild via
     // LLRender::applyDXRasterizerState() - D3D11 bundles fill mode into that same object, unlike
     // GL's independent glPolygonMode(). Without this scope flag, wireframe mode got silently
@@ -78,7 +78,7 @@ public:
     // gUseWireframe itself toggling correctly.
     static bool sWireframeScopeActive;
 
-    // Mirrors LLGLDepthTest (llrender/llglstates.h) - depth_enabled/
+    // Mirrors DXDepthTest (llrender/llglstates.h) - depth_enabled/
     // write_enabled/func together, since D3D11 bundles them into one
     // ID3D11DepthStencilState object the same way it bundles blend state.
     //
@@ -101,7 +101,7 @@ public:
     // getRTVGeneration()/bumpRTVGeneration() below, for the same class of
     // staleness hazard). tagAttachmentStencil() below reads this back
     // instead of guessing, so it always derives a stencil-enabled variant
-    // that matches whatever the CURRENT LLGLDepthTest scope actually set,
+    // that matches whatever the CURRENT DXDepthTest scope actually set,
     // not a hardcoded assumption.
     static void recordAppliedDepthStencilState(bool depth_enabled, bool write_enabled, D3D11_COMPARISON_FUNC func);
 
@@ -119,14 +119,14 @@ public:
     // with 1 (isAttachment=true - exempt from @camtextures blanking) or 0
     // (world geometry - eligible to be blanked). Derives a stencil-enabled
     // depth-stencil state matching whatever depth enable/write/func the
-    // CURRENT LLGLDepthTest scope already established (via
+    // CURRENT DXDepthTest scope already established (via
     // recordAppliedDepthStencilState() above), rather than a hardcoded
     // guess - see that function's comment for why this matters. Skips the
     // OMSetDepthStencilState call when the ref is unchanged since the last
     // call through THIS function specifically, but only when nothing else
     // has touched depth-stencil state since (checked via the same
     // generation counter recordAppliedDepthStencilState() bumps) - a nested
-    // LLGLDepthTest scope opening/closing between two batches (both
+    // DXDepthTest scope opening/closing between two batches (both
     // attachments, say) would otherwise silently reset stencil back off
     // without this function ever finding out, and the stale "ref unchanged"
     // skip would leave the SECOND batch's geometry wrongly untagged.
@@ -141,10 +141,8 @@ public:
     // ALL real IASetPrimitiveTopology call sites must go through this, not
     // call it directly, or the cache silently desyncs and a later "looks
     // unchanged" skip submits geometry with the WRONG topology. Live sites:
-    // llrender/llvertexbuffer.cpp (drawRange/drawRangeFast/drawArrays),
+    // dxrender/llvertexbuffer.cpp (drawRange/drawRangeFast/drawArrays),
     // newview/dxpipeline.cpp, dxrender/resources/DXUIBatch.cpp.
-    // (dxrender/core/DXPipelineState.cpp has a raw call too but is unused -
-    // left untouched.)
     static void setPrimitiveTopology(ID3D11DeviceContext* ctx, D3D11_PRIMITIVE_TOPOLOGY topology);
 
     // Monotonic counter, bumped from every real OMSetRenderTargets() call

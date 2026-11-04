@@ -6527,7 +6527,7 @@ void LLSelectMgr::renderSilhouettes(bool for_hud)
 
     gDX.getTexUnit(0)->bind(mSilhouetteImagep);
     LLGLSPipelineSelection gls_select;
-    LLGLEnable blend(GL_BLEND);
+    LLGLEnable blend(DX_BLEND);
     DXDepthTest gls_depth(true, false);
 
     if (isAgentAvatarValid() && for_hud)
@@ -7275,7 +7275,7 @@ void LLSelectNode::renderOneSilhouette(const LLColor4 &color)
             gDX.flush();
             gDX.blendFunc(LLRender::BF_SOURCE_COLOR, LLRender::BF_ONE);
 
-            DXDepthTest gls_depth(true, false, GL_GEQUAL);
+            DXDepthTest gls_depth(true, false, DX_GEQUAL);
             gDX.flush();
             gDX.begin(LLRender::LINES);
             {

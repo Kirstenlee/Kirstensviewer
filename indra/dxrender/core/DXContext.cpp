@@ -18,41 +18,24 @@ void DXContext::beginFrame()
     ctx->OMSetRenderTargets(1, &rtv, dsv);
     DXStateCache::bumpRTVGeneration();
 
-    // S24 (2026-07-23): D3D11's own built-in default rasterizer state (in
-    // effect until the first explicit RSSetState() call) is CullMode=BACK,
-    // FrontCounterClockwise=FALSE - GL's actual default is the opposite
-    // (culling off; glEnable(GL_CULL_FACE) is opt-in and never called
-    // implicitly). Any draw issued before something explicitly toggles
-    // LLGLEnable/LLGLDisable(GL_CULL_FACE) - which is most 2D UI code, since
-    // GL's default already matches "off" - ran under D3D11's raw default
-    // instead: every CCW-wound (i.e. every, see getRasterizerState()'s
-    // comment) triangle silently back-face culled, while line-mode geometry
-    // (unaffected by face culling) rendered fine. Set an explicit known
-    // state matching GL's real default at the start of every frame so nothing
-    // relies on D3D11's implicit one.
+    // D3D11's implicit default rasterizer state is CullMode=BACK, matching
+    // GL's default of culling off - set explicit state matching GL here so
+    // nothing relies on the D3D11 default.
     ctx->RSSetState(DXStateCache::getRasterizerState(false, false));
 
-    // S24 (2026-07-22): was a distinct dark blue (0,0,0.2,1) as a Milestone-1
-    // sanity check that the DX11 path was presenting at all - that job is
-    // long done (confirmed by every subsequent frame of real content since),
-    // and the leftover tint was actively misleading later "why is the screen
-    // blue" visibility debugging. Neutral black now, matching GL's default.
     const float clear_color[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
     if (rtv)
     {
         ctx->ClearRenderTargetView(rtv, clear_color);
     }
-    // S24 (2026-08-09): see DXSwapChain::getDepthStencilView()'s comment -
-    // cleared once here, at the top of the frame, while the back buffer is
-    // still unused (all real world geometry draws into mRT->deferredScreen/
-    // mRT->screen instead, not the back buffer, until presentDeferredScreen()
-    // rebinds it later this same frame) - by the time 3D-in-UI-space content
-    // (manipulator gizmos, selection highlight, etc.) draws against it,
-    // it's still in this freshly-cleared state.
+    // Cleared here on the unused back buffer; world geometry draws into
+    // mRT->deferredScreen/screen instead, until presentDeferredScreen()
+    // rebinds the back buffer later this frame for 3D-in-UI-space content
+    // (manipulator gizmos, selection highlight).
     if (dsv)
     {
-        // S24 (reversed-Z conversion): 0.0f is now "far" - see
-        // kGLtoDXDepthRemap's comment (llrender.cpp).
+        // 0.0f is "far" under the reversed-Z convention - see
+        // kGLtoDXDepthRemap (llrender.cpp).
         ctx->ClearDepthStencilView(dsv, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 0.0f, 0);
     }
 
@@ -82,12 +65,10 @@ void DXContext::setViewport(int x, int y, int width, int height, bool flip_y)
 
     D3D11_VIEWPORT vp = {};
     vp.TopLeftX = (float)x;
-    // S24 (2026-08-10, task #147/#184 follow-up): standard D3D11 negative-
-    // height viewport flip - see this method's header comment for why
-    // (reflection-probe cube-face capture specifically). Shifting TopLeftY
-    // down by the full height and negating Height rasterizes the same
-    // scene content mirrored vertically within the target, with no other
-    // state (camera, projection, winding/cull) touched.
+    // Standard D3D11 negative-height viewport flip, used for reflection-probe
+    // cube-face capture. Shifting TopLeftY down by the full height and
+    // negating Height mirrors the target vertically with no other state
+    // (camera, projection, winding/cull) touched.
     if (flip_y)
     {
         vp.TopLeftY = (float)(y + height);

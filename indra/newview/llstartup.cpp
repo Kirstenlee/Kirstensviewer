@@ -2754,9 +2754,9 @@ void update_tech_status()
 	static std::string last_status_text = "⚙ Initializing Graphics...";
 
 	// GPU info (show once detected)
-	if (gGLManager.mVRAM > 0 && !gpu_info_set)
+	if (gDXDeviceInfo.mVRAM > 0 && !gpu_info_set)
 	{
-		std::string gpu_name = gGLManager.mGLRenderer;
+		std::string gpu_name = gDXDeviceInfo.mGLRenderer;
 		// Trim long GPU names for display
 		if (gpu_name.length() > 35)
 		{
@@ -2764,15 +2764,15 @@ void update_tech_status()
 		}
 
 		// S24: Multi-line format using text_editor (no line limits!)
-		if (gGLManager.mVRAM >= 4096)
+		if (gDXDeviceInfo.mVRAM >= 4096)
 		{
 			last_status_text = llformat("✓ GPU: %s\n✓ VRAM: %dMB\n⚡ Ultra Graphics • PBR • Shadows • Water", 
-				gpu_name.c_str(), gGLManager.mVRAM);
+				gpu_name.c_str(), gDXDeviceInfo.mVRAM);
 		}
 		else
 		{
 			last_status_text = llformat("✓ GPU: %s\n✓ VRAM: %dMB\n⚡ S24 Rendering • PBR • Dynamic Effects", 
-				gpu_name.c_str(), gGLManager.mVRAM);
+				gpu_name.c_str(), gDXDeviceInfo.mVRAM);
 		}
 		gpu_info_set = true;
 	}

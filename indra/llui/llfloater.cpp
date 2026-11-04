@@ -2316,7 +2316,7 @@ void LLFloater::drawConeToOwner(F32 &context_cone_opacity,
         LLRect local_rect = getLocalRect();
 
         gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
-        LLGLEnable cull_face(GL_CULL_FACE);
+        LLGLEnable cull_face(DX_CULL_FACE);
         gDX.begin(LLRender::TRIANGLE_STRIP);
         {
             gDX.color4f(0.f, 0.f, 0.f, contex_cone_in_alpha * context_cone_opacity);

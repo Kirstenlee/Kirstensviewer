@@ -10,14 +10,11 @@ include(LLInventory)
 include(LLMath)
 include(LLMessage)
 include(LLCoreHttp)
-include(LLRender)
 include(LLFileSystem)
 include(LLWindow)
 include(LLXML)
 include(Linking)
-if(DX_RENDER)
-    include(DXRender)
-endif()
+include(DXRender)
 
 include_directories(
     ${LLCOMMON_INCLUDE_DIRS}
@@ -25,14 +22,11 @@ include_directories(
     ${LLIMAGE_INCLUDE_DIRS}
     ${LLINVENTORY_INCLUDE_DIRS}
     ${LLMATH_INCLUDE_DIRS}
-    ${LLRENDER_INCLUDE_DIRS}
+    ${DXRENDER_INCLUDE_DIRS}
     ${LLFILESYSTEM_INCLUDE_DIRS}
     ${LLWINDOW_INCLUDE_DIRS}
     ${LLXML_INCLUDE_DIRS}
     )
-if(DX_RENDER)
-    include_directories(${DXRENDER_INCLUDE_DIRS})
-endif()
 
 set(llappearance_SOURCE_FILES
     llavatarappearance.cpp
@@ -87,7 +81,7 @@ target_link_libraries(llappearance
     ${LLCHARACTER_LIBRARIES}
     ${LLINVENTORY_LIBRARIES}
     ${LLIMAGE_LIBRARIES}
-    ${LLRENDER_LIBRARIES}
+    ${DXRENDER_LIBRARIES}
     ${LLFILESYSTEM_LIBRARIES}
     ${LLMATH_LIBRARIES}
     ${LLXML_LIBRARIES}
@@ -95,6 +89,3 @@ target_link_libraries(llappearance
     ${LLCOREHTTP_LIBRARIES}
     ${LLCOMMON_LIBRARIES}
     )
-if(DX_RENDER)
-    target_link_libraries(llappearance ${DXRENDER_LIBRARIES})
-endif()

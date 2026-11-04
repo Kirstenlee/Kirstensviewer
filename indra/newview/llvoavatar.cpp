@@ -1611,10 +1611,10 @@ void render_sphere_and_line(const LLVector3& begin_pos, const LLVector3& end_pos
     // Draw sphere representing joint pos
     gDX.pushMatrix();
     gDX.scalef(sphere_scale, sphere_scale, sphere_scale);
-    gSphere.renderGGL();
+    gSphere.renderDX();
     gDX.popMatrix();
 
-    DXDepthTest depth_under(true, false, GL_GREATER);
+    DXDepthTest depth_under(true, false, DX_GREATER);
 
     // Occluded bone portions
     gDX.diffuseColor3f(occ_color[0], occ_color[1], occ_color[2]);
@@ -1627,7 +1627,7 @@ void render_sphere_and_line(const LLVector3& begin_pos, const LLVector3& end_pos
     // Draw sphere representing joint pos
     gDX.pushMatrix();
     gDX.scalef(sphere_scale, sphere_scale, sphere_scale);
-    gSphere.renderGGL();
+    gSphere.renderDX();
     gDX.popMatrix();
 }
 
@@ -1695,7 +1695,7 @@ void drawBoxOutline(const LLVector4a& pos, const LLVector4a& size);
 
 void LLVOAvatar::renderBones(const std::string &selected_joint)
 {
-    LLGLEnable blend(GL_BLEND);
+    LLGLEnable blend(DX_BLEND);
 
     avatar_joint_list_t::iterator iter = mSkeleton.begin();
     avatar_joint_list_t::iterator end = mSkeleton.end();
@@ -5378,7 +5378,7 @@ U32 LLVOAvatar::renderSkinned()
 
         if (!LLDrawPoolAvatar::sSkipTransparent || DXPipeline::sImpostorRender)
         {
-            DXState blend(GL_BLEND, !mIsDummy);
+            DXState blend(DX_BLEND, !mIsDummy);
             num_indices += renderTransparent(first_pass);
         }
 
@@ -5486,7 +5486,7 @@ U32 LLVOAvatar::renderImpostor(LLColor4U color, S32 diffuse_channel)
 
     if (gPipeline.hasRenderDebugMask(LLPipeline::RENDER_DEBUG_IMPOSTORS))
     {
-        LLGLEnable blend(GL_BLEND);
+        LLGLEnable blend(DX_BLEND);
         gDX.setSceneBlendType(LLRender::BT_ADD);
         gDX.getTexUnit(diffuse_channel)->unbind(LLTexUnit::TT_TEXTURE);
 
@@ -5766,7 +5766,7 @@ void LLVOAvatar::updateTextures()
         layer_baked.push_back(isTextureDefined(mBakedTextureDatas[i].mTextureIndex));
         // bind the texture so that they'll be decoded slightly
         // inefficient, we can short-circuit this if we have to
-        if (render_avatar && !gGLManager.mIsDisabled)
+        if (render_avatar && !gDXDeviceInfo.mIsDisabled)
         {
             if (layer_baked[i] && !mBakedTextureDatas[i].mIsLoaded)
             {

@@ -178,10 +178,10 @@ ID3D11RasterizerState* DXStateCache::getRasterizerState(bool cull_enabled, bool 
     // front. D3D11's default is the opposite (FrontCounterClockwise=FALSE
     // means CW is front); set TRUE to match GL.
     desc.FrontCounterClockwise = TRUE;
-    // DepthClipEnable is D3D11's inverse-sense equivalent of GL_DEPTH_CLAMP:
+    // DepthClipEnable is D3D11's inverse-sense equivalent of DX_DEPTH_CLAMP:
     // TRUE (GL depth-clamp off) clips against near/far planes as usual;
     // FALSE (GL depth-clamp on) clamps depth to [0,1] instead of clipping.
-    // LLPipeline::renderShadow() enables GL_DEPTH_CLAMP so shadow casters
+    // LLPipeline::renderShadow() enables DX_DEPTH_CLAMP so shadow casters
     // outside the near/far planes still write depth instead of being culled.
     desc.DepthClipEnable = depth_clamp_enabled ? FALSE : TRUE;
     // D3D11's default "aliased" line rasterizer uses a diamond-exit-rule

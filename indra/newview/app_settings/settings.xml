@@ -9901,6 +9901,17 @@
       <key>Value</key>
       <real>2.0</real>
     </map>
+    <key>RenderReflectionProbeCaptureShadows</key>
+    <map>
+      <key>Comment</key>
+      <string>S24 DX_RENDER - whether sun-shadow detail is computed for reflection/mirror probe cube-face captures and 360/equirect captures (anything rendered with gCubeSnapshot set). Off skips the real cascade fit and shadow render for these captures entirely (same cheap clear path already used when a cascade has no visible receivers), trading shadow detail inside reflections and 360 captures for the real per-face cost of generateSunShadow() during probe-heavy periods (e.g. many probes refreshing right after login). Does not affect the main view's own shadows.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>Boolean</string>
+      <key>Value</key>
+      <integer>1</integer>
+    </map>
     <key>RenderSSRTemporal</key>
     <map>
       <key>Comment</key>

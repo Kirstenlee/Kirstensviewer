@@ -1110,7 +1110,7 @@ void LLManipTranslate::renderSnapGuides()
 
     gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
     DXDepthTest gls_depth(true);
-    LLGLDisable gls_cull(GL_CULL_FACE);
+    LLGLDisable gls_cull(DX_CULL_FACE);
     LLVector3 translate_axis;
 
     if (mManipPart == LL_NO_PART)
@@ -1557,7 +1557,7 @@ void LLManipTranslate::renderSnapGuides()
             {
                 //LLGLDisable stencil(GL_STENCIL_TEST);
                 {
-                    DXDepthTest gls_depth(true, false, GL_GREATER);
+                    DXDepthTest gls_depth(true, false, DX_GREATER);
                     getGridTexName(); // side effect only - ensures restoreDX() has run
                     gDX.getTexUnit(0)->bind(sDXGridTex, LLTexUnit::TAM_WRAP, LLTexUnit::TFO_TRILINEAR);
                     gDX.flush();
@@ -1588,7 +1588,7 @@ void LLManipTranslate::renderSnapGuides()
                 }
 
                 {
-                    DXDepthTest gls_depth(true, false, GL_GREATER);
+                    DXDepthTest gls_depth(true, false, DX_GREATER);
                     gDX.flush();
 
                     switch (mManipPart)
@@ -1914,7 +1914,7 @@ void LLManipTranslate::renderTranslationHandles()
 
         {
             gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
-            LLGLDisable cull_face(GL_CULL_FACE);
+            LLGLDisable cull_face(DX_CULL_FACE);
 
             LLColor4 color1;
             LLColor4 color2;
@@ -2206,11 +2206,11 @@ void LLManipTranslate::renderTranslationHandles()
 void LLManipTranslate::renderArrow(S32 which_arrow, S32 selected_arrow, F32 box_size, F32 arrow_size, F32 handle_size, bool reverse_direction)
 {
     gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
-    LLGLEnable gls_blend(GL_BLEND);
+    LLGLEnable gls_blend(DX_BLEND);
 
     for (S32 pass = 1; pass <= 2; pass++)
     {
-        DXDepthTest gls_depth(true, false, pass == 1 ? GL_LEQUAL : GL_GREATER);
+        DXDepthTest gls_depth(true, false, pass == 1 ? DX_LEQUAL : DX_GREATER);
         gDX.pushMatrix();
 
         S32 index = 0;

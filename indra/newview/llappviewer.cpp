@@ -972,15 +972,15 @@ bool LLAppViewer::init()
 
 	LLFolderViewItem::initClass(); // SJB: Needs to happen after initWindow(), not sure why but related to fonts
 
-	gGLManager.getGLInfo(gDebugInfo);
-	gGLManager.printGLInfoString();
+	gDXDeviceInfo.getGLInfo(gDebugInfo);
+	gDXDeviceInfo.printGLInfoString();
 
 	// If we don't have the right GL requirements, exit.
 	// ? AG: It seems we never set mHasRequirements to false
-	if (!gGLManager.mHasRequirements)
+	if (!gDXDeviceInfo.mHasRequirements)
 	{
 		// already handled with a MBVideoDrvErr
-		LL_WARNS("InitInfo") << "gGLManager.mHasRequirements is false." << LL_ENDL;
+		LL_WARNS("InitInfo") << "gDXDeviceInfo.mHasRequirements is false." << LL_ENDL;
 		// quit immediately
 		return false;
 	}
@@ -4103,25 +4103,25 @@ LLSD LLAppViewer::getViewerInfo() const
 	info["MEMORY_MB"] = LLSD::Integer(gSysMemory.getPhysicalMemoryKB().valueInUnits<LLUnits::Megabytes>());
 	// Moved hack adjustment to Windows memory size into llsys.cpp
 	info["OS_VERSION"] = LLOSInfo::instance().getOSString();
-	// S24: gGLManager.mGLVendor/mGLRenderer are populated for both backends
-	// (initGL() for GL, LLGLManager::initGLDX() for DX_RENDER, llgl.cpp) - use
+	// S24: gDXDeviceInfo.mGLVendor/mGLRenderer are populated for both backends
+	// (initGL() for GL, DXDeviceInfo::initGLDX() for DX_RENDER, llgl.cpp) - use
 	// those instead of calling glGetString() directly, which would crash
 	// under DX_RENDER (no GL context exists); this floater is reachable from
 	// the Help menu at any time.
-	info["GRAPHICS_CARD_VENDOR"] = gGLManager.mGLVendor;
-	info["GRAPHICS_CARD"] = gGLManager.mGLRenderer;
+	info["GRAPHICS_CARD_VENDOR"] = gDXDeviceInfo.mGLVendor;
+	info["GRAPHICS_CARD"] = gDXDeviceInfo.mGLRenderer;
 
 	std::string drvinfo;
 
-	if (gGLManager.mIsIntel)
+	if (gDXDeviceInfo.mIsIntel)
 	{
 		drvinfo = gDXHardware.getDriverVersionWMI(LLDXHardware::GPU_INTEL);
 	}
-	else if (gGLManager.mIsNVIDIA)
+	else if (gDXDeviceInfo.mIsNVIDIA)
 	{
 		drvinfo = gDXHardware.getDriverVersionWMI(LLDXHardware::GPU_NVIDIA);
 	}
-	else if (gGLManager.mIsAMD)
+	else if (gDXDeviceInfo.mIsAMD)
 	{
 		drvinfo = gDXHardware.getDriverVersionWMI(LLDXHardware::GPU_AMD);
 	}
@@ -4148,10 +4148,10 @@ LLSD LLAppViewer::getViewerInfo() const
 	}
 
 	// S24: mGLVersionString is a real driver-reported string under GL and a
-	// real D3D11 feature-level string under DX_RENDER (LLGLManager::initGLDX(),
+	// real D3D11 feature-level string under DX_RENDER (DXDeviceInfo::initGLDX(),
 	// llgl.cpp). Key name stays OPENGL_VERSION (matches strings.xml), though
 	// the label text was reworded to be backend-neutral.
-	info["OPENGL_VERSION"] = gGLManager.mGLVersionString;
+	info["OPENGL_VERSION"] = gDXDeviceInfo.mGLVersionString;
 
 	// Settings
 
@@ -4164,7 +4164,7 @@ LLSD LLAppViewer::getViewerInfo() const
 	info["NET_BANDWITH"] = LLViewerThrottle::getMaxBandwidthKbps();
 	info["LOD_FACTOR"] = gSavedSettings.getF32("RenderVolumeLODFactor");
 	info["RENDER_QUALITY"] = (F32)gSavedSettings.getU32("RenderQualityPerformance");
-	info["TEXTURE_MEMORY"] = LLSD::Integer(gGLManager.mVRAM);
+	info["TEXTURE_MEMORY"] = LLSD::Integer(gDXDeviceInfo.mVRAM);
 
 	// Libraries
 
@@ -5580,7 +5580,7 @@ void LLAppViewer::idle()
 	static LLCachedControl<U32> sDownscaleMethod(
 		gSavedSettings, "RenderDownScaleMethod"
 	);
-	gGLManager.mDownScaleMethod = sDownscaleMethod;
+	gDXDeviceInfo.mDownScaleMethod = sDownscaleMethod;
 
 	// Texture system maintenance
 	LLImageDX::updateClass();

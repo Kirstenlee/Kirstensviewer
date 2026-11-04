@@ -261,7 +261,7 @@ namespace
         for (LLDrawInfo* draw : emissives)
         {
             llassert(draw->mGLTFMaterial);
-            LLGLDisable cull_face(draw->mGLTFMaterial->mDoubleSided ? GL_CULL_FACE : 0);
+            LLGLDisable cull_face(draw->mGLTFMaterial->mDoubleSided ? DX_CULL_FACE : 0);
             draw->mGLTFMaterial->bind(draw->mTexture);
             draw->mVertexBuffer->setBuffer();
             draw->mVertexBuffer->drawRange(LLRender::TRIANGLES, draw->mStart, draw->mEnd, draw->mCount, draw->mOffset);
@@ -306,7 +306,7 @@ namespace
                 continue;
             }
 
-            LLGLDisable cull_face(draw->mGLTFMaterial->mDoubleSided ? GL_CULL_FACE : 0);
+            LLGLDisable cull_face(draw->mGLTFMaterial->mDoubleSided ? DX_CULL_FACE : 0);
             draw->mGLTFMaterial->bind(draw->mTexture);
             draw->mVertexBuffer->setBuffer();
             draw->mVertexBuffer->drawRange(LLRender::TRIANGLES, draw->mStart, draw->mEnd, draw->mCount, draw->mOffset);
@@ -685,7 +685,7 @@ struct AlphaDrawCarry
     // Draws one entry with the state that prepareAlphaBatch() left bound.
     void drawAlphaEntry(LLDrawInfo& params, const AlphaEntry& e, const PreparedBatch& prep)
     {
-        LLGLDisable cull(e.disable_cull || prep.cull_off ? GL_CULL_FACE : 0);
+        LLGLDisable cull(e.disable_cull || prep.cull_off ? DX_CULL_FACE : 0);
 
         gDX.blendFunc((LLRender::eBlendFactor)params.mBlendFuncSrc, (LLRender::eBlendFactor)params.mBlendFuncDst, mAlphaSFactor, mAlphaDFactor);
 
@@ -874,7 +874,7 @@ struct AlphaDrawCarry
 
             shader.enableTexture(LLShaderMgr::DIFFUSE_MAP);
             DXDepthTest depth(true, false);
-            LLGLEnable blend(GL_BLEND);
+            LLGLEnable blend(DX_BLEND);
             gDX.blendFunc(LLRender::BF_ONE, LLRender::BF_ONE, LLRender::BF_ONE, LLRender::BF_ONE);
 
             for (const AlphaEntry& e : entries)

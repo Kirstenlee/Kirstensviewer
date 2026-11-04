@@ -10,8 +10,10 @@ include(Variables)
 # Add any DX-specific includes later if needed
 
 set(DXRENDER_INCLUDE_DIRS
+    ${LIBS_OPEN_DIR}/dxrender
     ${LIBS_OPEN_DIR}/dxrender/core
     ${LIBS_OPEN_DIR}/dxrender/resources
+    ${LIBS_OPEN_DIR}/dxrender/text
     )
 
 set(DXRENDER_LIBRARIES

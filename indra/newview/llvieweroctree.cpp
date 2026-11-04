@@ -1275,7 +1275,7 @@ void LLOcclusionCullingGroup::doOcclusion(LLCamera* camera, const LLVector4a* sh
                     bool const use_depth_clamp = (mSpatialPartition->mDrawableType == LLPipeline::RENDER_TYPE_WATER ||
                                                 mSpatialPartition->mDrawableType == LLPipeline::RENDER_TYPE_VOIDWATER);
 
-                    LLGLEnable clamp(use_depth_clamp ? GL_DEPTH_CLAMP : 0);
+                    LLGLEnable clamp(use_depth_clamp ? DX_DEPTH_CLAMP : 0);
 
 #if LL_TRACK_PENDING_OCCLUSION_QUERIES
                     sPendingQueries.insert(mOcclusionQuery[LLViewerCamera::sCurCameraID]);

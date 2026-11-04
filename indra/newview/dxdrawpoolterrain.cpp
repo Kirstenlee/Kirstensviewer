@@ -577,7 +577,19 @@ namespace
         gDX.diffuseColor4f(1, 1, 1, 1);
         LLGLEnable polyOffset(GL_POLYGON_OFFSET_FILL);
         // Real via LLRender::setPolygonOffset() (llrender.cpp), no #ifdef needed.
-        gDX.setPolygonOffset(-1.0f, -1.0f);
+        // S24: canonical LL uses (-1,-1) here, correct under standard GL depth (0=near,
+        // 1=far) where a negative bias reduces stored depth = pulls the overlay toward
+        // the camera. This project's depth buffer is reversed-Z (1=near, 0=far,
+        // DXPipeline's depth conversion) - D3D11's DepthBias/SlopeScaledDepthBias are
+        // passed straight through with no reversed-Z compensation (DXStateCache.cpp),
+        // so the inherited negative value was pushing the ownership overlay INTO the
+        // terrain instead of in front of it. Flipped to (1,1) to actually pull toward
+        // camera under this project's convention. Scoped to this one call site rather
+        // than fixed centrally in the DX_RENDER translation layer - other
+        // setPolygonOffset() callers (shadow bias in particular) are user-tunable
+        // values already empirically tuned against the current, uncompensated
+        // behavior; flipping the sign centrally would silently invalidate that tuning.
+        gDX.setPolygonOffset(1.0f, 1.0f);
 
         renderOwnership(pool);
         sShader = old_shader;

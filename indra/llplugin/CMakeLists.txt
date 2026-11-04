@@ -3,22 +3,22 @@
 project(llplugin)
 
 include(00-Common)
-include(Curl)
+include(CURL)
 include(LLCommon)
 include(LLImage)
 include(LLMath)
 include(LLMessage)
-include(LLRender)
 include(LLXML)
 include(LLWindow)
 include(Boost)
+include(DXRender)
 
 include_directories(
     ${LLCOMMON_INCLUDE_DIRS}
     ${LLIMAGE_INCLUDE_DIRS}
     ${LLMATH_INCLUDE_DIRS}
     ${LLMESSAGE_INCLUDE_DIRS}
-    ${LLRENDER_INCLUDE_DIRS}
+    ${DXRENDER_INCLUDE_DIRS}
     ${LLXML_INCLUDE_DIRS}
     ${LLWINDOW_INCLUDE_DIRS}
     )
@@ -66,6 +66,6 @@ list(APPEND llplugin_SOURCE_FILES ${llplugin_HEADER_FILES})
 
 add_library (llplugin ${llplugin_SOURCE_FILES})
 
-target_link_libraries( llplugin llcommon llmath llrender llmessage )
+target_link_libraries( llplugin llcommon llmath dxrender llmessage )
 add_subdirectory(slplugin)
 

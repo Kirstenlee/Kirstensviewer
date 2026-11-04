@@ -527,10 +527,10 @@ void LLViewerTexture::updateClass()
     // Budget still has two honest possible sources - a live DXGI figure is
     // genuinely better than the static fallback when available; that's a
     // real distinction, unlike the old used-figure mode flip this replaces.
-    const bool has_live_budget = gGLManager.mVRAMBudget > 0;
+    const bool has_live_budget = gDXDeviceInfo.mVRAMBudget > 0;
     const F32 raw_budget = max_vram_budget != 0 ? (F32)max_vram_budget
-        : has_live_budget ? (F32)gGLManager.mVRAMBudget
-        : (F32)gGLManager.mVRAM;
+        : has_live_budget ? (F32)gDXDeviceInfo.mVRAMBudget
+        : (F32)gDXDeviceInfo.mVRAM;
 
     const F32 target = std::max(std::min(raw_budget - BUDGET_RESERVE, raw_budget * 0.8f), MIN_VRAM_BUDGET);
 

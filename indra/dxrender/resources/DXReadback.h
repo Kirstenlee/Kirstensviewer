@@ -40,8 +40,8 @@ public:
     // glReadPixels(..., GL_DEPTH_COMPONENT, GL_FLOAT, ...) produces.
     static bool readDepthPixels(ID3D11Texture2D* src, int x, int y, int width, int height, float* out_data);
 
-    // S24 (2026-08-17): mirror of readPixels() for the opposite direction -
-    // the D3D11 equivalent of glTexSubImage2D(). Writes `width`x`height`
+    // Mirror of readPixels() for the opposite direction - the D3D11
+    // equivalent of glTexSubImage2D(). Writes `width`x`height`
     // tightly-packed pixel data starting at (`x`,`y`) (same top-left-origin
     // convention as readPixels()) into `dst` (any D3D11_USAGE_DEFAULT
     // ID3D11Texture2D - render target color attachments included;

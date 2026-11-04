@@ -7,15 +7,12 @@ include(LLCommon)
 include(LLImage)
 include(LLPlugin)
 include(LLMath)
-include(LLRender)
 include(LLWindow)
 include(Linking)
 include(PluginAPI)
 include(MediaPluginBase)
 include(OpenGL)
-if(DX_RENDER)
-    include(DXRender)
-endif()
+include(DXRender)
 
 include(LibVLCPlugin)
 
@@ -25,13 +22,10 @@ include_directories(
     ${LLCOMMON_INCLUDE_DIRS}
     ${LLMATH_INCLUDE_DIRS}
     ${LLIMAGE_INCLUDE_DIRS}
-    ${LLRENDER_INCLUDE_DIRS}
+    ${DXRENDER_INCLUDE_DIRS}
     ${LLWINDOW_INCLUDE_DIRS}
     ${VLC_INCLUDE_DIR}
 )
-if(DX_RENDER)
-    include_directories(${DXRENDER_INCLUDE_DIRS})
-endif()
 include_directories(SYSTEM
     ${LLCOMMON_SYSTEM_INCLUDE_DIRS}
     )
@@ -59,10 +53,8 @@ target_link_libraries(media_plugin_libvlc
   rpcrt4
   advapi32
   winmm
+  ${DXRENDER_LIBRARIES}
 )
-if(DX_RENDER)
-    target_link_libraries(media_plugin_libvlc ${DXRENDER_LIBRARIES})
-endif()
 
 target_compile_options(media_plugin_libvlc PRIVATE "/Zc:wchar_t-")
 

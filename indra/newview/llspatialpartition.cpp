@@ -1832,7 +1832,7 @@ void renderUpdateType(LLDrawable* drawablep)
     {
         return;
     }
-    LLGLEnable blend(GL_BLEND);
+    LLGLEnable blend(DX_BLEND);
     switch (vobj->getLastUpdateType())
     {
     case OUT_FULL:
@@ -2002,7 +2002,7 @@ void renderNormals(LLDrawable *drawablep)
 
     if (obj)
     {
-        LLGLEnable blend(GL_BLEND);
+        LLGLEnable blend(DX_BLEND);
         DXDepthTest gl_depth(true, false);
 
         // Drawable's normals & tangents are stored in model space, i.e. before any scaling is applied.
@@ -2626,7 +2626,7 @@ void renderTexturePriority(LLDrawable* drawable)
         LLVector4 boost_cold(0,0,0,0);
         LLVector4 boost_hot(0,1,0,1);
 
-        LLGLDisable blend(GL_BLEND);
+        LLGLDisable blend(DX_BLEND);
 
         //LLViewerTexture* imagep = facep->getTexture();
         //if (imagep)
@@ -2665,7 +2665,7 @@ void renderTexturePriority(LLDrawable* drawable)
         {
             F32 t = (F32) boost / (F32) (DXTextureBase::BOOST_MAX_LEVEL-1);
             LLVector4 col = lerp(boost_cold, boost_hot, t);
-            LLGLEnable blend_on(GL_BLEND);
+            LLGLEnable blend_on(DX_BLEND);
             gDX.blendFunc(GL_SRC_ALPHA, GL_ONE);
             gDX.diffuseColor4fv(col.mV);
             drawBox(center, size);
@@ -2700,7 +2700,7 @@ void renderTextureAnim(LLDrawInfo* params)
         return;
     }
 
-    LLGLEnable blend(GL_BLEND);
+    LLGLEnable blend(DX_BLEND);
     gDX.diffuseColor4f(1,1,0,0.5f);
     pushVerts(params);
 }
@@ -2740,7 +2740,7 @@ void renderTexelDensity(LLDrawable* drawable)
         return;
     }
 
-    LLGLEnable _(GL_BLEND);
+    LLGLEnable _(DX_BLEND);
 
     LLMatrix4 checkerboard_matrix;
     S32 discard_level = -1;
@@ -2845,7 +2845,7 @@ void renderLights(LLDrawable* drawablep)
 
     if (drawablep->getNumFaces())
     {
-        LLGLEnable blend(GL_BLEND);
+        LLGLEnable blend(DX_BLEND);
         gDX.diffuseColor4f(0,1,1,0.5f);
 
         for (S32 i = 0; i < drawablep->getNumFaces(); i++)
@@ -2910,7 +2910,7 @@ public:
 
         for (U32 i = 0; i < 2; i++)
         {
-            DXDepthTest depth(true, false, i == 1 ? GL_LEQUAL : GL_GREATER);
+            DXDepthTest depth(true, false, i == 1 ? DX_LEQUAL : DX_GREATER);
 
             if (i == 1)
             {
@@ -2961,7 +2961,7 @@ void renderRaycast(LLDrawable* drawablep)
 {
     if (drawablep->getNumFaces())
     {
-        LLGLEnable blend(GL_BLEND);
+        LLGLEnable blend(DX_BLEND);
         gDX.diffuseColor4f(0,1,1,0.5f);
 
         LLVOVolume* vobj = drawablep->getVOVolume();
@@ -3588,8 +3588,8 @@ void LLSpatialPartition::renderDebug()
         sCurMaxTexPriority = 0.f;
     }
 
-    LLGLDisable cullface(GL_CULL_FACE);
-    LLGLEnable blend(GL_BLEND);
+    LLGLDisable cullface(DX_CULL_FACE);
+    LLGLEnable blend(DX_BLEND);
     gDX.setSceneBlendType(LLRender::BT_ALPHA);
     gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
     DXPipeline::disableLights(gPipeline);
@@ -3611,10 +3611,10 @@ void LLSpatialPartition::renderDebug()
     if (gPipeline.hasRenderDebugMask(LLPipeline::RENDER_DEBUG_OCCLUSION))
     {
         {
-            LLGLEnable cull(GL_CULL_FACE);
+            LLGLEnable cull(DX_CULL_FACE);
 
-            LLGLEnable blend(GL_BLEND);
-            DXDepthTest depth_under(true, false, GL_GREATER);
+            LLGLEnable blend(DX_BLEND);
+            DXDepthTest depth_under(true, false, DX_GREATER);
             gDX.diffuseColor4f(0.5f, 0.0f, 0, 0.25f);
 
             LLGLEnable offset(GL_POLYGON_OFFSET_LINE);

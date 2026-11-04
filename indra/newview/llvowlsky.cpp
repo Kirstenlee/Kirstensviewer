@@ -352,7 +352,7 @@ void LLVOWLSky::drawFsSky(void)
         updateGeometry(mDrawable);
     }
 
-    LLGLDisable disable_blend(GL_BLEND);
+    LLGLDisable disable_blend(DX_BLEND);
 
     mFsSkyVerts->setBuffer();
     mFsSkyVerts->drawRange(LLRender::TRIANGLES, 0, mFsSkyVerts->getNumVerts() - 1, mFsSkyVerts->getNumIndices(), 0);

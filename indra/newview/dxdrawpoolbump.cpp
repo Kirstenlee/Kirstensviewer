@@ -734,7 +734,7 @@ namespace
     {
         LL_RECORD_BLOCK_TIME(FTM_RENDER_SHINY);
 
-        LLGLEnable blend_enable(GL_BLEND);
+        LLGLEnable blend_enable(DX_BLEND);
 
         // S24: gDeferredFullbrightShinyProgram sets mFeatures.mIndexedTextureChannels
         // unconditionally (llviewershadermgr.cpp), not gated on mShaderLevel - the shader
@@ -802,8 +802,8 @@ namespace
     void renderBump(LLDrawPoolBump& pool)
     {
         LL_RECORD_BLOCK_TIME(FTM_RENDER_BUMP);
-        DXDepthTest gls_depth(true, false, GL_LEQUAL);
-        LLGLEnable blend(GL_BLEND);
+        DXDepthTest gls_depth(true, false, DX_LEQUAL);
+        LLGLEnable blend(DX_BLEND);
         gDX.diffuseColor4f(1, 1, 1, 1);
 
         // Biases depth (-1,-1), matching GL's glPolygonOffset(-1,-1): this
@@ -814,7 +814,7 @@ namespace
         // clobber other active state, matching other applyDXState() rasterizer cases.
         ID3D11DeviceContext* ctx = gDXDevice.getContext();
         ID3D11RasterizerState* biased_rs = DXStateCache::getRasterizerState(
-            DXState::isEnabled(GL_CULL_FACE), DXState::isEnabled(GL_SCISSOR_TEST), DXState::isEnabled(GL_DEPTH_CLAMP), -1.0f, -1.0f);
+            DXState::isEnabled(DX_CULL_FACE), DXState::isEnabled(DX_SCISSOR_TEST), DXState::isEnabled(DX_DEPTH_CLAMP), -1.0f, -1.0f);
         ctx->RSSetState(biased_rs);
 
         pool.pushBumpBatches(LLRenderPass::PASS_POST_BUMP);
@@ -822,7 +822,7 @@ namespace
         // Restore the non-biased state so nothing after this pass inherits
         // the bias unexpectedly.
         ID3D11RasterizerState* normal_rs = DXStateCache::getRasterizerState(
-            DXState::isEnabled(GL_CULL_FACE), DXState::isEnabled(GL_SCISSOR_TEST), DXState::isEnabled(GL_DEPTH_CLAMP), 0.f, 0.f);
+            DXState::isEnabled(DX_CULL_FACE), DXState::isEnabled(DX_SCISSOR_TEST), DXState::isEnabled(DX_DEPTH_CLAMP), 0.f, 0.f);
         ctx->RSSetState(normal_rs);
     }
 
@@ -834,15 +834,15 @@ namespace
     void renderBumpRigged(LLDrawPoolBump& pool)
     {
         LL_RECORD_BLOCK_TIME(FTM_RENDER_BUMP);
-        DXDepthTest gls_depth(true, false, GL_LEQUAL);
-        LLGLEnable blend(GL_BLEND);
+        DXDepthTest gls_depth(true, false, DX_LEQUAL);
+        LLGLEnable blend(DX_BLEND);
         gDX.diffuseColor4f(1, 1, 1, 1);
 
         // Same depth-bias fix as renderBump() above - rigged foliage/attachments
         // need it just as much as static mesh does.
         ID3D11DeviceContext* ctx = gDXDevice.getContext();
         ID3D11RasterizerState* biased_rs = DXStateCache::getRasterizerState(
-            DXState::isEnabled(GL_CULL_FACE), DXState::isEnabled(GL_SCISSOR_TEST), DXState::isEnabled(GL_DEPTH_CLAMP), -1.0f, -1.0f);
+            DXState::isEnabled(DX_CULL_FACE), DXState::isEnabled(DX_SCISSOR_TEST), DXState::isEnabled(DX_DEPTH_CLAMP), -1.0f, -1.0f);
         ctx->RSSetState(biased_rs);
 
         const LLVOAvatar* lastAvatar = nullptr;
@@ -866,7 +866,7 @@ namespace
         }
 
         ID3D11RasterizerState* normal_rs = DXStateCache::getRasterizerState(
-            DXState::isEnabled(GL_CULL_FACE), DXState::isEnabled(GL_SCISSOR_TEST), DXState::isEnabled(GL_DEPTH_CLAMP), 0.f, 0.f);
+            DXState::isEnabled(DX_CULL_FACE), DXState::isEnabled(DX_SCISSOR_TEST), DXState::isEnabled(DX_DEPTH_CLAMP), 0.f, 0.f);
         ctx->RSSetState(normal_rs);
     }
 

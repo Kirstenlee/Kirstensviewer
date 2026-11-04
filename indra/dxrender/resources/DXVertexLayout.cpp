@@ -35,34 +35,22 @@ namespace
     const AttribDesc kColor = { "COLOR", 0, DXGI_FORMAT_R8G8B8A8_UNORM };        // bit 6/7 - TYPE_COLOR/TYPE_EMISSIVE
     const AttribDesc kTangent = { "TANGENT", 0, DXGI_FORMAT_R32G32B32A32_FLOAT }; // bit 8 - TYPE_TANGENT
     const AttribDesc kWeight = { "BLENDWEIGHT", 0, DXGI_FORMAT_R32_FLOAT };            // bit 9 - TYPE_WEIGHT (avatar body soft-skin)
-    // S24 (2026-08-09, task #171 fix): CORRECTED - bit 10 is TYPE_WEIGHT4,
-    // NOT bit 12. The real AttributeType enum order (llvertexbuffer.h) is
-    // ...,TANGENT=8,WEIGHT=9,WEIGHT4=10,CLOTHWEIGHT=11,JOINT=12,
-    // TEXTURE_INDEX=13 - task #168's original fix trusted a user-compiled
-    // report's claim ("bit 10=JOINT, bit 12=WEIGHT4") without re-deriving it
-    // from the actual enum, and built support for the WRONG bit (12,
-    // genuinely TYPE_JOINT) while leaving the real WEIGHT4 bit (10) still
-    // rejected - confirmed via log evidence: "data_mask 0x254f ... not yet
-    // supported ... shader='Skinned Material Shader 24'" (0x254f has bit 10
-    // set, not bit 12), the actual reason rigged mesh bodies/clothing still
-    // didn't render after task #170's pool work. kWeight4 (rigged-mesh
+    // Bit 10 is TYPE_WEIGHT4, NOT bit 12 - the real AttributeType enum order
+    // (llvertexbuffer.h) is ...,TANGENT=8,WEIGHT=9,WEIGHT4=10,
+    // CLOTHWEIGHT=11,JOINT=12,TEXTURE_INDEX=13. kWeight4 (rigged-mesh
     // attachment/clothing skinning, objectSkinV.hlsl's "weight4 :
-    // BLENDWEIGHT" input) now correctly lives at bit 10. Shares the same
-    // "BLENDWEIGHT" semantic name/index as kWeight (bit 9, float) - safe
-    // because a given draw's data_mask only ever carries ONE of the two
-    // (classic avatar body vs. rigged attachment are mutually exclusive
-    // vertex formats), never both at once.
+    // BLENDWEIGHT" input) shares the same "BLENDWEIGHT" semantic name/index
+    // as kWeight (bit 9, float) - safe because a given draw's data_mask only
+    // ever carries ONE of the two (classic avatar body vs. rigged
+    // attachment are mutually exclusive vertex formats), never both at once.
     const AttribDesc kWeight4 = { "BLENDWEIGHT", 0, DXGI_FORMAT_R32G32B32A32_FLOAT };  // bit 10 - TYPE_WEIGHT4 (rigged mesh soft-skin)
     const AttribDesc kClothWeight = { "COLOR", 1, DXGI_FORMAT_R32G32B32A32_FLOAT };   // bit 11 - TYPE_CLOTHWEIGHT
     const AttribDesc kTextureIndex = { "TEXTUREINDEX", 0, DXGI_FORMAT_R32_UINT };      // bit 13 - TYPE_TEXTURE_INDEX (packed into position.w)
 
-    // S24 (2026-08-09, task #171 fix): bit 10 (WEIGHT4) removed from this
-    // set - real HLSL support now exists (kWeight4 above, corrected to the
-    // right bit). Bit 12 (TYPE_JOINT) stays unsupported: it's GLTF-scene-only
+    // Bit 12 (TYPE_JOINT) is unsupported: it's GLTF-scene-only
     // (gltf/primitive.cpp), and no HLSL shader in the tree declares a
-    // BLENDINDICES input yet (GLTF skinning uses a separate GLTFJoints-
-    // cbuffer technique, not a vertex attribute - see task #154) - fixing
-    // this bit alone would unblock nothing today.
+    // BLENDINDICES input - GLTF skinning uses a separate GLTFJoints-cbuffer
+    // technique, not a vertex attribute.
     constexpr uint32_t kUnsupportedBits = (1u << 12);
 
     struct Key
@@ -116,9 +104,8 @@ ID3D11InputLayout* DXVertexLayout::getOrCreate(uint32_t data_mask, const void* v
     // then weight, then weight4, then clothweight, then texture index) MUST
     // match LLVertexBuffer::setupVertexBuffer()'s DX_RENDER branch, which
     // binds the actual buffers/strides/offsets to these same slots.
-    // S24 (2026-08-09, task #157): bumped 11->12 to fit the new WEIGHT4
-    // element (max possible: 6 simple + color/emissive(1) + tangent + weight
-    // + weight4 + clothweight + textureindex = 12).
+    // Max possible: 6 simple + color/emissive(1) + tangent + weight +
+    // weight4 + clothweight + textureindex = 12.
     D3D11_INPUT_ELEMENT_DESC elements[12];
     UINT count = 0;
 

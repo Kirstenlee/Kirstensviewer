@@ -110,14 +110,11 @@ void DXUIBatch::drawAndPop(size_t count, const BatchState& state)
 
     ID3D11DeviceContext* ctx = gDXDevice.getContext();
 
-    // S24 (2026-08-02): set unconditionally, every call - see this
-    // function's header comment for why trusting the caller's own
-    // shader.bind() call was found to be unverifiable (bind()'s
-    // sCurBoundShaderPtr-based early-out can silently no-op if anything
-    // else touched VS/PS in between without updating that bookkeeping).
-    // This is the single submission chokepoint for all of 2D UI/text, so
-    // guaranteeing it here closes the whole bug class at once rather than
-    // chasing every place that could theoretically leave stale state.
+    // Set unconditionally, every call, rather than trusting the caller's own
+    // shader.bind(): bind()'s sCurBoundShaderPtr-based early-out can
+    // silently no-op if anything else touched VS/PS in between without
+    // updating that bookkeeping. This is the single submission chokepoint
+    // for all of 2D UI/text.
     ctx->VSSetShader(state.vs, nullptr, 0);
     ctx->PSSetShader(state.ps, nullptr, 0);
 
@@ -138,11 +135,8 @@ void DXUIBatch::drawAndPop(size_t count, const BatchState& state)
         : DXStateCache::getBlendState(false, D3D11_BLEND_ONE, D3D11_BLEND_ZERO, D3D11_BLEND_ONE, D3D11_BLEND_ZERO, 0xF);
     ctx->OMSetBlendState(bs, nullptr, 0xFFFFFFFF);
 
-    // S24 (DX_RENDER, 2026-07-30): this is a dedicated 2D screen-space UI
-    // batch renderer - it should never be depth-culled by 3D scene content
-    // regardless of whatever the last 3D pass left bound. depth_test/
-    // depth_write/depth_func are real, per-batch parameters (task #191) so
-    // gl_segmented_rect_3d_tex()'s genuine 3D world-space callers (HUD
+    // depth_test/depth_write/depth_func are real, per-batch parameters so
+    // dx_segmented_rect_3d_tex()'s genuine 3D world-space callers (HUD
     // nametags/icons wanting real depth-testing) get their own correct
     // state instead of this always forcing DepthEnable=false - see the
     // pass-boundary flushPending() calls in llviewerdisplay.cpp/

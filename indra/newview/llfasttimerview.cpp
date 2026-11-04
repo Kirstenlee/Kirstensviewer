@@ -615,7 +615,7 @@ void LLFastTimerView::exportCharts(const std::string& base, const std::string& t
 
         last_p.clear();
 
-        LLGLDisable cull(GL_CULL_FACE);
+        LLGLDisable cull(DX_CULL_FACE);
 
         LLVector3 base_col(0, 0.7f, 0.f);
         LLVector3 cur_col(1.f, 0.f, 0.f);
@@ -639,7 +639,7 @@ void LLFastTimerView::exportCharts(const std::string& base, const std::string& t
 
         last_p.clear();
         {
-            LLGLEnable blend(GL_BLEND);
+            LLGLEnable blend(DX_BLEND);
 
             gDX.color3fv(cur_col.mV);
             for (U32 i = 0; i < cur_times.size(); ++i)
@@ -680,7 +680,7 @@ void LLFastTimerView::exportCharts(const std::string& base, const std::string& t
         gDX.flush();
 
         {
-            LLGLEnable blend(GL_BLEND);
+            LLGLEnable blend(DX_BLEND);
             gDX.color3fv(cur_col.mV);
             last_p.clear();
 
@@ -727,7 +727,7 @@ void LLFastTimerView::exportCharts(const std::string& base, const std::string& t
         last_p.clear();
 
         {
-            LLGLEnable blend(GL_BLEND);
+            LLGLEnable blend(DX_BLEND);
             gDX.color3fv(cur_col.mV);
             count = 0;
             total_count = static_cast<U32>(cur_execution.size());
@@ -1059,9 +1059,7 @@ void LLFastTimerView::drawLineGraph()
         if (mHoverID == idp)
         {
             gDX.flush();
-            // S24: raw glLineWidth() was unguarded here - found in a tree-wide stray-GL sweep
-            // (task #311). LLUI::setLineWidth() is the same no-op-under-DX_RENDER replacement
-            // used tree-wide.
+            // S24: glLineWidth() has no DX11 equivalent; LLUI::setLineWidth() is the no-op stand-in under DX_RENDER.
             LLUI::setLineWidth(3);
         }
 
@@ -1189,13 +1187,12 @@ void LLFastTimerView::drawLineGraph()
 
 void LLFastTimerView::drawLegend()
 {
-    // S24: Improved fast timer legend with better typography and percentages
     S32 dx;
     S32 x = mLegendRect.mLeft;
     S32 y = mLegendRect.mTop;
     const S32 TEXT_HEIGHT = (S32)LLFontDX::getFontMonospace()->getLineHeight();
-    const S32 IMPROVED_TEXT_HEIGHT = TEXT_HEIGHT + 4; // S24: More vertical spacing
-    const LLFontDX* font = LLFontDX::getFontSansSerif(); // S24: Better readability
+    const S32 IMPROVED_TEXT_HEIGHT = TEXT_HEIGHT + 4;
+    const LLFontDX* font = LLFontDX::getFontSansSerif();
 
     {
         LLLocalClipRect clip(mLegendRect);
@@ -1204,7 +1201,6 @@ void LLFastTimerView::drawLegend()
         ft_display_idx.clear();
         std::map<BlockTimerStatHandle*, S32> display_line;
 
-        // S24: Get frame time for percentage calculations
         F32Milliseconds frame_time = mRecording.getPeriodMean(FTM_FRAME, RUNNING_AVERAGE_WIDTH);
         if (frame_time.value() < 0.001f) frame_time = F32Milliseconds(16.0f); // Avoid divide by zero
 
@@ -1228,13 +1224,13 @@ void LLFastTimerView::drawLegend()
 
             ft_display_idx.push_back(idp);
 
-            // S24: Draw color square with slight glow on hover
+            // S24: legend color square pulses when hovered.
             x = MARGIN;
             LLRect bar_rect(x, y, x + TEXT_HEIGHT, y - TEXT_HEIGHT);
             S32 scale_offset = 0;
             if (idp == mHoverID)
             {
-                scale_offset = llfloor(sinf(mHighlightTimer.getElapsedTimeF32() * 6.f) * 3.f); // S24: More pronounced highlight
+                scale_offset = llfloor(sinf(mHighlightTimer.getElapsedTimeF32() * 6.f) * 3.f);
             }
             bar_rect.stretch(scale_offset);
             llassert(idp->getIndex() < sTimerColors.size());
@@ -1254,15 +1250,12 @@ void LLFastTimerView::drawLegend()
                 calls = (S32)mRecording.getPeriodMean(idp->callCount(), RUNNING_AVERAGE_WIDTH);
             }
 
-            // S24: Calculate percentage of frame time
             F32 percentage = (ms.value() / frame_time.value()) * 100.0f;
 
-            // S24: Build label with percentage
             std::string timer_label;
             switch(mDisplayType)
             {
             case DISPLAY_TIME:
-                // S24: Show percentage alongside milliseconds for better context
                 if (percentage >= 0.1f) // Only show percentage if meaningful
                 {
                     timer_label = llformat("%s  %.1fms (%.1f%%)", idp->getName().c_str(), ms.value(), percentage);
@@ -1281,7 +1274,7 @@ void LLFastTimerView::drawLegend()
             }
             dx = (TEXT_HEIGHT+4) + get_depth(idp)*8;
 
-            // S24: Color code by performance impact
+            // S24: color-code by frame-time percentage.
             LLColor4 color;
             if (percentage > 50.0f)
             {
@@ -1300,10 +1293,10 @@ void LLFastTimerView::drawLegend()
                 color = LLColor4(0.9f, 0.9f, 0.9f, 1.0f); // White - Normal
             }
 
-            // S24: Draw tree structure lines
+            // S24: draws indent guide lines connecting a child timer to its parent.
             if (get_depth(idp) > 0)
             {
-                LLColor4 line_color(0.6f, 0.6f, 0.6f, 1.0f); // S24: Subtle gray
+                LLColor4 line_color(0.6f, 0.6f, 0.6f, 1.0f);
                 S32 line_start_y = bar_rect.getCenterY();
                 S32 line_end_y = line_start_y + ((IMPROVED_TEXT_HEIGHT) * (cur_line - display_line[idp->getParent()])) - TEXT_HEIGHT;
                 dx_line_2d(x + dx - 8, line_start_y, x + dx, line_start_y, line_color);
@@ -1325,14 +1318,13 @@ void LLFastTimerView::drawLegend()
                 next_parent = next_parent->getParent();
             }
 
-            // S24: Use SansSerif font and bold for hovered items
             font->renderUTF8(timer_label, 0,
                 x, y,
                 color,
                 LLFontDX::LEFT, LLFontDX::TOP,
                 is_child_of_hover_item ? LLFontDX::BOLD : LLFontDX::NORMAL);
 
-            y -= IMPROVED_TEXT_HEIGHT; // S24: Improved spacing
+            y -= IMPROVED_TEXT_HEIGHT;
 
             scroll_offset += IMPROVED_TEXT_HEIGHT;
             if (idp->getTreeNode().mCollapsed)

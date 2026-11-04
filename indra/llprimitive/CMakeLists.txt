@@ -9,10 +9,11 @@ include(LLCoreHttp)
 include(LLMath)
 include(LLMessage)
 include(LLPrimitive)
-include(Glm)
+include(GLM)
 include(TinyGLTF)
-include(LLConvexDecomposition)
+include(LLConvexdecomposition)
 include(Linking)
+include(DXRender)
 
 include_directories(
     ${LLCOMMON_INCLUDE_DIRS}
@@ -20,7 +21,7 @@ include_directories(
     ${LLCONVEXDECOMPOSITION_INCLUDE_DIRS}
     ${LLMESSAGE_INCLUDE_DIRS}
     ${LLXML_INCLUDE_DIRS}
-    ${LLRENDER_INCLUDE_DIRS}
+    ${DXRENDER_INCLUDE_DIRS}
     ${LLPRIMITIVE_INCLUDE_DIRS}
     ${LLCHARACTER_INCLUDE_DIRS}
     )
@@ -89,6 +90,6 @@ target_link_libraries(llprimitive
     ${LLCOREHTTP_LIBRARIES}
     ${LLXML_LIBRARIES}
     ${LLCHARACTER_LIBRARIES}
-    ${LLRENDER_LIBRARIES}
+    ${DXRENDER_LIBRARIES}
     ${LLPRIMITIVE_LINK_LIBRARIES}
     )

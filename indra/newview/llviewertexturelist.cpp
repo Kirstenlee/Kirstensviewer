@@ -1302,7 +1302,7 @@ void LLViewerTextureList::runVRAMBudgetAllocation()
 
 F32 LLViewerTextureList::updateImagesCreateTextures(F32 max_time)
 {
-    if (gGLManager.mIsDisabled) return 0.0f;
+    if (gDXDeviceInfo.mIsDisabled) return 0.0f;
 
     // Applies any background BC7 compression jobs finished since last frame (see
     // DXBC7UploadManager::update()) - cheap no-op when nothing is pending.
@@ -1512,7 +1512,7 @@ F32 LLViewerTextureList::updateImagesCreateTextures(F32 max_time)
 
 F32 LLViewerTextureList::updateImagesLoadingFastCache(F32 max_time)
 {
-    if (gGLManager.mIsDisabled || mFastCacheList.empty())
+    if (gDXDeviceInfo.mIsDisabled || mFastCacheList.empty())
         return 0.f;
 
     LLTimer timer;

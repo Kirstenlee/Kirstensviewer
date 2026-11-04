@@ -194,7 +194,7 @@ void Asset::uploadMaterials()
     std::vector<vec4> md;
 
     U32 material_size = sizeof(vec4) * 12;
-    U32 max_materials = gGLManager.mMaxUniformBlockSize / material_size;
+    U32 max_materials = gDXDeviceInfo.mMaxUniformBlockSize / material_size;
 
     U32 mat_count = (U32)mMaterials.size();
     mat_count = llmin(mat_count, max_materials);

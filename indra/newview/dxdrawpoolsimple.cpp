@@ -54,7 +54,7 @@ void LLDrawPoolSimple::renderDeferred(S32 pass)
 // static
 void DXDrawPoolSimple::renderSimpleDeferred(LLDrawPoolSimple& pool, S32 pass)
 {
-    LLGLDisable blend(GL_BLEND);
+    LLGLDisable blend(DX_BLEND);
 
     // Rigged (skinned) geometry needs WEIGHT/WEIGHT4/JOINT vertex
     // attributes, supported via DXVertexLayout's MAP_WEIGHT4. Renders both
@@ -141,7 +141,7 @@ void DXDrawPoolSimple::renderFullbrightAlphaMaskPostDeferred(LLDrawPoolFullbrigh
         shader = &gDeferredFullbrightAlphaMaskProgram;
     }
 
-    LLGLDisable blend(GL_BLEND);
+    LLGLDisable blend(DX_BLEND);
 
     // render static
     shader->bind();
@@ -201,7 +201,7 @@ void DXDrawPoolSimple::renderGlowPostDeferred(LLDrawPoolGlow& pool, S32 pass)
 {
     LLHLSLShader* shader = &gDeferredEmissiveProgram;
 
-    LLGLEnable blend(GL_BLEND);
+    LLGLEnable blend(DX_BLEND);
     gDX.flush();
 
     // Biases depth via setPolygonOffset() to avoid z-fighting with the non-glow pass.
