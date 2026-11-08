@@ -457,9 +457,19 @@ S32 LLFontDX::render(const LLWString &wstr, S32 begin_offset, F32 x, F32 y, cons
                 glyph_count = 0;
             }
 
+            // S24 : only rebind the D3D11 SRV when the atlas page actually
+            // changed. The last_char!=wch branch below still forces the same
+            // flush/submitGlyphBatch above unchanged (whatever atlas-mutation
+            // race the comment below defends against is untouched) - this
+            // only removes a redundant rebind of the SAME texture that was
+            // firing on nearly every glyph of any non-repeating string.
+            bool bitmap_changed = (next_bitmap_entry != bitmap_entry);
             bitmap_entry = next_bitmap_entry;
-            LLImageDX* font_image = font_bitmap_cache->getImageDX(bitmap_entry.first, bitmap_entry.second);
-            bindGlyphTexture(font_image);
+            if (bitmap_changed)
+            {
+                LLImageDX* font_image = font_bitmap_cache->getImageDX(bitmap_entry.first, bitmap_entry.second);
+                bindGlyphTexture(font_image);
+            }
 
             // For some reason it's not enough to compare by bitmap_entry.
             // Issue hits emojis, japenese and chinese glyphs, only on first run.

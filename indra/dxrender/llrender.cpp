@@ -1275,6 +1275,16 @@ void LLRender::syncMatrices()
 			return m;
 		}();
 		const glm::mat4& raw_proj = mMatrix[MM_PROJECTION][mMatIdx[MM_PROJECTION]];
+
+		// S24: the depth remap and the inverse below depend only on raw_proj, i.e. only on
+		// MM_PROJECTION - which this block's own outer `matrices_changed` gate conflates with
+		// MM_MODELVIEW/MM_TEXTURE0, so without this a plain object-to-object draw with the
+		// SAME camera (projection unchanged, modelview different every call) redid both
+		// XMMatrixMultiply below and the glm::inverse() further down on every single draw.
+		// Cached here keyed on mMatHash[MM_PROJECTION] - same cache serves every shader, since
+		// raw_proj is shared state, not per-shader.
+		if (mSyncedProjHash != mMatHash[MM_PROJECTION])
+		{
 		// S24: both multiplies below done in DirectXMath - see the include
 		// comment at the top of this file for why. glm::mat4 is column-major
 		// storage (GLSL convention) but XMFLOAT4X4 is row-major storage, so a
@@ -1283,11 +1293,19 @@ void LLRender::syncMatrices()
 		// correctness.cpp in this session's scratch history) that reproducing
 		// glm's `P * Q` this way requires calling XMMatrixMultiply(Load(Q),
 		// Load(P)) - arguments REVERSED relative to the glm expression.
-		glm::mat4 proj;
-		XMStoreFloat4x4(reinterpret_cast<XMFLOAT4X4*>(glm::value_ptr(proj)),
+		XMStoreFloat4x4(reinterpret_cast<XMFLOAT4X4*>(glm::value_ptr(mSyncedProjDX)),
 			XMMatrixMultiply(
 				XMLoadFloat4x4(reinterpret_cast<const XMFLOAT4X4*>(glm::value_ptr(raw_proj))),
 				XMLoadFloat4x4(reinterpret_cast<const XMFLOAT4X4*>(glm::value_ptr(kGLtoDXDepthRemap)))));
+
+		// S24: inv_proj uses the UN-remapped GL-convention projection matrix, not the
+		// depth-remapped one above - see this function's other inv_proj comment below for why.
+		mSyncedInvProj = glm::inverse(raw_proj);
+
+		mSyncedProjHash = mMatHash[MM_PROJECTION];
+		}
+		const glm::mat4& proj = mSyncedProjDX;
+		const glm::mat4& inv_proj = mSyncedInvProj;
 
 		glm::mat4 mvp;
 		XMStoreFloat4x4(reinterpret_cast<XMFLOAT4X4*>(glm::value_ptr(mvp)),
@@ -1316,8 +1334,7 @@ void LLRender::syncMatrices()
 		// (`2.0*depth-1.0`) before this multiply, so inv_proj must invert
 		// that same GL-convention matrix. Pushed to both vs and ps -
 		// setUniformMatrix4() no-ops harmlessly wherever a stage doesn't
-		// declare "inv_proj".
-		glm::mat4 inv_proj = glm::inverse(raw_proj);
+		// declare "inv_proj". (Computed/cached above, keyed on MM_PROJECTION.)
 		vs.setUniformMatrix4("inv_proj", glm::value_ptr(inv_proj));
 		ps.setUniformMatrix4("inv_proj", glm::value_ptr(inv_proj));
 

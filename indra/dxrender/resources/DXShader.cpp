@@ -391,7 +391,17 @@ void DXShader::reflectConstants(const void* bytecode, size_t size)
         desc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
         desc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
 
-        if (FAILED(gDXDevice.getDevice()->CreateBuffer(&desc, nullptr, &mConstantBuffer)))
+        // S24 : seed the GPU buffer with mConstantStaging's own (just-zeroed,
+        // above) contents at creation, legal for a DYNAMIC buffer. Required
+        // companion to the setUniform*() memcmp-skip below: staging starts
+        // zeroed, so a shader's first real write of an all-zero value would
+        // memcmp-equal against unwritten staging and never set the dirty
+        // flag - without this, the GPU buffer would then stay at whatever
+        // undefined contents CreateBuffer(..., nullptr, ...) left it in.
+        D3D11_SUBRESOURCE_DATA init_data = {};
+        init_data.pSysMem = mConstantStaging.data();
+
+        if (FAILED(gDXDevice.getDevice()->CreateBuffer(&desc, &init_data, &mConstantBuffer)))
         {
             LL_WARNS("ShaderLoading") << "CreateBuffer ($Globals constant buffer) failed" << LL_ENDL;
         }
@@ -490,8 +500,23 @@ bool DXShader::setUniformMatrix4(const std::string& name, const float* column_ma
     // consecutive float4-aligned columns - exactly glm::value_ptr()'s native
     // column-major memory layout, so this is a straight 64-byte copy with no
     // reshuffling or transpose needed.
-    memcpy(mConstantStaging.data() + iter->second.offset, column_major_4x4, 16 * sizeof(float));
-    mConstantsDirty = true;
+    //
+    // S24 : skip the copy (and, crucially, the dirty flag) when the value is
+    // unchanged from what's already staged - the common case for most
+    // per-frame uniforms (minimum_alpha, frame constants re-set every bind,
+    // etc). uploadConstants() re-sends the WHOLE $Globals buffer on any
+    // dirty write, so avoiding a no-op write here can skip an entire
+    // Map(WRITE_DISCARD)/memcpy/Unmap (and the driver buffer-rename that
+    // goes with it) on the next draw. Matches upstream's
+    // LLGLSLShader::uniform*, which already skips unchanged values - this
+    // port lost it (see the existing comment on this in
+    // dxdrawpoolmaterials.cpp).
+    uint8_t* dst = mConstantStaging.data() + iter->second.offset;
+    if (memcmp(dst, column_major_4x4, 16 * sizeof(float)) != 0)
+    {
+        memcpy(dst, column_major_4x4, 16 * sizeof(float));
+        mConstantsDirty = true;
+    }
     return true;
 }
 
@@ -507,12 +532,22 @@ bool DXShader::setUniformMatrix3(const std::string& name, const float* column_ma
     // column is individually padded to a 16-byte slot (HLSL never packs a
     // vec3 flush against the next value) - 3 columns, 12 bytes each, with a
     // 4-byte gap after every column.
+    //
+    // S24 : same skip-if-unchanged as setUniformMatrix4() - see its comment.
+    // Compared and copied per-column (12 bytes each), never touching the
+    // 4-byte padding gap after each column, which holds no meaningful data
+    // to compare.
     uint8_t* dst = mConstantStaging.data() + iter->second.offset;
     for (int col = 0; col < 3; ++col)
     {
-        memcpy(dst + col * 16, column_major_3x3 + col * 3, 3 * sizeof(float));
+        const float* src_col = column_major_3x3 + col * 3;
+        uint8_t* dst_col = dst + col * 16;
+        if (memcmp(dst_col, src_col, 3 * sizeof(float)) != 0)
+        {
+            memcpy(dst_col, src_col, 3 * sizeof(float));
+            mConstantsDirty = true;
+        }
     }
-    mConstantsDirty = true;
     return true;
 }
 
@@ -531,8 +566,13 @@ bool DXShader::setUniformFloatArray(const std::string& name, const float* data, 
         return false;
     }
 
-    memcpy(mConstantStaging.data() + iter->second.offset, data, byte_count);
-    mConstantsDirty = true;
+    // S24 : same skip-if-unchanged as setUniformMatrix4() - see its comment.
+    uint8_t* dst = mConstantStaging.data() + iter->second.offset;
+    if (memcmp(dst, data, byte_count) != 0)
+    {
+        memcpy(dst, data, byte_count);
+        mConstantsDirty = true;
+    }
     return true;
 }
 
@@ -556,12 +596,22 @@ bool DXShader::setUniformPaddedArray(const std::string& name, const float* data,
         return false;
     }
 
+    // S24 : same skip-if-unchanged as setUniformMatrix4() - see its comment.
+    // Compared and copied per-element (component_count*4 bytes each),
+    // matching the size-logic comment above: never touch bytes beyond what
+    // each element actually occupies.
     uint8_t* dst = mConstantStaging.data() + iter->second.offset;
+    const size_t elem_bytes = component_count * sizeof(float);
     for (size_t i = 0; i < element_count; ++i)
     {
-        memcpy(dst + i * 16, data + i * component_count, component_count * sizeof(float));
+        const float* src_elem = data + i * component_count;
+        uint8_t* dst_elem = dst + i * 16;
+        if (memcmp(dst_elem, src_elem, elem_bytes) != 0)
+        {
+            memcpy(dst_elem, src_elem, elem_bytes);
+            mConstantsDirty = true;
+        }
     }
-    mConstantsDirty = true;
     return true;
 }
 

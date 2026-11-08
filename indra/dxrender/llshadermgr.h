@@ -82,6 +82,10 @@ public:
         MULTI_LIGHT_COL,                    //  "light_col"
         MULTI_LIGHT_FAR_Z,                  //  "far_z"
         MULTI_LIGHT_SHADOW_IDX,              //  "light_shadow_idx"
+        // S24: per-light TRUE (un-floored) radius for the falloff/discard math, parallel to
+        // MULTI_LIGHT's w component (which stays the floored reach bound used for far_z/culling)
+        // - see dxpipeline.cpp's RenderLocalLightMinRadius handling.
+        MULTI_LIGHT_FALLOFF_RADIUS,          //  "light_falloff_radius"
         PROJECTOR_MATRIX,                   //  "proj_mat"
         PROJECTOR_NEAR,                     //  "proj_near"
         PROJECTOR_P,                        //  "proj_p"
@@ -149,6 +153,14 @@ public:
         LIGHT_CENTER,                       //  "center"
         LIGHT_SIZE,                         //  "size"
         LIGHT_FALLOFF,                      //  "falloff"
+        // S24: single-light (box-mesh) path's counterpart to MULTI_LIGHT_FALLOFF_RADIUS above -
+        // the true (un-floored) radius for the falloff/discard math, while LIGHT_SIZE keeps
+        // its existing value (the floored reach bound) for geometry/outer-bound purposes.
+        LIGHT_FALLOFF_RADIUS,               //  "falloff_radius"
+        // S24: single tunable scalar (not per-light) controlling the reach-glow tail's
+        // peak strength as a fraction of each light's own center brightness. Shared by the
+        // box-mesh and fullscreen multi-light paths alike - see dxpipeline.cpp/*LightF.hlsl.
+        REACH_GLOW_STRENGTH,                //  "reach_glow_strength"
         BOX_CENTER,                         //  "box_center"
         BOX_SIZE,                           //  "box_size"
 

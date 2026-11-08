@@ -50,6 +50,20 @@ void dx_line_2d(S32 x1, S32 y1, S32 x2, S32 y2, const LLColor4& color);
 void dx_triangle_2d(S32 x1, S32 y1, S32 x2, S32 y2, S32 x3, S32 y3, const LLColor4& color, bool filled);
 void dx_rect_2d_simple(S32 width, S32 height);
 
+// S24 : Task #256 - dx_rect_2d_simple()/dx_rect_2d_simple_tex() route through
+// gDXUIBatch, whose drawAndPop() (DXUIBatch.cpp) hardcodes SRC_ALPHA/
+// INV_SRC_ALPHA blending with a full 0xF colour-write mask unconditionally -
+// it has no parameter for a different write mask at all, and silently
+// ignores whatever blend mode/colour-write mask the caller already set via
+// gDX.setSceneBlendType()/setColorWriteMask()/blendFunc(). Callers that need
+// those to actually take effect (anything compositing into an off-screen
+// buffer rather than drawing normal opaque UI chrome - llappearance/
+// lltexlayer.cpp's avatar-bake compositor is the first real case) must use
+// these plain gDX immediate-mode equivalents instead, which flow through
+// LLRender::flush()/applyDXBlendState() and honour the caller's real state,
+// mirroring upstream's gl_rect_2d_simple()/gl_rect_2d_simple_tex() exactly.
+void dx_rect_2d_simple_immediate(S32 width, S32 height);
+
 void dx_draw_x(const LLRect& rect, const LLColor4& color);
 
 void dx_rect_2d(S32 left, S32 top, S32 right, S32 bottom, bool filled = true);
@@ -81,6 +95,7 @@ void dx_draw_scaled_image_with_border(S32 x, S32 y, S32 width, S32 height, DXTex
 void dx_line_3d(const LLVector3& start, const LLVector3& end, const LLColor4& color);
 
 void dx_rect_2d_simple_tex(S32 width, S32 height);
+void dx_rect_2d_simple_tex_immediate(S32 width, S32 height); // see dx_rect_2d_simple_immediate()'s comment
 
 // segmented rectangles
 

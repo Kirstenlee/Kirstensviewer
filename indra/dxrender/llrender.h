@@ -650,6 +650,16 @@ private:
     U32 mMatHash[NUM_MATRIX_MODES];
     glm::mat4 mMatrix[NUM_MATRIX_MODES][LL_MATRIX_STACK_DEPTH];
     U32 mCurMatHash[NUM_MATRIX_MODES];
+
+    // S24: syncMatrices()'s depth-remapped projection and its inverse depend only on
+    // MM_PROJECTION, which changes far less often than MM_MODELVIEW (once per camera/pass
+    // vs. once per draw call) - cached here so a modelview-only change doesn't redo the
+    // XMMatrixMultiply/glm::inverse work. mSyncedProjHash is set to an unreachable value
+    // (mMatHash starts at 0 and only increments) so the very first syncMatrices() call
+    // always misses and populates the cache.
+    U32 mSyncedProjHash = ~0u;
+    glm::mat4 mSyncedProjDX;
+    glm::mat4 mSyncedInvProj;
     U32 mLightHash;
     LLColor4 mAmbientLightColor;
 

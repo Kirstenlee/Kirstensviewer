@@ -682,6 +682,7 @@ void LLShaderMgr::initAttribsAndUniforms()
 	// S24: real-time point/omni light shadows - which batched fullscreen-pass
 	// light (if any) is the 1 real-time point-shadow slot's current occupant.
 	mReservedUniforms.push_back("light_shadow_idx");
+	mReservedUniforms.push_back("light_falloff_radius");
 
 	//NOTE: MUST match order in eReservedUniforms
 	mReservedUniforms.push_back("proj_mat");
@@ -758,6 +759,8 @@ void LLShaderMgr::initAttribsAndUniforms()
 	mReservedUniforms.push_back("center");
 	mReservedUniforms.push_back("size");
 	mReservedUniforms.push_back("falloff");
+	mReservedUniforms.push_back("falloff_radius");
+	mReservedUniforms.push_back("reach_glow_strength");
 
 	mReservedUniforms.push_back("box_center");
 	mReservedUniforms.push_back("box_size");

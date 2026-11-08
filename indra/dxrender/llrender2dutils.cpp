@@ -1040,6 +1040,60 @@ void dx_rect_2d_simple(S32 width, S32 height)
 	}
 }
 
+// See the comment on this function's declaration (llrender2dutils.h) -
+// plain gDX immediate mode, mirrors upstream's gl_rect_2d_simple_tex()
+// exactly, so the caller's real blend mode/colour-write mask actually apply.
+//
+// S24 : Task #256 - Y vertex positions (not texcoords) deliberately swapped
+// (0<->height) vs. a literal upstream port - llappearance/lltexlayer.cpp's
+// avatar-bake compositing, the only caller of this specific function, came
+// out vertically mirrored when first ported 1:1 (confirmed live - hairline
+// content landing near the chin). Every layer composites through this same
+// function, so flipping it here mirrors the whole bake uniformly rather than
+// touching any one layer differently - a pure 2D vertex-position compensation,
+// not a 3D/viewport/matrix change, same safe category as LLVisualParamHint::
+// draw()'s own texcoord-flip compensation for the preview-icon case.
+void dx_rect_2d_simple_tex_immediate(S32 width, S32 height)
+{
+	gDX.begin(LLRender::TRIANGLES);
+
+		gDX.texCoord2f(1.f, 1.f);
+		gDX.vertex2i(width, 0);
+
+		gDX.texCoord2f(0.f, 1.f);
+		gDX.vertex2i(0, 0);
+
+		gDX.texCoord2f(0.f, 0.f);
+		gDX.vertex2i(0, height);
+
+		gDX.texCoord2f(1.f, 1.f);
+		gDX.vertex2i(width, 0);
+
+		gDX.texCoord2f(0.f, 0.f);
+		gDX.vertex2i(0, height);
+
+		gDX.texCoord2f(1.f, 0.f);
+		gDX.vertex2i(width, height);
+
+	gDX.end();
+	gDX.flush();
+}
+
+// See dx_rect_2d_simple_tex_immediate()'s comment.
+void dx_rect_2d_simple_immediate(S32 width, S32 height)
+{
+	gDX.begin(LLRender::TRIANGLES);
+		gDX.vertex2i(width, 0);
+		gDX.vertex2i(0, 0);
+		gDX.vertex2i(0, height);
+
+		gDX.vertex2i(width, 0);
+		gDX.vertex2i(0, height);
+		gDX.vertex2i(width, height);
+	gDX.end();
+	gDX.flush();
+}
+
 void dx_segmented_rect_2d_fragment_tex(const LLRect& rect,
 	const S32 texture_width,
 	const S32 texture_height,

@@ -328,8 +328,18 @@ bool LLHLSLShader::readProfileQuery(bool for_runtime, bool force_read)
 				return false;
 			}
 			// force_read: block until the result is actually available rather than giving up.
-			while (context->GetData(mDXProfileQueries.disjoint, &disjoint_data, sizeof(disjoint_data), 0) != S_OK)
+			// S24 : bounded retry, matching DXOcclusionQuery::getResult()'s pattern - an
+			// unbounded spin here hangs the thread forever if the query never completes
+			// (device removed, query never ended). 100000 iterations is a generous margin.
+			HRESULT force_hr = S_FALSE;
+			for (int attempt = 0; attempt < 100000 && force_hr != S_OK; ++attempt)
 			{
+				force_hr = context->GetData(mDXProfileQueries.disjoint, &disjoint_data, sizeof(disjoint_data), 0);
+			}
+			if (force_hr != S_OK)
+			{
+				LL_WARNS("Shader") << "LLGLSLShader profile query: GetData never returned S_OK after 100000 attempts - abandoning this read instead of hanging" << LL_ENDL;
+				return false;
 			}
 		}
 
