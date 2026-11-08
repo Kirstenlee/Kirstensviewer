@@ -993,14 +993,6 @@ U32 LLControlGroup::loadFromFileLegacy(const std::string& filename, bool require
 
 U32 LLControlGroup::saveToFile(const std::string& filename, bool nondefault_only)
 {
-    // S24: .ini is the native format for S24's split category settings files - same
-    // extension-based dispatch as loadFromFile(), so every existing caller (the per-account
-    // override files) keeps working unchanged once those are pointed at a .ini filename.
-    if (filename.size() >= 4 && filename.compare(filename.size() - 4, 4, ".ini") == 0)
-    {
-        return saveToFileIni(filename, nondefault_only);
-    }
-
 	LLSD settings;
 	int num_saved = 0;
 	for (ctrl_name_table_t::iterator iter = mNameTable.begin();
@@ -1036,338 +1028,8 @@ U32 LLControlGroup::saveToFile(const std::string& filename, bool nondefault_only
 	return num_saved;
 }
 
-namespace
-{
-    // S24: component counts for the composite types S24's .ini dialect stores as one line of
-    // comma-separated numbers - matches eControlType's real shape (LLControlGroup::mTypeString),
-    // not guessed. Everything else (Boolean/S32/U32/F32/String) is a plain scalar.
-    S32 iniValueComponentCount(const std::string& type)
-    {
-        if (type == "Vector3" || type == "Vector3D" || type == "Color3") return 3;
-        if (type == "Vector4" || type == "Quaternion" || type == "Color4" || type == "Rect") return 4;
-        return 0;
-    }
-
-    // S24: String values are written/read verbatim almost always (paths, UUIDs, URLs, labels -
-    // none of the shipped defaults ever contain a newline, confirmed by the one-time converter's
-    // own validation pass) - but saveToFileIni() writes arbitrary FUTURE user-entered values, not
-    // just known-safe shipped ones, so a minimal backslash-escape keeps a stray embedded newline
-    // or literal backslash from corrupting the one-setting-per-line dialect.
-    std::string unescapeIniString(const std::string& s)
-    {
-        std::string out;
-        out.reserve(s.size());
-        for (size_t i = 0; i < s.size(); ++i)
-        {
-            if (s[i] == '\\' && i + 1 < s.size())
-            {
-                char next = s[i + 1];
-                if (next == 'n') { out += '\n'; ++i; continue; }
-                if (next == '\\') { out += '\\'; ++i; continue; }
-            }
-            out += s[i];
-        }
-        return out;
-    }
-
-    std::string escapeIniString(const std::string& s)
-    {
-        std::string out;
-        out.reserve(s.size());
-        for (char c : s)
-        {
-            if (c == '\\') out += "\\\\";
-            else if (c == '\n') out += "\\n";
-            else out += c;
-        }
-        return out;
-    }
-
-    LLSD parseIniValue(const std::string& type, const std::string& value_str)
-    {
-        S32 components = iniValueComponentCount(type);
-        if (components > 0)
-        {
-            LLSD arr = LLSD::emptyArray();
-            size_t pos = 0;
-            for (S32 i = 0; i < components; ++i)
-            {
-                size_t comma = (i + 1 < components) ? value_str.find(',', pos) : std::string::npos;
-                std::string part = (comma == std::string::npos) ? value_str.substr(pos) : value_str.substr(pos, comma - pos);
-                arr.append(LLSD::Real(atof(part.c_str())));
-                if (comma == std::string::npos) break;
-                pos = comma + 1;
-            }
-            return arr;
-        }
-
-        if (type == "Boolean")
-        {
-            return LLSD::Boolean(value_str == "1" || value_str == "true" || value_str == "TRUE");
-        }
-        if (type == "S32")
-        {
-            return LLSD::Integer(atoi(value_str.c_str()));
-        }
-        if (type == "U32")
-        {
-            // LLSD has no native unsigned type - stored as Integer, same as the XML path already
-            // does (control_map["Value"].asInteger() is used generically regardless of signedness).
-            return LLSD::Integer((S32)strtol(value_str.c_str(), nullptr, 10));
-        }
-        if (type == "F32")
-        {
-            return LLSD::Real(atof(value_str.c_str()));
-        }
-        // String and anything unrecognized - pass through verbatim (unescaped).
-        return LLSD::String(unescapeIniString(value_str));
-    }
-
-    // S24: formatIniValue() is parseIniValue()'s exact inverse - used by saveToFileIni() to turn
-    // an in-memory LLControlVariable's typed LLSD value back into one ini line's worth of text.
-    std::string formatIniValue(eControlType type, const std::string& type_str, const LLSD& value)
-    {
-        S32 components = iniValueComponentCount(type_str);
-        if (components > 0)
-        {
-            std::ostringstream os;
-            for (S32 i = 0; i < components; ++i)
-            {
-                if (i > 0) os << ",";
-                os << (i < value.size() ? value[i].asReal() : 0.0);
-            }
-            return os.str();
-        }
-
-        switch (type)
-        {
-        case TYPE_BOOLEAN:
-            return value.asBoolean() ? "1" : "0";
-        case TYPE_S32:
-        case TYPE_U32:
-            return llformat("%d", value.asInteger());
-        case TYPE_F32:
-            return llformat("%g", value.asReal());
-        default:
-            return escapeIniString(value.asString());
-        }
-    }
-}
-
-// S24: S24's native .ini dialect for the split category settings files (render_shadows.ini,
-// render_reflections.ini, render_water.ini, render_fsr.ini, render_core.ini, krlv.ini, etc - see
-// app_settings/settings_files.xml). One setting per line (Key=Value); a [TypeName] section header
-// sets the type (Boolean/S32/U32/F32/String/Vector3/Vector3D/Vector4/Quaternion/Rect/Color3/Color4)
-// for every line beneath it, optionally suffixed :NoPersist and/or :Hidden (e.g.
-// "[Boolean:NoPersist]") for the rare settings that aren't plain persisted/editor-visible - default
-// is persisted, editor-visible. ';' or '#' lines immediately above a setting become its Comment
-// (required - loadFromLLSD() enforces this the same way it already does for the XML path).
-// Composite types are one line of comma-separated components (e.g. "1.0,0.5,0.25,1.0" for a
-// Color4). The genuinely complex LLSD type (11 settings total, all obscure/internal - joystick
-// UUID, API keys, thread-pool sizing, etc, never hand-edited) deliberately has no .ini
-// representation - those stay in a small LLSD-XML sidecar file instead, loaded as its own ordinary
-// settings_files.xml entry.
-// S24: ini-dialect counterpart to saveToFile() above - same control-selection logic
-// (shouldSave(nondefault_only)), same three fields written (Type/Comment/Value - a save/override
-// file never needs the :NoPersist/:Hidden section modifiers, since shouldSave() already only
-// returns controls that ARE being persisted, and HideFromEditor is a display concern the default-
-// definition file already carries, not re-asserted per override), grouped into [Type] sections
-// exactly like loadIniFileToLLSD() below expects to read back.
-U32 LLControlGroup::saveToFileIni(const std::string& filename, bool nondefault_only)
-{
-    struct Item { std::string name, comment, value; };
-    std::map<eControlType, std::vector<Item>> by_type;
-    U32 num_saved = 0;
-
-    for (ctrl_name_table_t::iterator iter = mNameTable.begin();
-         iter != mNameTable.end(); iter++)
-    {
-        LLControlVariable* control = iter->second;
-        if (!control)
-        {
-            LL_WARNS("Settings") << "Tried to save invalid control: " << iter->first << LL_ENDL;
-            continue;
-        }
-        if (!control->shouldSave(nondefault_only))
-        {
-            continue;
-        }
-        eControlType type = control->type();
-        std::string type_str = typeEnumToString(type);
-        Item item;
-        item.name = iter->first;
-        item.comment = control->getComment();
-        item.value = formatIniValue(type, type_str, control->getSaveValue());
-        by_type[type].push_back(std::move(item));
-        ++num_saved;
-    }
-
-    llofstream file;
-    file.open(filename.c_str());
-    if (!file.is_open())
-    {
-        LL_WARNS("Settings") << "Unable to open settings file: " << filename << LL_ENDL;
-        return 0;
-    }
-
-    for (auto& type_entry : by_type)
-    {
-        std::vector<Item>& items = type_entry.second;
-        std::sort(items.begin(), items.end(), [](const Item& a, const Item& b) { return a.name < b.name; });
-        file << "\n[" << typeEnumToString(type_entry.first) << "]\n";
-        for (const Item& item : items)
-        {
-            if (!item.comment.empty())
-            {
-                file << "; " << item.comment << "\n";
-            }
-            file << item.name << "=" << item.value << "\n";
-        }
-    }
-
-    file.close();
-    LL_INFOS("Settings") << "Saved to " << filename << LL_ENDL;
-    return num_saved;
-}
-
-bool LLControlGroup::loadIniFileToLLSD(const std::string& filename, LLSD& settings)
-{
-    llifstream infile(filename.c_str());
-    if (!infile.is_open())
-    {
-        return false;
-    }
-
-    settings = LLSD::emptyMap();
-
-    std::string current_type;
-    bool section_no_persist = false;
-    bool section_hidden = false;
-    std::string pending_comment;
-
-    std::string line;
-    while (std::getline(infile, line))
-    {
-        if (!line.empty() && line.back() == '\r')
-        {
-            line.pop_back();
-        }
-
-        size_t first = line.find_first_not_of(" \t");
-        if (first == std::string::npos)
-        {
-            continue;
-        }
-        std::string trimmed = line.substr(first);
-
-        if (trimmed[0] == ';' || trimmed[0] == '#')
-        {
-            std::string comment_text = trimmed.substr(1);
-            size_t cfirst = comment_text.find_first_not_of(" \t");
-            if (cfirst != std::string::npos)
-            {
-                comment_text = comment_text.substr(cfirst);
-            }
-            if (!pending_comment.empty())
-            {
-                pending_comment += " ";
-            }
-            pending_comment += comment_text;
-            continue;
-        }
-
-        if (trimmed[0] == '[')
-        {
-            size_t close = trimmed.find(']');
-            if (close == std::string::npos)
-            {
-                LL_WARNS("Settings") << "Malformed section header in " << filename << ": " << line << LL_ENDL;
-                continue;
-            }
-            std::string header = trimmed.substr(1, close - 1);
-
-            std::vector<std::string> parts;
-            size_t pos = 0;
-            while (true)
-            {
-                size_t next = header.find(':', pos);
-                if (next == std::string::npos)
-                {
-                    parts.push_back(header.substr(pos));
-                    break;
-                }
-                parts.push_back(header.substr(pos, next - pos));
-                pos = next + 1;
-            }
-
-            current_type = parts.empty() ? std::string() : parts[0];
-            section_no_persist = false;
-            section_hidden = false;
-            for (size_t i = 1; i < parts.size(); ++i)
-            {
-                if (parts[i] == "NoPersist") section_no_persist = true;
-                else if (parts[i] == "Hidden") section_hidden = true;
-            }
-            pending_comment.clear();
-            continue;
-        }
-
-        size_t eq = trimmed.find('=');
-        if (eq == std::string::npos)
-        {
-            LL_WARNS("Settings") << "Malformed line in " << filename << " (no '='): " << line << LL_ENDL;
-            pending_comment.clear();
-            continue;
-        }
-
-        std::string key = trimmed.substr(0, eq);
-        size_t key_end = key.find_last_not_of(" \t");
-        key = (key_end == std::string::npos) ? std::string() : key.substr(0, key_end + 1);
-
-        std::string value_str = trimmed.substr(eq + 1);
-        size_t vfirst = value_str.find_first_not_of(" \t");
-        value_str = (vfirst == std::string::npos) ? std::string() : value_str.substr(vfirst);
-
-        if (key.empty() || current_type.empty())
-        {
-            LL_WARNS("Settings") << "Skipping malformed/typeless setting in " << filename << ": " << line << LL_ENDL;
-            pending_comment.clear();
-            continue;
-        }
-
-        LLSD entry = LLSD::emptyMap();
-        entry["Type"] = current_type;
-        entry["Comment"] = pending_comment;
-        entry["Persist"] = section_no_persist ? LLSD::Integer(0) : LLSD::Integer(1);
-        if (section_hidden)
-        {
-            entry["HideFromEditor"] = LLSD::Integer(1);
-        }
-        entry["Value"] = parseIniValue(current_type, value_str);
-
-        settings[key] = entry;
-        pending_comment.clear();
-    }
-
-    return true;
-}
-
 U32 LLControlGroup::loadFromFile(const std::string& filename, bool set_default_values, bool save_values, bool error_when_no_comment)
 {
-    // S24: .ini is the native format for S24's split category settings files - detected purely by
-    // extension so this never collides with LLSD-XML parsing/the Legacy fallback below.
-    // loadFromLLSD() is the shared per-entry processing core both paths funnel through.
-    if (filename.size() >= 4 && filename.compare(filename.size() - 4, 4, ".ini") == 0)
-    {
-        LLSD settings;
-        if (!loadIniFileToLLSD(filename, settings))
-        {
-            LL_WARNS("Settings") << "Cannot find file " << filename << " to load." << LL_ENDL;
-            return 0;
-        }
-        return loadFromLLSD(settings, set_default_values, save_values, error_when_no_comment);
-    }
-
 	LLSD settings;
 	llifstream infile;
 	infile.open(filename.c_str());
@@ -1384,14 +1046,9 @@ U32 LLControlGroup::loadFromFile(const std::string& filename, bool set_default_v
         return loadFromFileLegacy(filename, true, TYPE_STRING);
 	}
 
-    return loadFromLLSD(settings, set_default_values, save_values, error_when_no_comment);
-}
-
-U32 LLControlGroup::loadFromLLSD(const LLSD& settings, bool set_default_values, bool save_values, bool error_when_no_comment)
-{
 	U32	validitems = 0;
 	bool hidefromsettingseditor = false;
-
+	
 	for(LLSD::map_const_iterator itr = settings.beginMap(); itr != settings.endMap(); ++itr)
 	{
 		LLControlVariable::ePersist persist = LLControlVariable::PERSIST_NONDFT;
@@ -1437,8 +1094,8 @@ U32 LLControlGroup::loadFromLLSD(const LLSD& settings, bool set_default_values, 
 				else
 				{
 					LL_ERRS() << "Mismatched type of control variable '"
-						   << name << "' found while loading settings for group '"
-						   << getKey() << "'." << LL_ENDL;
+						   << name << "' found while loading '"
+						   << filename << "'." << LL_ENDL;
 				}
 			}
 			else if(existing_control->isPersisted())
@@ -1514,7 +1171,7 @@ U32 LLControlGroup::loadFromLLSD(const LLSD& settings, bool set_default_values, 
 		++validitems;
 	}
 
-	LL_DEBUGS("Settings") << "Loaded " << validitems << " settings for group '" << getKey() << "'" << LL_ENDL;
+	LL_DEBUGS("Settings") << "Loaded " << validitems << " settings from " << filename << LL_ENDL;
 	return validitems;
 }
 

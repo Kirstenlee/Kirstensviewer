@@ -1278,10 +1278,15 @@ void LLFloaterKVTweaks::refreshUIHueProfileCombo(const std::string& select_name)
         combo->add(name);
     }
 
-    if (!previous_selection.empty())
+    // S24: on first-ever open there's no prior selection to restore, and the combo box would
+    // otherwise silently default to whichever profile sorts alphabetically first (e.g. "CyberDeck"
+    // ahead of "Default") - explicitly land on the neutral/no-shift profile instead.
+    if (previous_selection.empty())
     {
-        combo->selectByValue(previous_selection);
+        previous_selection = "Default ( All Skins )";
     }
+
+    combo->selectByValue(previous_selection);
 }
 
 void LLFloaterKVTweaks::onUIHueProfileSelected()

@@ -48,6 +48,7 @@
 #include <openssl/err.h>
 #include <openssl/evp.h>
 #include <openssl/kdf.h>
+#include <openssl/provider.h>
 #include <iostream>
 #include <iomanip>
 #include <time.h>
@@ -95,6 +96,20 @@ static bool s24_deriveProtectedDataKey(const U8* salt, int salt_len,
     }
     EVP_PKEY_CTX_free(pctx);
     return ok;
+}
+
+// S24: RC4 (used only to read pre-upgrade protected-data stores, see the
+// format-migration note above) lives in OpenSSL 3.0's "legacy" provider,
+// which is NOT loaded by default - without this, EVP_rc4()-based decrypt
+// calls silently fail (garbage output, no error) rather than refusing to
+// run, so an old-format file would fail to decrypt/parse with no clear
+// cause. Loaded once, lazily, the first time a legacy-format file is seen.
+static void s24_ensureLegacyOpenSSLProvider()
+{
+    static OSSL_PROVIDER* legacy_provider = OSSL_PROVIDER_load(NULL, "legacy");
+    static OSSL_PROVIDER* default_provider = OSSL_PROVIDER_load(NULL, "default");
+    (void)legacy_provider;
+    (void)default_provider;
 }
 
 std::string cert_string_from_asn1_string(ASN1_STRING* value);
@@ -1435,8 +1450,20 @@ void LLSecAPIBasicHandler::_readProtectedData(unsigned char *unique_id, U32 id_l
         LLXORCipher cipher(unique_id, id_len);
         cipher.decrypt(salt, STORE_SALT_SIZE);
 
+        // S24: RC4 needs the legacy provider loaded (see function above) or
+        // EVP_DecryptInit fails silently and every byte below decrypts to
+        // garbage with no error raised - check it explicitly instead of
+        // trusting a parse failure to surface the real cause.
+        s24_ensureLegacyOpenSSLProvider();
         EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
-        EVP_DecryptInit(ctx, EVP_rc4(), salt, NULL);
+        if (!ctx || EVP_DecryptInit(ctx, EVP_rc4(), salt, NULL) != 1)
+        {
+            if (ctx)
+            {
+                EVP_CIPHER_CTX_free(ctx);
+            }
+            LLTHROW(LLProtectedDataException("Could not initialize legacy RC4 cipher (legacy OpenSSL provider missing?)."));
+        }
 
         const size_t legacy_len = raw.size() - STORE_SALT_SIZE;
         std::string decrypted_data;

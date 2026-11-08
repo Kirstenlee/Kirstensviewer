@@ -90,8 +90,8 @@ Public releases so far: pre-alpha 0.1 (2026-08-23), 0.2, 0.3 and 0.4, then
 **Alpha 1.0** (2026-09-17, r3855), **Alpha 1.1** (2026-09-19, r3868),
 **Alpha 1.2** (2026-09-27, r4015), **Alpha 1.3** (2026-10-03, r4100),
 **Beta 1.0** (2026-10-11, r4168), **Beta 1.1** (2026-10-19, r4255),
-**Beta 1.2** (2026-10-30, r4310) and **Beta 1.3** (2026-11-08, r4395),
-the current release.
+**Beta 1.2** (2026-10-30, r4310) and **Beta 1.3** (2026-11-08, r4395,
+post-release-patched through r4397 - see below), the current release.
 
 **Architecture**: the D3D11 backend lives in `indra/dxrender/`: `core/`
 (device, context, state: `DXDevice`, `DXContext`, `DXSwapChain`,
@@ -147,7 +147,7 @@ to Marine Kelley and Kitty Barnett. Full reference:
 
 ---
 
-## ✨ Change Log — Beta 1.3 (current release, r4311 → r4395)
+## ✨ Change Log — Beta 1.3 (current release, r4311 → r4397)
 
 Grouped by area. The detailed commit history is in SVN.
 
@@ -184,10 +184,16 @@ Grouped by area. The detailed commit history is in SVN.
 
 #### 🔧 Internals & Quality
 
-- `settings.xml` split into 39 category-based `.ini` files.
 - **A full multi-agent QA pass** across nine code areas (character animation through plugins/media) found and fixed four real issues before release: a plugin-shutdown deadlock, a potential UI hang in the multi-slider control, a silently-ignored GPU allocation failure, and an unbounded GPU-query wait.
 - `llimage` hardening: fixed a heap overflow and an integer overflow in DXT texture decoding.
 - Dead-code sweep: removed a zombie per-frame effects gate, unused avatar counters, and the fully-unused `LLCallStacks` facility.
+
+#### 🩹 Post-release patch (r4396 → r4397)
+
+- **Fixed a severe credential-persistence bug:** on a genuinely fresh profile, saved login/password no longer failed to restore. Root cause traced to the `settings.xml` → `.ini` migration shipped earlier this cycle; that migration has been fully reverted back to the original XML format (every setting value changed since has been preserved).
+- Fixed the legacy RC4 credential-decrypt fallback silently failing under OpenSSL 3.x (the "legacy" provider was never loaded).
+- Fixed the UI Hue profile dropdown defaulting to the first alphabetical profile instead of the neutral "Default" one on first open.
+- Retuned several defaults: reflection-probe content/update-mode/slots/resolution, local light radius/glow, selection beam width, VLC equalizer on by default with the "Full Bass & Treble" preset, and Tonemap Everywhere on by default.
 
 ---
 

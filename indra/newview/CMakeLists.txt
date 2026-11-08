@@ -1664,64 +1664,24 @@ list(APPEND viewer_SOURCE_FILES ${viewer_XUI_FILES})
 
 set(viewer_APPSETTINGS_FILES
     app_settings/anim.ini
-    app_settings/audio.ini
     app_settings/autoreplace.xml
-    app_settings/avatar.ini
-    app_settings/beacons.ini
-    app_settings/browser.ini
-    app_settings/build.ini
-    app_settings/camera.ini
-    app_settings/chat.ini
     app_settings/cmd_line.xml
     app_settings/commands.xml
-    app_settings/complex_settings.xml
-    app_settings/debug.ini
     app_settings/emoji_groups.xml
-    app_settings/environment.ini
     app_settings/foldertypes.xml
     app_settings/grass.xml
-    app_settings/inventory.ini
+    app_settings/ignorable_dialogs.xml
     app_settings/key_bindings.xml
     app_settings/keywords_lsl_default.xml
     app_settings/keywords_lua_default.xml
-    app_settings/krlv.ini
-    app_settings/kv.ini
     app_settings/logcontrol.xml
-    app_settings/login_startup.ini
-    app_settings/map_grid.ini
-    app_settings/marketplace.ini
-    app_settings/media.ini
-    app_settings/mesh.ini
-    app_settings/misc.ini
-    app_settings/notifications.ini
-    app_settings/pathfinding.ini
-    app_settings/permissions.ini
-    app_settings/render_core.ini
-    app_settings/render_fsr.ini
-    app_settings/render_reflections.ini
-    app_settings/render_shadows.ini
-    app_settings/render_water.ini
-    app_settings/scene_loading.ini
-    app_settings/scripting.ini
-    app_settings/selection_editing.ini
-    app_settings/ignorable_dialogs.ini
-    # S24: settings.xml/ignorable_dialogs.xml/settings_per_account.xml (the original monolithic
-    # defaults files) were retired entirely once the .ini conversion was confirmed working
-    # standalone - svn history is the rollback reference now, not a kept-around copy in the repo.
+    app_settings/settings.xml
     app_settings/settings_files.xml
-    app_settings/settings_per_account.ini
-    app_settings/snapshot.ini
-    app_settings/stats_perf.ini
+    app_settings/settings_per_account.xml
     app_settings/std_bump.ini
-    app_settings/terrain.ini
-    app_settings/texture_cache.ini
     app_settings/toolbars.xml
     app_settings/trees.xml
-    app_settings/ui.ini
-    app_settings/urls.ini
     app_settings/viewerart.xml
-    app_settings/vr_stereo.ini
-    app_settings/window.ini
     ${CMAKE_SOURCE_DIR}/../etc/message.xml
     ${CMAKE_SOURCE_DIR}/../scripts/messages/message_template.msg
     featuretable.txt
