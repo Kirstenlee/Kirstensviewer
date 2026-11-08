@@ -4,8 +4,8 @@
 ---
 
 <p align="center">
-     <img src="https://img.shields.io/badge/build-4310-green.svg" alt="Build">
-     <img src="https://img.shields.io/badge/version-Beta%201.2-blueviolet.svg" alt="Beta 1.2">
+     <img src="https://img.shields.io/badge/build-4395-green.svg" alt="Build">
+     <img src="https://img.shields.io/badge/version-Beta%201.3-blueviolet.svg" alt="Beta 1.3">
      <img src="https://img.shields.io/badge/platform-Windows-blue.svg" alt="Platform">
      <img src="https://img.shields.io/badge/standard-C%2B%2B20-orange.svg" alt="C++20">
      <img src="https://img.shields.io/badge/renderer-DirectX%2011-9cf.svg" alt="DirectX 11">
@@ -73,7 +73,8 @@ Kirstens Viewer respects user privacy and disables or limits the following compo
 | 3500  | MAGN     | S24.7   |
 | 4168  | HRADR    | Beta 1.0 |
 | 4255  | HRADR    | Beta 1.1 |
-| **4310** | **HRADR** | **Beta 1.2 (current)** |
+| 4310  | HRADR    | Beta 1.2 |
+| **4395** | **HRADR** | **Beta 1.3 (current)** |
 
 **Forked from Viewer Develop / 2026.4**
 
@@ -88,33 +89,35 @@ all GLSL shader source and the OpenGL path were removed.
 Public releases so far: pre-alpha 0.1 (2026-08-23), 0.2, 0.3 and 0.4, then
 **Alpha 1.0** (2026-09-17, r3855), **Alpha 1.1** (2026-09-19, r3868),
 **Alpha 1.2** (2026-09-27, r4015), **Alpha 1.3** (2026-10-03, r4100),
-**Beta 1.0** (2026-10-11, r4168), **Beta 1.1** (2026-10-19, r4255) and
-**Beta 1.2** (2026-10-30, r4310), the current release.
+**Beta 1.0** (2026-10-11, r4168), **Beta 1.1** (2026-10-19, r4255),
+**Beta 1.2** (2026-10-30, r4310) and **Beta 1.3** (2026-11-08, r4395),
+the current release.
 
 **Architecture**: the D3D11 backend lives in `indra/dxrender/`: `core/`
 (device, context, state: `DXDevice`, `DXContext`, `DXSwapChain`,
 `DXStateCache`) and `resources/` (per-resource wrappers: `DXBuffer`,
 `DXTexture`, `DXShader`, `DXSampler`, `DXRenderTarget`, `DXOcclusionQuery`,
-and more). It is kept separate from the ported `newview`/`llrender` code.
-Per-frame orchestration (`DXPipeline`, the `DXDrawPool*` family) lives in
+and more). `indra/llrender` was retired this cycle and merged entirely into
+`dxrender` — render code now lives under a single library. Per-frame
+orchestration (`DXPipeline`, the `DXDrawPool*` family) lives in
 `indra/newview/`, since it is coupled to `LLPipeline`/`LLDrawPool`.
 
 **Status**: the GLSL→HLSL shader port is complete (237/237 files). The full
 deferred renderer is working: opaque, alpha, materials, PBR, avatars,
 terrain, water and sky; shadows (sun cascades and spotlights, plus
-real-time shadows for local point/omni lights (experimental), off by
-default), local and spot lights, SSAO, glow and bloom; FXAA, SMAA and
-Contrast Adaptive Sharpening; optional AMD FSR1 upscaling; real D3D11
-occlusion culling; reflection probes — with temporal flicker fixed, a
-corrected ambient/tonemap balance across sky presets, a same-class
-champion/runner-up blend that removes hard cutoffs at probe boundaries,
-atomic (tear-free) capture, and a firefly/overbright clamp — alongside the
-existing per-location probe system and an optional avatar-centred "Master
-Reflection Cube" (on by default, tunable capture radius); anisotropic
-filtering; real Screen-Space Reflections; hero-probe mirrors; a real
-raymarched volumetric-light effect for the sun; BC7 GPU texture compression
-(58% VRAM reduction, opt-in); AMD AGS and NVIDIA NVAPI device-creation
-parity; and a real Anaglyph 3D implementation.
+real-time shadows for local point/omni lights, off by default), local and
+spot lights, SSAO, glow and bloom; FXAA, SMAA and Contrast Adaptive
+Sharpening; optional AMD FSR1 upscaling; real D3D11 occlusion culling;
+reflection probes — with temporal flicker fixed, a corrected ambient/tonemap
+balance across sky presets, a same-class champion/runner-up blend that
+removes hard cutoffs at probe boundaries, atomic (tear-free) capture, and a
+firefly/overbright clamp — alongside the existing per-location probe system
+and an optional avatar-centred "Master Reflection Cube" (on by default,
+tunable capture radius); anisotropic filtering; real Screen-Space
+Reflections; hero-probe mirrors; a real raymarched volumetric-light effect
+for the sun; BC7 GPU texture compression (58% VRAM reduction, opt-in); AMD
+AGS and NVIDIA NVAPI device-creation parity; and a real Anaglyph 3D
+implementation.
 
 **Known gaps**: AutoFPS (avatar GPU-cost throttling) is a no-op under
 `DX_RENDER`. The optional VFX motion blur reads the frame back to the CPU
@@ -144,9 +147,52 @@ to Marine Kelley and Kitty Barnett. Full reference:
 
 ---
 
-## ✨ Change Log — Beta 1.2 (current release, r4256 → r4310)
+## ✨ Change Log — Beta 1.3 (current release, r4311 → r4395)
 
 Grouped by area. The detailed commit history is in SVN.
+
+#### 🎨 Skins & Visual Identity
+
+- **New Graphite skin** — a dark, neutral, pro-tool theme replacing the legacy Flat skin. Built in small, individually-verified layers after an earlier full-rebuild attempt hit unresolved rendering issues: accent-coloured sliders, checkboxes and progress bar, flat underline-style tabs, a coral close button, and the old theme's leftover teal fully purged.
+- **Default skin (Aero24) visual pass:** Vista-Pro glass buttons with a matching translucent titlebar, glossy colour toolbar icons with a semantic hue per icon, wireframe inventory folder icons (gold for client folders, blue for system/library), and a centred slider thumb.
+- **New Kirstens Viewer login logo** replaces the stock SL hand mark across all five skins, each hue-matched to its own accent colour.
+- **Fixed:** menu search-match text was rendering nearly invisible against black backdrops on several skins.
+
+#### 🎮 New Features
+
+- **KV World Clock** floater: SL time plus 11 real-world cities, live DST-aware local time from the Windows timezone database.
+- **New Extras menu** consolidating Media Player and S24 Console, plus four new console games — Blackjack, Reversi, Solitaire and Minesweeper.
+- **Tonemap Everywhere:** a toggle to enable tonemap/exposure on legacy, pre-HDR sky environments.
+
+#### 🛡️ KRLV — now v1.2.0
+
+- Outfit changes no longer silently drop or detach items locked by `@detach`/`@remattach`/`@remoutfit`.
+
+#### 🔒 Privacy
+
+- Unsolicited ad-hoc group conversation invites from non-friends are now rejected, closing a gap left open by `VoiceCallsFriendsOnly`.
+
+#### ⚡ Performance & Stability
+
+- **Fixed the frame-drop burst on starting to move:** textures for objects that just became visible (turning a corner, leaving occlusion) now refresh immediately instead of waiting up to ~2 seconds on a blind round-robin — found and fixed via a multi-agent investigation that first ruled out a riskier proposed approach.
+- **Main-loop smoothness pass** fixed several compounding jitter sources: a blocking window-message queue, an unclamped geometry-rebuild budget, audio load bursts, dead-reckoning discontinuities, and async GPU-profiling overhead.
+- **Shadow fixes:** directional overshoot on forward-rendered materials, a D3D11 resolution/resize mismatch, point-light crossfade pop, and a spot-shadow matrix mismatch on reflection probes.
+- **Local lighting retuned:** reach-glow decoupled from shading intensity, with a longer default reach and a much subtler glow.
+- **Windows CPU Sets** core reservation for the main/render/window threads, with AMD X3D cache-aware CCD detection and a manual override.
+- **`LLMatrix4::determinant()` was badly broken** — wrong for virtually every matrix, including identity — fixed alongside eight other correctness bugs found in a dedicated math-library audit (quaternion lerp/slerp, ray-box intersection, octree traversal pruning, and more).
+- `indra/llrender` retired and merged into `indra/dxrender`; OpenSSL and curl modernized onto vcpkg.
+
+#### 🔧 Internals & Quality
+
+- `settings.xml` split into 39 category-based `.ini` files.
+- **A full multi-agent QA pass** across nine code areas (character animation through plugins/media) found and fixed four real issues before release: a plugin-shutdown deadlock, a potential UI hang in the multi-slider control, a silently-ignored GPU allocation failure, and an unbounded GPU-query wait.
+- `llimage` hardening: fixed a heap overflow and an integer overflow in DXT texture decoding.
+- Dead-code sweep: removed a zombie per-frame effects gate, unused avatar counters, and the fully-unused `LLCallStacks` facility.
+
+---
+
+<details>
+<summary><b>Beta 1.2 — point/omni light shadows, real volumetric light, reflection probe polish (r4256 → r4310)</b></summary>
 
 #### 🎨 Graphics & Rendering
 
@@ -183,7 +229,7 @@ Grouped by area. The detailed commit history is in SVN.
 - Large comment-verbosity cleanup across both C++ and shader code: historical narrative and debugging-diary comments trimmed down to short, technical explanations.
 - `LLCoordGL` renamed to `LLCoordYUp` tree-wide (~60 files) for clarity — internal only, no user-facing change.
 
----
+</details>
 
 <details>
 <summary><b>Beta 1.1 — reflection probe fixes, Master Reflection Cube, new-user defaults (r4169 → r4255)</b></summary>
@@ -247,42 +293,20 @@ Grouped by area. The detailed commit history is in SVN.
 </details>
 
 <details>
-<summary><b>Alpha 1.3 — KRLV hardening, DX_RENDER hot-path cleanup (r4016 → r4105)</b></summary>
+<summary><b>Alpha releases — KRLV, floater pop-out, the original DirectX 11 conversion project (r3536 → r4105)</b></summary>
 
-- Full RLVa command framework (KRLV) shipped: 163 commands, Control floater, safeword, signed state, object whitelist/blacklist.
-- Contrast Adaptive Sharpening wired into the post chain; SMAA blend/flip corrected.
-- Fixed a crash on BC7-upgraded textures under VRAM pressure.
-- Mondy Cam: camera floater redesigned with an accordion panel, 43% smaller.
-- Media Player renamed from Music Player; volume/EQ persistence added.
-- Marketplace Received Items stuck "Searching…" bug fixed (three separate causes).
-- Upstream Linden Lab backports: UDP flood handling, HTTP thread shutdown, script/Luau fixes, alignment fixes.
-- Startup freeze on AMD GPUs compiling the BRDF LUT shader fixed.
-
-</details>
-
-<details>
-<summary><b>Alpha 1.2 — floater pop-out, DX_RENDER hardening, LL backports (r3856 → r4015)</b></summary>
-
-- **Floater pop-out framework:** registered floaters (About, nearby chat) pop out to their own desktop window, rendered via render-to-texture and DirectComposition. Multi-instance; input fidelity preserved; hardened over many live-test rounds.
-- **Graphics:** alpha shadow cutoff split; spot-shadow depth double-transform fixed; local and spot lights restored in forward-lit shaders; SSAO normal-similarity check; anisotropic filtering as a real level control; `LLImageGL` renamed to `LLImageDX`; BC7 VRAM accounting fixed; dead GL and `LLPostProcess` code removed.
-- **Debug:** watchdog hang-detection removed; swap-chain leak guarded; texture-cache write-failure throttling.
-- **Upstream:** Linden Lab backport program closed at 272/272 triaged, with 124 commits merged across stability, voice and WebRTC, scripting and the SLua/Luau bridge, LEAP, inventory, UI and chat.
-- **Scripting:** full external Lua/Luau script-editor bridge, including `command.execute`.
+Roughly 400 commits across the Alpha series: the full GLSL→HLSL shader port
+(237/237 files), the deferred renderer brought up pool by pool, reversed-Z
+depth, Screen-Space Reflections, BC7 texture compression, Anaglyph 3D, the
+flat HUD-attachment cost fix, the first stages of the GL-vocabulary and
+dead-code retirement, the full RLVa command framework (KRLV, 163 commands),
+the floater pop-out framework (render-to-texture + DirectComposition), and
+the Linden Lab upstream backport program's first close-out (272/272 triaged,
+124 commits merged).
 
 </details>
 
-<details>
-<summary><b>Alpha 1.0 and earlier — the original DirectX 11 conversion project (r3536–r3855)</b></summary>
-
-Roughly 316 commits from the first commit after build 3535 through Alpha 1.0:
-the full GLSL→HLSL shader port (237/237 files), the deferred renderer brought up
-pool by pool, reversed-Z depth, Screen-Space Reflections, BC7 texture
-compression, Anaglyph 3D, the flat HUD-attachment cost fix, and the first stages
-of the GL-vocabulary and dead-code retirement.
-
-</details>
-
-**Beta 1.2 binaries signed:** Authenticode, verified and timestamped.
+**Beta 1.3 binaries signed:** Authenticode, verified and timestamped.
 
 - Signer: Lee Quick (Open Source Developer), Certum Code Signing 2021 CA
 - Certificate serial: `42A6B2AF506CF74D014E99C3C64B2E58`
