@@ -541,6 +541,7 @@ Each row is a point where code outside `indra/krlv/` refers to KRLV. The
 | `llinventorybridge.cpp` | `rez_attachment()` | `@addattach`, `@detach:<point>` |
 | `llappearancemgr.cpp` | `wearItemsOnAvatar()` | `@addoutfit`, `@sharedwear`, `@unsharedwear` |
 | `llappearancemgr.cpp` | `removeItemsFromAvatar()` | `@remoutfit`, `@sharedunwear`, `@unsharedunwear` |
+| `llappearancemgr.cpp` | `updateCOF()` | `@detach`, `@remattach`, `@remoutfit`, `@sharedunwear`, `@unsharedunwear` - outfit REPLACE computed the new COF purely from the target outfit with no per-item lock check at all (fixed: a locked item not part of the target outfit is now folded back into the new COF instead of being silently dropped and detached server-side) |
 | `llviewermessage.cpp` | `process_script_question()` | `@acceptpermission`, `@denypermission` |
 | `llvoavatar.cpp` | `idleUpdateNameTag()` | `@shownames`, `@shownametags` |
 | `lltoolpie.cpp` | `handleTooltipObject()` | `@shownames` tooltip |
