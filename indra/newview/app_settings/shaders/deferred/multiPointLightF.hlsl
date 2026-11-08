@@ -36,13 +36,24 @@ uniform float4 light[LIGHT_COUNT];
 uniform float4 light_col[LIGHT_COUNT];
 
 // S24: real-time point/omni light shadow - parallel to light[]/light_col[]
-// above. 1.0 if this batch slot is the 1 point-shadow slot's current
-// occupant, else -1.0 (see DXPipeline::renderDeferredLighting()'s
-// fullscreen-batch loop, shadow_idx_arr). sampleCubeShadow() is defined in
-// shadowUtil.hlsl (POINT_SHADOW-guarded - compiles to an always-1.0 stub
-// when RenderPointLightShadows is off).
+// above. -1.0 if this batch slot is not the point-shadow slot's current
+// occupant; otherwise (1.0 - mPointLightFade[0]), the same fade complement
+// the box-volume path uploads as POINT_SHADOW_FADE, so this path crossfades
+// its shadow on slot handoff instead of snapping to full strength while the
+// occupant's cube map may not have been rendered for it yet (see
+// DXPipeline::renderDeferredLighting()'s fullscreen-batch loop, shadow_idx_arr).
+// sampleCubeShadow() is defined in shadowUtil.hlsl (POINT_SHADOW-guarded -
+// compiles to an always-1.0 stub when RenderPointLightShadows is off).
 uniform float light_shadow_idx[LIGHT_COUNT];
 float sampleCubeShadow(float3 pos, float3 light_center, float2 pos_screen);
+
+// S24: RenderLocalLightMinRadius fix - light[].w stays the FLOORED reach bound (far_z/discard
+// extent, unchanged). light_falloff_radius[] is each light's TRUE authored radius, used for the
+// real falloff curve instead - see pointLightF.hlsl's longer comment for the full rationale.
+// reach_glow_strength is one shared scalar (not per-light), the tail's peak fraction of a
+// light's own center brightness.
+uniform float light_falloff_radius[LIGHT_COUNT];
+uniform float reach_glow_strength;
 
 uniform float far_z;
 
@@ -137,19 +148,36 @@ float4 main(PSInput IN) : SV_Target
         {
             float3 lightColor = light_col[light_idx].rgb;
             float falloff_val = light_col[light_idx].a;
-            float lightSize = light[light_idx].w;
+            float lightReach = light[light_idx].w;
+            float lightRaw = light_falloff_radius[light_idx];
             float3 lv = light[light_idx].xyz - pos;
             float lightDist = length(lv);
-            float dist = lightDist / lightSize;
-            if (dist <= 1.0)
+            if (lightDist <= lightReach)
             {
                 lv /= lightDist;
-                float dist_atten = calcLegacyDistanceAttenuation(dist, falloff_val);
+                float dist_atten;
+                if (lightDist <= lightRaw)
+                {
+                    float dist = lightDist / lightRaw;
+                    dist_atten = calcLegacyDistanceAttenuation(dist, falloff_val);
+                }
+                else
+                {
+                    // S24: soft two-ended reach-glow tail - see pointLightF.hlsl's comment.
+                    float band = max(lightReach - lightRaw, 1e-4);
+                    float t = saturate((lightDist - lightRaw) / band);
+                    float bump = 4.0 * t * (1.0 - t);
+                    float center_atten = calcLegacyDistanceAttenuation(0.0, falloff_val);
+                    dist_atten = bump * center_atten * reach_glow_strength;
+                }
 
                 // S24: real-time point/omni light shadow - see light_shadow_idx[] above.
+                // light_shadow_idx now carries the fade complement (1-fade), matching the
+                // box-volume path's clamp(shadow+fade,0,1) crossfade convention, instead of
+                // applying the shadow at full strength on the handoff frame.
                 if (light_shadow_idx[light_idx] >= 0.0)
                 {
-                    dist_atten *= sampleCubeShadow(pos, light[light_idx].xyz, tc);
+                    dist_atten *= clamp(sampleCubeShadow(pos, light[light_idx].xyz, tc) + light_shadow_idx[light_idx], 0.0, 1.0);
                 }
 
                 float3 intensity = dist_atten * lightColor * 3.25;
@@ -168,10 +196,11 @@ float4 main(PSInput IN) : SV_Target
         for (int i = 0; i < clamped_light_count_legacy; ++i)
         {
             float3 lv = light[i].xyz - pos;
-            float dist = length(lv) / light[i].w;
-            if (dist <= 1.0)
+            float lightDistLegacy = length(lv);
+            float lightReachLegacy = light[i].w;
+            if (lightDistLegacy <= lightReachLegacy)
             {
-                float nl2 = dot(n, lv / length(lv));
+                float nl2 = dot(n, lv / lightDistLegacy);
                 // S24: a hard `nl2 > 0.0` cutoff pops on/off between frames under continuous
                 // camera micro-motion (mouse-look, idle sway) - a temporal-aliasing artifact
                 // from resampling a step function every frame, not a state/geometry bug.
@@ -186,12 +215,29 @@ float4 main(PSInput IN) : SV_Target
                     float3 h, l; float nh, nv, vh, _lightDist;
                     calcHalfVectors(lv, n, v, h, l, nh, nl2, nv, vh, _lightDist);
                     float fa = light_col[i].a;
-                    float dist_atten = calcLegacyDistanceAttenuation(dist, fa);
+                    float rawLegacy = light_falloff_radius[i];
+                    float dist_atten;
+                    if (lightDistLegacy <= rawLegacy)
+                    {
+                        dist_atten = calcLegacyDistanceAttenuation(lightDistLegacy / rawLegacy, fa);
+                    }
+                    else
+                    {
+                        // S24: soft two-ended reach-glow tail - see pointLightF.hlsl's comment.
+                        float bandLegacy = max(lightReachLegacy - rawLegacy, 1e-4);
+                        float tLegacy = saturate((lightDistLegacy - rawLegacy) / bandLegacy);
+                        float bumpLegacy = 4.0 * tLegacy * (1.0 - tLegacy);
+                        float centerLegacy = calcLegacyDistanceAttenuation(0.0, fa);
+                        dist_atten = bumpLegacy * centerLegacy * reach_glow_strength;
+                    }
 
                     // S24: real-time point/omni light shadow - see light_shadow_idx[] above.
+                    // light_shadow_idx now carries the fade complement (1-fade), matching the
+                    // box-volume path's clamp(shadow+fade,0,1) crossfade convention, instead of
+                    // applying the shadow at full strength on the handoff frame.
                     if (light_shadow_idx[i] >= 0.0)
                     {
-                        dist_atten *= sampleCubeShadow(pos, light[i].xyz, tc);
+                        dist_atten *= clamp(sampleCubeShadow(pos, light[i].xyz, tc) + light_shadow_idx[i], 0.0, 1.0);
                     }
 
                     float lit = nl2 * dist_atten;

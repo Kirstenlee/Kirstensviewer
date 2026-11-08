@@ -736,9 +736,6 @@ public:
 			addText(xpos, ypos, llformat("%d Unique Textures", LLImageDX::sUniqueCount));
 			ypos += y_inc;
 
-			addText(xpos, ypos, llformat("%d Render Calls", (U32)last_frame_recording.getSampleCount(DXPipeline::sStatBatchSize)));
-			ypos += y_inc;
-
 			addText(xpos, ypos, llformat("%d/%d Objects Active", gObjectList.getNumActiveObjects(), gObjectList.getNumObjects()));
 			ypos += y_inc;
 
@@ -750,12 +747,6 @@ public:
 
 			gPipeline.mTextureMatrixOps = 0;
 			gPipeline.mMatrixOpCount = 0;
-
-			if (last_frame_recording.getSampleCount(DXPipeline::sStatBatchSize) > 0)
-			{
-				addText(xpos, ypos, llformat("Batch min/max/mean: %d/%d/%d", (U32)last_frame_recording.getMin(DXPipeline::sStatBatchSize), (U32)last_frame_recording.getMax(DXPipeline::sStatBatchSize), (U32)last_frame_recording.getMean(DXPipeline::sStatBatchSize)));
-			}
-			ypos += y_inc;
 
 			addText(xpos, ypos, llformat("UI Verts/Calls: %d/%d", LLRender::sUIVerts, LLRender::sUICalls));
 			LLRender::sUICalls = LLRender::sUIVerts = 0;

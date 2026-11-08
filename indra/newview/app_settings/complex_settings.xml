@@ -1,0 +1,143 @@
+<?xml version='1.0' encoding='utf-8'?>
+<llsd>
+  <map>
+    <key>AvatarSitRotation</key>
+    <map>
+      <key>Comment</key>
+      <string>Avatar real sitting rotation used in preset</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>LLSD</string>
+      <key>Value</key>
+      <array>
+        <real>0</real>
+        <real>0</real>
+        <real>0</real>
+        <real>1</real>
+      </array>
+    </map>
+    <key>AzureTranslateAPIKey</key>
+    <map>
+      <key>Comment</key>
+      <string>Azure Translation service data to use with the MS Azure Translator API</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>LLSD</string>
+      <key>Value</key>
+      <string />
+    </map>
+    <key>CmdLineLoginURI</key>
+    <map>
+      <key>Comment</key>
+      <string>Command line specified login server and CGI prefix to use.</string>
+      <key>Persist</key>
+      <integer>0</integer>
+      <key>Type</key>
+      <string>LLSD</string>
+      <key>Value</key>
+      <array>
+        <string />
+      </array>
+    </map>
+    <key>DeepLTranslateAPIKey</key>
+    <map>
+      <key>Comment</key>
+      <string>DeepL Translation service data to use with the DeepL Translator API</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>LLSD</string>
+      <key>Value</key>
+      <string />
+    </map>
+    <key>JoystickDeviceUUID</key>
+    <map>
+      <key>Comment</key>
+      <string>Preffered device ID.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>LLSD</string>
+      <key>Value</key>
+      <string />
+    </map>
+    <key>LastUIFeatureVersion</key>
+    <map>
+      <key>Comment</key>
+      <string>UI Feature Version number for tracking feature notification between viewer builds</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>LLSD</string>
+      <key>Value</key>
+      <string />
+    </map>
+    <key>LeapCommand</key>
+    <map>
+      <key>Comment</key>
+      <string>Zero or more command lines to run LLSD Event API Plugin programs.</string>
+      <key>Persist</key>
+      <integer>0</integer>
+      <key>Type</key>
+      <string>LLSD</string>
+      <key>Value</key>
+      <array />
+    </map>
+    <key>LeapPlaybackEventsCommand</key>
+    <map>
+      <key>Comment</key>
+      <string>Command line to use leap to launch playback of event recordings</string>
+      <key>Persist</key>
+      <integer>0</integer>
+      <key>Type</key>
+      <string>LLSD</string>
+      <key>Value</key>
+      <array />
+    </map>
+    <key>ThreadPoolSizes</key>
+    <map>
+      <key>Comment</key>
+      <string>Map of size overrides for specific thread pools.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>LLSD</string>
+      <key>Value</key>
+      <map>
+        <key>General</key>
+        <integer>1</integer>
+        <key>ImageDecode</key>
+        <integer>9</integer>
+      </map>
+    </map>
+    <key>UserLoginInfo</key>
+    <map>
+      <key>Comment</key>
+      <string>User login data.</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>LLSD</string>
+      <key>Value</key>
+      <string />
+    </map>
+    <key>always_showable_floaters</key>
+    <map>
+      <key>Comment</key>
+      <string>Floaters that can be shown despite mouselook mode</string>
+      <key>Persist</key>
+      <integer>1</integer>
+      <key>Type</key>
+      <string>LLSD</string>
+      <key>Value</key>
+      <array>
+        <string>snapshot</string>
+        <string>postcard</string>
+        <string>mini_map</string>
+        <string>beacons</string>
+      </array>
+    </map>
+  </map>
+</llsd>

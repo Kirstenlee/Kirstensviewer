@@ -333,18 +333,28 @@ void LLVisualParamHint::draw(F32 alpha)
     DXUIDefault gls_ui;
     gDX.begin(LLRender::TRIANGLES);
     {
-        gDX.texCoord2i(0, 1);
-        gDX.vertex2i(0, mFullHeight);
+        // S24 : Task #256 - V flipped vs upstream's identical draw() (texCoord
+        // 0/1 swapped on every vertex here vs there) to compensate for
+        // LLViewerDynamicTexture::preRender()'s own S24-only row-placement fix
+        // (lldynamictexture.cpp) - that fix makes the readback actually find
+        // this hint's rendered content at all (previously stuck on "Loading..."
+        // forever), but the content lands vertically mirrored as a side effect,
+        // confirmed live. This is a display-time-only compensation (texture
+        // sampling, not the 3D render/viewport/winding) deliberately chosen
+        // after an earlier attempt to fix orientation via a flip_y viewport
+        // instead corrupted the avatar's culling/winding (rendered inside-out).
         gDX.texCoord2i(0, 0);
+        gDX.vertex2i(0, mFullHeight);
+        gDX.texCoord2i(0, 1);
         gDX.vertex2i(0, 0);
-        gDX.texCoord2i(1, 0);
+        gDX.texCoord2i(1, 1);
         gDX.vertex2i(mFullWidth, 0);
 
-        gDX.texCoord2i(0, 1);
+        gDX.texCoord2i(0, 0);
         gDX.vertex2i(0, mFullHeight);
-        gDX.texCoord2i(1, 0);
-        gDX.vertex2i(mFullWidth, 0);
         gDX.texCoord2i(1, 1);
+        gDX.vertex2i(mFullWidth, 0);
+        gDX.texCoord2i(1, 0);
         gDX.vertex2i(mFullWidth, mFullHeight);
     }
     gDX.end();

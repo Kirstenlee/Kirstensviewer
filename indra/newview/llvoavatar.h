@@ -392,8 +392,6 @@ public:
     static bool     sShowAnimationDebug; // show animation debug info
     static bool     sShowCollisionVolumes;  // show skeletal collision volumes
     static bool     sVisibleInFirstPerson;
-    static S32      sNumLODChangesThisFrame;
-    static S32      sNumVisibleChatBubbles;
     static bool     sDebugInvisible;
     static bool     sShowAttachmentPoints;
     static F32      sLODFactor; // user-settable LOD factor

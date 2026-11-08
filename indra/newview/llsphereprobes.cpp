@@ -425,6 +425,16 @@ void LLSphereProbes::update()
     // torn window at all. Matches the shape of sUpdatePeriod above, just scoped to everyone else.
     static LLCachedControl<F32> sMinRecaptureInterval(gSavedSettings, "RenderProbeMinRecaptureInterval", 2.f);
 
+    // S24: getReflectionMaps() already restricts SAMPLING to just the default+master probes
+    // once the master cube is on and complete (masterIsExclusive()) - but this scheduler had no
+    // idea, and kept picking one of the many local automatic probes (every terrain spatial group
+    // registers one) to CAPTURE every frame regardless, each costing a full display_cube_face
+    // (cull, shadow cascades, deferred G-buffer+lighting, blur/filter) for a probe nothing will
+    // ever sample. The default probe is excluded from this gate - it's one of the two probes
+    // masterIsExclusive() itself keeps sampling.
+    static LLCachedControl<bool> sSkipUnsampled(gSavedSettings, "RenderReflectionSkipUnsampledProbes", true);
+    const bool master_only = sSkipUnsampled && masterIsExclusive();
+
     if (mUpdatingProbe != nullptr)
     {
         did_update = true;
@@ -564,6 +574,7 @@ void LLSphereProbes::update()
                  i < mReflectionProbeCount &&
                  probe->mCubeIndex != -1 &&
                  !probe->mCell &&
+                 (!master_only || probe == mDefaultProbe) &&
                  (probe == mDefaultProbe
                       ? default_due
                       : (!probe->mComplete || (gFrameTimeSeconds - probe->mLastUpdateTime) >= sMinRecaptureInterval)))
@@ -585,6 +596,7 @@ void LLSphereProbes::update()
         // for local lights, calcNearbyLights()) so the realtime slot only ever goes to a
         // Dynamic probe that could plausibly be visible right now.
         if (realtime &&
+            !master_only &&
             closestDynamic == nullptr &&
             probe->mCubeIndex != -1 &&
             probe->getIsDynamic() &&
@@ -731,6 +743,11 @@ struct CompareProbeDepth
     }
 };
 
+bool LLSphereProbes::masterIsExclusive() const
+{
+    return mMasterProbe.notNull() && mMasterProbe->mComplete && mMasterProbe->mCubeIndex > 0;
+}
+
 void LLSphereProbes::getReflectionMaps(std::vector<LLReflectionMap*>& maps)
 {
 
@@ -743,7 +760,7 @@ void LLSphereProbes::getReflectionMaps(std::vector<LLReflectionMap*>& maps)
 
     // While the master cube is on and complete it is the only probe sampled, apart from the sky. Otherwise a finished
     // local automatic probe wins every indoor pixel: the shader breaks full-coverage ties by smaller radius.
-    const bool master_only = mMasterProbe.notNull() && mMasterProbe->mComplete && mMasterProbe->mCubeIndex > 0;
+    const bool master_only = masterIsExclusive();
 
     for (U32 i = 0; count < maps.size() && i < mProbes.size(); ++i)
     {

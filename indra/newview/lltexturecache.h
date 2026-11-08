@@ -258,6 +258,10 @@ private:
     size_map_t mTexturesSizeMap;
     S64 mTexturesSizeTotal;
     LLAtomicBool mDoPurge;
+    // S24: guards the decay-triggered purge dispatched to DXPool in update() -
+    // prevents a second dispatch from queuing while a prior one is still
+    // running the (now background-thread) disk I/O in purgeTexturesLazy().
+    LLAtomicBool mDecayPurgeInFlight;
 
     typedef std::map<S32, Entry> idx_entry_map_t;
     idx_entry_map_t mUpdatedEntryMap;

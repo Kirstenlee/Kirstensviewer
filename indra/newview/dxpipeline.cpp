@@ -458,7 +458,6 @@ bool    DXPipeline::sPickAvatar = true;
 S32     DXPipeline::sCompiles = 0;
 bool    DXPipeline::sDynamicLOD = true;
 bool    DXPipeline::sRenderAttachedParticles = true;
-LLTrace::EventStatHandle<S64> DXPipeline::sStatBatchSize("renderbatchsize");
 const U32 DXPipeline::MAX_PREVIEW_WIDTH = 512;
 bool    DXPipeline::sShowHUDAttachments = true;
 bool    DXPipeline::sForceOldBakedUpload = false;
@@ -1490,6 +1489,10 @@ void DXPipeline::presentDeferredScreen(LLPipeline& pipeline)
     if (use_lit)
     {
         static LLCachedControl<bool> should_auto_adjust(gSavedSettings, "RenderSkyAutoAdjustLegacy", false);
+        // S24: narrower sibling of should_auto_adjust - only bypasses the tonemap_mix gate below
+        // (getTonemapMix()), not legacy_gamma/shader selection or CLASSIC_MODE lighting, which stay
+        // keyed off should_auto_adjust alone. See RenderTonemapEverywhere's settings.xml comment.
+        static LLCachedControl<bool> tonemap_everywhere(gSavedSettings, "RenderTonemapEverywhere", false);
         static LLCachedControl<bool> buildNoPost(gSavedSettings, "RenderDisablePostProcessing", false);
         static LLCachedControl<F32> exposure_setting(gSavedSettings, "RenderExposure", 1.f);
         static LLCachedControl<U32> tonemap_type_setting(gSavedSettings, "RenderTonemapType", 0U);
@@ -1668,7 +1671,7 @@ void DXPipeline::presentDeferredScreen(LLPipeline& pipeline)
                 F32 e = llclamp((F32)exposure_setting(), 0.5f, 4.f);
                 gamma_shader.uniform1f(s_exposure, e);
                 gamma_shader.uniform1i(s_tonemap_type, tonemap_type_setting);
-                gamma_shader.uniform1f(s_tonemap_mix, psky ? psky->getTonemapMix(should_auto_adjust()) : 1.f);
+                gamma_shader.uniform1f(s_tonemap_mix, psky ? psky->getTonemapMix(should_auto_adjust() || tonemap_everywhere()) : 1.f);
             }
 
             pipeline.mScreenTriangleVB->setBuffer();
@@ -2073,19 +2076,25 @@ void DXPipeline::renderDeferredLighting(LLPipeline& pipeline)
     // writes per-pixel shadow/spot-shadow occlusion into mRT->deferredLight.
     LLRenderTarget& deferred_light_target = pipeline.mRT->deferredLight;
 
-    // Snapshots last frame's fully-resolved lightmap into mSSAOHistory
-    // BEFORE either branch below overwrites deferred_light_target - same
-    // pattern as LLPipeline::generateExposure()'s mLastExposure refresh. No
-    // first-frame guard needed: mSSAOHistory is pre-seeded to (1,1,1,1) at
-    // allocation time.
+    // S24 : was a full-screen copy draw (bind+shader+setBuffer+drawArrays+flush)
+    // of deferred_light_target into mSSAOHistory every frame, purely to
+    // preserve last frame's resolved lightmap for the temporal blend below -
+    // a plain pointer swap does the same job with no GPU work at all.
+    // Preconditions verified directly against the current code, not assumed:
+    // neither target is in the RT bind stack here; both are allocated
+    // identically (same resX/resY/screenFormat, no depth - see
+    // allocateScreenBufferInternal()); the !gCubeSnapshot gate keeps every
+    // aux/hero/probe RT out of this path entirely; LLTexUnit's bind cache
+    // keys on the raw SRV pointer so it follows the swap correctly;
+    // LLRenderTarget holds raw COM pointers with no destructor, so swapping
+    // them is safe - two existing call sites already use this exact pattern
+    // (llgltfmaterialpreviewmgr.cpp). After the swap, mSSAOHistory holds
+    // frame N-1's resolved lightmap (what the old copy produced);
+    // deferred_light_target holds stale N-2 data, fully cleared and
+    // overwritten by the very next block below before anything reads it.
     if (DXPipeline::RenderDeferredSSAO && !gCubeSnapshot)
     {
-        pipeline.mSSAOHistory.bindTarget();
-        gCopyProgram.bind();
-        gDX.getTexUnit(0)->bind(&deferred_light_target);
-        pipeline.mScreenTriangleVB->setBuffer();
-        pipeline.mScreenTriangleVB->drawArrays(LLRender::TRIANGLES, 0, 3);
-        pipeline.mSSAOHistory.flush();
+        deferred_light_target.swapFBORefs(pipeline.mSSAOHistory);
     }
 
     if ((DXPipeline::RenderDeferredSSAO && !gCubeSnapshot) || DXPipeline::RenderShadowDetail > 0)
@@ -2467,10 +2476,16 @@ void DXPipeline::renderDeferredLighting(LLPipeline& pipeline)
             // light (if any) is the one real-time point-shadow slot's current occupant.
             // See the light_shadow_idx[] upload below.
             static std::vector<LLDrawable*> fullscreen_light_drawables;
+            // S24: RenderLocalLightMinRadius fix - parallel to fullscreen_lights, carries each
+            // light's TRUE (un-floored) radius for the shader's real falloff curve, while
+            // fullscreen_lights' own w component keeps the floored reach bound. See
+            // light_falloff_radius[] in multiPointLightF.hlsl.
+            static std::vector<F32> fullscreen_light_falloff_radius;
             fullscreen_lights.clear();
             fullscreen_light_colors.clear();
             fullscreen_spot_lights.clear();
             fullscreen_light_drawables.clear();
+            fullscreen_light_falloff_radius.clear();
 
             S32 count = 0;
             for (const auto& light : pipeline.getNearbyLights())
@@ -2504,20 +2519,34 @@ void DXPipeline::renderDeferredLighting(LLPipeline& pipeline)
                     continue;
                 }
 
-                // Small decorative local lights (e.g. walkway lanterns) are
-                // commonly authored with a tiny real radius - `s` feeds
-                // BOTH the dist<=1.0 shader gate (multiPointLightF.hlsl/
-                // pointLightF.hlsl) AND this loop's own AABB/
-                // camera_outside_box tests, so a small authored radius means
-                // the camera has to be almost standing inside the light
-                // before it contributes any color. Floors the EFFECTIVE
-                // radius used for downstream distance/falloff math to at
-                // least RenderLocalLightMinRadius, while the light-is-on
-                // check above still uses the TRUE raw radius (a genuinely
-                // radius=0 light stays off). 0 = original behavior (no
-                // floor).
+                // Small decorative local lights (e.g. walkway lanterns) are commonly authored
+                // with a tiny real radius, so without help the camera has to stand almost
+                // inside one before it contributes any color. `s` floors the EFFECTIVE reach -
+                // the AABB/camera_outside_box tests below, the drawn box-mesh extent
+                // (LIGHT_SIZE), and far_z/discard in the fullscreen path - to at least
+                // RenderLocalLightMinRadius, while the light-is-on check above still uses the
+                // TRUE raw radius (a genuinely radius=0 light stays off).
+                //
+                // S24: `s` previously ALSO drove the shader's falloff-curve math directly
+                // (lightSize in multiPointLightF.hlsl/pointLightF.hlsl), which distorted a
+                // light's actual brightness/falloff shape rather than just its reach - raising
+                // this setting made small lights measurably brighter and wider, not just
+                // visible from further away. Fixed: the falloff curve now runs on raw_radius
+                // (the light's true authored size, uploaded separately as
+                // LIGHT_FALLOFF_RADIUS/light_falloff_radius[]), restoring correct near-field
+                // intensity; `s` still bounds a soft, two-ended "reach glow" tail between
+                // raw_radius and s (see *LightF.hlsl) so the setting's promised extra reach is
+                // delivered honestly instead of via an intensity side-effect. When
+                // RenderLocalLightMinRadius <= raw_radius (large lights, or the setting backed
+                // down to 0) s==raw_radius and the tail band is empty - a correctness-neutral
+                // no-op, matching this light's always-correct spotlight counterpart.
                 static LLCachedControl<F32> min_light_radius(gSavedSettings, "RenderLocalLightMinRadius", 15.f);
                 F32 s = llmax(raw_radius, (F32)min_light_radius);
+
+                // S24: peak strength of the reach-glow tail above, as a fraction of the
+                // light's own center brightness. One shared scalar, not per-light - see
+                // REACH_GLOW_STRENGTH/reach_glow_strength in *LightF.hlsl.
+                static LLCachedControl<F32> reach_glow_strength(gSavedSettings, "RenderLocalLightReachGlow", 0.35f);
 
                 // RenderLocalLightFrustumCulling gates both this render-loop's
                 // AABB check and calcNearbyLights()'s candidate-list prefilter;
@@ -2666,6 +2695,8 @@ void DXPipeline::renderDeferredLighting(LLPipeline& pipeline)
 
                     light_shader.uniform3fv(LLShaderMgr::LIGHT_CENTER, 1, c);
                     light_shader.uniform1f(LLShaderMgr::LIGHT_SIZE, s);
+                    light_shader.uniform1f(LLShaderMgr::LIGHT_FALLOFF_RADIUS, raw_radius);
+                    light_shader.uniform1f(LLShaderMgr::REACH_GLOW_STRENGTH, (F32)reach_glow_strength);
                     light_shader.uniform3fv(LLShaderMgr::DIFFUSE_COLOR, 1, col.mV);
                     light_shader.uniform1f(LLShaderMgr::LIGHT_FALLOFF, volume->getLightFalloff(deferred_light_falloff));
                     light_shader.uniform1i(LLShaderMgr::CLASSIC_MODE, (psky && psky->canAutoAdjust()) ? 1 : 0);
@@ -2707,6 +2738,7 @@ void DXPipeline::renderDeferredLighting(LLPipeline& pipeline)
                     glm::vec3 tc(c[0], c[1], c[2]);
                     tc = mul_mat4_vec3(mat, tc);
                     fullscreen_lights.push_back(LLVector4(tc.x, tc.y, tc.z, s));
+                    fullscreen_light_falloff_radius.push_back(raw_radius);
                     fullscreen_light_colors.push_back(LLVector4(col.mV[0], col.mV[1], col.mV[2], volume->getLightFalloff(deferred_light_falloff)));
                 }
             }
@@ -2795,6 +2827,9 @@ void DXPipeline::renderDeferredLighting(LLPipeline& pipeline)
             {
                 DXDepthTest depth(false);
 
+                // S24: RenderLocalLightMinRadius fix - see the per-light loop's comment above.
+                static LLCachedControl<F32> reach_glow_strength(gSavedSettings, "RenderLocalLightReachGlow", 0.35f);
+
                 U32 fs_count = 0;
                 const U32 max_count = LL_DEFERRED_MULTI_LIGHT_COUNT;
                 LLVector4 light_arr[LL_DEFERRED_MULTI_LIGHT_COUNT];
@@ -2803,13 +2838,24 @@ void DXPipeline::renderDeferredLighting(LLPipeline& pipeline)
                 // occupant, else -1.0 - see fullscreen_light_drawables' declaration
                 // comment and multiPointLightF.hlsl's light_shadow_idx[] consumer.
                 F32 shadow_idx_arr[LL_DEFERRED_MULTI_LIGHT_COUNT];
+                // S24: parallel to light_arr - each light's TRUE radius, see
+                // fullscreen_light_falloff_radius's declaration comment above.
+                F32 falloff_radius_arr[LL_DEFERRED_MULTI_LIGHT_COUNT];
                 F32 far_z = 0.f;
 
                 for (size_t li = 0; li < fullscreen_lights.size(); ++li)
                 {
                     light_arr[fs_count] = fullscreen_lights[li];
                     col_arr[fs_count] = fullscreen_light_colors[li];
-                    shadow_idx_arr[fs_count] = (fullscreen_light_drawables[li] == pipeline.mShadowPointLight[0]) ? 1.f : -1.f;
+                    falloff_radius_arr[fs_count] = fullscreen_light_falloff_radius[li];
+                    // S24: carries the fade complement (1-fade), not a flat occupancy flag -
+                    // the box-volume point-light path already crossfades its shadow via this
+                    // same mPointLightFade value (see setupPointLightShadow's POINT_SHADOW_FADE
+                    // upload), but this fullscreen-batch path (camera inside the light's volume)
+                    // used to apply the shadow at full strength the instant a light became the
+                    // occupant - including the handoff frame, before its cube map has ever been
+                    // rendered for it, so it was reading the PREVIOUS occupant's stale depth.
+                    shadow_idx_arr[fs_count] = (fullscreen_light_drawables[li] == pipeline.mShadowPointLight[0]) ? (1.f - pipeline.mPointLightFade[0]) : -1.f;
                     far_z = llmin(light_arr[fs_count].mV[2] - light_arr[fs_count].mV[3], far_z);
                     ++fs_count;
                     if (fs_count == max_count || li + 1 == fullscreen_lights.size())
@@ -2821,6 +2867,8 @@ void DXPipeline::renderDeferredLighting(LLPipeline& pipeline)
                         gDeferredMultiLightProgram[idx].uniform4fv(LLShaderMgr::MULTI_LIGHT_COL, fs_count, (F32*)col_arr);
                         gDeferredMultiLightProgram[idx].uniform1f(LLShaderMgr::MULTI_LIGHT_FAR_Z, far_z);
                         gDeferredMultiLightProgram[idx].uniform1fv(LLShaderMgr::MULTI_LIGHT_SHADOW_IDX, fs_count, shadow_idx_arr);
+                        gDeferredMultiLightProgram[idx].uniform1fv(LLShaderMgr::MULTI_LIGHT_FALLOFF_RADIUS, fs_count, falloff_radius_arr);
+                        gDeferredMultiLightProgram[idx].uniform1f(LLShaderMgr::REACH_GLOW_STRENGTH, (F32)reach_glow_strength);
                         gDeferredMultiLightProgram[idx].uniform1i(LLShaderMgr::CLASSIC_MODE, (psky && psky->canAutoAdjust()) ? 1 : 0);
                         far_z = 0.f;
                         fs_count = 0;
@@ -3277,13 +3325,18 @@ void DXPipeline::generateExposure(LLPipeline& pipeline, LLRenderTarget* src, LLR
         static LLStaticHashedString dynamic_exposure_e("dynamic_exposure_enabled");
 
         static LLCachedControl<bool> should_auto_adjust(gSavedSettings, "RenderSkyAutoAdjustLegacy", false);
+        // S24: narrower sibling of should_auto_adjust, scoped to exposure only - see
+        // RenderTonemapEverywhere's settings.xml comment and the sibling use in the gamma/tonemap
+        // pass above.
+        static LLCachedControl<bool> tonemap_everywhere(gSavedSettings, "RenderTonemapEverywhere", false);
+        const bool exposure_auto_adjust = should_auto_adjust() || tonemap_everywhere();
         static LLCachedControl<bool> dynamic_exposure_enabled(gSavedSettings, "RenderDynamicExposureEnabled", true);
         static LLCachedControl<F32> dynamic_exposure_coefficient(gSavedSettings, "RenderDynamicExposureCoefficient", 0.175f);
         static LLCachedControl<F32> dynamic_exposure_speed_error(gSavedSettings, "RenderDynamicExposureSpeedError", 0.1f);
         static LLCachedControl<F32> dynamic_exposure_speed_target(gSavedSettings, "RenderDynamicExposureSpeedTarget", 2.f);
 
         LLSettingsSky::ptr_t sky = LLEnvironment::instance().getCurrentSky();
-        F32 probe_ambiance = LLEnvironment::instance().getCurrentSky()->getReflectionProbeAmbiance(should_auto_adjust());
+        F32 probe_ambiance = LLEnvironment::instance().getCurrentSky()->getReflectionProbeAmbiance(exposure_auto_adjust);
 
         F32 exp_min = 1.f;
         F32 exp_max = 1.f;
@@ -3293,13 +3346,13 @@ void DXPipeline::generateExposure(LLPipeline& pipeline, LLRenderTarget* src, LLR
         {
             if (dynamic_exposure_enabled)
             {
-                exp_min = sky->getHDROffset(should_auto_adjust()) - sky->getHDRMin(should_auto_adjust());
-                exp_max = sky->getHDROffset(should_auto_adjust()) + sky->getHDRMax(should_auto_adjust());
+                exp_min = sky->getHDROffset(exposure_auto_adjust) - sky->getHDRMin(exposure_auto_adjust);
+                exp_max = sky->getHDROffset(exposure_auto_adjust) + sky->getHDRMax(exposure_auto_adjust);
             }
             else
             {
-                exp_min = sky->getHDROffset(should_auto_adjust());
-                exp_max = sky->getHDROffset(should_auto_adjust());
+                exp_min = sky->getHDROffset(exposure_auto_adjust);
+                exp_max = sky->getHDROffset(exposure_auto_adjust);
             }
         }
         else if (dynamic_exposure_enabled)
@@ -3319,7 +3372,7 @@ void DXPipeline::generateExposure(LLPipeline& pipeline, LLRenderTarget* src, LLR
         shader->uniform1f(dt, gFrameIntervalSeconds);
         shader->uniform2f(noiseVec, ll_frand() * 2.0f - 1.0f, ll_frand() * 2.0f - 1.0f);
         shader->uniform4f(dynamic_exposure_params, dynamic_exposure_coefficient, exp_min, exp_max, dynamic_exposure_speed_error);
-        shader->uniform4f(dynamic_exposure_params2, sky->getHDROffset(should_auto_adjust()), exp_min, exp_max, dynamic_exposure_speed_target);
+        shader->uniform4f(dynamic_exposure_params2, sky->getHDROffset(exposure_auto_adjust), exp_min, exp_max, dynamic_exposure_speed_target);
 
         pipeline.mScreenTriangleVB->setBuffer();
         pipeline.mScreenTriangleVB->drawArrays(LLRender::TRIANGLES, 0, 3);
@@ -4590,6 +4643,29 @@ void DXPipeline::renderAlphaObjects(LLPipeline& pipeline, bool rigged)
     const LLVOAvatar* lastAvatarGLTF = nullptr;
     U64 lastMeshIdGLTF = 0;
     bool skipLastSkinGLTF = false;
+    // S24 : `rigged` is fixed for the whole call, so every iteration below
+    // alternates between exactly 2 shader programs (gDeferredShadowGLTFAlphaBlendProgram
+    // / gDeferredShadowAlphaMaskProgram). Track which one is currently bound
+    // so a run of same-type draws (the common case - draw order groups by
+    // material/pool) doesn't re-bind the shader or re-write its
+    // frame-constant uniforms (SUN_UP_FACTOR, DEFERRED_SHADOW_TARGET_WIDTH)
+    // on every single draw - they persist in that program's own staging
+    // across later rebinds, since nothing else in this loop writes them.
+    // The mask program's minimum-alpha cutoff is also only set on its first
+    // bind - it's a per-call constant here (ALPHA_BLEND_CUTOFF[_RIGGED]).
+    // The GLTF program still calls setMinimumAlpha() on every draw
+    // deliberately: LLFetchedGLTFMaterial::bind() (called inside
+    // pushGLTFBatch) overwrites MINIMUM_ALPHA for ALPHA_MODE_MASK
+    // materials, so this program's own cutoff needs reasserting after
+    // that - with DXShader's skip-if-unchanged uniform fix already in
+    // place, a same-value reassert like this is nearly free anyway.
+    // Deliberately NOT touching the global LLHLSLShader::bind()'s own
+    // missing already-bound dedup (llhlslshader.cpp) - that omission is a
+    // deliberate S24 decision because DXUIBatch can desync
+    // sCurBoundShaderPtr behind its back; this loop issues no UI-batch
+    // draws, so a loop-local cache here is safe on its own terms.
+    enum { NONE, GLTF, MASK } last = NONE;
+
     auto* begin = DXPipeline::beginRenderMap(pipeline, type);
     auto* end = DXPipeline::endRenderMap(pipeline, type);
 
@@ -4615,9 +4691,13 @@ void DXPipeline::renderAlphaObjects(LLPipeline& pipeline, bool rigged)
                 // renderShadow() with no override, silently discarding
                 // whichever face pointed away from the sun.
                 LLGLDisable cull_face(pparams->mGLTFMaterial->mDoubleSided ? DX_CULL_FACE : 0);
-                gDeferredShadowGLTFAlphaBlendProgram.bind(rigged);
-                LLHLSLShader::sCurBoundShaderPtr->uniform1i(LLShaderMgr::SUN_UP_FACTOR, sun_up);
-                LLHLSLShader::sCurBoundShaderPtr->uniform1f(LLShaderMgr::DEFERRED_SHADOW_TARGET_WIDTH, (float)target_width);
+                if (last != GLTF)
+                {
+                    gDeferredShadowGLTFAlphaBlendProgram.bind(rigged);
+                    LLHLSLShader::sCurBoundShaderPtr->uniform1i(LLShaderMgr::SUN_UP_FACTOR, sun_up);
+                    LLHLSLShader::sCurBoundShaderPtr->uniform1f(LLShaderMgr::DEFERRED_SHADOW_TARGET_WIDTH, (float)target_width);
+                    last = GLTF;
+                }
                 LLHLSLShader::sCurBoundShaderPtr->setMinimumAlpha(ALPHA_BLEND_CUTOFF_RIGGED);
                 if (LLRenderPass::uploadMatrixPalette(pparams->mAvatar, pparams->mSkinInfo, lastAvatarGLTF, lastMeshIdGLTF, skipLastSkinGLTF))
                 {
@@ -4626,10 +4706,14 @@ void DXPipeline::renderAlphaObjects(LLPipeline& pipeline, bool rigged)
             }
             else
             {
-                gDeferredShadowAlphaMaskProgram.bind(rigged);
-                LLHLSLShader::sCurBoundShaderPtr->uniform1i(LLShaderMgr::SUN_UP_FACTOR, sun_up);
-                LLHLSLShader::sCurBoundShaderPtr->uniform1f(LLShaderMgr::DEFERRED_SHADOW_TARGET_WIDTH, (float)target_width);
-                LLHLSLShader::sCurBoundShaderPtr->setMinimumAlpha(ALPHA_BLEND_CUTOFF_RIGGED);
+                if (last != MASK)
+                {
+                    gDeferredShadowAlphaMaskProgram.bind(rigged);
+                    LLHLSLShader::sCurBoundShaderPtr->uniform1i(LLShaderMgr::SUN_UP_FACTOR, sun_up);
+                    LLHLSLShader::sCurBoundShaderPtr->uniform1f(LLShaderMgr::DEFERRED_SHADOW_TARGET_WIDTH, (float)target_width);
+                    LLHLSLShader::sCurBoundShaderPtr->setMinimumAlpha(ALPHA_BLEND_CUTOFF_RIGGED);
+                    last = MASK;
+                }
                 if (pipeline.getSimplePool()->uploadMatrixPalette(pparams->mAvatar, pparams->mSkinInfo, lastAvatar, lastMeshId, skipLastSkin))
                 {
                     pipeline.getSimplePool()->pushBatch(*pparams, true, true);
@@ -4641,18 +4725,26 @@ void DXPipeline::renderAlphaObjects(LLPipeline& pipeline, bool rigged)
             if (pparams->mGLTFMaterial)
             {
                 LLGLDisable cull_face(pparams->mGLTFMaterial->mDoubleSided ? DX_CULL_FACE : 0);
-                gDeferredShadowGLTFAlphaBlendProgram.bind(rigged);
-                LLHLSLShader::sCurBoundShaderPtr->uniform1i(LLShaderMgr::SUN_UP_FACTOR, sun_up);
-                LLHLSLShader::sCurBoundShaderPtr->uniform1f(LLShaderMgr::DEFERRED_SHADOW_TARGET_WIDTH, (float)target_width);
+                if (last != GLTF)
+                {
+                    gDeferredShadowGLTFAlphaBlendProgram.bind(rigged);
+                    LLHLSLShader::sCurBoundShaderPtr->uniform1i(LLShaderMgr::SUN_UP_FACTOR, sun_up);
+                    LLHLSLShader::sCurBoundShaderPtr->uniform1f(LLShaderMgr::DEFERRED_SHADOW_TARGET_WIDTH, (float)target_width);
+                    last = GLTF;
+                }
                 LLHLSLShader::sCurBoundShaderPtr->setMinimumAlpha(ALPHA_BLEND_CUTOFF);
                 LLRenderPass::pushGLTFBatch(*pparams);
             }
             else
             {
-                gDeferredShadowAlphaMaskProgram.bind(rigged);
-                LLHLSLShader::sCurBoundShaderPtr->uniform1i(LLShaderMgr::SUN_UP_FACTOR, sun_up);
-                LLHLSLShader::sCurBoundShaderPtr->uniform1f(LLShaderMgr::DEFERRED_SHADOW_TARGET_WIDTH, (float)target_width);
-                LLHLSLShader::sCurBoundShaderPtr->setMinimumAlpha(ALPHA_BLEND_CUTOFF);
+                if (last != MASK)
+                {
+                    gDeferredShadowAlphaMaskProgram.bind(rigged);
+                    LLHLSLShader::sCurBoundShaderPtr->uniform1i(LLShaderMgr::SUN_UP_FACTOR, sun_up);
+                    LLHLSLShader::sCurBoundShaderPtr->uniform1f(LLShaderMgr::DEFERRED_SHADOW_TARGET_WIDTH, (float)target_width);
+                    LLHLSLShader::sCurBoundShaderPtr->setMinimumAlpha(ALPHA_BLEND_CUTOFF);
+                    last = MASK;
+                }
                 pipeline.getSimplePool()->pushBatch(*pparams, true, true);
             }
         }
@@ -5797,17 +5889,26 @@ void DXPipeline::generateSunShadow(LLPipeline& pipeline, LLCamera& camera)
                         // Shadow map resolution for this cascade
                         float shadowRes = (float)pipeline.mRT->shadow[j].getWidth();
 
-                        // Compute the orthographic radius of this cascade.
-                        // 'size' was computed earlier as (max - min) * 0.5f in light-space.
-                        float orthoRadius = llmax(size.mV[0], size.mV[2]);
+                        // S24: snap in LIGHT space, not world/agent space. 'size' (the light-space
+                        // half-extent of this cascade's fit) and the texel sizes derived from it are
+                        // light-space quantities, but the snap below used to be applied directly to
+                        // origin_agent's world-axis components - that only cancels shimmer when the
+                        // light happens to be world-axis-aligned (sun at zenith); for any other sun
+                        // angle it moved the frustum by a fractional number of light-space texels,
+                        // which is the shimmer this snap is supposed to prevent. Per-axis texel size
+                        // (not a shared max) avoids a coarser lattice on the shorter lateral axis.
+                        float texelX = (2.0f * size.mV[0]) / shadowRes;
+                        float texelZ = (2.0f * size.mV[2]) / shadowRes;
 
-                        // World-space size of one shadow-map texel
-                        float texelSize = (2.0f * orthoRadius) / shadowRes;
+                        glm::mat4 light_from_world = glm::inverse(view[j]); // view[j] is world-from-light here
+                        glm::vec3 origin_light = mul_mat4_vec3(light_from_world, origin_agent);
 
-                        // Snap origin to texel grid
-                        origin_agent.x = floorf(origin_agent.x / texelSize) * texelSize;
-                        origin_agent.y = floorf(origin_agent.y / texelSize) * texelSize;
-                        origin_agent.z = floorf(origin_agent.z / texelSize) * texelSize;
+                        // Snap the lateral (x/z) axes to the light-space texel grid; depth (y) is not
+                        // snapped, matching the original snap's scope.
+                        origin_light.x = floorf(origin_light.x / texelX) * texelX;
+                        origin_light.z = floorf(origin_light.z / texelZ) * texelZ;
+
+                        origin_agent = mul_mat4_vec3(view[j], origin_light);
 
                         eye = LLVector3(origin_agent);
                         //llassert(eye.isFinite());
@@ -5934,10 +6035,25 @@ void DXPipeline::generateSunShadow(LLPipeline& pipeline, LLCamera& camera)
         static LLCachedControl<U32> spot_shadow_throttle(gSavedSettings, "RenderSpotShadowThrottle", 1U);
         static U32 s_last_spot_frame = 0;
         bool update_spot_shadows = (spot_shadow_throttle <= 1) || ((gFrameCount - s_last_spot_frame) >= (U32)spot_shadow_throttle);
+
+        // S24: right-size the two spot maps to the candidates' own FOV before deciding
+        // whether to skip this frame's render - a fresh reallocation has no contents, so
+        // the throttle must not be allowed to skip the one frame that actually fills it.
+        if (DXPipeline::updateSpotShadowResolution(pipeline))
+        {
+            update_spot_shadows = true;
+        }
+
         if (update_spot_shadows)
         {
             s_last_spot_frame = gFrameCount;
         }
+
+        // S24: saved so a reflection/hero-probe capture (gCubeSnapshot) can rebuild the spot
+        // matrix below from ITS OWN face view (see the gCubeSnapshot handling in this loop)
+        // without leaving a probe-face matrix behind for the real main-scene frame to read -
+        // restored right after the loop.
+        glm::mat4 saved_spot_sun_mat[2] = { pipeline.mSunShadowMatrix[4], pipeline.mSunShadowMatrix[5] };
 
         for (S32 i = 0; i < 2; i++)
         {
@@ -5949,29 +6065,17 @@ void DXPipeline::generateSunShadow(LLPipeline& pipeline, LLCamera& camera)
                 continue;
             }
 
-            // mSunShadowMatrix[i+4]/mShadowModelview[i+4]/mShadowProjection[i+4]/mSpotShadow[i] are
-            // single, un-duplicated LLPipeline members, not part of the swappable RenderTargetPack (mRT)
-            // the sun-cascade shadows use. This matrix computation must be skipped during a
-            // reflection-probe capture (`!gCubeSnapshot`, matching the actual shadow texture render a
-            // few lines below) or it consumes a set_last_modelview()/set_last_projection() "current ->
-            // last" transition slot that should only advance once per real main-scene frame, corrupting
-            // temporal continuity for the next real frame's spot shadow reprojection, and leaves this probe's own
-            // capture reading a matrix/texture pair computed from two
-            // different points in time. Skip the whole per-spotlight update
-            // during a probe capture, matching the gating already used for
-            // the mShadowSpotLight[] assignment above and the texture render
-            // below - the probe simply reads whatever the last real
-            // main-scene update left in place, self-consistent by
-            // construction.
-            if (gCubeSnapshot)
-            {
-                continue;
-            }
-
             LLVOVolume* volume = pipeline.mShadowSpotLight[i]->getVOVolume();
 
             if (!volume)
             {
+                if (gCubeSnapshot)
+                {
+                    // S24: do not mutate main-scene state (mShadowSpotLight/mSpotLightFade)
+                    // from inside a probe capture - that lockstep null-out belongs only to a
+                    // real main-scene frame.
+                    continue;
+                }
                 // S24: keep mSpotLightFade[i] in lockstep with this abrupt null - see the matching
                 // comment at unlinkDrawable()'s mShadowSpotLight[i]=NULL above.
                 pipeline.mShadowSpotLight[i] = NULL;
@@ -6047,13 +6151,26 @@ void DXPipeline::generateSunShadow(LLPipeline& pipeline, LLCamera& camera)
             set_current_modelview(view[i + 4]);
             set_current_projection(proj[i + 4]);
 
+            // S24: this now runs during a probe capture too (the early gCubeSnapshot
+            // continue that used to guard this whole block was removed, see the save
+            // before this loop and the restore after it). inv_view here is derived from
+            // saved_view, which is whatever modelview was current at function entry - the
+            // probe face's own view during a capture - so this now builds a matrix that
+            // matches the view space the probe's own sun-lightmap pass actually samples in,
+            // instead of reusing a stale matrix built from the main camera.
             pipeline.mSunShadowMatrix[i + 4] = ndcToTexture * proj[i + 4] * view[i + 4] * inv_view;
 
-            set_last_modelview(pipeline.mShadowModelview[i + 4]);
-            set_last_projection(pipeline.mShadowProjection[i + 4]);
+            if (!gCubeSnapshot)
+            {
+                // S24: this "current -> last" transition must only advance once per real
+                // main-scene frame - letting a probe capture consume it here would corrupt
+                // temporal continuity for the next real frame's spot shadow reprojection.
+                set_last_modelview(pipeline.mShadowModelview[i + 4]);
+                set_last_projection(pipeline.mShadowProjection[i + 4]);
 
-            pipeline.mShadowModelview[i + 4] = view[i + 4];
-            pipeline.mShadowProjection[i + 4] = proj[i + 4];
+                pipeline.mShadowModelview[i + 4] = view[i + 4];
+                pipeline.mShadowProjection[i + 4] = proj[i + 4];
+            }
 
             if (!gCubeSnapshot && update_spot_shadows) //skip updating spot shadow maps during cubemap updates or when throttled
             {
@@ -6081,6 +6198,16 @@ void DXPipeline::generateSunShadow(LLPipeline& pipeline, LLCamera& camera)
 
                 pipeline.mSpotShadow[i].flush();
             }
+        }
+
+        if (gCubeSnapshot)
+        {
+            // S24: restore the main-frame matrices a probe-face rebuild (above) would
+            // otherwise leave behind - required so a later for_snapshot display (which
+            // skips recomputing these, see this function's own for_snapshot gating at its
+            // caller) doesn't read probe-face spot matrices instead of the main frame's.
+            pipeline.mSunShadowMatrix[4] = saved_spot_sun_mat[0];
+            pipeline.mSunShadowMatrix[5] = saved_spot_sun_mat[1];
         }
     }
     else
@@ -6394,10 +6521,12 @@ void DXPipeline::setupAvatarLights(LLPipeline& pipeline, bool for_edit)
     }
 }
 
-// Camera-centric local light prioritization: only 6 hardware slots exist for local lights. Unlike
-// upstream (which let selected lights bypass distance sorting, letting distant selected objects steal
-// slots from lights actually visible to the observer), the 6 slots always go to the 6 closest lights
-// in view - selected lights still get priority (see below), but plain distance otherwise decides.
+// Camera-and-avatar-centric local light prioritization: only 6 hardware slots exist for local
+// lights (non-deferred). Unlike upstream (which let selected lights bypass distance sorting,
+// letting distant selected objects steal slots from lights actually visible to the observer),
+// the 6 slots always go to the 6 closest lights - closest to the camera OR to the avatar,
+// whichever is nearer (see below) - selected lights still get priority, but plain distance
+// otherwise decides.
 static F32 calc_light_dist(LLVOVolume* light, const LLVector3& cam_pos, F32 max_dist)
 {
     F32 inten = light->getLightIntensity();
@@ -6419,6 +6548,19 @@ static F32 calc_light_dist(LLVOVolume* light, const LLVector3& cam_pos, F32 max_
     if (avatar && isAgentAvatarValid() && avatar == gAgentAvatarp)
     {
         dist = llmax(dist - 5.0f, 0.0f); // 5m virtual closeness bonus
+    }
+
+    // S24: also measure from the agent avatar's own position, not just the camera's, and keep
+    // whichever is closer. A camera cammed well out for a wide/beauty shot otherwise makes
+    // every light near the avatar look just as far away as everything else in the scene, so
+    // the lights the shot is actually about - the avatar's immediate surroundings - lose slot
+    // competition and visibly extinguish. A light near the CURRENT camera viewpoint (e.g.
+    // while building/editing away from the avatar) is unaffected either way - this can only
+    // ever make a light's effective distance smaller (closer to qualifying), never larger, so
+    // it is purely additive over today's camera-only behavior.
+    if (isAgentAvatarValid())
+    {
+        dist = llmin(dist, dist_vec(light_pos, gAgentAvatarp->getRenderPosition()));
     }
 
     // Subtract light radius from distance (lights illuminate beyond their center point)
@@ -6576,17 +6718,32 @@ void DXPipeline::calcNearbyLights(LLPipeline& pipeline, LLCamera& camera)
                 continue; // Beyond maximum distance threshold
             }
 
-            // With only 6 hardware slots, exclude off-screen lights so visible scene elements get
-            // priority. Toggle: RenderLocalLightFrustumCulling (default: true)
-
+            // HardLight Mode (RenderLocalLightFrustumCulling): exclude off-screen lights so
+            // visible scene elements get priority. In non-deferred mode this pairs with the
+            // MAX_LOCAL_LIGHTS=6 trim below to reserve the (actually limited) hardware light
+            // units for what's on screen; in deferred mode (no such hard count limit - see
+            // RenderLocalLightCount instead) this frustum cut is HardLight Mode's only real
+            // effect, so it alone decides which lights "count" as relevant.
             if (enable_frustum_culling)
             {
                 LLVector3 light_pos = light->getRenderPosition();
                 F32 light_radius = light->getLightRadius();
 
-                // Strict frustum test: if not in view, exclude immediately
-                // This prevents slot theft by off-screen lights and improves frame coherence
-                if (camera.sphereInFrustum(light_pos, light_radius) == 0)
+                // S24: exempt lights near the agent avatar from the strict cut below - these
+                // are exactly the lights a cammed-out "beauty shot" is about (see
+                // calc_light_dist's avatar-anchoring above), and a camera framed on a distant
+                // subject can easily put them just outside its exact view cone even though the
+                // avatar itself is squarely in frame. Reuses RenderLocalLightFrustumMargin -
+                // the same "frustum edge forgiveness" slack already established elsewhere in
+                // this file - rather than a new setting.
+                static LLCachedControl<F32> frustum_margin(gSavedSettings, "RenderLocalLightFrustumMargin", 32.f);
+                bool near_avatar = isAgentAvatarValid() &&
+                    dist_vec(light_pos, gAgentAvatarp->getRenderPosition()) <= (light_radius + (F32)frustum_margin);
+
+                // Strict frustum test: if not in view AND not near the avatar, exclude
+                // immediately. This prevents slot theft by off-screen lights and improves
+                // frame coherence, without extinguishing the avatar's own surroundings.
+                if (!near_avatar && camera.sphereInFrustum(light_pos, light_radius) == 0)
                 {
                     continue; // Light outside frustum, excluded from slot assignment
                 }
@@ -7084,6 +7241,93 @@ void DXPipeline::setLight(LLPipeline& pipeline, LLDrawable* drawablep, bool is_l
 // Avatar impostor baking
 // ============================================================================
 
+namespace
+{
+    // S24: per-attachment async GPU profile state for profileAvatar()'s attachment branch.
+    // Replaces a force_read=true blocking GetData spin (one full CPU/GPU drain PER
+    // ATTACHMENT, every 1Hz Performance-floater refresh) with the same poll-don't-block
+    // convention used everywhere else in this profiler (LLHLSLShader::readProfileQuery,
+    // LLVOAvatar::readProfileQuery). Keyed by attachment UUID so a 1Hz list rebuild doesn't
+    // re-Begin a query that's still awaiting its previous result.
+    struct AttachProfileEntry
+    {
+        LLPointer<LLViewerObject> object;
+        ID3D11Query* disjoint = nullptr;
+        ID3D11Query* timestampBegin = nullptr;
+        ID3D11Query* timestampEnd = nullptr;
+        bool pending = false;
+        S32 pollsLeft = 0;
+    };
+
+    // ~0.5s at 60fps - generous against a realistic 1-3 frame GPU backlog; an attachment
+    // that never resolves within this gets abandoned (not blocked on) and retried fresh
+    // next refresh.
+    constexpr S32 ATTACH_PROFILE_POLL_BUDGET = 30;
+
+    std::map<LLUUID, AttachProfileEntry>& getAttachProfiles()
+    {
+        static std::map<LLUUID, AttachProfileEntry> sAttachProfiles;
+        return sAttachProfiles;
+    }
+
+    void releaseAttachProfileEntry(AttachProfileEntry& e)
+    {
+        if (e.disjoint) { e.disjoint->Release(); e.disjoint = nullptr; }
+        if (e.timestampBegin) { e.timestampBegin->Release(); e.timestampBegin = nullptr; }
+        if (e.timestampEnd) { e.timestampEnd->Release(); e.timestampEnd = nullptr; }
+    }
+}
+
+// static
+// S24: polls every pending per-attachment GPU profile query, non-blocking. Called once per
+// frame from LLFloaterPerformance::draw() while the floater exists - cheap no-op when the
+// map is empty (the common case: the floater is closed or no attachment is mid-measurement).
+void DXPipeline::pollAttachmentProfiles()
+{
+    auto& profiles = getAttachProfiles();
+    if (profiles.empty())
+    {
+        return;
+    }
+
+    ID3D11DeviceContext* context = gDXDevice.getContext();
+    if (!context)
+    {
+        return;
+    }
+
+    for (auto& kv : profiles)
+    {
+        AttachProfileEntry& e = kv.second;
+        if (!e.pending)
+        {
+            continue;
+        }
+
+        D3D11_QUERY_DATA_TIMESTAMP_DISJOINT disjoint_data = {};
+        HRESULT hd = context->GetData(e.disjoint, &disjoint_data, sizeof(disjoint_data), D3D11_ASYNC_GETDATA_DONOTFLUSH);
+        UINT64 t0 = 0, t1 = 0;
+        HRESULT h0 = context->GetData(e.timestampBegin, &t0, sizeof(t0), D3D11_ASYNC_GETDATA_DONOTFLUSH);
+        HRESULT h1 = context->GetData(e.timestampEnd, &t1, sizeof(t1), D3D11_ASYNC_GETDATA_DONOTFLUSH);
+
+        if (hd == S_OK && h0 == S_OK && h1 == S_OK)
+        {
+            if (!disjoint_data.Disjoint && disjoint_data.Frequency > 0 && t1 > t0 && e.object && !e.object->isDead())
+            {
+                e.object->mGPURenderTime = (F32)(((double)(t1 - t0) / (double)disjoint_data.Frequency) * 1000.0);
+            }
+            // else: invalid sample (disjoint or dead object) - leave previous value in place
+            e.pending = false;
+        }
+        else if (--e.pollsLeft <= 0)
+        {
+            // Abandoned, not blocked on - next refresh starts a fresh measurement for this
+            // attachment rather than spinning here.
+            e.pending = false;
+        }
+    }
+}
+
 // static
 void DXPipeline::profileAvatar(LLPipeline& pipeline, LLVOAvatar* avatar, bool profile_attachments)
 {
@@ -7110,10 +7354,18 @@ void DXPipeline::profileAvatar(LLPipeline& pipeline, LLVOAvatar* avatar, bool pr
     }
     else
     {
-        // profile attachments one at a time
+        // profile attachments one at a time, asynchronously - see pollAttachmentProfiles().
+        // An attachment whose previous measurement is still pending is skipped entirely
+        // (no re-Begin, no re-render) rather than forcing a blocking readback.
+        auto& profiles = getAttachProfiles();
+        ID3D11Device* device = gDXDevice.getDevice();
+        ID3D11DeviceContext* context = gDXDevice.getContext();
+
         LLVOAvatar::attachment_map_t::iterator iter;
         LLVOAvatar::attachment_map_t::iterator begin = avatar->mAttachmentPoints.begin();
         LLVOAvatar::attachment_map_t::iterator end = avatar->mAttachmentPoints.end();
+
+        std::set<LLUUID> live_ids;
 
         for (iter = begin;
             iter != end;
@@ -7125,17 +7377,59 @@ void DXPipeline::profileAvatar(LLPipeline& pipeline, LLVOAvatar* avatar, bool pr
                 ++attachment_iter)
             {
                 LLViewerObject* attached_object = attachment_iter->get();
-                if (attached_object)
+                if (!attached_object || !device || !context)
                 {
-                    // use gDebugProgram to do the GPU queries
-                    gDebugProgram.clearStats();
-                    gDebugProgram.placeProfileQuery(true);
-
-                    DXPipeline::generateImpostor(pipeline, avatar, false, true, attached_object);
-                    gDebugProgram.readProfileQuery(true, true);
-
-                    attached_object->mGPURenderTime = gDebugProgram.mTimeElapsed / 1000000.f;
+                    continue;
                 }
+
+                live_ids.insert(attached_object->getID());
+
+                AttachProfileEntry& e = profiles[attached_object->getID()];
+                if (e.pending)
+                {
+                    continue; // still waiting on the previous measurement
+                }
+                e.object = attached_object;
+
+                if (!e.disjoint)
+                {
+                    D3D11_QUERY_DESC qd = {};
+                    qd.Query = D3D11_QUERY_TIMESTAMP_DISJOINT;
+                    device->CreateQuery(&qd, &e.disjoint);
+                    qd.Query = D3D11_QUERY_TIMESTAMP;
+                    device->CreateQuery(&qd, &e.timestampBegin);
+                    device->CreateQuery(&qd, &e.timestampEnd);
+                }
+                if (!e.disjoint || !e.timestampBegin || !e.timestampEnd)
+                {
+                    continue;
+                }
+
+                context->Begin(e.disjoint);
+                context->End(e.timestampBegin);
+
+                DXPipeline::generateImpostor(pipeline, avatar, false, true, attached_object);
+
+                context->End(e.timestampEnd);
+                context->End(e.disjoint);
+                e.pending = true;
+                e.pollsLeft = ATTACH_PROFILE_POLL_BUDGET;
+            }
+        }
+
+        // Release and drop any entry for an attachment that's no longer worn - this avatar's
+        // attachments never belong to more than one profiled avatar at a time (both callers
+        // of this branch always pass gAgentAvatarp), so a straight live-set sweep is enough.
+        for (auto it = profiles.begin(); it != profiles.end();)
+        {
+            if (live_ids.count(it->first) == 0)
+            {
+                releaseAttachProfileEntry(it->second);
+                it = profiles.erase(it);
+            }
+            else
+            {
+                ++it;
             }
         }
     }
@@ -9879,11 +10173,44 @@ void DXPipeline::markNotCulled(LLPipeline& pipeline, LLSpatialGroup* group, LLCa
         return;
     }
 
+    // S24 : capture visibility state before setVisible() overwrites it below, so we can
+    // tell whether this group was occluded/out-of-frustum last frame and just became
+    // visible this frame. Texture priority for a group's objects otherwise only gets
+    // refreshed by LLViewerObjectList::updateApparentAngles()'s blind round-robin
+    // (llviewerobjectlist.cpp), which can lag up to ~128 frames behind an object's actual
+    // LOD (which reacts the same frame via updateDistance()/calcLOD() below) - softening
+    // newly-revealed geometry's textures for up to ~2s purely from round-robin bad luck.
+    const bool was_newly_visible = LLViewerCamera::sCurCameraID == LLViewerCamera::CAMERA_WORLD
+        && !gCubeSnapshot
+        && group->getVisible(LLViewerCamera::sCurCameraID) < LLDrawable::getCurrentFrame() - 1;
+
     group->setVisible();
 
     if (LLViewerCamera::sCurCameraID == LLViewerCamera::CAMERA_WORLD && !gCubeSnapshot)
     {
         group->updateDistance(camera);
+    }
+
+    if (was_newly_visible)
+    {
+        // S24 : one-shot texture-priority refresh on the occluded/culled -> visible
+        // transition, instead of waiting for the lazy round-robin to get to these
+        // objects. No ongoing per-frame cost and no shared-field mutation - this only
+        // changes when priority gets (re)computed for objects that just became visible.
+        for (LLSpatialGroup::element_iter i = group->getDataBegin(); i != group->getDataEnd(); ++i)
+        {
+            LLDrawable* drawablep = (LLDrawable*)(*i)->getDrawable();
+            if (!drawablep)
+            {
+                continue;
+            }
+            LLViewerObject* vobj = drawablep->getVObj();
+            if (vobj && !vobj->isDead())
+            {
+                vobj->setPixelAreaAndAngle(gAgent);
+                vobj->updateTextures();
+            }
+        }
     }
 
     pipeline.assertInitialized();
@@ -11920,7 +12247,13 @@ void DXPipeline::postSort(LLPipeline& pipeline, LLCamera& camera)
                 continue;
             }
 
-            if (!use_occlusion || !group->isOcclusionState(LLSpatialGroup::OCCLUDED))
+            // S24: skip the out-of-line rebuildGeom()/rebuildMesh() call pair entirely for a
+            // group that's neither dirty - LLSpatialPartition::rebuildGeom() itself already
+            // early-returns without GEOM_DIRTY, and the wrapper only pushes to mMeshDirtyGroup
+            // with MESH_DIRTY, so a clean group's call does nothing observable either way. OR,
+            // not AND: MESH_DIRTY alone must still reach the wrapper's queue push.
+            if ((!use_occlusion || !group->isOcclusionState(LLSpatialGroup::OCCLUDED)) &&
+                group->hasState(LLSpatialGroup::GEOM_DIRTY | LLSpatialGroup::MESH_DIRTY))
             {
                 group->rebuildGeom();
             }
@@ -11929,9 +12262,11 @@ void DXPipeline::postSort(LLPipeline& pipeline, LLCamera& camera)
         // rebuild groups
         sCull->assertDrawMapsEmpty();
 
-        // S24: same per-frame time budget as updateGeom()/createObjects() (llviewerdisplay.cpp) -
-        // see rebuildPriorityGroups()'s own comment for why this now matters.
-        const F32 max_group_rebuild_time = 0.005f * 10.f * gFrameIntervalSeconds.value();
+        // S24: same per-frame time budget as updateGeom()/createObjects() (llviewerdisplay.cpp),
+        // clamped the same way - an unclamped budget scales with the raw frame gap, turning one
+        // stall into a bigger follow-on stall on the very next frame.
+        const F32 group_rebuild_dt = llmin(gFrameIntervalSeconds.value(), 1.f / 20.f);
+        const F32 max_group_rebuild_time = 0.005f * 10.f * group_rebuild_dt;
         DXPipeline::rebuildPriorityGroups(pipeline, max_group_rebuild_time);
     }
 
@@ -11952,13 +12287,9 @@ void DXPipeline::postSort(LLPipeline& pipeline, LLCamera& camera)
             continue;
         }
 
-        if (!cube_snapshot &&
-            group->hasState(LLSpatialGroup::NEW_DRAWINFO) &&
-            group->hasState(LLSpatialGroup::GEOM_DIRTY))
-        {
-            // no way this group is going to be drawable without a rebuild
-            group->rebuildGeom();
-        }
+        // S24: confirmed dead - nothing in the tree ever calls setState(NEW_DRAWINFO) (the only
+        // other references are this read and the clear in LLVOVolume's geometry rebuild), so
+        // this branch could never fire.
 
         // push drawinfos
         for (LLSpatialGroup::draw_map_t::iterator j = group->mDrawMap.begin(); j != group->mDrawMap.end(); ++j)
@@ -12504,7 +12835,16 @@ void DXPipeline::resizeShadowTexture(LLPipeline& pipeline)
 {
     DXPipeline::releaseSunShadowTargets(pipeline);
     DXPipeline::releaseSpotShadowTargets(pipeline);
-    DXPipeline::allocateShadowBuffer(pipeline, pipeline.mRT->width, pipeline.mRT->height);
+    // S24: use the screen target's actual (render-scale-adjusted) dimensions, not
+    // mRT->width/height - those are the raw native dimensions captured before
+    // RenderScalePercent is applied, so sizing from them here (instead of the
+    // scaled size the startup/resize-screen path uses) made the shadow-resolution
+    // slider produce maps sized from native resolution whenever RenderScalePercent
+    // was below 100 - up to 4x the intended texel count.
+    if (!DXPipeline::allocateShadowBuffer(pipeline, pipeline.mRT->screen.getWidth(), pipeline.mRT->screen.getHeight()))
+    {
+        LL_WARNS("RenderTarget") << "Failed to (re)allocate shadow buffers" << LL_ENDL;
+    }
     gResizeShadowTexture = false;
 }
 
@@ -12668,7 +13008,10 @@ bool DXPipeline::allocateScreenBufferInternal(LLPipeline& pipeline, U32 resX, U3
         pipeline.mRT->deferredLight.release();
     }
 
-    DXPipeline::allocateShadowBuffer(pipeline, resX, resY);
+    if (!DXPipeline::allocateShadowBuffer(pipeline, resX, resY))
+    {
+        LL_WARNS("RenderTarget") << "Failed to (re)allocate shadow buffers at " << resX << "x" << resY << LL_ENDL;
+    }
 
     if (!gCubeSnapshot) // hack to not re-allocate various targets for cube snapshots
     {
@@ -12742,9 +13085,14 @@ bool DXPipeline::allocateScreenBufferInternal(LLPipeline& pipeline, U32 resX, U3
         // Why do we do this? Because it saves us some janky logic in the exclusion shader when we generate the mask.
         // Regardless, this should always only be an R8 texture unless we choose to start having multiple kinds of exclusion that 8 bits can't handle.
         // - Geenz 2025-02-06
-        bool success = pipeline.mWaterExclusionMask.allocate(resX, resY, GL_R8, true);
-
-        assert(success);
+        // S24 : plain assert() compiles out in Release, which let a failed allocation
+        // here silently carry on with a bad target - match the mSMAABlendBuffer
+        // pattern above and bail out explicitly instead.
+        if (!pipeline.mWaterExclusionMask.allocate(resX, resY, GL_R8, true))
+        {
+            LL_WARNS() << "Failed to allocate mWaterExclusionMask" << LL_ENDL;
+            return false;
+        }
 
         // used to scale down textures
         // See LLViwerTextureList::updateImagesCreateTextures and LLImageDX::scaleDown
@@ -12752,7 +13100,7 @@ bool DXPipeline::allocateScreenBufferInternal(LLPipeline& pipeline, U32 resX, U3
 
         pipeline.mBakeMap.allocate(LLAvatarAppearanceDefines::SCRATCH_TEX_WIDTH, LLAvatarAppearanceDefines::SCRATCH_TEX_HEIGHT, GL_RGBA);
     }
-    //HACK make screenbuffer allocations start failing after 30 seconds
+    // S24 : debug toggle to simulate a screenbuffer allocation failure, not a timer
     if (gSavedSettings.getBOOL("SimulateFBOFailure"))
     {
         return false;
@@ -12766,13 +13114,110 @@ bool DXPipeline::allocateScreenBufferInternal(LLPipeline& pipeline, U32 resX, U3
 // must be even to avoid a stripe in the horizontal shadow blur
 inline U32 BlurHappySize(U32 x, F32 scale) { return U32(x * scale + 16.0f) & ~0xF; }
 
+// static
+bool DXPipeline::updateSpotShadowResolution(LLPipeline& pipeline)
+{
+    if (gCubeSnapshot)
+    {
+        // Probe captures don't use the spot maps at all (allocateShadowBuffer's
+        // !gCubeSnapshot gate) and must never see a mid-capture reallocation.
+        return false;
+    }
+
+    // Required size: screen-height texels scaled by (spot FOV / camera FOV), so a spot
+    // only gets enough resolution to cover its own cone instead of the whole screen.
+    // Uses mTargetShadowSpotLight (the pending-slot candidates), not mShadowSpotLight,
+    // so a slot handoff in the tournament selection does not by itself change the size.
+    F32 widest_fov = 0.f;
+    for (U32 i = 0; i < 2; i++)
+    {
+        LLVOVolume* volume = pipeline.mTargetShadowSpotLight[i].notNull() ? pipeline.mTargetShadowSpotLight[i]->getVOVolume() : nullptr;
+        if (volume)
+        {
+            widest_fov = llmax(widest_fov, volume->getSpotLightParams().mV[0]);
+        }
+    }
+
+    static S32 s_up_count = 0;
+    static S32 s_down_count = 0;
+    static S32 s_frames_since_realloc = 0;
+
+    // Read the ACTUAL current size off the render target rather than mirroring it in a
+    // static - allocateShadowBuffer()/resizeShadowTexture() can reallocate mSpotShadow out
+    // from under this function (e.g. the resolution-scale slider), and a cached mirror would
+    // desync from reality in that case instead of just re-deriving it for free every frame.
+    S32 current = (S32)pipeline.mSpotShadow[0].getWidth();
+    if (current == 0)
+    {
+        // Not allocated yet (shadow_detail <= 1, or before the first allocateShadowBuffer
+        // call) - nothing to resize.
+        return false;
+    }
+
+    S32 target;
+    if (widest_fov > 0.f)
+    {
+        F32 cam_vfov = LLViewerCamera::getInstance()->getView();
+        F32 screen_h = (F32)gViewerWindow->getWorldViewHeightRaw();
+        F32 scale_k = llmax(0.f, DXPipeline::RenderShadowResolutionScale) / 3.0f; // 3.0 is the default/reference scale
+        F32 raw = (cam_vfov > 0.f) ? (screen_h * tanf(widest_fov * 0.5f) / tanf(cam_vfov * 0.5f) * scale_k) : 2048.f;
+        target = (S32)llclamp(get_next_power_two((U32)llmax(raw, 1.f), 4096), 512U, 4096U);
+    }
+    else
+    {
+        // No spot candidate this frame - nothing to size for. Keep the current size
+        // rather than force a reallocation down to the floor every time both slots empty.
+        target = current;
+    }
+
+    ++s_frames_since_realloc;
+
+    bool want_up = target > current;
+    bool want_down = (target <= current / 4) && current > 512;
+    s_up_count = want_up ? (s_up_count + 1) : 0;
+    s_down_count = want_down ? (s_down_count + 1) : 0;
+
+    // Hysteresis: a one-step change (target == current/2) never reallocates on its own -
+    // only a sustained 2+ step upsize (10 frames) or a sustained downsize (300 frames,
+    // ~5s at 60fps) does, each gated by a 120-frame cooldown since the last reallocation.
+    // Without this, a camera zoom or a spot-light FOV change near a bucket boundary would
+    // reallocate two multi-MB depth textures every frame.
+    bool do_realloc = (s_frames_since_realloc >= 120) &&
+        ((want_up && s_up_count >= 10) || (want_down && s_down_count >= 300));
+
+    if (!do_realloc)
+    {
+        return false;
+    }
+
+    bool ok = pipeline.mSpotShadow[0].allocate(target, target, 0, true) &&
+              pipeline.mSpotShadow[1].allocate(target, target, 0, true);
+    if (!ok)
+    {
+        LL_WARNS("RenderTarget") << "Failed to reallocate spot shadow maps at " << target << LL_ENDL;
+        return false;
+    }
+
+    s_frames_since_realloc = 0;
+    s_up_count = 0;
+    s_down_count = 0;
+    return true; // caller must force this frame's spot-shadow render - the fresh map has no contents
+}
+
 bool DXPipeline::allocateShadowBuffer(LLPipeline& pipeline, U32 resX, U32 resY)
 {
     S32 shadow_detail = DXPipeline::RenderShadowDetail;
 
     F32 scale = gCubeSnapshot ? 1.0f : llmax(0.f, DXPipeline::RenderShadowResolutionScale); // Don't scale probe shadow maps
-    U32 sun_shadow_map_width = BlurHappySize(resX, scale);
-    U32 sun_shadow_map_height = BlurHappySize(resY, scale);
+
+    // S24: clamp to the D3D11 2D-texture dimension limit. Without this, a high-res display
+    // combined with the default/slider-max RenderShadowResolutionScale pushes the computed
+    // size past 16384, CreateTexture2D fails, and the failure was silently swallowed by the
+    // caller (allocateScreenBufferInternal/resizeShadowTexture didn't check the return value)
+    // while unallocated sun/spot targets kept being bound every frame.
+    constexpr U32 kShadowMaxDim = 16384; // D3D11_REQ_TEXTURE2D_U_OR_V_DIMENSION
+    U32 sun_shadow_map_width = llmin(BlurHappySize(resX, scale), kShadowMaxDim);
+    U32 sun_shadow_map_height = llmin(BlurHappySize(resY, scale), kShadowMaxDim);
 
     if (shadow_detail > 0)
     { //allocate 4 sun shadow maps
@@ -12794,7 +13239,7 @@ bool DXPipeline::allocateShadowBuffer(LLPipeline& pipeline, U32 resX, U32 resY)
 
     if (!gCubeSnapshot) // hack to not allocate spot shadow maps during ReflectionMapManager init
     {
-        U32 width = (U32)(resX * scale);
+        U32 width = llmin((U32)(resX * scale), kShadowMaxDim);
         U32 height = width;
 
         if (shadow_detail > 1)

@@ -4756,7 +4756,7 @@
         label="⚡ HardLight Mode"
         layout="topleft"
         name="s24_hardlight_mode"
-        tool_tip="S24 - Reserves hardware light slots for lights closest to camera and in view. Dramatically improves avatar lighting stability in complex scenes. OFF = Traditional LL behavior (selected lights bypass distance, distant lights can steal slots)."
+        tool_tip="S24 - Excludes off-screen local lights from competing for rendering priority, so visible lights (and lights near your own avatar, which are always kept regardless of camera framing) get priority over distant off-screen ones. Dramatically improves lighting stability in complex scenes. OFF = Traditional LL behavior (selected lights bypass distance, distant lights can steal priority)."
         width="280" />
       </panel>
 
@@ -4950,7 +4950,31 @@
         min_val="0.0"
         max_val="64.0"
         name="local_light_min_radius"
-        tool_tip="Floors every local light's effective distance-falloff radius to at least this many meters, regardless of its own authored radius. Fixes small decorative lights (walkway lanterns etc.) requiring the camera to be almost standing inside them before they contribute any light. Does not change brightness/color, only how far away a light starts fading in. 0 = original behavior, no floor."
+        tool_tip="Extends how far a small local light's glow reaches, out to at least this many meters, without changing its true brightness up close. Fixes small decorative lights (walkway lanterns etc.) requiring the camera to be almost standing inside them before they contribute any light. The extra reach is a soft glow - strength set by Reach Glow Strength below. 0 = original behavior, no extended reach."
+        width="200" />
+
+      <text
+        left="20"
+        top_pad="8"
+        width="268"
+        font="SansSerif">
+        Reach Glow Strength:
+      </text>
+
+      <slider
+        left="20"
+        top_pad="2"
+        control_name="RenderLocalLightReachGlow"
+        decimal_digits="2"
+        follows="left|top"
+        height="20"
+        increment="0.05"
+        initial_value="0.35"
+        layout="topleft"
+        min_val="0.0"
+        max_val="1.0"
+        name="local_light_reach_glow"
+        tool_tip="How strongly a light's extended reach (above) glows, as a fraction of the light's own center brightness. 0 makes the extended reach invisible - same look as Min Light Radius = 0."
         width="200" />
       </panel>
 
@@ -7407,6 +7431,18 @@
         name="probe_contrast_spinner"
         top_delta="0"
         width="65" />
+
+      <check_box
+        control_name="RenderTonemapEverywhere"
+        height="20"
+        initial_value="false"
+        label="Tonemap Everywhere!"
+        layout="topleft"
+        left="20"
+        top_pad="14"
+        name="tonemap_everywhere_checkbox"
+        width="280"
+        tool_tip="Legacy skies (Linden/stock sky and water, or any sky predating HDR/probe support) normally force tonemap mix and exposure off, with no way to edit around it - Linden's own sky is a no-modify library asset. Gives legacy skies a tiny reflection-probe-ambiance value (not persisted/saved) just large enough to unlock tonemap and exposure, without noticeably changing ambient lighting the way 'Auto-Adjust Legacy Skies' (Advanced Graphics) would. Off by default to preserve normal legacy Linden sky/water behaviour." />
       </panel>
 
       <panel

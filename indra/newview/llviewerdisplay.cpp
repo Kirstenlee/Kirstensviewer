@@ -632,18 +632,6 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 	static LLCachedControl<S32> avatar_name_tag_mode(gSavedSettings, "AvatarNameTagMode", 1);
 	static LLCachedControl<S32> name_tag_show_group_titles(gSavedSettings, "GroupTitlesTagMode", 2 /*all group tags*/);
 
-	static LLCachedControl<bool> UseDesaturation(gSavedSettings, "UseDesaturation", false);
-	static LLCachedControl<bool> UseInvert(gSavedSettings, "UseInvert", false);
-	static LLCachedControl<bool> UseCelShading(gSavedSettings, "UseCelShade", false);
-	static LLCachedControl<bool> applyVignette(gSavedSettings, "UseVignette", false);
-	static LLCachedControl<bool> applyNightVision(gSavedSettings, "UseNightVision", false);
-	static LLCachedControl<bool> applyEdgeGlow(gSavedSettings, "UseEdgeGlow", false);
-	static LLCachedControl<bool> applyRGBControl(gSavedSettings, "UseRGBControl", false);
-
-	bool any_effects_active = UseDesaturation || UseInvert || UseCelShading ||
-		applyVignette || applyNightVision || applyEdgeGlow || applyRGBControl;
-
-	// Suppress name tags when effects are active, otherwise use normal settings!
 	LLVOAvatar::sRenderName = avatar_name_tag_mode;
 	LLVOAvatar::sRenderGroupTitles = avatar_name_tag_mode > 0 ? name_tag_show_group_titles : 0;
 
@@ -809,7 +797,12 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 		}
 
 		{
-			const F32 max_geom_update_time = 0.005f * 10.f * gFrameIntervalSeconds.value(); // 50 ms/second update time
+			// S24: clamped - this budget scales with the RAW frame gap, so an unclamped
+			// value turns one stall into a bigger follow-on stall on the very next frame
+			// (the geometry backlog stays queued either way, so clamping only spreads the
+			// catch-up over more frames, it doesn't drop anything).
+			const F32 geom_budget_dt = llmin(gFrameIntervalSeconds.value(), 1.f / 20.f);
+			const F32 max_geom_update_time = 0.005f * 10.f * geom_budget_dt; // 50 ms/second update time
 			DXPipeline::createObjects(gPipeline, max_geom_update_time);
 			DXPipeline::processPartitionQ(gPipeline);
 			DXPipeline::updateGeom(gPipeline, max_geom_update_time);

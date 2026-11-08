@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes" ?>
+<floater
+ legacy_header_height="18"
+ can_resize="false"
+ height="340"
+ layout="topleft"
+ name="kv_minesweeper"
+ help_topic="kv_minesweeper"
+ save_rect="true"
+ title="KV MINESWEEPER"
+ width="380">
+    <!-- S24: unlike the card games in this series, the cell grid itself is
+         NOT declared here - it's built entirely at runtime in
+         kvminesweeper.cpp (see rebuildGrid()), because the board shape
+         changes with the chosen size (9x9 / 16x16 / 16x30). grid_panel
+         below is just an empty, repositioned/resized placeholder that the
+         code populates and clears on every New Game. Every control-bar
+         element here is deliberately LEFT-anchored only (no follows="right")
+         so the code never needs to worry about follows-based repositioning
+         when it resizes the floater for a different board size. -->
+    <text
+     type="string"
+     follows="left|top"
+     height="18"
+     layout="topleft"
+     left="12"
+     name="status_text"
+     top="24"
+     width="356">
+        Choose a size and difficulty, then New Game.
+    </text>
+
+    <text
+     type="string"
+     follows="left|top"
+     height="16"
+     layout="topleft"
+     left="12"
+     name="mines_text"
+     top_pad="8"
+     width="90">
+        Mines: 10
+    </text>
+    <text
+     type="string"
+     follows="left|top"
+     height="16"
+     layout="topleft"
+     left_pad="10"
+     name="timer_text"
+     top_delta="0"
+     width="90">
+        Time: 0s
+    </text>
+    <text
+     type="string"
+     follows="left|top"
+     height="16"
+     layout="topleft"
+     left_pad="10"
+     name="best_text"
+     top_delta="0"
+     width="140">
+        Best: --
+    </text>
+
+    <button
+     follows="left|top"
+     height="26"
+     label="Size: Small"
+     layout="topleft"
+     left="12"
+     name="size_btn"
+     top_pad="10"
+     width="110" />
+    <button
+     follows="left|top"
+     height="26"
+     label="Difficulty: Easy"
+     layout="topleft"
+     left_pad="10"
+     name="difficulty_btn"
+     top_delta="0"
+     width="130" />
+    <button
+     follows="left|top"
+     height="26"
+     label="New Game"
+     layout="topleft"
+     left_pad="10"
+     name="new_game_btn"
+     top_delta="0"
+     width="90" />
+
+    <panel
+     background_visible="false"
+     follows="left|top"
+     height="216"
+     layout="topleft"
+     left="12"
+     name="grid_panel"
+     top="112"
+     width="216" />
+</floater>

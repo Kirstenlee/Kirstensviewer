@@ -79,7 +79,18 @@
       name="online_visibility"
       top_pad="30"
       width="350" />
-    
+
+    <check_box
+     enabled="false"
+     height="16"
+     label="Reject unsolicited group conversations"
+     layout="topleft"
+     left="30"
+     name="reject_unsolicited_group_chat_check"
+     top_pad="10"
+     width="400"
+     tool_tip="Declines ad-hoc/conference chat and call invites from non-friends that aren't a real session of a group you've actually joined - closes a griefing exploit where a bot adds you to an unsolicited group-style conversation. Real group chat from groups you belong to, and direct IMs/calls from individuals, are never affected." />
+
     <check_box
      enabled_control="EnableVoiceChat"
      control_name="AutoDisengageMic"

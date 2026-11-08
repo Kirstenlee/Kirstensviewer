@@ -50,24 +50,6 @@
 LLViewerDynamicTexture::instance_list_t LLViewerDynamicTexture::sInstances[ LLViewerDynamicTexture::ORDER_COUNT ];
 S32 LLViewerDynamicTexture::sNumRenders = 0;
 
-namespace
-{
-    // S24: RAII guard for gPipeline.mRT, so a return/throw anywhere inside the
-    // per-texture render loop below still restores it. A plain save/assign-back
-    // pair left gPipeline.mRT stuck on mAuxillaryRT if a preview render (e.g.
-    // LLGLTFPreviewTexture, used for in-world PBR material swatches/thumbnails)
-    // didn't make it cleanly back to the restore line - the main scene then kept
-    // rendering correctly, just into the small preview-sized aux target instead
-    // of the real screen target, leaving the rest of the back buffer untouched
-    // until an actual window resize forced pipeline.mRT back to mMainRT.
-    struct ScopedMainRT
-    {
-        LLPipeline::RenderTargetPack* mSaved;
-        ScopedMainRT(LLPipeline::RenderTargetPack* temp) : mSaved(gPipeline.mRT) { gPipeline.mRT = temp; }
-        ~ScopedMainRT() { gPipeline.mRT = mSaved; }
-    };
-}
-
 //-----------------------------------------------------------------------------
 // LLViewerDynamicTexture()
 //-----------------------------------------------------------------------------
@@ -152,9 +134,37 @@ void LLViewerDynamicTexture::preRender(bool clear_depth)
     mCamera.setView(camera->getView());
     mCamera.setNear(camera->getNear());
 
-    // Routed through gDXContext.setViewport() rather than raw glViewport(). mOrigin is always
-    // (0,0) here, so no cube-face-style Y-flip is needed.
-    gDXContext.setViewport(mOrigin.mX, mOrigin.mY, mFullWidth, mFullHeight);
+    // S24 : Task #256 - mOrigin is always (0,0), but the render-target this
+    // draws into (mBoundTarget, set by the caller just before preRender())
+    // is usually LARGER than this one dynamic texture's own mFullWidth/
+    // mFullHeight - every ORDER_MIDDLE preview (LLVisualParamHint,
+    // LLGLTFPreviewTexture, ...) shares one 512x512-or-larger preview_target,
+    // same for bake_target. Placing the viewport at Y=0 draws into the TOP
+    // rows, but DXTexture::copySubImageFromFrameBuffer()'s postRender()
+    // readback (lldynamictexture.cpp's own setSubImageFromFrameBuffer(0, 0,
+    // mOrigin.mX, mOrigin.mY, mFullWidth, mFullHeight) call below) computes
+    // its source row as (bound-target-height - fb_y - height), i.e. the
+    // BOTTOM rows - for a small preview within a larger shared target those
+    // are different, never-written, still-cleared-to-transparent rows, so
+    // the copy reads back nothing regardless of what actually got drawn.
+    // Harmless whenever mFullWidth/mFullHeight already match the bound
+    // target's own size (e.g. the full 2048x2048 bake buffers), since top
+    // and bottom then coincide - matches S24's own existing bottom-placement
+    // convention for a sub-rect readback (dxpipeline.cpp's DoF downsample,
+    // llviewerwindow.cpp's screenshot readback). Place the viewport at the
+    // bottom of whatever's actually bound instead, so the draw and the
+    // later readback agree on which rows they mean.
+    //
+    // S24 : Task #256 - a flip_y=true viewport (LLViewerWindow::setup3DViewport()'s
+    // own convention for the main 3D view) was tried here and made things
+    // WORSE (negative-height D3D11 viewport flips effective triangle winding
+    // order too, which the main view's pipeline evidently compensates for
+    // elsewhere in a way this isolated preview render doesn't - avatar
+    // rendered inside-out). Reverted - stay with the plain, unflipped
+    // viewport; whatever corrects final orientation needs to happen at
+    // readback/display time instead, not by altering the 3D draw itself.
+    const S32 viewport_y = mBoundTarget ? ((S32)mBoundTarget->getHeight() - mOrigin.mY - mFullHeight) : mOrigin.mY;
+    gDXContext.setViewport(mOrigin.mX, viewport_y, mFullWidth, mFullHeight);
     if (clear_depth)
     {
         // Routed through the currently-bound LLRenderTarget's own clear() (set by
@@ -233,14 +243,21 @@ bool LLViewerDynamicTexture::updateAllInstances()
     preview_target.bindTarget();
     preview_target.clear();
 
-    // Binding preview_target only sets the immediate draw target - it does
-    // not affect gPipeline.mRT, which the deferred pipeline's own internal
-    // passes (reached via LLVisualParamHint::render() ->
-    // LLPipeline::generateImpostor()) actually read/write through. Must
-    // swap mRT to mAuxillaryRT too, same pattern as
-    // llgltfmaterialpreviewmgr.cpp. Scoped to this loop only - bake_target's
-    // baked-texture compositing doesn't go through the deferred pipeline.
-
+    // S24 : Task #256 - this loop used to wrap itself in a ScopedMainRT swap
+    // of gPipeline.mRT to mAuxillaryRT, theorizing the deferred pipeline's
+    // internal passes (reached via LLVisualParamHint::render() ->
+    // DXPipeline::generateImpostor()) needed it. XREF against canonical
+    // upstream showed this loop never swaps mRT at all - only
+    // llgltfmaterialpreviewmgr.cpp does, scoped locally around its own
+    // render call via SetTemporarily<RenderTargetPack*>, matching exactly
+    // what this loop's own GLTF preview instances already do themselves
+    // (llgltfmaterialpreviewmgr.cpp's generateMaterialPreview() already has
+    // its own identical, independently RAII-safe swap). This outer swap was
+    // therefore both redundant for GLTF preview AND an S24-only regression
+    // for every OTHER ORDER_MIDDLE instance (avatar shape/appearance hints
+    // chief among them) that upstream never subjects to it - generateImpostor()
+    // ran with gPipeline.mRT pointed at the small, mostly-unpopulated
+    // mAuxillaryRT pack instead of the real mMainRT pack it expects.
     LLHLSLShader::unbind();
     LLVertexBuffer::unbind();
 
@@ -273,23 +290,15 @@ bool LLViewerDynamicTexture::updateAllInstances()
             }
         };
 
+    // ORDER_FIRST is unused, ORDER_MIDDLE is various ui preview
+    for(S32 order = 0; order < ORDER_LAST; ++order)
     {
-        // RAII (ScopedMainRT, see top of file) rather than a plain save/restore -
-        // guarantees gPipeline.mRT is back on mMainRT before the bake_target loop
-        // below even if a preview render (e.g. LLGLTFPreviewTexture) doesn't
-        // return cleanly.
-        ScopedMainRT use_auxiliary_render_target(&gPipeline.mAuxillaryRT);
-
-        // ORDER_FIRST is unused, ORDER_MIDDLE is various ui preview
-        for(S32 order = 0; order < ORDER_LAST; ++order)
+        for (LLViewerDynamicTexture* dynamicTexture : LLViewerDynamicTexture::sInstances[order])
         {
-            for (LLViewerDynamicTexture* dynamicTexture : LLViewerDynamicTexture::sInstances[order])
-            {
-                update_func(dynamicTexture, preview_target, DXPipeline::MAX_PREVIEW_WIDTH, DXPipeline::MAX_PREVIEW_WIDTH);
-            }
+            update_func(dynamicTexture, preview_target, DXPipeline::MAX_PREVIEW_WIDTH, DXPipeline::MAX_PREVIEW_WIDTH);
         }
-        preview_target.flush();
     }
+    preview_target.flush();
 
     // ORDER_LAST is baked skin preview, ORDER_RESET resets appearance parameters and does not render.
     bake_target.bindTarget();

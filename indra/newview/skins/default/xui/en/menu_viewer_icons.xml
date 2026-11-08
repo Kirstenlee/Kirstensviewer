@@ -155,13 +155,6 @@
             <menu_item_call.on_click
              function="KRLV.Open" />
         </menu_item_call>
-        <menu_item_call
-         label="🎵 Media Player..."
-         name="Music Player">
-            <menu_item_call.on_click
-             function="Floater.Toggle"
-             parameter="music_player" />
-        </menu_item_call>
          <menu_item_call
          label="🧰 Toolbar buttons..."
          name="Toolbars">
@@ -2317,6 +2310,69 @@ function="World.EnvPreset"
 
     <menu
      create_jump_keys="true"
+     label="✨ Extras"
+     name="Extras"
+     tear_off="true">
+        <menu_item_call
+         label="🎵 Media Player..."
+         name="Music Player">
+            <menu_item_call.on_click
+             function="Floater.Toggle"
+             parameter="music_player" />
+        </menu_item_call>
+        <menu_item_check
+         label="S24 Console"
+         name="S24 Console"
+         shortcut="control|shift|4"
+         use_mac_ctrl="true">
+            <menu_item_check.on_check
+             function="Floater.Visible"
+             parameter="debug_console" />
+            <menu_item_check.on_click
+             function="Floater.Toggle"
+             parameter="debug_console" />
+        </menu_item_check>
+        <menu_item_separator/>
+        <menu_item_call
+         label="🂡 KV Blackjack..."
+         name="KV Blackjack">
+            <menu_item_call.on_click
+             function="Floater.Toggle"
+             parameter="kv_blackjack" />
+        </menu_item_call>
+        <menu_item_call
+         label="⚫ KV Reversi..."
+         name="KV Reversi">
+            <menu_item_call.on_click
+             function="Floater.Toggle"
+             parameter="kv_reversi" />
+        </menu_item_call>
+        <menu_item_call
+         label="🂠 KV Solitaire..."
+         name="KV Solitaire">
+            <menu_item_call.on_click
+             function="Floater.Toggle"
+             parameter="kv_solitaire" />
+        </menu_item_call>
+        <menu_item_call
+         label="💣 KV Minesweeper..."
+         name="KV Minesweeper">
+            <menu_item_call.on_click
+             function="Floater.Toggle"
+             parameter="kv_minesweeper" />
+        </menu_item_call>
+        <menu_item_separator/>
+        <menu_item_call
+         label="🕐 KV World Clock..."
+         name="KV World Clock">
+            <menu_item_call.on_click
+             function="Floater.Toggle"
+             parameter="kv_worldclock" />
+        </menu_item_call>
+</menu>
+
+    <menu
+     create_jump_keys="true"
      label="🔧 Advanced"
      name="Advanced"
      tear_off="true"
@@ -2972,18 +3028,6 @@ function="World.EnvPreset"
                 <menu_item_check.on_click
                  function="Advanced.ToggleConsole"
                  parameter="texture" />
-            </menu_item_check>            
-            <menu_item_check
-             label="S24 Console"
-             name="S24 Console"
-             shortcut="control|shift|4"
-             use_mac_ctrl="true">
-                <menu_item_check.on_check
-                 function="Floater.Visible"
-                 parameter="debug_console" />
-                <menu_item_check.on_click
-                 function="Floater.Toggle"
-                 parameter="debug_console" />
             </menu_item_check>
             <menu_item_call
              label="Notifications Console"

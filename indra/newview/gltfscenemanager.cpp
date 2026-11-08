@@ -496,17 +496,29 @@ void GLTFSceneManager::onGLTFLoadComplete(const LLUUID& id, LLAssetType::EType a
 
 void GLTFSceneManager::update()
 {
+    // S24 : Asset::update() derives its animation step from real elapsed time
+    // (gFrameTimeSeconds - mLastUpdateTime), not frame count, so striding this
+    // loop coarsens update granularity only - animation stays in sync with
+    // wall-clock time, it just advances in fewer, larger steps.
+    static LLCachedControl<U32> update_stride(gSavedSettings, "GLTFAssetUpdateStride", 4);
+    const bool do_asset_update = update_stride <= 1 || (LLFrameTimer::getFrameCount() % update_stride) == 0;
 
-    for (U32 i = 0; i < mObjects.size(); ++i)
+    for (U32 i = 0; i < mObjects.size(); )
     {
         if (mObjects[i]->isDead() || mObjects[i]->mGLTFAsset == nullptr)
         {
-            mObjects.erase(mObjects.begin() + i);
-            --i;
+            // mObjects is an unordered membership list (see addObject()'s std::find),
+            // so swap-and-pop avoids an O(n) shift per removal.
+            mObjects[i] = mObjects.back();
+            mObjects.pop_back();
             continue;
         }
 
-        mObjects[i]->mGLTFAsset->update();
+        if (do_asset_update)
+        {
+            mObjects[i]->mGLTFAsset->update();
+        }
+        ++i;
     }
 
     // process pending uploads

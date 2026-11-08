@@ -63,10 +63,9 @@ This guide provides quick reference for advanced settings, defaults, and tuning 
 
 📖 GUIDE SECTIONS
 
-• Common Settings - Most frequently adjusted values and defaults
+• Common Settings - Full reference for every KVTweaks tab, by tab
 • S24 Console - Command-line interface to the viewer
 • Troubleshooting - Common issues and solutions
-• KVTweaks Tabs - Detailed breakdown of each tab
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -79,25 +78,27 @@ This guide provides quick reference for advanced settings, defaults, and tuning 
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-📂 KVTWEAKS TAB OVERVIEW
+📂 KVTWEAKS TAB OVERVIEW (19 tabs)
 
-CPU &amp; Memory      → Core count, thread pool, RAM/VRAM allocation
+CPU &amp; Memory      → Core count, process QoS/scheduling, heap/VRAM budget, threaded avatar motion
 RAM Cache          → KVRAM texture buffer: budget, thresholds, eviction timing
-Rendering Core     → LOD factors, draw distance, avatar complexity/feathering
-Rendering Adv      → SSAO, bump/glow, pool skip, D3D11 debug layer, shader cache
-SSR                → Screen-space reflections (global, all surfaces)
-Water              → Water appearance: metallic, roughness, color, presets
-Night Sky          → Star style, glow, density, nebulas, shooting stars
-Sky                → Extra 2.5D cirrus/cumulus cloud decks over the active preset
-Shadows            → Shadow quality, bias, throttling, resolution
-Lighting           → Ambient, sun/moon controls
+Rendering Core     → LOD factors, draw distance, avatar feathering, FSR scale/sharpen, shader hardware tier
+Rendering Adv      → SSAO, bump/glow, D3D11 debug layer/shader cache, jelly-doll ghost, volumetric light
+SSR                → Screen-space reflections: global, quality/depth tuning, water-specific override
+Water              → Water appearance: metallic, roughness, tint, motion, horizon fade, presets
+Sky                → Star theme/density/glow, nebula, shooting stars, AND the extra 2.5D cirrus/cumulus cloud decks (one tab, six cards - not two separate tabs)
+Shadows            → Shadow quality, bias/offset, filtering, cascade throttling, spot/tree bias
+Lighting           → Local/spot light limits, HardLight stability mode, light-culling hold time, experimental point-light shadows
 Textures           → Discard level, max resolution, fetch concurrency, HUD limits
-Network            → Bandwidth throttle, ACK timing, plugin threading/CPU limit
-Audio              → Streaming engine, metadata, FMOD/OpenAL
-Experimental       → Selection beam styling and custom colors
-Reflections        → Reflection probes: intensity, saturation, blur
-Resets             → Cache purging, settings reset, factory reset
-Movement           → Smooth keyboard movement with acceleration curves
+Network            → Bandwidth throttle, ACK timing, plugin threading/CPU/instance limits
+Audio              → Streaming engine choice, VLC 10-band EQ, FMOD 3-band EQ, stream metadata
+Experimental       → GLTF, mirrors/cubemaps, Master Reflection Cube, DXVK, selection beam, menu icons
+Reflections        → Reflection probes: system, sampling, tone, light, limits, Tonemap Everywhere
+Materials          → Reflection gloss/metallic gates, normal/specular map scale, projector specular
+Alpha              → Transparency sort mode, per-face distance, projector light count
+Resets             → Per-tab reset buttons, cache purging, factory reset
+Movement           → Smooth ground/flight movement with acceleration curves and flight thresholds
+UI Hue             → Independent hue rotation per UI category, contrast/shine/grayscale, saved profiles
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -144,150 +145,199 @@ and their defaults. Then explore specific tabs for detailed controls.
       </text>
 
       <text_editor follows="left|top|right|bottom" height="560" layout="topleft" left="20" top="50" width="820" font="SansSerif" word_wrap="true" text_color="LtGray" bg_readonly_color="0 0 0 0" read_only="true" hide_scrollbar="false" max_length="999999">
-Most frequently adjusted values and their defaults from settings.xml
+Full reference, organized by the real KVTweaks tabs - verified against the live floater XML, not settings.xml alone. Every default/range below is what the control actually ships with today.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-📊 CPU &amp; THREADING (KVTweaks → CPU &amp; Memory)
+📊 CPU &amp; MEMORY
 
 EmulateCoreCount
-  Default: 0 (auto-detect)
-  Range: 0-128
-  Notes: Override CPU core count detection. 0 = auto, 1-128 = manual override
+  Default: 0 (auto-detect)   Range: 0-128
+  Override CPU core count detection. 0 = auto, 1-128 = manual override
 
-KVdefault_cores
-  Default: 6
-  Range: 1-128
-  Notes: Default cores allocated for texture decode operations
-
-KVmin_cores
-  Default: 2
-  Range: 1-128
-  Notes: Minimum cores for texture decode (prevents under-allocation)
-
-KVmax_cores
-  Default: 16
-  Range: 1-128
-  Notes: Maximum cores for texture decode (prevents over-allocation)
+KVdefault_cores / KVmin_cores / KVmax_cores
+  Default: 8 / 4 / 16   Range: 1-128 (all three)
+  Default/min/max cores allocated for texture decode operations
 
 RenderProcessQoS ("CPU Process QoS" slider)
-  Default: 1 (Normal)
-  Range: 0-2 (0=Eco, 1=Normal, 2=High)
-  Notes: Real Windows process/thread scheduling tier, applied at launch. Eco enables
-         EcoQoS power throttling (background-friendly); High disables throttling and
-         boosts main-thread/process priority for best frame timing.
+  Default: 1 (Normal)   Range: 0-2 (0=Eco, 1=Normal, 2=High)
+  Real Windows process/thread scheduling tier, applied at launch. Eco enables
+  EcoQoS power throttling (background-friendly); High disables throttling and
+  boosts main-thread/process priority for best frame timing.
 
 RunMultipleThreads
+  Default: true ("Keep Background Threads Active")
+
+RenderParallelAvatarCharacter ("Threaded Avatar Motion")
+  Default: false
+  Dispatches other avatars' (not self, not animesh) animation/motion blending
+  across worker threads instead of the main thread. No restart needed.
+
+MainWorkTime
+  Default: 1.00 ms   Range: 0.01-3.00 ms
+  Main loop time budget per frame
+
+RenderReserveCoresForMainThread (console/settings.xml only - not yet a KVTweaks slider)
   Default: true
-  Notes: Keep background threads active during render
+  Windows CPU Sets: reserves the detected (or overridden) preferred cores for the
+  main/render and window threads, structurally - not via priority elevation.
+
+RenderPreferredCoresOverride (console/settings.xml only - not yet a KVTweaks slider)
+  Default: empty (auto-detect)
+  Manually force which logical processor indices count as "preferred" for the
+  setting above, e.g. "16-31". Needed on dual-CCD AMD X3D chips where
+  auto-detection can't fully confirm which CCD actually has the 3D V-Cache -
+  check Task Manager's per-core view or HWiNFO, then set the real range here.
 
 RenderCPUBasis (console/settings.xml only - not exposed as a KVTweaks slider)
   Default: 3000 MHz
-  Notes: Reference CPU frequency the GPU benchmark biases its classification against,
-         so a high-end GPU isn't over-classified on a weak CPU
+  Reference CPU frequency the GPU benchmark biases its classification against
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-💾 MEMORY MANAGEMENT (KVTweaks → CPU &amp; Memory)
+💾 MEMORY (same tab)
 
 MaxHeapSize64
-  Default: 16 GB
-  Range: 8-64 GB
-  Notes: Maximum heap size for viewer process
+  Default: 16 GB   Range: 8-64 GB
 
 RenderMaxVRAMBudget
-  Default: 0 (auto-detect)
-  Range: 0-32768 MB
-  Notes: Maximum VRAM budget. 0 = automatic detection and management
+  Default: 0 (auto-detect)   Range: 0-32768 MB
 
 RenderVRAMSoftPressureFraction
-  Default: 0.8 (80%)
-  Range: 0.5-1.0
-  Notes: VRAM usage fraction at which the deterministic budget allocator starts
-         lowering texture discard levels to stay under budget
+  Default: 0.8 (80%)   Range: 0.5-1.0
+  VRAM usage fraction where the budget allocator starts lowering texture
+  discard levels to stay under budget
 
 RenderMinFreeMainMemoryThreshold
   Default: 512 MB
-  Notes: Minimum free RAM threshold before viewer reduces memory usage.
 
 NonvisibleObjectsInMemoryTime
-  Default: 64 frames
-  Range: 0-1024 (0=no limit)
-  Notes: How many frames to keep non-visible objects in memory
-
-MainWorkTime
-  Default: 1.00 ms
-  Range: 0.01-3.00 ms
-  Notes: Main loop time budget per frame
+  Default: 64 frames   Range: 0-1024 (0=no limit)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-🎨 RENDERING CORE (KVTweaks → Rendering Core)
+🎨 RENDERING CORE
 
 RenderVolumeLODFactor
-  Default: 4.125
-  Range: 0.0-8.0
-  Notes: Mesh detail multiplier. Higher = more detail, more GPU load
+  Default: 2.0   Range: 0.0-8.0 - object mesh detail multiplier
 
 RenderAvatarLODFactor
-  Default: 0.5
-  Range: 0.0-4.0
-  Notes: Avatar mesh detail multiplier
+  Default: 1.0   Range: 0.0-4.0
 
 RenderTerrainLODFactor
-  Default: 1.0
-  Range: 1.0-4.0
-  Notes: Terrain mesh resolution multiplier
+  Default: 2.0   Range: 1.0-4.0
 
 RenderTreeLODFactor
-  Default: 0.5
-  Range: 0.0-4.0
-  Notes: Legacy Linden tree detail
+  Default: 1.0   Range: 0.0-4.0 - legacy Linden tree detail
+
+RenderFlexTimeFactor
+  Default: 0.0   Range: 0.0-4.0 - flexi-prim time factor
 
 RenderFarClip
-  Default: 256 meters
-  Range: 64-1024 meters
-  Notes: Draw distance. Higher = more objects rendered, more load
+  Default: 128 meters   Range: 64-1024 meters
 
-RenderAutoMuteSurfaceAreaLimit
-  Default: 1000.0 m²
-  Notes: Auto-mute avatars whose attachments exceed this surface area (0=off)
+AvatarExtentRefreshPeriodBatch
+  Default: 4 frames   Range: 1-32 - spreads avatar extent recompute load
 
 AvatarFeathering
-  Default: 16.0
-  Range: 0.0-8.0 (KVTweaks slider - note the shipped default exceeds the slider's own max)
-  Notes: Softens avatar LOD transitions - lower = softer
+  Default: 1.0   Range: 0.0-8.0 - softens avatar LOD transitions, lower = softer
+
+RenderAutoMuteSurfaceAreaLimit
+  Default: 0 (off)   Auto-mute avatars whose attachments exceed this surface area (m²)
 
 RenderCompressTextures
-  Default: false (Experimental, opt-in)
-  Notes: Real-time BC7 GPU texture compression (background, minimal frame-time impact)
+  Default: true - real-time BC7 GPU texture compression (background, minimal cost)
+
+RenderFlushOrphanedTexturesOnTeleport
+  Default: false
+  Evicts region-change-orphaned textures immediately instead of the slow
+  background cleanup. Off by default - testing linked it to lower framerate.
+
+RenderScalePercent / RenderFSR1Sharpness (FSR upscale)
+  Default: 100% / 0.4   Range: 25-100% / 0.0-1.0
+  Below 100% scale, FSR EASU upscale engages automatically; sharpening (RCAS)
+  always applies, even at 100%.
+
+RenderHardwareShaderTier
+  Default: -1 (Auto/detected)   Range: -1 to 5
+  Pins a lighting/reflection/SSR cost ceiling instead of following your
+  detected GPU class. Persists until changed or "Reset to recommended
+  settings" in Preferences.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-🖼️ TEXTURES (KVTweaks → Textures)
+🧰 RENDERING ADVANCED
+
+RenderSSAOScale / RenderSSAOMaxScale / RenderSSAOFactor / RenderSSAOEffect
+  Default: 500.0 / 200.0 / 0.3 / 0.7
+  Ambient occlusion base scale, max scale clamp, intensity, and overall strength
+
+RenderObjectBump
+  Default: true - master bump-mapping/shiny toggle (mirrored on Materials tab)
+
+RenderGlow / RenderGlowResolutionPow
+  Default: true / 9 (2^9)   Range (resolution): 8-10
+
+S24DXDebugLayerEnabled ("D3D11 Debug Layer")
+  Default: false - developer-only, real per-draw-call cost, especially on
+  multi-pass work like shadows. Requires restart.
+
+RenderDXShaderCacheEnabled ("DX Shader Cache")
+  Default: true - caches compiled D3D11 shader bytecode to disk instead of
+  recompiling from HLSL every launch. Requires restart.
+
+RenderJellyGhostBaseAlpha / RimIntensity / RimWidth
+  Default: 0.2 / 1.2 / 12.0 - jelly-doll ghost body opacity, edge-glow
+  intensity, and edge-glow width
+
+RenderGodrayIntensity ("Volumetric Light")
+  Default: 0.15   Range: 0.0-3.0
+  Real raymarched sun light-shaft strength, 0=off
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🪞 SSR (SCREEN-SPACE REFLECTIONS)
+
+RenderScreenSpaceReflections
+  Default: true - master toggle
+
+RenderScreenSpaceReflectionIterations / RayStep / DistanceBias
+  Default: 25 / 0.5 / 0.0 - ray march steps, step size, distance-reject bias
+
+RenderScreenSpaceReflectionGlossySamples / AdaptiveStepMultiplier / GlossThreshold
+  Default: 4 / 1.0 / 0.0 - glossy sample count, adaptive step tuning, and the
+  minimum glossiness before SSR engages (separate from the Materials tab's
+  probe gloss gate, which affects probes, not SSR)
+
+RenderScreenSpaceReflectionDepthRejectBias / RenderSSRMissFill
+  Default: 0.001 / 0.25 - depth-reject bias, and how much probe reflection
+  shows through where SSR misses (0=none, 1=full probe)
+
+RenderWaterSSRIterations / RenderWaterSSRRayStep
+  Default: 15 / 0.15 - water-specific override of the global SSR settings
+  (0 iterations disables water SSR)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🖼️ TEXTURES
 
 TextureDiscardLevel
-  Default: 0 (full quality)
-  Range: 0-5
-  Notes: Force lower-resolution textures. Higher = more VRAM saved, less detail
+  Default: 0 (full quality)   Range: 0-5
+
+TextureLoadFullRes
+  Default: false - always load highest resolution regardless of other settings
 
 RenderMaxTextureResolution
-  Default: 2048 px
-  Range: 512-4096 px
-  Notes: Maximum allowed texture resolution per dimension
+  Default: 2048 px   Range: 512-4096 px
 
 TextureFetchConcurrency
-  Default: 0 (auto - scales to 16)
-  Range: 0-64
-  Notes: S24 raised the manual cap from 16→64 for modern connections
+  Default: 0 (auto, scales to 16)   Range: 0-64
+  S24 raised the manual cap from 16→64 for modern connections
 
-TextureNewByteRange
-  Default: true
-  Notes: HTTP byte-range requests for progressive texture loading
+TextureNewByteRange / TextureReverseByteRange
+  Default: true / 262144 bytes - HTTP byte-range progressive loading, and
+  reverse byte-range size for texture headers (0=disabled)
 
 RenderHUDTexturesWarning / RenderHUDOversizedTexturesWarning / RenderHUDTexturesMemoryWarning
-  Defaults: 200 textures / 6 oversized / ~30.5 MB (32,000,000 bytes)
-  Notes: Warning thresholds only - HUD still renders past them, just logs a warning
+  Default: 200 / 10 / 256 MB - warning thresholds only, HUD still renders past them
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -312,6 +362,15 @@ RenderWaterReflectionIntensity / RenderWaterSpecularIntensity
   Default: 1.0 / 1.0
   Range: 0.0-3.0 / 0.0-5.0
   Notes: Global reflection strength, and sun/moon specular sparkle intensity
+
+RenderWaterReflectionGateGlossReject / RenderWaterReflectionGateGlossAccept
+  Default: 0.0 / 0.0 (both off)
+  Range: 0.0-1.0 (both)
+  Notes: Water's OWN gloss reflection gate, independent of the Materials tab's
+         shared one - 0 disables it (canonical LL behavior, water has never
+         been gloss-gated upstream). Water's gloss tracks the active preset's
+         Blur Multiplier, not a fixed constant, so a gate tuned for everything
+         else can legitimately clip it.
 
 RenderWaterColorTintR/G/B/A
   Default: 1.0 / 1.0 / 1.0 / 1.0 (neutral, no tint)
@@ -338,6 +397,13 @@ RenderWaterUnderwaterFogMult
   Range: 0.1-5.0
   Notes: Underwater-only visibility multiplier, doesn't affect above-water fog
 
+RenderWaterHorizonFadeIntensity
+  Default: 4.0
+  Range: 0.0-10.0
+  Notes: Softens the hard water/sky horizon line with atmospheric haze. 0=off
+         (stock crisp line). Below ~3.0 reads dark, above ~6.0 overexposes.
+         Fades by view angle, so only the far horizon is affected, not water up close.
+
 RenderWaterReflectionWarmth
   Default: 1.0
   Range: 0.5-2.0
@@ -358,19 +424,22 @@ RenderWaterWindMagnitudeCap
   Range: 0.0-50.0
   Notes: Ceiling on the live wind vector's own strength before it affects water - limits how much a storm/gust can push wave speed/direction regardless of how extreme the simulator's actual wind gets. Only matters when RenderWaterWindInfluence &gt; 0. 0.0=always treat wind as calm
 
-RenderUIHueShiftFloaters / Menus / Controls / Text / Inventory / Map / Script / Misc
-  Default: 0.0 (degrees) each
-  Range: -180.0 to 180.0
-  Notes: Rotates each UI color category's hue independently (KVTweaks "UI Hue" tab). Floaters=window chrome/panels, Menus=menu bar/pie menu/toolbar, Controls=buttons/sliders/scrollbars, Text=chat/nametags/notifications/tooltips, Inventory=inventory/filters/outfits, Map=minimap/beacons/pathfinding, Script=script editor/syntax highlighting, Misc=everything else (login screen included). 0=skin default; pure white/gray/black elements are unaffected since hue has no meaning at zero saturation
+Water Preset System (KVTweaks → Water → Presets card)
+  Notes: Save/Load/Delete named water shader profiles - not individual
+         gSavedSettings keys, a combo + Save/Delete button pair
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-🌌 NIGHT SKY (KVTweaks → Night Sky - S24 Exclusive System)
+🌌 SKY (KVTweaks → Sky - stars, nebula, meteors AND the 2.5D cloud decks, one tab)
 
 RenderSkyStyle
   Default: 0 (Default)
   Options: 0=Default, 1=Real Constellations, 2=Starry Night (Van Gogh)
   Notes: Requires a viewer restart - star placement is baked once at startup
+
+RenderConstellationLines
+  Default: false
+  Notes: Thin dotted lines connecting each constellation's stars into its real shape
 
 RenderStarGlow
   Default: 1.0
@@ -384,21 +453,20 @@ RenderStarDensity
 
 RenderStarDustIntensity / RenderNebulaIntensity
   Default: 1.0 / 1.0
-  Range: 0.0-2.0
-  Notes: Milky-Way-style dust band and soft colored nebula patch strength
+  Range: 0.0-2.0 (both)
+  Notes: Milky-Way-style dust band, and soft colored nebula patch strength
+
+RenderNebulaEnabled
+  Default: true - master toggle for nebula patches, separate from their intensity slider
 
 RenderShootingStars / RenderShootingStarFrequency
   Default: true / 4.0 per minute
   Range (frequency): 0.0-20.0
   Notes: 0=effectively off, 20=meteor shower
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-☁️ SKY / CLOUD LAYERS (KVTweaks → Sky - S24 2.5D Depth System)
-
 RenderCloudLayers
   Default: true
-  Notes: Extra cirrus/cumulus decks layered on top of the active WindLight preset's own clouds - complementary, not a replacement
+  Notes: Extra cirrus/cumulus decks layered on top of the active preset's own clouds - complementary, not a replacement
 
 RenderCloudLayerOpacity
   Default: 1.0
@@ -462,87 +530,270 @@ KVRAMCacheDebugLogging
 🌑 SHADOWS (KVTweaks → Shadows)
 
 RenderShadowResolutionScale
-  Default: 3.0
+  Default: 1.0
   Range: 0.25-4.0
-  Notes: S24 uses an advanced cascade system - higher than standard LL values
 
 RenderShadowBias / RenderShadowOffset
-  Default: -0.002 / 0.01
+  Default: 0.0 / 0.0
   Range: -0.5 to 0.5 (both)
   Notes: Main directional-light shadow depth bias/offset - reduces acne (too low) or
-         peter-panning (too high). Separate Spot Shadow and Tree Shadow bias/offset
-         controls also exist further down the Shadows tab.
+         peter-panning (too high)
 
-RenderShadowThrottleEnabled
-  Default: true
-  Notes: S24 dynamic cascade throttling - distant cascades update less often while the
-         camera is still, for free performance with no visible quality loss
+RenderShadowNoise / RenderShadowBlurSize / RenderShadowBlurDistFactor
+  Default: 0.0 / 1.4 / 4.0
+  Notes: Shadow-edge noise magnitude, blur kernel scale, and blur distance falloff
+
+RenderShadowThrottleEnabled / RenderShadowThrottleSettleFrames
+  Default: true / 6 frames
+  Notes: Distant cascades update less often while the camera is still, for free
+         performance with no visible quality loss. Settle frames = how long to
+         wait after the camera stops before throttling kicks in.
+
+RenderShadowBiasError / RenderShadowOffsetError
+  Default: 0.0 / 0.0   Range: -1.0 to 1.0 (both)
+  Notes: Altitude-based bias/offset correction
+
+RenderSpotShadowBias / RenderSpotShadowOffset
+  Default: 0.0 / 0.04
+
+RenderDeferredTreeShadowBias / RenderDeferredTreeShadowOffset
+  Default: 1.0 / 1.0
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+💡 LIGHTING (KVTweaks → Lighting - LOCAL/spot lights, not sun/moon - sun/moon live in Environment/EEP editor, not here)
+
+RenderLocalLightCount
+  Default: 256   Range: 0-8192 (0=unlimited)
+
+RenderAttachedLights / RenderSpotLightsInNondeferred
+  Default: true / true
+
+RenderLocalLightFrustumCulling ("HardLight Mode")
+  Default: false
+  Notes: Excludes off-screen local lights from competing for rendering priority -
+         dramatically improves lighting stability in complex scenes. Lights near
+         your own avatar are always exempt, so a cammed-out shot doesn't
+         extinguish your own surroundings. Off = traditional LL behavior
+         (distant off-screen lights can steal priority).
+
+RenderDeferredSpotShadowBias / RenderDeferredSpotShadowOffset
+  Default: 0.0 / 0.0
+
+RenderLocalLightHoldTime
+  Default: 0.30 sec   Range: 0.0-1.0
+  Notes: Minimum time a local light holds its last visibility state before
+         flipping - smooths flicker from marginal frustum-edge cases. Only
+         does real work when Frustum Culling is enabled. 0=instant/hard cutoff.
+
+RenderLocalLightFrustumMargin
+  Default: 32.0 m   Range: 0.0-64.0
+  Notes: Extra world-space slack added to a light's frustum visibility test
+
+RenderLocalLightMinRadius
+  Default: 15.0 m   Range: 0.0-64.0
+  Notes: Extends how far a local light's glow reaches to at least this many
+         meters via a soft tail, without changing its true brightness up
+         close - fixes small decorative lights needing the camera almost
+         inside them to light anything. 0 = no extended reach.
+
+RenderLocalLightReachGlow
+  Default: 0.35   Range: 0.0-1.0
+  Notes: Peak strength of the reach-extension glow above, as a fraction of
+         a light's own center brightness. 0 = extended reach is invisible
+         (same look as RenderLocalLightMinRadius=0).
+
+RenderPointLightShadows ("K-Light", Experimental)
+  Default: false
+  Notes: Real-time shadow casting for ordinary point/omni lights via a 6-face
+         cubemap capture. Significant GPU cost while active, face-boundary
+         seams are a known limitation.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 ✨ REFLECTIONS (KVTweaks → Reflections)
 
-Enable Reflection Probes (RenderReflectionProbesEnabled)
-  Default: true
-  Notes: Master toggle, right here in the Reflections tab - requires a shader rebuild
-         (RESETS → Purge Shader Cache → Restart) to take effect
+RenderReflectionProbesEnabled
+  Default: true - master toggle, requires a shader rebuild (RESETS → Purge
+  Shader Cache → Restart) to take effect
+
+RenderReflectionProbeLevel / Detail / Count / Resolution
+  Default: 3 (Everything) / -1 (Once) / 128 / 128 px
+  Notes: Content captured (sky+clouds / +terrain / +water / everything),
+         update mode (Once/Static/Static+dynamic/Realtime), how many cube
+         slots held at once (16-256), and resolution per cube face (64-512 px)
+
+RenderReflectionAutoParallax / RenderReflectionBoxProbesEnabled
+  Default: true / true
+
+RenderReflectionExcludeAvatarDynamic / RenderReflectionExcludeAvatarRealtime
+  Default: false / true
+  Notes: Performance choices - keep avatars/particles out of the master
+         reflection cube under Static+dynamic / Realtime detail
 
 Reflection Intensity / Saturation / Contrast
   Default: 1.0 / 1.0 / 1.0
   Range: 0.0-10.0 / 0.0-5.0 / 0.0-5.0
-  Notes: RenderReflectionProbeIntensity/Saturation/Contrast - brightness, color, and
-         punch of what the probes capture
+
+RenderTonemapEverywhere ("Tonemap Everywhere!")
+  Default: false
+  Notes: Legacy skies (Linden/stock sky and water, or anything predating HDR
+         probe support) normally force tonemap and exposure off with no user
+         edit path - Linden's own sky is a no-modify asset. This gives legacy
+         skies a tiny, unsaved reflection-probe-ambiance value just large
+         enough to unlock tonemap/exposure, without visibly changing ambient
+         lighting the way "Auto-Adjust Legacy Skies" (Advanced Graphics) would.
 
 Reflection Blur (RenderReflectionProbeBlurSpread)
-  Default: 0.01 - just enough to eradicate mip-level banding
-  Range: 0.0 to 0.1
-  Notes: Direction-space smudge independent of probe mip resolution.
-         0 = sharp, higher = softer reflections. Deliberately a small
-         range - past ~0.06-0.08 the 16-tap kernel's sample gaps show
-         up as separated ghosts again rather than a smooth smear.
-
-Probe Fade Weight (RenderDefaultProbeFadeWeight)
-  Default: 0.35
-  Range: 0.05 to 1.0
-  Notes: How much of each sky/default probe refresh applies at once.
-         1.0 snaps instantly (old behaviour), lower smooths out the
-         pop in water/mirror reflections as sky/clouds change.
+  Default: 0.0 (sharp, no cost)   Range: 0.0-0.1
+  Notes: Direction-space smudge, independent of probe mip resolution. Real
+         per-pixel 16-tap cost even at small values - past ~0.06-0.08 the
+         kernel's sample gaps separate into ghosts again.
 
 Ambient Contribution (RenderReflectionProbeAmbientMultiplier)
-  Default: 0.2
-  Range: 0.0-10.0
-  Notes: Kept low by design - local lights are additive on top of ambient, so a low
-         floor here lets local light actually read instead of being washed out
+  Default: 1.0   Range: 0.0-10.0
 
-Equalize Faces / Opacity (RenderReflectionProbeEqualize / RenderReflectionProbeOpacity)
-  Default: 0.0 / 1.0
-  Range: 0.0-1.0 (both)
-  Notes: Equalize blends toward a fully-averaged reflection across all 6 probe faces
-         (0=full detail, 1=fully equalized); Opacity is probe visibility (0=transparent)
+Equalize Faces / Opacity
+  Default: 0.0 / 1.0   Range: 0.0-1.0 (both)
+
+RenderReflectionProbeMaxLocalLightAmbiance
+  Default: 4.0   Range: 0.0-16.0
+  Notes: Caps local light level while probes are captured - lower reduces
+         light bleed into reflections
+
+RenderReflectionProbeDrawDistance
+  Default: 64 m   Range: 16-512
+  Notes: How far each capture reaches - NOT the view draw distance
+
+RenderDefaultProbeUpdatePeriod / RenderDefaultProbeFadeWeight
+  Default: 2.0 sec / 0.35
+  Notes: Seconds between sky/default probe refreshes (also drives ambient
+         light), and how much of each refresh applies at once (1.0=snap
+         instantly, lower smooths the pop as sky/clouds change)
+
+RenderHeroProbeDistance ("Mirror Probe Distance")
+  Default: 8 m   Range: 0-1024
+
+RenderSSAOIrradianceScale / RenderSSAOIrradianceMax
+  Default: 0.6 / 0.18
+  Notes: Strength and clamp of ambient occlusion applied to probe irradiance
+
+RenderReflectionProbeCaptureShadows
+  Default: true
+  Notes: Computes real sun shadows inside reflection/mirror/360 captures. Off
+         skips that per-face cost during probe-heavy moments (e.g. right
+         after login) at the cost of shadow detail in reflections only.
 
   ⚠ If any of these tweaks appear to do nothing: RESETS → Purge Shader Cache → Restart.
+  Note: "Reset Cubemap Defaults" on this tab does NOT reset Tonemap Everywhere
+  or Capture Shadows - those two persist through that specific reset button.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🧪 MATERIALS (KVTweaks → Materials)
+
+RenderReflectionGateGlossReject / RenderReflectionGateGlossAccept
+  Default: 0.65 / 0.65 (both)   Range: 0.0-1.0
+  Notes: Gloss (=1-roughness) at or below Reject gets no probe reflection; at
+         or above Accept gets full reflection; ramped between. Probes only -
+         SSR has its own separate threshold on the SSR tab. Equal defaults
+         approximate the original LL hardcoded hard-cutoff behavior.
+
+RenderReflectionGateMetallicReject / RenderReflectionGateMetallicAccept
+  Default: 0.65 / 0.65 (both)   Range: 0.0-1.0
+  Notes: Same gate shape, for the PBR-only metallic channel. Legacy materials
+         have no metallic channel and are unaffected.
+
+RenderNormalMapScale
+  Default: 64.0   Range: 1.0-256.0
+  Notes: Height-map scale used when generating normal maps from bump textures
+
+RenderSpecularExponent
+  Default: 368   Range: 1-1000
+  Notes: Specular exponent for the legacy (non-PBR) specular map
+
+RenderProjectorSpecularReliable
+  Default: false
+  Notes: Projector lights only - widens the specular highlight and keeps its
+         color with distance. Enables the two settings below.
+
+RenderProjectorSpecularExponent / RenderProjectorSpecularLODCap
+  Default: 24 / 1.0
+  Notes: Only used while the checkbox above is on - lower exponent=wider
+         highlight, lower LOD cap=sharper color at distance
+
+RenderProjectorPBRLegacySpecular
+  Default: false - PBR surfaces under projector lights use the legacy
+  specular lobe instead of GGX when enabled
+
+RenderObjectBump
+  Default: true - same control as Rendering Adv's Bump/Shiny toggle
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🔺 ALPHA (KVTweaks → Alpha)
+
+RenderAlphaSortMode
+  Default: 1 (per-face, sorted by distance)   Range: 0-1
+  Notes: 0=batch order (faces draw in build order), 1=per face (sorted by
+         distance, farthest first). Near-opaque faces write depth in both modes.
+
+RenderAlphaFaceSortDistance / RenderAlphaSortExtentFactor / RenderAlphaDepthWriteThreshold
+  Default: 24 m / 0.5 / 0.98
+  Notes: Per-face sort distance, depth extent factor, and the alpha threshold
+         above which a face writes depth (1.01=off)
+
+RenderAlphaProjectorCount / RenderAlphaProjectors
+  Default: 2 / false
+  Notes: Max alpha-affecting projector lights, and whether projected lights
+         light transparent surfaces at all (fading with their alpha)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🎨 UI HUE (KVTweaks → UI Hue)
+
+RenderUIGrayscale / RenderUIContrast / RenderUIShine
+  Default: false / 1.0 / 0.0
+  Notes: Desaturate the whole system independent of hue; contrast (&lt;1.0
+         flatter, &gt;1.0 punchier); a fixed diagonal glass-sheen overlay (0=off)
+
+RenderUIHueShiftFloaters / Menus / Controls / Text / Inventory / Map / Script / Misc
+  Default: 0.0 (degrees) each   Range: -180.0 to 180.0
+  Notes: Rotates each UI color category's hue independently. Floaters=window
+         chrome/panels/notification toasts, Menus=menu bar/pie menu, Controls=
+         buttons/icons/sliders/scrollbars, Text=chat/nametags/tooltips,
+         Inventory=inventory/folders/outfits, Map=minimap/beacons/pathfinding,
+         Script=script editor, Misc=login screen/everything else. 0=skin
+         default; pure white/gray/black is unaffected (no hue at zero saturation)
+
+Color Profiles (Save/Delete buttons + combo)
+  Notes: Save the current hue sliders as a named profile, or load/delete a
+         saved one - not individual gSavedSettings keys. Changes apply live,
+         no separate "apply" step needed.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 🎮 MOVEMENT (KVTweaks → Movement)
 
 SmoothKeyboardMovement (ground walking/running)
-  Default: Disabled (false)
-  Notes: S24 feature - off by default, purely aesthetic enhancement
+  Default: Disabled (false) - purely aesthetic enhancement
 
 SmoothMovementAccelTime / SmoothMovementDecelTime
-  Default: 0.20s / 0.15s
+  Default: 0.20s / 0.25s
   Range: 0.05-1.0s (both)
-  Notes: Time to reach full speed / time to stop, for ground movement
 
 SmoothFlightMovement (flying)
-  Default: Enabled (true)
-  Notes: Separate system from ground smoothing - on by default, unlike it
+  Default: Enabled (true) - separate system from ground smoothing, on by default unlike it
 
 SmoothFlightAccelTime / SmoothFlightDecelTime
-  Default: 0.35s / 0.40s
+  Default: 0.15s / 0.20s
   Range: 0.05-1.0s (both)
-  Notes: Time to reach full speed / time to stop, for flight
+
+SmoothFlightFastThreshold / SmoothFlightMinThreshold
+  Default: 0.70 / 0.15
+  Range: 0.50-0.95 / 0.0-0.50
+  Notes: Fast-movement trigger threshold (lower=more responsive), and the
+         dead zone before any movement starts (higher=more damping of initial boost)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -556,20 +807,87 @@ ThrottleBandwidthKBPS
 AckCollectTime
   Default: 0.1 sec
   Range: 0.001-1.0 sec
-  Notes: Time to batch ACK messages before sending - affects network efficiency
 
 PluginUseReadThread
-  Default: false
-  Notes: Offload plugin (media/CEF) I/O to a dedicated thread
+  Default: false - offload plugin (media/CEF) I/O to a dedicated thread
 
 PluginInstancesCPULimit
-  Default: 0.90 (90%)
-  Range: 0.0-0.99 (0=disabled)
-  Notes: Maximum CPU usage allowed for plugin processes combined
+  Default: 0.90 (90%)   Range: 0.0-0.99 (0=disabled)
+
+PluginInstancesUIMax
+  Default: 8   Range: 2-64
+  Notes: Caps concurrent CEF/Dullahan instances used by viewer UI (profiles,
+         search, marketplace, web/help browser, popout windows) - previously
+         unbounded. The longest-idle hidden instance unloads first when over
+         this limit; anything visible/focused is never evicted.
+
+PluginDisableGPU
+  Default: true
+  Notes: Skips CEF's GPU process for every web-UI instance, dropping one
+         subprocess per instance - viewer web UI doesn't need hardware
+         compositing. Applies to newly-created instances.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-🔬 SELECTION BEAM (KVTweaks → Experimental)
+🔊 AUDIO (KVTweaks → Audio)
+
+StreamingAudioEngine
+  Default: 0 (Media Plugins/libVLC)
+  Options: 0=libVLC (better codecs, 10-band EQ, metadata), 1=FMOD (3-band EQ, metadata)
+
+ShowStreamMetadata
+  Default: true - shows streaming song title/artist as a notification
+
+AudioEqualizerEnabled (FMOD engine, 3-band)
+  Default: false
+  AudioEqualizerLowGain / MidGain / HighGain
+  Default: 0.0 / 0.0 / 0.0   Range: -30dB to +10dB (0=flat)
+
+VLCAudioEQEnabled (libVLC engine, 10-band)
+  Default: false
+  VLCAudioEQBand0-9 (60Hz/170Hz/310Hz/600Hz/1k/3k/6k/12k/14k/16k)
+  Default: 0.0 dB each   Range: -20dB to +20dB
+  VLCAudioEQPreamp
+  Default: 0.0 dB   Range: -20dB to +20dB
+  VLCAudioEQPreset
+  Default: 0 (Flat/Manual)
+  Options: Flat, Rock, Pop, Jazz, Classical, Dance, Bass Boost, Vocal Boost,
+           Treble Boost, Full Bass &amp; Treble
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🔬 EXPERIMENTAL (KVTweaks → Experimental)
+
+GLTFEnabled
+  Default: false
+  ⚠ Can trigger implicit texture uploads costing L$. Persists across restarts.
+
+RenderMirrors
+  Default: false - planar mirrors (experimental)
+
+RenderCubeMap
+  Default: true - master toggle for cube-map-based reflections (water,
+  bump/shiny, sky). Requires restart.
+
+RenderReflectionMasterCube / RenderReflectionMasterCubeRadius
+  Default: true / 20 m
+  Notes: Every glossy/shiny/mirror surface samples one avatar-centred capture
+         instead of per-location probe selection - recommended default, fast
+         enough under Dynamic/Realtime to stay locally relevant as you move.
+         Not room-fitted, so very close reflections can look scaled/zoomed.
+         Radius takes effect immediately, no restart needed.
+
+UseMenuIcons
+  Default: true - emoji icons in the menu bar, requires restart
+
+HoverTextDistance / HoverTextFadeDistance
+  Default: 3.0 m / 1.5 m   Requires restart
+
+RenderUseDXVK ("DXVK (Vulkan Backend)")
+  Default: false
+  ⚠ EXPERIMENTAL: routes D3D11 through DXVK's Vulkan translation layer
+    instead of the native driver. DX context popout windows are incompatible
+    in Vulkan mode. Requires restart.
 
 SelectionBeamStyle
   Default: 2 (Hybrid - Line + Glow, "Lightsaber")
@@ -595,11 +913,41 @@ Beam Color
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+🧹 RESETS (KVTweaks → Resets)
+
+Reset KVTweaks to Defaults
+  Notes: Resets EVERY control across the entire KVTweaks floater (all 19
+         tabs), immediate effect, no restart needed, no confirmation dialog
+
+Purge Texture Cache / Purge CEF Cache / Purge RAM Cache
+  Notes: Texture and CEF purges need a restart to complete; RAM cache purge
+         is immediate (calls KVRAMCache::clearAll() directly)
+
+Purge Shader Cache
+  Notes: Deletes compiled shaders now; they rebuild on next launch - RESTART REQUIRED
+
+Purge Logs
+  Notes: Sets a flag; actual deletion happens on next startup (log files are
+         locked while running), not truly immediate despite the button's tooltip
+
+⚠ FACTORY RESET EVERYTHING
+  Notes: Opens a confirmation floater, then on confirm schedules a full
+         cache+settings wipe and force-quits - the actual wipe runs at final
+         shutdown via an external helper, requiring a full relaunch. Last resort only.
+
+Per-tab reset buttons (Cubemap/Materials/Movement/UI Hue/Alpha)
+  Notes: Each only resets its OWN tab's controls, unlike the floater-wide
+         button above - see each section's notes for exact exceptions
+         (e.g. Cubemap's reset does not touch Tonemap Everywhere)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 💡 PRO TIP
 
-These settings are from the actual KVTweaks tabs and settings.xml. Many are dynamically 
-managed by the viewer (VRAM, texture memory, thread counts). Start with defaults and 
-adjust incrementally while monitoring FPS and system resources.
+These settings are from the actual, live KVTweaks tabs - verified against the
+real floater XML, not just settings.xml. Many are dynamically managed by the
+viewer (VRAM, texture memory, thread counts). Start with defaults and adjust
+incrementally while monitoring FPS and system resources.
       </text_editor>
     </panel>
 
@@ -907,7 +1255,7 @@ Symptom: Surfaces show speckled patterns or light bleeding through
 
 Solutions:
   • Adjust Shadow Bias settings in Shadows tab
-  • Check Resolution Scale - LL default is 3.0
+  • Check Resolution Scale - default is 1.0
   • Increase Normal Offset slightly if acne persists
   • Try different shadow quality presets
   • Update GPU drivers - shadow artifacts often driver-related

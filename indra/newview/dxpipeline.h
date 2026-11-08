@@ -328,6 +328,9 @@ public:
     // for_profile true, as profileAvatar()'s actual draw call) - renders the avatar alone from a
     // small avatar-facing camera into avatar->mImpostor.
     static void profileAvatar(LLPipeline& pipeline, LLVOAvatar* avatar, bool profile_attachments = false);
+    // S24: polls profileAvatar()'s per-attachment async GPU queries - call once per frame
+    // from LLFloaterPerformance::draw(); cheap no-op when nothing is pending.
+    static void pollAttachmentProfiles();
     static void generateImpostor(LLPipeline& pipeline, LLVOAvatar* avatar, bool preview_avatar = false, bool for_profile = false, LLViewerObject* specific_attachment = nullptr);
 
     // ================================================================================
@@ -592,7 +595,6 @@ public:
     static S32 sCompiles;
     static bool sDynamicLOD;
     static bool sRenderAttachedParticles;
-    static LLTrace::EventStatHandle<S64> sStatBatchSize;
     static const U32 MAX_PREVIEW_WIDTH;
     static bool sShowHUDAttachments;
     static bool sForceOldBakedUpload; // If true will not use capabilities to upload baked textures.
@@ -744,6 +746,13 @@ public:
     static int doAllocateScreenBuffer(LLPipeline& pipeline, U32 resX, U32 resY);
     static bool allocateScreenBufferInternal(LLPipeline& pipeline, U32 resX, U32 resY);
     static bool allocateShadowBuffer(LLPipeline& pipeline, U32 resX, U32 resY);
+    // S24: right-sizes the two spot-shadow maps by texel density (the spot's own FOV vs
+    // the camera's) instead of the flat screen-tied scale the sun cascades use - a spot's
+    // shadow map only needs enough resolution to cover its own cone. Called once per frame
+    // from generateSunShadow()'s spot-light section; reallocates (rarely, via its own
+    // hysteresis) and returns true on the frame it does, so the caller can force that
+    // frame's throttled update to actually run (a freshly allocated map has no contents).
+    static bool updateSpotShadowResolution(LLPipeline& pipeline);
     static void releaseDXBuffers(LLPipeline& pipeline);
     static void releaseLUTBuffers(LLPipeline& pipeline);
     static void releaseShadowBuffers(LLPipeline& pipeline);

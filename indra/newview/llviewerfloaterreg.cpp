@@ -103,6 +103,11 @@
 #include "llfloatermarketplacelistings.h"
 #include "llfloatermaturitydialog.h"
 #include "llfloatermediasettings.h"
+#include "kvblackjack.h"
+#include "kvminesweeper.h"
+#include "kvreversi.h"
+#include "kvsolitaire.h"
+#include "kvworldclock.h"
 #include "llfloatermemleak.h"
 #include "llfloatermodelpreview.h"
 #include "llfloatermusicplayer.h"
@@ -507,6 +512,11 @@ void LLViewerFloaterReg::registerFloaters()
     LLFloaterReg::add("script_limits", "floater_script_limits.xml", (LLFloaterBuildFunc)&LLFloaterReg::build<LLFloaterScriptLimits>);
     LLFloaterReg::add("my_scripts", "floater_my_scripts.xml", (LLFloaterBuildFunc)&LLFloaterReg::build<LLFloaterMyScripts>);
     LLFloaterReg::add("music_player", "floater_music_player.xml", (LLFloaterBuildFunc)&LLFloaterReg::build<LLFloaterMusicPlayer>);
+    LLFloaterReg::add("kv_blackjack", "floater_kv_blackjack.xml", (LLFloaterBuildFunc)&LLFloaterReg::build<KVFloaterBlackjack>);
+    LLFloaterReg::add("kv_reversi", "floater_kv_reversi.xml", (LLFloaterBuildFunc)&LLFloaterReg::build<KVFloaterReversi>);
+    LLFloaterReg::add("kv_solitaire", "floater_kv_solitaire.xml", (LLFloaterBuildFunc)&LLFloaterReg::build<KVFloaterSolitaire>);
+    LLFloaterReg::add("kv_minesweeper", "floater_kv_minesweeper.xml", (LLFloaterBuildFunc)&LLFloaterReg::build<KVFloaterMinesweeper>);
+    LLFloaterReg::add("kv_worldclock", "floater_kv_worldclock.xml", (LLFloaterBuildFunc)&LLFloaterReg::build<KVFloaterWorldClock>);
     LLFloaterReg::add("sell_land", "floater_sell_land.xml", &LLFloaterSellLand::buildFloater);
     LLFloaterReg::add("settings_color", "floater_settings_color.xml", (LLFloaterBuildFunc)&LLFloaterReg::build<LLFloaterSettingsColor>);
     LLFloaterReg::add("settings_debug", "floater_settings_debug.xml", (LLFloaterBuildFunc)&LLFloaterReg::build<LLFloaterSettingsDebug>);

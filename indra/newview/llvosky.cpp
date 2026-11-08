@@ -1211,7 +1211,10 @@ F32 dtReflection(const LLVector3& p, F32 cos_dir_from_top, F32 sin_dir_from_top,
     else
         diff_angles = acos(cos_diff_angles);
 
-    const F32 rel_diff_angles = diff_angles / diff_angl_dir;
+    // S24: diff_angl_dir is 0 at the exact zenith (the two stretch corners collapse to the
+    // same angle), which made this a 0/0 NaN that propagated into the reflection quad's
+    // texcoords. diff_angles is 0 there too, so full reflection (dt=1) is the correct result.
+    const F32 rel_diff_angles = (diff_angl_dir > 1e-7f) ? (diff_angles / diff_angl_dir) : 0.f;
     const F32 dt = 1 - rel_diff_angles;
 
     return (dt < 0) ? 0 : dt;
@@ -1296,8 +1299,10 @@ void LLVOSky::updateReflectionGeometry(LLDrawable *drawable, F32 H,
 
     const F32 sin_dir_from_top = sqrt(1 - cos_dir_from_top[0] * cos_dir_from_top[0]);
     const F32 sin_dir_from_top2 = sqrt(1 - cos_dir_from_top[1] * cos_dir_from_top[1]);
-    const F32 cos_diff_dir = cos_dir_from_top[0] * cos_dir_from_top[1]
-                            + sin_dir_from_top * sin_dir_from_top2;
+    // S24: clamped for FP-rounding hygiene - the dot-product sum is mathematically <= 1
+    // but rounding can push it fractionally over, which would make acos() return NaN.
+    const F32 cos_diff_dir = llclamp(cos_dir_from_top[0] * cos_dir_from_top[1]
+                            + sin_dir_from_top * sin_dir_from_top2, -1.f, 1.f);
     const F32 diff_angl_dir = acos(cos_diff_dir);
 
     v_corner[0] = stretch_corner[0];

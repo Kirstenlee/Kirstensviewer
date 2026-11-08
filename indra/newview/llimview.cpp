@@ -3831,6 +3831,26 @@ void LLIMMgr::inviteToSession(
         }
     }
 
+    // S24: RejectUnsolicitedGroupChat - a narrower alternative to VoiceCallsFriendsOnly for the
+    // bot/griefing pattern of adding a target to an unsolicited ad-hoc conference (text or voice)
+    // instead of sending a normal IM. notify_box_type == "VoiceInviteAdHoc"/"InviteAdHoc" is
+    // exactly the ad-hoc case - P2P invites and REAL group sessions (gAgent.isInGroup() already
+    // checked above to set notify_box_type == "VoiceInviteGroup") never reach this branch, so
+    // real group chat/calls and direct individual IMs/calls are untouched regardless of this
+    // setting. Deliberately placed outside the voice_invite-only block below so it also covers
+    // the plain-text ad-hoc case, which never sets voice_invite at all - that gap is the actual
+    // exploit: VoiceCallsFriendsOnly's own reject logic only runs when voice_invite is true.
+    if (!is_linden
+        && (notify_box_type == "VoiceInviteAdHoc" || notify_box_type == "InviteAdHoc")
+        && gSavedPerAccountSettings.getBOOL("RejectUnsolicitedGroupChat")
+        && LLAvatarTracker::instance().getBuddyInfo(caller_id) == NULL)
+    {
+        LL_WARNS("IMVIEW") << "Rejecting unsolicited ad-hoc session invite from " << caller_name << LL_ENDL;
+        payload["voice_channel_info"] = voice_channel_info;
+        LLIncomingCallDialog::processCallResponse(1, payload);
+        return;
+    }
+
     LLVoiceChannel* channelp = LLVoiceChannel::getChannelByID(session_id);
     if (channelp && channelp->callStarted())
     {

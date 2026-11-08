@@ -518,6 +518,13 @@ void LLRenderPass::pushUntexturedRiggedBatches(U32 type)
 
 void LLRenderPass::pushMaskBatches(U32 type, bool texture, bool batch_textures)
 {
+    // S24 : consecutive draws very often share the same alpha-mask cutoff
+    // (it's per-material, and draw order groups by material/pool) - skip
+    // the uniform write when it hasn't actually changed from the last
+    // draw's. Shared with non-shadow callers of this function too; the
+    // cache is loop-local so that's safe regardless of caller.
+    bool have_last_cutoff = false;
+    F32 last_cutoff = 0.f;
     auto* begin = DXPipeline::beginRenderMap(gPipeline, type);
     auto* end = DXPipeline::endRenderMap(gPipeline, type);
     for (LLCullResult::drawinfo_iterator i = begin; i != end; )
@@ -526,7 +533,12 @@ void LLRenderPass::pushMaskBatches(U32 type, bool texture, bool batch_textures)
         LLCullResult::increment_iterator(i, end);
         if (pparams)
         {
-        LLHLSLShader::sCurBoundShaderPtr->setMinimumAlpha(pparams->mAlphaMaskCutoff);
+        if (!have_last_cutoff || pparams->mAlphaMaskCutoff != last_cutoff)
+        {
+            LLHLSLShader::sCurBoundShaderPtr->setMinimumAlpha(pparams->mAlphaMaskCutoff);
+            last_cutoff = pparams->mAlphaMaskCutoff;
+            have_last_cutoff = true;
+        }
         pushBatch(*pparams, texture, batch_textures);
         }
     }
@@ -537,6 +549,9 @@ void LLRenderPass::pushRiggedMaskBatches(U32 type, bool texture, bool batch_text
     const LLVOAvatar* lastAvatar = nullptr;
     U64 lastMeshId = 0;
     bool skipLastSkin = false;
+    // S24 : see pushMaskBatches()'s identical comment.
+    bool have_last_cutoff = false;
+    F32 last_cutoff = 0.f;
     auto* begin = DXPipeline::beginRenderMap(gPipeline, type);
     auto* end = DXPipeline::endRenderMap(gPipeline, type);
     for (LLCullResult::drawinfo_iterator i = begin; i != end; )
@@ -549,7 +564,12 @@ void LLRenderPass::pushRiggedMaskBatches(U32 type, bool texture, bool batch_text
 
         if (pparams)
         {
-            LLHLSLShader::sCurBoundShaderPtr->setMinimumAlpha(pparams->mAlphaMaskCutoff);
+            if (!have_last_cutoff || pparams->mAlphaMaskCutoff != last_cutoff)
+            {
+                LLHLSLShader::sCurBoundShaderPtr->setMinimumAlpha(pparams->mAlphaMaskCutoff);
+                last_cutoff = pparams->mAlphaMaskCutoff;
+                have_last_cutoff = true;
+            }
 
         if (uploadMatrixPalette(pparams->mAvatar, pparams->mSkinInfo, lastAvatar, lastMeshId, skipLastSkin))
         {

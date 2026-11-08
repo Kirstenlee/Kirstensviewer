@@ -696,6 +696,8 @@ bool LLAppViewerWin32::cleanup()
 {
 	bool result = LLAppViewer::cleanup();
 
+	// gDXHardware is torn down here, after LLAppViewer::cleanup() has finished.
+	// Keep that order in mind in case of an unforeseen dependency.
 	gDXHardware.cleanup();
 
 	if (mIsConsoleAllocated)
@@ -714,6 +716,13 @@ bool LLAppViewerWin32::cleanup()
 // LLWindowManager::createWindow()'s cross-platform signature - see
 // llwindowwin32.cpp's matching extern declaration.
 S32 gRenderProcessQoS = 1;
+
+// S24: CPU Sets core-reservation settings, same raw-extern pattern as
+// gRenderProcessQoS above and for the same reason (llwindow can't see
+// gSavedSettings). gRenderPreferredCoresOverride is a comma/range core-index
+// list (e.g. "16-31") - see llwindowwin32.cpp's resolvePreferredCores().
+bool gRenderReserveCoresForMainThread = true;
+std::string gRenderPreferredCoresOverride;
 
 bool LLAppViewerWin32::initWindow()
 {
@@ -736,6 +745,8 @@ bool LLAppViewerWin32::initWindow()
 	}
 
 	gRenderProcessQoS = gSavedSettings.getS32("RenderProcessQoS");
+	gRenderReserveCoresForMainThread = gSavedSettings.getBOOL("RenderReserveCoresForMainThread");
+	gRenderPreferredCoresOverride = gSavedSettings.getString("RenderPreferredCoresOverride");
 
 	return LLAppViewer::initWindow();
 }

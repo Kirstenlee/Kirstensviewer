@@ -419,6 +419,22 @@ bool LLSpatialGroup::removeObject(LLDrawable *drawablep, bool from_octree)
     }
 
     unbound();
+
+    // S24: hoisted out of the from_octree branch below - this used to only run on the
+    // from_octree==true path, so a bridge removed via the from_octree==false path (the
+    // default LLSpatialPartition::remove() call) kept a stale entry in mBridgeList.
+    if (drawablep->isSpatialBridge())
+    {
+        for (bridge_list_t::iterator i = mBridgeList.begin(); i != mBridgeList.end(); ++i)
+        {
+            if (*i == drawablep)
+            {
+                mBridgeList.erase(i);
+                break;
+            }
+        }
+    }
+
     if (mOctreeNode && !from_octree)
     {
         drawablep->setGroup(NULL);
@@ -428,18 +444,6 @@ bool LLSpatialGroup::removeObject(LLDrawable *drawablep, bool from_octree)
         drawablep->setGroup(NULL);
         setState(GEOM_DIRTY);
         DXPipeline::markRebuild(gPipeline, this);
-
-        if (drawablep->isSpatialBridge())
-        {
-            for (bridge_list_t::iterator i = mBridgeList.begin(); i != mBridgeList.end(); ++i)
-            {
-                if (*i == drawablep)
-                {
-                    mBridgeList.erase(i);
-                    break;
-                }
-            }
-        }
 
         if (getElementCount() == 0)
         { //delete draw map on last element removal since a rebuild might never happen

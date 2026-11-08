@@ -44,6 +44,15 @@ uniform float size;
 #endif
 uniform float falloff;
 
+// S24: RenderLocalLightMinRadius fix - `size` above is the FLOORED reach bound (also what
+// sizes the drawn box mesh, see pointLightV.hlsl), used only for the outer discard/box extent.
+// `falloff_radius` is the light's TRUE authored radius, used for the real falloff curve so a
+// small light's near-field brightness is no longer distorted by the floor. Between the two, a
+// soft two-ended "reach glow" tail (zero at both ends, see main() below) lets the light's glow
+// genuinely extend out to the floor distance without touching its authored intensity.
+uniform float falloff_radius;
+uniform float reach_glow_strength;
+
 // S24: real-time point/omni light shadow - uploaded by
 // DXPipeline::setupPointLightShadow() per-light (idx>=0 only when this
 // specific light currently holds the 1 shadow slot). sampleCubeShadow() is
@@ -128,8 +137,28 @@ float4 main(PSInput IN) : SV_Target
     float nh, nl, nv, vh, lightDist;
     calcHalfVectors(lv, n, v, h, l, nh, nl, nv, vh, lightDist);
     if (lightDist >= size) discard;
-    float dist = lightDist / size;
-    float dist_atten = calcLegacyDistanceAttenuation(dist, falloff);
+
+    // S24: RenderLocalLightMinRadius fix - inside the light's TRUE radius, the real legacy
+    // falloff curve (unchanged, now keyed on falloff_radius instead of the floored `size`).
+    // Beyond it and out to `size` (today's floored reach bound), a soft two-ended bump -
+    // zero at falloff_radius, zero again at size, peaking in between - adds a tasteful glow
+    // extension without ever changing the light's authored near-field brightness. When
+    // size==falloff_radius (floor <= true radius) the band is empty and this is a no-op,
+    // identical to today's unfloored behavior.
+    float dist_atten;
+    if (lightDist <= falloff_radius)
+    {
+        float dist = lightDist / falloff_radius;
+        dist_atten = calcLegacyDistanceAttenuation(dist, falloff);
+    }
+    else
+    {
+        float band = max(size - falloff_radius, 1e-4);
+        float t = saturate((lightDist - falloff_radius) / band);
+        float bump = 4.0 * t * (1.0 - t);
+        float center_atten = calcLegacyDistanceAttenuation(0.0, falloff);
+        dist_atten = bump * center_atten * reach_glow_strength;
+    }
 
     // S24: real-time point/omni light shadow - same "shadow += fade, clamp"
     // convention as spotLightF.hlsl's "shadow" term (crossfades toward fully-lit

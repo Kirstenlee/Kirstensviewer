@@ -666,7 +666,12 @@ void init_menus()
     LLRect menuBarRect = gLoginMenuBarView->getRect();
     menuBarRect.setLeftTopAndSize(0, menu_bar_holder->getRect().getHeight(), menuBarRect.getWidth(), menuBarRect.getHeight());
     gLoginMenuBarView->setRect(menuBarRect);
-    gLoginMenuBarView->setBackgroundColor(LLColor4::black);
+    // S24: was hardcoded LLColor4::black - completely bypassed the skin
+    // system, so no skin (dark or light) could ever theme this bar. The
+    // in-world main menu bar reads MenuBarBgColor via
+    // LLViewerWindow::setMenuBackgroundColor() - do the same here so a
+    // light skin like Frost doesn't show a black bar at the login screen.
+    gLoginMenuBarView->setBackgroundColor(LLUIColorTable::instance().getColor("MenuBarBgColor"));
     menu_bar_holder->addChild(gLoginMenuBarView);
 
     // tooltips are on top of EVERYTHING, including menus

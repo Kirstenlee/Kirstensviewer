@@ -34,6 +34,7 @@
 #include "llimagej2c.h" // for version control
 #include "lllfsthread.h"
 #include "llviewercontrol.h"
+#include "workqueue.h"
 
 // Included to allow LLTextureCache::purgeTextures() to pause watchdog timeout
 #include "llappviewer.h"
@@ -793,6 +794,7 @@ LLTextureCache::LLTextureCache(bool threaded)
       mReadOnly(true), //do not allow to change the texture cache until setReadOnly() is called.
       mTexturesSizeTotal(0),
       mDoPurge(false),
+      mDecayPurgeInFlight(false),
       mFastCachep(NULL),
       mFastCachePoolp(NULL),
       mFastCachePadBuffer(NULL)
@@ -850,16 +852,36 @@ size_t LLTextureCache::update(F32 max_time_ms)
 
         // Check if we're above target ratio
         S64 target_size = (S64)(sCacheMaxTexturesSize * RAM_TARGET_RATIO);
-        if (mTexturesSizeTotal > target_size)
+        if (mTexturesSizeTotal > target_size && !mDecayPurgeInFlight)
         {
-            // Trigger gentle continuous purge
-            if (!mDoPurge)
+            // S24: purgeTexturesLazy() does real disk I/O (file delete, header
+            // rewrite) that isn't interruptible mid-call - one slow op (AV
+            // real-time scan, NTFS overhead, disk contention) used to block
+            // the MAIN thread for however long it took, every 0.5s, with no
+            // Fast Timer coverage - a periodic dead-frame stutter. Dispatched
+            // to DXPool instead; mHeaderMutex (already used by every other
+            // purgeTexturesLazy() call site) is the synchronization this call
+            // site never had, since it previously ran on the main thread
+            // unguarded. mDecayPurgeInFlight prevents a second dispatch while
+            // one is still running.
+            auto queue = LL::WorkQueue::getInstance("DXPool");
+            if (queue)
             {
-                mDoPurge = true;
+                mDecayPurgeInFlight = true;
+                queue->post([this]()
+                {
+                    LLMutexLock lock(&mHeaderMutex);
+                    purgeTexturesLazy(DECAY_TIME_BUDGET);
+                    mDoPurge = !mPurgeEntryList.empty();
+                    mDecayPurgeInFlight = false;
+                });
             }
-            // Process a small batch for smooth background drain
-            purgeTexturesLazy(DECAY_TIME_BUDGET);
-            mDoPurge = !mPurgeEntryList.empty();
+            else
+            {
+                // DXPool unavailable (e.g. during shutdown) - fall back to the old synchronous path
+                purgeTexturesLazy(DECAY_TIME_BUDGET);
+                mDoPurge = !mPurgeEntryList.empty();
+            }
         }
     }
 
@@ -1747,9 +1769,14 @@ void LLTextureCache::purgeTexturesLazy(F32 time_limit_sec)
         S32 purge_cursor = 0; // process from front (oldest entries first, correct LRU order)
         while (purge_cursor < (S32)mPurgeEntryList.size() && timer.getElapsedTimeF32() < time_limit_sec)
         {
+            // S24 : was reading idx from the element AFTER incrementing
+            // purge_cursor, so entry/idx came from different list elements
+            // (remove_entry below then almost always failed), and the final
+            // iteration read mPurgeEntryList one past the end. Both idx and
+            // entry now come from the same element, read before incrementing.
+            S32 idx = mPurgeEntryList[purge_cursor].first;
             Entry entry = mPurgeEntryList[purge_cursor].second;
             ++purge_cursor;
-            S32 idx = mPurgeEntryList[purge_cursor].first;
             // make sure record is still valid
             bool remove_entry = false;
             {

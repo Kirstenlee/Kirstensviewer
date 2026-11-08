@@ -195,6 +195,11 @@ void LLFloaterPerformance::draw()
 {
     enableAutotuneWarning();
 
+    // S24: non-blocking poll for profileAvatar()'s per-attachment GPU queries - must run
+    // every frame, not just on the 1s refresh tick, so a measurement started on one refresh
+    // can resolve well before the next one.
+    DXPipeline::pollAttachmentProfiles();
+
     if (mUpdateTimer->hasExpired() &&
         !LLFloaterReg::instanceVisible("save_pref_preset", PRESETS_GRAPHIC)) // give user a chance to save the graphics settings before updating them
     {
@@ -302,7 +307,10 @@ void LLFloaterPerformance::populateHUDList()
                 row[0]["column"] = "complex_visual";
                 row[0]["type"] = "bar";
                 LLSD& value = row[0]["value"];
-                value["ratio"] = gpu_time / max_gpu_time;
+                // S24: guarded - profiling is now async (DXPipeline::pollAttachmentProfiles()),
+                // so a freshly-added or still-measuring attachment can read max_gpu_time<=0
+                // (its default) on this refresh; gpu_time/max_gpu_time would then be 0/0 (NaN).
+                value["ratio"] = (max_gpu_time > 0.f) ? (gpu_time / max_gpu_time) : 0.f;
                 value["bottom"] = BAR_BOTTOM_PAD;
                 value["left_pad"] = BAR_LEFT_PAD;
                 value["right_pad"] = BAR_RIGHT_PAD;
@@ -310,7 +318,7 @@ void LLFloaterPerformance::populateHUDList()
                 row[1]["column"] = "complex_value";
                 row[1]["type"] = "text";
                 // show gpu time in us
-                row[1]["value"] = llformat("%.f", gpu_time * 1000.f);
+                row[1]["value"] = (gpu_time >= 0.f) ? llformat("%.f", gpu_time * 1000.f) : "...";
                 row[1]["font"]["name"] = "SANSSERIF";
 
                 row[2]["column"] = "name";
@@ -393,7 +401,8 @@ void LLFloaterPerformance::populateObjectList()
                     row[0]["column"] = "complex_visual";
                     row[0]["type"] = "bar";
                     LLSD& value = row[0]["value"];
-                    value["ratio"] = gpu_time / max_gpu_time;
+                    // S24: guarded - see the matching comment in populateHUDList().
+                    value["ratio"] = (max_gpu_time > 0.f) ? (gpu_time / max_gpu_time) : 0.f;
                     value["bottom"] = BAR_BOTTOM_PAD;
                     value["left_pad"] = BAR_LEFT_PAD;
                     value["right_pad"] = BAR_RIGHT_PAD;
@@ -401,7 +410,7 @@ void LLFloaterPerformance::populateObjectList()
                     row[1]["column"] = "complex_value";
                     row[1]["type"] = "text";
                     // show gpu time in us
-                    row[1]["value"] = llformat("%.f", gpu_time * 1000.f);
+                    row[1]["value"] = (gpu_time >= 0.f) ? llformat("%.f", gpu_time * 1000.f) : "...";
                     row[1]["font"]["name"] = "SANSSERIF";
 
                     row[2]["column"] = "name";

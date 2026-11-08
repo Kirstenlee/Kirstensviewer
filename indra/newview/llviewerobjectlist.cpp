@@ -857,9 +857,6 @@ void LLViewerObjectList::update(LLAgent& agent)
 		gFrameIntervalSeconds = 0.f;
 	}
 
-	//clear avatar LOD change counter
-	LLVOAvatar::sNumLODChangesThisFrame = 0;
-
 	const F64 frame_time = LLFrameTimer::getElapsedSeconds();
 
 	LLViewerObject* objectp = NULL;

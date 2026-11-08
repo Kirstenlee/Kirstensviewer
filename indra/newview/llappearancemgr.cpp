@@ -2208,6 +2208,33 @@ void LLAppearanceMgr::updateCOF(const LLUUID& category, bool append)
     if (append)
         getDescendentsOfAssetType(cof, wear_items, LLAssetType::AT_CLOTHING);
     getDescendentsOfAssetType(category, wear_items, LLAssetType::AT_CLOTHING);
+
+    // KRLV_TOUCHPOINT: @remoutfit[:<part>]=n / @unsharedunwear / @sharedunwear - replacing an
+    // outfit (append==false) computes the new COF purely from the target category, with no per-item
+    // check at all, unlike removeItemsFromAvatar() (which already checks these same locks). A
+    // currently-worn, locked clothing layer that isn't part of the target outfit would otherwise be
+    // silently dropped here, then detached server-side once the COF slam removes its link. Fold any
+    // such locked item back in, same as if it were part of the target outfit. Append mode doesn't
+    // need this - it already pulls in ALL of COF's current clothing unconditionally above, so nothing
+    // worn gets dropped in that case.
+    if (!append)
+    {
+        LLInventoryModel::item_array_t cof_wear_items;
+        getDescendentsOfAssetType(cof, cof_wear_items, LLAssetType::AT_CLOTHING);
+        for (LLInventoryModel::item_array_t::const_iterator it = cof_wear_items.begin(); it != cof_wear_items.end(); ++it)
+        {
+            LLViewerInventoryItem* item = *it;
+            const LLUUID linked_item_id = item->getLinkedUUID();
+            const bool locked = (!KRlv::isDefaultWearAllowed() &&
+                KRlv::isOutfitPartDetachLocked(LLWearableType::getInstance()->getTypeName(item->getWearableType())))
+                || KRlv::isUnwearBlockedByShareRule(linked_item_id);
+            if (locked)
+            {
+                wear_items.push_back(item);
+            }
+        }
+    }
+
     // Reduce wearables to max of one per type.
     removeDuplicateItems(wear_items);
     filterWearableItems(wear_items, 0, LLAgentWearables::MAX_CLOTHING_LAYERS);
@@ -2217,6 +2244,33 @@ void LLAppearanceMgr::updateCOF(const LLUUID& category, bool append)
     if (append)
         getDescendentsOfAssetType(cof, obj_items, LLAssetType::AT_OBJECT);
     getDescendentsOfAssetType(category, obj_items, LLAssetType::AT_OBJECT);
+
+    // KRLV_TOUCHPOINT: @detach=n / @detach:<point>=n / @remattach[:<point>]=n /
+    // @unsharedunwear / @sharedunwear - same reasoning as the clothing block above, for attachments.
+    // Mirrors removeItemsFromAvatar()'s exact object/point-lock check.
+    if (!append && isAgentAvatarValid())
+    {
+        LLInventoryModel::item_array_t cof_obj_items;
+        getDescendentsOfAssetType(cof, cof_obj_items, LLAssetType::AT_OBJECT);
+        for (LLInventoryModel::item_array_t::const_iterator it = cof_obj_items.begin(); it != cof_obj_items.end(); ++it)
+        {
+            LLViewerInventoryItem* item = *it;
+            const LLUUID linked_item_id = item->getLinkedUUID();
+            bool locked = KRlv::isUnwearBlockedByShareRule(linked_item_id);
+            if (!locked && !KRlv::isDefaultWearAllowed())
+            {
+                std::string pointName;
+                gAgentAvatarp->getAttachedPointName(linked_item_id, pointName);
+                LLViewerObject* attachedObj = gAgentAvatarp->findAttachmentByID(linked_item_id);
+                locked = (attachedObj && KRlv::isObjectDetachLocked(attachedObj->getID())) || KRlv::isDetachPointLocked(pointName);
+            }
+            if (locked)
+            {
+                obj_items.push_back(item);
+            }
+        }
+    }
+
     removeDuplicateItems(obj_items);
 
     // - Gestures: include COF contents only if appending.

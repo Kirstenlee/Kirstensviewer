@@ -299,7 +299,12 @@ float sampleDirectionalShadow(float3 pos, float3 norm, float2 pos_screen)
         accum_weight += w;
     }
 
-    return (accum_weight > 0.0) ? (accum_shadow / accum_weight) : 1.0f;
+    // S24: saturate() - the unweighted far-cascade term above (line 267) pushes this past 1.0
+    // near the shadow far cutoff. The deferred sun-lightmap consumers already clamp their own
+    // result (sunLightF.hlsl/sunLightSSAOF.hlsl), so this is a no-op for them; several forward
+    // paths (PBR/glTF alpha, water, legacy materials) consume this value directly and were
+    // reading up to ~2x shadow brightness in that band without this clamp.
+    return (accum_weight > 0.0) ? saturate(accum_shadow / accum_weight) : 1.0f;
 #else
     return 1.0;
 #endif

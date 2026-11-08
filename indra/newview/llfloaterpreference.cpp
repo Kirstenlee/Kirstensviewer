@@ -1648,6 +1648,8 @@ void LLFloaterPreference::setPersonalInfo(const std::string& visibility)
     getChildView("conversation_log_combo")->setEnabled(true);
     getChild<LLUICtrl>("voice_call_friends_only_check")->setEnabled(true);
     getChild<LLUICtrl>("voice_call_friends_only_check")->setValue(gSavedPerAccountSettings.getBOOL("VoiceCallsFriendsOnly"));
+    getChild<LLUICtrl>("reject_unsolicited_group_chat_check")->setEnabled(true);
+    getChild<LLUICtrl>("reject_unsolicited_group_chat_check")->setValue(gSavedPerAccountSettings.getBOOL("RejectUnsolicitedGroupChat"));
 }
 
 
@@ -2286,6 +2288,10 @@ bool LLPanelPreference::postBuild()
     {
         getChild<LLCheckBoxCtrl>("voice_call_friends_only_check")->setCommitCallback(boost::bind(&showFriendsOnlyWarning, _1, _2));
     }
+    if (hasChild("reject_unsolicited_group_chat_check", true))
+    {
+        getChild<LLCheckBoxCtrl>("reject_unsolicited_group_chat_check")->setCommitCallback(boost::bind(&handleRejectUnsolicitedGroupChatChanged, _1, _2));
+    }
     if (hasChild("allow_multiple_viewer_check", true))
     {
         getChild<LLCheckBoxCtrl>("allow_multiple_viewer_check")->setCommitCallback(boost::bind(&showMultipleViewersWarning, _1, _2));
@@ -2387,6 +2393,11 @@ void LLPanelPreference::saveSettings()
         {
             mSavedValues[control] = control->getValue();
         }
+        control = gSavedPerAccountSettings.getControl("RejectUnsolicitedGroupChat");
+        if (control)
+        {
+            mSavedValues[control] = control->getValue();
+        }
     }
 }
 
@@ -2407,6 +2418,18 @@ void LLPanelPreference::showFriendsOnlyWarning(LLUICtrl* checkbox, const LLSD& v
         {
             LLNotificationsUtil::add("FriendsAndGroupsOnly");
         }
+    }
+}
+
+// S24: narrower alternative to VoiceCallsFriendsOnly - see llimview.cpp's inviteToSession(). No
+// warning notification needed here (unlike showFriendsOnlyWarning() above) - this only declines
+// unsolicited ad-hoc conference invites, not every non-friend IM, so there's no equivalent
+// "you just blocked everyone" surprise to warn about.
+void LLPanelPreference::handleRejectUnsolicitedGroupChatChanged(LLUICtrl* checkbox, const LLSD& value)
+{
+    if (checkbox)
+    {
+        gSavedPerAccountSettings.setBOOL("RejectUnsolicitedGroupChat", checkbox->getValue().asBoolean());
     }
 }
 

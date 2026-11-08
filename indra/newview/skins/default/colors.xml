@@ -799,10 +799,14 @@
 	<color
 		name="WornOutfitTextColor"
 		value="0.54 0.73 0.87 1" />
-	<!-- FIXED: was value="KL" (string used as value instead of reference) -->
+	<!-- S24 : was reference="KL" - KL is MenuBarBgColor's near-black 10%-alpha
+	     background wash, not a text color. Reused here for a FONT color by
+	     mistake, making search-matched menu item text render nearly invisible
+	     against a black backdrop. White matches MenuItemHighlightFgColor's
+	     own hover-highlight text color for consistency. -->
 	<color
 		name="SearchableControlHighlightFontColor"
-		reference="KL" />
+		reference="White" />
 	<color
 		name="SearchableControlHighlightBgColor"
 		value="0.5 0.1 0.1 1" />

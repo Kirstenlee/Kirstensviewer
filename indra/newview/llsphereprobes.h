@@ -81,7 +81,7 @@ public:
     // General guidance for UBOs is to statically allocate all of these fields to make your life ever so slightly easier.
     // Then set a "max" value for the number of probes you'll ever have, and use that to index into the arrays.
     // We do this with refmapCount.  The shaders will just pick up on it there.
-    // This data structure should _always_ match what's in class3/deferred/reflectionProbeF.glsl.
+    // This data structure should _always_ match what's in deferred/reflectionProbeF.glsl.
     // The shader can and will break otherwise.
     // -Geenz 2025-03-10
     struct ReflectionProbeData
@@ -138,6 +138,12 @@ public:
     // If less than maps.size() ReflectionMaps are available, will assign trailing elements to nullptr.
     //  maps -- presized array of Reflection Map pointers
     void getReflectionMaps(std::vector<LLReflectionMap*>& maps);
+
+    // S24 : true while the master cube is on and complete, the same condition getReflectionMaps()
+    // already uses to restrict SAMPLING to just the default+master probes. update()'s scheduler
+    // uses this too, so it stops CAPTURING local probes that condition already makes unsampled -
+    // see update()'s own use of this for the full rationale.
+    bool masterIsExclusive() const;
 
     // called by LLSpatialGroup constructor
     // If spatial group should receive a Reflection Probe, will create one for the specified spatial group

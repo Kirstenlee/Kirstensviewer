@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes" ?>
+<floater
+ legacy_header_height="18"
+ can_resize="false"
+ height="362"
+ layout="topleft"
+ name="kv_worldclock"
+ help_topic="kv_worldclock"
+ save_rect="true"
+ title="KV WORLD CLOCK"
+ width="694">
+    <!-- S24: every clock tile is built entirely at runtime in
+         kvworldclock.cpp (see buildTiles()) from the zone list in
+         buildZones() - grid_panel below is just an empty, repositioned/
+         resized placeholder the code populates, same pattern as
+         floater_kv_minesweeper.xml's cell grid. -->
+    <panel
+     follows="left|top"
+     height="320"
+     layout="topleft"
+     left="12"
+     name="grid_panel"
+     top="30"
+     width="670" />
+</floater>

@@ -2523,9 +2523,15 @@ void LLViewerObject::interpolateLinearMotion(const F64SecondsImplicit& frame_tim
                         }
                         else if (mLastInterpUpdateSecs - mLastMessageUpdateSecs > sPhaseOutUpdateInterpolationTime)
                         {   // Last update was already phased out a bit
+                            // S24: denominator was (sMax - time_since_last_interpolation), which is just
+                            // the current frame's dt (~3.0 always) instead of the phase window's absolute
+                            // reference - that made every frame after the first phase-out frame compute a
+                            // phase about 3x too small, producing a one-frame step down in dead-reckoned
+                            // speed instead of a smooth taper. Use the same absolute reference as the
+                            // first-phase-out branch below so both branches agree frame to frame.
                             phase_out = (sMaxUpdateInterpolationTime - time_since_last_update) /
-                                        (sMaxUpdateInterpolationTime - time_since_last_interpolation);
-                         
+                                        (sMaxUpdateInterpolationTime - sPhaseOutUpdateInterpolationTime);
+
                         }
                         else
                         {   // Phase out from full value

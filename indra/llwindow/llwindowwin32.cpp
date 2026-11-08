@@ -29,9 +29,12 @@
 #include "linden_common.h"
 #define WIN32_LEAN_AND_MEAN  // Prevents extra headers, including old Winsock
 #include "llwin32headers.h"
-#include <winbase.h>    
+#include <winbase.h>
 #include <winsock2.h>
 #include <vector>
+#include <unordered_map>
+#include <set>
+#include <cstring>
 
 #if LL_WINDOWS && !LL_MESA_HEADLESS
 
@@ -188,11 +191,140 @@ typedef enum PREFERRED_APP_MODE
 
 typedef PREFERRED_APP_MODE(WINAPI* fnSetPreferredAppMode)(PREFERRED_APP_MODE mode);
 
+// S24: CPU Sets core-reservation settings, same extern-global pattern as
+// gRenderProcessQoS (declared further below, same reason - llwindow can't
+// see gSavedSettings). gRenderPreferredCoresOverride is a comma/range
+// core-index list (e.g. "16-31") that takes absolute precedence over
+// auto-detection when non-empty - see resolvePreferredCores() below. Needed
+// because detectPreferredCores() has no reliable way to confirm AMD
+// dual-CCD X3D V-Cache placement without user verification; see
+// RenderPreferredCoresOverride's settings comment.
+extern bool gRenderReserveCoresForMainThread;
+extern std::string gRenderPreferredCoresOverride;
+
+//
+// Helper: CPUID vendor-string check. Used to decide which preferred-core
+// heuristic actually applies - see detectPreferredCores() below.
+//
+static bool isAmdVendor()
+{
+	int cpu_info[4] = { 0 };
+	__cpuid(cpu_info, 0);
+	char vendor[13];
+	memcpy(vendor, &cpu_info[1], 4);
+	memcpy(vendor + 4, &cpu_info[3], 4);
+	memcpy(vendor + 8, &cpu_info[2], 4);
+	vendor[12] = 0;
+	return memcmp(vendor, "AuthenticAMD", 12) == 0;
+}
+
+//
+// Helper: AMD dual-CCD 3D V-Cache detection. Unlike Intel's P-core/E-core
+// split, both CCDs on an X3D part (e.g. 7950X3D/9950X3D) have IDENTICAL
+// cores - the asymmetry is pure L3 cache size (e.g. ~96MB vs ~32MB), not
+// microarchitecture, so EfficiencyClass (which Microsoft documents as only
+// meaningful on "a heterogeneous set of cores") is not a confirmed signal
+// for this. Windows exposes CCD boundaries for free via L3 cache-sharing
+// domains instead: each RelationCache/Level-3 record's GroupMask is exactly
+// the set of logical processors sharing that physical L3 instance, which on
+// Zen is one CCD. Compare CacheSize across the resulting domains - no CPUID
+// leaf-parsing or AMD chipset driver required. Returns empty if there's no
+// clear two-domain size asymmetry (non-X3D Ryzen, single-CCD X3D like the
+// 7800X3D/9800X3D, EPYC, etc.) - caller falls back to the EfficiencyClass
+// heuristic in that case.
+//
+static std::vector<DWORD> detectAmdVCacheCores()
+{
+	std::vector<DWORD> result;
+
+	DWORD buffer_size = 0;
+	GetLogicalProcessorInformationEx(RelationCache, nullptr, &buffer_size);
+	if (buffer_size == 0) return result;
+
+	std::vector<BYTE> buffer(buffer_size);
+	auto* info = reinterpret_cast<SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX*>(buffer.data());
+
+	if (!GetLogicalProcessorInformationEx(RelationCache, info, &buffer_size))
+		return result;
+
+	struct L3Group { DWORD cache_size; std::vector<DWORD> cores; };
+	std::vector<L3Group> groups;
+
+	DWORD offset = 0;
+	while (offset < buffer_size)
+	{
+		auto* current = reinterpret_cast<SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX*>(buffer.data() + offset);
+
+		if (current->Relationship == RelationCache && current->Cache.Level == 3)
+		{
+			L3Group group;
+			group.cache_size = current->Cache.CacheSize;
+
+			WORD group_count = current->Cache.GroupCount;
+			if (group_count <= 1)
+			{
+				KAFFINITY mask = current->Cache.GroupMask.Mask;
+				for (int bit = 0; bit < 64; bit++)
+				{
+					if (mask & (1ULL << bit))
+						group.cores.push_back((DWORD)bit);
+				}
+			}
+			else
+			{
+				// Multi-group (>64 logical processors total) systems - not the
+				// consumer-desktop X3D case this targets; best-effort only,
+				// same simplifying scope as detectPreferredCores() below.
+				for (WORD g = 0; g < group_count; ++g)
+				{
+					KAFFINITY mask = current->Cache.GroupMasks[g].Mask;
+					for (int bit = 0; bit < 64; bit++)
+					{
+						if (mask & (1ULL << bit))
+							group.cores.push_back((DWORD)bit);
+					}
+				}
+			}
+
+			if (!group.cores.empty())
+				groups.push_back(group);
+		}
+
+		offset += current->Size;
+	}
+
+	// Exactly two L3 domains with a meaningfully larger one (>25% bigger) =
+	// the dual-CCD X3D pattern. One domain, or two near-equal domains, means
+	// there's nothing to prefer.
+	if (groups.size() == 2 && groups[0].cache_size > 0 && groups[1].cache_size > 0)
+	{
+		const L3Group& bigger = (groups[0].cache_size >= groups[1].cache_size) ? groups[0] : groups[1];
+		const L3Group& smaller = (groups[0].cache_size >= groups[1].cache_size) ? groups[1] : groups[0];
+		if ((F32)bigger.cache_size / (F32)smaller.cache_size > 1.25f)
+		{
+			result = bigger.cores;
+		}
+	}
+
+	return result;
+}
+
 //
 // Helper: Detect preferred cores (P-cores on Intel, V-Cache CCD on AMD)
 //
 static std::vector<DWORD> detectPreferredCores()
 {
+	if (isAmdVendor())
+	{
+		std::vector<DWORD> amd_cores = detectAmdVCacheCores();
+		if (!amd_cores.empty())
+			return amd_cores;
+		// No confirmed dual-CCD size asymmetry - fall through to the
+		// EfficiencyClass heuristic below (harmless on AMD: all cores
+		// typically report EfficiencyClass 0, so it returns "everything",
+		// i.e. no meaningful restriction, same as today).
+	}
+
 	std::vector<DWORD> preferred_cores;
 	preferred_cores.reserve(16); // Reserve space to avoid reallocs
 
@@ -237,6 +369,138 @@ static std::vector<DWORD> detectPreferredCores()
 	}
 
 	return preferred_cores;
+}
+
+//
+// Helper: parses a comma/range core-index list, e.g. "16-31,40" ->
+// {16,17,...,31,40}. Used by RenderPreferredCoresOverride.
+//
+static std::vector<DWORD> parseCoreList(const std::string& spec)
+{
+	std::vector<DWORD> cores;
+	size_t pos = 0;
+	while (pos < spec.size())
+	{
+		size_t comma = spec.find(',', pos);
+		std::string token = spec.substr(pos, comma == std::string::npos ? std::string::npos : comma - pos);
+		size_t dash = token.find('-');
+		if (dash != std::string::npos)
+		{
+			int lo = atoi(token.substr(0, dash).c_str());
+			int hi = atoi(token.substr(dash + 1).c_str());
+			for (int i = llmin(lo, hi); i <= llmax(lo, hi); ++i)
+			{
+				cores.push_back((DWORD)i);
+			}
+		}
+		else if (!token.empty())
+		{
+			cores.push_back((DWORD)atoi(token.c_str()));
+		}
+		if (comma == std::string::npos) break;
+		pos = comma + 1;
+	}
+	return cores;
+}
+
+//
+// Helper: resolves the final preferred-core list - RenderPreferredCoresOverride
+// takes absolute precedence over auto-detection when it parses to at least
+// one core index.
+//
+static std::vector<DWORD> resolvePreferredCores()
+{
+	if (!gRenderPreferredCoresOverride.empty())
+	{
+		std::vector<DWORD> overridden = parseCoreList(gRenderPreferredCoresOverride);
+		if (!overridden.empty())
+		{
+			LL_INFOS("Window") << "Using RenderPreferredCoresOverride: " << gRenderPreferredCoresOverride << LL_ENDL;
+			return overridden;
+		}
+		LL_WARNS("Window") << "RenderPreferredCoresOverride is set but did not parse to any core indices - falling back to auto-detection" << LL_ENDL;
+	}
+	return detectPreferredCores();
+}
+
+//
+// Helper: reserves `preferred_cores` (logical processor indices) for `thread`
+// via the Windows CPU Sets API, and pushes every other thread in the process
+// (including SMT siblings of the reserved cores) onto the remaining cores as
+// the process default. Structural, not priority-based: this does not fight
+// for scheduling priority, it constrains which logical processors each
+// thread is eligible to run on. Non-fatal no-op on any failure (older
+// Windows, or any API error) - never blocks startup.
+//
+static void reserveCpuSetsForThread(HANDLE thread, const std::vector<DWORD>& preferred_cores)
+{
+	if (preferred_cores.empty())
+		return;
+
+	ULONG len = 0;
+	GetSystemCpuSetInformation(nullptr, 0, &len, GetCurrentProcess(), 0);
+	if (len == 0)
+		return;
+
+	std::vector<BYTE> buffer(len);
+	auto* info = reinterpret_cast<PSYSTEM_CPU_SET_INFORMATION>(buffer.data());
+	if (!GetSystemCpuSetInformation(info, len, &len, GetCurrentProcess(), 0))
+		return;
+
+	// Map logical processor index -> {CpuSet.Id, CoreIndex} (CoreIndex is
+	// what lets us exclude SMT siblings of the reserved cores below).
+	std::unordered_map<DWORD, ULONG> lp_to_id;
+	std::unordered_map<DWORD, BYTE> lp_to_core;
+
+	DWORD offset = 0;
+	while (offset < len)
+	{
+		auto* cur = reinterpret_cast<PSYSTEM_CPU_SET_INFORMATION>(buffer.data() + offset);
+		if (cur->Type == CpuSetInformation)
+		{
+			lp_to_id[cur->CpuSet.LogicalProcessorIndex] = cur->CpuSet.Id;
+			lp_to_core[cur->CpuSet.LogicalProcessorIndex] = cur->CpuSet.CoreIndex;
+		}
+		offset += cur->Size;
+	}
+
+	std::vector<ULONG> reserved_ids;
+	std::set<BYTE> reserved_core_indices;
+	for (DWORD lp : preferred_cores)
+	{
+		auto it = lp_to_id.find(lp);
+		if (it != lp_to_id.end())
+		{
+			reserved_ids.push_back(it->second);
+			reserved_core_indices.insert(lp_to_core[lp]);
+		}
+	}
+
+	if (reserved_ids.empty())
+		return;
+
+	if (!SetThreadSelectedCpuSets(thread, reserved_ids.data(), (ULONG)reserved_ids.size()))
+	{
+		LL_WARNS("Window") << "SetThreadSelectedCpuSets failed: 0x" << std::hex << GetLastError() << LL_ENDL;
+		return;
+	}
+
+	std::vector<ULONG> background_ids;
+	for (auto& kv : lp_to_id)
+	{
+		DWORD lp = kv.first;
+		if (reserved_core_indices.count(lp_to_core[lp]))
+			continue; // reserved core, or its SMT sibling
+		background_ids.push_back(kv.second);
+	}
+
+	if (!background_ids.empty())
+	{
+		if (!SetProcessDefaultCpuSets(GetCurrentProcess(), background_ids.data(), (ULONG)background_ids.size()))
+		{
+			LL_WARNS("Window") << "SetProcessDefaultCpuSets failed: 0x" << std::hex << GetLastError() << LL_ENDL;
+		}
+	}
 }
 
 //
@@ -810,6 +1074,31 @@ LLWindowWin32::LLWindowWin32(LLWindowCallbacks* callbacks,
 
 			// Optional: register with MMCSS or disable power throttling — kept in the
 			// advanced block below so you can enable/experiment as needed.
+		}
+	}
+
+	// S24: CPU Sets - reserve the detected/overridden preferred cores for
+	// the main/render thread. Deliberately independent of the mMaxCores
+	// block above (that's a total-core-count debugging cap, this is
+	// preferred-core pinning) - structural scheduling constraint, not a
+	// priority fight, see reserveCpuSetsForThread()'s comment.
+	if (gRenderReserveCoresForMainThread)
+	{
+		std::vector<DWORD> preferred_cores = resolvePreferredCores();
+		if (!preferred_cores.empty())
+		{
+			if (mMaxCores != 0)
+			{
+				for (DWORD c : preferred_cores)
+				{
+					if (c >= mMaxCores)
+					{
+						LL_WARNS("Window") << "Preferred core " << c << " falls outside the MaxCores="
+							<< mMaxCores << " affinity mask - CPU Sets reservation will have no effect for it." << LL_ENDL;
+					}
+				}
+			}
+			reserveCpuSetsForThread(GetCurrentThread(), preferred_cores);
 		}
 	}
 
@@ -5476,15 +5765,16 @@ void LLWindowWin32::LLWindowWin32Thread::run()
 		LL_WARNS("Window") << "SetThreadPriority(HIGHEST) failed for window thread: 0x" << std::hex << GetLastError() << LL_ENDL;
 	}
 
-	// Hint window thread to prefer a performance core (P-core/V-Cache)
-	std::vector<DWORD> preferred_cores = detectPreferredCores();
-	if (preferred_cores.size() > 1)
+	// S24: CPU Sets - give the window thread the same reserved-core
+	// eligibility as the main/render thread (see constructor), instead of
+	// the old single-core ideal-processor hint.
+	if (gRenderReserveCoresForMainThread)
 	{
-		SetThreadIdealProcessor(GetCurrentThread(), preferred_cores[1]);
-	}
-	else if (!preferred_cores.empty())
-	{
-		SetThreadIdealProcessor(GetCurrentThread(), preferred_cores[0]);
+		std::vector<DWORD> preferred_cores = resolvePreferredCores();
+		if (!preferred_cores.empty())
+		{
+			reserveCpuSetsForThread(GetCurrentThread(), preferred_cores);
+		}
 	}
 
     while (! getQueue().done())
@@ -5517,7 +5807,17 @@ void LLWindowWin32::LLWindowWin32Thread::run()
                 TranslateMessage(&msg);
                 DispatchMessage(&msg);
 
-                mMessageQueue.pushFront(msg);
+                // S24: gatherInput() (the only consumer) discards every message except
+                // LL_WM_HOST_RESOLVED, so pushing everything was pure overhead - and
+                // pushFront() blocks this thread once the 1024-capacity queue fills, which
+                // can happen during any gatherInput()-silent stretch (the whole startup
+                // sequence included), freezing ALL window message dispatch, not just this
+                // one. tryPush is non-blocking, so a full queue just drops the rare message
+                // instead of stalling the thread that dispatches every window message.
+                if (msg.message == LL_WM_HOST_RESOLVED)
+                {
+                    mMessageQueue.tryPush(msg);
+                }
             }
         }
 

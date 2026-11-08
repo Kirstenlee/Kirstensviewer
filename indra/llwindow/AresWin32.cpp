@@ -25,34 +25,21 @@
 #include "AresWin32.h"
 #include "llerror.h"
 
-#include <Psapi.h>            // For process info, memory maps
 #include <TlHelp32.h>         // Snapshot of processes, threads
-#include <winternl.h>         // For advanced query (if needed)
 #include <processthreadsapi.h>// Affinity, ownership, process token
-#include <Userenv.h>          // For session/environment checks
-#include <Shlwapi.h>          // For string/path utility (PathFileExistsW)
-#include <Shellapi.h>         // For shell operations (SHFileOperationW)
 #include <ShlObj.h>           // For SHGetFolderPathW and CSIDL constants
 #include <unordered_set>
+#include <unordered_map>
 #include <string>
 #include <locale>
 #include <codecvt>  // deprecated in C++17+, but still usable in legacy code
 #include <algorithm>  // for sort
-#include <thread> // for msg box
 #include <numeric>
 #include <chrono>  // for timing
 #include <iomanip>  // for setw, setprecision
 #include <sstream>  // for ostringstream
 
-
-
-
-#pragma comment(lib, "Userenv.lib")
-#pragma comment(lib, "Shlwapi.lib")
-#pragma comment(lib, "Psapi.lib")
-#pragma comment(lib, "Shell32.lib")  // For SHFileOperationW and SHGetFolderPathW
-
-#include <iostream> // TODO: replace with AuditTrail or subsystem logger
+#pragma comment(lib, "Shell32.lib")  // For SHGetFolderPathW
 
 
 namespace AresWin32
@@ -80,10 +67,6 @@ namespace AresWin32
     #define ANSI_DIM_WHITE     "\x1b[37m"                  // Normal white
     #define ANSI_STEEL_BLUE    "\x1b[38;2;70;130;180m"     // #4682B4 - Borders
 
-    // Spinner animation frames (ASCII-safe)
-    static const char* g_SpinnerFrames[] = { "|", "/", "-", "\\", "|", "/", "-", "\\" };
-    static int g_SpinnerFrame = 0;
-
     // ============================================================================
     // Console globals
     // ============================================================================
@@ -91,6 +74,7 @@ namespace AresWin32
     static HANDLE g_ConsoleOutput = NULL;
     static CRITICAL_SECTION g_AresCritSec;
     static bool g_AresDialogInit = false;
+    static bool g_AresOwnsConsole = false;  // only true if THIS call allocated the console
 
     // Enable VT100 escape sequences (Windows 10+)
     static bool EnableVTMode()
@@ -133,72 +117,6 @@ namespace AresWin32
     // VT Helper Functions - Modern Console UI
     // ============================================================================
 
-    // Generate progress bar with gradient (Gold -> Teal) - ASCII-safe
-    static std::string MakeProgressBar(int current, int total, int width = 18)
-    {
-        if (total == 0) total = 1; // Avoid division by zero
-
-        int filled = (current * width) / total;
-        int percent = (current * 100) / total;
-
-        std::ostringstream bar;
-
-        if (g_VTModeEnabled)
-        {
-            // VT mode: Gold/Teal gradient with simple ASCII characters
-            bar << "[";
-            for (int i = 0; i < width; ++i)
-            {
-                if (i < filled)
-                {
-                    // Gradient interpolation
-                    float ratio = static_cast<float>(i) / width;
-                    if (ratio < 0.5f)
-                        bar << ANSI_GOLD << "#" << ANSI_RESET;
-                    else
-                        bar << ANSI_TEAL << "#" << ANSI_RESET;
-                }
-                else
-                {
-                    bar << ANSI_DIM << "-" << ANSI_RESET;
-                }
-            }
-            bar << "] " << current << "/" << total << "  " << percent << "%";
-        }
-        else
-        {
-            // Fallback ASCII mode
-            bar << "[";
-            for (int i = 0; i < width; ++i)
-            {
-                bar << (i < filled ? "#" : "-");
-            }
-            bar << "] " << current << "/" << total << " (" << percent << "%)";
-        }
-
-        return bar.str();
-    }
-
-    // Get next spinner frame - ASCII-safe
-    static std::string GetSpinner()
-    {
-        if (g_VTModeEnabled)
-        {
-            std::string spinner = g_SpinnerFrames[g_SpinnerFrame];
-            g_SpinnerFrame = (g_SpinnerFrame + 1) % 8; // 8 frames now
-            return ANSI_GOLD + spinner + ANSI_RESET;
-        }
-        else
-        {
-            // ASCII fallback
-            static const char frames[] = { '|', '/', '-', '\\' };
-            std::string spinner;
-            spinner += frames[g_SpinnerFrame % 4];
-            g_SpinnerFrame++;
-            return spinner;
-        }
-    }
-
     // Write VT text (handles both VT and fallback modes)
     static void WriteVT(const std::string& text)
     {
@@ -232,24 +150,6 @@ namespace AresWin32
      L"SLVoice.exe",
      L"Kirstens-S24.exe" // sanctioned now for final sweep
     };
-
-    static bool IsPluginProcess(DWORD pid)
-    {
-        HANDLE hProc = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, pid);
-        if (!hProc) return false;
-
-        TCHAR exeName[MAX_PATH] = { 0 };
-        if (GetModuleBaseName(hProc, nullptr, exeName, ARRAYSIZE(exeName))) {
-            std::wstring wexe(exeName);
-            if (kPluginExecutables.count(wexe)) {
-                CloseHandle(hProc);
-                return true;
-            }
-        }
-
-        CloseHandle(hProc);
-        return false;
-    }
 
     static BOOL CALLBACK EnumProc(HWND hwnd, LPARAM)
     {
@@ -307,7 +207,7 @@ namespace AresWin32
         CloseHandle(snapshot);
 
         std::sort(sweepQueue.begin(), sweepQueue.end(), [](const auto& a, const auto& b) {
-            return b.first == L"Kirstens-S24.exe";
+            return a.first != L"Kirstens-S24.exe" && b.first == L"Kirstens-S24.exe";
             });
 
         // Calculate background process count (exclude main viewer exe from count)
@@ -383,6 +283,8 @@ namespace AresWin32
 
             if (hProc)
             {
+                LogPluginKillEvent(exeName, pid, "ARES_KILL", "attempting termination");
+
                 // First attempt
                 TerminateProcess(hProc, 0);
                 WaitForSingleObject(hProc, 2000);
@@ -393,10 +295,15 @@ namespace AresWin32
                 hProc = OpenProcess(PROCESS_TERMINATE, FALSE, pid);
                 if (hProc)
                 {
+                    LogPluginKillEvent(exeName, pid, "ARES_KILL", "force-killing after first attempt did not exit");
                     TerminateProcess(hProc, 1); // Force kill
                     WaitForSingleObject(hProc, 1000);
                     CloseHandle(hProc);
                 }
+            }
+            else
+            {
+                LogPluginKillEvent(exeName, pid, "ARES_SKIP", "OpenProcess failed, could not terminate");
             }
 
             auto processEnd = std::chrono::steady_clock::now();
@@ -500,19 +407,7 @@ namespace AresWin32
 
     static void AuditThreadOwnership()
     {
-        LL_INFOS() << "ARES_AUDIT_BEGIN Thread ownership audit started." << LL_ENDL;
-
-        std::unordered_set<DWORD> liveTids;
-        HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
-        if (snapshot != INVALID_HANDLE_VALUE) {
-            THREADENTRY32 te = { sizeof(te) };
-            if (Thread32First(snapshot, &te)) {
-                do {
-                    liveTids.insert(te.th32ThreadID);
-                } while (Thread32Next(snapshot, &te));
-            }
-            CloseHandle(snapshot);
-        }
+        LL_INFOS() << "ARES_AUDIT_BEGIN Window-thread census started." << LL_ENDL;
 
         std::unordered_map<DWORD, int> matchCounts;
         EnumWindows(&AuditThreadEnum, reinterpret_cast<LPARAM>(&matchCounts));
@@ -578,6 +473,27 @@ namespace AresWin32
         // Close dialog after showing final status
         Sleep(1000);  // Let user admire the completion
         CloseAresDialog();
+    }
+
+    // Final step of viewer shutdown. TerminateProcess skips CRT static
+    // destructors, which is the reason this exists (see LLAppViewer::cleanup()
+    // and the pre-Ares "hang on shutdown" history in SVN r2392/r2395/r2525/r2666).
+    // The event is logged before the kill so it survives in the log file.
+    void TerminateSelf(UINT exitCode)
+    {
+        LL_WARNS() << "ARES_SELF_TERMINATE: pid=" << GetCurrentProcessId()
+                   << " exit=" << exitCode
+                   << " bypassing CRT static destructors" << LL_ENDL;
+
+        Sleep(300); // same pause the original self-kill path used
+
+        if (!TerminateProcess(GetCurrentProcess(), exitCode))
+        {
+            LL_WARNS() << "ARES_SELF_TERMINATE: TerminateProcess failed, error="
+                       << GetLastError() << " - falling back to ExitProcess" << LL_ENDL;
+            ExitProcess(exitCode);
+        }
+        // Not reached: TerminateProcess on the current process ends it.
     }
 
     // S24 Factory Reset: Spawn visible CMD process to delete AppData folders
@@ -703,7 +619,8 @@ namespace AresWin32
         }
 
         // Allocate a console window
-        if (AllocConsole())
+        g_AresOwnsConsole = (AllocConsole() != FALSE);
+        if (g_AresOwnsConsole)
         {
             LL_WARNS() << "ARES_DIALOG: Console allocated successfully" << LL_ENDL;
 
@@ -774,7 +691,14 @@ namespace AresWin32
         else
         {
             DWORD err = GetLastError();
-            LL_WARNS() << "ARES_DIALOG: AllocConsole failed! Error: " << err << LL_ENDL;
+            // S24: a console already exists (e.g. ShowConsoleWindow debug setting is on) -
+            // do NOT reuse it. Resizing/retitling/recoloring someone else's console would
+            // wreck its scrollback and leave it permanently in VT mode. The existing console
+            // is already visible, so the AV-transparency goal is still met without Ares's own
+            // dialog; just skip it and keep logging via LL_WARNS, which reaches that console too.
+            LL_WARNS() << "ARES_DIALOG: AllocConsole failed (error=" << err
+                       << ") - a console is already open, skipping Ares dialog" << LL_ENDL;
+            return;
         }
 
         // S24: "Gold Standard" Dashboard Header - Clean ASCII with color
@@ -814,6 +738,17 @@ namespace AresWin32
 
     void CloseAresDialog()
     {
+        if (g_AresDialogInit && !g_AresOwnsConsole)
+        {
+            // S24: dialog was skipped because Ares never allocated a console this run -
+            // nothing to tear down, and FreeConsole() here would detach whatever console
+            // the process already had (e.g. the user's own debug console) that Ares never
+            // created and does not own.
+            DeleteCriticalSection(&g_AresCritSec);
+            g_AresDialogInit = false;
+            return;
+        }
+
         if (g_AresDialogInit)
         {
             WriteVTLine("");
@@ -892,6 +827,7 @@ namespace AresWin32
             FreeConsole();
             g_AresConsole = NULL;
             g_ConsoleOutput = NULL;
+            g_AresOwnsConsole = false;
 
             DeleteCriticalSection(&g_AresCritSec);
             g_AresDialogInit = false;

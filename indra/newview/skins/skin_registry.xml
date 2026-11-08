@@ -2,9 +2,9 @@
 <!-- S24 - Skin Registry: Maps display names to skin folder names -->
 <!-- Add new skins here without needing to recompile C++ code -->
 <skin_registry>
-	<skin folder="default" name="Azure" />
+	<skin folder="default" name="Aero24" />
 	<skin folder="linden" name="LindenX" />
 	<skin folder="midnight" name="Midnight" />
 	<skin folder="Lysi" name="Hyperion" />
-	<skin folder="Flat" name="Flat" />
+	<skin folder="graphite" name="Graphite" />
 </skin_registry>

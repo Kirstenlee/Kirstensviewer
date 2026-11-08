@@ -517,8 +517,10 @@ void LLViewerTexture::updateClass()
     static constexpr F32 MIN_VRAM_BUDGET = 768.f;
     static constexpr F32 BUDGET_RESERVE = 512.f;
 
-    // Cache setting lookup (static init only)
-    static const U32 max_vram_budget = gSavedSettings.getU32("RenderMaxVRAMBudget");
+    // S24: live control, not a one-shot cache - the KVTweaks VRAM budget spinner writes
+    // this setting with no restart note, so it must be re-read every frame like the
+    // RenderVRAMSoftPressureFraction control just below.
+    static LLCachedControl<U32> max_vram_budget(gSavedSettings, "RenderMaxVRAMBudget", 0);
 
     const F64 texture_bytes = (F64)LLImageDX::getTextureBytesAllocated();
     const F64 vertex_bytes = (F64)LLVertexBuffer::getBytesAllocated();
@@ -626,6 +628,14 @@ void LLViewerTexture::updateClass()
         }
     }
 
+    if (!is_sys_low && was_low)
+    {
+        // S24: lift the low-RAM decode queue cap set above now that memory has
+        // recovered - setMaxQueueDepth() has no other caller and no other reset,
+        // so without this the cap (clamped to the free RAM at the moment of the
+        // dip) would otherwise persist uncleared for the rest of the session.
+        LLAppViewer::getImageDecodeThread()->setMaxQueueDepth(0);
+    }
     was_low = is_sys_low;
 
     // System memory factor

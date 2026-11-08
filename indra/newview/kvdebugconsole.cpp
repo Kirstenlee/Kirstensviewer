@@ -28,6 +28,7 @@
 #include "kvdebugconsole.h"
 
 #include "krlvhandler.h" // KRLV_TOUCHPOINT: "krlv" console command, see krlv/README.md
+#include "llfloaterreg.h" // "blackjack"/"21" console command launches kv_blackjack
 #include "lllineeditor.h"
 #include "lltexteditor.h"
 #include "lluictrlfactory.h"
@@ -792,6 +793,48 @@ void KVDebugConsole::onInput(LLUICtrl* ctrl, const LLSD& param)
         {
             // Display top objects by various metrics
             processTopCommand(args);
+        }
+        else if (cmd == "blackjack" || cmd == "21")
+        {
+            // S24: launches the standalone KV Blackjack floater (kvblackjack.cpp) -
+            // a real card table, not console text. The console is just the launcher.
+            LLFloaterReg::showInstance("kv_blackjack");
+            mOutput->appendText("Dealing you into the KV Blackjack table...\n", false);
+            mLineCount++;
+        }
+        else if (cmd == "reversi" || cmd == "othello")
+        {
+            // S24: launches the standalone KV Reversi floater (kvreversi.cpp) -
+            // same "console is just the launcher" pattern as blackjack.
+            LLFloaterReg::showInstance("kv_reversi");
+            mOutput->appendText("Setting up the KV Reversi board...\n", false);
+            mLineCount++;
+        }
+        else if (cmd == "solitaire" || cmd == "klondike")
+        {
+            // S24: launches the standalone KV Solitaire floater (kvsolitaire.cpp) -
+            // reuses the same card textures as blackjack, same launcher pattern.
+            LLFloaterReg::showInstance("kv_solitaire");
+            mOutput->appendText("Dealing a new game of KV Solitaire...\n", false);
+            mLineCount++;
+        }
+        else if (cmd == "minesweeper" || cmd == "mines")
+        {
+            // S24: launches the standalone KV Minesweeper floater
+            // (kvminesweeper.cpp) - same "console is just the launcher"
+            // pattern as the rest of the series.
+            LLFloaterReg::showInstance("kv_minesweeper");
+            mOutput->appendText("Clearing the KV Minesweeper field...\n", false);
+            mLineCount++;
+        }
+        else if (cmd == "worldclock" || cmd == "clock")
+        {
+            // S24: launches the standalone KV World Clock floater
+            // (kvworldclock.cpp) - SL Time plus a curated set of real-world
+            // cities, same "console is just the launcher" pattern.
+            LLFloaterReg::showInstance("kv_worldclock");
+            mOutput->appendText("Opening KV World Clock...\n", false);
+            mLineCount++;
         }
         else
         {
@@ -1569,6 +1612,145 @@ void KVDebugConsole::processHelpCommand(const std::string& topic)
             );
             mLineCount += 62;
         }
+        else if (cmd == "blackjack" || cmd == "21")
+        {
+            mOutput->appendText(
+                "╔═══════════════════════════════════════════════════════════════════════╗\n"
+                "║  BLACKJACK                                                            ║\n"
+                "╚═══════════════════════════════════════════════════════════════════════╝\n"
+                "\n"
+                "Deal yourself into the standalone KV Blackjack table.\n"
+                "\n"
+                "SYNTAX:\n"
+                "  blackjack           Open the card table (alias: 21)\n"
+                "\n"
+                "DESCRIPTION:\n"
+                "  Opens a real floater with real card art, not console text. A\n"
+                "  session bankroll starts at 500 and persists until you close the\n"
+                "  viewer. Standard house rules: dealer stands on 17, blackjack\n"
+                "  pays 3:2, push returns your bet. Hit, Stand, and Double are\n"
+                "  buttons in the table window, not console commands.\n"
+                "\n"
+                "EXAMPLES:\n"
+                "  blackjack           Open the table\n"
+                "  21                  Same thing\n",
+                false
+            );
+            mLineCount += 19;
+        }
+        else if (cmd == "reversi" || cmd == "othello")
+        {
+            mOutput->appendText(
+                "╔═══════════════════════════════════════════════════════════════════════╗\n"
+                "║  REVERSI                                                              ║\n"
+                "╚═══════════════════════════════════════════════════════════════════════╝\n"
+                "\n"
+                "Deal yourself into the standalone KV Reversi board.\n"
+                "\n"
+                "SYNTAX:\n"
+                "  reversi             Open the board (alias: othello)\n"
+                "\n"
+                "DESCRIPTION:\n"
+                "  Opens a real floater with a clickable 8x8 board, not console\n"
+                "  text. You play Black and always move first, standard rules.\n"
+                "  Three AI difficulty levels (cycle with the Difficulty button):\n"
+                "  Easy plays randomly, Medium always flips the most discs it can,\n"
+                "  Hard values corners and avoids the classic beginner mistake of\n"
+                "  playing next to an open corner. Win/loss/draw record persists\n"
+                "  across sessions.\n"
+                "\n"
+                "EXAMPLES:\n"
+                "  reversi             Open the board\n"
+                "  othello             Same thing\n",
+                false
+            );
+            mLineCount += 21;
+        }
+        else if (cmd == "solitaire" || cmd == "klondike")
+        {
+            mOutput->appendText(
+                "╔═══════════════════════════════════════════════════════════════════════╗\n"
+                "║  SOLITAIRE                                                            ║\n"
+                "╚═══════════════════════════════════════════════════════════════════════╝\n"
+                "\n"
+                "Deal yourself into the standalone KV Solitaire table.\n"
+                "\n"
+                "SYNTAX:\n"
+                "  solitaire           Open the table (alias: klondike)\n"
+                "\n"
+                "DESCRIPTION:\n"
+                "  Classic Klondike, 3-card draw. Click a card to select it (it\n"
+                "  highlights gold), then click a tableau column or foundation to\n"
+                "  move it there, or click it again to deselect. Click Stock to\n"
+                "  draw 3 cards, or to recycle the waste once it is empty.\n"
+                "  Selecting a card picks up it and everything stacked above it.\n"
+                "  Scoring is completion-based: 10 points per card on a foundation.\n"
+                "  The game ends on a win (all 52 home) or when no move is left -\n"
+                "  including a full pass through the stock with no progress made.\n"
+                "  Best score and games played/won persist across sessions.\n"
+                "\n"
+                "EXAMPLES:\n"
+                "  solitaire           Open the table\n"
+                "  klondike            Same thing\n",
+                false
+            );
+            mLineCount += 24;
+        }
+        else if (cmd == "minesweeper" || cmd == "mines")
+        {
+            mOutput->appendText(
+                "╔═══════════════════════════════════════════════════════════════════════╗\n"
+                "║  MINESWEEPER                                                          ║\n"
+                "╚═══════════════════════════════════════════════════════════════════════╝\n"
+                "\n"
+                "Open the standalone KV Minesweeper field.\n"
+                "\n"
+                "SYNTAX:\n"
+                "  minesweeper         Open the field (alias: mines)\n"
+                "\n"
+                "DESCRIPTION:\n"
+                "  Left-click to reveal a cell, right-click to flag a suspected mine.\n"
+                "  The first cell you click is always safe - mines are placed after it.\n"
+                "  Cycle the Size button (Small 9x9 / Medium 16x16 / Large 16x30) and\n"
+                "  the Difficulty button (Easy/Medium/Hard mine density), then press\n"
+                "  New Game to apply your choice - changing them mid-game does nothing\n"
+                "  until you start a new one. Best completion time for each size and\n"
+                "  difficulty combination persists across sessions.\n"
+                "\n"
+                "EXAMPLES:\n"
+                "  minesweeper         Open the field\n"
+                "  mines               Same thing\n",
+                false
+            );
+            mLineCount += 21;
+        }
+        else if (cmd == "worldclock" || cmd == "clock")
+        {
+            mOutput->appendText(
+                "╔═══════════════════════════════════════════════════════════════════════╗\n"
+                "║  WORLD CLOCK                                                          ║\n"
+                "╚═══════════════════════════════════════════════════════════════════════╝\n"
+                "\n"
+                "Open the standalone KV World Clock floater.\n"
+                "\n"
+                "SYNTAX:\n"
+                "  worldclock          Open the clock grid (alias: clock)\n"
+                "\n"
+                "DESCRIPTION:\n"
+                "  A grid of live digital clocks: SL Time (gold tile, Pacific) plus UTC\n"
+                "  and ten real-world cities - West/East Coast US, London, Paris,\n"
+                "  Amsterdam, Moscow, Tokyo, Beijing, Sydney and Sao Paulo. Local time\n"
+                "  and daylight saving are read straight from the Windows time zone\n"
+                "  database each second, so every tile is always correct for today's\n"
+                "  date. Tiles dim slightly for cities currently in their night hours.\n"
+                "\n"
+                "EXAMPLES:\n"
+                "  worldclock          Open the clock grid\n"
+                "  clock               Same thing\n",
+                false
+            );
+            mLineCount += 19;
+        }
         else
         {
             mOutput->appendText(llformat(
@@ -1648,6 +1830,15 @@ void KVDebugConsole::processListCommand()
         "  motd                Display message of the day (captured at login)\n"
         "  web <url>           Open URL in browser (respects preferences)\n"
         "\n"
+        "GAMES:\n"
+        "  blackjack, 21       Open the standalone KV Blackjack card table\n"
+        "  reversi, othello    Open the standalone KV Reversi board (3 AI levels)\n"
+        "  solitaire, klondike Open the standalone KV Solitaire table (3-card draw)\n"
+        "  minesweeper, mines  Open the standalone KV Minesweeper field (3 sizes)\n"
+        "\n"
+        "EXTRAS:\n"
+        "  worldclock, clock   Open the standalone KV World Clock (SL Time + 11 cities)\n"
+        "\n"
         "USAGE EXAMPLES:\n"
         "  help get                      Show detailed GET command help\n"
         "  cls                           Clear screen\n"
@@ -1692,7 +1883,7 @@ void KVDebugConsole::processListCommand()
         "Refer to S24 Command Reference documentation for comprehensive guide.\n",
         false
     );
-    mLineCount += 52;
+    mLineCount += 58;
 }
 
 // S24: UUID lookup command - identify what a UUID represents

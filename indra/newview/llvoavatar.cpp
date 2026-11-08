@@ -604,7 +604,6 @@ U32 LLVOAvatar::sMaxNonImpostors = 12; // Set from RenderAvatarMaxNonImpostors
 bool LLVOAvatar::sLimitNonImpostors = false; // True unless RenderAvatarMaxNonImpostors is 0 (unlimited)
 F32 LLVOAvatar::sRenderDistance = 256.f;
 S32 LLVOAvatar::sNumVisibleAvatars = 0;
-S32 LLVOAvatar::sNumLODChangesThisFrame = 0;
 
 const LLUUID LLVOAvatar::sStepSoundOnLand("e8af4a28-aa83-4310-a7c4-c047e15ea0df");
 const LLUUID LLVOAvatar::sStepSounds[LL_MCODE_END] =
@@ -622,7 +621,6 @@ uuid_list_t LLVOAvatar::sEarlyAppearanceList;
 
 S32 LLVOAvatar::sRenderName = RENDER_NAME_ALWAYS;
 S32 LLVOAvatar::sRenderGroupTitles = RENDER_GROUP_TITLE_ALWAYS;
-S32 LLVOAvatar::sNumVisibleChatBubbles = 0;
 bool LLVOAvatar::sDebugInvisible = false;
 bool LLVOAvatar::sShowAttachmentPoints = false;
 bool LLVOAvatar::sShowAnimationDebug = false;
@@ -891,7 +889,6 @@ void LLVOAvatar::markDead()
     {
         mNameText->markDead();
         mNameText = NULL;
-        sNumVisibleChatBubbles--;
     }
     mVoiceVisualizer->markDead();
     LLLoadedCallbackEntry::cleanUpCallbackList(&mCallbackTextureList) ;
@@ -2739,7 +2736,6 @@ bool LLVOAvatar::idleUpdatePreamble(LLAgent &agent, const F64 &time)
             mNameIsSet = false;
             mNameText->markDead();
             mNameText = NULL;
-            sNumVisibleChatBubbles--;
         }
         deleteParticleSource();
         mVoiceVisualizer->setVoiceEnabled(false);
@@ -2900,7 +2896,13 @@ void LLVOAvatar::idleUpdateRest(LLAgent &agent, const F64 &time, bool detailed_u
     }
     else if (isSelf())
     {
-        compl_upd_freq = 5;
+        // S24 : was 5. isTooComplex() exempts isSelf() unconditionally (never
+        // jellydolls self), so mVisualComplexity only feeds the complexity
+        // HUD text and LLAvatarRenderNotifier's render-weight toast - both
+        // UI-only. calculateUpdateRenderComplexity() already early-returns on
+        // !mVisualComplexityStale, so raising this only delays how soon a
+        // pending (already-stale) recompute runs, not whether it runs.
+        compl_upd_freq = 45;
     }
     else if (mLastRezzedStatus == 1) //'grey', not fully loaded
     {
@@ -3457,7 +3459,6 @@ void LLVOAvatar::idleUpdateNameTag(const LLVector3& root_pos_last)
             // ...clean up old name tag
             mNameText->markDead();
             mNameText = NULL;
-            sNumVisibleChatBubbles--;
         }
         return;
     }
@@ -3503,7 +3504,6 @@ void LLVOAvatar::idleUpdateNameTag(const LLVector3& root_pos_last)
         {
             mNameText->markDead();
             mNameText = NULL;
-            sNumVisibleChatBubbles--;
         }
         return;
     }
@@ -3518,7 +3518,6 @@ void LLVOAvatar::idleUpdateNameTag(const LLVector3& root_pos_last)
         mNameText->setVisibleOffScreen(true);
         mNameText->setMaxLines(11);
         mNameText->setFadeDistance(CHAT_NORMAL_RADIUS, 5.f);
-        sNumVisibleChatBubbles++;
         new_name = true;
     }
 
@@ -7421,7 +7420,6 @@ bool LLVOAvatar::updateJointLODs()
         }
         if (res)
         {
-            sNumLODChangesThisFrame++;
             dirtyMesh(2);
             return true;
         }

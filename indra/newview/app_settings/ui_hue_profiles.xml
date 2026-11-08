@@ -50,7 +50,7 @@
         <key>RenderUIShine</key>
             <real>0</real>
         </map>
-    <key>Malachite ( Azure Base )</key>
+    <key>Malachite</key>
         <map>
         <key>RenderUIContrast</key>
             <real>0.85000002384185791015625</real>
@@ -100,7 +100,7 @@
         <key>RenderUIShine</key>
             <real>0.1000000014901161193847656</real>
         </map>
-    <key>S19 Classic (Azure Base)</key>
+    <key>S19 Classic</key>
         <map>
         <key>RenderUIContrast</key>
             <real>1.2000000476837158203125</real>
@@ -150,7 +150,7 @@
         <key>RenderUIShine</key>
             <real>0.1000000014901161193847656</real>
         </map>
-    <key>Vista Pro ( Azure Base )</key>
+    <key>Vista Pro</key>
         <map>
         <key>RenderUIContrast</key>
             <real>1.85000002384185791015625</real>

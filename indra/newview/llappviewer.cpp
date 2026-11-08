@@ -1119,8 +1119,6 @@ bool LLAppViewer::init()
 	// Create IO Pump to use for HTTP Requests.
 	gServicePump = new LLPumpIO(gAPRPoolp);
 
-	// Note: this is where gLocalSpeakerMgr and gActiveSpeakerMgr used to be instantiated.
-
 	LLVoiceChannel::initClass();
 	LLVoiceClient::initParamSingleton(gServicePump);
 	LLVoiceChannel::setCurrentVoiceChannelChangedCallback(boost::bind(&LLFloaterIMContainer::onCurrentChannelChanged, _1), true);
@@ -1291,7 +1289,6 @@ bool LLAppViewer::doFrame()
 		LLTrace::get_frame_recording().nextPeriod();
 		LLTrace::BlockTimer::logStats();
 		LLTrace::get_thread_recorder()->pullFromChildren();
-		LL_CLEAR_CALLSTACKS();
 	}
 
 	// --- Input / events / coroutines ---
@@ -1466,7 +1463,13 @@ bool LLAppViewer::doFrame()
 
 				if (io_pending > 1000)
 				{
-					ms_sleep(llmin(io_pending / 100, 100));
+					// S24: was ms_sleep(llmin(io_pending/100, 100)) - up to 100ms blocking the
+					// main/render thread per frame. LLLFSThread drains on its own worker
+					// thread and holds no lock this thread needs released, so the sleep did
+					// nothing for drain speed; it only stalled the next frame's input/render.
+					// Capped much lower in case this was ever meant as a CPU-yield hint on a
+					// contended machine - 100ms was never a reasonable way to express that.
+					ms_sleep(llmin(io_pending / 100, 5));
 				}
 
 				total_work_pending += work_pending;
@@ -1612,9 +1615,6 @@ bool LLAppViewer::cleanup()
 	// shut down mesh streamer
 	gMeshRepo.shutdown();
 
-	// shut down Havok
-	//LLPhysicsExtensions::quitSystem();
-
 	// Must clean up texture references before viewer window is destroyed.
 	if (LLHUDManager::instanceExists())
 	{
@@ -1627,9 +1627,6 @@ bool LLAppViewer::cleanup()
 
 	LLKeyframeDataCache::clear();
 
-	// Note: this is where gWorldMap used to be deleted.
-
-	// Note: this is where gHUDManager used to be deleted.
 	if (LLHUDManager::instanceExists())
 	{
 		LLHUDManager::getInstance()->shutdownClass();
@@ -1641,8 +1638,6 @@ bool LLAppViewer::cleanup()
 	LLPolyMesh::freeAllMeshes();
 
 	LLStartUp::cleanupNameCache();
-
-	// Note: this is where gLocalSpeakerMgr and gActiveSpeakerMgr used to be deleted.
 
 	if (LLWorldMap::instanceExists())
 	{
@@ -1722,13 +1717,6 @@ bool LLAppViewer::cleanup()
 
 	LLTracker::cleanupInstance();
 
-	// *FIX: This is handled in LLAppViewerWin32::cleanup().
-	// I'm keeping the comment to remember its order in cleanup,
-	// in case of unforseen dependency.
-	//#if LL_WINDOWS
-	//  gDXHardware.cleanup();
-	//#endif // LL_WINDOWS
-
 	LLVolumeMgr* volume_manager = LLPrimitive::getVolumeManager();
 	if (!volume_manager->cleanup())
 	{
@@ -1740,11 +1728,6 @@ bool LLAppViewer::cleanup()
 
 	LLViewerParcelMgr::cleanupGlobals();
 
-	// *Note: this is where gViewerStats used to be deleted.
-
-	//end_messaging_system();
-
-	LLPrimitive::cleanupVolumeManager();
 	SUBSYSTEM_CLEANUP(LLWorldMapView);
 	SUBSYSTEM_CLEANUP(LLFolderViewItem);
 
@@ -1891,10 +1874,7 @@ bool LLAppViewer::cleanup()
 		LL_INFOS() << "ViewerWindow deleted" << LL_ENDL;
 	}
 
-	// S24: Ares console already shown at userQuit() - LLSplashScreen calls
-	// below stay disabled.
-	// LLSplashScreen::show();  // S24 DISABLED - Ares console replaces this
-	// LLSplashScreen::update(LLTrans::getString("ShuttingDown"));  // S24 DISABLED
+	// S24: Ares console already shown at userQuit(); no LLSplashScreen during shutdown.
 
 	LL_INFOS() << "Cleaning up Keyboard & Joystick" << LL_ENDL;
 
@@ -1973,6 +1953,11 @@ bool LLAppViewer::cleanup()
 	// S24: Check factory reset flag BEFORE settings cleanup
 	static LLCachedControl<bool> factory_reset(gSavedSettings, "PerformFactoryResetOnExit", false);
 	bool doFactoryReset = factory_reset;
+	// S24: shader purge flag also read BEFORE settings cleanup - the control table is
+	// wiped a few lines down (gSavedSettings.cleanup()), and a control constructed after
+	// that point always gets its default value, never the user's actual setting.
+	static LLCachedControl<bool> purge_shader_cache(gSavedSettings, "RenderPurgeShaderCacheOnExit", false);
+	bool doPurgeShaderCache = purge_shader_cache;
 	if (doFactoryReset)
 	{
 		LL_WARNS() << "========================================" << LL_ENDL;
@@ -1986,8 +1971,7 @@ bool LLAppViewer::cleanup()
 
 	LLViewerAssetStatsFF::cleanup();
 
-	static LLCachedControl<bool> purge_shader_cache(gSavedSettings, "RenderPurgeShaderCacheOnExit", false);
-	if (purge_shader_cache)
+	if (doPurgeShaderCache)
 	{
 		LL_INFOS("ShaderCache") << "S24: Purging shader cache on exit (RenderPurgeShaderCacheOnExit enabled)" << LL_ENDL;
 		LLViewerShaderMgr::purgeShaderCache();
@@ -2025,7 +2009,6 @@ bool LLAppViewer::cleanup()
 
 	ll_close_fail_log();
 
-	LLError::LLCallStacks::cleanup();
 	LL::GLTFSceneManager::deleteSingleton();
 	LLEnvironment::deleteSingleton();
 	LLSelectMgr::deleteSingleton();
@@ -2046,13 +2029,13 @@ bool LLAppViewer::cleanup()
 	// deleteSingleton() methods.
 	LLSingletonBase::deleteAll();
 
-	// LLSplashScreen::hide();  // S24 DISABLED - Ares dialog handles shutdown UI
-
 	LL_INFOS() << "Goodbye!" << LL_ENDL;
 
 	removeDumpDir();
 
-	AresWin32::RunFinalSweep(true); // S24: should never be reached (last-resort fallback)
+	// Explicit final step: the process ends here on every normal exit, so the
+	// self-kill is logged (ARES_SELF_TERMINATE) and not hidden in a sweep pass.
+	AresWin32::TerminateSelf(0);
 	return 0;
 }
 
@@ -4858,6 +4841,16 @@ void LLAppViewer::requestQuit()
 {
 	LL_INFOS() << "requestQuit" << LL_ENDL;
 
+	// Quit already in progress: ignore repeats so gLogoutTimer is not reset
+	// and metrics/stats are not resent. Also covers outOfMemorySoftQuit(),
+	// which sets mQuitRequested directly - shutdown is already running via
+	// idleShutdown() in that case, so a redundant user quit is just skipped.
+	if (mQuitRequested)
+	{
+		LL_WARNS() << "requestQuit: quit already in progress, ignoring" << LL_ENDL;
+		return;
+	}
+
 	LLViewerRegion* region = gAgent.getRegion();
 
 	// S24: if already disconnected, skip graceful shutdown entirely - waiting
@@ -4934,6 +4927,14 @@ static LLNotificationFunctorRegistration finish_quit_reg("ConfirmQuit", finish_q
 void LLAppViewer::userQuit()
 {
 	LL_WARNS() << "User requested quit" << LL_ENDL;
+
+	// Quit already in progress: skip the confirm dialog and the second Ares
+	// console. Shutdown is already running through idleShutdown().
+	if (mQuitRequested)
+	{
+		LL_WARNS() << "userQuit: quit already in progress, ignoring" << LL_ENDL;
+		return;
+	}
 
 	if (gDisconnected
 		|| !gViewerWindow
@@ -5575,12 +5576,6 @@ void LLAppViewer::idle()
 	// 3. Rendering‑related state updates
 	// -------------------------------------------------------------------------
 	LLGLTFMaterialList::flushUpdates();  // GLTF material sync
-
-	// Downscale method (cached setting)
-	static LLCachedControl<U32> sDownscaleMethod(
-		gSavedSettings, "RenderDownScaleMethod"
-	);
-	gDXDeviceInfo.mDownScaleMethod = sDownscaleMethod;
 
 	// Texture system maintenance
 	LLImageDX::updateClass();
@@ -6389,6 +6384,11 @@ void LLAppViewer::idleNetwork()
 
 		{
 			bool needs_drain = false;
+			// S24: tracks whether the TIME break specifically fired, not just the
+			// 400-message count break - the ramp below used to fire on either, which
+			// silently inflated the time budget even on frames where the time cap had
+			// done nothing at all.
+			bool time_budget_exceeded = false;
 			LockMessageChecker lmc(gMessageSystem);
 			while (lmc.checkAllMessages(frame_count, gServicePump))
 			{
@@ -6416,6 +6416,7 @@ void LLAppViewer::idleNetwork()
 				if (total_time >= CheckMessagesMaxTime)
 				{
 					needs_drain = true;
+					time_budget_exceeded = true;
 					break;
 				}
 			}
@@ -6424,10 +6425,12 @@ void LLAppViewer::idleNetwork()
 				// Rather than allow packets to silently backup on the socket
 				// we drain them into our own buffer so we know how many exist.
 				S32 num_buffered_packets = gMessageSystem->drainUdpSocket();
-				if (num_buffered_packets > 0)
+				// S24: only ramp when the time budget was actually exhausted, and clamp the
+				// growth - previously unbounded, so a sustained backlog could inflate this
+				// into a multi-hundred-ms per-frame stall with no ceiling.
+				if (num_buffered_packets > 0 && time_budget_exceeded)
 				{
-					// Increase CheckMessagesMaxTime so that we will eventually catch up
-					CheckMessagesMaxTime *= 1.035f; // 3.5% ~= x2 in 20 frames, ~8x in 60 frames
+					CheckMessagesMaxTime = llmin(CheckMessagesMaxTime * 1.035f, 0.080f); // 3.5% ~= x2 in 20 frames, capped at 80 ms
 				}
 			}
 			else

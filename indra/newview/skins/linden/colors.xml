@@ -782,9 +782,14 @@
     <color
      name="SelectedOutfitTextColor"
      reference="EmphasisColor" />
+    <!-- S24 : value="KL" was invalid (a string literal where 4 floats are
+         expected, so it fell back to LLUIColorTable's own near-black
+         default), and KL itself is a background-wash color anyway, not a
+         text color. White matches MenuItemHighlightFgColor's hover-highlight
+         text color for consistency. -->
     <color
      name="SearchableControlHighlightFontColor"
-     value="KL" />
+     reference="White" />
     <color
      name="SearchableControlHighlightBgColor"
      value="0.5 0.1 0.1 1" />

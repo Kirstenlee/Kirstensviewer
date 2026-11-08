@@ -1,0 +1,151 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes" ?>
+<floater
+ legacy_header_height="18"
+ can_resize="false"
+ height="546"
+ layout="topleft"
+ name="kv_reversi"
+ help_topic="kv_reversi"
+ save_rect="true"
+ title="KV REVERSI"
+ width="420">
+    <!-- S24: fixed-size layout, absolute positioning - same proven scheme as
+         floater_kv_blackjack.xml / floater_music_player.xml. 64 fixed board-
+         cell buttons (image_unselected = plain green cell, image_overlay
+         swapped at runtime to a disc texture or cleared for empty) rather
+         than any dynamic widget creation. Board starts at top=72 (clears
+         status_text + score_text, which previously ended at the same y the
+         board started at, so the board was drawn right over score_text -
+         only a sliver of it peeked out). 44px cells, no gap between cells
+         (left_pad="0"/top_pad="0") so they read as one continuous 352x352
+         grid. -->
+    <text
+     type="string"
+     follows="left|top"
+     height="18"
+     layout="topleft"
+     left="16"
+     name="status_text"
+     top="24"
+     right="-16">
+        Your move.
+    </text>
+    <text
+     type="string"
+     follows="left|top"
+     height="16"
+     layout="topleft"
+     left="16"
+     name="score_text"
+     top_pad="4"
+     right="-16">
+        Black (you): 2   White: 2
+    </text>
+
+    <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left="24" top="72" name="cell_0_0" width="44" />
+    <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_0_1" width="44" />
+    <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_0_2" width="44" />
+    <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_0_3" width="44" />
+    <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_0_4" width="44" />
+    <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_0_5" width="44" />
+    <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_0_6" width="44" />
+    <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_0_7" width="44" />
+    <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left="24" top_pad="0" name="cell_1_0" width="44" />
+    <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_1_1" width="44" />
+    <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_1_2" width="44" />
+    <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_1_3" width="44" />
+    <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_1_4" width="44" />
+    <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_1_5" width="44" />
+    <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_1_6" width="44" />
+    <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_1_7" width="44" />
+    <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left="24" top_pad="0" name="cell_2_0" width="44" />
+    <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_2_1" width="44" />
+    <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_2_2" width="44" />
+    <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_2_3" width="44" />
+    <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_2_4" width="44" />
+    <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_2_5" width="44" />
+    <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_2_6" width="44" />
+    <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_2_7" width="44" />
+    <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left="24" top_pad="0" name="cell_3_0" width="44" />
+    <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_3_1" width="44" />
+    <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_3_2" width="44" />
+    <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_3_3" width="44" />
+    <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_3_4" width="44" />
+    <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_3_5" width="44" />
+    <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_3_6" width="44" />
+    <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_3_7" width="44" />
+    <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left="24" top_pad="0" name="cell_4_0" width="44" />
+    <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_4_1" width="44" />
+    <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_4_2" width="44" />
+    <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_4_3" width="44" />
+    <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_4_4" width="44" />
+    <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_4_5" width="44" />
+    <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_4_6" width="44" />
+    <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_4_7" width="44" />
+    <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left="24" top_pad="0" name="cell_5_0" width="44" />
+    <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_5_1" width="44" />
+    <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_5_2" width="44" />
+    <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_5_3" width="44" />
+    <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_5_4" width="44" />
+    <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_5_5" width="44" />
+    <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_5_6" width="44" />
+    <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_5_7" width="44" />
+    <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left="24" top_pad="0" name="cell_6_0" width="44" />
+    <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_6_1" width="44" />
+    <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_6_2" width="44" />
+    <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_6_3" width="44" />
+    <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_6_4" width="44" />
+    <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_6_5" width="44" />
+    <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_6_6" width="44" />
+    <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_6_7" width="44" />
+    <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left="24" top_pad="0" name="cell_7_0" width="44" />
+    <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_7_1" width="44" />
+    <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_7_2" width="44" />
+    <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_7_3" width="44" />
+    <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_7_4" width="44" />
+    <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_7_5" width="44" />
+    <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_7_6" width="44" />
+    <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_7_7" width="44" />
+
+    <button
+     follows="left|top"
+     height="24"
+     label="New Game"
+     layout="topleft"
+     left="24"
+     name="new_game_btn"
+     top_pad="14"
+     width="90" />
+    <button
+     follows="left|top"
+     height="24"
+     label="Difficulty: Medium"
+     layout="topleft"
+     left_pad="12"
+     name="difficulty_btn"
+     top_delta="0"
+     width="150" />
+    <button
+     follows="left|top"
+     height="24"
+     label="Reset Scores"
+     layout="topleft"
+     left_pad="12"
+     name="reset_scores_btn"
+     top_delta="0"
+     width="100"
+     tool_tip="Reset the Wins/Losses/Draws record to zero" />
+
+    <text
+     type="string"
+     follows="left|top"
+     halign="center"
+     height="16"
+     layout="topleft"
+     left="16"
+     name="stats_text"
+     top_pad="14"
+     right="-16">
+        Wins: 0   Losses: 0   Draws: 0
+    </text>
+</floater>

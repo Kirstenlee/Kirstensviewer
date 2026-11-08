@@ -76,7 +76,6 @@ RenderHeroProbeResolution	1	2048
 RenderHeroProbeDistance		1	16
 RenderHeroProbeUpdateRate	1	6
 RenderHeroProbeConservativeUpdateMultiplier 1 16
-RenderDownScaleMethod       1   0
 RenderCASSharpness          1   1
 RenderExposure				1   4
 RenderTonemapType			1   0
@@ -420,7 +419,6 @@ RenderAnisotropicLevel			1	8
 RenderFSAAType  			1	0
 RenderFSAASamples			1	0
 RenderGLContextCoreProfile  1   0
-RenderDownScaleMethod       1   0
 
 // S24 (2026-08-16): RenderGLMultiThreadedTextures override removed - was a
 // GL-driver quirk workaround, meaningless for D3D11 (see

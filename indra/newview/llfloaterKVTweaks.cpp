@@ -516,6 +516,7 @@ void LLFloaterKVTweaks::onClickResetToDefaults()
         "RenderLocalLightFrustumCulling",
         "RenderLocalLightFrustumMargin",
         "RenderLocalLightMinRadius",
+        "RenderLocalLightReachGlow",
 
         // Tab 6: Textures & VRAM
         "TextureDiscardLevel",

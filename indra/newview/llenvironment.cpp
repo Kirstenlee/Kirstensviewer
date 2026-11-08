@@ -1645,6 +1645,32 @@ void LLEnvironment::update(const LLViewerCamera * cam)
         mLastCamYaw = cam->getYaw() + SUN_DELTA_YAW;
     }
 
+    // S24: RenderTonemapEverywhere - legacy skies (Linden default and anything predating the EEP
+    // reflection_probe_ambiance field) force tonemap mix/exposure/HDR offset off via
+    // LLSettingsSky::canAutoAdjust() - and the end user has no way to edit that value themselves:
+    // Linden's own sky is a no-modify library asset, and the sky editor UI doesn't even offer the
+    // field until canAutoAdjust() is already false (a chicken-and-egg lock). Since the ONLY real
+    // unlock mechanism is giving the sky a genuine reflection_probe_ambiance value (confirmed live -
+    // manually adding one to an editable copy made tonemap/exposure work correctly), do that
+    // programmatically: a tiny nonzero value flips canAutoAdjust() off (unlocking every gated
+    // getter uniformly - tonemap, exposure, water, sharpen-shader selection, probes) without
+    // meaningfully changing ambient/reflection look the way the engine's own much larger
+    // DEFAULT_AUTO_ADJUST_PROBE_AMBIANCE (1.0) would. setReflectionProbeAmbiance() only marks the
+    // lightweight in-memory LLSD-regeneration flag (setLLSDDirty()), not a real edit - nothing
+    // persists, nothing gets saved back to the asset. Applied to the current, already-blended sky
+    // instance every frame (cheap - plain field writes, no disk/network), so it tracks day-cycle
+    // transitions between legacy and real-HDR skies correctly.
+    static LLCachedControl<bool> tonemap_everywhere(gSavedSettings, "RenderTonemapEverywhere", false);
+    if (tonemap_everywhere())
+    {
+        LLSettingsSky::ptr_t psky = getCurrentSky();
+        if (psky && psky->canAutoAdjust())
+        {
+            static const F32 TONEMAP_EVERYWHERE_PROBE_AMBIANCE = 0.01f;
+            psky->setReflectionProbeAmbiance(TONEMAP_EVERYWHERE_PROBE_AMBIANCE);
+        }
+    }
+
     updateSettingsUniforms();
 
     LLViewerShaderMgr::shader_iter shaders_iter, end_shaders;
