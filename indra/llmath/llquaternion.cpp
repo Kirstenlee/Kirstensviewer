@@ -624,7 +624,7 @@ LLQuaternion lerp(F32 t, const LLQuaternion &q)
 	r.mQ[VX] = t * q.mQ[VX];
 	r.mQ[VY] = t * q.mQ[VY];
 	r.mQ[VZ] = t * q.mQ[VZ];
-	r.mQ[VW] = t * (q.mQ[VZ] - 1.f) + 1.f;
+	r.mQ[VW] = t * (q.mQ[VW] - 1.f) + 1.f; // S24 : was q.mQ[VZ], a one-token typo
 	r.normalize();
 	return r;
 }
@@ -720,9 +720,11 @@ LLQuaternion nlerp(F32 t, const LLQuaternion &q)
 LLQuaternion slerp(F32 t, const LLQuaternion &q)
 {
 	F32 c = q.mQ[VW];
-	if (1.0f == t  ||  1.0f == c)
+	if (1.0f == t  ||  fabsf(c) == 1.0f)
 	{
-		// the trivial cases
+		// the trivial cases. c == -1 means q is a full-turn quaternion
+		// (x=y=z=0, w=-1), equivalent to identity - without this, s below
+		// is 0 and mQ[] divides 0/0 into NaN. S24 : was 1.0f == c only.
 		return q;
 	}
 

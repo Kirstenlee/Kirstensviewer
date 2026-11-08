@@ -186,9 +186,27 @@ bool LLImageDXT::updateData()
 		return false;
 	}
 
+	// S24: read the fourcc discriminator only once it's safe to - the old code cast `data`
+	// straight to dxtfile_header_t* and read header->fourcc (and, on the new-header branch,
+	// fields up to pixel_fmt.fourcc) before any size check ran at all, so a file of a few bytes
+	// triggered an out-of-bounds read before the size check below even had a chance to fire.
+	if ((size_t)data_size < sizeof(S32))
+	{
+		setLastError("LLImageDXT: not enough data for header");
+		return false;
+	}
+
 	S32 width, height, miplevelmax;
 	dxtfile_header_t* header = (dxtfile_header_t*)data;
-	if (header->fourcc != 0x20534444)
+	bool is_new_header = (header->fourcc == 0x20534444);
+	size_t required_header_size = is_new_header ? sizeof(dxtfile_header_t) : sizeof(dxtfile_header_old_t);
+	if ((size_t)data_size < required_header_size)
+	{
+		setLastError("LLImageDXT: not enough data");
+		return false;
+	}
+
+	if (!is_new_header)
 	{
 		dxtfile_header_old_t* oldheader = (dxtfile_header_old_t*)header;
 		mHeaderSize = sizeof(dxtfile_header_old_t);
@@ -206,10 +224,38 @@ bool LLImageDXT::updateData()
 		height = header->maxheight;
 	}
 
-	if (data_size < mHeaderSize)
+	// S24: whitelist the formats this class actually has complete support for. Anything else -
+	// FORMAT_UNKNOWN, a garbage format byte from an old-style header, the valid-looking but
+	// never-implemented FORMAT_DXT2/DXT4/DXR2/DXR4, or even the "supported" FORMAT_DXT1/3/5
+	// (getMipOffset() below has its own unconditional LL_ERRS for those) - used to reach a
+	// fatal LL_ERRS somewhere downstream instead of failing to load gracefully.
+	switch (mFileFormat)
 	{
-		LL_ERRS() << "LLImageDXT: not enough data" << LL_ENDL;
+	case FORMAT_I8:
+	case FORMAT_A8:
+	case FORMAT_RGB8:
+	case FORMAT_RGBA8:
+	case FORMAT_DXR1:
+	case FORMAT_DXR3:
+	case FORMAT_DXR5:
+		break;
+	default:
+		mFileFormat = FORMAT_UNKNOWN;
+		setLastError("LLImageDXT: unsupported or unrecognized format");
+		return false;
 	}
+
+	// S24: reject implausible dimensions before they reach any width*height size math - nothing
+	// upstream of this class clamps them, and large uncompressed dimensions overflow the S32
+	// arithmetic in formatBytes()/calcDataSize() (e.g. 8192x8192 RGBA8 wraps negative), which
+	// then passes decode()'s bounds check and feeds a huge length into memcpy. MAX_IMAGE_SIZE
+	// matches the viewer's own documented maximum texture dimension.
+	if (width <= 0 || height <= 0 || width > MAX_IMAGE_SIZE || height > MAX_IMAGE_SIZE)
+	{
+		setLastError("LLImageDXT: header dimensions out of range");
+		return false;
+	}
+
 	S32 ncomponents = formatComponents(mFileFormat);
 	setSize(width, height, ncomponents);
 
@@ -285,7 +331,17 @@ bool LLImageDXT::decode(LLImageRaw* raw_image, F32 time)
 		data = getData() + getMipOffset(0);
 	}
 	S32 image_size = formatBytes(mFileFormat, width, height);
-	
+
+	// S24: defense in depth - formatBytes() uses S32 arithmetic and could in principle still
+	// return a non-positive value (e.g. via a future caller that bypasses updateData()'s own
+	// dimension clamp); reject rather than let a negative/zero size reach the bounds check and
+	// memcpy below.
+	if (image_size <= 0)
+	{
+		setLastError("LLImageDXT decode: invalid image size");
+		return false;
+	}
+
 	if ((!getData()) || (data + image_size > getData() + getDataSize()))
 	{
 		setLastError("LLImageDXT trying to decode an image with not enough data!");
@@ -297,7 +353,14 @@ bool LLImageDXT::decode(LLImageRaw* raw_image, F32 time)
 		setLastError("llImageDXT failed to resize image!");
 		return false;
 	}
-	memcpy(raw_image->getData(), data, image_size);	/* Flawfinder: ignore */
+	// S24: the destination buffer above is allocated at the exact unpadded width*height*
+	// ncomponents, but `image_size` (formatBytes()) rounds up to a multiple of 4 bytes - for
+	// I8/A8/RGB8 whenever width*height*ncomponents isn't itself a multiple of 4, copying the
+	// padded image_size writes 1-3 bytes past the end of the destination (RGBA8 is always a
+	// multiple of 4 and unaffected). The source region stays validated by the bounds check
+	// above, which correctly uses the padded size since the file's mip layout is itself padded.
+	S32 raw_bytes = width * height * ncomponents;
+	memcpy(raw_image->getData(), data, raw_bytes);	/* Flawfinder: ignore */
 
 	return true;
 }

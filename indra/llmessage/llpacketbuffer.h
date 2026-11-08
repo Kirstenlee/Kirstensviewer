@@ -28,6 +28,8 @@
 #ifndef LL_LLPACKETBUFFER_H
 #define LL_LLPACKETBUFFER_H
 
+#include <cstring>
+
 #include "net.h"		// for NET_BUFFER_SIZE
 #include "llhost.h"
 
@@ -40,6 +42,23 @@ public:
 
     LLPacketBuffer(const LLPacketBuffer&) = default;
     LLPacketBuffer& operator=(const LLPacketBuffer&) = default;
+
+    // S24: copies only mSize bytes of mData plus the metadata fields, instead of the
+    // full fixed 8KB mData array that operator= copies regardless of actual packet size.
+    // Safe because every consumer reads through getData() only up to getSize().
+    void copyFrom(const LLPacketBuffer& other)
+    {
+        mSize = other.mSize;
+        if (mSize < 0) mSize = 0;
+        if (mSize > (S32)NET_BUFFER_SIZE) mSize = (S32)NET_BUFFER_SIZE;
+        if (mSize > 0)
+        {
+            memcpy(mData, other.mData, mSize);
+        }
+        mHost = other.mHost;
+        mReceivingIF = other.mReceivingIF;
+        mPacketIDChecked = other.mPacketIDChecked;
+    }
 
 	S32			getSize() const					{ return mSize; }
 	const char	*getData() const				{ return mData; }

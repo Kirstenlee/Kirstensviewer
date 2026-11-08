@@ -97,6 +97,8 @@ private:
     // Procedural Stencils
     void setStencil(EStencilShape shape, EStencilBlendMode mode, F32 min, F32 max, F32* params);
     F32 getStencilAlpha(S32 i, S32 j);
+    F32 computeStencilAlpha(S32 i, S32 j);
+    void primeStencilAlphaCache();
 
     // Histograms
     U32* getBrightnessHistogram();
@@ -131,6 +133,11 @@ private:
     F32 mStencilGradX;
     F32 mStencilGradY;
     F32 mStencilGradN;
+
+    // S24: per-pixel alpha cache, only primed when a lookahead in executeFilter() finds
+    // 2+ pixel-processing stages sharing one stencil entry (empty means "no cache, compute
+    // live" - the common single-stage case, where caching would be a net loss).
+    std::vector<F32> mStencilAlphaCache;
 };
 
 

@@ -285,7 +285,19 @@ public:
 	// as the given type.
     U32 loadFromFileLegacy(const std::string& filename, bool require_declaration = true, eControlType declare_as = TYPE_STRING);
     U32 saveToFile(const std::string& filename, bool nondefault_only);
+    // S24: ini-dialect writer counterpart to loadIniFileToLLSD() - saveToFile() dispatches to this
+    // internally by extension, same pattern as loadFromFile(), so no caller needs to change.
+    U32 saveToFileIni(const std::string& filename, bool nondefault_only);
     U32 loadFromFile(const std::string& filename, bool default_values = false, bool save_values = true, bool error_when_no_comment = true);
+    // S24: shared per-entry processing core both the LLSD-XML path and the new .ini path (S24's
+    // split category settings files - render_shadows.ini/render_reflections.ini/etc, see
+    // app_settings/settings_files.xml) funnel through from loadFromFile() - identical semantics
+    // (type-mismatch checking, persist/comment handling, unrecognized-setting preservation)
+    // regardless of which file format `settings` was parsed from.
+    U32 loadFromLLSD(const LLSD& settings, bool set_default_values, bool save_values, bool error_when_no_comment);
+    // Parses S24's native .ini dialect into the same LLSD shape loadFromLLSD() expects from the
+    // LLSD-XML path - see llcontrol.cpp's loadIniFileToLLSD() for the dialect itself.
+    bool loadIniFileToLLSD(const std::string& filename, LLSD& settings);
 	void	resetToDefaults();
     void    incrCount(std::string_view name);
 

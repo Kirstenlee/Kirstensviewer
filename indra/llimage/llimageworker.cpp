@@ -126,10 +126,11 @@ LLImageDecodeThread::handle_t LLImageDecodeThread::decodeImage(
     // This prevents an invisible memory bomb when fetch outpaces decode.
     {
         size_t pending = mThreadPool->getQueue().size();
-        if (mMaxQueueDepth > 0 && pending >= mMaxQueueDepth)
+        const size_t max_depth = mMaxQueueDepth.load(std::memory_order_relaxed);
+        if (max_depth > 0 && pending >= max_depth)
         {
             LL_DEBUGS("TextureDecode") << "Decode queue full (" << pending
-                                       << " >= " << mMaxQueueDepth
+                                       << " >= " << max_depth
                                        << "), deferring decode" << LL_ENDL;
             return 0; // caller treats handle_t(0) as "try again later"
         }

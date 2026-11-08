@@ -27,6 +27,8 @@
 #ifndef LL_LLIMAGEWORKER_H
 #define LL_LLIMAGEWORKER_H
 
+#include <atomic>
+
 #include "llimage.h"
 #include "llpointer.h"
 #include "threadpool_fwd.h"
@@ -59,8 +61,8 @@ public:
     // S24 MEMORY SAFETY: Decode queue depth limit
     // Caps pending decode count based on available system memory
     // Prevents unbounded queue growth when decode throughput < fetch rate
-    void setMaxQueueDepth(size_t depth) { mMaxQueueDepth = depth; }
-    size_t getMaxQueueDepth() const { return mMaxQueueDepth; }
+    void setMaxQueueDepth(size_t depth) { mMaxQueueDepth.store(depth, std::memory_order_relaxed); }
+    size_t getMaxQueueDepth() const { return mMaxQueueDepth.load(std::memory_order_relaxed); }
 
 private:
 	// As of SL-17483, LLImageDecodeThread is no longer itself an
@@ -69,8 +71,10 @@ private:
 	std::unique_ptr<LL::ThreadPool> mThreadPool;
     LLAtomicU32 mDecodeCount;
     // S24 MEMORY SAFETY: Maximum allowed pending decode count (0 = unlimited)
-    // Set dynamically in decodeImage() based on available system RAM
-    size_t mMaxQueueDepth{ 0 };
+    // Set dynamically in decodeImage() based on available system RAM. Written
+    // from the main thread (LLViewerTexture's low-RAM handler), read from the
+    // decode worker thread in decodeImage() below - hence atomic.
+    std::atomic<size_t> mMaxQueueDepth{ 0 };
 };
 
 #endif

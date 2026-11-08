@@ -157,6 +157,15 @@ bool LLCalc::evalString(const std::string& expression, F32& result)
 		LL_INFOS() << "Unhandled syntax error at " << mLastErrorPos << " in expression: " << expression << LL_ENDL;
 		return false;
 	}
-	
+
+	// S24 : the grammar's /, % and ^ operators never check for NaN/Inf, so
+	// e.g. "0/0" or "1/0" silently returned true with a non-finite result.
+	if (!llfinite(result))
+	{
+		mLastErrorPos = expr_upper.size();
+		LL_INFOS() << "Non-finite result in expression: " << expression << LL_ENDL;
+		return false;
+	}
+
 	return true;
 }

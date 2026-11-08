@@ -34,7 +34,7 @@
 #include "m3math.h"
 #include "llquaternion.h"
 
-#include <immintrin.h> // S24
+#include <immintrin.h>
 
 // LLMatrix3
 
@@ -199,13 +199,10 @@ void LLMatrix3::invert()
 	{
 		// invertiable
 		LLMatrix3 t(*this);
-		// S24 (bare-metal pass, 2026-08-30): was 9 separate divisions by det -
-		// vdivss has far higher latency and lower throughput than vmulss on
-		// real hardware and isn't fully pipelined, unlike every other
-		// scalar-divide in this library (LLVector3/4/2's operator/=,
-		// LLQuaternion::normalize()), which already reduce to one reciprocal
-		// + N multiplies. Verified via disassembly (MSVC /O2 /arch:AVX2
-		// /fp:precise): 9x vdivss before, 1x vdivss + 9x vmulss after.
+		// S24: reciprocal + multiplies instead of 9 separate divisions - matches
+		// the pattern used elsewhere in this library (LLVector3/4/2::operator/=,
+		// LLQuaternion::normalize()), since scalar divide has far higher latency
+		// than multiply.
 		F32 inv_det = 1.f / det;
 		mMatrix[VX][VX] = (t.mMatrix[VY][VY] * t.mMatrix[VZ][VZ] - t.mMatrix[VY][VZ] * t.mMatrix[VZ][VY]) * inv_det;
 		mMatrix[VY][VX] = (t.mMatrix[VY][VZ] * t.mMatrix[VZ][VX] - t.mMatrix[VY][VX] * t.mMatrix[VZ][VZ]) * inv_det;
@@ -545,51 +542,19 @@ bool operator!=(const LLMatrix3& a, const LLMatrix3& b)
 
 const LLMatrix3& operator*=(LLMatrix3& a, const LLMatrix3& b)
 {
-	// We assume NUM_VALUES_IN_MAT3 equals 3.
+	// S24 : was 9 iterations of an 8-lane AVX load/mul/hadd/shuffle sequence
+	// per element (5 of the 8 lanes always zero) to compute a 3-term dot
+	// product. Same scalar expression the non-compound operator* above
+	// already uses (lines 444-458) - identical result, far fewer ops.
 	LLMatrix3 mat;  // Temporary result matrix
 
-	// For each column 'i' of the result and for each row 'j'
 	for (U32 i = 0; i < 3; ++i)
 	{
 		for (U32 j = 0; j < 3; ++j)
 		{
-			// Load row 'j' of matrix 'a' as an 8-element vector.
-			// The fourth through eighth lanes are set to 0.
-			__m256 vecA = _mm256_setr_ps(
-				a.mMatrix[j][0],
-				a.mMatrix[j][1],
-				a.mMatrix[j][2],
-				0.0f, 0.0f, 0.0f, 0.0f, 0.0f
-			);
-
-			// Load column 'i' of matrix 'b' as an 8-element vector.
-			// We use the fact that matrix 'b' is stored in row-major order;
-			// thus b.mMatrix[0][i], b.mMatrix[1][i], b.mMatrix[2][i] are the components.
-			__m256 vecB = _mm256_setr_ps(
-				b.mMatrix[0][i],
-				b.mMatrix[1][i],
-				b.mMatrix[2][i],
-				0.0f, 0.0f, 0.0f, 0.0f, 0.0f
-			);
-
-			// Multiply element-wise.
-			__m256 prod = _mm256_mul_ps(vecA, vecB);
-
-			// Extract the lower 128 bits which contain the three valid products.
-			__m128 low = _mm256_castps256_ps128(prod);
-
-			// Perform a horizontal add on the 128-bit vector:
-			// _mm_hadd_ps performs pairwise addition, so after two hadd calls we can get the sum of the first three elements.
-			// Here, one call yields:
-			//    hadd[0] = low[0] + low[1],
-			//    hadd[1] = low[2] + low[3]   (note: low[3] is zero)
-			__m128 hadd = _mm_hadd_ps(low, low);
-
-			// Sum the two resulting components: (low[0]+low[1]) + (low[2]+0)
-			float dot = _mm_cvtss_f32(hadd) + _mm_cvtss_f32(_mm_shuffle_ps(hadd, hadd, 0x55));
-
-			// Store the computed dot product into the result matrix.
-			mat.mMatrix[j][i] = dot;
+			mat.mMatrix[j][i] = a.mMatrix[j][0] * b.mMatrix[0][i] +
+				a.mMatrix[j][1] * b.mMatrix[1][i] +
+				a.mMatrix[j][2] * b.mMatrix[2][i];
 		}
 	}
 

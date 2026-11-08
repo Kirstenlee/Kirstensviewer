@@ -105,14 +105,23 @@ LLOctreeTriangleRayIntersect::LLOctreeTriangleRayIntersect(const LLVector4a& sta
      mClosestT(closest_t),
      mHitFace(false)
 {
-    mEnd.setAdd(mStart, mDir);
 }
 
 void LLOctreeTriangleRayIntersect::traverse(const LLOctreeNode<LLVolumeTriangle, LLVolumeTriangle*>* node)
 {
     LLVolumeOctreeListener* vl = (LLVolumeOctreeListener*) node->getListener(0);
 
-    if (LLLineSegmentBoxIntersect(mStart, mEnd, vl->mBounds[0], vl->mBounds[1]))
+    // S24 : was always testing the full mStart..(mStart+mDir) segment, even
+    // after visit() already found a closer hit - it strictly rejects any
+    // t >= *mClosestT (see visit() below). Shrinking the test segment to the
+    // current closest hit prunes subtrees that can't contain anything
+    // closer; visit() would reject their triangles anyway, so the chosen
+    // hit is unchanged.
+    LLVector4a end = mDir;
+    end.mul(llmin(*mClosestT, 1.f));
+    end.add(mStart);
+
+    if (LLLineSegmentBoxIntersect(mStart, end, vl->mBounds[0], vl->mBounds[1]))
     {
         node->accept(this);
         for (U32 i = 0; i < node->getChildCount(); ++i)

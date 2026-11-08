@@ -877,16 +877,24 @@ S32 LLPrimitive::packTEField(U8 *cur_ptr, U8 *data_ptr, U8 data_size, U8 last_fa
 				}
 			}
 			
-			// S24 - Refactored implementation for assigning exception faces to cur_ptr
-			while (exception_faces >= ((U64)0x1 << 7)) {
-				// Extract the lower 7 bits of exception_faces and add the continuation marker (0x80)
-				*cur_ptr++ = (U8)((exception_faces & 0x7F) | 0x80);
-
-				// Shift exception_faces right by 7 bits to process the next chunk of 7 bits
-				exception_faces >>= 7;
+			// S24: fixed chunk byte order - a prior "refactor" here emitted the 7-bit chunks
+			// LSB-first, while unpack_TEField's decoder (below) accumulates them MSB-first
+			// (index_flags <<= 7; index_flags |= chunk, for each continuation byte in the order
+			// it's read) - any exception_faces mask >= 128 (a non-duplicate face at index >= 7)
+			// decoded to the wrong set of face indices. Verified against the canonical pre-fork
+			// viewer and a byte-level round-trip check. This loop finds the highest 7-bit chunk
+			// actually in use, then walks down emitting MSB-first with the continuation bit set
+			// on every chunk but the last - hand-verified to match the decoder's expectations
+			// chunk-for-chunk.
+			S32 top_shift = 0;
+			for (U64 probe = exception_faces >> 7; probe != 0; probe >>= 7)
+			{
+				top_shift += 7;
 			}
-
-			// Process the last chunk: assign the remaining 7 bits without the continuation marker
+			for (; top_shift > 0; top_shift -= 7)
+			{
+				*cur_ptr++ = (U8)(((exception_faces >> top_shift) & 0x7F) | 0x80);
+			}
 			*cur_ptr++ = (U8)(exception_faces & 0x7F);
 						
 						

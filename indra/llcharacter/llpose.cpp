@@ -475,18 +475,22 @@ bool LLPoseBlender::addMotion(LLMotion* motion)
 	for(LLJointState* jsp = pose->getFirstJointState(); jsp; jsp = pose->getNextJointState())
 	{
 		LLJoint *jointp = jsp->getJoint();
-		LLJointStateBlender* joint_blender;
-		if (mJointStateBlenderPool.find(jointp) == mJointStateBlenderPool.end())
+		// S24 : collapse the old find()-then-operator[] pair (2 map
+		// descents on the "already pooled" path, which is almost every
+		// call once a few frames have run) into one. try_emplace() with a
+		// placeholder nullptr, THEN construct on a real miss - constructing
+		// unconditionally inside try_emplace's own argument (e.g.
+		// try_emplace(jointp, new LLJointStateBlender())) would evaluate
+		// `new` on every call regardless of whether the key already
+		// existed, leaking one blender per already-pooled joint per frame.
+		auto [pool_iter, inserted] = mJointStateBlenderPool.try_emplace(jointp, nullptr);
+		if (inserted)
 		{
 			// this is the first time we are animating this joint
 			// so create new jointblender and add it to our pool
-			joint_blender = new LLJointStateBlender();
-			mJointStateBlenderPool[jointp] = joint_blender;
+			pool_iter->second = new LLJointStateBlender();
 		}
-		else
-		{
-			joint_blender = mJointStateBlenderPool[jointp];
-		}
+		LLJointStateBlender* joint_blender = pool_iter->second;
 
 		if (jsp->getPriority() == LLJoint::USE_MOTION_PRIORITY)
 		{
@@ -497,9 +501,15 @@ bool LLPoseBlender::addMotion(LLMotion* motion)
 			joint_blender->addJointState(jsp, jsp->getPriority(), motion->getBlendType() == LLMotion::ADDITIVE_BLEND);
 		}
 
-		// add it to our list of active blenders
-		if (std::find(mActiveBlenders.begin(), mActiveBlenders.end(), joint_blender) == mActiveBlenders.end())
+		// S24 : add it to our list of active blenders - was an
+		// O(active-blender-count) std::find scan over mActiveBlenders per
+		// joint-state (a Bento keyframe pose touches most of a skeleton's
+		// joints, so this was effectively O(joints x already-active
+		// joints)); mInActiveList tracks the same membership directly, so
+		// this is now O(1).
+		if (!joint_blender->mInActiveList)
 		{
+			joint_blender->mInActiveList = true;
 			mActiveBlenders.push_front(joint_blender);
 		}
 	}
@@ -516,6 +526,10 @@ void LLPoseBlender::blendAndApply()
 	{
 		LLJointStateBlender* jsbp = *iter++;
 		jsbp->blendJointStates();
+		// S24 : mActiveBlenders itself is cleared right below - clear each
+		// blender's own membership flag here too, so addMotion()'s O(1)
+		// check (see its comment) doesn't think it's still active.
+		jsbp->mInActiveList = false;
 	}
 
 	// we're done now so there are no more active blenders for this frame
@@ -562,6 +576,8 @@ void LLPoseBlender::clearBlenders()
 	{
 		LLJointStateBlender* jsbp = *iter;
 		jsbp->clear();
+		// S24 : see blendAndApply()'s identical comment.
+		jsbp->mInActiveList = false;
 	}
 
 	mActiveBlenders.clear();

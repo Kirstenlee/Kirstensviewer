@@ -98,6 +98,14 @@ public:
 
 public:
 	LLJoint mJointCache;
+
+    // S24 : tracks membership in LLPoseBlender::mActiveBlenders directly,
+    // so addMotion() no longer needs an O(active-blender-count) std::find
+    // per joint-state to check it - see addMotion()'s own comment
+    // (llpose.cpp). Cleared only where mActiveBlenders itself is cleared
+    // (blendAndApply(), clearBlenders()), never in blendAndCache()/
+    // interpolate(), which deliberately leave the list intact across calls.
+    bool mInActiveList = false;
 };
 
 class LLMotion;

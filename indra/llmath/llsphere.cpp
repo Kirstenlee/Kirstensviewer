@@ -268,6 +268,22 @@ LLSphere LLSphere::getBoundingSphere(const std::vector<LLSphere>& sphere_list)
 		return max_radius;
 		};
 
+	// S24 : early-exit pre-check for the common rejected-candidate case below -
+	// the full max is >= any single term, so a candidate can only be accepted
+	// if every term is < bounding_radius; reject as soon as one term fails
+	// instead of paying the full O(N) cost for every candidate.
+	auto candidateCanBeat = [&](const LLVector3& center, F32 limit) -> bool {
+		for (const auto& sphere : sphere_list)
+		{
+			F32 curRadius = (sphere.getCenter() - center).length() + sphere.getRadius();
+			if (curRadius >= limit)
+			{
+				return false;
+			}
+		}
+		return true;
+		};
+
 	// Iteratively adjust the center to reduce the bounding sphere radius.
 	while (step_length > half_millimeter)
 	{
@@ -296,6 +312,11 @@ LLSphere LLSphere::getBoundingSphere(const std::vector<LLSphere>& sphere_list)
 					candidate_center.mV[VX] += dx * step_length;
 					candidate_center.mV[VY] += dy * step_length;
 					candidate_center.mV[VZ] += dz * step_length;
+
+					if (!candidateCanBeat(candidate_center, bounding_radius))
+					{
+						continue;
+					}
 
 					F32 candidate_radius = computeRequiredRadius(candidate_center);
 					if (candidate_radius < bounding_radius)

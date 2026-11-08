@@ -402,7 +402,12 @@ void LLPluginMessagePipe::processInput(void)
 		}
 		else
 		{
+			// S24 : no owner to deliver this message to - drop it and keep
+			// consuming the buffer anyway, otherwise this delimiter is
+			// found again next iteration and the loop spins forever while
+			// still holding mInputMutex (the socket-read thread needs it too).
 			LL_WARNS("Plugin") << "!mOwner" << LL_ENDL;
+			mInput.erase(0, delim + 1);
 		}
 	}
 	mInputMutex.unlock();

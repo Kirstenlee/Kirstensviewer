@@ -423,7 +423,11 @@ void LLPrimTextureList::setSize(S32 new_size)
     }
     else if (new_size < current_size)
     {
-        for (size_t index = current_size-1; index >= new_size; --index)
+        // S24: was `for (index = current_size-1; index >= new_size; --index)` - when new_size==0
+        // and the list is non-empty, decrementing index past 0 wraps size_t to SIZE_MAX, which is
+        // still >= 0, so the loop reads/deletes far out of bounds instead of stopping. Counting up
+        // over the same [new_size, current_size) range this was meant to delete has no underflow.
+        for (size_t index = new_size; index < current_size; ++index)
         {
             delete mEntryList[index];
         }

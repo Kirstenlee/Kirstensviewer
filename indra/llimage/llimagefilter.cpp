@@ -103,6 +103,10 @@ void LLImageFilter::executeFilter(LLPointer<LLImageRaw> raw_image)
         
         if (filter_name == "stencil")
         {
+            // S24: invalidate any cache from a prior stencil entry - the lookahead below
+            // rebuilds it only if this new entry's shape and following stage count earn it.
+            mStencilAlphaCache.clear();
+
             // Get the shape of the stencil, that is how the procedural alpha is computed geometrically
             std::string filter_shape = mFilterData[i][1].asString();
             EStencilShape shape = STENCIL_SHAPE_UNIFORM;
@@ -151,6 +155,23 @@ void LLImageFilter::executeFilter(LLPointer<LLImageRaw> raw_image)
             }
             // Set the stencil
             setStencil(shape,mode,min,max,params);
+
+            // S24: lookahead - count the pixel-processing entries that will use this
+            // stencil before the next "stencil" entry or the end of the chain. Every
+            // non-"stencil" entry here routes through colorCorrect/colorTransform/
+            // convolve/filterScreen, i.e. always calls getStencilAlpha() once per pixel,
+            // so this count is exact, not an estimate. Only prime the cache when 2+ stages
+            // will share it and the shape isn't UNIFORM (alpha is trivially 1.0f there,
+            // nothing to save) - a single sharing stage would make the cache a net loss.
+            S32 stage_count = 0;
+            for (S32 k = i + 1; k < mFilterData.size() && mFilterData[k][0].asString() != "stencil"; ++k)
+            {
+                ++stage_count;
+            }
+            if (stage_count >= 2 && shape != STENCIL_SHAPE_UNIFORM)
+            {
+                primeStencilAlphaCache();
+            }
         }
         else if (filter_name == "sepia")
         {
@@ -483,9 +504,12 @@ void LLImageFilter::convolve(const LLMatrix3 &kernel, bool normalize, bool abs_v
 	}
     
     // Last line
+    // S24: was getStencilAlpha(i,0) - every other edge case here uses its own row/column
+    // (row 0 at the top of this function, column 0 and column width-1 further up), but this
+    // one read row 0's mask instead of its own row (height-1), inherited from upstream.
     for (S32 i = 0; i < width; i++)
     {
-        blendStencil(getStencilAlpha(i,0), dst_data, 0, 0, 0);
+        blendStencil(getStencilAlpha(i,height-1), dst_data, 0, 0, 0);
         dst_data += components;
     }
 }
@@ -572,6 +596,17 @@ void LLImageFilter::setStencil(EStencilShape shape, EStencilBlendMode mode, F32 
 
 F32 LLImageFilter::getStencilAlpha(S32 i, S32 j)
 {
+    // S24: when primeStencilAlphaCache() has filled the cache for the current stencil,
+    // every stage sharing it reads the precomputed value instead of recomputing it.
+    if (!mStencilAlphaCache.empty())
+    {
+        return mStencilAlphaCache[j * mImage->getWidth() + i];
+    }
+    return computeStencilAlpha(i, j);
+}
+
+F32 LLImageFilter::computeStencilAlpha(S32 i, S32 j)
+{
     F32 alpha = 1.0f;    // That init actually takes care of the STENCIL_SHAPE_UNIFORM case...
     if (mStencilShape == STENCIL_SHAPE_VIGNETTE)
     {
@@ -591,9 +626,23 @@ F32 LLImageFilter::getStencilAlpha(S32 i, S32 j)
         alpha = (((F32)(i) - mStencilStartX)*mStencilGradX + ((F32)(j) - mStencilStartY)*mStencilGradY) / mStencilGradN;
         alpha = llclampf(alpha);
     }
-    
+
     // We rescale alpha between min and max
     return (mStencilMin + alpha * (mStencilMax - mStencilMin));
+}
+
+void LLImageFilter::primeStencilAlphaCache()
+{
+    S32 width  = mImage->getWidth();
+    S32 height = mImage->getHeight();
+    mStencilAlphaCache.resize(width * height);
+    for (S32 j = 0; j < height; ++j)
+    {
+        for (S32 i = 0; i < width; ++i)
+        {
+            mStencilAlphaCache[j * width + i] = computeStencilAlpha(i, j);
+        }
+    }
 }
 
 //============================================================================

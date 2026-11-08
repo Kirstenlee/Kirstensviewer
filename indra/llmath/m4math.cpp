@@ -196,36 +196,33 @@ const LLMatrix4&    LLMatrix4::transpose()
     return *this;
 }
 
-// S24 AVX
+// S24 : was a broken AVX implementation - row0 was loaded but never used,
+// and term1/term2/term3 were the same product (temp1*temp2*temp3) in
+// different multiplication order, which are identical since multiplication
+// commutes. det = term1+term2-term3 therefore collapsed to just term1, with
+// zero dependence on row 0 - wrong for virtually every matrix, including
+// returning 0 for the identity (should be 1). Replaced with a standard
+// cofactor expansion along row 0.
 F32 LLMatrix4::determinant() const
 {
-    // Step 1: Load matrix rows into AVX registers
-    __m128 row0 = _mm_loadu_ps(mMatrix[0]); // Load Row 0
-    __m128 row1 = _mm_loadu_ps(mMatrix[1]); // Load Row 1
-    __m128 row2 = _mm_loadu_ps(mMatrix[2]); // Load Row 2
-    __m128 row3 = _mm_loadu_ps(mMatrix[3]); // Load Row 3
+    const F32* m0 = mMatrix[0];
+    const F32* m1 = mMatrix[1];
+    const F32* m2 = mMatrix[2];
+    const F32* m3 = mMatrix[3];
 
-    // Step 2: Shuffle elements and compute sub-determinants
-    __m128 temp1 = _mm_shuffle_ps(row1, row1, _MM_SHUFFLE(3, 0, 2, 1));
-    __m128 temp2 = _mm_shuffle_ps(row2, row2, _MM_SHUFFLE(3, 1, 0, 2));
-    __m128 temp3 = _mm_shuffle_ps(row3, row3, _MM_SHUFFLE(3, 2, 1, 0));
+    auto det3 = [](F32 a, F32 b, F32 c,
+                    F32 d, F32 e, F32 f,
+                    F32 g, F32 h, F32 i) -> F32
+    {
+        return a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g);
+    };
 
-    __m128 term1 = _mm_mul_ps(temp1, _mm_mul_ps(temp2, temp3)); // temp1 * temp2 * temp3
-    __m128 term2 = _mm_mul_ps(temp3, _mm_mul_ps(temp1, temp2)); // temp3 * temp1 * temp2
-    __m128 term3 = _mm_mul_ps(temp2, _mm_mul_ps(temp3, temp1)); // temp2 * temp3 * temp1
+    F32 minor0 = det3(m1[1], m1[2], m1[3], m2[1], m2[2], m2[3], m3[1], m3[2], m3[3]);
+    F32 minor1 = det3(m1[0], m1[2], m1[3], m2[0], m2[2], m2[3], m3[0], m3[2], m3[3]);
+    F32 minor2 = det3(m1[0], m1[1], m1[3], m2[0], m2[1], m2[3], m3[0], m3[1], m3[3]);
+    F32 minor3 = det3(m1[0], m1[1], m1[2], m2[0], m2[1], m2[2], m3[0], m3[1], m3[2]);
 
-    // Step 3: Sum and subtract results for determinant
-    __m128 det = _mm_sub_ps(_mm_add_ps(term1, term2), term3);
-
-    // Step 4: Horizontally add elements in the determinant vector
-    __m128 result = _mm_hadd_ps(det, det);
-    result = _mm_hadd_ps(result, result);
-
-    // Step 5: Extract the scalar determinant value
-    float determinant;
-    _mm_store_ss(&determinant, result);
-
-    return determinant;
+    return m0[0] * minor0 - m0[1] * minor1 + m0[2] * minor2 - m0[3] * minor3;
 }
 
 // Only works for pure orthonormal, homogeneous transform matrices.

@@ -71,7 +71,9 @@ void LLPacketRing::pushPacket(const LLPacketBuffer& packet)
     LLPacketBuffer* slot = mRing[mHeadIndex];
     S32 old_size = slot->getSize();
 
-    *slot = packet;
+    // S24: copies only packet.getSize() bytes instead of the full 8KB mData array that
+    // operator= would copy regardless of actual size.
+    slot->copyFrom(packet);
 
     mHeadIndex = (mHeadIndex + 1) % ring_size;
 
@@ -103,7 +105,8 @@ bool LLPacketRing::popPacket(LLPacketBuffer& packet)
     LLPacketBuffer* slot = mRing[tail_index];
     S32 packet_size = slot->getSize();
 
-    packet = *slot;
+    // S24: see the matching note in pushPacket() - copies only the real packet size.
+    packet.copyFrom(*slot);
 
     --mNumBufferedPackets;
     mNumBufferedBytes -= packet_size;

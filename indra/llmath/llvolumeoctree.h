@@ -100,7 +100,6 @@ class LLOctreeTriangleRayIntersect : public LLOctreeTraveler<LLVolumeTriangle, L
 public:
     LLVector4a mStart;
     LLVector4a mDir;
-    LLVector4a mEnd;
     LLVector4a* mIntersection;
     LLVector2* mTexCoord;
     LLVector4a* mNormal;

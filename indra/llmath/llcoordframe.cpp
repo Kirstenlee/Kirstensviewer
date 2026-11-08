@@ -537,20 +537,10 @@ LLVector4 LLCoordFrame::transformToAbsolute(const LLVector4 &local_vector) const
 //       {g,h,i} = z-axis
 //       {x,y,z} = origin
 
-// S24 (2026-09-06): getOpenGLTranslation()/getOpenGLRotation() (the separate
-// translation-only/rotation-only exports the diagram above used to describe
-// combining) and getDirectXRotation() (their DX-native, transposed
-// counterpart, added 2026-08-22 to fix a reflection-probe orientation bug)
-// removed - all confirmed dead. getOpenGLTranslation() had zero callers even
-// in the original GL-era codebase; getOpenGLRotation()'s only real callers
-// (llheroprobemanager.cpp/llreflectionmapmanager.cpp's radiance-gen camera
-// setup) were deliberately replaced by the DXCubeMap rewrite's real per-face
-// camera matrices, taking getDirectXRotation() down with them. Renamed from
-// getOpenGLTransform() - this build is DX_RENDER-only, all 3 real callers
-// (llterrainpaintmap.cpp, llviewercamera.cpp's setPerspective(), pipeline.cpp's
-// generateImpostor()) already consume this correctly via gDX.loadMatrix(),
-// including the main camera's own per-frame modelview setup - pure rename,
-// no value change.
+// S24: getOpenGLTranslation()/getOpenGLRotation()/getDirectXRotation() were dead
+// code and have been removed. getDirectXTransform() (renamed from
+// getOpenGLTransform() - this build is DX_RENDER-only) is the sole surviving
+// export; callers consume it via gDX.loadMatrix().
 void LLCoordFrame::getDirectXTransform(F32 *dx_matrix) const
 {
 	*(dx_matrix + 0)  = mXAxis.mV[VX];
@@ -578,6 +568,14 @@ void LLCoordFrame::getDirectXTransform(F32 *dx_matrix) const
 // at and up_direction are presumed to be normalized
 void LLCoordFrame::lookDir(const LLVector3 &at, const LLVector3 &up_direction)
 {
+	// S24 : a zero 'at' falls through below to a degenerate frame (zero
+	// X/Z axes) that the isFinite() guard doesn't catch, since zero is
+	// finite. Keep the existing orientation instead of corrupting it.
+	if (at.isNull())
+	{
+		return;
+	}
+
 	// Make sure 'at' and 'up_direction' are not parallel
 	// and that neither are zero-length vectors
 	LLVector3 left(up_direction % at);

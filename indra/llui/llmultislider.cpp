@@ -420,9 +420,23 @@ bool LLMultiSlider::findUnusedValue(F32& initVal)
 {
     bool firstTry = true;
 
+    // S24 : hard bound on the scan, independent of the "wrapped back to
+    // mInitialValue" exact-float-equality check below - that check can
+    // never trigger if mInitialValue doesn't sit exactly on the
+    // mMinValue + k*mIncrement grid, which would otherwise spin this loop
+    // forever once every slot is filled.
+    const S32 max_tries = llclamp((S32)((mMaxValue - mMinValue) / llmax(mIncrement, F32_MIN)) + 2, 1, 100000);
+    S32 tries = 0;
+
     // find the first open slot starting with
     // the initial value
     while(true) {
+
+        if (++tries > max_tries)
+        {
+            LL_WARNS() << "Whoa! Too many multi slider elements to add one to" << LL_ENDL;
+            return false;
+        }
 
         bool hit = false;
 

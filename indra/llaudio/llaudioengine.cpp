@@ -221,11 +221,22 @@ void LLAudioEngine::updateChannels()
 	}
 }
 
+// S24: budgets synchronous LLAudioData::load() (createSound()) calls per frame.
+// Decode completion is async and unsynchronized with frame content, so without a
+// budget a burst of sounds finishing decode together (region entry, teleport, a
+// crowded event starting) can load several sounds synchronously on the main thread
+// in a single frame. A deferred source just tries again next frame - its buffer is
+// already correctly treated as "not yet loaded" by the rest of this file.
+static S32 sAudioLoadsThisFrame = 0;
+constexpr S32 MAX_AUDIO_LOADS_PER_FRAME = 1;
+
 void LLAudioEngine::idle()
 {
 	// "Update" all of our audio sources, clean up dead ones.
 	// Primarily does position updating, cleanup of unused audio sources.
 	// Also does regeneration of the current priority of each audio source.
+
+	sAudioLoadsThisFrame = 0;
 
 	S32 i;
 	for (i = 0; i < LL_MAX_AUDIO_BUFFERS; i++)
@@ -1281,7 +1292,12 @@ void LLAudioSource::update()
 			}
 			else if (adp->hasDecodedData() && !adp->hasWAVLoadFailed())
 			{
-				adp->load();
+				if (sAudioLoadsThisFrame < MAX_AUDIO_LOADS_PER_FRAME)
+				{
+					adp->load();
+					++sAudioLoadsThisFrame;
+				}
+				// else: deferred - stays unbuffered, retried next frame's idle()
 			}
 			else if (adp->hasCompletedDecode() && adp->hasDecodeFailed()) // Only mark corrupted after decode is done
 			{

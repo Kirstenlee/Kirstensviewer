@@ -461,7 +461,7 @@ U32 ray_box(const LLVector3& ray_point, const LLVector3& ray_direction,
 		// -------------- point is OUTSIDE the box ----------------
 
 		// front
-		if (pointX > 0.0f && dirX < 0.0f)
+		if (pointX > boxX && dirX < 0.0f) // S24 : was pointX > 0.0f
 		{
 			// plane_normal                = [ 1, 0, 0]
 			// plane_normal*line_point     = pointX
@@ -481,7 +481,7 @@ U32 ray_box(const LLVector3& ray_point, const LLVector3& ray_direction,
 		}
 
 		// back
-		if (pointX < 0.0f && dirX > 0.0f)
+		if (pointX < -boxX && dirX > 0.0f) // S24 : was pointX < 0.0f
 		{
 			// plane_normal                = [ -1, 0, 0]
 			// plane_normal*line_point     = -pX
@@ -501,7 +501,7 @@ U32 ray_box(const LLVector3& ray_point, const LLVector3& ray_direction,
 		}
 
 		// left
-		if (pointY > 0.0f && dirY < 0.0f)
+		if (pointY > boxY && dirY < 0.0f) // S24 : was pointY > 0.0f
 		{
 			// plane_normal                = [0, 1, 0]
 			// plane_normal*line_point     = pointY
@@ -522,7 +522,7 @@ U32 ray_box(const LLVector3& ray_point, const LLVector3& ray_direction,
 		}
 
 		// right
-		if (pointY < 0.0f && dirY > 0.0f)
+		if (pointY < -boxY && dirY > 0.0f) // S24 : was pointY < 0.0f
 		{
 			// plane_normal                = [0, -1, 0]
 			// plane_normal*line_point     = -pointY
@@ -542,7 +542,7 @@ U32 ray_box(const LLVector3& ray_point, const LLVector3& ray_direction,
 		}
 
 		// top
-		if (pointZ > 0.0f && dirZ < 0.0f)
+		if (pointZ > boxZ && dirZ < 0.0f) // S24 : was pointZ > 0.0f
 		{
 			// plane_normal                = [0, 0, 1]
 			// plane_normal*line_point     = pointZ
@@ -562,7 +562,7 @@ U32 ray_box(const LLVector3& ray_point, const LLVector3& ray_direction,
 		}
 
 		// bottom
-		if (pointZ < 0.0f && dirZ > 0.0f)
+		if (pointZ < -boxZ && dirZ > 0.0f) // S24 : was pointZ < 0.0f
 		{
 			// plane_normal                = [0, 0, -1]
 			// plane_normal*line_point     = -pointZ

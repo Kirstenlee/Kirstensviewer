@@ -163,7 +163,10 @@ void LLModel::sortVolumeFacesByMaterialName()
 		}
 	}
 
-	mVolumeFaces = new_faces;	
+	// S24: swap instead of copy-assign - new_faces is a local about to be discarded, and
+	// LLVolumeFace has no move path, so the old copy-assign deep-copied every face a
+	// second time (the first being the rebuild loop above).
+	mVolumeFaces.swap(new_faces);
 }
 
 void LLModel::trimVolumeFacesToSize(U32 new_count, LLVolume::face_list_t* remainder)
