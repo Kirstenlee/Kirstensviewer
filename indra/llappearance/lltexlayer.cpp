@@ -373,8 +373,15 @@ bool LLTexLayerSet::render( S32 x, S32 y, S32 width, S32 height, LLRenderTarget*
     DXDepthTest gls_depth(false, false);
     gDX.setColorWriteMask(true, true);
 
-    // clear buffer area to ensure we don't pick up UI elements
+    // S24: only needed on the mIsVisible path below - the !mIsVisible branch (~15 lines down)
+    // draws its own full-screen BT_REPLACE quad at alpha 0 over this exact same rect, which
+    // overwrites every pixel this clear would have touched regardless of what was here before
+    // (REPLACE blend writes src directly, independent of dest). Skipping it when invisible saves
+    // ~5 flushes (setMinimumAlpha() and dx_rect_2d_simple_immediate() each flush internally) and
+    // one full-screen draw, with the invisible path's own result unchanged either way.
+    if (mIsVisible)
     {
+        // clear buffer area to ensure we don't pick up UI elements
         gDX.flush();
         gAlphaMaskProgram.setMinimumAlpha(0.0f);
         gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
@@ -384,10 +391,8 @@ bool LLTexLayerSet::render( S32 x, S32 y, S32 width, S32 height, LLRenderTarget*
 
         gDX.flush();
         gAlphaMaskProgram.setMinimumAlpha(0.004f);
-    }
 
-    if (mIsVisible)
-    {
+
         // composite color layers
         for(LLTexLayerInterface* layer : mLayerList)
         {
@@ -1086,11 +1091,14 @@ bool LLTexLayer::render(S32 x, S32 y, S32 width, S32 height, LLRenderTarget* bou
             LLTexUnit::eTextureAddressMode old_mode = tex->getAddressMode();
 
             gDX.getTexUnit(0)->bind(tex, true);
-            gDX.getTexUnit(0)->setTextureAddressMode(LLTexUnit::TAM_CLAMP);
+            // S24: LLTexUnit::setTextureAddressMode() is a no-op under DX_RENDER - the real
+            // sampler state is read from the texture object itself at bind time, so set it
+            // there instead.
+            tex->setAddressMode(LLTexUnit::TAM_CLAMP);
 
             dx_rect_2d_simple_tex_immediate(width, height);
 
-            gDX.getTexUnit(0)->setTextureAddressMode(old_mode);
+            tex->setAddressMode(old_mode);
             gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
             if (no_alpha_test)
             {
@@ -1311,11 +1319,14 @@ void LLTexLayer::renderMorphMasks(S32 x, S32 y, S32 width, S32 height, const LLC
             LLTexUnit::eTextureAddressMode old_mode = tex->getAddressMode();
 
             gDX.getTexUnit(0)->bind(tex, true);
-            gDX.getTexUnit(0)->setTextureAddressMode(LLTexUnit::TAM_CLAMP);
+            // S24: LLTexUnit::setTextureAddressMode() is a no-op under DX_RENDER - the real
+            // sampler state is read from the texture object itself at bind time, so set it
+            // there instead.
+            tex->setAddressMode(LLTexUnit::TAM_CLAMP);
 
             dx_rect_2d_simple_tex_immediate( width, height );
 
-            gDX.getTexUnit(0)->setTextureAddressMode(old_mode);
+            tex->setAddressMode(old_mode);
             gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
         }
     }

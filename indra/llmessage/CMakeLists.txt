@@ -124,7 +124,6 @@ set(llmessage_HEADER_FILES
     llhttpnodeadapter.h
     llhttpsdhandler.h
     llinstantmessage.h
-    llinvite.h
     lliobuffer.h
     lliohttpserver.h
     lliopipe.h
@@ -156,7 +155,6 @@ set(llmessage_HEADER_FILES
     llservice.h
     llservicebuilder.h
     llstoredmessage.h
-    lltaskname.h
     llteleportflags.h
     lltemplatemessagebuilder.h
     lltemplatemessagedispatcher.h
@@ -169,7 +167,6 @@ set(llmessage_HEADER_FILES
     lltransfertargetvfile.h
     lltrustedmessageservice.h
     lluseroperation.h
-    llvehicleparams.h
     llxfer.h
     llxfermanager.h
     llxfer_file.h

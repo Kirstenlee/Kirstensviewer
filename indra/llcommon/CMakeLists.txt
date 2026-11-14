@@ -123,9 +123,7 @@ set(llcommon_HEADER_FILES
     always_return.h
     apply.h
     chrono.h
-    classic_callback.h
     commoncontrol.h
-    ctype_workaround.h
     fix_macros.h
     fsyspath.h
     function_types.h
@@ -155,7 +153,6 @@ set(llcommon_HEADER_FILES
     lldependencies.h
     lldepthstack.h
     lldictionary.h
-    lldoubledispatch.h
     llendianswizzle.h
     llerror.h
     llerrorcontrol.h
@@ -165,7 +162,6 @@ set(llcommon_HEADER_FILES
     lleventdispatcher.h
     lleventfilter.h
     llevents.h
-    lleventemitter.h
     llexception.h
     llfasttimer.h
     llfile.h
@@ -196,7 +192,6 @@ set(llcommon_HEADER_FILES
     llmetricperformancetester.h
     llmortician.h
     llmutex.h
-    llnametable.h
     llpointer.h
     llprofiler.h
     llpounceable.h
@@ -289,6 +284,9 @@ target_link_libraries(
     )
 
 target_compile_options(llcommon PRIVATE "/Zc:wchar_t-")
+
+# S24 : C4756 from LTCG constant folding of inlined accumulator limits; harmless
+set_source_files_properties(lltracerecording.cpp PROPERTIES COMPILE_OPTIONS "/wd4756")
 
 
 get_directory_property(ALLDEFINES COMPILE_DEFINITIONS)

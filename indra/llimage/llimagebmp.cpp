@@ -602,11 +602,7 @@ bool LLImageBMP::encode(const LLImageRaw* raw_image, F32 encode_time)
 	header.mCompression = 0;
 	header.mAlignmentPadding = 0;
 	header.mImageSize = 0;
-#if LL_DARWIN
-	header.mHorzPelsPerMeter = header.mVertPelsPerMeter = 2834;	// 72dpi
-#else
 	header.mHorzPelsPerMeter = header.mVertPelsPerMeter = 0;
-#endif
 	header.mNumColors = header.mNumColorsImportant = 0;
 
 	// convert BMP header to little endian (no-op on little endian builds)

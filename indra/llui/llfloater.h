@@ -34,6 +34,7 @@
 #include "llpanel.h"
 #include "lltoolbar.h"
 #include "lluuid.h"
+#include "llframetimer.h"
 //#include "llnotificationsutil.h"
 #include <set>
 #include <boost/signals2.hpp>
@@ -64,6 +65,11 @@ constexpr bool ADJUST_VERTICAL_NO = false;
 constexpr F32 CONTEXT_CONE_IN_ALPHA = 0.f;
 constexpr F32 CONTEXT_CONE_OUT_ALPHA = 1.f;
 constexpr F32 CONTEXT_CONE_FADE_TIME = .08f;
+
+// S24: fade-in only (see FLOATER_FADE_IN_TIME's use in LLFloater::draw()) - fade-out was judged
+// too hazardous for a first pass (would mean deferring closeFloater()'s final hide/destroy),
+// so floaters still close instantly. Easy to back out: this constant and its one use site.
+constexpr F32 FLOATER_FADE_IN_TIME = 0.25f;
 
 namespace LLFloaterEnums
 {
@@ -516,6 +522,11 @@ private:
 
 
     bool            mFirstLook;         // true if the _next_ time this floater is visible will be the first time in the session that it is visible.
+
+    // S24: reset to 0 whenever this floater becomes visible (onVisibilityChange()) - draw()
+    // ramps alpha 0->1 over FLOATER_FADE_IN_TIME from this timer, then it's simply ignored
+    // (saturates past 1.0 forever after, no separate "done" flag needed).
+    LLFrameTimer    mFadeInTimer;
 
     typedef std::set<LLHandle<LLFloater> > handle_set_t;
     typedef std::set<LLHandle<LLFloater> >::iterator handle_set_iter_t;

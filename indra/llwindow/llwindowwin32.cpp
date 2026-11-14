@@ -5322,9 +5322,10 @@ void LLWindowWin32::selectHighPerformanceAdapter()
 
 			// S24: gated by DXDevice::sDebugLayerEnabled (see its header comment) so
 			// the debug layer's state is consistent regardless of adapter path.
-			// D3D11_CREATE_DEVICE_SINGLETHREADED is set here too, matching
-			// DXDevice.cpp's device-creation flags - see that file for the rationale.
-			UINT deviceFlags = (DXDevice::sDebugLayerEnabled ? D3D11_CREATE_DEVICE_DEBUG : 0) | D3D11_CREATE_DEVICE_SINGLETHREADED;
+			// D3D11_CREATE_DEVICE_SINGLETHREADED removed here too, matching DXDevice.cpp's
+			// device-creation flags - see that file's comment for the rationale (Tier 1, DX
+			// multithreading investigation; measurement-only step, no behavior change yet).
+			UINT deviceFlags = (DXDevice::sDebugLayerEnabled ? D3D11_CREATE_DEVICE_DEBUG : 0);
 
 			bool adapterSelected = (pSelectedAdapter != nullptr);
 			if (adapterSelected)

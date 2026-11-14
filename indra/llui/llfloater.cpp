@@ -656,6 +656,12 @@ void LLFloater::onVisibilityChange ( bool new_visibility )
     {
         if (getHost())
             getHost()->setFloaterFlashing(this, false);
+
+        // S24: start the fade-in ramp (LLFloater::draw() reads this) every time this floater
+        // becomes visible - includes tab-switching inside a multi-floater host, which is a
+        // known, deliberately-untouched edge case (see FLOATER_FADE_IN_TIME's comment); watch
+        // for it feeling odd on tab switches during live testing.
+        mFadeInTimer.reset();
     }
     LLPanel::onVisibilityChange ( new_visibility );
 }
@@ -2027,8 +2033,20 @@ namespace
 // virtual
 void LLFloater::draw()
 {
+    // S24: fade-in only (see FLOATER_FADE_IN_TIME's comment, llfloater.h) - saturates at 1.0
+    // forever after the ramp completes, no separate "done" state needed. Smoothstep (not linear)
+    // for an ease-in-ease-out curve - slow start/end, faster through the middle. KVTweaks ->
+    // Interface -> "UI Fade-in Time" card exposes both controls below.
+    static LLCachedControl<bool> fade_in_enabled(*LLUI::getInstance()->mSettingGroups["config"], "UIFloaterFadeInEnabled", true);
+    static LLCachedControl<F32> fade_in_time(*LLUI::getInstance()->mSettingGroups["config"], "UIFloaterFadeInTime", FLOATER_FADE_IN_TIME);
+    F32 fade_in_mult = 1.f;
+    if (fade_in_enabled)
+    {
+        const F32 fade_in_lerp = llclamp(mFadeInTimer.getElapsedTimeF32() / llmax((F32)fade_in_time, 0.01f), 0.f, 1.f);
+        fade_in_mult = fade_in_lerp * fade_in_lerp * (3.f - 2.f * fade_in_lerp);
+    }
 
-    const F32 alpha = getCurrentTransparency();
+    const F32 alpha = getCurrentTransparency() * fade_in_mult;
 
     // draw background
     if( isBackgroundVisible() )
@@ -2083,6 +2101,12 @@ void LLFloater::draw()
     }
 
     LLPanel::updateDefaultBtn();
+
+    // S24: scoped alpha-multiply context so every TT_DEFAULT-transparency descendant (buttons,
+    // text, panels - the common case) fades in together with the background above, for free -
+    // LLViewDrawContext merges with whatever's already on the stack (llview.h) and every such
+    // widget's own getCurrentTransparency() already reads it.
+    LLViewDrawContext fade_in_context(fade_in_mult);
 
     if (isMinimized())
     {
@@ -2316,7 +2340,7 @@ void LLFloater::drawConeToOwner(F32 &context_cone_opacity,
         LLRect local_rect = getLocalRect();
 
         gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
-        LLGLEnable cull_face(DX_CULL_FACE);
+        DXStateEnable cull_face(DX_CULL_FACE);
         gDX.begin(LLRender::TRIANGLE_STRIP);
         {
             gDX.color4f(0.f, 0.f, 0.f, contex_cone_in_alpha * context_cone_opacity);

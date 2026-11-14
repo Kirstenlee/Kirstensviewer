@@ -774,50 +774,6 @@ LLUUID LLAvatarNameCache::findIdByName(const std::string& name)
     return LLUUID::null;
 }
 
-#if 0
-F64 LLAvatarNameCache::nameExpirationFromHeaders(LLCore::HttpHeaders *headers)
-{
-    F64 expires = 0.0;
-    if (expirationFromCacheControl(headers, &expires))
-    {
-        return expires;
-    }
-    else
-    {
-        // With no expiration info, default to an hour
-        const F64 DEFAULT_EXPIRES = 60.0 * 60.0;
-        F64 now = LLFrameTimer::getTotalSeconds();
-        return now + DEFAULT_EXPIRES;
-    }
-}
-
-bool LLAvatarNameCache::expirationFromCacheControl(LLCore::HttpHeaders *headers, F64 *expires)
-{
-    bool fromCacheControl = false;
-    F64 now = LLFrameTimer::getTotalSeconds();
-
-    // Allow the header to override the default
-    const std::string *cache_control;
-
-    cache_control = headers->find(HTTP_IN_HEADER_CACHE_CONTROL);
-
-    if (cache_control && !cache_control->empty())
-    {
-        S32 max_age = 0;
-        if (max_age_from_cache_control(*cache_control, &max_age))
-        {
-            *expires = now + (F64)max_age;
-            fromCacheControl = true;
-        }
-    }
-    LL_DEBUGS("AvNameCache")
-        << ( fromCacheControl ? "expires based on cache control " : "default expiration " )
-        << "in " << *expires - now << " seconds"
-        << LL_ENDL;
-
-    return fromCacheControl;
-}
-#else
 F64 LLAvatarNameCache::nameExpirationFromHeaders(const LLSD& headers)
 {
     F64 expires = 0.0;
@@ -862,7 +818,6 @@ bool LLAvatarNameCache::expirationFromCacheControl(const LLSD& headers, F64 *exp
 
     return fromCacheControl;
 }
-#endif
 
 void LLAvatarNameCache::addUseDisplayNamesCallback(const use_display_name_signal_t::slot_type& cb)
 {

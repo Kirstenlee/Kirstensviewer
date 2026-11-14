@@ -31,11 +31,6 @@
 #include <functional>
 #include <set>
 
-#if LL_LINUX
-#include <endian.h>
-#include <netinet/in.h>
-#endif
-
 #if LL_WINDOWS
 #include "winsock2.h" // htons etc.
 #endif

@@ -21,7 +21,6 @@ set(llfilesystem_SOURCE_FILES
 set(llfilesystem_HEADER_FILES
     CMakeLists.txt
     lldir.h
-    lldirguard.h
     lldiriterator.h
     lllfsthread.h
     lldiskcache.h

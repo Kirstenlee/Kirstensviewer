@@ -35,6 +35,7 @@
 #include "llfile.h"
 #include <shlobj.h>
 #include <fstream>
+#include <filesystem>
 
 #include <direct.h>
 #include <errno.h>
@@ -294,9 +295,54 @@ LLDir_Win32::~LLDir_Win32()
 
 // Implementation
 
+namespace
+{
+	// S24: TEMPORARY migration (retire once the userbase has moved past the Beta 1.3 era; also remove the
+	// matching InstantMessageLogPath fix-up in llstartup.cpp). The app folders dropped their "DX" suffix.
+	// Move an existing "<name> DX" folder to "<name>"
+	// so settings, credentials and caches carry over. A stale pre-DX folder already at the new name
+	// (incompatible GL-era data) is set aside, never merged or deleted.
+	void migrate_dx_named_dir(const std::string& base, const std::string& app_name)
+	{
+		namespace fs = std::filesystem;
+		if (base.empty())
+		{
+			return;
+		}
+		std::error_code ec;
+		const fs::path root(ll_convert<std::wstring>(base));
+		const fs::path from = root / ll_convert<std::wstring>(app_name + " DX");
+		const fs::path to = root / ll_convert<std::wstring>(app_name);
+		if (!fs::is_directory(from, ec))
+		{
+			return;
+		}
+		fs::path aside;
+		if (fs::exists(to, ec))
+		{
+			aside = root / ll_convert<std::wstring>(app_name + ".pre-DX-backup");
+			if (fs::exists(aside, ec) || (fs::rename(to, aside, ec), ec))
+			{
+				return;
+			}
+		}
+		fs::rename(from, to, ec);
+		if (ec && !aside.empty())
+		{
+			fs::rename(aside, to, ec);
+		}
+	}
+}
+
 void LLDir_Win32::initAppDirs(const std::string &app_name,
 							  const std::string& app_read_only_data_dir)
 {
+	if (app_name == "Kirstens S24")
+	{
+		migrate_dx_named_dir(mOSUserDir, app_name);
+		migrate_dx_named_dir(mOSCacheDir, app_name);
+	}
+
 	// Allow override so test apps can read newview directory
 	if (!app_read_only_data_dir.empty())
 	{
@@ -401,52 +447,6 @@ bool LLDir_Win32::fileExists(const std::string &filename) const
 		base_name + ".dll";
 }
 
-
-#if 0
-// Utility function to get version number of a DLL
-
-#define PACKVERSION(major,minor) MAKELONG(minor,major)
-
-DWORD GetDllVersion(LPCTSTR lpszDllName)
-{
-
-    HINSTANCE hinstDll;
-    DWORD dwVersion = 0;
-
-    hinstDll = LoadLibrary(lpszDllName);	/* Flawfinder: ignore */ 
-	
-    if(hinstDll)
-    {
-        DLLGETVERSIONPROC pDllGetVersion;
-
-        pDllGetVersion = (DLLGETVERSIONPROC) GetProcAddress(hinstDll, "DllGetVersion");
-
-/*Because some DLLs might not implement this function, you
-  must test for it explicitly. Depending on the particular 
-  DLL, the lack of a DllGetVersion function can be a useful
-  indicator of the version.
-*/
-        if(pDllGetVersion)
-        {
-            DLLVERSIONINFO dvi;
-            HRESULT hr;
-
-            ZeroMemory(&dvi, sizeof(dvi));
-            dvi.cbSize = sizeof(dvi);
-
-            hr = (*pDllGetVersion)(&dvi);
-
-            if(SUCCEEDED(hr))
-            {
-                dwVersion = PACKVERSION(dvi.dwMajorVersion, dvi.dwMinorVersion);
-            }
-        }
-        
-        FreeLibrary(hinstDll);
-    }
-    return dwVersion;
-}
-#endif
 
 #endif
 

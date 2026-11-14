@@ -1110,7 +1110,14 @@ void LLFolderViewItem::draw()
     F32 right_x  = 0;
     F32 y = (F32)rect_height - line_height - (F32)mTextPadTop - (F32)sTopPad;
     F32 text_left = (F32)getLabelXPos();
-    LLWString combined_string = mLabel + mLabelSuffix;
+    // S24: only built when actually needed below (both filter-highlight blocks that use it are
+    // gated on filter_string_length > 0, already known here) - this used to run unconditionally on
+    // every visible row, every draw, regardless of whether an inventory filter was even active.
+    LLWString combined_string;
+    if (filter_string_length > 0)
+    {
+        combined_string = mLabel + mLabelSuffix;
+    }
 
     S32 filter_offset = static_cast<S32>(mViewModelItem->getFilterStringOffset());
     if (filter_string_length > 0)

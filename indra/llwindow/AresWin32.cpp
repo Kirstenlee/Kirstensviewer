@@ -512,14 +512,10 @@ namespace AresWin32
         if (SUCCEEDED(SHGetFolderPathW(NULL, CSIDL_LOCAL_APPDATA, NULL, 0, localAppData)) &&
             SUCCEEDED(SHGetFolderPathW(NULL, CSIDL_APPDATA, NULL, 0, roamingAppData)))
         {
-            // Build paths - must match LLDir_Win32::initAppDirs()'s app_name
-            // (llappviewer.cpp) and getOSCacheDir()'s app_name (lldir.cpp),
-            // both of which split "Kirstens S24" -> "Kirstens S24 DX" for
-            // the DX_RENDER build. Using the old GL-only name here would
-            // make Factory Reset delete a nonexistent folder while leaving
-            // the real, live "Kirstens S24 DX" cache/settings untouched.
-            std::wstring localPath = std::wstring(localAppData) + L"\\Kirstens S24 DX";
-            std::wstring roamingPath = std::wstring(roamingAppData) + L"\\Kirstens S24 DX";
+            // Must match LLDir_Win32::initAppDirs()'s app_name (llappviewer.cpp)
+            // and getOSCacheDir()'s app_name (lldir.cpp).
+            std::wstring localPath = std::wstring(localAppData) + L"\\Kirstens S24";
+            std::wstring roamingPath = std::wstring(roamingAppData) + L"\\Kirstens S24";
 
             LL_WARNS() << "ARES_FACTORY_RESET: Target LOCAL: " << narrow_for_logging(localPath) << LL_ENDL;
             LL_WARNS() << "ARES_FACTORY_RESET: Target ROAMING: " << narrow_for_logging(roamingPath) << LL_ENDL;
@@ -730,6 +726,34 @@ namespace AresWin32
 
         // Write to console
         std::string line = message + "\n";
+        DWORD written = 0;
+        WriteConsoleA(g_ConsoleOutput, line.c_str(), (DWORD)line.length(), &written, NULL);
+
+        LeaveCriticalSection(&g_AresCritSec);
+    }
+
+    void UpdateAresDialogInPlace(const std::string& message)
+    {
+        if (!g_ConsoleOutput) return;
+
+        EnterCriticalSection(&g_AresCritSec);
+
+        SetConsoleColor(FOREGROUND_GREEN | FOREGROUND_BLUE | FOREGROUND_INTENSITY); // Cyan
+
+        // Carriage return to the start of the current line, pad with spaces
+        // to blank out anything longer left over from the previous update,
+        // then write the new text - no trailing newline, so repeated calls
+        // overwrite in place instead of scrolling the console one line per
+        // tick (see KVRAMCache::beginShutdownFlush()'s progress updates).
+        static size_t s_lastLineLength = 0;
+        std::string padded = message;
+        if (padded.length() < s_lastLineLength)
+        {
+            padded.append(s_lastLineLength - padded.length(), ' ');
+        }
+        s_lastLineLength = message.length();
+
+        std::string line = "\r" + padded;
         DWORD written = 0;
         WriteConsoleA(g_ConsoleOutput, line.c_str(), (DWORD)line.length(), &written, NULL);
 

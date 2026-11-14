@@ -186,7 +186,6 @@ set(llui_HEADER_FILES
     lliconctrl.h
     llkeywords.h
     lllayoutstack.h
-    lllazyvalue.h
     lllineeditor.h
     llloadingindicator.h
     lllocalcliprect.h

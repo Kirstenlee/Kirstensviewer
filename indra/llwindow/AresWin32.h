@@ -40,7 +40,14 @@ namespace AresWin32
 
     // S24 Ares Shutdown Dialog: Show Ares kill list in real-time during shutdown
     void ShowAresShutdownDialog();     // Create and show Ares activity dialog
-    void UpdateAresDialog(const std::string& message);  // Add message to dialog
+    void UpdateAresDialog(const std::string& message);  // Add message to dialog (new scrolling line)
+
+    // S24: for frequent progress-style updates (e.g. KVRAMCache's shutdown
+    // flush, ticking every ~200ms) that would otherwise scroll the console
+    // one line per tick. Overwrites the current line in place (carriage
+    // return + pad, no newline) instead of appending a new one, in cyan.
+    void UpdateAresDialogInPlace(const std::string& message);
+
     void CloseAresDialog();            // Close dialog when sweep complete
 }
 

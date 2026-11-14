@@ -5733,6 +5733,12 @@ struct MikktData
 		return 3;
 	}
 
+	// S24 : mikktspace asks whether UVs exist; volume faces always carry them
+	bool has_uv() const
+	{
+		return true;
+	}
+
 	mikk::float3 GetPosition(const uint32_t face_num, const uint32_t vert_num)
 	{
 		F32* v = p[face_num * 3 + vert_num].mV;

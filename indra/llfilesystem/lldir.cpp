@@ -389,11 +389,7 @@ std::string LLDir::buildSLOSCacheDir() const
 	}
 	else
 	{
-		// S24: DX_RENDER and GL builds use incompatible shader-cache/texture-cache
-		// formats, so each gets its own cache folder to avoid one build's stale
-		// cache entries confusing the other. Roaming data (LLDir_Win32::initAppDirs)
-		// is split the same way, same reason.
-		res = add(getOSCacheDir(), "Kirstens S24 DX");
+		res = add(getOSCacheDir(), "Kirstens S24");
 	}
 	return res;
 }
