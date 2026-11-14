@@ -58,7 +58,7 @@ private:
 class LLGLSDefault
 {
 protected:
-    LLGLDisable mBlend, mCullFace;
+    DXStateDisable mBlend, mCullFace;
 public:
 	LLGLSDefault()
 		:
@@ -68,24 +68,12 @@ public:
 	{ }
 };
 
-class LLGLSObjectSelect
-{ 
-protected:
-	LLGLDisable mBlend;
-	LLGLEnable mCullFace;
-public:
-	LLGLSObjectSelect()
-		: mBlend(DX_BLEND),
-		  mCullFace(DX_CULL_FACE)
-	{ }
-};
-
 //----------------------------------------------------------------------------
 
 class DXUIDefault
 {
 protected:
-	// S24: DXState directly, not the deprecated LLGLEnable/LLGLDisable wrappers -
+	// S24: DXState directly, not the deprecated DXStateEnable/DXStateDisable wrappers -
 	// both are just DXState(state, ENABLED_STATE/DISABLED_STATE) under the hood.
 	DXState mBlend;
 	DXState mCullFace;
@@ -103,7 +91,7 @@ public:
 class LLGLSPipeline
 { 
 protected:
-	LLGLEnable mCullFace;
+	DXStateEnable mCullFace;
 	DXDepthTest mDepthTest;
 public:
 	LLGLSPipeline()
@@ -115,7 +103,7 @@ public:
 class LLGLSPipelineAlpha // : public LLGLSPipeline
 { 
 protected:
-	LLGLEnable mBlend;
+	DXStateEnable mBlend;
 public:
 	LLGLSPipelineAlpha()
 		: mBlend(DX_BLEND)
@@ -125,7 +113,7 @@ public:
 class LLGLSPipelineSelection
 { 
 protected:
-	LLGLDisable mCullFace;
+	DXStateDisable mCullFace;
 public:
 	LLGLSPipelineSelection()
 		: mCullFace(DX_CULL_FACE)
@@ -135,7 +123,7 @@ public:
 class LLGLSPipelineSkyBox
 { 
 protected:
-    LLGLDisable mCullFace;
+    DXStateDisable mCullFace;
     LLGLSquashToFarClip mSquashClip;
 public:
 	LLGLSPipelineSkyBox();
@@ -154,13 +142,13 @@ class LLGLSPipelineBlendSkyBox : public LLGLSPipelineDepthTestSkyBox
 { 
 public:
 	LLGLSPipelineBlendSkyBox(bool depth_test, bool depth_write);
-    LLGLEnable mBlend;    
+    DXStateEnable mBlend;    
 };
 
 class LLGLSTracker
 {
 protected:
-	LLGLEnable mCullFace, mBlend;
+	DXStateEnable mCullFace, mBlend;
 public:
 	LLGLSTracker() :
 		mCullFace(DX_CULL_FACE),

@@ -327,7 +327,16 @@ private:
     friend class LLNavShapeVBOManager;
     friend class LLNavMeshVBOManager;
 
-    void flush_vbo(DXenum target, U32 start, U32 end, void* data, U8* dst);
+    // S24: replaces flush_vbo() - dropped the dead gDXDeviceInfo.mIsApple
+    // branch (confirmed unreachable on this Windows-only hard fork, same
+    // precedent as _unmapBuffer()'s identical dead branch removed earlier)
+    // and the GL_ARRAY_BUFFER/GL_ELEMENT_ARRAY_BUFFER vocabulary (callers
+    // pass the real DXBuffer& and its full byte size directly instead).
+    // D3D11_USAGE_DYNAMIC's Map(WRITE_DISCARD) invalidates the WHOLE
+    // resource, so full_size must always be the buffer's complete size -
+    // NEVER a partial (end-start) range - or the upload silently leaves
+    // part of the buffer stale.
+    void uploadRange(DXBuffer& buf, U32 full_size, U32 start, U32 end, void* data, U8* dst);
 
     LLVertexBuffer(U32 typemask, U32 usage)
         : LLVertexBuffer(typemask)

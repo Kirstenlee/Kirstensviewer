@@ -56,6 +56,15 @@ public:
     // a no-op" behavior.
     static void deleteQueries(int count, const unsigned int* names);
 
+    // S24: pooled allocation layered on genQueries() - acquire() pulls from
+    // an internal free-list, growing it 1024 at a time on empty (same batch
+    // size LLOcclusionCullingGroup's own pool used before this moved here,
+    // homogenizing its duplicate pooling logic into dxrender). release()
+    // returns a query to the pool for reuse - it never calls deleteQueries(),
+    // since recycling (not destruction) is what every real caller wants.
+    static unsigned int acquire();
+    static void release(unsigned int name);
+
     // Begin/end the occlusion query identified by `name` - mirrors
     // glBeginQuery()/glEndQuery() bracketing the proxy-geometry draw call in
     // LLOcclusionCullingGroup::doOcclusion(). Unlike glEndQuery(GLenum

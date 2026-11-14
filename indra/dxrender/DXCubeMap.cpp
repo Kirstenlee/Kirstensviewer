@@ -198,47 +198,6 @@ void DXCubeMap::initReflectionMap(U32 resolution, U32 components)
     mImages[0]->setAddressMode(LLTexUnit::TAM_CLAMP);
 }
 
-void DXCubeMap::initEnvironmentMap(const std::vector<LLPointer<LLImageRaw>>& rawimages)
-{
-    if (rawimages.size() != 6)
-        return;
-
-    const U32 resolution = rawimages[0]->getWidth();
-    const U32 components = rawimages[0]->getComponents();
-
-    for (int face = 1; face < 6; ++face)
-    {
-        if (rawimages[face]->getWidth() != resolution ||
-            rawimages[face]->getHeight() != resolution ||
-            rawimages[face]->getComponents() != components)
-        {
-            return; // silently abort on mismatch
-        }
-    }
-
-    U32 texname = 0;
-    LLImageDX::generateTextures(1, &texname);
-
-    for (int face = 0; face < 6; ++face)
-    {
-        mImages[face] = new LLImageDX(resolution, resolution, components, true);
-        mImages[face]->setTarget(mTargets[face], LLTexUnit::TT_CUBE_MAP);
-        mRawImages[face] = rawimages[face];
-        mImages[face]->createGLTexture(0, mRawImages[face], texname);
-        gDX.getTexUnit(0)->bindManual(LLTexUnit::TT_CUBE_MAP, texname);
-        mImages[face]->setAddressMode(LLTexUnit::TAM_CLAMP);
-        mImages[face]->setSubImage(mRawImages[face], 0, 0, resolution, resolution);
-    }
-
-    enableTexture(0);
-    bind();
-
-    mImages[0]->setFilteringOption(LLTexUnit::TFO_ANISOTROPIC);
-
-    gDX.getTexUnit(0)->disable();
-    disable();
-}
-
 void DXCubeMap::generateMipMaps()
 {
     mImages[0]->setUseMipMaps(true);

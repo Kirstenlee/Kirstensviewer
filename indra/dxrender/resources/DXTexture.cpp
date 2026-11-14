@@ -199,6 +199,80 @@ bool DXTexture::create(const uint8_t* data, int width, int height, int component
     return true;
 }
 
+// static
+bool DXTexture::buildOffThread(const std::vector<std::vector<uint8_t>>& mips, int width, int height,
+    ID3D11Texture2D** out_tex, ID3D11ShaderResourceView** out_srv)
+{
+    if (mips.empty() || mips[0].empty() || width <= 0 || height <= 0 || !out_tex || !out_srv)
+    {
+        return false;
+    }
+
+    // Caller (LLImageDX::scheduleAsyncBuild()) already baked the full chain
+    // if it wanted one - mips.size()==1 is Case A (no mips), >1 is Case B.
+    // This function stays CPU-image-processing-free on purpose: it only
+    // ever does the two device calls below, nothing else, so it has no
+    // reason to depend on llimage.h (which drags in enough transitively to
+    // conflict with <d3d11.h>'s own windows.h/winsock ordering in this
+    // translation unit - a real build error hit while developing this, not
+    // a theoretical one).
+    std::vector<D3D11_SUBRESOURCE_DATA> init_data(mips.size());
+    int w = width, h = height;
+    for (size_t i = 0; i < mips.size(); ++i)
+    {
+        init_data[i].pSysMem = mips[i].data();
+        init_data[i].SysMemPitch = (UINT)w * 4;
+        w = std::max(1, w / 2);
+        h = std::max(1, h / 2);
+    }
+
+    // Deliberately no D3D11_RESOURCE_MISC_GENERATE_MIPS / RENDER_TARGET
+    // bind flag even when mips.size() > 1 - see this method's header
+    // comment for why (D3D11 disallows that misc flag together with
+    // pInitialData, and the whole point here is baking the chain on the
+    // CPU instead of a context-call-based GPU GenerateMips()).
+    D3D11_TEXTURE2D_DESC desc = {};
+    desc.Width = width;
+    desc.Height = height;
+    desc.ArraySize = 1;
+    desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    desc.SampleDesc.Count = 1;
+    desc.Usage = D3D11_USAGE_DEFAULT;
+    desc.MipLevels = (UINT)init_data.size();
+    desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+
+    ID3D11Texture2D* tex = nullptr;
+    HRESULT hr = gDXDevice.getDevice()->CreateTexture2D(&desc, init_data.data(), &tex);
+    if (FAILED(hr))
+    {
+        LL_WARNS("Texture") << "DXTexture::buildOffThread: CreateTexture2D failed, hr=0x" << std::hex << (unsigned long)hr << std::dec << LL_ENDL;
+        return false;
+    }
+
+    ID3D11ShaderResourceView* srv = nullptr;
+    hr = gDXDevice.getDevice()->CreateShaderResourceView(tex, nullptr, &srv);
+    if (FAILED(hr))
+    {
+        LL_WARNS("Texture") << "DXTexture::buildOffThread: CreateShaderResourceView failed, hr=0x" << std::hex << (unsigned long)hr << std::dec << LL_ENDL;
+        tex->Release();
+        return false;
+    }
+
+    *out_tex = tex;
+    *out_srv = srv;
+    return true;
+}
+
+void DXTexture::adopt(ID3D11Texture2D* tex, ID3D11ShaderResourceView* srv, bool generate_mips)
+{
+    destroyLocked();
+    mTexture = tex;
+    mSRV = srv;
+    mGenerateMips = generate_mips;
+    mIsCompressed = false;
+    mIsDynamic = false;
+}
+
 bool DXTexture::createCompressed(const uint8_t* data, int width, int height, DXGI_FORMAT format)
 {
     if (width <= 0 || height <= 0)
@@ -439,10 +513,21 @@ bool DXTexture::updateSubImage(const uint8_t* data, int data_width, int x_pos, i
     // If this texture was created with generate_mips=true, mip 0 just
     // changed - regenerate the rest of the chain from it so lower mips
     // don't go stale. Font glyph atlases (the main updateSubImage() caller
-    // today) never request mips, so this is a no-op for them.
+    // today) never request mips, so this is a no-op for them in practice.
+    // GenerateMips() is only legal on a resource actually created with
+    // D3D11_RESOURCE_MISC_GENERATE_MIPS - true for create()'s own
+    // generate_mips=true path, but NOT for a Tier 1 Case B off-thread-built
+    // mip chain (which can't carry that flag - see buildOffThread()'s own
+    // comment for why). Check the real resource instead of trusting
+    // mGenerateMips blindly, so this can never become an illegal call.
     if (mGenerateMips)
     {
-        gDXDevice.getContext()->GenerateMips(mSRV);
+        D3D11_TEXTURE2D_DESC tex_desc = {};
+        mTexture->GetDesc(&tex_desc);
+        if (tex_desc.MiscFlags & D3D11_RESOURCE_MISC_GENERATE_MIPS)
+        {
+            gDXDevice.getContext()->GenerateMips(mSRV);
+        }
     }
 
     return true;
@@ -781,9 +866,16 @@ bool DXTexture::copySubImageFromFrameBuffer(int fb_x, int fb_y, int x_pos, int y
     // path's caller used to follow this copy with its own glGenerateMipmap(GL_TEXTURE_2D) call,
     // which is unresolved/null under DX_RENDER (glGenerateMipmap needs a real GL 3.0+ context to
     // load via wglGetProcAddress, never created here) - calling through it crashed outright.
+    // Same GetDesc()-based guard as updateSubImage() - see its comment for why mGenerateMips alone
+    // isn't a safe enough signal that GenerateMips() is actually legal on this resource.
     if (mGenerateMips)
     {
-        ctx->GenerateMips(mSRV);
+        D3D11_TEXTURE2D_DESC tex_desc = {};
+        mTexture->GetDesc(&tex_desc);
+        if (tex_desc.MiscFlags & D3D11_RESOURCE_MISC_GENERATE_MIPS)
+        {
+            ctx->GenerateMips(mSRV);
+        }
     }
 
     return true;

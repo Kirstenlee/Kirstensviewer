@@ -50,14 +50,14 @@ class LLMatrix4;
 /*
     GL STATE MANAGEMENT DESCRIPTION
 
-    DXState and its two subclasses, LLGLEnable and LLGLDisable, manage the current
+    DXState and its two subclasses, DXStateEnable and DXStateDisable, manage the current
     enable/disable states of the GL to prevent redundant setting of state within a
     render path or the accidental corruption of what state the next path expects.
 
     Essentially, wherever you would call glEnable set a state and then
     subsequently reset it by calling glDisable (or vice versa), make an instance of
-    LLGLEnable with the state you want to set, and assume it will be restored to its
-    original state when that instance of LLGLEnable is destroyed.  It is good practice
+    DXStateEnable with the state you want to set, and assume it will be restored to its
+    original state when that instance of DXStateEnable is destroyed.  It is good practice
     to exploit stack frame controls for optimal setting/unsetting and readability of
     code.  In llglstates.h, there are a collection of helper classes that define groups
     of enables/disables that can cause multiple states to be set with the creation of
@@ -67,13 +67,13 @@ class LLMatrix4;
 
     //disable lighting for rendering hud objects
     //INCORRECT USAGE
-    LLGLEnable blend(DX_BLEND);
+    DXStateEnable blend(DX_BLEND);
     renderHUD();
-    LLGLDisable blend(DX_BLEND);
+    DXStateDisable blend(DX_BLEND);
 
     //CORRECT USAGE
     {
-        LLGLEnable blend(DX_BLEND);
+        DXStateEnable blend(DX_BLEND);
         renderHUD();
     }
 
@@ -81,7 +81,7 @@ class LLMatrix4;
     is useful:
 
     {
-        LLGLEnable blend(blend_hud ? DX_BLEND : 0);
+        DXStateEnable blend(blend_hud ? DX_BLEND : 0);
         renderHUD();
     }
 
@@ -102,11 +102,6 @@ public:
     static void initClass();
     static void restoreDX();
 
-    // make sure GL blend function, GL states, and GL color mask match
-    // what we expect
-    //  writeAlpha - whether or not writing to alpha channel is expected
-    static void checkStates(bool writeAlpha = true);
-
     // Needed to know "is DX_BLEND currently enabled" from outside this
     // class (LLRender::applyDXBlendState(), llrender.cpp) - D3D11 bundles
     // blend-enable with the blend function into one state object, unlike
@@ -124,6 +119,14 @@ public:
     // DXStateCache::getRasterizerState()'s cull_front parameter.
     static LLGLenum getCullFace() { return sCullFace; }
     static void setCullFace(LLGLenum face) { sCullFace = face; }
+
+    // Sets sStateMap[state] directly - NO flush, NO applyDXState() call. ONLY for
+    // DXRasterizerScope below, which stages several rasterizer-bundled flags
+    // together before applying them in one combined RSSetState via
+    // LLRender::applyDXRasterizerState(). Never call this without immediately
+    // following up with your own flush + state-apply, or sStateMap desyncs from
+    // real GPU state - the exact bug class setEnabled()/~DXState() guard against.
+    static void stageState(LLGLenum state, bool enabled) { sStateMap[state] = enabled; }
 
 protected:
     // S24: bool, not LLGLboolean (U8) - pure internal bookkeeping, never
@@ -145,45 +148,44 @@ protected:
     bool mIsEnabled;
 };
 
-// New DXState class wrappers that don't depend on actual GL flags.
-class LLGLEnableBlending : public DXState
+/// TODO: Being deprecated.
+class DXStateEnable : public DXState
 {
 public:
-    LLGLEnableBlending(bool enable);
-};
-
-class LLGLEnableAlphaReject : public DXState
-{
-public:
-    LLGLEnableAlphaReject(bool enable);
-};
-
-// Enable with functor
-class LLGLEnableFunc : DXState
-{
-public:
-    LLGLEnableFunc(LLGLenum state, bool enable, std::function<void()> func)
-        : DXState(state, enable)
-    {
-        if (enable)
-        {
-            func();
-        }
-    }
+    DXStateEnable(LLGLenum state) : DXState(state, ENABLED_STATE) {}
 };
 
 /// TODO: Being deprecated.
-class LLGLEnable : public DXState
+class DXStateDisable : public DXState
 {
 public:
-    LLGLEnable(LLGLenum state) : DXState(state, ENABLED_STATE) {}
+    DXStateDisable(LLGLenum state) : DXState(state, DISABLED_STATE) {}
 };
 
-/// TODO: Being deprecated.
-class LLGLDisable : public DXState
+// S24: coalesced multi-flag guard for the rasterizer-bundled states (DX_CULL_FACE,
+// DX_SCISSOR_TEST, DX_DEPTH_CLAMP, GL_POLYGON_OFFSET_FILL/LINE). LLRender::
+// applyDXRasterizerState() always rebuilds and rebinds the WHOLE bundled
+// ID3D11RasterizerState from every one of these flags together (see its own
+// body) - so N nested DXStateEnable/DXStateDisable guards toggling N of these
+// flags in the same scope cost N separate flush+rebind round-trips for a result
+// that only ever needs one. Does NOT cover DX_BLEND or GL_STENCIL_TEST - those
+// aren't part of this bundle (see DXStateCache::getRasterizerState()); use
+// DXStateEnable/DXStateDisable for them as before. A state of 0 is skipped,
+// same convention as DXState. Up to 4 flags per instance - real usage so far
+// never needs more than 2.
+class DXRasterizerScope
 {
 public:
-    LLGLDisable(LLGLenum state) : DXState(state, DISABLED_STATE) {}
+    DXRasterizerScope(LLGLenum state0, bool enabled0,
+                       LLGLenum state1 = 0, bool enabled1 = false,
+                       LLGLenum state2 = 0, bool enabled2 = false,
+                       LLGLenum state3 = 0, bool enabled3 = false);
+    ~DXRasterizerScope();
+
+private:
+    struct Entry { LLGLenum state; bool wasEnabled; };
+    Entry mEntries[4];
+    int mCount;
 };
 
 // S24: RAII guard for DXState::sCullFace (GL_FRONT/GL_BACK) - unlike GL's stateless per-call
@@ -193,7 +195,7 @@ public:
 // return/exception between the two calls would leave it stuck, silently corrupting the cull
 // direction of every subsequent draw call that touches the rasterizer state (including
 // unrelated objects' shadow-map rendering, via LLRender::setPolygonOffset()) until something
-// else happened to call cullFace() again. Matches this file's own LLGLEnable/LLGLDisable
+// else happened to call cullFace() again. Matches this file's own DXStateEnable/DXStateDisable
 // pattern - always restores on scope exit, regardless of how the scope is left.
 class LLGLCullFace
 {

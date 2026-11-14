@@ -2,6 +2,7 @@
 #include "DXDevice.h"
 #include "llerror.h"
 
+#include <queue>
 #include <unordered_map>
 
 namespace
@@ -10,6 +11,8 @@ namespace
     // 0 reserved as "invalid" - matches GL's glGenQueries() convention that
     // LLOcclusionCullingGroup's own "if (!mOcclusionQuery[...])" checks rely on.
     unsigned int sNextName = 1;
+
+    std::queue<unsigned int> sFreePool;
 }
 
 // static
@@ -46,6 +49,33 @@ void DXOcclusionQuery::deleteQueries(int count, const unsigned int* names)
             iter->second->Release();
             sQueries.erase(iter);
         }
+    }
+}
+
+// static
+unsigned int DXOcclusionQuery::acquire()
+{
+    if (sFreePool.empty())
+    {
+        unsigned int queries[1024];
+        genQueries(1024, queries);
+        for (int i = 0; i < 1024; ++i)
+        {
+            sFreePool.push(queries[i]);
+        }
+    }
+
+    unsigned int ret = sFreePool.front();
+    sFreePool.pop();
+    return ret;
+}
+
+// static
+void DXOcclusionQuery::release(unsigned int name)
+{
+    if (name != 0)
+    {
+        sFreePool.push(name);
     }
 }
 

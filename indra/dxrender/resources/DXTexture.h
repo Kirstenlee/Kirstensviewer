@@ -215,6 +215,59 @@ public:
     // or the copy itself fails.
     bool copySubImageFromFrameBuffer(int fb_x, int fb_y, int x_pos, int y_pos, int width, int height);
 
+    // S24 (Tier 1): builds a texture entirely from DEVICE calls
+    // (CreateTexture2D + CreateShaderResourceView) - no ID3D11DeviceContext
+    // call at all. Static and takes no DXTexture/LLImageDX instance - safe
+    // to call from any thread (device resource creation is free-threaded
+    // per the D3D11 spec as long as the device wasn't created with
+    // D3D11_CREATE_DEVICE_SINGLETHREADED - see DXDevice.cpp's comment on
+    // why that flag is gone).
+    //
+    // `mips[0]` is mip 0, already exactly width*height*4 RGBA8 bytes (i.e.
+    // already repacked - this does NOT call repackToRGBA8() itself);
+    // `mips[1..]`, if present, are the already-baked remaining levels
+    // (each exactly half the previous level's width/height, floored at 1,
+    // 4 bytes/pixel) - the CALLER bakes these (LLImageDX::
+    // scheduleAsyncBuild(), via LLImageBase::generateMip()/a nearest-
+    // neighbor fallback for non-power-of-two sources - same pattern
+    // DXBC7UploadManager::requestUpgrade() already uses). Deliberately kept
+    // out of this function/file: it only ever needs to do the two device
+    // calls below, so it has no reason to depend on llimage.h, which
+    // drags in enough transitively to conflict with <d3d11.h>'s own
+    // windows.h/winsock header ordering in this translation unit - a real
+    // build error hit while developing this, not a theoretical concern.
+    //
+    // mips.size()==1 (Case A, non-mipped) uses the same desc shape as
+    // create()'s own generate_mips=false path (already 100% device calls
+    // today). mips.size()>1 (Case B) creates the resource with the whole
+    // chain as initial data, deliberately NOT
+    // D3D11_RESOURCE_MISC_GENERATE_MIPS + GenerateMips() (create()'s own
+    // generate_mips=true approach) - D3D11 disallows combining that misc
+    // flag with pInitialData, and GenerateMips() is a context call anyway.
+    // The resulting resource therefore has no RESOURCE_MISC_GENERATE_MIPS
+    // flag even though it has a real mip chain - updateSubImage() checks
+    // for this via GetDesc() before ever calling GenerateMips() on a
+    // texture, rather than trusting mGenerateMips blindly, specifically
+    // because of this.
+    //
+    // On success, `*out_tex`/`*out_srv` are new, ref'd (refcount 1) COM
+    // objects the caller now owns - pass them to adopt() on the main
+    // thread, or Release() them directly if abandoning.
+    static bool buildOffThread(const std::vector<std::vector<uint8_t>>& mips, int width, int height,
+        ID3D11Texture2D** out_tex, ID3D11ShaderResourceView** out_srv);
+
+    // S24 (Tier 1): adopts a resource pair built by buildOffThread(),
+    // main-thread-only (destroyLocked() releases whatever this instance
+    // already held, same as create() does) - pure bookkeeping, no new D3D11
+    // call. Takes ownership of `tex`/`srv` (does not AddRef them itself -
+    // caller must not Release() after a successful adopt()). `generate_mips`
+    // must match what was passed to the buildOffThread() call that produced
+    // `tex`/`srv` - sets mGenerateMips so scaleDown() still recognizes this
+    // texture as having a real mip chain (it only ever reads a mip via
+    // CopySubresourceRegion, so it doesn't care that the RESOURCE_MISC flag
+    // itself is absent - see buildOffThread()'s own comment).
+    void adopt(ID3D11Texture2D* tex, ID3D11ShaderResourceView* srv, bool generate_mips);
+
     ID3D11ShaderResourceView* getSRV() const
     {
         return mSRV;

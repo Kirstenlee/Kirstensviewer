@@ -195,6 +195,7 @@ S32 LLImageDX::sCount                   = 0;
 F32 LLImageDX::sLastFrameTime           = 0.f;
 LLImageDX* LLImageDX::sDefaultGLTexture = NULL ;
 std::unordered_set<LLImageDX*> LLImageDX::sImageList;
+bool LLImageDX::sAsyncRepackEnabled = true;
 
 
 bool LLImageDXThread::sEnabledTextures = false;
@@ -232,10 +233,16 @@ void LLImageDX::initClass(LLWindow* window, S32 num_catagories, bool skip_analyz
 {
     sSkipAnalyzeAlpha = skip_analyze_alpha;
 
-    // S24: background-thread D3D11 texture/media creation was removed - a
-    // driver-level NVIDIA bug (610.88) that no application-side mitigation
-    // could route around. sEnabledTextures/sEnabledMedia stay permanently
-    // false; texture/media creation is always synchronous under DX_RENDER.
+    // S24: background-thread D3D11 texture/media creation (the OLD design -
+    // device AND context calls both off the main thread) was removed after
+    // task #260's crash - re-investigated, that was an off-thread
+    // ID3D11DeviceContext call (UpdateSubresource/GenerateMips), not a
+    // proven driver bug. sEnabledTextures/sEnabledMedia stay permanently
+    // false regardless; GL texture/media *creation* (the actual D3D11
+    // calls) is always synchronous, main-thread-only under DX_RENDER. The
+    // CPU-only pixel repack, and for non-mipped sources a full off-thread
+    // device-calls-only build, can still run on DXPool - see
+    // LLImageDX::scheduleAsyncBuild().
     (void)window;
     (void)thread_texture_loads;
     (void)thread_media_updates;
@@ -710,7 +717,41 @@ bool LLImageDX::setImage(const U8* data_in, bool data_hasmips /* = false */, S32
     bool dx_success = false;
     if (!isSourceFormatCompressed())
     {
-        dx_success = mDXTexture.create(data_in, getWidth(), getHeight(), mComponents, mUseMipMaps, isAlphaOnlyFormat(), isBGRAFormat());
+        // S24: if scheduleAsyncBuild() already finished DXPool-side work for
+        // this exact (width, height) ahead of time, use it instead of doing
+        // the equivalent work inline here. Two independent stages it may
+        // have reached (see DXAsyncBuildSlot's own comment) - checked
+        // build-first since a job that reaches it never also publishes
+        // ready. Either dimension mismatch just falls back to the normal
+        // inline path below, never serves stale/wrongly-sized data. Taking
+        // a local copy of the shared_ptr (not touching mAsyncRepackSlot's
+        // own refcount from two places at once) and clearing the member
+        // either way means this consumes the slot exactly once.
+        std::shared_ptr<DXAsyncBuildSlot> slot = std::move(mAsyncRepackSlot);
+
+        if (slot && slot->built.exchange(false) &&
+            slot->width == getWidth() && slot->height == getHeight())
+        {
+            // Tier 1 (Case A/B): already a finished D3D11 resource - just
+            // adopt it, no new device/context call. Null the slot's copies
+            // of the pointers so its destructor doesn't Release() what we
+            // now own.
+            mDXTexture.adopt(slot->texture, slot->srv, slot->generateMips);
+            slot->texture = nullptr;
+            slot->srv = nullptr;
+            dx_success = true;
+        }
+        else if (slot && slot->ready.exchange(false) &&
+                 slot->width == getWidth() && slot->height == getHeight())
+        {
+            // Tier 0: already-repacked bytes - create()'s zero-copy fast
+            // path (components=4, bgra=false) does the rest on this thread.
+            dx_success = mDXTexture.create(slot->rgba8.data(), getWidth(), getHeight(), 4, mUseMipMaps, false, false);
+        }
+        else
+        {
+            dx_success = mDXTexture.create(data_in, getWidth(), getHeight(), mComponents, mUseMipMaps, isAlphaOnlyFormat(), isBGRAFormat());
+        }
         if (!dx_success)
         {
             LL_WARNS("Texture") << "LLImageDX::setImage: DXTexture::create failed" << LL_ENDL;
@@ -763,6 +804,156 @@ bool LLImageDX::setImage(const U8* data_in, bool data_hasmips /* = false */, S32
     ++mDXUploadGeneration;
 
     return dx_success;
+}
+
+namespace
+{
+    // S24 (Tier 1 Case B): bakes a full RGBA8 mip chain from `mip0` down to
+    // 1x1, appending each level (mip0 included, as mips[0]) to `mips`.
+    // Mirrors DXBC7UploadManager::requestUpgrade()'s own mip-baking loop
+    // (newview/dxbc7uploadmanager.cpp) - same box-filter/nearest-neighbor
+    // split, for the same reason (LLImageBase::generateMip() assumes an
+    // exact 2x source and reads past the buffer otherwise) - just floored
+    // at 1x1 instead of BC7's 4x4 block-size floor, to match what D3D11's
+    // own MipLevels=0 auto chain produces. Lives here, not in DXTexture.cpp
+    // (which otherwise owns all mip-chain building), specifically because
+    // this needs LLImageBase (llimage.h), and including that in
+    // DXTexture.cpp conflicts with <d3d11.h>'s own windows.h/winsock header
+    // ordering in that translation unit - a real build error, not a
+    // theoretical one. DXTexture::buildOffThread() just takes the finished
+    // chain and stays CPU-image-processing-free.
+    void buildMipChain(const U8* mip0, int width, int height, std::vector<std::vector<uint8_t>>& mips)
+    {
+        mips.clear();
+        mips.emplace_back(mip0, mip0 + (size_t)width * height * 4);
+
+        int w = width, h = height;
+        const U8* curPtr = mips.back().data();
+
+        // 16 iterations comfortably covers RenderMaxTextureResolution's
+        // real ceiling (2048 -> 12 levels) with headroom to spare; purely a
+        // defensive backstop against ever looping on bad input - the real
+        // stop condition is w<=1 && h<=1 below.
+        for (int i = 0; i < 16 && !(w <= 1 && h <= 1); ++i)
+        {
+            const int nw = std::max(1, w / 2);
+            const int nh = std::max(1, h / 2);
+            std::vector<uint8_t> next((size_t)nw * nh * 4);
+
+            if (w == nw * 2 && h == nh * 2)
+            {
+                LLImageBase::generateMip(curPtr, next.data(), nw, nh, 4);
+            }
+            else
+            {
+                // Non power-of-two source - generateMip() isn't safe here
+                // (same reason DXBC7UploadManager's loop falls back here).
+                for (int y = 0; y < nh; ++y)
+                {
+                    int sy = std::min(h - 1, y * h / nh);
+                    for (int x = 0; x < nw; ++x)
+                    {
+                        int sx = std::min(w - 1, x * w / nw);
+                        const U8* s = curPtr + ((size_t)sy * w + sx) * 4;
+                        uint8_t* d = next.data() + ((size_t)y * nw + x) * 4;
+                        d[0] = s[0]; d[1] = s[1]; d[2] = s[2]; d[3] = s[3];
+                    }
+                }
+            }
+
+            mips.push_back(std::move(next));
+            curPtr = mips.back().data();
+            w = nw; h = nh;
+        }
+    }
+}
+
+void LLImageDX::scheduleAsyncBuild(LLImageRaw* raw)
+{
+    if (!raw || !sAsyncRepackEnabled || isSourceFormatCompressed())
+    {
+        return;
+    }
+
+    const S32 components = raw->getComponents();
+    const bool bgra = isBGRAFormat();
+    const bool mipped = (mUseMipMaps != 0);
+
+    // Unlike Tier 0 alone, there's no "nothing to gain" case left to skip
+    // early on: Case A/B's full off-thread build is worth attempting
+    // regardless of whether a repack is also needed, mipped or not.
+    LL::WorkQueue::ptr_t queue = LL::WorkQueue::getInstance("DXPool");
+    if (!queue)
+    {
+        return;
+    }
+
+    const S32 width = raw->getWidth();
+    const S32 height = raw->getHeight();
+    const bool alpha_only = isAlphaOnlyFormat();
+
+    // S24: copy the SOURCE pixel bytes up front, on the main thread, into a
+    // plain std::vector the worker lambda will own outright (move-captured,
+    // no shared ownership with `raw` at all) - see scheduleAsyncBuild()'s
+    // header comment for why the worker must never touch an
+    // LLPointer<LLImageRaw>/LLPointer<LLImageDX> (the thing that actually
+    // corrupted the heap on the first live test of this feature).
+    std::vector<U8> src(raw->getData(), raw->getData() + (size_t)width * height * components);
+
+    auto slot = std::make_shared<DXAsyncBuildSlot>();
+    mAsyncRepackSlot = slot; // old slot (if any) is simply orphaned - safe, see its struct comment
+
+    queue->post([slot, src = std::move(src), width, height, components, alpha_only, bgra, mipped]() mutable
+    {
+        std::vector<U8> rgba8;
+        if (components == 4 && !bgra)
+        {
+            rgba8 = std::move(src); // already the right layout, no repack needed
+        }
+        else if (!DXTexture::repackToRGBA8(src.data(), width, height, components, rgba8, alpha_only, bgra, false))
+        {
+            return; // repack failed - leave the slot empty, setImage() falls back to the normal inline path
+        }
+
+        // Case A (mipped=false) / Case B (mipped=true): full off-thread
+        // build - device calls only (CreateTexture2D +
+        // CreateShaderResourceView, plus CPU-only mip baking for Case B),
+        // no context call at all, legal without
+        // D3D11_CREATE_DEVICE_SINGLETHREADED (see DXDevice.cpp's comment).
+        std::vector<std::vector<U8>> mip_chain;
+        if (mipped)
+        {
+            buildMipChain(rgba8.data(), width, height, mip_chain);
+        }
+        else
+        {
+            // Copy, not move - rgba8 is still needed below if the build
+            // fails and this falls back to publishing it as the Tier 0
+            // result instead.
+            mip_chain.push_back(rgba8);
+        }
+
+        ID3D11Texture2D* tex = nullptr;
+        ID3D11ShaderResourceView* srv = nullptr;
+        if (DXTexture::buildOffThread(mip_chain, width, height, &tex, &srv))
+        {
+            slot->texture = tex;
+            slot->srv = srv;
+            slot->width = width;
+            slot->height = height;
+            slot->generateMips = mipped;
+            slot->built = true;
+            return;
+        }
+        // Build failed - fall through and still publish the repacked
+        // bytes below, so Tier 0's win isn't lost just because the extra
+        // build step didn't pan out.
+
+        slot->rgba8 = std::move(rgba8);
+        slot->width = width;
+        slot->height = height;
+        slot->ready = true;
+    });
 }
 
 bool LLImageDX::setSubImage(const U8* datap, S32 data_width, S32 data_height, S32 x_pos, S32 y_pos, S32 width, S32 height, bool force_fast_update /* = false */, LLGLuint use_name)
@@ -1551,108 +1742,6 @@ void LLImageDX::calcAlphaChannelOffsetAndStride()
     }
 }
 
-void LLImageDX::analyzeAlpha(const void* data_in, U32 w, U32 h)
-{
-    if(!data_in || sSkipAnalyzeAlpha || !mNeedsAlphaAndPickMask)
-    {
-        return ;
-    }
-
-
-    U32 length = w * h;
-    U32 alphatotal = 0;
-
-    U32 sample[16];
-    memset(sample, 0, sizeof(U32)*16);
-
-    // generate histogram of quantized alpha.
-    // also add-in the histogram of a 2x2 box-sampled version.  The idea is
-    // this will mid-skew the data (and thus increase the chances of not
-    // being used as a mask) from high-frequency alpha maps which
-    // suffer the worst from aliasing when used as alpha masks.
-    if (w >= 2 && h >= 2)
-    {
-        llassert(w%2 == 0);
-        llassert(h%2 == 0);
-        const GLubyte* rowstart = ((const GLubyte*) data_in) + mAlphaOffset;
-        for (U32 y = 0; y < h; y+=2)
-        {
-            const GLubyte* current = rowstart;
-            for (U32 x = 0; x < w; x+=2)
-            {
-                const U32 s1 = current[0];
-                alphatotal += s1;
-                const U32 s2 = current[w * mAlphaStride];
-                alphatotal += s2;
-                current += mAlphaStride;
-                const U32 s3 = current[0];
-                alphatotal += s3;
-                const U32 s4 = current[w * mAlphaStride];
-                alphatotal += s4;
-                current += mAlphaStride;
-
-                ++sample[s1/16];
-                ++sample[s2/16];
-                ++sample[s3/16];
-                ++sample[s4/16];
-
-                const U32 asum = (s1+s2+s3+s4);
-                alphatotal += asum;
-                sample[asum/(16*4)] += 4;
-            }
-
-
-            rowstart += 2 * w * mAlphaStride;
-        }
-        length *= 2; // we sampled everything twice, essentially
-    }
-    else
-    {
-        const GLubyte* current = ((const GLubyte*) data_in) + mAlphaOffset;
-        for (U32 i = 0; i < length; i++)
-        {
-            const U32 s1 = *current;
-            alphatotal += s1;
-            ++sample[s1/16];
-            current += mAlphaStride;
-        }
-    }
-
-    // if more than 1/16th of alpha samples are mid-range, this
-    // shouldn't be treated as a 1-bit mask
-
-    // also, if all of the alpha samples are clumped on one half
-    // of the range (but not at an absolute extreme), then consider
-    // this to be an intentional effect and don't treat as a mask.
-
-    U32 midrangetotal = 0;
-    for (U32 i = 2; i < 13; i++)
-    {
-        midrangetotal += sample[i];
-    }
-    U32 lowerhalftotal = 0;
-    for (U32 i = 0; i < 8; i++)
-    {
-        lowerhalftotal += sample[i];
-    }
-    U32 upperhalftotal = 0;
-    for (U32 i = 8; i < 16; i++)
-    {
-        upperhalftotal += sample[i];
-    }
-
-    if (midrangetotal > length/48 || // lots of midrange, or
-        (lowerhalftotal == length && alphatotal != 0) || // all close to transparent but not all totally transparent, or
-        (upperhalftotal == length && alphatotal != 255*length)) // all close to opaque but not all totally opaque
-    {
-        mIsMask = false; // not suitable for masking
-    }
-    else
-    {
-        mIsMask = true;
-    }
-}
-
 //----------------------------------------------------------------------------
 U32 LLImageDX::createPickMask(S32 pWidth, S32 pHeight)
 {
@@ -1704,50 +1793,6 @@ bool LLImageDX::isSourceFormatCompressed() const
 }
 
 //----------------------------------------------------------------------------
-void LLImageDX::updatePickMask(S32 width, S32 height, const U8* data_in)
-{
-    if(!mNeedsAlphaAndPickMask)
-    {
-        return ;
-    }
-
-    if (mFormatType != GL_UNSIGNED_BYTE ||
-        ((mFormatPrimary != GL_RGBA)
-      && (mFormatPrimary != GL_SRGB_ALPHA)))
-    {
-        //cannot generate a pick mask for this texture
-        freePickMask();
-        return;
-    }
-
-
-#ifdef SHOW_ASSERT
-    const U32 pickSize = createPickMask(width, height);
-#else // SHOW_ASSERT
-    createPickMask(width, height);
-#endif // SHOW_ASSERT
-
-    U32 pick_bit = 0;
-
-    for (S32 y = 0; y < height; y += 2)
-    {
-        for (S32 x = 0; x < width; x += 2)
-        {
-            U8 alpha = data_in[(y*width+x)*4+3];
-
-            if (alpha > 32)
-            {
-                U32 pick_idx = pick_bit/8;
-                U32 pick_offset = pick_bit%8;
-                llassert(pick_idx < pickSize);
-
-                mPickMask[pick_idx] |= 1 << pick_offset;
-            }
-
-            ++pick_bit;
-        }
-    }
-}
 
 bool LLImageDX::getMask(const LLVector2 &tc)
 {
@@ -1866,54 +1911,6 @@ void LLImageDX::checkActiveThread()
 
 //----------------------------------------------------------------------------
 
-
-// Manual Mip Generation
-/*
-        S32 width = getWidth(discard_level);
-        S32 height = getHeight(discard_level);
-        S32 w = width, h = height;
-        S32 nummips = 1;
-        while (w > 4 && h > 4)
-        {
-            w >>= 1; h >>= 1;
-            nummips++;
-        }
-        w = width, h = height;
-        const U8* prev_mip_data = 0;
-        const U8* cur_mip_data = 0;
-        for (int m=0; m<nummips; m++)
-        {
-            if (m==0)
-            {
-                cur_mip_data = rawdata;
-            }
-            else
-            {
-                S32 bytes = w * h * mComponents;
-                U8* new_data = new U8[bytes];
-                LLImageBase::generateMip(prev_mip_data, new_data, w, h, mComponents);
-                cur_mip_data = new_data;
-            }
-            llassert(w > 0 && h > 0 && cur_mip_data);
-            U8 test = cur_mip_data[w*h*mComponents-1];
-            {
-                LLImageDX::setManualImage(mTarget, m, mFormatInternal, w, h, mFormatPrimary, mFormatType, cur_mip_data);
-            }
-            if (prev_mip_data && prev_mip_data != rawdata)
-            {
-                delete prev_mip_data;
-            }
-            prev_mip_data = cur_mip_data;
-            w >>= 1;
-            h >>= 1;
-        }
-        if (prev_mip_data && prev_mip_data != rawdata)
-        {
-            delete prev_mip_data;
-        }
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_BASE_LEVEL, 0);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL,  nummips);
-*/
 
 LLImageDXThread::LLImageDXThread(LLWindow* window)
     // We want exactly one thread.

@@ -87,13 +87,15 @@ bool DXDevice::initialize(ID3D11Device* existing_device, ID3D11DeviceContext* ex
     // Windows "Graphics Tools" optional feature - device creation fails
     // outright if it's missing while the flag is on.
     //
-    // D3D11_CREATE_DEVICE_SINGLETHREADED: this codebase never calls into the
-    // D3D11 device/context from any thread but the main one, so the driver
-    // can skip its internal per-call thread-safety locking entirely. Must
-    // match at every D3D11CreateDevice call site (see llwindowwin32.cpp's
-    // selectHighPerformanceAdapter()) since only one site actually creates
-    // the device this class adopts or owns.
-    UINT flags = (sDebugLayerEnabled ? D3D11_CREATE_DEVICE_DEBUG : 0) | D3D11_CREATE_DEVICE_SINGLETHREADED;
+    // S24: D3D11_CREATE_DEVICE_SINGLETHREADED removed (Tier 1, DX multithreading investigation) -
+    // measurement-only step, no behavior change yet: every device/context call still runs on the
+    // main thread exactly as before, this just restores the runtime's normal thread-safety locking
+    // so a future worker-thread CreateTexture2D() (not added yet) is legal to add. Re-investigated
+    // task #260 (the crash this flag was originally a reaction to, added 3 days AFTER that crash,
+    // not the cause of it) - see llimagedx.h's sEnabledTextures comment. Must match at every
+    // D3D11CreateDevice call site (see llwindowwin32.cpp's selectHighPerformanceAdapter()) since
+    // only one site actually creates the device this class adopts or owns.
+    UINT flags = (sDebugLayerEnabled ? D3D11_CREATE_DEVICE_DEBUG : 0);
     HRESULT hr = E_FAIL;
 
     // Prefer the AGS-wrapped creation path when AGS is available (AMD GPU) -

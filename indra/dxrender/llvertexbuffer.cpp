@@ -593,7 +593,7 @@ void LLVertexBuffer::genBuffer(U32 size)
 	// No VBO-orphaning pool under DX_RENDER (that's a GL driver-quirk
 	// workaround with no D3D11 equivalent need) - mMappedData is just a
 	// plain CPU shadow buffer; mDXBuffer is the real GPU-side resource,
-	// uploaded from it in flush_vbo().
+	// uploaded from it in uploadRange().
 	llassert(mSize == 0);
 	llassert(mMappedData == nullptr);
 
@@ -826,41 +826,28 @@ U8* LLVertexBuffer::mapIndexBuffer(U32 index, S32 count)
 }
 
 // flush the given byte range
-//  target -- "target" parameter for glBufferSubData
+//  buf -- which DXBuffer to upload to (mDXBuffer or mDXIndices)
+//  full_size -- the buffer's COMPLETE byte size - always, never a partial range
 //  start -- first byte to copy
 //  end -- last byte to copy (NOT last byte + 1)
 //  data -- data to be flushed
 //  dst -- mMappedData or mMappedIndexData
-void LLVertexBuffer::flush_vbo(DXenum target, U32 start, U32 end, void* data, U8* dst)
+void LLVertexBuffer::uploadRange(DXBuffer& buf, U32 full_size, U32 start, U32 end, void* data, U8* dst)
 {
-	if (gDXDeviceInfo.mIsApple)
+	// D3D11_USAGE_DYNAMIC has no partial-range update - Map(WRITE_DISCARD)
+	// invalidates the whole resource, so dst (mMappedData/mMappedIndexData)
+	// must hold the complete, authoritative buffer contents before the
+	// full-buffer upload. Callers that already write directly into dst
+	// (mapVertexBuffer()/getXXXStrider()) pass data == dst + start, so this
+	// memcpy is skipped; callers with an external source (setPositionData()
+	// and friends) need this copy to keep dst authoritative for the bytes
+	// outside their own touched range.
+	if (end != 0 && (U8*)data != dst + start)
 	{
-		// on OS X, flush_vbo doesn't actually write to the GL buffer, so be sure to call
-		// _mapBuffer to tag the buffer for flushing to GL
-		_mapBuffer();
-		STOP_GLERROR;
-		// copy into mapped buffer
 		memcpy(dst + start, data, end - start + 1);
 	}
-	else
-	{
-		// D3D11_USAGE_DYNAMIC has no partial-range update - Map(WRITE_DISCARD)
-		// invalidates the whole resource, so dst (mMappedData/mMappedIndexData)
-		// must hold the complete, authoritative buffer contents before the
-		// full-buffer upload. Callers that already write directly into dst
-		// (mapVertexBuffer()/getXXXStrider()) pass data == dst + start, so this
-		// memcpy is skipped; callers with an external source (setPositionData()
-		// and friends) need this copy to keep dst authoritative for the bytes
-		// outside their own touched range.
-		if (end != 0 && (U8*)data != dst + start)
-		{
-			memcpy(dst + start, data, end - start + 1);
-		}
 
-		DXBuffer& buf = (target == GL_ARRAY_BUFFER) ? mDXBuffer : mDXIndices;
-		U32 full_size = (target == GL_ARRAY_BUFFER) ? mSize : mIndicesSize;
-		buf.upload(dst, full_size);
-	}
+	buf.upload(dst, full_size);
 }
 
 void LLVertexBuffer::unmapBuffer()
@@ -913,13 +900,13 @@ void LLVertexBuffer::_unmapBuffer()
 			}
 			else
 			{
-				flush_vbo(GL_ARRAY_BUFFER, start, end, (U8*)mMappedData + start, mMappedData);
+				uploadRange(mDXBuffer, mSize,start, end, (U8*)mMappedData + start, mMappedData);
 				start = region.mStart;
 				end = region.mEnd;
 			}
 		}
 
-		flush_vbo(GL_ARRAY_BUFFER, start, end, (U8*)mMappedData + start, mMappedData);
+		uploadRange(mDXBuffer, mSize,start, end, (U8*)mMappedData + start, mMappedData);
 		mMappedVertexRegions.clear();
 	}
 
@@ -940,13 +927,13 @@ void LLVertexBuffer::_unmapBuffer()
 			}
 			else
 			{
-				flush_vbo(GL_ELEMENT_ARRAY_BUFFER, start, end, (U8*)mMappedIndexData + start, mMappedIndexData);
+				uploadRange(mDXIndices, mIndicesSize,start, end, (U8*)mMappedIndexData + start, mMappedIndexData);
 				start = region.mStart;
 				end = region.mEnd;
 			}
 		}
 
-		flush_vbo(GL_ELEMENT_ARRAY_BUFFER, start, end, (U8*)mMappedIndexData + start, mMappedIndexData);
+		uploadRange(mDXIndices, mIndicesSize,start, end, (U8*)mMappedIndexData + start, mMappedIndexData);
 		mMappedIndexRegions.clear();
 	}
 }
@@ -1241,47 +1228,47 @@ void LLVertexBuffer::setupVertexBuffer()
 
 void LLVertexBuffer::setPositionData(const LLVector4a* data)
 {
-	flush_vbo(GL_ARRAY_BUFFER, 0, sizeof(LLVector4a) * getNumVerts() - 1, (U8*)data, mMappedData);
+	uploadRange(mDXBuffer, mSize,0, sizeof(LLVector4a) * getNumVerts() - 1, (U8*)data, mMappedData);
 }
 
 void LLVertexBuffer::setTexCoord0Data(const LLVector2* data)
 {
-	flush_vbo(GL_ARRAY_BUFFER, mOffsets[TYPE_TEXCOORD0], mOffsets[TYPE_TEXCOORD0] + sTypeSize[TYPE_TEXCOORD0] * getNumVerts() - 1, (U8*)data, mMappedData);
+	uploadRange(mDXBuffer, mSize,mOffsets[TYPE_TEXCOORD0], mOffsets[TYPE_TEXCOORD0] + sTypeSize[TYPE_TEXCOORD0] * getNumVerts() - 1, (U8*)data, mMappedData);
 }
 
 void LLVertexBuffer::setTexCoord1Data(const LLVector2* data)
 {
-	flush_vbo(GL_ARRAY_BUFFER, mOffsets[TYPE_TEXCOORD1], mOffsets[TYPE_TEXCOORD1] + sTypeSize[TYPE_TEXCOORD1] * getNumVerts() - 1, (U8*)data, mMappedData);
+	uploadRange(mDXBuffer, mSize,mOffsets[TYPE_TEXCOORD1], mOffsets[TYPE_TEXCOORD1] + sTypeSize[TYPE_TEXCOORD1] * getNumVerts() - 1, (U8*)data, mMappedData);
 }
 
 void LLVertexBuffer::setColorData(const LLColor4U* data)
 {
-	flush_vbo(GL_ARRAY_BUFFER, mOffsets[TYPE_COLOR], mOffsets[TYPE_COLOR] + sTypeSize[TYPE_COLOR] * getNumVerts() - 1, (U8*)data, mMappedData);
+	uploadRange(mDXBuffer, mSize,mOffsets[TYPE_COLOR], mOffsets[TYPE_COLOR] + sTypeSize[TYPE_COLOR] * getNumVerts() - 1, (U8*)data, mMappedData);
 }
 
 void LLVertexBuffer::setNormalData(const LLVector4a* data)
 {
-	flush_vbo(GL_ARRAY_BUFFER, mOffsets[TYPE_NORMAL], mOffsets[TYPE_NORMAL] + sTypeSize[TYPE_NORMAL] * getNumVerts() - 1, (U8*)data, mMappedData);
+	uploadRange(mDXBuffer, mSize,mOffsets[TYPE_NORMAL], mOffsets[TYPE_NORMAL] + sTypeSize[TYPE_NORMAL] * getNumVerts() - 1, (U8*)data, mMappedData);
 }
 
 void LLVertexBuffer::setTangentData(const LLVector4a* data)
 {
-	flush_vbo(GL_ARRAY_BUFFER, mOffsets[TYPE_TANGENT], mOffsets[TYPE_TANGENT] + sTypeSize[TYPE_TANGENT] * getNumVerts() - 1, (U8*)data, mMappedData);
+	uploadRange(mDXBuffer, mSize,mOffsets[TYPE_TANGENT], mOffsets[TYPE_TANGENT] + sTypeSize[TYPE_TANGENT] * getNumVerts() - 1, (U8*)data, mMappedData);
 }
 
 void LLVertexBuffer::setWeight4Data(const LLVector4a* data)
 {
-	flush_vbo(GL_ARRAY_BUFFER, mOffsets[TYPE_WEIGHT4], mOffsets[TYPE_WEIGHT4] + sTypeSize[TYPE_WEIGHT4] * getNumVerts() - 1, (U8*)data, mMappedData);
+	uploadRange(mDXBuffer, mSize,mOffsets[TYPE_WEIGHT4], mOffsets[TYPE_WEIGHT4] + sTypeSize[TYPE_WEIGHT4] * getNumVerts() - 1, (U8*)data, mMappedData);
 }
 
 void LLVertexBuffer::setJointData(const U64* data)
 {
-	flush_vbo(GL_ARRAY_BUFFER, mOffsets[TYPE_JOINT], mOffsets[TYPE_JOINT] + sTypeSize[TYPE_JOINT] * getNumVerts() - 1, (U8*)data, mMappedData);
+	uploadRange(mDXBuffer, mSize,mOffsets[TYPE_JOINT], mOffsets[TYPE_JOINT] + sTypeSize[TYPE_JOINT] * getNumVerts() - 1, (U8*)data, mMappedData);
 }
 
 void LLVertexBuffer::setIndexData(const U16* data)
 {
-	flush_vbo(GL_ELEMENT_ARRAY_BUFFER, 0, sizeof(U16) * getNumIndices() - 1, (U8*)data, mMappedIndexData);
+	uploadRange(mDXIndices, mIndicesSize,0, sizeof(U16) * getNumIndices() - 1, (U8*)data, mMappedIndexData);
 }
 
 void LLVertexBuffer::setIndexData(const U32* data)
@@ -1292,52 +1279,52 @@ void LLVertexBuffer::setIndexData(const U32* data)
 		mIndicesStride = 4;
 		mNumIndices /= 2;
 	}
-	flush_vbo(GL_ELEMENT_ARRAY_BUFFER, 0, sizeof(U32) * getNumIndices() - 1, (U8*)data, mMappedIndexData);
+	uploadRange(mDXIndices, mIndicesSize,0, sizeof(U32) * getNumIndices() - 1, (U8*)data, mMappedIndexData);
 }
 
 void LLVertexBuffer::setPositionData(const LLVector4a* data, U32 offset, U32 count)
 {
-	flush_vbo(GL_ARRAY_BUFFER, offset * sizeof(LLVector4a), (offset + count) * sizeof(LLVector4a) - 1, (U8*)data, mMappedData);
+	uploadRange(mDXBuffer, mSize,offset * sizeof(LLVector4a), (offset + count) * sizeof(LLVector4a) - 1, (U8*)data, mMappedData);
 }
 
 void LLVertexBuffer::setNormalData(const LLVector4a* data, U32 offset, U32 count)
 {
-	flush_vbo(GL_ARRAY_BUFFER, mOffsets[TYPE_NORMAL] + offset * sTypeSize[TYPE_NORMAL], mOffsets[TYPE_NORMAL] + (offset + count) * sTypeSize[TYPE_NORMAL] - 1, (U8*)data, mMappedData);
+	uploadRange(mDXBuffer, mSize,mOffsets[TYPE_NORMAL] + offset * sTypeSize[TYPE_NORMAL], mOffsets[TYPE_NORMAL] + (offset + count) * sTypeSize[TYPE_NORMAL] - 1, (U8*)data, mMappedData);
 }
 
 void LLVertexBuffer::setTexCoord0Data(const LLVector2* data, U32 offset, U32 count)
 {
-	flush_vbo(GL_ARRAY_BUFFER, mOffsets[TYPE_TEXCOORD0] + offset * sTypeSize[TYPE_TEXCOORD0], mOffsets[TYPE_TEXCOORD0] + (offset + count) * sTypeSize[TYPE_TEXCOORD0] - 1, (U8*)data, mMappedData);
+	uploadRange(mDXBuffer, mSize,mOffsets[TYPE_TEXCOORD0] + offset * sTypeSize[TYPE_TEXCOORD0], mOffsets[TYPE_TEXCOORD0] + (offset + count) * sTypeSize[TYPE_TEXCOORD0] - 1, (U8*)data, mMappedData);
 }
 
 void LLVertexBuffer::setTexCoord1Data(const LLVector2* data, U32 offset, U32 count)
 {
-	flush_vbo(GL_ARRAY_BUFFER, mOffsets[TYPE_TEXCOORD1] + offset * sTypeSize[TYPE_TEXCOORD1], mOffsets[TYPE_TEXCOORD1] + (offset + count) * sTypeSize[TYPE_TEXCOORD1] - 1, (U8*)data, mMappedData);
+	uploadRange(mDXBuffer, mSize,mOffsets[TYPE_TEXCOORD1] + offset * sTypeSize[TYPE_TEXCOORD1], mOffsets[TYPE_TEXCOORD1] + (offset + count) * sTypeSize[TYPE_TEXCOORD1] - 1, (U8*)data, mMappedData);
 }
 
 void LLVertexBuffer::setColorData(const LLColor4U* data, U32 offset, U32 count)
 {
-	flush_vbo(GL_ARRAY_BUFFER, mOffsets[TYPE_COLOR] + offset * sTypeSize[TYPE_COLOR], mOffsets[TYPE_COLOR] + (offset + count) * sTypeSize[TYPE_COLOR] - 1, (U8*)data, mMappedData);
+	uploadRange(mDXBuffer, mSize,mOffsets[TYPE_COLOR] + offset * sTypeSize[TYPE_COLOR], mOffsets[TYPE_COLOR] + (offset + count) * sTypeSize[TYPE_COLOR] - 1, (U8*)data, mMappedData);
 }
 
 void LLVertexBuffer::setTangentData(const LLVector4a* data, U32 offset, U32 count)
 {
-	flush_vbo(GL_ARRAY_BUFFER, mOffsets[TYPE_TANGENT] + offset * sTypeSize[TYPE_TANGENT], mOffsets[TYPE_TANGENT] + (offset + count) * sTypeSize[TYPE_TANGENT] - 1, (U8*)data, mMappedData);
+	uploadRange(mDXBuffer, mSize,mOffsets[TYPE_TANGENT] + offset * sTypeSize[TYPE_TANGENT], mOffsets[TYPE_TANGENT] + (offset + count) * sTypeSize[TYPE_TANGENT] - 1, (U8*)data, mMappedData);
 }
 
 void LLVertexBuffer::setWeight4Data(const LLVector4a* data, U32 offset, U32 count)
 {
-	flush_vbo(GL_ARRAY_BUFFER, mOffsets[TYPE_WEIGHT4] + offset * sTypeSize[TYPE_WEIGHT4], mOffsets[TYPE_WEIGHT4] + (offset + count) * sTypeSize[TYPE_WEIGHT4] - 1, (U8*)data, mMappedData);
+	uploadRange(mDXBuffer, mSize,mOffsets[TYPE_WEIGHT4] + offset * sTypeSize[TYPE_WEIGHT4], mOffsets[TYPE_WEIGHT4] + (offset + count) * sTypeSize[TYPE_WEIGHT4] - 1, (U8*)data, mMappedData);
 }
 
 void LLVertexBuffer::setJointData(const U64* data, U32 offset, U32 count)
 {
-	flush_vbo(GL_ARRAY_BUFFER, mOffsets[TYPE_JOINT] + offset * sTypeSize[TYPE_JOINT], mOffsets[TYPE_JOINT] + (offset + count) * sTypeSize[TYPE_JOINT] - 1, (U8*)data, mMappedData);
+	uploadRange(mDXBuffer, mSize,mOffsets[TYPE_JOINT] + offset * sTypeSize[TYPE_JOINT], mOffsets[TYPE_JOINT] + (offset + count) * sTypeSize[TYPE_JOINT] - 1, (U8*)data, mMappedData);
 }
 
 void LLVertexBuffer::setIndexData(const U16* data, U32 offset, U32 count)
 {
-	flush_vbo(GL_ELEMENT_ARRAY_BUFFER, offset * sizeof(U16), (offset + count) * sizeof(U16) - 1, (U8*)data, mMappedIndexData);
+	uploadRange(mDXIndices, mIndicesSize,offset * sizeof(U16), (offset + count) * sizeof(U16) - 1, (U8*)data, mMappedIndexData);
 }
 
 void LLVertexBuffer::setIndexData(const U32* data, U32 offset, U32 count)
@@ -1348,5 +1335,5 @@ void LLVertexBuffer::setIndexData(const U32* data, U32 offset, U32 count)
 		mIndicesStride = 4;
 		mNumIndices /= 2;
 	}
-	flush_vbo(GL_ELEMENT_ARRAY_BUFFER, offset * sizeof(U32), (offset + count) * sizeof(U32) - 1, (U8*)data, mMappedIndexData);
+	uploadRange(mDXIndices, mIndicesSize,offset * sizeof(U32), (offset + count) * sizeof(U32) - 1, (U8*)data, mMappedIndexData);
 }

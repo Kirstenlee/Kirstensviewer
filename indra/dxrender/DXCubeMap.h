@@ -42,10 +42,6 @@ public:
     // render-to-cubemap use (no LLImageRaw upload).
     void initReflectionMap(U32 resolution, U32 components = 3);
 
-    // Full init from a pre-supplied 6-face environment map (takes ownership
-    // of rawimages, unlike init() which copies into its own storage).
-    void initEnvironmentMap(const std::vector<LLPointer<LLImageRaw>>& rawimages);
-
     void generateMipMaps();
 
     void bind();

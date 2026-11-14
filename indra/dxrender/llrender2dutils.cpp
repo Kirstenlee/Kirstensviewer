@@ -960,8 +960,11 @@ void dx_rect_2d_checkerboard(const LLRect& rect, F32 alpha)
 	//polygon stipple is deprecated, use "Checker" texture
 	LLPointer<LLUIImage> img = LLRender2D::getInstance()->getUIImage("Checker");
 	gDX.getTexUnit(0)->bind(img->getImage());
-	gDX.getTexUnit(0)->setTextureAddressMode(LLTexUnit::TAM_WRAP);
-	gDX.getTexUnit(0)->setTextureFilteringOption(LLTexUnit::TFO_POINT);
+	// S24: LLTexUnit::setTextureAddressMode()/setTextureFilteringOption() are empty under
+	// DX_RENDER - the real sampler state is read from the texture object itself at bind time,
+	// so set it there instead (DXTextureBase forwards to the backing LLImageDX's real fields).
+	img->getImage()->setAddressMode(LLTexUnit::TAM_WRAP);
+	img->getImage()->setFilteringOption(LLTexUnit::TFO_POINT);
 
 	LLColor4 color(1.f, 1.f, 1.f, alpha);
 	LLRectf uv_rect(0, 0, rect.getWidth() / 32.f, rect.getHeight() / 32.f);

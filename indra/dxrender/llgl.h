@@ -50,7 +50,7 @@
 // now lives in
 // core/DXDeviceInfo.h, next to DXDevice - re-included here so every existing
 // bare #include "llgl.h" site keeps working unchanged. DXState and its RAII
-// wrapper family (LLGLEnable/LLGLDisable/LLGLCullFace/LLGLUserClipPlane/
+// wrapper family (DXStateEnable/DXStateDisable/LLGLCullFace/LLGLUserClipPlane/
 // LLGLSquashToFarClip/LLGLUpdate/etc) now live in core/DXState.h, next to
 // DXStateCache, same reasoning. See project_dxrender_consolidation design
 // notes.
@@ -79,14 +79,7 @@ void flush_glerror(); // Flush GL errors when we know we're handling them correc
 void clear_glerror();
 
 
-// stop_glerror is still needed on OS X but has performance implications
-// use macro below to conditionally add stop_glerror to non-release builds
-// on OS X
-#if LL_DARWIN && !LL_RELEASE_FOR_DOWNLOAD
-#define STOP_GLERROR stop_glerror()
-#else
 #define STOP_GLERROR
-#endif
 
 #include "llglstates.h"
 

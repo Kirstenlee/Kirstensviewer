@@ -632,7 +632,6 @@ public:
 public:
     static U32 sUICalls;
     static U32 sUIVerts;
-    static bool sGLCoreProfile;
     static bool sNsightDebugSupport;
     static LLVector2 sUIGLScaleFactor;
     static bool sClassicMode; // classic sky mode active

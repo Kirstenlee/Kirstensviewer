@@ -79,19 +79,9 @@ void DXState::restoreDX()
     initClass();
 }
 
-// S24: resetTextureStates()/dumpStates() had zero callers anywhere in the tree (confirmed by
-// grep, not assumed) - removed rather than left as unreferenced raw-GL-calling dead code
-// (resetTextureStates() had 3 unguarded calls: glGetIntegerv/glClientActiveTexture). Unlike
-// checkStates() below (kept as a no-op stub - it has ~25 live call sites tree-wide, not worth
-// touching for zero behavior change), these had no callers to preserve an interface for.
-
-void DXState::checkStates(bool writeAlpha)
-{
-    // S24: was a GL-context state validator (glGetIntegerv/glIsEnabled read
-    // back against sStateMap) with no D3D11 equivalent - removed rather than
-    // left dead behind the gDebugGL guard.
-    return;
-}
+// S24: resetTextureStates()/dumpStates()/checkStates() had zero real behavior (GL-context state
+// validators with no D3D11 equivalent) - removed along with all ~25 call sites tree-wide, rather
+// than left as a no-op stub forever.
 
 ///////////////////////////////////////////////////////////////////////
 
@@ -108,7 +98,7 @@ namespace
                   "DX_* capability constants (llgltypes.h) must match the real GL_* values");
 
     // Scoped to DX_BLEND/DX_CULL_FACE/DX_SCISSOR_TEST/DX_DEPTH_CLAMP - see
-    // DXStateCache.h for why (the only four states LLGLEnable/LLGLDisable
+    // DXStateCache.h for why (the only four states DXStateEnable/DXStateDisable
     // actually toggle in this codebase, confirmed by grep, not guessed).
     // Everything else (GL_STENCIL_TEST, GL_POLYGON_OFFSET_*, ...) still
     // updates sStateMap bookkeeping (in setEnabled(), unconditionally) but
@@ -262,6 +252,63 @@ DXState::~DXState()
             sStateMap[mState] = mWasEnabled;
             applyDXState(mState, mWasEnabled);
         }
+    }
+}
+
+DXRasterizerScope::DXRasterizerScope(LLGLenum state0, bool enabled0,
+                                      LLGLenum state1, bool enabled1,
+                                      LLGLenum state2, bool enabled2,
+                                      LLGLenum state3, bool enabled3) :
+    mCount(0)
+{
+    LLGLenum states[4] = { state0, state1, state2, state3 };
+    bool enabled[4] = { enabled0, enabled1, enabled2, enabled3 };
+    bool any_change = false;
+    for (int i = 0; i < 4; ++i)
+    {
+        if (!states[i]) continue;
+        bool was = DXState::isEnabled(states[i]);
+        mEntries[mCount].state = states[i];
+        mEntries[mCount].wasEnabled = was;
+        ++mCount;
+        if (was != enabled[i]) any_change = true;
+    }
+    if (any_change)
+    {
+        // Same flush discipline as DXState::setEnabled() - once for the whole
+        // batch, not once per flag (that's the whole point of this class).
+        gDX.flush();
+        gDXUIBatch.flushPending();
+        for (int i = 0; i < 4; ++i)
+        {
+            if (!states[i]) continue;
+            DXState::stageState(states[i], enabled[i]);
+        }
+        gDX.applyDXRasterizerState();
+    }
+}
+
+DXRasterizerScope::~DXRasterizerScope()
+{
+    bool any_change = false;
+    for (int i = 0; i < mCount; ++i)
+    {
+        if (DXState::isEnabled(mEntries[i].state) != mEntries[i].wasEnabled)
+        {
+            any_change = true;
+            break;
+        }
+    }
+    if (any_change)
+    {
+        // Matches ~DXState() - flush only, no gDXUIBatch.flushPending() on the
+        // restore path (same asymmetry, same reasoning, as the class it mirrors).
+        gDX.flush();
+        for (int i = 0; i < mCount; ++i)
+        {
+            DXState::stageState(mEntries[i].state, mEntries[i].wasEnabled);
+        }
+        gDX.applyDXRasterizerState();
     }
 }
 

@@ -515,11 +515,6 @@ LLFontDX* LLFontRegistry::createFont(const LLFontDescriptor& desc)
 	string_vec_t font_search_paths;
 	font_search_paths.push_back(LLFontDX::getFontPathLocal());
 	font_search_paths.push_back(LLFontDX::getFontPathSystem());
-#if LL_DARWIN
-	font_search_paths.push_back(MACOSX_FONT_PATH_LIBRARY);
-	font_search_paths.push_back(MACOSX_FONT_PATH_LIBRARY + MACOSX_FONT_SUPPLEMENTAL);
-	font_search_paths.push_back(LLFontDX::getFontPathSystem() + MACOSX_FONT_SUPPLEMENTAL);
-#endif
 
 	// The fontname string may contain multiple font file names separated by semicolons.
 	// Break it apart and try loading each one, in order.

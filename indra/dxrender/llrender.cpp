@@ -80,7 +80,6 @@ S32 gDXViewport[4];
 U32 LLRender::sUICalls = 0;
 U32 LLRender::sUIVerts = 0;
 U32 LLTexUnit::sWhiteTexture = 0;
-bool LLRender::sGLCoreProfile = false;
 bool LLRender::sNsightDebugSupport = false;
 LLVector2 LLRender::sUIGLScaleFactor = LLVector2(1.f, 1.f);
 bool LLRender::sClassicMode = false;
@@ -162,12 +161,14 @@ void LLTexUnit::refreshState(void)
 
 void LLTexUnit::activate(void)
 {
-	// Texture binding (LLTexUnit -> DXTexture/DXSampler + PSSetShaderResources/
-	// PSSetSamplers) isn't wired up yet - stubbed as a safe no-op rather than
-	// calling glActiveTexture with no GL context. See stage 3 plan memory for
-	// the follow-up task; LLDrawPoolSimple's DX_RENDER branch renders with no
-	// texture bound until then. GL branch removed - task #300 (full GL
-	// removal), never compiled in this DX_RENDER-only build.
+	// S24: stale comment correction - texture binding under DX_RENDER has been real and
+	// working for a long time (bindFast()/bind() below), this is NOT a "not wired up yet"
+	// placeholder. GL's activate(unit)-then-operate-on-current idiom has no role here: every
+	// real bind goes through gDX.getTexUnit(N)->bindFast(...)/bind(...), which binds straight
+	// to pixel-shader slot mIndex - the instance you called it on already identifies the slot,
+	// so there's nothing for a separate "currently active unit" to track. A genuine no-op by
+	// design, not a forgotten stub. GL branch removed - task #300 (full GL removal), never
+	// compiled in this DX_RENDER-only build.
 }
 
 namespace
@@ -2132,9 +2133,6 @@ LLVertexBuffer* LLRender::genBuffer(U32 attribute_mask, S32 count)
 		vb->setColorData(mColorsp.get());
 	}
 
-#if LL_DARWIN
-	vb->unmapBuffer();
-#endif
 	vb->unbind();
 
 	return vb;

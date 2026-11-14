@@ -38,6 +38,8 @@
 #include "llthreadsafequeue.h"
 #include "llrender.h"
 #include "threadpool.h"
+#include <atomic>
+#include <memory>
 #include "workqueue.h"
 #include <unordered_set>
 
@@ -69,8 +71,46 @@ namespace LLImageDXMemory
     void freeDXTextureBytes(const void* key);
 }
 
+// S24: handoff slot for LLImageDX::scheduleAsyncBuild() - see that method's
+// comment for why this exists as its own plain (non-LLRefCount) struct
+// rather than living directly on LLImageDX. Two independent stages, at most
+// one of which is ever actually published by a given job:
+//   - `ready`/`rgba8`: Tier 0 - CPU-only repacked pixels, consumed by
+//     setImage() calling DXTexture::create() itself on the main thread.
+//   - `built`/`texture`/`srv`/`generateMips`: Tier 1 (Case A for non-mipped
+//     sources, Case B for mipped ones - see buildOffThread()'s comment) -
+//     a fully built, ready-to-adopt D3D11 resource. Raw COM pointers, not
+//     LLPointer - safe to hand across threads because IUnknown::AddRef()/
+//     Release() are required by the COM spec to be thread-safe
+//     (interlocked), unlike LLRefCount's plain ++/-- (see
+//     feedback_s24_llrefcount_not_threadsafe memory / Tier 0's own history).
+struct DXAsyncBuildSlot
+{
+    std::atomic<bool> ready{false};
+    std::vector<U8> rgba8;
+    S32 width = 0;
+    S32 height = 0;
+
+    std::atomic<bool> built{false};
+    ID3D11Texture2D* texture = nullptr;
+    ID3D11ShaderResourceView* srv = nullptr;
+    bool generateMips = false; // passed through to DXTexture::adopt() - see its comment
+
+    // Safety net: if this slot is orphaned (a newer schedule call replaced
+    // it, or the owning LLImageDX was destroyed) while still holding a
+    // built-but-never-adopted resource, release it here instead of leaking.
+    // setImage() nulls these two out itself immediately after a successful
+    // adopt(), so this is a no-op in the normal case.
+    ~DXAsyncBuildSlot()
+    {
+        if (srv) srv->Release();
+        if (texture) texture->Release();
+    }
+};
+
 //============================================================================
-class LLImageDX : public LLRefCount
+// S24 : atomic refcount - media worker threads ref() these (syncToMainThread())
+class LLImageDX : public LLThreadSafeRefCount
 {
     friend class LLTexUnit;
 public:
@@ -123,7 +163,6 @@ public:
 protected:
     virtual ~LLImageDX();
 
-    void analyzeAlpha(const void* data_in, U32 w, U32 h);
     void calcAlphaChannelOffsetAndStride();
 
     // Shared by createGLTexture(S32, const LLImageRaw*, ...) and
@@ -145,6 +184,26 @@ public:
     bool createGLTexture(S32 discard_level, const U8* data, bool data_hasmips = false, S32 usename = 0, bool defer_copy = false, LLGLuint* tex_name = nullptr);
     void setImage(const LLImageRaw* imageraw);
     bool setImage(const U8* data_in, bool data_hasmips = false, S32 usename = 0);
+
+    // S24: kicks off, on the "DXPool" worker pool, work that setImage()'s
+    // DX_RENDER branch would otherwise do synchronously on the main thread:
+    // the pure-CPU channel repack (DXTexture::repackToRGBA8()), and - for
+    // both mipped and non-mipped sources (Tier 1 Case A/B) - the FULL D3D11
+    // build (DXTexture::buildOffThread() - CreateTexture2D +
+    // CreateShaderResourceView, device calls only, legal now that
+    // D3D11_CREATE_DEVICE_SINGLETHREADED is gone - see DXDevice.cpp's
+    // comment). setImage() then just adopts the finished resource. If the
+    // build step fails for any reason, the job still publishes the
+    // repacked bytes alone (Tier 0's behavior) so that win isn't lost.
+    // Copies `raw`'s pixel bytes into a plain std::vector the worker owns
+    // outright before posting - the worker NEVER touches `raw`, `this`,
+    // mDXTexture, or any LLImageDX bookkeeping (mWidth/mHeight/
+    // mCurrentDiscardLevel/etc); its only shared state with the main thread
+    // is the DXAsyncBuildSlot (see mAsyncRepackSlot's comment for why that's
+    // the one safe thing to share). RenderDXAsyncTextureRepack-gated; safe
+    // to call unconditionally - no-ops if the source is compressed or
+    // "DXPool" isn't available.
+    void scheduleAsyncBuild(LLImageRaw* raw);
     // *TODO: This function may not work if the textures is compressed (i.e.
     // RenderCompressTextures is 0). Partial image updates do not work on
     // compressed textures.
@@ -271,7 +330,6 @@ public:
     bool getUseMipMaps() const { return mUseMipMaps; }
     void setUseMipMaps(bool usemips) { mUseMipMaps = usemips; }
     void setHasMipMaps(bool hasmips) { mHasMipMaps = hasmips; }
-    void updatePickMask(S32 width, S32 height, const U8* data_in);
     bool getMask(const LLVector2 &tc);
 
     // Sets the addressing mode used to sample the texture
@@ -356,6 +414,17 @@ private:
 
     LLPointer<LLImageRaw> mSaveData; // used for destroyDX/restoreDX
     LL::WorkQueue::weak_t mMainQueue;
+
+    // S24: see scheduleAsyncBuild()'s own comment. Deliberately a
+    // std::shared_ptr to a plain struct, not an LLPointer<LLImageDX>: a
+    // worker must never own (or be the one to destroy) this object, whose
+    // destructor touches main-thread-only state (sImageList, VRAM
+    // accounting). An earlier version captured LLPointer<LLImageDX> /
+    // LLPointer<LLImageRaw> into the worker lambda and corrupted the heap on
+    // the first live test (LLImageDX's refcount was non-atomic then).
+    // slot->ready/slot->built's atomic exchange() is what makes the worker's
+    // writes into the rest of the slot safe to read in setImage().
+    std::shared_ptr<DXAsyncBuildSlot> mAsyncRepackSlot;
     U8* mPickMask;  //downsampled bitmap approximation of alpha channel.  NULL if no alpha channel
     U16 mPickMaskWidth;
     U16 mPickMaskHeight;
@@ -418,6 +487,11 @@ public:
     static U32 sUniqueCount;                // Tracks number of unique texture binds for current frame
     static LLImageDX* sDefaultGLTexture ;
     static bool sAutomatedTest;
+
+    // S24: set once from RenderDXAsyncTextureRepack via settings_to_globals()
+    // (llappviewer.cpp) - dxrender can't read gSavedSettings directly, same
+    // pattern as DXDevice::sDebugLayerEnabled. Gates scheduleAsyncBuild().
+    static bool sAsyncRepackEnabled;
 #if DEBUG_MISS
     bool mMissed; // Missed on last bind?
     bool getMissed() const { return mMissed; };
@@ -468,9 +542,13 @@ public:
 class LLImageDXThread : public LLSimpleton<LLImageDXThread>, LL::ThreadPool
 {
 public:
-    // S24: background-thread texture/media creation - permanently false;
-    // the settings that used to enable this were removed after tracing a
-    // driver-level NVIDIA bug (610.88) with no application-side mitigation.
+    // S24: background-thread texture/media creation - permanently false.
+    // Re-investigated (task #260): the crash was from calling
+    // ID3D11DeviceContext methods (UpdateSubresource/GenerateMips) off the
+    // main thread, not a proven driver bug - D3D11 never allows that,
+    // regardless of device creation flags. Not re-enabled; see
+    // LLImageDX::scheduleAsyncBuild() for the safe replacement (every
+    // ID3D11DeviceContext call still stays main-thread-only).
     static bool sEnabledTextures;
     static bool sEnabledMedia;
 
