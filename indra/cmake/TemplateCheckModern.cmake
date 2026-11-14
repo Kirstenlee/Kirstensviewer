@@ -4,11 +4,16 @@
 
 # Find PowerShell 7 (pwsh.exe) or fall back to Windows PowerShell
 # This is done globally so PWSH_EXECUTABLE is available to all CMakeLists
-find_program(PWSH_EXECUTABLE 
+# S24 : find_program never re-searches a cached hit; drop it if the exe moved
+if(PWSH_EXECUTABLE AND NOT EXISTS "${PWSH_EXECUTABLE}")
+  unset(PWSH_EXECUTABLE CACHE)
+endif()
+# S24 : Store-installed pwsh is only reachable via its WindowsApps execution alias
+find_program(PWSH_EXECUTABLE
   NAMES pwsh.exe powershell.exe
-  HINTS "C:/Program Files/PowerShell/7"
-        "C:/Program Files/PowerShell/7-preview"
-        "$ENV{ProgramFiles}/PowerShell/7"
+  HINTS "$ENV{ProgramFiles}/PowerShell/7"
+        "$ENV{ProgramFiles}/PowerShell/7-preview"
+        "$ENV{LOCALAPPDATA}/Microsoft/WindowsApps"
   DOC "PowerShell executable"
 )
 

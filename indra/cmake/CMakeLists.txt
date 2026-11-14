@@ -68,6 +68,7 @@ set(cmake_SOURCE_FILES
         ViewerMiscLibs.cmake
         LibVLCPlugin.cmake
         WebRTC.cmake
+        WebView2Plugin.cmake
         XmlRpcEpi.cmake
         xxHash.cmake
         ZLib.cmake

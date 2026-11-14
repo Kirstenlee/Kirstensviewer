@@ -13,7 +13,7 @@ use_prebuilt_binary(libxml2)
 # Include paths
 set(LLPRIMITIVE_INCLUDE_DIRS
     ${LIBS_OPEN_DIR}/llprimitive
-    ${LIBS_PREBUILT_DIR}/include/tinygltf
+    ${LIBS_PREBUILT_DIR}/include
     ${LIBS_PREBUILT_DIR}/include/collada
     ${LIBS_PREBUILT_DIR}/include/collada/1.4
     ${LIBS_PREBUILT_DIR}/include/minizip-ng
