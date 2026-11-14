@@ -625,12 +625,28 @@ namespace KRlv
 {
     bool isWearBlockedByShareRule(const LLUUID& itemId)
     {
+        // S24: check both cheap restriction gates FIRST (isRestricted() returns false instantly
+        // if KRLV is disabled entirely) before the one real expensive step -
+        // requestIsSharedItem()'s hook does an inventory ancestor-chain walk, AND - the bigger
+        // issue - can silently CREATE a "#RLV" folder in the user's inventory root the first
+        // time it runs with no shared root yet (requestGetSharedRoot(), llappviewer.cpp). Calling
+        // it unconditionally meant every KRLV-disabled user got that folder created on their
+        // first outfit change. Gated on the restriction names here, not isEnabled() directly, per
+        // krlvhandler.cpp's own KRLV_BUGFIX convention - touchpoints are never meant to know the
+        // master switch exists; isRestricted() is the only place that's enforced.
+        const bool unshared_wear_restricted = gKRlv.isRestricted("unsharedwear");
+        const bool shared_wear_restricted = gKRlv.isRestricted("sharedwear");
+        if (!unshared_wear_restricted && !shared_wear_restricted)
+        {
+            return false;
+        }
+
         const bool isShared = gKRlv.requestIsSharedItem(itemId);
-        if (gKRlv.isRestricted("unsharedwear") && !isShared)
+        if (unshared_wear_restricted && !isShared)
         {
             return true;
         }
-        if (gKRlv.isRestricted("sharedwear") && isShared)
+        if (shared_wear_restricted && isShared)
         {
             return true;
         }
@@ -639,12 +655,20 @@ namespace KRlv
 
     bool isUnwearBlockedByShareRule(const LLUUID& itemId)
     {
+        // S24: see isWearBlockedByShareRule()'s comment - same fix, same reason.
+        const bool unshared_unwear_restricted = gKRlv.isRestricted("unsharedunwear");
+        const bool shared_unwear_restricted = gKRlv.isRestricted("sharedunwear");
+        if (!unshared_unwear_restricted && !shared_unwear_restricted)
+        {
+            return false;
+        }
+
         const bool isShared = gKRlv.requestIsSharedItem(itemId);
-        if (gKRlv.isRestricted("unsharedunwear") && !isShared)
+        if (unshared_unwear_restricted && !isShared)
         {
             return true;
         }
-        if (gKRlv.isRestricted("sharedunwear") && isShared)
+        if (shared_unwear_restricted && isShared)
         {
             return true;
         }
