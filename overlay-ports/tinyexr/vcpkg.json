@@ -1,0 +1,7 @@
+{
+  "name": "tinyexr",
+  "version": "3.2.0",
+  "description": "Header-only OpenEXR loader/saver. S24 overlay: installs tinyexr.h with the helper headers its TINYEXR_IMPLEMENTATION needs, and builds no library (no miniz).",
+  "homepage": "https://github.com/syoyo/tinyexr",
+  "license": "BSD-3-Clause"
+}

@@ -1,0 +1,8 @@
+{
+  "name": "amdags",
+  "version": "6.3.1",
+  "description": "AMD GPU Services (AGS) library. S24 overlay: installs AMD's header and the VS2026 /MD static library the viewer links, straight from AMD's SDK release.",
+  "homepage": "https://github.com/GPUOpen-LibrariesAndSDKs/AGS_SDK",
+  "license": "MIT",
+  "supports": "windows & x64"
+}

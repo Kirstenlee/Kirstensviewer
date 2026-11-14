@@ -16,6 +16,10 @@
 #             with a version override (classic mode does not support
 #             @version pinning).  Optional <features>, <triplet>, and
 #             <args> elements provide full control over the install.
+#             include/, lib/*.lib and bin/*.dll are copied into the repo's
+#             include/, lib/release/ and bin/release/. A port may also
+#             install a stage/ tree, which is mirrored into the repo root
+#             (stage/resources/x -> resources/x) for anything else.
 #
 #  USAGE
 #  =====
@@ -735,9 +739,9 @@ foreach ($pkg in $vcpkgPackages) {
             $vcpkgArgs += ($extraArgs -split '\s+')
         }
 
-        # Resolve relative --overlay-triplets paths to absolute, based on $TopDir
+        # Resolve relative --overlay-triplets/--overlay-ports paths to absolute, based on $TopDir
         for ($i = 0; $i -lt $vcpkgArgs.Count; $i++) {
-            if ($vcpkgArgs[$i] -like '--overlay-triplets=*') {
+            if ($vcpkgArgs[$i] -like '--overlay-triplets=*' -or $vcpkgArgs[$i] -like '--overlay-ports=*') {
                 $parts = $vcpkgArgs[$i] -split '=', 2
                 if ($parts.Count -eq 2 -and -not [System.IO.Path]::IsPathRooted($parts[1])) {
                     $absPath = Join-Path $TopDir $parts[1]
@@ -840,6 +844,23 @@ foreach ($pkg in $vcpkgPackages) {
                 Write-Host "      - Copied $($dllFile.Name)" -ForegroundColor DarkGray
                 $copyCount++
             }
+        }
+
+        # --- Mirror an optional stage/ tree into the repository root ---
+        # For files that fit none of include/lib/bin (runtime trees such as
+        # resources/ or plugins/): a port installs them under stage/<path> and
+        # they land at <TopDir>/<path>. Existing files are overwritten, nothing
+        # is purged.
+        $installedStage = Join-Path $vcpkgInstalled "stage"
+        if (Test-Path -LiteralPath $installedStage) {
+            Write-Host "  --> Mirroring stage/ tree into $targetDir" -ForegroundColor DarkGray
+            $null = robocopy $installedStage $targetDir /E /NFL /NDL /NJH /NJS
+            if ($LASTEXITCODE -ge 8) {
+                Write-Host "  --> WARNING: robocopy (stage) failed with exit code $LASTEXITCODE" -ForegroundColor Yellow
+            }
+            $stageCount = (Get-ChildItem -LiteralPath $installedStage -Recurse -File -ErrorAction SilentlyContinue).Count
+            $copyCount += $stageCount
+            Write-Host "      - Mirrored $stageCount staged file(s)" -ForegroundColor DarkGray
         }
 
         # --- Copy debug libraries if present ---

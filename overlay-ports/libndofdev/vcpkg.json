@@ -1,0 +1,14 @@
+{
+  "name": "libndofdev",
+  "version-date": "2026-11-14",
+  "description": "3Dconnexion libndofdev (Space Navigator / DirectInput game controllers), Windows backend only. S24 overlay: sources vendored from secondlife/3p-libndofdev commit a0b7d99 so the build needs no network fetch.",
+  "homepage": "https://github.com/secondlife/3p-libndofdev",
+  "license": "BSD-3-Clause",
+  "supports": "windows",
+  "dependencies": [
+    {
+      "name": "vcpkg-cmake",
+      "host": true
+    }
+  ]
+}

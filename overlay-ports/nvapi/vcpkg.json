@@ -1,0 +1,8 @@
+{
+  "name": "nvapi",
+  "version-date": "2026-11-10",
+  "description": "NVIDIA NVAPI SDK. S24 overlay: installs NVIDIA's public headers and nvapi64.lib straight from NVIDIA's repo (pinned commit).",
+  "homepage": "https://github.com/NVIDIA/nvapi",
+  "license": "MIT",
+  "supports": "windows & x64"
+}

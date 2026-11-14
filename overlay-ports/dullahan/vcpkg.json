@@ -1,0 +1,14 @@
+{
+  "name": "dullahan",
+  "version": "1.50.0",
+  "description": "Dullahan headless browser SDK (Linden Lab, MIT) built against Spotify's prebuilt CEF. S24 overlay: builds libcef_dll_wrapper, dullahan.lib and dullahan_host.exe from source and stages the CEF runtime. Spotify's CEF has no proprietary codecs (H.264/AAC).",
+  "homepage": "https://github.com/secondlife/dullahan",
+  "license": "MIT AND BSD-3-Clause",
+  "supports": "windows & x64",
+  "dependencies": [
+    {
+      "name": "vcpkg-cmake",
+      "host": true
+    }
+  ]
+}

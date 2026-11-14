@@ -1,0 +1,26 @@
+diff --git a/alc/alc.cpp b/alc/alc.cpp
+index 0000000..0000000 100644
+--- a/alc/alc.cpp
++++ b/alc/alc.cpp
+@@ -1780,12 +1780,13 @@
+         /* Free all wet buffers. Any in use will be reallocated with an updated
+          * configuration in aluInitEffectPanning.
+          */
+-        std::ranges::for_each(context->mEffectSlotClusters
+-            | std::views::transform(&ContextBase::EffectSlotCluster::operator*)
+-            | std::views::join, [](EffectSlotBase &slot)
++        for(auto &clusterptr : context->mEffectSlotClusters)
+         {
+-            slot.mWetBuffer.clear();
+-            slot.mWetBuffer.shrink_to_fit();
+-            slot.Wet.Buffer = {};
+-        });
++            for(auto &slot : *clusterptr)
++            {
++                slot.mWetBuffer.clear();
++                slot.mWetBuffer.shrink_to_fit();
++                slot.Wet.Buffer = {};
++            }
++        }
+
+         if(auto *slot = context->mDefaultSlot.get())

@@ -1,0 +1,7 @@
+{
+  "name": "mikktspace",
+  "version-date": "2026-09-30",
+  "description": "Blender's header-only C++ MikkTSpace (namespace mikk). S24 overlay: fetched from a pinned Blender commit with three MSVC portability fixes; shadows the registry's original-C mikktspace port, which has a different API.",
+  "homepage": "https://projects.blender.org/blender/blender/src/branch/main/intern/mikktspace",
+  "license": "Apache-2.0"
+}
