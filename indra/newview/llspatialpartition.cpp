@@ -866,45 +866,6 @@ void LLSpatialGroup::rebound()
     }
 }
 
-void LLSpatialGroup::destroyGLState(bool keep_occlusion)
-{
-    setState(LLSpatialGroup::GEOM_DIRTY | LLSpatialGroup::IMAGE_DIRTY);
-
-    if (!keep_occlusion)
-    { //going to need a rebuild
-        DXPipeline::markRebuild(gPipeline, this);
-    }
-
-    mLastUpdateTime = gFrameTimeSeconds;
-    mVertexBuffer = NULL;
-    mBufferMap.clear();
-
-    clearDrawMap();
-
-    if (!keep_occlusion)
-    {
-        releaseOcclusionQueryObjectNames();
-    }
-
-
-    for (LLSpatialGroup::element_iter i = getDataBegin(); i != getDataEnd(); ++i)
-    {
-        LLDrawable* drawable = (LLDrawable*)(*i)->getDrawable();
-        if(!drawable)
-        {
-            continue;
-        }
-        for (S32 j = 0; j < drawable->getNumFaces(); j++)
-        {
-            LLFace* facep = drawable->getFace(j);
-            if (facep)
-            {
-                facep->clearVertexBuffer();
-            }
-        }
-    }
-}
-
 //==============================================
 
 LLSpatialPartition::LLSpatialPartition(U32 data_mask, bool render_by_group, LLViewerRegion* regionp)
@@ -1581,63 +1542,6 @@ void pushVertsColorCoded(LLSpatialGroup* group)
 //  - a linked rigged drawable face has the wrong draw order index
 bool check_rigged_group(LLDrawable* drawable)
 {
-#if 0
-    if (drawable->isState(LLDrawable::RIGGED))
-    {
-        LLSpatialGroup* group = drawable->getSpatialGroup();
-        LLDrawable* root = drawable->getRoot();
-
-        if (root->isState(LLDrawable::RIGGED) && root->getSpatialGroup() != group)
-        {
-            LL_WARNS() << "[root->isState(LLDrawable::RIGGED) and root->getSpatialGroup() != group] is true"
-                " (" << root->getSpatialGroup() << " != " << group << ")" << LL_ENDL;
-            llassert(false);
-            return false;
-        }
-
-        S32 last_draw_index = -1;
-        if (root->isState(LLDrawable::RIGGED))
-        {
-            for (auto& face : root->getFaces())
-            {
-                if ((S32) face->getDrawOrderIndex() <= last_draw_index)
-                {
-                    LL_WARNS() << "[(S32)face->getDrawOrderIndex() <= last_draw_index] is true"
-                        " (" << (S32)face->getDrawOrderIndex() << " <= " << last_draw_index << ")" << LL_ENDL;
-                    llassert(false);
-                    return false;
-                }
-                last_draw_index = face->getDrawOrderIndex();
-            }
-        }
-
-        for (auto& child : root->getVObj()->getChildren())
-        {
-            if (child->mDrawable->isState(LLDrawable::RIGGED))
-            {
-                for (auto& face : child->mDrawable->getFaces())
-                {
-                    if ((S32) face->getDrawOrderIndex() <= last_draw_index)
-                    {
-                        LL_WARNS() << "[(S32)face->getDrawOrderIndex() <= last_draw_index] is true"
-                            " (" << (S32)face->getDrawOrderIndex() << " <= " << last_draw_index << ")" << LL_ENDL;
-                        llassert(false);
-                        return false;
-                    }
-                    last_draw_index = face->getDrawOrderIndex();
-                }
-            }
-
-            if (child->mDrawable->getSpatialGroup() != group)
-            {
-                LL_WARNS() << "[child->mDrawable->getSpatialGroup() != group] is true"
-                    " (" << child->mDrawable->getSpatialGroup() << " != " << group << ")" << LL_ENDL;
-                llassert(false);
-                return false;
-            }
-        }
-    }
-#endif
     return true;
 }
 
@@ -1836,7 +1740,7 @@ void renderUpdateType(LLDrawable* drawablep)
     {
         return;
     }
-    LLGLEnable blend(DX_BLEND);
+    DXStateEnable blend(DX_BLEND);
     switch (vobj->getLastUpdateType())
     {
     case OUT_FULL:
@@ -2006,7 +1910,7 @@ void renderNormals(LLDrawable *drawablep)
 
     if (obj)
     {
-        LLGLEnable blend(DX_BLEND);
+        DXStateEnable blend(DX_BLEND);
         DXDepthTest gl_depth(true, false);
 
         // Drawable's normals & tangents are stored in model space, i.e. before any scaling is applied.
@@ -2630,7 +2534,7 @@ void renderTexturePriority(LLDrawable* drawable)
         LLVector4 boost_cold(0,0,0,0);
         LLVector4 boost_hot(0,1,0,1);
 
-        LLGLDisable blend(DX_BLEND);
+        DXStateDisable blend(DX_BLEND);
 
         //LLViewerTexture* imagep = facep->getTexture();
         //if (imagep)
@@ -2669,7 +2573,7 @@ void renderTexturePriority(LLDrawable* drawable)
         {
             F32 t = (F32) boost / (F32) (DXTextureBase::BOOST_MAX_LEVEL-1);
             LLVector4 col = lerp(boost_cold, boost_hot, t);
-            LLGLEnable blend_on(DX_BLEND);
+            DXStateEnable blend_on(DX_BLEND);
             gDX.blendFunc(GL_SRC_ALPHA, GL_ONE);
             gDX.diffuseColor4fv(col.mV);
             drawBox(center, size);
@@ -2704,14 +2608,14 @@ void renderTextureAnim(LLDrawInfo* params)
         return;
     }
 
-    LLGLEnable blend(DX_BLEND);
+    DXStateEnable blend(DX_BLEND);
     gDX.diffuseColor4f(1,1,0,0.5f);
     pushVerts(params);
 }
 
 void renderBatchSize(LLDrawInfo* params)
 {
-    LLGLEnable offset(GL_POLYGON_OFFSET_FILL);
+    DXStateEnable offset(GL_POLYGON_OFFSET_FILL);
     // gDX.setPolygonOffset() is cross-backend, see llmanipscale.cpp's comment.
     gDX.setPolygonOffset(-1.f, 1.f);
     LLHLSLShader* old_shader = LLHLSLShader::sCurBoundShaderPtr;
@@ -2744,7 +2648,7 @@ void renderTexelDensity(LLDrawable* drawable)
         return;
     }
 
-    LLGLEnable _(DX_BLEND);
+    DXStateEnable _(DX_BLEND);
 
     LLMatrix4 checkerboard_matrix;
     S32 discard_level = -1;
@@ -2849,7 +2753,7 @@ void renderLights(LLDrawable* drawablep)
 
     if (drawablep->getNumFaces())
     {
-        LLGLEnable blend(DX_BLEND);
+        DXStateEnable blend(DX_BLEND);
         gDX.diffuseColor4f(0,1,1,0.5f);
 
         for (S32 i = 0; i < drawablep->getNumFaces(); i++)
@@ -2965,7 +2869,7 @@ void renderRaycast(LLDrawable* drawablep)
 {
     if (drawablep->getNumFaces())
     {
-        LLGLEnable blend(DX_BLEND);
+        DXStateEnable blend(DX_BLEND);
         gDX.diffuseColor4f(0,1,1,0.5f);
 
         LLVOVolume* vobj = drawablep->getVOVolume();
@@ -3592,8 +3496,8 @@ void LLSpatialPartition::renderDebug()
         sCurMaxTexPriority = 0.f;
     }
 
-    LLGLDisable cullface(DX_CULL_FACE);
-    LLGLEnable blend(DX_BLEND);
+    DXStateDisable cullface(DX_CULL_FACE);
+    DXStateEnable blend(DX_BLEND);
     gDX.setSceneBlendType(LLRender::BT_ALPHA);
     gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
     DXPipeline::disableLights(gPipeline);
@@ -3615,13 +3519,13 @@ void LLSpatialPartition::renderDebug()
     if (gPipeline.hasRenderDebugMask(LLPipeline::RENDER_DEBUG_OCCLUSION))
     {
         {
-            LLGLEnable cull(DX_CULL_FACE);
+            DXStateEnable cull(DX_CULL_FACE);
 
-            LLGLEnable blend(DX_BLEND);
+            DXStateEnable blend(DX_BLEND);
             DXDepthTest depth_under(true, false, DX_GREATER);
             gDX.diffuseColor4f(0.5f, 0.0f, 0, 0.25f);
 
-            LLGLEnable offset(GL_POLYGON_OFFSET_LINE);
+            DXStateEnable offset(GL_POLYGON_OFFSET_LINE);
             // gDX.setPolygonOffset() is cross-backend, see llmanipscale.cpp's comment. The
             // glPolygonMode(GL_LINE)/(GL_FILL) pair that used to bracket this (removed - confirmed
             // dead, no cross-backend wrapper exists) meant this debug-only occlusion/octree overlay

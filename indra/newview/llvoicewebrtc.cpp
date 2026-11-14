@@ -2577,6 +2577,17 @@ void LLVoiceWebRTCConnection::OnIceCandidate(const llwebrtc::LLWebRTCIceCandidat
 
 void LLVoiceWebRTCConnection::processIceUpdates()
 {
+    // S24: steady-state no-op guard - this used to launch a full coroutine (a real fiber
+    // stack alloc + two context switches) every call regardless, even though the launched
+    // coroutine's own first check (processIceUpdatesCoro, below) almost always finds nothing
+    // to do and returns immediately. Safe to read these here unguarded: this function and every
+    // mutator of mIceCandidates/mIceCompleted (OnIceCandidate above, and the coroutine itself)
+    // all run on the main thread via mMainQueue/the voice-loop tick - no cross-thread race.
+    if (mIceCandidates.empty() && !mIceCompleted)
+    {
+        return;
+    }
+
     mOutstandingRequests++;
 
     LLCoros::getInstance()->launch("LLVoiceWebRTCConnection::processIceUpdatesCoro",

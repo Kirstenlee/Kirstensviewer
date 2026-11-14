@@ -42,7 +42,7 @@
         Black (you): 2   White: 2
     </text>
 
-    <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left="24" top="72" name="cell_0_0" width="44" />
+    <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left="34" top="72" name="cell_0_0" width="44" />
     <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_0_1" width="44" />
     <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_0_2" width="44" />
     <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_0_3" width="44" />
@@ -50,7 +50,7 @@
     <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_0_5" width="44" />
     <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_0_6" width="44" />
     <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_0_7" width="44" />
-    <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left="24" top_pad="0" name="cell_1_0" width="44" />
+    <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left="34" top_pad="0" name="cell_1_0" width="44" />
     <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_1_1" width="44" />
     <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_1_2" width="44" />
     <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_1_3" width="44" />
@@ -58,7 +58,7 @@
     <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_1_5" width="44" />
     <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_1_6" width="44" />
     <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_1_7" width="44" />
-    <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left="24" top_pad="0" name="cell_2_0" width="44" />
+    <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left="34" top_pad="0" name="cell_2_0" width="44" />
     <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_2_1" width="44" />
     <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_2_2" width="44" />
     <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_2_3" width="44" />
@@ -66,7 +66,7 @@
     <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_2_5" width="44" />
     <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_2_6" width="44" />
     <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_2_7" width="44" />
-    <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left="24" top_pad="0" name="cell_3_0" width="44" />
+    <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left="34" top_pad="0" name="cell_3_0" width="44" />
     <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_3_1" width="44" />
     <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_3_2" width="44" />
     <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_3_3" width="44" />
@@ -74,7 +74,7 @@
     <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_3_5" width="44" />
     <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_3_6" width="44" />
     <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_3_7" width="44" />
-    <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left="24" top_pad="0" name="cell_4_0" width="44" />
+    <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left="34" top_pad="0" name="cell_4_0" width="44" />
     <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_4_1" width="44" />
     <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_4_2" width="44" />
     <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_4_3" width="44" />
@@ -82,7 +82,7 @@
     <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_4_5" width="44" />
     <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_4_6" width="44" />
     <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_4_7" width="44" />
-    <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left="24" top_pad="0" name="cell_5_0" width="44" />
+    <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left="34" top_pad="0" name="cell_5_0" width="44" />
     <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_5_1" width="44" />
     <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_5_2" width="44" />
     <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_5_3" width="44" />
@@ -90,7 +90,7 @@
     <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_5_5" width="44" />
     <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_5_6" width="44" />
     <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_5_7" width="44" />
-    <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left="24" top_pad="0" name="cell_6_0" width="44" />
+    <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left="34" top_pad="0" name="cell_6_0" width="44" />
     <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_6_1" width="44" />
     <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_6_2" width="44" />
     <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_6_3" width="44" />
@@ -98,7 +98,7 @@
     <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_6_5" width="44" />
     <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_6_6" width="44" />
     <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_6_7" width="44" />
-    <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left="24" top_pad="0" name="cell_7_0" width="44" />
+    <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left="34" top_pad="0" name="cell_7_0" width="44" />
     <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_7_1" width="44" />
     <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_7_2" width="44" />
     <button follows="left|top" height="44" image_unselected="reversi/board_cell.png" image_selected="reversi/board_cell.png" layout="topleft" left_pad="0" top_delta="0" name="cell_7_3" width="44" />
@@ -112,7 +112,7 @@
      height="24"
      label="New Game"
      layout="topleft"
-     left="24"
+     left="34"
      name="new_game_btn"
      top_pad="14"
      width="90" />

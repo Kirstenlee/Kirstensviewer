@@ -124,11 +124,6 @@ public:
                                 F32 relative_z = 0.f,
                                 F32 dot_radius = 3.f,
                                 bool reached_max_z = false);
-    static void     drawIconName(F32 x_pixels,
-                                    F32 y_pixels,
-                                    const LLColor4& color,
-                                    const std::string& first_line,
-                                    const std::string& second_line);
 
     // Prevents accidental double clicks
     static void     clearLastClick() { sHandledLastClick = false; }

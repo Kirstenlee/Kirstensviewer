@@ -255,8 +255,6 @@ public:
 private:
     void serverAppearanceUpdateCoro(LLCoreHttpUtil::HttpCoroutineAdapter::ptr_t &httpAdapter);
 
-    static void debugAppearanceUpdateCOF(const LLSD& content);
-
     std::string     mAppearanceServiceURL;
 
 private:

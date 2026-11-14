@@ -84,7 +84,6 @@
 #include "llregionhandle.h"
 #include "llresmgr.h"
 #include "llselectmgr.h"
-#include "llsprite.h"
 #include "lltargetingmotion.h"
 #include "lltoolmgr.h"
 #include "lltoolmorph.h"
@@ -1071,84 +1070,6 @@ std::string LLVOAvatar::rezStatusToString(S32 rez_status)
     return "unknown";
 }
 
-// static
-void LLVOAvatar::dumpBakedStatus()
-{
-    LLVector3d camera_pos_global = gAgentCamera.getCameraPositionGlobal();
-
-    for (LLCharacter* character : LLCharacter::sInstances)
-    {
-        LLVOAvatar* inst = (LLVOAvatar*)character;
-        LL_INFOS() << "Avatar ";
-
-        LLNameValue* firstname = inst->getNVPair("FirstName");
-        LLNameValue* lastname = inst->getNVPair("LastName");
-
-        if( firstname )
-        {
-            LL_CONT << firstname->getString();
-        }
-        if( lastname )
-        {
-            LL_CONT << " " << lastname->getString();
-        }
-
-        LL_CONT << " " << inst->mID;
-
-        if( inst->isDead() )
-        {
-            LL_CONT << " DEAD ("<< inst->getNumRefs() << " refs)";
-        }
-
-        if( inst->isSelf() )
-        {
-            LL_CONT << " (self)";
-        }
-
-
-        F64 dist_to_camera = (inst->getPositionGlobal() - camera_pos_global).length();
-        LL_CONT << " " << dist_to_camera << "m ";
-
-        LL_CONT << " " << inst->mPixelArea << " pixels";
-
-        if( inst->isVisible() )
-        {
-            LL_CONT << " (visible)";
-        }
-        else
-        {
-            LL_CONT << " (not visible)";
-        }
-
-        if( inst->isFullyBaked() )
-        {
-            LL_CONT << " Baked";
-        }
-        else
-        {
-            LL_CONT << " Unbaked (";
-
-            for (LLAvatarAppearanceDictionary::BakedTextures::const_iterator iter = LLAvatarAppearance::getDictionary()->getBakedTextures().begin();
-                 iter != LLAvatarAppearance::getDictionary()->getBakedTextures().end();
-                 ++iter)
-            {
-                const LLAvatarAppearanceDictionary::BakedEntry *baked_dict = iter->second;
-                const ETextureIndex index = baked_dict->mTextureIndex;
-                if (!inst->isTextureDefined(index))
-                {
-                    LL_CONT << " " << (LLAvatarAppearance::getDictionary()->getTexture(index) ? LLAvatarAppearance::getDictionary()->getTexture(index)->mName : "");
-                }
-            }
-            LL_CONT << " ) " << inst->getUnbakedPixelAreaRank();
-            if( inst->isCulled() )
-            {
-                LL_CONT << " culled";
-            }
-        }
-        LL_CONT << LL_ENDL;
-    }
-}
-
 //static
 void LLVOAvatar::restoreDX()
 {
@@ -1692,7 +1613,7 @@ void drawBoxOutline(const LLVector4a& pos, const LLVector4a& size);
 
 void LLVOAvatar::renderBones(const std::string &selected_joint)
 {
-    LLGLEnable blend(DX_BLEND);
+    DXStateEnable blend(DX_BLEND);
 
     avatar_joint_list_t::iterator iter = mSkeleton.begin();
     avatar_joint_list_t::iterator end = mSkeleton.end();
@@ -4997,73 +4918,6 @@ void LLVOAvatar::updateHeadOffset()
     }
 }
 
-void LLVOAvatar::debugBodySize() const
-{
-    LLVector3 pelvis_scale = mPelvisp->getScale();
-
-    // some of the joints have not been cached
-    LLVector3 skull = mSkullp->getPosition();
-    LL_DEBUGS("Avatar") << "skull pos " << skull << LL_ENDL;
-    //LLVector3 skull_scale = mSkullp->getScale();
-
-    LLVector3 neck = mNeckp->getPosition();
-    LLVector3 neck_scale = mNeckp->getScale();
-    LL_DEBUGS("Avatar") << "neck pos " << neck << " neck_scale " << neck_scale << LL_ENDL;
-
-    LLVector3 chest = mChestp->getPosition();
-    LLVector3 chest_scale = mChestp->getScale();
-    LL_DEBUGS("Avatar") << "chest pos " << chest << " chest_scale " << chest_scale << LL_ENDL;
-
-    // the rest of the joints have been cached
-    LLVector3 head = mHeadp->getPosition();
-    LLVector3 head_scale = mHeadp->getScale();
-    LL_DEBUGS("Avatar") << "head pos " << head << " head_scale " << head_scale << LL_ENDL;
-
-    LLVector3 torso = mTorsop->getPosition();
-    LLVector3 torso_scale = mTorsop->getScale();
-    LL_DEBUGS("Avatar") << "torso pos " << torso << " torso_scale " << torso_scale << LL_ENDL;
-
-    LLVector3 hip = mHipLeftp->getPosition();
-    LLVector3 hip_scale = mHipLeftp->getScale();
-    LL_DEBUGS("Avatar") << "hip pos " << hip << " hip_scale " << hip_scale << LL_ENDL;
-
-    LLVector3 knee = mKneeLeftp->getPosition();
-    LLVector3 knee_scale = mKneeLeftp->getScale();
-    LL_DEBUGS("Avatar") << "knee pos " << knee << " knee_scale " << knee_scale << LL_ENDL;
-
-    LLVector3 ankle = mAnkleLeftp->getPosition();
-    LLVector3 ankle_scale = mAnkleLeftp->getScale();
-    LL_DEBUGS("Avatar") << "ankle pos " << ankle << " ankle_scale " << ankle_scale << LL_ENDL;
-
-    LLVector3 foot  = mFootLeftp->getPosition();
-    LL_DEBUGS("Avatar") << "foot pos " << foot << LL_ENDL;
-
-    F32 new_offset = (const_cast<LLVOAvatar*>(this))->getVisualParamWeight(AVATAR_HOVER);
-    LL_DEBUGS("Avatar") << "new_offset " << new_offset << LL_ENDL;
-
-    F32 new_pelvis_to_foot = hip.mV[VZ] * pelvis_scale.mV[VZ] -
-        knee.mV[VZ] * hip_scale.mV[VZ] -
-        ankle.mV[VZ] * knee_scale.mV[VZ] -
-        foot.mV[VZ] * ankle_scale.mV[VZ];
-    LL_DEBUGS("Avatar") << "new_pelvis_to_foot " << new_pelvis_to_foot << LL_ENDL;
-
-    LLVector3 new_body_size;
-    new_body_size.mV[VZ] = new_pelvis_to_foot +
-                       // the sqrt(2) correction below is an approximate
-                       // correction to get to the top of the head
-                       F_SQRT2 * (skull.mV[VZ] * head_scale.mV[VZ]) +
-                       head.mV[VZ] * neck_scale.mV[VZ] +
-                       neck.mV[VZ] * chest_scale.mV[VZ] +
-                       chest.mV[VZ] * torso_scale.mV[VZ] +
-                       torso.mV[VZ] * pelvis_scale.mV[VZ];
-
-    // TODO -- measure the real depth and width
-    new_body_size.mV[VX] = DEFAULT_AGENT_DEPTH;
-    new_body_size.mV[VY] = DEFAULT_AGENT_WIDTH;
-
-    LL_DEBUGS("Avatar") << "new_body_size " << new_body_size << LL_ENDL;
-}
-
 //------------------------------------------------------------------------
 // postPelvisSetRecalc
 //------------------------------------------------------------------------
@@ -5485,7 +5339,7 @@ U32 LLVOAvatar::renderImpostor(LLColor4U color, S32 diffuse_channel)
 
     if (gPipeline.hasRenderDebugMask(LLPipeline::RENDER_DEBUG_IMPOSTORS))
     {
-        LLGLEnable blend(DX_BLEND);
+        DXStateEnable blend(DX_BLEND);
         gDX.setSceneBlendType(LLRender::BT_ADD);
         gDX.getTexUnit(diffuse_channel)->unbind(LLTexUnit::TT_TEXTURE);
 

@@ -39,7 +39,7 @@ public:
 protected:
 	void onClickClose();
 	void onClickResetToDefaults();  // S24
-	void onClickResetWater(); // S24 - Reset only water settings
+	void onWebEngineChanged(bool webview2_clicked); // S24 - WebView2/CEF checkboxes are mutually exclusive
 	void onStreamingEngineChanged(); // S24 - Enable/disable appropriate EQ based on streaming engine
 	void onVLCEQPresetChanged(); // S24 - Apply VLC EQ preset
 	void onShaderHardwareTierChanged(); // S24 - RenderHardwareShaderTier combo box (card_blank2, Rendering Core tab)
@@ -59,6 +59,8 @@ protected:
 	void updateRAMCacheHardThresholdText();
 	void updateRAMCacheRetentionTimeText();  // KV:GC→RT Renamed from updateRAMCacheGracePeriodText
 	void updateRAMCacheEvictionRateText();
+	void updateRAMCacheHotLoadTimeoutText();
+	void updateRAMCacheShutdownFlushTimeoutText();
 
 	// S24 - Water preset handlers
 	void onWaterPresetSelected();

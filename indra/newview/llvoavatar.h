@@ -492,7 +492,6 @@ protected:
     /*virtual*/ LLAvatarJointMesh*  createAvatarJointMesh(); // Returns LLViewerJointMesh
 public:
     void                updateHeadOffset();
-    void                debugBodySize() const;
     void                postPelvisSetRecalc( void );
 
     /*virtual*/ bool    loadSkeletonNode();
@@ -1327,7 +1326,6 @@ public:
     void                dumpArchetypeXML(const std::string& prefix, bool group_by_wearables = false);
     void                dumpAppearanceMsgParams( const std::string& dump_prefix,
                                                  const LLAppearanceMessageContents& contents);
-    static void         dumpBakedStatus();
     const std::string   getBakedStatusForPrintout() const;
     void                dumpAvatarTEs(const std::string& context) const;
 

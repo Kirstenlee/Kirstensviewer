@@ -634,7 +634,7 @@ void LLWorldMapView::draw()
 
 
     // turn off the scissor
-    LLGLDisable no_scissor(DX_SCISSOR_TEST);
+    DXStateDisable no_scissor(DX_SCISSOR_TEST);
 
     updateDirections();
 
@@ -1252,44 +1252,6 @@ void LLWorldMapView::drawTrackingDot( F32 x_pixels,
                                       F32 dot_radius)
 {
     drawDot(x_pixels, y_pixels, color, relative_z, dot_radius, sTrackCircleImage);
-}
-
-
-// Pass relative Z of 0 to draw at same level.
-// static
-void LLWorldMapView::drawIconName(F32 x_pixels,
-                                  F32 y_pixels,
-                                  const LLColor4& color,
-                                  const std::string& first_line,
-                                  const std::string& second_line)
-{
-    const S32 VERT_PAD = 8;
-    S32 text_x = ll_round(x_pixels);
-    S32 text_y = ll_round(y_pixels
-                         - BIG_DOT_RADIUS
-                         - VERT_PAD);
-
-    // render text
-    LLFontDX::getFontSansSerif()->renderUTF8(first_line, 0,
-        text_x,
-        text_y,
-        color,
-        LLFontDX::HCENTER,
-        LLFontDX::TOP,
-        LLFontDX::NORMAL,
-        LLFontDX::DROP_SHADOW);
-
-    text_y -= LLFontDX::getFontSansSerif()->getLineHeight();
-
-    // render text
-    LLFontDX::getFontSansSerif()->renderUTF8(second_line, 0,
-        text_x,
-        text_y,
-        color,
-        LLFontDX::HCENTER,
-        LLFontDX::TOP,
-        LLFontDX::NORMAL,
-        LLFontDX::DROP_SHADOW);
 }
 
 

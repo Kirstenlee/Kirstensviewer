@@ -103,8 +103,10 @@
 #include "llfloatermarketplacelistings.h"
 #include "llfloatermaturitydialog.h"
 #include "llfloatermediasettings.h"
+#include "kvbench.h"
 #include "kvblackjack.h"
 #include "kvminesweeper.h"
+#include "kvcalculator.h"
 #include "kvreversi.h"
 #include "kvsolitaire.h"
 #include "kvworldclock.h"
@@ -517,6 +519,8 @@ void LLViewerFloaterReg::registerFloaters()
     LLFloaterReg::add("kv_solitaire", "floater_kv_solitaire.xml", (LLFloaterBuildFunc)&LLFloaterReg::build<KVFloaterSolitaire>);
     LLFloaterReg::add("kv_minesweeper", "floater_kv_minesweeper.xml", (LLFloaterBuildFunc)&LLFloaterReg::build<KVFloaterMinesweeper>);
     LLFloaterReg::add("kv_worldclock", "floater_kv_worldclock.xml", (LLFloaterBuildFunc)&LLFloaterReg::build<KVFloaterWorldClock>);
+    LLFloaterReg::add("kv_calculator", "floater_kv_calculator.xml", (LLFloaterBuildFunc)&LLFloaterReg::build<KVFloaterCalculator>);
+    LLFloaterReg::add("kv_bench", "floater_kv_bench.xml", (LLFloaterBuildFunc)&LLFloaterReg::build<KVFloaterBench>);
     LLFloaterReg::add("sell_land", "floater_sell_land.xml", &LLFloaterSellLand::buildFloater);
     LLFloaterReg::add("settings_color", "floater_settings_color.xml", (LLFloaterBuildFunc)&LLFloaterReg::build<LLFloaterSettingsColor>);
     LLFloaterReg::add("settings_debug", "floater_settings_debug.xml", (LLFloaterBuildFunc)&LLFloaterReg::build<LLFloaterSettingsDebug>);

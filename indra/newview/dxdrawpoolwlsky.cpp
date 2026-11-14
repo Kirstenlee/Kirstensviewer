@@ -327,8 +327,8 @@ namespace
         // involved) and which would corrupt the "inv_proj" this pass's pixel shader relies on for
         // camera-ray reconstruction (auto-synced from whatever the CURRENT projection matrix is
         // at bind time - squashed would silently reconstruct the wrong rays).
-        LLGLEnable blend(DX_BLEND);
-        LLGLDisable cull(DX_CULL_FACE);
+        DXStateEnable blend(DX_BLEND);
+        DXStateDisable cull(DX_CULL_FACE);
         DXDepthTest depth(true, false, DX_LEQUAL);
         gDX.setSceneBlendType(LLRender::BT_ADD_WITH_ALPHA);
 

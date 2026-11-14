@@ -211,7 +211,7 @@ void LLManipScale::render()
     DXUIDefault gls_ui;
     gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
     DXDepthTest gls_depth(true);
-    LLGLEnable gl_blend(DX_BLEND);
+    DXStateEnable gl_blend(DX_BLEND);
     LLBBox bbox = LLSelectMgr::getInstance()->getBBoxOfSelection();
 
     if( canAffectSelection() )
@@ -293,7 +293,7 @@ void LLManipScale::render()
 
 
             {
-                LLGLEnable poly_offset(GL_POLYGON_OFFSET_FILL);
+                DXStateEnable poly_offset(GL_POLYGON_OFFSET_FILL);
                 // gDX.setPolygonOffset() is cross-backend, real under DX_RENDER (raw glPolygonOffset()
                 // has no D3D11 dispatch, so it was a silent no-op there).
                 gDX.setPolygonOffset( -2.f, -2.f);
@@ -736,7 +736,7 @@ void LLManipScale::renderBoxHandle( F32 x, F32 y, F32 z )
 {
     gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
     DXDepthTest gls_depth(false);
-    //LLGLDisable gls_stencil(GL_STENCIL_TEST);
+    //DXStateDisable gls_stencil(GL_STENCIL_TEST);
 
     gDX.pushMatrix();
     {

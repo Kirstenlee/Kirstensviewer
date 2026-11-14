@@ -615,9 +615,9 @@ void LLFace::renderOneWireframe(const LLColor4 &color, F32 fogCfx, bool wirefram
     gDX.diffuseColor4f(color.mV[VRED] * 2, color.mV[VGREEN] * 2, color.mV[VBLUE] * 2, color.mV[VALPHA]);
 
     {
-        LLGLDisable depth(wireframe_selection ? 0 : DX_BLEND);
+        DXStateDisable depth(wireframe_selection ? 0 : DX_BLEND);
 
-        LLGLEnable offset(GL_POLYGON_OFFSET_LINE);
+        DXStateEnable offset(GL_POLYGON_OFFSET_LINE);
         // D3D11 fill mode (wireframe vs solid) is a rasterizer-state CREATION-time field, not
         // per-draw like GL's glPolygonMode() - handled via DXStateCache::getRasterizerState()'s
         // wireframe_enabled param. No D3D11 line-width equivalent for wireframe edges (always

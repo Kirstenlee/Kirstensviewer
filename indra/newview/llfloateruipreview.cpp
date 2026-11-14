@@ -1027,47 +1027,6 @@ void LLFloaterUIPreview::getExecutablePath(const std::vector<std::string>& filen
     // put the selected path into text field
     const std::string chosen_path = filenames[0];
     std::string executable_path = chosen_path;
-#if LL_DARWIN
-    // on Mac, if it's an application bundle, figure out the actual path from the Info.plist file
-    CFStringRef path_cfstr = CFStringCreateWithCString(kCFAllocatorDefault, chosen_path.c_str(), kCFStringEncodingMacRoman);        // get path as a CFStringRef
-    CFURLRef path_url = CFURLCreateWithFileSystemPath(kCFAllocatorDefault, path_cfstr, kCFURLPOSIXPathStyle, true);         // turn it into a CFURLRef
-    CFBundleRef chosen_bundle = CFBundleCreate(kCFAllocatorDefault, path_url);                                              // get a handle for the bundle
-    if(NULL != chosen_bundle)
-    {
-        CFDictionaryRef bundleInfoDict = CFBundleGetInfoDictionary(chosen_bundle);                                              // get the bundle's dictionary
-        if(NULL != bundleInfoDict)
-        {
-            CFStringRef executable_cfstr = (CFStringRef)CFDictionaryGetValue(bundleInfoDict, CFSTR("CFBundleExecutable"));  // get the name of the actual executable (e.g. TextEdit or firefox-bin)
-            int max_file_length = 256;                                                                                      // (max file name length is 255 in OSX)
-
-            char *executable_buf = new char [max_file_length];
-            if(CFStringGetCString(executable_cfstr, executable_buf, max_file_length, kCFStringEncodingMacRoman))            // convert CFStringRef to char*
-            {
-                executable_path += std::string("/Contents/MacOS/") + std::string(executable_buf);                           // append path to executable directory and then executable name to exec path
-            }
-            else
-            {
-                std::string warning = "Unable to get CString from CFString for executable path";
-                popupAndPrintWarning(warning);
-            }
-            delete [] executable_buf;
-        }
-        else
-        {
-            std::string warning = "Unable to get bundle info dictionary from application bundle";
-            popupAndPrintWarning(warning);
-        }
-    }
-    else
-    {
-        if(-1 != executable_path.find(".app"))  // only warn if this path actually had ".app" in it, i.e. it probably just wasn'nt an app bundle and that's okay
-        {
-            std::string warning = std::string("Unable to get bundle from path \"") + chosen_path + std::string("\"");
-            popupAndPrintWarning(warning);
-        }
-    }
-
-#endif
     mEditorPathTextBox->setText(std::string(executable_path));  // copy the path to the executable to the textfield for display and later fetching
 }
 

@@ -575,7 +575,7 @@ namespace
         sShader = &gDeferredHighlightProgram;
         sShader->bind();
         gDX.diffuseColor4f(1, 1, 1, 1);
-        LLGLEnable polyOffset(GL_POLYGON_OFFSET_FILL);
+        DXStateEnable polyOffset(GL_POLYGON_OFFSET_FILL);
         // Real via LLRender::setPolygonOffset() (llrender.cpp), no #ifdef needed.
         // S24: canonical LL uses (-1,-1) here, correct under standard GL depth (0=near,
         // 1=far) where a negative bias reduces stored depth = pulls the overlay toward

@@ -693,7 +693,7 @@ void GLTFSceneManager::render(Asset& asset, U8 variant)
             return;
         }
 
-        LLGLDisable cull_face(ds == 1 ? DX_CULL_FACE : 0);
+        DXStateDisable cull_face(ds == 1 ? DX_CULL_FACE : 0);
 
         bool opaque = !(variant & LLHLSLShader::GLTFVariant::ALPHA_BLEND);
         bool rigged = variant & LLHLSLShader::GLTFVariant::RIGGED;
@@ -1125,8 +1125,8 @@ void GLTFSceneManager::renderDebug()
     gDX.pushMatrix();
     gDX.loadMatrix(gDXModelView);
 
-    LLGLDisable cullface(DX_CULL_FACE);
-    LLGLEnable blend(DX_BLEND);
+    DXStateDisable cullface(DX_CULL_FACE);
+    DXStateEnable blend(DX_BLEND);
     gDX.setSceneBlendType(LLRender::BT_ALPHA);
     gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
     DXPipeline::disableLights(gPipeline);

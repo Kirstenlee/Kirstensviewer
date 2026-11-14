@@ -3329,11 +3329,7 @@ bool enable_object_select_in_pathfinding_characters()
 
 bool enable_os_exception()
 {
-#if LL_DARWIN
-    return true;
-#else
     return false;
-#endif
 }
 
 

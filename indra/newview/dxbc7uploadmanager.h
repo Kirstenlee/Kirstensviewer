@@ -9,8 +9,10 @@ class LLImageDX;
 // the same box filter LLImageDXT::encodeDXT() uses for legacy S3TC),
 // dispatches per-mip encoding to a background LL::ThreadPool (same
 // primitive LLImageDecodeThread uses), then applies the result on the main
-// thread via LLImageDX::upgradeToCompressedMips() - never touches D3D11
-// off the main thread (D3D11_CREATE_DEVICE_SINGLETHREADED).
+// thread via LLImageDX::upgradeToCompressedMips() - deliberately kept
+// main-thread-only by design (not merely because of a now-removed device
+// flag - see DXDevice.cpp's own comment on D3D11_CREATE_DEVICE_SINGLETHREADED
+// for why that's no longer the real reason anything here stays main-thread).
 //
 // Uploads uncompressed immediately; upgrades to BC7 in the background a
 // few frames later so compression never delays first appearance on screen.
@@ -22,14 +24,17 @@ public:
     // finished since the last call. Cheap no-op when nothing is pending.
     static void update();
 
+    // Cheap pre-check for requestUpgrade()'s own eligibility gates below -
+    // touches no pixel data, so a caller about to do real work to prepare
+    // `rgba8` (a repack, an alpha-variance scan, etc.) can skip all of that
+    // first if this returns false. requestUpgrade() itself calls this too,
+    // so the gates are defined in exactly one place.
+    static bool wouldAccept(const LLPointer<LLImageDX>& tex, int width, int height);
+
     // Kicks off a background BC7 compression job for `tex`'s just-uploaded
-    // pixel content, IF eligible. Always safe to call unconditionally -
-    // internally no-ops (no job dispatched) when: the feature is disabled
-    // (RenderCompressTextures setting), `tex` opted out
-    // (getAllowCompression()==false, e.g. font glyph atlases), the texture
-    // is too small for compression to be worthwhile (padding a tiny texture
-    // up to a whole 4x4 BC7 block can cost MORE memory than it saves), or
-    // no usable OpenCL device is available.
+    // pixel content, IF eligible (see wouldAccept()) and a usable OpenCL
+    // device is available. Always safe to call unconditionally - internally
+    // no-ops (no job dispatched) when ineligible.
     //
     // `rgba8` must be the SAME pixel data `tex` was just uploaded with (top-
     // to-bottom row order, 4 bytes/texel - the same convention

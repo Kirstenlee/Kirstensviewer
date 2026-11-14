@@ -3348,6 +3348,17 @@ void LLVOVolume::updateSpotLightPriority()
 	{
 		mLightTexture->addTextureStats(mSpotLightPriority);
 	}
+
+	// S24: demote (not exclude) projectors outside the view frustum for shadow-slot ranking, so a
+	// camera turn does not hand a slot to an off-screen light. Texture stats above keep the raw area.
+	LLVector4a center;
+	center.load3(mDrawable->getPositionAgent().mV);
+	LLVector4a half;
+	half.splat(r * 1.5f);
+	if (!LLViewerCamera::getInstance()->AABBInFrustumNoFarClip(center, half))
+	{
+		mSpotLightPriority *= 0.1f;
+	}
 }
 
 F32 LLVOVolume::getPointLightPriority() const
@@ -5522,10 +5533,6 @@ void LLVolumeGeometryManager::registerFace(LLSpatialGroup* group, LLFace* facep,
 		info->mVertexBuffer == facep->getVertexBuffer() &&
 		info->mEnd == facep->getGeomIndex() - 1 &&
 		(DXPipeline::sTextureBindTest || draw_vec[idx]->mTexture == tex || batchable) &&
-#if LL_DARWIN
-		info->mEnd - draw_vec[idx]->mStart + facep->getGeomCount() <= (U32)gDXDeviceInfo.mGLMaxVertexRange &&
-		info->mCount + facep->getIndicesCount() <= (U32)gDXDeviceInfo.mGLMaxIndexRange &&
-#endif
 		info->mMaterialID == mat_id &&
 		info->mFullbright == fullbright &&
 		info->mBump == bump &&

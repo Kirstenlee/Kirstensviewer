@@ -2408,6 +2408,20 @@ function="World.EnvPreset"
              function="Floater.Toggle"
              parameter="kv_worldclock" />
         </menu_item_call>
+        <menu_item_call
+         label="KV Calculator..."
+         name="KV Calculator">
+            <menu_item_call.on_click
+             function="Floater.Toggle"
+             parameter="kv_calculator" />
+        </menu_item_call>
+        <menu_item_call
+         label="KV Bench..."
+         name="KV Bench">
+            <menu_item_call.on_click
+             function="Floater.Toggle"
+             parameter="kv_bench" />
+        </menu_item_call>
 </menu>
 
     <menu

@@ -35,6 +35,7 @@
 #include "dxdrawpoolavatar.h"
 #include "dxdrawpoolbump.h" // gBumpImageList - createDXBuffers()/releaseDXBuffers()
 #include "dxdrawpoolpbropaque.h"
+#include "dxdrawpoolwater.h" // LLDrawPoolWater - doWaterExclusionMask()'s pushWaterPlanes() calls
 #include "pipeline.h"
 
 // D3D11 wrapper layer
@@ -592,12 +593,12 @@ namespace
     // dxdrawpoolmaterials.cpp) - both hook renderDeferred(), so both fit
     // this loop as-is.
     //
-    // POOL_WATEREXCLUSION (LLDrawPoolWaterExclusion) also needed zero code
-    // changes, but is deliberately NOT whitelisted here: its render() isn't
-    // called from this loop at all - it's invoked from
-    // DXPipeline::doWaterExclusionMask(), itself called from
-    // renderGeomPostDeferred()'s loop, which has no DXPipeline equivalent
-    // yet (same situation as the 3 post-deferred pools above).
+    // POOL_WATEREXCLUSION (formerly LLDrawPoolWaterExclusion, retired - its
+    // render() body is now inlined directly into
+    // DXPipeline::doWaterExclusionMask()) is deliberately NOT whitelisted
+    // here: that mask is invoked from renderGeomPostDeferred()'s loop,
+    // which has no DXPipeline equivalent yet (same situation as the 3
+    // post-deferred pools above).
     //
     // POOL_GLTF_PBR/POOL_GLTF_PBR_ALPHA_MASK (LLDrawPoolGLTFPBR) has a real
     // DX_RENDER branch (see dxdrawpoolpbropaque.cpp) -
@@ -727,18 +728,18 @@ void DXPipeline::renderGeomDeferred(LLPipeline& pipeline, LLCamera& camera, bool
     // DXContext::beginFrame() resets rasterizer state to cull_enabled=false
     // at the start of every frame (matching GL's default). Must explicitly
     // re-enable it here - GL's own renderGeomDeferred() wraps its entire
-    // deferred-pools block in the same LLGLEnable cull(DX_CULL_FACE); -
+    // deferred-pools block in the same DXStateEnable cull(DX_CULL_FACE); -
     // without it, all deferred pools render with backface culling off,
     // which double-renders thin double-sided-style geometry (e.g. foliage)
     // as visible z-fighting.
-    LLGLEnable cull(DX_CULL_FACE);
+    DXStateEnable cull(DX_CULL_FACE);
 
     // S24: real DX11 wireframe mode (Develop > Rendering > Wireframe, gUseWireframe) - GL's own
     // renderGeomDeferred() brackets this exact block the same way (glPolygonMode(GL_LINE) at the
     // top, GL_FILL at the bottom). D3D11 has no per-draw fill-mode call like glPolygonMode() - fill
     // mode is a rasterizer-state CREATION-time field. Setting DXStateCache::sWireframeScopeActive
     // (rather than binding a one-off wireframe rasterizer state directly here) is deliberate: cull/
-    // scissor/depth-clamp toggle constantly during normal rendering (every LLGLEnable/LLGLDisable),
+    // scissor/depth-clamp toggle constantly during normal rendering (every DXStateEnable/DXStateDisable),
     // each one forcing LLRender::applyDXRasterizerState() to rebuild the WHOLE bundled rasterizer
     // state object - a direct RSSetState() call here gets silently clobbered back to solid fill by
     // the very first such toggle (the first drawpool), before anything actually draws wireframed.
@@ -922,12 +923,10 @@ void DXPipeline::renderGeomPostDeferred(LLPipeline& pipeline, LLCamera& camera)
         gDX.applyDXRasterizerState();
     }
 
-    // LLDrawPoolWaterExclusion::render() has no raw GL calls, so it needed
-    // no porting, just to actually be called - mirrored here as an
-    // unconditional call before this loop, matching GL's earliest-pool
-    // placement. See DXPipeline::doWaterExclusionMask()'s DX_RENDER branch
-    // (below in this file): its glClearColor(1,1,1,1) is GL-only and skipped
-    // under DX_RENDER, so it uses LLRenderTarget::clearColor() explicitly -
+    // doWaterExclusionMask() (retired LLDrawPoolWaterExclusion, now inlined
+    // there) is called unconditionally here, matching GL's earliest-pool
+    // placement. Its glClearColor(1,1,1,1) is GL-only and skipped under
+    // DX_RENDER, so it uses LLRenderTarget::clearColor() explicitly -
     // LLRenderTarget::clear() clears to transparent black, which would
     // invert the mask's meaning (white=included) and exclude the whole
     // screen by default.
@@ -952,11 +951,11 @@ void DXPipeline::renderGeomPostDeferred(LLPipeline& pipeline, LLCamera& camera)
     // attachments from render_hud_attachments().
 
     // GL's renderGeomPostDeferred() also wraps its whole pool loop in
-    // LLGLEnable cull(DX_CULL_FACE); - individual post-deferred pools (e.g.
+    // DXStateEnable cull(DX_CULL_FACE); - individual post-deferred pools (e.g.
     // dxdrawpoolalpha.cpp) only ever explicitly DISABLE cull for confirmed
     // double-sided materials, assuming it's already on from this outer
     // scope, matching GL.
-    LLGLEnable cull(DX_CULL_FACE);
+    DXStateEnable cull(DX_CULL_FACE);
 
     DXPipeline::calcNearbyLights(pipeline, camera);
     DXPipeline::setupHWLights(pipeline);
@@ -2112,9 +2111,9 @@ void DXPipeline::renderDeferredLighting(LLPipeline& pipeline)
                 (F32)deferred_light_target.getHeight());
 
             {
-                LLGLDisable   blend(DX_BLEND);
+                DXStateDisable   blend(DX_BLEND);
                 DXDepthTest depth(true, false, DX_ALWAYS);
-                LLGLDisable   cullface(DX_CULL_FACE);
+                DXStateDisable   cullface(DX_CULL_FACE);
                 pipeline.mScreenTriangleVB->setBuffer();
                 pipeline.mScreenTriangleVB->drawArrays(LLRender::TRIANGLES, 0, 3);
             }
@@ -2179,7 +2178,7 @@ void DXPipeline::renderDeferredLighting(LLPipeline& pipeline)
         gDeferredBlurLightProgram.uniform1f(sBlurKernScale, blur_size * (kern_length / 2.f - 0.5f));
 
         {
-            LLGLDisable   blend(DX_BLEND);
+            DXStateDisable   blend(DX_BLEND);
             DXDepthTest depth(true, false, DX_ALWAYS);
             pipeline.mScreenTriangleVB->setBuffer();
             pipeline.mScreenTriangleVB->drawArrays(LLRender::TRIANGLES, 0, 3);
@@ -2198,7 +2197,7 @@ void DXPipeline::renderDeferredLighting(LLPipeline& pipeline)
         gDeferredBlurLightProgram.uniform2f(sBlurDelta, 0.f, 1.f);
 
         {
-            LLGLDisable   blend(DX_BLEND);
+            DXStateDisable   blend(DX_BLEND);
             DXDepthTest depth(true, false, DX_ALWAYS);
             pipeline.mScreenTriangleVB->setBuffer();
             pipeline.mScreenTriangleVB->drawArrays(LLRender::TRIANGLES, 0, 3);
@@ -2245,9 +2244,9 @@ void DXPipeline::renderDeferredLighting(LLPipeline& pipeline)
         }
 
         {
-            LLGLDisable   blend(DX_BLEND);
+            DXStateDisable   blend(DX_BLEND);
             DXDepthTest depth(true, false, DX_ALWAYS);
-            LLGLDisable   cullface(DX_CULL_FACE);
+            DXStateDisable   cullface(DX_CULL_FACE);
             pipeline.mScreenTriangleVB->setBuffer();
             pipeline.mScreenTriangleVB->drawArrays(LLRender::TRIANGLES, 0, 3);
         }
@@ -2316,11 +2315,11 @@ void DXPipeline::renderDeferredLighting(LLPipeline& pipeline)
 
         {
             DXDepthTest depth(false);
-            LLGLDisable   blend(DX_BLEND);
+            DXStateDisable   blend(DX_BLEND);
             // Fullscreen post-process triangles shouldn't rely on ambient
             // rasterizer state (this is a raw mScreenTriangleVB->drawArrays()
             // call, not wrapped by any LLDrawPool's own state setup).
-            LLGLDisable   cullface(DX_CULL_FACE);
+            DXStateDisable   cullface(DX_CULL_FACE);
 
             // full screen blit
             pipeline.mScreenTriangleVB->setBuffer();
@@ -2438,7 +2437,7 @@ void DXPipeline::renderDeferredLighting(LLPipeline& pipeline)
             // light-volume draw here would REPLACE the pixel instead of
             // adding to it - only the last light drawn at a pixel would
             // show. Enable explicitly rather than trust inherited state.
-            LLGLEnable blend(DX_BLEND);
+            DXStateEnable blend(DX_BLEND);
 
             // Same reasoning as the blend fix above, for DX_CULL_FACE: this
             // 3D box-volume geometry has no explicit cull-state management
@@ -2450,7 +2449,7 @@ void DXPipeline::renderDeferredLighting(LLPipeline& pipeline)
             // octant) - it needs no runtime backface elimination, so
             // disabling cull entirely here is correct, not just a
             // convention match.
-            LLGLDisable cullface(DX_CULL_FACE);
+            DXStateDisable cullface(DX_CULL_FACE);
 
             // Collected during this same pass (mirrors GL's own spot_lights
             // vector) and rendered afterward in its own block, once
@@ -2764,7 +2763,7 @@ void DXPipeline::renderDeferredLighting(LLPipeline& pipeline)
             if (!spot_lights.empty() && gDeferredSpotLightProgram.isComplete())
             {
                 DXDepthTest spot_depth(true, false);
-                LLGLEnable spot_blend(DX_BLEND);
+                DXStateEnable spot_blend(DX_BLEND);
 
                 DXPipeline::bindDeferredShader(pipeline, gDeferredSpotLightProgram);
                 sDXBoxLightVB->setBuffer();
@@ -3622,7 +3621,7 @@ void DXPipeline::generateGlow(LLPipeline& pipeline, LLRenderTarget* src)
         }
 
         {
-            LLGLEnable blend_on(DX_BLEND);
+            DXStateEnable blend_on(DX_BLEND);
 
             gDX.setSceneBlendType(LLRender::BT_ADD_WITH_ALPHA);
 
@@ -4481,8 +4480,8 @@ void DXPipeline::renderSSRPass(LLPipeline& pipeline)
 
     {
         DXDepthTest depth(false);
-        LLGLDisable   blend(DX_BLEND);
-        LLGLDisable   cullface(DX_CULL_FACE);
+        DXStateDisable   blend(DX_BLEND);
+        DXStateDisable   cullface(DX_CULL_FACE);
 
         pipeline.mScreenTriangleVB->setBuffer();
         pipeline.mScreenTriangleVB->drawArrays(LLRender::TRIANGLES, 0, 3);
@@ -4536,8 +4535,8 @@ void DXPipeline::renderSSRResolve(LLPipeline& pipeline)
 
     {
         DXDepthTest depth(false);
-        LLGLDisable   blend(DX_BLEND);
-        LLGLDisable   cullface(DX_CULL_FACE);
+        DXStateDisable   blend(DX_BLEND);
+        DXStateDisable   cullface(DX_CULL_FACE);
 
         pipeline.mScreenTriangleVB->setBuffer();
         pipeline.mScreenTriangleVB->drawArrays(LLRender::TRIANGLES, 0, 3);
@@ -4687,10 +4686,10 @@ void DXPipeline::renderAlphaObjects(LLPipeline& pipeline, bool rigged)
             {
                 // Color pass respects mDoubleSided per-draw (dxdrawpoolalpha.cpp)
                 // so both faces of thin hair-card geometry render; this pass
-                // inherited a blanket LLGLEnable cull(DX_CULL_FACE) from
+                // inherited a blanket DXStateEnable cull(DX_CULL_FACE) from
                 // renderShadow() with no override, silently discarding
                 // whichever face pointed away from the sun.
-                LLGLDisable cull_face(pparams->mGLTFMaterial->mDoubleSided ? DX_CULL_FACE : 0);
+                DXStateDisable cull_face(pparams->mGLTFMaterial->mDoubleSided ? DX_CULL_FACE : 0);
                 if (last != GLTF)
                 {
                     gDeferredShadowGLTFAlphaBlendProgram.bind(rigged);
@@ -4724,7 +4723,7 @@ void DXPipeline::renderAlphaObjects(LLPipeline& pipeline, bool rigged)
         {
             if (pparams->mGLTFMaterial)
             {
-                LLGLDisable cull_face(pparams->mGLTFMaterial->mDoubleSided ? DX_CULL_FACE : 0);
+                DXStateDisable cull_face(pparams->mGLTFMaterial->mDoubleSided ? DX_CULL_FACE : 0);
                 if (last != GLTF)
                 {
                     gDeferredShadowGLTFAlphaBlendProgram.bind(rigged);
@@ -4835,10 +4834,9 @@ void DXPipeline::renderShadow(LLPipeline& pipeline, const glm::mat4& view, const
         LLRenderPass::PASS_NORMSPEC_EMISSIVE
     };
 
-    LLGLEnable cull(DX_CULL_FACE);
-
-    //enable depth clamping if available
-    LLGLEnable clamp_depth(depth_clamp ? DX_DEPTH_CLAMP : 0);
+    // S24: one combined rasterizer-state bind for both flags, not two - see
+    // DXRasterizerScope's own comment (DXState.h).
+    DXRasterizerScope raster(DX_CULL_FACE, true, DX_DEPTH_CLAMP, depth_clamp);
 
     DXDepthTest depth_test(true, true, DX_LESS);
 
@@ -5993,7 +5991,7 @@ void DXPipeline::generateSunShadow(LLPipeline& pipeline, LLCamera& camera)
         {
             LLTrace::CountStatHandle<>* velocity_stat = LLViewerCamera::getVelocityStat();
             F32 fade_amt = gFrameIntervalSeconds.value()
-                * (F32)llmax(LLTrace::get_frame_recording().getLastRecording().getSum(*velocity_stat) / LLTrace::get_frame_recording().getLastRecording().getDuration().value(), 1.0);
+                * (F32)llmax(LLTrace::get_frame_recording().getLastRecording().getSum(*velocity_stat) / LLTrace::get_frame_recording().getLastRecording().getDuration().value(), 4.0); // S24: rest-state floor 4 = ~0.25 s shadow fade (was 1 s)
 
             // should never happen
             llassert(pipeline.mTargetShadowSpotLight[0] != pipeline.mTargetShadowSpotLight[1] || pipeline.mTargetShadowSpotLight[0].isNull());
@@ -6273,7 +6271,7 @@ void DXPipeline::generatePointShadow(LLPipeline& pipeline, LLCamera& camera, con
     {
         LLTrace::CountStatHandle<>* velocity_stat = LLViewerCamera::getVelocityStat();
         F32 fade_amt = gFrameIntervalSeconds.value()
-            * (F32)llmax(LLTrace::get_frame_recording().getLastRecording().getSum(*velocity_stat) / LLTrace::get_frame_recording().getLastRecording().getDuration().value(), 1.0);
+            * (F32)llmax(LLTrace::get_frame_recording().getLastRecording().getSum(*velocity_stat) / LLTrace::get_frame_recording().getLastRecording().getDuration().value(), 4.0); // S24: rest-state floor 4 = ~0.25 s shadow fade (was 1 s)
 
         if (pipeline.mShadowPointLight[0].notNull() && pipeline.mShadowPointLight[0] == pipeline.mTargetShadowPointLight[0])
         { //keep this light
@@ -6565,7 +6563,11 @@ static F32 calc_light_dist(LLVOVolume* light, const LLVector3& cam_pos, F32 max_
 
     // Subtract light radius from distance (lights illuminate beyond their center point)
     F32 radius = light->getLightRadius();
+    const F32 centre_dist = dist;
     dist = llmax(dist - radius, 0.f);
+    // S24: lights whose radius covers the viewpoint all clamp to 0 and tie; break ties by true
+    // distance instead of drawable pointer order.
+    dist += 0.001f * centre_dist;
 
     return dist;
 }
@@ -7445,7 +7447,6 @@ void DXPipeline::profileAvatar(LLPipeline& pipeline, LLVOAvatar* avatar, bool pr
 // static
 void DXPipeline::generateImpostor(LLPipeline& pipeline, LLVOAvatar* avatar, bool preview_avatar, bool for_profile, LLViewerObject* specific_attachment)
 {
-    DXState::checkStates();
 
     static LLCullResult result;
     result.clear();
@@ -7676,9 +7677,12 @@ void DXPipeline::generateImpostor(LLPipeline& pipeline, LLVOAvatar* avatar, bool
                     addDeferredAttachments(avatar->mImpostor, true);
                 }
 
-                gDX.getTexUnit(0)->bind(&avatar->mImpostor);
-                gDX.getTexUnit(0)->setTextureFilteringOption(LLTexUnit::TFO_POINT);
-                gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
+                // S24: removed a bind+setTextureFilteringOption(TFO_POINT)+unbind here - under
+                // DX_RENDER there's no persistent per-object filter state on LLRenderTarget to
+                // configure (unlike GL, where this idiom sticks the filter to the texture object),
+                // and setTextureFilteringOption() is itself a no-op, so this achieved nothing.
+                // The real impostor billboard bind is LLVOAvatar::renderImpostor() (llvoavatar.cpp),
+                // which always samples bilinear regardless - confirmed working fine as-is.
             }
             else if (resX != avatar->mImpostor.getWidth() || resY != avatar->mImpostor.getHeight())
             {
@@ -7733,7 +7737,7 @@ void DXPipeline::generateImpostor(LLPipeline& pipeline, LLVOAvatar* avatar, bool
         // but this quad draws with gDebugProgram (debugF.hlsl), which declares only a single
         // `SV_Target` output, and a D3D11 pixel shader that doesn't write a bound RTV slot leaves that
         // slot's contents untouched.
-        LLGLDisable blend(DX_BLEND);
+        DXStateDisable blend(DX_BLEND);
 
         if (visually_muted || too_complex)
         {
@@ -7820,7 +7824,6 @@ void DXPipeline::generateImpostor(LLPipeline& pipeline, LLVOAvatar* avatar, bool
     }
 
     LLVertexBuffer::unbind();
-    DXState::checkStates();
 }
 
 // static
@@ -7962,7 +7965,7 @@ void DXPipeline::setupSpotLight(LLPipeline& pipeline, LLHLSLShader& shader, LLDr
         // already holding a real-time shadow slot (mShadowSpotLight[], the downstream state
         // that actually has memory) needs to be clearly beaten, not just marginally, before a
         // challenger takes its slot.
-        static constexpr F32 kSpotShadowHysteresis = 1.05f;
+        static constexpr F32 kSpotShadowHysteresis = 1.3f;
         if (potential == pipeline.mShadowSpotLight[0] || potential == pipeline.mShadowSpotLight[1])
         {
             m_pri *= kSpotShadowHysteresis;
@@ -8767,10 +8770,6 @@ LLDrawPool* DXPipeline::findPool(LLPipeline& pipeline, const U32 type, LLViewerT
         poolp = pipeline.mPBRAlphaMaskPool;
         break;
 
-    case LLDrawPool::POOL_WATEREXCLUSION:
-        poolp = pipeline.mWaterExclusionPool;
-        break;
-
     default:
         llassert(0);
         LL_ERRS() << "Invalid Pool Type in  LLPipeline::findPool() type=" << type << LL_ENDL;
@@ -9042,18 +9041,6 @@ void DXPipeline::addToQuickLookup(LLPipeline& pipeline, LLDrawPool* new_poolp)
         }
         break;
 
-    case LLDrawPool::POOL_WATEREXCLUSION:
-        if (pipeline.mWaterExclusionPool)
-        {
-            llassert(0);
-            LL_WARNS() << "LLPipeline::addPool(): Ignoring duplicate Water Exclusion Pool" << LL_ENDL;
-        }
-        else
-        {
-            pipeline.mWaterExclusionPool = new_poolp;
-        }
-        break;
-
     default:
         llassert(0);
         LL_WARNS() << "Invalid Pool Type in  LLPipeline::addPool()" << LL_ENDL;
@@ -9175,11 +9162,6 @@ void DXPipeline::removeFromQuickLookup(LLPipeline& pipeline, LLDrawPool* poolp)
     case LLDrawPool::POOL_GLTF_PBR_ALPHA_MASK:
         llassert(poolp == pipeline.mPBRAlphaMaskPool);
         pipeline.mPBRAlphaMaskPool = NULL;
-        break;
-
-    case LLDrawPool::POOL_WATEREXCLUSION:
-        llassert(poolp == pipeline.mWaterExclusionPool);
-        pipeline.mWaterExclusionPool = nullptr;
         break;
 
     default:
@@ -9657,7 +9639,7 @@ void DXPipeline::doAtmospherics(LLPipeline& pipeline)
             pipeline.mRT->screen.bindTarget();
         }
 
-        LLGLEnable blend(DX_BLEND);
+        DXStateEnable blend(DX_BLEND);
         gDX.blendFunc(LLRender::BF_ONE, LLRender::BF_SOURCE_ALPHA, LLRender::BF_ZERO, LLRender::BF_SOURCE_ALPHA);
         gDX.setColorWriteMask(true, true);
 
@@ -9720,7 +9702,7 @@ void DXPipeline::doWaterHaze(LLPipeline& pipeline)
             pipeline.mRT->screen.bindTarget();
         }
 
-        LLGLEnable blend(DX_BLEND);
+        DXStateEnable blend(DX_BLEND);
         gDX.blendFunc(LLRender::BF_ONE, LLRender::BF_SOURCE_ALPHA, LLRender::BF_ZERO, LLRender::BF_SOURCE_ALPHA);
 
         gDX.setColorWriteMask(true, true);
@@ -9749,7 +9731,7 @@ void DXPipeline::doWaterHaze(LLPipeline& pipeline)
         {
             //render water patches like LLDrawPoolWater does
             DXDepthTest depth(true, false);
-            LLGLDisable   cull(DX_CULL_FACE);
+            DXStateDisable   cull(DX_CULL_FACE);
 
             gDXLastMatrix = NULL;
             gDX.loadMatrix(gDXModelView);
@@ -9772,6 +9754,27 @@ void DXPipeline::doWaterHaze(LLPipeline& pipeline)
     }
 }
 
+namespace
+{
+    // S24: LLDrawPoolWaterExclusion retired (dxdrawpoolwaterexclusion.h/.cpp
+    // deleted outright) - its render() body is inlined directly below.
+    // pushBatches()/pushUntexturedBatches()/pushBatch() (dxdrawpool.cpp) are
+    // LLRenderPass instance methods that read zero instance state (verified
+    // by reading their bodies - they operate purely on gPipeline's cull-
+    // result data, parametrized only by the pass type argument), so this
+    // tiny helper exists solely to provide a valid `this` for that call.
+    // It is never registered with LLDrawPool::createPool()/addPool() and
+    // never stored on LLPipeline - it's a function-local static below,
+    // constructed once (same one-time-construction behavior the retired
+    // pool object had), with a no-op destructor inherited all the way up
+    // (LLRenderPass::~LLRenderPass()/LLDrawPool::~LLDrawPool() are both
+    // empty), so there's nothing to tear down.
+    struct WaterExclusionBatchHelper : public LLRenderPass
+    {
+        WaterExclusionBatchHelper() : LLRenderPass(LLDrawPool::POOL_WATEREXCLUSION) {}
+    };
+}
+
 // static
 void DXPipeline::doWaterExclusionMask(LLPipeline& pipeline)
 {
@@ -9779,9 +9782,43 @@ void DXPipeline::doWaterExclusionMask(LLPipeline& pipeline)
     // LLRenderTarget::clear() under DX_RENDER always clears to transparent black regardless of the
     // GL-only glClearColor() call below, but this mask's meaning is inverted: white (1,1,1,1) = "not
     // excluded, water visible here". Use clearColor() (an explicit ClearRenderTargetView()) instead, or
-    // every pixel not covered by mWaterExclusionPool->render() defaults to "excluded".
+    // every pixel not covered by the render below defaults to "excluded".
     pipeline.mWaterExclusionMask.clearColor(1, 1, 1, 1);
-    pipeline.mWaterExclusionPool->render();
+
+    // Inlined from the retired LLDrawPoolWaterExclusion::render() - renders invisiprims.
+    LL_RECORD_BLOCK_TIME(FTM_RENDER_INVISIBLE);
+
+    if (DXPipeline::shadersLoaded(pipeline))
+    {
+        gDrawColorProgram.bind();
+    }
+
+    DXDepthTest depth(true);
+    gDrawColorProgram.uniform4f(LLShaderMgr::DIFFUSE_COLOR, 1, 1, 1, 1);
+
+    LLDrawPoolWater* pwaterpool = (LLDrawPoolWater*)DXPipeline::getPool(pipeline, LLDrawPool::POOL_WATER);
+    if (pwaterpool)
+    {
+        // Just treat our water planes as double sided for the purposes of generating the exclusion mask.
+        DXStateDisable cullface(DX_CULL_FACE);
+        pwaterpool->pushWaterPlanes(0);
+
+        // Take care of the edge water tiles.
+        pwaterpool->pushWaterPlanes(1);
+    }
+
+    gDrawColorProgram.uniform4f(LLShaderMgr::DIFFUSE_COLOR, 0, 0, 0, 1);
+
+    static LLStaticHashedString waterSign("waterSign");
+    gDrawColorProgram.uniform1f(waterSign, 1.f);
+
+    static WaterExclusionBatchHelper sBatchHelper;
+    sBatchHelper.pushBatches(LLRenderPass::PASS_INVISIBLE, false, false);
+
+    if (DXPipeline::shadersLoaded(pipeline))
+    {
+        gDrawColorProgram.unbind();
+    }
 
     pipeline.mWaterExclusionMask.flush();
 }
@@ -10290,7 +10327,7 @@ void DXPipeline::markVisible(LLPipeline& pipeline, LLDrawable* drawablep, LLCame
 // static
 void DXPipeline::renderGeomShadow(LLPipeline& pipeline, LLCamera& camera)
 {
-    LLGLEnable cull(DX_CULL_FACE);
+    DXStateEnable cull(DX_CULL_FACE);
     LLVertexBuffer::unbind();
 
     U32 cur_type = 0;
@@ -10352,7 +10389,7 @@ void DXPipeline::doOcclusion(LLPipeline& pipeline, LLCamera& camera)
     {
         gDX.setColorWriteMask(false, false);
         DXDepthTest depth(true, false);
-        LLGLDisable cull(DX_CULL_FACE);
+        DXStateDisable cull(DX_CULL_FACE);
 
         gOcclusionCubeProgram.bind();
 
@@ -10379,11 +10416,11 @@ void DXPipeline::doOcclusion(LLPipeline& pipeline, LLCamera& camera)
 
         gDX.setColorWriteMask(false, false);
 
-        LLGLDisable blend(DX_BLEND);
+        DXStateDisable blend(DX_BLEND);
         gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
         DXDepthTest depth(true, false);
 
-        LLGLDisable cull(DX_CULL_FACE);
+        DXStateDisable cull(DX_CULL_FACE);
 
         gOcclusionCubeProgram.bind();
 
@@ -10427,7 +10464,7 @@ void DXPipeline::doOcclusion(LLPipeline& pipeline, LLCamera& camera)
     {
         gDX.setColorWriteMask(false, false);
         DXDepthTest depth(true, false);
-        LLGLDisable cull(DX_CULL_FACE);
+        DXStateDisable cull(DX_CULL_FACE);
 
         gOcclusionCubeProgram.bind();
 
@@ -10858,13 +10895,13 @@ void DXPipeline::renderPhysicsDisplay(LLPipeline& pipeline)
     gDX.flush();
     gDebugProgram.bind();
 
-    LLGLEnable polygon_offset_line(GL_POLYGON_OFFSET_LINE);
+    DXStateEnable polygon_offset_line(GL_POLYGON_OFFSET_LINE);
     gDX.setPolygonOffset(3.f, 3.f);
     // S24: glLineWidth() has no DX11 equivalent; LLUI::setLineWidth() is the no-op stand-in under
     // DX_RENDER. glPolygonMode(GL_LINE/GL_FILL) below is removed outright: no D3D11 per-draw
     // wireframe equivalent exists.
     LLUI::setLineWidth(3.f);
-    LLGLEnable blend(DX_BLEND);
+    DXStateEnable blend(DX_BLEND);
     gDX.setSceneBlendType(LLRender::BT_ALPHA);
 
     for (int pass = 0; pass < 3; ++pass)
@@ -10941,7 +10978,7 @@ void DXPipeline::renderDebug(LLPipeline& pipeline)
                         gDX.setColorWriteMask(false, false);
                         llPathingLibInstance->renderSimpleShapeCapsuleID(gDX, id, pos, rot);
                         gDX.setColorWriteMask(true, false);
-                        LLGLEnable blend(DX_BLEND);
+                        DXStateEnable blend(DX_BLEND);
                         gPathfindingProgram.uniform1f(sAlphaScale, 0.90f);
                         llPathingLibInstance->renderSimpleShapeCapsuleID(gDX, id, pos, rot);
                         gPathfindingProgram.bind();
@@ -10984,12 +11021,12 @@ void DXPipeline::renderDebug(LLPipeline& pipeline)
                         // stand-in under DX_RENDER. glPolygonMode(GL_LINE/GL_FILL) is removed outright:
                         // no D3D11 per-draw wireframe equivalent exists.
                         LLUI::setLineWidth(2.0f);
-                        LLGLEnable cull(DX_CULL_FACE);
-                        LLGLDisable blend(DX_BLEND);
+                        DXStateEnable cull(DX_CULL_FACE);
+                        DXStateDisable blend(DX_BLEND);
 
                         if (pathfindingConsole->isRenderWorld())
                         {
-                            LLGLEnable blend(DX_BLEND);
+                            DXStateEnable blend(DX_BLEND);
                             gPathfindingProgram.uniform1f(sAlphaScale, 0.66f);
                             llPathingLibInstance->renderNavMesh();
                         }
@@ -11026,7 +11063,7 @@ void DXPipeline::renderDebug(LLPipeline& pipeline)
 
                         gDX.setColorWriteMask(true, false);
                         //render the bookends
-                        LLGLEnable blend(DX_BLEND);
+                        DXStateEnable blend(DX_BLEND);
                         gPathfindingProgram.uniform1f(sAlphaScale, 0.90f);
                         llPathingLibInstance->renderPathBookend(gDX, LLPathingLib::LLPL_START);
                         llPathingLibInstance->renderPathBookend(gDX, LLPathingLib::LLPL_END);
@@ -11035,7 +11072,7 @@ void DXPipeline::renderDebug(LLPipeline& pipeline)
 
                     if (pathfindingConsole->isRenderWaterPlane())
                     {
-                        LLGLEnable blend(DX_BLEND);
+                        DXStateEnable blend(DX_BLEND);
                         gPathfindingProgram.uniform1f(sAlphaScale, 0.90f);
                         llPathingLibInstance->renderSimpleShapes(gDX, gAgent.getRegion()->getWaterHeight());
                     }
@@ -11059,12 +11096,12 @@ void DXPipeline::renderDebug(LLPipeline& pipeline)
                             }
 
                             //turn off backface culling for volumes so they are visible when camera is inside volume
-                            LLGLDisable cull(i >= 2 ? DX_CULL_FACE : 0);
+                            DXStateDisable cull(i >= 2 ? DX_CULL_FACE : 0);
 
                             gDX.flush();
 
                             //get rid of some z-fighting
-                            LLGLEnable polyOffset(GL_POLYGON_OFFSET_FILL);
+                            DXStateEnable polyOffset(GL_POLYGON_OFFSET_FILL);
                             gDX.setPolygonOffset(1.0f, 1.0f);
 
                             //render to depth first to avoid blending artifacts
@@ -11075,7 +11112,7 @@ void DXPipeline::renderDebug(LLPipeline& pipeline)
                             //get rid of some z-fighting
                             gDX.setPolygonOffset(0.f, 0.f);
 
-                            LLGLEnable blend(DX_BLEND);
+                            DXStateEnable blend(DX_BLEND);
 
                             {
                                 gPathfindingProgram.uniform1f(sAmbiance, ambiance);
@@ -11086,7 +11123,7 @@ void DXPipeline::renderDebug(LLPipeline& pipeline)
                                     gDX.flush();
                                 }
 
-                                LLGLEnable lineOffset(GL_POLYGON_OFFSET_LINE);
+                                DXStateEnable lineOffset(GL_POLYGON_OFFSET_LINE);
 
                                 F32 offset = gSavedSettings.getF32("PathfindingLineOffset");
 
@@ -11094,7 +11131,7 @@ void DXPipeline::renderDebug(LLPipeline& pipeline)
                                 {
                                     gPathfindingProgram.uniform1f(sTint, gSavedSettings.getF32("PathfindingXRayTint"));
                                     gPathfindingProgram.uniform1f(sAlphaScale, gSavedSettings.getF32("PathfindingXRayOpacity"));
-                                    LLGLEnable blend(DX_BLEND);
+                                    DXStateEnable blend(DX_BLEND);
                                     DXDepthTest depth(true, false, DX_GREATER);
 
                                     gDX.setPolygonOffset(offset, -offset);
@@ -11121,7 +11158,7 @@ void DXPipeline::renderDebug(LLPipeline& pipeline)
                                     gPathfindingProgram.uniform1f(sAlphaScale, 1.f);
 
                                     LLUI::setLineWidth(gSavedSettings.getF32("PathfindingLineWidth"));
-                                    LLGLDisable blendOut(DX_BLEND);
+                                    DXStateDisable blendOut(DX_BLEND);
                                     llPathingLibInstance->renderNavMeshShapesVBO(render_order[i]);
                                     gDX.flush();
                                     LLUI::setLineWidth(1.f);
@@ -11136,17 +11173,17 @@ void DXPipeline::renderDebug(LLPipeline& pipeline)
                     {   //render navmesh xray
                         F32 ambiance = gSavedSettings.getF32("PathfindingAmbiance");
 
-                        LLGLEnable lineOffset(GL_POLYGON_OFFSET_LINE);
-                        LLGLEnable polyOffset(GL_POLYGON_OFFSET_FILL);
+                        DXStateEnable lineOffset(GL_POLYGON_OFFSET_LINE);
+                        DXStateEnable polyOffset(GL_POLYGON_OFFSET_FILL);
 
                         F32 offset = gSavedSettings.getF32("PathfindingLineOffset");
                         gDX.setPolygonOffset(offset, -offset);
 
-                        LLGLEnable blend(DX_BLEND);
+                        DXStateEnable blend(DX_BLEND);
                         DXDepthTest depth(true, false, DX_GREATER);
                         gDX.flush();
                         LLUI::setLineWidth(2.0f);
-                        LLGLEnable cull(DX_CULL_FACE);
+                        DXStateEnable cull(DX_CULL_FACE);
 
                         gPathfindingProgram.uniform1f(sTint, gSavedSettings.getF32("PathfindingXRayTint"));
                         gPathfindingProgram.uniform1f(sAlphaScale, gSavedSettings.getF32("PathfindingXRayOpacity"));
@@ -11303,7 +11340,7 @@ void DXPipeline::renderDebug(LLPipeline& pipeline)
         DXPipeline::bindDeferredShader(pipeline, gReflectionProbeDisplayProgram, NULL);
         pipeline.mScreenTriangleVB->setBuffer();
 
-        LLGLEnable blend(DX_BLEND);
+        DXStateEnable blend(DX_BLEND);
         DXDepthTest depth(false);
 
         pipeline.mScreenTriangleVB->drawArrays(LLRender::TRIANGLES, 0, 3);
@@ -11350,9 +11387,9 @@ void DXPipeline::renderDebug(LLPipeline& pipeline)
     {
         LLVertexBuffer::unbind();
 
-        LLGLEnable blend(DX_BLEND);
+        DXStateEnable blend(DX_BLEND);
         DXDepthTest depth(true, false);
-        LLGLDisable cull(DX_CULL_FACE);
+        DXStateDisable cull(DX_CULL_FACE);
 
         gDX.color4f(1, 1, 1, 1);
         gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
@@ -13808,7 +13845,9 @@ void DXPipeline::init(LLPipeline& pipeline)
     pipeline.mInitialized = true;
 
     //create render pass pools
-    DXPipeline::getPool(pipeline, LLDrawPool::POOL_WATEREXCLUSION);
+    // S24: POOL_WATEREXCLUSION retired as a pool type - its render pass now
+    // lives inline in DXPipeline::doWaterExclusionMask(), nothing to
+    // pre-create here.
     DXPipeline::getPool(pipeline, LLDrawPool::POOL_ALPHA_PRE_WATER);
     DXPipeline::getPool(pipeline, LLDrawPool::POOL_ALPHA_POST_WATER);
     DXPipeline::getPool(pipeline, LLDrawPool::POOL_SIMPLE);
@@ -14050,8 +14089,7 @@ void DXPipeline::cleanup(LLPipeline& pipeline)
     // don't delete wl sky pool it was handled above in the for loop
     //delete mWLSkyPool;
     pipeline.mWLSkyPool = NULL;
-    delete pipeline.mWaterExclusionPool;
-    pipeline.mWaterExclusionPool = nullptr;
+    // mWaterExclusionPool retired - see POOL_WATEREXCLUSION comment in init().
 
     DXPipeline::releaseDXBuffers(pipeline);
 
@@ -14322,7 +14360,7 @@ void DXPipeline::renderDoF(LLPipeline& pipeline, LLRenderTarget* src, LLRenderTa
 
         if (dof_enabled)
         {
-            LLGLDisable blend(DX_BLEND);
+            DXStateDisable blend(DX_BLEND);
 
             // depth of field focal plane calculations
             static F32 current_distance = 16.f;

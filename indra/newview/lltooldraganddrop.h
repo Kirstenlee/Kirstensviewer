@@ -196,10 +196,6 @@ protected:
                                            MASK mask, bool drop);
     EAcceptance dad3dRezAttachmentFromInv(LLViewerObject* obj, S32 face,
                                           MASK mask, bool drop);
-    EAcceptance dad3dCategoryOnLand(LLViewerObject *obj, S32 face,
-                                    MASK mask, bool drop);
-    EAcceptance dad3dAssetOnLand(LLViewerObject *obj, S32 face,
-                                 MASK mask, bool drop);
     EAcceptance dad3dActivateGesture(LLViewerObject *obj, S32 face,
                                  MASK mask, bool drop);
 
@@ -216,10 +212,6 @@ protected:
     // returned NULL.
     LLInventoryObject* locateInventory(LLViewerInventoryItem*& item,
                                        LLViewerInventoryCategory*& cat);
-
-    //LLInventoryObject* locateMultipleInventory(
-    //  LLViewerInventoryCategory::cat_array_t& cats,
-    //  LLViewerInventoryItem::item_array_t& items);
 
     void dropObject(LLViewerObject* raycast_target,
             bool bypass_sim_raycast,

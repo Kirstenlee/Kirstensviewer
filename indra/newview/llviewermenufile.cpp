@@ -146,8 +146,6 @@ void LLFilePickerThread::getFile()
 #if LL_WINDOWS
     // Todo: get rid of LLFilePickerThread and make this modeless
     start();
-#elif LL_DARWIN
-    runModeless();
 #else
     run();
 #endif

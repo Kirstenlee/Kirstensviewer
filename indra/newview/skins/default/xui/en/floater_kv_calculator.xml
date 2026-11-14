@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes" ?>
+<floater
+ legacy_header_height="18"
+ can_resize="false"
+ height="400"
+ layout="topleft"
+ name="kv_calculator"
+ help_topic="kv_calculator"
+ save_rect="true"
+ title="KV CALCULATOR"
+ width="300">
+
+  <panel
+   name="vfd_panel"
+   follows="left|top"
+   left="10"
+   top="30"
+   width="280"
+   height="60"
+   layout="topleft"
+   background_visible="true"
+   background_opaque="false"
+   bg_alpha_image="calculator/vfd_bg.png">
+    <text
+     name="vfd_text"
+     type="string"
+     left="10"
+     top="10"
+     width="260"
+     height="40"
+     layout="topleft"
+     follows="all"
+     font="Monospace"
+     font.size="huge"
+     halign="right"
+     valign="center"
+     text_color="0.15 0.95 0.95 1">
+      0
+    </text>
+  </panel>
+
+  <!-- ===================== reserved for future functions (teal) ===================== -->
+  <button name="kp_fn1" label="%" image_unselected="calculator/key_bezel.png" image_pressed="calculator/key_bezel_pressed.png" image_color="0.25 0.70 0.65 1" label_color="0.05 0.05 0.05 1" left="10" top="98" width="64" height="36" layout="topleft" follows="left|top" tab_stop="false"/>
+  <button name="kp_fn2" label="RATE" image_unselected="calculator/key_bezel.png" image_pressed="calculator/key_bezel_pressed.png" image_color="0.25 0.70 0.65 1" label_color="0.05 0.05 0.05 1" left_pad="4" top_delta="0" width="64" height="36" layout="topleft" follows="left|top" tab_stop="false"/>
+  <button name="kp_fn3" label="L$?" image_unselected="calculator/key_bezel.png" image_pressed="calculator/key_bezel_pressed.png" image_color="0.25 0.70 0.65 1" label_color="0.05 0.05 0.05 1" left_pad="4" top_delta="0" width="64" height="36" layout="topleft" follows="left|top" tab_stop="false"/>
+  <button name="kp_fn4" label="&#x3C0;" image_unselected="calculator/key_bezel.png" image_pressed="calculator/key_bezel_pressed.png" image_color="0.25 0.70 0.65 1" label_color="0.05 0.05 0.05 1" left_pad="4" top_delta="0" width="64" height="36" layout="topleft" follows="left|top" tab_stop="false"/>
+
+  <button name="kp_fn5" label="&#xB1;" image_unselected="calculator/key_bezel.png" image_pressed="calculator/key_bezel_pressed.png" image_color="0.25 0.70 0.65 1" label_color="0.05 0.05 0.05 1" left="10" top_pad="4" width="64" height="36" layout="topleft" follows="left|top" tab_stop="false"/>
+  <button name="kp_fn6" label="RND?" image_unselected="calculator/key_bezel.png" image_pressed="calculator/key_bezel_pressed.png" image_color="0.25 0.70 0.65 1" label_color="0.05 0.05 0.05 1" left_pad="4" top_delta="0" width="64" height="36" layout="topleft" follows="left|top" tab_stop="false"/>
+  <button name="kp_fn7" label="x&#xB2;" image_unselected="calculator/key_bezel.png" image_pressed="calculator/key_bezel_pressed.png" image_color="0.25 0.70 0.65 1" label_color="0.05 0.05 0.05 1" left_pad="4" top_delta="0" width="64" height="36" layout="topleft" follows="left|top" tab_stop="false"/>
+  <button name="kp_fn8" label="&#x221A;" image_unselected="calculator/key_bezel.png" image_pressed="calculator/key_bezel_pressed.png" image_color="0.25 0.70 0.65 1" label_color="0.05 0.05 0.05 1" left_pad="4" top_delta="0" width="64" height="36" layout="topleft" follows="left|top" tab_stop="false"/>
+
+  <!-- ============================= KEYPAD ============================= -->
+  <button name="kp_clear"     label="AC"  image_unselected="calculator/key_bezel.png" image_pressed="calculator/key_bezel_pressed.png" image_color="0.95 0.55 0.15 1" label_color="0.05 0.05 0.05 1" left="10" top_pad="14" width="64" height="36" layout="topleft" follows="left|top" tab_stop="false"/>
+  <button name="kp_backspace" label="DEL" image_unselected="calculator/key_bezel.png" image_pressed="calculator/key_bezel_pressed.png" image_color="0.82 0.75 0.60 1" label_color="0.05 0.05 0.05 1" left_pad="4" top_delta="0" width="64" height="36" layout="topleft" follows="left|top" tab_stop="false"/>
+  <button name="kp_div"       label="/"   image_unselected="calculator/key_bezel.png" image_pressed="calculator/key_bezel_pressed.png" image_color="0.45 0.65 0.95 1" label_color="0.05 0.05 0.05 1" left_pad="4" top_delta="0" width="64" height="36" layout="topleft" follows="left|top" tab_stop="false"/>
+  <button name="kp_mul"       label="x"   image_unselected="calculator/key_bezel.png" image_pressed="calculator/key_bezel_pressed.png" image_color="0.45 0.65 0.95 1" label_color="0.05 0.05 0.05 1" left_pad="4" top_delta="0" width="64" height="36" layout="topleft" follows="left|top" tab_stop="false"/>
+
+  <button name="kp_7" label="7" image_unselected="calculator/key_bezel.png" image_pressed="calculator/key_bezel_pressed.png" image_color="0.82 0.75 0.60 1" label_color="0.05 0.05 0.05 1" left="10" top_pad="4" width="64" height="36" layout="topleft" follows="left|top" tab_stop="false"/>
+  <button name="kp_8" label="8" image_unselected="calculator/key_bezel.png" image_pressed="calculator/key_bezel_pressed.png" image_color="0.82 0.75 0.60 1" label_color="0.05 0.05 0.05 1" left_pad="4" top_delta="0" width="64" height="36" layout="topleft" follows="left|top" tab_stop="false"/>
+  <button name="kp_9" label="9" image_unselected="calculator/key_bezel.png" image_pressed="calculator/key_bezel_pressed.png" image_color="0.82 0.75 0.60 1" label_color="0.05 0.05 0.05 1" left_pad="4" top_delta="0" width="64" height="36" layout="topleft" follows="left|top" tab_stop="false"/>
+  <button name="kp_sub" label="-" image_unselected="calculator/key_bezel.png" image_pressed="calculator/key_bezel_pressed.png" image_color="0.45 0.65 0.95 1" label_color="0.05 0.05 0.05 1" left_pad="4" top_delta="0" width="64" height="36" layout="topleft" follows="left|top" tab_stop="false"/>
+
+  <button name="kp_4" label="4" image_unselected="calculator/key_bezel.png" image_pressed="calculator/key_bezel_pressed.png" image_color="0.82 0.75 0.60 1" label_color="0.05 0.05 0.05 1" left="10" top_pad="4" width="64" height="36" layout="topleft" follows="left|top" tab_stop="false"/>
+  <button name="kp_5" label="5" image_unselected="calculator/key_bezel.png" image_pressed="calculator/key_bezel_pressed.png" image_color="0.82 0.75 0.60 1" label_color="0.05 0.05 0.05 1" left_pad="4" top_delta="0" width="64" height="36" layout="topleft" follows="left|top" tab_stop="false"/>
+  <button name="kp_6" label="6" image_unselected="calculator/key_bezel.png" image_pressed="calculator/key_bezel_pressed.png" image_color="0.82 0.75 0.60 1" label_color="0.05 0.05 0.05 1" left_pad="4" top_delta="0" width="64" height="36" layout="topleft" follows="left|top" tab_stop="false"/>
+  <button name="kp_add" label="+" image_unselected="calculator/key_bezel.png" image_pressed="calculator/key_bezel_pressed.png" image_color="0.45 0.65 0.95 1" label_color="0.05 0.05 0.05 1" left_pad="4" top_delta="0" width="64" height="36" layout="topleft" follows="left|top" tab_stop="false"/>
+
+  <button name="kp_1" label="1" image_unselected="calculator/key_bezel.png" image_pressed="calculator/key_bezel_pressed.png" image_color="0.82 0.75 0.60 1" label_color="0.05 0.05 0.05 1" left="10" top_pad="4" width="64" height="36" layout="topleft" follows="left|top" tab_stop="false"/>
+  <button name="kp_2" label="2" image_unselected="calculator/key_bezel.png" image_pressed="calculator/key_bezel_pressed.png" image_color="0.82 0.75 0.60 1" label_color="0.05 0.05 0.05 1" left_pad="4" top_delta="0" width="64" height="36" layout="topleft" follows="left|top" tab_stop="false"/>
+  <button name="kp_3" label="3" image_unselected="calculator/key_bezel.png" image_pressed="calculator/key_bezel_pressed.png" image_color="0.82 0.75 0.60 1" label_color="0.05 0.05 0.05 1" left_pad="4" top_delta="0" width="64" height="36" layout="topleft" follows="left|top" tab_stop="false"/>
+  <button name="kp_fn9" label="DISP" image_unselected="calculator/key_bezel.png" image_pressed="calculator/key_bezel_pressed.png" image_color="0.25 0.70 0.65 1" label_color="0.05 0.05 0.05 1" left_pad="4" top_delta="0" width="64" height="36" layout="topleft" follows="left|top" tab_stop="false"/>
+
+  <button name="kp_0" label="0" image_unselected="calculator/key_bezel.png" image_pressed="calculator/key_bezel_pressed.png" image_color="0.82 0.75 0.60 1" label_color="0.05 0.05 0.05 1" left="10" top_pad="4" width="132" height="36" layout="topleft" follows="left|top" tab_stop="false"/>
+  <button name="kp_point" label="." image_unselected="calculator/key_bezel.png" image_pressed="calculator/key_bezel_pressed.png" image_color="0.82 0.75 0.60 1" label_color="0.05 0.05 0.05 1" left_pad="4" top_delta="0" width="64" height="36" layout="topleft" follows="left|top" tab_stop="false"/>
+  <button name="kp_equals" label="ANS" image_unselected="calculator/key_bezel.png" image_pressed="calculator/key_bezel_pressed.png" image_color="0.45 0.65 0.95 1" label_color="0.05 0.05 0.05 1" left_pad="4" top_delta="0" width="64" height="36" layout="topleft" follows="left|top" tab_stop="false"/>
+
+</floater>

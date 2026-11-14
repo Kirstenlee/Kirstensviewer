@@ -240,8 +240,44 @@ bool LLViewerDynamicTexture::updateAllInstances()
     llassert(bake_target.getWidth() >= (U32) LLAvatarAppearanceDefines::SCRATCH_TEX_WIDTH);
     llassert(bake_target.getHeight() >= (U32) LLAvatarAppearanceDefines::SCRATCH_TEX_HEIGHT);
 
-    preview_target.bindTarget();
-    preview_target.clear();
+    // S24: pre-scan needsRender() exactly ONCE per instance and cache the result, both to skip
+    // the bind+clear GPU work below entirely for a pass (preview or bake) that has nothing to
+    // render - the common case for these editor-preview/bake targets, usually idle - and because
+    // some overrides have real side effects on call: LLVisualParamHint::needsRender()
+    // decrements a delay counter, and LLGLTFPreviewTexture::needsRender() consumes a one-shot
+    // "changed" flag. Calling either a second time per instance per frame would silently break
+    // them (the delay counter would run out twice as fast; the GLTF preview would never see its
+    // own "yes, render me" result again and would never render). update_func() below reads the
+    // cached bool instead of calling needsRender() itself - do not add a needsRender() call back
+    // into it.
+    std::vector<std::pair<LLViewerDynamicTexture*, bool>> preview_needs;
+    bool any_preview_needs_render = false;
+    for (S32 order = 0; order < ORDER_LAST; ++order)
+    {
+        for (LLViewerDynamicTexture* dynamicTexture : LLViewerDynamicTexture::sInstances[order])
+        {
+            bool needs = dynamicTexture->needsRender();
+            preview_needs.emplace_back(dynamicTexture, needs);
+            any_preview_needs_render |= needs;
+        }
+    }
+
+    std::vector<std::pair<LLViewerDynamicTexture*, bool>> bake_needs;
+    bool any_bake_needs_render = false;
+    for (S32 order = ORDER_LAST; order < ORDER_COUNT; ++order)
+    {
+        for (LLViewerDynamicTexture* dynamicTexture : LLViewerDynamicTexture::sInstances[order])
+        {
+            bool needs = dynamicTexture->needsRender();
+            bake_needs.emplace_back(dynamicTexture, needs);
+            any_bake_needs_render |= needs;
+        }
+    }
+
+    if (!any_preview_needs_render && !any_bake_needs_render)
+    {
+        return false;
+    }
 
     // S24 : Task #256 - this loop used to wrap itself in a ScopedMainRT swap
     // of gPipeline.mRT to mAuxillaryRT, theorizing the deferred pipeline's
@@ -263,57 +299,70 @@ bool LLViewerDynamicTexture::updateAllInstances()
 
     bool result = false;
     bool ret = false ;
+    // S24: `needs_render` is the pre-scanned, cached result from above - this must NEVER call
+    // dynamicTexture->needsRender() itself (see this function's own comment on why that would be
+    // unsafe). Callers only invoke this when needs_render is already known true.
     auto update_func = [&](LLViewerDynamicTexture* dynamicTexture, LLRenderTarget& renderTarget, S32 width, S32 height)
         {
-            if (dynamicTexture->needsRender())
+            llassert(dynamicTexture->getFullWidth() <= width);
+            llassert(dynamicTexture->getFullHeight() <= height);
+
+            // Routed through the already-bound LLRenderTarget instead of raw glClear().
+            renderTarget.clear(GL_DEPTH_BUFFER_BIT);
+
+            gDX.color4f(1.f, 1.f, 1.f, 1.f);
+            dynamicTexture->setBoundTarget(&renderTarget);
+            dynamicTexture->preRender();    // Must be called outside of startRender()
+            result = false;
+            if (dynamicTexture->render())
             {
-                llassert(dynamicTexture->getFullWidth() <= width);
-                llassert(dynamicTexture->getFullHeight() <= height);
-
-                // Routed through the already-bound LLRenderTarget instead of raw glClear().
-                renderTarget.clear(GL_DEPTH_BUFFER_BIT);
-
-                gDX.color4f(1.f, 1.f, 1.f, 1.f);
-                dynamicTexture->setBoundTarget(&renderTarget);
-                dynamicTexture->preRender();    // Must be called outside of startRender()
-                result = false;
-                if (dynamicTexture->render())
-                {
-                    ret = true ;
-                    result = true;
-                    sNumRenders++;
-                }
-                gDX.flush();
-                LLVertexBuffer::unbind();
-                dynamicTexture->setBoundTarget(nullptr);
-                dynamicTexture->postRender(result);
+                ret = true ;
+                result = true;
+                sNumRenders++;
             }
+            gDX.flush();
+            LLVertexBuffer::unbind();
+            dynamicTexture->setBoundTarget(nullptr);
+            dynamicTexture->postRender(result);
         };
 
     // ORDER_FIRST is unused, ORDER_MIDDLE is various ui preview
-    for(S32 order = 0; order < ORDER_LAST; ++order)
+    if (any_preview_needs_render)
     {
-        for (LLViewerDynamicTexture* dynamicTexture : LLViewerDynamicTexture::sInstances[order])
+        preview_target.bindTarget();
+        preview_target.clear();
+
+        for (auto& [dynamicTexture, needs_render] : preview_needs)
         {
-            update_func(dynamicTexture, preview_target, DXPipeline::MAX_PREVIEW_WIDTH, DXPipeline::MAX_PREVIEW_WIDTH);
+            if (needs_render)
+            {
+                update_func(dynamicTexture, preview_target, DXPipeline::MAX_PREVIEW_WIDTH, DXPipeline::MAX_PREVIEW_WIDTH);
+            }
         }
+        preview_target.flush();
     }
-    preview_target.flush();
 
     // ORDER_LAST is baked skin preview, ORDER_RESET resets appearance parameters and does not render.
-    bake_target.bindTarget();
-    bake_target.clear();
-
+    // S24: result/ret reset unconditionally here, matching this function's pre-existing behavior
+    // of returning only the bake pass's render result regardless of the preview pass's own -
+    // this fix doesn't change that, it only skips the bind+clear+loop below when bake_needs has
+    // nothing to do.
     result = false;
     ret = false;
-    for (S32 order = ORDER_LAST; order < ORDER_COUNT; ++order)
+    if (any_bake_needs_render)
     {
-        for (LLViewerDynamicTexture* dynamicTexture : LLViewerDynamicTexture::sInstances[order])
+        bake_target.bindTarget();
+        bake_target.clear();
+
+        for (auto& [dynamicTexture, needs_render] : bake_needs)
         {
-            update_func(dynamicTexture, bake_target, LLAvatarAppearanceDefines::SCRATCH_TEX_WIDTH, LLAvatarAppearanceDefines::SCRATCH_TEX_HEIGHT);
+            if (needs_render)
+            {
+                update_func(dynamicTexture, bake_target, LLAvatarAppearanceDefines::SCRATCH_TEX_WIDTH, LLAvatarAppearanceDefines::SCRATCH_TEX_HEIGHT);
+            }
         }
+        bake_target.flush();
     }
-    bake_target.flush();
 
     gDX.flush();
 

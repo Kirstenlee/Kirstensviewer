@@ -30,9 +30,6 @@
 #include "stdtypes.h"
 
 #if LIB_NDOF
-#if LL_DARWIN
-#define TARGET_OS_MAC 1
-#endif
 #include "ndofdev_external.h"
 #else
 #define NDOF_Device void

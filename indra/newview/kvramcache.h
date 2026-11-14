@@ -27,6 +27,7 @@
 #include <deque>
 #include <memory>
 #include <vector>
+#include <atomic>
 
 #ifndef BYTES_TO_MEGA_BYTES
 #define BYTES_TO_MEGA_BYTES(x) ((x) >> 20)
@@ -133,6 +134,33 @@ public:
     // Initialization and configuration
     void initialize(const CacheConfig& config);
     void shutdown();
+
+    // S24 shutdown flush / startup hot-load: a dedicated snapshot file
+    // (kvramcache.bin, in LL_PATH_CACHE - entirely separate from
+    // LLTextureCache's own on-disk cache, which this never touches) holding
+    // every RAM-resident entry's raw, still-encoded J2C bytes plus its
+    // width/height/components/discard - no decode on write, no decode on
+    // read, no LLTextureCache write-path involvement at all. Without this,
+    // shutdown() alone just frees the RAM with zero disk write-back, so the
+    // next session's hot-load never has anything fresh to find.
+    //
+    // beginShutdownFlush() is idempotent and starts the real work on DXPool;
+    // call it as early as possible (LLAppViewer::requestQuit()) so it runs
+    // in parallel with the rest of the quit sequence. finishShutdownFlush()
+    // waits (bounded by KVRAMCacheShutdownFlushTimeoutSec) for that work to
+    // finish, then does the final clearAll() - call this as LATE as safely
+    // possible (right before LLSingletonBase::deleteAll(), not at shutdown()'s
+    // call site) so it gets the whole shutdown sequence's worth of time, not
+    // just whatever's elapsed by the time shutdown() itself runs.
+    void beginShutdownFlush();
+    void finishShutdownFlush();
+
+    // S24: loads the snapshot beginShutdownFlush()/finishShutdownFlush() wrote
+    // last session, up to getMinDeckSize() entries, newest-first. Call from
+    // LLAppViewer::init() between initCache() and initWindow() - no-ops
+    // immediately if KVRAMCacheEnabled is false or no snapshot file exists.
+    void loadFromDiskSnapshot();
+
     void updateConfig(const CacheConfig& config);
     const CacheConfig& getConfig() const { return mConfig; }
 
@@ -181,7 +209,9 @@ public:
 
     void setThresholds(F32 soft, F32 hard);
     void setRetentionTime(F32 seconds);  // KV:GC→RT Renamed from setGracePeriod
-    void setMinDeckSize(U32 size) { mMinDeckSize = llclamp(size, 1U, 5000U); }
+    // S24: was clamped to (1,5000) here vs (100,15000) everywhere else that
+    // sets mMinDeckSize - pre-existing inconsistency, fixed to match.
+    void setMinDeckSize(U32 size) { mMinDeckSize = llclamp(size, 100U, 15000U); }
 
     F32 getSoftThreshold() const { return mSoftThreshold; }
     F32 getHardThreshold() const { return mHardThreshold; }
@@ -256,7 +286,7 @@ public:
     F32 mHardThreshold = 0.90f;
 
     // FIFO configuration
-    U32 mMinDeckSize = 100;  // Minimum textures in deck (range 100-10000 in 100 steps)
+    U32 mMinDeckSize = 100;  // Minimum textures in deck (range 100-15000 in 100 steps)
 
     // KV:RT Removed mLastBaselineEviction — retention time is per-entry now
 
@@ -286,6 +316,11 @@ public:
 
     // Initialization state
     bool mInitialized = false;
+
+    // S24 shutdown flush state (see beginShutdownFlush()/finishShutdownFlush())
+    std::atomic<bool> mShutdownFlushStarted{false};
+    std::atomic<bool> mShutdownFlushDone{false};
+    F64 mShutdownFlushDeadline = 0.0;
 
     // Frame timing
     F32 mTimeSinceLastEvictionCheck = 0.0f;  // KV:GC→RT Renamed from mTimeSinceLastGraceCheck

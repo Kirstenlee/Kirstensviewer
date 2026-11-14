@@ -40,18 +40,6 @@
 #include <shlobj.h>
 #endif
 
-#if LL_DARWIN
-
-// AssertMacros.h does bad things.
-#undef verify
-#undef check
-#undef require
-
-#include <vector>
-#include "llstring.h"
-
-#endif
-
 class LLFilePicker;
 
 class LLDirPicker

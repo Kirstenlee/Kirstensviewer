@@ -106,7 +106,7 @@ void LLHUDText::render()
     if (!mOnHUDAttachment && sDisplayText)
     {
         DXDepthTest gls_depth(true, false);
-        //LLGLDisable gls_stencil(GL_STENCIL_TEST);
+        //DXStateDisable gls_stencil(GL_STENCIL_TEST);
         renderText();
     }
 }
@@ -612,7 +612,6 @@ void LLHUDText::markDead()
 
 void LLHUDText::renderAllHUD()
 {
-    DXState::checkStates();
 
     {
         DXDepthTest depth(false, false);
@@ -627,7 +626,6 @@ void LLHUDText::renderAllHUD()
 
     LLVertexBuffer::unbind();
 
-    DXState::checkStates();
 }
 
 void LLHUDText::shiftAll(const LLVector3& offset)

@@ -628,6 +628,13 @@ public:
     void renderSilhouettes(bool for_hud);
     void enableSilhouette(bool enable) { mRenderSilhouettes = enable; }
 
+    // S24: cheap pre-check for the caller of updateSilhouettes() - renderSilhouettes() already
+    // gates its draw on this same pair, but updateSilhouettes() itself (real silhouette geometry
+    // generation) had no gate at all, so it ran every frame even while disabled (either via
+    // RenderHighlightSelections, or temporarily via enableSilhouette(false) during a manipulator
+    // drag) for work that was never going to be drawn.
+    bool shouldRenderSilhouettes() const { return mRenderSilhouettes && mRenderHighlightSelections; }
+
     ////////////////////////////////////////////////////////////////
     // Utility functions that operate on the current selection
     ////////////////////////////////////////////////////////////////
@@ -789,7 +796,6 @@ public:
     void selectDelete();                            // Delete on simulator
     void selectForceDelete();           // just delete, no into trash
     void selectDuplicate(const LLVector3& offset, bool select_copy);    // Duplicate on simulator
-    void repeatDuplicate();
     void selectDuplicateOnRay(const LLVector3 &ray_start_region,
                                 const LLVector3 &ray_end_region,
                                 bool bypass_raycast,

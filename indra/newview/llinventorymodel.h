@@ -492,12 +492,6 @@ public:
     // Update model after all descendants removed from server.
     void onDescendentsPurgedFromServer(const LLUUID& object_id, bool fix_broken_links = true);
 
-    // Update model after an existing item gets updated on server.
-    void onItemUpdated(const LLUUID& item_id, const LLSD& updates, bool update_parent_version);
-
-    // Update model after an existing category gets updated on server.
-    void onCategoryUpdated(const LLUUID& cat_id, const LLSD& updates);
-
     // Delete a particular inventory object by ID. Will purge one
     // object from the internal data structures, maintaining a
     // consistent internal state. No cache accounting, observer

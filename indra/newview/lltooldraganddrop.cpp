@@ -1850,9 +1850,12 @@ void LLToolDragAndDrop::dropObject(LLViewerObject* raycast_target,
                    bool from_task_inventory,
                    bool remove_from_inventory)
 {
-    // KRLV_TOUCHPOINT: @rez / @interact - covers rez-from-inventory and
-    // attachment-dropping, the UI paths that converge on this one
-    // function. See krlv/README.md.
+    // KRLV_TOUCHPOINT: @rez / @interact - covers rez-from-inventory (the
+    // UI paths that converge on this one function). "Dropping attachments"
+    // (the right-click "Drop" action on a worn object, a DIFFERENT
+    // mechanism - LLSelectMgr::sendDropAttachment(), not this function)
+    // has its own separate @rez/@interact check in llviewermenu.cpp's
+    // callback_attachment_drop() - see krlv/README.md.
     if (gKRlv.isRestricted("rez") || KRlv::isInteractBlocked())
     {
         return;
@@ -3261,75 +3264,6 @@ EAcceptance LLToolDragAndDrop::dad3dRezFromObjectOnObject(
     return ACCEPT_YES_SINGLE;
 }
 
-EAcceptance LLToolDragAndDrop::dad3dCategoryOnLand(
-    LLViewerObject *obj, S32 face, MASK mask, bool drop)
-{
-    return ACCEPT_NO;
-    /*
-    LL_DEBUGS() << "LLToolDragAndDrop::dad3dCategoryOnLand()" << LL_ENDL;
-    LLInventoryItem* item;
-    LLInventoryCategory* cat;
-    locateInventory(item, cat);
-    if(!cat) return ACCEPT_NO;
-    EAcceptance rv = ACCEPT_NO;
-
-    // find all the items in the category
-    LLViewerInventoryCategory::cat_array_t cats;
-    LLViewerInventoryItem::item_array_t items;
-    LLDropCopyableItems droppable;
-    gInventory.collectDescendentsIf(cat->getUUID(),
-                                    cats,
-                                    items,
-                                    LLInventoryModel::EXCLUDE_TRASH,
-                                    droppable);
-    if(items.size() > 0)
-    {
-        rv = ACCEPT_YES_SINGLE;
-    }
-    if((rv >= ACCEPT_YES_COPY_SINGLE) && drop)
-    {
-        createContainer(items, cat->getName());
-        return ACCEPT_NO;
-    }
-    return rv;
-    */
-}
-
-
-// This is based on ALOT of copied, special-cased code
-// This shortcuts alot of steps to make a basic object
-// w/ an inventory and a special permissions set
-EAcceptance LLToolDragAndDrop::dad3dAssetOnLand(
-    LLViewerObject *obj, S32 face, MASK mask, bool drop)
-{
-    return ACCEPT_NO;
-    /*
-    LL_DEBUGS() << "LLToolDragAndDrop::dad3dAssetOnLand()" << LL_ENDL;
-    LLViewerInventoryCategory::cat_array_t cats;
-    LLViewerInventoryItem::item_array_t items;
-    LLViewerInventoryItem::item_array_t copyable_items;
-    locateMultipleInventory(items, cats);
-    if(!items.size()) return ACCEPT_NO;
-    EAcceptance rv = ACCEPT_NO;
-    for (S32 i = 0; i < items.size(); i++)
-    {
-        LLInventoryItem* item = items[i];
-        if(item->getPermissions().allowCopyBy(gAgent.getID()))
-        {
-            copyable_items.push_back(item);
-            rv = ACCEPT_YES_SINGLE;
-        }
-    }
-
-    if((rv >= ACCEPT_YES_COPY_SINGLE) && drop)
-    {
-        createContainer(copyable_items, NULL);
-    }
-
-    return rv;
-    */
-}
-
 LLInventoryObject* LLToolDragAndDrop::locateInventory(
     LLViewerInventoryItem*& item,
     LLViewerInventoryCategory*& cat)
@@ -3383,75 +3317,6 @@ LLInventoryObject* LLToolDragAndDrop::locateInventory(
     if(cat) return cat;
     return NULL;
 }
-
-/*
-LLInventoryObject* LLToolDragAndDrop::locateMultipleInventory(LLViewerInventoryCategory::cat_array_t& cats,
-                                                              LLViewerInventoryItem::item_array_t& items)
-{
-    if(mCargoIDs.size() == 0) return NULL;
-    if((mSource == SOURCE_AGENT) || (mSource == SOURCE_LIBRARY))
-    {
-        // The object should be in user inventory.
-        for (S32 i = 0; i < mCargoIDs.size(); i++)
-        {
-            LLInventoryItem* item = gInventory.getItem(mCargoIDs[i]);
-            if (item)
-            {
-                items.push_back(item);
-            }
-            LLInventoryCategory* category = gInventory.getCategory(mCargoIDs[i]);
-            if (category)
-            {
-                cats.push_back(category);
-            }
-        }
-    }
-    else if(mSource == SOURCE_WORLD)
-    {
-        // This object is in some task inventory somewhere.
-        LLViewerObject* obj = gObjectList.findObject(mSourceID);
-        if(obj)
-        {
-            if((mCargoType == DAD_CATEGORY)
-               || (mCargoType == DAD_ROOT_CATEGORY))
-            {
-                // The object should be in user inventory.
-                for (S32 i = 0; i < mCargoIDs.size(); i++)
-                {
-                    LLInventoryCategory* category = (LLInventoryCategory*)obj->getInventoryObject(mCargoIDs[i]);
-                    if (category)
-                    {
-                        cats.push_back(category);
-                    }
-                }
-            }
-            else
-            {
-                for (S32 i = 0; i < mCargoIDs.size(); i++)
-                {
-                    LLInventoryItem* item = (LLInventoryItem*)obj->getInventoryObject(mCargoIDs[i]);
-                    if (item)
-                    {
-                        items.push_back(item);
-                    }
-                }
-            }
-        }
-    }
-    else if(mSource == SOURCE_NOTECARD)
-    {
-        LLPreviewNotecard* card;
-        card = (LLPreviewNotecard*)LLPreview::find(mSourceID);
-        if(card)
-        {
-            items.push_back((LLInventoryItem*)card->getDragItem());
-        }
-    }
-    if(items.size()) return items[0];
-    if(cats.size()) return cats[0];
-    return NULL;
-}
-*/
 
 // void LLToolDragAndDrop::createContainer(LLViewerInventoryItem::item_array_t &items, const char* preferred_name )
 // {

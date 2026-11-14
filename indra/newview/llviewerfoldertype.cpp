@@ -104,8 +104,6 @@ class LLViewerFolderDictionary : public LLSingleton<LLViewerFolderDictionary>,
                                  public LLDictionary<LLFolderType::EType, ViewerFolderEntry>
 {
     LLSINGLETON(LLViewerFolderDictionary);
-protected:
-    bool initEnsemblesFromFile(); // Reads in ensemble information from foldertypes.xml
 };
 
 LLViewerFolderDictionary::LLViewerFolderDictionary()
@@ -153,73 +151,6 @@ LLViewerFolderDictionary::LLViewerFolderDictionary()
         addEntry((LLFolderType::EType)type,         new ViewerFolderEntry("New Folder",             "Inv_FolderOpen",       "Inv_FolderClosed",     false,     false));
     }
 }
-
-bool LLViewerFolderDictionary::initEnsemblesFromFile()
-{
-    std::string xml_filename = gDirUtilp->getExpandedFilename(LL_PATH_APP_SETTINGS,"foldertypes.xml");
-    LLXmlTree folder_def;
-    if (!folder_def.parseFile(xml_filename))
-    {
-        LL_ERRS() << "Failed to parse folders file " << xml_filename << LL_ENDL;
-        return false;
-    }
-
-    LLXmlTreeNode* rootp = folder_def.getRoot();
-    for (LLXmlTreeNode* ensemble = rootp->getFirstChild();
-         ensemble;
-         ensemble = rootp->getNextChild())
-    {
-        if (!ensemble->hasName("ensemble"))
-        {
-            LL_WARNS() << "Invalid ensemble definition node " << ensemble->getName() << LL_ENDL;
-            continue;
-        }
-
-        S32 ensemble_type;
-        static LLStdStringHandle ensemble_num_string = LLXmlTree::addAttributeString("foldertype_num");
-        if (!ensemble->getFastAttributeS32(ensemble_num_string, ensemble_type))
-        {
-            LL_WARNS() << "No ensemble type defined" << LL_ENDL;
-            continue;
-        }
-
-
-        if (ensemble_type < S32(LLFolderType::FT_ENSEMBLE_START) || ensemble_type > S32(LLFolderType::FT_ENSEMBLE_END))
-        {
-            LL_WARNS() << "Exceeded maximum ensemble index" << LLFolderType::FT_ENSEMBLE_END << LL_ENDL;
-            break;
-        }
-
-        std::string xui_name;
-        static LLStdStringHandle xui_name_string = LLXmlTree::addAttributeString("xui_name");
-        if (!ensemble->getFastAttributeString(xui_name_string, xui_name))
-        {
-            LL_WARNS() << "No xui name defined" << LL_ENDL;
-            continue;
-        }
-
-        std::string icon_name;
-        static LLStdStringHandle icon_name_string = LLXmlTree::addAttributeString("icon_name");
-        if (!ensemble->getFastAttributeString(icon_name_string, icon_name))
-        {
-            LL_WARNS() << "No ensemble icon name defined" << LL_ENDL;
-            continue;
-        }
-
-        std::string allowed_names;
-        static LLStdStringHandle allowed_names_string = LLXmlTree::addAttributeString("allowed");
-        if (!ensemble->getFastAttributeString(allowed_names_string, allowed_names))
-        {
-        }
-
-        // Add the entry and increment the asset number.
-        const static std::string new_ensemble_name = "New Ensemble";
-        addEntry(LLFolderType::EType(ensemble_type), new ViewerFolderEntry(xui_name, new_ensemble_name, icon_name, allowed_names));
-    }
-
-    return true;
-}
-
 
 const std::string &LLViewerFolderType::lookupXUIName(LLFolderType::EType folder_type)
 {

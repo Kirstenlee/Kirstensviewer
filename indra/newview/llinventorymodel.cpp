@@ -1864,76 +1864,6 @@ void LLInventoryModel::rebuildBrockenLinks()
     notifyObservers();
 }
 
-// Does not appear to be used currently.
-void LLInventoryModel::onItemUpdated(const LLUUID& item_id, const LLSD& updates, bool update_parent_version)
-{
-    U32 mask = LLInventoryObserver::NONE;
-
-    LLPointer<LLViewerInventoryItem> item = gInventory.getItem(item_id);
-    LL_DEBUGS(LOG_INV) << "item_id: [" << item_id << "] name " << (item ? item->getName() : "(NOT FOUND)") << LL_ENDL;
-    if(item)
-    {
-        for (LLSD::map_const_iterator it = updates.beginMap();
-             it != updates.endMap(); ++it)
-        {
-            if (it->first == "name")
-            {
-                LL_INFOS(LOG_INV) << "Updating name from " << item->getName() << " to " << it->second.asString() << LL_ENDL;
-                item->rename(it->second.asString());
-                mask |= LLInventoryObserver::LABEL;
-            }
-            else if (it->first == "desc")
-            {
-                LL_INFOS(LOG_INV) << "Updating description from " << item->getActualDescription()
-                                  << " to " << it->second.asString() << LL_ENDL;
-                item->setDescription(it->second.asString());
-            }
-            else
-            {
-                LL_ERRS(LOG_INV) << "unhandled updates for field: " << it->first << LL_ENDL;
-            }
-        }
-        mask |= LLInventoryObserver::INTERNAL;
-        addChangedMask(mask, item->getUUID());
-        if (update_parent_version)
-        {
-            // Descendent count is unchanged, but folder version incremented.
-            LLInventoryModel::LLCategoryUpdate up(item->getParentUUID(), 0);
-            accountForUpdate(up);
-        }
-        notifyObservers(); // do we want to be able to make this optional?
-    }
-}
-
-// Not used?
-void LLInventoryModel::onCategoryUpdated(const LLUUID& cat_id, const LLSD& updates)
-{
-    U32 mask = LLInventoryObserver::NONE;
-
-    LLPointer<LLViewerInventoryCategory> cat = gInventory.getCategory(cat_id);
-    LL_DEBUGS(LOG_INV) << "cat_id: [" << cat_id << "] name " << (cat ? cat->getName() : "(NOT FOUND)") << LL_ENDL;
-    if(cat)
-    {
-        for (LLSD::map_const_iterator it = updates.beginMap();
-             it != updates.endMap(); ++it)
-        {
-            if (it->first == "name")
-            {
-                LL_INFOS(LOG_INV) << "Updating name from " << cat->getName() << " to " << it->second.asString() << LL_ENDL;
-                cat->rename(it->second.asString());
-                mask |= LLInventoryObserver::LABEL;
-            }
-            else
-            {
-                LL_ERRS(LOG_INV) << "unhandled updates for field: " << it->first << LL_ENDL;
-            }
-        }
-        mask |= LLInventoryObserver::INTERNAL;
-        addChangedMask(mask, cat->getUUID());
-        notifyObservers(); // do we want to be able to make this optional?
-    }
-}
-
 // Update model after descendents have been purged.
 void LLInventoryModel::onDescendentsPurgedFromServer(const LLUUID& object_id, bool fix_broken_links)
 {
@@ -5490,47 +5420,6 @@ std::string LLInventoryModel::getFullPath(const LLInventoryObject *obj) const
 /// Local function definitions
 ///----------------------------------------------------------------------------
 
-
-#if 0
-bool decompress_file(const char* src_filename, const char* dst_filename)
-{
-    bool rv = false;
-    gzFile src = NULL;
-    U8* buffer = NULL;
-    LLFILE* dst = NULL;
-    S32 bytes = 0;
-    const S32 DECOMPRESS_BUFFER_SIZE = 32000;
-
-    // open the files
-    src = gzopen(src_filename, "rb");
-    if(!src) goto err_decompress;
-    dst = LLFile::fopen(dst_filename, "wb");
-    if(!dst) goto err_decompress;
-
-    // decompress.
-    buffer = new U8[DECOMPRESS_BUFFER_SIZE + 1];
-
-    do
-    {
-        bytes = gzread(src, buffer, DECOMPRESS_BUFFER_SIZE);
-        if (bytes < 0)
-        {
-            goto err_decompress;
-        }
-
-        fwrite(buffer, bytes, 1, dst);
-    } while(gzeof(src) == 0);
-
-    // success
-    rv = true;
-
- err_decompress:
-    if(src != NULL) gzclose(src);
-    if(buffer != NULL) delete[] buffer;
-    if(dst != NULL) fclose(dst);
-    return rv;
-}
-#endif
 
 
 ///----------------------------------------------------------------------------

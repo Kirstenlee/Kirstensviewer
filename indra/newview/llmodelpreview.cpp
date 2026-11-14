@@ -3214,42 +3214,6 @@ U32 LLModelPreview::loadTextures(LLImportMaterial& material, LLHandle<LLModelPre
     return 0;
 }
 
-void LLModelPreview::addEmptyFace(LLModel* pTarget)
-{
-    U32 type_mask = LLVertexBuffer::MAP_VERTEX | LLVertexBuffer::MAP_NORMAL | LLVertexBuffer::MAP_TEXCOORD0;
-
-    LLPointer<LLVertexBuffer> buff = new LLVertexBuffer(type_mask);
-
-    buff->allocateBuffer(1, 3);
-    memset((U8*)buff->getMappedData(), 0, buff->getSize());
-    memset((U8*)buff->getMappedIndices(), 0, buff->getIndicesSize());
-
-    buff->validateRange(0, buff->getNumVerts() - 1, buff->getNumIndices(), 0);
-
-    LLStrider<LLVector3> pos;
-    LLStrider<LLVector3> norm;
-    LLStrider<LLVector2> tc;
-    LLStrider<U16> index;
-
-    buff->getVertexStrider(pos);
-
-    if (type_mask & LLVertexBuffer::MAP_NORMAL)
-    {
-        buff->getNormalStrider(norm);
-    }
-    if (type_mask & LLVertexBuffer::MAP_TEXCOORD0)
-    {
-        buff->getTexCoord0Strider(tc);
-    }
-
-    buff->getIndexStrider(index);
-
-    //resize face array
-    int faceCnt = pTarget->getNumVolumeFaces();
-    pTarget->setNumVolumeFaces(faceCnt + 1);
-    pTarget->setVolumeFaceData(faceCnt + 1, pos, norm, tc, index, buff->getNumVerts(), buff->getNumIndices());
-
-}
 
 //-----------------------------------------------------------------------------
 // render()
@@ -3274,8 +3238,8 @@ bool LLModelPreview::render()
     S32 height = getHeight();
 
     DXUIDefault def;
-    LLGLDisable no_blend(DX_BLEND);
-    LLGLEnable cull(DX_CULL_FACE);
+    DXStateDisable no_blend(DX_BLEND);
+    DXStateEnable cull(DX_CULL_FACE);
     DXDepthTest depth(false); // SL-12781 disable z-buffer to render background color
 
     {
@@ -3717,7 +3681,7 @@ bool LLModelPreview::render()
                         DXPipeline::enableLightsFullbright(gPipeline);
                         //show degenerate triangles
                         DXDepthTest depth(true, true, DX_ALWAYS);
-                        LLGLDisable cull(DX_CULL_FACE);
+                        DXStateDisable cull(DX_CULL_FACE);
                         gDX.diffuseColor4f(1.f, 0.f, 0.f, 1.f);
                         const LLVector4a scale(0.5f);
 

@@ -281,8 +281,6 @@ void LLFloaterJoystick::refreshListOfDevices()
     // space navigator is marked as DI8DEVCLASS_GAMECTRL in ndof lib
     U32 device_type = DI8DEVCLASS_GAMECTRL;
     win_calback = di8_list_devices_callback;
-#elif LL_DARWIN
-    U32 device_type = 0;
 #else
     // On MAC it is possible to specify product
     // and manufacturer in NDOF_Device for

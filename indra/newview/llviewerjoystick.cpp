@@ -227,15 +227,6 @@ std::string string_from_guid(const GUID &guid)
 
     return res;
 }
-#elif LL_DARWIN
-
-bool macos_devices_callback(std::string &product_name, LLSD &data, void* userdata)
-{
-    std::string product = data["product"].asString();
-
-    return LLViewerJoystick::getInstance()->initDevice(nullptr, product, data);
-}
-
 #endif
 
 
@@ -1355,8 +1346,6 @@ bool LLViewerJoystick::isDeviceUUIDSet()
 #if LL_WINDOWS && !LL_MESA_HEADLESS
     // for ease of comparison and to dial less with platform specific variables, we store id as LLSD binary
     return mLastDeviceUUID.isBinary();
-#elif LL_DARWIN
-    return mLastDeviceUUID.isMap();
 #else
     return false;
 #endif
@@ -1378,17 +1367,6 @@ std::string LLViewerJoystick::getDeviceUUIDString()
         GUID guid;
         memcpy(&guid, &data[0], size);
         return string_from_guid(guid);
-    }
-    else
-    {
-        return std::string();
-    }
-#elif LL_DARWIN
-    if (mLastDeviceUUID.isMap())
-    {
-        std::string manufacturer = mLastDeviceUUID["manufacturer"].asString();
-        std::string product = mLastDeviceUUID["product"].asString();
-        return manufacturer + ":" + product;
     }
     else
     {
@@ -1440,19 +1418,6 @@ void LLViewerJoystick::loadDeviceIdFromSettings()
         memcpy(&data[0], &guid /*POD _GUID*/, size);
         // We store this data in LLSD since it can handle both GUID2 and long
         mLastDeviceUUID = LLSD(data);
-    }
-#elif LL_DARWIN
-    if (!dev_id.isMap())
-    {
-        mLastDeviceUUID = LLSD();
-    }
-    else
-    {
-        std::string manufacturer = mLastDeviceUUID["manufacturer"].asString();
-        std::string product = mLastDeviceUUID["product"].asString();
-        LL_DEBUGS("Joystick") << "Looking for device by manufacturer: " << manufacturer << " and product: " << product <<  LL_ENDL;
-        // We store this data in LLSD since it can handle both GUID2 and long
-        mLastDeviceUUID = dev_id;
     }
 #else
     mLastDeviceUUID = LLSD();

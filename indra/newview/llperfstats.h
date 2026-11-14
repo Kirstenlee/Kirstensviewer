@@ -134,7 +134,6 @@ namespace LLPerfStats
 		bool userAutoTuneLock{ true };
 		U32 userTargetFPS{ 0 };
 		F32 userARTCutoffSliderValue{ 0 };
-		S32 userTargetReflections{ 0 };
 		bool autoTuneTimeout{ true };
 		bool vsyncEnabled{ true };
 

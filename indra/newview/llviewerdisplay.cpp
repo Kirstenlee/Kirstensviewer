@@ -181,7 +181,6 @@ void display_startup()
 	// Required for HTML update in login screen
 	static S32 frame_count = 0;
 
-	DXState::checkStates();
 
 	if (frame_count++ > 1) // make sure we have rendered a frame first
 	{
@@ -192,7 +191,6 @@ void display_startup()
 		LL_DEBUGS("Window") << "First display_startup frame" << LL_ENDL;
 	}
 
-	DXState::checkStates();
 
 	DXUIDefault gls_ui;
 	DXPipeline::disableLights(gPipeline);
@@ -205,7 +203,6 @@ void display_startup()
 
 	LLVertexBuffer::unbind();
 
-	DXState::checkStates();
 
 	if (gViewerWindow && gViewerWindow->getWindow())
 		gViewerWindow->getWindow()->swapBuffers();
@@ -498,7 +495,6 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 
 	LLVertexBuffer::unbind();
 
-	DXState::checkStates();
 
 	DXPipeline::disableLights(gPipeline);
 
@@ -585,7 +581,6 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 		gViewerWindow->performPick();
 	}
 
-	DXState::checkStates();
 
 	//////////////////////////////////////////////////////////
 	//
@@ -824,14 +819,12 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 		}
 		gDepthDirty = false;
 
-		DXState::checkStates();
 
 		static LLCullResult result;
 		LLViewerCamera::sCurCameraID = LLViewerCamera::CAMERA_WORLD;
 		DXPipeline::sUnderWaterRender = LLViewerCamera::getInstance()->cameraUnderWater();
 		DXPipeline::updateCull(gPipeline, *LLViewerCamera::getInstance(), result);
 
-		DXState::checkStates();
 
 		{
 				if (gResizeScreenTexture)
@@ -844,7 +837,6 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 			// composites only at the end, so both eyes get a normal unconditional clear.
 			gDX.setColorWriteMask(true, true);
 
-			DXState::checkStates();
 
 			if (!for_snapshot)
 			{
@@ -856,7 +848,6 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 
 				LLVertexBuffer::unbind();
 
-				DXState::checkStates();
 
 				glm::mat4 proj = get_current_projection();
 				glm::mat4 mod = get_current_modelview();
@@ -871,7 +862,6 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 				gDX.loadMatrix(glm::value_ptr(mod));
 				gViewerWindow->setup3DViewport();
 
-				DXState::checkStates();
 			}
 		}
 
@@ -889,7 +879,6 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 		//remove dead gltf materials
 		gGLTFMaterialList.flushMaterials();
 
-		DXState::checkStates();
 
 		LLViewerCamera::sCurCameraID = LLViewerCamera::CAMERA_WORLD;
 		DXPipeline::stateSort(gPipeline, *LLViewerCamera::getInstance(), result);
@@ -901,7 +890,6 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 
 		LLSceneMonitor::getInstance()->fetchQueryResult();
 
-		DXState::checkStates();
 
 		DXPipeline::sUseOcclusion = occlusion;
 
@@ -909,7 +897,6 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 
 		DXPipeline::sUnderWaterRender = LLViewerCamera::getInstance()->cameraUnderWater();
 
-		DXState::checkStates();
 
 
 		// Each eye renders full color into its own target; eyes only mix once, in
@@ -1437,7 +1424,6 @@ void render_ui(F32 zoom_factor, int subfield)
 {
 	LLPerfStats::RecordSceneTime T(LLPerfStats::StatType_t::RENDER_UI); // render time capture - Primary UI stat can have HUD time overlap (TODO)
 	LL_RECORD_BLOCK_TIME(FTM_RENDER_UI);
-	DXState::checkStates();
 
 	glm::mat4 saved_view = get_current_modelview();
 	glm::mat4 saved_proj = get_current_projection();
@@ -1504,13 +1490,10 @@ void render_ui(F32 zoom_factor, int subfield)
 	}
 
 	{
-		DXState::checkStates();
 
 		render_hud_elements();
-		DXState::checkStates();
 		render_hud_attachments();
 
-		DXState::checkStates();
 
 		LLGLSDefault gls_default;
 		DXUIDefault gls_ui;
@@ -1524,9 +1507,7 @@ void render_ui(F32 zoom_factor, int subfield)
 			if (!gDisconnected)
 			{
 				LL_RECORD_BLOCK_TIME(FTM_RENDER_UI_3D);
-				DXState::checkStates();
 				render_ui_3d();
-				DXState::checkStates();
 			}
 			else
 			{

@@ -3771,27 +3771,6 @@ LLVOCachePartition* LLViewerRegion::getVOCachePartition()
     return NULL;
 }
 
-// the viewer can not yet distinquish between normal- and estate-owned objects
-// so we collapse these two bits and enable the UI if either are set
-const U64 ALLOW_RETURN_ENCROACHING_OBJECT = REGION_FLAGS_ALLOW_RETURN_ENCROACHING_OBJECT
-                                            | REGION_FLAGS_ALLOW_RETURN_ENCROACHING_ESTATE_OBJECT;
-
-bool LLViewerRegion::objectIsReturnable(const LLVector3& pos, const std::vector<LLBBox>& boxes) const
-{
-    return (mParcelOverlay != NULL)
-        && (mParcelOverlay->isOwnedSelf(pos)
-            || mParcelOverlay->isOwnedGroup(pos)
-            || (getRegionFlag(ALLOW_RETURN_ENCROACHING_OBJECT)
-                && mParcelOverlay->encroachesOwned(boxes)) );
-}
-
-bool LLViewerRegion::childrenObjectReturnable( const std::vector<LLBBox>& boxes ) const
-{
-    bool result = false;
-    result = ( mParcelOverlay && mParcelOverlay->encroachesOnUnowned( boxes ) ) ? 1 : 0;
-    return result;
-}
-
 bool LLViewerRegion::objectsCrossParcel(const std::vector<LLBBox>& boxes) const
 {
     return mParcelOverlay && mParcelOverlay->encroachesOnNearbyParcel(boxes);

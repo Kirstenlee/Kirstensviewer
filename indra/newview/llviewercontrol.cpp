@@ -839,12 +839,6 @@ void handleUserMinDrawDistanceChanged(const LLSD &newValue)
     LLPerfStats::tunables.userMinDrawDistance = newval;
 }
 
-void handleUserTargetReflectionsChanged(const LLSD& newValue)
-{
-    const auto newval = gSavedSettings.getS32("UserTargetReflections");
-    LLPerfStats::tunables.userTargetReflections = newval;
-}
-
 void handlePerformanceStatsEnabledChanged(const LLSD& newValue)
 {
     const auto newval = gSavedSettings.getBOOL("PerfStatsCaptureEnabled");

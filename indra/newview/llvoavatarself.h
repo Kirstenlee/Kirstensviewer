@@ -323,9 +323,6 @@ public:
 
     /* virtual */ bool shouldRenderRigged() const;
 
-public:
-    bool            sendAppearanceMessage(LLMessageSystem *mesgsys) const;
-
     // -- care and feeding of hover height.
     void            setHoverIfRegionEnabled();
     void            sendHoverHeight() const;

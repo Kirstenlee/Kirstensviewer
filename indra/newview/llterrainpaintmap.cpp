@@ -259,9 +259,10 @@ bool LLTerrainPaintMap::bakeHeightNoiseIntoPBRPaintMapRGB(const LLViewerRegion& 
             return false;
         }
 
-        LLGLDisable stencil(GL_STENCIL_TEST);
-        LLGLDisable scissor(DX_SCISSOR_TEST);
-        LLGLEnable cull_face(DX_CULL_FACE);
+        DXStateDisable stencil(GL_STENCIL_TEST);
+        // S24: one combined rasterizer-state bind for both flags, not two - see
+        // DXRasterizerScope's own comment (DXState.h).
+        DXRasterizerScope raster(DX_SCISSOR_TEST, false, DX_CULL_FACE, true);
         DXDepthTest depth_test(false, false, DX_ALWAYS);
 
         S32 alpha_ramp = shader.enableTexture(LLViewerShaderMgr::TERRAIN_ALPHARAMP);

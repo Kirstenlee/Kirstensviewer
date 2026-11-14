@@ -658,11 +658,13 @@ LLViewerMedia::impl_list& LLViewerMedia::getPriorityList()
 // This is the predicate function used to sort sViewerMediaImplList by priority.
 bool LLViewerMedia::priorityComparitor(const LLViewerMediaImpl* i1, const LLViewerMediaImpl* i2)
 {
-	// isForcedUnloaded can be pricey, avoid a repeat,
+	// S24: both sides' isForcedUnloaded() result is pre-computed once per impl, right before the
+	// sort this comparator runs under (see refreshForcedUnloadedCache()/getCachedForcedUnloaded()
+	// in llviewermedia.h) - this comparator alone used to call it twice per comparison, over an
+	// O(n log n) sort, every frame.
 	// note that this one is specifically i2, when everything else is i1
-	// Consider making isForcedUnloaded cache the value temporarily?
-	bool i2_forced_unloaded = i2->isForcedUnloaded();
-	if (i1->isForcedUnloaded() != i2_forced_unloaded)
+	bool i2_forced_unloaded = i2->getCachedForcedUnloaded();
+	if (i1->getCachedForcedUnloaded() != i2_forced_unloaded)
 	{
 		// Muted or failed items always go to the end of the list, period.
 		return i2_forced_unloaded;
@@ -779,6 +781,13 @@ void LLViewerMedia::updateMedia(void* dummy_arg)
 		mSpareBrowserMediaSource->idle();
 	}
 
+	// S24: refresh each impl's isForcedUnloaded() cache exactly once per frame, right before the
+	// sort - see getCachedForcedUnloaded()'s own comment in llviewermedia.h for why.
+	for (LLViewerMediaImpl* pimpl : sViewerMediaImplList)
+	{
+		pimpl->refreshForcedUnloadedCache();
+	}
+
 	{
 		LL_RECORD_BLOCK_TIME(FTM_MEDIA_SORT);
 		// Sort the static instance list using our interest criteria
@@ -829,7 +838,11 @@ void LLViewerMedia::updateMedia(void* dummy_arg)
 
 			LLPluginClassMedia::EPriority new_priority = LLPluginClassMedia::PRIORITY_NORMAL;
 
-            if(pimpl->isForcedUnloaded() || (impl_count_total >= mMaxIntances))
+            // S24: cheap integer compare checked first (was second, after the expensive call -
+            // once impl_count_total passes the cap, every remaining impl this frame paid for
+            // isForcedUnloaded() before being unloaded anyway) and reuses this frame's cache
+            // (refreshForcedUnloadedCache(), above) instead of recomputing.
+            if((impl_count_total >= mMaxIntances) || pimpl->getCachedForcedUnloaded())
 			{
 				// Never load muted or failed impls.
 				// Hard limit on the number of instances that will be loaded at one time
@@ -1927,10 +1940,18 @@ LLPluginClassMedia* LLViewerMediaImpl::newSourceFromMediaType(std::string media_
 	std::string plugin_basename = LLMIMETypes::implType(media_type);
 	LLPluginClassMedia* media_source = NULL;
 
+	// S24 : engine switch - the browser impl can be the WebView2 plugin instead of CEF
+	const bool use_webview2 = gSavedSettings.getBOOL("MediaUseWebView2");
+	if (use_webview2 && plugin_basename == "media_plugin_cef")
+	{
+		plugin_basename = "media_plugin_webview2";
+	}
+	const bool is_browser = (plugin_basename == "media_plugin_cef" || plugin_basename == "media_plugin_webview2");
+
 	// HACK: we always try to keep a spare running webkit plugin around to improve launch times.
 	// If a spare was already created before PluginAttachDebuggerToPlugins was set, don't use it.
 	// Do not use a spare if launching with full viewer control (e.g. Twitter and few others)
-	if ((plugin_basename == "media_plugin_cef") &&
+	if (is_browser &&
 		!gSavedSettings.getBOOL("PluginAttachDebuggerToPlugins") && !clean_browser)
 	{
 		media_source = LLViewerMedia::getInstance()->getSpareBrowserMediaSource();
@@ -1956,7 +1977,7 @@ LLPluginClassMedia* LLViewerMediaImpl::newSourceFromMediaType(std::string media_
 		std::string user_data_path_cache = gDirUtilp->getCacheDir(false);
 		user_data_path_cache += gDirUtilp->getDirDelimiter();
 
-		if (plugin_basename == "media_plugin_cef")
+		if (is_browser)
 		{
 			// S24: each concurrently-running CEF instance needs its own cache
 			// directory (Dullahan's requirement, to avoid two instances
@@ -1969,7 +1990,7 @@ LLPluginClassMedia* LLViewerMediaImpl::newSourceFromMediaType(std::string media_
 			std::string key = !cef_cache_key.empty() ? cef_cache_key
 				: ("fallback_" + std::to_string(next_cef_cache_fallback_slot++));
 
-			user_data_path_cache += "cef_cache";
+			user_data_path_cache += use_webview2 ? "webview2_cache" : "cef_cache";
 			user_data_path_cache += gDirUtilp->getDirDelimiter();
 
 			// S24: create both directory levels explicitly rather than rely on
@@ -3550,6 +3571,12 @@ void LLViewerMediaImpl::handleMediaEvent(LLPluginClassMedia* plugin, LLPluginCla
 	bool pass_through = true;
 	switch (event)
 	{
+	case MEDIA_EVENT_DEBUG_MESSAGE:
+	{
+		// S24 : plugins only send these when MediaPluginDebugging is on; prim media used to discard them
+		LL_INFOS("media") << plugin->getDebugMessageText() << LL_ENDL;
+	}
+	break;
 	case MEDIA_EVENT_CLICK_LINK_NOFOLLOW:
 	{
 		LL_DEBUGS("Media") << "MEDIA_EVENT_CLICK_LINK_NOFOLLOW, uri is: " << plugin->getClickURL() << LL_ENDL;

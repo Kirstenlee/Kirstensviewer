@@ -46,7 +46,7 @@
 // Additionally, disable inclusion of STB header files entirely with
 // TINYGLTF_NO_INCLUDE_STB_IMAGE
 // TINYGLTF_NO_INCLUDE_STB_IMAGE_WRITE
-#include "tinygltf/tiny_gltf.h"
+#include "tiny_gltf.h"
 
 
 // TODO: includes inherited from dae loader.  Validate / prune
@@ -62,7 +62,7 @@
 #include <boost/algorithm/string/replace.hpp>
 #include <boost/exception/diagnostic_information.hpp>
 #include <fstream>
-#include "../../../include/meshoptimizer/meshoptimizer.h"  // S24!
+#include "../../../include/meshoptimizer/meshoptimizer.h"
 
 static const std::string lod_suffix[LLModel::NUM_LODS] =
 {
@@ -1569,16 +1569,12 @@ void LLGLTFLoader::buildOverrideMatrix(LLJointData& viewer_data, joints_data_map
 			translated_joint = glm::inverse(parent_support_rest) * gltf_joint_rest_pose;
 		}
 
-		// S24 (2026-09-06): glm::decompose() returns false WITHOUT writing
-		// any of its output params when translated_joint is singular
-		// (degenerate/malformed rig - e.g. a zero-scale joint), per
-		// glm/gtx/matrix_decompose.inl's early-return paths. The return
-		// value used to be discarded, so a failed decompose left these
-		// locals as raw uninitialized stack memory (glm types have no-op
-		// default ctors in this build) baked straight into this joint's
-		// override matrix below. Default-initialize to identity/no-op
-		// values and warn on failure so a bad rig degrades to "no override"
-		// instead of injecting garbage into the avatar skeleton.
+		// glm::decompose() returns false WITHOUT writing its output params when
+		// translated_joint is singular (degenerate/malformed rig, e.g. a
+		// zero-scale joint) — per glm/gtx/matrix_decompose.inl's early-return
+		// paths. Default-init these (glm types have no-op default ctors) and
+		// warn on failure so a bad rig degrades to "no override" instead of
+		// injecting uninitialized stack memory into the avatar skeleton.
 		glm::vec3 translation_override(0.0f);
 		glm::vec3 skew(0.0f);
 		glm::vec3 scale(1.0f);

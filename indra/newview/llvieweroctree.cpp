@@ -851,39 +851,21 @@ void LLViewerOctreeGroup::checkStates()
 //-------------------------------------------------------------------------------------------
 std::set<U32> LLOcclusionCullingGroup::sPendingQueries;
 
-static std::queue<GLuint> sFreeQueries;
-
-//#define QUERY_POOL_SIZE 1024  // never used!
-
+// S24: the free-list pool that used to live here (1024-at-a-time growth via
+// DXOcclusionQuery::genQueries()) moved into DXOcclusionQuery itself
+// (acquire()/release()) - llhudnametag.cpp/llvoicevisualizer.cpp/
+// llscenemonitor.cpp all call these same two static methods directly too,
+// so they shared this exact pool already; it's now a single real
+// implementation instead of this one plus DXOcclusionQuery's own internal
+// handle bookkeeping duplicating the same shape.
 U32 LLOcclusionCullingGroup::getNewOcclusionQueryObjectName()
 {
-
-    if (sFreeQueries.empty())
-    {
-        //seed 1024 query names into the free query pool
-        GLuint queries[1024];
-        // raw glGenQueries() would be a silent no-op under DX_RENDER, leaving queries[] uninitialized and
-        // handing out garbage stack values as "query names". DXOcclusionQuery::genQueries() allocates
-        // real D3D11_QUERY_OCCLUSION objects instead - see its header comment.
-        DXOcclusionQuery::genQueries(1024, queries);
-        for (int i = 0; i < 1024; ++i)
-        {
-            sFreeQueries.push(queries[i]);
-        }
-    }
-
-    // pull from pool
-    GLuint ret = sFreeQueries.front();
-    sFreeQueries.pop();
-    return ret;
+    return DXOcclusionQuery::acquire();
 }
 
 void LLOcclusionCullingGroup::releaseOcclusionQueryObjectName(GLuint name)
 {
-    if (name != 0)
-    {
-        sFreeQueries.push(name);
-    }
+    DXOcclusionQuery::release(name);
 }
 
 //=====================================
@@ -1275,7 +1257,7 @@ void LLOcclusionCullingGroup::doOcclusion(LLCamera* camera, const LLVector4a* sh
                     bool const use_depth_clamp = (mSpatialPartition->mDrawableType == LLPipeline::RENDER_TYPE_WATER ||
                                                 mSpatialPartition->mDrawableType == LLPipeline::RENDER_TYPE_VOIDWATER);
 
-                    LLGLEnable clamp(use_depth_clamp ? DX_DEPTH_CLAMP : 0);
+                    DXStateEnable clamp(use_depth_clamp ? DX_DEPTH_CLAMP : 0);
 
 #if LL_TRACK_PENDING_OCCLUSION_QUERIES
                     sPendingQueries.insert(mOcclusionQuery[LLViewerCamera::sCurCameraID]);

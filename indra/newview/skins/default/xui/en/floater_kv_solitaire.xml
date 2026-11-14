@@ -2,13 +2,13 @@
 <floater
  legacy_header_height="18"
  can_resize="false"
- height="600"
+ height="714"
  layout="topleft"
  name="kv_solitaire"
  help_topic="kv_solitaire"
  save_rect="true"
  title="KV SOLITAIRE"
- width="500">
+ width="550">
     <!-- S24: fixed-size layout, absolute positioning - same proven scheme as
          floater_kv_blackjack.xml / floater_kv_reversi.xml. Reuses the real
          card textures built for KV Blackjack (cards/*.png), plus one new
@@ -58,12 +58,12 @@
      background_opaque="true"
      bg_opaque_image="kv_blackjack_baize.png"
      follows="left|top"
-     height="444"
+     height="558"
      layout="topleft"
      left="11"
      name="baize_panel"
      top="84"
-     width="478" />
+     width="528" />
 
     <button follows="left|top" height="88" image_unselected="cards/empty_slot.png" image_selected="cards/empty_slot.png" layout="topleft" left="19" top="92" name="stock_btn" width="60" tool_tip="Draw 3 cards (or recycle when empty)" />
     <button follows="left|top" height="88" image_unselected="cards/empty_slot.png" image_selected="cards/empty_slot.png" layout="topleft" left_pad="17" top_delta="0" name="waste_btn" width="60" tool_tip="Click to select the top card, double-click to send it to a foundation" />
@@ -85,6 +85,12 @@
     <button follows="left|top" height="88" image_unselected="cards/empty_slot.png" image_selected="cards/empty_slot.png" layout="topleft" left="19" top="394" name="tab_0_10" width="60" />
     <button follows="left|top" height="88" image_unselected="cards/empty_slot.png" image_selected="cards/empty_slot.png" layout="topleft" left="19" top="413" name="tab_0_11" width="60" />
     <button follows="left|top" height="88" image_unselected="cards/empty_slot.png" image_selected="cards/empty_slot.png" layout="topleft" left="19" top="432" name="tab_0_12" width="60" />
+    <button follows="left|top" height="88" image_unselected="cards/empty_slot.png" image_selected="cards/empty_slot.png" layout="topleft" left="19" top="451" name="tab_0_13" width="60" />
+    <button follows="left|top" height="88" image_unselected="cards/empty_slot.png" image_selected="cards/empty_slot.png" layout="topleft" left="19" top="470" name="tab_0_14" width="60" />
+    <button follows="left|top" height="88" image_unselected="cards/empty_slot.png" image_selected="cards/empty_slot.png" layout="topleft" left="19" top="489" name="tab_0_15" width="60" />
+    <button follows="left|top" height="88" image_unselected="cards/empty_slot.png" image_selected="cards/empty_slot.png" layout="topleft" left="19" top="508" name="tab_0_16" width="60" />
+    <button follows="left|top" height="88" image_unselected="cards/empty_slot.png" image_selected="cards/empty_slot.png" layout="topleft" left="19" top="527" name="tab_0_17" width="60" />
+    <button follows="left|top" height="88" image_unselected="cards/empty_slot.png" image_selected="cards/empty_slot.png" layout="topleft" left="19" top="546" name="tab_0_18" width="60" />
     <button follows="left|top" height="88" image_unselected="cards/empty_slot.png" image_selected="cards/empty_slot.png" layout="topleft" left="84" top="204" name="tab_1_0" width="60" />
     <button follows="left|top" height="88" image_unselected="cards/empty_slot.png" image_selected="cards/empty_slot.png" layout="topleft" left="84" top="223" name="tab_1_1" width="60" />
     <button follows="left|top" height="88" image_unselected="cards/empty_slot.png" image_selected="cards/empty_slot.png" layout="topleft" left="84" top="242" name="tab_1_2" width="60" />
@@ -98,6 +104,12 @@
     <button follows="left|top" height="88" image_unselected="cards/empty_slot.png" image_selected="cards/empty_slot.png" layout="topleft" left="84" top="394" name="tab_1_10" width="60" />
     <button follows="left|top" height="88" image_unselected="cards/empty_slot.png" image_selected="cards/empty_slot.png" layout="topleft" left="84" top="413" name="tab_1_11" width="60" />
     <button follows="left|top" height="88" image_unselected="cards/empty_slot.png" image_selected="cards/empty_slot.png" layout="topleft" left="84" top="432" name="tab_1_12" width="60" />
+    <button follows="left|top" height="88" image_unselected="cards/empty_slot.png" image_selected="cards/empty_slot.png" layout="topleft" left="84" top="451" name="tab_1_13" width="60" />
+    <button follows="left|top" height="88" image_unselected="cards/empty_slot.png" image_selected="cards/empty_slot.png" layout="topleft" left="84" top="470" name="tab_1_14" width="60" />
+    <button follows="left|top" height="88" image_unselected="cards/empty_slot.png" image_selected="cards/empty_slot.png" layout="topleft" left="84" top="489" name="tab_1_15" width="60" />
+    <button follows="left|top" height="88" image_unselected="cards/empty_slot.png" image_selected="cards/empty_slot.png" layout="topleft" left="84" top="508" name="tab_1_16" width="60" />
+    <button follows="left|top" height="88" image_unselected="cards/empty_slot.png" image_selected="cards/empty_slot.png" layout="topleft" left="84" top="527" name="tab_1_17" width="60" />
+    <button follows="left|top" height="88" image_unselected="cards/empty_slot.png" image_selected="cards/empty_slot.png" layout="topleft" left="84" top="546" name="tab_1_18" width="60" />
     <button follows="left|top" height="88" image_unselected="cards/empty_slot.png" image_selected="cards/empty_slot.png" layout="topleft" left="149" top="204" name="tab_2_0" width="60" />
     <button follows="left|top" height="88" image_unselected="cards/empty_slot.png" image_selected="cards/empty_slot.png" layout="topleft" left="149" top="223" name="tab_2_1" width="60" />
     <button follows="left|top" height="88" image_unselected="cards/empty_slot.png" image_selected="cards/empty_slot.png" layout="topleft" left="149" top="242" name="tab_2_2" width="60" />
@@ -111,6 +123,12 @@
     <button follows="left|top" height="88" image_unselected="cards/empty_slot.png" image_selected="cards/empty_slot.png" layout="topleft" left="149" top="394" name="tab_2_10" width="60" />
     <button follows="left|top" height="88" image_unselected="cards/empty_slot.png" image_selected="cards/empty_slot.png" layout="topleft" left="149" top="413" name="tab_2_11" width="60" />
     <button follows="left|top" height="88" image_unselected="cards/empty_slot.png" image_selected="cards/empty_slot.png" layout="topleft" left="149" top="432" name="tab_2_12" width="60" />
+    <button follows="left|top" height="88" image_unselected="cards/empty_slot.png" image_selected="cards/empty_slot.png" layout="topleft" left="149" top="451" name="tab_2_13" width="60" />
+    <button follows="left|top" height="88" image_unselected="cards/empty_slot.png" image_selected="cards/empty_slot.png" layout="topleft" left="149" top="470" name="tab_2_14" width="60" />
+    <button follows="left|top" height="88" image_unselected="cards/empty_slot.png" image_selected="cards/empty_slot.png" layout="topleft" left="149" top="489" name="tab_2_15" width="60" />
+    <button follows="left|top" height="88" image_unselected="cards/empty_slot.png" image_selected="cards/empty_slot.png" layout="topleft" left="149" top="508" name="tab_2_16" width="60" />
+    <button follows="left|top" height="88" image_unselected="cards/empty_slot.png" image_selected="cards/empty_slot.png" layout="topleft" left="149" top="527" name="tab_2_17" width="60" />
+    <button follows="left|top" height="88" image_unselected="cards/empty_slot.png" image_selected="cards/empty_slot.png" layout="topleft" left="149" top="546" name="tab_2_18" width="60" />
     <button follows="left|top" height="88" image_unselected="cards/empty_slot.png" image_selected="cards/empty_slot.png" layout="topleft" left="214" top="204" name="tab_3_0" width="60" />
     <button follows="left|top" height="88" image_unselected="cards/empty_slot.png" image_selected="cards/empty_slot.png" layout="topleft" left="214" top="223" name="tab_3_1" width="60" />
     <button follows="left|top" height="88" image_unselected="cards/empty_slot.png" image_selected="cards/empty_slot.png" layout="topleft" left="214" top="242" name="tab_3_2" width="60" />
@@ -124,6 +142,12 @@
     <button follows="left|top" height="88" image_unselected="cards/empty_slot.png" image_selected="cards/empty_slot.png" layout="topleft" left="214" top="394" name="tab_3_10" width="60" />
     <button follows="left|top" height="88" image_unselected="cards/empty_slot.png" image_selected="cards/empty_slot.png" layout="topleft" left="214" top="413" name="tab_3_11" width="60" />
     <button follows="left|top" height="88" image_unselected="cards/empty_slot.png" image_selected="cards/empty_slot.png" layout="topleft" left="214" top="432" name="tab_3_12" width="60" />
+    <button follows="left|top" height="88" image_unselected="cards/empty_slot.png" image_selected="cards/empty_slot.png" layout="topleft" left="214" top="451" name="tab_3_13" width="60" />
+    <button follows="left|top" height="88" image_unselected="cards/empty_slot.png" image_selected="cards/empty_slot.png" layout="topleft" left="214" top="470" name="tab_3_14" width="60" />
+    <button follows="left|top" height="88" image_unselected="cards/empty_slot.png" image_selected="cards/empty_slot.png" layout="topleft" left="214" top="489" name="tab_3_15" width="60" />
+    <button follows="left|top" height="88" image_unselected="cards/empty_slot.png" image_selected="cards/empty_slot.png" layout="topleft" left="214" top="508" name="tab_3_16" width="60" />
+    <button follows="left|top" height="88" image_unselected="cards/empty_slot.png" image_selected="cards/empty_slot.png" layout="topleft" left="214" top="527" name="tab_3_17" width="60" />
+    <button follows="left|top" height="88" image_unselected="cards/empty_slot.png" image_selected="cards/empty_slot.png" layout="topleft" left="214" top="546" name="tab_3_18" width="60" />
     <button follows="left|top" height="88" image_unselected="cards/empty_slot.png" image_selected="cards/empty_slot.png" layout="topleft" left="279" top="204" name="tab_4_0" width="60" />
     <button follows="left|top" height="88" image_unselected="cards/empty_slot.png" image_selected="cards/empty_slot.png" layout="topleft" left="279" top="223" name="tab_4_1" width="60" />
     <button follows="left|top" height="88" image_unselected="cards/empty_slot.png" image_selected="cards/empty_slot.png" layout="topleft" left="279" top="242" name="tab_4_2" width="60" />
@@ -137,6 +161,12 @@
     <button follows="left|top" height="88" image_unselected="cards/empty_slot.png" image_selected="cards/empty_slot.png" layout="topleft" left="279" top="394" name="tab_4_10" width="60" />
     <button follows="left|top" height="88" image_unselected="cards/empty_slot.png" image_selected="cards/empty_slot.png" layout="topleft" left="279" top="413" name="tab_4_11" width="60" />
     <button follows="left|top" height="88" image_unselected="cards/empty_slot.png" image_selected="cards/empty_slot.png" layout="topleft" left="279" top="432" name="tab_4_12" width="60" />
+    <button follows="left|top" height="88" image_unselected="cards/empty_slot.png" image_selected="cards/empty_slot.png" layout="topleft" left="279" top="451" name="tab_4_13" width="60" />
+    <button follows="left|top" height="88" image_unselected="cards/empty_slot.png" image_selected="cards/empty_slot.png" layout="topleft" left="279" top="470" name="tab_4_14" width="60" />
+    <button follows="left|top" height="88" image_unselected="cards/empty_slot.png" image_selected="cards/empty_slot.png" layout="topleft" left="279" top="489" name="tab_4_15" width="60" />
+    <button follows="left|top" height="88" image_unselected="cards/empty_slot.png" image_selected="cards/empty_slot.png" layout="topleft" left="279" top="508" name="tab_4_16" width="60" />
+    <button follows="left|top" height="88" image_unselected="cards/empty_slot.png" image_selected="cards/empty_slot.png" layout="topleft" left="279" top="527" name="tab_4_17" width="60" />
+    <button follows="left|top" height="88" image_unselected="cards/empty_slot.png" image_selected="cards/empty_slot.png" layout="topleft" left="279" top="546" name="tab_4_18" width="60" />
     <button follows="left|top" height="88" image_unselected="cards/empty_slot.png" image_selected="cards/empty_slot.png" layout="topleft" left="344" top="204" name="tab_5_0" width="60" />
     <button follows="left|top" height="88" image_unselected="cards/empty_slot.png" image_selected="cards/empty_slot.png" layout="topleft" left="344" top="223" name="tab_5_1" width="60" />
     <button follows="left|top" height="88" image_unselected="cards/empty_slot.png" image_selected="cards/empty_slot.png" layout="topleft" left="344" top="242" name="tab_5_2" width="60" />
@@ -150,6 +180,12 @@
     <button follows="left|top" height="88" image_unselected="cards/empty_slot.png" image_selected="cards/empty_slot.png" layout="topleft" left="344" top="394" name="tab_5_10" width="60" />
     <button follows="left|top" height="88" image_unselected="cards/empty_slot.png" image_selected="cards/empty_slot.png" layout="topleft" left="344" top="413" name="tab_5_11" width="60" />
     <button follows="left|top" height="88" image_unselected="cards/empty_slot.png" image_selected="cards/empty_slot.png" layout="topleft" left="344" top="432" name="tab_5_12" width="60" />
+    <button follows="left|top" height="88" image_unselected="cards/empty_slot.png" image_selected="cards/empty_slot.png" layout="topleft" left="344" top="451" name="tab_5_13" width="60" />
+    <button follows="left|top" height="88" image_unselected="cards/empty_slot.png" image_selected="cards/empty_slot.png" layout="topleft" left="344" top="470" name="tab_5_14" width="60" />
+    <button follows="left|top" height="88" image_unselected="cards/empty_slot.png" image_selected="cards/empty_slot.png" layout="topleft" left="344" top="489" name="tab_5_15" width="60" />
+    <button follows="left|top" height="88" image_unselected="cards/empty_slot.png" image_selected="cards/empty_slot.png" layout="topleft" left="344" top="508" name="tab_5_16" width="60" />
+    <button follows="left|top" height="88" image_unselected="cards/empty_slot.png" image_selected="cards/empty_slot.png" layout="topleft" left="344" top="527" name="tab_5_17" width="60" />
+    <button follows="left|top" height="88" image_unselected="cards/empty_slot.png" image_selected="cards/empty_slot.png" layout="topleft" left="344" top="546" name="tab_5_18" width="60" />
     <button follows="left|top" height="88" image_unselected="cards/empty_slot.png" image_selected="cards/empty_slot.png" layout="topleft" left="409" top="204" name="tab_6_0" width="60" />
     <button follows="left|top" height="88" image_unselected="cards/empty_slot.png" image_selected="cards/empty_slot.png" layout="topleft" left="409" top="223" name="tab_6_1" width="60" />
     <button follows="left|top" height="88" image_unselected="cards/empty_slot.png" image_selected="cards/empty_slot.png" layout="topleft" left="409" top="242" name="tab_6_2" width="60" />
@@ -163,6 +199,12 @@
     <button follows="left|top" height="88" image_unselected="cards/empty_slot.png" image_selected="cards/empty_slot.png" layout="topleft" left="409" top="394" name="tab_6_10" width="60" />
     <button follows="left|top" height="88" image_unselected="cards/empty_slot.png" image_selected="cards/empty_slot.png" layout="topleft" left="409" top="413" name="tab_6_11" width="60" />
     <button follows="left|top" height="88" image_unselected="cards/empty_slot.png" image_selected="cards/empty_slot.png" layout="topleft" left="409" top="432" name="tab_6_12" width="60" />
+    <button follows="left|top" height="88" image_unselected="cards/empty_slot.png" image_selected="cards/empty_slot.png" layout="topleft" left="409" top="451" name="tab_6_13" width="60" />
+    <button follows="left|top" height="88" image_unselected="cards/empty_slot.png" image_selected="cards/empty_slot.png" layout="topleft" left="409" top="470" name="tab_6_14" width="60" />
+    <button follows="left|top" height="88" image_unselected="cards/empty_slot.png" image_selected="cards/empty_slot.png" layout="topleft" left="409" top="489" name="tab_6_15" width="60" />
+    <button follows="left|top" height="88" image_unselected="cards/empty_slot.png" image_selected="cards/empty_slot.png" layout="topleft" left="409" top="508" name="tab_6_16" width="60" />
+    <button follows="left|top" height="88" image_unselected="cards/empty_slot.png" image_selected="cards/empty_slot.png" layout="topleft" left="409" top="527" name="tab_6_17" width="60" />
+    <button follows="left|top" height="88" image_unselected="cards/empty_slot.png" image_selected="cards/empty_slot.png" layout="topleft" left="409" top="546" name="tab_6_18" width="60" />
 
     <button
      follows="left|top"
@@ -171,6 +213,6 @@
      layout="topleft"
      left="19"
      name="new_game_btn"
-     top="537"
+     top="651"
      width="108" />
 </floater>

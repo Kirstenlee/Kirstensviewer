@@ -4547,65 +4547,6 @@ void LLSelectMgr::selectDuplicate(const LLVector3& offset, bool select_copy)
     }
 }
 
-void LLSelectMgr::repeatDuplicate()
-{
-    if (mSelectedObjects->isAttachment())
-    {
-        //RN: do not duplicate attachments
-        make_ui_sound("UISndInvalidOp");
-        return;
-    }
-
-    std::vector<LLViewerObject*> non_duplicated_objects;
-
-    for (LLObjectSelection::root_iterator iter = getSelection()->root_begin();
-         iter != getSelection()->root_end(); iter++ )
-    {
-        LLSelectNode* node = *iter;
-        if (!node->mDuplicated)
-        {
-            non_duplicated_objects.push_back(node->getObject());
-        }
-    }
-
-    // make sure only previously duplicated objects are selected
-    for (std::vector<LLViewerObject*>::iterator iter = non_duplicated_objects.begin();
-         iter != non_duplicated_objects.end(); ++iter)
-    {
-        LLViewerObject* objectp = *iter;
-        deselectObjectAndFamily(objectp);
-    }
-
-    // duplicate objects in place
-    LLDuplicateData data;
-
-    data.offset = LLVector3::zero;
-    data.flags = 0x0;
-
-    sendListToRegions("ObjectDuplicate", packDuplicateHeader, packDuplicate, logNoOp, &data, SEND_ONLY_ROOTS);
-
-    // move current selection based on delta from duplication position and update duplication position
-    for (LLObjectSelection::root_iterator iter = getSelection()->root_begin();
-         iter != getSelection()->root_end(); iter++ )
-    {
-        LLSelectNode* node = *iter;
-        if (node->mDuplicated)
-        {
-            LLQuaternion cur_rot = node->getObject()->getRotation();
-            LLQuaternion rot_delta = (~node->mDuplicateRot * cur_rot);
-            LLQuaternion new_rot = cur_rot * rot_delta;
-            LLVector3d cur_pos = node->getObject()->getPositionGlobal();
-            LLVector3d new_pos = cur_pos + ((cur_pos - node->mDuplicatePos) * rot_delta);
-
-            node->mDuplicatePos = node->getObject()->getPositionGlobal();
-            node->mDuplicateRot = node->getObject()->getRotation();
-            node->getObject()->setPositionGlobal(new_pos);
-            node->getObject()->setRotation(new_rot);
-        }
-    }
-
-    sendMultipleUpdate(UPD_ROTATION | UPD_POSITION);
-}
 
 // static
 void LLSelectMgr::packDuplicate( LLSelectNode* node, void *duplicate_data )
@@ -6527,7 +6468,7 @@ void LLSelectMgr::renderSilhouettes(bool for_hud)
 
     gDX.getTexUnit(0)->bind(mSilhouetteImagep);
     LLGLSPipelineSelection gls_select;
-    LLGLEnable blend(DX_BLEND);
+    DXStateEnable blend(DX_BLEND);
     DXDepthTest gls_depth(true, false);
 
     if (isAgentAvatarValid() && for_hud)

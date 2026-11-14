@@ -41,7 +41,6 @@
 #include "dxdrawpooltree.h"
 #include "dxdrawpoolterrain.h"
 #include "dxdrawpoolwater.h"
-#include "dxdrawpoolwaterexclusion.h"
 #include "llface.h"
 #include "llviewerobjectlist.h" // For debug listing.
 #include "pipeline.h"
@@ -122,9 +121,10 @@ LLDrawPool *LLDrawPool::createPool(const U32 type, LLViewerTexture *tex0)
     case POOL_GLTF_PBR_ALPHA_MASK:
         poolp = new LLDrawPoolGLTFPBR(LLDrawPool::POOL_GLTF_PBR_ALPHA_MASK);
         break;
-    case POOL_WATEREXCLUSION:
-        poolp = new LLDrawPoolWaterExclusion();
-        break;
+    // S24: POOL_WATEREXCLUSION (LLDrawPoolWaterExclusion) retired - dxdrawpoolwaterexclusion.h/.cpp
+    // deleted outright, its render() inlined into DXPipeline::doWaterExclusionMask(). Nothing
+    // requests this pool type through createPool() anymore; if anything new ever does, the
+    // default case's LL_ERRS() below will say so loudly, same as the POOL_SKY retirement above.
     default:
         LL_ERRS() << "Unknown draw pool type!" << LL_ENDL;
         return NULL;
@@ -873,7 +873,7 @@ void LLRenderPass::pushGLTFBatch(LLDrawInfo& params)
         mat->bind(params.mTexture);
     }
 
-    LLGLDisable cull_face(mat.notNull() && mat->mDoubleSided ? DX_CULL_FACE : 0);
+    DXStateDisable cull_face(mat.notNull() && mat->mDoubleSided ? DX_CULL_FACE : 0);
 
     setup_texture_matrix(params);
 
@@ -905,7 +905,7 @@ void LLRenderPass::pushUntexturedGLTFBatch(LLDrawInfo& params)
 {
     auto& mat = params.mGLTFMaterial;
 
-    LLGLDisable cull_face(mat->mDoubleSided ? DX_CULL_FACE : 0);
+    DXStateDisable cull_face(mat->mDoubleSided ? DX_CULL_FACE : 0);
 
     applyModelMatrix(params);
 

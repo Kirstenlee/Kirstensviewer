@@ -188,7 +188,7 @@ void DXDrawPoolWater::renderPostDeferred(LLDrawPoolWater& pool, S32 pass)
     (void)pass;
     LL_RECORD_BLOCK_TIME(FTM_RENDER_WATER_OPAQUE);
 
-    LLGLDisable blend(DX_BLEND);
+    DXStateDisable blend(DX_BLEND);
 
     gDX.setColorWriteMask(true, true);
 
@@ -458,7 +458,7 @@ void DXDrawPoolWater::renderPostDeferred(LLDrawPoolWater& pool, S32 pass)
         shader->uniform1f(LLShaderMgr::WATER_REFSCALE, pwater->getScaleAbove());
     }
 
-    LLGLDisable cullface(DX_CULL_FACE);
+    DXStateDisable cullface(DX_CULL_FACE);
 
     // NOTE: the model matrix must be reset before this pool runs - see
     // DXPipeline::renderGeomPostDeferred() - or water inherits whatever

@@ -86,7 +86,6 @@ include_directories(
     ${LLWINDOW_INCLUDE_DIRS}
     ${LLXML_INCLUDE_DIRS}
     ${LLLOGIN_INCLUDE_DIRS}
-    ${LIBS_PREBUILT_DIR}/include/tinygltf
     ${LIBS_PREBUILT_DIR}/include/collada
     ${LIBS_PREBUILD_DIR}/include/hunspell
     ${LIBS_PREBUILD_DIR}/include/webrtc
@@ -317,12 +316,14 @@ set(viewer_SOURCE_FILES
     llfloaterpreviewtrash.cpp
     llfloaterprofiletexture.cpp
     kvfloaterquickchat.cpp
+    kvbench.cpp
     kvdebugconsole.cpp
     kvblackjack.cpp
     kvminesweeper.cpp
     kvreversi.cpp
     kvsolitaire.cpp
     kvworldclock.cpp
+    kvcalculator.cpp
     llfloaterregiondebugconsole.cpp
     llfloaterregioninfo.cpp
     llfloaterreporter.cpp
@@ -637,7 +638,6 @@ set(viewer_SOURCE_FILES
     llspeakers.cpp
     llspeakingindicatormanager.cpp
     llsplitbutton.cpp
-    llsprite.cpp
     llstartup.cpp
     llstartuplistener.cpp
     llstatusbar.cpp
@@ -839,7 +839,6 @@ set(viewer_HEADER_FILES
     llagentwearables.h
     llanimstatelabels.h
     llappcorehttp.h
-    llappearance.h
     llappearancelistener.h
     llappearancemgr.h
     llappviewer.h
@@ -1027,12 +1026,14 @@ set(viewer_HEADER_FILES
     llfloaterpreviewtrash.h
     llfloaterprofiletexture.h
     kvfloaterquickchat.h
+    kvbench.h
     kvdebugconsole.h
     kvblackjack.h
     kvminesweeper.h
     kvreversi.h
     kvsolitaire.h
     kvworldclock.h
+    kvcalculator.h
     llfloaterregiondebugconsole.h
     llfloaterregioninfo.h
     llfloaterreporter.h
@@ -1334,7 +1335,6 @@ set(viewer_HEADER_FILES
     llspeakers.h
     llspeakingindicatormanager.h
     llsplitbutton.h
-    llsprite.h
     llstartup.h
     llstartuplistener.h
     llstatusbar.h
@@ -1344,7 +1344,6 @@ set(viewer_HEADER_FILES
     llsyntaxid.h
     llsyswellitem.h
     llsyswellwindow.h
-    lltable.h
     llteleporthistory.h
     llteleporthistorystorage.h
     llterrainpaintmap.h
@@ -1495,8 +1494,6 @@ set(viewer_HEADER_FILES
     noise.h
     pipeline.h
     roles_constants.h
-    VertexCache.h
-    VorbisFramework.h
     )
 
   list(APPEND viewer_SOURCE_FILES llperfstats.cpp)
@@ -1668,7 +1665,6 @@ set(viewer_APPSETTINGS_FILES
     app_settings/cmd_line.xml
     app_settings/commands.xml
     app_settings/emoji_groups.xml
-    app_settings/foldertypes.xml
     app_settings/grass.xml
     app_settings/ignorable_dialogs.xml
     app_settings/key_bindings.xml
@@ -1784,11 +1780,9 @@ if(DX_RENDER)
   # lldrawpoolwater.h/.cpp retired entirely, 2026-10-13.
   list(APPEND viewer_SOURCE_FILES dxdrawpoolwater.cpp)
   list(APPEND viewer_HEADER_FILES dxdrawpoolwater.h)
-  # DX_RENDER: dxdrawpoolwaterexclusion.{cpp,h} - pure rename from
-  # lldrawpoolwaterexclusion.{cpp,h}, 2026-10-13 (no GL/DX split ever
-  # existed here to merge; part of the drawpool-wide ll->dx file rename).
-  list(APPEND viewer_SOURCE_FILES dxdrawpoolwaterexclusion.cpp)
-  list(APPEND viewer_HEADER_FILES dxdrawpoolwaterexclusion.h)
+  # DX_RENDER: dxdrawpoolwaterexclusion.{cpp,h} retired entirely - its one
+  # render() method (which needed zero GL->DX porting) is now inlined into
+  # DXPipeline::doWaterExclusionMask() in dxpipeline.cpp.
   # DX_RENDER: dxdrawpoolpbropaque.{cpp,h} - pure rename from
   # lldrawpoolpbropaque.{cpp,h}, 2026-10-13 (no GL/DX split ever existed
   # here to merge; part of the drawpool-wide ll->dx file rename).

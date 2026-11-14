@@ -57,15 +57,14 @@ public:
 
 private:
     static const S32 NUM_COLS = 7;
-    // S24: 13 is a deliberate, documented cap, not a real rule of the game.
-    // A column can in principle hold more (the data model - mTableau[col] -
-    // has no cap at all), but reserving on-screen space for the worst case
-    // (up to 19 cards) would make the floater impractically tall for a
-    // console timewaster. A column this deep is rare in normal play; if it
-    // happens, cards beyond the 13th simply have no slot to render into
-    // (still tracked correctly, just not visible) rather than compressing
-    // every column's layout to fit.
-    static const S32 MAX_COL_SLOTS = 13;
+    // S24: 19 is the real worst case for a single Klondike tableau column
+    // (the data model - mTableau[col] - has no cap at all; this is just how
+    // many on-screen slots are reserved). Previously capped at 13 as a
+    // space-saving compromise, which meant a column deep enough could run
+    // cards off the bottom of the floater with no slot to render into or
+    // click - still tracked correctly, just inaccessible. Reserving the
+    // true worst case here means that can no longer happen.
+    static const S32 MAX_COL_SLOTS = 19;
 
     // rank 1=A .. 13=K, suit 0=S,1=H,2=D,3=C (same encoding as KV Blackjack's Card).
     struct Card

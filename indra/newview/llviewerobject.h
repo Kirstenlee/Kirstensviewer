@@ -110,12 +110,6 @@ public:
     LLColor4    mColor;
 };
 
-struct PotentialReturnableObject
-{
-    LLBBox          box;
-    LLViewerRegion* pRegion;
-};
-
 //============================================================================
 
 class LLViewerObject
@@ -276,14 +270,6 @@ public:
     virtual bool getReflectionProbeIsBox() const    { return false; }
     virtual bool getReflectionProbeIsDynamic() const { return false; };
     virtual bool getReflectionProbeIsMirror() const { return false; };
-
-    // This method returns true if the object is over land owned by
-    // the agent, one of its groups, or it encroaches and
-    // anti-encroachment is enabled
-    bool isReturnable();
-
-    void buildReturnablesForChildrenVO( std::vector<PotentialReturnableObject>& returnables, LLViewerObject* pChild, LLViewerRegion* pTargetRegion );
-    void constructAndAddReturnable( std::vector<PotentialReturnableObject>& returnables, LLViewerObject* pChild, LLViewerRegion* pTargetRegion );
 
     // This method returns true if the object crosses
     // any parcel bounds in the region.

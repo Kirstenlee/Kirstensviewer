@@ -862,14 +862,6 @@ std::string LLViewerShaderMgr::loadBasicShaders()
 
     S32 sum_lights_class = 3;
 
-#if LL_DARWIN
-    // Work around driver crashes on older Macs when using deferred rendering
-    // NORSPEC-59
-    //
-    if (gDXDeviceInfo.mIsMobileGF)
-        sum_lights_class = 3;
-#endif
-
     S32 hw_tier = LLFeatureManager::getInstance()->getEffectiveShaderTier();
     S32 tier_light_ceiling = (hw_tier <= 1) ? 2 : 3;
 

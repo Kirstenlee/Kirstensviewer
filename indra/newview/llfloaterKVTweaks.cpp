@@ -87,6 +87,11 @@ bool LLFloaterKVTweaks::postBuild()
         onStreamingEngineChanged();
     }
 
+    // S24 - Web Engine card (Network tab): WebView2 is bound to MediaUseWebView2, CEF mirrors its inverse
+    getChild<LLCheckBoxCtrl>("web_engine_webview2")->setCommitCallback(boost::bind(&LLFloaterKVTweaks::onWebEngineChanged, this, true));
+    getChild<LLCheckBoxCtrl>("web_engine_cef")->setCommitCallback(boost::bind(&LLFloaterKVTweaks::onWebEngineChanged, this, false));
+    getChild<LLCheckBoxCtrl>("web_engine_cef")->set(!gSavedSettings.getBOOL("MediaUseWebView2"));
+
     // S24 - Hook up VLC EQ preset selector
     LLComboBox* vlc_eq_preset = getChild<LLComboBox>("vlc_eq_preset");
     if (vlc_eq_preset)
@@ -148,6 +153,8 @@ bool LLFloaterKVTweaks::postBuild()
     getChild<LLUICtrl>("kvram_hard_threshold")->setCommitCallback(boost::bind(&LLFloaterKVTweaks::onRAMCacheSettingChanged, this));
     getChild<LLUICtrl>("kvram_retention_time")->setCommitCallback(boost::bind(&LLFloaterKVTweaks::onRAMCacheSettingChanged, this));  // KV:GC→RT Renamed from kvram_grace_period
     getChild<LLUICtrl>("kvram_min_deck_size")->setCommitCallback(boost::bind(&LLFloaterKVTweaks::onRAMCacheSettingChanged, this));
+    getChild<LLUICtrl>("kvram_hotload_timeout")->setCommitCallback(boost::bind(&LLFloaterKVTweaks::onRAMCacheSettingChanged, this));
+    getChild<LLUICtrl>("kvram_shutdown_flush_timeout")->setCommitCallback(boost::bind(&LLFloaterKVTweaks::onRAMCacheSettingChanged, this));
 
     // Initialize text values
     updateRAMCacheBudgetText();
@@ -155,6 +162,8 @@ bool LLFloaterKVTweaks::postBuild()
     updateRAMCacheHardThresholdText();
     updateRAMCacheRetentionTimeText();  // KV:GC→RT Renamed from updateRAMCacheGracePeriodText
     updateRAMCacheEvictionRateText();
+    updateRAMCacheHotLoadTimeoutText();
+    updateRAMCacheShutdownFlushTimeoutText();
 
     // S24 - Hook up Movement tab controls
     childSetAction("reset_movement_btn", boost::bind(&LLFloaterKVTweaks::onClickResetMovement, this));
@@ -210,6 +219,22 @@ bool LLFloaterKVTweaks::postBuild()
     return true;
 }
 
+
+void LLFloaterKVTweaks::onWebEngineChanged(bool webview2_clicked)
+{
+    LLCheckBoxCtrl* wv2 = getChild<LLCheckBoxCtrl>("web_engine_webview2");
+    LLCheckBoxCtrl* cef = getChild<LLCheckBoxCtrl>("web_engine_cef");
+
+    // The box just ticked selects its engine; unticking the active box keeps it selected (one engine always on)
+    bool use_webview2 = gSavedSettings.getBOOL("MediaUseWebView2");
+    if ((webview2_clicked ? wv2 : cef)->get())
+    {
+        use_webview2 = webview2_clicked;
+    }
+    gSavedSettings.setBOOL("MediaUseWebView2", use_webview2);
+    wv2->set(use_webview2);
+    cef->set(!use_webview2);
+}
 
 void LLFloaterKVTweaks::onStreamingEngineChanged()
 {
@@ -650,48 +675,6 @@ void LLFloaterKVTweaks::onClickResetToDefaults()
     refresh();
 }
 
-void LLFloaterKVTweaks::onClickResetWater()
-{
-    // S24 - Reset only water-related controls to defaults
-    const char* water_control_names[] = {
-        // S24 Material controls
-        "RenderWaterMetallic",
-        "RenderWaterRoughnessOverride",
-        "RenderWaterSpecularIntensity",
-        "RenderWaterReflectionIntensity",
-        // S24 Advanced artistic controls (Phase 1 & 2)
-        "RenderWaterColorTintR",
-        "RenderWaterColorTintG",
-        "RenderWaterColorTintB",
-        "RenderWaterColorTintA",
-        "RenderWaterFresnelPower",
-        "RenderWaterWaveSpeed",
-        "RenderWaterShoreFadeDistance",
-        "RenderWaterUnderwaterFogMult",
-        "RenderWaterReflectionWarmth",
-        "RenderWaterColorAbsorptionRate",
-        "RenderWaterHorizonFadeIntensity",
-        "RenderWaterWindInfluence",
-        "RenderWaterWindMagnitudeCap",
-        // SSR duplicates (already in main reset, but include for completeness)
-        "RenderWaterSSRIterations",
-        "RenderWaterSSRRayStep"
-    };
-
-    // Reset water controls to their defaults
-    for (size_t i = 0; i < sizeof(water_control_names) / sizeof(water_control_names[0]); ++i)
-    {
-        LLControlVariable* control = gSavedSettings.getControl(water_control_names[i]);
-        if (control)
-        {
-            control->resetToDefault(true);
-        }
-    }
-
-    // Refresh the floater UI to show the reset values
-    refresh();
-}
-
 void LLFloaterKVTweaks::onClickClose()
 {
     closeFloater();
@@ -890,6 +873,8 @@ void LLFloaterKVTweaks::onRAMCacheSettingChanged()
     updateRAMCacheHardThresholdText();
     updateRAMCacheRetentionTimeText();  // KV:GC→RT Renamed from updateRAMCacheGracePeriodText
     updateRAMCacheEvictionRateText();
+    updateRAMCacheHotLoadTimeoutText();
+    updateRAMCacheShutdownFlushTimeoutText();
 
     // Apply settings to cache immediately
     if (KVRAMCache::instanceExists())
@@ -926,8 +911,24 @@ void LLFloaterKVTweaks::updateRAMCacheRetentionTimeText()
 
 void LLFloaterKVTweaks::updateRAMCacheEvictionRateText()
 {
+    // S24: bare number, not "%.0f textures" - the label above already says
+    // "Deck Size (Pre-Load Cap)", and "15000 textures" doesn't fit the
+    // proven-safe width=70 readout box this row shares with every other
+    // slider in this card.
     F32 value = gSavedSettings.getF32("KVRAMCacheMinDeckSize");
-    getChild<LLTextBox>("kvram_min_deck_size_text")->setText(llformat("%.0f textures", value));
+    getChild<LLTextBox>("kvram_min_deck_size_text")->setText(llformat("%.0f", value));
+}
+
+void LLFloaterKVTweaks::updateRAMCacheHotLoadTimeoutText()
+{
+    F32 value = gSavedSettings.getF32("KVRAMCacheHotLoadTimeoutSec");
+    getChild<LLTextBox>("kvram_hotload_timeout_text")->setText(llformat("%.1f sec", value));
+}
+
+void LLFloaterKVTweaks::updateRAMCacheShutdownFlushTimeoutText()
+{
+    F32 value = gSavedSettings.getF32("KVRAMCacheShutdownFlushTimeoutSec");
+    getChild<LLTextBox>("kvram_shutdown_flush_timeout_text")->setText(llformat("%.1f sec", value));
 }
 
 // S24 - Water preset handlers

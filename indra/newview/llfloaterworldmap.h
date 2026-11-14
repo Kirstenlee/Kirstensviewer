@@ -166,7 +166,6 @@ protected:
 
     void            buildLandmarkIDLists();
     void            flyToLandmark();
-    void            teleportToLandmark();
 
     void            buildAvatarIDList();
     void            flyToAvatar();

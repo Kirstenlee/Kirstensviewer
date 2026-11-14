@@ -487,7 +487,7 @@ public:
     // for use by SSR
     LLRenderTarget          mSceneMap;
 
-    // screen-space reflection result (class3/deferred/ssrF.hlsl), read by deferred lighting
+    // screen-space reflection result (deferred/ssrF.hlsl), read by deferred lighting
     LLRenderTarget          mSSRBuffer;
     // temporal resolve of the SSR buffer: ping-pong pair (renderSSRResolve)
     LLRenderTarget          mSSRResolved[2];
@@ -789,7 +789,8 @@ public:
 	LLDrawPool*					mWLSkyPool = nullptr;
 	LLDrawPool*					mPBROpaquePool = nullptr;
     LLDrawPool*                 mPBRAlphaMaskPool = nullptr;
-    LLDrawPool*                 mWaterExclusionPool      = nullptr;
+    // mWaterExclusionPool retired - LLDrawPoolWaterExclusion deleted, its
+    // render() inlined into DXPipeline::doWaterExclusionMask().
 protected:
 
 	// Note: no need to keep an quick-lookup to avatar pools, since there's only one per avatar

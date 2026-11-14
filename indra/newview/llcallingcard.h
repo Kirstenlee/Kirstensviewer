@@ -133,7 +133,6 @@ public:
 	bool isBuddyEmpowered(const LLUUID& id) const;
 
 	// set the empower bit & message the server.
-	void empowerList(const buddy_map_t& list, bool grant);
 	void empower(const LLUUID& id, bool grant); // wrapper for above
 
 	// register callbacks

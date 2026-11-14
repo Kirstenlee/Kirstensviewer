@@ -22,24 +22,21 @@
 #include "llappviewer.h"
 #include "llimagej2c.h"
 #include "llimage.h"
+#include "AresWin32.h"
+#include "workqueue.h"
+#include "lldir.h"
+#include "llwindow.h"
+#include "llcrc.h"
 #include <algorithm>
+#include <fstream>
+#include <cstddef>
 
 namespace
 {
-    // S24 (2026-08-16): LLTextureCacheWorker's ctor does mWriteData(data) -
-    // it stores the raw pointer, it does NOT copy the buffer (confirmed by
-    // reading it directly) - the actual disk write happens asynchronously on
-    // LLTextureCache's own worker, so the buffer must survive until that
-    // completes, not be freed the moment the (non-blocking, enqueue-only)
-    // writeToCache() call returns. Same ownership pattern as
-    // lltexturefetch.cpp's own CacheWriteResponder: LLTextureCache::
-    // Responder is ref-counted via LLPointer internally (see
-    // LLTextureCacheWorker::mResponder's type), so this object is destroyed
-    // automatically once the write completes and every LLPointer referencing
-    // it goes out of scope - no manual delete needed here, matching
-    // CacheWriteResponder's own usage (just `new` it and hand over the raw
-    // pointer). Frees the buffer exactly once, on destruction, regardless of
-    // whether the write succeeded.
+    // LLTextureCacheWorker stores the raw pointer, not a copy, so this buffer
+    // must survive until the async disk write completes. Responder is
+    // ref-counted via LLPointer (see LLTextureCacheWorker::mResponder), so it
+    // self-destructs once the write completes; frees the buffer exactly once.
     class KVRAMDiskWriteResponder : public LLTextureCache::WriteResponder
     {
     public:
@@ -49,6 +46,50 @@ namespace
     private:
         U8* mData;
     };
+
+    // S24 disk-snapshot format for KVRAMCache's own startup hot-load / shutdown
+    // flush - entirely independent of LLTextureCache's on-disk cache (which
+    // this never touches). Raw, still-encoded J2C bytes only: no decode on
+    // write, no decode on read, no LLTextureCache write-path involvement -
+    // sidesteps the mRawImage handoff race in LLTextureCacheRemoteWorker::
+    // doWrite() entirely rather than chasing it. Theoretical max file size is
+    // bounded by KVRAMCacheRAMBudgetMB's own 4096MB ceiling.
+    constexpr char KV_SNAPSHOT_MAGIC[4] = { 'K', 'V', 'R', 'C' };
+    constexpr U32 KV_SNAPSHOT_VERSION = 1;
+
+#if LL_WINDOWS
+#pragma pack(push, 1)
+#endif
+    struct KVSnapshotHeader
+    {
+        char magic[4];
+        U32 version;
+        U32 entry_count;
+    };
+    struct KVSnapshotEntryHeader
+    {
+        U8 uuid[16];
+        U64 size_bytes;
+        S32 discard_level;
+        U32 width;
+        U32 height;
+        U8 components;
+        U32 crc32; // LLCRC over the size_bytes of raw J2C data that follows
+    };
+#if LL_WINDOWS
+#pragma pack(pop)
+#endif
+
+    // Generous ceiling for one entry's data size - rejects a corrupted
+    // size_bytes field (e.g. a bit-flipped huge value) before it ever reaches
+    // a std::vector<U8> allocation. Real J2C textures are nowhere near this;
+    // it exists purely to stop garbage from causing a huge/failed alloc.
+    constexpr U64 KV_SNAPSHOT_MAX_ENTRY_BYTES = 64ULL * 1024 * 1024;
+
+    std::string kv_disk_snapshot_path()
+    {
+        return gDirUtilp->getExpandedFilename(LL_PATH_CACHE, "kvramcache.bin");
+    }
 }
 
 // Singleton implementation
@@ -87,10 +128,10 @@ void KVRAMCache::initialize(const CacheConfig& config)
     // Clear all data structures
     mGhostMap.clear();
     mRAMLRU.clear();
-    mRAMLRU_BACKGROUND.clear();  // S24: Clear priority-segmented deques
-    mRAMLRU_NORMAL.clear();      // S24
-    mRAMLRU_HIGH.clear();        // S24
-    mRAMLRU_CRITICAL.clear();    // S24
+    mRAMLRU_BACKGROUND.clear();
+    mRAMLRU_NORMAL.clear();
+    mRAMLRU_HIGH.clear();
+    mRAMLRU_CRITICAL.clear();
 
     // Reset statistics
     resetStats();
@@ -119,10 +160,302 @@ void KVRAMCache::shutdown()
         << BYTES_TO_MEGA_BYTES(mStats.ram_used_bytes) << " MB"
         << LL_ENDL;
 
-    // Clean up all entries
-    clearAll();
+    // S24: clearAll() is deliberately NOT called here any more - it's deferred
+    // to finishShutdownFlush(), called much later (right before
+    // AresWin32::TerminateSelf()) so the shutdown flush background task has
+    // the whole rest of the shutdown sequence to write entries to disk before
+    // anything frees the RAM out from under it. See beginShutdownFlush().
 
     mInitialized = false;
+}
+
+// S24: kicks off the real shutdown-time flush - writes KVRAMCache's own
+// dedicated disk snapshot (kv_disk_snapshot_path()) directly from mGhostMap,
+// raw J2C bytes only, no decode, no LLTextureCache involvement at all. This
+// deliberately bypasses evictSlice()/writeEvictedEntryToDisk() (the normal
+// passive-eviction-to-LLTextureCache path, still used unchanged elsewhere)
+// because that path requires a real pixel decode per texture and funnels
+// through LLTextureCacheRemoteWorker::doWrite(), whose INIT-state check hits
+// a pre-existing mRawImage handoff race at a 100% failure rate under this
+// kind of back-to-back bulk write (confirmed live, 0/5721 succeeded two runs
+// running) - see project_kvramcache_hotload_and_shutdown_flush memory. The
+// snapshot format sidesteps all of that instead of fixing it.
+//
+// Idempotent - safe to call from both LLAppViewer::requestQuit() (as early as
+// possible) and finishShutdownFlush() (as a fallback for quit paths, like
+// forceQuit()/outOfMemorySoftQuit(), that skip requestQuit() entirely).
+// KNOWN LIMITATION on that fallback path specifically: finishShutdownFlush()
+// runs after gSavedSettings.cleanup() (llappviewer.cpp, "the control table is
+// wiped... a control constructed after that point always gets its default
+// value"), so if beginShutdownFlush() only ends up running via that late
+// fallback, the gSavedSettings.getF32() read just below gets the default
+// timeout, not the user's customized one. Acceptable degradation for an
+// already-abnormal quit path - never a crash or data loss, just a possibly
+// wrong timeout in a rare case.
+void KVRAMCache::beginShutdownFlush()
+{
+    if (mShutdownFlushStarted.exchange(true))
+    {
+        return;
+    }
+
+    if (!mInitialized)
+    {
+        mShutdownFlushDone.store(true);
+        return;
+    }
+
+    F32 timeout_sec = llclamp(gSavedSettings.getF32("KVRAMCacheShutdownFlushTimeoutSec"), 1.0f, 30.0f);
+    mShutdownFlushDeadline = LLTimer::getElapsedSeconds() + timeout_sec;
+
+    auto queue = LL::WorkQueue::getInstance("DXPool");
+    if (!queue)
+    {
+        // DXPool unavailable (e.g. mid-shutdown already) - nothing we can safely
+        // do off-thread; finishShutdownFlush()'s clearAll() is still the safety net.
+        mShutdownFlushDone.store(true);
+        return;
+    }
+
+    F64 deadline = mShutdownFlushDeadline;
+    queue->post([this, deadline]()
+    {
+        // Snapshot everything RAM-resident under one lock - plain memcpy's
+        // (via vector's range-copy), no decode, no I/O while locked.
+        struct Snap
+        {
+            LLUUID uuid;
+            std::vector<U8> data;
+            S32 discard_level = -1;
+            U32 width = 0;
+            U32 height = 0;
+            U8 components = 0;
+        };
+        std::vector<Snap> snapshot;
+        {
+            LLMutexLock lock(&mCacheMutex);
+            snapshot.reserve(mGhostMap.size());
+            for (auto& pair : mGhostMap)
+            {
+                CacheEntry* entry = pair.second.get();
+                if (entry->location == AssetLocation::RAM && entry->texture_data && entry->size_bytes > 0)
+                {
+                    Snap s;
+                    s.uuid = pair.first;
+                    const U8* bytes = static_cast<const U8*>(entry->texture_data);
+                    s.data.assign(bytes, bytes + entry->size_bytes);
+                    s.discard_level = entry->discard_level;
+                    s.width = entry->width;
+                    s.height = entry->height;
+                    s.components = entry->components;
+                    snapshot.push_back(std::move(s));
+                }
+            }
+        }
+
+        U32 written = 0;
+        std::ofstream ofs(kv_disk_snapshot_path(), std::ios::binary | std::ios::trunc);
+        if (ofs.good())
+        {
+            KVSnapshotHeader header;
+            memcpy(header.magic, KV_SNAPSHOT_MAGIC, 4);
+            header.version = KV_SNAPSHOT_VERSION;
+            header.entry_count = 0; // patched below once the real count is known
+            ofs.write(reinterpret_cast<const char*>(&header), sizeof(header));
+
+            LLTimer progress_timer;
+            for (const Snap& s : snapshot)
+            {
+                if (LLTimer::getElapsedSeconds() >= deadline)
+                {
+                    break;
+                }
+
+                LLCRC crc;
+                crc.update(s.data.data(), s.data.size());
+
+                KVSnapshotEntryHeader eh;
+                memcpy(eh.uuid, s.uuid.mData, 16);
+                eh.size_bytes = (U64)s.data.size();
+                eh.discard_level = s.discard_level;
+                eh.width = s.width;
+                eh.height = s.height;
+                eh.components = s.components;
+                eh.crc32 = crc.getCRC();
+
+                ofs.write(reinterpret_cast<const char*>(&eh), sizeof(eh));
+                ofs.write(reinterpret_cast<const char*>(s.data.data()), (std::streamsize)s.data.size());
+                if (!ofs.good())
+                {
+                    break;
+                }
+                ++written;
+
+                if (progress_timer.getElapsedTimeF32() > 0.2f)
+                {
+                    progress_timer.reset();
+
+                    // S24: in-place, not a new scrolling console line per tick
+                    // - UpdateAresDialog() would otherwise print a fresh line
+                    // roughly every 200ms, scrolling the console for no reason
+                    // during what can be a many-second flush. Kept short on
+                    // purpose - the console doesn't wrap/resize for this.
+                    static const char s_spinner[] = { '|', '/', '-', '\\' };
+                    static U32 s_spinIdx = 0;
+                    char spin = s_spinner[s_spinIdx++ % 4];
+                    AresWin32::UpdateAresDialogInPlace(llformat(
+                        "Saving RAMCache [%c] %u textures.", spin, written));
+                }
+            }
+
+            // Patch the real entry count now that it's known - offsetof keeps
+            // this correct regardless of KVSnapshotHeader's field order.
+            ofs.seekp(offsetof(KVSnapshotHeader, entry_count));
+            ofs.write(reinterpret_cast<const char*>(&written), sizeof(written));
+        }
+
+        if (!snapshot.empty())
+        {
+            // Real scrolling line for the final result, so the console's
+            // permanent scrollback shows a clean confirmation after the
+            // in-place progress bar rather than just vanishing.
+            AresWin32::UpdateAresDialog(llformat("  Flushed %u/%u textures to disk.", written, (U32)snapshot.size()));
+        }
+
+        LL_WARNS("KVRAMCache") << "Shutdown flush: wrote " << written << "/" << snapshot.size()
+            << " textures to disk snapshot" << LL_ENDL;
+        mShutdownFlushDone.store(true);
+    });
+}
+
+// S24: the actual final step - call this as the LAST thing before
+// AresWin32::TerminateSelf(), not from shutdown()'s own call site, so the flush
+// gets the benefit of the whole shutdown sequence (including RunFinalSweep()'s
+// own idle Sleep() windows) rather than just whatever's elapsed by the time
+// shutdown() runs. Bounded by the same deadline beginShutdownFlush() computed -
+// never waits longer than that, so a huge RAM cache can't turn logoff into an
+// indefinite hang.
+void KVRAMCache::finishShutdownFlush()
+{
+    if (!mShutdownFlushStarted.load())
+    {
+        beginShutdownFlush(); // forceQuit()-style path that skipped requestQuit()
+    }
+
+    while (!mShutdownFlushDone.load() && LLTimer::getElapsedSeconds() < mShutdownFlushDeadline)
+    {
+        ms_sleep(5);
+    }
+
+    clearAll();
+}
+
+// S24: loads the snapshot beginShutdownFlush()/finishShutdownFlush() wrote
+// last session - plain sequential reads, no decode, no LLTextureCache
+// involvement, no async worker/polling at all, unlike the first attempt at
+// this feature. Call from LLAppViewer::init() between initCache() and
+// initWindow(). No-ops immediately if disabled or no snapshot exists yet
+// (first run, or last session never got far enough to flush one).
+void KVRAMCache::loadFromDiskSnapshot()
+{
+    if (!gSavedSettings.getBOOL("KVRAMCacheEnabled") || !mInitialized)
+    {
+        return;
+    }
+
+    std::ifstream ifs(kv_disk_snapshot_path(), std::ios::binary);
+    if (!ifs.good())
+    {
+        return; // no snapshot yet - not an error
+    }
+
+    KVSnapshotHeader header;
+    ifs.read(reinterpret_cast<char*>(&header), sizeof(header));
+    if (!ifs.good() || memcmp(header.magic, KV_SNAPSHOT_MAGIC, sizeof(KV_SNAPSHOT_MAGIC)) != 0
+        || header.version != KV_SNAPSHOT_VERSION)
+    {
+        LL_WARNS("KVRAMCache") << "loadFromDiskSnapshot: missing/corrupt header, skipping" << LL_ENDL;
+        return;
+    }
+
+    if (header.entry_count > 0)
+    {
+        LLSplashScreen::update("Warming up RAM cache from last session...");
+    }
+
+    U32 max_count = getMinDeckSize();
+    U32 loaded = 0;
+    F32 timeout_sec = llclamp(gSavedSettings.getF32("KVRAMCacheHotLoadTimeoutSec"), 1.0f, 30.0f);
+    F64 deadline = LLTimer::getElapsedSeconds() + timeout_sec;
+
+    for (U32 i = 0; i < header.entry_count && loaded < max_count; ++i)
+    {
+        if (LLTimer::getElapsedSeconds() >= deadline)
+        {
+            break;
+        }
+
+        KVSnapshotEntryHeader eh;
+        ifs.read(reinterpret_cast<char*>(&eh), sizeof(eh));
+        if (!ifs.good())
+        {
+            break; // truncated/corrupt tail - stop, keep whatever already loaded
+        }
+
+        // A corrupted size_bytes (e.g. one bit flipped into a huge value) must
+        // be caught BEFORE allocating or reading - and unlike the other checks
+        // below, this one has to abort the whole remaining read (not just skip
+        // this entry), since we can no longer know where the next entry's
+        // header starts without trusting this size.
+        if (eh.size_bytes == 0 || eh.size_bytes > KV_SNAPSHOT_MAX_ENTRY_BYTES)
+        {
+            LL_WARNS("KVRAMCache") << "loadFromDiskSnapshot: implausible size_bytes ("
+                << eh.size_bytes << ") at entry " << i << " - stopping, file likely corrupt" << LL_ENDL;
+            break;
+        }
+
+        std::vector<U8> data(eh.size_bytes);
+        ifs.read(reinterpret_cast<char*>(data.data()), (std::streamsize)eh.size_bytes);
+        if (!ifs.good())
+        {
+            break; // truncated mid-entry - stream position is now unreliable, stop here too
+        }
+
+        // Parity check: catches silent bit-level corruption within the data
+        // itself that still happens to leave plausible-looking metadata behind.
+        // Safe to just skip (not abort) past this one - the stream position
+        // is still correctly aligned on the next entry's header either way,
+        // since we already consumed exactly size_bytes bytes above.
+        LLCRC crc;
+        crc.update(data.data(), data.size());
+        if (crc.getCRC() != eh.crc32)
+        {
+            LL_WARNS("KVRAMCache") << "loadFromDiskSnapshot: CRC mismatch at entry " << i
+                << ", skipping (data corrupt)" << LL_ENDL;
+            continue;
+        }
+
+        // Same sanity bounds acceptEviction() itself enforces - cheap early-out
+        // before bothering to take the cache mutex for a doomed entry.
+        if (eh.width == 0 || eh.height == 0 || eh.width > 8192 || eh.height > 8192
+            || eh.components < 1 || eh.components > 4
+            || eh.discard_level < 0 || eh.discard_level > 5)
+        {
+            continue;
+        }
+
+        LLUUID uuid;
+        memcpy(uuid.mData, eh.uuid, 16);
+
+        if (acceptEviction(uuid, data.data(), eh.size_bytes, eh.discard_level,
+                            eh.width, eh.height, (S8)eh.components, AssetPriority::NORMAL))
+        {
+            ++loaded;
+        }
+    }
+
+    LL_WARNS("KVRAMCache") << "loadFromDiskSnapshot: loaded " << loaded << "/" << header.entry_count
+        << " textures from last session's snapshot" << LL_ENDL;
 }
 
 void KVRAMCache::updateConfig(const CacheConfig& config)
@@ -186,9 +519,9 @@ void KVRAMCache::initializeFromSettings()
     mSoftThreshold = gSavedSettings.getF32("KVRAMCacheSoftThreshold");
     mHardThreshold = gSavedSettings.getF32("KVRAMCacheHardThreshold");
 
-    // Minimum deck size (100-10000 textures in 100 steps)
+    // Minimum deck size (100-15000 textures in 100 steps)
     U32 deck_size = static_cast<U32>(gSavedSettings.getF32("KVRAMCacheMinDeckSize"));
-    mMinDeckSize = llclamp(deck_size, 100U, 10000U);
+    mMinDeckSize = llclamp(deck_size, 100U, 15000U);
 
     LL_WARNS("KVRAMCache") << "Initializing KVRAM Cache (Passive Buffer Mode):"
         << "\n  RAM Budget: " << BYTES_TO_MEGA_BYTES(config.ram_budget_bytes) << " MB"
@@ -221,7 +554,7 @@ void KVRAMCache::updateFromSettings()
     mHardThreshold = gSavedSettings.getF32("KVRAMCacheHardThreshold");
 
     U32 deck_size = static_cast<U32>(gSavedSettings.getF32("KVRAMCacheMinDeckSize"));
-    mMinDeckSize = llclamp(deck_size, 100U, 10000U);
+    mMinDeckSize = llclamp(deck_size, 100U, 15000U);
 
     // KV:RT Removed mLastBaselineEviction reset — retention time is per-entry now
 
@@ -405,14 +738,10 @@ bool KVRAMCache::acceptEviction(const LLUUID& uuid, void* texture_data, U64 size
         entry->width = width;
         entry->height = height;
         entry->components = components;
-        // S24 (2026-08-16): refresh priority too - progressive loading calls
-        // this repeatedly for the same uuid, and the object's importance
-        // (e.g. selection state) can change between calls. Note: this does
-        // NOT relocate the uuid already sitting in its (old-priority) deque
-        // slot - it self-corrects the next time evictSlice() re-inserts it
-        // via pushBackToPriorityDeques(), which always uses the current
-        // entry->priority. Worst case is one eviction pass considering the
-        // entry under its previous bucket, never a correctness issue.
+        // Refreshing priority here does not relocate the uuid already sitting in
+        // its old-priority deque slot; it self-corrects next time evictSlice()
+        // re-inserts it via pushBackToPriorityDeques(), which uses the current
+        // entry->priority.
         entry->priority = priority;
 
         // Update stats - just adjust size difference
@@ -439,9 +768,9 @@ bool KVRAMCache::acceptEviction(const LLUUID& uuid, void* texture_data, U64 size
     entry->height = height;
     entry->components = components;
     entry->mAdmittedAt = LLTimer::getElapsedSeconds();  // KV:RT Record admission time — entry is protected from eviction for retention_time seconds
-    entry->priority = priority;  // S24 (2026-08-16): caller-classified priority, was always the AssetPriority default (NORMAL) before this
+    entry->priority = priority;  // caller-classified priority
 
-    // S24: Capture priority before moving entry into ghost map (avoid C26800 use-after-move)
+    // Capture priority before std::move(entry) into ghost map — avoids use-after-move (C26800).
     AssetPriority prio = entry->priority;
     mGhostMap[uuid] = std::move(entry);
     switch (prio)
@@ -485,8 +814,7 @@ void* KVRAMCache::getTexture(const LLUUID& uuid)
     return entry->texture_data;
 }
 
-// S24 STAGE 3: Enhanced texture retrieval with full metadata
-bool KVRAMCache::getTexture(const LLUUID& texture_id, 
+bool KVRAMCache::getTexture(const LLUUID& texture_id,
                             U8*& texture_data, 
                             U32& size_bytes, 
                             S32& discard_level,
@@ -539,9 +867,8 @@ bool KVRAMCache::getTexture(const LLUUID& texture_id,
 // Passive Buffer Interface (GPU-controlled)
 // ============================================================================
 
-// S24: Extracted from processPassiveEviction so the stats floater can query the exact
-// same curve instead of reimplementing it (the old duplicate drifted out of sync — see
-// getEvictionPressureMultiplier).
+// Shared by processPassiveEviction() and getEvictionPressureMultiplier() — single source
+// of truth for the pressure curve; do not reimplement it separately.
 F32 KVRAMCache::calculateEvictionPressureMultiplier(F32 pressure) const
 {
     F32 fill_target = std::max(0.0f, mSoftThreshold - 0.10f);
@@ -587,36 +914,31 @@ F32 KVRAMCache::calculateEvictionPressureMultiplier(F32 pressure) const
 
 F32 KVRAMCache::getEvictionPressureMultiplier() const
 {
-    // S24: No lock — mirrors getRAMPressure(), which is already read cross-thread
-    // unlocked by the stats floater. mSoftThreshold/mHardThreshold are plain floats
-    // set via setThresholds()/updateFromSettings(), not worth a mutex round-trip for a UI readout.
+    // No lock — mirrors getRAMPressure() (read cross-thread unlocked elsewhere);
+    // mSoftThreshold/mHardThreshold are plain floats, not worth a mutex for a UI readout.
     return calculateEvictionPressureMultiplier(getRAMPressure());
 }
 
 void KVRAMCache::processPassiveEviction(F32 delta_time)
 {
-    // S24 (2026-08-16): entries evicted this pass that still need writing to
-    // disk - populated under the lock below (cheap, no I/O/decode), drained
-    // AFTER the lock is released further down. Keeping the real decode+disk-
-    // write work outside mCacheMutex matters here specifically: a slice can
-    // be up to ~20 textures (base_slice=10 * up to 2.0x pressure multiplier),
-    // and holding the lock through 20 real J2C decodes would block every
-    // other thread's hasTexture()/getTexture()/acceptEviction() call for the
-    // whole batch - exactly the kind of stall this codebase is otherwise
-    // careful to avoid (see mDownScaleQueue's own time-slicing elsewhere).
+    // Entries evicted this pass that still need a disk write: populated under
+    // the lock below (cheap, no I/O/decode), drained after it's released.
+    // A slice can be up to ~20 textures (base_slice=10 * up to 2.0x pressure
+    // multiplier); decoding that many while holding mCacheMutex would block
+    // every other thread's hasTexture()/getTexture()/acceptEviction() call.
     std::vector<PendingDiskWrite> pending;
 
     {
-        LLMutexLock lock(&mCacheMutex);  // S24: Protect deque/ghost map from concurrent access
+        LLMutexLock lock(&mCacheMutex);
 
         F32 pressure = getRAMPressure();
         F32 retention_time = std::max(0.1f, mConfig.ram_retention_time_seconds);  // KV:GC->RT Renamed from ram_grace_period_seconds
 
         F64 now = LLTimer::getElapsedSeconds();
 
-        // S24: Still needed here for the "always evict >=1" rule below — kept alongside the
-        // multiplier calc's own copy in calculateEvictionPressureMultiplier() rather than
-        // exposing it as a member, since it's a pure function of mSoftThreshold.
+        // Duplicated from calculateEvictionPressureMultiplier() (pure function of
+        // mSoftThreshold) rather than exposed as a member — needed for the
+        // always-evict->=1 rule below.
         F32 fill_target = std::max(0.0f, mSoftThreshold - 0.10f);
         F32 pressure_multiplier = calculateEvictionPressureMultiplier(pressure);
 
@@ -649,9 +971,8 @@ void KVRAMCache::processPassiveEviction(F32 delta_time)
         // KV:RT Removed mLastBaselineEviction tracking — eviction is now pressure-driven, not interval-driven
     }
 
-    // S24 (2026-08-16): lock released above - now do the real work (decode +
-    // disk write) for anything evictSlice() collected. See PendingDiskWrite's
-    // comment for why this exists at all.
+    // Lock released above; do the real decode+disk-write work for what
+    // evictSlice() collected. See PendingDiskWrite for why this split exists.
     for (const PendingDiskWrite& item : pending)
     {
         writeEvictedEntryToDisk(item);
@@ -663,8 +984,8 @@ void KVRAMCache::evictSlice(U32 slice_size, F64 retention_time, F64 now, std::ve
 {
     U32 sliced = 0;
 
-    // S24: Priority-aware eviction — pop from lowest non-empty priority deque first
-    // Order: BACKGROUND → NORMAL → HIGH → CRITICAL → legacy mRAMLRU (fallback)
+    // Priority-aware eviction: pop from lowest non-empty priority deque first.
+    // Order: BACKGROUND → NORMAL → HIGH → CRITICAL → legacy mRAMLRU (fallback).
     auto popFrontFromPriorityDeques = [this]() -> LLUUID
     {
         if (!mRAMLRU_BACKGROUND.empty()) { LLUUID id = mRAMLRU_BACKGROUND.front(); mRAMLRU_BACKGROUND.pop_front(); return id; }
@@ -712,18 +1033,12 @@ void KVRAMCache::evictSlice(U32 slice_size, F64 retention_time, F64 now, std::ve
                 mStats.ram_entry_count--;
                 mStats.ram_evictions++;
 
-                // S24 (2026-08-16): transfer the buffer to out_pending instead
-                // of freeing it here - "compressed J2C remains in disk cache"
-                // was never actually true (nothing wrote it there; see
-                // acceptEviction()'s caller in lltexturefetch.cpp, which
-                // explicitly skips the disk write when this cache accepts a
-                // texture, on the promise that eviction handles it "via
-                // decay"). This is that promise, actually kept: the caller
-                // (processPassiveEviction()) decodes and writes each pending
-                // entry to the real disk cache after releasing mCacheMutex.
-                // Ownership of entry->texture_data moves to out_pending -
-                // null it out here so CacheEntry's destructor (which would
-                // otherwise also free() it) can't double-free once erased.
+                // Transfer the buffer to out_pending instead of freeing it here;
+                // processPassiveEviction() decodes and writes each pending entry
+                // to disk after releasing mCacheMutex (lltexturefetch.cpp's
+                // acceptEviction() caller skips its own disk write on that promise).
+                // Null out entry->texture_data so CacheEntry's destructor can't
+                // double-free once erased below.
                 PendingDiskWrite pending;
                 pending.uuid = bottom_uuid;
                 pending.data = static_cast<U8*>(entry->texture_data);
@@ -744,16 +1059,12 @@ void KVRAMCache::evictSlice(U32 slice_size, F64 retention_time, F64 now, std::ve
     }
 }
 
-// S24 (2026-08-16): completes the disk write acceptEviction()'s caller
-// (lltexturefetch.cpp) deferred when this cache accepted the texture.
-// KVRAMCache only ever stores compressed J2C bytes (never decoded pixels -
-// see this file's header comment), but LLTextureCache::writeToCache()
-// requires a real, valid LLImageRaw (it unconditionally dereferences it,
-// via isBufferInvalid(), before writing anything - a null/dummy raw image
-// would either crash or silently write a wrong fast-cache thumbnail), so
-// this decodes the stored bytes back to pixels first. Real CPU decode work -
-// must be called with no lock held (see processPassiveEviction()'s comment).
-// Always frees item.data exactly once, decode success or failure.
+// Completes the disk write that acceptEviction()'s caller (lltexturefetch.cpp)
+// deferred. KVRAMCache only stores compressed J2C bytes, but
+// LLTextureCache::writeToCache() requires a real LLImageRaw (isBufferInvalid()
+// dereferences it unconditionally), so this decodes the bytes back to pixels
+// first. Real CPU decode work — must be called with no lock held. Always
+// frees item.data exactly once, decode success or failure.
 void KVRAMCache::writeEvictedEntryToDisk(const PendingDiskWrite& item)
 {
     if (!item.data || item.size_bytes == 0)
@@ -762,18 +1073,11 @@ void KVRAMCache::writeEvictedEntryToDisk(const PendingDiskWrite& item)
         return;
     }
 
-    // S24: LLImageFormatted::copyData() (deleteData()+allocateData()+memcpy(),
-    // the exact copy pattern replicated here) is protected - not reachable
-    // from here. Its sibling setData() IS public but is NOT safe to use with
-    // item.data: it takes direct ownership of the pointer it's given
-    // ("LLImageFormatted becomes the owner of data" - llimage.cpp) and its
-    // own deleteData() later frees it with ll_aligned_free_16(), while
-    // item.data was allocated with plain malloc() in acceptEviction() -
-    // mismatched allocator/deallocator, guaranteed heap corruption. Using
-    // the public allocateData()+memcpy() pair instead makes our own
-    // independent, correctly-aligned copy - item.data itself (the real
-    // compressed bytes actually being written to disk) stays fully separate
-    // and is handed to the responder below, not freed here.
+    // Do not use LLImageFormatted::setData() with item.data: it takes direct
+    // ownership and later frees it with ll_aligned_free_16(), but item.data was
+    // malloc()'d in acceptEviction() — mismatched allocator/deallocator, heap
+    // corruption. allocateData()+memcpy() makes an independent aligned copy
+    // instead, leaving item.data itself for the responder below.
     LLPointer<LLImageJ2C> compressed = new LLImageJ2C;
     U8* compressed_copy = compressed->allocateData((S32)item.size_bytes);
     if (!compressed_copy)
@@ -831,7 +1135,6 @@ void KVRAMCache::pushBackToPriorityDeques(const LLUUID& uuid, AssetPriority prio
 
 void KVRAMCache::removeFromRAMLRU(const LLUUID& uuid)
 {
-    // S24: Search all priority-segmented deques (plus legacy mRAMLRU fallback)
     auto eraseFromDeque = [&uuid](std::deque<LLUUID>& dq) -> bool
     {
         auto it = std::find(dq.begin(), dq.end(), uuid);
@@ -896,10 +1199,10 @@ void KVRAMCache::clearAll()
 
     mGhostMap.clear();
     mRAMLRU.clear();
-    mRAMLRU_BACKGROUND.clear();  // S24: Clear priority-segmented deques
-    mRAMLRU_NORMAL.clear();      // S24
-    mRAMLRU_HIGH.clear();        // S24
-    mRAMLRU_CRITICAL.clear();    // S24
+    mRAMLRU_BACKGROUND.clear();
+    mRAMLRU_NORMAL.clear();
+    mRAMLRU_HIGH.clear();
+    mRAMLRU_CRITICAL.clear();
 
     resetStats();
 

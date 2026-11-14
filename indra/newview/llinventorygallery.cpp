@@ -1097,9 +1097,6 @@ bool LLInventoryGallery::handleKeyHere(KEY key, MASK mask)
             handled = true;
             break;
         case KEY_DELETE:
-#if LL_DARWIN
-        case KEY_BACKSPACE:
-#endif
             // Delete selected items if delete or backspace key hit on the inventory panel
             // Note: on Mac laptop keyboards, backspace and delete are one and the same
             if (canDeleteSelection())
@@ -3413,10 +3410,6 @@ bool dragItemIntoFolder(LLUUID folder_id, LLInventoryItem* inv_item, bool drop, 
         {
             //disable dropping in or out of marketplace for now
             return false;
-
-            /*const LLViewerInventoryCategory * master_folder = model->getFirstDescendantOf(marketplacelistings_id, folder_id);
-            LLViewerInventoryCategory * dest_folder = cat;
-            accept = can_move_item_to_marketplace(master_folder, dest_folder, inv_item, tooltip_msg, LLToolDragAndDrop::instance().getCargoCount() - LLToolDragAndDrop::instance().getCargoIndex());*/
         }
 
         // Check that the folder can accept this item based on folder/item type compatibility (e.g. stock folder compatibility)
@@ -4076,36 +4069,6 @@ bool dragCategoryIntoFolder(LLUUID dest_id, LLInventoryCategory* inv_cat,
             {
                 //disable dropping in or out of marketplace for now
                 return false;
-
-                // If we are moving a folder at the listing folder level (i.e. its parent is the marketplace listings folder)
-                /*if (from_folder_uuid == marketplacelistings_id)
-                {
-                    // Clear the folder from the marketplace in case it is a listing folder
-                    if (LLMarketplaceData::instance().isListed(cat_id))
-                    {
-                        LLMarketplaceData::instance().clearListing(cat_id);
-                    }
-                }
-                else
-                {
-                    // If we move from within an active (listed) listing, checks that it's still valid, if not, unlist
-                    LLUUID version_folder_id = LLMarketplaceData::instance().getActiveFolder(from_folder_uuid);
-                    if (version_folder_id.notNull())
-                    {
-                        LLMarketplaceValidator::getInstance()->validateMarketplaceListings(
-                            version_folder_id,
-                            [version_folder_id](bool result)
-                        {
-                            if (!result)
-                            {
-                                LLMarketplaceData::instance().activateListing(version_folder_id, false);
-                            }
-                        }
-                        );
-                    }
-                    // In all cases, update the listing we moved from so suffix are updated
-                    update_marketplace_category(from_folder_uuid);
-                }*/
             }
         }
     }

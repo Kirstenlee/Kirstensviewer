@@ -401,8 +401,6 @@ public:
     LLSpatialPartition* getSpatialPartition(U32 type);
     LLVOCachePartition* getVOCachePartition();
 
-    bool objectIsReturnable(const LLVector3& pos, const std::vector<LLBBox>& boxes) const;
-    bool childrenObjectReturnable( const std::vector<LLBBox>& boxes ) const;
     bool objectsCrossParcel(const std::vector<LLBBox>& boxes) const;
 
     void getNeighboringRegions( std::vector<LLViewerRegion*>& uniqueRegions );

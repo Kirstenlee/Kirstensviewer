@@ -523,6 +523,93 @@ bool LLPanelFace::postBuild()
     return true;
 }
 
+// S24: PBRPickerAgentListener/PBRPickerObjectListener moved up here from
+// later in this file - LLPanelFace::LLPanelFace()'s member-initializer-list
+// default-constructs the std::unique_ptr<PBRPickerAgentListener>/
+// std::unique_ptr<PBRPickerObjectListener> members (forward-declared in
+// llpanelface.h), and the compiler needs both pimpl'd types COMPLETE at
+// that point too, not just at the destructor - it generates exception-
+// unwind cleanup code for already-constructed members, which calls each
+// member's destructor even in the constructor. The old MSVC STL silently
+// tolerated this against an incomplete type; the current one hard-errors
+// via a static_assert in <memory> ("can't delete an incomplete type") -
+// this was always UB per the standard, just newly enforced.
+class PBRPickerAgentListener : public LLInventoryObserver
+{
+protected:
+    bool mChangePending = true;
+public:
+    PBRPickerAgentListener() : LLInventoryObserver()
+    {
+        gInventory.addObserver(this);
+    }
+
+    const bool isListening()
+    {
+        return mChangePending;
+    }
+
+    void changed(U32 mask) override
+    {
+        if (!(mask & (ADD | REMOVE)))
+        {
+            return;
+        }
+
+        if (gFloaterTools)
+        {
+            gFloaterTools->dirty();
+        }
+        gInventory.removeObserver(this);
+        mChangePending = false;
+    }
+
+    ~PBRPickerAgentListener() override
+    {
+        gInventory.removeObserver(this);
+        mChangePending = false;
+    }
+};
+
+// One-off listener that updates the build floater UI when the prim inventory updates
+class PBRPickerObjectListener : public LLVOInventoryListener
+{
+protected:
+    LLViewerObject* mObjectp;
+    bool mChangePending = true;
+public:
+
+    PBRPickerObjectListener(LLViewerObject* object)
+    : mObjectp(object)
+    {
+        registerVOInventoryListener(mObjectp, nullptr);
+    }
+
+    const bool isListeningFor(const LLViewerObject* objectp) const
+    {
+        return mChangePending && (objectp == mObjectp);
+    }
+
+    void inventoryChanged(LLViewerObject* object,
+        LLInventoryObject::object_list_t* inventory,
+        S32 serial_num,
+        void* user_data) override
+    {
+        if (gFloaterTools)
+        {
+            gFloaterTools->dirty();
+        }
+        removeVOInventoryListener();
+        mChangePending = false;
+    }
+
+    ~PBRPickerObjectListener()
+    {
+        removeVOInventoryListener();
+        mChangePending = false;
+    }
+};
+
 LLPanelFace::LLPanelFace()
 :   LLPanel(),
     mIsAlpha(false),
@@ -534,11 +621,6 @@ LLPanelFace::LLPanelFace()
     USE_TEXTURE = LLTrans::getString("use_texture");
     mCommitCallbackRegistrar.add("PanelFace.menuDoToSelected", boost::bind(&LLPanelFace::menuDoToSelected, this, _2));
     mEnableCallbackRegistrar.add("PanelFace.menuEnable", boost::bind(&LLPanelFace::menuEnableItem, this, _2));
-}
-
-LLPanelFace::~LLPanelFace()
-{
-    unloadMedia();
 }
 
 void LLPanelFace::onVisibilityChange(bool new_visibility)
@@ -1995,81 +2077,18 @@ void LLPanelFace::updateUI(bool force_set_values /*false*/)
 }
 
 // One-off listener that updates the build floater UI when the agent inventory adds or removes an item
-class PBRPickerAgentListener : public LLInventoryObserver
+// S24: moved here from just below the class declaration - mAgentInventoryListener/
+// mVOInventoryListener are std::unique_ptr<PBRPickerAgentListener/PBRPickerObjectListener>
+// (forward-declared in llpanelface.h), so this destructor's implicit member
+// destruction needs both pimpl'd types complete at the point it's compiled, not just
+// forward-declared. The old MSVC STL silently tolerated instantiating unique_ptr's
+// destructor against an incomplete type here; the current one hard-errors via a
+// static_assert in <memory> ("can't delete an incomplete type") - this was always
+// UB per the standard, just newly enforced.
+LLPanelFace::~LLPanelFace()
 {
-protected:
-    bool mChangePending = true;
-public:
-    PBRPickerAgentListener() : LLInventoryObserver()
-    {
-        gInventory.addObserver(this);
-    }
-
-    const bool isListening()
-    {
-        return mChangePending;
-    }
-
-    void changed(U32 mask) override
-    {
-        if (!(mask & (ADD | REMOVE)))
-        {
-            return;
-        }
-
-        if (gFloaterTools)
-        {
-            gFloaterTools->dirty();
-        }
-        gInventory.removeObserver(this);
-        mChangePending = false;
-    }
-
-    ~PBRPickerAgentListener() override
-    {
-        gInventory.removeObserver(this);
-        mChangePending = false;
-    }
-};
-
-// One-off listener that updates the build floater UI when the prim inventory updates
-class PBRPickerObjectListener : public LLVOInventoryListener
-{
-protected:
-    LLViewerObject* mObjectp;
-    bool mChangePending = true;
-public:
-
-    PBRPickerObjectListener(LLViewerObject* object)
-    : mObjectp(object)
-    {
-        registerVOInventoryListener(mObjectp, nullptr);
-    }
-
-    const bool isListeningFor(const LLViewerObject* objectp) const
-    {
-        return mChangePending && (objectp == mObjectp);
-    }
-
-    void inventoryChanged(LLViewerObject* object,
-        LLInventoryObject::object_list_t* inventory,
-        S32 serial_num,
-        void* user_data) override
-    {
-        if (gFloaterTools)
-        {
-            gFloaterTools->dirty();
-        }
-        removeVOInventoryListener();
-        mChangePending = false;
-    }
-
-    ~PBRPickerObjectListener()
-    {
-        removeVOInventoryListener();
-        mChangePending = false;
-    }
-};
+    unloadMedia();
+}
 
 void LLPanelFace::updateUIGLTF(LLViewerObject* objectp, bool& has_pbr_material, bool& has_faces_without_pbr, bool force_set_values)
 {

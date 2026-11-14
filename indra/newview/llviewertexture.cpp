@@ -1674,6 +1674,17 @@ void LLViewerFetchedTexture::scheduleCreateTexture()
         mNeedsCreateTexture = true;
         if (preCreateTexture())
         {
+            // S24: kicks off DXPool-side work ahead of this texture's
+            // eventual synchronous createTexture() call from
+            // updateImagesCreateTextures()'s time-sliced loop
+            // (llviewertexturelist.cpp) - at minimum the CPU-only pixel
+            // repack (Tier 0), and for non-mipped sources, the full D3D11
+            // build too (Tier 1 Case A). Independent of the dead
+            // mainq/sEnabledTextures path below - see
+            // LLImageDX::scheduleAsyncBuild()'s own comment for why this is
+            // safe where that old (never re-enabled) path wasn't.
+            mGLTexturep->scheduleAsyncBuild(mRawImage);
+
 #if LL_IMAGEDX_THREAD_CHECK
             //grab a copy of the raw image data to make sure it isn't modified pending texture creation
             U8* data = mRawImage->getData();
@@ -1686,10 +1697,16 @@ void LLViewerFetchedTexture::scheduleCreateTexture()
             }
 #endif
             mNeedsCreateTexture = true;
-            // Background-thread D3D11 texture creation was removed after an unfixable driver-level
-            // NVIDIA bug - sEnabledTextures is permanently false under DX_RENDER, so this always
-            // resolves to nullptr (synchronous, main-thread creation). See LLImageDX::initClass()'s
-            // DX_RENDER branch.
+            // This whole path - a worker thread calling createTexture() (full DXTexture::create(),
+            // device AND context calls) off the main thread - is what crashed under task #260.
+            // Re-investigated: the SINGLETHREADED device flag wasn't even added until after that
+            // crash, so it wasn't the cause - the actual problem was calling ID3D11DeviceContext
+            // methods (UpdateSubresource/GenerateMips) from a worker while the main thread was
+            // drawing/presenting, which D3D11's threading contract never allows regardless of that
+            // flag. sEnabledTextures stays permanently false; do not re-enable this specific path.
+            // The safe replacement - repack and, for non-mipped sources, a full off-thread build via
+            // device-only calls (never context calls) - is scheduleAsyncBuild(), called from
+            // scheduleCreateTexture() above.
             auto mainq = LLImageDXThread::sEnabledTextures ? mMainQueue.lock() : nullptr;
             if (mainq)
             {
@@ -1734,7 +1751,8 @@ void LLViewerFetchedTexture::scheduleCreateTexture()
 #endif
                         //finalize on main thread
                         // No separate finalize needed - createTexture() above already completed the
-                        // mutex-protected (DXTexture's shared_mutex) upload on whichever thread ran it.
+                        // upload on whichever thread ran it. (Stale note: DXTexture has never had a
+                        // shared_mutex in the current design - see its own class comment.)
                         postCreateTexture();
                         unref();
                     });

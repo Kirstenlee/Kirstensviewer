@@ -206,7 +206,6 @@ public:
 
     void notifyScript(const std::string& script_id, const std::string& method, const LLSD& message) const;
     void sendUnsubscribeScriptEditor(const std::string& script_id);
-    void sendCompileResults(const std::string& script_id, const LLSD& results) const;
 
     LLHandle<LLPanel> findEditorForScript(const std::string& script_id) const;
 

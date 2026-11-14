@@ -2110,32 +2110,10 @@ void BGFolderHttpHandler::processFailure(LLCore::HttpStatus status, LLCore::Http
         }
     }
 
-    // This was originally the request retry logic for the inventory
-    // request which tested on HTTP_INTERNAL_ERROR status.  This
-    // retry logic was unbounded and lacked discrimination as to the
-    // cause of the retry.  The new http library should be doing
-    // adequately on retries but I want to keep the structure of a
-    // retry for reference.
     LLInventoryModelBackgroundFetch* fetcher = LLInventoryModelBackgroundFetch::getInstance();
-    if (false)
+    if (fetcher->isBulkFetchProcessingComplete())
     {
-        // timed out or curl failure
-        for (LLSD::array_const_iterator folder_it = mRequestSD["folders"].beginArray();
-             folder_it != mRequestSD["folders"].endArray();
-             ++folder_it)
-        {
-            LLSD folder_sd(*folder_it);
-            LLUUID folder_id(folder_sd["folder_id"].asUUID());
-            const bool recursive = getIsRecursive(folder_id);
-            fetcher->addRequestAtFront(folder_id, recursive, true);
-        }
-    }
-    else
-    {
-        if (fetcher->isBulkFetchProcessingComplete())
-        {
-            fetcher->setAllFoldersFetched();
-        }
+        fetcher->setAllFoldersFetched();
     }
 }
 

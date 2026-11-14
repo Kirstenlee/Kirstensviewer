@@ -1661,46 +1661,6 @@ void LLFloaterWorldMap::flyToLandmark()
     }
 }
 
-void LLFloaterWorldMap::teleportToLandmark()
-{
-    bool has_destination = false;
-    LLUUID destination_id; // Null means "home"
-
-    if( LLTracker::getTrackedLandmarkAssetID() == sHomeID )
-    {
-        has_destination = true;
-    }
-    else
-    {
-        LLLandmark* landmark = gLandmarkList.getAsset( LLTracker::getTrackedLandmarkAssetID() );
-        LLVector3d global_pos;
-        if(landmark && landmark->getGlobalPos(global_pos))
-        {
-            destination_id = LLTracker::getTrackedLandmarkAssetID();
-            has_destination = true;
-        }
-        else if(landmark)
-        {
-            // pop up an anonymous request request.
-            LLUUID region_id;
-            if(landmark->getRegionID(region_id))
-            {
-                LLLandmark::requestRegionHandle(
-                                                gMessageSystem,
-                                                gAgent.getRegionHost(),
-                                                region_id,
-                                                NULL);
-            }
-        }
-    }
-
-    if( has_destination )
-    {
-        gAgent.teleportViaLandmark( destination_id );
-    }
-}
-
-
 void LLFloaterWorldMap::teleportToAvatar()
 {
     LLAvatarTracker& av_tracker = LLAvatarTracker::instance();

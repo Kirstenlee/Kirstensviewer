@@ -396,67 +396,7 @@ void LLAvatarTracker::empower(const LLUUID& id, bool grant)
 {
     // wrapper for ease of use in some situations.
     buddy_map_t list;
-    /*
-    list.insert(id);
-    empowerList(list, grant);
-    */
 }
-
-void LLAvatarTracker::empowerList(const buddy_map_t& list, bool grant)
-{
-    LL_WARNS() << "LLAvatarTracker::empowerList() not implemented." << LL_ENDL;
-/*
-    LLMessageSystem* msg = gMessageSystem;
-    const char* message_name;
-    const char* block_name;
-    const char* field_name;
-    if(grant)
-    {
-        message_name = _PREHASH_GrantModification;
-        block_name = _PREHASH_EmpoweredBlock;
-        field_name = _PREHASH_EmpoweredID;
-    }
-    else
-    {
-        message_name = _PREHASH_RevokeModification;
-        block_name = _PREHASH_RevokedBlock;
-        field_name = _PREHASH_RevokedID;
-    }
-
-    std::string name;
-    gAgent.buildFullnameAndTitle(name);
-
-    bool start_new_message = true;
-    buddy_list_t::const_iterator it = list.begin();
-    buddy_list_t::const_iterator end = list.end();
-    for(; it != end; ++it)
-    {
-        if(NULL == get_ptr_in_map(mBuddyInfo, (*it))) continue;
-        setBuddyEmpowered((*it), grant);
-        if(start_new_message)
-        {
-            start_new_message = false;
-            msg->newMessageFast(message_name);
-            msg->nextBlockFast(_PREHASH_AgentData);
-            msg->addUUIDFast(_PREHASH_AgentID, gAgent.getID());
-            msg->addUUIDFast(_PREHASH_SessionID, gAgent.getSessionID());
-            msg->addStringFast(_PREHASH_GranterName, name);
-        }
-        msg->nextBlockFast(block_name);
-        msg->addUUIDFast(field_name, (*it));
-        if(msg->isSendFullFast(block_name))
-        {
-            start_new_message = true;
-            gAgent.sendReliableMessage();
-        }
-    }
-    if(!start_new_message)
-    {
-        gAgent.sendReliableMessage();
-    }
-*/
-}
-
 void LLAvatarTracker::deleteTrackingData()
 {
     //make sure mTrackingData never points to freed memory

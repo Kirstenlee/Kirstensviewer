@@ -713,6 +713,7 @@
         max_val="4096"
         min_val="256"
         name="kvram_ram_budget"
+        show_text="false"
         width="200"
         tool_tip="RAM allocated for texture buffer - stores textures passively received from GPU (256 MB - 4 GB in 256 MB steps)"/>
 
@@ -783,6 +784,7 @@
         max_val="1.0"
         min_val="0.5"
         name="kvram_soft_threshold"
+        show_text="false"
         width="200"
         tool_tip="Start gentle RAM→Disk eviction when buffer reaches this usage level (50%-100%)"/>
 
@@ -826,6 +828,7 @@
         max_val="1.0"
         min_val="0.7"
         name="kvram_hard_threshold"
+        show_text="false"
         width="200"
         tool_tip="Force aggressive RAM→Disk eviction when buffer reaches this usage level (70%-100%)"/>
 
@@ -881,7 +884,7 @@
         word_wrap="true"
         font="SansSerifBold"
         text_color="White">
-        Retention Time (Hold Time):
+        Retention Time (Min. Hold Time):
       </text>
 
       <slider
@@ -896,6 +899,7 @@
         max_val="30"
         min_val="0.1"
         name="kvram_retention_time"
+        show_text="false"
         width="200"
         tool_tip="Minimum retention time - textures must be in cache this long before eligible for eviction (0.1-30 seconds in 0.1 second steps)"/>
 
@@ -924,7 +928,7 @@
         word_wrap="true"
         font="SansSerifBold"
         text_color="White">
-        Min Deck Size (Textures):
+        Deck Size (Pre-Load Cap):
       </text>
 
       <slider
@@ -936,11 +940,12 @@
         increment="100"
         initial_value="100"
         layout="topleft"
-        max_val="10000"
+        max_val="15000"
         min_val="100"
         name="kvram_min_deck_size"
+        show_text="false"
         width="200"
-        tool_tip="Minimum textures in deck (100-10000 in 100 steps). Higher = more guaranteed cache hits before rotation begins."/>
+        tool_tip="Deck size (100-15000 in 100 steps): the maximum textures warmed into RAM at startup, and the minimum textures held in the RAM buffer during play. Higher = more guaranteed cache hits before rotation begins, and more textures warmed at launch."/>
 
       <text
         left_pad="5"
@@ -954,6 +959,94 @@
         font="SansSerifSmall"
         text_color="White">
         100 textures
+      </text>
+
+      <text
+        left="20"
+        top_pad="8"
+        type="string"
+        follows="left|top"
+        height="18"
+        layout="topleft"
+        width="268"
+        word_wrap="true"
+        font="SansSerifBold"
+        text_color="White">
+        Pre-Load Timeout (Startup):
+      </text>
+
+      <slider
+        left="20"
+        top_pad="2"
+        control_name="KVRAMCacheHotLoadTimeoutSec"
+        follows="left|top"
+        height="20"
+        increment="0.5"
+        initial_value="4.0"
+        layout="topleft"
+        max_val="30.0"
+        min_val="1.0"
+        name="kvram_hotload_timeout"
+        show_text="false"
+        width="200"
+        tool_tip="Hard wall-clock ceiling for warming the RAM cache from disk before the main window opens (1.0-30.0 seconds). Startup proceeds regardless once this elapses."/>
+
+      <text
+        left_pad="5"
+        top_delta="0"
+        name="kvram_hotload_timeout_text"
+        type="string"
+        follows="left|top"
+        height="18"
+        layout="topleft"
+        width="70"
+        font="SansSerifSmall"
+        text_color="White">
+        4.0 sec
+      </text>
+
+      <text
+        left="20"
+        top_pad="8"
+        type="string"
+        follows="left|top"
+        height="18"
+        layout="topleft"
+        width="268"
+        word_wrap="true"
+        font="SansSerifBold"
+        text_color="White">
+        Shutdown Flush Timeout (Logoff):
+      </text>
+
+      <slider
+        left="20"
+        top_pad="2"
+        control_name="KVRAMCacheShutdownFlushTimeoutSec"
+        follows="left|top"
+        height="20"
+        increment="0.5"
+        initial_value="6.0"
+        layout="topleft"
+        max_val="30.0"
+        min_val="1.0"
+        name="kvram_shutdown_flush_timeout"
+        show_text="false"
+        width="200"
+        tool_tip="Hard wall-clock ceiling for flushing RAM-resident textures to disk at logoff, before the viewer process terminates (1.0-30.0 seconds)."/>
+
+      <text
+        left_pad="5"
+        top_delta="0"
+        name="kvram_shutdown_flush_timeout_text"
+        type="string"
+        follows="left|top"
+        height="18"
+        layout="topleft"
+        width="70"
+        font="SansSerifSmall"
+        text_color="White">
+        6.0 sec
       </text>
       </panel>
 
@@ -1044,7 +1137,7 @@
         type="string"
         length="1"
         follows="left|top"
-        height="130"
+        height="150"
         layout="topleft"
         width="268"
         font="SansSerifSmall"
@@ -1052,7 +1145,9 @@
         word_wrap="true"
         bg_visible="true"
         bg_readonly_color="Black_50">
-        ℹ️ How It Works: GPU passively sends texture data to RAM buffer → RAM holds for fast re-delivery to GPU when requested → After grace period expires AND buffer exceeds threshold, oldest textures evict to disk. User configures all timing, thresholds, and budget limits. Clean startup with empty cache.
+        ℹ️ How It Works: GPU passively sends texture data to RAM buffer → RAM holds for fast re-delivery to GPU when requested → After retention time expires AND buffer exceeds threshold, oldest textures evict to disk. User configures all timing, thresholds, and budget limits.
+
+⚠️ RAM buffer flushes to disk at logoff and pre-loads back at next launch - frequently-used textures (especially your own avatar's) stay warm between sessions.
       </text>
       </panel>
 
@@ -5642,7 +5737,7 @@
       </panel>
 
       <panel
-        name="card_blank1"
+        name="card_webengine"
         follows="left|top"
         height="288"
         width="308"
@@ -5654,6 +5749,55 @@
         background_opaque="false"
         bg_alpha_image="Aurora_R1C3"
         >
+      <text
+        type="string"
+        follows="left|top"
+        height="18"
+        layout="topleft"
+        left="16"
+        top="12"
+        width="268"
+        font="SansSerifBold"
+        text_color="DrYellow">
+        Web Engine
+      </text>
+
+      <check_box
+        left="20"
+        top_pad="8"
+        control_name="MediaUseWebView2"
+        height="20"
+        initial_value="true"
+        label="WebView2 (Windows Edge engine)"
+        layout="topleft"
+        name="web_engine_webview2"
+        tool_tip="Uses the Edge WebView2 runtime that Windows keeps updated. Plays MP4/H.264 video on media surfaces. Takes effect after a restart."
+        width="280" />
+
+      <check_box
+        left="20"
+        top_pad="4"
+        height="20"
+        initial_value="false"
+        label="CEF (bundled Chromium)"
+        layout="topleft"
+        name="web_engine_cef"
+        tool_tip="Uses the Chromium Embedded Framework build shipped with the viewer. No MP4/H.264 video. Takes effect after a restart."
+        width="280" />
+
+      <text
+        left="20"
+        top_pad="8"
+        type="string"
+        follows="left|top"
+        height="32"
+        layout="topleft"
+        width="268"
+        word_wrap="true"
+        font="SansSerifSmall"
+        text_color="LtGray">
+        Applies to web pages and media on prims. Restart the viewer to switch engines.
+      </text>
       </panel>
 
       <panel
@@ -9417,7 +9561,7 @@ Lower values respond faster but can feel jerky. Higher values are smoother but s
       border="true"
       follows="all"
       height="585"
-      label="UI Hue"
+      label="Interface"
       layout="topleft"
       left="1"
       help_topic="tweaks_tab_ui_hue"
@@ -9897,7 +10041,7 @@ Lower values respond faster but can feel jerky. Higher values are smoother but s
       </panel>
 
       <panel
-        name="card_empty2"
+        name="card_floater_fade"
         follows="left|top"
         height="288"
         width="308"
@@ -9909,6 +10053,71 @@ Lower values respond faster but can feel jerky. Higher values are smoother but s
         background_opaque="false"
         bg_alpha_image="Aurora_R2C3"
         >
+      <text
+        type="string"
+        follows="left|top"
+        height="18"
+        layout="topleft"
+        left="16"
+        top="12"
+        width="268"
+        font="SansSerifBold"
+        text_color="DrYellow">
+        UI Fade-in Time
+      </text>
+
+      <text
+        type="string"
+        follows="left|top"
+        height="32"
+        top_pad="8"
+        layout="topleft"
+        left="20"
+        width="268"
+        font="SansSerifSmall"
+        text_color="LtGray"
+        word_wrap="true">
+        Smooth fade on opening viewer UI elements
+      </text>
+
+      <check_box
+        control_name="UIFloaterFadeInEnabled"
+        height="20"
+        initial_value="true"
+        label="Enable fade-in"
+        layout="topleft"
+        left="20"
+        top_pad="10"
+        name="ui_floater_fade_in_enabled"
+        tool_tip="Floaters fade in smoothly over time instead of appearing instantly"
+        width="280" />
+
+      <text
+        type="string"
+        follows="left|top"
+        height="18"
+        layout="topleft"
+        left="20"
+        top_pad="8"
+        width="268"
+        font="SansSerif">
+        Fade-in time (seconds):
+      </text>
+      <slider
+        control_name="UIFloaterFadeInTime"
+        decimal_digits="2"
+        follows="left|top"
+        height="20"
+        increment="0.01"
+        initial_value="0.25"
+        layout="topleft"
+        left="20"
+        min_val="0.01"
+        max_val="0.50"
+        name="ui_floater_fade_in_time"
+        tool_tip="How long a floater takes to fade from transparent to fully visible when it opens"
+        top_pad="10"
+        width="200" />
       </panel>
 
     </panel>

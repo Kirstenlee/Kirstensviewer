@@ -615,7 +615,7 @@ void LLFastTimerView::exportCharts(const std::string& base, const std::string& t
 
         last_p.clear();
 
-        LLGLDisable cull(DX_CULL_FACE);
+        DXStateDisable cull(DX_CULL_FACE);
 
         LLVector3 base_col(0, 0.7f, 0.f);
         LLVector3 cur_col(1.f, 0.f, 0.f);
@@ -639,7 +639,7 @@ void LLFastTimerView::exportCharts(const std::string& base, const std::string& t
 
         last_p.clear();
         {
-            LLGLEnable blend(DX_BLEND);
+            DXStateEnable blend(DX_BLEND);
 
             gDX.color3fv(cur_col.mV);
             for (U32 i = 0; i < cur_times.size(); ++i)
@@ -680,7 +680,7 @@ void LLFastTimerView::exportCharts(const std::string& base, const std::string& t
         gDX.flush();
 
         {
-            LLGLEnable blend(DX_BLEND);
+            DXStateEnable blend(DX_BLEND);
             gDX.color3fv(cur_col.mV);
             last_p.clear();
 
@@ -727,7 +727,7 @@ void LLFastTimerView::exportCharts(const std::string& base, const std::string& t
         last_p.clear();
 
         {
-            LLGLEnable blend(DX_BLEND);
+            DXStateEnable blend(DX_BLEND);
             gDX.color3fv(cur_col.mV);
             count = 0;
             total_count = static_cast<U32>(cur_execution.size());

@@ -212,6 +212,7 @@ using namespace boost::placeholders;
 // in save_settings_to_globals()
 #include "DXDevice.h"
 #include "DXShader.h"
+#include "llimagedx.h"
 #include "llbutton.h"
 #include "llstatusbar.h"
 #include "llsurface.h"
@@ -550,7 +551,6 @@ static void settings_to_globals()
 {
 	LLSurface::setTextureSize(gSavedSettings.getU32("RegionTextureSize"));
 
-	LLRender::sGLCoreProfile = gSavedSettings.getBOOL("RenderGLContextCoreProfile");
 	LLRender::sNsightDebugSupport = gSavedSettings.getBOOL("RenderNsightDebugSupport");
 	// S24: runtime toggle for the D3D11 debug/validation layer (was hardcoded
 	// on unconditionally) - see DXDevice.h's sDebugLayerEnabled comment. Must
@@ -582,6 +582,12 @@ static void settings_to_globals()
 	// gone - RenderCompressTextures now drives the real BC7 pipeline instead
 	// (DXBC7UploadManager::requestUpgrade() reads it directly from
 	// gSavedSettings rather than caching it here).
+	// S24: LLImageDX::scheduleAsyncBuild()'s DXPool-offload master switch -
+	// dxrender can't read gSavedSettings directly, same pattern as
+	// DXDevice::sDebugLayerEnabled above. No device-creation timing
+	// requirement (read per schedule call, not at init), but kept here
+	// alongside the other DX_RENDER feature flags for discoverability.
+	LLImageDX::sAsyncRepackEnabled = gSavedSettings.getBOOL("RenderDXAsyncTextureRepack");
 	LLVOVolume::sLODFactor = llclamp(gSavedSettings.getF32("RenderVolumeLODFactor"), 0.01f, MAX_LOD_FACTOR);
 	LLVOVolume::sDistanceFactor = 1.f - LLVOVolume::sLODFactor * 0.1f;
 	LLVolumeImplFlexible::sUpdateFactor = gSavedSettings.getF32("RenderFlexTimeFactor");
@@ -704,9 +710,9 @@ LLAppViewer::LLAppViewer()
 
 	// Need to do this initialization before we do anything else, since anything
 	// that touches files should really go through the lldir API
-	// S24: "Kirstens S24 DX" settings/logs dir - matches the cache dir name
-	// split in lldir.cpp.
-	gDirUtilp->initAppDirs("Kirstens S24 DX");
+	// S24: settings/logs dir, matches the cache dir name in lldir.cpp. An existing
+	// "Kirstens S24 DX" folder is migrated by LLDir_Win32::initAppDirs.
+	gDirUtilp->initAppDirs("Kirstens S24");
 	//
 	// IMPORTANT! Do NOT put anything that will write
 	// into the log files during normal startup until AFTER
@@ -947,6 +953,15 @@ bool LLAppViewer::init()
 		return false;
 	}
 	LL_INFOS("InitInfo") << "Cache initialization is done." << LL_ENDL;
+
+	// S24: warm KVRAMCache from its own dedicated on-disk snapshot (written by
+	// KVRAMCache::finishShutdownFlush() at last logoff) before the window
+	// opens - no-ops immediately if KVRAMCacheEnabled is false or no snapshot
+	// exists yet.
+	if (gSavedSettings.getBOOL("KVRAMCacheEnabled") && KVRAMCache::instanceExists())
+	{
+		KVRAMCache::getInstance()->loadFromDiskSnapshot();
+	}
 
 	// Initialize event recorder
 	LLViewerEventRecorder::createInstance();
@@ -2024,6 +2039,17 @@ bool LLAppViewer::cleanup()
 	// all cleanup will get subsumed into the generic call. So the calls you
 	// still see above are calls that MUST happen before the generic cleanup
 	// kicks in.
+
+	// S24: must happen before LLSingletonBase::deleteAll() just below, which
+	// destroys the KVRAMCache singleton itself - this is the latest safe point
+	// to wait for the shutdown flush (kicked off back in requestQuit()) and do
+	// its final clearAll(). Still lands after RunFinalSweep() and the explicit
+	// subsystem teardowns above, so the flush gets the benefit of a mostly-quiet
+	// shutdown sequence, not just whatever time elapsed before KVRAMCache::shutdown().
+	if (KVRAMCache::instanceExists())
+	{
+		KVRAMCache::getInstance()->finishShutdownFlush();
+	}
 
 	// This calls every remaining LLSingleton's cleanupSingleton() and
 	// deleteSingleton() methods.
@@ -4031,6 +4057,38 @@ void LLAppViewer::writeDebugInfo(bool isStatic)
 		: LLSDSerialize::toPrettyXML(gDebugInfo["Dynamic"], out_file);
 }
 
+// S24 : version of the installed WebView2 (Edge) runtime, from the registry key the Evergreen
+// runtime's updater maintains ("not installed" on machines without it).
+static std::string get_webview2_runtime_version()
+{
+	static const wchar_t* kKey = L"SOFTWARE\\Microsoft\\EdgeUpdate\\Clients\\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}";
+	const HKEY roots[] = { HKEY_LOCAL_MACHINE, HKEY_CURRENT_USER };
+	const REGSAM views[] = { KEY_WOW64_32KEY, KEY_WOW64_64KEY };
+	for (HKEY root : roots)
+	{
+		for (REGSAM view : views)
+		{
+			HKEY key = nullptr;
+			if (RegOpenKeyExW(root, kKey, 0, KEY_QUERY_VALUE | view, &key) != ERROR_SUCCESS)
+			{
+				continue;
+			}
+			wchar_t buf[64] = {};
+			DWORD size = sizeof(buf) - sizeof(wchar_t); // leave room for a terminator
+			DWORD type = 0;
+			const LONG result = RegQueryValueExW(key, L"pv", nullptr, &type, reinterpret_cast<LPBYTE>(buf), &size);
+			RegCloseKey(key);
+			if (result == ERROR_SUCCESS && type == REG_SZ && buf[0])
+			{
+				std::string out;
+				for (const wchar_t* c = buf; *c; ++c) out += (char)*c; // version strings are ASCII
+				return out;
+			}
+		}
+	}
+	return "not installed";
+}
+
 LLSD LLAppViewer::getViewerInfo() const
 {
 	// The point of having one method build an LLSD info block and the other
@@ -4176,6 +4234,13 @@ LLSD LLAppViewer::getViewerInfo() const
 	}
 
 	std::ostringstream cef_ver_codec;
+	if (gSavedSettings.getBOOL("MediaUseWebView2"))
+	{
+		// S24 : the web engine is the Windows-maintained WebView2 runtime, not CEF/Dullahan
+		cef_ver_codec << "WebView2 Runtime: " << get_webview2_runtime_version();
+	}
+	else
+	{
 	cef_ver_codec << "Dullahan: ";
 	cef_ver_codec << DULLAHAN_VERSION_MAJOR;
 	cef_ver_codec << ".";
@@ -4198,6 +4263,8 @@ LLSD LLAppViewer::getViewerInfo() const
 	cef_ver_codec << CHROME_VERSION_BUILD;
 	cef_ver_codec << ".";
 	cef_ver_codec << CHROME_VERSION_PATCH;
+
+	}
 
 	info["LIBCEF_VERSION"] = cef_ver_codec.str();
 
@@ -4906,6 +4973,14 @@ void LLAppViewer::requestQuit()
 
 	gLogoutTimer.reset();
 	mQuitRequested = true;
+
+	// S24: kick off the RAM-cache shutdown flush as early as possible, so it
+	// runs in parallel with the rest of this quit sequence instead of only
+	// getting whatever time is left once cleanup() reaches KVRAMCache::shutdown().
+	if (gSavedSettings.getBOOL("KVRAMCacheEnabled") && KVRAMCache::instanceExists())
+	{
+		KVRAMCache::getInstance()->beginShutdownFlush();
+	}
 }
 
 static bool finish_quit(const LLSD& notification, const LLSD& response)

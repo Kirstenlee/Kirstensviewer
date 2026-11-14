@@ -1071,8 +1071,8 @@ void LLSphereProbes::updateProbeFace(LLReflectionMap* probe, U32 face)
 
     gDX.setColorWriteMask(true, true);
     DXDepthTest depth(false, false);
-    LLGLDisable cull(DX_CULL_FACE);
-    LLGLDisable blend(DX_BLEND);
+    DXStateDisable cull(DX_CULL_FACE);
+    DXStateDisable blend(DX_BLEND);
 
     // Blur, downsample and copy this face into the scratch cube (see LLProbeCapture).
     mCapture.resolveFace(gPipeline.mAuxillaryRT.screen, mCubes.radiance(), sourceIdx * 6 + face);

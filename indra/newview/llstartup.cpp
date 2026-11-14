@@ -1063,7 +1063,17 @@ bool idle_startup()
 		}
 		else
 		{
-			gDirUtilp->setChatLogsDir(gSavedPerAccountSettings.getString("InstantMessageLogPath"));
+			// S24: a saved path inside the old "Kirstens S24 DX" profile folder follows the rename
+			std::string log_path = gSavedPerAccountSettings.getString("InstantMessageLogPath");
+			const std::string old_dir = "\\Kirstens S24 DX";
+			const size_t pos = log_path.find(old_dir);
+			const size_t end = pos == std::string::npos ? pos : pos + old_dir.size();
+			if (pos != std::string::npos && (end == log_path.size() || log_path[end] == '\\'))
+			{
+				log_path.replace(pos, old_dir.size(), "\\Kirstens S24");
+				gSavedPerAccountSettings.setString("InstantMessageLogPath", log_path);
+			}
+			gDirUtilp->setChatLogsDir(log_path);
 		}
 		gDirUtilp->setPerAccountChatLogsDir(userid);
 
@@ -1627,8 +1637,6 @@ bool idle_startup()
 
 		gAgent.addRegionChangedCallback(boost::bind(&LLPerfStats::StatsRecorder::clearStats));
 
-		// *Note: this is where gWorldMap used to be initialized.
-
 		// register null callbacks for audio until the audio system is initialized
 		gMessageSystem->setHandlerFuncFast(_PREHASH_SoundTrigger, null_message_callback, NULL);
 		gMessageSystem->setHandlerFuncFast(_PREHASH_AttachedSound, null_message_callback, NULL);
@@ -1678,11 +1686,9 @@ bool idle_startup()
 		// Initialize global class data needed for surfaces (i.e. textures)
 		LL_DEBUGS("AppInit") << "Initializing sky..." << LL_ENDL;
 		// Initialize all of the viewer object classes for the first time (doing things like texture fetches.
-		DXState::checkStates();
 
 		gSky.init();
 
-		DXState::checkStates();
 
 		do_startup_frame();
 

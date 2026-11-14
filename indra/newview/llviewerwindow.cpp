@@ -2147,9 +2147,11 @@ LLViewerWindow::LLViewerWindow(const Params& p)
 
 	// Init the image list.  Must happen after GL is initialized and before the images that
 	// LLViewerWindow needs are requested, as well as before LLViewerMedia starts updating images.
-	// thread_texture_loads/thread_media_updates hardcoded false: background-thread D3D11
-	// texture/media creation hits an unfixable driver-level NVIDIA bug. See LLImageDX::initClass()'s
-	// DX_RENDER branch (llimagedx.cpp).
+	// thread_texture_loads/thread_media_updates hardcoded false: the old full off-thread
+	// DXTexture::create() path (device AND context calls on a worker) crashed under task #260 -
+	// re-investigated, it was calling ID3D11DeviceContext methods off the main thread, not a proven
+	// driver bug. Stays disabled regardless; see LLImageDX::initClass()'s DX_RENDER branch
+	// (llimagedx.cpp) and LLImageDX::scheduleAsyncBuild() for the safe replacement.
 	LLImageDX::initClass(mWindow, LLViewerTexture::MAX_GL_IMAGE_CATEGORY, false, false, false);
 	gTextureList.init();
 	LLViewerTextureManager::init();
@@ -4300,7 +4302,12 @@ void LLViewerWindow::renderSelections(bool for_gl_pick, bool pick_parcel_walls, 
 {
 	LLObjectSelectionHandle selection = LLSelectMgr::getInstance()->getSelection();
 
-	if (!for_hud && !for_gl_pick)
+	// S24: skip the whole call (real silhouette geometry generation, capped at
+	// MAX_SILS_PER_FRAME) when nothing would ever draw it - renderSilhouettes() below already
+	// gates its draw on this same pair. Dirty/changed flags are untouched while skipped, so a
+	// re-enable (setting flipped back on, or a manipulator drag ending) correctly regenerates
+	// everything that moved in the meantime on its next call - see enableSilhouette().
+	if (!for_hud && !for_gl_pick && LLSelectMgr::getInstance()->shouldRenderSilhouettes())
 	{
 		// Call this once and only once
 		LLSelectMgr::getInstance()->updateSilhouettes();
@@ -4343,8 +4350,8 @@ void LLViewerWindow::renderSelections(bool for_gl_pick, bool pick_parcel_walls, 
 		if (LLSelectMgr::sRenderLightRadius && LLToolMgr::getInstance()->inEdit())
 		{
 			gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
-			LLGLEnable gls_blend(DX_BLEND);
-			LLGLEnable gls_cull(DX_CULL_FACE);
+			DXStateEnable gls_blend(DX_BLEND);
+			DXStateEnable gls_cull(DX_CULL_FACE);
 			DXDepthTest gls_depth(true, false);
 			gDX.matrixMode(LLRender::MM_MODELVIEW);
 			gDX.pushMatrix();

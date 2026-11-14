@@ -734,7 +734,7 @@ namespace
     {
         LL_RECORD_BLOCK_TIME(FTM_RENDER_SHINY);
 
-        LLGLEnable blend_enable(DX_BLEND);
+        DXStateEnable blend_enable(DX_BLEND);
 
         // S24: gDeferredFullbrightShinyProgram sets mFeatures.mIndexedTextureChannels
         // unconditionally (llviewershadermgr.cpp), not gated on mShaderLevel - the shader
@@ -803,7 +803,7 @@ namespace
     {
         LL_RECORD_BLOCK_TIME(FTM_RENDER_BUMP);
         DXDepthTest gls_depth(true, false, DX_LEQUAL);
-        LLGLEnable blend(DX_BLEND);
+        DXStateEnable blend(DX_BLEND);
         gDX.diffuseColor4f(1, 1, 1, 1);
 
         // Biases depth (-1,-1), matching GL's glPolygonOffset(-1,-1): this
@@ -835,7 +835,7 @@ namespace
     {
         LL_RECORD_BLOCK_TIME(FTM_RENDER_BUMP);
         DXDepthTest gls_depth(true, false, DX_LEQUAL);
-        LLGLEnable blend(DX_BLEND);
+        DXStateEnable blend(DX_BLEND);
         gDX.diffuseColor4f(1, 1, 1, 1);
 
         // Same depth-bias fix as renderBump() above - rigged foliage/attachments

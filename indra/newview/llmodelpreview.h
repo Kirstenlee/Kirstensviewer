@@ -174,7 +174,6 @@ public:
     void updateStatusMessages();
     void updateLodControls(S32 lod);
     void onLODMeshOptimizerParamCommit(S32 lod, bool enforce_tri_limit, S32 mode);
-    void addEmptyFace(LLModel* pTarget);
 
     const bool getModelPivot(void) const { return mHasPivot; }
     void setHasPivot(bool val) { mHasPivot = val; }

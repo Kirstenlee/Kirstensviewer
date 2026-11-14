@@ -1388,7 +1388,14 @@ F32 LLViewerTextureList::updateImagesCreateTextures(F32 max_time)
             LLImageDX* glTex = imagep->getGLTexture();
             if (raw && raw->getData() && glTex
                 && imagep->getBoostLevel() != DXTextureBase::BOOST_BUMP
-                && glTex->getPrimaryFormat() != GL_ALPHA)
+                && glTex->getPrimaryFormat() != GL_ALPHA
+                // S24: check requestUpgrade()'s own eligibility gates (master toggle,
+                // per-texture allow-compression flag, minimum size) BEFORE paying for the
+                // repack + alpha-variance scan below, not after - those gates reject most
+                // textures even with the feature enabled (small textures, excluded boost
+                // levels, etc.), and the repack was previously done unconditionally only to
+                // be thrown away by requestUpgrade() itself.
+                && DXBC7UploadManager::wouldAccept(glTex, raw->getWidth(), raw->getHeight()))
             {
                 std::vector<uint8_t> rgba8;
                 if (DXTexture::repackToRGBA8(raw->getData(), raw->getWidth(), raw->getHeight(), raw->getComponents(), rgba8))

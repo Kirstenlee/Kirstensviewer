@@ -8,19 +8,22 @@
 #include "threadpool.h"
 #include "llviewercontrol.h"
 #include "llerror.h"
+#include "llthread.h"
 
 #include <algorithm>
 #include <memory>
+#include <unordered_map>
 
 namespace
 {
     // One finished background job's worth of work, ready to apply on the
     // main thread. Owns all its compressed mip bytes directly (mipBytes[i]
     // backs mips[i].data, built fresh in DXBC7UploadManager::update() right
-    // before the LLImageDX call - see there).
+    // before the LLImageDX call - see there). An empty mipBytes means the
+    // job was abandoned on the worker; update() just releases its entry.
     struct UpgradeResult
     {
-        LLPointer<LLImageDX> tex;
+        U64 jobId = 0; // S24 : key into getPending() - workers never see an LLImageDX pointer
         U32 generation = 0;
         std::vector<std::vector<uint8_t>> mipBytes;
         std::vector<int> mipWidths;
@@ -51,13 +54,50 @@ namespace
         static LLThreadSafeQueue<UpgradeResult> sQueue(256);
         return sQueue;
     }
+
+    // S24 : MAIN THREAD ONLY (requestUpgrade() and update() both run there).
+    // Maps a job id to the texture it was posted for, so the BC7Compress
+    // workers only ever see an integer and plain vectors: an LLPointer copied
+    // or destroyed on a worker races the main thread's ref()/unref() and can
+    // leave the worker owning the last reference. Leaked on purpose so it is
+    // never torn down in static-destruction order at exit.
+    std::unordered_map<U64, LLPointer<LLImageDX>>& getPending()
+    {
+        static auto* sPending = new std::unordered_map<U64, LLPointer<LLImageDX>>();
+        return *sPending;
+    }
+    U64 sNextJobId = 0;
+
+    // Releases entries nothing else owns any more (the texture was dropped
+    // while its job was in flight, or the result was lost to a full queue).
+    // A late result for a released id is ignored by update().
+    void prunePending()
+    {
+        auto& pending = getPending();
+        std::unordered_map<LLImageDX*, S32> held;
+        for (const auto& kv : pending)
+        {
+            ++held[kv.second.get()];
+        }
+        for (auto it = pending.begin(); it != pending.end();)
+        {
+            if (it->second->getNumRefs() <= held[it->second.get()])
+            {
+                it = pending.erase(it);
+            }
+            else
+            {
+                ++it;
+            }
+        }
+    }
 }
 
-void DXBC7UploadManager::requestUpgrade(const LLPointer<LLImageDX>& tex, const uint8_t* rgba8, int width, int height)
+bool DXBC7UploadManager::wouldAccept(const LLPointer<LLImageDX>& tex, int width, int height)
 {
-    if (!tex || !rgba8 || width <= 0 || height <= 0)
+    if (!tex || width <= 0 || height <= 0)
     {
-        return;
+        return false;
     }
 
     // S24: reuses the legacy GL-era "Enable Texture Compression" settings
@@ -66,12 +106,12 @@ void DXBC7UploadManager::requestUpgrade(const LLPointer<LLImageDX>& tex, const u
     // LLCachedControl - fires at most once per texture upload.
     if (!gSavedSettings.getBOOL("RenderCompressTextures"))
     {
-        return;
+        return false;
     }
 
     if (!tex->getAllowCompression())
     {
-        return;
+        return false;
     }
 
     // Padding a texture smaller than this up to a whole 4x4 BC7 block grid
@@ -81,17 +121,32 @@ void DXBC7UploadManager::requestUpgrade(const LLPointer<LLImageDX>& tex, const u
     static const int kMinCompressDim = 8;
     if (width < kMinCompressDim || height < kMinCompressDim)
     {
+        return false;
+    }
+
+    return true;
+}
+
+void DXBC7UploadManager::requestUpgrade(const LLPointer<LLImageDX>& tex, const uint8_t* rgba8, int width, int height)
+{
+    if (!rgba8 || !wouldAccept(tex, width, height))
+    {
         return;
     }
+
+    llassert(on_main_thread());
 
     const U32 generation = tex->getDXUploadGeneration();
     std::vector<uint8_t> pixels(rgba8, rgba8 + (size_t)width * height * 4);
 
+    const U64 jobId = ++sNextJobId;
+    getPending()[jobId] = tex;
+
     bool posted = getPool().getQueue().post(
-        [tex, generation, pixels = std::move(pixels), width, height]() mutable
+        [jobId, generation, pixels = std::move(pixels), width, height]() mutable
         {
             UpgradeResult result;
-            result.tex = tex;
+            result.jobId = jobId;
             result.generation = generation;
 
             int w = width, h = height;
@@ -107,7 +162,12 @@ void DXBC7UploadManager::requestUpgrade(const LLPointer<LLImageDX>& tex, const u
                     // build failure, etc.) - abandon the whole job. The
                     // texture already displayed uncompressed at upload time
                     // and stays that way; nothing to apply, nothing to warn
-                    // about (see this class's header comment).
+                    // about (see this class's header comment). The empty
+                    // result lets update() release the pending entry.
+                    result.mipBytes.clear();
+                    result.mipWidths.clear();
+                    result.mipHeights.clear();
+                    getResultsQueue().tryPush(std::move(result));
                     return;
                 }
                 result.mipBytes.push_back(std::move(cm.bytes));
@@ -169,12 +229,15 @@ void DXBC7UploadManager::requestUpgrade(const LLPointer<LLImageDX>& tex, const u
 
     if (!posted)
     {
+        getPending().erase(jobId);
         LL_DEBUGS("Texture") << "DXBC7UploadManager: BC7 compression pool closed, skipping" << LL_ENDL;
     }
 }
 
 void DXBC7UploadManager::update()
 {
+    llassert(on_main_thread());
+
     UpgradeResult result;
     // Bound the per-frame drain so a burst of finished jobs can't cause a
     // single-frame stall - remaining results simply get picked up next
@@ -188,9 +251,17 @@ void DXBC7UploadManager::update()
             break;
         }
 
-        if (!result.tex)
+        auto pending = getPending().find(result.jobId);
+        if (pending == getPending().end())
         {
-            continue;
+            continue; // released by prunePending(): nothing else owns the texture
+        }
+        LLPointer<LLImageDX> tex = std::move(pending->second);
+        getPending().erase(pending);
+
+        if (result.mipBytes.empty())
+        {
+            continue; // abandoned on the worker
         }
 
         std::vector<DXCompressedMipData> mips(result.mipBytes.size());
@@ -205,6 +276,13 @@ void DXBC7UploadManager::update()
         // silently no-ops if stale (a newer real upload superseded this
         // pixel data while the job was in flight) - not treated as an
         // error, see its own comment.
-        result.tex->upgradeToCompressedMips(mips, DXGI_FORMAT_BC7_UNORM, result.generation);
+        tex->upgradeToCompressedMips(mips, DXGI_FORMAT_BC7_UNORM, result.generation);
+    }
+
+    // Every 30 frames, release entries whose job result was lost.
+    static U32 sFrame = 0;
+    if ((++sFrame % 30) == 0)
+    {
+        prunePending();
     }
 }

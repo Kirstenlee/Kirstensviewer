@@ -299,6 +299,18 @@ public:
     // returns true if this instance should not be loaded (disabled, muted object, crashed, etc.)
     bool isForcedUnloaded() const;
 
+    // S24: isForcedUnloaded() is pricey (shouldShowBasedOnClass()/isObscured() parent-chain and
+    // parcel walks) and priorityComparitor() calls it twice PER COMPARISON during the per-frame
+    // std::list::sort - O(n log n) calls on every update, already flagged as "pricey" in that
+    // comparator's own comment. refreshForcedUnloadedCache() computes it exactly ONCE per impl,
+    // called right before the sort in LLViewerMedia::updateMedia(); getCachedForcedUnloaded()
+    // reads that cached value. Only used by the comparator's own direct calls and the
+    // post-sort priority loop, both inside that same per-frame cycle - isPlayable() below is
+    // deliberately NOT changed to use this cache, since it also has a caller outside that cycle
+    // (llpanelnearbymedia.cpp) that needs a fresh, not-possibly-stale answer.
+    void refreshForcedUnloadedCache() { mCachedForcedUnloaded = isForcedUnloaded(); }
+    bool getCachedForcedUnloaded() const { return mCachedForcedUnloaded; }
+
     // returns true if this instance could be playable based on autoplay setting, current load state, etc.
     bool isPlayable() const;
 
@@ -503,6 +515,7 @@ private:
     bool mMediaAutoPlay;
     std::string mMediaEntryURL;
     bool mInNearbyMediaList;    // used by LLPanelNearbyMedia::refreshList() for performance reasons
+    bool mCachedForcedUnloaded = false; // see refreshForcedUnloadedCache()/getCachedForcedUnloaded()
     bool mClearCache;
     LLColor4 mBackgroundColor;
     bool mNavigateSuspended;

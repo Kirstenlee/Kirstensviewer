@@ -836,6 +836,15 @@ void KVDebugConsole::onInput(LLUICtrl* ctrl, const LLSD& param)
             mOutput->appendText("Opening KV World Clock...\n", false);
             mLineCount++;
         }
+        else if (cmd == "bench" || cmd == "benchmark")
+        {
+            // S24: launches the standalone KV Bench floater (kvbench.cpp) -
+            // Math/RAM/Disk/Graphics performance test, same "console is
+            // just the launcher" pattern.
+            LLFloaterReg::showInstance("kv_bench");
+            mOutput->appendText("Opening KV Bench...\n", false);
+            mLineCount++;
+        }
         else
         {
             // Unknown command - provide helpful error message
@@ -1751,6 +1760,34 @@ void KVDebugConsole::processHelpCommand(const std::string& topic)
             );
             mLineCount += 19;
         }
+        else if (cmd == "bench" || cmd == "benchmark")
+        {
+            mOutput->appendText(
+                "╔═══════════════════════════════════════════════════════════════════════╗\n"
+                "║  BENCH                                                                ║\n"
+                "╚═══════════════════════════════════════════════════════════════════════╝\n"
+                "\n"
+                "Open the standalone KV Bench performance test.\n"
+                "\n"
+                "SYNTAX:\n"
+                "  bench               Open the benchmark (alias: benchmark)\n"
+                "\n"
+                "DESCRIPTION:\n"
+                "  Four real local sub-tests - Math (CPU), RAM bandwidth, Disk\n"
+                "  bandwidth, and Graphics (GPU fill-rate via the viewer's own 2D\n"
+                "  renderer) - combined into one Kmarks score. No network or external\n"
+                "  service involved; every number is measured on this machine. Your\n"
+                "  score is also shown as a percentage faster/slower than Kirstenlee's\n"
+                "  own reference rig (AMD 9900X3D / RTX 5080), which is fixed at 1000\n"
+                "  Kmarks.\n"
+                "\n"
+                "EXAMPLES:\n"
+                "  bench               Open the benchmark\n"
+                "  benchmark           Same thing\n",
+                false
+            );
+            mLineCount += 22;
+        }
         else
         {
             mOutput->appendText(llformat(
@@ -1838,6 +1875,7 @@ void KVDebugConsole::processListCommand()
         "\n"
         "EXTRAS:\n"
         "  worldclock, clock   Open the standalone KV World Clock (SL Time + 11 cities)\n"
+        "  bench, benchmark    Open the standalone KV Bench performance test (Kmarks)\n"
         "\n"
         "USAGE EXAMPLES:\n"
         "  help get                      Show detailed GET command help\n"

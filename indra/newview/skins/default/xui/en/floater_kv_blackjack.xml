@@ -2,41 +2,35 @@
 <floater
  legacy_header_height="18"
  can_resize="false"
- height="450"
+ height="420"
  layout="topleft"
  name="kv_blackjack"
  help_topic="kv_blackjack"
  save_rect="true"
  title="KV BLACKJACK"
- width="480">
+ width="560">
     <!-- S24: fixed-size layout, absolute positioning throughout - same proven
          scheme as floater_music_player.xml. 8 fixed icon slots per hand
          (hidden/shown by code) avoid any runtime widget creation; a hand
          needing more than 8 cards without busting is not realistically
          reachable. The table panel's children are positioned relative to
-         the panel itself, not the floater. -->
+         the panel itself, not the floater. Cards sized 60x88, matching KV
+         Solitaire's card size exactly (was 50x73 - too small per user
+         feedback). Best score moved to a single centred row at the very
+         top; Bankroll/Cash Out and Bet/+/- are grouped together instead of
+         being split across a header row and a scattered left/right-anchored
+         button row - this is the actual fix for "the buttons are sloppy". -->
     <text
      type="string"
      follows="left|top"
+     halign="center"
      height="16"
      layout="topleft"
      left="16"
-     name="bankroll_text"
+     name="best_score_text"
      top="24"
-     width="200">
-        Bankroll: 500
-    </text>
-    <text
-     type="string"
-     follows="right|top"
-     height="16"
-     layout="topleft"
-     right="-16"
-     name="bet_text"
-     top="24"
-     width="100"
-     halign="right">
-        Bet: 25
+     right="-16">
+        Best: 500
     </text>
 
     <panel
@@ -44,7 +38,7 @@
      background_opaque="true"
      bg_opaque_image="kv_blackjack_baize.png"
      follows="left|top|right"
-     height="222"
+     height="252"
      layout="topleft"
      left="12"
      name="table_panel"
@@ -56,7 +50,7 @@
          follows="left|top"
          height="16"
          layout="topleft"
-         left="8"
+         left="14"
          name="dealer_label"
          text_color="white"
          top="8"
@@ -68,7 +62,7 @@
          follows="right|top"
          height="16"
          layout="topleft"
-         right="-8"
+         right="-14"
          name="dealer_value_text"
          text_color="white"
          top_delta="0"
@@ -77,21 +71,21 @@
             Dealer: 0
         </text>
 
-        <icon follows="left|top" height="73" image_name="cards/Back.png" layout="topleft" left="8" name="dealer_slot_0" top_pad="6" width="50" />
-        <icon follows="left|top" height="73" image_name="cards/Back.png" layout="topleft" left_pad="4" name="dealer_slot_1" top_delta="0" width="50" />
-        <icon follows="left|top" height="73" image_name="cards/Back.png" layout="topleft" left_pad="4" name="dealer_slot_2" top_delta="0" width="50" />
-        <icon follows="left|top" height="73" image_name="cards/Back.png" layout="topleft" left_pad="4" name="dealer_slot_3" top_delta="0" width="50" />
-        <icon follows="left|top" height="73" image_name="cards/Back.png" layout="topleft" left_pad="4" name="dealer_slot_4" top_delta="0" width="50" />
-        <icon follows="left|top" height="73" image_name="cards/Back.png" layout="topleft" left_pad="4" name="dealer_slot_5" top_delta="0" width="50" />
-        <icon follows="left|top" height="73" image_name="cards/Back.png" layout="topleft" left_pad="4" name="dealer_slot_6" top_delta="0" width="50" />
-        <icon follows="left|top" height="73" image_name="cards/Back.png" layout="topleft" left_pad="4" name="dealer_slot_7" top_delta="0" width="50" />
+        <icon follows="left|top" height="88" image_name="cards/Back.png" layout="topleft" left="14" name="dealer_slot_0" top_pad="6" width="60" />
+        <icon follows="left|top" height="88" image_name="cards/Back.png" layout="topleft" left_pad="4" name="dealer_slot_1" top_delta="0" width="60" />
+        <icon follows="left|top" height="88" image_name="cards/Back.png" layout="topleft" left_pad="4" name="dealer_slot_2" top_delta="0" width="60" />
+        <icon follows="left|top" height="88" image_name="cards/Back.png" layout="topleft" left_pad="4" name="dealer_slot_3" top_delta="0" width="60" />
+        <icon follows="left|top" height="88" image_name="cards/Back.png" layout="topleft" left_pad="4" name="dealer_slot_4" top_delta="0" width="60" />
+        <icon follows="left|top" height="88" image_name="cards/Back.png" layout="topleft" left_pad="4" name="dealer_slot_5" top_delta="0" width="60" />
+        <icon follows="left|top" height="88" image_name="cards/Back.png" layout="topleft" left_pad="4" name="dealer_slot_6" top_delta="0" width="60" />
+        <icon follows="left|top" height="88" image_name="cards/Back.png" layout="topleft" left_pad="4" name="dealer_slot_7" top_delta="0" width="60" />
 
         <text
          type="string"
          follows="left|top"
          height="16"
          layout="topleft"
-         left="8"
+         left="14"
          name="player_label"
          text_color="white"
          top_pad="14"
@@ -103,7 +97,7 @@
          follows="right|top"
          height="16"
          layout="topleft"
-         right="-8"
+         right="-14"
          name="player_value_text"
          text_color="white"
          top_delta="0"
@@ -112,14 +106,14 @@
             You: 0
         </text>
 
-        <icon follows="left|top" height="73" image_name="cards/Back.png" layout="topleft" left="8" name="player_slot_0" top_pad="6" width="50" />
-        <icon follows="left|top" height="73" image_name="cards/Back.png" layout="topleft" left_pad="4" name="player_slot_1" top_delta="0" width="50" />
-        <icon follows="left|top" height="73" image_name="cards/Back.png" layout="topleft" left_pad="4" name="player_slot_2" top_delta="0" width="50" />
-        <icon follows="left|top" height="73" image_name="cards/Back.png" layout="topleft" left_pad="4" name="player_slot_3" top_delta="0" width="50" />
-        <icon follows="left|top" height="73" image_name="cards/Back.png" layout="topleft" left_pad="4" name="player_slot_4" top_delta="0" width="50" />
-        <icon follows="left|top" height="73" image_name="cards/Back.png" layout="topleft" left_pad="4" name="player_slot_5" top_delta="0" width="50" />
-        <icon follows="left|top" height="73" image_name="cards/Back.png" layout="topleft" left_pad="4" name="player_slot_6" top_delta="0" width="50" />
-        <icon follows="left|top" height="73" image_name="cards/Back.png" layout="topleft" left_pad="4" name="player_slot_7" top_delta="0" width="50" />
+        <icon follows="left|top" height="88" image_name="cards/Back.png" layout="topleft" left="14" name="player_slot_0" top_pad="6" width="60" />
+        <icon follows="left|top" height="88" image_name="cards/Back.png" layout="topleft" left_pad="4" name="player_slot_1" top_delta="0" width="60" />
+        <icon follows="left|top" height="88" image_name="cards/Back.png" layout="topleft" left_pad="4" name="player_slot_2" top_delta="0" width="60" />
+        <icon follows="left|top" height="88" image_name="cards/Back.png" layout="topleft" left_pad="4" name="player_slot_3" top_delta="0" width="60" />
+        <icon follows="left|top" height="88" image_name="cards/Back.png" layout="topleft" left_pad="4" name="player_slot_4" top_delta="0" width="60" />
+        <icon follows="left|top" height="88" image_name="cards/Back.png" layout="topleft" left_pad="4" name="player_slot_5" top_delta="0" width="60" />
+        <icon follows="left|top" height="88" image_name="cards/Back.png" layout="topleft" left_pad="4" name="player_slot_6" top_delta="0" width="60" />
+        <icon follows="left|top" height="88" image_name="cards/Back.png" layout="topleft" left_pad="4" name="player_slot_7" top_delta="0" width="60" />
     </panel>
 
     <text
@@ -134,15 +128,50 @@
         Press Deal to start a hand.
     </text>
 
+    <!-- Row 1: pre-hand controls, each value grouped with the control that
+         changes it - Bankroll next to Cash Out, Bet between its own -/+
+         stepper buttons - then Deal. -->
+    <text
+     type="string"
+     follows="left|top"
+     height="24"
+     layout="topleft"
+     left="16"
+     name="bankroll_text"
+     top_pad="10"
+     width="110">
+        Bankroll: 500
+    </text>
+    <button
+     follows="left|top"
+     height="24"
+     label="Cash Out"
+     layout="topleft"
+     left_pad="8"
+     name="cashout_btn"
+     top_delta="0"
+     width="70" />
     <button
      follows="left|top"
      height="24"
      label="-"
      layout="topleft"
-     left="16"
+     left_pad="24"
      name="bet_down_btn"
-     top_pad="10"
-     width="30" />
+     top_delta="0"
+     width="28" />
+    <text
+     type="string"
+     follows="left|top"
+     halign="center"
+     height="24"
+     layout="topleft"
+     left_pad="4"
+     name="bet_text"
+     top_delta="0"
+     width="60">
+        Bet: 25
+    </text>
     <button
      follows="left|top"
      height="24"
@@ -151,65 +180,48 @@
      left_pad="4"
      name="bet_up_btn"
      top_delta="0"
-     width="30" />
+     width="28" />
+
+    <!-- Row 2: Deal immediately left of Hit, and the whole Deal/Hit/Stand/
+         Double group centred as a block - the actual play loop is Deal then
+         repeated Hit/Stand/Double clicks, so these need to be adjacent with
+         minimal mouse travel between them, not split across rows or stuck
+         out at either edge. Group width = 70+8+50+8+50+8+50 = 244, centred
+         in the 560-wide floater -> left="158" gives equal 158px margins. -->
     <button
      follows="left|top"
      height="24"
      label="Deal"
      layout="topleft"
-     left_pad="14"
+     left="158"
      name="deal_btn"
-     top_delta="0"
+     top_pad="8"
      width="70" />
     <button
      follows="left|top"
-     height="24"
-     label="Cash Out"
-     layout="topleft"
-     left_pad="10"
-     name="cashout_btn"
-     top_delta="0"
-     width="70" />
-
-    <button
-     follows="right|top"
      height="24"
      label="Hit"
      layout="topleft"
-     right="-182"
+     left_pad="8"
      name="hit_btn"
      top_delta="0"
-     width="55" />
+     width="50" />
     <button
-     follows="right|top"
+     follows="left|top"
      height="24"
      label="Stand"
      layout="topleft"
-     left_pad="6"
+     left_pad="8"
      name="stand_btn"
      top_delta="0"
-     width="55" />
+     width="50" />
     <button
-     follows="right|top"
+     follows="left|top"
      height="24"
      label="Double"
      layout="topleft"
-     left_pad="6"
+     left_pad="8"
      name="double_btn"
      top_delta="0"
-     right="-16"
-     width="55" />
-
-    <text
-     type="string"
-     follows="left|top"
-     halign="center"
-     height="16"
-     layout="topleft"
-     left="16"
-     name="best_score_text"
-     top_pad="12"
-     right="-16">
-        Best: 500
-    </text>
+     width="50" />
 </floater>
