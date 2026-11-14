@@ -264,6 +264,12 @@ if (Test-Path "$mediaPluginPath\libvlc\$Configuration\*.dll") {
     Copy-Item -Path "$mediaPluginPath\libvlc\$Configuration\*.dll" -Destination 'S24-Packaged\llplugin' -Force
 }
 
+# WebView2 (Edge) plugin
+if (Test-Path "$mediaPluginPath\webview2\$Configuration\*.dll") {
+    Write-Host "  WebView2 plugin..." -ForegroundColor Cyan
+    Copy-Item -Path "$mediaPluginPath\webview2\$Configuration\*.dll" -Destination 'S24-Packaged\llplugin' -Force
+}
+
 # CEF (Chromium Embedded Framework) plugin
 if (Test-Path "$mediaPluginPath\cef\$Configuration\*.dll") {
     Write-Host "  CEF (Chromium) plugin..." -ForegroundColor Cyan
