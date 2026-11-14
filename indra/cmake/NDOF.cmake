@@ -8,7 +8,8 @@ add_library( ll::ndof INTERFACE IMPORTED )
 if (NDOF)
     use_prebuilt_binary(libndofdev)
     set(NDOF_LIBRARY libndofdev)
-    set(NDOF_INCLUDE_DIR ${ARCH_PREBUILT_DIRS}/include/ndofdev)
+    set(NDOF_INCLUDE_DIR ${LIBS_PREBUILT_DIR}/include/libndofdev)
+    include_directories(SYSTEM ${NDOF_INCLUDE_DIR})
     set(NDOF_FOUND 1)
     # S24 (2026-09-10): this was missing entirely - llviewerjoystick.cpp/.h's
     # SpaceNavigator AND generic-controller (DirectInput DI8DEVCLASS_GAMECTRL
