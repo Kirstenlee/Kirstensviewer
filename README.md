@@ -4,8 +4,8 @@
 ---
 
 <p align="center">
-     <img src="https://img.shields.io/badge/build-4395-green.svg" alt="Build">
-     <img src="https://img.shields.io/badge/version-Beta%201.3-blueviolet.svg" alt="Beta 1.3">
+     <img src="https://img.shields.io/badge/build-4706-green.svg" alt="Build">
+     <img src="https://img.shields.io/badge/version-Beta%202.0-blueviolet.svg" alt="Beta 2.0">
      <img src="https://img.shields.io/badge/platform-Windows-blue.svg" alt="Platform">
      <img src="https://img.shields.io/badge/standard-C%2B%2B20-orange.svg" alt="C++20">
      <img src="https://img.shields.io/badge/renderer-DirectX%2011-9cf.svg" alt="DirectX 11">
@@ -22,7 +22,9 @@ Kirstens Viewer is a maintained fork of the official Second Life Viewer. It prio
 - **Modern C++**: replacing legacy code
 - **Unique build system**: modern vcpkg / PowerShell solution
 - **Functionality** aligns with official viewer for consistent user experience
-- **DirectX 11 renderer** (`DX_RENDER`): a from-scratch native D3D11 backend with its own HLSL shader set. It is the sole supported renderer; OpenGL is fully retired from the shipped build. See [DirectX 11 Renderer](#-directx-11-renderer).
+- **DirectX 11 renderer**: a from-scratch native D3D11 backend with its own HLSL shader set. As of Beta 2.0 it is no longer an experiment - it is simply the Kirstens Viewer renderer, and OpenGL is fully retired from the shipped build. See [DirectX 11 Renderer](#-directx-11-renderer).
+- **WebView2 web engine** by default (MOAP, H.264/MP4 video, login, search and marketplace pages), with the CEF engine kept as a fallback.
+- **Persistent RAM texture cache**: saved at log off and pre-loaded at the next start, with an adaptive, inflow-driven eviction mode.
 - **Floater pop-out framework**: pop any registered floater into its own movable, resizable desktop window.
 - **KRLV — RLVa support** (off by default): a clean-room implementation of the RLVa command API with a single control surface. See [KRLV](#-krlv--rlva-support).
 - **AMD/NVIDIA vendor-API parity**: AGS and NVAPI device creation, Depth Bounds Test, and NVIDIA Reflex on supported hardware.
@@ -71,12 +73,9 @@ Kirstens Viewer respects user privacy and disables or limits the following compo
 | 3075  | VETR     | S24.5   |
 | 3322  | LYSI     | S24.6   |
 | 3500  | MAGN     | S24.7   |
-| 4168  | HRADR    | Beta 1.0 |
-| 4255  | HRADR    | Beta 1.1 |
-| 4310  | HRADR    | Beta 1.2 |
-| **4395** | **HRADR** | **Beta 1.3 (current)** |
+| **4706** | **HRADR** | **Beta 2.0 (current)** |
 
-**Forked from Viewer Develop / 2026.4**
+**Forked from Viewer Develop / 2026.5**
 
 ---
 
@@ -84,14 +83,17 @@ Kirstens Viewer respects user privacy and disables or limits the following compo
 
 Since build 3535, Kirstens Viewer has migrated from OpenGL to a native
 **Direct3D 11** renderer. Since r3712 the viewer has shipped only this renderer:
-all GLSL shader source and the OpenGL path were removed.
+all GLSL shader source and the OpenGL path were removed. As of **Beta 2.0
+(build 4706)** the renderer is no longer an experiment: it is the viewer's
+renderer, and the "DX" naming has been dropped from the application, its
+settings and cache folders, and the window and About text.
 
 Public releases so far: pre-alpha 0.1 (2026-08-23), 0.2, 0.3 and 0.4, then
 **Alpha 1.0** (2026-09-17, r3855), **Alpha 1.1** (2026-09-19, r3868),
 **Alpha 1.2** (2026-09-27, r4015), **Alpha 1.3** (2026-10-03, r4100),
 **Beta 1.0** (2026-10-11, r4168), **Beta 1.1** (2026-10-19, r4255),
-**Beta 1.2** (2026-10-30, r4310) and **Beta 1.3** (2026-11-08, r4395,
-post-release-patched through r4397 - see below), the current release.
+**Beta 1.2** (2026-10-30, r4310), **Beta 1.3** (2026-11-08, r4395,
+post-release-patched through r4397) and **Beta 2.0** (2026-11-19, r4706), the current release.
 
 **Architecture**: the D3D11 backend lives in `indra/dxrender/`: `core/`
 (device, context, state: `DXDevice`, `DXContext`, `DXSwapChain`,
@@ -119,12 +121,11 @@ for the sun; BC7 GPU texture compression (58% VRAM reduction, opt-in); AMD
 AGS and NVIDIA NVAPI device-creation parity; and a real Anaglyph 3D
 implementation.
 
-**Known gaps**: AutoFPS (avatar GPU-cost throttling) is a no-op under
-`DX_RENDER`. The optional VFX motion blur reads the frame back to the CPU
-each frame, which costs performance; it is off by default. A hard-edge
-artifact can still appear at reflection-probe coverage boundaries on some
-surfaces under certain lighting — under active investigation, not yet
-resolved.
+The optional VFX effects (including motion blur) read the frame back to the
+CPU once per frame for the whole chain, so they carry a performance cost and
+are off by default. A hard-edge artifact can still appear at reflection-probe
+coverage boundaries on some surfaces under certain lighting; this is still
+being investigated.
 
 ---
 
@@ -147,7 +148,68 @@ to Marine Kelley and Kitty Barnett. Full reference:
 
 ---
 
-## ✨ Change Log — Beta 1.3 (current release, r4311 → r4397)
+## ✨ Change Log — Beta 2.0 (current release, r4398 → r4706)
+
+Grouped by area. The detailed commit history is in SVN.
+
+#### 🎮 New Features
+
+- **Game Control:** gamepad and controller support ported from the upstream viewer (SDL3).
+- **Persistent RAM texture cache:** the KVRAM cache is saved at log off and pre-loaded at the next start, so frequently used textures (your own avatar's especially) stay warm between sessions. A new **Save / Pre-Load Count** sets how many textures are kept (0 turns it off), with separate timeouts for the pre-load and the shutdown save.
+- **Adaptive cache eviction:** the RAM cache now paces eviction to how fast textures are arriving and sizes each batch by the cache size, with a pressure valve that drains an overloaded cache quickly, so long flights and heavy scenes no longer choke it. The original count-based mode remains selectable.
+- **KV Bench:** a new benchmark floater (Math, RAM, Disk and Graphics, combined into one Kmarks score) in the Extras menu.
+- **KV Calculator:** a Second Life centred calculator with live L$ conversion and SL function keys.
+- **Floater fade-in:** a smooth fade when a floater opens, tunable in the Interface tab of the S24 Engine panel.
+- **Per-tab Reset buttons** across the S24 Engine tuning panel, and two new scheduling toggles on the CPU & Memory tab: **Boost Main Thread (MMCSS High)** and **Low Latency Present**.
+- The Solitaire, Reversi and Blackjack console games had their layouts reworked.
+
+#### 🌐 Web, Media & Voice
+
+- **WebView2 is now the default web engine** (MOAP, MP4/H.264 video, audio, login, search and marketplace pages), with the CEF engine kept as a fallback and a Web Engine selector on the Network tab (restart to switch).
+- **WebRTC voice** updated to the current upstream library; an opt-in option stops microphone capture while muted (off by default).
+
+#### 🎨 Graphics & Rendering
+
+- **Fixed alpha-glow:** glowing alpha objects now all glow correctly instead of only one lighting up or strobing as the camera moved.
+- **Fixed flickering of distant alpha trees:** overlapping far alpha batches no longer swap draw order from frame to frame (new `RenderAlphaSortStickiness` setting).
+- **Spot-shadow stability:** fewer shadow slot swaps and a short fade at rest, much improving local lighting in busy scenes.
+- **Post-teleport frame drop fixed** (object creation is no longer held back as long after arriving).
+- **Edit Shape fix:** a lost texture clamp mode caused a residual blue silhouette artifact.
+- **Retuned defaults:** reflection probe content, detail, count and resolution, avatars excluded from reflection captures, Tonemap Everywhere on, shadows in captures off, shadow resolution scale 2.0, Master Reflection Cube radius 32 m, reach-glow 0.15, star-field theme Real Constellations with a subtle glow, jelly-doll ghost values, and the selection beam back to the classic particle style.
+- **Skins:** Hyperion, Midnight and LindenX artwork refreshed.
+- Smaller shader savings in the sun-shadow, skinned-shadow, volumetric-light and Fresnel paths, and the soften pass skips sky pixels.
+
+#### ⚡ Performance & Frame Pacing
+
+- **A broad frame-pacing pass (over 120 fixes)** across the render path, UI, networking, inventory, textures and threads, including: skipped empty material passes, a single vertex/index upload per flush, UI geometry appended instead of re-uploaded, alpha sorting on small keys, batched avatar culling, shader-constant caching, quadratic loops in the people lists, minimap, inventory sort/teardown and message decode replaced with linear ones, and chat logging moved off the main thread.
+- **Swap chain:** flip-model presentation with a waitable frame-latency queue keeps the render-ahead short and input fresh.
+- **Threaded UDP receive:** network packets are received and decoded on their own thread; heavy regions (70 avatars in testing) now load objects promptly.
+- **Texture pipeline:** off-thread D3D11 texture and mip-chain creation, asynchronous pixel repacking, and a one-time readback for the whole VFX chain.
+- **RAM cache fixes:** the disk write-back no longer decodes partial textures (which flooded the texture cache log with failures), and the texture console's Cache reading no longer pulses to zero.
+- **Dead-code removal:** roughly 11,900 lines of unused code retired.
+
+#### 🛡️ KRLV
+
+- Closed several ways a restriction could be bypassed: the flycam ignoring `@camunlock`, preview floaters ignoring their view restrictions, locked subfolders being ignored by recursive attach/detach/take-off, and `@setenv` through inventory settings.
+
+#### 🔒 Security & Stability
+
+- A large set of upstream hardening fixes were backported, including a heap use-after-free in draw-info texture matrices, several invalid conversions and casts, parcel overlay edge reads, an external-editor websocket authentication handshake, WebRTC and HTTP shutdown ordering, and particle and model-preview crashes.
+- Thread-safety fixes in the network threads, and settings files are now written atomically.
+- Hardening and correctness fixes across the common, UI and message libraries (uninitialised members, unterminated buffers, double frees, bounds checks).
+
+#### 🔧 Internals & Build
+
+- **The "DX" suffix is gone:** settings and cache now live in `Kirstens S24` folders, existing `Kirstens S24 DX` profiles are migrated once on first launch, and the window title, About text and device-lost message no longer say DX.
+- GL vocabulary retired further (`DXStateEnable`/`DXStateDisable`, a coalesced rasterizer-state guard) and more dead D3D11 plumbing removed.
+- Toolchain: vcpkg builds are Release-only, tinygltf, AMD AGS, NVAPI and mikktspace moved onto vcpkg ports, the libwebrtc package refreshed with an installer download cache that checks MD5, and the Store-installed PowerShell location handled.
+- The installer and shortcuts now carry the viewer icon.
+
+---
+
+<details>
+<summary><b>Beta 1.3 — Graphite skin, KV World Clock, Windows CPU Sets, credential fix (r4311 → r4397)</b></summary>
+
 
 Grouped by area. The detailed commit history is in SVN.
 
@@ -174,7 +236,7 @@ Grouped by area. The detailed commit history is in SVN.
 
 #### ⚡ Performance & Stability
 
-- **Fixed the frame-drop burst on starting to move:** textures for objects that just became visible (turning a corner, leaving occlusion) now refresh immediately instead of waiting up to ~2 seconds on a blind round-robin — found and fixed via a multi-agent investigation that first ruled out a riskier proposed approach.
+- **Fixed the frame-drop burst on starting to move:** textures for objects that just became visible (turning a corner, leaving occlusion) now refresh immediately instead of waiting up to ~2 seconds on a blind round-robin.
 - **Main-loop smoothness pass** fixed several compounding jitter sources: a blocking window-message queue, an unclamped geometry-rebuild budget, audio load bursts, dead-reckoning discontinuities, and async GPU-profiling overhead.
 - **Shadow fixes:** directional overshoot on forward-rendered materials, a D3D11 resolution/resize mismatch, point-light crossfade pop, and a spot-shadow matrix mismatch on reflection probes.
 - **Local lighting retuned:** reach-glow decoupled from shading intensity, with a longer default reach and a much subtler glow.
@@ -184,7 +246,7 @@ Grouped by area. The detailed commit history is in SVN.
 
 #### 🔧 Internals & Quality
 
-- **A full multi-agent QA pass** across nine code areas (character animation through plugins/media) found and fixed four real issues before release: a plugin-shutdown deadlock, a potential UI hang in the multi-slider control, a silently-ignored GPU allocation failure, and an unbounded GPU-query wait.
+- **A hardening pass** across nine code areas (character animation through plugins/media) fixed four real issues before release: a plugin-shutdown deadlock, a potential UI hang in the multi-slider control, a silently-ignored GPU allocation failure, and an unbounded GPU-query wait.
 - `llimage` hardening: fixed a heap overflow and an integer overflow in DXT texture decoding.
 - Dead-code sweep: removed a zombie per-frame effects gate, unused avatar counters, and the fully-unused `LLCallStacks` facility.
 
@@ -195,7 +257,7 @@ Grouped by area. The detailed commit history is in SVN.
 - Fixed the UI Hue profile dropdown defaulting to the first alphabetical profile instead of the neutral "Default" one on first open.
 - Retuned several defaults: reflection-probe content/update-mode/slots/resolution, local light radius/glow, selection beam width, VLC equalizer on by default with the "Full Bass & Treble" preset, and Tonemap Everywhere on by default.
 
----
+</details>
 
 <details>
 <summary><b>Beta 1.2 — point/omni light shadows, real volumetric light, reflection probe polish (r4256 → r4310)</b></summary>
@@ -229,7 +291,7 @@ Grouped by area. The detailed commit history is in SVN.
 
 #### 🔧 Internals, Quality & Security
 
-- **A full multi-agent QA pass** was run across every change in this release, finding and fixing real issues before shipping: an inventory cache-loading regression that could leave a broken item visible, a double-counted cache diagnostic, the camera-restriction conflict above, and a reflection-probe setting that was quietly paying a real performance cost for no visible benefit at its default value.
+- **A review of every change in this release** found and fixed real issues before shipping: an inventory cache-loading regression that could leave a broken item visible, a double-counted cache diagnostic, the camera-restriction conflict above, and a reflection-probe setting that was quietly paying a real performance cost for no visible benefit at its default value.
 - **Security hardening** around sign-in/credential handling in the Join flow.
 - Linden Lab upstream backport program closed out again, including an async inventory-cache improvement.
 - Large comment-verbosity cleanup across both C++ and shader code: historical narrative and debugging-diary comments trimmed down to short, technical explanations.
@@ -312,7 +374,7 @@ the Linden Lab upstream backport program's first close-out (272/272 triaged,
 
 </details>
 
-**Beta 1.3 binaries signed:** Authenticode, verified and timestamped.
+**Beta 2.0 binaries signed:** Authenticode, verified and timestamped, with the same certificate as Beta 1.3.
 
 - Signer: Lee Quick (Open Source Developer), Certum Code Signing 2021 CA
 - Certificate serial: `42A6B2AF506CF74D014E99C3C64B2E58`
