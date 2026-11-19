@@ -40,8 +40,16 @@ public:
 	LLPacketBuffer(S32 hSocket);           // receive a packet
 	~LLPacketBuffer();
 
-    LLPacketBuffer(const LLPacketBuffer&) = default;
-    LLPacketBuffer& operator=(const LLPacketBuffer&) = default;
+    // Custom copy/move: mData is a fixed NET_BUFFER_SIZE array, but only
+    // the first mSize bytes are ever live/meaningful. A defaulted copy or
+    // move would transfer the full array, so these are written to only
+    // touch the live mSize bytes. This matters because LLPacketBuffer
+    // can get copied multiple times per packet.
+
+    LLPacketBuffer(const LLPacketBuffer& other);
+    LLPacketBuffer& operator=(const LLPacketBuffer& other);
+    LLPacketBuffer(LLPacketBuffer&& other) noexcept;
+    LLPacketBuffer& operator=(LLPacketBuffer&& other) noexcept;
 
     // S24: copies only mSize bytes of mData plus the metadata fields, instead of the
     // full fixed 8KB mData array that operator= copies regardless of actual packet size.
@@ -58,6 +66,7 @@ public:
         mHost = other.mHost;
         mReceivingIF = other.mReceivingIF;
         mPacketIDChecked = other.mPacketIDChecked;
+        mAckCollected = other.mAckCollected;
     }
 
 	S32			getSize() const					{ return mSize; }
@@ -74,12 +83,18 @@ public:
     bool    getPacketIDChecked() const          { return mPacketIDChecked; }
     void    setPacketIDChecked(bool checked)    { mPacketIDChecked = checked; }
 
+    // S24 : set when this reliable packet's ACK was already queued at socket-read time,
+    // so the decode and dispatch stages don't queue it again
+    bool    getAckCollected() const             { return mAckCollected; }
+    void    setAckCollected(bool collected)     { mAckCollected = collected; }
+
 protected:
 	char	mData[NET_BUFFER_SIZE];        // packet data		/* Flawfinder : ignore */
 	S32		mSize;          // size of buffer in bytes
 	LLHost	mHost;         // source/dest IP and port
 	LLHost	mReceivingIF;         // source/dest IP and port
     bool    mPacketIDChecked = false;
+    bool    mAckCollected = false;
 };
 
 #endif

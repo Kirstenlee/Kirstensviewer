@@ -1390,6 +1390,7 @@ namespace
 
         ctx->VSSetShader(shader->getVS(), nullptr, 0);
         ctx->PSSetShader(shader->getPS(), nullptr, 0);
+        DXStateCache::noteBoundShaderStages(shader->getVS(), shader->getPS());
         ctx->IASetInputLayout(nullptr);
         DXStateCache::setPrimitiveTopology(ctx, D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
@@ -1491,7 +1492,7 @@ void DXPipeline::presentDeferredScreen(LLPipeline& pipeline)
         // S24: narrower sibling of should_auto_adjust - only bypasses the tonemap_mix gate below
         // (getTonemapMix()), not legacy_gamma/shader selection or CLASSIC_MODE lighting, which stay
         // keyed off should_auto_adjust alone. See RenderTonemapEverywhere's settings.xml comment.
-        static LLCachedControl<bool> tonemap_everywhere(gSavedSettings, "RenderTonemapEverywhere", false);
+        static LLCachedControl<bool> tonemap_everywhere(gSavedSettings, "RenderTonemapEverywhere", true);
         static LLCachedControl<bool> buildNoPost(gSavedSettings, "RenderDisablePostProcessing", false);
         static LLCachedControl<F32> exposure_setting(gSavedSettings, "RenderExposure", 1.f);
         static LLCachedControl<U32> tonemap_type_setting(gSavedSettings, "RenderTonemapType", 0U);
@@ -1770,7 +1771,7 @@ void DXPipeline::presentDeferredScreen(LLPipeline& pipeline)
             // synchronous GPU/CPU coherence point.
             //
             // S24: !gCubeSnapshot mirrors DoF's existing gate just above -
-            // motionBlurGPU() (kveffects.cpp) keeps a persistent cross-frame
+            // the motion blur stage (kveffects.cpp) keeps a persistent cross-frame
             // OpenCL history buffer, which would otherwise blend unrelated,
             // discontinuous-orientation cube faces together during a
             // multi-face capture (360 capture, reflection probes).
@@ -1783,14 +1784,8 @@ void DXPipeline::presentDeferredScreen(LLPipeline& pipeline)
                     int width = sourceBuffer->getWidth();
                     int height = sourceBuffer->getHeight();
 
-                    if (effectsMask & DESATURATION) ImageProcessor::desaturateImageGPU(effects_tex, width, height);
-                    if (effectsMask & INVERT) ImageProcessor::invertImageGPU(effects_tex, width, height);
-                    if (effectsMask & RGB_CONTROL) ImageProcessor::RGBControlGPU(effects_tex, width, height);
-                    if (effectsMask & CEL_SHADING) ImageProcessor::celShadeImageGPU(effects_tex, width, height);
-                    if (effectsMask & VIGNETTE) ImageProcessor::vignetteGPU(effects_tex, width, height);
-                    if (effectsMask & EDGE_GLOW) ImageProcessor::edgeGlowGPU(effects_tex, width, height);
-                    if (effectsMask & NIGHT_VISION) ImageProcessor::nightVisionGPU(effects_tex, width, height);
-                    if (effectsMask & MOTION_BLUR) ImageProcessor::motionBlurGPU(effects_tex, width, height);
+                    // S24 : one read back, the enabled effects chained, one write back (was one round trip per effect)
+                    ImageProcessor::applyEffectsChainGPU(effects_tex, width, height, effectsMask);
                 }
             }
 
@@ -2109,6 +2104,12 @@ void DXPipeline::renderDeferredLighting(LLPipeline& pipeline)
             sun_shader.uniform2f(LLShaderMgr::DEFERRED_SCREEN_RES,
                 (F32)deferred_light_target.getWidth(),
                 (F32)deferred_light_target.getHeight());
+
+            // S24 : tell the shader which spotlight shadow slots have no caster, so it skips their PCF lookups
+            static LLStaticHashedString s_spot_shadow_inactive("spot_shadow_inactive");
+            sun_shader.uniform2f(s_spot_shadow_inactive,
+                pipeline.mShadowSpotLight[0].isNull() ? 1.f : 0.f,
+                pipeline.mShadowSpotLight[1].isNull() ? 1.f : 0.f);
 
             {
                 DXStateDisable   blend(DX_BLEND);
@@ -2545,7 +2546,7 @@ void DXPipeline::renderDeferredLighting(LLPipeline& pipeline)
                 // S24: peak strength of the reach-glow tail above, as a fraction of the
                 // light's own center brightness. One shared scalar, not per-light - see
                 // REACH_GLOW_STRENGTH/reach_glow_strength in *LightF.hlsl.
-                static LLCachedControl<F32> reach_glow_strength(gSavedSettings, "RenderLocalLightReachGlow", 0.35f);
+                static LLCachedControl<F32> reach_glow_strength(gSavedSettings, "RenderLocalLightReachGlow", 0.15f);
 
                 // RenderLocalLightFrustumCulling gates both this render-loop's
                 // AABB check and calcNearbyLights()'s candidate-list prefilter;
@@ -2827,7 +2828,7 @@ void DXPipeline::renderDeferredLighting(LLPipeline& pipeline)
                 DXDepthTest depth(false);
 
                 // S24: RenderLocalLightMinRadius fix - see the per-light loop's comment above.
-                static LLCachedControl<F32> reach_glow_strength(gSavedSettings, "RenderLocalLightReachGlow", 0.35f);
+                static LLCachedControl<F32> reach_glow_strength(gSavedSettings, "RenderLocalLightReachGlow", 0.15f);
 
                 U32 fs_count = 0;
                 const U32 max_count = LL_DEFERRED_MULTI_LIGHT_COUNT;
@@ -3327,7 +3328,7 @@ void DXPipeline::generateExposure(LLPipeline& pipeline, LLRenderTarget* src, LLR
         // S24: narrower sibling of should_auto_adjust, scoped to exposure only - see
         // RenderTonemapEverywhere's settings.xml comment and the sibling use in the gamma/tonemap
         // pass above.
-        static LLCachedControl<bool> tonemap_everywhere(gSavedSettings, "RenderTonemapEverywhere", false);
+        static LLCachedControl<bool> tonemap_everywhere(gSavedSettings, "RenderTonemapEverywhere", true);
         const bool exposure_auto_adjust = should_auto_adjust() || tonemap_everywhere();
         static LLCachedControl<bool> dynamic_exposure_enabled(gSavedSettings, "RenderDynamicExposureEnabled", true);
         static LLCachedControl<F32> dynamic_exposure_coefficient(gSavedSettings, "RenderDynamicExposureCoefficient", 0.175f);
@@ -5273,7 +5274,7 @@ void DXPipeline::generateSunShadow(LLPipeline& pipeline, LLCamera& camera)
     // with gCubeSnapshot set) entirely, falling back to the same cheap clear-only path used
     // when a cascade has no visible receivers (skipRenderingShadows()). Never affects the
     // main view's own shadows - gCubeSnapshot is only ever true for these capture passes.
-    static LLCachedControl<bool> probe_capture_shadows(gSavedSettings, "RenderReflectionProbeCaptureShadows", true);
+    static LLCachedControl<bool> probe_capture_shadows(gSavedSettings, "RenderReflectionProbeCaptureShadows", false);
     if (gCubeSnapshot && !probe_capture_shadows)
     {
         DXPipeline::skipRenderingShadows(pipeline);
@@ -5580,8 +5581,11 @@ void DXPipeline::generateSunShadow(LLPipeline& pipeline, LLCamera& camera)
             // and 3 (far) throttle per RenderShadowMidCascadeThrottle/RenderShadowFarCascadeThrottle.
             if (shadow_throttle_active)
             {
-                if (j == 2 && mid_cascade_throttle > 1 && (gFrameCount % (U32)mid_cascade_throttle) != 0) continue;
-                if (j == 3 && far_cascade_throttle > 1 && (gFrameCount % (U32)far_cascade_throttle) != 0) continue;
+                // S24 : each cascade is offset by its index, so the mid and far ones do not both fall on the same
+                // frame (every 4th frame rendered all four cascades and the others two or three, a periodic
+                // spike); the refresh interval of each cascade is unchanged
+                if (j == 2 && mid_cascade_throttle > 1 && ((gFrameCount + (U32)j) % (U32)mid_cascade_throttle) != 0) continue;
+                if (j == 3 && far_cascade_throttle > 1 && ((gFrameCount + (U32)j) % (U32)far_cascade_throttle) != 0) continue;
             }
 
             if (!pipeline.hasRenderDebugMask(LLPipeline::RENDER_DEBUG_SHADOW_FRUSTA) && !gCubeSnapshot)
@@ -6318,14 +6322,15 @@ void DXPipeline::generatePointShadow(LLPipeline& pipeline, LLCamera& camera, con
     // RenderSpotShadowThrottle defaults to 1 (no throttling) - this is the
     // first throttle>1 path in the codebase to actually exercise it.
     static LLCachedControl<U32> point_shadow_throttle(gSavedSettings, "RenderPointShadowThrottle", 2U);
-    static U32 s_last_point_frame = 0;
-    bool update_point_shadow = (point_shadow_throttle <= 1) || ((gFrameCount - s_last_point_frame) >= (U32)point_shadow_throttle);
-    if (update_point_shadow)
-    {
-        s_last_point_frame = gFrameCount;
-    }
-
     LLDrawable* drawable = pipeline.mShadowPointLight[0];
+
+    // S24 : with a throttle above 1 the six faces are captured round-robin (each face every `throttle` frames, so a
+    // face is never older than before) instead of all six on one frame and none on the next, which made the cost a
+    // burst every other frame. A different light than last time captures all six at once.
+    static LLDrawable* s_last_point_drawable = nullptr;
+    const U32 point_throttle = llmax(1U, (U32)point_shadow_throttle);
+    const bool capture_all_faces = (drawable != s_last_point_drawable);
+    s_last_point_drawable = drawable;
     LLVector3 center = drawable->getPositionAgent();
     F32 radius = volume->getLightRadius();
     F32 near_clip = llmax(radius * 0.05f, 0.05f);
@@ -6400,7 +6405,7 @@ void DXPipeline::generatePointShadow(LLPipeline& pipeline, LLCamera& camera, con
 
         pipeline.mPointShadowMatrix[0][f] = ndcToTexture * proj * view * inv_view;
 
-        if (!update_point_shadow)
+        if (!capture_all_faces && point_throttle > 1 && ((gFrameCount + f) % point_throttle) != 0)
         {
             continue;
         }
@@ -6685,7 +6690,7 @@ void DXPipeline::calcNearbyLights(LLPipeline& pipeline, LLCamera& camera)
             }
             cur_nearby_lights.insert(LLPipeline::Light(drawable, dist, fade));
         }
-        pipeline.getNearbyLightsMutable() = cur_nearby_lights;
+        pipeline.getNearbyLightsMutable() = std::move(cur_nearby_lights); // S24 : the local is not used again, so it is moved, not copied (a copy was an allocation and a refcount per light)
 
         // FIND NEW LIGHTS THAT ARE IN RANGE
         LLPipeline::light_set_t new_nearby_lights;
@@ -10489,14 +10494,15 @@ void DXPipeline::doOcclusion(LLPipeline& pipeline, LLCamera& camera)
 // static
 void DXPipeline::updateMovedList(LLPipeline& pipeline, LLDrawable::drawable_vector_t& moved_list)
 {
-    for (LLDrawable::drawable_vector_t::iterator iter = moved_list.begin();
-        iter != moved_list.end(); )
+    // S24 : one pass that keeps the drawables still moving and drops the rest from the tail, instead of
+    // erasing from the middle of the vector once per finished drawable (O(N^2) with hundreds of movers).
+    // Survivors keep their order, and size() is re-read each step because updateMove() can add entries.
+    size_t write = 0;
+    for (size_t read = 0; read < moved_list.size(); ++read)
     {
-        LLDrawable::drawable_vector_t::iterator curiter = iter++;
-        LLDrawable* drawablep = *curiter;
+        LLDrawable* drawablep = moved_list[read];
         if (!drawablep)
         {
-            iter = moved_list.erase(curiter);
             continue;
         }
         bool done = true;
@@ -10522,9 +10528,17 @@ void DXPipeline::updateMovedList(LLPipeline& pipeline, LLDrawable::drawable_vect
                     drawablep->getVObj()->dirtySpatialGroup();
                 }
             }
-            iter = moved_list.erase(curiter);
+        }
+        else
+        {
+            if (write != read)
+            {
+                moved_list[write] = std::move(moved_list[read]);
+            }
+            ++write;
         }
     }
+    moved_list.erase(moved_list.begin() + write, moved_list.end());
 }
 
 // static
@@ -10679,10 +10693,25 @@ void DXPipeline::clearRebuildDrawables(LLPipeline& pipeline)
 // static
 void DXPipeline::rebuildPriorityGroups(LLPipeline& pipeline, F32 max_dtime)
 {
+    // S24 : the time budget is per frame, but postSort() runs once per shadow, main and HUD pass, so each pass got
+    // its own full budget (and its own copy of the queue). Only the first call of a frame does the work; the queue
+    // is the same one for every pass, so nothing is lost.
+    static U32 s_last_rebuild_frame = U32_MAX;
+    if (s_last_rebuild_frame == (U32)gFrameCount)
+    {
+        return;
+    }
+    s_last_rebuild_frame = (U32)gFrameCount;
+
     LLTimer update_timer;
     pipeline.assertInitialized();
 
     gMeshRepo.notifyLoadedMeshes();
+
+    if (pipeline.mGroupQ1.empty())
+    {
+        return;
+    }
 
     pipeline.mGroupQ1Locked = true;
 
@@ -10691,20 +10720,28 @@ void DXPipeline::rebuildPriorityGroups(LLPipeline& pipeline, F32 max_dtime)
     // when the time budget runs out stays flagged (markRebuild() refuses to re-queue anything
     // already flagged) and is picked up next postSort(); clearing the container regardless of how
     // far the loop got would drop unprocessed groups and leave them flagged forever, never rebuilt.
-    pipeline.mGroupSaveQ1 = pipeline.mGroupQ1; // preserve the original "save until safe to unref" snapshot semantics
+    // S24 : the snapshot only has to keep the groups processed here alive until it is cleared; the groups still
+    // queued are owned by mGroupQ1. The processed prefix is moved over and erased once, not one element at a time.
+    pipeline.mGroupSaveQ1.clear();
 
-    for (LLSpatialGroup::sg_vector_t::iterator iter = pipeline.mGroupQ1.begin(); iter != pipeline.mGroupQ1.end();)
+    LLSpatialGroup::sg_vector_t& queue = pipeline.mGroupQ1;
+    size_t processed = 0;
+    while (processed < queue.size())
     {
-        LLSpatialGroup* group = *iter;
+        LLSpatialGroup* group = queue[processed];
         group->rebuildGeom();
         group->clearState(LLSpatialGroup::IN_BUILD_Q1);
-        iter = pipeline.mGroupQ1.erase(iter);
+        ++processed;
 
         if (update_timer.getElapsedTimeF32() >= max_dtime)
         {
             break;
         }
     }
+    pipeline.mGroupSaveQ1.insert(pipeline.mGroupSaveQ1.end(),
+                                 std::make_move_iterator(queue.begin()),
+                                 std::make_move_iterator(queue.begin() + processed));
+    queue.erase(queue.begin(), queue.begin() + processed);
 
     pipeline.mGroupQ1Locked = false;
 }
@@ -13196,7 +13233,7 @@ bool DXPipeline::updateSpotShadowResolution(LLPipeline& pipeline)
     {
         F32 cam_vfov = LLViewerCamera::getInstance()->getView();
         F32 screen_h = (F32)gViewerWindow->getWorldViewHeightRaw();
-        F32 scale_k = llmax(0.f, DXPipeline::RenderShadowResolutionScale) / 3.0f; // 3.0 is the default/reference scale
+        F32 scale_k = llmax(0.f, DXPipeline::RenderShadowResolutionScale) / 3.0f; // 3.0 is the scale this sizing was tuned at; the shipped default (2.0) sizes spot shadow maps at two thirds of that
         F32 raw = (cam_vfov > 0.f) ? (screen_h * tanf(widest_fov * 0.5f) / tanf(cam_vfov * 0.5f) * scale_k) : 2048.f;
         target = (S32)llclamp(get_next_power_two((U32)llmax(raw, 1.f), 4096), 512U, 4096U);
     }
@@ -14385,17 +14422,27 @@ void DXPipeline::renderDoF(LLPipeline& pipeline, LLRenderTarget* src, LLRenderTa
 
             if (focus_point.isExactlyZero())
             {
-                if (LLViewerJoystick::getInstance()->getOverrideCamera())
+                if (gAgent.isCameraExternallyDriven())
                 { // focus on point under cursor
                     focus_point.set(gDebugRaycastIntersection.getF32ptr());
                 }
                 else if (gAgentCamera.cameraMouselook())
                 { // focus on point under mouselook crosshairs
-                    LLVector4a result(0.f);
+                    // S24 : the pick is a full world + HUD raycast and its result is eased over a transition anyway, so
+                    // it is redone every 4th frame and reused in between (a gap of 4+ frames, e.g. on re-entering
+                    // mouselook, always resamples)
+                    static LLVector3 s_ml_focus;
+                    static U32 s_ml_frame = 0;
+                    if (gFrameCount - s_ml_frame >= 4)
+                    {
+                        LLVector4a result(0.f);
 
-                    gViewerWindow->cursorIntersect(-1, -1, 512.f, nullptr, -1, false, false, true, true, nullptr, nullptr, nullptr, &result);
+                        gViewerWindow->cursorIntersect(-1, -1, 512.f, nullptr, -1, false, false, true, true, nullptr, nullptr, nullptr, &result);
 
-                    focus_point.set(result.getF32ptr());
+                        s_ml_focus.set(result.getF32ptr());
+                        s_ml_frame = (U32)gFrameCount;
+                    }
+                    focus_point = s_ml_focus;
                 }
                 else
                 {

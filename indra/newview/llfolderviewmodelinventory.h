@@ -104,6 +104,12 @@ public:
     }
 
     bool operator()(const LLFolderViewModelItemInventory* const& a, const LLFolderViewModelItemInventory* const& b) const;
+
+    // S24 : the same ordering as operator() for everything except landmarks and sort-by-weight, on values the caller has
+    // already looked up once
+    bool compareCached(EInventorySortGroup group_a, const std::string& name_a, time_t date_a,
+                       EInventorySortGroup group_b, const std::string& name_b, time_t date_b) const;
+    bool isFoldersByWeight() const { return mFoldersByWeight; }
 private:
     U32  mSortOrder;
     bool mByDate;
@@ -125,6 +131,7 @@ public:
     void setTaskID(const LLUUID& id) {mTaskID = id;}
 
     void sort(LLFolderViewFolder* folder);
+    void sortChildren(LLFolderViewFolder* folder) override;
     bool contentsReady();
     bool isFolderComplete(LLFolderViewFolder* folder);
     bool startDrag(std::vector<LLFolderViewModelItem*>& items);

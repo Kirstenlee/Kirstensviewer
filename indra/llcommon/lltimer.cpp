@@ -106,17 +106,17 @@ void ms_sleep(U32 ms)
 
 U64 get_clock_count()
 {
-	static bool firstTime = true;
-	static U64 offset;
-	// ensures that callers to this function never have to deal with wrap
+	// S24 : thread-safe one-time anchor, ensures callers never have to deal with wrap
+	static const U64 offset = []
+	{
+		LARGE_INTEGER anchor;
+		QueryPerformanceCounter(&anchor);
+		return (U64)anchor.QuadPart;
+	}();
 
 	// QueryPerformanceCounter implementation
 	LARGE_INTEGER clock_count;
 	QueryPerformanceCounter(&clock_count);
-	if (firstTime) {
-		offset = clock_count.QuadPart;
-		firstTime = false;
-	}
 	return clock_count.QuadPart - offset;
 }
 
@@ -128,16 +128,16 @@ F64 calc_clock_frequency()
 }
 
 TimerInfo::TimerInfo()
-:	mClockFrequency(0.0),
-	mTotalTimeClockCount(0),
-	mLastTotalTimeClockCount(0)
-{}
+{
+	// S24 : initialised once, under get_timer_info()'s thread-safe static, so callers
+	// never need to lazily update() it from several threads
+	update();
+}
 
 void TimerInfo::update()
 {
 	mClockFrequency = calc_clock_frequency();
 	mClockFrequencyInv = 1.0/mClockFrequency;
-	mClocksToMicroseconds = mClockFrequencyInv;
 }
 
 TimerInfo& get_timer_info()
@@ -152,41 +152,29 @@ TimerInfo& get_timer_info()
 // microseconds since the Unix epoch - Jan 1, 1970
 U64MicrosecondsImplicit totalTime()
 {
-	U64 current_clock_count = get_clock_count();
-	if (!get_timer_info().mTotalTimeClockCount || get_timer_info().mClocksToMicroseconds.value() == 0)
+	// S24 : the old version kept a running tick count in shared, unsynchronised statics that
+	// every calling thread (main, HTTP worker, message, texture...) read-modify-wrote, so
+	// concurrent callers could double-count or lose intervals. This keeps the same behaviour
+	// (Unix-epoch microseconds, anchored to the wall clock once at the first call, then
+	// advancing monotonically) with no mutable shared state: the anchor is written once under
+	// a thread-safe static and never changes.
+	// Deliberately NOT plain system_clock::now(): LLFrameTimer and other callers take unsigned
+	// differences of successive totalTime() values, which a backwards clock step (NTP, manual
+	// change, resume) would wrap to ~1.8e19 and break every frame timer.
+	struct Anchor
 	{
-		get_timer_info().update();
-		get_timer_info().mTotalTimeClockCount = current_clock_count;
-		
-		// Sync us up with local time (even though we PROBABLY don't need to, this is how it was implemented)
-		// Unix platforms use gettimeofday so they are synced, although this probably isn't a good assumption to
-		// make in the future.
+		U64 wall_microseconds;
+		std::chrono::steady_clock::time_point steady;
+	};
+	static const Anchor sAnchor{
+		static_cast<U64>(std::chrono::duration_cast<std::chrono::microseconds>(
+			std::chrono::system_clock::now().time_since_epoch()).count()),
+		std::chrono::steady_clock::now() };
 
-		get_timer_info().mTotalTimeClockCount = (U64)(time(NULL) * get_timer_info().mClockFrequency);
-
-	    // Update the last clock count
-		get_timer_info().mLastTotalTimeClockCount = current_clock_count;
-	}
-	else
-	{
-		if (current_clock_count >= get_timer_info().mLastTotalTimeClockCount)
-		{
-			// No wrapping, we're all okay.
-			get_timer_info().mTotalTimeClockCount += current_clock_count - get_timer_info().mLastTotalTimeClockCount;
-		}
-		else
-		{
-			// We've wrapped.  Compensate correctly
-			get_timer_info().mTotalTimeClockCount += (0xFFFFFFFFFFFFFFFFULL - get_timer_info().mLastTotalTimeClockCount) + current_clock_count;
-		}
-
-		// Update the last clock count
-		get_timer_info().mLastTotalTimeClockCount = current_clock_count;
-	}
-
-	// Return the total clock tick count in microseconds.
-	U64Microseconds time(get_timer_info().mTotalTimeClockCount*get_timer_info().mClocksToMicroseconds);
-	return time;
+	const U64 elapsed_microseconds = static_cast<U64>(
+		std::chrono::duration_cast<std::chrono::microseconds>(
+			std::chrono::steady_clock::now() - sAnchor.steady).count());
+	return U64Microseconds(sAnchor.wall_microseconds + elapsed_microseconds);
 }
 
 
@@ -194,11 +182,6 @@ U64MicrosecondsImplicit totalTime()
 
 LLTimer::LLTimer()
 {
-	if (!get_timer_info().mClockFrequency)
-	{
-		get_timer_info().update();
-	}
-
     mStarted = true;
 	reset();
 }

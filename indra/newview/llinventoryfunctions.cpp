@@ -3672,8 +3672,18 @@ void LLInventoryAction::doToSelected(LLInventoryModel* model, LLFolderView* root
             return;
         }
         const LLUUID& parent_uuid = first_item->getParentUUID();
+        // S24 : never inside Marketplace Listings (plain move breaks listing/version/stock folders)
+        const LLUUID marketplace_id = gInventory.getMarketplaceListingsUUID();
+        if (marketplace_id.notNull() && gInventory.isObjectDescendentOf(parent_uuid, marketplace_id))
+        {
+            return;
+        }
         for (uuid_vec_t::const_iterator it = ids.begin(); it != ids.end(); ++it)
         {
+            if (marketplace_id.notNull() && *it == marketplace_id)
+            {
+                return;
+            }
             LLInventoryObject *item = gInventory.getObject(*it);
             if (!item || item->getParentUUID() != parent_uuid)
             {

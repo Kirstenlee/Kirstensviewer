@@ -149,8 +149,10 @@ std::string LLMaterialID::asString() const
 		{
 			materialIDString += "-";
 		}
-		const U32 *value = reinterpret_cast<const U32*>(&get()[i * sizeof(U32)]);
-		materialIDString += llformat("%08x", *value);
+		// S24 : memcpy, no unaligned U32 cast
+		U32 value;
+		memcpy(&value, &get()[i * sizeof(U32)], sizeof(U32));
+		materialIDString += llformat("%08x", value);
 	}
 	return materialIDString;
 }
@@ -186,9 +188,11 @@ int LLMaterialID::compareToOtherMaterialID(const LLMaterialID& pOtherMaterialID)
 
 	for (unsigned int i = 0U; (retVal == 0) && (i < static_cast<unsigned int>(MATERIAL_ID_SIZE / sizeof(U32))); ++i)
 	{
-		const U32 *thisValue = reinterpret_cast<const U32*>(&get()[i * sizeof(U32)]);
-		const U32 *otherValue = reinterpret_cast<const U32*>(&pOtherMaterialID.get()[i * sizeof(U32)]);
-		retVal = ((*thisValue < *otherValue) ? -1 : ((*thisValue > *otherValue) ? 1 : 0));
+		// S24 : memcpy, no unaligned U32 cast
+		U32 thisValue, otherValue;
+		memcpy(&thisValue, &get()[i * sizeof(U32)], sizeof(U32));
+		memcpy(&otherValue, &pOtherMaterialID.get()[i * sizeof(U32)], sizeof(U32));
+		retVal = ((thisValue < otherValue) ? -1 : ((thisValue > otherValue) ? 1 : 0));
 	}
 
 	return retVal;

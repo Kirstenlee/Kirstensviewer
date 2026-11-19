@@ -163,6 +163,17 @@ static bool have_lua_enabled(const LLUUID& object_id)
     return false;
 }
 
+// S24 : the Lua targets are disabled outside Lua regions and a disabled entry can't
+// be selected, so an lsl-luau script falls back to mono there.
+static void set_compile_target(LLComboBox* combo, const std::string& target)
+{
+    combo->setValue(target);
+    if (target == "lsl-luau" && combo->getValue().asString() != target)
+    {
+        combo->setValue("mono");
+    }
+}
+
 // TEMPORARY: Quick check to see if the code is Lua
 // since we don't have another way to determine the language yet
 bool is_lua_script(const std::string& code)
@@ -1889,6 +1900,7 @@ void LLPreviewLSL::saveIfNeeded(bool sync /*= true*/)
 
     mPendingUploads = 0;
     mScriptEd->mErrorList->deleteAllItems();
+    mScriptEd->enableSave(false); // S24 : saved, so no longer dirty
     mScriptEd->mEditor->makePristine();
 
     if (sync)
@@ -1925,6 +1937,8 @@ void LLPreviewLSL::saveIfNeeded(bool sync /*= true*/)
 
 void LLPreviewLSL::onCompileTargetChanged()
 {
+    // S24 : changing the compiler makes the inventory script dirty
+    mScriptEd->enableSave(true);
     mScriptEd->processKeywords(mScriptEd->mCompileTarget->getValue().asString() == "luau");
 }
 
@@ -2527,7 +2541,6 @@ void LLLiveLSLEditor::processScriptRunningReply(LLMessageSystem* msg, void**)
             compile_target = "lsl2";
         }
 
-        instance->mScriptEd->mCompileTarget->setValue(compile_target);
         instance->mScriptEd->processKeywords(luau && luau_language); // Use Luau syntax highlighting for Luau scripts
 
         bool lua_scripts_enabled = have_lua_enabled(object_id);
@@ -2539,6 +2552,8 @@ void LLLiveLSLEditor::processScriptRunningReply(LLMessageSystem* msg, void**)
         {
             lsl_luau_item->setEnabled(lua_scripts_enabled);
         }
+        // S24 : set after the available targets are updated
+        set_compile_target(instance->mScriptEd->mCompileTarget, compile_target);
 
         instance->mScriptEd->mCompileTarget->setEnabled(instance->getIsModifiable() && have_script_upload_cap(object_id));
     }

@@ -132,6 +132,10 @@ bool LLClipboard::addToClipboard(const LLWString &src, S32 pos, S32 len, bool us
 		LL_WARNS() << "Can't add the substring to clipboard: " << e.what() << LL_ENDL;
 		return false;
 	}
+
+	// S24 : clipboards cannot contain NUL characters; remove them so they do not truncate the string
+	mString.erase(std::remove(mString.begin(), mString.end(), 0), mString.end());
+
 	return (use_primary ? LLView::getWindow()->copyTextToPrimary(mString) : LLView::getWindow()->copyTextToClipboard(mString));
 }
 

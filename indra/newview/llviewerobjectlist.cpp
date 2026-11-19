@@ -386,7 +386,10 @@ LLViewerObject* LLViewerObjectList::processObjectUpdateFromCache(LLVOCacheEntry*
 		objectp->setLastUpdateType(OUT_FULL_COMPRESSED); //newly cached
 		objectp->setLastUpdateCached(true);
 	}
-	LLVOAvatar::cullAvatarsByPixelArea();
+	if (objectp->isAvatar())
+	{
+		LLVOAvatar::requestCullAvatarsByPixelArea();
+	}
 
 	return objectp;
 }
@@ -460,6 +463,10 @@ void LLViewerObjectList::processObjectUpdate(LLMessageSystem* mesgsys,
 	U8 compressed_dpbuffer[2048];
 	LLDataPackerBinaryBuffer compressed_dp(compressed_dpbuffer, 2048);
 	LLViewerStatsRecorder& recorder = LLViewerStatsRecorder::instance();
+
+	// S24 : the avatar culling pass is only asked for when this packet touched an avatar; the once-per-frame call
+	// in updateApparentAngles() already settles the state for everything else
+	bool avatar_touched = false;
 
     for (i = 0; i < num_objects; i++)
 	{
@@ -662,9 +669,13 @@ void LLViewerObjectList::processObjectUpdate(LLMessageSystem* mesgsys,
         }
         recorder.objectUpdateEvent(update_type);
 		objectp->setLastUpdateType(update_type);
+		avatar_touched |= objectp->isAvatar();
 	}
 
-	LLVOAvatar::cullAvatarsByPixelArea();
+	if (avatar_touched)
+	{
+		LLVOAvatar::requestCullAvatarsByPixelArea();
+	}
 }
 
 void LLViewerObjectList::processCompressedObjectUpdate(LLMessageSystem* mesgsys,
@@ -811,6 +822,8 @@ void LLViewerObjectList::updateApparentAngles(LLAgent& agent)
 
 void LLViewerObjectList::update(LLAgent& agent)
 {
+	// S24 : the avatar cull requested by this frame's object updates runs once here, not per message
+	LLVOAvatar::flushPendingCullAvatars();
 
 	// Update globals
 	// Cached: called every frame, hash lookups are expensive otherwise.
@@ -947,10 +960,17 @@ void LLViewerObjectList::update(LLAgent& agent)
 		static std::vector<LLVOAvatar*> avatar_dispatch_list;
 		avatar_dispatch_list.clear();
 
-		if (dxpool_queue && dxpool_width > 0 && nonavatar_idle_list.size() > dxpool_width)
+		// S24 : the parallel pass only pays off once each worker gets enough objects to outweigh the
+		// post, wake and join cost (tens of microseconds); with a handful of objects the serial
+		// path below is faster and has steadier frame times.
+		static constexpr size_t MIN_OBJECTS_PER_WORKER = 64;
+		if (dxpool_queue && dxpool_width > 0 && nonavatar_idle_list.size() >= dxpool_width * MIN_OBJECTS_PER_WORKER)
 		{
 			const U32 chunk_count = dxpool_width;
-			std::vector<LLDeferredPipelineMarks> chunk_marks(chunk_count);
+			// S24 : kept between frames so each chunk's action buffer keeps the capacity it grew to; every buffer
+			// is cleared right after it is replayed below
+			static std::vector<LLDeferredPipelineMarks> chunk_marks;
+			chunk_marks.resize(chunk_count);
 
 			// S24: plain U32, not atomic - see the crash-fix comment at the decrement site below for
 			// why an atomic counter alone isn't sufficient here.
@@ -1044,6 +1064,7 @@ void LLViewerObjectList::update(LLAgent& agent)
 				{
 					action();
 				}
+				marks.mActions.clear();
 			}
 		}
 		else
@@ -1095,9 +1116,13 @@ void LLViewerObjectList::update(LLAgent& agent)
 		if (avatar_dxpool_width > 0 && avatar_dispatch_list.size() > avatar_dxpool_width)
 		{
 			const U32 avatar_chunk_count = avatar_dxpool_width;
-			std::vector<LLDeferredPipelineMarks> avatar_pipeline_marks(avatar_chunk_count);
-			std::vector<LLDeferredAudioActions> avatar_audio_actions(avatar_chunk_count);
-			std::vector<LLDeferredMotionActions> avatar_motion_actions(avatar_chunk_count);
+			// S24 : kept between frames for their capacity, cleared as they are replayed below
+			static std::vector<LLDeferredPipelineMarks> avatar_pipeline_marks;
+			static std::vector<LLDeferredAudioActions> avatar_audio_actions;
+			static std::vector<LLDeferredMotionActions> avatar_motion_actions;
+			avatar_pipeline_marks.resize(avatar_chunk_count);
+			avatar_audio_actions.resize(avatar_chunk_count);
+			avatar_motion_actions.resize(avatar_chunk_count);
 
 			U32 avatar_remaining = avatar_chunk_count;
 			std::mutex avatar_join_mutex;
@@ -1157,14 +1182,17 @@ void LLViewerObjectList::update(LLAgent& agent)
 			for (LLDeferredPipelineMarks& marks : avatar_pipeline_marks)
 			{
 				for (auto& action : marks.mActions) { action(); }
+				marks.mActions.clear();
 			}
 			for (LLDeferredAudioActions& actions : avatar_audio_actions)
 			{
 				for (auto& action : actions.mActions) { action(); }
+				actions.mActions.clear();
 			}
 			for (LLDeferredMotionActions& actions : avatar_motion_actions)
 			{
 				for (auto& action : actions.mActions) { action(); }
+				actions.mActions.clear();
 			}
 		}
 		else
@@ -1204,55 +1232,6 @@ void LLViewerObjectList::update(LLAgent& agent)
 	{
 		LLViewerStats::getInstance()->updateFrameStats(time_diff);
 	}
-
-	/*
-	// Debugging code for viewing orphans, and orphaned parents
-	LLUUID id;
-	for (i = 0; i < mOrphanParents.size(); i++)
-	{
-		id = sIndexAndLocalIDToUUID[mOrphanParents[i]];
-		LLViewerObject *objectp = findObject(id);
-		if (objectp)
-		{
-			std::string id_str;
-			objectp->mID.toString(id_str);
-			std::string tmpstr = std::string("Par:  ") + id_str;
-			addDebugBeacon(objectp->getPositionAgent(),
-							tmpstr,
-							LLColor4(1.f,0.f,0.f,1.f),
-							LLColor4(1.f,1.f,1.f,1.f));
-		}
-	}
-
-	LLColor4 text_color;
-	for (i = 0; i < mOrphanChildren.size(); i++)
-	{
-		OrphanInfo oi = mOrphanChildren[i];
-		LLViewerObject *objectp = findObject(oi.mChildInfo);
-		if (objectp)
-		{
-			std::string id_str;
-			objectp->mID.toString(id_str);
-			std::string tmpstr;
-			if (objectp->getParent())
-			{
-				tmpstr = std::string("ChP:  ") + id_str;
-				text_color = LLColor4(0.f, 1.f, 0.f, 1.f);
-			}
-			else
-			{
-				tmpstr = std::string("ChNoP:    ") + id_str;
-				text_color = LLColor4(1.f, 0.f, 0.f, 1.f);
-			}
-			id = sIndexAndLocalIDToUUID[oi.mParentInfo];
-			addDebugBeacon(objectp->getPositionAgent() + LLVector3(0.f, 0.f, -0.25f),
-							tmpstr,
-							LLColor4(0.25f,0.25f,0.25f,1.f),
-							text_color);
-		}
-		i++;
-	}
-	*/
 
 	sample(LLStatViewer::NUM_OBJECTS, mObjects.size());
 	sample(LLStatViewer::NUM_ACTIVE_OBJECTS, idle_count);
@@ -2206,10 +2185,7 @@ void LLViewerObjectList::orphanize(LLViewerObject* childp, U32 parent_id, U32 ip
 	// Add parent to orphan parents list if not already present
 	U64 parent_info = getIndex(parent_id, ip, port);
 
-	if (std::find(mOrphanParents.begin(), mOrphanParents.end(), parent_info) == mOrphanParents.end())
-	{
-		mOrphanParents.push_back(parent_info);
-	}
+	mOrphanParents.insert(parent_info);
 
 	LLViewerObjectList::OrphanInfo oi(parent_info, childp->mID);
 	if (std::find(mOrphanChildren.begin(), mOrphanChildren.end(), oi) == mOrphanChildren.end())
@@ -2241,7 +2217,7 @@ void LLViewerObjectList::findOrphans(LLViewerObject* objectp, U32 ip, U32 port)
         // no known orphan parents
         return;
     }
-    if (std::find(mOrphanParents.begin(), mOrphanParents.end(), getIndex(objectp->mLocalID, ip, port)) == mOrphanParents.end())
+    if (!mOrphanParents.contains(getIndex(objectp->mLocalID, ip, port)))
     {
         // did not find objectp in OrphanParent list
         return;
@@ -2297,17 +2273,12 @@ void LLViewerObjectList::findOrphans(LLViewerObject* objectp, U32 ip, U32 port)
 		else
 		{
 			iter = mOrphanChildren.erase(iter);
+			mNumOrphans--; // S24 : this erase did not count the orphan out, so the count drifted up
 		}
     }
 
     // Remove orphan parent and children from lists now that they've been found
-    {
-        std::vector<U64>::iterator iter = std::find(mOrphanParents.begin(), mOrphanParents.end(), parent_info);
-        if (iter != mOrphanParents.end())
-        {
-            mOrphanParents.erase(iter);
-        }
-    }
+    mOrphanParents.erase(parent_info);
 
     for (std::vector<OrphanInfo>::iterator iter = mOrphanChildren.begin(); iter != mOrphanChildren.end(); )
     {

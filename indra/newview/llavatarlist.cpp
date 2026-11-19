@@ -27,6 +27,7 @@
 #include "llviewerprecompiledheaders.h"
 
 #include "llavatarlist.h"
+#include <algorithm>
 
 // common
 #include "lltrans.h"
@@ -189,6 +190,13 @@ std::string LLAvatarList::getAvatarName(LLAvatarName av_name)
 // virtual
 void LLAvatarList::draw()
 {
+	// S24 : name resolutions only mark the list for a re-sort, which is done once here
+	if (mNeedResort)
+	{
+		mNeedResort = false;
+		sort();
+	}
+
 	// *NOTE dzaporozhan
 	// Call refresh() after draw() to avoid flickering of avatar list items.
 
@@ -288,9 +296,10 @@ void LLAvatarList::refresh()
 				// *NOTE: If you change the UI to show a different string,
 				// be sure to change the filter code below.
 				std::string display_name = getAvatarName(av_name);
+				// S24 : the batch is laid out once by the sort() below, not once per added row
 				addNewItem(buddy_id, 
 					display_name.empty() ? waiting_str : display_name, 
-					LLAvatarTracker::instance().isBuddyOnline(buddy_id));
+					LLAvatarTracker::instance().isBuddyOnline(buddy_id), ADD_BOTTOM, false);
 				
 				modified = true;
 				nadded++;
@@ -301,7 +310,7 @@ void LLAvatarList::refresh()
 	// Handle removed items.
 	for (uuid_vec_t::const_iterator it=removed.begin(); it != removed.end(); it++)
 	{
-		removeItemByUUID(*it);
+		removeItemByUUID(*it, false);
 		modified = true;
 	}
 
@@ -318,7 +327,7 @@ void LLAvatarList::refresh()
 			have_names &= LLAvatarNameCache::get(buddy_id, &av_name);
 			if (!findInsensitive(getAvatarName(av_name), mNameFilter))
 			{
-				removeItemByUUID(buddy_id);
+				removeItemByUUID(buddy_id, false);
 				modified = true;
 			}
 		}
@@ -328,6 +337,11 @@ void LLAvatarList::refresh()
 	// because we might have changed data in a column on which the user
 	// has already sorted. JC
 	sort();
+	if (modified)
+	{
+		// adds and removals above skipped their own relayout and parent notification
+		notifyParentItemsRectChanged();
+	}
 
 	// re-select items
 	//	selectMultiple(selected_ids); // TODO: implement in LLFlatListView if need
@@ -420,13 +434,13 @@ S32 LLAvatarList::notifyParent(const LLSD& info)
 {
 	if (info.has("sort") && &NAME_COMPARATOR == mItemComparator)
 	{
-		sort();
+		mNeedResort = true;
 		return 1;
 	}
 	return LLFlatListViewEx::notifyParent(info);
 }
 
-void LLAvatarList::addNewItem(const LLUUID& id, const std::string& name, bool is_online, EAddPosition pos)
+void LLAvatarList::addNewItem(const LLUUID& id, const std::string& name, bool is_online, EAddPosition pos, bool rearrange)
 {
 	LLAvatarListItem* item = new LLAvatarListItem();
     item->setShowCompleteName(mShowCompleteName, mForceCompleteName);
@@ -446,7 +460,7 @@ void LLAvatarList::addNewItem(const LLUUID& id, const std::string& name, bool is
 	item->setDoubleClickCallback(boost::bind(&LLAvatarList::onItemDoubleClicked, this, _1, _2, _3, _4));
     item->setMouseDownCallback(boost::bind(&LLAvatarList::onItemClicked, this, _1, _2, _3, _4));
 
-	addItem(item, id, pos);
+	addItem(item, id, pos, rearrange);
 }
 
 // virtual
@@ -618,13 +632,12 @@ bool LLAvatarItemComparator::compare(const LLPanel* item1, const LLPanel* item2)
 
 bool LLAvatarItemNameComparator::doCompare(const LLAvatarListItem* avatar_item1, const LLAvatarListItem* avatar_item2) const
 {
-	std::string name1 = avatar_item1->getAvatarName();
-	std::string name2 = avatar_item2->getAvatarName();
+	// S24 : case-insensitive compare of the names without copying and upper-casing both for every comparison
+	const std::string name1 = avatar_item1->getAvatarName();
+	const std::string name2 = avatar_item2->getAvatarName();
 
-	LLStringUtil::toUpper(name1);
-	LLStringUtil::toUpper(name2);
-
-	return name1 < name2;
+	return std::lexicographical_compare(name1.begin(), name1.end(), name2.begin(), name2.end(),
+		[](char a, char b) { return LLStringOps::toUpper(a) < LLStringOps::toUpper(b); });
 }
 bool LLAvatarItemAgentOnTopComparator::doCompare(const LLAvatarListItem* avatar_item1, const LLAvatarListItem* avatar_item2) const
 {

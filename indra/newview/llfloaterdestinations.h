@@ -29,15 +29,30 @@
 #define LL_FLOATER_DESTINATIONS_H
 
 #include "llfloater.h"
+#include "llviewermediaobserver.h"
+
+class LLMediaCtrl;
+class LLButton;
 
 class LLFloaterDestinations:
-    public LLFloater
+    public LLFloater,
+    public LLViewerMediaObserver
 {
     friend class LLFloaterReg;
 private:
     LLFloaterDestinations(const LLSD& key);
     ~LLFloaterDestinations();
     bool postBuild() override;
+    void onOpen(const LLSD& key) override;
+
+    // inherited from LLViewerMediaObserver
+    void handleMediaEvent(LLPluginClassMedia* self, EMediaEvent event) override;
+
+    void goHome();
+
+    LLMediaCtrl* mBrowser = nullptr;
+    LLButton* mBackBtn = nullptr;
+    bool mFreshlyBuilt = false;
 };
 
 #endif

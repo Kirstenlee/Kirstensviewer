@@ -155,6 +155,7 @@ bool LLFloaterKVTweaks::postBuild()
     getChild<LLUICtrl>("kvram_min_deck_size")->setCommitCallback(boost::bind(&LLFloaterKVTweaks::onRAMCacheSettingChanged, this));
     getChild<LLUICtrl>("kvram_hotload_timeout")->setCommitCallback(boost::bind(&LLFloaterKVTweaks::onRAMCacheSettingChanged, this));
     getChild<LLUICtrl>("kvram_shutdown_flush_timeout")->setCommitCallback(boost::bind(&LLFloaterKVTweaks::onRAMCacheSettingChanged, this));
+    getChild<LLUICtrl>("kvram_eviction_scheme")->setCommitCallback(boost::bind(&LLFloaterKVTweaks::onRAMCacheSettingChanged, this));
 
     // Initialize text values
     updateRAMCacheBudgetText();
@@ -176,6 +177,15 @@ bool LLFloaterKVTweaks::postBuild()
 
     // S24 - Hook up Rendering Advanced tab controls
     childSetAction("reset_rendering_advanced_btn", boost::bind(&LLFloaterKVTweaks::onClickResetRenderingAdvanced, this));
+    childSetAction("reset_cpu_memory_btn", boost::bind(&LLFloaterKVTweaks::onClickResetCpuMemory, this));
+    childSetAction("reset_ram_cache_btn", boost::bind(&LLFloaterKVTweaks::onClickResetRamCache, this));
+    childSetAction("reset_sky_btn", boost::bind(&LLFloaterKVTweaks::onClickResetSky, this));
+    childSetAction("reset_shadows_btn", boost::bind(&LLFloaterKVTweaks::onClickResetShadows, this));
+    childSetAction("reset_lighting_btn", boost::bind(&LLFloaterKVTweaks::onClickResetLighting, this));
+    childSetAction("reset_textures_btn", boost::bind(&LLFloaterKVTweaks::onClickResetTextures, this));
+    childSetAction("reset_network_btn", boost::bind(&LLFloaterKVTweaks::onClickResetNetwork, this));
+    childSetAction("reset_ssr_btn", boost::bind(&LLFloaterKVTweaks::onClickResetSSR, this));
+    childSetAction("reset_audio_btn", boost::bind(&LLFloaterKVTweaks::onClickResetAudio, this));
 
     // S24 - Hook up Cubemap tab controls
     childSetAction("reset_cubemap_btn", boost::bind(&LLFloaterKVTweaks::onClickResetCubemap, this));
@@ -452,6 +462,8 @@ void LLFloaterKVTweaks::onClickResetToDefaults()
         "RenderMinFreeMainMemoryThreshold",
         "NonvisibleObjectsInMemoryTime",
         "MainWorkTime",
+        "RenderMMCSSHighPriority",
+        "RenderLowLatencyPresent",
         
         // Tab 2: Rendering
         "RenderVolumeLODFactor",
@@ -906,7 +918,7 @@ void LLFloaterKVTweaks::updateRAMCacheHardThresholdText()
 void LLFloaterKVTweaks::updateRAMCacheRetentionTimeText()
 {
     F32 value = gSavedSettings.getF32("KVRAMCacheRetentionTimeSec");
-    getChild<LLTextBox>("kvram_retention_time_text")->setText(llformat("%.0f sec", value));  // KV:GC→RT Renamed from kvram_grace_period_text
+    getChild<LLTextBox>("kvram_retention_time_text")->setText(llformat("%.1f sec", value));  // KV:GC→RT Renamed from kvram_grace_period_text
 }
 
 void LLFloaterKVTweaks::updateRAMCacheEvictionRateText()
@@ -916,7 +928,7 @@ void LLFloaterKVTweaks::updateRAMCacheEvictionRateText()
     // proven-safe width=70 readout box this row shares with every other
     // slider in this card.
     F32 value = gSavedSettings.getF32("KVRAMCacheMinDeckSize");
-    getChild<LLTextBox>("kvram_min_deck_size_text")->setText(llformat("%.0f", value));
+    getChild<LLTextBox>("kvram_min_deck_size_text")->setText(value < 1.0f ? std::string("Off") : llformat("%.0f", value));
 }
 
 void LLFloaterKVTweaks::updateRAMCacheHotLoadTimeoutText()
@@ -1127,6 +1139,295 @@ void LLFloaterKVTweaks::onClickResetMaterials()
     for (size_t i = 0; i < sizeof(materials_control_names) / sizeof(materials_control_names[0]); ++i)
     {
         LLControlVariable* control = gSavedSettings.getControl(materials_control_names[i]);
+        if (control)
+        {
+            control->resetToDefault(true);
+        }
+    }
+
+    // Refresh UI
+    refresh();
+}
+
+void LLFloaterKVTweaks::onClickResetAudio()
+{
+    // S24 - Reset all Audio tab controls (streaming engine and metadata, FMOD 3-band EQ, VLC 10-band EQ) to defaults
+    const char* audio_control_names[] = {
+        "StreamingAudioEngine",
+        "ShowStreamMetadata",
+        "AudioEqualizerEnabled",
+        "AudioEqualizerLowGain",
+        "AudioEqualizerMidGain",
+        "AudioEqualizerHighGain",
+        "VLCAudioEQEnabled",
+        "VLCAudioEQPreset",
+        "VLCAudioEQPreamp",
+        "VLCAudioEQBand0",
+        "VLCAudioEQBand1",
+        "VLCAudioEQBand2",
+        "VLCAudioEQBand3",
+        "VLCAudioEQBand4",
+        "VLCAudioEQBand5",
+        "VLCAudioEQBand6",
+        "VLCAudioEQBand7",
+        "VLCAudioEQBand8",
+        "VLCAudioEQBand9"
+    };
+
+    for (size_t i = 0; i < sizeof(audio_control_names) / sizeof(audio_control_names[0]); ++i)
+    {
+        LLControlVariable* control = gSavedSettings.getControl(audio_control_names[i]);
+        if (control)
+        {
+            control->resetToDefault(true);
+        }
+    }
+
+    // Refresh UI
+    refresh();
+}
+
+void LLFloaterKVTweaks::onClickResetSSR()
+{
+    // S24 - Reset all SSR tab controls (global, quality, depth tuning, water override) to defaults
+    const char* ssr_control_names[] = {
+        "RenderScreenSpaceReflections",
+        "RenderScreenSpaceReflectionIterations",
+        "RenderScreenSpaceReflectionRayStep",
+        "RenderScreenSpaceReflectionDistanceBias",
+        "RenderScreenSpaceReflectionGlossySamples",
+        "RenderScreenSpaceReflectionAdaptiveStepMultiplier",
+        "RenderScreenSpaceReflectionGlossThreshold",
+        "RenderScreenSpaceReflectionDepthRejectBias",
+        "RenderSSRMissFill",
+        "RenderWaterSSRIterations",
+        "RenderWaterSSRRayStep"
+    };
+
+    for (size_t i = 0; i < sizeof(ssr_control_names) / sizeof(ssr_control_names[0]); ++i)
+    {
+        LLControlVariable* control = gSavedSettings.getControl(ssr_control_names[i]);
+        if (control)
+        {
+            control->resetToDefault(true);
+        }
+    }
+
+    // Refresh UI
+    refresh();
+}
+
+void LLFloaterKVTweaks::onClickResetNetwork()
+{
+    // S24 - Reset all Network tab controls to defaults
+    const char* network_control_names[] = {
+        "ThrottleBandwidthKBPS",
+        "AckCollectTime",
+        "PluginInstancesCPULimit",
+        "PluginInstancesUIMax",
+        "PluginDisableGPU",
+        "PluginUseReadThread",
+        "MediaUseWebView2"
+    };
+
+    for (size_t i = 0; i < sizeof(network_control_names) / sizeof(network_control_names[0]); ++i)
+    {
+        LLControlVariable* control = gSavedSettings.getControl(network_control_names[i]);
+        if (control)
+        {
+            control->resetToDefault(true);
+        }
+    }
+
+    // Refresh UI
+    refresh();
+}
+
+void LLFloaterKVTweaks::onClickResetTextures()
+{
+    // S24 - Reset all Textures tab controls to defaults
+    const char* texture_control_names[] = {
+        "TextureDiscardLevel",
+        "RenderMaxTextureResolution",
+        "TextureLoadFullRes",
+        "TextureFetchConcurrency",
+        "TextureNewByteRange",
+        "TextureReverseByteRange",
+        "RenderHUDTexturesWarning",
+        "RenderHUDTexturesMemoryWarning",
+        "RenderHUDOversizedTexturesWarning"
+    };
+
+    for (size_t i = 0; i < sizeof(texture_control_names) / sizeof(texture_control_names[0]); ++i)
+    {
+        LLControlVariable* control = gSavedSettings.getControl(texture_control_names[i]);
+        if (control)
+        {
+            control->resetToDefault(true);
+        }
+    }
+
+    // Refresh UI
+    refresh();
+}
+
+void LLFloaterKVTweaks::onClickResetLighting()
+{
+    // S24 - Reset all Lighting tab controls to defaults
+    const char* lighting_control_names[] = {
+        "RenderLocalLightCount",
+        "RenderAttachedLights",
+        "RenderSpotLightsInNondeferred",
+        "RenderLocalLightFrustumCulling",
+        "RenderDeferredSpotShadowBias",
+        "RenderDeferredSpotShadowOffset",
+        "RenderLocalLightHoldTime",
+        "RenderLocalLightFrustumMargin",
+        "RenderLocalLightMinRadius",
+        "RenderLocalLightReachGlow",
+        "RenderPointLightShadows"
+    };
+
+    for (size_t i = 0; i < sizeof(lighting_control_names) / sizeof(lighting_control_names[0]); ++i)
+    {
+        LLControlVariable* control = gSavedSettings.getControl(lighting_control_names[i]);
+        if (control)
+        {
+            control->resetToDefault(true);
+        }
+    }
+
+    // Refresh UI
+    refresh();
+}
+
+void LLFloaterKVTweaks::onClickResetShadows()
+{
+    // S24 - Reset all Shadows tab controls to defaults
+    const char* shadow_control_names[] = {
+        "RenderShadowResolutionScale",
+        "RenderShadowBias",
+        "RenderShadowOffset",
+        "RenderShadowBiasError",
+        "RenderShadowOffsetError",
+        "RenderSpotShadowBias",
+        "RenderSpotShadowOffset",
+        "RenderDeferredTreeShadowBias",
+        "RenderDeferredTreeShadowOffset",
+        "RenderShadowBlurSize",
+        "RenderShadowBlurDistFactor",
+        "RenderShadowNoise",
+        "RenderShadowThrottleEnabled",
+        "RenderShadowThrottleSettleFrames"
+    };
+
+    for (size_t i = 0; i < sizeof(shadow_control_names) / sizeof(shadow_control_names[0]); ++i)
+    {
+        LLControlVariable* control = gSavedSettings.getControl(shadow_control_names[i]);
+        if (control)
+        {
+            control->resetToDefault(true);
+        }
+    }
+
+    // Refresh UI
+    refresh();
+}
+
+void LLFloaterKVTweaks::onClickResetSky()
+{
+    // S24 - Reset all Sky tab controls (stars, constellations, nebula, clouds) to defaults
+    const char* sky_control_names[] = {
+        "RenderSkyStyle",
+        "RenderStarGlow",
+        "RenderStarDensity",
+        "RenderStarDustIntensity",
+        "RenderConstellationLines",
+        "RenderShootingStars",
+        "RenderShootingStarFrequency",
+        "RenderNebulaEnabled",
+        "RenderNebulaIntensity",
+        "RenderCloudLayers",
+        "RenderCloudLayerOpacity",
+        "RenderCloudLayerHeightSkew",
+        "RenderCloudCirrusScale",
+        "RenderCloudCumulusScale",
+        "RenderCloudCirrusScrollMult",
+        "RenderCloudCumulusScrollMult"
+    };
+
+    for (size_t i = 0; i < sizeof(sky_control_names) / sizeof(sky_control_names[0]); ++i)
+    {
+        LLControlVariable* control = gSavedSettings.getControl(sky_control_names[i]);
+        if (control)
+        {
+            control->resetToDefault(true);
+        }
+    }
+
+    // Refresh UI
+    refresh();
+}
+
+void LLFloaterKVTweaks::onClickResetRamCache()
+{
+    // S24 - Reset all RAM Cache tab controls to defaults
+    const char* ram_cache_control_names[] = {
+        "KVRAMCacheEnabled",
+        "KVRAMCacheRAMBudgetMB",
+        "KVRAMCacheSoftThreshold",
+        "KVRAMCacheHardThreshold",
+        "KVRAMCacheRetentionTimeSec",
+        "KVRAMCacheMinDeckSize",
+        "KVRAMCacheHotLoadTimeoutSec",
+        "KVRAMCacheShutdownFlushTimeoutSec",
+        "KVRAMEvictionScheme",
+        "KVRAMCacheDebugLogging"
+    };
+
+    for (size_t i = 0; i < sizeof(ram_cache_control_names) / sizeof(ram_cache_control_names[0]); ++i)
+    {
+        LLControlVariable* control = gSavedSettings.getControl(ram_cache_control_names[i]);
+        if (control)
+        {
+            control->resetToDefault(true);
+        }
+    }
+
+    // a running cache picks the new values up now
+    if (KVRAMCache::instanceExists())
+    {
+        KVRAMCache::getInstance()->updateFromSettings();
+    }
+
+    // Refresh UI
+    refresh();
+}
+
+void LLFloaterKVTweaks::onClickResetCpuMemory()
+{
+    // S24 - Reset all CPU & Memory tab controls to defaults
+    const char* cpu_memory_control_names[] = {
+        "EmulateCoreCount",
+        "KVdefault_cores",
+        "KVmin_cores",
+        "KVmax_cores",
+        "RenderProcessQoS",
+        "RenderMMCSSHighPriority",
+        "RenderLowLatencyPresent",
+        "RunMultipleThreads",
+        "MainWorkTime",
+        "MaxHeapSize64",
+        "RenderMaxVRAMBudget",
+        "RenderVRAMSoftPressureFraction",
+        "RenderMinFreeMainMemoryThreshold",
+        "NonvisibleObjectsInMemoryTime",
+        "RenderParallelAvatarCharacter"
+    };
+
+    for (size_t i = 0; i < sizeof(cpu_memory_control_names) / sizeof(cpu_memory_control_names[0]); ++i)
+    {
+        LLControlVariable* control = gSavedSettings.getControl(cpu_memory_control_names[i]);
         if (control)
         {
             control->resetToDefault(true);

@@ -28,9 +28,10 @@
 #define LL_LLVIEWERINPUT_H
 
 #include "llkeyboard.h" // For EKeystate
+#include "llgamecontrol.h" // For LLGameControl::ActionType
 
 const S32 MAX_KEY_BINDINGS = 128; // was 60
-const S32 keybindings_xml_version = 1;
+const S32 keybindings_xml_version = 2;
 const std::string script_mouse_handler_name = "script_trigger_lbutton";
 
 class LLWindow;
@@ -72,6 +73,7 @@ typedef enum e_keyboard_mode
     MODE_THIRD_PERSON,
     MODE_EDIT_AVATAR,
     MODE_SITTING,
+    MODE_FLYCAM,
     MODE_COUNT
 } EKeyboardMode;
 
@@ -84,6 +86,7 @@ public:
                                 mask,
                                 command;
         Optional<std::string>   mouse; // Note, not mandatory for the sake of backward campatibility with keys.xml
+        Optional<std::string>   controller;
 
         KeyBinding();
     };
@@ -100,13 +103,16 @@ public:
         Optional<KeyMode>   first_person,
                             third_person,
                             sitting,
-                            edit_avatar;
+                            edit_avatar,
+                            flycam;
         Optional<S32> xml_version; // 'xml', because 'version' appears to be reserved
         Keys();
     };
 
     LLViewerInput();
     virtual ~LLViewerInput();
+
+    void            storeDeltaTime();
 
     bool            handleKey(KEY key, MASK mask, bool repeated);
     bool            handleKeyUp(KEY key, MASK mask);
@@ -175,13 +181,13 @@ private:
     // TODO: at some point it is better to remake this, especially keyaboard part
     // would be much better to send to functions actual state of the button than
     // to send what we think function wants based on collection of bools (mKeyRepeated, mKeyLevel, mKeyDown)
-    std::vector<LLKeyboardBinding>  mKeyBindings[MODE_COUNT];
-    std::vector<LLMouseBinding>     mMouseBindings[MODE_COUNT];
-    bool                            mLMouseDefaultHandling[MODE_COUNT]; // Due to having special priority
+    std::vector<LLKeyboardBinding>      mKeyBindings[MODE_COUNT];
+    std::vector<LLMouseBinding>         mMouseBindings[MODE_COUNT];
+    bool                                mLMouseDefaultHandling[MODE_COUNT]; // Due to having special priority
 
     // keybindings that do not consume event and are handled earlier, before floaters
-    std::vector<LLKeyboardBinding>  mGlobalKeyBindings[MODE_COUNT];
-    std::vector<LLMouseBinding>     mGlobalMouseBindings[MODE_COUNT];
+    std::vector<LLKeyboardBinding>      mGlobalKeyBindings[MODE_COUNT];
+    std::vector<LLMouseBinding>         mGlobalMouseBindings[MODE_COUNT];
 
     typedef std::map<U32, U32> key_remap_t;
     key_remap_t     mRemapKeys[MODE_COUNT];

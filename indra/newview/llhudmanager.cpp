@@ -117,19 +117,8 @@ void LLHUDManager::shutdownClass()
 
 void LLHUDManager::cleanupEffects()
 {
-    S32 i = 0;
-
-    while (i < mHUDEffects.size())
-    {
-        if (mHUDEffects[i]->isDead())
-        {
-            mHUDEffects.erase(mHUDEffects.begin() + i);
-        }
-        else
-        {
-            i++;
-        }
-    }
+    // S24 : one stable pass instead of erasing from the middle of the vector one effect at a time
+    std::erase_if(mHUDEffects, [](const LLPointer<LLHUDEffect>& effect) { return effect->isDead(); });
 }
 
 LLHUDEffect *LLHUDManager::createViewerEffect(const U8 type, bool send_to_sim, bool originated_here)

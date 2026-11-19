@@ -69,7 +69,7 @@ public:
     // (LLPipeline::renderGeomDeferred()/renderGeomPostDeferred()'s DX_RENDER brackets in
     // dxpipeline.cpp) - NOT the same as gUseWireframe itself. DX_CULL_FACE/DX_SCISSOR_TEST/
     // DX_DEPTH_CLAMP/POLYGON_OFFSET_* toggle constantly during normal rendering (every
-    // LLGLEnable/LLGLDisable), each one forcing a full rasterizer-state rebuild via
+    // DXStateEnable/DXStateDisable), each one forcing a full rasterizer-state rebuild via
     // LLRender::applyDXRasterizerState() - D3D11 bundles fill mode into that same object, unlike
     // GL's independent glPolygonMode(). Without this scope flag, wireframe mode got silently
     // clobbered back to solid fill by the very first unrelated cull/scissor toggle after being
@@ -104,6 +104,18 @@ public:
     // that matches whatever the CURRENT DXDepthTest scope actually set,
     // not a hardcoded assumption.
     static void recordAppliedDepthStencilState(bool depth_enabled, bool write_enabled, D3D11_COMPARISON_FUNC func);
+
+    // S24 : for code that sets depth-stencil state directly (the UI batch): bumps the
+    // generation WITHOUT touching the recorded scope config, so the next
+    // tagAttachmentStencil() reapplies the scope's depth state instead of trusting its skip cache.
+    static void noteExternalDepthStencilChange();
+
+    // S24 : the VS/PS pair last bound to the context. LLHLSLShader::bind()/unbind() and the
+    // places that call VSSetShader/PSSetShader directly report here, so the draw-time guard
+    // in LLVertexBuffer only re-issues them on a real desync.
+    static void noteBoundShaderStages(ID3D11VertexShader* vs, ID3D11PixelShader* ps);
+    static ID3D11VertexShader* getNotedVS();
+    static ID3D11PixelShader* getNotedPS();
 
     // KRLV_TOUCHPOINT-adjacent: true only while @camtextures/@setcam_textures
     // has an active source - set once per frame, at the top of the deferred

@@ -457,6 +457,7 @@ void LLJointStateBlender::resetCachedJoint()
 LLPoseBlender::LLPoseBlender()
 	: mNextPoseSlot(0)
 {
+	mActiveBlenders.reserve(LL_CHARACTER_MAX_ANIMATED_JOINTS);
 }
 
 LLPoseBlender::~LLPoseBlender()
@@ -510,7 +511,7 @@ bool LLPoseBlender::addMotion(LLMotion* motion)
 		if (!joint_blender->mInActiveList)
 		{
 			joint_blender->mInActiveList = true;
-			mActiveBlenders.push_front(joint_blender);
+			mActiveBlenders.push_back(joint_blender);
 		}
 	}
     return true;

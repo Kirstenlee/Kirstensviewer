@@ -42,6 +42,16 @@
 #include "llinstantmessage.h"
 #include "llsingleton.h" // for LLSingleton
 
+#include <atomic>
+#include <condition_variable>
+#include <deque>
+#include <map>
+#include <memory>
+#include <mutex>
+#include <sstream>
+#include <thread>
+#include "workqueue.h"
+
 #include <boost/algorithm/string/trim.hpp>
 #include <boost/algorithm/string/replace.hpp>
 #include <boost/regex.hpp>
@@ -119,6 +129,158 @@ namespace
 {
     // A save and the deletion sweep linearize at this feature-private boundary.
     LLMutex sTranscriptMutationMutex;
+
+    // S24 : one ordered writer thread for transcript lines. saveHistory() used to open, append, flush and close the
+    // log file on the calling (main) thread for every line. The line is still formatted on the caller's thread (the
+    // formatting uses LLTrans/LLSD); the thread only appends text under sTranscriptMutationMutex, a batch at a time,
+    // and the history signal is posted back to the main loop after the batch is on disk. Anything that reads,
+    // moves, renames or deletes transcripts calls LLLogChat::flushPendingWrites() first, so it sees every line
+    // that was logged before it.
+    class TranscriptWriter
+    {
+    public:
+        struct Item
+        {
+            std::string mPath;
+            std::string mText;
+        };
+
+        ~TranscriptWriter() { shutdown(); }
+
+        void post(Item&& item)
+        {
+            std::lock_guard<std::mutex> lock(mMutex);
+            if (mStop)
+            {
+                return;
+            }
+            if (!mThread.joinable())
+            {
+                mThread = std::thread([this]() { run(); });
+            }
+            mQueue.push_back(std::move(item));
+            mPending.fetch_add(1);
+            mWake.notify_one();
+        }
+
+        void flush()
+        {
+            if (mPending.load() == 0)
+            {
+                return;
+            }
+            std::unique_lock<std::mutex> lock(mMutex);
+            mIdle.wait(lock, [this]() { return mPending.load() == 0; });
+        }
+
+        void shutdown()
+        {
+            flush();
+            {
+                std::lock_guard<std::mutex> lock(mMutex);
+                mStop = true;
+            }
+            mWake.notify_all();
+            if (mThread.joinable())
+            {
+                mThread.join();
+            }
+        }
+
+    private:
+        void run()
+        {
+            std::vector<Item> batch;
+            for (;;)
+            {
+                {
+                    std::unique_lock<std::mutex> lock(mMutex);
+                    mWake.wait(lock, [this]() { return mStop || !mQueue.empty(); });
+                    if (mQueue.empty())
+                    {
+                        return; // stopping, and nothing left
+                    }
+                    batch.assign(std::make_move_iterator(mQueue.begin()), std::make_move_iterator(mQueue.end()));
+                    mQueue.clear();
+                }
+
+                {
+                    LLMutexLock mutation_lock(&sTranscriptMutationMutex);
+                    // lines for the same file are written together through one handle
+                    std::map<std::string, std::unique_ptr<llofstream>> files;
+                    for (const Item& item : batch)
+                    {
+                        std::unique_ptr<llofstream>& file = files[item.mPath];
+                        if (!file)
+                        {
+                            file = std::make_unique<llofstream>(item.mPath.c_str(), std::ios_base::app);
+                        }
+                        if (!file->is_open())
+                        {
+                            LL_WARNS() << "Couldn't open chat history log! - " << item.mPath << LL_ENDL;
+                            continue;
+                        }
+                        *file << item.mText;
+                    }
+                    files.clear(); // flush and close
+                }
+
+                if (auto queue = LL::WorkQueue::getInstance("mainloop"))
+                {
+                    queue->post([]()
+                    {
+                        if (LLLogChat::instanceExists())
+                        {
+                            LLLogChat::getInstance()->triggerHistorySignal();
+                        }
+                    });
+                }
+
+                const size_t written = batch.size();
+                batch.clear();
+                {
+                    std::lock_guard<std::mutex> lock(mMutex);
+                    mPending.fetch_sub(written);
+                }
+                mIdle.notify_all();
+            }
+        }
+
+        std::mutex mMutex;
+        std::condition_variable mWake;
+        std::condition_variable mIdle;
+        std::deque<Item> mQueue;
+        std::atomic<size_t> mPending{0};
+        bool mStop = false;
+        std::thread mThread;
+    };
+
+    std::unique_ptr<TranscriptWriter> sTranscriptWriter;
+    std::mutex sTranscriptWriterCreateMutex;
+
+    TranscriptWriter& transcript_writer()
+    {
+        std::lock_guard<std::mutex> lock(sTranscriptWriterCreateMutex);
+        if (!sTranscriptWriter)
+        {
+            sTranscriptWriter = std::make_unique<TranscriptWriter>();
+        }
+        return *sTranscriptWriter;
+    }
+}
+
+// static
+void LLLogChat::flushPendingWrites()
+{
+    TranscriptWriter* writer = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(sTranscriptWriterCreateMutex);
+        writer = sTranscriptWriter.get();
+    }
+    if (writer)
+    {
+        writer->flush();
+    }
 }
 
 void append_to_last_message(std::list<LLSD>& messages, const std::string& line)
@@ -222,6 +384,15 @@ LLLogChat::LLLogChat()
 
 LLLogChat::~LLLogChat()
 {
+    {
+        std::unique_ptr<TranscriptWriter> writer;
+        {
+            std::lock_guard<std::mutex> lock(sTranscriptWriterCreateMutex);
+            writer = std::move(sTranscriptWriter);
+        }
+        writer.reset(); // writes out what is queued, then joins the thread
+    }
+
     delete mHistoryThreadsMutex;
     mHistoryThreadsMutex = NULL;
 
@@ -277,6 +448,7 @@ std::string LLLogChat::makeLogFileName(std::string filename)
 //static
 void LLLogChat::renameLogFile(const std::string& old_filename, const std::string& new_filename)
 {
+    flushPendingWrites();
     std::string new_name = cleanFileName(new_filename);
     std::string old_name = cleanFileName(old_filename);
     new_name = gDirUtilp->getExpandedFilename(LL_PATH_PER_ACCOUNT_CHAT_LOGS, new_name);
@@ -362,17 +534,9 @@ void LLLogChat::saveHistory(const std::string& filename,
         return;
     }
 
-    // S24: lock sTranscriptMutationMutex around open/write/close, unlocked before
-    // notifying observers that may themselves read or write transcripts - keeps this
-    // write on one side of deleteTranscriptContent()'s deletion sweep.
-    std::unique_lock<LLMutex> mutation_lock(sTranscriptMutationMutex);
-    llofstream file(LLLogChat::makeLogFileName(filename).c_str(), std::ios_base::app);
-    if (!file.is_open())
-    {
-        LL_WARNS() << "Couldn't open chat history log! - " + filename << LL_ENDL;
-        return;
-    }
-
+    // S24: the line is formatted here and appended by the transcript writer thread under
+    // sTranscriptMutationMutex, so each write stays on one side of deleteTranscriptContent()'s
+    // deletion sweep (which drains the writer first).
     std::string altered_line = line;
 
     // avoid costly regex calls
@@ -407,17 +571,17 @@ void LLLogChat::saveHistory(const std::string& filename,
         item["from"] = from;
     }
 
-    file << LLChatLogFormatter(item) << std::endl;
+    std::ostringstream formatted;
+    formatted << LLChatLogFormatter(item) << '\n';
 
-    file.close();
-    mutation_lock.unlock();
-
-    LLLogChat::getInstance()->triggerHistorySignal();
+    // the history signal fires from the main loop once the line is on disk
+    transcript_writer().post({ LLLogChat::makeLogFileName(filename), formatted.str() });
 }
 
 // static
 void LLLogChat::loadChatHistory(const std::string& file_name, std::list<LLSD>& messages, const LLSD& load_params, bool is_group)
 {
+    flushPendingWrites();
     // S24: fail closed during unsafe/pending-delete ChatService state - see
     // LLChatServiceHistory::historySuppressed().
     if (LLChatServiceHistory::historySuppressed())
@@ -471,6 +635,7 @@ void LLLogChat::loadChatHistory(const std::string& file_name, std::list<LLSD>& m
 void LLLogChat::loadChatHistoryExact(const std::string& path, std::list<LLSD>& messages,
                                     const LLSD& load_params)
 {
+    flushPendingWrites();
     if (path.empty())
     {
         return;
@@ -550,6 +715,7 @@ void LLLogChat::loadChatHistoryExact(const std::string& path, std::list<LLSD>& m
 // static
 void LLLogChat::getTranscriptFamily(const std::string& file_name, std::vector<std::string>& paths)
 {
+    flushPendingWrites();
     paths.clear();
     if (file_name.empty())
     {
@@ -722,6 +888,7 @@ std::string LLLogChat::oldLogFileName(std::string filename)
 
 bool LLLogChat::transcriptFilesExist()
 {
+    flushPendingWrites();
     std::string pattern = "*." + LL_TRANSCRIPT_FILE_EXTENSION;
     // get Users log directory
     std::string dirname = gDirUtilp->getPerAccountChatLogsDir();
@@ -744,6 +911,7 @@ bool LLLogChat::transcriptFilesExist()
 // static
 void LLLogChat::findTranscriptFiles(std::string pattern, std::vector<std::string>& list_of_transcriptions)
 {
+    flushPendingWrites();
     // get Users log directory
     std::string dirname = gDirUtilp->getPerAccountChatLogsDir();
 
@@ -794,6 +962,7 @@ bool LLLogChat::moveTranscripts(const std::string originDirectory,
                                 std::vector<std::string>& listOfFilesToMove,
                                 std::vector<std::string>& listOfFilesMoved)
 {
+    flushPendingWrites();
     std::string newFullPath;
     bool movedAllTranscripts = true;
     std::string backupFileName;
@@ -875,6 +1044,8 @@ void LLLogChat::deleteTranscripts()
 // static
 bool LLLogChat::deleteTranscriptContent(const std::string& directory)
 {
+    // S24 : lines already logged are written (and so deleted below) before the sweep takes the lock
+    flushPendingWrites();
     // Snapshot and remove the exact legacy targets while plaintext writers are excluded.
     LLMutexLock mutation_lock(&sTranscriptMutationMutex);
     std::vector<std::string> list_of_transcriptions;
@@ -969,6 +1140,7 @@ bool LLLogChat::isAdHocTranscriptExist(std::string file_name)
 // static
 bool LLLogChat::isTranscriptFileFound(std::string fullname)
 {
+    flushPendingWrites();
     bool result = false;
     LLFILE * filep = LLFile::fopen(fullname, "rb");
     if (NULL != filep)

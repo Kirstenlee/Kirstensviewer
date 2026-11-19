@@ -419,6 +419,12 @@ U32 LLVOVolume::processUpdateMessage(LLMessageSystem* mesgsys,
 					}
 
 					DXPipeline::markTextured(gPipeline, mDrawable);
+					// S24 : cached LLDrawInfo::mTextureMatrix points at the matrix just deleted
+					if (LLSpatialGroup* group = mDrawable->getSpatialGroup())
+					{
+						group->dirtyGeom();
+						DXPipeline::markRebuild(gPipeline, group);
+					}
 					mFaceMappingChanged = true;
 					mTexAnimMode = 0;
 				}
@@ -523,6 +529,12 @@ U32 LLVOVolume::processUpdateMessage(LLMessageSystem* mesgsys,
 				}
 
 				DXPipeline::markTextured(gPipeline, mDrawable);
+				// S24 : cached LLDrawInfo::mTextureMatrix points at the matrix just deleted
+				if (LLSpatialGroup* group = mDrawable->getSpatialGroup())
+				{
+					group->dirtyGeom();
+					DXPipeline::markRebuild(gPipeline, group);
+				}
 				mFaceMappingChanged = true;
 				mTexAnimMode = 0;
 			}
@@ -5099,9 +5111,6 @@ void LLRiggedVolume::update(
 	LLSkinningUtil::initSkinningMatrixPalette(mat, maxJoints, skin, avatar);
 	const LLMatrix4a bind_shape_matrix = skin->mBindShapeMatrix;
 
-	S32 rigged_vert_count = 0;
-	S32 rigged_face_count = 0;
-	LLVector4a box_min, box_max;
 	S32 face_begin;
 	S32 face_end;
 	if (face_index == DO_NOT_UPDATE_FACES)
@@ -5136,8 +5145,6 @@ void LLRiggedVolume::update(
 			if (pos && dst_face.mExtents)
 			{
 				U32 max_joints = LLSkinningUtil::getMaxJointCount();
-				rigged_vert_count += dst_face.mNumVertices;
-				rigged_face_count++;
 
 #if USE_SEPARATE_JOINT_INDICES_AND_WEIGHTS
 				if (vol_face.mJointIndices) // fast path with preconditioned joint indices
@@ -5184,20 +5191,11 @@ void LLRiggedVolume::update(
 
 				min = pos[0];
 				max = pos[1];
-				if (i == 0)
-				{
-					box_min = min;
-					box_max = max;
-				}
-
 				for (S32 j = 1; j < dst_face.mNumVertices; ++j)
 				{
 					min.setMin(min, pos[j]);
 					max.setMax(max, pos[j]);
 				}
-
-				box_min.setMin(min, box_min);
-				box_max.setMax(max, box_max);
 
 				dst_face.mCenter->setAdd(dst_face.mExtents[0], dst_face.mExtents[1]);
 				dst_face.mCenter->mul(0.5f);
@@ -5211,10 +5209,6 @@ void LLRiggedVolume::update(
 			}
 		}
 	}
-	mExtraDebugText = llformat("rigged %d/%d - box (%f %f %f) (%f %f %f)",
-		rigged_face_count, rigged_vert_count,
-		box_min[0], box_min[1], box_min[2],
-		box_max[0], box_max[1], box_max[2]);
 }
 
 U32 LLVOVolume::getPartitionType() const
@@ -5921,7 +5915,7 @@ void LLVolumeGeometryManager::rebuildGeom(LLSpatialGroup* group)
 					}
 
 					facep->setState(LLFace::RIGGED);
-					facep->mSkinInfo = (LLMeshSkinInfo*)skinInfo; // TODO -- fix ugly de-consting here
+					facep->mSkinInfo = skinInfo;
 					facep->mAvatar = avatar;
 					any_rigged_face = true;
 				}

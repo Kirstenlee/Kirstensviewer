@@ -39,6 +39,7 @@
 #if LL_WINDOWS && !LL_MESA_HEADLESS
 
 #include "llwindowwin32.h"
+#include "llgamecontrol.h"
 
  // LLWindow library includes
 #include "llkeyboardwin32.h"
@@ -2138,6 +2139,9 @@ bool LLWindowWin32::switchContext(bool fullscreen, const LLCoordScreen& size, bo
 	else
 	{
 		LL_WARNS("Window") << "Window creation failed, code: " << GetLastError() << LL_ENDL;
+		// S24 : nothing below works without a window handle
+		close();
+		return false;
 	}
 
 	if (!initDX11Context(size, enable_vsync))
@@ -2335,6 +2339,22 @@ void LLWindowWin32::toggleVSync(bool enable_vsync)
 	// Present() call.
 	gDXSwapChain.setVSync(enable_vsync);
 	LL_INFOS("Window") << "VSync " << (enable_vsync ? "enabled" : "disabled") << " (DXGI present interval = " << (enable_vsync ? 1 : 0) << ")" << LL_ENDL;
+}
+
+void LLWindowWin32::setMainThreadMMCSSBoost(bool high)
+{
+	// S24 : the main thread is registered with the "Games" MMCSS task in the constructor; this moves it between that
+	// task's normal and high priority
+	if (!mMMCSSHandle)
+	{
+		return;
+	}
+	if (!AvSetMmThreadPriority(mMMCSSHandle, high ? AVRT_PRIORITY_HIGH : AVRT_PRIORITY_NORMAL))
+	{
+		LL_WARNS("Window") << "AvSetMmThreadPriority failed: " << GetLastError() << LL_ENDL;
+		return;
+	}
+	LL_INFOS("Window") << "Main thread MMCSS priority " << (high ? "HIGH" : "NORMAL") << LL_ENDL;
 }
 
 void LLWindowWin32::moveWindow(const LLCoordScreen& position, const LLCoordScreen& size)
@@ -2591,7 +2611,7 @@ void LLWindowWin32::delayInputProcessing()
 	mInputProcessingPaused = true;
 }
 
-void LLWindowWin32::gatherInput()
+void LLWindowWin32::gatherInput(bool app_has_focus)
 {
 	ASSERT_MAIN_THREAD();
 	MSG msg;
@@ -2662,6 +2682,9 @@ void LLWindowWin32::gatherInput()
 	mInputProcessingPaused = false;
 
 	updateCursor();
+
+	// S24 : SDL game controller events, main thread once per frame
+	LLGameControl::processEvents(app_has_focus);
 }
 
 static LLTrace::BlockTimerStatHandle FTM_MOUSEHANDLER("Handle Mouse");
@@ -4779,7 +4802,7 @@ void LLWindowWin32::handleCompositionMessage(const LLImeCompositionSnapshot& sna
 		{
 			preedit_segment_lengths.resize(data.size() - 1);
 			S32 offset = 0;
-			for (U32 i = 0; i < preedit_segment_lengths.size(); i++)
+			for (size_t i = 0; i < preedit_segment_lengths.size(); i++)
 			{
 				const S32 length = wstring_wstring_length_from_utf16_length(
 					preedit_string, offset, data[i + 1] - data[i]);
@@ -4797,7 +4820,7 @@ void LLWindowWin32::handleCompositionMessage(const LLImeCompositionSnapshot& sna
 		{
 			preedit_standouts.assign(preedit_segment_lengths.size(), false);
 			S32 offset = 0;
-			for (U32 i = 0; i < preedit_segment_lengths.size(); i++)
+			for (size_t i = 0; i < preedit_segment_lengths.size(); i++)
 			{
 				if (ATTR_TARGET_CONVERTED == data[offset] ||
 					ATTR_TARGET_NOTCONVERTED == data[offset])
@@ -4894,7 +4917,7 @@ static LLWString find_context(const LLWString& wtext, S32 focus, S32 focus_lengt
 	}
 
 	*offset = start;
-	return wtext.substr(start, end - start);
+	return wtext.substr(start, end > start ? static_cast<size_t>(end - start) : 0);
 }
 
 // final stage of handling drop requests - both from WM_DROPFILES message

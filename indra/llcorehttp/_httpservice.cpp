@@ -334,10 +334,12 @@ HttpService::ELoopSpeed HttpService::processRequestQueue(ELoopSpeed loop)
 	const bool wait_for_req(REQUEST_SLEEP == loop);
 	
 	mRequestQueue->fetchAll(wait_for_req, ops);
-	while (! ops.empty())
+	// S24 : walked in order and moved from, then cleared once; erasing the front of the vector for every operation
+	// moved the whole rest of it each time (and copied a shared_ptr), which slowed dispatch most when a burst of
+	// requests arrived
+	for (HttpOperation::ptr_t& queued_op : ops)
 	{
-		HttpOperation::ptr_t op(ops.front());
-		ops.erase(ops.begin());
+		HttpOperation::ptr_t op(std::move(queued_op));
 
 		// Process operation
 		if (! mExitRequested)
@@ -354,6 +356,7 @@ HttpService::ELoopSpeed HttpService::processRequestQueue(ELoopSpeed loop)
 		// Done with operation
         op.reset();
 	}
+	ops.clear();
 
 	// Queue emptied, allow polling loop to sleep
 	return REQUEST_SLEEP;

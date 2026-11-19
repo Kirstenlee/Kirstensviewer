@@ -203,7 +203,7 @@ namespace
             rgb.setHSL(h, s, l);
 
             LLColor4 new_color(rgb.mV[0], rgb.mV[1], rgb.mV[2], orig.mV[VALPHA]);
-            LLUIColorTable::instance().setColor(name, new_color);
+            LLUIColorTable::instance().setTransientColor(name, new_color);
         }
     }
 
@@ -282,6 +282,18 @@ void init()
     if (sInitialized)
     {
         return;
+    }
+
+    // S24 : user color overrides belong to the skin they were made under. After a skin change they
+    // would otherwise carry the previous skin's highlight and emphasis colors onto the new one
+    // (the saved hue shift writes them into colors.xml), so they are put back to the new skin's values.
+    {
+        const std::string skin = gSavedSettings.getString("SkinCurrent");
+        if (gSavedSettings.getString("UIColorsSkin") != skin)
+        {
+            LLUIColorTable::instance().resetAllToSkinDefaults();
+            gSavedSettings.setString("UIColorsSkin", skin);
+        }
     }
 
     sOriginalColors.clear();

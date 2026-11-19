@@ -366,7 +366,7 @@ void LLIMWellWindow::addObjectRow(const LLUUID& notification_id, bool new_messag
 
 void LLIMWellWindow::removeObjectRow(const LLUUID& notification_id)
 {
-    // S24: Normal for notification to not be in this window, don't spam - 2026-04-27
+    // S24: Normal for notification to not be in this window, don't spam
     mMessageList->removeItemByValue(notification_id);
 
     reshapeWindow();

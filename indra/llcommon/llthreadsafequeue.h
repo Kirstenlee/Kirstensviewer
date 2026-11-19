@@ -160,7 +160,7 @@ public:
 	size_t size();
 
     //Returns the capacity of the queue.
-    U32 capacity() { return mCapacity; }
+    size_t capacity() { return mCapacity; }
 
 	// closes the queue:
 	// - every subsequent push() call will throw LLThreadSafeQueueInterrupt
@@ -353,11 +353,11 @@ template<typename T>
 bool LLThreadSafeQueue<ElementT, QueueT>::tryPush(T&& element)
 {
     return tryLock(
-        [this, element=std::move(element)](lock_t& lock)
+        [this, &element](lock_t& lock)
         {
             if (mClosed)
                 return false;
-            return push_(lock, std::move(element));
+            return push_(lock, std::forward<T>(element));
         });
 }
 
@@ -383,7 +383,7 @@ bool LLThreadSafeQueue<ElementT, QueueT>::tryPushUntil(
 {
     return tryLockUntil(
         until,
-        [this, until, element=std::move(element)](lock_t& lock)
+        [this, until, &element](lock_t& lock)
         {
             while (true)
             {
@@ -392,7 +392,7 @@ bool LLThreadSafeQueue<ElementT, QueueT>::tryPushUntil(
                     return false;
                 }
 
-                if (push_(lock, std::move(element)))
+                if (push_(lock, std::forward<T>(element)))
                     return true;
 
                 // Storage Full. Wait for signal.
@@ -422,7 +422,7 @@ LLThreadSafeQueue<ElementT, QueueT>::pop_(lock_t& lock, ElementT& element)
         return WAITING;
 
     // std::queue::front() is the element about to pop()
-    element = mStorage.front();
+    element = std::move(mStorage.front());
     mStorage.pop();
     lock.unlock();
     // now that we've popped, if somebody's been waiting to push, signal them

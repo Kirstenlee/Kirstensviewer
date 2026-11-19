@@ -310,6 +310,18 @@ float sampleDirectionalShadow(float3 pos, float3 norm, float2 pos_screen)
 #endif
 }
 
+// S24 : true for a pixel so far away that the sun and spot shadow lookups, and the ambient occlusion pass, all
+// return 1.0 whatever the normal is, so the sun lightmap pass can skip the normal fetch and everything after it
+// (every sky pixel is one). The sun shadow returns 1.0 once the offset position passes -shadow_clip.w, and that
+// offset is at most 2 * shadow_offset; the spot shadow tests its own offset position against the same plane, and
+// the ambient occlusion returns 1.0 beyond 64 m. A pixel inside the margin simply runs the full path. A NaN or
+// infinite position compares false, so it also takes the full path.
+bool isBeyondShadowReach(float4 pos)
+{
+    float reach = max(shadow_clip.w + max(shadow_offset * 2.0, spot_shadow_offset), 64.0);
+    return -pos.z > reach;
+}
+
 float sampleSpotShadow(float3 pos, float3 norm, int index, float2 pos_screen)
 {
 #if defined(SPOT_SHADOW)

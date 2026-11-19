@@ -144,11 +144,9 @@ public:
 
 	// Write coord frame orientation+translation into provided array in D3D
 	// matrix format (see llcoordframe.cpp's diagram above getDirectXTransform()).
-	// S24 (2026-09-06): getOpenGLTranslation()/getOpenGLRotation()/
-	// getDirectXRotation() removed - all confirmed dead (see llcoordframe.cpp
-	// for the full history); getDirectXTransform() (renamed from
-	// getOpenGLTransform() - this build is DX_RENDER-only) is the sole
-	// surviving export, a pure rename with no value change.
+	// S24: getOpenGLTranslation()/getOpenGLRotation()/getDirectXRotation() were dead
+	// code and have been removed (see llcoordframe.cpp). getDirectXTransform()
+	// (renamed from getOpenGLTransform()) is the sole surviving export.
 	void getDirectXTransform(F32 *dx_matrix) const;
 
 	// lookDir orients to (xuv, presumed normalized) and does not affect origin

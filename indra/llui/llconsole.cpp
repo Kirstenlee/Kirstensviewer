@@ -189,7 +189,11 @@ void LLConsole::draw()
 	// draw remaining lines
 	F32 y_pos = 0.f;
 
-	LLUIImagePtr imagep = LLUI::getUIImage("transparent");
+	if (mTransparentImagep.isNull())
+	{
+		mTransparentImagep = LLUI::getUIImage("transparent");
+	}
+	LLUIImagePtr imagep = mTransparentImagep;
 
 	static LLCachedControl<F32> console_bg_opacity(*LLUI::getInstance()->mSettingGroups["config"], "ConsoleBackgroundOpacity", 0.7f);
 	F32 console_opacity = llclamp(console_bg_opacity(), 0.f, 1.f);

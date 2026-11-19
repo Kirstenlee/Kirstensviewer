@@ -70,7 +70,7 @@ const char* LOOPBACK_ADDRESS_STRING = "127.0.0.1";
 const char* BROADCAST_ADDRESS_STRING = "255.255.255.255";
 
 const int   SEND_BUFFER_SIZE    = 200000;
-const int   RECEIVE_BUFFER_SIZE = 800000;
+const int   RECEIVE_BUFFER_SIZE = 8 * 1024 * 1024;  // S24 : was 800000, a burst must never overflow the kernel buffer
 
 // universal functions (cross-platform)
 
@@ -317,6 +317,17 @@ S32 receive_packet(int hSocket, char * receiveBuffer)
     }
 
     return nRet;
+}
+
+// S24 : block until the socket is readable or the timeout expires, so the
+// receiver thread neither spins nor sleeps through an arriving packet.
+bool wait_for_packet(int hSocket, int timeout_ms)
+{
+    WSAPOLLFD fds;
+    fds.fd = (SOCKET)hSocket;
+    fds.events = POLLRDNORM;
+    fds.revents = 0;
+    return WSAPoll(&fds, 1, timeout_ms) > 0;
 }
 
 // Returns true on success.

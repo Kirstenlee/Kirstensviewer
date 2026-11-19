@@ -25,6 +25,7 @@
  */
 
 #include "llviewerprecompiledheaders.h"
+#include <chrono>
 
 #include "llapr.h"
 #include "apr_portable.h"
@@ -2445,9 +2446,7 @@ bool LLMeshRepoThread::skinInfoReceived(const LLUUID& mesh_id, U8* data, S32 dat
             U32 uzip_result = LLUZipHelper::unzip_llsd(skin, data, data_size);
             if (uzip_result != LLUZipHelper::ZR_OK)
             {
-                LL_WARNS(LOG_MESH) << "Mesh skin info parse error.  Not a valid mesh asset!  ID:  " << mesh_id
-                    << " uzip result" << uzip_result
-                    << LL_ENDL;
+                // S24 : an invalid mesh asset is the creator's problem, not actionable here
                 return false;
             }
         }
@@ -3355,39 +3354,56 @@ void LLMeshRepoThread::notifyLoadedMeshes()
     }
 
 
+    // S24 : take everything the repo thread has finished into a main-thread backlog, then apply it under a
+    // time budget (always at least one mesh per frame). Applying a mesh copies its volume faces and notifies
+    // every volume using it, so a big batch landing in one frame was a visible hitch.
     if (!mLoadedQ.empty())
     {
-        std::deque<LoadedMesh> loaded_queue;
-
         mLoadedMutex->lock();
         if (!mLoadedQ.empty())
         {
-            loaded_queue.swap(mLoadedQ);
-            mLoadedMutex->unlock();
-
-
-            update_metrics = true;
-
-            // Process the elements free of the lock
-            for (const auto& mesh : loaded_queue)
+            if (mLoadedBacklog.empty())
             {
-                if (mesh.mVolume->getNumVolumeFaces() > 0)
-                {
-                    gMeshRepo.notifyMeshLoaded(mesh.mMeshParams, mesh.mVolume, mesh.mLOD);
-                }
-                else
-                {
-                    gMeshRepo.notifyMeshUnavailable(mesh.mMeshParams, mesh.mLOD, LLVolumeLODGroup::getVolumeDetailFromScale(mesh.mVolume->getDetail()));
-                }
+                mLoadedBacklog.swap(mLoadedQ);
+            }
+            else
+            {
+                mLoadedBacklog.insert(mLoadedBacklog.end(), std::make_move_iterator(mLoadedQ.begin()), std::make_move_iterator(mLoadedQ.end()));
+                mLoadedQ.clear();
             }
         }
-        else
+        mLoadedMutex->unlock();
+    }
+
+    if (!mLoadedBacklog.empty())
+    {
+        update_metrics = true;
+
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::microseconds(1500);
+        while (!mLoadedBacklog.empty())
         {
-            mLoadedMutex->unlock();
+            const LoadedMesh mesh = std::move(mLoadedBacklog.front());
+            mLoadedBacklog.pop_front();
+
+            if (mesh.mVolume->getNumVolumeFaces() > 0)
+            {
+                gMeshRepo.notifyMeshLoaded(mesh.mMeshParams, mesh.mVolume, mesh.mLOD);
+            }
+            else
+            {
+                gMeshRepo.notifyMeshUnavailable(mesh.mMeshParams, mesh.mLOD, LLVolumeLODGroup::getVolumeDetailFromScale(mesh.mVolume->getDetail()));
+            }
+
+            if (std::chrono::steady_clock::now() >= deadline)
+            {
+                break;
+            }
         }
     }
 
-    if (!mUnavailableQ.empty())
+    // Unavailable notices wait until the loaded backlog is drained, so a mesh LOD that is still waiting to be
+    // applied is never overtaken by an unavailable notice for it.
+    if (mLoadedBacklog.empty() && !mUnavailableQ.empty())
     {
         std::deque<LODRequest> unavil_queue;
 
@@ -4378,10 +4394,7 @@ S32 LLMeshRepository::loadMesh(LLVOVolume* vobj, const LLVolumeParams& mesh_para
         mesh_load_map::iterator iter = mLoadingMeshes[new_lod].find(mesh_id);
         if (iter != mLoadingMeshes[new_lod].end())
         { //request pending for this mesh, append volume id to list
-            auto it = std::find(iter->second.mVolumes.begin(), iter->second.mVolumes.end(), vobj);
-            if (it == iter->second.mVolumes.end()) {
-                iter->second.addVolume(vobj);
-            }
+            iter->second.addVolume(vobj);
         }
         else
         {
@@ -4549,6 +4562,10 @@ void LLMeshRepository::notifyLoadedMeshes()
     {
         //// Clean up dead skin info
         //U64Bytes skinbytes(0);
+        // S24 : the repo thread's copies are dropped by ONE posted task for the whole batch, not one posted
+        // closure per cached skin
+        std::vector<LLUUID> skin_ids;
+        skin_ids.reserve(mSkinMap.size());
         for (auto iter = mSkinMap.begin(), ender = mSkinMap.end(); iter != ender;)
         {
             auto copy_iter = iter++;
@@ -4565,14 +4582,21 @@ void LLMeshRepository::notifyLoadedMeshes()
                 mSkinMap.erase(copy_iter);
             }
 
+            skin_ids.push_back(id);
+        }
+
+        if (!skin_ids.empty())
+        {
             // erase from background thread
-            mThread->mWorkQueue.post([=, this]()
+            mThread->mWorkQueue.post([this, skin_ids = std::move(skin_ids)]()
                 {
-                    LLMutexLock(mThread->mSkinMapMutex);
-                    mThread->mSkinMap.erase(id);
+                    LLMutexLock lock(mThread->mSkinMapMutex);
+                    for (const LLUUID& id : skin_ids)
+                    {
+                        mThread->mSkinMap.erase(id);
+                    }
                 });
         }
-        
     }
 
     // For major operations, attempt to get the required locks
@@ -4656,9 +4680,12 @@ void LLMeshRepository::notifyLoadedMeshes()
                 std::partial_sort(mPendingRequests.begin(), mPendingRequests.begin() + push_count,
                                   mPendingRequests.end(), PendingRequestBase::CompareScoreGreater());
             }
-            while (!mPendingRequests.empty() && push_count > 0)
+            // S24 : dispatch by index and erase the dispatched requests from the front once, not one front
+            // erase (a move of the whole vector) per request
+            size_t dispatched = 0;
+            while (dispatched < mPendingRequests.size() && push_count > 0)
             {
-                std::shared_ptr<PendingRequestBase>& req_p = mPendingRequests.front();
+                std::shared_ptr<PendingRequestBase>& req_p = mPendingRequests[dispatched];
                 // todo: check hasTrackedData here and erase request if none
                 // since this is supposed to mean that request was removed
                 switch (req_p->getRequestType())
@@ -4681,9 +4708,10 @@ void LLMeshRepository::notifyLoadedMeshes()
                     LL_ERRS() << "Unknown request type in LLMeshRepository::notifyLoadedMeshes" << LL_ENDL;
                     break;
                 }
-                mPendingRequests.erase(mPendingRequests.begin());
+                ++dispatched;
                 push_count--;
             }
+            mPendingRequests.erase(mPendingRequests.begin(), mPendingRequests.begin() + dispatched);
         }
 
         //send decomposition requests

@@ -268,6 +268,7 @@ private:
 
     // Threads:  Ttf
     /*virtual*/ void threadedUpdate(void);
+    bool wantsThreadedUpdate() const override { return true; }
 
     // Threads:  Ttf
     void commonUpdate();

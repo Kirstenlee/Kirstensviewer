@@ -236,6 +236,10 @@ namespace
 
     void drawEmissive(LLDrawInfo* draw)
     {
+        // S24 : the glow pass runs after every alpha batch has been drawn, so the model matrix still loaded is
+        // whatever the last alpha batch needed. Each batch's glow must be drawn with its own matrix, or it only
+        // lands in the right place when that batch happened to be drawn last (draw order follows the camera).
+        LLRenderPass::applyModelMatrix(*draw);
         LLHLSLShader::sCurBoundShaderPtr->uniform1f(LLShaderMgr::EMISSIVE_BRIGHTNESS, 1.f);
         draw->mVertexBuffer->setBuffer();
         draw->mVertexBuffer->drawRange(LLRender::TRIANGLES, draw->mStart, draw->mEnd, draw->mCount, draw->mOffset);
@@ -261,6 +265,7 @@ namespace
         for (LLDrawInfo* draw : emissives)
         {
             llassert(draw->mGLTFMaterial);
+            LLRenderPass::applyModelMatrix(*draw); // S24 : see drawEmissive()
             DXStateDisable cull_face(draw->mGLTFMaterial->mDoubleSided ? DX_CULL_FACE : 0);
             draw->mGLTFMaterial->bind(draw->mTexture);
             draw->mVertexBuffer->setBuffer();
@@ -306,6 +311,7 @@ namespace
                 continue;
             }
 
+            LLRenderPass::applyModelMatrix(*draw); // S24 : see drawEmissive()
             DXStateDisable cull_face(draw->mGLTFMaterial->mDoubleSided ? DX_CULL_FACE : 0);
             draw->mGLTFMaterial->bind(draw->mTexture);
             draw->mVertexBuffer->setBuffer();
@@ -463,7 +469,7 @@ struct AlphaDrawCarry
     // Adds a batch's draw entries. A batch with any face near the camera gets one entry per face;
     // a batch that is entirely far away gets a single entry, which is the cheap path.
     void collectAlphaEntries(LLDrawInfo& params, bool disable_cull, const LLVector3& origin,
-                             F32 near_distance, F32 extent_factor, F32 depth_write_alpha, S32 sort_mode, std::vector<AlphaEntry>& entries)
+                             F32 near_distance, F32 extent_factor, F32 depth_write_alpha, S32 sort_mode, F32 stickiness, std::vector<AlphaEntry>& entries)
     {
         // A batch writes depth only if every face in it is at or above the threshold.
         F32 min_alpha = 1.f;
@@ -501,10 +507,39 @@ struct AlphaDrawCarry
             entries.resize(first);
             entries.push_back({ &params, nullptr, 0.f, disable_cull, batch_writes });
         }
-        else if (nearest > near_distance)
+        else
         {
-            entries.resize(first);
-            entries.push_back({ &params, nullptr, depth_sum / (F32)face_count, disable_cull, batch_writes });
+            // S24 : a batch that is drawn per face keeps being drawn per face until it is clearly beyond the limit
+            // (stickiness is a fraction of it), so a batch whose nearest face hovers around the limit does not
+            // change its draw order every frame
+            bool collapse = nearest > near_distance;
+            if (stickiness > 0.f && params.mAlphaFaceSorted)
+            {
+                collapse = nearest > near_distance * (1.f + stickiness);
+            }
+            params.mAlphaFaceSorted = !collapse;
+
+            if (collapse)
+            {
+                F32 depth = depth_sum / (F32)face_count;
+                if (stickiness > 0.f)
+                {
+                    // the batch keeps its previous sort depth until it has moved by a small fraction of it, so two
+                    // far batches of nearly equal depth hold their order instead of swapping back and forth
+                    const F32 band = depth * stickiness * 0.1f;
+                    if (params.mAlphaSortDepthValid && fabsf(depth - params.mAlphaSortDepth) < band)
+                    {
+                        depth = params.mAlphaSortDepth;
+                    }
+                    else
+                    {
+                        params.mAlphaSortDepth = depth;
+                        params.mAlphaSortDepthValid = true;
+                    }
+                }
+                entries.resize(first);
+                entries.push_back({ &params, nullptr, depth, disable_cull, batch_writes });
+            }
         }
     }
 
@@ -956,6 +991,7 @@ struct AlphaDrawCarry
         static LLCachedControl<F32> near_distance(gSavedSettings, "RenderAlphaFaceSortDistance", 24.f);
         static LLCachedControl<F32> extent_factor(gSavedSettings, "RenderAlphaSortExtentFactor", 0.5f);
         static LLCachedControl<F32> depth_write_alpha(gSavedSettings, "RenderAlphaDepthWriteThreshold", 0.98f);
+        static LLCachedControl<F32> sort_stickiness(gSavedSettings, "RenderAlphaSortStickiness", 0.25f);
         const S32 effective_sort_mode = rigged ? 0 : sort_mode;
 
         LLViewerCamera* camera = LLViewerCamera::getInstance();
@@ -1022,7 +1058,7 @@ struct AlphaDrawCarry
                     {
                         queueAlphaEmissive(pool, params, c, seen_emissive);
                     }
-                    collectAlphaEntries(params, disable_cull, origin, near_distance, extent_factor, depth_write_alpha, effective_sort_mode, entries);
+                    collectAlphaEntries(params, disable_cull, origin, near_distance, extent_factor, depth_write_alpha, effective_sort_mode, llmax(0.f, (F32)sort_stickiness), entries);
                 }
             }
         }
@@ -1030,10 +1066,30 @@ struct AlphaDrawCarry
         if (effective_sort_mode != 0)
         {
             // Farthest first. stable_sort keeps gather order for exact ties, so the order repeats frame to frame.
-            std::stable_sort(entries.begin(), entries.end(), [](const AlphaEntry& a, const AlphaEntry& b)
+            // S24 : sorts small {depth, index} keys instead of 32-byte entries (same stable merge sort and
+            // comparator, so the resulting order is unchanged), then permutes the entries once.
+            struct SortKey
+            {
+                F32 depth;
+                U32 index;
+            };
+            static std::vector<SortKey> keys;
+            static std::vector<AlphaEntry> sorted;
+            keys.resize(entries.size());
+            for (U32 i = 0; i < (U32)entries.size(); ++i)
+            {
+                keys[i] = { entries[i].depth, i };
+            }
+            std::stable_sort(keys.begin(), keys.end(), [](const SortKey& a, const SortKey& b)
             {
                 return a.depth > b.depth;
             });
+            sorted.resize(entries.size());
+            for (size_t i = 0; i < keys.size(); ++i)
+            {
+                sorted[i] = entries[keys[i].index];
+            }
+            entries.swap(sorted);
         }
 
         // Draw. Setup is redone when the batch changes; consecutive entries of one batch reuse it.
@@ -1197,7 +1253,10 @@ void DXDrawPoolAlpha::renderPostDeferred(DXAlphaDrawPool& pool, S32 pass)
     prepare_alpha_shader(simple_shader, true, water_sign);
 
     LLHLSLShader* materialShader = gDeferredMaterialProgram;
-    for (int i = 0; i < LLMaterial::SHADER_COUNT * 2; ++i)
+    // S24 : the first SHADER_COUNT entries are the non-skinned shaders and each one's mRiggedVariant is the skinned
+    // entry SHADER_COUNT later, which prepare_alpha_shader() prepares itself; looping over all 32 prepared the
+    // skinned half a second time
+    for (int i = 0; i < LLMaterial::SHADER_COUNT; ++i)
     {
         prepare_alpha_shader(&materialShader[i], true, water_sign);
     }

@@ -47,6 +47,7 @@
 #include "httpheaders.h"
 #include "httpoptions.h"
 #include "llcorehttputil.h"
+#include "llcoproceduremanager.h"
 
 static  const std::string KEY_AGENTS = "agents";            // map
 static  const std::string KEY_WEIGHT = "weight";            // integer
@@ -285,17 +286,9 @@ void LLAvatarRenderInfoAccountant::sendRenderInfoToRegion(LLViewerRegion* region
 		// make sure we won't re-report, coro will update timer with correct time later
 		regionp->getRenderInfoReportTimer().resetWithExpiry(SECS_BETWEEN_REGION_REPORTS);
 
-		try
-		{
-			std::string coroname =
-				LLCoros::instance().launch("LLAvatarRenderInfoAccountant::avatarRenderInfoReportCoro",
-					boost::bind(&LLAvatarRenderInfoAccountant::avatarRenderInfoReportCoro, url, regionp->getHandle()));
-		}
-		catch (std::bad_alloc&)
-		{
-			LLError::LLUserWarningMsg::showOutOfMemory();
-			LL_ERRS() << "LLCoros::launch() allocation failure" << LL_ENDL;
-		}
+		// S24 : queued on a pooled worker coroutine instead of a 1MB fiber stack per region
+		LLCoprocedureManager::instance().enqueueCoprocedure("ExpCache", "RenderInfoAccountantSend",
+			boost::bind(&LLAvatarRenderInfoAccountant::avatarRenderInfoReportCoro, url, regionp->getHandle()));
 	}
 }
 
@@ -316,18 +309,10 @@ void LLAvatarRenderInfoAccountant::getRenderInfoFromRegion(LLViewerRegion* regio
 		// make sure we won't re-request, coro will update timer with correct time later
 		regionp->getRenderInfoRequestTimer().resetWithExpiry(SECS_BETWEEN_REGION_REQUEST);
 
-		try
-		{
-			// First send a request to get the latest data
-			std::string coroname =
-				LLCoros::instance().launch("LLAvatarRenderInfoAccountant::avatarRenderInfoGetCoro",
-					boost::bind(&LLAvatarRenderInfoAccountant::avatarRenderInfoGetCoro, url, regionp->getHandle()));
-		}
-		catch (std::bad_alloc&)
-		{
-			LLError::LLUserWarningMsg::showOutOfMemory();
-			LL_ERRS() << "LLCoros::launch() allocation failure" << LL_ENDL;
-		}
+		// S24 : queued on a pooled worker coroutine instead of a 1MB fiber stack per region
+		// ("ExpCache" is the shared busy pool, initialised in LLExperienceCache)
+		LLCoprocedureManager::instance().enqueueCoprocedure("ExpCache", "RenderInfoAccountantGet",
+			boost::bind(&LLAvatarRenderInfoAccountant::avatarRenderInfoGetCoro, url, regionp->getHandle()));
 	}
 }
 

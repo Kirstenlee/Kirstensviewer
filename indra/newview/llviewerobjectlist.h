@@ -27,6 +27,7 @@
 #ifndef LL_LLVIEWEROBJECTLIST_H
 #define LL_LLVIEWEROBJECTLIST_H
 
+#include <unordered_set>
 #include <map>
 #include <set>
 
@@ -190,7 +191,7 @@ public:
     S32 mNumDeadObjectUpdates;
     S32 mNumDeadObjects;
 protected:
-    std::vector<U64>    mOrphanParents; // LocalID/ip,port of orphaned objects
+    std::unordered_set<U64> mOrphanParents; // LocalID/ip,port of orphaned objects (S24 : a set, membership is tested on every object update)
     std::vector<OrphanInfo> mOrphanChildren;    // UUID's of orphaned objects
     S32 mNumOrphans;
     S32 mNumAvatars;
@@ -285,16 +286,26 @@ inline LLViewerObject *LLViewerObjectList::getObject(const S32 index)
 
 inline void LLViewerObjectList::addToMap(LLViewerObject *objectp)
 {
+    objectp->mMapIndex = (S32)mMapObjects.size();
     mMapObjects.push_back(objectp);
 }
 
 inline void LLViewerObjectList::removeFromMap(LLViewerObject *objectp)
 {
-    std::vector<LLPointer<LLViewerObject> >::iterator iter = std::find(mMapObjects.begin(), mMapObjects.end(), objectp);
-    if (iter != mMapObjects.end())
+    // S24 : the object knows its slot, so removal is a swap with the last entry (the old find + erase was linear,
+    // and quadratic over a burst of deaths). The order of the map list is not significant.
+    const S32 idx = objectp->mMapIndex;
+    if (idx >= 0 && (size_t)idx < mMapObjects.size() && mMapObjects[idx] == objectp)
     {
-        mMapObjects.erase(iter);
+        const size_t last = mMapObjects.size() - 1;
+        if ((size_t)idx != last)
+        {
+            mMapObjects[idx] = std::move(mMapObjects[last]);
+            mMapObjects[idx]->mMapIndex = idx;
+        }
+        mMapObjects.pop_back();
     }
+    objectp->mMapIndex = -1;
 }
 
 

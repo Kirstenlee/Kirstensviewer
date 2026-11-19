@@ -174,19 +174,16 @@ bool LLOfferHandler::processNotification(const LLNotificationPtr& notification, 
     auto panelp = LLToastNotifyPanel::getInstance(p->getID());
     if (panelp)
     {
-        //
-        // HACK: if we're dealing with a notification embedded in IM, update it
-        // otherwise remove its toast
-        //
+        // S24 : an IM projection and a toast can coexist for one notification (the tracker keeps
+        // only the newest panel per id): update the IM copy if that is what we found, and always
+        // close the toast. Update first: closing the toast can drop the tracker entry for this id.
         if (dynamic_cast<LLIMToastNotifyPanel*>(panelp.get()))
         {
             panelp->updateNotification();
         }
-        else
-        {
-            // if notification has changed, hide it
-            mChannel.get()->removeToastByNotificationID(p->getID());
-        }
+
+        // if notification has changed, hide its toast
+        mChannel.get()->removeToastByNotificationID(p->getID());
     }
 }
 

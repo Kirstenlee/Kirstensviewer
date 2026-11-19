@@ -127,7 +127,7 @@ void AOEngine::onPauseAO()
 
 void AOEngine::clear(bool fromTimer)
 {
-	// S24 Fix motion leak - Clean up accumulated old sets from previous timer-based clears - 2026-04-27
+	// S24 Fix motion leak - Clean up accumulated old sets from previous timer-based clears
 	// When NOT called from timer, it's safe to delete accumulated sets from previous timer calls
 	// This prevents the motion/memory leak identified in FIRE-3801 workaround
 	if (!fromTimer)
@@ -135,7 +135,7 @@ void AOEngine::clear(bool fromTimer)
 		if (!mOldSets.empty())
 		{
 			LL_DEBUGS("AOEngine") << "S24: Cleaning up " << mOldSets.size() << " accumulated old AO sets (prevents motion leak)" << LL_ENDL;
-			// S24 Modern range-based loop replaces std::for_each(DeletePointer()) - 2026-04-27
+			// S24 Modern range-based loop replaces std::for_each(DeletePointer())
 			for (AOSet* set : mOldSets)
 			{
 				delete set;
@@ -146,7 +146,7 @@ void AOEngine::clear(bool fromTimer)
 		if (!mOldImportSets.empty())
 		{
 			LL_DEBUGS("AOEngine") << "S24: Cleaning up " << mOldImportSets.size() << " accumulated old import sets (prevents motion leak)" << LL_ENDL;
-			// S24 Modern range-based loop replaces std::for_each(DeletePointer()) - 2026-04-27
+			// S24 Modern range-based loop replaces std::for_each(DeletePointer())
 			for (AOSet* set : mOldImportSets)
 			{
 				delete set;
@@ -390,14 +390,14 @@ void AOEngine::enable(bool enable)
 {
 	LL_DEBUGS("AOEngine") << "using " << gAnimLibrary.animationName(mLastMotion) << " enable " << enable << LL_ENDL;
 
-	// S24 Opportunistic cleanup of accumulated old sets - 2026-04-27
+	// S24 Opportunistic cleanup of accumulated old sets
 	// enable() is always called from UI (non-timer context), safe to clean here
 	if (!mOldSets.empty() || !mOldImportSets.empty())
 	{
 		LL_DEBUGS("AOEngine") << "S24: Opportunistic cleanup during enable() - " 
 							  << mOldSets.size() << " old sets, " 
 							  << mOldImportSets.size() << " import sets" << LL_ENDL;
-		// S24 Modern range-based loops replace std::for_each(DeletePointer()) - 2026-04-27
+		// S24 Modern range-based loops replace std::for_each(DeletePointer())
 		for (AOSet* set : mOldSets)
 		{
 			delete set;

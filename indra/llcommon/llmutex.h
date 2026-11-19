@@ -55,7 +55,6 @@ public:
 	void unlock();		// undefined behavior when called on mutex not being held
 	bool isLocked(); 	// non-blocking, but does do a lock/unlock so not free
 	bool isSelfLocked(); //return true if locked in a same thread
-	LLThread::id_t lockingThread() const; //get ID of locking thread
 
 protected:
 	std::mutex			mMutex;

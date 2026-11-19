@@ -29,6 +29,7 @@
 
 #include "llfixedbuffer.h"
 #include "lluictrl.h"
+#include "lluiimage.h"
 #include "v4color.h"
 #include <deque>
 
@@ -148,6 +149,7 @@ private:
 	const LLFontDX*	mFont;
 	S32			mConsoleWidth;
 	S32			mConsoleHeight;
+	LLUIImagePtr mTransparentImagep; // S24 : resolved on first draw, not looked up by name every frame
 
 };
 

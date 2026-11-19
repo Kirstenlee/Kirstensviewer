@@ -95,6 +95,8 @@ public:
     virtual void destroySharedContext(void* context) = 0;
 
     virtual void toggleVSync(bool enable_vsync) = 0;
+    // S24 : raises or restores the main thread's MMCSS task priority (call from the main thread)
+    virtual void setMainThreadMMCSSBoost(bool high) {}
 
     virtual bool setCursorPosition(LLCoordWindow position) = 0;
     virtual bool getCursorPosition(LLCoordWindow *position) = 0;
@@ -149,7 +151,7 @@ public:
     virtual bool restoreGamma() = 0;            // Restore original gamma table (before updating gamma)
 	virtual ESwapMethod getSwapMethod() { return mSwapMethod; }
 	virtual void processMiscNativeEvents();
-	virtual void gatherInput() = 0;
+	virtual void gatherInput(bool app_has_focus) = 0;
 	virtual void delayInputProcessing() = 0;
 	virtual void swapBuffers() = 0;
 	virtual void bringToFront() = 0;

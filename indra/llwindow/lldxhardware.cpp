@@ -83,6 +83,7 @@ std::string LLDXHardware::getDriverVersionWMI(EGPUVendor vendor)
 	if (FAILED(hres))
 	{
 		LL_DEBUGS("AppInit") << "Failed to initialize COM library. Error code = 0x" << std::hex << hres << LL_ENDL;
+		CoUninitialize(); // S24 : balance the CoInitializeEx above
 		return std::string();
 	}
 
@@ -166,23 +167,29 @@ std::string LLDXHardware::getDriverVersionWMI(EGPUVendor vendor)
 		if (vendor != GPU_ANY)
 		{
 			VARIANT vtCaptionProp;
+			VariantInit(&vtCaptionProp); // S24 : Get() may leave it untouched
 			// Might be preferable to check "AdapterCompatibility" here instead of caption.
 			hres = pclsObj->Get(L"Caption", 0, &vtCaptionProp, nullptr, nullptr);
 
 			if (FAILED(hres))
 			{
 				LL_WARNS("AppInit") << "Query for Caption property failed. Error code = 0x" << std::hex << hres << LL_ENDL;
+				VariantClear(&vtCaptionProp);
+				pclsObj->Release(); // S24 : was leaked on this path
+				pEnumerator->Release();
 				pSvc->Release();
 				pLoc->Release();
 				CoUninitialize();
 				return std::string();
 			}
 
-			// use characters in the returned driver version
-			BSTR caption(vtCaptionProp.bstrVal);
-
 			//convert BSTR to std::string
-			std::wstring wsCaption(vtCaptionProp.bstrVal, SysStringLen(vtCaptionProp.bstrVal));
+			// S24 : bstrVal is only valid when vt == VT_BSTR (a missing property is VT_NULL)
+			std::wstring wsCaption;
+			if (vtCaptionProp.vt == VT_BSTR && vtCaptionProp.bstrVal)
+			{
+				wsCaption.assign(vtCaptionProp.bstrVal, SysStringLen(vtCaptionProp.bstrVal));
+			}
 			std::string captionStr = ll_convert_wide_to_string(wsCaption);
 			LLStringUtil::toLower(captionStr);
 
@@ -217,6 +224,7 @@ std::string LLDXHardware::getDriverVersionWMI(EGPUVendor vendor)
 		}
 
 		VARIANT vtVersionProp;
+		VariantInit(&vtVersionProp); // S24 : Get() may leave it untouched
 
 		// Get the value of the DriverVersion property
 		hres = pclsObj->Get(L"DriverVersion", 0, &vtVersionProp, nullptr, nullptr);
@@ -224,17 +232,22 @@ std::string LLDXHardware::getDriverVersionWMI(EGPUVendor vendor)
 		if (FAILED(hres))
 		{
 			LL_WARNS("AppInit") << "Query for DriverVersion property failed. Error code = 0x" << std::hex << hres << LL_ENDL;
+			VariantClear(&vtVersionProp);
+			pclsObj->Release(); // S24 : was leaked on this path
+			pEnumerator->Release();
 			pSvc->Release();
 			pLoc->Release();
 			CoUninitialize();
 			return std::string();
 		}
 
-		// use characters in the returned driver version
-		BSTR driverVersion(vtVersionProp.bstrVal);
-
 		//convert BSTR to std::string
-		std::wstring wsDriver(vtVersionProp.bstrVal, SysStringLen(vtVersionProp.bstrVal));
+		// S24 : bstrVal is only valid when vt == VT_BSTR (a missing property is VT_NULL)
+		std::wstring wsDriver;
+		if (vtVersionProp.vt == VT_BSTR && vtVersionProp.bstrVal)
+		{
+			wsDriver.assign(vtVersionProp.bstrVal, SysStringLen(vtVersionProp.bstrVal));
+		}
 		std::string driverVerStr = ll_convert_wide_to_string(wsDriver);
 		LL_INFOS("AppInit") << "DriverVersion: " << driverVerStr << LL_ENDL;
 

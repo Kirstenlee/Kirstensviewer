@@ -16,11 +16,40 @@
  save_visibility="true"
  title="DESTINATIONS"
  width="1080">
-    <web_browser
+    <button
       top="25"
-      height="875"
-      width="1080"
+      left="4"
+      height="22"
+      width="60"
+      label="Back"
+      tool_tip="Back to the previous page"
+      follows="left|top"
+      name="back_btn"/>
+    <button
+      top="25"
+      left="68"
+      height="22"
+      width="60"
+      label="Home"
+      tool_tip="Back to the Destination Guide"
+      follows="left|top"
+      name="home_btn"/>
+    <button
+      top="25"
+      left="132"
+      height="22"
+      width="120"
+      label="Open in browser"
+      tool_tip="Open this page in your web browser"
+      follows="left|top"
+      name="browser_btn"/>
+    <web_browser
       follows="all"
+      layout="topleft"
+      left="0"
+      top="51"
+      right="-1"
+      bottom="-1"
       name="destination_guide_contents"
       trusted_content="true"/>
 </floater>

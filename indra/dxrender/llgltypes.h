@@ -60,7 +60,7 @@ constexpr DXenum DX_NOTEQUAL = 0x0205;
 constexpr DXenum DX_GEQUAL   = 0x0206;
 constexpr DXenum DX_ALWAYS   = 0x0207;
 
-// S24: capability-toggle constants for LLGLEnable/LLGLDisable/DXState's "which
+// S24: capability-toggle constants for DXStateEnable/DXStateDisable/DXState's "which
 // state" argument - same hardcoded-not-aliased treatment as the depth-func
 // constants above, for the four capabilities actually wired through to a
 // D3D11 state object today (DXStateCache::getBlendState()/getRasterizerState(),

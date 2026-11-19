@@ -60,17 +60,11 @@ __kernel void bc7_encode_mode6(
     // fine - every index will simply resolve to the same reconstructed
     // color either way).
     //
-    // S24 (2026-09-09, offline round-trip test fix): was luminance min/max
-    // (R/G/B-weighted only) - degenerated to a single point (both endpoints
-    // = the SAME texel) for any block that varies only in alpha, or in a
-    // channel combination luminance happens to weight near zero, silently
-    // losing that variation entirely (confirmed live: a block with constant
-    // RGB and a hard 0/255 alpha split reconstructed with 100% alpha error,
-    // every texel, before this fix). Max-RGBA-distance instead - O(16*15/2)
-    // pairwise check, still trivial - captures whichever channel(s) actually
-    // vary, alpha included, and can't degenerate the same way (the two
-    // farthest-apart texels are only equal if the whole block is a single
-    // flat color, which is already the harmless/correct case).
+    // S24: max-RGBA-distance (O(16*15/2) pairwise), not luminance min/max -
+    // luminance weighting can degenerate to a single point for blocks that
+    // vary only in alpha (or a channel it weights near zero), losing that
+    // variation entirely. Max-distance captures any varying channel and
+    // only degenerates for a genuinely flat block.
     int minIdx = 0, maxIdx = 1, bestDist = -1;
     for (int i = 0; i < 16; ++i)
     {
@@ -152,18 +146,10 @@ __kernel void bc7_encode_mode6(
     // storage limit is satisfied below by conditionally swapping which
     // endpoint is "0" vs "1", not by restricting this search.
     //
-    // S24 (2026-09-09, offline round-trip test fix): this search used to be
-    // restricted to k<8 for i==0 ("a small, always-correct way to guarantee
-    // bitstream validity" - it IS always bitstream-valid, but the quality
-    // reasoning was wrong). Confirmed live: when texel 0's true best index
-    // is e.g. 15 (i.e., texel 0 IS very close to endpoint 1), restricting
-    // the search to [0,7] doesn't land it "slightly worse than optimal" -
-    // it lands near the MIDDLE of the endpoint range instead of at the
-    // correct endpoint (W[7]=30 out of 64, roughly halfway), a large,
-    // clearly visible error, not a negligible one. Real-world impact: any
-    // block containing a hard two-tone edge where texel 0 happens to be the
-    // "far" color reconstructed as a blended color instead - not a rare
-    // case.
+    // S24: do not restrict the anchor's (texel 0) index search to k<8 -
+    // that range is bitstream-valid but lands near the MIDDLE of the
+    // endpoint range (W[7]=30/64) instead of the correct endpoint whenever
+    // texel 0's true best index is in the upper half.
     int indices[16];
     for (int i = 0; i < 16; ++i)
     {
@@ -256,25 +242,10 @@ namespace
     cl_kernel sKernel = nullptr;
     bool sKernelOk = false;
 
-    // S24 (2026-09-09, task #318 CTD-adjacent fix): real, confirmed bug -
-    // DXBC7UploadManager's thread pool runs 2 worker threads, and both can
-    // call encodeMip() concurrently for two different textures. clSetKernelArg()
-    // is NOT thread-safe for concurrent calls on the SAME cl_kernel object
-    // (OpenCL spec) - without this lock, one thread's args could be
-    // overwritten by the other's between its own clSetKernelArg() calls and
-    // its clEnqueueNDRangeKernel() call, causing a dispatch to run against
-    // the WRONG thread's buffers. The victim thread's own (freshly
-    // allocated, never actually written) output buffer then reads back as
-    // whatever unwritten/zeroed memory the driver gave it - live-confirmed
-    // by the user as "random primitives fade in and out of black" (angle1/
-    // angle2.png, a texture-resolution test rig - the affected cubes
-    // differed frame to frame, exactly matching a scheduling-dependent
-    // race, not a deterministic encoding bug). Guards the whole set-args-
-    // then-enqueue sequence in encodeMip() as one atomic unit; buffer
-    // creation/write/read use per-call-local cl_mem objects and don't need
-    // it (OpenCL command-queue enqueue calls themselves ARE safe from
-    // multiple threads, per spec - only the shared kernel object's mutable
-    // argument state was the problem).
+    // clSetKernelArg() is not thread-safe for concurrent calls on the same
+    // cl_kernel (OpenCL spec); guards the set-args-then-enqueue sequence in
+    // encodeMip() as one atomic unit against the pool's 2 worker threads.
+    // Buffer creation/write/read use per-call-local cl_mem objects and don't need it.
     std::mutex sKernelMutex;
 }
 
@@ -400,11 +371,10 @@ DXBC7Compressor::CompressedMip DXBC7Compressor::encodeMip(const uint8_t* rgba8, 
 
     if (ok)
     {
-        // S24 (2026-09-09, task #318 CTD-adjacent fix): see sKernelMutex's
-        // own comment - must cover clSetKernelArg() through
-        // clEnqueueNDRangeKernel() as one atomic unit, since this class's
-        // background thread pool has more than one worker and all of them
-        // share this single dedicated cl_kernel object.
+        // S24: see sKernelMutex's own comment - must cover clSetKernelArg()
+        // through clEnqueueNDRangeKernel() as one atomic unit; this class's
+        // background thread pool has more than one worker sharing this
+        // single dedicated cl_kernel object.
         std::lock_guard<std::mutex> lock(sKernelMutex);
 
         err = CL_SUCCESS;

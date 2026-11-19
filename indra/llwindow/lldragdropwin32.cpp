@@ -111,7 +111,12 @@ class LLDragDropWin32Target:
 				if( S_OK == pDataObject->GetData( &fmtetc, &stgmed ) )
 				{
 					PVOID data = GlobalLock( stgmed.hGlobal );
-					mDropUrl = std::string( (char*)data );
+					// S24 : GlobalLock can fail, and the source is another process, so
+					// don't trust it to NUL-terminate within the allocation
+					if ( data )
+					{
+						mDropUrl = std::string( (char*)data, strnlen( (char*)data, GlobalSize( stgmed.hGlobal ) ) );
+					}
 					// XXX MAJOR MAJOR HACK!
 					LLWindowWin32 *window_imp = (LLWindowWin32 *)GetWindowLongPtr( mAppWindowHandle, GWLP_USERDATA );
 					if (NULL != window_imp)

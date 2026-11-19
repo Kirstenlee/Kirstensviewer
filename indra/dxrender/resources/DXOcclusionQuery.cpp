@@ -3,11 +3,18 @@
 #include "llerror.h"
 
 #include <queue>
-#include <unordered_map>
+#include <vector>
 
 namespace
 {
-    std::unordered_map<unsigned int, ID3D11Query*> sQueries;
+    // S24 : names are dense sequential integers, so the query for a name is sQueries[name] (null when
+    // deleted, and slot 0 stays null as the invalid name) instead of a hash lookup per Begin/End/poll
+    std::vector<ID3D11Query*> sQueries(1, nullptr);
+
+    inline ID3D11Query* findQuery(unsigned int name)
+    {
+        return name < sQueries.size() ? sQueries[name] : nullptr;
+    }
     // 0 reserved as "invalid" - matches GL's glGenQueries() convention that
     // LLOcclusionCullingGroup's own "if (!mOcclusionQuery[...])" checks rely on.
     unsigned int sNextName = 1;
@@ -33,7 +40,7 @@ void DXOcclusionQuery::genQueries(int count, unsigned int* out_names)
         }
 
         unsigned int name = sNextName++;
-        sQueries[name] = query;
+        sQueries.push_back(query);
         out_names[i] = name;
     }
 }
@@ -43,11 +50,10 @@ void DXOcclusionQuery::deleteQueries(int count, const unsigned int* names)
 {
     for (int i = 0; i < count; ++i)
     {
-        auto iter = sQueries.find(names[i]);
-        if (iter != sQueries.end())
+        if (ID3D11Query* query = findQuery(names[i]))
         {
-            iter->second->Release();
-            sQueries.erase(iter);
+            query->Release();
+            sQueries[names[i]] = nullptr;
         }
     }
 }
@@ -82,41 +88,58 @@ void DXOcclusionQuery::release(unsigned int name)
 // static
 void DXOcclusionQuery::beginQuery(unsigned int name)
 {
-    auto iter = sQueries.find(name);
-    if (iter != sQueries.end())
+    if (ID3D11Query* query = findQuery(name))
     {
-        gDXDevice.getContext()->Begin(iter->second);
+        gDXDevice.getContext()->Begin(query);
     }
 }
 
 // static
 void DXOcclusionQuery::endQuery(unsigned int name)
 {
-    auto iter = sQueries.find(name);
-    if (iter != sQueries.end())
+    if (ID3D11Query* query = findQuery(name))
     {
-        gDXDevice.getContext()->End(iter->second);
+        gDXDevice.getContext()->End(query);
     }
 }
 
 // static
 bool DXOcclusionQuery::isResultAvailable(unsigned int name)
 {
-    auto iter = sQueries.find(name);
-    if (iter == sQueries.end())
+    ID3D11Query* query = findQuery(name);
+    if (!query)
     {
         return false;
     }
 
-    HRESULT hr = gDXDevice.getContext()->GetData(iter->second, nullptr, 0, D3D11_ASYNC_GETDATA_DONOTFLUSH);
+    HRESULT hr = gDXDevice.getContext()->GetData(query, nullptr, 0, D3D11_ASYNC_GETDATA_DONOTFLUSH);
     return hr == S_OK;
+}
+
+// static
+bool DXOcclusionQuery::tryGetResult(unsigned int name, unsigned long long& out_samples)
+{
+    ID3D11Query* query = findQuery(name);
+    if (!query)
+    {
+        return false;
+    }
+
+    // One non-blocking GetData() that both tests for completion and fetches the value
+    UINT64 result = 0;
+    if (gDXDevice.getContext()->GetData(query, &result, sizeof(result), D3D11_ASYNC_GETDATA_DONOTFLUSH) != S_OK)
+    {
+        return false;
+    }
+    out_samples = result;
+    return true;
 }
 
 // static
 unsigned long long DXOcclusionQuery::getResult(unsigned int name)
 {
-    auto iter = sQueries.find(name);
-    if (iter == sQueries.end())
+    ID3D11Query* query = findQuery(name);
+    if (!query)
     {
         return 0;
     }
@@ -132,7 +155,7 @@ unsigned long long DXOcclusionQuery::getResult(unsigned int name)
     HRESULT hr = S_FALSE;
     for (int attempt = 0; attempt < 100000 && hr != S_OK; ++attempt)
     {
-        hr = gDXDevice.getContext()->GetData(iter->second, &result, sizeof(result), 0);
+        hr = gDXDevice.getContext()->GetData(query, &result, sizeof(result), 0);
     }
     if (hr != S_OK)
     {

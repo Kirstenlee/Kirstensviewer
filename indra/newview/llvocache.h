@@ -113,7 +113,6 @@ public:
     bool isState(U32 state)    {return (mState & LOW_BITS) == state;}
     U32  getState() const      {return mState & LOW_BITS;}
 
-    bool isAnyVisible(const LLVector4a& camera_origin, const LLVector4a& local_camera_origin, F32 dist_threshold);
 
     U32 getLocalID() const          { return mLocalID; }
     U32 getCRC() const              { return mCRC; }

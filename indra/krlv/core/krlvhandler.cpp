@@ -748,6 +748,10 @@ void KRlvHandler::removeRestriction(const std::string& behaviour, const LLUUID& 
             break;
         }
     }
+    if (!removedAny)
+    {
+        return; // S24 : nothing to remove, so no rewrite and re-sign of the restriction file
+    }
     entries.erase(std::remove_if(entries.begin(), entries.end(),
         [&sourceId](const KRlvRestrictionEntry& entry) { return entry.sourceObjectId == sourceId; }),
         entries.end());
@@ -756,10 +760,7 @@ void KRlvHandler::removeRestriction(const std::string& behaviour, const LLUUID& 
         mRestrictions.erase(it);
     }
     KRlv::saveRestrictions(mRestrictions);
-    if (removedAny)
-    {
-        notifyRestrictionChange(behaviour, removedOption, NotifyKind::Removed);
-    }
+    notifyRestrictionChange(behaviour, removedOption, NotifyKind::Removed);
 }
 
 std::vector<std::pair<std::string, std::string>> KRlvHandler::getActiveRules(const LLUUID& sourceId) const

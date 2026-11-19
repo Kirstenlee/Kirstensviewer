@@ -36,8 +36,6 @@
 #include "llatomic.h"
 #include "llmutex.h"
 
-#define USE_FRAME_CALLBACK_MANAGER 0
-
 //============================================================================
 
 class LLWorkerClass;

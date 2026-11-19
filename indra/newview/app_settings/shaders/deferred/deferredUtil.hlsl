@@ -404,7 +404,10 @@ float3 diffuse(PBRInfo pbrInputs)
 
 float3 specularReflection(PBRInfo pbrInputs)
 {
-    return pbrInputs.reflectance0 + (pbrInputs.reflectance90 - pbrInputs.reflectance0) * pow(clamp(1.0 - pbrInputs.VdotH, 0.0, 1.0), 5.0);
+    // S24 : x^5 as three multiplies, not pow()
+    float fc = clamp(1.0 - pbrInputs.VdotH, 0.0, 1.0);
+    float fc2 = fc * fc;
+    return pbrInputs.reflectance0 + (pbrInputs.reflectance90 - pbrInputs.reflectance0) * (fc2 * fc2 * fc);
 }
 
 float geometricOcclusion(PBRInfo pbrInputs)

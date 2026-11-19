@@ -304,6 +304,30 @@
         min_val="0.01"
         name="main_loop_time"
         width="65" />
+
+      <check_box
+        left="20"
+        top_pad="10"
+        control_name="RenderMMCSSHighPriority"
+        height="20"
+        initial_value="true"
+        label="Boost Main Thread (MMCSS High)"
+        layout="topleft"
+        name="mmcss_high_priority"
+        width="280"
+        tool_tip="Raises the main thread's multimedia scheduler (MMCSS Games task) priority from normal to high, so it is less likely to be pre-empted when other programs are using the CPU. Takes effect immediately. On by default: compare frame-time lows with it on and off." />
+
+      <check_box
+        left="20"
+        top_pad="6"
+        control_name="RenderLowLatencyPresent"
+        height="20"
+        initial_value="false"
+        label="Low Latency Present (queue of 1)"
+        layout="topleft"
+        name="low_latency_present"
+        width="280"
+        tool_tip="Keeps one frame in the present queue instead of two: input reaches the screen a frame sooner, but there is less room to absorb a slow frame. Only affects the flip-model swap chain. Takes effect immediately. Off by default: compare frame-time lows with it on and off." />
       </panel>
 
       <panel
@@ -548,7 +572,7 @@
       </panel>
 
       <panel
-        name="card_blank2"
+        name="card_cpu_memory_reset"
         follows="left|top"
         height="288"
         width="308"
@@ -560,6 +584,40 @@
         background_opaque="false"
         bg_alpha_image="Aurora_R2C3"
         >
+      <text
+        type="string"
+        follows="left|top"
+        height="18"
+        layout="topleft"
+        left="16"
+        top="12"
+        width="268"
+        font="SansSerifBold"
+        text_color="DrYellow">
+        Reset
+      </text>
+
+      <text
+        type="string"
+        follows="left|top"
+        height="54"
+        layout="topleft"
+        left="16"
+        top_pad="10"
+        width="276"
+        wrap="true"
+        font="SansSerif">
+        Resets every setting on this tab (cores, scheduling, memory, threading) to its default.
+      </text>
+
+      <button
+        left="16"
+        top_pad="10"
+        label="Reset CPU &amp; Memory Defaults"
+        name="reset_cpu_memory_btn"
+        width="240"
+        height="25"
+        tool_tip="Reset all CPU &amp; Memory tab settings to defaults" />
       </panel>
 
     </panel>
@@ -781,12 +839,12 @@
         increment="0.05"
         initial_value="0.75"
         layout="topleft"
-        max_val="1.0"
+        max_val="0.85"
         min_val="0.5"
         name="kvram_soft_threshold"
         show_text="false"
         width="200"
-        tool_tip="Start gentle RAM→Disk eviction when buffer reaches this usage level (50%-100%)"/>
+        tool_tip="Start gentle RAM→Disk eviction when buffer reaches this usage level (50%-85%, always at least 5% below the hard threshold)"/>
 
       <text
         left_pad="5"
@@ -825,12 +883,12 @@
         increment="0.05"
         initial_value="0.90"
         layout="topleft"
-        max_val="1.0"
+        max_val="0.90"
         min_val="0.7"
         name="kvram_hard_threshold"
         show_text="false"
         width="200"
-        tool_tip="Force aggressive RAM→Disk eviction when buffer reaches this usage level (70%-100%)"/>
+        tool_tip="Force aggressive RAM→Disk eviction when buffer reaches this usage level (70%-90%). New textures are refused from here up, so the adaptive mode drains back to the soft threshold within about 10 seconds."/>
 
       <text
         left_pad="5"
@@ -894,7 +952,7 @@
         follows="left|top"
         height="20"
         increment="0.1"
-        initial_value="10"
+        initial_value="3"
         layout="topleft"
         max_val="30"
         min_val="0.1"
@@ -928,7 +986,7 @@
         word_wrap="true"
         font="SansSerifBold"
         text_color="White">
-        Deck Size (Pre-Load Cap):
+        Save / Pre-Load Count (0 = off):
       </text>
 
       <slider
@@ -938,14 +996,14 @@
         follows="left|top"
         height="20"
         increment="100"
-        initial_value="100"
+        initial_value="5000"
         layout="topleft"
         max_val="15000"
-        min_val="100"
+        min_val="0"
         name="kvram_min_deck_size"
         show_text="false"
         width="200"
-        tool_tip="Deck size (100-15000 in 100 steps): the maximum textures warmed into RAM at startup, and the minimum textures held in the RAM buffer during play. Higher = more guaranteed cache hits before rotation begins, and more textures warmed at launch."/>
+        tool_tip="How many textures are saved when you log off, and so the most that are pre-loaded into RAM next time (0-15000 in steps of 100). The best ones are saved first: highest priority, then most recently used. 0 = off: nothing is saved or pre-loaded and the viewer loads textures from the network or the disk cache as normal."/>
 
       <text
         left_pad="5"
@@ -982,7 +1040,7 @@
         follows="left|top"
         height="20"
         increment="0.5"
-        initial_value="4.0"
+        initial_value="10.0"
         layout="topleft"
         max_val="30.0"
         min_val="1.0"
@@ -1026,7 +1084,7 @@
         follows="left|top"
         height="20"
         increment="0.5"
-        initial_value="6.0"
+        initial_value="10.0"
         layout="topleft"
         max_val="30.0"
         min_val="1.0"
@@ -1073,13 +1131,39 @@
         width="268"
         font="SansSerifBold"
         text_color="DrYellow">
-        Diagnostics
+        Eviction &amp; Diagnostics
       </text>
 
+      <text
+        type="string"
+        follows="left|top"
+        height="18"
+        layout="topleft"
+        left="20"
+        top_pad="8"
+        width="268"
+        font="SansSerifBold"
+        text_color="White">
+        Eviction Mode:
+      </text>
+
+      <combo_box
+        control_name="KVRAMEvictionScheme"
+        follows="left|top"
+        height="23"
+        layout="topleft"
+        left="20"
+        top_pad="2"
+        name="kvram_eviction_scheme"
+        width="268"
+        tool_tip="Adaptive: eviction follows how fast textures arrive, scales its step with the cache size and drains hard when the cache is overwhelmed. Original: a fixed number of textures per second.">
+          <combo_box.item label="Adaptive (inflow-driven)" name="1" value="1"/>
+          <combo_box.item label="Original (count-based)" name="0" value="0"/>
+      </combo_box>
 
       <check_box
         left="20"
-        top_pad="6"
+        top_pad="10"
         control_name="KVRAMCacheDebugLogging"
         follows="left|top"
         height="20"
@@ -1149,6 +1233,15 @@
 
 ⚠️ RAM buffer flushes to disk at logoff and pre-loads back at next launch - frequently-used textures (especially your own avatar's) stay warm between sessions.
       </text>
+
+      <button
+        left="16"
+        top="240"
+        label="Reset RAM Cache Defaults"
+        name="reset_ram_cache_btn"
+        width="240"
+        height="25"
+        tool_tip="Reset all RAM Cache tab settings to defaults" />
       </panel>
 
     </panel>
@@ -2122,7 +2215,7 @@
         follows="left|top"
         height="20"
         increment="0.05"
-        initial_value="0.2"
+        initial_value="0.30"
         layout="topleft"
         left_delta="0"
         min_val="0.0"
@@ -2138,7 +2231,7 @@
         follows="left|top"
         height="20"
         increment="0.05"
-        initial_value="0.2"
+        initial_value="0.30"
         layout="topleft"
         left_pad="5"
         min_val="0.0"
@@ -2165,7 +2258,7 @@
         follows="left|top"
         height="20"
         increment="0.1"
-        initial_value="1.2"
+        initial_value="2.00"
         layout="topleft"
         left_delta="0"
         min_val="0.0"
@@ -2181,7 +2274,7 @@
         follows="left|top"
         height="20"
         increment="0.1"
-        initial_value="1.2"
+        initial_value="2.00"
         layout="topleft"
         left_pad="5"
         min_val="0.0"
@@ -2208,7 +2301,7 @@
         follows="left|top"
         height="20"
         increment="1.0"
-        initial_value="12.0"
+        initial_value="40.0"
         layout="topleft"
         left_delta="0"
         min_val="1.0"
@@ -2224,7 +2317,7 @@
         follows="left|top"
         height="20"
         increment="1.0"
-        initial_value="12.0"
+        initial_value="40.0"
         layout="topleft"
         left_pad="5"
         min_val="1.0"
@@ -2820,7 +2913,7 @@
       </panel>
 
       <panel
-        name="card_empty2"
+        name="card_ssr_reset"
         follows="left|top"
         height="288"
         width="308"
@@ -2832,6 +2925,40 @@
         background_opaque="false"
         bg_alpha_image="Aurora_R2C3"
         >
+      <text
+        type="string"
+        follows="left|top"
+        height="18"
+        layout="topleft"
+        left="16"
+        top="12"
+        width="268"
+        font="SansSerifBold"
+        text_color="DrYellow">
+        Reset
+      </text>
+
+      <text
+        type="string"
+        follows="left|top"
+        height="54"
+        layout="topleft"
+        left="16"
+        top_pad="10"
+        width="276"
+        wrap="true"
+        font="SansSerif">
+        Resets every setting on this tab (global SSR, quality, depth tuning and the water override) to its default.
+      </text>
+
+      <button
+        left="16"
+        top="100"
+        label="Reset SSR Defaults"
+        name="reset_ssr_btn"
+        width="240"
+        height="25"
+        tool_tip="Reset all SSR tab settings to defaults" />
       </panel>
 
     </panel>
@@ -3741,7 +3868,7 @@
         follows="left|top"
         height="20"
         increment="0.01"
-        initial_value="1.0"
+        initial_value="0.04"
         layout="topleft"
         min_val="0.0"
         max_val="3.0"
@@ -4202,6 +4329,15 @@
         name="cloud_cumulus_scroll"
         tool_tip="Cumulus deck wind-scroll speed, relative to the base cloud layer's own scroll rate."
         width="200" />
+
+      <button
+        left="20"
+        top_pad="14"
+        label="Reset Sky Defaults"
+        name="reset_sky_btn"
+        width="200"
+        height="25"
+        tool_tip="Reset all Sky tab settings (stars, constellations, nebula, clouds) to defaults" />
       </panel>
 
     </panel>
@@ -4265,7 +4401,7 @@
         follows="left|top"
         height="20"
         increment="0.125"
-        initial_value="1.0"
+        initial_value="2.00"
         layout="topleft"
         min_val="0.25"
         max_val="4.0"
@@ -4737,7 +4873,7 @@
       </panel>
 
       <panel
-        name="card_blank"
+        name="card_shadows_reset"
         follows="left|top"
         height="288"
         width="308"
@@ -4749,6 +4885,40 @@
         background_opaque="false"
         bg_alpha_image="Aurora_R2C3"
         >
+      <text
+        type="string"
+        follows="left|top"
+        height="18"
+        layout="topleft"
+        left="16"
+        top="12"
+        width="268"
+        font="SansSerifBold"
+        text_color="DrYellow">
+        Reset
+      </text>
+
+      <text
+        type="string"
+        follows="left|top"
+        height="54"
+        layout="topleft"
+        left="16"
+        top_pad="10"
+        width="276"
+        wrap="true"
+        font="SansSerif">
+        Resets every setting on this tab (shadow bias, offsets, filtering, resolution, throttling, spot and tree shadows) to its default.
+      </text>
+
+      <button
+        left="16"
+        top_pad="10"
+        label="Reset Shadows Defaults"
+        name="reset_shadows_btn"
+        width="240"
+        height="25"
+        tool_tip="Reset all Shadows tab settings to defaults" />
       </panel>
 
     </panel>
@@ -5064,7 +5234,7 @@
         follows="left|top"
         height="20"
         increment="0.05"
-        initial_value="0.35"
+        initial_value="0.15"
         layout="topleft"
         min_val="0.0"
         max_val="1.0"
@@ -5128,7 +5298,7 @@
       </panel>
 
       <panel
-        name="card_blank3"
+        name="card_lighting_reset"
         follows="left|top"
         height="288"
         width="308"
@@ -5140,6 +5310,40 @@
         background_opaque="false"
         bg_alpha_image="Aurora_R2C3"
         >
+      <text
+        type="string"
+        follows="left|top"
+        height="18"
+        layout="topleft"
+        left="16"
+        top="12"
+        width="268"
+        font="SansSerifBold"
+        text_color="DrYellow">
+        Reset
+      </text>
+
+      <text
+        type="string"
+        follows="left|top"
+        height="54"
+        layout="topleft"
+        left="16"
+        top_pad="10"
+        width="276"
+        wrap="true"
+        font="SansSerif">
+        Resets every setting on this tab (local lights, spot shadows, light culling and reach, point light shadows) to its default.
+      </text>
+
+      <button
+        left="16"
+        top_pad="10"
+        label="Reset Lighting Defaults"
+        name="reset_lighting_btn"
+        width="240"
+        height="25"
+        tool_tip="Reset all Lighting tab settings to defaults" />
       </panel>
 
     </panel>
@@ -5503,7 +5707,7 @@
       </panel>
 
       <panel
-        name="card_blank3"
+        name="card_textures_reset"
         follows="left|top"
         height="288"
         width="308"
@@ -5515,6 +5719,40 @@
         background_opaque="false"
         bg_alpha_image="Aurora_R2C3"
         >
+      <text
+        type="string"
+        follows="left|top"
+        height="18"
+        layout="topleft"
+        left="16"
+        top="12"
+        width="268"
+        font="SansSerifBold"
+        text_color="DrYellow">
+        Reset
+      </text>
+
+      <text
+        type="string"
+        follows="left|top"
+        height="54"
+        layout="topleft"
+        left="16"
+        top_pad="10"
+        width="276"
+        wrap="true"
+        font="SansSerif">
+        Resets every setting on this tab (texture discard and resolution, fetch concurrency, HUD texture warnings) to its default.
+      </text>
+
+      <button
+        left="16"
+        top_pad="10"
+        label="Reset Textures Defaults"
+        name="reset_textures_btn"
+        width="240"
+        height="25"
+        tool_tip="Reset all Textures tab settings to defaults" />
       </panel>
 
     </panel>
@@ -5831,7 +6069,7 @@
       </panel>
 
       <panel
-        name="card_blank4"
+        name="card_network_reset"
         follows="left|top"
         height="288"
         width="308"
@@ -5843,6 +6081,40 @@
         background_opaque="false"
         bg_alpha_image="Aurora_R2C3"
         >
+      <text
+        type="string"
+        follows="left|top"
+        height="18"
+        layout="topleft"
+        left="16"
+        top="12"
+        width="268"
+        font="SansSerifBold"
+        text_color="DrYellow">
+        Reset
+      </text>
+
+      <text
+        type="string"
+        follows="left|top"
+        height="54"
+        layout="topleft"
+        left="16"
+        top_pad="10"
+        width="276"
+        wrap="true"
+        font="SansSerif">
+        Resets every setting on this tab (bandwidth, ack timing, media plugins, web engine) to its default.
+      </text>
+
+      <button
+        left="16"
+        top_pad="10"
+        label="Reset Network Defaults"
+        name="reset_network_btn"
+        width="240"
+        height="25"
+        tool_tip="Reset all Network tab settings to defaults" />
       </panel>
 
     </panel>
@@ -6235,6 +6507,15 @@
           name="fmod"
           value="1" />
       </combo_box>
+
+      <button
+        left="20"
+        top_pad="14"
+        label="Reset Audio Defaults"
+        name="reset_audio_btn"
+        width="200"
+        height="25"
+        tool_tip="Reset all Audio tab settings (streaming engine, metadata, FMOD 3-band and VLC 10-band equalizers) to defaults" />
       </panel>
 
       <panel
@@ -6696,20 +6977,6 @@
         width="280" />
 
       <text
-        left="20"
-        top_pad="2"
-        name="master_cube_warning"
-        follows="left|top"
-        layout="topleft"
-        height="34"
-        width="268"
-        font="SansSerifSmall"
-        text_color="DrYellow"
-        word_wrap="true">
-        ⚠ Close-up reflections can look scaled/zoomed
-      </text>
-
-      <text
         type="string"
         follows="left|top"
         height="18"
@@ -6727,14 +6994,14 @@
         follows="left|top"
         height="20"
         increment="1"
-        initial_value="20"
+        initial_value="32"
         layout="topleft"
         left="20"
         max_val="256"
         min_val="1"
         name="master_cube_radius_spinner"
         top_pad="4"
-        tool_tip="Parallax-correction radius of the master cube's capture sphere. Default 20m is a comfortable general-purpose indoor value; shrink further for a tight room, raise for open/expansive regions. Takes effect immediately, no restart or toggle needed."
+        tool_tip="Parallax-correction radius of the master cube's capture sphere. Default 32m is a comfortable general-purpose value; shrink further for a tight room, raise for open/expansive regions. Takes effect immediately, no restart or toggle needed."
         width="65" />
       </panel>
 
@@ -7363,7 +7630,7 @@
       <check_box
         control_name="RenderReflectionExcludeAvatarDynamic"
         height="20"
-        initial_value="false"
+        initial_value="true"
         label="Exclude avatar from Dynamic"
         layout="topleft"
         left="20"
@@ -7579,7 +7846,7 @@
       <check_box
         control_name="RenderTonemapEverywhere"
         height="20"
-        initial_value="false"
+        initial_value="true"
         label="Tonemap Everywhere!"
         layout="topleft"
         left="20"
@@ -8146,7 +8413,7 @@
       <check_box
         control_name="RenderReflectionProbeCaptureShadows"
         height="20"
-        initial_value="true"
+        initial_value="false"
         label="Shadows in Captures"
         layout="topleft"
         left="20"

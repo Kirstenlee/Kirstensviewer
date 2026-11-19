@@ -1119,6 +1119,8 @@ void AISUpdate::parseUpdate(const LLSD& update)
 
 void AISUpdate::parseMeta(const LLSD& update)
 {
+    // S24 : an id the server reports as removed that the local model does not hold
+    // (already removed locally, or never loaded) is normal and needs no warning
     // parse _categories_removed -> mObjectsDeletedIds
     uuid_list_t cat_ids;
     parseUUIDArray(update,"_categories_removed",cat_ids);
@@ -1130,10 +1132,6 @@ void AISUpdate::parseMeta(const LLSD& update)
         {
             mCatDescendentDeltas[cat->getParentUUID()]--;
             mObjectsDeletedIds.insert(*it);
-        }
-        else
-        {
-            LL_WARNS("Inventory") << "removed category not found " << *it << LL_ENDL;
         }
     }
 
@@ -1150,10 +1148,6 @@ void AISUpdate::parseMeta(const LLSD& update)
             mCatDescendentDeltas[item->getParentUUID()]--;
             mObjectsDeletedIds.insert(*it);
         }
-        else
-        {
-            LL_WARNS("Inventory") << "removed item not found " << *it << LL_ENDL;
-        }
     }
 
     // parse _broken_links_removed -> mObjectsDeletedIds
@@ -1167,10 +1161,6 @@ void AISUpdate::parseMeta(const LLSD& update)
         {
             mCatDescendentDeltas[item->getParentUUID()]--;
             mObjectsDeletedIds.insert(*it);
-        }
-        else
-        {
-            LL_WARNS("Inventory") << "broken link not found " << *it << LL_ENDL;
         }
     }
 

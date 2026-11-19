@@ -810,8 +810,14 @@ private:
     //--------------------------------------------------------------------
 public:
     static void cullAvatarsByPixelArea();
+    // S24 : an object update message or cache load only marks the cull dirty. It is run once, after the
+    // network drain (flushPendingCullAvatars) and at the top of LLViewerObjectList::update, not per message.
+    // Main thread only.
+    static void requestCullAvatarsByPixelArea() { sCullPending = true; }
+    static void flushPendingCullAvatars() { if (sCullPending) { cullAvatarsByPixelArea(); } }
     bool        isCulled() const { return mCulled; }
 private:
+    static inline bool sCullPending = false;
     bool        mCulled;
 
     //--------------------------------------------------------------------

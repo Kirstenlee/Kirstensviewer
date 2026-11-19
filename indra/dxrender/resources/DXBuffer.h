@@ -27,6 +27,11 @@ public:
     // match the size passed to create*Buffer().
     bool upload(const void* data, size_t size);
 
+    // S24 : writes `size` bytes at `byte_offset`. discard = Map(WRITE_DISCARD) (the buffer's earlier contents are
+    // dropped, the driver hands back fresh memory); otherwise Map(WRITE_NO_OVERWRITE), which promises not to touch
+    // anything the GPU may still be reading, so appending to the unused tail needs no rename.
+    bool uploadRange(const void* data, size_t size, size_t byte_offset, bool discard);
+
     ID3D11Buffer* getBuffer() const { return mBuffer; }
 
 private:

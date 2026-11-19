@@ -159,7 +159,10 @@ S32 LLSDXMLFormatter::format_impl(const LLSD& data, std::ostream& ostr,
 		ostr << pre << "<real>";
 		if (mRealFormat.empty())
 		{
+			// S24 : always '.' regardless of stream locale
+			std::locale old = ostr.imbue(std::locale::classic());
 			ostr << data.asReal();
+			ostr.imbue(old);
 		}
 		else
 		{

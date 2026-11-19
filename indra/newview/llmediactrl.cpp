@@ -924,7 +924,12 @@ void LLMediaCtrl::calcOffsetsAndSize(S32 *x_offset, S32 *y_offset, S32 *width, S
 
     if (mStretchToFill)
     {
-        if (mMaintainAspectRatio && mMediaSource && mMediaSource->getMediaPlugin())
+        // S24 : a media source with no frame yet, or a collapsed view, has a zero size - fall
+        // through to stretch-to-fill instead of dividing by zero
+        if (mMaintainAspectRatio && mMediaSource && mMediaSource->getMediaPlugin() &&
+            mMediaSource->getMediaPlugin()->getWidth() > 0 &&
+            mMediaSource->getMediaPlugin()->getHeight() > 0 &&
+            r.getWidth() > 0 && r.getHeight() > 0)
         {
             F32 media_aspect = (F32)(mMediaSource->getMediaPlugin()->getWidth()) / (F32)(mMediaSource->getMediaPlugin()->getHeight());
             F32 view_aspect = (F32)(r.getWidth()) / (F32)(r.getHeight());

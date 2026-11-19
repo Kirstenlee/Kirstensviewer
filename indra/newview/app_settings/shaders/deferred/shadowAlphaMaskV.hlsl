@@ -67,9 +67,11 @@ VSOutput main(VSInput IN)
     //transform vertex
 #if defined(HAS_SKIN)
     float4 pre_pos = float4(IN.position.xyz, 1.0);
-    float4x4 mat = getObjectSkinnedTransform();
-    mat = mul(modelview_matrix, mat);
-    float4 pos = mul(mat, pre_pos);
+    float4x4 skin = getObjectSkinnedTransform();
+    // S24 : the vertex goes through the skin, view and projection matrices in turn, three matrix-vector
+    // products, instead of first multiplying the matrices together for every vertex (the same result)
+    float4 pos = mul(skin, pre_pos);
+    pos = mul(modelview_matrix, pos);
     pos = mul(projection_matrix, pos);
 #else
     float4 pre_pos = float4(IN.position.xyz, 1.0);

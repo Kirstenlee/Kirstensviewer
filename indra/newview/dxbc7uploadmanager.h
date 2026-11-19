@@ -38,7 +38,15 @@ public:
     //
     // `rgba8` must be the SAME pixel data `tex` was just uploaded with (top-
     // to-bottom row order, 4 bytes/texel - the same convention
-    // DXTexture::create()'s own `data` parameter uses) - copied internally,
-    // caller's buffer need not stay valid after this call returns.
-    static void requestUpgrade(const LLPointer<LLImageDX>& tex, const uint8_t* rgba8, int width, int height);
+    // DXTexture::create()'s own `data` parameter uses). Moved from, not copied.
+    // S24 : takes ownership of the RGBA8 pixels (width * height * 4 bytes) instead of copying them
+    static void requestUpgrade(const LLPointer<LLImageDX>& tex, std::vector<uint8_t>&& rgba8, int width, int height);
+
+    // S24 : same, from the texture's raw pixels with `components` bytes per texel (1-4). The channel repack to
+    // RGBA8 is then done on the compression worker instead of on the calling (main) thread. The caller hands
+    // over a private copy of the bytes (width * height * components).
+    static void requestUpgradeFromRaw(const LLPointer<LLImageDX>& tex, std::vector<uint8_t>&& raw, int components, int width, int height);
+
+private:
+    static void startUpgradeJob(const LLPointer<LLImageDX>& tex, std::vector<uint8_t>&& source, int components, int width, int height);
 };

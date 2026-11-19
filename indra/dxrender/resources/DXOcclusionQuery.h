@@ -79,6 +79,10 @@ public:
     // without stalling the GPU (D3D11_ASYNC_GETDATA_DONOTFLUSH).
     static bool isResultAvailable(unsigned int name);
 
+    // S24: non-blocking fetch in a single GetData() - true and out_samples set once the result is ready,
+    // false (out_samples untouched) while it is pending or for an unknown name.
+    static bool tryGetResult(unsigned int name, unsigned long long& out_samples);
+
     // GL_QUERY_RESULT equivalent - real sample count (0 = fully occluded),
     // same meaning callers already give GL_SAMPLES_PASSED/
     // GL_ANY_SAMPLES_PASSED (both are only ever compared ">0"). Spins until

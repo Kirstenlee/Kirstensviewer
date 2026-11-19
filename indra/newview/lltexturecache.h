@@ -164,6 +164,15 @@ public:
     void noteWriteInitFailure() { mRecentWriteInitFailures.fetch_add(1, std::memory_order_relaxed); }
     S32 consumeRecentWriteInitFailures() { return mRecentWriteInitFailures.exchange(0, std::memory_order_relaxed); }
 
+    // S24: rate-limits doWrite()'s per-failure warning - a burst logged hundreds of
+    // lines per second and flooded the console. Returns true at most once a second;
+    // 'suppressed' receives the number of failures skipped since the last true.
+    bool takeWriteInitFailureLogSlot(S32& suppressed);
+    // Counts writeToCache() calls whose raw image was already invalid before the
+    // deep copy (vs. failing later), to tell the two causes apart in the log.
+    void noteWriteRawInvalidAtCall() { mWriteRawInvalidAtCall.fetch_add(1, std::memory_order_relaxed); }
+    S32 getWriteRawInvalidAtCall() const { return mWriteRawInvalidAtCall.load(std::memory_order_relaxed); }
+
 protected:
     // Accessed by LLTextureCacheWorker
     std::string getLocalFileName(const LLUUID& id);
@@ -182,6 +191,7 @@ private:
     void purgeTextures(bool validate);
     LLAPRFile* openHeaderEntriesFile(bool readonly, S32 offset);
     void closeHeaderEntriesFile();
+    void closeHeaderReadFile();
     void readEntriesHeader();
     void setEntriesHeader();
     void writeEntriesHeader();
@@ -204,6 +214,9 @@ private:
     void openFastCache(bool first_time = false);
     void closeFastCache(bool forced = false);
     bool writeToFastCache(LLUUID image_id, S32 cache_id, LLPointer<LLImageRaw> raw, S32 discardlevel);
+    // S24 : invalidates a fast-cache slot (zero-size entry) when a texture is written to the disk
+    // cache without a raw image, so a recycled slot can never serve another texture's stale preview
+    void clearFastCacheEntry(S32 id);
 
 private:
     // S24: see noteWriteInitFailure()/consumeRecentWriteInitFailures() above -
@@ -211,6 +224,9 @@ private:
     // hence atomic rather than behind one of the LLMutex members below (this
     // is a pure counter, not gating access to shared data).
     std::atomic<S32> mRecentWriteInitFailures{0};
+    std::atomic<S64> mLastWriteInitLogMs{0};
+    std::atomic<S32> mSuppressedWriteInitLogs{0};
+    std::atomic<S32> mWriteRawInvalidAtCall{0};
 
     // Internal
     LLMutex mWorkersMutex;
@@ -219,6 +235,11 @@ private:
     LLMutex mListMutex;
     LLMutex mFastCacheMutex;
     LLAPRFile* mHeaderAPRFile;
+    // S24 : long-lived read-only handle on the header entries file, used only by readEntryFromHeaderImmediately()
+    // (under mHeaderMutex). It has its own pool so the header pool can still be cleared between operations, and it
+    // is closed before the file is deleted, replaced or rewritten.
+    LLAPRFile* mHeaderReadFile = NULL;
+    LLVolatileAPRPool* mHeaderReadPoolp = NULL;
     LLVolatileAPRPool* mFastCachePoolp;
 
     // mLocalAPRFilePoolp is not thread safe and is meant only for workers

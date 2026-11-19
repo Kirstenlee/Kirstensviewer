@@ -41,13 +41,6 @@
 extern U32 gOctreeMaxCapacity;
 extern float gOctreeMinSize;
 
-/*#define LL_OCTREE_PARANOIA_CHECK 0
-#if LL_DARWIN
-#define LL_OCTREE_MAX_CAPACITY 32
-#else
-#define LL_OCTREE_MAX_CAPACITY 128
-#endif*/
-
 // T is the type of the element referenced by the octree node.
 // T_PTR determines how pointers to elements are stored internally.
 // LLOctreeNode<T, LLPointer<T>> assumes ownership of inserted elements and

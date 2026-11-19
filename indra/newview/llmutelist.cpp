@@ -255,6 +255,7 @@ bool LLMuteList::updateLoadState()
 
 void LLMuteList::clearCachedMutes()
 {
+    mObjectMutesDirty = true; // S24 : the cached object-mute id list is rebuilt on next use
     mMutes.clear();
     mLegacyMutes.clear();
     // Internal lifecycle event only, nothing user-actionable - keep below WARNS.
@@ -417,6 +418,7 @@ bool LLMuteList::add(const LLMute& mute, U32 flags)
             // This mute is already in the list.  Save the existing entry's flags if that's warranted.
             localmute.mFlags = it->mFlags;
 
+            mObjectMutesDirty = true; // S24 : the cached object-mute id list is rebuilt on next use
             mMutes.erase(it);
             // Don't need to call notifyObservers() here, since it will happen after the entry has been re-added below.
         }
@@ -439,6 +441,7 @@ bool LLMuteList::add(const LLMute& mute, U32 flags)
 
         // (re)add the mute entry.
         {
+            mObjectMutesDirty = true; // S24 : the cached object-mute id list is rebuilt on next use
             std::pair<mute_set_t::iterator, bool> result = mMutes.insert(localmute);
             if (result.second)
             {
@@ -591,6 +594,7 @@ bool LLMuteList::remove(const LLMute& mute, U32 flags)
         }
 
         // Always remove the entry from the set -- it will be re-added with new flags if necessary.
+        mObjectMutesDirty = true; // S24 : the cached object-mute id list is rebuilt on next use
         mMutes.erase(it);
 
         if(remove)
@@ -602,6 +606,7 @@ bool LLMuteList::remove(const LLMute& mute, U32 flags)
         else
         {
             // Flags were updated, the mute entry needs to be retransmitted to the server and re-added to the list.
+            mObjectMutesDirty = true; // S24 : the cached object-mute id list is rebuilt on next use
             mMutes.insert(localmute);
             updateAdd(localmute);
             LL_INFOS() << "Updating mute entry " << localmute.mName << " id " << localmute.mID << " flags " << localmute.mFlags << LL_ENDL;
@@ -845,6 +850,7 @@ bool LLMuteList::loadFromFile(const std::string& filename, EMuteListSource sourc
         }
         else
         {
+            mObjectMutesDirty = true; // S24 : the cached object-mute id list is rebuilt on next use
             mMutes.insert(mute);
 
             // S24: applies FORCE_INVISIBLE to muted objects already in memory at mute-list
@@ -1157,10 +1163,12 @@ void LLMuteList::onAccountNameChanged(const LLUUID& id, const std::string& usern
             mute.mFlags = mute_it->mFlags;
 
             // erase old variant
+            mObjectMutesDirty = true; // S24 : the cached object-mute id list is rebuilt on next use
             mMutes.erase(mute_it);
 
             // (re)add the mute entry.
             {
+                mObjectMutesDirty = true; // S24 : the cached object-mute id list is rebuilt on next use
                 std::pair<mute_set_t::iterator, bool> result = mMutes.insert(mute);
                 if (result.second)
                 {
@@ -1490,13 +1498,30 @@ void LLMuteList::enforceRegionDerender(LLViewerRegion* region)
         return;
     }
 
-    // Walk mute list and check if each muted object is in THIS region
-    for (mute_set_t::const_iterator it = mMutes.begin(); it != mMutes.end(); ++it)
+    // S24 : this runs per region per frame, so the OBJECT mutes are kept in a flat list (rebuilt when the mute set
+    // changes) and an empty list returns at once, instead of walking every mute of every type each time
+    if (mObjectMutesDirty)
     {
-        const LLMute& mute = *it;
-        if (mute.mType == LLMute::OBJECT && mute.mID.notNull())
+        mObjectMuteIDs.clear();
+        for (const LLMute& m : mMutes)
         {
-            LLViewerObject* obj = gObjectList.findObject(mute.mID);
+            if (m.mType == LLMute::OBJECT && m.mID.notNull())
+            {
+                mObjectMuteIDs.push_back(m.mID);
+            }
+        }
+        mObjectMutesDirty = false;
+    }
+    if (mObjectMuteIDs.empty())
+    {
+        return;
+    }
+
+    // Walk the object mutes and check if each muted object is in THIS region
+    for (const LLUUID& muted_id : mObjectMuteIDs)
+    {
+        {
+            LLViewerObject* obj = gObjectList.findObject(muted_id);
             // Only process if object exists AND is in the specified region
             if (obj && !obj->isDead() && !obj->isAvatar() && obj->getRegion() == region)
             {

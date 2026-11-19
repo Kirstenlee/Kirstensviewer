@@ -156,8 +156,8 @@ size_t LLQueuedThread::updateQueue(F32 max_time_ms)
 	// Frame Update
 	if (mThreaded)
 	{
-        // schedule a call to threadedUpdate for every call to updateQueue
-        if (!isQuitting())
+        // schedule a call to threadedUpdate for every call to updateQueue, for threads that use it
+        if (wantsThreadedUpdate() && !isQuitting())
         {
             mRequestQueue.post([=, this]()
                 {
@@ -312,7 +312,6 @@ bool LLQueuedThread::waitForResult(LLQueuedThread::handle_t handle, bool auto_co
 			{
 				mRequestHash.erase(handle);
 				req->deleteRequest();
-// 				check();
 			}
 			done = true;
 		}
@@ -393,17 +392,12 @@ bool LLQueuedThread::completeRequest(handle_t handle)
 #endif
 		mRequestHash.erase(handle);
 		req->deleteRequest();
-//      check();
 		res = true;
 	}
 	unlockData();
 	return res;
 }
 
-bool LLQueuedThread::check()
-{
-	return true;
-}		
 	
 //============================================================================
 // Runs on its OWN thread
@@ -455,7 +449,6 @@ void LLQueuedThread::processRequest(LLQueuedThread::QueuedRequest* req)
                 {
                     mRequestHash.erase(req);
                     req->deleteRequest();
-                    // 				check();
                 }
                 unlockData();
             }

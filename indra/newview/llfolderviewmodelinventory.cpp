@@ -209,7 +209,8 @@ void LLFolderViewModelItemInventory::setPassedFilter(bool passed, S32 filter_gen
 		// Need to rearrange the folder if the filtered state of the item changed,
 		// previously passed item skipped filter generation changes while being dirty
 		// or previously passed not yet filtered item was marked dirty
-		LLFolderViewFolder* parent_folder = mFolderViewItem->getParentFolder();
+		// S24 : the view clears this back-pointer when it is destroyed
+		LLFolderViewFolder* parent_folder = mFolderViewItem ? mFolderViewItem->getParentFolder() : nullptr;
 		if (parent_folder)
 		{
 			parent_folder->requestArrange();
@@ -427,6 +428,102 @@ bool LLInventorySort::operator()(const LLFolderViewModelItemInventory* const& a,
 			return (first_create > second_create);
 		}
 	}
+}
+
+bool LLInventorySort::compareCached(EInventorySortGroup group_a, const std::string& name_a, time_t date_a,
+                                    EInventorySortGroup group_b, const std::string& name_b, time_t date_b) const
+{
+	// same as operator() with mFoldersByWeight false, and neither side a pair of landmarks
+	const bool by_name = (!mByDate || (mFoldersByName && (group_a != SG_ITEM)));
+
+	if (group_a != group_b)
+	{
+		if (mSystemToTop)
+		{
+			return (group_a < group_b);
+		}
+		else if (mByDate)
+		{
+			if ((group_a == SG_TRASH_FOLDER) || (group_b == SG_TRASH_FOLDER))
+			{
+				return (group_b == SG_TRASH_FOLDER);
+			}
+		}
+	}
+
+	if (by_name)
+	{
+		const S32 compare = LLStringUtil::compareDict(name_a, name_b);
+		return (0 == compare) ? (date_a > date_b) : (compare < 0);
+	}
+	if (date_a == date_b)
+	{
+		return (LLStringUtil::compareDict(name_a, name_b) < 0);
+	}
+	return (date_a > date_b);
+}
+
+namespace
+{
+	// S24 : the comparator is a pure function of (group, display name, creation date), but called through the model it
+	// looks all three up again on every one of the n log n comparisons. Look each up once, sort the plain values,
+	// then rebuild the list. std::stable_sort keeps the same ordering of equal items as std::list::sort did.
+	template <typename ViewT>
+	void sort_inventory_list(std::list<ViewT*>& views, const LLInventorySort& sorter)
+	{
+		if (views.size() < 2)
+		{
+			return;
+		}
+
+		struct Key
+		{
+			ViewT* view;
+			const LLFolderViewModelItemInventory* model;
+			const std::string* name;
+			time_t date;
+			EInventorySortGroup group;
+			bool landmark;
+		};
+
+		std::vector<Key> keys;
+		keys.reserve(views.size());
+		for (ViewT* view : views)
+		{
+			const LLFolderViewModelItemInventory* model = static_cast<const LLFolderViewModelItemInventory*>(view->getViewModelItem());
+			const EInventorySortGroup group = model->getSortGroup();
+			keys.push_back({ view, model, &model->getDisplayName(), model->getCreationDate(), group,
+				group == SG_ITEM && model->getInventoryType() == LLInventoryType::IT_LANDMARK });
+		}
+
+		std::stable_sort(keys.begin(), keys.end(), [&sorter](const Key& a, const Key& b)
+		{
+			if (a.landmark && b.landmark)
+			{
+				// the Favorites ordering lives in the full comparator
+				return sorter(a.model, b.model);
+			}
+			return sorter.compareCached(a.group, *a.name, a.date, b.group, *b.name, b.date);
+		});
+
+		auto it = views.begin();
+		for (const Key& key : keys)
+		{
+			*it++ = key.view;
+		}
+	}
+}
+
+void LLFolderViewModelInventory::sortChildren(LLFolderViewFolder* folder)
+{
+	if (getSorter().isFoldersByWeight())
+	{
+		base_t::sortChildren(folder);
+		return;
+	}
+	const LLInventorySort& sorter = getSorter();
+	folder->modifyFolderList([&sorter](LLFolderViewFolder::folders_t& list) { sort_inventory_list(list, sorter); });
+	folder->modifyItemList([&sorter](LLFolderViewFolder::items_t& list) { sort_inventory_list(list, sorter); });
 }
 
 LLFolderViewModelItemInventory::LLFolderViewModelItemInventory( class LLFolderViewModelInventory& root_view_model ) :

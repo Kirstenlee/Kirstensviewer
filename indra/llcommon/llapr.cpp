@@ -651,22 +651,6 @@ bool LLAPRFile::remove(const std::string& filename, LLVolatileAPRPool* pool)
 }
 
 //static
-bool LLAPRFile::rename(const std::string& filename, const std::string& newname, LLVolatileAPRPool* pool)
-{
-	apr_status_t s;
-
-	LLAPRFilePoolScope scope(pool);
-	s = apr_file_rename(filename.c_str(), newname.c_str(), scope.getVolatileAPRPool());
-	
-	if (s != APR_SUCCESS)
-	{
-		ll_apr_warn_status(s);
-		return false;
-	}
-	return true;
-}
-
-//static
 bool LLAPRFile::isExist(const std::string& filename, LLVolatileAPRPool* pool, apr_int32_t flags)
 {
 	apr_file_t* apr_file;
@@ -717,37 +701,6 @@ S32 LLAPRFile::size(const std::string& filename, LLVolatileAPRPool* pool)
 	}
 }
 
-//static
-bool LLAPRFile::makeDir(const std::string& dirname, LLVolatileAPRPool* pool)
-{
-	apr_status_t s;
-
-	LLAPRFilePoolScope scope(pool);
-	s = apr_dir_make(dirname.c_str(), APR_FPROT_OS_DEFAULT, scope.getVolatileAPRPool());
-		
-	if (s != APR_SUCCESS)
-	{
-		ll_apr_warn_status(s);
-		return false;
-	}
-	return true;
-}
-
-//static
-bool LLAPRFile::removeDir(const std::string& dirname, LLVolatileAPRPool* pool)
-{
-	apr_status_t s;
-
-	LLAPRFilePoolScope scope(pool);
-	s = apr_file_remove(dirname.c_str(), scope.getVolatileAPRPool());
-	
-	if (s != APR_SUCCESS)
-	{
-		ll_apr_warn_status(s);
-		return false;
-	}
-	return true;
-}
 //
 //end of static components of LLAPRFile
 //*******************************************************************************************************************************

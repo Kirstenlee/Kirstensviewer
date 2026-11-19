@@ -295,20 +295,6 @@ const S32 LLOSInfo::getOSBitness() const
 }
 
 //static
-U32 LLOSInfo::getProcessVirtualSizeKB()
-{
-    U32 virtual_size = 0;
-    return virtual_size;
-}
-
-//static
-U32 LLOSInfo::getProcessResidentSizeKB()
-{
-    U32 resident_size = 0;
-    return resident_size;
-}
-
-//static
 bool LLOSInfo::is64Bit()
 {
     // S24: All builds are exclusively 64-bit

@@ -79,7 +79,7 @@ void LLHUDIcon::render()
 {
     DXUIDefault texture_state;
     DXDepthTest gls_depth(true);
-    //LLGLDisable gls_stencil(GL_STENCIL_TEST);
+    //DXStateDisable gls_stencil(GL_STENCIL_TEST);
 
     if (mHidden)
         return;
@@ -325,25 +325,8 @@ bool LLHUDIcon::iconsNearby()
 //static
 void LLHUDIcon::cleanupDeadIcons()
 {
-    icon_instance_t::iterator icon_it;
-
-    icon_instance_t icons_to_erase;
-    for(icon_it = sIconInstances.begin(); icon_it != sIconInstances.end(); ++icon_it)
-    {
-        if ((*icon_it)->mDead)
-        {
-            icons_to_erase.push_back(*icon_it);
-        }
-    }
-
-    for(icon_it = icons_to_erase.begin(); icon_it != icons_to_erase.end(); ++icon_it)
-    {
-        icon_instance_t::iterator found_it = std::find(sIconInstances.begin(), sIconInstances.end(), *icon_it);
-        if (found_it != sIconInstances.end())
-        {
-            sIconInstances.erase(found_it);
-        }
-    }
+    // S24 : one stable pass, no temporary list and no search per dead icon
+    std::erase_if(sIconInstances, [](const auto& icon) { return icon->mDead; });
 }
 
 //static

@@ -27,6 +27,8 @@
 #ifndef LL_LLUICOLORTABLE_H_
 #define LL_LLUICOLORTABLE_H_
 
+#include <set>
+#include <string>
 #include <unordered_map>
 
 #include "llinitparam.h"
@@ -80,12 +82,22 @@ public:
     // if the color is in the table, it's value is changed, otherwise it is added
     void setColor(std::string_view name, const LLColor4& color);
 
+    // S24 : sets a color for this session only. A derived value (the UI hue shift regenerates
+    // it from its saved sliders on every start) must never reach colors.xml, or it outlives a
+    // skin change as a stale override. Setting the color again with setColor() makes it a normal
+    // user color, so a hand-picked value is still saved.
+    void setTransientColor(std::string_view name, const LLColor4& color);
+
     // returns true if color_name exists in the table
     bool colorExists(std::string_view color_name) const;
 
     bool isDefault(std::string_view color_name) const;
 
     void resetToDefault(std::string_view color_name);
+
+    // S24 : puts every user override of a skin color back to the skin's value (user-only colors
+    // are left alone). Values are reset in place, so live LLUIColor references stay valid.
+    void resetAllToSkinDefaults();
 
     // loads colors from settings files
     bool loadFromSettings();
@@ -103,8 +115,10 @@ private:
 
     void clearTable(string_color_map_t& table);
     void setColor(std::string_view name, const LLColor4& color, string_color_map_t& table);
+    void setColorInternal(std::string_view name, const LLColor4& color);
 
     string_color_map_t mLoadedColors;
+    std::set<std::string, std::less<>> mTransientColors;  // S24 : never written by saveUserSettings()
 	string_color_map_t mUserSetColors;
 };
 

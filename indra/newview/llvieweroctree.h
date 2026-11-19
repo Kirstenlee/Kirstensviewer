@@ -343,7 +343,6 @@ protected:
 
     LLViewerOctreePartition* mSpatialPartition;
     U32                      mOcclusionQuery[LLViewerCamera::NUM_CAMERAS];
-    U32                      mOcclusionCheckCount[LLViewerCamera::NUM_CAMERAS];
 
 public:
     static std::set<U32> sPendingQueries;

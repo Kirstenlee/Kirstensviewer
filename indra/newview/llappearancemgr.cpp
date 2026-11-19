@@ -1750,6 +1750,11 @@ void LLAppearanceMgr::takeOffOutfit(const LLUUID& cat_id)
     for( ; it_end != it; ++it)
     {
         LLViewerInventoryItem* item = *it;
+        // S24 : a locked subfolder keeps its worn items
+        if (KRlv::isSharedFolderDetachLocked(item->getParentUUID()))
+        {
+            continue;
+        }
         uuids_to_remove.push_back(item->getUUID());
     }
     removeItemsFromAvatar(uuids_to_remove);

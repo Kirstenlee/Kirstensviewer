@@ -35,7 +35,6 @@
 #include "llfasttimerview.h"
 #include "llfloater360capture.h"
 #include "llfloaterabout.h"
-#include "llfloateraddpaymentmethod.h"
 #include "llfloaterauction.h"
 #include "llfloaterautoreplacesettings.h"
 #include "llfloateravatarpicker.h"
@@ -140,6 +139,7 @@
 #include "kvdebugconsole.h"
 #include "llfloaterregiondebugconsole.h"
 #include "llfloaterregioninfo.h"
+#include "llfloatercombatsettings.h"
 #include "llfloaterregionrestarting.h"
 #include "llfloaterreporter.h"
 #include "llfloatersavecamerapreset.h"
@@ -253,7 +253,6 @@ public:
             const std::list<std::string> blacklist_untrusted = {
                 "360capture",
                 "block_timers",
-                "add_payment_method",
                 "appearance",
                 "associate_listing",
                 "avatar_picker",
@@ -343,7 +342,6 @@ void LLViewerFloaterReg::registerFloaters()
     LLFloaterReg::add("360capture", "floater_360capture.xml", (LLFloaterBuildFunc)&LLFloaterReg::build<LLFloater360Capture>);
     LLFloaterReg::add("block_timers", "floater_fast_timers.xml", (LLFloaterBuildFunc)&LLFloaterReg::build<LLFastTimerView>);
     LLFloaterReg::add("about_land", "floater_about_land.xml", (LLFloaterBuildFunc)&LLFloaterReg::build<LLFloaterLand>);
-    LLFloaterReg::add("add_payment_method", "floater_add_payment_method.xml", (LLFloaterBuildFunc)&LLFloaterReg::build<LLFloaterAddPaymentMethod>);
     LLFloaterReg::add("appearance", "floater_my_appearance.xml", (LLFloaterBuildFunc)&LLFloaterReg::build<LLFloaterSidePanelContainer>);
     LLFloaterReg::add("associate_listing", "floater_associate_listing.xml", (LLFloaterBuildFunc)&LLFloaterReg::build<LLFloaterAssociateListing>);
     LLFloaterReg::add("auction", "floater_auction.xml", (LLFloaterBuildFunc)&LLFloaterReg::build<LLFloaterAuction>);
@@ -506,6 +504,7 @@ void LLViewerFloaterReg::registerFloaters()
     LLFloaterReg::add("debug_console", "floater_debug_console.xml", (LLFloaterBuildFunc)&LLFloaterReg::build<KVDebugConsole>);
     LLFloaterReg::add("region_debug_console", "floater_region_debug_console.xml", (LLFloaterBuildFunc)&LLFloaterReg::build<LLFloaterRegionDebugConsole>);
     LLFloaterReg::add("region_info", "floater_region_info.xml", (LLFloaterBuildFunc)&LLFloaterReg::build<LLFloaterRegionInfo>);
+    LLFloaterReg::add("region_combat_settings", "floater_combat_settings.xml", (LLFloaterBuildFunc)&LLFloaterReg::build<LLFloaterCombatSettings>);
     LLFloaterReg::add("region_restarting", "floater_region_restarting.xml", (LLFloaterBuildFunc)&LLFloaterReg::build<LLFloaterRegionRestarting>);
 
     LLFloaterReg::add("script_debug", "floater_script_debug.xml", (LLFloaterBuildFunc)&LLFloaterReg::build<LLFloaterScriptDebug>);

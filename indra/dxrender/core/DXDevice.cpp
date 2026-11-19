@@ -1,4 +1,7 @@
 #include "DXDevice.h"
+#include "DXStateCache.h"
+#include "DXQuery.h"
+#include "DXReadback.h"
 #include "llerror.h"
 #include <dxgi.h>
 #include <vector>
@@ -189,6 +192,11 @@ void DXDevice::shutdown()
     }
 
     if (mInfoQueue) { mInfoQueue->Release(); mInfoQueue = nullptr; }
+
+    // S24 : release the cached rasterizer/blend/depth-stencil states while the device is still alive
+    DXStateCache::clear();
+    DXQuery::clearPool();
+    DXReadback::clearCache();
 
     if (mCreatedViaAgs && sAgsContext && mDevice)
     {

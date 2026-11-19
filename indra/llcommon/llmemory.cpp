@@ -66,10 +66,6 @@ static LLTrace::SampleStatHandle<F64Megabytes> sVirtualMem("virtual_mem", "virtu
 
 void ll_assert_aligned_func(uintptr_t ptr,U32 alignment)
 {
-#if defined(LL_WINDOWS) && defined(LL_DEBUG_BUFFER_OVERRUN)
-	//do not check
-	return;
-#else
 	#ifdef SHOW_ASSERT
 		// Redundant, place to set breakpoints.
 		if (ptr%alignment!=0)
@@ -78,7 +74,6 @@ void ll_assert_aligned_func(uintptr_t ptr,U32 alignment)
 		}
 		llassert(ptr%alignment==0);
 	#endif
-#endif
 }
 
 //static 
@@ -112,7 +107,10 @@ void LLMemory::updateMemoryInfo()
 
 	sample(sAllocatedMem, sAllocatedMemInKB);
 
-	sAvailPhysicalMemInKB = llmin(sAvailPhysicalMemInKB, sMaxHeapSizeInKB - sAllocatedMemInKB);
+	// S24 : unsigned subtraction wraps to a huge value once the working set exceeds the cap
+	const U32Kilobytes headroom = (sAllocatedMemInKB < sMaxHeapSizeInKB)
+		? U32Kilobytes(sMaxHeapSizeInKB - sAllocatedMemInKB) : U32Kilobytes(0);
+	sAvailPhysicalMemInKB = llmin(sAvailPhysicalMemInKB, headroom);
 
 	return ;
 }
@@ -207,61 +205,3 @@ U64 LLMemory::getCurrentRSS()
 	return counters.WorkingSetSize;
 }
 
-
-//--------------------------------------------------------------------
-
-#if defined(LL_WINDOWS) && defined(LL_DEBUG_BUFFER_OVERRUN)
-
-#include <map>
-
-struct mem_info {
-	std::map<void*, void*> memory_info;
-	LLMutex mutex;
-
-	static mem_info& get() {
-		static mem_info instance;
-		return instance;
-	}
-
-private:
-	mem_info(){}
-};
-
-void* ll_aligned_malloc_fallback( size_t size, int align )
-{
-	SYSTEM_INFO sysinfo;
-	GetSystemInfo(&sysinfo);
-	
-	unsigned int for_alloc = (size/sysinfo.dwPageSize + !!(size%sysinfo.dwPageSize)) * sysinfo.dwPageSize;
-	
-	void *p = VirtualAlloc(NULL, for_alloc+sysinfo.dwPageSize, MEM_COMMIT|MEM_RESERVE, PAGE_READWRITE);
-	if(NULL == p) {
-		// call debugger
-		__asm int 3;
-	}
-	DWORD old;
-    bool Res = VirtualProtect((void*)((char*)p + for_alloc), sysinfo.dwPageSize, PAGE_NOACCESS, &old);
-    if(false == Res) {
-		// call debugger
-		__asm int 3;
-	}
-
-	void* ret = (void*)((char*)p + for_alloc-size);
-	
-	{
-		LLMutexLock lock(&mem_info::get().mutex);
-		mem_info::get().memory_info.insert(std::pair<void*, void*>(ret, p));
-	}
-	
-
-	return ret;
-}
-
-void ll_aligned_free_fallback( void* ptr )
-{
-	LLMutexLock lock(&mem_info::get().mutex);
-	VirtualFree(mem_info::get().memory_info.find(ptr)->second, 0, MEM_RELEASE);
-	mem_info::get().memory_info.erase(ptr);
-}
-
-#endif

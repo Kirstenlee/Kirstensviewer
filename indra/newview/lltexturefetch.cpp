@@ -1218,10 +1218,9 @@ bool LLTextureFetchWorker::doWork(S32 param)
 						mID, texture_data, data_size, discard_level, width, height, components))
 					{
 						// RAM CACHE HIT - Load J2C data into mFormattedImage
-						// Must copy data since cache retains ownership
+						// S24 : texture_data is already a private aligned copy made under the cache lock
 
-						// Allocate aligned memory for J2C data (LLImageFormatted expects aligned allocation)
-						U8* data_copy = (U8*)ll_aligned_malloc_16(data_size);
+						U8* data_copy = texture_data;
 						if (!data_copy)
 						{
 							// CRITICAL FAILURE: System out of memory
@@ -1230,9 +1229,6 @@ bool LLTextureFetchWorker::doWork(S32 param)
 						}
 						else
 						{
-							// Copy J2C data from cache
-							memcpy(data_copy, texture_data, data_size);
-
 									// Create J2C image container and give it the data
 									// setData() takes ownership of the pointer
 									if (mFormattedImage.isNull())
@@ -3008,6 +3004,7 @@ bool LLTextureFetch::getRequestFinished(const LLUUID& id, S32& discard_level, S3
 			S32 file_size;
 			std::map<S32, F32> logged_state_timers;
 			F32 skipped_states_time;
+			static LLCachedControl<F32> min_time_to_log(gSavedSettings, "TextureFetchMinTimeToLog", 2.f);
 			worker->lockWorkMutex();                                    // +Mw
 			last_http_get_status = worker->mGetStatus;
 			discard_level = worker->mDecodedDiscard;
@@ -3023,7 +3020,12 @@ bool LLTextureFetch::getRequestFinished(const LLUUID& id, S32& discard_level, S3
 			worker->mDecodeTimer.reset();
 			worker->mCacheWriteTimer.reset();
 			worker->mFetchTimer.reset();
-			logged_state_timers = worker->mStateTimersMap;
+			// S24 : the state timers are only used for a fetch slower than the logging threshold, so the
+			// map is not copied for every finished texture
+			if (worker->mFetchTime > min_time_to_log)
+			{
+				logged_state_timers = worker->mStateTimersMap;
+			}
 			skipped_states_time = worker->mSkippedStatesTime;
 			worker->mStateTimer.reset();
 			res = true;
@@ -3035,7 +3037,6 @@ bool LLTextureFetch::getRequestFinished(const LLUUID& id, S32& discard_level, S3
 			sample(sCacheReadLatency, cache_read_time);
 			sample(sCacheWriteLatency, cache_write_time);
 
-			static LLCachedControl<F32> min_time_to_log(gSavedSettings, "TextureFetchMinTimeToLog", 2.f);
 			if (fetch_time > min_time_to_log)
 			{
 				//LL_INFOS() << "fetch_time: " << fetch_time << " cache_read_time: " << cache_read_time << " decode_time: " << decode_time << " cache_write_time: " << cache_write_time << LL_ENDL;
@@ -3073,7 +3074,8 @@ bool LLTextureFetch::getRequestFinished(const LLUUID& id, S32& discard_level, S3
 // Threads:  T*
 bool LLTextureFetch::updateRequestPriority(const LLUUID& id, F32 priority)
 {
-	mRequestQueue.tryPost([=, this]()
+	// S24 : report whether the post was accepted, so a caller that remembers what it sent can tell
+	return mRequestQueue.tryPost([=, this]()
 		{
 			LLTextureFetchWorker* worker = getWorker(id);
 			if (worker)
@@ -3083,8 +3085,6 @@ bool LLTextureFetch::updateRequestPriority(const LLUUID& id, F32 priority)
 				worker->unlockWorkMutex();                                      // -Mw
 			}
 		});
-
-	return true;
 }
 
 // Replicates and expands upon the base class's

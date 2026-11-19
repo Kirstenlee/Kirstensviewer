@@ -2099,6 +2099,9 @@ LLPluginClassMedia* LLViewerMediaImpl::newSourceFromMediaType(std::string media_
 //////////////////////////////////////////////////////////////////////////////////////////
 bool LLViewerMediaImpl::initializePlugin(const std::string& media_type)
 {
+	// lets a suspended initialization detect that a newer one has superseded it
+	const U32 init_generation = ++mPluginInitGeneration;
+
 	if (mMediaSource)
 	{
 		// Save the previous media source's last set size before destroying it.
@@ -2143,6 +2146,15 @@ bool LLViewerMediaImpl::initializePlugin(const std::string& media_type)
 	}
 
 	LLPluginClassMedia* media_source = newSourceFromMediaType(mMimeType, this, mMediaWidth, mMediaHeight, mZoomFactor, mTarget, mCleanBrowser, mCefCacheKey);
+
+	// Plugin creation can yield while acquiring the plugin-process mutex, and another
+	// initializePlugin() call may then install a newer source; discard this stale one
+	// rather than replacing and deleting the newer one.
+	if (init_generation != mPluginInitGeneration)
+	{
+		delete media_source;
+		return (mMediaSource != nullptr);
+	}
 
 	if (media_source)
 	{
@@ -3573,8 +3585,7 @@ void LLViewerMediaImpl::handleMediaEvent(LLPluginClassMedia* plugin, LLPluginCla
 	{
 	case MEDIA_EVENT_DEBUG_MESSAGE:
 	{
-		// S24 : plugins only send these when MediaPluginDebugging is on; prim media used to discard them
-		LL_INFOS("media") << plugin->getDebugMessageText() << LL_ENDL;
+		LL_DEBUGS("Media") << plugin->getDebugMessageText() << LL_ENDL;
 	}
 	break;
 	case MEDIA_EVENT_CLICK_LINK_NOFOLLOW:

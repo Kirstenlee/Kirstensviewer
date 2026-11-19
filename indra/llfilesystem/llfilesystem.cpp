@@ -77,11 +77,8 @@ LLFileSystem::LLFileSystem(const LLUUID& file_id, const LLAssetType::EType file_
         // even though we are reading and not writing because this is the
         // way the cache works - it relies on a valid "last accessed time" for
         // each file so it knows how to remove the oldest, unused files
-        std::error_code ec;
-        if (std::filesystem::exists(mPath, ec))
-        {
-            updateFileAccessTime();
-        }
+        // S24 : one stat; a file that is not there is skipped quietly inside updateFileAccessTime()
+        updateFileAccessTime();
     }
 }
 
@@ -90,10 +87,10 @@ bool LLFileSystem::getExists(const LLUUID& file_id, LLAssetType::EType file_type
 {
     const std::string filename = LLDiskCache::metaDataToFilepath(file_id, file_type);
 
+    // S24 : file_size() already fails for a missing file or a directory, so one stat does it all
     std::error_code ec;
-    return std::filesystem::exists(filename, ec) &&
-           std::filesystem::is_regular_file(filename, ec) &&
-           std::filesystem::file_size(filename, ec) > 0;
+    const auto size = std::filesystem::file_size(filename, ec);
+    return !ec && size > 0;
 }
 
 // static
@@ -130,9 +127,8 @@ S32 LLFileSystem::getFileSize(const LLUUID& file_id, LLAssetType::EType file_typ
 {
     const std::string filename = LLDiskCache::metaDataToFilepath(file_id, file_type);
 
+    // S24 : file_size() already fails for a missing file or a directory, so one stat does it all
     std::error_code ec;
-    if (std::filesystem::exists(filename, ec) &&
-        std::filesystem::is_regular_file(filename, ec))
     {
         const auto size = std::filesystem::file_size(filename, ec);
         if (!ec)
@@ -266,9 +262,8 @@ S32 LLFileSystem::tell() const
 
 S32 LLFileSystem::getSize() const
 {
+    // S24 : file_size() already fails for a missing file or a directory, so one stat does it all
     std::error_code ec;
-    if (std::filesystem::exists(mPath, ec) &&
-        std::filesystem::is_regular_file(mPath, ec))
     {
         const auto size = std::filesystem::file_size(mPath, ec);
         if (!ec)
@@ -324,7 +319,10 @@ void LLFileSystem::updateFileAccessTime()
     const std::filesystem::file_time_type last_write_time = std::filesystem::last_write_time(mPath, ec);
     if (ec)
     {
-        LL_WARNS() << "Failed to read last write time for cache file " << mPath << ": " << ec.message() << LL_ENDL;
+        if (ec != std::errc::no_such_file_or_directory)
+        {
+            LL_WARNS() << "Failed to read last write time for cache file " << mPath << ": " << ec.message() << LL_ENDL;
+        }
         return;
     }
 

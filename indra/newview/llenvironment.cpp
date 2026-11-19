@@ -1660,7 +1660,7 @@ void LLEnvironment::update(const LLViewerCamera * cam)
     // persists, nothing gets saved back to the asset. Applied to the current, already-blended sky
     // instance every frame (cheap - plain field writes, no disk/network), so it tracks day-cycle
     // transitions between legacy and real-HDR skies correctly.
-    static LLCachedControl<bool> tonemap_everywhere(gSavedSettings, "RenderTonemapEverywhere", false);
+    static LLCachedControl<bool> tonemap_everywhere(gSavedSettings, "RenderTonemapEverywhere", true);
     if (tonemap_everywhere())
     {
         LLSettingsSky::ptr_t psky = getCurrentSky();

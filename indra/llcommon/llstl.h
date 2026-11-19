@@ -37,31 +37,6 @@
 #include <typeindex>
 #include <typeinfo>
 
-// Use to compare the first element only of a pair
-// e.g. typedef std::set<std::pair<int, Data*>, compare_pair<int, Data*> > some_pair_set_t; 
-template <typename T1, typename T2>
-struct compare_pair_first
-{
-	bool operator()(const std::pair<T1, T2>& a, const std::pair<T1, T2>& b) const
-	{
-		return a.first < b.first;
-	}
-};
-
-template <typename T1, typename T2>
-struct compare_pair_greater
-{
-	bool operator()(const std::pair<T1, T2>& a, const std::pair<T1, T2>& b) const
-	{
-		if (!(a.first < b.first))
-			return true;
-		else if (!(b.first < a.first))
-			return false;
-		else
-			return !(a.second < b.second);
-	}
-};
-
 // Use to compare the contents of two pointers (e.g. std::string*)
 template <typename T>
 struct compare_pointer_contents
@@ -88,13 +63,6 @@ struct DeletePointer
 		delete ptr;
 	}
 };
-struct DeletePointerArray
-{
-	template<typename T> void operator()(T* ptr) const
-	{
-		delete[] ptr;
-	}
-};
 
 // DeletePairedPointer is a simple helper for deleting all pointers in a map.
 // The general form is:
@@ -107,14 +75,6 @@ struct DeletePairedPointer
 	template<typename T> void operator()(T &ptr) const
 	{
 		delete ptr.second;
-		ptr.second = NULL;
-	}
-};
-struct DeletePairedPointerArray
-{
-	template<typename T> void operator()(T &ptr) const
-	{
-		delete[] ptr.second;
 		ptr.second = NULL;
 	}
 };
@@ -145,30 +105,6 @@ struct DeletePointerFunctor
 	{
 		delete ptr;
 		return true;
-	}
-};
-
-// See notes about DeleteArray for why you should consider avoiding this.
-template<typename T>
-struct DeleteArrayFunctor
-{
-	bool operator()(T* ptr) const
-	{
-		delete[] ptr;
-		return true;
-	}
-};
-
-// CopyNewPointer is a simple helper which accepts a pointer, and
-// returns a new pointer built with the copy constructor. Example:
-//
-//  transform(in.begin(), in.end(), out.end(), CopyNewPointer());
-
-struct CopyNewPointer
-{
-	template<typename T> T* operator()(const T* ptr) const
-	{
-		return new T(*ptr);
 	}
 };
 
@@ -324,39 +260,6 @@ inline T* vector_append(std::vector<T>& invec, S32 N)
 	return &(invec[sz]);
 }
 
-// call function f to n members starting at first. similar to std::for_each
-template <class InputIter, class Size, class Function>
-Function ll_for_n(InputIter first, Size n, Function f)
-{
-	for ( ; n > 0; --n, ++first)
-		f(*first);
-	return f;
-}
-
-// copy first to result n times, incrementing each as we go
-template <class InputIter, class Size, class OutputIter>
-OutputIter ll_copy_n(InputIter first, Size n, OutputIter result)
-{
-	for ( ; n > 0; --n, ++result, ++first)
-		*result = *first;
-	return result;
-}
-
-// set  *result = op(*f) for n elements of f
-template <class InputIter, class OutputIter, class Size, class UnaryOp>
-OutputIter ll_transform_n(
-	InputIter first,
-	Size n,
-	OutputIter result,
-	UnaryOp op)
-{
-	for ( ; n > 0; --n, ++result, ++first)
-		*result = op(*first);
-	return result;
-}
-
-
-
 /*
  *
  * Copyright (c) 1994
@@ -432,82 +335,6 @@ llcompose1(const _Operation1& __op1, const _Operation2& __op2)
   return ll_unary_compose<_Operation1,_Operation2>(__op1, __op2);
 }
 
-template <class _Operation1, class _Operation2, class _Operation3>
-class ll_binary_compose
-{
-protected:
-  _Operation1 _M_op1;
-  _Operation2 _M_op2;
-  _Operation3 _M_op3;
-public:
-  ll_binary_compose(const _Operation1& __x, const _Operation2& __y,
-					const _Operation3& __z)
-    : _M_op1(__x), _M_op2(__y), _M_op3(__z) { }
-  template<typename OP2ARG>
-  auto
-  operator()(const OP2ARG& __x) const {
-    return _M_op1(_M_op2(__x), _M_op3(__x));
-  }
-};
-
-template <class _Operation1, class _Operation2, class _Operation3>
-inline ll_binary_compose<_Operation1, _Operation2, _Operation3>
-llcompose2(const _Operation1& __op1, const _Operation2& __op2,
-         const _Operation3& __op3)
-{
-  return ll_binary_compose<_Operation1,_Operation2,_Operation3>
-    (__op1, __op2, __op3);
-}
-
-// helpers to deal with the fact that MSDev does not package
-// bind... with the stl. Again, this is from sgi.
-template <class _Operation, typename _Arg1>
-class llbinder1st
-{
-protected:
-  _Operation op;
-  _Arg1 value;
-public:
-  llbinder1st(const _Operation& __x, const _Arg1& __y)
-      : op(__x), value(__y) {}
-    template <typename _Arg2>
-    auto
-    operator()(const _Arg2& __x) const {
-        return op(value, __x);
-    }
-};
-
-template <class _Operation, class _Tp>
-inline auto
-llbind1st(const _Operation& __oper, const _Tp& __x)
-{
-  return llbinder1st<_Operation, _Tp>(__oper, __x);
-}
-
-template <class _Operation, typename _Arg2>
-class llbinder2nd
-{
-protected:
-	_Operation op;
-	_Arg2 value;
-public:
-	llbinder2nd(const _Operation& __x,
-				const _Arg2& __y)
-		: op(__x), value(__y) {}
-	template <typename _Arg1>
-	auto
-	operator()(const _Arg1& __x) const {
-		return op(__x, value);
-	}
-};
-
-template <class _Operation, class _Tp>
-inline auto
-llbind2nd(const _Operation& __oper, const _Tp& __x)
-{
-  return llbinder2nd<_Operation, _Tp>(__oper, __x);
-}
-
 /**
  * Compare std::type_info* pointers a la std::less. We break this out as a
  * separate function for use in two different std::less specializations.
@@ -545,151 +372,6 @@ namespace std
 	};
 } // std
 
-
-/**
- * Implementation for ll_template_cast() (q.v.).
- *
- * Default implementation: trying to cast two completely unrelated types
- * returns 0. Typically you'd specify T and U as pointer types, but in fact T
- * can be any type that can be initialized with 0.
- */
-template <typename T, typename U>
-struct ll_template_cast_impl
-{
-    T operator()(U)
-    {
-        return 0;
-    }
-};
-
-/**
- * ll_template_cast<T>(some_value) is for use in a template function when
- * some_value might be of arbitrary type, but you want to recognize type T
- * specially.
- *
- * It's designed for use with pointer types. Example:
- * @code
- * struct SpecialClass
- * {
- *     void someMethod(const std::string&) const;
- * };
- *
- * template <class REALCLASS>
- * void somefunc(const REALCLASS& instance)
- * {
- *     const SpecialClass* ptr = ll_template_cast<const SpecialClass*>(&instance);
- *     if (ptr)
- *     {
- *         ptr->someMethod("Call method only available on SpecialClass");
- *     }
- * }
- * @endcode
- *
- * Why is this better than dynamic_cast<>? Because unless OtherClass is
- * polymorphic, the following won't even compile (gcc 4.0.1):
- * @code
- * OtherClass other;
- * SpecialClass* ptr = dynamic_cast<SpecialClass*>(&other);
- * @endcode
- * to say nothing of this:
- * @code
- * void function(int);
- * SpecialClass* ptr = dynamic_cast<SpecialClass*>(&function);
- * @endcode
- * ll_template_cast handles these kinds of cases by returning 0.
- */
-template <typename T, typename U>
-T ll_template_cast(U value)
-{
-    return ll_template_cast_impl<T, U>()(value);
-}
-
-/**
- * Implementation for ll_template_cast() (q.v.).
- *
- * Implementation for identical types: return same value.
- */
-template <typename T>
-struct ll_template_cast_impl<T, T>
-{
-    T operator()(T value)
-    {
-        return value;
-    }
-};
-
-/**
- * LL_TEMPLATE_CONVERTIBLE(dest, source) asserts that, for a value @c s of
- * type @c source, <tt>ll_template_cast<dest>(s)</tt> will return @c s --
- * presuming that @c source can be converted to @c dest by the normal rules of
- * C++.
- *
- * By default, <tt>ll_template_cast<dest>(s)</tt> will return 0 unless @c s's
- * type is literally identical to @c dest. (This is because of the
- * straightforward application of template specialization rules.) That can
- * lead to surprising results, e.g.:
- *
- * @code
- * Foo myFoo;
- * const Foo* fooptr = ll_template_cast<const Foo*>(&myFoo);
- * @endcode
- *
- * Here @c fooptr will be 0 because <tt>&myFoo</tt> is of type <tt>Foo*</tt>
- * -- @em not <tt>const Foo*</tt>. (Declaring <tt>const Foo myFoo;</tt> would
- * force the compiler to do the right thing.)
- *
- * More disappointingly:
- * @code
- * struct Base {};
- * struct Subclass: public Base {};
- * Subclass object;
- * Base* ptr = ll_template_cast<Base*>(&object);
- * @endcode
- *
- * Here @c ptr will be 0 because <tt>&object</tt> is of type
- * <tt>Subclass*</tt> rather than <tt>Base*</tt>. We @em want this cast to
- * succeed, but without our help ll_template_cast can't recognize it.
- *
- * The following would suffice:
- * @code
- * LL_TEMPLATE_CONVERTIBLE(Base*, Subclass*);
- * ...
- * Base* ptr = ll_template_cast<Base*>(&object);
- * @endcode
- *
- * However, as noted earlier, this is easily fooled:
- * @code
- * const Base* ptr = ll_template_cast<const Base*>(&object);
- * @endcode
- * would still produce 0 because we haven't yet seen:
- * @code
- * LL_TEMPLATE_CONVERTIBLE(const Base*, Subclass*);
- * @endcode
- *
- * @TODO
- * This macro should use Boost type_traits facilities for stripping and
- * re-adding @c const and @c volatile qualifiers so that invoking
- * LL_TEMPLATE_CONVERTIBLE(dest, source) will automatically generate all
- * permitted permutations. It's really not fair to the coder to require
- * separate:
- * @code
- * LL_TEMPLATE_CONVERTIBLE(Base*, Subclass*);
- * LL_TEMPLATE_CONVERTIBLE(const Base*, Subclass*);
- * LL_TEMPLATE_CONVERTIBLE(const Base*, const Subclass*);
- * @endcode
- *
- * (Naturally we omit <tt>LL_TEMPLATE_CONVERTIBLE(Base*, const Subclass*)</tt>
- * because that's not permitted by normal C++ assignment anyway.)
- */
-#define LL_TEMPLATE_CONVERTIBLE(DEST, SOURCE)   \
-template <>                                     \
-struct ll_template_cast_impl<DEST, SOURCE>      \
-{                                               \
-    DEST operator()(SOURCE wrapper)             \
-    {                                           \
-        return wrapper;                         \
-    }                                           \
-}
 
 // Transparent string hashing helper for use with std::unordered_*
 // std::unordered_map<std::string, val, ll::string_hash, std::equal_to<>>

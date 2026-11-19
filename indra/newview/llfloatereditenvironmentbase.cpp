@@ -46,6 +46,7 @@
 #include "llsettingsvo.h"
 #include "llinventorymodel.h"
 #include "pipeline.h"
+#include "krlvhandler.h" // KRLV_TOUCHPOINT: @setenv gate
 
 namespace
 {
@@ -328,6 +329,12 @@ void LLFloaterEditEnvironmentBase::doApplyUpdateInventory(const LLSettingsBase::
 
 void LLFloaterEditEnvironmentBase::doApplyEnvironment(const std::string &where, const LLSettingsBase::ptr_t &settings)
 {
+    // KRLV_TOUCHPOINT: @setenv=n - an editor opened before the lock was set must not apply
+    if (gKRlv.isRestricted("setenv"))
+    {
+        return;
+    }
+
     U32 flags(0);
 
     if (mInventoryItem)

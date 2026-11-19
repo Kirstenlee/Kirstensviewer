@@ -4,13 +4,12 @@
 #include <vector>
 #include <algorithm>
 #include <cstring>
+#include <memory>
 
 namespace
 {
-    // Repacks one pixel (components bytes at `src`) into 4 RGBA8 bytes at
-    // `dst` - shared by create() and updateSubImage() so the format-repack
-    // rules (see DXTexture.h's comment) are defined exactly once. Returns
-    // false for an unsupported component count (caller logs/fails).
+    // Format-repack rules (see DXTexture.h's comment), defined exactly once in repackPixels() below and shared
+    // by every create/update path. Returns false for an unsupported component count (caller logs/fails).
     //
     // `alpha_only` distinguishes GL_ALPHA-format 1-component sources (e.g.
     // the terrain alpha_ramp gradient) from GL_LUMINANCE ones: it writes the
@@ -24,46 +23,92 @@ namespace
     // `raw_channels` (only meaningful for components==2) - see DXTexture.h's
     // create() comment. False (default) keeps the original luminance-alpha
     // interpretation for real grayscale+alpha sources.
-    bool repackPixel(const uint8_t* src, int components, uint8_t* dst, bool alpha_only = false, bool bgra = false, bool raw_channels = false)
-    {
-        if (components == 1 && alpha_only)
-        {
-            dst[0] = dst[1] = dst[2] = 0;
-            dst[3] = src[0];
-            return true;
-        }
 
+    // S24 : repacks `count` pixels in one go. The component count and flags are the same for every pixel, so they
+    // are decided once here and each case is a tight loop (the per-pixel switch and the early return in
+    // repackPixel() kept the compiler from vectorising any of this, and it runs on the main thread whenever the
+    // async slot is not ready). Output bytes are identical to the old per-pixel repack. Returns
+    // false for an unsupported component count.
+    bool repackPixels(const uint8_t* src, size_t count, int components, uint8_t* dst, bool alpha_only = false, bool bgra = false, bool raw_channels = false)
+    {
         switch (components)
         {
-        case 1: // luminance - replicate across RGB, opaque
-            dst[0] = dst[1] = dst[2] = src[0];
-            dst[3] = 255;
+        case 1:
+            if (alpha_only)
+            {
+                for (size_t i = 0; i < count; ++i, dst += 4)
+                {
+                    dst[0] = dst[1] = dst[2] = 0;
+                    dst[3] = src[i];
+                }
+            }
+            else
+            {
+                for (size_t i = 0; i < count; ++i, dst += 4)
+                {
+                    const uint8_t v = src[i];
+                    dst[0] = dst[1] = dst[2] = v;
+                    dst[3] = 255;
+                }
+            }
             return true;
         case 2:
             if (raw_channels)
-            { // two genuinely independent channels (e.g. SMAA's AreaTex) - preserve both in R/G, don't duplicate
-                dst[0] = src[0];
-                dst[1] = src[1];
-                dst[2] = 0;
-                dst[3] = 255;
+            {
+                for (size_t i = 0; i < count; ++i, src += 2, dst += 4)
+                {
+                    dst[0] = src[0];
+                    dst[1] = src[1];
+                    dst[2] = 0;
+                    dst[3] = 255;
+                }
             }
             else
-            { // luminance-alpha
-                dst[0] = dst[1] = dst[2] = src[0];
-                dst[3] = src[1];
+            {
+                for (size_t i = 0; i < count; ++i, src += 2, dst += 4)
+                {
+                    dst[0] = dst[1] = dst[2] = src[0];
+                    dst[3] = src[1];
+                }
             }
             return true;
-        case 3: // RGB / BGR
-            dst[0] = bgra ? src[2] : src[0];
-            dst[1] = src[1];
-            dst[2] = bgra ? src[0] : src[2];
-            dst[3] = 255;
+        case 3:
+            if (bgra)
+            {
+                for (size_t i = 0; i < count; ++i, src += 3, dst += 4)
+                {
+                    dst[0] = src[2];
+                    dst[1] = src[1];
+                    dst[2] = src[0];
+                    dst[3] = 255;
+                }
+            }
+            else
+            {
+                for (size_t i = 0; i < count; ++i, src += 3, dst += 4)
+                {
+                    dst[0] = src[0];
+                    dst[1] = src[1];
+                    dst[2] = src[2];
+                    dst[3] = 255;
+                }
+            }
             return true;
-        case 4: // RGBA / BGRA
-            dst[0] = bgra ? src[2] : src[0];
-            dst[1] = src[1];
-            dst[2] = bgra ? src[0] : src[2];
-            dst[3] = src[3];
+        case 4:
+            if (bgra)
+            {
+                for (size_t i = 0; i < count; ++i, src += 4, dst += 4)
+                {
+                    dst[0] = src[2];
+                    dst[1] = src[1];
+                    dst[2] = src[0];
+                    dst[3] = src[3];
+                }
+            }
+            else
+            {
+                memcpy(dst, src, count * 4);
+            }
             return true;
         default:
             return false;
@@ -80,14 +125,7 @@ bool DXTexture::repackToRGBA8(const uint8_t* data, int width, int height, int co
     }
 
     out.resize((size_t)width * height * 4);
-    for (int i = 0; i < width * height; ++i)
-    {
-        if (!repackPixel(data + (size_t)i * components, components, out.data() + (size_t)i * 4, alpha_only, bgra, raw_channels))
-        {
-            return false;
-        }
-    }
-    return true;
+    return repackPixels(data, (size_t)width * height, components, out.data(), alpha_only, bgra, raw_channels);
 }
 
 bool DXTexture::create(const uint8_t* data, int width, int height, int components, bool generate_mips, bool alpha_only, bool bgra, bool raw_channels)
@@ -116,24 +154,22 @@ bool DXTexture::create(const uint8_t* data, int width, int height, int component
     mIsDynamic = false;
 
     const uint8_t* upload_data = data;
-    std::vector<uint8_t> rgba;
+    // S24 : not value-initialised, every byte is written by the repack below
+    std::unique_ptr<uint8_t[]> rgba;
 
     // components==4 alone would allow the zero-copy fast path (upload_data =
     // data directly), but a BGRA source still needs its R/B channels swapped
     // even though the component count already matches the destination, so
-    // bgra must also route through repackPixel().
+    // bgra must also route through the repack.
     if (data && (components != 4 || bgra))
     {
-        rgba.resize((size_t)width * height * 4);
-        for (int i = 0; i < width * height; ++i)
+        rgba = std::make_unique_for_overwrite<uint8_t[]>((size_t)width * height * 4);
+        if (!repackPixels(data, (size_t)width * height, components, rgba.get(), alpha_only, bgra, raw_channels))
         {
-            if (!repackPixel(data + (size_t)i * components, components, &rgba[(size_t)i * 4], alpha_only, bgra, raw_channels))
-            {
-                LL_WARNS("Texture") << "DXTexture::create: unsupported component count " << components << LL_ENDL;
-                return false;
-            }
+            LL_WARNS("Texture") << "DXTexture::create: unsupported component count " << components << LL_ENDL;
+            return false;
         }
-        upload_data = rgba.data();
+        upload_data = rgba.get();
     }
 
     D3D11_TEXTURE2D_DESC desc = {};
@@ -490,13 +526,10 @@ bool DXTexture::updateSubImage(const uint8_t* data, int data_width, int x_pos, i
     {
         const uint8_t* src_row = data + ((size_t)(y_pos + y) * data_width + x_pos) * components;
         uint8_t* dst_row = &rgba[(size_t)y * width * 4];
-        for (int x = 0; x < width; ++x)
+        if (!repackPixels(src_row, (size_t)width, components, dst_row, alpha_only, bgra))
         {
-            if (!repackPixel(src_row + (size_t)x * components, components, dst_row + (size_t)x * 4, alpha_only, bgra))
-            {
-                LL_WARNS("Texture") << "DXTexture::updateSubImage: unsupported component count " << components << LL_ENDL;
-                return false;
-            }
+            LL_WARNS("Texture") << "DXTexture::updateSubImage: unsupported component count " << components << LL_ENDL;
+            return false;
         }
     }
 
@@ -564,13 +597,10 @@ bool DXTexture::createDynamic(const uint8_t* data, int width, int height, int co
     if (data && !direct_copy)
     {
         rgba.resize((size_t)width * height * 4);
-        for (int i = 0; i < width * height; ++i)
+        if (!repackPixels(data, (size_t)width * height, components, rgba.data(), alpha_only, bgra, raw_channels))
         {
-            if (!repackPixel(data + (size_t)i * components, components, &rgba[(size_t)i * 4], alpha_only, bgra, raw_channels))
-            {
-                LL_WARNS("Texture") << "DXTexture::createDynamic: unsupported component count " << components << LL_ENDL;
-                return false;
-            }
+            LL_WARNS("Texture") << "DXTexture::createDynamic: unsupported component count " << components << LL_ENDL;
+            return false;
         }
         upload_data = rgba.data();
     }
@@ -661,14 +691,11 @@ bool DXTexture::updateDynamic(const uint8_t* data, int data_width, int data_heig
             continue;
         }
 
-        for (int x = 0; x < write_width; ++x)
+        if (!repackPixels(src_row, (size_t)write_width, components, dst_row, alpha_only, bgra))
         {
-            if (!repackPixel(src_row + (size_t)x * components, components, dst_row + (size_t)x * 4, alpha_only, bgra))
-            {
-                LL_WARNS("Texture") << "DXTexture::updateDynamic: unsupported component count " << components << LL_ENDL;
-                gDXDevice.getContext()->Unmap(mTexture, 0);
-                return false;
-            }
+            LL_WARNS("Texture") << "DXTexture::updateDynamic: unsupported component count " << components << LL_ENDL;
+            gDXDevice.getContext()->Unmap(mTexture, 0);
+            return false;
         }
     }
 

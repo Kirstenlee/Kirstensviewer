@@ -236,25 +236,41 @@ void LLCharacter::dumpCharacter( LLJoint* joint )
 //-----------------------------------------------------------------------------
 // setAnimationData()
 //-----------------------------------------------------------------------------
-void LLCharacter::setAnimationData(std::string name, void *data)
+void LLCharacter::setAnimationData(std::string_view name, void *data)
 {
-	mAnimationData[name] = data;
+	auto iter = mAnimationData.find(name);
+	if (iter != mAnimationData.end())
+	{
+		iter->second = data;
+	}
+	else
+	{
+		mAnimationData.emplace(std::string(name), data);
+	}
 }
 
 //-----------------------------------------------------------------------------
 // getAnimationData()
 //-----------------------------------------------------------------------------
-void* LLCharacter::getAnimationData(std::string name)
+void* LLCharacter::getAnimationData(std::string_view name)
 {
-	return get_if_there(mAnimationData, name, (void*)NULL);
+	auto iter = mAnimationData.find(name);
+	return iter != mAnimationData.end() ? iter->second : nullptr;
 }
 
 //-----------------------------------------------------------------------------
 // removeAnimationData()
 //-----------------------------------------------------------------------------
-void LLCharacter::removeAnimationData(std::string name)
+void LLCharacter::removeAnimationData(std::string_view name)
 {
-	mAnimationData.erase(name);
+	// S24 : an existing entry is cleared rather than erased. Readers treat a missing and a null entry the
+	// same, and keys like the hand pose are removed and set again every frame, which was a map node free
+	// and allocation per key per avatar per frame.
+	auto iter = mAnimationData.find(name);
+	if (iter != mAnimationData.end())
+	{
+		iter->second = nullptr;
+	}
 }
 
 //-----------------------------------------------------------------------------

@@ -138,9 +138,16 @@ bool LLToolGun::handleHover(S32 x, S32 y, MASK mask)
 
 void LLToolGun::draw()
 {
-    if( gSavedSettings.getBOOL("ShowCrosshairs") )
+    // S24 : drawn every mouselook frame, so the setting is a cached control and the image is resolved once
+    // (a ref-counted pointer, so a UI image reload cannot leave it dangling)
+    static LLCachedControl<bool> show_crosshairs(gSavedSettings, "ShowCrosshairs", true);
+    if (show_crosshairs)
     {
-        LLUIImagePtr crosshair = LLUI::getUIImage("crosshairs.tga");
+        if (mCrosshairImage.isNull())
+        {
+            mCrosshairImage = LLUI::getUIImage("crosshairs.tga");
+        }
+        const LLUIImagePtr& crosshair = mCrosshairImage;
         crosshair->draw(
             ( gViewerWindow->getWorldViewRectScaled().getWidth() - crosshair->getWidth() ) / 2,
             ( gViewerWindow->getWorldViewRectScaled().getHeight() - crosshair->getHeight() ) / 2);

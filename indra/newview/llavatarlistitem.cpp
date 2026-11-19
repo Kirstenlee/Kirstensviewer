@@ -252,6 +252,12 @@ void LLAvatarListItem::setAvatarToolTip(const std::string& tooltip)
 
 void LLAvatarListItem::setHighlight(const std::string& highlight)
 {
+    // S24 : every list refresh sets the same filter on every row, and the name text only needs rebuilding
+    // when the highlighted substring really changes
+    if (highlight == mHighlihtSubstring)
+    {
+        return;
+    }
     setNameInternal(mAvatarName->getText(), mHighlihtSubstring = highlight);
 }
 
@@ -320,7 +326,12 @@ void LLAvatarListItem::showLastInteractionTime(bool show)
 
 void LLAvatarListItem::setLastInteractionTime(U32 secs_since)
 {
-    mLastInteractionTime->setValue(formatSeconds(secs_since));
+    std::string text = formatSeconds(secs_since);
+    if (text != mLastInteractionText)
+    {
+        mLastInteractionText = std::move(text);
+        mLastInteractionTime->setValue(mLastInteractionText);
+    }
 }
 
 void LLAvatarListItem::showAvatarMeta(bool show)
@@ -359,8 +370,17 @@ void LLAvatarListItem::setAvatarMeta(F32 distance_meters)
         }
     }
 
-    mAvatarMeta->setValue(text);
-    mAvatarMeta->setColor(color);
+    // S24 : this runs every second per nearby row, and the text and colour rarely change
+    if (text != mLastMetaText)
+    {
+        mLastMetaText = std::move(text);
+        mAvatarMeta->setValue(mLastMetaText);
+    }
+    if (color != mLastMetaColor)
+    {
+        mLastMetaColor = color;
+        mAvatarMeta->setColor(color);
+    }
 }
 
 // S24: compact age string - "2y 3m", "2y", "5m 12d", "5m", or "18d" for brand new accounts

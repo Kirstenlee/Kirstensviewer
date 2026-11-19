@@ -1808,7 +1808,7 @@ void LLSettingsSky::clampColor(LLColor3& color, F32 gamma, F32 scale)
 
 // Similar/Shared Algorithms:
 //     indra\llinventory\llsettingssky.cpp                                        -- LLSettingsSky::calculateLightSettings()
-//     indra\newview\app_settings\shaders\class1\windlight\atmosphericsFuncs.glsl -- calcAtmosphericVars()
+//     indra\newview\app_settings\shaders\windlight\atmosphericsFuncs.glsl -- calcAtmosphericVars()
 void LLSettingsSky::calculateLightSettings() const
 {
 	// Initialize temp variables

@@ -3,9 +3,51 @@
 #include "llerror.h"
 #include <cstdint>
 #include <cstring>
+#include <vector>
 
 namespace
 {
+    // S24 : staging textures are kept for reuse, keyed by size and format, instead of being created and destroyed
+    // by every readback (the per-frame post effects each read the whole frame back). A few entries, so a one pixel
+    // pick readback does not push out the full size one. A texture is taken out of the cache while it is in use.
+    struct CachedStaging
+    {
+        ID3D11Texture2D* texture;
+        UINT width;
+        UINT height;
+        DXGI_FORMAT format;
+    };
+    std::vector<CachedStaging> sStagingCache;
+    constexpr size_t MAX_CACHED_STAGING = 4;
+
+    ID3D11Texture2D* takeCachedStaging(UINT width, UINT height, DXGI_FORMAT format)
+    {
+        for (size_t i = 0; i < sStagingCache.size(); ++i)
+        {
+            const CachedStaging& entry = sStagingCache[i];
+            if (entry.width == width && entry.height == height && entry.format == format)
+            {
+                ID3D11Texture2D* texture = entry.texture;
+                sStagingCache.erase(sStagingCache.begin() + i);
+                return texture;
+            }
+        }
+        return nullptr;
+    }
+
+    // Hands a staging texture back after its Unmap(); oldest entry is dropped when the cache is full
+    void giveBackStaging(ID3D11Texture2D* staging)
+    {
+        D3D11_TEXTURE2D_DESC desc = {};
+        staging->GetDesc(&desc);
+        if (sStagingCache.size() >= MAX_CACHED_STAGING)
+        {
+            sStagingCache.front().texture->Release();
+            sStagingCache.erase(sStagingCache.begin());
+        }
+        sStagingCache.push_back({ staging, desc.Width, desc.Height, desc.Format });
+    }
+
     // Shared setup for both readPixels()/readDepthPixels(): creates a
     // STAGING texture sized to (width,height) matching src's format,
     // copies the requested region into it, and maps it for CPU read.
@@ -36,12 +78,16 @@ namespace
         staging_desc.SampleDesc.Count = 1;
         staging_desc.SampleDesc.Quality = 0;
 
-        ID3D11Texture2D* staging = nullptr;
-        HRESULT hr = gDXDevice.getDevice()->CreateTexture2D(&staging_desc, nullptr, &staging);
-        if (FAILED(hr))
+        ID3D11Texture2D* staging = takeCachedStaging(staging_desc.Width, staging_desc.Height, staging_desc.Format);
+        HRESULT hr = S_OK;
+        if (!staging)
         {
-            LL_WARNS("Readback") << "DXReadback: CreateTexture2D(STAGING) failed, hr=0x" << std::hex << (unsigned long)hr << std::dec << LL_ENDL;
-            return false;
+            hr = gDXDevice.getDevice()->CreateTexture2D(&staging_desc, nullptr, &staging);
+            if (FAILED(hr))
+            {
+                LL_WARNS("Readback") << "DXReadback: CreateTexture2D(STAGING) failed, hr=0x" << std::hex << (unsigned long)hr << std::dec << LL_ENDL;
+                return false;
+            }
         }
 
         D3D11_BOX box = {};
@@ -93,7 +139,7 @@ bool DXReadback::readPixels(ID3D11Texture2D* src, int x, int y, int width, int h
     }
 
     gDXDevice.getContext()->Unmap(staging, 0);
-    staging->Release();
+    giveBackStaging(staging);
     return true;
 }
 
@@ -149,6 +195,15 @@ bool DXReadback::readDepthPixels(ID3D11Texture2D* src, int x, int y, int width, 
     }
 
     gDXDevice.getContext()->Unmap(staging, 0);
-    staging->Release();
+    giveBackStaging(staging);
     return true;
+}
+
+void DXReadback::clearCache()
+{
+    for (const CachedStaging& entry : sStagingCache)
+    {
+        entry.texture->Release();
+    }
+    sStagingCache.clear();
 }

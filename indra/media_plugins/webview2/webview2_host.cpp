@@ -27,6 +27,8 @@
 #include "WebView2EnvironmentOptions.h"
 
 #include <atomic>
+#include <chrono>
+#include <thread>
 #include <cstring>
 #include <mutex>
 #include <vector>
@@ -107,7 +109,8 @@ struct Host::Impl
     Callbacks cb;
     bool started = false;
     bool ready = false;
-    bool shuttingDown = false;
+    std::atomic<bool> shuttingDown{ false };   // read on pool threads, written on shutdown
+    std::atomic<int> framesInFlight{ 0 };       // onFrame() calls running on pool threads, drained by shutdown()
     std::atomic<int> curW{ 1024 }, curH{ 1024 };   // size the page is being rendered at (read by the frame thread)
     double zoom = 1.0;
     bool leftDown = false;
@@ -143,6 +146,16 @@ struct Host::Impl
     // actions requested before the control exists
     std::string pendingUri;
     std::vector<std::string> pendingScripts;
+
+    // cookies requested before the control exists (the login cookie arrives right
+    // after the first navigation request, long before the engine has started)
+    struct PendingCookie
+    {
+        std::string uri, name, value, domain, path;
+        bool httpOnly = false, secure = false;
+    };
+    std::vector<PendingCookie> pendingCookies;
+    void applyCookie(const PendingCookie& c);
 
     void log(const std::string& s) { if (cb.onLog) cb.onLog(s); }
     void fail(const std::string& why)
@@ -286,8 +299,17 @@ void Host::Impl::onController(ICoreWebView2CompositionController* cc)
     catch (winrt::hresult_error const& e) { fail("capture setup " + HrText(e.code().value) + " " + winrt::to_string(e.message())); return; }
 
     ctrl->put_ZoomFactor(zoom);
+    {
+        // a mute requested before the engine was up
+        ComPtr<ICoreWebView2_8> w8;
+        if (muted && SUCCEEDED(wv.As(&w8))) w8->put_IsMuted(TRUE);
+    }
     ready = true;
     if (cb.onReady) cb.onReady(true, "");
+
+    // cookies first so the very first request already carries them
+    for (auto& c : pendingCookies) applyCookie(c);
+    pendingCookies.clear();
 
     for (auto& js : pendingScripts) wv->ExecuteScript(ToWide(js).c_str(), nullptr);
     pendingScripts.clear();
@@ -442,6 +464,13 @@ void Host::Impl::startCapture()
 // Runs on a thread-pool thread (free-threaded frame pool).
 void Host::Impl::onFrame(wgc::Direct3D11CaptureFramePool const& p)
 {
+    // counted before the shutdown check, so shutdown() either sees this call in flight or it sees shutdown
+    struct InFlight
+    {
+        std::atomic<int>& n;
+        explicit InFlight(std::atomic<int>& c) : n(c) { ++n; }
+        ~InFlight() { --n; }
+    } in_flight(framesInFlight);
     if (shuttingDown) return;
     try
     {
@@ -590,28 +619,42 @@ void Host::deleteAllCookies()
     if (m->wv && SUCCEEDED(m->wv.As(&w2)) && SUCCEEDED(w2->get_CookieManager(&cm))) cm->DeleteAllCookies();
 }
 
-void Host::setCookie(const std::string& uri, const std::string& name, const std::string& value,
-                     const std::string& domain, const std::string& path, bool httpOnly, bool secure)
+void Host::Impl::applyCookie(const PendingCookie& c)
 {
     ComPtr<ICoreWebView2_2> w2;
     ComPtr<ICoreWebView2CookieManager> cm;
-    if (!m->wv || FAILED(m->wv.As(&w2)) || FAILED(w2->get_CookieManager(&cm))) return;
-    std::wstring dom = ToWide(domain);
+    if (!wv || FAILED(wv.As(&w2)) || FAILED(w2->get_CookieManager(&cm))) return;
+    std::wstring dom = ToWide(c.domain);
     if (dom.empty())
     {
         // derive the host from the URI
-        size_t s = uri.find("://");
-        std::string host = uri.substr(s == std::string::npos ? 0 : s + 3);
+        size_t s = c.uri.find("://");
+        std::string host = c.uri.substr(s == std::string::npos ? 0 : s + 3);
         host = host.substr(0, host.find_first_of("/:?#"));
         dom = ToWide(host);
     }
     ComPtr<ICoreWebView2Cookie> cookie;
-    if (SUCCEEDED(cm->CreateCookie(ToWide(name).c_str(), ToWide(value).c_str(), dom.c_str(), ToWide(path.empty() ? "/" : path).c_str(), &cookie)) && cookie)
+    if (SUCCEEDED(cm->CreateCookie(ToWide(c.name).c_str(), ToWide(c.value).c_str(), dom.c_str(), ToWide(c.path.empty() ? "/" : c.path).c_str(), &cookie)) && cookie)
     {
-        cookie->put_IsHttpOnly(httpOnly ? TRUE : FALSE);
-        cookie->put_IsSecure(secure ? TRUE : FALSE);
+        cookie->put_IsHttpOnly(c.httpOnly ? TRUE : FALSE);
+        cookie->put_IsSecure(c.secure ? TRUE : FALSE);
         cm->AddOrUpdateCookie(cookie.Get());
     }
+}
+
+void Host::setCookie(const std::string& uri, const std::string& name, const std::string& value,
+                     const std::string& domain, const std::string& path, bool httpOnly, bool secure)
+{
+    Impl::PendingCookie c;
+    c.uri = uri; c.name = name; c.value = value; c.domain = domain; c.path = path;
+    c.httpOnly = httpOnly; c.secure = secure;
+    if (!m->wv)
+    {
+        // engine not up yet: keep it, it is applied before the first navigation
+        m->pendingCookies.push_back(std::move(c));
+        return;
+    }
+    m->applyCookie(c);
 }
 
 void Host::mouse(MouseKind kind, int x, int y)
@@ -673,6 +716,12 @@ void Host::shutdown()
         if (m->ctrl) m->ctrl->Close();
     }
     catch (winrt::hresult_error const&) {}
+
+    // a frame callback already running on a pool thread must finish before the state it uses goes away
+    for (int i = 0; i < 1000 && m->framesInFlight.load() > 0; ++i)
+    {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
 
     m->wv.Reset(); m->ctrl.Reset(); m->comp.Reset(); m->env.Reset();
     m->root = nullptr; m->compositor = nullptr;

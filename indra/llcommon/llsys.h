@@ -60,8 +60,6 @@ public:
 
     static bool is64Bit();
 
-    static U32 getProcessVirtualSizeKB();
-    static U32 getProcessResidentSizeKB();
 private:
     std::string mOSString;
     std::string mOSStringSimple;

@@ -384,6 +384,8 @@ public:
     // mid-creation texture instead of racing those unsynchronized field reads. Not const:
     // LLAtomicBool's operator Type() is a live atomic read, not a logically-const query.
     bool isCreateTexturePending() { return mNeedsCreateTexture; }
+    // S24 : for the critical-memory drain, which discards a scheduled create without postCreateTexture()
+    void abandonCreateTexture() { mNeedsCreateTexture = false; }
 
     void setBoostLevel(S32 level) override;
     bool updateFetch();
@@ -497,6 +499,7 @@ protected:
     S32 mFetchState;
     S32 mLastFetchState = -1; // DEBUG
     U32 mFetchPriority;
+    F32 mLastSentFetchPriority = -1.f; // last priority the fetch worker was given, so an unchanged one is not posted again
     F32 mDownloadProgress;
     F32 mFetchDeltaTime;
     F32 mRequestDeltaTime;

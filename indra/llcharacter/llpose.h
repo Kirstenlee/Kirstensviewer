@@ -36,6 +36,7 @@
 #include "llpointer.h"
 
 #include <map>
+#include <vector>
 #include <string>
 
 
@@ -113,7 +114,9 @@ class LLMotion;
 class LLPoseBlender
 {
 protected:
-	typedef std::list<LLJointStateBlender*> blender_list_t;
+	// S24 : a vector (cleared every frame, keeping its capacity) instead of a std::list that allocated and freed
+	// one node per active joint per avatar per frame. Each blender only touches its own joint, so the order is free.
+	typedef std::vector<LLJointStateBlender*> blender_list_t;
 	typedef std::map<LLJoint*,LLJointStateBlender*> blender_map_t;
 	blender_map_t mJointStateBlenderPool;
 	blender_list_t mActiveBlenders;

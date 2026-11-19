@@ -63,6 +63,10 @@ struct MikktMesh
         if (prim->mMode == Primitive::Mode::TRIANGLE_STRIP ||
             prim->mMode == Primitive::Mode::TRIANGLE_FAN)
         {
+            if (vert_count < 3)
+            {
+                return false; // S24 : vert_count - 2 would wrap and the resize below would throw
+            }
             triangle_count = vert_count - 2;
         }
         else if (prim->mMode == Primitive::Mode::TRIANGLES)
@@ -553,6 +557,8 @@ void Primitive::upload(LLVertexBuffer* buffer)
     U32 offset = mVertexOffset;
     U32 count = getVertexCount();
 
+    // S24 : one full-buffer upload for all the slices below instead of one per setXData call
+    mVertexBuffer->beginDataBatch();
     mVertexBuffer->setPositionData(mPositions.data(), offset, count);
     mVertexBuffer->setColorData(mColors.data(), offset, count);
 
@@ -593,6 +599,7 @@ void Primitive::upload(LLVertexBuffer* buffer)
         }
         mVertexBuffer->setIndexData(index_array.data(), mIndexOffset, getIndexCount());
     }
+    mVertexBuffer->endDataBatch();
 }
 
 void initOctreeTriangle(LLVolumeTriangle* tri, F32 scaler, S32 i0, S32 i1, S32 i2, const LLVector4a& v0, const LLVector4a& v1, const LLVector4a& v2)

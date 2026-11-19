@@ -41,7 +41,7 @@
 
 class HBXXH64
 {
-    friend std::ostream& operator<<(std::ostream&, HBXXH64);
+    friend std::ostream& operator<<(std::ostream&, const HBXXH64&);
 
 protected:
     LOG_CLASS(HBXXH64);
@@ -153,7 +153,7 @@ inline bool operator!=(const HBXXH64& a, const HBXXH64& b)
 
 class HBXXH128
 {
-    friend std::ostream& operator<<(std::ostream&, HBXXH128);
+    friend std::ostream& operator<<(std::ostream&, const HBXXH128&);
 
 protected:
     LOG_CLASS(HBXXH128);
@@ -261,7 +261,8 @@ private:
     // (which cannot either be trivially forward-declared, due to complex API
     // related pre-processor macros in xxhash.h).
     void*   mState;
-    LLUUID  mDigest;
+    // S24 : mutable, digest() const fills it while the state is still live
+    mutable LLUUID  mDigest;
 };
 
 inline bool operator==(const HBXXH128& a, const HBXXH128& b)

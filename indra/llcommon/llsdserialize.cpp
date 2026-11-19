@@ -32,6 +32,9 @@
 #include "llstreamtools.h" // for fullread
 
 #include <iostream>
+#include <locale>
+#include <locale.h>
+#include <stdio.h>
 #include "apr_base64.h"
 
 #include <boost/iostreams/device/array.hpp>
@@ -44,6 +47,24 @@
 #include "llsd.h"
 #include "llstring.h"
 #include "lluri.h"
+
+// S24 : LLSD reals are always written and read with '.' regardless of the
+// process, stream or CRT locale
+namespace
+{
+    template<class STREAM>
+    class LLSDClassicLocaleGuard
+    {
+    public:
+        explicit LLSDClassicLocaleGuard(STREAM& s) : mStream(s), mOld(s.imbue(std::locale::classic())) {}
+        ~LLSDClassicLocaleGuard() { mStream.imbue(mOld); }
+        LLSDClassicLocaleGuard(const LLSDClassicLocaleGuard&) = delete;
+        LLSDClassicLocaleGuard& operator=(const LLSDClassicLocaleGuard&) = delete;
+    private:
+        STREAM& mStream;
+        std::locale mOld;
+    };
+}
 
  // File constants
 static const size_t MAX_HDR_LEN = 20;
@@ -151,11 +172,14 @@ bool LLSDSerialize::deserialize(LLSD& sd, std::istream& str, llssize max_bytes)
 		fail_if_not_legacy = true;
 	}
 
+	// S24 : keep the SIZE_UNLIMITED sentinel instead of subtracting from it
+	const llssize remaining = (max_bytes == LLSDSerialize::SIZE_UNLIMITED) ? max_bytes : max_bytes - inbuf;
+
 	if (!strncasecmp(LEGACY_NON_HEADER, hdr_buf, strlen(LEGACY_NON_HEADER))) /* Flawfinder: ignore */
 	{	// Create a LLSD XML parser, and parse the first chunk read above.
 		LLSDXMLParser x;
 		x.parsePart(hdr_buf, inbuf);	// Parse the first part that was already read
-		auto parsed = x.parse(str, sd, max_bytes - inbuf); // Parse the rest of it
+		auto parsed = x.parse(str, sd, remaining); // Parse the rest of it
 		// Formally we should probably check (parsed != PARSE_FAILURE &&
 		// parsed > 0), but since PARSE_FAILURE is -1, this suffices.
 		return (parsed > 0);
@@ -196,15 +220,15 @@ bool LLSDSerialize::deserialize(LLSD& sd, std::istream& str, llssize max_bytes)
 	 */
 	if (0 == LLStringUtil::compareInsensitive(header, LLSD_BINARY_HEADER))
 	{
-		return (parse_using<LLSDBinaryParser>(str, sd, max_bytes - inbuf) > 0);
+		return (parse_using<LLSDBinaryParser>(str, sd, remaining) > 0);
 	}
 	else if (0 == LLStringUtil::compareInsensitive(header, LLSD_XML_HEADER))
 	{
-		return (parse_using<LLSDXMLParser>(str, sd, max_bytes - inbuf) > 0);
+		return (parse_using<LLSDXMLParser>(str, sd, remaining) > 0);
 	}
 	else if (0 == LLStringUtil::compareInsensitive(header, LLSD_NOTATION_HEADER))
 	{
-		return (parse_using<LLSDNotationParser>(str, sd, max_bytes - inbuf) > 0);
+		return (parse_using<LLSDNotationParser>(str, sd, remaining) > 0);
 	}
 	else // no header we recognize
 	{
@@ -615,7 +639,10 @@ S32 LLSDNotationParser::doParse(std::istream& istr, LLSD& data, S32 max_depth) c
 	{
 		c = get(istr);
 		F64 real = 0.0;
-		istr >> real;
+		{
+			LLSDClassicLocaleGuard<std::istream> classic(istr);
+			istr >> real;
+		}
 		data = real;
 		if (istr.fail())
 		{
@@ -1230,7 +1257,8 @@ S32 LLSDBinaryParser::parseArray(std::istream& istr, LLSD& array, S32 max_depth)
 	S32 size = (S32)ntohl(value_nbo);
 
     // Preallocate array to avoid incremental allocation
-    array = LLSD::emptyReservedArray(size);
+    // S24 : size is stream-controlled; cap the reserve hint
+    array = LLSD::emptyReservedArray(size > 0 ? static_cast<size_t>(std::min<S32>(size, 4096)) : 0);
 
 	S32 parse_count = 0;
 	S32 count = 0;
@@ -1338,8 +1366,16 @@ S32 LLSDFormatter::format(const LLSD& data, std::ostream& ostr, EFormatterOption
 
 void LLSDFormatter::formatReal(LLSD::Real real, std::ostream& ostr) const
 {
-	std::string buffer = llformat(mRealFormat.c_str(), real);
-	ostr << buffer;
+    static _locale_t classic_locale = _create_locale(LC_ALL, "C");
+    std::string buffer;
+    int len = _scprintf_l(mRealFormat.c_str(), classic_locale, real);
+    if (len > 0)
+    {
+        buffer.resize(len + 1);
+        len = _snprintf_l(&buffer[0], buffer.size(), mRealFormat.c_str(), classic_locale, real);
+        buffer.resize(len > 0 ? len : 0);
+    }
+    ostr << buffer;
 }
 
 /**
@@ -1453,6 +1489,7 @@ S32 LLSDNotationFormatter::format_impl(const LLSD& data, std::ostream& ostr,
 		ostr << "r";
 		if (mRealFormat.empty())
 		{
+			LLSDClassicLocaleGuard<std::ostream> classic(ostr);
 			ostr << data.asReal();
 		}
 		else
@@ -2282,6 +2319,11 @@ LLUZipHelper::EZipRresult LLUZipHelper::unzip_llsd(LLSD& data, std::istream& is,
 		return ZR_MEM_ERROR;
 	}
 	is.read((char*)in.get(), size);
+	if (is.gcount() != size)
+	{
+		// S24 : short read would leave uninitialised bytes in 'in'
+		return ZR_DATA_ERROR;
+	}
 
 	return unzip_llsd(data, in.get(), size);
 }
@@ -2299,6 +2341,11 @@ LLUZipHelper::EZipRresult LLUZipHelper::unzip_llsd(LLSD& data, const U8* in, S32
 	{
 		out = std::unique_ptr<U8[]>(new(std::nothrow) U8[CHUNK]);
 	}
+	if (!out)
+	{
+		// S24 : nothrow new can fail; inflate() would write through a null next_out
+		return ZR_MEM_ERROR;
+	}
 
 	strm.zalloc = Z_NULL;
 	strm.zfree = Z_NULL;
@@ -2307,6 +2354,14 @@ LLUZipHelper::EZipRresult LLUZipHelper::unzip_llsd(LLSD& data, const U8* in, S32
 	strm.next_in = const_cast<U8*>(in);
 
 	S32 ret = inflateInit(&strm);
+	if (ret != Z_OK)
+	{
+		// S24 : inflate() on an uninitialised stream is undefined
+		return (ret == Z_MEM_ERROR) ? ZR_MEM_ERROR : ZR_DATA_ERROR;
+	}
+
+	// S24 : cap on the decompressed size so a zip bomb can't exhaust memory
+	constexpr llssize MAX_UNZIPPED_SIZE = 0x10000000; // 256 MB
 
 	do
 	{
@@ -2339,6 +2394,13 @@ LLUZipHelper::EZipRresult LLUZipHelper::unzip_llsd(LLSD& data, const U8* in, S32
 		}
 
 		U32 have = CHUNK - strm.avail_out;
+
+		if (cur_size + have > MAX_UNZIPPED_SIZE)
+		{
+			inflateEnd(&strm);
+			free(result);
+			return ZR_MEM_ERROR;
+		}
 
 		U8* new_result = (U8*)realloc(result, cur_size + have);
 		if (new_result == NULL)
@@ -2403,6 +2465,14 @@ U8* unzip_llsdNavMesh(bool& valid, size_t& outsize, std::istream& is, S32 size)
 		return NULL;
 	}
 	is.read((char*)in, size);
+	if (is.gcount() != size)
+	{
+		// S24 : short read would leave uninitialised bytes in 'in' for inflate to chew on
+		LL_WARNS() << "Failed to unzip LLSD NavMesh block: short read." << LL_ENDL;
+		delete[] in;
+		valid = false;
+		return NULL;
+	}
 
 	U8 out[CHUNK];
 
@@ -2412,34 +2482,46 @@ U8* unzip_llsdNavMesh(bool& valid, size_t& outsize, std::istream& is, S32 size)
 	strm.avail_in = size;
 	strm.next_in = in;
 
+	// S24 : cap on the decompressed size; also keeps cur_size (U32) from wrapping
+	const size_t MAX_UNZIPPED_SIZE = 0x10000000; // 256 MB
+
 	S32 ret = inflateInit2(&strm, windowBits | ENABLE_ZLIB_GZIP);
+	if (ret != Z_OK)
+	{
+		// S24 : inflate() on an uninitialised stream is undefined
+		delete[] in;
+		valid = false;
+		return NULL;
+	}
 	do
 	{
 		strm.avail_out = CHUNK;
 		strm.next_out = out;
 		ret = inflate(&strm, Z_NO_FLUSH);
-		if (ret == Z_STREAM_ERROR)
+		if (ret != Z_OK && ret != Z_STREAM_END)
 		{
+			// S24 : clean up once and bail. This used to free result/in and then fall
+			// through into realloc(result)/delete[] in/free(result) again (use-after-free
+			// and double free on corrupt data).
 			inflateEnd(&strm);
 			free(result);
 			delete[] in;
 			valid = false;
-		}
-
-		switch (ret)
-		{
-		case Z_NEED_DICT:
-			ret = Z_DATA_ERROR;
-		case Z_DATA_ERROR:
-		case Z_MEM_ERROR:
-			inflateEnd(&strm);
-			free(result);
-			delete[] in;
-			valid = false;
-			break;
+			return NULL;
 		}
 
 		U32 have = CHUNK - strm.avail_out;
+
+		if (static_cast<size_t>(cur_size) + have > MAX_UNZIPPED_SIZE)
+		{
+			LL_WARNS() << "Failed to unzip LLSD NavMesh block: decompressed data exceeds "
+				<< MAX_UNZIPPED_SIZE << " bytes." << LL_ENDL;
+			inflateEnd(&strm);
+			free(result);
+			delete[] in;
+			valid = false;
+			return NULL;
+		}
 
 		U8* new_result = (U8*)realloc(result, cur_size + have);
 		if (new_result == NULL)

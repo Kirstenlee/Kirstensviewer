@@ -84,7 +84,7 @@ public:
 	/*virtual*/ U32 getFSAASamples() override { return 0; }
     /*virtual*/ bool restoreGamma() override {return false; }   // Restore original gamma table (before updating gamma)
 	//virtual ESwapMethod getSwapMethod() override { return mSwapMethod; }
-	/*virtual*/ void gatherInput() override {}
+	/*virtual*/ void gatherInput(bool app_has_focus) override {}
 	/*virtual*/ void delayInputProcessing() override {}
 	/*virtual*/ void swapBuffers() override;
 

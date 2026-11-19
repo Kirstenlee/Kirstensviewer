@@ -125,14 +125,17 @@ void LLFloaterKVRAMCacheStats::updateStats()
     if (mTextureCountText)
     {
         U64 total_rejected = extended_stats.textures_rejected_incomplete + extended_stats.textures_rejected_corrupt;
+        // S24 : eviction controller telemetry - smoothed inflow, and entries evicted over the disk write budget
+        const std::string controller = llformat("  |  in %.1f MB/s  |  %llu dropped", cache->getInflowMBPerSec(),
+            extended_stats.evictions_dropped_unwritten);
         if (total_rejected > 0)
         {
-            mTextureCountText->setText(llformat("%u textures in RAM  |  %llu rejected (incomplete/corrupt)", 
-                stats.ram_entry_count, total_rejected));
+            mTextureCountText->setText(llformat("%u textures in RAM  |  %llu rejected (incomplete/corrupt)",
+                stats.ram_entry_count, total_rejected) + controller);
         }
         else
         {
-            mTextureCountText->setText(llformat("%u textures in RAM", stats.ram_entry_count));
+            mTextureCountText->setText(llformat("%u textures in RAM", stats.ram_entry_count) + controller);
         }
     }
 
@@ -181,10 +184,8 @@ void LLFloaterKVRAMCacheStats::updateStats()
     // Shows current eviction pressure multiplier
     // Eviction starts at 1.0x (soft threshold) and ramps to 2.0x (hard threshold)
     // S24: Dynamic color: green → amber → red based on pressure
-    // S24: Pulled from KVRAMCache::getEvictionPressureMultiplier() — this used to be a
-    // hand-rolled copy of the pressure curve (hardcoded 0.25/0.5 breakpoints) that fell out
-    // of sync when processPassiveEviction() switched to the fill_target-based curve. Reading
-    // the cache's own calculation guarantees the bar can never disagree with actual eviction again.
+    // S24: Reads the value straight from KVRAMCache::getEvictionPressureMultiplier() so the
+    // bar can never disagree with the cache's own fill_target-based eviction curve.
     F32 pressure_multiplier = cache->getEvictionPressureMultiplier();
 
     if (mPressureBar)

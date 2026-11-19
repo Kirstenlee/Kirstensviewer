@@ -221,7 +221,7 @@ using KRlvGetGroupNameRequest = std::function<std::string()>;
 // asked for, which also plugs a real, independently-confirmed gap:
 // LLAgent's teleport-complete handler calls
 // LLEnvironment::setSharedEnvironment() directly (gated behind
-// "SwitchToSharedEnvAfterTeleport", default true) completely bypassing
+// "SwitchToSharedEnvAfterTeleport", default false for existing users) completely bypassing
 // LLWorldEnvSettings::handleEvent() - the chokepoint @setenv=n's own
 // restriction gate relies on. The hook always re-derives from the LIVE
 // current sky (LLEnvironment::getCurrentSky()) rather than a frozen

@@ -240,6 +240,12 @@ public:
     bool getWeight4Strider(LLStrider<LLVector4>& strider, U32 index=0, S32 count = -1);
     bool getClothWeightStrider(LLStrider<LLVector4>& strider, U32 index=0, S32 count = -1);
 
+    // S24 : every setXData() below copies into the shadow buffer and then uploads the WHOLE buffer.
+    // Between beginDataBatch() and endDataBatch() the copies happen but the upload is deferred to one
+    // upload per buffer at the end, for callers that set several attributes in a row.
+    void beginDataBatch() { mDeferUpload = true; }
+    void endDataBatch();
+
     void setPositionData(const LLVector4a* data);
     void setNormalData(const LLVector4a* data);
     void setTangentData(const LLVector4a* data);
@@ -337,6 +343,10 @@ private:
     // NEVER a partial (end-start) range - or the upload silently leaves
     // part of the buffer stale.
     void uploadRange(DXBuffer& buf, U32 full_size, U32 start, U32 end, void* data, U8* dst);
+
+    bool mDeferUpload = false;
+    bool mVertexUploadPending = false;
+    bool mIndexUploadPending = false;
 
     LLVertexBuffer(U32 typemask, U32 usage)
         : LLVertexBuffer(typemask)

@@ -59,8 +59,13 @@ void LLEventTimer::updateClass()
 {
 	for (auto& timer : instance_snapshot())
 	{
+		// S24 : a stopped timer costs one flag read, not a clock read
+		if (!timer.mEventTimer.getStarted())
+		{
+			continue;
+		}
 		F32 et = timer.mEventTimer.getElapsedTimeF32();
-		if (timer.mEventTimer.getStarted() && et > timer.mPeriod) {
+		if (et > timer.mPeriod) {
 			timer.mEventTimer.reset();
 			if ( timer.tick() )
 			{

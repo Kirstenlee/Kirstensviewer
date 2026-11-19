@@ -32,6 +32,7 @@
 #include "llnotificationsutil.h"
 #include "llpanelavatar.h"
 #include "llpanelprofile.h"
+#include "lltabcontainer.h"
 
 static const std::string PANEL_PROFILE_VIEW = "panel_profile_view";
 
@@ -62,6 +63,19 @@ void LLFloaterProfile::onOpen(const LLSD& key)
 bool LLFloaterProfile::postBuild()
 {
     mPanelProfile = findChild<LLPanelProfile>(PANEL_PROFILE_VIEW);
+
+    // S24 : default and minimum width fit the tab strip exactly, so the tabs never
+    // need scroll arrows; the floater can still be widened
+    LLTabContainer* tabs = findChild<LLTabContainer>("panel_profile_tabs");
+    if (tabs)
+    {
+        const S32 chrome = getRect().getWidth() - tabs->getRect().getWidth();
+        const S32 fit_width = tabs->getMinWidthNoScroll() + chrome;
+        S32 min_w, min_h;
+        getResizeLimits(&min_w, &min_h);
+        setResizeLimits(fit_width, min_h);
+        reshape(fit_width, getRect().getHeight());
+    }
 
     return true;
 }

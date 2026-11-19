@@ -347,6 +347,7 @@ void DXShader::prefetchPixelShader(const std::string& source, const std::string&
 
 void DXShader::reflectConstants(const void* bytecode, size_t size)
 {
+    dropConstantCaches(); // S24 : the constants are about to be (re)built
     ID3D11ShaderReflection* reflector = nullptr;
     if (FAILED(D3DReflect(bytecode, size, IID_ID3D11ShaderReflection, (void**)&reflector)))
     {
@@ -488,14 +489,63 @@ uint32_t DXShader::reflectVertexAttributeMask() const
     return mask;
 }
 
-bool DXShader::setUniformMatrix4(const std::string& name, const float* column_major_4x4)
+void DXShader::dropConstantCaches()
 {
-    auto iter = mConstants.find(name);
-    if (iter == mConstants.end())
+    mReservedCache.clear();
+    for (CachedConstant& cached : mWellKnownCache)
     {
-        return false;
+        cached = CachedConstant();
     }
+}
 
+const DXShader::ConstantInfo* DXShader::findReserved(uint32_t reserved_index, const std::string& name)
+{
+    if (reserved_index >= mReservedCache.size())
+    {
+        mReservedCache.resize((size_t)reserved_index + 1);
+    }
+    CachedConstant& cached = mReservedCache[reserved_index];
+    if (cached.state == 0)
+    {
+        auto iter = mConstants.find(name);
+        if (iter == mConstants.end())
+        {
+            cached.state = 2;
+        }
+        else
+        {
+            cached.info = iter->second;
+            cached.state = 1;
+        }
+    }
+    return cached.state == 1 ? &cached.info : nullptr;
+}
+
+const DXShader::ConstantInfo* DXShader::findWellKnown(WellKnown which)
+{
+    static const char* const kNames[WK_COUNT] =
+    {
+        "modelview_matrix", "modelview_projection_matrix", "projection_matrix", "normal_matrix", "texture_matrix0", "inv_proj"
+    };
+    CachedConstant& cached = mWellKnownCache[which];
+    if (cached.state == 0)
+    {
+        auto iter = mConstants.find(kNames[which]);
+        if (iter == mConstants.end())
+        {
+            cached.state = 2;
+        }
+        else
+        {
+            cached.info = iter->second;
+            cached.state = 1;
+        }
+    }
+    return cached.state == 1 ? &cached.info : nullptr;
+}
+
+bool DXShader::writeMatrix4(const ConstantInfo& info, const float* column_major_4x4)
+{
     // HLSL's default (column_major) cbuffer packing stores a float4x4 as 4
     // consecutive float4-aligned columns - exactly glm::value_ptr()'s native
     // column-major memory layout, so this is a straight 64-byte copy with no
@@ -511,7 +561,7 @@ bool DXShader::setUniformMatrix4(const std::string& name, const float* column_ma
     // LLGLSLShader::uniform*, which already skips unchanged values - this
     // port lost it (see the existing comment on this in
     // dxdrawpoolmaterials.cpp).
-    uint8_t* dst = mConstantStaging.data() + iter->second.offset;
+    uint8_t* dst = mConstantStaging.data() + info.offset;
     if (memcmp(dst, column_major_4x4, 16 * sizeof(float)) != 0)
     {
         memcpy(dst, column_major_4x4, 16 * sizeof(float));
@@ -520,24 +570,18 @@ bool DXShader::setUniformMatrix4(const std::string& name, const float* column_ma
     return true;
 }
 
-bool DXShader::setUniformMatrix3(const std::string& name, const float* column_major_3x3)
+bool DXShader::writeMatrix3(const ConstantInfo& info, const float* column_major_3x3)
 {
-    auto iter = mConstants.find(name);
-    if (iter == mConstants.end())
-    {
-        return false;
-    }
-
-    // Same column_major convention as setUniformMatrix4(), but each 3-float
+    // Same column_major convention as writeMatrix4(), but each 3-float
     // column is individually padded to a 16-byte slot (HLSL never packs a
     // vec3 flush against the next value) - 3 columns, 12 bytes each, with a
     // 4-byte gap after every column.
     //
-    // S24 : same skip-if-unchanged as setUniformMatrix4() - see its comment.
+    // S24 : same skip-if-unchanged as writeMatrix4() - see its comment.
     // Compared and copied per-column (12 bytes each), never touching the
     // 4-byte padding gap after each column, which holds no meaningful data
     // to compare.
-    uint8_t* dst = mConstantStaging.data() + iter->second.offset;
+    uint8_t* dst = mConstantStaging.data() + info.offset;
     for (int col = 0; col < 3; ++col)
     {
         const float* src_col = column_major_3x3 + col * 3;
@@ -551,23 +595,17 @@ bool DXShader::setUniformMatrix3(const std::string& name, const float* column_ma
     return true;
 }
 
-bool DXShader::setUniformFloatArray(const std::string& name, const float* data, size_t float_count)
+bool DXShader::writeFloats(const ConstantInfo& info, const std::string& name, const float* data, size_t float_count)
 {
-    auto iter = mConstants.find(name);
-    if (iter == mConstants.end())
-    {
-        return false;
-    }
-
     const size_t byte_count = float_count * sizeof(float);
-    if (iter->second.offset + byte_count > mConstantStaging.size())
+    if (info.offset + byte_count > mConstantStaging.size())
     {
         LL_WARNS("ShaderLoading") << "setUniformFloatArray: '" << name << "' would overrun its reflected constant size" << LL_ENDL;
         return false;
     }
 
-    // S24 : same skip-if-unchanged as setUniformMatrix4() - see its comment.
-    uint8_t* dst = mConstantStaging.data() + iter->second.offset;
+    // S24 : same skip-if-unchanged as writeMatrix4() - see its comment.
+    uint8_t* dst = mConstantStaging.data() + info.offset;
     if (memcmp(dst, data, byte_count) != 0)
     {
         memcpy(dst, data, byte_count);
@@ -576,31 +614,25 @@ bool DXShader::setUniformFloatArray(const std::string& name, const float* data, 
     return true;
 }
 
-bool DXShader::setUniformPaddedArray(const std::string& name, const float* data, int component_count, size_t element_count)
+bool DXShader::writePadded(const ConstantInfo& info, const std::string& name, const float* data, int component_count, size_t element_count)
 {
-    auto iter = mConstants.find(name);
-    if (iter == mConstants.end())
-    {
-        return false;
-    }
-
     // Do NOT add a stricter check here comparing `needed` (element_count*16,
     // assuming full 16-byte padding per element) against
-    // iter->second.size (D3D11 shader reflection's reported size) - that
+    // info.size (D3D11 shader reflection's reported size) - that
     // size is NOT measured in the same fully-padded-per-element convention,
     // so such a check rejects essentially every legitimate array upload.
     const size_t needed = element_count * 16;
-    if (iter->second.offset + needed > mConstantStaging.size())
+    if (info.offset + needed > mConstantStaging.size())
     {
         LL_WARNS("ShaderLoading") << "setUniformPaddedArray: '" << name << "' would overrun its reflected constant size" << LL_ENDL;
         return false;
     }
 
-    // S24 : same skip-if-unchanged as setUniformMatrix4() - see its comment.
+    // S24 : same skip-if-unchanged as writeMatrix4() - see its comment.
     // Compared and copied per-element (component_count*4 bytes each),
     // matching the size-logic comment above: never touch bytes beyond what
     // each element actually occupies.
-    uint8_t* dst = mConstantStaging.data() + iter->second.offset;
+    uint8_t* dst = mConstantStaging.data() + info.offset;
     const size_t elem_bytes = component_count * sizeof(float);
     for (size_t i = 0; i < element_count; ++i)
     {
@@ -613,6 +645,71 @@ bool DXShader::setUniformPaddedArray(const std::string& name, const float* data,
         }
     }
     return true;
+}
+
+bool DXShader::setUniformMatrix4(const std::string& name, const float* column_major_4x4)
+{
+    auto iter = mConstants.find(name);
+    return iter != mConstants.end() && writeMatrix4(iter->second, column_major_4x4);
+}
+
+bool DXShader::setUniformMatrix3(const std::string& name, const float* column_major_3x3)
+{
+    auto iter = mConstants.find(name);
+    return iter != mConstants.end() && writeMatrix3(iter->second, column_major_3x3);
+}
+
+bool DXShader::setUniformFloatArray(const std::string& name, const float* data, size_t float_count)
+{
+    auto iter = mConstants.find(name);
+    return iter != mConstants.end() && writeFloats(iter->second, name, data, float_count);
+}
+
+bool DXShader::setUniformPaddedArray(const std::string& name, const float* data, int component_count, size_t element_count)
+{
+    auto iter = mConstants.find(name);
+    return iter != mConstants.end() && writePadded(iter->second, name, data, component_count, element_count);
+}
+
+bool DXShader::setUniformMatrix4(uint32_t reserved_index, const std::string& name, const float* column_major_4x4)
+{
+    const ConstantInfo* info = findReserved(reserved_index, name);
+    return info && writeMatrix4(*info, column_major_4x4);
+}
+
+bool DXShader::setUniformMatrix3(uint32_t reserved_index, const std::string& name, const float* column_major_3x3)
+{
+    const ConstantInfo* info = findReserved(reserved_index, name);
+    return info && writeMatrix3(*info, column_major_3x3);
+}
+
+bool DXShader::setUniformFloatArray(uint32_t reserved_index, const std::string& name, const float* data, size_t float_count)
+{
+    const ConstantInfo* info = findReserved(reserved_index, name);
+    return info && writeFloats(*info, name, data, float_count);
+}
+
+bool DXShader::setUniformPaddedArray(uint32_t reserved_index, const std::string& name, const float* data, int component_count, size_t element_count)
+{
+    const ConstantInfo* info = findReserved(reserved_index, name);
+    return info && writePadded(*info, name, data, component_count, element_count);
+}
+
+bool DXShader::hasWellKnown(WellKnown which)
+{
+    return findWellKnown(which) != nullptr;
+}
+
+bool DXShader::setWellKnownMatrix4(WellKnown which, const float* column_major_4x4)
+{
+    const ConstantInfo* info = findWellKnown(which);
+    return info && writeMatrix4(*info, column_major_4x4);
+}
+
+bool DXShader::setWellKnownMatrix3(WellKnown which, const float* column_major_3x3)
+{
+    const ConstantInfo* info = findWellKnown(which);
+    return info && writeMatrix3(*info, column_major_3x3);
 }
 
 void DXShader::uploadConstants()
@@ -873,6 +970,7 @@ void DXShader::reset()
     if (mConstantBuffer) { mConstantBuffer->Release(); mConstantBuffer = nullptr; }
     mConstantBufferBindPoint = 0;
     mConstants.clear();
+    dropConstantCaches();
     mConstantStaging.clear();
     mConstantsDirty = false;
     mTextureBindPoints.clear();

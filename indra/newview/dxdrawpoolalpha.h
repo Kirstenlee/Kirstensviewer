@@ -59,7 +59,7 @@ public:
 // renderAlpha(), the emissive helpers, renderDebugAlpha()/
 // renderAlphaHighlight()), not a from-scratch redesign. Chosen deliberately
 // over an in-place #ifdef because most of that call graph is already
-// DX-safe by composition (DXDepthTest/blendFunc/LLGLDisable/
+// DX-safe by composition (DXDepthTest/blendFunc/DXStateDisable/
 // LLHLSLShader::bind()+bindTexture()/LLVertexBuffer - all fixed in earlier
 // phases) and only rigged-batch handling needed to change - see the stage 5
 // hitlist memory for the full reasoning. Understand this means the two

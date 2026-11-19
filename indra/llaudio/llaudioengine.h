@@ -461,8 +461,8 @@ public:
 	friend class LLAudioChannel;
 	friend class LLAudioData;
 protected:
-	bool mInUse;
-	LLAudioData* mAudioDatap;
+	bool mInUse = false; // S24 : was uninitialised
+	LLAudioData* mAudioDatap = nullptr; // S24 : was uninitialised
 	LLFrameTimer mLastUseTimer;
 };
 

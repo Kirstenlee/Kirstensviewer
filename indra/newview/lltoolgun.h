@@ -28,6 +28,7 @@
 #define LL_TOOLGUN_H
 
 #include "lltool.h"
+#include "lluiimage.h"
 #include "llui.h"
 
 
@@ -48,6 +49,7 @@ public:
     virtual bool    clipMouseWhenDown()     { return false; }
 private:
     bool mIsSelected;
+    LLUIImagePtr mCrosshairImage; // S24 : resolved on first draw
 };
 
 #endif

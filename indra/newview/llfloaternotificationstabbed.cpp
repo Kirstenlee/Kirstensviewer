@@ -131,7 +131,7 @@ void LLFloaterNotificationsTabbed::removeItemByID(const LLUUID& id, std::string 
         reshapeWindow();
         updateNotificationCounters();
     }
-    // S24: Normal for notification to not be in this list, don't spam - 2026-04-27
+    // S24: Normal for notification to not be in this list, don't spam
 
     // hide chiclet window if there are no items left
     if(isWindowEmpty())

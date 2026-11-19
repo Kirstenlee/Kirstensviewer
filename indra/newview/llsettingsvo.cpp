@@ -494,7 +494,7 @@ LLSettingsSky::ptr_t LLSettingsVOSky::buildFromLegacyPreset(const std::string &n
     {
         messages["REASONS"] = LLTrans::getString("SettingValidationError", LLSDMap("NAME", name));
         LL_WARNS("SETTINGS") << "Sky setting validation failed!\n" << results << LL_ENDL;
-        LLSettingsSky::ptr_t();
+        return LLSettingsSky::ptr_t(); // S24 : was a no-op statement, invalid presets still loaded
     }
 
     LLSettingsSky::ptr_t skyp = std::make_shared<LLSettingsVOSky>(newsettings);
@@ -770,8 +770,8 @@ void LLSettingsVOSky::applySpecial(void *ptarget, bool force)
     // SL-13084 EEP added support for custom cloud textures -- flip them horizontally to match the preview of Clouds > Cloud Scroll
     // Keep in Sync!
     // * indra\newview\llsettingsvo.cpp
-    // * indra\newview\app_settings\shaders\class2\windlight\cloudsV.glsl
-    // * indra\newview\app_settings\shaders\class1\deferred\cloudsV.glsl
+    // * indra\newview\app_settings\shaders\windlight\cloudsV.glsl
+    // * indra\newview\app_settings\shaders\deferred\cloudsV.glsl
     cloud_scroll[0] = -cloud_scroll[0];
     vect_c_p_d1 += cloud_scroll;
     shader->uniform3fv(LLShaderMgr::CLOUD_POS_DENSITY1, LLVector3(vect_c_p_d1.mV));

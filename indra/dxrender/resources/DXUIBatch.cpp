@@ -3,6 +3,8 @@
 #include "DXVertexLayout.h"
 #include "DXStateCache.h"
 #include "llerror.h"
+#include <algorithm>
+#include <bit>
 
 DXUIBatch gDXUIBatch;
 
@@ -94,15 +96,26 @@ void DXUIBatch::drawAndPop(size_t count, const BatchState& state)
     const size_t byte_size = count * sizeof(DXUIVertex);
     if (count > mVertexCapacity)
     {
-        if (!mVertexBuffer.createVertexBuffer(byte_size, nullptr))
+        // S24 : grows by doubling (at least 8192 vertices, about 256KB), not to the exact vertex count, so the buffer settles after
+        // a grow or two instead of being destroyed and created again every time a batch edges past the largest so far
+        const size_t new_capacity = std::max(count, std::bit_ceil(std::max<size_t>(mVertexCapacity * 2, 8192)));
+        if (!mVertexBuffer.createVertexBuffer(new_capacity * sizeof(DXUIVertex), nullptr))
         {
             mVertices.erase(mVertices.begin(), mVertices.begin() + count);
             return;
         }
-        mVertexCapacity = count;
+        mVertexCapacity = new_capacity;
+        mWriteCursor = 0;
+        mNeedDiscard = true;
+    }
+    else if (mWriteCursor + count > mVertexCapacity)
+    {
+        mWriteCursor = 0; // wrap: this write discards the old contents
+        mNeedDiscard = true;
     }
 
-    if (!mVertexBuffer.upload(mVertices.data(), byte_size))
+    const size_t first_vertex = mWriteCursor;
+    if (!mVertexBuffer.uploadRange(mVertices.data(), byte_size, first_vertex * sizeof(DXUIVertex), mNeedDiscard))
     {
         mVertices.erase(mVertices.begin(), mVertices.begin() + count);
         return;
@@ -117,6 +130,7 @@ void DXUIBatch::drawAndPop(size_t count, const BatchState& state)
     // for all of 2D UI/text.
     ctx->VSSetShader(state.vs, nullptr, 0);
     ctx->PSSetShader(state.ps, nullptr, 0);
+    DXStateCache::noteBoundShaderStages(state.vs, state.ps);
 
     ID3D11InputLayout* layout = DXVertexLayout::getOrCreateUILayout(state.vsBytecode, state.vsBytecodeSize, state.debugName);
     ctx->IASetInputLayout(layout);
@@ -144,8 +158,11 @@ void DXUIBatch::drawAndPop(size_t count, const BatchState& state)
     // with non-depth-tested screen-space UI batches.
     ID3D11DepthStencilState* ds = DXStateCache::getDepthStencilState(state.depthTest, state.depthWrite, state.depthFunc);
     ctx->OMSetDepthStencilState(ds, 0);
+    DXStateCache::noteExternalDepthStencilChange();
 
-    ctx->Draw((UINT)count, 0);
+    mNeedDiscard = false;
+    mWriteCursor = first_vertex + count;
+    ctx->Draw((UINT)count, (UINT)first_vertex);
 
     mVertices.erase(mVertices.begin(), mVertices.begin() + count);
 }

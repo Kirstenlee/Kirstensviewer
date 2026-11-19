@@ -288,6 +288,17 @@
     <key>Value</key>
     <real>0.5</real>
   </map>
+  <key>AudioLevelDoppler</key>
+  <map>
+    <key>Comment</key>
+    <string>Scale of the Doppler effect on moving sounds (1.0 = normal, 0 = off, higher = stronger)</string>
+    <key>Persist</key>
+    <integer>1</integer>
+    <key>Type</key>
+    <string>F32</string>
+    <key>Value</key>
+    <real>1.0</real>
+  </map>
   <key>AudioLevelMaster</key>
   <map>
     <key>Comment</key>
@@ -332,6 +343,17 @@
     <key>Value</key>
     <real>0.5</real>
   </map>
+  <key>AudioLevelRolloff</key>
+  <map>
+    <key>Comment</key>
+    <string>Scale of the distance fall-off of sounds (1.0 = normal, 0 = none, higher = faster)</string>
+    <key>Persist</key>
+    <integer>1</integer>
+    <key>Type</key>
+    <string>F32</string>
+    <key>Value</key>
+    <real>1.0</real>
+  </map>
   <key>AudioLevelSFX</key>
   <map>
     <key>Comment</key>
@@ -353,6 +375,17 @@
     <string>F32</string>
     <key>Value</key>
     <real>0.5</real>
+  </map>
+  <key>AudioLevelUnderwaterRolloff</key>
+  <map>
+    <key>Comment</key>
+    <string>Same as AudioLevelRolloff, while the camera is underwater</string>
+    <key>Persist</key>
+    <integer>1</integer>
+    <key>Type</key>
+    <string>F32</string>
+    <key>Value</key>
+    <real>5.0</real>
   </map>
   <key>AudioLevelVoice</key>
   <map>
@@ -1348,6 +1381,39 @@
     <string>String</string>
     <key>Value</key>
     <string>https://accounts.secondlife.com/packs/floater?lang=[LANGUAGE]&amp;shortfall=[SHORTFALL]</string>
+  </map>
+  <key>BuyCurrencyAddPaymentURL</key>
+  <map>
+    <key>Comment</key>
+    <string>URL the viewer probes at login; a 200 means the L$ packs floater handles residents without a payment method</string>
+    <key>Persist</key>
+    <integer>1</integer>
+    <key>Type</key>
+    <string>String</string>
+    <key>Value</key>
+    <string>https://accounts.secondlife.com/packs/floater/add-payment-enabled</string>
+  </map>
+  <key>PaymentMethodURL</key>
+  <map>
+    <key>Comment</key>
+    <string>URL for adding a payment method</string>
+    <key>Persist</key>
+    <integer>1</integer>
+    <key>Type</key>
+    <string>String</string>
+    <key>Value</key>
+    <string>https://secondlife.com/my/lindex/buy.php?associate_for_viewer=1</string>
+  </map>
+  <key>PaymentMethodStagingURL</key>
+  <map>
+    <key>Comment</key>
+    <string>URL for adding a payment method on the Damballah</string>
+    <key>Persist</key>
+    <integer>1</integer>
+    <key>Type</key>
+    <string>String</string>
+    <key>Value</key>
+    <string>https://secondlife-staging.com/my/lindex/buy.php?associate_for_viewer=1</string>
   </map>
   <key>CEFRemoteDebuggingPort</key>
   <map>
@@ -2477,6 +2543,17 @@
   <map>
     <key>Comment</key>
     <string>Show FPS Counter with Color-Coded Performance (Red &lt; 20, Yellow 20-60, Green 60+)</string>
+    <key>Persist</key>
+    <integer>1</integer>
+    <key>Type</key>
+    <string>Boolean</string>
+    <key>Value</key>
+    <integer>0</integer>
+  </map>
+  <key>DebugShowControllerState</key>
+  <map>
+    <key>Comment</key>
+    <string>Display internal controller state values</string>
     <key>Persist</key>
     <integer>1</integer>
     <key>Type</key>
@@ -3859,6 +3936,17 @@
     <key>Value</key>
     <integer>0</integer>
   </map>
+  <key>GameControl</key>
+  <map>
+    <key>Comment</key>
+    <string>Game controller settings: global per-mode action mappings plus per-device hardware config. Empty means use built-in defaults.</string>
+    <key>Persist</key>
+    <integer>1</integer>
+    <key>Type</key>
+    <string>LLSD</string>
+    <key>Value</key>
+    <map/>
+  </map>
   <key>GammaCorrectionKV</key>
   <map>
     <key>Comment</key>
@@ -5212,6 +5300,50 @@
     <key>Value</key>
     <integer>0</integer>
   </map>
+  <key>NewObjectCreationSliceMs</key>
+  <map>
+    <key>Comment</key>
+    <string>Milliseconds of cached-object creation allowed per region per frame once at least 4 objects have been created (0 = no time limit, only the NewObjectCreationThrottle count).</string>
+    <key>Persist</key>
+    <integer>1</integer>
+    <key>Type</key>
+    <string>F32</string>
+    <key>Value</key>
+    <real>2.5</real>
+  </map>
+  <key>RenderMMCSSHighPriority</key>
+  <map>
+    <key>Comment</key>
+    <string>Raise the main thread's MMCSS (Games task) priority from normal to high. Takes effect immediately.</string>
+    <key>Persist</key>
+    <integer>1</integer>
+    <key>Type</key>
+    <string>Boolean</string>
+    <key>Value</key>
+    <integer>1</integer>
+  </map>
+  <key>RenderLowLatencyPresent</key>
+  <map>
+    <key>Comment</key>
+    <string>Limit the present queue to one frame instead of two: lower input latency, less room to absorb a slow frame. Takes effect immediately.</string>
+    <key>Persist</key>
+    <integer>1</integer>
+    <key>Type</key>
+    <string>Boolean</string>
+    <key>Value</key>
+    <integer>0</integer>
+  </map>
+  <key>RenderWaitableSwapChain</key>
+  <map>
+    <key>Comment</key>
+    <string>Wait for a free present-queue slot at the start of each frame (vsync only), keeping the render-ahead at two frames and input fresh. Takes effect immediately.</string>
+    <key>Persist</key>
+    <integer>1</integer>
+    <key>Type</key>
+    <string>Boolean</string>
+    <key>Value</key>
+    <integer>1</integer>
+  </map>
   <key>KVRAMCacheEnabled</key>
   <map>
     <key>Comment</key>
@@ -5222,6 +5354,17 @@
     <string>Boolean</string>
     <key>Value</key>
     <integer>0</integer>
+  </map>
+  <key>KVRAMEvictionScheme</key>
+  <map>
+    <key>Comment</key>
+    <string>RAM cache eviction: 0 = original count-based slices (10 textures a second at most), 1 = controller (inflow sets how often a pass runs, cache size sets how big it is, pressure release valve at the hard threshold)</string>
+    <key>Persist</key>
+    <integer>1</integer>
+    <key>Type</key>
+    <string>S32</string>
+    <key>Value</key>
+    <integer>1</integer>
   </map>
   <key>KVRAMCacheHardThreshold</key>
   <map>
@@ -5243,18 +5386,18 @@
     <key>Type</key>
     <string>F32</string>
     <key>Value</key>
-    <real>4.0</real>
+    <real>10.0</real>
   </map>
   <key>KVRAMCacheMinDeckSize</key>
   <map>
     <key>Comment</key>
-    <string>Deck size - maximum textures to pre-load into RAM at startup, and minimum texture count held in the RAM buffer during play (100-15000 textures in 100 steps, higher = more cache hits before rotation)</string>
+    <string>Save / pre-load count - how many textures (best first: highest priority, then most recently used) are saved to the RAM cache snapshot at logoff, and so the most that are pre-loaded into RAM at the next start (0-15000 in steps of 100). 0 = off: no snapshot and no pre-load, the viewer loads textures from the network or disk cache as normal. Does not reserve or protect any textures during play.</string>
     <key>Persist</key>
     <integer>1</integer>
     <key>Type</key>
     <string>F32</string>
     <key>Value</key>
-    <real>100.0</real>
+    <real>5000.0</real>
   </map>
   <key>KVRAMCacheRAMBudgetMB</key>
   <map>
@@ -5276,7 +5419,7 @@
     <key>Type</key>
     <string>F32</string>
     <key>Value</key>
-    <real>10.0</real>
+    <real>3.0</real>
   </map>
   <key>KVRAMCacheShutdownFlushTimeoutSec</key>
   <map>
@@ -5287,7 +5430,7 @@
     <key>Type</key>
     <string>F32</string>
     <key>Value</key>
-    <real>6.0</real>
+    <real>10.0</real>
   </map>
   <key>KVRAMCacheSoftThreshold</key>
   <map>
@@ -9986,6 +10129,17 @@
     <key>Value</key>
     <real>0.5</real>
   </map>
+  <key>RenderAlphaSortStickiness</key>
+  <map>
+    <key>Comment</key>
+    <string>Alpha sort stability for batches beyond RenderAlphaFaceSortDistance. A batch drawn per face stays per-face until it is this fraction beyond the limit (0.25 = 25 percent), and a whole far batch keeps its sort depth until it moves by a tenth of this fraction of its distance, so overlapping far batches (trees) stop swapping order frame to frame. 0 = off (previous behaviour).</string>
+    <key>Persist</key>
+    <integer>1</integer>
+    <key>Type</key>
+    <string>F32</string>
+    <key>Value</key>
+    <real>0.25</real>
+  </map>
   <key>RenderAlphaSortMode</key>
   <map>
     <key>Comment</key>
@@ -11205,7 +11359,7 @@
     <key>Type</key>
     <string>F32</string>
     <key>Value</key>
-    <real>0.07</real>
+    <real>0.30</real>
   </map>
   <key>RenderJellyGhostBaseColor</key>
   <map>
@@ -11238,7 +11392,7 @@
     <key>Type</key>
     <string>F32</string>
     <key>Value</key>
-    <real>0.45</real>
+    <real>2.00</real>
   </map>
   <key>RenderJellyGhostRimWidth</key>
   <map>
@@ -11249,7 +11403,7 @@
     <key>Type</key>
     <string>F32</string>
     <key>Value</key>
-    <real>1.2</real>
+    <real>40.0</real>
   </map>
   <key>RenderLightRadius</key>
   <map>
@@ -11315,7 +11469,7 @@
     <key>Type</key>
     <string>F32</string>
     <key>Value</key>
-    <real>64.0</real>
+    <real>15.0</real>
   </map>
   <key>RenderLocalLightReachGlow</key>
   <map>
@@ -11326,7 +11480,7 @@
     <key>Type</key>
     <string>F32</string>
     <key>Value</key>
-    <real>0.05</real>
+    <real>0.15</real>
   </map>
   <key>RenderMaxNodeSize</key>
   <map>
@@ -11733,7 +11887,7 @@
     <key>Type</key>
     <string>Boolean</string>
     <key>Value</key>
-    <integer>0</integer>
+    <integer>1</integer>
   </map>
   <key>RenderReflectionExcludeAvatarRealtime</key>
   <map>
@@ -11804,13 +11958,13 @@
   <key>RenderReflectionMasterCubeRadius</key>
   <map>
     <key>Comment</key>
-    <string>Parallax-correction radius (metres) of the master reflection cube's capture sphere. Smaller values better match a tight indoor space and reduce close-up zoom/scale mismatch; larger values suit open/expansive regions. Default 20m is a comfortable general-purpose indoor value found by live testing; live-tunable, no restart needed.</string>
+    <string>Parallax-correction radius (metres) of the master reflection cube's capture sphere. Smaller values better match a tight indoor space and reduce close-up zoom/scale mismatch; larger values suit open/expansive regions. Default 32m is a comfortable general-purpose value found by live testing; live-tunable, no restart needed.</string>
     <key>Persist</key>
     <integer>1</integer>
     <key>Type</key>
     <string>F32</string>
     <key>Value</key>
-    <real>20</real>
+    <real>32</real>
   </map>
   <key>RenderReflectionProbeAmbientMultiplier</key>
   <map>
@@ -11843,7 +11997,7 @@
     <key>Type</key>
     <string>Boolean</string>
     <key>Value</key>
-    <integer>1</integer>
+    <integer>0</integer>
   </map>
   <key>RenderReflectionProbeContrast</key>
   <map>
@@ -12404,7 +12558,7 @@
     <key>Type</key>
     <string>F32</string>
     <key>Value</key>
-    <real>3.0</real>
+    <real>2.00</real>
   </map>
   <key>RenderShadowSplitExponent</key>
   <map>
@@ -12569,7 +12723,7 @@
     <key>Type</key>
     <string>S32</string>
     <key>Value</key>
-    <integer>0</integer>
+    <integer>1</integer>
   </map>
   <key>RenderSkySunlightScale</key>
   <map>
@@ -12701,7 +12855,7 @@
     <key>Type</key>
     <string>F32</string>
     <key>Value</key>
-    <real>1.0</real>
+    <real>0.04</real>
   </map>
   <key>RenderSunDynamicRange</key>
   <map>
@@ -12844,7 +12998,7 @@
     <key>Type</key>
     <string>Boolean</string>
     <key>Value</key>
-    <integer>0</integer>
+    <integer>1</integer>
   </map>
   <key>RenderTonemapMix</key>
   <map>
@@ -12955,6 +13109,17 @@
     <string>F32</string>
     <key>Value</key>
     <real>0.25</real>
+  </map>
+  <key>UIColorsSkin</key>
+  <map>
+    <key>Comment</key>
+    <string>S24 - The skin the saved UI color overrides were made under. When it differs from SkinCurrent at startup, the overrides are reset to the new skin's colors.</string>
+    <key>Persist</key>
+    <integer>1</integer>
+    <key>Type</key>
+    <string>String</string>
+    <key>Value</key>
+    <string></string>
   </map>
   <key>RenderUIHueShiftControls</key>
   <map>
@@ -13955,7 +14120,7 @@
     <key>Type</key>
     <string>S32</string>
     <key>Value</key>
-    <integer>2</integer>
+    <integer>0</integer>
   </map>
   <key>SelectionBeamUseCustomColor</key>
   <map>
@@ -15499,7 +15664,7 @@
     <key>Type</key>
     <string>Boolean</string>
     <key>Value</key>
-    <integer>1</integer>
+    <integer>0</integer>
   </map>
   <key>SyncMaterialSettings</key>
   <map>
@@ -16682,6 +16847,17 @@
     <string>F32</string>
     <key>Value</key>
     <real>10.0</real>
+  </map>
+  <key>StopMicCaptureWhenMuted</key>
+  <map>
+    <key>Comment</key>
+    <string>Stop microphone capture while muted. May cause a brief hiss on unmute but stops Bluetooth headsets being held in hands-free call mode. Off keeps capture running for the whole voice session.</string>
+    <key>Persist</key>
+    <integer>1</integer>
+    <key>Type</key>
+    <string>Boolean</string>
+    <key>Value</key>
+    <integer>0</integer>
   </map>
   <key>UISndInvalidOp</key>
   <map>

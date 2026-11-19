@@ -1023,8 +1023,16 @@ void LLButton::draw()
     // Draw label
     if( !getCurrentLabel().empty() )    // Unselected label assignments
     {
-        LLWString label = getCurrentLabel();
-        LLWStringUtil::trim(label);
+        // S24 : only copy (and trim) the label when there is something to trim; the copy was an allocation per draw
+        LLWString trimmed_label;
+        const LLWString* label_ptr = &getCurrentLabel().getWString();
+        if (!label_ptr->empty() && (LLStringOps::isSpace(label_ptr->front()) || LLStringOps::isSpace(label_ptr->back())))
+        {
+            trimmed_label = *label_ptr;
+            LLWStringUtil::trim(trimmed_label);
+            label_ptr = &trimmed_label;
+        }
+        const LLWString& label = *label_ptr;
 
         S32 x;
         switch( mHAlign )

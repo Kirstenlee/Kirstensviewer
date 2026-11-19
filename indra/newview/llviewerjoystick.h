@@ -76,6 +76,7 @@ public:
     LLSD getDeviceUUID(); //unconverted, OS dependent value wrapped into LLSD, for comparison/search
     std::string getDeviceUUIDString(); // converted readable value for settings
     std::string getDescription();
+    static bool is3DConnexionDevice(const std::string& device_name);
     void saveDeviceIdToSettings();
 
 protected:

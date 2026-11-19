@@ -1280,13 +1280,20 @@ void LLInventoryModel::collectDescendentsIf(const LLUUID& id,
                                             bool include_trash,
                                             LLInventoryCollectFunctor& add)
 {
+    // S24 : the trash id cannot change during one collect, so it is resolved once here and not at every level
+    const LLUUID trash_id = include_trash ? LLUUID::null : findCategoryUUIDForType(LLFolderType::FT_TRASH);
+    collectDescendentsIfImpl(id, cats, items, trash_id, add);
+}
+
+void LLInventoryModel::collectDescendentsIfImpl(const LLUUID& id,
+                                                cat_array_t& cats,
+                                                item_array_t& items,
+                                                const LLUUID& trash_id,
+                                                LLInventoryCollectFunctor& add)
+{
     // Start with categories
-    if(!include_trash)
-    {
-        const LLUUID trash_id = findCategoryUUIDForType(LLFolderType::FT_TRASH);
-        if(trash_id.notNull() && (trash_id == id))
-            return;
-    }
+    if(trash_id.notNull() && (trash_id == id))
+        return;
     cat_array_t* cat_array = get_ptr_in_map(mParentChildCategoryTree, id);
     if(cat_array)
     {
@@ -1300,7 +1307,7 @@ void LLInventoryModel::collectDescendentsIf(const LLUUID& id,
             {
                 cats.push_back(cat);
             }
-            collectDescendentsIf(cat->getUUID(), cats, items, include_trash, add);
+            collectDescendentsIfImpl(cat->getUUID(), cats, items, trash_id, add);
         }
     }
 
@@ -1327,12 +1334,16 @@ bool LLInventoryModel::hasMatchingDescendents(const LLUUID& id,
     bool include_trash,
     LLInventoryCollectFunctor& matches)
 {
-    if (!include_trash)
-    {
-        const LLUUID trash_id = findCategoryUUIDForType(LLFolderType::FT_TRASH);
-        if (trash_id.notNull() && (trash_id == id))
-            return false;
-    }
+    const LLUUID trash_id = include_trash ? LLUUID::null : findCategoryUUIDForType(LLFolderType::FT_TRASH);
+    return hasMatchingDescendentsImpl(id, trash_id, matches);
+}
+
+bool LLInventoryModel::hasMatchingDescendentsImpl(const LLUUID& id,
+    const LLUUID& trash_id,
+    LLInventoryCollectFunctor& matches)
+{
+    if (trash_id.notNull() && (trash_id == id))
+        return false;
     cat_array_t* cat_array = get_ptr_in_map(mParentChildCategoryTree, id);
     if (cat_array)
     {
@@ -1342,7 +1353,7 @@ bool LLInventoryModel::hasMatchingDescendents(const LLUUID& id,
             {
                 return true;
             }
-            if (hasMatchingDescendents(cat->getUUID(), include_trash, matches))
+            if (hasMatchingDescendentsImpl(cat->getUUID(), trash_id, matches))
             {
                 return true;
             }
@@ -1893,7 +1904,7 @@ void LLInventoryModel::onDescendentsPurgedFromServer(const LLUUID& object_id, bo
         auto count = items.size();
 
         LLUUID uu_id;
-        for(size_t i = 0; i < count; ++i)
+        for(size_t i = count; i-- > 0; ) // S24 : last first, see deleteObject()
         {
             uu_id = items.at(i)->getUUID();
 
@@ -1903,7 +1914,9 @@ void LLInventoryModel::onDescendentsPurgedFromServer(const LLUUID& object_id, bo
             // of its deleted parent.
             if (getItem(uu_id))
             {
-                deleteObject(uu_id, fix_broken_links);
+                // S24 : no trailing notification per object (deleteObject() still sends the one observers need
+                // before the tree is cleared); the batch gets a single notification below
+                deleteObject(uu_id, fix_broken_links, false);
             }
         }
 
@@ -1927,7 +1940,7 @@ void LLInventoryModel::onDescendentsPurgedFromServer(const LLUUID& object_id, bo
                     cat_array_t* cat_list = getUnlockedCatArray(uu_id);
                     if (!cat_list || (cat_list->size() == 0))
                     {
-                        deleteObject(uu_id, fix_broken_links);
+                        deleteObject(uu_id, fix_broken_links, false);
                         deleted_count++;
                     }
                 }
@@ -1940,6 +1953,7 @@ void LLInventoryModel::onDescendentsPurgedFromServer(const LLUUID& object_id, bo
             LL_WARNS(LOG_INV) << "Unexpected count of categories deleted, got "
                               << total_deleted_count << " expected " << count << LL_ENDL;
         }
+        notifyObservers();
         //gInventory.validate();
     }
 }
@@ -1993,20 +2007,32 @@ void LLInventoryModel::deleteObject(const LLUUID& id, bool fix_broken_links, boo
     LL_DEBUGS(LOG_INV) << "Deleting inventory object " << id << LL_ENDL;
     mLastItem = NULL;
     LLUUID parent_id = obj->getParentUUID();
+    // S24 : must be evaluated before the erase below; the object is an item OR a category,
+    // and the casts further down are only valid for the matching type
+    const bool is_category = getCategory(id) != nullptr;
     mCategoryMap.erase(id);
     mItemMap.erase(id);
     //mInventory.erase(id);
     item_array_t* item_list = getUnlockedItemArray(parent_id);
-    if(item_list)
+    if (item_list && !is_category)
     {
         LLPointer<LLViewerInventoryItem> item = (LLViewerInventoryItem*)((LLInventoryObject*)obj);
-        vector_replace_with_last(*item_list, item);
+        // S24 : search from the back; a purge deletes a folder's items last-first, so each one is at the tail
+        auto rfound = std::find(item_list->rbegin(), item_list->rend(), item);
+        if (rfound != item_list->rend())
+        {
+            vector_replace_with_last(*item_list, std::next(rfound).base());
+        }
     }
     cat_array_t* cat_list = getUnlockedCatArray(parent_id);
-    if(cat_list)
+    if (cat_list && is_category)
     {
         LLPointer<LLViewerInventoryCategory> cat = (LLViewerInventoryCategory*)((LLInventoryObject*)obj);
-        vector_replace_with_last(*cat_list, cat);
+        auto rfound = std::find(cat_list->rbegin(), cat_list->rend(), cat);
+        if (rfound != cat_list->rend())
+        {
+            vector_replace_with_last(*cat_list, std::next(rfound).base());
+        }
     }
 
     // Note : We need to tell the inventory observers that those things are going to be deleted *before* the tree is cleared or they won't know what to delete (in views and view models)

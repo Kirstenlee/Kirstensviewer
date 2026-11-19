@@ -93,22 +93,40 @@ LLViewerPart::~LLViewerPart()
         mPartSourcep->mLastPart = NULL;
     }
 
-    //patch up holes in the ribbon
-    if (mParent)
+    // S24 : patch up holes in the ribbon, but never propagate a link that doesn't point back to us
+    LLViewerPart* parent = mParent;
+    if (parent && parent->mChild != this)
     {
-        llassert(mParent->mChild == this);
-        mParent->mChild = mChild;
+        logBrokenLink("destroy");
+        parent = nullptr;
     }
 
-    if (mChild)
+    LLViewerPart* child = mChild;
+    if (child && child->mParent != this)
     {
-        llassert (mChild->mParent == this);
-        mChild->mParent = mParent;
+        logBrokenLink("destroy");
+        child = nullptr;
+    }
+
+    if (parent)
+    {
+        parent->mChild = child;
+    }
+
+    if (child)
+    {
+        child->mParent = parent;
     }
 
     mPartSourcep = NULL;
 
     --LLViewerPartSim::sParticleCount2 ;
+}
+
+void LLViewerPart::logBrokenLink(const char* where) const
+{
+    // S24 : message has no per-particle values so LL_WARNS_ONCE dedupes
+    LL_WARNS_ONCE("Particles") << "Broken particle ribbon link on " << where << LL_ENDL;
 }
 
 void LLViewerPart::init(LLPointer<LLViewerPartSource> sourcep, LLViewerTexture *imagep, LLVPCallback cb)
@@ -213,6 +231,8 @@ void LLViewerPartGroup::cleanup()
 {
     if (mVOPartGroupp)
     {
+        // S24 : the object can outlive this group, don't leave it pointing at us
+        mVOPartGroupp->setViewerPartGroup(nullptr);
         if (!mVOPartGroupp->isDead())
         {
             gObjectList.killObject(mVOPartGroupp);
@@ -439,8 +459,7 @@ void LLViewerPartGroup::updateParticles(const F32 lastdt)
     // Kill the viewer object if this particle group is empty
     if (mParticles.empty())
     {
-        gObjectList.killObject(mVOPartGroupp);
-        mVOPartGroupp = NULL;
+        cleanup();
     }
 
     LLViewerPartSim::checkParticleCount() ;

@@ -40,7 +40,47 @@ enum EKeystate
 	KEYSTATE_UP
 };
 
-typedef std::function<bool(EKeystate keystate)> LLKeyFunc;
+
+struct LLKeyPressState
+{
+	LLKeyPressState(EKeystate state, F32 value)
+		:
+		mState(state),
+		mValue(value),
+		mElapsedTime(0.0),
+		mElapsedFrames(0),
+		mRepeat(false),
+		mAnalog(false)
+	{
+		mUp = mState == KEYSTATE_UP;
+		mLevel = mState == KEYSTATE_LEVEL;
+		mDown = mState == KEYSTATE_DOWN;
+	}
+	LLKeyPressState(bool up, bool level, bool down, F32 value)
+		:
+		mUp(up),
+		mLevel(level),
+		mDown(down),
+		mValue(value),
+		mElapsedTime(0.0),
+		mElapsedFrames(0),
+		mRepeat(false),
+		mAnalog(false)
+	{
+		mState = mDown ? KEYSTATE_DOWN : ( mLevel ? KEYSTATE_LEVEL : KEYSTATE_UP );
+	}
+	EKeystate mState;
+	F32 mValue;
+	F32 mElapsedTime;
+	S32 mElapsedFrames;
+	bool mRepeat;
+	bool mUp;
+	bool mLevel;
+	bool mDown;
+	bool mAnalog;
+};
+
+typedef std::function<bool(const LLKeyPressState& keystate)> LLKeyFunc;
 typedef std::string (LLKeyStringTranslatorFunc)(std::string_view);
 	
 enum EKeyboardInsertMode
@@ -62,7 +102,8 @@ public:
 
 
 	F32				getCurKeyElapsedTime()	{ return getKeyDown(mCurScanKey) ? getKeyElapsedTime( mCurScanKey ) : 0.f; }
-	F32				getCurKeyElapsedFrameCount()	{ return getKeyDown(mCurScanKey) ? (F32)getKeyElapsedFrameCount( mCurScanKey ) : 0.f; }
+	S32				getCurKeyElapsedFrameCount()	{ return getKeyDown(mCurScanKey) ? getKeyElapsedFrameCount( mCurScanKey ) : 0; }
+	KEY				getCurScanKey() { return mCurScanKey; }
     bool            getKeyDown(const KEY key) { return mKeyLevel[key]; }
     bool            getKeyRepeated(const KEY key) { return mKeyRepeated[key]; }
 

@@ -127,6 +127,9 @@ private:
 	virtual void startThread(void);
 	virtual void endThread(void);
 	virtual void threadedUpdate(void);
+	// S24 : a thread whose threadedUpdate() does real work returns true, and gets it posted every frame.
+	// The rest are not woken every frame for an empty call.
+	virtual bool wantsThreadedUpdate() const { return false; }
 
 protected:
 	handle_t generateHandle();
@@ -156,9 +159,6 @@ public:
 	// but generally the methods above should be used.
 	QueuedRequest* getRequest(handle_t handle);
 
-	// debug (see source)
-	bool check();
-	
 protected:
     bool mThreaded;  // if false, run on main thread and do updates during update()
     bool mStarted;  // required when mThreaded is false to call startThread() from update()
@@ -173,7 +173,7 @@ protected:
 	typedef LLSimpleHash<handle_t, REQUEST_HASH_SIZE> request_hash_t;
 	request_hash_t mRequestHash;
 
-	handle_t mNextHandle;
+	LLAtomicU32 mNextHandle;
 };
 
 #endif // LL_LLQUEUEDTHREAD_H

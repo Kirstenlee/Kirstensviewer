@@ -35,6 +35,7 @@
 #include "lllfsthread.h"
 #include "llviewercontrol.h"
 #include "workqueue.h"
+#include <chrono>
 
 // Included to allow LLTextureCache::purgeTextures() to pause watchdog timeout
 #include "llappviewer.h"
@@ -406,7 +407,11 @@ bool LLTextureCacheRemoteWorker::doRead()
     if (!done && (mState == BODY))
     {
         std::string filename = mCache->getTextureFileName(mID);
-        S32 filesize = LLAPRFile::size(filename, mCache->getLocalAPRFilePool());
+        // S24 : the body file is opened once: its size comes from the same handle the read below uses (it used to
+        // be opened to find the size, closed, and opened again to read)
+        LLAPRFile body_file;
+        S32 filesize = 0;
+        body_file.open(filename, APR_READ | APR_BINARY, mCache->getLocalAPRFilePool(), &filesize);
 
         if (filesize && (filesize + TEXTURE_CACHE_ENTRY_SIZE) > mOffset)
         {
@@ -447,10 +452,11 @@ bool LLTextureCacheRemoteWorker::doRead()
                 mReadData = data;
 
                 // Read the data at last
-                S32 bytes_read = LLAPRFile::readEx(filename,
-                                                 mReadData + data_offset,
-                                                 file_offset, file_size,
-                                                 mCache->getLocalAPRFilePool());
+                S32 bytes_read = 0;
+                if (file_offset <= 0 || body_file.seek(APR_SET, file_offset) >= 0)
+                {
+                    bytes_read = body_file.read(mReadData + data_offset, file_size);
+                }
                 if (bytes_read != file_size)
                 {
                     LL_WARNS() << "LLTextureCacheWorker: "  << mID
@@ -503,9 +509,28 @@ bool LLTextureCacheRemoteWorker::doWrite()
             || (mDataSize <= 0) // Things will go badly wrong if mDataSize is nul or negative...
             || (mImageSize < mDataSize)
             || (mRawDiscardLevel < 0)
-            || (mRawImage->isBufferInvalid())) // decode failed or malfunctioned, don't write
+            // S24 : a null raw is a legitimate body-only write (RAM cache write-back, no decode);
+            // a non-null raw must still be valid - decode failed or malfunctioned, don't write
+            || (mRawImage.notNull() && mRawImage->isBufferInvalid()))
         {
-            LL_WARNS() << "INIT state check failed for image: " << mID << " Size: " << mImageSize << " DataSize: " << mDataSize << " Discard:" << mRawDiscardLevel << LL_ENDL;
+            // S24 : one line per second with the failing conditions; a burst used to log
+            // hundreds of lines a second and flooded the console. The bit mask is
+            // 1=offset 2=datasize<=0 4=imagesize<datasize 8=discard<0 16=raw buffer invalid
+            S32 suppressed = 0;
+            if (mCache->takeWriteInitFailureLogSlot(suppressed))
+            {
+                const S32 reasons = (mOffset != 0 ? 1 : 0) | (mDataSize <= 0 ? 2 : 0) |
+                    (mImageSize < mDataSize ? 4 : 0) | (mRawDiscardLevel < 0 ? 8 : 0) |
+                    ((mRawImage.notNull() && mRawImage->isBufferInvalid()) ? 16 : 0);
+                LL_WARNS() << "INIT state check failed for image: " << mID << " Size: " << mImageSize
+                           << " DataSize: " << mDataSize << " Discard:" << mRawDiscardLevel
+                           << " reasons:" << reasons << " raw "
+                           << (mRawImage.notNull() ? mRawImage->getWidth() : 0) << "x"
+                           << (mRawImage.notNull() ? mRawImage->getHeight() : 0) << "x"
+                           << (mRawImage.notNull() ? (S32)mRawImage->getComponents() : 0)
+                           << " invalid-before-copy so far:" << mCache->getWriteRawInvalidAtCall()
+                           << " (+" << suppressed << " more since the last line)" << LL_ENDL;
+            }
             // S24: see LLTextureCache::noteWriteInitFailure()'s comment - flood signal only,
             // not a fix for the mRawImage handoff race this check is actually catching.
             mCache->noteWriteInitFailure();
@@ -537,7 +562,13 @@ bool LLTextureCacheRemoteWorker::doWrite()
                 // mRawImage is not entirely safe here since it is a pointer to one owned by cache worker,
                 // it could have been retrieved via getRequestFinished() and then modified.
                 // If writeToFastCache crashes, something is wrong around fetch worker.
-                if(!mCache->writeToFastCache(mID, idx, mRawImage, mRawDiscardLevel))
+                if (mRawImage.isNull())
+                {
+                    // S24 : body-only write (no preview available) - blank the slot so a
+                    // recycled index can't serve another texture's stale preview
+                    mCache->clearFastCacheEntry(idx);
+                }
+                else if(!mCache->writeToFastCache(mID, idx, mRawImage, mRawDiscardLevel))
                 {
                     LL_WARNS() << "writeToFastCache failed" << LL_ENDL;
                     mDataSize = -1; // failed
@@ -761,14 +792,17 @@ LLTextureCache::LLTextureCache(bool threaded)
       mFastCachePadBuffer(NULL)
 {
     mHeaderAPRFilePoolp = new LLVolatileAPRPool(); // is_local = true, because this pool is for headers, headers are under own mutex
+    mHeaderReadPoolp = new LLVolatileAPRPool();
 }
 
 LLTextureCache::~LLTextureCache()
 {
     clearDeleteList() ;
     writeUpdatedEntries() ;
+    closeHeaderReadFile();
     delete mFastCachep;
     delete mFastCachePoolp;
+    delete mHeaderReadPoolp;
     delete mHeaderAPRFilePoolp;
     ll_aligned_free_16(mFastCachePadBuffer);
 }
@@ -784,11 +818,12 @@ size_t LLTextureCache::update(F32 max_time_ms)
     size_t res;
     res = LLWorkerThread::update(max_time_ms);
 
+    // S24 : the completed list is taken by swap, not copied element by element (a ref() per responder) under the
+    // lock; the priority write handles were copied and never read, so they are just dropped
+    responder_list_t completed_list;
     mListMutex.lock();
-    handle_list_t priorty_list = mPrioritizeWriteList; // copy list
     mPrioritizeWriteList.clear();
-    responder_list_t completed_list = mCompletedList; // copy list
-    mCompletedList.clear();
+    completed_list.swap(mCompletedList);
     mListMutex.unlock();
 
     // call 'completed' with workers list unlocked (may call readComplete() or writeComplete()
@@ -945,6 +980,7 @@ const char* fast_cache_filename = "FastCache.cache";
 
 void LLTextureCache::setDirNames(ELLPath location)
 {
+    closeHeaderReadFile(); // the header file path is about to change
     std::string delem = gDirUtilp->getDirDelimiter();
 
     mHeaderEntriesFileName = gDirUtilp->getExpandedFilename(location, textures_dirname, entries_filename);
@@ -957,6 +993,7 @@ void LLTextureCache::purgeCache(ELLPath location, bool remove_dir)
 {
     LLMutexLock lock(&mHeaderMutex);
 
+    closeHeaderReadFile();
     if (!mReadOnly)
     {
         setDirNames(location);
@@ -1059,6 +1096,12 @@ LLAPRFile* LLTextureCache::openHeaderEntriesFile(bool readonly, S32 offset)
     return mHeaderAPRFile;
 }
 
+void LLTextureCache::closeHeaderReadFile()
+{
+    delete mHeaderReadFile;
+    mHeaderReadFile = NULL;
+}
+
 void LLTextureCache::closeHeaderEntriesFile()
 {
     if(!mHeaderAPRFile)
@@ -1106,6 +1149,7 @@ void LLTextureCache::setEntriesHeader()
 void LLTextureCache::writeEntriesHeader()
 {
     llassert_always(mHeaderAPRFile == NULL);
+    closeHeaderReadFile();
     if (!mReadOnly)
     {
         LLAPRFile::writeEx(mHeaderEntriesFileName, (U8*)&mHeaderEntriesInfo, 0, sizeof(EntriesInfo),
@@ -1249,9 +1293,20 @@ void LLTextureCache::writeEntryToHeaderImmediately(S32& idx, Entry& entry, bool 
 void LLTextureCache::readEntryFromHeaderImmediately(S32& idx, Entry& entry)
 {
     S32 offset = sizeof(EntriesInfo) + idx * sizeof(Entry);
-    LLAPRFile* aprfile = openHeaderEntriesFile(true, offset);
-    S32 bytes_read = aprfile->read((void*)&entry, (S32)sizeof(Entry));
-    closeHeaderEntriesFile();
+    // S24 : the handle is kept open between reads instead of opening and closing the file for every entry
+    if (!mHeaderReadFile)
+    {
+        mHeaderReadFile = new LLAPRFile(mHeaderEntriesFileName, APR_READ|APR_BINARY, mHeaderReadPoolp);
+    }
+    S32 bytes_read = 0;
+    if (mHeaderReadFile->seek(APR_SET, offset) == offset)
+    {
+        bytes_read = mHeaderReadFile->read((void*)&entry, (S32)sizeof(Entry));
+    }
+    if (bytes_read != sizeof(Entry))
+    {
+        closeHeaderReadFile(); // reopen next time
+    }
 
     if(bytes_read != sizeof(Entry))
     {
@@ -1348,7 +1403,9 @@ U32 LLTextureCache::openAndReadEntries(std::vector<Entry>& entries)
     mHeaderIDMap.clear();
     mTexturesSizeMap.clear();
     mFreeList.clear();
-    mTexturesSizeTotal = 0;
+    // S24 : the recount is summed into a local and published at the end. Zeroing mTexturesSizeTotal first and
+    // adding every entry back made the texture console's Cache reading drop to 0 for the whole header read.
+    S64 recount_total = 0;
 
     LLAPRFile* aprfile = NULL;
     if(mUpdatedEntryMap.empty())
@@ -1386,7 +1443,7 @@ U32 LLTextureCache::openAndReadEntries(std::vector<Entry>& entries)
             {
                 mHeaderIDMap[entry.mID] = idx;
                 mTexturesSizeMap[entry.mID] = entry.mBodySize;
-                mTexturesSizeTotal += entry.mBodySize;
+                recount_total += entry.mBodySize;
             }
             else
             {
@@ -1394,6 +1451,7 @@ U32 LLTextureCache::openAndReadEntries(std::vector<Entry>& entries)
             }
         }
 
+    mTexturesSizeTotal = recount_total;
     closeHeaderEntriesFile();
     return num_entries;
 	}
@@ -1591,6 +1649,7 @@ void LLTextureCache::clearCorruptedCache()
 {
     LL_WARNS() << "the texture cache is corrupted, need to be cleared." << LL_ENDL ;
 
+    closeHeaderReadFile();
     closeHeaderEntriesFile();//close possible file handler
     purgeAllTextures(false) ; //clear the cache.
 
@@ -1611,6 +1670,7 @@ void LLTextureCache::clearCorruptedCache()
 
 void LLTextureCache::purgeAllTextures(bool purge_directories)
 {
+    closeHeaderReadFile(); // the header file is deleted below
     if (!mReadOnly)
     {
         const char* subdirs = "0123456789abcdef";
@@ -1675,6 +1735,16 @@ void LLTextureCache::purgeTexturesLazy(F32 time_limit_sec)
 
     if (mPurgeEntryList.empty())
     {
+        // S24 : the list formed below is only ever non-empty once the cache has reached the purge floor, but the
+        // decay check calls this every half second from a third of the maximum size, and each call read the whole
+        // header file (holding the header locks, and publishing a zero total while it did) to find nothing to
+        // purge. The running total is enough to see that there is nothing to do.
+        const S64 purge_floor = (llmax(mTexturesSizeTotal, sCacheMaxTexturesSize) * (S64)((1.f - TEXTURE_CACHE_PURGE_AMOUNT * RamCacheDivisor) * 100)) / 100;
+        if (mTexturesSizeTotal < purge_floor)
+        {
+            return;
+        }
+
         // Read the entries list and form list of textures to purge
         std::vector<Entry> entries;
         U32 num_entries = openAndReadEntries(entries);
@@ -2006,6 +2076,22 @@ bool LLTextureCache::readComplete(handle_t handle, bool abort)
     return (complete || abort);
 }
 
+// S24 : at most one doWrite() INIT-failure warning per second, with a count of the rest
+bool LLTextureCache::takeWriteInitFailureLogSlot(S32& suppressed)
+{
+    const S64 now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+    S64 last = mLastWriteInitLogMs.load(std::memory_order_relaxed);
+    if (now_ms - last >= 1000 &&
+        mLastWriteInitLogMs.compare_exchange_strong(last, now_ms, std::memory_order_relaxed))
+    {
+        suppressed = mSuppressedWriteInitLogs.exchange(0, std::memory_order_relaxed);
+        return true;
+    }
+    mSuppressedWriteInitLogs.fetch_add(1, std::memory_order_relaxed);
+    return false;
+}
+
 LLTextureCache::handle_t LLTextureCache::writeToCache(const LLUUID& id,
                                                       const U8* data, S32 datasize, S32 imagesize,
                                                       LLPointer<LLImageRaw> rawimage, S32 discardlevel,
@@ -2038,6 +2124,10 @@ LLTextureCache::handle_t LLTextureCache::writeToCache(const LLUUID& id,
         {
             cache_rawimage = new LLImageRaw(rawimage->getData(), rawimage->getWidth(),
                                              rawimage->getHeight(), rawimage->getComponents());
+        }
+        else
+        {
+            noteWriteRawInvalidAtCall();
         }
     }
     if (cache_rawimage.isNull())
@@ -2193,6 +2283,28 @@ bool LLTextureCache::writeToFastCache(LLUUID image_id, S32 id, LLPointer<LLImage
     }
 
     return true;
+}
+
+void LLTextureCache::clearFastCacheEntry(S32 id)
+{
+    if (id < 0)
+    {
+        return;
+    }
+
+    LLMutexLock lock(&mFastCacheMutex);
+
+    openFastCache();
+    if (!mFastCachep || !mFastCachePadBuffer)
+    {
+        return;
+    }
+
+    // all-zero entry: width*height*components == 0, which readFromFastCache() rejects
+    memset(mFastCachePadBuffer, 0, TEXTURE_FAST_CACHE_ENTRY_SIZE);
+    mFastCachep->seek(APR_SET, id * TEXTURE_FAST_CACHE_ENTRY_SIZE);
+    mFastCachep->write(mFastCachePadBuffer, TEXTURE_FAST_CACHE_ENTRY_SIZE);
+    closeFastCache(true);
 }
 
 void LLTextureCache::openFastCache(bool first_time)

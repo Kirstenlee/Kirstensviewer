@@ -69,7 +69,7 @@
  * confirmed gap in @setenv=n's own menu-chokepoint enforcement:
  * LLAgent's teleport-complete handler calls
  * LLEnvironment::setSharedEnvironment() directly (gated behind
- * "SwitchToSharedEnvAfterTeleport", default true), completely bypassing
+ * "SwitchToSharedEnvAfterTeleport", default false for existing users), completely bypassing
  * LLWorldEnvSettings::handleEvent() - without this reapplication, a
  * teleport would silently clear a locked, forced environment with no
  * code path to catch it. sForcedEnvParams is NOT cleared when @setenv is
@@ -455,6 +455,13 @@ void krlv_register_viewer_control_commands(KRlvHandler& handler)
             applyToggle(cmd, sourceId);
             return true;
         });
+
+    // The environment editors preview and apply live, so they close while locked
+    handler.registerFloaterGate("setenv", "env_fixed_environmentent_sky");
+    handler.registerFloaterGate("setenv", "env_fixed_environmentent_water");
+    handler.registerFloaterGate("setenv", "env_edit_extdaycycle");
+    handler.registerFloaterGate("setenv", "env_adjust_snapshot");
+    handler.registerFloaterGate("setenv", "my_environments");
 
     // "@setdebug_<setting>:<value>=force" - setting name is glued onto
     // the prefix (no ":option" separator), so it's recovered from

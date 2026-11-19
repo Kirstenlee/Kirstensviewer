@@ -360,5 +360,27 @@ void LLHUDObject::reshapeAll()
 // static
 void LLHUDObject::sortObjects()
 {
-    sHUDObjects.sort(hud_object_further_away());
+    // S24 : each object's distance is read once (it was two virtual calls per comparison), the keys are sorted
+    // stably, and the list nodes are spliced into that order, so nodes and iterators stay valid
+    if (sHUDObjects.size() < 2)
+    {
+        return;
+    }
+    std::vector<std::pair<F32, hud_object_list_t::iterator> > keys;
+    keys.reserve(sHUDObjects.size());
+    for (hud_object_list_t::iterator it = sHUDObjects.begin(); it != sHUDObjects.end(); ++it)
+    {
+        keys.emplace_back((*it)->getDistance(), it);
+    }
+    std::stable_sort(keys.begin(), keys.end(),
+        [](const std::pair<F32, hud_object_list_t::iterator>& a, const std::pair<F32, hud_object_list_t::iterator>& b)
+        {
+            return a.first > b.first;
+        });
+    hud_object_list_t sorted;
+    for (auto& key : keys)
+    {
+        sorted.splice(sorted.end(), sHUDObjects, key.second);
+    }
+    sHUDObjects.swap(sorted);
 }

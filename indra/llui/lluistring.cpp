@@ -135,14 +135,25 @@ void LLUIString::updateResult() const
 		return;
 	}
 	mResult = mOrig;
-	
-	// get the default args + local args
-	LLStringUtil::format_map_t combined_args = LLTrans::getDefaultArgs();
+
+	// S24 : only text inside [..] is substituted, so a string without one is already final
+	if (mResult.find('[') == std::string::npos)
+	{
+		return;
+	}
+
+	// get the default args + local args. The default map is only copied when local args are merged in
+	// (insert() keeps the defaults ahead of local args on a key clash).
 	if (mArgs && !mArgs->empty())
 	{
+		LLStringUtil::format_map_t combined_args = LLTrans::getDefaultArgs();
 		combined_args.insert(mArgs->begin(), mArgs->end());
+		LLStringUtil::format(mResult, combined_args);
 	}
-	LLStringUtil::format(mResult, combined_args);
+	else
+	{
+		LLStringUtil::format(mResult, LLTrans::getDefaultArgs());
+	}
 }
 
 void LLUIString::updateWResult() const

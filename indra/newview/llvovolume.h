@@ -75,7 +75,6 @@ public:
         FaceIndex face_index = UPDATE_ALL_FACES,
         bool rebuild_face_octrees = true);
 
-    std::string mExtraDebugText;
 };
 
 // Base class for implementations of the volume - Primitive, Flexible Object, etc.

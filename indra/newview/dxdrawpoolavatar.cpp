@@ -327,10 +327,10 @@ void LLDrawPoolAvatar::renderJellyDollGhosts()
     static LLStaticHashedString sRimWidth("jelly_rim_width");
 
     static LLCachedControl<LLColor4> base_color(gSavedSettings, "RenderJellyGhostBaseColor", LLColor4(0.f, 0.f, 0.f, 1.f));
-    static LLCachedControl<F32> base_alpha(gSavedSettings, "RenderJellyGhostBaseAlpha", 0.2f);
+    static LLCachedControl<F32> base_alpha(gSavedSettings, "RenderJellyGhostBaseAlpha", 0.30f);
     static LLCachedControl<LLColor4> rim_color(gSavedSettings, "RenderJellyGhostRimColor", LLColor4(0.7f, 0.85f, 1.f, 1.f));
-    static LLCachedControl<F32> rim_intensity(gSavedSettings, "RenderJellyGhostRimIntensity", 1.2f);
-    static LLCachedControl<F32> rim_width(gSavedSettings, "RenderJellyGhostRimWidth", 12.f);
+    static LLCachedControl<F32> rim_intensity(gSavedSettings, "RenderJellyGhostRimIntensity", 2.0f);
+    static LLCachedControl<F32> rim_width(gSavedSettings, "RenderJellyGhostRimWidth", 40.f);
 
     gDeferredJellyGhostProgram.uniform3fv(sBaseColor, 1, LLColor4(base_color).mV);
     gDeferredJellyGhostProgram.uniform1f(sBaseAlpha, base_alpha);

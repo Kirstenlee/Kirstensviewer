@@ -501,8 +501,10 @@ HttpStatus HttpRequest::destroyService()
 
 	if (has_inited)
 	{
-        HTTPStats::deleteSingleton();
+		// S24 : the worker thread calls HTTPStats::instance(), so stop it before
+		// the stats singleton is deleted
 		HttpService::term();
+		HTTPStats::deleteSingleton();
 		HttpRequestQueue::term();
 		has_inited = false;
 	}

@@ -1313,21 +1313,49 @@ void LLRender::syncMatrices()
 			XMMatrixMultiply(
 				XMLoadFloat4x4(reinterpret_cast<const XMFLOAT4X4*>(glm::value_ptr(mdv))),
 				XMLoadFloat4x4(reinterpret_cast<const XMFLOAT4X4*>(glm::value_ptr(proj)))));
+		// S24 : only shaders that declare normal_matrix need it (shadow and many fullbright shaders
+		// do not). The modelview is affine, so transpose(inverse(M)) of its 3x3 is the cofactor matrix
+		// over the determinant - three cross products instead of a full 4x4 inverse. A near-singular
+		// matrix takes the original glm path so degenerate results stay identical.
 		float normal3x3[9];
-		extractMat3(glm::transpose(glm::inverse(mdv)), normal3x3);
+		const bool wants_normal_matrix = vs.hasWellKnown(DXShader::WK_NORMAL);
+		if (wants_normal_matrix)
+		{
+			const float* m = glm::value_ptr(mdv);
+			const glm::vec3 a(m[0], m[1], m[2]), b(m[4], m[5], m[6]), c(m[8], m[9], m[10]);
+			const glm::vec3 bc = glm::cross(b, c);
+			const float det = glm::dot(a, bc);
+			if (std::fabs(det) > 1e-12f)
+			{
+				const float inv_det = 1.f / det;
+				const glm::vec3 ca = glm::cross(c, a) * inv_det;
+				const glm::vec3 ab = glm::cross(a, b) * inv_det;
+				const glm::vec3 bci = bc * inv_det;
+				normal3x3[0] = bci.x; normal3x3[1] = bci.y; normal3x3[2] = bci.z;
+				normal3x3[3] = ca.x;  normal3x3[4] = ca.y;  normal3x3[5] = ca.z;
+				normal3x3[6] = ab.x;  normal3x3[7] = ab.y;  normal3x3[8] = ab.z;
+			}
+			else
+			{
+				extractMat3(glm::transpose(glm::inverse(mdv)), normal3x3);
+			}
+		}
 
-		vs.setUniformMatrix4("modelview_matrix", glm::value_ptr(mdv));
-		vs.setUniformMatrix4("modelview_projection_matrix", glm::value_ptr(mvp));
+		vs.setWellKnownMatrix4(DXShader::WK_MODELVIEW, glm::value_ptr(mdv));
+		vs.setWellKnownMatrix4(DXShader::WK_MODELVIEW_PROJECTION, glm::value_ptr(mvp));
 		// S24: standalone "projection_matrix" (not just the combined
 		// modelview_projection_matrix above) is needed by every HAS_SKIN/
 		// rigged vertex shader, which build an eye-space position via
 		// skin+modelview before projecting separately for lighting/normal
 		// math. Uses the same D3D11-depth-remapped `proj` (not raw_proj) as
 		// modelview_projection_matrix, since it feeds SV_Position.
-		vs.setUniformMatrix4("projection_matrix", glm::value_ptr(proj));
-		vs.setUniformMatrix3("normal_matrix", normal3x3);
+		vs.setWellKnownMatrix4(DXShader::WK_PROJECTION, glm::value_ptr(proj));
+		if (wants_normal_matrix)
+		{
+			vs.setWellKnownMatrix3(DXShader::WK_NORMAL, normal3x3);
+		}
 		const glm::mat4& tex_mat0 = mMatrix[MM_TEXTURE0][mMatIdx[MM_TEXTURE0]];
-		vs.setUniformMatrix4("texture_matrix0", glm::value_ptr(tex_mat0));
+		vs.setWellKnownMatrix4(DXShader::WK_TEXTURE0, glm::value_ptr(tex_mat0));
 
 		// S24: inv_proj uses the UN-remapped GL-convention projection matrix,
 		// not `proj` above - getPositionWithDepth() (deferredUtil.hlsl)
@@ -1336,8 +1364,8 @@ void LLRender::syncMatrices()
 		// that same GL-convention matrix. Pushed to both vs and ps -
 		// setUniformMatrix4() no-ops harmlessly wherever a stage doesn't
 		// declare "inv_proj". (Computed/cached above, keyed on MM_PROJECTION.)
-		vs.setUniformMatrix4("inv_proj", glm::value_ptr(inv_proj));
-		ps.setUniformMatrix4("inv_proj", glm::value_ptr(inv_proj));
+		vs.setWellKnownMatrix4(DXShader::WK_INV_PROJ, glm::value_ptr(inv_proj));
+		ps.setWellKnownMatrix4(DXShader::WK_INV_PROJ, glm::value_ptr(inv_proj));
 
 		// S24: remember what this shader was just synced with, so the next
 		// draw using it can detect "nothing changed" and skip this block.
@@ -2119,8 +2147,9 @@ LLVertexBuffer* LLRender::genBuffer(U32 attribute_mask, S32 count)
 	LLVertexBuffer* vb = new LLVertexBuffer(attribute_mask);
 	vb->allocateBuffer(count, 0);
 
-	vb->setBuffer();
-
+	// S24 : copy all the attribute slices, then upload the buffer once (each setXData would otherwise
+	// do its own full-buffer upload). Nothing here needs the buffer bound; drawBuffer() binds it.
+	vb->beginDataBatch();
 	vb->setPositionData(mVerticesp.get());
 
 	if (attribute_mask & LLVertexBuffer::MAP_TEXCOORD0)
@@ -2132,8 +2161,7 @@ LLVertexBuffer* LLRender::genBuffer(U32 attribute_mask, S32 count)
 	{
 		vb->setColorData(mColorsp.get());
 	}
-
-	vb->unbind();
+	vb->endDataBatch();
 
 	return vb;
 }

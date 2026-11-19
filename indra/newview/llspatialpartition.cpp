@@ -370,7 +370,7 @@ void LLSpatialPartition::rebuildGeom(LLSpatialGroup* group)
             group->mBuilt = 1.f;
             if (group->mVertexBuffer.isNull() ||
                 group->mVertexBuffer->getNumVerts() != vertex_count ||
-                group->mVertexBuffer->getNumVerts() != index_count)
+                group->mVertexBuffer->getNumIndices() != index_count) // S24 : was getNumVerts(), reallocated nearly every rebuild
             {
                 group->mVertexBuffer = new LLVertexBuffer(mVertexDataMask);
                 if (!group->mVertexBuffer->allocateBuffer(vertex_count, index_count))
@@ -3659,15 +3659,10 @@ public:
     {
         LLDrawable* drawable = (LLDrawable*)entry->getDrawable();
 
-        // drawable->isVisible() is a stale, camera-cull-history-dependent flag (only true when a
-        // frustum-cull pass touched this drawable on the exact current frame - see
-        // LLViewerOctreeEntryData::isVisible()), not a geometric fact about whether it exists. Correct
-        // for real screen-picking (the other callers of this class), but LLReflectionMap::
-        // autoAdjustOrigin()'s placement ray-cast needs "does real geometry exist here" regardless of
-        // frustum history - no single camera position has all of a room's walls in frustum at once.
-        // mIgnoreVisibility (default false) lets that one caller skip just this check, keeping the
-        // hasRenderType() filter (a deliberate render-type mask, not transient staleness).
-        if (!drawable || !DXPipeline::hasRenderType(gPipeline, drawable->getRenderType()) || (!mIgnoreVisibility && !drawable->isVisible()))
+        // S24 : mIgnoreVisibility skips the isVisible() check (reflection-probe ray-cast).
+        // Terrain under opaque water is clip-culled but stays pickable.
+        if (!drawable || !DXPipeline::hasRenderType(gPipeline, drawable->getRenderType()) ||
+            (!mIgnoreVisibility && !drawable->isVisible() && drawable->getRenderType() != LLPipeline::RENDER_TYPE_TERRAIN))
         {
             return false;
         }

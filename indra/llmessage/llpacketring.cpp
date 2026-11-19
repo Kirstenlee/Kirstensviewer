@@ -30,7 +30,7 @@
 
 #include "llerror.h"
 
-constexpr S16 MAX_BUFFER_RING_SIZE     = 8192;
+constexpr S16 MAX_BUFFER_RING_SIZE     = 30000;  // S24 : was 8192, overflow overwrites the oldest packet
 
 // DANGER: don't adjust DEFAULT_BUFFER_RING_SIZE unless you know what
 // you're doing.  Its value affects the "buffer load rate" which is used
@@ -56,6 +56,7 @@ LLPacketRing::~LLPacketRing()
     mRing.clear();
     mNumBufferedPackets = 0;
     mNumBufferedBytes = 0;
+    mBufferLoadRate = 0.0f;
     mHeadIndex = 0;
 }
 
@@ -87,9 +88,16 @@ void LLPacketRing::pushPacket(const LLPacketBuffer& packet)
         // Ring is at maximum capacity; oldest packet was overwritten.
         // This is VERY BAD because we've already ACKed the packet we're loosing
         // (if it was "reliable").
-        LL_WARNS("PacketRing") << "buffer overflow at " << mNumBufferedPackets << " packets" << LL_ENDL;
+        // S24 : one line per 1024 drops, not a synchronous log write per datagram on the receiver thread
+        static U32 sOverflowDrops = 0;
+        if ((sOverflowDrops++ & 1023) == 0)
+        {
+            LL_WARNS("PacketRing") << "buffer overflow at " << mNumBufferedPackets << " packets (" << sOverflowDrops << " dropped)" << LL_ENDL;
+        }
         mNumBufferedBytes += packet.getSize() - old_size;
     }
+
+    mBufferLoadRate = (F32)mNumBufferedPackets / (F32)DEFAULT_BUFFER_RING_SIZE;
 }
 
 bool LLPacketRing::popPacket(LLPacketBuffer& packet)
@@ -110,6 +118,7 @@ bool LLPacketRing::popPacket(LLPacketBuffer& packet)
 
     --mNumBufferedPackets;
     mNumBufferedBytes -= packet_size;
+    mBufferLoadRate = (F32)mNumBufferedPackets / (F32)DEFAULT_BUFFER_RING_SIZE;
 
     llassert(mNumBufferedPackets > 0 || mNumBufferedBytes == 0);
 
@@ -147,5 +156,5 @@ bool LLPacketRing::expandRing()
 
 F32 LLPacketRing::getBufferLoadRate() const
 {
-    return (F32)mNumBufferedPackets / (F32)DEFAULT_BUFFER_RING_SIZE;
+    return mBufferLoadRate.load();
 }

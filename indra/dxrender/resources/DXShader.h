@@ -128,7 +128,34 @@ public:
     // e.g. a pixel shader that only declares textures/samplers has no
     // $Globals cbuffer at all.
     bool setUniformMatrix4(const std::string& name, const float* column_major_4x4);
+    // S24 : true if this stage's constant buffer declares `name`
+    bool hasConstant(const std::string& name) const { return mConstants.find(name) != mConstants.end(); }
     bool setUniformMatrix3(const std::string& name, const float* column_major_3x3);
+
+    // S24 : the same setters for a constant that is looked up by its reserved-uniform index (the integer LLShaderMgr
+    // hands out for a uniform name). The name is hashed and found in mConstants only the first time that index is
+    // used on this stage; after that it is a vector read. The cache is dropped whenever the constants are rebuilt.
+    bool setUniformMatrix4(uint32_t reserved_index, const std::string& name, const float* column_major_4x4);
+    bool setUniformMatrix3(uint32_t reserved_index, const std::string& name, const float* column_major_3x3);
+    bool setUniformFloatArray(uint32_t reserved_index, const std::string& name, const float* data, size_t float_count);
+    bool setUniformPaddedArray(uint32_t reserved_index, const std::string& name, const float* data, int component_count, size_t element_count);
+
+    // S24 : the handful of matrices LLRender::syncMatrices() writes for nearly every draw, resolved once per stage
+    // instead of hashing their names (three of them are longer than the string small buffer, so each lookup also
+    // allocated) on every draw.
+    enum WellKnown
+    {
+        WK_MODELVIEW,
+        WK_MODELVIEW_PROJECTION,
+        WK_PROJECTION,
+        WK_NORMAL,
+        WK_TEXTURE0,
+        WK_INV_PROJ,
+        WK_COUNT
+    };
+    bool hasWellKnown(WellKnown which);
+    bool setWellKnownMatrix4(WellKnown which, const float* column_major_4x4);
+    bool setWellKnownMatrix3(WellKnown which, const float* column_major_3x3);
 
     // Raw contiguous-float-array uniform (e.g. "matrixPalette[45]", a plain
     // array of float4 elements with no inter-element padding in HLSL, unlike
@@ -186,6 +213,24 @@ private:
     };
 
     void reflectConstants(const void* bytecode, size_t size);
+
+    // S24 : cached lookups into mConstants. The cache holds the offset and size by value (not a pointer into the
+    // map), so a copy of this object stays correct; every place that clears or rebuilds mConstants also calls
+    // dropConstantCaches().
+    struct CachedConstant
+    {
+        ConstantInfo info{ 0, 0 };
+        uint8_t state = 0; // 0 = not resolved yet, 1 = present, 2 = this stage does not declare it
+    };
+    const ConstantInfo* findReserved(uint32_t reserved_index, const std::string& name);
+    const ConstantInfo* findWellKnown(WellKnown which);
+    void dropConstantCaches();
+    bool writeMatrix4(const ConstantInfo& info, const float* column_major_4x4);
+    bool writeMatrix3(const ConstantInfo& info, const float* column_major_3x3);
+    bool writeFloats(const ConstantInfo& info, const std::string& name, const float* data, size_t float_count);
+    bool writePadded(const ConstantInfo& info, const std::string& name, const float* data, int component_count, size_t element_count);
+    std::vector<CachedConstant> mReservedCache;            // by reserved-uniform index
+    CachedConstant mWellKnownCache[WK_COUNT];
 
     ID3D11VertexShader* mVS = nullptr;
     ID3D11PixelShader* mPS = nullptr;

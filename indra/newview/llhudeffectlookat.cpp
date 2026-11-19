@@ -429,10 +429,11 @@ bool LLHUDEffectLookAt::setLookAt(ELookAtType target_type, LLViewerObject *objec
     // Don't affect the look at if object is gAgentAvatarp (cursor head follow)
     if (limit_lookat_hints && object != gAgentAvatarp)
     {
-        // If it is a object
+        // If it is an object, position is an offset in its local space
         if (object)
         {
-            position += object->getRenderPosition();
+            // S24 : rotate the local offset into world space, not just translate it
+            position = position * object->getRenderRotation() + object->getRenderPosition();
             object = NULL;
         }
 
@@ -535,7 +536,7 @@ void LLHUDEffectLookAt::render()
     {
         gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
 
-        //LLGLDisable gls_stencil(GL_STENCIL_TEST);
+        //DXStateDisable gls_stencil(GL_STENCIL_TEST);
 
         LLVector3 target = mTargetPos + ((LLVOAvatar*)(LLViewerObject*)mSourceObject)->mHeadp->getWorldPosition();
         gDX.matrixMode(LLRender::MM_MODELVIEW);

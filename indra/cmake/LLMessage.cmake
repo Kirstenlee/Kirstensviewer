@@ -1,9 +1,9 @@
 include_guard()
 
-include(Curl)
+include(CURL)
 include(OpenSSL)
 include(XmlRpcEpi)
-include(ZLib)
+include(ZLIB)
 include(Boost)
 
 set(LLMESSAGE_INCLUDE_DIRS

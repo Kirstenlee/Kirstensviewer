@@ -64,7 +64,7 @@ public:
     {
         U64 ram_budget_bytes = MEGA_BYTES_TO_BYTES(1024);   // 1GB default RAM cache
 
-        F32 ram_retention_time_seconds = 5.0f;   // KV:GC→RT Renamed from ram_grace_period_seconds
+        F32 ram_retention_time_seconds = 3.0f;   // KV:GC→RT Renamed from ram_grace_period_seconds
     };
 
     struct CacheEntry
@@ -113,10 +113,6 @@ public:
 
     struct ExtendedStats
     {
-        // Per-frame counters (reset each frame)
-        U32 ram_hits_this_frame = 0;
-        U32 ram_misses_this_frame = 0;
-
         // Lifetime counters
         U64 total_ram_hits = 0;
         U64 total_ram_misses = 0;
@@ -128,6 +124,7 @@ public:
         // Derived metrics
         F32 ram_hit_rate = 0.0f;        // Calculated from total hits/misses
         U64 disk_writes_buffered = 0;   // Number of textures buffered in RAM (delayed disk writes)
+        U64 evictions_dropped_unwritten = 0;  // S24 : evicted over the disk write budget, freed without a write (filled in by getExtendedStats)
     };
 
 public:
@@ -161,7 +158,6 @@ public:
     // immediately if KVRAMCacheEnabled is false or no snapshot file exists.
     void loadFromDiskSnapshot();
 
-    void updateConfig(const CacheConfig& config);
     const CacheConfig& getConfig() const { return mConfig; }
 
     // Settings integration
@@ -192,7 +188,8 @@ public:
 
     // Read Interface (Retrieve before disk read)
     // Returns J2C compressed data with full metadata
-    // texture_data points to cache-owned memory - caller must copy if retention needed
+    // S24 : texture_data is a private 16-byte-aligned copy made under the cache lock (ll_aligned_malloc_16);
+    // the caller owns it and frees it with ll_aligned_free_16, or hands it to LLImageFormatted::setData()
     // Returns false if not found or data is invalid
     bool getTexture(const LLUUID& texture_id, 
                     U8*& texture_data, 
@@ -202,16 +199,11 @@ public:
                     U32& height,
                     S8& components);
 
-    // Legacy simple interface (kept for compatibility)
-    void* getTexture(const LLUUID& uuid);
-
     // ===== CONFIGURATION (Equilibrium Tuning) =====
 
-    void setThresholds(F32 soft, F32 hard);
-    void setRetentionTime(F32 seconds);  // KV:GC→RT Renamed from setGracePeriod
     // S24: was clamped to (1,5000) here vs (100,15000) everywhere else that
     // sets mMinDeckSize - pre-existing inconsistency, fixed to match.
-    void setMinDeckSize(U32 size) { mMinDeckSize = llclamp(size, 100U, 15000U); }
+    void setMinDeckSize(U32 size) { mMinDeckSize = llclamp(size, 0U, 15000U); }
 
     F32 getSoftThreshold() const { return mSoftThreshold; }
     F32 getHardThreshold() const { return mHardThreshold; }
@@ -225,14 +217,16 @@ public:
 
     // Statistics and debugging
     const CacheStats& getStats() const { return mStats; }
-    const ExtendedStats& getExtendedStats() const { return mExtendedStats; }
+    ExtendedStats getExtendedStats() const;  // by value, copied under the cache lock
     void removeFromRAMLRU(const LLUUID& uuid);
     F32 getRAMPressure() const;  // Get current RAM pressure (0.0 - 1.0)
     // Eviction pressure multiplier (0.0-2.0) for UI display; shares
     // calculateEvictionPressureMultiplier() with processPassiveEviction() so
     // the UI can't drift from the real eviction curve.
     F32 getEvictionPressureMultiplier() const;
-    void resetExtendedStats();
+    void clampThresholds(); // S24 : keeps soft < hard < the 95% refusal line
+    F32 getInflowMBPerSec() const { return (F32)(mInflowBytesPerSec.load(std::memory_order_relaxed) / 1048576.0); }
+    S32 getEvictionScheme() const { return mEvictionScheme.load(std::memory_order_relaxed); }
     void resetStats();
     void dumpState() const;  // Debug logging
 
@@ -257,7 +251,7 @@ public:
         // out_pending collects entries needing a disk write (see PendingDiskWrite);
         // appending is O(1), so the caller drains it after releasing mCacheMutex
         // without changing evictSlice()'s own locked-section cost.
-        void evictSlice(U32 slice_size, F64 retention_time, F64 now, std::vector<PendingDiskWrite>& out_pending);
+        void evictSlice(U32 slice_size, F64 retention_time, F64 now, std::vector<PendingDiskWrite>& out_pending, bool emergency = false);
 
         // Decodes and writes one evicted entry to LLTextureCache::writeToCache().
         // Always frees item.data exactly once (decode failure or success);
@@ -286,7 +280,7 @@ public:
     F32 mHardThreshold = 0.90f;
 
     // FIFO configuration
-    U32 mMinDeckSize = 100;  // Minimum textures in deck (range 100-15000 in 100 steps)
+    U32 mMinDeckSize = 5000;  // S24 : textures saved at shutdown and so the most that can be pre-loaded next start (0 = off, 100-15000 in 100 steps)
 
     // KV:RT Removed mLastBaselineEviction — retention time is per-entry now
 
@@ -321,6 +315,29 @@ public:
     std::atomic<bool> mShutdownFlushStarted{false};
     std::atomic<bool> mShutdownFlushDone{false};
     F64 mShutdownFlushDeadline = 0.0;
+
+    // S24 eviction controller (KVRAMEvictionScheme 1): inflow sets how often a pass runs, the cache size
+    // sets how big each pass is, and a pressure release valve drains hard when the cache is overwhelmed.
+    static constexpr F64 EVICT_BATCH_FRACTION = 0.004;          // one pass moves this share of the budget
+    static constexpr F64 EVICT_MIN_BATCH_BYTES = 1.0 * 1048576.0;
+    static constexpr F64 EVICT_MAX_BATCH_BYTES = 32.0 * 1048576.0;
+    static constexpr U32 EVICT_MIN_ENTRIES = 4;                 // per pass bounds: a pass can run on the main thread
+    static constexpr U32 EVICT_MAX_ENTRIES = 48;
+    static constexpr U32 EVICT_VALVE_MAX_ENTRIES = 192;
+    static constexpr U32 EVICT_MAX_WRITES_PER_PASS = 24;        // the rest of a pass is freed without a disk write
+    static constexpr F32 EVICT_MIN_INTERVAL = 0.1f;
+    static constexpr F64 EVICT_INFLOW_TAU_SECONDS = 2.0;        // inflow average smoothing
+    static constexpr F64 EVICT_OVERAGE_GAIN = 4.0;              // evict up to (1 + gain) x inflow at the hard threshold
+    static constexpr F64 EVICT_FLOOR_FRACTION = 0.005;          // of the budget per second, once above the fill target
+    static constexpr F64 VALVE_DRAIN_SECONDS = 10.0;            // at the hard threshold: be back at soft in this long
+    static constexpr F64 VALVE_CRITICAL_DRAIN_SECONDS = 5.0;    // at 95%: same, twice as fast
+    std::atomic<S32> mEvictionScheme{ 1 };                      // 0 = original count-based slices, 1 = controller
+    std::atomic<F32> mNextEvictionInterval{ EVICTION_CHECK_INTERVAL };
+    std::atomic<F64> mInflowBytesPerSec{ 0.0 };
+    std::atomic<U64> mEvictionsDroppedUnwritten{ 0 };
+    F64 mInflowAccumBytes = 0.0;   // under mCacheMutex: bytes accepted since the last pass
+    F64 mInflowLastSample = 0.0;   // under mCacheMutex
+    bool mCountInflow = true;      // under mCacheMutex: false while the startup snapshot loads
 
     // Frame timing
     F32 mTimeSinceLastEvictionCheck = 0.0f;  // KV:GC→RT Renamed from mTimeSinceLastGraceCheck

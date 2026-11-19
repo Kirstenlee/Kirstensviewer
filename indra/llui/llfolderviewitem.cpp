@@ -259,7 +259,13 @@ LLFolderViewItem::LLFolderViewItem(const LLFolderViewItem::Params& p)
 // Destroys the object
 LLFolderViewItem::~LLFolderViewItem()
 {
-    mViewModelItem = NULL;
+    // S24 : the view model item can outlive this view; clear its back-pointer so it
+    // doesn't dangle
+    if (mViewModelItem)
+    {
+        mViewModelItem->setFolderViewItem(nullptr);
+        mViewModelItem = nullptr;
+    }
     gFocusMgr.removeKeyboardFocusWithoutCallback(this);
 }
 
@@ -381,7 +387,12 @@ bool LLFolderViewItem::isPotentiallyVisible(S32 filter_generation)
 
 void LLFolderViewItem::refresh()
 {
-    LLFolderViewModelItem& vmi = *getViewModelItem();
+    LLFolderViewModelItem* vmi_ptr = getViewModelItem();
+    if (!vmi_ptr)
+    {
+        return;
+    }
+    LLFolderViewModelItem& vmi = *vmi_ptr;
 
     mLabel = utf8str_to_wstring(vmi.getDisplayName());
     mLabelFontBuffer.reset();
@@ -412,6 +423,10 @@ void LLFolderViewItem::refresh()
 void LLFolderViewItem::refreshSuffix()
 {
     LLFolderViewModelItem const* vmi = getViewModelItem();
+    if (!vmi)
+    {
+        return;
+    }
 
     // icons are slightly expensive to get, can be optimized
     // see LLInventoryIcon::getIcon()
@@ -1855,6 +1870,10 @@ void LLFolderViewFolder::extendSelectionTo(LLFolderViewItem* new_selection)
 
 void LLFolderViewFolder::destroyView()
 {
+    // S24 : each child is popped off these lists before its own destroyView() runs, so while this teardown is
+    // going on extractItem() has nothing to search for (it used to scan both lists, and miss, for every child)
+    mDestroying = true;
+
     while (!mItems.empty())
     {
         LLFolderViewItem *itemp = mItems.back();
@@ -1880,23 +1899,23 @@ void LLFolderViewFolder::extractItem( LLFolderViewItem* item, bool deparent_mode
         getRoot()->clearSelection();
     if (getRoot() && getRoot()->getRenameItem() == item)
         getRoot()->cancelRenaming();
-    items_t::iterator it = std::find(mItems.begin(), mItems.end(), item);
-    if(it == mItems.end())
+    if (!mDestroying)
     {
-        // This is an evil downcast. However, it's only doing
-        // pointer comparison to find if (which it should be ) the
-        // item is in the container, so it's pretty safe.
-        LLFolderViewFolder* f = static_cast<LLFolderViewFolder*>(item);
-        folders_t::iterator ft;
-        ft = std::find(mFolders.begin(), mFolders.end(), f);
-        if (ft != mFolders.end())
+        items_t::iterator it = std::find(mItems.begin(), mItems.end(), item);
+        if(it == mItems.end())
         {
-            mFolders.erase(ft);
+            // S24 : plain pointer comparison, no downcast needed
+            folders_t::iterator ft;
+            ft = std::find(mFolders.begin(), mFolders.end(), item);
+            if (ft != mFolders.end())
+            {
+                mFolders.erase(ft);
+            }
         }
-    }
-    else
-    {
-        mItems.erase(it);
+        else
+        {
+            mItems.erase(it);
+        }
     }
     //item has been removed, need to update filter
     if (deparent_model)

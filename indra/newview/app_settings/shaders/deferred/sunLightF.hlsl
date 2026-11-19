@@ -34,6 +34,7 @@ float4 getNorm(float2 pos_screen);
 float4 getPosition(float2 pos_screen);
 float sampleDirectionalShadow(float3 pos, float3 norm, float2 pos_screen);
 float sampleSpotShadow(float3 pos, float3 norm, int index, float2 pos_screen);
+bool isBeyondShadowReach(float4 pos);
 
 struct PSInput
 {
@@ -43,10 +44,20 @@ struct PSInput
     float2 vary_fragcoord : TEXCOORD0;
 };
 
+// S24 : set by the sun lightmap pass, one component per spotlight shadow slot: 1 when that slot has no shadow
+// caster. There is nothing to sample then (the sampler would read a stale or unused map), so the expensive
+// PCF lookups are skipped and the channel is a plain 1.0 (no shadow). Unset (0) means "sample", as before.
+uniform float2 spot_shadow_inactive;
+
 float4 main(PSInput IN) : SV_Target
 {
     float2 pos_screen = IN.vary_fragcoord.xy;
     float4 pos = getPosition(pos_screen);
+    // S24 : far and sky pixels are fully lit on every channel, so skip the normal fetch and everything after
+    if (isBeyondShadowReach(pos))
+    {
+        return float4(1, 1, 1, 1);
+    }
     float4 norm = getNorm(pos_screen);
 
     // S24: zero-initialized - FXC's dataflow checker can't prove 4 separate
@@ -54,8 +65,16 @@ float4 main(PSInput IN) : SV_Target
     float4 col = float4(0, 0, 0, 0);
     col.r = sampleDirectionalShadow(pos.xyz, norm.xyz, pos_screen);
     col.g = 1.0f;
-    col.b = sampleSpotShadow(pos.xyz, norm.xyz, 0, pos_screen);
-    col.a = sampleSpotShadow(pos.xyz, norm.xyz, 1, pos_screen);
+    col.b = 1.0f;
+    col.a = 1.0f;
+    [branch] if (spot_shadow_inactive.x < 0.5f)
+    {
+        col.b = sampleSpotShadow(pos.xyz, norm.xyz, 0, pos_screen);
+    }
+    [branch] if (spot_shadow_inactive.y < 0.5f)
+    {
+        col.a = sampleSpotShadow(pos.xyz, norm.xyz, 1, pos_screen);
+    }
 
     return clamp(col, float4(0, 0, 0, 0), float4(1, 1, 1, 1));
 }

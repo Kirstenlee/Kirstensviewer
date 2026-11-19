@@ -442,7 +442,6 @@ void LLJoystickCameraRotate::updateSlop()
 
 bool LLJoystickCameraRotate::handleMouseDown(S32 x, S32 y, MASK mask)
 {
-    gAgent.setMovementLocked(true);
     updateSlop();
 
     // Set initial offset based on initial click location
@@ -490,7 +489,13 @@ bool LLJoystickCameraRotate::handleMouseDown(S32 x, S32 y, MASK mask)
         mInitialQuadrant = JQ_RIGHT;
     }
 
-    return LLJoystick::handleMouseDown(x, y, mask);
+    // S24 : a click that is not handled must not lock movement
+    bool handled = LLJoystick::handleMouseDown(x, y, mask);
+    if (handled)
+    {
+        gAgent.setMovementLocked(true);
+    }
+    return handled;
 }
 
 bool LLJoystickCameraRotate::handleMouseUp(S32 x, S32 y, MASK mask)
@@ -498,6 +503,14 @@ bool LLJoystickCameraRotate::handleMouseUp(S32 x, S32 y, MASK mask)
     gAgent.setMovementLocked(false);
     mInCenter = false;
     return LLJoystick::handleMouseUp(x, y, mask);
+}
+
+// S24 : the mouse-up never arrives if capture is lost mid-drag; release the movement lock here
+void LLJoystickCameraRotate::onMouseCaptureLost()
+{
+    gAgent.setMovementLocked(false);
+    mInCenter = false;
+    LLJoystick::onMouseCaptureLost();
 }
 
 bool LLJoystickCameraRotate::handleHover(S32 x, S32 y, MASK mask)

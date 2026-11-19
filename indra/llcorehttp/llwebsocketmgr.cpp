@@ -31,6 +31,7 @@
 #include "llsdserialize.h"
 #include "llhost.h"
 #include "llsdjson.h"
+#include "lltimer.h"
 
 #include <websocketpp/config/boost_config.hpp>
 #include <websocketpp/config/asio_no_tls.hpp>
@@ -47,6 +48,10 @@ namespace
     using Server_t      = websocketpp::server<websocketpp::config::asio>;
     using Client_t      = websocketpp::client<websocketpp::config::asio>;
     using Connection_t  = websocketpp::connection<websocketpp::config::asio>;
+
+    // S24 : how long stop() waits for the I/O thread to exit before logging a
+    // warning. It still joins after this - diagnostic, not a timeout.
+    constexpr F32 SERVER_STOP_WARN_SECONDS = 5.0f;
 }
 
 //------------------------------------------------------------------------
@@ -189,6 +194,7 @@ struct Server_impl
         mLocalOnly(local_only)
     {
 
+        mServer.set_validate_handler([this](websocketpp::connection_hdl hdl) { return this->onValidate(hdl); });
         mServer.set_open_handler([this](websocketpp::connection_hdl hdl) { this->onOpen(hdl); });
         mServer.set_close_handler([this](websocketpp::connection_hdl hdl) { this->onClose(hdl); });
         mServer.set_message_handler([this](websocketpp::connection_hdl hdl, Server_t::message_ptr msg) { this->onMessage(hdl, msg); });
@@ -305,6 +311,35 @@ struct Server_impl
     }
 
     /**
+     * @brief Decide whether an upgrade request is let in
+     * @param hdl WebSocket connection handle from websocketpp
+     * @return false to answer the request 403 and never open it
+     *
+     * Called by websocketpp once the request has been read, before it is
+     * answered: the owner says which origins it takes. A browser sends the
+     * page's origin with every WebSocket it opens, so a web page (or media on
+     * a prim) cannot reach a local-only server unless the owner allows it.
+     */
+    bool onValidate(websocketpp::connection_hdl hdl)
+    {
+        websocketpp::lib::error_code ec;
+        Server_t::connection_ptr     con = mServer.get_con_from_hdl(hdl, ec);
+        if (ec || !con)
+        {
+            return false;
+        }
+        const std::string& origin = con->get_origin();
+        if (mOwner->acceptOrigin(origin))
+        {
+            return true;
+        }
+        // Once for each origin: a page can ask as often as it likes.
+        LL_WARNS_ONCE("WebSocket") << mOwner->mServerName << " refused a connection from origin " << origin << LL_ENDL;
+        con->set_status(websocketpp::http::status_code::forbidden);
+        return false;
+    }
+
+    /**
      * @brief Handle new connection establishment event
      * @param hdl WebSocket connection handle from websocketpp
      *
@@ -402,6 +437,7 @@ bool LLWebsocketMgr::WSServer::start()
 
     // Reset the stop flag
     mShouldStop = false;
+    mRunning = true;
 
     // Start the server thread
     mServerThread = std::thread([this]() {
@@ -417,6 +453,7 @@ bool LLWebsocketMgr::WSServer::start()
         }
 
         LL_INFOS("WebSocket") << "WebSocket server thread exiting for: " << mServerName << LL_ENDL;
+        mRunning = false;
     });
 
     onStarted();
@@ -450,6 +487,21 @@ void LLWebsocketMgr::WSServer::stop()
 
     if (mServerThread.joinable())
     {
+        // S24 : the I/O thread should exit promptly once mImpl->stop() returns. If it
+        // doesn't, something on it is blocked - most likely a reintroduced cross-thread
+        // wait. Warn instead of hanging silently; still join (detaching would leave the
+        // thread using a freed mImpl).
+        LLTimer wait_timer;
+        while (mRunning && wait_timer.getElapsedTimeF32() < SERVER_STOP_WARN_SECONDS)
+        {
+            ms_sleep(10);
+        }
+        if (mRunning)
+        {
+            LL_WARNS("WebSocket") << mServerName << ": I/O thread did not exit within "
+                << SERVER_STOP_WARN_SECONDS << "s; joining anyway." << LL_ENDL;
+        }
+
         mServerThread.join();
         LL_INFOS("WebSocket") << "WebSocket server thread joined for: " << mServerName << LL_ENDL;
     }
@@ -458,10 +510,10 @@ void LLWebsocketMgr::WSServer::stop()
 
 bool LLWebsocketMgr::WSServer::isRunning() const
 {
-    LL_ERRS_IF(!mImpl, "WebSocket") << "WebSocket server " << mServerName << " implementation is null !" << LL_ENDL;
-
-    // Check both the thread state, websocket server state, and the stop flag
-    return mServerThread.joinable() && !mImpl->mServer.stopped() && !mShouldStop;
+    // S24 : mRunning is set true just before the I/O thread launches and false as the
+    // last thing that thread does - lock-free, and safe to call while start()/stop()
+    // hold mThreadMutex on this thread (a mutex-based check would self-deadlock there).
+    return mRunning && !mShouldStop;
 }
 
 void LLWebsocketMgr::WSServer::broadcastMessage(const std::string& message)
@@ -531,6 +583,18 @@ LLWebsocketMgr::WSConnection::ptr_t LLWebsocketMgr::WSServer::getConnection(cons
         return it->second;
     }
     return nullptr;
+}
+
+std::vector<LLWebsocketMgr::WSConnection::ptr_t> LLWebsocketMgr::WSServer::getConnections() const
+{
+    LLMutexLock lock(&mConnectionMutex);
+    std::vector<WSConnection::ptr_t> result;
+    result.reserve(mConnections.size());
+    for (const auto& [handle, conn] : mConnections)
+    {
+        result.push_back(conn);
+    }
+    return result;
 }
 
 LLWebsocketMgr::connection_state_t LLWebsocketMgr::WSServer::getConnectionState(const connection_h& handle) const

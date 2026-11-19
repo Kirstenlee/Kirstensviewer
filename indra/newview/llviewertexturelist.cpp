@@ -935,7 +935,8 @@ void LLViewerTextureList::updateImages(F32 max_time)
         if (!image->getUrl().empty())
         {
             // Do stuff to handle callbacks, update priorities, etc.
-            didone = image->doLoadedCallbacks();
+            // S24 : not assigned to didone, which gates the one non-local callback per frame
+            image->doLoadedCallbacks();
         }
         else if (!didone)
         {
@@ -1329,6 +1330,7 @@ F32 LLViewerTextureList::updateImagesCreateTextures(F32 max_time)
                 {
                     imagep->destroyRawImage();
                     imagep->mCreatePending = false;
+                    imagep->abandonCreateTexture();  // S24 : else the texture reads as mid-creation forever
                 }
             }
             return 0.f;
@@ -1397,35 +1399,39 @@ F32 LLViewerTextureList::updateImagesCreateTextures(F32 max_time)
                 // be thrown away by requestUpgrade() itself.
                 && DXBC7UploadManager::wouldAccept(glTex, raw->getWidth(), raw->getHeight()))
             {
-                std::vector<uint8_t> rgba8;
-                if (DXTexture::repackToRGBA8(raw->getData(), raw->getWidth(), raw->getHeight(), raw->getComponents(), rgba8))
+                // Fine alpha-channel detail (hair cards, foliage cutouts, any real
+                // alpha-blend/mask content) is exactly what's most vulnerable to BC7's
+                // 4x4 block alpha quantization - confirmed live: hair shadows showed
+                // blocky/pixelated alpha remnants with compression on. Sample the alpha
+                // channel (stride keeps this cheap on large textures) and skip
+                // compression if it shows real per-pixel variance; a uniformly opaque
+                // or uniformly transparent alpha channel (most world textures) is safe.
+                // S24 : the scan reads the raw alpha directly, so an alpha-sensitive texture
+                // never pays for the repack, and the repacked pixels are handed over, not copied.
+                const U8* src = raw->getData();
+                const S32 comps = raw->getComponents();
+                const size_t texel_count = (size_t)raw->getWidth() * raw->getHeight();
+                bool alpha_sensitive = false;
+                if ((comps == 4 || comps == 2) && texel_count > 0)
                 {
-                    // Fine alpha-channel detail (hair cards, foliage cutouts, any real
-                    // alpha-blend/mask content) is exactly what's most vulnerable to BC7's
-                    // 4x4 block alpha quantization - confirmed live: hair shadows showed
-                    // blocky/pixelated alpha remnants with compression on. Sample the alpha
-                    // channel (stride keeps this cheap on large textures) and skip
-                    // compression if it shows real per-pixel variance; a uniformly opaque
-                    // or uniformly transparent alpha channel (most world textures) is safe.
-                    bool alpha_sensitive = false;
-                    const size_t texel_count = rgba8.size() / 4;
-                    if (texel_count > 0)
+                    U8 amin = 255, amax = 0;
+                    const size_t stride = 16;
+                    const size_t alpha_offset = (comps == 4) ? 3 : 1;
+                    for (size_t i = 0; i < texel_count; i += stride)
                     {
-                        U8 amin = 255, amax = 0;
-                        const size_t stride = 16;
-                        for (size_t i = 0; i < texel_count; i += stride)
-                        {
-                            U8 a = rgba8[i * 4 + 3];
-                            if (a < amin) amin = a;
-                            if (a > amax) amax = a;
-                        }
-                        alpha_sensitive = (amax - amin) > 32;
+                        U8 a = src[i * comps + alpha_offset];
+                        if (a < amin) amin = a;
+                        if (a > amax) amax = a;
                     }
+                    alpha_sensitive = (amax - amin) > 32;
+                }
 
-                    if (!alpha_sensitive)
-                    {
-                        DXBC7UploadManager::requestUpgrade(glTex, rgba8.data(), raw->getWidth(), raw->getHeight());
-                    }
+                // S24 : a private copy of the raw bytes goes to the compression worker, which repacks it to RGBA8
+                // itself, so the repack no longer runs on this (main) thread
+                if (!alpha_sensitive && comps >= 1 && comps <= 4)
+                {
+                    std::vector<uint8_t> raw_bytes(src, src + texel_count * (size_t)comps);
+                    DXBC7UploadManager::requestUpgradeFromRaw(glTex, std::move(raw_bytes), comps, raw->getWidth(), raw->getHeight());
                 }
             }
         }
@@ -1492,7 +1498,8 @@ F32 LLViewerTextureList::updateImagesCreateTextures(F32 max_time)
         }
         was_severe_pressure = severe_pressure;
 
-        create_timer.reset();
+        // S24 : the timer keeps running from the create loop above, so both phases share one frame budget;
+        // the min_count floor still guarantees the queue makes progress every frame
         while (!mDownScaleQueue.empty())
         {
             LLViewerFetchedTexture* image = mDownScaleQueue.front();
@@ -1526,33 +1533,33 @@ F32 LLViewerTextureList::updateImagesLoadingFastCache(F32 max_time)
 
     LLMutex* mutex = LLAppViewer::getTextureCache()->getFastCacheMutex();
 
-    // --- Stage 1: Fast trylock ---
+    // --- Stage 1: Fast trylock, then a bounded retry window; skip the frame
+    // rather than block behind the cache worker's file I/O ---
+    if (!mutex->trylock())
     {
-        LLMutexTrylock try_lock(mutex);
-        if (!try_lock.isLocked())
+        LLTimer spin_timer;
+        const F32 spin_limit = 0.00005f; // ~50 microseconds
+        bool locked = false;
+        while (spin_timer.getElapsedTimeF32() <= spin_limit)
         {
-            // --- Stage 2: Bounded retry window (game-engine) ---
-            LLTimer spin_timer;
-            const F32 spin_limit = 0.00005f; // ~50 microseconds
-
-            bool locked = false;
-            while (!locked)
+            if (mutex->trylock())
             {
-                LLMutexTrylock retry(mutex);
-                if (retry.isLocked())
-                {
-                    locked = true;
-                    break;
-                }
-
-                if (spin_timer.getElapsedTimeF32() > spin_limit)
-                    return 0.f; // Avoid stutter, skip this frame
+                locked = true;
+                break;
             }
+        }
+        if (!locked)
+        {
+            return 0.f;
         }
     }
 
-    // --- Stage 3: We now hold the lock ---
-    LLMutexLock lock(mutex);
+    // --- Stage 2: We hold the lock; release it on every exit ---
+    struct Unlocker
+    {
+        LLMutex* m;
+        ~Unlocker() { m->unlock(); }
+    } unlocker{ mutex };
 
     auto iter = mFastCacheList.begin();
     const auto end = mFastCacheList.end();
@@ -1561,9 +1568,6 @@ F32 LLViewerTextureList::updateImagesLoadingFastCache(F32 max_time)
     {
         LLViewerFetchedTexture* imagep = iter->get();
 
-        // Optional: prefetch next pointer
-        auto next = iter;
-        ++next;
         imagep->loadFromFastCache();
         ++iter;
 
@@ -1606,15 +1610,29 @@ F32 LLViewerTextureList::updateImagesFetchTextures(F32 max_time)
     // a token 2ms/5-failure threshold was ever going to absorb, and re-triggers every
     // frame the burst keeps going, so sustained bursts get sustained backpressure.
     {
+        // S24 : the backpressure used to be a main thread ms_sleep of up to 60 ms, which stalled input, UI and
+        // rendering without helping the cache thread. Skipping this loop's fetch work for a few frames gives the
+        // same easing in of the request rate with no stall. A skip run is at most 4 frames, and is always
+        // followed by at least one normal frame, so a sustained burst can never starve fetching.
         static const S32 FLOOD_THRESHOLD = 3;
-        static const U32 EASE_IN_MS_PER_FAILURE = 2;
-        static const U32 EASE_IN_MS_MAX = 60;
-        S32 recent_failures = LLAppViewer::getTextureCache()->consumeRecentWriteInitFailures();
-        if (recent_failures >= FLOOD_THRESHOLD)
+        static const S32 FAILURES_PER_SKIPPED_FRAME = 5;
+        static const S32 MAX_SKIPPED_FRAMES = 4;
+        static S32 sSkipFrames = 0;
+        static bool sRearmBlocked = false;
+
+        const S32 recent_failures = LLAppViewer::getTextureCache()->consumeRecentWriteInitFailures();
+        if (sSkipFrames > 0)
         {
-            U32 sleep_ms = llmin((U32)recent_failures * EASE_IN_MS_PER_FAILURE, EASE_IN_MS_MAX);
-            ms_sleep(sleep_ms);
+            --sSkipFrames;
+            return 0.f;
         }
+        if (recent_failures >= FLOOD_THRESHOLD && !sRearmBlocked)
+        {
+            sSkipFrames = llclamp(recent_failures / FAILURES_PER_SKIPPED_FRAME, 1, MAX_SKIPPED_FRAMES) - 1;
+            sRearmBlocked = true;
+            return 0.f;
+        }
+        sRearmBlocked = false;
     }
 
     typedef std::vector<LLPointer<LLViewerFetchedTexture> > entries_list_t;
@@ -1787,6 +1805,13 @@ bool LLViewerTextureList::createUploadFile(LLPointer<LLImageRaw> raw_image,
         raw_image->getComponents());
 
     LLPointer<LLImageJ2C> compressedImage = LLViewerTextureList::convertToUploadFile(scale_image, max_image_dimentions);
+    // S24 : convertToUploadFile() returns null when the encode fails; check before any use
+    if (compressedImage.isNull())
+    {
+        LLImage::setLastError("Couldn't convert the image to jpeg2000.");
+        LL_WARNS() << "Couldn't convert to j2c, file : " << out_filename << LL_ENDL;
+        return false;
+    }
     if (compressedImage->getWidth() < min_image_dimentions || compressedImage->getHeight() < min_image_dimentions)
     {
         std::string reason = llformat("Images below %d x %d pixels are not allowed. Actual size: %d x %dpx",
@@ -1795,12 +1820,6 @@ bool LLViewerTextureList::createUploadFile(LLPointer<LLImageRaw> raw_image,
                                       compressedImage->getWidth(),
                                       compressedImage->getHeight());
         compressedImage->setLastError(reason);
-        return false;
-    }
-    if (compressedImage.isNull())
-    {
-        compressedImage->setLastError("Couldn't convert the image to jpeg2000.");
-        LL_INFOS() << "Couldn't convert to j2c, file : " << out_filename << LL_ENDL;
         return false;
     }
     if (!compressedImage->save(out_filename))

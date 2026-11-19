@@ -258,6 +258,20 @@ namespace LL
          */
         bool tryPost(const Work&) override;
 
+        /**
+         * S24 : post work, waiting up to 'timeout' for the queue lock or for room.
+         * @return false if the queue is closed or the wait timed out
+         */
+        bool tryPostFor(const Work&, std::chrono::milliseconds timeout);
+
+        /**
+         * S24 : post work to the well-known "mainloop" queue, waiting at most a few
+         * milliseconds, so a secondary thread (e.g. a websocket I/O thread) is never
+         * held up by the main thread. A busy queue lock does not read as shutdown.
+         * @return false if the main loop queue is gone, closed or stayed busy/full
+         */
+        static bool postToMainLoop(const Work& work);
+
     private:
         using Queue = LLThreadSafeQueue<Work>;
         Queue mQueue;

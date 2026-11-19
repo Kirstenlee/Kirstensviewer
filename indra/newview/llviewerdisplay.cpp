@@ -181,7 +181,6 @@ void display_startup()
 	// Required for HTML update in login screen
 	static S32 frame_count = 0;
 
-
 	if (frame_count++ > 1) // make sure we have rendered a frame first
 	{
 		LLViewerDynamicTexture::updateAllInstances();
@@ -190,7 +189,6 @@ void display_startup()
 	{
 		LL_DEBUGS("Window") << "First display_startup frame" << LL_ENDL;
 	}
-
 
 	DXUIDefault gls_ui;
 	DXPipeline::disableLights(gPipeline);
@@ -202,7 +200,6 @@ void display_startup()
 	gDX.flush();
 
 	LLVertexBuffer::unbind();
-
 
 	if (gViewerWindow && gViewerWindow->getWindow())
 		gViewerWindow->getWindow()->swapBuffers();
@@ -495,7 +492,6 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 
 	LLVertexBuffer::unbind();
 
-
 	DXPipeline::disableLights(gPipeline);
 
 	// Don't draw if the window is hidden or minimized.
@@ -580,7 +576,6 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 	{
 		gViewerWindow->performPick();
 	}
-
 
 	//////////////////////////////////////////////////////////
 	//
@@ -805,7 +800,6 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 
 		DXPipeline::updateGL(gPipeline);
 
-
 		//Increment drawable frame counter
 		LLDrawable::incrementVisible();
 
@@ -819,12 +813,10 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 		}
 		gDepthDirty = false;
 
-
 		static LLCullResult result;
 		LLViewerCamera::sCurCameraID = LLViewerCamera::CAMERA_WORLD;
 		DXPipeline::sUnderWaterRender = LLViewerCamera::getInstance()->cameraUnderWater();
 		DXPipeline::updateCull(gPipeline, *LLViewerCamera::getInstance(), result);
-
 
 		{
 				if (gResizeScreenTexture)
@@ -837,7 +829,6 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 			// composites only at the end, so both eyes get a normal unconditional clear.
 			gDX.setColorWriteMask(true, true);
 
-
 			if (!for_snapshot)
 			{
 				if (gFrameCount > 1 && !for_snapshot)
@@ -847,7 +838,6 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 				}
 
 				LLVertexBuffer::unbind();
-
 
 				glm::mat4 proj = get_current_projection();
 				glm::mat4 mod = get_current_modelview();
@@ -879,7 +869,6 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 		//remove dead gltf materials
 		gGLTFMaterialList.flushMaterials();
 
-
 		LLViewerCamera::sCurCameraID = LLViewerCamera::CAMERA_WORLD;
 		DXPipeline::stateSort(gPipeline, *LLViewerCamera::getInstance(), result);
 
@@ -890,14 +879,11 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 
 		LLSceneMonitor::getInstance()->fetchQueryResult();
 
-
 		DXPipeline::sUseOcclusion = occlusion;
 
 		gSky.updateSky();
 
 		DXPipeline::sUnderWaterRender = LLViewerCamera::getInstance()->cameraUnderWater();
-
-
 
 		// Each eye renders full color into its own target; eyes only mix once, in
 		// the composite shader before swap() - see DXPipeline::presentStereoComposite().
@@ -962,8 +948,7 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 				// mCurrTexType never leaves TT_NONE under DX_RENDER (see
 				// LLHLSLShader::disableTexture()), so the getCurrType() gate below
 				// never fires here - unbind unconditionally instead.
-				gDX.getTexUnit(i)->unbind(LLTexUnit::TT_TEXTURE);
-				gDX.getTexUnit(i)->disable();
+				gDX.getTexUnit(i)->unbind(LLTexUnit::TT_TEXTURE); // disable() is the same unbind, so it is not repeated
 			}
 		}
 
@@ -1494,7 +1479,6 @@ void render_ui(F32 zoom_factor, int subfield)
 		render_hud_elements();
 		render_hud_attachments();
 
-
 		LLGLSDefault gls_default;
 		DXUIDefault gls_ui;
 		{
@@ -1653,7 +1637,6 @@ void render_ui_3d()
 
 	// Debugging stuff goes before the UI.
 
-
 	gUIProgram.bind();
 	gDX.color4f(1.f, 1.f, 1.f, 1.f);
 
@@ -1704,7 +1687,6 @@ void render_ui_2d()
 		LLFontDX::sCurOrigin.mX -= ll_round((F32)gViewerWindow->getWindowWidthScaled() * (F32)pos_x / zoom_factor);
 		LLFontDX::sCurOrigin.mY -= ll_round((F32)gViewerWindow->getWindowHeightScaled() * (F32)pos_y / zoom_factor);
 	}
-
 
 	// render outline for HUD
 	if (isAgentAvatarValid() && gAgentCamera.mHUDCurZoom < 0.98f)

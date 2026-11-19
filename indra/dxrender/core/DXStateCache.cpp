@@ -265,6 +265,26 @@ void DXStateCache::recordAppliedDepthStencilState(bool depth_enabled, bool write
     ++sDepthStencilGeneration;
 }
 
+namespace
+{
+    ID3D11VertexShader* sNotedVS = nullptr;
+    ID3D11PixelShader* sNotedPS = nullptr;
+}
+
+void DXStateCache::noteBoundShaderStages(ID3D11VertexShader* vs, ID3D11PixelShader* ps)
+{
+    sNotedVS = vs;
+    sNotedPS = ps;
+}
+
+ID3D11VertexShader* DXStateCache::getNotedVS() { return sNotedVS; }
+ID3D11PixelShader* DXStateCache::getNotedPS() { return sNotedPS; }
+
+void DXStateCache::noteExternalDepthStencilChange()
+{
+    ++sDepthStencilGeneration;
+}
+
 void DXStateCache::tagAttachmentStencil(bool isAttachment)
 {
     const UINT ref = isAttachment ? 1u : 0u;
@@ -316,6 +336,8 @@ void DXStateCache::clear()
     sLastStencilRef = 0xFFFFFFFFu;
     sLastStencilRefGeneration = 0;
     sTagAttachmentStencilActive = false;
+    sNotedVS = nullptr;
+    sNotedPS = nullptr;
 }
 
 void DXStateCache::setPrimitiveTopology(ID3D11DeviceContext* ctx, D3D11_PRIMITIVE_TOPOLOGY topology)

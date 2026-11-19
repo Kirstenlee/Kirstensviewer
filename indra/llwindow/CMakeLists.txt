@@ -20,6 +20,7 @@ include(LLWindow)
 include(LLXML)
 include(UI)
 include(DXRender)
+include(SDL3)
 
 include_directories(
     ${LLCOMMON_INCLUDE_DIRS}
@@ -37,8 +38,11 @@ include_directories(SYSTEM
 
 set(llwindow_SOURCE_FILES
     llcursortypes.cpp
+    llgamecontrol.cpp
+    llgamecontroltranslator.cpp
     llkeyboard.cpp
     llkeyboardheadless.cpp
+    llsdl.cpp
     llwindowheadless.cpp
     llwindowcallbacks.cpp
     llwindow.cpp
@@ -48,8 +52,11 @@ set(llwindow_HEADER_FILES
     CMakeLists.txt
 
     llcursortypes.h
+    llgamecontrol.h
+    llgamecontroltranslator.h
     llkeyboard.h
     llkeyboardheadless.h
+    llsdl.h
     llwindowheadless.h
     llwindowcallbacks.h
     )
@@ -84,6 +91,7 @@ list(APPEND llwindow_LINK_LIBRARIES
      ole32
      dxgi
      d3d9
+     ll::SDL3
      )
 
 set_source_files_properties(${llwindow_HEADER_FILES}

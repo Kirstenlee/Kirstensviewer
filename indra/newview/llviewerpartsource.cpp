@@ -311,10 +311,25 @@ void LLViewerPartSourceScript::update(const F32 dt)
                 part->mFlags |= LLPartData::LL_PART_HUD;
             }
 
+            // S24 : burst radius is ignored for these, clear it before the first particle is placed
+            if (part->mFlags & LLPartData::LL_PART_FOLLOW_SRC_MASK ||   // SVC-193, VWR-717
+                part->mFlags & LLPartData::LL_PART_TARGET_LINEAR_MASK)
+            {
+                mPartSysData.mBurstRadius = 0;
+            }
+
             if (part->mFlags & LLPartData::LL_PART_RIBBON_MASK && mLastPart)
             { //set previous particle's parent to this particle to chain ribbon together
-                mLastPart->mParent = part;
-                part->mChild = mLastPart;
+                // S24 : relinking an already-parented particle would leave its parent's mChild dangling
+                if (mLastPart->mParent)
+                {
+                    part->logBrokenLink("relink");
+                }
+                else
+                {
+                    mLastPart->mParent = part;
+                    part->mChild = mLastPart;
+                }
                 part->mAxis = LLVector3(0,0,1);
 
                 if (mSourceObjectp.notNull())
@@ -426,12 +441,6 @@ void LLViewerPartSourceScript::update(const F32 dt)
                 part->mPosAgent = mPosAgent;
                 part->mVelocity.setVec(0.f, 0.f, 0.f);
                 //LL_WARNS() << "Unknown source pattern " << (S32)mPartSysData.mPattern << LL_ENDL;
-            }
-
-            if (part->mFlags & LLPartData::LL_PART_FOLLOW_SRC_MASK ||   // SVC-193, VWR-717
-                part->mFlags & LLPartData::LL_PART_TARGET_LINEAR_MASK)
-            {
-                mPartSysData.mBurstRadius = 0;
             }
 
             LLViewerPartSim::getInstance()->addPart(part);

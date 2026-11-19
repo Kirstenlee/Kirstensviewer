@@ -115,17 +115,22 @@ void LLDiskCache::purge()
             }
             if (std::filesystem::is_regular_file(*iter, ec) && !ec)
             {
-                if ((*iter).path().string().find(CACHE_FILENAME_PREFIX) != std::string::npos)
+                // S24 : path::string() converts through the ANSI code page and throws for
+                // characters it can't represent; fsyspath::string() is UTF-8 safe
+                if (fsyspath((*iter).path()).string().find(CACHE_FILENAME_PREFIX) != std::string::npos)
                 {
                     uintmax_t file_size = std::filesystem::file_size(*iter, ec);
                     if (ec)
                     {
+                        // S24 : skip this entry, not the rest of the scan
+                        iter.increment(ec);
                         continue;
                     }
-                    const std::string file_path = (*iter).path().string();
+                    const std::string file_path = fsyspath((*iter).path()).string();
                     const std::filesystem::file_time_type file_time = std::filesystem::last_write_time(*iter, ec);
                     if (ec)
                     {
+                        iter.increment(ec);
                         continue;
                     }
 
@@ -164,7 +169,8 @@ void LLDiskCache::purge()
         }
         if (should_remove)
         {
-            std::filesystem::remove(entry.second.second, ec);
+            // S24 : the stored path is UTF-8 (see above), so convert it back properly
+            std::filesystem::remove(fsyspath(entry.second.second), ec);
             if (ec)
             {
                 LL_WARNS() << "Failed to delete cache file " << entry.second.second << ": " << ec.message() << LL_ENDL;
@@ -244,7 +250,7 @@ void LLDiskCache::clearCache()
         {
             if (std::filesystem::is_regular_file(*iter, ec) && !ec)
             {
-                if ((*iter).path().string().find(CACHE_FILENAME_PREFIX) != std::string::npos)
+                if (fsyspath((*iter).path()).string().find(CACHE_FILENAME_PREFIX) != std::string::npos)
                 {
                     std::filesystem::remove(*iter, ec);
                     if (ec)
@@ -273,8 +279,9 @@ void LLDiskCache::removeOldVFSFiles()
         {
             if (std::filesystem::is_regular_file(*iter, ec) && !ec)
             {
-                if (((*iter).path().string().find(CACHE_FORMAT) != std::string::npos) ||
-                    ((*iter).path().string().find(DB_FORMAT) != std::string::npos))
+                const std::string file_path = fsyspath((*iter).path()).string();
+                if ((file_path.find(CACHE_FORMAT) != std::string::npos) ||
+                    (file_path.find(DB_FORMAT) != std::string::npos))
                 {
                     std::filesystem::remove(*iter, ec);
                     if (ec)
@@ -310,7 +317,7 @@ uintmax_t LLDiskCache::dirFileSize(const std::string& dir)
         {
             if (std::filesystem::is_regular_file(*iter, ec) && !ec)
             {
-                if ((*iter).path().string().find(CACHE_FILENAME_PREFIX) != std::string::npos)
+                if (fsyspath((*iter).path()).string().find(CACHE_FILENAME_PREFIX) != std::string::npos)
                 {
                     uintmax_t file_size = std::filesystem::file_size(*iter, ec);
                     if (!ec)

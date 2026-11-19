@@ -916,7 +916,6 @@ LLOcclusionCullingGroup::LLOcclusionCullingGroup(OctreeNode* node, LLViewerOctre
     for (U32 i = 0; i < LLViewerCamera::NUM_CAMERAS; i++)
     {
         mOcclusionQuery[i] = 0;
-        mOcclusionCheckCount[i] = 0;
         mOcclusionIssued[i] = 0;
         mOcclusionState[i] = parent ? SG_STATE_INHERIT_MASK & parent->mOcclusionState[i] : 0;
         mVisible[i] = 0;
@@ -1168,14 +1167,9 @@ void LLOcclusionCullingGroup::checkOcclusion()
         }
         else
         {
-            GLuint available = 0;
-            {
-                // raw glGetQueryObjectuiv() would be a silent no-op under DX_RENDER, leaving `available`
-                // uninitialized (defensively zero-initialized above regardless). Real query via
-                // DXOcclusionQuery instead - see its header comment.
-                available = DXOcclusionQuery::isResultAvailable(mOcclusionQuery[LLViewerCamera::sCurCameraID]) ? 1 : 0;
-                mOcclusionCheckCount[LLViewerCamera::sCurCameraID]++;
-            }
+            // One non-blocking GetData() both tests for completion and fetches the sample count
+            unsigned long long samples = 0;
+            const bool available = DXOcclusionQuery::tryGetResult(mOcclusionQuery[LLViewerCamera::sCurCameraID], samples);
 
             // Never force a timeout-triggered blocking getResult() call: GL's
             // glGetQueryObjectuiv(..., GL_QUERY_RESULT, ...) would be a cheap driver-optimized blocking read,
@@ -1185,11 +1179,7 @@ void LLOcclusionCullingGroup::checkOcclusion()
             // resolves a few frames later instead of stalling the thread.
             if (available)
             {
-                mOcclusionCheckCount[LLViewerCamera::sCurCameraID] = 0;
-                GLuint query_result = 0;    // Will be # samples drawn, or a boolean depending on mHasOcclusionQuery2 (both are type GLuint)
-                {
-                    query_result = (GLuint)llmin(DXOcclusionQuery::getResult(mOcclusionQuery[LLViewerCamera::sCurCameraID]), (unsigned long long)0xFFFFFFFFu);
-                }
+                const GLuint query_result = (GLuint)llmin(samples, (unsigned long long)0xFFFFFFFFu);    // # samples drawn
 #if LL_TRACK_PENDING_OCCLUSION_QUERIES
                 sPendingQueries.erase(mOcclusionQuery[LLViewerCamera::sCurCameraID]);
 #endif

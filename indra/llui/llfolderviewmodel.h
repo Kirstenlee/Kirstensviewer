@@ -25,6 +25,8 @@
 #ifndef LLFOLDERVIEWMODEL_H
 #define LLFOLDERVIEWMODEL_H
 
+#include <algorithm>
+#include <iterator>
 #include "llfontdx.h"   // just for StyleFlags enum
 #include "llfolderview.h"
 
@@ -302,7 +304,14 @@ public:
     virtual void removeChild(LLFolderViewModelItem* child) override final
     {
         child->setParent(NULL);
-        mChildren.remove(child);
+        // S24 : a child is in the list once, and when a folder view is torn down its children are removed
+        // newest first, so searching from the back finds each one at once. std::list::remove() walked the
+        // whole list for every child, which made destroying a big folder quadratic.
+        auto found = std::find(mChildren.rbegin(), mChildren.rend(), child);
+        if (found != mChildren.rend())
+        {
+            mChildren.erase(std::next(found).base());
+        }
         dirtyDescendantsFilter();
         dirtyFilter();
     }
@@ -466,14 +475,20 @@ public:
     {
         if (needsSort(folder->getViewModelItem()))
         {
-            folder->sortFolders(ViewModelCompare(getSorter()));
-            folder->sortItems(ViewModelCompare(getSorter()));
+            sortChildren(folder);
             folder->getViewModelItem()->setSortVersion(mTargetSortVersion);
             folder->requestArrange();
         }
     }
 
 protected:
+    // S24 : a model may override this to sort the child lists faster than comparing through the model each time
+    virtual void sortChildren(LLFolderViewFolder* folder)
+    {
+        folder->sortFolders(ViewModelCompare(getSorter()));
+        folder->sortItems(ViewModelCompare(getSorter()));
+    }
+
     std::unique_ptr<SortType>       mSorter;
     std::unique_ptr<FilterType>     mFilter;
 };

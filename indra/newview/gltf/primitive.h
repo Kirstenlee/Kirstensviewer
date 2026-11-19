@@ -74,7 +74,7 @@ namespace LL
             LLRender::eGeomModes mGLMode = LLRender::TRIANGLES; // for use with LLRender
             S32 mIndices = -1;
 
-            // shader variant according to LLGLSLShader::GLTFVariant flags
+            // shader variant according to LLHLSLShader::GLTFVariant flags
             U8 mShaderVariant = 0;
 
             // vertex attribute mask

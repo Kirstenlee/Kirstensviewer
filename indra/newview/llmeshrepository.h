@@ -306,10 +306,13 @@ public:
     }
     void addVolume(LLVOVolume* vol)
     {
-        mVolumes.insert(vol);
-        if (std::shared_ptr<PendingRequestBase> request = mRequest.lock())
+        // S24 : the set already de-duplicates, so only a volume that was really added changes the score
+        if (mVolumes.insert(vol).second)
         {
-            request->setScoreDirty();
+            if (std::shared_ptr<PendingRequestBase> request = mRequest.lock())
+            {
+                request->setScoreDirty();
+            }
         }
     }
     std::unordered_set<LLVOVolume*> mVolumes;
@@ -535,6 +538,10 @@ public:
 
     //queue of successfully loaded meshes
     std::deque<LoadedMesh> mLoadedQ;
+
+    // S24 : loaded meshes taken off mLoadedQ and waiting to be applied. Main thread only, drained under a time
+    // budget so a burst of finished meshes is spread over several frames.
+    std::deque<LoadedMesh> mLoadedBacklog;
 
     //map of pending header requests and currently desired LODs
     typedef std::unordered_map<LLUUID, std::array<S32, LLModel::NUM_LODS> > pending_lod_map;

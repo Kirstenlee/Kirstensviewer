@@ -64,6 +64,7 @@ LLPointer<LLImageDX> gEXRImage;
 void load_exr(const std::string& filename)
 {
     // reset reflection maps when previewing a new HDRI
+    gEXRImage = nullptr;
     gPipeline.mSphereProbes.reset();
     gPipeline.mSphereProbes.initReflectionMaps();
 
@@ -75,29 +76,11 @@ void load_exr(const std::string& filename)
     int ret =  LoadEXRWithLayer(&out, &width, &height, filename.c_str(), /* layername */ nullptr, &err);
     if (ret == TINYEXR_SUCCESS)
     {
-        U32 texName = 0;
-        LLImageDX::generateTextures(1, &texName);
-
-        gEXRImage = new LLImageDX(texName, 4, GL_TEXTURE_2D, GL_RGB16F, GL_RGB16F, GL_FLOAT, LLTexUnit::TAM_CLAMP);
-        gEXRImage->setHasMipMaps(true);
-        gEXRImage->setUseMipMaps(true);
-        gEXRImage->setFilteringOption(LLTexUnit::TFO_TRILINEAR);
-
-        gDX.getTexUnit(0)->bind(gEXRImage);
-
-        // S24: glTexImage2D()/glGenerateMipmap() stubbed out - no real GL
-        // context exists under DX_RENDER (these were already permanently
-        // null-pointer calls, pre-existing and unrelated to this stub; see
-        // the glext removal in llrender). HDRI preview doesn't actually
-        // upload pixel data yet - needs a real DXTexture-native upload +
-        // mip-gen path, not a port of these two calls.
+        // S24 : the DX upload and mip generation for HDRI preview are not implemented, so
+        // gEXRImage stays null; publishing an un-uploaded texture would feed the sky garbage
         LL_WARNS("RenderInit") << "HDRI preview upload not yet implemented under DX_RENDER - " << filename << " loaded but not displayed" << LL_ENDL;
 
-        LLImageDXMemory::alloc_tex_image(width, height, GL_RGB16F, 1);
-
         free(out); // release memory of image data
-
-        gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
 
     }
     else
@@ -211,7 +194,7 @@ void LLSphereProbes::updateMasterCube()
         return;
     }
 
-    static LLCachedControl<F32> master_radius(gSavedSettings, "RenderReflectionMasterCubeRadius", 20.f);
+    static LLCachedControl<F32> master_radius(gSavedSettings, "RenderReflectionMasterCubeRadius", 32.f);
 
     if (mMasterProbe.isNull())
     {
@@ -1005,12 +988,10 @@ void LLSphereProbes::updateProbeFace(LLReflectionMap* probe, U32 face)
     }
 
     // Whether the master cube captures avatars and particles, separately switchable per Detail mode: a perf
-    // choice, since avatars are the most expensive thing in the capture. Static and dynamic INCLUDES them by
-    // default (RenderReflectionExcludeAvatarDynamic defaults false - that mode only recaptures at the default
-    // probe period, so the avatar cost is infrequent); Realtime EXCLUDES them by default
-    // (RenderReflectionExcludeAvatarRealtime defaults true - Realtime already pays for a full capture every
-    // frame, so avatars are the one added cost still worth trimming there by default).
-    static LLCachedControl<bool> exclude_avatar_dynamic(gSavedSettings, "RenderReflectionExcludeAvatarDynamic", false);
+    // choice, since avatars are the most expensive thing in the capture. Both Static and dynamic and Realtime
+    // EXCLUDE them by default (RenderReflectionExcludeAvatarDynamic and RenderReflectionExcludeAvatarRealtime both
+    // default true).
+    static LLCachedControl<bool> exclude_avatar_dynamic(gSavedSettings, "RenderReflectionExcludeAvatarDynamic", true);
     static LLCachedControl<bool> exclude_avatar_realtime(gSavedSettings, "RenderReflectionExcludeAvatarRealtime", true);
     const bool detail_is_dynamic = mRenderReflectionProbeDetail == (S32)DetailLevel::STATIC_AND_DYNAMIC;
     const bool detail_is_realtime = mRenderReflectionProbeDetail >= (S32)DetailLevel::REALTIME;

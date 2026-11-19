@@ -213,10 +213,11 @@ void KVFloaterCalculator::refreshDisplay()
 
 void KVFloaterCalculator::onDigit(const std::string& digit)
 {
-    if (mEntryIsResult)
+    if (mEntryIsResult || mEntryFromFunction)
     {
         mEntry.clear();
         mEntryIsResult = false;
+        mEntryFromFunction = false;
     }
 
     if (mEntry == "0")
@@ -234,10 +235,11 @@ void KVFloaterCalculator::onDigit(const std::string& digit)
 
 void KVFloaterCalculator::onPoint()
 {
-    if (mEntryIsResult)
+    if (mEntryIsResult || mEntryFromFunction)
     {
         mEntry.clear();
         mEntryIsResult = false;
+        mEntryFromFunction = false;
     }
 
     if (mEntry.empty())
@@ -422,6 +424,7 @@ void KVFloaterCalculator::onSquare()
         }
 
         mEntry = formatNumber(result);
+        mEntryFromFunction = true;
         refreshDisplay();
         return;
     }
@@ -445,6 +448,7 @@ void KVFloaterCalculator::onSquareRoot()
         }
 
         mEntry = formatNumber(result);
+        mEntryFromFunction = true;
         refreshDisplay();
         return;
     }

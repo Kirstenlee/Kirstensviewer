@@ -402,6 +402,7 @@ S32 wstring_utf8_length(const LLWString& wstr)
 LLWString utf8str_to_wstring(const char* utf8str, size_t len)
 {
 	LLWString wout;
+	wout.reserve(len); // S24 : never more code points than bytes
 
 	S32 i = 0;
 	while (i < len)
@@ -490,14 +491,22 @@ LLWString utf8str_to_wstring(const char* utf8str, size_t len)
 std::string wstring_to_utf8str(const llwchar* utf32str, size_t len)
 {
 	std::string out;
+	out.reserve(len); // S24 : at least one byte per character
 
 	S32 i = 0;
 	while (i < len)
 	{
-		char tchars[8];		/* Flawfinder: ignore */
-		auto n = wchar_to_utf8chars(utf32str[i], tchars);
-		tchars[n] = 0;
-		out += tchars;
+		const llwchar wc = utf32str[i];
+		if (wc > 0 && wc < 0x80)
+		{
+			out.push_back((char)wc);
+		}
+		else if (wc != 0) // a zero character emits nothing, as before
+		{
+			char tchars[8];		/* Flawfinder: ignore */
+			const auto n = wchar_to_utf8chars(wc, tchars);
+			out.append(tchars, n); // UTF-8 sequences never contain a zero byte
+		}
 		i++;
 	}
 	return out;
@@ -808,23 +817,26 @@ std::string ll_convert_wide_to_string(const wchar_t* in, size_t len_in, unsigned
 			0,
 			0,
 			0);
-		// We will need two more bytes for the double NULL ending
-		// created in WideCharToMultiByte().
-		char* pout = new char [len_out + 2];
-		memset(pout, 0, len_out + 2);
-		if(pout)
+		if (len_out > 0)
 		{
-			WideCharToMultiByte(
+			// S24 : convert straight into the result (no temporary buffer, memset or second copy), then cut
+			// at the first NUL exactly as assigning from a C string did
+			out.resize(len_out);
+			const int written = WideCharToMultiByte(
 				code_page,
 				0,
 				in,
                 static_cast<int>(len_in),
-				pout,
+				out.data(),
 				len_out,
 				0,
 				0);
-			out.assign(pout);
-			delete[] pout;
+			out.resize(written > 0 ? (size_t)written : 0);
+			const auto nul = out.find('\0');
+			if (nul != std::string::npos)
+			{
+				out.resize(nul);
+			}
 		}
 	}
 	return out;
@@ -842,17 +854,22 @@ std::wstring ll_convert_string_to_wide(const char* in, size_t len, unsigned int 
 
 	// reserve an output buffer that will be destroyed on exit, with a place
 	// to put NULL terminator
-	std::vector<wchar_t> w_out(len + 1);
-
-	memset(&w_out[0], 0, w_out.size());
+	// S24 : convert straight into the result string (the output never has more wide characters than the
+	// input has bytes), then cut at the first NUL exactly as constructing from a C string did
+	if (len == 0)
+	{
+		return {};
+	}
+	std::wstring out(len, L'\0');
     int real_output_str_len = MultiByteToWideChar(code_page, 0, in, static_cast<int>(len),
-                                                  &w_out[0], static_cast<int>(w_out.size() - 1));
-
-	//looks like MultiByteToWideChar didn't add null terminator to converted string, see EXT-4858.
-	w_out[real_output_str_len] = 0;
-
-	// construct string<wchar_t> from our temporary output buffer
-	return {&w_out[0]};
+                                                  out.data(), static_cast<int>(len));
+	out.resize(real_output_str_len > 0 ? (size_t)real_output_str_len : 0);
+	const auto nul = out.find(L'\0');
+	if (nul != std::wstring::npos)
+	{
+		out.resize(nul);
+	}
+	return out;
 }
 
 LLWString ll_convert_wide_to_wstring(const wchar_t* in, size_t len)
@@ -1113,7 +1130,7 @@ void LLStringOps::setupDayFormat(const std::string& data)
 }
 
 
-std::string LLStringOps::getDatetimeCode (std::string key)
+std::string LLStringOps::getDatetimeCode (const std::string& key)
 {
 	std::map<std::string, std::string>::iterator iter;
 
@@ -1353,7 +1370,7 @@ LLStringUtil::size_type LLStringUtil::getSubstitution(const std::string& instr, 
 
 // static
 template<> 
-bool LLStringUtil::simpleReplacement(std::string &replacement, std::string token, const format_map_t& substitutions)
+bool LLStringUtil::simpleReplacement(std::string &replacement, const std::string& token, const format_map_t& substitutions)
 {
 	// see if we have a replacement for the bracketed string (without the brackets)
 	// test first using has() because if we just look up with operator[] we get back an
@@ -1366,7 +1383,11 @@ bool LLStringUtil::simpleReplacement(std::string &replacement, std::string token
 		return true;
 	}
 	// if not, see if there's one WITH brackets
-	iter = substitutions.find(std::string("[" + token + "]"));
+	// S24 : the bracketed key is built once, with its size reserved
+	std::string bracketed;
+	bracketed.reserve(token.size() + 2);
+	bracketed.append(1, '[').append(token).append(1, ']');
+	iter = substitutions.find(bracketed);
 	if (iter != substitutions.end())
 	{
 		replacement = iter->second;
@@ -1378,7 +1399,7 @@ bool LLStringUtil::simpleReplacement(std::string &replacement, std::string token
 
 // static
 template<> 
-bool LLStringUtil::simpleReplacement(std::string &replacement, std::string token, const LLSD& substitutions)
+bool LLStringUtil::simpleReplacement(std::string &replacement, const std::string& token, const LLSD& substitutions)
 {
 	// see if we have a replacement for the bracketed string (without the brackets)
 	// test first using has() because if we just look up with operator[] we get back an
@@ -1390,10 +1411,16 @@ bool LLStringUtil::simpleReplacement(std::string &replacement, std::string token
 		return true;
 	}
 	// if not, see if there's one WITH brackets
-	else if (substitutions.has(std::string("[" + token + "]")))
+	else
 	{
-		replacement = substitutions[std::string("[" + token + "]")].asString();
-		return true;
+		std::string bracketed;
+		bracketed.reserve(token.size() + 2);
+		bracketed.append(1, '[').append(token).append(1, ']');
+		if (substitutions.has(bracketed))
+		{
+			replacement = substitutions[bracketed].asString();
+			return true;
+		}
 	}
 
 	return false;
@@ -1588,6 +1615,7 @@ S32 LLStringUtil::format(std::string& s, const format_map_t& substitutions)
 	S32 res = 0;
 
 	std::string output;
+	output.reserve(s.size() + 32);
 	std::vector<std::string> tokens;
 
 	std::string::size_type start = 0;
@@ -1595,7 +1623,7 @@ S32 LLStringUtil::format(std::string& s, const format_map_t& substitutions)
 	std::string::size_type key_start = 0;
 	while ((key_start = getSubstitution(s, start, tokens)) != std::string::npos)
 	{
-		output += std::string(s, prev_start, key_start-prev_start);
+		output.append(s, prev_start, key_start-prev_start);
 		prev_start = start;
 		
 		bool found_replacement = false;
@@ -1643,13 +1671,13 @@ S32 LLStringUtil::format(std::string& s, const format_map_t& substitutions)
 		{
 			// we had no replacement, use the string as is
 			// e.g. "hello [MISSING_REPLACEMENT]" or "-=[Stylized Name]=-"
-			output += std::string(s, key_start, start-key_start);
+			output.append(s, key_start, start-key_start);
 		}
 		tokens.clear();
 	}
 	// send the remainder of the string (with no further matches for bracketed names)
-	output += std::string(s, start);
-	s = output;
+	output.append(s, start, std::string::npos);
+	s = std::move(output);
 	return res;
 }
 
@@ -1665,6 +1693,7 @@ S32 LLStringUtil::format(std::string& s, const LLSD& substitutions)
 	}
 
 	std::string output;
+	output.reserve(s.size() + 32);
 	std::vector<std::string> tokens;
 
 	std::string::size_type start = 0;
@@ -1672,7 +1701,7 @@ S32 LLStringUtil::format(std::string& s, const LLSD& substitutions)
 	std::string::size_type key_start = 0;
 	while ((key_start = getSubstitution(s, start, tokens)) != std::string::npos)
 	{
-		output += std::string(s, prev_start, key_start-prev_start);
+		output.append(s, prev_start, key_start-prev_start);
 		prev_start = start;
 		
 		bool found_replacement = false;
@@ -1712,13 +1741,13 @@ S32 LLStringUtil::format(std::string& s, const LLSD& substitutions)
 		{
 			// we had no replacement, use the string as is
 			// e.g. "hello [MISSING_REPLACEMENT]" or "-=[Stylized Name]=-"
-			output += std::string(s, key_start, start-key_start);
+			output.append(s, key_start, start-key_start);
 		}
 		tokens.clear();
 	}
 	// send the remainder of the string (with no further matches for bracketed names)
-	output += std::string(s, start);
-	s = output;
+	output.append(s, start, std::string::npos);
+	s = std::move(output);
 	return res;
 }
 

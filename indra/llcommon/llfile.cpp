@@ -125,7 +125,7 @@ static int set_errno_from_oserror(unsigned long oserr)
 // On Windows, use strerror_s().
 std::string strerr(int errn)
 {
-	char buffer[256];
+	char buffer[256] = {};          // S24 : stays terminated if strerror_s fails
 	strerror_s(buffer, errn);       // infers sizeof(buffer) -- love it!
 	return buffer;
 }

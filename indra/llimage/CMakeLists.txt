@@ -8,7 +8,7 @@ include(LLImage)
 include(LLMath)
 include(LLFileSystem)
 include(LLImageJ2COJ)
-include(ZLib)
+include(ZLIB)
 include(Tut)
 
 include_directories(

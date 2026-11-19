@@ -114,11 +114,6 @@ bool LLMutex::isSelfLocked()
 	return mLockingThread == LLThread::currentID();
 }
 
-LLThread::id_t LLMutex::lockingThread() const
-{
-	return mLockingThread;
-}
-
 bool LLMutex::trylock()
 {
 	if(isSelfLocked())

@@ -26,6 +26,7 @@
 #ifndef LL_LLUUID_H
 #define LL_LLUUID_H
 
+#include <cstring>
 #include <functional>
 #include <iostream>
 #include <set>
@@ -107,19 +108,18 @@ public:
 	void to_chars(char* out) const;
 	void to_wchars(wchar_t* out) const;
 	void toString(std::string& out) const;
-	void toCompressedString(std::string& out) const;
 
 	std::string asString() const;
 	std::string getString() const;
 
-	U16 getCRC16() const;
 	U32 getCRC32() const;
 
 	// Returns a 64 bits digest of the UUID, by XORing its two 64 bits long
 	// words. HB
 	inline U64 getDigest64() const
 	{
-		U64* tmp = (U64*)mData;
+		U64 tmp[2];
+		memcpy(tmp, mData, sizeof(tmp)); // S24 : no unaligned/aliasing cast
 		return tmp[0] ^ tmp[1];
 	}
 
@@ -179,19 +179,18 @@ namespace std
 	{
 		inline size_t operator()(const LLUUID& id) const noexcept
 		{
-            size_t h = 0;
-            // Golden ratio hash with avalanche mixing
-            // Process 8 bytes at a time by manually constructing 64-bit values
+            // Golden ratio hash with avalanche mixing over the two 64-bit halves.
             // Shift by 31: mixes upper half into lower half for better bit distribution
             // Shift by 47: ensures highest bits influence final hash output
-            for (int i = 0; i < UUID_BYTES; i += 8) {
-                size_t chunk = (size_t)id.mData[i] | ((size_t)id.mData[i+1] << 8) |
-                               ((size_t)id.mData[i+2] << 16) | ((size_t)id.mData[i+3] << 24) |
-                               ((size_t)id.mData[i+4] << 32) | ((size_t)id.mData[i+5] << 40) |
-                               ((size_t)id.mData[i+6] << 48) | ((size_t)id.mData[i+7] << 56);
-                h ^= (chunk * 0x9e3779b97f4a7c15ULL) ^ (h >> 31) ^ (h >> 47);
-            }
-            return h;
+            // S24 : two memcpy loads instead of assembling each half from eight byte loads (same value on
+            // little-endian x64); the first round starts from h = 0 so it is just w0 * K.
+            static_assert(UUID_BYTES == 16, "hash reads the UUID as two 64-bit words");
+            uint64_t w[2];
+            std::memcpy(w, id.mData, sizeof(w));
+            constexpr uint64_t K = 0x9e3779b97f4a7c15ULL;
+            uint64_t h = w[0] * K;
+            h ^= (w[1] * K) ^ (h >> 31) ^ (h >> 47);
+            return (size_t)h;
         }
 	};
 }

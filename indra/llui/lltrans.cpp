@@ -149,9 +149,20 @@ std::string LLTrans::getString(std::string_view xml_desc, const LLStringUtil::fo
     if (iter != sStringTemplates.end())
     {
         std::string text = iter->second.mText;
-        LLStringUtil::format_map_t args = sDefaultArgs;
-        args.insert(msg_args.begin(), msg_args.end());
-        LLStringUtil::format(text, args);
+        // S24 : no [..] means no substitution, and the default map is only copied when there are extra args
+        if (text.find('[') != std::string::npos)
+        {
+            if (msg_args.empty())
+            {
+                LLStringUtil::format(text, sDefaultArgs);
+            }
+            else
+            {
+                LLStringUtil::format_map_t args = sDefaultArgs;
+                args.insert(msg_args.begin(), msg_args.end());
+                LLStringUtil::format(text, args);
+            }
+        }
 
         return text;
     }
@@ -169,9 +180,20 @@ std::string LLTrans::getDefString(std::string_view xml_desc, const LLStringUtil:
     if (iter != sDefaultStringTemplates.end())
     {
         std::string text = iter->second.mText;
-        LLStringUtil::format_map_t args = sDefaultArgs;
-        args.insert(msg_args.begin(), msg_args.end());
-        LLStringUtil::format(text, args);
+        // S24 : no [..] means no substitution, and the default map is only copied when there are extra args
+        if (text.find('[') != std::string::npos)
+        {
+            if (msg_args.empty())
+            {
+                LLStringUtil::format(text, sDefaultArgs);
+            }
+            else
+            {
+                LLStringUtil::format_map_t args = sDefaultArgs;
+                args.insert(msg_args.begin(), msg_args.end());
+                LLStringUtil::format(text, args);
+            }
+        }
 
         return text;
     }

@@ -27,10 +27,6 @@
 #include "llworkerthread.h"
 #include "llstl.h"
 
-#if USE_FRAME_CALLBACK_MANAGER
-#include "llframecallbackmanager.h"
-#endif
-
 //============================================================================
 // Run on MAIN thread
 

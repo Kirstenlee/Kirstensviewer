@@ -28,13 +28,10 @@
 
 class LLRenderTarget;
 
-// S24 (2026-08-26, task #263): built for the snapshot system (a 4K "native
-// re-render" request was found to blow past the GPU driver's TDR timeout
-// and take the whole device down - see project memory task #263), but
-// deliberately generic - cross-backend (GL and DX_RENDER both, same as
-// LLPipeline::generateGlow() which this is modeled on), reusable anywhere
-// a render target needs a genuinely good GPU resize (thumbnail generation,
-// future UI scaling), not snapshot-specific.
+// Built for the snapshot system (a large "native re-render" request can
+// blow past the GPU driver's TDR timeout), but deliberately generic -
+// cross-backend, modeled on LLPipeline::generateGlow(), reusable anywhere a
+// render target needs a genuinely good GPU resize (thumbnails, UI scaling).
 class LLGPUResize
 {
 public:

@@ -5698,7 +5698,7 @@ struct MikktData
 		catch (std::bad_alloc&)
 		{
 			LLError::LLUserWarningMsg::showOutOfMemory();
-			LL_ERRS("LLCoros") << "Bad memory allocation in MikktData, elements count: " << count << LL_ENDL;
+			LL_ERRS("LLVolume") << "Bad memory allocation in MikktData, elements count: " << count << LL_ENDL;
 		}
 
 

@@ -245,7 +245,10 @@ float4 main(PSInput IN) : SV_Target
                     if (spec.a > 0.0)
                     {
                         lit = min(nl2 * 6.0, 1.0) * dist_atten;
-                        float fres = pow(abs(1 - vh), 5) * 0.4 + 0.5;
+                        // S24 : x^5 as three multiplies, not pow()
+                        float fres_base = abs(1 - vh);
+                        float fres_base2 = fres_base * fres_base;
+                        float fres = fres_base2 * fres_base2 * fres_base * 0.4 + 0.5;
                         float gt = max(0, min(2 * nh * nv / vh, 2 * nh * nl2 / vh));
                         if (nh > 0.0)
                         {

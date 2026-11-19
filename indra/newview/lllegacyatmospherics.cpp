@@ -202,7 +202,7 @@ void LLAtmospherics::init()
     mInitialized = true;
 }
 
-// This cubemap is used as "environmentMap" in indra/newview/app_settings/shaders/class2/deferred/softenLightF.glsl
+// This cubemap is used as "environmentMap" in indra/newview/app_settings/shaders/deferred/softenLightF.glsl
 LLColor4 LLAtmospherics::calcSkyColorInDir(const LLSettingsSky::ptr_t &psky, AtmosphericsVars& vars, const LLVector3 &dir, bool isShiny, bool low_end)
 {
     const F32 sky_saturation = 0.25f;
@@ -258,8 +258,8 @@ LLColor4 LLAtmospherics::calcSkyColorInDir(const LLSettingsSky::ptr_t &psky, Atm
 }
 
 // NOTE: Keep these in sync!
-//       indra\newview\app_settings\shaders\class1\deferred\skyV.glsl
-//       indra\newview\app_settings\shaders\class1\deferred\cloudsV.glsl
+//       indra\newview\app_settings\shaders\deferred\skyV.glsl
+//       indra\newview\app_settings\shaders\deferred\cloudsV.glsl
 //       indra\newview\lllegacyatmospherics.cpp
 void LLAtmospherics::calcSkyColorWLVert(const LLSettingsSky::ptr_t &psky, LLVector3 & Pn, AtmosphericsVars& vars)
 {

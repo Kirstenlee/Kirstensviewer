@@ -274,7 +274,6 @@ void LLManipRotate::render()
             }
 
             DXStateEnable cull_face(DX_CULL_FACE);
-            DXStateEnable clip_plane0(GL_CLIP_PLANE0);
             DXDepthTest gls_depth(false);
             //DXStateDisable gls_stencil(GL_STENCIL_TEST);
 

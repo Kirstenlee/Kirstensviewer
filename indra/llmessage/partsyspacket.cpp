@@ -342,41 +342,6 @@ void twoBytesFromFloat(F32 fIn, S8 &bMant, S8 &bExp)
 
 
 
-/*
-U32 LLPartSysCompressedPacket::writeK(LLPartInitData *in, U32 startByte)
-{
-    U32 i, kFlag, i_mod_eight;
-    S8 bMant, bExp;
-
-    kFlag = startByte;
-
-    startByte += 3; // 3 bytes contain enough room for 18 flag bits
-    mData[kFlag] = 0x00;
-//  llprintline("In the writeK\n");
-
-    i_mod_eight = 0;
-    for(i = 0; i < 18; i++)
-    {
-        if(in->k[i] != mDefaults.k[i])
-        {
-
-            mData[kFlag] |= 1<<i_mod_eight;
-            twoBytesFromFloat(in->k[i], bMant, bExp);
-
-            mData[startByte++] = bMant;
-            mData[startByte++] = bExp;
-        }
-        i_mod_eight++;
-        while(i_mod_eight >= 8)
-        {
-            kFlag++;
-            i_mod_eight -= 8;
-        }
-    }
-
-    return startByte;
-}*/
-
 U32 LLPartSysCompressedPacket::writeKill_p(LLPartInitData *in, U32 startByte)
 {
     S8 bMant, bExp;

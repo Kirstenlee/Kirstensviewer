@@ -43,6 +43,7 @@ LLTemplateMessageReader::LLTemplateMessageReader(message_template_number_map_t&
     mReceiveSize(0),
     mCurrentRMessageTemplate(NULL),
     mCurrentRMessageData(NULL),
+    mOwnsCurrentRMessageData(false),
     mMessageNumbers(number_template_map)
 {
 }
@@ -50,8 +51,12 @@ LLTemplateMessageReader::LLTemplateMessageReader(message_template_number_map_t&
 //virtual
 LLTemplateMessageReader::~LLTemplateMessageReader()
 {
-    delete mCurrentRMessageData;
-    mCurrentRMessageData = NULL;
+    if (mOwnsCurrentRMessageData)
+    {
+        delete mCurrentRMessageData;
+        mOwnsCurrentRMessageData = false;
+    }
+    mCurrentRMessageData = nullptr;
 }
 
 //virtual
@@ -59,8 +64,12 @@ void LLTemplateMessageReader::clearMessage()
 {
     mReceiveSize = -1;
     mCurrentRMessageTemplate = NULL;
-    delete mCurrentRMessageData;
-    mCurrentRMessageData = NULL;
+    if (mOwnsCurrentRMessageData)
+    {
+        delete mCurrentRMessageData;
+        mOwnsCurrentRMessageData = false;
+    }
+    mCurrentRMessageData = nullptr;
 }
 
 void LLTemplateMessageReader::getData(const char *blockname, const char *varname, void *datap, S32 size, S32 blocknum, S32 max_size)
@@ -93,14 +102,16 @@ void LLTemplateMessageReader::getData(const char *blockname, const char *varname
     LLMsgBlkData *msg_block_data = iter->second;
     LLMsgBlkData::msg_var_data_map_t &var_data_map = msg_block_data->mMemberVarData;
 
-    if (var_data_map.find(vnamep) == var_data_map.end())
+    // S24 : one lookup (it was found, thrown away, and then looked up twice more)
+    const auto var_iter = var_data_map.find(vnamep);
+    if (var_iter == var_data_map.end())
     {
         LL_ERRS() << "Variable "<< vnamep << " not in message "
             << mCurrentRMessageData->mName<< " block " << bnamep << LL_ENDL;
         return;
     }
 
-    LLMsgVarData& vardata = msg_block_data->mMemberVarData[vnamep];
+    LLMsgVarData& vardata = const_cast<LLMsgVarData&>(*var_iter);
 
     if (size && size != vardata.getSize())
     {
@@ -206,8 +217,15 @@ S32 LLTemplateMessageReader::getSize(const char *blockname, const char *varname)
 
     char *vnamep = (char *)varname;
 
+    // S24 : a lookup, not operator[]: asking for a variable the message does not have used to add an empty entry
+    // to the message (a map node and a vector element) just to find out it was missing
     LLMsgBlkData* msg_data = iter->second;
-    LLMsgVarData& vardata = msg_data->mMemberVarData[vnamep];
+    const auto var_iter = msg_data->mMemberVarData.find(vnamep);
+    if (var_iter == msg_data->mMemberVarData.end())
+    {
+        return LL_VARIABLE_NOT_IN_BLOCK;
+    }
+    const LLMsgVarData& vardata = *var_iter;
 
     if (!vardata.getName())
     {
@@ -254,8 +272,15 @@ S32 LLTemplateMessageReader::getSize(const char *blockname, S32 blocknum, const 
         return LL_BLOCK_NOT_IN_MESSAGE;
     }
 
+    // S24 : a lookup, not operator[]: asking for a variable the message does not have used to add an empty entry
+    // to the message (a map node and a vector element) just to find out it was missing
     LLMsgBlkData* msg_data = iter->second;
-    LLMsgVarData& vardata = msg_data->mMemberVarData[vnamep];
+    const auto var_iter = msg_data->mMemberVarData.find(vnamep);
+    if (var_iter == msg_data->mMemberVarData.end())
+    {
+        return LL_VARIABLE_NOT_IN_BLOCK;
+    }
+    const LLMsgVarData& vardata = *var_iter;
 
     if (!vardata.getName())
     {
@@ -552,22 +577,22 @@ void LLTemplateMessageReader::logRanOffEndOfPacket( const LLHost& host, const S3
 static LLTrace::BlockTimerStatHandle FTM_PROCESS_MESSAGES("Process Messages");
 
 // decode a given message
-bool LLTemplateMessageReader::decodeData(const U8* buffer, const LLHost& sender )
+std::unique_ptr<LLMsgData> LLTemplateMessageReader::decodeDataOwned(const U8* buffer, const LLHost& sender)
 {
     LL_RECORD_BLOCK_TIME(FTM_PROCESS_MESSAGES);
 
     llassert( mReceiveSize >= 0 );
     llassert( mCurrentRMessageTemplate);
-    llassert( !mCurrentRMessageData );
-    delete mCurrentRMessageData; // just to make sure
 
     // The offset tells us how may bytes to skip after the end of the
     // message name.
     U8 offset = buffer[PHL_OFFSET];
     S32 decode_pos = LL_PACKET_ID_SIZE + (S32)(mCurrentRMessageTemplate->mFrequency) + offset;
 
-    // create base working data set
-    mCurrentRMessageData = new LLMsgData(mCurrentRMessageTemplate->mName);
+    auto msg_data = std::make_unique<LLMsgData>(mCurrentRMessageTemplate->mName);
+    // S24 : the field bytes are copied out of the packet, so they need at most the packet size (plus alignment
+    // padding; a field that does not fit falls back to its own allocation)
+    msg_data->reserveArena((size_t)mReceiveSize + ((size_t)mReceiveSize >> 1) + 32);
 
     // loop through the template building the data structure as we go
     LLMessageTemplate::message_block_map_t::const_iterator iter;
@@ -613,7 +638,7 @@ bool LLTemplateMessageReader::decodeData(const U8* buffer, const LLHost& sender 
         else
         {
             LL_ERRS() << "Unknown block type" << LL_ENDL;
-            return false;
+            return nullptr;
         }
 
         LLMsgBlkData* cur_data_block = NULL;
@@ -634,7 +659,7 @@ bool LLTemplateMessageReader::decodeData(const U8* buffer, const LLHost& sender 
             }
 
             // add the block to the message
-            mCurrentRMessageData->addBlock(cur_data_block);
+            msg_data->addBlock(cur_data_block);
 
             // now read the variables
             for (LLMessageBlock::message_variable_map_t::const_iterator iter =
@@ -685,7 +710,14 @@ bool LLTemplateMessageReader::decodeData(const U8* buffer, const LLHost& sender 
                     }
                     decode_pos += data_size;
 
-                    cur_data_block->addData(mvci.getName(), &buffer[decode_pos], tsize, mvci.getType());
+                    if (U8* dest = tsize ? msg_data->arenaAlloc(tsize) : NULL)
+                    {
+                        cur_data_block->addDataInto(dest, mvci.getName(), &buffer[decode_pos], tsize, mvci.getType());
+                    }
+                    else
+                    {
+                        cur_data_block->addData(mvci.getName(), &buffer[decode_pos], tsize, mvci.getType());
+                    }
                     decode_pos += tsize;
                 }
                 else
@@ -702,6 +734,13 @@ bool LLTemplateMessageReader::decodeData(const U8* buffer, const LLHost& sender 
                         cur_data_block->addData(mvci.getName(), &(data[0]),
                                                 size, mvci.getType());
                     }
+                    else if (U8* dest = msg_data->arenaAlloc(mvci.getSize()))
+                    {
+                        cur_data_block->addDataInto(dest, mvci.getName(),
+                                                    &buffer[decode_pos],
+                                                    mvci.getSize(),
+                                                    mvci.getType());
+                    }
                     else
                     {
                         cur_data_block->addData(mvci.getName(),
@@ -715,63 +754,43 @@ bool LLTemplateMessageReader::decodeData(const U8* buffer, const LLHost& sender 
         }
     }
 
-    if (mCurrentRMessageData->mMemberBlocks.empty()
+    if (msg_data->mMemberBlocks.empty()
         && !mCurrentRMessageTemplate->mMemberBlocks.empty())
     {
         LL_DEBUGS() << "Empty message '" << mCurrentRMessageTemplate->mName << "' (no blocks)" << LL_ENDL;
-        return false;
+        return nullptr;
     }
 
+    return msg_data;
+}
+
+
+void LLTemplateMessageReader::setCurrentMessageData(LLMessageTemplate* tmpl, LLMsgData* data, S32 receive_size)
+{
+    // If we previously owned decoded data, release it
+    if (mOwnsCurrentRMessageData)
     {
-        static LLTimer decode_timer;
-
-        if(LLMessageReader::getTimeDecodes() || gMessageSystem->getTimingCallback())
-        {
-            decode_timer.reset();
-        }
-
-        // S24 - Removed warning for messages with no handler function
-        // Not all messages require handlers - some are informational/deprecated
-        // Gains: ~40-60 cycles per unhandled message
-        // Rationale: Missing handler is not an error - by design some messages are ignored.
-        //            If handler is actually required, functionality will fail obviously.
-        //            Console spam provides no value.
-        mCurrentRMessageTemplate->callHandlerFunc(gMessageSystem);
-
-        if(LLMessageReader::getTimeDecodes() || gMessageSystem->getTimingCallback())
-        {
-            F32 decode_time = decode_timer.getElapsedTimeF32();
-
-            if (gMessageSystem->getTimingCallback())
-            {
-                (gMessageSystem->getTimingCallback())(mCurrentRMessageTemplate->mName,
-                                decode_time,
-                                gMessageSystem->getTimingCallbackData());
-            }
-
-            if (LLMessageReader::getTimeDecodes())
-            {
-                mCurrentRMessageTemplate->mDecodeTimeThisFrame += decode_time;
-
-                mCurrentRMessageTemplate->mTotalDecoded++;
-                mCurrentRMessageTemplate->mTotalDecodeTime += decode_time;
-
-                if( mCurrentRMessageTemplate->mMaxDecodeTimePerMsg < decode_time )
-                {
-                    mCurrentRMessageTemplate->mMaxDecodeTimePerMsg = decode_time;
-                }
-
-
-                // S24 - Removed decode timing spam from hot path
-                // This LL_DEBUGS executes on EVERY slow message decode (threshold exceeded)
-                // Gains: ~80-150 cycles per slow message (string construction + division + stream ops)
-                // Rationale: Timing stats are already collected in mTotalDecodeTime/mMaxDecodeTimePerMsg.
-                //            If you need timing analysis, use the timing callback mechanism.
-                //            Console spam during normal operation provides no actionable value.
-                //            Preserved all timing stat collection - only removed console output.
-            }
-        }
+        // Due to threaded nature, tracking ownership explicitly
+        delete mCurrentRMessageData;
     }
+    mCurrentRMessageTemplate = tmpl;
+    mCurrentRMessageData = data;
+    mReceiveSize = receive_size;
+    mOwnsCurrentRMessageData = false;
+}
+
+bool LLTemplateMessageReader::decodeData(const U8* buffer, const LLHost& sender)
+{
+    if (mOwnsCurrentRMessageData)
+    {
+        delete mCurrentRMessageData;
+    }
+    mCurrentRMessageData = decodeDataOwned(buffer, sender).release();
+    mOwnsCurrentRMessageData = (mCurrentRMessageData != nullptr);
+    if (!mCurrentRMessageData) return false;
+
+    // S24 : a message without a handler is by design (informational/deprecated), no warning
+    mCurrentRMessageTemplate->callHandlerFunc(gMessageSystem);
     return true;
 }
 
@@ -784,7 +803,7 @@ bool LLTemplateMessageReader::validateMessage(const U8* buffer,
     bool valid = decodeTemplate(buffer, buffer_size, &mCurrentRMessageTemplate );
     if(valid)
     {
-        mCurrentRMessageTemplate->mReceiveCount++;
+        mCurrentRMessageTemplate->recordReceive();
         //LL_DEBUGS() << "MessageRecvd:"
         //                       << mCurrentRMessageTemplate->mName
         //                       << " from " << sender << LL_ENDL;

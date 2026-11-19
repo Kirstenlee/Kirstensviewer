@@ -52,23 +52,18 @@ public:
     // ============================================================
     bool init();
 
-    // S24 (2026-09-09, BC7 texture-compression pipeline): was private -
-    // this is exactly what an out-of-TU background caller (DXBC7Compressor,
-    // dxrender/) needs to safely lazy-init this class the same way every
-    // existing run*() method already does internally. Now guarded by
-    // mInitMutex (see .cpp) so it's safe to call concurrently with the main
-    // thread's own per-frame VFX use - previously an unguarded
-    // check-then-set race on `initialized`.
+    // Public so an out-of-TU background caller (DXBC7Compressor, dxrender/)
+    // can lazy-init this class the same way every run*() method does
+    // internally. Guarded by mInitMutex (see .cpp), safe to call concurrently
+    // with the main thread's per-frame VFX use.
     bool ensureInit();
 
-    // S24 (2026-09-09, BC7 pipeline): accessors for a second, independent
-    // caller (DXBC7Compressor) that needs its own dedicated cl_command_queue
-    // (so its blocking writeBuffer/readBuffer calls on a background thread
-    // never contend with the main thread's per-frame VFX queue) and its own
-    // dedicated cl_kernel (so it never touches the unguarded, main-thread-
-    // only kernelCache/getKernel() path). context/device/platform are
-    // create-once in init() and never reassigned after - safe to read from
-    // any thread once ensureInit() has returned true.
+    // Accessors for DXBC7Compressor, which needs its own dedicated
+    // cl_command_queue (so background-thread writeBuffer/readBuffer never
+    // contends with the main thread's per-frame VFX queue) and its own kernel
+    // (bypassing kernelCache/getKernel()). context/device/platform are
+    // create-once in init(); safe to read from any thread once ensureInit()
+    // has returned true.
     cl_context getContext() const { return context; }
     cl_device_id getDevice() const { return device; }
     cl_command_queue getComputeQueue() const { return computeQueue; }
@@ -169,29 +164,18 @@ public:
     cl_device_id device;
     cl_context context;
     cl_command_queue queue;
-    // S24 (2026-09-09, BC7 pipeline): second queue, same context/device
-    // (OpenCL spec explicitly allows multiple queues sharing one context) -
-    // reserved for DXBC7Compressor's background-thread use so it never
-    // shares a queue (and therefore never needs to serialize) with the main
-    // thread's per-frame VFX enqueue calls on `queue` above.
+    // Second queue, same context/device (OpenCL allows multiple queues per
+    // context) — reserved for DXBC7Compressor's background thread so it
+    // never shares/serializes with the main thread's VFX queue above.
     cl_command_queue computeQueue;
-    // S24 (2026-09-09, BC7 pipeline): was a plain bool - ensureInit()'s
-    // fast-path check (the overwhelmingly common case: already initialized,
-    // called every frame per VFX effect) reads this with NO lock for speed,
-    // so it needs to be an atomic rather than a data race over a plain bool.
-    // The actual init-or-not transition is still fully serialized by
-    // mInitMutex inside init() itself - this atomic only makes the cheap
-    // "are we already done" read safe to do lock-free.
+    // Atomic (not a plain bool): ensureInit()'s fast-path check reads this
+    // with no lock for speed. The actual init transition is fully serialized
+    // by mInitMutex inside init(); this only makes the cheap "already done"
+    // read safe lock-free.
     std::atomic<bool> initialized;
 
-    // S24 (2026-09-09, BC7 pipeline): guards the init()/ensureInit()
-    // check-then-set and ensures only one thread ever runs the actual
-    // clCreateContext/clCreateCommandQueue sequence. Also guards
-    // kernelCache below - getKernel() is otherwise an unguarded
-    // unordered_map find+insert, unsafe if ever called from more than one
-    // thread (DXBC7Compressor does NOT use it - see getKernel()'s own
-    // comment - but this still closes the theoretical gap for any future
-    // caller).
+    // Guards the init()/ensureInit() check-then-set and the kernelCache
+    // find+insert in getKernel() (DXBC7Compressor bypasses that cache).
     std::mutex mInitMutex;
 
     // ============================================================
@@ -231,11 +215,9 @@ public:
     static const char* kCLInvertImage;   // Image2D inversion
 };
 
-// S24 (2026-09-09, BC7 texture-compression pipeline): the single shared
-// KVOpenCL instance (defined non-static now in kveffects.cpp - see its own
-// comment there). Declared here rather than in kveffects.h so callers that
-// only need the OpenCL wrapper itself (DXBC7Compressor, dxrender/) don't
-// need to pull in kveffects.h's VFX-specific API surface at all.
+// The single shared KVOpenCL instance (defined in kveffects.cpp). Declared
+// here rather than in kveffects.h so callers that only need the OpenCL
+// wrapper (DXBC7Compressor, dxrender/) don't need kveffects.h's VFX API.
 extern KVOpenCL gCL;
 
 #endif // KVOPENCL_HPP

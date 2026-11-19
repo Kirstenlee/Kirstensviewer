@@ -127,6 +127,10 @@ private:
     std::vector<DXUIVertex> mVertices;
     DXBuffer mVertexBuffer;
     size_t mVertexCapacity = 0; // in DXUIVertex units, current GPU buffer size
+    // S24 : batches are appended one after another into the buffer (NO_OVERWRITE) and the buffer is only discarded
+    // (renamed by the driver) when it wraps or is recreated, not once per batch
+    size_t mWriteCursor = 0;    // in DXUIVertex units
+    bool mNeedDiscard = true;
 
     bool mHasPending = false;
     BatchState mPendingState;

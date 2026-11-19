@@ -1471,8 +1471,12 @@ void LLSecAPIBasicHandler::_readProtectedData(unsigned char *unique_id, U32 id_l
         int decrypted_length = 0;
         if (legacy_len > 0)
         {
-            EVP_DecryptUpdate(ctx, (U8*)decrypted_data.data(), &decrypted_length,
-                              (const U8*)raw.data() + STORE_SALT_SIZE, (int)legacy_len);
+            if (EVP_DecryptUpdate(ctx, (U8*)decrypted_data.data(), &decrypted_length,
+                                  (const U8*)raw.data() + STORE_SALT_SIZE, (int)legacy_len) != 1)
+            {
+                EVP_CIPHER_CTX_free(ctx);
+                LLTHROW(LLProtectedDataException("Legacy RC4 decryption failed."));
+            }
         }
         decrypted_data.resize(decrypted_length);
         // RC4 is a stream cipher, so we don't bother to EVP_DecryptFinal, as there is

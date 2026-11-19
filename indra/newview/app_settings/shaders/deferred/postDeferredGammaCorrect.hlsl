@@ -89,15 +89,16 @@ float3 applyGodrays(float2 pos_screen, float2 pixel_pos, float3 base_color)
     // S24: see postDeferredTonemap.hlsl's identical comment - soft occlusion edges via a real
     // multi-tap spatial blur, not noise dithering (the perpendicular jitter this used to have
     // read as visible dither speckle on hard silhouette edges - bandyray.png).
-    static const int kOcclusionTaps = 4;
+    // S24: trimmed to the 2 perpendicular taps, exactly as postDeferredTonemap.hlsl already is (the along-ray
+    // pair blurs in the direction the march already samples): 40 samples x 3 depth fetches instead of x5, and
+    // the same look on both paths.
+    static const int kOcclusionTaps = 2;
     static const float kOcclusionBlurRadius = 0.02;
     float2 perp_dir = float2(-dir_to_sun.y, dir_to_sun.x);
-    float2 occ_offsets[4] =
+    float2 occ_offsets[2] =
     {
         perp_dir * kOcclusionBlurRadius,
-        -perp_dir * kOcclusionBlurRadius,
-        dir_to_sun * kOcclusionBlurRadius,
-        -dir_to_sun * kOcclusionBlurRadius
+        -perp_dir * kOcclusionBlurRadius
     };
 
     for (int i = 0; i < kGodraySamples; ++i)

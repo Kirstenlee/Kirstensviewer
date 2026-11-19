@@ -32,12 +32,10 @@
 #include "llviewershadermgr.h"
 #include "llrender.h"
 
-// S24 (2026-08-26, task #263): see llgpuresize.h's class comment and
-// resizeBicubic.hlsl's own comment for the full design. Structure mirrors
-// LLPipeline::generateGlow()'s two-pass ping-pong (pipeline.cpp) - the
-// established, already-proven cross-backend shape for "run a separable
-// shader pass over a render target" in this codebase - rather than hand-
-// rolling raw D3D11 pipeline state.
+// Structure mirrors LLPipeline::generateGlow()'s two-pass ping-pong
+// (pipeline.cpp) - the established cross-backend shape for running a
+// separable shader pass over a render target. See llgpuresize.h's class
+// comment and resizeBicubic.hlsl for the full design.
 bool LLGPUResize::resize(LLRenderTarget* src, LLRenderTarget* dst)
 {
     if (!src || !dst || !src->isComplete() || !dst->isComplete())

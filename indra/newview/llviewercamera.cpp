@@ -210,47 +210,64 @@ void LLViewerCamera::updateFrustumPlanes(LLCamera& camera, bool ortho, bool zfli
 	glm::mat4 model = get_current_modelview();
 	glm::mat4 proj = get_current_projection();
 
+	// S24 : glm::unProject() inverts proj * model on every call, and this function unprojects eight corners of
+	// the same matrix, a dozen or more times a frame. The inverse is taken once and the rest of unProjectNO()
+	// (glm/ext/matrix_projection.inl) is repeated here exactly.
+	static_assert(!(GLM_CONFIG_CLIP_CONTROL & GLM_CLIP_CONTROL_ZO_BIT), "unproject below is the [-1,1] depth convention");
+	const glm::mat4 inverse_proj_model = glm::inverse(proj * model);
+	auto unproject = [&inverse_proj_model, &viewport](const glm::vec3& win) -> glm::vec3
+	{
+		glm::vec4 tmp(win, 1.f);
+		tmp.x = (tmp.x - (float)viewport[0]) / (float)viewport[2];
+		tmp.y = (tmp.y - (float)viewport[1]) / (float)viewport[3];
+		tmp = tmp * 2.f - 1.f;
+
+		glm::vec4 obj = inverse_proj_model * tmp;
+		obj /= obj.w;
+		return glm::vec3(obj);
+	};
+
 	LLVector3 frust[8];
 
 	glm::vec3 obj = {};
 	if (no_hacks)
 	{
-		obj = glm::unProject(glm::vec3(viewport[0], viewport[1], 0), model, proj, viewport);
+		obj = unproject(glm::vec3(viewport[0], viewport[1], 0));
 		frust[0].setVec(glm::value_ptr(obj));
-		obj = glm::unProject(glm::vec3(viewport[0] + viewport[2], viewport[1], 0), model, proj, viewport);
+		obj = unproject(glm::vec3(viewport[0] + viewport[2], viewport[1], 0));
 		frust[1].setVec(glm::value_ptr(obj));
-		obj = glm::unProject(glm::vec3(viewport[0] + viewport[2], viewport[1] + viewport[3], 0), model, proj, viewport);
+		obj = unproject(glm::vec3(viewport[0] + viewport[2], viewport[1] + viewport[3], 0));
 		frust[2].setVec(glm::value_ptr(obj));
-		obj = glm::unProject(glm::vec3(viewport[0], viewport[1] + viewport[3], 0), model, proj, viewport);
+		obj = unproject(glm::vec3(viewport[0], viewport[1] + viewport[3], 0));
 		frust[3].setVec(glm::value_ptr(obj));
 
-		obj = glm::unProject(glm::vec3(viewport[0], viewport[1], 1), model, proj, viewport);
+		obj = unproject(glm::vec3(viewport[0], viewport[1], 1));
 		frust[4].setVec(glm::value_ptr(obj));
-		obj = glm::unProject(glm::vec3(viewport[0] + viewport[2], viewport[1], 1), model, proj, viewport);
+		obj = unproject(glm::vec3(viewport[0] + viewport[2], viewport[1], 1));
 		frust[5].setVec(glm::value_ptr(obj));
-		obj = glm::unProject(glm::vec3(viewport[0] + viewport[2], viewport[1] + viewport[3], 1), model, proj, viewport);
+		obj = unproject(glm::vec3(viewport[0] + viewport[2], viewport[1] + viewport[3], 1));
 		frust[6].setVec(glm::value_ptr(obj));
-		obj = glm::unProject(glm::vec3(viewport[0], viewport[1] + viewport[3], 1), model, proj, viewport);
+		obj = unproject(glm::vec3(viewport[0], viewport[1] + viewport[3], 1));
 		frust[7].setVec(glm::value_ptr(obj));
 	}
 	else if (zflip)
 	{
-		obj = glm::unProject(glm::vec3(viewport[0], viewport[1] + viewport[3], 0), model, proj, viewport);
+		obj = unproject(glm::vec3(viewport[0], viewport[1] + viewport[3], 0));
 		frust[0].setVec(glm::value_ptr(obj));
-		obj = glm::unProject(glm::vec3(viewport[0] + viewport[2], viewport[1] + viewport[3], 0), model, proj, viewport);
+		obj = unproject(glm::vec3(viewport[0] + viewport[2], viewport[1] + viewport[3], 0));
 		frust[1].setVec(glm::value_ptr(obj));
-		obj = glm::unProject(glm::vec3(viewport[0] + viewport[2], viewport[1], 0), model, proj, viewport);
+		obj = unproject(glm::vec3(viewport[0] + viewport[2], viewport[1], 0));
 		frust[2].setVec(glm::value_ptr(obj));
-		obj = glm::unProject(glm::vec3(viewport[0], viewport[1], 0), model, proj, viewport);
+		obj = unproject(glm::vec3(viewport[0], viewport[1], 0));
 		frust[3].setVec(glm::value_ptr(obj));
 
-		obj = glm::unProject(glm::vec3(viewport[0], viewport[1] + viewport[3], 1), model, proj, viewport);
+		obj = unproject(glm::vec3(viewport[0], viewport[1] + viewport[3], 1));
 		frust[4].setVec(glm::value_ptr(obj));
-		obj = glm::unProject(glm::vec3(viewport[0] + viewport[2], viewport[1] + viewport[3], 1), model, proj, viewport);
+		obj = unproject(glm::vec3(viewport[0] + viewport[2], viewport[1] + viewport[3], 1));
 		frust[5].setVec(glm::value_ptr(obj));
-		obj = glm::unProject(glm::vec3(viewport[0] + viewport[2], viewport[1], 1), model, proj, viewport);
+		obj = unproject(glm::vec3(viewport[0] + viewport[2], viewport[1], 1));
 		frust[6].setVec(glm::value_ptr(obj));
-		obj = glm::unProject(glm::vec3(viewport[0], viewport[1], 1), model, proj, viewport);
+		obj = unproject(glm::vec3(viewport[0], viewport[1], 1));
 		frust[7].setVec(glm::value_ptr(obj));
 
 		for (U32 i = 0; i < 4; i++)
@@ -262,13 +279,13 @@ void LLViewerCamera::updateFrustumPlanes(LLCamera& camera, bool ortho, bool zfli
 	}
 	else
 	{
-		obj = glm::unProject(glm::vec3(viewport[0], viewport[1], 0), model, proj, viewport);
+		obj = unproject(glm::vec3(viewport[0], viewport[1], 0));
 		frust[0].setVec(glm::value_ptr(obj));
-		obj = glm::unProject(glm::vec3(viewport[0] + viewport[2], viewport[1], 0), model, proj, viewport);
+		obj = unproject(glm::vec3(viewport[0] + viewport[2], viewport[1], 0));
 		frust[1].setVec(glm::value_ptr(obj));
-		obj = glm::unProject(glm::vec3(viewport[0] + viewport[2], viewport[1] + viewport[3], 0), model, proj, viewport);
+		obj = unproject(glm::vec3(viewport[0] + viewport[2], viewport[1] + viewport[3], 0));
 		frust[2].setVec(glm::value_ptr(obj));
-		obj = glm::unProject(glm::vec3(viewport[0], viewport[1] + viewport[3], 0), model, proj, viewport);
+		obj = unproject(glm::vec3(viewport[0], viewport[1] + viewport[3], 0));
 		frust[3].setVec(glm::value_ptr(obj));
 
 		if (ortho)

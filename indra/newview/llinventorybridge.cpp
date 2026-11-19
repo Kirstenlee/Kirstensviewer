@@ -78,6 +78,7 @@
 #include "llvoavatarself.h"
 #include "krlvattachment.h" // KRLV_TOUCHPOINT: @addattach / @detach:<point> gate
 #include "krlvsharedfolders.h" // KRLV_TOUCHPOINT: @attachthis / @detachthis folder-structure locks
+#include "krlvhandler.h" // KRLV_TOUCHPOINT: @setenv gate for environment settings items
 #include "llwearablelist.h"
 #include "llwearableitemslist.h"
 #include "lllandmarkactions.h"
@@ -865,7 +866,8 @@ void LLInvFVBridge::getClipboardEntries(bool show_asset_id,
         }
 
         bool is_agent_inventory = isAgentInventory();
-        if (is_agent_inventory && !single_folder_root && !is_cof && !is_inbox)
+        // S24 : a plain move would skip marketplace bookkeeping and break listings
+        if (is_agent_inventory && !single_folder_root && !is_cof && !is_inbox && !isMarketplaceListingsFolder())
         {
             items.push_back(std::string("New folder from selected"));
             items.push_back(std::string("Subfolder Separator"));
@@ -2494,6 +2496,12 @@ bool LLFolderBridge::isFavorite() const
 
 void LLFolderBridge::update()
 {
+    // S24 : no view (it was destroyed and cleared this back-pointer) means nothing to refresh
+    if (!mFolderViewItem)
+    {
+        return;
+    }
+
     // we know we have children but  haven't  fetched them (doesn't obey filter)
     bool loading = !isUpToDate() && hasChildren() && mFolderViewItem->isOpen();
 
@@ -7955,6 +7963,13 @@ LLUIImagePtr LLSettingsBridge::getIcon() const
 
 void LLSettingsBridge::performAction(LLInventoryModel* model, std::string action)
 {
+    // KRLV_TOUCHPOINT: @setenv=n - applying an environment from inventory
+    if (gKRlv.isRestricted("setenv")
+        && ("apply_settings_local" == action || "apply_settings_parcel" == action))
+    {
+        return;
+    }
+
     if ("apply_settings_local" == action)
     {
         // Single item only
@@ -8507,6 +8522,12 @@ class LLSettingsBridgeAction
 public:
     virtual void doIt()
     {
+        // KRLV_TOUCHPOINT: @setenv=n - the editors preview the settings live
+        if (gKRlv.isRestricted("setenv"))
+        {
+            return;
+        }
+
         LLViewerInventoryItem* item = getItem();
         if (item)
         {

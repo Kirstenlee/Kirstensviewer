@@ -114,7 +114,7 @@ public:
 protected:
 	void refresh();
 
-    void addNewItem(const LLUUID& id, const std::string& name, bool is_online, EAddPosition pos = ADD_BOTTOM);
+    void addNewItem(const LLUUID& id, const std::string& name, bool is_online, EAddPosition pos = ADD_BOTTOM, bool rearrange = true);
 	void computeDifference(
 		const uuid_vec_t& vnew,
 		uuid_vec_t& vadded,
@@ -130,6 +130,7 @@ private:
 	bool mIgnoreOnlineStatus;
 	bool mShowLastInteractionTime;
 	bool mDirty;
+	bool mNeedResort = false;  // S24 : a burst of resolved names is sorted once on the next draw, not once per name
 	bool mNeedUpdateNames;
 	bool mShowIcons;
 	bool mShowInfoBtn;

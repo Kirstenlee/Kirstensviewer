@@ -28,6 +28,7 @@
 #include "llviewerprecompiledheaders.h"
 
 #include "llnetmap.h"
+#include <optional>
 
 // Library includes (should move below)
 #include "indra_constants.h"
@@ -337,8 +338,10 @@ void LLNetMap::draw()
             U8 *default_texture = mObjectRawImagep->getData();
             memset( default_texture, 0, mObjectImagep->getWidth() * mObjectImagep->getHeight() * mObjectImagep->getComponents() );
 
-            // Draw objects
+            // Draw objects (renderPoint() uses this pointer and relies on the lock held here)
+            mObjectRawData = default_texture;
             gObjectList.renderObjectsForMap(*this);
+            mObjectRawData = nullptr;
 
             mObjectImagep->setSubImage(mObjectRawImagep, 0, 0, mObjectImagep->getWidth(), mObjectImagep->getHeight());
 
@@ -392,47 +395,33 @@ void LLNetMap::draw()
         F32 min_pick_dist_squared = (mDotRadius * MIN_PICK_SCALE) * (mDotRadius * MIN_PICK_SCALE);
 
         LLVector3 pos_map;
-        uuid_vec_t avatar_ids;
-        std::vector<LLVector3d> positions;
         bool unknown_relative_z;
 
-        LLWorld::getInstance()->getAvatars(&avatar_ids, &positions, gAgentCamera.getCameraPositionGlobal());
+        LLWorld::getInstance()->getAvatars(&mAvatarIdsScratch, &mAvatarPositionsScratch, gAgentCamera.getCameraPositionGlobal());
 
-        std::vector<std::pair<U32, bool>> indexed_avatars;
-        indexed_avatars.reserve(avatar_ids.size());
-        for (U32 i = 0; i < avatar_ids.size(); i++)
+        // S24 : one pass builds the list with each avatar's friend flag looked up once, and one stable partition puts
+        // the non-friends first (so friend dots appear on top); the old code looked every friend up twice, sorted an
+        // index vector and then copied the ids and positions into two more vectors
+        mMapAvatars.clear();
+        mMapAvatars.reserve(mAvatarIdsScratch.size());
+        for (size_t i = 0; i < mAvatarIdsScratch.size(); i++)
         {
-            indexed_avatars.emplace_back(i, LLAvatarActions::isFriend(avatar_ids[i]));
+            mMapAvatars.push_back({ mAvatarIdsScratch[i], mAvatarPositionsScratch[i], LLAvatarActions::isFriend(mAvatarIdsScratch[i]) });
         }
-
-        // Sort avatars so non-friends are drawn first and friend dots will appear on top
-        std::sort(indexed_avatars.begin(), indexed_avatars.end(),
-                    [](const auto& a, const auto& b) { return a.second < b.second; });
-
-        uuid_vec_t sorted_avatar_ids;
-        std::vector<LLVector3d> sorted_positions;
-        sorted_avatar_ids.reserve(avatar_ids.size());
-        sorted_positions.reserve(positions.size());
-
-        // Reorder avatar_ids and positions based on sorted indices
-        for (const auto& indexed_avatar : indexed_avatars)
-        {
-            sorted_avatar_ids.push_back(avatar_ids[indexed_avatar.first]);
-            sorted_positions.push_back(positions[indexed_avatar.first]);
-        }
+        std::stable_partition(mMapAvatars.begin(), mMapAvatars.end(), [](const MapAvatar& avatar) { return !avatar.is_friend; });
 
         // Draw avatars
-        for (U32 i = 0; i < sorted_avatar_ids.size(); i++)
+        for (const MapAvatar& map_avatar : mMapAvatars)
         {
-            LLUUID uuid = sorted_avatar_ids[i];
+            const LLUUID& uuid = map_avatar.id;
             // Skip self, we'll draw it later
             if (uuid == gAgent.getID()) continue;
 
-            pos_map = globalPosToView(sorted_positions[i]);
+            pos_map = globalPosToView(map_avatar.position);
 
-            LLColor4 color = LLAvatarActions::isFriend(uuid) ? map_avatar_friend_color : map_avatar_color;
+            LLColor4 color = map_avatar.is_friend ? map_avatar_friend_color : map_avatar_color;
 
-            unknown_relative_z = sorted_positions[i].mdV[VZ] >= COARSEUPDATE_MAX_Z &&
+            unknown_relative_z = map_avatar.position.mdV[VZ] >= COARSEUPDATE_MAX_Z &&
                     camera_position.mV[VZ] >= COARSEUPDATE_MAX_Z;
 
             LLWorldMapView::drawAvatar(
@@ -443,16 +432,8 @@ void LLNetMap::draw()
 
             if(uuid.notNull())
             {
-                bool selected = false;
-                uuid_vec_t::iterator sel_iter = gmSelected.begin();
-                for (; sel_iter != gmSelected.end(); sel_iter++)
-                {
-                    if(*sel_iter == uuid)
-                    {
-                        selected = true;
-                        break;
-                    }
-                }
+                const bool selected = !gmSelected.empty()
+                    && std::find(gmSelected.begin(), gmSelected.end(), uuid) != gmSelected.end();
                 if(selected)
                 {
                     if( (pos_map.mV[VX] < 0) ||
@@ -939,8 +920,14 @@ void LLNetMap::renderPoint(const LLVector3 &pos_local, const LLColor4U &color,
         return;
     }
 
-    LLImageDataLock lock(mObjectRawImagep);
-    U8 *datap = mObjectRawImagep->getData();
+    // S24 : normally called from draw()'s object pass, which already holds the exclusive image lock
+    std::optional<LLImageDataLock> own_lock;
+    U8 *datap = mObjectRawData;
+    if (!datap)
+    {
+        own_lock.emplace(mObjectRawImagep);
+        datap = mObjectRawImagep->getData();
+    }
 
     S32 neg_radius = diameter / 2;
     S32 pos_radius = diameter - neg_radius;
@@ -1004,6 +991,13 @@ void LLNetMap::renderPoint(const LLVector3 &pos_local, const LLColor4U &color,
 
 void LLNetMap::createObjectImage()
 {
+    // S24 : don't create textures while shutting down; LLFloaterView::restoreAll() in
+    // disconnectViewer() un-minimizes floaters, which drives this via reshape()
+    if (LLApp::isExiting())
+    {
+        return;
+    }
+
     // Find the size of the side of a square that surrounds the circle that surrounds getRect().
     // ... which is, the diagonal of the rect.
     F32 width = (F32)getRect().getWidth();

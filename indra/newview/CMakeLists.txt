@@ -212,7 +212,6 @@ set(viewer_SOURCE_FILES
     llfloaterabout.cpp
     llfloateravatarwelcomepack.cpp
     llfloaterbvhpreview.cpp
-    llfloateraddpaymentmethod.cpp
     llfloaterauction.cpp
     llfloaterautoreplacesettings.cpp
     llfloateravatarpicker.cpp
@@ -236,6 +235,7 @@ set(viewer_SOURCE_FILES
     llfloaterchatvoicevolume.cpp
     llfloaterclassified.cpp
     llfloatercolorpicker.cpp
+    llfloatercombatsettings.cpp
     llfloaterconversationlog.cpp
     llfloaterconversationpreview.cpp
     llfloatercreatelandmark.cpp
@@ -360,6 +360,7 @@ set(viewer_SOURCE_FILES
     llfloaterwindowsize.cpp
     llfloaterworldmap.cpp
     llfolderviewmodelinventory.cpp
+    llflycam.cpp
     llfollowcam.cpp
     llfriendcard.cpp
     llflyoutcombobtn.cpp
@@ -538,6 +539,7 @@ set(viewer_SOURCE_FILES
     llpanelplaceprofile.cpp
     llpanelplaces.cpp
     llpanelplacestab.cpp
+    llpanelpreferencegamecontrol.cpp
     llpanelpresetscamerapulldown.cpp
     llpanelpresetspulldown.cpp
     llpanelprimmediacontrols.cpp
@@ -917,7 +919,6 @@ set(viewer_HEADER_FILES
     llfloaterabout.h
     llfloateravatarwelcomepack.h
     llfloaterbvhpreview.h
-    llfloateraddpaymentmethod.h
     llfloaterauction.h
     llfloaterautoreplacesettings.h
     llfloateravatarpicker.h
@@ -941,6 +942,7 @@ set(viewer_HEADER_FILES
     llfloaterchatvoicevolume.h
     llfloaterclassified.h
     llfloatercolorpicker.h
+    llfloatercombatsettings.h
     llfloaterconversationlog.h
     llfloaterconversationpreview.h
     llfloatercreatelandmark.h
@@ -1070,6 +1072,7 @@ set(viewer_HEADER_FILES
     llfloaterwindowsize.h
     llfloaterworldmap.h
     llfolderviewmodelinventory.h
+    llflycam.h
     llfollowcam.h
     llfriendcard.h
     llflyoutcombobtn.h
@@ -1237,6 +1240,7 @@ set(viewer_HEADER_FILES
     llpanelplaceprofile.h
     llpanelplaces.h
     llpanelplacestab.h
+    llpanelpreferencegamecontrol.h
     llpanelpresetscamerapulldown.h
     llpanelpresetspulldown.h
     llpanelprimmediacontrols.h

@@ -104,7 +104,7 @@ public:
 //  void setVisibleOffScreen(bool visible) { mVisibleOffScreen = visible; }
 
     // mMaxLines of -1 means unlimited lines.
-    void setMaxLines(S32 max_lines) { mMaxLines = max_lines; }
+    void setMaxLines(S32 max_lines) { mMaxLines = max_lines; mSizeDirty = true; }
     void setFadeDistance(F32 fade_distance, F32 fade_range) { mFadeDistance = fade_distance; mFadeRange = fade_range; }
     void updateVisibility();
     LLVector2 updateScreenPos(LLVector2 &offset_target);
@@ -157,6 +157,7 @@ private:
     LLVector2       mTargetPositionOffset;
     F32             mMass;
     S32             mMaxLines;
+    bool            mSizeDirty = true; // S24 : updateSize() only has to run after the text, max lines or font metrics change
     S32             mOffsetY;
     F32             mRadius;
     std::vector<LLHUDTextSegment> mTextSegments;
@@ -166,7 +167,6 @@ private:
 
     static bool    sDisplayText ;
     static std::set<LLPointer<LLHUDText> > sTextObjects;
-    static std::vector<LLPointer<LLHUDText> > sVisibleTextObjects;
     static std::vector<LLPointer<LLHUDText> > sVisibleHUDTextObjects;
     typedef std::set<LLPointer<LLHUDText> >::iterator TextObjectIterator;
     typedef std::vector<LLPointer<LLHUDText> >::iterator VisibleTextObjectIterator;

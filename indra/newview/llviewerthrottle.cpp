@@ -47,12 +47,6 @@ const F32 MIN_FRACTIONAL = 0.2f;
 
 const F32 MIN_BANDWIDTH = 50.f;
 const F32 MAX_BANDWIDTH = 50000.f;  // S24: Raised 6000→50000 kbps (50 Mbps) for modern connections
-const F32 STEP_FRACTIONAL = 0.1f;
-const F32 HIGH_BUFFER_LOAD_TRESHOLD = 1.f;
-const F32 LOW_BUFFER_LOAD_TRESHOLD = 0.8f;
-const LLUnit<F32, LLUnits::Percent> TIGHTEN_THROTTLE_THRESHOLD(3.0f); // packet loss % per s
-const LLUnit<F32, LLUnits::Percent> EASE_THROTTLE_THRESHOLD(0.5f); // packet loss % per s
-const F32 DYNAMIC_UPDATE_DURATION = 5.0f; // seconds
 
 LLViewerThrottle gViewerThrottle;
 
@@ -244,11 +238,11 @@ void LLViewerThrottle::sendToSim() const
 
 F32 LLViewerThrottle::getMaxBandwidthKbps()
 {
-    constexpr F32 MIN_BANDWIDTH = 100.0f; // 100 Kbps
-    constexpr F32 MAX_BANDWIDTH = 50000.0f; // S24: Raised 10→50 Mbps for modern fiber connections (1.6Gbps+)
+    // the user setting is floored at 100 Kbps; MAX_BANDWIDTH is the file-scope cap
+    constexpr F32 MIN_USER_BANDWIDTH = 100.0f;
 
     static LLCachedControl<F32> bandwidth(gSavedSettings, "ThrottleBandwidthKBPS", 3000.0);
-    return llclamp(bandwidth(), MIN_BANDWIDTH, MAX_BANDWIDTH);
+    return llclamp(bandwidth(), MIN_USER_BANDWIDTH, MAX_BANDWIDTH);
 }
 
 
@@ -305,47 +299,4 @@ void LLViewerThrottle::resetDynamicThrottle()
 
     mCurrentBandwidth = mMaxBandwidth*MAX_FRACTIONAL;
     mCurrent = getThrottleGroup(mCurrentBandwidth / 1024.0f);
-}
-
-void LLViewerThrottle::updateDynamicThrottle()
-{
-    if (mUpdateTimer.getElapsedTimeF32() < DYNAMIC_UPDATE_DURATION)
-    {
-        return;
-    }
-    mUpdateTimer.reset();
-
-    LLUnit<F32, LLUnits::Percent> mean_packets_lost = LLViewerStats::instance().getRecording().getMean(LLStatViewer::PACKETS_LOST_PERCENT);
-    if (
-        mean_packets_lost > TIGHTEN_THROTTLE_THRESHOLD // already losing packets
-        || mBufferLoadRate >= HIGH_BUFFER_LOAD_TRESHOLD // let viewer sort through the backlog before it starts dropping packets
-        )
-    {
-        if (mThrottleFrac <= MIN_FRACTIONAL || mCurrentBandwidth / 1024.0f <= MIN_BANDWIDTH)
-        {
-            return;
-        }
-        mThrottleFrac -= STEP_FRACTIONAL;
-        mThrottleFrac = llmax(MIN_FRACTIONAL, mThrottleFrac);
-        mCurrentBandwidth = mMaxBandwidth * mThrottleFrac;
-        mCurrent = getThrottleGroup(mCurrentBandwidth / 1024.0f);
-        mCurrent.sendToSim();
-        LL_INFOS() << "Tightening network throttle to " << mCurrentBandwidth << LL_ENDL;
-    }
-    else if (mean_packets_lost <= EASE_THROTTLE_THRESHOLD
-             && mBufferLoadRate < LOW_BUFFER_LOAD_TRESHOLD)
-    {
-        if (mThrottleFrac >= MAX_FRACTIONAL || mCurrentBandwidth / 1024.0f >= MAX_BANDWIDTH)
-        {
-            return;
-        }
-        mThrottleFrac += STEP_FRACTIONAL;
-        mThrottleFrac = llmin(MAX_FRACTIONAL, mThrottleFrac);
-        mCurrentBandwidth = mMaxBandwidth * mThrottleFrac;
-        mCurrent = getThrottleGroup(mCurrentBandwidth/1024.0f);
-        mCurrent.sendToSim();
-        LL_INFOS() << "Easing network throttle to " << mCurrentBandwidth << LL_ENDL;
-    }
-
-    mBufferLoadRate = 0;
 }

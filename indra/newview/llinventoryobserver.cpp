@@ -28,6 +28,8 @@
 
 #include "llinventoryobserver.h"
 
+#include <unordered_set>
+
 #include "llassetstorage.h"
 #include "llcrc.h"
 #include "lldir.h"
@@ -107,22 +109,21 @@ void LLInventoryCompletionObserver::changed(U32 mask)
     // appropriate.
     if (!mIncomplete.empty())
     {
-        for (uuid_vec_t::iterator it = mIncomplete.begin(); it < mIncomplete.end(); )
+        // S24 : one linear pass (erasing from the middle of the vector one id at a time was quadratic)
+        std::erase_if(mIncomplete, [this](const LLUUID& id)
         {
-            const LLViewerInventoryItem* item = gInventory.getItem(*it);
+            const LLViewerInventoryItem* item = gInventory.getItem(id);
             if (!item)
             {
-                it = mIncomplete.erase(it);
-                continue;
+                return true;
             }
             if (item->isFinished())
             {
-                mComplete.push_back(*it);
-                it = mIncomplete.erase(it);
-                continue;
+                mComplete.push_back(id);
+                return true;
             }
-            ++it;
-        }
+            return false;
+        });
         if (mIncomplete.empty())
         {
             done();
@@ -174,30 +175,23 @@ void LLInventoryFetchItemsObserver::changed(U32 mask)
         // Have we exceeded max wait time?
         bool timeout_expired = mFetchingPeriod.hasExpired();
 
-        for (uuid_vec_t::iterator it = mIncomplete.begin(); it < mIncomplete.end(); )
+        std::erase_if(mIncomplete, [this, timeout_expired](const LLUUID& item_id)
         {
-            const LLUUID& item_id = (*it);
             LLViewerInventoryItem* item = gInventory.getItem(item_id);
             if (item && item->isFinished())
             {
                 mComplete.push_back(item_id);
-                it = mIncomplete.erase(it);
+                return true;
             }
-            else
+            if (timeout_expired)
             {
-                if (timeout_expired)
-                {
-                    // Just concede that this item hasn't arrived in reasonable time and continue on.
-                    LL_WARNS("InventoryFetch") << "Fetcher timed out when fetching inventory item UUID: " << item_id << LL_ENDL;
-                    it = mIncomplete.erase(it);
-                }
-                else
-                {
-                    // Keep trying.
-                    ++it;
-                }
+                // Just concede that this item hasn't arrived in reasonable time and continue on.
+                LL_WARNS("InventoryFetch") << "Fetcher timed out when fetching inventory item UUID: " << item_id << LL_ENDL;
+                return true;
             }
-        }
+            // Keep trying.
+            return false;
+        });
 
     }
 
@@ -399,22 +393,20 @@ LLInventoryFetchDescendentsObserver::LLInventoryFetchDescendentsObserver(const u
 // virtual
 void LLInventoryFetchDescendentsObserver::changed(U32 mask)
 {
-    for (uuid_vec_t::iterator it = mIncomplete.begin(); it < mIncomplete.end();)
+    std::erase_if(mIncomplete, [this](const LLUUID& id)
     {
-        const LLViewerInventoryCategory* cat = gInventory.getCategory(*it);
+        const LLViewerInventoryCategory* cat = gInventory.getCategory(id);
         if (!cat)
         {
-            it = mIncomplete.erase(it);
-            continue;
+            return true;
         }
         if (isCategoryComplete(cat))
         {
-            mComplete.push_back(*it);
-            it = mIncomplete.erase(it);
-            continue;
+            mComplete.push_back(id);
+            return true;
         }
-        ++it;
-    }
+        return false;
+    });
 
     if (mIncomplete.empty())
     {
@@ -672,6 +664,28 @@ void LLInventoryCategoriesObserver::changed(U32 mask)
 
     std::vector<LLUUID> deleted_categories_ids;
 
+    // S24 : only a category with a direct child among the changed ids can have a changed child name, but every
+    // observed category used to rehash all of its children's names on any label change. The parents of the
+    // changed items are collected once; an id that no longer resolves to an object falls back to rehashing
+    // everything, so a case is never missed.
+    std::unordered_set<LLUUID> changed_parent_ids;
+    bool changed_id_unresolved = false;
+    if (mask & LLInventoryObserver::LABEL)
+    {
+        for (const LLUUID& changed_id : gInventory.getChangedIDs())
+        {
+            const LLInventoryObject* changed_obj = gInventory.getObject(changed_id);
+            if (changed_obj)
+            {
+                changed_parent_ids.insert(changed_obj->getParentUUID());
+            }
+            else
+            {
+                changed_id_unresolved = true;
+            }
+        }
+    }
+
     for (category_map_t::iterator iter = mCategoryMap.begin();
          iter != mCategoryMap.end();
          ++iter)
@@ -729,7 +743,9 @@ void LLInventoryCategoriesObserver::changed(U32 mask)
         // If any item names have changed, update the name hash
         // Only need to check if (a) name hash has not previously been
         // computed, or (b) a name has changed.
-        if (!cat_data.mIsNameHashInitialized || (mask & LLInventoryObserver::LABEL))
+        if (!cat_data.mIsNameHashInitialized
+            || ((mask & LLInventoryObserver::LABEL)
+                && (changed_id_unresolved || cat_changed || changed_parent_ids.count(cat_id) > 0)))
         {
             digest_t item_name_hash = gInventory.hashDirectDescendentNames(cat_id);
             if (cat_data.mItemNameHash != item_name_hash)

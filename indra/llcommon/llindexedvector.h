@@ -29,8 +29,8 @@
 
 #include "llerror.h"
 
+#include <algorithm>
 #include <vector>
-#include <map>
 
 //--------------------------------------------------------
 // LLIndexedVector
@@ -47,10 +47,12 @@ public:
 	typedef typename std::vector<Type>::size_type size_type;
 protected:
 	std::vector<Type> mVector;
-    std::map<Key, size_t> mIndexMap;
+	// S24 : the keys, parallel to mVector. A message block holds a handful of variables (up to about 40),
+	// where scanning a contiguous key array beats a std::map and allocates nothing per entry.
+	std::vector<Key> mKeys;
 	
 public:
-	LLIndexedVector() { mVector.reserve(BlockSize); }
+	LLIndexedVector() { mVector.reserve(BlockSize); mKeys.reserve(BlockSize); }
 	
 	iterator begin() { return mVector.begin(); }
 	const_iterator begin() const { return mVector.begin(); }
@@ -62,38 +64,33 @@ public:
 	reverse_iterator rend() { return mVector.rend(); }
 	const_reverse_iterator rend() const { return mVector.rend(); }
 
-	void reset() { mVector.resize(0); mIndexMap.resize(0); }
+	void reset() { mVector.clear(); mKeys.clear(); }
+	void reserve(size_type n) { mVector.reserve(n); mKeys.reserve(n); }
 	bool empty() const { return mVector.empty(); }
 	size_type size() const { return mVector.size(); }
 	
 	Type& operator[](const Key& k)
 	{
-        typename std::map<Key, size_t>::const_iterator iter = mIndexMap.find(k);
-		if (iter == mIndexMap.end())
+		const auto iter = std::find(mKeys.begin(), mKeys.end(), k);
+		if (iter == mKeys.end())
 		{
-            auto n = mVector.size();
-			mIndexMap[k] = n;
-			mVector.push_back(Type());
-			llassert(mVector.size() == mIndexMap.size());
+			const auto n = mVector.size();
+			mKeys.push_back(k);
+			mVector.emplace_back();
+			llassert(mVector.size() == mKeys.size());
 			return mVector[n];
 		}
-		else
-		{
-			return mVector[iter->second];
-		}
+		return mVector[iter - mKeys.begin()];
 	}
 
 	const_iterator find(const Key& k) const
 	{
-        typename std::map<Key, size_t>::const_iterator iter = mIndexMap.find(k);
-		if(iter == mIndexMap.end())
+		const auto iter = std::find(mKeys.begin(), mKeys.end(), k);
+		if (iter == mKeys.end())
 		{
 			return mVector.end();
 		}
-		else
-		{
-			return mVector.begin() + iter->second;
-		}
+		return mVector.begin() + (iter - mKeys.begin());
 	}
 };
 

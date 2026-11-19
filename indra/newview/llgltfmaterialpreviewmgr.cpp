@@ -444,7 +444,6 @@ bool LLGLTFPreviewTexture::render()
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     DXDepthTest(false);
-    DXStateDisable stencil(GL_STENCIL_TEST);
     DXStateDisable scissor(DX_SCISSOR_TEST);
     SetTemporarily<bool> no_dof(&DXPipeline::RenderDepthOfField, false);
     SetTemporarily<bool> no_glow(&DXPipeline::sRenderGlow, false);

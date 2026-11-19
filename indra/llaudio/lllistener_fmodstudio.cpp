@@ -106,12 +106,14 @@ void LLListener_FMODSTUDIO::setRolloffFactor(F32 factor)
     // (this was true for FMODex, looks to be still true for FMOD STUDIO, but needs a recheck)
     //Sadly, a change in rolloff is not accounted for, thus we must touch the listener properties as well.
     //In short: Changing the position ticks a dirtyflag inside fmod, which makes it not skip 3D processing next update call.
-    if (mRolloffFactor != factor)
+    // S24 : called every frame with the same value, so FMOD is only told when it changes
+    if (mRolloffFactor == factor)
     {
-        LLVector3 pos = mPosition - LLVector3(0.f, 0.f, .1f);
-        mSystem->set3DListenerAttributes(0, (FMOD_VECTOR*)pos.mV, NULL, NULL, NULL);
-        mSystem->set3DListenerAttributes(0, (FMOD_VECTOR*)mPosition.mV, NULL, NULL, NULL);
+        return;
     }
+    LLVector3 pos = mPosition - LLVector3(0.f, 0.f, .1f);
+    mSystem->set3DListenerAttributes(0, (FMOD_VECTOR*)pos.mV, NULL, NULL, NULL);
+    mSystem->set3DListenerAttributes(0, (FMOD_VECTOR*)mPosition.mV, NULL, NULL, NULL);
     mRolloffFactor = factor;
     mSystem->set3DSettings(mDopplerFactor, 1.f, mRolloffFactor);
 }
@@ -125,6 +127,11 @@ F32 LLListener_FMODSTUDIO::getRolloffFactor()
 
 void LLListener_FMODSTUDIO::setDopplerFactor(F32 factor)
 {
+    // S24 : called every frame with the same value, so FMOD is only told when it changes
+    if (mDopplerFactor == factor)
+    {
+        return;
+    }
     mDopplerFactor = factor;
     mSystem->set3DSettings(mDopplerFactor, 1.f, mRolloffFactor);
 }

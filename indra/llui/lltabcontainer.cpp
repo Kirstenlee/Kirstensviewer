@@ -1258,7 +1258,6 @@ void LLTabContainer::removeTabPanel(LLPanel* child)
 
     bool has_focus = gFocusMgr.childHasKeyboardFocus(this);
 
-    // If the tab being deleted is the selected one, select a different tab.
     for(std::vector<LLTabTuple*>::iterator iter = mTabList.begin(); iter != mTabList.end(); ++iter)
     {
         LLTabTuple* tuple = *iter;
@@ -1296,6 +1295,7 @@ void LLTabContainer::removeTabPanel(LLPanel* child)
     // make sure we don't have more locked tabs than we have tabs
     mLockedTabCount = llmin(getTabCount(), mLockedTabCount);
 
+    // If the tab being deleted is the selected one, select a different tab.
     if (mCurrentTabIdx >= (S32)mTabList.size())
     {
         mCurrentTabIdx = static_cast<S32>(mTabList.size()) - 1;
@@ -1737,7 +1737,7 @@ void LLTabContainer::reshapeTuple(LLTabTuple* tuple)
     {
         S32 image_overlay_width = 0;
 
-        if(mCustomIconCtrlUsed)
+        if (mCustomIconCtrlUsed)
         {
             LLCustomButtonIconCtrl* button = dynamic_cast<LLCustomButtonIconCtrl*>(tuple->mButton);
             LLIconCtrl* icon_ctrl = button ? button->getIconCtrl() : NULL;
@@ -2193,34 +2193,58 @@ S32 LLTabContainer::getTotalTabWidth() const
     return mTotalTabWidth;
 }
 
+// S24 : narrowest width at which all visible tabs fit without scroll arrows
+// (mirrors the test in updateMaxScrollPos)
+S32 LLTabContainer::getMinWidthNoScroll() const
+{
+    static LLUICachedControl<S32> tabcntr_tab_h_pad ("UITabCntrTabHPad", 0);
+    S32 tab_space = mTotalTabWidth;
+    for (const LLTabTuple* tuple : mTabList)
+    {
+        if (!tuple->mVisible)
+        {
+            tab_space -= tuple->mButton->getRect().getWidth();
+        }
+    }
+    return tab_space + mRightTabBtnOffset + 2 * (LLPANEL_BORDER_WIDTH + tabcntr_tab_h_pad);
+}
+
 void LLTabContainer::setTabVisibility( LLPanel const *aPanel, bool aVisible )
 {
-    for( tuple_list_t::const_iterator itr = mTabList.begin(); itr != mTabList.end(); ++itr )
+    S32 num_tabs = S32(mTabList.size());
+    for (S32 i = 0; i < num_tabs; ++i)
     {
-        LLTabTuple const *pTT = *itr;
-        if( pTT->mTabPanel == aPanel )
+        LLTabTuple* tuple = mTabList[i];
+        if( tuple->mTabPanel == aPanel )
         {
-            pTT->mVisible = aVisible;
+            if (tuple->mVisible != aVisible)
+            {
+                tuple->mVisible = aVisible;
+                updateMaxScrollPos();
+            }
             break;
         }
     }
 
+    // S24 : the selected tab only moves when it is no longer visible, so toggling another tab's
+    // visibility no longer jumps the user back to the first tab
+    const S32 current = getCurrentPanelIndex();
+    const bool current_visible = current >= 0 && current < num_tabs && mTabList[current]->mVisible;
     bool foundTab( false );
     for( tuple_list_t::const_iterator itr = mTabList.begin(); itr != mTabList.end(); ++itr )
     {
         LLTabTuple const *pTT = *itr;
         if( pTT->mVisible )
         {
-            this->selectTab((S32)(itr - mTabList.begin()));
+            if (!current_visible)
+            {
+                this->selectTab((S32)(itr - mTabList.begin()));
+            }
             foundTab = true;
             break;
         }
     }
-
-    if( foundTab )
-        this->setVisible( true );
-    else
-        this->setVisible( false );
+    this->setVisible( foundTab );
 
     updateMaxScrollPos();
 }

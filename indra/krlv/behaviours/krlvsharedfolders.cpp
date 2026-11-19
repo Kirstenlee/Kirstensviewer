@@ -401,19 +401,22 @@ namespace
     }
 
     // Item ids directly in `folderId` - also recurses into visible child
-    // folders when `recursive` is true.
-    void collectItemIds(const LLUUID& folderId, bool recursive, std::vector<LLUUID>& out)
+    // folders when `recursive` is true. A folder for which `isLocked` is true
+    // contributes no items of its own (its children are judged separately).
+    void collectItemIds(const LLUUID& folderId, bool recursive, std::vector<LLUUID>& out,
+                        bool (*isLocked)(const LLUUID&) = nullptr)
     {
+        const bool locked = isLocked && isLocked(folderId);
         for (const KRlvInvEntry& entry : gKRlv.requestListFolder(folderId))
         {
             if (entry.isCategory)
             {
                 if (recursive && !isHiddenFolderName(entry.name))
                 {
-                    collectItemIds(entry.id, true, out);
+                    collectItemIds(entry.id, true, out, isLocked);
                 }
             }
-            else
+            else if (!locked)
             {
                 out.push_back(entry.id);
             }
@@ -589,7 +592,7 @@ namespace
             return;
         }
         std::vector<LLUUID> items;
-        collectItemIds(folderId, recursive, items);
+        collectItemIds(folderId, recursive, items, isFolderAttachLocked);
         if (!items.empty())
         {
             gKRlv.requestForceWearBatch(items, replace);
@@ -608,7 +611,7 @@ namespace
             return;
         }
         std::vector<LLUUID> items;
-        collectItemIds(folderId, recursive, items);
+        collectItemIds(folderId, recursive, items, isFolderDetachLocked);
         if (!items.empty())
         {
             gKRlv.requestForceDetachBatch(items);

@@ -357,6 +357,10 @@ void LLToolMgr::toggleBuildMode(const LLSD& sdname)
         if (gSavedSettings.getBOOL("EditCameraMovement"))
         {
             // camera should be set
+            if (gAgent.isUsingFlycam())
+            {
+                gAgent.toggleFlycam();
+            }
             if (LLViewerJoystick::getInstance()->getOverrideCamera())
             {
                 handle_toggle_flycam();

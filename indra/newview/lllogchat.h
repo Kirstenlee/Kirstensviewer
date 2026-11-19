@@ -84,6 +84,10 @@ class LLLogChat : public LLSingleton<LLLogChat>
     LLSINGLETON(LLLogChat);
     ~LLLogChat();
 public:
+    // S24 : transcript lines are written by a background thread; call this before reading, moving or deleting
+    // transcript files so every line logged so far is on disk
+    static void flushPendingWrites();
+
     // status values for callback function
     enum ELogLineType {
         LOG_EMPTY,
@@ -147,12 +151,12 @@ public:
     bool addLoadHistoryThread(LLUUID& session_id, LLLoadHistoryThread* lthread);
     bool addDeleteHistoryThread(LLUUID& session_id, LLDeleteHistoryThread* dthread);
     void cleanupHistoryThreads();
+    void triggerHistorySignal(); // S24 : public, called from the main loop by the transcript writer
 
 private:
     static std::string cleanFileName(std::string filename);
 
     LLMutex* historyThreadsMutex();
-    void triggerHistorySignal();
 
     save_history_signal_t * mSaveHistorySignal;
     std::map<LLUUID,LLLoadHistoryThread *> mLoadHistoryThreads;

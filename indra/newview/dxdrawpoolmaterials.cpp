@@ -52,8 +52,49 @@ S32 LLDrawPoolMaterials::getNumDeferredPasses()
     return 12*2;
 }
 
+namespace
+{
+    // S24 : the draw-info map type of a materials pass (0-11 plain, 12-23 rigged), shared by the
+    // empty-pass check in beginDeferredPass() and the draw loop
+    U32 materialsPassType(S32 pass)
+    {
+        static constexpr U32 type_list[] =
+        {
+            LLRenderPass::PASS_MATERIAL,
+            LLRenderPass::PASS_MATERIAL_ALPHA_MASK,
+            LLRenderPass::PASS_MATERIAL_ALPHA_EMISSIVE,
+            LLRenderPass::PASS_SPECMAP,
+            LLRenderPass::PASS_SPECMAP_MASK,
+            LLRenderPass::PASS_SPECMAP_EMISSIVE,
+            LLRenderPass::PASS_NORMMAP,
+            LLRenderPass::PASS_NORMMAP_MASK,
+            LLRenderPass::PASS_NORMMAP_EMISSIVE,
+            LLRenderPass::PASS_NORMSPEC,
+            LLRenderPass::PASS_NORMSPEC_MASK,
+            LLRenderPass::PASS_NORMSPEC_EMISSIVE,
+        };
+
+        const bool rigged = pass >= 12;
+        if (rigged)
+        {
+            pass -= 12;
+        }
+        llassert(pass < (S32)(sizeof(type_list) / sizeof(U32)));
+        // PASS_X_RIGGED is always PASS_X's next enum value
+        return type_list[pass] + (rigged ? 1 : 0);
+    }
+}
+
 void LLDrawPoolMaterials::beginDeferredPass(S32 pass)
 {
+    // S24 : most of the 24 passes are empty in a typical scene, and binding the full deferred
+    // shader for them costs far more than checking the draw-info map
+    const U32 map_type = materialsPassType(pass);
+    mSkipPass = DXPipeline::beginRenderMap(gPipeline, map_type) == DXPipeline::endRenderMap(gPipeline, map_type);
+    if (mSkipPass)
+    {
+        return;
+    }
 
     bool rigged = false;
     if (pass >= 12)
@@ -96,14 +137,20 @@ void LLDrawPoolMaterials::beginDeferredPass(S32 pass)
 
 void LLDrawPoolMaterials::endDeferredPass(S32 pass)
 {
-
-    mShader->unbind();
+    if (!mSkipPass)
+    {
+        mShader->unbind();
+    }
 
     LLRenderPass::endRenderPass(pass);
 }
 
 void LLDrawPoolMaterials::renderDeferred(S32 pass)
 {
+    if (mSkipPass)
+    {
+        return;
+    }
     DXDrawPoolMaterials::renderDeferred(*this, pass);
 }
 
@@ -116,39 +163,12 @@ void DXDrawPoolMaterials::renderDeferred(LLDrawPoolMaterials& pool, S32 pass)
                 // same "use whatever's currently bound" pattern already established for DXUIBatch/
                 // LLSelectNode::renderOneSilhouette()).
 
-    static const U32 type_list[] =
-    {
-        LLRenderPass::PASS_MATERIAL,
-        LLRenderPass::PASS_MATERIAL_ALPHA_MASK,
-        LLRenderPass::PASS_MATERIAL_ALPHA_EMISSIVE,
-        LLRenderPass::PASS_SPECMAP,
-        LLRenderPass::PASS_SPECMAP_MASK,
-        LLRenderPass::PASS_SPECMAP_EMISSIVE,
-        LLRenderPass::PASS_NORMMAP,
-        LLRenderPass::PASS_NORMMAP_MASK,
-        LLRenderPass::PASS_NORMMAP_EMISSIVE,
-        LLRenderPass::PASS_NORMSPEC,
-        LLRenderPass::PASS_NORMSPEC_MASK,
-        LLRenderPass::PASS_NORMSPEC_EMISSIVE,
-    };
-
     // beginDeferredPass() (lldrawpoolmaterials.cpp) unconditionally selects
     // mShader's rigged variant and binds it before this runs (pass>=12 on both
     // backends), so LLHLSLShader::sCurBoundShaderPtr is already the correct
     // rigged variant here - no extra shader lookup needed.
-    bool rigged = false;
-    if (pass >= 12)
-    {
-        rigged = true;
-        pass -= 12;
-    }
-
-    llassert(pass < (S32)(sizeof(type_list) / sizeof(U32)));
-    U32 type = type_list[pass];
-    if (rigged)
-    {
-        type += 1; // PASS_X_RIGGED is always PASS_X's next enum value
-    }
+    const bool rigged = pass >= 12;
+    const U32 type = materialsPassType(pass);
 
     LLCullResult::drawinfo_iterator begin = DXPipeline::beginRenderMap(gPipeline, type);
     LLCullResult::drawinfo_iterator end = DXPipeline::endRenderMap(gPipeline, type);

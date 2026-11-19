@@ -104,23 +104,31 @@ bool LLInventoryFilter::check(const LLFolderViewModelItem* item)
         return true;
     }
 
-    std::string desc = listener->getSearchableCreatorName();
+    // S24 : the searched text is only built for the search type in use (the creator name used to be looked
+    // up for every item and then thrown away), and the common name search refers to the stored name
+    // without copying it
+    std::string desc_temp;
+    const std::string* desc_ptr = nullptr;
     switch(mSearchType)
     {
         case SEARCHTYPE_CREATOR:
-            desc = listener->getSearchableCreatorName();
+            desc_temp = listener->getSearchableCreatorName();
+            desc_ptr = &desc_temp;
             break;
         case SEARCHTYPE_DESCRIPTION:
-            desc = listener->getSearchableDescription();
+            desc_temp = listener->getSearchableDescription();
+            desc_ptr = &desc_temp;
             break;
         case SEARCHTYPE_UUID:
-            desc = listener->getSearchableUUIDString();
+            desc_temp = listener->getSearchableUUIDString();
+            desc_ptr = &desc_temp;
             break;
         case SEARCHTYPE_NAME:
         default:
-            desc = listener->getSearchableName();
+            desc_ptr = &listener->getSearchableName();
             break;
     }
+    const std::string& desc = *desc_ptr;
 
 
     bool passed = true;
@@ -337,7 +345,6 @@ bool LLInventoryFilter::checkAgainstFilterType(const LLFolderViewModelItemInvent
 
     LLInventoryType::EType object_type = listener->getInventoryType();
     const LLUUID object_id = listener->getUUID();
-    const LLInventoryObject *object = gInventory.getObject(object_id);
 
     const U32 filterTypes = mFilterOps.mFilterTypes;
 
@@ -350,7 +357,7 @@ bool LLInventoryFilter::checkAgainstFilterType(const LLFolderViewModelItemInvent
         {
         case LLInventoryType::IT_NONE:
             // If it has no type, pass it, unless it's a link.
-            if (object && object->getIsLinkType())
+            if (const LLInventoryObject* object = gInventory.getObject(object_id); object && object->getIsLinkType())
             {
                 return false;
             }
@@ -387,6 +394,7 @@ bool LLInventoryFilter::checkAgainstFilterType(const LLFolderViewModelItemInvent
     // Pass if this item is the target UUID or if it links to the target UUID
     if (filterTypes & FILTERTYPE_UUID)
     {
+        const LLInventoryObject* object = gInventory.getObject(object_id);
         if (!object)
             return false;
 
@@ -609,6 +617,10 @@ bool LLInventoryFilter::checkAgainstFilterLinks(const LLFolderViewModelItemInven
     if (!listener)
         return true;
 
+    // S24 : links are not being filtered, so there is nothing to look up
+    if (mFilterOps.mFilterLinks == FILTERLINK_INCLUDE_LINKS)
+        return true;
+
     const LLUUID object_id = listener->getUUID();
     const LLInventoryObject *object = gInventory.getObject(object_id);
     if (!object)
@@ -624,6 +636,10 @@ bool LLInventoryFilter::checkAgainstFilterLinks(const LLFolderViewModelItemInven
 
 bool LLInventoryFilter::checkAgainstFilterThumbnails(const LLUUID& object_id) const
 {
+    // S24 : thumbnails are not being filtered, so there is nothing to look up
+    if (mFilterOps.mFilterThumbnails == FILTER_INCLUDE_THUMBNAILS)
+        return true;
+
     const LLInventoryObject *object = gInventory.getObject(object_id);
     if (!object)
         return true;
@@ -638,6 +654,10 @@ bool LLInventoryFilter::checkAgainstFilterThumbnails(const LLUUID& object_id) co
 
 bool LLInventoryFilter::checkAgainstFilterFavorites(const LLUUID& object_id) const
 {
+    // S24 : favorites are not being filtered, so there is nothing to look up
+    if (mFilterOps.mFilterFavorites == FILTER_INCLUDE_FAVORITES)
+        return true;
+
     const LLInventoryObject* object = gInventory.getObject(object_id);
     if (!object) return true;
 
@@ -689,13 +709,16 @@ bool LLInventoryFilter::checkAgainstSearchVisibility(const LLFolderViewModelItem
     if (is_link && ((mFilterOps.mSearchVisibility & VISIBILITY_LINKS) == 0))
         return false;
 
-    if (listener->isItemInOutfits() && ((mFilterOps.mSearchVisibility & VISIBILITY_OUTFITS) == 0))
+    // S24 : the visibility bit is tested first. isItemInOutfits/isItemInTrash/isAgentInventory each walk the
+    // item's parent chain, and with the default (everything visible) their answers were thrown away for
+    // every item.
+    if (((mFilterOps.mSearchVisibility & VISIBILITY_OUTFITS) == 0) && listener->isItemInOutfits())
         return false;
 
-    if (listener->isItemInTrash() && ((mFilterOps.mSearchVisibility & VISIBILITY_TRASH) == 0))
+    if (((mFilterOps.mSearchVisibility & VISIBILITY_TRASH) == 0) && listener->isItemInTrash())
         return false;
 
-    if (!listener->isAgentInventory() && ((mFilterOps.mSearchVisibility & VISIBILITY_LIBRARY) == 0))
+    if (((mFilterOps.mSearchVisibility & VISIBILITY_LIBRARY) == 0) && !listener->isAgentInventory())
         return false;
 
     return true;

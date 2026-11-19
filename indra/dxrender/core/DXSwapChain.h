@@ -51,6 +51,16 @@ public:
     // real error message instead of silently rendering garbage forever.
     bool isDeviceLost() const { return mDeviceLost; }
 
+    // S24 : paces the frame start to the present queue. Blocks (up to timeout_ms) until the swap chain has a free
+    // frame slot, so input is sampled right before rendering instead of up to a few frames ahead of the display.
+    // Does nothing without vsync on a flip-model chain, and never waits twice without a present() in between (the
+    // slot taken by an unanswered wait is still held).
+    void waitForFrame(DWORD timeout_ms);
+
+    // S24 : how many frames the present queue may hold (1 = lowest latency, 2 = default). Applies at once to a
+    // flip-model chain and is remembered across swap chain recreation.
+    void setMaxFrameLatency(UINT frames);
+
 private:
     bool createBackBufferRTV();
     bool createDepthStencilView();
@@ -76,6 +86,10 @@ private:
     bool mAllowTearing = false;
     UINT mSwapChainFlags = 0;
     bool mDeviceLost = false;
+
+    UINT mMaxFrameLatency = 2;
+    HANDLE mFrameLatencyWaitable = nullptr; // owned, closed in destroy()
+    bool mHoldingFrameSlot = false;         // waitForFrame() took a slot that present() has not used yet
 };
 
 extern DXSwapChain gDXSwapChain;

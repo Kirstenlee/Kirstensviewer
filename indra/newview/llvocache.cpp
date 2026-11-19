@@ -556,11 +556,6 @@ F32 LLVOCacheEntry::getSquaredPixelThreshold(bool is_front)
 
 extern bool gCubeSnapshot;
 
-bool LLVOCacheEntry::isAnyVisible(const LLVector4a& camera_origin, const LLVector4a& local_camera_origin, F32 dist_threshold)
-{
-    return true;
-}
-
 void LLVOCacheEntry::calcSceneContribution(const LLVector4a& camera_origin, bool needs_update, U32 last_update, F32 max_dist)
 {
     if(!needs_update && getVisible() >= last_update)

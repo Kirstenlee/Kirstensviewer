@@ -57,6 +57,7 @@
 #include "mean_collision_data.h"
 
 #include "llagent.h"
+#include "llgamecontrol.h"
 #include "llagentbenefits.h"
 #include "llagentcamera.h"
 #include "llcallingcard.h"
@@ -3989,6 +3990,11 @@ void process_sim_stats(LLMessageSystem *msg, void **user_data)
         if (measurementp )
         {
             measurementp->sample(stat_value);
+            if (stat_id == LL_SIM_STAT_FPS)
+            {
+                // let GameControlData's outgoing throttle track the sim's actual rate
+                LLGameControl::setServerFrameRate(stat_value);
+            }
         }
         else
         {
@@ -4494,38 +4500,6 @@ void process_kick_user(LLMessageSystem *msg, void** /*user_data*/)
     LLAppViewer::instance()->forceDisconnect(message);
 }
 
-
-/*
-void process_user_list_reply(LLMessageSystem *msg, void **user_data)
-{
-    LLUserList::processUserListReply(msg, user_data);
-    return;
-    char    firstname[MAX_STRING+1];
-    char    lastname[MAX_STRING+1];
-    U8      status;
-    S32     user_count;
-
-    user_count = msg->getNumberOfBlocks("UserBlock");
-
-    for (S32 i = 0; i < user_count; i++)
-    {
-        msg->getData("UserBlock", i, "FirstName", firstname);
-        msg->getData("UserBlock", i, "LastName", lastname);
-        msg->getData("UserBlock", i, "Status", &status);
-
-        if (status & 0x01)
-        {
-            dialog_friends_add_friend(buffer, true);
-        }
-        else
-        {
-            dialog_friends_add_friend(buffer, false);
-        }
-    }
-
-    dialog_friends_done_adding();
-}
-*/
 
 // this is not handled in processUpdateMessage
 /*
@@ -6071,8 +6045,6 @@ std::string formatted_time(const time_t& the_time)
 
 void process_teleport_failed(LLMessageSystem *msg, void**)
 {
-    LL_WARNS("Teleport","Messaging") << "Received TeleportFailed message" << LL_ENDL;
-
     std::string message_id;     // Tag from server, like "RegionEntryAccessBlocked"
     std::string big_reason;     // Actual message to display
     LLSD args;
@@ -6144,14 +6116,10 @@ void process_teleport_failed(LLMessageSystem *msg, void**)
             args["REASON"] = message_id;
         }
     }
-    LL_WARNS("Teleport") << "Displaying CouldNotTeleportReason string, REASON= " << args["REASON"] << LL_ENDL;
-
     LLNotificationsUtil::add("CouldNotTeleportReason", args);
 
     if( gAgent.getTeleportState() != LLAgent::TELEPORT_NONE )
     {
-        LL_WARNS("Teleport") << "End of process_teleport_failed(). Reason message arg is " << args["REASON"]
-                             << ". Setting state to TELEPORT_NONE" << LL_ENDL;
         gAgent.setTeleportState( LLAgent::TELEPORT_NONE );
     }
 }
@@ -6208,7 +6176,7 @@ void process_teleport_local(LLMessageSystem *msg,void**)
     gAgent.setPositionAgent(pos);
     gAgentCamera.slamLookAt(look_at);
 
-    if ( !(gAgent.getTeleportKeepsLookAt() && LLViewerJoystick::getInstance()->getOverrideCamera()) )
+    if ( !(gAgent.getTeleportKeepsLookAt() && gAgent.isCameraExternallyDriven()) )
     {
         gAgentCamera.resetView(true, true);
     }

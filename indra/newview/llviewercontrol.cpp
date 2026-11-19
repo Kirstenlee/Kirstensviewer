@@ -242,7 +242,12 @@ bool handleRenderTransparentWaterChanged(const LLSD& newvalue)
         // Defer shader reload to avoid blocking main thread
         LLViewerShaderMgr::instance()->requestDeferredShaderReload();
     }
-    LLWorld::getInstance()->updateWaterObjects();
+
+    // S24 : LLWorld is an LLSimpleton, null until created; this setting callback can fire earlier
+    if (LLWorld* world = LLWorld::getInstance())
+    {
+        world->updateWaterObjects();
+    }
     return true;
 }
 

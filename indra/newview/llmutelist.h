@@ -205,6 +205,8 @@ private:
     };
     typedef std::set<LLMute, compare_by_id> mute_set_t;
     mute_set_t mMutes;
+    std::vector<LLUUID> mObjectMuteIDs; // S24 : IDs of the OBJECT mutes, for enforceRegionDerender()
+    bool mObjectMutesDirty = true;
     typedef std::map<LLUUID, std::string> pending_names_t;
     pending_names_t mPendingAgentNameUpdates;
 

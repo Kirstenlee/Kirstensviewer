@@ -1113,7 +1113,7 @@ void LLVOAvatarSelf::updateAttachmentVisibility(U32 camera_mode)
             switch (camera_mode)
             {
                 case CAMERA_MODE_MOUSELOOK:
-                    if ((LLVOAvatar::sVisibleInFirstPerson && attachment->getVisibleInFirstPerson()) || gPipeline.mMirrorProbes.isMirrorPass())
+                    if (!gAgentCamera.isHidingAvatarForFirstPerson() || (LLVOAvatar::sVisibleInFirstPerson && attachment->getVisibleInFirstPerson()) || gPipeline.mMirrorProbes.isMirrorPass())
                     {
                         attachment->setAttachmentVisibility(true);
                     }

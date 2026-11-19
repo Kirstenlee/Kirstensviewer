@@ -194,6 +194,7 @@ public:
     S32         getPanelIndexByTitle(std::string_view title) const;
     LLPanel*    getPanelByName(std::string_view name);
     S32         getTotalTabWidth() const;
+    S32         getMinWidthNoScroll() const;
     void        setCurrentTabName(const std::string& name);
 
     void        selectFirstTab();

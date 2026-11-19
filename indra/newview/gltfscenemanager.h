@@ -53,7 +53,7 @@ namespace LL
         void render(bool opaque, bool rigged = false, bool unlit = false);
 
         // render the given variant of all assets
-        // variant - bitmask according to LLGLSLShader::GLTFVariant flags
+        // variant - bitmask according to LLHLSLShader::GLTFVariant flags
         void render(U8 variant);
 
         void render(LL::GLTF::Asset& asset, U8 variant);

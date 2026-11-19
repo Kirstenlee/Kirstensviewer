@@ -93,6 +93,8 @@ public:
 		{
 #if		LL_WINDOWS
             TerminateThread(mNativeHandle, 0);
+            // S24 : TerminateThread is asynchronous; give the thread a moment to actually die
+            WaitForSingleObject(mNativeHandle, 10);
 #else
             pthread_cancel(mNativeHandle);
 #endif

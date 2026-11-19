@@ -228,7 +228,7 @@ public:
     int32_t SetRecordingDevice(WindowsDeviceType type) override { return inner_->SetRecordingDevice(type); }
 
     // --- Init/start/stop (forward) ---
-    int32_t InitPlayout() override { return inner_->InitPlayout(); }
+    int32_t InitPlayout(AudioCategory category = AudioCategory::kMedia) override { return inner_->InitPlayout(category); }
     bool    PlayoutIsInitialized() const override { return inner_->PlayoutIsInitialized(); }
     int32_t StartPlayout() override {
         if (tuning_) return 0;  // For tuning, don't allow playout
@@ -237,7 +237,14 @@ public:
     int32_t StopPlayout() override { return inner_->StopPlayout(); }
     bool    Playing() const override { return inner_->Playing(); }
 
-    int32_t InitRecording() override { return inner_->InitRecording(); }
+    int32_t InitRecording(AudioCategory category = AudioCategory::kMedia) override
+    {
+        // Ignore webrtc.lib's InitRecording (sent when a send stream starts), as
+        // with StartRecording/StopRecording: it would leave capture initialised even
+        // while we hold capture off. The app initialises capture itself via ForceInitRecording.
+        return 0;
+    }
+    int32_t ForceInitRecording(AudioCategory category = AudioCategory::kMedia) { return inner_->InitRecording(category); }
     bool    RecordingIsInitialized() const override { return inner_->RecordingIsInitialized(); }
     int32_t StartRecording() override {
         // ignore start recording as webrtc.lib will
@@ -436,6 +443,7 @@ class LLWebRTCImpl : public LLWebRTCDeviceInterface, public webrtc::AudioDeviceO
     void setRenderDevice(const std::string& id) override;
 
     void setVoiceEnabled(bool enable) override;
+    void setStopCaptureOnMute(bool stop) override;
 
     void setTuningMode(bool enable) override;
     float getTuningAudioLevel() override;
@@ -515,8 +523,9 @@ class LLWebRTCImpl : public LLWebRTCDeviceInterface, public webrtc::AudioDeviceO
     void freePeerConnection(LLWebRTCPeerConnectionInterface* peer_connection);
 
     // Start playout once a connection's audio is established (playout is gated
-    // on there being a connection to render).  Capture is not touched here --
-    // it follows voice-enabled state, not connection state.  Safe to call from
+    // on there being a connection to render).  Capture normally follows
+    // voice-enabled state, not connection state; the exception is "stop capture
+    // while muted", where it's also started here if unmuted.  Safe to call from
     // any thread (work is posted to the worker thread).
     void startPlayout();
 
@@ -524,6 +533,7 @@ class LLWebRTCImpl : public LLWebRTCDeviceInterface, public webrtc::AudioDeviceO
 
     const webrtc::Environment                                  mEnv;
     void workerStartRecording();
+    void workerRestartCapture();
     void workerStartPlayout();
     void workerDeployDevices(bool reset_module);
     // We always rely on WebRTC's internal (software APM) audio processing, so
@@ -549,6 +559,8 @@ class LLWebRTCImpl : public LLWebRTCDeviceInterface, public webrtc::AudioDeviceO
     webrtc::scoped_refptr<LLWebRTCAudioDeviceModule>           mDeviceModule;
     std::vector<LLWebRTCDevicesObserver *>                     mVoiceDevicesObserverList;
     std::atomic<bool>                                          mDevicesDeployingNeedsReset{ false };
+    // S24 : set at the start of terminate(); stops device work being queued during shutdown
+    std::atomic<bool>                                          mTerminating{ false };
 
     bool mBuiltinNS;
     bool mBuiltinAGC;
@@ -573,6 +585,12 @@ class LLWebRTCImpl : public LLWebRTCDeviceInterface, public webrtc::AudioDeviceO
     // Whether voice is enabled; gates whether the capture/playout devices run.
     bool                                                       mVoiceEnabled;
     float                                                      mGain;
+    std::atomic<bool>                                          mStopCaptureOnMute{ false };
+    std::atomic<uint32_t>                                      mMuteSequence{ 0 };
+    // True once any connection's audio has been established, until the last
+    // connection is freed (not a count of currently-connected peers). Used to
+    // hold capture off until a call is actually up.
+    std::atomic<bool>                                          mAudioEstablished{ false };
 
     LLCustomProcessorStatePtr                                  mPeerCustomProcessor;
 
@@ -604,7 +622,8 @@ class LLWebRTCPeerConnectionImpl : public LLWebRTCPeerConnectionInterface,
     // The actual close.  Signaling thread only.  Callable directly (via a
     // BlockingCall) when the caller needs the connection to be fully closed
     // before it continues -- see LLWebRTCImpl::terminate().
-    void closeOnSignalingThread();
+    // S24 : webrtc_terminate also drops the viewer observers (llwebrtc is shutting down)
+    void closeOnSignalingThread(bool webrtc_terminate);
 
     virtual void AddRef() const override = 0;
     virtual webrtc::RefCountReleaseStatus Release() const override = 0;

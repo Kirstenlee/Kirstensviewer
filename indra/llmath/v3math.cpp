@@ -47,7 +47,7 @@ using namespace DirectX;
 // LLVector3
 // WARNING: Don't use these for global const definitions!
 // For example:
-//      const LLQuaternion(0.5f * DirectX::XM_PI, LLVector3::zero);
+//      const LLQuaternion(0.5f * F_PI, LLVector3::zero);
 // at the top of a *.cpp file might not give you what you think.
 const LLVector3 LLVector3::zero(0,0,0);
 const LLVector3 LLVector3::x_axis(1.f, 0, 0);

@@ -6502,7 +6502,38 @@ void LLSelectMgr::renderSilhouettes(bool for_hud)
     LLColor4 sChildColor = sSilhouetteChildColor;
     sChildColor.mV[VALPHA] = LLSelectMgr::sHighlightAlpha;
 
-    auto renderMeshSelection_f = [fogCfx, wireframe_selection](LLSelectNode* node, LLViewerObject* objectp, LLColor4 hlColor)
+    // S24 : a selected media face (MOAP) selects only that face, see LLViewerMediaFocus::setFocusFace()
+    auto isMediaSelectionOutsideBuildMode_f = [](LLSelectNode* node, LLViewerObject* objectp)
+    {
+        if (gFloaterTools && gFloaterTools->getVisible())
+        {
+            return false;
+        }
+
+        LLViewerMediaFocus* media_focus = LLViewerMediaFocus::getInstance();
+        if (!media_focus->getFocusedMediaImpl() || objectp->getID() != media_focus->getFocusedObjectID())
+        {
+            return false;
+        }
+
+        S32 media_face = media_focus->getFocusedFace();
+        const LLTextureEntry* tep = objectp->getTE(media_face);
+        if (!tep || !tep->hasMedia())
+        {
+            return false;
+        }
+
+        for (S32 te = 0; te < objectp->getNumTEs(); ++te)
+        {
+            if (node->isTESelected(te) != (te == media_face))
+            {
+                return false;
+            }
+        }
+        return true;
+    };
+
+    auto renderMeshSelection_f =[fogCfx, wireframe_selection](LLSelectNode* node, LLViewerObject* objectp, LLColor4 hlColor)
     {
         LLHLSLShader* shader = LLHLSLShader::sCurBoundShaderPtr;
 
@@ -6602,6 +6633,11 @@ void LLSelectMgr::renderSilhouettes(bool for_hud)
                     && objectp->mDrawable->getVOVolume()
                     && objectp->mDrawable->getVOVolume()->isMesh())
                 {
+                    if (isMediaSelectionOutsideBuildMode_f(node, objectp))
+                    {
+                        // only a MOAP face is selected outside build mode: no wireframe
+                        continue;
+                    }
                     LLColor4 hlColor = objectp->isRootEdit() ? sParentColor : sChildColor;
                     if (objectp->getID() == inspect_item_id)
                     {

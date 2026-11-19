@@ -106,7 +106,6 @@ private:
     static void CapsRecvForRegion(const LLUUID& regionId, LLUUID regionTest, std::string pumpname);
 
     void processGetQueue();
-    void processGetQueueCoro();
     void onGetResponse(bool success, const LLSD& content, const LLUUID& region_id);
     void processGetAllQueue();
     void processGetAllQueueCoro(LLUUID regionId);

@@ -32,6 +32,7 @@
 #include "llfile.h"
 #include "llrender.h"
 #include "llvertexbuffer.h"
+#include "DXStateCache.h"
 #include "llrendertarget.h"
 #include "llwindow.h" // S24: LLSplashScreen::update() for startup shader-compile progress
 #include "DXUIBatch.h"
@@ -403,6 +404,7 @@ LLHLSLShader::~LLHLSLShader()
 
 void LLHLSLShader::unload()
 {
+	mWantsEmissiveInColor0 = -1;
 	mShaderFiles.clear();
 	mDefines.clear();
 	mFeatures = LLShaderFeatures();
@@ -423,6 +425,7 @@ void LLHLSLShader::unloadInternal()
 
 bool LLHLSLShader::createShader()
 {
+	mWantsEmissiveInColor0 = -1; // the name is final by now; decided again on first use
 
 	// S24: isVisible() guards against reopening the splash dialog on a
 	// mid-session shader reload - update() unconditionally recreates the
@@ -745,6 +748,7 @@ void LLHLSLShader::bind()
 	gDXUIBatch.flushPending();
 	gDXDevice.getContext()->VSSetShader(mDXVertexShader.getVS(), nullptr, 0);
 	gDXDevice.getContext()->PSSetShader(mDXPixelShader.getPS(), nullptr, 0);
+	DXStateCache::noteBoundShaderStages(mDXVertexShader.getVS(), mDXPixelShader.getPS());
 	sCurBoundShaderPtr = this;
 
 	// S24: gated on mUniformsDirty, not called unconditionally - an earlier
@@ -792,6 +796,7 @@ void LLHLSLShader::unbind(void)
 	LLVertexBuffer::unbind();
 	gDXDevice.getContext()->VSSetShader(nullptr, nullptr, 0);
 	gDXDevice.getContext()->PSSetShader(nullptr, nullptr, 0);
+	DXStateCache::noteBoundShaderStages(nullptr, nullptr);
 	sCurBoundShaderPtr = nullptr;
 }
 
@@ -939,8 +944,8 @@ void LLHLSLShader::uniform1i(U32 index, S32 x)
 		// VS failed" - a uniform declared in both stages (e.g. cloud_scale)
 		// would otherwise only ever reach whichever was tried first.
 		// setUniformFloatArray() safely no-ops if a stage doesn't declare it.
-		mDXVertexShader.setUniformFloatArray(name, v, 1);
-		mDXPixelShader.setUniformFloatArray(name, v, 1);
+		mDXVertexShader.setUniformFloatArray(index, name, v, 1);
+		mDXPixelShader.setUniformFloatArray(index, name, v, 1);
 	}
 }
 
@@ -959,8 +964,8 @@ void LLHLSLShader::uniform1f(U32 index, F32 x)
 	{
 		const std::string& name = LLShaderMgr::instance()->mReservedUniforms[index];
 		const float v[1] = { x };
-		mDXVertexShader.setUniformFloatArray(name, v, 1);
-		mDXPixelShader.setUniformFloatArray(name, v, 1);
+		mDXVertexShader.setUniformFloatArray(index, name, v, 1);
+		mDXPixelShader.setUniformFloatArray(index, name, v, 1);
 	}
 }
 
@@ -974,8 +979,8 @@ void LLHLSLShader::uniform2f(U32 index, F32 x, F32 y)
 		const std::string& name = LLShaderMgr::instance()->mReservedUniforms[index];
 		const float v[2] = { x, y };
 		// S24: both stages unconditionally - see uniform1f(U32,...)'s comment.
-		mDXVertexShader.setUniformFloatArray(name, v, 2);
-		mDXPixelShader.setUniformFloatArray(name, v, 2);
+		mDXVertexShader.setUniformFloatArray(index, name, v, 2);
+		mDXPixelShader.setUniformFloatArray(index, name, v, 2);
 	}
 }
 
@@ -989,8 +994,8 @@ void LLHLSLShader::uniform3f(U32 index, F32 x, F32 y, F32 z)
 		const std::string& name = LLShaderMgr::instance()->mReservedUniforms[index];
 		const float v[3] = { x, y, z };
 		// S24: both stages unconditionally - see uniform1f(U32,...)'s comment.
-		mDXVertexShader.setUniformFloatArray(name, v, 3);
-		mDXPixelShader.setUniformFloatArray(name, v, 3);
+		mDXVertexShader.setUniformFloatArray(index, name, v, 3);
+		mDXPixelShader.setUniformFloatArray(index, name, v, 3);
 	}
 }
 
@@ -1004,8 +1009,8 @@ void LLHLSLShader::uniform4f(U32 index, F32 x, F32 y, F32 z, F32 w)
 		const std::string& name = LLShaderMgr::instance()->mReservedUniforms[index];
 		const F32 v[4] = { x, y, z, w };
 		// S24: both stages unconditionally - see uniform1f(U32,...)'s comment.
-		mDXVertexShader.setUniformFloatArray(name, v, 4);
-		mDXPixelShader.setUniformFloatArray(name, v, 4);
+		mDXVertexShader.setUniformFloatArray(index, name, v, 4);
+		mDXPixelShader.setUniformFloatArray(index, name, v, 4);
 	}
 }
 
@@ -1020,8 +1025,8 @@ void LLHLSLShader::uniform1fv(U32 index, U32 count, const F32* v)
 	{
 		const std::string& name = LLShaderMgr::instance()->mReservedUniforms[index];
 		// S24: both stages unconditionally - see uniform1f(U32,...)'s comment.
-		mDXVertexShader.setUniformPaddedArray(name, v, 1, count);
-		mDXPixelShader.setUniformPaddedArray(name, v, 1, count);
+		mDXVertexShader.setUniformPaddedArray(index, name, v, 1, count);
+		mDXPixelShader.setUniformPaddedArray(index, name, v, 1, count);
 	}
 }
 
@@ -1034,8 +1039,8 @@ void LLHLSLShader::uniform2fv(U32 index, U32 count, const F32* v)
 	{
 		const std::string& name = LLShaderMgr::instance()->mReservedUniforms[index];
 		// S24: both stages unconditionally - see uniform1f(U32,...)'s comment.
-		mDXVertexShader.setUniformPaddedArray(name, v, 2, count);
-		mDXPixelShader.setUniformPaddedArray(name, v, 2, count);
+		mDXVertexShader.setUniformPaddedArray(index, name, v, 2, count);
+		mDXPixelShader.setUniformPaddedArray(index, name, v, 2, count);
 	}
 }
 
@@ -1048,8 +1053,8 @@ void LLHLSLShader::uniform3fv(U32 index, U32 count, const F32* v)
 	{
 		const std::string& name = LLShaderMgr::instance()->mReservedUniforms[index];
 		// S24: both stages unconditionally - see uniform1f(U32,...)'s comment.
-		mDXVertexShader.setUniformPaddedArray(name, v, 3, count);
-		mDXPixelShader.setUniformPaddedArray(name, v, 3, count);
+		mDXVertexShader.setUniformPaddedArray(index, name, v, 3, count);
+		mDXPixelShader.setUniformPaddedArray(index, name, v, 3, count);
 	}
 }
 
@@ -1069,8 +1074,8 @@ void LLHLSLShader::uniform4fv(U32 index, U32 count, const F32* v)
 	{
 		const std::string& name = LLShaderMgr::instance()->mReservedUniforms[index];
 		// S24: both stages unconditionally - see uniform1f(U32,...)'s comment.
-		mDXVertexShader.setUniformFloatArray(name, v, (size_t)count * 4);
-		mDXPixelShader.setUniformFloatArray(name, v, (size_t)count * 4);
+		mDXVertexShader.setUniformFloatArray(index, name, v, (size_t)count * 4);
+		mDXPixelShader.setUniformFloatArray(index, name, v, (size_t)count * 4);
 	}
 }
 
@@ -1107,8 +1112,8 @@ void LLHLSLShader::uniformMatrix3fv(U32 index, U32 count, bool transpose, const 
 		}
 
 		// S24: both stages unconditionally - see uniform1f(U32,...)'s comment.
-		mDXVertexShader.setUniformMatrix3(name, m);
-		mDXPixelShader.setUniformMatrix3(name, m);
+		mDXVertexShader.setUniformMatrix3(index, name, m);
+		mDXPixelShader.setUniformMatrix3(index, name, m);
 	}
 	else if (count > 1 && index < LLShaderMgr::instance()->mReservedUniforms.size())
 	{
@@ -1134,8 +1139,8 @@ void LLHLSLShader::uniformMatrix3fv(U32 index, U32 count, bool transpose, const 
 			memcpy(m.data(), v, m.size() * sizeof(float));
 		}
 
-		mDXVertexShader.setUniformFloatArray(name, m.data(), m.size());
-		mDXPixelShader.setUniformFloatArray(name, m.data(), m.size());
+		mDXVertexShader.setUniformFloatArray(index, name, m.data(), m.size());
+		mDXPixelShader.setUniformFloatArray(index, name, m.data(), m.size());
 	}
 }
 
@@ -1153,8 +1158,8 @@ void LLHLSLShader::uniformMatrix3x4fv(U32 index, U32 count, bool transpose, cons
 		if (!transpose)
 		{
 			const std::string& name = LLShaderMgr::instance()->mReservedUniforms[index];
-			mDXVertexShader.setUniformFloatArray(name, v, (size_t)count * 12);
-			mDXPixelShader.setUniformFloatArray(name, v, (size_t)count * 12);
+			mDXVertexShader.setUniformFloatArray(index, name, v, (size_t)count * 12);
+			mDXPixelShader.setUniformFloatArray(index, name, v, (size_t)count * 12);
 		}
 	}
 }
@@ -1191,8 +1196,8 @@ void LLHLSLShader::uniformMatrix4fv(U32 index, U32 count, bool transpose, const 
 		}
 
 		// S24: both stages unconditionally - see uniformMatrix3fv(U32,...) above.
-		mDXVertexShader.setUniformMatrix4(name, m);
-		mDXPixelShader.setUniformMatrix4(name, m);
+		mDXVertexShader.setUniformMatrix4(index, name, m);
+		mDXPixelShader.setUniformMatrix4(index, name, m);
 	}
 	else if (count > 1 && index < LLShaderMgr::instance()->mReservedUniforms.size())
 	{
@@ -1218,8 +1223,8 @@ void LLHLSLShader::uniformMatrix4fv(U32 index, U32 count, bool transpose, const 
 			memcpy(m.data(), v, m.size() * sizeof(float));
 		}
 
-		mDXVertexShader.setUniformFloatArray(name, m.data(), m.size());
-		mDXPixelShader.setUniformFloatArray(name, m.data(), m.size());
+		mDXVertexShader.setUniformFloatArray(index, name, m.data(), m.size());
+		mDXPixelShader.setUniformFloatArray(index, name, m.data(), m.size());
 	}
 }
 

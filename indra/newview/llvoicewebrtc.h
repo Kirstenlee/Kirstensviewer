@@ -41,6 +41,7 @@ class LLWebRTCProtocolParser;
 #include "llparcel.h"
 #include "llmutelist.h"
 #include <queue>
+#include "workqueue.h"
 #include "boost/json.hpp"
 
 #ifdef LL_USESYSTEMLIBS
@@ -84,6 +85,9 @@ public:
     // connections must still release their peer connections normally --  see
     // drainConnections() and ~LLVoiceWebRTCConnection().
     static bool isWebRTCTerminated() { return sWebRTCTerminated; }
+
+    // S24 : voice callbacks post here (serviced from idle) instead of the shared mainloop queue
+    LL::WorkQueue::weak_t getVoiceWorkQueue() const { return mVoiceWorkQueue; }
 
     const LLVoiceVersionInfo& getVersion() override;
     void                      updateVersion();
@@ -451,6 +455,7 @@ public:
     static void predAvatarNameResolution(const LLWebRTCVoiceClient::sessionStatePtr_t &session, LLUUID id, std::string name);
 
     boost::signals2::connection mAvatarNameCacheConnection;
+    boost::signals2::connection mStopMicCaptureOnMuteConnection;
 
 private:
     // helper function to retrieve the audio level
@@ -468,7 +473,7 @@ private:
     /// llwebrtc::terminate().  Bounded and best effort.
     void drainConnections();
 
-    LL::WorkQueue::weak_t mMainQueue;
+    LL::WorkQueue::ptr_t mVoiceWorkQueue;
 
     F32 mTuningMicGain;
     int mTuningSpeakerVolume;
@@ -693,7 +698,7 @@ class LLVoiceWebRTCConnection :
     } EVoiceConnectionState;
 
     EVoiceConnectionState mVoiceConnectionState;
-    LL::WorkQueue::weak_t mMainQueue;
+    LL::WorkQueue::weak_t mVoiceMainQueue;
 
     void setVoiceConnectionState(EVoiceConnectionState new_voice_connection_state)
     {

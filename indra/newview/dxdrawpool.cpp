@@ -707,10 +707,11 @@ bool LLRenderPass::uploadMatrixPalette(LLDrawInfo& params)
 }
 
 //static
-bool LLRenderPass::uploadMatrixPalette(LLVOAvatar* avatar, LLMeshSkinInfo* skinInfo)
+bool LLRenderPass::uploadMatrixPalette(LLVOAvatar* avatar, const LLMeshSkinInfo* skinInfo)
 {
 
-    if (!avatar)
+    // S24 : llassert is compiled out in Release; a missing skin info must not be dereferenced
+    if (!avatar || !skinInfo)
     {
         return false;
     }
@@ -733,13 +734,13 @@ bool LLRenderPass::uploadMatrixPalette(LLVOAvatar* avatar, LLMeshSkinInfo* skinI
 
 // Returns true if rendering should proceed
 //static
-bool LLRenderPass::uploadMatrixPalette(LLVOAvatar* avatar, LLMeshSkinInfo* skinInfo, const LLVOAvatar*& lastAvatar, U64& lastMeshId, bool& skipLastSkin)
+bool LLRenderPass::uploadMatrixPalette(LLVOAvatar* avatar, const LLMeshSkinInfo* skinInfo, const LLVOAvatar*& lastAvatar, U64& lastMeshId, bool& skipLastSkin)
 {
 
     llassert(skinInfo);
     llassert(LLHLSLShader::sCurBoundShaderPtr);
 
-    if (!avatar)
+    if (!avatar || !skinInfo) // S24 : see the 2-arg overload
     {
         return false;
     }
@@ -769,13 +770,13 @@ bool LLRenderPass::uploadMatrixPalette(LLVOAvatar* avatar, LLMeshSkinInfo* skinI
 
 // Returns true if rendering should proceed
 //static
-bool LLRenderPass::uploadMatrixPalette(LLVOAvatar* avatar, LLMeshSkinInfo* skinInfo, const LLVOAvatar*& lastAvatar, U64& lastMeshId, const LLHLSLShader*& lastAvatarShader, bool& skipLastSkin)
+bool LLRenderPass::uploadMatrixPalette(LLVOAvatar* avatar, const LLMeshSkinInfo* skinInfo, const LLVOAvatar*& lastAvatar, U64& lastMeshId, const LLHLSLShader*& lastAvatarShader, bool& skipLastSkin)
 {
 
     llassert(skinInfo);
     llassert(LLHLSLShader::sCurBoundShaderPtr);
 
-    if (!avatar)
+    if (!avatar || !skinInfo) // S24 : see the 2-arg overload
     {
         return false;
     }

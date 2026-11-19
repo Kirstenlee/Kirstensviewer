@@ -27,6 +27,7 @@
 #ifndef LL_LLCACHENAME_H
 #define LL_LLCACHENAME_H
 
+#include <atomic>
 #include <boost/bind/bind.hpp>
  // Boost.Bind placeholders for C++20 compatibility
 using namespace boost::placeholders;
@@ -143,6 +144,8 @@ private:
 
     class Impl;
     Impl& impl;
+
+    static std::atomic<bool> sShuttingDown;  // read on the UDP thread, written on the main thread
 };
 
 

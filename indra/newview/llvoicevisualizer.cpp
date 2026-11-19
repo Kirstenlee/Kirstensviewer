@@ -365,7 +365,7 @@ void LLVoiceVisualizer::render()
         // (DXDepthTest(false, false)) like every other HUD-space element (nametags, selection
         // beam) instead of overriding it.
         DXDepthTest depth(false, false);
-        //LLGLDisable gls_stencil(GL_STENCIL_TEST);
+        //DXStateDisable gls_stencil(GL_STENCIL_TEST);
 
         // render_hud_attachments()'s (llviewerdisplay.cpp) second-per-frame renderGeomPostDeferred()
         // call leaves the D3D11 viewport in its pass's full/chrome-inclusive state; nothing resets it

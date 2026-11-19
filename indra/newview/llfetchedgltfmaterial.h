@@ -67,6 +67,8 @@ public:
     LLPointer<LLViewerFetchedTexture> mNormalTexture;
     LLPointer<LLViewerFetchedTexture> mMetallicRoughnessTexture;
     LLPointer<LLViewerFetchedTexture> mEmissiveTexture;
+    // S24 : locally composited avatar bake (shape editing), rendered in place of the fetched slot
+    LLPointer<LLViewerTexture> mLocalBakeTextures[GLTF_TEXTURE_INFO_COUNT];
     void clearFetchedTextures();
 
     std::set<LLTextureEntry*> mTextureEntires;

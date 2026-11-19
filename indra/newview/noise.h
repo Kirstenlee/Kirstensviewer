@@ -235,60 +235,6 @@ inline F32 noise3(F32 *vec)
 }
 
 
-/*
-F32 noise3(F32 *vec)
-{
-    int bx0, bx1, by0, by1, bz0, bz1, b00, b10, b01, b11;
-    F32 rx0, rx1, ry0, ry1, rz0, rz1, *q, sy, sz, a, b, c, d, t, u, v;
-    S32 i, j;
-
-    if (gNoiseStart) {
-        gNoiseStart = 0;
-        init();
-    }
-
-    setup_noise(0, bx0,bx1, rx0,rx1);
-    setup_noise(1, by0,by1, ry0,ry1);
-    setup_noise(2, bz0,bz1, rz0,rz1);
-
-    i = p[ bx0 ];
-    j = p[ bx1 ];
-
-    b00 = p[ i + by0 ];
-    b10 = p[ j + by0 ];
-    b01 = p[ i + by1 ];
-    b11 = p[ j + by1 ];
-
-    t  = s_curve(rx0);
-    sy = s_curve(ry0);
-    sz = s_curve(rz0);
-
-#define at3(rx,ry,rz) ( rx * q[0] + ry * q[1] + rz * q[2] )
-
-    q = g3[ b00 + bz0 ] ; u = at3(rx0,ry0,rz0);
-    q = g3[ b10 + bz0 ] ; v = at3(rx1,ry0,rz0);
-    a = lerp_m(t, u, v);
-
-    q = g3[ b01 + bz0 ] ; u = at3(rx0,ry1,rz0);
-    q = g3[ b11 + bz0 ] ; v = at3(rx1,ry1,rz0);
-    b = lerp_m(t, u, v);
-
-    c = lerp_m(sy, a, b);
-
-    q = g3[ b00 + bz1 ] ; u = at3(rx0,ry0,rz1);
-    q = g3[ b10 + bz1 ] ; v = at3(rx1,ry0,rz1);
-    a = lerp_m(t, u, v);
-
-    q = g3[ b01 + bz1 ] ; u = at3(rx0,ry1,rz1);
-    q = g3[ b11 + bz1 ] ; v = at3(rx1,ry1,rz1);
-    b = lerp_m(t, u, v);
-
-    d = lerp_m(sy, a, b);
-
-    return lerp_m(sz, c, d);
-}
-*/
-
 static void normalize2(F32 v[2])
 {
     F32 s;

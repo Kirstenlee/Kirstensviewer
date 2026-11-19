@@ -141,7 +141,8 @@ void LLPathfindingNavMesh::handleNavMeshResult(const LLSD &pContent, U32 pNavMes
         {
             const LLSD::Binary &value = pContent.get(NAVMESH_DATA_FIELD).asBinary();
             auto binSize = value.size();
-            std::string newStr(reinterpret_cast<const char *>(&value[0]), binSize);
+            // S24 : &value[0] on an empty vector is undefined
+            std::string newStr(reinterpret_cast<const char *>(value.data()), binSize);
             std::istringstream streamdecomp( newStr );
             size_t decompBinSize = 0;
             bool valid = false;

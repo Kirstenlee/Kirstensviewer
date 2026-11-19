@@ -26,4 +26,7 @@ public:
 
     // Releases a handle returned by issue(). Safe to call with nullptr.
     static void release(ID3D11Query* query);
+
+    // S24 : destroys the queries kept for reuse; called while the device is still alive at shutdown.
+    static void clearPool();
 };

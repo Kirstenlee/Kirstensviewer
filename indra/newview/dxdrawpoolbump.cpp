@@ -434,8 +434,6 @@ LLViewerTexture* LLBumpImageList::getBrightnessDarknessImage(LLViewerFetchedText
 {
     llassert( (bump_code == BE_BRIGHTNESS) || (bump_code == BE_DARKNESS) );
 
-    LLViewerTexture* bump = nullptr;
-
     bump_image_map_t* entries_list = nullptr;
 
     switch( bump_code )
@@ -451,20 +449,18 @@ LLViewerTexture* LLBumpImageList::getBrightnessDarknessImage(LLViewerFetchedText
         return nullptr;
     }
 
+    // S24 : one lookup. onSourceUpdated() only ever added a missing entry (it never replaced an existing one, even
+    // when the size differed), so this does the same: an existing entry is returned as it is, a missing one is
+    // added once.
     bump_image_map_t::iterator iter = entries_list->find(src_image->getID());
-    if (iter != entries_list->end() && iter->second.notNull())
+    if (iter == entries_list->end())
     {
-        bump = iter->second;
+        LLPointer<LLViewerTexture>& entry = (*entries_list)[src_image->getID()];
+        entry = LLViewerTextureManager::getLocalTexture(true);
+        return entry;
     }
 
-    if (bump == nullptr ||
-        src_image->getWidth() != bump->getWidth() ||
-        src_image->getHeight() != bump->getHeight())
-    {
-        onSourceUpdated(src_image, (EBumpEffect) bump_code);
-    }
-
-    return (*entries_list)[src_image->getID()];
+    return iter->second;
 }
 
 void LLBumpImageList::onSourceStandardLoaded( bool success, LLViewerFetchedTexture* src_vi, LLImageRaw* src, LLImageRaw* aux_src, S32 discard_level, bool final, void* userdata)
@@ -561,13 +557,9 @@ void LLBumpImageList::onSourceUpdated(LLViewerTexture* src, EBumpEffect bump_cod
     //---------------------------------------------------
     // immediately assign bump to a smart pointer in case some local smart pointer
     // accidentally releases it.
-    LLPointer<LLViewerTexture> bump = iter->second;
-
     // DXRenderTarget can't render into an arbitrary externally-owned DXTexture (see
-    // llrendertarget.cpp), so bump-mapped surfaces just get whatever normal map `bump` already
+    // llrendertarget.cpp), so bump-mapped surfaces just get whatever normal map the entry already
     // held (blank).
-
-    iter->second = bump; // derefs (and deletes) old image
     //---------------------------------------------------
 
 }
@@ -889,6 +881,18 @@ void DXDrawPoolBump::renderDeferred(LLDrawPoolBump& pool, S32 pass)
     for (int pass_i = 0; pass_i < 2; ++pass_i)
     {
         bool rigged = (pass_i == 1);
+
+        // S24 : nothing in this pass's draw map, so skip the shader bind and state setup (the rigged
+        // pass is empty in most scenes)
+        const U32 type = rigged ? LLRenderPass::PASS_BUMP_RIGGED : LLRenderPass::PASS_BUMP;
+        LLCullResult::drawinfo_iterator begin = DXPipeline::beginRenderMap(gPipeline, type);
+        LLCullResult::drawinfo_iterator end = DXPipeline::endRenderMap(gPipeline, type);
+        if (begin == end)
+        {
+            gDX.getTexUnit(0)->activate();
+            continue;
+        }
+
         gDeferredBumpProgram.bind(rigged);
 
         // bump_channel is resolved via LLHLSLShader::enableTexture()'s shader-reflection
@@ -901,10 +905,6 @@ void DXDrawPoolBump::renderDeferred(LLDrawPoolBump& pool, S32 pass)
         {
             gDX.getTexUnit(bump_channel)->unbind(LLTexUnit::TT_TEXTURE);
         }
-
-        const U32 type = rigged ? LLRenderPass::PASS_BUMP_RIGGED : LLRenderPass::PASS_BUMP;
-        LLCullResult::drawinfo_iterator begin = DXPipeline::beginRenderMap(gPipeline, type);
-        LLCullResult::drawinfo_iterator end = DXPipeline::endRenderMap(gPipeline, type);
 
         const LLVOAvatar* lastAvatar = nullptr;
         U64 lastMeshId = 0;
@@ -975,19 +975,33 @@ void DXDrawPoolBump::renderPostDeferred(LLDrawPoolBump& pool, S32 pass)
     {
         bool rigged = (i == 1);
 
-        beginFullbrightShiny(pool, rigged);
-        renderFullbrightShiny(pool, rigged);
-        endFullbrightShiny();
-
-        beginBump(pool, rigged);
-        if (rigged)
+        // S24 : each begin/render/end bracket binds shaders, probes and rasterizer state, so a bracket
+        // whose draw maps are empty is skipped whole (begin and end only make sense as a pair)
+        const U32 shiny_type = rigged ? LLRenderPass::PASS_FULLBRIGHT_SHINY_RIGGED : LLRenderPass::PASS_FULLBRIGHT_SHINY;
+        if (DXPipeline::beginRenderMap(gPipeline, shiny_type) != DXPipeline::endRenderMap(gPipeline, shiny_type))
         {
-            renderBumpRigged(pool);
+            beginFullbrightShiny(pool, rigged);
+            renderFullbrightShiny(pool, rigged);
+            endFullbrightShiny();
+        }
+
+        const U32 bump_type = rigged ? LLRenderPass::PASS_POST_BUMP_RIGGED : LLRenderPass::PASS_POST_BUMP;
+        if (DXPipeline::beginRenderMap(gPipeline, bump_type) != DXPipeline::endRenderMap(gPipeline, bump_type))
+        {
+            beginBump(pool, rigged);
+            if (rigged)
+            {
+                renderBumpRigged(pool);
+            }
+            else
+            {
+                renderBump(pool);
+            }
+            endBump();
         }
         else
         {
-            renderBump(pool);
+            gDX.setSceneBlendType(LLRender::BT_ALPHA); // the state endBump() would have left
         }
-        endBump();
     }
 }

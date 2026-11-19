@@ -331,7 +331,7 @@ void LLMediaDataClient::serviceQueue()
 
         if(request->isDead())
         {
-            // S24 Changed to DEBUG - dead requests are normal during object cleanup, not a problem - 2026-04-27
+            // S24 Changed to DEBUG - dead requests are normal during object cleanup, not a problem
             LL_DEBUGS("LLMediaDataClient") << "Skipping dead request " << *request << LL_ENDL;
             continue;
         }
@@ -343,7 +343,7 @@ void LLMediaDataClient::serviceQueue()
     if (!url.empty())
     {
         const LLSD &sd_payload = request->getPayload();
-        // S24 Changed to DEBUG - routine operation, not actionable - 2026-04-27
+        // S24 Changed to DEBUG - routine operation, not actionable
         LL_DEBUGS("LLMediaDataClient") << "Sending request for " << *request << LL_ENDL;
 
         // Add this request to the non-queued tracking list
@@ -367,7 +367,7 @@ void LLMediaDataClient::serviceQueue()
 
         if(request->getRetryCount() < mMaxNumRetries)
         {
-            // S24 Changed to WARNS_ONCE - will retry, don't spam console - 2026-04-27
+            // S24 Changed to WARNS_ONCE - will retry, don't spam console
             LL_WARNS_ONCE("LLMediaDataClient") << "Could not send request " << *request << " (empty cap url), will retry." << LL_ENDL;
             // Put this request back at the head of its queue, and retry next time the queue timer fires.
             request->incRetryCount();
@@ -376,7 +376,7 @@ void LLMediaDataClient::serviceQueue()
         else
         {
             // This request has exceeded its maximum retry count.  It will be dropped.
-            // S24 Keep as WARN - actual problem, request dropped - 2026-04-27
+            // S24 Keep as WARN - actual problem, request dropped
             LL_WARNS("LLMediaDataClient") << "Could not send request " << *request << " for " << mMaxNumRetries << " tries, dropping request." << LL_ENDL;
         }
 
@@ -456,12 +456,12 @@ bool LLMediaDataClient::RetryTimer::tick()
 
     if(mRequest->isDead())
     {
-        // S24 Changed to DEBUG - normal cleanup, not actionable - 2026-04-27
+        // S24 Changed to DEBUG - normal cleanup, not actionable
         LL_DEBUGS("LLMediaDataClient") << "RetryTimer fired for dead request: " << *mRequest << ", aborting." << LL_ENDL;
     }
     else
     {
-        // S24 Changed to DEBUG - routine retry, not actionable - 2026-04-27
+        // S24 Changed to DEBUG - routine retry, not actionable
         LL_DEBUGS("LLMediaDataClient") << "RetryTimer fired for: " << *mRequest << ", retrying." << LL_ENDL;
         mRequest->reEnqueue(); // S24 pointless loop and logging removed entirely
     }
@@ -616,7 +616,8 @@ void LLMediaDataClient::Handler::onSuccess(LLCore::HttpResponse * response, cons
 
     if (mRequest->isDead())
     {
-        LL_WARNS("LLMediaDataClient") << "dead request " << *mRequest << LL_ENDL;
+        // S24 : normal when the object was cleaned up before the reply arrived
+        LL_DEBUGS("LLMediaDataClient") << "dead request " << *mRequest << LL_ENDL;
         return;
     }
 
@@ -637,7 +638,7 @@ void LLMediaDataClient::Handler::onFailure(LLCore::HttpResponse * response, LLCo
 
         if (mRequest->getRetryCount() < mRequest->getMaxNumRetries())
         {
-            // S24 Changed to DEBUG - will retry, not actionable - 2026-04-27
+            // S24 Changed to DEBUG - will retry, not actionable
             LL_DEBUGS("LLMediaDataClient") << *mRequest << " got SERVICE_UNAVAILABLE...retrying in " << retry_timeout << " seconds" << LL_ENDL;
 
             // Start timer (instances are automagically tracked by
@@ -646,7 +647,7 @@ void LLMediaDataClient::Handler::onFailure(LLCore::HttpResponse * response, LLCo
         }
         else
         {
-            // S24 Changed to WARN - actual problem, retry exhausted - 2026-04-27
+            // S24 Changed to WARN - actual problem, retry exhausted
             LL_WARNS("LLMediaDataClient") << *mRequest << " got SERVICE_UNAVAILABLE...retry count "
                 << mRequest->getRetryCount() << " exceeds " << mRequest->getMaxNumRetries() << ", not retrying" << LL_ENDL;
         }
@@ -699,7 +700,7 @@ void LLObjectMediaDataClient::sortQueue()
         if (size > mMaxSortedQueueSize)
         {
             U32 num_to_cull = (size - mMaxSortedQueueSize);
-            // S24 Changed to WARNS_ONCE - resource limit hit, user should know - 2026-04-27
+            // S24 Changed to WARNS_ONCE - resource limit hit, user should know
             LL_WARNS_ONCE("LLMediaDataClient") << "sorted queue MAXED OUT!  Culling "
                 << num_to_cull << " items" << LL_ENDL;
             while (num_to_cull-- > 0)
@@ -779,7 +780,7 @@ void LLObjectMediaDataClient::enqueue(Request::ptr_t request)
     {
         if (mRoundRobinQueue.size() > mMaxRoundRobinQueueSize)
         {
-            // S24 Changed to WARNS_ONCE - resource limit hit, user should know - 2026-04-27
+            // S24 Changed to WARNS_ONCE - resource limit hit, user should know
             LL_WARNS_ONCE("LLMediaDataClient") << "RR QUEUE MAXED OUT!!!" << LL_ENDL;
             LL_DEBUGS("LLMediaDataClient") << "Not queuing " << *request << LL_ENDL;
             return;
@@ -1080,7 +1081,7 @@ void LLObjectMediaNavigateClient::Handler::onSuccess(LLCore::HttpResponse * resp
         return;
     }
 
-    // S24 Changed to DEBUG - routine operation, not actionable - 2026-04-27
+    // S24 Changed to DEBUG - routine operation, not actionable
     LL_DEBUGS("LLMediaDataClient") << *(getRequest()) << " NAVIGATE returned" << LL_ENDL;
 
     if (content.has("error"))

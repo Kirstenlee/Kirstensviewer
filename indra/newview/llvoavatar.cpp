@@ -2969,7 +2969,10 @@ void LLVOAvatar::idleUpdateMisc(bool detailed_update)
     if (detailed_update)
     {
         U32 draw_order = 0;
-        bool attachment_selected = LLSelectMgr::getInstance()->getSelection()->getObjectCount() > 0 && LLSelectMgr::getInstance()->getSelection()->isAttachment();
+        // S24 : the cheap isAttachment() test goes first, so the selection is only walked (getObjectCount
+        // cleans up dead nodes) when an attachment is selected
+        LLObjectSelectionHandle selection = LLSelectMgr::getInstance()->getSelection();
+        bool attachment_selected = selection->isAttachment() && selection->getObjectCount() > 0;
         for (const auto& [attachment_point_id, attachment] : mAttachmentPoints)
         {
             for (auto& attached_object : attachment->mAttachedObjects)
@@ -3361,7 +3364,7 @@ void LLVOAvatar::idleUpdateNameTag(const LLVector3& root_pos_last)
         static LLCachedControl<bool> render_name_show_self(gSavedSettings, "RenderNameShowSelf");
         static LLCachedControl<S32> name_tag_mode(gSavedSettings, "AvatarNameTagMode");
         render_name = render_name
-            && !gAgentCamera.cameraMouselook()
+            && !gAgentCamera.isHidingAvatarForFirstPerson()
             && (visible_chat || (render_name_show_self && name_tag_mode));
     }
 
@@ -4201,44 +4204,47 @@ void LLVOAvatar::updateFootstepSounds()
         return;
     }
 
-    //-------------------------------------------------------------------------
-    // Find the ground under each foot, these are used for a variety
-    // of things that follow
-    //-------------------------------------------------------------------------
-    LLVector3 ankle_left_pos_agent = mFootLeftp->getWorldPosition();
-    LLVector3 ankle_right_pos_agent = mFootRightp->getWorldPosition();
+    static const LLUUID AGENT_FOOTSTEP_ANIMS[] = {ANIM_AGENT_WALK, ANIM_AGENT_RUN, ANIM_AGENT_LAND};
+    static const S32 NUM_AGENT_FOOTSTEP_ANIMS = LL_ARRAY_SIZE(AGENT_FOOTSTEP_ANIMS);
 
-    LLVector3 ankle_left_ground_agent = ankle_left_pos_agent;
-    LLVector3 ankle_right_ground_agent = ankle_right_pos_agent;
-    LLVector3 normal;
-    resolveHeightAgent(ankle_left_pos_agent, ankle_left_ground_agent, normal);
-    resolveHeightAgent(ankle_right_pos_agent, ankle_right_ground_agent, normal);
-
-    F32 leftElev = llmax(-0.2f, ankle_left_pos_agent.mV[VZ] - ankle_left_ground_agent.mV[VZ]);
-    F32 rightElev = llmax(-0.2f, ankle_right_pos_agent.mV[VZ] - ankle_right_ground_agent.mV[VZ]);
-
-    if (!isSitting())
-    {
-        //-------------------------------------------------------------------------
-        // Figure out which foot is on ground
-        //-------------------------------------------------------------------------
-        if (!mInAir)
-        {
-            if ((leftElev < 0.0f) || (rightElev < 0.0f))
-    {
-                ankle_left_pos_agent = mFootLeftp->getWorldPosition();
-                ankle_right_pos_agent = mFootRightp->getWorldPosition();
-                leftElev = ankle_left_pos_agent.mV[VZ] - ankle_left_ground_agent.mV[VZ];
-                rightElev = ankle_right_pos_agent.mV[VZ] - ankle_right_ground_agent.mV[VZ];
-            }
-        }
-    }
-
-    const LLUUID AGENT_FOOTSTEP_ANIMS[] = {ANIM_AGENT_WALK, ANIM_AGENT_RUN, ANIM_AGENT_LAND};
-    const S32 NUM_AGENT_FOOTSTEP_ANIMS = LL_ARRAY_SIZE(AGENT_FOOTSTEP_ANIMS);
-
+    // S24 : the ground under each foot is only needed when a footstep animation is playing, so it is
+    // resolved inside that block instead of for every avatar every frame
     if ( gAudiop && isAnyAnimationSignaled(AGENT_FOOTSTEP_ANIMS, NUM_AGENT_FOOTSTEP_ANIMS) )
     {
+        //-------------------------------------------------------------------------
+        // Find the ground under each foot, these are used for a variety
+        // of things that follow
+        //-------------------------------------------------------------------------
+        LLVector3 ankle_left_pos_agent = mFootLeftp->getWorldPosition();
+        LLVector3 ankle_right_pos_agent = mFootRightp->getWorldPosition();
+
+        LLVector3 ankle_left_ground_agent = ankle_left_pos_agent;
+        LLVector3 ankle_right_ground_agent = ankle_right_pos_agent;
+        LLVector3 normal;
+        resolveHeightAgent(ankle_left_pos_agent, ankle_left_ground_agent, normal);
+        resolveHeightAgent(ankle_right_pos_agent, ankle_right_ground_agent, normal);
+
+        F32 leftElev = llmax(-0.2f, ankle_left_pos_agent.mV[VZ] - ankle_left_ground_agent.mV[VZ]);
+        F32 rightElev = llmax(-0.2f, ankle_right_pos_agent.mV[VZ] - ankle_right_ground_agent.mV[VZ]);
+
+        if (!isSitting())
+        {
+            //-------------------------------------------------------------------------
+            // Figure out which foot is on ground
+            //-------------------------------------------------------------------------
+            if (!mInAir)
+            {
+                if ((leftElev < 0.0f) || (rightElev < 0.0f))
+        {
+                    ankle_left_pos_agent = mFootLeftp->getWorldPosition();
+                    ankle_right_pos_agent = mFootRightp->getWorldPosition();
+                    leftElev = ankle_left_pos_agent.mV[VZ] - ankle_left_ground_agent.mV[VZ];
+                    rightElev = ankle_right_pos_agent.mV[VZ] - ankle_right_ground_agent.mV[VZ];
+                }
+            }
+        }
+
+
         bool playSound = false;
         LLVector3 foot_pos_agent;
 
@@ -6048,10 +6054,6 @@ bool LLVOAvatar::processSingleAnimationStateChange( const LLUUID& anim_id, bool 
         if (startMotion(anim_id))
         {
             result = true;
-        }
-        else
-        {
-            LL_WARNS("Motion") << "Failed to start motion!" << LL_ENDL;
         }
     }
     else //stop animation
@@ -10571,6 +10573,8 @@ S32 LLVOAvatar::getUnbakedPixelAreaRank()
 // static
 void LLVOAvatar::cullAvatarsByPixelArea()
 {
+    sCullPending = false;
+
     LLCharacter::sInstances.sort([](LLCharacter* lhs, LLCharacter* rhs)
         {
             return ((LLVOAvatar*)lhs)->mVisibilityPreference > ((LLVOAvatar*)rhs)->mVisibilityPreference;

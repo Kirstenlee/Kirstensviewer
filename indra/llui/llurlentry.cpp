@@ -34,6 +34,7 @@
 
 #include "llavatarnamecache.h"
 #include "llcachename.h"
+#include "llgamecontrol.h"
 #include "llkeyboard.h"
 #include "llregex.h"
 #include "llscrolllistctrl.h" // for LLUrlEntryKeybinding file parsing
@@ -395,7 +396,9 @@ bool LLUrlEntryInvalidSLURL::isSLURLvalid(const std::string& url) const
 	LLURI uri(url);
 	LLSD path_array = uri.pathArray();
 	auto path_parts = path_array.size();
-	S32 x, y, z;
+	// S24 : convertToS32 leaves its output untouched on failure (e.g. an overflowing
+	// coordinate in chat text); -1 reads as out of range below
+	S32 x = -1, y = -1, z = -1;
 
 	if (path_parts == actual_parts)
 	{
@@ -1737,6 +1740,7 @@ void LLUrlEntryKeybinding::initLocalization()
 	initLocalizationFromFile("control_table_contents_camera.xml");
 	initLocalizationFromFile("control_table_contents_editing.xml");
 	initLocalizationFromFile("control_table_contents_media.xml");
+	initLocalizationFromFile("control_table_contents_game_control.xml");
 }
 
 void LLUrlEntryKeybinding::initLocalizationFromFile(const std::string& filename)
@@ -1768,6 +1772,135 @@ void LLUrlEntryKeybinding::initLocalizationFromFile(const std::string& filename)
 				LLLocalizationData(
 					row_it->columns.begin()->value.getValue().asString(),
 					row_it->columns.begin()->tool_tip.getValue()
+				);
+		}
+	}
+}
+
+
+//
+// LLUrlEntryGameController Displays currently assigned game control binding
+//
+LLUrlEntryGameController::LLUrlEntryGameController()
+	: LLUrlEntryBase()
+	, pKeyHandler(NULL)
+	, pControllerHandler(NULL)
+{
+	mPattern = boost::regex(APP_HEADER_REGEX "/gamecontroller/[\\w+-]+(\\?mode=\\w+)?$",
+							boost::regex::perl | boost::regex::icase);
+	mMenuName = "menu_url_experience.xml";
+
+	initLocalization();
+}
+
+std::string LLUrlEntryGameController::getLabel(const std::string& url, const LLUrlLabelCallback& cb)
+{
+	std::string control = getControlName(url);
+
+	std::string keybind = "";
+	if (pControllerHandler && pControllerHandler->hasHandlingDevice())
+	{
+		keybind = pControllerHandler->getBindingAsString(control);
+		if(!keybind.empty())
+		{
+			std::map<std::string, LLLocalizationData>::iterator iter = mLocalizations.find(keybind);
+			if(iter != mLocalizations.end()) {
+				keybind = iter->second.mLocalization;
+			}
+			return keybind;
+		}
+	}
+	// Fallback to key binding if game control binding is not found
+	if (pKeyHandler && keybind.empty())
+	{
+		LLStringUtil::toLower(control);
+		keybind = pKeyHandler->getKeyBindingAsString(getMode(url), "game_control_" + control);
+		if(!keybind.empty())
+		{
+			return keybind;
+		}
+	}
+
+	return "Unbound Control: " + control;
+}
+
+std::string LLUrlEntryGameController::getTooltip(const std::string& url) const
+{
+	std::string control = getControlName(url);
+
+	std::map<std::string, LLLocalizationData>::const_iterator iter = mLocalizations.find(control);
+	if (iter != mLocalizations.end())
+	{
+		return iter->second.mTooltip;
+	}
+	return url;
+}
+
+std::string LLUrlEntryGameController::getControlName(const std::string& url) const
+{
+	std::string search = "/gamecontroller/";
+	size_t pos_start = url.find(search);
+	if (pos_start == std::string::npos)
+	{
+		return std::string();
+	}
+	pos_start += search.size();
+
+	size_t pos_end = url.find("?mode=");
+	if (pos_end == std::string::npos)
+	{
+		pos_end = url.size();
+	}
+	return url.substr(pos_start, pos_end - pos_start);
+}
+
+std::string LLUrlEntryGameController::getMode(const std::string& url) const
+{
+	std::string search = "?mode=";
+	size_t pos_start = url.find(search);
+	if (pos_start == std::string::npos)
+	{
+		return std::string();
+	}
+	pos_start += search.size();
+	return url.substr(pos_start, url.size() - pos_start);
+}
+
+void LLUrlEntryGameController::initLocalization()
+{
+	initLocalizationFromFile("control_table_contents_game_control.xml");
+	// TODO : Need to add localization for other game control bindings specifically axes
+}
+
+void LLUrlEntryGameController::initLocalizationFromFile(const std::string& filename)
+{
+	LLXMLNodePtr xmlNode;
+	LLScrollListCtrl::Contents contents;
+	if (!LLUICtrlFactory::getLayeredXMLNode(filename, xmlNode))
+	{
+		LL_WARNS() << "Failed to load " << filename << LL_ENDL;
+		return;
+	}
+	LLXUIParser parser;
+	parser.readXUI(xmlNode, contents, filename);
+
+	if (!contents.validateBlock())
+	{
+		LL_WARNS() << "Failed to validate " << filename << LL_ENDL;
+		return;
+	}
+
+	for (LLInitParam::ParamIterator<LLScrollListItem::Params>::const_iterator row_it = contents.rows.begin();
+		 row_it != contents.rows.end();
+		 ++row_it)
+	{
+		std::string control = row_it->value.getValue().asString();
+		if (!control.empty() && control != "menu_separator")
+		{
+			mLocalizations[control] =
+				LLLocalizationData(
+								   row_it->columns.begin()->value.getValue().asString(),
+								   row_it->columns.begin()->tool_tip.getValue()
 				);
 		}
 	}

@@ -271,6 +271,7 @@ void ThreadRecorder::pushToParent()
         recorder->bringUpToDate(&mThreadRecordingBuffers);
 		mSharedRecordingBuffers.append(mThreadRecordingBuffers);
 		mThreadRecordingBuffers.reset();
+		mSharedDirty.store(true, std::memory_order_release);
 	}
 #endif
 }
@@ -286,6 +287,11 @@ void ThreadRecorder::pullFromChildren()
 		target_recording_buffers.sync();
 		for (LLTrace::ThreadRecorder* rec : mChildThreadRecorders)
         {
+            // S24 : nothing pushed since the last pull, so there is nothing to merge or reset
+            if (!rec->mSharedDirty.exchange(false, std::memory_order_acquire))
+            {
+                continue;
+            }
             LLMutexLock lock(&(rec->mSharedRecordingMutex));
 			target_recording_buffers.merge(rec->mSharedRecordingBuffers);
 			rec->mSharedRecordingBuffers.reset();

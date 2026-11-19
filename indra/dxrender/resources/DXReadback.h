@@ -9,13 +9,8 @@
 // row-by-row (respecting RowPitch, which can differ from
 // width*bytes_per_pixel due to driver alignment) + Unmap.
 //
-// Deliberately creates a fresh staging texture per call rather than
-// caching/reusing one - correctness first, matching this project's already-
-// established "no memoization yet, can optimize later if profiling shows
-// it matters" precedent (DXBuffer::upload() always re-uploads the full
-// buffer; LLRender::syncMatrices() has no hash-based memoization). Not a
-// hot path today - called once per UI frame at most (debug color picker)
-// or a handful of times total during snapshot capture.
+// S24 : the staging textures are cached by size and format and reused (a few entries), since the per-frame post
+// effects read the whole frame back every frame they are enabled.
 class DXReadback
 {
 public:
@@ -50,4 +45,8 @@ public:
     // read side, D3D11 lets you write directly to a DEFAULT-usage resource
     // from CPU memory in one call.
     static bool writePixels(ID3D11Texture2D* dst, int x, int y, int width, int height, int bytes_per_pixel, const void* data);
+
+    // S24 : staging textures are cached between readbacks; this releases them (called while the device is still
+    // alive at shutdown).
+    static void clearCache();
 };

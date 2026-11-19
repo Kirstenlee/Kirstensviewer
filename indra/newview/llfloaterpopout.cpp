@@ -1,16 +1,12 @@
 /**
  * @file llfloaterpopout.cpp
- * @brief Floater-outside-viewport framework. Phase 1 (Stage A offscreen
- * render correctness + Stage B DirectComposition display + Stage C input/
- * drag/lifecycle) proved the whole approach end-to-end for one floater
- * ("sl_about") and shipped at r4012 - see
- * [[project_floater_popout_v2_directcomposition_2026_09_26]] for the full
- * round-by-round history. Phase 2 (this revision) generalizes every single
- * piece of that from file-scope statics (one floater at a time) to a
- * per-instance PopoutInstance map, so any number of registered floaters can
- * be popped out independently and simultaneously, each with its own host
- * window/thread/render target/composition surface. See inherited-tickling-
- * kurzweil plan: render-to-texture + DirectComposition, phase 2.
+ * @brief Floater-outside-viewport framework. Detaches a registered floater
+ * into its own top-level OS window: renders it offscreen, composites it via
+ * DirectComposition, and dispatches its input/drag/lifecycle independently
+ * of the main window. Each popped-out floater gets its own PopoutInstance
+ * (host window/thread/render target/composition surface), keyed by
+ * registration name, so any number of registered floaters can be popped
+ * out simultaneously and independently.
  */
 
 #include "llviewerprecompiledheaders.h"
@@ -66,13 +62,12 @@ namespace
     // place (see onFloaterClosed()'s own comment).
     //
     // "nearby_chat" is deliberately NOT independently registered here -
-    // confirmed live as popping it out via its OWN icon detaches it from
-    // im_container's tab content (floater->setVisible(false) on popOut(),
-    // same as every other floater this framework pops), leaving a gap in
-    // the container while chat renders in its own separate window instead.
-    // The user's call: chat should always just ride along with whatever
-    // currently hosts it (im_container normally), never be independently
-    // poppable on its own.
+    // popping it out via its OWN icon would detach it from im_container's
+    // tab content (floater->setVisible(false) on popOut(), same as every
+    // other floater this framework pops), leaving a gap in the container
+    // while chat renders in its own separate window instead. Chat should
+    // always ride along with whatever currently hosts it (im_container
+    // normally), never be independently poppable on its own.
     const char* const POPPABLE_FLOATER_NAMES[] = { "sl_about", "im_container" };
 
     const wchar_t* const HOST_WINDOW_CLASS = L"S24FloaterPopoutHost";
@@ -118,9 +113,9 @@ namespace
                               // relevant to Ctrl+C/Ctrl+A-style shortcuts.
     };
 
-    // Everything specific to ONE popped-out floater - phase 1's file-scope
-    // statics, mechanically grouped so any number of these can exist at
-    // once, keyed by floater registration name in sInstances below. An
+    // Everything specific to ONE popped-out floater, grouped so any number
+    // of these can exist at once, keyed by floater registration name in
+    // sInstances below. An
     // instance is created when popOut() succeeds and erased once its full
     // teardown (see idle()'s hostWindowDestroyedExternally handling)
     // completes - it outlives poppedOut briefly during that teardown, which
@@ -145,8 +140,8 @@ namespace
 
         // LLHandle<LLFloater>, not a raw LLFloater* - resolved fresh via
         // .get() every single use, never cached across a call. A raw
-        // pointer nulled only by our own close callback was confirmed live
-        // (phase 1) to miss at least one real destruction path.
+        // pointer nulled only by our own close callback can miss other
+        // destruction paths.
         LLHandle<LLFloater> poppedFloaterHandle;
         bool poppedOut = false;
 
@@ -171,8 +166,7 @@ namespace
         // FLOATER's own rect. Without this, the floater's own content
         // (in particular any LLLayoutStack children, e.g. im_container's
         // participant-list/message-pane split) never learns its
-        // container actually changed size at all - confirmed live as "a
-        // resizable floater that needs to be plumbed in". Read and
+        // container actually changed size. Read and
         // cleared once per frame on the main thread (idle(), before
         // renderPoppedOut() runs so the floater's rect is already
         // correct by the time it's read this same frame), which calls
@@ -190,10 +184,9 @@ namespace
         // resize drag reallocates this target every single frame it's in
         // progress (see renderPoppedOut()'s own comment on tracking the
         // live window size mid-drag) - a rapid string of GPU resource
-        // (re)allocations, confirmed live as occasionally leaving the
-        // very first frame or two after release looking like it hadn't
-        // fully caught up ("if done too fast"). A few forced clean
-        // frames right at the transition is a deliberately cheap,
+        // (re)allocations can occasionally leave the very first frame or
+        // two after release not fully caught up if done too fast. A few
+        // forced clean frames right at the transition is a deliberately cheap,
         // guaranteed-correct hedge rather than trying to pin down the
         // exact GPU-timing race - costs a handful of extra reallocations
         // exactly once per completed resize, not per frame in general.
@@ -265,16 +258,15 @@ namespace
     std::map<std::string, void*> sCloseCallbackWiredFor;
 
     // A real, explicit, always-visible popout button - NOT a reuse of
-    // LLFloater's own BUTTON_TEAR_OFF slot. That reuse attempt
-    // (LLFloater::setCanPopout()) failed twice in phase 1 despite correct-
-    // looking logic, for a reason never fully pinned down without live
-    // diagnostics the user explicitly ruled out continuing to burn rounds
-    // on. About's own instance is a hand-authored XUI button
+    // LLFloater's own BUTTON_TEAR_OFF slot. That reuse
+    // (LLFloater::setCanPopout()) failed despite correct-looking logic,
+    // for a reason never fully pinned down. About's own instance is a
+    // hand-authored XUI button
     // (floater_about.xml's "popout_btn") reusing LLFloater's own tear-off
     // icon assets; createPopoutButton() below builds an identical one in
     // C++ for any OTHER registered floater whose XML doesn't already
-    // provide one (phase 2's whole point: zero XML edits needed to add a
-    // new poppable floater). Position is never trusted from either source -
+    // provide one, so adding a new poppable floater needs zero XML edits.
+    // Position is never trusted from either source -
     // see repositionPopoutButton() below.
     const char* const POPOUT_BUTTON_NAME = "popout_btn";
 
@@ -311,15 +303,14 @@ namespace
     // for a widget type with a registered default - on a miss they
     // silently fall back to a global "dummy widget" (LLUICtrlFactory::
     // getDefaultWidget<T>(), added to a SEPARATE global container, not
-    // this floater) instead. Confirmed live via one-shot diagnostic
-    // logging (round 40): for "nearby_chat"/"im_container", the "existing
-    // button" this file kept finding had a degenerate zero-width rect and
-    // a parent pointer that was NOT the floater at all - exactly that
-    // dummy, not a real button. createPopoutButton() therefore never ran
-    // for either (the dummy is non-null, so `if (!btn)` was never true) -
-    // this is why neither ever showed an icon; About was never affected
-    // only because its REAL button already exists via XML, so the
-    // fallback path never triggers for it. Only LLView::findChildView()
+    // this floater) instead. For "nearby_chat"/"im_container", the
+    // "existing button" this file would find had a degenerate zero-width
+    // rect and a parent pointer that was NOT the floater at all - that
+    // dummy, not a real button. createPopoutButton() would then never run
+    // (the dummy is non-null, so `if (!btn)` is never true), so neither
+    // would ever show an icon; About is unaffected only because its REAL
+    // button already exists via XML, so the fallback path never triggers
+    // for it. Only LLView::findChildView()
     // (used here directly, not through the templated wrapper) is the
     // honest, nullable raw lookup - direct children only (recurse=false),
     // for the same hosting-relationship reason given in
@@ -415,7 +406,7 @@ namespace
     // Deliberately NOT a one-shot-ever bool per floater: closing a popped-
     // out floater via its OWN close button (onFloaterClosed(), not popIn())
     // may destroy the underlying LLFloater instance rather than just hide
-    // it (confirmed live for About, phase 1 round 26: neither
+    // it (true for About: neither
     // single_instance nor reuse_instance is set), in which case reopening
     // it later creates a genuinely NEW button object that a one-shot flag
     // would never rewire. Comparing the actual button POINTER (cheap: one
@@ -431,14 +422,12 @@ namespace
         }
 
         // findOwnButton(), not getChild<LLButton>() - see its own comment.
-        // This was the actual bug behind "no icon at all" on nearby_chat/
-        // im_container (round 40, confirmed via one-shot diagnostic
-        // logging, since removed): getChild<LLButton>() NEVER returns
-        // nullptr for a widget type with a registered default, so the
-        // "does it already have one?" check below was never true, and
-        // createPopoutButton() never ran for either floater at all -
-        // About was never affected only because its real XML-authored
-        // button already satisfies the lookup honestly.
+        // getChild<LLButton>() NEVER returns nullptr for a widget type
+        // with a registered default, so using it here for the "does it
+        // already have one?" check would never be true for nearby_chat/
+        // im_container, and createPopoutButton() would never run for
+        // either floater at all. About is unaffected only because its
+        // real XML-authored button already satisfies the lookup honestly.
         LLButton* btn = findOwnButton(floater, POPOUT_BUTTON_NAME);
         if (!btn)
         {
@@ -566,15 +555,14 @@ namespace
             // Flat, text-only menu-item look - LLButton's SKIN DEFAULT
             // images (a distinct beveled/highlighted toolbar-button
             // graphic, applied to any field left unset here) is what a
-            // plain, no-gap vertical stack of these actually looked like
-            // live in phase 1: "highlighted buttons for available
-            // options" rather than a menu list. Keeping the skin's own
-            // default (valid, loadable) image pointers and making them
-            // fully transparent via color - NOT nulling the pointers
-            // themselves - avoids LLButton::draw()'s missing-texture
-            // fallback (this renderer's magenta "invalid resource" tell,
-            // confirmed live when the pointers were nulled instead) while
-            // still hiding the beveled look. label_color_disabled dims the
+            // plain, no-gap vertical stack of these would look like as
+            // highlighted toolbar buttons rather than a menu list.
+            // Keeping the skin's own default (valid, loadable) image
+            // pointers and making them fully transparent via color - NOT
+            // nulling the pointers themselves - avoids LLButton::draw()'s
+            // missing-texture fallback (this renderer's magenta "invalid
+            // resource" tell) while still hiding the beveled look.
+            // label_color_disabled dims the
             // text for a currently-unavailable action instead of hiding
             // it, matching the real menu's own on_enable graying.
             LLButton::Params btn_p;
@@ -618,11 +606,9 @@ namespace
                 // Deleting the panel here would delete the button object
                 // out from under its own still-executing member function
                 // (delete-this-on-the-call-stack) - undefined behaviour
-                // that doesn't necessarily crash immediately (confirmed
-                // live in phase 1 as the menu working exactly once and
-                // then never again, consistent with a use-after-free
-                // quietly corrupting heap/global state rather than
-                // crashing outright). Just flag it; idle() performs the
+                // that doesn't necessarily crash immediately; a
+                // use-after-free here can instead quietly corrupt heap/
+                // global state rather than crash outright. Just flag it; idle() performs the
                 // real deletion once this whole dispatch has fully
                 // unwound. inst_ptr is stable for this purpose - it's the
                 // address of a PopoutInstance owned by a unique_ptr in
@@ -838,11 +824,9 @@ namespace
     }
 
     // LLGestureAutocompleteHelper::showHelper() (llgestureautocompletehelper.cpp)
-    // is the mechanism behind "the menus... still spawning in main view":
-    // its real picker (LLFloaterGestureAutocompletePicker, registered as
-    // "gesture_autocomplete_picker" - see [[project_gesture_autocomplete_
-    // missing_xui_crash_2026_09_26]] for the crash that was blocking this
-    // path entirely until now) is a genuine top-level LLFloater, opened via
+    // is the mechanism behind menus spawning in the main view instead of
+    // here: its real picker (LLFloaterGestureAutocompletePicker, registered
+    // as "gesture_autocomplete_picker") is a genuine top-level LLFloater, opened via
     // openFloater() straight into gFloaterView - the MAIN window's own
     // floater layer, entirely separate from this framework's per-instance
     // composited render target. Repositioning it can't fix this: a
@@ -1006,8 +990,8 @@ namespace
     // with the ENTIRE main window, not scoped to any one floater, so it
     // can legitimately hold something unrelated that later dies through
     // ordinary main-window activity. See floaterPointToViewLocal()'s
-    // comment for the mouse-capture case this was first confirmed on (a
-    // live CTD in phase 1) - the same risk applies to keyboard focus.
+    // comment for the mouse-capture case this can crash on - the same
+    // risk applies to keyboard focus.
     bool isDescendantOfFloater(LLFloater* floater, LLView* view)
     {
         LLView* v = view;
@@ -1019,7 +1003,7 @@ namespace
 
     // Win32 client coords are top-down (y=0 at top); LLView-space is
     // bottom-up ortho (dx_state_for_2d(), same convention LLWindowWin32's
-    // own convertCoords(LLCoordWindow, LLCoordGL*) uses) - matches that
+    // own convertCoords(LLCoordWindow, LLCoordYUp*) uses) - matches that
     // exact -1 pixel-center convention.
     inline S32 flipY(S32 win32_y, S32 client_height)
     {
@@ -1158,12 +1142,11 @@ namespace
             // (floater -> gFloaterView -> mRootView) using the floater's
             // stale DOCKED position - a coordinate frame with nothing to
             // do with where this popped-out window actually sits on
-            // screen - confirmed live in phase 1 as "mouse location is all
-            // over the place" for dragging; the identical bug is latent in
-            // resize. The OS's own modal move/resize loop was the
-            // ORIGINAL fix for that, but it's a BLOCKING call that never
-            // returns until the gesture ends - confirmed live, repeatedly,
-            // as this thread going unresponsive. This is entirely self-
+            // screen, giving wrong mouse-location deltas for dragging;
+            // the identical bug is latent in resize. The OS's own modal
+            // move/resize loop fixes that, but it's a BLOCKING call that
+            // never returns until the gesture ends, hanging this thread
+            // for the duration. This is entirely self-
             // contained instead: a plain SetCapture()+GetCursorPos()+
             // SetWindowPos() loop, the same non-blocking approach already
             // proven reliable for ordinary mouse dispatch below.
@@ -1172,17 +1155,16 @@ namespace
             // overlap the header strip) wins over a plain drag. The drag
             // zone is capped at half the window's current width -
             // UIMinimizedWidth defaults to 160px, narrower than
-            // HEADER_BUTTON_ZONE_WIDTH (120px) alone, which left only a
-            // ~40px sliver draggable on a minimized floater (most clicks
-            // missed it entirely) - confirmed live as "unmovable [while
-            // minimized]". Real button rects (behind a protected accessor)
+            // HEADER_BUTTON_ZONE_WIDTH (120px) alone, which would leave
+            // only a ~40px sliver draggable on a minimized floater,
+            // missing most clicks. Real button rects (behind a protected accessor)
             // are much narrower than half the header even at this width.
             if (msg == WM_LBUTTONDOWN)
             {
                 // Gated on the floater's ACTUAL resizability - "sl_about"
-                // isn't resizable, and this was a real, confirmed bug:
-                // dragging an edge visibly resized the window regardless,
-                // with nothing behind it. hitTestResizeEdge() applies the
+                // isn't resizable; without this gate, dragging an edge
+                // visibly resizes the window regardless, with nothing
+                // behind it. hitTestResizeEdge() applies the
                 // same gate internally (see its own comment).
                 UINT ht = hitTestResizeEdge(inst->floaterResizableCache, x, raw_y, client_w, client_h);
 
@@ -1241,9 +1223,8 @@ namespace
         // in favor of a self-contained drag), so Windows has no idea it
         // has "resizable edges" - WM_SETCURSOR's own default handling
         // just resets to the class cursor (IDC_ARROW, set once at
-        // RegisterClassExW time) even directly over the resize border -
-        // confirmed live as "the resize needs a visual indicator... thats
-        // not the case in a popped out floater". Computed with the exact
+        // RegisterClassExW time) even directly over the resize border,
+        // giving no visual resize-cursor feedback without this. Computed with the exact
         // same hitTestResizeEdge() WM_LBUTTONDOWN's own drag-start check
         // uses, so the cursor and the actual click behavior always agree
         // on where the border is. lParam's own hit-test word is useless
@@ -1472,7 +1453,7 @@ namespace
     // floater, so its captor can legitimately be some unrelated main-
     // window widget that later gets destroyed through ordinary main-window
     // activity having nothing to do with any popout. Forwarding events to
-    // it regardless was a real, live CTD in phase 1 - the caller must fall
+    // it regardless can crash - the caller must fall
     // back to `floater` when this returns false. The guard counter bounds
     // the walk in case of a corrupted/cyclic parent chain.
     bool floaterPointToViewLocal(LLFloater* floater, LLView* view, S32 x, S32 y, S32* out_x, S32* out_y)
@@ -1701,14 +1682,12 @@ void LLFloaterPopoutManager::popOut(const std::string& name)
     floater->reshape(rect.getWidth(), rect.getHeight(), true);
     LLView::sForceReshape = prev_force_reshape;
 
-    // The sForceReshape trick above still wasn't enough for
-    // LLFloaterIMContainer specifically. First attempt (collapsing then
-    // re-expanding the MESSAGES pane via collapseMessagesPane()) was
-    // ALSO insufficient - confirmed live: user still needed to manually
-    // collapse/re-expand the side tabs afterward. Root cause, traced
-    // properly this time: the visible content isn't missing because of a
-    // stale LLLayoutStack rect at all - mSelectedSession's tab panel
-    // itself needs its own setVisible(true) reasserted.
+    // The sForceReshape trick above still isn't enough for
+    // LLFloaterIMContainer specifically: collapsing then re-expanding the
+    // MESSAGES pane via collapseMessagesPane() alone still leaves the side
+    // tabs needing a manual collapse/re-expand. The visible content isn't
+    // missing because of a stale LLLayoutStack rect - mSelectedSession's
+    // tab panel itself needs its own setVisible(true) reasserted.
     // LLTabContainer::setTab() (lltabcontainer.cpp) is what actually
     // calls tuple->mTabPanel->setVisible(is_selected) for whichever
     // session tab is hosted inside the messages pane - and it runs that
@@ -1741,17 +1720,17 @@ void LLFloaterPopoutManager::popOut(const std::string& name)
     // LLFloater::setFocus() may have set the WHOLE subtree to TT_ACTIVE/
     // TT_INACTIVE at some point before this was ever popped out (any
     // ordinary click on it while docked does this), and nothing in this
-    // framework calls setFocus()/updateTransparency() again afterward
-    // (rounds 48/49 deliberately stopped managing this at all) - so it
+    // framework calls setFocus()/updateTransparency() again afterward -
+    // this framework deliberately does not manage that - so it
     // just stays frozen at whatever it happened to be. That matters here
     // specifically because TT_ACTIVE/TT_INACTIVE bypass the draw-context
     // mechanism entirely (LLUICtrl::getCurrentTransparency(),
     // lluictrl.cpp) and read straight from the real mainview
     // ActiveFloaterTransparency/InactiveFloaterTransparency settings
-    // instead - exactly the coupling rounds 48/49 already rejected, and
-    // the reason the floater's own chrome/background image was rendering
+    // instead - a coupling this must avoid, since it is the reason the
+    // floater's own chrome/background image would otherwise render
     // fully opaque regardless of this file's own fixed offscreen backing
-    // color, effectively cancelling it out - confirmed live. TT_DEFAULT
+    // color, effectively cancelling it out. TT_DEFAULT
     // is the ONLY type that respects an explicitly pushed
     // LLViewDrawContext (renderPoppedOut()'s own fixed alpha, see its
     // own comment) - forced once here, at pop-out time, since nothing
@@ -2065,10 +2044,9 @@ void LLFloaterPopoutManager::idle()
                 // toggleMenu()'s own updateParent(LLMenuGL::sMenuContainer)
                 // + LLMenuGL::showPopup() calls) into the SAME
                 // LLMenuGL::sMenuContainer global as the right-click case
-                // below - confirmed live as "view_options_button &
-                // sort_button... still spawning" even after that fix,
-                // since this file only ever checked for a just-spawned
-                // menu after RightDown, never after a plain Down. Same
+                // below. This is missed if this file only checks for a
+                // just-spawned menu after RightDown, never after a plain
+                // Down. Same
                 // redirect, reusing showPopoutMenuFromLLMenuGL() as-is
                 // (it doesn't care whether the menu came from a right-
                 // click or a menu-button's left-click) - no fallback
@@ -2107,10 +2085,8 @@ void LLFloaterPopoutManager::idle()
                 // handleHover() on the new target, never onMouseLeave()
                 // on whichever sibling had it before - so every button
                 // ever hovered inside a popped-out floater stayed
-                // permanently highlighted, stacking up one at a time -
-                // confirmed live as "the sort menu highlight for options
-                // highlights all options as you mouse over them" (most
-                // visible here since these substitute menus are several
+                // permanently highlighted, stacking up one at a time
+                // (most visible here since these substitute menus are several
                 // small adjacent buttons, but the same bug affects any
                 // hoverable widget in any popped-out floater). Fixed by
                 // tracking the one view that last received hover
@@ -2323,8 +2299,7 @@ void LLFloaterPopoutManager::renderPoppedOut()
         // so the mismatch showed up as the floater's own edge-anchored
         // elements (the resize handle itself, title buttons) appearing to
         // vanish/go stale once the real window grew far enough past
-        // them - confirmed live as "seems there is a hard limit in
-        // resizing". Tracking the real window's live size here instead
+        // them. Tracking the real window's live size here instead
         // means the offscreen target/composition surface now genuinely
         // keep pace with the drag in real time; the floater's OWN content
         // still only reflows once the drag ends and reshape() finally
@@ -2397,10 +2372,7 @@ void LLFloaterPopoutManager::renderPoppedOut()
         // isBackgroundOpaque() says this floater actually uses), always
         // at alpha=1 (our own backing must stay fully opaque regardless -
         // there is nothing further behind it but the real desktop).
-        // Tried flat pure black here first (rounds 48/49), which is what
-        // exposed a SEPARATE, real bug (round 52: the chrome was
-        // rendering fully opaque, unrelated to this color choice) - but
-        // once THAT was fixed, pure black turned out to have its own
+        // Flat pure black here has its own
         // problem: several widgets throughout this skin (e.g.
         // floater_im_session.xml's chat_editor: bg_writeable_color=
         // "Black_50") use a semi-transparent BLACK overlay color
@@ -2408,20 +2380,16 @@ void LLFloaterPopoutManager::renderPoppedOut()
         // darken a NON-black docked floater background - blended over
         // OUR pure-black backing instead, black-at-50%-alpha-over-black
         // is still just black, mathematically indistinguishable from
-        // nothing drawn at all - confirmed live as "the unfocused white
-        // chat bar is nearly 100% see through" and equally transparent-
-        // looking titlebars. Using the REAL background color here is
+        // nothing drawn at all, making such overlays (e.g. an unfocused
+        // chat bar) look nearly see-through, along with any similarly
+        // transparent-looking titlebars. Using the REAL background color here is
         // exactly what every such Black_NN/White_NN overlay color in
         // this skin was actually designed against - fixes this whole
-        // class of widget uniformly, not just the one that was reported.
-        // Safe to revisit now (this is what round 47 originally tried,
-        // reverted in round 48 for an UNRELATED reason: the floater's
-        // real transparency type reading mainview's Active/
-        // InactiveFloaterTransparency settings, permanently looking
-        // "inactive" regardless of this instance's own real focus state -
-        // round 52's forced TT_DEFAULT + fixed LLViewDrawContext already
-        // decouples that completely, so the original reason to avoid the
-        // real color no longer applies).
+        // class of widget uniformly. The forced TT_DEFAULT + fixed
+        // LLViewDrawContext above decouples this from the floater's real
+        // transparency type permanently reading mainview's Active/
+        // InactiveFloaterTransparency settings as "inactive" regardless
+        // of this instance's own real focus state.
         const LLColor4& bg_color = floater->isBackgroundOpaque() ? floater->getBackgroundColor() : floater->getTransparentColor();
         inst.offscreen.clearColor(bg_color.mV[VRED], bg_color.mV[VGREEN], bg_color.mV[VBLUE], 1.f);
         inst.offscreen.clear();
@@ -2445,8 +2413,7 @@ void LLFloaterPopoutManager::renderPoppedOut()
         gUIProgram.bind();
         gDX.color4f(1.f, 1.f, 1.f, 1.f);
 
-        // Fixed, deliberately NOT mainview-setting-driven (rounds 48/49's
-        // own conclusion) alpha for the floater's own chrome/content -
+        // Fixed, deliberately NOT mainview-setting-driven alpha for the floater's own chrome/content -
         // LLUICtrl::getCurrentTransparency()'s TT_DEFAULT branch (the
         // type popOut() now forces this floater's whole subtree to,
         // exactly so it respects this) reads

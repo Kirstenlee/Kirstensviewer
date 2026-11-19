@@ -1333,8 +1333,12 @@ struct ScopedFile
 
 	~ScopedFile()
 	{
-		fclose(mFile);
-		mFile = NULL;
+		// S24 : fopen can fail; fclose(NULL) trips the CRT invalid-parameter handler
+		if (mFile)
+		{
+			fclose(mFile);
+			mFile = NULL;
+		}
 	}
 
 	S32 getRemainingBytes()
@@ -1499,15 +1503,28 @@ void LLSimpleXUIParser::startElement(const char *name, const char **atts)
 			// parse out "dotted" name into individual tokens
             tokenizer name_tokens(std::string(child_name), sep);
 
-			tokenizer::iterator name_token_it = name_tokens.begin();
-			if(name_token_it == name_tokens.end()) 
+			// S24 : endElement() pops mScope/mEmptyLeafNode/mTokenSizeStack for every
+			// element, so a skipped element must still push a balanced no-op frame
+			// (a bare return here underflowed those stacks on malformed dotted names)
+			auto push_skipped_frame = [this]()
 			{
+				mEmptyLeafNode.back() = false;
+				mEmptyLeafNode.push_back(false);
+				mTokenSizeStack.push_back(0);
+				mScope.push_back(mScope.empty() ? std::string() : mScope.back());
+			};
+
+			tokenizer::iterator name_token_it = name_tokens.begin();
+			if(name_token_it == name_tokens.end())
+			{
+				push_skipped_frame();
 				return;
 			}
 
 			// check for proper nesting
 			if(!mScope.empty() && *name_token_it != mScope.back())
 			{
+				push_skipped_frame();
 				return;
 			}
 

@@ -150,15 +150,23 @@ void LLScrollListItem::draw(const LLRect& rect, const LLColor4& fg_color, const 
     // draw background rect
     gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
     LLRect bg_rect = rect;
+    // S24 : a fully transparent colour draws nothing, but each rect is a flush of the batch and a draw call, and
+    // an ordinary row (not selected, hovered or striped) used to submit one every frame
     if (mSelectedIndex < 0 && getSelected())
     {
         // Whole item is highlighted/selected
-        dx_rect_2d(bg_rect, select_color);
+        if (select_color.mV[VALPHA] > 0.f)
+        {
+            dx_rect_2d(bg_rect, select_color);
+        }
     }
     else if (mHoverIndex < 0)
     {
         // Whole item is highlighted/selected
-        dx_rect_2d(bg_rect, hover_color);
+        if (hover_color.mV[VALPHA] > 0.f)
+        {
+            dx_rect_2d(bg_rect, hover_color);
+        }
     }
 
     S32 cur_x = rect.mLeft;
@@ -182,7 +190,10 @@ void LLScrollListItem::draw(const LLRect& rect, const LLColor4& fg_color, const 
                     cell->getHeight(),
                     cell->getWidth(),
                     0);
-                dx_rect_2d(highlight_rect, select_color);
+                if (select_color.mV[VALPHA] > 0.f)
+                {
+                    dx_rect_2d(highlight_rect, select_color);
+                }
             }
             else if (mHoverIndex == cur_col)
             {
@@ -191,7 +202,10 @@ void LLScrollListItem::draw(const LLRect& rect, const LLColor4& fg_color, const 
                     cell->getHeight(),
                     cell->getWidth() ,
                     0);
-                dx_rect_2d(highlight_rect, hover_color);
+                if (hover_color.mV[VALPHA] > 0.f)
+                {
+                    dx_rect_2d(highlight_rect, hover_color);
+                }
             }
 
             cell->draw( fg_color, highlight_color );

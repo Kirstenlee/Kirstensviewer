@@ -75,13 +75,14 @@ This guide provides quick reference for advanced settings, defaults, and tuning 
 • Shader changes require: RESETS → Purge Shader Cache → Restart
 • Hover over controls in KVTweaks for detailed tooltips
 • Use RESETS tab to restore defaults or purge caches
+• Most tabs also have their own Reset card (CPU &amp; Memory, RAM Cache, Rendering Adv, SSR, Sky, Shadows, Lighting, Textures, Network, Audio) that resets just that tab
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 📂 KVTWEAKS TAB OVERVIEW (19 tabs)
 
-CPU &amp; Memory      → Core count, process QoS/scheduling, heap/VRAM budget, threaded avatar motion
-RAM Cache          → KVRAM texture buffer: budget, thresholds, eviction timing
+CPU &amp; Memory      → Core count, process QoS/scheduling, main-thread MMCSS boost, low-latency present, heap/VRAM budget, threaded avatar motion
+RAM Cache          → KVRAM texture buffer: budget, thresholds, retention, eviction mode, save/pre-load count and timeouts
 Rendering Core     → LOD factors, draw distance, avatar feathering, FSR scale/sharpen, shader hardware tier
 Rendering Adv      → SSAO, bump/glow, D3D11 debug layer/shader cache, jelly-doll ghost, volumetric light
 SSR                → Screen-space reflections: global, quality/depth tuning, water-specific override
@@ -176,6 +177,23 @@ RenderParallelAvatarCharacter ("Threaded Avatar Motion")
 MainWorkTime
   Default: 1.00 ms   Range: 0.01-3.00 ms
   Main loop time budget per frame
+
+RenderMMCSSHighPriority ("Boost Main Thread (MMCSS High)")
+  Default: true
+  Raises the main thread's multimedia scheduler (MMCSS "Games" task) priority
+  from normal to high, so it is less likely to be pre-empted when other
+  programs are using the CPU. Takes effect immediately.
+
+RenderLowLatencyPresent ("Low Latency Present (queue of 1)")
+  Default: false
+  Keeps one frame in the present queue instead of two: input reaches the
+  screen a frame sooner, but there is less room to absorb a slow frame. Flip
+  model swap chain only. Takes effect immediately.
+
+RenderWaitableSwapChain (settings.xml only - not a KVTweaks control)
+  Default: true
+  With vsync on, waits for a free present-queue slot at the start of each
+  frame so input is sampled right before rendering. Takes effect immediately.
 
 RenderReserveCoresForMainThread (console/settings.xml only - not yet a KVTweaks slider)
   Default: true
@@ -285,7 +303,7 @@ RenderDXShaderCacheEnabled ("DX Shader Cache")
   recompiling from HLSL every launch. Requires restart.
 
 RenderJellyGhostBaseAlpha / RimIntensity / RimWidth
-  Default: 0.2 / 1.2 / 12.0 - jelly-doll ghost body opacity, edge-glow
+  Default: 0.30 / 2.00 / 40.0 - jelly-doll ghost body opacity, edge-glow
   intensity, and edge-glow width
 
 RenderGodrayIntensity ("Volumetric Light")
@@ -433,7 +451,7 @@ Water Preset System (KVTweaks → Water → Presets card)
 🌌 SKY (KVTweaks → Sky - stars, nebula, meteors AND the 2.5D cloud decks, one tab)
 
 RenderSkyStyle
-  Default: 0 (Default)
+  Default: 1 (Real Constellations)
   Options: 0=Default, 1=Real Constellations, 2=Starry Night (Van Gogh)
   Notes: Requires a viewer restart - star placement is baked once at startup
 
@@ -442,7 +460,7 @@ RenderConstellationLines
   Notes: Thin dotted lines connecting each constellation's stars into its real shape
 
 RenderStarGlow
-  Default: 1.0
+  Default: 0.04
   Range: 0.0-3.0
   Notes: 0-1 scales brightness; above 1.0 adds a soft colored haze halo instead of blowing out to white
 
@@ -503,23 +521,40 @@ KVRAMCacheRAMBudgetMB
 
 KVRAMCacheSoftThreshold
   Default: 0.75 (75%)
-  Range: 0.5-1.0
+  Range: 0.5-0.85
   Notes: Begin gentle RAM-to-Disk eviction at this buffer usage level. Passive cleanup.
 
 KVRAMCacheHardThreshold
   Default: 0.90 (90%)
-  Range: 0.7-1.0
+  Range: 0.7-0.90
   Notes: Aggressive RAM-to-Disk eviction at this usage (emergency mode). Prevents overflow.
 
 KVRAMCacheRetentionTimeSec (renamed from KVRAMCacheGracePeriodSec)
-  Default: 10.0 seconds
+  Default: 3.0 seconds
   Range: 0.1-30.0 seconds (0.1 second steps)
   Notes: Minimum retention time before a texture is eligible for eviction. Lower = more aggressive cleanup, higher = less churn.
 
-KVRAMCacheMinDeckSize
-  Default: 100 textures
-  Range: 100-10000 textures (100 steps)
-  Notes: Minimum texture deck size. Higher = more cache hits before rotation/eviction.
+KVRAMCacheMinDeckSize ("Save / Pre-Load Count")
+  Default: 5000 textures
+  Range: 0-15000 textures (steps of 100)
+  Notes: How many textures are saved to the RAM cache snapshot at logoff, and so
+         the most that are pre-loaded into RAM at the next start. The best ones
+         are saved first (highest priority, then most recently used). 0 = off:
+         nothing is saved or pre-loaded and the viewer loads textures from the
+         network or disk cache as normal. Does not protect textures during play.
+
+KVRAMCacheHotLoadTimeoutSec / KVRAMCacheShutdownFlushTimeoutSec
+  Default: 10.0 / 10.0 seconds
+  Range: 1.0-30.0 (both)
+  Notes: Time allowed for the pre-load at startup, and for writing the snapshot
+         at shutdown. Whatever is not finished when the time runs out is skipped.
+
+KVRAMEvictionScheme ("Eviction Mode")
+  Default: 1 (Adaptive, inflow-driven)
+  Options: 0=Original (count-based), 1=Adaptive (inflow-driven)
+  Notes: Adaptive paces eviction to how fast textures are arriving and sizes each
+         batch by the cache size, with a pressure valve that drains an
+         overloaded cache quickly. Takes effect immediately.
 
 KVRAMCacheDebugLogging
   Default: Disabled (false)
@@ -530,7 +565,7 @@ KVRAMCacheDebugLogging
 🌑 SHADOWS (KVTweaks → Shadows)
 
 RenderShadowResolutionScale
-  Default: 1.0
+  Default: 2.0
   Range: 0.25-4.0
 
 RenderShadowBias / RenderShadowOffset
@@ -598,7 +633,7 @@ RenderLocalLightMinRadius
          inside them to light anything. 0 = no extended reach.
 
 RenderLocalLightReachGlow
-  Default: 0.35   Range: 0.0-1.0
+  Default: 0.15   Range: 0.0-1.0
   Notes: Peak strength of the reach-extension glow above, as a fraction of
          a light's own center brightness. 0 = extended reach is invisible
          (same look as RenderLocalLightMinRadius=0).
@@ -618,7 +653,7 @@ RenderReflectionProbesEnabled
   Shader Cache → Restart) to take effect
 
 RenderReflectionProbeLevel / Detail / Count / Resolution
-  Default: 3 (Everything) / -1 (Once) / 128 / 128 px
+  Default: 2 (+ water) / 0 (Static) / 128 / 256 px
   Notes: Content captured (sky+clouds / +terrain / +water / everything),
          update mode (Once/Static/Static+dynamic/Realtime), how many cube
          slots held at once (16-256), and resolution per cube face (64-512 px)
@@ -627,7 +662,7 @@ RenderReflectionAutoParallax / RenderReflectionBoxProbesEnabled
   Default: true / true
 
 RenderReflectionExcludeAvatarDynamic / RenderReflectionExcludeAvatarRealtime
-  Default: false / true
+  Default: true / true
   Notes: Performance choices - keep avatars/particles out of the master
          reflection cube under Static+dynamic / Realtime detail
 
@@ -636,7 +671,7 @@ Reflection Intensity / Saturation / Contrast
   Range: 0.0-10.0 / 0.0-5.0 / 0.0-5.0
 
 RenderTonemapEverywhere ("Tonemap Everywhere!")
-  Default: false
+  Default: true
   Notes: Legacy skies (Linden/stock sky and water, or anything predating HDR
          probe support) normally force tonemap and exposure off with no user
          edit path - Linden's own sky is a no-modify asset. This gives legacy
@@ -679,7 +714,7 @@ RenderSSAOIrradianceScale / RenderSSAOIrradianceMax
   Notes: Strength and clamp of ambient occlusion applied to probe irradiance
 
 RenderReflectionProbeCaptureShadows
-  Default: true
+  Default: false
   Notes: Computes real sun shadows inside reflection/mirror/360 captures. Off
          skips that per-face cost during probe-heavy moments (e.g. right
          after login) at the cost of shadow detail in reflections only.
@@ -742,6 +777,14 @@ RenderAlphaFaceSortDistance / RenderAlphaSortExtentFactor / RenderAlphaDepthWrit
   Default: 24 m / 0.5 / 0.98
   Notes: Per-face sort distance, depth extent factor, and the alpha threshold
          above which a face writes depth (1.01=off)
+
+RenderAlphaSortStickiness (settings.xml only - not a KVTweaks control)
+  Default: 0.25   0 = off
+  Notes: Keeps the order of batches beyond the per-face sort distance steady from
+         frame to frame (trees and other overlapping far alpha). A batch drawn
+         per face stays per-face until it is this fraction beyond the limit, and
+         a whole far batch keeps its sort depth until it moves by a tenth of this
+         fraction of its distance.
 
 RenderAlphaProjectorCount / RenderAlphaProjectors
   Default: 2 / false
@@ -870,11 +913,10 @@ RenderCubeMap
   bump/shiny, sky). Requires restart.
 
 RenderReflectionMasterCube / RenderReflectionMasterCubeRadius
-  Default: true / 20 m
+  Default: true / 32 m
   Notes: Every glossy/shiny/mirror surface samples one avatar-centred capture
          instead of per-location probe selection - recommended default, fast
          enough under Dynamic/Realtime to stay locally relevant as you move.
-         Not room-fitted, so very close reflections can look scaled/zoomed.
          Radius takes effect immediately, no restart needed.
 
 UseMenuIcons
@@ -890,7 +932,7 @@ RenderUseDXVK ("DXVK (Vulkan Backend)")
     in Vulkan mode. Requires restart.
 
 SelectionBeamStyle
-  Default: 2 (Hybrid - Line + Glow, "Lightsaber")
+  Default: 0 (Particles Only - Classic)
   Options: 0=Particles Only (Classic), 1=Solid Line Only, 2=Hybrid Line+Glow
 
 SelectionBeamLineStyle
@@ -935,7 +977,7 @@ Purge Logs
          cache+settings wipe and force-quits - the actual wipe runs at final
          shutdown via an external helper, requiring a full relaunch. Last resort only.
 
-Per-tab reset buttons (Cubemap/Materials/Movement/UI Hue/Alpha)
+Per-tab reset buttons (CPU &amp; Memory/RAM Cache/Rendering Adv/SSR/Sky/Shadows/Lighting/Textures/Network/Audio/Cubemap/Materials/Movement/UI Hue/Alpha)
   Notes: Each only resets its OWN tab's controls, unlike the floater-wide
          button above - see each section's notes for exact exceptions
          (e.g. Cubemap's reset does not touch Tonemap Everywhere)

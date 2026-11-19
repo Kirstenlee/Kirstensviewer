@@ -1916,6 +1916,9 @@ LLIMModel::LLIMSession* LLIMModel::addMessageSilently(const LLUUID& session_id, 
     {
         history_context = LLChatServiceHistory::prepareLiveMessage(utf8_text, timestamp, history_context);
     }
+
+    // Append without recomposing stale history. History loads and snapshot
+    // updates reconcile copies when their source data is published.
     addToHistory(session_id, from_name, from_id, utf8_text, is_region_msg, timestamp);
     if (session->isP2P())
     {
@@ -2088,61 +2091,61 @@ void LLIMModel::sendMessage(const std::string& utf8_text,
     }
 
     std::string name;
-    bool sent = false;
     LLAgentUI::buildFullname(name);
 
     const LLRelationship* info = NULL;
     info = LLAvatarTracker::instance().getBuddyInfo(other_participant_id);
 
     U8 offline = (!info || info->isOnline()) ? IM_ONLINE : IM_OFFLINE;
-    // Old call to send messages to SLim client,  no longer supported.
-    //if((offline == IM_OFFLINE) && (LLVoiceClient::getInstance()->isOnlineSIP(other_participant_id)))
-    //{
-    //  // User is online through the OOW connector, but not with a regular viewer.  Try to send the message via SLVoice.
-    //  sent = LLVoiceClient::getInstance()->sendTextMessage(other_participant_id, utf8_text);
-    //}
 
-    if(!sent)
+    // S24 : resolve the session before dispatch so its history boundary predates this send
+    LLIMModel::LLIMSession* session = LLIMModel::getInstance()->findIMSession(im_session_id);
+    LLSD history_context;
+
+    // Send message normally.
+
+    // default to IM_SESSION_SEND unless it's nothing special - in
+    // which case it's probably an IM to everyone.
+    U8 new_dialog = dialog;
+
+    if ( dialog != IM_NOTHING_SPECIAL )
     {
-        // Send message normally.
-
-        // default to IM_SESSION_SEND unless it's nothing special - in
-        // which case it's probably an IM to everyone.
-        U8 new_dialog = dialog;
-
-        if ( dialog != IM_NOTHING_SPECIAL )
-        {
-            new_dialog = IM_SESSION_SEND;
-        }
-
-        // KRLV_TOUCHPOINT: @sendim/@sendim_sec/@sendimto - per the
-        // spec's own wording, a bogus message is sent instead of
-        // suppressing the send outright. isRestrictedWithException()
-        // implements @sendim_sec's real object-scoping nuance - see
-        // krlvinventory.cpp's file header. See krlv/README.md.
-        std::string krlvSendText = utf8_text;
-        if (gKRlv.isRestrictedWithException("sendim", "sendim_except", other_participant_id)
-            || gKRlv.hasRestrictionFrom("sendimto", other_participant_id))
-        {
-            krlvSendText = "...";
-        }
-
-        pack_instant_message(
-            gMessageSystem,
-            gAgent.getID(),
-            false,
-            gAgent.getSessionID(),
-            other_participant_id,
-            name.c_str(),
-            krlvSendText.c_str(),
-            offline,
-            (EInstantMessage)new_dialog,
-            im_session_id);
-        gAgent.sendReliableMessage();
+        new_dialog = IM_SESSION_SEND;
     }
 
+    // KRLV_TOUCHPOINT: @sendim/@sendim_sec/@sendimto - per the
+    // spec's own wording, a bogus message is sent instead of
+    // suppressing the send outright. isRestrictedWithException()
+    // implements @sendim_sec's real object-scoping nuance - see
+    // krlvinventory.cpp's file header. See krlv/README.md.
+    std::string krlvSendText = utf8_text;
+    if (gKRlv.isRestrictedWithException("sendim", "sendim_except", other_participant_id)
+        || gKRlv.hasRestrictionFrom("sendimto", other_participant_id))
+    {
+        krlvSendText = "...";
+    }
+
+    // S24 : capture once before transport; translation may finish after service publication
+    if (dialog == IM_NOTHING_SPECIAL && other_participant_id.notNull() &&
+        session && session->isP2P())
+    {
+        history_context = session->mChatServiceHistory.outgoingContext(other_participant_id);
+    }
+
+    pack_instant_message(
+        gMessageSystem,
+        gAgent.getID(),
+        false,
+        gAgent.getSessionID(),
+        other_participant_id,
+        name.c_str(),
+        krlvSendText.c_str(),
+        offline,
+        (EInstantMessage)new_dialog,
+        im_session_id);
+    gAgent.sendReliableMessage();
+
     bool is_group_chat = false;
-    LLIMModel::LLIMSession* session = LLIMModel::getInstance()->findIMSession(im_session_id);
     if(session)
     {
         is_group_chat = session->isGroupSessionType();
@@ -2181,10 +2184,11 @@ void LLIMModel::sendMessage(const std::string& utf8_text,
             LLChatServiceHistory::noteDirectMessageActivity(other_participant_id);
         }
 
-        // Do we have to replace the /me's here?
+        // Keep the pre-send boundary on the local echo through asynchronous translation.
         std::string from;
         LLAgentUI::buildFullname(from);
-        LLIMModel::getInstance()->addMessage(im_session_id, from, gAgentID, utf8_text);
+        LLIMModel::getInstance()->addMessage(im_session_id, from, gAgentID, utf8_text,
+                                             true, false, 0, history_context);
 
         //local echo for the legacy communicate panel
         std::string history_echo;

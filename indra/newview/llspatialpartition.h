@@ -106,7 +106,8 @@ public:
     // Alpha attachment-order fix, AYAstorm-derived (LGPL v2.1) - see LLFace::mAttachedToAvatar's
     // matching comment (llface.h). Copied from there when this LLDrawInfo is built (llvovolume.cpp).
     LLPointer<LLVOAvatar> mAttachedToAvatar = nullptr;
-    LLMeshSkinInfo* mSkinInfo = nullptr;
+    // S24 : owning pointer, see LLFace::mSkinInfo
+    LLPointer<const LLMeshSkinInfo> mSkinInfo;
 
     // Material pointer here is likely for debugging only and are immaterial (zing!)
     LLPointer<LLMaterial> mMaterial;
@@ -132,6 +133,11 @@ public:
     bool mFullbright = false;
     bool mHasGlow = false;
     std::vector<DXDrawFace> mDXFaces; // alpha batches only: per-face ranges for the DX alpha pool
+    // S24 : the alpha pool's far-batch sort state, kept between frames so a batch near the per-face/whole-batch
+    // distance limit, or two far batches of nearly equal depth, do not swap order from one frame to the next
+    bool mAlphaFaceSorted = false;
+    bool mAlphaSortDepthValid = false;
+    F32 mAlphaSortDepth = 0.f;
 
     struct CompareTexture
     {

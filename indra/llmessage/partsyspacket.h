@@ -219,7 +219,6 @@ protected:
 protected:
     // private functions (used only to break up code)
     void    writeFlagByte(LLPartInitData *in);
-    //U32       writeK(LLPartInitData *in, U32 startByte);
     U32     writeKill_p(LLPartInitData *in, U32 startByte);
     U32     writeBounce_p(LLPartInitData *in, U32 startByte);
     U32     writeBounce_b(LLPartInitData *in, U32 startByte);

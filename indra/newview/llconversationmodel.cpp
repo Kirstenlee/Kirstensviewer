@@ -34,6 +34,8 @@
 #include "llfloaterimsession.h"
 #include "llsdutil.h"
 #include "llconversationmodel.h"
+#include <algorithm>
+#include <unordered_map>
 #include "llimview.h" //For LLIMModel
 #include "lltrans.h"
 
@@ -424,6 +426,29 @@ void LLConversationItemSession::setDistance(const LLUUID& participant_id, F64 di
     {
         participant->setDistance(dist);
         mNeedsRefresh = true;
+    }
+}
+
+void LLConversationItemSession::setDistances(const uuid_vec_t& participant_ids, const std::vector<F64>& dists)
+{
+    std::unordered_map<LLUUID, LLConversationItemParticipant*> by_id;
+    by_id.reserve(mChildren.size());
+    for (const auto& child : mChildren)
+    {
+        if (auto* participant = dynamic_cast<LLConversationItemParticipant*>(child.get()))
+        {
+            by_id.emplace(participant->getUUID(), participant);
+        }
+    }
+
+    const size_t count = std::min(participant_ids.size(), dists.size());
+    for (size_t i = 0; i < count; ++i)
+    {
+        if (const auto it = by_id.find(participant_ids[i]); it != by_id.end())
+        {
+            it->second->setDistance(dists[i]);
+            mNeedsRefresh = true;
+        }
     }
 }
 

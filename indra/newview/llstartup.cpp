@@ -88,6 +88,7 @@
 #include "v3math.h"
 
 #include "llagent.h"
+#include "lldecodedmessage.h"
 #include "llagentbenefits.h"
 #include "llagentcamera.h"
 #include "llagentpicksinfo.h"
@@ -314,10 +315,11 @@ void do_startup_frame()
 		constexpr U64 MAX_STARTUP_FRAME_TIME = 2000; // usec
 		constexpr U64 MAX_STARTUP_FRAME_MESSAGES = 100;
 		S32 num_messages = 0;
-		bool needs_drain = false;
-		LockMessageChecker lmc(gMessageSystem);
-		while (lmc.checkAllMessages(gFrameCount, gServicePump))
+		std::unique_ptr<LLDecodedMessage> decoded;
+		while (gMessageSystem->tryPopDecoded(decoded))
 		{
+			gMessageSystem->dispatchDecoded(*decoded);
+
 			if (gDoDisconnect)
 			{
 				// We're disconnecting, don't process any more messages from the server
@@ -328,15 +330,16 @@ void do_startup_frame()
 			if (++num_messages >= MAX_STARTUP_FRAME_MESSAGES
 				|| (totalTime() - t0) > MAX_STARTUP_FRAME_TIME)
 			{
-				needs_drain = true;
 				break;
 			}
 		}
-		if (needs_drain || gMessageSystem->getNumBufferedPackets() > 0)
-		{
-			gMessageSystem->drainUdpSocket();
-		}
+
+		gServicePump->pump();
+		gServicePump->callback();
+
+		LockMessageChecker lmc(gMessageSystem);
 		lmc.processAcks();
+		gMessageSystem->resetReceiveCounts();
 	}
 	// ...then call display_startup()
 	display_startup();
@@ -347,12 +350,24 @@ void pump_idle_startup_network(void)
 	// while there are message to process:
 	//     process one then call display_startup()
 	{
-		LockMessageChecker lmc(gMessageSystem);
-		while (lmc.checkAllMessages(gFrameCount, gServicePump))
+		std::unique_ptr<LLDecodedMessage> decoded;
+		while (gMessageSystem->tryPopDecoded(decoded))
 		{
+			gMessageSystem->dispatchDecoded(*decoded);
 			display_startup();
+
+			if (gDoDisconnect)
+			{
+				break;
+			}
 		}
+
+		gServicePump->pump();
+		gServicePump->callback();
+
+		LockMessageChecker lmc(gMessageSystem);
 		lmc.processAcks();
+		gMessageSystem->resetReceiveCounts();
 	}
 	// finally call one last display_startup()
 	display_startup();
@@ -1601,10 +1616,6 @@ bool idle_startup()
 
 		// register callbacks for messages. . . do this after initial handshake to make sure that we don't catch any unwanted
 		register_viewer_callbacks(gMessageSystem);
-		do_startup_frame();
-
-		// Debugging info parameters
-		gMessageSystem->setMaxMessageTime(0.5f);          // Spam if decoding all msgs takes more than 500 ms
 		do_startup_frame();
 
 		do_startup_frame();
@@ -2930,15 +2941,15 @@ void register_viewer_callbacks(LLMessageSystem* msg)
 	msg->setHandlerFunc("AvatarClassifiedReply",
 		&LLAvatarPropertiesProcessor::processAvatarClassifiedsReply);
 
-	msg->setHandlerFuncFast(_PREHASH_CreateGroupReply,
+	msg->setHandlerFuncThrdFast(_PREHASH_CreateGroupReply,
 		LLGroupMgr::processCreateGroupReply);
-	msg->setHandlerFuncFast(_PREHASH_JoinGroupReply,
+	msg->setHandlerFuncThrdFast(_PREHASH_JoinGroupReply,
 		LLGroupMgr::processJoinGroupReply);
-	msg->setHandlerFuncFast(_PREHASH_EjectGroupMemberReply,
+	msg->setHandlerFuncThrdFast(_PREHASH_EjectGroupMemberReply,
 		LLGroupMgr::processEjectGroupMemberReply);
-	msg->setHandlerFuncFast(_PREHASH_LeaveGroupReply,
+	msg->setHandlerFuncThrdFast(_PREHASH_LeaveGroupReply,
 		LLGroupMgr::processLeaveGroupReply);
-	msg->setHandlerFuncFast(_PREHASH_GroupProfileReply,
+	msg->setHandlerFuncThrdFast(_PREHASH_GroupProfileReply,
 		LLGroupMgr::processGroupPropertiesReply);
 
 	// ratings deprecated

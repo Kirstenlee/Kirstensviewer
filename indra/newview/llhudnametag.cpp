@@ -828,8 +828,13 @@ void LLHUDNameTag::updateAll()
     {
         LLHUDNameTag* textp = (*text_it);
         textp->mTargetPositionOffset.clearVec();
-        textp->updateSize();
         textp->updateVisibility();
+        // S24 : a tag that is visible is sized below, after its LOD is set (that result replaced this one); only a tag
+        // that is not visible needs its size here, because LLVOAvatar reads getWorldHeight() from it
+        if (!textp->mVisible)
+        {
+            textp->updateSize();
+        }
         // Polls last frame's occlusion-query result before this frame's
         // doOcclusion() (pipeline.cpp) issues the next one via
         // issueOcclusionQueries().
@@ -879,6 +884,9 @@ void LLHUDNameTag::updateAll()
 
     for (S32 i = 0; i < NUM_OVERLAP_ITERATIONS; i++)
     {
+        // S24 : state only changes where two tags overlap, so a pass that finds no overlap leaves
+        // everything as it was and every remaining pass would be an exact repeat of it
+        bool any_overlap = false;
         for (src_it = sVisibleTextObjects.begin(); src_it != sVisibleTextObjects.end(); ++src_it)
         {
             LLHUDNameTag* src_textp = (*src_it);
@@ -891,6 +899,7 @@ void LLHUDNameTag::updateAll()
 
                 if (src_textp->mSoftScreenRect.overlaps(dst_textp->mSoftScreenRect))
                 {
+                    any_overlap = true;
                     LLRectf intersect_rect = src_textp->mSoftScreenRect;
                     intersect_rect.intersectWith(dst_textp->mSoftScreenRect);
                     intersect_rect.stretch(-BUFFER_SIZE * 0.5f);
@@ -931,6 +940,10 @@ void LLHUDNameTag::updateAll()
                     dst_textp->mTargetPositionOffset = dst_textp->updateScreenPos(dst_textp->mTargetPositionOffset);
                 }
             }
+        }
+        if (!any_overlap)
+        {
+            break;
         }
     }
 

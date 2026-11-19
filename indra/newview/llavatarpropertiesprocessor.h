@@ -109,8 +109,8 @@ struct LLAvatarData
 
 struct LLAvatarData::LLGroupData
 {
-    U64 group_powers;
-    bool accept_notices;
+    U64 group_powers = 0;
+    bool accept_notices = false; // S24 : not sent by the server, was uninitialised
     std::string group_title;
     LLUUID group_id;
     std::string group_name;

@@ -610,10 +610,7 @@ void LLMaterialMgr::processGetQueue()
     get_queue_t::iterator loopRegionQueue = mGetQueue.begin();
     while (mGetQueue.end() != loopRegionQueue)
     {
-#if 1
         //* $TODO: This block is screaming to be turned into a coroutine.
-        // see processGetQueueCoro() below.
-        // 
         get_queue_t::iterator itRegionQueue = loopRegionQueue++;
 
         LLUUID region_id = itRegionQueue->first;
@@ -703,11 +700,6 @@ void LLMaterialMgr::processGetQueue()
 
 		regionp->resetMaterialsCapThrottle();
 	}
-#endif
-}
-
-void LLMaterialMgr::processGetQueueCoro()
-{
 }
 
 void LLMaterialMgr::processGetAllQueue()

@@ -72,6 +72,8 @@
 #include "llfocusmgr.h"
 #include "llurlfloaterdispatchhandler.h"
 #include "llviewerjoystick.h"
+#include "llgamecontrol.h"
+#include "llpanelpreferencegamecontrol.h"
 #include "llcalc.h"
 #include "llchatservicehistory.h"
 #include "llconversationlog.h"
@@ -80,6 +82,7 @@
 #include "lltrace.h"
 #include "lltracethreadrecorder.h"
 #include "llviewerwindow.h"
+#include "DXSwapChain.h"
 #include "llviewerdisplay.h"
 #include "llviewermedia.h"
 #include "llviewerparcelaskplay.h"
@@ -104,6 +107,7 @@
 #include "llfasttimerview.h"
 #include "llvector4a.h"
 #include "llviewermenufile.h"
+#include "llwebsocketmgr.h"
 #include "llvoicechannel.h"
 #include "llvoavatarself.h"
 #include "llviewerjointattachment.h"
@@ -130,6 +134,7 @@
 
 // Linden library includes
 #include "llavatarnamecache.h"
+#include "lldecodedmessage.h"
 #include "lldiriterator.h"
 #include "llexperiencecache.h"
 #include "llimagej2c.h"
@@ -386,6 +391,67 @@ const char* const VIEWER_WINDOW_CLASSNAME = "Second Life";
 
 // List of entries from strings.xml to always replace
 static std::set<std::string> default_trans_args;
+
+void sendGameControlData()
+{
+	LLMessageSystem* msg = gMessageSystem;
+	const LLGameControl::ServerState& state = LLGameControl::getServerState();
+
+	msg->newMessageFast(_PREHASH_GameControlData);
+	msg->nextBlockFast(_PREHASH_AgentData);
+	msg->addUUIDFast(_PREHASH_AgentID, gAgentID);
+	msg->addUUIDFast(_PREHASH_SessionID, gAgentSessionID);
+	msg->addU8Fast(_PREHASH_Packet, LLGameControl::getNextPacketNum());
+	msg->addU8Fast(_PREHASH_ActionMode, state.mActionMode);
+
+	// Non-modal canonical axes/buttons: pack every available value every message,
+	// whether or not it changed since the last one (no per-field diffing). Trailing
+	// zero axes are truncated and the Buttons block is skipped entirely when zero --
+	// the server assumes anything not packed is zero -- to save bytes.
+	size_t num_axes = state.mAxes.size();
+	while (num_axes > 0 && state.mAxes[num_axes - 1] == 0)
+	{
+		--num_axes;
+	}
+	for (size_t i = 0; i < num_axes; ++i)
+	{
+		msg->nextBlockFast(_PREHASH_Axes);
+		msg->addS16Fast(_PREHASH_Value, state.mAxes[i]);
+	}
+	if (state.mButtons != 0)
+	{
+		msg->nextBlockFast(_PREHASH_Buttons);
+		msg->addU32Fast(_PREHASH_Flags, state.mButtons);
+	}
+
+	// Modal semantic axes/buttons: same truncation policy, except the number of
+	// axes considered depends on ActionMode -- see message_template.msg's
+	// GameControlData doc and LLGameControl::numSemanticAxesForMode() -- since the
+	// server computes its own expected axis count from the mode and zeros anything
+	// not packed.
+	size_t num_mode_axes = LLGameControl::numSemanticAxesForMode((LLGameControl::AgentControlMode)state.mActionMode);
+	while (num_mode_axes > 0 && state.mSemanticAxes[num_mode_axes - 1] == 0)
+	{
+		--num_mode_axes;
+	}
+	for (size_t i = 0; i < num_mode_axes; ++i)
+	{
+		msg->nextBlockFast(_PREHASH_ModeAxes);
+		msg->addS16Fast(_PREHASH_Value, state.mSemanticAxes[i]);
+	}
+	if (state.mSemanticButtons != 0)
+	{
+		msg->nextBlockFast(_PREHASH_ModeButtons);
+		msg->addU32Fast(_PREHASH_Flags, state.mSemanticButtons);
+	}
+
+	LLGameControl::updateResendPeriod();
+	gAgent.sendMessage();
+
+	// Mirror the just-sent channel values into the preferences "Data Output" tab.
+	LLPanelPreferenceGameControl::updateDataOutput();
+}
+
 void init_default_trans_args()
 {
 	default_trans_args.insert("SECOND_LIFE"); // World
@@ -1084,6 +1150,32 @@ bool LLAppViewer::init()
 		LLViewerJoystick::getInstance()->init(false);
 	}
 
+	// S24 : SDL game controller layer, settings live in the "GameControl" LLSD
+	LLGameControl::init(gDirUtilp->getExpandedFilename(LL_PATH_APP_SETTINGS, "gamecontrollerdb.txt"),
+		[](const std::vector<std::string>& keys) -> LLSD
+		{
+			LLSD result = LLSD::emptyMap();
+			for (const std::string& key : keys)
+			{
+				if (gSavedSettings.controlExists(key))
+				{
+					result[key] = gSavedSettings.getLLSD(key);
+				}
+			}
+			return result;
+		},
+		[](const LLSD& key_values)
+		{
+			for (auto it = key_values.beginMap(); it != key_values.endMap(); ++it)
+			{
+				if (gSavedSettings.controlExists(it->first))
+				{
+					gSavedSettings.setLLSD(it->first, it->second);
+				}
+			}
+		},
+		[]() { LLPanelPreferenceGameControl::updateDeviceList(); });
+
 	try
 	{
 		initializeSecHandler();
@@ -1310,6 +1402,31 @@ bool LLAppViewer::doFrame()
 	{
 		LLPerfStats::RecordSceneTime idle_timer(LLPerfStats::StatType_t::RENDER_IDLE);
 
+		// S24 : scheduling toggles from the KV Tweaks Scheduling card, applied live
+		{
+			static LLCachedControl<bool> mmcss_boost(gSavedSettings, "RenderMMCSSHighPriority", true);
+			static bool mmcss_applied = false;
+			if (gViewerWindow && (bool)mmcss_boost != mmcss_applied)
+			{
+				mmcss_applied = mmcss_boost;
+				gViewerWindow->getWindow()->setMainThreadMMCSSBoost(mmcss_applied);
+			}
+			static LLCachedControl<bool> low_latency(gSavedSettings, "RenderLowLatencyPresent", false);
+			gDXSwapChain.setMaxFrameLatency(low_latency ? 1 : 2);
+		}
+
+		// S24 : wait for a free present-queue slot before sampling input, so the frame is built against the freshest
+		// input and the render-ahead stays at two frames. Never while hidden/minimised/unfocused, where no
+		// frames are being presented at the display rate.
+		if (gViewerWindow
+			&& gSavedSettings.getBOOL("RenderWaitableSwapChain")
+			&& gViewerWindow->getActive()
+			&& gViewerWindow->getWindow()->getVisible()
+			&& !gViewerWindow->getWindow()->getMinimized())
+		{
+			gDXSwapChain.waitForFrame(100);
+		}
+
 		if (gViewerWindow)
 		{
 			gViewerWindow->getWindow()->processMiscNativeEvents();
@@ -1322,7 +1439,7 @@ bool LLAppViewer::doFrame()
 				LL_WARNS() << " Someone took over my signal/exception handler (post messagehandling)!" << LL_ENDL;
 			}
 
-			gViewerWindow->getWindow()->gatherInput();
+			gViewerWindow->getWindow()->gatherInput(gFocusMgr.getAppHasFocus());
 			LLFloaterPopoutManager::idle();
 		}
 
@@ -1343,8 +1460,7 @@ bool LLAppViewer::doFrame()
 
 	if (gSavedSettings.getBOOL("KVRAMCacheEnabled") && KVRAMCache::instanceExists())
 	{
-		F32 delta_time = gFrameTimeSeconds;
-		KVRAMCache::getInstance()->updateFrame(delta_time);
+		KVRAMCache::getInstance()->updateFrame(gFrameIntervalSeconds.value());
 	}
 
 	if (!LLApp::isExiting())
@@ -1475,17 +1591,6 @@ bool LLAppViewer::doFrame()
 
 				work_pending += updateTextureThreads(max_time);
 				io_pending += LLLFSThread::updateClass(1);
-
-				if (io_pending > 1000)
-				{
-					// S24: was ms_sleep(llmin(io_pending/100, 100)) - up to 100ms blocking the
-					// main/render thread per frame. LLLFSThread drains on its own worker
-					// thread and holds no lock this thread needs released, so the sleep did
-					// nothing for drain speed; it only stalled the next frame's input/render.
-					// Capped much lower in case this was ever meant as a CPU-yield hint on a
-					// contended machine - 100ms was never a reasonable way to express that.
-					ms_sleep(llmin(io_pending / 100, 5));
-				}
 
 				total_work_pending += work_pending;
 				total_io_pending += io_pending;
@@ -1902,6 +2007,8 @@ bool LLAppViewer::cleanup()
 		// Turn off Space Navigator and similar devices
 		LLViewerJoystick::getInstance()->terminate();
 	}
+
+	LLGameControl::terminate();
 
 	LL_INFOS() << "Shutting down message system" << LL_ENDL;
 	end_messaging_system();
@@ -2471,13 +2578,8 @@ bool LLAppViewer::initThreads()
 	// non-null for an existing-but-hidden instance too.
 	KRlvHandler::instance().setFloaterCloseHook([](const std::string& name) -> bool
 	{
-		LLFloater* floater = LLFloaterReg::findInstance(name);
-		if (floater && floater->getVisible())
-		{
-			floater->closeFloater();
-			return true;
-		}
-		return false;
+		// S24 : keyed floaters (previews) never match findInstance()'s default key
+		return LLFloaterReg::closeVisibleInstances(name);
 	});
 
 	// KRLV_TOUCHPOINT: lets a KRLV force command (@setrot) command the
@@ -3800,7 +3902,7 @@ bool LLAppViewer::initConfiguration()
 #endif
 	{
 		const LLVersionInfo& version = LLVersionInfo::instance();
-		gArgs = "DX (" + std::to_string(version.getPatch()) + ") - " + version.getCodename();
+		gArgs = "(" + std::to_string(version.getPatch()) + ") - " + version.getCodename();
 		gWindowTitle += std::string(" ") + gArgs;
 	}
 	LLStringUtil::truncate(gWindowTitle, 255);
@@ -5644,6 +5746,13 @@ void LLAppViewer::idle()
 	LLFilePickerThread::clearDead();
 	LLDirPickerThread::clearDead();
 
+	// S24 : per-frame websocket server housekeeping (JSON-RPC request and handshake
+	// timeouts); nothing else drives LLWebsocketMgr::update()
+	if (LLWebsocketMgr::instanceExists())
+	{
+		LLWebsocketMgr::instance().update();
+	}
+
 	// Raw frame delta (unclamped; Section 3 handles dt sanity)
 	F32 dt_raw = sIdleTimer.getElapsedTimeAndResetF32();
 
@@ -5764,6 +5873,57 @@ void LLAppViewer::idle()
 			// Handle automatic walking towards points
 			gAgentPilot.updateTarget();
 			gAgent.autoPilot(&yaw);
+		}
+
+		// S24 : game controller input -> agent actions
+		gAgent.updateGameControlMode();
+
+		// Read the control flags before applyExternalActions() folds controller
+		// movement into them, so keyboard-derived state never echoes controller output.
+		LLGameControl::setExternalInput(gAgent.getControlFlags(), gAgent.getGameControlButtonsFromKeys(), gAgent.getRunning());
+
+		if (LLGameControl::getAgentControlMode() == LLGameControl::CONTROL_MODE_CURSOR)
+		{
+			LLCoordYUp cursor_pos = gViewerWindow->getCurrentMouse();
+			S32 rect_width = gViewerWindow->getWindowWidthScaled();
+			S32 rect_height = gViewerWindow->getWindowHeightScaled();
+			S32 pixel_x = llclamp(cursor_pos.mX, 0, rect_width);
+			S32 pixel_y = llclamp(rect_height - cursor_pos.mY, 0, rect_height);
+			LLGameControl::setMouseCursorPosition(pixel_x, pixel_y, rect_width, rect_height);
+			LLGameControl::setMouseCursorButtons(gViewerWindow->getLeftMouseDown(), gViewerWindow->getRightMouseDown());
+		}
+
+		if (LLPanelPreferenceGameControl::isWaitingForInputChannel())
+		{
+			// the preferences panel is capturing the next controller input to bind
+			LLPanelPreferenceGameControl::applyGameControlInput();
+		}
+		else
+		{
+			// Recompute canonical controller state and send it when it changed, but
+			// only if the region advertises "GameControlEnabled".  While unsupported
+			// the resend deadline is left alone, so the first frame after the feature
+			// appears sends immediately.
+			if (LLGameControl::computeFinalStateAndCheckForChanges())
+			{
+				LLViewerRegion* regionp = gAgent.getRegion();
+				if (regionp && regionp->gameControlEnabled())
+				{
+					sendGameControlData();
+				}
+			}
+			if (LLGameControl::willControlAvatar() || LLGameControl::willControlFlycam())
+			{
+				LLGameControl::AgentActions game_control_actions = LLGameControl::computeAgentActions();
+				gAgent.applyExternalActions(game_control_actions);
+			}
+		}
+
+		// S24 : a simulated button held when the controller stops driving the agent is released
+		if (LLPanelPreferenceGameControl::isWaitingForInputChannel()
+			|| !(LLGameControl::willControlAvatar() || LLGameControl::willControlFlycam()))
+		{
+			gAgent.releaseSimulatedMouseButtons();
 		}
 
 		send_agent_update(false);
@@ -6069,6 +6229,11 @@ void LLAppViewer::idle()
 	else if (joy_override)
 	{
 		joystick.moveFlycam();
+	}
+	else if (gAgent.isUsingFlycam())
+	{
+		// game-control / keyboard flycam
+		gAgent.updateFlycam();
 	}
 	else
 	{
@@ -6453,75 +6618,60 @@ void LLAppViewer::idleNetwork()
 	// ─────────────────────────────────────────────────────────────────────────
 	{
 		LLTimer check_message_timer;
-		//  Read all available packets from network
-		const S64 frame_count = gFrameCount;  // U32->S64
-		F32 total_time = 0.0f;
 
+		// Drain messages already decoded by the UDP receiver thread.
+		std::unique_ptr<LLDecodedMessage> decoded;
+		while (gMessageSystem->tryPopDecoded(decoded))
 		{
-			bool needs_drain = false;
-			// S24: tracks whether the TIME break specifically fired, not just the
-			// 400-message count break - the ramp below used to fire on either, which
-			// silently inflated the time budget even on frames where the time cap had
-			// done nothing at all.
-			bool time_budget_exceeded = false;
-			LockMessageChecker lmc(gMessageSystem);
-			while (lmc.checkAllMessages(frame_count, gServicePump))
-			{
-				if (gDoDisconnect)
-				{
-					// We're disconnecting, don't process any more messages from the server
-					// We're usually disconnecting due to either network corruption or a
-					// server going down, so this is OK.
-					break;
-				}
+			gMessageSystem->dispatchDecoded(*decoded);
+			++total_decoded;
 
-				total_decoded++;
-
-				if (total_decoded > MESSAGE_MAX_PER_FRAME)
-				{
-					needs_drain = true;
-					break;
-				}
-
-				// Prevent slow packets from completely destroying the frame rate.
-				// This usually happens due to clumps of avatars taking huge amount
-				// of network processing time (which needs to be fixed, but this is
-				// a good limit anyway).
-				total_time = check_message_timer.getElapsedTimeF32();
-				if (total_time >= CheckMessagesMaxTime)
-				{
-					needs_drain = true;
-					time_budget_exceeded = true;
-					break;
-				}
-			}
-			if (needs_drain || gMessageSystem->getNumBufferedPackets() > 0)
+			// Prevent slow packets from completely destroying the frame rate.
+			if (check_message_timer.getElapsedTimeF32() >= CheckMessagesMaxTime)
 			{
-				// Rather than allow packets to silently backup on the socket
-				// we drain them into our own buffer so we know how many exist.
-				S32 num_buffered_packets = gMessageSystem->drainUdpSocket();
-				// S24: only ramp when the time budget was actually exhausted, and clamp the
-				// growth - previously unbounded, so a sustained backlog could inflate this
-				// into a multi-hundred-ms per-frame stall with no ceiling.
-				if (num_buffered_packets > 0 && time_budget_exceeded)
+				// S24: ramp the budget only while a backlog remains, and clamp it - a
+				// sustained backlog must not inflate this into a multi-hundred-ms stall.
+				// 3.5% ~= x2 in 20 frames, capped at 80 ms
+				if (gMessageSystem->getNumDecodedPending() > (size_t)total_decoded)
 				{
-					CheckMessagesMaxTime = llmin(CheckMessagesMaxTime * 1.035f, 0.080f); // 3.5% ~= x2 in 20 frames, capped at 80 ms
+					CheckMessagesMaxTime = llmin(CheckMessagesMaxTime * 1.035f, 0.080f);
 				}
-			}
-			else
-			{
-				// Reset CheckMessagesMaxTime to default value
-				CheckMessagesMaxTime = CHECK_MESSAGES_DEFAULT_MAX_TIME;
+				break;
 			}
 
-			// ─────────────────────────────────────────────────────────────────────────
-			// SECTION 2: ACK Processing (~0.1-0.3ms)
-			// ─────────────────────────────────────────────────────────────────────────
-			// Process message acknowledgments to track reliable delivery
-			static LLCachedControl<F32> ack_collection_time(gSavedSettings, "AckCollectTime", 0.1f);
-			lmc.processAcks(ack_collection_time());
+			if (total_decoded > MESSAGE_MAX_PER_FRAME)
+			{
+				break;
+			}
+
+			if (gDoDisconnect)
+			{
+				// disconnecting, don't process any more messages from the server
+				break;
+			}
 		}
+
+		// No backlog left: back to the default budget
+		if (gMessageSystem->getNumDecodedPending() == 0)
+		{
+			CheckMessagesMaxTime = CHECK_MESSAGES_DEFAULT_MAX_TIME;
+		}
+
+		gServicePump->pump();
+		gServicePump->callback();
+
+		// ─────────────────────────────────────────────────────────────────────────
+		// SECTION 2: ACK Processing (~0.1-0.3ms)
+		// ─────────────────────────────────────────────────────────────────────────
+		// Process message acknowledgments to track reliable delivery
+		static LLCachedControl<F32> ack_collection_time(gSavedSettings, "AckCollectTime", 0.1f);
+		LockMessageChecker lmc(gMessageSystem);
+		lmc.processAcks(ack_collection_time());
+		gMessageSystem->resetReceiveCounts();
 	}
+
+	// S24 : one avatar cull for all the object updates just processed
+	LLVOAvatar::flushPendingCullAvatars();
 
 	if (gObjectList.mNumNewObjects > 0)
 	{
@@ -6537,13 +6687,6 @@ void LLAppViewer::idleNetwork()
 		gXferManager->retransmitUnackedPackets();
 	}
 	gAssetStorage->checkForTimeouts();
-
-	// ─────────────────────────────────────────────────────────────────────────
-	// SECTION 4: Dynamic Throttle Update (~0.05-0.1ms)
-	// ─────────────────────────────────────────────────────────────────────────
-	// Adjust bandwidth allocation based on current network conditions
-	gViewerThrottle.setBufferLoadRate(gMessageSystem->getBufferLoadRate());
-	gViewerThrottle.updateDynamicThrottle();
 
 	// ─────────────────────────────────────────────────────────────────────────
 	// SECTION 5: Region Circuit Health Check (~0.05-0.1ms)

@@ -80,6 +80,15 @@ protected:
 
 	// S24 - Rendering Advanced tab handler
 	void onClickResetRenderingAdvanced();
+	void onClickResetCpuMemory(); // S24 : CPU & Memory tab reset
+	void onClickResetRamCache(); // S24 : RAM Cache tab reset
+	void onClickResetSky(); // S24 : Sky tab reset
+	void onClickResetShadows(); // S24 : Shadows tab reset
+	void onClickResetLighting(); // S24 : Lighting tab reset
+	void onClickResetTextures(); // S24 : Textures tab reset
+	void onClickResetNetwork(); // S24 : Network tab reset
+	void onClickResetSSR(); // S24 : SSR tab reset
+	void onClickResetAudio(); // S24 : Audio tab reset
 
 	// S24 - Cubemap tab handler
 	void onClickResetCubemap();

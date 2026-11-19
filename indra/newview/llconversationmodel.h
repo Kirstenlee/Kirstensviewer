@@ -177,6 +177,8 @@ public:
     void setParticipantIsModerator(const LLUUID& participant_id, bool is_moderator);
     void setTimeNow(const LLUUID& participant_id);
     void setDistance(const LLUUID& participant_id, F64 dist);
+    // S24 : sets many distances with one pass over the participants instead of one search per id
+    void setDistances(const uuid_vec_t& participant_ids, const std::vector<F64>& dists);
 
     bool isLoaded() { return mIsLoaded; }
 

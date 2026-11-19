@@ -65,9 +65,13 @@ namespace KRlv
 
     // @camdistmax/@setcam_avdistmax (ceiling - exact synonyms, share one
     // internal restriction key) and @camdistmin/@setcam_avdistmin (floor -
-    // same). Does NOT implement the spec's "distance=0 forces Mouselook"/
-    // "distance>0 forces OUT of Mouselook" side effects - just the
-    // distance clamp itself; see krlv/README.md.
+    // same). This query itself returns only the distance clamp; the
+    // spec's "distance=0 forces Mouselook"/"distance>0 forces OUT of
+    // Mouselook" side effects are enforced separately by krlvcamera.cpp's
+    // pollCamDist() (a self-correcting idle-tick poller that calls this
+    // same function), not duplicated here - see krlv/README.md. Also the
+    // always-on reply value for @getcam_avdistmin/@getcam_avdistmax
+    // (0.f/F32::max() default when unrestricted).
     bool getCamDistanceBounds(F32& outFloorDist, F32& outCeilDist);
 
     // @camdrawmin/@camdrawmax/@camdrawalphamin/@camdrawalphamax/

@@ -1,11 +1,11 @@
 /**
  * @file llfloaterpopout.h
- * @brief Floater-outside-viewport framework - phase 1 (Stage A offscreen
- * render, Stage B DirectComposition, Stage C input/drag/lifecycle, shipped
- * r4012 for "sl_about") + phase 2 (multi-instance generalization - any
- * number of registered floaters poppable independently/simultaneously, each
- * with its own host window/thread/render target). See
- * inherited-tickling-kurzweil plan.
+ * @brief Floater-outside-viewport framework. Lets any registered floater be
+ * detached into its own top-level OS window, rendered offscreen and
+ * composited via DirectComposition, with input/drag/lifecycle handled
+ * independently per instance. Any number of registered floaters can be
+ * popped out simultaneously, each with its own host window/thread/render
+ * target.
  */
 
 #ifndef LL_LLFLOATERPOPOUT_H

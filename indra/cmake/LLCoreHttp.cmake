@@ -1,6 +1,6 @@
 include_guard()
 
-include(Curl)
+include(CURL)
 include(OpenSSL)
 include(Boost)
 

@@ -105,6 +105,10 @@ public:
     // Iterators
     static const_instance_list_t& getFloaterList(std::string_view name);
 
+    // S24 : closes every visible instance of the floater type 'name' (all keys),
+    // not only the one matching the default key. Returns true if any was closed.
+    static bool closeVisibleInstances(std::string_view name);
+
     // Visibility Management
     // return NULL if instance not found or can't create instance (no builder)
     static LLFloater* showInstance(std::string_view name, const LLSD& key = LLSD(), bool focus = false);

@@ -279,33 +279,14 @@ void LLHUDEffectSpiral::render()
         return;
     }
 
-    // ========================================================================
-    // S24: SELECTION BEAM ENHANCEMENT - "LIGHTSABER EFFECT"
-    // ========================================================================
-    // Renders a professional GL line core for the selection beam with smooth
-    // alpha fade at start/end, plus optional custom color override.
-    // 
-    // Three rendering modes:
-    //   0 = Particles only (classic grey particle stream)
-    //   1 = Line only (clean solid line, no particles)
-    //   2 = Hybrid (GL line core + particle glow - the "lightsaber" effect)
-    //
-    // Line rendering uses gradient alpha on first/last 10% of beam length
-    // for smooth fade-in/fade-out. Custom colors apply to both line and
-    // particles for consistent appearance.
-    //
-    // Modified files for this feature:
-    //   - llhudeffecttrail.cpp: GL line rendering in LLHUDEffectSpiral::render()
-    //   - llviewerpartsource.cpp: Particle scaling + style check in LLViewerPartSourceBeam::update()
-    //   - settings.xml: SelectionBeamStyle, SelectionBeamWidth, SelectionBeamParticleScale,
-    //                   SelectionBeamUseCustomColor, SelectionBeamColor
-    //   - floater_preferences_kvtweaks.xml: UI controls in Experimental tab
-    // ========================================================================
+    // SelectionBeamStyle: 0 = particles only, 1 = line only, 2 = hybrid (line +
+    // particle glow). Line rendering fades alpha over the first/last 10% of
+    // beam length. Related settings: SelectionBeamWidth, SelectionBeamParticleScale,
+    // SelectionBeamUseCustomColor, SelectionBeamColor (KVTweaks Experimental tab).
 
     S32 beam_style = gSavedSettings.getS32("SelectionBeamStyle");
     bool show_beam = gSavedSettings.getBOOL("ShowSelectionBeam");
 
-    // S24: Only render GL line if ShowSelectionBeam is enabled AND style includes line
     if (show_beam && beam_style >= 1 && !mSourceObject.isNull())  // Style 1=line only, 2=hybrid
     {
         // Get source position (avatar wrist or object center)
@@ -317,32 +298,16 @@ void LLHUDEffectSpiral::render()
         }
         else
         {
-            // S24 (2026-08-16): getRenderPosition(), not getPositionAgent() -
-            // see the target_pos comment below, same reasoning applies here
-            // for any non-avatar source.
+            // getRenderPosition(), not getPositionAgent() - see the
+            // target_pos comment below, same reasoning applies here.
             source_pos = mSourceObject->getRenderPosition();
         }
 
-        // S24 (2026-08-16): the wrist bone's raw world position moves
-        // continuously and cyclically from ordinary idle/weight-shift
-        // animation alone - live-logged proof (35s continuous capture,
-        // 4x/sec) showed it swinging by 50-140 screen-pixels in a repeating
-        // multi-second-period pattern (a faster ~3-4s wobble layered on a
-        // slower drift) the ENTIRE time, while the target object's position
-        // never moved by a single unit across the whole capture - not
-        // camera/input-driven (mWristLeftp->getWorldPosition() has no
-        // dependency on the camera or keyboard at all, only on avatar
-        // skeletal/animation state) and not a one-off settle. The particle
-        // trail never showed this because LLInterpLinear inherently smooths
-        // it over time, but this line drew the raw, instantaneous bone
-        // position every frame with no smoothing at all, faithfully
-        // rendering the avatar's own natural sway as a visible "bounce".
-        // Exponentially smoothed toward the raw position (time-constant
-        // based, not frame-rate-dependent) - the constant needs to be long
-        // enough to meaningfully flatten a multi-second-period signal (a
-        // sub-second constant, tried first, barely touches something this
-        // slow) while still letting real movement (actually walking away)
-        // catch up within a couple of seconds rather than lagging visibly.
+        // The wrist bone's raw world position swings visibly from ordinary
+        // idle/weight-shift animation alone (unlike the particle trail, which
+        // LLInterpLinear smooths inherently). Exponentially smoothed toward
+        // the raw position with a multi-second time constant so real movement
+        // still catches up within a couple of seconds.
         F32 dt = mSourceSmoothTimer.getElapsedTimeF32();
         mSourceSmoothTimer.reset();
         if (!mSmoothedSourcePosInit)
@@ -362,26 +327,13 @@ void LLHUDEffectSpiral::render()
         LLVector3 target_pos;
         if (!mTargetObject.isNull())
         {
-            // S24 (2026-08-16): getRenderPosition(), NOT getPositionAgent().
-            // Found via task #133's own diagnostic trail (manipulator/gizmo
-            // investigation, unrelated on the surface but hit the exact same
-            // symptom independently): the build-tool gizmo's pivot comes
-            // from LLManip::getPivotPoint() -> getPivotPositionAgent() ->
-            // getRenderPosition() -> LLDrawable::getPositionAgent() - a
-            // DIFFERENT function than plain LLViewerObject::getPositionAgent()
-            // (which this line used to call). For a root prim that's
-            // isActive() (true right after being selected/grabbed/edited -
-            // exactly when this beam is visible), LLDrawable::getPositionAgent()
-            // returns the translation column of the drawable's own render
-            // matrix, NOT mVObjp->getPositionAgent() - the two only
-            // coincidentally agree once the object settles back to static.
-            // The beam's own target-selection logic and getPositionAgent()
-            // math were both already proven exactly correct and stable by
-            // extensive live-logged diagnostics this session - the gizmo
-            // (the user's actual visual reference point) was reading a
-            // genuinely different position source the whole time.
-            // getRenderPosition() is the same function LLManip uses, so the
-            // beam now structurally can't disagree with it.
+            // getRenderPosition() -> LLDrawable::getPositionAgent(), NOT
+            // LLViewerObject::getPositionAgent(). For a root prim that's
+            // isActive() (true right after being selected/grabbed/edited),
+            // the drawable's render-matrix translation differs from
+            // getPositionAgent() until the object settles back to static.
+            // LLManip's gizmo pivot uses the same getRenderPosition() path,
+            // so this keeps the beam target in sync with the gizmo.
             target_pos = mTargetObject->getRenderPosition();
         }
         else if (!mPositionGlobal.isExactlyZero())
@@ -397,41 +349,25 @@ void LLHUDEffectSpiral::render()
         LLGLSPipelineAlpha gls_pipeline_alpha;
         gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
 
-        // S24: Ensure a shader is bound for rendering (prevents assert on cleanup)
+        // Ensure a shader is bound (prevents assert on cleanup).
         gDX.flush();
 
-        // S24 (2026-08-16, task #217): when a HUD is attached,
-        // render_hud_attachments() (llviewerdisplay.cpp) calls
-        // gPipeline.renderGeomPostDeferred(hud_cam) a second time per frame,
-        // whose render-target rebinding resets the D3D11 viewport to the
-        // HUD pass's own full/chrome-inclusive size (setup3DViewport() only
-        // sets the viewport rect, it never gets called again on the way
-        // back out - confirmed via full-tree grep, render_hud_attachments()
-        // has no viewport call anywhere in its body). Everything drawn
-        // afterward in the same frame inherits that wrong viewport unless
-        // it explicitly resets it first - llhudnametag.cpp:334 (task #191)
-        // and llmanip.cpp already do this for the nametag and the build-
-        // tool gizmo; this beam had no such call at all, so its geometry
-        // (world-space vertices, same GPU viewport transform as everything
-        // else) would land in the wrong screen position specifically when a
-        // HUD's second render pass ran before this beam did that frame.
+        // render_hud_attachments() (llviewerdisplay.cpp) can call
+        // DXPipeline::renderGeomPostDeferred(gPipeline, hud_cam) a second time per frame
+        // for an attached HUD, whose render-target rebind resets the D3D11
+        // viewport to the HUD pass's own size without restoring it afterward.
+        // Must reset here (same pattern as llhudnametag.cpp and llmanip.cpp)
+        // or this beam's world-space geometry lands in the wrong screen
+        // position whenever the HUD pass ran first that frame.
         gViewerWindow->setup3DViewport();
 
-        // S24 (2026-08-16): pushUIMatrix() duplicates whatever UI offset/scale
-        // is CURRENTLY active on the stack, not identity - every other real
-        // caller of pushUIMatrix() for a world-space draw (e.g. llselectmgr.cpp's
-        // selection-highlight rendering) immediately follows it with
-        // loadUIIdentity() for exactly this reason. This call was missing it,
-        // so if any ambient UI offset/scale happened to be on the stack when
-        // this ran, source_pos/target_pos (real agent-space meters) got
-        // silently reprojected through it below in vertex3fv() - the root
-        // cause of the beam rendering offset from the object center while the
-        // particle trail (LLViewerPartSourceBeam, never touches this stack)
-        // tracked correctly.
+        // pushUIMatrix() duplicates whatever UI offset/scale is currently on
+        // the stack, not identity - must follow with loadUIIdentity() before
+        // using real agent-space coordinates (source_pos/target_pos) below,
+        // same as llselectmgr.cpp's selection-highlight rendering.
         gDX.pushUIMatrix();
         gDX.loadUIIdentity();
 
-        // S24: Get beam color from unified EffectColor (set in Preferences)
         LLColor4 base_color = LLUIColorTable::instance().getColor("EffectColor");
         base_color.mV[VALPHA] = 0.9f; // Bright and visible
 
@@ -446,33 +382,18 @@ void LLHUDEffectSpiral::render()
             return;  // Too short to render
         }
 
-        // S24: LINE STYLE CONTROL (repurposed from width slider)
-        // 0 = Solid, 1 = Dotted, 2 = Dashed, 3 = Dash-Dot
+        // SelectionBeamLineStyle: 0 = Solid, 1 = Dotted, 2 = Dashed, 3 = Dash-Dot
         S32 line_style = gSavedSettings.getS32("SelectionBeamLineStyle");
 
         beam_vec.normalize();
 
-        // S24 (2026-08-16): D3D11's rasterizer has no line-width parameter
-        // at all - not a DX_RENDER port gap, a real cross-API difference
-        // (GL exposes it as pipeline state via glLineWidth(); D3D11 simply
-        // has nothing equivalent). The old glLineWidth(3.0f)/glLineWidth(1.0f)
-        // pair here was gated #ifndef DX_RENDER and did nothing under
-        // DX_RENDER, leaving the beam permanently 1px there regardless of
-        // style. Replaced with a real camera-facing billboard quad (true
-        // world-space geometry, same technique the dead llhudeffectbeam.cpp
-        // already used) - renders identically, and at real width, on both GL
-        // and DX_RENDER, so GL involvement here drops to zero rather than
-        // just being gated around.
-        // S24 (2026-09-05, task #309): the per-endpoint screen-space-constant
-        // width math (world-space-per-endpoint via getPixelMeterRatio(), same
-        // technique this file established) was factored out into
-        // dxLineWidth() (lldxlinewidth.h) so llglsandbox.cpp's beacon pillar
-        // can share it instead of re-deriving the same geometry a second
-        // time. The old hardcoded 1.5 (3px total, "matches the old
-        // glLineWidth(3.0f)") is now a real user-facing slider
-        // (SelectionBeamWidth, KVTweaks) - user feedback was that the fixed
-        // 3px default reads as too thick once it's real solid geometry
-        // rather than a soft GL rasterized line, so the new default is
+        // D3D11 has no line-width parameter at all (a real cross-API gap, GL
+        // exposes it as pipeline state via glLineWidth()). Rendered as a real
+        // camera-facing billboard quad instead, at real width on both APIs.
+        // The screen-space-constant width math (getPixelMeterRatio()) is
+        // shared via dxLineWidth() (lldxlinewidth.h) with llglsandbox.cpp's
+        // beacon pillar. Width is user-facing (SelectionBeamWidth, KVTweaks);
+        // default is
         // thinner (1.0 half-pixel-width, 2px total) and adjustable.
         F32 half_pixel_width = (F32)gSavedSettings.getF32("SelectionBeamWidth") * 0.5f;
 

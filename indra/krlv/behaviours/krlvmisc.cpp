@@ -3,8 +3,7 @@
  * @brief KRLV "Miscellaneous" category - @notify, @permissive, @clear,
  * @getstatus, @getstatusall.
  *
- * COMPLETE: all 5 command names have real handlers, though @permissive
- * carries a significant documented limitation - see below.
+ * COMPLETE: all 5 command names have real handlers.
  *
  * @notify:<channel>[;word]=<rem/add> is stored as an ordinary restriction
  * entry (key "notify", option = "channel;word" verbatim) - no new
@@ -45,21 +44,15 @@
  * @getstatusall share this exact same limitation (see
  * KRlvHandler::getActiveRules()'s own comment).
  *
- * @permissive=<y/n> is a REAL TOGGLE (so @getstatus/@clear see it, so a
- * script checking its own state gets an accurate answer) but has NO
- * FUNCTIONAL EFFECT - and this is a deliberate, honest choice, not an
- * oversight. Its entire purpose is to force every "_sec"-suffixed
- * command's exception handling to become same-object-only even when the
- * PLAIN (non-"_sec") form of that restriction is active. But every
- * "_sec" variant shipped this session (Teleportation's @tplure_sec,
- * Attachments' @shownames_sec, Chat's @sendchat family, ...) was already
- * documented, repeatedly, as sharing its plain counterpart's restriction
- * key outright - the same-object-only nuance was never built for ANY of
- * them. @permissive therefore has nothing real to toggle: implementing
- * it honestly would mean retrofitting that nuance into every "_sec"
- * command across every category first, a change with a footprint far
- * larger than this one category's own reasonable scope. Landed as
- * inert-but-present rather than silently pretended-functional.
+ * @permissive=<y/n> is now a REAL, FUNCTIONAL toggle (previously landed
+ * inert, since no "_sec" command anywhere had its same-object-only
+ * exception nuance built yet - there was nothing for it to toggle).
+ * KRlvHandler::isRestrictedWithException() (krlvhandler.h/.cpp, see
+ * krlvinventory.cpp's file header for the full mechanism) now checks
+ * isRestricted("permissive") directly: when denied ("n"), it forces
+ * EVERY restriction to behave as its secure counterpart - the spec's own
+ * stated primary purpose - regardless of whether that particular entry
+ * was itself imposed via the plain or "_sec" command form.
  *
  * @getstatus[:filter[;sep]]/@getstatusall[:filter[;sep]] both reply with
  * a `sep`-joined (default "/") list of "behaviour[:option]" pairs, with

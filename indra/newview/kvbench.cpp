@@ -40,7 +40,10 @@
 #include <cstdio>
 #include <cstring>
 #include <fstream>
+#include <malloc.h>
 #include <vector>
+
+#include "llwin32headers.h"
 
 namespace
 {
@@ -58,13 +61,13 @@ namespace
     // RTX 5080) - average of 3 real runs on that machine (not estimates):
     //   Math:  73.09M / 72.93M / 72.94M ops/s -> 72.99M
     //   RAM:   29.9 / 29.9 / 29.9 GB/s         -> 29.9
-    //   Disk:  1935 / 1939 / 2003 MB/s         -> 1959
+    //   Disk:  4860 / 4246 / 4186 MB/s         -> 4431  (unbuffered write-through I/O)
     //   Gfx:   571 / 568 / 571 fps             -> 570
     // A sub-score of 250 means "exactly matches the reference rig" for that
     // one test; the 4 sub-scores sum to 1000 Kmarks at parity.
     constexpr F64 REF_MATH_OPS_PER_SEC = 72990000.0;
     constexpr F64 REF_RAM_GB_PER_SEC = 29.9;
-    constexpr F64 REF_DISK_MB_PER_SEC = 1959.0;
+    constexpr F64 REF_DISK_MB_PER_SEC = 4431.0;
     constexpr F64 REF_GFX_FPS = 570.0;
 
     constexpr S32 GFX_QUADS_PER_FRAME = 400;
@@ -167,12 +170,13 @@ F64 KVBenchThread::getDiskMBPerSec()
 
 void KVBenchThread::run()
 {
+    // S24 : each stage is skipped, and each loop below ends early, once the thread is asked to quit
     setStage(0);
     runMath();
     setStage(1);
-    runRam();
+    if (!isQuitting()) runRam();
     setStage(2);
-    runDisk();
+    if (!isQuitting()) runDisk();
     setStage(3);
 
     mMutex.lock();
@@ -192,7 +196,7 @@ void KVBenchThread::runMath()
     F64 acc = 1.0;
     U64 iterations = 0;
 
-    while (timer.getElapsedTimeF64() < MATH_TEST_SECONDS)
+    while (!isQuitting() && timer.getElapsedTimeF64() < MATH_TEST_SECONDS)
     {
         for (S32 i = 0; i < 10000; ++i)
         {
@@ -223,7 +227,7 @@ void KVBenchThread::runRam()
 
     LLTimer timer;
     U64 totalBytes = 0;
-    while (timer.getElapsedTimeF64() < RAM_TEST_SECONDS)
+    while (!isQuitting() && timer.getElapsedTimeF64() < RAM_TEST_SECONDS)
     {
         memcpy(dst.data(), src.data(), RAM_BUFFER_BYTES);
         totalBytes += RAM_BUFFER_BYTES;
@@ -241,13 +245,24 @@ void KVBenchThread::runRam()
 
 void KVBenchThread::runDisk()
 {
-    std::vector<U8> buffer(DISK_BUFFER_BYTES);
+    // S24 : write-through, unbuffered I/O with sector-aligned buffers, so the figures
+    // measure the drive and not the OS page cache that re-reading one file would hit.
+    // 64 MiB is a multiple of any sector size.
+    void* buffer = _aligned_malloc(DISK_BUFFER_BYTES, 4096);
+    void* readBuf = _aligned_malloc(DISK_BUFFER_BYTES, 4096);
+    if (!buffer || !readBuf)
+    {
+        _aligned_free(buffer);
+        _aligned_free(readBuf);
+        return;
+    }
+    U8* fill = static_cast<U8*>(buffer);
     for (size_t i = 0; i < DISK_BUFFER_BYTES; ++i)
     {
-        buffer[i] = (U8)((i * 2654435761u) & 0xFF);
+        fill[i] = (U8)((i * 2654435761u) & 0xFF);
     }
 
-    std::string path = benchTempFilePath();
+    const std::wstring path = utf8str_to_utf16str(benchTempFilePath());
 
     // Write phase: repeatedly (re)write the file for a fixed duration,
     // same "loop until elapsed" shape as the RAM test for a stable reading
@@ -255,17 +270,23 @@ void KVBenchThread::runDisk()
     {
         LLTimer timer;
         U64 totalBytes = 0;
-        while (timer.getElapsedTimeF64() < DISK_TEST_SECONDS)
+        while (!isQuitting() && timer.getElapsedTimeF64() < DISK_TEST_SECONDS)
         {
-            std::ofstream out(path.c_str(), std::ios::binary | std::ios::trunc);
-            if (!out.is_open())
+            HANDLE file = CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
+                FILE_ATTRIBUTE_NORMAL | FILE_FLAG_WRITE_THROUGH | FILE_FLAG_NO_BUFFERING, nullptr);
+            if (file == INVALID_HANDLE_VALUE)
             {
                 break;
             }
-            out.write(reinterpret_cast<const char*>(buffer.data()), (std::streamsize)buffer.size());
-            out.flush();
-            out.close();
-            totalBytes += buffer.size();
+            DWORD written = 0;
+            const BOOL ok = WriteFile(file, buffer, (DWORD)DISK_BUFFER_BYTES, &written, nullptr);
+            FlushFileBuffers(file);
+            CloseHandle(file);
+            if (!ok)
+            {
+                break;
+            }
+            totalBytes += written;
         }
         F64 elapsed = timer.getElapsedTimeF64();
         F64 mbPerSec = elapsed > 0.0 ? ((F64)totalBytes / 1.0e6) / elapsed : 0.0;
@@ -278,16 +299,22 @@ void KVBenchThread::runDisk()
     {
         LLTimer timer;
         U64 totalBytes = 0;
-        std::vector<U8> readBuf(DISK_BUFFER_BYTES);
-        while (timer.getElapsedTimeF64() < DISK_TEST_SECONDS)
+        while (!isQuitting() && timer.getElapsedTimeF64() < DISK_TEST_SECONDS)
         {
-            std::ifstream in(path.c_str(), std::ios::binary);
-            if (!in.is_open())
+            HANDLE file = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
+                FILE_ATTRIBUTE_NORMAL | FILE_FLAG_NO_BUFFERING, nullptr);
+            if (file == INVALID_HANDLE_VALUE)
             {
                 break;
             }
-            in.read(reinterpret_cast<char*>(readBuf.data()), (std::streamsize)readBuf.size());
-            totalBytes += (U64)in.gcount();
+            DWORD bytesRead = 0;
+            const BOOL ok = ReadFile(file, readBuf, (DWORD)DISK_BUFFER_BYTES, &bytesRead, nullptr);
+            CloseHandle(file);
+            if (!ok)
+            {
+                break;
+            }
+            totalBytes += bytesRead;
         }
         F64 elapsed = timer.getElapsedTimeF64();
         F64 mbPerSec = elapsed > 0.0 ? ((F64)totalBytes / 1.0e6) / elapsed : 0.0;
@@ -296,7 +323,9 @@ void KVBenchThread::runDisk()
         mMutex.unlock();
     }
 
-    std::remove(path.c_str());
+    DeleteFileW(path.c_str());
+    _aligned_free(buffer);
+    _aligned_free(readBuf);
 }
 
 // ---------------------------------------------------------------------------

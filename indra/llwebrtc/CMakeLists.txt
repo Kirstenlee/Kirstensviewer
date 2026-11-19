@@ -50,6 +50,7 @@ if (WIN32)
         strmiids
         iphlpapi
         libcmt
+        crypt32
         Advapi32.lib
     )
 

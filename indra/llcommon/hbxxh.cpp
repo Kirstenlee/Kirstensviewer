@@ -67,11 +67,18 @@ U64 HBXXH64::digest(const std::string& str)
 void HBXXH64::init()
 {
     mDigest = 0;
-    mState = (void*)XXH3_createState();
-    if (!mState || XXH3_64bits_reset((XXH3_state_t*)mState) != XXH_OK)
+    XXH3_state_t* state = XXH3_createState();
+    if (!state || XXH3_64bits_reset(state) != XXH_OK)
     {
         LL_WARNS() << "Failed to initialize state !" << LL_ENDL;
+        // S24 : don't leak the state when reset fails
+        if (state)
+        {
+            XXH3_freeState(state);
+        }
+        state = nullptr;
     }
+    mState = (void*)state;
 }
 
 HBXXH64::~HBXXH64()
@@ -159,7 +166,7 @@ U64 HBXXH64::digest() const
     return mState ? XXH3_64bits_digest((XXH3_state_t*)mState) : mDigest;
 }
 
-std::ostream& operator<<(std::ostream& stream, HBXXH64 context)
+std::ostream& operator<<(std::ostream& stream, const HBXXH64& context)
 {
     stream << context.digest();
     return stream;
@@ -174,11 +181,11 @@ LLUUID HBXXH128::digest(const void* buffer, size_t len)
 {
     XXH128_hash_t hash = XXH3_128bits(buffer, len);
     LLUUID id;
-    auto* data = (U64*)id.mData;
+    U8* data = id.mData;
     // Note: we do not check endianness here and we just store in the same
     // order as XXH128_hash_t, that is low word "first".
-    data[0] = hash.low64;
-    data[1] = hash.high64;
+    memcpy(data, &hash.low64, sizeof(U64));
+    memcpy(data + 8, &hash.high64, sizeof(U64));
     return id;
 }
 
@@ -187,11 +194,11 @@ LLUUID HBXXH128::digest(const char* str)
 {
     XXH128_hash_t hash = XXH3_128bits((const void*)str, strlen(str));
     LLUUID id;
-    auto* data = (U64*)id.mData;
+    U8* data = id.mData;
     // Note: we do not check endianness here and we just store in the same
     // order as XXH128_hash_t, that is low word "first".
-    data[0] = hash.low64;
-    data[1] = hash.high64;
+    memcpy(data, &hash.low64, sizeof(U64));
+    memcpy(data + 8, &hash.high64, sizeof(U64));
     return id;
 }
 
@@ -200,11 +207,11 @@ LLUUID HBXXH128::digest(const std::string& str)
 {
     XXH128_hash_t hash = XXH3_128bits((const void*)str.c_str(), str.size());
     LLUUID id;
-    auto* data = (U64*)id.mData;
+    U8* data = id.mData;
     // Note: we do not check endianness here and we just store in the same
     // order as XXH128_hash_t, that is low word "first".
-    data[0] = hash.low64;
-    data[1] = hash.high64;
+    memcpy(data, &hash.low64, sizeof(U64));
+    memcpy(data + 8, &hash.high64, sizeof(U64));
     return id;
 }
 
@@ -212,43 +219,50 @@ LLUUID HBXXH128::digest(const std::string& str)
 void HBXXH128::digest(LLUUID& result, const void* buffer, size_t len)
 {
     XXH128_hash_t hash = XXH3_128bits(buffer, len);
-    auto* data = (U64*)result.mData;
+    U8* data = result.mData;
     // Note: we do not check endianness here and we just store in the same
     // order as XXH128_hash_t, that is low word "first".
-    data[0] = hash.low64;
-    data[1] = hash.high64;
+    memcpy(data, &hash.low64, sizeof(U64));
+    memcpy(data + 8, &hash.high64, sizeof(U64));
 }
 
 //static
 void HBXXH128::digest(LLUUID& result, const char* str)
 {
     XXH128_hash_t hash = XXH3_128bits((const void*)str, strlen(str));
-    auto* data = (U64*)result.mData;
+    U8* data = result.mData;
     // Note: we do not check endianness here and we just store in the same
     // order as XXH128_hash_t, that is low word "first".
-    data[0] = hash.low64;
-    data[1] = hash.high64;
+    memcpy(data, &hash.low64, sizeof(U64));
+    memcpy(data + 8, &hash.high64, sizeof(U64));
 }
 
 //static
 void HBXXH128::digest(LLUUID& result, const std::string& str)
 {
     XXH128_hash_t hash = XXH3_128bits((const void*)str.c_str(), str.size());
-    auto* data = (U64*)result.mData;
+    U8* data = result.mData;
     // Note: we do not check endianness here and we just store in the same
     // order as XXH128_hash_t, that is low word "first".
-    data[0] = hash.low64;
-    data[1] = hash.high64;
+    memcpy(data, &hash.low64, sizeof(U64));
+    memcpy(data + 8, &hash.high64, sizeof(U64));
 }
 
 // Must be called by all constructors.
 void HBXXH128::init()
 {
-    mState = (void*)XXH3_createState();
-    if (!mState || XXH3_128bits_reset((XXH3_state_t*)mState) != XXH_OK)
+    XXH3_state_t* state = XXH3_createState();
+    if (!state || XXH3_128bits_reset(state) != XXH_OK)
     {
         LL_WARNS() << "Failed to initialize state !" << LL_ENDL;
+        // S24 : don't leak the state when reset fails
+        if (state)
+        {
+            XXH3_freeState(state);
+        }
+        state = nullptr;
     }
+    mState = (void*)state;
 }
 
 HBXXH128::~HBXXH128()
@@ -327,11 +341,11 @@ void HBXXH128::finalize()
         return;
     }
     XXH128_hash_t hash = XXH3_128bits_digest((XXH3_state_t*)mState);
-    auto* data = (U64*)mDigest.mData;
+    U8* data = mDigest.mData;
     // Note: we do not check endianness here and we just store in the same
     // order as XXH128_hash_t, that is low word "first".
-    data[0] = hash.low64;
-    data[1] = hash.high64;
+    memcpy(data, &hash.low64, sizeof(U64));
+    memcpy(data + 8, &hash.high64, sizeof(U64));
     XXH3_freeState((XXH3_state_t*)mState);
     mState = nullptr;
 }
@@ -341,16 +355,13 @@ const LLUUID& HBXXH128::digest() const
     if (mState)
     {
         XXH128_hash_t hash = XXH3_128bits_digest((XXH3_state_t*)mState);
-        // We cheat the const-ness of the method here, but this is OK, since
-        // mDigest is private and cannot be accessed indirectly by other
-        // methods than digest() ones, that do check for mState to decide
-        // wether mDigest's current value may be provided as is or not. This
-        // cheat saves us a temporary LLLUID copy.
-        auto* data = (U64*)mDigest.mData;
+        // mDigest is mutable: only digest() methods touch it while mState is
+        // live, saving a temporary LLUUID copy.
+        U8* data = mDigest.mData;
         // Note: we do not check endianness here and we just store in the same
         // order as XXH128_hash_t, that is low word "first".
-        data[0] = hash.low64;
-        data[1] = hash.high64;
+        memcpy(data, &hash.low64, sizeof(U64));
+        memcpy(data + 8, &hash.high64, sizeof(U64));
     }
     return mDigest;
 }
@@ -363,14 +374,14 @@ void HBXXH128::digest(LLUUID& result) const
         return;
     }
     XXH128_hash_t hash = XXH3_128bits_digest((XXH3_state_t*)mState);
-    auto* data = (U64*)result.mData;
+    U8* data = result.mData;
     // Note: we do not check endianness here and we just store in the same
     // order as XXH128_hash_t, that is low word "first".
-    data[0] = hash.low64;
-    data[1] = hash.high64;
+    memcpy(data, &hash.low64, sizeof(U64));
+    memcpy(data + 8, &hash.high64, sizeof(U64));
 }
 
-std::ostream& operator<<(std::ostream& stream, HBXXH128 context)
+std::ostream& operator<<(std::ostream& stream, const HBXXH128& context)
 {
     stream << context.digest();
     return stream;

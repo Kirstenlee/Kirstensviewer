@@ -708,8 +708,6 @@ LLViewerRegion::LLViewerRegion(const U64 &handle,
     mBitsReceived(0.f),
     mPacketsReceived(0.f),
     mDead(false),
-    mLastVisitedEntry(NULL),
-    mInvisibilityCheckHistory(-1),
     mPaused(false),
     mRegionCacheHitCount(0),
     mRegionCacheMissCount(0),
@@ -1542,7 +1540,10 @@ void LLViewerRegion::updateVisibleEntries(F32 max_time)
                 }
 
                 vo_entry->calcSceneContribution(local_origin, needs_update, last_update, dist_threshold);
-                if(vo_entry->getSceneContribution() > projection_threshold)
+                // S24 : createVisibleObjects() only acts on entries that are not yet waiting or active, so an
+                // entry that is already past that state is not put in the list (the earlier insert above also
+                // filters on state)
+                if(vo_entry->getSceneContribution() > projection_threshold && vo_entry->getState() < LLVOCacheEntry::WAITING)
                 {
                     mImpl->mWaitingList.insert(vo_entry);
                 }
@@ -1574,6 +1575,14 @@ void LLViewerRegion::createVisibleObjects(F32 max_time)
     S32 throttle = sNewObjectCreationThrottle;
     bool has_new_obj = false;
     LLTimer update_timer;
+    // S24 : the time budget used to be looked at only once the count throttle ran out, so a frame could create the
+    // whole throttle's worth (200) of objects, or, if that check passed, everything left in the list. Now the count
+    // is a hard ceiling and the clock is checked after every object (after a few, so a slow frame still makes
+    // progress). A slice of 0 turns the time check off. The loading-screen path (throttle <= 0) is unchanged.
+    static LLCachedControl<F32> creation_slice_ms(gSavedSettings, "NewObjectCreationSliceMs");
+    const F32 slice = llmax(max_time, (F32)creation_slice_ms * 0.001f);
+    const bool time_limited = throttle > 0 && creation_slice_ms > 0.f;
+    S32 created = 0;
     for(LLVOCacheEntry::vocache_entry_priority_list_t::iterator iter = mImpl->mWaitingList.begin();
         iter != mImpl->mWaitingList.end(); ++iter)
     {
@@ -1583,7 +1592,12 @@ void LLViewerRegion::createVisibleObjects(F32 max_time)
         {
             addNewObject(vo_entry);
             has_new_obj = true;
-            if(throttle > 0 && !(--throttle) && update_timer.getElapsedTimeF32() > max_time)
+            ++created;
+            if (throttle > 0 && !(--throttle))
+            {
+                break;
+            }
+            if (time_limited && created >= 4 && update_timer.getElapsedTimeF32() > slice)
             {
                 break;
             }
@@ -1629,7 +1643,6 @@ void LLViewerRegion::clearCachedVisibleObjects()
     }
 
     //remove all visible entries.
-    mLastVisitedEntry = NULL;
     std::vector<LLDrawable*> delete_list;
     for(LLVOCacheEntry::vocache_entry_set_t::iterator iter = mImpl->mActiveSet.begin();
         iter != mImpl->mActiveSet.end(); ++iter)
@@ -1722,10 +1735,6 @@ void LLViewerRegion::idleUpdate(F32 max_update_time)
     //reset all occluders
     mImpl->mVOCachePartition->resetOccluders();
 
-    max_time = max_update_time - update_timer.getElapsedTimeF32();
-
-    //kill invisible objects
-    killInvisibleObjects(max_time * 0.4f);
     max_time = max_update_time - update_timer.getElapsedTimeF32();
 
     updateVisibleEntries(max_time);
@@ -1842,106 +1851,6 @@ void LLViewerRegion::calcNewObjectCreationThrottle()
 bool LLViewerRegion::isViewerCameraStatic()
 {
     return sLastCameraUpdated < LLViewerOctreeEntryData::getCurrentFrame();
-}
-
-void LLViewerRegion::killInvisibleObjects(F32 max_time)
-{
-#if 1 // TODO: kill this.  This is ill-conceived, objects that aren't in the camera frustum should not be deleted from memory.
-        // because of this, every time you turn around the simulator sends a swarm of full object update messages from cache
-    // probe misses and objects have to be reloaded from scratch.  From some reason, disabling this causes holes to
-    // appear in the scene when flying back and forth between regions
-    if(!sVOCacheCullingEnabled)
-    {
-        return;
-    }
-    if(mImpl->mActiveSet.empty())
-    {
-        return;
-    }
-    if(sNewObjectCreationThrottle < 0)
-    {
-        return;
-    }
-
-    LLTimer update_timer;
-    LLVector4a camera_origin;
-    camera_origin.load3(LLViewerCamera::getInstance()->getOrigin().mV);
-    LLVector4a local_origin;
-    local_origin.load3((LLViewerCamera::getInstance()->getOrigin() - getOriginAgent()).mV);
-    F32 back_threshold = LLVOCacheEntry::sRearFarRadius;
-
-    size_t max_update = 64;
-    if(!mInvisibilityCheckHistory && isViewerCameraStatic())
-    {
-        //history is clean, reduce number of checking
-        max_update /= 2;
-    }
-
-    std::vector<LLDrawable*> delete_list;
-    auto update_counter = llmin(max_update, mImpl->mActiveSet.size());
-    LLVOCacheEntry::vocache_entry_set_t::iterator iter = mImpl->mActiveSet.upper_bound(mLastVisitedEntry);
-
-    for(; update_counter > 0; --update_counter, ++iter)
-    {
-        if(iter == mImpl->mActiveSet.end())
-        {
-            iter = mImpl->mActiveSet.begin();
-            if (iter == mImpl->mActiveSet.end())
-            {
-                // Set became empty
-                break;
-            }
-        }
-        if((*iter)->getParentID() > 0)
-        {
-            continue; //skip child objects, they are removed with their parent.
-        }
-
-        LLVOCacheEntry* vo_entry = *iter;
-        if(!vo_entry->isAnyVisible(camera_origin, local_origin, back_threshold) && vo_entry->mLastCameraUpdated < sLastCameraUpdated)
-        {
-            killObject(vo_entry, delete_list);
-        }
-
-        if(max_time < update_timer.getElapsedTimeF32()) //time out
-        {
-            break;
-        }
-    }
-
-    if(iter == mImpl->mActiveSet.end())
-    {
-        mLastVisitedEntry = NULL;
-    }
-    else
-    {
-        mLastVisitedEntry = *iter;
-    }
-
-    mInvisibilityCheckHistory <<= 1;
-    if(!delete_list.empty())
-    {
-        mInvisibilityCheckHistory |= 1;
-        for (auto drawable : delete_list)
-        {
-            // S24: crash fix (null pointer read, llviewerregion.cpp:1927, WER dump-confirmed) -
-            // a null entry was reaching delete_list here and this dereferenced it unconditionally.
-            // killObject(LLVOCacheEntry*, delete_list) above only ever push_back()s a drawablep
-            // already verified non-null at that point, so the exact mechanism producing a null (or
-            // dangling, read-as-null) entry by the time this loop runs is not confirmed - flagging
-            // for continued watch rather than claiming this is the full root cause.
-            // gObjectList.killObject(LLViewerObject*) already null-tolerates its argument, so
-            // guarding the dereference here is sufficient and doesn't skip any real cleanup.
-            if (drawable)
-            {
-                gObjectList.killObject(drawable->getVObj());
-            }
-        }
-        delete_list.clear();
-    }
-
-    return;
-#endif
 }
 
 void LLViewerRegion::killObject(LLVOCacheEntry* entry, std::vector<LLDrawable*>& delete_list)
@@ -2210,7 +2119,7 @@ void LLViewerRegion::updateNetStats()
     F32 dt = mImpl->mLastNetUpdate.getElapsedTimeAndResetF32();
 
     LLCircuitData *cdp = gMessageSystem->mCircuitInfo.findCircuit(mImpl->mHost);
-    if (!cdp)
+    if (!cdp || !cdp->isAlive())
     {
         mAlive = false;
         return;
@@ -3827,6 +3736,12 @@ bool LLViewerRegion::avatarHoverHeightEnabled() const
     return ( mSimulatorFeatures.has("AvatarHoverHeightEnabled") &&
              mSimulatorFeatures["AvatarHoverHeightEnabled"].asBoolean());
 }
+bool LLViewerRegion::gameControlEnabled() const
+{
+    return ( mSimulatorFeatures.has("GameControlEnabled") &&
+             mSimulatorFeatures["GameControlEnabled"].asBoolean());
+}
+
 /* Static Functions */
 
 void log_capabilities(const CapabilityMap &capmap)

@@ -115,7 +115,7 @@
 		<type>tarball</type>
 		<name>webrtc</name>
 		<url>https://kirstensviewer.s3.eu-north-1.amazonaws.com/S24/webrtc.tar.gz</url>
-		<md5>804f8a799f97ba970912de6562e5d1a2</md5>
+		<md5>f6d3707fd1ceb3fa54705b64a45fc25f</md5>
 	</package>
 
 	<!-- ================================================================ -->
@@ -698,6 +698,14 @@
 		<name>libndofdev</name>
 		<triplet>x64-windows-static-md</triplet>
 		<args>--overlay-triplets=triplets --overlay-ports=overlay-ports</args>
+	</package>
+
+	<!-- SDL3 gamepad/joystick layer for LLGameControl (static, no DLL) -->
+	<package>
+		<type>vcpkg</type>
+		<name>sdl3</name>
+		<triplet>x64-windows-static-md</triplet>
+		<args>--overlay-triplets=triplets</args>
 	</package>
 
 	<!-- ================================================================ -->

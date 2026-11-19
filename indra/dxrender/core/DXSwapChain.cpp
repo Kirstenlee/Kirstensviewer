@@ -3,6 +3,8 @@
 #include "llerror.h"
 #include "llformat.h"
 #include <dxgi1_5.h>
+#include <dxgi1_3.h>
+#include <algorithm>
 
 DXSwapChain gDXSwapChain;
 
@@ -70,7 +72,9 @@ bool DXSwapChain::create(HWND hwnd, int width, int height, bool vsync)
     }
 
     DXGI_SWAP_CHAIN_DESC desc = {};
-    desc.BufferCount = 2;
+    // S24 : flip model gets 3 buffers and a waitable object so the frame start can be paced (see waitForFrame()).
+    // The BitBlt fallback below goes back to 2 buffers and no flag.
+    desc.BufferCount = 3;
     desc.BufferDesc.Width = width;
     desc.BufferDesc.Height = height;
     desc.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
@@ -90,7 +94,7 @@ bool DXSwapChain::create(HWND hwnd, int width, int height, bool vsync)
     // the flip-model swap effect) so a rare failure here degrades gracefully
     // instead of leaving the viewer unable to start.
     desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
-    desc.Flags = mAllowTearing ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING : 0;
+    desc.Flags = (mAllowTearing ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING : 0) | DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT;
 
     hr = factory->CreateSwapChain(device, &desc, &mSwapChain);
     if (FAILED(hr))
@@ -98,6 +102,7 @@ bool DXSwapChain::create(HWND hwnd, int width, int height, bool vsync)
         LL_WARNS("DXRender") << "CreateSwapChain (FLIP_DISCARD) failed, hr=0x" << std::hex << (unsigned long)hr << std::dec
                               << " - falling back to BitBlt-model DISCARD" << LL_ENDL;
         desc.SwapEffect = DXGI_SWAP_EFFECT_DISCARD;
+        desc.BufferCount = 2;
         desc.Flags = 0;
         mAllowTearing = false;
         hr = factory->CreateSwapChain(device, &desc, &mSwapChain);
@@ -112,6 +117,18 @@ bool DXSwapChain::create(HWND hwnd, int width, int height, bool vsync)
 
     mFlipModel = (desc.SwapEffect == DXGI_SWAP_EFFECT_FLIP_DISCARD);
     mSwapChainFlags = desc.Flags;
+
+    if (mFlipModel)
+    {
+        IDXGISwapChain2* swap_chain2 = nullptr;
+        if (SUCCEEDED(mSwapChain->QueryInterface(__uuidof(IDXGISwapChain2), (void**)&swap_chain2)) && swap_chain2)
+        {
+            swap_chain2->SetMaximumFrameLatency(mMaxFrameLatency);
+            mFrameLatencyWaitable = swap_chain2->GetFrameLatencyWaitableObject();
+            swap_chain2->Release();
+        }
+    }
+    mHoldingFrameSlot = false;
 
     mWidth = width;
     mHeight = height;
@@ -194,8 +211,47 @@ bool DXSwapChain::createBackBufferRTV()
     return true;
 }
 
+void DXSwapChain::waitForFrame(DWORD timeout_ms)
+{
+    if (!mFrameLatencyWaitable || !mVSync || mHoldingFrameSlot)
+    {
+        return;
+    }
+    // WAIT_OBJECT_0 means a slot was taken; a timeout takes nothing
+    if (WaitForSingleObjectEx(mFrameLatencyWaitable, timeout_ms, TRUE) == WAIT_OBJECT_0)
+    {
+        mHoldingFrameSlot = true;
+    }
+}
+
+void DXSwapChain::setMaxFrameLatency(UINT frames)
+{
+    frames = std::clamp<UINT>(frames, 1, 3);
+    if (frames == mMaxFrameLatency)
+    {
+        return;
+    }
+    mMaxFrameLatency = frames;
+    if (mSwapChain && mFlipModel)
+    {
+        IDXGISwapChain2* swap_chain2 = nullptr;
+        if (SUCCEEDED(mSwapChain->QueryInterface(__uuidof(IDXGISwapChain2), (void**)&swap_chain2)) && swap_chain2)
+        {
+            swap_chain2->SetMaximumFrameLatency(mMaxFrameLatency);
+            swap_chain2->Release();
+        }
+    }
+    LL_INFOS("DXRender") << "Present queue max frame latency " << mMaxFrameLatency << LL_ENDL;
+}
+
 void DXSwapChain::destroy()
 {
+    if (mFrameLatencyWaitable)
+    {
+        CloseHandle(mFrameLatencyWaitable);
+        mFrameLatencyWaitable = nullptr;
+    }
+    mHoldingFrameSlot = false;
     releaseBackBufferRTV();
     releaseDepthStencilView();
     if (mSwapChain) { mSwapChain->Release(); mSwapChain = nullptr; }
@@ -265,6 +321,7 @@ void DXSwapChain::present()
     // is off AND the swap chain was actually created with
     // DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING (mAllowTearing) - using the flag
     // otherwise is a documented DXGI error, not just a no-op.
+    mHoldingFrameSlot = false; // this present uses the slot a wait took
     UINT present_flags = (!mVSync && mAllowTearing) ? DXGI_PRESENT_ALLOW_TEARING : 0;
     HRESULT hr = mSwapChain->Present(mVSync ? 1 : 0, present_flags);
 

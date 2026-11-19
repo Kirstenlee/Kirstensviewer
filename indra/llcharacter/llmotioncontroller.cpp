@@ -38,7 +38,6 @@
 #include "llstl.h"
 
 // This is why LL_CHARACTER_MAX_ANIMATED_JOINTS needs to be a multiple of 4.
-const S32 NUM_JOINT_SIGNATURE_STRIDES = LL_CHARACTER_MAX_ANIMATED_JOINTS / 4;
 const U32 MAX_MOTION_INSTANCES = 32;
 
 //-----------------------------------------------------------------------------
@@ -589,25 +588,30 @@ void LLMotionController::updateMotionsByType(LLMotion::LLMotionBlendType anim_ty
 		}
 		else
 		{
-			for (S32 i = 0; i < NUM_JOINT_SIGNATURE_STRIDES; i++)
+			// S24 : memcpy instead of U8[]-to-U32* casts (aliasing). 64-bit strides: this motion adds something
+			// new exactly when it has a bit that the merged signature lacks, i.e. (test & ~current) != 0.
+			static_assert(LL_CHARACTER_MAX_ANIMATED_JOINTS % sizeof(U64) == 0, "joint signature must be a whole number of U64s");
+			constexpr S32 NUM_U64_STRIDES = LL_CHARACTER_MAX_ANIMATED_JOINTS / sizeof(U64);
+
+			// the signature the motion's onUpdate() sees is the merged one from before this motion was added
+			memcpy(last_joint_signature, &mJointSignature[1][0], LL_CHARACTER_MAX_ANIMATED_JOINTS);
+
+			for (S32 type = 0; type < 2; type++)
 			{
-		 		U32 *current_signature = (U32*)&(mJointSignature[0][i * 4]);
-				U32 test_signature = *(U32*)&(motionp->mJointSignature[0][i * 4]);
-				
-				if ((*current_signature | test_signature) > (*current_signature))
+				U8* merged = &mJointSignature[type][0];
+				const U8* test = &motionp->mJointSignature[type][0];
+				for (S32 i = 0; i < NUM_U64_STRIDES; i++)
 				{
-					*current_signature |= test_signature;
-                    update_motion = true;
-				}
+					U64 current_signature, test_signature;
+					memcpy(&current_signature, merged + i * sizeof(U64), sizeof(U64));
+					memcpy(&test_signature, test + i * sizeof(U64), sizeof(U64));
 
-				*((U32*)&last_joint_signature[i * 4]) = *(U32*)&(mJointSignature[1][i * 4]);
-				current_signature = (U32*)&(mJointSignature[1][i * 4]);
-				test_signature = *(U32*)&(motionp->mJointSignature[1][i * 4]);
-
-				if ((*current_signature | test_signature) > (*current_signature))
-				{
-					*current_signature |= test_signature;
-                    update_motion = true;
+					if (test_signature & ~current_signature)
+					{
+						current_signature |= test_signature;
+						memcpy(merged + i * sizeof(U64), &current_signature, sizeof(U64));
+						update_motion = true;
+					}
 				}
 			}
 		}
@@ -917,14 +921,32 @@ void LLMotionController::updateMotions(bool force_update)
 //-----------------------------------------------------------------------------
 void LLMotionController::updateMotionsMinimal()
 {
-	// Always update mPrevTimerElapsed
-	mPrevTimerElapsed = mTimer.getElapsedTimeF32();
+	// S24 : keep the animation clock moving while the pose work is skipped, otherwise
+	// the avatar resumes from its old animation state (couple animations desync)
+	F32 cur_time = mTimer.getElapsedTimeF32();
+	F32 delta_time = cur_time - mPrevTimerElapsed;
+	mPrevTimerElapsed = cur_time;
+	mLastTime = mAnimTime;
+	if (!mPaused)
+	{
+		mAnimTime += delta_time * mTimeFactor;
+	}
 
 	purgeExcessMotions();
 	updateLoadingMotions();
 	resetJointSignatures();
 
-	deactivateStoppedMotions();
+	if (mPaused)
+	{
+		// the clock is stopped, so stopped motions would never finish easing out
+		deactivateStoppedMotions();
+	}
+	else
+	{
+		// catch non-looping anims that stop this frame; stopped motions are
+		// deactivated once their ease out is over
+		updateIdleActiveMotions();
+	}
 
     mHasRunOnce = true;
 }

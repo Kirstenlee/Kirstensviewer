@@ -289,7 +289,10 @@ float4 main(PSInput IN) : SV_Target
                     if (nh > 0.0 && vh > 0.0)
                     {
                         float gloss = 1.0 - perceptualRoughness;
-                        float fres = pow(abs(1 - vh), 5)*0.4+0.5;
+                        // S24 : x^5 as three multiplies, not pow()
+                        float fres_base = abs(1 - vh);
+                        float fres_base2 = fres_base * fres_base;
+                        float fres = fres_base2 * fres_base2 * fres_base*0.4+0.5;
                         float gtdenom = 2 * nh;
                         float gt = max(0, min(gtdenom * nv / vh, gtdenom * nl / vh));
                         float scol = fres*lightFunc.Sample(lightFuncSampler, float2(nh, gloss)).r*gt/(nh*nl);
@@ -366,7 +369,10 @@ float4 main(PSInput IN) : SV_Target
                 spec_gloss = min(spec.a, proj_spec_gloss_cap);
             }
 
-            float fres = pow(abs(1 - vh), 5)*0.4+0.5;
+            // S24 : x^5 as three multiplies, not pow()
+            float fres_base = abs(1 - vh);
+            float fres_base2 = fres_base * fres_base;
+            float fres = fres_base2 * fres_base2 * fres_base*0.4+0.5;
 
             float gtdenom = 2 * nh;
             float gt = max(0, min(gtdenom * nv / vh, gtdenom * nl / vh));

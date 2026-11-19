@@ -173,7 +173,7 @@ void LLFloaterIMContainer::sessionIDUpdated(const LLUUID& old_session_id, const 
     LLFloaterIMSessionTab* conversp = LLFloaterIMSessionTab::findConversation(new_session_id);
     if (conversp && mSessions.find(new_session_id) == mSessions.end())
     {
-        mSessions[new_session_id] = conversp;
+        mSessions[new_session_id] = conversp->getHandle();
     }
 }
 
@@ -365,7 +365,7 @@ void LLFloaterIMContainer::addFloater(LLFloater* floaterp,
         icon = LLUICtrlFactory::instance().create<LLGroupIconCtrl>(icon_params);
         icon_id = session_id;
 
-        mSessions[session_id] = floaterp;
+        mSessions[session_id] = floaterp->getHandle();
         floaterp->mCloseSignal.connect(boost::bind(&LLFloaterIMContainer::onCloseFloater, this, session_id));
     }
     else
@@ -377,7 +377,7 @@ void LLFloaterIMContainer::addFloater(LLFloater* floaterp,
         icon = LLUICtrlFactory::instance().create<LLAvatarIconCtrl>(icon_params);
         icon_id = avatar_id;
 
-        mSessions[session_id] = floaterp;
+        mSessions[session_id] = floaterp->getHandle();
         floaterp->mCloseSignal.connect(boost::bind(&LLFloaterIMContainer::onCloseFloater, this, session_id));
     }
 
@@ -404,10 +404,13 @@ void LLFloaterIMContainer::onCloseFloater(LLUUID& id)
 void LLFloaterIMContainer::onNewMessageReceived(const LLSD& data)
 {
     LLUUID session_id = data["session_id"].asUUID();
-    LLFloater* floaterp = get_ptr_in_map(mSessions, session_id);
+    avatarID_panel_map_t::iterator iter = mSessions.find(session_id);
+    LLFloater* floaterp = (iter != mSessions.end()) ? iter->second.get() : nullptr;
     LLFloater* current_floater = LLMultiFloater::getActiveFloater();
 
-    if(floaterp && current_floater && floaterp != current_floater)
+    // S24 : getActiveFloater() now uses dynamic_cast and can be null here (the
+    // current panel is not always a floater); that must not suppress flashing
+    if (floaterp && floaterp != current_floater)
     {
         if(LLMultiFloater::isFloaterFlashing(floaterp))
             LLMultiFloater::setFloaterFlashing(floaterp, false);
@@ -577,8 +580,11 @@ void LLFloaterIMContainer::idleUpdate()
     // Note: it makes no sense of course to update the distance in other session
     if (sort_order == LLConversationFilter::SO_DISTANCE)
     {
-        // almost real-time updates
-        setNearbyDistances(); //calls arrange all
+        // S24 : 4 Hz is almost real-time for distances in metres, and the sort and arrange are heavy
+        if (mDistanceTimer.checkExpirationAndReset(0.25f))
+        {
+            setNearbyDistances(); //calls arrange all
+        }
     }
     mConversationsRoot->update(); //arranges, resizes, heavy
 
@@ -1860,15 +1866,17 @@ void LLFloaterIMContainer::setNearbyDistances()
         LLWorld::getInstance()->getAvatars(&avatar_ids, &positions, gAgent.getPositionGlobal(), gSavedSettings.getF32("NearMeRange"));
         // Get the position of the agent
         const LLVector3d& me_pos = gAgent.getPositionGlobal();
-        // For each nearby avatar, compute and update the distance
-        auto avatar_count = positions.size();
-        for (size_t i = 0; i < avatar_count; i++)
+        // For each nearby avatar, compute and update the distance (one pass over the participants)
+        std::vector<F64> dists;
+        dists.reserve(positions.size() + 1);
+        for (const LLVector3d& pos : positions)
         {
-            F64 dist = dist_vec_squared(positions[i], me_pos);
-            item->setDistance(avatar_ids[i],dist);
+            dists.push_back(dist_vec_squared(pos, me_pos));
         }
         // Also does it for the agent itself
-        item->setDistance(gAgent.getID(),0.0f);
+        avatar_ids.push_back(gAgent.getID());
+        dists.push_back(0.0);
+        item->setDistances(avatar_ids, dists);
         // Request resort
         mConversationViewModel.requestSortAll();
         mConversationsRoot->arrangeAll();

@@ -84,6 +84,7 @@ public:
 	void makeContextCurrent(void* context) override;
 	void destroySharedContext(void* context) override;
     void toggleVSync(bool enable_vsync) override;
+    void setMainThreadMMCSSBoost(bool high) override;
     bool setCursorPosition(LLCoordWindow position) override;
     bool getCursorPosition(LLCoordWindow *position) override;
     bool getCursorDelta(LLCoordCommon* delta) override;
@@ -108,7 +109,7 @@ public:
     U32 getFSAASamples() override;
     bool restoreGamma() override;            // Restore original gamma table (before updating gamma)
     ESwapMethod getSwapMethod() override { return mSwapMethod; }
-    void gatherInput() override;
+    void gatherInput(bool app_has_focus) override;
     void delayInputProcessing() override;
     void swapBuffers() override;
 
@@ -287,6 +288,11 @@ protected:
 	bool mBorderlessMaximized { false }; // Track if borderless window is "maximized"
 
 	HANDLE      mMMCSSHandle = nullptr; // MMCSS registration for the main/render thread; reverted in destructor
+
+	// S24: CPU Sets core reservation (RenderReserveCoresForMainThread /
+	// RenderPreferredCoresOverride) lives in llwindowwin32.cpp's free
+	// functions (resolvePreferredCores()/reserveCpuSetsForThread()) rather
+	// than as members here - no per-instance state needed, see constructor.
 
 	struct LLWindowWin32Thread;
 	LLWindowWin32Thread* mWindowThread = nullptr;

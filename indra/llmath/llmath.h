@@ -90,29 +90,9 @@ inline bool is_approx_zero(float f) {
 	return std::abs(f) < F_APPROXIMATELY_ZERO;
 }
 
-// These functions work by interpreting sign+exp+mantissa as an unsigned
-// integer.
-// For example:
-// x = <sign>1 <exponent>00000010 <mantissa>00000000000000000000000
-// y = <sign>1 <exponent>00000001 <mantissa>11111111111111111111111
-//
-// interpreted as ints =
-// x = 10000001000000000000000000000000
-// y = 10000000111111111111111111111111
-// which is clearly a different of 1 in the least significant bit
-// Values with the same exponent can be trivially shown to work.
-//
-// WARNING: Denormals of opposite sign do not work
-// x = <sign>1 <exponent>00000000 <mantissa>00000000000000000000001
-// y = <sign>0 <exponent>00000000 <mantissa>00000000000000000000001
-// Although these values differ by 2 in the LSB, the sign bit makes
-// the int comparison fail.
-//
-// WARNING: NaNs can compare equal
-// There is no special treatment of exceptional values like NaNs
-//
-// WARNING: Infinity is comparable with F32_MAX and negative
-// infinity is comparable with F32_MIN
+// These functions work by interpreting sign+exp+mantissa as an unsigned integer,
+// after reversing the order of negative values and adjusting the sign bit, so
+// the integer distance equals the ULP distance (also across zero).
 
 // S24 For std::isnan and std::isfinite
 
@@ -125,26 +105,54 @@ inline bool llfinite(float val) {
 }
 
 // S24: handles negative and positive zeros using std::bit_cast (C++20)
-inline bool is_zero(float x) noexcept
+constexpr bool is_zero(float x) noexcept
 {
 	return (std::bit_cast<U32>(x) & 0x7FFFFFFF) == 0;
 }
 
-// S24: ULP-based approximate equality using std::bit_cast (C++20)
-inline bool is_approx_equal(float x, float y) noexcept
+// S24: equal or within one ULP. Negative values are reordered so the integer
+// distance is monotonic across zero. NaNs never compare equal; infinities
+// compare equal only to the same infinity.
+constexpr bool is_approx_equal(float x, float y) noexcept
 {
-	constexpr S32 COMPARE_MANTISSA_UP_TO_BIT = 0x02;
-	U32 x_bits = std::bit_cast<U32>(x);
-	U32 y_bits = std::bit_cast<U32>(y);
-	return std::abs(static_cast<S32>(x_bits - y_bits)) < COMPARE_MANTISSA_UP_TO_BIT;
+	constexpr U32 COMPARE_MANTISSA_UP_TO_BIT = 0x02;
+	constexpr U32 SIGN_MASK = U32(1) << 31;
+	constexpr U32 EXPONENT_MASK = 0x7F800000;
+	constexpr U32 MANTISSA_MASK = 0x007FFFFF;
+
+	U32 xb = std::bit_cast<U32>(x);
+	U32 yb = std::bit_cast<U32>(y);
+
+	if ((xb & EXPONENT_MASK) == EXPONENT_MASK ||
+		(yb & EXPONENT_MASK) == EXPONENT_MASK)
+		return xb == yb && (xb & MANTISSA_MASK) == 0;
+
+	xb = (xb & SIGN_MASK) ? (~xb + U32(1)) : (xb | SIGN_MASK);
+	yb = (yb & SIGN_MASK) ? (~yb + U32(1)) : (yb | SIGN_MASK);
+
+	const U32 diff = xb > yb ? xb - yb : yb - xb;
+	return diff < COMPARE_MANTISSA_UP_TO_BIT;
 }
 
-inline bool is_approx_equal(F64 x, F64 y) noexcept
+constexpr bool is_approx_equal(F64 x, F64 y) noexcept
 {
-	constexpr S64 COMPARE_MANTISSA_UP_TO_BIT = 0x02;
-	U64 x_bits = std::bit_cast<U64>(x);
-	U64 y_bits = std::bit_cast<U64>(y);
-	return std::abs(static_cast<S64>(x_bits - y_bits)) < COMPARE_MANTISSA_UP_TO_BIT;
+	constexpr U64 COMPARE_MANTISSA_UP_TO_BIT = 0x02;
+	constexpr U64 SIGN_MASK = U64(1) << 63;
+	constexpr U64 EXPONENT_MASK = 0x7FF0000000000000ULL;
+	constexpr U64 MANTISSA_MASK = 0x000FFFFFFFFFFFFFULL;
+
+	U64 xb = std::bit_cast<U64>(x);
+	U64 yb = std::bit_cast<U64>(y);
+
+	if ((xb & EXPONENT_MASK) == EXPONENT_MASK ||
+		(yb & EXPONENT_MASK) == EXPONENT_MASK)
+		return xb == yb && (xb & MANTISSA_MASK) == 0;
+
+	xb = (xb & SIGN_MASK) ? (~xb + U64(1)) : (xb | SIGN_MASK);
+	yb = (yb & SIGN_MASK) ? (~yb + U64(1)) : (yb | SIGN_MASK);
+
+	const U64 diff = xb > yb ? xb - yb : yb - xb;
+	return diff < COMPARE_MANTISSA_UP_TO_BIT;
 }
 
 // S24 MODERNIZATION: llabs() replaced with std::abs() - C++ standard library

@@ -757,34 +757,6 @@ public:
 };
 
 /**
- * Initialization locked singleton, only derived class can decide when to initialize.
- * Starts locked.
- * For cases when singleton has a dependency onto something or.
- *
- * LLLockedSingleton is like an LLParamSingleton with a nullary constructor.
- * It cannot be instantiated on demand (instance() or getInstance() call) --
- * it must be instantiated by calling construct(). However, it does
- * participate in dependency-ordered LLSingletonBase::deleteAll() processing.
- */
-template <typename DT>
-class LLLockedSingleton : public LLParamSingleton<DT>
-{
-    typedef LLParamSingleton<DT> super;
-
-public:
-    using super::deleteSingleton;
-    using super::getInstance;
-    using super::instance;
-    using super::instanceExists;
-    using super::wasDeleted;
-
-    static DT* construct()
-    {
-        return super::initParamSingleton();
-    }
-};
-
-/**
  * Use LLSINGLETON(Foo); at the start of an LLSingleton<Foo> subclass body
  * when you want to declare an out-of-line constructor:
  *

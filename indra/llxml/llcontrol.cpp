@@ -45,6 +45,7 @@
 #include "llrect.h"
 #include "llxmltree.h"
 #include "llsdserialize.h"
+#include "llsdutil.h"
 #include "llfile.h"
 #include "lltimer.h"
 #include "lldir.h"
@@ -147,6 +148,9 @@ bool LLControlVariable::llsd_compare(const LLSD& a, const LLSD & b)
 		break;
 	case TYPE_STRING:
 		result = a.asString() == b.asString();
+		break;
+	case TYPE_LLSD:
+		result = llsd_equals(a, b); // S24 : was always unequal, so LLSD controls always notified and saved
 		break;
 	default:
 		break;
@@ -1011,12 +1015,21 @@ U32 LLControlGroup::saveToFile(const std::string& filename, bool nondefault_only
 			++num_saved;
 		}
 	}
+	// S24 : written to a temp file and renamed over the target, so a failed or interrupted
+	// write can never leave a truncated settings file
+	const std::string temp_filename = filename + ".tmp";
 	llofstream file;
-	file.open(filename.c_str());
+	file.open(temp_filename.c_str());
 	if (file.is_open())
 	{
 		LLSDSerialize::toPrettyXML(settings, file);
 		file.close();
+		if (file.fail() || LLFile::rename(temp_filename, filename) != 0)
+		{
+			LL_WARNS("Settings") << "Failed to write settings file: " << filename << LL_ENDL;
+			LLFile::remove(temp_filename, ENOENT);
+			return 0;
+		}
 		LL_INFOS("Settings") << "Saved to " << filename << LL_ENDL;
 	}
 	else

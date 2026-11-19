@@ -1,7 +1,7 @@
 include_guard()
 
 include(Boost)
-include(Expat)
+include(EXPAT)
 
 set(LLXML_INCLUDE_DIRS
     ${LIBS_OPEN_DIR}/llxml

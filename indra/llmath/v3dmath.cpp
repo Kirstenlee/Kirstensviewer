@@ -43,7 +43,7 @@
 // LLVector3d
 // WARNING: Don't use these for global const definitions!
 // For example:
-//      const LLQuaternion(0.5f * DirectX::XM_PI, LLVector3d::zero);
+//      const LLQuaternion(0.5f * F_PI, LLVector3d::zero);
 // at the top of a *.cpp file might not give you what you think.
 const LLVector3d LLVector3d::zero(0,0,0);
 const LLVector3d LLVector3d::x_axis(1, 0, 0);

@@ -380,8 +380,8 @@ namespace
 	// LLHLSLShader::sCurBoundShaderPtr, leaving stale GPU-bound shaders with
 	// no warning. Cache-and-compare, not unconditional rebind - D3D11
 	// SetShader calls aren't free at this call frequency.
-	ID3D11VertexShader* sLastBoundVS = nullptr;
-	ID3D11PixelShader* sLastBoundPS = nullptr;
+	// S24 : what is really bound is tracked in DXStateCache (noteBoundShaderStages()), which
+	// bind()/unbind() and the direct SetShader sites all report to, so this only re-issues on a real desync
 
 	// If sCurBoundShaderPtr is null, leave the context untouched - this is
 	// the deliberate post-unbind() state the two raw-bind sites above already
@@ -398,12 +398,11 @@ namespace
 		}
 		ID3D11VertexShader* vs = shader->mDXVertexShader.getVS();
 		ID3D11PixelShader* ps = shader->mDXPixelShader.getPS();
-		if (vs != sLastBoundVS || ps != sLastBoundPS)
+		if (vs != DXStateCache::getNotedVS() || ps != DXStateCache::getNotedPS())
 		{
 			gDXDevice.getContext()->VSSetShader(vs, nullptr, 0);
 			gDXDevice.getContext()->PSSetShader(ps, nullptr, 0);
-			sLastBoundVS = vs;
-			sLastBoundPS = ps;
+			DXStateCache::noteBoundShaderStages(vs, ps);
 		}
 	}
 }
@@ -847,7 +846,28 @@ void LLVertexBuffer::uploadRange(DXBuffer& buf, U32 full_size, U32 start, U32 en
 		memcpy(dst + start, data, end - start + 1);
 	}
 
+	if (mDeferUpload)
+	{
+		(&buf == &mDXIndices ? mIndexUploadPending : mVertexUploadPending) = true;
+		return;
+	}
+
 	buf.upload(dst, full_size);
+}
+
+void LLVertexBuffer::endDataBatch()
+{
+	mDeferUpload = false;
+	if (mVertexUploadPending && mMappedData)
+	{
+		mDXBuffer.upload(mMappedData, mSize);
+	}
+	if (mIndexUploadPending && mMappedIndexData)
+	{
+		mDXIndices.upload(mMappedIndexData, mIndicesSize);
+	}
+	mVertexUploadPending = false;
+	mIndexUploadPending = false;
 }
 
 void LLVertexBuffer::unmapBuffer()
@@ -872,68 +892,25 @@ void LLVertexBuffer::_unmapBuffer()
 		return;
 	}
 
-	struct SortMappedRegion
-	{
-		bool operator()(const MappedRegion& lhs, const MappedRegion& rhs)
-		{
-			return lhs.mStart < rhs.mStart;
-		}
-	};
-
-	// S24: the gDXDeviceInfo.mIsApple branch that used to live here (real
-	// glBindBuffer/glBufferData/gen_buffer() calls) was dead on Windows and
-	// removed outright - this is the only reachable path under DX_RENDER.
+	// S24 : a DYNAMIC D3D11 buffer can only be refreshed whole (Map WRITE_DISCARD), and every writer
+	// writes straight into the shadow copy (mMappedData / mMappedIndexData), so the dirty regions only
+	// say that an upload is needed. One full upload per buffer replaces the old region merge, which
+	// also did a spurious extra full upload for its initial empty range.
 	if (!mMappedVertexRegions.empty())
 	{
-
-		U32 start = 0;
-		U32 end = 0;
-
-		std::sort(mMappedVertexRegions.begin(), mMappedVertexRegions.end(), SortMappedRegion());
-
-		for (U32 i = 0; i < mMappedVertexRegions.size(); ++i)
+		if (mMappedData)
 		{
-			const MappedRegion& region = mMappedVertexRegions[i];
-			if (region.mStart == end + 1)
-			{
-				end = region.mEnd;
-			}
-			else
-			{
-				uploadRange(mDXBuffer, mSize,start, end, (U8*)mMappedData + start, mMappedData);
-				start = region.mStart;
-				end = region.mEnd;
-			}
+			mDXBuffer.upload(mMappedData, mSize);
 		}
-
-		uploadRange(mDXBuffer, mSize,start, end, (U8*)mMappedData + start, mMappedData);
 		mMappedVertexRegions.clear();
 	}
 
 	if (!mMappedIndexRegions.empty())
 	{
-
-		U32 start = 0;
-		U32 end = 0;
-
-		std::sort(mMappedIndexRegions.begin(), mMappedIndexRegions.end(), SortMappedRegion());
-
-		for (U32 i = 0; i < mMappedIndexRegions.size(); ++i)
+		if (mMappedIndexData)
 		{
-			const MappedRegion& region = mMappedIndexRegions[i];
-			if (region.mStart == end + 1)
-			{
-				end = region.mEnd;
-			}
-			else
-			{
-				uploadRange(mDXIndices, mIndicesSize,start, end, (U8*)mMappedIndexData + start, mMappedIndexData);
-				start = region.mStart;
-				end = region.mEnd;
-			}
+			mDXIndices.upload(mMappedIndexData, mIndicesSize);
 		}
-
-		uploadRange(mDXIndices, mIndicesSize,start, end, (U8*)mMappedIndexData + start, mMappedIndexData);
 		mMappedIndexRegions.clear();
 	}
 }
@@ -1155,12 +1132,7 @@ void LLVertexBuffer::setupVertexBuffer()
 		// plain "COLOR0" in HLSL so D3D11 reflection alone can't distinguish
 		// them. Identify the emissive-accumulation shaders by name instead;
 		// falls back to emissive if that's the only data this buffer carries.
-		const std::string& bound_name = LLHLSLShader::sCurBoundShaderPtr->mName;
-		bool wants_emissive_in_color0 =
-			bound_name == "Deferred Emissive Shader" ||
-			bound_name == " PBR Glow Shader" ||
-			bound_name == "Skinned Deferred Emissive Shader" ||
-			bound_name == "Skinned  PBR Glow Shader";
+		const bool wants_emissive_in_color0 = LLHLSLShader::sCurBoundShaderPtr->wantsEmissiveInColor0();
 		AttributeType src = ((mTypeMask & MAP_EMISSIVE) && (wants_emissive_in_color0 || !(mTypeMask & MAP_COLOR)))
 			? TYPE_EMISSIVE : TYPE_COLOR;
 		buffers[count] = vb;

@@ -351,6 +351,9 @@ public:
 
     bool avatarHoverHeightEnabled() const;
 
+    // does the simulator accept GameControlData messages?
+    bool gameControlEnabled() const;
+
     typedef enum
     {
         CACHE_MISS_TYPE_TOTAL = 0,  // total cache miss - object not in cache
@@ -435,7 +438,6 @@ private:
     void killObject(LLVOCacheEntry* entry, std::vector<LLDrawable*>& delete_list); //adds entry into list if it is safe to move into cache
     void removeFromVOCacheTree(LLVOCacheEntry* entry);
     void killCacheEntry(LLVOCacheEntry* entry, bool for_rendering = false); //physically delete the cache entry
-    void killInvisibleObjects(F32 max_time);
     void createVisibleObjects(F32 max_time);
     void updateVisibleEntries(F32 max_time); //update visible entries
 
@@ -548,8 +550,6 @@ public:
     F32     mCameraDistanceSquared; // updated once per frame
     U8      mCentralBakeVersion;
 
-    LLVOCacheEntry* mLastVisitedEntry;
-    U32             mInvisibilityCheckHistory;
 
     // Information for Homestead / CR-53
     S32 mClassID;

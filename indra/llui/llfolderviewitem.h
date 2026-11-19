@@ -363,6 +363,7 @@ public:
 protected:
     items_t mItems;
     folders_t mFolders;
+    bool mDestroying = false; // S24 : destroyView() is emptying mItems/mFolders itself
 
     bool        mIsOpen;
     bool        mExpanderHighlighted;
@@ -525,6 +526,9 @@ public:
     //WARNING: do not call directly...use the appropriate LLFolderViewModel-derived class instead
     template<typename SORT_FUNC> void sortFolders(const SORT_FUNC& func) { mFolders.sort(func); }
     template<typename SORT_FUNC> void sortItems(const SORT_FUNC& func) { mItems.sort(func); }
+    // S24 : lets a model sort the child lists with its own algorithm
+    template<typename FUNC> void modifyFolderList(FUNC&& func) { func(mFolders); }
+    template<typename FUNC> void modifyItemList(FUNC&& func) { func(mItems); }
 };
 
 typedef std::deque<LLFolderViewItem*> folder_view_item_deque;

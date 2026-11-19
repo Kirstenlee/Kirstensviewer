@@ -142,13 +142,10 @@ void LLWinDebug::cleanupSingleton()
 
 void LLWinDebug::writeDumpToFile(MINIDUMP_TYPE type, MINIDUMP_EXCEPTION_INFORMATION *ExInfop, const std::string& filename)
 {
-    // S24 (2026-08-02): reverted - enabling this caused a lockup/crash
-    // before window creation (LLWinDebug's vectored exception handler
-    // catches every first-chance exception process-wide, including benign
-    // ones libraries throw-and-catch internally during early init, and
-    // MiniDumpWriteDump() on each one was slow/unstable enough to hang).
-    // Not a safe diagnostic path for this codebase - use log-based
-    // checkpoint tracing instead.
+    // Left disabled: LLWinDebug's vectored exception handler catches every first-chance exception
+    // process-wide, including benign ones libraries throw/catch internally during early init, and
+    // MiniDumpWriteDump() on each one was slow/unstable enough to hang before window creation. Use
+    // log-based checkpoint tracing instead.
     const bool enable_write_dump_file = false;
     if ( enable_write_dump_file )
     {

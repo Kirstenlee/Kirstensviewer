@@ -406,13 +406,6 @@ void LLChatBar::sendChat( EChatType type )
 // static
 void LLChatBar::startChat(const char* line)
 {
-    //TODO* remove DUMMY chat
-    //if(gBottomTray && gBottomTray->getChatBox())
-    //{
-    //  gBottomTray->setVisible(true);
-    //  gBottomTray->getChatBox()->setFocus(true);
-    //}
-
     // *TODO Vadim: Why was this code commented out?
 
 //  gChatBar->setVisible(true);
@@ -433,12 +426,6 @@ void LLChatBar::startChat(const char* line)
 // static
 void LLChatBar::stopChat()
 {
-    //TODO* remove DUMMY chat
-    //if(gBottomTray && gBottomTray->getChatBox())
-    ///{
-    //  gBottomTray->getChatBox()->setFocus(false);
-    //}
-
     // *TODO Vadim: Why was this code commented out?
 
 //  // In simple UI mode, we never release focus from the chat bar

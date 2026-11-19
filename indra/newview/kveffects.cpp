@@ -34,6 +34,7 @@
 #include <omp.h>
 #include <random>
 #include <vector>
+#include <memory>
 #include <algorithm>
 #include <cmath>
 
@@ -57,473 +58,177 @@ KVOpenCL gCL;  // Single instance for all GPU operations
 // ============================================================
 
 // ------------------------------------------------------------
-// Desaturation (Grayscale Conversion)
-// Converts color image to grayscale using luminance weights
+// Effect chain
+// S24 : the enabled effects used to run one after another, each as its own full round trip (read the frame back to the
+// CPU, upload it, run the kernel, download it, write it back to the texture), with fresh OpenCL buffers and a
+// zero-filled CPU buffer per call. The chain now reads the frame once, ping-pongs the enabled kernels between two
+// persistent OpenCL buffers, and writes the result back once. Every kernel still reads and writes RGBA8 buffers, so each
+// stage sees exactly the bytes the previous one produced, as before. The order is unchanged:
+// desaturate, invert, RGB control, cel shade, vignette, edge glow, night vision, motion blur.
 // ------------------------------------------------------------
-void ImageProcessor::desaturateImageGPU(ID3D11Texture2D* tex, int width, int height)
+namespace
 {
-	if (!gCL.init())
-	{
-		LL_WARNS() << "OpenCL initialization failed for desaturate" << LL_ENDL;
-		return;
-	}
+	cl_mem sChainBufA = nullptr;
+	cl_mem sChainBufB = nullptr;
+	size_t sChainBufSize = 0;
+	std::unique_ptr<unsigned char[]> sChainCpu;
+	size_t sChainCpuSize = 0;
 
-	const int pixelCount = width * height;
-	const size_t bufSize = pixelCount * 4; // RGBA
-
-	// Create OpenCL buffers
-	cl_mem inBuf = gCL.createBuffer(bufSize, CL_MEM_READ_ONLY);
-	cl_mem outBuf = gCL.createBuffer(bufSize, CL_MEM_WRITE_ONLY);
-
-	if (!inBuf || !outBuf)
-	{
-		gCL.release(inBuf);
-		gCL.release(outBuf);
-		return;
-	}
-
-	// Allocate temporary CPU buffer for texture read
-	std::vector<unsigned char> tempBuffer(bufSize);
-
-	// Read texture from GPU
-	if (!DXReadback::readPixels(tex, 0, 0, width, height, 4, tempBuffer.data()))
-	{
-		gCL.release(inBuf);
-		gCL.release(outBuf);
-		return;
-	}
-
-	// Upload to OpenCL, process, download
-	gCL.writeBuffer(inBuf, tempBuffer.data(), bufSize);
-	gCL.runGrayscale(inBuf, outBuf, width, height);
-	gCL.readBuffer(outBuf, tempBuffer.data(), bufSize);
-
-	// Write back to texture
-	DXReadback::writePixels(tex, 0, 0, width, height, 4, tempBuffer.data());
-
-	gCL.release(inBuf);
-	gCL.release(outBuf);
+	// motion blur's cross-frame history; it must survive between frames
+	cl_mem sMotionHistory = nullptr;
+	int sMotionWidth = 0;
+	int sMotionHeight = 0;
 }
 
-// ------------------------------------------------------------
-// Color Inversion
-// Inverts all RGB color channels (255 - value)
-// ------------------------------------------------------------
-void ImageProcessor::invertImageGPU(ID3D11Texture2D* tex, int width, int height)
+void ImageProcessor::applyEffectsChainGPU(ID3D11Texture2D* tex, int width, int height, int effectsMask)
 {
+	if (effectsMask == 0 || width <= 0 || height <= 0)
+	{
+		return;
+	}
+
 	if (!gCL.init())
 	{
-		LL_WARNS() << "OpenCL initialization failed for invert" << LL_ENDL;
+		LL_WARNS() << "OpenCL initialization failed for the effect chain" << LL_ENDL;
 		return;
 	}
 
 	const int pixelCount = width * height;
-	const size_t bufSize = pixelCount * 4; // RGBA
+	const size_t bufSize = (size_t)pixelCount * 4; // RGBA
 
-	// Create OpenCL buffers
-	cl_mem inBuf = gCL.createBuffer(bufSize, CL_MEM_READ_ONLY);
-	cl_mem outBuf = gCL.createBuffer(bufSize, CL_MEM_WRITE_ONLY);
-
-	if (!inBuf || !outBuf)
+	if (sChainBufSize != bufSize)
 	{
-		gCL.release(inBuf);
-		gCL.release(outBuf);
+		gCL.release(sChainBufA);
+		gCL.release(sChainBufB);
+		sChainBufA = gCL.createBuffer(bufSize, CL_MEM_READ_WRITE);
+		sChainBufB = gCL.createBuffer(bufSize, CL_MEM_READ_WRITE);
+		sChainBufSize = (sChainBufA && sChainBufB) ? bufSize : 0;
+	}
+	if (sChainBufSize != bufSize)
+	{
 		return;
 	}
-
-	// Allocate temporary CPU buffer for texture read
-	std::vector<unsigned char> tempBuffer(bufSize);
-
-	// Read texture from GPU
-	if (!DXReadback::readPixels(tex, 0, 0, width, height, 4, tempBuffer.data()))
+	if (sChainCpuSize != bufSize)
 	{
-		gCL.release(inBuf);
-		gCL.release(outBuf);
-		return;
+		// every byte is overwritten by the read below, so it is not zero-filled
+		sChainCpu = std::make_unique_for_overwrite<unsigned char[]>(bufSize);
+		sChainCpuSize = bufSize;
 	}
 
-	// Upload to OpenCL, process, download
-	gCL.writeBuffer(inBuf, tempBuffer.data(), bufSize);
-	gCL.runInvert(inBuf, outBuf, pixelCount);
-	gCL.readBuffer(outBuf, tempBuffer.data(), bufSize);
-
-	// Write back to texture
-	DXReadback::writePixels(tex, 0, 0, width, height, 4, tempBuffer.data());
-
-	gCL.release(inBuf);
-	gCL.release(outBuf);
-}
-
-// ------------------------------------------------------------
-// RGB Color Grading Control
-// Advanced color manipulation with HSL conversion, gamma correction,
-// per-channel boost, hue rotation, and saturation adjustment
-// ------------------------------------------------------------
-void ImageProcessor::RGBControlGPU(ID3D11Texture2D* tex, int width, int height)
-{
-	if (!gCL.init())
+	// motion blur's history buffer is created (black) before anything is changed, so a failure leaves the frame alone
+	const bool motionBlur = (effectsMask & MOTION_BLUR) != 0;
+	if (motionBlur)
 	{
-		LL_WARNS() << "OpenCL initialization failed for RGB control" << LL_ENDL;
-		return;
-	}
-
-	const int pixelCount = width * height;
-	const size_t bufSize = pixelCount * 4; // RGBA
-
-	// Create OpenCL buffers
-	cl_mem inBuf = gCL.createBuffer(bufSize, CL_MEM_READ_ONLY);
-	cl_mem outBuf = gCL.createBuffer(bufSize, CL_MEM_WRITE_ONLY);
-
-	if (!inBuf || !outBuf)
-	{
-		gCL.release(inBuf);
-		gCL.release(outBuf);
-		return;
-	}
-
-	// Fetch control parameters
-	const float redControl = gSavedSettings.getF32("RedControlKV");
-	const float greenControl = gSavedSettings.getF32("GreenControlKV");
-	const float blueControl = gSavedSettings.getF32("BlueControlKV");
-	const float boostMultiplier = gSavedSettings.getF32("BoostMultiplierKV");
-	const float hueRotation = gSavedSettings.getF32("HueRotationKV");
-	const float saturationControl = gSavedSettings.getF32("SaturationControlKV");
-	const float contrastMultiplier = gSavedSettings.getF32("ContrastMultiplierKV");
-	const float gammaCorrection = gSavedSettings.getF32("GammaCorrectionKV");
-
-	// Allocate temporary CPU buffer for texture read
-	std::vector<unsigned char> tempBuffer(bufSize);
-
-	// Read texture from GPU
-	if (!DXReadback::readPixels(tex, 0, 0, width, height, 4, tempBuffer.data()))
-	{
-		gCL.release(inBuf);
-		gCL.release(outBuf);
-		return;
-	}
-
-	// Upload to OpenCL, process with all parameters, download
-	gCL.writeBuffer(inBuf, tempBuffer.data(), bufSize);
-	gCL.runRGBControl(inBuf, outBuf, pixelCount,
-		redControl, greenControl, blueControl,
-		boostMultiplier, hueRotation, saturationControl,
-		contrastMultiplier, gammaCorrection);
-	gCL.readBuffer(outBuf, tempBuffer.data(), bufSize);
-
-	// Write back to texture
-	DXReadback::writePixels(tex, 0, 0, width, height, 4, tempBuffer.data());
-
-	gCL.release(inBuf);
-	gCL.release(outBuf);
-}
-
-// ------------------------------------------------------------
-// Cel Shading (Cartoon/Borderlands Style)
-// Sobel edge detection with posterization for comic book effect
-// ------------------------------------------------------------
-void ImageProcessor::celShadeImageGPU(ID3D11Texture2D* tex, int width, int height)
-{
-	if (!gCL.init())
-	{
-		LL_WARNS() << "OpenCL initialization failed for cel shading" << LL_ENDL;
-		return;
-	}
-
-	const int pixelCount = width * height;
-	const size_t bufSize = pixelCount * 4; // RGBA
-
-	// Create OpenCL buffers
-	cl_mem inBuf = gCL.createBuffer(bufSize, CL_MEM_READ_ONLY);
-	cl_mem outBuf = gCL.createBuffer(bufSize, CL_MEM_WRITE_ONLY);
-
-	if (!inBuf || !outBuf)
-	{
-		gCL.release(inBuf);
-		gCL.release(outBuf);
-		return;
-	}
-
-	// Fetch control parameters
-	int safeInterval = std::clamp(gSavedSettings.getU32("CelshadeInterval"), 32U, 255U);
-	int safeShades = std::clamp(gSavedSettings.getU32("CelnumShades"), 1U, 128U);
-	int shadeInterval = std::max(1, safeInterval / std::max(1, safeShades));
-	float lowVarianceThreshold = 15.0f;
-
-	// Allocate temporary CPU buffer for texture read
-	std::vector<unsigned char> tempBuffer(bufSize);
-
-	// Read texture from GPU
-	if (!DXReadback::readPixels(tex, 0, 0, width, height, 4, tempBuffer.data()))
-	{
-		gCL.release(inBuf);
-		gCL.release(outBuf);
-		return;
-	}
-
-	// Upload to OpenCL, process, download
-	gCL.writeBuffer(inBuf, tempBuffer.data(), bufSize);
-	gCL.runCelShade(inBuf, outBuf, width, height, shadeInterval, lowVarianceThreshold);
-	gCL.readBuffer(outBuf, tempBuffer.data(), bufSize);
-
-	// Write back to texture
-	DXReadback::writePixels(tex, 0, 0, width, height, 4, tempBuffer.data());
-
-	gCL.release(inBuf);
-	gCL.release(outBuf);
-}
-
-// ------------------------------------------------------------
-// Vignette Effect
-// Radial darkening from image center with exponential falloff
-// ------------------------------------------------------------
-void ImageProcessor::vignetteGPU(ID3D11Texture2D* tex, int width, int height)
-{
-	if (!gCL.init())
-	{
-		LL_WARNS() << "OpenCL initialization failed for vignette" << LL_ENDL;
-		return;
-	}
-
-	const int pixelCount = width * height;
-	const size_t bufSize = pixelCount * 4; // RGBA
-
-	// Create OpenCL buffers
-	cl_mem inBuf = gCL.createBuffer(bufSize, CL_MEM_READ_ONLY);
-	cl_mem outBuf = gCL.createBuffer(bufSize, CL_MEM_WRITE_ONLY);
-
-	if (!inBuf || !outBuf)
-	{
-		gCL.release(inBuf);
-		gCL.release(outBuf);
-		return;
-	}
-
-	// Fetch vignette intensity (must match CPU version setting name)
-	float intensity = gSavedSettings.getF32("VignetteIntensity");
-
-	// Allocate temporary CPU buffer for texture read
-	std::vector<unsigned char> tempBuffer(bufSize);
-
-	// Read texture from GPU
-	if (!DXReadback::readPixels(tex, 0, 0, width, height, 4, tempBuffer.data()))
-	{
-		gCL.release(inBuf);
-		gCL.release(outBuf);
-		return;
-	}
-
-	// Upload to OpenCL, process, download
-	gCL.writeBuffer(inBuf, tempBuffer.data(), bufSize);
-	gCL.runVignette(inBuf, outBuf, width, height, intensity);
-	gCL.readBuffer(outBuf, tempBuffer.data(), bufSize);
-
-	// Write back to texture
-	DXReadback::writePixels(tex, 0, 0, width, height, 4, tempBuffer.data());
-
-	gCL.release(inBuf);
-	gCL.release(outBuf);
-}
-
-// ------------------------------------------------------------
-// Night Vision Effect
-// Green monochrome with brightness boost and block-based noise texture
-// ------------------------------------------------------------
-void ImageProcessor::nightVisionGPU(ID3D11Texture2D* tex, int width, int height)
-{
-	if (!gCL.init())
-	{
-		LL_WARNS() << "OpenCL initialization failed for night vision" << LL_ENDL;
-		return;
-	}
-
-	const int pixelCount = width * height;
-	const size_t bufSize = pixelCount * 4; // RGBA
-
-	// Create OpenCL buffers
-	cl_mem inBuf = gCL.createBuffer(bufSize, CL_MEM_READ_ONLY);
-	cl_mem outBuf = gCL.createBuffer(bufSize, CL_MEM_WRITE_ONLY);
-
-	if (!inBuf || !outBuf)
-	{
-		gCL.release(inBuf);
-		gCL.release(outBuf);
-		return;
-	}
-
-	// Fetch control parameters
-	static LLCachedControl<F32> greenIntensity(gSavedSettings, "greenIntensity");
-	static LLCachedControl<F32> brightnessBoost(gSavedSettings, "brightnessBoost");
-	static LLCachedControl<U32> noiseScaleSetting(gSavedSettings, "noiseScale");
-	float dimFactor = 0.2f;
-	int noiseScale = std::max(1, (int)noiseScaleSetting); // Get noise scale from settings
-
-	// Generate random seed for noise
-	static std::random_device rd;
-	static std::mt19937 rng(rd());
-	unsigned int seed = rng();
-
-	// Allocate temporary CPU buffer for texture read
-	std::vector<unsigned char> tempBuffer(bufSize);
-
-	// Read texture from GPU
-	if (!DXReadback::readPixels(tex, 0, 0, width, height, 4, tempBuffer.data()))
-	{
-		gCL.release(inBuf);
-		gCL.release(outBuf);
-		return;
-	}
-
-	// Upload to OpenCL, process, download
-	gCL.writeBuffer(inBuf, tempBuffer.data(), bufSize);
-	gCL.runNightVision(inBuf, outBuf, width, height, pixelCount, greenIntensity, brightnessBoost, dimFactor, seed, noiseScale);
-	gCL.readBuffer(outBuf, tempBuffer.data(), bufSize);
-
-	// Write back to texture
-	DXReadback::writePixels(tex, 0, 0, width, height, 4, tempBuffer.data());
-
-	gCL.release(inBuf);
-	gCL.release(outBuf);
-}
-
-// ------------------------------------------------------------
-// Edge Glow Effect
-// Sobel edge detection with variable blur radius and additive glow
-// ------------------------------------------------------------
-void ImageProcessor::edgeGlowGPU(ID3D11Texture2D* tex, int width, int height)
-{
-	if (!gCL.init())
-	{
-		LL_WARNS() << "OpenCL initialization failed for edge glow" << LL_ENDL;
-		return;
-	}
-
-	const int pixelCount = width * height;
-	const size_t bufSize = pixelCount * 4; // RGBA
-
-	// Create OpenCL buffers
-	cl_mem inBuf = gCL.createBuffer(bufSize, CL_MEM_READ_ONLY);
-	cl_mem outBuf = gCL.createBuffer(bufSize, CL_MEM_WRITE_ONLY);
-
-	if (!inBuf || !outBuf)
-	{
-		gCL.release(inBuf);
-		gCL.release(outBuf);
-		return;
-	}
-
-	// Fetch control parameters
-	static LLCachedControl<F32> edgeSensitivity(gSavedSettings, "edgeSensitivity");
-	static LLCachedControl<F32> glowIntensity(gSavedSettings, "edgeGlowIntensity");
-	static LLCachedControl<F32> blurRadiusSetting(gSavedSettings, "edgeBlurRadius");
-	int blurRadius = std::max(0, (int)blurRadiusSetting); // Convert to int and clamp
-
-	// Allocate temporary CPU buffer for texture read
-	std::vector<unsigned char> tempBuffer(bufSize);
-
-	// Read texture from GPU
-	if (!DXReadback::readPixels(tex, 0, 0, width, height, 4, tempBuffer.data()))
-	{
-		gCL.release(inBuf);
-		gCL.release(outBuf);
-		return;
-	}
-
-	// Upload to OpenCL, process, download
-	gCL.writeBuffer(inBuf, tempBuffer.data(), bufSize);
-	gCL.runEdgeGlow(inBuf, outBuf, width, height, edgeSensitivity, glowIntensity, blurRadius);
-	gCL.readBuffer(outBuf, tempBuffer.data(), bufSize);
-
-	// Write back to texture
-	DXReadback::writePixels(tex, 0, 0, width, height, 4, tempBuffer.data());
-
-	gCL.release(inBuf);
-	gCL.release(outBuf);
-}
-
-// ------------------------------------------------------------
-// Motion Blur Effect
-// Frame accumulation using persistent history buffer
-// ------------------------------------------------------------
-void ImageProcessor::motionBlurGPU(ID3D11Texture2D* tex, int width, int height)
-{
-	// Persistent history buffer for frame accumulation
-	static cl_mem historyBuf = nullptr;
-	static int lastWidth = 0, lastHeight = 0;
-
-	if (!gCL.init())
-	{
-		LL_WARNS() << "OpenCL initialization failed for motion blur" << LL_ENDL;
-		return;
-	}
-
-	const int pixelCount = width * height;
-	const size_t bufSize = pixelCount * 4; // RGBA
-
-	// Reinitialize history buffer if dimensions changed
-	if (historyBuf && (width != lastWidth || height != lastHeight))
-	{
-		gCL.release(historyBuf);
-		historyBuf = nullptr;
-	}
-
-	// Create history buffer on first use or after dimension change
-	if (!historyBuf)
-	{
-		historyBuf = gCL.createBuffer(bufSize, CL_MEM_READ_WRITE);
-		if (!historyBuf)
+		if (sMotionHistory && (width != sMotionWidth || height != sMotionHeight))
 		{
-			LL_WARNS() << "Failed to create motion blur history buffer" << LL_ENDL;
-			return;
+			gCL.release(sMotionHistory);
+			sMotionHistory = nullptr;
 		}
-
-		// Initialize with black
-		std::vector<unsigned char> blackFrame(bufSize, 0);
-		gCL.writeBuffer(historyBuf, blackFrame.data(), bufSize);
-		lastWidth = width;
-		lastHeight = height;
+		if (!sMotionHistory)
+		{
+			sMotionHistory = gCL.createBuffer(bufSize, CL_MEM_READ_WRITE);
+			if (!sMotionHistory)
+			{
+				LL_WARNS() << "Failed to create motion blur history buffer" << LL_ENDL;
+				return;
+			}
+			std::vector<unsigned char> blackFrame(bufSize, 0);
+			gCL.writeBuffer(sMotionHistory, blackFrame.data(), bufSize);
+			sMotionWidth = width;
+			sMotionHeight = height;
+		}
 	}
 
-	// Per-frame scratch (CL in/out buffers and CPU readback), reallocated only when the size changes.
-	static cl_mem inBuf = nullptr;
-	static cl_mem outBuf = nullptr;
-	static std::vector<unsigned char> tempBuffer;
-	static size_t scratchSize = 0;
-	if (scratchSize != bufSize)
-	{
-		gCL.release(inBuf);
-		gCL.release(outBuf);
-		tempBuffer.resize(bufSize);
-		inBuf = gCL.createBuffer(bufSize, CL_MEM_READ_ONLY);
-		outBuf = gCL.createBuffer(bufSize, CL_MEM_WRITE_ONLY);
-		scratchSize = (inBuf && outBuf) ? bufSize : 0;
-	}
-
-	if (!inBuf || !outBuf)
+	unsigned char* cpu = sChainCpu.get();
+	if (!DXReadback::readPixels(tex, 0, 0, width, height, 4, cpu))
 	{
 		return;
 	}
+	gCL.writeBuffer(sChainBufA, cpu, bufSize);
 
-	// Fetch blend factor (0.0 = full trail, 1.0 = no blur)
-	static LLCachedControl<F32> blendFactor(gSavedSettings, "MotionBlurBlend");
+	// `in` always holds the latest result; each stage writes `out`, then they swap
+	cl_mem in = sChainBufA;
+	cl_mem out = sChainBufB;
 
-	// Read current frame from GPU texture
-	if (!DXReadback::readPixels(tex, 0, 0, width, height, 4, tempBuffer.data()))
+	if (effectsMask & DESATURATION)
 	{
-		return;
+		gCL.runGrayscale(in, out, width, height);
+		std::swap(in, out);
+	}
+	if (effectsMask & INVERT)
+	{
+		gCL.runInvert(in, out, pixelCount);
+		std::swap(in, out);
+	}
+	if (effectsMask & RGB_CONTROL)
+	{
+		const float redControl = gSavedSettings.getF32("RedControlKV");
+		const float greenControl = gSavedSettings.getF32("GreenControlKV");
+		const float blueControl = gSavedSettings.getF32("BlueControlKV");
+		const float boostMultiplier = gSavedSettings.getF32("BoostMultiplierKV");
+		const float hueRotation = gSavedSettings.getF32("HueRotationKV");
+		const float saturationControl = gSavedSettings.getF32("SaturationControlKV");
+		const float contrastMultiplier = gSavedSettings.getF32("ContrastMultiplierKV");
+		const float gammaCorrection = gSavedSettings.getF32("GammaCorrectionKV");
+		gCL.runRGBControl(in, out, pixelCount,
+			redControl, greenControl, blueControl,
+			boostMultiplier, hueRotation, saturationControl,
+			contrastMultiplier, gammaCorrection);
+		std::swap(in, out);
+	}
+	if (effectsMask & CEL_SHADING)
+	{
+		int safeInterval = std::clamp(gSavedSettings.getU32("CelshadeInterval"), 32U, 255U);
+		int safeShades = std::clamp(gSavedSettings.getU32("CelnumShades"), 1U, 128U);
+		int shadeInterval = std::max(1, safeInterval / std::max(1, safeShades));
+		float lowVarianceThreshold = 15.0f;
+		gCL.runCelShade(in, out, width, height, shadeInterval, lowVarianceThreshold);
+		std::swap(in, out);
+	}
+	if (effectsMask & VIGNETTE)
+	{
+		float intensity = gSavedSettings.getF32("VignetteIntensity");
+		gCL.runVignette(in, out, width, height, intensity);
+		std::swap(in, out);
+	}
+	if (effectsMask & EDGE_GLOW)
+	{
+		static LLCachedControl<F32> edgeSensitivity(gSavedSettings, "edgeSensitivity");
+		static LLCachedControl<F32> glowIntensity(gSavedSettings, "edgeGlowIntensity");
+		static LLCachedControl<F32> blurRadiusSetting(gSavedSettings, "edgeBlurRadius");
+		int blurRadius = std::max(0, (int)blurRadiusSetting); // Convert to int and clamp
+		gCL.runEdgeGlow(in, out, width, height, edgeSensitivity, glowIntensity, blurRadius);
+		std::swap(in, out);
+	}
+	if (effectsMask & NIGHT_VISION)
+	{
+		static LLCachedControl<F32> greenIntensity(gSavedSettings, "greenIntensity");
+		static LLCachedControl<F32> brightnessBoost(gSavedSettings, "brightnessBoost");
+		static LLCachedControl<U32> noiseScaleSetting(gSavedSettings, "noiseScale");
+		float dimFactor = 0.2f;
+		int noiseScale = std::max(1, (int)noiseScaleSetting); // Get noise scale from settings
+
+		static std::random_device rd;
+		static std::mt19937 rng(rd());
+		unsigned int seed = rng();
+
+		gCL.runNightVision(in, out, width, height, pixelCount, greenIntensity, brightnessBoost, dimFactor, seed, noiseScale);
+		std::swap(in, out);
+	}
+	if (motionBlur)
+	{
+		static LLCachedControl<F32> blendFactor(gSavedSettings, "MotionBlurBlend");
+		gCL.runMotionBlur(in, out, width, height, blendFactor, sMotionHistory);
+		std::swap(in, out);
 	}
 
-	// Upload current frame to OpenCL
-	gCL.writeBuffer(inBuf, tempBuffer.data(), bufSize);
+	gCL.readBuffer(in, cpu, bufSize);
 
-	// Blend current frame with history: out = current * blend + history * (1 - blend)
-	gCL.runMotionBlur(inBuf, outBuf, width, height, blendFactor, historyBuf);
+	if (motionBlur)
+	{
+		// the blurred frame becomes next frame's history (motion blur is the last stage)
+		gCL.writeBuffer(sMotionHistory, cpu, bufSize);
+	}
 
-	// Download blended result
-	gCL.readBuffer(outBuf, tempBuffer.data(), bufSize);
-
-	// Update history buffer for next frame
-	gCL.writeBuffer(historyBuf, tempBuffer.data(), bufSize);
-
-	// Write blended result back to texture
-	DXReadback::writePixels(tex, 0, 0, width, height, 4, tempBuffer.data());
+	DXReadback::writePixels(tex, 0, 0, width, height, 4, cpu);
 }

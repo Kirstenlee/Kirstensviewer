@@ -161,10 +161,10 @@ bool LLViewerParcelOverlay::encroachesOwned(const std::vector<LLBBox>& boxes) co
         LLVector3 min = boxes[i].getMinAgent();
         LLVector3 max = boxes[i].getMaxAgent();
 
-        S32 left   = S32(llclamp((min.mV[VX] / PARCEL_GRID_STEP_METERS), 0.f, REGION_WIDTH_METERS - 1.f));
-        S32 right  = S32(llclamp((max.mV[VX] / PARCEL_GRID_STEP_METERS), 0.f, REGION_WIDTH_METERS - 1.f));
-        S32 top    = S32(llclamp((min.mV[VY] / PARCEL_GRID_STEP_METERS), 0.f, REGION_WIDTH_METERS - 1.f));
-        S32 bottom = S32(llclamp((max.mV[VY] / PARCEL_GRID_STEP_METERS), 0.f, REGION_WIDTH_METERS - 1.f));
+        S32 left   = S32(llclamp((min.mV[VX] / PARCEL_GRID_STEP_METERS), 0.f, (F32)(mParcelGridsPerEdge - 1)));
+        S32 right  = S32(llclamp((max.mV[VX] / PARCEL_GRID_STEP_METERS), 0.f, (F32)(mParcelGridsPerEdge - 1)));
+        S32 top    = S32(llclamp((min.mV[VY] / PARCEL_GRID_STEP_METERS), 0.f, (F32)(mParcelGridsPerEdge - 1)));
+        S32 bottom = S32(llclamp((max.mV[VY] / PARCEL_GRID_STEP_METERS), 0.f, (F32)(mParcelGridsPerEdge - 1)));
 
         for (S32 row = top; row <= bottom; row++)
         {
@@ -189,10 +189,10 @@ bool LLViewerParcelOverlay::encroachesOnUnowned(const std::vector<LLBBox>& boxes
         LLVector3 min = boxes[i].getMinAgent();
         LLVector3 max = boxes[i].getMaxAgent();
 
-        S32 left   = S32(llclamp((min.mV[VX] / PARCEL_GRID_STEP_METERS), 0.f, REGION_WIDTH_METERS - 1.f));
-        S32 right  = S32(llclamp((max.mV[VX] / PARCEL_GRID_STEP_METERS), 0.f, REGION_WIDTH_METERS - 1.f));
-        S32 top    = S32(llclamp((min.mV[VY] / PARCEL_GRID_STEP_METERS), 0.f, REGION_WIDTH_METERS - 1.f));
-        S32 bottom = S32(llclamp((max.mV[VY] / PARCEL_GRID_STEP_METERS), 0.f, REGION_WIDTH_METERS - 1.f));
+        S32 left   = S32(llclamp((min.mV[VX] / PARCEL_GRID_STEP_METERS), 0.f, (F32)(mParcelGridsPerEdge - 1)));
+        S32 right  = S32(llclamp((max.mV[VX] / PARCEL_GRID_STEP_METERS), 0.f, (F32)(mParcelGridsPerEdge - 1)));
+        S32 top    = S32(llclamp((min.mV[VY] / PARCEL_GRID_STEP_METERS), 0.f, (F32)(mParcelGridsPerEdge - 1)));
+        S32 bottom = S32(llclamp((max.mV[VY] / PARCEL_GRID_STEP_METERS), 0.f, (F32)(mParcelGridsPerEdge - 1)));
 
         for (S32 row = top; row <= bottom; row++)
         {
@@ -226,12 +226,13 @@ bool LLViewerParcelOverlay::encroachesOnNearbyParcel(const std::vector<LLBBox>& 
             return true;
         }
 
-        S32 left   = S32(llclamp((min.mV[VX] / PARCEL_GRID_STEP_METERS), 0.f, REGION_WIDTH_METERS - 1.f));
-        S32 right  = S32(llclamp((max.mV[VX] / PARCEL_GRID_STEP_METERS), 0.f, REGION_WIDTH_METERS - 1.f));
-        S32 bottom = S32(llclamp((min.mV[VY] / PARCEL_GRID_STEP_METERS), 0.f, REGION_WIDTH_METERS - 1.f));
-        S32 top    = S32(llclamp((max.mV[VY] / PARCEL_GRID_STEP_METERS), 0.f, REGION_WIDTH_METERS - 1.f));
-
+        // S24 : grid indices run 0..mParcelGridsPerEdge-1 (4 m cells), not 0..REGION_WIDTH_METERS-1;
+        // clamping to 255 let a box edge at exactly 256 m index row/col 64, one past the overlay array
         const S32 GRIDS_PER_EDGE = mParcelGridsPerEdge;
+        S32 left   = S32(llclamp((min.mV[VX] / PARCEL_GRID_STEP_METERS), 0.f, (F32)(GRIDS_PER_EDGE - 1)));
+        S32 right  = S32(llclamp((max.mV[VX] / PARCEL_GRID_STEP_METERS), 0.f, (F32)(GRIDS_PER_EDGE - 1)));
+        S32 bottom = S32(llclamp((min.mV[VY] / PARCEL_GRID_STEP_METERS), 0.f, (F32)(GRIDS_PER_EDGE - 1)));
+        S32 top    = S32(llclamp((max.mV[VY] / PARCEL_GRID_STEP_METERS), 0.f, (F32)(GRIDS_PER_EDGE - 1)));
 
         for (S32 row = bottom; row <= top; row++)
         {

@@ -93,14 +93,15 @@ public:
     virtual void notify(const std::vector<std::string>& filenames);
 
 private:
-    LLModelPreview* mMP;
+    // S24 : handle, not a raw pointer - the floater can close while the picker is open
+    LLHandle<LLModelPreview> mMP;
     S32 mLOD;
 };
 
 LLMeshFilePicker::LLMeshFilePicker(LLModelPreview* mp, S32 lod)
 : LLFilePickerThread(LLFilePicker::FFLOAD_MODEL)
     {
-        mMP = mp;
+        mMP = mp->getHandle();
         mLOD = lod;
     }
 
@@ -111,14 +112,20 @@ void LLMeshFilePicker::notify(const std::vector<std::string>& filenames)
         return;
     }
 
+    LLModelPreview* mp = mMP.get();
+    if (!mp)
+    {
+        return;
+    }
+
     if (filenames.size() > 0)
     {
-        mMP->loadModel(filenames[0], mLOD);
+        mp->loadModel(filenames[0], mLOD);
     }
     else
     {
         //closes floater
-        mMP->loadModel(std::string(), mLOD);
+        mp->loadModel(std::string(), mLOD);
     }
 }
 

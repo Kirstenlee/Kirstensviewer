@@ -51,6 +51,28 @@ void LLMsgVarData::addData(const void* data, S32 size, EMsgVariableType type, S3
 	}
 }
 
+void LLMsgVarData::addDataInto(U8* dest, const void* data, S32 size, EMsgVariableType type, S32 data_size)
+{
+	mSize = size;
+	mDataSize = data_size;
+	if ((type != MVT_VARIABLE) && (type != MVT_FIXED)
+		&& (mType != MVT_VARIABLE) && (mType != MVT_FIXED))
+	{
+		if (mType != type)
+		{
+			LL_WARNS() << "Type mismatch in LLMsgVarData::addData for " << mName
+				<< LL_ENDL;
+		}
+	}
+	if (size)
+	{
+		deleteData(); // Delete it if it already exists
+		mData = dest;
+		mBorrowed = true;
+		htolememcpy(mData, data, mType, size);
+	}
+}
+
 void LLMsgData::addDataFast(char* blockname, char* varname, const void* data, S32 size, EMsgVariableType type, S32 data_size)
 {
 	// remember that if the blocknumber is > 0 then the number is appended to the name

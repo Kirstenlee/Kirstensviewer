@@ -373,12 +373,7 @@ bool LLTexLayerSet::render( S32 x, S32 y, S32 width, S32 height, LLRenderTarget*
     DXDepthTest gls_depth(false, false);
     gDX.setColorWriteMask(true, true);
 
-    // S24: only needed on the mIsVisible path below - the !mIsVisible branch (~15 lines down)
-    // draws its own full-screen BT_REPLACE quad at alpha 0 over this exact same rect, which
-    // overwrites every pixel this clear would have touched regardless of what was here before
-    // (REPLACE blend writes src directly, independent of dest). Skipping it when invisible saves
-    // ~5 flushes (setMinimumAlpha() and dx_rect_2d_simple_immediate() each flush internally) and
-    // one full-screen draw, with the invisible path's own result unchanged either way.
+    // S24 : the !mIsVisible branch below overwrites this rect, so clear only when visible
     if (mIsVisible)
     {
         // clear buffer area to ensure we don't pick up UI elements
@@ -1090,11 +1085,11 @@ bool LLTexLayer::render(S32 x, S32 y, S32 width, S32 height, LLRenderTarget* bou
 
             LLTexUnit::eTextureAddressMode old_mode = tex->getAddressMode();
 
-            gDX.getTexUnit(0)->bind(tex, true);
             // S24: LLTexUnit::setTextureAddressMode() is a no-op under DX_RENDER - the real
-            // sampler state is read from the texture object itself at bind time, so set it
-            // there instead.
+            // sampler state is read from the texture object at bind time, so it is set
+            // there BEFORE the bind, or the clamp never reaches the draw.
             tex->setAddressMode(LLTexUnit::TAM_CLAMP);
+            gDX.getTexUnit(0)->bind(tex, true);
 
             dx_rect_2d_simple_tex_immediate(width, height);
 
@@ -1318,11 +1313,11 @@ void LLTexLayer::renderMorphMasks(S32 x, S32 y, S32 width, S32 height, const LLC
         {
             LLTexUnit::eTextureAddressMode old_mode = tex->getAddressMode();
 
-            gDX.getTexUnit(0)->bind(tex, true);
             // S24: LLTexUnit::setTextureAddressMode() is a no-op under DX_RENDER - the real
-            // sampler state is read from the texture object itself at bind time, so set it
-            // there instead.
+            // sampler state is read from the texture object at bind time, so it is set
+            // there BEFORE the bind, or the clamp never reaches the draw.
             tex->setAddressMode(LLTexUnit::TAM_CLAMP);
+            gDX.getTexUnit(0)->bind(tex, true);
 
             dx_rect_2d_simple_tex_immediate( width, height );
 
@@ -1774,20 +1769,25 @@ LLTexLayerInterface*  LLTexLayerSet::findLayerByName(const std::string& name)
 void LLTexLayerSet::cloneTemplates(LLLocalTextureObject *lto, LLAvatarAppearanceDefines::ETextureIndex tex_index, LLWearable *wearable)
 {
     // initialize all texlayers with this texture type for this LTO
-    for(LLTexLayerInterface* layer : mLayerList)
+    // S24 : the layer lists hold LLTexLayerInterface, not only templates; don't blind-cast
+    for (LLTexLayerInterface* layer : mLayerList)
     {
-        LLTexLayerTemplate* layer_template = (LLTexLayerTemplate*)layer;
-        if (layer_template->getInfo()->getLocalTexture() == (S32)tex_index)
+        if (layer->getInfo()->getLocalTexture() == (S32)tex_index)
         {
-            lto->addTexLayer(layer_template, wearable);
+            if (LLTexLayerTemplate* layer_template = dynamic_cast<LLTexLayerTemplate*>(layer))
+            {
+                lto->addTexLayer(layer_template, wearable);
+            }
         }
     }
-    for(LLTexLayerInterface* layer : mMaskLayerList)
+    for (LLTexLayerInterface* layer : mMaskLayerList)
     {
-        LLTexLayerTemplate* layer_template = (LLTexLayerTemplate*)layer;
-        if (layer_template->getInfo()->getLocalTexture() == (S32)tex_index)
+        if (layer->getInfo()->getLocalTexture() == (S32)tex_index)
         {
-            lto->addTexLayer(layer_template, wearable);
+            if (LLTexLayerTemplate* layer_template = dynamic_cast<LLTexLayerTemplate*>(layer))
+            {
+                lto->addTexLayer(layer_template, wearable);
+            }
         }
     }
 }

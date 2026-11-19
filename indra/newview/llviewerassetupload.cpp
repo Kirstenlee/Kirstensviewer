@@ -729,7 +729,8 @@ LLSD LLBufferedAssetUploadInfo::prepareUpload()
 
 	LLFileSystem file(getAssetId(), getAssetType(), LLFileSystem::APPEND);
 
-	S32 size = static_cast<S32>(mContents.length()) + 1;
+	// S24 : no trailing NUL - the +1 stored a stray byte after every buffered upload
+	S32 size = static_cast<S32>(mContents.length());
 	file.write((U8*)mContents.c_str(), size);
 
 	mStoredToCache = true;

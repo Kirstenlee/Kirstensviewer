@@ -328,7 +328,21 @@ void LLSliderCtrl::onEditorCommit( LLUICtrl* ctrl, const LLSD& userdata )
     {
         LLLocale locale(LLLocale::USER_LOCALE);
         val = (F32) atof( text.c_str() );
-        if( self->mSlider->getMinValue() <= val && val <= self->mSlider->getMaxValue() )
+        // S24 : accept typed values that round to the displayed bound, clamp to it
+        F32 min_val = self->mSlider->getMinValue();
+        F32 max_val = self->mSlider->getMaxValue();
+        F64 scale = pow(10.0, (F64)self->mPrecision);
+        auto displayed = [scale](F32 value) { return floor(value * scale + 0.5); };
+        if (val < min_val && displayed(val) == displayed(min_val))
+        {
+            val = min_val;
+        }
+        else if (val > max_val && displayed(val) == displayed(max_val))
+        {
+            val = max_val;
+        }
+
+        if( min_val <= val && val <= max_val )
         {
             self->setValue( val );  // set the value temporarily so that the callback can retrieve it.
             if( !self->mValidateSignal || (*(self->mValidateSignal))( self, val ) )

@@ -203,10 +203,30 @@ float4 main(PSInput IN) : SV_Target
     float4 baseColor     = gb.albedo;
     float4 spec        = gb.specular; // NOTE: PBR linear Emissive
 
+    // S24 : only the PBR and legacy branches below use the shadow/AO sample and the atmospherics; the HDRI and WL-sky
+    // branches (sky pixels) never read them, so they are fetched only for pixels that need them. A gradient Sample
+    // cannot sit inside a dynamic branch, hence SampleLevel at mip 0 (lightMap is a screen-sized target with one mip).
+    const bool needs_lighting = GET_GBUFFER_FLAG(gb.gbufferFlag, GBUFFER_FLAG_HAS_PBR)
+        || !(GET_GBUFFER_FLAG(gb.gbufferFlag, GBUFFER_FLAG_HAS_HDRI) || GET_GBUFFER_FLAG(gb.gbufferFlag, GBUFFER_FLAG_SKIP_ATMOS));
+
+    float2 scol_ambocc = float2(1.0, 1.0);
+    float3 sunlit = float3(0, 0, 0);
+    float3 amblit = float3(0, 0, 0);
+    float3 additive = float3(0, 0, 0);
+    float3 atten = float3(0, 0, 0);
+
+    [branch]
+    if (needs_lighting)
+    {
 #if defined(HAS_SUN_SHADOW) || defined(HAS_SSAO)
-    // Same texture-origin flip as getGBuffer()/getDepth() (gbufferUtil.hlsl/deferredUtil.hlsl).
-    float2 scol_ambocc = lightMap.Sample(lightMapSampler, float2(IN.vary_fragcoord.x, 1.0 - IN.vary_fragcoord.y)).rg;
+        // Same texture-origin flip as getGBuffer()/getDepth() (gbufferUtil.hlsl/deferredUtil.hlsl).
+        scol_ambocc = lightMap.SampleLevel(lightMapSampler, float2(IN.vary_fragcoord.x, 1.0 - IN.vary_fragcoord.y), 0).rg;
 #endif
+        calcAtmosphericVarsLinear(pos.xyz, gb.normal, light_dir, sunlit, amblit, additive, atten);
+
+        if (classic_mode > 0)
+            sunlit *= 1.35;
+    }
 
 #if defined(HAS_SUN_SHADOW)
     float scol       = scol_ambocc.r;
@@ -221,16 +241,6 @@ float4 main(PSInput IN) : SV_Target
 
     float3  color = float3(0, 0, 0);
     float bloom = 0.0;
-
-    float3 sunlit;
-    float3 amblit;
-    float3 additive;
-    float3 atten;
-
-    calcAtmosphericVarsLinear(pos.xyz, gb.normal, light_dir, sunlit, amblit, additive, atten);
-
-    if (classic_mode > 0)
-        sunlit *= 1.35;
 
     float3 sunlit_linear = sunlit;
     float3 amblit_linear = amblit;
@@ -332,7 +342,10 @@ float4 main(PSInput IN) : SV_Target
                 float lit = min(nl*6.0, 1.0);
 
                 float sa = nh;
-                float fres = pow(abs(1 - vh), 5) * 0.4+0.5;
+                // S24 : x^5 as three multiplies, not pow()
+                float fres_base = abs(1 - vh);
+                float fres_base2 = fres_base * fres_base;
+                float fres = fres_base2 * fres_base2 * fres_base * 0.4+0.5;
                 float gtdenom = 2 * nh;
                 float gt = max(0,(min(gtdenom * nv / vh, gtdenom * nl / vh)));
 

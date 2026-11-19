@@ -43,6 +43,9 @@ void    end_net(S32& socket_out);
 // returns size of packet or -1 in case of error
 S32     receive_packet(int hSocket, char * receiveBuffer);
 
+// true if the socket became readable within timeout_ms
+bool    wait_for_packet(int hSocket, int timeout_ms);
+
 bool    send_packet(int hSocket, const char *sendBuffer, int size, U32 recipient, int nPort);   // Returns true on success.
 
 //void  get_sender(char * tmp);

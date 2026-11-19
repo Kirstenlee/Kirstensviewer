@@ -38,6 +38,7 @@
 #include "llgroupmgr.h"
 #include "../llui/lltrans.h"
 #include "llconversationmodel.h"
+#include "llframetimer.h"
 #include "llconversationview.h"
 
 class LLButton;
@@ -123,7 +124,9 @@ public:
 
 
 private:
-    typedef std::map<LLUUID,LLFloater*> avatarID_panel_map_t;
+    // S24 : weak handles, so a session floater destroyed without its close signal
+    // firing is never dereferenced (onNewMessageReceived -> setFloaterFlashing)
+    typedef std::map<LLUUID, LLHandle<LLFloater> > avatarID_panel_map_t;
     avatarID_panel_map_t mSessions;
     boost::signals2::connection mNewMessageConnection;
 
@@ -235,6 +238,7 @@ private:
     conversations_items_deque mConversationEventQueue;
 
     LLTimer mParticipantRefreshTimer;
+    LLFrameTimer mDistanceTimer;  // S24 : distance sort refreshes a few times a second, not every frame
     bool mGeneralTitleInUse = true;
 };
 

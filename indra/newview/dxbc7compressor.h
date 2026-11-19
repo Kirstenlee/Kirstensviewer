@@ -2,15 +2,12 @@
 #include <cstdint>
 #include <vector>
 
-// S24 (2026-09-09): real-time BC7 (mode 6 only - single subset, full 8-bit
-// RGBA endpoint precision, no partitioning) encoder built on the existing
-// KVOpenCL compute wrapper (kvopencl.h, singleton gCL) - reuses its shared
+// S24: real-time BC7 encoder, mode 6 only (single subset, full 8-bit RGBA
+// endpoint precision, no partitioning) - the standard fast-encoder
+// trade-off over a full mode search. Built on the existing KVOpenCL
+// compute wrapper (kvopencl.h, singleton gCL); reuses its shared
 // platform/device/context but never its shared per-frame VFX queue or
-// kernel cache (see KVOpenCL::getComputeQueue()/getContext()'s own
-// comments for why). Mode 6 only, not a full multi-mode BC7 encoder: this
-// is the standard fast-real-time-encoder trade-off (good quality, a
-// fraction of the cost of a full mode search) matching the "low overhead"
-// requirement this feature was built for over maximizing ratio/quality.
+// kernel cache (see KVOpenCL::getComputeQueue()/getContext()).
 //
 // Lives in newview/, not dxrender/, despite producing DXGI-BC7-ready bytes
 // consumed by dxrender/resources/DXTexture.cpp - dxrender is a lower-level
@@ -24,7 +21,7 @@
 // already does today regardless of where those bytes came from.
 //
 // This class does no D3D11 work itself and touches no LLViewerFetchedTexture/
-// LLImageGL state - it is a pure CPU-buffer-in, compressed-bytes-out compute
+// LLImageDX state - it is a pure CPU-buffer-in, compressed-bytes-out compute
 // utility. Safe to call from any single thread once `gCL` has been
 // initialized (see encodeMip()'s own comment) - callers on a background
 // thread should use the dedicated compute queue/kernel this class owns, not

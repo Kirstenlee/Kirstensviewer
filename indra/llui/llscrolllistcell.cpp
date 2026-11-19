@@ -31,6 +31,7 @@
 
 #include "llcheckboxctrl.h"
 #include "llfontvertexbuffer.h"
+#include "llrender.h" // gDX
 #include "llui.h"   // LLUIImage
 #include "lluictrlfactory.h"
 
@@ -298,7 +299,7 @@ LLScrollListText::LLScrollListText(const LLScrollListCell::Params& p)
 void LLScrollListText::highlightText(S32 offset, S32 num_chars)
 {
     mHighlightOffset = offset;
-    mHighlightCount = llmax(0, num_chars);
+    mHighlightCount = std::max(0, num_chars);
 }
 
 //virtual
@@ -499,6 +500,30 @@ LLScrollListCheck::LLScrollListCheck(const LLScrollListCell::Params& p)
     LLRect rect(mCheckBox->getRect());
     if (p.width)
     {
+        // The checkbox glyph is drawn at the left of the control (see the
+        // check_button defaults in widgets/check_box.xml: left=2, width=13), so
+        // by default the box hugs the left edge of the cell.  Honor the cell's
+        // horizontal alignment by sliding the control so the box sits centered
+        // or against the right edge instead.
+        const S32 box_inset = 2;    // check_button left inset
+        const S32 box_width = 13;   // check_button width
+        const S32 box_footprint = box_inset + box_width;
+        S32 left = 0;
+        switch (p.font_halign)
+        {
+        case LLFontDX::RIGHT:
+            // mirror the left inset on the right so the box sits box_inset px in
+            left = std::max(0, p.width - box_footprint - box_inset);
+            break;
+        case LLFontDX::HCENTER:
+            left = std::max(0, (p.width - box_footprint) / 2);
+            break;
+        case LLFontDX::LEFT:
+        default:
+            left = 0;
+            break;
+        }
+        rect.mLeft = left;
         rect.mRight = rect.mLeft + p.width;
         mCheckBox->setRect(rect);
         setWidth(p.width);
@@ -520,7 +545,18 @@ LLScrollListCheck::~LLScrollListCheck()
 
 void LLScrollListCheck::draw(const LLColor4& color, const LLColor4& highlight_color)
 {
-    mCheckBox->draw();
+    // mCheckBox is a standalone control, not parented into the view hierarchy,
+    // so nothing else applies the translate its own rect implies (unlike
+    // LLView::drawChild(), which does this for normal children).  Without this,
+    // the horizontal offset computed in the constructor (for font_halign) has no
+    // visible effect: the checkbox always renders flush with the cell's origin.
+    gDX.matrixMode(LLRender::MM_MODELVIEW);
+    LLUI::pushMatrix();
+    {
+        LLUI::translate((F32)mCheckBox->getRect().mLeft, (F32)mCheckBox->getRect().mBottom);
+        mCheckBox->draw();
+    }
+    LLUI::popMatrix();
 }
 
 bool LLScrollListCheck::handleClick()

@@ -128,7 +128,7 @@ private:
     F32             mDotRadius;             // Size of avatar markers
 
     bool            mPanning; // map is being dragged
-    bool            mCentering; // map is being re-centered around the agent
+    bool            mCentering = false; // map is being re-centered around the agent (S24 : was uninitialised)
     LLVector2       mCurPan;
     LLVector2       mStartPan; // pan offset at start of drag
     LLVector3d      mPopupWorldPos; // world position picked under mouse when context menu is opened
@@ -136,10 +136,23 @@ private:
 
     LLVector3d      mObjectImageCenterGlobal;
     LLPointer<LLImageRaw> mObjectRawImagep;
+    U8* mObjectRawData = nullptr; // S24 : raw data pointer, valid only while draw() holds the image lock for the object pass
     LLPointer<LLViewerTexture>  mObjectImagep;
 
     LLUUID          mClosestAgentToCursor;
     LLUUID          mClosestAgentAtLastRightClick;
+
+    // S24 : the avatars drawn on the map, rebuilt every frame in draw(); kept as members so their capacity is
+    // reused instead of five vectors being allocated again each frame
+    struct MapAvatar
+    {
+        LLUUID id;
+        LLVector3d position;
+        bool is_friend;
+    };
+    uuid_vec_t                  mAvatarIdsScratch;
+    std::vector<LLVector3d>     mAvatarPositionsScratch;
+    std::vector<MapAvatar>      mMapAvatars;
 
     std::string     mToolTipMsg;
     std::string     mParcelNameMsg;

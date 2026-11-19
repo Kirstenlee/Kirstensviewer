@@ -4,6 +4,7 @@
 #include "dxbc7compressor.h"
 #include "llimagedx.h"
 #include "llimage.h"
+#include "DXTexture.h"
 #include "llthreadsafequeue.h"
 #include "threadpool.h"
 #include "llviewercontrol.h"
@@ -127,27 +128,56 @@ bool DXBC7UploadManager::wouldAccept(const LLPointer<LLImageDX>& tex, int width,
     return true;
 }
 
-void DXBC7UploadManager::requestUpgrade(const LLPointer<LLImageDX>& tex, const uint8_t* rgba8, int width, int height)
+void DXBC7UploadManager::requestUpgrade(const LLPointer<LLImageDX>& tex, std::vector<uint8_t>&& rgba8, int width, int height)
 {
-    if (!rgba8 || !wouldAccept(tex, width, height))
+    if (rgba8.size() != (size_t)width * height * 4 || !wouldAccept(tex, width, height))
     {
         return;
     }
 
+    startUpgradeJob(tex, std::move(rgba8), 4, width, height);
+}
+
+void DXBC7UploadManager::requestUpgradeFromRaw(const LLPointer<LLImageDX>& tex, std::vector<uint8_t>&& raw, int components, int width, int height)
+{
+    if (components < 1 || components > 4 || raw.size() != (size_t)width * height * components || !wouldAccept(tex, width, height))
+    {
+        return;
+    }
+
+    startUpgradeJob(tex, std::move(raw), components, width, height);
+}
+
+void DXBC7UploadManager::startUpgradeJob(const LLPointer<LLImageDX>& tex, std::vector<uint8_t>&& source, int components, int width, int height)
+{
     llassert(on_main_thread());
 
     const U32 generation = tex->getDXUploadGeneration();
-    std::vector<uint8_t> pixels(rgba8, rgba8 + (size_t)width * height * 4);
 
     const U64 jobId = ++sNextJobId;
     getPending()[jobId] = tex;
 
     bool posted = getPool().getQueue().post(
-        [jobId, generation, pixels = std::move(pixels), width, height]() mutable
+        [jobId, generation, source = std::move(source), components, width, height]() mutable
         {
             UpgradeResult result;
             result.jobId = jobId;
             result.generation = generation;
+
+            // S24 : RGBA8 pixels for the compressor. Source that is already RGBA is used as it is; anything
+            // else is repacked here on the worker, not on the thread that asked for the upgrade.
+            std::vector<uint8_t> pixels;
+            if (components == 4)
+            {
+                pixels = std::move(source);
+            }
+            else if (!DXTexture::repackToRGBA8(source.data(), width, height, components, pixels))
+            {
+                // nothing to compress: the empty result lets update() release the pending entry
+                getResultsQueue().tryPush(std::move(result));
+                return;
+            }
+            source = std::vector<uint8_t>();
 
             int w = width, h = height;
             const uint8_t* curPtr = pixels.data();

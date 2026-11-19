@@ -198,6 +198,22 @@ LLUIColor LLUIColorTable::getColor(std::string_view name, const LLColor4& defaul
 // update user color, loaded colors are parsed on initialization
 void LLUIColorTable::setColor(std::string_view name, const LLColor4& color)
 {
+    // a color set here is a real user choice, so it is saved again
+    if (auto transient_it = mTransientColors.find(name); transient_it != mTransientColors.end())
+    {
+        mTransientColors.erase(transient_it);
+    }
+    setColorInternal(name, color);
+}
+
+void LLUIColorTable::setTransientColor(std::string_view name, const LLColor4& color)
+{
+    mTransientColors.emplace(name);
+    setColorInternal(name, color);
+}
+
+void LLUIColorTable::setColorInternal(std::string_view name, const LLColor4& color)
+{
     auto it = mUserSetColors.find(name);
     if(it != mUserSetColors.end())
     {
@@ -255,6 +271,14 @@ void LLUIColorTable::resetToDefault(std::string_view name)
     }
 }
 
+void LLUIColorTable::resetAllToSkinDefaults()
+{
+    for (const auto& user_pair : mUserSetColors)
+    {
+        resetToDefault(user_pair.first);
+    }
+}
+
 bool LLUIColorTable::loadFromSettings()
 {
     bool result = false;
@@ -279,6 +303,11 @@ void LLUIColorTable::saveUserSettings() const
 
     for (const auto& color_pair : mUserSetColors)
     {
+        if (mTransientColors.find(color_pair.first) != mTransientColors.end())
+        {
+            continue; // S24 : derived by the UI hue shift, regenerated at every start
+        }
+
         // Compare user color value with the default value, skip if equal
         string_color_map_t::const_iterator itd = mLoadedColors.find(color_pair.first);
         if(itd != mLoadedColors.end() && itd->second == color_pair.second)

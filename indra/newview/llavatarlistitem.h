@@ -207,6 +207,10 @@ private:
     LLTextBox* mAvatarName;
     LLTextBox* mLastInteractionTime;
     LLTextBox* mAvatarMeta; // S24: distance/account age, nearby-list only
+    // S24 : what the two text boxes above were last given, so an unchanged label is not rewritten
+    std::string mLastMetaText;
+    LLColor4 mLastMetaColor;
+    std::string mLastInteractionText;
     LLStyle::Params mAvatarNameStyle;
 
     LLButton* mInfoBtn;

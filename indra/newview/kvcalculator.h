@@ -123,6 +123,7 @@ private:
     char mPendingOp = 0;          // '+','-','*','/' or 0 = none yet
     std::string mEntry;           // text of the number currently being typed
     bool mEntryIsResult = false;  // true right after '=' - next digit starts fresh
+    bool mEntryFromFunction = false;  // entry holds a square/root result: still an operand, but the next digit starts fresh
 };
 
 #endif // LL_KVCALCULATOR_H

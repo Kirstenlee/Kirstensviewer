@@ -1,7 +1,7 @@
 # -*- cmake -*-
 include_guard()
-include(Jpeg)
-include(Png)
+include(JPEG)
+include(PNG)
 
 set(LLIMAGE_INCLUDE_DIRS
     ${LIBS_OPEN_DIR}/llimage

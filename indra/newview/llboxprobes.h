@@ -36,7 +36,7 @@
 class LLBoxProbes
 {
 public:
-    // Must byte-match cbuffer BoxProbes in class3/deferred/reflectionProbeF.hlsl.
+    // Must byte-match cbuffer BoxProbes in deferred/reflectionProbeF.hlsl.
     // Size is a multiple of 16 bytes.
     struct Data
     {

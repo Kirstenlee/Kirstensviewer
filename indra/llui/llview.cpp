@@ -26,6 +26,7 @@
  */
 
 #include "linden_common.h"
+#include <algorithm>
 
 #define LLVIEW_CPP
 #include "llview.h"
@@ -340,7 +341,13 @@ void LLView::removeChild(LLView* child)
 	{
 		// if we are removing an item we are currently iterating over, that would be bad
         llassert(!child->mInDraw);
-		mChildList.remove( child );
+		// S24 : a child is in the list once, so stop at it (remove() always walks the whole list, and
+		// newly added children are at the front)
+		auto child_it = std::find(mChildList.begin(), mChildList.end(), child);
+		if (child_it != mChildList.end())
+		{
+			mChildList.erase(child_it);
+		}
 		child->mParentView = NULL;
 		child_tab_order_t::iterator found = mTabOrder.find(child);
 		if(found != mTabOrder.end())
@@ -639,10 +646,10 @@ void LLView::onVisibilityChange ( bool new_visibility )
 
 		if(log_visibility_change)
 		{
-		if (old_visibility!=new_visibility)
-		{
-			LLViewerEventRecorder::instance().logVisibilityChange( viewp->getPathname(), viewp->getName(), new_visibility,"widget");
-		}
+			if (old_visibility!=new_visibility)
+			{
+				LLViewerEventRecorder::instance().logVisibilityChange( viewp->getPathname(), viewp->getName(), new_visibility,"widget");
+			}
 		}
 
 		if (old_visibility)
@@ -1226,6 +1233,15 @@ void LLView::drawChildren()
 		LLView* rootp = LLUI::getInstance()->getRootView();		
 		++sDepth;
 
+		// S24 : a child's screen rect is its own rect moved by this view's screen origin (screen position is a pure
+		// translation up the parent chain), and that origin and the root rect do not change while the children
+		// are drawn, so they are worked out once here and not once per child (each child's calcScreenRect() walked
+		// the whole parent chain twice)
+		S32 origin_x = 0;
+		S32 origin_y = 0;
+		localPointToScreen(0, 0, &origin_x, &origin_y);
+		const LLRect root_rect = rootp->getLocalRect();
+
 		for (child_list_reverse_iter_t child_iter = mChildList.rbegin(); child_iter != mChildList.rend();)  // ++child_iter)
 		{
 			child_list_reverse_iter_t child = child_iter++;
@@ -1238,8 +1254,9 @@ void LLView::drawChildren()
 
 			if (viewp->getVisible() && viewp->getRect().isValid())
 			{
-				LLRect screen_rect = viewp->calcScreenRect();
-				if ( rootp->getLocalRect().overlaps(screen_rect)  && sDirtyRect.overlaps(screen_rect))
+				LLRect screen_rect = viewp->getRect();
+				screen_rect.translate(origin_x, origin_y);
+				if ( root_rect.overlaps(screen_rect)  && sDirtyRect.overlaps(screen_rect))
 				{
 					LLUI::pushMatrix();
 					{

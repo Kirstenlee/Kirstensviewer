@@ -329,6 +329,7 @@ public:
     void            hideCursor();
     bool            getCursorHidden() { return mCursorHidden; }
     void            moveCursorToCenter();                               // move to center of window
+	void			moveCursorTo(S32 x, S32 y);							// move to an arbitrary window position, clamped to the window
 
     void            initTextures(S32 location_id);
     void            setShowProgress(const bool show);

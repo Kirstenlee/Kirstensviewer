@@ -28,6 +28,7 @@
 #define LL_LLSTRING_H
 
 #include <boost/call_traits.hpp>
+#include <functional>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -112,7 +113,7 @@ public:
 	// currently in daylight savings time?
 	static bool getPacificDaylightTime(void) { return sPacificDaylightTime;}
 
-	static std::string getDatetimeCode (std::string key);
+	static std::string getDatetimeCode (const std::string& key);
 
     // Express a value like 1234567 as "1.23M" 
     static std::string getReadableNumber(F64 num);
@@ -195,8 +196,8 @@ public:
 	LL_COMMON_API static bool formatDatetime(string_type& replacement, string_type token, string_type param, S32 secFromEpoch);
 	LL_COMMON_API static S32 format(string_type& s, const format_map_t& substitutions);
 	LL_COMMON_API static S32 format(string_type& s, const LLSD& substitutions);
-	LL_COMMON_API static bool simpleReplacement(string_type& replacement, string_type token, const format_map_t& substitutions);
-	LL_COMMON_API static bool simpleReplacement(string_type& replacement, string_type token, const LLSD& substitutions);
+	LL_COMMON_API static bool simpleReplacement(string_type& replacement, const string_type& token, const format_map_t& substitutions);
+	LL_COMMON_API static bool simpleReplacement(string_type& replacement, const string_type& token, const LLSD& substitutions);
 	LL_COMMON_API static void setLocale (std::string inLocale);
 	LL_COMMON_API static std::string getLocale (void);
 	
@@ -330,6 +331,65 @@ public:
 	static void		copyInto(string_type& dst, const string_type& src, size_type offset);
 	
 	static bool		isPartOfWord(T c) { return (c == (T)'_') || LLStringOps::isAlnum(c); }
+
+	// Join non-empty strings from values using value itself and delimiter
+	template<class C>
+	static std::string join(const C& values, T delimiter = ',')
+	{
+		std::string result;
+		for (const std::string& value : values)
+		{
+			if (!value.empty())
+			{
+				if (!result.empty())
+				{
+					result += delimiter;
+				}
+				result += value;
+			}
+		}
+		return result;
+	}
+
+	// Join non-empty strings from values using stringify(value) and delimiter
+	template<class C, class V>
+	static std::string join(const C& values, std::function<std::string(const V&)> stringify, T delimiter = ',')
+	{
+		std::string result;
+		for (const V& value : values)
+		{
+			std::string string = stringify(value);
+			if (!string.empty())
+			{
+				if (!result.empty())
+				{
+					result += delimiter;
+				}
+				result += string;
+			}
+		}
+		return result;
+	}
+
+	// Join non-empty strings from values using stringify(index, value) and delimiter
+	template<class C, class V>
+	static std::string join(const C& values, std::function<std::string(size_t index, const V&)> stringify, T delimiter = ',')
+	{
+		std::string result;
+		for (size_t i = 0; i < values.size(); ++i)
+		{
+			std::string string = stringify(i, values[i]);
+			if (!string.empty())
+			{
+				if (!result.empty())
+				{
+					result += delimiter;
+				}
+				result += string;
+			}
+		}
+		return result;
+	}
 
 
 #ifdef _DEBUG	

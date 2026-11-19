@@ -57,7 +57,6 @@ const F32 HUD_TEXT_MAX_WIDTH_NO_BUBBLE = 1000.f;
 const F32 MAX_DRAW_DISTANCE = 300.f;
 
 std::set<LLPointer<LLHUDText> > LLHUDText::sTextObjects;
-std::vector<LLPointer<LLHUDText> > LLHUDText::sVisibleTextObjects;
 std::vector<LLPointer<LLHUDText> > LLHUDText::sVisibleHUDTextObjects;
 bool LLHUDText::sDisplayText = true ;
 
@@ -252,12 +251,14 @@ void LLHUDText::renderText()
 
 void LLHUDText::setString(const std::string &text_utf8)
 {
+    mSizeDirty = true;
     mTextSegments.clear();
     addLine(text_utf8, mColor);
 }
 
 void LLHUDText::clearString()
 {
+    mSizeDirty = true;
     mTextSegments.clear();
 }
 
@@ -315,6 +316,7 @@ void LLHUDText::addLine(const std::string& text_utf8,
                     color,
                     font);
                 mTextSegments.push_back(segment);
+                mSizeDirty = true;
                 line_length += segment_length;
             } while (line_length < line.length());
         }
@@ -374,10 +376,6 @@ void LLHUDText::updateVisibility()
         if (mOnHUDAttachment)
         {
             sVisibleHUDTextObjects.push_back(LLPointer<LLHUDText> (this));
-        }
-        else
-        {
-            sVisibleTextObjects.push_back(LLPointer<LLHUDText> (this));
         }
         return;
     }
@@ -472,8 +470,7 @@ void LLHUDText::updateVisibility()
 //      }
     }
 
-    mVisible = true;
-    sVisibleTextObjects.push_back(LLPointer<LLHUDText> (this));
+    mVisible = true; // S24 : the world-space visible list that was filled here was never read
 }
 
 LLVector2 LLHUDText::updateScreenPos(LLVector2 &offset)
@@ -523,6 +520,7 @@ LLVector2 LLHUDText::updateScreenPos(LLVector2 &offset)
 
 void LLHUDText::updateSize()
 {
+    mSizeDirty = false;
     F32 height = 0.f;
     F32 width = 0.f;
 
@@ -559,7 +557,6 @@ void LLHUDText::updateAll()
 {
     // iterate over all text objects, calculate their restoration forces,
     // and add them to the visible set if they are on screen and close enough
-    sVisibleTextObjects.clear();
     sVisibleHUDTextObjects.clear();
 
     TextObjectIterator text_it;
@@ -567,12 +564,14 @@ void LLHUDText::updateAll()
     {
         LLHUDText* textp = (*text_it);
         textp->mTargetPositionOffset.clearVec();
-        textp->updateSize();
+        if (textp->mSizeDirty)
+        {
+            textp->updateSize();
+        }
         textp->updateVisibility();
     }
 
     // sort back to front for rendering purposes
-    std::sort(sVisibleTextObjects.begin(), sVisibleTextObjects.end(), lltextobject_further_away());
     std::sort(sVisibleHUDTextObjects.begin(), sVisibleHUDTextObjects.end(), lltextobject_further_away());
 }
 
@@ -651,6 +650,7 @@ void LLHUDText::reshape()
     for (text_it = sTextObjects.begin(); text_it != sTextObjects.end(); ++text_it)
     {
         LLHUDText* textp = (*text_it);
+        textp->mSizeDirty = true;
         std::vector<LLHUDTextSegment>::iterator segment_iter;
         for (segment_iter = textp->mTextSegments.begin();
              segment_iter != textp->mTextSegments.end(); ++segment_iter )

@@ -143,6 +143,31 @@ LLFloater* LLFloaterReg::findInstance(std::string_view name, const LLSD& key)
 }
 
 //static
+bool LLFloaterReg::closeVisibleInstances(std::string_view name)
+{
+    auto it = sGroupMap.find(name);
+    if (it == sGroupMap.end() || it->second.empty())
+    {
+        return false;
+    }
+
+    // Closing can remove an instance from the list, and floaters of other types can share the group
+    std::vector<LLFloater*> targets;
+    for (LLFloater* inst : sInstanceMap[it->second])
+    {
+        if (inst->getVisible() && inst->getInstanceName() == name)
+        {
+            targets.push_back(inst);
+        }
+    }
+    for (LLFloater* inst : targets)
+    {
+        inst->closeFloater();
+    }
+    return !targets.empty();
+}
+
+//static
 LLFloater* LLFloaterReg::getInstance(std::string_view name, const LLSD& key)
 {
     LLFloater* res = findInstance(name, key);

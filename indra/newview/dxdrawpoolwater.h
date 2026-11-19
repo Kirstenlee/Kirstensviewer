@@ -86,9 +86,10 @@ public:
 // WATER_SCREENTEX/WATER_EXCLUSIONTEX go through the LLHLSLShader::bindTexture
 // (S32, LLRenderTarget*, ...) overload - see llhlslshader.cpp.
 //
-// mWaterExclusionMask (filled by LLDrawPoolWaterExclusion) must be rendered
-// every frame before this pool's WATER_EXCLUSIONTEX bind reads it - see
-// DXPipeline::doWaterExclusionMask() and DXPipeline::renderGeomPostDeferred().
+// mWaterExclusionMask (filled by DXPipeline::doWaterExclusionMask(), the
+// retired LLDrawPoolWaterExclusion's render() inlined there) must be
+// rendered every frame before this pool's WATER_EXCLUSIONTEX bind reads it -
+// see DXPipeline::renderGeomPostDeferred().
 class DXDrawPoolWater
 {
 public:

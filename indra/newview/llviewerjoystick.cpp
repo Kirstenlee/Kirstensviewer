@@ -41,6 +41,8 @@
 #include "llagent.h"
 #include "llagentcamera.h"
 #include "llfocusmgr.h"
+#include "llnotificationsutil.h"
+#include "lltrans.h"
 
 #if LL_WINDOWS && !LL_MESA_HEADLESS
 // Require DirectInput version 8
@@ -145,6 +147,13 @@ BOOL CALLBACK di8_devices_callback(LPCDIDEVICEINSTANCE device_instance_ptr, LPVO
     if (device_instance_ptr)
     {
         std::string product_name = ll_convert<std::string>(std::wstring(device_instance_ptr->tszProductName));
+
+#if 0 // S24 : LL_UNIFIED_FLYCAM - LL limits ndof to 3Dconnexion devices, S24 keeps every device selectable
+        if (!LLViewerJoystick::is3DConnexionDevice(product_name))
+        {
+            return DIENUM_CONTINUE;
+        }
+#endif
 
         LLSD guid = LLViewerJoystick::getInstance()->getDeviceUUID();
 
@@ -1101,6 +1110,13 @@ void LLViewerJoystick::moveFlycam(bool reset)
         return;
     }
 
+    // S24 : a restriction applied while the flycam is engaged ends it
+    if (!reset && LLAgentCamera::isFlycamBlockedByRlv())
+    {
+        toggleFlycam();
+        return;
+    }
+
     S32 axis[] =
     {
         gSavedSettings.getS32("JoystickAxis0"),
@@ -1271,6 +1287,18 @@ bool LLViewerJoystick::toggleFlycam()
 
     if (!mOverrideCamera)
     {
+        // S24 : a free camera must not be a way out of RLV camera restrictions
+        if (LLAgentCamera::isFlycamBlockedByRlv())
+        {
+            LLNotificationsUtil::add("SystemMessageTip", LLSD().with("MESSAGE", LLTrans::getString("GameControlFlycamBlockedRlv")));
+            return false;
+        }
+
+        // S24 : the game-control flycam and this one are mutually exclusive
+        if (gAgentCamera.isUsingFlycam())
+        {
+            gAgentCamera.toggleFlycam();
+        }
         gAgentCamera.changeCameraToDefault();
     }
 
@@ -1426,6 +1454,18 @@ void LLViewerJoystick::loadDeviceIdFromSettings()
 }
 
 // -----------------------------------------------------------------------------
+// static
+bool LLViewerJoystick::is3DConnexionDevice(const std::string& full_name)
+{
+    bool answer = full_name.find("Space") == 0
+        && ( (full_name.find("SpaceNavigator") == 0)
+            || (full_name.find("SpaceExplorer") == 0)
+            || (full_name.find("SpaceTraveler") == 0)
+            || (full_name.find("SpacePilot") == 0)
+            || (full_name.find("SpaceMouse") == 0));
+    return answer;
+}
+
 std::string LLViewerJoystick::getDescription()
 {
     std::string res;

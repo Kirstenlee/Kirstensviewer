@@ -40,6 +40,7 @@ class LLHLSLShader;
 class LLDrawPoolMaterials : public LLRenderPass
 {
 	LLHLSLShader *mShader;
+	bool mSkipPass = false;  // S24 : this pass has no draw infos, so its shader bind and draw loop are skipped
 public:
 	LLDrawPoolMaterials();
 
@@ -73,9 +74,10 @@ public:
 // they call) is entirely gated behind LLHLSLShader::enableTexture()'s
 // `channel > -1` checks and the already-DX-safe uniform setters, so it
 // degrades to a real (if inert) shader bind under DX_RENDER with no changes
-// needed. Phase 5.2's other 2 real pools in this group
-// (LLDrawPoolWaterExclusion, LLDrawPoolTree) turned out to need zero code
-// changes at all for the same reason - see the stage 5 hitlist memory.
+// needed. Phase 5.2's other 2 real pools in this group (LLDrawPoolTree, and
+// LLDrawPoolWaterExclusion - since retired, see
+// DXPipeline::doWaterExclusionMask()) turned out to need zero code changes
+// at all for the same reason - see the stage 5 hitlist memory.
 //
 // Normal/specular maps and the per-material shading uniforms (environment
 // intensity, emissive brightness, alpha cutoff, specular color) are bound via

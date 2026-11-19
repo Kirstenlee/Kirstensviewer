@@ -601,8 +601,9 @@ void LLInventoryPanel::itemChanged(const LLUUID& item_id, U32 mask, const LLInve
         if (model_item && view_item && viewmodel_item)
         {
             const LLUUID idp = viewmodel_item->getUUID();
-            view_item->destroyView();
+            // S24 : drop the ID first - destroying the view also destroys its view model item
             removeItemID(idp);
+            view_item->destroyView();
         }
 
         LLInventoryObject const* objectp = mInventory->getObject(item_id);
@@ -708,6 +709,8 @@ void LLInventoryPanel::itemChanged(const LLUUID& item_id, U32 mask, const LLInve
                 LLFolderViewModelItem* old_parent_vmi = old_parent->getViewModelItem();
                 LLFolderViewModelItemInventory* viewmodel_folder = static_cast<LLFolderViewModelItemInventory*>(old_parent_vmi);
                 LLFolderViewFolder* new_parent = getFolderByID(model_item->getParentUUID());
+                // S24 : read before the view can be destroyed below
+                const bool was_favorite = view_item->isFavorite();
                 // Item has been moved.
                 if (old_parent != new_parent // Item has been moved.
                     && (new_parent != NULL || !isInRootContent(item_id, view_item)) // item is not or shouldn't be in root content
@@ -747,7 +750,7 @@ void LLInventoryPanel::itemChanged(const LLUUID& item_id, U32 mask, const LLInve
                         old_parent_vmi->dirtyDescendantsFilter();
                     }
 
-                    if (view_item->isFavorite())
+                    if (was_favorite)
                     {
                         if (old_parent)
                         {

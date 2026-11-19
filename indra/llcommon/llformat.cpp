@@ -36,11 +36,14 @@
 static void va_format(std::string& out, const char *fmt, va_list va)
 {
 	char tstr[1024];	/* Flawfinder: ignore */
+	tstr[0] = 0;
 #if LL_WINDOWS
-	_vsnprintf(tstr, 1024, fmt, va);
+	_vsnprintf(tstr, sizeof(tstr), fmt, va);
 #else
-	vsnprintf(tstr, 1024, fmt, va);	/* Flawfinder: ignore */
+	vsnprintf(tstr, sizeof(tstr), fmt, va);	/* Flawfinder: ignore */
 #endif
+	// S24 : _vsnprintf does not NUL-terminate on overflow
+	tstr[sizeof(tstr) - 1] = 0;
 	out.assign(tstr);
 }
 

@@ -43,10 +43,12 @@ VSOutput main(VSInput IN)
     VSOutput OUT;
 
     //transform vertex
-    float4x4 mat = getObjectSkinnedTransform();
+    float4x4 skin = getObjectSkinnedTransform();
 
-    mat = mul(modelview_matrix, mat);
-    float4 pos = mul(mat, float4(IN.position.xyz, 1.0));
+    // S24 : the vertex goes through the skin, view and projection matrices in turn, three matrix-vector
+    // products, instead of first multiplying the matrices together for every vertex (the same result)
+    float4 pos = mul(skin, float4(IN.position.xyz, 1.0));
+    pos = mul(modelview_matrix, pos);
     pos = mul(projection_matrix, pos);
 
     OUT.position = pos;

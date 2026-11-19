@@ -1,11 +1,11 @@
 include_guard()
 
-include(Apr)
+include(APR)
 include(Boost)
-include(Expat)
-include(Glm)
+include(EXPAT)
+include(GLM)
 include(xxHash)
-include(ZLib)
+include(ZLIB)
 
 set(LLCOMMON_INCLUDE_DIRS
     ${LIBS_OPEN_DIR}/llcommon

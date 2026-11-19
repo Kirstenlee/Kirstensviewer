@@ -310,6 +310,23 @@ public:
     // value (GL_VERTEX_SHADER/GL_FRAGMENT_SHADER) is a plain int macro.
     std::vector< std::pair< std::string, DXenum > > mShaderFiles;
     std::string mName;
+
+    // S24 : true for the four glow-accumulation shaders, which want the emissive vertex stream in COLOR0 (see
+    // LLVertexBuffer::setupVertexBuffer()). Decided from the name on first use and remembered, since this is asked
+    // for on every draw; dropped whenever the shader is (re)loaded or unloaded.
+    bool wantsEmissiveInColor0()
+    {
+        if (mWantsEmissiveInColor0 < 0)
+        {
+            mWantsEmissiveInColor0 = (mName == "Deferred Emissive Shader" ||
+                                      mName == " PBR Glow Shader" ||
+                                      mName == "Skinned Deferred Emissive Shader" ||
+                                      mName == "Skinned  PBR Glow Shader") ? 1 : 0;
+        }
+        return mWantsEmissiveInColor0 != 0;
+    }
+    S8 mWantsEmissiveInColor0 = -1;
+
     typedef std::map<std::string, std::string> defines_map_t; //NOTE: this must be an ordered map to maintain hash consistency
     defines_map_t mDefines;
     static defines_map_t sGlobalDefines;

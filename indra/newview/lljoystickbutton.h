@@ -149,6 +149,7 @@ public:
 
     virtual bool    handleMouseDown(S32 x, S32 y, MASK mask);
     virtual bool    handleMouseUp(S32 x, S32 y, MASK mask);
+    virtual void    onMouseCaptureLost() override;
     virtual bool    handleHover(S32 x, S32 y, MASK mask);
     virtual void    onHeldDown();
     virtual void    resetJoystickCamera();

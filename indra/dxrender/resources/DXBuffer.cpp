@@ -231,3 +231,25 @@ bool DXBuffer::upload(const void* data, size_t size)
     ctx->Unmap(mBuffer, 0);
     return true;
 }
+
+bool DXBuffer::uploadRange(const void* data, size_t size, size_t byte_offset, bool discard)
+{
+    if (!mBuffer || byte_offset + size > mSize)
+    {
+        return false;
+    }
+
+    ID3D11DeviceContext* ctx = gDXDevice.getContext();
+
+    D3D11_MAPPED_SUBRESOURCE mapped = {};
+    HRESULT hr = ctx->Map(mBuffer, 0, discard ? D3D11_MAP_WRITE_DISCARD : D3D11_MAP_WRITE_NO_OVERWRITE, 0, &mapped);
+    if (FAILED(hr))
+    {
+        LL_WARNS("VertexBuffer") << "Map failed, hr=0x" << std::hex << (unsigned long)hr << std::dec << LL_ENDL;
+        return false;
+    }
+
+    memcpy(static_cast<uint8_t*>(mapped.pData) + byte_offset, data, size);
+    ctx->Unmap(mBuffer, 0);
+    return true;
+}

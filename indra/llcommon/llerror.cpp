@@ -145,17 +145,6 @@ namespace {
             return LLError::getEnabledLogTypesMask() & 0x04;
         }
         
-        LL_FORCE_INLINE std::string createBoldANSI()
-        {
-            std::string ansi_code;
-            ansi_code += '\033';
-            ansi_code += "[";
-            ansi_code += "1";
-            ansi_code += "m";
-
-            return ansi_code;
-        }
-
         LL_FORCE_INLINE std::string createResetANSI()
         {
             std::string ansi_code;
@@ -191,17 +180,10 @@ namespace {
             // The list of color codes can be found in many places but I used this page:
             // https://www.lihaoyi.com/post/BuildyourownCommandLinewithANSIescapecodes.html#256-colors
             // (Note: you may need to restart Visual Studio to pick environment changes)
-            char* val = nullptr;
-            std::string s_ansi_error_code = "160";
-            if ((val = getenv("LL_ANSI_ERROR_COLOR_CODE")) != nullptr) s_ansi_error_code = std::string(val);
-            std::string s_ansi_warn_code = "33";
-            if ((val = getenv("LL_ANSI_WARN_COLOR_CODE")) != nullptr) s_ansi_warn_code = std::string(val);
-            std::string s_ansi_debug_code = "177";
-            if ((val = getenv("LL_ANSI_DEBUG_COLOR_CODE")) != nullptr) s_ansi_debug_code = std::string(val);
-
-            static std::string s_ansi_error = createANSI(s_ansi_error_code); // default is red
-            static std::string s_ansi_warn  = createANSI(s_ansi_warn_code); // default is blue
-            static std::string s_ansi_debug = createANSI(s_ansi_debug_code); // default is magenta
+            // S24 : env is read once, in the static initialisers
+            static std::string s_ansi_error = createANSI(envOr("LL_ANSI_ERROR_COLOR_CODE", "160")); // default is red
+            static std::string s_ansi_warn  = createANSI(envOr("LL_ANSI_WARN_COLOR_CODE", "33"));   // default is blue
+            static std::string s_ansi_debug = createANSI(envOr("LL_ANSI_DEBUG_COLOR_CODE", "177")); // default is magenta
 
 			if (mUseANSI)
 			{
@@ -220,11 +202,16 @@ namespace {
 
         LL_FORCE_INLINE void writeANSI(const std::string& ansi_code, const std::string& message)
 		{
-            static std::string s_ansi_bold = createBoldANSI();  // bold text
             static std::string s_ansi_reset = createResetANSI();  // reset
 			// ANSI color code escape sequence, message, and reset in one fprintf call
             // Default all message levels to bold so we can distinguish our own messages from those dumped by subprocesses and libraries.
 			fprintf(stderr, "%s%s\n%s", ansi_code.c_str(), message.c_str(), s_ansi_reset.c_str() );
+		}
+
+		static std::string envOr(const char* name, const char* def)
+		{
+			const char* val = getenv(name);
+			return std::string(val ? val : def);
 		}
 
 		static bool checkANSI(void)
@@ -276,7 +263,9 @@ namespace {
 
         virtual bool enabled() override
         {
-            return LLError::getEnabledLogTypesMask() & 0x10;
+            // S24 : the debugger output is dropped unless a debugger is attached, so without one this recorder
+            // must not make every log line get formatted for nothing
+            return (LLError::getEnabledLogTypesMask() & 0x10) && IsDebuggerPresent();
         }
         
 		virtual void recordMessage(LLError::ELevel level,
@@ -1078,6 +1067,12 @@ namespace
         // line bought no real reversibility. Escaping \n/\r still matters: it collapses
         // a message with an embedded newline onto one physical log-file line so
         // per-line log tooling doesn't see it as multiple entries.
+        // S24 : most messages have nothing to escape
+        if (message.find_first_of("\n\r") == std::string::npos)
+        {
+            return message;
+        }
+
         std::ostringstream out;
         size_t written_out = 0;
         size_t all_content = message.length();
@@ -1120,6 +1115,11 @@ namespace
 		SettingsConfigPtr s = Globals::getInstance()->getSettingsConfig();
 
         std::string escaped_message;
+        // S24 : one scratch line reused for every recorder, and the timestamp formatted once per message,
+        // instead of an ostringstream and a time format per recorder
+        std::string line;
+        std::string time_text;
+        bool have_time = false;
 
         std::unique_lock lock(s->mRecorderMutex);
 		for (LLError::RecorderPtr& r : s->mRecorders)
@@ -1128,42 +1128,47 @@ namespace
             {
                 continue;
             }
-            
-			std::ostringstream message_stream;
+
+            line.clear();
 
             if (r->wantsTime() && s->mTimeFunction != nullptr)
 			{
-				message_stream << s->mTimeFunction();
+                if (!have_time)
+                {
+                    time_text = s->mTimeFunction();
+                    have_time = true;
+                }
+				line += time_text;
 			}
-            message_stream << " ";
-            
+            line += ' ';
+
 			if (r->wantsLevel())
             {
-				message_stream << site.mLevelString;
+				line += site.mLevelString;
             }
-            message_stream << " ";
-				
+            line += ' ';
+
 			if (r->wantsTags())
 			{
-				message_stream << site.mTagString;
+				line += site.mTagString;
 			}
-            message_stream << " ";
+            line += ' ';
 
             if (r->wantsLocation() || level == LLError::LEVEL_ERROR)
             {
-                message_stream << site.mLocationString;
+                line += site.mLocationString;
             }
-            message_stream << " ";
+            line += ' ';
 
 			if (r->wantsFunctionName())
 			{
-				message_stream << site.mFunctionString;
+				line += site.mFunctionString;
 			}
-            message_stream << " : ";
+            line += " : ";
 
             if (r->wantsMultiline())
             {
-                message_stream << message;
+                line += message;
             }
             else
             {
@@ -1171,10 +1176,10 @@ namespace
                 {
                     escaped_message = escapedMessageLines(message);
                 }
-                message_stream << escaped_message;
+                line += escaped_message;
             }
 
-			r->recordMessage(level, message_stream.str());
+			r->recordMessage(level, line);
 		}
 	}
 }

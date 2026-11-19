@@ -344,6 +344,12 @@ public:
     bool hasMatchingDescendents(const LLUUID& id,
         bool include_trash,
         LLInventoryCollectFunctor& add);
+private:
+    // S24 : the recursive halves; the trash id (null when trash is included) is looked up once by the public call
+    void collectDescendentsIfImpl(const LLUUID& id, cat_array_t& categories, item_array_t& items,
+                                  const LLUUID& trash_id, LLInventoryCollectFunctor& add);
+    bool hasMatchingDescendentsImpl(const LLUUID& id, const LLUUID& trash_id, LLInventoryCollectFunctor& matches);
+public:
 
     // Collect all items in inventory that are linked to item_id.
     // Assumes item_id is itself not a linked item.

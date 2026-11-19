@@ -52,11 +52,10 @@ class LLCharacter;
 //-----------------------------------------------------------------------------
 typedef LLMotion*(*LLMotionConstructor)(const LLUUID &id);
 
-// S24 (DX_RENDER, task #283 Phase 2 prep): staging list for LLMotionRegistry::markBad()
-// calls made from a DXPool worker thread during LLViewerObjectList::update()'s parallel
-// idleUpdate() dispatch (llviewerobjectlist.cpp). markBad() writes mMotionTable, which
-// createMotion() reads unsynchronized elsewhere in the same registry - not safe to
-// mutate off the main thread. Mirrors LLDeferredPipelineMarks (pipeline.h).
+// S24: staging list for LLMotionRegistry::markBad() calls made off the main thread
+// (e.g. a DXPool worker during parallel idleUpdate() dispatch). markBad() writes
+// mMotionTable, which createMotion() reads unsynchronized elsewhere in the same
+// registry - not safe to mutate off-thread. Mirrors LLDeferredPipelineMarks (pipeline.h).
 struct LLDeferredMotionActions
 {
     std::vector<std::function<void()> > mActions;
@@ -82,9 +81,8 @@ public:
 	// initialization of motion failed, don't try to create this motion again
 	void markBad( const LLUUID& id );
 
-	// S24 (task #283 Phase 2 prep): see LLDeferredMotionActions above. Pass non-null
-	// before posting idleUpdate() work for a chunk of avatars to a DXPool worker
-	// thread, and null again once that chunk is done - never leave it set on the
+	// S24: see LLDeferredMotionActions above. Pass non-null before posting idleUpdate()
+	// work to a worker thread, and null again once done - never leave it set on the
 	// main thread.
 	static void setDeferredActionsForThisThread(LLDeferredMotionActions* actions);
 

@@ -623,7 +623,7 @@ bool LLImageJPEG::encode( const LLImageRaw* raw_image, F32 encode_time )
 		jpeg_start_compress(&cinfo, true);
 
 		////////////////////////////////////////
-		// Step 5: while (scan lines remain to be written) 
+		// Step 5: while (scan lines remain to be written)
 		//            jpeg_write_scanlines(...); 
 
 		// Here we use the library's state variable cinfo.next_scanline as the

@@ -1683,7 +1683,15 @@ void LLViewerFetchedTexture::scheduleCreateTexture()
             // mainq/sEnabledTextures path below - see
             // LLImageDX::scheduleAsyncBuild()'s own comment for why this is
             // safe where that old (never re-enabled) path wasn't.
-            mGLTexturep->scheduleAsyncBuild(mRawImage);
+            // S24 : the create loop has a ~16 ms budget, so a texture queued behind only a few others
+            // is created on this same frame and the worker's build would be thrown away, after an up-front
+            // copy of the whole image on the main thread. Only textures likely to wait behind a backlog
+            // get the off-thread build; the others take the inline path, which is always the fallback.
+            static constexpr size_t ASYNC_BUILD_MIN_BACKLOG = 8;
+            if (gTextureList.mCreateTextureList.size() >= ASYNC_BUILD_MIN_BACKLOG)
+            {
+                mGLTexturep->scheduleAsyncBuild(mRawImage);
+            }
 
 #if LL_IMAGEDX_THREAD_CHECK
             //grab a copy of the raw image data to make sure it isn't modified pending texture creation
@@ -2169,7 +2177,13 @@ bool LLViewerFetchedTexture::updateFetch()
             if(decode_priority > 0.0f || mStopFetchingTimer.getElapsedTimeF32() > MAX_HOLD_TIME)
             {
                 mStopFetchingTimer.reset();
-                LLAppViewer::getTextureFetch()->updateRequestPriority(mID, decode_priority);
+                // S24 : the worker only uses the priority for ordering and the zero-priority abort, and
+                // nothing but this call and createRequest() changes it, so an unchanged value is not re-posted
+                if (decode_priority != mLastSentFetchPriority
+                    && LLAppViewer::getTextureFetch()->updateRequestPriority(mID, decode_priority))
+                {
+                    mLastSentFetchPriority = decode_priority;
+                }
             }
         }
     }
@@ -2240,6 +2254,7 @@ bool LLViewerFetchedTexture::updateFetch()
         {
             mHasFetcher = true;
             mIsFetching = true;
+            mLastSentFetchPriority = decode_priority; // createRequest() hands the worker this priority
             mLastWorkerDiscardLevel = worker_discard;
             // in some cases createRequest can modify discard, as an example
             // bake textures are always at discard 0

@@ -1523,11 +1523,13 @@ bool LLImageDX::getIsResident(bool test_now)
     return mIsResident;
 }
 
+// S24 : mCurrentDiscardLevel is -1 until the texture is created; shifting by a negative
+// count is undefined, so the four getters below clamp it to 0 (full size) instead.
 S32 LLImageDX::getHeight(S32 discard_level) const
 {
     if (discard_level < 0)
     {
-        discard_level = mCurrentDiscardLevel;
+        discard_level = llmax((S32)mCurrentDiscardLevel, 0);
     }
     S32 height = mHeight >> discard_level;
     if (height < 1) height = 1;
@@ -1538,7 +1540,7 @@ S32 LLImageDX::getWidth(S32 discard_level) const
 {
     if (discard_level < 0)
     {
-        discard_level = mCurrentDiscardLevel;
+        discard_level = llmax((S32)mCurrentDiscardLevel, 0);
     }
     S32 width = mWidth >> discard_level;
     if (width < 1) width = 1;
@@ -1549,7 +1551,7 @@ S64 LLImageDX::getBytes(S32 discard_level) const
 {
     if (discard_level < 0)
     {
-        discard_level = mCurrentDiscardLevel;
+        discard_level = llmax((S32)mCurrentDiscardLevel, 0);
     }
     S32 w = mWidth>>discard_level;
     S32 h = mHeight>>discard_level;
@@ -1562,7 +1564,7 @@ S64 LLImageDX::getMipBytes(S32 discard_level) const
 {
     if (discard_level < 0)
     {
-        discard_level = mCurrentDiscardLevel;
+        discard_level = llmax((S32)mCurrentDiscardLevel, 0);
     }
     S32 w = mWidth>>discard_level;
     S32 h = mHeight>>discard_level;

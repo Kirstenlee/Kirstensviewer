@@ -135,9 +135,6 @@ LL_COMMON_API bool assert_main_thread()
 	return false;
 }
 
-// this function has become moot
-void LLThread::registerThreadID() {}
-
 //
 // Handed to the APR thread creation function
 //
@@ -148,6 +145,7 @@ void LLThread::threadRun()
 
 	// this is the first point at which we're actually running in the new thread
 	mID = currentID();
+	mNativeThreadId = GetCurrentThreadId();
 
 	// for now, hard code all LLThreads to report to single master thread recorder, which is known to be running on main thread
 	mRecorder = new LLTrace::ThreadRecorder(*LLTrace::get_master_thread_recorder());
@@ -293,9 +291,17 @@ void LLThread::shutdown()
         // - Free thread-local storage
         // - Notify attached DLLs
         // This can leave the process in an inconsistent state.
-        if (mNativeHandle)
+        // S24 : the std::thread handle was closed by detach(), so a fresh handle is opened by id
+        if (const unsigned long thread_id = mNativeThreadId.load())
         {
-            TerminateThread(mNativeHandle, 0);
+            if (HANDLE handle = OpenThread(THREAD_TERMINATE | SYNCHRONIZE, FALSE, thread_id))
+            {
+                TerminateThread(handle, 0);
+                // TerminateThread is asynchronous; give the thread a moment to actually
+                // die before its resources are freed below
+                WaitForSingleObject(handle, 10);
+                CloseHandle(handle);
+            }
         }
 
         // Manually clean up resources since the thread was forcibly terminated
@@ -335,7 +341,6 @@ void LLThread::start()
 	try
 	{
 		mThreadp = new std::thread(std::bind(&LLThread::threadRun, this));
-		mNativeHandle = mThreadp->native_handle();
 		mThreadp->detach();
 	}
 	catch (std::system_error& ex)

@@ -96,9 +96,6 @@ public:                                     \
 
 //------------------------------------------------------------------------------------------------
 //------------------------------------------------------------------------------------------------
-	// for enable buffer overrun detection predefine LL_DEBUG_BUFFER_OVERRUN in current library
-    // change preprocessor code to: #if 1 && defined(LL_WINDOWS)
-
     inline void* ll_aligned_malloc_fallback( size_t size, size_t align )
     {
     #if defined(LL_WINDOWS)

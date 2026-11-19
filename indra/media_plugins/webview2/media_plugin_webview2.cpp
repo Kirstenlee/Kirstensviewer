@@ -48,22 +48,16 @@ private:
 
     bool mEnableMediaPluginDebugging;
     std::string mHostLanguage;
-    bool mCookiesEnabled;
-    bool mPluginsEnabled;
     bool mJavascriptEnabled;
     bool mProxyEnabled;
     std::string mProxyHost;
     int mProxyPort;
     bool mDisableGPU;
     std::string mUserAgentSubtring;
-    std::string mAuthUsername;
-    std::string mAuthPassword;
-    bool mAuthOK;
     std::string mRootCachePath;
     F32 mCurVolume;
 
     // keyboard translation state
-    bool mShift, mCtrl, mAlt;
     unsigned mHighSurrogate;
 };
 
@@ -78,15 +72,11 @@ MediaPluginWebView2::MediaPluginWebView2(LLPluginInstance::sendMessageFunction h
     mPixels = 0;
     mEnableMediaPluginDebugging = true;
     mHostLanguage = "en";
-    mCookiesEnabled = true;
-    mPluginsEnabled = false;
     mJavascriptEnabled = true;
     mProxyEnabled = false;
     mProxyPort = 0;
     mDisableGPU = false;
-    mAuthOK = false;
-    mCurVolume = 1.0f;
-    mShift = mCtrl = mAlt = false;
+    mCurVolume = 0.0f;  // silent until the viewer sends a volume, matching the CEF plugin
     mHighSurrogate = 0;
 }
 
@@ -216,6 +206,7 @@ void MediaPluginWebView2::startHost(F32 zoom_factor)
         sendMessage(message);
     };
 
+    mHost.setMuted(mCurVolume <= 0.0f);  // applied once the engine is ready
     mHost.start(settings, cb);
 }
 
@@ -223,12 +214,7 @@ void MediaPluginWebView2::startHost(F32 zoom_factor)
 //
 void MediaPluginWebView2::authResponse(LLPluginMessage& message)
 {
-    mAuthOK = message.getValueBoolean("ok");
-    if (mAuthOK)
-    {
-        mAuthUsername = message.getValue("username");
-        mAuthPassword = message.getValue("password");
-    }
+    // S24 : WebView2 sign-in is handled by the engine; the viewer's reply is not used
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -494,7 +480,7 @@ void MediaPluginWebView2::receiveMessage(const char* message_string)
             }
             else if (message_name == "cookies_enabled")
             {
-                mCookiesEnabled = message_in.getValueBoolean("enable");
+                // S24 : accepted and ignored; the engine keeps its own cookie policy
             }
             else if (message_name == "clear_cookies")
             {
@@ -510,7 +496,7 @@ void MediaPluginWebView2::receiveMessage(const char* message_string)
             }
             else if (message_name == "plugins_enabled")
             {
-                mPluginsEnabled = message_in.getValueBoolean("enable");
+                // S24 : accepted and ignored; WebView2 has no plugin setting
             }
             else if (message_name == "javascript_enabled")
             {
@@ -616,6 +602,13 @@ void keyNames(unsigned vk, bool shift, std::string& key, std::string& code)
     }
     key = "Unidentified";
 }
+
+// S24 : the live OS key state, not tracked from messages, so a modifier released while focus was
+// elsewhere can never stay stuck
+bool modifierDown(int vk)
+{
+    return (GetAsyncKeyState(vk) & 0x8000) != 0;
+}
 } // namespace
 
 void MediaPluginWebView2::nativeKey(U32 msg, U32 wparam, U64 lparam)
@@ -625,12 +618,12 @@ void MediaPluginWebView2::nativeKey(U32 msg, U32 wparam, U64 lparam)
     if (msg == kKeyDown || msg == kSysKeyDown || msg == kKeyUp || msg == kSysKeyUp)
     {
         const bool down = (msg == kKeyDown || msg == kSysKeyDown);
-        if (wparam == 0x10 || wparam == 0xA0 || wparam == 0xA1) mShift = down;
-        else if (wparam == 0x11 || wparam == 0xA2 || wparam == 0xA3) mCtrl = down;
-        else if (wparam == 0x12 || wparam == 0xA4 || wparam == 0xA5) mAlt = down;
+        const bool shift = modifierDown(VK_SHIFT);
+        const bool ctrl = modifierDown(VK_CONTROL);
+        const bool alt = modifierDown(VK_MENU);
 
         std::string key, code;
-        keyNames(wparam, mShift, key, code);
+        keyNames(wparam, shift, key, code);
         const bool repeat = down && ((lparam >> 30) & 1);
 
         std::ostringstream p;
@@ -639,7 +632,7 @@ void MediaPluginWebView2::nativeKey(U32 msg, U32 wparam, U64 lparam)
           << ",\"nativeVirtualKeyCode\":" << wparam
           << ",\"key\":\"" << jsonEscape(key) << "\""
           << ",\"code\":\"" << code << "\""
-          << ",\"modifiers\":" << ((mAlt ? 1 : 0) | (mCtrl ? 2 : 0) | (mShift ? 8 : 0))
+          << ",\"modifiers\":" << ((alt ? 1 : 0) | (ctrl ? 2 : 0) | (shift ? 8 : 0))
           << ",\"autoRepeat\":" << (repeat ? "true" : "false")
           << ",\"isSystemKey\":" << ((msg == kSysKeyDown || msg == kSysKeyUp) ? "true" : "false") << "}";
         mHost.callDevTools("Input.dispatchKeyEvent", p.str());
@@ -661,7 +654,7 @@ void MediaPluginWebView2::nativeKey(U32 msg, U32 wparam, U64 lparam)
 
         // Typed text never carries Ctrl/Alt: with them Chromium treats chars such as A and C as editing
         // shortcuts (select all, copy) instead of inserting them, and AltGr text arrives as plain chars.
-        const int text_modifiers = mShift ? 8 : 0;
+        const int text_modifiers = modifierDown(VK_SHIFT) ? 8 : 0;
         const std::string text = (cp == 0x0D) ? std::string("\r") : utf8FromCodepoint(cp);
         std::ostringstream p;
         p << "{\"type\":\"char\",\"text\":\"" << jsonEscape(text) << "\",\"unmodifiedText\":\"" << jsonEscape(text) << "\""

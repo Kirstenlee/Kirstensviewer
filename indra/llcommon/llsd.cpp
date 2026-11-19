@@ -279,7 +279,7 @@ namespace
     };
 
     LLSD::String ImplInteger::asString() const
-        { return llformat("%d", mValue); }
+        { return std::to_string(mValue); }
 
 
     class ImplReal final
@@ -1034,6 +1034,30 @@ void LLSD::clear()						{ Impl::assignUndefined(impl); }
 
 LLSD::Type LLSD::type() const			{ return safe(impl).type(); }
 
+bool LLSD::isEmpty() const
+{
+    switch (type())
+    {
+    case TypeUndefined:
+        return true; // Always empty
+    case TypeBinary:
+        return !asBoolean(); // Empty when default
+    case TypeInteger:
+        return !asInteger(); // Empty when default
+    case TypeReal:
+        return !asReal(); // Empty when default
+    case TypeString:
+    case TypeURI:
+        return asString().empty(); // Empty natively
+    case TypeArray:
+    case TypeMap:
+        return !size(); // Empty natively
+    default:;
+    }
+    // All other value types (TypeDate) don't have default values so can't be empty
+    return false;
+}
+
 // Scalar Constructors
 LLSD::LLSD(Boolean v) : impl(0)			{ ALLOC_LLSD_OBJECT;	assign(v); }
 LLSD::LLSD(Integer v) : impl(0)			{ ALLOC_LLSD_OBJECT;	assign(v); }
@@ -1242,6 +1266,7 @@ LLSD::Real string_to_real(std::string_view in_string)
 {
     LLSD::Real v = 0.0;
     boost::iostreams::stream<boost::iostreams::array_source> i_stream(in_string.data(), in_string.size());
+    i_stream.imbue(std::locale::classic());  // S24 : always '.' regardless of global C++ locale
     i_stream >> v;
 
     // we would probably like to ignore all trailing whitespace as

@@ -36,7 +36,7 @@
          layout="topleft"
          follows="all"
          font="Monospace"
-         font.size="huge"
+         font.size="Huge"
          halign="center"
          valign="center"
          text_color="0.15 0.95 0.95 1">

@@ -716,6 +716,13 @@ void LLModelPreview::getJointAliases(JointMap& joint_map)
     // Get all standard skeleton joints from the preview avatar.
     LLVOAvatar *av = getPreviewAvatar();
 
+    // S24 : null if createPreviewAvatar() failed (e.g. no region); callers get an empty map
+    if (!av)
+    {
+        joint_map.clear();
+        return;
+    }
+
     //Joint names and aliases come from avatar_skeleton.xml
 
     joint_map = av->getJointAliases();
@@ -772,6 +779,13 @@ void LLModelPreview::loadModel(std::string filename, S32 lod, bool force_disable
     if (mModelLoader)
     {
         LL_WARNS() << "Incompleted model load operation pending." << LL_ENDL;
+        return;
+    }
+
+    if (!getPreviewAvatar())
+    {
+        LL_WARNS() << "No preview avatar, can't load model " << filename << LL_ENDL;
+        mLoading = false;
         return;
     }
 

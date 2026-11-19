@@ -526,7 +526,7 @@ void LLScriptFloaterManager::removeNotification(const LLUUID& notification_id)
 
 void LLScriptFloaterManager::onRemoveNotification(const LLUUID& notification_id)
 {
-    // S24: Null ID is fine, just means notification was already cleaned up - 2026-04-27
+    // S24: Null ID is fine, just means notification was already cleaned up
     if(notification_id.isNull())
     {
         return;

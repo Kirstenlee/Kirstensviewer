@@ -504,6 +504,20 @@ void LLToolTipMgr::show(const LLToolTip::Params& params)
         && (!params.message.isProvided() || params.message().empty())
         && !params.image.isProvided() && !params.create_callback.isProvided()) return;
 
+    // S24 : this is called every frame the cursor is over a widget with a tooltip, and the parameter block below
+    // is copied, filled in and validated every time, only to be thrown away while tooltips are blocked or the
+    // mouse has not been still long enough. Those two cheap tests come first (the delay is the one the block
+    // would end up with: the tooltip's own if it has one, else the tool_tip.xml default).
+    {
+        const F32 delay_time = params.delay_time.isProvided()
+            ? params.delay_time()
+            : LLUICtrlFactory::instance().getDefaultParams<LLToolTip>().delay_time();
+        if (mToolTipsBlocked || LLUI::getInstance()->getMouseIdleTime() <= delay_time)
+        {
+            return;
+        }
+    }
+
     // fill in default tooltip params from tool_tip.xml
     LLToolTip::Params params_with_defaults(params);
     params_with_defaults.fillFrom(LLUICtrlFactory::instance().getDefaultParams<LLToolTip>());

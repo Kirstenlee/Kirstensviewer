@@ -27,7 +27,7 @@
 // This file sets some global GL parameters, and implements some
 // useful functions for GL operations.
 //
-// S24: DXState/LLGLEnable/LLGLDisable/LLGLCullFace/LLGLUserClipPlane/
+// S24: DXState/DXStateEnable/DXStateDisable/LLGLCullFace/LLGLUserClipPlane/
 // LLGLSquashToFarClip/LLGLUpdate/DXDepthTest's implementations moved to
 // core/DXState.cpp; LLGLManager's implementation moved (and renamed to
 // DXDeviceInfo, see core/DXDeviceInfo.h) to

@@ -30,6 +30,7 @@
 #include "stdtypes.h"
 #include "llpreprocessor.h"
 
+#include <atomic>
 #include "llmutex.h"
 #include "lltraceaccumulators.h"
 
@@ -87,6 +88,7 @@ namespace LLTrace
 		LLMutex							mChildListMutex;		// protects access to child list
 		LLMutex							mSharedRecordingMutex;
 		AccumulatorBufferGroup			mSharedRecordingBuffers;
+		std::atomic<bool>				mSharedDirty{ false };	// S24 : set by pushToParent(), so pullFromChildren() skips children with nothing to merge
 		ThreadRecorder*					mParentRecorder;
 
 	};

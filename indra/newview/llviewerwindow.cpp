@@ -43,6 +43,7 @@
 #include <boost/regex.hpp>
 
 #include "llagent.h"
+#include "llgamecontrol.h"
 #include "llagentcamera.h"
 #include "llcallbacklist.h"
 #include "llcommandhandler.h"
@@ -829,6 +830,50 @@ public:
 				ypos += y_inc;
 				av_iter++;
 			}
+		}
+		static LLCachedControl<bool> debug_show_game_controller_state(gSavedSettings, "DebugShowControllerState", false);
+		if (debug_show_game_controller_state())
+		{
+			static const char* axis_names[LLGameControl::NUM_MOVE_DIRS] = {
+				"LEFT","RIGHT","FORWARD","BACKWARD", "TURN LEFT", "TURN RIGHT",
+				"LOOK UP","LOOK DOWN", "UP", "DOWN", "ROLL LEFT", "ROLL RIGHT"
+			};
+			static const char* button_names[LLGameControl::NUM_BUTTONS] = {
+				"A", "B", "X", "Y", "BACK", "SELECT", "START", "LSTICK", "RSTICK",
+				"LSHOULDER", "RSHOULDER", "UP", "DOWN", "LEFT", "RIGHT",
+				"MISC1", "PADDLE1", "PADDLE2", "PADDLE3", "PADDLE4", "TOUCHPAD",
+				"B21", "B22", "B23", "B24", "B25", "B26", "B27", "B28", "B29", "B30", "B31",
+			};
+			const LLGameControl::State& gc_state = LLGameControl::getState();
+			for (size_t i = 0; i < gc_state.mAxes.size(); i+=2)
+			{
+				addText(xpos, ypos, llformat(
+					"  %-10s %6d   %-10s %6d",
+					(i < LLGameControl::NUM_MOVE_DIRS) ? axis_names[i] : "AXIS",
+					(S32)gc_state.mAxes[i],
+					((i+1) < LLGameControl::NUM_MOVE_DIRS) ? axis_names[i+1] : "AXIS",
+					i < gc_state.mAxes.size() ? (S32)gc_state.mAxes[i+1] : 0
+				));
+				ypos += y_inc;
+			}
+			addText(xpos, ypos, "Game Controller Final State Axes");
+			ypos += y_inc;
+			static const char* pressed = "░░░░░░░░░░";
+			static const char* released = "          ";
+			for (U8 i = 0; i < LLGameControl::NUM_BUTTONS; i += 4)
+			{
+				addText(xpos, ypos, llformat(
+					"  %-10s %-10s %-10s %-10s",
+					gc_state.mButtons & (1 << (i+0)) ? pressed : released,
+					gc_state.mButtons & (1 << (i+1)) ? pressed : released,
+					gc_state.mButtons & (1 << (i+2)) ? pressed : released,
+					gc_state.mButtons & (1 << (i+3)) ? pressed : released
+				));
+				addText(xpos, ypos, llformat("  %-10s %-10s %-10s %-10s", button_names[i],button_names[i+1],button_names[i+2],button_names[i+3]));
+				ypos += y_inc;
+			}
+			addText(xpos, ypos, "Game Controller Final State Buttons");
+			ypos += y_inc;
 		}
 		static LLCachedControl<bool> debug_show_render_matrices(gSavedSettings, "DebugShowRenderMatrices", false);
 		if (debug_show_render_matrices())
@@ -1677,8 +1722,14 @@ void LLViewerWindow::handleFocusLost(LLWindow* window)
 	// capture out from under whatever the popped-out widget just took,
 	// or text selection can start but never extend/highlight while
 	// popped out (mid-drag capture silently lost).
+	// S24 : keys held in this window are still released on a popout focus change, or they stay stuck down
 	if (LLFloaterPopoutManager::isPoppedOut())
 	{
+		if (gKeyboard)
+		{
+			gKeyboard->resetKeyDownAndHandle();
+			gKeyboard->resetKeys();
+		}
 		return;
 	}
 
@@ -2900,6 +2951,15 @@ void LLViewerWindow::draw()
 		// Draw tool specific overlay on world
 		LLToolMgr::getInstance()->getCurrentTool()->draw();
 
+		if (gAgentCamera.isUsingFlycam() && LLGameControl::isFlycamCrosshairEnabled())
+		{
+			// same crosshair LLToolGun draws for mouselook; flycam has no tool of its own
+			LLUIImagePtr crosshair = LLUI::getUIImage("crosshairs.tga");
+			crosshair->draw(
+				(getWorldViewRectScaled().getWidth() - crosshair->getWidth()) / 2,
+				(getWorldViewRectScaled().getHeight() - crosshair->getHeight()) / 2);
+		}
+
 		if (gAgentCamera.cameraMouselook() || LLFloaterCamera::inFreeCameraMode())
 		{
 			drawMouselookInstructions();
@@ -3253,7 +3313,9 @@ bool LLViewerWindow::handleKey(KEY key, MASK mask)
 			LLFloaterReg::toggleInstanceOrBringToFront(name);
 		}
 
-		LLChatEntry* chat_editor = LLFloaterReg::findTypedInstance<LLFloaterIMNearbyChat>("nearby_chat")->getChatBox();
+		// S24 : the container toggle may not have produced a nearby chat floater
+		nearby_chat = LLFloaterReg::findTypedInstance<LLFloaterIMNearbyChat>("nearby_chat");
+		LLChatEntry* chat_editor = nearby_chat ? nearby_chat->getChatBox() : nullptr;
 		if (chat_editor)
 		{
 			// passing NULL here, character will be added later when it is handled by character handler.
@@ -3442,6 +3504,22 @@ void LLViewerWindow::clearPopups()
 	{
 		mPopupView->clearPopups();
 	}
+}
+
+void LLViewerWindow::moveCursorTo(S32 x, S32 y)
+{
+	// Clamp to the whole window so a gamepad-driven cursor can reach the
+	// menu bar and toolbars but not escape the window.
+	// valid pixel indices run 0..size-1
+	x = llclamp(x, 0, llmax(0, getWindowWidthScaled() - 1));
+	y = llclamp(y, 0, llmax(0, getWindowHeightScaled() - 1));
+
+	LLUI::getInstance()->setMousePositionScreen(x, y);
+
+	// a forced move zeroes the deltas to prevent jumping
+	mCurrentMousePoint.set(x, y);
+	mLastMousePoint.set(x, y);
+	mCurrentMouseDelta.set(0, 0);
 }
 
 void LLViewerWindow::moveCursorToCenter()

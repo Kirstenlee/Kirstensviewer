@@ -200,10 +200,23 @@ function Get-PackageArchive {
     $tempFile = Join-Path $tempDir "$archiveName.download"
     $lockFile = "$archivePath.lock"
 
-    # Return cached file if it exists
+    # Return cached file if it exists AND matches the manifest MD5.  The cache is
+    # keyed by file name only, so a re-uploaded package that keeps its name would
+    # otherwise be served from a stale cached copy.
     if (Test-Path $archivePath) {
-        Write-Host " [OK] Cached: $archiveName" -ForegroundColor Yellow
-        return $archivePath
+        $cacheValid = $true
+        if ($ExpectedMD5) {
+            $cachedMD5 = Get-MD5Hash -FilePath $archivePath
+            if ($cachedMD5 -ne $ExpectedMD5.ToLower()) {
+                Write-Host " [..] Cached $archiveName is stale (md5 $cachedMD5, manifest $ExpectedMD5) - downloading again" -ForegroundColor Yellow
+                Remove-Item $archivePath -Force
+                $cacheValid = $false
+            }
+        }
+        if ($cacheValid) {
+            Write-Host " [OK] Cached: $archiveName" -ForegroundColor Yellow
+            return $archivePath
+        }
     }
 
     # Check for lock file (prevents concurrent downloads)
