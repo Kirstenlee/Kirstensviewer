@@ -1740,13 +1740,15 @@
         top_pad="10"
         width="268"
         font="SansSerif">
-        FSR Sharpening:
+        FSR Sharpening (below 100% scale):
       </text>
 
       <slider
         left="20"
         top_pad="2"
         control_name="RenderFSR1Sharpness"
+        enabled_control="RenderUpscaleActive"
+        tool_tip="Sharpening applied after the FSR upscale. Greyed out at 100% Render Scale - the CAS Sharpening slider in Advanced Graphics is used instead."
         decimal_digits="1"
         follows="left|top"
         height="20"
@@ -1769,7 +1771,7 @@
         width="268"
         wrap="true"
         font="SansSerif">
-        Below 100% scale, FSR EASU upscale engages automatically and FSR Sharpening (RCAS) applies after it. At 100% scale, FSR Sharpening still applies as a same-resolution pass (takes priority over the standard CAS slider in Advanced Graphics Preferences).
+        Below 100% scale, FSR EASU upscale engages automatically and FSR Sharpening (RCAS) applies after it. At 100% scale this slider is inactive and the CAS Sharpening slider in Advanced Graphics Preferences is used instead - only one of the two ever applies.
       </text>
       </panel>
 

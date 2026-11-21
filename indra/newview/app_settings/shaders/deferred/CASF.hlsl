@@ -53,7 +53,7 @@ struct PSInput
 // Based on AMD FidelityFX CAS implementation
 // See: https://github.com/GPUOpen-Effects/FidelityFX-CAS
 
-// This port implements CASF.glsl's noScaling==true branch only (the only
+// This port implements AMD's CAS reference (ffx_cas.h) noScaling==true branch only (the only
 // branch this project's wrapper uses). `peak` (cas_param_1.x) must be read
 // via asfloat(), not a numeric cast - GLSL's AF1_AU1() is a bit-level
 // reinterpret, not a value conversion.
@@ -68,7 +68,7 @@ float4 main(PSInput IN) : SV_Target
     float2 pos = float2(IN.vary_fragcoord.x, 1.0 - IN.vary_fragcoord.y);
     float2 rcpOut = 1.0 / out_screen_res;
 
-    // 3x3 neighborhood, matching CASF.glsl's own a/b/c/d/e/f/g/h/i grid
+    // 3x3 neighborhood, matching AMD's CAS reference a/b/c/d/e/f/g/h/i grid
     // layout exactly (top-left to bottom-right, row-major) - not reusing
     // the old code's different letter assignments, to avoid any risk of
     // silently transposing which sample is which.

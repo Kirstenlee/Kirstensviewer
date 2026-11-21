@@ -271,8 +271,9 @@ RenderFlushOrphanedTexturesOnTeleport
 
 RenderScalePercent / RenderFSR1Sharpness (FSR upscale)
   Default: 100% / 0.4   Range: 25-100% / 0.0-1.0
-  Below 100% scale, FSR EASU upscale engages automatically; sharpening (RCAS)
-  always applies, even at 100%.
+  Below 100% scale, FSR EASU upscale engages automatically and sharpening
+  (RCAS, this slider) applies after it. At 100% this slider is inactive and the
+  Advanced Graphics CAS Sharpening slider is used instead - never both.
 
 RenderHardwareShaderTier
   Default: -1 (Auto/detected)   Range: -1 to 5
