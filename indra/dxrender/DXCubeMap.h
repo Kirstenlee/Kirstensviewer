@@ -14,7 +14,7 @@
 // orchestration/business-logic class (per-face upload, face ordering, bind/
 // texture-matrix state) that composes the real D3D11 resource wrapper
 // (DXCubeTexture) underneath - same shape as DXTextureBase/LLVertexBuffer/
-// LLRenderTarget, all confirmed root-level by the dxrender-consolidation
+// DXRenderTarget, all confirmed root-level by the dxrender-consolidation
 // design's placement rule (resources/ is for the raw resource type itself,
 // not the facade over it). A prior version of this comment cited a
 // `friend class LLTexUnit` requirement as the reason - that friendship was
@@ -73,7 +73,7 @@ protected:
     // S24: internal face-slot label for LLImageDX::setTarget(), which still
     // takes a GL enum tag - NOT a D3D11 face/slice convention. The GL->D3D11
     // remap happens in init()'s call to mDXCubeTexture.copyFace().
-    LLGLenum mTargets[6];
+    DXenum mTargets[6];
     LLPointer<LLImageDX> mImages[6];
     LLPointer<LLImageRaw> mRawImages[6];
     S32 mTextureStage;

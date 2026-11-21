@@ -359,7 +359,7 @@ void LLSphereProbes::update()
     {
         // Mip count is read from the radiance array (see mMaxProbeLOD in initReflectionMaps()).
         mCapture.allocate(mProbeResolution, mCubes.radiance().getMipLevels(), render_hdr,
-                          LLProbeCapture::SUPER_SAMPLE, render_hdr ? GL_R11F_G11F_B10F : GL_RGB8);
+                          LLProbeCapture::SUPER_SAMPLE, render_hdr ? DXGI_FORMAT_R11G11B10_FLOAT : DXGI_FORMAT_R8G8B8A8_UNORM);
     }
 
     llassert(mProbes[0] == mDefaultProbe);

@@ -25,7 +25,7 @@
 
 #pragma once
 
-#include "llrendertarget.h"
+#include "DXRenderTarget.h"
 #include "DXCubeArrayTexture.h"
 
 #include <vector>
@@ -49,7 +49,7 @@ public:
     // SUPER_SAMPLE; mirrors use 1.
     // blur_format: GL-style format of the blur target. Callers pick it, since sphere probes
     // and mirrors have always used different formats.
-    bool allocate(U32 resolution, U32 mip_count, bool hdr, U32 blur_scale, U32 blur_format);
+    bool allocate(U32 resolution, U32 mip_count, bool hdr, U32 blur_scale, DXGI_FORMAT blur_format);
     void release();
 
     bool isAllocated() const { return !mMips.empty(); }
@@ -60,18 +60,18 @@ public:
     U32 getSuperSampleResolution() const { return mResolution * mBlurScale; }
 
     // Super-sampled blur target, sized getSuperSampleResolution().
-    LLRenderTarget& getBlurTarget() { return mBlurTarget; }
+    DXRenderTarget& getBlurTarget() { return mBlurTarget; }
 
     // Mip chain, mip 0 at probe resolution, halving each step.
-    std::vector<LLRenderTarget>& getMips() { return mMips; }
+    std::vector<DXRenderTarget>& getMips() { return mMips; }
 
     // Blurs screen_rt (a rendered face) and downsamples it into the mip chain. Each mip is
     // copied to slice `slice` of dst, at its own mip level. Assumes the face is fully rendered.
-    void resolveFace(LLRenderTarget& screen_rt, DXCubeArrayTexture& dst, U32 slice);
+    void resolveFace(DXRenderTarget& screen_rt, DXCubeArrayTexture& dst, U32 slice);
 
 private:
-    LLRenderTarget mBlurTarget;
-    std::vector<LLRenderTarget> mMips;
+    DXRenderTarget mBlurTarget;
+    std::vector<DXRenderTarget> mMips;
     U32 mResolution = 0;
     U32 mBlurScale = SUPER_SAMPLE;
     bool mHDR = false;

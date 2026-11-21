@@ -568,9 +568,16 @@ static bool handleHeroProbeResolutionChanged(const LLSD &newvalue)
     return true;
 }
 
+// RenderUpscaleActive is the derived flag the preferences UI binds the two sharpening sliders to
+static void syncRenderUpscaleActive()
+{
+    gSavedSettings.setBOOL("RenderUpscaleActive", gSavedSettings.getF32("RenderScalePercent") < 100.f);
+}
+
 static bool handleRenderScalePercentChanged(const LLSD&)
 {
     gResizeScreenTexture = true;
+    syncRenderUpscaleActive();
     return true;
 }
 
@@ -979,6 +986,7 @@ void settings_setup_listeners()
     setting_setup_signal_listener(gSavedSettings, "RenderVSyncEnable", handleVSyncChanged);
     setting_setup_signal_listener(gSavedSettings, "RenderDeferredNoise", handleReleaseGLBufferChanged);
     setting_setup_signal_listener(gSavedSettings, "RenderScalePercent", handleRenderScalePercentChanged);
+    syncRenderUpscaleActive();
     setting_setup_signal_listener(gSavedSettings, "RenderUseDXVK", handleRenderUseDXVKChanged);
     setting_setup_signal_listener(gSavedSettings, "RenderReflectionProbeLevel", handleReflectionProbeDetailChanged);
     setting_setup_signal_listener(gSavedSettings, "RenderReflectionProbeDetail", handleReflectionProbeDetailChanged);

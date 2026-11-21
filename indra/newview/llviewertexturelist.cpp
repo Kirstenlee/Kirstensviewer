@@ -139,8 +139,7 @@ void LLViewerTextureList::doPreloadImages()
                                                           MIPMAP_NO,
                                                           LLViewerFetchedTexture::BOOST_BUMP,
                                                           LLViewerTexture::FETCHED_TEXTURE,
-                                                          0,
-                                                          0,
+                                                          DXPixelFormat::Auto,
                                                           BLANK_OBJECT_NORMAL);
 
     // PBR: irradiance
@@ -175,21 +174,21 @@ void LLViewerTextureList::doPreloadImages()
         mImagePreloads.insert(image);
     }
     image = LLViewerTextureManager::getFetchedTextureFromFile("transparent.j2c", FTT_LOCAL_FILE, MIPMAP_YES, LLViewerFetchedTexture::BOOST_UI, LLViewerTexture::FETCHED_TEXTURE,
-        0, 0, IMG_TRANSPARENT);
+        DXPixelFormat::Auto, IMG_TRANSPARENT);
     if (image)
     {
         image->setAddressMode(LLTexUnit::TAM_WRAP);
         mImagePreloads.insert(image);
     }
     image = LLViewerTextureManager::getFetchedTextureFromFile("alpha_gradient.tga", FTT_LOCAL_FILE, MIPMAP_YES, LLViewerFetchedTexture::BOOST_UI, LLViewerTexture::FETCHED_TEXTURE,
-        GL_ALPHA8, GL_ALPHA, IMG_ALPHA_GRAD);
+        DXPixelFormat::Alpha8, IMG_ALPHA_GRAD);
     if (image)
     {
         image->setAddressMode(LLTexUnit::TAM_CLAMP);
         mImagePreloads.insert(image);
     }
     image = LLViewerTextureManager::getFetchedTextureFromFile("alpha_gradient_2d.j2c", FTT_LOCAL_FILE, MIPMAP_YES, LLViewerFetchedTexture::BOOST_UI, LLViewerTexture::FETCHED_TEXTURE,
-        GL_ALPHA8, GL_ALPHA, IMG_ALPHA_GRAD_2D);
+        DXPixelFormat::Alpha8, IMG_ALPHA_GRAD_2D);
     if (image)
     {
         image->setAddressMode(LLTexUnit::TAM_CLAMP);
@@ -403,8 +402,7 @@ LLViewerFetchedTexture* LLViewerTextureList::getImageFromFile(const std::string&
                                                    bool usemipmaps,
                                                    LLViewerTexture::EBoostLevel boost_priority,
                                                    S8 texture_type,
-                                                   LLGLint internal_format,
-                                                   LLGLenum primary_format,
+                                                   DXPixelFormat source_format,
                                                    const LLUUID& force_id)
 {
     if(!mInitialized)
@@ -439,7 +437,7 @@ LLViewerFetchedTexture* LLViewerTextureList::getImageFromFile(const std::string&
 
     std::string url = "file://" + full_path;
 
-    return getImageFromUrl(url, f_type, usemipmaps, boost_priority, texture_type, internal_format, primary_format, force_id);
+    return getImageFromUrl(url, f_type, usemipmaps, boost_priority, texture_type, source_format, force_id);
 }
 
 LLViewerFetchedTexture* LLViewerTextureList::getImageFromUrl(const std::string& url,
@@ -447,8 +445,7 @@ LLViewerFetchedTexture* LLViewerTextureList::getImageFromUrl(const std::string& 
                                                    bool usemipmaps,
                                                    LLViewerTexture::EBoostLevel boost_priority,
                                                    S8 texture_type,
-                                                   LLGLint internal_format,
-                                                   LLGLenum primary_format,
+                                                   DXPixelFormat source_format,
                                                    const LLUUID& force_id)
 {
     if(!mInitialized)
@@ -500,9 +497,9 @@ LLViewerFetchedTexture* LLViewerTextureList::getImageFromUrl(const std::string& 
             LL_ERRS() << "Invalid texture type " << texture_type << LL_ENDL ;
         }
 
-        if (internal_format && primary_format)
+        if (source_format != DXPixelFormat::Auto)
         {
-            imagep->setExplicitFormat(internal_format, primary_format);
+            imagep->setExplicitFormat(source_format);
         }
 
         addImage(imagep, get_element_type(boost_priority));
@@ -569,8 +566,7 @@ LLViewerFetchedTexture* LLViewerTextureList::getImage(const LLUUID &image_id,
                                                    bool usemipmaps,
                                                    LLViewerTexture::EBoostLevel boost_priority,
                                                    S8 texture_type,
-                                                   LLGLint internal_format,
-                                                   LLGLenum primary_format,
+                                                   DXPixelFormat source_format,
                                                    LLHost request_from_host)
 {
     if(!mInitialized)
@@ -611,7 +607,7 @@ LLViewerFetchedTexture* LLViewerTextureList::getImage(const LLUUID &image_id,
     }
     if (imagep.isNull())
     {
-        imagep = createImage(image_id, f_type, usemipmaps, boost_priority, texture_type, internal_format, primary_format, request_from_host) ;
+        imagep = createImage(image_id, f_type, usemipmaps, boost_priority, texture_type, source_format, request_from_host) ;
     }
 
     imagep->setGLTextureCreated(true);
@@ -625,8 +621,7 @@ LLViewerFetchedTexture* LLViewerTextureList::createImage(const LLUUID &image_id,
                                                    bool usemipmaps,
                                                    LLViewerTexture::EBoostLevel boost_priority,
                                                    S8 texture_type,
-                                                   LLGLint internal_format,
-                                                   LLGLenum primary_format,
+                                                   DXPixelFormat source_format,
                                                    LLHost request_from_host)
 {
 
@@ -643,9 +638,9 @@ LLViewerFetchedTexture* LLViewerTextureList::createImage(const LLUUID &image_id,
         LL_ERRS() << "Invalid texture type " << texture_type << LL_ENDL ;
     }
 
-    if (internal_format && primary_format)
+    if (source_format != DXPixelFormat::Auto)
     {
-        imagep->setExplicitFormat(internal_format, primary_format);
+        imagep->setExplicitFormat(source_format);
     }
 
     addImage(imagep, get_element_type(boost_priority));
@@ -1232,7 +1227,7 @@ void LLViewerTextureList::runVRAMBudgetAllocation()
         if (imagep->getType() != LLViewerTexture::LOD_TEXTURE) continue;
 
         // A DXImageThread worker may be mid-createGLTexture() for this texture, writing
-        // mWidth/mHeight/mFormatPrimary/mCurrentDiscardLevel/mTexName with no synchronization
+        // mWidth/mHeight/mSourceFormat/mCurrentDiscardLevel/mTexName with no synchronization
         // (DXTexture::mMutex only covers mTexture/mSRV, not LLImageDX's bookkeeping).
         // isCreateTexturePending() is the atomic signal for this window - skip rather than read fields
         // that may be torn mid-write; re-evaluated next pass once creation completes. Root cause of a
@@ -1390,7 +1385,7 @@ F32 LLViewerTextureList::updateImagesCreateTextures(F32 max_time)
             LLImageDX* glTex = imagep->getGLTexture();
             if (raw && raw->getData() && glTex
                 && imagep->getBoostLevel() != DXTextureBase::BOOST_BUMP
-                && glTex->getPrimaryFormat() != GL_ALPHA
+                && glTex->getSourceFormat() != DXPixelFormat::Alpha8
                 // S24: check requestUpgrade()'s own eligibility gates (master toggle,
                 // per-texture allow-compression flag, minimum size) BEFORE paying for the
                 // repack + alpha-variance scan below, not after - those gates reject most

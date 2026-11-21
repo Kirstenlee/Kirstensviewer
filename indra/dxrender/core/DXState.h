@@ -36,7 +36,7 @@
 #include <unordered_map>
 #include <list>
 
-#include "llgltypes.h"
+#include "DXTypes.h"
 #include "glm/mat4x4.hpp"
 
 class LLPlane;
@@ -108,7 +108,7 @@ public:
     // GL's two independent toggles, so whichever changes needs to read the
     // other to rebuild the combined state. sStateMap is kept accurate (see
     // setEnabled()); this is a plain accessor, not a friend declaration.
-    static bool isEnabled(LLGLenum state) { return sStateMap[state]; }
+    static bool isEnabled(DXenum state) { return sStateMap[state]; }
 
     // S24: GL's glCullFace(GL_FRONT/GL_BACK) direction, tracked the same way sStateMap tracks
     // DX_CULL_FACE's enable/disable - D3D11 bundles cull direction into the same rasterizer-state
@@ -117,8 +117,8 @@ public:
     // own default and this codebase's prior assumption (glCullFace() was never called anywhere
     // before LLViewerJoint::render()'s hair/skirt "render inside" pass needed it) - see
     // DXStateCache::getRasterizerState()'s cull_front parameter.
-    static LLGLenum getCullFace() { return sCullFace; }
-    static void setCullFace(LLGLenum face) { sCullFace = face; }
+    static DXenum getCullFace() { return sCullFace; }
+    static void setCullFace(DXenum face) { sCullFace = face; }
 
     // Sets sStateMap[state] directly - NO flush, NO applyDXState() call. ONLY for
     // DXRasterizerScope below, which stages several rasterizer-bundled flags
@@ -126,24 +126,24 @@ public:
     // LLRender::applyDXRasterizerState(). Never call this without immediately
     // following up with your own flush + state-apply, or sStateMap desyncs from
     // real GPU state - the exact bug class setEnabled()/~DXState() guard against.
-    static void stageState(LLGLenum state, bool enabled) { sStateMap[state] = enabled; }
+    static void stageState(DXenum state, bool enabled) { sStateMap[state] = enabled; }
 
 protected:
-    // S24: bool, not LLGLboolean (U8) - pure internal bookkeeping, never
+    // S24: bool - pure internal bookkeeping, never
     // passed to a real GL/D3D11 FFI call by pointer, so there's no ABI
     // reason to keep the GL-era storage width.
-    static std::unordered_map<LLGLenum, bool> sStateMap;
-    static LLGLenum sCullFace;
+    static std::unordered_map<DXenum, bool> sStateMap;
+    static DXenum sCullFace;
 
 public:
     enum { CURRENT_STATE = -2, DISABLED_STATE = 0, ENABLED_STATE = 1 };
-    DXState(LLGLenum state, S32 enabled = CURRENT_STATE);
+    DXState(DXenum state, S32 enabled = CURRENT_STATE);
     ~DXState();
     void setEnabled(S32 enabled);
     void enable() { setEnabled(ENABLED_STATE); }
     void disable() { setEnabled(DISABLED_STATE); }
 protected:
-    LLGLenum mState;
+    DXenum mState;
     bool mWasEnabled;
     bool mIsEnabled;
 };
@@ -152,14 +152,14 @@ protected:
 class DXStateEnable : public DXState
 {
 public:
-    DXStateEnable(LLGLenum state) : DXState(state, ENABLED_STATE) {}
+    DXStateEnable(DXenum state) : DXState(state, ENABLED_STATE) {}
 };
 
 /// TODO: Being deprecated.
 class DXStateDisable : public DXState
 {
 public:
-    DXStateDisable(LLGLenum state) : DXState(state, DISABLED_STATE) {}
+    DXStateDisable(DXenum state) : DXState(state, DISABLED_STATE) {}
 };
 
 // S24: coalesced multi-flag guard for the rasterizer-bundled states (DX_CULL_FACE,
@@ -176,14 +176,14 @@ public:
 class DXRasterizerScope
 {
 public:
-    DXRasterizerScope(LLGLenum state0, bool enabled0,
-                       LLGLenum state1 = 0, bool enabled1 = false,
-                       LLGLenum state2 = 0, bool enabled2 = false,
-                       LLGLenum state3 = 0, bool enabled3 = false);
+    DXRasterizerScope(DXenum state0, bool enabled0,
+                       DXenum state1 = 0, bool enabled1 = false,
+                       DXenum state2 = 0, bool enabled2 = false,
+                       DXenum state3 = 0, bool enabled3 = false);
     ~DXRasterizerScope();
 
 private:
-    struct Entry { LLGLenum state; bool wasEnabled; };
+    struct Entry { DXenum state; bool wasEnabled; };
     Entry mEntries[4];
     int mCount;
 };
@@ -200,10 +200,10 @@ private:
 class LLGLCullFace
 {
 public:
-    LLGLCullFace(LLGLenum face);
+    LLGLCullFace(DXenum face);
     ~LLGLCullFace();
 private:
-    LLGLenum mPrevFace;
+    DXenum mPrevFace;
 };
 
 /*

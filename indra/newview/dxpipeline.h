@@ -122,7 +122,7 @@ public:
     // Develop > Rendering > Buffer Visualization - draws `src`'s bufferIndex-th channel into
     // `dst` via gDeferredBufferVisualProgram, lazily compiled on first real use (see the .cpp -
     // loadShaderBufferVisualization() isn't called eagerly at startup).
-    static void visualizeBuffers(LLPipeline& pipeline, LLRenderTarget* src, LLRenderTarget* dst, U32 bufferIndex, bool blend_vertical = false);
+    static void visualizeBuffers(LLPipeline& pipeline, DXRenderTarget* src, DXRenderTarget* dst, U32 bufferIndex, bool blend_vertical = false);
 
     // KRLV_TOUCHPOINT: @camdrawmin/@camdrawmax/@camdrawalphamin/@camdrawalphamax/@camdrawcolor -
     // a distance-based fog blend toward fogColor, driven entirely by krlv/'s own restriction
@@ -134,65 +134,63 @@ public:
     // so already-lit worn-attachment pixels (tagged by DXStateCache::tagAttachmentStencil()
     // during the geometry pass) are skipped. camTexturesSubstitute may be null (falls back to
     // LLViewerFetchedTexture::sDefaultImagep, the spec's own default grey).
-    static void applyKrlvCamDrawFog(LLPipeline& pipeline, LLRenderTarget* src, LLRenderTarget* dst,
+    static void applyKrlvCamDrawFog(LLPipeline& pipeline, DXRenderTarget* src, DXRenderTarget* dst,
         F32 minDist, F32 maxDist, F32 minAlpha, F32 maxAlpha,
         F32 fogColorR, F32 fogColorG, F32 fogColorB,
         bool camTexturesActive, LLViewerFetchedTexture* camTexturesSubstitute);
 
     // The non-HDR gamma-correct-only path (no tonemap curve) - picks the legacy or deferred
     // program based on the current sky's reflection-probe ambiance.
-    static void gammaCorrect(LLPipeline& pipeline, LLRenderTarget* src, LLRenderTarget* dst);
+    static void gammaCorrect(LLPipeline& pipeline, DXRenderTarget* src, DXRenderTarget* dst);
 
     // AMD FidelityFX Contrast Adaptive Sharpening pass - falls back to a plain copy
     // (copyRenderTarget() below) when RenderCASSharpness is 0 or either CAS shader failed to
     // compile.
-    static void applyCAS(LLPipeline& pipeline, LLRenderTarget* src, LLRenderTarget* dst);
+    static void applyCAS(LLPipeline& pipeline, DXRenderTarget* src, DXRenderTarget* dst);
 
     // Falls back to a plain copy (copyRenderTarget()) when FXAA isn't the active RenderFSAAType
     // or its shader/mFXAAMap aren't ready.
-    static void applyFXAA(LLPipeline& pipeline, LLRenderTarget* src, LLRenderTarget* dst);
+    static void applyFXAA(LLPipeline& pipeline, DXRenderTarget* src, DXRenderTarget* dst);
 
     // applySMAA() always runs right after generateSMAABuffers() when RenderFSAAType==2, sharing
     // mFXAAMap/mSMAABlendBuffer as the edge-detect/blend-weights intermediates.
     // generateSMAABuffers() is a no-op unless its shaders + both those render targets are
     // ready; applySMAA() falls back to a plain copy (copyRenderTarget()) in that case, same
     // convention as applyFXAA()/applyCAS().
-    static void generateSMAABuffers(LLPipeline& pipeline, LLRenderTarget* src);
-    static void applySMAA(LLPipeline& pipeline, LLRenderTarget* src, LLRenderTarget* dst);
+    static void generateSMAABuffers(LLPipeline& pipeline, DXRenderTarget* src);
+    static void applySMAA(LLPipeline& pipeline, DXRenderTarget* src, DXRenderTarget* dst);
 
     // combineGlow() always runs right after generateGlow() in the post-fx chain, consuming its
     // mGlow[1] output. generateGlow() ping-pongs a separable blur through mGlow[0]/mGlow[1]
     // when sRenderGlow is on, or just clears mGlow[1] when it's off.
-    static void generateGlow(LLPipeline& pipeline, LLRenderTarget* src);
-    static void combineGlow(LLPipeline& pipeline, LLRenderTarget* src, LLRenderTarget* dst);
+    static void generateGlow(LLPipeline& pipeline, DXRenderTarget* src);
+    static void combineGlow(LLPipeline& pipeline, DXRenderTarget* src, DXRenderTarget* dst);
 
     // Copies `src` into `dst` via gCopyDepthProgram, binding mRT->deferredScreen's depth
     // alongside it (the SSR ray march, run next frame, needs this frame's depth to reproject
     // against) - no-op if RenderScreenSpaceReflections is off or during a reflection-probe/
     // snapshot capture.
-    static void copyScreenSpaceReflections(LLPipeline& pipeline, LLRenderTarget* src, LLRenderTarget* dst);
+    static void copyScreenSpaceReflections(LLPipeline& pipeline, DXRenderTarget* src, DXRenderTarget* dst);
 
     // Only ever called as a pair, by llgltfmaterialpreviewmgr.cpp's GLTF material-preview
     // exposure bake - the main render path's auto-exposure HDR chain is still a no-op under
     // DX_RENDER (see the .cpp). generateLuminance() downsamples `src` into a 1x1 luminance
     // sample via gLuminanceProgram; generateExposure() derives an adapted exposure value from
     // that sample (optionally blending with `mLastExposure`'s history when use_history is true).
-    static void generateLuminance(LLPipeline& pipeline, LLRenderTarget* src, LLRenderTarget* dst);
-    static void generateExposure(LLPipeline& pipeline, LLRenderTarget* src, LLRenderTarget* dst, bool use_history = true);
+    static void generateLuminance(LLPipeline& pipeline, DXRenderTarget* src, DXRenderTarget* dst);
+    static void generateExposure(LLPipeline& pipeline, DXRenderTarget* src, DXRenderTarget* dst, bool use_history = true);
 
     // The shared "just blit src into dst, no post-fx" fallback applyCAS()/applyFXAA()/
-    // applySMAA()/applyFSR1Rcas() drop into when their real shader path isn't usable. Also
+    // applySMAA() drop into when their real shader path isn't usable. Also
     // called directly by renderDoF() when depth of field is disabled.
-    static void copyRenderTarget(LLPipeline& pipeline, LLRenderTarget* src, LLRenderTarget* dst);
+    static void copyRenderTarget(LLPipeline& pipeline, DXRenderTarget* src, DXRenderTarget* dst);
 
-    // AMD FSR1's EASU-then-RCAS two-pass upscale chain, called from
-    // presentDeferredScreen()/presentFinal(). applyFSR1Rcas() always binds its own dst and
-    // falls back to copyRenderTarget() above when RenderFSR1Sharpness is 0 or either RCAS
-    // shader failed to compile; applyFSR1Easu()/applyFSR1RcasToBoundTarget() instead draw into
-    // whatever target the caller already bound (see the .cpp for why).
-    static bool applyFSR1Easu(LLPipeline& pipeline, LLRenderTarget* src, U32 dest_width, U32 dest_height);
-    static void applyFSR1Rcas(LLPipeline& pipeline, LLRenderTarget* src, LLRenderTarget* dst);
-    static bool applyFSR1RcasToBoundTarget(LLPipeline& pipeline, LLRenderTarget* src);
+    // AMD FSR1's EASU-then-RCAS two-pass upscale chain, called from presentFinal() when
+    // RenderScalePercent < 100. Both draw into whatever target the caller already bound (see the .cpp for why);
+    // applyFSR1RcasToBoundTarget() returns false when RenderFSR1Sharpness is 0 or an RCAS shader failed to
+    // compile, and the caller then blits the EASU result unsharpened.
+    static bool applyFSR1Easu(LLPipeline& pipeline, DXRenderTarget* src, U32 dest_width, U32 dest_height);
+    static bool applyFSR1RcasToBoundTarget(LLPipeline& pipeline, DXRenderTarget* src);
 
     // ================================================================================
     // Shader binding, reflection probes, and screen-space reflections
@@ -213,7 +211,7 @@ public:
     // slow/full bind path for a deferred-pass shader - every DEFERRED_* texture channel, shadow
     // matrices, SSAO/shadow-bias uniforms, legacy env-map cubemap fallback, sun/moon color - and
     // its exact inverse teardown.
-    static void bindDeferredShader(LLPipeline& pipeline, LLHLSLShader& shader, LLRenderTarget* light_target = nullptr, LLRenderTarget* depth_target = nullptr);
+    static void bindDeferredShader(LLPipeline& pipeline, LLHLSLShader& shader, DXRenderTarget* light_target = nullptr, DXRenderTarget* depth_target = nullptr);
     static void unbindDeferredShader(LLPipeline& pipeline, LLHLSLShader& shader);
 
     // The reflection-probe + screen-space-reflection sub-cluster - bindReflectionProbes() calls
@@ -617,8 +615,8 @@ public:
     static void addDebugBlip(LLPipeline& pipeline, const LLVector3& position, const LLColor4& color);
     static void addTrianglesDrawn(LLPipeline& pipeline, S32 index_count);
     static void recordTrianglesDrawn(LLPipeline& pipeline);
-    static LLRenderTarget* getSunShadowTarget(LLPipeline& pipeline, U32 i);
-    static LLRenderTarget* getSpotShadowTarget(LLPipeline& pipeline, U32 i);
+    static DXRenderTarget* getSunShadowTarget(LLPipeline& pipeline, U32 i);
+    static DXRenderTarget* getSpotShadowTarget(LLPipeline& pipeline, U32 i);
     static void grabReferences(LLPipeline& pipeline, LLCullResult& result);
     static void clearReferences(LLPipeline& pipeline);
     static LLCullResult::drawinfo_iterator beginRenderMap(LLPipeline& pipeline, U32 type);
@@ -787,7 +785,7 @@ public:
 
     // checkReferences()'s 3 non-LLDrawInfo overloads have real callers (LLDrawable/LLFace/
     // LLSpatialGroup destructors), but the bodies themselves are `#if 0`'d out to a no-op.
-    static void renderDoF(LLPipeline& pipeline, LLRenderTarget* src, LLRenderTarget* dst);
+    static void renderDoF(LLPipeline& pipeline, DXRenderTarget* src, DXRenderTarget* dst);
     static void checkReferences(LLPipeline& pipeline, LLFace* face);
     static void checkReferences(LLPipeline& pipeline, LLDrawable* drawable);
     static void checkReferences(LLPipeline& pipeline, LLDrawInfo* draw_info);

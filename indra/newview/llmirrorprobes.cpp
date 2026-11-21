@@ -142,7 +142,7 @@ void LLMirrorProbes::update()
     {
         // Mirror blur is 1x (not super-sampled) and uses RGBA16F/RGBA8, unlike the sphere capture.
         mCapture.allocate(mProbeResolution, mCubes.getRadianceMipCount(), render_hdr, 1,
-                          render_hdr ? GL_RGBA16F : GL_RGBA8);
+                          render_hdr ? DXGI_FORMAT_R16G16B16A16_FLOAT : DXGI_FORMAT_R8G8B8A8_UNORM);
     }
 
     llassert(mProbes[0] == mDefaultProbe);

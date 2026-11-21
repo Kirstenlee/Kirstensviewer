@@ -48,7 +48,7 @@
 #include "lluictrl.h"
 #include "lluictrlfactory.h"
 #include "llviewborder.h"
-#include "llrender2dutils.h"
+#include "DXRender2DUtils.h"
 
 static LLDefaultChildRegistry::Register<LLPanel> r1("panel", &LLPanel::fromXML);
 LLPanel::factory_stack_t    LLPanel::sFactoryStack;

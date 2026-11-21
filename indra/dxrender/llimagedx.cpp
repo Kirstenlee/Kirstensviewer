@@ -447,26 +447,6 @@ LLImageDX::LLImageDX(const LLImageRaw* imageraw, bool usemipmaps/* = true*/, boo
     createGLTexture(0, imageraw);
 }
 
-LLImageDX::LLImageDX(
-    LLGLuint texName,
-    U32 components,
-    LLGLenum target,
-    LLGLint  formatInternal,
-    LLGLenum formatPrimary,
-    LLGLenum formatType,
-    LLTexUnit::eTextureAddressMode addressMode)
-{
-    init(false, true);
-    mTexName = texName;
-    mTarget = target;
-    mComponents = components;
-    mAddressMode = addressMode;
-    mFormatType = formatType;
-    mFormatInternal = formatInternal;
-    mFormatPrimary = formatPrimary;
-}
-
-
 LLImageDX::~LLImageDX()
 {
     if (!mExternalTexture && gDXDeviceInfo.mInited)
@@ -522,10 +502,7 @@ void LLImageDX::init(bool usemipmaps, bool allow_compression)
     mAddressMode = LLTexUnit::TAM_WRAP;
     mFilterOption = LLTexUnit::TFO_ANISOTROPIC;
 
-    mFormatInternal = -1;
-    mFormatPrimary = (LLGLenum) 0;
-    mFormatType = GL_UNSIGNED_BYTE;
-    mFormatSwapBytes = false;
+    mSourceFormat = DXPixelFormat::Auto;
 
 #ifdef DEBUG_MISS
     mMissed = false;
@@ -621,10 +598,7 @@ void LLImageDX::dump()
             << " mUseMipMaps " << S32(mUseMipMaps)
             << " mHasMipMaps " << S32(mHasMipMaps)
             << " mCurrentDiscardLevel " << S32(mCurrentDiscardLevel)
-            << " mFormatInternal " << S32(mFormatInternal)
-            << " mFormatPrimary " << S32(mFormatPrimary)
-            << " mFormatType " << S32(mFormatType)
-            << " mFormatSwapBytes " << S32(mFormatSwapBytes)
+            << " mSourceFormat " << S32(mSourceFormat)
             << " mHasExplicitFormat " << S32(mHasExplicitFormat)
 #if DEBUG_MISS
             << " mMissed " << mMissed
@@ -668,18 +642,12 @@ F32 LLImageDX::getTimePassedSinceLastBound()
     return sLastFrameTime - mLastBindTime ;
 }
 
-void LLImageDX::setExplicitFormat( LLGLint internal_format, LLGLenum primary_format, LLGLenum type_format, bool swap_bytes )
+void LLImageDX::setExplicitFormat(DXPixelFormat source_format)
 {
     // Note: must be called before createTexture()
     // Note: it's up to the caller to ensure that the format matches the number of components.
     mHasExplicitFormat = true;
-    mFormatInternal = internal_format;
-    mFormatPrimary = primary_format;
-    if(type_format == 0)
-        mFormatType = GL_UNSIGNED_BYTE;
-    else
-        mFormatType = type_format;
-    mFormatSwapBytes = swap_bytes;
+    mSourceFormat = source_format;
 
     calcAlphaChannelOffsetAndStride() ;
 }
@@ -712,10 +680,9 @@ bool LLImageDX::setImage(const U8* data_in, bool data_hasmips /* = false */, S32
     // d > mCurrentDiscardLevel. DXTexture::create() synthesizes the rest of
     // the mip chain via GenerateMips(), so pre-baked lower-res mips later in
     // the buffer simply go unread. `dx_success` carries the real
-    // create()/createCompressed() outcome through to the return below,
+    // create() outcome through to the return below,
     // rather than always reporting success regardless of it.
     bool dx_success = false;
-    if (!isSourceFormatCompressed())
     {
         // S24: if scheduleAsyncBuild() already finished DXPool-side work for
         // this exact (width, height) ahead of time, use it instead of doing
@@ -755,46 +722,6 @@ bool LLImageDX::setImage(const U8* data_in, bool data_hasmips /* = false */, S32
         if (!dx_success)
         {
             LL_WARNS("Texture") << "LLImageDX::setImage: DXTexture::create failed" << LL_ENDL;
-        }
-    }
-    else
-    {
-        // S24: mip0-only - see DXTexture::createCompressed()'s header
-        // comment for why a full mip chain isn't possible for BC formats.
-        // SRGB GL variants map to the plain UNORM DXGI format, not _SRGB -
-        // this pipeline does its own manual srgb_to_linear() in shader code,
-        // and mixing the two here would double-decode.
-        DXGI_FORMAT dx_format = DXGI_FORMAT_UNKNOWN;
-        switch (mFormatPrimary)
-        {
-        case GL_COMPRESSED_RGBA_S3TC_DXT1_EXT:
-        case GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT1_EXT:
-            dx_format = DXGI_FORMAT_BC1_UNORM;
-            break;
-        case GL_COMPRESSED_RGBA_S3TC_DXT3_EXT:
-        case GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT3_EXT:
-            dx_format = DXGI_FORMAT_BC2_UNORM;
-            break;
-        case GL_COMPRESSED_RGBA_S3TC_DXT5_EXT:
-        case GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT5_EXT:
-            dx_format = DXGI_FORMAT_BC3_UNORM;
-            break;
-        default:
-            break;
-        }
-
-        if (dx_format == DXGI_FORMAT_UNKNOWN)
-        {
-            LL_WARNS_ONCE("Texture") << "LLImageDX::setImage: unrecognized compressed format, texture will render unbound"
-                << " (mFormatPrimary=0x" << std::hex << mFormatPrimary << std::dec << ")" << LL_ENDL;
-        }
-        else
-        {
-            dx_success = mDXTexture.createCompressed(data_in, getWidth(), getHeight(), dx_format);
-            if (!dx_success)
-            {
-                LL_WARNS("Texture") << "LLImageDX::setImage: DXTexture::createCompressed failed" << LL_ENDL;
-            }
         }
     }
 
@@ -870,7 +797,7 @@ namespace
 
 void LLImageDX::scheduleAsyncBuild(LLImageRaw* raw)
 {
-    if (!raw || !sAsyncRepackEnabled || isSourceFormatCompressed())
+    if (!raw || !sAsyncRepackEnabled)
     {
         return;
     }
@@ -956,13 +883,13 @@ void LLImageDX::scheduleAsyncBuild(LLImageRaw* raw)
     });
 }
 
-bool LLImageDX::setSubImage(const U8* datap, S32 data_width, S32 data_height, S32 x_pos, S32 y_pos, S32 width, S32 height, bool force_fast_update /* = false */, LLGLuint use_name)
+bool LLImageDX::setSubImage(const U8* datap, S32 data_width, S32 data_height, S32 x_pos, S32 y_pos, S32 width, S32 height, bool force_fast_update /* = false */, U32 use_name)
 {
     if (!width || !height)
     {
         return true;
     }
-    LLGLuint tex_name = use_name != 0 ? use_name : mTexName;
+    U32 tex_name = use_name != 0 ? use_name : mTexName;
     if (0 == tex_name)
     {
         // *TODO: Re-enable warning?  Ran into thread locking issues? DK 2011-02-18
@@ -1033,7 +960,7 @@ bool LLImageDX::setSubImage(const U8* datap, S32 data_width, S32 data_height, S3
     return true;
 }
 
-bool LLImageDX::setSubImage(const LLImageRaw* imageraw, S32 x_pos, S32 y_pos, S32 width, S32 height, bool force_fast_update /* = false */, LLGLuint use_name)
+bool LLImageDX::setSubImage(const LLImageRaw* imageraw, S32 x_pos, S32 y_pos, S32 width, S32 height, bool force_fast_update /* = false */, U32 use_name)
 {
     return setSubImage(imageraw->getData(), imageraw->getWidth(), imageraw->getHeight(), x_pos, y_pos, width, height, force_fast_update, use_name);
 }
@@ -1123,7 +1050,7 @@ bool LLImageDX::createGLTexture()
     return true;
 }
 
-bool LLImageDX::createGLTexture(S32 discard_level, const LLImageRaw* imageraw, S32 usename/*=0*/, bool to_create, S32 category, bool defer_copy, LLGLuint* tex_name)
+bool LLImageDX::createGLTexture(S32 discard_level, const LLImageRaw* imageraw, S32 usename/*=0*/, bool to_create, S32 category, bool defer_copy, U32* tex_name)
 {
     checkActiveThread();
 
@@ -1158,7 +1085,7 @@ bool LLImageDX::createGLTexture(S32 discard_level, const LLImageRaw* imageraw, S
 
     if (mHasExplicitFormat && isExplicitFormatMismatched())
     {
-        LL_WARNS()  << "Incorrect format: " << std::hex << mFormatPrimary << " components: " << (U32)mComponents <<  LL_ENDL;
+        LL_WARNS()  << "Incorrect format: " << S32(mSourceFormat) << " components: " << (U32)mComponents <<  LL_ENDL;
         mHasExplicitFormat = false;
     }
 
@@ -1178,7 +1105,7 @@ bool LLImageDX::createGLTexture(S32 discard_level, const LLImageRaw* imageraw, S
     return createGLTexture(discard_level, rawdata, false, usename, defer_copy, tex_name);
 }
 
-bool LLImageDX::createGLTexture(S32 discard_level, const U8* data_in, bool data_hasmips, S32 usename, bool defer_copy, LLGLuint* tex_name)
+bool LLImageDX::createGLTexture(S32 discard_level, const U8* data_in, bool data_hasmips, S32 usename, bool defer_copy, U32* tex_name)
 // Call with void data, vmem is allocated but unitialized
 {
     checkActiveThread();
@@ -1236,26 +1163,16 @@ void LLImageDX::setImplicitFormatFromComponents()
     switch (mComponents)
     {
     case 1:
-        // Use luminance alpha (for fonts)
-        mFormatInternal = GL_LUMINANCE8;
-        mFormatPrimary = GL_LUMINANCE;
-        mFormatType = GL_UNSIGNED_BYTE;
+        mSourceFormat = DXPixelFormat::Luminance8;
         break;
     case 2:
-        // Use luminance alpha (for fonts)
-        mFormatInternal = GL_LUMINANCE8_ALPHA8;
-        mFormatPrimary = GL_LUMINANCE_ALPHA;
-        mFormatType = GL_UNSIGNED_BYTE;
+        mSourceFormat = DXPixelFormat::LuminanceAlpha8;
         break;
     case 3:
-        mFormatInternal = GL_RGB8;
-        mFormatPrimary = GL_RGB;
-        mFormatType = GL_UNSIGNED_BYTE;
+        mSourceFormat = DXPixelFormat::RGB8;
         break;
     case 4:
-        mFormatInternal = GL_RGBA8;
-        mFormatPrimary = GL_RGBA;
-        mFormatType = GL_UNSIGNED_BYTE;
+        mSourceFormat = DXPixelFormat::RGBA8;
         break;
     default:
         LL_ERRS() << "Bad number of components for texture: " << (U32)getComponents() << LL_ENDL;
@@ -1289,7 +1206,7 @@ bool LLImageDX::createDynamicGLTexture(const LLImageRaw* imageraw)
 
     if (mHasExplicitFormat && isExplicitFormatMismatched())
     {
-        LL_WARNS() << "Incorrect format: " << std::hex << mFormatPrimary << " components: " << (U32)mComponents << LL_ENDL;
+        LL_WARNS() << "Incorrect format: " << S32(mSourceFormat) << " components: " << (U32)mComponents << LL_ENDL;
         mHasExplicitFormat = false;
     }
 
@@ -1326,7 +1243,7 @@ bool LLImageDX::updateDynamic(const U8* datap, S32 data_width, S32 data_height)
     return true;
 }
 
-void LLImageDX::syncToMainThread(LLGLuint new_tex_name)
+void LLImageDX::syncToMainThread(U32 new_tex_name)
 {
     llassert(!on_main_thread());
 
@@ -1352,7 +1269,7 @@ void LLImageDX::syncToMainThread(LLGLuint new_tex_name)
 }
 
 
-void LLImageDX::syncTexName(LLGLuint texname)
+void LLImageDX::syncTexName(U32 texname)
 {
     if (texname != 0)
     {
@@ -1557,7 +1474,9 @@ S64 LLImageDX::getBytes(S32 discard_level) const
     S32 h = mHeight>>discard_level;
     if (w == 0) w = 1;
     if (h == 0) h = 1;
-    return dataFormatBytes(mFormatPrimary, w, h);
+    // rows are padded to a 4-byte multiple overall, as dataFormatBytes() does
+    const S64 bytes = (S64)w * (S64)h * (S64)dxPixelFormatBytes(mSourceFormat);
+    return (bytes + 3) & ~(S64)3;
 }
 
 S64 LLImageDX::getMipBytes(S32 discard_level) const
@@ -1568,53 +1487,18 @@ S64 LLImageDX::getMipBytes(S32 discard_level) const
     }
     S32 w = mWidth>>discard_level;
     S32 h = mHeight>>discard_level;
-    // S24: DXTexture::create() unconditionally repacks every uncompressed
-    // source format to DXGI_FORMAT_R8G8B8A8_UNORM (4 bytes/pixel) regardless
-    // of mFormatPrimary, so dataFormatBytes(mFormatPrimary,...) would
-    // undercount by up to 4x for 1-3 component sources. A pre-compressed
-    // SOURCE instead goes through DXTexture::createCompressed() (BC1/BC2/
-    // BC3, 0.5-1 byte/pixel) and must be counted separately, below, or the
-    // RGBA8 assumption would over-count it by up to 8x. Mirrors setImage()'s
-    // GL->DXGI format mapping - keep the two in sync.
-    if (isSourceFormatCompressed())
-    {
-        S32 block_bytes;
-        switch (mFormatPrimary)
-        {
-        case GL_COMPRESSED_RGBA_S3TC_DXT1_EXT:
-        case GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT1_EXT:
-            block_bytes = 8;
-            break;
-        case GL_COMPRESSED_RGBA_S3TC_DXT3_EXT:
-        case GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT3_EXT:
-        case GL_COMPRESSED_RGBA_S3TC_DXT5_EXT:
-        case GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT5_EXT:
-            block_bytes = 16;
-            break;
-        default:
-            // Unrecognized - match DXTexture::createCompressed()'s own
-            // "anything else is treated as 16" convention.
-            block_bytes = 16;
-            break;
-        }
-        const S32 blocks_wide = (w + 3) / 4;
-        const S32 blocks_high = (h + 3) / 4;
-        // createCompressed() is mip0-only (BC formats can't GenerateMips())
-        // - return here, skipping the mip-chain summation loop below
-        // entirely, since summing a synthetic chain that was never actually
-        // uploaded would reintroduce a smaller version of the same
-        // over-count.
-        return (S64)blocks_wide * blocks_high * block_bytes;
-    }
-
+    // S24: DXTexture::create() unconditionally repacks every source format to
+    // DXGI_FORMAT_R8G8B8A8_UNORM (4 bytes/pixel) regardless of mSourceFormat,
+    // so the per-source byte count would undercount by up to 4x for 1-3
+    // component sources.
     // S24: a texture that started life as an ordinary RGBA8 upload
-    // (isSourceFormatCompressed() false) can still end up block-compressed
+    // can still end up block-compressed
     // later via DXBC7UploadManager's background BC7 upgrade
     // (upgradeToCompressedMips()) - that path deliberately never touches
-    // mFormatPrimary, so it's invisible to the check above. Ask the real
-    // GPU resource instead. Always DXGI_FORMAT_BC7_UNORM (16-byte blocks) -
-    // requestUpgrade() never requests anything else - and mip0-only for the
-    // same reason as the isSourceFormatCompressed() case above.
+    // mSourceFormat. Ask the real GPU resource instead. Always
+    // DXGI_FORMAT_BC7_UNORM (16-byte blocks) - requestUpgrade() never
+    // requests anything else - and mip0-only because BC formats can't
+    // GenerateMips().
     if (isGpuResourceCompressed())
     {
         const S32 blocks_wide = (w + 3) / 4;
@@ -1646,7 +1530,7 @@ bool LLImageDX::getIsAlphaMask() const
     return mIsMask;
 }
 
-void LLImageDX::setTarget(const LLGLenum target, const LLTexUnit::eTextureType bind_target)
+void LLImageDX::setTarget(const DXenum target, const LLTexUnit::eTextureType bind_target)
 {
     mTarget = target;
     mBindTarget = bind_target;
@@ -1679,65 +1563,33 @@ void LLImageDX::calcAlphaChannelOffsetAndStride()
     }
 
     mAlphaStride = -1 ;
-    switch (mFormatPrimary)
+    switch (mSourceFormat)
     {
-    case GL_LUMINANCE:
-    case GL_ALPHA:
+    case DXPixelFormat::Luminance8:
+    case DXPixelFormat::Alpha8:
         mAlphaStride = 1;
         break;
-    case GL_LUMINANCE_ALPHA:
+    case DXPixelFormat::LuminanceAlpha8:
         mAlphaStride = 2;
         break;
-    case GL_RED:
-    case GL_RGB:
-    case GL_SRGB:
+    case DXPixelFormat::RGB8:
         mNeedsAlphaAndPickMask = false;
         mIsMask = false;
         return; //no alpha channel.
-    case GL_RGBA:
-    case GL_SRGB_ALPHA:
-        mAlphaStride = 4;
-        break;
-    case GL_BGRA_EXT:
+    case DXPixelFormat::RGBA8:
+    case DXPixelFormat::BGRA8:
         mAlphaStride = 4;
         break;
     default:
         break;
     }
 
-    mAlphaOffset = -1 ;
-    if (mFormatType == GL_UNSIGNED_BYTE)
-    {
-        mAlphaOffset = mAlphaStride - 1 ;
-    }
-    else if(is_little_endian())
-    {
-        if (mFormatType == GL_UNSIGNED_INT_8_8_8_8)
-        {
-            mAlphaOffset = 0 ;
-        }
-        else if (mFormatType == GL_UNSIGNED_INT_8_8_8_8_REV)
-        {
-            mAlphaOffset = 3 ;
-        }
-    }
-    else //big endian
-    {
-        if (mFormatType == GL_UNSIGNED_INT_8_8_8_8)
-        {
-            mAlphaOffset = 3 ;
-        }
-        else if (mFormatType == GL_UNSIGNED_INT_8_8_8_8_REV)
-        {
-            mAlphaOffset = 0 ;
-        }
-    }
+    // every source is unsigned bytes, so the alpha channel is the last component
+    mAlphaOffset = mAlphaStride - 1 ;
 
-    if( mAlphaStride < 1 || //unsupported format
-        mAlphaOffset < 0 || //unsupported type
-        (mFormatPrimary == GL_BGRA_EXT && mFormatType != GL_UNSIGNED_BYTE)) //unknown situation
+    if( mAlphaStride < 1 ) //unsupported format
     {
-        LL_WARNS() << "Cannot analyze alpha for image with format type " << std::hex << mFormatType << std::dec << LL_ENDL;
+        LL_WARNS() << "Cannot analyze alpha for image with source format " << S32(mSourceFormat) << LL_ENDL;
 
         mNeedsAlphaAndPickMask = false ;
         mIsMask = false;
@@ -1771,27 +1623,6 @@ void LLImageDX::freePickMask()
     }
     mPickMask = NULL;
     mPickMaskWidth = mPickMaskHeight = 0;
-}
-
-bool LLImageDX::isSourceFormatCompressed() const
-{
-    llassert(mFormatPrimary != 0);
-    // *NOTE: Not all compressed formats are included here.
-    bool is_compressed = false;
-    switch (mFormatPrimary)
-    {
-    case GL_COMPRESSED_RGBA_S3TC_DXT1_EXT:
-    case GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT1_EXT:
-    case GL_COMPRESSED_RGBA_S3TC_DXT3_EXT:
-    case GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT3_EXT:
-    case GL_COMPRESSED_RGBA_S3TC_DXT5_EXT:
-    case GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT5_EXT:
-        is_compressed = true;
-        break;
-    default:
-        break;
-    }
-    return is_compressed;
 }
 
 //----------------------------------------------------------------------------
@@ -1873,7 +1704,7 @@ bool LLImageDX::scaleDown(S32 desired_discard)
     // system for already-resident textures. Every real caller
     // (LLViewerLODTexture) is guaranteed a full mip chain already, so
     // DXTexture::scaleDown() can do this as a pure GPU-to-GPU resource copy.
-    if (mFormatInternal == -1) // not initialized
+    if (mSourceFormat == DXPixelFormat::Auto) // not initialized
     {
         return false;
     }

@@ -137,7 +137,7 @@ private:
     typedef std::unordered_map<LLUUID, LLPointer<LLViewerTexture> > bump_image_map_t;
     bump_image_map_t mBrightnessEntries;
     bump_image_map_t mDarknessEntries;
-    static LLRenderTarget sRenderTarget;
+    static DXRenderTarget sRenderTarget;
 };
 
 extern LLBumpImageList gBumpImageList;

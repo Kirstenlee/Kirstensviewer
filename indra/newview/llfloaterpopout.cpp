@@ -26,8 +26,8 @@
 #include "llmenugl.h"
 #include "llpanel.h"
 #include "llrender.h"
-#include "llrendertarget.h"
-#include "llrender2dutils.h"
+#include "DXRenderTarget.h"
+#include "DXRender2DUtils.h"
 #include "lltextbox.h"
 #include "llui.h"
 #include "lluictrlfactory.h"
@@ -123,7 +123,7 @@ namespace
     // in the map.
     struct PopoutInstance
     {
-        LLRenderTarget offscreen;
+        DXRenderTarget offscreen;
 
         HWND hostWindow = nullptr;
         std::thread hostThread;
@@ -193,7 +193,7 @@ namespace
         S8 forceFullRedrawFrames = 0;
 
         // Tracks whether offscreen's LAST allocate() call actually
-        // succeeded - LLRenderTarget::allocate() (llrendertarget.cpp)
+        // succeeded - DXRenderTarget::allocate()
         // unconditionally commits mResX/mResY to the requested size
         // BEFORE it knows whether the underlying D3D11 resource creation
         // succeeded, so getWidth()/getHeight() alone can't tell a
@@ -2341,7 +2341,7 @@ void LLFloaterPopoutManager::renderPoppedOut()
         ensureHostWindow(inst, (U32)w, (U32)h);
 
         // See forceFullRedrawFrames's own comment on PopoutInstance -
-        // release() resets mResX/mResY to 0 (llrendertarget.cpp), which
+        // release() resets the size to 0, which
         // guarantees the size check right below always reallocates fresh
         // this frame, regardless of whether w/h already happened to
         // match what was already there.
@@ -2356,12 +2356,10 @@ void LLFloaterPopoutManager::renderPoppedOut()
         // allocate() can't be detected from getWidth()/getHeight() alone.
         if ((S32)inst.offscreen.getWidth() != w || (S32)inst.offscreen.getHeight() != h || !inst.offscreenAllocOk)
         {
-            // GL_BGRA (not GL_RGBA) - see glColorFormatToDX()'s comment in
-            // llrendertarget.cpp: DirectComposition's CreateSurface rejects
-            // R8G8B8A8_UNORM outright, so the offscreen target is
-            // allocated directly in the composition-compatible channel
-            // order.
-            inst.offscreenAllocOk = inst.offscreen.allocate(w, h, GL_BGRA, false);
+            // B8G8R8A8 (not R8G8B8A8): DirectComposition's CreateSurface rejects R8G8B8A8_UNORM, and the
+            // copy in DXCompositionSurface::update() can't convert between them, so the offscreen target
+            // is allocated directly in the composition-compatible channel order
+            inst.offscreenAllocOk = inst.offscreen.allocate(w, h, DXGI_FORMAT_B8G8R8A8_UNORM, false);
         }
 
         gDXUIBatch.flushPending();
@@ -2448,6 +2446,6 @@ void LLFloaterPopoutManager::renderPoppedOut()
 
         inst.offscreen.flush();
 
-        inst.compositionSurface.update(inst.offscreen.getDXColorTexture(0), (UINT)w, (UINT)h);
+        inst.compositionSurface.update(inst.offscreen.getColorTexture(0), (UINT)w, (UINT)h);
     }
 }

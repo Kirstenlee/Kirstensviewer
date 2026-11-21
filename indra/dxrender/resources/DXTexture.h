@@ -64,7 +64,7 @@ public:
     // stores its single channel as the ALPHA component, RGB=0 - the
     // opposite of GL_LUMINANCE's "replicate into RGB, alpha=opaque"
     // convention. Callers must pass true when the source LLImageDX's
-    // mFormatPrimary is GL_ALPHA, else the real data silently lands in
+    // mSourceFormat is Alpha8, else the real data silently lands in
     // .rgb instead of .a. See repackPixel()'s comment in the .cpp.
     // `bgra`: true when `data`'s component order is actually BGRA, not
     // RGBA - CEF's native OnPaint buffer format. GL handles this natively
@@ -204,7 +204,7 @@ public:
     // render target is *currently bound* (queried live via
     // OMGetRenderTargets(), not a caller-supplied handle - this matches
     // GL's own "operates on the current read framebuffer" behavior, and
-    // works correctly whether that's a custom LLRenderTarget or the swap
+    // works correctly whether that's a custom DXRenderTarget or the swap
     // chain's own back buffer, with no extra plumbing needed either way)
     // into this texture at (x_pos, y_pos). (fb_x, fb_y) use GL's
     // bottom-left-origin framebuffer convention - callers pass the exact

@@ -31,7 +31,7 @@
 #include "llradiogroup.h"
 #include "lltextbox.h"
 #include "llviewertexture.h"
-#include "llrender2dutils.h"
+#include "DXRender2DUtils.h"
 #include "llfilepicker.h"
 #include "llviewermenufile.h"
 #include "llfile.h"

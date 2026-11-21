@@ -388,9 +388,9 @@ void LLManip::renderGuidelines(bool draw_x, bool draw_y, bool draw_z)
     //LLVector3  center_agent  = LLSelectMgr::getInstance()->getBBoxOfSelection().getCenterAgent();
     LLVector3  center_agent  = getPivotPoint();
 
-    // LLUI::setLineWidth() is a documented no-op under DX (always 1px). Converting this call site to
-    // dxLineWidth() previously caused an arrow-color regression (root cause unconfirmed, needs a
-    // RenderDoc capture) - stay on this safe path until that's root-caused.
+    // These lines are always 1px. Converting this call site to dxLineWidth() previously caused an
+    // arrow-color regression (root cause unconfirmed, needs a RenderDoc capture) - stay on this safe
+    // path until that's root-caused.
     gDX.pushMatrix();
     {
         gDX.translatef(center_agent.mV[VX], center_agent.mV[VY], center_agent.mV[VZ]);
@@ -405,7 +405,6 @@ void LLManip::renderGuidelines(bool draw_x, bool draw_y, bool draw_z)
         const F32 LINE_ALPHA = 0.33f;
 
         gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
-        LLUI::setLineWidth(1.5f);
 
         if (draw_x)
         {
@@ -433,7 +432,6 @@ void LLManip::renderGuidelines(bool draw_x, bool draw_y, bool draw_z)
             gDX.vertex3f( 0.f, 0.f,  region_size );
             gDX.end();
         }
-        LLUI::setLineWidth(1.0f);
     }
     gDX.popMatrix();
 }
@@ -669,14 +667,12 @@ LLColor4 LLManip::setupSnapGuideRenderPass(S32 pass)
         gViewerWindow->setup3DViewport(1, -1);
         line_color = grid_color_shadow;
         line_color.mV[VALPHA] *= line_alpha;
-        LLUI::setLineWidth(2.f);
         break;
     case 1:
         // hidden lines
         gViewerWindow->setup3DViewport();
         line_color = grid_color_bg;
         line_color.mV[VALPHA] *= line_alpha;
-        LLUI::setLineWidth(1.f);
         break;
     case 2:
         // visible lines

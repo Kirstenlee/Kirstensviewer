@@ -44,7 +44,7 @@
 
 void DXTextureBase::setBoostLevel(S32 ) { }
 LLViewerFetchedTexture* LLViewerTextureManager::getFetchedTextureFromUrl(const std::string&, FTType, bool, DXTextureBase::EBoostLevel, S8,
-                                                                         LLGLint, LLGLenum, const LLUUID& ) { return NULL; }
+                                                                         DXPixelFormat, const LLUUID& ) { return NULL; }
 
 LLControlGroup::LLControlGroup(const std::string& name) : LLInstanceTracker<LLControlGroup, std::string>(name) { }
 LLControlGroup::~LLControlGroup() { }

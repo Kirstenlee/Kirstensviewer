@@ -33,7 +33,7 @@
 #include "llrender.h"
 #include "llvertexbuffer.h"
 #include "DXStateCache.h"
-#include "llrendertarget.h"
+#include "DXRenderTarget.h"
 #include "llwindow.h" // S24: LLSplashScreen::update() for startup shader-compile progress
 #include "DXUIBatch.h"
 
@@ -820,11 +820,11 @@ S32 LLHLSLShader::bindTexture(S32 uniform, DXTextureBase* texture, LLTexUnit::eT
 	return uniform;
 }
 
-S32 LLHLSLShader::bindTexture(S32 uniform, LLRenderTarget* texture, bool depth, LLTexUnit::eTextureFilterOptions mode, U32 index, bool stencil)
+S32 LLHLSLShader::bindTexture(S32 uniform, DXRenderTarget* texture, bool depth, LLTexUnit::eTextureFilterOptions mode, U32 index, bool stencil)
 {
 
 	// S24: `index` (multi-attachment selection) and `mode` (filter option)
-	// aren't threaded through LLTexUnit::bind(LLRenderTarget*, bool) yet -
+	// aren't threaded through LLTexUnit::bind(DXRenderTarget*, bool) yet -
 	// it always binds attachment 0 with a fixed CLAMP+BILINEAR sampler.
 	// Fine for water's two single-attachment targets; revisit if a future
 	// multi-attachment caller needs it.
@@ -836,7 +836,7 @@ S32 LLHLSLShader::bindTexture(S32 uniform, LLRenderTarget* texture, bool depth, 
 	return channel;
 }
 
-// S24 : task #338 - direct sibling of bindTexture(S32, LLRenderTarget*, ...)
+// S24 : task #338 - direct sibling of bindTexture(S32, DXRenderTarget*, ...)
 // above, for a plain DXCubeTexture (the equirect compose pass's cube input).
 S32 LLHLSLShader::bindTexture(S32 uniform, DXCubeTexture* cubeTexture)
 {

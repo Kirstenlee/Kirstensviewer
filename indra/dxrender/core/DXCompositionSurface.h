@@ -28,7 +28,7 @@ public:
     // Copies src into the composition surface (resizing the surface first
     // if width/height changed) and commits. Main render thread only - src
     // must be a texture already rendered via the existing device/context
-    // this frame (e.g. LLRenderTarget::getDXColorTexture()).
+    // this frame (e.g. DXRenderTarget::getColorTexture()).
     void update(ID3D11Texture2D* src, UINT width, UINT height);
 
     // Position of the visual's top-left corner, in the host window's

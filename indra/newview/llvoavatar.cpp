@@ -2567,7 +2567,7 @@ LLViewerFetchedTexture *LLVOAvatar::getBakedTextureImage(const U8 te, const LLUU
         }
         LL_DEBUGS("Avatar") << avString() << "get server-bake image from URL " << url << LL_ENDL;
         result = LLViewerTextureManager::getFetchedTextureFromUrl(
-            url, FTT_SERVER_BAKE, true, DXTextureBase::BOOST_NONE, LLViewerTexture::LOD_TEXTURE, 0, 0, uuid);
+            url, FTT_SERVER_BAKE, true, DXTextureBase::BOOST_NONE, LLViewerTexture::LOD_TEXTURE, DXPixelFormat::Auto, uuid);
         if (result->isMissingAsset())
         {
             result->setIsMissingAsset(false);
@@ -5359,10 +5359,6 @@ U32 LLVOAvatar::renderImpostor(LLColor4U color, S32 diffuse_channel)
 
         gDX.begin(LLRender::LINES);
         gDX.color4f(1.f,1.f,1.f,1.f);
-        F32 thickness = llmax(F32(5.0f-5.0f*(gFrameTimeSeconds-mLastImpostorUpdateFrameTime)),1.0f);
-        // S24: glLineWidth() has no DX11 equivalent; LLUI::setLineWidth() is the no-op stand-in under DX_RENDER,
-        // same as llmanip*.cpp, llviewerobject.cpp and llworldmapview.cpp.
-        LLUI::setLineWidth(thickness);
         gDX.vertex3fv((pos+left-up).mV);
         gDX.vertex3fv((pos-left-up).mV);
         gDX.vertex3fv((pos-left-up).mV);

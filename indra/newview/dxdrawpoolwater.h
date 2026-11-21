@@ -84,7 +84,7 @@ public:
 // pool class rather than #ifdef blocks in LLDrawPoolWater.
 //
 // WATER_SCREENTEX/WATER_EXCLUSIONTEX go through the LLHLSLShader::bindTexture
-// (S32, LLRenderTarget*, ...) overload - see llhlslshader.cpp.
+// (S32, DXRenderTarget*, ...) overload - see llhlslshader.cpp.
 //
 // mWaterExclusionMask (filled by DXPipeline::doWaterExclusionMask(), the
 // retired LLDrawPoolWaterExclusion's render() inlined there) must be

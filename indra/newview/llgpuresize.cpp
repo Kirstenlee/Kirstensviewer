@@ -27,7 +27,7 @@
 #include "llgpuresize.h"
 
 #include "pipeline.h"
-#include "llrendertarget.h"
+#include "DXRenderTarget.h"
 #include "llhlslshader.h"
 #include "llviewershadermgr.h"
 #include "llrender.h"
@@ -36,7 +36,7 @@
 // (pipeline.cpp) - the established cross-backend shape for running a
 // separable shader pass over a render target. See llgpuresize.h's class
 // comment and resizeBicubic.hlsl for the full design.
-bool LLGPUResize::resize(LLRenderTarget* src, LLRenderTarget* dst)
+bool LLGPUResize::resize(DXRenderTarget* src, DXRenderTarget* dst)
 {
     if (!src || !dst || !src->isComplete() || !dst->isComplete())
     {
@@ -61,8 +61,8 @@ bool LLGPUResize::resize(LLRenderTarget* src, LLRenderTarget* dst)
     // this is not a hot path (snapshot capture, at most a handful of times
     // per session), matching DXReadback's own "simplicity over pooling"
     // precedent (dxrender/resources/DXReadback.h's header comment).
-    LLRenderTarget mid;
-    if (!mid.allocate(dstW, srcH, GL_RGBA, false))
+    DXRenderTarget mid;
+    if (!mid.allocate(dstW, srcH, DXGI_FORMAT_R8G8B8A8_UNORM, false))
     {
         return false;
     }

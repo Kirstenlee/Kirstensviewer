@@ -237,8 +237,6 @@ public:
     void                resetRot();
     void                applyAngularVelocity(F32 dt);
 
-    void setLineWidthForWindowSize(S32 window_width);
-
     static void increaseArrowLength();              // makes axis arrows for selections longer
     static void decreaseArrowLength();              // makes axis arrows for selections shorter
 

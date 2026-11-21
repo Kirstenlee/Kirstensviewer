@@ -33,7 +33,7 @@
 #include "lldir.h"
 #include "llpanel.h"
 #include "pipeline.h" // gPipeline
-#include "llrender2dutils.h" // dx_rect_2d
+#include "DXRender2DUtils.h" // dx_rect_2d
 #include "lltextbox.h"
 
 #include <cmath>

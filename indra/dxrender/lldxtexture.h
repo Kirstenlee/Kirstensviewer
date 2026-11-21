@@ -132,7 +132,7 @@ public:
 	/*virtual*/S32	       getHeight(S32 discard_level = -1) const;
 
     bool       hasGLTexture() const ;
-	LLGLuint   getTexName() const ;		
+	U32   getTexName() const ;		
     bool       createGLTexture() ;
 	
     // Create a GL Texture from an image raw
@@ -143,13 +143,13 @@ public:
     // category - DXTextureBase category for this DXTextureBase
     // defer_copy - set to true to allocate GL texture but NOT initialize with imageraw data
     // tex_name - if not null, will be set to the GL name of the texture created
-    bool       createGLTexture(S32 discard_level, const LLImageRaw* imageraw, S32 usename = 0, bool to_create = true, S32 category = DXTextureBase::OTHER, bool defer_copy = false, LLGLuint* tex_name = nullptr);
+    bool       createGLTexture(S32 discard_level, const LLImageRaw* imageraw, S32 usename = 0, bool to_create = true, S32 category = DXTextureBase::OTHER, bool defer_copy = false, U32* tex_name = nullptr);
 
 	void       setFilteringOption(LLTexUnit::eTextureFilterOptions option);
-    void       setExplicitFormat(LLGLint internal_format, LLGLenum primary_format, LLGLenum type_format = 0, bool swap_bytes = false);
+    void       setExplicitFormat(DXPixelFormat source_format);
 	void       setAddressMode(LLTexUnit::eTextureAddressMode mode);
-    bool       setSubImage(const LLImageRaw* imageraw, S32 x_pos, S32 y_pos, S32 width, S32 height, LLGLuint use_name = 0);
-    bool       setSubImage(const U8* datap, S32 data_width, S32 data_height, S32 x_pos, S32 y_pos, S32 width, S32 height, LLGLuint use_name = 0);
+    bool       setSubImage(const LLImageRaw* imageraw, S32 x_pos, S32 y_pos, S32 width, S32 height, U32 use_name = 0);
+    bool       setSubImage(const U8* datap, S32 data_width, S32 data_height, S32 x_pos, S32 y_pos, S32 width, S32 height, U32 use_name = 0);
 
     // Streaming pair for a texture rewritten wholesale every frame while
     // still sampled by in-flight rendering (e.g. CEF media/web content) -
@@ -161,8 +161,8 @@ public:
 
 	void       setGLTextureCreated (bool initialized);
 	void       setCategory(S32 category) ;
-    void       setTexName(LLGLuint); // for forcing w/ externally created textures only
-    void       setTarget(const LLGLenum target, const LLTexUnit::eTextureType bind_target);
+    void       setTexName(U32); // for forcing w/ externally created textures only
+    void       setTarget(const DXenum target, const LLTexUnit::eTextureType bind_target);
 
 	LLTexUnit::eTextureAddressMode getAddressMode(void) const ;
 	S32        getMaxDiscardLevel() const;
@@ -170,7 +170,7 @@ public:
     S8         getComponents() const;
     bool       getBoundRecently() const;
     S32Bytes   getTextureMemory() const ;
-    LLGLenum   getPrimaryFormat() const;
+    DXPixelFormat getSourceFormat() const;
     bool       getIsAlphaMask() const ;
     LLTexUnit::eTextureType getTarget(void) const ;
     bool       getMask(const LLVector2 &tc);

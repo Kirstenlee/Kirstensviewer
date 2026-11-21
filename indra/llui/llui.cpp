@@ -146,7 +146,7 @@ void make_ui_sound_deferred(const char* namep)
 }
 
 LLUI::LLUI(const settings_map_t& settings,
-	LLImageProviderInterface* image_provider,
+	DXImageProviderInterface* image_provider,
 	LLUIAudioCallback audio_callback,
 	LLUIAudioCallback deferred_audio_callback)
 	: mSettingGroups(settings),
@@ -156,7 +156,7 @@ LLUI::LLUI(const settings_map_t& settings,
 	mRootView(NULL),
 	mHelpImpl(NULL)
 {
-	LLRender2D::createInstance(image_provider);
+	DXRender2D::createInstance(image_provider);
 	LLSpellChecker::createInstance();
 
 	if ((get_ptr_in_map(mSettingGroups, std::string("config")) == NULL) ||
@@ -200,7 +200,7 @@ LLUI::LLUI(const settings_map_t& settings,
 LLUI::~LLUI()
 {
 	LLSpellChecker::deleteSingleton();
-	LLRender2D::deleteSingleton();
+	DXRender2D::deleteSingleton();
 }
 
 void LLUI::setPopupFuncs(const add_popup_t& add_popup, const remove_popup_t& remove_popup, const clear_popups_t& clear_popups)

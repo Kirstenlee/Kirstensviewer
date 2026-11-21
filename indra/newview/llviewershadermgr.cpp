@@ -2985,7 +2985,7 @@ bool LLViewerShaderMgr::loadShadersDeferred()
         gCASProgram.mFeatures.hasSrgb = true;
         gCASProgram.mShaderFiles.clear();
         gCASProgram.mShaderFiles.push_back(make_pair("deferred/postDeferredNoTCV.glsl", GL_VERTEX_SHADER));
-        gCASProgram.mShaderFiles.push_back(make_pair("deferred/CASF.glsl", GL_FRAGMENT_SHADER));
+        gCASProgram.mShaderFiles.push_back(make_pair("deferred/CASF.hlsl", GL_FRAGMENT_SHADER));
         gCASProgram.mShaderLevel = mShaderLevel[SHADER_DEFERRED];
         success = gCASProgram.createShader();
         // llassert(success);
@@ -3003,7 +3003,7 @@ bool LLViewerShaderMgr::loadShadersDeferred()
         gCASLegacyGammaProgram.mFeatures.hasSrgb = true;
         gCASLegacyGammaProgram.mShaderFiles.clear();
         gCASLegacyGammaProgram.mShaderFiles.push_back(make_pair("deferred/postDeferredNoTCV.glsl", GL_VERTEX_SHADER));
-        gCASLegacyGammaProgram.mShaderFiles.push_back(make_pair("deferred/CASF.glsl", GL_FRAGMENT_SHADER));
+        gCASLegacyGammaProgram.mShaderFiles.push_back(make_pair("deferred/CASF.hlsl", GL_FRAGMENT_SHADER));
         gCASLegacyGammaProgram.mShaderLevel = mShaderLevel[SHADER_DEFERRED];
         gCASLegacyGammaProgram.clearPermutations();
         gCASLegacyGammaProgram.addPermutation("GAMMA_CORRECT", "1");

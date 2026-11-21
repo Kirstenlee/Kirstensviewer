@@ -1196,7 +1196,6 @@ static void drawDot(F32 x_pixels, F32 y_pixels,
 
         gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
         gDX.color4fv( color.mV );
-        LLUI::setLineWidth(3.0f);
         F32 point = relative_z > HEIGHT_THRESHOLD ? top : bottom; // Y pos of the point of the V
         F32 back = relative_z > HEIGHT_THRESHOLD ? bottom : top; // Y pos of the ends of the V
         gDX.begin( LLRender::LINES );
@@ -1205,7 +1204,6 @@ static void drawDot(F32 x_pixels, F32 y_pixels,
             gDX.vertex2f(center, point);
             gDX.vertex2f(right, back);
         gDX.end();
-        LLUI::setLineWidth(1.0f);
     }
 }
 

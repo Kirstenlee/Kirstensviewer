@@ -41,7 +41,7 @@
 #include "llcontrol.h"
 #include "llrender.h"
 #include "lluictrlfactory.h"
-#include "llrender2dutils.h"
+#include "DXRender2DUtils.h"
 
 namespace
 {

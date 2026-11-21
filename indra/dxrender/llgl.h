@@ -40,7 +40,7 @@
 #include "stdtypes.h"
 #include "v4math.h"
 #include "llplane.h"
-#include "llgltypes.h"
+#include "DXTypes.h"
 #include "llinstancetracker.h"
 
 #include "llglheaders.h"

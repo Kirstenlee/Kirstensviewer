@@ -50,7 +50,6 @@
 // Core llrender types
 #include "lldrawable.h"
 #include "llhlslshader.h"
-#include "llrendertarget.h"
 #include "llspatialpartition.h"
 #include "llvertexbuffer.h"
 #include "llviewershadermgr.h"
@@ -106,16 +105,30 @@
 #include <unordered_map>
 #include <unordered_set>
 
-// A_CPU 1 selects CASF.glsl's CPU-side (not HLSL-side) CasSetup()/varAU4() macros, used by
-// applyCAS() below. Wrapped in an anonymous namespace: CASF.glsl's C++ functions (CasSetup(),
-// CasSupportScaling(), etc.) have plain external linkage, so including this header unwrapped
-// risks an ODR violation if anything else in the link ever includes it too - the anonymous
-// namespace gives every symbol in it internal linkage to this translation unit, a cheap
-// insurance policy that costs nothing (unqualified calls below still resolve normally).
 namespace
 {
-#define A_CPU 1
-#include "app_settings/shaders/deferred/CASF.glsl" // This is also C++
+    // [S24] the one constant CASF.hlsl reads (cas_param_1.x): CAS sharpness as a negative reciprocal peak. Ported
+    // from CasSetup() in AMD FidelityFX CAS 1.20190610 (Copyright (c) 2017-2019 Advanced Micro Devices, Inc., MIT
+    // license); its other constants (scaling terms, packed half) feed paths CASF.hlsl does not have.
+    U32 casPeakBits(F32 sharpness)
+    {
+        const F32 t = llclamp(sharpness, 0.0f, 1.0f);
+        const F32 sharp = -1.0f / (5.0f * t + (-8.0f * t + 8.0f)); // 1 / lerp(8, 5, t)
+        U32 bits;
+        memcpy(&bits, &sharp, sizeof(bits));
+        return bits;
+    }
+
+    // [S24] RCAS lobe multiplier for the FSR sharpness slider: linear 0..1 -> 0..1.2. AMD's own scale (stops, 0 =
+    // sharpest) tops out at 1.0, below where the filter looks best; 1.2 sits just under the point where banding
+    // starts (the lobe limit 0.1875 * 1.2 stays under the 0.25 inversion threshold).
+    U32 rcasStrengthBits(F32 slider)
+    {
+        const F32 strength = 1.2f * llclamp(slider, 0.0f, 1.0f);
+        U32 bits;
+        memcpy(&bits, &strength, sizeof(bits));
+        return bits;
+    }
 }
 
 LLTrace::BlockTimerStatHandle FTM_DEFERRED_POOLRENDER("RenderPool (Deferred)");
@@ -142,7 +155,7 @@ extern bool gEquirectCapture;
 
 // Defined in llviewerdisplay.cpp, set right before both presentFinal() call sites - rawSnapshot()
 // (llviewerwindow.cpp) reads the true final composited render target directly through this.
-extern LLRenderTarget* gLastCompositedPostTarget;
+extern DXRenderTarget* gLastCompositedPostTarget;
 
 int effectsMask = 0; // consumed by presentDeferredScreen(), populated by updateEffectMask()
 // llviewerdisplay.cpp's own global - render_hud_elements()'s parcel-snapshot-only land-fence
@@ -261,11 +274,11 @@ extern std::set<LLSpatialGroup*> visible_selected_groups;
 
 // Adds color attachments for deferred rendering - used by generateImpostor()/
 // allocateScreenBufferInternal().
-bool addDeferredAttachments(LLRenderTarget& target, bool for_impostor = false)
+bool addDeferredAttachments(DXRenderTarget& target, bool for_impostor = false)
 {
-    U32 orm = GL_RGBA;
-    U32 norm = GL_RGBA16;
-    U32 emissive = GL_RGB16F;
+    DXGI_FORMAT orm = DXGI_FORMAT_R8G8B8A8_UNORM;
+    DXGI_FORMAT norm = DXGI_FORMAT_R16G16B16A16_UNORM;
+    DXGI_FORMAT emissive = DXGI_FORMAT_R16G16B16A16_FLOAT;
 
     static LLCachedControl<bool> has_emissive(gSavedSettings, "RenderEnableEmissiveBuffer", false);
     static LLCachedControl<bool> has_hdr(gSavedSettings, "RenderHDREnabled", true);
@@ -273,8 +286,8 @@ bool addDeferredAttachments(LLRenderTarget& target, bool for_impostor = false)
 
     if (!hdr)
     {
-        norm = GL_RGB10_A2;
-        emissive = GL_RGB;
+        norm = DXGI_FORMAT_R10G10B10A2_UNORM;
+        emissive = DXGI_FORMAT_R8G8B8A8_UNORM;
     }
 
     bool valid = true;
@@ -680,7 +693,7 @@ namespace
     // POOL_ALPHA_PRE_WATER/POOL_ALPHA_POST_WATER -> dxdrawpoolalpha.cpp/.h.
     // POOL_FULLBRIGHT/POOL_FULLBRIGHT_ALPHA_MASK/POOL_GLOW ->
     // dxdrawpoolsimple.cpp. POOL_WATER -> dxdrawpoolwater.cpp/.h (relies on
-    // LLHLSLShader::bindTexture(S32, LLRenderTarget*, ...) for
+    // LLHLSLShader::bindTexture(S32, DXRenderTarget*, ...) for
     // WATER_SCREENTEX/WATER_EXCLUSIONTEX). POOL_GLTF_PBR/
     // POOL_GLTF_PBR_ALPHA_MASK's own renderPostDeferred() (the glow
     // sub-pass) stays GL-only, not reachable here.
@@ -926,8 +939,8 @@ void DXPipeline::renderGeomPostDeferred(LLPipeline& pipeline, LLCamera& camera)
     // doWaterExclusionMask() (retired LLDrawPoolWaterExclusion, now inlined
     // there) is called unconditionally here, matching GL's earliest-pool
     // placement. Its glClearColor(1,1,1,1) is GL-only and skipped under
-    // DX_RENDER, so it uses LLRenderTarget::clearColor() explicitly -
-    // LLRenderTarget::clear() clears to transparent black, which would
+    // DX_RENDER, so it uses DXRenderTarget::clearColor() explicitly -
+    // DXRenderTarget::clear() clears to transparent black, which would
     // invert the mask's meaning (white=included) and exclude the whole
     // screen by default.
     DXPipeline::doWaterExclusionMask(pipeline);
@@ -1132,7 +1145,7 @@ namespace
     // DXRenderTarget::bindSwapChainBackBuffer() (called by both
     // presentDeferredScreen() draw paths below) always sets a viewport
     // covering the FULL swap-chain/back-buffer size - correct for its other
-    // caller (LLRenderTarget::flush()'s generic restore case), but wrong for
+    // caller (DXRenderTarget::flush()'s generic restore case), but wrong for
     // the final present-to-screen step, which must confine 3D content to
     // LLViewerWindow::mWorldViewRectRaw (the area left over after menu/
     // location bar chrome, matching GL's glViewport()). Overridden here
@@ -1173,7 +1186,7 @@ namespace
     // Selects which offscreen eye target (if any) this frame's world-scene
     // composite should land in, via LLViewerWindow::mMaskMode/getMaskMode()
     // (same enum LLViewerCamera's stereo frustum math reads).
-    LLRenderTarget* getCurrentStereoEyeTarget(LLPipeline& pipeline)
+    DXRenderTarget* getCurrentStereoEyeTarget(LLPipeline& pipeline)
     {
         S32 mode = gViewerWindow->getMaskMode();
         if (mode == MASK_MODE_LEFT) { return &pipeline.mStereoEyeL; }
@@ -1181,7 +1194,7 @@ namespace
         return nullptr;
     }
 
-    void presentFinal(LLPipeline& pipeline, LLRenderTarget* src, LLRenderTarget* dest = nullptr)
+    void presentFinal(LLPipeline& pipeline, DXRenderTarget* src, DXRenderTarget* dest = nullptr)
     {
         if (!src || !src->getColorSRV(0))
         {
@@ -1194,8 +1207,7 @@ namespace
         // dest is exactly world_rect-sized (LLPipeline::mStereoEyeL/R, the
         // WORLD VIEW resolution not the full chrome-included window), so no
         // world_rect viewport offset is needed here, unlike the swap-chain
-        // case below. A real LLRenderTarget::bindTarget() call already
-        // manages LLRenderTarget::sBoundTarget bookkeeping on its own.
+        // case below.
         if (dest)
         {
             dest->bindTarget(false);
@@ -1225,20 +1237,12 @@ namespace
             return;
         }
 
+        // bindSwapChainBackBuffer() also empties the bind stack: a target left bound-but-not-flushed
+        // (e.g. mPostPongMap, left bound by combineGlow()) would otherwise stay remembered, and with a HUD
+        // attached doWaterExclusionMask()'s bindTarget()/flush() cycle on the second run of this function
+        // would restore that stale target instead of the back buffer, landing the whole UI in an
+        // offscreen texture.
         DXRenderTarget::bindSwapChainBackBuffer();
-        // This call updates the real D3D11 render target directly via
-        // DXRenderTarget, bypassing LLRenderTarget::bindTarget()/flush()'s
-        // sBoundTarget/mPreviousRT bookkeeping. Whatever LLRenderTarget was
-        // last left bound-but-not-flushed (e.g. mPostPongMap, left bound by
-        // combineGlow()) stays "remembered" as sBoundTarget otherwise - a
-        // silent bug when a HUD is attached and this function runs a second
-        // time that frame: doWaterExclusionMask()'s bindTarget()/flush()
-        // cycle would capture/restore that stale target instead of the real
-        // back buffer, and nothing downstream ever rebinds it, so the whole
-        // UI silently lands in a stale offscreen texture. Reset the
-        // bookkeeping here (same pattern as LLHLSLShader::sCurBoundShaderPtr
-        // below).
-        LLRenderTarget::sBoundTarget = nullptr;
         setPresentViewport();
 
         // FSR1 EASU upscale - takes over this final blit entirely when
@@ -1251,7 +1255,7 @@ namespace
         // independent of the CAS/RenderFSR1Sharpness same-resolution sliders
         // below. Also drops out of EASU (and
         // the mFSR1EasuBuffer bind/flush/rebind sequence it uniquely does,
-        // including LLRenderTarget::flush()'s rarely-exercised no-previous-
+        // including DXRenderTarget::flush()'s rarely-exercised no-previous-
         // target fallback) for the last few frames before shutdown, once the
         // user has actually confirmed quit (LLAppViewer::requestQuit(), which
         // this reflects, runs right after the Ares shutdown console in the
@@ -1276,12 +1280,12 @@ namespace
                     pipeline.mFSR1EasuBuffer.getWidth() != dest_w ||
                     pipeline.mFSR1EasuBuffer.getHeight() != dest_h)
                 {
-                    pipeline.mFSR1EasuBuffer.allocate(dest_w, dest_h, GL_RGBA);
+                    pipeline.mFSR1EasuBuffer.allocate(dest_w, dest_h, DXGI_FORMAT_R8G8B8A8_UNORM);
                 }
 
                 // S24: allocate() can fail (e.g. the device is already in
                 // trouble from a resize/teardown race at quit time, or
-                // genuinely out of memory) - LLRenderTarget::bindTarget() has
+                // genuinely out of memory) - DXRenderTarget::bindTarget() has
                 // no completeness check of its own and will unconditionally
                 // drive a bind call for whatever's there, invalid texture or
                 // not. Check isComplete() before touching it at all, same as
@@ -1300,7 +1304,6 @@ namespace
                     // Re-bind the real destination for the final write - EASU
                     // wrote into mFSR1EasuBuffer above, not here.
                     DXRenderTarget::bindSwapChainBackBuffer();
-                    LLRenderTarget::sBoundTarget = nullptr;
                     setPresentViewport();
 
                     if (!DXPipeline::applyFSR1RcasToBoundTarget(pipeline, &pipeline.mFSR1EasuBuffer))
@@ -1441,7 +1444,7 @@ void DXPipeline::presentDeferredScreen(LLPipeline& pipeline)
     // renderDeferredLighting() early-returned without writing anything.
     bool use_lit = sScreenLitThisFrame && pipeline.mRT->screen.getColorSRV(0) != nullptr;
 
-    LLRenderTarget* diffuse_rt = use_lit ? &pipeline.mRT->screen : &pipeline.mRT->deferredScreen;
+    DXRenderTarget* diffuse_rt = use_lit ? &pipeline.mRT->screen : &pipeline.mRT->deferredScreen;
     if (!diffuse_rt->getColorSRV(0))
     {
         // Nothing has allocated the deferred screen's diffuse attachment
@@ -1692,8 +1695,8 @@ void DXPipeline::presentDeferredScreen(LLPipeline& pipeline)
             // attribute; declaring one there fails CreateInputLayout()
             // (E_INVALIDARG) and silently skips the extract draw entirely.
 
-            LLRenderTarget* sourceBuffer = &pipeline.mPostPingMap;
-            LLRenderTarget* targetBuffer = &pipeline.mPostPongMap;
+            DXRenderTarget* sourceBuffer = &pipeline.mPostPingMap;
+            DXRenderTarget* targetBuffer = &pipeline.mPostPongMap;
 
             DXPipeline::combineGlow(pipeline, sourceBuffer, targetBuffer);
             std::swap(sourceBuffer, targetBuffer);
@@ -1778,7 +1781,7 @@ void DXPipeline::presentDeferredScreen(LLPipeline& pipeline)
             updateEffectMask();
             if (effectsMask != 0 && !gCubeSnapshot)
             {
-                ID3D11Texture2D* effects_tex = sourceBuffer->getDXColorTexture(0);
+                ID3D11Texture2D* effects_tex = sourceBuffer->getColorTexture(0);
                 if (effects_tex)
                 {
                     int width = sourceBuffer->getWidth();
@@ -1826,35 +1829,17 @@ void DXPipeline::presentDeferredScreen(LLPipeline& pipeline)
                 }
             }
 
-            // Sharpening. Last pass before present; its input is the
-            // display-encoded output of the gamma step, so neither CASF.hlsl
-            // nor RCASF.hlsl re-encode. CAS (standard Advanced Graphics
-            // Preferences) and FSR1 RCAS (S24 Engine Tweaks > AMD FSR card)
-            // are two independent sliders now, not a shared method selector -
-            // FSR takes priority when both are non-zero (same guardrail
-            // intent as before: running both back-to-back would just
-            // double-sharpen). Skipped entirely whenever upscaling is active
-            // (RenderScalePercent < 100), since presentFinal()'s EASU+RCAS
-            // chain is already the complete final-polish stage for that case -
-            // letting this ALSO run first would sharpen the low-res source,
-            // then EASU would upscale that already-sharpened result, then
-            // RCAS would sharpen it again, compounding into an over-sharpened,
-            // not just redundant, result.
-            static LLCachedControl<F32> rcas_sharpness(gSavedSettings, "RenderFSR1Sharpness", 0.4f);
+            // Native-resolution sharpening (CAS, the Advanced Graphics slider). Last pass before present; its input is
+            // the display-encoded output of the gamma step, so CASF.hlsl does not re-encode. Skipped whenever
+            // upscaling is active (RenderScalePercent < 100): presentFinal()'s EASU+RCAS chain, driven by the FSR
+            // Sharpening slider, is then the final-polish stage, and sharpening the low-res source first would
+            // compound into over-sharpening. The two sliders therefore never apply together.
             static LLCachedControl<F32> cas_sharpness(gSavedSettings, "RenderCASSharpness", 0.4f);
             static LLCachedControl<F32> sharpen_render_scale_pct(gSavedSettings, "RenderScalePercent", 100.0f);
-            if (sharpen_render_scale_pct() >= 100.0f)
+            if (sharpen_render_scale_pct() >= 100.0f && cas_sharpness() > 0.f)
             {
-                if (rcas_sharpness() > 0.f)
-                {
-                    DXPipeline::applyFSR1Rcas(pipeline, sourceBuffer, targetBuffer);
-                    std::swap(sourceBuffer, targetBuffer);
-                }
-                else if (cas_sharpness() > 0.f)
-                {
-                    DXPipeline::applyCAS(pipeline, sourceBuffer, targetBuffer);
-                    std::swap(sourceBuffer, targetBuffer);
-                }
+                DXPipeline::applyCAS(pipeline, sourceBuffer, targetBuffer);
+                std::swap(sourceBuffer, targetBuffer);
             }
 
             gLastCompositedPostTarget = sourceBuffer;
@@ -1888,9 +1873,6 @@ void DXPipeline::presentStereoComposite(LLPipeline& pipeline)
     }
 
     DXRenderTarget::bindSwapChainBackBuffer();
-    // See presentFinal()'s matching comment - a raw DXRenderTarget bind
-    // bypasses LLRenderTarget::bindTarget()'s own sBoundTarget bookkeeping.
-    LLRenderTarget::sBoundTarget = nullptr;
     setPresentViewport();
 
     if (!gStereoAnaglyphProgram.isComplete())
@@ -2068,7 +2050,7 @@ void DXPipeline::renderDeferredLighting(LLPipeline& pipeline)
     // > 0)` block: gDeferredSunProgram/gDeferredSunProbeProgram reads
     // shadowMap0-5 (bound by bindDeferredShader()'s bindShadowMaps()) and
     // writes per-pixel shadow/spot-shadow occlusion into mRT->deferredLight.
-    LLRenderTarget& deferred_light_target = pipeline.mRT->deferredLight;
+    DXRenderTarget& deferred_light_target = pipeline.mRT->deferredLight;
 
     // S24 : was a full-screen copy draw (bind+shader+setBuffer+drawArrays+flush)
     // of deferred_light_target into mSSAOHistory every frame, purely to
@@ -2080,7 +2062,7 @@ void DXPipeline::renderDeferredLighting(LLPipeline& pipeline)
     // allocateScreenBufferInternal()); the !gCubeSnapshot gate keeps every
     // aux/hero/probe RT out of this path entirely; LLTexUnit's bind cache
     // keys on the raw SRV pointer so it follows the swap correctly;
-    // LLRenderTarget holds raw COM pointers with no destructor, so swapping
+    // DXRenderTarget holds raw COM pointers with no destructor, so swapping
     // them is safe - two existing call sites already use this exact pattern
     // (llgltfmaterialpreviewmgr.cpp). After the swap, mSSAOHistory holds
     // frame N-1's resolved lightmap (what the old copy produced);
@@ -2088,7 +2070,7 @@ void DXPipeline::renderDeferredLighting(LLPipeline& pipeline)
     // overwritten by the very next block below before anything reads it.
     if (DXPipeline::RenderDeferredSSAO && !gCubeSnapshot)
     {
-        deferred_light_target.swapFBORefs(pipeline.mSSAOHistory);
+        deferred_light_target.swapTargets(pipeline.mSSAOHistory);
     }
 
     if ((DXPipeline::RenderDeferredSSAO && !gCubeSnapshot) || DXPipeline::RenderShadowDetail > 0)
@@ -2134,7 +2116,7 @@ void DXPipeline::renderDeferredLighting(LLPipeline& pipeline)
         deferred_light_target.flush();
     }
 
-    LLRenderTarget* screen_target = &pipeline.mRT->screen;
+    DXRenderTarget* screen_target = &pipeline.mRT->screen;
 
     // Gaussian blur/soften pass for the sun-shadow/SSAO lightmap - without
     // it, calcAmbientOcclusion()'s raw per-pixel term (aoUtil.hlsl) reaches
@@ -2218,7 +2200,7 @@ void DXPipeline::renderDeferredLighting(LLPipeline& pipeline)
     if (DXPipeline::RenderDeferredSSAO && !gCubeSnapshot)
     {
         screen_target->bindTarget(false);
-        screen_target->clear(GL_COLOR_BUFFER_BIT);
+        screen_target->clear(true, false);
 
         DXPipeline::bindDeferredShader(pipeline, gDeferredTemporalResolveSSAOProgram, &deferred_light_target);
 
@@ -2274,11 +2256,9 @@ void DXPipeline::renderDeferredLighting(LLPipeline& pipeline)
     // This pass doesn't depth-test/write anyway, so leaving the DSV unbound
     // is correct, not a workaround.
     screen_target->bindTarget(false);
-    // Matches GL's screen_target->clear(GL_COLOR_BUFFER_BIT) - color only. A
-    // default-mask clear() here would also clear the shared depth buffer
-    // (mUseDepth is true via shareDepthBuffer()) back to its far-clear
-    // value, destroying the real depth just written by the opaque pass.
-    screen_target->clear(GL_COLOR_BUFFER_BIT);
+    // Color only: a default clear() would also reset the shared depth buffer (mUseDepth is true via
+    // shareDepthBuffer()), destroying the real depth just written by the opaque pass.
+    screen_target->clear(true, false);
 
     // Opaque screen-space reflections, traced before lighting so softenLight reads them.
     DXPipeline::renderSSRPass(pipeline);
@@ -2941,7 +2921,7 @@ void DXPipeline::renderDeferredLighting(LLPipeline& pipeline)
     screen_target->rebindWithDepth(true);
     DXPipeline::renderGeomPostDeferred(pipeline, *LLViewerCamera::getInstance());
 
-    // LLRenderTarget::flush() restores the previously-bound render target,
+    // DXRenderTarget::flush() restores the previously-bound render target,
     // so it must run exactly once, after BOTH the ambient pass and the
     // local-lights loop (plus the post-deferred pass above) are done
     // writing to screen_target - unconditionally, since the ambient pass
@@ -2978,7 +2958,7 @@ void DXPipeline::bindSMAAStaticSamplers()
 // ============================================================================
 
 // static
-void DXPipeline::visualizeBuffers(LLPipeline& pipeline, LLRenderTarget* src, LLRenderTarget* dst, U32 bufferIndex, bool blend_vertical)
+void DXPipeline::visualizeBuffers(LLPipeline& pipeline, DXRenderTarget* src, DXRenderTarget* dst, U32 bufferIndex, bool blend_vertical)
 {
     // Lazily compiled on first actual use instead of eagerly at startup - see
     // LLViewerShaderMgr::loadShaderBufferVisualization()'s comment for why. isComplete() stays false if
@@ -3013,7 +2993,7 @@ void DXPipeline::visualizeBuffers(LLPipeline& pipeline, LLRenderTarget* src, LLR
 }
 
 // static
-void DXPipeline::applyKrlvCamDrawFog(LLPipeline& pipeline, LLRenderTarget* src, LLRenderTarget* dst,
+void DXPipeline::applyKrlvCamDrawFog(LLPipeline& pipeline, DXRenderTarget* src, DXRenderTarget* dst,
     F32 minDist, F32 maxDist, F32 minAlpha, F32 maxAlpha,
     F32 fogColorR, F32 fogColorG, F32 fogColorB,
     bool camTexturesActive, LLViewerFetchedTexture* camTexturesSubstitute)
@@ -3057,7 +3037,7 @@ void DXPipeline::applyKrlvCamDrawFog(LLPipeline& pipeline, LLRenderTarget* src, 
 }
 
 // static
-void DXPipeline::gammaCorrect(LLPipeline& pipeline, LLRenderTarget* src, LLRenderTarget* dst)
+void DXPipeline::gammaCorrect(LLPipeline& pipeline, DXRenderTarget* src, DXRenderTarget* dst)
 {
     dst->bindTarget();
     {
@@ -3087,7 +3067,7 @@ void DXPipeline::gammaCorrect(LLPipeline& pipeline, LLRenderTarget* src, LLRende
 }
 
 // static
-void DXPipeline::applyCAS(LLPipeline& pipeline, LLRenderTarget* src, LLRenderTarget* dst)
+void DXPipeline::applyCAS(LLPipeline& pipeline, DXRenderTarget* src, DXRenderTarget* dst)
 {
     static LLCachedControl<F32> cas_sharpness(gSavedSettings, "RenderCASSharpness", 0.4f);
     if (cas_sharpness == 0.0f || !gCASProgram.isComplete() || !gCASLegacyGammaProgram.isComplete())
@@ -3115,17 +3095,11 @@ void DXPipeline::applyCAS(LLPipeline& pipeline, LLRenderTarget* src, LLRenderTar
         static LLStaticHashedString cas_param_1("cas_param_1");
         static LLStaticHashedString out_screen_res("out_screen_res");
 
-        // const0 is only CasSetup's out-parameter; CASF.hlsl never reads cas_param_0.
-        varAU4(const0);
-        varAU4(const1);
-        CasSetup(const0, const1,
-            cas_sharpness(),             // Sharpness tuning knob (0.0 to 1.0).
-            (AF1)src->getWidth(), (AF1)src->getHeight(),  // Input size.
-            (AF1)dst->getWidth(), (AF1)dst->getHeight()); // Output size.
-
+        // CASF.hlsl reads only cas_param_1.x (the sharpness peak), never cas_param_0
+        U32 const1[4] = { casPeakBits(cas_sharpness()), 0, 0, 0 };
         sharpen_shader->uniform4uiv(cas_param_1, 1, const1);
 
-        sharpen_shader->uniform2f(out_screen_res, (AF1)dst->getWidth(), (AF1)dst->getHeight());
+        sharpen_shader->uniform2f(out_screen_res, (F32)dst->getWidth(), (F32)dst->getHeight());
     }
 
     sharpen_shader->bindTexture(LLShaderMgr::DEFERRED_DIFFUSE, src, false, LLTexUnit::TFO_POINT);
@@ -3140,7 +3114,7 @@ void DXPipeline::applyCAS(LLPipeline& pipeline, LLRenderTarget* src, LLRenderTar
 }
 
 // static
-void DXPipeline::applyFXAA(LLPipeline& pipeline, LLRenderTarget* src, LLRenderTarget* dst)
+void DXPipeline::applyFXAA(LLPipeline& pipeline, DXRenderTarget* src, DXRenderTarget* dst)
 {
     llassert(!gCubeSnapshot);
     bool multisample = DXPipeline::RenderFSAAType == 1 && gFXAAProgram[0].isComplete() && pipeline.mFXAAMap.isComplete();
@@ -3153,12 +3127,12 @@ void DXPipeline::applyFXAA(LLPipeline& pipeline, LLRenderTarget* src, LLRenderTa
 
         // bake out texture2D with RGBL for FXAA shader
         pipeline.mFXAAMap.bindTarget();
-        pipeline.mFXAAMap.clear(GL_COLOR_BUFFER_BIT);
+        pipeline.mFXAAMap.clear(true, false);
 
         LLHLSLShader* shader = &gGlowCombineFXAAProgram;
         shader->bind();
 
-        S32 channel = shader->enableTexture(LLShaderMgr::DEFERRED_DIFFUSE, src->getUsage());
+        S32 channel = shader->enableTexture(LLShaderMgr::DEFERRED_DIFFUSE, LLTexUnit::TT_TEXTURE);
         if (channel > -1)
         {
             src->bindTexture(0, channel, LLTexUnit::TFO_BILINEAR);
@@ -3170,7 +3144,7 @@ void DXPipeline::applyFXAA(LLPipeline& pipeline, LLRenderTarget* src, LLRenderTa
             pipeline.mScreenTriangleVB->drawArrays(LLRender::TRIANGLES, 0, 3);
         }
 
-        shader->disableTexture(LLShaderMgr::DEFERRED_DIFFUSE, src->getUsage());
+        shader->disableTexture(LLShaderMgr::DEFERRED_DIFFUSE, LLTexUnit::TT_TEXTURE);
         shader->unbind();
 
         pipeline.mFXAAMap.flush();
@@ -3183,7 +3157,7 @@ void DXPipeline::applyFXAA(LLPipeline& pipeline, LLRenderTarget* src, LLRenderTa
         shader = &gFXAAProgram[fsaa_quality];
         shader->bind();
 
-        channel = shader->enableTexture(LLShaderMgr::DIFFUSE_MAP, pipeline.mFXAAMap.getUsage());
+        channel = shader->enableTexture(LLShaderMgr::DIFFUSE_MAP, LLTexUnit::TT_TEXTURE);
         if (channel > -1)
         {
             pipeline.mFXAAMap.bindTexture(0, channel, LLTexUnit::TFO_BILINEAR);
@@ -3229,13 +3203,13 @@ void DXPipeline::applyFXAA(LLPipeline& pipeline, LLRenderTarget* src, LLRenderTa
 }
 
 // static
-void DXPipeline::copyScreenSpaceReflections(LLPipeline& pipeline, LLRenderTarget* src, LLRenderTarget* dst)
+void DXPipeline::copyScreenSpaceReflections(LLPipeline& pipeline, DXRenderTarget* src, DXRenderTarget* dst)
 {
     if (DXPipeline::RenderScreenSpaceReflections && !gCubeSnapshot)
     {
         DXDepthTest depth(true, true, DX_ALWAYS);
 
-        LLRenderTarget& depth_src = pipeline.mRT->deferredScreen;
+        DXRenderTarget& depth_src = pipeline.mRT->deferredScreen;
 
         dst->bindTarget();
         dst->clear();
@@ -3255,7 +3229,7 @@ void DXPipeline::copyScreenSpaceReflections(LLPipeline& pipeline, LLRenderTarget
 }
 
 // static
-void DXPipeline::generateLuminance(LLPipeline& pipeline, LLRenderTarget* src, LLRenderTarget* dst)
+void DXPipeline::generateLuminance(LLPipeline& pipeline, DXRenderTarget* src, DXRenderTarget* dst)
 {
     // luminance sample and mipmap generation
     {
@@ -3286,7 +3260,7 @@ void DXPipeline::generateLuminance(LLPipeline& pipeline, LLRenderTarget* src, LL
 }
 
 // static
-void DXPipeline::generateExposure(LLPipeline& pipeline, LLRenderTarget* src, LLRenderTarget* dst, bool use_history)
+void DXPipeline::generateExposure(LLPipeline& pipeline, DXRenderTarget* src, DXRenderTarget* dst, bool use_history)
 {
     // exposure sample
     {
@@ -3379,7 +3353,7 @@ void DXPipeline::generateExposure(LLPipeline& pipeline, LLRenderTarget* src, LLR
 
         if (use_history)
         {
-            gDX.getTexUnit(channel)->unbind(pipeline.mLastExposure.getUsage());
+            gDX.getTexUnit(channel)->unbind(LLTexUnit::TT_TEXTURE);
         }
         shader->unbind();
         dst->flush();
@@ -3387,7 +3361,7 @@ void DXPipeline::generateExposure(LLPipeline& pipeline, LLRenderTarget* src, LLR
 }
 
 // static
-void DXPipeline::copyRenderTarget(LLPipeline& pipeline, LLRenderTarget* src, LLRenderTarget* dst)
+void DXPipeline::copyRenderTarget(LLPipeline& pipeline, DXRenderTarget* src, DXRenderTarget* dst)
 {
     dst->bindTarget();
 
@@ -3405,7 +3379,7 @@ void DXPipeline::copyRenderTarget(LLPipeline& pipeline, LLRenderTarget* src, LLR
 }
 
 // static
-bool DXPipeline::applyFSR1Easu(LLPipeline& pipeline, LLRenderTarget* src, U32 dest_width, U32 dest_height)
+bool DXPipeline::applyFSR1Easu(LLPipeline& pipeline, DXRenderTarget* src, U32 dest_width, U32 dest_height)
 {
     if (!gFSR1EasuProgram.isComplete())
     {
@@ -3415,8 +3389,7 @@ bool DXPipeline::applyFSR1Easu(LLPipeline& pipeline, LLRenderTarget* src, U32 de
     gFSR1EasuProgram.bind();
 
     {
-        // Hand-rolled FsrEasuCon() (ffx_fsr1.h) - same "not worth vendoring a
-        // second AMD portability file" call as applyFSR1Rcas()'s FsrRcasCon().
+        // Hand-rolled FsrEasuCon() (ffx_fsr1.h): not worth vendoring a second AMD portability file for it.
         // Viewport-in-pixels and size-in-pixels are the same here (this
         // project doesn't support an input texture larger than the viewport
         // being upscaled, unlike AMD's dynamic-resolution-scaling case).
@@ -3482,66 +3455,7 @@ bool DXPipeline::applyFSR1Easu(LLPipeline& pipeline, LLRenderTarget* src, U32 de
 }
 
 // static
-void DXPipeline::applyFSR1Rcas(LLPipeline& pipeline, LLRenderTarget* src, LLRenderTarget* dst)
-{
-    static LLCachedControl<F32> rcas_sharpness(gSavedSettings, "RenderFSR1Sharpness", 0.4f);
-    if (rcas_sharpness == 0.0f || !gFSR1RcasProgram.isComplete() || !gFSR1RcasLegacyGammaProgram.isComplete())
-    {
-        DXPipeline::copyRenderTarget(pipeline, src, dst);
-        return;
-    }
-
-    LLHLSLShader* sharpen_shader = &gFSR1RcasProgram;
-    static LLCachedControl<bool> should_auto_adjust(gSavedSettings, "RenderSkyAutoAdjustLegacy", false);
-
-    LLSettingsSky::ptr_t psky = LLEnvironment::instance().getCurrentSky();
-    bool legacy_gamma = psky->getReflectionProbeAmbiance(should_auto_adjust) == 0.f;
-    if (legacy_gamma)
-    {
-        sharpen_shader = &gFSR1RcasLegacyGammaProgram;
-    }
-
-    // Bind setup:
-    dst->bindTarget();
-
-    sharpen_shader->bind();
-
-    {
-        static LLStaticHashedString rcas_param("rcas_param");
-
-        // Hand-rolled FsrRcasCon() (ffx_fsr1.h) - not worth vendoring a whole
-        // second AMD portability file for two lines of real math. AMD's
-        // convention is "stops of reduction from max sharpness" (0.0 =
-        // sharpest, higher = less sharp); RenderFSR1Sharpness instead follows
-        // RenderCASSharpness's own 0(off)-1(max) convention for UI
-        // consistency, mapped onto a 0-2 stops range here so the slider's max
-        // reaches FsrRcasCon's sharpest setting.
-        F32 stops = (1.0f - rcas_sharpness()) * 2.0f;
-        F32 linear_sharpness = exp2f(-stops);
-        U32 const0 = 0;
-        static_assert(sizeof(U32) == sizeof(F32), "FSR1 RCAS bit-reinterpret assumes 32-bit float/uint");
-        memcpy(&const0, &linear_sharpness, sizeof(U32));
-
-        U32 const1[4] = { const0, 0, 0, 0 };
-        sharpen_shader->uniform4uiv(rcas_param, 1, const1);
-
-        static LLStaticHashedString out_screen_res("out_screen_res");
-        sharpen_shader->uniform2f(out_screen_res, (F32)src->getWidth(), (F32)src->getHeight());
-    }
-
-    sharpen_shader->bindTexture(LLShaderMgr::DEFERRED_DIFFUSE, src, false, LLTexUnit::TFO_POINT);
-
-    // Draw
-    pipeline.mScreenTriangleVB->setBuffer();
-    pipeline.mScreenTriangleVB->drawArrays(LLRender::TRIANGLES, 0, 3);
-
-    sharpen_shader->unbind();
-
-    dst->flush();
-}
-
-// static
-bool DXPipeline::applyFSR1RcasToBoundTarget(LLPipeline& pipeline, LLRenderTarget* src)
+bool DXPipeline::applyFSR1RcasToBoundTarget(LLPipeline& pipeline, DXRenderTarget* src)
 {
     static LLCachedControl<F32> rcas_sharpness(gSavedSettings, "RenderFSR1Sharpness", 0.4f);
     if (rcas_sharpness() == 0.0f || !gFSR1RcasProgram.isComplete() || !gFSR1RcasLegacyGammaProgram.isComplete())
@@ -3564,13 +3478,7 @@ bool DXPipeline::applyFSR1RcasToBoundTarget(LLPipeline& pipeline, LLRenderTarget
     {
         static LLStaticHashedString rcas_param("rcas_param");
 
-        // Same hand-rolled FsrRcasCon() as applyFSR1Rcas() above.
-        F32 stops = (1.0f - rcas_sharpness()) * 2.0f;
-        F32 linear_sharpness = exp2f(-stops);
-        U32 const0 = 0;
-        memcpy(&const0, &linear_sharpness, sizeof(U32));
-
-        U32 const1[4] = { const0, 0, 0, 0 };
+        U32 const1[4] = { rcasStrengthBits(rcas_sharpness()), 0, 0, 0 };
         sharpen_shader->uniform4uiv(rcas_param, 1, const1);
 
         static LLStaticHashedString out_screen_res("out_screen_res");
@@ -3588,7 +3496,7 @@ bool DXPipeline::applyFSR1RcasToBoundTarget(LLPipeline& pipeline, LLRenderTarget
 }
 
 // static
-void DXPipeline::generateGlow(LLPipeline& pipeline, LLRenderTarget* src)
+void DXPipeline::generateGlow(LLPipeline& pipeline, DXRenderTarget* src)
 {
     if (DXPipeline::sRenderGlow)
     {
@@ -3666,7 +3574,7 @@ void DXPipeline::generateGlow(LLPipeline& pipeline, LLRenderTarget* src)
             pipeline.mGlow[pass].clear();
 
             // Bind input texture
-            LLRenderTarget* input =
+            DXRenderTarget* input =
                 (i == 0) ? &pipeline.mGlow[2] : &pipeline.mGlow[prev_pass];
 
             gGlowProgram.bindTexture(LLShaderMgr::DIFFUSE_MAP, input);
@@ -3696,7 +3604,7 @@ void DXPipeline::generateGlow(LLPipeline& pipeline, LLRenderTarget* src)
 }
 
 // static
-void DXPipeline::combineGlow(LLPipeline& pipeline, LLRenderTarget* src, LLRenderTarget* dst)
+void DXPipeline::combineGlow(LLPipeline& pipeline, DXRenderTarget* src, DXRenderTarget* dst)
 {
     // Go ahead and do our glow combine here in our destination.  We blit this later into the front buffer.
     dst->bindTarget();
@@ -3713,7 +3621,7 @@ void DXPipeline::combineGlow(LLPipeline& pipeline, LLRenderTarget* src, LLRender
 }
 
 // static
-void DXPipeline::generateSMAABuffers(LLPipeline& pipeline, LLRenderTarget* src)
+void DXPipeline::generateSMAABuffers(LLPipeline& pipeline, DXRenderTarget* src)
 {
     static LLStaticHashedString sSmaaRTMetrics("SMAA_RT_METRICS");
 
@@ -3736,17 +3644,17 @@ void DXPipeline::generateSMAABuffers(LLPipeline& pipeline, LLRenderTarget* src)
         static LLCachedControl<bool> use_sample(gSavedSettings, "RenderSMAAUseSample", false);
         {
             // Bind setup:
-            LLRenderTarget& dest = pipeline.mFXAAMap;
+            DXRenderTarget& dest = pipeline.mFXAAMap;
             LLHLSLShader& edge_shader = gSMAAEdgeDetectProgram[fsaa_quality];
 
             dest.bindTarget();
-            dest.clear(GL_COLOR_BUFFER_BIT);
+            dest.clear(true, false);
 
             edge_shader.bind();
             edge_shader.uniform4fv(sSmaaRTMetrics, 1, rt_metrics);
             DXPipeline::bindSMAAStaticSamplers();
 
-            S32 channel = edge_shader.enableTexture(LLShaderMgr::DEFERRED_DIFFUSE, src->getUsage());
+            S32 channel = edge_shader.enableTexture(LLShaderMgr::DEFERRED_DIFFUSE, LLTexUnit::TT_TEXTURE);
             if (channel > -1)
             {
                 if (!use_sample)
@@ -3784,17 +3692,17 @@ void DXPipeline::generateSMAABuffers(LLPipeline& pipeline, LLRenderTarget* src)
 
         {
             // Bind setup:
-            LLRenderTarget& dest = pipeline.mSMAABlendBuffer;
+            DXRenderTarget& dest = pipeline.mSMAABlendBuffer;
             LLHLSLShader& blend_weights_shader = gSMAABlendWeightsProgram[fsaa_quality];
 
             dest.bindTarget();
-            dest.clear(GL_COLOR_BUFFER_BIT);
+            dest.clear(true, false);
 
             blend_weights_shader.bind();
             blend_weights_shader.uniform4fv(sSmaaRTMetrics, 1, rt_metrics);
             DXPipeline::bindSMAAStaticSamplers();
 
-            S32 edge_tex_channel = blend_weights_shader.enableTexture(LLShaderMgr::SMAA_EDGE_TEX, pipeline.mFXAAMap.getUsage());
+            S32 edge_tex_channel = blend_weights_shader.enableTexture(LLShaderMgr::SMAA_EDGE_TEX, LLTexUnit::TT_TEXTURE);
             if (edge_tex_channel > -1)
             {
                 pipeline.mFXAAMap.bindTexture(0, edge_tex_channel, LLTexUnit::TFO_BILINEAR);
@@ -3840,7 +3748,7 @@ void DXPipeline::generateSMAABuffers(LLPipeline& pipeline, LLRenderTarget* src)
 }
 
 // static
-void DXPipeline::applySMAA(LLPipeline& pipeline, LLRenderTarget* src, LLRenderTarget* dst)
+void DXPipeline::applySMAA(LLPipeline& pipeline, DXRenderTarget* src, DXRenderTarget* dst)
 {
     static LLStaticHashedString sSmaaRTMetrics("SMAA_RT_METRICS");
 
@@ -3862,11 +3770,11 @@ void DXPipeline::applySMAA(LLPipeline& pipeline, LLRenderTarget* src, LLRenderTa
 
         {
             // Bind setup:
-            LLRenderTarget* bound_target = dst;
+            DXRenderTarget* bound_target = dst;
             LLHLSLShader& blend_shader = gSMAANeighborhoodBlendProgram[fsaa_quality];
 
             bound_target->bindTarget();
-            bound_target->clear(GL_COLOR_BUFFER_BIT);
+            bound_target->clear(true, false);
 
             blend_shader.bind();
             blend_shader.uniform4fv(sSmaaRTMetrics, 1, rt_metrics);
@@ -3935,7 +3843,7 @@ void DXPipeline::bindShadowMaps(LLPipeline& pipeline, LLHLSLShader& shader)
     // equivalent (GL_TEXTURE_COMPARE_MODE) is set at shadow-target allocation time instead.
     for (U32 i = 0; i < 4; i++)
     {
-        LLRenderTarget* shadow_target = DXPipeline::getSunShadowTarget(pipeline, i);
+        DXRenderTarget* shadow_target = DXPipeline::getSunShadowTarget(pipeline, i);
         if (shadow_target)
         {
             S32 channel = shader.enableTexture(LLShaderMgr::DEFERRED_SHADOW0 + i, LLTexUnit::TT_TEXTURE);
@@ -3951,7 +3859,7 @@ void DXPipeline::bindShadowMaps(LLPipeline& pipeline, LLHLSLShader& shader)
         S32 channel = shader.enableTexture(LLShaderMgr::DEFERRED_SHADOW0 + i);
         if (channel > -1)
         {
-            LLRenderTarget* shadow_target = DXPipeline::getSpotShadowTarget(pipeline, i - 4);
+            DXRenderTarget* shadow_target = DXPipeline::getSpotShadowTarget(pipeline, i - 4);
             if (shadow_target)
             {
                 gDX.getTexUnit(channel)->bind(shadow_target, true, true);
@@ -3973,7 +3881,7 @@ void DXPipeline::bindShadowMaps(LLPipeline& pipeline, LLHLSLShader& shader)
         S32 channel = shader.enableTexture(LLShaderMgr::POINT_SHADOW_FACE0 + f);
         if (channel > -1)
         {
-            LLRenderTarget* point_shadow_target = &pipeline.mPointShadow[0][f];
+            DXRenderTarget* point_shadow_target = &pipeline.mPointShadow[0][f];
             if (point_shadow_target->isComplete())
             {
                 gDX.getTexUnit(channel)->bind(point_shadow_target, true, false);
@@ -4013,42 +3921,42 @@ void DXPipeline::bindDeferredShaderFast(LLPipeline& pipeline, LLHLSLShader& shad
 }
 
 // static
-void DXPipeline::bindDeferredShader(LLPipeline& pipeline, LLHLSLShader& shader, LLRenderTarget* light_target, LLRenderTarget* depth_target)
+void DXPipeline::bindDeferredShader(LLPipeline& pipeline, LLHLSLShader& shader, DXRenderTarget* light_target, DXRenderTarget* depth_target)
 {
-    LLRenderTarget* deferred_target = &pipeline.mRT->deferredScreen;
-    LLRenderTarget* deferred_light_target = &pipeline.mRT->deferredLight;
+    DXRenderTarget* deferred_target = &pipeline.mRT->deferredScreen;
+    DXRenderTarget* deferred_light_target = &pipeline.mRT->deferredLight;
 
     shader.bind();
     S32 channel = 0;
-    channel = shader.enableTexture(LLShaderMgr::DEFERRED_DIFFUSE, deferred_target->getUsage());
+    channel = shader.enableTexture(LLShaderMgr::DEFERRED_DIFFUSE, LLTexUnit::TT_TEXTURE);
     if (channel > -1)
     {
         deferred_target->bindTexture(0, channel, LLTexUnit::TFO_POINT); // frag_data[0]
         gDX.getTexUnit(channel)->setTextureAddressMode(LLTexUnit::TAM_CLAMP);
     }
 
-    channel = shader.enableTexture(LLShaderMgr::DEFERRED_SPECULAR, deferred_target->getUsage());
+    channel = shader.enableTexture(LLShaderMgr::DEFERRED_SPECULAR, LLTexUnit::TT_TEXTURE);
     if (channel > -1)
     {
         deferred_target->bindTexture(1, channel, LLTexUnit::TFO_POINT); // frag_data[1]
         gDX.getTexUnit(channel)->setTextureAddressMode(LLTexUnit::TAM_CLAMP);
     }
 
-    channel = shader.enableTexture(LLShaderMgr::NORMAL_MAP, deferred_target->getUsage());
+    channel = shader.enableTexture(LLShaderMgr::NORMAL_MAP, LLTexUnit::TT_TEXTURE);
     if (channel > -1)
     {
         deferred_target->bindTexture(2, channel, LLTexUnit::TFO_POINT); // frag_data[2]
         gDX.getTexUnit(channel)->setTextureAddressMode(LLTexUnit::TAM_CLAMP);
     }
 
-    channel = shader.enableTexture(LLShaderMgr::DEFERRED_EMISSIVE, deferred_target->getUsage());
+    channel = shader.enableTexture(LLShaderMgr::DEFERRED_EMISSIVE, LLTexUnit::TT_TEXTURE);
     if (channel > -1)
     {
         deferred_target->bindTexture(3, channel, LLTexUnit::TFO_POINT); // frag_data[3]
         gDX.getTexUnit(channel)->setTextureAddressMode(LLTexUnit::TAM_CLAMP);
     }
 
-    channel = shader.enableTexture(LLShaderMgr::DEFERRED_DEPTH, deferred_target->getUsage());
+    channel = shader.enableTexture(LLShaderMgr::DEFERRED_DEPTH, LLTexUnit::TT_TEXTURE);
     if (channel > -1)
     {
         if (depth_target)
@@ -4087,7 +3995,7 @@ void DXPipeline::bindDeferredShader(LLPipeline& pipeline, LLHLSLShader& shader, 
 
 
     light_target = light_target ? light_target : deferred_light_target;
-    channel = shader.enableTexture(LLShaderMgr::DEFERRED_LIGHT, light_target->getUsage());
+    channel = shader.enableTexture(LLShaderMgr::DEFERRED_LIGHT, LLTexUnit::TT_TEXTURE);
     if (channel > -1)
     {
         if (light_target->isComplete())
@@ -4259,17 +4167,17 @@ void DXPipeline::bindDeferredShader(LLPipeline& pipeline, LLHLSLShader& shader, 
 // static
 void DXPipeline::unbindDeferredShader(LLPipeline& pipeline, LLHLSLShader& shader)
 {
-    LLRenderTarget* deferred_target = &pipeline.mRT->deferredScreen;
-    LLRenderTarget* deferred_light_target = &pipeline.mRT->deferredLight;
+    DXRenderTarget* deferred_target = &pipeline.mRT->deferredScreen;
+    DXRenderTarget* deferred_light_target = &pipeline.mRT->deferredLight;
 
-    shader.disableTexture(LLShaderMgr::NORMAL_MAP, deferred_target->getUsage());
-    shader.disableTexture(LLShaderMgr::DEFERRED_DIFFUSE, deferred_target->getUsage());
-    shader.disableTexture(LLShaderMgr::DEFERRED_SPECULAR, deferred_target->getUsage());
-    shader.disableTexture(LLShaderMgr::DEFERRED_EMISSIVE, deferred_target->getUsage());
+    shader.disableTexture(LLShaderMgr::NORMAL_MAP, LLTexUnit::TT_TEXTURE);
+    shader.disableTexture(LLShaderMgr::DEFERRED_DIFFUSE, LLTexUnit::TT_TEXTURE);
+    shader.disableTexture(LLShaderMgr::DEFERRED_SPECULAR, LLTexUnit::TT_TEXTURE);
+    shader.disableTexture(LLShaderMgr::DEFERRED_EMISSIVE, LLTexUnit::TT_TEXTURE);
     shader.disableTexture(LLShaderMgr::DEFERRED_BRDF_LUT);
-    //shader.disableTexture(LLShaderMgr::DEFERRED_DEPTH, deferred_depth_target->getUsage());
-    shader.disableTexture(LLShaderMgr::DEFERRED_DEPTH, deferred_target->getUsage());
-    shader.disableTexture(LLShaderMgr::DEFERRED_LIGHT, deferred_light_target->getUsage());
+    //shader.disableTexture(LLShaderMgr::DEFERRED_DEPTH, LLTexUnit::TT_TEXTURE);
+    shader.disableTexture(LLShaderMgr::DEFERRED_DEPTH, LLTexUnit::TT_TEXTURE);
+    shader.disableTexture(LLShaderMgr::DEFERRED_LIGHT, LLTexUnit::TT_TEXTURE);
     shader.disableTexture(LLShaderMgr::DIFFUSE_MAP);
     shader.disableTexture(LLShaderMgr::DEFERRED_BLOOM);
 
@@ -4442,7 +4350,7 @@ void DXPipeline::bindSSRUniforms(LLPipeline& pipeline, LLHLSLShader& shader)
 void DXPipeline::bindSSRBuffer(LLPipeline& pipeline, LLHLSLShader& shader)
 {
     S32 channel = shader.enableTexture(LLShaderMgr::SSR_BUFFER);
-    LLRenderTarget* source = pipeline.mSSRResolveReady ? &pipeline.mSSRResolved[pipeline.mSSRLastResolved] : &pipeline.mSSRBuffer;
+    DXRenderTarget* source = pipeline.mSSRResolveReady ? &pipeline.mSSRResolved[pipeline.mSSRLastResolved] : &pipeline.mSSRBuffer;
     if (channel > -1 && source->isComplete())
     {
         gDX.getTexUnit(channel)->bind(source);
@@ -4473,7 +4381,7 @@ void DXPipeline::renderSSRPass(LLPipeline& pipeline)
     }
 
     pipeline.mSSRBuffer.bindTarget(false);
-    pipeline.mSSRBuffer.clear(GL_COLOR_BUFFER_BIT);
+    pipeline.mSSRBuffer.clear(true, false);
 
     gSSRProgram.bind();
     DXPipeline::bindDeferredShader(pipeline, gSSRProgram);
@@ -4633,7 +4541,6 @@ void DXPipeline::renderAlphaObjects(LLPipeline& pipeline, bool rigged)
     gDX.loadMatrix(gDXModelView);
     gDXLastMatrix = NULL;
     S32 sun_up = LLEnvironment::instance().getIsSunUp() ? 1 : 0;
-    U32 target_width = LLRenderTarget::sCurResX;
     U32 type = LLRenderPass::PASS_ALPHA;
     // for gDeferredShadowAlphaMaskProgram
     const LLVOAvatar* lastAvatar = nullptr;
@@ -4695,7 +4602,6 @@ void DXPipeline::renderAlphaObjects(LLPipeline& pipeline, bool rigged)
                 {
                     gDeferredShadowGLTFAlphaBlendProgram.bind(rigged);
                     LLHLSLShader::sCurBoundShaderPtr->uniform1i(LLShaderMgr::SUN_UP_FACTOR, sun_up);
-                    LLHLSLShader::sCurBoundShaderPtr->uniform1f(LLShaderMgr::DEFERRED_SHADOW_TARGET_WIDTH, (float)target_width);
                     last = GLTF;
                 }
                 LLHLSLShader::sCurBoundShaderPtr->setMinimumAlpha(ALPHA_BLEND_CUTOFF_RIGGED);
@@ -4710,7 +4616,6 @@ void DXPipeline::renderAlphaObjects(LLPipeline& pipeline, bool rigged)
                 {
                     gDeferredShadowAlphaMaskProgram.bind(rigged);
                     LLHLSLShader::sCurBoundShaderPtr->uniform1i(LLShaderMgr::SUN_UP_FACTOR, sun_up);
-                    LLHLSLShader::sCurBoundShaderPtr->uniform1f(LLShaderMgr::DEFERRED_SHADOW_TARGET_WIDTH, (float)target_width);
                     LLHLSLShader::sCurBoundShaderPtr->setMinimumAlpha(ALPHA_BLEND_CUTOFF_RIGGED);
                     last = MASK;
                 }
@@ -4729,7 +4634,6 @@ void DXPipeline::renderAlphaObjects(LLPipeline& pipeline, bool rigged)
                 {
                     gDeferredShadowGLTFAlphaBlendProgram.bind(rigged);
                     LLHLSLShader::sCurBoundShaderPtr->uniform1i(LLShaderMgr::SUN_UP_FACTOR, sun_up);
-                    LLHLSLShader::sCurBoundShaderPtr->uniform1f(LLShaderMgr::DEFERRED_SHADOW_TARGET_WIDTH, (float)target_width);
                     last = GLTF;
                 }
                 LLHLSLShader::sCurBoundShaderPtr->setMinimumAlpha(ALPHA_BLEND_CUTOFF);
@@ -4741,7 +4645,6 @@ void DXPipeline::renderAlphaObjects(LLPipeline& pipeline, bool rigged)
                 {
                     gDeferredShadowAlphaMaskProgram.bind(rigged);
                     LLHLSLShader::sCurBoundShaderPtr->uniform1i(LLShaderMgr::SUN_UP_FACTOR, sun_up);
-                    LLHLSLShader::sCurBoundShaderPtr->uniform1f(LLShaderMgr::DEFERRED_SHADOW_TARGET_WIDTH, (float)target_width);
                     LLHLSLShader::sCurBoundShaderPtr->setMinimumAlpha(ALPHA_BLEND_CUTOFF);
                     last = MASK;
                 }
@@ -4910,7 +4813,6 @@ void DXPipeline::renderShadow(LLPipeline& pipeline, const glm::mat4& view, const
     {
         LL_RECORD_BLOCK_TIME(FTM_SHADOW_ALPHA);
         const S32 sun_up = LLEnvironment::instance().getIsSunUp() ? 1 : 0;
-        U32 target_width = LLRenderTarget::sCurResX;
 
         for (int i = 0; i < 2; ++i)
         {
@@ -4920,7 +4822,6 @@ void DXPipeline::renderShadow(LLPipeline& pipeline, const glm::mat4& view, const
                 LL_RECORD_BLOCK_TIME(FTM_SHADOW_ALPHA_MASKED);
                 gDeferredShadowAlphaMaskProgram.bind(rigged);
                 LLHLSLShader::sCurBoundShaderPtr->uniform1i(LLShaderMgr::SUN_UP_FACTOR, sun_up);
-                LLHLSLShader::sCurBoundShaderPtr->uniform1f(LLShaderMgr::DEFERRED_SHADOW_TARGET_WIDTH, (float)target_width);
                 DXPipeline::renderMaskedObjects(pipeline, LLRenderPass::PASS_ALPHA_MASK, true, true, rigged);
             }
 
@@ -4933,7 +4834,6 @@ void DXPipeline::renderShadow(LLPipeline& pipeline, const glm::mat4& view, const
                 LL_RECORD_BLOCK_TIME(FTM_SHADOW_FULLBRIGHT_ALPHA_MASKED);
                 gDeferredShadowFullbrightAlphaMaskProgram.bind(rigged);
                 LLHLSLShader::sCurBoundShaderPtr->uniform1i(LLShaderMgr::SUN_UP_FACTOR, sun_up);
-                LLHLSLShader::sCurBoundShaderPtr->uniform1f(LLShaderMgr::DEFERRED_SHADOW_TARGET_WIDTH, (float)target_width);
                 DXPipeline::renderFullbrightMaskedObjects(pipeline, LLRenderPass::PASS_FULLBRIGHT_ALPHA_MASK, true, true, rigged);
             }
 
@@ -4961,7 +4861,6 @@ void DXPipeline::renderShadow(LLPipeline& pipeline, const glm::mat4& view, const
             bool rigged = i == 1;
             gDeferredShadowGLTFAlphaMaskProgram.bind(rigged);
             LLHLSLShader::sCurBoundShaderPtr->uniform1i(LLShaderMgr::SUN_UP_FACTOR, sun_up);
-            LLHLSLShader::sCurBoundShaderPtr->uniform1f(LLShaderMgr::DEFERRED_SHADOW_TARGET_WIDTH, (float)target_width);
 
             gDX.loadMatrix(gDXModelView);
             gDXLastMatrix = NULL;
@@ -7675,7 +7574,7 @@ void DXPipeline::generateImpostor(LLPipeline& pipeline, LLVOAvatar* avatar, bool
         {
             if (!avatar->mImpostor.isComplete())
             {
-                avatar->mImpostor.allocate(resX, resY, GL_RGBA, true);
+                avatar->mImpostor.allocate(resX, resY, DXGI_FORMAT_R8G8B8A8_UNORM, true);
 
                 if (DXPipeline::sRenderDeferred)
                 {
@@ -7683,7 +7582,7 @@ void DXPipeline::generateImpostor(LLPipeline& pipeline, LLVOAvatar* avatar, bool
                 }
 
                 // S24: removed a bind+setTextureFilteringOption(TFO_POINT)+unbind here - under
-                // DX_RENDER there's no persistent per-object filter state on LLRenderTarget to
+                // DX_RENDER there's no persistent per-object filter state on DXRenderTarget to
                 // configure (unlike GL, where this idiom sticks the filter to the texture object),
                 // and setTextureFilteringOption() is itself a no-op, so this achieved nothing.
                 // The real impostor billboard bind is LLVOAvatar::renderImpostor() (llvoavatar.cpp),
@@ -9622,9 +9521,9 @@ void DXPipeline::doAtmospherics(LLPipeline& pipeline)
             // copy depth buffer for use in haze shader (use water displacement map as temp storage)
             DXDepthTest depth(true, true, DX_ALWAYS);
 
-            LLRenderTarget& src = pipeline.mRT->screen;
-            LLRenderTarget& depth_src = pipeline.mRT->deferredScreen;
-            LLRenderTarget& dst = pipeline.mWaterDis;
+            DXRenderTarget& src = pipeline.mRT->screen;
+            DXRenderTarget& depth_src = pipeline.mRT->deferredScreen;
+            DXRenderTarget& dst = pipeline.mWaterDis;
 
             pipeline.mRT->screen.flush();
             dst.bindTarget();
@@ -9685,9 +9584,9 @@ void DXPipeline::doWaterHaze(LLPipeline& pipeline)
         {
             DXDepthTest depth(true, true, DX_ALWAYS);
 
-            LLRenderTarget& src = pipeline.mRT->screen;
-            LLRenderTarget& depth_src = pipeline.mRT->deferredScreen;
-            LLRenderTarget& dst = pipeline.mWaterDis;
+            DXRenderTarget& src = pipeline.mRT->screen;
+            DXRenderTarget& depth_src = pipeline.mRT->deferredScreen;
+            DXRenderTarget& dst = pipeline.mWaterDis;
 
             pipeline.mRT->screen.flush();
             dst.bindTarget();
@@ -9784,7 +9683,7 @@ namespace
 void DXPipeline::doWaterExclusionMask(LLPipeline& pipeline)
 {
     pipeline.mWaterExclusionMask.bindTarget();
-    // LLRenderTarget::clear() under DX_RENDER always clears to transparent black regardless of the
+    // DXRenderTarget::clear() under DX_RENDER always clears to transparent black regardless of the
     // GL-only glClearColor() call below, but this mask's meaning is inverted: white (1,1,1,1) = "not
     // excluded, water visible here". Use clearColor() (an explicit ClearRenderTargetView()) instead, or
     // every pixel not covered by the render below defaults to "excluded".
@@ -10074,14 +9973,14 @@ void DXPipeline::recordTrianglesDrawn(LLPipeline& pipeline)
 }
 
 // static
-LLRenderTarget* DXPipeline::getSunShadowTarget(LLPipeline& pipeline, U32 i)
+DXRenderTarget* DXPipeline::getSunShadowTarget(LLPipeline& pipeline, U32 i)
 {
     llassert(i < 4);
     return &pipeline.mRT->shadow[i];
 }
 
 // static
-LLRenderTarget* DXPipeline::getSpotShadowTarget(LLPipeline& pipeline, U32 i)
+DXRenderTarget* DXPipeline::getSpotShadowTarget(LLPipeline& pipeline, U32 i)
 {
     llassert(i < 2);
     return &pipeline.mSpotShadow[i];
@@ -10934,10 +10833,8 @@ void DXPipeline::renderPhysicsDisplay(LLPipeline& pipeline)
 
     DXStateEnable polygon_offset_line(GL_POLYGON_OFFSET_LINE);
     gDX.setPolygonOffset(3.f, 3.f);
-    // S24: glLineWidth() has no DX11 equivalent; LLUI::setLineWidth() is the no-op stand-in under
-    // DX_RENDER. glPolygonMode(GL_LINE/GL_FILL) below is removed outright: no D3D11 per-draw
-    // wireframe equivalent exists.
-    LLUI::setLineWidth(3.f);
+    // glPolygonMode(GL_LINE/GL_FILL) below is removed outright: no D3D11 per-draw wireframe equivalent
+    // exists.
     DXStateEnable blend(DX_BLEND);
     gDX.setSceneBlendType(LLRender::BT_ALPHA);
 
@@ -10969,7 +10866,6 @@ void DXPipeline::renderPhysicsDisplay(LLPipeline& pipeline)
         }
         gDX.flush();
     }
-    LLUI::setLineWidth(1.f);
     gDebugProgram.unbind();
 }
 
@@ -11053,11 +10949,8 @@ void DXPipeline::renderDebug(LLPipeline& pipeline)
                     //NavMesh
                     if (pathfindingConsole->isRenderNavMesh())
                     {
-                        gDX.flush();
-                        // S24: glLineWidth() has no DX11 equivalent; LLUI::setLineWidth() is the no-op
-                        // stand-in under DX_RENDER. glPolygonMode(GL_LINE/GL_FILL) is removed outright:
-                        // no D3D11 per-draw wireframe equivalent exists.
-                        LLUI::setLineWidth(2.0f);
+                        // glPolygonMode(GL_LINE/GL_FILL) is removed outright: no D3D11 per-draw
+                        // wireframe equivalent exists.
                         DXStateEnable cull(DX_CULL_FACE);
                         DXStateDisable blend(DX_BLEND);
 
@@ -11079,8 +10972,6 @@ void DXPipeline::renderDebug(LLPipeline& pipeline)
                         llPathingLibInstance->renderNavMeshEdges();
                         gPathfindingProgram.bind();
 
-                        gDX.flush();
-                        LLUI::setLineWidth(1.0f);
                         gDX.flush();
                     }
                     //User designated path
@@ -11186,19 +11077,16 @@ void DXPipeline::renderDebug(LLPipeline& pipeline)
                                 }
 
                                 { //draw visible wireframe as brighter, thicker and more opaque
-                                    // S24: glLineWidth() has no DX11 equivalent; LLUI::setLineWidth() is
-                                    // the no-op stand-in under DX_RENDER. glPolygonMode(GL_LINE/GL_FILL)
-                                    // is removed outright: no D3D11 per-draw wireframe equivalent exists.
+                                    // glPolygonMode(GL_LINE/GL_FILL) is removed outright: no D3D11 per-draw
+                                    // wireframe equivalent exists.
                                     gDX.setPolygonOffset(offset, offset);
                                     gPathfindingProgram.uniform1f(sAmbiance, 1.f);
                                     gPathfindingProgram.uniform1f(sTint, 1.f);
                                     gPathfindingProgram.uniform1f(sAlphaScale, 1.f);
 
-                                    LLUI::setLineWidth(gSavedSettings.getF32("PathfindingLineWidth"));
                                     DXStateDisable blendOut(DX_BLEND);
                                     llPathingLibInstance->renderNavMeshShapesVBO(render_order[i]);
                                     gDX.flush();
-                                    LLUI::setLineWidth(1.f);
                                 }
                             }
                         }
@@ -11218,8 +11106,6 @@ void DXPipeline::renderDebug(LLPipeline& pipeline)
 
                         DXStateEnable blend(DX_BLEND);
                         DXDepthTest depth(true, false, DX_GREATER);
-                        gDX.flush();
-                        LLUI::setLineWidth(2.0f);
                         DXStateEnable cull(DX_CULL_FACE);
 
                         gPathfindingProgram.uniform1f(sTint, gSavedSettings.getF32("PathfindingXRayTint"));
@@ -11244,7 +11130,6 @@ void DXPipeline::renderDebug(LLPipeline& pipeline)
                         gPathfindingProgram.bind();
 
                         gDX.flush();
-                        LLUI::setLineWidth(1.0f);
                     }
 
                     gDX.setPolygonOffset(0.f, 0.f);
@@ -13064,12 +12949,12 @@ bool DXPipeline::allocateScreenBufferInternal(LLPipeline& pipeline, U32 resX, U3
     bool ssao = DXPipeline::RenderDeferredSSAO;
 
     //allocate deferred rendering color buffers
-    if (!pipeline.mRT->deferredScreen.allocate(resX, resY, GL_RGBA, true)) return false;
+    if (!pipeline.mRT->deferredScreen.allocate(resX, resY, DXGI_FORMAT_R8G8B8A8_UNORM, true)) return false;
     if (!addDeferredAttachments(pipeline.mRT->deferredScreen)) return false;
 
-    GLuint screenFormat = hdr ? GL_RGBA16F : GL_RGBA;
+    DXGI_FORMAT screenFormat = hdr ? DXGI_FORMAT_R16G16B16A16_FLOAT : DXGI_FORMAT_R8G8B8A8_UNORM;
 
-    if (!pipeline.mRT->screen.allocate(resX, resY, GL_RGBA16F)) return false;
+    if (!pipeline.mRT->screen.allocate(resX, resY, DXGI_FORMAT_R16G16B16A16_FLOAT)) return false;
 
     pipeline.mRT->deferredScreen.shareDepthBuffer(pipeline.mRT->screen);
 
@@ -13091,7 +12976,7 @@ bool DXPipeline::allocateScreenBufferInternal(LLPipeline& pipeline, U32 resX, U3
     {
         if (DXPipeline::RenderUIBuffer)
         {
-            if (!pipeline.mUIScreen.allocate(resX, resY, GL_RGBA))
+            if (!pipeline.mUIScreen.allocate(resX, resY, DXGI_FORMAT_R8G8B8A8_UNORM))
             {
                 return false;
             }
@@ -13099,10 +12984,10 @@ bool DXPipeline::allocateScreenBufferInternal(LLPipeline& pipeline, U32 resX, U3
 
         if (DXPipeline::RenderFSAAType > 0)
         {
-            if (!pipeline.mFXAAMap.allocate(resX, resY, GL_RGBA)) return false;
+            if (!pipeline.mFXAAMap.allocate(resX, resY, DXGI_FORMAT_R8G8B8A8_UNORM)) return false;
             if (DXPipeline::RenderFSAAType == 2)
             {
-                if (!pipeline.mSMAABlendBuffer.allocate(resX, resY, GL_RGBA, false)) return false;
+                if (!pipeline.mSMAABlendBuffer.allocate(resX, resY, DXGI_FORMAT_R8G8B8A8_UNORM, false)) return false;
             }
         }
         else
@@ -13130,12 +13015,12 @@ bool DXPipeline::allocateScreenBufferInternal(LLPipeline& pipeline, U32 resX, U3
             pipeline.mSSRResolved[1].release();
         }
 
-        pipeline.mPostPingMap.allocate(resX, resY, GL_RGBA);
-        pipeline.mPostPongMap.allocate(resX, resY, GL_RGBA);
+        pipeline.mPostPingMap.allocate(resX, resY, DXGI_FORMAT_R8G8B8A8_UNORM);
+        pipeline.mPostPongMap.allocate(resX, resY, DXGI_FORMAT_R8G8B8A8_UNORM);
 
         // Anaglyph 3D rewrite - see these members' own comment in pipeline.h.
-        pipeline.mStereoEyeL.allocate(resX, resY, GL_RGBA);
-        pipeline.mStereoEyeR.allocate(resX, resY, GL_RGBA);
+        pipeline.mStereoEyeL.allocate(resX, resY, DXGI_FORMAT_R8G8B8A8_UNORM);
+        pipeline.mStereoEyeR.allocate(resX, resY, DXGI_FORMAT_R8G8B8A8_UNORM);
 
         // Persistent AO history buffer, same format as deferredLight since it's a full-channel copy of
         // it. Seeded to (1,1,1,1) ("fully lit / no occlusion") immediately after allocation, matching
@@ -13162,7 +13047,7 @@ bool DXPipeline::allocateScreenBufferInternal(LLPipeline& pipeline, U32 resX, U3
         // S24 : plain assert() compiles out in Release, which let a failed allocation
         // here silently carry on with a bad target - match the mSMAABlendBuffer
         // pattern above and bail out explicitly instead.
-        if (!pipeline.mWaterExclusionMask.allocate(resX, resY, GL_R8, true))
+        if (!pipeline.mWaterExclusionMask.allocate(resX, resY, DXGI_FORMAT_R8_UNORM, true))
         {
             LL_WARNS() << "Failed to allocate mWaterExclusionMask" << LL_ENDL;
             return false;
@@ -13170,9 +13055,9 @@ bool DXPipeline::allocateScreenBufferInternal(LLPipeline& pipeline, U32 resX, U3
 
         // used to scale down textures
         // See LLViwerTextureList::updateImagesCreateTextures and LLImageDX::scaleDown
-        pipeline.mDownResMap.allocate(1024, 1024, GL_RGBA);
+        pipeline.mDownResMap.allocate(1024, 1024, DXGI_FORMAT_R8G8B8A8_UNORM);
 
-        pipeline.mBakeMap.allocate(LLAvatarAppearanceDefines::SCRATCH_TEX_WIDTH, LLAvatarAppearanceDefines::SCRATCH_TEX_HEIGHT, GL_RGBA);
+        pipeline.mBakeMap.allocate(LLAvatarAppearanceDefines::SCRATCH_TEX_WIDTH, LLAvatarAppearanceDefines::SCRATCH_TEX_HEIGHT, DXGI_FORMAT_R8G8B8A8_UNORM);
     }
     // S24 : debug toggle to simulate a screenbuffer allocation failure, not a timer
     if (gSavedSettings.getBOOL("SimulateFBOFailure"))
@@ -13264,8 +13149,8 @@ bool DXPipeline::updateSpotShadowResolution(LLPipeline& pipeline)
         return false;
     }
 
-    bool ok = pipeline.mSpotShadow[0].allocate(target, target, 0, true) &&
-              pipeline.mSpotShadow[1].allocate(target, target, 0, true);
+    bool ok = pipeline.mSpotShadow[0].allocate(target, target, DXGI_FORMAT_UNKNOWN, true) &&
+              pipeline.mSpotShadow[1].allocate(target, target, DXGI_FORMAT_UNKNOWN, true);
     if (!ok)
     {
         LL_WARNS("RenderTarget") << "Failed to reallocate spot shadow maps at " << target << LL_ENDL;
@@ -13297,7 +13182,7 @@ bool DXPipeline::allocateShadowBuffer(LLPipeline& pipeline, U32 resX, U32 resY)
     { //allocate 4 sun shadow maps
         for (U32 i = 0; i < 4; i++)
         {
-            if (!pipeline.mRT->shadow[i].allocate(sun_shadow_map_width, sun_shadow_map_height, 0, true))
+            if (!pipeline.mRT->shadow[i].allocate(sun_shadow_map_width, sun_shadow_map_height, DXGI_FORMAT_UNKNOWN, true))
             {
                 return false;
             }
@@ -13322,7 +13207,7 @@ bool DXPipeline::allocateShadowBuffer(LLPipeline& pipeline, U32 resX, U32 resY)
             U32 spot_shadow_map_height = height;
             for (U32 i = 0; i < 2; i++)
             {
-                if (!pipeline.mSpotShadow[i].allocate(spot_shadow_map_width, spot_shadow_map_height, 0, true))
+                if (!pipeline.mSpotShadow[i].allocate(spot_shadow_map_width, spot_shadow_map_height, DXGI_FORMAT_UNKNOWN, true))
                 {
                     return false;
                 }
@@ -13346,7 +13231,7 @@ bool DXPipeline::allocateShadowBuffer(LLPipeline& pipeline, U32 resX, U32 resY)
             U32 pw = llclamp((U32)point_shadow_res, 64U, 2048U);
             for (U32 f = 0; f < 6; f++)
             {
-                if (!pipeline.mPointShadow[0][f].allocate(pw, pw, 0, true))
+                if (!pipeline.mPointShadow[0][f].allocate(pw, pw, DXGI_FORMAT_UNKNOWN, true))
                 {
                     return false;
                 }
@@ -13539,7 +13424,7 @@ void DXPipeline::createDXBuffers(LLPipeline& pipeline)
     // allocate screen space glow buffers
     const U32 glow_res = llmax(1, llmin(512, 1 << gSavedSettings.getS32("RenderGlowResolutionPow")));
     const bool glow_hdr = gSavedSettings.getBOOL("RenderGlowHDR");
-    const U32 glow_color_fmt = glow_hdr ? GL_RGBA16F : GL_RGBA;
+    const DXGI_FORMAT glow_color_fmt = glow_hdr ? DXGI_FORMAT_R16G16B16A16_FLOAT : DXGI_FORMAT_R8G8B8A8_UNORM;
     for (U32 i = 0; i < 3; i++)
     {
         pipeline.mGlow[i].allocate(512, glow_res, glow_color_fmt);
@@ -13682,7 +13567,7 @@ void DXPipeline::createLUTBuffers(LLPipeline& pipeline)
         delete[] ls;
     }
 
-    pipeline.mPbrBrdfLut.allocate(512, 512, GL_RG16F);
+    pipeline.mPbrBrdfLut.allocate(512, 512, DXGI_FORMAT_R16G16_FLOAT);
 
     // S24: the real (1024-sample Monte Carlo) BRDF LUT generator shader is deliberately NOT
     // compiled or drawn here any more - its driver-side ISA compile stalled startup on some
@@ -13704,7 +13589,7 @@ void DXPipeline::createLUTBuffers(LLPipeline& pipeline)
             fclose(fp);
             if (read == buf.size())
             {
-                loaded_baked = DXReadback::writePixels(pipeline.mPbrBrdfLut.getDXColorTexture(0), 0, 0, 512, 512, 4, buf.data());
+                loaded_baked = DXReadback::writePixels(pipeline.mPbrBrdfLut.getColorTexture(0), 0, 0, 512, 512, 4, buf.data());
                 if (!loaded_baked)
                 {
                     brdf_fail_reason = "GPU upload (DXReadback::writePixels) failed";
@@ -13754,13 +13639,13 @@ void DXPipeline::createLUTBuffers(LLPipeline& pipeline)
     // branch - it relies on gDX.begin/vertex2f/end's already-DX-safe immediate-mode path (same as
     // generateGlow()/combineGlow()).
 
-    pipeline.mExposureMap.allocate(1, 1, GL_R16F);
+    pipeline.mExposureMap.allocate(1, 1, DXGI_FORMAT_R16_FLOAT);
     pipeline.mExposureMap.bindTarget();
-    // The two glClearColor calls below are raw GL, but harmless: LLRenderTarget::clear() under
+    // The two glClearColor calls below are raw GL, but harmless: DXRenderTarget::clear() under
     // DX_RENDER ignores whatever glClearColor set and always clears to hardcoded black (see
     // DXRenderTarget::clear()).
     pipeline.mExposureMap.clear();
-    // LLRenderTarget::clear() under DX_RENDER always clears to hardcoded black, silently ignoring the
+    // DXRenderTarget::clear() under DX_RENDER always clears to hardcoded black, silently ignoring the
     // glClearColor(1,1,1,0) call above - mExposureMap stayed permanently at 0.0 instead of the intended
     // "neutral, no exposure adjustment yet" white default, since
     // generateExposure() (the real per-frame writer) has never been wired
@@ -13772,9 +13657,9 @@ void DXPipeline::createLUTBuffers(LLPipeline& pipeline)
     pipeline.mExposureMap.clearColor(1.f, 1.f, 1.f, 0.f);
     pipeline.mExposureMap.flush();
 
-    pipeline.mLuminanceMap.allocate(256, 256, GL_R16F, false, LLTexUnit::TT_TEXTURE, LLTexUnit::TMG_AUTO);
+    pipeline.mLuminanceMap.allocate(256, 256, DXGI_FORMAT_R16_FLOAT, false, true);
 
-    pipeline.mLastExposure.allocate(1, 1, GL_R16F);
+    pipeline.mLastExposure.allocate(1, 1, DXGI_FORMAT_R16_FLOAT);
 }
 
 bool DXPipeline::bakeBrdfLut(LLPipeline& pipeline)
@@ -13810,7 +13695,7 @@ bool DXPipeline::bakeBrdfLut(LLPipeline& pipeline)
 
     constexpr S32 kBytes = 512 * 512 * 4; // RG16F: 2 channels x 2 bytes, no padding
     std::vector<U8> buf(kBytes);
-    if (!DXReadback::readPixels(pipeline.mPbrBrdfLut.getDXColorTexture(0), 0, 0, 512, 512, 4, buf.data()))
+    if (!DXReadback::readPixels(pipeline.mPbrBrdfLut.getColorTexture(0), 0, 0, 512, 512, 4, buf.data()))
     {
         LL_WARNS("BrdfLut") << "Bake BRDF LUT: GPU->CPU readback failed - aborting bake" << LL_ENDL;
         return false;
@@ -14385,7 +14270,7 @@ void DXPipeline::checkReferences(LLPipeline& pipeline, LLSpatialGroup* group)
 #endif
 }
 
-void DXPipeline::renderDoF(LLPipeline& pipeline, LLRenderTarget* src, LLRenderTarget* dst)
+void DXPipeline::renderDoF(LLPipeline& pipeline, DXRenderTarget* src, DXRenderTarget* dst)
 {
     {
         bool dof_enabled =

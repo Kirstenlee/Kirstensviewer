@@ -46,7 +46,7 @@ struct ID3D11Query; // S24: opaque forward-decl, see mDXProfileQueries below - a
 #include "llcontrol.h"
 #include "llviewerjointmesh.h"
 #include "llviewerjointattachment.h"
-#include "llrendertarget.h"
+#include "DXRenderTarget.h"
 #include "llavatarappearancedefines.h"
 #include "lltexglobalcolor.h"
 #include "lldriverparam.h"
@@ -769,7 +769,7 @@ public:
     void        setImpostorDim(const LLVector2& dim);
     static void resetImpostors();
     static void updateImpostors();
-    LLRenderTarget mImpostor;
+    DXRenderTarget mImpostor;
     bool        mNeedsImpostorUpdate;
     S32         mLastImpostorUpdateReason;
     F32SecondsImplicit mLastImpostorUpdateFrameTime;

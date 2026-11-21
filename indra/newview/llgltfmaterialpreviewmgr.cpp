@@ -440,9 +440,6 @@ bool LLGLTFPreviewTexture::render()
 
     if (!mShouldRender) { return false; }
 
-    glClearColor(0, 0, 0, 0);
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
     DXDepthTest(false);
     DXStateDisable scissor(DX_SCISSOR_TEST);
     SetTemporarily<bool> no_dof(&DXPipeline::RenderDepthOfField, false);
@@ -497,7 +494,7 @@ bool LLGLTFPreviewTexture::render()
         light->setSunPrimary(sun_up);
     }
 
-    LLRenderTarget& screen = gPipeline.mAuxillaryRT.screen;
+    DXRenderTarget& screen = gPipeline.mAuxillaryRT.screen;
 
     // *HACK: Force reset of the model matrix
     gDXLastMatrix = nullptr;
@@ -513,7 +510,8 @@ bool LLGLTFPreviewTexture::render()
         // Alpha blend rendering
 
         screen.bindTarget();
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        screen.clearColor(0.f, 0.f, 0.f, 0.f);
+        screen.clear(false, true);
 
         LLHLSLShader& shader = gDeferredPBRAlphaProgram;
 
@@ -531,7 +529,7 @@ bool LLGLTFPreviewTexture::render()
     }
 
     // *HACK: Hide mExposureMap from generateExposure
-    gPipeline.mExposureMap.swapFBORefs(gPipeline.mLastExposure);
+    gPipeline.mExposureMap.swapTargets(gPipeline.mLastExposure);
 
     DXPipeline::copyScreenSpaceReflections(gPipeline, &screen, &gPipeline.mSceneMap);
     DXPipeline::generateLuminance(gPipeline, &screen, &gPipeline.mLuminanceMap);
@@ -560,14 +558,14 @@ bool LLGLTFPreviewTexture::render()
         // post-DoF result sitting in mPostPingMap would never reach `screen`,
         // which the code below this point reads from unconditionally -
         // screen would still hold the pre-DoF combineGlow() output instead.
-        // swapFBORefs() is a zero-cost reference swap (mPostPingMap is never
+        // swapTargets() is a zero-cost reference swap (mPostPingMap is never
         // read again after this block) - same pattern already used a few
         // lines up for mExposureMap/mLastExposure.
-        screen.swapFBORefs(gPipeline.mPostPingMap);
+        screen.swapTargets(gPipeline.mPostPingMap);
     }
 
     // *HACK: Restore mExposureMap (it will be consumed by generateExposure next frame)
-    gPipeline.mExposureMap.swapFBORefs(gPipeline.mLastExposure);
+    gPipeline.mExposureMap.swapTargets(gPipeline.mLastExposure);
 
     // Final render
 

@@ -319,7 +319,7 @@ bool LLTexLayerParamAlpha::render(S32 x, S32 y, S32 width, S32 height)
 				// We now have something in one of our caches
 				LLTexLayerSet::sHasCaches |= mCachedProcessedTexture.notNull();
 
-				mCachedProcessedTexture->setExplicitFormat(GL_ALPHA8, GL_ALPHA);
+				mCachedProcessedTexture->setExplicitFormat(DXPixelFormat::Alpha8);
 			}
 
 			// Applies domain and effective weight to data as it is decoded. Also resizes the raw image if needed.

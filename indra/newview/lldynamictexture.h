@@ -81,18 +81,17 @@ public:
     static void destroyDX() ;
     static void restoreDX() ;
 
-    void setBoundTarget(LLRenderTarget* target) { mBoundTarget = target; }
+    void setBoundTarget(DXRenderTarget* target) { mBoundTarget = target; }
 
 protected:
     void generateGLTexture();
-    void generateGLTexture(LLGLint internal_format, LLGLenum primary_format, LLGLenum type_format, bool swap_bytes = false);
 
 protected:
     bool mClamp;
     LLCoordYUp mOrigin;
     LL_ALIGN_16(LLCamera mCamera);
 
-    LLRenderTarget* mBoundTarget;
+    DXRenderTarget* mBoundTarget;
 
     typedef std::set<LLViewerDynamicTexture*> instance_list_t;
     static instance_list_t sInstances[ LLViewerDynamicTexture::ORDER_COUNT ];

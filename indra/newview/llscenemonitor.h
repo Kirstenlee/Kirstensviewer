@@ -33,7 +33,7 @@
 #include "lltracerecording.h"
 
 class LLCharacter;
-class LLRenderTarget;
+class DXRenderTarget;
 class LLViewerTexture;
 
 class LLSceneMonitor : public LLSingleton<LLSceneMonitor>
@@ -52,7 +52,7 @@ public:
     void calcDiffAggregate();
     void setDiffTolerance(F32 tol) {mDiffTolerance = tol;}
 
-    const LLRenderTarget* getDiffTarget() const {return mDiff;}
+    const DXRenderTarget* getDiffTarget() const {return mDiff;}
     F32  getDiffTolerance() const {return mDiffTolerance;}
     F32  getDiffResult() const { return mDiffResult;}
     F32  getDiffPixelRatio() const { return mDiffPixelRatio;}
@@ -69,7 +69,7 @@ private:
     void freezeScene();
     void unfreezeScene();
 
-    LLRenderTarget& getCaptureTarget();
+    DXRenderTarget& getCaptureTarget();
     void generateDitheringTexture(S32 width, S32 height);
 
 private:
@@ -85,8 +85,8 @@ private:
         VIEWER_QUITTING
     }                                       mDiffState;
 
-    LLRenderTarget*                         mFrames[2];
-    LLRenderTarget*                         mDiff;
+    DXRenderTarget*                         mFrames[2];
+    DXRenderTarget*                         mDiff;
 
     GLuint                                  mQueryObject; //used for glQuery
     F32                                     mDiffResult,  //aggregate results of mDiff.

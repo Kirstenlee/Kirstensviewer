@@ -570,7 +570,7 @@ void LLGLTexMemBar::draw()
    // separate estimate with a tracking miss to compensate for).
    F64 texture_bytes_alloc = LLImageDX::getTextureBytesAllocated() / 1024.0 / 1024.0;
    F64 vertex_bytes_alloc = LLVertexBuffer::getBytesAllocated() / 1024.0 / 1024.0;
-   F64 render_bytes_alloc = LLRenderTarget::sBytesAllocated / 1024.0 / 1024.0;
+   F64 render_bytes_alloc = DXRenderTarget::getBytesAllocated() / 1024.0 / 1024.0;
 
     //----------------------------------------------------------------------------
     DXUIDefault gls_ui;
@@ -643,7 +643,7 @@ void LLGLTexMemBar::draw()
 
     text = llformat("Sys Free: %d MB FBO: %d MB Probe#: %d Probe Mem: %d MB Cache: %.1f/%.1f MB",
                     LLMemory::getAvailableMemKB()/1024,
-                    LLRenderTarget::sBytesAllocated/(1024*1024),
+                    (S32)(DXRenderTarget::getBytesAllocated()/(1024*1024)),
                     gPipeline.mSphereProbes.probeCount(),
                     gPipeline.mSphereProbes.probeMemory(),
                     cache_usage,

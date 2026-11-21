@@ -162,9 +162,9 @@ void DXDrawPoolWater::beginPostDeferredPass(LLDrawPoolWater& pool, S32 pass)
         // reflections and refractions
         DXDepthTest depth(true, true, DX_ALWAYS);
 
-        LLRenderTarget& src = gPipeline.mRT->screen;
-        LLRenderTarget& depth_src = gPipeline.mRT->deferredScreen;
-        LLRenderTarget& dst = gPipeline.mWaterDis;
+        DXRenderTarget& src = gPipeline.mRT->screen;
+        DXRenderTarget& depth_src = gPipeline.mRT->deferredScreen;
+        DXRenderTarget& dst = gPipeline.mWaterDis;
 
         dst.bindTarget();
         gCopyDepthProgram.bind();
@@ -337,7 +337,7 @@ void DXDrawPoolWater::renderPostDeferred(LLDrawPoolWater& pool, S32 pass)
         tex_b->setFilteringOption(filter_mode);
     }
 
-    // Both go through the LLHLSLShader::bindTexture(S32, LLRenderTarget*, ...)
+    // Both go through the LLHLSLShader::bindTexture(S32, DXRenderTarget*, ...)
     // overload; see llhlslshader.cpp.
     shader->bindTexture(LLShaderMgr::WATER_EXCLUSIONTEX, &gPipeline.mWaterExclusionMask);
 

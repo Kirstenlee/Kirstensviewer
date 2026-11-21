@@ -53,7 +53,7 @@ extern bool gEquirectCapture;
 
 // Fully composited (tonemap+glow+DoF/FXAA/SMAA+CAS) result of the most
 // recent DXPipeline::presentDeferredScreen() call.
-extern LLRenderTarget* gLastCompositedPostTarget;
+extern DXRenderTarget* gLastCompositedPostTarget;
 
 namespace
 {
@@ -216,7 +216,7 @@ namespace
                 continue;
             }
 
-            onFace(face, gLastCompositedPostTarget->getDXColorTexture(0));
+            onFace(face, gLastCompositedPostTarget->getColorTexture(0));
         }
 
         gEquirectCapture = false;
@@ -256,8 +256,8 @@ bool LLEquirectCapture::captureEquirect(U32 faceRes, U32 outputWidth, U32 output
     }
 
     // Scratch target for the per-face un-mirror flip (flipXF.hlsl).
-    LLRenderTarget flipScratch;
-    if (!flipScratch.allocate(faceRes, faceRes, GL_RGBA))
+    DXRenderTarget flipScratch;
+    if (!flipScratch.allocate(faceRes, faceRes, DXGI_FORMAT_R8G8B8A8_UNORM))
     {
         LL_WARNS("EquirectCapture") << "flipScratch.allocate failed" << LL_ENDL;
         return false;
@@ -275,7 +275,7 @@ bool LLEquirectCapture::captureEquirect(U32 faceRes, U32 outputWidth, U32 output
         gFlipXProgram.unbind();
         flipScratch.flush();
 
-        if (!cubeTex.copyFace(face, flipScratch.getDXColorTexture(0)))
+        if (!cubeTex.copyFace(face, flipScratch.getColorTexture(0)))
         {
             LL_WARNS("EquirectCapture") << "copyFace failed for face " << face << LL_ENDL;
         }
@@ -289,8 +289,8 @@ bool LLEquirectCapture::captureEquirect(U32 faceRes, U32 outputWidth, U32 output
     cubeTex.generateMipMaps();
 
     // Compose: one full-screen pass, hardware TextureCube.Sample().
-    LLRenderTarget equirectTarget;
-    if (!equirectTarget.allocate(outputWidth, outputHeight, GL_RGBA))
+    DXRenderTarget equirectTarget;
+    if (!equirectTarget.allocate(outputWidth, outputHeight, DXGI_FORMAT_R8G8B8A8_UNORM))
     {
         LL_WARNS("EquirectCapture") << "equirectTarget.allocate(" << outputWidth << ", " << outputHeight << ") failed" << LL_ENDL;
         return false;
@@ -308,7 +308,7 @@ bool LLEquirectCapture::captureEquirect(U32 faceRes, U32 outputWidth, U32 output
     }
 
     std::string filepath = gDirUtilp->getExpandedFilename(LL_PATH_LOGS, "equirect_capture.jpg");
-    if (!saveToJpeg(equirectTarget.getDXColorTexture(0), outputWidth, outputHeight, filepath))
+    if (!saveToJpeg(equirectTarget.getColorTexture(0), outputWidth, outputHeight, filepath))
     {
         LL_WARNS("EquirectCapture") << "save failed for composed equirect" << LL_ENDL;
         return false;

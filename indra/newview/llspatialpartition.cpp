@@ -1564,13 +1564,9 @@ void renderOctree(LLSpatialGroup* group)
             // Found in a tree-wide stray-GL sweep.
 
             gDX.diffuseColor4f(1,0,0,group->mBuilt);
-            gDX.flush();
-            LLUI::setLineWidth(5.f);
 
             const LLVector4a* bounds = group->getObjectBounds();
             drawBoxOutline(bounds[0], bounds[1]);
-            gDX.flush();
-            LLUI::setLineWidth(1.f);
             gDX.flush();
 
             const LLVOAvatar* lastAvatar = nullptr;
@@ -1875,23 +1871,7 @@ void renderBoundingBox(LLDrawable* drawable, bool set_color = true)
     size.setSub(ext[1], ext[0]);
     size.mul(0.5f);
 
-    LLViewerObject* vobj = drawable->getVObj();
-    if (vobj && vobj->onActiveList())
-    {
-        gDX.flush();
-        // S24: raw glLineWidth() was unguarded here (found in a tree-wide stray-GL sweep, live-
-        // tested via Develop>Render Info>Bounding Box - no crash, just no pulsing-width effect on
-        // active-object boxes). LLUI::setLineWidth() is the same no-op-under-DX_RENDER replacement
-        // used tree-wide.
-        LLUI::setLineWidth(llmax(4.f*sinf(gFrameTimeSeconds*2.f)+1.f, 1.f));
-        drawBoxOutline(pos,size);
-        gDX.flush();
-        LLUI::setLineWidth(1.f);
-    }
-    else
-    {
-        drawBoxOutline(pos,size);
-    }
+    drawBoxOutline(pos,size);
 }
 // *TODO: LLDrawables which are not part of LLVOVolumes fall into a different
 // code path which uses a shader - it was tested to be faster than mapping a
@@ -2830,12 +2810,6 @@ public:
                 drawBoxOutline(center, size);
             }
 
-            if (i == 1)
-            {
-                gDX.flush();
-                LLUI::setLineWidth(3.f);
-            }
-
             gDX.begin(LLRender::TRIANGLES);
             for (LLOctreeNode<LLVolumeTriangle, LLVolumeTriangle*>::const_element_iter iter = branch->getDataBegin();
                     iter != branch->getDataEnd();
@@ -2848,12 +2822,6 @@ public:
                 gDX.vertex3fv(tri->mV[2]->getF32ptr());
             }
             gDX.end();
-
-            if (i == 1)
-            {
-                gDX.flush();
-                LLUI::setLineWidth(1.f);
-            }
         }
     }
 };

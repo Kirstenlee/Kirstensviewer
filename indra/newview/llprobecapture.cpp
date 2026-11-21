@@ -28,7 +28,7 @@
 #include "llviewershadermgr.h"
 #include "pipeline.h"
 
-bool LLProbeCapture::allocate(U32 resolution, U32 mip_count, bool hdr, U32 blur_scale, U32 blur_format)
+bool LLProbeCapture::allocate(U32 resolution, U32 mip_count, bool hdr, U32 blur_scale, DXGI_FORMAT blur_format)
 {
     release();
 
@@ -50,7 +50,7 @@ bool LLProbeCapture::allocate(U32 resolution, U32 mip_count, bool hdr, U32 blur_
     for (U32 i = 0; i < mip_count; ++i)
     {
         // DX_RENDER uses RGBA16F for HDR and RGBA otherwise. The D3D11 copy path needs a castable format.
-        mMips[i].allocate(res, res, hdr ? GL_RGBA16F : GL_RGBA);
+        mMips[i].allocate(res, res, hdr ? DXGI_FORMAT_R16G16B16A16_FLOAT : DXGI_FORMAT_R8G8B8A8_UNORM);
         res = llmax(res / 2, (U32)1);
     }
 
@@ -69,7 +69,7 @@ void LLProbeCapture::release()
     mHDR = false;
 }
 
-void LLProbeCapture::resolveFace(LLRenderTarget& screen_rt, DXCubeArrayTexture& dst, U32 slice)
+void LLProbeCapture::resolveFace(DXRenderTarget& screen_rt, DXCubeArrayTexture& dst, U32 slice)
 {
     if (mMips.empty())
     {

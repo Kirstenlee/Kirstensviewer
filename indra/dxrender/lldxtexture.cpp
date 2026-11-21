@@ -158,7 +158,7 @@ bool DXTextureBase::createGLTexture()
     return mGLTexturep->createGLTexture() ;
 }
 
-bool DXTextureBase::createGLTexture(S32 discard_level, const LLImageRaw* imageraw, S32 usename, bool to_create, S32 category, bool defer_copy, LLGLuint* tex_name)
+bool DXTextureBase::createGLTexture(S32 discard_level, const LLImageRaw* imageraw, S32 usename, bool to_create, S32 category, bool defer_copy, U32* tex_name)
 {
     llassert(mGLTexturep.notNull());
 
@@ -199,11 +199,11 @@ bool DXTextureBase::updateDynamic(const U8* datap, S32 data_width, S32 data_heig
     return mGLTexturep->updateDynamic(datap, data_width, data_height);
 }
 
-void DXTextureBase::setExplicitFormat(LLGLint internal_format, LLGLenum primary_format, LLGLenum type_format, bool swap_bytes)
+void DXTextureBase::setExplicitFormat(DXPixelFormat source_format)
 {
     llassert(mGLTexturep.notNull()) ;
 
-    mGLTexturep->setExplicitFormat(internal_format, primary_format, type_format, swap_bytes) ;
+    mGLTexturep->setExplicitFormat(source_format) ;
 }
 void DXTextureBase::setAddressMode(LLTexUnit::eTextureAddressMode mode)
 {
@@ -247,7 +247,7 @@ S8  DXTextureBase::getComponents() const
 	return mGLTexturep->getComponents() ;
 }
 
-LLGLuint DXTextureBase::getTexName() const 
+U32 DXTextureBase::getTexName() const 
 { 
 	llassert(mGLTexturep.notNull()) ;
 
@@ -278,14 +278,14 @@ LLTexUnit::eTextureType DXTextureBase::getTarget(void) const
     return mGLTexturep->getTarget() ;
 }
 
-bool DXTextureBase::setSubImage(const LLImageRaw* imageraw, S32 x_pos, S32 y_pos, S32 width, S32 height, LLGLuint use_name)
+bool DXTextureBase::setSubImage(const LLImageRaw* imageraw, S32 x_pos, S32 y_pos, S32 width, S32 height, U32 use_name)
 {
     llassert(mGLTexturep.notNull()) ;
 
     return mGLTexturep->setSubImage(imageraw, x_pos, y_pos, width, height, 0, use_name) ;
 }
 
-bool DXTextureBase::setSubImage(const U8* datap, S32 data_width, S32 data_height, S32 x_pos, S32 y_pos, S32 width, S32 height, LLGLuint use_name)
+bool DXTextureBase::setSubImage(const U8* datap, S32 data_width, S32 data_height, S32 x_pos, S32 y_pos, S32 width, S32 height, U32 use_name)
 {
     llassert(mGLTexturep.notNull()) ;
 
@@ -306,13 +306,13 @@ void  DXTextureBase::setCategory(S32 category)
 	mGLTexturep->setCategory(category) ;
 }
 
-void DXTextureBase::setTexName(LLGLuint texName)
+void DXTextureBase::setTexName(U32 texName)
 {
     llassert(mGLTexturep.notNull());
     return mGLTexturep->setTexName(texName); 
 }
 
-void DXTextureBase::setTarget(const LLGLenum target, const LLTexUnit::eTextureType bind_target)
+void DXTextureBase::setTarget(const DXenum target, const LLTexUnit::eTextureType bind_target)
 {
     llassert(mGLTexturep.notNull());
     return mGLTexturep->setTarget(target, bind_target); 
@@ -332,11 +332,11 @@ S32Bytes DXTextureBase::getTextureMemory() const
 	return mGLTexturep->mTextureMemory ;
 }
 
-LLGLenum DXTextureBase::getPrimaryFormat() const
+DXPixelFormat DXTextureBase::getSourceFormat() const
 {
 	llassert(mGLTexturep.notNull()) ;
 
-    return mGLTexturep->getPrimaryFormat() ;
+    return mGLTexturep->getSourceFormat() ;
 }
 
 bool DXTextureBase::getIsAlphaMask() const

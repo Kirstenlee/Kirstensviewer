@@ -131,7 +131,7 @@ bool gShaderProfileFrame = false;
 
 // Exposes whichever of mPostPingMap/mPostPongMap DXPipeline::presentDeferredScreen()
 // last composited into, for rawSnapshot() (llviewerwindow.cpp) to read.
-LLRenderTarget* gLastCompositedPostTarget = nullptr;
+DXRenderTarget* gLastCompositedPostTarget = nullptr;
 
 // This is how long the sim will try to teleport you before giving up.
 constexpr F32 TELEPORT_EXPIRY = 15.0f;
@@ -952,7 +952,7 @@ void display(bool rebuild, F32 zoom_factor, int subfield, bool for_snapshot)
 			}
 		}
 
-		LLRenderTarget& rt = (DXPipeline::sRenderDeferred ? gPipeline.mRT->deferredScreen : gPipeline.mRT->screen);
+		DXRenderTarget& rt = (DXPipeline::sRenderDeferred ? gPipeline.mRT->deferredScreen : gPipeline.mRT->screen);
 		rt.flush();
 
 		if (DXPipeline::sRenderDeferred)
@@ -1182,7 +1182,7 @@ void display_cube_face()
 	// shaders only write a single SV_Target, not deferredScreen's full multi-target PSOutput -
 	// with its 3-4 RTVs still bound, only data0 receives the write; data1-3 are left untouched.
 	// deferredScreen is still the actively-bound target here (flush() hasn't run yet), so do not
-	// rebind it - LLRenderTarget::bindTarget() asserts it isn't already bound.
+	// rebind it - DXRenderTarget::bindTarget() asserts it isn't already bound.
 	DXPipeline::renderGeomPostDeferred(gPipeline, *LLViewerCamera::getInstance());
 
 	gPipeline.mRT->deferredScreen.flush();
@@ -1706,7 +1706,7 @@ void render_ui_2d()
 	}
 
 	// RenderUIBuffer's screen-aligned UI cache relies on unconverted GL calls (LLTexUnit::bind
-	// with LLRenderTarget*, plus raw glClear()) - bypassed under DX_RENDER like LLUIImage's
+	// with DXRenderTarget*, plus raw glClear()) - bypassed under DX_RENDER like LLUIImage's
 	// display-list cache. Off by default; falls back to the direct-draw path either way.
 	gViewerWindow->draw();
 

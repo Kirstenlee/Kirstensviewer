@@ -27,7 +27,7 @@
 #pragma once
 
 #include "llreflectionmap.h"
-#include "llrendertarget.h"
+#include "DXRenderTarget.h"
 #include "llprobecapture.h"
 #include "llprobecube.h"
 #include "llboxprobes.h"

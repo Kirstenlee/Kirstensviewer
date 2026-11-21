@@ -827,8 +827,6 @@ void LLViewerParcelOverlay::renderPropertyLinesOnMinimap(F32 scale_pixels_per_me
     const S32 GRIDS_PER_EDGE   = mParcelGridsPerEdge;
 
     gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
-    // S24: glLineWidth() has no DX11 equivalent; LLUI::setLineWidth() is the no-op stand-in under DX_RENDER.
-    LLUI::setLineWidth(1.0f);
     gDX.color4fv(parcel_outline_color);
     for (S32 i = 0; i <= GRIDS_PER_EDGE; i++)
     {

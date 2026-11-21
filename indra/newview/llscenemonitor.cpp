@@ -25,7 +25,7 @@
  */
 
 #include "llviewerprecompiledheaders.h"
-#include "llrendertarget.h"
+#include "DXRenderTarget.h"
 #include "llscenemonitor.h"
 #include "llviewerwindow.h"
 #include "llviewerdisplay.h"
@@ -165,17 +165,17 @@ void LLSceneMonitor::setDebugViewerVisible(bool visible)
     mDebugViewerVisible = visible;
 }
 
-LLRenderTarget& LLSceneMonitor::getCaptureTarget()
+DXRenderTarget& LLSceneMonitor::getCaptureTarget()
 {
-    LLRenderTarget* cur_target = NULL;
+    DXRenderTarget* cur_target = NULL;
 
     S32 width = gViewerWindow->getWorldViewWidthRaw();
     S32 height = gViewerWindow->getWorldViewHeightRaw();
 
     if(!mFrames[0])
     {
-        mFrames[0] = new LLRenderTarget();
-        mFrames[0]->allocate(width, height, GL_RGB);
+        mFrames[0] = new DXRenderTarget();
+        mFrames[0]->allocate(width, height, DXGI_FORMAT_R8G8B8A8_UNORM);
         gDX.getTexUnit(0)->bind(mFrames[0]);
         gDX.getTexUnit(0)->setTextureFilteringOption(LLTexUnit::TFO_POINT);
         gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
@@ -184,8 +184,8 @@ LLRenderTarget& LLSceneMonitor::getCaptureTarget()
     }
     else if(!mFrames[1])
     {
-        mFrames[1] = new LLRenderTarget();
-        mFrames[1]->allocate(width, height, GL_RGB);
+        mFrames[1] = new DXRenderTarget();
+        mFrames[1]->allocate(width, height, DXGI_FORMAT_R8G8B8A8_UNORM);
         gDX.getTexUnit(0)->bind(mFrames[1]);
         gDX.getTexUnit(0)->setTextureFilteringOption(LLTexUnit::TFO_POINT);
         gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
@@ -307,7 +307,7 @@ void LLSceneMonitor::capture()
 
         last_capture_frame = gFrameCount;
 
-        LLRenderTarget& cur_target = getCaptureTarget();
+        DXRenderTarget& cur_target = getCaptureTarget();
 
         gDX.getTexUnit(0)->bind(&cur_target);
 
@@ -353,8 +353,8 @@ void LLSceneMonitor::compare()
     S32 height = gViewerWindow->getWindowHeightRaw();
     if(!mDiff)
     {
-        mDiff = new LLRenderTarget();
-        mDiff->allocate(width, height, GL_RGBA);
+        mDiff = new DXRenderTarget();
+        mDiff->allocate(width, height, DXGI_FORMAT_R8G8B8A8_UNORM);
 
         generateDitheringTexture(width, height);
     }

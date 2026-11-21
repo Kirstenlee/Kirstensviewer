@@ -30,7 +30,7 @@
 #include "linden_common.h"
 #include "llviewereventrecorder.h"
 #include "llfloater.h"
-#include "llrender2dutils.h"
+#include "DXRender2DUtils.h"
 
 #include "llfocusmgr.h"
 

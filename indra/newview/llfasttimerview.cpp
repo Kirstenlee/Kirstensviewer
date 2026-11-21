@@ -35,7 +35,7 @@
 #include "llgl.h"
 #include "llimagepng.h"
 #include "llrender.h"
-#include "llrendertarget.h"
+#include "DXRenderTarget.h"
 #include "lllocalcliprect.h"
 #include "lllayoutstack.h"
 #include "llmath.h"
@@ -471,8 +471,8 @@ void saveChart(const std::string& label, const char* suffix, LLImageRaw* scratch
 void LLFastTimerView::exportCharts(const std::string& base, const std::string& target)
 {
     //allocate render target for drawing charts
-    LLRenderTarget buffer;
-    buffer.allocate(1024,512, GL_RGB);
+    DXRenderTarget buffer;
+    buffer.allocate(1024,512, DXGI_FORMAT_R8G8B8A8_UNORM);
 
 
     LLSD cur;
@@ -1055,14 +1055,6 @@ void LLFastTimerView::drawLineGraph()
     {
         BlockTimerStatHandle* idp = (*it);
 
-        //fatten highlighted timer
-        if (mHoverID == idp)
-        {
-            gDX.flush();
-            // S24: glLineWidth() has no DX11 equivalent; LLUI::setLineWidth() is the no-op stand-in under DX_RENDER.
-            LLUI::setLineWidth(3);
-        }
-
         llassert(idp->getIndex() < sTimerColors.size());
         const F32 * col = sTimerColors[idp->getIndex()].mV;// ft_display_table[idx].color->mV;
 
@@ -1117,12 +1109,6 @@ void LLFastTimerView::drawLineGraph()
             gDX.vertex2f(x,(F32)mGraphRect.mBottom);
         }
         gDX.end();
-
-        if (mHoverID == idp)
-        {
-            gDX.flush();
-            LLUI::setLineWidth(1);
-        }
 
         if (idp->getTreeNode().mCollapsed)
         {

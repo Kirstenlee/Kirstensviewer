@@ -46,7 +46,7 @@
 #include "llfontdx.h"
 #include "llfontvertexbuffer.h"
 #include "llwindow.h"
-#include "llrender2dutils.h"
+#include "DXRender2DUtils.h"
 #include "llnotificationsutil.h"
 #include "llrender.h"
 #include "lluictrlfactory.h"

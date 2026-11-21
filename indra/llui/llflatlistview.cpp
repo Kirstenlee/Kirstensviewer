@@ -32,7 +32,7 @@
 #include "llflatlistview.h"
 
 #include "llfocusmgr.h"
-#include "llrender2dutils.h"
+#include "DXRender2DUtils.h"
 #include "llui.h"
 #include "lluicolortable.h"
 #include "llwindow.h"

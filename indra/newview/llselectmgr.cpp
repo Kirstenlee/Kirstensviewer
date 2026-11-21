@@ -8824,7 +8824,7 @@ bool LLCheckIdenticalFunctor<T>::same(const T& a, const T& b, const T& tolerance
 }
 
 DEF_DUMMY_CHECK_FUNCTOR(LLUUID)
-DEF_DUMMY_CHECK_FUNCTOR(LLGLenum)
+DEF_DUMMY_CHECK_FUNCTOR(DXenum)
 DEF_DUMMY_CHECK_FUNCTOR(LLTextureEntry)
 DEF_DUMMY_CHECK_FUNCTOR(LLTextureEntry::e_texgen)
 DEF_DUMMY_CHECK_FUNCTOR(bool)

@@ -98,9 +98,7 @@ set(dxrender_LLRENDER
     lldxtexture.cpp
     llimagedx.cpp
     llrender.cpp
-    llrender2dutils.cpp
     llrendersphere.cpp
-    llrendertarget.cpp
     llshadermgr.cpp
     lltexturemanagerbridge.cpp
     lluiimage.cpp
@@ -116,6 +114,7 @@ set(dxrender_HEADER_FILES
     core/DXSwapChain.h
     core/DXStateCache.h
     core/DXState.h
+    core/DXTypes.h
     core/DXCompositionSurface.h
 
     resources/DXBuffer.h
@@ -145,10 +144,8 @@ set(dxrender_HEADER_FILES
     llhlslshader.h
     llglstates.h
     lldxtexture.h
-    llgltypes.h
     llimagedx.h
     llrender.h
-    llrender2dutils.h
     llrendersphere.h
     llshadermgr.h
     lltexturemanagerbridge.h

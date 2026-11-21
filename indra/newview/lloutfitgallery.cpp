@@ -1063,7 +1063,7 @@ void LLOutfitGalleryItem::draw()
         const S32 HPAD = 3;
         const S32 VPAD = 6; // includes padding for text and for the image
         const S32 image_size = 14;
-        static LLPointer<LLUIImage> fav_img = LLRender2D::getInstance()->getUIImage("Inv_Favorite_Star_Full");
+        static LLPointer<LLUIImage> fav_img = DXRender2D::getInstance()->getUIImage("Inv_Favorite_Star_Full");
 
         const F32 alpha = getTransparencyType() == TT_ACTIVE ? 1.0f : getCurrentTransparency();
         dx_draw_scaled_image(

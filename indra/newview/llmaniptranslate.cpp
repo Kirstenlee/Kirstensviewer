@@ -1849,7 +1849,6 @@ void LLManipTranslate::renderTranslationHandles()
                 }
                 gDX.end();
 
-                LLUI::setLineWidth(3.0f);
                 gDX.begin(LLRender::LINES);
                 {
                     gDX.color4f(0.f, 0.f, 0.f, 0.3f);
@@ -1868,7 +1867,6 @@ void LLManipTranslate::renderTranslationHandles()
                     gDX.vertex3f(0.f, mPlaneManipOffsetMeters * -PLANE_TICK_SIZE * 0.4f,  mPlaneManipOffsetMeters * PLANE_TICK_SIZE * 0.1f);
                 }
                 gDX.end();
-                LLUI::setLineWidth(1.0f);
                 gDX.popMatrix();
             }
 
@@ -1904,7 +1902,6 @@ void LLManipTranslate::renderTranslationHandles()
                 }
                 gDX.end();
 
-                LLUI::setLineWidth(3.0f);
                 gDX.begin(LLRender::LINES);
                 {
                     gDX.color4f(0.f, 0.f, 0.f, 0.3f);
@@ -1923,7 +1920,6 @@ void LLManipTranslate::renderTranslationHandles()
                     gDX.vertex3f(mPlaneManipOffsetMeters * -PLANE_TICK_SIZE * 0.4f,   0.f, mPlaneManipOffsetMeters * PLANE_TICK_SIZE * 0.1f);
                 }
                 gDX.end();
-                LLUI::setLineWidth(1.0f);
 
                 gDX.popMatrix();
             }
@@ -1983,7 +1979,6 @@ void LLManipTranslate::renderTranslationHandles()
                     }
                     gDX.end();
 
-                    LLUI::setLineWidth(3.0f);
                     gDX.begin(LLRender::LINES);
                     {
                         gDX.color4f(0.f, 0.f, 0.f, 0.3f);
@@ -2004,7 +1999,6 @@ void LLManipTranslate::renderTranslationHandles()
                         gDX.vertex3fv((v23 + (v0-v23)*.3f + (v2-v23)*.3f).mV);
                     }
                     gDX.end();
-                    LLUI::setLineWidth(1.0f);
 
                 gDX.popMatrix();
             }
@@ -2116,7 +2110,6 @@ void LLManipTranslate::renderArrow(S32 which_arrow, S32 selected_arrow, F32 box_
         LLVector3 vec;
 
         {
-            LLUI::setLineWidth(2.0f);
             gDX.begin(LLRender::LINES);
                 vec.mV[index] = box_size;
                 gDX.vertex3f(vec.mV[0], vec.mV[1], vec.mV[2]);
@@ -2124,7 +2117,6 @@ void LLManipTranslate::renderArrow(S32 which_arrow, S32 selected_arrow, F32 box_
                 vec.mV[index] = arrow_size;
                 gDX.vertex3f(vec.mV[0], vec.mV[1], vec.mV[2]);
             gDX.end();
-            LLUI::setLineWidth(1.0f);
         }
 
         gDX.translatef(vec.mV[0], vec.mV[1], vec.mV[2]);

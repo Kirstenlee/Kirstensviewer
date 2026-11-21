@@ -30,7 +30,7 @@
 
 #include "llimage.h"
 
-#include "llgltypes.h"
+#include "DXTypes.h"
 #include "llpointer.h"
 #include "llrefcount.h"
 #include "v2math.h"
@@ -158,7 +158,6 @@ public:
     LLImageDX(const LLImageRaw* imageraw, bool usemipmaps = true, bool allow_compression = true);
 
     // For wrapping textures created via GL elsewhere with our API only. Use with caution.
-    LLImageDX(LLGLuint mTexName, U32 components, LLGLenum target, LLGLint  formatInternal, LLGLenum formatPrimary, LLGLenum formatType, LLTexUnit::eTextureAddressMode addressMode);
 
 protected:
     virtual ~LLImageDX();
@@ -180,8 +179,8 @@ public:
 
     bool createGLTexture() ;
     bool createGLTexture(S32 discard_level, const LLImageRaw* imageraw, S32 usename = 0, bool to_create = true,
-        S32 category = sMaxCategories-1, bool defer_copy = false, LLGLuint* tex_name = nullptr);
-    bool createGLTexture(S32 discard_level, const U8* data, bool data_hasmips = false, S32 usename = 0, bool defer_copy = false, LLGLuint* tex_name = nullptr);
+        S32 category = sMaxCategories-1, bool defer_copy = false, U32* tex_name = nullptr);
+    bool createGLTexture(S32 discard_level, const U8* data, bool data_hasmips = false, S32 usename = 0, bool defer_copy = false, U32* tex_name = nullptr);
     void setImage(const LLImageRaw* imageraw);
     bool setImage(const U8* data_in, bool data_hasmips = false, S32 usename = 0);
 
@@ -207,8 +206,8 @@ public:
     // *TODO: This function may not work if the textures is compressed (i.e.
     // RenderCompressTextures is 0). Partial image updates do not work on
     // compressed textures.
-    bool setSubImage(const LLImageRaw* imageraw, S32 x_pos, S32 y_pos, S32 width, S32 height, bool force_fast_update = false, LLGLuint use_name = 0);
-    bool setSubImage(const U8* datap, S32 data_width, S32 data_height, S32 x_pos, S32 y_pos, S32 width, S32 height, bool force_fast_update = false, LLGLuint use_name = 0);
+    bool setSubImage(const LLImageRaw* imageraw, S32 x_pos, S32 y_pos, S32 width, S32 height, bool force_fast_update = false, U32 use_name = 0);
+    bool setSubImage(const U8* datap, S32 data_width, S32 data_height, S32 x_pos, S32 y_pos, S32 width, S32 height, bool force_fast_update = false, U32 use_name = 0);
     bool setSubImageFromFrameBuffer(S32 fb_x, S32 fb_y, S32 x_pos, S32 y_pos, S32 width, S32 height);
 
     // Streaming pair for a texture rewritten wholesale every frame while
@@ -226,14 +225,14 @@ public:
 
     // wait for gl commands to finish on current thread and push
     // a lambda to main thread to swap mNewTexName and mTexName
-    void syncToMainThread(LLGLuint new_tex_name);
+    void syncToMainThread(U32 new_tex_name);
 
     // Read back a raw image for this discard level, if it exists
     bool readBackRaw(S32 discard_level, LLImageRaw* imageraw, bool compressed_ok) const;
     void destroyGLTexture();
     void forceToInvalidateGLTexture();
 
-    void setExplicitFormat(LLGLint internal_format, LLGLenum primary_format, LLGLenum type_format = 0, bool swap_bytes = false);
+    void setExplicitFormat(DXPixelFormat source_format);
     void setComponents(S8 ncomponents) { mComponents = ncomponents; }
 
     S32  getDiscardLevel() const        { return mCurrentDiscardLevel; }
@@ -252,8 +251,7 @@ public:
     S64  getMipBytes(S32 discard_level = -1) const;
     bool getBoundRecently() const;
     bool getHasExplicitFormat() const { return mHasExplicitFormat; }
-    LLGLenum getPrimaryFormat() const { return mFormatPrimary; }
-    LLGLenum getFormatType() const { return mFormatType; }
+    DXPixelFormat getSourceFormat() const { return mSourceFormat; }
 
     // S24: under DX_RENDER mTexName is a fake sentinel (1), not a real
     // handle, so ask the real DX-side resource directly instead.
@@ -261,7 +259,7 @@ public:
     {
         return mDXTexture.isValid();
     }
-    LLGLuint getTexName() const { return mTexName; }
+    U32 getTexName() const { return mTexName; }
 
     // S24: narrow accessor for LLCubeMap's DX_RENDER path - needs the raw
     // per-face ID3D11Texture2D* for CopySubresourceRegion() into a cubemap
@@ -321,7 +319,7 @@ public:
 
     bool getIsResident(bool test_now = false); // not const
 
-    void setTarget(const LLGLenum target, const LLTexUnit::eTextureType bind_target);
+    void setTarget(const DXenum target, const LLTexUnit::eTextureType bind_target);
 
     LLTexUnit::eTextureType getTarget(void) const { return mBindTarget; }
     bool isGLTextureCreated(void) const { return mGLTextureCreated ; }
@@ -344,7 +342,7 @@ public:
     void setFilteringOption(LLTexUnit::eTextureFilterOptions option);
     LLTexUnit::eTextureFilterOptions getFilteringOption(void) const { return mFilterOption; }
 
-    LLGLenum getTexTarget()const { return mTarget; }
+    DXenum getTexTarget()const { return mTarget; }
 
     void init(bool usemipmaps, bool allow_compression);
     virtual void cleanup(); // Clean up the LLImageDX so it can be reinitialized.  Be careful when using this in derived class destructors
@@ -373,43 +371,31 @@ private:
     U32 createPickMask(S32 pWidth, S32 pHeight);
     void freePickMask();
 
-    // S24: does mFormatPrimary declare a pre-compressed SOURCE format
-    // (S3TC/DXT1/3/5)? Answers "which DXTexture upload path applies to NEW
-    // incoming pixel data" - a property of the caller's declared format,
-    // not of whatever GPU resource currently exists. See
-    // isGpuResourceCompressed() for the different, DX-native question of
-    // current GPU state.
-    bool isSourceFormatCompressed() const;
-
     // S24: is the CURRENTLY-RESIDENT GPU resource block-compressed right
-    // now? Delegates to DXTexture's own real, always-correct state -
-    // unlike isSourceFormatCompressed()/mFormatPrimary, this correctly
+    // now? Delegates to DXTexture's own real, always-correct state, which
     // reflects a background BC7 upgrade
     // (DXBC7UploadManager::requestUpgrade() -> upgradeToCompressedMips()),
-    // which never touches mFormatPrimary.
+    // which never touches mSourceFormat.
     bool isGpuResourceCompressed() const { return mDXTexture.isValid() && mDXTexture.isCompressedFormat(); }
 
-    // S24: does mFormatPrimary declare a single-channel ALPHA-only source
+    // S24: does mSourceFormat declare a single-channel ALPHA-only source
     // (e.g. terrain's alpha_ramp gradients, storing data in the alpha
     // channel rather than luminance/RGB)? Threaded through to
-    // DXTexture::create()/updateSubImage()'s alpha_only param - GL has no
-    // equivalent parameter, it infers this from the format enum natively.
-    bool isAlphaOnlyFormat() const { return mFormatPrimary == GL_ALPHA; }
+    // DXTexture::create()/updateSubImage()'s alpha_only param.
+    bool isAlphaOnlyFormat() const { return mSourceFormat == DXPixelFormat::Alpha8; }
 
-    // S24: does mFormatPrimary declare a BGRA-ordered source (CEF's native
-    // OnPaint buffer format)? GL reorders natively via glTexImage2D's
-    // format param; DXTexture has no equivalent and must swap R/B itself -
-    // see its own `bgra` param comment.
-    bool isBGRAFormat() const { return mFormatPrimary == GL_BGRA; }
+    // S24: does mSourceFormat declare a BGRA-ordered source (the web plugins'
+    // native buffer format)? DXTexture swaps R/B itself - see its own `bgra`
+    // param comment.
+    bool isBGRAFormat() const { return mSourceFormat == DXPixelFormat::BGRA8; }
 
     // S24: sanity-checks a caller-declared explicit format (setExplicitFormat())
-    // against mComponents - catches a caller that set an explicit format enum
-    // inconsistent with the component count it also declared (e.g. GL_RGBA
-    // with only 3 components).
+    // against mComponents - catches a caller that declared a format
+    // inconsistent with the component count (e.g. RGBA8 with only 3 components).
     bool isExplicitFormatMismatched() const
     {
-        return (mFormatPrimary == GL_RGBA && mComponents < 4) ||
-               (mFormatPrimary == GL_RGB && mComponents < 3);
+        return (mSourceFormat == DXPixelFormat::RGBA8 && mComponents < 4) ||
+               (mSourceFormat == DXPixelFormat::RGB8 && mComponents < 3);
     }
 
     LLPointer<LLImageRaw> mSaveData; // used for destroyDX/restoreDX
@@ -429,7 +415,7 @@ private:
     U16 mPickMaskWidth;
     U16 mPickMaskHeight;
     S8 mUseMipMaps;
-    bool mHasExplicitFormat; // If false (default), GL format is f(mComponents)
+    bool mHasExplicitFormat; // If false (default), the source format is f(mComponents)
     bool mAutoGenMips = false;
 
     bool mIsMask;
@@ -438,7 +424,7 @@ private:
     S8   mAlphaOffset ;
 
     bool     mGLTextureCreated ;
-    LLGLuint mTexName;
+    U32 mTexName;
     U16      mWidth;
     U16      mHeight;
     S8       mCurrentDiscardLevel;
@@ -456,11 +442,11 @@ private:
     bool mAllowCompression;
 
 protected:
-    LLGLenum mTarget;       // Normally GL_TEXTURE2D, sometimes something else (ex. cube maps)
+    DXenum mTarget;       // Normally GL_TEXTURE2D, sometimes something else (ex. cube maps)
     LLTexUnit::eTextureType mBindTarget;    // Normally TT_TEXTURE, sometimes something else (ex. cube maps)
     bool mHasMipMaps;
 
-    LLGLboolean mIsResident;
+    bool mIsResident;
 
     S8 mComponents;
     S8 mMaxDiscardLevel;
@@ -468,10 +454,7 @@ protected:
     LLTexUnit::eTextureAddressMode      mAddressMode;   // Defaults to TAM_WRAP
     LLTexUnit::eTextureFilterOptions    mFilterOption;  // Defaults to TFO_ANISOTROPIC
 
-    LLGLint  mFormatInternal; // = GL internalformat
-    LLGLenum mFormatPrimary;  // = GL format (pixel data format)
-    LLGLenum mFormatType;
-    bool     mFormatSwapBytes;// if true, use glPixelStorei(GL_UNPACK_SWAP_BYTES, 1)
+    DXPixelFormat mSourceFormat; // layout of the pixels uploaded; Auto until set
 
     bool mExternalTexture;
 
@@ -523,7 +506,7 @@ public:
     void setTexName(GLuint texName) { mTexName = texName; }
 
     //similar to setTexName, but will call deleteTextures on mTexName if mTexName is not 0 or texname
-    void syncTexName(LLGLuint texname);
+    void syncTexName(U32 texname);
 
     //for debug use: show texture size distribution
     //----------------------------------------

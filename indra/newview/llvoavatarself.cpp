@@ -140,7 +140,7 @@ struct LocalTextureData
 // Static Data
 //-----------------------------------------------------------------------------
 S32Bytes LLVOAvatarSelf::sScratchTexBytes(0);
-std::map< LLGLenum, LLGLuint*> LLVOAvatarSelf::sScratchTexNames;
+std::map< DXenum, U32*> LLVOAvatarSelf::sScratchTexNames;
 
 
 /*********************************************************************************
@@ -2848,7 +2848,7 @@ bool LLVOAvatarSelf::needsRenderBeam()
 // static
 void LLVOAvatarSelf::deleteScratchTextures()
 {
-    for(std::map< LLGLenum, LLGLuint*>::iterator it = sScratchTexNames.begin(), end_it = sScratchTexNames.end();
+    for(std::map< DXenum, U32*>::iterator it = sScratchTexNames.begin(), end_it = sScratchTexNames.end();
         it != end_it;
         ++it)
     {

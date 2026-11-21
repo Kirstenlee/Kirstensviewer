@@ -88,21 +88,13 @@ S8 LLViewerDynamicTexture::getType() const
 void LLViewerDynamicTexture::generateGLTexture()
 {
     LLViewerTexture::generateGLTexture() ;
-    generateGLTexture(-1, 0, 0, false);
-}
 
-void LLViewerDynamicTexture::generateGLTexture(LLGLint internal_format, LLGLenum primary_format, LLGLenum type_format, bool swap_bytes)
-{
     if (mComponents < 1 || mComponents > 4)
     {
         LL_ERRS() << "Bad number of components in dynamic texture: " << mComponents << LL_ENDL;
     }
 
     LLPointer<LLImageRaw> raw_image = new LLImageRaw(mFullWidth, mFullHeight, mComponents);
-    if (internal_format >= 0)
-    {
-        setExplicitFormat(internal_format, primary_format, type_format, swap_bytes);
-    }
     createGLTexture(0, raw_image, 0, true, DXTextureBase::DYNAMIC_TEX);
     setAddressMode((mClamp) ? LLTexUnit::TAM_CLAMP : LLTexUnit::TAM_WRAP);
     mGLTexturep->setGLTextureCreated(false);
@@ -167,12 +159,12 @@ void LLViewerDynamicTexture::preRender(bool clear_depth)
     gDXContext.setViewport(mOrigin.mX, viewport_y, mFullWidth, mFullHeight);
     if (clear_depth)
     {
-        // Routed through the currently-bound LLRenderTarget's own clear() (set by
+        // Routed through the currently-bound DXRenderTarget's own clear() (set by
         // updateAllInstances() via setBoundTarget() just before preRender() is called), which
         // correctly dispatches to ClearDepthStencilView.
         if (mBoundTarget)
         {
-            mBoundTarget->clear(GL_DEPTH_BUFFER_BIT);
+            mBoundTarget->clear(false, true);
         }
     }
 }
@@ -228,8 +220,8 @@ bool LLViewerDynamicTexture::updateAllInstances()
         return true;
     }
 
-    LLRenderTarget& preview_target = gPipeline.mAuxillaryRT.deferredScreen;
-    LLRenderTarget& bake_target = gPipeline.mBakeMap;
+    DXRenderTarget& preview_target = gPipeline.mAuxillaryRT.deferredScreen;
+    DXRenderTarget& bake_target = gPipeline.mBakeMap;
     if (!preview_target.isComplete() || !bake_target.isComplete())
     {
         llassert(false);
@@ -302,13 +294,13 @@ bool LLViewerDynamicTexture::updateAllInstances()
     // S24: `needs_render` is the pre-scanned, cached result from above - this must NEVER call
     // dynamicTexture->needsRender() itself (see this function's own comment on why that would be
     // unsafe). Callers only invoke this when needs_render is already known true.
-    auto update_func = [&](LLViewerDynamicTexture* dynamicTexture, LLRenderTarget& renderTarget, S32 width, S32 height)
+    auto update_func = [&](LLViewerDynamicTexture* dynamicTexture, DXRenderTarget& renderTarget, S32 width, S32 height)
         {
             llassert(dynamicTexture->getFullWidth() <= width);
             llassert(dynamicTexture->getFullHeight() <= height);
 
-            // Routed through the already-bound LLRenderTarget instead of raw glClear().
-            renderTarget.clear(GL_DEPTH_BUFFER_BIT);
+            // Routed through the already-bound DXRenderTarget instead of raw glClear().
+            renderTarget.clear(false, true);
 
             gDX.color4f(1.f, 1.f, 1.f, 1.f);
             dynamicTexture->setBoundTarget(&renderTarget);

@@ -54,7 +54,7 @@
 
 // static
 LLStandardBumpmap gStandardBumpmapList[TEM_BUMPMAP_COUNT];
-LLRenderTarget LLBumpImageList::sRenderTarget;
+DXRenderTarget LLBumpImageList::sRenderTarget;
 
 // static
 U32 LLStandardBumpmap::sStandardBumpmapCount = 0;
@@ -471,7 +471,7 @@ void LLBumpImageList::onSourceStandardLoaded( bool success, LLViewerFetchedTextu
         {
             generateNormalMapFromAlpha(src, nrm_image);
         }
-        src_vi->setExplicitFormat(GL_RGBA, GL_RGBA);
+        src_vi->setExplicitFormat(DXPixelFormat::RGBA8);
         {
             if (!src_vi->createGLTexture(src_vi->getDiscardLevel(), nrm_image))
             {
@@ -558,7 +558,7 @@ void LLBumpImageList::onSourceUpdated(LLViewerTexture* src, EBumpEffect bump_cod
     // immediately assign bump to a smart pointer in case some local smart pointer
     // accidentally releases it.
     // DXRenderTarget can't render into an arbitrary externally-owned DXTexture (see
-    // llrendertarget.cpp), so bump-mapped surfaces just get whatever normal map the entry already
+    // DXRenderTarget.h), so bump-mapped surfaces just get whatever normal map the entry already
     // held (blank).
     //---------------------------------------------------
 

@@ -40,7 +40,7 @@
 #include "lluictrlfactory.h"
 #include "lluiimage.h"
 #include "llcontrol.h"
-#include "llrender2dutils.h"
+#include "DXRender2DUtils.h"
 
 static LLDefaultChildRegistry::Register<LLProgressBar> r("progress_bar");
 

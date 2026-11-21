@@ -33,7 +33,7 @@
 #include "llcontrol.h"
 #include "llinitparam.h"
 #include "llregistry.h"
-#include "llrender2dutils.h"
+#include "DXRender2DUtils.h"
 #include "llpointer.h"
 #include "lluicolor.h"
 #include "lluicolortable.h"
@@ -105,7 +105,7 @@ enum EAddPosition
 void make_ui_sound(const char* name);
 void make_ui_sound_deferred(const char * name);
 
-class LLImageProviderInterface;
+class DXImageProviderInterface;
 
 typedef void (*LLUIAudioCallback)(const LLUUID& uuid);
 
@@ -116,7 +116,7 @@ public:
     typedef std::unordered_map<std::string, LLControlGroup*, ll::string_hash, std::equal_to<>> settings_map_t;
 
     LLUI(const settings_map_t &settings,
-                           LLImageProviderInterface* image_provider,
+                           DXImageProviderInterface* image_provider,
                            LLUIAudioCallback audio_callback,
                            LLUIAudioCallback deferred_audio_callback);
     ~LLUI();
@@ -309,19 +309,18 @@ public:
 	// view's parent.
 	void positionViewNearMouse(LLView* view,	S32 spawn_x = S32_MAX, S32 spawn_y = S32_MAX);
 
-	// LLRender2D wrappers
-	static void pushMatrix() { LLRender2D::pushMatrix(); }
-	static void popMatrix() { LLRender2D::popMatrix(); }
-	static void loadIdentity() { LLRender2D::loadIdentity(); }
-	static void translate(F32 x, F32 y, F32 z = 0.0f) { LLRender2D::translate(x, y, z); }
+	// DXRender2D wrappers
+	static void pushMatrix() { DXRender2D::pushMatrix(); }
+	static void popMatrix() { DXRender2D::popMatrix(); }
+	static void loadIdentity() { DXRender2D::loadIdentity(); }
+	static void translate(F32 x, F32 y, F32 z = 0.0f) { DXRender2D::translate(x, y, z); }
 
     static LLVector2& getScaleFactor();
     static void setScaleFactor(const LLVector2& scale_factor);
-	static void setLineWidth(F32 width) { LLRender2D::setLineWidth(width); }
 	static LLPointer<LLUIImage> getUIImageByID(const LLUUID& image_id, S32 priority = 0)
-		{ return LLRender2D::getInstance()->getUIImageByID(image_id, priority); }
+		{ return DXRender2D::getInstance()->getUIImageByID(image_id, priority); }
 	static LLPointer<LLUIImage> getUIImage(const std::string& name, S32 priority = 0)
-		{ return LLRender2D::getInstance()->getUIImage(name, priority); }
+		{ return DXRender2D::getInstance()->getUIImage(name, priority); }
 
 	// S24: shared entry point for every per-widget UI recolor call site (floater chrome, panel
 	// backgrounds, buttons, icons, sliders, scrollbars, progress bars, inventory icons) - binds

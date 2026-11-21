@@ -23,14 +23,14 @@ struct DXUIVertex
 
 // Accepts flat triangle-list geometry - the same shape the existing,
 // already-correct GL-era geometry construction code already produces
-// (LLFontDX::drawGlyph()/renderTriangle(), llrender2dutils.cpp's
+// (LLFontDX::drawGlyph()/renderTriangle(), DXRender2DUtils.cpp's
 // dx_draw_scaled_rotated_image()/dx_draw_scaled_image_with_border()), so
 // callers translate their existing pos/uv/color arrays into DXUIVertex
 // directly rather than this class re-deriving a dedup'd vertex+index
 // representation from code that's already correct as flat triangles.
 // One process-wide instance (gDXUIBatch) - not per-widget, mirroring
 // LLRender's own single-instance (gDX) immediate-mode buffer.
-// Mirrors the handful of GL primitive topologies llrender2dutils.cpp's
+// Mirrors the handful of GL primitive topologies DXRender2DUtils.cpp's
 // gDX.begin(X) calls actually use, restricted to what D3D11 natively
 // supports with no CPU-side reshaping (see DXRender2DUtils.h's header
 // comment for GL_LINE_LOOP/GL_TRIANGLE_FAN, which have no native D3D11

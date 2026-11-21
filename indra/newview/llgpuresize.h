@@ -1,6 +1,6 @@
 /**
  * @file llgpuresize.h
- * @brief GPU-side separable Catmull-Rom bicubic resize of one LLRenderTarget
+ * @brief GPU-side separable Catmull-Rom bicubic resize of one DXRenderTarget
  * into another, arbitrary source/destination dimensions.
  *
  * Copyright (c) 2026 Kirstenlee Cinquetti (Lee Quick)
@@ -26,7 +26,7 @@
 
 #pragma once
 
-class LLRenderTarget;
+class DXRenderTarget;
 
 // Built for the snapshot system (a large "native re-render" request can
 // blow past the GPU driver's TDR timeout), but deliberately generic -
@@ -39,9 +39,9 @@ public:
     // (horizontal then vertical) through an internal scratch target sized
     // (dst->getWidth(), src->getHeight()). dst must already be allocated at
     // the target width/height - same "caller allocates, we don't" contract
-    // every other LLRenderTarget consumer in this codebase already follows.
+    // every other DXRenderTarget consumer in this codebase already follows.
     // src and dst must be color-only (RGBA) targets - no depth handling.
     // Returns false (dst left untouched) if gResizeBicubicProgram isn't
     // ready (shader failed to compile) or src/dst are null/unallocated.
-    static bool resize(LLRenderTarget* src, LLRenderTarget* dst);
+    static bool resize(DXRenderTarget* src, DXRenderTarget* dst);
 };

@@ -42,7 +42,7 @@
 #include "llstrider.h"
 #include "llpointer.h"
 #include "llglheaders.h"
-#include "llgltypes.h"
+#include "DXTypes.h"
 #include "llmatrix4a.h"
 #include "glm/mat4x4.hpp"
 #include <boost/align/aligned_allocator.hpp>
@@ -56,7 +56,7 @@
 // catches EXCEPTION_ACCESS_VIOLATION from a dangling SRV (its texture
 // destroyed while still referenced) instead of taking the whole process
 // down. PSSetShaderResources returns void, so this is the only way to fail
-// gracefully at this call site. Shared across llrender.cpp/llrendertarget.cpp
+// gracefully at this call site. Shared across llrender.cpp/DXRenderTarget.cpp
 // rather than duplicated - see llrender.cpp's definition for the full
 // rationale. Returns false if the bind was caught and skipped - callers must
 // not update their "currently bound" cache state on a false return, or the
@@ -68,7 +68,7 @@ class DXCubeMap;
 class DXCubeMapArray;
 class DXCubeTexture;
 class LLImageDX;
-class LLRenderTarget;
+class DXRenderTarget;
 class DXTextureBase;
 class LLVertexBufferData;
 
@@ -108,13 +108,6 @@ public:
         TFO_TRILINEAR,          // Equal to: min=linear, mag=linear, mip=linear.
         TFO_ANISOTROPIC         // Equal to: min=anisotropic, max=anisotropic, mip=linear.
     } eTextureFilterOptions;
-
-    typedef enum
-    {
-        TMG_NONE = 0,           // Mipmaps are not automatically generated for this texture.
-        TMG_AUTO,               // Mipmaps are automatically generated for this texture.
-        TMG_MANUAL              // Mipmaps are manually generated for this texture.
-    } eTextureMipGeneration;
 
     typedef enum
     {
@@ -231,7 +224,7 @@ public:
     // getStencilSRV() instead of getDepthSRV()/getColorSRV(0) - mutually
     // exclusive with bindDepth (stencil wins if both are somehow true). See
     // krlv/README.md's Camera section (@camtextures) for the one caller.
-    bool bind(LLRenderTarget * renderTarget, bool bindDepth = false, bool useComparisonSampler = false, bool bindStencil = false);
+    bool bind(DXRenderTarget * renderTarget, bool bindDepth = false, bool useComparisonSampler = false, bool bindStencil = false);
 
     // Manually binds a texture to the texture unit
     // (automatically enables the tex unit for the given texture type)
@@ -276,7 +269,7 @@ public:
     // PSSetShaderResources/PSSetSamplers call (bypassing bind()/bindFast())
     // tell this unit's cache what's really bound now, so a later
     // bind()/bindFast() for the same channel isn't fooled into skipping a
-    // real rebind. Pure bookkeeping - see LLRenderTarget::bindTexture().
+    // real rebind. Pure bookkeeping - see DXRenderTarget::bindTexture().
     void syncDXBindState(void* srv, void* sampler);
 
 protected:
@@ -506,7 +499,7 @@ public:
     void endList();
     // S24: lets a caller check whether a beginList()/endList() recording is
     // active without direct access to sBufferDataList - used by LLFontDX and
-    // llrender2dutils.cpp to choose between the fast gDXUIBatch path and
+    // DXRender2DUtils.cpp to choose between the fast gDXUIBatch path and
     // falling back to begin()/vertexBatchPreTransformed()/end() so flush()'s
     // capture logic can build a replayable LLVertexBufferData, as for GL.
     bool isRecording() const;
@@ -598,7 +591,7 @@ public:
     // original call, unchanged; DX branch tracks the direction (DXState::setCullFace()) and
     // rebinds the rasterizer state immediately, mirroring setPolygonOffset() above. No #ifdef
     // needed at any call site - call this unconditionally from both backends.
-    void cullFace(LLGLenum face);
+    void cullFace(DXenum face);
 
     LLLightState* getLight(U32 index);
     void setAmbientLightColor(const LLColor4& color);
@@ -609,7 +602,7 @@ public:
 
     // S24: dxrender/ has zero llrender dependency by design, so it can't
     // read GL's ambient "current color" state directly - this accessor lets
-    // llrender2dutils.cpp's DX_RENDER fences capture that value explicitly
+    // DXRender2DUtils.cpp's DX_RENDER fences capture that value explicitly
     // for functions whose GL body relies on an earlier color4fv()-style call
     // rather than a parameter (e.g. dx_rect_2d()).
     // Not const: LLStrider<Object>::operator[] isn't const-qualified (see

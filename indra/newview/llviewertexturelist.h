@@ -181,8 +181,7 @@ private:
                                      bool usemipmap = true,
                                      LLViewerTexture::EBoostLevel boost_priority = DXTextureBase::BOOST_NONE,     // Get the requested level immediately upon creation.
                                      S8 texture_type = LLViewerTexture::FETCHED_TEXTURE,
-                                     LLGLint internal_format = 0,
-                                     LLGLenum primary_format = 0,
+                                     DXPixelFormat source_format = DXPixelFormat::Auto,
                                      LLHost request_from_host = LLHost()
                                      );
 
@@ -191,8 +190,7 @@ private:
                                      bool usemipmap = true,
                                      LLViewerTexture::EBoostLevel boost_priority = DXTextureBase::BOOST_NONE,     // Get the requested level immediately upon creation.
                                      S8 texture_type = LLViewerTexture::FETCHED_TEXTURE,
-                                     LLGLint internal_format = 0,
-                                     LLGLenum primary_format = 0,
+                                     DXPixelFormat source_format = DXPixelFormat::Auto,
                                      const LLUUID& force_id = LLUUID::null
                                      );
 
@@ -201,8 +199,7 @@ private:
                                      bool usemipmap = true,
                                      LLViewerTexture::EBoostLevel boost_priority = DXTextureBase::BOOST_NONE,     // Get the requested level immediately upon creation.
                                      S8 texture_type = LLViewerTexture::FETCHED_TEXTURE,
-                                     LLGLint internal_format = 0,
-                                      LLGLenum primary_format = 0,
+                                     DXPixelFormat source_format = DXPixelFormat::Auto,
                                      const LLUUID& force_id = LLUUID::null
                                      );
 
@@ -214,15 +211,14 @@ private:
                                      bool usemipmap = true,
                                      LLViewerTexture::EBoostLevel boost_priority = DXTextureBase::BOOST_NONE,     // Get the requested level immediately upon creation.
                                      S8 texture_type = LLViewerTexture::FETCHED_TEXTURE,
-                                     LLGLint internal_format = 0,
-                                     LLGLenum primary_format = 0,
+                                     DXPixelFormat source_format = DXPixelFormat::Auto,
                                      LLHost request_from_host = LLHost()
                                      );
 
     // Request image from a specific host, used for baked avatar textures.
     // Implemented in header in case someone changes default params above. JC
     LLViewerFetchedTexture* getImageFromHost(const LLUUID& image_id, FTType f_type, LLHost host)
-    { return getImage(image_id, f_type, true, DXTextureBase::BOOST_NONE, LLViewerTexture::LOD_TEXTURE, 0, 0, host); }
+    { return getImage(image_id, f_type, true, DXTextureBase::BOOST_NONE, LLViewerTexture::LOD_TEXTURE, DXPixelFormat::Auto, host); }
 
 public:
     typedef std::unordered_set<LLPointer<LLViewerFetchedTexture> > image_list_t;
@@ -264,11 +260,11 @@ private:
     LOG_CLASS(LLViewerTextureList);
 };
 
-class LLUIImageList : public LLImageProviderInterface, public LLSingleton<LLUIImageList>
+class LLUIImageList : public DXImageProviderInterface, public LLSingleton<LLUIImageList>
 {
     LLSINGLETON_EMPTY_CTOR(LLUIImageList);
 public:
-    // LLImageProviderInterface
+    // DXImageProviderInterface
     /*virtual*/ LLPointer<LLUIImage> getUIImageByID(const LLUUID& id, S32 priority) override;
     /*virtual*/ LLPointer<LLUIImage> getUIImage(const std::string& name, S32 priority) override;
     void cleanUp() override;

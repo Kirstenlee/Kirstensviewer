@@ -38,7 +38,7 @@
 #include "llwindow.h"
 
 #include "lldxtexture.h"
-#include "llrender2dutils.h"
+#include "DXRender2DUtils.h"
 
 static LLDefaultChildRegistry::Register<LLIconCtrl> r("icon");
 

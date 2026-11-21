@@ -78,12 +78,8 @@ public:
 // LLVertexBuffer calls, and shader/texture calls go through the DX-safe
 // LLHLSLShader/LLTexUnit wrappers.
 //
-// One real difference: LLDrawPoolWLSky::endDeferredPass()'s raw
-// glClear(GL_DEPTH_BUFFER_BIT) (clearing the depth buffer so haze shaders
-// can use unwritten depth as a mask) is replaced here with
-// gPipeline.mRT->deferredScreen.clear(GL_DEPTH_BUFFER_BIT), using
-// LLRenderTarget::clear()'s DX_RENDER branch for the equivalent
-// depth-only clear.
+// One real difference: the depth buffer is cleared (so haze shaders can use unwritten depth as a
+// mask) with gPipeline.mRT->deferredScreen.clear(false, true).
 class DXDrawPoolWLSky
 {
 public:

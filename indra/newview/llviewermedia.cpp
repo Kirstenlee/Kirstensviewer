@@ -3321,7 +3321,7 @@ void LLViewerMediaImpl::doMediaTexUpdate(LLViewerMediaTexture* media_tex, U8* da
 	// is already the full current frame buffer, not just the dirty
 	// sub-rect (see preMediaTexUpdate()) - exactly what Map(DISCARD) needs
 	// anyway, since it invalidates the whole resource.
-	LLGLuint tex_name = media_tex->getGLTexture()->getTexName();
+	U32 tex_name = media_tex->getGLTexture()->getTexName();
 	if (!media_tex->updateDynamic(data, data_width, data_height))
 	{
 		LL_WARNS("Media") << "Failed to update media texture" << LL_ENDL;
@@ -3379,11 +3379,21 @@ LLViewerMediaTexture* LLViewerMediaImpl::updateMediaImage()
 		// convert background color channels from [0.0, 1.0] to [0, 255];
 		raw->clear(int(mBackgroundColor.mV[VX] * 255.0f), int(mBackgroundColor.mV[VY] * 255.0f), int(mBackgroundColor.mV[VZ] * 255.0f), 0xff);
 
-		// ask media source for correct GL image format constants
-		media_tex->setExplicitFormat(mMediaSource->getTextureFormatInternal(),
-			mMediaSource->getTextureFormatPrimary(),
-			mMediaSource->getTextureFormatType(),
-			mMediaSource->getTextureFormatSwapBytes());
+		// the plugin protocol still names its pixel format with GL enumerants; map it to the source format here
+		switch (mMediaSource->getTextureFormatPrimary())
+		{
+		case GL_BGRA:
+			media_tex->setExplicitFormat(DXPixelFormat::BGRA8);
+			break;
+		case GL_RGBA:
+			media_tex->setExplicitFormat(DXPixelFormat::RGBA8);
+			break;
+		case GL_RGB:
+			media_tex->setExplicitFormat(DXPixelFormat::RGB8);
+			break;
+		default:
+			break; // the format follows from the component count
+		}
 
 		// S24: created D3D11_USAGE_DYNAMIC, not the ordinary DEFAULT usage
 		// createGLTexture() would use - see doMediaTexUpdate()'s comment

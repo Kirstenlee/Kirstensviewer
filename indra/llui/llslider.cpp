@@ -35,7 +35,7 @@
 #include "llkeyboard.h"         // for the MASK constants
 #include "llcontrol.h"
 #include "lluictrlfactory.h"
-#include "llrender2dutils.h"
+#include "DXRender2DUtils.h"
 
 namespace
 {

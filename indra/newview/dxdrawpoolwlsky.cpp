@@ -785,11 +785,8 @@ void DXDrawPoolWLSky::endDeferredPass(LLDrawPoolWLSky& pool, S32 pass)
     sun_shader = nullptr;
     moon_shader = nullptr;
 
-    // Mirrors the GL source's glClear(GL_DEPTH_BUFFER_BIT) ("clear the
-    // depth buffer so haze shaders can use unwritten depth as a mask") -
-    // routed through the deferred G-buffer target's own clear() (already
-    // DX-safe, see LLRenderTarget::clear()) instead of a raw GL call.
-    gPipeline.mRT->deferredScreen.clear(GL_DEPTH_BUFFER_BIT);
+    // clear the depth buffer so haze shaders can use unwritten depth as a mask
+    gPipeline.mRT->deferredScreen.clear(false, true);
 }
 
 // static

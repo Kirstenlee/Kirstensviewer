@@ -33,7 +33,7 @@
 #include "llrect.h"
 #include "llinitparam.h"
 #include "lldxtexture.h"
-#include "llrender2dutils.h"
+#include "DXRender2DUtils.h"
 #include "llvertexbuffer.h"
 
 // S24: lluiimage.inl's cached-display-list replay path needs gDXUIBatch's

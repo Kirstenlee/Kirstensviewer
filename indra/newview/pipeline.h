@@ -37,7 +37,7 @@
 #include "dxdrawpoolmaterials.h"
 #include "llgl.h"
 #include "lldrawable.h"
-#include "llrendertarget.h"
+#include "DXRenderTarget.h"
 
 #include "DXTexture.h"
 #include "llsphereprobes.h"
@@ -132,7 +132,7 @@ public:
 	// S24: renderFinalize() fully moved to DXPipeline::presentDeferredScreen() - no stub, every
 	// caller repointed directly.
 	// S24: copyScreenSpaceReflections()/generateLuminance()/generateExposure()/gammaCorrect()/
-	// generateGlow()/applyCAS()/applyFSR1Rcas()/applyFSR1Easu()/applyFSR1RcasToBoundTarget()/
+	// generateGlow()/applyCAS()/applyFSR1Easu()/applyFSR1RcasToBoundTarget()/
 	// applyFXAA()/generateSMAABuffers()/applySMAA()/copyRenderTarget()/applyKrlvCamDrawFog()/
 	// combineGlow()/visualizeBuffers() fully moved to DXPipeline:: - no stub, every caller
 	// repointed directly.
@@ -457,12 +457,12 @@ public:
         U32 					height = 0;
 
         //screen texture
-        LLRenderTarget			screen;
-        LLRenderTarget			deferredScreen;
-        LLRenderTarget			deferredLight;
+        DXRenderTarget			screen;
+        DXRenderTarget			deferredScreen;
+        DXRenderTarget			deferredLight;
 
         //sun shadow map
-        LLRenderTarget			shadow[4];
+        DXRenderTarget			shadow[4];
     };
 
     // main full resoltuion render target
@@ -478,32 +478,32 @@ public:
     // currently used render target pack
     RenderTargetPack* mRT;
 
-    LLRenderTarget          mSpotShadow[2];
+    DXRenderTarget          mSpotShadow[2];
 
-    LLRenderTarget          mPbrBrdfLut;
-    LLRenderTarget          mWaterExclusionMask;
+    DXRenderTarget          mPbrBrdfLut;
+    DXRenderTarget          mWaterExclusionMask;
 
     // copy of the color/depth buffer just before gamma correction
     // for use by SSR
-    LLRenderTarget          mSceneMap;
+    DXRenderTarget          mSceneMap;
 
     // screen-space reflection result (deferred/ssrF.hlsl), read by deferred lighting
-    LLRenderTarget          mSSRBuffer;
+    DXRenderTarget          mSSRBuffer;
     // temporal resolve of the SSR buffer: ping-pong pair (renderSSRResolve)
-    LLRenderTarget          mSSRResolved[2];
+    DXRenderTarget          mSSRResolved[2];
     S32                     mSSRResolveIndex = 0;   // target written this frame
     S32                     mSSRLastResolved = 0;   // target holding the last resolved result
     bool                    mSSRResolveReady = false;
     bool                    mSSRHistoryValid = false;
 
     // exposure map for getting average color in scene
-    LLRenderTarget          mLuminanceMap;
-    LLRenderTarget          mExposureMap;
-    LLRenderTarget          mLastExposure;
+    DXRenderTarget          mLuminanceMap;
+    DXRenderTarget          mExposureMap;
+    DXRenderTarget          mLastExposure;
 
     // tonemapped and gamma corrected render ready for post
-    LLRenderTarget          mPostPingMap;
-    LLRenderTarget          mPostPongMap;
+    DXRenderTarget          mPostPingMap;
+    DXRenderTarget          mPostPongMap;
 
     // Holds applyFSR1Easu()'s output at full (window/world-view) resolution,
     // so applyFSR1RcasToBoundTarget() can run as a second pass on it before
@@ -513,7 +513,7 @@ public:
     // lazily allocated/resized in presentFinal() itself, directly off the
     // real destination size, since it only exists when upscaling is active
     // (RenderScalePercent < 100).
-    LLRenderTarget          mFSR1EasuBuffer;
+    DXRenderTarget          mFSR1EasuBuffer;
 
     // Anaglyph 3D: each eye's fully composited post-fx result is captured here (via
     // DXPipeline::presentFinal()'s optional destination parameter) instead of relying on left/right
@@ -521,26 +521,26 @@ public:
     // reads both and writes the real back buffer once. Allocated unconditionally alongside
     // mPostPingMap/mPostPongMap, not gated on StereoMode, so toggling stereo at runtime never depends
     // on catching a settings-change path that would trigger reallocation.
-    LLRenderTarget          mStereoEyeL;
-    LLRenderTarget          mStereoEyeR;
+    DXRenderTarget          mStereoEyeL;
+    DXRenderTarget          mStereoEyeR;
 
     // Last frame's fully-resolved AO/shadow lightmap, reprojected and blended with this frame's raw
     // value in DXPipeline::renderDeferredLighting() to remove per-frame screen-locked-noise flicker.
     // Same history-buffer pattern as mLastExposure below (see generateExposure()).
-    LLRenderTarget          mSSAOHistory;
+    DXRenderTarget          mSSAOHistory;
 
     // FXAA helper target
-    LLRenderTarget          mFXAAMap;
-    LLRenderTarget          mSMAABlendBuffer;
+    DXRenderTarget          mFXAAMap;
+    DXRenderTarget          mSMAABlendBuffer;
 
     // render ui to buffer target
-    LLRenderTarget          mUIScreen;
+    DXRenderTarget          mUIScreen;
 
     // downres scratch space for GPU downscaling of textures
-    LLRenderTarget          mDownResMap;
+    DXRenderTarget          mDownResMap;
 
     // 2k bom scratch target
-    LLRenderTarget          mBakeMap;
+    DXRenderTarget          mBakeMap;
 
     LLCullResult            mSky;
     LLCullResult            mReflectedObjects;
@@ -579,7 +579,7 @@ public:
     // mSunShadowMatrix[6] (already fully committed to 4 sun cascades + 2
     // spot slots). Same tournament/fade/target shape as the spotlight
     // arrays above, sized 1 for v1 - see DXPipeline::generatePointShadow().
-    LLRenderTarget          mPointShadow[1][6];
+    DXRenderTarget          mPointShadow[1][6];
     glm::mat4               mPointShadowMatrix[1][6];
     LLPointer<LLDrawable>   mShadowPointLight[1];
     F32                     mPointLightFade[1];
@@ -590,10 +590,10 @@ public:
 	LLVector2				mScreenScale;
 
 	//water distortion texture (refraction)
-	LLRenderTarget				mWaterDis;
+	DXRenderTarget				mWaterDis;
 
 	//texture for making the glow
-	LLRenderTarget				mGlow[3];
+	DXRenderTarget				mGlow[3];
 
 	//noise map
 	U32					mNoiseMap;

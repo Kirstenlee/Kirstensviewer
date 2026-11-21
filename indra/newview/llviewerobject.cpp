@@ -4186,27 +4186,6 @@ void LLViewerObject::boostTexturePriority(bool boost_children /* = true */)
     }
 }
 
-void LLViewerObject::setLineWidthForWindowSize(S32 window_width)
-{
-    if (window_width < 700)
-    {
-        LLUI::setLineWidth(2.0f);
-    }
-    else if (window_width < 1100)
-    {
-        LLUI::setLineWidth(3.0f);
-    }
-    else if (window_width < 2000)
-    {
-        LLUI::setLineWidth(4.0f);
-    }
-    else
-    {
-        // _damn_, what a nice monitor!
-        LLUI::setLineWidth(5.0f);
-    }
-}
-
 void LLViewerObject::increaseArrowLength()
 {
 /* ???
@@ -5476,21 +5455,21 @@ S32 LLViewerObject::setTETexture(const U8 te, const LLUUID& uuid)
 {
     // Invalid host == get from the agent's sim
     LLViewerFetchedTexture *image = LLViewerTextureManager::getFetchedTexture(
-        uuid, FTT_DEFAULT, true, DXTextureBase::BOOST_NONE, LLViewerTexture::LOD_TEXTURE, 0, 0, LLHost());
+        uuid, FTT_DEFAULT, true, DXTextureBase::BOOST_NONE, LLViewerTexture::LOD_TEXTURE, DXPixelFormat::Auto, LLHost());
         return setTETextureCore(te, image);
 }
 
 S32 LLViewerObject::setTENormalMap(const U8 te, const LLUUID& uuid)
 {
     LLViewerFetchedTexture *image = (uuid == LLUUID::null) ? NULL : LLViewerTextureManager::getFetchedTexture(
-        uuid, FTT_DEFAULT, true, DXTextureBase::BOOST_NONE, LLViewerTexture::LOD_TEXTURE, 0, 0, LLHost());
+        uuid, FTT_DEFAULT, true, DXTextureBase::BOOST_NONE, LLViewerTexture::LOD_TEXTURE, DXPixelFormat::Auto, LLHost());
     return setTENormalMapCore(te, image);
 }
 
 S32 LLViewerObject::setTESpecularMap(const U8 te, const LLUUID& uuid)
 {
     LLViewerFetchedTexture *image = (uuid == LLUUID::null) ? NULL : LLViewerTextureManager::getFetchedTexture(
-        uuid, FTT_DEFAULT, true, DXTextureBase::BOOST_NONE, LLViewerTexture::LOD_TEXTURE, 0, 0, LLHost());
+        uuid, FTT_DEFAULT, true, DXTextureBase::BOOST_NONE, LLViewerTexture::LOD_TEXTURE, DXPixelFormat::Auto, LLHost());
     return setTESpecularMapCore(te, image);
 }
 
@@ -5887,17 +5866,17 @@ LLViewerTexture *LLViewerObject::getTEImage(const U8 face) const
 bool LLViewerObject::isImageAlphaBlended(const U8 te) const
 {
     LLViewerTexture* image = getTEImage(te);
-    LLGLenum format = image ? image->getPrimaryFormat() : GL_RGB;
+    DXPixelFormat format = image ? image->getSourceFormat() : DXPixelFormat::RGB8;
     switch (format)
     {
-        case GL_RGBA:
-        case GL_ALPHA:
+        case DXPixelFormat::RGBA8:
+        case DXPixelFormat::Alpha8:
         {
             return true;
         }
         break;
 
-        case GL_RGB: break;
+        case DXPixelFormat::RGB8: break;
         default:
         {
             LL_WARNS() << "Unexpected tex format in LLViewerObject::isImageAlphaBlended...returning no alpha." << LL_ENDL;

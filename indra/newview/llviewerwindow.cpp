@@ -236,7 +236,7 @@ extern bool gCubeSnapshot;
 extern bool gSnapshotNoPost;
 // The true final composited snapshot-capture source; see llviewerdisplay.cpp's comment next to
 // gSnapshotNoPost.
-extern LLRenderTarget* gLastCompositedPostTarget;
+extern DXRenderTarget* gLastCompositedPostTarget;
 
 LLViewerWindow* gViewerWindow = NULL;
 
@@ -2885,11 +2885,6 @@ void LLViewerWindow::draw()
 	LLView::sIsDrawing = true;
 	//#endif
 
-	// See lluiimage.cpp's sEnableDisplayListsCollection comment - LLUIImage's display-list cache
-	// defaults off.
-	LLUI::setLineWidth(1.f);
-
-	LLUI::setLineWidth(1.f);
 	// Reset any left-over transforms
 	gDX.matrixMode(LLRender::MM_MODELVIEW);
 
@@ -5395,7 +5390,7 @@ bool LLViewerWindow::rawSnapshot(LLImageRaw* raw, S32 image_width, S32 image_hei
 	bool need_gpu_upscale = false;
 	S32 render_width = image_width;
 	S32 render_height = image_height;
-	LLRenderTarget upscale_target;
+	DXRenderTarget upscale_target;
 
 	// The TDR risk isn't render size, it's allocateScreenBuffer() tearing down/rebuilding the entire
 	// deferred pipeline to a size different from what's already running - regardless of bigger or
@@ -5437,12 +5432,12 @@ bool LLViewerWindow::rawSnapshot(LLImageRaw* raw, S32 image_width, S32 image_hei
 		bool ok = false;
 		if (gLastCompositedPostTarget)
 		{
-			LLRenderTarget native_upscale_target;
-			if (native_upscale_target.allocate(image_width, image_height, GL_RGBA, false))
+			DXRenderTarget native_upscale_target;
+			if (native_upscale_target.allocate(image_width, image_height, DXGI_FORMAT_R8G8B8A8_UNORM, false))
 			{
 				if (LLGPUResize::resize(gLastCompositedPostTarget, &native_upscale_target))
 				{
-					if (ID3D11Texture2D* src_tex = native_upscale_target.getDXColorTexture(0))
+					if (ID3D11Texture2D* src_tex = native_upscale_target.getColorTexture(0))
 					{
 						LLImageDataLock lock(raw);
 						raw->resize(image_width, image_height, 3);
@@ -5653,7 +5648,7 @@ bool LLViewerWindow::rawSnapshot(LLImageRaw* raw, S32 image_width, S32 image_hei
 				// gLastCompositedPostTarget as usual.
 				if (need_gpu_upscale && gLastCompositedPostTarget)
 				{
-					if (upscale_target.allocate(image_width, image_height, GL_RGBA, false))
+					if (upscale_target.allocate(image_width, image_height, DXGI_FORMAT_R8G8B8A8_UNORM, false))
 					{
 						if (!LLGPUResize::resize(gLastCompositedPostTarget, &upscale_target))
 						{
@@ -5669,7 +5664,7 @@ bool LLViewerWindow::rawSnapshot(LLImageRaw* raw, S32 image_width, S32 image_hei
 
 				// Read from gLastCompositedPostTarget (set by DXPipeline::presentDeferredScreen())
 				// rather than the window-locked swap chain, which is never resized for snapshots.
-				// getDXColorTexture() returns a cached, non-AddRef'd pointer; getBackBufferTexture()
+				// getColorTexture() returns a cached, non-AddRef'd pointer; getBackBufferTexture()
 				// DOES AddRef (COM convention) - only the swap-chain fallback branch needs releasing
 				// after the loop below.
 				ID3D11Texture2D* dx_color_source = nullptr;
@@ -5684,12 +5679,12 @@ bool LLViewerWindow::rawSnapshot(LLImageRaw* raw, S32 image_width, S32 image_hei
 				// root cause of the "Display UI in Snapshot" hard lock.
 				if (upscale_target.isComplete())
 				{
-					dx_color_source = upscale_target.getDXColorTexture(0);
+					dx_color_source = upscale_target.getColorTexture(0);
 					dx_source_height = (int)upscale_target.getHeight();
 				}
 				else if (!show_ui && gLastCompositedPostTarget)
 				{
-					dx_color_source = gLastCompositedPostTarget->getDXColorTexture(0);
+					dx_color_source = gLastCompositedPostTarget->getColorTexture(0);
 					dx_source_height = (int)gLastCompositedPostTarget->getHeight();
 				}
 				else
@@ -5754,9 +5749,9 @@ bool LLViewerWindow::rawSnapshot(LLImageRaw* raw, S32 image_width, S32 image_hei
 							// Depth lives on pipeline.mRT->deferredScreen (mPostPingMap/mPostPongMap,
 							// read for color above, are color-only), resized to snapshot resolution by
 							// the same allocateScreenBuffer() call as the color targets.
-							// getDXDepthTexture() is a cached, non-AddRef'd pointer - no Release()
+							// getDepthTexture() is a cached, non-AddRef'd pointer - no Release()
 							// needed.
-							if (ID3D11Texture2D* depth_tex = gPipeline.mRT->deferredScreen.getDXDepthTexture())
+							if (ID3D11Texture2D* depth_tex = gPipeline.mRT->deferredScreen.getDepthTexture())
 							{
 								S32 dx_y = (S32)gPipeline.mRT->deferredScreen.getHeight() - 1 - (S32)(out_y + subimage_y_offset);
 								DXReadback::readDepthPixels(depth_tex, subimage_x_offset, dx_y, read_width, 1, (float*)depth_line_buffer->getData());
@@ -5877,8 +5872,8 @@ bool LLViewerWindow::simpleSnapshot(LLImageRaw* raw, S32 image_width, S32 image_
 	S32 original_width = DXPipeline::sRenderDeferred ? gPipeline.mRT->deferredScreen.getWidth() : gViewerWindow->getWorldViewWidthRaw();
 	S32 original_height = DXPipeline::sRenderDeferred ? gPipeline.mRT->deferredScreen.getHeight() : gViewerWindow->getWorldViewHeightRaw();
 
-	LLRenderTarget scratch_space;
-	U32 color_fmt = GL_RGBA;
+	DXRenderTarget scratch_space;
+	DXGI_FORMAT color_fmt = DXGI_FORMAT_R8G8B8A8_UNORM;
 	if (scratch_space.allocate(image_width, image_height, color_fmt, true))
 	{
 		if (DXPipeline::allocateScreenBuffer(gPipeline, image_width, image_height))

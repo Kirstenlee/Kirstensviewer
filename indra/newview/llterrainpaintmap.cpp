@@ -29,7 +29,7 @@
 
  // Other includes
 #include "llhlslshader.h"
-#include "llrendertarget.h"
+#include "DXRenderTarget.h"
 #include "llvertexbuffer.h"
 
 // newview includes
@@ -47,7 +47,7 @@ bool LLTerrainPaintMap::bakeHeightNoiseIntoPBRPaintMapRGB(const LLViewerRegion& 
     llassert(tex.getComponents() == 3);
     llassert(tex.getWidth() > 0 && tex.getHeight() > 0);
     llassert(tex.getWidth() == tex.getHeight());
-    llassert(tex.getPrimaryFormat() == GL_RGB);
+    llassert(tex.getSourceFormat() == DXPixelFormat::RGB8);
     llassert(tex.getGLTexture());
 
     const LLSurface& surface = region.getLand();
@@ -74,10 +74,9 @@ bool LLTerrainPaintMap::bakeHeightNoiseIntoPBRPaintMapRGB(const LLViewerRegion& 
 
     // Bind the debug shader and render terrain to tex
     // Use a scratch render target because its dimensions may exceed the standard bake target, and this is a one-off bake
-    LLRenderTarget scratch_target;
+    DXRenderTarget scratch_target;
     const S32 dim = llmin(tex.getWidth(), tex.getHeight());
-    scratch_target.allocate(dim, dim, GL_RGB, false, LLTexUnit::eTextureType::TT_TEXTURE,
-                                   LLTexUnit::eTextureMipGeneration::TMG_NONE);
+    scratch_target.allocate(dim, dim, DXGI_FORMAT_R8G8B8A8_UNORM);
     if (!scratch_target.isComplete())
     {
         llassert(false);

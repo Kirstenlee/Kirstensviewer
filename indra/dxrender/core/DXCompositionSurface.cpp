@@ -66,7 +66,7 @@ bool DXCompositionSurface::createSurface(UINT width, UINT height)
 
     // DXGI_FORMAT_B8G8R8A8_UNORM - CreateSurface only accepts a small fixed
     // set of formats and rejects DXGI_FORMAT_R8G8B8A8_UNORM outright
-    // (E_INVALIDARG, confirmed live) - the source LLRenderTarget is
+    // (E_INVALIDARG, confirmed live) - the source DXRenderTarget is
     // allocated with GL_BGRA (llfloaterpopout.cpp) to match, so this is a
     // same-format copy, not a conversion.
     //

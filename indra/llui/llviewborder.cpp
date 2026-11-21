@@ -148,8 +148,6 @@ void LLViewBorder::drawOnePixelLines()
 	{
 		top_color = gFocusMgr.getFocusColor();
 		bottom_color = top_color;
-
-		LLUI::setLineWidth(lerp(1.f, 3.f, gFocusMgr.getFocusFlashAmt()));
 	}
 
 	S32 left	= 0;
@@ -164,8 +162,6 @@ void LLViewBorder::drawOnePixelLines()
 	gDX.color4fv( bottom_color.mV );
 	dx_line_2d(right, top, right, bottom);
 	dx_line_2d(left, bottom, right, bottom);
-
-	LLUI::setLineWidth(1.f);
 }
 
 void LLViewBorder::drawTwoPixelLines()

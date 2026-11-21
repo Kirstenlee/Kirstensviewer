@@ -82,13 +82,10 @@ static const LLColor4 PREVIEW_CANVAS_COL(0.169f, 0.169f, 0.169f, 1.f);
 static const LLColor4 PREVIEW_EDGE_COL(0.4f, 0.4f, 0.4f, 1.0);
 static const LLColor4 PREVIEW_BASE_COL(1.f, 1.f, 1.f, 1.f);
 static const LLColor3 PREVIEW_BRIGHTNESS(0.9f, 0.9f, 0.9f);
-static const F32 PREVIEW_EDGE_WIDTH(1.f);
 static const LLColor4 PREVIEW_PSYH_EDGE_COL(0.f, 0.25f, 0.5f, 0.25f);
 static const LLColor4 PREVIEW_PSYH_FILL_COL(0.f, 0.5f, 1.0f, 0.5f);
-static const F32 PREVIEW_PSYH_EDGE_WIDTH(1.f);
 static const LLColor4 PREVIEW_DEG_EDGE_COL(1.f, 0.f, 0.f, 1.f);
 static const LLColor4 PREVIEW_DEG_FILL_COL(1.f, 0.f, 0.f, 0.5f);
-static const F32 PREVIEW_DEG_EDGE_WIDTH(3.f);
 static const F32 PREVIEW_DEG_POINT_SIZE(8.f);
 static const F32 PREVIEW_ZOOM_LIMIT(10.f);
 static const std::string DEFAULT_PHYSICS_MESH_NAME = "default_physics_shape";
@@ -3546,13 +3543,9 @@ bool LLModelPreview::render()
                     gDX.diffuseColor4fv(PREVIEW_EDGE_COL.mV);
                     if (show_edges)
                     {
-                        // S24: glLineWidth() has no DX11 equivalent; LLUI::setLineWidth() is the no-op
-                        // stand-in under DX_RENDER. glPolygonMode(GL_LINE/GL_FILL) is removed outright:
-                        // no D3D11 per-draw wireframe equivalent exists (see
-                        // DXStateCache::getRasterizerState()'s wireframe_enabled comment).
-                        LLUI::setLineWidth(PREVIEW_EDGE_WIDTH);
+                        // glPolygonMode(GL_LINE/GL_FILL) is removed outright: no D3D11 per-draw wireframe
+                        // equivalent exists (see DXStateCache::getRasterizerState()'s wireframe_enabled comment).
                         buffer->drawRange(LLRender::TRIANGLES, 0, buffer->getNumVerts() - 1, buffer->getNumIndices(), 0);
-                        LLUI::setLineWidth(1.f);
                     }
                     buffer->unmapBuffer();
                 }
@@ -3561,7 +3554,10 @@ bool LLModelPreview::render()
 
             if (show_physics)
             {
-                glClear(GL_DEPTH_BUFFER_BIT);
+                if (mBoundTarget)
+                {
+                    mBoundTarget->clear(false, true);
+                }
 
                 for (U32 pass = 0; pass < 2; pass++)
                 {
@@ -3672,12 +3668,8 @@ bool LLModelPreview::render()
                                     buffer->drawRange(LLRender::TRIANGLES, 0, buffer->getNumVerts() - 1, buffer->getNumIndices(), 0);
 
                                     gDX.diffuseColor4fv(PREVIEW_PSYH_EDGE_COL.mV);
-                                    // S24: see the show_edges block above for the glLineWidth()/
-                                    // glPolygonMode() rationale.
-                                    LLUI::setLineWidth(PREVIEW_PSYH_EDGE_WIDTH);
+                                    // see the show_edges block above for the glPolygonMode() rationale
                                     buffer->drawRange(LLRender::TRIANGLES, 0, buffer->getNumVerts() - 1, buffer->getNumIndices(), 0);
-
-                                    LLUI::setLineWidth(1.f);
 
                                     buffer->unmapBuffer();
                                 }
@@ -3689,9 +3681,7 @@ bool LLModelPreview::render()
                     // only do this if mDegenerate was set in the preceding mesh checks [Check this if the ordering ever breaks]
                     if (mHasDegenerate)
                     {
-                        // S24: glLineWidth() has no DX11 equivalent; LLUI::setLineWidth() is the
-                        // no-op stand-in. D3D11 also has no per-draw point size equivalent.
-                        LLUI::setLineWidth(PREVIEW_DEG_EDGE_WIDTH);
+                        // D3D11 has no per-draw point size equivalent either.
                         DXPipeline::enableLightsFullbright(gPipeline);
                         //show degenerate triangles
                         DXDepthTest depth(true, true, DX_ALWAYS);
@@ -3771,7 +3761,6 @@ bool LLModelPreview::render()
 
                             gDX.popMatrix();
                         }
-                        LLUI::setLineWidth(1.f);
                         DXPipeline::enableLightsPreview(gPipeline);
                         gDX.setSceneBlendType(LLRender::BT_ALPHA);
                     }
@@ -3887,13 +3876,10 @@ bool LLModelPreview::render()
 
                             if (show_edges)
                             {
-                                // S24: see the show_edges block above for the glLineWidth()/
-                                // glPolygonMode() rationale.
+                                // see the show_edges block above for the glPolygonMode() rationale
                                 gDX.getTexUnit(0)->unbind(LLTexUnit::TT_TEXTURE);
                                 gDX.diffuseColor4fv(PREVIEW_EDGE_COL.mV);
-                                LLUI::setLineWidth(PREVIEW_EDGE_WIDTH);
                                 buffer->draw(LLRender::TRIANGLES, buffer->getNumIndices(), 0);
-                                LLUI::setLineWidth(1.f);
                             }
                         }
                     }

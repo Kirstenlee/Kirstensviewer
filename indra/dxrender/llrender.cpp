@@ -31,7 +31,7 @@
 #include "llvertexbuffer.h"
 #include "llhlslshader.h"
 #include "llimagedx.h"
-#include "llrendertarget.h"
+#include "DXRenderTarget.h"
 #include "lldxtexture.h"
 #include "llshadermgr.h"
 #include "hbxxh.h"
@@ -220,7 +220,7 @@ static void logDanglingSRV(U32 slot)
 // EXCEPTION_ACCESS_VIOLATION specifically - anything else (stack
 // overflow, etc.) still propagates normally. This is a last-resort net
 // for a known failure shape, not a fix for the dangling-resource bug
-// itself. Declared in llrender.h - shared with llrendertarget.cpp, not
+// itself. Declared in llrender.h - shared with DXRenderTarget.cpp, not
 // duplicated.
 bool safeBindSRV(ID3D11DeviceContext* context, U32 slot, ID3D11ShaderResourceView* srv)
 {
@@ -294,7 +294,7 @@ void LLTexUnit::bindFast(DXTextureBase* texture)
 	// scaleDown() never destroys) catches this deterministically regardless
 	// of address reuse.
 	//
-	// srv_changed and sampler_changed are independent: bind(LLRenderTarget*,
+	// srv_changed and sampler_changed are independent: bind(DXRenderTarget*,
 	// ...)'s useComparisonSampler can legitimately want a different sampler
 	// for the same SRV (comparison vs regular), so a shared skip condition
 	// would wrongly suppress that sampler rebind.
@@ -554,8 +554,8 @@ bool LLTexUnit::bindCubeArraySRV(void* srv_ptr)
 	return true;
 }
 
-// LLRenderTarget is unavailible on the mapserver since it uses FBOs.
-bool LLTexUnit::bind(LLRenderTarget* renderTarget, bool bindDepth, bool useComparisonSampler, bool bindStencil)
+// DXRenderTarget is unavailible on the mapserver since it uses FBOs.
+bool LLTexUnit::bind(DXRenderTarget* renderTarget, bool bindDepth, bool useComparisonSampler, bool bindStencil)
 {
 	if (mIndex < 0 || !renderTarget) return false;
 
@@ -577,7 +577,7 @@ bool LLTexUnit::bind(LLRenderTarget* renderTarget, bool bindDepth, bool useCompa
 	// S24: sampler skip is independent of the SRV skip below - useComparisonSampler
 	// means the same SRV can legitimately need a different sampler (comparison
 	// vs regular) on two different calls, and a shared skip condition would
-	// wrongly suppress that sampler rebind. LLRenderTarget::bindTexture()
+	// wrongly suppress that sampler rebind. DXRenderTarget::bindTexture()
 	// raw-binds the G-buffer channels outside this cache too - see
 	// LLTexUnit::syncDXBindState() for how that stays in sync with it.
 	bool srv_changed = mCurrDXSRV != (void*)srv;
@@ -629,7 +629,7 @@ bool LLTexUnit::bindManual(eTextureType type, U32 texture, bool hasMips)
 	// resource up from - there's nothing to translate. Callers that derive
 	// their channel from getTextureChannel()/enableTexture() already return
 	// above via the mIndex<0 check; this only guards the hardcoded-unit
-	// callers (LLImageDX, LLRenderTarget, LLTexLayer, post-process, edit-tool
+	// callers (LLImageDX, DXRenderTarget, LLTexLayer, post-process, edit-tool
 	// grid texture, startup noise/SMAA LUTs, etc.) that would otherwise reach
 	// the raw glBindTexture() below. GL branch removed - task #300 (full GL
 	// removal), never compiled in this DX_RENDER-only build.
@@ -1779,7 +1779,7 @@ void LLRender::applyDXRasterizerState()
 	gDXDevice.getContext()->RSSetState(rs);
 }
 
-void LLRender::cullFace(LLGLenum face)
+void LLRender::cullFace(DXenum face)
 {
 	DXState::setCullFace(face);
 	applyDXRasterizerState();

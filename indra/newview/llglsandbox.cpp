@@ -319,8 +319,7 @@ void LLViewerParcelMgr::renderRect(const LLVector3d &west_south_bottom_global,
     F32 ne_top = ne_bottom + PARCEL_POST_HEIGHT;
     F32 nw_top = nw_bottom + PARCEL_POST_HEIGHT;
 
-    // LLUI::setLineWidth() is a no-op under DX_RENDER (D3D11 has no per-draw
-    // line-width control) - these posts use dxLineWidth() instead.
+    // D3D11 has no per-draw line-width control - these posts use dxLineWidth().
     LLColor4 post_color(1.f, 1.f, 0.f, 1.f);
     gDX.color4fv(post_color.mV);
 
@@ -943,7 +942,7 @@ private:
 };
 
 
-F32 shader_timer_benchmark(std::vector<LLRenderTarget> & dest, TextureHolder & texHolder, U32 textures_count, LLVertexBuffer * buff, F32 &seconds)
+F32 shader_timer_benchmark(std::vector<DXRenderTarget> & dest, TextureHolder & texHolder, U32 textures_count, LLVertexBuffer * buff, F32 &seconds)
 {
     // run GPU timer benchmark
 
@@ -1025,7 +1024,7 @@ F32 gpu_benchmark()
     //time limit, allocation operations shouldn't take longer then 30 seconds, same for actual benchmark.
     const F32 time_limit = 30;
 
-    std::vector<LLRenderTarget> dest(count);
+    std::vector<DXRenderTarget> dest(count);
     TextureHolder texHolder(0, count);
     std::vector<F32> results;
 
@@ -1045,7 +1044,7 @@ F32 gpu_benchmark()
     for (U32 i = 0; i < count; ++i)
     {
         //allocate render targets and textures
-        if (!dest[i].allocate(res, res, GL_RGBA))
+        if (!dest[i].allocate(res, res, DXGI_FORMAT_R8G8B8A8_UNORM))
         {
             LL_WARNS("Benchmark") << "Failed to allocate render target." << LL_ENDL;
             // abandon the benchmark test

@@ -135,7 +135,7 @@ void LLTexLayerSetBuffer::postRenderTexLayerSet(bool success)
     popProjection();
 }
 
-bool LLTexLayerSetBuffer::renderTexLayerSet(LLRenderTarget* bound_target)
+bool LLTexLayerSetBuffer::renderTexLayerSet(DXRenderTarget* bound_target)
 {
     // Default color mask for tex layer render
     gDX.setColorWriteMask(true, true);
@@ -353,7 +353,7 @@ void LLTexLayerSet::deleteCaches()
 }
 
 
-bool LLTexLayerSet::render( S32 x, S32 y, S32 width, S32 height, LLRenderTarget* bound_target )
+bool LLTexLayerSet::render( S32 x, S32 y, S32 width, S32 height, DXRenderTarget* bound_target )
 {
     bool success = true;
     mIsVisible = true;
@@ -455,7 +455,7 @@ const LLTexLayerSetBuffer* LLTexLayerSet::getComposite() const
     return mComposite;
 }
 
-void LLTexLayerSet::gatherMorphMaskAlpha(U8 *data, S32 origin_x, S32 origin_y, S32 width, S32 height, LLRenderTarget* bound_target)
+void LLTexLayerSet::gatherMorphMaskAlpha(U8 *data, S32 origin_x, S32 origin_y, S32 width, S32 height, DXRenderTarget* bound_target)
 {
     memset(data, 255, width * height);
 
@@ -468,7 +468,7 @@ void LLTexLayerSet::gatherMorphMaskAlpha(U8 *data, S32 origin_x, S32 origin_y, S
     renderAlphaMaskTextures(origin_x, origin_y, width, height, bound_target, true);
 }
 
-void LLTexLayerSet::renderAlphaMaskTextures(S32 x, S32 y, S32 width, S32 height, LLRenderTarget* bound_target, bool forceClear)
+void LLTexLayerSet::renderAlphaMaskTextures(S32 x, S32 y, S32 width, S32 height, DXRenderTarget* bound_target, bool forceClear)
 {
     const LLTexLayerSetInfo *info = getInfo();
 
@@ -1016,7 +1016,7 @@ void LLTexLayer::calculateTexLayerColor(const param_color_list_t &param_list, LL
     }
 }
 
-bool LLTexLayer::render(S32 x, S32 y, S32 width, S32 height, LLRenderTarget* bound_target)
+bool LLTexLayer::render(S32 x, S32 y, S32 width, S32 height, DXRenderTarget* bound_target)
 {
     // *TODO: Is this correct?
     //gPipeline.disableLights();
@@ -1256,12 +1256,12 @@ bool LLTexLayer::blendAlphaTexture(S32 x, S32 y, S32 width, S32 height)
     return success;
 }
 
-/*virtual*/ void LLTexLayer::gatherAlphaMasks(U8 *data, S32 originX, S32 originY, S32 width, S32 height, LLRenderTarget* bound_target)
+/*virtual*/ void LLTexLayer::gatherAlphaMasks(U8 *data, S32 originX, S32 originY, S32 width, S32 height, DXRenderTarget* bound_target)
 {
     addAlphaMask(data, originX, originY, width, height, bound_target);
 }
 
-void LLTexLayer::renderMorphMasks(S32 x, S32 y, S32 width, S32 height, const LLColor4 &layer_color, LLRenderTarget* bound_target, bool force_render)
+void LLTexLayer::renderMorphMasks(S32 x, S32 y, S32 width, S32 height, const LLColor4 &layer_color, DXRenderTarget* bound_target, bool force_render)
 {
     if (!force_render && !hasMorph())
     {
@@ -1495,7 +1495,7 @@ void LLTexLayer::renderMorphMasks(S32 x, S32 y, S32 width, S32 height, const LLC
     }
 }
 
-void LLTexLayer::addAlphaMask(U8 *data, S32 originX, S32 originY, S32 width, S32 height, LLRenderTarget* bound_target)
+void LLTexLayer::addAlphaMask(U8 *data, S32 originX, S32 originY, S32 width, S32 height, DXRenderTarget* bound_target)
 {
     S32 size = width * height;
     const U8* alphaData = getAlphaData();
@@ -1640,7 +1640,7 @@ LLTexLayer* LLTexLayerTemplate::getLayer(U32 i) const
     return layer;
 }
 
-/*virtual*/ bool LLTexLayerTemplate::render(S32 x, S32 y, S32 width, S32 height, LLRenderTarget* bound_target)
+/*virtual*/ bool LLTexLayerTemplate::render(S32 x, S32 y, S32 width, S32 height, DXRenderTarget* bound_target)
 {
     if(!mInfo)
     {
@@ -1687,7 +1687,7 @@ LLTexLayer* LLTexLayerTemplate::getLayer(U32 i) const
     return success;
 }
 
-/*virtual*/ void LLTexLayerTemplate::gatherAlphaMasks(U8 *data, S32 originX, S32 originY, S32 width, S32 height, LLRenderTarget* bound_target)
+/*virtual*/ void LLTexLayerTemplate::gatherAlphaMasks(U8 *data, S32 originX, S32 originY, S32 width, S32 height, DXRenderTarget* bound_target)
 {
     U32 num_wearables = updateWearableCache();
     U32 i = num_wearables - 1; // For rendering morph masks, we only want to use the top wearable

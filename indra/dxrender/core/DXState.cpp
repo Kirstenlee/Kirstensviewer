@@ -46,8 +46,8 @@
 #include "DXUIBatch.h"
 
 // Static members
-std::unordered_map<LLGLenum, bool> DXState::sStateMap;
-LLGLenum DXState::sCullFace = GL_BACK; // OpenGL default
+std::unordered_map<DXenum, bool> DXState::sStateMap;
+DXenum DXState::sCullFace = GL_BACK; // OpenGL default
 
 bool DXDepthTest::sDepthEnabled = false;
 DXenum DXDepthTest::sDepthFunc = DX_LESS; // OpenGL default
@@ -88,14 +88,14 @@ void DXState::restoreDX()
 namespace
 {
     // DX_BLEND/DX_CULL_FACE/DX_SCISSOR_TEST/DX_DEPTH_CLAMP - the four
-    // capability constants adopted so far (llgltypes.h) - guarded against
+    // capability constants adopted so far (DXTypes.h) - guarded against
     // drift/typos against the real OpenGL/extension constants they were
     // adopted from, in this one file where both are visible via the real
     // <GL/gl.h> include further up the chain. See the static_assert further
     // below for the matching depth-func guard.
     static_assert(DX_BLEND == GL_BLEND && DX_CULL_FACE == GL_CULL_FACE &&
                   DX_SCISSOR_TEST == GL_SCISSOR_TEST && DX_DEPTH_CLAMP == GL_DEPTH_CLAMP,
-                  "DX_* capability constants (llgltypes.h) must match the real GL_* values");
+                  "DX_* capability constants (DXTypes.h) must match the real GL_* values");
 
     // Scoped to DX_BLEND/DX_CULL_FACE/DX_SCISSOR_TEST/DX_DEPTH_CLAMP - see
     // DXStateCache.h for why (the only four states DXStateEnable/DXStateDisable
@@ -134,7 +134,7 @@ namespace
     // both enumerations but the underlying values aren't contiguous/matching,
     // so this is a real lookup, not an arithmetic remap. Values guarded
     // against drift/typos against the real OpenGL 1.0 spec constants they
-    // were adopted from (llgltypes.h) - this is the one file where both are
+    // were adopted from (DXTypes.h) - this is the one file where both are
     // visible together via the real <GL/gl.h> include further up the chain.
     //
     // S24: LESS/LEQUAL <-> GREATER/GEQUAL are swapped from the "obvious"
@@ -145,7 +145,7 @@ namespace
     static_assert(DX_NEVER == GL_NEVER && DX_LESS == GL_LESS && DX_EQUAL == GL_EQUAL &&
                   DX_LEQUAL == GL_LEQUAL && DX_GREATER == GL_GREATER && DX_NOTEQUAL == GL_NOTEQUAL &&
                   DX_GEQUAL == GL_GEQUAL && DX_ALWAYS == GL_ALWAYS,
-                  "DX_* depth-func constants (llgltypes.h) must match the real GL_* values");
+                  "DX_* depth-func constants (DXTypes.h) must match the real GL_* values");
     D3D11_COMPARISON_FUNC glDepthFuncToDX(DXenum depth_func)
     {
         switch (depth_func)
@@ -186,7 +186,7 @@ namespace
     }
 }
 
-DXState::DXState(LLGLenum state, S32 enabled) :
+DXState::DXState(DXenum state, S32 enabled) :
     mState(state), mWasEnabled(false), mIsEnabled(false)
 {
 
@@ -255,13 +255,13 @@ DXState::~DXState()
     }
 }
 
-DXRasterizerScope::DXRasterizerScope(LLGLenum state0, bool enabled0,
-                                      LLGLenum state1, bool enabled1,
-                                      LLGLenum state2, bool enabled2,
-                                      LLGLenum state3, bool enabled3) :
+DXRasterizerScope::DXRasterizerScope(DXenum state0, bool enabled0,
+                                      DXenum state1, bool enabled1,
+                                      DXenum state2, bool enabled2,
+                                      DXenum state3, bool enabled3) :
     mCount(0)
 {
-    LLGLenum states[4] = { state0, state1, state2, state3 };
+    DXenum states[4] = { state0, state1, state2, state3 };
     bool enabled[4] = { enabled0, enabled1, enabled2, enabled3 };
     bool any_change = false;
     for (int i = 0; i < 4; ++i)
@@ -312,7 +312,7 @@ DXRasterizerScope::~DXRasterizerScope()
     }
 }
 
-LLGLCullFace::LLGLCullFace(LLGLenum face) :
+LLGLCullFace::LLGLCullFace(DXenum face) :
     mPrevFace(DXState::getCullFace())
 {
     gDX.cullFace(face);

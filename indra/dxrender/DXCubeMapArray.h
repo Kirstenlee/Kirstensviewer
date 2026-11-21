@@ -15,7 +15,7 @@ class LLVector3;
 // orchestration/business-logic class (per-slice allocation, bind, stage
 // bookkeeping) that composes the real D3D11 resource wrapper
 // (DXCubeArrayTexture) underneath - same shape as DXTextureBase/
-// LLVertexBuffer/LLRenderTarget, all confirmed root-level by the
+// LLVertexBuffer/DXRenderTarget, all confirmed root-level by the
 // dxrender-consolidation design's placement rule (resources/ is for the raw
 // resource type itself, not the facade over it). A prior version of this
 // comment cited a `friend class LLTexUnit` requirement as the reason - that

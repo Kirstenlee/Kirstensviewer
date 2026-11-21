@@ -41,7 +41,7 @@
 #include "lltrans.h"
 #include "llwindow.h"
 #include "llcontrol.h"
-#include "llrender2dutils.h"
+#include "DXRender2DUtils.h"
 
 ///----------------------------------------------------------------------------
 /// Class LLFolderViewItem
